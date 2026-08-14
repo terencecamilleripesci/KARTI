@@ -1,0 +1,56 @@
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KARTI — card list</title><meta name="theme-color" content="#0E0B14">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700;900&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Rubik,system-ui,sans-serif;background:#0E0B14;color:#EDE7F6;padding:calc(16px + env(safe-area-inset-top)) 12px 40px}
+h1{text-align:center;font-weight:900;font-size:clamp(1.5rem,6vw,2.2rem);letter-spacing:.04em;
+  background:linear-gradient(90deg,#E8452C,#FFB300,#9C27B0);-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{text-align:center;color:#9d93b8;font-size:.85rem;margin:4px 0 14px}
+.tri{max-width:560px;margin:0 auto 16px;background:#171226;border:1px solid #2c2440;border-radius:14px;padding:12px;text-align:center;font-size:.85rem;line-height:1.9}
+.filters{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;margin-bottom:14px}
+.filters button{background:#171226;border:1px solid #2c2440;color:#c9bfe4;border-radius:999px;padding:8px 14px;font:700 .78rem Rubik;cursor:pointer}
+.filters button.on{background:#3b2a5c;border-color:#7c4dff;color:#fff}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;max-width:1100px;margin:0 auto}
+.c{background:linear-gradient(160deg,#1d1730,#141021);border:2px solid var(--ac);border-radius:12px;padding:9px;position:relative;overflow:hidden}
+.c.leg{box-shadow:0 0 18px -4px #FFB300}
+.c .top{display:flex;justify-content:space-between;font-size:.6rem;color:#9d93b8;font-weight:700}
+.c .art{font-size:2.6rem;text-align:center;margin:6px 0 4px;filter:drop-shadow(0 3px 6px rgba(0,0,0,.6))}
+.c .nm{font-weight:900;font-size:.82rem;line-height:1.15;min-height:2.3em}
+.c .tx{font-size:.66rem;color:#b8aed6;line-height:1.35;margin-top:5px;min-height:3.6em}
+.c .st{display:flex;justify-content:space-between;margin-top:7px;font-weight:900;font-size:.72rem;border-top:1px solid #2c2440;padding-top:5px}
+.atk{color:#ff7043}.def{color:#4fc3f7}
+.gem{position:absolute;top:6px;right:6px;width:9px;height:9px;border-radius:50%;background:var(--rc)}
+.sp{--ac:#2e7d32}.tr{--ac:#ad1457}
+</style></head><body>
+<h1>KARTI 🇲🇹</h1>
+<div class="sub">18+ Maltese duel game · <b id="n">…</b> cards · the game is being built — this is the card list</div>
+<div class="tri">🎆 <b>FESTA</b> burns down 🏰 <b>CITY</b><br>🏰 <b>CITY</b> grinds down 🐇 <b>FARM</b><br>🐇 <b>FARM</b> shoots down 🎆 <b>FESTA</b><br><span style="color:#9d93b8;font-size:.8em">+500 ATK against the one you counter</span></div>
+<div class="filters" id="f"></div>
+<div class="grid" id="g"></div>
+<script src="js/cards.js"></script>
+<script>
+const G=document.getElementById('g'), F=document.getElementById('f');
+let filt='all';
+document.getElementById('n').textContent=CARDS.length;
+const groups=[['all','ALL'],['festa','🎆 FESTA'],['razzett','🐇 FARM'],['belt','🏰 CITY'],['bahar','🌊 SEA'],['hazen','😈 TROUBLE'],['spell','🟩 SPELLS'],['trap','🟥 TRAPS']];
+F.innerHTML=groups.map(([k,l])=>`<button data-k="${k}" class="${k==='all'?'on':''}" onclick="setF('${k}')">${l}</button>`).join('');
+function setF(k){filt=k;[...F.children].forEach(b=>b.classList.toggle('on',b.dataset.k===k));draw();}
+function draw(){
+  const list=CARDS.filter(c=> filt==='all' ? 1 : (filt==='spell'||filt==='trap') ? c.t===filt : c.f===filt);
+  G.innerHTML=list.map(c=>{
+    const ac=c.t==='spell'?'#2e7d32':c.t==='trap'?'#ad1457':(ATTR[c.f]?.c||'#555');
+    const stars=c.t==='monster'?'★'.repeat(Math.min(c.lvl,8)):'';
+    const trib=c.lvl>=7?' ⬆⬆':c.lvl>=5?' ⬆':'';
+    return `<div class="c ${c.r==='leggendarju'?'leg':''}" style="--ac:${ac};--rc:${RARITY[c.r].c}">
+      <div class="gem"></div>
+      <div class="top"><span>${c.t==='monster'?(ATTR[c.f]?.e||'')+' '+stars+trib:(c.t==='spell'?'🟩 SPELL':'🟥 TRAP')}</span><span>${RARITY[c.r].n}</span></div>
+      <div class="art">${c.e}</div>
+      <div class="nm">${c.n}</div>
+      <div class="tx">${c.txt}</div>
+      ${c.t==='monster'?`<div class="st"><span class="atk">ATK ${c.atk}</span><span class="def">DEF ${c.def}</span></div>`:''}
+    </div>`}).join('');
+}
+draw();
+</script></body></html>
