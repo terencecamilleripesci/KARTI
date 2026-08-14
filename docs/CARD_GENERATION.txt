@@ -1,0 +1,508 @@
+═══════════════════════════════════════════════════════════════════════════════
+ K A R T I  —  C A R D   G E N E R A T I O N   K I T
+ Paste-and-go. Everything an AI (or a tired human at 1am) needs to mass-produce
+ new KARTI cards that drop straight into js/cards.js with zero editing.
+
+ Visual bible ....... docs/CARD_DESIGN_SPEC.md
+ Frame CSS .......... css/cards.css
+ Live data .......... js/cards.js · js/set2.js · js/set3.js   (200 cards live)
+ Art pipeline ....... docs/ART_STYLE_BIBLE.md  (owns style; this file owns geometry)
+═══════════════════════════════════════════════════════════════════════════════
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 1.  THE SCHEMA  —  one card, exactly this shape, nothing more                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+{id:'', n:'', e:'', f:'', r:'', t:'', lvl:0, atk:0, def:0, txt:'', eff:'', fx:''}
+
+FIELD   TYPE     RULES
+─────── ──────── ──────────────────────────────────────────────────────────────
+id      string   Unique across the WHOLE game (cards.js + set2.js + anything new).
+                 lowercase a–z and digits only, no spaces, no hyphens.
+                 4–12 chars. Maltese word preferred — it's the internal handle.
+                 e.g. 'hanut', 'sikkina', 'bajtra', 'kannol2'
+                 ⚠ Duplicate ids silently break deck building. Always grep first.
+
+n       string   Display name, English, Title Case.
+                 ≤ 22 chars keeps it on ONE line. Hard cap 34.
+                 ALL CAPS is reserved for LEGENDARY cards only ('THE KUNJATA').
+                 Apostrophes must be escaped in JS: 'Nanna\'s Slipper'
+
+e       string   ONE emoji. The card art. See §6 for the selection rule.
+
+f       string   Attribute. EXACTLY one of:
+                 'festa' | 'razzett' | 'belt' | 'bahar' | 'hazen'
+                 or  null  for spells and traps. (null, not '' and not 'none'.)
+                   festa   🎆 FESTA   — loud, fast, explosive
+                   razzett 🐇 FARM    — steady, brutal, no nonsense
+                   belt    🏰 CITY    — slow, annoying, unkillable
+                   bahar   🌊 SEA     — sunburn and disappointment
+                   hazen   😈 TROUBLE — the properly rude ones
+
+r       string   Rarity. EXACTLY one of:
+                 'komuni' (Common) | 'rari' (Rare) | 'epiku' (Epic) | 'leggendarju' (Legendary)
+
+t       string   'monster' | 'spell' | 'trap'
+
+lvl     integer  Monsters: 1–8.   Spells and traps: ALWAYS 0.
+                 1–4 = free summon · 5–6 = 1 tribute · 7–8 = 2 tributes
+
+atk     integer  Monsters: 0–3000, multiple of 100 (50-steps tolerated).
+                 Spells and traps: ALWAYS 0.
+
+def     integer  Monsters: 0–3000, multiple of 100.
+                 Spells and traps: ALWAYS 0.
+
+txt     string   THE JOKE. Pure flavour. Contains NO game mechanics.
+                 ≤ 105 chars recommended. HARD CAP 116 — past that it clips.
+
+eff     string   WHAT THE CARD DOES, in plain player English. One sentence.
+                 ≤ 85 chars recommended. HARD CAP 91.
+                 If the card has no effect, write a one-line role description:
+                   'No effect — pure wall.'   'No effect — efficient level-3 attacker.'
+                   'No effect — straight level-4 beater.'
+                 Must MATCH the fx exactly. Never promise what fx cannot do.
+
+fx      string   Engine hook. '' (empty) = vanilla monster.
+                 ⚠ ONLY reuse an existing fx. A new fx string does nothing until
+                 someone writes engine code for it.
+
+                 MONSTER fx (22): boom burn cleave discard double drain grow
+                     grow2 heal heal8 healall kamikaze leech peek pierce revive
+                     shield snipe stun taunt thorns weaken
+                 SPELL fx (9):  s_buff s_buffall s_destroy s_discard s_draw
+                     s_draw1 s_heal s_search s_steal
+                 TRAP fx (6):   t_bounce t_burn t_destroy t_mirror t_negate t_weaken
+
+INVARIANTS (a card that breaks one of these is broken)
+  • t !== 'monster'  ⟹  lvl === 0 && atk === 0 && def === 0 && f === null
+  • t === 'monster'  ⟹  1 <= lvl <= 8 && f is one of the five attributes
+  • fx === ''        ⟹  the card renders as a NORMAL (sand) frame
+  • fx !== ''        ⟹  the card renders as an EFFECT (orange) frame
+  • eff and txt are two DIFFERENT strings. Never repeat one inside the other.
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 2.  BALANCE TABLE                                                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+ATK / DEF BY LEVEL   (ATK+DEF total is the real budget — spend it either way)
+
+  LVL │ Tributes │ ATK range   │ DEF range   │ ATK+DEF total │ Sweet spot
+ ────┼──────────┼─────────────┼─────────────┼───────────────┼──────────────────
+  1  │    0     │  300– 900   │  200–1500   │  1100–1900    │ 1600
+  2  │    0     │  500–1200   │  400–1600   │  1500–2200    │ 2000
+  3  │    0     │  600–1600   │  600–1900   │  1900–2800    │ 2500
+  4  │    0     │  700–2000   │  200–2100   │  2200–3400    │ 2900
+  5  │    1     │ 2000–2300   │ 1500–2500   │  3800–4500    │ 4200
+  6  │    1     │ 2200–2600   │ 1200–2800   │  3700–5200    │ 4500
+  7  │    2     │ 2700–2900   │ 2400–2900   │  5200–5600    │ 5400
+  8  │    2     │ 2800–3000   │ 2200–2900   │  5000–5800    │ 5500
+       (measured across the live pool: cards.js + set2.js + set3.js = 200 cards)
+
+  • A card with a STRONG fx sits at the BOTTOM of its total range.
+  • A vanilla card (fx: '') may sit at the TOP.
+  • Glass cannons are fine and funny: high ATK / tiny DEF ('Firework Finale' 2000/200).
+  • Walls are fine and funny: tiny ATK / high DEF ('Sunburnt Tourist' 600/1800).
+  • 3000 ATK is the ceiling. Nothing beats THE KUNJATA on raw numbers.
+  • Never exceed the level's max total. Level 4 with 2000/2100 is a bug, not a card.
+
+RARITY DISTRIBUTION TARGETS (per new batch, and across the whole game)
+
+  RARITY       │ live % │ pack odds │ dust │ what it means
+ ──────────────┼────────┼───────────┼──────┼───────────────────────────────────
+  komuni       │   55%  │   60%     │   5  │ vanilla or one small effect, lvl 1–4
+  rari         │   28%  │   27%     │  20  │ a real effect, lvl 3–5
+  epiku        │   13%  │   10%     │  60  │ a swing effect, lvl 5–6
+  leggendarju  │    4%  │    3%     │ 200  │ lvl 7–8, game-defining, ONE per deck
+
+  Legendary quota: at most ONE new legendary per attribute per set.
+  A batch of 10 cards should be roughly: 5 common · 3 rare · 2 epic · 0–1 legendary.
+
+CARD TYPE MIX  (live pool: 140 monster / 39 spell / 21 trap)
+  Aim for  70% monster · 19% spell · 11% trap  in any new batch.
+
+DECK-BUILDING LIMITS (these are engine rules — do not contradict them)
+  • Deck size 40 · max 3 copies of any card · starting LP 8000
+  • Legendaries are almost always run as 1-of. Design them so 1-of feels right.
+  • The counter triangle gives +500 ATK when you attack the attribute you counter:
+      FESTA → CITY → FARM → FESTA   and   FARM → SEA → TROUBLE → FESTA
+    Do not design a card that hard-counters an attribute; that's the triangle's job.
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3.  TONE GUIDE  —  the voice of KARTI                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+WHO IS TALKING
+  A Maltese adult in their 30s–50s, deadpan, at a table outside a band club,
+  telling you about their week. They are not trying to be funny. That's why it lands.
+
+THE FORMULA THAT WORKS
+  SETUP (a true, specific, mundane Maltese detail)
+  + TURN (one extra beat that reveals the whole culture)
+  = the joke.
+
+  'Took nine months to build. Lasts one afternoon. Bit like some marriages.'
+  'Factor 50 was right there in the shop. He walked past it.'
+  '247 unread. Six of them are the same photo. Two are prayers.'
+  'Started in March. It is now November. "Next week, sur."'
+
+  Notice: no punchline word, no "LOL", no exclamation marks. Specificity IS the joke.
+
+RULES OF THE VOICE
+  ✔ English sentences with Maltese words sprinkled — ġbejna, luzzu, kazin, nanna,
+    pastizz, mela, sur, kunjata, festa, karozzin, bidwi, ħażen, briju.
+  ✔ Maltese phrases in quotes are gold: '"Mela mhux hekk!"', '"Next week, sur."'
+  ✔ Deadpan. Understated. Present tense. Short sentences.
+  ✔ Adult and cheeky. Innuendo, hangovers, in-law warfare, marital fatigue,
+    "in your pants", "who dropped you off" — all fair game.
+  ✔ Punch UP or SIDEWAYS: at ministers, contractors, landlords, bureaucracy,
+    developers, the tourist board, your own family.
+  ✔ Self-deprecating. The Maltese are laughing at themselves. That is the licence.
+
+  ✘ NO sexually explicit content. Suggestion yes, description never.
+  ✘ NO slurs, racism, homophobia, misogyny, ableism. Not even "ironically".
+  ✘ NO real named people — no politicians, no clubs by name, no businesses,
+    no living or dead individuals. 'THE MINISTER' is fine. A name is not.
+  ✘ NO punching down: migrants, poverty, disability, religion-as-belief.
+    (Religion-as-PROCEDURE — the three-hour procession, the collection plate,
+    the altar boy on Red Bull — is fair game and very funny.)
+  ✘ NO real brand names. 'Cisk' is already in the shipped set and stays; do not add more.
+  ✘ NO politics with a side. Everyone is useless, equally.
+  ✘ NO shock for its own sake. Funny beats crude. If it's only crude, cut it.
+
+CALIBRATION — where the line is
+  ✔ 'Two hours later you are still on the phone in your pants.'     (cheeky, fine)
+  ✔ 'Knows what time you got in. And who dropped you off.'          (innuendo, fine)
+  ✔ 'Wants half of everything, including the dog.'                  (adult, fine)
+  ✘ anything describing an act                                       (cut it)
+  ✘ anything naming a real person or club                            (cut it)
+  ✘ anything where the punchline is someone's race or disability     (cut it)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 3b. THE SEED BANK  —  so the well never runs dry                             │
+│     Pick one SITUATION + one CHARACTER + one OBJECT and a card writes itself. │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+SITUATIONS
+  festa week and the rival band club · petards at 3am and nobody admits it ·
+  the procession that takes three hours to move 200 metres · Marsa at 07:40 ·
+  a crane where a townhouse used to be · works that started in March ·
+  the neighbour's "small extension" · the power cut in August · the water tank ·
+  Sunday lunch you are not allowed to leave · a family group chat at 6am ·
+  the wedding table plan · the christening you must attend · the village funeral ·
+  the queue at the government office · "come back with another form" ·
+  the VAT receipt · the boat trip that turns into a drinking session ·
+  lampuki season prices · jellyfish week · the first swim of the year ·
+  the last swim of the year · the aunt who reserves the beach rock at 06:00 ·
+  the tourist with no sunscreen · the tourist asking for directions in Italian ·
+  the karozzin horse deciding the tour is over · parking on double yellows ·
+  the reserved parking chair · the warden appearing from nowhere ·
+  the electricity bill · the landlord's annual increase · "I know someone" ·
+  the mechanic who is also your cousin · the summer village feast committee row ·
+  Christmas at two houses in one day · the New Year fireworks argument ·
+  the hunter in the field at dawn · the neighbour who watches from the balcony ·
+  the argument in the band club bar that is forty years old ·
+  the promise "next week, sur" · the ferry queue on a bank holiday
+
+CHARACTERS
+  in-laws (kunjata / kunjatu) · nanna with the wooden spoon · grandpa with the axe ·
+  the nosy neighbour on the balcony · the aunt with the thermos · the cousin who
+  "knows someone" · the priest who has seen everything · the altar boy on Red Bull ·
+  the band club president · the rival band club president · the firework licence
+  holder · the contractor · the crane driver · the architect · the minister ·
+  the civil servant behind the glass · the traffic warden · the police who arrive
+  after · the taxi driver with opinions · the waiter with eight plates ·
+  the fisherman who lies about the size · the lifeguard on his phone ·
+  the diving instructor · the sunburnt tourist · the tour guide · the landlord ·
+  the estate agent · the mechanic cousin · the hunter · the farmer · the farmer's
+  wife who actually runs it · the goat that escaped · the village dog that never
+  stops · the ex with a lawyer · the boss who calls on Sunday · the group-chat aunt
+
+OBJECTS
+  petard · band uniform that has not been washed since 1998 · the heavy statue ·
+  the confetti cannon · the ġbejna · the ftira · the pastizz · the kinnie ·
+  the Sunday rabbit in wine · the pressure cooker · nanna's slipper · the wooden
+  spoon · the plastic chair reserving a parking space · the brick that holds it ·
+  the water tank on the roof · the washing line · the extension lead ·
+  the generator · the tal-linja bus · the karozzin · the luzzu with the eye ·
+  the fishing net · the beach umbrella wedged in a rock · the cool box ·
+  the inflatable that blew out to sea · the folded twenty in a coat pocket ·
+  the family group chat · 247 unread messages · the government form ·
+  the stamped envelope · the electricity bill · the crane · the scaffolding ·
+  the "next week" whiteboard · the church bell · the collection plate ·
+  the festa lights · the drawer that holds nothing anyone is looking for
+
+MALTESE WORDS THAT ALWAYS LAND
+  mela · sur · ħażen · kunjata · kunjatu · nanna · nannu · ġbejna · ftira ·
+  pastizz · luzzu · kazin · bidwi · briju · żeppi · qattus · għajn · bajtra ·
+  imnarja · purċissjoni · kannizzata · gwarniment · karozzin · tiġieġa · xkupa
+  (Use ONE per card at most. Two is a language lesson, not a joke.)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 4.  ELEVEN WORKED EXAMPLES  —  copy this exact output format                 │
+│     All new. Machine-checked: no id / name / emoji collides with the 116     │
+│     shipped cards, every budget is legal, every length is inside the caps.   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  /* ══════════ FESTA 🎆 ══════════ */
+  {id:'gwarnimenta',n:'The Street Lights',    e:'🏮', f:'festa', r:'komuni', t:'monster', lvl:2, atk:900,  def:1300,
+   txt:'Up for three weeks, down for one night, argued about for eleven months.', eff:'No effect — cheap defensive wall.', fx:''},
+
+  {id:'kaxxa',     n:'The Ground Finale',     e:'🎆', f:'festa', r:'epiku',  t:'monster', lvl:6, atk:2600, def:1100,
+   txt:'Twelve minutes. A year of savings. Nobody is speaking, they are just watching.', eff:'When destroyed: 500 damage to BOTH players.', fx:'boom'},
+
+  /* ══════════ FARM 🐇 ══════════ */
+  {id:'bidwija',   n:'The Farmer\'s Wife',    e:'🧺', f:'razzett', r:'rari',   t:'monster', lvl:4, atk:1800, def:1300,
+   txt:'She runs the farm, the accounts, and him. He thinks he runs the farm.', eff:'When summoned: heal 500 LP.', fx:'heal'},
+
+  {id:'ingwanti',  n:'The Prickly Pear Glove',e:'🧤', f:'razzett', r:'komuni', t:'monster', lvl:3, atk:1500, def:800,
+   txt:'Delicious. Free. You will be picking spines out of your thumb until Thursday.', eff:'Anything attacking this monster takes 400 damage.', fx:'thorns'},
+
+  /* ══════════ CITY 🏰 ══════════ */
+  {id:'rawnd',     n:'The Broken Traffic Light',e:'🚦', f:'belt', r:'epiku',  t:'monster', lvl:5, atk:2000, def:2100,
+   txt:'Stuck on amber since Easter. Four lanes of people who have all decided they go first.', eff:'Enemy monsters cannot attack next turn.', fx:'stun'},
+
+  {id:'xkupa',     n:'The 6am Street Sweeper',e:'🗑️', f:'belt', r:'komuni', t:'monster', lvl:2, atk:700,  def:1500,
+   txt:'Loud enough to wake the street, slow enough to miss the actual rubbish.', eff:'No effect — cheap defensive wall.', fx:''},
+
+  /* ══════════ SEA 🌊 ══════════ */
+  {id:'kannizzata',n:'The Lampuki Nets',      e:'🪝', f:'bahar', r:'rari',   t:'monster', lvl:4, atk:1900, def:900,
+   txt:'Same patch of sea, same family, same argument about it since 1961.', eff:'Gains +200 ATK each of your turns.', fx:'grow'},
+
+  {id:'blata',     n:'The Family Rock',       e:'🪨', f:'bahar', r:'komuni', t:'monster', lvl:3, atk:600,  def:1900,
+   txt:'Held since six in the morning by an aunt with an umbrella and a thermos.', eff:'Enemies must attack this monster first (Taunt).', fx:'taunt'},
+
+  /* ══════════ TROUBLE 😈 ══════════ */
+  {id:'mejda',     n:'THE TABLE PLAN',        e:'💍', f:'hazen', r:'leggendarju', t:'monster', lvl:7, atk:2800, def:2500,
+   txt:'Four months of diplomacy. Two families who will not sit together. Somebody will cry.', eff:'Opponent discards 1 card each of your turns.', fx:'discard'},
+
+  /* ══════════ SPELL ══════════ */
+  {id:'frisk',     n:'The Emergency Twenty',  e:'🧥', f:null, r:'komuni', t:'spell', lvl:0, atk:0, def:0,
+   txt:'Folded in the coat since Christmas. Nanna put it there and never mentioned it.', eff:'Heal 1500 LP.', fx:'s_heal'},
+
+  /* ══════════ TRAP ══════════ */
+  {id:'kexxun',    n:'"It Was In The Drawer"',e:'🗄️', f:null, r:'rari', t:'trap', lvl:0, atk:0, def:0,
+   txt:'It was never in the drawer. It has never been in the drawer.', eff:'Negate 1 attack.', fx:'t_negate'},
+
+  BATCH SANITY:  rarity mix 5 komuni / 3 rari / 2 epiku / 1 leggendarju
+                 budgets   2200 · 3700 · 3100 · 2300 · 4100 · 2200 · 2800 · 2500 · 5300
+                 lengths   name 14–24 · eff 13–49 · txt 60–85   (all well inside caps)
+
+FORMATTING RULES FOR THE OUTPUT
+  • Two lines per card. Line 1 = id…def. Line 2 = txt, eff, fx.
+  • Align the `n:` column with spaces so the block scans in a text editor.
+  • Section comments use the /* ══════════ NAME emoji ══════════ */ style.
+  • Trailing comma on every card, including the last one in a batch.
+  • Escape apostrophes: 'Nanna\'s', 'The Farmer\'s Wife'.
+  • Output ONLY the card literals. No prose, no markdown fences, no explanation.
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 5.  COPY-PASTE PROMPT TEMPLATE                                               │
+│     Fill the four <ANGLE BRACKETS> and send. Output needs no editing.        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+──────────────────────────── CUT HERE ────────────────────────────
+Generate <N> new KARTI cards for the <ATTRIBUTE> attribute.
+
+KARTI is an 18+ Maltese card duel game in the Yu-Gi-Oh mould. Output JavaScript
+object literals only — no prose, no markdown fences, no commentary.
+
+SCHEMA (exact keys, exact order):
+{id, n, e, f, r, t, lvl, atk, def, txt, eff, fx}
+
+  id   unique lowercase a–z0–9 handle, 4–12 chars, Maltese word preferred.
+       Must not collide with any existing id. Existing ids I already have:
+       <PASTE THE OUTPUT OF: node -e "..." OR JUST 'see cards.js + set2.js'>
+  n    English Title Case display name. <= 22 chars ideally, HARD CAP 34.
+       ALL CAPS only for a legendary.
+  e    exactly one emoji — the card art.
+  f    '<ATTRIBUTE>'   (one of: festa | razzett | belt | bahar | hazen;
+       use null for spells and traps)
+  r    'komuni' | 'rari' | 'epiku' | 'leggendarju'
+  t    'monster' | 'spell' | 'trap'
+  lvl  monsters 1–8; spells/traps 0
+  atk  monsters 0–3000 in steps of 100; spells/traps 0
+  def  monsters 0–3000 in steps of 100; spells/traps 0
+  txt  THE JOKE, pure flavour, zero mechanics. <= 105 chars, HARD CAP 116.
+  eff  WHAT THE CARD DOES, one plain-English sentence. <= 85 chars, HARD CAP 91.
+       If vanilla, write a role line like 'No effect — pure wall.'
+  fx   MUST be one of these exact strings, or '' for a vanilla monster:
+       monsters: boom burn cleave discard double drain grow grow2 heal heal8
+                 healall kamikaze leech peek pierce revive shield snipe stun
+                 taunt thorns weaken
+       spells:   s_buff s_buffall s_destroy s_discard s_draw s_draw1 s_heal
+                 s_search s_steal
+       traps:    t_bounce t_burn t_destroy t_mirror t_negate t_weaken
+       eff MUST describe exactly what that fx does. Never invent an fx.
+
+BALANCE (ATK+DEF total budget by level — never exceed the max):
+  lvl1 1100-1900 · lvl2 1500-2200 · lvl3 1900-2800 · lvl4 2200-3400
+  lvl5 3800-4500 · lvl6 3700-5200 · lvl7 5200-5600 · lvl8 5000-5800
+  Levels 5-6 cost 1 tribute, 7-8 cost 2 tributes — they must FEEL worth it.
+  Strong fx ⟹ bottom of the range. Vanilla (fx:'') ⟹ top of the range.
+  Rarity mix for this batch: ~50% komuni, ~30% rari, ~15% epiku, <=1 leggendarju.
+  Legendaries are levels 7-8 only.
+
+TONE — this is the whole product, get it right:
+  Deadpan Maltese adult humour, in English, with Maltese words sprinkled
+  (ġbejna, luzzu, kazin, nanna, mela, sur, festa, bidwi, briju, kunjata).
+  Subjects: hangovers, festa season, petards at 3am, band-club rivalry, in-laws,
+  Marsa traffic, cranes and construction, nosy neighbours, government forms,
+  tourists, the rent, Sunday lunch, the family group chat, unfinished works,
+  "I know someone", parking, the village statue.
+  Structure: a specific mundane true detail + one extra beat that reveals the
+  whole culture. No exclamation marks. No "LOL". Specificity IS the joke.
+  Innuendo and adult cheek: YES.
+  Sexually explicit, slurs, hate, punching down, real named people, real brands,
+  taking a political side: NEVER. Funny beats crude.
+
+OUTPUT FORMAT — two lines per card, exactly like this, trailing comma on each:
+
+  {id:'kexxun',   n:'"It Was In The Drawer"', e:'🗄️', f:null, r:'rari', t:'trap', lvl:0, atk:0, def:0,
+   txt:'It was never in the drawer. It has never been in the drawer.', eff:'Negate 1 attack.', fx:'t_negate'},
+
+Escape apostrophes as \'. Align the n: column with spaces. Output the cards and
+nothing else.
+──────────────────────────── CUT HERE ────────────────────────────
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 6.  ART  —  emoji rule now, real art later                                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+6a. EMOJI SELECTION RULE  (the art field `e`)
+
+  Pick in this order — stop at the first one that works:
+    1. THE OBJECT itself         🧨 petard · 🪓 axe · 🩴 slipper · 🧾 bill
+    2. THE ANIMAL or FOOD        🐇 rabbit · 🧀 ġbejna · 🐟 lampuki · 🥐 pastizz
+    3. THE PERSON doing it       👵 nanna · 👷 contractor · 🎺 bandsman
+    4. THE SCENE in one glyph    🚗 traffic · 🏗️ crane · ⛵ luzzu
+    5. THE FEELING               🤢 hangover · 💔 the ex · 😈 trouble
+
+  HARD RULES
+    ✔ Exactly ONE emoji. Never two. Never an emoji plus text.
+    ✔ Must be COLOUR on Android and iOS. Test it — some glyphs render as flat
+      black outlines (✔ ✂ ☕-style legacy symbols are risky) and look broken on
+      the card. If in doubt pick a newer, obviously-colourful glyph.
+    ✔ Prefer wide, high-contrast, instantly readable shapes. The emoji renders at
+      ~34 px on a hand card and ~57 px on the full view — detail is lost.
+    ✔ Must read at a glance against the card's attribute-tinted vignette:
+        festa = warm red · farm = green · city = purple · sea = blue · trouble = slate
+      Avoid a red emoji on a festa card or a green one on a farm card — it vanishes.
+    ✔ Two cards may share an emoji only if they are in different attributes.
+    ✘ Avoid ZWJ sequences (👩‍🌾, 👨‍👩‍👧) where you can — older Androids split them
+      into two glyphs. If you must use one, check it renders as a single image.
+    ✘ Avoid flags, national symbols, and anything religiously pointed.
+    ✘ Avoid skin-tone modifiers entirely.
+
+  QUICK SANITY CHECK: squint at it. If you cannot tell what it is in half a
+  second, it is the wrong emoji.
+
+
+6b. REAL ARTWORK  (for when emoji get replaced)
+
+  ⚠ THE ART PIPELINE HAS ITS OWN BIBLE: docs/ART_STYLE_BIBLE.md
+    That file owns the style block, the model settings and the batch process.
+    Follow it. This section only supplies the GEOMETRY the frame requires and a
+    fallback prompt for one-off hand-commissioned pieces.
+
+  HOW ART GOES IN
+      <div class="card__art"><img class="card__img" src="art/<id>.webp" alt=""></div>
+  `.card__img` is `width:100%; height:100%; object-fit: cover`.
+
+  EXACT ART-WINDOW GEOMETRY  (measured in Chromium 146 against the shipped cards.css)
+
+    Card size   Art window (CSS px)   Aspect (w:h)
+    ─────────   ───────────────────   ────────────
+    .card--sm       103 × 114             0.90   ← portrait (text hidden, art grows)
+    .card--md       175 × 105             1.67   ← landscape 5:3
+    .card--lg       293 × 178             1.65   ← landscape 5:3
+
+  ⚠ SAFE-ZONE MATHS — this supersedes any older figure.
+    Ship a SQUARE source image (1:1). With `object-fit: cover`:
+      · worst landscape window 1.67 crops a square to the middle 60% of its HEIGHT
+      · worst portrait window  0.90 crops a square to the middle 90% of its WIDTH
+    ⇒ SAFE ZONE = central 60% of height × 88% of width.
+    Face, hands, and the object the joke is about must all sit inside that band.
+    Everything outside it is disposable padding.
+    (If ART_STYLE_BIBLE.md still says "central 70% of height", it predates the
+     current frame — 60% is the correct number. Flag it before a batch is run.)
+
+  Ship: 1024 × 1024 source → WebP, under 90 KB per card.
+
+  FALLBACK PROMPT TEMPLATE  (single hand-commissioned piece only —
+  for batches use ART_STYLE_BIBLE.md verbatim)
+  ── TEMPLATE ──────────────────────────────────────────────────────────────────
+  A single illustrated subject for a Maltese trading-card game. Square 1:1.
+
+  SUBJECT:   <the literal thing on the card — e.g. "an exhausted grandmother in a
+             black dress standing in a doorway, arms folded, judging you">
+  SETTING:   <Maltese specific — limestone alley / village square at festa night /
+             flat roof with water tanks and washing lines / rocky bay with a luzzu /
+             half-built apartment block with a crane>
+  MOOD:      warm, affectionate, gently mocking — the joke is on all of us
+
+  STYLE KEYWORDS:
+    bold-outline stylised cartoon caricature, thick uniform black ink linework,
+    flat cel shading, two-tone shadows, limited palette, warm Mediterranean light,
+    limestone ochre and sun-bleached blue, expressive silhouette, poster-like,
+    readable at thumbnail size
+
+  COMPOSITION / FRAMING:
+    ONE subject only. Monsters: chest-up three-quarter portrait. Spells and traps:
+    a single hero object, centred, floating, slight low angle. Focal point at 45%
+    from the top. Simple uncluttered background with depth, no competing detail.
+    Keep everything that matters inside the central 60% of height and 88% of width.
+    Add a gentle darkened vignette at the edges.
+
+  COLOUR DIRECTION (match the attribute — do NOT make the subject the same hue as
+  the card's tint or it disappears into the art window):
+    FESTA   — hot reds and firework golds against night blue      (#E8452C)
+    FARM    — greens, dust, diesel, terracotta                    (#4CAF50)
+    CITY    — purples, concrete grey, sodium street light         (#9C27B0)
+    SEA     — turquoise, sun-bleached white, deep blue shadow     (#2196F3)
+    TROUBLE — slate, bruised indigo, one hot accent               (#37474F)
+
+  AVOID:
+    text, letters, numbers, logos, watermarks, signatures, speech bubbles,
+    ANY part of a card frame (border, name bar, stars, ATK/DEF box, rarity gem),
+    photorealism, 3D render look, plastic CGI, HDR, lens flare, heavy vignette,
+    busy backgrounds, multiple competing subjects, extra limbs or fingers,
+    real recognisable people or celebrities, national flags, religious icons used
+    mockingly, gore, nudity, sexual content, brand names or products, anime,
+    generic fantasy castles, anything not Maltese
+  ─────────────────────────────────────────────────────────────────────────────
+
+  CONSISTENCY NOTE: generate a whole attribute in one session with the same style
+  keywords and the same seed family. A card set lives or dies on 200 pictures
+  looking like they came from one hand.
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 7.  PRE-COMMIT CHECKLIST                                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  [ ] Every id is unique across cards.js AND set2.js AND set3.js
+  [ ] Every fx is on the allowed list (or '')
+  [ ] eff describes exactly what fx does
+  [ ] No card exceeds its level's ATK+DEF budget
+  [ ] Spells/traps: f null, lvl 0, atk 0, def 0
+  [ ] n <= 34 chars · eff <= 91 chars · txt <= 116 chars
+  [ ] Rarity mix roughly 50/30/15/5
+  [ ] No real names, no brands, nothing explicit, nothing punching down
+  [ ] Every emoji renders in colour and is recognisable at 34 px
+  [ ] `node --check js/<file>.js` passes
+  [ ] Cards rendered at .card--md and .card--lg — no clipping, joke fully visible
+
+  ONE-LINER TO AUDIT THE WHOLE POOL:
+    node -e "const f=p=>require('fs').readFileSync(p,'utf8');
+      eval(f('js/cards.js')+f('js/set2.js')+f('js/set3.js'));
+      const bad=CARDS.filter(c=>c.n.length>34||(c.eff||'').length>91||c.txt.length>116);
+      console.log(bad.length?bad.map(c=>c.id):'all lengths OK');
+      const ids=CARDS.map(c=>c.id); console.log('dupes:',ids.filter((v,i)=>ids.indexOf(v)!==i));"

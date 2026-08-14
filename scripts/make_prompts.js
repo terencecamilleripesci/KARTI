@@ -139,8 +139,11 @@ const TYPE_ART = {
 };
 
 /* ─── the safe-zone instruction, on every card prompt ─────────────────────── */
+/* The art ships square but the card's art window is ~1.35 wide, so `object-fit: cover`
+   keeps only the central 74% of the height. A subject filling 70% leaves 4 points of
+   margin — one bad composition and the crown gets cropped. 65% buys a comfortable 9. */
 const COMPOSITION =
-  'square composition, subject centred, subject fills 55 to 70 percent of the frame height, ' +
+  'square composition, subject centred, subject fills 55 to 65 percent of the frame height, ' +
   'generous empty margin on all four sides, nothing important within 15 percent of any edge, ' +
   'simple uncluttered background, one flat colour field with at most one silhouette shape, ' +
   'soft dark vignette at the corners';
@@ -208,6 +211,31 @@ const SUBJECT_OVERRIDES = {
   tea:       'an enormous mug of over-milked tea with a mountain of sugar cubes piled beside it, spoon standing bolt upright in it',
   hass:      'a swimmer in the sea grabbing a cramped calf with a comic pained grimace, motion lines, one lightning zigzag on the leg',
 };
+
+/* The bulk of the subjects live in art/overrides-*.json, written per-slice so the
+   hand-tuned ones above stay readable. A card's joke is narrative ("nobody believes
+   it, everybody accepts it") and gives the model nothing to draw — every card needs
+   a written visual subject or it generates an abstract blob. Files loaded in sorted
+   order; the literals above win, so a fix here is never silently overwritten. */
+(function loadOverrideFiles() {
+  const dir = path.join(__dirname, '..', 'art');
+  let files = [];
+  try {
+    files = fs.readdirSync(dir).filter(f => /^overrides-.*\.json$/.test(f)).sort();
+  } catch (_) { return; }
+  let added = 0;
+  for (const f of files) {
+    let obj;
+    try { obj = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); }
+    catch (e) { console.error(`  ! ${f} is not valid JSON — skipped (${e.message})`); continue; }
+    for (const [id, v] of Object.entries(obj)) {
+      if (SUBJECT_OVERRIDES[id]) continue;           // hand-tuned literal wins
+      SUBJECT_OVERRIDES[id] = v;
+      added++;
+    }
+  }
+  if (files.length) console.error(`  · ${added} subjects loaded from ${files.join(', ')}`);
+})();
 
 /* Words that make an SDXL safety checker return a black image, or just render
    badly. --check flags them; SUBJECT_OVERRIDES above is the fix. */

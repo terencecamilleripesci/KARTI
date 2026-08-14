@@ -5,10 +5,12 @@ in here, the card is wrong — not the spec.
 
 Implementation: [`css/cards.css`](../css/cards.css) (self-contained, no framework, no webfont).
 Card authoring kit: [`docs/CARD_GENERATION.txt`](CARD_GENERATION.txt).
-Data source of truth: `js/cards.js` + `js/set2.js`.
+Data source of truth: `js/cards.js` + `js/set2.js` + `js/set3.js`.
+Art pipeline: `docs/ART_STYLE_BIBLE.md` owns the illustration style — **§4 below owns the geometry it has to fit.**
 
-Everything below was measured in Chromium 146 against all 116 shipped cards.
-**0 / 116 cards clip or overflow at any size.**
+Everything below was measured in Chromium 146 against **all 200 shipped cards**
+(`cards.js` + `set2.js` + `set3.js`).
+**0 / 200 cards clip or overflow at any size. 0 / 200 exceed the reserved text box.**
 
 ---
 
@@ -63,7 +65,7 @@ background — well past WCAG AA.
 | 4 | Level row | `.card__levelrow` | Tribute pips left, gold stars right. Monsters only. | ✅ |
 | 4a | Tribute markers | `.card__tributes > i` | 0 / 1 / 2 silver pips — the summon cost. | ✅ |
 | 4b | Level stars | `.card__stars > i` | 1–8 gold stars, laid out **right-to-left**. | ✅ |
-| 5 | Art window | `.card__art` | Emoji (or `<img class="card__img">`). Attribute-tinted vignette. | ✅ |
+| 5 | Art window | `.card__art` | Emoji (or `<img class="card__img">`). Attribute-tinted vignette. **The only elastic block.** | ✅ |
 | 6 | Type line | `.card__type` | `[Attribute / Effect]`, `[Spell]`, `[Trap]`. | ❌ |
 | 7 | Rarity gem | `.card__gem` | Rotated diamond in the rarity colour. | ❌ |
 | 8 | Rules box | `.card__rules` | **What the card does.** Semibold, upright. `eff` field. | ❌ |
@@ -162,6 +164,26 @@ No `em` compounding — every child is `calc(var(--u) * n)`.
 | `.card--fit` | 100 % | — | `8.333cqw` | Custom slot. Parent needs `container-type: inline-size` (use `.card-slot`). |
 
 Aspect ratio is `59 / 86` — the real physical TCG ratio. Never override it.
+
+### Art-window geometry (for the art pipeline)
+
+`.card__art` has `aspect-ratio: 5 / 3` and `flex: 1 1 auto`, so it is the one block that
+gives up height when text runs long. Measured against the shipped CSS:
+
+| Card size | Art window (CSS px) | Aspect w:h |
+|-----------|---------------------|------------|
+| `.card--sm` | 103 × 114 | 0.90 (portrait — text is hidden, so art grows) |
+| `.card--md` | 175 × 105 | 1.67 |
+| `.card--lg` | 293 × 178 | 1.65 |
+
+Real art ships **square (1:1)** and is drawn with `object-fit: cover`, so:
+
+* the worst landscape window (1.67) crops a square to the middle **60 % of its height**
+* the worst portrait window (0.90) crops a square to the middle **90 % of its width**
+
+> **SAFE ZONE = central 60 % of height × 88 % of width.** Anything the joke depends on —
+> face, hands, the object — lives inside that band. This supersedes any earlier figure;
+> the art window got wider when the card grew a second text zone.
 
 ---
 
@@ -293,8 +315,9 @@ All numbers measured in Chromium 146 with the shipped system font stack.
 | `txt` (joke) | **≤ 105 chars** | 116 |
 | `eff` + `txt` | **≤ 190 chars** | 207 |
 
-Current shipped set: longest name 32, longest `eff` 78, longest `txt` 101, longest combined 150.
-**0 / 116 cards exceed the reserved box at any size.** Keep it that way.
+Current shipped pool (200 cards): longest name **32**, longest `eff` **78**,
+longest `txt` **112**, longest combined **173**.
+**0 / 200 cards exceed the reserved box at any size.** Keep it that way.
 
 > Between 207 and 249 characters the card still renders perfectly — it just quietly eats
 > art height. Between 249 and infinity you lose the last line. Do not go there.
