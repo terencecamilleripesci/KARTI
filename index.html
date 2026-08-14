@@ -120,9 +120,11 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   border:1px solid rgba(255,255,255,.10);display:flex;flex-direction:column;overflow:hidden;
 }
 .card .hd{display:flex;align-items:center;gap:.3em;padding:.42em .5em .1em;flex:0 0 auto}
+/* Always reserve both lines. Clamping to 2 but only using 1 on short names made every
+   tile a different height, so the art windows never lined up across the grid. */
 .card .nm{font-family:var(--disp);font-weight:700;font-size:.9em;line-height:1.04;flex:1;
   letter-spacing:-.01em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
-  text-shadow:0 1px 2px #000}
+  min-height:2.08em;text-shadow:0 1px 2px #000}
 .card .at{font-size:1em;filter:drop-shadow(0 0 3px var(--fc))}
 .card .lv{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;gap:.3em;
   padding:.05em .5em 0;font-size:.68em;min-height:1.25em;overflow:hidden}
@@ -514,10 +516,8 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <h1 class="logo">KARTI</h1>
       <p class="tagline">Malta's rudest card duel</p>
       <div class="wallet" id="wallet"></div>
-      <p class="tiny" style="text-align:center;margin:14px 0 0">Choose your side</p>
-      <div class="decksel" id="decksel"></div>
-      <p class="decktag" id="decktag"></p>
-      <!-- Two ways in, and only two. Everything else is secondary nav. -->
+      <!-- Two ways in, and only two. The deck picker used to sit here; it lives on
+           the Decks screen now so Home is nothing but Story and Multiplayer. -->
       <div class="menu">
         <button class="btn hot pick" id="btn-story">🏆 Story Mode<span class="sub">Eight bosses. Beat the village.</span></button>
         <button class="btn primary pick" id="btn-mp">🤝 Multiplayer<span class="sub">One phone, or two on the same wi-fi</span></button>
@@ -570,6 +570,12 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
       <h2>Deck Builder</h2>
       <span class="pill mono" id="deck-count"></span>
+    </div>
+    <!-- Deck picker, moved off Home. renderHome() still fills these by id. -->
+    <div style="padding:0 12px">
+      <p class="tiny" style="text-align:center;margin:10px 0 0">Your decks</p>
+      <div class="decksel" id="decksel"></div>
+      <p class="decktag" id="decktag"></p>
     </div>
     <div class="segwrap" id="db-seg">
       <button class="on" data-pane="pool">Pool</button>

@@ -196,7 +196,20 @@
 #scr-duel::before{content:'';position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(180deg,rgba(6,4,12,.66),rgba(6,4,12,.28) 32%,rgba(6,4,12,.28) 68%,rgba(6,4,12,.72))}
 #scr-duel>*{position:relative;z-index:1}
-#scr-home{background-image:var(--art-home);background-size:cover;background-position:center top}
+#scr-home{background-image:var(--art-home);background-size:cover;background-position:center top;
+  position:relative}
+/* The home art is a bright, busy street scene and the duel screen was the only one
+   with a scrim, so the logo and the nav row were unreadable on top of it. Darkest
+   at the bottom, which is where the nav row sits. */
+#scr-home::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:linear-gradient(180deg,rgba(8,5,16,.72),rgba(8,5,16,.55) 30%,
+             rgba(8,5,16,.68) 62%,rgba(8,5,16,.92))}
+#scr-home>*{position:relative;z-index:1}
+/* ghost buttons vanish against the art — give the home nav a real surface */
+#scr-home .navrow .btn.ghost{background:rgba(14,10,26,.82);border-color:rgba(255,255,255,.22);
+  color:#fff;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+  text-shadow:0 1px 2px rgba(0,0,0,.6)}
+#scr-home .logo,#scr-home .tagline{text-shadow:0 2px 10px rgba(0,0,0,.75)}
 .card.back .in{background-image:var(--art-cardback);background-size:cover;background-position:center}
 /* only drop the CSS-drawn back once the real card-back art is actually there */
 .art-cardback .card.back .in::before{display:none}

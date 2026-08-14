@@ -472,25 +472,7 @@ function renderHome(){
     '<span class="pill">🏆 <span class="mono">' + S.rec.w + '–' + S.rec.l + '</span> <small>W–L</small></span>' +
     (S.packs ? '<span class="pill">🎁 <span class="mono">' + S.packs + '</span> <small>packs</small></span>' : '');
 
-  const sel = $('#decksel'); sel.innerHTML = '';
-  Object.keys(STARTER_DECKS).forEach(key => {
-    const sd = STARTER_DECKS[key];
-    const unlocked = S.starters.indexOf(key) >= 0;
-    const b = document.createElement('button');
-    b.className = 'deckcard' + (S.side === key ? ' on' : '');
-    b.style.setProperty('--dc', sd.c);
-    b.setAttribute('aria-pressed', String(S.side === key));
-    b.innerHTML =
-      '<div class="e">' + sd.e + '</div>' +
-      '<div class="n">' + esc(sd.name) + '</div>' +
-      '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>' +
-      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">🔒 ' +
-        starterPrice(key) + '</div>');
-    b.onclick = () => chooseSide(key);
-    sel.appendChild(b);
-  });
-  $('#decktag').textContent = S.side && STARTER_DECKS[S.side] ? STARTER_DECKS[S.side].tag
-    : 'Tap a deck to pick your side.';
+  renderDeckPicker();
   const legal = d && deckIsLegal(d.list);
   /* secondary nav button — keep the label short, but never hide a bad deck */
   $('#btn-duel').innerHTML = '⚔️ Quick duel' + (d && !legal ? ' ⚠' : '');
@@ -547,6 +529,34 @@ function upgradeSheet(){
   };
   $('#up-pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#up-go').click(); });
 }
+/* The seven-deck picker. It used to sit on Home under "Choose your side"; Home is
+   now Story and Multiplayer only, so this lives on the Decks screen. Null-guarded
+   because Home no longer carries these elements. */
+function renderDeckPicker(){
+  const sel = $('#decksel');
+  if (!sel) return;
+  sel.innerHTML = '';
+  Object.keys(STARTER_DECKS).forEach(key => {
+    const sd = STARTER_DECKS[key];
+    const unlocked = S.starters.indexOf(key) >= 0;
+    const b = document.createElement('button');
+    b.className = 'deckcard' + (S.side === key ? ' on' : '');
+    b.style.setProperty('--dc', sd.c);
+    b.setAttribute('aria-pressed', String(S.side === key));
+    b.innerHTML =
+      '<div class="e">' + sd.e + '</div>' +
+      '<div class="n">' + esc(sd.name) + '</div>' +
+      '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>' +
+      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">🔒 ' +
+        starterPrice(key) + '</div>');
+    b.onclick = () => chooseSide(key);
+    sel.appendChild(b);
+  });
+  const tag = $('#decktag');
+  if (tag) tag.textContent = S.side && STARTER_DECKS[S.side] ? STARTER_DECKS[S.side].tag
+    : 'Tap a deck to make it your active one.';
+}
+
 function chooseSide(key){
   const sd = STARTER_DECKS[key];
   /* No deck yet means you have not done your starter roll — you do not get to
@@ -944,6 +954,7 @@ let dbDeck = null;          // working copy {id,name,starter,list}
 let dbPane = 'pool';
 
 function renderDeckBuilder(){
+  renderDeckPicker();          /* the picker lives on this screen now */
   if (!dbDeck){
     const a = activeDeck();
     dbDeck = a ? { id:a.id, name:a.name, starter:a.starter, list: Object.assign({}, a.list) }
