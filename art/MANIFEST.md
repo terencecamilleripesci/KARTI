@@ -218,7 +218,7 @@ Total **235** images — P1 **220**, P2 **15**.
 |---|---|---|---|---|---|---|
 | P1 | `emblem` | `art/ui/emblem.png` | 1024x1024 | 1024x1024 | PNG (alpha) | Master emblem/crest. Source for the app icons, favicon and the OG image. The KARTI wordmark is CSS text set NEXT to this — never generated. |
 | P1 | `home-bg` | `art/ui/home-bg.jpg` | 768x1344 | 900x1600 | JPG | Home / main-menu background, phone portrait. Buttons and the wordmark sit on top in CSS, so the middle must stay quiet. |
-| P1 | `board` | `art/ui/board.jpg` | 832x1216 | 828x1210 | JPG | Duel playmat, phone portrait. The 3 monster + 3 spell zones per side are drawn as CSS boxes ON TOP — do NOT generate zone rectangles or any layout. |
+| P1 | `board` | `art/ui/board.jpg` | 832x1216 | 828x1210 | JPG | Duel playmat, phone portrait. The 5 monster + 5 spell/trap zones per side are drawn as CSS boxes ON TOP — do NOT generate zone rectangles or any layout. |
 | P1 | `cardback` | `art/ui/cardback.jpg` | 832x1216 | 590x860 | JPG | Face-down card back (.card--face-down). 59:86 to match the card frame exactly. |
 | P1 | `victory` | `art/ui/victory.jpg` | 832x1216 | 828x1210 | JPG | Win screen background. "REBAH / YOU WIN" is CSS text on top. |
 | P1 | `defeat` | `art/ui/defeat.jpg` | 832x1216 | 828x1210 | JPG | Loss screen background. |

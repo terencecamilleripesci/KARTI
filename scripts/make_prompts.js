@@ -50,6 +50,76 @@ const STYLE = [
   'high contrast, strong readable silhouette',
 ].join(', ');
 
+/* ── THE 77-TOKEN WALL ─────────────────────────────────────────────────────
+   CLIP takes 77 tokens and silently bins the rest. The full STYLE + COMPOSITION
+   + ART_ONLY blocks run past 150, so on the first smoke test everything after
+   the subject was discarded and the model fell back to its default look — it
+   returned oil paintings and photographs instead of flat cartoons.
+   So: style leads (it is the one thing that must survive), and the prompt is
+   assembled segment by segment against a hard budget. Same for the negative,
+   which was also far over the limit — the "photorealistic" ban sat past token
+   77 and never reached the model at all.                                     */
+const TOKEN_BUDGET = 74;
+
+/* CLIP splits on punctuation and sub-words, so a word averages ~1.35 tokens.
+   Deliberately pessimistic: undershooting costs a few words, overshooting
+   silently drops whatever matters least — which is what just bit us. */
+const estTokens = s =>
+  Math.ceil(String(s).trim().split(/\s+/).filter(Boolean).length * 1.35) +
+  (String(s).match(/,/g) || []).length;
+
+/* `required` is never dropped — only trimmed. An early version merely skipped any
+   segment that did not fit, which silently binned the entire subject on the long
+   UI prompts: the playmat prompt came back as style words alone and the model,
+   left with "cartoon caricature" and nothing to draw, produced a man's face
+   instead of a grass field. Optional segments are still dropped from the tail. */
+function fitPrompt(required, optional = []) {
+  const req = required.filter(Boolean).map(s => String(s).trim());
+  let used = req.reduce((n, s) => n + estTokens(s) + 1, 0);
+
+  /* over budget: trim words off the longest required segment until it fits */
+  while (used > TOKEN_BUDGET) {
+    let idx = 0;
+    for (let i = 1; i < req.length; i++) {
+      if (estTokens(req[i]) > estTokens(req[idx])) idx = i;
+    }
+    const words = req[idx].split(/\s+/);
+    if (words.length <= 4) break;                 // nothing meaningful left to cut
+    req[idx] = words.slice(0, words.length - 2).join(' ').replace(/[\s,]+$/, '');
+    used = req.reduce((n, s) => n + estTokens(s) + 1, 0);
+  }
+
+  const out = [...req];
+  for (const seg of optional) {
+    if (!seg) continue;
+    const cost = estTokens(seg) + 1;
+    if (used + cost > TOKEN_BUDGET) continue;
+    out.push(String(seg).trim());
+    used += cost;
+  }
+  return out.join(', ');
+}
+
+/* The irreducible look. Must always survive — hence first, and kept short so it
+   never crowds out the subject. No "poster"/"silkscreen": those made the model
+   render a framed print hanging on a wall rather than the artwork itself. */
+const STYLE_LEAD =
+  'funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded';
+
+/* Characters get the comedy dialled up; a playmat or a texture must not. */
+const STYLE_FUNNY = 'exaggerated goofy comic expression, humorous caricature';
+
+/* Trimmed to the bans that actually change the output. Ordered by damage done:
+   wrong medium first, then card furniture, then anatomy. */
+const NEGATIVE_SHORT = [
+  'photorealistic','photograph','3d render','oil painting',
+  'framed picture','poster on a wall','picture frame','border',
+  'monochrome','black and white','pencil sketch',
+  'text','letters','numbers','watermark','signature','logo',
+  'blurry','cluttered','deformed hands','extra fingers','bad anatomy',
+  'nsfw','nude','gore',
+].join(', ');
+
 /* Stated positively as well as in the negative — the model listens to both. */
 const ART_ONLY =
   'standalone illustration artwork only, full bleed edge to edge, ' +
@@ -282,13 +352,55 @@ function uiAssets() {
 
   add({ id:'board', file:'art/ui/board.jpg', priority:'P1', w:832, h:1216,
     out:{ w:828, h:1210, fmt:'jpg' }, kind:'env',
-    purpose:'Duel playmat, phone portrait. The 3 monster + 3 spell zones per side are drawn as CSS boxes ON TOP — do NOT generate zone rectangles or any layout.',
-    subject:'a top-down worn wooden and stone tabletop surface, aged Maltese patterned floor tiles, a soft warm pool of light in the centre, dark at the edges, completely empty flat surface, no objects, no cards, no drawn rectangles, no markings, pure background texture' });
+    purpose:'Duel playmat, phone portrait. The 5 monster + 5 spell/trap zones per side are drawn as CSS boxes ON TOP — do NOT generate zone rectangles or any layout.',
+    subject:'uniform seamless mown grass texture, even short green turf, same all over, fine blade detail, soft even sunlight, very slightly darker at the edges' });
 
   add({ id:'board-wide', file:'art/ui/board-wide.jpg', priority:'P2', w:1344, h:768,
     out:{ w:1600, h:914, fmt:'jpg' }, kind:'env',
     purpose:'Landscape playmat variant for tablet / desktop.',
-    subject:'a top-down worn wooden and stone tabletop surface, aged Maltese patterned floor tiles, warm pool of light in the centre, dark vignetted edges, completely empty, no markings' });
+    subject:'a lush green grass field seen from directly above, soft mown turf with gentle stripes, warm pool of sunlight in the centre, deep green vignetted edges, completely empty ground, no markings, no buildings' });
+
+  /* ---------- alternate playmat themes ----------
+     One unlockable field per theme. Same top-down empty-surface rule as `board`:
+     the 5+5 zone boxes are CSS on top, so the art must never contain a rectangle. */
+  const FIELDS = {
+    'board-sand':  'uniform seamless golden sand texture, fine even grain, same all over, soft light, slightly deeper amber at the edges',
+    'board-night': 'uniform seamless deep blue starfield texture, small scattered stars evenly spread, faint nebula haze, darker at the edges',
+    'board-stone': 'uniform seamless dark slate texture, fine even mineral speckle, same all over, soft sheen, darker at the edges',
+    'board-sea':   'uniform seamless turquoise water texture, small even ripples all over, soft caustic sparkle, deeper blue at the edges',
+    'board-lava':  'uniform seamless black volcanic rock texture, fine even crackle glowing faint orange, same all over, darker at the edges',
+  };
+  for (const [id, look] of Object.entries(FIELDS)) {
+    add({ id, file:`art/ui/${id}.jpg`, priority:'P1', w:832, h:1216,
+      out:{ w:828, h:1210, fmt:'jpg' }, kind:'env',
+      purpose:'Alternate duel playmat, phone portrait. Zones are CSS boxes on top — never generate rectangles or layout.',
+      /* "no path/track/edging" earns its place: the first green field came back as a
+         sports pitch ringed by a running track, which would fight the CSS zone boxes. */
+      subject:`${look}, flat overhead texture filling the whole frame, no objects` });
+  }
+
+  /* ---------- board furniture ----------
+     Deck, graveyard and banished piles sit beside the zones. Cut out on black so
+     they drop onto any of the six playmats without a background seam. */
+  add({ id:'pile-deck', file:'art/ui/pile-deck.png', priority:'P1', w:1024, h:1024, alpha:true,
+    out:{ w:512, h:512, fmt:'png' }, kind:'object',
+    subject:'a neat squared-off stack of face-down playing cards seen at a three-quarter angle, ornate dark indigo and gold patterned backs, crisp clean edges, thick black outline, isolated on pure flat black background' });
+
+  add({ id:'pile-grave', file:'art/ui/pile-grave.png', priority:'P1', w:1024, h:1024, alpha:true,
+    out:{ w:512, h:512, fmt:'png' }, kind:'object',
+    subject:'an untidy leaning stack of spent face-down cards at a three-quarter angle, corners bent and scuffed, dull grey and faded violet backs, a wisp of pale smoke curling from the top, thick black outline, isolated on pure flat black background' });
+
+  add({ id:'pile-banish', file:'art/ui/pile-banish.png', priority:'P1', w:1024, h:1024, alpha:true,
+    out:{ w:512, h:512, fmt:'png' }, kind:'object',
+    subject:'a small stack of cards at a three-quarter angle dissolving into drifting cold blue embers at its upper edge, frost pale backs, thick black outline, isolated on pure flat black background' });
+
+  add({ id:'zone-monster', file:'art/ui/zone-monster.png', priority:'P1', w:1024, h:1024, alpha:true,
+    out:{ w:400, h:560, fmt:'png' }, kind:'object',
+    subject:'an ornate empty upright rectangular card slot frame, thin engraved amber gold border with small corner flourishes and a faint crossed-swords motif centred inside, hollow and completely empty in the middle, thick black outline, isolated on pure flat black background' });
+
+  add({ id:'zone-spell', file:'art/ui/zone-spell.png', priority:'P1', w:1024, h:1024, alpha:true,
+    out:{ w:400, h:560, fmt:'png' }, kind:'object',
+    subject:'an ornate empty upright rectangular card slot frame, thin engraved emerald green border with small corner flourishes and a faint spiral rune motif centred inside, hollow and completely empty in the middle, thick black outline, isolated on pure flat black background' });
 
   add({ id:'cardback', file:'art/ui/cardback.jpg', priority:'P1', w:832, h:1216,
     out:{ w:590, h:860, fmt:'jpg' }, kind:'object',
@@ -518,16 +630,15 @@ function cardPrompt(card) {
   const { text: subject, overridden, framing } = cleanSubject(card);
   const frame = (framing && FRAMING[framing]) || type;
 
-  const prompt = [
-    `${frame.lead} ${subject}`,
-    attr.pal,
-    (framing ? framing === 'portrait' : card.t === 'monster')
-      ? rar.art : (rar.obj || rar.art),   // objects have no "pose"
-    frame.comp,
-    COMPOSITION,
-    STYLE,
-    ART_ONLY,
-  ].join(', ');
+  /* Priority order, highest first — fitPrompt drops from the tail. Style and
+     subject always survive; the rarity flourish is the first thing sacrificed. */
+  const isChar = framing ? framing === 'portrait' : card.t === 'monster';
+  const prompt = fitPrompt(
+    [ STYLE_LEAD, STYLE_FUNNY, `${frame.lead} ${subject}` ],
+    [ 'centred, generous empty margin, simple uncluttered background',
+      attr.pal,
+      isChar ? rar.art : (rar.obj || rar.art) ]   // objects have no "pose"
+  );
 
   return {
     id: card.id,
@@ -535,7 +646,7 @@ function cardPrompt(card) {
     file: `art/${card.id}.${OUT.fmt}`,
     raw:  `art/raw/${card.id}.png`,
     prompt,
-    negative: NEGATIVE,
+    negative: NEGATIVE_SHORT,
     seed: seedOf(card.id),
     width: GEN.w, height: GEN.h,
     out: { ...OUT, fit: 'cover' },
@@ -556,12 +667,12 @@ function uiPrompt(a) {
     object: 'single object centred, generous margin on all sides',
     pack:   'single product illustration centred, generous margin on all sides',
   };
-  const prompt = [
-    a.subject,
-    styleFor[a.kind] || styleFor.object,
-    STYLE,
-    ART_ONLY,
-  ].join(', ');
+  /* A playmat or a flat texture must not be told to look "goofy" — that is what
+     turned the grass field into a cartoon face. Only characters get the comedy. */
+  const prompt = fitPrompt(
+    [ STYLE_LEAD, a.kind === 'char' ? STYLE_FUNNY : null, a.subject ],
+    [ styleFor[a.kind] || styleFor.object ]
+  );
 
   return {
     id: a.id,
@@ -569,7 +680,12 @@ function uiPrompt(a) {
     file: a.file,
     raw:  `art/raw/${a.id}.png`,
     prompt,
-    negative: NEGATIVE,
+    /* Playmats keep coming back with something running through the middle — first a
+       running track around the pitch, then a path down the centre. Anything linear
+       lands exactly where the zone boxes go, so ban it explicitly. */
+    negative: a.kind === 'env'
+      ? NEGATIVE_SHORT + ', path, road, river, trail, stripe, divider, horizon, seam'
+      : NEGATIVE_SHORT,
     seed: seedOf(a.id),
     width: a.w, height: a.h,
     out: { ...a.out, fit: a.kind === 'env' ? 'cover' : 'contain', alpha: !!a.alpha },
