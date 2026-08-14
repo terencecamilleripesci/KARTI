@@ -124,6 +124,9 @@
 }
 
 
+/* pin the box model — the host page's reset must not shift card geometry */
+.card, .card *, .card *::before, .card *::after { box-sizing: border-box; }
+
 /* ───────────────────────────────────────────────────────────────────────────
    2. BASE CARD
    Every internal dimension derives from --u so a card is one number wide.
@@ -260,8 +263,13 @@
 /* ───────────────────────────────────────────────────────────────────────────
    6. ANATOMY — NAME BAR + ATTRIBUTE BADGE
    ─────────────────────────────────────────────────────────────────────────── */
+/* z-index 4 lifts the two text plates ABOVE the rarity foil (z-index 3) so a
+   passing holo band can never wash out the name or the joke. Real foil cards
+   are the same: shiny frame + art, matte text box. */
 .card__namebar {
   flex: 0 0 auto;
+  position: relative;
+  z-index: 4;
   display: flex;
   align-items: center;
   gap: calc(var(--u) * .26);
@@ -297,11 +305,13 @@
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width:  calc(var(--u) * 1.06);
-  height: calc(var(--u) * 1.06);
+  width:  calc(var(--u) * 1.12);
+  height: calc(var(--u) * 1.12);
   border-radius: 50%;
-  font-size: calc(var(--u) * .60);
+  overflow: hidden;
+  font-size: calc(var(--u) * .52);
   line-height: 1;
+  text-shadow: 0 1px 1px rgba(0,0,0,.45);
   background:
     radial-gradient(120% 120% at 32% 22%,
       color-mix(in srgb, var(--attr-lite) 70%, #fff) 0%,
@@ -429,6 +439,8 @@
    ─────────────────────────────────────────────────────────────────────────── */
 .card__panel {
   flex: 0 0 auto;
+  position: relative;
+  z-index: 4;
   display: flex;
   flex-direction: column;
   padding: calc(var(--u) * .16) calc(var(--u) * .26) calc(var(--u) * .12);
@@ -493,16 +505,16 @@
 }
 .card__rules {
   margin: calc(var(--u) * .13) 0 0;
-  min-height: calc(var(--u) * 1.55);   /* ≈2 reserved lines */
+  min-height: calc(var(--u) * 2.25);   /* 3 reserved lines */
   font-size: calc(var(--u) * .58);
   font-weight: 600;
 }
 .card__flavour {
   margin: calc(var(--u) * .16) 0 calc(var(--u) * .10);
   padding-top: calc(var(--u) * .14);
-  min-height: calc(var(--u) * 1.70);   /* ≈2 reserved lines */
+  min-height: calc(var(--u) * 2.28);   /* 3 reserved lines + hairline */
   border-top: max(1px, calc(var(--u) * .04)) dashed rgba(22,17,10,.24);
-  font-size: calc(var(--u) * .545);
+  font-size: calc(var(--u) * .52);
   font-weight: 500;
   font-style: italic;
   color: var(--ink-flavour);
@@ -555,9 +567,9 @@
 .card--spell .card__text,
 .card--trap  .card__text  { min-height: calc(var(--u) * 4.6); }
 .card--spell .card__rules,
-.card--trap  .card__rules { min-height: calc(var(--u) * 2.0); }
+.card--trap  .card__rules { min-height: calc(var(--u) * 2.60); }
 .card--spell .card__flavour,
-.card--trap  .card__flavour { min-height: calc(var(--u) * 2.2); }
+.card--trap  .card__flavour { min-height: calc(var(--u) * 2.60); }
 
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -595,9 +607,9 @@
   background:
     linear-gradient(122deg,
       rgba(255,255,255,0)   26%,
-      rgba(190,226,255,.46) 40%,
-      rgba(255,255,255,.72) 47%,
-      rgba(160,208,255,.40) 55%,
+      rgba(190,226,255,.34) 40%,
+      rgba(255,255,255,.50) 47%,
+      rgba(160,208,255,.30) 55%,
       rgba(255,255,255,0)   70%),
     linear-gradient(200deg, rgba(120,190,255,.20) 0%, rgba(120,190,255,0) 52%);
   mix-blend-mode: screen;
@@ -612,8 +624,8 @@
   background: repeating-linear-gradient(
     115deg,
     rgba(255,255,255,0)     0%,
-    rgba(214,150,255,.30)   6%,
-    rgba(255,255,255,.70)   9%,
+    rgba(214,150,255,.26)   6%,
+    rgba(255,255,255,.52)   9%,
     rgba(160,110,255,.34)  12%,
     rgba(255,255,255,0)    20%,
     rgba(255,255,255,0)    40%);
@@ -629,10 +641,10 @@
     repeating-linear-gradient(
       108deg,
       rgba(255,255,255,0)      0%,
-      rgba(255,224,130,.44)    4%,
-      rgba(255,255,255,.90)    7%,
-      rgba(140,255,220,.34)    10%,
-      rgba(255,180,120,.40)    13%,
+      rgba(255,224,130,.36)    4%,
+      rgba(255,255,255,.60)    7%,
+      rgba(140,255,220,.26)    10%,
+      rgba(255,180,120,.30)    13%,
       rgba(255,255,255,0)      19%,
       rgba(255,255,255,0)      34%),
     repeating-linear-gradient(
@@ -661,17 +673,28 @@
 }
 .card--r-legendary::after { opacity: .7; }
 
-/* rarity also lifts the name into foil text (legendary only, YGO-style) */
-.card--r-legendary .card__name {
-  color: #3A2603;
-  background: linear-gradient(96deg, #8A6410 0%, #6A4A08 18%, #C79A2A 34%,
-                                     #FFF0BE 46%, #C79A2A 58%, #6A4A08 76%, #8A6410 100%);
-  background-size: 260% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  text-shadow: none;
-  animation: karti-name-foil calc(var(--foil-legend-speed) * 1.6) linear infinite;
+/* Legendary name plate gets a travelling gold sheen.
+   NOTE: the sheen lightens the PLATE (mix-blend-mode: screen) and the name text
+   stays solid --ink-hard, so contrast only ever improves. We deliberately do NOT
+   use YGO's gold foil TEXT — clipped-gradient text drops to ~3.7:1 and fails AA
+   at .card--md size, and the joke has to be readable first. */
+.card--r-legendary .card__namebar { overflow: hidden; }
+.card--r-legendary .card__name    { position: relative; z-index: 1; }
+.card--r-legendary .card__namebar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background: linear-gradient(100deg,
+    rgba(255,255,255,0)    32%,
+    rgba(255,238,178,.55)  44%,
+    rgba(255,255,255,.80)  50%,
+    rgba(255,214,102,.50)  57%,
+    rgba(255,255,255,0)    70%);
+  background-size: 280% 100%;
+  animation: karti-name-foil calc(var(--foil-legend-speed) * 1.7) linear infinite;
 }
 
 @keyframes karti-foil-pan     { from { background-position:   0% 0%,   0% 100%; }
@@ -680,7 +703,7 @@
                                 to   { background-position: -200% 0%; } }
 @keyframes karti-glow         { 0%,100% { opacity: .38; } 50% { opacity: .85; } }
 @keyframes karti-name-foil    { from { background-position: 0% 50%; }
-                                to   { background-position: 260% 50%; } }
+                                to   { background-position: 280% 50%; } }
 
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -737,10 +760,7 @@
 .card--sm .card__gem      { width: calc(var(--u) * .56); height: calc(var(--u) * .56); }
 
 /* --lg gets a touch more air and a slightly larger reading size */
-.card--lg .card__text,
-.card--lg .card__rules,
-.card--lg .card__flavour { line-height: 1.34; }
-.card--lg .card__type  { font-size: calc(var(--u) * .47); }
+.card--lg .card__type    { font-size: calc(var(--u) * .47); }
 
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -773,14 +793,14 @@
   .card__frame::after,
   .card--r-epic::after,
   .card--r-legendary::after,
-  .card--r-legendary .card__name {
+  .card--r-legendary .card__namebar::after {
     animation: none !important;
     transition: none !important;
   }
   /* park the foils at a flattering frame so rarity still reads */
   .card--r-epic      .card__frame::after { background-position: 40% 0%; }
   .card--r-legendary .card__frame::after { background-position: 34% 0%, 60% 0%; }
-  .card--r-legendary .card__name         { background-position: 46% 50%; }
+  .card--r-legendary .card__namebar::after { background-position: 46% 50%; }
   .card--r-epic::after,
   .card--r-legendary::after              { opacity: .6; }
   .card--tap:active                      { transform: none; }

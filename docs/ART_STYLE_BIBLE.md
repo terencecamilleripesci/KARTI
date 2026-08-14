@@ -7,6 +7,36 @@ look like two different games. If you must change it, regenerate **everything**.
 
 ---
 
+# ⛔ RULE ZERO — WE GENERATE THE ART-WINDOW IMAGE ONLY. NEVER A WHOLE CARD.
+
+**No card frame. No border. No name bar. No level stars. No attribute badge.
+No ATK/DEF box. No rarity gem. No set symbol. NO TEXT OF ANY KIND.**
+
+`css/cards.css` draws the entire card in HTML **around** the art. That is a deliberate
+architectural decision, and the reason for it is:
+
+> **so we can tweak or nerf easy.**
+
+Stats, names, jokes, effects, rarity, the whole frame design — all of it must stay
+changeable **without regenerating a single image**. The instant a name or an ATK value
+is baked into a JPEG, rebalancing the game costs another GPU rental. So: art and data
+stay completely decoupled, forever.
+
+The same rule governs the UI art. We generate raw **backgrounds, textures, pack
+illustrations and portraits** — never a mock-up with a title baked in. Every piece of
+lettering in KARTI (the wordmark, button labels, "YOU WIN", pack names, currency
+amounts) is CSS text or SVG, made separately. There is deliberately **no generated
+logo**: image models cannot spell, and a misspelt wordmark inside a JPEG is unfixable.
+
+Enforced in three independent places so it cannot slip through:
+1. **positively**, in every prompt — `ART_ONLY` in `scripts/make_prompts.js`
+2. **negatively**, in the shared negative prompt — `border, frame, card frame, nameplate, stat box, level stars, rarity gem, text, …` (§7)
+3. **mechanically**, in `scripts/postprocess.py`, which only ever crops, resizes and compresses
+
+**Any generated image containing text or a frame is an automatic reject.** No exceptions.
+
+---
+
 ## 0. The one-line answer
 
 > **KARTI Poster Cartoon** — bold uniform ink outline, flat cel shading (two tones +
@@ -171,8 +201,8 @@ Outside that band is disposable padding: background, hat brims, the bottom of a 
 | **Headroom** | Leave ~12 % clear above the head and ~15 % below the chin inside the square. This is the padding the crop eats. |
 | **Scale** | Subject fills **55–70 %** of the square's height. Smaller reads as empty; larger gets its head cropped by the landscape window. |
 | **Camera** | Eye level or very slightly low. No extreme wide-angle, no dutch tilt, no fisheye. |
-| **NO TEXT** | Absolutely no lettering, signage, numbers, speech bubbles, logos, watermarks or signatures anywhere in the image. The card name and the joke are typeset by `cards.css`. Text is the #1 rejection reason. |
-| **No frame** | Do not generate a border, card frame, vignette ring or ornamental edge — `cards.css` supplies the frame and would double it. |
+| **NO TEXT** | See **RULE ZERO**. No lettering, signage, numbers, speech bubbles, logos, watermarks or signatures anywhere. The card name, stats and joke are typeset by `cards.css`. Text is the #1 rejection reason. |
+| **NO CARD** | See **RULE ZERO**. No border, card frame, nameplate, stat box, level stars, rarity gem or ornamental edge. We are painting the picture that goes *inside* the window, not the card. |
 
 **Faces.** Caricatured, warm, expressive, big features. Never a recognisable real
 person. Never a public figure — for `belt` (CITY) cards about politicians, render a

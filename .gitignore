@@ -1,0 +1,14 @@
+# Raw 1024px generations straight off the RunPod GPU (~1.5 MB each, ~350 MB total).
+# Working files only — postprocess.py turns these into the shipped art/*.jpg and
+# art/ui/*. Never commit them: GitHub Pages has a 100 MB soft limit.
+art/raw/
+
+# python
+__pycache__/
+*.pyc
+
+# temporary headless UI test pages (see webclients/CLAUDE.md)
+_*.html
+art/*.png
+art/raw/
+art/prompts.jsonl
