@@ -424,8 +424,24 @@ const MECHANIC_RE = new RegExp(
   'draw|draws|effect|taunt|gains?|loses?|target|phase|player|monster|card|cards|' +
   'this|copy|copies|once|instead|activate)\\b', 'i');
 
+/* A monster is not always a person — "The Sign Facing The Wall" and "Ticket Number 84"
+   are objects, and a chest-up portrait of a ticket is nonsense. An override may declare
+   its own framing: {s:'...', framing:'portrait'|'object'|'scene'}. */
+const FRAMING = {
+  portrait: { lead:'chest-up three-quarter caricature portrait of',
+              comp:'single character centred, eyeline at 45 percent from the top, big expressive features' },
+  object:   { lead:'a single hero object,',
+              comp:'one object centred, slight low angle, clean empty background' },
+  scene:    { lead:'a single wide comic moment,',
+              comp:'one clear focal point, staged like a stage set, clean empty background' },
+};
+
 function cleanSubject(card) {
-  if (SUBJECT_OVERRIDES[card.id]) return { text: SUBJECT_OVERRIDES[card.id], overridden: true };
+  const ov = SUBJECT_OVERRIDES[card.id];
+  if (ov) {
+    const text = typeof ov === 'string' ? ov : ov.s;
+    return { text, overridden: true, framing: typeof ov === 'string' ? null : ov.framing };
+  }
 
   let name = card.n || card.id;
   if (name === name.toUpperCase()) name = name.toLowerCase();   // "THE KUNJATA" → "the kunjata"
@@ -441,8 +457,16 @@ function cleanSubject(card) {
     .trim();
 
   let text = hint ? `${name}, ${hint.toLowerCase()}` : name;
+  /* Cut at a clause boundary, never mid-sentence: a dangling "...it is now daylight and"
+     gives the model a fragment to illustrate and it draws nothing coherent. */
   const words = text.split(/\s+/);
-  if (words.length > 20) text = words.slice(0, 20).join(' ');
+  if (words.length > 20) {
+    const kept = words.slice(0, 20).join(' ');
+    const clause = kept.lastIndexOf(',');
+    text = clause > 12 ? kept.slice(0, clause) : kept;
+  }
+  text = text.replace(/[\s,]+(and|or|but|the|a|an|of|on|in|to|is|was|it|that|with)$/i, '')
+             .replace(/[\s,]+$/, '');
   return { text, overridden: false };
 }
 
@@ -463,13 +487,15 @@ function cardPrompt(card) {
   const type  = TYPE_ART[card.t] || TYPE_ART.monster;
   const attr  = card.f ? ATTR_ART[card.f] : (NOATTR_ART[card.t] || NOATTR_ART.spell);
   const rar   = RARITY_ART[card.r] || RARITY_ART.komuni;
-  const { text: subject, overridden } = cleanSubject(card);
+  const { text: subject, overridden, framing } = cleanSubject(card);
+  const frame = (framing && FRAMING[framing]) || type;
 
   const prompt = [
-    `${type.lead} ${subject}`,
+    `${frame.lead} ${subject}`,
     attr.pal,
-    card.t === 'monster' ? rar.art : (rar.obj || rar.art),   // objects have no "pose"
-    type.comp,
+    (framing ? framing === 'portrait' : card.t === 'monster')
+      ? rar.art : (rar.obj || rar.art),   // objects have no "pose"
+    frame.comp,
     COMPOSITION,
     STYLE,
     ART_ONLY,

@@ -289,7 +289,8 @@ function cardEl(card, opts){
   d.innerHTML =
     '<div class="in">' +
       '<div class="hd"><span class="nm">' + esc(card.n) + '</span><span class="at">' + attrE + '</span></div>' +
-      '<div class="lv">' + (isMon ? stars(card.lvl) : '') + '</div>' +
+      '<div class="lv"><span class="ty">' + esc(typeName(card)) + '</span>' +
+        '<span class="sr">' + (isMon ? stars(card.lvl) : '') + '</span></div>' +
       '<div class="art"><span>' + esc(card.e) + '</span></div>' +
       '<div class="tx">' + esc(card.txt) + '</div>' +
       '<div class="ef">' + esc(effText(card)) + '</div>' +
@@ -299,7 +300,6 @@ function cardEl(card, opts){
         : '<div class="st" style="justify-content:center"><b style="color:var(--fc)">' +
           esc(card.t.toUpperCase()) + '</b></div>') +
       '<span class="gem"></span>' +
-      '<span class="typ">' + esc(typeName(card)) + '</span>' +
     '</div>';
   return d;
 }
