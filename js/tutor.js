@@ -21,7 +21,9 @@ const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const pause = ms => new Promise(r => setTimeout(r, REDUCED ? Math.min(ms, 30) : ms));
 const slow  = ms => REDUCED ? Math.min(ms, 40) : ms;
 
-const COACH = { e:'👴', n:'ZIJU ĊENSU' };
+const COACH = { i:'coach', n:'ZIJU ĊENSU' };
+const ico = (n, label, cls) => (window.ICO ? window.ICO(n, label, cls) : '');
+const ilb = (n, html, cls) => (window.ILB ? window.ILB(n, html, cls) : html);
 const FOE_NAME = 'IL-PUPAZZ';
 
 /* ── runtime state ── */
@@ -91,9 +93,9 @@ function ringHTML(hi){
     const a = K.ATTR[f] || { n:f, e:'?', c:'#888' };
     const on = hi && hi.indexOf(f) >= 0;
     return '<span class="tut-node' + (on ? ' on' : '') + '" style="--nc:' + a.c + '">' +
-             a.e + ' ' + esc(a.n) + '</span>' +
+             ico(K.ATTR_ICON[f]) + ' ' + esc(a.n) + '</span>' +
            (i < chain.length - 1 ? '<span class="tut-arw">›</span>' : '');
-  }).join('') + '<span class="tut-arw">↩</span></div>' +
+  }).join('') + '<span class="tut-arw">' + ico('refresh', 'and back to the start') + '</span></div>' +
   '<p class="tut-note">Each one beats the next, and the last loops back to ' + esc(head.n) +
   '. Attack the side you <b>beat</b> and that monster swings at <b>+' + K.COUNTER_BONUS +
   ' ATK</b>, for free.</p>';
@@ -149,7 +151,7 @@ const STEPS = [
 /* 3 ──────────────────────────────────────────────── normal summon */
 {
   t:'Is-sejħa — summon a monster',
-  say:'Tap the card in your hand, pick <b>⚔️ Summon face-up (ATK)</b>, then tap an empty monster zone. ' +
+  say:'Tap the card in your hand, pick <b>Summon face-up (ATK)</b>, then tap an empty monster zone. ' +
       'And listen to me: <b>one normal summon per turn</b>. One. Not two, not "just one more, ħi".',
   ok:'Ara. Level 4 and under walks on for nothing.',
   setup(){
@@ -203,7 +205,7 @@ const STEPS = [
 {
   t:'Id-difiża — set one face-down',
   say:'Not everything has to stand there with its chest out. Tap the Carnival Float and pick ' +
-      '<b>🛡️ Set face-down (DEF)</b>. Face-down means they cannot see what it is, and it defends with ' +
+      '<b>Set face-down (DEF)</b>. Face-down means they cannot see what it is, and it defends with ' +
       'its <b>DEF</b> number instead of its ATK. You may flip it or turn it round on a <b>later</b> ' +
       'turn — never the turn it lands.',
   ok:'Sitting there quietly, like your uncle at a wedding.',
@@ -250,7 +252,7 @@ const STEPS = [
 {
   t:'Is-seħer — cast a spell',
   say:'Spells are the opposite animal: they fire <b>straight out of your hand, on your turn</b>, do the ' +
-      'job and go to the graveyard. No waiting, no sulking. Tap Strong Coffee and hit <b>✨ Activate</b>. ' +
+      'job and go to the graveyard. No waiting, no sulking. Tap Strong Coffee and hit <b>Activate</b>. ' +
       'Two cards. Sleep is for other people.',
   ok:'Two cards richer and it is not even six in the morning.',
   setup(){
@@ -292,7 +294,7 @@ const STEPS = [
 /* 9 ────────────────────────────────────────────── flip / switch pos */
 {
   t:'Iddur — flip it, or turn it round',
-  say:'New turn, so that face-down card can finally move. Tap it and pick <b>🔄 Flip face-up (ATK)</b>. ' +
+  say:'New turn, so that face-down card can finally move. Tap it and pick <b>Flip face-up (ATK)</b>. ' +
       'The same tap swaps a monster between <b>ATTACK</b> and <b>DEFENCE</b> — any turn except the one it ' +
       'arrived on, and never after it has swung.',
   ok:'Up it comes. Chest out.',
@@ -320,7 +322,7 @@ const STEPS = [
 /* 10 ─────────────────────────────────────────── battle: you're bigger */
 {
   t:'Il-battalja — bigger ATK wins',
-  say:'Press <b>⚔️ To battle</b>, tap your monster, then tap theirs. Your <b>1900</b> against their ' +
+  say:'Press <b>To battle</b>, tap your monster, then tap theirs. Your <b>1900</b> against their ' +
       '<b>1600</b>: their monster dies and the <b>difference — 300 —</b> comes straight off their life ' +
       'points. That is the whole game, over and over, until somebody cries.',
   ok:'Dead, and 300 off the top. Bravu.',
@@ -361,7 +363,7 @@ const STEPS = [
   t:'Daqqa diretta — straight at them',
   say:'Nothing on their side. Nothing in the way. When they have <b>no monsters</b> your monster walks ' +
       'straight past and hits them in the life points for its <b>full ATK</b>. Tap your monster, then ' +
-      '<b>💥 Attack directly</b>.',
+      '<b>Attack directly</b>.',
   ok:'1900 off the top, no argument, no monster to blame.',
   delay:1400,
   setup(){ battleSetup([{ cid:'kavallier' }], [], 'battle'); },
@@ -395,7 +397,7 @@ const STEPS = [
 {
   t:'Aqtagħhielhom — finish the job',
   say:'They are down to <b>700</b> and there is nothing left standing. You know exactly what to do now. ' +
-      'Tap your monster, <b>💥 Attack directly</b>, and let us both go home.',
+      'Tap your monster, <b>Attack directly</b>, and let us both go home.',
   delay:500,
   setup(){
     battleSetup([{ cid:'kavallier' }], [], 'battle');
@@ -521,7 +523,13 @@ function injectCSS(){
 '.tut-list{display:grid;gap:6px;margin:10px 0 14px;padding:0}',
 '.tut-list li{list-style:none;font-size:12.5px;color:var(--dim);line-height:1.4;background:var(--panel);',
 '  border:1px solid var(--line);border-radius:11px;padding:8px 10px}',
-'.tut-list li b{color:var(--txt)}'
+'.tut-list li b{color:var(--txt)}',
+/* the coach and the ring are icons now, not emoji — give them a little air */
+'.tut-node .ico{font-size:1.45em;vertical-align:-.26em;margin-right:1px}',
+'.tut-arw .ico{font-size:12px;vertical-align:-.18em}',
+'.tut-skip .ico{font-size:1.15em;vertical-align:-.18em;margin-left:2px}',
+'.tut-nudge .ico,.tut-say .ico{font-size:1.15em;vertical-align:-.18em}',
+'.tut-hero .f .ico,.tut-face .ico{color:var(--gold)}'
   ].join('\n');
   document.head.appendChild(st);
 }
@@ -552,10 +560,10 @@ function renderPanel(){
     '<div class="tut-panel">' +
       '<div class="tut-head">' +
         '<div class="tut-top">' +
-          '<span class="tut-face" aria-hidden="true">' + COACH.e + '</span>' +
+          '<span class="tut-face" aria-hidden="true">' + ico(COACH.i) + '</span>' +
           '<span class="tut-who">' + esc(COACH.n) + '</span>' +
           '<span class="tut-count" id="tut-count">STEP ' + (si + 1) + ' / ' + STEPS.length + '</span>' +
-          '<button class="tut-skip" id="tut-skip" type="button">Skip ✕</button>' +
+          '<button class="tut-skip" id="tut-skip" type="button">Skip ' + ico('close') + '</button>' +
         '</div>' +
         '<div class="tut-prog"><i style="transform:scaleX(' +
           ((si + 1) / STEPS.length).toFixed(3) + ')"></i></div>' +
@@ -606,7 +614,7 @@ function measure(){
 function coachSay(msg, good){
   const el = $('#tut-say');
   if (!el) return;
-  el.innerHTML = (good ? '✅ ' : '') + msg;
+  el.innerHTML = (good ? ico('check', 'Done') + ' ' : '') + msg;
   el.classList.toggle('good', !!good);
   const ex = $('#tut-extra'); if (ex && good) ex.innerHTML = '';
   const nd = $('#tut-nudge'); if (nd){ nd.hidden = true; nd.textContent = ''; }
@@ -618,7 +626,7 @@ function nudge(msg){
   if (msg === nudgeMsg && now - nudgeAt < 7000) return;
   nudgeMsg = msg; nudgeAt = now;
   const nd = $('#tut-nudge');
-  if (nd){ nd.textContent = '👉 ' + msg; nd.hidden = false; measure(); }
+  if (nd){ nd.innerHTML = ico('arrow-right') + ' ' + esc(msg); nd.hidden = false; measure(); }
   K.toast(msg);
 }
 
@@ -746,18 +754,19 @@ function finishScreen(){
       '<p class="tiny">Tutorial finished</p>' +
     '</div>' +
     '<div style="display:flex;gap:9px;align-items:flex-start;margin-top:12px">' +
-      '<span style="font-size:30px;line-height:1" aria-hidden="true">' + COACH.e + '</span>' +
+      '<span style="font-size:30px;line-height:1" aria-hidden="true">' + ico(COACH.i) + '</span>' +
       '<p class="blurb" style="margin:0">“That is the lot. Summon, tribute, defend, set a trap, cast a ' +
       'spell, count the numbers <b>before</b> you swing, and keep an eye on the ring. You are still going ' +
       'to lose — but from now on you will know exactly why, and so will everybody else.”</p>' +
     '</div>' +
     '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px">' +
-      '<span class="pill">✅ ' + STEPS.length + '/' + STEPS.length + ' steps</span>' +
-      '<span class="pill">👴 ' + esc(COACH.n) + ' approves</span>' +
+      '<span class="pill">' + ico('check') + STEPS.length + '/' + STEPS.length + ' steps</span>' +
+      '<span class="pill">' + ico(COACH.i) + esc(COACH.n) + ' approves</span>' +
     '</div>' +
     '<div style="display:grid;gap:9px;margin-top:14px">' +
       '<button class="btn hot" id="tut-fin" type="button">Ejja, let me play</button>' +
-      '<button class="btn ghost" id="tut-redo" type="button">↻ Run it again</button>' +
+      '<button class="btn ghost" id="tut-redo" type="button">' +
+        ilb('refresh', 'Run it again') + '</button>' +
     '</div>');
   const f = $('#tut-fin');
   if (f) f.onclick = () => { K.closeModal(); teardown(); done(); };
@@ -844,12 +853,12 @@ function open(){
       '<button class="iconbtn" id="tut-back" aria-label="Back to home">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
       '<h2>How To Play</h2>' +
-      (isDone() ? '<span class="pill">✅ done</span>'
+      (isDone() ? '<span class="pill">' + ico('check') + 'done</span>'
                 : '<span class="pill">' + STEPS.length + ' steps</span>') +
     '</div>' +
     '<div class="scroll">' +
       '<div class="tut-hero">' +
-        '<div class="f" aria-hidden="true">' + COACH.e + '</div>' +
+        '<div class="f" aria-hidden="true">' + ico(COACH.i) + '</div>' +
         '<div class="s">' + esc(COACH.n) + ' WILL SHOW YOU</div>' +
         '<h3>Nobody reads the rules</h3>' +
       '</div>' +
@@ -866,7 +875,7 @@ function open(){
       ringHTML(null) +
       '<div style="display:grid;gap:9px;margin:16px 0 24px">' +
         '<button class="btn hot" id="tut-go" type="button">' +
-          (isDone() ? '↻ Run it again' : '▶ Start the tutorial') + '</button>' +
+          (isDone() ? ilb('refresh', 'Run it again') : ilb('play', 'Start the tutorial')) + '</button>' +
         '<button class="btn ghost" id="tut-home" type="button">Not now</button>' +
       '</div>' +
     '</div>';
@@ -897,7 +906,7 @@ function wire(){
   b.className = 'btn ghost sm';
   b.id = 'btn-tutor';
   b.type = 'button';
-  b.innerHTML = '📖 How to play';
+  b.innerHTML = ilb('book', 'How to play');
   b.onclick = open;
   host.appendChild(b);
 }

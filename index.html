@@ -50,6 +50,23 @@ input{font-family:inherit}
 h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .mono{font-variant-numeric:tabular-nums}
 
+/* ══════════════════ ICONS ══════════════════
+   One inline SVG sprite sits at the top of <body> (source: icons/sprite.svg).
+   Every glyph is drawn on a 24x24 grid in currentColor, so an icon simply takes
+   the colour of the text around it and scales with font-size — no emoji font,
+   no raster, nothing to download. `.ico` deliberately does NOT set fill/stroke:
+   those live on the <symbol> as presentation attributes so the solid marks
+   (rarities, sparks, blades) keep their fills. */
+.ico{width:1em;height:1em;flex:0 0 auto;display:inline-block;vertical-align:-.14em}
+/* icon + label inside a .btn: .btn is a column flexbox, so the pair has to be
+   wrapped or the icon lands on its own line above the words */
+.bl{display:inline-flex;align-items:center;justify-content:center;gap:.55em;line-height:1.15}
+.pill .ico,.chip .ico,.badge .ico,.tag .ico,.sumitem .ico{font-size:1.25em}
+.btn .ico{font-size:1.3em}
+.btn.sm .ico{font-size:1.35em}
+.dhead .ico,.seg2 .ico,.segwrap .ico{font-size:1.25em}
+.tag .ico{vertical-align:-.18em}
+
 /* ══════════════════ SHELL ══════════════════ */
 #app{position:fixed;inset:0;overflow:hidden}
 .screen{
@@ -98,6 +115,10 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .field{width:100%;min-height:48px;background:var(--panel);border:1px solid var(--line);border-radius:12px;
   padding:0 14px;color:var(--txt);font-size:16px}
 .field::placeholder{color:var(--dim2)}
+.searchwrap{position:relative;flex:0 0 auto}
+.searchwrap>.ico{position:absolute;left:13px;top:50%;transform:translateY(-50%);font-size:17px;
+  color:var(--dim2);pointer-events:none}
+.searchwrap .field{padding-left:39px}
 .muted{color:var(--dim);font-size:13px}
 .tiny{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--dim2);font-weight:700}
 .err{color:var(--bad);font-size:12.5px;font-weight:700;min-height:18px;margin:4px 0 0}
@@ -125,11 +146,21 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .card .nm{font-family:var(--disp);font-weight:700;font-size:.9em;line-height:1.04;flex:1;
   letter-spacing:-.01em;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
   min-height:2.08em;text-shadow:0 1px 2px #000}
-.card .at{font-size:1em;filter:drop-shadow(0 0 3px var(--fc))}
+/* the attribute mark. Kept in the text colour with a faction-coloured glow —
+   painting it in var(--fc) itself makes TROUBLE (#37474F) vanish on a dark card. */
+.card .at{display:flex;align-items:center;font-size:1.2em;line-height:1;
+  filter:drop-shadow(0 0 3px var(--fc)) drop-shadow(0 1px 1px rgba(0,0,0,.85))}
+/* on the 46px pool-row card 1em is barely 4px — the two marks get a hard floor
+   so they never shrink into an unreadable speck */
+.card .at .ico{min-width:7.5px;min-height:7.5px}
 .card .lv{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;gap:.3em;
   padding:.05em .5em 0;font-size:.68em;min-height:1.25em;overflow:hidden}
 .card .lv .ty{font-size:.86em;letter-spacing:.1em;font-weight:800;color:#000;background:var(--fc);
-  padding:.1em .5em;border-radius:99px;text-transform:uppercase;white-space:nowrap;flex:0 0 auto}
+  padding:.1em .5em;border-radius:99px;text-transform:uppercase;white-space:nowrap;flex:0 0 auto;
+  display:inline-flex;align-items:center;gap:.32em}
+/* the type mark only earns its place on the big card — at .sm the pill text is
+   already under 7px and an icon next to it is just noise */
+.card:not(.lg) .lv .ty .ico{display:none}
 .card .lv .sr{color:var(--gold);text-shadow:0 0 4px rgba(255,197,66,.8);letter-spacing:-.06em;
   margin-left:auto;white-space:nowrap;overflow:hidden}
 .card.xs .lv .ty,.card.sm .lv .ty{display:none}
@@ -156,8 +187,12 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .card .st b{color:#FF8A65}
 .card .st i{color:#5CC8FF;font-style:normal}
 .card .st .lbl{opacity:.55;font-size:.8em}
-.card .gem{position:absolute;top:calc(var(--cw)*.055);left:calc(var(--cw)*.055);width:.8em;height:.8em;
-  border-radius:50%;background:var(--rc);box-shadow:0 0 7px var(--rc),inset 0 1px 2px rgba(255,255,255,.85);z-index:3}
+/* rarity mark — a solid silhouette (dot / diamond / gem / crown) in the rarity
+   colour. Solid on purpose: it still reads at the 5px it gets on an .xs card. */
+.card .gem{position:absolute;top:calc(var(--cw)*.05);left:calc(var(--cw)*.05);width:1em;height:1em;
+  min-width:7.5px;min-height:7.5px;display:grid;place-items:center;color:var(--rc);z-index:3;
+  filter:drop-shadow(0 0 4px var(--rc)) drop-shadow(0 1px 1px rgba(0,0,0,.85))}
+.card .gem .ico{width:100%;height:100%}
 .card.holo .in::after{
   content:'';position:absolute;inset:0;pointer-events:none;mix-blend-mode:color-dodge;opacity:.4;
   background:linear-gradient(115deg,transparent 22%,rgba(255,120,255,.55) 36%,rgba(120,255,255,.55) 44%,
@@ -489,6 +524,294 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
 </style>
 </head>
 <body>
+
+<!-- ═══ ICON SPRITE ═══
+     Inlined once, verbatim, from icons/sprite.svg (that file is the source of
+     truth — keep the two identical). Inline rather than fetched so the icons
+     are up before the first paint and work with no network at all. -->
+<!--SPRITE-->
+<svg xmlns="http://www.w3.org/2000/svg" id="karti-sprite" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+<!-- ═══════════════════════════════════════════════════════════════════
+     KARTI icon set — drawn by hand on a 24x24 grid, 2px round strokes,
+     one weight across the whole set, legible down to 14px on a dark
+     background. Single colour: everything is currentColor, so the
+     faction colours / gold / rarity colours drive them from CSS.
+     No emoji, no icon font, no network — <use href="#i-NAME"> only.
+     Stroke + fill live on each <symbol> as PRESENTATION ATTRIBUTES on
+     purpose: a CSS rule on .ico would otherwise beat any per-path
+     override and flatten every solid shape.
+     This file is the source of truth; the identical markup is inlined
+     once into index.html, between the SPRITE marker comments.
+     ═══════════════════════════════════════════════════════════════════ -->
+<defs>
+
+<!-- ───────── ATTRIBUTES / FACTIONS ───────── -->
+
+<!-- FESTA — the village petard going off at 3am. Loud, fast, everywhere. -->
+<symbol id="i-attr-festa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+  <path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4"/>
+  <path d="M4.8 4.8l2.4 2.4M16.8 16.8l2.4 2.4M19.2 4.8l-2.4 2.4M7.2 16.8l-2.4 2.4"/>
+</symbol>
+
+<!-- FARM (razzett) — an ear of wheat. Slow, heavy, feeds the whole village. -->
+<symbol id="i-attr-razzett" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 22V6.2"/>
+  <g fill="currentColor" stroke="none">
+    <path d="M12 3.4c1.25 1.6 1.25 3.9 0 5.5-1.25-1.6-1.25-3.9 0-5.5z"/>
+    <path d="M11.2 12.6c-2.7 0-4.4-1.8-4.4-4.4 2.7 0 4.4 1.8 4.4 4.4z"/>
+    <path d="M12.8 12.6c2.7 0 4.4-1.8 4.4-4.4-2.7 0-4.4 1.8-4.4 4.4z"/>
+    <path d="M11.2 17.6c-2.7 0-4.4-1.8-4.4-4.4 2.7 0 4.4 1.8 4.4 4.4z"/>
+    <path d="M12.8 17.6c2.7 0 4.4-1.8 4.4-4.4-2.7 0-4.4 1.8-4.4 4.4z"/>
+  </g>
+</symbol>
+
+<!-- CITY (belt) — bastion wall, three merlons and an arched gate. -->
+<symbol id="i-attr-belt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5 21V7h2.5v2.2h3V7h3v2.2h3V7H19v14"/>
+  <path d="M3 21h18"/>
+  <path d="M9.7 21v-4.4a2.3 2.3 0 0 1 4.6 0V21"/>
+</symbol>
+
+<!-- SEA (baħar) — three rolling swells. -->
+<symbol id="i-attr-bahar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.5 7.6c1.6-1.9 3.7-1.9 5.3 0s3.7 1.9 5.3 0 3.7-1.9 5.3 0"/>
+  <path d="M2.5 12.4c1.6-1.9 3.7-1.9 5.3 0s3.7 1.9 5.3 0 3.7-1.9 5.3 0"/>
+  <path d="M2.5 17.2c1.6-1.9 3.7-1.9 5.3 0s3.7 1.9 5.3 0 3.7-1.9 5.3 0"/>
+</symbol>
+
+<!-- TROUBLE (ħażen) — horns, slit eyes, and a grin you will regret. -->
+<symbol id="i-attr-hazen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7.3 8.6C5.9 7.1 5.1 5 5.1 2.9c2.2.5 4.1 1.9 5.1 3.8"/>
+  <path d="M16.7 8.6c1.4-1.5 2.2-3.6 2.2-5.7-2.2.5-4.1 1.9-5.1 3.8"/>
+  <path d="M12 7.4a5.6 5.6 0 0 1 5.6 5.6v1.4a5.6 5.6 0 0 1-11.2 0V13A5.6 5.6 0 0 1 12 7.4z"/>
+  <path d="M9.2 12.6h1.6M13.2 12.6h1.6"/>
+  <path d="M9.4 16.4c.8.8 1.7 1.2 2.6 1.2s1.8-.4 2.6-1.2"/>
+</symbol>
+
+<!-- ───────── CARD TYPES ───────── -->
+
+<!-- MONSTER — crossed swords. -->
+<symbol id="i-type-monster" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <g transform="rotate(-30 12 13)">
+    <path fill="currentColor" stroke="none" d="M12 2.4l1.8 3v8.1h-3.6V5.4z"/>
+    <path d="M9.1 14.9h5.8M12 14.9v4"/>
+  </g>
+  <g transform="rotate(30 12 13)">
+    <path fill="currentColor" stroke="none" d="M12 2.4l1.8 3v8.1h-3.6V5.4z"/>
+    <path d="M9.1 14.9h5.8M12 14.9v4"/>
+  </g>
+</symbol>
+
+<!-- SPELL — a wand throwing a spark. -->
+<symbol id="i-type-spell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.6 20.4L13.4 10.6"/>
+  <path d="M10.4 13.6l2.4 2.4" stroke-width="1.5"/>
+  <path fill="currentColor" stroke="none" d="M16.9 3.4c.55 2.85 1.4 3.7 4.25 4.25-2.85.55-3.7 1.4-4.25 4.25-.55-2.85-1.4-3.7-4.25-4.25 2.85-.55 3.7-1.4 4.25-4.25z"/>
+  <path fill="currentColor" stroke="none" d="M20.4 13.4c.27 1.4.68 1.81 2.08 2.08-1.4.27-1.81.68-2.08 2.08-.27-1.4-.68-1.81-2.08-2.08 1.4-.27 1.81-.68 2.08-2.08z"/>
+</symbol>
+
+<!-- TRAP — jaws that shut the moment you step in. -->
+<symbol id="i-type-trap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.2 9.6a9.6 9.6 0 0 1 17.6 0"/>
+  <path d="M3.2 14.4a9.6 9.6 0 0 0 17.6 0"/>
+  <path d="M6.6 10.5l2.7 3 2.7-3 2.7 3 2.7-3"/>
+</symbol>
+
+<!-- ───────── RARITIES — solid marks, they survive down to 6px ───────── -->
+<symbol id="i-rar-komuni" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <circle cx="12" cy="12" r="5.6"/>
+</symbol>
+<symbol id="i-rar-rari" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 4.2l7.8 7.8-7.8 7.8L4.2 12z"/>
+</symbol>
+<symbol id="i-rar-epiku" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M7 3.6h10l4.4 6.2L12 21.4 2.6 9.8z"/>
+</symbol>
+<symbol id="i-rar-leggendarju" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M2.4 6.6l4.7 4L12 3.4l4.9 7.2 4.7-4-2 13H4.4z"/>
+</symbol>
+
+<!-- ───────── WALLET / ECONOMY ───────── -->
+<symbol id="i-coin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="8.6"/>
+  <circle cx="12" cy="12" r="4.4"/>
+</symbol>
+<symbol id="i-dust" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M9.6 2.8c.75 3.85 1.85 4.95 5.7 5.7-3.85.75-4.95 1.85-5.7 5.7-.75-3.85-1.85-4.95-5.7-5.7 3.85-.75 4.95-1.85 5.7-5.7z"/>
+  <path d="M17.8 12.4c.4 2.1 1 2.7 3.1 3.1-2.1.4-2.7 1-3.1 3.1-.4-2.1-1-2.7-3.1-3.1 2.1-.4 2.7-1 3.1-3.1z"/>
+  <path d="M8 16.6c.3 1.55.75 2 2.3 2.3-1.55.3-2 .75-2.3 2.3-.3-1.55-.75-2-2.3-2.3 1.55-.3 2-.75 2.3-2.3z"/>
+</symbol>
+<symbol id="i-pack" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 10.4h16v9.2a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 19.6z"/>
+  <path d="M2.6 6.6h18.8v3.8H2.6z"/>
+  <path d="M12 6.6v14.8"/>
+  <path d="M12 6.6C10.3 6.6 7.6 6.2 7.6 4.3S11 3.1 12 6.6zM12 6.6c1.7 0 4.4-.4 4.4-2.3S13 3.1 12 6.6z"/>
+</symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7 3.4h10v5a5 5 0 0 1-10 0z"/>
+  <path d="M7 5.2H3.8v1.6A3.6 3.6 0 0 0 7.4 10.4"/>
+  <path d="M17 5.2h3.2v1.6a3.6 3.6 0 0 1-3.6 3.6"/>
+  <path d="M12 13.4v3.8M8.2 21h7.6M9.6 17.2h4.8"/>
+</symbol>
+
+<!-- ───────── NAVIGATION / CHROME ───────── -->
+<symbol id="i-cards" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7.6 19.9L4.5 9.3a1.9 1.9 0 0 1 1.3-2.4l3.4-1"/>
+  <rect x="9.4" y="3.3" width="10.8" height="17.4" rx="2.2"/>
+</symbol>
+<symbol id="i-deck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2.8l9 4.5-9 4.5-9-4.5z"/>
+  <path d="M3 12.2l9 4.5 9-4.5"/>
+  <path d="M3 16.9l9 4.5 9-4.5"/>
+</symbol>
+<symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 6.6C10 5 7.5 4.4 3.6 4.4v13.2c3.9 0 6.4.6 8.4 2.2 2-1.6 4.5-2.2 8.4-2.2V4.4C16.5 4.4 14 5 12 6.6z"/>
+  <path d="M12 6.6v13.2"/>
+</symbol>
+<symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9 3.4L3 6v14.6l6-2.6 6 2.6 6-2.6V3.4L15 6z"/>
+  <path d="M9 3.4V18M15 6v14.6"/>
+</symbol>
+<symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M15.4 20.6v-1.7a4.3 4.3 0 0 0-4.3-4.3H6.5a4.3 4.3 0 0 0-4.3 4.3v1.7"/>
+  <circle cx="8.8" cy="7" r="3.6"/>
+  <path d="M16.6 3.6a3.6 3.6 0 0 1 0 6.8"/>
+  <path d="M21.8 20.6v-1.7a4.3 4.3 0 0 0-3.2-4.1"/>
+</symbol>
+<symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M15 18l-6-6 6-6"/>
+</symbol>
+<symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8"/>
+</symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.6 15.6l4.8 4.8"/>
+</symbol>
+<symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="4.4" y="10.4" width="15.2" height="10.2" rx="2.6"/>
+  <path d="M7.8 10.4V7.6a4.2 4.2 0 0 1 8.4 0v2.8"/>
+</symbol>
+<symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 7h16M4 12h16M4 17h10"/>
+</symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.6 12.6l4.9 4.9 9.9-11"/>
+</symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M20.4 12a8.4 8.4 0 1 1-2.86-6.32"/>
+  <path d="M20.4 3.4v5.6h-5.6"/>
+</symbol>
+<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 4.6v14.8M4.6 12h14.8"/>
+</symbol>
+<symbol id="i-play" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M6.8 3.8L20.2 12 6.8 20.2z"/>
+</symbol>
+<symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.6 4.6h11.2l3.6 3.6v11.2H4.6z"/>
+  <path d="M8.2 4.6v4.8h6.6V4.6M8.2 19.4v-5.6h7.6v5.6"/>
+</symbol>
+<symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 3.2l9.6 16.4H2.4z"/>
+  <path d="M12 9.6v4.2"/>
+  <circle cx="12" cy="16.9" r="1.05" fill="currentColor" stroke="none"/>
+</symbol>
+<symbol id="i-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5.2 21.4V3"/>
+  <path d="M5.2 4.4h11.6l-2.2 4 2.2 4H5.2z"/>
+</symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 12h14.4M13 6.6l5.4 5.4-5.4 5.4"/>
+</symbol>
+<symbol id="i-star" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 2.6l2.9 6.2 6.7.85-4.95 4.65 1.3 6.7L12 17.7l-5.95 3.3 1.3-6.7L2.4 9.65l6.7-.85z"/>
+</symbol>
+<symbol id="i-coach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="13.4" r="5.8"/>
+  <path d="M5.2 9.4C6.3 6.2 8.9 4.4 12 4.4s5.7 1.8 6.8 5z"/>
+  <path d="M9 15.2c1 .9 2 1 3 1s2-.1 3-1"/>
+  <path d="M9.9 11.6h.9M13.2 11.6h.9" stroke-width="1.6"/>
+</symbol>
+
+<!-- ───────── DUEL BOARD ───────── -->
+<symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2.6l7.8 3.1v6.1c0 4.7-3.1 8.3-7.8 9.6-4.7-1.3-7.8-4.9-7.8-9.6V5.7z"/>
+</symbol>
+<symbol id="i-grave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5.6 21.4V11a6.4 6.4 0 0 1 12.8 0v10.4z"/>
+  <path d="M12 7.8v7.2M9 11.1h6"/>
+</symbol>
+<symbol id="i-pile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3.6" y="15.4" width="16.8" height="4.6" rx="1.6"/>
+  <rect x="5.2" y="9.7" width="13.6" height="4.6" rx="1.6"/>
+  <rect x="6.8" y="4" width="10.4" height="4.6" rx="1.6"/>
+</symbol>
+<symbol id="i-bolt" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M13.6 1.8L4 13.4h6.2L9.6 22.2 19.6 10.4h-6.4z"/>
+</symbol>
+<symbol id="i-impact" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 1.6l3 5.9 6.4-1.5-3 5.9 3 5.9-6.4-1.5-3 5.9-3-5.9L3 19.7l3-5.9-3-5.9 6 1.5z"/>
+</symbol>
+<symbol id="i-bomb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="11" cy="15.6" r="6.2"/>
+  <path d="M11 9.4V7.2" stroke-width="2.6"/>
+  <path d="M11 7.2c0-1.9 1.8-3.2 4.2-3.4"/>
+  <path fill="currentColor" stroke="none" d="M19.6 1.4c.42 2.2 1.04 2.82 3.24 3.24-2.2.42-2.82 1.04-3.24 3.24-.42-2.2-1.04-2.82-3.24-3.24 2.2-.42 2.82-1.04 3.24-3.24z"/>
+</symbol>
+<symbol id="i-trend-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.4 17.4l5.6-5.6 3.4 3.4 7.6-7.6"/>
+  <path d="M15 7.6h5.4V13"/>
+</symbol>
+<symbol id="i-trend-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.4 6.6l5.6 5.6 3.4-3.4 7.6 7.6"/>
+  <path d="M15 16.4h5.4V11"/>
+</symbol>
+<symbol id="i-heart" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 20.9S3.2 15 3.2 9A4.9 4.9 0 0 1 12 6.2 4.9 4.9 0 0 1 20.8 9c0 6-8.8 11.9-8.8 11.9z"/>
+</symbol>
+<symbol id="i-drop" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 2.4s6.4 7 6.4 11a6.4 6.4 0 0 1-12.8 0c0-4 6.4-11 6.4-11z"/>
+</symbol>
+<symbol id="i-slash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.6 15.4L15.4 3.6M8.6 20.4L20.4 8.6"/>
+</symbol>
+<symbol id="i-spikes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.6 19.4l4.7-9.4 4.7 9.4 4.7-9.4 4.7 9.4"/>
+</symbol>
+<symbol id="i-discard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3.4" y="3.4" width="10" height="13.6" rx="1.8"/>
+  <path d="M18 9.6v9.4M18 19l-2.8-2.8M18 19l2.8-2.8"/>
+</symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.4 19.6L19 5"/>
+  <path d="M13.4 5H19v5.6"/>
+</symbol>
+
+<!-- ───────── DIFFICULTY ───────── -->
+<symbol id="i-diff-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+  <path d="M5.5 20v-4"/><path d="M12 20v-8" opacity=".3"/><path d="M18.5 20v-12" opacity=".3"/>
+</symbol>
+<symbol id="i-diff-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+  <path d="M5.5 20v-4"/><path d="M12 20v-8"/><path d="M18.5 20v-12" opacity=".3"/>
+</symbol>
+<symbol id="i-diff-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+  <path d="M5.5 20v-4"/><path d="M12 20v-8"/><path d="M18.5 20v-12"/>
+</symbol>
+
+<!-- ───────── BRAND ───────── -->
+<!-- eight-pointed Maltese cross — the pack face -->
+<symbol id="i-cross-malta" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z"/>
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z" transform="rotate(90 12 12)"/>
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z" transform="rotate(180 12 12)"/>
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z" transform="rotate(270 12 12)"/>
+</symbol>
+
+</defs>
+</svg>
+<!--/SPRITE-->
+
 <div id="app">
 
   <!-- ═══ AUTH ═══ -->
@@ -519,15 +842,24 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <!-- Two ways in, and only two. The deck picker used to sit here; it lives on
            the Decks screen now so Home is nothing but Story and Multiplayer. -->
       <div class="menu">
-        <button class="btn hot pick" id="btn-story">🏆 Story Mode<span class="sub">Eight bosses. Beat the village.</span></button>
-        <button class="btn primary pick" id="btn-mp">🤝 Multiplayer<span class="sub">One phone, or two on the same wi-fi</span></button>
+        <button class="btn hot pick" id="btn-story"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-map"></use></svg><span>Story Mode</span></span
+          ><span class="sub">Eight bosses. Beat the village.</span></button>
+        <button class="btn primary pick" id="btn-mp"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Multiplayer</span></span
+          ><span class="sub">One phone, or two on the same wi-fi</span></button>
       </div>
       <div class="navrow">
-        <button class="btn ghost sm" id="btn-duel">⚔️ Quick duel</button>
-        <button class="btn ghost sm" id="btn-coll">🗂️ Collection</button>
-        <button class="btn ghost sm" id="btn-deck">🛠️ Decks</button>
-        <button class="btn ghost sm" id="btn-packs">🎁 Packs</button>
-        <button class="btn ghost sm" id="btn-tutor">📖 How to play</button>
+        <button class="btn ghost sm" id="btn-duel"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-type-monster"></use></svg><span>Quick duel</span></span></button>
+        <button class="btn ghost sm" id="btn-coll"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg><span>Collection</span></span></button>
+        <button class="btn ghost sm" id="btn-deck"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-deck"></use></svg><span>Decks</span></span></button>
+        <button class="btn ghost sm" id="btn-packs"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-pack"></use></svg><span>Packs</span></span></button>
+        <button class="btn ghost sm" id="btn-tutor"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-book"></use></svg><span>How to play</span></span></button>
       </div>
       <p class="muted" style="text-align:center;margin:16px 0 24px;font-size:11px;line-height:1.6">
         18+ · Contains mothers-in-law, Marsa traffic and one very accurate slipper.
@@ -540,7 +872,7 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
     <div class="packwrap">
       <div class="tbar" style="width:100%;max-width:460px">
         <button class="iconbtn" id="pack-back" aria-label="Back to home">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-back"></use></svg></button>
         <h2>Packs</h2>
         <span class="pill" id="pack-coins"></span>
       </div>
@@ -554,11 +886,12 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
   <section class="screen" id="scr-coll">
     <div class="tbar">
       <button class="iconbtn" id="coll-back" aria-label="Back to home">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-back"></use></svg></button>
       <h2>Collection</h2>
       <span class="pill mono" id="coll-count"></span>
     </div>
-    <input class="field" id="coll-search" type="search" placeholder="Search a card…" aria-label="Search cards">
+    <div class="searchwrap"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-search"></use></svg>
+      <input class="field" id="coll-search" type="search" placeholder="Search a card…" aria-label="Search cards"></div>
     <div class="chiprow" id="coll-filters"></div>
     <div class="scroll"><div class="grid" id="coll-grid"></div></div>
   </section>
@@ -567,7 +900,7 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
   <section class="screen" id="scr-deck">
     <div class="tbar">
       <button class="iconbtn" id="deck-back" aria-label="Back to home">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-back"></use></svg></button>
       <h2>Deck Builder</h2>
       <span class="pill mono" id="deck-count"></span>
     </div>
@@ -582,7 +915,8 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <button data-pane="deck">Deck</button>
     </div>
     <div class="pane on" id="pane-pool">
-      <input class="field" id="db-search" type="search" placeholder="Search your cards…" aria-label="Search your cards">
+      <div class="searchwrap"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-search"></use></svg>
+        <input class="field" id="db-search" type="search" placeholder="Search your cards…" aria-label="Search your cards"></div>
       <div class="chiprow" id="db-filters"></div>
       <div class="scroll" id="db-pool"></div>
     </div>
@@ -592,7 +926,8 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <div class="scroll" id="db-list"></div>
     </div>
     <div class="savebar">
-      <button class="btn ghost sm" id="db-menu" style="flex:0 0 auto" aria-label="Deck menu">☰</button>
+      <button class="btn ghost sm" id="db-menu" style="flex:0 0 auto" aria-label="Deck menu"><svg class="ico"
+        viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-menu"></use></svg></button>
       <button class="btn primary sm" id="db-save" style="flex:1">Save deck</button>
     </div>
   </section>
@@ -607,7 +942,7 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
         <span class="phase" id="phase-lbl">—</span>
         <span class="ticker" id="ticker">…</span>
         <button class="iconbtn" id="log-btn" aria-label="Battle log" style="min-width:38px;min-height:38px">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+          <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-menu"></use></svg></button>
       </div>
       <div class="zrow" id="me-mz"></div>
       <div class="zrow st" id="me-st"></div>
@@ -636,6 +971,23 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
 <div class="flash" id="flash" role="status" aria-live="polite"></div>
 
 <script>
+/* ── icons ──────────────────────────────────────────────────────────
+   ICO(name)                → decorative mark, hidden from screen readers
+   ICO(name, 'Coins')       → the icon IS the label (role=img + aria-label)
+   ILB(name, 'Quick duel')  → icon + words inside a .btn (which is a column
+                              flexbox, so the pair must be wrapped)
+   Defined here, before the loader below, so every game script can use it. */
+window.ICO = function(name, label, cls){
+  return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" ' +
+    (label ? 'role="img" aria-label="' + String(label).replace(/[&<>"]/g, function(c){
+        return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]; }) + '"'
+           : 'aria-hidden="true"') +
+    ' focusable="false"><use href="#i-' + name + '"></use></svg>';
+};
+window.ILB = function(name, html, cls){
+  return '<span class="bl">' + window.ICO(name, null, cls) + '<span>' + html + '</span></span>';
+};
+
 /* Sequential loader: card sets are optional and may not all exist yet.
    A missing set must never stop the game booting. game.js always loads last. */
 (function(){

@@ -5,6 +5,18 @@
    Uses the same tokens as the inline stylesheet in index.html.
    ═══════════════════════════════════════════════════════════════════ */
 
+/* ══════════════════ ICONS on the mode screens ══════════════════
+   The base .ico rule lives in index.html; these only cover the places where
+   the old emoji carried its own size and the icon has to match it. Every
+   glyph is currentColor, so it takes the colour of whatever it sits in. */
+.tag .ico{font-size:1.3em;vertical-align:-.22em}
+.deckopt .e .ico,.deckcard .e .ico,.deckface .e .ico,.ub-sum .big-e .ico,
+.boss .lockicon .ico,.handover .eyes .ico{width:1em;height:1em}
+.deckface .a .ico,.deckopt .k .ico{font-size:1.3em;vertical-align:-.22em}
+.storyhdr .prog .ico{font-size:1.05em;vertical-align:-.16em}
+.bossline .said .ico,.blurb .ico,.okbox .ico,.warnbox .ico,.badbox .ico{font-size:1.15em;vertical-align:-.18em}
+.taunt .who .ico{font-size:1.35em;vertical-align:-.26em}
+
 /* ══════════════════ shared little bits ══════════════════ */
 .blurb{font-size:12.5px;color:var(--dim);line-height:1.55;margin:0 0 10px}
 .blurb b{color:var(--txt)}

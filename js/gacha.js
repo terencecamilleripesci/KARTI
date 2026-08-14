@@ -148,9 +148,9 @@ function deckFace(key){
   const pk = K.uiArt && K.uiArt('pack', 'pack-' + attr + '.png');
   el.innerHTML =
     (pk ? '<img class="packart" src="' + pk + '" alt="" onerror="this.remove()">' : '') +
-    '<div class="e">' + sd.e + '</div>' +
+    '<div class="e">' + K.ico(K.ATTR_ICON[attr] || 'deck') + '</div>' +
     '<div class="n">' + esc(sd.name) + '</div>' +
-    '<div class="a">' + at.e + ' ' + esc(at.n) + '</div>' +
+    '<div class="a">' + K.ico(K.ATTR_ICON[attr]) + ' ' + esc(at.n) + '</div>' +
     '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>';
   return el;
 }
@@ -191,7 +191,8 @@ function confirmKeep(key){
   const sd = K.STARTER_DECKS[key];
   const others = K.S.roll.opts.filter(k => k !== key);
   K.openSheet(
-    '<h3>Keep ' + esc(sd.name) + ' ' + sd.e + '?</h3>' +
+    '<h3>Keep ' + esc(sd.name) + ' ' +
+      K.ico(K.ATTR_ICON[sd.f || key] || 'deck') + '?</h3>' +
     '<p class="muted">' + esc(sd.tag) + '</p>' +
     '<p class="muted">All 40 cards land in your collection and it becomes your active deck. ' +
       'The other two — ' + others.map(k => esc(K.STARTER_DECKS[k].name)).join(' and ') +
@@ -238,7 +239,8 @@ async function unbox(key){
 
   $('#scr-gacha').innerHTML =
     '<div class="tbar" style="justify-content:center">' +
-      '<h2 style="flex:0 1 auto;text-align:center">' + sd.e + ' ' + esc(sd.name) + '</h2>' +
+      '<h2 style="flex:0 1 auto;text-align:center">' +
+        K.ico(K.ATTR_ICON[sd.f || key] || 'deck') + ' ' + esc(sd.name) + '</h2>' +
     '</div>' +
     '<div class="scroll" id="ub-scroll">' +
       '<p class="blurb" style="text-align:center">Forty cards. Yours. Let us have a look at them.</p>' +
@@ -345,30 +347,31 @@ function summary(key, all){
   const stage = $('#ub-stage');
   stage.innerHTML =
     '<div class="ub-sum">' +
-      '<div class="big-e">' + sd.e + '</div>' +
+      '<div class="big-e">' + K.ico(K.ATTR_ICON[attr] || 'deck') + '</div>' +
       '<h2>' + esc(sd.name) + '</h2>' +
       '<p class="gtag">' + esc(sd.tag) + '</p>' +
       '<div class="stats" style="justify-content:center">' +
-        '<span class="chip">' + at.e + ' ' + esc(at.n) + '</span>' +
+        '<span class="chip">' + K.ico(K.ATTR_ICON[attr]) + ' ' + esc(at.n) + '</span>' +
         '<span class="chip">beats <b style="color:var(--ok)">' + esc(sd.beats) + '</b></span>' +
         '<span class="chip">loses to <b style="color:var(--bad)">' + esc(sd.loses) + '</b></span>' +
       '</div>' +
       '<div class="stats" style="justify-content:center">' +
-        '<span class="chip">⚔️ ' + kinds('monster') + '</span>' +
-        '<span class="chip">🟩 ' + kinds('spell') + '</span>' +
-        '<span class="chip">🟥 ' + kinds('trap') + '</span>' +
+        '<span class="chip">' + K.ico('type-monster', 'Monsters') + kinds('monster') + '</span>' +
+        '<span class="chip">' + K.ico('type-spell', 'Spells') + kinds('spell') + '</span>' +
+        '<span class="chip">' + K.ico('type-trap', 'Traps') + kinds('trap') + '</span>' +
       '</div>' +
       '<div class="stats" style="justify-content:center">' +
         Object.keys(K.RARITY).map(r => count(r)
-          ? '<span class="chip"><i style="width:8px;height:8px;border-radius:50%;background:' +
-            K.RARITY[r].c + ';display:inline-block;margin-right:5px"></i>' + K.RARITY[r].n +
+          ? '<span class="chip"><span style="color:' + K.RARITY[r].c + '">' +
+            K.ico(K.RARITY_ICON[r]) + '</span>' + K.RARITY[r].n +
             ' <b>' + count(r) + '</b></span>' : '').join('') +
       '</div>' +
       '<p class="tiny" style="margin-top:10px">THE ONES THEY WILL REMEMBER</p>' +
       '<div class="gcards" id="ub-best"></div>' +
       '<div style="display:grid;gap:9px;width:100%;margin-top:14px">' +
         '<button class="btn primary" id="ub-go">Mela. Let me at them.</button>' +
-        '<button class="btn ghost sm" id="ub-deck">🛠️ Open the deck builder</button>' +
+        '<button class="btn ghost sm" id="ub-deck">' +
+          K.ilb('deck', 'Open the deck builder') + '</button>' +
       '</div>' +
     '</div>';
   const bh = $('#ub-best');

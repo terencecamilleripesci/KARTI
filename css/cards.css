@@ -12,7 +12,7 @@
      <div class="card__frame">
        <header class="card__namebar">
          <h3 class="card__name">THE KUNJATA</h3>
-         <span class="card__attr" title="Festa">🎆</span>
+         <span class="card__attr" title="Festa"><svg class="ico"><use href="#i-attr-festa"/></svg></span>
        </header>
        <div class="card__accent"></div>
        <div class="card__levelrow">
@@ -21,7 +21,7 @@
            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
          </span>
        </div>
-       <div class="card__art"><span class="card__emoji">👵</span></div>
+       <div class="card__art"><img src="art/kunjata.jpg" alt=""></div>
        <div class="card__panel">
          <div class="card__typeline">
            <span class="card__type">[Festa / Effect]</span>

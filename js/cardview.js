@@ -162,9 +162,13 @@ function fill(card){
 
   titleEl.textContent = card.n;
 
+  var icon = window.ICO || function(){ return ''; };
   var bits = '<span class="kcv-rar" style="--rc:' + (rar ? rar.c : '#888') + '">' +
-               '<i></i>' + esc(rar ? rar.n : '?') + '</span>' +
-             '<span class="kcv-sep">·</span><span>' + esc(typeName(card)) + '</span>';
+               icon((k.RARITY_ICON && k.RARITY_ICON[card.r]) || 'rar-komuni') +
+               esc(rar ? rar.n : '?') + '</span>' +
+             '<span class="kcv-sep">·</span><span class="kcv-attr">' +
+               icon(k.markIcon ? k.markIcon(card) : 'type-monster') +
+               esc(typeName(card)) + '</span>';
   if (card.t === 'monster'){
     bits += '<span class="kcv-sep">·</span><span>Level ' + card.lvl + '</span>' +
             '<span class="kcv-sep">·</span><span>' +
@@ -176,7 +180,7 @@ function fill(card){
 
   if (eff){
     effEl.hidden = false;
-    effEl.innerHTML = '<b aria-hidden="true">⚙️</b> ' + esc(eff);
+    effEl.innerHTML = (window.ICO ? window.ICO('bolt') : '') + ' ' + esc(eff);
   } else {
     effEl.hidden = true;
     effEl.textContent = '';

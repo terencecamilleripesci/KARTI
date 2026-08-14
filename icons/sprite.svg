@@ -1,0 +1,280 @@
+<svg xmlns="http://www.w3.org/2000/svg" id="karti-sprite" aria-hidden="true" focusable="false" style="position:absolute;width:0;height:0;overflow:hidden">
+<!-- ═══════════════════════════════════════════════════════════════════
+     KARTI icon set — drawn by hand on a 24x24 grid, 2px round strokes,
+     one weight across the whole set, legible down to 14px on a dark
+     background. Single colour: everything is currentColor, so the
+     faction colours / gold / rarity colours drive them from CSS.
+     No emoji, no icon font, no network — <use href="#i-NAME"> only.
+     Stroke + fill live on each <symbol> as PRESENTATION ATTRIBUTES on
+     purpose: a CSS rule on .ico would otherwise beat any per-path
+     override and flatten every solid shape.
+     This file is the source of truth; the identical markup is inlined
+     once into index.html, between the SPRITE marker comments.
+     ═══════════════════════════════════════════════════════════════════ -->
+<defs>
+
+<!-- ───────── ATTRIBUTES / FACTIONS ───────── -->
+
+<!-- FESTA — the village petard going off at 3am. Loud, fast, everywhere. -->
+<symbol id="i-attr-festa" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>
+  <path d="M12 1.8v3.4M12 18.8v3.4M1.8 12h3.4M18.8 12h3.4"/>
+  <path d="M4.8 4.8l2.4 2.4M16.8 16.8l2.4 2.4M19.2 4.8l-2.4 2.4M7.2 16.8l-2.4 2.4"/>
+</symbol>
+
+<!-- FARM (razzett) — an ear of wheat. Slow, heavy, feeds the whole village. -->
+<symbol id="i-attr-razzett" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 22V6.2"/>
+  <g fill="currentColor" stroke="none">
+    <path d="M12 3.4c1.25 1.6 1.25 3.9 0 5.5-1.25-1.6-1.25-3.9 0-5.5z"/>
+    <path d="M11.2 12.6c-2.7 0-4.4-1.8-4.4-4.4 2.7 0 4.4 1.8 4.4 4.4z"/>
+    <path d="M12.8 12.6c2.7 0 4.4-1.8 4.4-4.4-2.7 0-4.4 1.8-4.4 4.4z"/>
+    <path d="M11.2 17.6c-2.7 0-4.4-1.8-4.4-4.4 2.7 0 4.4 1.8 4.4 4.4z"/>
+    <path d="M12.8 17.6c2.7 0 4.4-1.8 4.4-4.4-2.7 0-4.4 1.8-4.4 4.4z"/>
+  </g>
+</symbol>
+
+<!-- CITY (belt) — bastion wall, three merlons and an arched gate. -->
+<symbol id="i-attr-belt" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5 21V7h2.5v2.2h3V7h3v2.2h3V7H19v14"/>
+  <path d="M3 21h18"/>
+  <path d="M9.7 21v-4.4a2.3 2.3 0 0 1 4.6 0V21"/>
+</symbol>
+
+<!-- SEA (baħar) — three rolling swells. -->
+<symbol id="i-attr-bahar" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.5 7.6c1.6-1.9 3.7-1.9 5.3 0s3.7 1.9 5.3 0 3.7-1.9 5.3 0"/>
+  <path d="M2.5 12.4c1.6-1.9 3.7-1.9 5.3 0s3.7 1.9 5.3 0 3.7-1.9 5.3 0"/>
+  <path d="M2.5 17.2c1.6-1.9 3.7-1.9 5.3 0s3.7 1.9 5.3 0 3.7-1.9 5.3 0"/>
+</symbol>
+
+<!-- TROUBLE (ħażen) — horns, slit eyes, and a grin you will regret. -->
+<symbol id="i-attr-hazen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7.3 8.6C5.9 7.1 5.1 5 5.1 2.9c2.2.5 4.1 1.9 5.1 3.8"/>
+  <path d="M16.7 8.6c1.4-1.5 2.2-3.6 2.2-5.7-2.2.5-4.1 1.9-5.1 3.8"/>
+  <path d="M12 7.4a5.6 5.6 0 0 1 5.6 5.6v1.4a5.6 5.6 0 0 1-11.2 0V13A5.6 5.6 0 0 1 12 7.4z"/>
+  <path d="M9.2 12.6h1.6M13.2 12.6h1.6"/>
+  <path d="M9.4 16.4c.8.8 1.7 1.2 2.6 1.2s1.8-.4 2.6-1.2"/>
+</symbol>
+
+<!-- ───────── CARD TYPES ───────── -->
+
+<!-- MONSTER — crossed swords. -->
+<symbol id="i-type-monster" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <g transform="rotate(-30 12 13)">
+    <path fill="currentColor" stroke="none" d="M12 2.4l1.8 3v8.1h-3.6V5.4z"/>
+    <path d="M9.1 14.9h5.8M12 14.9v4"/>
+  </g>
+  <g transform="rotate(30 12 13)">
+    <path fill="currentColor" stroke="none" d="M12 2.4l1.8 3v8.1h-3.6V5.4z"/>
+    <path d="M9.1 14.9h5.8M12 14.9v4"/>
+  </g>
+</symbol>
+
+<!-- SPELL — a wand throwing a spark. -->
+<symbol id="i-type-spell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.6 20.4L13.4 10.6"/>
+  <path d="M10.4 13.6l2.4 2.4" stroke-width="1.5"/>
+  <path fill="currentColor" stroke="none" d="M16.9 3.4c.55 2.85 1.4 3.7 4.25 4.25-2.85.55-3.7 1.4-4.25 4.25-.55-2.85-1.4-3.7-4.25-4.25 2.85-.55 3.7-1.4 4.25-4.25z"/>
+  <path fill="currentColor" stroke="none" d="M20.4 13.4c.27 1.4.68 1.81 2.08 2.08-1.4.27-1.81.68-2.08 2.08-.27-1.4-.68-1.81-2.08-2.08 1.4-.27 1.81-.68 2.08-2.08z"/>
+</symbol>
+
+<!-- TRAP — jaws that shut the moment you step in. -->
+<symbol id="i-type-trap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.2 9.6a9.6 9.6 0 0 1 17.6 0"/>
+  <path d="M3.2 14.4a9.6 9.6 0 0 0 17.6 0"/>
+  <path d="M6.6 10.5l2.7 3 2.7-3 2.7 3 2.7-3"/>
+</symbol>
+
+<!-- ───────── RARITIES — solid marks, they survive down to 6px ───────── -->
+<symbol id="i-rar-komuni" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <circle cx="12" cy="12" r="5.6"/>
+</symbol>
+<symbol id="i-rar-rari" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 4.2l7.8 7.8-7.8 7.8L4.2 12z"/>
+</symbol>
+<symbol id="i-rar-epiku" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M7 3.6h10l4.4 6.2L12 21.4 2.6 9.8z"/>
+</symbol>
+<symbol id="i-rar-leggendarju" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M2.4 6.6l4.7 4L12 3.4l4.9 7.2 4.7-4-2 13H4.4z"/>
+</symbol>
+
+<!-- ───────── WALLET / ECONOMY ───────── -->
+<symbol id="i-coin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="12" r="8.6"/>
+  <circle cx="12" cy="12" r="4.4"/>
+</symbol>
+<symbol id="i-dust" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M9.6 2.8c.75 3.85 1.85 4.95 5.7 5.7-3.85.75-4.95 1.85-5.7 5.7-.75-3.85-1.85-4.95-5.7-5.7 3.85-.75 4.95-1.85 5.7-5.7z"/>
+  <path d="M17.8 12.4c.4 2.1 1 2.7 3.1 3.1-2.1.4-2.7 1-3.1 3.1-.4-2.1-1-2.7-3.1-3.1 2.1-.4 2.7-1 3.1-3.1z"/>
+  <path d="M8 16.6c.3 1.55.75 2 2.3 2.3-1.55.3-2 .75-2.3 2.3-.3-1.55-.75-2-2.3-2.3 1.55-.3 2-.75 2.3-2.3z"/>
+</symbol>
+<symbol id="i-pack" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 10.4h16v9.2a1.8 1.8 0 0 1-1.8 1.8H5.8A1.8 1.8 0 0 1 4 19.6z"/>
+  <path d="M2.6 6.6h18.8v3.8H2.6z"/>
+  <path d="M12 6.6v14.8"/>
+  <path d="M12 6.6C10.3 6.6 7.6 6.2 7.6 4.3S11 3.1 12 6.6zM12 6.6c1.7 0 4.4-.4 4.4-2.3S13 3.1 12 6.6z"/>
+</symbol>
+<symbol id="i-trophy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7 3.4h10v5a5 5 0 0 1-10 0z"/>
+  <path d="M7 5.2H3.8v1.6A3.6 3.6 0 0 0 7.4 10.4"/>
+  <path d="M17 5.2h3.2v1.6a3.6 3.6 0 0 1-3.6 3.6"/>
+  <path d="M12 13.4v3.8M8.2 21h7.6M9.6 17.2h4.8"/>
+</symbol>
+
+<!-- ───────── NAVIGATION / CHROME ───────── -->
+<symbol id="i-cards" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M7.6 19.9L4.5 9.3a1.9 1.9 0 0 1 1.3-2.4l3.4-1"/>
+  <rect x="9.4" y="3.3" width="10.8" height="17.4" rx="2.2"/>
+</symbol>
+<symbol id="i-deck" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2.8l9 4.5-9 4.5-9-4.5z"/>
+  <path d="M3 12.2l9 4.5 9-4.5"/>
+  <path d="M3 16.9l9 4.5 9-4.5"/>
+</symbol>
+<symbol id="i-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 6.6C10 5 7.5 4.4 3.6 4.4v13.2c3.9 0 6.4.6 8.4 2.2 2-1.6 4.5-2.2 8.4-2.2V4.4C16.5 4.4 14 5 12 6.6z"/>
+  <path d="M12 6.6v13.2"/>
+</symbol>
+<symbol id="i-map" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9 3.4L3 6v14.6l6-2.6 6 2.6 6-2.6V3.4L15 6z"/>
+  <path d="M9 3.4V18M15 6v14.6"/>
+</symbol>
+<symbol id="i-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M15.4 20.6v-1.7a4.3 4.3 0 0 0-4.3-4.3H6.5a4.3 4.3 0 0 0-4.3 4.3v1.7"/>
+  <circle cx="8.8" cy="7" r="3.6"/>
+  <path d="M16.6 3.6a3.6 3.6 0 0 1 0 6.8"/>
+  <path d="M21.8 20.6v-1.7a4.3 4.3 0 0 0-3.2-4.1"/>
+</symbol>
+<symbol id="i-back" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M15 18l-6-6 6-6"/>
+</symbol>
+<symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M6.2 6.2l11.6 11.6M17.8 6.2L6.2 17.8"/>
+</symbol>
+<symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="10.8" cy="10.8" r="6.6"/><path d="M15.6 15.6l4.8 4.8"/>
+</symbol>
+<symbol id="i-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="4.4" y="10.4" width="15.2" height="10.2" rx="2.6"/>
+  <path d="M7.8 10.4V7.6a4.2 4.2 0 0 1 8.4 0v2.8"/>
+</symbol>
+<symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 7h16M4 12h16M4 17h10"/>
+</symbol>
+<symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.6 12.6l4.9 4.9 9.9-11"/>
+</symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M20.4 12a8.4 8.4 0 1 1-2.86-6.32"/>
+  <path d="M20.4 3.4v5.6h-5.6"/>
+</symbol>
+<symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 4.6v14.8M4.6 12h14.8"/>
+</symbol>
+<symbol id="i-play" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M6.8 3.8L20.2 12 6.8 20.2z"/>
+</symbol>
+<symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.6 4.6h11.2l3.6 3.6v11.2H4.6z"/>
+  <path d="M8.2 4.6v4.8h6.6V4.6M8.2 19.4v-5.6h7.6v5.6"/>
+</symbol>
+<symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 3.2l9.6 16.4H2.4z"/>
+  <path d="M12 9.6v4.2"/>
+  <circle cx="12" cy="16.9" r="1.05" fill="currentColor" stroke="none"/>
+</symbol>
+<symbol id="i-flag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5.2 21.4V3"/>
+  <path d="M5.2 4.4h11.6l-2.2 4 2.2 4H5.2z"/>
+</symbol>
+<symbol id="i-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4 12h14.4M13 6.6l5.4 5.4-5.4 5.4"/>
+</symbol>
+<symbol id="i-star" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 2.6l2.9 6.2 6.7.85-4.95 4.65 1.3 6.7L12 17.7l-5.95 3.3 1.3-6.7L2.4 9.65l6.7-.85z"/>
+</symbol>
+<symbol id="i-coach" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="12" cy="13.4" r="5.8"/>
+  <path d="M5.2 9.4C6.3 6.2 8.9 4.4 12 4.4s5.7 1.8 6.8 5z"/>
+  <path d="M9 15.2c1 .9 2 1 3 1s2-.1 3-1"/>
+  <path d="M9.9 11.6h.9M13.2 11.6h.9" stroke-width="1.6"/>
+</symbol>
+
+<!-- ───────── DUEL BOARD ───────── -->
+<symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 2.6l7.8 3.1v6.1c0 4.7-3.1 8.3-7.8 9.6-4.7-1.3-7.8-4.9-7.8-9.6V5.7z"/>
+</symbol>
+<symbol id="i-grave" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5.6 21.4V11a6.4 6.4 0 0 1 12.8 0v10.4z"/>
+  <path d="M12 7.8v7.2M9 11.1h6"/>
+</symbol>
+<symbol id="i-pile" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3.6" y="15.4" width="16.8" height="4.6" rx="1.6"/>
+  <rect x="5.2" y="9.7" width="13.6" height="4.6" rx="1.6"/>
+  <rect x="6.8" y="4" width="10.4" height="4.6" rx="1.6"/>
+</symbol>
+<symbol id="i-bolt" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M13.6 1.8L4 13.4h6.2L9.6 22.2 19.6 10.4h-6.4z"/>
+</symbol>
+<symbol id="i-impact" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 1.6l3 5.9 6.4-1.5-3 5.9 3 5.9-6.4-1.5-3 5.9-3-5.9L3 19.7l3-5.9-3-5.9 6 1.5z"/>
+</symbol>
+<symbol id="i-bomb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="11" cy="15.6" r="6.2"/>
+  <path d="M11 9.4V7.2" stroke-width="2.6"/>
+  <path d="M11 7.2c0-1.9 1.8-3.2 4.2-3.4"/>
+  <path fill="currentColor" stroke="none" d="M19.6 1.4c.42 2.2 1.04 2.82 3.24 3.24-2.2.42-2.82 1.04-3.24 3.24-.42-2.2-1.04-2.82-3.24-3.24 2.2-.42 2.82-1.04 3.24-3.24z"/>
+</symbol>
+<symbol id="i-trend-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.4 17.4l5.6-5.6 3.4 3.4 7.6-7.6"/>
+  <path d="M15 7.6h5.4V13"/>
+</symbol>
+<symbol id="i-trend-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.4 6.6l5.6 5.6 3.4-3.4 7.6 7.6"/>
+  <path d="M15 16.4h5.4V11"/>
+</symbol>
+<symbol id="i-heart" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 20.9S3.2 15 3.2 9A4.9 4.9 0 0 1 12 6.2 4.9 4.9 0 0 1 20.8 9c0 6-8.8 11.9-8.8 11.9z"/>
+</symbol>
+<symbol id="i-drop" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 2.4s6.4 7 6.4 11a6.4 6.4 0 0 1-12.8 0c0-4 6.4-11 6.4-11z"/>
+</symbol>
+<symbol id="i-slash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M3.6 15.4L15.4 3.6M8.6 20.4L20.4 8.6"/>
+</symbol>
+<symbol id="i-spikes" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M2.6 19.4l4.7-9.4 4.7 9.4 4.7-9.4 4.7 9.4"/>
+</symbol>
+<symbol id="i-discard" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="3.4" y="3.4" width="10" height="13.6" rx="1.8"/>
+  <path d="M18 9.6v9.4M18 19l-2.8-2.8M18 19l2.8-2.8"/>
+</symbol>
+<symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.4 19.6L19 5"/>
+  <path d="M13.4 5H19v5.6"/>
+</symbol>
+
+<!-- ───────── DIFFICULTY ───────── -->
+<symbol id="i-diff-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+  <path d="M5.5 20v-4"/><path d="M12 20v-8" opacity=".3"/><path d="M18.5 20v-12" opacity=".3"/>
+</symbol>
+<symbol id="i-diff-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+  <path d="M5.5 20v-4"/><path d="M12 20v-8"/><path d="M18.5 20v-12" opacity=".3"/>
+</symbol>
+<symbol id="i-diff-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round">
+  <path d="M5.5 20v-4"/><path d="M12 20v-8"/><path d="M18.5 20v-12"/>
+</symbol>
+
+<!-- ───────── BRAND ───────── -->
+<!-- eight-pointed Maltese cross — the pack face -->
+<symbol id="i-cross-malta" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z"/>
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z" transform="rotate(90 12 12)"/>
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z" transform="rotate(180 12 12)"/>
+  <path d="M12 12L6.2 2.6 12 7.6l5.8-5z" transform="rotate(270 12 12)"/>
+</symbol>
+
+</defs>
+</svg>

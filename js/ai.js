@@ -25,7 +25,7 @@ if (!K) return;
 /* ───────────────────────── difficulty ───────────────────────── */
 const LEVELS = {
   tourist: {
-    key:'tourist', name:'Tourist', e:'🦞',
+    key:'tourist', name:'Tourist', i:'diff-1',
     blurb:'Sunburnt and confident. Misplays about a third of the time.',
     slip:.35,            /* chance to take a deliberately worse line */
     counters:false,      /* does it plan around the attribute ring? */
@@ -35,13 +35,13 @@ const LEVELS = {
     healAt:2200, removeAt:2400, tributeEdge:100
   },
   regular: {
-    key:'regular', name:'Regular', e:'🍺',
+    key:'regular', name:'Regular', i:'diff-2',
     blurb:'Plays the ring, trades properly, will punish a lazy attack.',
     slip:.06, counters:true, readFD:true, lethal:true,
     trapHold:1, healAt:3200, removeAt:1900, tributeEdge:350
   },
   nanna: {
-    key:'nanna', name:'Nanna', e:'👵',
+    key:'nanna', name:'Nanna', i:'diff-3',
     blurb:'Counts your set cards, holds her slipper, and waits for the moment.',
     /* strictly better play than 'regular' — never misplays, times her traps
        better. Deliberately NOT more cautious: extra caution measured WORSE,

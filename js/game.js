@@ -28,11 +28,27 @@ function esc(s){
   return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 }
 
+/* ── icons ──────────────────────────────────────────────────────────
+   window.ICO / window.ILB come from the inline sprite in index.html.
+   Everything the UI used to say with an emoji is drawn from icons/sprite.svg
+   instead, so nothing depends on the device having an emoji font.
+   The per-card `e` field is NOT an icon — it is the art fallback and stays. */
+const ico = (n, label, cls) => (window.ICO ? window.ICO(n, label, cls) : '');
+const ilb = (n, html, cls) => (window.ILB ? window.ILB(n, html, cls) : html);
+const ATTR_ICON = { festa:'attr-festa', razzett:'attr-razzett', belt:'attr-belt',
+                    bahar:'attr-bahar', hazen:'attr-hazen' };
+const CAT_ICON  = { monster:'type-monster', spell:'type-spell', trap:'type-trap' };
+const RARITY_ICON = { komuni:'rar-komuni', rari:'rar-rari', epiku:'rar-epiku',
+                      leggendarju:'rar-leggendarju' };
+/* a monster is marked with its attribute; a spell/trap with its own type */
+const markIcon  = c => ATTR_ICON[c.f] || CAT_ICON[c.t] || 'type-monster';
+const markLabel = c => (c.f && ATTR[c.f] ? ATTR[c.f].n : String(c.t).toUpperCase());
+
 /* ── category (Yu-Gi-Oh style) ── */
 const CATS = [
-  { k:'monster', n:'Monsters', e:'⚔️', c:'#FFC542' },
-  { k:'spell',   n:'Spells',   e:'🟩', c:'#2E9E62' },
-  { k:'trap',    n:'Traps',    e:'🟥', c:'#C2185B' },
+  { k:'monster', n:'Monsters', i:'type-monster', c:'#FFC542' },
+  { k:'spell',   n:'Spells',   i:'type-spell',   c:'#2E9E62' },
+  { k:'trap',    n:'Traps',    i:'type-trap',    c:'#C2185B' },
 ];
 const CAT_COLOR = { monster:'#FFC542', spell:'#2E7D32', trap:'#AD1457' };
 const catOf = c => c.t;
@@ -169,7 +185,23 @@ function lsGet(k, fallback){
   try { const v = localStorage.getItem(k); return v == null ? fallback : JSON.parse(v); }
   catch(e){ return fallback; }
 }
-function lsSet(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+/* Returns false when the write did not happen — storage full, or disabled entirely
+   in private browsing. Swallowing this silently meant sign-up could report success
+   while nothing was stored, and a player could lose a whole collection without ever
+   being told. Callers that own player data must check the result. */
+let storageWarned = false;
+function lsSet(k, v){
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  catch(e){
+    if (!storageWarned){
+      storageWarned = true;
+      try {
+        toast('⚠ This browser is not letting the game save. Progress will be lost when you close the tab.');
+      } catch(_){}
+    }
+    return false;
+  }
+}
 
 const getUsers = () => lsGet(USERS_KEY, {}) || {};
 const setUsers = u => lsSet(USERS_KEY, u);
@@ -192,7 +224,9 @@ function createAccount(name, pw){
   if (users[key]) return { err:'That name is taken. Try another.' };
   const salt = randSalt();
   users[key] = { name, salt, hash: hashPw(salt, pw), created: Date.now() };
-  setUsers(users);
+  /* Do not report success if the account was never written — the player would set a
+     password, close the tab, and find the account simply does not exist. */
+  if (!setUsers(users)) return { err:'This browser will not let the game save. Turn off private browsing, or free up space, and try again.' };
   /* brand new, empty save — never touches anyone else's */
   lsSet(saveKeyFor(key), DEFAULT_STATE());
   return { ok:true, key };
@@ -298,6 +332,9 @@ function artImg(card){
   return '<img class="artimg" alt="" loading="lazy" src="' + ART.base + esc(card.id) + ART.ext +
     '" onerror="this.remove()" onload="this.parentNode.classList.add(\'hasart\')">';
 }
+/* Level pips stay as the text star U+2605 on purpose: it is a plain typographic
+   dingbat (no emoji presentation, present in every default font), and a card can
+   show six of them — 200 cards x 6 <use> nodes is a lot of DOM for no gain. */
 function stars(lvl){
   if (!lvl) return '';
   return lvl > 6 ? '★'.repeat(6) + '+' + (lvl - 6) : '★'.repeat(lvl);
@@ -313,11 +350,13 @@ function cardEl(card, opts){
   d.style.setProperty('--rc', RARITY[card.r] ? RARITY[card.r].c : '#888');
   d.dataset.cid = card.id;
   const isMon = card.t === 'monster';
-  const attrE = card.f && ATTR[card.f] ? ATTR[card.f].e : (card.t === 'spell' ? '🟩' : '🟥');
   d.innerHTML =
     '<div class="in">' +
-      '<div class="hd"><span class="nm">' + esc(card.n) + '</span><span class="at">' + attrE + '</span></div>' +
-      '<div class="lv"><span class="ty">' + esc(typeName(card)) + '</span>' +
+      '<div class="hd"><span class="nm">' + esc(card.n) + '</span>' +
+        '<span class="at" role="img" aria-label="' + esc(markLabel(card)) + '">' +
+          ico(markIcon(card)) + '</span></div>' +
+      '<div class="lv"><span class="ty">' + ico(CAT_ICON[card.t]) +
+        '<span>' + esc(typeName(card)) + '</span></span>' +
         '<span class="sr">' + (isMon ? stars(card.lvl) : '') + '</span></div>' +
       '<div class="art">' + artImg(card) + '<span>' + esc(card.e) + '</span></div>' +
       '<div class="tx">' + esc(card.txt) + '</div>' +
@@ -327,7 +366,9 @@ function cardEl(card, opts){
           '<i><span class="lbl">DEF</span> ' + card.def + '</i></div>'
         : '<div class="st" style="justify-content:center"><b style="color:var(--fc)">' +
           esc(card.t.toUpperCase()) + '</b></div>') +
-      '<span class="gem"></span>' +
+      '<span class="gem" role="img" aria-label="' +
+        esc(RARITY[card.r] ? RARITY[card.r].n : 'Unknown rarity') + '">' +
+        ico(RARITY_ICON[card.r] || 'rar-komuni') + '</span>' +
     '</div>';
   return d;
 }
@@ -357,7 +398,7 @@ function cardViewModal(card){
         ? ' · Level ' + card.lvl + ' · ' + (trib ? trib + ' tribute' + (trib > 1 ? 's' : '') : 'no tribute')
         : '') + '</p>' +
     '<p class="joke">“' + esc(card.txt) + '”</p>' +
-    (effText(card) ? '<p class="effect">⚙️ ' + esc(effText(card)) + '</p>' : '') +
+    (effText(card) ? '<p class="effect">' + ico('bolt') + ' ' + esc(effText(card)) + '</p>' : '') +
     '<p class="tiny" style="text-align:center;margin-top:10px">' +
       (owned ? 'You own ' + owned + ' / ' + MAX_COPIES
              : 'Not in your collection · dust value ' + (RARITY[card.r] ? RARITY[card.r].dust : 0)) + '</p>';
@@ -466,16 +507,17 @@ function renderHome(){
 
   const d = activeDeck();
   $('#wallet').innerHTML =
-    '<span class="pill">🪙 <span class="mono">' + S.coins + '</span> <small>coins</small></span>' +
-    '<span class="pill">✨ <span class="mono">' + S.dust + '</span> <small>dust</small></span>' +
-    '<span class="pill">🗂️ <span class="mono">' + uniqueOwned() + '/' + CARDS.length + '</span> <small>cards</small></span>' +
-    '<span class="pill">🏆 <span class="mono">' + S.rec.w + '–' + S.rec.l + '</span> <small>W–L</small></span>' +
-    (S.packs ? '<span class="pill">🎁 <span class="mono">' + S.packs + '</span> <small>packs</small></span>' : '');
+    '<span class="pill">' + ico('coin') + '<span class="mono">' + S.coins + '</span> <small>coins</small></span>' +
+    '<span class="pill">' + ico('dust') + '<span class="mono">' + S.dust + '</span> <small>dust</small></span>' +
+    '<span class="pill">' + ico('cards') + '<span class="mono">' + uniqueOwned() + '/' + CARDS.length + '</span> <small>cards</small></span>' +
+    '<span class="pill">' + ico('trophy') + '<span class="mono">' + S.rec.w + '–' + S.rec.l + '</span> <small>W–L</small></span>' +
+    (S.packs ? '<span class="pill">' + ico('pack') + '<span class="mono">' + S.packs + '</span> <small>packs</small></span>' : '');
 
   renderDeckPicker();
   const legal = d && deckIsLegal(d.list);
   /* secondary nav button — keep the label short, but never hide a bad deck */
-  $('#btn-duel').innerHTML = '⚔️ Quick duel' + (d && !legal ? ' ⚠' : '');
+  $('#btn-duel').innerHTML = ilb('type-monster', 'Quick duel' +
+    (d && !legal ? ' ' + ico('warn', 'deck is not legal') : ''));
   $('#btn-duel').title = d ? d.name + ' · ' + deckTotal(d.list) + '/' + DECK_SIZE +
     (legal ? '' : ' — not legal') : 'pick a deck first';
 }
@@ -485,7 +527,7 @@ function profileSheet(){
     '<p class="muted">Local profiles only — stored on this device, not a real secure account.</p>' +
     '<div class="opts">' +
       (ACTIVE === GUEST
-        ? '<button class="btn primary" id="pf-upgrade">💾 Save my progress' +
+        ? '<button class="btn primary" id="pf-upgrade">' + ilb('save', 'Save my progress') +
           '<span class="sub">make an account · keeps everything</span></button>' : '') +
       '<button class="btn ghost" id="pf-switch">Switch player</button>' +
       '<button class="btn ghost" id="pf-out">Log out</button>' +
@@ -544,11 +586,11 @@ function renderDeckPicker(){
     b.style.setProperty('--dc', sd.c);
     b.setAttribute('aria-pressed', String(S.side === key));
     b.innerHTML =
-      '<div class="e">' + sd.e + '</div>' +
+      '<div class="e">' + ico(ATTR_ICON[sd.f || key] || 'deck') + '</div>' +
       '<div class="n">' + esc(sd.name) + '</div>' +
       '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>' +
-      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">🔒 ' +
-        starterPrice(key) + '</div>');
+      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">' +
+        ico('lock', 'Locked') + ' ' + starterPrice(key) + '</div>');
     b.onclick = () => chooseSide(key);
     sel.appendChild(b);
   });
@@ -572,7 +614,7 @@ function chooseSide(key){
     const price = starterPrice(key);
     if (S.coins < price){ toast('Short by ' + (price - S.coins) + ' coins. Go win a duel.'); return; }
     openSheet(
-      '<h3>Unlock ' + esc(sd.name) + ' ' + sd.e + '</h3>' +
+      '<h3>Unlock ' + esc(sd.name) + ' ' + ico(ATTR_ICON[sd.f || key] || 'deck') + '</h3>' +
       '<p class="muted">' + esc(sd.tag) + '</p>' +
       '<p class="muted">A full 40-card deck for <b>' + price + ' coins</b>' +
         (price < 400 ? ' — you rolled this one, so it is cheaper' : '') +
@@ -599,14 +641,14 @@ let tiltHooked = false;
 
 function renderPackScreen(){
   packBusy = false;
-  $('#pack-coins').innerHTML = '🪙 <span class="mono">' + S.coins + '</span>';
+  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
   const stage = $('#pack-stage');
   stage.innerHTML =
     '<div class="pack" id="the-pack" role="button" tabindex="0" aria-label="Sealed card pack — tap to tear open">' +
       '<div class="fc back2"></div>' +
       '<div class="side sL"></div><div class="side sR"></div>' +
       '<div class="fc front">' +
-        '<div class="pemo">🇲🇹</div>' +
+        '<div class="pemo">' + ico('cross-malta') + '</div>' +
         '<div class="plogo">KARTI</div>' +
         '<div class="psub">Sealed foil · 5 cards<br>1 rare or better guaranteed</div>' +
         '<div class="pcount">18+</div>' +
@@ -634,7 +676,8 @@ function renderPackScreen(){
       ? 'Tap or swipe the pack to tear it open' : 'Win a duel to earn a pack') + '</p>' +
     '<button class="btn ' + (canFree ? 'primary' : '') + '" id="pack-open"' +
       (canFree || S.coins >= PACK_COST ? '' : ' disabled') + '>' +
-      (canFree ? '🎁 Open free pack (' + S.packs + ')' : '🪙 Buy pack — ' + PACK_COST) + '</button>' +
+      (canFree ? ilb('pack', 'Open free pack (' + S.packs + ')')
+               : ilb('coin', 'Buy pack — ' + PACK_COST)) + '</button>' +
     '<button class="btn ghost sm" id="pack-home">Back to menu</button>';
   $('#pack-open').onclick = tryOpen;
   $('#pack-home').onclick = () => go('home');
@@ -699,7 +742,7 @@ async function runPackOpen(){
 
   const pk = $('#the-pack');
   $('#pack-bar').innerHTML = '<p class="hint">Tap each card to flip it</p>';
-  $('#pack-coins').innerHTML = '🪙 <span class="mono">' + S.coins + '</span>';
+  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
 
   if (pk){
     pk.classList.add('shake');
@@ -797,7 +840,7 @@ function rarityFx(slot, rarity, labelEl){
     particles(slot, 18, '#C46BFF', 150);
   }
   if (rarity === 'leggendarju'){
-    label.textContent = '★ LEGENDARY ★'; label.style.color = RC;
+    label.innerHTML = ico('star') + ' LEGENDARY ' + ico('star'); label.style.color = RC;
     label.classList.remove('go'); void label.offsetWidth; label.classList.add('go');
     particles(slot, 42, '#FFD24A', 230);
     if (!REDUCED){
@@ -834,7 +877,8 @@ function showSummary(results){
       '<div class="summary" id="sum"></div>' +
       '<p class="muted" style="margin-top:12px">' +
         (news ? '<b style="color:var(--ok)">' + news + ' new</b>' : 'Nothing new') +
-        (dust ? ' · duplicates dusted for <b style="color:var(--gold)">✨' + dust + '</b>' : '') +
+        (dust ? ' · duplicates dusted for <b style="color:var(--gold)">' + ico('dust', 'dust') +
+          dust + '</b>' : '') +
       '</p>' +
     '</div>';
   const sum = $('#sum');
@@ -843,20 +887,22 @@ function showSummary(results){
     b.className = 'sumitem';
     b.style.borderColor = RARITY[r.card.r] ? RARITY[r.card.r].c : 'var(--line)';
     b.innerHTML = '<span style="font-size:15px">' + esc(r.card.e) + '</span>' + esc(r.card.n) +
-      (r.isNew ? ' <b style="color:var(--ok)">NEW</b>' : (r.dusted ? ' <b style="color:var(--gold)">✨' + r.dusted + '</b>' : ''));
+      (r.isNew ? ' <b style="color:var(--ok)">NEW</b>'
+                : (r.dusted ? ' <b style="color:var(--gold)">' + ico('dust', 'dust') + r.dusted + '</b>' : ''));
     b.onclick = () => cardViewModal(r.card);
     sum.appendChild(b);
   });
   const canMore = S.packs > 0 || S.coins >= PACK_COST;
   $('#pack-bar').innerHTML =
     '<button class="btn primary" id="p-again"' + (canMore ? '' : ' disabled') + '>' +
-      (S.packs > 0 ? '🎁 Open another (' + S.packs + ')' : '🪙 Another — ' + PACK_COST) + '</button>' +
+      (S.packs > 0 ? ilb('pack', 'Open another (' + S.packs + ')')
+                   : ilb('coin', 'Another — ' + PACK_COST)) + '</button>' +
     '<div class="row"><button class="btn ghost sm" id="p-coll">Collection</button>' +
     '<button class="btn ghost sm" id="p-home">Menu</button></div>';
   $('#p-again').onclick = () => renderPackScreen();
   $('#p-coll').onclick = () => go('coll');
   $('#p-home').onclick = () => go('home');
-  $('#pack-coins').innerHTML = '🪙 <span class="mono">' + S.coins + '</span>';
+  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -899,19 +945,20 @@ function renderCollection(){
   rows.id = 'coll-filters';
 
   chipRow(catRow, [{ k:'all', label:'All <b>' + total + '</b>', on: collF.cat === 'all' }].concat(
-    CATS.map(c => ({ k:c.k, label:c.e + ' ' + c.n + ' <b>' + (counts[c.k] || 0) + '</b>', on: collF.cat === c.k }))),
+    CATS.map(c => ({ k:c.k, label: ico(c.i) + ' ' + c.n + ' <b>' + (counts[c.k] || 0) + '</b>',
+                     on: collF.cat === c.k }))),
     g => { collF.cat = g.k; if (g.k !== 'monster') collF.attr = 'all'; renderCollection(); });
 
   const subs = [];
   if (collF.cat === 'monster' || collF.cat === 'all'){
     subs.push({ kind:'attr', k:'all', label:'Any attribute', on: collF.attr === 'all' });
     Object.keys(ATTR).forEach(a => subs.push(
-      { kind:'attr', k:a, label: ATTR[a].e + ' ' + ATTR[a].n, on: collF.attr === a }));
+      { kind:'attr', k:a, label: ico(ATTR_ICON[a]) + ' ' + ATTR[a].n, on: collF.attr === a }));
   }
   subs.push({ kind:'rar', k:'all', label:'Any rarity', on: collF.rar === 'all' });
   Object.keys(RARITY).forEach(r => subs.push(
-    { kind:'rar', k:r, label:'<i style="width:8px;height:8px;border-radius:50%;background:' +
-      RARITY[r].c + ';display:inline-block"></i>' + RARITY[r].n, on: collF.rar === r }));
+    { kind:'rar', k:r, label:'<span style="color:' + RARITY[r].c + '">' + ico(RARITY_ICON[r]) +
+      '</span>' + RARITY[r].n, on: collF.rar === r }));
   chipRow(subRow, subs, g => { collF[g.kind] = g.k; renderCollection(); });
 
   const search = $('#coll-search');
@@ -981,10 +1028,12 @@ function renderDeckBuilder(){
   f.appendChild(catRow); f.appendChild(subRow);
   f.style.display = 'block'; f.style.overflow = 'visible';
   chipRow(catRow, [{ k:'all', label:'All', on: dbF.cat === 'all' }].concat(
-    CATS.map(c => ({ k:c.k, label:c.e + ' ' + c.n + ' <b>' + counts[c.k] + '</b>', on: dbF.cat === c.k }))),
+    CATS.map(c => ({ k:c.k, label: ico(c.i) + ' ' + c.n + ' <b>' + counts[c.k] + '</b>',
+                     on: dbF.cat === c.k }))),
     g => { dbF.cat = g.k; if (g.k !== 'monster') dbF.attr = 'all'; renderDeckBuilder(); });
   const subs = [{ kind:'attr', k:'all', label:'Any attribute', on: dbF.attr === 'all' }];
-  Object.keys(ATTR).forEach(a => subs.push({ kind:'attr', k:a, label: ATTR[a].e + ' ' + ATTR[a].n, on: dbF.attr === a }));
+  Object.keys(ATTR).forEach(a => subs.push(
+    { kind:'attr', k:a, label: ico(ATTR_ICON[a]) + ' ' + ATTR[a].n, on: dbF.attr === a }));
   chipRow(subRow, subs, g => { dbF[g.kind] = g.k; renderDeckBuilder(); });
 
   const s = $('#db-search');
@@ -1009,11 +1058,10 @@ function poolRow(c){
   info.className = 'info';
   info.innerHTML =
     '<div class="n">' + esc(c.n) + '</div>' +
-    '<div class="m">' + (c.t === 'monster'
-      ? (c.f && ATTR[c.f] ? ATTR[c.f].e + ' ' + ATTR[c.f].n : 'MONSTER') + ' · L' + c.lvl +
-        ' · ' + c.atk + '/' + c.def
-      : (c.t === 'spell' ? '🟩 SPELL' : '🟥 TRAP')) + ' · owned ' + have + '</div>' +
-    (effText(c) ? '<div class="e2">⚙️ ' + esc(effText(c)) + '</div>' : '');
+    '<div class="m">' + ico(markIcon(c)) + ' ' + esc(markLabel(c)) +
+      (c.t === 'monster' ? ' · L' + c.lvl + ' · ' + c.atk + '/' + c.def : '') +
+      ' · owned ' + have + '</div>' +
+    (effText(c) ? '<div class="e2">' + ico('bolt') + ' ' + esc(effText(c)) + '</div>' : '');
   row.appendChild(info);
   const q = document.createElement('div');
   q.className = 'qty';
@@ -1057,7 +1105,7 @@ function paintPool(){
     if (!sub.length) return;
     const h = document.createElement('div');
     h.className = 'dhead';
-    h.innerHTML = '<span>' + cat.e + ' ' + cat.n.toUpperCase() + '</span><span>' + sub.length + '</span>';
+    h.innerHTML = '<span>' + ico(cat.i) + ' ' + cat.n.toUpperCase() + '</span><span>' + sub.length + '</span>';
     host.appendChild(h);
     sub.sort((a, b) => (a.lvl - b.lvl) || a.n.localeCompare(b.n));
     sub.forEach(c => host.appendChild(poolRow(c)));
@@ -1080,9 +1128,9 @@ function paintDeckList(){
     ? (mons.reduce((a, x) => a + x.c.lvl * x.n, 0) / cnt('monster')).toFixed(1) : '—';
 
   $('#db-stats').innerHTML =
-    '<span class="chip">⚔️ Monsters <b>' + cnt('monster') + '</b></span>' +
-    '<span class="chip">🟩 Spells <b>' + cnt('spell') + '</b></span>' +
-    '<span class="chip">🟥 Traps <b>' + cnt('trap') + '</b></span>' +
+    '<span class="chip">' + ico('type-monster') + ' Monsters <b>' + cnt('monster') + '</b></span>' +
+    '<span class="chip">' + ico('type-spell') + ' Spells <b>' + cnt('spell') + '</b></span>' +
+    '<span class="chip">' + ico('type-trap') + ' Traps <b>' + cnt('trap') + '</b></span>' +
     '<span class="chip">Avg lvl <b>' + avgLvl + '</b></span>' +
     '<span class="chip" style="color:' + (tot === DECK_SIZE ? 'var(--ok)' : 'var(--bad)') + '">' +
       tot + '/' + DECK_SIZE + '</span>';
@@ -1100,7 +1148,8 @@ function paintDeckList(){
     const p = document.createElement('p');
     p.className = 'muted';
     p.style.cssText = 'text-align:center;padding:22px 0';
-    p.textContent = 'Empty. Head to the Pool tab, or load a starter from the ☰ menu.';
+    p.innerHTML = 'Empty. Head to the Pool tab, or load a starter from the ' +
+      ico('menu', 'deck') + ' menu.';
     host.appendChild(p);
     return;
   }
@@ -1129,7 +1178,7 @@ function paintDeckList(){
     sub.sort((a, b) => (a.c.lvl - b.c.lvl) || a.c.n.localeCompare(b.c.n));
     const h = document.createElement('div');
     h.className = 'dhead';
-    h.innerHTML = '<span style="color:' + cat.c + '">' + cat.e + ' ' + cat.n.toUpperCase() + '</span>' +
+    h.innerHTML = '<span style="color:' + cat.c + '">' + ico(cat.i) + ' ' + cat.n.toUpperCase() + '</span>' +
       '<span>' + cnt(cat.k) + '</span>';
     host.appendChild(h);
     sub.forEach(x => host.appendChild(poolRow(x.c)));
@@ -1158,15 +1207,16 @@ function deckMenu(){
   const opts = S.decks.map(d =>
     '<button class="btn ghost sm" data-load="' + esc(d.id) + '" style="justify-content:space-between">' +
       '<span>' + esc(d.name) + '</span><span style="opacity:.6">' + deckTotal(d.list) + '/' + DECK_SIZE +
-      (S.activeDeck === d.id ? ' ✓' : '') + '</span></button>').join('');
+      (S.activeDeck === d.id ? ' ' + ico('check', 'active deck') : '') + '</span></button>').join('');
   const starters = Object.keys(STARTER_DECKS).map(k =>
-    '<button class="btn ghost sm" data-starter="' + k + '">' + STARTER_DECKS[k].e + ' Load ' +
-      esc(STARTER_DECKS[k].name) + ' starter list</button>').join('');
+    '<button class="btn ghost sm" data-starter="' + k + '">' +
+      ilb(ATTR_ICON[STARTER_DECKS[k].f || k] || 'deck',
+          'Load ' + esc(STARTER_DECKS[k].name) + ' starter list') + '</button>').join('');
   openSheet(
     '<h3>Decks</h3><p class="muted">Saved on this profile. Pick one to edit and make active.</p>' +
     '<div class="opts">' + (opts || '<p class="muted">No saved decks yet.</p>') +
       '<div class="dhead"><span>START FROM A STARTER</span></div>' + starters +
-      '<button class="btn ghost sm" data-new="1">＋ New empty deck</button>' +
+      '<button class="btn ghost sm" data-new="1">' + ilb('plus', 'New empty deck') + '</button>' +
       '<button class="btn ghost" id="dm-close">Close</button></div>');
   $('#dm-close').onclick = closeSheet;
   $$('#sheet [data-load]').forEach(b => b.onclick = () => {
@@ -1291,8 +1341,15 @@ const effDef = m => Math.max(0, m.card.def + (m.mod || 0));
 const fieldMonsters = pi => D.p[pi].mz.map((m, i) => m ? { m, i } : null).filter(Boolean);
 const freeZone = (pi, kind) => (kind === 's' ? D.p[pi].sz : D.p[pi].mz).indexOf(null);
 
+/* A card always goes back to whoever it belongs to, not to whoever happens to be
+   holding it. Without this a monster taken with s_steal ends up in the thief's
+   grave (or hand) for good. `owner` is set at summon; fall back to the controller
+   for anything created before it existed. */
+function ownerOf(inst, controller){
+  return (inst && Number.isInteger(inst.owner)) ? inst.owner : controller;
+}
 function toGrave(pi, inst){
-  D.p[pi].grave.push(inst.cid);
+  D.p[ownerOf(inst, pi)].grave.push(inst.cid);
 }
 function destroyMonster(pi, zi, reason){
   const P = D.p[pi];
@@ -1340,16 +1397,27 @@ function summon(pi, handIdx, zi, pos, faceDown, tributeIdx){
   const card = info.card;
   tributeIdx = tributeIdx || [];
   if (tributeIdx.length !== info.need) return { ok:false, why:'Wrong number of tributes.' };
+  /* Counting the indices is not enough. Naming empty zones — or the same zone twice —
+     used to pay for nothing, so you could keep your whole board AND summon a Level 8
+     for free. Every index must be a distinct zone with a monster actually in it. */
+  const paid = Object.create(null);
+  for (const raw of tributeIdx){
+    const i = Number(raw);
+    if (!Number.isInteger(i) || i < 0 || i >= ZONES) return { ok:false, why:'Invalid tribute.' };
+    if (paid[i]) return { ok:false, why:'Cannot tribute the same monster twice.' };
+    if (!P.mz[i]) return { ok:false, why:'That tribute zone is empty.' };
+    paid[i] = true;
+  }
   if (pi === 0) netSend('summon', { hi:handIdx, zi, pos, fd:!!faceDown, tributes:tributeIdx.slice() });
-  tributeIdx.forEach(i => {
-    const m = P.mz[i];
+  tributeIdx.forEach(raw => {
+    const i = Number(raw), m = P.mz[i];
     if (m){ dlog(m.card.n + ' is tributed.'); P.mz[i] = null; toGrave(pi, m); }
   });
   if (P.mz[zi]) zi = freeZone(pi, 'm');
   if (zi < 0) return { ok:false, why:'No free monster zone.' };
   P.hand.splice(handIdx, 1);
   const inst = {
-    uid: ++uid, cid: card.id, card,
+    uid: ++uid, cid: card.id, card, owner: pi,   /* never changes, even when stolen */
     pos: pos || 'atk', fd: !!faceDown, mod:0, tempMod:0,
     atkCount:0, maxAtk: card.fx === 'double' || card.fx === 'cleave' ? 2 : 1,
     monsterOnly: card.fx === 'cleave', shieldUsed:false, sumTurn: D.turnCount
@@ -1386,7 +1454,10 @@ function onSummonFx(pi, zi){
       break;
     }
     case 'stun':
-      O.noAttackTurn = D.turnCount + 1;
+      /* Aim at the opponent's NEXT turn. turnCount+1 is only their turn when this
+         fires on our own turn; a flip effect triggers during THEIR turn, where
+         turnCount+1 is ours — so it used to stun the wrong player and do nothing. */
+      O.noAttackTurn = D.turnCount + (D.turn === oi ? 2 : 1);
       dlog(m.card.n + ': ' + O.name + ' cannot attack next turn.');
       break;
     case 'drain': {
@@ -1556,8 +1627,13 @@ function triggerTraps(defPi, atkPi, attacker, defZone){
       const zi = D.p[atkPi].mz.indexOf(attacker);
       if (zi >= 0){
         D.p[atkPi].mz[zi] = null;
-        D.p[atkPi].hand.push(attacker.cid);
-        dlog(attacker.card.n + ' is sent back to the hand.');
+        /* "its owner's hand" — the card's owner, not the current controller. Bouncing
+           a monster that had been taken with s_steal used to hand it to the thief
+           permanently, because the end-of-turn return only looks on the field. */
+        const own = ownerOf(attacker, atkPi);
+        D.p[own].hand.push(attacker.cid);
+        D.stolen = (D.stolen || []).filter(st => st.m !== attacker);
+        dlog(attacker.card.n + ' is sent back to ' + D.p[own].name + '’s hand.');
       }
       out.negate = true; break;
     }
@@ -1982,14 +2058,14 @@ function renderDuel(){
     '<span class="who">' + esc(ai.name) + '</span>' +
     '<span class="lp mono" id="ai-lp">' + ai.lp + '</span>' +
     '<span class="lpbar"><i style="transform:scaleX(' + clamp(ai.lp / LP_START, 0, 1) + ')"></i></span>' +
-    '<span class="badge">🃏' + ai.hand.length + '</span>' +
-    '<span class="badge">📚' + ai.deck.length + '</span>';
+    '<span class="badge">' + ico('cards', 'Cards in hand') + ai.hand.length + '</span>' +
+    '<span class="badge">' + ico('pile', 'Cards left in deck') + ai.deck.length + '</span>';
   $('#me-info').innerHTML =
     '<span class="who">' + esc(me.name) + '</span>' +
     '<span class="lp mono" id="me-lp">' + me.lp + '</span>' +
     '<span class="lpbar"><i style="transform:scaleX(' + clamp(me.lp / LP_START, 0, 1) + ')"></i></span>' +
-    '<span class="badge">📚' + me.deck.length + '</span>' +
-    '<span class="badge">⚰️' + me.grave.length + '</span>';
+    '<span class="badge">' + ico('pile', 'Cards left in deck') + me.deck.length + '</span>' +
+    '<span class="badge">' + ico('grave', 'Cards in the graveyard') + me.grave.length + '</span>';
 
   paintZoneRow($('#ai-st'), 1, 's');
   paintZoneRow($('#ai-mz'), 1, 'm');
@@ -2029,14 +2105,17 @@ function paintZoneRow(host, side, kind){
       if (kind === 'm' && !inst.fd){
         const v = document.createElement('span');
         v.className = 'atkv';
-        v.textContent = inst.pos === 'atk' ? '⚔ ' + effAtk(inst) : '🛡 ' + effDef(inst);
+        v.innerHTML = inst.pos === 'atk'
+          ? ico('type-monster', 'Attack') + ' ' + effAtk(inst)
+          : ico('shield', 'Defence') + ' ' + effDef(inst);
         z.appendChild(v);
         if (inst.card.fx){
           const b = document.createElement('span');
           b.className = 'fxb';
-          b.textContent = { taunt:'🛡️', double:'⚔️', cleave:'🌀', thorns:'🌵', shield:'✨',
-            grow:'📈', grow2:'📈', healall:'💚', discard:'😤', kamikaze:'💥', leech:'🩸',
-            boom:'🧨', pierce:'🏹', drain:'🧛' }[inst.card.fx] || '⚙️';
+          b.innerHTML = ico({ taunt:'shield', double:'type-monster', cleave:'slash',
+            thorns:'spikes', shield:'dust', grow:'trend-up', grow2:'trend-up', healall:'heart',
+            discard:'discard', kamikaze:'impact', leech:'drop', boom:'bomb', pierce:'arrow',
+            drain:'trend-down' }[inst.card.fx] || 'bolt', effText(inst.card));
           b.title = effText(inst.card);
           z.appendChild(b);
         }
@@ -2105,15 +2184,16 @@ function paintActionBar(){
   if (UI.mode === 'target'){ mk('Pick a target', 'ghost', null, true); mk('Cancel', '', cancelUI); return; }
   if (UI.mode === 'attack'){
     const direct = UI.targets.indexOf(-1) >= 0;
-    if (direct) mk('💥 Attack directly', 'hot', () => runAttack(UI.atkZone, -1));
+    if (direct) mk(ilb('impact', 'Attack directly'), 'hot', () => runAttack(UI.atkZone, -1));
     else mk('Pick a target', 'ghost', null, true);
     mk('Cancel', '', cancelUI); return;
   }
   if (D.turn !== 0 || UI.busy){ mk('Opponent is thinking…', 'ghost', null, true); return; }
   if (D.phase === 'main'){
     if (noBattleYet())
-      mk('⚔️ No battle<span class="sub">nobody attacks on turn 1</span>', 'ghost', null, true);
-    else mk('⚔️ To battle', 'hot', () => { toBattle(); resetUI(); renderDuel(); });
+      mk(ilb('type-monster', 'No battle') + '<span class="sub">nobody attacks on turn 1</span>',
+        'ghost', null, true);
+    else mk(ilb('type-monster', 'To battle'), 'hot', () => { toBattle(); resetUI(); renderDuel(); });
     mk('End turn', 'ghost', () => playerEndTurn());
   } else {
     mk('End turn', 'ghost', () => playerEndTurn());
@@ -2133,21 +2213,27 @@ function handClick(i){
     const info = summonInfo(0, i);
     const need = tributesFor(c.lvl);
     if (info.ok){
-      opts.push({ label:'⚔️ Summon face-up (ATK)', act:() => beginSummon(i, 'atk', false, need) });
-      opts.push({ label:'🛡️ Set face-down (DEF)', act:() => beginSummon(i, 'def', true, need) });
+      opts.push({ label: ilb('type-monster', 'Summon face-up (ATK)'),
+                  act:() => beginSummon(i, 'atk', false, need) });
+      opts.push({ label: ilb('shield', 'Set face-down (DEF)'),
+                  act:() => beginSummon(i, 'def', true, need) });
     } else opts.push({ label:info.why, dis:true });
   } else if (c.t === 'spell'){
-    if (canActivateSpell(0, c)) opts.push({ label:'✨ Activate', act:() => beginSpell(i, c) });
+    if (canActivateSpell(0, c))
+      opts.push({ label: ilb('type-spell', 'Activate'), act:() => beginSpell(i, c) });
     else opts.push({ label:'Nothing to use it on right now.', dis:true });
-    if (freeZone(0, 's') >= 0) opts.push({ label:'🕳️ Set face-down', act:() => beginSet(i) });
+    if (freeZone(0, 's') >= 0)
+      opts.push({ label: ilb('type-trap', 'Set face-down'), act:() => beginSet(i) });
   } else {
-    if (freeZone(0, 's') >= 0) opts.push({ label:'🕳️ Set face-down', act:() => beginSet(i) });
+    if (freeZone(0, 's') >= 0)
+      opts.push({ label: ilb('type-trap', 'Set face-down'), act:() => beginSet(i) });
     else opts.push({ label:'No free spell/trap zone.', dis:true });
   }
   openSheet(
-    '<h3>' + esc(c.n) + ' ' + esc(c.e) + '</h3>' +
+    '<h3>' + ico(markIcon(c), markLabel(c)) + ' ' + esc(c.n) + '</h3>' +
     '<p class="muted" style="font-style:italic">“' + esc(c.txt) + '”</p>' +
-    (effText(c) ? '<p style="color:#7EE0A0;font-size:12.5px;margin-top:6px">⚙️ ' + esc(effText(c)) + '</p>' : '') +
+    (effText(c) ? '<p style="color:#7EE0A0;font-size:12.5px;margin-top:6px">' + ico('bolt') + ' ' +
+      esc(effText(c)) + '</p>' : '') +
     (c.t === 'monster' ? '<p class="tiny" style="margin-top:6px">Level ' + c.lvl + ' · ' + c.atk + '/' + c.def +
       ' · ' + (tributesFor(c.lvl) ? tributesFor(c.lvl) + ' tribute(s)' : 'no tribute') + '</p>' : '') +
     '<div class="opts" id="hs-opts"></div>');
@@ -2251,13 +2337,15 @@ function zoneClick(side, kind, i){
     /* main phase — position change */
     openSheet(
       '<h3>' + esc(m.card.n) + '</h3>' +
-      (effText(m.card) ? '<p style="color:#7EE0A0;font-size:12.5px">⚙️ ' + esc(effText(m.card)) + '</p>' : '') +
+      (effText(m.card) ? '<p style="color:#7EE0A0;font-size:12.5px">' + ico('bolt') + ' ' +
+        esc(effText(m.card)) + '</p>' : '') +
       '<p class="tiny" style="margin-top:6px">' + (m.fd ? 'Face-down' : m.pos.toUpperCase() + ' position') +
         ' · ' + m.card.atk + '/' + m.card.def + (m.mod ? ' (' + (m.mod > 0 ? '+' : '') + m.mod + ')' : '') + '</p>' +
       '<div class="opts">' +
         '<button class="btn" id="zs-pos"' +
-          (m.sumTurn === D.turnCount || m.atkCount > 0 ? ' disabled' : '') + '>🔄 ' +
-          (m.fd ? 'Flip face-up (ATK)' : 'Switch to ' + (m.pos === 'atk' ? 'DEFENCE' : 'ATTACK')) + '</button>' +
+          (m.sumTurn === D.turnCount || m.atkCount > 0 ? ' disabled' : '') + '>' +
+          ilb('refresh', m.fd ? 'Flip face-up (ATK)'
+                              : 'Switch to ' + (m.pos === 'atk' ? 'DEFENCE' : 'ATTACK')) + '</button>' +
         '<button class="btn ghost" id="zs-close">Close</button></div>');
     $('#zs-close').onclick = closeSheet;
     const pb = $('#zs-pos');
@@ -2308,7 +2396,8 @@ function logSheet(){
     '<h3>Battle log</h3>' +
     '<div style="max-height:44vh;overflow-y:auto;margin-top:8px">' + lines + '</div>' +
     '<div class="opts">' +
-      (D.over ? '' : '<button class="btn ghost" id="lg-quit">🏳️ Forfeit the duel</button>') +
+      (D.over ? '' : '<button class="btn ghost" id="lg-quit">' +
+        ilb('flag', 'Forfeit the duel') + '</button>') +
       '<button class="btn ghost" id="lg-close">Close</button></div>');
   $('#lg-close').onclick = closeSheet;
   const q = $('#lg-quit');
@@ -2341,13 +2430,15 @@ function showResult(winner, why){
                    'Blame the traffic. Everyone else does.',
                    'Shuffle better. Or blame the cards.'])) + '</p>' +
       '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
-        '<span class="pill">🪙 +' + (won ? 120 : 40) + '</span>' +
-        (won ? '<span class="pill">🎁 +1 pack</span>' : '<span class="pill">✨ +25 dust</span>') +
-        '<span class="pill">🏆 ' + S.rec.w + '–' + S.rec.l + '</span>' +
+        '<span class="pill">' + ico('coin', 'Coins') + '+' + (won ? 120 : 40) + '</span>' +
+        (won ? '<span class="pill">' + ico('pack', 'Packs') + '+1 pack</span>'
+             : '<span class="pill">' + ico('dust', 'Dust') + '+25 dust</span>') +
+        '<span class="pill">' + ico('trophy', 'Record') + S.rec.w + '–' + S.rec.l + '</span>' +
       '</div>' +
       '<div style="display:grid;gap:9px;width:100%;margin-top:4px">' +
-        (won ? '<button class="btn primary" id="r-pack">🎁 Open your pack</button>' : '') +
-        '<button class="btn hot" id="r-again">⚔️ Duel again</button>' +
+        (won ? '<button class="btn primary" id="r-pack">' + ilb('pack', 'Open your pack') +
+          '</button>' : '') +
+        '<button class="btn hot" id="r-again">' + ilb('type-monster', 'Duel again') + '</button>' +
         '<button class="btn ghost" id="r-home">Back to menu</button>' +
       '</div>' +
     '</div>';
@@ -2430,6 +2521,7 @@ window.KARTI = {
   get UI(){ return UI; },
   CARDS, STARTER_DECKS, ATTR, RARITY, COUNTERS, COUNTER_BONUS, LP_START, DECK_SIZE, MAX_COPIES,
   ZONES, HAND_LIMIT, NET, setRNG, ART, artImg, uiArt, detectArt,
+  ico, ilb, ATTR_ICON, CAT_ICON, RARITY_ICON, markIcon, markLabel,
   cardById, tributesFor, openPack, deckToCards, effText, FX_TEXT,
   newDuel, aiStep, doAttack, summon, summonInfo, setST, activateSpell, endTurn, toBattle,
   beginTurn, drawCard, damage, healLP, destroyMonster, effAtk, effDef, legalAttackTargets,

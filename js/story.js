@@ -19,10 +19,13 @@ const $ = K.$, esc = K.esc;
 /* ═══════════════════════════════════════════════════════════════════
    THE LADDER
    attr = the attribute the deck leans on, so the counter ring bites:
-   FESTA 🎆 → CITY 🏰 → FARM 🐇 → SEA 🌊 → TROUBLE 😈 → FESTA 🎆
+   FESTA -> CITY -> FARM -> SEA -> TROUBLE -> FESTA
    Every list below is exactly 40 cards, max 3 of anything (checked by
    the test harness — if you edit one, re-run it).
    ═══════════════════════════════════════════════════════════════════ */
+/* `e` is the boss's PORTRAIT fallback, not UI chrome: the real portraits live at
+   art/ui/boss-<attr>.png and faceHTML() hides the emoji the moment one loads.
+   Same rule as the per-card `e` in cards.js — leave it alone. */
 const BOSSES = [
   {
     id:'cikku', n:'ĊIKKU TAL-KAŻIN', e:'🍻', attr:'festa', diff:'tourist',
@@ -193,7 +196,7 @@ function render(){
     '<div class="scroll">' +
       '<div class="storyhdr">' +
         '<p class="prog">' + (done === BOSSES.length
-          ? '★ THE WHOLE VILLAGE IS BEATEN ★'
+          ? K.ico('star') + ' THE WHOLE VILLAGE IS BEATEN ' + K.ico('star')
           : 'BEAT THEM IN ORDER · ' + done + ' DOWN, ' + (BOSSES.length - done) + ' TO GO') + '</p>' +
         '<p class="blurb" style="margin-top:6px">Each one brings their own 40 cards and their own attitude. ' +
         'Watch the ring — bring a side that <b>beats</b> theirs and every attack lands +' +
@@ -212,7 +215,7 @@ function render(){
     const L = AI.LEVELS[k];
     const b = document.createElement('button');
     b.className = (K.S.diff || 'regular') === k ? 'on' : '';
-    b.innerHTML = L.e + ' ' + L.n;
+    b.innerHTML = K.ico(L.i || 'diff-2') + ' ' + L.name;
     b.title = L.blurb;
     b.onclick = () => { K.S.diff = k; K.save(); render(); K.toast(L.name + ': ' + L.blurb); };
     dseg.appendChild(b);
@@ -235,14 +238,15 @@ function render(){
         '<span class="li">' + (open ? '“' + esc(b.intro.slice(0, 96)) + '…”'
                                     : 'Beat ' + esc(BOSSES[i - 1] ? BOSSES[i - 1].n : '') + ' first.') + '</span>' +
         '<span class="meta">' +
-          '<span class="tag">' + at.e + ' ' + at.n + '</span>' +
+          '<span class="tag">' + K.ico(K.ATTR_ICON[b.attr]) + ' ' + at.n + '</span>' +
           '<span class="tag diff">' + diffName(b.diff) + '</span>' +
-          '<span class="tag">🪙 ' + b.reward.coins + ' · 🎁 ' + b.reward.packs + '</span>' +
+          '<span class="tag">' + K.ico('coin', 'Coins') + ' ' + b.reward.coins + ' · ' +
+            K.ico('pack', 'Packs') + ' ' + b.reward.packs + '</span>' +
           (beatsKey ? '<span class="tag">weak to ' + esc(K.ATTR[beatsKey].n) + '</span>' : '') +
-          (won ? '<span class="tag won">✓ beaten</span>' : '') +
+          (won ? '<span class="tag won">' + K.ico('check') + ' beaten</span>' : '') +
         '</span>' +
       '</span>' +
-      (open ? '' : '<span class="lockicon">🔒</span>');
+      (open ? '' : '<span class="lockicon">' + K.ico('lock', 'Locked') + '</span>');
     if (open) el.onclick = () => preview(b, i);
     lad.appendChild(el);
   });
@@ -250,7 +254,7 @@ function render(){
 function diffName(d){
   const AI = window.KARTI_AI;
   const L = AI && AI.LEVELS[AI.ALIAS[d] || d];
-  return L ? L.e + ' ' + L.n : d;
+  return L ? K.ico(L.i || 'diff-2') + ' ' + L.name : d;
 }
 
 /* ───────────────────────── boss preview sheet ───────────────────────── */
@@ -263,16 +267,18 @@ function preview(b, i){
       '<span class="said"><b>' + esc(b.n) + '</b>“' + esc(b.intro) + '”</span>' +
     '</div>' +
     '<p class="blurb" style="margin-top:10px">' +
-      'Plays <b>' + at.e + ' ' + at.n + '</b> · brain: <b>' + diffName(b.diff) + '</b>' +
+      'Plays <b>' + K.ico(K.ATTR_ICON[b.attr]) + ' ' + at.n + '</b> · brain: <b>' +
+        diffName(b.diff) + '</b>' +
       (beatsKey ? ' · a <b>' + esc(K.ATTR[beatsKey].n) + '</b> deck gets +' + K.COUNTER_BONUS +
         ' ATK against it' : '') + '.</p>' +
     (beaten ? '<p class="blurb">Already beaten — a rematch pays ' +
         Math.floor(b.reward.coins / 3) + ' coins and no pack.</p>'
-            : '<p class="blurb">First win: <b>🪙 ' + b.reward.coins + '</b> and <b>🎁 ' +
-              b.reward.packs + ' pack' + (b.reward.packs > 1 ? 's' : '') + '</b>.</p>') +
+            : '<p class="blurb">First win: <b>' + K.ico('coin', 'Coins') + ' ' + b.reward.coins +
+              '</b> and <b>' + K.ico('pack', 'Packs') + ' ' + b.reward.packs +
+              ' pack' + (b.reward.packs > 1 ? 's' : '') + '</b>.</p>') +
     '<div class="opts">' +
-      '<button class="btn hot" id="bs-go">⚔️ Take them on</button>' +
-      '<button class="btn ghost" id="bs-deck">🛠️ Change my deck first</button>' +
+      '<button class="btn hot" id="bs-go">' + K.ilb('type-monster', 'Take them on') + '</button>' +
+      '<button class="btn ghost" id="bs-deck">' + K.ilb('deck', 'Change my deck first') + '</button>' +
       '<button class="btn ghost" id="bs-close">Not yet</button>' +
     '</div>');
   $('#bs-close').onclick = K.closeSheet;
@@ -342,7 +348,8 @@ function say(b, line){
     el.id = 'taunt'; el.className = 'taunt'; el.setAttribute('role', 'status');
     document.body.appendChild(el);
   }
-  el.innerHTML = '<span class="who">' + b.e + ' ' + esc(b.n) + '</span>' + esc(line);
+  el.innerHTML = '<span class="who">' + K.ico(K.ATTR_ICON[b.attr]) + ' ' + esc(b.n) +
+    '</span>' + esc(line);
   el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
 }
 
@@ -380,20 +387,23 @@ function onResult(winner, why){
     '</div>' +
     '<p class="muted" style="text-align:center;margin:10px 0 0;font-size:12px">' + esc(why) + '</p>' +
     '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px">' +
-      '<span class="pill">🪙 +' + coins + '</span>' +
-      (packs ? '<span class="pill">🎁 +' + packs + '</span>' : '') +
-      (first ? '<span class="pill">🏆 first win</span>' : '') +
+      '<span class="pill">' + K.ico('coin', 'Coins') + '+' + coins + '</span>' +
+      (packs ? '<span class="pill">' + K.ico('pack', 'Packs') + '+' + packs + '</span>' : '') +
+      (first ? '<span class="pill">' + K.ico('trophy') + 'first win</span>' : '') +
     '</div>' +
     (won && allDone
       ? '<p class="okbox" style="margin-top:12px">Every single one of them, beaten. The village has ' +
         'nothing left to say about you. They will find something.</p>'
       : won && nextB
-        ? '<p class="okbox" style="margin-top:12px">Next up: <b>' + nextB.e + ' ' + esc(nextB.n) +
+        ? '<p class="okbox" style="margin-top:12px">Next up: <b>' +
+          K.ico(K.ATTR_ICON[nextB.attr]) + ' ' + esc(nextB.n) +
           '</b> — ' + esc(nextB.rank) + '.</p>'
         : '') +
     '<div style="display:grid;gap:9px;margin-top:12px">' +
-      (packs ? '<button class="btn primary" id="sr-pack">🎁 Open your pack</button>' : '') +
-      '<button class="btn hot" id="sr-again">' + (won ? '↻ Fight them again' : '↻ Try again') + '</button>' +
+      (packs ? '<button class="btn primary" id="sr-pack">' +
+        K.ilb('pack', 'Open your pack') + '</button>' : '') +
+      '<button class="btn hot" id="sr-again">' +
+        K.ilb('refresh', won ? 'Fight them again' : 'Try again') + '</button>' +
       '<button class="btn ghost" id="sr-lad">Back to the ladder</button>' +
     '</div>');
 

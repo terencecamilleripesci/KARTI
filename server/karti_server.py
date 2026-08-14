@@ -1,69 +1,73 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-KARTI LAN game server — static files + hand-rolled WebSocket relay on ONE port.
+KARTI relay — a small, hostile-internet-facing WebSocket room relay.
 
 WHAT IT IS
-    A tiny, dependency-free (Python 3 standard library ONLY) server for playing
-    KARTI online between two devices on the same wifi / LAN, typically hosted on
-    a Raspberry Pi.
+    Python 3 standard library ONLY. No pip, no framework, no database.
+    It does exactly one job: pair two players by a short room code and pass
+    validated JSON duel moves between them. That is the whole feature set.
 
-    It does two jobs on the same TCP port:
-      1. Serves the game's static files (index.html, js/*.js, css, icons, ...)
-         over plain HTTP from --root.
-      2. Speaks WebSocket (RFC 6455, implemented by hand here) at the path /ws
-         and relays JSON messages between the two players of a "room".
+WHAT IT IS NOT
+    * It is NOT a web server. It never opens a file, never lists a directory,
+      never serves anything from disk. The game itself is hosted on GitHub
+      Pages; this process only relays.
+    * It is NOT a referee. It does not know the rules of KARTI. The two
+      clients run the same deterministic engine in lockstep and compare
+      checksums; the relay only carries the moves. A cheating client can
+      only desynchronise its own duel, which the checksum then catches.
 
-HOW TO RUN
-    python3 server/karti_server.py
-    python3 server/karti_server.py --port 8788 --host 0.0.0.0
-    python3 server/karti_server.py --root /path/to/karti-malta
-    python3 server/karti_server.py --selftest        # runs built-in tests, exits
+DEPLOYMENT IT IS BUILT FOR
+    game   : https://terencecamilleripesci.github.io/KARTI/       (GitHub Pages)
+    relay  : this process, bound to 127.0.0.1:8101 on a Raspberry Pi
+    public : Tailscale Funnel republishes it at
+             https://raspberrypi.silverside-tench.ts.net:8443/karti
+    Funnel forwards the FULL path, so every route is served both at
+    /karti/<x> (production) and /<x> (local testing).
 
-    Then BOTH phones open   http://<pi-lan-ip>:8788/   and the page connects to
-    ws://<pi-lan-ip>:8788/ws  automatically (same host, same port).
+ROUTES
+    GET  /karti/ws      (or /ws)      WebSocket upgrade, the relay itself
+    GET  /karti/health  (or /health)  tiny JSON status, no room contents
+    anything else                     404 JSON. No disk access, ever.
 
-IMPORTANT LIMIT — WHY YOU MUST LOAD THE GAME FROM THIS MACHINE
-    Browsers refuse to open an insecure ws:// socket from a page served over
-    https:// (mixed content), and modern Chrome additionally blocks requests
-    from a public https:// origin into a private LAN address (Private Network
-    Access). So a GitHub Pages copy of KARTI (https://...github.io/...) CANNOT
-    talk to this server. Online play works only when BOTH players load the game
-    over http:// from this machine, on the same network.
+PROTOCOL  (one JSON object per WebSocket text frame, both directions)
+    client -> server                        server -> client
+    {"t":"create"}                          {"t":"created","code":C,"token":T,
+                                             "host":true,"seq":0}
+    {"t":"join","code":C}                   {"t":"joined","code":C,"token":T,
+                                             "host":false,"seq":N}
+                                            peer: {"t":"peer","state":"joined"}
+    {"t":"rejoin","code":C,"token":T,       {"t":"rejoined","code":C,"host":B,
+              "since":N}                     "seq":N,"peer":B} + replayed relays
+                                            peer: {"t":"peer","state":"rejoined"}
+    {"t":"relay","d":{...}}                 peer: {"t":"relay","n":SEQ,"d":{...}}
+    {"t":"leave"}                           peer: {"t":"peer","state":"left"}
+    {"t":"ping"}                            {"t":"pong"}
+                                            {"t":"error","why":"..."}   (fixed text)
+                                            {"t":"closed","why":"..."}  then close
 
-OTHER LIMITS (deliberate, keep it simple)
-    * LAN only. No TLS, no authentication, no rate limiting. Do not expose to
-      the internet.
-    * All state lives in RAM. Restarting the server destroys every room.
-    * Exactly two players per room.
-    * It is a DUMB RELAY: it forwards whatever JSON the clients send. It does
-      not know or validate the rules of KARTI, does not referee, does not keep
-      score, and trusts both clients completely.
+    A socket that dies is NOT a forfeit: the seat is held for GRACE seconds
+    (the peer is told {"t":"peer","state":"dropped"}) so a phone that loses
+    signal can come back with "rejoin" and replay the moves it missed.
 
-PROTOCOL (one JSON object per WebSocket text frame)
-    client -> server                     server -> client
-    {"t":"create"}                       {"t":"created","code":"ABCD","host":true}
-    {"t":"join","code":"ABCD"}           {"t":"joined","code":"ABCD","host":false}
-                                         ... and to the peer: {"t":"peer","state":"joined"}
-    {"t":"relay","d":<any JSON>}         to the OTHER member: {"t":"relay","d":<same>}
-    {"t":"leave"}                        to the other member: {"t":"peer","state":"left"}
-    {"t":"ping"}                         {"t":"pong"}
-    errors                               {"t":"error","why":"..."}
+RUN
+    python3 server/karti_server.py                 # 127.0.0.1:8101
+    python3 server/karti_server.py --port 8101
+    python3 server/karti_server.py --selftest      # abuse + happy-path tests
+    python3 server/karti_server.py --log /var/log/karti-relay.log
 
-    A socket dropping counts as a leave: the peer gets {"t":"peer","state":"left"}.
-
-HTTP EXTRAS
-    GET /health  -> {"ok":true,"rooms":N,"clients":M}
+    See docs/ONLINE.md for the systemd unit and the tailscale funnel command.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
-import functools
+import collections
 import hashlib
 import json
 import os
+import re
 import secrets
 import socket
 import struct
@@ -71,41 +75,278 @@ import sys
 import threading
 import time
 import traceback
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-# ── constants ────────────────────────────────────────────────────────────────
+# ── deployment constants ─────────────────────────────────────────────────────
+
+DEFAULT_HOST = "127.0.0.1"          # loopback ONLY. Tailscale does the exposing.
+DEFAULT_PORT = 8101
+PATH_PREFIX = "/karti"              # funnel forwards the full path
+
+# The one browser origin that is allowed to open a socket here. Extra origins
+# can be added with --origin; loopback origins are allowed so the whole thing
+# can be driven by a local test harness.
+PAGES_ORIGIN = "https://terencecamilleripesci.github.io"
+LOOPBACK_ORIGIN_RE = re.compile(r"^https?://(localhost|127\.0\.0\.1|\[::1\])(:\d{1,5})?$")
+
+# Room codes: 5 characters from an alphabet with no O, 0, I or 1 in it, so a
+# code can be read down the phone without anybody arguing. 32**5 = 33.5M codes.
+CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+CODE_LEN = 5
+CODE_RE = re.compile("^[%s]{%d}$" % (CODE_ALPHABET, CODE_LEN))
+
+
+class L:
+    """Every hard limit in one place. --selftest overrides some of these."""
+
+    MAX_SOCKETS = 96            # concurrent TCP connections accepted at all
+    MAX_WS = 64                 # concurrent upgraded WebSockets
+    MAX_ROOMS = 128             # concurrent rooms
+    SEATS = 2                   # players per room. Not configurable on purpose.
+
+    MAX_MSG = 16 * 1024         # bytes, one WebSocket message (largest real
+                                # message, the deal, is ~2 KB)
+    MSG_RATE = 25.0             # sustained messages/second per connection
+    MSG_BURST = 50.0
+    BYTE_RATE = 96 * 1024.0     # sustained bytes/second per connection
+    BYTE_BURST = 256 * 1024.0
+
+    MAX_CREATES = 5             # rooms one connection may ever create
+    MAX_BAD_JOINS = 20          # wrong room codes before the socket is cut
+    MAX_ERRORS = 30             # protocol errors before the socket is cut
+
+    ROOM_IDLE = 30 * 60.0       # seconds of silence before a room is binned
+    GRACE = 60.0                # seconds a dropped seat is held for a rejoin
+    REPLAY_MSGS = 96            # per room: buffered messages for a rejoin
+    REPLAY_BYTES = 192 * 1024   # per room: bytes of that buffer
+
+    SOCK_TIMEOUT = 120.0        # no frame for this long -> close the socket
+    HTTP_TIMEOUT = 15.0         # slow-loris guard on the handshake
+    SWEEP = 2.0                 # seconds between housekeeping passes
+
+
+# Fixed error strings. Nothing an attacker sends is ever reflected back.
+E_JSON = "Bad message."
+E_SHAPE = "Bad message."
+E_BIG = "Message too big."
+E_FLOOD = "Slow down."
+E_NOROOM = "No room with that code."
+E_FULL_ROOM = "That room already has two players."
+E_FULL_SERVER = "The server is busy. Try again in a minute."
+E_NOTIN = "You are not in a room."
+E_NOPEER = "Nobody else in the room yet."
+E_BADTOKEN = "That room seat is not yours."
+E_TOOMANY = "Too many rooms from one connection."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
-
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
 
-MAX_PAYLOAD = 1 << 20          # 1 MiB — refuse anything bigger
-ROOM_IDLE_SECONDS = 2 * 60 * 60  # purge rooms idle for over 2 hours
-SWEEP_EVERY = 60.0             # seconds between purge sweeps
 
-# Room codes: 4 uppercase letters, no I and no O (they read as 1 and 0).
-CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ"
-CODE_LEN = 4
+# ── tiny append-only log (the only file this process ever touches) ───────────
 
-DEFAULT_PORT = 8788
-DEFAULT_HOST = "0.0.0.0"
-# repo root = parent of the directory holding this script, resolved from __file__
-DEFAULT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+class Journal:
+    """Optional single append-only log. Never records message contents."""
+
+    def __init__(self, path=None):
+        self.path = path
+        self._lock = threading.Lock()
+
+    def __call__(self, event, **kw):
+        if not self.path:
+            return
+        bits = " ".join("%s=%s" % (k, v) for k, v in sorted(kw.items()))
+        line = "%s %s %s\n" % (time.strftime("%Y-%m-%dT%H:%M:%S"), event, bits)
+        try:
+            with self._lock:
+                with open(self.path, "a", encoding="utf-8") as fh:
+                    fh.write(line)
+        except OSError:
+            self.path = None        # a broken log must never break the relay
 
 
-# ── low-level WebSocket frame helpers ────────────────────────────────────────
+LOG = Journal()
 
+
+# ── rate limiting ────────────────────────────────────────────────────────────
+
+class Bucket:
+    """Token bucket. take() is False when the caller is going too fast."""
+
+    __slots__ = ("rate", "cap", "tokens", "ts")
+
+    def __init__(self, rate, cap):
+        self.rate = float(rate)
+        self.cap = float(cap)
+        self.tokens = float(cap)
+        self.ts = time.monotonic()
+
+    def take(self, n=1.0):
+        now = time.monotonic()
+        self.tokens = min(self.cap, self.tokens + (now - self.ts) * self.rate)
+        self.ts = now
+        if self.tokens < n:
+            return False
+        self.tokens -= n
+        return True
+
+
+# ── message validation ───────────────────────────────────────────────────────
+#
+# Nothing a client sends is ever forwarded verbatim. Every relay payload is
+# taken apart, checked field by field, and REBUILT from scratch, so the peer
+# only ever receives a structure this file constructed itself.
+
+class Reject(Exception):
+    """The message is not something KARTI could have produced."""
+
+
+ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,24}$")            # card / deck ids
+NAME_BAD = re.compile(r"[\x00-\x1f\x7f<>&\"'\\`]")      # keep names inert
+MAX_DECK_KEYS = 64
+MAX_DECK_CARDS = 60
+
+ACT_KINDS = ("summon", "set", "spell", "attack", "pos", "battle", "end", "forfeit")
+RELAY_KINDS = ("hello", "start", "act", "bail")
+
+
+def v_int(v, lo, hi):
+    if isinstance(v, bool) or not isinstance(v, int) or v < lo or v > hi:
+        raise Reject("int")
+    return v
+
+
+def v_bool(v):
+    if not isinstance(v, bool):
+        raise Reject("bool")
+    return v
+
+
+def v_name(v, n=24):
+    if not isinstance(v, str):
+        raise Reject("name")
+    v = NAME_BAD.sub("", v).strip()[:n]
+    return v or "PLAYER"
+
+
+def v_optstr(v, n):
+    if v is None:
+        return None
+    if not isinstance(v, str) or len(v) > n:
+        raise Reject("str")
+    return NAME_BAD.sub("", v)
+
+
+def v_id(v):
+    if not isinstance(v, str) or not ID_RE.match(v):
+        raise Reject("id")
+    return v
+
+
+def v_idlist(v, maxn=MAX_DECK_CARDS):
+    if not isinstance(v, list) or len(v) > maxn:
+        raise Reject("idlist")
+    return [v_id(x) for x in v]
+
+
+def v_decklist(v):
+    """{cardId: count} — the shape KARTI uses for a deck."""
+    if not isinstance(v, dict) or len(v) > MAX_DECK_KEYS:
+        raise Reject("decklist")
+    out = {}
+    total = 0
+    for k, n in v.items():
+        out[v_id(k)] = v_int(n, 1, 3)
+        total += n
+    if total > MAX_DECK_CARDS:
+        raise Reject("decklist")
+    return out
+
+
+def v_intlist(v, maxn, lo, hi):
+    if not isinstance(v, list) or len(v) > maxn:
+        raise Reject("intlist")
+    return [v_int(x, lo, hi) for x in v]
+
+
+def v_act_args(kind, a):
+    if kind in ("battle", "end", "forfeit"):
+        return None
+    if not isinstance(a, dict):
+        raise Reject("act args")
+    if kind == "summon":
+        return {"hi": v_int(a.get("hi"), 0, 31), "zi": v_int(a.get("zi"), 0, 9),
+                "pos": "def" if a.get("pos") == "def" else "atk",
+                "fd": v_bool(bool(a.get("fd"))),
+                "tributes": v_intlist(a.get("tributes") or [], 3, 0, 9)}
+    if kind == "set":
+        return {"hi": v_int(a.get("hi"), 0, 31), "zi": v_int(a.get("zi"), 0, 9)}
+    if kind == "spell":
+        tgt = a.get("target")
+        if tgt is None:
+            t = None
+        else:
+            if not isinstance(tgt, dict):
+                raise Reject("target")
+            t = {"side": v_int(tgt.get("side"), 0, 1), "i": v_int(tgt.get("i"), 0, 9)}
+        return {"hi": v_int(a.get("hi"), 0, 31), "target": t}
+    if kind == "attack":
+        return {"zi": v_int(a.get("zi"), 0, 9), "t": v_int(a.get("t"), -1, 9)}
+    if kind == "pos":
+        return {"zi": v_int(a.get("zi"), 0, 9)}
+    raise Reject("act kind")
+
+
+def sanitize_relay(d):
+    """Rebuild a duel payload from scratch, or raise Reject."""
+    if not isinstance(d, dict):
+        raise Reject("payload")
+    k = d.get("k")
+    if k not in RELAY_KINDS:
+        raise Reject("kind")
+
+    if k == "hello":
+        return {"k": "hello",
+                "name": v_name(d.get("name")),
+                "list": v_decklist(d.get("list")),
+                "deckKey": v_optstr(d.get("deckKey"), 32),
+                "deckName": v_optstr(d.get("deckName"), 40)}
+
+    if k == "start":
+        return {"k": "start",
+                "seed": v_int(d.get("seed"), 0, 0xFFFFFFFF),
+                "hostName": v_name(d.get("hostName")),
+                "guestName": v_name(d.get("guestName")),
+                "hostList": v_decklist(d.get("hostList")),
+                "guestList": v_decklist(d.get("guestList")),
+                "hostKey": v_optstr(d.get("hostKey"), 32),
+                "guestKey": v_optstr(d.get("guestKey"), 32),
+                "hostDeck": v_idlist(d.get("hostDeck")),
+                "guestDeck": v_idlist(d.get("guestDeck"))}
+
+    if k == "act":
+        kind = d.get("kind")
+        if kind not in ACT_KINDS:
+            raise Reject("act kind")
+        ck = d.get("ck")
+        if ck is not None and (not isinstance(ck, str) or len(ck) > 1024):
+            raise Reject("checksum")
+        return {"k": "act", "kind": kind, "a": v_act_args(kind, d.get("a")),
+                "ck": ck if isinstance(ck, str) else None}
+
+    # bail
+    why = d.get("why")
+    return {"k": "bail", "why": v_name(why, 120) if isinstance(why, str) else "They stopped."}
+
+
+# ── WebSocket frames ─────────────────────────────────────────────────────────
 
 class WSError(Exception):
-    """Anything that means: give up on this one connection."""
-
-    def __init__(self, message: str, code: int = 1002):
+    def __init__(self, message, code=1002):
         super().__init__(message)
         self.code = code
 
 
-def _read_exact(rfile, n: int) -> bytes:
-    """Read exactly n bytes or raise WSError on EOF."""
+def _read_exact(rfile, n):
     if n == 0:
         return b""
     chunks = []
@@ -113,13 +354,13 @@ def _read_exact(rfile, n: int) -> bytes:
     while got < n:
         chunk = rfile.read(n - got)
         if not chunk:
-            raise WSError("connection closed while reading", 1006)
+            raise WSError("closed while reading", 1006)
         chunks.append(chunk)
         got += len(chunk)
     return b"".join(chunks)
 
 
-def _unmask(data: bytes, mask: bytes) -> bytes:
+def _unmask(data, mask):
     if not mask:
         return data
     out = bytearray(data)
@@ -128,34 +369,29 @@ def _unmask(data: bytes, mask: bytes) -> bytes:
     return bytes(out)
 
 
-def ws_read_frame(rfile, require_mask: bool = True):
-    """Read one WebSocket frame. Returns (fin: bool, opcode: int, payload: bytes)."""
+def ws_read_frame(rfile, require_mask=True, max_payload=None):
+    """One frame -> (fin, opcode, payload). Refuses anything oversized BEFORE
+    reading the body, so a lying length header costs us nothing."""
+    limit = L.MAX_MSG if max_payload is None else max_payload
     head = _read_exact(rfile, 2)
     b1, b2 = head[0], head[1]
     fin = bool(b1 & 0x80)
-    rsv = b1 & 0x70
+    if b1 & 0x70:
+        raise WSError("reserved bits", 1002)
     opcode = b1 & 0x0F
     masked = bool(b2 & 0x80)
     length = b2 & 0x7F
 
-    if rsv:
-        raise WSError("reserved bits set", 1002)
     if require_mask and not masked:
-        # RFC 6455 §5.1: client-to-server frames MUST be masked.
-        raise WSError("unmasked client frame", 1002)
+        raise WSError("unmasked client frame", 1002)      # RFC 6455 5.1
 
     if length == 126:
         length = struct.unpack("!H", _read_exact(rfile, 2))[0]
     elif length == 127:
         length = struct.unpack("!Q", _read_exact(rfile, 8))[0]
 
-    if length > MAX_PAYLOAD:
-        raise WSError("payload too big (%d bytes)" % length, 1009)
-
-    mask = _read_exact(rfile, 4) if masked else b""
-    payload = _read_exact(rfile, length)
-    if masked:
-        payload = _unmask(payload, mask)
+    if length > limit:
+        raise WSError("payload too big", 1009)
 
     if opcode in (OP_CLOSE, OP_PING, OP_PONG):
         if not fin:
@@ -163,48 +399,47 @@ def ws_read_frame(rfile, require_mask: bool = True):
         if length > 125:
             raise WSError("oversized control frame", 1002)
 
+    mask = _read_exact(rfile, 4) if masked else b""
+    payload = _read_exact(rfile, length)
+    if masked:
+        payload = _unmask(payload, mask)
     return fin, opcode, payload
 
 
-def ws_build_frame(opcode: int, payload: bytes, mask: bool = False) -> bytes:
-    """Build one complete (unfragmented) frame. Server frames are unmasked."""
+def ws_build_frame(opcode, payload, mask=False):
     n = len(payload)
     out = bytearray()
-    out.append(0x80 | (opcode & 0x0F))          # FIN + opcode
-    mask_bit = 0x80 if mask else 0x00
+    out.append(0x80 | (opcode & 0x0F))
+    bit = 0x80 if mask else 0x00
     if n < 126:
-        out.append(mask_bit | n)
+        out.append(bit | n)
     elif n <= 0xFFFF:
-        out.append(mask_bit | 126)              # 2-byte extended length
+        out.append(bit | 126)
         out += struct.pack("!H", n)
     else:
-        out.append(mask_bit | 127)              # 8-byte extended length
+        out.append(bit | 127)
         out += struct.pack("!Q", n)
     if mask:
         key = os.urandom(4)
         out += key
-        out += _unmask(payload, key)            # masking is symmetric
+        out += _unmask(payload, key)
     else:
         out += payload
     return bytes(out)
 
 
-def ws_accept_key(client_key: str) -> str:
-    """Sec-WebSocket-Accept = base64(sha1(key + GUID))."""
+def ws_accept_key(client_key):
     digest = hashlib.sha1((client_key.strip() + WS_GUID).encode("ascii")).digest()
     return base64.b64encode(digest).decode("ascii")
 
 
 # ── one connected player ─────────────────────────────────────────────────────
 
-
 class Conn:
-    """A live WebSocket connection. Sends are serialised by a per-connection lock."""
-
     _seq = 0
     _seq_lock = threading.Lock()
 
-    def __init__(self, sock: socket.socket, addr):
+    def __init__(self, sock, addr):
         with Conn._seq_lock:
             Conn._seq += 1
             self.cid = Conn._seq
@@ -212,12 +447,16 @@ class Conn:
         self.addr = addr
         self.send_lock = threading.Lock()
         self.alive = True
-        self.room_code = None       # set by the RoomBook
-        self.is_host = False
+        self.room_code = None
+        self.slot = -1
+        self.msgs = Bucket(L.MSG_RATE, L.MSG_BURST)
+        self.bytes = Bucket(L.BYTE_RATE, L.BYTE_BURST)
+        self.creates = 0
+        self.bad_joins = 0
+        self.errors = 0
+        self.doomed = None          # a reason string -> pump closes the socket
 
-    # -- sending -------------------------------------------------------------
-
-    def _send_raw(self, data: bytes) -> bool:
+    def _raw(self, data):
         with self.send_lock:
             if not self.alive:
                 return False
@@ -228,20 +467,30 @@ class Conn:
                 self.alive = False
                 return False
 
-    def send_text(self, text: str) -> bool:
-        return self._send_raw(ws_build_frame(OP_TEXT, text.encode("utf-8")))
+    def send_text(self, text):
+        return self._raw(ws_build_frame(OP_TEXT, text.encode("utf-8")))
 
-    def send_json(self, obj) -> bool:
+    def send_json(self, obj):
         return self.send_text(json.dumps(obj, separators=(",", ":")))
 
-    def send_pong(self, payload: bytes) -> bool:
-        return self._send_raw(ws_build_frame(OP_PONG, payload))
+    def send_pong(self, payload):
+        return self._raw(ws_build_frame(OP_PONG, payload))
 
-    def send_close(self, code: int = 1000, reason: str = "") -> bool:
-        body = struct.pack("!H", code) + reason.encode("utf-8")[:123]
-        return self._send_raw(ws_build_frame(OP_CLOSE, body))
+    def send_close(self, code=1000, reason=""):
+        body = struct.pack("!H", code) + reason.encode("utf-8")[:120]
+        return self._raw(ws_build_frame(OP_CLOSE, body))
 
-    def shutdown(self):
+    def error(self, why):
+        """Send a fixed error string. Too many of them and the socket dies."""
+        self.errors += 1
+        self.send_json({"t": "error", "why": why})
+        if self.errors > L.MAX_ERRORS:
+            self.doom("Too many bad messages.")
+
+    def doom(self, why):
+        self.doomed = why
+
+    def kill(self):
         with self.send_lock:
             self.alive = False
         try:
@@ -250,39 +499,66 @@ class Conn:
             pass
 
     def __repr__(self):
-        return "<Conn %d %s room=%s>" % (self.cid, self.addr, self.room_code)
+        return "<Conn %d room=%s slot=%d>" % (self.cid, self.room_code, self.slot)
+
+
+class Seat:
+    __slots__ = ("token", "conn", "gone_at")
+
+    def __init__(self, token):
+        self.token = token
+        self.conn = None
+        self.gone_at = 0.0          # monotonic time the socket dropped, 0 = present
 
 
 class Room:
-    def __init__(self, code: str):
+    __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched")
+
+    def __init__(self, code):
         self.code = code
-        self.members = []          # list of Conn, max 2
-        self.created = time.time()
-        self.touched = time.time()
+        self.seats = [None, None]           # Seat or None
+        self.seq = 0
+        self.buf = collections.deque()      # (n, to_slot, text) for rejoin replay
+        self.buf_bytes = 0
+        self.created = time.monotonic()
+        self.touched = time.monotonic()
+
+    def push(self, to_slot, text):
+        self.seq += 1
+        self.buf.append((self.seq, to_slot, text))
+        self.buf_bytes += len(text)
+        while len(self.buf) > L.REPLAY_MSGS or self.buf_bytes > L.REPLAY_BYTES:
+            _, _, old = self.buf.popleft()
+            self.buf_bytes -= len(old)
+        return self.seq
+
+    def occupied(self):
+        return sum(1 for s in self.seats if s is not None)
+
+    def live_conns(self):
+        return [s.conn for s in self.seats if s is not None and s.conn is not None]
 
 
-# ── room bookkeeping (the only shared mutable state) ─────────────────────────
-
+# ── all shared mutable state, behind one lock ────────────────────────────────
 
 class RoomBook:
-    """All rooms + all connections, behind one lock.
-
-    Every public method returns *what to send* rather than sending it, so no
-    socket write ever happens while the lock is held.
-    """
+    """Public methods return WHAT TO SEND; no socket write happens under lock."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._rooms = {}           # code -> Room
-        self._conns = set()        # every live Conn
+        self._rooms = {}
+        self._conns = set()
 
-    # -- connection registry -------------------------------------------------
+    # -- registry ---------------------------------------------------------
 
-    def register(self, conn: Conn):
+    def try_register(self, conn):
         with self._lock:
+            if len(self._conns) >= L.MAX_WS:
+                return False
             self._conns.add(conn)
+            return True
 
-    def unregister(self, conn: Conn):
+    def unregister(self, conn):
         with self._lock:
             self._conns.discard(conn)
 
@@ -290,167 +566,343 @@ class RoomBook:
         with self._lock:
             return len(self._rooms), len(self._conns)
 
-    # -- helpers (call with the lock held) -----------------------------------
+    # -- helpers, lock held ------------------------------------------------
 
-    def _new_code(self) -> str:
-        while True:
+    def _new_code(self):
+        for _ in range(64):
             code = "".join(secrets.choice(CODE_ALPHABET) for _ in range(CODE_LEN))
             if code not in self._rooms:
                 return code
+        return None
 
-    def _detach(self, conn: Conn):
-        """Remove conn from its room. Returns the peer Conn (or None)."""
-        code = conn.room_code
-        conn.room_code = None
-        room = self._rooms.get(code)
+    def _room_of(self, conn):
+        if conn.room_code is None or conn.slot < 0:
+            return None
+        room = self._rooms.get(conn.room_code)
         if room is None:
             return None
-        if conn in room.members:
-            room.members.remove(conn)
-        room.touched = time.time()
-        peer = room.members[0] if room.members else None
-        if not room.members:
+        seat = room.seats[conn.slot]
+        if seat is None or seat.conn is not conn:
+            return None                     # someone else holds that seat now
+        return room
+
+    def _detach(self, conn, permanent):
+        """Take conn off its seat. Returns (peer_conn|None, room|None)."""
+        room = self._room_of(conn)
+        code, slot = conn.room_code, conn.slot
+        conn.room_code = None
+        conn.slot = -1
+        if room is None:
+            return None, None
+        seat = room.seats[slot]
+        seat.conn = None
+        seat.gone_at = time.monotonic()
+        if permanent:
+            room.seats[slot] = None
+        room.touched = time.monotonic()
+        other = room.seats[1 - slot]
+        peer = other.conn if other is not None else None
+        if room.occupied() == 0:
             self._rooms.pop(code, None)
-        return peer
+        return peer, room
 
-    # -- protocol actions ----------------------------------------------------
+    # -- actions -----------------------------------------------------------
 
-    def create(self, conn: Conn):
-        """-> (reply_to_sender, (peer, msg) | None)"""
+    def create(self, conn):
+        out = []
+        if conn.creates >= L.MAX_CREATES:
+            return [(conn, {"t": "error", "why": E_TOOMANY})]
         with self._lock:
-            old_peer = self._detach(conn) if conn.room_code else None
+            peer, _ = self._detach(conn, permanent=True)
+            if peer is not None:
+                out.append((peer, {"t": "peer", "state": "left"}))
+            if len(self._rooms) >= L.MAX_ROOMS:
+                out.append((conn, {"t": "error", "why": E_FULL_SERVER}))
+                return out
             code = self._new_code()
+            if code is None:
+                out.append((conn, {"t": "error", "why": E_FULL_SERVER}))
+                return out
             room = Room(code)
-            room.members.append(conn)
+            seat = Seat(secrets.token_urlsafe(12))
+            seat.conn = conn
+            room.seats[0] = seat
             self._rooms[code] = room
             conn.room_code = code
-            conn.is_host = True
-        notify = (old_peer, {"t": "peer", "state": "left"}) if old_peer else None
-        return {"t": "created", "code": code, "host": True}, notify
+            conn.slot = 0
+            conn.creates += 1
+            token = seat.token
+        LOG("room-create", code=code, rooms=len(self._rooms))
+        out.append((conn, {"t": "created", "code": code, "token": token,
+                           "host": True, "seq": 0}))
+        return out
 
-    def join(self, conn: Conn, code):
-        """-> (reply_to_sender, (peer, msg) | None)"""
+    def join(self, conn, code):
         if not isinstance(code, str):
-            return {"t": "error", "why": "No room with that code."}, None
+            conn.bad_joins += 1
+            return [(conn, {"t": "error", "why": E_NOROOM})]
         code = code.strip().upper()
+        if not CODE_RE.match(code):
+            conn.bad_joins += 1
+            return [(conn, {"t": "error", "why": E_NOROOM})]
+        out = []
         with self._lock:
             room = self._rooms.get(code)
             if room is None:
-                return {"t": "error", "why": "No room with that code."}, None
-            if conn in room.members:
-                return {"t": "joined", "code": code, "host": conn.is_host}, None
-            if len(room.members) >= 2:
-                return {"t": "error", "why": "That room already has two players."}, None
-            old_peer = self._detach(conn) if conn.room_code else None
-            room = self._rooms.get(code)
-            if room is None or len(room.members) >= 2:   # vanished while we shuffled
-                return {"t": "error", "why": "No room with that code."}, None
-            peer = room.members[0] if room.members else None
-            room.members.append(conn)
-            room.touched = time.time()
+                conn.bad_joins += 1
+                return [(conn, {"t": "error", "why": E_NOROOM})]
+            if self._room_of(conn) is room:
+                seat = room.seats[conn.slot]
+                return [(conn, {"t": "joined", "code": code, "token": seat.token,
+                                "host": conn.slot == 0, "seq": room.seq})]
+            if room.seats[1] is None:
+                free = 1
+            elif room.seats[0] is None:
+                free = 0
+            else:
+                free = None
+            if free is None:
+                conn.bad_joins += 1
+                return [(conn, {"t": "error", "why": E_FULL_ROOM})]
+            peer, _ = self._detach(conn, permanent=True)
+            if peer is not None:
+                out.append((peer, {"t": "peer", "state": "left"}))
+            room = self._rooms.get(code)                    # re-check after detach
+            if room is None or room.seats[free] is not None:
+                out.append((conn, {"t": "error", "why": E_NOROOM}))
+                return out
+            seat = Seat(secrets.token_urlsafe(12))
+            seat.conn = conn
+            room.seats[free] = seat
+            room.touched = time.monotonic()
             conn.room_code = code
-            conn.is_host = False
-        if old_peer is not None and old_peer is not peer:
-            old_peer.send_json({"t": "peer", "state": "left"})
-        notify = (peer, {"t": "peer", "state": "joined"}) if peer else None
-        return {"t": "joined", "code": code, "host": False}, notify
+            conn.slot = free
+            other = room.seats[1 - free]
+            other_conn = other.conn if other is not None else None
+            reply = {"t": "joined", "code": code, "token": seat.token,
+                     "host": free == 0, "seq": room.seq}
+        LOG("room-join", code=code)
+        out.append((conn, reply))
+        if other_conn is not None:
+            out.append((other_conn, {"t": "peer", "state": "joined"}))
+        return out
 
-    def peer_of(self, conn: Conn):
+    def rejoin(self, conn, code, token, since):
+        """Take back a seat after a dropped socket and replay what was missed."""
+        if not isinstance(code, str) or not isinstance(token, str) or len(token) > 64:
+            return [(conn, {"t": "error", "why": E_NOROOM})]
+        code = code.strip().upper()
+        if not CODE_RE.match(code):
+            conn.bad_joins += 1
+            return [(conn, {"t": "error", "why": E_NOROOM})]
+        if not isinstance(since, int) or isinstance(since, bool) or since < 0:
+            since = 0
+        out = []
         with self._lock:
-            room = self._rooms.get(conn.room_code)
+            room = self._rooms.get(code)
             if room is None:
-                return None
-            room.touched = time.time()
-            for m in room.members:
-                if m is not conn:
-                    return m
-            return None
+                conn.bad_joins += 1
+                return [(conn, {"t": "error", "why": E_NOROOM})]
+            slot = -1
+            for i, seat in enumerate(room.seats):
+                # constant-time-ish compare; tokens are 96 bits of urandom
+                if seat is not None and secrets.compare_digest(seat.token, token):
+                    slot = i
+            if slot < 0:
+                conn.bad_joins += 1
+                return [(conn, {"t": "error", "why": E_BADTOKEN})]
+            old, _ = self._detach(conn, permanent=True)     # leave any other room
+            if old is not None:
+                out.append((old, {"t": "peer", "state": "left"}))
+            room = self._rooms.get(code)
+            if room is None or room.seats[slot] is None:
+                out.append((conn, {"t": "error", "why": E_NOROOM}))
+                return out
+            seat = room.seats[slot]
+            evicted = seat.conn
+            seat.conn = conn
+            seat.gone_at = 0.0
+            room.touched = time.monotonic()
+            conn.room_code = code
+            conn.slot = slot
+            other = room.seats[1 - slot]
+            other_conn = other.conn if other is not None else None
+            replay = [text for (n, to, text) in room.buf if to == slot and n > since]
+            head = {"t": "rejoined", "code": code, "host": slot == 0,
+                    "seq": room.seq, "peer": other_conn is not None}
+        if evicted is not None and evicted is not conn:
+            evicted.send_json({"t": "closed", "why": "You reconnected somewhere else."})
+            evicted.doom("replaced")
+            evicted.kill()
+        LOG("room-rejoin", code=code, replay=len(replay))
+        out.append((conn, head))
+        for text in replay:
+            out.append((conn, text))                        # already-serialised
+        if other_conn is not None:
+            out.append((other_conn, {"t": "peer", "state": "rejoined"}))
+        return out
 
-    def leave(self, conn: Conn):
-        """-> peer Conn to notify, or None"""
+    def relay(self, conn, payload, claimed_code):
+        """payload is ALREADY sanitised. claimed_code, if given, must match."""
         with self._lock:
-            if conn.room_code is None:
-                return None
-            return self._detach(conn)
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if claimed_code is not None and claimed_code != room.code:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            other = room.seats[1 - conn.slot]
+            if other is None:
+                return [(conn, {"t": "error", "why": E_NOPEER})]
+            to = 1 - conn.slot
+            text = json.dumps({"t": "relay", "n": room.seq + 1, "d": payload},
+                              separators=(",", ":"))
+            room.push(to, text)
+            room.touched = time.monotonic()
+            peer = other.conn
+        if peer is None:
+            return []                       # buffered; they get it when they rejoin
+        return [(peer, text)]
+
+    def leave(self, conn):
+        with self._lock:
+            peer, _ = self._detach(conn, permanent=True)
+        return [(peer, {"t": "peer", "state": "left"})] if peer is not None else []
+
+    def drop(self, conn):
+        """Socket died. Hold the seat for GRACE seconds."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                self._detach(conn, permanent=True)
+                return []
+            slot = conn.slot
+            self._detach(conn, permanent=False)
+            room = self._rooms.get(room.code)
+            if room is None:
+                return []
+            other = room.seats[1 - slot]
+            peer = other.conn if other is not None else None
+        return [(peer, {"t": "peer", "state": "dropped"})] if peer is not None else []
 
     def sweep(self):
-        """Drop empty rooms and rooms idle for too long."""
-        now = time.time()
+        """Bin expired seats and idle rooms. Returns messages to send."""
+        now = time.monotonic()
+        out = []
         with self._lock:
-            dead = [c for c, r in self._rooms.items()
-                    if not r.members or (now - r.touched) > ROOM_IDLE_SECONDS]
-            for code in dead:
-                room = self._rooms.pop(code, None)
-                if room:
-                    for m in room.members:
-                        m.room_code = None
-        return len(dead)
+            for code in list(self._rooms.keys()):
+                room = self._rooms.get(code)
+                if room is None:
+                    continue
+                idle = (now - room.touched) > L.ROOM_IDLE
+                if idle:
+                    for seat in room.seats:
+                        if seat is not None and seat.conn is not None:
+                            out.append((seat.conn,
+                                        {"t": "closed", "why": "The room timed out."}))
+                            seat.conn.doom("idle")
+                            seat.conn.room_code = None
+                            seat.conn.slot = -1
+                    self._rooms.pop(code, None)
+                    continue
+                for i, seat in enumerate(room.seats):
+                    if seat is None or seat.conn is not None or seat.gone_at == 0.0:
+                        continue
+                    if (now - seat.gone_at) > L.GRACE:
+                        room.seats[i] = None
+                        other = room.seats[1 - i]
+                        if other is not None and other.conn is not None:
+                            out.append((other.conn, {"t": "peer", "state": "left"}))
+                if room.occupied() == 0:
+                    self._rooms.pop(code, None)
+        return out
 
 
 ROOMS = RoomBook()
 
 
-# ── the message pump for one player ──────────────────────────────────────────
+def dispatch(messages):
+    """Send a list of (conn, dict-or-str). Never called with a lock held."""
+    for conn, msg in messages:
+        if conn is None:
+            continue
+        if isinstance(msg, str):
+            conn.send_text(msg)
+        else:
+            conn.send_json(msg)
 
 
-def handle_ws_message(conn: Conn, raw: str):
-    """Handle one JSON text message from a client."""
+# ── message pump ─────────────────────────────────────────────────────────────
+
+def handle_ws_message(conn, raw):
+    if not conn.msgs.take() or not conn.bytes.take(len(raw)):
+        conn.send_json({"t": "error", "why": E_FLOOD})
+        conn.doom("flood")
+        LOG("flood", cid=conn.cid)
+        return
+    if len(raw) > L.MAX_MSG:
+        conn.error(E_BIG)
+        return
     try:
         msg = json.loads(raw)
-    except (ValueError, TypeError):
-        conn.send_json({"t": "error", "why": "Bad JSON."})
+    except (ValueError, TypeError, RecursionError):
+        conn.error(E_JSON)
         return
     if not isinstance(msg, dict):
-        conn.send_json({"t": "error", "why": "Bad JSON."})
+        conn.error(E_SHAPE)
         return
 
     kind = msg.get("t")
 
     if kind == "create":
-        reply, notify = ROOMS.create(conn)
-        conn.send_json(reply)
-        if notify:
-            notify[0].send_json(notify[1])
+        dispatch(ROOMS.create(conn))
 
     elif kind == "join":
-        reply, notify = ROOMS.join(conn, msg.get("code"))
-        conn.send_json(reply)
-        if notify:
-            notify[0].send_json(notify[1])
+        dispatch(ROOMS.join(conn, msg.get("code")))
+        if conn.bad_joins > L.MAX_BAD_JOINS:
+            conn.doom("code guessing")
+
+    elif kind == "rejoin":
+        dispatch(ROOMS.rejoin(conn, msg.get("code"), msg.get("token"), msg.get("since")))
+        if conn.bad_joins > L.MAX_BAD_JOINS:
+            conn.doom("code guessing")
 
     elif kind == "relay":
-        peer = ROOMS.peer_of(conn)
-        if peer is None:
-            conn.send_json({"t": "error", "why": "Nobody else in the room yet."})
-        else:
-            # forward the payload verbatim, no inspection, no rules
-            peer.send_json({"t": "relay", "d": msg.get("d")})
+        try:
+            payload = sanitize_relay(msg.get("d"))
+        except Reject:
+            conn.error(E_SHAPE)
+            return
+        code = msg.get("code")
+        if code is not None and not isinstance(code, str):
+            conn.error(E_SHAPE)
+            return
+        dispatch(ROOMS.relay(conn, payload, code.strip().upper() if code else None))
 
     elif kind == "leave":
-        peer = ROOMS.leave(conn)
-        if peer:
-            peer.send_json({"t": "peer", "state": "left"})
+        dispatch(ROOMS.leave(conn))
 
     elif kind == "ping":
         conn.send_json({"t": "pong"})
 
     else:
-        conn.send_json({"t": "error", "why": "Unknown message type."})
+        conn.error(E_SHAPE)
 
 
-def ws_pump(conn: Conn, rfile):
+def ws_pump(conn, rfile):
     """Read frames until the client goes away. Never raises."""
     frag_op = None
     frag_buf = bytearray()
     try:
-        while conn.alive:
+        while conn.alive and conn.doomed is None:
             fin, opcode, payload = ws_read_frame(rfile, require_mask=True)
 
             if opcode == OP_CLOSE:
                 conn.send_close(1000)
                 return
             if opcode == OP_PING:
-                conn.send_pong(payload)
+                if not conn.msgs.take():
+                    raise WSError("flood", 1008)
+                conn.send_pong(payload[:125])
                 continue
             if opcode == OP_PONG:
                 continue
@@ -460,15 +912,17 @@ def ws_pump(conn: Conn, rfile):
                     raise WSError("continuation without start", 1002)
             elif opcode in (OP_TEXT, OP_BIN):
                 if frag_op is not None:
-                    raise WSError("new message during fragmented message", 1002)
+                    raise WSError("interleaved message", 1002)
                 frag_op = opcode
             else:
-                raise WSError("unknown opcode %d" % opcode, 1002)
+                raise WSError("unknown opcode", 1002)
 
             frag_buf += payload
-            if len(frag_buf) > MAX_PAYLOAD:
+            if len(frag_buf) > L.MAX_MSG:
                 raise WSError("message too big", 1009)
             if not fin:
+                if not conn.bytes.take(len(payload)):
+                    raise WSError("flood", 1008)
                 continue
 
             data, op = bytes(frag_buf), frag_op
@@ -481,121 +935,137 @@ def ws_pump(conn: Conn, rfile):
                 except UnicodeDecodeError:
                     raise WSError("bad utf-8", 1007)
                 handle_ws_message(conn, text)
-            # binary frames are simply ignored — KARTI only speaks JSON text
+            # binary frames are dropped on the floor: KARTI only speaks JSON text
 
+        if conn.doomed:
+            conn.send_close(1008, "closed")
     except WSError as e:
         if e.code != 1006:
-            conn.send_close(e.code, str(e)[:100])
+            conn.send_close(e.code, "protocol")
     except (OSError, ValueError):
         pass
-    except Exception:                        # never take the server down
+    except Exception:                        # never take the whole server down
         traceback.print_exc()
 
 
-# ── HTTP + WebSocket request handler ─────────────────────────────────────────
+# ── HTTP front door ──────────────────────────────────────────────────────────
+
+ALLOWED_ORIGINS = {PAGES_ORIGIN}
+ALLOW_ANY_ORIGIN = False
 
 
-class KartiHandler(SimpleHTTPRequestHandler):
-    server_version = "KARTI/1.0"
+def origin_ok(origin):
+    if ALLOW_ANY_ORIGIN:
+        return True
+    if not origin:
+        return True             # non-browser clients send no Origin at all
+    if origin in ALLOWED_ORIGINS:
+        return True
+    return bool(LOOPBACK_ORIGIN_RE.match(origin))
+
+
+class KartiHandler(BaseHTTPRequestHandler):
+    """Two routes and a 404. There is deliberately no filesystem code here."""
+
+    server_version = "karti"
+    sys_version = ""
     protocol_version = "HTTP/1.1"
+    timeout = L.HTTP_TIMEOUT
     quiet = True
 
-    # be explicit; some Pi images have thin /etc/mime.types
-    extensions_map = dict(SimpleHTTPRequestHandler.extensions_map)
-    extensions_map.update({
-        "": "application/octet-stream",
-        ".html": "text/html; charset=utf-8",
-        ".htm": "text/html; charset=utf-8",
-        ".js": "text/javascript; charset=utf-8",
-        ".mjs": "text/javascript; charset=utf-8",
-        ".css": "text/css; charset=utf-8",
-        ".json": "application/json; charset=utf-8",
-        ".webmanifest": "application/manifest+json; charset=utf-8",
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".gif": "image/gif",
-        ".svg": "image/svg+xml",
-        ".webp": "image/webp",
-        ".ico": "image/x-icon",
-        ".woff": "font/woff",
-        ".woff2": "font/woff2",
-        ".mp3": "audio/mpeg",
-        ".ogg": "audio/ogg",
-        ".wav": "audio/wav",
-        ".txt": "text/plain; charset=utf-8",
-    })
-
-    # -- noise control -------------------------------------------------------
+    # -- noise ------------------------------------------------------------
 
     def log_message(self, fmt, *args):
         if not self.quiet:
-            sys.stderr.write("[karti] %s - %s\n" % (self.address_string(), fmt % args))
+            sys.stderr.write("[karti] %s\n" % (fmt % args))
 
     def log_error(self, fmt, *args):
         if not self.quiet:
-            sys.stderr.write("[karti] %s - %s\n" % (self.address_string(), fmt % args))
+            sys.stderr.write("[karti] %s\n" % (fmt % args))
 
-    # -- headers -------------------------------------------------------------
+    # -- routing ----------------------------------------------------------
 
-    def end_headers(self):
-        # phones love caching stale JS; make sure they never do
-        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-        self.send_header("Pragma", "no-cache")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        SimpleHTTPRequestHandler.end_headers(self)
+    def route(self):
+        path = self.path.split("?", 1)[0].split("#", 1)[0]
+        while len(path) > 1 and path.endswith("/"):
+            path = path[:-1]
+        if path == PATH_PREFIX:
+            return "/"
+        if path.startswith(PATH_PREFIX + "/"):
+            path = path[len(PATH_PREFIX):] or "/"
+        return path
 
-    # -- routing -------------------------------------------------------------
+    def cors(self):
+        origin = self.headers.get("Origin")
+        if origin and origin_ok(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
 
-    def _path_only(self) -> str:
-        return self.path.split("?", 1)[0].split("#", 1)[0]
-
-    def _wants_websocket(self) -> bool:
-        upgrade = (self.headers.get("Upgrade") or "").strip().lower()
-        conn_hdr = (self.headers.get("Connection") or "").lower()
-        return upgrade == "websocket" and "upgrade" in conn_hdr
-
-    def do_GET(self):
-        path = self._path_only()
-        if path == "/ws":
-            self.handle_websocket()
-            return
-        if path == "/health":
-            self.send_json_response(200, self.health_payload())
-            return
-        SimpleHTTPRequestHandler.do_GET(self)
-
-    def do_HEAD(self):
-        path = self._path_only()
-        if path in ("/ws", "/health"):
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
-        SimpleHTTPRequestHandler.do_HEAD(self)
-
-    @staticmethod
-    def health_payload():
-        rooms, clients = ROOMS.stats()
-        return {"ok": True, "rooms": rooms, "clients": clients}
-
-    def send_json_response(self, status: int, obj):
-        body = json.dumps(obj).encode("utf-8")
+    def reply(self, status, obj):
+        body = json.dumps(obj, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.cors()
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except OSError:
+            pass
 
-    # -- the WebSocket upgrade ----------------------------------------------
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Allow", "GET, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.cors()
+        self.end_headers()
+
+    def do_GET(self):
+        path = self.route()
+        if path == "/ws":
+            self.handle_websocket()
+        elif path == "/health":
+            rooms, clients = ROOMS.stats()
+            self.reply(200, {"ok": True, "rooms": rooms, "clients": clients,
+                             "maxRooms": L.MAX_ROOMS, "maxClients": L.MAX_WS})
+        else:
+            self.reply(404, {"ok": False, "why": "This is the KARTI relay, not a web server."})
+
+    def do_HEAD(self):
+        self.send_response(200 if self.route() in ("/ws", "/health") else 404)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.cors()
+        self.end_headers()
+
+    def do_POST(self):
+        self.reply(405, {"ok": False, "why": "GET only."})
+
+    do_PUT = do_DELETE = do_PATCH = do_POST
+
+    # -- upgrade ----------------------------------------------------------
 
     def handle_websocket(self):
-        self.close_connection = True          # we own the socket from here on
+        self.close_connection = True
+        origin = self.headers.get("Origin")
+        if not origin_ok(origin):
+            LOG("origin-reject")
+            self.reply(403, {"t": "error", "why": "Origin not allowed."})
+            return
+
+        upgrade = (self.headers.get("Upgrade") or "").strip().lower()
+        conn_hdr = (self.headers.get("Connection") or "").lower()
         key = self.headers.get("Sec-WebSocket-Key")
         version = (self.headers.get("Sec-WebSocket-Version") or "").strip()
-        if not self._wants_websocket() or not key:
-            self.send_json_response(400, {"t": "error", "why": "Expected a WebSocket upgrade."})
+        if upgrade != "websocket" or "upgrade" not in conn_hdr or not key:
+            self.reply(400, {"t": "error", "why": "Expected a WebSocket upgrade."})
             return
         if version and version != "13":
             self.send_response(426)
@@ -603,56 +1073,91 @@ class KartiHandler(SimpleHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-
-        accept = ws_accept_key(key)
-        handshake = (
-            "HTTP/1.1 101 Switching Protocols\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Accept: %s\r\n"
-            "\r\n" % accept
-        ).encode("ascii")
-
         try:
-            self.connection.sendall(handshake)
-        except OSError:
+            if len(base64.b64decode(key.strip() + "==", validate=False)) != 16:
+                raise ValueError
+        except Exception:
+            self.reply(400, {"t": "error", "why": "Bad WebSocket key."})
             return
 
-        # from now on: raw frames. No socket timeout, players idle between turns.
+        conn = Conn(self.connection, self.client_address)
+        if not ROOMS.try_register(conn):
+            LOG("ws-refuse-full")
+            self.reply(503, {"t": "error", "why": E_FULL_SERVER})
+            return
+
         try:
-            self.connection.settimeout(None)
+            self.connection.sendall((
+                "HTTP/1.1 101 Switching Protocols\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Accept: %s\r\n"
+                "\r\n" % ws_accept_key(key)).encode("ascii"))
+        except OSError:
+            ROOMS.unregister(conn)
+            return
+
+        try:
+            self.connection.settimeout(L.SOCK_TIMEOUT)
             self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
         except OSError:
             pass
 
-        conn = Conn(self.connection, self.client_address)
-        ROOMS.register(conn)
+        LOG("ws-open", cid=conn.cid)
         try:
             ws_pump(conn, self.rfile)
         finally:
-            peer = ROOMS.leave(conn)
-            ROOMS.unregister(conn)
             conn.alive = False
-            if peer is not None:
-                peer.send_json({"t": "peer", "state": "left"})
+            dispatch(ROOMS.drop(conn))
+            ROOMS.unregister(conn)
+            LOG("ws-close", cid=conn.cid)
 
 
 # ── server plumbing ──────────────────────────────────────────────────────────
 
+class GuardedServer(ThreadingHTTPServer):
+    """Hard cap on simultaneously accepted sockets, so a stranger cannot make
+    us spawn threads (and thread stacks) without limit."""
 
-def make_server(host: str, port: int, root: str, quiet: bool = True) -> ThreadingHTTPServer:
-    handler_cls = type("KartiHandlerBound", (KartiHandler,), {"quiet": quiet})
-    handler = functools.partial(handler_cls, directory=root)
-    ThreadingHTTPServer.allow_reuse_address = True
-    ThreadingHTTPServer.daemon_threads = True
-    return ThreadingHTTPServer((host, port), handler)
+    daemon_threads = True
+    allow_reuse_address = True
+    request_queue_size = 32
+
+    def __init__(self, *a, **kw):
+        self._open = set()
+        self._open_lock = threading.Lock()
+        super().__init__(*a, **kw)
+
+    def verify_request(self, request, client_address):
+        with self._open_lock:
+            if len(self._open) >= L.MAX_SOCKETS:
+                return False
+            self._open.add(request)
+            return True
+
+    def shutdown_request(self, request):
+        with self._open_lock:
+            self._open.discard(request)
+        super().shutdown_request(request)
+
+    def handle_error(self, request, client_address):
+        pass                        # a broken client is not news
 
 
-def start_sweeper(stop_event: threading.Event) -> threading.Thread:
+def make_server(host, port, quiet=True):
+    handler = type("KartiHandlerBound", (KartiHandler,), {"quiet": quiet})
+    return GuardedServer((host, port), handler)
+
+
+def start_sweeper(stop_event):
     def loop():
-        while not stop_event.wait(SWEEP_EVERY):
+        while not stop_event.wait(L.SWEEP):
             try:
-                ROOMS.sweep()
+                out = ROOMS.sweep()
+                dispatch(out)
+                for conn, _ in out:
+                    if conn is not None and conn.doomed:
+                        conn.kill()
             except Exception:
                 traceback.print_exc()
     t = threading.Thread(target=loop, name="karti-sweeper", daemon=True)
@@ -660,109 +1165,112 @@ def start_sweeper(stop_event: threading.Event) -> threading.Thread:
     return t
 
 
-def lan_ips():
-    """Best-effort list of this machine's LAN IPv4 addresses."""
-    ips = []
-
-    def add(ip):
-        if ip and not ip.startswith("127.") and ip not in ips:
-            ips.append(ip)
-
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            s.connect(("8.8.8.8", 80))       # no packets sent, just picks a route
-            add(s.getsockname()[0])
-        finally:
-            s.close()
-    except OSError:
-        pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            add(info[4][0])
-    except OSError:
-        pass
-    return ips
-
-
-def print_banner(host: str, port: int, root: str):
-    ips = lan_ips()
-    shown = ips if host in ("0.0.0.0", "::", "") else [host]
-    if not shown:
-        shown = ["<this-machine-ip>"]
+def print_banner(host, port):
     print("")
-    print("KARTI server running")
-    print("  serving files from : %s" % root)
-    print("  listening on       : %s:%d" % (host, port))
+    print("KARTI relay (rooms only — this process serves no files)")
+    print("  listening on   : http://%s:%d" % (host, port))
+    print("  websocket      : ws://%s:%d%s/ws" % (host, port, PATH_PREFIX))
+    print("  health         : http://%s:%d%s/health" % (host, port, PATH_PREFIX))
+    print("  allowed origin : %s (+ loopback)" % PAGES_ORIGIN)
+    print("  caps           : %d rooms, %d sockets, %d KiB/message"
+          % (L.MAX_ROOMS, L.MAX_WS, L.MAX_MSG // 1024))
     print("")
-    print("  Open this on BOTH phones:")
-    for ip in shown:
-        print("      http://%s:%d/" % (ip, port))
-    print("  WebSocket endpoint : ws://%s:%d/ws" % (shown[0], port))
-    print("  Health check       : http://%s:%d/health" % (shown[0], port))
-    print("")
-    print("  NOTE: online play only works when BOTH players load the game over")
-    print("  http:// from this machine on the same network. An https:// copy")
-    print("  (e.g. GitHub Pages) cannot connect here - the browser blocks it")
-    print("  (mixed content / private network access).")
-    print("")
+    print("  Publish it with Tailscale Funnel — see docs/ONLINE.md.")
     print("  Ctrl+C to stop.")
     print("", flush=True)
 
 
-# ── a minimal stdlib WebSocket CLIENT (used by --selftest) ───────────────────
+# ── a minimal stdlib WebSocket client, for --selftest ────────────────────────
+
+TIMEOUT = object()          # "nothing arrived", as distinct from "socket closed"
+
+
+class _Reader:
+    """Byte reader over a socket that SURVIVES a timeout.
+
+    socket.makefile('rb') hands back a BufferedReader, and once one of its
+    reads times out it is poisoned for good ("cannot read from timed out
+    object"). The abuse tests deliberately wait for messages that never come,
+    so the test client needs a reader that just shrugs and carries on."""
+
+    def __init__(self, sock):
+        self.sock = sock
+        self.buf = b""
+
+    def _fill(self, want):
+        while len(self.buf) < want:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                return False
+            self.buf += chunk
+        return True
+
+    def read(self, n):
+        self._fill(n)                       # timeouts propagate, buffer intact
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def readline(self):
+        while b"\n" not in self.buf:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                break
+            self.buf += chunk
+        i = self.buf.find(b"\n")
+        if i < 0:
+            out, self.buf = self.buf, b""
+            return out
+        out, self.buf = self.buf[:i + 1], self.buf[i + 1:]
+        return out
+
+    def close(self):
+        self.buf = b""
 
 
 class WSClient:
-    """Tiny blocking WebSocket client. Enough to drive the self-test."""
-
-    def __init__(self, host: str, port: int, path: str = "/ws", timeout: float = 5.0):
+    def __init__(self, host, port, path=PATH_PREFIX + "/ws", timeout=5.0, origin=None,
+                 extra=""):
         self.sock = socket.create_connection((host, port), timeout=timeout)
         self.sock.settimeout(timeout)
-        self.rfile = self.sock.makefile("rb")
+        self.rfile = _Reader(self.sock)
         self.closed = False
-
         key = base64.b64encode(os.urandom(16)).decode("ascii")
-        req = (
-            "GET %s HTTP/1.1\r\n"
-            "Host: %s:%d\r\n"
-            "Upgrade: websocket\r\n"
-            "Connection: Upgrade\r\n"
-            "Sec-WebSocket-Key: %s\r\n"
-            "Sec-WebSocket-Version: 13\r\n"
-            "\r\n" % (path, host, port, key)
-        )
+        req = ("GET %s HTTP/1.1\r\nHost: %s:%d\r\nUpgrade: websocket\r\n"
+               "Connection: Upgrade\r\nSec-WebSocket-Key: %s\r\n"
+               "Sec-WebSocket-Version: 13\r\n%s%s\r\n"
+               % (path, host, port, key,
+                  ("Origin: %s\r\n" % origin) if origin else "", extra))
         self.sock.sendall(req.encode("ascii"))
-
-        status = self.rfile.readline().decode("latin-1").strip()
-        if "101" not in status:
-            raise RuntimeError("handshake failed: %r" % status)
-        headers = {}
+        self.status = self.rfile.readline().decode("latin-1").strip()
+        if "101" not in self.status:
+            raise RuntimeError("handshake refused: %r" % self.status)
         while True:
             line = self.rfile.readline().decode("latin-1").strip()
             if not line:
                 break
-            if ":" in line:
-                k, v = line.split(":", 1)
-                headers[k.strip().lower()] = v.strip()
-        if headers.get("sec-websocket-accept") != ws_accept_key(key):
-            raise RuntimeError("bad Sec-WebSocket-Accept")
 
-    def send_text(self, text: str):
+    def send_text(self, text):
         self.sock.sendall(ws_build_frame(OP_TEXT, text.encode("utf-8"), mask=True))
 
     def send_json(self, obj):
         self.send_text(json.dumps(obj))
 
-    def recv_text(self):
-        """Return the next text message, or None if the peer closed."""
+    def send_raw(self, data):
+        self.sock.sendall(data)
+
+    def raw_recv(self, timeout=None):
+        """-> text | TIMEOUT (nothing arrived) | None (server hung up).
+        Telling those two apart is the whole point of the abuse tests."""
+        if timeout is not None:
+            self.sock.settimeout(timeout)
         buf = bytearray()
         while True:
             try:
-                fin, opcode, payload = ws_read_frame(self.rfile, require_mask=False)
-            except WSError:
-                return None
-            except (OSError, socket.timeout):
+                fin, opcode, payload = ws_read_frame(self.rfile, require_mask=False,
+                                                     max_payload=1 << 22)
+            except socket.timeout:
+                return TIMEOUT
+            except (WSError, OSError, ValueError):
                 return None
             if opcode == OP_CLOSE:
                 return None
@@ -775,23 +1283,27 @@ class WSClient:
             if fin:
                 return buf.decode("utf-8", "replace")
 
-    def recv_json(self):
-        text = self.recv_text()
+    def recv_text(self, timeout=None):
+        r = self.raw_recv(timeout)
+        return None if (r is None or r is TIMEOUT) else r
+
+    def recv_json(self, timeout=None):
+        text = self.recv_text(timeout)
         return None if text is None else json.loads(text)
 
-    def expect_nothing(self, seconds: float = 0.35) -> bool:
-        """True if no message arrives within `seconds`."""
-        old = self.sock.gettimeout()
-        self.sock.settimeout(seconds)
-        try:
-            return self.recv_text() is None
-        finally:
-            try:
-                self.sock.settimeout(old)
-            except OSError:
-                pass
+    def dead(self, seconds=3.0):
+        """True only if the server actually closed the socket."""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if self.raw_recv(0.4) is None:
+                return True
+        return False
 
-    def close(self, graceful: bool = True):
+    def silent(self, seconds=0.4):
+        """True if nothing at all arrived and the socket is still open."""
+        return self.raw_recv(seconds) is TIMEOUT
+
+    def close(self, graceful=True):
         if self.closed:
             return
         self.closed = True
@@ -800,19 +1312,29 @@ class WSClient:
                 self.sock.sendall(ws_build_frame(OP_CLOSE, struct.pack("!H", 1000), mask=True))
         except OSError:
             pass
+        # makefile() holds a reference to the fd: without closing rfile too, and
+        # without an explicit shutdown, the server never sees the EOF.
+        try:
+            self.sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            self.rfile.close()
+        except OSError:
+            pass
         try:
             self.sock.close()
         except OSError:
             pass
 
 
-def _http_get(host: str, port: int, path: str, timeout: float = 5.0):
-    """Dead-simple HTTP/1.0 GET -> (status:int, body:bytes)."""
+def _http_get(host, port, path, timeout=5.0, origin=None, method="GET"):
     s = socket.create_connection((host, port), timeout=timeout)
     s.settimeout(timeout)
     try:
-        s.sendall(("GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n"
-                   % (path, host)).encode("ascii"))
+        req = ("%s %s HTTP/1.0\r\nHost: %s\r\n%sConnection: close\r\n\r\n"
+               % (method, path, host, ("Origin: %s\r\n" % origin) if origin else ""))
+        s.sendall(req.encode("ascii"))
         chunks = []
         while True:
             b = s.recv(65536)
@@ -826,187 +1348,592 @@ def _http_get(host: str, port: int, path: str, timeout: float = 5.0):
     first = head.split(b"\r\n", 1)[0].decode("latin-1")
     parts = first.split()
     status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-    return status, body
+    return status, head.decode("latin-1"), body
 
 
 # ── self-test ────────────────────────────────────────────────────────────────
 
+def _deck40():
+    return ["petard"] * 20 + ["bandist"] * 20
 
-def selftest(root: str) -> int:
+
+def _list40():
+    return {"petard": 3, "bandist": 3}
+
+
+def selftest():
     results = []
 
-    def check(name: str, ok: bool, detail: str = ""):
+    def check(name, ok, detail=""):
         results.append((name, bool(ok)))
-        print("  %-6s %s%s" % ("PASS" if ok else "FAIL", name,
-                               ("  -- " + detail) if (detail and not ok) else ""))
+        print("  %-4s %s%s" % ("PASS" if ok else "FAIL", name,
+                               ("   << " + str(detail)[:240]) if (detail and not ok) else ""))
         return ok
 
+    # Squeeze the clock-driven limits so the run finishes in seconds.
+    L.ROOM_IDLE = 30.0          # lowered on purpose inside the cleanup tests
+    L.GRACE = 3.0
+    L.SWEEP = 0.25
+    L.MAX_ROOMS = 8
+    L.MAX_CREATES = 4
+
     host = "127.0.0.1"
-    httpd = make_server(host, 0, root, quiet=True)
+    httpd = make_server(host, 0, quiet=True)
     port = httpd.server_address[1]
-    thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.1},
-                              name="karti-selftest-server", daemon=True)
-    thread.start()
+    threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.05},
+                     name="karti-selftest", daemon=True).start()
+    stop = threading.Event()
+    start_sweeper(stop)
 
-    print("SELFTEST on http://%s:%d  (root=%s)" % (host, port, root))
-    a = b = c = None
-    try:
-        # 1 -- /health
-        try:
-            status, body = _http_get(host, port, "/health")
-            payload = json.loads(body.decode("utf-8"))
-            check("1. GET /health returns ok", status == 200 and payload.get("ok") is True,
-                  "status=%s body=%r" % (status, body[:120]))
-        except Exception as e:
-            check("1. GET /health returns ok", False, repr(e))
+    print("SELFTEST relay on 127.0.0.1:%d" % port)
+    live = []
 
-        # 2 -- GET / serves index.html
-        try:
-            status, body = _http_get(host, port, "/")
-            check("2. GET / serves index.html with KARTI",
-                  status == 200 and b"KARTI" in body,
-                  "status=%s len=%d" % (status, len(body)))
-        except Exception as e:
-            check("2. GET / serves index.html with KARTI", False, repr(e))
+    def cli(**kw):
+        c = WSClient(host, port, **kw)
+        live.append(c)
+        return c
 
-        # 3 -- A creates a room
-        code = None
+    def bye(c):
         try:
-            a = WSClient(host, port)
-            a.send_json({"t": "create"})
-            msg = a.recv_json()
-            code = (msg or {}).get("code")
-            ok = (msg or {}).get("t") == "created" and msg.get("host") is True
-            ok = ok and isinstance(code, str) and len(code) == CODE_LEN
-            ok = ok and all(ch in CODE_ALPHABET for ch in code or "")
-            check("3. A create -> 4-letter code", ok, repr(msg))
-        except Exception as e:
-            check("3. A create -> 4-letter code", False, repr(e))
-
-        # 4 -- B joins
-        try:
-            b = WSClient(host, port)
-            b.send_json({"t": "join", "code": code})
-            bmsg = b.recv_json()
-            amsg = a.recv_json()
-            ok = (bmsg or {}).get("t") == "joined" and bmsg.get("code") == code \
-                and bmsg.get("host") is False
-            ok = ok and (amsg or {}) == {"t": "peer", "state": "joined"}
-            check("4. B join -> both notified", ok, "B=%r A=%r" % (bmsg, amsg))
-        except Exception as e:
-            check("4. B join -> both notified", False, repr(e))
-
-        # 5 -- relay both ways
-        try:
-            pay_a = {"move": "play", "card": "il-Qattus", "n": 7, "u": "għ ż ċ"}
-            a.send_json({"t": "relay", "d": pay_a})
-            got_b = b.recv_json()
-            pay_b = ["ok", {"score": [3, 1]}, None, True]
-            b.send_json({"t": "relay", "d": pay_b})
-            got_a = a.recv_json()
-            ok = got_b == {"t": "relay", "d": pay_a} and got_a == {"t": "relay", "d": pay_b}
-            check("5. relay A->B and B->A verbatim", ok, "B got %r / A got %r" % (got_b, got_a))
-        except Exception as e:
-            check("5. relay A->B and B->A verbatim", False, repr(e))
-
-        # 6 -- big payload round trip (needs 16-bit extended length both ways)
-        try:
-            big = "".join(secrets.choice("abcdefghijklmnopqrstuvwxyz0123456789")
-                          for _ in range(40000))
-            a.send_json({"t": "relay", "d": {"blob": big}})
-            got_b = b.recv_json()
-            ok1 = got_b == {"t": "relay", "d": {"blob": big}}
-            b.send_json({"t": "relay", "d": {"echo": big}})
-            got_a = a.recv_json()
-            ok2 = got_a == {"t": "relay", "d": {"echo": big}}
-            check("6. 40KB relay survives both directions", ok1 and ok2,
-                  "A->B ok=%s B->A ok=%s" % (ok1, ok2))
-        except Exception as e:
-            check("6. 40KB relay survives both directions", False, repr(e))
-
-        # 7 -- bad code
-        try:
-            c = WSClient(host, port)
-            bad = "ZZZZ" if code != "ZZZZ" else "YYYY"
-            c.send_json({"t": "join", "code": bad})
-            msg = c.recv_json()
-            check("7. bad code -> error", (msg or {}).get("t") == "error"
-                  and "No room" in (msg or {}).get("why", ""), repr(msg))
-        except Exception as e:
-            check("7. bad code -> error", False, repr(e))
-
-        # 8 -- full room
-        try:
-            c.send_json({"t": "join", "code": code})
-            msg = c.recv_json()
-            check("8. full room -> error", (msg or {}).get("t") == "error"
-                  and "two players" in (msg or {}).get("why", ""), repr(msg))
-        except Exception as e:
-            check("8. full room -> error", False, repr(e))
-
-        # 9 -- B drops -> A is told
-        try:
-            b.close(graceful=False)
-            b = None
-            msg = a.recv_json()
-            check("9. B disconnect -> A gets peer left",
-                  (msg or {}) == {"t": "peer", "state": "left"}, repr(msg))
-        except Exception as e:
-            check("9. B disconnect -> A gets peer left", False, repr(e))
-
-    finally:
-        for cl in (a, b, c):
-            if cl is not None:
-                try:
-                    cl.close()
-                except Exception:
-                    pass
-        try:
-            httpd.shutdown()
+            c.close(graceful=False)
         except Exception:
             pass
+        if c in live:
+            live.remove(c)
+
+    def settle(idle=0.8):
+        """Force every room to expire, then wait for the sweeper."""
+        keep = L.ROOM_IDLE
+        L.ROOM_IDLE = idle
         try:
+            time.sleep(idle + L.SWEEP * 4 + 0.5)
+        finally:
+            L.ROOM_IDLE = keep
+
+    a = b = None
+    try:
+        # ═══════════ happy path ═══════════
+        print("")
+        print(" HAPPY PATH")
+
+        for label, path in (("/karti/health", PATH_PREFIX + "/health"),
+                            ("/health", "/health")):
+            try:
+                st, _, body = _http_get(host, port, path)
+                ok = st == 200 and json.loads(body.decode()).get("ok") is True
+                check("health answers on %s" % label, ok, "%s %r" % (st, body[:80]))
+            except Exception as e:
+                check("health answers on %s" % label, False, repr(e))
+
+        code = token_a = token_b = None
+        try:
+            a = cli(origin=PAGES_ORIGIN)
+            a.send_json({"t": "create"})
+            m = a.recv_json()
+            code = (m or {}).get("code")
+            token_a = (m or {}).get("token")
+            ok = (m or {}).get("t") == "created" and (m or {}).get("host") is True
+            ok = ok and isinstance(code, str) and CODE_RE.match(code or "") is not None
+            ok = ok and isinstance(token_a, str) and len(token_a) >= 12
+            check("create -> %d-char code + private seat token" % CODE_LEN, ok, m)
+        except Exception as e:
+            check("create -> code + token", False, repr(e))
+
+        check("code alphabet contains no O/0/I/1",
+              bool(code) and not any(ch in code for ch in "O0I1"), code)
+
+        try:
+            b = cli(origin=PAGES_ORIGIN)
+            b.send_json({"t": "join", "code": code})
+            bm = b.recv_json()
+            am = a.recv_json()
+            token_b = (bm or {}).get("token")
+            ok = (bm or {}).get("t") == "joined" and (bm or {}).get("host") is False
+            ok = ok and isinstance(token_b, str)
+            ok = ok and (am or {}) == {"t": "peer", "state": "joined"}
+            check("join pairs the two players and tells the host", ok,
+                  "B=%r A=%r" % (bm, am))
+        except Exception as e:
+            check("join pairs the two players", False, repr(e))
+
+        try:
+            hello = {"k": "hello", "name": "TERENCE", "list": _list40(),
+                     "deckKey": "festa", "deckName": "Festa"}
+            a.send_json({"t": "relay", "d": hello})
+            got = b.recv_json(3.0)
+            check("relay A->B, sequenced",
+                  got and got.get("t") == "relay" and got.get("d") == hello
+                  and got.get("n") == 1, got)
+        except Exception as e:
+            check("relay A->B, sequenced", False, repr(e))
+
+        try:
+            deal = {"k": "start", "seed": 123456, "hostName": "A", "guestName": "B",
+                    "hostList": _list40(), "guestList": _list40(),
+                    "hostKey": "festa", "guestKey": "bahri",
+                    "hostDeck": _deck40(), "guestDeck": _deck40()}
+            b.send_json({"t": "relay", "d": deal})
+            got = a.recv_json(3.0)
+            check("relay B->A carries a whole deal (two 40-card decks)",
+                  got and got.get("d") == deal, str(got)[:140])
+        except Exception as e:
+            check("relay B->A carries a whole deal", False, repr(e))
+
+        try:
+            act = {"k": "act", "kind": "summon", "ck": "1/main/0/8000|5",
+                   "a": {"hi": 2, "zi": 1, "pos": "atk", "fd": False, "tributes": []}}
+            a.send_json({"t": "relay", "d": act})
+            got = b.recv_json(3.0)
+            check("relay carries a duel move unchanged",
+                  got and got.get("d") == act, got)
+        except Exception as e:
+            check("relay carries a duel move", False, repr(e))
+
+        try:
+            a.send_json({"t": "ping"})
+            check("ping -> pong", a.recv_json(3.0) == {"t": "pong"})
+        except Exception as e:
+            check("ping -> pong", False, repr(e))
+
+        # ═══════════ reconnect ═══════════
+        print("")
+        print(" RECONNECT")
+        try:
+            last_seq = 3                     # B has seen relays 1 and 3
+            bye(b)
+            drop = a.recv_json(3.0)
+            ok_drop = (drop or {}) == {"t": "peer", "state": "dropped"}
+            # A plays on while B is off the air; the relay buffers it
+            a.send_json({"t": "relay",
+                         "d": {"k": "act", "kind": "end", "a": None, "ck": "z"}})
+            time.sleep(0.2)
+            b = cli(origin=PAGES_ORIGIN)
+            b.send_json({"t": "rejoin", "code": code, "token": token_b, "since": last_seq})
+            head = b.recv_json(3.0)
+            missed = b.recv_json(3.0)
+            note = a.recv_json(3.0)
+            ok = ok_drop
+            ok = ok and (head or {}).get("t") == "rejoined" and (head or {}).get("peer") is True
+            ok = ok and (missed or {}).get("t") == "relay" \
+                and (missed or {}).get("d", {}).get("kind") == "end"
+            ok = ok and (note or {}) == {"t": "peer", "state": "rejoined"}
+            check("dropped seat is held; rejoin replays the missed move", ok,
+                  "drop=%r head=%r missed=%r note=%r" % (drop, head, missed, note))
+        except Exception as e:
+            check("dropped seat is held; rejoin replays", False, repr(e))
+
+        try:
+            b.send_json({"t": "relay", "d": {"k": "act", "kind": "battle", "a": None}})
+            got = a.recv_json(3.0)
+            check("duel keeps running after the reconnect",
+                  got and got.get("d", {}).get("kind") == "battle", got)
+        except Exception as e:
+            check("duel keeps running after the reconnect", False, repr(e))
+
+        # ═══════════ abuse ═══════════
+        print("")
+        print(" ABUSE  (every one of these must be REFUSED)")
+
+        # --- oversized: a frame that merely CLAIMS to be 5 MiB -------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            head = bytearray([0x81, 0xFF])                  # TEXT, masked, 64-bit length
+            head += struct.pack("!Q", 5 * 1024 * 1024)
+            head += b"\x00\x00\x00\x00"
+            atk.send_raw(bytes(head))
+            atk.send_raw(b"A" * 4096)                       # only a sliver of the body
+            check("frame claiming 5 MiB -> socket cut before the body is read",
+                  atk.dead(3.0), "socket stayed open")
+            bye(atk)
+        except Exception as e:
+            check("frame claiming 5 MiB -> socket cut", False, repr(e))
+
+        # --- oversized: honestly sent, just too big ------------------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            atk.send_text("x" * (L.MAX_MSG + 1000))
+            check("%d KiB message -> socket cut" % ((L.MAX_MSG + 1000) // 1024),
+                  atk.dead(3.0))
+            bye(atk)
+        except Exception as e:
+            check("oversized honest message -> socket cut", False, repr(e))
+
+        # --- oversized: smuggled in as many small fragments ----------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            piece = b"y" * 4096
+            atk.send_raw(ws_build_frame(OP_TEXT, piece, mask=True)[:1]
+                         .replace(b"\x81", b"\x01") + ws_build_frame(OP_TEXT, piece, mask=True)[1:])
+            for _ in range(8):
+                f = ws_build_frame(OP_CONT, piece, mask=True)
+                atk.send_raw(bytes([0x00]) + f[1:])
+            check("fragmented message over the size cap -> socket cut", atk.dead(3.0))
+            bye(atk)
+        except Exception as e:
+            check("fragmented oversize -> socket cut", False, repr(e))
+
+        # --- malformed / hostile JSON --------------------------------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            probes = ["{not json", "[]", '"hello"', "null", "12", "",
+                      '{"t":"nope"}', '{"t":"relay"}',
+                      '{"t":"relay","d":{"k":"evil"}}',
+                      '{"t":"relay","d":{"k":"act","kind":"rm -rf /"}}',
+                      '{"t":"relay","d":{"k":"act","kind":"__proto__"}}',
+                      '{"t":"join","code":{"a":1}}',
+                      '{"t":"join","code":["' + "A" * 100 + '"]}',
+                      '{"t":"rejoin","code":"AAAAA","token":123}']
+            bad = []
+            for p in probes:
+                atk.send_text(p)
+                r = atk.recv_json(2.0)
+                if not (isinstance(r, dict) and r.get("t") == "error"):
+                    bad.append((p[:40], r))
+            check("malformed / hostile JSON -> plain error, no crash", not bad, bad)
+            bye(atk)
+        except Exception as e:
+            check("malformed JSON -> error", False, repr(e))
+
+        # --- hostile relay payloads must not reach the peer ----------------
+        try:
+            leaks = []
+            rejects = [
+                {"k": "act", "kind": "summon",
+                 "a": {"hi": 99999, "zi": 4, "pos": "atk", "fd": False, "tributes": []}},
+                {"k": "act", "kind": "summon",
+                 "a": {"hi": 1, "zi": 1, "pos": "atk", "fd": False,
+                       "tributes": list(range(50))}},
+                {"k": "act", "kind": "attack", "a": {"zi": 1, "t": 9999}},
+                {"k": "start", "seed": 1, "hostName": "A", "guestName": "B",
+                 "hostList": _list40(), "guestList": _list40(),
+                 "hostKey": None, "guestKey": None,
+                 "hostDeck": ["x" * 60] * 40, "guestDeck": _deck40()},
+                {"k": "hello", "name": "A", "list": {"card": 99}},
+                {"k": "hello", "name": "A", "list": {"c" * 400: 1}},
+                {"k": "wipe-their-save"},
+            ]
+            for n in rejects:
+                a.send_json({"t": "relay", "d": n})
+                r = a.recv_json(2.0)
+                peek = b.raw_recv(0.4)
+                if peek is not TIMEOUT:
+                    leaks.append(("forwarded to the peer", n.get("k"), peek))
+                if not (isinstance(r, dict) and r.get("t") == "error"):
+                    leaks.append(("no error returned", n.get("k"), r))
+            check("out-of-range / junk payloads never reach the other player",
+                  not leaks, leaks)
+        except Exception as e:
+            check("hostile relay payloads blocked", False, repr(e))
+
+        # --- script injection in a display name is scrubbed ----------------
+        try:
+            a.send_json({"t": "relay", "d": {
+                "k": "hello", "name": "<img src=x onerror=alert(1)>",
+                "list": _list40(), "deckKey": "<b>", "deckName": "\"x\""}})
+            got = b.recv_json(3.0)
+            name = (got or {}).get("d", {}).get("name", None)
+            ok = isinstance(name, str) and not any(c in name for c in "<>\"'&\\`")
+            ok = ok and not any(c in ((got or {}).get("d", {}).get("deckKey") or "")
+                                for c in "<>")
+            check("HTML/quotes are stripped out of names before forwarding", ok, got)
+        except Exception as e:
+            check("names are scrubbed", False, repr(e))
+
+        # --- spoofed room membership ---------------------------------------
+        try:
+            spy = cli(origin=PAGES_ORIGIN)
+            spy.send_json({"t": "relay", "d": {"k": "act", "kind": "end", "a": None}})
+            r1 = spy.recv_json(2.0)
+            spy.send_json({"t": "join", "code": code})
+            r2 = spy.recv_json(2.0)
+            spy.send_json({"t": "rejoin", "code": code, "token": "not-the-real-token",
+                           "since": 0})
+            r3 = spy.recv_json(2.0)
+            spy.send_json({"t": "relay", "code": code,
+                           "d": {"k": "act", "kind": "forfeit", "a": None}})
+            r4 = spy.recv_json(2.0)
+            quiet_a, quiet_b = a.silent(0.5), b.silent(0.5)
+            ok = (r1 or {}).get("why") == E_NOTIN
+            ok = ok and (r2 or {}).get("why") == E_FULL_ROOM
+            ok = ok and (r3 or {}).get("why") == E_BADTOKEN
+            ok = ok and (r4 or {}).get("t") == "error"
+            ok = ok and quiet_a and quiet_b
+            check("outsider cannot relay into, join, or steal a seat in a room", ok,
+                  "r1=%r r2=%r r3=%r r4=%r quiet=%s/%s"
+                  % (r1, r2, r3, r4, quiet_a, quiet_b))
+            bye(spy)
+        except Exception as e:
+            check("outsider cannot touch someone else's room", False, repr(e))
+
+        # --- a real member cannot claim to be in another room --------------
+        try:
+            other = cli(origin=PAGES_ORIGIN)
+            other.send_json({"t": "create"})
+            ocode = (other.recv_json(2.0) or {}).get("code")
+            other.send_json({"t": "relay", "code": code,
+                             "d": {"k": "act", "kind": "forfeit", "a": None}})
+            r = other.recv_json(2.0)
+            ok = (r or {}).get("why") == E_NOTIN and a.silent(0.5) and b.silent(0.5)
+            check("a player in room X cannot address room Y", ok, "%r %r" % (ocode, r))
+            bye(other)
+        except Exception as e:
+            check("player in room X cannot address room Y", False, repr(e))
+
+        # --- flood ----------------------------------------------------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            for _ in range(400):
+                try:
+                    atk.send_text('{"t":"ping"}')
+                except OSError:
+                    break
+            told, closed = False, False
+            end = time.monotonic() + 5
+            while time.monotonic() < end:
+                r = atk.raw_recv(0.5)
+                if r is None:
+                    closed = True
+                    break
+                if r is TIMEOUT:
+                    continue
+                try:
+                    if json.loads(r).get("why") == E_FLOOD:
+                        told = True
+                except ValueError:
+                    pass
+            check("400-message burst -> told to slow down, then cut off",
+                  told and (closed or atk.dead(2.0)), "told=%s closed=%s" % (told, closed))
+            bye(atk)
+        except Exception as e:
+            check("flood -> cut off", False, repr(e))
+
+        # --- room code brute force -----------------------------------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            for i in range(L.MAX_BAD_JOINS + 5):
+                try:
+                    atk.send_text(json.dumps({"t": "join", "code": "ZZZZ%s"
+                                              % CODE_ALPHABET[i % 32]}))
+                except OSError:
+                    break
+                atk.recv_json(1.0)
+                time.sleep(0.03)
+            check("guessing room codes -> connection cut after %d misses" % L.MAX_BAD_JOINS,
+                  atk.dead(3.0))
+            bye(atk)
+        except Exception as e:
+            check("room code brute force -> cut", False, repr(e))
+
+        # --- per-connection room cap ----------------------------------------
+        try:
+            atk = cli(origin=PAGES_ORIGIN)
+            capped = False
+            for _ in range(L.MAX_CREATES + 3):
+                atk.send_json({"t": "create"})
+                if (atk.recv_json(2.0) or {}).get("why") == E_TOOMANY:
+                    capped = True
+                time.sleep(0.03)
+            check("one connection cannot mint unlimited rooms", capped)
+            bye(atk)
+        except Exception as e:
+            check("per-connection room cap", False, repr(e))
+
+        # --- global room cap -------------------------------------------------
+        try:
+            hogs = []
+            for _ in range(L.MAX_ROOMS + 5):
+                h = cli(origin=PAGES_ORIGIN)
+                hogs.append(h)
+                h.send_json({"t": "create"})
+            refused = sum(1 for h in hogs
+                          if (h.recv_json(2.0) or {}).get("t") == "error")
+            rooms_now = ROOMS.stats()[0]
+            check("room cap of %d holds under a create storm" % L.MAX_ROOMS,
+                  refused >= 1 and rooms_now <= L.MAX_ROOMS,
+                  "refused=%d rooms=%d" % (refused, rooms_now))
+            for h in hogs:
+                bye(h)
+        except Exception as e:
+            check("global room cap holds", False, repr(e))
+
+        # --- idle cleanup ----------------------------------------------------
+        try:
+            settle(0.8)                     # clear what the cap test left behind
+            ghost = cli(origin=PAGES_ORIGIN)
+            ghost.send_json({"t": "create"})
+            made = ghost.recv_json(2.0)
+            check("a room exists before the sweep",
+                  (made or {}).get("t") == "created" and ROOMS.stats()[0] > 0, made)
+            settle(0.8)
+            check("idle rooms are swept away automatically",
+                  ROOMS.stats()[0] == 0, "rooms=%d" % ROOMS.stats()[0])
+            told = ghost.recv_json(2.0)
+            check("the idle player is told, not left hanging",
+                  (told or {}).get("t") == "closed", told)
+            bye(ghost)
+        except Exception as e:
+            check("idle rooms are swept away", False, repr(e))
+
+        # ═══════════ not a web server ═══════════
+        print("")
+        print(" IT IS NOT A WEB SERVER")
+        try:
+            probes = ["/", "/index.html", "/karti", "/karti/", "/js/game.js",
+                      "/karti/js/game.js", "/../../etc/passwd",
+                      "/karti/../../../../etc/passwd", "/.git/config",
+                      "/%2e%2e/%2e%2e/etc/passwd", "/server/karti_server.py"]
+            leaked = []
+            for p in probes:
+                st, _, body = _http_get(host, port, p)
+                if st != 404 or b"root:" in body or b"import " in body:
+                    leaked.append((p, st, body[:60]))
+            check("no path serves a file (/, /js/*, /.git, traversal)", not leaked, leaked)
+        except Exception as e:
+            check("no path serves a file", False, repr(e))
+
+        try:
+            st, _, _ = _http_get(host, port, PATH_PREFIX + "/health", method="POST")
+            check("POST is refused", st == 405, st)
+        except Exception as e:
+            check("POST is refused", False, repr(e))
+
+        # ═══════════ origin / CORS ═══════════
+        print("")
+        print(" ORIGIN / CORS")
+        try:
+            _, good, _ = _http_get(host, port, PATH_PREFIX + "/health", origin=PAGES_ORIGIN)
+            _, evil, _ = _http_get(host, port, PATH_PREFIX + "/health",
+                                   origin="https://evil.example")
+            ok = PAGES_ORIGIN in good and "access-control-allow-origin" not in evil.lower()
+            check("CORS header is sent only to the GitHub Pages origin", ok,
+                  "good=%r evil=%r" % (good[-120:], evil[-120:]))
+        except Exception as e:
+            check("CORS only for the Pages origin", False, repr(e))
+
+        try:
+            refused = False
+            try:
+                bad = WSClient(host, port, origin="https://evil.example", timeout=3.0)
+                bad.close()
+            except RuntimeError as e:
+                refused = "403" in str(e)
+            check("WebSocket upgrade from a foreign origin -> 403", refused)
+        except Exception as e:
+            check("foreign origin upgrade refused", False, repr(e))
+
+        try:
+            ok = False
+            try:
+                bad = WSClient(host, port, path="/karti/ws", origin=PAGES_ORIGIN,
+                               extra="", timeout=3.0)
+                bad.close()
+                ok = True
+            except RuntimeError:
+                ok = False
+            check("the Pages origin is accepted on /karti/ws", ok)
+        except Exception as e:
+            check("Pages origin accepted", False, repr(e))
+
+        try:
+            ok = False
+            try:
+                bad = WSClient(host, port, path="/ws", origin=None, timeout=3.0)
+                bad.close()
+                ok = True
+            except RuntimeError:
+                ok = False
+            check("the bare /ws path still works for local testing", ok)
+        except Exception as e:
+            check("bare /ws works", False, repr(e))
+
+        # ═══════════ housekeeping ═══════════
+        print("")
+        print(" HOUSEKEEPING")
+        try:
+            x = cli(origin=PAGES_ORIGIN)
+            y = cli(origin=PAGES_ORIGIN)
+            x.send_json({"t": "create"})
+            c2 = (x.recv_json(2.0) or {}).get("code")
+            y.send_json({"t": "join", "code": c2})
+            y.recv_json(2.0)
+            x.recv_json(2.0)
+            y.send_json({"t": "leave"})
+            m = x.recv_json(2.0)
+            check("an explicit leave tells the other player straight away",
+                  (m or {}) == {"t": "peer", "state": "left"}, m)
+            bye(x)
+            bye(y)
+        except Exception as e:
+            check("explicit leave", False, repr(e))
+
+        try:
+            for c in list(live):
+                bye(c)
+            a = b = None
+            settle(0.8)
+            rooms, clients = ROOMS.stats()
+            check("nothing leaks once everybody has gone",
+                  rooms == 0 and clients == 0, "rooms=%d clients=%d" % (rooms, clients))
+        except Exception as e:
+            check("nothing leaks", False, repr(e))
+
+    finally:
+        for c in list(live):
+            try:
+                c.close(graceful=False)
+            except Exception:
+                pass
+        stop.set()
+        try:
+            httpd.shutdown()
             httpd.server_close()
         except Exception:
             pass
 
     fails = sum(1 for _, ok in results if not ok)
     print("")
-    if fails == 0:
-        print("SELFTEST: ALL PASS (%d checks)" % len(results))
-    else:
-        print("SELFTEST: FAILURES: %d" % fails)
+    print("SELFTEST: %s  (%d checks, %d failed)"
+          % ("ALL PASS" if fails == 0 else "FAILURES", len(results), fails))
     sys.stdout.flush()
     return 0 if fails == 0 else 1
 
 
 # ── entry point ──────────────────────────────────────────────────────────────
 
+def main(argv=None):
+    global ALLOW_ANY_ORIGIN
 
-def main(argv=None) -> int:
-    p = argparse.ArgumentParser(
-        description="KARTI LAN server: static files + WebSocket room relay on one port.")
-    p.add_argument("--host", default=DEFAULT_HOST, help="bind address (default %s)" % DEFAULT_HOST)
-    p.add_argument("--port", type=int, default=DEFAULT_PORT,
-                   help="port (default %d)" % DEFAULT_PORT)
-    p.add_argument("--root", default=DEFAULT_ROOT,
-                   help="directory to serve (default: the KARTI repo root)")
-    p.add_argument("--verbose", action="store_true", help="log every HTTP request")
+    p = argparse.ArgumentParser(description="KARTI online relay (rooms only, serves no files).")
+    p.add_argument("--host", default=DEFAULT_HOST,
+                   help="bind address (default %s — keep it loopback)" % DEFAULT_HOST)
+    p.add_argument("--port", type=int, default=DEFAULT_PORT, help="port (default %d)" % DEFAULT_PORT)
+    p.add_argument("--origin", action="append", default=[],
+                   help="extra allowed browser origin (repeatable)")
+    p.add_argument("--any-origin", action="store_true",
+                   help="DEBUG ONLY: accept any Origin header")
+    p.add_argument("--log", default=None, help="append-only event log file (no message contents)")
+    p.add_argument("--verbose", action="store_true", help="log HTTP oddities to stderr")
     p.add_argument("--selftest", action="store_true", help="run the built-in tests and exit")
     args = p.parse_args(argv)
 
-    root = os.path.abspath(os.path.expanduser(args.root))
-    if not os.path.isdir(root):
-        print("error: --root %r is not a directory" % root, file=sys.stderr)
-        return 2
+    for o in args.origin:
+        ALLOWED_ORIGINS.add(o.rstrip("/"))
+    if args.any_origin:
+        ALLOW_ANY_ORIGIN = True
+    LOG.path = args.log
 
     if args.selftest:
-        return selftest(root)
+        return selftest()
 
-    httpd = make_server(args.host, args.port, root, quiet=not args.verbose)
+    if args.host not in ("127.0.0.1", "::1", "localhost"):
+        print("warning: binding to %s exposes the relay directly. Tailscale Funnel "
+              "is meant to be the only way in." % args.host, file=sys.stderr)
+
+    httpd = make_server(args.host, args.port, quiet=not args.verbose)
     stop = threading.Event()
     start_sweeper(stop)
-    print_banner(args.host, args.port, root)
+    print_banner(args.host, args.port)
+    LOG("start", host=args.host, port=args.port)
     try:
         httpd.serve_forever(poll_interval=0.5)
     except KeyboardInterrupt:
@@ -1015,6 +1942,7 @@ def main(argv=None) -> int:
         stop.set()
         httpd.shutdown()
         httpd.server_close()
+        LOG("stop")
     return 0
 
 
