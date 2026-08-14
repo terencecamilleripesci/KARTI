@@ -30,19 +30,29 @@ h1{text-align:center;font-weight:900;font-size:clamp(1.5rem,6vw,2.2rem);letter-s
 <div class="tri"><b>THE RING</b> — each deck beats one, loses to one<br>
 🎆 FESTA → 🏰 CITY → 🐇 FARM → 🌊 SEA → 😈 TROUBLE → 🎆 FESTA<br>
 <span style="color:#9d93b8;font-size:.8em">+500 ATK when you attack the one you counter</span></div>
-<div class="filters" id="f"></div>
+<div class="filters" id="ft"></div>
+<div class="filters" id="fa"></div>
+<div class="sub" id="cnt"></div>
 <div class="grid" id="g"></div>
 <script src="js/cards.js"></script>
 <script src="js/set2.js"></script>
 <script>
-const G=document.getElementById('g'), F=document.getElementById('f');
-let filt='all';
+const G=document.getElementById('g'), FT=document.getElementById('ft'), FA=document.getElementById('fa');
+let fType='all', fAttr='all';
 document.getElementById('n').textContent=CARDS.length;
-const groups=[['all','ALL'],['festa','🎆 FESTA'],['razzett','🐇 FARM'],['belt','🏰 CITY'],['bahar','🌊 SEA'],['hazen','😈 TROUBLE'],['spell','🟩 SPELLS'],['trap','🟥 TRAPS']];
-F.innerHTML=groups.map(([k,l])=>`<button data-k="${k}" class="${k==='all'?'on':''}" onclick="setF('${k}')">${l}</button>`).join('');
-function setF(k){filt=k;[...F.children].forEach(b=>b.classList.toggle('on',b.dataset.k===k));draw();}
+const nOf=f=>CARDS.filter(f).length;
+const TYPES=[['all','ALL',c=>1],['monster','⚔️ MONSTERS',c=>c.t==='monster'],
+             ['spell','🟩 SPELLS',c=>c.t==='spell'],['trap','🟥 TRAPS',c=>c.t==='trap']];
+const ATTRS=[['all','All factions'],['festa','🎆 FESTA'],['razzett','🐇 FARM'],
+             ['belt','🏰 CITY'],['bahar','🌊 SEA'],['hazen','😈 TROUBLE']];
+FT.innerHTML=TYPES.map(([k,l,f])=>`<button data-k="${k}" class="${k==='all'?'on':''}" onclick="setT('${k}')">${l} <span style="opacity:.6">${nOf(f)}</span></button>`).join('');
+FA.innerHTML=ATTRS.map(([k,l])=>`<button data-k="${k}" class="${k==='all'?'on':''}" onclick="setA('${k}')">${l}</button>`).join('');
+function setT(k){fType=k;[...FT.children].forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+  FA.style.display=(k==='spell'||k==='trap')?'none':'flex';draw();}
+function setA(k){fAttr=k;[...FA.children].forEach(b=>b.classList.toggle('on',b.dataset.k===k));draw();}
 function draw(){
-  const list=CARDS.filter(c=> filt==='all' ? 1 : (filt==='spell'||filt==='trap') ? c.t===filt : c.f===filt);
+  const list=CARDS.filter(c=>(fType==='all'||c.t===fType) && (fAttr==='all'||c.f===fAttr));
+  document.getElementById('cnt').textContent=list.length+' cards shown';
   G.innerHTML=list.map(c=>{
     const ac=c.t==='spell'?'#2e7d32':c.t==='trap'?'#ad1457':(ATTR[c.f]?.c||'#555');
     const stars=c.t==='monster'?'★'.repeat(Math.min(c.lvl,8)):'';

@@ -131,7 +131,7 @@
    ─────────────────────────────────────────────────────────────────────────── */
 .card {
   /* size + rhythm */
-  --cw: 172px;
+  --cw: 190px;
   --u:  calc(var(--cw) / 12);
 
   --bd:      calc(var(--u) * .155);   /* outer border thickness            */
@@ -163,9 +163,9 @@
   transition: transform 180ms cubic-bezier(.2,.8,.3,1);
 }
 
-.card--sm  { --cw: 104px; }
-.card--md  { --cw: 172px; }
-.card--lg  { --cw: 300px; }
+.card--sm  { --cw: 108px; }   /* browse / deck grid tile  */
+.card--md  { --cw: 190px; }   /* hand + board             */
+.card--lg  { --cw: 320px; }   /* full view / pack reveal  */
 .card--fit { --cw: 100%;  --u: 8.333cqw; }   /* parent needs container-type */
 
 /* the physical card body */
@@ -282,7 +282,7 @@
   margin: 0;
   min-width: 0;
   font-family: var(--card-font-display);
-  font-size: calc(var(--u) * .80);
+  font-size: calc(var(--u) * .84);
   font-weight: 700;
   line-height: 1.12;
   letter-spacing: .002em;
@@ -387,7 +387,9 @@
    ─────────────────────────────────────────────────────────────────────────── */
 .card__art {
   flex: 1 1 auto;
-  min-height: calc(var(--u) * 2.6);
+  aspect-ratio: 4 / 3;             /* design height — the art's fair share  */
+  min-height: calc(var(--u) * 5);  /* shrink floor: long text eats art,     */
+                                   /* it never clips the joke               */
   container-type: size;
   display: grid;
   place-items: center;
@@ -449,7 +451,7 @@
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--card-font-display);
-  font-size: calc(var(--u) * .48);
+  font-size: calc(var(--u) * .50);
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: .01em;
@@ -476,9 +478,9 @@
 /* — the joke / effect box — */
 .card__text {
   margin: calc(var(--u) * .13) 0 calc(var(--u) * .10);
-  min-height: calc(var(--u) * 3.30);
+  min-height: calc(var(--u) * 3.30);   /* ≈4 reserved lines */
   font-family: var(--card-font-body);
-  font-size: calc(var(--u) * .445);
+  font-size: calc(var(--u) * .58);
   font-weight: 500;
   line-height: 1.27;
   letter-spacing: -.004em;
@@ -499,7 +501,7 @@
   padding-top: calc(var(--u) * .10);
   border-top: max(1px, calc(var(--u) * .045)) solid var(--plate-rule);
   font-family: var(--card-font-num);
-  font-size: calc(var(--u) * .50);
+  font-size: calc(var(--u) * .62);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: -.02em;
@@ -512,7 +514,7 @@
 .card__set {
   flex: 0 0 auto;
   font-family: var(--card-font-num);
-  font-size: calc(var(--u) * .355);
+  font-size: calc(var(--u) * .40);
   font-weight: 600;
   letter-spacing: .04em;
   color: var(--ink-soft);
@@ -525,7 +527,7 @@
 .card--spell .card__stats,
 .card--trap  .card__stats { justify-content: flex-start; }
 .card--spell .card__text,
-.card--trap  .card__text { min-height: calc(var(--u) * 3.9); }
+.card--trap  .card__text { min-height: calc(var(--u) * 4.6); }
 
 
 /* ───────────────────────────────────────────────────────────────────────────
@@ -694,10 +696,12 @@
 .card--sm .card__set      { display: none; }
 .card--sm .card__panel    { padding-bottom: calc(var(--u) * .16); }
 .card--sm .card__emoji    { font-size: min(calc(var(--u) * 3.6), 62cqh, 60cqw); }
+.card--sm .card__art      { min-height: calc(var(--u) * 3.4); }
+.card--sm .card__gem      { width: calc(var(--u) * .56); height: calc(var(--u) * .56); }
 
 /* --lg gets a touch more air and a slightly larger reading size */
-.card--lg .card__text  { font-size: calc(var(--u) * .455); line-height: 1.34; }
-.card--lg .card__type  { font-size: calc(var(--u) * .46); }
+.card--lg .card__text  { line-height: 1.34; }
+.card--lg .card__type  { font-size: calc(var(--u) * .47); }
 
 
 /* ───────────────────────────────────────────────────────────────────────────
