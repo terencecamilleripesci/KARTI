@@ -1,0 +1,220 @@
+/* ═══════════════════════════════════════════════════════════════════
+   KARTI — extra.css
+   Styling for the three modes added on top of the base game:
+   story mode (js/story.js), pass-and-play + online (js/mp.js).
+   Uses the same tokens as the inline stylesheet in index.html.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ══════════════════ shared little bits ══════════════════ */
+.blurb{font-size:12.5px;color:var(--dim);line-height:1.55;margin:0 0 10px}
+.blurb b{color:var(--txt)}
+.warnbox{border:1px solid rgba(255,197,66,.45);background:rgba(255,197,66,.09);border-radius:13px;
+  padding:11px 13px;font-size:12.5px;line-height:1.55;color:#F3E4BE;margin:0 0 12px}
+.warnbox b{color:var(--gold)}
+.okbox{border:1px solid rgba(61,220,132,.4);background:rgba(61,220,132,.09);border-radius:13px;
+  padding:11px 13px;font-size:12.5px;line-height:1.55;color:#CFEFD9;margin:0 0 12px}
+.badbox{border:1px solid rgba(255,84,104,.45);background:rgba(255,84,104,.1);border-radius:13px;
+  padding:11px 13px;font-size:12.5px;line-height:1.55;color:#F6D2D7;margin:0 0 12px}
+.seg2{display:flex;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:4px;
+  gap:4px;margin-bottom:10px;flex:0 0 auto}
+.seg2 button{flex:1;min-height:42px;border-radius:10px;font-family:var(--disp);font-weight:900;
+  font-size:11.5px;letter-spacing:.06em;color:var(--dim);transition:.15s var(--ease)}
+.seg2 button.on{background:var(--gold);color:#241800}
+
+/* ══════════════════ HOME: two ways in ══════════════════ */
+.btn.pick{min-height:78px;font-size:17px}
+.btn.pick .sub{font-size:10px;opacity:.8}
+.navrow{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;margin-top:14px}
+.navrow .btn{flex:0 1 auto;min-height:40px;font-size:10.5px;letter-spacing:.04em;padding:4px 11px;
+  border-radius:10px;flex-direction:row}
+.navrow .btn .sub{display:none}
+
+/* ══════════════════ STORY MODE ══════════════════ */
+.storyhdr{text-align:center;padding:2px 0 10px;flex:0 0 auto}
+.storyhdr .prog{font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.12em;color:var(--gold)}
+.ladder{display:grid;gap:11px;padding:2px 0 26px}
+.boss{
+  position:relative;display:flex;align-items:center;gap:12px;text-align:left;width:100%;
+  border-radius:17px;padding:12px;overflow:hidden;
+  background:linear-gradient(120deg,color-mix(in srgb,var(--bc,#666) 30%,#160F26),#120C1E 72%);
+  border:1.5px solid color-mix(in srgb,var(--bc,#666) 45%,transparent);
+  transition:transform .16s var(--ease),border-color .16s;
+}
+.boss:active{transform:scale(.985)}
+.boss.locked{filter:grayscale(.85) brightness(.6);pointer-events:none}
+.boss.cleared{border-color:rgba(61,220,132,.55)}
+.boss .face{width:54px;height:54px;flex:0 0 auto;border-radius:15px;display:grid;place-items:center;
+  font-size:29px;background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.14);
+  position:relative;overflow:hidden}
+.boss .face img,.bossline .face img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.boss .face img+.em,.bossline .face img+.em{display:none}
+.boss .body{flex:1;min-width:0}
+.boss .rank{font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--dim2);font-weight:800}
+.boss .nm{font-family:var(--disp);font-weight:900;font-size:15px;line-height:1.15;margin:1px 0 3px}
+.boss .li{font-size:11.5px;color:var(--dim);font-style:italic;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.boss .meta{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.tag{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:800;padding:3px 7px;
+  border-radius:99px;background:rgba(0,0,0,.4);border:1px solid var(--line);color:var(--dim)}
+.tag.diff{color:#FFD79A;border-color:rgba(255,197,66,.4)}
+.tag.won{color:var(--ok);border-color:rgba(61,220,132,.5)}
+.boss .lockicon{position:absolute;right:12px;top:12px;font-size:15px;opacity:.8}
+
+/* boss intro / taunt card */
+.bossline{display:flex;gap:11px;align-items:flex-start;text-align:left;margin:2px 0 4px}
+.bossline .face{width:52px;height:52px;flex:0 0 auto;border-radius:15px;display:grid;place-items:center;
+  font-size:28px;background:rgba(0,0,0,.4);border:1px solid rgba(255,255,255,.16);
+  position:relative;overflow:hidden}
+.bossline .said{flex:1;font-size:13.5px;line-height:1.5;color:#E4DAFA;font-style:italic}
+.bossline .said b{display:block;font-family:var(--disp);font-style:normal;font-size:12px;
+  letter-spacing:.08em;color:var(--gold);margin-bottom:3px}
+.taunt{position:fixed;left:12px;right:12px;bottom:calc(var(--sab) + 128px);z-index:420;
+  background:linear-gradient(180deg,#2C2048,#1A1230);border:1px solid var(--line2);border-left:4px solid var(--hot);
+  border-radius:13px;padding:10px 13px;font-size:12.5px;line-height:1.45;font-style:italic;color:#E9E0FF;
+  box-shadow:0 12px 34px rgba(0,0,0,.6);opacity:0;pointer-events:none;max-width:520px;margin:0 auto}
+.taunt.on{animation:tauntIn 3.4s var(--ease) forwards}
+@keyframes tauntIn{0%{opacity:0;transform:translate3d(0,12px,0)}
+  9%{opacity:1;transform:none}86%{opacity:1}100%{opacity:0;transform:translate3d(0,-8px,0)}}
+.taunt .who{display:block;font-family:var(--disp);font-style:normal;font-weight:900;font-size:10px;
+  letter-spacing:.12em;color:var(--hot);margin-bottom:3px}
+
+/* ══════════════════ PASS AND PLAY ══════════════════ */
+.seatgrid{display:grid;gap:12px;padding-bottom:20px}
+.seatcard{border:1.5px solid var(--line);border-radius:17px;padding:12px;background:var(--panel)}
+.seatcard.a{border-color:rgba(255,197,66,.45)}
+.seatcard.b{border-color:rgba(138,92,255,.5)}
+.seatcard h3{font-size:13px;letter-spacing:.1em;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.seatcard h3 .dot{width:11px;height:11px;border-radius:50%;background:var(--gold);flex:0 0 auto}
+.seatcard.b h3 .dot{background:var(--neon)}
+.seatname{margin-bottom:9px}
+.deckpick{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px 0 6px}
+.deckpick::-webkit-scrollbar{display:none}
+.deckopt{flex:0 0 auto;width:98px;min-height:96px;border-radius:14px;padding:9px 6px;text-align:center;
+  background:linear-gradient(170deg,color-mix(in srgb,var(--dc,#666) 32%,#160F26),#120C1E);
+  border:2px solid transparent;transition:transform .15s var(--ease),border-color .15s}
+.deckopt.on{border-color:var(--dc,var(--gold));box-shadow:0 0 18px -5px var(--dc,var(--gold))}
+.deckopt:active{transform:scale(.95)}
+.deckopt .e{font-size:23px;line-height:1}
+.deckopt .n{font-family:var(--disp);font-weight:900;font-size:10.5px;margin-top:5px;line-height:1.15}
+.deckopt .k{font-size:9px;color:var(--dim);margin-top:3px}
+
+/* the pass-the-phone curtain */
+.handover{position:fixed;inset:0;z-index:600;display:none;flex-direction:column;align-items:center;
+  justify-content:center;gap:16px;text-align:center;padding:26px 20px;
+  background:radial-gradient(900px 600px at 50% 20%,#2B1B49 0%,#0C0813 70%),var(--bg)}
+.handover.on{display:flex;animation:scrIn .3s var(--ease) both}
+.handover .eyes{font-size:52px;line-height:1;filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}
+.handover h2{font-size:clamp(21px,7vw,30px);line-height:1.15}
+.handover .to{font-family:var(--disp);font-weight:900;font-size:clamp(26px,9vw,40px);letter-spacing:.05em;
+  background:linear-gradient(180deg,#FFF3CF,var(--gold) 48%,#C77A00);-webkit-background-clip:text;
+  background-clip:text;color:transparent;filter:drop-shadow(0 3px 0 #6E3B00);word-break:break-word}
+.handover p{margin:0;color:var(--dim);font-size:13.5px;line-height:1.6;max-width:420px}
+.handover .btn{width:100%;max-width:340px}
+.handover .lpline{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+
+/* ══════════════════ ONLINE ══════════════════ */
+.roomcode{font-family:var(--disp);font-weight:900;font-size:clamp(40px,15vw,64px);letter-spacing:.22em;
+  text-align:center;color:var(--gold);text-shadow:0 0 30px rgba(255,197,66,.35);margin:6px 0 2px;
+  padding-left:.22em}
+.netdot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--dim2);margin-right:7px;
+  vertical-align:middle}
+.netdot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.netdot.bad{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+.netstat{font-size:12px;font-weight:700;color:var(--dim);text-align:center;margin:0 0 10px}
+.codein{text-align:center;font-family:var(--disp);font-weight:900;font-size:26px;letter-spacing:.3em;
+  text-transform:uppercase;padding-left:.3em}
+
+/* ══════════════════ STARTER GACHA ══════════════════ */
+.gacha-hdr{text-align:center;padding:8px 0 4px}
+#scr-gacha .rlabel{top:2%}
+/* Always one row of three. `min-width:150px` meant three cells needed 482px, so on
+   a 390px phone the third wrapped underneath and its "Tap to flip" label landed on
+   top of the hint text. nowrap + a shrinkable basis keeps the roll on one line. */
+/* .tapme is absolute at bottom:-24px, so it adds no height and used to sit on top of
+   the hint below. The 40px reserves room for it. */
+.gacha-row{display:flex;flex-wrap:nowrap;gap:10px;justify-content:center;padding:22px 0 40px}
+.gacha-cell{display:flex;flex-direction:column;align-items:center;gap:10px;
+  width:min(190px,calc((100% - 20px)/3));min-width:0;flex:0 1 auto}
+/* the gacha borrows .slot/.flipper/.aura from the pack opener; it only has to
+   undo the absolute fan positioning that the pack stage relies on */
+.slot.gslot{position:relative;transform:none;width:100%}
+.slot.gslot .flipper{width:100%}
+.deckface{position:absolute;inset:0;border-radius:9px;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:3px;text-align:center;padding:10px 8px;
+  background:linear-gradient(165deg,color-mix(in srgb,var(--dc,#666) 46%,#160F26),#100B1C 78%);
+  border:2px solid color-mix(in srgb,var(--dc,#666) 70%,transparent);
+  box-shadow:inset 0 0 34px -8px var(--dc,#666)}
+.deckface .packart{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5;
+  border-radius:7px}
+.deckface>*{position:relative;z-index:1}
+.deckface .e{font-size:40px;line-height:1;filter:drop-shadow(0 3px 7px rgba(0,0,0,.65))}
+.deckface .n{font-family:var(--disp);font-weight:900;font-size:15px;letter-spacing:.03em;line-height:1.1}
+.deckface .a{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.deckface .vs{font-size:9.5px;line-height:1.45;color:var(--dim);margin-top:2px}
+.deckface .vs b{color:var(--ok)}
+.deckface .vs i{color:var(--bad);font-style:normal}
+.gacha-info{width:100%;opacity:0;transform:translate3d(0,8px,0);transition:.32s var(--ease);
+  display:flex;flex-direction:column;align-items:center;gap:8px}
+.gacha-info.on{opacity:1;transform:none}
+.gtag{font-size:11px;line-height:1.45;color:var(--dim);text-align:center;margin:0;font-style:italic}
+.gcards{display:flex;gap:5px;justify-content:center;flex-wrap:wrap}
+.gcards .card{--cw:52px}
+.gkeep{width:100%}
+
+/* ══════════════════ STARTER UNBOXING ══════════════════ */
+.ub-stage{position:relative;min-height:270px;display:grid;place-items:center;padding:8px 0 4px}
+#scr-gacha .ub-stage .rlabel{top:0}
+.slot.ubslot{position:relative;transform:none}
+.slot.ubslot .flipper{width:min(182px,49vw)}
+.ub-tray{padding:0 0 20px}
+.ub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(74px,1fr));gap:14px 7px;padding:4px 0 10px}
+.ub-sum{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;width:100%;
+  padding:6px 2px}
+.ub-sum .big-e{font-size:56px;line-height:1;filter:drop-shadow(0 5px 12px rgba(0,0,0,.6));
+  animation:pop .45s var(--ease) both}
+.ub-sum h2{font-size:clamp(20px,7vw,28px)}
+.ub-sum .stats{margin:0}
+
+/* ══════════════════ ART HOOKS ══════════════════
+   The playmat / zone / pile artwork is still on the GPU. Everything below
+   stays CSS-and-emoji until the files land; then set the variables once,
+   here, and the board picks them up. No file is referenced until it exists,
+   so nothing 404s in the meantime.
+     --art-playmat     e.g. url('../art/ui/playmat-green.jpg')
+     --art-zone-m      e.g. url('../art/ui/zone-monster.png')
+     --art-zone-s      e.g. url('../art/ui/zone-spell.png')
+     --art-pile-deck / --art-pile-grave / --art-pile-banish
+   Card faces are separate: set KARTI.ART.base = 'art/cards/' once and every
+   cardEl() everywhere emits an <img> over the emoji (see .card .art img). */
+.card .art img.artimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  border-radius:inherit}
+.card .art.hasart span{display:none}
+:root{ --art-playmat:none; --art-zone-m:none; --art-zone-s:none; --art-cardback:none;
+       --art-home:none; --art-pile-deck:none; --art-pile-grave:none; --art-pile-banish:none; }
+#scr-duel{background-image:var(--art-playmat);background-size:cover;background-position:center}
+/* the board art is busy — keep the cards and numbers on top of it readable */
+#scr-duel::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(6,4,12,.66),rgba(6,4,12,.28) 32%,rgba(6,4,12,.28) 68%,rgba(6,4,12,.72))}
+#scr-duel>*{position:relative;z-index:1}
+#scr-home{background-image:var(--art-home);background-size:cover;background-position:center top}
+.card.back .in{background-image:var(--art-cardback);background-size:cover;background-position:center}
+/* only drop the CSS-drawn back once the real card-back art is actually there */
+.art-cardback .card.back .in::before{display:none}
+.zrow:not(.st) .zone{background-image:var(--art-zone-m);background-size:cover;background-position:center}
+.zrow.st .zone{background-image:var(--art-zone-s);background-size:cover;background-position:center}
+/* dim grey type vanishes on the bright green field — give the running
+   commentary and the player names something solid to sit on */
+.ticker{color:#EDE6FF;text-shadow:0 1px 3px rgba(0,0,0,.85);
+  background:rgba(10,6,20,.55);padding:4px 9px;border-radius:8px}
+.pinfo .who{text-shadow:0 1px 3px rgba(0,0,0,.9)}
+.zrow.st .zone>span{text-shadow:0 1px 3px rgba(0,0,0,.9)}
+/* the empty-slot chrome has to stay legible on a bright green playmat */
+.zone::after{content:'';position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  box-shadow:inset 0 0 12px rgba(0,0,0,.55)}
+.zone .card + .atkv,.zone .card{position:relative;z-index:1}
+
+@media (min-width:760px){
+  .ladder{grid-template-columns:1fr 1fr}
+  .seatgrid{grid-template-columns:1fr 1fr}
+  .gacha-cell{width:200px}
+}

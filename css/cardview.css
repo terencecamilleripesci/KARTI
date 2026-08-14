@@ -1,0 +1,178 @@
+/* ═══════════════════════════════════════════════════════════════════
+   KARTI — cardview.css
+   Bottom sheet for the card detail popup (js/cardview.js).
+   Everything is scoped under .kcv-root so nothing else is touched.
+   Tokens come from the inline stylesheet in index.html.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.kcv-root{
+  position:fixed;inset:0;z-index:600;
+  display:block;pointer-events:none;
+  /* the sheet's own type scale — keeps the block readable and tight */
+  --kcv-pad:18px;
+}
+.kcv-root[hidden]{display:none!important}
+.kcv-root.kcv-on{pointer-events:auto}
+
+/* ══════════════════ backdrop ══════════════════ */
+.kcv-backdrop{
+  position:absolute;inset:0;
+  background:radial-gradient(120% 70% at 50% 100%,rgba(138,92,255,.20) 0%,transparent 62%),
+             rgba(5,3,12,.66);
+  backdrop-filter:blur(7px) saturate(.85);
+  -webkit-backdrop-filter:blur(7px) saturate(.85);
+  will-change:opacity;
+}
+
+/* ══════════════════ sheet ══════════════════ */
+.kcv-sheet{
+  position:absolute;left:0;right:0;bottom:0;
+  margin-inline:auto;width:100%;max-width:560px;
+  display:flex;flex-direction:column;
+  max-height:calc(100vh - 18px);
+  max-height:calc(100dvh - 18px);
+  padding:0 0 calc(var(--sab) + 16px);
+  border-radius:26px 26px 0 0;
+  border-top:1px solid var(--line2);
+  background:
+    radial-gradient(130% 40% at 50% 0%,rgba(138,92,255,.16) 0%,transparent 62%),
+    linear-gradient(180deg,#241A3E 0%,#160F27 44%,#0F0B19 100%);
+  box-shadow:0 -18px 54px rgba(0,0,0,.7),0 -1px 0 rgba(255,255,255,.06) inset;
+  outline:none;
+  touch-action:none;
+  overflow:hidden;                 /* clips the hero to the rounded corners */
+}
+.kcv-sheet::before{                /* neon hairline along the top edge */
+  content:'';position:absolute;left:22%;right:22%;top:0;height:1px;pointer-events:none;
+  background:linear-gradient(90deg,transparent,var(--gold),var(--neon),transparent);
+  opacity:.7;
+}
+.kcv-sheet:focus-visible{outline:none}
+
+/* ── drag handle ── */
+.kcv-grab{
+  flex:0 0 auto;height:28px;display:grid;place-items:center;
+  touch-action:none;cursor:grab;
+}
+.kcv-grab span{
+  display:block;width:48px;height:5px;border-radius:99px;
+  background:rgba(255,255,255,.34);
+  box-shadow:0 0 12px rgba(138,92,255,.55);
+}
+.kcv-sheet:active .kcv-grab span{background:rgba(255,255,255,.42)}
+
+/* ── close ── */
+.kcv-close{
+  position:absolute;top:6px;right:8px;z-index:3;
+  width:44px;height:44px;min-width:44px;min-height:44px;
+  display:grid;place-items:center;border-radius:14px;
+  background:rgba(10,6,20,.42);border:1px solid var(--line);
+  color:var(--dim);transition:transform .15s var(--ease),background .15s,color .15s;
+}
+.kcv-close svg{width:19px;height:19px;stroke:currentColor;fill:none;stroke-width:2.4;stroke-linecap:round}
+.kcv-close:active{transform:scale(.9);background:var(--panel2);color:var(--txt)}
+
+/* ══════════════════ scrolling detail area ══════════════════ */
+.kcv-body{
+  flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;
+  -webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+  touch-action:pan-y;
+  padding:2px var(--kcv-pad) 0;
+  display:flex;flex-direction:column;align-items:center;
+  text-align:center;
+}
+.kcv-body::-webkit-scrollbar{width:5px}
+.kcv-body::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px}
+
+/* ── hero card ── */
+.kcv-hero{
+  flex:0 0 auto;display:grid;place-items:center;
+  padding:8px 0 15px;
+}
+.kcv-hero .card.lg{
+  --cw:min(210px,52vw);
+  box-shadow:0 18px 44px rgba(0,0,0,.62),0 0 0 1px rgba(255,255,255,.06),
+             0 0 34px -6px color-mix(in srgb,var(--rc,#8A5CFF) 55%,transparent);
+}
+
+/* ── name ── */
+.kcv-name{
+  font-family:var(--disp);font-weight:900;font-size:clamp(17px,5vw,21px);
+  line-height:1.15;letter-spacing:.03em;margin:0 0 7px;
+  background:linear-gradient(180deg,#FFF4D4,var(--gold) 62%,#D8901A);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  filter:drop-shadow(0 2px 0 rgba(0,0,0,.45));
+}
+
+/* ── rarity · type · level · tributes ── */
+.kcv-meta{
+  display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:5px 7px;
+  margin:0 0 12px;font-size:10.5px;font-weight:800;letter-spacing:.09em;
+  text-transform:uppercase;color:var(--dim);
+}
+.kcv-meta .kcv-sep{color:var(--dim2);opacity:.7}
+.kcv-meta .kcv-rar{display:inline-flex;align-items:center;gap:6px;color:var(--rc,#9e9e9e)}
+.kcv-meta .kcv-rar i{
+  width:8px;height:8px;border-radius:50%;background:var(--rc,#9e9e9e);
+  box-shadow:0 0 9px var(--rc,#9e9e9e);flex:0 0 auto;
+}
+
+/* ── joke line ── */
+.kcv-joke{
+  margin:0;font-size:13.5px;font-style:italic;line-height:1.55;color:#D9CFF2;
+  max-width:34ch;
+}
+
+/* ── effect ── */
+.kcv-eff{
+  margin:13px 0 0;width:100%;max-width:38ch;
+  padding:10px 13px;border-radius:14px;
+  border:1px solid rgba(61,220,132,.24);
+  background:linear-gradient(180deg,rgba(61,220,132,.10),rgba(61,220,132,.04));
+  font-size:12.5px;line-height:1.5;color:#8FE7AE;
+}
+.kcv-eff[hidden]{display:none}
+.kcv-eff b{font-style:normal;margin-right:2px}
+
+/* ── owned / dust ── */
+.kcv-own{
+  margin:13px 0 0;font-size:11px;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--dim2);
+}
+.kcv-own.has{color:var(--gold)}
+
+/* ── bottom close button ── */
+.kcv-done{
+  margin:16px 0 2px;width:100%;min-height:48px;flex:0 0 auto;
+  border-radius:14px;border:1px solid var(--line2);
+  background:rgba(255,255,255,.045);
+  font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--txt);
+  transition:transform .14s var(--ease),background .15s;
+}
+.kcv-done:active{transform:translate3d(0,2px,0);background:rgba(255,255,255,.09)}
+
+/* ══════════════════ the flying clone (FLIP) ══════════════════ */
+.kcv-ghost{
+  position:fixed;z-index:4;margin:0;pointer-events:none;
+  transform-origin:0 0;will-change:transform;
+  box-shadow:0 18px 44px rgba(0,0,0,.6);
+}
+
+/* ══════════════════ short screens ══════════════════ */
+@media (max-height:700px){
+  .kcv-hero .card.lg{--cw:min(168px,44vw)}
+  .kcv-hero{padding-bottom:10px}
+  .kcv-done{margin-top:12px}
+}
+@media (max-height:600px){
+  .kcv-hero .card.lg{--cw:min(140px,38vw)}
+}
+
+/* ══════════════════ reduced motion ══════════════════ */
+@media (prefers-reduced-motion:reduce){
+  .kcv-root *,.kcv-root{transition:none!important;animation:none!important}
+  .kcv-ghost{display:none!important}
+}
+body.reduced .kcv-ghost{display:none!important}
+body.reduced .kcv-root *{transition:none!important;animation:none!important}

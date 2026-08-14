@@ -14,6 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap">
+<link rel="stylesheet" href="css/extra.css">
+<link rel="stylesheet" href="css/cardview.css">
 <style>
 /* ══════════════════ TOKENS ══════════════════ */
 :root{
@@ -369,7 +371,9 @@ body.shake #app{animation:scShake .5s var(--ease)}
 
 /* ══════════════════ DUEL ══════════════════ */
 #scr-duel{padding:calc(var(--sat) + 4px) 6px calc(var(--sab) + 4px)}
-.duel{display:flex;flex-direction:column;flex:1;min-height:0;gap:3px;--fw:min(92px,calc((100vw - 46px)/3))}
+/* 5 monster + 5 spell/trap zones a side. --fw is sized so five cards plus their
+   gaps always fit the viewport width — never let this go back to a fixed px. */
+.duel{display:flex;flex-direction:column;flex:1;min-height:0;gap:3px;--fw:min(78px,calc((100vw - 42px)/5))}
 .pinfo{display:flex;align-items:center;gap:7px;flex:0 0 auto;padding:2px 4px}
 .pinfo .who{font-family:var(--disp);font-weight:900;font-size:10px;letter-spacing:.08em;color:var(--dim);
   white-space:nowrap;max-width:82px;overflow:hidden;text-overflow:ellipsis}
@@ -383,8 +387,10 @@ body.shake #app{animation:scShake .5s var(--ease)}
   background:linear-gradient(90deg,#3DDC84,#FFC542 62%,#E8452C)}
 .badge{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px 6px;font-size:10px;
   font-family:var(--disp);font-weight:900;display:flex;align-items:center;gap:3px;white-space:nowrap}
-.zrow{display:flex;justify-content:center;gap:6px;flex:0 0 auto}
-.zone{width:var(--fw);aspect-ratio:59/86;border-radius:7px;border:1.5px dashed rgba(255,255,255,.13);
+.zrow{display:flex;justify-content:center;gap:5px;flex:0 0 auto}
+/* the empty-slot look has to read on any playmat, including a bright green one */
+.zone{width:var(--fw);aspect-ratio:59/86;border-radius:7px;border:1.5px dashed rgba(255,255,255,.28);
+  background:rgba(10,6,20,.34);box-shadow:inset 0 0 0 1px rgba(0,0,0,.35);
   display:grid;place-items:center;position:relative;transition:border-color .18s,background .18s}
 .zone .card{--cw:var(--fw);width:100%;height:100%}
 .zrow.st .zone{width:calc(var(--fw)*.74);border-style:dotted;border-color:rgba(194,24,91,.42)}
@@ -399,7 +405,9 @@ body.shake #app{animation:scShake .5s var(--ease)}
 .zone .atkv{position:absolute;bottom:-7px;left:50%;transform:translateX(-50%);background:#0B0812;
   border:1px solid var(--hot);color:#fff;font-family:var(--disp);font-weight:900;font-size:9.5px;
   padding:1px 5px;border-radius:99px;z-index:6;white-space:nowrap}
-.mid{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 2px;min-height:40px}
+/* takes the slack so the two boards sit apart instead of leaving a dead band
+   under the action bar on a tall phone */
+.mid{flex:1 1 auto;display:flex;align-items:center;gap:6px;padding:3px 2px;min-height:40px}
 .phase{font-family:var(--disp);font-weight:900;font-size:9.5px;letter-spacing:.08em;padding:5px 8px;border-radius:8px;
   background:var(--panel);border:1px solid var(--line);white-space:nowrap}
 .phase.you{background:var(--gold);color:#241800;border-color:#FFE9B0}
@@ -509,13 +517,17 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <p class="tiny" style="text-align:center;margin:14px 0 0">Choose your side</p>
       <div class="decksel" id="decksel"></div>
       <p class="decktag" id="decktag"></p>
+      <!-- Two ways in, and only two. Everything else is secondary nav. -->
       <div class="menu">
-        <button class="btn hot" id="btn-duel">⚔️ Duel</button>
-        <div class="row">
-          <button class="btn primary" id="btn-packs">🎁 Packs</button>
-          <button class="btn" id="btn-coll">🗂️ Collection</button>
-        </div>
-        <button class="btn ghost" id="btn-deck">🛠️ Deck Builder</button>
+        <button class="btn hot pick" id="btn-story">🏆 Story Mode<span class="sub">Eight bosses. Beat the village.</span></button>
+        <button class="btn primary pick" id="btn-mp">🤝 Multiplayer<span class="sub">One phone, or two on the same wi-fi</span></button>
+      </div>
+      <div class="navrow">
+        <button class="btn ghost sm" id="btn-duel">⚔️ Quick duel</button>
+        <button class="btn ghost sm" id="btn-coll">🗂️ Collection</button>
+        <button class="btn ghost sm" id="btn-deck">🛠️ Decks</button>
+        <button class="btn ghost sm" id="btn-packs">🎁 Packs</button>
+        <button class="btn ghost sm" id="btn-tutor">📖 How to play</button>
       </div>
       <p class="muted" style="text-align:center;margin:16px 0 24px;font-size:11px;line-height:1.6">
         18+ · Contains mothers-in-law, Marsa traffic and one very accurate slipper.
@@ -599,7 +611,17 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
     </div>
   </section>
 
+  <!-- ═══ STORY / PASS-AND-PLAY / ONLINE — all painted by js/story.js + js/mp.js ═══ -->
+  <section class="screen" id="scr-story"></section>
+  <section class="screen" id="scr-pnp"></section>
+  <section class="screen" id="scr-mp"></section>
+  <section class="screen" id="scr-gacha"></section>
+  <section class="screen" id="scr-tutor"></section>
+
 </div>
+
+<!-- pass-the-phone curtain: covers the board so seat B never sees seat A's hand -->
+<div class="handover" id="handover" aria-hidden="true"></div>
 
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet"></div>
@@ -611,7 +633,9 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
 /* Sequential loader: card sets are optional and may not all exist yet.
    A missing set must never stop the game booting. game.js always loads last. */
 (function(){
-  var files = ['js/cards.js','js/set2.js','js/set3.js','js/game.js'];
+  var files = ['js/cards.js','js/set2.js','js/set3.js','js/game.js',
+               'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
+               'js/cardview.js','js/tutor.js'];
   (function next(i){
     if (i >= files.length) return;
     var s = document.createElement('script');

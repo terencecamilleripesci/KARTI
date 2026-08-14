@@ -10,7 +10,12 @@
 const $  = (s, r) => (r || document).querySelector(s);
 const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-const rnd = n => Math.floor(Math.random() * n);
+/* RNG indirection: online duels (js/mp.js) swap in a seeded generator so both
+   devices consume the exact same random numbers in the same order (lockstep).
+   Offline this is plain Math.random. */
+let RNG = null;
+function setRNG(fn){ RNG = fn || null; }
+const rnd = n => Math.floor((RNG ? RNG() : Math.random()) * n);
 const pickOne = a => a[rnd(a.length)];
 const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 if (REDUCED) document.body.classList.add('reduced');
@@ -201,6 +206,18 @@ function loginAccount(name, pw){
   if (hashPw(u.salt, pw || '') !== u.hash) return { err:'Wrong password. Try again.' };
   return { ok:true, key };
 }
+/* Turn the guest into a real account WITHOUT losing anything: the guest save
+   (deck, collection, coins, story progress) is carried across wholesale. */
+function upgradeGuest(name, pw){
+  if (ACTIVE !== GUEST) return { err:'You are already signed in.' };
+  const carried = lsGet(saveKeyFor(GUEST), null);
+  const r = createAccount(name, pw);
+  if (r.err) return r;
+  if (carried) lsSet(saveKeyFor(r.key), carried);
+  try { localStorage.removeItem(saveKeyFor(GUEST)); } catch(e){}
+  switchTo(r.key);
+  return { ok:true, key:r.key };
+}
 function switchTo(key){
   ACTIVE = key;
   lsSet(ACTIVE_KEY, key);
@@ -270,6 +287,17 @@ function deckIsLegal(list){
 }
 
 /* ───────────────────────── card rendering ───────────────────────── */
+/* Real card art lands later as art/cards/<id>.jpg. Until ART.base is set we
+   emit no <img> at all, so nothing 404s in the meantime; switching the art on
+   is a one-liner (KARTI.ART.base = 'art/cards/') and every card everywhere
+   picks it up. The emoji stays as the permanent fallback — if an image is
+   missing or fails to decode it is removed and the emoji shows through. */
+const ART = { base:null, ext:'.jpg', ui:{} };
+function artImg(card){
+  if (!ART.base) return '';
+  return '<img class="artimg" alt="" loading="lazy" src="' + ART.base + esc(card.id) + ART.ext +
+    '" onerror="this.remove()" onload="this.parentNode.classList.add(\'hasart\')">';
+}
 function stars(lvl){
   if (!lvl) return '';
   return lvl > 6 ? '★'.repeat(6) + '+' + (lvl - 6) : '★'.repeat(lvl);
@@ -291,7 +319,7 @@ function cardEl(card, opts){
       '<div class="hd"><span class="nm">' + esc(card.n) + '</span><span class="at">' + attrE + '</span></div>' +
       '<div class="lv"><span class="ty">' + esc(typeName(card)) + '</span>' +
         '<span class="sr">' + (isMon ? stars(card.lvl) : '') + '</span></div>' +
-      '<div class="art"><span>' + esc(card.e) + '</span></div>' +
+      '<div class="art">' + artImg(card) + '<span>' + esc(card.e) + '</span></div>' +
       '<div class="tx">' + esc(card.txt) + '</div>' +
       '<div class="ef">' + esc(effText(card)) + '</div>' +
       (isMon
@@ -310,6 +338,9 @@ function backEl(size){
   return d;
 }
 function cardViewModal(card){
+  /* js/cardview.js replaces this with a proper animated bottom sheet when
+     present; this stays as the no-frills fallback. */
+  if (window.KARTI_CARDVIEW && KARTI_CARDVIEW.show) return KARTI_CARDVIEW.show(card);
   const owned = ownedCount(card.id);
   const trib = card.t === 'monster' ? tributesFor(card.lvl) : 0;
   const box = $('#mbox');
@@ -340,7 +371,7 @@ function cardViewModal(card){
 }
 
 /* ───────────────────────── router ───────────────────────── */
-const SCREENS = ['auth','home','pack','coll','deck','duel'];
+const SCREENS = ['auth','home','pack','coll','deck','duel','story','pnp','mp','gacha','tutor'];
 let current = 'auth';
 function go(name){
   SCREENS.forEach(s => { const el = $('#scr-' + s); if (el) el.classList.toggle('on', s === name); });
@@ -361,18 +392,22 @@ function renderAuth(){
   const b = $('#auth-body');
   if (authMode === 'menu'){
     b.innerHTML =
+      /* No login wall: the first and biggest button plays the game. An account
+         is optional and can be made later without losing anything. */
+      '<div style="display:grid;gap:9px">' +
+        '<button class="btn hot" data-act="guest">▶ Play now<span class="sub">no account needed</span></button>' +
+      '</div>' +
       (names.length
-        ? '<p class="tiny" style="text-align:center;margin-bottom:8px">Who\'s playing?</p>' +
+        ? '<p class="tiny" style="text-align:center;margin:14px 0 8px">or pick up where you left off</p>' +
           '<div class="userlist">' + names.map(k =>
             '<button class="userrow" data-u="' + esc(k) + '">' +
               '<span class="avatar">' + esc(users[k].name.charAt(0).toUpperCase()) + '</span>' +
               '<span class="n">' + esc(users[k].name) + '</span>' +
               '<span class="tiny">Log in ›</span></button>').join('') + '</div>'
-        : '<p class="muted" style="text-align:center;margin-bottom:6px">No profiles on this device yet.</p>') +
-      '<div style="display:grid;gap:9px;margin-top:8px">' +
-        '<button class="btn primary" data-act="signup">Create a profile</button>' +
-        (names.length ? '<button class="btn ghost" data-act="login">Log in by name</button>' : '') +
-        '<button class="btn ghost" data-act="guest">Quick play as guest</button>' +
+        : '') +
+      '<div style="display:grid;gap:9px;margin-top:10px">' +
+        '<button class="btn ghost sm" data-act="signup">Create an account</button>' +
+        (names.length ? '<button class="btn ghost sm" data-act="login">Log in by name</button>' : '') +
       '</div>';
     $$('.userrow', b).forEach(el => el.onclick = () => { authMode = 'login'; renderAuth();
       const f = $('#au-name'); if (f){ f.value = users[el.dataset.u].name; $('#au-pw').focus(); } });
@@ -414,7 +449,16 @@ function afterLogin(){
 }
 
 /* ───────────────────────── HOME ───────────────────────── */
+/* What a locked starter deck costs. js/gacha.js discounts the two decks you
+   rolled but did not keep — you have already seen them, so they are cheaper. */
+function starterPrice(key){
+  if (window.KARTI_GACHA && KARTI_GACHA.priceOf) return KARTI_GACHA.priceOf(key);
+  return 400;
+}
 function renderHome(){
+  /* No deck yet? You do not get a free pick of all seven — you get a roll of
+     three (js/gacha.js). Routed from here so a reload cannot dodge it. */
+  if (!S.starters.length && window.KARTI_GACHA && KARTI_GACHA.open){ KARTI_GACHA.open(); return; }
   const chip = $('#profile-chip');
   chip.innerHTML = '<span class="avatar">' + esc(displayName().charAt(0).toUpperCase()) + '</span>' +
     esc(displayName());
@@ -440,28 +484,35 @@ function renderHome(){
       '<div class="e">' + sd.e + '</div>' +
       '<div class="n">' + esc(sd.name) + '</div>' +
       '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>' +
-      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">🔒 400</div>');
+      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">🔒 ' +
+        starterPrice(key) + '</div>');
     b.onclick = () => chooseSide(key);
     sel.appendChild(b);
   });
   $('#decktag').textContent = S.side && STARTER_DECKS[S.side] ? STARTER_DECKS[S.side].tag
     : 'Tap a deck to pick your side.';
   const legal = d && deckIsLegal(d.list);
-  $('#btn-duel').innerHTML = '⚔️ Duel<span class="sub">' +
-    (d ? esc(d.name) + ' · ' + deckTotal(d.list) + '/' + DECK_SIZE + (legal ? '' : ' ⚠ not legal')
-       : 'pick a deck first') + '</span>';
+  /* secondary nav button — keep the label short, but never hide a bad deck */
+  $('#btn-duel').innerHTML = '⚔️ Quick duel' + (d && !legal ? ' ⚠' : '');
+  $('#btn-duel').title = d ? d.name + ' · ' + deckTotal(d.list) + '/' + DECK_SIZE +
+    (legal ? '' : ' — not legal') : 'pick a deck first';
 }
 function profileSheet(){
   openSheet(
     '<h3>' + esc(displayName()) + '</h3>' +
     '<p class="muted">Local profiles only — stored on this device, not a real secure account.</p>' +
     '<div class="opts">' +
+      (ACTIVE === GUEST
+        ? '<button class="btn primary" id="pf-upgrade">💾 Save my progress' +
+          '<span class="sub">make an account · keeps everything</span></button>' : '') +
       '<button class="btn ghost" id="pf-switch">Switch player</button>' +
       '<button class="btn ghost" id="pf-out">Log out</button>' +
       '<button class="btn ghost" id="pf-wipe" style="opacity:.7">Wipe this profile\'s save</button>' +
       '<button class="btn ghost" id="pf-close">Close</button>' +
     '</div>');
   $('#pf-close').onclick = closeSheet;
+  const up = $('#pf-upgrade');
+  if (up) up.onclick = upgradeSheet;
   $('#pf-switch').onclick = () => { closeSheet(); logout(); };
   $('#pf-out').onclick = () => { closeSheet(); logout(); };
   $('#pf-wipe').onclick = () => {
@@ -473,24 +524,54 @@ function profileSheet(){
     $('#w-yes').onclick = () => { S = DEFAULT_STATE(); save(); closeSheet(); renderHome(); toast('Clean slate.'); };
   };
 }
+function upgradeSheet(){
+  openSheet(
+    '<h3>Keep your progress</h3>' +
+    '<p class="muted">Make an account and your deck, your cards, your coins and your story ' +
+    'progress all come with you. Nothing is lost and nothing is sent anywhere — it stays on ' +
+    'this device.</p>' +
+    '<label class="tiny" for="up-name" style="display:block;margin-top:8px">Username</label>' +
+    '<input class="field" id="up-name" maxlength="16" autocomplete="username" placeholder="e.g. Terence">' +
+    '<label class="tiny" for="up-pw" style="display:block;margin-top:8px">Password</label>' +
+    '<input class="field" id="up-pw" type="password" autocomplete="new-password" placeholder="4+ characters">' +
+    '<p class="err" id="up-err"></p>' +
+    '<div class="opts">' +
+      '<button class="btn primary" id="up-go">Create it</button>' +
+      '<button class="btn ghost" id="up-no">Not now</button></div>');
+  $('#up-no').onclick = closeSheet;
+  $('#up-go').onclick = () => {
+    const r = upgradeGuest($('#up-name').value, $('#up-pw').value);
+    if (r.err){ $('#up-err').textContent = r.err; return; }
+    closeSheet(); renderHome();
+    toast('Saved. Welcome, ' + displayName() + '.');
+  };
+  $('#up-pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#up-go').click(); });
+}
 function chooseSide(key){
   const sd = STARTER_DECKS[key];
+  /* No deck yet means you have not done your starter roll — you do not get to
+     free-pick any of the seven off this list. (The branch below is the fallback
+     for when js/gacha.js is missing, so the game still works without it.) */
+  if (!S.starters.length && window.KARTI_GACHA){ KARTI_GACHA.open(); return; }
   if (S.starters.indexOf(key) < 0){
     if (S.starters.length === 0){
       grantStarter(key); renderHome();
       toast(sd.name + ' deck is yours. Now go ruin somebody\'s afternoon.');
       return;
     }
-    if (S.coins < 400){ toast('Short by ' + (400 - S.coins) + ' coins. Go win a duel.'); return; }
+    const price = starterPrice(key);
+    if (S.coins < price){ toast('Short by ' + (price - S.coins) + ' coins. Go win a duel.'); return; }
     openSheet(
       '<h3>Unlock ' + esc(sd.name) + ' ' + sd.e + '</h3>' +
       '<p class="muted">' + esc(sd.tag) + '</p>' +
-      '<p class="muted">A full 40-card deck for <b>400 coins</b>. You have ' + S.coins + '.</p>' +
+      '<p class="muted">A full 40-card deck for <b>' + price + ' coins</b>' +
+        (price < 400 ? ' — you rolled this one, so it is cheaper' : '') +
+        '. You have ' + S.coins + '.</p>' +
       '<div class="opts"><button class="btn primary" id="sh-yes">Unlock it</button>' +
       '<button class="btn ghost" id="sh-no">Not today</button></div>');
     $('#sh-no').onclick = closeSheet;
     $('#sh-yes').onclick = () => {
-      S.coins -= 400; grantStarter(key); closeSheet(); renderHome(); toast(sd.name + ' unlocked.');
+      S.coins -= price; grantStarter(key); closeSheet(); renderHome(); toast(sd.name + ' unlocked.');
     };
     return;
   }
@@ -691,8 +772,10 @@ async function runPackOpen(){
   fan.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); revealNext(); } };
 }
 
-function rarityFx(slot, rarity){
-  const label = $('#rlabel');
+/* labelEl lets another screen (the starter gacha) borrow this whole effect
+   without fighting the pack screen over the #rlabel element. */
+function rarityFx(slot, rarity, labelEl){
+  const label = labelEl || $('#rlabel');
   const RC = RARITY[rarity] ? RARITY[rarity].c : '#fff';
   if (rarity === 'rari'){
     label.textContent = 'RARE'; label.style.color = RC;
@@ -1100,17 +1183,26 @@ function deckMenu(){
    DUEL ENGINE  (headless — the UI in part 5 only reads/renders it)
    Yu-Gi-Oh rules, simplified but faithful.
    ═══════════════════════════════════════════════════════════════════ */
-const ZONES = 3;
+const ZONES = 5;                     /* 5 monster + 5 spell/trap zones per side */
 const HAND_LIMIT = 8;
 let D = null;
 let uid = 0;
 
-function mkPlayer(name, deckKey, list, isAI){
+/* Action bus — an online duel (js/mp.js) mirrors the local player's moves to the
+   other device. NET.send is null for every offline mode, so this costs nothing. */
+const NET = { send:null, applying:false };
+function netSend(kind, a){ if (NET.send && !NET.applying) NET.send(kind, a); }
+
+const emptyZones = () => new Array(ZONES).fill(null);
+
+function mkPlayer(name, deckKey, list, isAI, fixedDeck){
   return {
     name, deckKey, isAI: !!isAI,
     lp: LP_START,
-    deck: shuffle(deckToCards(list).slice()),
-    hand: [], mz:[null,null,null], sz:[null,null,null], grave:[],
+    /* fixedDeck = an already-shuffled id array (online lockstep: both devices
+       must hold byte-identical decks, so the host deals them). */
+    deck: fixedDeck ? fixedDeck.slice() : shuffle(deckToCards(list).slice()),
+    hand: [], mz: emptyZones(), sz: emptyZones(), grave:[],
     normalSummoned:false, noAttackTurn:-1
   };
 }
@@ -1124,12 +1216,19 @@ function dlog(msg){
 function newDuel(myList, aiKey, opts){
   opts = opts || {};
   uid = 0;
-  const aiDeck = STARTER_DECKS[aiKey];
+  /* opts.foe = {name, list, deckKey, isAI} lets story mode / pass-and-play /
+     online supply their own opponent instead of a random starter deck. */
+  const foe = opts.foe || null;
+  const aiDeck = foe || STARTER_DECKS[aiKey];
+  const decks = opts.decks || null;
   D = {
-    p: [ mkPlayer(opts.myName || 'YOU', opts.myKey || null, myList, false),
-         mkPlayer(aiDeck.name, aiKey, aiDeck.list, true) ],
+    p: [ mkPlayer(opts.myName || 'YOU', opts.myKey || null, myList, false, decks && decks[0]),
+         mkPlayer(aiDeck.name, foe ? (foe.deckKey || null) : aiKey, aiDeck.list,
+                  foe ? foe.isAI !== false : true, decks && decks[1]) ],
     turn: 0, turnCount: 1, phase:'main',
     over:false, winner:null, log:[], ai:{ stage:'main' },
+    mode: opts.mode || 'solo',
+    diff: opts.diff || (S && S.diff) || 'normal',
     on: opts.on || null
   };
   for (let i = 0; i < 5; i++){ rawDraw(0); rawDraw(1); }
@@ -1230,6 +1329,7 @@ function summon(pi, handIdx, zi, pos, faceDown, tributeIdx){
   const card = info.card;
   tributeIdx = tributeIdx || [];
   if (tributeIdx.length !== info.need) return { ok:false, why:'Wrong number of tributes.' };
+  if (pi === 0) netSend('summon', { hi:handIdx, zi, pos, fd:!!faceDown, tributes:tributeIdx.slice() });
   tributeIdx.forEach(i => {
     const m = P.mz[i];
     if (m){ dlog(m.card.n + ' is tributed.'); P.mz[i] = null; toGrave(pi, m); }
@@ -1288,8 +1388,9 @@ function onSummonFx(pi, zi){
       break;
     }
     case 'peek':
-      dlog(m.card.n + ' peeks: ' + (O.hand.length
-        ? O.hand.map(id => cardById(id).n).join(', ') : 'an empty hand'));
+      /* the hand goes to the player who peeked (see onDuelEvent), NOT into the
+         shared battle log — on one phone that log is read by both seats */
+      dlog(m.card.n + ' has a good look at ' + O.name + '\'s hand (' + O.hand.length + ' cards).');
       emit({ type:'peek', pi, hand: O.hand.slice() });
       break;
     case 'revive': {
@@ -1307,6 +1408,7 @@ function setST(pi, handIdx, zi){
   const P = D.p[pi];
   const card = cardById(P.hand[handIdx]);
   if (!card || card.t === 'monster') return { ok:false, why:'Not a spell or trap.' };
+  if (pi === 0) netSend('set', { hi:handIdx, zi });
   if (P.sz[zi]) zi = freeZone(pi, 's');
   if (zi < 0) return { ok:false, why:'No free spell/trap zone.' };
   P.hand.splice(handIdx, 1);
@@ -1338,6 +1440,7 @@ function activateSpell(pi, handIdx, target){
   const card = cardById(P.hand[handIdx]);
   if (!card || card.t !== 'spell') return { ok:false, why:'Not a spell.' };
   if (!canActivateSpell(pi, card)) return { ok:false, why:'Nothing to use it on.' };
+  if (pi === 0) netSend('spell', { hi:handIdx, target: target ? { side:target.side, i:target.i } : null });
   P.hand.splice(handIdx, 1);
   P.grave.push(card.id);
   dlog(P.name + ' plays ' + card.n + '.');
@@ -1412,7 +1515,11 @@ function triggerTraps(defPi, atkPi, attacker, defZone){
         || (target.pos === 'atk' && a - effAtk(target) >= 800)));
 
   ready.sort((x, y) => trapPriority(y.s.card.fx) - trapPriority(x.s.card.fx));
-  let chosen = threat ? ready[0] : ready.find(x => x.s.card.fx === 't_burn');
+  /* js/ai.js takes this decision over when present, so the AI can hold a good
+     trap back for a real threat instead of burning it on the first attack. */
+  let chosen = (window.KARTI_AI && KARTI_AI.pickTrap)
+    ? KARTI_AI.pickTrap(ready, { defPi, atkPi, attacker, defZone, target, atk:a, threat })
+    : (threat ? ready[0] : ready.find(x => x.s.card.fx === 't_burn'));
   if (!chosen) return {};
 
   const card = chosen.s.card;
@@ -1453,8 +1560,13 @@ function tauntZone(pi){
   const t = fieldMonsters(pi).find(x => !x.m.fd && x.m.card.fx === 'taunt');
   return t ? t.i : -1;
 }
+/* Standard opening-turn rule: whoever goes first gets NO battle phase on turn 1.
+   Enforced in the engine, not the UI, so the AI and a remote player cannot
+   sidestep it either — without it, going first is a huge unearned advantage. */
+const noBattleYet = () => D.turnCount === 1;
 function canAttack(pi, zi){
   if (D.over || D.phase !== 'battle' || D.turn !== pi) return false;
+  if (noBattleYet()) return false;
   const P = D.p[pi], m = P.mz[zi];
   if (!m || m.fd || m.pos !== 'atk') return false;
   if (P.noAttackTurn === D.turnCount) return false;
@@ -1473,6 +1585,7 @@ function doAttack(pi, zi, targetZone){
   if (!canAttack(pi, zi)) return { ok:false, why:'That monster cannot attack.' };
   const legal = legalAttackTargets(pi, zi);
   if (legal.indexOf(targetZone) < 0) return { ok:false, why:'Not a legal target.' };
+  if (pi === 0) netSend('attack', { zi, t:targetZone });
   const A = P.mz[zi];
   A.atkCount++;
 
@@ -1550,6 +1663,7 @@ function changePosition(pi, zi){
   if (!m || D.turn !== pi || D.phase !== 'main') return false;
   if (m.sumTurn === D.turnCount) return false;
   if (m.atkCount > 0) return false;
+  if (pi === 0) netSend('pos', { zi });
   if (m.fd){ m.fd = false; m.pos = 'atk'; dlog(m.card.n + ' flips up into attack position.'); onSummonFx(pi, zi); }
   else { m.pos = m.pos === 'atk' ? 'def' : 'atk'; dlog(m.card.n + ' switches to ' + m.pos.toUpperCase() + '.'); }
   emit({ type:'position', pi, zi });
@@ -1595,6 +1709,8 @@ function beginTurn(){
 }
 function toBattle(){
   if (D.over || D.phase !== 'main') return false;
+  if (noBattleYet()) return false;             /* no battle phase on the opening turn */
+  if (D.turn === 0) netSend('battle', null);
   D.phase = 'battle';
   emit({ type:'phase', phase:'battle' });
   return true;
@@ -1602,6 +1718,7 @@ function toBattle(){
 function endTurn(){
   if (D.over) return;
   const pi = D.turn;
+  if (pi === 0) netSend('end', null);
   const P = D.p[pi];
   /* return stolen monsters */
   (D.stolen || []).forEach(st => {
@@ -1654,8 +1771,11 @@ function aiBestSummon(){
   });
   return best;
 }
+/* The smarter, difficulty-aware AI lives in js/ai.js and takes over when loaded.
+   Everything below is the original fallback so the game still runs without it. */
 function aiStep(){
   if (D.over) return false;
+  if (window.KARTI_AI && KARTI_AI.step) return KARTI_AI.step(1);
   const pi = 1, P = D.p[pi], O = D.p[0], oi = 0;
   if (D.turn !== pi) return false;
 
@@ -1774,6 +1894,24 @@ function startDuel(){
   toast('You go first. ' + STARTER_DECKS[aiKey].name + ' is across the table.');
 }
 
+/* Shared entry point for story mode, pass-and-play and online (js/story.js, js/mp.js).
+   Same engine, same duel UI as startDuel — only the opponent and the options differ.
+   cfg = {myList, myName, myKey, foe:{name,list,deckKey,isAI}, decks, mode, diff, first} */
+function startCustomDuel(cfg){
+  resetUI();
+  UI.busy = false;
+  newDuel(cfg.myList, null, {
+    myName: cfg.myName || displayName().toUpperCase(), myKey: cfg.myKey || null,
+    foe: cfg.foe, decks: cfg.decks, mode: cfg.mode, diff: cfg.diff, on: onDuelEvent
+  });
+  go('duel');
+  D.phase = 'main';
+  D.ai.stage = 'main';
+  dlog(cfg.first || 'Main phase.');
+  renderDuel();
+  return D;
+}
+
 /* ── events → juice ── */
 function onDuelEvent(ev){
   if (ev.type === 'lp'){
@@ -1793,8 +1931,24 @@ function onDuelEvent(ev){
     }
   }
   if (ev.type === 'trap') flash('TRAP! ' + ev.name, '#FF5468');
+  if (ev.type === 'peek' && ev.pi === 0) showPeek(ev.hand);
   if (ev.type === 'over') setTimeout(() => showResult(ev.winner, ev.why), 700);
   if (ev.type === 'log') $('#ticker').textContent = ev.msg;
+}
+/* A peek effect shows YOU their hand — it never goes in the log, so the other
+   seat in pass-and-play cannot scroll back and read it. */
+function showPeek(hand){
+  const cards = (hand || []).map(cardById).filter(Boolean);
+  const box = $('#mbox');
+  box.innerHTML = '<h3 style="font-size:15px;text-align:center">Their hand</h3>' +
+    '<p class="tiny" style="text-align:center;margin:4px 0 10px">Only you are seeing this</p>' +
+    '<div id="peek-cards" style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center"></div>' +
+    '<div style="margin-top:12px"><button class="btn ghost" id="peek-x" style="width:100%">Seen enough</button></div>';
+  const host = $('#peek-cards');
+  if (!cards.length) host.innerHTML = '<p class="muted">Empty hand. Nothing to see.</p>';
+  else cards.forEach(c => host.appendChild(cardEl(c, { size:'xs' })));
+  $('#peek-x').onclick = closeModal;
+  $('#modal').classList.add('on');
 }
 function floatDmg(anchor, text, color){
   if (REDUCED) return;
@@ -1853,7 +2007,9 @@ function paintZoneRow(host, side, kind){
       let el;
       if (inst.fd){ el = backEl(); el.classList.add('def'); }
       else {
-        el = cardEl(inst.card, {});
+        /* 'xs' hides the joke/effect lines — at 5 zones a wall of 4px text is
+           unreadable mush. The zone still shows art, name, ATK badge and fx icon. */
+        el = cardEl(inst.card, { size:'xs' });
         if (kind === 'm' && inst.pos === 'def') el.classList.add('def');
         if (kind === 'm' && side === 0 && D.phase === 'battle' && inst.atkCount >= inst.maxAtk)
           el.classList.add('tired');
@@ -1944,7 +2100,9 @@ function paintActionBar(){
   }
   if (D.turn !== 0 || UI.busy){ mk('Opponent is thinking…', 'ghost', null, true); return; }
   if (D.phase === 'main'){
-    mk('⚔️ To battle', 'hot', () => { toBattle(); resetUI(); renderDuel(); });
+    if (noBattleYet())
+      mk('⚔️ No battle<span class="sub">nobody attacks on turn 1</span>', 'ghost', null, true);
+    else mk('⚔️ To battle', 'hot', () => { toBattle(); resetUI(); renderDuel(); });
     mk('End turn', 'ghost', () => playerEndTurn());
   } else {
     mk('End turn', 'ghost', () => playerEndTurn());
@@ -2112,6 +2270,13 @@ async function playerEndTurn(){
   renderDuel();
   endTurn();
   renderDuel();
+  /* Pass-and-play and online take the turn over here instead of the local AI.
+     Deliberately NO re-render afterwards: the hook owns the screen from this
+     point (the pass-the-phone curtain wipes the hand, and re-painting it would
+     put the previous player's cards back on the display behind the curtain). */
+  if (window.KHOOK && KHOOK.afterEndTurn && KHOOK.afterEndTurn()){
+    UI.busy = false; resetUI(); return;
+  }
   await runAITurn();
 }
 async function runAITurn(){
@@ -2136,11 +2301,17 @@ function logSheet(){
       '<button class="btn ghost" id="lg-close">Close</button></div>');
   $('#lg-close').onclick = closeSheet;
   const q = $('#lg-quit');
-  if (q) q.onclick = () => { closeSheet(); endDuel(1, D.p[0].name + ' walks away from the table.'); renderDuel(); };
+  if (q) q.onclick = () => {
+    closeSheet(); netSend('forfeit', null);
+    endDuel(1, D.p[0].name + ' walks away from the table.'); renderDuel();
+  };
 }
 
 /* ── result & rewards ── */
 function showResult(winner, why){
+  /* Story mode / pass-and-play / online own their own end-of-duel screen and
+     rewards — if the hook handles it, the normal solo payout must not fire. */
+  if (window.KHOOK && KHOOK.result && KHOOK.result(winner, why)) return;
   const won = winner === 0;
   if (won){ S.rec.w++; S.coins += 120; S.packs += 1; }
   else { S.rec.l++; S.coins += 40; S.dust += 25; }
@@ -2186,6 +2357,11 @@ function wireStatic(){
   $('#btn-packs').onclick = () => go('pack');
   $('#btn-coll').onclick  = () => go('coll');
   $('#btn-deck').onclick  = () => { dbDeck = null; go('deck'); };
+  const tb = $('#btn-tutor');
+  if (tb) tb.onclick = () => {
+    if (window.KARTI_TUTOR && KARTI_TUTOR.open) KARTI_TUTOR.open();
+    else toast('The tutorial did not load. Try reopening the app.');
+  };
   $('#pack-back').onclick = () => go('home');
   $('#coll-back').onclick = () => go('home');
   $('#deck-back').onclick = () => { dbDeck = null; go('home'); };
@@ -2193,8 +2369,40 @@ function wireStatic(){
     if (e.key === 'Escape'){ closeSheet(); closeModal(); if (UI.mode !== 'idle') cancelUI(); }
   });
 }
+/* The 245 generated images land later at art/<card-id>.jpg and art/ui/<name>.
+   Rather than hard-coding a switch (and firing 200 404s if they are not there
+   yet) we probe one file: if it loads, the art is present and every card and
+   board element lights up. Emoji and CSS remain the fallback either way. */
+function detectArt(){
+  const probe = (url, hit) => { const i = new Image(); i.onload = () => hit(); i.src = url; };
+  probe('art/petard.jpg', () => {
+    ART.base = 'art/';
+    if (current === 'coll') renderCollection();
+    if (D) renderDuel();
+  });
+  const ui = { '--art-playmat':'art/ui/board.jpg', '--art-zone-m':'art/ui/zone-monster.png',
+               '--art-zone-s':'art/ui/zone-spell.png', '--art-pile-deck':'art/ui/pile-deck.png',
+               '--art-pile-grave':'art/ui/pile-grave.png', '--art-pile-banish':'art/ui/pile-banish.png',
+               '--art-cardback':'art/ui/cardback.jpg', '--art-home':'art/ui/home-bg.jpg' };
+  Object.keys(ui).forEach(v => probe(ui[v], () => {
+    /* MUST be absolute: a relative url() inside a custom property is resolved
+       against the stylesheet that *uses* it (css/extra.css), not the document,
+       which silently turns art/ui/x.jpg into css/art/ui/x.jpg. */
+    const abs = new URL(ui[v], location.href).href;
+    document.documentElement.style.setProperty(v, 'url("' + abs + '")');
+    ART.ui[v.replace('--art-', '')] = ui[v];
+    document.documentElement.classList.add('art' + v.replace('--art', ''));
+  }));
+}
+/* url for a named UI image (boss portraits, pack faces...), null when absent.
+   Callers must always keep their emoji/CSS fallback for when art is missing. */
+function uiArt(name, file){
+  if (!ART.base) return null;                 /* art pack not on this deploy */
+  return 'art/ui/' + file;
+}
 function boot(){
   wireStatic();
+  detectArt();
   const act = lsGet(ACTIVE_KEY, null);
   const users = getUsers();
   if (act && (act === GUEST || users[act])){ ACTIVE = act; load(); go('home'); }
@@ -2207,13 +2415,19 @@ else boot();
    cards.js declares its data with `const`, which is NOT a window property,
    so re-export the references here for anything outside this script scope. */
 window.KARTI = {
-  get S(){ return S; }, get D(){ return D; },
+  get S(){ return S; }, get D(){ return D; }, set D(v){ D = v; },
+  get UI(){ return UI; },
   CARDS, STARTER_DECKS, ATTR, RARITY, COUNTERS, COUNTER_BONUS, LP_START, DECK_SIZE, MAX_COPIES,
+  ZONES, HAND_LIMIT, NET, setRNG, ART, artImg, uiArt, detectArt,
   cardById, tributesFor, openPack, deckToCards, effText, FX_TEXT,
   newDuel, aiStep, doAttack, summon, summonInfo, setST, activateSpell, endTurn, toBattle,
   beginTurn, drawCard, damage, healLP, destroyMonster, effAtk, effDef, legalAttackTargets,
   canAttack, changePosition, deckIsLegal, grantStarter, addCard, save, load, go,
-  switchTo, createAccount, loginAccount, GUEST, SHA256,
-  fieldMonsters, freeZone, tauntZone, counterBonus, spellTargets,
-  renderDuel, startDuel, runAITurn, showResult, DEFAULT_STATE
+  switchTo, createAccount, loginAccount, upgradeGuest, GUEST, SHA256, noBattleYet,
+  fieldMonsters, freeZone, tauntZone, counterBonus, spellTargets, canActivateSpell,
+  spellNeedsTarget, trapPriority, deckTotal, deckById, activeDeck, displayName,
+  cardEl, backEl, rarityFx, particles, cardViewModal, starterPrice, chooseSide, afterLogin,
+  renderDuel, renderHome, startDuel, startCustomDuel, runAITurn, playerEndTurn, endDuel,
+  showResult, DEFAULT_STATE, resetUI, onDuelEvent, dlog,
+  toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne
 };

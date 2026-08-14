@@ -12,3 +12,6 @@ _*.html
 art/*.png
 art/raw/
 art/prompts.jsonl
+
+# python bytecode
+server/__pycache__/
