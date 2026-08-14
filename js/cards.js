@@ -132,11 +132,11 @@ const CARDS = [
    txt:'No excuse has ever worked.', eff:'Destroy the attacking monster.', fx:'t_destroy'},
 ];
 
-/* ═══════ THE TRIANGLE — every deck beats one and loses to another ═══════
-   FESTA 🎆 → burns down CITY   (fireworks go straight over the walls)
-   CITY  🏰 → grinds down FARM  (paperwork beats livestock)
-   FARM  🐇 → shoots down FESTA (the hunter drops it before it lights)
-   +500 ATK when you attack the attribute you counter.                   */
+/* ═══════ THE RING — every deck beats one and loses to one ═══════
+   FESTA 🎆 → CITY 🏰 → FARM 🐇 → SEA 🌊 → TROUBLE 😈 → FESTA 🎆
+   fireworks clear the bastions · paperwork beats livestock · dry land beats the sea
+   · a swim fixes trouble · the hangover always beats the festa
+   +500 ATK when you attack the attribute you counter. Set 2 extends COUNTERS to 5. */
 const COUNTERS = { festa:'belt', belt:'razzett', razzett:'festa' };
 const COUNTER_BONUS = 500;
 function counterBonus(att, def){
@@ -149,7 +149,7 @@ const STARTER_DECKS = {
   festa: {
     name:'FESTA', e:'🎆', c:'#E8452C',
     tag:'Aggro — hit fast, hit loud, be gone before the smoke clears',
-    beats:'CITY', loses:'FARM',
+    beats:'CITY', loses:'TROUBLE',
     list:{ petard:3, bandist:3, pupa:2, kavallier:3, nar:3, statwa:2, kunjata:1,
            hangover:3, karozzin:2, gar:2, boss:1,
            cisk:3, kafe:2, meta:3, festalights:2, ambulanza:1,
@@ -167,7 +167,7 @@ const STARTER_DECKS = {
   razzett: {
     name:'FARM', e:'🐇', c:'#4CAF50',
     tag:'Midrange — kill whatever stands up, keep walking',
-    beats:'FESTA', loses:'CITY',
+    beats:'SEA', loses:'CITY',
     list:{ fenek:3, gbejna:2, bidwi:3, kaccatur:3, nannu:3, kelb:2, harrub:2, nanna:2,
            sajjied:2, lampuka:2, nannaslip:1, exwife:1,
            cisk:2, kafe:2, meta:2, ambulanza:2, blackout:1,
