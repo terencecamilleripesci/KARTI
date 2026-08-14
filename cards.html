@@ -27,10 +27,13 @@ h1{text-align:center;font-weight:900;font-size:clamp(1.5rem,6vw,2.2rem);letter-s
 </style></head><body>
 <h1>KARTI 🇲🇹</h1>
 <div class="sub">18+ Maltese duel game · <b id="n">…</b> cards · the game is being built — this is the card list</div>
-<div class="tri">🎆 <b>FESTA</b> burns down 🏰 <b>CITY</b><br>🏰 <b>CITY</b> grinds down 🐇 <b>FARM</b><br>🐇 <b>FARM</b> shoots down 🎆 <b>FESTA</b><br><span style="color:#9d93b8;font-size:.8em">+500 ATK against the one you counter</span></div>
+<div class="tri"><b>THE RING</b> — each deck beats one, loses to one<br>
+🎆 FESTA → 🏰 CITY → 🐇 FARM → 🌊 SEA → 😈 TROUBLE → 🎆 FESTA<br>
+<span style="color:#9d93b8;font-size:.8em">+500 ATK when you attack the one you counter</span></div>
 <div class="filters" id="f"></div>
 <div class="grid" id="g"></div>
 <script src="js/cards.js"></script>
+<script src="js/set2.js"></script>
 <script>
 const G=document.getElementById('g'), F=document.getElementById('f');
 let filt='all';
@@ -50,7 +53,7 @@ function draw(){
       <div class="art">${c.e}</div>
       <div class="nm">${c.n}</div>
       <div class="tx">${c.txt}</div>
-      <div class="ef">⚙️ ${c.eff||''}</div>
+      <div class="ef">⚙️ ${c.eff||'—'}</div>
       ${c.t==='monster'?`<div class="st"><span class="atk">ATK ${c.atk}</span><span class="def">DEF ${c.def}</span></div>`:''}
     </div>`}).join('');
 }
