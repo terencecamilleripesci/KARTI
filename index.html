@@ -59,7 +59,15 @@ body{
     radial-gradient(1100px 700px at 50% -12%, #2A1B47 0%, transparent 62%),
     radial-gradient(700px 500px at 110% 100%, #23123A 0%, transparent 60%);
   color:var(--txt);font-family:var(--body);font-size:16px;line-height:1.45;
-  overflow:hidden;overscroll-behavior:none;touch-action:manipulation;
+  /* NOT overflow:hidden. A locked, unscrollable document is why iOS never
+     treats this like a normal page: with nothing to scroll it keeps the short
+     layout viewport and the difference shows up as a dead band. LuxuryLifts
+     scrolls normally, which is the whole reason its shell behaves. The +1px
+     gives the document somewhere to go so iOS resolves the full viewport;
+     overscroll-behavior:none still kills the rubber-band, and #app is fixed,
+     so nothing in the game actually moves. */
+  min-height:calc(100vh + 1px);
+  overscroll-behavior:none;touch-action:manipulation;
   -webkit-user-select:none;user-select:none;
 }
 body::before{
@@ -105,7 +113,15 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    means one wrong number out of visualViewport at cold launch (a real iOS
    habit) leaves #app short and a band of bare body background along the bottom.
    Pin it geometrically and there is no number to be wrong. */
-#app{position:fixed;inset:0;overflow:hidden}
+/* height:100vh, NOT inset:0 and NOT svh. On iOS `vh` is the LARGE viewport —
+   the full screen — while inset:0 resolves against the LAYOUT viewport, which
+   a black-translucent standalone app reports 62px short. That single
+   difference is why the LuxuryLifts shell (body/main both min-height:100vh)
+   covers the whole screen and this one stopped short. svh was worse still: it
+   is the SMALL viewport, i.e. the short one, which is the opposite of what an
+   installed app needs. A browser tab is handled separately below, because
+   there Safari genuinely does take height away for its toolbars. */
+#app{position:fixed;top:0;left:0;right:0;height:100vh;overflow:hidden}
 /* No explicit height, no measured height, no extra height. position:fixed with
    inset:0 IS the viewport, in the installed app and in a tab alike. The browser
    media query below exists only because Safari's toolbars change the visible
@@ -391,7 +407,7 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    of this element — each creates a containing block and drags a fixed child off
    the bottom. That has bitten this file before. */
 .tabbar{
-  position:fixed;bottom:0;left:0;right:0;z-index:200;
+  position:absolute;bottom:0;left:0;right:0;z-index:200;
   display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
   transform:translateZ(0);-webkit-transform:translateZ(0);
   padding:5px calc(var(--sar) + 6px) calc(var(--sab) + 5px) calc(var(--sal) + 6px);
@@ -1492,7 +1508,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 30;
+var KARTI_BUILD = 31;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
