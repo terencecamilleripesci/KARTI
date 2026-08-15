@@ -463,7 +463,8 @@ function register(user, pass) {
   return call('register', { u: v.name, pw: credential(v.key, String(pass)) })
     .then(function (r) {
       ST.busy = false;
-      if (!r.ok) { setPhase('error', wireError(r)); return { err: wireError(r) }; }
+      if (!r.ok) { setPhase('error', wireError(r));
+                   return { err: wireError(r), status: r.status, offline: !!r.offline }; }
       ST.sess = { u: r.d.u, name: r.d.name, tok: r.d.tok, exp: r.d.exp,
                   ver: 0, at: 0, mark: '' };
       saveSess();
@@ -476,31 +477,65 @@ function register(user, pass) {
     });
 }
 
-function login(user, pass) {
+/* opts.freshDevice — ONLY for a profile slot this device created seconds ago
+   and has never played: it says "there is nothing here worth protecting", so
+   the first sync copies the cloud game down instead of asking a player who has
+   no second game to choose between. It is refused outright if this slot has
+   ever held a session, which is the case that could actually lose a game. */
+function login(user, pass, opts) {
+  opts = opts || {};
   var v = validate(user, pass);
   if (v.err) return Promise.resolve(v);
   if (!ST.local) return Promise.resolve({ err: 'No profile is loaded yet.' });
+  var prior = lsRead(sessKey(ST.local));
   ST.busy = true; setPhase('syncing', TEXT.syncing);
   return call('login', { u: v.name, pw: credential(v.key, String(pass)) })
     .then(function (r) {
       ST.busy = false;
-      if (!r.ok) { setPhase('error', wireError(r)); return { err: wireError(r) }; }
+      if (!r.ok) { setPhase('error', wireError(r));
+                   return { err: wireError(r), status: r.status, offline: !!r.offline }; }
+      /* ver/mark start at 0/'' — a device that has never agreed with this
+         account treats ANY difference as a real conflict and ASKS, rather than
+         quietly picking one. The two exceptions below are both cases where
+         "we have never agreed" is simply untrue. */
+      var ver = 0, at = 0, seen = '';
+      if (prior && prior.u === r.d.u) {
+        /* Signed out and back in on the SAME device and the SAME account. The
+           bookkeeping kept by signOut() still describes what this device and
+           the server last agreed on, so honour it: otherwise every sign-out
+           cycle raised a "two games, one account" question about a divergence
+           that never happened. */
+        ver = prior.ver || 0; at = prior.at || 0; seen = prior.mark || '';
+      } else if (opts.freshDevice && !prior) {
+        seen = mark(localRaw());
+      }
       ST.sess = { u: r.d.u, name: r.d.name, tok: r.d.tok, exp: r.d.exp,
-                  ver: 0, at: 0, mark: '' };
+                  ver: ver, at: at, mark: seen };
       saveSess();
-      /* ver/mark deliberately left at 0/'' — this device has never agreed with
-         this account before, so the very first sync treats any difference as a
-         real conflict and ASKS, rather than quietly picking one. */
       return syncNow({ fromLogin: true }).then(function () {
         return { ok: true, name: r.d.name };
       });
     });
 }
 
+/* Drop the token, keep the bookkeeping. ver/mark are not secrets and not the
+   session — they are this device's record of what it and the server last
+   agreed on, and throwing them away is how a harmless sign-out turned into a
+   conflict question later. status().linked reads the TOKEN, so the app still
+   sees a signed-out device, and every network path stays shut. */
+function keepResidue() {
+  if (!ST.local) return;
+  if (!ST.sess) { saveSess(); return; }
+  var res = { u: ST.sess.u, name: ST.sess.name, tok: null, exp: 0,
+              ver: ST.sess.ver || 0, at: ST.sess.at || 0, mark: ST.sess.mark || '' };
+  ST.sess = null;
+  lsWrite(sessKey(ST.local), res);
+}
+
 function signOut() {
   var tok = ST.sess && ST.sess.tok;
+  keepResidue();
   ST.sess = null; ST.conflict = null;
-  saveSess();
   setPhase('idle', TEXT.notLinked);
   if (!tok) return Promise.resolve({ ok: true });
   /* fire and forget: the local game is untouched either way */
@@ -508,7 +543,8 @@ function signOut() {
 }
 
 function expired() {
-  ST.sess = null; saveSess();
+  keepResidue();
+  ST.sess = null;
   setPhase('error', TEXT.reLogin);
 }
 
@@ -732,7 +768,7 @@ function flush() {
    class from css/extra.css and no helper from js/game.js. It therefore cannot
    be broken by a restyle, and it works even if it is the only thing that
    loaded. game.js needs one button that calls KARTI_SYNC.openPanel(). */
-var panel = null, panelMode = 'menu', panelErr = '', lastFocus = null;
+var panel = null, panelMode = 'menu', panelErr = '', lastFocus = null, panelPrefill = '';
 
 function el(tag, css, html) {
   var n = document.createElement(tag);
@@ -779,9 +815,13 @@ var CSS = {
   sm:   'font-size:12.5px;color:#9fb0c8;margin:3px 0 0;'
 };
 
-function openPanel(mode) {
+function openPanel(mode, opts) {
   panelMode = mode || (status().linked ? 'account' : 'menu');
   panelErr = '';
+  /* game.js opens the sign-up straight from the profile sheet and already
+     knows the player's name — carrying it in saves them typing it twice and
+     keeps the local profile and the cloud account on the same name. */
+  panelPrefill = (opts && opts.user) ? String(opts.user) : '';
   if (!panel) {
     lastFocus = document.activeElement;
     panel = el('div', CSS.wrap);
@@ -794,7 +834,10 @@ function openPanel(mode) {
   }
   repaintPanel();
   reachable();
-  var f = panel.querySelector('input');
+  /* the first EMPTY field: with the name carried in from the profile sheet the
+     cursor belongs in the password box, not back on the name */
+  var fields = panel.querySelectorAll('input'), f = null, i;
+  for (i = 0; i < fields.length && !f; i++) if (!fields[i].value) f = fields[i];
   if (f) { try { f.focus(); } catch (e) {} }
 }
 function closePanel() {
@@ -833,8 +876,8 @@ function repaintPanel() {
                 'previous game</button>';
     } else {
       body += '<p style="' + CSS.p + '">' + esc(TEXT.what) + '</p>';
-      body += '<button data-a="go-signup" style="' + CSS.hot + '">Create a cloud account</button>';
-      body += '<button data-a="go-login" style="' + CSS.btn + '">Log in to cloud save</button>';
+      body += '<button data-a="go-signup" style="' + CSS.hot + '">Put this game in the cloud</button>';
+      body += '<button data-a="go-login" style="' + CSS.btn + '">I already have an account</button>';
     }
     body += '<p style="' + CSS.note + '">' + esc(TEXT.whereFrom) + '</p>';
     if (!s.linked) body += '<p style="' + CSS.note + '">' + esc(TEXT.offlineOk) + '</p>';
@@ -844,8 +887,9 @@ function repaintPanel() {
     var isNew = panelMode === 'signup';
     body += '<h2 style="' + CSS.h + '">' + (isNew ? 'Create a cloud account' : 'Log in to cloud save') + '</h2>';
     body += '<p style="' + CSS.p + '">' + esc(isNew
-        ? 'This name and password are for the server only. They are not your local ' +
-          'profile, and the password never leaves this phone in readable form.'
+        ? 'This puts THIS game — these cards, this deck, these coins — in the cloud ' +
+          'under the name you pick, so you can log in on another phone and find it ' +
+          'there. The password never leaves this phone in readable form.'
         : 'Log in and this device will be brought in line with your cloud game. ' +
           'If the two have both changed, you will be asked which to keep — ' +
           'nothing is overwritten behind your back.') + '</p>';
@@ -853,7 +897,8 @@ function repaintPanel() {
       body += '<p style="' + CSS.note + '">' + esc(TEXT.guest) + '</p>';
     body += '<label style="' + CSS.lab + '" for="ks-u">Username</label>' +
             '<input id="ks-u" style="' + CSS.inp + '" autocomplete="username" ' +
-            'autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="16">';
+            'autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="16"' +
+            (panelPrefill ? ' value="' + esc(panelPrefill) + '"' : '') + '>';
     body += '<label style="' + CSS.lab + '" for="ks-p">Password</label>' +
             '<input id="ks-p" type="password" style="' + CSS.inp + '" autocomplete="' +
             (isNew ? 'new-password' : 'current-password') + '">';
@@ -1012,6 +1057,12 @@ var KARTI_SYNC = {
 
   openPanel: openPanel,
   closePanel: closePanel,
+
+  /* small, safe renderers game.js reuses so the same fact is never worded two
+     different ways in two different sheets */
+  whenText: whenText,
+  summaryLine: function (blob) { return summaryLine(summarise(blob || '{}')); },
+  localSummary: function () { return summaryLine(summarise(localRaw() || '{}')); },
 
   /* used by the headless verification harness */
   _summarise: summarise,

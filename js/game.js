@@ -17,8 +17,15 @@ let RNG = null;
 function setRNG(fn){ RNG = fn || null; }
 const rnd = n => Math.floor((RNG ? RNG() : Math.random()) * n);
 const pickOne = a => a[rnd(a.length)];
-const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-if (REDUCED) document.body.classList.add('reduced');
+/* ── motion ───────────────────────────────────────────────────────────
+   REDUCED is read at the moment an animation is about to run, not baked in at
+   load, so the Settings switch takes effect on the very next thing that moves
+   instead of on the next reload. The phone's own accessibility setting is the
+   default; PREFS.motion (Settings) overrides it when the player has actually
+   said something. body.reduced is the same class index.html and cardview.js
+   already key off, so one flag drives every animation in the app. */
+const MOTION_MQ = window.matchMedia('(prefers-reduced-motion: reduce)');
+let REDUCED = MOTION_MQ.matches;
 const wait = ms => new Promise(r => setTimeout(r, REDUCED ? Math.min(ms, 30) : ms));
 function shuffle(a){
   for (let i = a.length - 1; i > 0; i--){ const j = rnd(i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; }
@@ -203,6 +210,31 @@ function lsSet(k, v){
   }
 }
 
+/* ── device preferences ───────────────────────────────────────────────
+   Deliberately NOT part of the save. "Do I want animations on this phone" is a
+   fact about the phone, not about the collection, so it does not travel to the
+   cloud, it cannot make two devices disagree, and a wiped save keeps it. It is
+   also why nothing in here can ever cost a player a card. */
+const PREFS_KEY = 'karti_prefs';
+let PREFS = lsGet(PREFS_KEY, null) || {};
+function applyPrefs(){
+  /* explicit choice wins; otherwise follow the phone */
+  REDUCED = (typeof PREFS.motion === 'boolean') ? PREFS.motion : MOTION_MQ.matches;
+  if (document.body) document.body.classList.toggle('reduced', REDUCED);
+}
+function setPref(k, v){
+  PREFS[k] = v;
+  lsSet(PREFS_KEY, PREFS);
+  applyPrefs();
+}
+applyPrefs();
+/* the phone's own setting can change while the app is open (iOS Control
+   Centre, Android quick settings); follow it unless the player has overridden */
+try {
+  if (MOTION_MQ.addEventListener) MOTION_MQ.addEventListener('change', applyPrefs);
+  else if (MOTION_MQ.addListener) MOTION_MQ.addListener(applyPrefs);
+} catch(e){}
+
 const getUsers = () => lsGet(USERS_KEY, {}) || {};
 const setUsers = u => lsSet(USERS_KEY, u);
 let ACTIVE = null;                    // lowercased key, or GUEST
@@ -212,13 +244,23 @@ function displayName(){
   const u = getUsers()[ACTIVE];
   return u ? u.name : 'Guest';
 }
+/* An account is a CLOUD account. It is made on this device first — instantly,
+   with no network anywhere near the critical path — and then registered with
+   the server in the background by cloudLink(). If the server is off, the
+   account still exists, the game still plays, and the cloud half is picked up
+   the next time the player logs in with the same password.
+   The rules below are the SERVER's rules (see NAME_RE / PW_MIN in js/sync.js).
+   They are enforced here so a name that works on this phone can never be a
+   name the cloud refuses — that mismatch was how a profile ended up stranded
+   on one device with no way to say why. */
 function createAccount(name, pw){
   name = (name || '').trim();
   if (!name) return { err:'Pick a username.' };
   if (name.length > 16) return { err:'Max 16 characters.' };
-  if (!/^[\w .'-]+$/.test(name)) return { err:'Letters, numbers, spaces only.' };
+  if (!/^[A-Za-z0-9_ .\-]+$/.test(name))
+    return { err:'Letters, numbers, spaces, dot, dash and underscore only.' };
   if (!pw) return { err:'Pick a password.' };
-  if (pw.length < 4) return { err:'Password needs 4+ characters.' };
+  if (pw.length < 6) return { err:'Password needs 6+ characters.' };
   const users = getUsers();
   const key = name.toLowerCase();
   if (users[key]) return { err:'That name is taken. Try another.' };
@@ -231,12 +273,15 @@ function createAccount(name, pw){
   lsSet(saveKeyFor(key), DEFAULT_STATE());
   return { ok:true, key };
 }
+/* The one error the caller must be able to recognise WITHOUT string-sniffing:
+   "not on this phone" is the signal to go and ask the cloud. */
+const NO_LOCAL_PROFILE = 'No profile with that name on this device.';
 function loginAccount(name, pw){
   const key = (name || '').trim().toLowerCase();
   if (!key) return { err:'Enter your username.' };
   const users = getUsers();
   const u = users[key];
-  if (!u) return { err:'No profile with that name on this device.' };
+  if (!u) return { err:NO_LOCAL_PROFILE, noProfile:true };
   if (hashPw(u.salt, pw || '') !== u.hash) return { err:'Wrong password. Try again.' };
   return { ok:true, key };
 }
@@ -247,8 +292,28 @@ function upgradeGuest(name, pw){
   const carried = lsGet(saveKeyFor(GUEST), null);
   const r = createAccount(name, pw);
   if (r.err) return r;
-  if (carried) lsSet(saveKeyFor(r.key), carried);
-  try { localStorage.removeItem(saveKeyFor(GUEST)); } catch(e){}
+  /* THE ORDER HERE IS THE WHOLE POINT.
+     createAccount() has just written an EMPTY save into the new slot. If the
+     copy of the guest game into that slot fails — a full disk, private
+     browsing, anything — and we delete the guest save anyway, the player has
+     just traded a full collection for a brand new one. So: copy, read it back
+     and check it really landed, and only then let go of the guest copy. If it
+     did not land, the guest save stays exactly where it is and the player is
+     told, still holding everything they had. */
+  if (carried){
+    const wrote = lsSet(saveKeyFor(r.key), carried);
+    const back = lsGet(saveKeyFor(r.key), null);
+    if (!wrote || !back){
+      /* undo the half-made account rather than leave a stranded empty one */
+      const users = getUsers();
+      delete users[r.key];
+      setUsers(users);
+      try { localStorage.removeItem(saveKeyFor(r.key)); } catch(e){}
+      return { err:'This browser will not let the game save, so nothing was moved. ' +
+                    'Your guest game is untouched.' };
+    }
+    try { localStorage.removeItem(saveKeyFor(GUEST)); } catch(e){}
+  }
   switchTo(r.key);
   /* carry any cloud session across from the guest profile */
   if (window.KARTI_SYNC) KARTI_SYNC.rekey(GUEST, r.key);
@@ -260,13 +325,105 @@ function switchTo(key){
   load();
   if (window.KARTI_SYNC) KARTI_SYNC.attach(key);
 }
-function logout(){
-  if (window.KARTI_SYNC) KARTI_SYNC.detach();
+/* Two doors out of a profile, and the difference is the cloud session:
+     'switch' — step off this profile, keep the phone signed in to the cloud
+                account, so stepping back on is instant and silent;
+     'out'    — sign this phone out of the cloud too (best-effort upload first).
+   NEITHER touches a single byte of any save. Both land on the same screen. */
+function logout(mode){
+  if (window.KARTI_SYNC){
+    if (mode === 'out'){
+      /* push anything unsaved before the token goes, then drop the token.
+         signOut() keeps this device's sync bookkeeping, so logging back in
+         does not look like a divergence and does not ask a pointless
+         question. */
+      try { KARTI_SYNC.flush(); } catch(e){}
+      try { KARTI_SYNC.signOut(); } catch(e){}
+    }
+    KARTI_SYNC.detach();
+  }
+  cloudPending = null; cloudBusy = false;
   ACTIVE = null;
   try { localStorage.removeItem(ACTIVE_KEY); } catch(e){}
   D = null;
+  authMode = 'menu';
   renderAuth(); go('auth');
 }
+
+/* ───────────────────── the cloud half of an account ─────────────────────
+   Called AFTER the local account exists and AFTER switchTo() has bound sync to
+   it. Everything in here is best-effort and off the critical path: it returns a
+   promise nobody has to wait for, it cannot throw into a caller, and every
+   failure ends with a playable game on this device.
+
+   The password is used here and then forgotten. It is held in memory for this
+   session only, so an offline sign-up can retry when the network comes back,
+   and it is NEVER written to storage — a cloud credential at rest on the phone
+   would be a password-equivalent sitting next to the save. */
+let cloudPending = null;         // { key, name, pw } — memory only, never stored
+let cloudBusy = false;           // one attempt at a time, see below
+function cloudReady(){
+  return !!(window.KARTI_SYNC && KARTI_SYNC.available && KARTI_SYNC.available());
+}
+function cloudStatus(){
+  if (!cloudReady()) return { linked:false, available:false };
+  const s = KARTI_SYNC.status();
+  s.available = true;
+  return s;
+}
+function cloudLink(key, name, pw, opts){
+  opts = opts || {};
+  if (!cloudReady()) return Promise.resolve({ err:'no-server' });
+  const st = KARTI_SYNC.status();
+  if (st.linked) return Promise.resolve({ ok:true, already:true });
+  /* ONE attempt at a time. Without this, a retry that fires while the first
+     registration is still in the air registers the same name twice: the second
+     call gets "taken" — by itself — falls through to a login, and hands a
+     brand new player a "two games, one account" question about a game they
+     have never had. Found by watching it happen. */
+  if (cloudBusy) return Promise.resolve({ err:'busy' });
+  cloudBusy = true;
+  cloudPending = { key, name, pw };
+  const settle = r => {
+    cloudBusy = false;
+    if (cloudPending && cloudPending.key === key) cloudPending = null;
+    return r;
+  };
+  const stop = r => { cloudBusy = false; return r; };   /* keep it pending */
+  /* The name is already on the server. That is either the same player on a new
+     phone — in which case their password opens it and sync.js decides what to
+     do with the two saves, ASKING if they have both moved — or a stranger with
+     the same name, in which case the password does not open it and we link
+     nothing at all. Never a silent merge either way. */
+  const asLogin = () => KARTI_SYNC.login(name, pw, { freshDevice: !!opts.freshDevice })
+    .then(r => (r && r.ok) ? settle({ ok:true, joined:true })
+                           : (r && r.offline ? stop(r) : settle(Object.assign({ taken:true }, r))),
+          () => stop({ err:'no-server' }));
+  return KARTI_SYNC.register(name, pw).then(r => {
+    if (r && r.ok) return settle({ ok:true, made:true });
+    if (r && r.status === 409) return asLogin();
+    /* offline / server down: keep it pending and try again when the network
+       comes back. The account is already real on this phone. */
+    return stop(r || { err:'no-server' });
+  }, () => stop({ err:'no-server' }));
+}
+/* One retry path, shared: the network came back, or the app came back to the
+   foreground. Silent — it either quietly works or quietly does not. */
+let cloudRetryT = 0;
+function cloudRetry(){
+  if (!cloudPending || cloudBusy || !ACTIVE) return;
+  if (cloudPending.key !== ACTIVE) { cloudPending = null; return; }
+  clearTimeout(cloudRetryT);
+  cloudRetryT = setTimeout(() => {
+    if (!cloudPending) return;
+    const p = cloudPending;
+    cloudLink(p.key, p.name, p.pw).then(r => {
+      if (r && r.ok && current === 'home') renderHome();
+    });
+  }, 800);
+}
+window.addEventListener('online', cloudRetry);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) cloudRetry(); });
 
 /* ───────────────────────── save state ───────────────────────── */
 const DEFAULT_STATE = () => ({
@@ -534,44 +691,36 @@ function renderAuth(){
       /* Log in is NOT conditional any more. It used to appear only once a profile
          existed on the device, so on a fresh phone the screen offered no way to
          log in at all and looked like the feature was missing. It is always here;
-         with no profiles saved it explains itself instead of dead-ending on a
-         form that could not possibly succeed. */
+         with no profiles saved it now still WORKS — an account made on another
+         phone is fetched from the cloud. */
       '<div style="display:grid;gap:9px;margin-top:10px">' +
         '<button class="btn ghost" data-act="login">' + ilb('lock', 'Log in') + '</button>' +
         '<button class="btn ghost" data-act="signup">' + ilb('save', 'Create an account') + '</button>' +
       '</div>';
     $$('.userrow', b).forEach(el => el.onclick = () => { authMode = 'login'; renderAuth();
       const f = $('#au-name'); if (f){ f.value = users[el.dataset.u].name; $('#au-pw').focus(); } });
-  } else if (authMode === 'nologin'){
-    /* Log in tapped with nothing to log in to. Say why, plainly — a KARTI account
-       is a row in this phone's localStorage, not an account on a server, so there
-       is genuinely nothing to fetch. Then offer both real ways forward. */
-    b.innerHTML =
-      '<h3 style="text-align:center;font-size:15px;margin-bottom:10px">Log in</h3>' +
-      '<p class="muted">There are no profiles saved on this phone yet, so there is nothing ' +
-      'to log in to.</p>' +
-      '<p class="muted">KARTI accounts live on the device, not on a server — an account you ' +
-      'made on another phone will not show up here, and your cards do not travel between ' +
-      'phones.</p>' +
-      '<div style="display:grid;gap:9px;margin-top:12px">' +
-        '<button class="btn primary" data-act="signup">' + ilb('save', 'Create an account') + '</button>' +
-        '<button class="btn hot" data-act="guest">Play as guest' +
-          '<span class="sub">you can make it an account later, nothing is lost</span></button>' +
-        '<button class="btn ghost" data-act="back">Back</button>' +
-      '</div>';
   } else {
     const isNew = authMode === 'signup';
     b.innerHTML =
       '<h3 style="text-align:center;font-size:15px;margin-bottom:10px">' +
-        (isNew ? 'Create a profile' : 'Log in') + '</h3>' +
-      '<label class="tiny" for="au-name">Username</label>' +
+        (isNew ? 'Create an account' : 'Log in') + '</h3>' +
+      '<p class="muted">' + (isNew
+        ? 'One account, and it follows you: your cards, decks, coins and story go to ' +
+          'Terence’s server so you can log in on another phone and carry on. It is made ' +
+          'on this phone first — if the server is off you still play, and it goes up later.'
+        : (names.length
+            ? 'Your profiles on this phone are below. Made your account on another phone? ' +
+              'Type it here and your game is fetched from the cloud.'
+            : 'Made your account on another phone? Type it here and your game is fetched ' +
+              'from the cloud.')) + '</p>' +
+      '<label class="tiny" for="au-name" style="display:block;margin-top:8px">Username</label>' +
       '<input class="field" id="au-name" autocomplete="username" maxlength="16" placeholder="e.g. Terence">' +
       '<label class="tiny" for="au-pw" style="margin-top:8px;display:block">Password</label>' +
       '<input class="field" id="au-pw" type="password" autocomplete="' +
-        (isNew ? 'new-password' : 'current-password') + '" placeholder="4+ characters">' +
+        (isNew ? 'new-password' : 'current-password') + '" placeholder="6+ characters">' +
       '<p class="err" id="au-err"></p>' +
       '<div style="display:grid;gap:9px;margin-top:6px">' +
-        '<button class="btn primary" data-act="' + (isNew ? 'do-signup' : 'do-login') + '">' +
+        '<button class="btn primary" id="au-go" data-act="' + (isNew ? 'do-signup' : 'do-login') + '">' +
           (isNew ? 'Create & play' : 'Log in') + '</button>' +
         '<button class="btn ghost" data-act="back">Back</button>' +
       '</div>';
@@ -581,20 +730,107 @@ function renderAuth(){
   }
   $$('[data-act]', b).forEach(el => el.onclick = () => authAction(el.dataset.act));
 }
+function authBusy(on, label){
+  const go = $('#au-go');
+  if (!go) return;
+  go.disabled = !!on;
+  go.textContent = on ? (label || 'Working…')
+    : (authMode === 'signup' ? 'Create & play' : 'Log in');
+}
+function authErr(msg){
+  const e = $('#au-err');
+  if (e) e.textContent = msg || '';
+}
 function authAction(act){
   if (act === 'signup'){ authMode = 'signup'; renderAuth(); return; }
-  /* nothing saved on this device = nothing to log in to. Explain, do not show a
-     username/password form that can only ever say "no such profile". */
-  if (act === 'login'){
-    authMode = Object.keys(getUsers()).length ? 'login' : 'nologin';
-    renderAuth(); return;
-  }
+  if (act === 'login'){ authMode = 'login'; renderAuth(); return; }
   if (act === 'back'){ authMode = 'menu'; renderAuth(); return; }
   if (act === 'guest'){ switchTo(GUEST); authMode = 'menu'; afterLogin(); return; }
   const name = $('#au-name').value, pw = $('#au-pw').value;
-  const r = act === 'do-signup' ? createAccount(name, pw) : loginAccount(name, pw);
-  if (r.err){ $('#au-err').textContent = r.err; return; }
-  switchTo(r.key); authMode = 'menu'; afterLogin();
+
+  if (act === 'do-signup'){
+    /* Local first, always. The account exists the instant this returns, with a
+       save slot of its own, whether or not there is any network. */
+    const r = createAccount(name, pw);
+    if (r.err){ authErr(r.err); return; }
+    switchTo(r.key); authMode = 'menu'; afterLogin();
+    cloudLink(r.key, name.trim(), pw, {}).then(res => {
+      if (res && res.ok && res.made) toast('Account made. Your game is in the cloud now.');
+      else if (res && res.ok && res.joined) toast('Logged in to your cloud account.');
+      else if (res && res.taken)
+        toast('That name is taken in the cloud. Your game is safe here — pick a cloud name in Settings.');
+      else toast('Account made on this phone. It will go to the cloud when the server is back.');
+      if (current === 'home') renderHome();
+    });
+    return;
+  }
+
+  /* ── log in ──────────────────────────────────────────────────────────
+     A profile on THIS phone is the fast, offline path and is tried first.
+     Only if there is no such profile here do we ask the server — that is the
+     new-phone case, and it is the only one that has to wait for a network. */
+  const local = loginAccount(name, pw);
+  if (local.ok){
+    switchTo(local.key); authMode = 'menu'; afterLogin();
+    /* quietly finish the cloud half if it was never done (made offline, or
+       made before this device had a server) */
+    cloudLink(local.key, getUsers()[local.key].name, pw, {}).then(res => {
+      if (res && res.ok && current === 'home') renderHome();
+    });
+    return;
+  }
+  if (!local.noProfile){ authErr(local.err); return; }
+  signInFromCloud(name, pw);
+}
+
+/* ─────────────── first time on this phone: fetch the account ───────────────
+   Nothing is written to this device until the server has said yes. If the
+   password is wrong, or the Pi is off, this phone is left exactly as it was.  */
+function signInFromCloud(name, pw){
+  const key = (name || '').trim().toLowerCase();
+  if (!cloudReady()){ authErr(NO_LOCAL_PROFILE); return; }
+  authErr(''); authBusy(true, 'Checking…');
+  /* Bind sync to the slot this account WOULD occupy. attach() only reads; it
+     writes nothing, so a failed login leaves no trace. karti_active is pointed
+     at it too, because sync.js follows that key and would otherwise unbind us
+     mid-login; boot() ignores an active key with no profile behind it, so a
+     crash in this window lands harmlessly back on this screen. */
+  /* ACTIVE moves with it: when the pull lands, sync.js calls back into load(),
+     and load() reads whichever slot ACTIVE names. Leaving ACTIVE null here made
+     that callback read a slot called "null", find nothing, and open the starter
+     roll over the top of a player who already owns a collection. */
+  ACTIVE = key;
+  lsSet(ACTIVE_KEY, key);
+  KARTI_SYNC.attach(key);
+  KARTI_SYNC.login(name.trim(), pw, { freshDevice:true }).then(r => {
+    authBusy(false);
+    if (!r || !r.ok){
+      ACTIVE = null;
+      try { localStorage.removeItem(ACTIVE_KEY); } catch(e){}
+      KARTI_SYNC.detach();
+      authErr((r && r.err) ? r.err
+        : 'No profile with that name on this phone, and the server did not answer.');
+      return;
+    }
+    /* The server accepted the password, so this name and password are theirs:
+       give them the local profile to match, using the SAME salted-hash scheme
+       as any other profile on this device. */
+    const users = getUsers();
+    if (!users[key]){
+      const salt = randSalt();
+      users[key] = { name: name.trim(), salt, hash: hashPw(salt, pw), created: Date.now() };
+      setUsers(users);
+    }
+    switchTo(key); authMode = 'menu';
+    toast('Welcome back, ' + displayName() + '.');
+    afterLogin();
+  }, () => {
+    authBusy(false);
+    ACTIVE = null;
+    try { localStorage.removeItem(ACTIVE_KEY); } catch(e){}
+    KARTI_SYNC.detach();
+    authErr('The server did not answer. Your game on this phone is unaffected.');
+  });
 }
 function afterLogin(){
   if (!S.starters.length) toast('Welcome. Take a beginner deck, then get stuck in.');
@@ -642,84 +878,276 @@ function renderHome(){
      it too, so it can never show a deck that has just been replaced. */
   if (current === 'deck' && deckView === 'list' && $('#inv-root')) renderInventory();
 }
+/* ───────────────────── the profile chip's sheet ─────────────────────
+   Three things you can DO — switch player, settings, log out — and one quiet
+   line telling you where your game lives. Nothing else. The one extra button
+   is the way to make an account, and it is shown only when there is not one
+   yet: offering "play on another phone" to somebody who is already signed in
+   on this phone is an instruction with nothing behind it. */
+function cloudLine(){
+  const s = cloudStatus();
+  if (ACTIVE === GUEST && !s.linked)
+    return { cls:'off', text:'Playing as a guest — this game is on this phone only.' };
+  if (s.linked){
+    const when = (KARTI_SYNC.whenText ? KARTI_SYNC.whenText(s.lastAt) : '');
+    if (s.phase === 'conflict')
+      return { cls:'warn', text:'Cloud account ' + s.user + ' — waiting for you to choose ' +
+                                'which game to keep.' };
+    if (s.online === false)
+      return { cls:'warn', text:'Cloud account ' + s.user + ' — the server is not answering. ' +
+                                'Your game is safe on this phone.' };
+    return { cls:'on', text:'Cloud account ' + s.user + ' · ' +
+             (s.lastAt ? 'synced ' + when : 'not uploaded yet') };
+  }
+  if (cloudPending)
+    return { cls:'warn', text:'Made on this phone. It goes to the cloud as soon as the ' +
+                              'server answers.' };
+  return { cls:'off', text:'On this phone only — not backed up.' };
+}
 function profileSheet(){
+  injectAccountCSS();
+  const s = cloudStatus();
+  const line = cloudLine();
+  /* A guest is always offered an account — the local half of it works with no
+     server at all. An existing profile is only offered the cloud half when
+     there is a server module to do it with, so the button can never be a dead
+     end. Either way it disappears the moment the player IS in the cloud. */
+  const needsAccount = !s.linked && (ACTIVE === GUEST || cloudReady());
   openSheet(
     '<h3>' + esc(displayName()) + '</h3>' +
-    '<p class="muted">Local profiles only — stored on this device, not a real secure account.</p>' +
+    '<p class="cloudline ' + line.cls + '"><i></i><span>' + esc(line.text) + '</span></p>' +
+    (needsAccount
+      ? '<div class="opts" style="margin-top:10px">' +
+          '<button class="btn primary" id="pf-make">' +
+            ilb('save', ACTIVE === GUEST ? 'Create an account' : 'Put this game in the cloud') +
+            '<span class="sub">keeps everything · play on any phone</span></button>' +
+        '</div>'
+      : '') +
     '<div class="opts">' +
-      (ACTIVE === GUEST
-        ? '<button class="btn primary" id="pf-upgrade">' + ilb('save', 'Save my progress') +
-          '<span class="sub">make an account · keeps everything</span></button>' : '') +
-      /* Cloud sync — the whole account UI lives inside sync.js's own panel. */
-      (window.KARTI_SYNC ? '<button class="btn ghost" id="pf-cloud">' +
-        ilb('refresh', 'Play on another phone') + '</button>' : '') +
-      '<button class="btn ghost" id="pf-switch">Switch player</button>' +
-      '<button class="btn ghost" id="pf-out">Log out</button>' +
-      '<button class="btn ghost" id="pf-wipe" style="opacity:.7">Wipe this profile\'s save</button>' +
-      '<button class="btn ghost" id="pf-close">Close</button>' +
+      '<button class="btn ghost" id="pf-switch">' + ilb('users', 'Switch player') + '</button>' +
+      '<button class="btn ghost" id="pf-set">' + ilb('gear', 'Settings') + '</button>' +
+      '<button class="btn ghost" id="pf-out">' + ilb('back', 'Log out') + '</button>' +
     '</div>' +
-    /* the 18+ line — it lives here rather than under the bottom nav, where it was
-       just filler taking up the last row of a phone screen */
-    /* Build + art state, so a support question stops being guesswork: it says
-       which service worker version the phone is really running (an installed
-       PWA can sit on a stale one for days) and whether the artwork loaded. */
-    '<p class="fineprint" id="pf-build" style="margin-top:10px;opacity:.55"></p>' +
-    '<p class="fineprint" style="margin-top:12px">18+ · Contains mothers-in-law, ' +
-    'Marsa traffic and one very accurate slipper.</p>');
+    '<button class="btn ghost" id="pf-close" style="margin-top:8px;width:100%">Close</button>');
   $('#pf-close').onclick = closeSheet;
-  const up = $('#pf-upgrade');
-  if (up) up.onclick = upgradeSheet;
-  { const el = $('#pf-build');
-    if (el){
-      const art = ART.base ? 'art ok' : 'art fallback';
-      /* The page build comes straight out of THIS device's index.html (the
-         shell CSS is inline there, so it is the truth about the layout on
-         screen), and the worker version is the answer of the worker actually
-         in control. The old code fetched sw.js from the SERVER, which reports
-         the latest deploy and says nothing about what this phone is running —
-         the exact staleness it was supposed to expose. */
-      const page = 'page v' + (window.KARTI_BUILD || '?');
-      el.textContent = page + ' · ' + art;
-      if (window.swVersion) window.swVersion().then(v => {
-        el.textContent = page + ' · ' +
-          (v ? 'sw ' + String(v).replace('karti-v', 'v') : 'no service worker') +
-          ' · ' + art;
-      });
-    } }
-  { const c = $('#pf-cloud'); if (c) c.onclick = () => { closeSheet(); KARTI_SYNC.openPanel(); }; }
-  $('#pf-switch').onclick = () => { closeSheet(); logout(); };
-  $('#pf-out').onclick = () => { closeSheet(); logout(); };
-  $('#pf-wipe').onclick = () => {
-    openSheet('<h3>Wipe this save?</h3><p class="muted">Cards, coins, decks — all of it, for ' +
-      esc(displayName()) + ' only. Other profiles are untouched.</p>' +
+  { const m = $('#pf-make');
+    if (m) m.onclick = () => {
+      if (ACTIVE === GUEST) return upgradeSheet();
+      /* the profile already exists on this phone; the only missing half is the
+         cloud one, and sync.js owns that form */
+      closeSheet();
+      KARTI_SYNC.openPanel('signup', { user: displayName() });
+    }; }
+  $('#pf-switch').onclick = () => { closeSheet(); logout('switch'); };
+  $('#pf-set').onclick = settingsSheet;
+  $('#pf-out').onclick = () => { closeSheet(); logout('out'); };
+}
+
+/* ───────────────────────── SETTINGS ─────────────────────────
+   Only things that are real. Notifications and sounds are not built yet, so
+   they say so and cannot be pressed — a switch that flips and changes nothing
+   is worse than no switch at all. */
+function settingsSheet(){
+  injectAccountCSS();
+  const s = cloudStatus();
+  const line = cloudLine();
+  const on = REDUCED;
+  openSheet(
+    '<h3>Settings</h3>' +
+
+    '<p class="setgrp">Account</p>' +
+    '<p class="cloudline ' + line.cls + '"><i></i><span>' + esc(line.text) + '</span></p>' +
+    ((s.linked || ACTIVE === GUEST || cloudReady())
+      ? '<div class="opts">' +
+          (s.linked
+            ? '<button class="btn ghost" id="st-cloud">' + ilb('cloud', 'Cloud save') +
+              '<span class="sub">sync now · sign this phone out · backups</span></button>'
+            : '<button class="btn ghost" id="st-cloud">' +
+              ilb('save', ACTIVE === GUEST ? 'Create an account' : 'Put this game in the cloud') +
+              '</button>')
+        + '</div>'
+      : '') +
+
+    '<p class="setgrp">Game</p>' +
+    '<div class="setlist">' +
+      '<button class="setrow" id="st-motion" role="switch" aria-checked="' + (on ? 'true' : 'false') + '">' +
+        '<span class="sl"><b>Reduce motion</b><small>Skip the pack, reveal and duel ' +
+          'animations. Follows your phone’s own setting until you change it here.</small></span>' +
+        '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' +
+      '</button>' +
+      '<div class="setrow soon" aria-disabled="true">' +
+        '<span class="sl"><b>Notifications</b><small>Not built yet.</small></span>' +
+        '<span class="soontag">Coming soon</span>' +
+      '</div>' +
+      '<div class="setrow soon" aria-disabled="true">' +
+        '<span class="sl"><b>Sounds</b><small>Not built yet — KARTI is silent for now.</small></span>' +
+        '<span class="soontag">Coming soon</span>' +
+      '</div>' +
+    '</div>' +
+
+    '<p class="setgrp">This profile</p>' +
+    '<div class="opts">' +
+      '<button class="btn ghost" id="st-wipe" style="opacity:.75">Wipe ' +
+        esc(displayName()) + '’s save</button>' +
+    '</div>' +
+
+    '<p class="fineprint" id="pf-build" style="margin-top:12px;opacity:.55"></p>' +
+    '<p class="fineprint" style="margin-top:8px">18+ · Contains mothers-in-law, ' +
+    'Marsa traffic and one very accurate slipper.</p>' +
+    '<div class="opts">' +
+      '<button class="btn ghost" id="st-back">Back</button>' +
+    '</div>');
+
+  buildLine($('#pf-build'));
+  $('#st-back').onclick = profileSheet;
+  { const c = $('#st-cloud');
+    if (c) c.onclick = () => {
+      closeSheet();
+      if (s.linked) KARTI_SYNC.openPanel('account');
+      else if (ACTIVE === GUEST) upgradeSheet();
+      else KARTI_SYNC.openPanel('signup', { user: displayName() });
+    }; }
+  $('#st-motion').onclick = () => {
+    setPref('motion', !REDUCED);
+    settingsSheet();
+    toast(REDUCED ? 'Animations off.' : 'Animations on.');
+  };
+  $('#st-wipe').onclick = () => {
+    openSheet('<h3>Wipe this save?</h3><p class="muted">Cards, coins, decks, story — all of it, ' +
+      'for ' + esc(displayName()) + ' only. Other profiles on this phone are untouched.</p>' +
+      (cloudStatus().linked
+        ? '<p class="muted">This profile is in the cloud, so the empty game will replace the ' +
+          'cloud copy too. The server keeps the copy it replaced.</p>' : '') +
       '<div class="opts"><button class="btn hot" id="w-yes">Wipe it</button>' +
       '<button class="btn ghost" id="w-no">Cancel</button></div>');
-    $('#w-no').onclick = closeSheet;
+    $('#w-no').onclick = settingsSheet;
     $('#w-yes').onclick = () => { S = DEFAULT_STATE(); save(); closeSheet(); renderHome(); toast('Clean slate.'); };
   };
 }
+/* Build + art state, so a support question stops being guesswork: it says which
+   service worker version the phone is really running (an installed PWA can sit
+   on a stale one for days) and whether the artwork loaded. The page build comes
+   straight out of THIS device's index.html — the shell CSS is inline there, so
+   it is the truth about the layout on screen. */
+function buildLine(el){
+  if (!el) return;
+  const art = ART.base ? 'art ok' : 'art fallback';
+  const page = 'page v' + (window.KARTI_BUILD || '?');
+  el.textContent = page + ' · ' + art;
+  if (window.swVersion) window.swVersion().then(v => {
+    el.textContent = page + ' · ' +
+      (v ? 'sw ' + String(v).replace('karti-v', 'v') : 'no service worker') + ' · ' + art;
+  });
+}
+/* The guest's route to an account. One form, one account: it becomes a real
+   profile on this phone AND a cloud account, in that order, and the cloud half
+   never holds anything up. */
 function upgradeSheet(){
   openSheet(
-    '<h3>Keep your progress</h3>' +
-    '<p class="muted">Make an account and your deck, your cards, your coins and your story ' +
-    'progress all come with you. Nothing is lost and nothing is sent anywhere — it stays on ' +
-    'this device.</p>' +
+    '<h3>Create your account</h3>' +
+    '<p class="muted">Your deck, your cards, your coins and your story progress all come with ' +
+    'you — nothing is lost. The account is made on this phone first, then saved to Terence’s ' +
+    'server so you can log in on another phone and find it there.</p>' +
     '<label class="tiny" for="up-name" style="display:block;margin-top:8px">Username</label>' +
     '<input class="field" id="up-name" maxlength="16" autocomplete="username" placeholder="e.g. Terence">' +
     '<label class="tiny" for="up-pw" style="display:block;margin-top:8px">Password</label>' +
-    '<input class="field" id="up-pw" type="password" autocomplete="new-password" placeholder="4+ characters">' +
+    '<input class="field" id="up-pw" type="password" autocomplete="new-password" placeholder="6+ characters">' +
     '<p class="err" id="up-err"></p>' +
     '<div class="opts">' +
       '<button class="btn primary" id="up-go">Create it</button>' +
       '<button class="btn ghost" id="up-no">Not now</button></div>');
   $('#up-no').onclick = closeSheet;
   $('#up-go').onclick = () => {
-    const r = upgradeGuest($('#up-name').value, $('#up-pw').value);
+    const name = $('#up-name').value, pw = $('#up-pw').value;
+    const r = upgradeGuest(name, pw);
     if (r.err){ $('#up-err').textContent = r.err; return; }
     closeSheet(); renderHome();
     toast('Saved. Welcome, ' + displayName() + '.');
+    cloudLink(r.key, name.trim(), pw, {}).then(res => {
+      if (res && res.ok && res.made) toast('Your game is in the cloud now.');
+      else if (res && res.ok && res.joined) toast('Logged in to your cloud account.');
+      else if (res && res.taken)
+        toast('That name is taken in the cloud. Your game is safe here — pick a cloud name in Settings.');
+      else toast('Saved on this phone. It goes to the cloud when the server answers.');
+      if (current === 'home') renderHome();
+    });
   };
   $('#up-pw').addEventListener('keydown', e => { if (e.key === 'Enter') $('#up-go').click(); });
+}
+
+/* game.js owns no stylesheet (css/ and index.html belong to another part of the
+   build), so the handful of classes the account sheets need are injected once,
+   at runtime — the same pattern js/mp.js uses. Nothing here touches .tabbar or
+   any of its ancestors. */
+function injectAccountCSS(){
+  if (document.getElementById('karti-acct-css')) return;
+  const st = document.createElement('style');
+  st.id = 'karti-acct-css';
+  st.textContent =
+    '.sheet .cloudline{display:flex;align-items:flex-start;gap:8px;margin:6px 0 0;' +
+      'padding:9px 11px;border-radius:12px;font-size:12.5px;line-height:1.45;' +
+      'color:var(--dim);background:rgba(255,255,255,.045);' +
+      'border:1px solid rgba(255,255,255,.09)}' +
+    '.sheet .cloudline i{flex:0 0 auto;width:8px;height:8px;margin-top:5px;border-radius:50%;' +
+      'background:#7A8194;box-shadow:0 0 0 3px rgba(122,129,148,.18)}' +
+    '.sheet .cloudline.on i{background:#3DDC84;box-shadow:0 0 0 3px rgba(61,220,132,.20)}' +
+    '.sheet .cloudline.warn i{background:#FFC542;box-shadow:0 0 0 3px rgba(255,197,66,.20)}' +
+    '.sheet .setgrp{margin:16px 0 6px;font-size:10.5px;letter-spacing:.14em;' +
+      'text-transform:uppercase;font-weight:800;color:var(--dim2,#8A83A8)}' +
+    '.sheet .setlist{display:grid;gap:8px}' +
+    '.sheet .setrow{display:flex;align-items:center;gap:12px;width:100%;text-align:left;' +
+      'padding:11px 12px;border-radius:12px;background:rgba(255,255,255,.04);' +
+      'border:1px solid var(--line,rgba(255,255,255,.12));color:inherit;font:inherit;' +
+      'cursor:pointer}' +
+    '.sheet .setrow .sl{flex:1 1 auto;min-width:0}' +
+    '.sheet .setrow b{display:block;font-size:13.5px;font-weight:700}' +
+    '.sheet .setrow small{display:block;margin-top:2px;font-size:11.5px;line-height:1.4;' +
+      'color:var(--dim)}' +
+    '.sheet .setrow.soon{cursor:default;opacity:.62}' +
+    '.sheet .soontag{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.1em;' +
+      'text-transform:uppercase;padding:4px 8px;border-radius:999px;' +
+      'background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);' +
+      'color:var(--dim)}' +
+    '.sheet .sw{flex:0 0 auto;width:44px;height:26px;border-radius:999px;' +
+      'background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.16);' +
+      'position:relative;transition:background .18s}' +
+    '.sheet .sw i{position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;' +
+      'background:#EDE7FF;transition:left .18s}' +
+    '.sheet .sw.on{background:var(--gold,#FFC542);border-color:var(--gold,#FFC542)}' +
+    '.sheet .sw.on i{left:20px;background:#241800}' +
+    '@media (prefers-reduced-motion:reduce){.sheet .sw,.sheet .sw i{transition:none}}';
+  document.head.appendChild(st);
+  injectAccountIcons();
+}
+/* Two symbols the sprite in index.html does not carry. Appended to the existing
+   sprite so ICO('gear') works exactly like every other icon, and drawn to the
+   same 24x24 / 2px round-stroke rules as the rest of the set. */
+function injectAccountIcons(){
+  const sprite = document.getElementById('karti-sprite');
+  if (!sprite || document.getElementById('i-gear')) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  const add = (id, d) => {
+    const sym = document.createElementNS(ns, 'symbol');
+    sym.setAttribute('id', id);
+    sym.setAttribute('viewBox', '0 0 24 24');
+    sym.setAttribute('fill', 'none');
+    sym.setAttribute('stroke', 'currentColor');
+    sym.setAttribute('stroke-width', '2');
+    sym.setAttribute('stroke-linecap', 'round');
+    sym.setAttribute('stroke-linejoin', 'round');
+    sym.innerHTML = d;
+    sprite.appendChild(sym);
+  };
+  /* sliders, not a cog: a cog needs teeth to read as a cog, and teeth at this
+     stroke weight turn into a sunburst at 14px — which is exactly what the
+     first attempt looked like on the phone. */
+  add('i-gear',
+    '<path d="M4 7h9M17.5 7H20M4 12h5M13.5 12H20M4 17h9M17.5 17H20"></path>' +
+    '<circle cx="15.2" cy="7" r="2.2"></circle>' +
+    '<circle cx="11.2" cy="12" r="2.2"></circle>' +
+    '<circle cx="15.2" cy="17" r="2.2"></circle>');
+  add('i-cloud',
+    '<path d="M7 18.5a4 4 0 0 1-.4-8 5.5 5.5 0 0 1 10.6-1.1A3.8 3.8 0 0 1 17.5 18.5H7Z"></path>');
 }
 /* The seven-deck picker. It used to sit on Home under "Choose your side"; Home is
    now Story and Multiplayer only, so this lives on the Decks screen. Null-guarded
@@ -3514,6 +3942,10 @@ window.KARTI = {
   beginTurn, drawCard, damage, healLP, destroyMonster, effAtk, effDef, legalAttackTargets,
   canAttack, changePosition, deckIsLegal, grantStarter, addCard, save, load, go,
   switchTo, createAccount, loginAccount, upgradeGuest, GUEST, SHA256, noBattleYet,
+  /* accounts + settings */
+  logout, profileSheet, settingsSheet, upgradeSheet, cloudLink, cloudStatus, cloudLine,
+  signInFromCloud, authAction, setPref, applyPrefs, get PREFS(){ return PREFS; },
+  get REDUCED(){ return REDUCED; }, get ACTIVE(){ return ACTIVE; },
   fieldMonsters, freeZone, tauntZone, counterBonus, spellTargets, canActivateSpell,
   spellNeedsTarget, trapPriority, deckTotal, deckById, activeDeck, displayName,
   cardEl, backEl, rarityFx, particles, cardViewModal, starterPrice, chooseSide, afterLogin,
