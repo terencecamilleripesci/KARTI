@@ -35,8 +35,13 @@ if (!K) return;
 const LEVELS = {
   tourist: {
     key:'tourist', name:'Tourist', i:'diff-1',
-    blurb:'Sunburnt and confident. Misplays about a third of the time.',
-    slip:.35,            /* chance to take a deliberately worse line */
+    blurb:'Sunburnt and confident. Misplays about half the time.',
+    /* `slip` — chance of deliberately taking a worse line — is what actually
+       separates the tiers. Stripping `regular` of counters, readFD AND lethal
+       all at once moved the top tier by 0.1pp; slip alone spans 49% to 88%.
+       Spaced so the three levels genuinely differ: nanna and regular used to be
+       the same brain wearing two names, measured at 50.3% against each other. */
+    slip:.55,
     counters:false,      /* does it plan around the attribute ring? */
     readFD:false,        /* does it assume a face-down might be big? */
     lethal:false,        /* does it count for game? */
@@ -45,18 +50,32 @@ const LEVELS = {
   },
   regular: {
     key:'regular', name:'Regular', i:'diff-2',
-    blurb:'Plays the ring, trades properly, will punish a lazy attack.',
-    slip:.06, counters:true, readFD:true, lethal:true,
+    blurb:'Plays the ring, trades properly, but leaves you openings.',
+    slip:.28, counters:true, readFD:true, lethal:true,
     trapHold:1, healAt:3200, removeAt:1900, tributeEdge:350
   },
   nanna: {
     key:'nanna', name:'Nanna', i:'diff-3',
-    blurb:'Counts your set cards, holds her slipper, and waits for the moment.',
-    /* strictly better play than 'regular' — never misplays, times her traps
-       better. Deliberately NOT more cautious: extra caution measured WORSE,
-       because a trap you never spend is worth nothing. */
-    slip:0, counters:true, readFD:true, lethal:true,
-    trapHold:2, healAt:3800, removeAt:1700, tributeEdge:350
+    blurb:'Counts your set cards, holds her slipper, and works out the kill.',
+    /* strictly better play than 'regular' — never misplays, and plan:true lets
+       her work the whole battle phase out before she declares an attack.
+       Deliberately NOT more cautious: extra caution measured WORSE, which is
+       also why trapHold came down from 2 to 1 (holding a trap for a better
+       moment that never arrives is just a dead card).
+
+       ── how big the gap can be, measured ──
+       She beats 'regular' 51.97% over 5,390 games. That is as far as playing
+       better goes, and the reason is worth writing down: a brain that picks a
+       RANDOM legal action every turn still wins 12.3% of duels against this
+       one. The deck decides most of it. Calibrated against a copy of 'regular'
+       handicapped by a misplay rate p, this brain wins:
+           p=.06 (today) 49.3% · .12 50.2% · .18 51.2% · .25 52.8%
+           p=.35 56.0%   · .50 60.6% · .70 71.4% · 1.0 87.7%
+       So a 60-65% top tier is not reachable by thinking harder — 'regular'
+       would have to misplay about half its turns, i.e. play worse than today's
+       'tourist'. Spacing the ladder is a slip:/design decision, not an AI one. */
+    slip:0, counters:true, readFD:true, lethal:true, plan:true,
+    trapHold:1, healAt:3800, removeAt:1700, tributeEdge:350
   }
 };
 const ALIAS = { easy:'tourist', normal:'regular', hard:'nanna', tourist:'tourist', regular:'regular', nanna:'nanna' };
@@ -198,15 +217,17 @@ function countersLean(card, lean, L){
    blocks anything, and an attacker that cannot get past the biggest thing they
    have is not attacking. Pricing both at face value is exactly why two mid
    bodies always "out-valued" one big one and Level 8s never hit the table. */
-function bodyWorth(m, punch, wall){
-  const a = K.effAtk(m), d = K.effDef(m);
+function worthOf(a, d, card, shieldUsed, punch, wall){
   let v = a > wall ? a : a * T.outclassed;          /* can it still win a fight? */
   v = Math.max(v, Math.min(d, punch) * T.wallWorth); /* or it soaks one hit, once */
   /* A body nothing on the table can kill is not worth what it hits for once —
      it hits for that EVERY turn. This is the whole case for one big monster
      over two mid ones, and the old formula had no term for it at all. */
   if (a > punch) v += T.survives + a * T.surviveMul;
-  return v + fxKeep(m, a);                          /* only what it still DOES */
+  return v + fxKeep({ card, shieldUsed }, a);       /* only what it still DOES */
+}
+function bodyWorth(m, punch, wall){
+  return worthOf(K.effAtk(m), K.effDef(m), m.card, m.shieldUsed, punch, wall);
 }
 /* A board is not the sum of its bodies. You cannot attack face while they hold
    ANY monster, so past their blocker count the extra bodies stop converting —
@@ -286,6 +307,95 @@ function bestSummon(pi, L){
   return best;
 }
 
+/* ═════════════════ nanna's extra gear — the battle phase on paper ═════════════
+   Gated behind L.plan, which only 'nanna' has, so 'tourist' and 'regular' play
+   exactly as they did.
+
+   The other two brains score one swing at a time and take the best-looking one.
+   That is blind to the rule that actually decides duels: you cannot touch a
+   life total while ANY blocker is standing. So the question is never "is this
+   attack good", it is "does this whole phase get through, and what is left over
+   when it does". She works the phase out before declaring the first attack.
+
+   Measured, and worth saying plainly: this is worth about a point and a half of
+   win rate against 'regular'. A fuller version that also chose the summon, the
+   position and the spells by simulation was built and measured at 48.7% — WORSE
+   than the hand-tuned priority list it replaced — so it is not here. See the
+   note above LEVELS for what that means for the difficulty ladder. */
+
+/* ── the board, as plain numbers she can walk over ── */
+function snapshot(pi){
+  const D = K.D;
+  const copy = (x, side) => ({
+    i:x.i, card:x.m.card, atk:K.effAtk(x.m), def:K.effDef(x.m),
+    fd:x.m.fd, pos:x.m.pos, shieldUsed:x.m.shieldUsed,
+    swings: side === 'me' ? Math.max(0, x.m.maxAtk - x.m.atkCount) : 0,
+    faceOK: !x.m.monsterOnly
+  });
+  return { me: mine(pi).map(x => copy(x, 'me')), them: mine(1 - pi).map(x => copy(x, 'them')),
+           stunned: D.p[pi].noAttackTurn === D.turnCount };
+}
+
+/* who can actually swing, and what is in the way */
+function attOf(S){
+  if (S.stunned) return [];
+  return S.me.filter(m => !m.fd && m.pos === 'atk' && m.swings > 0)
+             .map(m => ({ i:m.i, card:m.card, atk:m.atk, swings:m.swings,
+                          faceOK:m.faceOK, pierce:m.card.fx === 'pierce' }));
+}
+function defOf(S, L){
+  return S.them.map(d => {
+    const up = !d.fd && d.pos === 'atk';
+    return { i:d.i, card:d.card,
+             face: d.fd ? (L.readFD ? Math.max(d.card.atk, d.card.def) : d.atk)
+                        : (up ? d.atk : d.def),
+             atkPos: up, atkVal: up ? d.atk : 0,
+             taunt: !d.fd && d.card.fx === 'taunt',
+             thorns: !d.fd && d.card.fx === 'thorns' };
+  });
+}
+
+/* Play the battle phase out.
+   Two rules do all the work. A kill only becomes life-point damage if the thing
+   you killed was standing in attack position (or you pierce), and nothing
+   reaches their life total until every blocker is gone. So the right body to
+   send at a wall is the CHEAPEST one that still gets through — spend the 3000
+   breaking a 900 DEF wall that a 1400 would have flattened and you have thrown
+   away 3000 of face damage later in the same phase. */
+function simLine(att, defs){
+  const A = att.map(a => ({ i:a.i, card:a.card, atk:a.atk, swings:a.swings,
+                            faceOK:a.faceOK, pierce:a.pierce }));
+  const B = defs.map(d => Object.assign({ dead:false }, d));
+  const moves = [];
+  let dmg = 0, selfDmg = 0, guard = 0;
+  const live = () => B.filter(d => !d.dead);
+  while (guard++ < 24){
+    const rest = live();
+    if (!rest.length) break;
+    const taunt = rest.find(d => d.taunt);          /* the only legal target while it stands */
+    const tgt = taunt || rest.reduce((a, b) => b.face > a.face ? b : a);
+    let pick = null, pickAtk = 0;
+    for (const a of A){
+      if (a.swings <= 0) continue;
+      const v = a.atk + K.counterBonus(a.card, tgt.card);
+      if (v <= tgt.face) continue;                  /* bounces off */
+      if (!pick || v < pickAtk){ pick = a; pickAtk = v; }
+    }
+    if (!pick) break;                               /* that wall does not come down */
+    pick.swings--;
+    tgt.dead = true;
+    if (tgt.atkPos) dmg += pickAtk - tgt.atkVal;
+    else if (pick.pierce) dmg += pickAtk - tgt.face;
+    if (tgt.thorns) selfDmg += 400;
+    moves.push({ zi:pick.i, t:tgt.i });
+  }
+  const cleared = !live().length;
+  if (cleared) for (const a of A){
+    while (a.swings > 0 && a.faceOK){ a.swings--; dmg += a.atk; moves.push({ zi:a.i, t:-1 }); }
+  }
+  return { dmg, selfDmg, moves, cleared, killed: B.filter(d => d.dead).map(d => d.i) };
+}
+
 /* ───────────────────────── attacking ───────────────────────── */
 function attackPlan(pi, L){
   const D = K.D, oi = 1 - pi, O = D.p[oi];
@@ -293,6 +403,24 @@ function attackPlan(pi, L){
   if (!attackers.length) return null;
   const armed = armedSetCards(oi);
   const plans = [];
+
+  /* nanna plays the phase out first and follows the line: which body breaks
+     which wall, in what order, and what is left over for their life total. If
+     the line wins the duel nothing else gets a say — no trap-shyness, no "that
+     trade looks slightly negative". A win is a win. It is recomputed from the
+     live board every call, so a trap going off simply re-plans. */
+  if (L.plan){
+    const S = snapshot(pi);
+    const line = simLine(attOf(S), defOf(S, L));
+    for (const mv of line.moves){
+      if (!K.canAttack(pi, mv.zi)) continue;
+      if (K.legalAttackTargets(pi, mv.zi).indexOf(mv.t) < 0) continue;
+      const lethal = L.lethal && line.dmg >= O.lp;
+      /* off the line only when it is a win or the swing is plainly free */
+      if (lethal || mv.t < 0 || line.cleared) return { zi:mv.zi, t:mv.t, score:1e5, a:0 };
+      break;
+    }
+  }
 
   attackers.forEach(x => {
     const targets = K.legalAttackTargets(pi, x.i);
@@ -372,7 +500,7 @@ function mainPhase(pi, L){
     K.activateSpell(pi, drawIdx); return true;
   }
 
-  /* 4 — the summon for the turn */
+  /* 4 — the summon for the turn (nanna already made hers, above) */
   if (!P.normalSummoned){
     const best = bestSummon(pi, L);
     if (best){
@@ -432,7 +560,9 @@ function mainPhase(pi, L){
     return true;
   }
 
-  /* 8 — flip a face-down that is now the biggest thing on the table */
+  /* 8 — flip a face-down that is now the biggest thing on the table.
+     nanna decides positions inside the search above, so both 8 and 9 are hers
+     to skip. */
   const enemyBest = biggestEnemy(oi, L);
   const fd = mine(pi).find(x => x.m.fd && x.m.sumTurn < D.turnCount && K.effAtk(x.m) > enemyBest);
   if (fd && K.changePosition(pi, fd.i)) return true;
