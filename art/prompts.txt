@@ -816,7 +816,7 @@ NEGATIVE (identical for every image):
       NANNA IS ON THE BALCONY  ·  TRAP / trap / Legendary / KRT-03  [hand-written subject]
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, chest-up three-quarter caricature portrait of a tiny grandmother leaning on a limestone balcony rail over a folded cushion, elbows planted, unblinking eyes locked straight on the viewer
 
-### UI / MENU ART — 54 images
+### UI / MENU ART — 59 images
 ====================================================================================================
 
 [P1] emblem   ->  art/ui/emblem.png   (1024x1024 -> 1024x1024 png)  seed 1749593947
@@ -938,6 +938,26 @@ NEGATIVE (identical for every image):
 [P1] icon-dust   ->  art/ui/icon-dust.png   (1024x1024 -> 256x256 png)  seed 1382042259
       Crafting-dust icon (card disenchant currency).
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a small swirling pile of glowing violet crystal dust with floating sparkling motes rising from it, thick black outline, flat violet and white, isolated on pure flat black background
+
+[P1] logo-party   ->  art/ui/logo-party.png   (1024x1024 -> 512x512 png)  seed 166938503
+      Party-games emblem for party. Wordmark is CSS text — never generated.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a battered Maltese bar table seen from above with a deck of cards, two dice and a bottle cap arranged on it, warm overhead light, centred, generous empty margin, isolated on pure flat
+
+[P1] logo-chess   ->  art/ui/logo-chess.png   (1024x1024 -> 512x512 png)  seed 633690879
+      Party-games emblem for chess. Wordmark is CSS text — never generated.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a single carved limestone chess knight in three-quarter view, chipped and old, a faint Maltese cross cut into its base, dramatic side light, centred, generous empty margin, isolated on pure flat black background
+
+[P1] logo-dama   ->  art/ui/logo-dama.png   (1024x1024 -> 512x512 png)  seed 1708980689
+      Party-games emblem for dama. Wordmark is CSS text — never generated.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, three stacked draughts pieces in olive green and terracotta, the top one crowned, at a low angle on a worn wooden board, centred, generous empty margin, isolated on pure flat black background
+
+[P1] logo-skarta   ->  art/ui/logo-skarta.png   (1024x1024 -> 512x512 png)  seed 979341396
+      Party-games emblem for skarta. Wordmark is CSS text — never generated.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a fan of four bold blank playing cards thrown down hard, one landing face up, motion lines and a small puff of dust, centred, generous empty margin, isolated on pure flat black background
+
+[P1] logo-kiri   ->  art/ui/logo-kiri.png   (1024x1024 -> 512x512 png)  seed 1843480601
+      Party-games emblem for kiri. Wordmark is CSS text — never generated.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a small honey limestone Maltese townhouse with an enclosed wooden balcony, a signpost with a completely blank face, a construction crane looming behind, centred, generous empty margin, isolated on pure flat black background
 
 [P1] boss-cikku   ->  art/ui/boss-cikku.png   (832x1216 -> 620x900 png)  seed 1533590141
       Story boss portrait for cikku — one face per character.

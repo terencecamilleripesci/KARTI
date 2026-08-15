@@ -509,6 +509,24 @@ function uiAssets() {
     purpose:'Final story boss.',
     subject:'full figure heroic low angle caricature of a monumental terrifying mother-in-law in black seated on a throne of stacked plastic patio chairs, wooden spoon held like a sceptre, golden god rays behind her, deep indigo and gold, isolated on pure flat black background' });
 
+  /* ── party-game emblems ─────────────────────────────────────────────────
+     EMBLEMS ONLY. The game names are CSS text set beside these, never generated:
+     image models render lettering as convincing garbage. Same rule as the KARTI
+     emblem, and the reason every prompt here bans text outright. */
+  const PARTY_LOGOS = {
+    party:  'a battered Maltese bar table seen from above with a deck of cards, two dice and a bottle cap arranged on it, warm overhead light',
+    chess:  'a single carved limestone chess knight in three-quarter view, chipped and old, a faint Maltese cross cut into its base, dramatic side light',
+    dama:   'three stacked draughts pieces in olive green and terracotta, the top one crowned, at a low angle on a worn wooden board',
+    skarta: 'a fan of four bold blank playing cards thrown down hard, one landing face up, motion lines and a small puff of dust',
+    kiri:   'a small honey limestone Maltese townhouse with an enclosed wooden balcony, a signpost with a completely blank face, a construction crane looming behind',
+  };
+  for (const [id, subj] of Object.entries(PARTY_LOGOS)) {
+    add({ id:`logo-${id}`, file:`art/ui/logo-${id}.png`, priority:'P1', w:1024, h:1024, alpha:true,
+      out:{ w:512, h:512, fmt:'png' }, kind:'object',
+      purpose:`Party-games emblem for ${id}. Wordmark is CSS text — never generated.`,
+      subject:`${subj}, centred, generous empty margin, isolated on pure flat black background` });
+  }
+
   /* ── one portrait per story boss ─────────────────────────────────────────
      The attribute-keyed portraits above only cover 5 factions, but story mode
      has 8 named bosses — so doris/kuntrattur, kunjata/vat and guzi/nanna were
