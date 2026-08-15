@@ -130,6 +130,50 @@ function cardLabel(c) {
    sheet in the UI and the engine can never disagree with each other.
    ═══════════════════════════════════════════════════════════════════ */
 const RULES = {
+  MIN_SEATS: 2,
+  /* ── HOW BIG CAN THIS TABLE GET? ─────────────────────────────────────
+     Ten. Not because ten is a tidy number — because that is where the deck
+     stops being able to pay for the game.
+
+     The arithmetic: 108 cards, 7 each, one turned up to start the pile, so
+     the stock after the deal is 107 - 7n. But the raw stock is NOT the
+     number that matters, because refill() recycles the discard back into
+     the stock when it runs dry. The number that matters is the POOL: every
+     card that could still be handed to somebody who has to draw, i.e. the
+     stock plus the discard minus the card showing.
+
+     Measured over 400 complete AI games at every size (scratch sim, and
+     the seat-ceiling tests in the suite reproduce the two ends of it):
+
+        n    stock after deal   lowest pool ever seen   % of game unable
+                                                        to pay a full chain
+        8            51                    40                  0.0%
+        9            44                    30                  0.0%
+       10            37                    22                  0.0%
+       11            30                    12                  0.0%
+       12            23                     7                  0.1%
+       13            16                     0                  1.6%
+       14             9                     0                 11.5%
+       15             2                     0                 28.3%
+
+     A maxed chain is CHAIN_CAP (12) cards. At ten seats the pool never once
+     fell below 22 — comfortably twice the worst thing the rules can ask for.
+     At eleven it bottoms out at exactly 12: survivable, but with precisely
+     zero margin, and these are machine games where nobody hoards. At twelve
+     a maxed chain already cannot always be paid in full, and from thirteen
+     the table periodically has NOTHING to give at all.
+
+     So: ten is the largest table that plays properly, and that is the cap.
+     Eleven would work and twelve is dealable — the game still reaches a
+     winner every time, it just quietly short-changes people — and neither
+     is worth shipping for the sake of a bigger number on the tin.
+
+     Every size from 2 to 10 finishes 100% of the time and takes 9-10 laps
+     of the table, so a big game is longer in real time but not in turns.
+
+     To re-measure: raise this constant first, or newGame() will quietly trim
+     every table to ten and the rows past it will be copies of the tenth. */
+  MAX_SEATS: 10,
   HAND: 7,              /* dealt to each player */
   CHAIN_CAP: 12,        /* THE CAP — see §5. This is what stops stacking */
   PENALTY: 2,           /* cards for forgetting to call it */
@@ -211,8 +255,9 @@ function mulberry32(a) { return function () { const r = step(a); a = r.a; return
    (gid, opts, seed, moves) can rebuild this table exactly. */
 function newGame(o) {
   o = o || {};
-  const seatsIn = (o.seats || []).slice(0, 4);
-  if (seatsIn.length < 2) throw new Error('SKARTA needs at least two seats');
+  const seatsIn = (o.seats || []).slice(0, RULES.MAX_SEATS);
+  if (seatsIn.length < RULES.MIN_SEATS)
+    throw new Error('SKARTA needs at least ' + RULES.MIN_SEATS + ' seats');
 
   const seats = seatsIn.map((s, i) => {
     /* `ai:true` is still accepted so older callers keep working */
@@ -235,6 +280,11 @@ function newGame(o) {
     moves: [],            /* the log. (gid, opts, seed, moves) is the match */
     players: seats.map((s, i) => ({
       id: i, name: s.name, owner: s.owner, level: s.level, hand: [], said: false,
+      /* the moveNo up to which THIS player can still be caught. Per player,
+         not one slot on the table: at eight seats two people can be sitting
+         on one card at once, and a single slot silently let the second one
+         wipe the first one's window. */
+      callUntil: 0,
     })),
     deck: [], discard: [],
     suit: null,           /* the suit IN FORCE — a wild changes it */
@@ -244,7 +294,6 @@ function newGame(o) {
     singed: {},           /* pid -> true : owes one skipped turn (see §5) */
     dodge: {},            /* pid -> {suit: count}  — the AI's memory */
     pending: null,        /* {type:'drawn', pid, uid} awaiting play-or-keep */
-    call: null,           /* {pid, until} — somebody is on one card and quiet */
     moveNo: 0,
     log: [],              /* human-readable commentary. NOT the move log. */
     over: null,           /* {winner, scores:[…]} */
@@ -252,6 +301,7 @@ function newGame(o) {
   for (const p of S.players) S.dodge[p.id] = { festa:0, bahar:0, razzett:0, bajtra:0 };
 
   S.deck = shuffle(S, buildDeck());
+  emit('shuffle', {});
   for (let i = 0; i < RULES.HAND; i++)
     for (const p of S.players) p.hand.push(S.deck.pop());
 
@@ -268,6 +318,30 @@ function newGame(o) {
   }
   say(S, cardLabel(top(S)) + ' on the table. Seven each.');
   return S;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   4b. THE ONE THING THAT LEAVES THIS FILE
+   js/sfx.js has a whole SKARTA dispatcher waiting and says, in its own
+   comment, that the call belongs in the engine — "because skarta.js is a
+   pure rules engine that both the human and the AI go through, so one call
+   covers every seat at the table". It is right, and nothing outside this
+   file can see a chain being eaten.
+
+   So: an optional listener, set by whoever is driving. It is NOT state, it
+   is not snapshotted and it never affects a rule, so the engine stays pure
+   in every way that matters.
+
+   THE TRAP, and the reason this is not simply a call to KARTI_SFX: replay()
+   applies the entire move log to rebuild a match, and rollbackTo() does it
+   on every undo. Wired naively that is two hundred sounds fired in one
+   frame. `quiet` is raised for the whole of a rebuild, so a replayed match
+   is silent and a played one is not.                                      */
+let listener = null, quiet = 0;
+function onEvent(fn) { listener = (typeof fn === 'function') ? fn : null; }
+function emit(type, info) {
+  if (!listener || quiet) return;
+  try { listener(type, info || {}); } catch (e) {}
 }
 
 const top = S => S.discard[S.discard.length - 1] || null;
@@ -379,16 +453,16 @@ function playUid(S, pid, uid, opts) {
   S.suit = c.suit || opts.suit;
   S.moveNo++;
   say(S, p.name + ' — ' + cardLabel(c) + (isWild(c) ? ' → ' + suitOf(S.suit).n : ''));
+  emit('play', { card: c, seat: pid });
+  if (isWild(c)) emit('suit', { i: SUIT_KEYS.indexOf(S.suit) });
 
   /* Somebody just went out. Nothing else on the card matters. */
   if (!p.hand.length) { finish(S, pid); return { ok: true, won: true }; }
 
   /* One card left and they have not opened their mouth yet: the window
      is open on them until the next player has had their go. */
-  if (p.hand.length === 1) {
-    p.said = false;
-    S.call = { pid, until: S.moveNo + 1 };
-  } else if (S.call && S.call.pid === pid) S.call = null;
+  if (p.hand.length === 1) { p.said = false; p.callUntil = S.moveNo + callPlies(S); }
+  else p.callUntil = 0;
 
   applyEffect(S, p, c, opts);
   expireCall(S);
@@ -402,6 +476,7 @@ function applyEffect(S, p, c, opts) {
 
     case 'skip':
       advance(S, 1);
+      emit('skip', {});
       say(S, player(S, S.turn).name + ': come back tomorrow.');
       advance(S, 1);
       break;
@@ -410,7 +485,7 @@ function applyEffect(S, p, c, opts) {
       /* Two at the table means "turn around" is the same seat again, which
          is a card that does nothing — so heads-up it is a skip instead. */
       if (S.players.length === 2) { advance(S, 2); }
-      else { S.dir *= -1; say(S, 'Play turns around.'); advance(S, 1); }
+      else { S.dir *= -1; emit('reverse', {}); say(S, 'Play turns around.'); advance(S, 1); }
       break;
 
     case 'draw2':
@@ -457,6 +532,7 @@ function refill(S) {
   const t = S.discard.pop();
   S.deck = shuffle(S, S.discard.splice(0, S.discard.length));
   S.discard = [t];
+  emit('shuffle', {});
   say(S, 'Deck finished — the pile is shuffled back in.');
   return S.deck.length > 0;
 }
@@ -469,7 +545,7 @@ function take(S, pid, n) {
     p.hand.push(S.deck.pop());
     got++;
   }
-  if (p.hand.length > 1 && S.call && S.call.pid === pid) S.call = null;
+  if (p.hand.length > 1) { p.callUntil = 0; p.said = false; }
   return got;
 }
 
@@ -485,6 +561,7 @@ function takeChain(S, pid) {
   noteDodge(S, pid);
   S.chain = { n: 0, kind: null, closed: false };
   S.moveNo++;
+  emit('eat', { n: n, seat: pid });
   say(S, player(S, pid).name + ' — eats all ' + n + '.');
   advance(S, 1);
   expireCall(S);
@@ -507,6 +584,7 @@ function drawOne(S, pid) {
     return { ok: true, drew: 0, playable: false };
   }
   const c = p.hand[p.hand.length - 1];
+  emit('draw', { seat: pid });
   say(S, p.name + ' — draws.');
   if (canPlay(S, c)) {
     /* by uid, not by index: the player may drag their hand around while
@@ -541,22 +619,38 @@ function sayAhhar(S, pid) {
   const p = player(S, pid);
   if (p.hand.length !== 1) return { ok: false, err: 'not-on-one' };
   p.said = true;
-  if (S.call && S.call.pid === pid) S.call = null;
+  p.callUntil = 0;
+  emit('ahhar', { seat: pid });
   say(S, p.name + ': "' + RULES.CALL + '"');
   return { ok: true };
 }
 
+/* everybody who is on one card, quiet, and still inside their window */
+function openCalls(S) {
+  return S.players.filter(p => canCatch(S, p.id)).map(p => p.id);
+}
+
+/* HOW LONG THE WINDOW STAYS OPEN, IN PLIES.
+   The rule at a real table is "call it before the next player has had their
+   go", and at two to six seats that is exactly right. It stops being right
+   at a big table: the next player is often a machine that moves in under a
+   second, and one ply is gone before somebody sitting across ten chairs has
+   looked up from their own hand. So from seven seats the window is two
+   plies. It is still short, still bounded, and it is the same for everyone. */
+function callPlies(S) { return S.players.length >= 7 ? 2 : 1; }
+
 function canCatch(S, targetPid) {
   const t = S.players[targetPid];
-  return !!(S.call && S.call.pid === targetPid && t && !t.said &&
-            t.hand.length === 1 && S.moveNo <= S.call.until && !S.over);
+  return !!(t && !t.said && t.hand.length === 1 && t.callUntil &&
+            S.moveNo <= t.callUntil && !S.over);
 }
 
 function catchOut(S, byPid, targetPid) {
   if (byPid === targetPid) return { ok: false, err: 'catch-yourself' };
   if (!canCatch(S, targetPid)) return { ok: false, err: 'nothing-to-catch' };
   take(S, targetPid, RULES.PENALTY);
-  S.call = null;
+  S.players[targetPid].callUntil = 0;
+  emit('caught', { by: byPid, seat: targetPid });
   say(S, player(S, byPid).name + ': "' + RULES.CATCH + '" — ' + player(S, targetPid).name +
          ' forgot to call — ' + RULES.PENALTY + ' cards.');
   return { ok: true, drew: RULES.PENALTY };
@@ -564,9 +658,14 @@ function catchOut(S, byPid, targetPid) {
 
 /* the window has passed with nobody noticing: they got away with it */
 function expireCall(S) {
-  if (S.call && S.moveNo > S.call.until) {
-    say(S, player(S, S.call.pid).name + ' got away with it — nobody was paying attention.');
-    S.call = null;
+  for (const p of S.players) {
+    if (p.callUntil && S.moveNo > p.callUntil) {
+      if (p.hand.length === 1 && !p.said) {
+        emit('missed', { seat: p.id });
+        say(S, p.name + ' got away with it — nobody was paying attention.');
+      }
+      p.callUntil = 0;
+    }
   }
 }
 
@@ -617,7 +716,9 @@ function finish(S, winner) {
     points: p.hand.reduce((n, c) => n + cardPoints(c), 0),
   }));
   S.over = { winner, scores };
-  S.call = null; S.pending = null;
+  emit('over', { winner: winner });
+  S.pending = null;
+  for (const p of S.players) p.callUntil = 0;
   say(S, player(S, winner).name + ' — out. Skarta kollox.');
 }
 
@@ -820,11 +921,9 @@ function maybeCall(S, pid) {
 /* Any AI at the table that spots a quiet player. Called by the UI a beat
    after a turn ends, so there is time to shout first. */
 function aiCatch(S) {
-  if (!S.call) return null;
-  const target = S.call.pid;
-  for (const p of S.players) {
-    if (!isAI(p) || p.id === target || p.level < 2) continue;
-    if (canCatch(S, target)) {
+  for (const target of openCalls(S)) {
+    for (const p of S.players) {
+      if (!isAI(p) || p.id === target || p.level < 2) continue;
       const r = apply(S, p.id, { t: 'catch', target });
       if (r.ok) return { by: p.id, target };
     }
@@ -881,7 +980,7 @@ function snapshot(S) {
     v: S.v, gid: S.gid, seed: S.seed, rng: S.rng, opts: S.opts, moves: S.moves,
     players: S.players, deck: S.deck, discard: S.discard, suit: S.suit,
     turn: S.turn, dir: S.dir, chain: S.chain, singed: S.singed, dodge: S.dodge,
-    pending: S.pending, call: S.call, moveNo: S.moveNo, log: S.log, over: S.over,
+    pending: S.pending, moveNo: S.moveNo, log: S.log, over: S.over,
   }));
 }
 
@@ -898,12 +997,15 @@ function load(snap) {
    being deterministic, and it is asserted in the tests: replay of a
    finished match must equal the match. */
 function replay(gid, opts, seed, moves) {
-  const S = newGame({ gid, seed, seats: opts.seats });
-  for (const m of (moves || [])) {
-    const r = apply(S, m.s, m);
-    if (!r.ok) return { S, at: S.moves.length, err: r.err };   /* desync: say where */
-  }
-  return { S, at: S.moves.length, err: null };
+  quiet++;                       /* a rebuild makes no noise. See §4b. */
+  try {
+    const S = newGame({ gid, seed, seats: opts.seats });
+    for (const m of (moves || [])) {
+      const r = apply(S, m.s, m);
+      if (!r.ok) return { S, at: S.moves.length, err: r.err };   /* desync: say where */
+    }
+    return { S, at: S.moves.length, err: null };
+  } finally { quiet--; }
 }
 
 /* Re-deal from the seed and replay n moves. ONE implementation, used for
@@ -978,17 +1080,17 @@ function view(S, seat) {
       cards: p.hand.length, said: p.said, singed: !!S.singed[p.id],
     })),
     me: { singed: !!S.singed[seat], said: me.said, owner: me.owner,
-          mustCall: !!(S.call && S.call.pid === seat) },
+          mustCall: !!(me.callUntil && me.hand.length === 1 && !me.said) },
   };
 }
 
 /* ═══════════════════════════════════════════════════════════════════ */
 const API = {
   SUITS, SUIT_KEYS, KINDS, RULES, OWNERS, suitOf, buildDeck, cardLabel, cardPoints,
-  isWild, isDraw, isAI, isLocal, mulberry32,
+  isWild, isDraw, isAI, isLocal, mulberry32, callPlies, onEvent,
   newGame, top, player, canPlay, legalMoves, chainLive, handIndex,
   play, playUid, drawOne, takeChain, pass, sayAhhar, canCatch, catchOut,
-  sortHand, moveCard,
+  sortHand, moveCard, openCalls,
   /* the relay's door */
   apply, snapshot, load, replay, rollbackTo, undo, checksum, setOwner, setName, view,
   /* the machine */

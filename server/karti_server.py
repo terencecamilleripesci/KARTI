@@ -210,10 +210,17 @@ PLAY_GAMES = BOARD_GAMES + TABLES
 #
 # Every maximum below is READ OUT OF THE GAME'S OWN CODE, not guessed:
 #
-#   skarta  108 cards, RULES.HAND = 7 each plus one starter flip, so 15 players
-#           is 15*7+1 = 106 of 108 — the arithmetic ceiling. It is DEALABLE at
-#           15 but the draw pile is two cards, so js/skarta.js may well want to
-#           advertise fewer; that is the game's call, not the relay's.
+#   skarta  TEN. The arithmetic ceiling is 15 (15*7+1 = 106 of 108) but that is
+#           the wrong number: the discard is recycled when the stock runs dry,
+#           so what decides a big table is the POOL — stock plus discard, less
+#           the card showing — against the 12 cards a maxed chain can demand.
+#           Measured over 400 complete games per size, js/skarta.js found the
+#           pool never fell below 22 at ten seats, bottomed out at exactly 12
+#           at eleven (zero margin), and from thirteen the table periodically
+#           had nothing to give at all. So ten plays properly, eleven has no
+#           margin, twelve is dealable but short-changes people on a big chain.
+#           The game caps at 10; this MUST match, or the relay seats players
+#           the game will silently trim.
 #   kiri    EIGHT, and the reason is worth writing down because it is not the
 #           rules: a player is a 9pt coloured dot on a 44pt square, and eight
 #           is as many hues as stay apart at that size. Its money and its board
@@ -230,7 +237,7 @@ GAME_SEATS = {
     "cards":  (2, 2, 2),
     "chess":  (2, 2, 2),
     "dama":   (2, 2, 2),
-    "skarta": (2, 15, 6),
+    "skarta": (2, 10, 6),
     "klabb":  (2, 8, 4),
     "kiri":   (2, 8, 4),
     "tombla": (2, 16, 8),
@@ -5371,8 +5378,8 @@ def selftest():
                 ({"game": "cards", "seats": 3}, False, "a card duel above two"),
                 ({"game": "kiri", "seats": 9}, False, "IL-KIRI above its eight hues"),
                 ({"game": "kiri", "seats": 8}, True, "IL-KIRI at eight"),
-                ({"game": "skarta", "seats": 15}, True, "SKARTA at fifteen"),
-                ({"game": "skarta", "seats": 16}, False, "SKARTA above its deal"),
+                ({"game": "skarta", "seats": 10}, True, "SKARTA at its measured ten"),
+                ({"game": "skarta", "seats": 11}, False, "SKARTA above the pool it can refill from"),
                 ({"game": "tombla", "seats": 16}, True, "TOMBLA at sixteen"),
                 ({"game": "tombla", "seats": 17}, False, "anything above the ceiling"),
                 ({"game": "skarta", "seats": 1}, False, "a table of one"),

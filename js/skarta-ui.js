@@ -163,11 +163,23 @@ function injectCSS() {
     '#scr-party .sk-table{height:100%;display:flex;flex-direction:column;gap:6px;min-height:0}' +
 
     /* ── who else is at the table ──────────────────────────────────── */
-    '#scr-party .sk-opps{flex:0 0 auto;display:flex;gap:6px;justify-content:center;flex-wrap:wrap}' +
-    '#scr-party .sk-opp{position:relative;flex:1 1 0;min-width:0;max-width:132px;' +
+    /* Up to nine of these have to fit above the felt without pushing the hand
+       off the phone, so it is a wrapping grid rather than a flex row that
+       squeezes every chip to nothing. .big drops the pip strip and tightens
+       everything once there are more than four opponents. */
+    '#scr-party .sk-opps{flex:0 0 auto;display:grid;gap:5px;' +
+      'grid-template-columns:repeat(auto-fit,minmax(78px,1fr))}' +
+    '#scr-party .sk-opps.big{grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:4px}' +
+    '#scr-party .sk-opp{position:relative;min-width:0;' +
       'display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px 5px;' +
       'border-radius:12px;background:rgba(255,255,255,.045);border:1px solid var(--line);' +
       'transition:border-color .18s,background .18s}' +
+    '#scr-party .sk-opps.big .sk-opp{padding:4px 3px 3px;border-radius:10px}' +
+    '#scr-party .sk-opps.big .sk-mini{display:none}' +
+    '#scr-party .sk-opps.big .sk-opp-n{font-size:9px}' +
+    '#scr-party .sk-opps.big .sk-tagline{display:none}' +
+    '#scr-party .sk-opps.big .sk-opp.now .sk-tagline{display:block;font-size:8px}' +
+    '#scr-party .sk-opps.big .sk-opp-c b{font-size:13px}' +
     '#scr-party .sk-opp.now{border-color:var(--gold);background:rgba(255,197,66,.14)}' +
     '#scr-party .sk-opp.singed{border-color:rgba(232,69,44,.55)}' +
     '#scr-party .sk-opp-n{font-family:var(--disp);font-weight:900;font-size:10px;letter-spacing:.07em;' +
@@ -344,9 +356,31 @@ function injectCSS() {
     '#scr-party .sk-hand button{touch-action:pan-x}' +
 
     /* ── the chairs on the setup sheet ────────────────────────────────── */
-    '#scr-party .sk-who{display:flex;gap:7px}' +
-    '#scr-party .sk-chair{flex:1 1 0;min-width:0;display:flex;flex-direction:column;' +
-      'align-items:center;gap:2px;padding:9px 4px;border-radius:13px;cursor:pointer;' +
+    /* a stepper, not a row of buttons: 2/3/4 does not become 2..10 */
+    '#scr-party .sk-step{display:flex;align-items:center;gap:10px}' +
+    '#scr-party .sk-stepb{flex:0 0 auto;width:46px;height:44px;border-radius:13px;' +
+      'font-size:22px;line-height:1;cursor:pointer;color:var(--txt);' +
+      'border:1.5px solid var(--line);background:rgba(255,255,255,.06)}' +
+    '#scr-party .sk-stepb:disabled{opacity:.3;cursor:default}' +
+    '#scr-party .sk-stepb:active:not(:disabled){background:rgba(255,255,255,.14)}' +
+    '#scr-party .sk-stepn{flex:1 1 auto;display:flex;flex-direction:column;align-items:center;' +
+      'justify-content:center;min-height:44px;border-radius:13px;' +
+      'border:1.5px solid rgba(255,197,66,.45);background:rgba(255,197,66,.12)}' +
+    '#scr-party .sk-stepn b{font-family:var(--disp);font-weight:900;font-size:19px;' +
+      'line-height:1;color:var(--gold)}' +
+    '#scr-party .sk-stepn i{font-style:normal;font-size:9px;letter-spacing:.09em;' +
+      'text-transform:uppercase;color:var(--dim2);margin-top:2px}' +
+    /* nobody taps nine chairs one at a time */
+    '#scr-party .sk-lblrow{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}' +
+    '#scr-party .sk-bulk{display:flex;gap:5px;flex:0 0 auto;padding-bottom:8px}' +
+    '#scr-party .sk-bulkb{font-size:9.5px;letter-spacing:.04em;padding:5px 8px;border-radius:8px;' +
+      'cursor:pointer;color:var(--dim);border:1px solid var(--line);background:rgba(255,255,255,.05)}' +
+    '#scr-party .sk-bulkb:active{background:rgba(255,255,255,.13);color:var(--txt)}' +
+    /* the chairs wrap instead of shrinking to nothing */
+    '#scr-party .sk-who{display:grid;gap:6px;' +
+      'grid-template-columns:repeat(auto-fill,minmax(60px,1fr))}' +
+    '#scr-party .sk-chair{min-width:0;display:flex;flex-direction:column;' +
+      'align-items:center;gap:2px;padding:8px 3px;border-radius:12px;cursor:pointer;' +
       'border:1.5px solid var(--line);background:rgba(255,255,255,.05);color:var(--txt)}' +
     '#scr-party .sk-chair.human{border-color:rgba(61,220,132,.5);background:rgba(61,220,132,.10)}' +
     '#scr-party .sk-chair.bot{border-color:rgba(138,92,255,.45);background:rgba(138,92,255,.11)}' +
@@ -354,10 +388,9 @@ function injectCSS() {
     '#scr-party .sk-chair .ico{width:17px;height:17px;color:var(--dim)}' +
     '#scr-party .sk-chair.human .ico{color:var(--ok)}' +
     '#scr-party .sk-chair.bot .ico{color:var(--neon)}' +
-    '#scr-party .sk-chair-n{font-family:var(--disp);font-weight:900;font-size:9.5px;' +
-      'letter-spacing:.07em}' +
-    '#scr-party .sk-chair-s{font-size:8.5px;color:var(--dim2);max-width:100%;overflow:hidden;' +
-      'text-overflow:ellipsis;white-space:nowrap}' +
+    '#scr-party .sk-chair-n{font-family:var(--disp);font-weight:900;font-size:9px;' +
+      'letter-spacing:.05em;max-width:100%;overflow:hidden;text-overflow:ellipsis;' +
+      'white-space:nowrap}' +
     '#scr-party .sk-sub{font-weight:400;letter-spacing:0;text-transform:none;color:var(--dim2)}' +
     '#scr-party .sk-note{font-size:11px;line-height:1.45;color:var(--dim);margin:8px 0 0}' +
 
@@ -596,6 +629,7 @@ let CALL_WINDOW = 1800;
 
 function teardown() {
   if (!G) return;
+  try { E.onEvent(null); } catch (e) {}   /* stop feeding js/sfx.js */
   G.dead = true;
   clearTimeout(G.t); clearTimeout(G.catchT);
   if (G.ctx && G.ctx.stopFit) { try { G.ctx.stopFit(); } catch (e) {} }
@@ -615,19 +649,26 @@ function menu() {
   detectArt(() => {});
   const el = P.ui.screenEl();
   const p = ST.pref;
-  let seats = Math.min(4, Math.max(2, p.seats | 0 || 3));
+  const MAXS = E.RULES.MAX_SEATS, MINS = E.RULES.MIN_SEATS;
+  let seats = Math.min(MAXS, Math.max(MINS, p.seats | 0 || 3));
   let level = [1, 2, 3].indexOf(p.level | 0) >= 0 ? (p.level | 0) : 3;
 
   /* WHO IS IN EACH CHAIR.
      It used to be two number pickers — "how many at the table" and "how many
      of them are in the room" — and you had to do the subtraction yourself to
      work out how many machines you had just agreed to. So now every chair is
-     a switch you can see and tap. Nobody has to be a machine; a table of four
-     people passing one phone is two taps away, and so is playing entirely
-     alone against three. Chair one is you and does not toggle, because
-     somebody has to be holding the phone. */
-  let kinds = Array.isArray(p.kinds) ? p.kinds.slice(0, 4) : ['you', 'ai', 'ai', 'ai'];
-  while (kinds.length < 4) kinds.push('ai');
+     a switch you can see and tap. Nobody has to be a machine; a table of ten
+     people passing one phone is as reachable as playing alone against nine.
+     Chair one is you and does not toggle, because somebody has to be holding
+     the phone.
+
+     THE PICKER HAS TO STAY SMALL AT TEN. Three fixed 2/3/4 buttons do not
+     scale and ten chair cards in a row would be 44px each, so: a stepper for
+     the count, and the chairs themselves in a wrapping grid of small chips
+     with two bulk switches, because nobody is tapping nine chairs one at a
+     time to play alone. At ten chairs the whole block is two rows. */
+  let kinds = Array.isArray(p.kinds) ? p.kinds.slice(0, MAXS) : ['you'];
+  while (kinds.length < MAXS) kinds.push('ai');
   kinds[0] = 'you';
 
   const LV = [
@@ -655,11 +696,18 @@ function menu() {
       'the rest of the table empties theirs. Down to your last card you shout ' +
       '<b>LAST ONE</b> — and if you forget, somebody will notice.</p>' +
       '<div class="tiny pt-lbl">How many chairs</div>' +
-      '<div class="sk-seats" id="sk-seats">' +
-        [2, 3, 4].map(n => '<button class="sk-seatbtn" data-v="' + n + '"><b>' + n + '</b>' +
-          '<i>' + (n === 2 ? 'HEADS-UP' : n === 3 ? 'THREE' : 'FULL TABLE') + '</i></button>').join('') +
+      '<div class="sk-step">' +
+        '<button class="sk-stepb" id="sk-less" aria-label="Fewer chairs">&minus;</button>' +
+        '<span class="sk-stepn"><b id="sk-count">' + seats + '</b><i id="sk-countl"></i></span>' +
+        '<button class="sk-stepb" id="sk-more" aria-label="More chairs">+</button>' +
       '</div>' +
-      '<div class="tiny pt-lbl">Who is in them <span class="sk-sub">— tap to switch</span></div>' +
+      '<div class="sk-lblrow">' +
+        '<span class="tiny pt-lbl">Who is in them <span class="sk-sub">— tap to switch</span></span>' +
+        '<span class="sk-bulk">' +
+          '<button class="sk-bulkb" id="sk-allai">All machines</button>' +
+          '<button class="sk-bulkb" id="sk-allyou">All people</button>' +
+        '</span>' +
+      '</div>' +
       '<div class="sk-who" id="sk-who"></div>' +
       '<p class="sk-note" id="sk-mix"></p>' +
       '<div id="sk-lvlwrap">' +
@@ -684,10 +732,10 @@ function menu() {
       const you = i === 0;
       const human = k === 'you';
       return '<button class="sk-chair' + (human ? ' human' : ' bot') + (you ? ' locked' : '') +
-        '" data-i="' + i + '"' + (you ? ' aria-disabled="true"' : '') + '>' +
+        '" data-i="' + i + '"' + (you ? ' aria-disabled="true"' : '') +
+        ' aria-label="Chair ' + (i + 1) + ': ' + (you ? 'you' : human ? 'a person' : 'the machine') + '">' +
         '<span class="sk-chair-i">' + ico(human ? 'users' : 'coach') + '</span>' +
-        '<span class="sk-chair-n">' + (you ? 'YOU' : human ? 'PERSON' : 'MACHINE') + '</span>' +
-        '<span class="sk-chair-s">' + (you ? 'this phone' : human ? 'passes the phone' : BOTS[i - 1]) +
+        '<span class="sk-chair-n">' + (you ? 'YOU' : human ? 'P' + (i + 1) : esc(BOTS[i - 1])) +
         '</span></button>';
     }).join('');
     box.querySelectorAll('.sk-chair').forEach(b => {
@@ -695,8 +743,11 @@ function menu() {
       if (i === 0) return;
       b.onclick = () => { kinds[i] = kinds[i] === 'ai' ? 'you' : 'ai'; sync(); };
     });
-    el.querySelectorAll('#sk-seats .sk-seatbtn').forEach(b =>
-      b.classList.toggle('on', +b.dataset.v === seats));
+    el.querySelector('#sk-count').textContent = seats;
+    el.querySelector('#sk-countl').textContent =
+      seats === 2 ? 'heads-up' : seats >= 9 ? 'a proper crowd' : seats >= 6 ? 'a big table' : 'chairs';
+    el.querySelector('#sk-less').disabled = seats <= MINS;
+    el.querySelector('#sk-more').disabled = seats >= MAXS;
     el.querySelectorAll('#sk-lvl .pt-opt').forEach(b =>
       b.classList.toggle('on', +b.dataset.v === level));
 
@@ -709,8 +760,10 @@ function menu() {
       : 'No machines at all — all ' + people + ' of you passing this one phone round.';
     el.querySelector('#sk-lvlwrap').hidden = !bots;
   };
-  el.querySelectorAll('#sk-seats .sk-seatbtn').forEach(b =>
-    b.onclick = () => { seats = +b.dataset.v; sync(); });
+  el.querySelector('#sk-less').onclick = () => { if (seats > MINS) { seats--; sync(); } };
+  el.querySelector('#sk-more').onclick = () => { if (seats < MAXS) { seats++; sync(); } };
+  el.querySelector('#sk-allai').onclick  = () => { for (let i = 1; i < MAXS; i++) kinds[i] = 'ai'; sync(); };
+  el.querySelector('#sk-allyou').onclick = () => { for (let i = 1; i < MAXS; i++) kinds[i] = 'you'; sync(); };
   el.querySelectorAll('#sk-lvl .pt-opt').forEach(b =>
     b.onclick = () => { level = +b.dataset.v; sync(); });
   sync();
@@ -726,7 +779,8 @@ function menu() {
 /* ═══════════════════════════════════════════════════════════════════
    2. THE TABLE
    ═══════════════════════════════════════════════════════════════════ */
-const BOTS = ['Ċikku', 'Ġuża', 'Salvu', 'Doris', 'Wenzu', 'Pawlu'];
+const BOTS = ['Ċikku', 'Ġuża', 'Salvu', 'Doris', 'Wenzu', 'Pawlu',
+              'Rita', 'Toni', 'Karmnu', 'Manwela'];
 
 function start(cfg) {
   injectCSS();
@@ -801,6 +855,17 @@ function start(cfg) {
     curtain: false,
   };
 
+  /* js/sfx.js built a SKARTA dispatcher and asked the engine to feed it.
+     The engine has no idea what a speaker is, so the translation lives here:
+     'over' is win-or-lose from THIS seat, which is the one thing the rules
+     cannot know. Guarded on every side — no sound layer, no problem. */
+  E.onEvent((type, info) => {
+    const SFX = window.KARTI_SFX;
+    if (!SFX || typeof SFX.skarta !== 'function' || !G || G.dead) return;
+    if (type === 'over') { SFX.skarta('over', { win: info.winner === G.view }); return; }
+    SFX.skarta(type, info);
+  });
+
   ctx.btn('sk-draw').onclick  = onDraw;
   ctx.btn('sk-ahhar').onclick = onAhhar;
   ctx.root.querySelector('#sk-help').onclick = () => rulesSheet(ctx.root, ctx);
@@ -830,9 +895,19 @@ function tick() {
 
 /* milliseconds still owed to a HUMAN sitting on one card and saying nothing */
 function windowLeft() {
-  if (!G || !G.S.call) return 0;
-  if (E.isAI(G.S.players[G.S.call.pid])) return 0;
-  return Math.max(0, CALL_WINDOW - (Date.now() - (G.callAt || 0)));
+  if (!G) return 0;
+  /* only a HUMAN needs real time to reach for the button */
+  if (!E.openCalls(G.S).some(pid => !E.isAI(G.S.players[pid]))) return 0;
+  return Math.max(0, callWindow() - (Date.now() - (G.callAt || 0)));
+}
+
+/* A bigger table needs a slightly longer real-time window: there are more
+   chips to scan before you spot the one sitting on a single card. The
+   engine's own window (callPlies) is what actually decides whether a catch
+   is legal — this only stops the machine moving before you can react. */
+function callWindow() {
+  if (!G) return CALL_WINDOW;
+  return Math.min(3200, CALL_WINDOW + Math.max(0, G.S.players.length - 4) * 110);
 }
 
 function aiStep() {
@@ -851,14 +926,17 @@ function aiStep() {
 function watchCall() {
   if (!G || G.dead) return;
   const S = G.S;
-  const target = S.call ? S.call.pid : null;
-  if (target === null || E.isAI(S.players[target])) {
+  /* more than one seat can be sitting on a single card at a big table, so
+     this watches the SET rather than one slot */
+  const open = E.openCalls(S).filter(pid => !E.isAI(S.players[pid]));
+  const key = open.join(',');
+  if (!open.length) {
     if (G.catchOn !== null) { clearTimeout(G.catchT); G.catchT = null; G.catchOn = null; }
     return;
   }
-  if (G.catchOn === target) return;
+  if (G.catchOn === key) return;
   clearTimeout(G.catchT);
-  G.catchOn = target;
+  G.catchOn = key;
   G.callAt = Date.now();
   G.catchT = setTimeout(() => {
     if (!G || G.dead) return;
@@ -866,7 +944,7 @@ function watchCall() {
     const c = E.aiCatch(G.S);
     if (c) { toast(G.S.players[c.by].name + ': "' + E.RULES.CATCH + '" — ' +
                    G.S.players[c.target].name + ' takes ' + E.RULES.PENALTY + '.'); render(); }
-  }, CALL_WINDOW);
+  }, callWindow());
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -888,9 +966,12 @@ function render() {
 
   /* — the other seats — */
   const opps = ctx.root.querySelector('#sk-opps');
+  opps.className = 'sk-opps' + (v.opponents.length > 4 ? ' big' : '');
   opps.innerHTML = v.opponents.map(o => {
     const n = Math.min(o.cards, 5);
     let mini = ''; for (let i = 0; i < n; i++) mini += '<i></i>';
+    /* the count is the thing that matters; at a big table the pips are cut
+       by CSS and the number carries it alone */
     const tag = o.cards === 1 ? (o.said ? E.RULES.CALL : '…quiet…')
               : o.singed ? 'SINGED' : (o.ai ? ['', 'EASY', 'FAIR', 'NASTY'][o.level]
                  : o.owner === 'net' ? 'ONLINE' : 'IN THE ROOM');
@@ -1099,7 +1180,10 @@ function onCard(i) {
   const S = G.S, seat = G.view;
   if (S.turn !== seat) return;
   const c = S.players[seat].hand[i];
-  if (!c || !E.canPlay(S, c)) return;
+  if (!c || !E.canPlay(S, c)) {
+    if (window.KARTI_SFX && KARTI_SFX.skarta) KARTI_SFX.skarta('illegal', {});
+    return;
+  }
   if (E.isWild(c)) { suitSheet(c, s => (c.kind === 'kaxxa' ? chargeSheet(s, ch => commit(i, { suit: s, charge: ch })) : commit(i, { suit: s }))); return; }
   commit(i, {});
 }
