@@ -391,6 +391,13 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   padding:3px 10px;text-align:center;pointer-events:none;
   font:600 9px/1.3 var(--body);letter-spacing:.07em;text-transform:uppercase;
   color:rgba(244,239,255,.55);text-shadow:0 1px 3px rgba(0,0,0,.9)}
+/* second line: live geometry, so a screenshot of the phone answers "what does
+   THIS device think the viewport is". Tabular figures so the numbers do not
+   jitter sideways as they change; still zero layout cost (the whole strip is
+   absolutely positioned above the fixed bar). */
+#buildtag .geo{display:block;margin-top:1px;font-size:8px;letter-spacing:.03em;
+  text-transform:none;opacity:.72;font-variant-numeric:tabular-nums}
+#buildtag.upd .geo{display:none}
 /* an update really is waiting: turn into a tappable strip you cannot miss */
 #buildtag.upd{pointer-events:auto;cursor:pointer;padding:8px 10px;
   font-size:11px;font-weight:800;color:#241800;text-shadow:none;
@@ -1210,7 +1217,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 22;
+var KARTI_BUILD = 23;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1325,7 +1332,73 @@ window.swVersion = function(){
 (function buildTag(){
   var el = document.getElementById('buildtag');
   if (!el) return;
-  var state = { swN: 0, sw: 'sw …', art: 'art …', avail: 0 };
+  var state = { swN: 0, sw: 'sw …', art: 'art …', avail: 0, geo: '' };
+
+  /* ── live geometry ────────────────────────────────────────────────────────
+     An installed iOS app was showing a band of dead space BELOW the fixed tab
+     bar. Nothing reproduces on desktop, so the phone has to report its own
+     numbers. Everything here is a read — no element is moved, sized or styled
+     as a result, so this cannot itself cause the bug it is measuring.
+
+       sa|br|fs|mu   which display-mode media query actually matches. If an
+                     installed app reports `br` then it is falling through to
+                     the browser-mode --app-h path and that is the whole story.
+       ih / vv / sc  innerHeight, visualViewport.height, screen.height. The
+                     gaps BETWEEN these three are the diagnosis.
+       app h/b       #app's own height and where its bottom edge really lands.
+       bar           the tab bar's bottom edge. Should equal ih.
+       sab / sat     the safe-area insets as resolved on the device.
+
+     --sab/--sat are read off a probe rather than getPropertyValue(), because a
+     custom property holding env() can come back as the literal token; padding
+     on a real (off-screen, zero-size, fixed) element always computes to px. */
+  var probe = null;
+  function insets(){
+    if (!probe){
+      probe = document.createElement('div');
+      probe.setAttribute('aria-hidden', 'true');
+      probe.style.cssText = 'position:fixed;left:-9999px;top:0;width:0;height:0;' +
+        'visibility:hidden;pointer-events:none;' +
+        'padding-top:var(--sat);padding-bottom:var(--sab)';
+      document.body.appendChild(probe);
+    }
+    var cs = getComputedStyle(probe);
+    return { t: parseFloat(cs.paddingTop) || 0, b: parseFloat(cs.paddingBottom) || 0 };
+  }
+  function dmode(){
+    var modes = ['standalone', 'fullscreen', 'minimal-ui', 'browser'];
+    var tag = { standalone:'sa', fullscreen:'fs', 'minimal-ui':'mu', browser:'br' };
+    var hit = [];
+    for (var i = 0; i < modes.length; i++){
+      try { if (matchMedia('(display-mode: ' + modes[i] + ')').matches) hit.push(tag[modes[i]]); }
+      catch (e) {}
+    }
+    return hit.length ? hit.join('+') : '?';
+  }
+  var r0 = function(n){ return (n == null || isNaN(n)) ? '-' : Math.round(n); };
+  function measure(){
+    var vv = window.visualViewport;
+    var app = document.getElementById('app');
+    var bar = document.getElementById('home-nav');
+    var ar = app ? app.getBoundingClientRect() : null;
+    var br = bar ? bar.getBoundingClientRect() : null;
+    var ins = insets();
+    state.geo =
+      dmode() +
+      ' | ih' + r0(window.innerHeight) +
+      ' vv' + r0(vv ? vv.height : null) +
+      ' sc' + r0(screen && screen.height) +
+      ' | app' + r0(ar ? ar.height : null) + '/' + r0(ar ? ar.bottom : null) +
+      ' bar' + r0(br ? br.bottom : null) +
+      ' | sab' + r0(ins.b) + ' sat' + r0(ins.t);
+    paint();
+  }
+  var geoRaf = 0;
+  function queueGeo(){
+    if (geoRaf) return;
+    geoRaf = requestAnimationFrame(function(){ geoRaf = 0; measure(); });
+  }
+
   function paint(){
     /* Keyed off the PAGE build, not the worker: the layout lives in this file,
        so a phone whose worker updated but whose page did not is still stale in
@@ -1334,10 +1407,20 @@ window.swVersion = function(){
       el.className = 'upd';
       el.textContent = 'Update ready — tap to load v' + state.avail +
         ' (this is v' + KARTI_BUILD + ')';
-    } else {
-      el.className = '';
-      el.textContent = 'v' + KARTI_BUILD + ' · ' + state.sw + ' · ' + state.art;
+      return;
     }
+    el.className = '';
+    el.textContent = '';
+    el.appendChild(document.createTextNode(
+      'v' + KARTI_BUILD + ' · ' + state.sw + ' · ' + state.art));
+    /* aria-hidden: this line changes on every toolbar nudge and every rotate,
+       and #buildtag is an aria-live region — without it a screen reader would
+       read a wall of numbers aloud each time. */
+    var g = document.createElement('span');
+    g.className = 'geo';
+    g.setAttribute('aria-hidden', 'true');
+    g.textContent = state.geo || 'measuring…';
+    el.appendChild(g);
   }
   (function artProbe(){
     var im = new Image();
@@ -1382,9 +1465,32 @@ window.swVersion = function(){
       ]);
     }).then(reload, reload);
   });
-  paint(); askSW(); askServer();
+  paint(); measure(); askSW(); askServer();
+  /* never show a stale reading: re-measure on everything that can move the
+     bottom edge — a rotate, a keyboard, and (iOS) a toolbar sliding away
+     mid-scroll, which changes the visible height without firing resize. */
+  addEventListener('resize', queueGeo);
+  addEventListener('orientationchange', function(){ setTimeout(measure, 300); });
+  addEventListener('pageshow', queueGeo);
+  /* The tab bar only exists on Home, and Home is display:none while you are on
+     any other screen — measured then, its rect reads all zeroes. Re-measure
+     after every tap (the router runs on taps) and a few times after boot, so
+     whenever the screenshot is actually taken the numbers are the live ones. */
+  addEventListener('pointerup', queueGeo, { passive:true });
+  [400, 1200, 3000].forEach(function(ms){ setTimeout(queueGeo, ms); });
+  /* and precisely when Home is switched on or off, which is the moment the bar
+     gains or loses a box. One observer, one attribute, no polling. */
+  (function(){
+    var home = document.getElementById('scr-home');
+    if (!home || !window.MutationObserver) return;
+    new MutationObserver(queueGeo).observe(home, { attributes:true, attributeFilter:['class'] });
+  })();
+  if (window.visualViewport){
+    visualViewport.addEventListener('resize', queueGeo);
+    visualViewport.addEventListener('scroll', queueGeo);
+  }
   document.addEventListener('visibilitychange', function(){
-    if (!document.hidden){ askSW(); askServer(); }
+    if (!document.hidden){ queueGeo(); askSW(); askServer(); }
   });
   if ('serviceWorker' in navigator)
     navigator.serviceWorker.addEventListener('controllerchange',
