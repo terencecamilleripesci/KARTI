@@ -509,6 +509,35 @@ function uiAssets() {
     purpose:'Final story boss.',
     subject:'full figure heroic low angle caricature of a monumental terrifying mother-in-law in black seated on a throne of stacked plastic patio chairs, wooden spoon held like a sceptre, golden god rays behind her, deep indigo and gold, isolated on pure flat black background' });
 
+  /* ── one portrait per story boss ─────────────────────────────────────────
+     The attribute-keyed portraits above only cover 5 factions, but story mode
+     has 8 named bosses — so doris/kuntrattur, kunjata/vat and guzi/nanna were
+     each wearing another character's face. js/story.js looks for
+     art/ui/boss-<id>.png first and falls back to the attribute portrait. */
+  const STORY_BOSSES = {
+    cikku:      'a red-faced merry old man at a village band club bar, four empty glasses in front of him, sleeves rolled up, holding a fan of cards far too confidently',
+    doris:      'a stern council clerk woman behind a counter window, glasses on a chain, one hand flat on a stack of blank forms, the shutter half pulled down',
+    guzi:       'a weathered Maltese farmer in a flat cap standing in front of his tractor, arms folded, two scruffy dogs at his boots, absolutely immovable',
+    salvu:      'a grizzled old sea captain with a white beard and a heavy knitted jumper, pipe clamped in his teeth, squinting at a storm nobody else can see',
+    kunjata:    'a monumental grandmother in black, arms folded, one eyebrow arched, judging you from a lifetime of collected evidence',
+    kuntrattur: 'a smug building contractor in a hard hat and gold chain, arms spread wide over a half-finished wall, a cement mixer idling behind him',
+    vat:        'a thin implacable tax inspector in a grey suit, sleeves rolled, standing beside a waist-high avalanche of blank receipts, all afternoon free',
+    nanna:      'a tiny beaming grandmother holding out an enormous plate of food with both hands, apron on, entirely in charge of everything',
+  };
+  for (const [id, s] of Object.entries(STORY_BOSSES)) {
+    add({ id:`boss-${id}`, file:`art/ui/boss-${id}.png`, priority:'P1', w:832, h:1216, alpha:true,
+      out:{ w:620, h:900, fmt:'png' }, kind:'char',
+      purpose:`Story boss portrait for ${id} — one face per character.`,
+      subject:`full figure heroic low angle caricature of ${s}, dramatic rim lighting, isolated on pure flat black background` });
+  }
+
+  /* The city/bureaucracy set shipped wearing pack-set3's festa church — right
+     colour, wrong joke entirely. */
+  add({ id:'pack-eeg', file:'art/ui/pack-eeg.png', priority:'P1', w:832, h:1216,
+    out:{ w:620, h:900, fmt:'png' }, kind:'pack',
+    purpose:'Pack face for EEG — ERĠA\' EJJA GĦADA (come back tomorrow).',
+    subject:'a sealed glossy foil trading card pack standing upright, violet and magenta, showing a shuttered government counter window with a long queue of tiny figures snaking away from it and a crane looming behind, no lettering' });
+
   return A;
 }
 

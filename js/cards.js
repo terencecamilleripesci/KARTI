@@ -225,9 +225,9 @@ function deckToCards(list){
    ═══════════════════════════════════════════════════════════════════ */
 const CARD_SETS = [
   {
-    id:'fst', code:'FST', no:1,
+    id:'fst', code:'FESTA', no:1,
     name:'IL-FESTA MA TIEQAFX', sub:'The Festa Doesn\'t Stop',
-    lead:'festa', c:'#E8452C', art:'pack-set1.png',
+    lead:'festa', c:'#E8452C', art:'pack-fst.png',
     blurb:'The band, the bangs, the bar, and getting home at four in the morning ' +
           'with one shoe and a full explanation nobody asked for.',
     ids:[
@@ -242,9 +242,9 @@ const CARD_SETS = [
     ],
   },
   {
-    id:'xms', code:'XMS', no:2,
+    id:'bhr', code:'BAHAR', no:2,
     name:'XEMX, MELĦ U DISPJAĊIR', sub:'Sun, Salt And Regret',
-    lead:'bahar', c:'#2196F3', art:'pack-set2.png',
+    lead:'bahar', c:'#2196F3', art:'pack-bhr.png',
     blurb:'Three hours of queueing for twenty-five minutes of crossing, a towel on ' +
           'eight sunbeds since seven, and a shoulder that never fully recovers.',
     ids:[
@@ -259,9 +259,9 @@ const CARD_SETS = [
     ],
   },
   {
-    id:'eeg', code:'EEG', no:3,
+    id:'blt', code:'BELT', no:3,
     name:'ERĠA\' EJJA GĦADA', sub:'Come Back Tomorrow',
-    lead:'belt', c:'#9C27B0', art:'pack-set3.png',
+    lead:'belt', c:'#9C27B0', art:'pack-blt.png',
     blurb:'They are serving number 31. You are number 84. One window is closed and ' +
           'the other one is on a personal call. Bring another form.',
     ids:[
@@ -276,9 +276,9 @@ const CARD_SETS = [
     ],
   },
   {
-    id:'kul', code:'KUL', no:4,
+    id:'rzt', code:'RAZZETT', no:4,
     name:'KUL, INTI RQIQ WISQ', sub:'Eat, You\'re Too Thin',
-    lead:'razzett', c:'#4CAF50', art:'pack-set4.png',
+    lead:'razzett', c:'#4CAF50', art:'pack-rzt.png',
     blurb:'The farm, the table, and every relative you have. You are not leaving until ' +
           'the plate is empty, and then there is a second plate.',
     ids:[

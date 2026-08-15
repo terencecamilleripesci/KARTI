@@ -505,7 +505,7 @@ NEGATIVE (identical for every image):
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a spinning firework wheel leaping off its wooden post trailing sparks, veering low toward the viewer, a flat cap flying off below
 
 [P1] tromba   ->  art/tromba.jpg   (1024x1024 -> 768x768 jpg)  seed 10877791
-      The Trumpet Solo  ·  FESTA / monster / Common / KRT-03  [hand-written subject]
+      The Trumpet Solo  ·  FESTA / monster / Epic / KRT-03  [hand-written subject]
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a lone bandsman straining upward at a raised trumpet, eyes squeezed shut, two listeners below wincing with fingers jammed in their ears
 
 [P1] narmarina   ->  art/narmarina.jpg   (1024x1024 -> 768x768 jpg)  seed 838983001
@@ -557,7 +557,7 @@ NEGATIVE (identical for every image):
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a donkey planted flat on a dusty track, rope pulled taut, a farmer heaving at the far end with his heels skidding
 
 [P1] bettieha   ->  art/bettieha.jpg   (1024x1024 -> 768x768 jpg)  seed 1324620093
-      The Watermelon Van  ·  FARM / monster / Common / KRT-03  [hand-written subject]
+      The Watermelon Van  ·  FARM / monster / Epic / KRT-03  [hand-written subject]
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a battered van piled with watermelons, a horn speaker on its roof blaring visible sound ripples, shutters slamming shut above the street
 
 [P1] klieb   ->  art/klieb.jpg   (1024x1024 -> 768x768 jpg)  seed 1548652298
@@ -816,7 +816,7 @@ NEGATIVE (identical for every image):
       NANNA IS ON THE BALCONY  ·  TRAP / trap / Legendary / KRT-03  [hand-written subject]
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, chest-up three-quarter caricature portrait of a tiny grandmother leaning on a limestone balcony rail over a folded cushion, elbows planted, unblinking eyes locked straight on the viewer
 
-### UI / MENU ART — 45 images
+### UI / MENU ART — 54 images
 ====================================================================================================
 
 [P1] emblem   ->  art/ui/emblem.png   (1024x1024 -> 1024x1024 png)  seed 1749593947
@@ -938,6 +938,42 @@ NEGATIVE (identical for every image):
 [P1] icon-dust   ->  art/ui/icon-dust.png   (1024x1024 -> 256x256 png)  seed 1382042259
       Crafting-dust icon (card disenchant currency).
       PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a small swirling pile of glowing violet crystal dust with floating sparkling motes rising from it, thick black outline, flat violet and white, isolated on pure flat black background
+
+[P1] boss-cikku   ->  art/ui/boss-cikku.png   (832x1216 -> 620x900 png)  seed 1533590141
+      Story boss portrait for cikku — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a red-faced merry old man at a village band club bar, four empty glasses in front of him, sleeves rolled
+
+[P1] boss-doris   ->  art/ui/boss-doris.png   (832x1216 -> 620x900 png)  seed 1646367772
+      Story boss portrait for doris — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a stern council clerk woman behind a counter window, glasses on a chain, one hand flat on a stack of
+
+[P1] boss-guzi   ->  art/ui/boss-guzi.png   (832x1216 -> 620x900 png)  seed 1730797022
+      Story boss portrait for guzi — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a weathered Maltese farmer in a flat cap standing in front of his tractor, arms folded, two scruffy dogs at his
+
+[P1] boss-salvu   ->  art/ui/boss-salvu.png   (832x1216 -> 620x900 png)  seed 1525989437
+      Story boss portrait for salvu — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a grizzled old sea captain with a white beard and a heavy knitted jumper, pipe clamped in his teeth, squinting
+
+[P1] boss-kunjata   ->  art/ui/boss-kunjata.png   (832x1216 -> 620x900 png)  seed 1716998182
+      Story boss portrait for kunjata — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a monumental grandmother in black, arms folded, one eyebrow arched, judging you from a lifetime of collected evidence, dramatic
+
+[P1] boss-kuntrattur   ->  art/ui/boss-kuntrattur.png   (832x1216 -> 620x900 png)  seed 939048012
+      Story boss portrait for kuntrattur — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a smug building contractor in a hard hat and gold chain, arms spread wide over a half-finished wall, a cement mixer
+
+[P1] boss-vat   ->  art/ui/boss-vat.png   (832x1216 -> 620x900 png)  seed 1775716778
+      Story boss portrait for vat — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a thin implacable tax inspector in a grey suit, sleeves rolled, standing beside a waist-high avalanche of blank receipts
+
+[P1] boss-nanna   ->  art/ui/boss-nanna.png   (832x1216 -> 620x900 png)  seed 794865533
+      Story boss portrait for nanna — one face per character.
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, full figure heroic low angle caricature of a tiny beaming grandmother holding out an enormous plate of food with both hands, apron on, entirely in charge of
+
+[P1] pack-eeg   ->  art/ui/pack-eeg.png   (832x1216 -> 620x900 png)  seed 439651755
+      Pack face for EEG — ERĠA' EJJA GĦADA (come back tomorrow).
+      PROMPT: funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a sealed glossy foil trading card pack standing upright, violet and magenta, showing a shuttered government counter window with a long queue of tiny figures snaking away from it and a crane looming behind
 
 [P2] board-wide   ->  art/ui/board-wide.jpg   (1344x768 -> 1600x914 jpg)  seed 595855190
       Landscape playmat variant for tablet / desktop.

@@ -158,11 +158,21 @@ const BOSSES = [
 
 const byId = id => BOSSES.find(b => b.id === id);
 
-/* Portrait art if the art pack is on this deploy, emoji if not. */
+/* Portrait art if the art pack is on this deploy, emoji if not.
+   Prefer the boss's OWN portrait (boss-<id>.png). The attribute-keyed art only
+   covers 5 factions but there are 8 bosses, so doris/kuntrattur, kunjata/vat
+   and guzi/nanna were each wearing another character's face. The onerror
+   fallback walks down to the attribute portrait and then to the emoji, so a
+   deploy without the per-boss art still looks exactly as it did before. */
 function faceHTML(b, cls){
-  const f = K.uiArt && K.uiArt('boss', b.final ? 'boss-final.png' : 'boss-' + b.attr + '.png');
+  const own  = K.uiArt && K.uiArt('boss', 'boss-' + b.id + '.png');
+  const attr = K.uiArt && K.uiArt('boss', b.final ? 'boss-final.png' : 'boss-' + b.attr + '.png');
+  const src  = own || attr;
+  const alt  = own && attr && own !== attr ? attr : '';
   return '<span class="' + (cls || 'face') + '">' +
-    (f ? '<img src="' + f + '" alt="" onerror="this.remove()">' : '') +
+    (src ? '<img src="' + src + '" alt=""' +
+      (alt ? ' data-alt="' + alt + '" onerror="if(this.dataset.alt){this.src=this.dataset.alt;this.removeAttribute(\'data-alt\');}else{this.remove();}"'
+           : ' onerror="this.remove()"') + '>' : '') +
     '<span class="em">' + b.e + '</span></span>';
 }
 
