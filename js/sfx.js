@@ -114,6 +114,47 @@
     'money.pay':     { f: 'money-pay.mp3',     g: 0.54 },
     'dice.roll':     { f: 'dice-roll.mp3',     g: 0.58 },
 
+    /* ══ SECOND PASS ══════════════════════════════════════════════════════
+       Nine files added after walking every screen. Read the note on ui.note
+       before touching any of them: it is not one sound, it is the whole
+       pitched layer, and eight of the second pass's "new sounds" are that one
+       file at a different playback rate. Bytes on a phone are the constraint,
+       not credits — so a rate is always preferred to a file.              */
+
+    /* THE INSTRUMENT. One low kalimba note, played at a different rate for
+       every tab, every filter chip, every step of a dama jump chain and every
+       notch of the volume slider. `note(step)` walks it up a major pentatonic,
+       which is the point: a pentatonic has no wrong note, so a player jabbing
+       at the bottom nav is playing a tune rather than a rattle. Kept low so
+       there is room to go up; g is low because it is heard constantly.    */
+    'ui.note':     { f: 'ui-note.mp3',     g: 0.40 },
+    /* A switch turning OFF is not a switch turning ON. ui.toggle is the flick
+       up; this is the blunter, lower drop back down. Players notice.      */
+    'ui.untoggle': { f: 'ui-untoggle.mp3', g: 0.44 },
+    /* Lateral motion: a screen changing, a rail flicking, a SKARTA reverse.
+       ui.sheet is vertical and longer; this is sideways and very short. The
+       most-heard file in the second pass, so the most damped.             */
+    'ui.swipe':    { f: 'ui-swipe.mp3',    g: 0.30 },
+    /* Chess gets its travel back. Every non-capture move is slide → place,
+       75 ms apart, which is what a real board sounds like.                */
+    'piece.slide': { f: 'piece-slide.mp3', g: 0.36 },
+    /* Checkmate. The king goes over. Once a game, never otherwise.        */
+    'board.mate':  { f: 'board-mate.mp3',  g: 0.78 },
+    /* Dama is TERRACOTTA on wood, chess is FELT-BOTTOMED WOOD on wood. They
+       are two different games and they must not sound like one. These two
+       are the only reason a player can tell, eyes shut, which board is on
+       the table — which is exactly what he asked for.                     */
+    'dama.place':  { f: 'dama-place.mp3',  g: 0.50 },
+    'dama.jump':   { f: 'dama-jump.mp3',   g: 0.60 },
+    /* A declaration: AĦĦAR WAĦDA in SKARTA, and any other "I am calling it"
+       moment. Not speech — a counter bell. Speech never mixes with foley.  */
+    'call.bell':   { f: 'call-bell.mp3',   g: 0.62 },
+    /* ANTICIPATION. The pack charges and shakes for 880 ms before the seam
+       goes, and until now all of it was silent — the payoff arrived with no
+       build. This is the single most addictive file in the set for the
+       fewest bytes: the swell IS the dopamine, the tear is only the release. */
+    'pack.charge': { f: 'pack-charge.mp3', g: 0.58 },
+
     /* ── ambience: these LOOP. Long files, loaded on demand only, and mixed
          low enough that you notice them only when they stop.
          `lp:[head,tail]` = seconds to stay clear of at each end when looping.
@@ -156,7 +197,45 @@
     'mp.turn':         'duel.turn',
     'story.reward':    'ui.reward',
     'tutor.step':      'ui.toast',
-    'tutor.done':      'ui.reward'
+    'tutor.done':      'ui.reward',
+
+    /* ── second pass. Every one of these is a real moment in the game that
+         made no sound before, and every one of them is served by a file that
+         is already on the phone. Thirty-one more audible moments, nought
+         bytes. This table is where the second pass actually happened. ── */
+    'screen.push':     'ui.swipe',     /* any screen becoming visible        */
+    'rail.tick':       'pack.tally',   /* a horizontal rail passing an item  */
+    'settings.on':     'ui.toggle',
+    'settings.off':    'ui.untoggle',
+    'card.open':       'pack.flip',    /* a card tapped in Collection        */
+    'deck.add':        'duel.summon',  /* + in the deck builder              */
+    'deck.remove':     'duel.draw',    /* − in the deck builder              */
+    'deck.save':       'ui.reward',
+    'deck.bad':        'ui.error',
+    'deck.pick':       'ui.toggle',    /* a deck made active                 */
+    'shop.buy':        'money.pay',
+    'shop.broke':      'ui.error',
+    'coin.tick':       'pack.tally',   /* the coin counter running up        */
+    'move.select':     'piece.lift',
+    'move.cancel':     'ui.back',
+    'move.forced':     'ui.error',     /* "you must take" in dama            */
+    'chess.castle':    'piece.place',  /* played twice — see twice()         */
+    'chess.mate':      'board.mate',
+    'chess.stale':     'ui.toast',
+    'board.flip':      'card.sweep',
+    'board.resign':    'duel.lose',
+    'board.draw':      'ui.toast',
+    'takeback.no':     'ui.error',
+    'takeback.undo':   'ui.swipe',
+    'chain.add':       'duel.summon',  /* a +2 or +7 lands on the stack      */
+    'chain.eat':       'card.sweep',   /* somebody swallows the whole chain  */
+    'chain.shut':      'duel.trap',    /* IL-LIMITU — the chain is closed    */
+    'call.ahhar':      'call.bell',    /* AĦĦAR WAĦDA                        */
+    'call.caught':     'duel.trap',    /* QABADTEK                           */
+    'call.missed':     'ui.toast',     /* the call window expires unpunished */
+    'skarta.skip':     'duel.turn',
+    'skarta.reverse':  'ui.swipe',
+    'party.open':      'ui.sheet'      /* a game tile on the party shelf     */
   };
 
   /* rarity id (cards.js RARITY keys) → sting id, so call sites can hand us
@@ -167,7 +246,10 @@
   /* ids fetched as soon as we are unlocked. Deliberately tiny: the four
      sounds a player hits within two seconds of the first tap. Everything
      else is pulled the first time it is actually asked for.                */
-  var CORE = ['ui.tap', 'ui.back', 'ui.sheet', 'ui.error'];
+  /* ui.note joined CORE in the second pass: the bottom nav is very often the
+     FIRST thing touched, before any button, and a nav note that arrives after
+     the screen has already changed reads as broken. */
+  var CORE = ['ui.tap', 'ui.back', 'ui.sheet', 'ui.error', 'ui.note'];
 
   /* ═══════════════════════ state ═════════════════════════════════════════ */
   var ctx = null;            /* AudioContext, created lazily                 */
@@ -492,6 +574,210 @@
     catch (e) { warn('duelEvent threw (swallowed)', e && e.message); }
   }
 
+  /* One timer, one guard, used by every sequenced cue below. Nothing here may
+     throw into a game loop, so the callback is wrapped once and for all. */
+  function after(ms, fn){
+    var t = setTimeout(function(){ clearTimeout(t); try { fn(); } catch (e) {} }, ms);
+    return t;
+  }
+
+  /* ═══════════════ THE INSTRUMENT — one file, a whole scale ═══════════════
+     "Each tab could have its own subtly different note so the app feels like
+     an instrument rather than one repeated click."
+
+     That is right, and the cheap way to do it is NOT five files. `ui.note` is
+     one low kalimba note and `note(step)` plays it at the playback rate for a
+     step of a MAJOR PENTATONIC scale. Pentatonic on purpose: it has no wrong
+     note and no semitone clash, so however fast a player jabs at the bottom
+     nav — or however long a dama jump chain runs — the result is a tune and
+     never a rattle. Five steps per octave, three octaves, one 5 KB file.
+
+     Playback rate also shortens the sample as it raises it, which is exactly
+     what you want: the higher a cue in this set sits, the more it needs to
+     get out of the way.                                                    */
+  var PENT = [1, 1.125, 1.25, 1.5, 1.6875];   /* 1 · 2 · 3 · 5 · 6 */
+
+  function noteRate(step){
+    step = Math.max(0, Math.min(14, step | 0));      /* three octaves, clamped */
+    return PENT[step % PENT.length] * Math.pow(2, Math.floor(step / PENT.length));
+  }
+  /* force:true always — a ladder is the one place the dedupe window is wrong,
+     because consecutive steps ARE the same id 80 ms apart and every one of
+     them must sound. */
+  function note(step, opts){
+    play('ui.note', { force: true, rate: noteRate(step),
+                      gain: (opts && opts.gain) || 1 });
+  }
+  /* A run of rising (dir 1) or falling (dir -1) notes. The escalation device
+     for a dama jump chain and the deflation device for eating a SKARTA pile. */
+  function ladder(from, n, dir, gapMs, opts){
+    n = Math.max(1, Math.min(8, n | 0));
+    for (var i = 0; i < n; i++)
+      (function (k){
+        after(k * (gapMs || 85), function(){
+          note((from | 0) + k * (dir < 0 ? -1 : 1), opts);
+        });
+      })(i);
+  }
+
+  /* Screen → step. Fixed so a destination always sounds the same however you
+     reach it — that consistency is what turns a note into a landmark rather
+     than a noise. Unknown screens hash to a stable step so a screen added
+     later still gets one, and still gets the SAME one every time. */
+  var NAV_STEP = { home:0, coll:1, deck:2, pack:3, tutor:4,
+                   party:2, story:1, mp:3, pnp:3, gacha:5, duel:0, auth:0 };
+  function hashStep(s){
+    var h = 0; s = String(s || '');
+    for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return Math.abs(h) % PENT.length;
+  }
+  function navNote(key, opts){
+    var step = NAV_STEP.hasOwnProperty(key) ? NAV_STEP[key] : hashStep(key);
+    note(step, { gain: (opts && opts.gain) || 1 });
+    play('ui.swipe', { gain: 0.55 });     /* the texture under the note */
+  }
+
+  /* A switch flipping ON and a switch flipping OFF are two different events.
+     Two different files, and the note under them moves the opposite way.
+
+     Its own dedupe window, because the Sounds row is wired BOTH by its own
+     handler in bindSettings and by the delegated layer, and its note goes out
+     with force:true — which is right for a ladder and wrong here, since the
+     two calls land a millisecond apart and doubling a note is audible as a
+     flam. One flip, one sound, whichever path got there first. */
+  var swAt = 0;
+  function switchTone(on){
+    var now = Date.now();
+    if (now - swAt < DEDUPE_MS) return;
+    swAt = now;
+    play(on ? 'ui.toggle' : 'ui.untoggle', { force: true });
+    note(on ? 3 : 0, { gain: 0.5 });
+  }
+
+  /* ═══════════════════════ CHESS AND DAMA ════════════════════════════════
+     "moving checkers and chess, all sound audit."
+
+     These two games draw no artwork at all, so sound is the only physicality
+     they have. The whole board is eight calls, and every one of them takes a
+     plain object so chess.js and dama.js never have to be shaped a particular
+     way — hand it what the move already knows and it does the rest.
+
+     The material split matters more than anything else here. Chess is a
+     felt-bottomed wooden piece travelling across wood: slide, then knock,
+     75 ms apart, because that is what a real move sounds like and one knock
+     on its own never has. Dama is a terracotta disc: no travel, one clack.
+     Eyes shut, you know which board is on the table.                       */
+  function boardPick(game){       /* a piece is picked up                    */
+    play('piece.lift', { rate: game === 'dama' ? 0.94 : 1 });
+  }
+  function boardCancel(){          /* ...and put back down unmoved           */
+    play('ui.back', { gain: 0.4 });
+  }
+  /* o: { game:'chess'|'dama', capture, castle, promo, hops, crowned }       */
+  function boardMove(o){
+    o = o || {};
+    if (o.castle){ twice('piece.place', 150); return; }   /* king, then rook */
+    if (o.game === 'dama'){
+      if (o.capture) boardChain(o.hops || 1, o.hops || 1);
+      else play('dama.place');
+      if (o.crowned) after(200, boardCrown);
+      return;
+    }
+    play('piece.slide', { gain: 0.8 });
+    after(75, function(){
+      play(o.capture ? 'piece.capture' : 'piece.place', { force: true });
+    });
+    if (o.promo) after(320, boardCrown);
+  }
+  /* ONE HOP of a dama multi-jump. Call it per hop and the chain escalates by
+     itself: the clack rises 7% a hop and a pentatonic note climbs under it,
+     so a four-jump sweep announces itself as a four-jump sweep before the
+     player has finished counting. `total` is optional — pass it and a chain
+     of three or more lands on the reward chime. This is the addictive one. */
+  function boardChain(hop, total){
+    hop = Math.max(1, Math.min(12, hop | 0));
+    play('dama.jump', { force: true, rate: Math.min(1.5, 1 + (hop - 1) * 0.07) });
+    note(hop - 1, { gain: 0.5 + Math.min(0.3, (hop - 1) * 0.08) });
+    if (total && hop >= 3 && hop === (total | 0))
+      after(210, function(){ play('ui.reward', { gain: 0.6 }); });
+  }
+  function boardCrown(){           /* dama crowning, chess promotion         */
+    play('piece.king');
+    ladder(2, 3, 1, 90, { gain: 0.55 });
+  }
+  function boardCheck(){ play('board.check'); }
+  /* o: { win, mate, draw } — mate topples the king first, THEN the band. */
+  function boardEnd(o){
+    o = o || {};
+    if (o.mate){
+      play('board.mate');
+      after(560, function(){ play(o.win ? 'duel.win' : 'duel.lose'); });
+      return;
+    }
+    if (o.draw){ play('ui.toast'); return; }
+    play(o.win ? 'duel.win' : 'duel.lose');
+  }
+  /* o: { forced } — "you must take" is a rule reminder, not a telling-off, so
+     it is the same blunt thud pitched down and pulled back. Never a buzzer. */
+  function boardIllegal(o){
+    play('ui.error', { rate: (o && o.forced) ? 0.92 : 1,
+                       gain: (o && o.forced) ? 0.75 : 1 });
+  }
+  /* what: 'ask' | 'ok' | 'no' | 'undo'                                     */
+  function takeback(what){
+    if (what === 'ok'){ play('ui.toggle'); note(2, { gain: 0.5 }); return; }
+    if (what === 'no'){ play('ui.error', { gain: 0.8 }); return; }
+    if (what === 'undo'){
+      play('ui.swipe');
+      after(70, function(){ play('piece.place', { force: true, rate: 0.94 }); });
+      return;
+    }
+    play('ui.toast');
+  }
+
+  /* ═══════════════════════ SKARTA ════════════════════════════════════════
+     One dispatcher, same shape as duelEvent, because skarta.js is a pure
+     rules engine that both the human and the AI go through — so one call in
+     the engine covers every seat at the table.
+
+     The chain is the game, so the chain is where the sound work went: each
+     card added to the stack climbs a step, and eating the stack falls back
+     down every step it climbed. The size of what you just swallowed is
+     audible before the count has finished rendering.                       */
+  var SKARTA = {
+    play:    function(){ play('card.throw'); },
+    /* i.n = the running chain total (2, 4, 6, 9, 11...) */
+    chain:   function(i){
+               play('duel.summon', { gain: 0.6 });
+               note(Math.max(0, Math.round((((i && i.n) || 2) / 2)) - 1), { gain: 0.6 });
+             },
+    shut:    function(){ play('duel.trap'); },            /* IL-LIMITU */
+    eat:     function(i){
+               play('card.sweep');
+               var n = Math.min(6, Math.max(1, Math.round((((i && i.n) || 2) / 2))));
+               ladder(n - 1, n, -1, 80, { gain: 0.42 });
+             },
+    ahhar:   function(){ play('call.bell'); },            /* AĦĦAR WAĦDA */
+    caught:  function(){                                  /* QABADTEK    */
+               play('duel.trap');
+               after(150, function(){ play('ui.error', { gain: 0.75 }); });
+             },
+    missed:  function(){ play('ui.toast', { gain: 0.6 }); },
+    draw:    function(){ play('duel.draw'); },
+    shuffle: function(){ play('duel.shuffle'); },
+    skip:    function(){ play('duel.turn'); note(0, { gain: 0.4 }); },
+    reverse: function(){ play('ui.swipe'); note(2, { gain: 0.5 }); },
+    /* i.i = which suit was picked, 0..3 — four suits, four notes */
+    suit:    function(i){ note(((i && i.i) | 0) % 4, { gain: 0.6 }); },
+    turn:    function(){ play('duel.turn'); },
+    illegal: function(){ play('ui.error'); },
+    over:    function(i){ play(i && i.win ? 'duel.win' : 'duel.lose'); }
+  };
+  function skarta(type, info){
+    try { if (SKARTA[type]) SKARTA[type](info); }
+    catch (e) { warn('skarta threw (swallowed)', e && e.message); }
+  }
+
   /* ═══════════════════════ ambience loops ════════════════════════════════ */
   function loop(id, opts){
     var key = resolve(id);
@@ -556,9 +842,13 @@
   var PACKS = {
     duel: ['duel.draw', 'duel.summon', 'duel.attack', 'duel.hit', 'duel.destroy',
            'duel.turn', 'duel.spell'],
-    pack: ['pack.tear', 'pack.flip', 'rar.komuni', 'rar.rari', 'pack.tally'],
-    board: ['piece.lift', 'piece.place', 'piece.capture'],
-    cards: ['duel.draw', 'card.throw', 'card.sweep']
+    pack: ['pack.charge', 'pack.tear', 'pack.flip', 'rar.komuni', 'rar.rari',
+           'pack.tally'],
+    board: ['piece.lift', 'piece.slide', 'piece.place', 'piece.capture'],
+    dama:  ['piece.lift', 'dama.place', 'dama.jump', 'ui.note'],
+    chess: ['piece.lift', 'piece.slide', 'piece.place', 'piece.capture'],
+    cards: ['duel.draw', 'card.throw', 'card.sweep'],
+    skarta: ['duel.draw', 'card.throw', 'card.sweep', 'duel.summon', 'ui.note']
   };
   function preloadFor(name){ if (PACKS[name]) preload(PACKS[name]); }
 
@@ -640,15 +930,28 @@
       sw.setAttribute('aria-checked', next ? 'true' : 'false');
       var k = sw.querySelector('.sw'); if (k) k.classList.toggle('on', next);
       if (wrap) wrap.classList.toggle('off', !next);
-      if (next) play('ui.toggle', { force: true });
+      /* turning it OFF is correctly silent: setEnabled(false) has already
+         muted us, so switchTone's ui.untoggle is swallowed by design. */
+      if (next) switchTone(true);
     };
     if (vol) {
+      /* SECOND PASS — the slider is an instrument too. It used to preview on
+         release only, because previewing the same click on every input event
+         turns the slider into a machine gun. A pentatonic note keyed to the
+         VALUE does not have that problem: it changes as you drag, so it reads
+         as a scale rather than a repeat, and it is the most direct way to hear
+         what you are actually setting. Throttled to one note per 70 ms so a
+         fast drag cannot flood the mixer. */
+      var lastNote = 0;
       vol.oninput = function(){
         setVolume(vol.value / 100);
         if (num) num.textContent = Math.round(volume * 100) + '%';
+        var now = Date.now();
+        if (now - lastNote < 70) return;
+        lastNote = now;
+        note(Math.round((vol.value / 100) * 9), { gain: 0.7 });
       };
-      /* preview on release only — previewing on every input event turns the
-         slider into a machine gun */
+      /* and one felt tap when you let go, so the setting lands */
       vol.onchange = function(){ play('ui.tap', { force: true }); };
     }
   }
@@ -692,15 +995,28 @@
         unpicking it:  KARTI_SFX.autoWire({ taps:false })  or, for the lot,
         KARTI_SFX.autoWire(false).                                          */
 
-  var AUTO = { taps: true, sheets: true, toasts: true };
+  var AUTO = { taps: true, sheets: true, toasts: true,
+               /* second pass */
+               nav: true, cards: true, pack: true, rails: false };
   var wired = false;
 
   /* game surfaces — these get their own sounds from their own call sites and
-     must never also make a UI noise. Checked FIRST, and it wins. */
+     must never also make a UI noise. Checked FIRST, and it wins.
+
+     SECOND PASS: .chip, .setchip and .deckcard came OUT of this list. They
+     were skipped as a precaution and the precaution was wrong — every one of
+     them is a real <button> in the app's chrome (collection filters, the pack
+     set picker, the starter-deck rail) and they were the largest block of
+     silent taps in the app. They now get a pentatonic note keyed to their
+     position in the row, so running along a filter row plays a scale.
+     .card and .gcell STAY, because they are duel surfaces too — the cards
+     channel below lets them through only inside Collection and Inventory. */
   var SKIP = '.pt-sq,.card,.slot,.zone,.gacha-cell,.gcell,.fan,.tapme,' +
-             '.deckcard,.deckface,.flipper,.chip,.setchip,#ticker';
+             '.deckface,.flipper,#ticker';
   /* the app's actual chrome vocabulary, read off index.html and game.js */
   var CHROME = 'button,.btn,.tab,.setrow,[role="switch"]';
+  /* rows of choices that should sound like a scale rather than one click */
+  var PICKS = '.chip,.setchip,.deckcard,[data-pane]';
   /* ids and labels that mean "this closes something" */
   var BACKISH = /(^|[-_])(close|back|cancel|no|x)([-_]|$)/i;
 
@@ -717,17 +1033,167 @@
              !!(String(el.className || '').indexOf('setrow') >= 0 && el.querySelector('.sw'));
     } catch (e) { return false; }
   }
+  function matches(el, sel){
+    try { return !!(el && el.matches && el.matches(sel)); } catch (e) { return false; }
+  }
+  function switchOn(el){
+    try {
+      var a = el.getAttribute('aria-checked');
+      if (a === 'true')  return true;
+      if (a === 'false') return false;
+      var k = el.querySelector('.sw');
+      return !!(k && k.classList.contains('on'));
+    } catch (e) { return false; }
+  }
+
+  /* ── ON vs OFF, the honest way ────────────────────────────────────────────
+     A settings row flips its own class inside its own click handler, so a
+     BUBBLE-phase listener at document sees the state AFTER the flip. Except
+     for Reduce motion, which re-renders the whole sheet: its element is
+     detached by then and still carries the state from BEFORE. Reading the DOM
+     after the fact therefore gives the right answer on one row and the wrong
+     answer on another, silently.
+
+     So we read it before anything has had a chance to change it. This capture
+     listener runs at document ahead of every element handler, records what the
+     switch was, and the bubble handler plays the opposite — because a switch
+     click always flips it. Right on every row, and it stays right when a row
+     is added later. */
+  var swPre = null;
+  function preClick(e){
+    try {
+      swPre = null;
+      var t = e && e.target;
+      if (!t || !t.closest) return;
+      var el = t.closest(CHROME);
+      if (!el || el.disabled || !looksSwitch(el)) return;
+      swPre = { el: el, on: switchOn(el) };
+    } catch (err) {}
+  }
+
+  /* A row of choices plays a scale: position in the row picks the note, so a
+     filter row always sounds the same way round and the fourth chip is always
+     the fourth note. */
+  function pickNote(el){
+    var i = 0;
+    try {
+      var p = el.parentNode;
+      if (p && p.children) i = Array.prototype.indexOf.call(p.children, el);
+    } catch (e) {}
+    note(Math.max(0, i), { gain: 0.55 });
+  }
+
+  /* Collection and Inventory only. Cards elsewhere (the duel field, the pack
+     fan) belong to duelEvent and the pack observer, and must not be caught
+     here — which is why this checks the SCREEN, not just the element. */
+  function cardCue(t){
+    if (!t.closest('#scr-coll') && !t.closest('#scr-deck')) return null;
+    /* the deck builder's ± steppers: two different events, and game.js already
+       writes the aria-label that tells them apart. Read that rather than the
+       glyph, which is a MINUS SIGN and not a hyphen. */
+    var q = t.closest('.qty button');
+    if (q) return /^remove/i.test(q.getAttribute('aria-label') || '')
+      ? 'deck.remove' : 'deck.add';
+    if (t.closest('.card,.gcell')) return 'card.open';
+    return null;
+  }
 
   function onClick(e){
     try {
-      if (!AUTO.taps) return;
       var t = e && e.target;
       if (!t || !t.closest) return;
+
+      if (AUTO.cards){
+        var cue = cardCue(t);
+        if (cue){ play(cue); return; }
+      }
+
+      if (!AUTO.taps) { swPre = null; return; }
       if (t.closest(SKIP)) return;            /* a game surface — not ours   */
       var el = t.closest(CHROME);
       if (!el || el.disabled) return;
-      play(looksSwitch(el) ? 'ui.toggle' : (looksBack(el) ? 'ui.back' : 'ui.tap'));
+
+      /* the bottom nav is an instrument: one fixed note per destination */
+      if (AUTO.nav && t.closest('#home-nav .tab')){
+        navNote((t.closest('#home-nav .tab').dataset || {}).scr);
+        return;
+      }
+      if (looksSwitch(el)){
+        var next = (swPre && swPre.el === el) ? !swPre.on : switchOn(el);
+        swPre = null;
+        switchTone(next);
+        return;
+      }
+      if (AUTO.nav && matches(el, PICKS)){ pickNote(el); return; }
+      play(looksBack(el) ? 'ui.back' : 'ui.tap');
     } catch (err) { warn('autowire click', err && err.message); }
+  }
+
+  /* ── the pack ceremony, with no edits to game.js ──────────────────────────
+     The pack opener is timed to animation frames, not to events, so it cannot
+     be reached through duelEvent — but it announces every one of its beats by
+     putting a class on an element. #the-pack gains `charge`, then `tearing`;
+     each of the five .slot elements gains `flipped` and already carries its
+     own rarity class. attributeOldValue turns that into exact transitions.
+
+     That wires the whole set piece — the anticipation swell, the tear, five
+     flips and four rarity stings — from one observer, and it stays correct
+     because it is reading the animation's own state rather than shadowing its
+     timings. If real call sites ever land in game.js, DEDUPE_MS drops
+     whichever of the two arrives second and exactly one sound comes out. */
+  var RAR_CLS = ['komuni', 'rari', 'epiku', 'leggendarju'];
+  function hasCls(s, c){ return new RegExp('(^| )' + c + '( |$)').test(s); }
+  function gained(was, now, c){ return hasCls(now, c) && !hasCls(was, c); }
+  function rarityOf(s){
+    for (var i = 0; i < RAR_CLS.length; i++) if (hasCls(s, RAR_CLS[i])) return RAR_CLS[i];
+    return null;
+  }
+  function watchPack(host){
+    if (!host || typeof MutationObserver !== 'function') return;
+    try {
+      new MutationObserver(function (list){
+        if (!AUTO.pack) return;
+        for (var i = 0; i < list.length; i++){
+          var el = list[i].target, was = list[i].oldValue || '', now;
+          try { now = el.className; } catch (e) { continue; }
+          if (typeof now !== 'string' || now === was) continue;
+          if (gained(was, now, 'charge'))       play('pack.charge');
+          else if (gained(was, now, 'tearing')) play('pack.tear');
+          else if (gained(was, now, 'flipped')){
+            play('pack.flip');
+            (function (r){
+              if (r) after(90, function(){ play(RAR[r]); });
+            })(rarityOf(now));
+          }
+        }
+      }).observe(host, { attributes: true, subtree: true,
+                         attributeFilter: ['class'], attributeOldValue: true });
+    } catch (e) {}
+  }
+
+  /* ── rails ────────────────────────────────────────────────────────────────
+     A detent tick as a horizontal rail passes each item. scroll does not
+     bubble, so this listens in the CAPTURE phase at document, which is the
+     one place a single listener sees every scroller in the app.
+
+     OFF BY DEFAULT and deliberately so: a per-item tick is either the best
+     thing in the set or the first thing muted, and that is a decision to make
+     with the file in your ear on a phone, not blind.
+         KARTI_SFX.autoWire({ rails:true })                                  */
+  var railAt = {}, railN = 0;
+  function onScroll(e){
+    try {
+      if (!AUTO.rails) return;
+      var el = e && e.target;
+      if (!el || !el.classList || !el.scrollWidth) return;
+      if (el.scrollWidth - el.clientWidth < 40) return;     /* not a rail */
+      var k = el.id || String(el.className || 'rail');
+      var x = el.scrollLeft, was = railAt[k];
+      if (was == null){ railAt[k] = x; return; }
+      if (Math.abs(x - was) < 64) return;
+      railAt[k] = x;
+      play('rail.tick', { force: true, gain: 0.4, rate: 1 + ((railN++ % 5) * 0.04) });
+    } catch (err) {}
   }
 
   /* Watch ONE class on ONE element and report real transitions only. */
@@ -756,6 +1222,12 @@
        instead of being the one tap that gets silently swallowed. */
     try { d.addEventListener('click', onClick, { passive: true }); }
     catch (e) { d.addEventListener('click', onClick, false); }
+    /* capture, so it runs before the switch flips itself — see preClick */
+    try { d.addEventListener('click', preClick, { passive: true, capture: true }); }
+    catch (e) { d.addEventListener('click', preClick, true); }
+    /* capture, because scroll does not bubble */
+    try { d.addEventListener('scroll', onScroll, { passive: true, capture: true }); }
+    catch (e) { try { d.addEventListener('scroll', onScroll, true); } catch (_) {} }
 
     var sheet = d.getElementById('sheet'),
         modal = d.getElementById('modal'),
@@ -777,17 +1249,40 @@
     }, function(){});
     /* #flash is deliberately NOT watched — it is duel juice (TRAP!, counters)
        and belongs to duelEvent(), which knows what actually happened. */
+
+    /* ── every screen change, however you got there ───────────────────────
+       go() toggles .on on one <section class="screen">, and it is the only
+       thing in the app that does. Watching them all means a back button, a
+       menu tile, a resumed session and a tab tap ALL make the transition
+       sound, without a single edit to game.js.
+
+       Where the change did come from a tab tap, navNote() has already played
+       ui.swipe microseconds earlier in the same click, and DEDUPE_MS drops
+       this one — so the nav note stays a note and does not double up. */
+    var screens = [];
+    try { screens = d.querySelectorAll('section.screen[id^="scr-"]'); } catch (e) {}
+    for (var si = 0; si < screens.length; si++)
+      (function (el){
+        watchClass(el, 'on',
+          function(){ if (AUTO.nav) play('screen.push', { gain: 0.75 }); },
+          function(){});
+      })(screens[si]);
+
+    watchPack(d.getElementById('scr-pack'));
   }
 
   /* autoWire()             → read the current state
      autoWire(false)        → turn the whole delegated layer off
      autoWire({taps:false}) → turn one channel off as its call sites land */
   function autoWire(v){
-    if (v === false) AUTO.taps = AUTO.sheets = AUTO.toasts = false;
-    else if (v === true) AUTO.taps = AUTO.sheets = AUTO.toasts = true;
+    var k;
+    if (v === false || v === true)
+      for (k in AUTO) if (AUTO.hasOwnProperty(k)) AUTO[k] = (v === true);
     else if (v && typeof v === 'object')
-      for (var k in AUTO) if (v.hasOwnProperty(k)) AUTO[k] = !!v[k];
-    return { taps: AUTO.taps, sheets: AUTO.sheets, toasts: AUTO.toasts, wired: wired };
+      for (k in AUTO) if (v.hasOwnProperty(k)) AUTO[k] = !!v[k];
+    var out = { wired: wired };
+    for (k in AUTO) if (AUTO.hasOwnProperty(k)) out[k] = AUTO[k];
+    return out;
   }
 
   if (supported) autoWireInit();
@@ -828,7 +1323,7 @@
       loaded: loaded.sort(), missing: missing.sort(),
       loops: Object.keys(loops),
       registered: Object.keys(REG).length, aliases: Object.keys(ALIAS).length,
-      auto: { taps: AUTO.taps, sheets: AUTO.sheets, toasts: AUTO.toasts, wired: wired }
+      auto: autoWire()
     };
   }
 
@@ -840,6 +1335,15 @@
     setEnabled: setEnabled, isEnabled: isEnabled, followPrefs: followPrefs,
     settingsHTML: settingsHTML, bindSettings: bindSettings,
     autoWire: autoWire,
+
+    /* ── second pass: the instrument ── */
+    note: note, ladder: ladder, navNote: navNote, switchTone: switchTone,
+    /* ── second pass: chess and dama. One call per moment, plain objects. ── */
+    boardPick: boardPick, boardCancel: boardCancel, boardMove: boardMove,
+    boardChain: boardChain, boardCrown: boardCrown, boardCheck: boardCheck,
+    boardEnd: boardEnd, boardIllegal: boardIllegal, takeback: takeback,
+    /* ── second pass: SKARTA, one dispatcher for both seats ── */
+    skarta: skarta,
     ids: function(){ return Object.keys(REG); },
     aliases: function(){ return JSON.parse(JSON.stringify(ALIAS)); },
     files: function(){ var o = {}; for (var k in REG) o[k] = BASE + REG[k].f; return o; },

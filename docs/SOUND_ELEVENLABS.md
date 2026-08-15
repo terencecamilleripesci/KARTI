@@ -4,7 +4,14 @@ Everything KARTI needs to make a noise: what each sound is, where it plays, how
 long it runs, the exact filename it must be saved as, and the exact words to
 paste into ElevenLabs to generate it.
 
-**40 files. Under 600 KB for the lot.**
+**49 files. Under 600 KB for the lot.**
+
+> **Second pass, §10.** Thirty-eight of these are generated and in `audio/`.
+> §10 is the interaction audit that came after he had heard them — every tab,
+> every settings row, every chess and dama move — and it adds **nine files**
+> and **thirty-one reuses**. Read §10 before generating anything new; several
+> of its "new sounds" are an existing file at a different playback rate and
+> cost nothing at all.
 
 You generate the audio. The game is already wired to use it: `js/sfx.js` ships
 with all 40 ids registered and every one of them missing. **A sound that does
@@ -137,6 +144,22 @@ wish:
 | Ambience loops (optional) | 2 | mono MP3 64 kbps | ~192 KB |
 | **Whole set** | **40** | | **~495 KB** |
 | **HARD CEILING** | | | **600 KB** |
+
+**Measured, after the first 38 were generated and normalised:**
+
+| Group | Files | Measured |
+|---|---:|---:|
+| First pass, on disk in `audio/` now | 38 | **331 KB** |
+| Second pass (§10) | 9 | ~54 KB (estimate) |
+| **Both passes** | **47** | **~385 KB** |
+| Ambience loops, if you generate them | 2 | ~192 KB |
+| **Everything** | **49** | **~577 KB** |
+
+The first 38 came in a little over the estimate. That is fine, and the second
+pass is deliberately small — but note what it does to the ambience decision:
+**with §10 generated, the two `amb-*` loops no longer fit comfortably.** They
+were always the first thing to cut (§6.6) and this is the moment. Cut them and
+the whole set is **~385 KB**, comfortably inside budget.
 
 Note the shape of that: **twenty-six files cost 106 KB between them**, and four
 files heard once a game cost almost as much. That is the correct way round, and
@@ -570,3 +593,357 @@ Adding a sound is two lines and no risk:
 
 And if an existing sound would do for the new place, add it to `ALIAS` instead
 and save a file. That is the rule that kept this document to 40 rows.
+
+---
+
+# 10. SECOND PASS — THE INTERACTION AUDIT
+
+> *"I want more sound. Make an agent audit every tab on screen, tabs and
+> settings etc, addictive when playing and moving checkers and chess. All
+> sound audit. And make it with ElevenLabs."*
+
+He has now heard the first 38. This section is what came out of walking the
+**actual code** — `index.html`, `game.js`, `chess.js`, `dama.js`, `skarta.js`,
+`skarta-ui.js`, `party.js` — and listing every interaction that currently makes
+**no noise at all** and should.
+
+**It adds nine files.** It also adds **thirty-one reuses** and a pitched layer
+that turns one file into a whole scale, so the number of *audible moments* in
+KARTI roughly doubles for **~54 KB**. That ratio is the whole point of the
+section, and §1 of this document is why: reuse is not a size saving dressed up
+as a virtue, it is what makes a game sound like **one thing** rather than fifty.
+
+## 10.1 The one idea this pass adds: an instrument
+
+> *"Each tab could have its own subtly different note so the app feels like an
+> instrument rather than one repeated click."*
+
+Exactly right, and the cheap way to do it is **not five files**.
+
+`ui-note.mp3` is **one low kalimba note**. `js/sfx.js` plays it at the playback
+rate for a step of a **major pentatonic scale** — and a pentatonic has no wrong
+note and no semitone clash, so however fast a player jabs at the bottom nav,
+however long a dama jump chain runs, however hard they drag the volume slider,
+the result is a **tune** and never a rattle.
+
+One 5 KB file is therefore:
+
+- **four bottom-nav tabs**, each with a fixed note, so a destination always
+  sounds the same however you reached it and the note becomes a landmark;
+- **every filter chip** in Collection and the deck builder — running along a
+  filter row plays a scale;
+- **the volume slider**, which now sounds the value as you drag it;
+- **a dama multi-jump**, climbing one step per hop, so a four-jump sweep
+  announces itself as a four-jump sweep;
+- **the SKARTA chain**, climbing as it builds and **falling back down every
+  step it climbed** when somebody swallows it;
+- **the four suits** of a wild card, one note each.
+
+Playback rate also shortens the sample as it raises it, which is the right way
+round: the higher a cue sits, the more it needs to get out of the way.
+
+## 10.2 THE AUDIT
+
+`REUSE` = an existing file, no bytes. `RATE` = an existing file at a different
+playback rate, no bytes. `NEW` = one of the nine in §10.3.
+**AUTO** = already working with no edit to any other file — `js/sfx.js` derives
+it from the DOM. **WIRE** = needs one line at the listed call site.
+
+### Tabs, screens and navigation
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| Bottom-nav tab tapped | `index.html:1352-1377`, `game.js:3990-3993` | `ui.note` at a fixed step per `data-scr` + `ui.swipe` under it | **NEW** + RATE | AUTO |
+| Collection tab | `#btn-coll` `data-scr="coll"` | note step 1 | RATE | AUTO |
+| Inventory tab | `#btn-deck` `data-scr="deck"` | note step 2 | RATE | AUTO |
+| Store tab | `#btn-packs` `data-scr="pack"` | note step 3 | RATE | AUTO |
+| Guide tab | `#btn-tutor` `data-scr="tutor"` | note step 4 | RATE | AUTO |
+| Any screen becoming visible | `game.js:654` toggles `.on` on `section.screen` | `ui.swipe` | **NEW** | AUTO — a `MutationObserver` per screen, so a back button, a menu tile and a restored session all sound too |
+| Screen change that came from a tab | — | *one* sound, not two | — | AUTO — `DEDUPE_MS` drops the second |
+| Back / close / cancel | `BACKISH` id and label test | `ui.back` | REUSE | AUTO (first pass) |
+| Sheet / modal opening, closing | `#sheet`, `#modal` | `ui.sheet` / `ui.back` | REUSE | AUTO (first pass) |
+| Party-games tile opening a game | `party.js:291` | `party.open` → `ui.sheet` | REUSE | AUTO (it is a `<button>`) |
+| Rail scrolled past an item | `.chiprow`, `.decksel`, `.hand` | `rail.tick` → `pack.tally`, pitched up per tick | REUSE | AUTO, **off by default** — `autoWire({rails:true})` |
+
+### Settings
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| A switch turning **ON** | `game.js:1016-1022` (Invites), `1031` (Reduce motion), `sfx.js` (Sounds) | `ui.toggle` + note rising | REUSE | AUTO |
+| A switch turning **OFF** | same | **`ui.untoggle`** + note falling | **NEW** | AUTO |
+| Telling on from off correctly | — | — | — | AUTO — a **capture-phase** listener reads the switch *before* it flips. Reduce motion re-renders the whole sheet and its old element keeps the stale state, so reading after the fact is right on one row and wrong on another. This was a real bug in the making. |
+| Volume slider dragged | `sfx.js` `bindSettings` | `ui.note` at a step keyed to the **value** | **NEW** | AUTO (own file) |
+| Volume slider released | same | `ui.tap` | REUSE | AUTO |
+| Cloud save / Wipe save buttons | `game.js:1025`, `1036` | `ui.tap` | REUSE | AUTO |
+| Wipe confirmed | `game.js:1046` | `ui.error` via the ⚠ toast | REUSE | AUTO |
+
+### Chess — `js/chess.js`
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| Piece picked up | `tap()` **chess.js:877** | `boardPick('chess')` → `piece.lift` | REUSE | **WIRE** |
+| Put back down unmoved | **chess.js:875, 893** | `boardCancel()` → `ui.back` at 0.4 | REUSE | **WIRE** |
+| A move — the travel | **chess.js:942** (human), **969** (AI) | **`piece.slide`**, then `piece.place` 75 ms later | **NEW** | **WIRE** |
+| A capture | same, `m.cap` | `piece.slide` → `piece.capture` | REUSE | **WIRE** |
+| Castling | same, `m.fl & (F_CK\|F_CQ)` | `piece.place` **twice**, 150 ms apart — king then rook | REUSE | **WIRE** |
+| Promotion | same, `m.promo` | `piece.king` + a three-note rise | REUSE | **WIRE** |
+| Promotion picker opens | `promoPicker()` **chess.js:905** | `ui.sheet` | REUSE | AUTO |
+| Check | `render()` **chess.js:764** | `board.check` | REUSE | **WIRE** |
+| **Checkmate** | `status()` **chess.js:949 / 975**, `finish()` **1032** | **`board.mate`** — the king topples — then `duel.win`/`duel.lose` 560 ms later | **NEW** | **WIRE** |
+| Stalemate / fifty-move / repetition | `finish()` **chess.js:1046** | `ui.toast` — a draw is not a loss | REUSE | **WIRE** |
+| Illegal move ("nowhere to go") | **chess.js:888** | `ui.error` | REUSE | AUTO via the toast watcher |
+| Resign | **chess.js:737** | `duel.lose` | REUSE | **WIRE** |
+| Undo | `undo()` **chess.js:1004** | `ui.swipe` → `piece.place` pitched down | REUSE | **WIRE** |
+| Takeback requested | `askTakeback()` **chess.js:1020** | `ui.toast` | REUSE | **WIRE** |
+| Takeback accepted | **chess.js:1135** | `ui.toggle` + note | REUSE | **WIRE** |
+| Takeback refused | same machinery | `ui.error` at 0.8 | REUSE | **WIRE** |
+| Game start | `newGame()` **chess.js:682** | `duel.start` + `preloadFor('chess')` | REUSE | **WIRE** |
+| Board square tapped (any) | `.pt-sq`, **chess.js:724** | **silence** | — | AUTO — `.pt-sq` is in the SKIP list so a chess move never also makes a UI tap |
+
+### Dama — `js/dama.js`
+
+Dama is **terracotta on wood**; chess is **felt-bottomed wood on wood**. Two
+games, two materials, and after this pass you can tell which board is on the
+table with your eyes shut. That is what he meant by *moving checkers*.
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| Disc picked up | `tap()` **dama.js:535** | `boardPick('dama')` → `piece.lift` at rate 0.94 | RATE | **WIRE** |
+| Put back down unmoved | **dama.js:533, 544** | `boardCancel()` | REUSE | **WIRE** |
+| A quiet step | `play()` **dama.js:591** (human), **617** (AI), `m.caps.length === 0` | **`dama.place`** | **NEW** | **WIRE** |
+| **One hop of a jump** | `begin()` **dama.js:565**, `advance()` **dama.js:576** | **`dama.jump`**, rate **+7% per hop**, with a pentatonic note climbing under it | **NEW** | **WIRE** — call `boardChain(hop, total)` per hop |
+| A chain of 3 or more completing | same | `ui.reward` 210 ms after the last hop | REUSE | **WIRE** |
+| Crowning / king me | `applied()` **dama.js:181-187** `n.crowned` | `piece.king` + a three-note rise | REUSE | **WIRE** |
+| "You must take" | `tap()` **dama.js:538**, rule at **169-172** | `ui.error` at **rate 0.92, gain 0.75** — a rule reminder, not a telling-off | RATE | AUTO via the toast watcher, better if wired |
+| Blocked / wiped out / draw | `finish()` **dama.js:671** | `duel.win` / `duel.lose` / `ui.toast` | REUSE | **WIRE** |
+| Resign | **dama.js:401** | `duel.lose` | REUSE | **WIRE** |
+| Undo / takeback | **dama.js:647, 661** | as chess | REUSE | **WIRE** |
+| Game start | `newGame()` **dama.js:355** | `duel.start` + `preloadFor('dama')` | REUSE | **WIRE** |
+
+### SKARTA — `js/skarta.js`, `js/skarta-ui.js`
+
+The engine is pure and **both the human and the AI go through it**, so one call
+inside the engine covers every seat at the table.
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| A card played to the pile | `play()` **skarta.js:282** | `card.throw` | REUSE | **WIRE** |
+| **+2 lands on the chain** | **skarta.js:322-323** | `duel.summon` + a note **one step higher per two cards** | REUSE | **WIRE** |
+| **Kaxxa +4 / +7** | **skarta.js:330-341** | same, further up the scale — a +7 is audibly a +7 | REUSE | **WIRE** |
+| **IL-LIMITU** — chain closed | **skarta.js:347-349** | `duel.trap` | REUSE | **WIRE** |
+| **Eating the chain** | `takeChain()` **skarta.js:387-392** | `card.sweep` + the ladder **falling back down every step it climbed** | REUSE | **WIRE** |
+| **AĦĦAR WAĦDA** | `sayAhhar()` **skarta.js:442-444**, button **skarta-ui.js:888** | **`call.bell`** — a counter bell, not speech | **NEW** | **WIRE** |
+| **QABADTEK** | `catchOut()` **skarta.js:456-459**, button **skarta-ui.js:766-771** | `duel.trap`, then `ui.error` 150 ms later | REUSE | **WIRE** |
+| Got away with it | `expireCall()` **skarta.js:464-469** | `ui.toast` at 0.6 | REUSE | **WIRE** |
+| Skip | **skarta.js:308-312** | `duel.turn` + low note | REUSE | **WIRE** |
+| Reverse | **skarta.js:314-319** | **`ui.swipe`** + note — direction you can hear | **NEW** | **WIRE** |
+| Wild — suit chosen | `suitSheet()` **skarta-ui.js:924** | one note per suit, four suits four notes | RATE | **WIRE** |
+| Draw one | `drawOne()` **skarta.js:414** | `duel.draw` | REUSE | **WIRE** |
+| Deck reshuffled | `refill()` **skarta.js:364** | `duel.shuffle` | REUSE | **WIRE** |
+| Illegal play | `play()` **skarta.js:275** | `ui.error` | REUSE | **WIRE** |
+| Turn passes | `advance()` **skarta.js:257** | `duel.turn` | REUSE | **WIRE** |
+| Game over | `finish()` **skarta.js:479** | `duel.win` / `duel.lose` | REUSE | **WIRE** |
+| Pass-the-phone curtain ready | **skarta-ui.js:1031** | `ui.tap` | REUSE | AUTO |
+
+### Collection, Inventory, Store
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| Filter chip tapped | `chipRow()` **game.js:1830-1838** | `ui.note` at the chip's **position in the row** | **NEW** | AUTO — `.chip` was removed from the SKIP list, which was the largest block of silent taps in the app |
+| Pack set chip tapped | `renderSetPicker()` **game.js:1330** | same | RATE | AUTO — `.setchip` also came out of SKIP |
+| Starter-deck card tapped | **game.js:1189** | same | RATE | AUTO — `.deckcard` also came out of SKIP |
+| Pool / Deck pane switch | **game.js:2399** `[data-pane]` | same | RATE | AUTO |
+| A card opened in Collection | **game.js:1892** `#coll-grid` | `card.open` → `pack.flip` | REUSE | AUTO — the cards channel lets `.card` through **only** inside `#scr-coll` and `#scr-deck`, never in a duel |
+| **+** in the deck builder | `poolRow()` **game.js:2466** | `deck.add` → `duel.summon` | REUSE | AUTO — read off the `aria-label`, because the glyph is a **minus sign** and not a hyphen |
+| **−** in the deck builder | **game.js:2461** | `deck.remove` → `duel.draw` | REUSE | AUTO |
+| Deck saved | `saveDeck()` **game.js:2432** | `ui.reward` | REUSE | AUTO via the toast |
+| Deck illegal | `deckIsLegal()` **game.js:491** | `ui.error` | REUSE | AUTO via the ⚠ toast |
+| Deck made active | `deckOptions()` **game.js:2246** | `ui.tap` | REUSE | AUTO |
+| Search typed | `#coll-search`, `#db-search` | **silence** — deliberate | — | a note per keystroke is the fastest way to get a game muted |
+
+### The pack opening — now wired with no edits to `game.js`
+
+The pack opener is timed to **animation frames**, not to events, so it cannot be
+reached through `duelEvent()`. But it announces every beat of itself by putting
+a class on an element, and `attributeOldValue` turns that into exact
+transitions. One `MutationObserver` on `#scr-pack` therefore wires the whole
+set piece.
+
+| Interaction | Where | Sound | Kind | Status |
+|---|---|---|---|---|
+| **The pack charges and shakes** | `game.js:1567` adds `.charge` | **`pack.charge`** | **NEW** | AUTO |
+| The seam splits | `game.js:1572` adds `.tearing` | `pack.tear` | REUSE | AUTO |
+| A card flips face up | `game.js:1637` adds `.flipped` to `.slot` | `pack.flip` | REUSE | AUTO |
+| ...and its rarity sting | the same `.slot` already carries `komuni`/`rari`/`epiku`/`leggendarju` | `rar.*`, 90 ms later | REUSE | AUTO |
+| Duplicate card | `game.js` reveal | `pack.dupe` | REUSE | **WIRE** — the DOM does not say "duplicate" |
+| Summary counting up | `game.js:1754` | `pack.tally` via `run()` | REUSE | **WIRE** |
+| Coins spent | `tryOpen()` **game.js:1447** | `shop.buy` → `money.pay` | REUSE | **WIRE** |
+| Not enough coins | **game.js:1449** | `ui.error` | REUSE | AUTO via the toast |
+
+**`pack.charge` is the most important new file in this pass.** The pack charges
+and shakes for **880 ms** before the seam goes and until now every millisecond
+of it was silent — the payoff arrived with no build. Anticipation is what makes
+an opening addictive; the tear is only the release. It is 10 KB.
+
+## 10.3 THE NINE NEW PROMPTS
+
+Same seven columns, same rules, same banned vocabulary (§4). Every prompt below
+is written to §0: **character words, never level words**, and every one of them
+names a **material**. Note that several also say *close*, *struck firmly* or
+*clearly audible* — that is the other half of the lesson from the first pass.
+Four of the first 38 came back at the noise floor from asking for something
+"soft"; two more came back at the noise floor from describing something barely
+there. **Aim at the narrow band between literal silence and harsh, on purpose.**
+
+### 10.3.1 The instrument and the shared UI — 3 files
+
+| id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
+|---|---|---|---|---|---|---|
+| ui.note | ui-note.mp3 | 0.5 | 0.9 | false | 0.30 | A single low kalimba tine plucked once with the thumb, warm woody and rounded with a clear mellow body and a short decay, plucked firmly and clearly audible, dry and tight, single isolated sound effect, one low note only, clean foley recording, no melody, no reverb, no music |
+| ui.untoggle | ui-untoggle.mp3 | 0.5 | 0.9 | false | 0.16 | A heavy switch released and dropping back down, one blunt low wooden clunk with a damped body, struck firmly and clearly audible, darker and lower than a flick, dry and tight, single isolated sound effect, clean foley recording, no sharp snap, no click edge, no reverb, no music |
+| ui.swipe | ui-swipe.mp3 | 0.5 | 0.85 | false | 0.22 | A hand sweeping sideways across a felt-covered table in one quick stroke, a short rounded cloth whisk with a warm body, close and clearly audible, dry and tight, single isolated sound effect, clean foley recording, no sharp edge, no reverb, no music |
+
+> **`ui-note` is the row to spend a take on.** Eight things in the app are this
+> one file at a different rate, so a bad take is eight bad sounds. Keep it
+> **low** — the rate layer only goes up, and a note generated too high has
+> nowhere left to climb. If a take comes back bright or metallic, say
+> *kalimba* and *woody* again rather than adding adjectives (§4).
+
+### 10.3.2 Chess and dama — 4 files
+
+| id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
+|---|---|---|---|---|---|---|
+| piece.slide | piece-slide.mp3 | 0.5 | 0.9 | false | 0.20 | A felt-bottomed wooden chess piece pushed a short distance across a wooden board, one warm rounded scrape with a woody body, close and clearly audible, dry and tight, single isolated sound effect, clean foley recording, no squeak, no click, no reverb, no music |
+| board.mate | board-mate.mp3 | 1.5 | 0.85 | false | 1.20 | A tall wooden chess king toppled over and rolling to rest on a wooden board, one firm rounded knock then a short warm wooden roll that settles and stops, close and clearly audible, dry, single isolated sound effect, clean foley recording, no clatter, no reverb, no music |
+| dama.place | dama-place.mp3 | 0.5 | 0.9 | false | 0.22 | A flat terracotta draughts disc set down firmly on a wooden board, one warm rounded clack with a short earthy body, damped and clearly audible, dry and punchy, single isolated sound effect, clean foley recording, no ring, no reverb, no music |
+| dama.jump | dama-jump.mp3 | 0.6 | 0.85 | false | 0.30 | A terracotta draughts disc hopped over another and landing on a wooden board, one short skip through the air then a warm rounded clack, close and clearly audible, dry and punchy, single isolated sound effect, clean foley recording, no clatter, no reverb, no music |
+
+> **Generate `dama-place` and `piece-place` back to back and listen to them one
+> after the other.** If you cannot hear that one is terracotta and the other is
+> wood, the pair has failed and the whole reason for the two files is gone.
+> Say the material again; do not add adjectives.
+>
+> **`dama-jump` is heard the most in this group** and it is pitched **up 7% per
+> hop** of a chain, so audition it at 1.0, 1.2 and 1.4 before accepting it. If
+> it gets sharp on the way up it is too bright at 1.0.
+
+### 10.3.3 SKARTA and the pack — 2 files
+
+| id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
+|---|---|---|---|---|---|---|
+| call.bell | call-bell.mp3 | 1.0 | 0.85 | false | 0.75 | A small dark brass counter bell struck once with the flat of a hand, one warm rounded ding with a mellow body that decays quickly, close and clearly audible, dry, single isolated sound effect, one strike only, clean foley recording, no long ring, no reverb, no music |
+| pack.charge | pack-charge.mp3 | 1.5 | 0.8 | false | 1.10 | A paper packet gripped tight and squeezed in both hands, a rising rounded paper crush and creak swelling for one second and stopping dead just before it opens, warm and close, clearly audible, dry, single isolated sound effect, clean foley recording, no tear, no crackle, no reverb, no music |
+
+> **`pack-charge` must not tear.** It is the 880 ms of build *before*
+> `pack-tear`, and the two play back to back. If a take ends with the packet
+> actually opening you get two tears in a row and the build is wasted — say
+> *stopping dead just before it opens* again and go once more.
+
+### 10.3.4 Cost and size
+
+| | |
+|---|---:|
+| New rows | **9** |
+| Audio requested | **7.1 s** |
+| **Credits** | **284** of the ~9,550 remaining — **3%** |
+| Estimated size at 64 kbps mono | **~54 KB** |
+| Whole set on disk after this pass | **~385 KB** (47 files, ambience cut) |
+
+Prove the rows parse and cost what this says before spending anything:
+
+```bash
+python3 scripts/make_sfx.py --dry-run
+```
+
+## 10.4 WHAT IS ALREADY WORKING, AND WHAT NEEDS ONE LINE
+
+`js/sfx.js` is done. Drop the nine files into `audio/` and everything marked
+**AUTO** above starts working with **no edit to any other file** — tabs, screen
+changes, settings switches on and off, filter chips, the deck builder's ±, the
+Collection card taps and the entire pack ceremony including the rarity stings.
+
+Everything marked **WIRE** genuinely needs game context that a click cannot
+carry. These are the exact call sites, and each is one line:
+
+**`js/chess.js`**
+
+| Line | Add |
+|---|---|
+| 877 | `KARTI_SFX.boardPick('chess');` |
+| 875, 893 | `KARTI_SFX.boardCancel();` |
+| 942 (human), 969 (AI) | `KARTI_SFX.boardMove({ game:'chess', capture:!!m.cap, castle:!!(m.fl & (F_CK\|F_CQ)), promo:!!m.promo });` |
+| 764 | `if (inCheck(st)) KARTI_SFX.boardCheck();` |
+| 949, 975 | `if (s.end === 'mate') KARTI_SFX.boardEnd({ mate:true, win: s.win === G.human });` |
+| 1032 `finish()` | `KARTI_SFX.boardEnd({ draw: s.win === null, win: s.win === G.human });` |
+| 737 | `KARTI_SFX.play('board.resign');` |
+| 1004 | `KARTI_SFX.takeback('undo');` |
+| 1020 | `KARTI_SFX.takeback('ask');` |
+| 1135 (accepted / refused) | `KARTI_SFX.takeback('ok');` / `KARTI_SFX.takeback('no');` |
+| 682 `newGame()` | `KARTI_SFX.play('duel.start'); KARTI_SFX.preloadFor('chess');` |
+
+**`js/dama.js`**
+
+| Line | Add |
+|---|---|
+| 535 | `KARTI_SFX.boardPick('dama');` |
+| 533, 544 | `KARTI_SFX.boardCancel();` |
+| 565 `begin()` | `KARTI_SFX.boardChain(1);` |
+| 576 `advance()` | `KARTI_SFX.boardChain(at, done.length ? at : 0);` — `at` is the hop number the chain is already tracking |
+| 591 (human), 617 (AI) | `KARTI_SFX.boardMove({ game:'dama', capture:!!m.caps.length, hops:m.caps.length, crowned:G.st.crowned });` |
+| 538 | `KARTI_SFX.boardIllegal({ forced:true });` |
+| 671 `finish()` | `KARTI_SFX.boardEnd({ draw: s.win === null, win: s.win === G.human });` |
+| 401 | `KARTI_SFX.play('board.resign');` |
+| 647, 661 | `KARTI_SFX.takeback('undo');` / `KARTI_SFX.takeback('ask');` |
+| 355 `newGame()` | `KARTI_SFX.play('duel.start'); KARTI_SFX.preloadFor('dama');` |
+
+**`js/skarta.js`** — one dispatcher, `KARTI_SFX.skarta(type, info)`:
+
+| Line | Add |
+|---|---|
+| 282 | `KARTI_SFX.skarta('play');` |
+| 309, 311 | `KARTI_SFX.skarta('skip');` |
+| 318 | `KARTI_SFX.skarta('reverse');` |
+| 323 | `KARTI_SFX.skarta('chain', { n:S.chain.n });` |
+| 331 | `KARTI_SFX.skarta('chain', { n:S.chain.n });` |
+| 348 | `KARTI_SFX.skarta('shut');` |
+| 364 | `KARTI_SFX.skarta('shuffle');` |
+| 388 | `KARTI_SFX.skarta('eat', { n:n });` |
+| 414 | `KARTI_SFX.skarta('draw');` |
+| 442 | `KARTI_SFX.skarta('ahhar');` |
+| 456 | `KARTI_SFX.skarta('caught');` |
+| 466 | `KARTI_SFX.skarta('missed');` |
+| 257 | `KARTI_SFX.skarta('turn');` |
+| 275 | `KARTI_SFX.skarta('illegal');` |
+| 479 | `KARTI_SFX.skarta('over', { win: winner === 0 });` |
+
+**`js/skarta-ui.js`** — `925` (suit chosen): `KARTI_SFX.skarta('suit', { i:idx });`
+
+**`js/game.js`** — the pack opener's two remaining beats and the purchase:
+`1447` `KARTI_SFX.play('shop.buy')`, the duplicate branch of the reveal
+`KARTI_SFX.play('pack.dupe')`, and `1754` `KARTI_SFX.run('pack.tally', n, 90)`.
+
+Every one of these is safe to add in any order and safe to leave out. A call to
+an id whose file is missing is **silence, not an error**, and if a real call
+site and the delegated layer ever both fire for the same moment, `DEDUPE_MS`
+drops the second and exactly one sound comes out.
+
+## 10.5 QA FOR THIS PASS
+
+On top of §8:
+
+- [ ] **Tap the four tabs in order, then out of order.** It should sound like a
+      tune either way. If any pair clashes, the note file is not what you think
+      it is — regenerate `ui-note`, do not re-map the steps.
+- [ ] **Turn one settings switch on and off ten times.** On and off must be
+      audibly different, and neither may grate.
+- [ ] **Drag the volume slider end to end.** A scale, not a machine gun.
+- [ ] **Play one dama game and force a four-jump chain.** It must climb, and
+      the fourth hop must not be sharp.
+- [ ] **Play one chess game.** Every move is slide + knock. If that grates by
+      move twenty, lower `piece.slide`'s `g:` — do not regenerate.
+- [ ] **Open one pack.** Charge, tear, five flips, the stings. Nothing may be
+      late, and nothing may double up.
+- [ ] Run a filter row and a chip row: a scale, no repeats.
+- [ ] `KARTI_SFX.diag()` — `registered` is **49**, `missing` is empty once all
+      nine are in, and `auto` shows every channel.
+- [ ] Delete all nine new files and confirm KARTI is exactly as it was.

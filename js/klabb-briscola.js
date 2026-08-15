@@ -563,7 +563,7 @@ const RULES_COMMON = [
 
 function mkGame(id, v, o){
   KB.define({
-    id, order:o.order, name:o.name, mt:o.mt, tag:o.tag, blurb:o.blurb,
+    id, order:o.order, name:o.name, mt:o.mt, tag:o.tag, blurb:o.blurb, shelfId:o.shelfId,
     cardCount: 40, seats:o.seats, seatNote:o.seatNote, mark:o.mark,
     thinkMs: 600,
     rules: o.rules,
@@ -578,6 +578,10 @@ function mkGame(id, v, o){
 
 mkGame('bixkla', 'bixkla', {
   order: 10,
+  /* see shelve() in js/klabb.js: this game stands in the placeholder
+     slot js/party.js reserved for this file. Delete that placeholder and
+     this line goes with it. */
+  shelfId: 'klabb',
   name: 'BIXKLA',
   mt: 'Il-briscola tagħna',
   seats: [4, 2],

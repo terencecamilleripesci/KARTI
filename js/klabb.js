@@ -189,6 +189,67 @@ const PIP_ART = {
      '<path d="M46 58c0 19-4 31-12 38h32c-8-7-12-19-12-38Z"/>'
 };
 
+/* ── the shelf marks ───────────────────────────────────────────────
+   Each of the four games gets its own tile on the Party Games shelf, so
+   each needs its own mark. js/party.js draws a tile's mark by dropping
+   <use href="#id"> into a 24x24 box and painting it flat gold with no
+   stroke — that is the convention chess already uses and it is not ours
+   to change — so these are pure fills on a 24 grid, told apart by their
+   SILHOUETTE first and their pip second, because at thirty pixels an
+   outline is all anybody actually reads.
+
+     bixkla   a fan of three, spade on the front card
+     briscola two cards crossed, diamond on the front one
+     sette    one card and a stack of counters
+     cheat    two cards, the front one face down
+
+   Drawn, not generated: an emblem this small is sharper as geometry, and
+   it cannot come back as tofu on a phone. */
+function rr(x, y, w, h, r){
+  const n = v => Math.round(v * 100) / 100;
+  return 'M' + n(x+r) + ' ' + n(y) + 'H' + n(x+w-r) + 'A' + r + ' ' + r + ' 0 0 1 ' + n(x+w) + ' ' + n(y+r) +
+         'V' + n(y+h-r) + 'A' + r + ' ' + r + ' 0 0 1 ' + n(x+w-r) + ' ' + n(y+h) +
+         'H' + n(x+r) + 'A' + r + ' ' + r + ' 0 0 1 ' + n(x) + ' ' + n(y+h-r) +
+         'V' + n(y+r) + 'A' + r + ' ' + r + ' 0 0 1 ' + n(x+r) + ' ' + n(y) + 'Z';
+}
+/* a card as a FRAME: outer rounded rect and inner rounded rect in one
+   path, wound the same way, so evenodd cuts the middle out. No stroke
+   involved, which is what lets it survive the tile's stroke:none. */
+function cardFrame(x, y, w, h, t){
+  return '<path fill-rule="evenodd" d="' + rr(x, y, w, h, 1.5) +
+         rr(x + t, y + t, w - 2*t, h - 2*t, 0.8) + '"/>';
+}
+const mpip = (k, cx, cy, sz) =>
+  '<use href="#kb-p-' + k + '" xlink:href="#kb-p-' + k + '" x="' + (cx - sz/2) +
+  '" y="' + (cy - sz/2) + '" width="' + sz + '" height="' + sz + '"/>';
+
+const TILE_MARKS = {
+  bixkla:
+    '<g transform="rotate(-27 12 20.5)">' + cardFrame(7.6, 6.8, 8.8, 13.7, 1.05) + '</g>' +
+    '<g transform="rotate(27 12 20.5)">'  + cardFrame(7.6, 6.8, 8.8, 13.7, 1.05) + '</g>' +
+    cardFrame(7.4, 5.8, 9.2, 14.7, 1.1) + mpip('S', 12, 13.1, 5.4),
+  briscola:
+    '<g transform="rotate(-38 12 13)">' + cardFrame(7.6, 4.6, 8.8, 16.8, 1.05) + '</g>' +
+    '<g transform="rotate(26 12 13)">'  + cardFrame(7.6, 4.6, 8.8, 16.8, 1.05) +
+      mpip('D', 12, 13, 5.4) + '</g>',
+  sette:
+    cardFrame(1.8, 4.2, 9.6, 15.6, 1.1) + mpip('H', 6.6, 12, 5.4) +
+    '<ellipse cx="17.6" cy="16.7" rx="4.6" ry="1.9"/>' +
+    '<ellipse cx="17.6" cy="12.5" rx="4.6" ry="1.9"/>' +
+    '<ellipse cx="17.6" cy="8.3"  rx="4.6" ry="1.9"/>',
+  cheat:
+    '<g transform="rotate(-19 12 13)">' + cardFrame(7.8, 4.8, 8.6, 16.4, 1.05) + '</g>' +
+    /* the front one is face DOWN: three bars of a card back rather than a
+       pip. Bars, not a solid panel — a filled block goes to a blob at
+       thirty pixels while the other three stay line-drawn, and a shelf
+       where one mark is twice the weight of its neighbours looks like a
+       mistake. */
+    '<g transform="rotate(12 12 13)">'  + cardFrame(7.4, 4.4, 9.2, 17.2, 1.1) +
+      '<path d="' + rr(9.5, 8.0, 5.0, 1.7, 0.6) +
+                    rr(9.5, 11.6, 5.0, 1.7, 0.6) +
+                    rr(9.5, 15.2, 5.0, 1.7, 0.6) + '"/></g>'
+};
+
 let defsDone = false;
 function injectDefs(){
   if (defsDone || document.getElementById('kb-defs')) { defsDone = true; return; }
@@ -214,6 +275,8 @@ function injectDefs(){
   s += '<symbol id="kb-cross" viewBox="0 0 100 100">' +
        '<path d="M50 46 30 26 18 38l14 12-14 12 12 12 20-20 20 20 12-12-14-12 14-12' +
        '-12-12-20 20Z" transform="translate(0,0)"/></symbol>';
+  for (const k in TILE_MARKS)
+    s += '<symbol id="kb-t-' + k + '" viewBox="0 0 24 24">' + TILE_MARKS[k] + '</symbol>';
   svg.innerHTML = s;
   document.body.appendChild(svg);
 }
@@ -660,6 +723,44 @@ function define(def){
   if (at >= 0) GAMES[at] = def; else GAMES.push(def);
   BY_ID[def.id] = def;
   GAMES.sort((a, b) => (a.order || 99) - (b.order || 99));
+  shelve(def);
+}
+
+/* ── ON THE SHELF ──────────────────────────────────────────────────
+   Each game is its own tile under Card Games and tapping one deals.
+
+   It used to be one tile called PLAYING CARDS which opened a menu of
+   four. The owner's verdict on seeing it: "playing cards are in card
+   games wtf" — and he was right twice. A tile named after the section
+   it sits in tells you nothing, and it charged you an extra screen to
+   learn nothing. Four tiles, four real names, one tap less. */
+function shelve(def){
+  P.register({
+    /* THE ODD ONE OUT. js/party.js carries a placeholder tile of its own
+       — {id:'klabb', name:'PLAYING CARDS', status:'soon'} — whose comment
+       says it "turns real the moment its own file registers over the top
+       of this entry with an open()". We are that file, and register()
+       replaces by id, so taking the slot is the only way to retire it
+       without editing a file another build is live in. Bixkla takes it,
+       being the headline game.
+       When that placeholder is deleted from js/party.js, this whole
+       property goes and Bixkla registers under 'bixkla' like the rest. */
+    id: def.shelfId || def.id,
+    order: def.order,
+    name: def.name,
+    mt: def.mt,
+    cat: 'cards',
+    sprite: 'kb-t-' + def.id,
+    icon: 'cards',
+    status: 'live',
+    /* a getter, not a string: the shelf is built fresh on every visit
+       and this is the only way it can mention a hand left mid-deal
+       without js/party.js having to know we exist. */
+    get tag(){
+      return def.tag + (savedSlot(def.id) ? ' There is a hand of this half-played.' : '');
+    },
+    open: () => setupSheet(def)
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1081,7 +1182,14 @@ function finish(done){
   M.finished = true;
   stopThinking();
   saveSlot(M.gid, null);
-  if (!M.net && done.tone) record(M.gid, done.tone === 'win' ? 'w' : done.tone === 'lose' ? 'l' : 'd');
+  if (!M.net && done.tone){
+    const o = done.tone === 'win' ? 'w' : done.tone === 'lose' ? 'l' : 'd';
+    record(M.gid, o);
+    /* and into js/party.js's own ledger through its public API, the way
+       chess and dama do, so our tiles carry a W/L/D like theirs. Our
+       copy in karti_klabb_v1 stays the one we read. */
+    if (typeof P.record === 'function'){ try { P.record(M.gid, o); } catch(e){} }
+  }
   P.ui.result(M.ctx, {
     tone: done.tone || 'draw',
     head: done.head,
@@ -1090,7 +1198,7 @@ function finish(done){
     buttons: [
       { label:'Deal again', icon:'refresh', cls:'primary',
         go: () => newGame(M.gid, M.opts) },
-      { label:'Back to the games', icon:'back', cls:'ghost', go: () => menu() }
+      { label:'Back to the shelf', icon:'back', cls:'ghost', go: () => P.hub() }
     ]
   });
 }
@@ -1112,7 +1220,10 @@ function newGame(gid, opts, snap){
   M.finished = false;
   M.ctx = P.ui.frame({
     title: def.name,
-    onBack: () => menu(),
+    /* the back arrow off a table goes to THAT game's setup sheet, not
+       to the shelf — the thing you most often want next is another
+       hand of the same game with different company */
+    onBack: () => setupSheet(def),
     leave: () => leave(),
     buttons: [
       { id:'kb-undo',  label:'Undo',  icon:'back',    cls:'ghost' },
@@ -1247,7 +1358,7 @@ function setupSheet(def){
         '<div class="kb-rules"><h5>The rules, as we play them</h5><ul>' +
           def.rules.map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
       '</div>';
-    el.querySelector('#kb-back').onclick = () => menu();
+    el.querySelector('#kb-back').onclick = () => P.hub();
     el.querySelectorAll('[data-seats]').forEach(b => b.onclick = () => {
       seats = +b.dataset.seats; humans = Math.min(humans, seats); paint();
     });
@@ -1268,79 +1379,30 @@ function setupSheet(def){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE MODE MENU
-   The one tile on the party shelf opens this: every game the ordinary
-   deck can be turned into, with an honest line about what each one
-   actually is.
-   ═══════════════════════════════════════════════════════════════════ */
-function menu(){
-  P.show();
-  injectCSS();
-  stopThinking(); M = null; UI = null;
-  const el = P.ui.screenEl();
-  el.innerHTML =
-    '<div class="tbar">' +
-      '<button class="iconbtn" id="kb-hub" aria-label="Back to the shelf">' +
-        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-      '<h2>Playing Cards</h2>' +
-    '</div>' +
-    '<div class="scroll">' +
-      '<p class="blurb">Fifty-two cards, no special powers, nobody paying for a booster. ' +
-      'Same deck your nannu keeps in the drawer with the elastic band round it — and the ' +
-      'same four games he will beat you at with it.</p>' +
-      '<div class="kb-modes" id="kb-modes"></div>' +
-      '<p class="pt-foot">The Maltese pack is the ordinary English one with the eights, ' +
-      'nines and tens taken out. That is why the Jack outranks the Queen in Bixkla — he ' +
-      'is sitting in the horse\'s chair. Argue about it at the kazin, not with us.</p>' +
-    '</div>';
-  const box = el.querySelector('#kb-modes');
-  GAMES.forEach(g => {
-    const r = recOf(g.id);
-    const played = r.w + r.l + r.d;
-    const b = document.createElement('button');
-    b.className = 'kb-mode';
-    b.type = 'button';
-    /* three real cards, small, as the tile's mark — no icon font, no
-       art file, and it says "playing cards" better than any glyph */
-    const marks = (g.mark || [mk(0,1), mk(1,13), mk(2,3)]);
-    b.innerHTML =
-      '<span class="kb-mini">' + marks.map(c => cardEl(c, { w:30, cls:'tiny' })).join('') + '</span>' +
-      '<b>' + esc(g.name) + '</b>' +
-      (g.mt ? '<i>' + esc(g.mt) + '</i>' : '') +
-      '<s>' + esc(g.tag) + '</s>' +
-      '<span class="kb-tags">' +
-        '<span class="kb-tag go">' + esc(g.seats.join(' or ')) + ' players</span>' +
-        '<span class="kb-tag">' + g.cardCount + ' cards</span>' +
-        (savedSlot(g.id) ? '<span class="kb-tag go">Hand in progress</span>' : '') +
-        (played ? '<span class="kb-tag">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '') +
-      '</span>';
-    b.onclick = () => setupSheet(g);
-    box.appendChild(b);
-  });
-  el.querySelector('#kb-hub').onclick = () => P.hub();
-}
-
-function open(){ injectCSS(); menu(); }
-
-/* ═══════════════════════════════════════════════════════════════════
    THE WAY IN
-   The party hub lists us under Card Games; registering here is the
-   whole of the wiring.
+   There is no menu of our own any more and that is the point: the four
+   tiles ARE the menu, they sit on the Party Games shelf under Card
+   Games next to SKARTA, and each one opens its own setup sheet. Two
+   taps from the shelf to a dealt hand.
+
+   define() above does the registering, so a fifth game would only have
+   to call KARTI_KLABB.define() and it would appear on the shelf with
+   the rest.
    ═══════════════════════════════════════════════════════════════════ */
-P.register({
-  id:'klabb', order:15, name:'PLAYING CARDS', mt:'Il-Karti tal-Klabb',
-  icon:'cards', cat:'cards', status:'live',
-  tag:'A real 52-card deck and four games to do to it: Bixkla, Briscola, ' +
-      'Sette e Mezzo, and one that is mostly lying to your friends.',
-  open
-});
+function open(id){
+  injectCSS();
+  const def = id && BY_ID[id];
+  if (def) setupSheet(def); else P.hub();
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    PUBLIC FACE
    The engine files below use define(). js/mp.js uses hooks.
    ═══════════════════════════════════════════════════════════════════ */
 window.KARTI_KLABB = {
-  open, menu, close: () => { leave(); P.hub(); },
+  /* open() with no argument goes to the shelf; open('bixkla') goes
+     straight to that game's setup sheet. */
+  open, close: () => { leave(); P.hub(); },
   define, games: GAMES, engines: BY_ID,
   deck: DECK,
 
@@ -1434,6 +1496,13 @@ window.KARTI_KLABB = {
     begin: (gid, opts, seed) => { newGame(gid, opts, seed == null ? undefined : { v:1, gid, opts, seed, log:[] }); return snapshot(); }
   }
 };
+
+/* The shelf is painted by js/party.js before anything of ours has been
+   on screen, and its four tiles reference our marks by id — so the
+   symbol sheet has to be in the document from the moment this file
+   loads, not from the first time somebody opens a game. */
+if (document.body) injectDefs();
+else document.addEventListener('DOMContentLoaded', injectDefs);
 
 /* ── test hooks — inert unless the page is opened with ?pttest ──── */
 try {
