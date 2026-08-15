@@ -69,10 +69,13 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tag .ico{vertical-align:-.18em}
 
 /* ══════════════════ SHELL ══════════════════ */
-/* 100vh first as the plain fallback, then 100dvh where it is understood: on a
-   phone the toolbars come and go and 100vh is the TALL viewport, which pushes
-   the bottom of a full-bleed screen under the browser chrome. */
-#app{position:fixed;inset:0;overflow:hidden;height:100vh;height:100dvh}
+/* Same ladder the LuxuryLifts app uses, which is proven full-screen on his
+   iPhone: 100vh as the plain fallback, then 100svh. `svh` is the SMALL viewport
+   — the height with the browser chrome showing — so the layout never assumes
+   room it might lose, and nothing shifts when the toolbars slide away. `dvh`
+   was worse in both directions: it grows when the bar hides, which handed a
+   centred column a pile of extra height and spread the menu out. */
+#app{position:fixed;inset:0;overflow:hidden;height:100vh;height:100svh}
 .screen{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
@@ -282,7 +285,9 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .homehead{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center;min-height:44px}
 .homemid{
   flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
-  gap:clamp(8px,2vh,20px);padding:clamp(2px,1vh,10px) 0;
+  /* Tightened: 2vh of gap between five blocks on a tall phone left the menu
+     looking half empty. The online panel below takes the slack instead. */
+  gap:clamp(6px,1.1vh,12px);padding:clamp(2px,0.6vh,6px) 0;
   /* Safety net only. At 390x844 and 360x640 this never overflows — but a huge
      Dynamic-Type setting or a very short landscape window must scroll, never clip. */
   overflow-y:auto;overflow-x:hidden;scrollbar-width:none;

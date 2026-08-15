@@ -46,9 +46,14 @@
    has to be obvious when it cannot reach the server — an empty list and a dead
    server must never look the same. Hence three visually distinct states:
    .on-live (green), .on-empty (grey) and .on-bad (red, with a real explanation). */
-.onlinebox{flex:0 0 auto;border:1px solid var(--line);border-radius:15px;
+/* Deliberately does NOT grow to fill. Stretching it just produced a tall empty
+   panel, and the leftover height is better spent showing the street art behind
+   than on a box with two names in it. It scrolls internally once it is busy. */
+.onlinebox{flex:0 1 auto;max-height:38vh;border:1px solid var(--line);border-radius:15px;
   background:rgba(14,10,26,.82);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
   padding:9px 10px 8px;min-height:0;display:flex;flex-direction:column;gap:7px}
+.onlinebox .on-list{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:none}
+.onlinebox .on-list::-webkit-scrollbar{display:none}
 .onlinebox:empty{display:none}
 .on-head{display:flex;align-items:center;gap:8px;flex:0 0 auto}
 .on-head h2{font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:#EFE7FF;

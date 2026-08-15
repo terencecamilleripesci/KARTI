@@ -30,7 +30,7 @@
   margin-inline:auto;width:100%;max-width:560px;
   display:flex;flex-direction:column;
   max-height:calc(100vh - 18px);
-  max-height:calc(100dvh - 18px);
+  max-height:calc(100svh - 18px);
   padding:0 0 calc(var(--sab) + 16px);
   border-radius:26px 26px 0 0;
   border-top:1px solid var(--line2);
