@@ -396,6 +396,15 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    Do NOT put transform, filter, backdrop-filter or will-change on any ANCESTOR
    of this element — each creates a containing block and drags a fixed child off
    the bottom. That has bitten this file before. */
+/* Set by the probe in the shell script below. On an icon that was installed while
+   the legacy apple-mobile-web-app metas were present, iOS gives the page a WebView
+   a status-bar shorter than the screen. The strip it leaves underneath is painted
+   with the page background — the same colour as this bar — and already contains the
+   home indicator. Reserving var(--sab) inside the page as well pushes the icons up
+   and makes that strip read as an empty gap. So in that case only, the bar takes a
+   small flat pad and lets the strip be the clearance. A normally-installed icon,
+   where the WebView reaches the bottom, keeps the full inset. */
+html.short-webview .tabbar{ padding-bottom:8px }
 .tabbar{
   position:absolute;bottom:0;left:0;right:0;z-index:200;
   display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
@@ -1507,7 +1516,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 36;
+var KARTI_BUILD = 37;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1541,7 +1550,23 @@ window.swVersion = function(){
     s.onload = s.onerror = function(){ next(i + 1); };
     document.head.appendChild(s);
   })(0);
-  /* Party Games entry. js/party.js is loaded separately and may not be present on
+  /* Is this WebView shorter than the physical screen? That is the signature of an
+   icon installed under the old apple-mobile-web-app metas (his phone reports 894
+   of 956). Measured, not guessed, and re-checked on orientation change. */
+(function shortWebView(){
+  function check(){
+    try{
+      var gap = (screen && screen.height ? screen.height : innerHeight) - innerHeight;
+      document.documentElement.classList.toggle('short-webview', gap > 20 && gap < 200);
+    }catch(e){}
+  }
+  check();
+  addEventListener('resize', check);
+  addEventListener('orientationchange', function(){ setTimeout(check, 250); });
+  addEventListener('pageshow', check);
+})();
+
+/* Party Games entry. js/party.js is loaded separately and may not be present on
    every deploy, so this is wired here rather than in game.js: if the hub is
    there it opens, and if it is not the player is told plainly instead of
    tapping a dead button. */
