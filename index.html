@@ -75,12 +75,18 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tag .ico{vertical-align:-.18em}
 
 /* ══════════════════ SHELL ══════════════════ */
-/* NO explicit height. `position:fixed; inset:0` already resolves to exactly the
-   visual viewport on every browser, including an installed iOS PWA. Pinning a
-   height on top of that was the bug: when the unit disagreed with the real
-   screen — which it does in iOS standalone — #app came up short and the body
-   gradient showed through underneath as a black band below the tab bar. */
-#app{position:fixed;inset:0;overflow:hidden}
+/* On iOS Safari `position:fixed` is measured against the LAYOUT viewport, not
+   the visible one — so with the toolbars showing, the bottom of a fixed,
+   inset:0 element sits behind the toolbar and the tab bar is pushed out of
+   sight. No CSS length fixes that: vh is the tall viewport, svh is the short
+   one, and Safari moves between them as you scroll.
+   So the real visible height is measured with visualViewport and written to
+   --app-h (see the shell script at the end of the file). It is exactly right in
+   a browser tab AND in the installed app, where it simply equals the screen.
+   100svh is only the fallback for the first paint and for anything that has no
+   visualViewport. */
+#app{position:fixed;top:0;left:0;right:0;overflow:hidden;
+     height:100svh;height:var(--app-h,100svh)}
 .screen{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
@@ -1164,6 +1170,33 @@ window.ICO = function(name, label, cls){
 window.ILB = function(name, html, cls){
   return '<span class="bl">' + window.ICO(name, null, cls) + '<span>' + html + '</span></span>';
 };
+
+/* ── the real visible height ──────────────────────────────────────────────
+   iOS Safari measures position:fixed against the LAYOUT viewport, so with the
+   toolbars on screen the bottom of the app hides behind them. visualViewport
+   reports what is genuinely visible, which is correct in a tab AND in the
+   installed app (where it is just the screen). Runs before the game loads so
+   the first paint is already right. */
+(function appHeight(){
+  var vv = window.visualViewport;
+  var raf = 0;
+  function apply(){
+    raf = 0;
+    var h = vv ? vv.height : window.innerHeight;
+    if (h > 0) document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
+  }
+  function queue(){ if (!raf) raf = requestAnimationFrame(apply); }
+  apply();
+  if (vv){
+    vv.addEventListener('resize', queue);
+    /* Safari slides its toolbars in and out DURING a scroll, changing the
+       visible height without ever firing resize. */
+    vv.addEventListener('scroll', queue);
+  }
+  addEventListener('resize', queue);
+  addEventListener('orientationchange', function(){ setTimeout(apply, 250); });
+  addEventListener('pageshow', queue);
+})();
 
 /* Sequential loader: card sets are optional and may not all exist yet.
    A missing set must never stop the game booting. game.js always loads last. */
