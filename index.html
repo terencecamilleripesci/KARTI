@@ -10,7 +10,15 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- NOT black-translucent. That draws the page from y=0 under the status bar while
+     iOS still sizes the viewport as screen MINUS the status bar, so the page always
+     ends short of the physical bottom — measured on his iPhone: screen 956, viewport
+     894, a dead 62px strip below the tab bar that nothing in the document can paint.
+     With "black" the viewport is positioned BELOW the status bar and genuinely runs to
+     the bottom edge, so the home indicator sits inside the page where --sab handles it.
+     The cost is the artwork no longer showing behind the clock; the gain is the app
+     actually ending where the screen does. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- The home background is the first thing the player sees and it is only ever
      requested from JS (detectArt's probe). Preloading it starts the download in
@@ -391,16 +399,11 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   box-shadow:0 -1px 0 rgba(255,255,255,.05) inset,0 -12px 30px rgba(0,0,0,.55);
   backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
 }
-/* In an installed app with a black-translucent status bar, iOS hands the page a
-   viewport 62px SHORTER than the screen (measured on his phone: screen 956,
-   viewport 894). Those 62px sit below the page and already contain the home
-   indicator — so the bar's own safe-area padding counts that clearance a second
-   time and leaves about 100px of dead space under the labels. In standalone the
-   phantom strip IS the safe area, so a small flat pad is enough. A browser tab
-   keeps var(--sab), because there the viewport really does reach the bottom. */
-@media (display-mode: standalone){
-  .tabbar{ padding-bottom:7px }
-}
+/* The standalone override that used to live here is gone. It existed because
+   black-translucent left a 62px strip below the viewport that already contained
+   the home indicator, so var(--sab) was double-counting it. Now the status bar
+   style is "black", the viewport reaches the physical bottom, the home indicator
+   is inside the page, and var(--sab) above is exactly right again. */
 .tab{
   position:relative;min-width:0;   /* min-width:0 or a long label stretches its column */
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
@@ -606,10 +609,12 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 
 /* Deliberately soft. A first pass had a pure-white core and it read as a
    fluorescent tube standing behind the card rather than as light — at this
-   size a blown-out highlight is just a white stripe. mix-blend-mode:screen
-   makes the beam ADD light to the stage instead of painting over it, which is
-   what stops it flattening everything it crosses. */
-.fxbeam{left:50%;top:-32%;width:300px;height:164%;margin-left:-150px;mix-blend-mode:screen;
+   size a blown-out highlight is just a white stripe.
+   No mix-blend-mode, on purpose. It looked marginally richer, and it cost
+   about a quarter of the dropped frames in the legendary reveal all by itself:
+   a blended layer has to read the backdrop back every frame instead of being
+   composited. At these opacities plain alpha is indistinguishable. */
+.fxbeam{left:50%;top:-32%;width:300px;height:164%;margin-left:-150px;
   background:linear-gradient(90deg,transparent,
     color-mix(in srgb,var(--fxc,#FFD24A) 40%,transparent) 30%,
     var(--fxc,#FFD24A) 50%,
@@ -664,7 +669,16 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   transform:translate3d(var(--sx,0px),var(--sy,0px),0) rotate(var(--sr,0deg)) scale(var(--ss,1))}
 /* Exit is deliberately faster than entry (~60%): a card that has been seen
    should get out of the way immediately, or the pace dies. */
-.slot.gone{transition-duration:.34s,.26s}
+.slot.gone{pointer-events:none;visibility:hidden;
+  transition:transform .34s var(--ease),opacity .26s,visibility 0s .36s}
+/* A card that has gone still has to stay in the DOM — the transition is what
+   flicks it away — but it must stop costing anything, and this turned out to
+   be worth more than any single reveal effect: five revealed cards were
+   leaving five aura pulses and two holo sheens ticking on every frame for the
+   whole rest of the sequence. The visibility above flips discretely once the
+   flick has landed, so there is no timer and no JS to get wrong. */
+.slot.gone .aura,.slot.gone .shinewrap i,
+.slot.gone .card.holo .in::after{animation:none!important;opacity:0!important}
 /* .lift exists so the wind-up (a hover before the turn) has somewhere to live
    that is not .slot's var-driven transform and not .flipper's flip. It also
    finally gives the flip a real perspective — .stage's own perspective only
@@ -689,7 +703,6 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .shinewrap{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:5;
   border-radius:calc(min(182px,49vw)*.062)}
 .shinewrap i{position:absolute;top:-55%;bottom:-55%;left:0;width:34%;opacity:0;
-  mix-blend-mode:screen;
   transform:translate3d(-280%,0,0) rotate(17deg);
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.05) 20%,
     rgba(255,255,255,.5) 44%,#fff 50%,rgba(255,255,255,.5) 56%,
@@ -716,8 +729,9 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .slot.flipped.leggendarju .aura{opacity:1;background:radial-gradient(circle,rgba(255,200,70,.85),transparent 70%);
   animation:auraP 1s ease-in-out infinite}
 @keyframes auraP{0%,100%{transform:scale(.94);opacity:.55}50%{transform:scale(1.08);opacity:1}}
-.pt{position:absolute;left:50%;top:50%;width:9px;height:9px;border-radius:50%;pointer-events:none;z-index:6;
-  background:var(--pc,#fff);box-shadow:0 0 10px var(--pc,#fff);animation:ptFly var(--pd,.95s) var(--ease) forwards}
+.pt{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;pointer-events:none;z-index:6;
+  background:radial-gradient(circle,#fff 0 18%,var(--pc,#fff) 34%,transparent 70%);
+  animation:ptFly var(--pd,.95s) var(--ease) forwards}
 @keyframes ptFly{0%{transform:translate3d(0,0,0) scale(0);opacity:1}
   25%{opacity:1;transform:translate3d(calc(var(--tx)*.35),calc(var(--ty)*.35),0) scale(1.2)}
   100%{transform:translate3d(var(--tx),var(--ty),0) scale(0);opacity:0}}
@@ -726,7 +740,14 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   opacity:0;text-shadow:0 0 24px currentColor,0 3px 0 rgba(0,0,0,.6)}
 .rlabel.go{animation:rl 1.6s var(--ease) forwards}
 @keyframes rl{0%{opacity:0;transform:scale(1.7)}18%{opacity:1;transform:scale(1)}72%{opacity:1}100%{opacity:0;transform:scale(1.05)}}
-body.shake #app{animation:scShake .5s var(--ease)}
+/* The impact shake is on the STAGE, never on #app. Two reasons, and both of
+   them matter: #app is an ancestor of the fixed tab bar, and a transform on it
+   makes it the bar's containing block — that is the bug that dragged the bar
+   off the bottom of the screen once already. It is also the most expensive
+   thing on the screen, because it promotes and repaints the whole application
+   layer for half a second. The stage is most of what you are looking at
+   anyway, so the effect is the same and neither problem exists. */
+body.shake .stage,body.shake .ub-stage{animation:scShake .5s var(--ease)}
 @keyframes scShake{0%,100%{transform:translate3d(0,0,0)}
   12%{transform:translate3d(-9px,5px,0)}28%{transform:translate3d(8px,-6px,0)}
   46%{transform:translate3d(-7px,-4px,0)}64%{transform:translate3d(6px,5px,0)}82%{transform:translate3d(-3px,-2px,0)}}
@@ -1454,7 +1475,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 25;
+var KARTI_BUILD = 26;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
