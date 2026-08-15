@@ -41,6 +41,60 @@
   border-radius:10px;flex-direction:row}
 .navrow .btn .sub{display:none}
 
+/* ══════════════════ HOME: who is online ══════════════════
+   Filled in by js/mp.js. The ONLY part of KARTI that needs the internet, so it
+   has to be obvious when it cannot reach the server — an empty list and a dead
+   server must never look the same. Hence three visually distinct states:
+   .on-live (green), .on-empty (grey) and .on-bad (red, with a real explanation). */
+.onlinebox{flex:0 0 auto;border:1px solid var(--line);border-radius:15px;
+  background:rgba(14,10,26,.82);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  padding:9px 10px 8px;min-height:0;display:flex;flex-direction:column;gap:7px}
+.onlinebox:empty{display:none}
+.on-head{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.on-head h2{font-size:11px;letter-spacing:.15em;text-transform:uppercase;color:#EFE7FF;
+  flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.on-dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;background:var(--dim2)}
+.on-live .on-dot{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+.on-bad .on-dot{background:var(--bad);box-shadow:0 0 8px var(--bad)}
+.on-count{font-family:var(--disp);font-weight:900;font-size:11px;letter-spacing:.06em;
+  color:var(--gold);flex:0 0 auto}
+.on-ref{min-width:34px;min-height:34px;margin:-6px -4px -6px 0;display:grid;place-items:center;
+  border-radius:9px;color:var(--dim);flex:0 0 auto}
+.on-ref .ico{font-size:15px}
+.on-ref:active{transform:scale(.9);color:var(--txt)}
+.on-list{display:flex;flex-direction:column;gap:5px;min-height:0;
+  max-height:clamp(76px,24vh,208px);overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}
+.on-list::-webkit-scrollbar{width:5px}
+.on-list::-webkit-scrollbar-thumb{background:var(--line2);border-radius:5px}
+.onrow{display:flex;align-items:center;gap:8px;width:100%;text-align:left;flex:0 0 auto;
+  min-height:38px;padding:5px 8px;border-radius:11px;background:rgba(255,255,255,.045);
+  border:1px solid transparent;font-size:12px;line-height:1.25}
+.onrow .onmark{width:20px;height:20px;flex:0 0 auto;display:grid;place-items:center;
+  border-radius:6px;color:var(--dim2);background:rgba(0,0,0,.3)}
+.onrow .onmark .ico{font-size:13px}
+.onrow.s-waiting .onmark{color:var(--gold);background:rgba(255,197,66,.16)}
+.onrow.s-playing .onmark{color:var(--hot);background:rgba(232,69,44,.18)}
+.onrow.s-idle .onmark{color:var(--ok);background:rgba(61,220,132,.14)}
+.onrow .onwho{flex:1;min-width:0}
+.onrow .onname{display:block;font-family:var(--disp);font-weight:900;font-size:11.5px;
+  letter-spacing:.04em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#F4EFFF}
+.onrow .onstate{display:block;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;
+  color:var(--dim);margin-top:1px}
+.onrow .onme{color:var(--dim2);font-weight:700}
+.onrow.join{min-height:44px;border-color:rgba(255,197,66,.45);background:rgba(255,197,66,.10);
+  transition:transform .14s var(--ease),background .14s}
+.onrow.join:active{transform:scale(.985);background:rgba(255,197,66,.18)}
+.onrow .ongo{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;font-family:var(--disp);
+  font-weight:900;font-size:9.5px;letter-spacing:.1em;color:#241800;background:var(--gold);
+  border-radius:99px;padding:5px 9px}
+.on-note{font-size:10.5px;line-height:1.5;color:var(--dim);margin:0}
+.on-note b{color:#F0E4FF}
+.on-bad .on-note{color:#F6D2D7}
+.on-bad .on-note b{color:#FFB3BD}
+.on-bad{border-color:rgba(255,84,104,.4);background:rgba(30,10,18,.84)}
+.on-more{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim2);
+  text-align:center;margin:0}
+
 /* ══════════════════ STORY MODE ══════════════════ */
 .storyhdr{text-align:center;padding:2px 0 10px;flex:0 0 auto}
 .storyhdr .prog{font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.12em;color:var(--gold)}
@@ -208,8 +262,16 @@
 #scr-duel::before{content:'';position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(180deg,rgba(6,4,12,.66),rgba(6,4,12,.28) 32%,rgba(6,4,12,.28) 68%,rgba(6,4,12,.72))}
 #scr-duel>*{position:relative;z-index:1}
+/* FULL-BLEED. The art and its scrim paint the whole padding box — which is the
+   entire screen, safe-area insets included — so they run edge to edge and up
+   under the notch, while the CONTENT still sits inside the insets. */
+/* NB: no `position` here on purpose. `.screen` is position:absolute;inset:0 and
+   that is exactly what makes Home fill the viewport — an earlier `position:
+   relative` on this rule quietly dropped it back into normal flow, so the
+   screen was only ever as tall as its own content. */
 #scr-home{background-image:var(--art-home);background-size:cover;background-position:center top;
-  position:relative}
+  background-repeat:no-repeat;background-color:var(--bg);overflow:hidden;
+  padding-top:calc(var(--sat) + 6px);padding-bottom:calc(var(--sab) + 6px)}
 /* The home art is a bright, busy street scene and the duel screen was the only one
    with a scrim, so the logo and the nav row were unreadable on top of it. Darkest
    at the bottom, which is where the nav row sits. */

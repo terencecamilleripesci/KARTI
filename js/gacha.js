@@ -1,20 +1,24 @@
 /* ═══════════════════════════════════════════════════════════════════
    KARTI — gacha.js
-   IL-QASMA — the starter roll.
+   IL-QASMA — the blind pick.
 
-   A new player does not get to browse all seven decks and pick the best
-   one. The game rolls THREE of them, face down, and you tap to flip each
-   one open. Then you keep exactly one.
+   There are exactly THREE beginner decks, one on each attribute of the
+   counter triangle (FESTA -> CITY -> FARM -> FESTA). You are shown all
+   three, face up, with everything they do. Then they turn over, they get
+   shuffled in front of you, and you take one without knowing which.
 
-   Two rules that matter:
-     · the roll is written to the save the moment it is rolled, BEFORE you
-       choose — reloading the page gives you the same three, every time.
-     · the three are always distinct.
+   Three-card monte, except the house is not cheating.
 
-   The other four decks are not dead content: any locked starter can still
-   be bought for 400 coins on the home screen, and the two you rolled but
-   did not keep are discounted to 250 — you have already seen them, and
-   coins come from story wins and duels.
+   Three rules that matter:
+     · you SEE all three before anything is hidden — this is not a mystery
+       box, you know exactly what the three possible outcomes are;
+     · the assignment of decks to the three face-down positions is decided
+       and WRITTEN TO THE SAVE before a single card turns over, so reloading
+       the page cannot reroll it, and it is never written into the DOM —
+       the shuffle animation is decoration, the answer is not in the markup;
+     · what you get is the whole of your starting collection. There are no
+       other ready-made decks for sale. Everything after this comes out of
+       packs and gets built by hand in the deck builder.
 
    The flip, glow, burst, sparks and screen-shake are the PACK OPENING
    animation — the same rarityFx()/particles() functions and the same
@@ -28,37 +32,57 @@ const K = window.KARTI;
 if (!K) return;
 const $ = K.$, esc = K.esc;
 
-const ROLL_SIZE = 3;
-const SEEN_PRICE = 250;                 /* rolled but not kept */
-const FULL_PRICE = 400;
+/* The three beginner decks, and the only decks the game ever hands out.
+   One per ring attribute, so the counter triangle is symmetric: every
+   beginner beats exactly one of the others and loses to exactly one.
+   Anything else in STARTER_DECKS (SEA, TROUBLE, IL-KAZIN, IL-FAMILJA) is
+   a reference list for the deck builder and the story bosses, not a
+   starter — see js/cards.js. */
+const BEGINNER = ['festa', 'belt', 'razzett'];
+const ROLL_SIZE = BEGINNER.length;
+const SEEN_PRICE = 0, FULL_PRICE = 0;   /* nothing is for sale any more */
 
-/* ───────────────────────── the roll ───────────────────────── */
-function keys(){ return Object.keys(K.STARTER_DECKS); }
+/* ───────────────────────── the shuffle ─────────────────────────
+   Fisher-Yates off crypto.getRandomValues where the browser has it, so the
+   order is not a Math.random() sequence anybody could line up with a seed. */
+function rand(n){
+  const c = window.crypto || window.msCrypto;
+  if (c && c.getRandomValues){
+    const lim = Math.floor(0x100000000 / n) * n;      /* reject the biased tail */
+    const a = new Uint32Array(1);
+    let v;
+    do { c.getRandomValues(a); v = a[0]; } while (v >= lim);
+    return v % n;
+  }
+  return Math.floor(Math.random() * n);
+}
+function shuffled(arr){
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--){ const j = rand(i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
 
-/* Read the saved roll, or make one and save it immediately. The save has to
-   happen before the player sees anything, or they could reload to reroll. */
+/* ───────────────────────── the roll ─────────────────────────
+   opts  = the three decks, in the order they are SHOWN face up
+   slots = which deck is actually sitting under each face-down position.
+           This is the secret. It is decided here, saved here, and never
+           put in the DOM. */
 function roll(){
   const S = K.S;
-  const all = keys();
-  const cur = S.roll && Array.isArray(S.roll.opts)
-    ? S.roll.opts.filter(k => K.STARTER_DECKS[k]) : null;
-  if (cur && cur.length === ROLL_SIZE) return S.roll;
+  const cur = S.roll;
+  const ok = cur && Array.isArray(cur.opts) && Array.isArray(cur.slots) &&
+             cur.slots.length === ROLL_SIZE &&
+             cur.slots.every(k => K.STARTER_DECKS[k]) &&
+             cur.opts.every(k => K.STARTER_DECKS[k]);
+  if (ok) return cur;
 
-  const bag = all.slice();
-  const opts = [];
-  for (let i = 0; i < ROLL_SIZE && bag.length; i++){
-    opts.push(bag.splice(Math.floor(Math.random() * bag.length), 1)[0]);  /* distinct by construction */
-  }
-  S.roll = { opts, ts: Date.now(), picked: null };
-  K.save();                              /* ← locked in before a single card is shown */
+  S.roll = { opts: BEGINNER.slice(), slots: shuffled(BEGINNER), ts: Date.now(), picked: null };
+  K.save();                              /* locked in before a single card is shown */
   return S.roll;
 }
-function priceOf(key){
-  const S = K.S;
-  const r = S.roll;
-  if (r && r.opts && r.opts.indexOf(key) >= 0 && r.picked !== key) return SEEN_PRICE;
-  return FULL_PRICE;
-}
+/* Kept because game.js still calls it while the buy-a-starter flow is being
+   removed. Nothing is purchasable now, so it always answers "not for sale". */
+function priceOf(){ return null; }
 
 /* the three loudest cards in a deck, best rarity first — the showing-off bit */
 const RANK = { leggendarju:3, epiku:2, rari:1, komuni:0 };
@@ -72,72 +96,87 @@ function highlights(key, n){
 const topRarity = key => highlights(key, 1)[0] ? highlights(key, 1)[0].r : 'komuni';
 
 /* ───────────────────────── screen ───────────────────────── */
-let flipped = {}, busy = false;
+let stage = 'look', busy = false, chosenSlot = -1;
 
 function open(){
-  const r = roll();
-  flipped = {}; busy = false;
-  paint(r);
+  roll();                                 /* saved before anything is drawn */
+  stage = 'look'; busy = false; chosenSlot = -1;
+  paintLook();
   K.go('gacha');
 }
 
-function paint(r){
+/* ── stage 1: all three, face up, nothing hidden ── */
+function paintLook(){
+  const r = K.S.roll;
   $('#scr-gacha').innerHTML =
     '<div class="scroll">' +
       '<div class="gacha-hdr">' +
         '<h1 class="logo" style="font-size:clamp(30px,10vw,46px)">IL-QASMA</h1>' +
-        '<p class="tagline">Your starter roll</p>' +
-        '<p class="blurb" style="text-align:center;margin-top:10px">Three decks, face down, drawn for ' +
-        'you. <b>Tap each one to turn it over</b> — then keep one. The other two stay cheap on the ' +
-        'home screen if you change your mind later.</p>' +
+        '<p class="tagline">The three beginner decks</p>' +
+        '<p class="blurb" style="text-align:center;margin-top:10px">These are the three. ' +
+        'Each one beats one of the others and loses to one of the others — no deck here is a ' +
+        'worse start than another. <b>Have a good look.</b> Then they go face down, they get ' +
+        'shuffled, and you take one without knowing which.</p>' +
       '</div>' +
-      '<div class="rlabel" id="g-label"></div>' +
       '<div class="gacha-row" id="g-row"></div>' +
-      '<p class="hint" id="g-hint">Tap the cards to reveal them</p>' +
+      '<p class="hint" id="g-hint">Tap any card to read it properly</p>' +
+      '<div class="savebar" style="position:static;margin-top:10px">' +
+        '<button class="btn primary" id="g-shuffle" style="flex:1">Ħallathom — turn them over and shuffle</button>' +
+      '</div>' +
       '<div style="height:26px"></div>' +
     '</div>';
 
   const row = $('#g-row');
-  r.opts.forEach((key, i) => {
-    const sd = K.STARTER_DECKS[key];
-    const cell = document.createElement('div');
-    cell.className = 'gacha-cell';
-
-    /* same markup shape as a pack slot, so the same CSS animations apply */
-    const slot = document.createElement('div');
-    slot.className = 'slot gslot ' + topRarity(key);
-    slot.dataset.key = key;
-    slot.innerHTML = '<div class="aura"></div>';
-
-    const flip = document.createElement('div');
-    flip.className = 'flipper';
-    flip.appendChild(K.backEl());
-    const front = document.createElement('div');
-    front.className = 'fr';
-    front.appendChild(deckFace(key));
-    flip.appendChild(front);
-    slot.appendChild(flip);
-
-    const tip = document.createElement('div');
-    tip.className = 'tapme'; tip.textContent = 'Tap to flip';
-    slot.appendChild(tip);
-
-    cell.appendChild(slot);
-    const info = document.createElement('div');
-    info.className = 'gacha-info';
-    info.id = 'g-info-' + i;
-    cell.appendChild(info);
-
-    slot.setAttribute('role', 'button');
-    slot.tabIndex = 0;
-    slot.setAttribute('aria-label', 'Face-down starter deck ' + (i + 1) + ' — tap to reveal');
-    slot.onclick = () => reveal(key, i, slot);
-    slot.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); reveal(key, i, slot); } };
-    row.appendChild(cell);
-  });
+  r.opts.forEach((key, i) => row.appendChild(cell(key, i, true)));
+  $('#g-shuffle').onclick = doShuffle;
 }
 
-/* the face of a rolled deck, drawn to the same proportions as a card */
+/* one deck cell. face-up when `show`, otherwise a plain back with no clue on it */
+function cell(key, i, show){
+  const wrap = document.createElement('div');
+  wrap.className = 'gacha-cell';
+  wrap.id = 'g-cell-' + i;
+  wrap.style.transition = 'transform .42s var(--ease)';
+
+  const slot = document.createElement('div');
+  slot.className = 'slot gslot ' + (show ? topRarity(key) : 'komuni');
+  /* deliberately NO data-key, no id, no class that names the deck: once these
+     are face down the markup must not give the answer away */
+  slot.innerHTML = '<div class="aura"></div>';
+
+  const flip = document.createElement('div');
+  flip.className = 'flipper';
+  flip.appendChild(K.backEl());
+  const front = document.createElement('div');
+  front.className = 'fr';
+  if (show) front.appendChild(deckFace(key));
+  flip.appendChild(front);
+  slot.appendChild(flip);
+  if (show) slot.classList.add('flipped');
+  wrap.appendChild(slot);
+
+  const info = document.createElement('div');
+  info.className = 'gacha-info' + (show ? ' on' : '');
+  info.id = 'g-info-' + i;
+  if (show){
+    const sd = K.STARTER_DECKS[key];
+    info.innerHTML = '<p class="gtag">' + esc(sd.tag) + '</p><div class="gcards" id="g-cards-' + i + '"></div>';
+  }
+  wrap.appendChild(info);
+  if (show){
+    const host = info.querySelector('.gcards');
+    highlights(key, 3).forEach((c, n) => {
+      const ce = K.cardEl(c, { size:'xs', tap:true });
+      ce.style.animation = 'pop .34s var(--ease) both';
+      ce.style.animationDelay = (n * .09) + 's';
+      ce.onclick = () => K.cardViewModal(c);
+      host.appendChild(ce);
+    });
+  }
+  return wrap;
+}
+
+/* the face of a beginner deck, drawn to the same proportions as a card */
 function deckFace(key){
   const sd = K.STARTER_DECKS[key];
   const attr = sd.f || key;
@@ -155,54 +194,92 @@ function deckFace(key){
   return el;
 }
 
-function reveal(key, i, slot){
-  if (flipped[key] || busy) return;
-  flipped[key] = true;
-  slot.classList.add('flipped');
-  const tip = slot.querySelector('.tapme'); if (tip) tip.remove();
-  /* the pack opener's own rarity treatment: label, sparks, and the shake
-     when something legendary turns up */
-  K.rarityFx(slot, topRarity(key), $('#g-label'));
+/* ── stage 2: turn them over and move them about ── */
+async function doShuffle(){
+  if (busy) return;
+  busy = true;
+  stage = 'shuffle';
+  const btn = $('#g-shuffle');
+  if (btn){ btn.disabled = true; btn.textContent = 'Ħallathom...'; }
 
-  const sd = K.STARTER_DECKS[key];
-  const info = $('#g-info-' + i);
-  info.innerHTML =
-    '<p class="gtag">' + esc(sd.tag) + '</p>' +
-    '<div class="gcards" id="g-cards-' + i + '"></div>' +
-    '<button class="btn primary sm gkeep" data-key="' + esc(key) + '">Keep ' + esc(sd.name) + '</button>';
-  const host = $('#g-cards-' + i);
-  highlights(key, 3).forEach((c, n) => {
-    const ce = K.cardEl(c, { size:'xs', tap:true });
-    ce.style.animation = 'pop .34s var(--ease) both';
-    ce.style.animationDelay = (n * .09) + 's';
-    ce.onclick = () => K.cardViewModal(c);
-    host.appendChild(ce);
-  });
-  info.classList.add('on');
-  info.querySelector('.gkeep').onclick = () => confirmKeep(key);
+  /* flip everything face down first */
+  const slots = Array.from(document.querySelectorAll('#g-row .slot'));
+  slots.forEach(s => s.classList.remove('flipped'));
+  document.querySelectorAll('#g-row .gacha-info').forEach(el => { el.classList.remove('on'); el.innerHTML = ''; });
+  await K.wait(420);
 
-  const hint = $('#g-hint');
-  if (hint) hint.textContent = Object.keys(flipped).length >= ROLL_SIZE
-    ? 'Now pick the one you want to keep'
-    : 'Tap the others too — you can see all three before choosing';
+  /* the swap animation. Purely cosmetic — which deck is under which position
+     was settled by roll() before any of this ran. */
+  const cells = [0, 1, 2].map(i => $('#g-cell-' + i));
+  const w = cells[0] ? cells[0].getBoundingClientRect().width + 12 : 120;
+  for (let n = 0; n < 5; n++){
+    const a = n % 3, b = (n + 1 + (n % 2)) % 3;
+    if (a === b) continue;
+    cells[a].style.transform = 'translateX(' + ((b - a) * w) + 'px)';
+    cells[b].style.transform = 'translateX(' + ((a - b) * w) + 'px)';
+    await K.wait(200);
+    cells[a].style.transform = '';
+    cells[b].style.transform = '';
+    await K.wait(120);
+  }
+
+  paintPick();
+  busy = false;
 }
 
-function confirmKeep(key){
-  const sd = K.STARTER_DECKS[key];
-  const others = K.S.roll.opts.filter(k => k !== key);
+/* ── stage 3: pick one, blind ── */
+function paintPick(){
+  stage = 'pick';
+  $('#scr-gacha').innerHTML =
+    '<div class="scroll">' +
+      '<div class="gacha-hdr">' +
+        '<h1 class="logo" style="font-size:clamp(30px,10vw,46px)">IL-QASMA</h1>' +
+        '<p class="tagline">Now take one</p>' +
+        '<p class="blurb" style="text-align:center;margin-top:10px">FESTA, CITY and FARM are all ' +
+        'still in there, one of each. Nobody knows which is which any more — <b>including the ' +
+        'phone, until you tap.</b> Go on.</p>' +
+      '</div>' +
+      '<div class="rlabel" id="g-label"></div>' +
+      '<div class="gacha-row" id="g-row"></div>' +
+      '<p class="hint" id="g-hint">Tap one. That is your deck.</p>' +
+      '<div style="height:26px"></div>' +
+    '</div>';
+  const row = $('#g-row');
+  for (let i = 0; i < ROLL_SIZE; i++){
+    const c = cell(null, i, false);
+    const slot = c.querySelector('.slot');
+    const tip = document.createElement('div');
+    tip.className = 'tapme'; tip.textContent = 'Take this one';
+    slot.appendChild(tip);
+    slot.setAttribute('role', 'button');
+    slot.tabIndex = 0;
+    slot.setAttribute('aria-label', 'Face-down deck ' + (i + 1) + ' of ' + ROLL_SIZE + ' — tap to take it');
+    slot.onclick = () => confirmKeep(i);
+    slot.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); confirmKeep(i); } };
+    row.appendChild(c);
+  }
+}
+
+function confirmKeep(i){
+  if (busy || stage !== 'pick') return;
   K.openSheet(
-    '<h3>Keep ' + esc(sd.name) + ' ' +
-      K.ico(K.ATTR_ICON[sd.f || key] || 'deck') + '?</h3>' +
-    '<p class="muted">' + esc(sd.tag) + '</p>' +
-    '<p class="muted">All 40 cards land in your collection and it becomes your active deck. ' +
-      'The other two — ' + others.map(k => esc(K.STARTER_DECKS[k].name)).join(' and ') +
-      ' — go on the home screen at <b>' + SEEN_PRICE + ' coins</b> instead of ' + FULL_PRICE + '.</p>' +
+    '<h3>Take the ' + ['first', 'middle', 'last'][i] + ' one?</h3>' +
+    '<p class="muted">One of FESTA, CITY or FARM. You will find out which in about two seconds, ' +
+      'and all 40 of its cards land in your collection.</p>' +
+    '<p class="muted">There is no swapping afterwards and there are no other ready-made decks — ' +
+      'everything else in this game gets collected out of packs and built by hand.</p>' +
     '<div class="opts">' +
-      '<button class="btn primary" id="gk-yes">Mela. Mine.</button>' +
-      '<button class="btn ghost" id="gk-no">Let me look again</button></div>');
+      '<button class="btn primary" id="gk-yes">Mela. That one.</button>' +
+      '<button class="btn ghost" id="gk-no">Let me look at them again</button></div>');
   $('#gk-no').onclick = K.closeSheet;
   $('#gk-yes').onclick = () => {
     busy = true;
+    chosenSlot = i;
+    const key = K.S.roll.slots[i];
+    /* Which of these 40 are genuinely NEW has to be read BEFORE the grant —
+       one line later every single one of them is owned and the answer is
+       always "no". This is the easy bug and this is where it lives. */
+    freshBefore(key);
     /* SAVE FIRST, ANIMATE SECOND. If the phone dies halfway through the
        unboxing the deck is already theirs — nobody ever ends up with an
        account and no cards because an animation did not finish. */
@@ -210,8 +287,28 @@ function confirmKeep(key){
     K.grantStarter(key);                 /* grants the 40 cards, builds the deck, saves */
     K.save();
     K.closeSheet();
-    unbox(key);
+    revealThen(i, key);
   };
+}
+
+/* turn the chosen card over on the spot, then go into the unboxing */
+async function revealThen(i, key){
+  const wrap = $('#g-cell-' + i);
+  if (wrap){
+    const slot = wrap.querySelector('.slot');
+    const tip = slot.querySelector('.tapme'); if (tip) tip.remove();
+    slot.querySelector('.fr').appendChild(deckFace(key));
+    slot.classList.add(topRarity(key));
+    slot.classList.add('flipped');
+    K.rarityFx(slot, topRarity(key), $('#g-label'));
+    document.querySelectorAll('#g-row .gacha-cell').forEach((el, n) => {
+      if (n !== i){ el.style.opacity = '.35'; el.style.transform = 'scale(.9)'; }
+    });
+    const hint = $('#g-hint');
+    if (hint) hint.textContent = K.STARTER_DECKS[key].name + ' it is.';
+    await K.wait(1100);
+  }
+  unbox(key);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -223,6 +320,20 @@ function confirmKeep(key){
    ═══════════════════════════════════════════════════════════════════ */
 const RVAL = { komuni:0, rari:1, epiku:2, leggendarju:3 };
 let skipAll = false, hurry = false;
+
+/* The ids the player did not own a moment before the deck was granted. Read
+   once, up front (see the note at the grant), and used all the way through the
+   unboxing so a brand-new card gets its NEW banner and a duplicate does not. */
+let FRESH = Object.create(null);
+function freshBefore(key){
+  FRESH = Object.create(null);
+  const list = (K.STARTER_DECKS[key] || {}).list || {};
+  Object.keys(list).forEach(id => {
+    if (!(K.S.owned && K.S.owned[id] > 0)) FRESH[id] = true;
+  });
+  return FRESH;
+}
+const isFresh = card => !!(card && FRESH[card.id]);
 
 function tally(key){
   const list = K.STARTER_DECKS[key].list;
@@ -291,7 +402,7 @@ async function unbox(key){
 function miniCard(x){
   const cell = document.createElement('div');
   cell.className = 'gcell';
-  const el = K.cardEl(x.c, { size:'xs', tap:true });
+  const el = K.cardEl(x.c, { size:'xs', tap:true, isNew: isFresh(x.c) });
   el.onclick = () => K.cardViewModal(x.c);
   el.style.animation = 'pop .3s var(--ease) both';
   cell.appendChild(el);
@@ -316,7 +427,7 @@ async function bigReveal(x){
   flip.appendChild(K.backEl());
   const front = document.createElement('div');
   front.className = 'fr';
-  front.appendChild(K.cardEl(x.c, { size:'md' }));
+  front.appendChild(K.cardEl(x.c, { size:'md', isNew: isFresh(x.c) }));
   if (x.n > 1){
     const b = document.createElement('span');
     b.className = 'cnt'; b.textContent = '×' + x.n;
@@ -376,7 +487,7 @@ function summary(key, all){
     '</div>';
   const bh = $('#ub-best');
   best.forEach(x => {
-    const el = K.cardEl(x.c, { size:'xs', tap:true });
+    const el = K.cardEl(x.c, { size:'xs', tap:true, isNew: isFresh(x.c) });
     el.onclick = () => K.cardViewModal(x.c);
     bh.appendChild(el);
   });
@@ -398,7 +509,8 @@ function claim(){
   open();
 }
 window.KARTI_GACHA = { open, roll, priceOf, highlights, topRarity, claim,
-                       unbox, summary, tally, ROLL_SIZE, SEEN_PRICE, FULL_PRICE,
+                       unbox, summary, tally, BEGINNER, ROLL_SIZE,
+                       SEEN_PRICE, FULL_PRICE,
                        get skipping(){ return skipAll; } };
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', claim);

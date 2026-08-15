@@ -8,6 +8,7 @@
 <title>KARTI — Maltese Card Duel</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
@@ -68,7 +69,10 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tag .ico{vertical-align:-.18em}
 
 /* ══════════════════ SHELL ══════════════════ */
-#app{position:fixed;inset:0;overflow:hidden}
+/* 100vh first as the plain fallback, then 100dvh where it is understood: on a
+   phone the toolbars come and go and 100vh is the TALL viewport, which pushes
+   the bottom of a full-bleed screen under the browser chrome. */
+#app{position:fixed;inset:0;overflow:hidden;height:100vh;height:100dvh}
 .screen{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
@@ -221,9 +225,29 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .cnt{position:absolute;bottom:-5px;right:-5px;min-width:24px;height:24px;padding:0 6px;border-radius:99px;
   background:var(--gold);color:#241800;font-family:var(--disp);font-weight:900;font-size:12px;
   display:grid;place-items:center;box-shadow:0 2px 6px rgba(0,0,0,.6);z-index:4}
-.newbadge{position:absolute;top:-7px;right:-7px;background:var(--ok);color:#04240F;font-family:var(--disp);
-  font-weight:900;font-size:10px;letter-spacing:.06em;padding:3px 7px;border-radius:99px;z-index:5;
-  box-shadow:0 2px 8px rgba(61,220,132,.55);animation:pop .4s var(--ease) both}
+/* ── NEW: a card the player did not own before this moment ──
+   A banner right across the top of the card, not a corner sticker. It is
+   anchored by its BOTTOM edge to just above the card's top, so however tall it
+   gets it only ever laps .35em over the frame — the card's own name starts a
+   good half-em below that and stays readable. Sized in em, and .card sets
+   font-size:calc(var(--cw)/11), so it scales with whatever card it is on. */
+.newbadge{position:absolute;left:-.2em;right:-.2em;bottom:calc(100% - .35em);z-index:6;
+  pointer-events:none;display:flex;align-items:center;justify-content:center;
+  min-height:1.95em;padding:.12em .5em;border-radius:.5em;
+  font-family:var(--disp);font-weight:900;font-size:1em;letter-spacing:.3em;text-indent:.3em;
+  text-transform:uppercase;color:#04240F;
+  background:linear-gradient(180deg,#8CFFC0,var(--ok) 52%,#12A055);
+  border:1px solid rgba(255,255,255,.6);text-shadow:0 1px 0 rgba(255,255,255,.4);
+  box-shadow:0 .3em .8em rgba(61,220,132,.55),0 .12em 0 rgba(0,0,0,.5);
+  animation:newIn .46s var(--ease) both}
+@keyframes newIn{0%{opacity:0;transform:translate3d(0,.9em,0) scale(.7)}
+  62%{opacity:1;transform:translate3d(0,0,0) scale(1.07)}100%{opacity:1;transform:none}}
+/* On a thumbnail the banner would be taller than the card's own title, so the
+   small sizes carry the same news as a green halo instead. Same colour, same
+   meaning, nothing covered. */
+.card.is-new{box-shadow:0 0 0 2px var(--ok),0 0 16px -2px rgba(61,220,132,.7),
+  0 3px 10px rgba(0,0,0,.55)}
+.card.xs .newbadge,.card.sm .newbadge{display:none}
 @keyframes pop{from{transform:scale(0)}70%{transform:scale(1.25)}to{transform:scale(1)}}
 
 /* ══════════════════ AUTH ══════════════════ */
@@ -241,7 +265,51 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   border-radius:99px;padding:5px 14px 5px 5px;min-height:44px;font-weight:700;font-size:13px}
 .pchip .avatar{width:32px;height:32px;font-size:14px;border-radius:9px}
 
-/* ══════════════════ HOME ══════════════════ */
+/* ══════════════════ HOME ══════════════════
+   Home is a FULL-SCREEN menu, not a scrolling page: three bands inside the
+   .screen flexbox, and the middle one takes all the slack so Story Mode and
+   Multiplayer land in the optical centre. Everything that could grow is sized
+   against BOTH the width and the height (min(Nvw, Nvh)) so a short phone
+   shrinks the type instead of pushing the nav off the bottom. */
+.homehead{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center;min-height:44px}
+.homemid{
+  flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
+  gap:clamp(8px,2vh,20px);padding:clamp(2px,1vh,10px) 0;
+  /* Safety net only. At 390x844 and 360x640 this never overflows — but a huge
+     Dynamic-Type setting or a very short landscape window must scroll, never clip. */
+  overflow-y:auto;overflow-x:hidden;scrollbar-width:none;
+  /* `safe` matters: a plain centred flex column that overflows pushes its first
+     child off the TOP of the scroll box, where it can never be scrolled back to.
+     That is what was beheading the logo on a short screen. */
+  justify-content:center;justify-content:safe center;
+}
+.homemid::-webkit-scrollbar{display:none}
+.brand{flex:0 0 auto}
+#scr-home .logo{font-size:clamp(34px,min(13vw,8vh),64px)}
+#scr-home .wallet{margin:0;flex:0 0 auto}
+#scr-home .menu{margin:0;flex:0 0 auto}
+#scr-home .navrow{flex:0 0 auto;margin-top:clamp(6px,1.6vh,15px)}
+.fineprint{flex:0 0 auto;text-align:center;margin:clamp(5px,1.2vh,12px) 0 0;
+  font-size:10.5px;line-height:1.5;color:var(--dim2)}
+/* Short phones (iPhone SE, 360x640 Androids). The two fat rows are the wallet
+   and the secondary nav — both wrap to THREE lines at 360px on the normal
+   scale. Tightening the type and the padding puts each back to two lines and
+   buys back ~115px, which is what makes the whole menu fit with no scrollbar.
+   Touch targets stay at 40px; nothing is hidden. */
+@media (max-height:700px){
+  .homemid{gap:8px}
+  #scr-home .btn.pick{min-height:64px;font-size:15.5px}
+  #scr-home .btn.pick .sub{font-size:9px}
+  .fineprint{font-size:9.5px}
+  #scr-home .tagline{font-size:9.5px;letter-spacing:.2em}
+  #scr-home .wallet{gap:5px}
+  #scr-home .wallet .pill{font-size:10.5px;padding:4px 8px;gap:4px}
+  #scr-home .wallet .pill small{font-size:9px;letter-spacing:.02em}
+  #scr-home .navrow{gap:5px}
+  #scr-home .navrow .btn{min-height:40px;font-size:9.5px;padding:3px 8px;letter-spacing:.02em}
+  #scr-home .onlinebox{padding:7px 9px 6px;gap:6px}
+  #scr-home .on-list{max-height:clamp(58px,17vh,120px)}
+}
 .logo{font-family:var(--disp);font-weight:900;font-size:clamp(42px,13vw,64px);line-height:.9;
   letter-spacing:.06em;text-align:center;
   background:linear-gradient(180deg,#FFF3CF,var(--gold) 45%,#C77A00);
@@ -830,14 +898,20 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
     </div>
   </section>
 
-  <!-- ═══ HOME ═══ -->
-  <section class="screen" id="scr-home">
-    <div class="scroll">
-      <div style="display:flex;justify-content:flex-end;padding:2px 0 4px">
-        <button class="pchip" id="profile-chip" aria-label="Profile options"></button>
+  <!-- ═══ HOME ═══
+       Full-bleed: this screen fills the viewport and never scrolls. Three
+       bands — a thin profile bar, a centred middle that owns all the slack,
+       and the secondary nav pinned to the bottom above the home bar. -->
+  <section class="screen home" id="scr-home">
+    <div class="homehead">
+      <button class="pchip" id="profile-chip" aria-label="Profile options"></button>
+    </div>
+
+    <div class="homemid">
+      <div class="brand">
+        <h1 class="logo">KARTI</h1>
+        <p class="tagline">Malta's rudest card duel</p>
       </div>
-      <h1 class="logo">KARTI</h1>
-      <p class="tagline">Malta's rudest card duel</p>
       <div class="wallet" id="wallet"></div>
       <!-- Two ways in, and only two. The deck picker used to sit here; it lives on
            the Decks screen now so Home is nothing but Story and Multiplayer. -->
@@ -849,22 +923,24 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
           aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Multiplayer</span></span
           ><span class="sub">One phone, or two on the same wi-fi</span></button>
       </div>
-      <div class="navrow">
-        <button class="btn ghost sm" id="btn-duel"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-type-monster"></use></svg><span>Quick duel</span></span></button>
-        <button class="btn ghost sm" id="btn-coll"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg><span>Collection</span></span></button>
-        <button class="btn ghost sm" id="btn-deck"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-deck"></use></svg><span>Decks</span></span></button>
-        <button class="btn ghost sm" id="btn-packs"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-pack"></use></svg><span>Packs</span></span></button>
-        <button class="btn ghost sm" id="btn-tutor"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-book"></use></svg><span>How to play</span></span></button>
-      </div>
-      <p class="muted" style="text-align:center;margin:16px 0 24px;font-size:11px;line-height:1.6">
-        18+ · Contains mothers-in-law, Marsa traffic and one very accurate slipper.
-      </p>
+      <!-- js/mp.js fills this in and empties it again when you leave Home.
+           It is the ONLY part of KARTI that needs the internet. -->
+      <section class="onlinebox" id="home-online" aria-label="Who is online"></section>
     </div>
+
+    <nav class="navrow" id="home-nav" aria-label="Everything else">
+      <button class="btn ghost sm" id="btn-duel"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+        aria-hidden="true" focusable="false"><use href="#i-type-monster"></use></svg><span>Quick duel</span></span></button>
+      <button class="btn ghost sm" id="btn-coll"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+        aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg><span>Collection</span></span></button>
+      <button class="btn ghost sm" id="btn-deck"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+        aria-hidden="true" focusable="false"><use href="#i-deck"></use></svg><span>Decks</span></span></button>
+      <button class="btn ghost sm" id="btn-packs"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+        aria-hidden="true" focusable="false"><use href="#i-pack"></use></svg><span>Packs</span></span></button>
+      <button class="btn ghost sm" id="btn-tutor"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+        aria-hidden="true" focusable="false"><use href="#i-book"></use></svg><span>How to play</span></span></button>
+    </nav>
+    <p class="fineprint">18+ · Contains mothers-in-law, Marsa traffic and one very accurate slipper.</p>
   </section>
 
   <!-- ═══ PACK ═══ -->

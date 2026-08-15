@@ -18,7 +18,7 @@ const SET2_FX = {
 
 const SET2 = [
   /* ══════════ FESTA 🎆 — louder, later, still going ══════════ */
-  {id:'abbati',    n:'Altar Boy On Red Bull',  e:'⛪', f:'festa', r:'komuni', t:'monster', lvl:1, atk:700,  def:500,
+  {id:'abbati',    n:'Altar Boy On Red Bull',  e:'⛪', f:'festa', r:'komuni', t:'monster', lvl:1, atk:950, def:700,
    txt:'Swinging the incense like a nunchuck. Two more cans and he takes off.', eff:'No effect — cheap level-1 body.', fx:''},
   {id:'bomba',     n:'Daytime Fireworks',      e:'💥', f:'festa', r:'komuni', t:'monster', lvl:2, atk:1100, def:400,
    txt:'You cannot even see them. That was never the point.', eff:'When destroyed: 500 damage to BOTH players.', fx:'boom'},
@@ -32,9 +32,9 @@ const SET2 = [
    txt:'Half of it lands on you, half on the priest.', eff:'When summoned: opponent loses 800 LP.', fx:'burn'},
   {id:'marc',      n:'The Evening March',      e:'🥁', f:'festa', r:'rari',   t:'monster', lvl:4, atk:1800, def:1000,
    txt:'It started at seven. It is now one in the morning. It is getting louder.', eff:'Gains +200 ATK each of your turns.', fx:'grow'},
-  {id:'kazin',     n:'The Band Club Bar',      e:'🍻', f:'festa', r:'rari',   t:'monster', lvl:5, atk:2200, def:2100,
+  {id:'kazin',     n:'The Band Club Bar',      e:'🍻', f:'festa', r:'rari',   t:'monster', lvl:5, atk:2250, def:2150,
    txt:'Two euro a beer and forty years of unfinished arguments. Everyone ends up here.', eff:'Enemies must attack this monster first (Taunt).', fx:'taunt'},
-  {id:'katarina',  n:'The Petard Shed',        e:'🏭', f:'festa', r:'epiku',  t:'monster', lvl:6, atk:2500, def:1200,
+  {id:'katarina',  n:'The Petard Shed',        e:'🏭', f:'festa', r:'epiku',  t:'monster', lvl:6, atk:3000, def:1900,
    txt:'Licensed, probably. Insured, definitely not.', eff:'When destroyed: 500 damage to BOTH players.', fx:'boom'},
 
   /* ══════════ FARM 🐇 — dirt, diesel and no small talk ══════════ */
@@ -52,9 +52,9 @@ const SET2 = [
    txt:'In the hide since five, with binoculars and a licence he printed himself.', eff:'When summoned: all enemy monsters lose 400 ATK.', fx:'weaken'},
   {id:'raddiena',  n:'The Old Windmill',       e:'🌾', f:'razzett', r:'rari',   t:'monster', lvl:5, atk:2000, def:2400,
    txt:'Turning since the Knights and outliving every plan to restore it.', eff:'The first time this monster would be destroyed in battle, it survives instead.', fx:'shield'},
-  {id:'tigrija',   n:'Sunday Horse Races',     e:'🏇', f:'razzett', r:'epiku',  t:'monster', lvl:6, atk:2400, def:1700,
+  {id:'tigrija',   n:'Sunday Horse Races',     e:'🏇', f:'razzett', r:'epiku',  t:'monster', lvl:6, atk:2600, def:2350,
    txt:'Two hundred euro on a horse called Biċċa. Your uncle still says it was fixed.', eff:'Can attack twice each battle phase.', fx:'double'},
-  {id:'zija',      n:'THE AUNT WHO FEEDS YOU', e:'🍲', f:'razzett', r:'leggendarju', t:'monster', lvl:7, atk:2800, def:2400,
+  {id:'zija',      n:'THE AUNT WHO FEEDS YOU', e:'🍲', f:'razzett', r:'leggendarju', t:'monster', lvl:6, atk:3000, def:2700,
    txt:'You are not leaving until the plate is empty. Then there is a second plate.', eff:'Battle damage this monster deals also heals you the same amount.', fx:'leech'},
 
   /* ══════════ CITY 🏰 — permits, dust and no parking ══════════ */
@@ -70,11 +70,11 @@ const SET2 = [
    txt:'You are not on the list. You have never been on the list.', eff:'Enemies must attack this monster first (Taunt).', fx:'taunt'},
   {id:'kunsill',   n:'The Local Council',      e:'🏛️', f:'belt', r:'rari',   t:'monster', lvl:4, atk:1400, def:2000,
    txt:'Complains about everything, fixes nothing, and somehow it is your fault.', eff:'Any monster that attacks it takes 400 damage.', fx:'thorns'},
-  {id:'penthouse', n:'The Penthouse Nobody Bought',e:'🏢', f:'belt', r:'rari', t:'monster', lvl:5, atk:2100, def:2100,
+  {id:'penthouse', n:'The Penthouse Nobody Bought',e:'🏢', f:'belt', r:'rari', t:'monster', lvl:5, atk:2650, def:2650,
    txt:'Sea view of another block of flats. On the market since the day it was finished.', eff:'No effect — solid tribute body.', fx:''},
-  {id:'notar',     n:'The Notary',             e:'📜', f:'belt', r:'epiku',  t:'monster', lvl:6, atk:2400, def:2200,
+  {id:'notar',     n:'The Notary',             e:'📜', f:'belt', r:'epiku',  t:'monster', lvl:6, atk:2850, def:2650,
    txt:'Reads every clause out loud, twice, in two languages.', eff:'Opponent discards 1 card each of your turns.', fx:'discard'},
-  {id:'permess',   n:'The Planning Permit',    e:'🖊️', f:'belt', r:'epiku',  t:'monster', lvl:6, atk:2500, def:2000,
+  {id:'permess',   n:'The Planning Permit',    e:'🖊️', f:'belt', r:'epiku',  t:'monster', lvl:6, atk:2900, def:2300,
    txt:'Approved at 11pm on a Friday in August, when nobody was looking.', eff:'When summoned: all enemy monsters lose 400 ATK.', fx:'weaken'},
 
   /* ══════════ SEA 🌊 — salt, sunburn and mild regret ══════════ */
@@ -82,7 +82,7 @@ const SET2 = [
    txt:'You did not see it. Your foot found it.', eff:'Any monster that attacks it takes 400 damage.', fx:'thorns'},
   {id:'ghadira',   n:'Golden Bay In August',   e:'🏖️', f:'bahar', r:'komuni', t:'monster', lvl:2, atk:900,  def:1200,
    txt:'Two hundred umbrellas, one square metre of free sand, and a man shouting about coffee.', eff:'No effect — cheap blocker.', fx:''},
-  {id:'kajakk',    n:'Rented Kayak',           e:'🛶', f:'bahar', r:'komuni', t:'monster', lvl:2, atk:1000, def:600,
+  {id:'kajakk',    n:'Rented Kayak',           e:'🛶', f:'bahar', r:'komuni', t:'monster', lvl:2, atk:1250, def:750,
    txt:'Twenty euro an hour. Fifteen minutes of fun and a shoulder that never fully recovers.', eff:'No effect — cheap attacker.', fx:''},
   {id:'bagni',     n:'The Beach Lido',         e:'⛱️', f:'bahar', r:'komuni', t:'monster', lvl:3, atk:1100, def:1600,
    txt:'Fifteen euro for a sunbed on a beach that legally belongs to everybody.', eff:'No effect — cheap stall wall.', fx:''},
@@ -96,21 +96,21 @@ const SET2 = [
    txt:'Every story ends in a storm that the records say never happened.', eff:'When summoned: return 1 monster from your graveyard to your hand.', fx:'revive'},
   {id:'dghajsa',   n:'Sunday Boat Party',      e:'🛥️', f:'bahar', r:'rari',   t:'monster', lvl:4, atk:1800, def:1000,
    txt:'Everyone is half naked, the music is illegal, and nobody on board can actually swim.', eff:'Can attack twice each battle phase.', fx:'double'},
-  {id:'blue',      n:'The Blue Grotto Boatman',e:'🚤', f:'bahar', r:'epiku',  t:'monster', lvl:5, atk:2200, def:1800,
+  {id:'blue',      n:'The Blue Grotto Boatman',e:'🚤', f:'bahar', r:'epiku',  t:'monster', lvl:5, atk:2550, def:2100,
    txt:'Ten euro, twenty minutes, one photo you will never look at again.', eff:'When summoned: return 1 monster from your graveyard to your hand.', fx:'revive'},
-  {id:'mewga',     n:'The Gregale',            e:'🌬️', f:'bahar', r:'epiku',  t:'monster', lvl:6, atk:2400, def:1900,
+  {id:'mewga',     n:'The Gregale',            e:'🌬️', f:'bahar', r:'epiku',  t:'monster', lvl:6, atk:2600, def:2550,
    txt:'Wind from the north-east. Your umbrella is now three beaches away and legally somebody else\'s.', eff:'Attacks two enemy monsters in one battle phase.', fx:'cleave'},
-  {id:'sirena',    n:'THE SIREN OF THE LAGOON',e:'🧜', f:'bahar', r:'leggendarju', t:'monster', lvl:8, atk:2900, def:2600,
+  {id:'sirena',    n:'THE SIREN OF THE LAGOON',e:'🧜', f:'bahar', r:'leggendarju', t:'monster', lvl:8, atk:3300, def:3000,
    txt:'Lures the boats in, keeps the coolers, returns the sunglasses out of pity.', eff:'Battle damage this monster deals also heals you the same amount.', fx:'leech'},
 
   /* ══════════ TROUBLE 😈 — family, money and other people ══════════ */
   {id:'wattsapp',  n:'6am Voice Note',         e:'🎙️', f:'hazen', r:'komuni', t:'monster', lvl:1, atk:500,  def:1000,
    txt:'Eleven minutes long. Sent at six. Contains no information of any kind.', eff:'No effect — cheap level-1 blocker.', fx:''},
-  {id:'kuntu',     n:'The Group Bill',         e:'🧮', f:'hazen', r:'komuni', t:'monster', lvl:2, atk:1000, def:900,
+  {id:'kuntu',     n:'The Group Bill',         e:'🧮', f:'hazen', r:'komuni', t:'monster', lvl:2, atk:1150, def:1050,
    txt:'Twelve people, one bill, and the man who had lobster wants to split it equally.', eff:'No effect — balanced small body.', fx:''},
   {id:'ghajn',     n:'The Evil Eye',           e:'🧿', f:'hazen', r:'komuni', t:'monster', lvl:2, atk:800,  def:1300,
    txt:'Somebody looked at you funny in the square and now your car will not start.', eff:'No effect — cheap blocker.', fx:''},
-  {id:'tieg',      n:'The 400-Guest Wedding',  e:'💒', f:'hazen', r:'komuni', t:'monster', lvl:3, atk:1300, def:1200,
+  {id:'tieg',      n:'The 400-Guest Wedding',  e:'💒', f:'hazen', r:'komuni', t:'monster', lvl:3, atk:1450, def:1300,
    txt:'You have met eleven of them. You are seated with none of them. Dinner is at eleven.', eff:'No effect — balanced level-3.', fx:''},
   {id:'kugin',     n:'The Cousin With A Van',  e:'🚐', f:'hazen', r:'komuni', t:'monster', lvl:3, atk:1500, def:800,
    txt:'Moves your sofa, destroys your table, refuses payment, mentions it at every Christmas for nine years.', eff:'No effect — efficient level-3 attacker.', fx:''},
@@ -122,9 +122,9 @@ const SET2 = [
    txt:'That was 2019. He still waves at you like nothing happened.', eff:'When summoned: opponent loses 800 LP.', fx:'burn'},
   {id:'skiet',     n:'The Silent Treatment',   e:'🤐', f:'hazen', r:'rari',   t:'monster', lvl:4, atk:1400, def:1900,
    txt:'You do not know what you did. You will not be told.', eff:'When summoned: enemy monsters cannot attack next turn.', fx:'stun'},
-  {id:'spiter',    n:'The Neighbour\'s Extension',e:'🧱', f:'hazen', r:'epiku', t:'monster', lvl:6, atk:2500, def:2100,
+  {id:'spiter',    n:'The Neighbour\'s Extension',e:'🧱', f:'hazen', r:'epiku', t:'monster', lvl:6, atk:2850, def:2400,
    txt:'Built one metre into your garden while you were in Sicily for a weekend.', eff:'The first time this monster would be destroyed in battle, it survives instead.', fx:'shield'},
-  {id:'vat',       n:'THE VAT INSPECTOR',      e:'🧾', f:'hazen', r:'leggendarju', t:'monster', lvl:8, atk:2800, def:2400,
+  {id:'vat',       n:'THE VAT INSPECTOR',      e:'🧾', f:'hazen', r:'leggendarju', t:'monster', lvl:8, atk:2900, def:3100,
    txt:'Six years of receipts. Every single one. He has all afternoon.', eff:'Can attack twice each battle phase.', fx:'double'},
 
   /* ══════════ SPELLS ══════════ */
@@ -175,34 +175,37 @@ const SET2 = [
 /* ══════════ merge into the live pool ══════════ */
 CARDS.push(...SET2);
 
-/* ═══════════════ THE RING — five attributes, one circle ═══════════════
-   FESTA 🎆 → CITY    🏰  (fireworks go straight over the bastion walls)
-   CITY  🏰 → FARM    🐇  (paperwork beats livestock, every time)
-   FARM  🐇 → SEA     🌊  (dry land always wins the argument with the sea)
-   SEA   🌊 → TROUBLE 😈  (one swim and the whole mess feels smaller)
-   TROUBLE 😈 → FESTA 🎆  (the hangover always beats the festa)
-   +500 ATK when you attack the attribute you counter.                    */
-Object.assign(COUNTERS, { razzett:'bahar', bahar:'hazen', hazen:'festa' });
-/* base decks were labelled for the old 3-way triangle — realign the text */
-STARTER_DECKS.festa.beats   = 'CITY';    STARTER_DECKS.festa.loses   = 'TROUBLE';
-STARTER_DECKS.belt.beats    = 'FARM';    STARTER_DECKS.belt.loses    = 'FESTA';
-STARTER_DECKS.razzett.beats = 'SEA';     STARTER_DECKS.razzett.loses = 'CITY';
+/* ═══════════════ THE RING — a triangle and a grudge ═══════════════
+   The three BEGINNER attributes are a closed rock-paper-scissors (cards.js):
+     FESTA 🎆 → CITY 🏰 → FARM 🐇 → FESTA 🎆
+   SEA and TROUBLE are collection attributes, not starting decks, so they are
+   NOT wedged into that triangle — a five-way ring cannot contain a three-way
+   one, and trying gave FARM no predator at all. They counter each other,
+   both ways, and leave the beginner triangle perfectly symmetric:
+     SEA 🌊 ↔ TROUBLE 😈  (one swim makes the mess feel smaller · and the mess
+                           follows you into the water anyway)
+   +500 ATK when you attack the attribute you counter.                     */
+Object.assign(COUNTERS, { bahar:'hazen', hazen:'bahar' });
 
 /* ═══════════ TWO NEW 40-CARD DECKS ═══════════ */
 const SET2_DECKS = {
   bahar: {
     name:'SEA', e:'🌊', c:'#2196F3',
     tag:'Tempo — swarm, swing twice, heal it all back on the way home',
-    beats:'TROUBLE', loses:'FARM',
-    list:{ lampuka:3, luzzu:3, klamari:3, qarnita:3, kurrent:2, rizzi:2, gozoferry:2,
-           dghajsa:2, bahri:2, mewga:1, blue:1, sirena:1,
-           kafe:2, kinnie:2, pastizz:2, xita:2, siesta:1, imnarja:1,
-           dawl:2, ncempel:2, bolla:1 },
+    beats:'TROUBLE', loses:'TROUBLE',
+    /* rebuilt on the same house rules as the beginner decks: eleven of the
+       eighteen free bodies now do something, and there are five payoffs
+       instead of three. It measured 33% before this. */
+    list:{ dghajsa:2, qarnita:2, jetski:2, nassa:2, klamari:2, bahri:2, luzzu:2, kurrent:2,
+           rizzi:1, gozoferry:1,
+           pixxispad:1, regatta:1, blue:1, mewga:1, sirena:1,
+           kafe:3, kinnie:2, pastizz:2, xita:2, siesta:1, imnarja:1,
+           dawl:2, ncempel:2, bolla:1, ommok:1 },
   },
   hazen: {
     name:'TROUBLE', e:'😈', c:'#37474F',
     tag:'Burn — chip the life total, ruin the mood, never let them settle',
-    beats:'FESTA', loses:'SEA',
+    beats:'SEA', loses:'SEA',
     list:{ kugin:3, hangover:2, kuntu:2, gar:2, gossip:2, debtor:2, kunjatu:2,
            skiet:2, karozzin:2, tieg:1, ghajn:1, boss:1, spiter:1, vat:1, nannaslip:1,
            kafe:2, kinnie:2, bonu:2, tapit:2, kuntatt:1,

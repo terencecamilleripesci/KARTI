@@ -26,16 +26,38 @@ cannot do to it.
 | Piece | Where | What it does |
 |---|---|---|
 | The game | GitHub Pages, `https://terencecamilleripesci.github.io/KARTI/` | All the HTML/JS/art. Static. |
-| The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players by room code and passes JSON moves between them. |
+| The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players by room code and passes JSON moves between them, and answers `/presence` with who is connected. |
 | The tunnel | Tailscale Funnel, `:8443` under `/karti` | Gives the relay a public HTTPS/WSS address without opening a router port. |
-| The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves. |
+| The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and runs the who's-online panel on the home screen. |
 
 **The endpoint lives in exactly one place.** Top of `js/mp.js`:
 
 ```js
-const RELAY_URL    = 'wss://raspberrypi.silverside-tench.ts.net:8443/karti/ws';
-const RELAY_HEALTH = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/health';
+const RELAY_URL      = 'wss://raspberrypi.silverside-tench.ts.net:8443/karti/ws';
+const RELAY_HEALTH   = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/health';
+const RELAY_PRESENCE = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/presence';
 ```
+
+### The who's-online panel
+
+The home screen shows who is on the relay right now. Two halves, both of which stop
+completely the moment you leave Home:
+
+* a **beacon** — one WebSocket that sends a display name (`{"t":"name"}`, taken from the
+  account or guest name that already exists, so nothing extra is ever asked for) and then
+  a keep-alive every 45 s. It is what puts *you* in everyone else's list. Hiding the tab
+  stops the polling immediately and hands the socket back after 60 s; `pagehide` hands it
+  back at once.
+* a **poll** — `GET /presence` every 12 s, never faster than once every 4 s no matter what
+  asks for it.
+
+A player shown as `waiting` can be joined with one tap: the panel sends `{"t":"joinid"}`
+with their public handle and the relay seats you, so no room code is typed or shown.
+
+If the relay cannot be reached the panel says exactly that, in red, and explains the most
+likely cause — **Tailscale being on**, which stops a public https page opening a connection
+to a private address. It never renders that as "nobody is online". Everything else in KARTI
+keeps working with no network at all.
 
 If the server ever moves, change those two lines and redeploy the Pages site.
 (There is also a `?relay=wss://…` query parameter and a *Server settings* box in the
@@ -62,7 +84,7 @@ Useful flags:
 | Flag | Meaning |
 |---|---|
 | `--port 8101` | Listening port (default 8101). |
-| `--selftest` | Runs 34 built-in checks — happy path, reconnect, and every abuse case. Exits non-zero on failure. |
+| `--selftest` | Runs 50 built-in checks — happy path, reconnect, presence, and every abuse case. Exits non-zero on failure. |
 | `--log /path/file` | Append-only event log. Records event names, room codes and counters. **Never** records message contents. Off by default. |
 | `--origin https://x` | Allow an extra browser origin (repeatable). |
 | `--verbose` | HTTP oddities to stderr. |
@@ -165,7 +187,7 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (34 checks, 0 failed)
+# SELFTEST: ALL PASS  (50 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -173,7 +195,12 @@ asserted: a frame claiming to be 5 MiB, an honestly-oversized message, an oversi
 message smuggled in as fragments, 14 kinds of malformed JSON, out-of-range duel
 payloads, script tags in a display name, an outsider relaying into someone else's room,
 a real player claiming to be in a different room, a 400-message burst, room-code
-brute-forcing, the room caps, idle cleanup, path traversal, and a foreign `Origin`.
+brute-forcing, the room caps, idle cleanup, path traversal, and a foreign `Origin`. The
+presence block additionally proves that `/presence` leaks no IP, no seat token and no room
+code, that a hostile display name is scrubbed and capped, that only a *waiting* player is
+given a join handle and that the handle dies the moment their room fills, that the list is
+capped however many people are on, that the answer is cached and rate limited, and that a
+player disappears the instant their socket closes.
 
 **Two real browsers through the real transport** (what was used to verify this build):
 serve the repo on `:8000`, run the relay on `:8101`, then open two browser contexts on
@@ -191,6 +218,8 @@ One JSON object per WebSocket text frame. Everything is capped at 16 KiB.
 |---|---|
 | `{"t":"create"}` | `{"t":"created","code":"W2AZG","token":"…","host":true,"seq":0}` |
 | `{"t":"join","code":"W2AZG"}` | `{"t":"joined",…}` — and the host gets `{"t":"peer","state":"joined"}` |
+| `{"t":"joinid","id":"…"}` | the same `joined` reply. `id` is the public handle a *waiting* player is given by `/presence`, so you can take the seat somebody is advertising without ever being told their room code |
+| `{"t":"name","n":"TERENCE"}` | `{"t":"named","n":"TERENCE"}` — the display name for the online list, scrubbed and capped at 16 characters, kept only for the life of the socket |
 | `{"t":"rejoin","code":…,"token":…,"since":N}` | `{"t":"rejoined",…}` then every relay after `N` that it missed |
 | `{"t":"relay","d":{…}}` | the other player gets `{"t":"relay","n":SEQ,"d":{…}}` |
 | `{"t":"leave"}` | the other player gets `{"t":"peer","state":"left"}` |
@@ -217,7 +246,16 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 ### What an attacker on the internet CAN do
 
 * **Find it and talk to it.** `GET /karti/health` returns `{"ok":true,"rooms":N,"clients":M}`
-  and the caps. That is the entire information disclosure: counts, no codes, no names.
+  and the caps. `GET /karti/presence` returns counts plus up to 24 player-chosen display
+  names, each with one of three words — `idle`, `waiting`, `playing`. That is the whole
+  disclosure. **No IP address, no seat token, no room code, no room contents.** Names are
+  put through the same filter as every other name on the wire (control characters and
+  `<>&"'\`` removed, 16 characters kept) because they land on a page on the public
+  internet. The answer is cached for 3 seconds and rate limited per caller — the caller is
+  keyed by a truncated SHA-256 of the peer address, so not even the rate limiter keeps an
+  IP. A player who is `waiting` also gets an opaque handle so a stranger can take the free
+  seat they are advertising; it belongs to one socket, it is withdrawn the moment the room
+  fills, and it resolves to nothing for anybody who is not waiting.
 * **Open a WebSocket.** The `Origin` allow-list (`https://terencecamilleripesci.github.io`
   plus loopback) only stops *browsers* on other sites; a script that sets no `Origin`
   header, or forges one, gets in. That is inherent to WebSockets and is why the origin
@@ -284,6 +322,11 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 | Wrong room codes before disconnect | 20 |
 | Protocol errors before disconnect | 30 |
 | Replay buffer per room | 96 messages / 192 KiB |
+| Display-name changes per connection | 8 |
+| Display name length | 16 characters |
+| Names published by `/presence` | 24 |
+| `/presence` answer cache | 3 s |
+| `/presence` rate per caller | 1/s sustained, 8 burst (then 429) |
 | Dropped-seat grace | 60 s |
 | Idle room timeout | 30 min |
 | Idle socket timeout | 120 s |

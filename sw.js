@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v5';
+const CACHE = 'karti-v6';
 const CORE = [
   './',
   './index.html',
@@ -54,10 +54,20 @@ self.addEventListener('fetch', event => {
   /* never intercept range requests (media seeking) */
   if (req.headers.has('range')) return;
 
+  /* The 200 full-size card pictures are ~27 MB and are only ever seen one at a
+     time in the inspector or a pack reveal. Caching them meant a browse through
+     the Collection quietly wrote tens of megabytes to disk, with no eviction.
+     The 256px thumbnails (~3.8 MB for the whole set, and only the ones actually
+     looked at) ARE cached, so the grid, the rails and the board still have real
+     art with no network. Nothing here is precached: 200 files is far too many
+     for an install step. */
+  const isFullArt = /\/art\/[^/]+\.(jpe?g|png|webp)$/i.test(url.pathname) &&
+                    !/\/art\/thumb\//i.test(url.pathname);
+
   event.respondWith(
     fetch(req)
       .then(res => {
-        if (res && res.ok && res.type === 'basic'){
+        if (res && res.ok && res.type === 'basic' && !isFullArt){
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
         }

@@ -26,9 +26,11 @@ DEPLOYMENT IT IS BUILT FOR
     /karti/<x> (production) and /<x> (local testing).
 
 ROUTES
-    GET  /karti/ws      (or /ws)      WebSocket upgrade, the relay itself
-    GET  /karti/health  (or /health)  tiny JSON status, no room contents
-    anything else                     404 JSON. No disk access, ever.
+    GET  /karti/ws        (or /ws)        WebSocket upgrade, the relay itself
+    GET  /karti/health    (or /health)    tiny JSON status, no room contents
+    GET  /karti/presence  (or /presence)  who is connected right now: chosen
+                                          display names + a state, nothing else
+    anything else                         404 JSON. No disk access, ever.
 
 PROTOCOL  (one JSON object per WebSocket text frame, both directions)
     client -> server                        server -> client
@@ -37,6 +39,11 @@ PROTOCOL  (one JSON object per WebSocket text frame, both directions)
     {"t":"join","code":C}                   {"t":"joined","code":C,"token":T,
                                              "host":false,"seq":N}
                                             peer: {"t":"peer","state":"joined"}
+    {"t":"joinid","id":P}                   same "joined" reply. P is the public
+                                            handle from /presence, so you can
+                                            join a waiting player without ever
+                                            being told anybody's room code.
+    {"t":"name","n":"TERENCE"}              {"t":"named","n":"TERENCE"}
     {"t":"rejoin","code":C,"token":T,       {"t":"rejoined","code":C,"host":B,
               "since":N}                     "seq":N,"peer":B} + replayed relays
                                             peer: {"t":"peer","state":"rejoined"}
@@ -45,6 +52,16 @@ PROTOCOL  (one JSON object per WebSocket text frame, both directions)
     {"t":"ping"}                            {"t":"pong"}
                                             {"t":"error","why":"..."}   (fixed text)
                                             {"t":"closed","why":"..."}  then close
+
+PRESENCE, AND WHAT IT DELIBERATELY DOES NOT SAY
+    /presence answers with counts and a capped list of {name, state} where
+    state is idle | waiting | playing. It NEVER contains an IP address, a seat
+    token, or the room code of a room the reader is not sitting in. A player
+    who is "waiting" also gets an opaque one-connection handle ("id") purely so
+    a stranger can take the empty seat they are advertising; that handle dies
+    with the socket and resolves to nothing once the room is full. Names are
+    player-chosen, scrubbed with the same filter as every other name on the
+    wire, capped in length and in number, and live only in memory.
 
     A socket that dies is NOT a forfeit: the seat is held for GRACE seconds
     (the peer is told {"t":"peer","state":"dropped"}) so a phone that loses
@@ -114,6 +131,14 @@ class L:
     MAX_CREATES = 5             # rooms one connection may ever create
     MAX_BAD_JOINS = 20          # wrong room codes before the socket is cut
     MAX_ERRORS = 30             # protocol errors before the socket is cut
+    MAX_NAME_SETS = 8           # display-name changes one connection may make
+
+    NAME_LEN = 16               # characters of a display name that survive
+    PRESENCE_MAX = 24           # names /presence will ever list
+    PRESENCE_CACHE = 3.0        # seconds one /presence answer is reused for
+    PRESENCE_RATE = 1.0         # sustained /presence requests per second, per
+    PRESENCE_BURST = 8.0        #   caller, and the burst it may spend at once
+    PRESENCE_CALLERS = 512      # rate-limit buckets kept before they are binned
 
     ROOM_IDLE = 30 * 60.0       # seconds of silence before a room is binned
     GRACE = 60.0                # seconds a dropped seat is held for a rejoin
@@ -137,6 +162,8 @@ E_NOTIN = "You are not in a room."
 E_NOPEER = "Nobody else in the room yet."
 E_BADTOKEN = "That room seat is not yours."
 E_TOOMANY = "Too many rooms from one connection."
+E_NOWAIT = "That player is not waiting for anyone."
+E_SLOW = "Slow down."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
@@ -455,6 +482,12 @@ class Conn:
         self.bad_joins = 0
         self.errors = 0
         self.doomed = None          # a reason string -> pump closes the socket
+        # Presence. Both of these are ephemeral: they exist for the lifetime of
+        # this socket and are never written anywhere.
+        self.pname = ""             # player-chosen display name, already scrubbed
+        self.name_sets = 0
+        self.pid = secrets.token_urlsafe(8)   # public handle, ONLY ever published
+                                              # while this player is waiting
 
     def _raw(self, data):
         with self.send_lock:
@@ -548,6 +581,7 @@ class RoomBook:
         self._lock = threading.Lock()
         self._rooms = {}
         self._conns = set()
+        self._by_pid = {}
 
     # -- registry ---------------------------------------------------------
 
@@ -556,15 +590,88 @@ class RoomBook:
             if len(self._conns) >= L.MAX_WS:
                 return False
             self._conns.add(conn)
+            self._by_pid[conn.pid] = conn
             return True
 
     def unregister(self, conn):
         with self._lock:
             self._conns.discard(conn)
+            if self._by_pid.get(conn.pid) is conn:
+                self._by_pid.pop(conn.pid, None)
 
     def stats(self):
         with self._lock:
             return len(self._rooms), len(self._conns)
+
+    # -- presence ---------------------------------------------------------
+
+    def presence(self):
+        """Counts, plus a capped list of {name, state}. Assembled here, under
+        the one lock, so the HTTP thread never walks live room structures.
+
+        What goes out: a display name the player typed into their own phone,
+        and one of three words. What NEVER goes out: the peer address, the seat
+        token, the room code, the room contents, how long anyone has been on,
+        or any handle at all for a player who is not advertising a free seat."""
+        rows = []
+        counts = {"idle": 0, "waiting": 0, "playing": 0}
+        with self._lock:
+            for conn in self._conns:
+                room = self._room_of(conn)
+                if room is None:
+                    state = "idle"
+                elif room.occupied() >= 2:
+                    state = "playing"
+                else:
+                    state = "waiting"
+                counts[state] += 1
+                rows.append((state, conn.pname or "PLAYER",
+                             conn.pid if state == "waiting" else None))
+
+        # waiting first: that is the only row anybody can act on
+        order = {"waiting": 0, "playing": 1, "idle": 2}
+        rows.sort(key=lambda r: (order[r[0]], r[1]))
+        players = []
+        for state, name, pid in rows[:L.PRESENCE_MAX]:
+            entry = {"n": name, "s": state}
+            if pid:
+                entry["id"] = pid
+            players.append(entry)
+        total = counts["idle"] + counts["waiting"] + counts["playing"]
+        return {"ok": True, "count": total, "idle": counts["idle"],
+                "waiting": counts["waiting"], "playing": counts["playing"],
+                "shown": len(players), "max": L.PRESENCE_MAX,
+                "every": 12, "players": players}
+
+    def set_name(self, conn, raw):
+        """A display name for the presence list. Scrubbed and capped exactly
+        like every other name that crosses this relay."""
+        if conn.name_sets >= L.MAX_NAME_SETS:
+            return [(conn, {"t": "error", "why": E_SLOW})]
+        try:
+            name = v_name(raw, L.NAME_LEN)
+        except Reject:
+            return [(conn, {"t": "error", "why": E_SHAPE})]
+        conn.name_sets += 1
+        conn.pname = name
+        return [(conn, {"t": "named", "n": name})]
+
+    def join_by_id(self, conn, pid):
+        """Take the empty seat a waiting player is advertising. The caller
+        never learns the room code until they are actually sitting in it, and
+        a handle for anyone who is NOT waiting resolves to nothing."""
+        code = None
+        if isinstance(pid, str) and 0 < len(pid) <= 32:
+            with self._lock:
+                host = self._by_pid.get(pid)
+                if host is not None and host is not conn:
+                    room = self._room_of(host)
+                    if room is not None and room.occupied() == 1:
+                        code = room.code
+        if code is None:
+            conn.bad_joins += 1
+            return [(conn, {"t": "error", "why": E_NOWAIT})]
+        return self.join(conn, code)
 
     # -- helpers, lock held ------------------------------------------------
 
@@ -861,6 +968,14 @@ def handle_ws_message(conn, raw):
         if conn.bad_joins > L.MAX_BAD_JOINS:
             conn.doom("code guessing")
 
+    elif kind == "joinid":
+        dispatch(ROOMS.join_by_id(conn, msg.get("id")))
+        if conn.bad_joins > L.MAX_BAD_JOINS:
+            conn.doom("code guessing")
+
+    elif kind == "name":
+        dispatch(ROOMS.set_name(conn, msg.get("n")))
+
     elif kind == "rejoin":
         dispatch(ROOMS.rejoin(conn, msg.get("code"), msg.get("token"), msg.get("since")))
         if conn.bad_joins > L.MAX_BAD_JOINS:
@@ -954,6 +1069,53 @@ ALLOWED_ORIGINS = {PAGES_ORIGIN}
 ALLOW_ANY_ORIGIN = False
 
 
+# /presence must be too cheap to be worth attacking. Two guards, both here:
+#   1. the answer is built at most once every PRESENCE_CACHE seconds and every
+#      caller in that window gets the same bytes back, so N requests cost one
+#      walk of the connection set, not N;
+#   2. each caller gets a token bucket. The key is a SHA-256 of the peer
+#      address, truncated — enough to tell callers apart, and no raw IP is kept
+#      anywhere in this process. The table is bounded and binned when it fills.
+_PRESENCE_LOCK = threading.Lock()
+_PRESENCE_AT = 0.0
+_PRESENCE_BODY = b""
+_PRESENCE_CALLERS = {}
+
+
+def presence_body():
+    """Cached JSON bytes. Never called with any other lock held."""
+    global _PRESENCE_AT, _PRESENCE_BODY
+    with _PRESENCE_LOCK:
+        if _PRESENCE_BODY and (time.monotonic() - _PRESENCE_AT) < L.PRESENCE_CACHE:
+            return _PRESENCE_BODY
+    body = json.dumps(ROOMS.presence(), separators=(",", ":")).encode("utf-8")
+    with _PRESENCE_LOCK:
+        _PRESENCE_AT = time.monotonic()
+        _PRESENCE_BODY = body
+    return body
+
+
+def presence_allowed(addr):
+    key = hashlib.sha256(str(addr or "?").encode("utf-8", "replace")).hexdigest()[:16]
+    with _PRESENCE_LOCK:
+        if len(_PRESENCE_CALLERS) > L.PRESENCE_CALLERS:
+            _PRESENCE_CALLERS.clear()       # bounded memory beats perfect fairness
+        bucket = _PRESENCE_CALLERS.get(key)
+        if bucket is None:
+            bucket = Bucket(L.PRESENCE_RATE, L.PRESENCE_BURST)
+            _PRESENCE_CALLERS[key] = bucket
+        return bucket.take()
+
+
+def presence_reset():
+    """Drop the cache and every rate-limit bucket. Only the self-test uses it."""
+    global _PRESENCE_AT, _PRESENCE_BODY
+    with _PRESENCE_LOCK:
+        _PRESENCE_AT = 0.0
+        _PRESENCE_BODY = b""
+        _PRESENCE_CALLERS.clear()
+
+
 def origin_ok(origin):
     if ALLOW_ANY_ORIGIN:
         return True
@@ -1001,20 +1163,24 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
 
-    def reply(self, status, obj):
-        body = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+    def reply_bytes(self, status, body, extra=()):
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
+        for k, v in extra:
+            self.send_header(k, v)
         self.cors()
         self.end_headers()
         try:
             self.wfile.write(body)
         except OSError:
             pass
+
+    def reply(self, status, obj):
+        self.reply_bytes(status, json.dumps(obj, separators=(",", ":")).encode("utf-8"))
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -1034,11 +1200,18 @@ class KartiHandler(BaseHTTPRequestHandler):
             rooms, clients = ROOMS.stats()
             self.reply(200, {"ok": True, "rooms": rooms, "clients": clients,
                              "maxRooms": L.MAX_ROOMS, "maxClients": L.MAX_WS})
+        elif path == "/presence":
+            addr = self.client_address[0] if self.client_address else ""
+            if not presence_allowed(addr):
+                self.reply_bytes(429, b'{"ok":false,"why":"Slow down."}',
+                                 (("Retry-After", "5"),))
+            else:
+                self.reply_bytes(200, presence_body())
         else:
             self.reply(404, {"ok": False, "why": "This is the KARTI relay, not a web server."})
 
     def do_HEAD(self):
-        self.send_response(200 if self.route() in ("/ws", "/health") else 404)
+        self.send_response(200 if self.route() in ("/ws", "/health", "/presence") else 404)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", "0")
         self.send_header("Cache-Control", "no-store")
@@ -1171,6 +1344,8 @@ def print_banner(host, port):
     print("  listening on   : http://%s:%d" % (host, port))
     print("  websocket      : ws://%s:%d%s/ws" % (host, port, PATH_PREFIX))
     print("  health         : http://%s:%d%s/health" % (host, port, PATH_PREFIX))
+    print("  presence       : http://%s:%d%s/presence  (names + state, no IPs,"
+          " no tokens, no codes)" % (host, port, PATH_PREFIX))
     print("  allowed origin : %s (+ loopback)" % PAGES_ORIGIN)
     print("  caps           : %d rooms, %d sockets, %d KiB/message"
           % (L.MAX_ROOMS, L.MAX_WS, L.MAX_MSG // 1024))
@@ -1376,6 +1551,8 @@ def selftest():
     L.SWEEP = 0.25
     L.MAX_ROOMS = 8
     L.MAX_CREATES = 4
+    L.PRESENCE_MAX = 6
+    L.PRESENCE_CACHE = 1.0
 
     host = "127.0.0.1"
     httpd = make_server(host, 0, quiet=True)
@@ -1529,6 +1706,234 @@ def selftest():
                   got and got.get("d", {}).get("kind") == "battle", got)
         except Exception as e:
             check("duel keeps running after the reconnect", False, repr(e))
+
+        # ═══════════ presence ═══════════
+        print("")
+        print(" PRESENCE  (public endpoint — assume the reader is hostile)")
+
+        def pres(origin=None):
+            """Fresh, uncached, un-rate-limited read of /presence."""
+            presence_reset()
+            st, head, body = _http_get(host, port, PATH_PREFIX + "/presence",
+                                       origin=origin)
+            return st, head, body, json.loads(body.decode("utf-8"))
+
+        w = j = idler = None
+        try:
+            for label, path in (("/karti/presence", PATH_PREFIX + "/presence"),
+                                ("/presence", "/presence")):
+                presence_reset()
+                st, _, body = _http_get(host, port, path)
+                got = json.loads(body.decode("utf-8")) if st == 200 else {}
+                check("presence answers on %s" % label,
+                      st == 200 and got.get("ok") is True
+                      and isinstance(got.get("players"), list),
+                      "%s %r" % (st, body[:90]))
+        except Exception as e:
+            check("presence answers", False, repr(e))
+
+        try:
+            idler = cli(origin=PAGES_ORIGIN)
+            idler.send_json({"t": "name", "n": "IDLER"})
+            said = idler.recv_json(2.0)
+            _, _, _, got = pres()
+            names = {p["n"]: p["s"] for p in got["players"]}
+            ok = (said or {}) == {"t": "named", "n": "IDLER"}
+            ok = ok and names.get("IDLER") == "idle"
+            check("a named connection is listed, idle until it joins a room", ok,
+                  "said=%r got=%r" % (said, got))
+        except Exception as e:
+            check("named connection listed as idle", False, repr(e))
+
+        try:
+            w = cli(origin=PAGES_ORIGIN)
+            w.send_json({"t": "name", "n": "WAITER"})
+            w.recv_json(2.0)
+            w.send_json({"t": "create"})
+            w.recv_json(2.0)
+            time.sleep(0.15)
+            _, _, _, got = pres()
+            by = {p["n"]: p for p in got["players"]}
+            ok = by.get("WAITER", {}).get("s") == "waiting"
+            ok = ok and got.get("waiting") == 1
+            # a and b are still sitting in a room together from the reconnect test
+            ok = ok and got.get("playing") == 2
+            ok = ok and got.get("count") == got["idle"] + got["waiting"] + got["playing"]
+            check("state is waiting for a lone host and playing for a live duel", ok, got)
+        except Exception as e:
+            check("presence states", False, repr(e))
+
+        try:
+            _, _, raw, got = pres()
+            text = raw.decode("utf-8", "replace")
+            leaks = []
+            if code and code in text:
+                leaks.append("room code")
+            for tok in (token_a or "", token_b or ""):
+                if tok and tok in text:
+                    leaks.append("seat token")
+            if "127.0.0.1" in text or "token" in text.lower():
+                leaks.append("address or token field")
+            for p in got["players"]:
+                if set(p.keys()) - {"n", "s", "id"}:
+                    leaks.append("extra field %r" % sorted(p.keys()))
+            check("presence leaks no IP, no seat token, no room code", not leaks,
+                  "%s :: %s" % (leaks, text[:160]))
+        except Exception as e:
+            check("presence leaks nothing", False, repr(e))
+
+        try:
+            _, _, _, got = pres()
+            handles = {p["n"]: p.get("id") for p in got["players"]}
+            ok = isinstance(handles.get("WAITER"), str) and handles["WAITER"]
+            ok = ok and handles.get("IDLER") is None
+            ok = ok and all(p.get("id") is None for p in got["players"]
+                            if p["s"] != "waiting")
+            check("only a player advertising a free seat gets a join handle", ok,
+                  handles)
+        except Exception as e:
+            check("join handle only for waiting players", False, repr(e))
+
+        try:
+            nasty = cli(origin=PAGES_ORIGIN)
+            nasty.send_json({"t": "name",
+                             "n": "<img src=x onerror=alert(1)>\x07' \"&`\\ EXTRALONGTAIL"})
+            said = nasty.recv_json(2.0)
+            _, _, raw, got = pres()
+            shown = [p["n"] for p in got["players"]]
+            bad = [n for n in shown if any(c in n for c in "<>&\"'\\`")]
+            bad += [n for n in shown if len(n) > L.NAME_LEN]
+            bad += [n for n in shown if any(ord(c) < 0x20 or ord(c) == 0x7f for c in n)]
+            check("a hostile display name is scrubbed and capped before it is published",
+                  not bad and (said or {}).get("t") == "named",
+                  "said=%r shown=%r" % (said, shown))
+            bye(nasty)
+        except Exception as e:
+            check("hostile display name scrubbed", False, repr(e))
+
+        try:
+            spam = cli(origin=PAGES_ORIGIN)
+            refused = False
+            for i in range(L.MAX_NAME_SETS + 4):
+                spam.send_json({"t": "name", "n": "NAME%d" % i})
+                if (spam.recv_json(2.0) or {}).get("why") == E_SLOW:
+                    refused = True
+            check("renaming yourself over and over is capped", refused)
+            bye(spam)
+        except Exception as e:
+            check("name-change cap", False, repr(e))
+
+        try:
+            _, _, _, got = pres()
+            handle = [p["id"] for p in got["players"] if p["s"] == "waiting"][0]
+            j = cli(origin=PAGES_ORIGIN)
+            j.send_json({"t": "name", "n": "JOINER"})
+            j.recv_json(2.0)
+            j.send_json({"t": "joinid", "id": handle})
+            seated = j.recv_json(3.0)
+            told = w.recv_json(3.0)
+            ok = (seated or {}).get("t") == "joined" and (seated or {}).get("host") is False
+            ok = ok and CODE_RE.match((seated or {}).get("code") or "") is not None
+            ok = ok and (told or {}) == {"t": "peer", "state": "joined"}
+            check("a waiting player can be joined from the list, without their code", ok,
+                  "seated=%r told=%r" % (seated, told))
+        except Exception as e:
+            check("joinid seats you in the waiting room", False, repr(e))
+
+        try:
+            time.sleep(0.15)
+            _, _, _, got = pres()
+            by = {p["n"]: p for p in got["players"]}
+            ok = by.get("WAITER", {}).get("s") == "playing"
+            ok = ok and by.get("JOINER", {}).get("s") == "playing"
+            ok = ok and by.get("WAITER", {}).get("id") is None
+            check("both sides flip to playing once the room is full, handle withdrawn",
+                  ok, got)
+        except Exception as e:
+            check("state flips to playing", False, repr(e))
+
+        try:
+            gate = cli(origin=PAGES_ORIGIN)
+            bad = []
+            for probe in ("not-a-real-handle", "", None, 123, "x" * 400,
+                          [1, 2], {"a": 1}):
+                gate.send_json({"t": "joinid", "id": probe})
+                r = gate.recv_json(2.0)
+                if (r or {}).get("why") != E_NOWAIT:
+                    bad.append((str(probe)[:20], r))
+            # the handle of a player who is now PLAYING must be dead too
+            gate.send_json({"t": "joinid", "id": handle})
+            r = gate.recv_json(2.0)
+            if (r or {}).get("why") != E_NOWAIT:
+                bad.append(("full-room handle", r))
+            quiet = w.silent(0.4) and j.silent(0.4)
+            check("a junk, stale or full-room join handle is refused and nobody is disturbed",
+                  not bad and quiet, "%s quiet=%s" % (bad, quiet))
+            bye(gate)
+        except Exception as e:
+            check("stale join handle refused", False, repr(e))
+
+        try:
+            crowd = []
+            for i in range(L.PRESENCE_MAX + 4):
+                c = cli(origin=PAGES_ORIGIN)
+                c.send_json({"t": "name", "n": "CROWD%02d" % i})
+                c.recv_json(2.0)
+                crowd.append(c)
+            _, _, _, got = pres()
+            ok = len(got["players"]) <= L.PRESENCE_MAX
+            ok = ok and got["shown"] == len(got["players"])
+            ok = ok and got["count"] > L.PRESENCE_MAX      # counts stay honest
+            check("the published list is capped at %d names however many are on"
+                  % L.PRESENCE_MAX, ok,
+                  "shown=%d count=%s" % (len(got["players"]), got.get("count")))
+            for c in crowd:
+                bye(c)
+        except Exception as e:
+            check("presence list is capped", False, repr(e))
+
+        try:
+            presence_reset()
+            _, _, first = _http_get(host, port, PATH_PREFIX + "/presence")
+            ghost = cli(origin=PAGES_ORIGIN)
+            ghost.send_json({"t": "name", "n": "TOOLATE"})
+            ghost.recv_json(2.0)
+            _, _, second = _http_get(host, port, PATH_PREFIX + "/presence")
+            time.sleep(L.PRESENCE_CACHE + 0.4)
+            _, _, third = _http_get(host, port, PATH_PREFIX + "/presence")
+            ok = first == second and b"TOOLATE" not in second and b"TOOLATE" in third
+            check("presence is cached, so hammering it costs one answer, not N", ok,
+                  "cached=%s fresh=%s" % (first == second, b"TOOLATE" in third))
+            bye(ghost)
+        except Exception as e:
+            check("presence is cached", False, repr(e))
+
+        try:
+            presence_reset()
+            statuses = []
+            for _ in range(int(L.PRESENCE_BURST) + 8):
+                st, _, _ = _http_get(host, port, PATH_PREFIX + "/presence")
+                statuses.append(st)
+            check("presence is rate limited per caller (429 after the burst)",
+                  429 in statuses and statuses[0] == 200,
+                  statuses)
+            presence_reset()
+        except Exception as e:
+            check("presence is rate limited", False, repr(e))
+
+        try:
+            bye(idler)
+            bye(j)
+            bye(w)
+            idler = j = w = None
+            time.sleep(0.3)
+            _, _, raw, got = pres()
+            gone = [n for n in ("IDLER", "WAITER", "JOINER")
+                    if n.encode() in raw]
+            check("closing the socket takes the player straight off the list",
+                  not gone, "still listed: %s" % gone)
+        except Exception as e:
+            check("presence forgets closed sockets", False, repr(e))
 
         # ═══════════ abuse ═══════════
         print("")
@@ -1809,6 +2214,18 @@ def selftest():
                   "good=%r evil=%r" % (good[-120:], evil[-120:]))
         except Exception as e:
             check("CORS only for the Pages origin", False, repr(e))
+
+        try:
+            presence_reset()
+            _, good, _ = _http_get(host, port, PATH_PREFIX + "/presence",
+                                   origin=PAGES_ORIGIN)
+            _, evil, _ = _http_get(host, port, PATH_PREFIX + "/presence",
+                                   origin="https://evil.example")
+            ok = PAGES_ORIGIN in good and "access-control-allow-origin" not in evil.lower()
+            check("presence obeys the same CORS allow-list as everything else", ok,
+                  "good=%r evil=%r" % (good[-120:], evil[-120:]))
+        except Exception as e:
+            check("presence obeys the CORS allow-list", False, repr(e))
 
         try:
             refused = False

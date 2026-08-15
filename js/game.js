@@ -326,11 +326,33 @@ function deckIsLegal(list){
    is a one-liner (KARTI.ART.base = 'art/cards/') and every card everywhere
    picks it up. The emoji stays as the permanent fallback — if an image is
    missing or fails to decode it is removed and the emoji shows through. */
-const ART = { base:null, ext:'.jpg', ui:{} };
-function artImg(card){
+/* TWO sizes of every picture:
+     art/<id>.jpg         ~135 KB  the real thing, for the card inspector and
+                                   the pack / gacha reveal, where it fills the
+                                   screen and is actually looked at;
+     art/thumb/<id>.jpg    ~19 KB  256px, for grids, rails, board zones and
+                                   deck rows — anywhere the card is smaller
+                                   than the thumbnail anyway.
+   The Collection is 200 cards. Asking for 200 full-size files at once is ~27 MB
+   in one go: on a phone most of them simply never arrived and the player sat
+   looking at the emoji fallback thinking the art was broken. Thumbnails plus
+   loading="lazy" turns that into a few hundred KB for the cards on screen.
+   Both paths hang off ART.base, so a deploy with no art pack still degrades to
+   the emoji, and a deploy with art but no thumbs falls back to the full file. */
+const ART = { base:null, ext:'.jpg', thumb:'thumb/', ui:{} };
+const artURL = (card, big) => ART.base + (big ? '' : ART.thumb) + card.id + ART.ext;
+function artImg(card, big){
   if (!ART.base) return '';
-  return '<img class="artimg" alt="" loading="lazy" src="' + ART.base + esc(card.id) + ART.ext +
-    '" onerror="this.remove()" onload="this.parentNode.classList.add(\'hasart\')">';
+  const src = esc(artURL(card, big));
+  const full = esc(artURL(card, true));
+  return '<img class="artimg" alt="" decoding="async"' +
+    (big ? '' : ' loading="lazy"') +
+    ' src="' + src + '"' +
+    (src === full ? '' : ' data-full="' + full + '"') +
+    /* one retry at full size (art pack without thumbnails), then the emoji */
+    ' onerror="if(this.dataset.full){this.src=this.dataset.full;' +
+      'this.removeAttribute(\'data-full\')}else{this.remove()}"' +
+    ' onload="this.parentNode.classList.add(\'hasart\')">';
 }
 /* Level pips stay as the text star U+2605 on purpose: it is a plain typographic
    dingbat (no emoji presentation, present in every default font), and a card can
@@ -341,8 +363,12 @@ function stars(lvl){
 }
 function cardEl(card, opts){
   opts = opts || {};
+  const size = opts.size || 'md';
+  /* only the two sizes a player actually studies get the full-size picture:
+     lg = the card inspector, md = the pack / gacha reveal */
+  const bigArt = size === 'lg' || size === 'md';
   const d = document.createElement('div');
-  d.className = 'card ' + (opts.size || 'md') + (opts.tap ? ' tap' : '') + ' cat-' + card.t;
+  d.className = 'card ' + size + (opts.tap ? ' tap' : '') + ' cat-' + card.t;
   if (card.r === 'epiku') d.classList.add('holo');
   if (card.r === 'leggendarju') d.classList.add('holo', 'holo-leg');
   if (opts.dim) d.classList.add('dim');
@@ -358,7 +384,7 @@ function cardEl(card, opts){
       '<div class="lv"><span class="ty">' + ico(CAT_ICON[card.t]) +
         '<span>' + esc(typeName(card)) + '</span></span>' +
         '<span class="sr">' + (isMon ? stars(card.lvl) : '') + '</span></div>' +
-      '<div class="art">' + artImg(card) + '<span>' + esc(card.e) + '</span></div>' +
+      '<div class="art">' + artImg(card, bigArt) + '<span>' + esc(card.e) + '</span></div>' +
       '<div class="tx">' + esc(card.txt) + '</div>' +
       '<div class="ef">' + esc(effText(card)) + '</div>' +
       (isMon
@@ -369,7 +395,12 @@ function cardEl(card, opts){
       '<span class="gem" role="img" aria-label="' +
         esc(RARITY[card.r] ? RARITY[card.r].n : 'Unknown rarity') + '">' +
         ico(RARITY_ICON[card.r] || 'rar-komuni') + '</span>' +
-    '</div>';
+    '</div>' +
+    /* Only ever passed at the moment a card is RECEIVED — never in the
+       Collection, where a card you own is not news. Outside .in on purpose:
+       .in clips its overflow and the banner has to stand proud of the frame. */
+    (opts.isNew ? '<span class="newbadge">New</span>' : '');
+  if (opts.isNew) d.classList.add('is-new');
   return d;
 }
 function backEl(size){
@@ -418,6 +449,9 @@ function go(name){
   SCREENS.forEach(s => { const el = $('#scr-' + s); if (el) el.classList.toggle('on', s === name); });
   current = name;
   closeSheet(); closeModal();
+  /* mp.js keeps the who's-online panel alive only while Home is on screen —
+     nothing polls or holds a socket once you have navigated away. */
+  if (window.KARTI_MP && KARTI_MP.onScreen) KARTI_MP.onScreen(name);
   if (name === 'auth') renderAuth();
   if (name === 'home') renderHome();
   if (name === 'pack') renderPackScreen();
@@ -485,7 +519,7 @@ function authAction(act){
   switchTo(r.key); authMode = 'menu'; afterLogin();
 }
 function afterLogin(){
-  if (!S.starters.length) toast('Welcome. Pick a side, then get stuck in.');
+  if (!S.starters.length) toast('Welcome. Take a beginner deck, then get stuck in.');
   go('home');
 }
 
@@ -578,9 +612,14 @@ function renderDeckPicker(){
   const sel = $('#decksel');
   if (!sel) return;
   sel.innerHTML = '';
-  Object.keys(STARTER_DECKS).forEach(key => {
+  /* Only decks the player actually owns. There are no preset decks to buy any more:
+     you take one beginner deck from the blind roll, and everything after that you
+     collect card by card and build yourself. Listing the other six behind a padlock
+     just advertised something that no longer exists — and starterPrice() now returns
+     null, so it literally rendered "Locked null". */
+  const owned = Object.keys(STARTER_DECKS).filter(k => S.starters.indexOf(k) >= 0);
+  owned.forEach(key => {
     const sd = STARTER_DECKS[key];
-    const unlocked = S.starters.indexOf(key) >= 0;
     const b = document.createElement('button');
     b.className = 'deckcard' + (S.side === key ? ' on' : '');
     b.style.setProperty('--dc', sd.c);
@@ -588,15 +627,15 @@ function renderDeckPicker(){
     b.innerHTML =
       '<div class="e">' + ico(ATTR_ICON[sd.f || key] || 'deck') + '</div>' +
       '<div class="n">' + esc(sd.name) + '</div>' +
-      '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>' +
-      (unlocked ? '' : '<div class="tiny" style="margin-top:4px;color:var(--gold)">' +
-        ico('lock', 'Locked') + ' ' + starterPrice(key) + '</div>');
+      '<div class="vs">beats <b>' + esc(sd.beats) + '</b><br>loses to <i>' + esc(sd.loses) + '</i></div>';
     b.onclick = () => chooseSide(key);
     sel.appendChild(b);
   });
   const tag = $('#decktag');
-  if (tag) tag.textContent = S.side && STARTER_DECKS[S.side] ? STARTER_DECKS[S.side].tag
-    : 'Tap a deck to make it your active one.';
+  if (tag) tag.textContent = !owned.length
+    ? 'No deck yet — take your beginner deck first.'
+    : (S.side && STARTER_DECKS[S.side] ? STARTER_DECKS[S.side].tag
+       : 'Tap a deck to make it your active one.');
 }
 
 function chooseSide(key){
@@ -606,25 +645,14 @@ function chooseSide(key){
      for when js/gacha.js is missing, so the game still works without it.) */
   if (!S.starters.length && window.KARTI_GACHA){ KARTI_GACHA.open(); return; }
   if (S.starters.indexOf(key) < 0){
+    /* Fallback only for when js/gacha.js is missing. Ready-made decks are no longer
+       sold for coins — packs and the deck builder are the whole progression. */
     if (S.starters.length === 0){
       grantStarter(key); renderHome();
       toast(sd.name + ' deck is yours. Now go ruin somebody\'s afternoon.');
       return;
     }
-    const price = starterPrice(key);
-    if (S.coins < price){ toast('Short by ' + (price - S.coins) + ' coins. Go win a duel.'); return; }
-    openSheet(
-      '<h3>Unlock ' + esc(sd.name) + ' ' + ico(ATTR_ICON[sd.f || key] || 'deck') + '</h3>' +
-      '<p class="muted">' + esc(sd.tag) + '</p>' +
-      '<p class="muted">A full 40-card deck for <b>' + price + ' coins</b>' +
-        (price < 400 ? ' — you rolled this one, so it is cheaper' : '') +
-        '. You have ' + S.coins + '.</p>' +
-      '<div class="opts"><button class="btn primary" id="sh-yes">Unlock it</button>' +
-      '<button class="btn ghost" id="sh-no">Not today</button></div>');
-    $('#sh-no').onclick = closeSheet;
-    $('#sh-yes').onclick = () => {
-      S.coins -= price; grantStarter(key); closeSheet(); renderHome(); toast(sd.name + ' unlocked.');
-    };
+    toast('You build your own decks from here — open packs and put one together.');
     return;
   }
   const deck = S.decks.find(x => x.starter === key);
@@ -773,12 +801,9 @@ async function runPackOpen(){
     flip.appendChild(backEl());
     const front = document.createElement('div');
     front.className = 'fr';
-    front.appendChild(cardEl(res.card, { size:'md' }));
-    if (res.isNew){
-      const nb = document.createElement('span');
-      nb.className = 'newbadge'; nb.textContent = 'NEW!';
-      front.appendChild(nb);
-    }
+    /* res.isNew came from addCard(), which reads ownership BEFORE it adds the
+       copy — so this really does mean "did not own it a moment ago". */
+    front.appendChild(cardEl(res.card, { size:'md', isNew: res.isNew }));
     flip.appendChild(front);
     slot.appendChild(flip);
     const tip = document.createElement('div');
@@ -2520,7 +2545,7 @@ window.KARTI = {
   get S(){ return S; }, get D(){ return D; }, set D(v){ D = v; },
   get UI(){ return UI; },
   CARDS, STARTER_DECKS, ATTR, RARITY, COUNTERS, COUNTER_BONUS, LP_START, DECK_SIZE, MAX_COPIES,
-  ZONES, HAND_LIMIT, NET, setRNG, ART, artImg, uiArt, detectArt,
+  ZONES, HAND_LIMIT, NET, setRNG, ART, artImg, artURL, uiArt, detectArt,
   ico, ilb, ATTR_ICON, CAT_ICON, RARITY_ICON, markIcon, markLabel,
   cardById, tributesFor, openPack, deckToCards, effText, FX_TEXT,
   newDuel, aiStep, doAttack, summon, summonInfo, setST, activateSpell, endTurn, toBattle,

@@ -40,6 +40,7 @@
    ═══════════════════════════════════════════════════════════════════ */
 const RELAY_URL    = 'wss://raspberrypi.silverside-tench.ts.net:8443/karti/ws';
 const RELAY_HEALTH = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/health';
+const RELAY_PRESENCE = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/presence';
 /* When the page itself is opened over plain http (i.e. you are testing on
    the Pi or on a laptop) we assume the relay is on the same machine: */
 const DEV_RELAY_PORT = 8101;
@@ -53,9 +54,19 @@ const PONG_DEADLINE = 55000;    /* no pong for this long -> assume dead */
 const OPEN_TIMEOUT  = 9000;     /* socket must open within this, ms */
 const RETRY_WAITS   = [400, 900, 1800, 3500, 6000, 8000, 8000, 8000];  /* ~37s */
 
+/* who's-online panel on the home screen */
+const PRESENCE_EVERY   = 12000;  /* ms between polls while Home is up and visible */
+const PRESENCE_MIN_GAP = 4000;   /* never poll faster than this, whatever asks */
+const PRESENCE_PING    = 45000;  /* keep the beacon socket alive (server cuts at 120s) */
+const PRESENCE_HIDE_GRACE = 60000; /* hidden this long -> hand the socket back */
+const PRESENCE_HTTP_TO = 8000;   /* give up on one poll after this */
+const PRESENCE_ROWS    = 24;     /* names we will render, whatever the relay sends */
+const NAME_MAX         = 16;     /* must match L.NAME_LEN on the relay */
+
 const K = window.KARTI;
 if (!K) return;
-const $ = K.$, esc = K.esc;
+const $ = K.$, $$ = K.$$, esc = K.esc;
+const ico = n => (window.ICO ? window.ICO(n) : '');
 
 /* ───────────────────────── deck choices ─────────────────────────
    Pass-and-play is a party mode: both seats may use any starter deck
@@ -244,7 +255,7 @@ function pnpEnd(){ PNP.live = false; PNP.flipped = false; window.KHOOK = null; }
    2 · ONLINE
    ═══════════════════════════════════════════════════════════════════ */
 const MP = {
-  ws:null, url:'', intent:null,
+  ws:null, url:'', intent:null, joinId:null,
   code:null, token:null, host:false, lastSeq:0,
   live:false, joined:false, peerHere:false,
   myDeckId:null, myName:'', peerName:'', peerList:null, peerKey:null,
@@ -443,7 +454,10 @@ function testServer(){
 }
 
 /* ── socket lifecycle ─────────────────────────────────────────────── */
-function start(intent, code){
+/* intent: 'create' | 'join' (needs a room code) | 'joinid' (needs the public
+   handle of a waiting player, straight off the who's-online panel — you never
+   see, type or learn their room code) | 'rejoin' */
+function start(intent, code, id){
   MP.url = ((($('#mp-url') || {}).value) || MP.url || defaultURL()).trim();
   if (!/^wss?:\/\//i.test(MP.url)){
     setState('unreachable', 'That is not a valid server address.');
@@ -454,7 +468,9 @@ function start(intent, code){
     return;
   }
   hardClose();
+  presenceBeaconClose();          /* one socket per device, never two */
   MP.code = intent === 'join' ? code : null;
+  MP.joinId = intent === 'joinid' ? (id || null) : null;
   MP.token = null; MP.lastSeq = 0; MP.tries = 0;
   MP.joined = false; MP.peerHere = false; MP.peerList = null;
   openSocket(intent);
@@ -478,8 +494,14 @@ function openSocket(intent){
     clearTimeout(MP.openTimer);
     MP.lastPong = Date.now();
     startPing();
+    /* Tell the relay what to call us in the who's-online list. An OLDER relay
+       does not know this message and answers "Bad message."; MP.nameProbe makes
+       onServerError swallow exactly that one reply so nothing looks broken. */
+    MP.nameProbe = true;
+    send({ t:'name', n: myPresenceName() });
     if (intent === 'create') send({ t:'create' });
     else if (intent === 'join') send({ t:'join', code: MP.code });
+    else if (intent === 'joinid') send({ t:'joinid', id: MP.joinId });
     else send({ t:'rejoin', code: MP.code, token: MP.token, since: MP.lastSeq });
   };
   ws.onmessage = e => {
@@ -549,6 +571,7 @@ function mpLeave(){
   if (MP.ws && MP.ws.readyState === 1){ try { MP.ws.send(JSON.stringify({ t:'leave' })); } catch (e){} }
   hardClose();
   MP.code = null; MP.token = null; MP.live = false; MP.joined = false;
+  MP.joinId = null; MP.nameProbe = false;
   MP.peerHere = false; MP.peerList = null; MP.lastSeq = 0; MP.tries = 0;
   if (MP.state !== 'unreachable') setState('idle');
 }
@@ -558,6 +581,10 @@ function onServer(m){
   switch (m.t){
     case 'pong':
       MP.lastPong = Date.now();
+      return;
+
+    case 'named':                      /* the relay took our display name */
+      MP.nameProbe = false;
       return;
 
     case 'created':
@@ -622,6 +649,17 @@ function onServer(m){
 }
 function onServerError(why){
   /* The relay only ever sends fixed strings, so they are safe to show. */
+  if (MP.nameProbe){
+    MP.nameProbe = false;
+    if (/^Bad message/i.test(why)) return;       /* older relay, no name support */
+  }
+  if (/not waiting/i.test(why)){
+    MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
+    setState('unreachable', 'That player is not waiting any more — someone else got there ' +
+             'first, or they closed the game. Make a room of your own instead.');
+    K.toast('They are not waiting any more.');
+    return;
+  }
   if (/No room with that code/i.test(why)){
     MP.token = null; MP.code = null; MP.joined = false;
     setState('unreachable', 'No room with that code. Check it and try again.');
@@ -942,6 +980,269 @@ function mpResult(winner, why){
   return true;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   3 · WHO IS ONLINE  —  the home-screen panel
+   ───────────────────────────────────────────────────────────────────
+   Two halves, both deliberately small:
+
+     the BEACON   one WebSocket, opened only while the Home screen is
+                  actually on screen and the tab is actually visible. All
+                  it ever sends is a display name and a keep-alive. It is
+                  what puts YOU in everyone else's list.
+     the POLL     a plain GET of /presence every 12s, same rule: only
+                  while Home is visible. Backing off on `visibilitychange`
+                  and stopping dead on screen change is the whole point —
+                  a menu left open in a background tab must cost nothing.
+
+   The relay answers with names, states and counts. It does not answer
+   with room codes, tokens or addresses, so there is nothing here that a
+   stranger could use to get into somebody else's duel. The one thing you
+   CAN act on is a player who is waiting: they are advertising an empty
+   seat, and their handle is good for exactly that one thing.
+
+   Failure is a first-class state. The owner's own devices cannot reach
+   the relay at all while Tailscale is on (a public https page is not
+   allowed to open a connection to a private address), so "cannot reach
+   the server" is going to be seen regularly and must never be dressed up
+   as "nobody is online".
+   ═══════════════════════════════════════════════════════════════════ */
+const PR = {
+  mounted:false, ws:null, pingTimer:null, timer:null, hideTimer:null,
+  last:0, busy:false, data:null, err:null, tried:false
+};
+
+function myPresenceName(){
+  let n = '';
+  try { n = (K.displayName() || '').toString(); } catch (e){}
+  /* the same scrub the relay applies, done on this side too so what shows in
+     the list is exactly what we sent. Written without \x escapes on purpose. */
+  n = n.toUpperCase().split('').filter(c =>
+        c >= ' ' && c !== '\u007f' && '<>&"\'\\`'.indexOf(c) < 0).join('')
+        .trim().slice(0, NAME_MAX);
+  return n || 'PLAYER';
+}
+
+/* the /presence twin of whatever relay address is in force */
+function presenceURL(){
+  const u = (MP.url || defaultURL()).trim();
+  if (!u || u === RELAY_URL) return RELAY_PRESENCE;
+  return u.replace(/^ws/i, 'http').replace(/\/ws(\/)?$/i, '/presence');
+}
+
+/* ── the beacon ─────────────────────────────────────────────────── */
+function presenceBeaconOpen(){
+  if (PR.ws || MP.ws) return;                     /* never two sockets at once */
+  if (!PR.mounted || document.hidden) return;
+  const url = (MP.url || defaultURL()).trim();
+  if (!/^wss?:\/\//i.test(url)) return;
+  if (isSecurePage() && url.slice(0, 6).toLowerCase() !== 'wss://') return;
+  let ws;
+  try { ws = new WebSocket(url); } catch (e){ return; }
+  PR.ws = ws;
+  ws.onopen = () => {
+    try { ws.send(JSON.stringify({ t:'name', n: myPresenceName() })); } catch (e){}
+  };
+  /* The beacon listens for exactly one thing: the relay confirming our display
+     name. Until that lands, /presence would list us as an anonymous PLAYER —
+     so we hold the first poll back until we know we are on the list properly. */
+  ws.onmessage = e => {
+    let m; try { m = JSON.parse(e.data); } catch (err){ return; }
+    if (m && m.t === 'named') presenceTick();
+  };
+  ws.onerror = () => {};
+  ws.onclose = () => { if (PR.ws === ws) PR.ws = null; };
+  clearInterval(PR.pingTimer);
+  PR.pingTimer = setInterval(() => {
+    if (PR.ws && PR.ws.readyState === 1){ try { PR.ws.send('{"t":"ping"}'); } catch (e){} }
+  }, PRESENCE_PING);
+}
+function presenceBeaconClose(){
+  clearInterval(PR.pingTimer); PR.pingTimer = null;
+  const ws = PR.ws;
+  PR.ws = null;
+  if (!ws) return;
+  try { ws.onclose = null; ws.onmessage = null; ws.onerror = null; ws.close(); } catch (e){}
+}
+
+/* ── the poll ───────────────────────────────────────────────────── */
+function presencePoll(){
+  if (!PR.mounted || document.hidden || PR.busy) return;
+  /* PRESENCE_MIN_GAP is a hard floor, not a default. Nothing — not the refresh
+     button, not coming back to Home, not a tab waking up — gets under it. */
+  if (Date.now() - PR.last < PRESENCE_MIN_GAP) return;
+  PR.busy = true;
+  PR.last = Date.now();
+  presenceBeaconOpen();
+
+  let ctl = null, sig;
+  try { ctl = new AbortController(); sig = ctl.signal; } catch (e){}
+  const bail = setTimeout(() => { try { if (ctl) ctl.abort(); } catch (e){} }, PRESENCE_HTTP_TO);
+  const done = () => { clearTimeout(bail); PR.busy = false; PR.tried = true; presencePaint(); };
+
+  fetch(presenceURL(), { cache:'no-store', signal: sig })
+    .then(r => {
+      if (r.status === 404) throw { kind:'old' };
+      if (r.status === 429) throw { kind:'busy' };
+      if (!r.ok) throw { kind:'down' };
+      return r.json();
+    })
+    .then(j => {
+      if (!j || j.ok !== true || !Array.isArray(j.players)) throw { kind:'notrelay' };
+      PR.data = j; PR.err = null;
+    })
+    .catch(e => { PR.data = null; PR.err = (e && e.kind) || 'down'; })
+    .then(done, done);
+}
+
+/* One timer, re-armed each time. If a tick lands inside the floor it does not
+   poll — it just comes back when the floor lifts. */
+function presenceTick(){
+  clearTimeout(PR.timer);
+  const since = Date.now() - PR.last;
+  let wait = PRESENCE_EVERY;
+  if (since >= PRESENCE_MIN_GAP) presencePoll();
+  else wait = PRESENCE_MIN_GAP - since + 120;
+  PR.timer = setTimeout(presenceTick, wait);
+}
+
+/* ── the panel ──────────────────────────────────────────────────── */
+const STATE_WORD = {
+  idle:    { word:'in the lobby', icon:'users' },
+  waiting: { word:'waiting for a duel', icon:'flag' },
+  playing: { word:'in a duel', icon:'type-monster' }
+};
+
+function presencePaint(){
+  const host = $('#home-online');
+  if (!host) return;
+  if (!PR.mounted){ host.className = 'onlinebox'; host.innerHTML = ''; return; }
+
+  const me = myPresenceName();
+  const d = PR.data;
+  let tone = '', count = '', body = '';
+
+  if (PR.err){
+    tone = ' on-bad';
+    count = 'offline';
+    body =
+      '<p class="on-note"><b>Cannot reach the KARTI server.</b> This is not a crash and ' +
+      'nobody has vanished — the list simply could not be fetched, so it is not being shown.</p>' +
+      (PR.err === 'old'
+        ? '<p class="on-note">That relay is an older build that does not keep an online list yet.</p>'
+        : PR.err === 'busy'
+        ? '<p class="on-note">The server asked us to slow down. It will try again shortly.</p>'
+        : PR.err === 'notrelay'
+        ? '<p class="on-note">Something answered, but it was not the KARTI relay.</p>'
+        : '<p class="on-note"><b>If Tailscale is on, turn it off.</b> A public web page is not ' +
+          'allowed to talk to a private network address, so the relay looks unreachable ' +
+          'until you do. Otherwise: check you are online, or the server may be down.</p>') +
+      '<p class="on-note">Everything else in KARTI works with no internet at all.</p>';
+  } else if (!PR.tried || !d){
+    count = '…';
+    body = '<p class="on-note">Checking who is about…</p>';
+  } else if (!d.count){
+    count = '0';
+    body = '<p class="on-note">Nobody is on right now. Open <b>Multiplayer › Online</b> and ' +
+           'make a room — whoever turns up next will see you waiting here.</p>';
+  } else {
+    tone = ' on-live';
+    count = d.count + ' on';
+    const rows = d.players.slice(0, (d.max || PRESENCE_ROWS)).map(p => {
+      const st = STATE_WORD[p.s] ? p.s : 'idle';
+      const info = STATE_WORD[st];
+      const mine = (p.n || '') === me;
+      const inner =
+        '<span class="onmark">' + ico(info.icon) + '</span>' +
+        '<span class="onwho"><span class="onname">' + esc(p.n || 'PLAYER') +
+          (mine ? ' <span class="onme">(you)</span>' : '') + '</span>' +
+          '<span class="onstate">' + info.word + '</span></span>';
+      if (st === 'waiting' && p.id && !mine)
+        return '<button class="onrow join s-waiting" data-join="' + esc(p.id) + '" ' +
+               'data-who="' + esc(p.n || 'PLAYER') + '">' + inner +
+               '<span class="ongo">' + ico('arrow-right') + 'Join</span></button>';
+      return '<div class="onrow s-' + st + '">' + inner + '</div>';
+    }).join('');
+    const hidden = d.count - (d.shown || d.players.length);
+    body = '<div class="on-list">' + rows + '</div>' +
+      (hidden > 0 ? '<p class="on-more">and ' + hidden + ' more</p>' : '') +
+      (d.waiting ? '' : '<p class="on-note">Nobody has a room open. Tap <b>Multiplayer</b> ' +
+                        'to start one.</p>');
+  }
+
+  host.className = 'onlinebox' + tone;
+  host.innerHTML =
+    '<div class="on-head"><span class="on-dot"></span><h2>Who&rsquo;s online</h2>' +
+      '<span class="on-count">' + esc(count) + '</span>' +
+      '<button class="on-ref" id="on-refresh" aria-label="Check again">' + ico('refresh') +
+      '</button></div>' +
+    '<div class="on-body" role="status" aria-live="polite">' + body + '</div>';
+
+  const ref = $('#on-refresh');
+  if (ref) ref.onclick = () => {
+    if (Date.now() - PR.last < PRESENCE_MIN_GAP){ K.toast('Just a moment\u2026'); return; }
+    presencePoll();
+  };
+  K.$$('[data-join]', host).forEach(el => {
+    el.onclick = () => joinWaiting(el.getAttribute('data-join'), el.getAttribute('data-who'));
+  });
+}
+
+/* Take the empty seat somebody is advertising. No room code is ever typed,
+   read out, or even shown to us — the relay resolves the handle itself. */
+function joinWaiting(id, who){
+  if (!id) return;
+  window.KHOOK = null;
+  mpScreen();
+  K.go('mp');                                   /* unmounts the panel on the way */
+  start('joinid', null, id);
+  setState('connecting', 'Joining ' + (who || 'them') + '…');
+}
+
+/* ── mount / unmount ────────────────────────────────────────────── */
+function presenceMount(){
+  if (PR.mounted) return;
+  PR.mounted = true;
+  /* deliberately NOT clearing PR.data: coming straight back to Home should show
+     the list we already had, then refresh it, rather than blink to "checking". */
+  presencePaint();
+  presenceBeaconOpen();
+  /* Give the beacon a moment to register our name before the first poll; if it
+     never connects this fires anyway, so a dead relay still reports itself. */
+  clearTimeout(PR.timer);
+  PR.timer = setTimeout(presenceTick, 900);
+}
+function presenceUnmount(){
+  if (!PR.mounted) return;
+  PR.mounted = false;
+  clearTimeout(PR.timer); PR.timer = null;
+  clearTimeout(PR.hideTimer); PR.hideTimer = null;
+  presenceBeaconClose();
+  presencePaint();                              /* empties the panel */
+}
+/* game.js calls this from go(). Home is the only screen that wants presence. */
+function onScreen(name){
+  if (name === 'home') presenceMount(); else presenceUnmount();
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){
+    /* Backgrounded. Polling stops DEAD — a menu left open in a background tab
+       must not sit there fetching forever. The beacon socket is kept for a
+       short grace period so that flicking to another app for a moment does not
+       make you blink out of everybody else's list; past that it is handed back,
+       because an idle socket still costs the Pi a thread. */
+    clearTimeout(PR.timer); PR.timer = null;
+    clearTimeout(PR.hideTimer);
+    PR.hideTimer = setTimeout(presenceBeaconClose, PRESENCE_HIDE_GRACE);
+  } else if (PR.mounted){
+    clearTimeout(PR.hideTimer); PR.hideTimer = null;
+    presenceBeaconOpen();
+    presenceTick();
+  }
+});
+/* a phone that goes to sleep gets frozen, not hidden — let go of the socket */
+window.addEventListener('pagehide', presenceBeaconClose);
+
 /* ───────────────────────── entry ───────────────────────── */
 /* The home screen offers one MULTIPLAYER button; the choice of how lives here. */
 function chooser(){
@@ -963,6 +1264,9 @@ function wire(){
   if (p) p.onclick = () => { window.KHOOK = null; pnpScreen(); K.go('pnp'); };
   if (o) o.onclick = () => { window.KHOOK = null; mpScreen(); K.go('mp'); };
   if (m) m.onclick = chooser;
+  /* game.js runs boot() — and therefore go('home') — before this file has even
+     been fetched, so the first mount has to happen here. */
+  if (document.querySelector('#scr-home.on')) presenceMount();
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
 else wire();
@@ -972,7 +1276,10 @@ window.KARTI_MP = {
   mpScreen, mpLeave, checksum, applyRemote, beginOnline, onPeer, onServer, chooser,
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
-  RELAY_URL, RELAY_HEALTH, CODE_LEN, CODE_ALPHABET,
+  /* who's-online panel */
+  PR, onScreen, presenceMount, presenceUnmount, presencePoll, presencePaint,
+  presenceURL, presenceBeaconOpen, presenceBeaconClose, myPresenceName, joinWaiting,
+  RELAY_URL, RELAY_HEALTH, RELAY_PRESENCE, CODE_LEN, CODE_ALPHABET,
   /* older name kept so nothing that reached for it breaks */
   mpConnect: (action, code) => start(action, code)
 };
