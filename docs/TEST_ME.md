@@ -128,26 +128,43 @@ address. Test it with someone outside the house, or on mobile data.
 - **TOMBLA** — Maltese bingo, the full ladder: ambo, terna, kwaterna, ċinkwina,
   tombla. The one game that gets *better* with a big table, since everybody
   marks at once and nobody waits for a turn.
-- **Rooms for up to 16 players**, and one shared lobby every game feeds: your
-  profile name used automatically with no prompt, see who is in the room, invite
-  from inside it, add AI and pick its difficulty, read the rules before you
-  start, everyone readies, and AI seats ready themselves the moment they spawn.
-- **SKARTA polish** — the shout becomes **LAST ONE**, an AI toggle, the +4/+7
-  cards redesigned so you can see what they do to you instead of doing sums, and
-  drag to arrange your hand.
-- **SKARTA online**, which needs multi-seat rooms first.
-- **IL-KIRI's lobby hooks** and its rules panel.
+- **The shared lobby screen.** The transport under it is DONE and measured —
+  sixteen full sixteen-seat tables at once run at under 4% of one core on the
+  Pi, which is 256 sockets. The lobby UI itself is not written yet, so the games
+  cannot be joined from a room until it is.
+- **SKARTA's seat cap.** It ships capped at 4 chairs, which contradicts
+  "make it 8plus". 108 cards and a hand of 7 deal to fifteen players, so the
+  real number is being worked out rather than picked for tidiness.
+
+---
+
+## ONE DECISION ONLY YOU CAN MAKE
+
+**Undo at a big table.** Your rule is that every player must agree, and it is
+built that way. But at a table of eight, waiting on seven approvals means one
+person who put their phone down freezes everybody.
+
+The recommendation is: **keep "anyone may refuse" absolute, but treat silence as
+"did not object"** — a 20-second window, the count visible throughout
+("waiting for 3 of 7"), and the asker can withdraw at any time. A deliberate NO
+still kills it instantly; only silence stops being a veto.
+
+Say the word either way and it changes in minutes. It is left strict until you
+decide, because it is your rule and not mine to soften.
 
 ---
 
 ## THE TWO THINGS I NEED FROM YOU
 
 1. **Re-add the home screen icon** (top of this file). Nothing else fixes it.
-2. **One relay restart**, when I tell you the server changes are bundled and
-   ready — not yet:
+2. **One relay restart — this is now ready.** All server work is bundled into
+   the build you are testing; nothing further is pending. Rooms seat up to 16
+   and online chess, dama and the new table games need it:
    ```
    sudo systemctl restart karti-relay
    ```
+   Its self-test passes **159 checks, zero failed**, and all 144 pre-existing
+   checks still pass unedited — that is the regression net, not a claim.
 
 ## AND ONE THING TO DO WHEN YOU WAKE
 
