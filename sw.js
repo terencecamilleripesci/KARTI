@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v17';
+const CACHE = 'karti-v18';
 const CORE = [
   './',
   './index.html',
@@ -21,17 +21,46 @@ const CORE = [
   './js/tutor.js',
   './js/sync.js',
   './icons/icon-192.png',
-  './icons/icon-512.png'
+  './icons/icon-512.png',
+  /* The UI art the shell actually wears — home background, playmat, card back,
+     zones, piles — plus art/petard.jpg, the sentinel detectArt() probes to
+     decide whether the art pack exists at all. None of these were cached, and
+     every cache bump wiped the runtime copies, so an installed app launched on
+     a flaky connection came up with NO artwork: shell from the precache, art
+     probes dead. ~1.2 MB total, precached once, and the install below carries
+     the previous version's copies forward if the network drops mid-install. */
+  './art/petard.jpg',
+  './art/ui/home-bg.jpg',
+  './art/ui/board.jpg',
+  './art/ui/cardback.jpg',
+  './art/ui/zone-monster.png',
+  './art/ui/zone-spell.png',
+  './art/ui/pile-deck.png',
+  './art/ui/pile-grave.png',
+  './art/ui/pile-banish.png'
 ];
 
 self.addEventListener('install', event => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE).then(cache =>
-      /* addAll fails the whole install if one file 404s — add individually */
-      Promise.all(CORE.map(url => cache.add(url).catch(() => null)))
-    )
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    /* the old caches still exist here — activate has not pruned them yet */
+    const oldKeys = (await caches.keys()).filter(k => k !== CACHE);
+    await Promise.all(CORE.map(async url => {
+      /* network first so a deploy really refreshes the file… */
+      try { await cache.add(url); return; } catch (e) {}
+      /* …but if the network fails mid-install, carry the previous version's
+         copy forward rather than losing a file the device already had. That is
+         what used to happen on every bump: activate deleted the old cache and
+         anything that had not re-downloaded yet was simply gone. */
+      for (const k of oldKeys){
+        try {
+          const hit = await (await caches.open(k)).match(url);
+          if (hit){ await cache.put(url, hit); return; }
+        } catch (e) {}
+      }
+    }));
+  })());
 });
 
 self.addEventListener('activate', event => {
@@ -60,8 +89,9 @@ self.addEventListener('fetch', event => {
      the Collection quietly wrote tens of megabytes to disk, with no eviction.
      The 256px thumbnails (~3.8 MB for the whole set, and only the ones actually
      looked at) ARE cached, so the grid, the rails and the board still have real
-     art with no network. Nothing here is precached: 200 files is far too many
-     for an install step. */
+     art with no network. Nothing card-sized is precached: 200 files is far too
+     many for an install step. (art/ui/* does NOT match this pattern — the UI
+     dressing is small, precached above, and must survive offline.) */
   const isFullArt = /\/art\/[^/]+\.(jpe?g|png|webp)$/i.test(url.pathname) &&
                     !/\/art\/thumb\//i.test(url.pathname);
 

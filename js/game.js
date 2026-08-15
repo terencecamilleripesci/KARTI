@@ -2620,8 +2620,33 @@ function wireStatic(){
    yet) we probe one file: if it loads, the art is present and every card and
    board element lights up. Emoji and CSS remain the fallback either way. */
 function detectArt(){
-  const probe = (url, hit) => { const i = new Image(); i.onload = () => hit(); i.src = url; };
-  probe('art/petard.jpg', () => {
+  /* Re-runnable. Each probe used to be a single fire-and-forget Image() with no
+     onerror: on the installed PWA the probes fire at cold launch, which is
+     exactly when the radio may still be waking up (or the SW cache was just
+     wiped by a version bump), and ONE silent failure killed all the artwork
+     for the whole session — flat dark home screen, everything else fine.
+     Now a failed probe retries with backoff, an exhausted probe is re-armed by
+     the online/pageshow/visibility listeners below, and a probe that already
+     succeeded is never re-fetched. */
+  const st = detectArt._st || (detectArt._st = {});
+  const probe = (key, url, hit) => {
+    if (st[key]) return;                       /* 'done' or a chain in flight */
+    st[key] = 'trying';
+    let tries = 0;
+    const attempt = () => {
+      if (st[key] === 'done') return;
+      const i = new Image();
+      i.onload = () => { st[key] = 'done'; hit(); };
+      i.onerror = () => {
+        tries++;
+        if (tries <= 6) setTimeout(attempt, Math.min(20000, 900 * Math.pow(2, tries)));
+        else st[key] = 0;                      /* give up until the next re-arm */
+      };
+      i.src = url;
+    };
+    attempt();
+  };
+  probe('base', 'art/petard.jpg', () => {
     ART.base = 'art/';
     if (current === 'coll') renderCollection();
     if (D) renderDuel();
@@ -2630,7 +2655,7 @@ function detectArt(){
                '--art-zone-s':'art/ui/zone-spell.png', '--art-pile-deck':'art/ui/pile-deck.png',
                '--art-pile-grave':'art/ui/pile-grave.png', '--art-pile-banish':'art/ui/pile-banish.png',
                '--art-cardback':'art/ui/cardback.jpg', '--art-home':'art/ui/home-bg.jpg' };
-  Object.keys(ui).forEach(v => probe(ui[v], () => {
+  Object.keys(ui).forEach(v => probe(v, ui[v], () => {
     /* MUST be absolute: a relative url() inside a custom property is resolved
        against the stylesheet that *uses* it (css/extra.css), not the document,
        which silently turns art/ui/x.jpg into css/art/ui/x.jpg. */
@@ -2640,6 +2665,13 @@ function detectArt(){
     document.documentElement.classList.add('art' + v.replace('--art', ''));
   }));
 }
+/* A probe that ran out of retries comes back the moment the network does, or
+   when the app returns to the foreground — iOS standalone freezes timers in the
+   background, so a mid-backoff chain may simply never have fired. All three
+   re-arms are cheap no-ops once every probe has succeeded. */
+window.addEventListener('online', () => detectArt());
+window.addEventListener('pageshow', () => detectArt());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) detectArt(); });
 /* url for a named UI image (boss portraits, pack faces...), null when absent.
    Callers must always keep their emoji/CSS fallback for when art is missing. */
 function uiArt(name, file){
