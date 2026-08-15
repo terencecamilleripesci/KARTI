@@ -251,7 +251,15 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 @keyframes pop{from{transform:scale(0)}70%{transform:scale(1.25)}to{transform:scale(1)}}
 
 /* ══════════════════ AUTH ══════════════════ */
-.authwrap{flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px;max-width:420px;
+/* .authwrap asks for flex:1 so it can centre itself, but its parent .scroll is a
+   plain block, so the flex had no effect and the whole sign-in column sat jammed
+   against the top of the phone with two thirds of the screen empty below it.
+   Making the scroller a flex column is what actually honours that flex:1.
+   `safe center` for the same reason as .homemid: a centred column that outgrows
+   its box must scroll from the top, not have its head cut off. */
+#scr-auth .scroll{display:flex;flex-direction:column}
+.authwrap{flex:1;display:flex;flex-direction:column;
+  justify-content:center;justify-content:safe center;gap:12px;max-width:420px;
   width:100%;margin:0 auto;padding:14px 0 20px}
 .userlist{display:grid;gap:8px;margin:6px 0}
 .userrow{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
@@ -288,9 +296,59 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 #scr-home .logo{font-size:clamp(34px,min(13vw,8vh),64px)}
 #scr-home .wallet{margin:0;flex:0 0 auto}
 #scr-home .menu{margin:0;flex:0 0 auto}
-#scr-home .navrow{flex:0 0 auto;margin-top:clamp(6px,1.6vh,15px)}
 .fineprint{flex:0 0 auto;text-align:center;margin:clamp(5px,1.2vh,12px) 0 0;
   font-size:10.5px;line-height:1.5;color:var(--dim2)}
+
+/* ══════════════════ BOTTOM NAV (tab bar) ══════════════════
+   Home's secondary destinations used to be a wrapped row of five ghost buttons
+   that took two ragged lines and vanished into the background art. This is a
+   proper app tab bar: ONE row of equal columns that can never wrap (grid
+   auto-columns, not flex-wrap), bled out to the screen edges with negative
+   margins that exactly undo .screen's padding, and given its own opaque surface
+   so it is legible over anything.
+   The bottom padding carries the safe-area inset, so on a notched phone the
+   bar's SURFACE runs under the home indicator while its TAPPABLE tabs stop
+   above it. */
+.tabbar{
+  flex:0 0 auto;
+  display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
+  margin:clamp(7px,1.5vh,13px)
+         calc(-1 * (var(--sar) + 12px))
+         calc(-1 * (var(--sab) + 6px))
+         calc(-1 * (var(--sal) + 12px));
+  padding:5px calc(var(--sar) + 6px) calc(var(--sab) + 5px) calc(var(--sal) + 6px);
+  background:linear-gradient(180deg,rgba(14,10,26,.90),rgba(8,5,16,.985));
+  border-top:1px solid rgba(255,255,255,.15);
+  box-shadow:0 -1px 0 rgba(255,255,255,.05) inset,0 -12px 30px rgba(0,0,0,.55);
+  backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
+}
+.tab{
+  position:relative;min-width:0;   /* min-width:0 or a long label stretches its column */
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+  min-height:52px;padding:6px 1px 5px;border-radius:13px;
+  /* NOT the Orbitron display face here: "COLLECTION" in Orbitron is far too wide
+     for a quarter of a 390px screen and got ellipsised. The UI face reads better
+     at 9px anyway — this is chrome, not branding. */
+  font-family:var(--body);font-weight:700;font-size:9px;letter-spacing:.02em;
+  /* brighter than --dim: this is 9px type on a near-black bar and he has
+     complained before about not being able to read the menu */
+  text-transform:uppercase;line-height:1;color:#BCAFDD;
+  transition:color .16s var(--ease),background .16s var(--ease),transform .12s var(--ease);
+}
+.tab .ico{font-size:21px;color:#EFE6FF;transition:color .16s var(--ease)}
+.tab .tl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tab:active{transform:translate3d(0,1px,0);background:rgba(255,255,255,.08)}
+/* the current destination. Nothing is current while you are on Home itself —
+   that is correct, Home is not one of the five. */
+.tab[aria-current]{color:#241800;background:linear-gradient(180deg,#FFDE8B,var(--gold));
+  box-shadow:0 5px 16px -6px rgba(255,197,66,.85)}
+.tab[aria-current] .ico{color:#241800}
+/* "your deck is not legal" — a badge, because a tab bar must never reflow */
+/* pinned to the icon's top-right, NOT to the tab's, so it stays put whatever
+   width the column ends up being */
+.tdot{position:absolute;top:4px;left:calc(50% + 7px);width:9px;height:9px;border-radius:50%;
+  background:var(--hot);border:1.5px solid #0B0716;box-shadow:0 0 8px rgba(232,69,44,.9)}
+.tdot[hidden]{display:none}
 /* Short phones (iPhone SE, 360x640 Androids). The two fat rows are the wallet
    and the secondary nav — both wrap to THREE lines at 360px on the normal
    scale. Tightening the type and the padding puts each back to two lines and
@@ -305,8 +363,11 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   #scr-home .wallet{gap:5px}
   #scr-home .wallet .pill{font-size:10.5px;padding:4px 8px;gap:4px}
   #scr-home .wallet .pill small{font-size:9px;letter-spacing:.02em}
-  #scr-home .navrow{gap:5px}
-  #scr-home .navrow .btn{min-height:40px;font-size:9.5px;padding:3px 8px;letter-spacing:.02em}
+  /* the tab bar is already one row; just tighten it — 48px still clears the
+     44px minimum target, and no label is dropped */
+  .tabbar{margin-top:7px;gap:1px}
+  .tab{min-height:48px;gap:4px;padding:5px 1px 4px;font-size:8.5px;letter-spacing:0}
+  .tab .ico{font-size:19px}
   #scr-home .onlinebox{padding:7px 9px 6px;gap:6px}
   #scr-home .on-list{max-height:clamp(58px,17vh,120px)}
 }
@@ -928,19 +989,40 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <section class="onlinebox" id="home-online" aria-label="Who is online"></section>
     </div>
 
-    <nav class="navrow" id="home-nav" aria-label="Everything else">
-      <button class="btn ghost sm" id="btn-duel"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-        aria-hidden="true" focusable="false"><use href="#i-type-monster"></use></svg><span>Quick duel</span></span></button>
-      <button class="btn ghost sm" id="btn-coll"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-        aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg><span>Collection</span></span></button>
-      <button class="btn ghost sm" id="btn-deck"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-        aria-hidden="true" focusable="false"><use href="#i-deck"></use></svg><span>Decks</span></span></button>
-      <button class="btn ghost sm" id="btn-packs"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-        aria-hidden="true" focusable="false"><use href="#i-pack"></use></svg><span>Packs</span></span></button>
-      <button class="btn ghost sm" id="btn-tutor"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-        aria-hidden="true" focusable="false"><use href="#i-book"></use></svg><span>How to play</span></span></button>
+    <!-- The 18+ small print used to sit under the buttons as bottom filler. It is
+         in the profile sheet now (js/game.js) — nothing below the nav but the nav. -->
+
+    <!-- ═══ BOTTOM NAV ═══
+         A real app tab bar, not a wrapped row of buttons: four fixed columns
+         pinned to the bottom of Home, full-bleed to the screen edges, padded
+         clear of the iOS home indicator. `data-scr` is the whole routing
+         contract — go() marks the matching tab with aria-current and the CSS
+         hangs off that, so the bar can be shown on another screen later
+         without touching this markup.
+         Quick duel is deliberately NOT here — a duel starts from Story Mode or
+         Multiplayer. -->
+    <nav class="tabbar" id="home-nav" aria-label="Main sections">
+      <button class="tab" type="button" id="btn-coll" data-scr="coll">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg>
+        <span class="tl">Collection</span>
+      </button>
+      <!-- The deck-legality warning used to hang off a "Quick duel" button that is
+           gone now (you duel through Story Mode or Multiplayer). It belongs here
+           anyway: an illegal deck is fixed in the deck builder. -->
+      <button class="tab" type="button" id="btn-deck" data-scr="deck">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-deck"></use></svg>
+        <span class="tl">Inventory</span>
+        <i class="tdot" id="deck-warn" role="img" aria-label="your deck is not legal" hidden></i>
+      </button>
+      <button class="tab" type="button" id="btn-packs" data-scr="pack">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-pack"></use></svg>
+        <span class="tl">Store</span>
+      </button>
+      <button class="tab" type="button" id="btn-tutor" data-scr="tutor">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg>
+        <span class="tl">Guide</span>
+      </button>
     </nav>
-    <p class="fineprint">18+ · Contains mothers-in-law, Marsa traffic and one very accurate slipper.</p>
   </section>
 
   <!-- ═══ PACK ═══ -->
@@ -949,7 +1031,9 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
       <div class="tbar" style="width:100%;max-width:460px">
         <button class="iconbtn" id="pack-back" aria-label="Back to home">
           <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-back"></use></svg></button>
-        <h2>Packs</h2>
+        <!-- titled to match the Store tab in the bottom nav — a tab that says one
+             thing and lands on a screen that says another is just confusing -->
+        <h2>Store</h2>
         <span class="pill" id="pack-coins"></span>
       </div>
       <div class="setpick" id="pack-sets"></div>
@@ -978,7 +1062,8 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
     <div class="tbar">
       <button class="iconbtn" id="deck-back" aria-label="Back to home">
         <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-back"></use></svg></button>
-      <h2>Deck Builder</h2>
+      <!-- matches the Inventory tab in the bottom nav -->
+      <h2>Inventory</h2>
       <span class="pill mono" id="deck-count"></span>
     </div>
     <!-- Deck picker, moved off Home. renderHome() still fills these by id. -->
@@ -1051,7 +1136,7 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
 /* ── icons ──────────────────────────────────────────────────────────
    ICO(name)                → decorative mark, hidden from screen readers
    ICO(name, 'Coins')       → the icon IS the label (role=img + aria-label)
-   ILB(name, 'Quick duel')  → icon + words inside a .btn (which is a column
+   ILB(name, 'Log in')      → icon + words inside a .btn (which is a column
                               flexbox, so the pair must be wrapped)
    Defined here, before the loader below, so every game script can use it. */
 window.ICO = function(name, label, cls){

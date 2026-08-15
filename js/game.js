@@ -449,9 +449,22 @@ function cardViewModal(card){
 /* ───────────────────────── router ───────────────────────── */
 const SCREENS = ['auth','home','pack','coll','deck','duel','story','pnp','mp','gacha','tutor'];
 let current = 'auth';
+/* Home's bottom nav marks whichever of its four destinations you are on.
+   Nothing is marked while you are on Home itself — Home is not one of the four.
+   Driven off the router rather than off the click handlers, so it stays honest
+   however a screen was reached (a back button, Escape, a restored session), and
+   so the bar could be shown on another screen later with no further wiring. */
+function navSync(name){
+  $$('#home-nav .tab').forEach(t => {
+    if (t.dataset.scr === name) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
+}
+
 function go(name){
   SCREENS.forEach(s => { const el = $('#scr-' + s); if (el) el.classList.toggle('on', s === name); });
   current = name;
+  navSync(name);
   closeSheet(); closeModal();
   /* mp.js keeps the who's-online panel alive only while Home is on screen —
      nothing polls or holds a socket once you have navigated away. */
@@ -490,12 +503,34 @@ function renderAuth(){
               '<span class="n">' + esc(users[k].name) + '</span>' +
               '<span class="tiny">Log in ›</span></button>').join('') + '</div>'
         : '') +
+      /* Log in is NOT conditional any more. It used to appear only once a profile
+         existed on the device, so on a fresh phone the screen offered no way to
+         log in at all and looked like the feature was missing. It is always here;
+         with no profiles saved it explains itself instead of dead-ending on a
+         form that could not possibly succeed. */
       '<div style="display:grid;gap:9px;margin-top:10px">' +
-        '<button class="btn ghost sm" data-act="signup">Create an account</button>' +
-        (names.length ? '<button class="btn ghost sm" data-act="login">Log in by name</button>' : '') +
+        '<button class="btn ghost" data-act="login">' + ilb('lock', 'Log in') + '</button>' +
+        '<button class="btn ghost" data-act="signup">' + ilb('save', 'Create an account') + '</button>' +
       '</div>';
     $$('.userrow', b).forEach(el => el.onclick = () => { authMode = 'login'; renderAuth();
       const f = $('#au-name'); if (f){ f.value = users[el.dataset.u].name; $('#au-pw').focus(); } });
+  } else if (authMode === 'nologin'){
+    /* Log in tapped with nothing to log in to. Say why, plainly — a KARTI account
+       is a row in this phone's localStorage, not an account on a server, so there
+       is genuinely nothing to fetch. Then offer both real ways forward. */
+    b.innerHTML =
+      '<h3 style="text-align:center;font-size:15px;margin-bottom:10px">Log in</h3>' +
+      '<p class="muted">There are no profiles saved on this phone yet, so there is nothing ' +
+      'to log in to.</p>' +
+      '<p class="muted">KARTI accounts live on the device, not on a server — an account you ' +
+      'made on another phone will not show up here, and your cards do not travel between ' +
+      'phones.</p>' +
+      '<div style="display:grid;gap:9px;margin-top:12px">' +
+        '<button class="btn primary" data-act="signup">' + ilb('save', 'Create an account') + '</button>' +
+        '<button class="btn hot" data-act="guest">Play as guest' +
+          '<span class="sub">you can make it an account later, nothing is lost</span></button>' +
+        '<button class="btn ghost" data-act="back">Back</button>' +
+      '</div>';
   } else {
     const isNew = authMode === 'signup';
     b.innerHTML =
@@ -520,7 +555,12 @@ function renderAuth(){
 }
 function authAction(act){
   if (act === 'signup'){ authMode = 'signup'; renderAuth(); return; }
-  if (act === 'login'){ authMode = 'login'; renderAuth(); return; }
+  /* nothing saved on this device = nothing to log in to. Explain, do not show a
+     username/password form that can only ever say "no such profile". */
+  if (act === 'login'){
+    authMode = Object.keys(getUsers()).length ? 'login' : 'nologin';
+    renderAuth(); return;
+  }
   if (act === 'back'){ authMode = 'menu'; renderAuth(); return; }
   if (act === 'guest'){ switchTo(GUEST); authMode = 'menu'; afterLogin(); return; }
   const name = $('#au-name').value, pw = $('#au-pw').value;
@@ -559,10 +599,14 @@ function renderHome(){
 
   renderDeckPicker();
   const legal = d && deckIsLegal(d.list);
-  /* secondary nav button — keep the label short, but never hide a bad deck */
-  $('#btn-duel').innerHTML = ilb('type-monster', 'Quick duel' +
-    (d && !legal ? ' ' + ico('warn', 'deck is not legal') : ''));
-  $('#btn-duel').title = d ? d.name + ' · ' + deckTotal(d.list) + '/' + DECK_SIZE +
+  /* Inventory tab. There is no "Quick duel" entry any more — you start a duel
+     through Story Mode or Multiplayer — so the deck-legality warning lives on the
+     tab that can actually fix it. A tab bar must never reflow, so it is a badge
+     rather than an appended icon, and the detail stays in the tooltip. */
+  const warn = $('#deck-warn');
+  if (warn) warn.hidden = !(d && !legal);
+  const dtab = $('#btn-deck');
+  if (dtab) dtab.title = d ? d.name + ' · ' + deckTotal(d.list) + '/' + DECK_SIZE +
     (legal ? '' : ' — not legal') : 'pick a deck first';
 }
 function profileSheet(){
@@ -577,7 +621,11 @@ function profileSheet(){
       '<button class="btn ghost" id="pf-out">Log out</button>' +
       '<button class="btn ghost" id="pf-wipe" style="opacity:.7">Wipe this profile\'s save</button>' +
       '<button class="btn ghost" id="pf-close">Close</button>' +
-    '</div>');
+    '</div>' +
+    /* the 18+ line — it lives here rather than under the bottom nav, where it was
+       just filler taking up the last row of a phone screen */
+    '<p class="fineprint" style="margin-top:12px">18+ · Contains mothers-in-law, ' +
+    'Marsa traffic and one very accurate slipper.</p>');
   $('#pf-close').onclick = closeSheet;
   const up = $('#pf-upgrade');
   if (up) up.onclick = upgradeSheet;
@@ -2536,7 +2584,8 @@ function showResult(winner, why){
 function wireStatic(){
   $('#scrim').addEventListener('click', () => { closeSheet(); if (UI.mode !== 'idle') cancelUI(); });
   $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
-  $('#btn-duel').onclick  = () => startDuel();
+  /* No #btn-duel any more — Story Mode and Multiplayer are the only ways into a
+     duel. startDuel() itself stays: story.js, mp.js and the debug surface call it. */
   $('#btn-packs').onclick = () => go('pack');
   $('#btn-coll').onclick  = () => go('coll');
   $('#btn-deck').onclick  = () => { dbDeck = null; go('deck'); };

@@ -257,32 +257,49 @@
 .card .art.hasart span{display:none}
 :root{ --art-playmat:none; --art-zone-m:none; --art-zone-s:none; --art-cardback:none;
        --art-home:none; --art-pile-deck:none; --art-pile-grave:none; --art-pile-banish:none; }
-#scr-duel{background-image:var(--art-playmat);background-size:cover;background-position:center}
+/* background-origin:border-box — see the note on #scr-home below. Without it
+   `cover` is measured against the PADDING box, so the safe-area padding shows up
+   as bare colour at the edges of the playmat too. */
+#scr-duel{background-image:var(--art-playmat);background-size:cover;background-position:center;
+  background-origin:border-box}
 /* the board art is busy — keep the cards and numbers on top of it readable */
 #scr-duel::before{content:'';position:absolute;inset:0;pointer-events:none;
   background:linear-gradient(180deg,rgba(6,4,12,.66),rgba(6,4,12,.28) 32%,rgba(6,4,12,.28) 68%,rgba(6,4,12,.72))}
 #scr-duel>*{position:relative;z-index:1}
-/* FULL-BLEED. The art and its scrim paint the whole padding box — which is the
-   entire screen, safe-area insets included — so they run edge to edge and up
-   under the notch, while the CONTENT still sits inside the insets. */
+/* FULL-BLEED. The art and its scrim run edge to edge and up under the notch,
+   while the CONTENT still sits inside the safe-area insets.
+   `background-origin:border-box` is what makes that true and it is NOT optional.
+   The default is padding-box, and `background-size:cover` is measured against
+   the ORIGIN box — so with padding-bottom:calc(var(--sab) + 6px) the image was
+   being scaled to cover only 844-53-40=751px and anchored to the top of the
+   padding box, leaving a 40px band of flat --bg along the bottom of the phone
+   under everything. `background-clip` was already border-box, which is why the
+   band was the background COLOUR rather than transparent, and why this read as
+   "the art is not filling my screen" rather than as a hole. */
 /* NB: no `position` here on purpose. `.screen` is position:absolute;inset:0 and
    that is exactly what makes Home fill the viewport — an earlier `position:
    relative` on this rule quietly dropped it back into normal flow, so the
    screen was only ever as tall as its own content. */
 #scr-home{background-image:var(--art-home);background-size:cover;background-position:center top;
+  background-origin:border-box;
   background-repeat:no-repeat;background-color:var(--bg);overflow:hidden;
   padding-top:calc(var(--sat) + 6px);padding-bottom:calc(var(--sab) + 6px)}
 /* The home art is a bright, busy street scene and the duel screen was the only one
-   with a scrim, so the logo and the nav row were unreadable on top of it. Darkest
-   at the bottom, which is where the nav row sits. */
+   with a scrim, so the logo and the buttons were unreadable on top of it.
+   The bottom used to be crushed to .92 alpha because a row of ghost buttons sat
+   there and needed the contrast. The tab bar brings its own opaque surface now,
+   so the scrim can ease off and let the actual artwork show all the way down to
+   the bar instead of fading into a dead black band. */
 #scr-home::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:linear-gradient(180deg,rgba(8,5,16,.72),rgba(8,5,16,.55) 30%,
-             rgba(8,5,16,.68) 62%,rgba(8,5,16,.92))}
+  background:linear-gradient(180deg,rgba(8,5,16,.70),rgba(8,5,16,.50) 30%,
+             rgba(8,5,16,.60) 64%,rgba(8,5,16,.74))}
 #scr-home>*{position:relative;z-index:1}
-/* ghost buttons vanish against the art — give the home nav a real surface */
-#scr-home .navrow .btn.ghost{background:rgba(14,10,26,.82);border-color:rgba(255,255,255,.22);
-  color:#fff;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
-  text-shadow:0 1px 2px rgba(0,0,0,.6)}
+/* The tab bar carries its own opaque surface (see .tabbar in index.html), so it
+   is legible over the street scene without the scrim having to do the work.
+   What it does need over the art is a hard top edge: the scrim now stops at .74
+   so the cobbles still show, and against that the bar's own near-black would
+   otherwise have no line to read as a bar. */
+#scr-home .tabbar{border-top-color:rgba(255,255,255,.22)}
 #scr-home .logo,#scr-home .tagline{text-shadow:0 2px 10px rgba(0,0,0,.75)}
 .card.back .in{background-image:var(--art-cardback);background-size:cover;background-position:center}
 /* only drop the CSS-drawn back once the real card-back art is actually there */
