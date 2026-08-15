@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0E0B14">
+<meta name="theme-color" content="#08050F">
 <meta name="description" content="KARTI — the 18+ Maltese card duel. Festa, City, Farm, Sea or Trouble. Pick a side and ruin somebody's afternoon.">
 <title>KARTI — Maltese Card Duel</title>
 <link rel="manifest" href="manifest.json">
@@ -38,11 +38,22 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
+/* THE BAND UNDER THE TAB BAR. With apple-mobile-web-app-status-bar-style set to
+   black-translucent the page is drawn from y=0, under the status bar — but iOS
+   still sizes the viewport as screen MINUS the status bar. Measured on his
+   iPhone: screen 956, viewport 894, status bar 62. Those missing 62px sit below
+   the viewport, outside the document; nothing in the page can paint there. iOS
+   fills them with the page's background COLOUR, and ours was a purple gradient
+   over --bg, so it read as a dark band beneath the bar. LuxuryLifts hides the
+   identical strip by accident — its page and its bottom nav are both white.
+   The base colour is therefore the tab bar's own bottom colour, so the strip
+   iOS paints is an invisible continuation of the bar. The gradients stay as
+   background-image, which is clipped to the real viewport. */
 body{
-  margin:0;background:
+  margin:0;background-color:#08050F;
+  background-image:
     radial-gradient(1100px 700px at 50% -12%, #2A1B47 0%, transparent 62%),
-    radial-gradient(700px 500px at 110% 100%, #23123A 0%, transparent 60%),
-    var(--bg);
+    radial-gradient(700px 500px at 110% 100%, #23123A 0%, transparent 60%);
   color:var(--txt);font-family:var(--body);font-size:16px;line-height:1.45;
   overflow:hidden;overscroll-behavior:none;touch-action:manipulation;
   -webkit-user-select:none;user-select:none;
@@ -273,7 +284,33 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    meaning, nothing covered. */
 .card.is-new{box-shadow:0 0 0 2px var(--ok),0 0 16px -2px rgba(61,220,132,.7),
   0 3px 10px rgba(0,0,0,.55)}
-.card.xs .newbadge,.card.sm .newbadge{display:none}
+/* ── DUPLICATE: the exact counterpart of NEW ──
+   Same banner, same geometry, same entrance — and a deliberately different
+   tone. NEW is a bright green announcement; a duplicate is not news, so it
+   gets a cool, desaturated lilac-steel that is unmistakably NOT the green and
+   is not competing with the gold a legendary throws around either. When the
+   copy actually converted into something (you were already on the maximum
+   three), the amount it converted into rides inside the banner, so the player
+   is never left wondering what happened to the card.
+   Everything is em-based off .card's font-size, exactly like .newbadge, so it
+   scales with whatever card it lands on. */
+.dupebadge{position:absolute;left:-.2em;right:-.2em;bottom:calc(100% - .35em);z-index:6;
+  pointer-events:none;display:flex;align-items:center;justify-content:center;gap:.4em;
+  min-height:1.95em;padding:.12em .45em;border-radius:.5em;white-space:nowrap;
+  font-family:var(--disp);font-weight:900;font-size:.92em;letter-spacing:.17em;text-indent:.17em;
+  text-transform:uppercase;color:#1A1230;
+  background:linear-gradient(180deg,#E4DDF7,#9C8FC6 54%,#63558C);
+  border:1px solid rgba(255,255,255,.55);text-shadow:0 1px 0 rgba(255,255,255,.35);
+  box-shadow:0 .3em .8em rgba(99,85,140,.55),0 .12em 0 rgba(0,0,0,.5);
+  animation:newIn .46s var(--ease) both}
+.dupebadge i{font-style:normal;display:inline-flex;align-items:center;gap:.2em;
+  letter-spacing:.04em;text-indent:0;padding:.1em .4em;border-radius:.35em;
+  background:rgba(24,16,44,.8);color:#FFD979;text-shadow:none}
+.dupebadge i .ico{width:1em;height:1em}
+.card.is-dupe{box-shadow:0 0 0 2px #9C8FC6,0 0 15px -3px rgba(156,143,198,.75),
+  0 3px 10px rgba(0,0,0,.55)}
+.card.xs .newbadge,.card.sm .newbadge,
+.card.xs .dupebadge,.card.sm .dupebadge{display:none}
 @keyframes pop{from{transform:scale(0)}70%{transform:scale(1.25)}to{transform:scale(1)}}
 
 /* ══════════════════ AUTH ══════════════════ */
@@ -488,10 +525,26 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .pack .pcount{position:absolute;bottom:12px;font-family:var(--disp);font-weight:900;font-size:10px;
   letter-spacing:.16em;color:rgba(255,255,255,.9);border:1px solid rgba(255,255,255,.4);
   padding:3px 9px;border-radius:99px}
+/* ── the charge: half a second of "something is about to happen" before the
+   tear. The pack pulls in on itself and the foil rakes faster — no new
+   elements, no layout, transform + opacity only. */
+.pack.charge{animation:pkCharge .52s cubic-bezier(.4,0,.6,1) both}
+@keyframes pkCharge{0%{transform:scale(1)}70%{transform:scale(.94)}100%{transform:scale(.965)}}
+.pack.charge .foil{animation-duration:.42s;opacity:1}
 .pack.shake{animation:pkShake .45s var(--ease)}
 @keyframes pkShake{0%,100%{transform:rotateX(var(--rx,0deg)) rotateY(var(--ry,0deg))}
   15%{transform:rotate(-4deg) scale(1.04)}38%{transform:rotate(5deg) scale(1.05)}
   60%{transform:rotate(-3deg) scale(1.03)}82%{transform:rotate(2deg) scale(1.02)}}
+/* the seam itself splitting — a hot line of light down the tear strip, timed to
+   land on the frame the lid lets go. One element, scaleY + opacity. */
+.pack .seam{position:absolute;left:-2px;right:-2px;top:calc(23% - 2px);height:3px;
+  transform:translateZ(12px) scaleX(.1);opacity:0;border-radius:2px;
+  background:linear-gradient(90deg,transparent,#fff 18%,var(--fxc,#FFD24A) 50%,#fff 82%,transparent);
+  box-shadow:0 0 14px var(--fxc,#FFD24A)}
+.pack.tearing .seam{animation:seamGo .5s var(--ease) forwards}
+@keyframes seamGo{0%{opacity:0;transform:translateZ(12px) scaleX(.1) scaleY(1)}
+  22%{opacity:1;transform:translateZ(12px) scaleX(1) scaleY(2.6)}
+  100%{opacity:0;transform:translateZ(12px) scaleX(1.1) scaleY(1)}}
 .pack .lid{position:absolute;left:-2px;right:-2px;top:-2px;height:23%;transform:translateZ(11px);
   background:linear-gradient(158deg,#4B2680,#8A2352);border-radius:9px 9px 0 0;
   clip-path:polygon(0 0,100% 0,100% 68%,92% 100%,84% 66%,76% 100%,68% 66%,60% 100%,52% 66%,44% 100%,
@@ -503,29 +556,124 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 @keyframes lidFly{to{transform:translate3d(20px,-190px,80px) rotate(28deg);opacity:0}}
 .pack.tearing .front,.pack.tearing .back2,.pack.tearing .side{animation:pkGone .6s .2s var(--ease) forwards}
 @keyframes pkGone{to{transform:translateZ(0) scale(.55);opacity:0}}
+/* The burst and the rays are tinted by --fxc, which JS sets to the colour of
+   the BEST card in the pack before the tear runs. Gold light coming out of the
+   seam is the tell that something good is in there — the whole build-up. */
 .burst{position:absolute;left:50%;top:48%;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;
   pointer-events:none;opacity:0;z-index:5;
-  background:radial-gradient(circle,#fff 0 22%,rgba(255,220,140,.9) 40%,rgba(255,150,60,0) 72%)}
+  background:radial-gradient(circle,#fff 0 22%,var(--fxc,#FFD24A) 40%,rgba(255,150,60,0) 72%)}
 .burst.go{animation:burstGo .85s var(--ease) forwards}
 @keyframes burstGo{0%{opacity:1;transform:scale(.2)}55%{opacity:1}100%{opacity:0;transform:scale(34)}}
 .rays{position:absolute;left:50%;top:48%;width:340px;height:340px;margin:-170px 0 0 -170px;pointer-events:none;
-  opacity:0;z-index:4;background:conic-gradient(from 0deg,rgba(255,220,150,.55) 0 3deg,transparent 3deg 22deg);
+  opacity:0;z-index:4;background:conic-gradient(from 0deg,var(--fxc,#FFD24A) 0 3deg,transparent 3deg 22deg);
   -webkit-mask:radial-gradient(circle,#000 20%,transparent 70%);mask:radial-gradient(circle,#000 20%,transparent 70%)}
 .rays.go{animation:raysGo 1.1s var(--ease) forwards}
 @keyframes raysGo{0%{opacity:0;transform:scale(.3) rotate(0)}30%{opacity:.9}100%{opacity:0;transform:scale(2.1) rotate(140deg)}}
+
+/* ══════════════════ THE REVEAL FX LAYER ══════════════════
+   Five effects, all living on the stage rather than on the card, all driven by
+   one custom property (--fxc, the colour of whatever is being revealed) so a
+   single assignment re-tints the lot. Every one of them animates ONLY transform
+   and opacity: nothing here can trigger layout, and nothing here is an ancestor
+   of the tab bar. They are inert (opacity:0, no animation) until JS adds .on,
+   and a screen that is display:none runs no animations at all, so none of this
+   costs anything once you leave the pack.
+     wash     a colour bloom plus a vignette that darkens everything else
+     beam     a shaft of light standing behind the card
+     streaks  speed stripes converging on the card during the wind-up
+     ring     a shockwave leaving the card at the moment it lands
+     flash    a single frame of white — legendary only */
+.fxback,.fxtop{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.fxback{z-index:2}
+.fxtop{z-index:40}
+.fxback>*,.fxtop>*{position:absolute;opacity:0}
+
+.fxwash{inset:-25%;
+  background:radial-gradient(ellipse at 50% 46%,var(--fxc,#FFD24A) 0%,transparent 58%),
+             radial-gradient(ellipse at 50% 46%,transparent 26%,rgba(6,4,12,.88) 76%)}
+.fxwash.on{animation:washGo var(--fxdur,1.6s) var(--ease) forwards}
+@keyframes washGo{0%{opacity:0}18%{opacity:.55}70%{opacity:.5}100%{opacity:0}}
+
+.fxbeam{left:50%;top:-32%;width:250px;height:164%;margin-left:-125px;
+  background:linear-gradient(90deg,transparent,var(--fxc,#FFD24A) 40%,#fff 50%,
+    var(--fxc,#FFD24A) 60%,transparent);
+  -webkit-mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);
+          mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent)}
+.fxbeam.on{animation:beamGo var(--fxdur,1.6s) var(--ease) forwards}
+@keyframes beamGo{0%{opacity:0;transform:scaleX(.08) scaleY(.5)}
+  16%{opacity:.85;transform:scaleX(1) scaleY(1)}
+  62%{opacity:.5;transform:scaleX(.8) scaleY(1)}
+  100%{opacity:0;transform:scaleX(.42) scaleY(1)}}
+
+/* THE STRIPES. A single repeating-conic-gradient masked into a ring, scaled
+   down towards the card so the lines read as energy rushing inward. */
+.fxstreaks{left:50%;top:46%;width:560px;height:560px;margin:-280px 0 0 -280px;
+  background:repeating-conic-gradient(from 0deg,transparent 0 3.4deg,
+    var(--fxc,#FFD24A) 3.4deg 4.2deg,transparent 4.2deg 8.4deg);
+  -webkit-mask:radial-gradient(circle,transparent 20%,#000 38%,#000 60%,transparent 76%);
+          mask:radial-gradient(circle,transparent 20%,#000 38%,#000 60%,transparent 76%)}
+.fxstreaks.on{animation:strGo var(--fxdur,.9s) cubic-bezier(.32,0,.2,1) forwards}
+@keyframes strGo{0%{opacity:0;transform:scale(2.5) rotate(-22deg)}
+  26%{opacity:.75}80%{opacity:.55}100%{opacity:0;transform:scale(.5) rotate(9deg)}}
+
+.fxring{left:50%;top:46%;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;
+  border:3px solid var(--fxc,#FFD24A);box-shadow:0 0 26px var(--fxc,#FFD24A)}
+.fxring.on{animation:ringGo .8s cubic-bezier(.16,.84,.3,1) forwards}
+@keyframes ringGo{0%{opacity:0;transform:scale(.18)}10%{opacity:.95}100%{opacity:0;transform:scale(3.6)}}
+
+.fxflash{inset:0;background:radial-gradient(circle at 50% 46%,#fff 0%,var(--fxc,#FFD24A) 32%,transparent 72%)}
+.fxflash.on{animation:flashGo .52s ease-out forwards}
+@keyframes flashGo{0%{opacity:0}9%{opacity:.9}100%{opacity:0}}
+
 .hint{font-family:var(--disp);font-weight:700;font-size:11px;letter-spacing:.2em;text-transform:uppercase;
   color:var(--dim);text-align:center;margin:0;animation:pulse 1.7s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
-.fan{position:absolute;inset:0;display:grid;place-items:center}
+.fan{position:absolute;inset:0;display:grid;place-items:center;z-index:6}
 .slot{position:absolute;transition:transform .5s var(--ease),opacity .4s;will-change:transform;
   transform:translate3d(var(--sx,0px),var(--sy,0px),0) rotate(var(--sr,0deg)) scale(var(--ss,1))}
+/* Exit is deliberately faster than entry (~60%): a card that has been seen
+   should get out of the way immediately, or the pace dies. */
+.slot.gone{transition-duration:.34s,.26s}
+/* .lift exists so the wind-up (a hover before the turn) has somewhere to live
+   that is not .slot's var-driven transform and not .flipper's flip. It also
+   finally gives the flip a real perspective — .stage's own perspective only
+   ever reached .fan, so until now the card rotated orthographically. */
+.lift{position:relative;perspective:1000px}
+.slot.windup .lift{animation:windUp var(--wd,.5s) var(--ease) both}
+@keyframes windUp{0%{transform:translate3d(0,0,0) scale(1)}
+  60%{transform:translate3d(0,-12px,0) scale(1.055)}
+  100%{transform:translate3d(0,-5px,0) scale(1.025)}}
 .flipper{position:relative;width:min(182px,49vw);aspect-ratio:59/86;transform-style:preserve-3d;
-  transition:transform .62s var(--ease)}
+  transition:transform var(--flipd,.62s) var(--ease)}
 .slot.flipped .flipper{transform:rotateY(180deg)}
-.slot.leggendarju .flipper{transition-duration:1.35s}
 .flipper>*{position:absolute;inset:0;backface-visibility:hidden}
 .flipper .fr{transform:rotateY(180deg)}
 .flipper .card{--cw:min(182px,49vw);width:100%}
+
+/* THE STRIPES, part two — the light sweep raking across the card face itself.
+   Cannot live inside .card (its .in clips, and the NEW/DUPLICATE banner has to
+   stand proud of the frame), so it gets its own clipped overlay above the card
+   and below the banner. One <i> per stripe, 1 for a common up to 3 for a
+   legendary, each a gradient sliding on translate3d. */
+.shinewrap{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:5;
+  border-radius:calc(min(182px,49vw)*.062)}
+.shinewrap i{position:absolute;top:-55%;bottom:-55%;left:0;width:34%;opacity:0;
+  mix-blend-mode:screen;
+  transform:translate3d(-280%,0,0) rotate(17deg);
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.05) 20%,
+    rgba(255,255,255,.5) 44%,#fff 50%,rgba(255,255,255,.5) 56%,
+    rgba(255,255,255,.05) 80%,transparent)}
+/* the trailing stripes carry the rarity colour, so an epic rakes violet and a
+   legendary rakes gold — the tier is readable from the sweep alone */
+.shinewrap i.tint{background:linear-gradient(90deg,transparent,
+  color-mix(in srgb,var(--fxc,#FFD24A) 30%,transparent) 26%,
+  var(--fxc,#FFD24A) 48%,#fff 50%,var(--fxc,#FFD24A) 52%,
+  color-mix(in srgb,var(--fxc,#FFD24A) 30%,transparent) 74%,transparent)}
+.shinewrap i.go{animation:rake var(--shd,.8s) var(--ease) var(--shdel,0s) forwards}
+@keyframes rake{0%{opacity:0;transform:translate3d(-280%,0,0) rotate(17deg)}
+  10%{opacity:1}86%{opacity:1}
+  100%{opacity:0;transform:translate3d(440%,0,0) rotate(17deg)}}
+
 .slot .tapme{position:absolute;bottom:-24px;left:0;right:0;text-align:center;font-size:9.5px;letter-spacing:.18em;
   text-transform:uppercase;color:var(--dim);font-weight:800;transition:opacity .3s}
 .slot.flipped .tapme{opacity:0}
@@ -543,7 +691,7 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   25%{opacity:1;transform:translate3d(calc(var(--tx)*.35),calc(var(--ty)*.35),0) scale(1.2)}
   100%{transform:translate3d(var(--tx),var(--ty),0) scale(0);opacity:0}}
 .rlabel{position:absolute;top:9%;left:0;right:0;text-align:center;font-family:var(--disp);font-weight:900;
-  font-size:clamp(19px,6.5vw,28px);letter-spacing:.18em;text-transform:uppercase;pointer-events:none;z-index:8;
+  font-size:clamp(19px,6.5vw,28px);letter-spacing:.18em;text-transform:uppercase;pointer-events:none;z-index:41;
   opacity:0;text-shadow:0 0 24px currentColor,0 3px 0 rgba(0,0,0,.6)}
 .rlabel.go{animation:rl 1.6s var(--ease) forwards}
 @keyframes rl{0%{opacity:0;transform:scale(1.7)}18%{opacity:1;transform:scale(1)}72%{opacity:1}100%{opacity:0;transform:scale(1.05)}}
@@ -552,9 +700,52 @@ body.shake #app{animation:scShake .5s var(--ease)}
   12%{transform:translate3d(-9px,5px,0)}28%{transform:translate3d(8px,-6px,0)}
   46%{transform:translate3d(-7px,-4px,0)}64%{transform:translate3d(6px,5px,0)}82%{transform:translate3d(-3px,-2px,0)}}
 .packbar{flex:0 0 auto;width:100%;max-width:460px;display:grid;gap:9px;padding-top:8px}
-.summary{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;max-height:110px;overflow-y:auto}
-.sumitem{display:flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);
-  border-radius:99px;padding:6px 11px;font-size:11.5px;font-weight:700;min-height:34px}
+/* the counter that runs alongside the reveal — "2 of 5" — so the sequence has
+   a visible end and the Skip button never feels like the only way out */
+.packbar .revrow{display:flex;align-items:center;gap:10px}
+.packbar .revrow .hint{flex:1;text-align:left}
+.packbar .revrow .btn{flex:0 0 auto;min-height:44px;padding:0 16px}
+.pcounter{font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.12em;
+  color:var(--gold);font-variant-numeric:tabular-nums;flex:0 0 auto}
+
+/* ══════════════════ WHAT YOU ACTUALLY GOT ══════════════════
+   A list, not a row of pills: every card by name, by rarity, with its own
+   verdict (NEW / DUPLICATE), each row a 52px tap target that opens the card. */
+.sumwrap{place-self:stretch;display:flex;flex-direction:column;min-height:0;
+  width:100%;max-width:440px;margin:0 auto;padding:4px 0 0;gap:9px}
+.sumhead{text-align:center;flex:0 0 auto}
+.sumhead h2{font-size:clamp(18px,5.6vw,23px);letter-spacing:.06em}
+.sumsub{margin:5px 0 0;font-size:12px;color:var(--dim);display:flex;gap:8px;
+  justify-content:center;flex-wrap:wrap;align-items:center}
+.sumsub b{display:inline-flex;align-items:center;gap:3px;font-weight:800}
+.sumlist{display:flex;flex-direction:column;gap:7px;overflow-y:auto;min-height:0;
+  flex:1 1 auto;padding:1px 2px 4px;-webkit-overflow-scrolling:touch}
+.sumrow{display:flex;align-items:center;gap:10px;width:100%;min-height:54px;
+  padding:7px 11px 7px 8px;border-radius:13px;text-align:left;
+  background:linear-gradient(100deg,color-mix(in srgb,var(--rc,#888) 17%,var(--panel)),var(--panel) 62%);
+  border:1px solid color-mix(in srgb,var(--rc,#888) 38%,var(--line));
+  transition:transform .15s var(--ease);
+  animation:sumIn .34s var(--ease) both;animation-delay:var(--sd,0s)}
+@keyframes sumIn{from{opacity:0;transform:translate3d(0,14px,0)}to{opacity:1;transform:none}}
+.sumrow:active{transform:scale(.975)}
+.sumrow .rgem{flex:0 0 auto;width:30px;height:30px;display:grid;place-items:center;border-radius:9px;
+  color:var(--rc,#888);background:rgba(0,0,0,.32);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--rc,#888) 45%,transparent)}
+.sumrow .rgem .ico{width:19px;height:19px}
+.sumrow .scol{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sumrow .snm{font-family:var(--disp);font-weight:900;font-size:13px;letter-spacing:.02em;
+  color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sumrow .smeta{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+  color:var(--dim2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sumrow .smeta .r{color:var(--rc,#888)}
+.stag{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;height:25px;padding:0 9px;
+  border-radius:999px;font-family:var(--disp);font-weight:900;font-size:9.5px;letter-spacing:.13em}
+.stag.new{background:linear-gradient(180deg,#8CFFC0,var(--ok));color:#04240F;
+  box-shadow:0 2px 8px rgba(61,220,132,.4)}
+.stag.dupe{background:linear-gradient(180deg,#DAD2F2,#9C8FC6);color:#1A1230;
+  box-shadow:0 2px 8px rgba(120,104,170,.35)}
+.stag .ico{width:13px;height:13px}
+.stag .dust{color:#5A3B00}
 
 /* ══════════════════ COLLECTION ══════════════════ */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:14px 9px;padding:4px 0 26px}
@@ -705,6 +896,17 @@ body.shake #app{animation:scShake .5s var(--ease)}
 }
 body.reduced .foil,body.reduced .card.holo .in::after,body.reduced .aura{animation:none!important}
 body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
+/* Reduced motion gets the calm path: the whole reveal FX layer and the light
+   sweeps are removed outright (JS also cuts straight to the summary, so nobody
+   loses sight of what they pulled), and the summary rows arrive without the
+   travel. Kept as display:none rather than animation:none so the compositor is
+   never handed the layers at all. */
+body.reduced .fxback,body.reduced .fxtop,body.reduced .shinewrap,
+body.reduced .pack .seam{display:none!important}
+body.reduced .sumrow,body.reduced .dupebadge,body.reduced .newbadge,
+body.reduced .pack.charge{animation:none!important}
+body.reduced .slot.windup .lift{animation:none!important}
+body.reduced .hint{animation:none!important;opacity:.8}
 </style>
 </head>
 <body>
@@ -1217,7 +1419,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 23;
+var KARTI_BUILD = 24;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
