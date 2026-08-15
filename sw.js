@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v40';
+const CACHE = 'karti-v41';
 const CORE = [
   './',
   './index.html',
@@ -23,6 +23,12 @@ const CORE = [
   './js/party.js',
   './js/chess.js',
   './js/dama.js',
+  './js/sfx.js',
+  /* The 38 mp3s under ./audio/ are deliberately NOT precached. They are 416 KB,
+     the game is designed to be perfect without a single one of them, and a
+     precache list that 404s fails the whole install — which is how a cache bump
+     once wiped the artwork off the phone. They are fetched on first play and
+     kept by the runtime cache from then on. */
   './icons/icon-192.png',
   './icons/icon-512.png',
   /* The UI art the shell actually wears — home background, playmat, card back,
