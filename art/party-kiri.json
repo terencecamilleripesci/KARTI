@@ -1,0 +1,379 @@
+[
+  {
+    "id": "kiri-loc-marsa",
+    "file": "art/ui/kiri-loc-marsa.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Wash behind the two Marsa properties (the garage, the scrap yard shed) — cheapest group.",
+    "subject": "a concrete lock-up garage yawning open on an oily back street, a sagging sofa and old fridge inside, one bored dog"
+  },
+  {
+    "id": "kiri-loc-hamrun",
+    "file": "art/ui/kiri-loc-hamrun.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Wash behind the three Ħamrun properties (the shop always closing down, the flat above the bakery, the house with damp).",
+    "subject": "a narrow terrace of tired townhouses over a bakery, washing strung across the street, one shutter half down"
+  },
+  {
+    "id": "kiri-loc-birgu",
+    "file": "art/ui/kiri-loc-birgu.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Wash behind the three Birgu properties (the well in the kitchen, the house of character, the converted stable).",
+    "subject": "an old harbour lane of honey limestone houses, crooked green doors, a stone well, wooden boats behind"
+  },
+  {
+    "id": "kiri-loc-swieqi",
+    "file": "art/ui/kiri-loc-swieqi.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Wash behind the three Swieqi properties (the block with no permit, the mate's maisonette, the penthouse with sea views).",
+    "subject": "a half finished bare concrete apartment block in scaffolding, a yellow crane leaning over it, a cement mixer"
+  },
+  {
+    "id": "kiri-loc-sliema",
+    "file": "art/ui/kiri-loc-sliema.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Wash behind the three Sliema properties — the seafront flats nobody on the island can afford.",
+    "subject": "glass seafront apartment towers rising over one tiny old townhouse squeezed between them, bright blue sea"
+  },
+  {
+    "id": "kiri-loc-belt",
+    "file": "art/ui/kiri-loc-belt.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Wash behind the two most expensive properties (the Valletta palazzo, the Mdina house nobody lives in).",
+    "subject": "a baroque limestone palazzo front with enclosed wooden balconies, silent walled city lane at dusk"
+  },
+  {
+    "id": "kiri-sq-start",
+    "file": "art/ui/kiri-sq-start.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Il-Bidu, the corner you collect your money passing. Shown on the square sheet.",
+    "subject": "a village street under strings of festa bunting, a tiny nanna pressing a folded wad of banknotes into a grown man's hand"
+  },
+  {
+    "id": "kiri-sq-queue",
+    "file": "art/ui/kiri-sq-queue.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Il-Kju — the queue at counter four, this game's jail. Shown on the square sheet and when a player is stuck there.",
+    "subject": "one bored clerk behind glass at a dismal counter, a long snake of resigned people waiting"
+  },
+  {
+    "id": "kiri-sq-pjazza",
+    "file": "art/ui/kiri-sq-pjazza.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Il-Pjazza — the safe corner where nothing at all happens.",
+    "subject": "four old men on plastic chairs round a tiny coffee table in a sunny village square, church dome behind"
+  },
+  {
+    "id": "kiri-sq-junction",
+    "file": "art/ui/kiri-sq-junction.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Marsa Junction — the corner that sends you straight to the queue.",
+    "subject": "a road junction jammed solid with cars in every lane under a tangle of traffic lights, heat haze"
+  },
+  {
+    "id": "kiri-sq-transport",
+    "file": "art/ui/kiri-sq-transport.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Shared by all four transport squares (Gozo ferry, Valletta terminus, karozzin, airport taxi).",
+    "subject": "a crowded car ferry and a battered orange bus nose to nose at a quayside, gulls wheeling"
+  },
+  {
+    "id": "kiri-sq-services",
+    "file": "art/ui/kiri-sq-services.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Shared by both service squares (the water bowser and the generator).",
+    "subject": "a water tanker lorry beside a roaring diesel generator on a hot back street, cables everywhere"
+  },
+  {
+    "id": "kiri-sq-tax",
+    "file": "art/ui/kiri-sq-tax.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Shared by both tax squares (It-Taxxa and Iċ-Ċens, the ground rent that never dies).",
+    "subject": "a fat brown envelope with a wax seal on a doormat, a hand recoiling from it, gloomy hallway"
+  },
+  {
+    "id": "kiri-fate-ghajdut",
+    "file": "art/ui/kiri-fate-ghajdut.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Face of the GĦAJDUT (gossip) deck. Behind the card sheet for any of its 18 cards.",
+    "subject": "two women on adjacent balconies whispering furiously, a third listening from a doorway below"
+  },
+  {
+    "id": "kiri-fate-gvern",
+    "file": "art/ui/kiri-fate-gvern.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Face of the TAL-GVERN (government) deck. Behind the card sheet for any of its 18 cards.",
+    "subject": "a towering filing shelf buckling under folders, one tiny clerk calmly stamping a single page"
+  },
+  {
+    "id": "kiri-fate-get",
+    "file": "art/ui/kiri-fate-get.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Any card that pays the player money (get / getEach). 10 cards use it.",
+    "subject": "a delighted man on a doorstep cradling a fistful of banknotes, a cat round his ankles"
+  },
+  {
+    "id": "kiri-fate-pay",
+    "file": "art/ui/kiri-fate-pay.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Any card that takes money off the player (pay / payEach). 12 cards use it.",
+    "subject": "a defeated man emptying his wallet onto a kitchen table, one more bill drifting down"
+  },
+  {
+    "id": "kiri-fate-queue",
+    "file": "art/ui/kiri-fate-queue.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Any card that sends the player to the queue, or hands out a Skip The Queue.",
+    "subject": "a calm officer steering a protesting driver towards a grim grey waiting room door"
+  },
+  {
+    "id": "kiri-fate-move",
+    "file": "art/ui/kiri-fate-move.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "Any card that moves the player somewhere else on the ring.",
+    "subject": "a tiny old car tearing down a narrow lane scattering chickens, a suitcase strapped to its roof"
+  },
+  {
+    "id": "kiri-fate-repairs",
+    "file": "art/ui/kiri-fate-repairs.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 768,
+      "h": 768
+    },
+    "purpose": "The two repair cards that charge per floor and per penthouse you own.",
+    "subject": "builders and scaffolding on a roof above a skip overflowing with rubble, thick dust"
+  },
+  {
+    "id": "kiri-tok-key",
+    "file": "art/ui/kiri-tok-key.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 1, Il-Muftieħ (The Key). Turn strip, table list, result screen.",
+    "subject": "a huge ornate iron door key with a small blank paper tag on its ring"
+  },
+  {
+    "id": "kiri-tok-scooter",
+    "file": "art/ui/kiri-tok-scooter.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 2, Il-Mutur (The Scooter).",
+    "subject": "a battered delivery scooter side on, square food box bolted behind the seat, mirrors askew"
+  },
+  {
+    "id": "kiri-tok-brick",
+    "file": "art/ui/kiri-tok-brick.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 3, Il-Ġebla (The Brick).",
+    "subject": "a chipped honey limestone building block with a trowel of wet mortar on top"
+  },
+  {
+    "id": "kiri-tok-goat",
+    "file": "art/ui/kiri-tok-goat.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 4, Il-Mogħża (The Goat).",
+    "subject": "a stubborn brown Maltese goat standing square on, chewing, one ear flopped"
+  },
+  {
+    "id": "kiri-build-floor",
+    "file": "art/ui/kiri-build-floor.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "One SULAR (floor). Up to four go on a property before the penthouse.",
+    "subject": "one square concrete storey with two shuttered windows and a small balcony, slight angle"
+  },
+  {
+    "id": "kiri-build-pent",
+    "file": "art/ui/kiri-build-pent.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "IL-PENTHOUSE, the top of the build ladder.",
+    "subject": "a flashy rooftop penthouse box with huge glass doors, a timber pergola, one satellite dish"
+  },
+  {
+    "id": "kiri-board-felt",
+    "file": "art/ui/kiri-board-felt.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 1024,
+      "h": 1024
+    },
+    "purpose": "The surface the 32-square ring sits on. Must stay quiet in the middle — the dice and the current square are drawn there.",
+    "subject": "a worn dark green card table cloth from above, faint ring stains, a scatter of pale dust"
+  },
+  {
+    "id": "kiri-hero",
+    "file": "art/ui/kiri-hero.jpg",
+    "w": 1024,
+    "h": 1024,
+    "alpha": false,
+    "out": {
+      "w": 900,
+      "h": 900
+    },
+    "purpose": "Background for the IL-KIRI menu and the result screen. Buttons and the winner's name sit on top in CSS, so keep the centre calm.",
+    "subject": "a hillside of packed Maltese houses and construction cranes at golden hour across the water"
+  },
+  {
+    "id": "kiri-deed",
+    "file": "art/ui/kiri-deed.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 512,
+      "h": 512
+    },
+    "purpose": "Behind the property sheet header — the title deed itself. Surface MUST come back blank; the name, price and rent table are CSS on top.",
+    "subject": "an old folded deed of blank aged paper, a red wax seal, a faded ribbon, nothing written on it"
+  }
+]

@@ -1,0 +1,129 @@
+═══════════════════════════════════════════════════════════════
+  IL-KIRI — ART PROMPTS
+═══════════════════════════════════════════════════════════════
+  images            : 29
+  P1 / P2           : 19 / 10
+  alpha cut-outs    : 7
+  unique ids        : OK
+  unique filenames  : OK
+  filename-safe ids : OK
+  over 74 tokens    : OK — nothing is being binned
+  asks for lettering: OK
+  subject trimmed   : OK — every subject survives whole
+  longest prompt    : 71 tokens
+
+── kiri-loc-marsa  [P1]  art/ui/kiri-loc-marsa.jpg  (64 tok)
+   Wash behind the two Marsa properties (the garage, the scrap yard shed) — cheapest group.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, a concrete lock-up garage yawning open on an oily back street, a sagging sofa and old fridge inside, one bored dog
+
+── kiri-loc-hamrun  [P1]  art/ui/kiri-loc-hamrun.jpg  (70 tok)
+   Wash behind the three Ħamrun properties (the shop always closing down, the flat above the bakery, the house with damp).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, a narrow terrace of tired townhouses over a bakery, washing strung across the street, one shutter half down, flat even light, calm empty middle
+
+── kiri-loc-birgu  [P1]  art/ui/kiri-loc-birgu.jpg  (70 tok)
+   Wash behind the three Birgu properties (the well in the kitchen, the house of character, the converted stable).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, an old harbour lane of honey limestone houses, crooked green doors, a stone well, wooden boats behind, flat even light, calm empty middle
+
+── kiri-loc-swieqi  [P1]  art/ui/kiri-loc-swieqi.jpg  (70 tok)
+   Wash behind the three Swieqi properties (the block with no permit, the mate's maisonette, the penthouse with sea views).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, a half finished bare concrete apartment block in scaffolding, a yellow crane leaning over it, a cement mixer, flat even light, calm empty middle
+
+── kiri-loc-sliema  [P1]  art/ui/kiri-loc-sliema.jpg  (66 tok)
+   Wash behind the three Sliema properties — the seafront flats nobody on the island can afford.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, glass seafront apartment towers rising over one tiny old townhouse squeezed between them, bright blue sea, flat even light, calm empty middle
+
+── kiri-loc-belt  [P1]  art/ui/kiri-loc-belt.jpg  (65 tok)
+   Wash behind the two most expensive properties (the Valletta palazzo, the Mdina house nobody lives in).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, a baroque limestone palazzo front with enclosed wooden balconies, silent walled city lane at dusk, flat even light, calm empty middle
+
+── kiri-sq-start  [P1]  art/ui/kiri-sq-start.jpg  (71 tok)
+   Il-Bidu, the corner you collect your money passing. Shown on the square sheet.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a village street under strings of festa bunting, a tiny nanna pressing a folded wad of banknotes into a grown man's hand
+
+── kiri-sq-queue  [P1]  art/ui/kiri-sq-queue.jpg  (62 tok)
+   Il-Kju — the queue at counter four, this game's jail. Shown on the square sheet and when a player is stuck there.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, one bored clerk behind glass at a dismal counter, a long snake of resigned people waiting
+
+── kiri-sq-pjazza  [P1]  art/ui/kiri-sq-pjazza.jpg  (67 tok)
+   Il-Pjazza — the safe corner where nothing at all happens.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, four old men on plastic chairs round a tiny coffee table in a sunny village square, church dome behind
+
+── kiri-sq-junction  [P1]  art/ui/kiri-sq-junction.jpg  (65 tok)
+   Marsa Junction — the corner that sends you straight to the queue.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a road junction jammed solid with cars in every lane under a tangle of traffic lights, heat haze
+
+── kiri-sq-transport  [P2]  art/ui/kiri-sq-transport.jpg  (64 tok)
+   Shared by all four transport squares (Gozo ferry, Valletta terminus, karozzin, airport taxi).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a crowded car ferry and a battered orange bus nose to nose at a quayside, gulls wheeling
+
+── kiri-sq-services  [P2]  art/ui/kiri-sq-services.jpg  (62 tok)
+   Shared by both service squares (the water bowser and the generator).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a water tanker lorry beside a roaring diesel generator on a hot back street, cables everywhere
+
+── kiri-sq-tax  [P2]  art/ui/kiri-sq-tax.jpg  (66 tok)
+   Shared by both tax squares (It-Taxxa and Iċ-Ċens, the ground rent that never dies).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a fat brown envelope with a wax seal on a doormat, a hand recoiling from it, gloomy hallway
+
+── kiri-fate-ghajdut  [P1]  art/ui/kiri-fate-ghajdut.jpg  (60 tok)
+   Face of the GĦAJDUT (gossip) deck. Behind the card sheet for any of its 18 cards.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, two women on adjacent balconies whispering furiously, a third listening from a doorway below
+
+── kiri-fate-gvern  [P1]  art/ui/kiri-fate-gvern.jpg  (61 tok)
+   Face of the TAL-GVERN (government) deck. Behind the card sheet for any of its 18 cards.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a towering filing shelf buckling under folders, one tiny clerk calmly stamping a single page
+
+── kiri-fate-get  [P2]  art/ui/kiri-fate-get.jpg  (62 tok)
+   Any card that pays the player money (get / getEach). 10 cards use it.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a delighted man on a doorstep cradling a fistful of banknotes, a cat round his ankles
+
+── kiri-fate-pay  [P2]  art/ui/kiri-fate-pay.jpg  (61 tok)
+   Any card that takes money off the player (pay / payEach). 12 cards use it.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a defeated man emptying his wallet onto a kitchen table, one more bill drifting down
+
+── kiri-fate-queue  [P2]  art/ui/kiri-fate-queue.jpg  (71 tok)
+   Any card that sends the player to the queue, or hands out a Skip The Queue.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a calm officer steering a protesting driver towards a grim grey waiting room door, centred, generous empty margin, simple uncluttered background
+
+── kiri-fate-move  [P2]  art/ui/kiri-fate-move.jpg  (64 tok)
+   Any card that moves the player somewhere else on the ring.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, a tiny old car tearing down a narrow lane scattering chickens, a suitcase strapped to its roof
+
+── kiri-fate-repairs  [P2]  art/ui/kiri-fate-repairs.jpg  (60 tok)
+   The two repair cards that charge per floor and per penthouse you own.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a single wide comic moment, builders and scaffolding on a roof above a skip overflowing with rubble, thick dust
+
+── kiri-tok-key  [P1]  art/ui/kiri-tok-key.png  (69 tok)
+   Player token 1, Il-Muftieħ (The Key). Turn strip, table list, result screen.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a huge ornate iron door key with a small blank paper tag on its ring, centred, generous empty margin, simple uncluttered background
+
+── kiri-tok-scooter  [P1]  art/ui/kiri-tok-scooter.png  (71 tok)
+   Player token 2, Il-Mutur (The Scooter).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a battered delivery scooter side on, square food box bolted behind the seat, mirrors askew, centred, generous empty margin, simple uncluttered background
+
+── kiri-tok-brick  [P1]  art/ui/kiri-tok-brick.png  (68 tok)
+   Player token 3, Il-Ġebla (The Brick).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a chipped honey limestone building block with a trowel of wet mortar on top, centred, generous empty margin, simple uncluttered background
+
+── kiri-tok-goat  [P1]  art/ui/kiri-tok-goat.png  (64 tok)
+   Player token 4, Il-Mogħża (The Goat).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, one character centred, isolated on pure flat black background, a stubborn brown Maltese goat standing square on, chewing, one ear flopped
+
+── kiri-build-floor  [P1]  art/ui/kiri-build-floor.png  (69 tok)
+   One SULAR (floor). Up to four go on a property before the penthouse.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, one square concrete storey with two shuttered windows and a small balcony, slight angle, centred, generous empty margin, simple uncluttered background
+
+── kiri-build-pent  [P1]  art/ui/kiri-build-pent.png  (71 tok)
+   IL-PENTHOUSE, the top of the build ladder.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a flashy rooftop penthouse box with huge glass doors, a timber pergola, one satellite dish, centred, generous empty margin, simple uncluttered background
+
+── kiri-board-felt  [P2]  art/ui/kiri-board-felt.jpg  (69 tok)
+   The surface the 32-square ring sits on. Must stay quiet in the middle — the dice and the current square are drawn there.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, a worn dark green card table cloth from above, faint ring stains, a scatter of pale dust, flat even light, calm empty middle
+
+── kiri-hero  [P1]  art/ui/kiri-hero.jpg  (64 tok)
+   Background for the IL-KIRI menu and the result screen. Buttons and the winner's name sit on top in CSS, so keep the centre calm.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, wide establishing background illustration, no central subject, a hillside of packed Maltese houses and construction cranes at golden hour across the water, flat even light, calm empty middle
+
+── kiri-deed  [P2]  art/ui/kiri-deed.png  (65 tok)
+   Behind the property sheet header — the title deed itself. Surface MUST come back blank; the name, price and rent table are CSS on top.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, an old folded deed of blank aged paper, a red wax seal, a faded ribbon, nothing written on it
