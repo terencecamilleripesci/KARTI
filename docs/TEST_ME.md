@@ -2,6 +2,17 @@
 
 **https://terencecamilleripesci.github.io/KARTI/**
 
+> **Look at any Maltese heading first.** The display font could not spell
+> Maltese. Orbitron ships only the plain latin range, so **ħ ġ ż ċ were not in
+> the font at all** — every heading like BAĦAR, RAŻŻETT or IL-ĦAŻEN was being
+> drawn half in Orbitron and half in a fallback face, *mid-word*. It had been
+> shipping like that. The face is now Exo 2, same squared technical look, and it
+> actually contains the language the game is written in.
+>
+> It is also **self-hosted now**, so the app makes **zero external requests** —
+> it used to fetch the font from Google, which meant no signal, no display face.
+> For an app that is supposed to work offline, that was a real hole.
+
 **Force-close the app and reopen it once** before you start. The service worker
 needs one cycle to pick up a new build. The version is printed at the bottom of
 Settings — it should say **46** or higher.
