@@ -1,0 +1,777 @@
+/* ═══════════════════════════════════════════════════════════════════
+   KARTI — party.js
+   PARTY GAMES — the second drawer of the box.
+
+   One button on Home opens a shelf of board games that have nothing to
+   do with the card duel: two people, one phone, no deck building, no
+   collection, no internet. Sit down, play, shout at each other, go home.
+
+   WHAT THIS FILE IS
+     · the hub screen (the shelf of tiles)
+     · the shared plumbing every board game here borrows: the screen it
+       lives on, the frame (title bar / turn strip / board / button bar),
+       the square-board sizer, the setup sheet (who is playing, how hard
+       is the machine), the result screen, and a tiny results ledger.
+
+   WHAT IT IS NOT
+     · it owns no rules. js/chess.js and js/dama.js hold their own
+       engines and register themselves here.
+
+   HOUSE RULES THIS FILE OBEYS
+     · index.html and css/ belong to other parts of the build, so this
+       file builds its own <section class="screen" id="scr-party"> at
+       runtime and injects its stylesheet once, the way js/mp.js does.
+     · nothing here ever puts transform / filter / backdrop-filter /
+       will-change on anything that could be an ancestor of .tabbar.
+       The tab bar lives inside #scr-home; we are a sibling screen, and
+       we keep it that way.
+     · persistence goes in its own localStorage key (karti_party_v1).
+       The card game's save is not ours to touch.
+   ═══════════════════════════════════════════════════════════════════ */
+'use strict';
+
+(function(){
+
+const K = window.KARTI;
+if (!K) return;
+
+const esc = K.esc;
+const ico = (n, l) => (window.ICO ? window.ICO(n, l) : '');
+
+/* ── our own corner of localStorage ────────────────────────────────
+   rec  : {chess:{w,l,d}, dama:{w,l,d}}   — results against the machine
+   pref : {chess:{mode,level,side}, ...}  — last setup used
+   Deliberately NOT inside karti_save_* : a party game is not part of
+   anybody's card-game profile and must survive a profile switch. */
+const STORE = 'karti_party_v1';
+let ST = { rec:{}, pref:{} };
+try {
+  const j = JSON.parse(localStorage.getItem(STORE) || 'null');
+  if (j && typeof j === 'object'){
+    ST.rec  = (j.rec  && typeof j.rec  === 'object') ? j.rec  : {};
+    ST.pref = (j.pref && typeof j.pref === 'object') ? j.pref : {};
+  }
+} catch(e){}
+function persist(){ try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){} }
+
+function record(id, outcome){          /* outcome: 'w' | 'l' | 'd' */
+  const r = ST.rec[id] || (ST.rec[id] = { w:0, l:0, d:0 });
+  if (outcome === 'w' || outcome === 'l' || outcome === 'd') r[outcome]++;
+  persist();
+  return r;
+}
+function recOf(id){ return ST.rec[id] || { w:0, l:0, d:0 }; }
+function pref(id, patch){
+  const p = ST.pref[id] || (ST.pref[id] = {});
+  if (patch){ Object.assign(p, patch); persist(); }
+  return p;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SHELF
+   Games register themselves; the hub only knows what a tile looks
+   like. `status:'soon'` tiles are real entries with no open() — they
+   are on the shelf so the section reads as a collection rather than
+   two lonely buttons, and so the next two games have a home to move
+   into when their (original, un-trademarked) names are settled.
+   ═══════════════════════════════════════════════════════════════════ */
+const GAMES = [];
+function register(def){
+  const at = GAMES.findIndex(g => g.id === def.id);
+  if (at >= 0) GAMES[at] = def; else GAMES.push(def);
+  GAMES.sort((a, b) => (a.order || 99) - (b.order || 99));
+}
+
+/* the two that are coming, under names nobody's lawyer owns */
+register({
+  id:'skarta', order:30, name:'SKARTA', icon:'discard', status:'soon',
+  tag:'Get rid of your hand before the rest of the table gets rid of theirs. ' +
+      'Matching colours, matching numbers, and one card that ruins somebody\'s evening.'
+});
+register({
+  id:'kiri', order:40, name:'IL-KIRI', icon:'coin', status:'soon',
+  tag:'Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
+      'friendship end over a garage in Marsa.'
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SCREEN
+   go() in js/game.js only knows the screens listed in its SCREENS
+   array, and that array is not ours to edit — so we do our own
+   showing and hiding. The MutationObserver is the safety net: if
+   anything at all navigates the app while we are up (a restored
+   session, a back gesture, another module calling go()), we notice
+   another screen switching itself on and step aside instead of
+   floating over it.
+   ═══════════════════════════════════════════════════════════════════ */
+let scr = null, live = false, watching = false;
+
+function screenEl(){
+  if (scr && scr.isConnected) return scr;
+  scr = document.getElementById('scr-party');
+  if (!scr){
+    scr = document.createElement('section');
+    scr.className = 'screen';
+    scr.id = 'scr-party';
+    (document.getElementById('app') || document.body).appendChild(scr);
+  }
+  return scr;
+}
+
+function watch(){
+  if (watching || typeof MutationObserver !== 'function') return;
+  const app = document.getElementById('app');
+  if (!app) return;
+  watching = true;
+  /* subtree:true is REQUIRED — the class we care about changes on the
+     screens INSIDE #app, and an observer without it only ever hears
+     about #app's own attributes. It was silently doing nothing.
+     The records are filtered back down to direct children of #app so
+     the callback stays cheap even while our own board is repainting
+     sixty-four squares. */
+  new MutationObserver(recs => {
+    if (!live) return;
+    for (const r of recs){
+      const t = r.target;
+      if (t === scr || !t.parentNode || t.parentNode !== app) continue;
+      if (t.classList && t.classList.contains('screen') &&
+          t.classList.contains('on')){ standDown(); return; }
+    }
+  }).observe(app, { attributes:true, attributeFilter:['class'], subtree:true });
+}
+
+function show(){
+  injectCSS();
+  const el = screenEl();
+  const app = document.getElementById('app');
+  if (app) for (const s of app.children){
+    if (s !== el && s.classList && s.classList.contains('screen')) s.classList.remove('on');
+  }
+  el.classList.add('on');
+  live = true;
+  watch();
+}
+
+/* another screen took over: let go of ours quietly, and stop any
+   thinking the game on it was doing. */
+function standDown(){
+  live = false;
+  if (scr) scr.classList.remove('on');
+  if (currentGame && currentGame.leave) { try { currentGame.leave(); } catch(e){} }
+  currentGame = null;
+}
+
+function close(){
+  standDown();
+  if (K.go) K.go('home');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE HUB
+   ═══════════════════════════════════════════════════════════════════ */
+let currentGame = null;      /* {leave()} of whatever is on screen */
+
+function open(){
+  show();
+  hub();
+}
+
+function hub(){
+  if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
+  currentGame = null;
+  const el = screenEl();
+  el.innerHTML =
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-home" aria-label="Back to home">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>Party Games</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      '<p class="blurb">Put the cards down. These are the games your nannu plays on the ' +
+      'kazin table — two of you, one phone, and no excuses about a bad draw.</p>' +
+      '<div class="tiny pt-lbl" id="pt-lbl-live">On the table</div>' +
+      '<div class="pt-grid" id="pt-grid-live"></div>' +
+      '<div class="tiny pt-lbl" id="pt-lbl-soon">Still in the workshop</div>' +
+      '<div class="pt-grid" id="pt-grid-soon"></div>' +
+      '<p class="pt-foot">Two more on the way, under names of our own. Nobody here has ' +
+      'ever finished a game of IL-KIRI either, but that is rather the point of it.</p>' +
+    '</div>';
+
+  const live = el.querySelector('#pt-grid-live');
+  const later = el.querySelector('#pt-grid-soon');
+  GAMES.forEach(g => {
+    const soon = g.status === 'soon';
+    const r = recOf(g.id);
+    const played = r.w + r.l + r.d;
+    const b = document.createElement(soon ? 'div' : 'button');
+    b.className = 'pt-tile' + (soon ? ' soon' : '');
+    if (!soon) b.type = 'button';
+    b.innerHTML =
+      '<span class="pt-tio">' + (g.sprite ? pieceSVG(g.sprite) : ico(g.icon || 'deck')) + '</span>' +
+      '<span class="pt-tin">' + esc(g.name) + '</span>' +
+      (g.mt ? '<span class="pt-timt">' + esc(g.mt) + '</span>' : '') +
+      '<span class="pt-tit">' + esc(g.tag || '') + '</span>' +
+      '<span class="pt-tib">' +
+        (soon ? '<span class="pt-pill soon">' + ico('lock') + ' Coming soon</span>'
+              : '<span class="pt-pill live">' + ico('check') + ' Playable</span>' +
+                (played ? '<span class="pt-rec">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '')) +
+      '</span>';
+    if (soon) b.setAttribute('aria-disabled', 'true');
+    else b.onclick = () => { if (g.open) g.open(); };
+    (soon ? later : live).appendChild(b);
+  });
+  el.querySelector('#pt-lbl-live').hidden = !live.children.length;
+  el.querySelector('#pt-lbl-soon').hidden = !later.children.length;
+
+  el.querySelector('#pt-home').onclick = close;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SHARED PLUMBING FOR A BOARD GAME
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── the setup sheet: who is playing, and how hard ─────────────────
+   Identical questions for chess and for dama, so it is asked once,
+   here, and each game just says what to do with the answers. */
+function setup(cfg){
+  /* cfg: {id, title, sub, levels:[{k,name,note,icon}], sides:[{k,name},{k,name}],
+           blurb, onStart(opts), onBack} */
+  if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
+  currentGame = null;
+  const el = screenEl();
+  const p = pref(cfg.id);
+  let mode  = p.mode === 'pnp' ? 'pnp' : 'ai';
+  /* dataset values are ALWAYS strings and the level keys are numbers —
+     compare as strings both ways or nothing ever looks selected, which
+     is exactly how the first build shipped a difficulty picker with no
+     difficulty picked. */
+  let level = cfg.levels.some(l => String(l.k) === String(p.level))
+                ? String(p.level) : String(cfg.levels[1].k);
+  let side  = cfg.sides.some(s => s.k === p.side) ? p.side : cfg.sides[0].k;
+  const r = recOf(cfg.id);
+
+  el.innerHTML =
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>' + esc(cfg.title) + '</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      '<p class="blurb">' + cfg.blurb + '</p>' +
+      '<div class="tiny pt-lbl">Who is playing</div>' +
+      '<div class="pt-opts" id="pt-mode">' +
+        '<button class="pt-opt" data-v="pnp">' + ico('users') +
+          '<b>Two of you</b><i>One phone. Pass it over.</i></button>' +
+        '<button class="pt-opt" data-v="ai">' + ico('coach') +
+          '<b>You vs the phone</b><i>It does not get tired.</i></button>' +
+      '</div>' +
+      '<div id="pt-aibits">' +
+        '<div class="tiny pt-lbl">How hard</div>' +
+        '<div class="pt-opts" id="pt-lvl">' +
+          cfg.levels.map(l => '<button class="pt-opt" data-v="' + esc(l.k) + '">' +
+            ico(l.icon || 'diff-2') + '<b>' + esc(l.name) + '</b><i>' + esc(l.note) + '</i></button>').join('') +
+        '</div>' +
+        '<div class="tiny pt-lbl">You play</div>' +
+        '<div class="pt-opts two" id="pt-side">' +
+          cfg.sides.map(s => '<button class="pt-opt" data-v="' + esc(s.k) + '">' +
+            '<span class="pt-swatch ' + esc(s.cls || '') + '"></span><b>' + esc(s.name) + '</b>' +
+            '<i>' + esc(s.note || '') + '</i></button>').join('') +
+        '</div>' +
+      '</div>' +
+      (r.w + r.l + r.d
+        ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' + r.l +
+          '</b> lost, <b>' + r.d + '</b> drawn.</p>'
+        : '') +
+      '<button class="btn primary" id="pt-start" style="margin:16px 0 24px">' +
+        (window.ILB ? window.ILB('play', 'Start') : 'Start') + '</button>' +
+    '</div>';
+
+  const sync = () => {
+    el.querySelectorAll('#pt-mode .pt-opt').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === mode));
+    el.querySelectorAll('#pt-lvl .pt-opt').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === String(level)));
+    el.querySelectorAll('#pt-side .pt-opt').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === side));
+    el.querySelector('#pt-aibits').hidden = (mode !== 'ai');
+  };
+  el.querySelectorAll('#pt-mode .pt-opt').forEach(b =>
+    b.onclick = () => { mode = b.dataset.v; sync(); });
+  el.querySelectorAll('#pt-lvl .pt-opt').forEach(b =>
+    b.onclick = () => { level = b.dataset.v; sync(); });
+  el.querySelectorAll('#pt-side .pt-opt').forEach(b =>
+    b.onclick = () => { side = b.dataset.v; sync(); });
+  sync();
+
+  el.querySelector('#pt-back').onclick = cfg.onBack || hub;
+  el.querySelector('#pt-start').onclick = () => {
+    pref(cfg.id, { mode, level, side });
+    cfg.onStart({ mode, level, side });
+  };
+}
+
+/* ── the game frame ────────────────────────────────────────────────
+   Title bar, a whose-turn strip, two thin capture rails, the board,
+   and a bar of buttons. Everything is flex; the board host takes the
+   slack and the sizer below makes the board the biggest square that
+   fits in it. Nothing scrolls. */
+let lastCtx = null;
+function frame(o){
+  /* o: {title, onBack, leave, buttons:[{id,label,icon,cls}]} */
+  const el = screenEl();
+  /* the frame before this one is about to be thrown away — let go of its
+     ResizeObserver rather than leaving it watching a detached node */
+  if (lastCtx && lastCtx.stopFit){ try { lastCtx.stopFit(); } catch(e){} }
+  /* remember how to stop whatever is being built, so that if the app
+     navigates out from under us (see the MutationObserver above) the
+     game's pending AI move is cancelled instead of waking up later and
+     painting into a screen nobody is looking at */
+  currentGame = o.leave ? { leave: o.leave } : null;
+  el.innerHTML = '';
+  const wrap = document.createElement('div');
+  wrap.className = 'pt-wrap';
+  wrap.innerHTML =
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>' + esc(o.title) + '</h2>' +
+      '<span class="pt-badge" id="pt-badge"></span>' +
+    '</div>' +
+    '<div class="pt-turn" id="pt-turn" role="status" aria-live="polite"></div>' +
+    /* the capture rails sit INSIDE the host, hugging the board, so the
+       three of them stay together as one object however much vertical
+       slack the phone has left over */
+    '<div class="pt-host" id="pt-host"><div class="pt-stack">' +
+      '<div class="pt-rail" id="pt-rail-top"></div>' +
+      '<div class="pt-board" id="pt-board"></div>' +
+      '<div class="pt-rail" id="pt-rail-bot"></div>' +
+    '</div></div>' +
+    '<div class="pt-bar" id="pt-bar"></div>';
+  el.appendChild(wrap);
+
+  const ctx = {
+    root: wrap,
+    board: wrap.querySelector('#pt-board'),
+    host:  wrap.querySelector('#pt-host'),
+    turn:  wrap.querySelector('#pt-turn'),
+    badge: wrap.querySelector('#pt-badge'),
+    railTop: wrap.querySelector('#pt-rail-top'),
+    railBot: wrap.querySelector('#pt-rail-bot'),
+    bar:   wrap.querySelector('#pt-bar')
+  };
+  wrap.querySelector('#pt-back').onclick = o.onBack || hub;
+
+  (o.buttons || []).forEach(b => {
+    const el2 = document.createElement('button');
+    el2.className = 'btn sm ' + (b.cls || 'ghost');
+    el2.id = b.id;
+    el2.innerHTML = window.ILB ? window.ILB(b.icon, esc(b.label)) : esc(b.label);
+    ctx.bar.appendChild(el2);
+  });
+  ctx.btn = id => wrap.querySelector('#' + id);
+
+  fit(ctx);
+  lastCtx = ctx;
+  return ctx;
+}
+
+/* the board is always the biggest whole-pixel-per-square square that
+   fits the slack. Rounded down to a multiple of 8 so squares are all
+   the same width and no hairline seams appear between them. */
+function fit(ctx){
+  const doIt = () => {
+    if (!ctx.host.isConnected) return;
+    const w = ctx.host.clientWidth, h = ctx.host.clientHeight;
+    if (!w || !h) return;
+    /* the two rails share the host with the board, so take them off the
+       height before dividing — otherwise the board pushes them off the
+       bottom of a short phone */
+    const rails = ctx.railTop.offsetHeight + ctx.railBot.offsetHeight;
+    const s = Math.max(8 * 24, Math.floor(Math.min(w, h - rails) / 8) * 8);
+    ctx.board.style.width = s + 'px';
+    ctx.board.style.height = s + 'px';
+    ctx.board.style.setProperty('--sq', (s / 8) + 'px');
+  };
+  doIt();
+  requestAnimationFrame(doIt);
+  if (typeof ResizeObserver === 'function'){
+    const ro = new ResizeObserver(doIt);
+    ro.observe(ctx.host);
+    ctx.stopFit = () => ro.disconnect();
+  } else {
+    window.addEventListener('resize', doIt);
+    ctx.stopFit = () => window.removeEventListener('resize', doIt);
+  }
+}
+
+/* ── the turn strip ────────────────────────────────────────────────
+   The single most important thing on the screen: whose move is it. */
+function setTurn(ctx, o){
+  /* o: {cls, who, note, alert} */
+  ctx.turn.className = 'pt-turn' + (o.alert ? ' alert' : '');
+  ctx.turn.innerHTML =
+    '<span class="pt-dot ' + esc(o.cls || '') + '"></span>' +
+    '<span class="pt-who">' + esc(o.who || '') + '</span>' +
+    (o.note ? '<span class="pt-note">' + esc(o.note) + '</span>' : '');
+}
+
+/* ── the result screen ─────────────────────────────────────────────
+   An honest full-stop, not a toast that scrolls away: what happened,
+   why, a line of mouth, and the two things you might want next. */
+function result(ctx, o){
+  /* o: {tone:'win'|'lose'|'draw', head, why, quip, buttons:[{label,icon,cls,go}]} */
+  const old = ctx.root.querySelector('.pt-over');
+  if (old) old.remove();
+  const over = document.createElement('div');
+  over.className = 'pt-over ' + (o.tone || 'draw');
+  over.setAttribute('role', 'dialog');
+  over.setAttribute('aria-modal', 'true');
+  over.setAttribute('aria-label', o.head);
+  over.innerHTML =
+    '<div class="pt-card">' +
+      '<div class="pt-crest">' + ico(o.tone === 'win' ? 'trophy' : o.tone === 'lose' ? 'flag' : 'shield') + '</div>' +
+      '<h3>' + esc(o.head) + '</h3>' +
+      '<p class="pt-why">' + esc(o.why || '') + '</p>' +
+      (o.quip ? '<p class="pt-quip">' + esc(o.quip) + '</p>' : '') +
+      '<div class="pt-acts"></div>' +
+    '</div>';
+  const acts = over.querySelector('.pt-acts');
+  (o.buttons || []).forEach(b => {
+    const el2 = document.createElement('button');
+    el2.className = 'btn ' + (b.cls || 'ghost');
+    el2.innerHTML = window.ILB ? window.ILB(b.icon || 'play', esc(b.label)) : esc(b.label);
+    el2.onclick = b.go;
+    acts.appendChild(el2);
+  });
+  ctx.root.appendChild(over);
+  const first = acts.querySelector('button');
+  if (first) first.focus();
+}
+
+/* a small yes/no over the board — used by Resign, which is the one
+   button in here you do not want to hit by accident. */
+function confirm(ctx, o){
+  const old = ctx.root.querySelector('.pt-ask');
+  if (old) old.remove();
+  const ask = document.createElement('div');
+  ask.className = 'pt-over pt-ask';
+  ask.innerHTML =
+    '<div class="pt-card">' +
+      '<h3>' + esc(o.head) + '</h3>' +
+      '<p class="pt-why">' + esc(o.why || '') + '</p>' +
+      '<div class="pt-acts">' +
+        '<button class="btn hot" id="pt-yes">' + esc(o.yes || 'Yes') + '</button>' +
+        '<button class="btn ghost" id="pt-no">' + esc(o.no || 'No, carry on') + '</button>' +
+      '</div>' +
+    '</div>';
+  ctx.root.appendChild(ask);
+  ask.querySelector('#pt-yes').onclick = () => { ask.remove(); o.go(); };
+  ask.querySelector('#pt-no').onclick  = () => ask.remove();
+  ask.querySelector('#pt-no').focus();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE PIECE SPRITE
+   The app's own sprite lives in index.html and is not ours to add to,
+   so the chess figures get a second, private sprite appended to
+   <body> at runtime — same idea, same 24x24 grid, same currentColor
+   rule, so a piece takes the colour of its square's text and scales
+   with the board. Drawn here rather than typed as ♔♕♖: the Unicode
+   chess block is rendered as EMOJI by some phone fonts, and this app
+   does not do emoji in its chrome.
+
+   The paths carry no fill/stroke of their own — the CSS below sets
+   fill, stroke, stroke-width and paint-order on the <svg>, and all
+   four inherit into the <use> shadow tree. That is what gives the
+   white pieces a dark rim on a light square and the dark pieces a
+   pale rim on a dark one.
+   ═══════════════════════════════════════════════════════════════════ */
+const SPRITE =
+/* The king is the piece that MUST be unmistakable at 50px — an early
+   draft read as a second bishop on the phone. It gets a tall cross, a
+   spread crown with two horns, and the widest base on the board. */
+'<symbol id="pt-p-k" viewBox="0 0 24 24">' +
+  '<path d="M10.9 .8h2.2v2.1h2.1v2.2h-2.1v2.6h-2.2V5.1H8.8V2.9h2.1z"/>' +
+  '<path d="M12 7.4c-3.9 0-7 2.3-7 5.1 0 1.5.9 2.8 2.4 3.7l-.6 2.9h10.4l-.6-2.9c1.5-.9 2.4-2.2 2.4-3.7 0-2.8-3.1-5.1-7-5.1zm-5 3.9l1.5 1.9 1.6-2.6 1.9 2.9 1.9-2.9 1.6 2.6L17 11.3l-.4 2.6H7.4z"/>' +
+  '<path d="M4.6 19.9h14.8v3.3H4.6z"/></symbol>' +
+'<symbol id="pt-p-q" viewBox="0 0 24 24">' +
+  '<path d="M3.1 7.6l1.9 6.6h14l1.9-6.6-4.4 3.3-2.4-5.1L12 11 9.9 5.8 7.5 10.9z"/>' +
+  '<circle cx="3.1" cy="6.3" r="1.5"/><circle cx="7.6" cy="4.7" r="1.5"/>' +
+  '<circle cx="12" cy="3.9" r="1.6"/><circle cx="16.4" cy="4.7" r="1.5"/>' +
+  '<circle cx="20.9" cy="6.3" r="1.5"/>' +
+  '<path d="M5.2 15.2h13.6l.6 3.3H4.6z"/>' +
+  '<path d="M4.3 19.4h15.4v3.1H4.3z"/></symbol>' +
+'<symbol id="pt-p-r" viewBox="0 0 24 24">' +
+  '<path d="M5.1 2.6h3.1v2.2h2.3V2.6h3v2.2h2.3V2.6h3.1v5.6H5.1z"/>' +
+  '<path d="M6.9 8.6h10.2l.9 9.3H6z"/>' +
+  '<path d="M4.4 18.7h15.2v3.8H4.4z"/></symbol>' +
+'<symbol id="pt-p-b" viewBox="0 0 24 24">' +
+  '<circle cx="12" cy="3.3" r="1.7"/>' +
+  /* the mitre, with the traditional slit cut out of it — that notch is
+     what stops a bishop reading as a fat pawn at board size */
+  '<path d="M12 4.9c-2.8 2-4.6 4.4-4.6 6.6 0 1.8 1 3.2 2.5 4h4.2c1.5-.8 2.5-2.2 2.5-4 ' +
+    '0-2.2-1.8-4.6-4.6-6.6zm.6 2.2l2.6 3.2-1.3 1-2.6-3.2z"/>' +
+  '<path d="M8.2 15.9h7.6l.8 2.8H7.4z"/>' +
+  '<path d="M5.5 19.4h13v3.1h-13z"/></symbol>' +
+'<symbol id="pt-p-n" viewBox="0 0 24 24">' +
+  '<path d="M9 19.2h9.4c.3-5.2-.4-8.7-2.4-11-1.1-1.3-2.4-2-3-3l1.6-2.4-2-1.3-.9 1.4-1.7-2.3-1.7 1.2.8 2.5-2.9 3.7c-.9 1.1-.8 2.4.2 3.1.9.7 2.2.4 2.9-.5l1.2-1.4c.3.9 0 1.8-.9 2.6-1.8 1.8-3.7 3.1-3.9 5.4z"/>' +
+  '<path d="M5.4 19.4h13.2v3.1H5.4z"/></symbol>' +
+'<symbol id="pt-p-p" viewBox="0 0 24 24">' +
+  '<circle cx="12" cy="5.6" r="2.9"/>' +
+  '<path d="M9.4 8.6c-1 .9-1.6 2-1.6 3.2 0 1.7 1.1 3.1 2.6 3.9l-1 4.1h5.2l-1-4.1c1.5-.8 2.6-2.2 2.6-3.9 0-1.2-.6-2.3-1.6-3.2z"/>' +
+  '<path d="M6.4 19.4h11.2v3.1H6.4z"/></symbol>' +
+/* the dama crown — worn by a kinged stone */
+'<symbol id="pt-crown" viewBox="0 0 24 24">' +
+  '<path d="M3.4 6.6l3.9 3.1L12 3.4l4.7 6.3 3.9-3.1-1.7 10.1H5.1z"/>' +
+  '<path d="M5.4 18.9h13.2v2.4H5.4z"/></symbol>';
+
+function injectSprite(){
+  if (document.getElementById('pt-sprite')) return;
+  const holder = document.createElement('div');
+  holder.id = 'pt-sprite';
+  holder.setAttribute('aria-hidden', 'true');
+  holder.style.cssText = 'position:absolute;width:0;height:0;overflow:hidden';
+  holder.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg"><defs>' + SPRITE + '</defs></svg>';
+  document.body.appendChild(holder);
+}
+
+/* a piece glyph: <span class="pt-pc"> holding one <use> */
+function pieceSVG(sym){
+  return '<svg class="pt-pcs" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+         '<use href="#' + sym + '"></use></svg>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE STYLESHEET
+   Injected once. Everything is scoped to #scr-party so it cannot
+   reach a single rule in css/ or in the shell.
+   ═══════════════════════════════════════════════════════════════════ */
+function injectCSS(){
+  injectSprite();
+  if (document.getElementById('pt-runtime-css')) return;
+  const st = document.createElement('style');
+  st.id = 'pt-runtime-css';
+  st.textContent =
+    '#scr-party{--lite:#E7D6AC;--dark:#4B3369;--edge:rgba(0,0,0,.35);' +
+      '--pcw:#FFF7E6;--pcb:#241134;--rimw:#3A2210;--rimb:#FFD98A;' +
+      '--sel:#3DDC84;--hint:rgba(61,220,132,.62);--last:rgba(255,197,66,.42);' +
+      '--danger:#FF5468}' +
+
+    /* ── hub ── */
+    '#scr-party .pt-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;' +
+      'margin:4px 0 14px}' +
+    '#scr-party .pt-tile{display:flex;flex-direction:column;align-items:flex-start;gap:6px;' +
+      'text-align:left;min-height:172px;padding:13px 12px 11px;border-radius:16px;color:var(--txt);' +
+      'background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);' +
+      'box-shadow:0 6px 0 -2px rgba(0,0,0,.45),0 10px 22px rgba(0,0,0,.4);' +
+      'transition:background .15s var(--ease)}' +
+    '#scr-party button.pt-tile:active{background:var(--panel2)}' +
+    '#scr-party .pt-tile.soon{opacity:.62;box-shadow:none;border-style:dashed;' +
+      'background:rgba(255,255,255,.03)}' +
+    '#scr-party .pt-tio{font-size:26px;line-height:0;color:var(--gold);display:block;height:30px}' +
+    '#scr-party .pt-tio .pt-pcs{width:30px;height:30px;fill:var(--gold);stroke:none}' +
+    '#scr-party .pt-tile.soon .pt-tio .pt-pcs{fill:var(--dim2)}' +
+    '#scr-party .pt-tile.soon .pt-tio{color:var(--dim2)}' +
+    '#scr-party .pt-tin{font-family:var(--disp);font-weight:900;font-size:15px;letter-spacing:.06em;' +
+      'line-height:1.1}' +
+    '#scr-party .pt-timt{font-size:10px;letter-spacing:.14em;font-weight:700;color:var(--gold);' +
+      'text-transform:uppercase;margin-top:-3px}' +
+    '#scr-party .pt-tile.soon .pt-timt{color:var(--dim2)}' +
+    '#scr-party .pt-tit{font-size:11.5px;line-height:1.5;color:var(--dim);flex:1;' +
+      'text-transform:none;letter-spacing:0;font-weight:400}' +
+    '#scr-party .pt-tib{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-top:2px}' +
+    '#scr-party .pt-pill{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;' +
+      'border-radius:999px;font-size:9.5px;font-weight:900;letter-spacing:.09em;' +
+      'text-transform:uppercase}' +
+    '#scr-party .pt-pill.live{background:rgba(61,220,132,.16);color:var(--ok);' +
+      'border:1px solid rgba(61,220,132,.38)}' +
+    '#scr-party .pt-pill.soon{background:rgba(255,255,255,.05);color:var(--dim2);' +
+      'border:1px solid var(--line)}' +
+    '#scr-party .pt-rec{font:700 9.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
+      'letter-spacing:.06em;color:var(--dim2)}' +
+    '#scr-party .pt-foot{font-size:11.5px;line-height:1.6;color:var(--dim2);margin:0 2px 24px}' +
+
+    /* ── setup ── */
+    '#scr-party .pt-lbl{margin:16px 0 8px}' +
+    '#scr-party .pt-opts{display:grid;gap:8px}' +
+    '#scr-party .pt-opt{display:grid;grid-template-columns:24px 1fr;column-gap:11px;row-gap:2px;' +
+      'align-items:center;text-align:left;width:100%;min-height:56px;padding:9px 13px;' +
+      'border-radius:14px;color:var(--txt);background:rgba(255,255,255,.04);' +
+      'border:1px solid var(--line);transition:background .15s,border-color .15s}' +
+    '#scr-party .pt-opt>.ico,#scr-party .pt-opt>.pt-swatch{grid-row:1/3;font-size:20px;color:var(--dim)}' +
+    '#scr-party .pt-opt b{font-family:var(--disp);font-size:12.5px;letter-spacing:.06em;' +
+      'text-transform:uppercase}' +
+    '#scr-party .pt-opt i{font-style:normal;font-size:11.5px;line-height:1.4;color:var(--dim)}' +
+    '#scr-party .pt-opt.on{background:rgba(255,197,66,.13);border-color:rgba(255,197,66,.5)}' +
+    '#scr-party .pt-opt.on>.ico{color:var(--gold)}' +
+    '#scr-party .pt-opt:active{background:rgba(255,255,255,.09)}' +
+    '#scr-party .pt-swatch{width:22px;height:22px;border-radius:50%;display:block;' +
+      'border:2px solid rgba(0,0,0,.4)}' +
+    '#scr-party .pt-swatch.w{background:linear-gradient(180deg,#FFF9EC,#D8C6A4)}' +
+    '#scr-party .pt-swatch.b{background:linear-gradient(180deg,#4A2C63,#1B0E29);' +
+      'border-color:rgba(255,217,138,.6)}' +
+    '#scr-party .pt-swatch.r{background:radial-gradient(circle at 34% 28%,#FF8A6B,#D93A20 60%,#8C1E0C)}' +
+    '#scr-party .pt-ledger{font-size:12px;line-height:1.6;color:var(--dim);margin:16px 2px 0;' +
+      'text-transform:none;letter-spacing:0}' +
+
+    /* ── the game frame ── */
+    '#scr-party .pt-wrap{flex:1;min-height:0;display:flex;flex-direction:column}' +
+    '#scr-party .pt-badge{flex:0 0 auto;font:900 10px/1 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--dim2);padding:6px 9px;border-radius:999px;' +
+      'background:rgba(255,255,255,.05);border:1px solid var(--line)}' +
+    '#scr-party .pt-turn{flex:0 0 auto;display:flex;align-items:center;gap:9px;min-height:42px;' +
+      'padding:7px 12px;border-radius:13px;margin-bottom:7px;' +
+      'background:rgba(255,255,255,.05);border:1px solid var(--line)}' +
+    '#scr-party .pt-turn.alert{background:rgba(255,84,104,.14);border-color:rgba(255,84,104,.45)}' +
+    '#scr-party .pt-dot{flex:0 0 auto;width:16px;height:16px;border-radius:50%;' +
+      'border:2px solid rgba(0,0,0,.45);background:#888}' +
+    '#scr-party .pt-dot.w{background:linear-gradient(180deg,#FFF9EC,#D8C6A4)}' +
+    '#scr-party .pt-dot.b{background:linear-gradient(180deg,#4A2C63,#1B0E29);' +
+      'border-color:rgba(255,217,138,.7)}' +
+    '#scr-party .pt-dot.r{background:radial-gradient(circle at 34% 28%,#FF8A6B,#D93A20 60%,#8C1E0C)}' +
+    '#scr-party .pt-who{font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.09em;' +
+      'text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-party .pt-note{margin-left:auto;flex:0 0 auto;font-size:10.5px;font-weight:700;' +
+      'letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}' +
+    '#scr-party .pt-turn.alert .pt-note{color:var(--danger)}' +
+    '#scr-party .pt-rail{flex:0 0 auto;min-height:24px;width:100%;display:flex;align-items:center;' +
+      'gap:2px;padding:2px 3px;overflow:hidden;color:var(--dim2)}' +
+    '#scr-party .pt-rail .pt-mini{width:17px;height:17px;flex:0 0 auto;opacity:.9}' +
+    '#scr-party .pt-rail .pt-edge{margin-left:6px;font:700 10px/1 ui-monospace,SFMono-Regular,' +
+      'Menlo,monospace;color:var(--gold)}' +
+    '#scr-party .pt-host{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;' +
+      'overflow:hidden}' +
+    '#scr-party .pt-stack{display:flex;flex-direction:column;align-items:center;' +
+      'justify-content:center}' +
+    '#scr-party .pt-bar{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));' +
+      'gap:8px;margin-top:7px}' +
+    '#scr-party .pt-bar .btn{min-height:46px;font-size:11px;letter-spacing:.06em;padding:4px 6px}' +
+
+    /* ── the board ── */
+    '#scr-party .pt-board{--sq:40px;position:relative;display:grid;' +
+      'grid-template-columns:repeat(8,var(--sq));grid-template-rows:repeat(8,var(--sq));' +
+      'border-radius:8px;overflow:hidden;border:2px solid rgba(0,0,0,.5);' +
+      'box-shadow:0 10px 28px rgba(0,0,0,.55)}' +
+    '#scr-party .pt-sq{position:relative;display:block;padding:0;border:0;width:var(--sq);' +
+      'height:var(--sq);background:var(--lite);color:#3A2A14}' +
+    '#scr-party .pt-sq.d{background:var(--dark);color:#E8DAFF}' +
+    '#scr-party .pt-sq .pt-co{position:absolute;font:700 8px/1 ui-monospace,SFMono-Regular,' +
+      'Menlo,monospace;opacity:.5;pointer-events:none}' +
+    '#scr-party .pt-sq .pt-co.f{right:2px;bottom:2px}' +
+    '#scr-party .pt-sq .pt-co.r{left:2px;top:2px}' +
+    '#scr-party .pt-sq.last::before{content:"";position:absolute;inset:0;background:var(--last)}' +
+    '#scr-party .pt-sq.sel::after{content:"";position:absolute;inset:0;' +
+      'box-shadow:inset 0 0 0 3px var(--sel)}' +
+    '#scr-party .pt-sq.chk::after{content:"";position:absolute;inset:0;' +
+      'box-shadow:inset 0 0 0 3px var(--danger);background:rgba(255,84,104,.28)}' +
+    /* legal-move marks: a dot on an empty square, a ring on a capture */
+    '#scr-party .pt-mark{position:absolute;left:50%;top:50%;width:30%;height:30%;' +
+      'margin:-15% 0 0 -15%;border-radius:50%;background:var(--hint);pointer-events:none;' +
+      'box-shadow:0 0 0 1px rgba(0,0,0,.3)}' +
+    '#scr-party .pt-mark.cap{width:88%;height:88%;margin:-44% 0 0 -44%;background:none;' +
+      'box-shadow:inset 0 0 0 4px var(--hint)}' +
+    '#scr-party .pt-pc{position:absolute;inset:8%;display:block;pointer-events:none;' +
+      'line-height:0}' +
+    '#scr-party .pt-pcs{width:100%;height:100%;display:block;' +
+      'paint-order:stroke fill;stroke-width:1.1;stroke-linejoin:round}' +
+    '#scr-party .pt-w .pt-pcs,#scr-party .pt-mini.pt-w{fill:var(--pcw);stroke:var(--rimw)}' +
+    '#scr-party .pt-b .pt-pcs,#scr-party .pt-mini.pt-b{fill:var(--pcb);stroke:var(--rimb)}' +
+    '#scr-party .pt-mini{paint-order:stroke fill;stroke-width:1.4;stroke-linejoin:round}' +
+    /* dama stones */
+    '#scr-party .pt-stone{position:absolute;inset:12%;border-radius:50%;pointer-events:none;' +
+      'display:grid;place-items:center}' +
+    '#scr-party .pt-stone.w{background:radial-gradient(circle at 34% 28%,#FFFCF2,#E4D2AC 58%,#B79E70);' +
+      'box-shadow:inset 0 -3px 5px rgba(0,0,0,.28),0 2px 4px rgba(0,0,0,.45),' +
+      '0 0 0 2px rgba(58,34,16,.55)}' +
+    '#scr-party .pt-stone.b{background:radial-gradient(circle at 34% 28%,#FF8A6B,#D93A20 55%,#8C1E0C);' +
+      'box-shadow:inset 0 -3px 5px rgba(0,0,0,.42),0 2px 4px rgba(0,0,0,.5),' +
+      '0 0 0 2px rgba(42,7,0,.5)}' +
+    '#scr-party .pt-stone .ico,#scr-party .pt-stone .pt-pcs{width:52%;height:52%}' +
+    '#scr-party .pt-stone.w .pt-pcs{fill:#8A6200;stroke:none}' +
+    '#scr-party .pt-stone.b .pt-pcs{fill:#FFE9B0;stroke:none}' +
+
+    /* ── result / confirm overlay ──
+       position:absolute inside .pt-wrap. .pt-wrap is inside #scr-party,
+       which is a sibling of #scr-home — the tab bar is NOT below any of
+       this, so the opacity animation here cannot reach it. No transform
+       anywhere in this block, on purpose. */
+    '#scr-party .pt-over{position:absolute;inset:0;z-index:20;display:flex;align-items:center;' +
+      'justify-content:center;padding:20px;background:rgba(8,5,15,.86);' +
+      'animation:ptFade .2s var(--ease) both}' +
+    '@keyframes ptFade{from{opacity:0}to{opacity:1}}' +
+    '#scr-party .pt-card{width:100%;max-width:330px;padding:22px 18px 18px;border-radius:20px;' +
+      'text-align:center;background:linear-gradient(180deg,var(--panel2),var(--panel));' +
+      'border:1px solid var(--line2);box-shadow:0 18px 44px rgba(0,0,0,.6)}' +
+    '#scr-party .pt-crest{font-size:36px;line-height:1;margin-bottom:10px;color:var(--gold)}' +
+    '#scr-party .pt-over.lose .pt-crest{color:var(--bad)}' +
+    '#scr-party .pt-over.draw .pt-crest{color:var(--dim)}' +
+    '#scr-party .pt-card h3{font-size:19px;letter-spacing:.05em;text-transform:uppercase}' +
+    '#scr-party .pt-why{font-size:12.5px;line-height:1.6;color:var(--dim);margin:9px 2px 0}' +
+    '#scr-party .pt-quip{font-size:12.5px;line-height:1.65;color:var(--txt);margin:11px 2px 0;' +
+      'font-style:italic;opacity:.92}' +
+    '#scr-party .pt-acts{display:grid;gap:9px;margin-top:18px}' +
+    '#scr-party .pt-acts .btn{min-height:50px;font-size:12.5px}' +
+
+    /* ── promotion picker ── */
+    '#scr-party .pt-promo{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-top:16px}' +
+    '#scr-party .pt-promo button{aspect-ratio:1;border-radius:14px;background:var(--lite);' +
+      'border:1px solid rgba(0,0,0,.35);display:grid;place-items:center;padding:8px}' +
+    '#scr-party .pt-promo button:active{background:#F2E4C0}' +
+    '#scr-party .pt-promo .pt-pcs{width:100%;height:100%}' +
+
+    /* ── very short phones: give the board every pixel we can ── */
+    '@media (max-height:700px){' +
+      '#scr-party .pt-turn{min-height:36px;margin-bottom:5px}' +
+      '#scr-party .pt-rail{min-height:18px}' +
+      '#scr-party .pt-rail .pt-mini{width:14px;height:14px}' +
+      '#scr-party .pt-bar .btn{min-height:44px}}';
+  document.head.appendChild(st);
+}
+
+/* ── Escape = back, while we are the screen on top ─────────────────
+   Registered once. It does nothing at all unless our screen is live,
+   so it cannot interfere with the card game's own Escape handling. */
+document.addEventListener('keydown', e => {
+  if (!live || e.key !== 'Escape') return;
+  const el = screenEl();
+  const over = el.querySelector('.pt-over');
+  if (over){ over.remove(); return; }
+  const back = el.querySelector('#pt-back');
+  if (back){ back.click(); return; }
+  close();
+});
+
+/* ── the way in from Home ──────────────────────────────────────────
+   ONE delegated listener rather than a binding on a particular
+   element. Home's buttons are static markup in index.html but the
+   screen around them is repainted by renderHome() whenever coins or
+   decks change, and a listener attached to a node that gets replaced
+   is a dead button nobody notices. This survives all of that, and it
+   means the only edit index.html needs is the markup itself:
+
+     <button class="btn primary pick" id="btn-party"> ... </button>
+
+   Any element with a data-party attribute opens the hub too, so a
+   second entry point can be added later without touching this file. */
+document.addEventListener('click', e => {
+  const t = e.target && e.target.closest && e.target.closest('#btn-party,[data-party]');
+  if (!t) return;
+  e.preventDefault();
+  open();
+});
+
+/* ═══════════════════════════════════════════════════════════════════
+   PUBLIC FACE
+   js/chess.js and js/dama.js load after this file and call register().
+   index.html calls KARTI_PARTY.open() from the home screen button.
+   ═══════════════════════════════════════════════════════════════════ */
+window.KARTI_PARTY = {
+  open, close, hub, register,
+  isLive: () => live,
+  /* the shared kit the two games are built out of */
+  ui: { screenEl, frame, setTurn, result, confirm, setup, fit, pieceSVG, ico, esc },
+  /* the ledger */
+  record, recOf, pref
+};
+
+})();

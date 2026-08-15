@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v37';
+const CACHE = 'karti-v38';
 const CORE = [
   './',
   './index.html',
@@ -20,6 +20,9 @@ const CORE = [
   './js/cardview.js',
   './js/tutor.js',
   './js/sync.js',
+  './js/party.js',
+  './js/chess.js',
+  './js/dama.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
   /* The UI art the shell actually wears — home background, playmat, card back,

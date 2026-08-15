@@ -1516,7 +1516,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 37;
+var KARTI_BUILD = 38;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1542,7 +1542,8 @@ window.swVersion = function(){
 (function(){
   var files = ['js/cards.js','js/set2.js','js/set3.js','js/game.js',
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
-               'js/cardview.js','js/tutor.js','js/sync.js'];
+               'js/cardview.js','js/tutor.js','js/sync.js',
+               'js/party.js','js/chess.js','js/dama.js'];
   (function next(i){
     if (i >= files.length) return;
     var s = document.createElement('script');
@@ -1574,7 +1575,9 @@ addEventListener('DOMContentLoaded', function(){
   var b = document.getElementById('btn-party');
   if (!b) return;
   b.onclick = function(){
-    if (window.KARTI_PARTY && KARTI_PARTY.open) { KARTI_PARTY.open(); return; }
+    /* party.js has its own delegated listener on this id — let it do the work,
+       so a tap does not open the hub twice. This only covers its absence. */
+    if (window.KARTI_PARTY && KARTI_PARTY.open) return;
     if (window.KARTI && KARTI.toast) KARTI.toast('Party games are on the way — chess and dama first.');
   };
 });
