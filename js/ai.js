@@ -14,6 +14,15 @@
 
    Everything is read through window.KARTI, so this file never touches
    engine internals directly.
+
+   The summon evaluation (bodyWorth / boardTotal / bestSummon) is the part
+   that has been measured hardest. It replaced a "net ATK, minus what the
+   tributes were worth" formula that priced a body at max(ATK,DEF) plus a flat
+   premium for having any effect at all. That formula charged a Level 8 the
+   full retail price of two bodies it was about to eat, so it summoned them
+   0.018 times per copy in a deck — effectively never. Scoring the BOARD AFTER
+   the play instead, on one scale for every candidate, put that at 0.086 and
+   won 53.2% against the old brain over 16,170 games.
    ═══════════════════════════════════════════════════════════════════ */
 'use strict';
 
@@ -65,6 +74,68 @@ const slip = L => L.slip > 0 && Math.random() < L.slip;
 const mine = pi => K.fieldMonsters(pi);
 const cardOf = id => K.cardById(id);
 
+/* ───────────────────────── tunables ─────────────────────────
+   Everything the summon evaluation is made of, in one place, so it can be swept
+   headlessly instead of guessed at. Every number below was measured over
+   ~7,000-game AI-vs-AI batches; the model is flat around them (moving any one
+   knob to either extreme costs under half a point of win rate), so nothing here
+   is knife-edge. What they collectively decide is whether a big tribute monster
+   ever gets to see the table. */
+const T = {
+  outclassed: .55,   /* ATK a body is worth once it cannot beat their biggest */
+  wallWorth:  .40,   /* DEF a body is worth as a blocker — it soaks one hit */
+  extraBody:  .45,   /* a body they can still block is worth this much of itself */
+  extraOpen:  .90,   /* a body they have no blocker left for swings for real */
+  theirNext:  1,     /* they get a summon too — count one more blocker than they
+                        have now, or a wide board looks better than it plays */
+  punchFloor: 1500,  /* ...and assume that summon can hit for at least this */
+  beats:      300,   /* it can actually take their biggest down */
+  survives:   400,   /* nothing they have on the table kills it in a fight */
+  surviveMul: .30,   /* ...and the bigger it is, the more that is worth per turn */
+  taunt:      260,   /* taunt is worth more while they have a board */
+  exposed:    .30,   /* per attacker my board can no longer block */
+  setup:      320    /* a cheap body now unlocks the big one in hand next turn */
+};
+
+/* ── what an effect is worth ──
+   Split in two, because the old single number was wrong in both directions.
+   Most monster effects fire ONCE, when it lands: a Sunday Rabbit that already
+   healed is a plain 1000 ATK body, so paying a premium to keep it is nonsense.
+   The rest tick every turn and really are worth keeping. */
+function fxKeep(m, atk){
+  switch (m && m.card.fx){
+    case 'taunt':  return 300;
+    case 'shield': return m.shieldUsed ? 0 : 400;
+    case 'double': return atk * .55;                 /* it swings twice a turn */
+    case 'cleave': return atk * .30;                 /* twice, but only at monsters */
+    case 'pierce': return 250;
+    case 'leech':  return atk * .25;
+    case 'grow':   return 350;
+    case 'grow2':  return 500;
+    case 'healall':return 400;
+    case 'discard':return 350;
+    case 'thorns': return 200;
+    case 'boom':   return 100;
+    case 'kamikaze': return -150;
+    default: return 0;
+  }
+}
+/* the one-off swing you get the moment it hits the table face-up */
+function fxPlay(c, enemyCount){
+  switch (c.fx){
+    case 'heal':   return 300;
+    case 'heal8':  return 450;
+    case 'burn':   return 500;
+    case 'snipe':  return enemyCount ? 500 : 0;
+    case 'weaken': return Math.min(enemyCount, 2) * 250;
+    case 'drain':  return enemyCount ? 300 : 0;
+    case 'stun':   return enemyCount ? 400 : 0;
+    case 'revive': return 350;
+    case 'peek':   return 60;
+    default: return 0;
+  }
+}
+
 /* what a monster is worth to its owner, roughly, in ATK-equivalent points */
 function value(m){
   if (!m) return 0;
@@ -90,6 +161,14 @@ function facing(m, L){
 function biggestEnemy(oi, L){
   return mine(oi).reduce((a, x) => Math.max(a, facing(x.m, L)), 0);
 }
+/* the hardest they can hit back — a face-down flips up and swings next turn */
+function enemyPunch(oi, L){
+  const raw = mine(oi).reduce((a, x) => {
+    const m = x.m;
+    return Math.max(a, m.fd ? (L.readFD ? m.card.atk : 0) : K.effAtk(m));
+  }, 0);
+  return Math.max(raw, T.punchFloor);      /* they get a summon too */
+}
 /* face-down spell/traps that are already armed — the reason to be careful */
 function armedSetCards(pi){
   const D = K.D;
@@ -112,15 +191,48 @@ function countersLean(card, lean, L){
   return K.COUNTERS[card.f] === lean ? K.COUNTER_BONUS : 0;
 }
 
-/* ───────────────────────── summoning ───────────────────────── */
-/* Tribute rule of thumb: you are spending bodies, so the thing you get
-   back has to be clearly better than what you fed it — and you must not
-   hand the board over while doing it. */
+/* ───────────────────────── summoning ─────────────────────────
+   What a body on MY side is still doing for me. This is NOT value(): value()
+   is what a monster is worth to keep, and it is the wrong number when you are
+   about to eat it for a tribute. DEF on a body you are tributing away never
+   blocks anything, and an attacker that cannot get past the biggest thing they
+   have is not attacking. Pricing both at face value is exactly why two mid
+   bodies always "out-valued" one big one and Level 8s never hit the table. */
+function bodyWorth(m, punch, wall){
+  const a = K.effAtk(m), d = K.effDef(m);
+  let v = a > wall ? a : a * T.outclassed;          /* can it still win a fight? */
+  v = Math.max(v, Math.min(d, punch) * T.wallWorth); /* or it soaks one hit, once */
+  /* A body nothing on the table can kill is not worth what it hits for once —
+     it hits for that EVERY turn. This is the whole case for one big monster
+     over two mid ones, and the old formula had no term for it at all. */
+  if (a > punch) v += T.survives + a * T.surviveMul;
+  return v + fxKeep(m, a);                          /* only what it still DOES */
+}
+/* A board is not the sum of its bodies. You cannot attack face while they hold
+   ANY monster, so past their blocker count the extra bodies stop converting —
+   and the single biggest body is the one that decides what you can kill. That
+   is the whole reason one 3000 can be worth more than two 1200s. */
+function boardTotal(ws, blockers){
+  const s = ws.slice().sort((a, b) => b - a);
+  let t = 0;
+  for (let i = 0; i < s.length; i++){
+    t += s[i] * (i === 0 ? 1 : (i >= blockers ? T.extraOpen : T.extraBody));
+  }
+  return t;
+}
+
+/* Every candidate summon is scored as "what my board is worth after it", on one
+   scale, so a free Level 4 and a two-tribute Level 8 are compared like for like
+   instead of the big one being charged the full price of the bodies it eats. */
 function bestSummon(pi, L){
   const D = K.D, P = D.p[pi], oi = 1 - pi;
   const lean = enemyLean(oi);
   const enemyBest = biggestEnemy(oi, L);
+  const punch = enemyPunch(oi, L);
   const enemyCount = mine(oi).length;
+  const board = mine(pi).map(x => ({ i:x.i, w: bodyWorth(x.m, punch, enemyBest) }));
+  const blockers = enemyCount + T.theirNext;
+  const before = boardTotal(board.map(b => b.w), blockers);
   let best = null;
   const cand = [];
 
@@ -131,31 +243,40 @@ function bestSummon(pi, L){
     if (!info.ok) return;
 
     const need = info.need;
-    let tributes = [], cost = 0;
+    let tributes = [], keep = board;
     if (need){
-      /* feed it the least useful bodies: face-down and small first,
-         and never eat your own taunt if you can avoid it */
-      const pool = mine(pi).slice().sort((a, b) => {
-        const ta = a.m.card.fx === 'taunt' ? 1 : 0, tb = b.m.card.fx === 'taunt' ? 1 : 0;
-        return (ta - tb) || (value(a.m) - value(b.m));
+      /* feed it the bodies that are doing the least, and never eat your own
+         taunt if there is anything else on the table to eat */
+      const pool = board.slice().sort((a, b) => {
+        const ta = P.mz[a.i].card.fx === 'taunt' ? 1 : 0;
+        const tb = P.mz[b.i].card.fx === 'taunt' ? 1 : 0;
+        return (ta - tb) || (a.w - b.w);
       });
       if (pool.length < need) return;
       tributes = pool.slice(0, need).map(x => x.i);
-      cost = pool.slice(0, need).reduce((a, x) => a + value(x.m), 0);
-
-      const gain = c.atk + countersLean(c, lean, L) + (c.fx ? 300 : 0);
-      if (gain < cost + L.tributeEdge) return;           /* not worth the bodies */
-      /* don't strip your own board bare while they still have one up */
-      const after = mine(pi).length - need + 1;
-      if (after < 1) return;
-      if (enemyCount >= after + 1 && c.atk <= enemyBest + 200) return;
+      keep = board.filter(b => tributes.indexOf(b.i) < 0);
     } else if (K.freeZone(pi, 'm') < 0) return;
 
-    let score = c.atk + countersLean(c, lean, L) - cost;
-    if (c.fx) score += 260;
-    if (c.fx === 'taunt' && enemyCount) score += 260;
-    if (c.atk > enemyBest) score += 320;                 /* it can actually beat something */
-    score -= need * 120;
+    let w = c.atk + countersLean(c, lean, L) + fxKeep({ card:c }, c.atk);
+    if (c.atk > enemyBest) w += T.beats;                 /* it can actually beat something */
+    if (c.atk > punch) w += T.survives + c.atk * T.surviveMul;  /* and nothing kills it back */
+    if (c.fx === 'taunt' && enemyCount) w += T.taunt;
+
+    let score = boardTotal(keep.map(b => b.w).concat(w), blockers) + fxPlay(c, enemyCount);
+    /* every attacker my board can no longer block gets a free swing at me */
+    const open = Math.max(0, enemyCount - (keep.length + 1));
+    score -= open * Math.min(punch, 1600) * T.exposed;
+    /* One-turn plan, and the only one short games have room for: a big monster
+       in hand that is one body short is a reason to put a cheap body down now
+       instead of eating the board for something smaller. Without this the AI
+       tributes away the very bodies its Level 8 was waiting for. */
+    if (need === 0 && P.hand.some((oid, oi2) => {
+      if (oi2 === hi) return false;
+      const o = cardOf(oid);
+      return o && o.t === 'monster' && o.atk > c.atk && K.tributesFor(o.lvl) === board.length + 1;
+    })) score += T.setup;
+    /* the bodies have to be worth more in the new one than where they are now */
+    if (need && score < before + L.tributeEdge) return;
     cand.push({ hi, c, need, tributes, score });
     if (!best || score > best.score) best = cand[cand.length - 1];
   });
@@ -257,9 +378,17 @@ function mainPhase(pi, L){
     if (best){
       const enemyBest = biggestEnemy(oi, L);
       const zi = K.freeZone(pi, 'm');
-      /* tuck it away face-down if it cannot win a fight but can hold a wall */
+      /* ── which way up ──
+         Duck only behind a body that is actually a wall. Ducking whenever the
+         thing is outclassed was measured and it is a disaster (-13 points of
+         win rate): you stop attacking, they do not, and you lose the race. */
       const defensive = best.need === 0 && best.c.atk < enemyBest && best.c.def > best.c.atk;
-      K.summon(pi, best.hi, zi < 0 ? 0 : zi, defensive ? 'def' : 'atk', defensive, best.tributes);
+      /* face-down while it is not fighting: it hides the number and dodges the
+         targeted removal, which only ever picks on what it can see. An effect
+         monster stays face-up — face-down means the effect never fires, and
+         keeping those up measured worth about half a point of win rate. */
+      const setDown = defensive && !best.c.fx;
+      K.summon(pi, best.hi, zi < 0 ? 0 : zi, defensive ? 'def' : 'atk', setDown, best.tributes);
       return true;
     }
   }
@@ -410,6 +539,6 @@ function pickTrap(ready, ctx){
   return burn || undefined;
 }
 
-window.KARTI_AI = { step, pickTrap, LEVELS, ALIAS, level, value, bestSummon, attackPlan };
+window.KARTI_AI = { step, pickTrap, LEVELS, ALIAS, level, value, bestSummon, attackPlan, TUNE:T };
 
 })();

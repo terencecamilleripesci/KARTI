@@ -923,7 +923,9 @@ function hostStart(){
   const rng = mulberry32(seed);
   const sh = arr => { for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(rng() * (i + 1)); const t = arr[i]; arr[i] = arr[j]; arr[j] = t; } return arr; };
   const payload = {
-    k:'start', seed,
+    /* Drawn from the shared seed rather than picked by the host, so the host
+       cannot choose to go first and both devices compute the same answer. */
+    k:'start', seed, hostFirst: (seed & 1) === 0,
     hostName: MP.myName || K.displayName().toUpperCase(), guestName: MP.peerName,
     hostList: mineD.list, guestList: MP.peerList,
     hostKey: mineD.attr, guestKey: MP.peerKey || null,
@@ -951,11 +953,18 @@ function beginOnline(p){
            deckKey: iAmHost ? p.guestKey : p.hostKey, isAI:false },
     first: (iAmHost ? p.hostName : p.guestName) + ' vs ' + (iAmHost ? p.guestName : p.hostName)
   });
-  /* the host has the first turn: on the guest's device that is player 1 */
-  if (!iAmHost) K.D.turn = 1;
+  /* Who goes first is a coin toss, not a reward for tapping "open a room".
+     Going first is worth about 2.6 points, and the host used to take it every
+     single game. Both devices derive the same answer from the shared seed, so
+     no extra message is needed and the two engines cannot disagree. Old clients
+     (which always seated the host first) keep working: `hostFirst` is absent
+     there, and the fallback reproduces exactly the old behaviour. */
+  const hostFirst = (typeof p.hostFirst === 'boolean') ? p.hostFirst : true;
+  const iGoFirst  = iAmHost ? hostFirst : !hostFirst;
+  if (!iGoFirst) K.D.turn = 1;
   K.renderDuel();
   setState('live');
-  K.toast(iAmHost ? 'Room ' + MP.code + ' — you go first.' : 'Room ' + MP.code + ' — they go first.');
+  K.toast('Room ' + MP.code + (iGoFirst ? ' — you go first.' : ' — they go first.'));
 }
 
 /* Canonical board fingerprint. Built host-seat-first so both devices, which

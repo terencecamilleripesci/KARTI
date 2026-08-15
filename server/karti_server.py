@@ -353,7 +353,7 @@ def sanitize_relay(d):
                 "deckName": v_optstr(d.get("deckName"), 40)}
 
     if k == "start":
-        return {"k": "start",
+        out = {"k": "start",
                 "seed": v_int(d.get("seed"), 0, 0xFFFFFFFF),
                 "hostName": v_name(d.get("hostName")),
                 "guestName": v_name(d.get("guestName")),
@@ -363,6 +363,15 @@ def sanitize_relay(d):
                 "guestKey": v_optstr(d.get("guestKey"), 32),
                 "hostDeck": v_idlist(d.get("hostDeck")),
                 "guestDeck": v_idlist(d.get("guestDeck"))}
+        # Which seat takes the first turn, drawn by the client from the shared
+        # seed so the host cannot simply award it to itself. It MUST survive the
+        # relay: every payload is rebuilt from this whitelist, so a field left out
+        # here is silently dropped and the two clients would then disagree about
+        # whose turn it is. Only passed through when actually sent, so an older
+        # client's deal is relayed byte-for-byte as before.
+        if "hostFirst" in d:
+            out["hostFirst"] = bool(d.get("hostFirst"))
+        return out
 
     if k == "act":
         kind = d.get("kind")
