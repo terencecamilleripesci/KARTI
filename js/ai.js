@@ -330,7 +330,12 @@ function snapshot(pi){
     i:x.i, card:x.m.card, atk:K.effAtk(x.m), def:K.effDef(x.m),
     fd:x.m.fd, pos:x.m.pos, shieldUsed:x.m.shieldUsed,
     swings: side === 'me' ? Math.max(0, x.m.maxAtk - x.m.atkCount) : 0,
-    faceOK: !x.m.monsterOnly
+    /* how many of those swings may go at the face. A cleave monster ("attacks
+       two enemy monsters") still gets the one ordinary attack every monster has
+       when their side is empty — it is the SECOND swing that needs a monster. */
+    directs: side === 'me'
+      ? (x.m.monsterOnly ? Math.max(0, 1 - x.m.atkCount) : Math.max(0, x.m.maxAtk - x.m.atkCount))
+      : 0
   });
   return { me: mine(pi).map(x => copy(x, 'me')), them: mine(1 - pi).map(x => copy(x, 'them')),
            stunned: D.p[pi].noAttackTurn === D.turnCount };
@@ -341,7 +346,7 @@ function attOf(S){
   if (S.stunned) return [];
   return S.me.filter(m => !m.fd && m.pos === 'atk' && m.swings > 0)
              .map(m => ({ i:m.i, card:m.card, atk:m.atk, swings:m.swings,
-                          faceOK:m.faceOK, pierce:m.card.fx === 'pierce' }));
+                          directs:m.directs, pierce:m.card.fx === 'pierce' }));
 }
 function defOf(S, L){
   return S.them.map(d => {
@@ -364,7 +369,7 @@ function defOf(S, L){
    away 3000 of face damage later in the same phase. */
 function simLine(att, defs){
   const A = att.map(a => ({ i:a.i, card:a.card, atk:a.atk, swings:a.swings,
-                            faceOK:a.faceOK, pierce:a.pierce }));
+                            directs:a.directs, pierce:a.pierce }));
   const B = defs.map(d => Object.assign({ dead:false }, d));
   const moves = [];
   let dmg = 0, selfDmg = 0, guard = 0;
@@ -391,7 +396,9 @@ function simLine(att, defs){
   }
   const cleared = !live().length;
   if (cleared) for (const a of A){
-    while (a.swings > 0 && a.faceOK){ a.swings--; dmg += a.atk; moves.push({ zi:a.i, t:-1 }); }
+    while (a.swings > 0 && a.directs > 0){
+      a.swings--; a.directs--; dmg += a.atk; moves.push({ zi:a.i, t:-1 });
+    }
   }
   return { dmg, selfDmg, moves, cleared, killed: B.filter(d => d.dead).map(d => d.i) };
 }

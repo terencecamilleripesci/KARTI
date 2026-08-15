@@ -593,7 +593,8 @@
     var s = global.document.createElement('style');
     s.id = 'sfx-css';
     s.textContent =
-      '.sfxvol{display:flex;align-items:center;gap:10px;padding:10px 14px 14px}' +
+      '.sfxi{flex:0 0 auto;width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;opacity:.7}' +
+    '.sfxvol{display:flex;align-items:center;gap:10px;padding:10px 14px 14px}' +
       '.sfxvol input[type=range]{flex:1;height:22px;accent-color:var(--gold,#FFB300);' +
         'background:transparent;-webkit-appearance:none;appearance:none}' +
       '.sfxvol input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;' +
@@ -617,7 +618,7 @@
              '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' +
            '</button>' +
            '<div class="sfxvol' + (on ? '' : ' off') + '" id="sfx-vol-wrap">' +
-             '<span aria-hidden="true">🔈</span>' +
+             '<svg class="sfxi" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>' +
              '<input type="range" id="sfx-vol" min="0" max="100" step="5" ' +
                'value="' + Math.round(volume * 100) + '" aria-label="Sound volume">' +
              '<b id="sfx-vol-n">' + Math.round(volume * 100) + '%</b>' +

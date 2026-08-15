@@ -82,17 +82,77 @@ function register(def){
   GAMES.sort((a, b) => (a.order || 99) - (b.order || 99));
 }
 
-/* the two that are coming, under names nobody's lawyer owns */
+/* ── two shelves, not one ──────────────────────────────────────────
+   A flat grid of four or five tiles is a list you have to read. Two
+   labelled sections are a thing you can scan: BOARD GAMES (a board
+   and pieces) and CARD GAMES (a deck in your hand). Every game says
+   which it is with `kind`; anything that forgets is a board game,
+   because that is what was here first. */
+const SHELVES = [
+  { kind:'board', title:'Board games', note:'A board, pieces, and nowhere to hide.' },
+  { kind:'card',  title:'Card games',  note:'A deck, a hand, and a straight face.' }
+];
+
+/* the two that are coming, under names nobody's lawyer owns. They are
+   registered here so the shelf reads as a collection rather than two lonely
+   buttons; each one turns real the moment its own file registers over the
+   top of this entry with an open(). */
 register({
-  id:'skarta', order:30, name:'SKARTA', icon:'discard', status:'soon',
+  id:'skarta', order:30, kind:'card', name:'SKARTA', icon:'discard', status:'soon',
   tag:'Get rid of your hand before the rest of the table gets rid of theirs. ' +
       'Matching colours, matching numbers, and one card that ruins somebody\'s evening.'
 });
 register({
-  id:'kiri', order:40, name:'IL-KIRI', icon:'coin', status:'soon',
+  id:'klabb', order:35, kind:'card', name:'PLAYING CARDS', icon:'cards', status:'soon',
+  tag:'The ordinary pack, and the games everybody already knows how to play with it.'
+});
+register({
+  id:'kiri', order:40, kind:'board', name:'IL-KIRI', icon:'coin', status:'soon',
   tag:'Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
       'friendship end over a garage in Marsa.'
 });
+
+/* ── the emblem on a tile ──────────────────────────────────────────
+   art/ui/logo-<id>.png when it exists. It does not exist yet — the
+   prompts are written and the art is coming — so the tile is built
+   to look FINISHED without it: the piece sprite or the icon sits in
+   the same frame, and the <img> is only swapped in once the browser
+   has actually decoded one. A broken-image glyph never appears,
+   because the <img> is never in the document until it has loaded.
+   Names are always CSS text beside the emblem, never inside it. */
+const LOGO_DIR = 'art/ui/';
+/* ONE sentinel decides for the whole shelf, exactly the way detectArt() in
+   js/game.js probes art/petard.jpg to decide whether there is an art pack at
+   all. Five tiles asking five separate questions would be five 404s in the
+   console every time the hub opens; this is one, once, and none at all once
+   the files land. `null` means we have not looked yet. */
+let logoPack = null, logoProbing = false;
+function logoProbe(){
+  if (logoProbing || logoPack !== null) return;
+  /* not while the art pack itself is missing: on a build with no art/ there is
+     nothing to find and no reason to ask */
+  if (!(K.ART && K.ART.base)) { logoPack = false; return; }
+  logoProbing = true;
+  const img = new Image();
+  img.onload  = () => { logoPack = true;  logoProbing = false; if (live) hub(); };
+  img.onerror = () => { logoPack = false; logoProbing = false; };
+  img.src = LOGO_DIR + 'logo-chess.png';
+}
+function logoInto(host, g){
+  if (!host) return;
+  if (logoPack !== true){ logoProbe(); return; }
+  const img = new Image();
+  img.onload = () => {
+    if (!host.isConnected) return;
+    host.innerHTML = '';
+    img.className = 'pt-logo';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    host.appendChild(img);
+  };
+  img.onerror = () => {};              /* that one game has no emblem yet */
+  img.src = LOGO_DIR + 'logo-' + g.id + '.png';
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    THE SCREEN
@@ -188,40 +248,53 @@ function hub(){
     '</div>' +
     '<div class="scroll">' +
       '<p class="blurb">Put the cards down. These are the games your nannu plays on the ' +
-      'kazin table — two of you, one phone, and no excuses about a bad draw.</p>' +
-      '<div class="tiny pt-lbl" id="pt-lbl-live">On the table</div>' +
-      '<div class="pt-grid" id="pt-grid-live"></div>' +
-      '<div class="tiny pt-lbl" id="pt-lbl-soon">Still in the workshop</div>' +
-      '<div class="pt-grid" id="pt-grid-soon"></div>' +
-      '<p class="pt-foot">Two more on the way, under names of our own. Nobody here has ' +
+      'kazin table — <b>each of you on your own phone</b>, wherever you are. Against the ' +
+      'machine when nobody is about, and across one screen when there is no signal.</p>' +
+      SHELVES.map(s =>
+        '<div class="pt-shelf" id="pt-shelf-' + s.kind + '">' +
+          '<div class="pt-head"><h3>' + esc(s.title) + '</h3>' +
+            '<span class="pt-rule"></span></div>' +
+          '<p class="pt-subn">' + esc(s.note) + '</p>' +
+          '<div class="pt-grid" id="pt-grid-' + s.kind + '"></div>' +
+        '</div>').join('') +
+      '<p class="pt-foot">More on the way, under names of our own. Nobody here has ' +
       'ever finished a game of IL-KIRI either, but that is rather the point of it.</p>' +
     '</div>';
 
-  const live = el.querySelector('#pt-grid-live');
-  const later = el.querySelector('#pt-grid-soon');
-  GAMES.forEach(g => {
-    const soon = g.status === 'soon';
-    const r = recOf(g.id);
-    const played = r.w + r.l + r.d;
-    const b = document.createElement(soon ? 'div' : 'button');
-    b.className = 'pt-tile' + (soon ? ' soon' : '');
-    if (!soon) b.type = 'button';
-    b.innerHTML =
-      '<span class="pt-tio">' + (g.sprite ? pieceSVG(g.sprite) : ico(g.icon || 'deck')) + '</span>' +
-      '<span class="pt-tin">' + esc(g.name) + '</span>' +
-      (g.mt ? '<span class="pt-timt">' + esc(g.mt) + '</span>' : '') +
-      '<span class="pt-tit">' + esc(g.tag || '') + '</span>' +
-      '<span class="pt-tib">' +
-        (soon ? '<span class="pt-pill soon">' + ico('lock') + ' Coming soon</span>'
-              : '<span class="pt-pill live">' + ico('check') + ' Playable</span>' +
-                (played ? '<span class="pt-rec">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '')) +
-      '</span>';
-    if (soon) b.setAttribute('aria-disabled', 'true');
-    else b.onclick = () => { if (g.open) g.open(); };
-    (soon ? later : live).appendChild(b);
+  /* live games first inside each shelf, then the ones still being built */
+  const sorted = GAMES.slice().sort((a, b) =>
+    ((a.status === 'soon') - (b.status === 'soon')) || ((a.order || 99) - (b.order || 99)));
+  SHELVES.forEach(s => {
+    const grid = el.querySelector('#pt-grid-' + s.kind);
+    let n = 0;
+    sorted.forEach(g => {
+      if ((g.kind || 'board') !== s.kind) return;
+      n++;
+      const soon = g.status === 'soon';
+      const r = recOf(g.id);
+      const played = r.w + r.l + r.d;
+      const b = document.createElement(soon ? 'div' : 'button');
+      b.className = 'pt-tile' + (soon ? ' soon' : '');
+      if (!soon) b.type = 'button';
+      b.innerHTML =
+        '<span class="pt-tio" data-logo="' + esc(g.id) + '">' +
+          (g.sprite ? pieceSVG(g.sprite) : ico(g.icon || 'deck')) + '</span>' +
+        '<span class="pt-tin">' + esc(g.name) + '</span>' +
+        (g.mt ? '<span class="pt-timt">' + esc(g.mt) + '</span>' : '') +
+        '<span class="pt-tit">' + esc(g.tag || '') + '</span>' +
+        '<span class="pt-tib">' +
+          (soon ? '<span class="pt-pill soon">' + ico('lock') + ' Coming soon</span>'
+                : '<span class="pt-pill live">' + ico('check') + ' Playable</span>' +
+                  (played ? '<span class="pt-rec">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '')) +
+        '</span>';
+      if (soon) b.setAttribute('aria-disabled', 'true');
+      else b.onclick = () => { if (g.open) g.open(); };
+      grid.appendChild(b);
+      logoInto(b.querySelector('[data-logo]'), g);
+    });
+    /* an empty shelf is not a shelf */
+    el.querySelector('#pt-shelf-' + s.kind).hidden = !n;
   });
-  el.querySelector('#pt-lbl-live').hidden = !live.children.length;
-  el.querySelector('#pt-lbl-soon').hidden = !later.children.length;
 
   el.querySelector('#pt-home').onclick = close;
 }
@@ -235,12 +308,28 @@ function hub(){
    here, and each game just says what to do with the answers. */
 function setup(cfg){
   /* cfg: {id, title, sub, levels:[{k,name,note,icon}], sides:[{k,name},{k,name}],
-           blurb, onStart(opts), onBack} */
+           blurb, onStart(opts), onBack, onOnline} */
   if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
   currentGame = null;
   const el = screenEl();
   const p = pref(cfg.id);
-  let mode  = p.mode === 'pnp' ? 'pnp' : 'ai';
+
+  /* ── which opponent is the HEADLINE ──────────────────────────────
+     Online first: the point of the thing is two people playing each
+     other, not one phone being handed across a table. Pass-the-phone
+     still works and is still here — it is simply last.
+
+     "First" is not the same as "assumed": the owner's own devices
+     cannot reach the relay at all while Tailscale is on, so if the
+     last presence poll failed we say so in plain words and start the
+     sheet on the phone instead of dead-ending somebody on a door that
+     does not open. */
+  const canOnline = typeof cfg.onOnline === 'function';
+  const M = window.KARTI_MP;
+  const relayDown = !!(canOnline && M && M.PR && M.PR.tried && M.PR.err);
+  let mode = (p.mode === 'pnp' || p.mode === 'ai' || p.mode === 'online')
+               ? p.mode : (canOnline ? 'online' : 'ai');
+  if (mode === 'online' && (!canOnline || relayDown)) mode = 'ai';
   /* dataset values are ALWAYS strings and the level keys are numbers —
      compare as strings both ways or nothing ever looks selected, which
      is exactly how the first build shipped a difficulty picker with no
@@ -260,11 +349,23 @@ function setup(cfg){
       '<p class="blurb">' + cfg.blurb + '</p>' +
       '<div class="tiny pt-lbl">Who is playing</div>' +
       '<div class="pt-opts" id="pt-mode">' +
-        '<button class="pt-opt" data-v="pnp">' + ico('users') +
-          '<b>Two of you</b><i>One phone. Pass it over.</i></button>' +
+        /* Online is a DOOR, not a mode: tapping Start on it hands you to the
+           room list with this game already picked. */
+        (canOnline
+          ? '<button class="pt-opt" data-v="online">' + ico('users') +
+            '<b>Somebody online</b><i>Open a room, or take one that is waiting.</i></button>'
+          : '') +
         '<button class="pt-opt" data-v="ai">' + ico('coach') +
           '<b>You vs the phone</b><i>It does not get tired.</i></button>' +
+        '<button class="pt-opt sub" data-v="pnp">' + ico('users') +
+          '<b>Pass the phone</b><i>Two of you, one screen, no internet.</i></button>' +
       '</div>' +
+      (relayDown
+        ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right ' +
+          'now, so an online game would not get past the room list. <b>If Tailscale is ' +
+          'on, turn it off.</b> The phone and pass-the-phone both work with no internet ' +
+          'at all.</p>'
+        : '') +
       '<div id="pt-aibits">' +
         '<div class="tiny pt-lbl">How hard</div>' +
         '<div class="pt-opts" id="pt-lvl">' +
@@ -306,6 +407,7 @@ function setup(cfg){
   el.querySelector('#pt-back').onclick = cfg.onBack || hub;
   el.querySelector('#pt-start').onclick = () => {
     pref(cfg.id, { mode, level, side });
+    if (mode === 'online'){ cfg.onOnline(); return; }
     cfg.onStart({ mode, level, side });
   };
 }
@@ -317,7 +419,7 @@ function setup(cfg){
    fits in it. Nothing scrolls. */
 let lastCtx = null;
 function frame(o){
-  /* o: {title, onBack, leave, buttons:[{id,label,icon,cls}]} */
+  /* o: {title, onBack, leave, barCls, buttons:[{id,label,icon,cls}]} */
   const el = screenEl();
   /* the frame before this one is about to be thrown away — let go of its
      ResizeObserver rather than leaving it watching a detached node */
@@ -337,6 +439,9 @@ function frame(o){
       '<h2>' + esc(o.title) + '</h2>' +
       '<span class="pt-badge" id="pt-badge"></span>' +
     '</div>' +
+    /* the connection line: empty and hidden offline, and the only place an
+       online game ever says anything about the network */
+    '<div class="pt-net" id="pt-net" role="status" aria-live="polite" hidden></div>' +
     '<div class="pt-turn" id="pt-turn" role="status" aria-live="polite"></div>' +
     /* the capture rails sit INSIDE the host, hugging the board, so the
        three of them stay together as one object however much vertical
@@ -346,7 +451,7 @@ function frame(o){
       '<div class="pt-board" id="pt-board"></div>' +
       '<div class="pt-rail" id="pt-rail-bot"></div>' +
     '</div></div>' +
-    '<div class="pt-bar" id="pt-bar"></div>';
+    '<div class="pt-bar ' + esc(o.barCls || '') + '" id="pt-bar"></div>';
   el.appendChild(wrap);
 
   const ctx = {
@@ -354,6 +459,7 @@ function frame(o){
     board: wrap.querySelector('#pt-board'),
     host:  wrap.querySelector('#pt-host'),
     turn:  wrap.querySelector('#pt-turn'),
+    net:   wrap.querySelector('#pt-net'),
     badge: wrap.querySelector('#pt-badge'),
     railTop: wrap.querySelector('#pt-rail-top'),
     railBot: wrap.querySelector('#pt-rail-bot'),
@@ -415,6 +521,150 @@ function setTurn(ctx, o){
     (o.note ? '<span class="pt-note">' + esc(o.note) + '</span>' : '');
 }
 
+/* ── the connection line ───────────────────────────────────────────
+   Online only. js/mp.js owns the socket and knows what it is doing;
+   this is the one strip of the board screen it is allowed to talk
+   through, so a dropped opponent is visible without a toast that
+   scrolls away or a modal over the board. */
+function setNet(ctx, text, tone){
+  if (!ctx || !ctx.net) return;
+  if (!text){ ctx.net.hidden = true; ctx.net.textContent = ''; return; }
+  ctx.net.className = 'pt-net' + (tone ? ' ' + tone : '');
+  ctx.net.hidden = false;
+  ctx.net.textContent = text;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TAKEBACK — "undo", but online, where it has to be ASKED FOR
+   ───────────────────────────────────────────────────────────────────
+   Offline, undo is a button: your board, your business. Online it is
+   a REQUEST, and it only happens when EVERY other player in the game
+   has said yes. One decline ends it, quietly — nobody gets a banner
+   announcing that they were refused.
+
+   This factory is deliberately game-agnostic so chess, dama, SKARTA
+   and IL-KIRI can all use the same one rather than each inventing a
+   half-version of it. A game hands it four things and forgets about
+   the protocol:
+
+     cfg.peers      how many OTHER players must agree (1 for chess)
+     cfg.send(k,o)  put a message on the wire: k is 'ask' | 'yes' |
+                    'no', o is {n, id, ck}
+     cfg.rollback(n)  take n plies off THIS client's own history
+     cfg.mark(n)      the fingerprint of the position n plies back, or
+                      null if this client cannot go back that far
+     cfg.note(text, tone)   one line of feedback for the player
+     cfg.ask(o, yes, no)    put the question on screen
+
+   THE ONE RULE THAT MATTERS: nothing is rolled back anywhere until
+   every answer is in, and a client whose board would not land on the
+   SAME position declines instead. The ask carries the fingerprint of
+   the position it wants to get back to; a client that cannot match it
+   says no. Two boards never diverge — in the worst case the takeback
+   simply does not happen.
+   ═══════════════════════════════════════════════════════════════════ */
+const TAKE_TTL  = 30000;    /* an unanswered request dies after this */
+const TAKE_COOL = 15000;    /* and you may not ask again inside this */
+
+function takeback(cfg){
+  let mine = null;       /* my outstanding request  */
+  let theirs = null;     /* a request I must answer */
+  let lastAsk = 0;
+  let mineTimer = null, theirsTimer = null;
+  const peers = Math.max(1, cfg.peers || 1);
+
+  function clearMine(){ clearTimeout(mineTimer); mineTimer = null; mine = null; }
+  function clearTheirs(){ clearTimeout(theirsTimer); theirsTimer = null; theirs = null; }
+
+  function request(n){
+    if (mine) return { ok:false, why:'You have already asked. Give them a moment.' };
+    if (theirs) return { ok:false, why:'Answer their request first.' };
+    const wait = TAKE_COOL - (Date.now() - lastAsk);
+    if (lastAsk && wait > 0)
+      return { ok:false, why:'Not so fast — you can ask again in ' +
+                             Math.ceil(wait / 1000) + 's.' };
+    const ck = cfg.mark(n);
+    if (!ck) return { ok:false, why:'There is nothing to take back.' };
+    lastAsk = Date.now();
+    mine = { id: (Date.now() ^ Math.floor(Math.random() * 0xFFFFFF)) >>> 0,
+             n: n, yes: 0, need: peers, ck: ck };
+    cfg.send('ask', { n: n, id: mine.id, ck: ck });
+    say();
+    mineTimer = setTimeout(() => {
+      if (!mine) return;
+      clearMine();
+      cfg.note('Nobody answered the takeback. Carry on.', 'warn');
+      if (cfg.after) cfg.after();
+    }, TAKE_TTL);
+    return { ok:true };
+  }
+
+  function say(){
+    if (!mine) return;
+    cfg.note('Takeback asked — waiting for ' + (mine.need - mine.yes) + ' of ' +
+             mine.need + '. Nothing has moved yet.', 'warn');
+  }
+
+  /* a message from another player */
+  function incoming(m){
+    if (!m || typeof m !== 'object') return;
+    if (m.kind === 'ask'){
+      if (theirs) return;                       /* one question at a time */
+      const n = Math.max(1, Math.min(8, m.n | 0));
+      /* WOULD OUR BOARD LAND IN THE SAME PLACE? If not, decline. A takeback
+         that only half-happens is worse than no takeback at all. */
+      const ck = cfg.mark(n);
+      if (!ck || (m.ck && ck !== m.ck)){ cfg.send('no', { id: m.id | 0 }); return; }
+      theirs = { id: m.id | 0, n: n };
+      cfg.ask({ n: n },
+        () => {                                  /* allow */
+          const t = theirs; clearTheirs();
+          if (!t) return;
+          cfg.send('yes', { id: t.id });
+          cfg.rollback(t.n);
+          cfg.note('Takeback allowed. Back ' + t.n + (t.n === 1 ? ' move.' : ' moves.'), '');
+        },
+        () => {                                  /* decline, quietly */
+          const t = theirs; clearTheirs();
+          if (t) cfg.send('no', { id: t.id });
+        });
+      theirsTimer = setTimeout(() => {
+        const t = theirs;
+        if (!t) return;
+        clearTheirs();
+        cfg.send('no', { id: t.id });            /* unanswered is a no */
+        if (cfg.dismiss) cfg.dismiss();
+      }, TAKE_TTL);
+      return;
+    }
+    if (!mine || (m.id | 0) !== mine.id) return;   /* an answer to nothing */
+    if (m.kind === 'no'){
+      clearMine();
+      cfg.note('They would rather carry on. Your move.', '');
+      if (cfg.after) cfg.after();
+      return;
+    }
+    if (m.kind === 'yes'){
+      mine.yes++;
+      if (mine.yes < mine.need){ say(); return; }
+      const t = mine; clearMine();
+      cfg.rollback(t.n);
+      cfg.note('Takeback allowed. Back ' + t.n + (t.n === 1 ? ' move.' : ' moves.'), '');
+      if (cfg.after) cfg.after();
+    }
+  }
+
+  /* the game moved on, or ended: no request survives that */
+  function cancel(quiet){
+    const had = !!mine || !!theirs;
+    if (theirs){ cfg.send('no', { id: theirs.id }); if (cfg.dismiss) cfg.dismiss(); }
+    clearMine(); clearTheirs();
+    if (had && !quiet) cfg.note('', '');
+  }
+
+  return { request, incoming, cancel, busy: () => !!mine, asked: () => !!theirs };
+}
+
 /* ── the result screen ─────────────────────────────────────────────
    An honest full-stop, not a toast that scrolls away: what happened,
    why, a line of mouth, and the two things you might want next. */
@@ -466,7 +716,7 @@ function confirm(ctx, o){
     '</div>';
   ctx.root.appendChild(ask);
   ask.querySelector('#pt-yes').onclick = () => { ask.remove(); o.go(); };
-  ask.querySelector('#pt-no').onclick  = () => ask.remove();
+  ask.querySelector('#pt-no').onclick  = () => { ask.remove(); if (o.onNo) o.onNo(); };
   ask.querySelector('#pt-no').focus();
 }
 
@@ -558,8 +808,21 @@ function injectCSS(){
       '--danger:#FF5468}' +
 
     /* ── hub ── */
+    '#scr-party .pt-shelf[hidden]{display:none}' +
+    '#scr-party .pt-head{display:flex;align-items:center;gap:10px;margin:18px 0 2px}' +
+    '#scr-party .pt-head h3{flex:0 0 auto;font-family:var(--disp);font-weight:900;' +
+      'font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--gold)}' +
+    '#scr-party .pt-rule{flex:1;height:1px;background:linear-gradient(90deg,' +
+      'rgba(255,197,66,.45),rgba(255,255,255,.05))}' +
+    '#scr-party .pt-subn{font-size:11.5px;line-height:1.5;color:var(--dim2);margin:0 2px 9px;' +
+      'text-transform:none;letter-spacing:0}' +
     '#scr-party .pt-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;' +
       'margin:4px 0 14px}' +
+    /* the emblem, once art/ui/logo-<id>.png exists. Until then the same frame
+       holds the piece sprite or the icon and nothing looks unfinished. */
+    '#scr-party .pt-logo{width:34px;height:34px;object-fit:contain;display:block;' +
+      'margin-top:-2px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}' +
+    '#scr-party .pt-tile.soon .pt-logo{opacity:.5;filter:grayscale(.6)}' +
     '#scr-party .pt-tile{display:flex;flex-direction:column;align-items:flex-start;gap:6px;' +
       'text-align:left;min-height:172px;padding:13px 12px 11px;border-radius:16px;color:var(--txt);' +
       'background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);' +
@@ -568,7 +831,8 @@ function injectCSS(){
     '#scr-party button.pt-tile:active{background:var(--panel2)}' +
     '#scr-party .pt-tile.soon{opacity:.62;box-shadow:none;border-style:dashed;' +
       'background:rgba(255,255,255,.03)}' +
-    '#scr-party .pt-tio{font-size:26px;line-height:0;color:var(--gold);display:block;height:30px}' +
+    '#scr-party .pt-tio{font-size:26px;line-height:0;color:var(--gold);display:block;height:34px;' +
+      'display:flex;align-items:center}' +
     '#scr-party .pt-tio .pt-pcs{width:30px;height:30px;fill:var(--gold);stroke:none}' +
     '#scr-party .pt-tile.soon .pt-tio .pt-pcs{fill:var(--dim2)}' +
     '#scr-party .pt-tile.soon .pt-tio{color:var(--dim2)}' +
@@ -611,6 +875,12 @@ function injectCSS(){
     '#scr-party .pt-swatch.b{background:linear-gradient(180deg,#4A2C63,#1B0E29);' +
       'border-color:rgba(255,217,138,.6)}' +
     '#scr-party .pt-swatch.r{background:radial-gradient(circle at 34% 28%,#FF8A6B,#D93A20 60%,#8C1E0C)}' +
+    /* pass-the-phone is still here, it is simply not the headline any more */
+    '#scr-party .pt-opt.sub{opacity:.78}' +
+    '#scr-party .pt-opt.sub.on{opacity:1}' +
+    '#scr-party .pt-warn{font-size:11.5px;line-height:1.6;margin:10px 2px 0;padding:9px 11px;' +
+      'border-radius:12px;text-transform:none;letter-spacing:0;color:#FFD98A;' +
+      'background:rgba(255,197,66,.10);border:1px solid rgba(255,197,66,.32)}' +
     '#scr-party .pt-ledger{font-size:12px;line-height:1.6;color:var(--dim);margin:16px 2px 0;' +
       'text-transform:none;letter-spacing:0}' +
 
@@ -645,6 +915,16 @@ function injectCSS(){
       'justify-content:center}' +
     '#scr-party .pt-bar{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));' +
       'gap:8px;margin-top:7px}' +
+    /* online has no Undo (see js/mp.js), so its bar is two across, not three */
+    '#scr-party .pt-bar.two{grid-template-columns:repeat(2,minmax(0,1fr))}' +
+    '#scr-party .pt-net{flex:0 0 auto;display:flex;align-items:center;gap:8px;min-height:34px;' +
+      'padding:6px 11px;border-radius:11px;margin-bottom:6px;font-size:11.5px;line-height:1.4;' +
+      'color:var(--dim);background:rgba(255,255,255,.05);border:1px solid var(--line)}' +
+    '#scr-party .pt-net.warn{background:rgba(255,197,66,.12);border-color:rgba(255,197,66,.4);' +
+      'color:#FFD98A}' +
+    '#scr-party .pt-net.bad{background:rgba(255,84,104,.12);border-color:rgba(255,84,104,.42);' +
+      'color:#FFB3BC}' +
+    '#scr-party .pt-net[hidden]{display:none}' +
     '#scr-party .pt-bar .btn{min-height:46px;font-size:11px;letter-spacing:.06em;padding:4px 6px}' +
 
     /* ── the board ── */
@@ -767,9 +1047,19 @@ document.addEventListener('click', e => {
    ═══════════════════════════════════════════════════════════════════ */
 window.KARTI_PARTY = {
   open, close, hub, register,
+  /* show() puts our screen up WITHOUT painting the hub over it — js/mp.js
+     needs that to drop an online board straight onto the screen. */
+  show, standDown,
   isLive: () => live,
   /* the shared kit the two games are built out of */
-  ui: { screenEl, frame, setTurn, result, confirm, setup, fit, pieceSVG, ico, esc },
+  ui: { screenEl, frame, setTurn, setNet, result, confirm, setup, fit, pieceSVG,
+        sprite: injectSprite, css: injectCSS, ico, esc, takeback },
+  /* the shared takeback machinery — see the block above. Any game seating two
+     or more players online should build one of these rather than roll its own. */
+  takeback, TAKE_TTL, TAKE_COOL,
+  /* filled in by js/chess.js and js/dama.js: the online controller for each
+     game — {start, remote, note, stop, live}. js/mp.js is the only caller. */
+  online: {},
   /* the ledger */
   record, recOf, pref
 };

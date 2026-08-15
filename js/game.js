@@ -77,8 +77,8 @@ const FX_TEXT = {
   double:'Can attack twice each battle phase.',
   taunt:'Enemies must attack this monster first (Taunt).',
   stun:'When summoned: enemy monsters cannot attack next turn.',
-  cleave:'Attacks two enemy monsters in one battle phase.',
-  thorns:'Any monster that attacks it takes 400 damage.',
+  cleave:'Attacks two DIFFERENT enemy monsters in one battle phase.',
+  thorns:'Whoever attacks it takes 400 damage.',
   peek:'When summoned: look at the opponent’s hand.',
   burn:'When summoned: opponent loses 800 LP.',
   weaken:'When summoned: every enemy monster loses 400 ATK.',
@@ -222,6 +222,10 @@ function applyPrefs(){
   REDUCED = (typeof PREFS.motion === 'boolean') ? PREFS.motion : MOTION_MQ.matches;
   if (document.body) document.body.classList.toggle('reduced', REDUCED);
 }
+/* Invites default to ON: this is a game you play with friends, and a
+   feature nobody knows exists is a feature that does not exist. */
+function notifyOn(){ return PREFS.notify !== false; }
+
 function setPref(k, v){
   PREFS[k] = v;
   lsSet(PREFS_KEY, PREFS);
@@ -975,14 +979,22 @@ function settingsSheet(){
           'animations. Follows your phone’s own setting until you change it here.</small></span>' +
         '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' +
       '</button>' +
-      '<div class="setrow soon" aria-disabled="true">' +
-        '<span class="sl"><b>Notifications</b><small>Not built yet.</small></span>' +
-        '<span class="soontag">Coming soon</span>' +
-      '</div>' +
-      '<div class="setrow soon" aria-disabled="true">' +
-        '<span class="sl"><b>Sounds</b><small>Not built yet — KARTI is silent for now.</small></span>' +
-        '<span class="soontag">Coming soon</span>' +
-      '</div>' +
+      /* Invites arrive over the live socket while the app is OPEN. Waking a
+         locked phone is a different thing entirely — it needs Web Push, VAPID
+         keys and, on iOS, the app installed to the home screen. So this row
+         controls the part that exists and says plainly what it does not. */
+      '<button class="setrow" id="st-notify" role="switch" aria-checked="' +
+          (notifyOn() ? 'true' : 'false') + '">' +
+        '<span class="sl"><b>Invites</b><small>Let other players invite you to a ' +
+          'game. They arrive while KARTI is open — a locked phone stays quiet.</small></span>' +
+        '<span class="sw' + (notifyOn() ? ' on' : '') + '"><i></i></span>' +
+      '</button>' +
+      (window.KARTI_SFX
+        ? KARTI_SFX.settingsHTML()
+        : '<div class="setrow soon" aria-disabled="true">' +
+            '<span class="sl"><b>Sounds</b><small>The sound module did not load.</small></span>' +
+            '<span class="soontag">Unavailable</span>' +
+          '</div>') +
     '</div>' +
 
     '<p class="setgrp">This profile</p>' +
@@ -1000,6 +1012,15 @@ function settingsSheet(){
 
   buildLine($('#pf-build'));
   $('#st-back').onclick = profileSheet;
+  { const n = $('#st-notify');
+    if (n) n.onclick = () => {
+      const v = !notifyOn();
+      setPref('notify', v);
+      n.setAttribute('aria-checked', v ? 'true' : 'false');
+      n.querySelector('.sw').classList.toggle('on', v);
+      try { window.KARTI_MP && KARTI_MP.refreshInbox && KARTI_MP.refreshInbox(); } catch (e){}
+    }; }
+  if (window.KARTI_SFX) { try { KARTI_SFX.bindSettings(); } catch (e){} }
   { const c = $('#st-cloud');
     if (c) c.onclick = () => {
       closeSheet();
@@ -2700,8 +2721,13 @@ function healLP(pi, amt, why){
   dlog(P.name + ' heals ' + amt + (why ? ' — ' + why : '') + '. (' + P.lp + ' LP)');
 }
 
+/* `mod` is an ATTACK modifier and nothing else. Every card that moves a number
+   — grow, grow2, weaken, drain — says ATK on its face, so DEF is left alone.
+   It used to be shared, which quietly gave Drunk Bandsman +200 DEF a turn and
+   let The Bird Trapper knock 400 off a wall it never claimed to touch.
+   defMod exists so a future card CAN say DEF out loud; nothing sets it today. */
 const effAtk = m => Math.max(0, m.card.atk + (m.mod || 0) + (m.tempMod || 0));
-const effDef = m => Math.max(0, m.card.def + (m.mod || 0));
+const effDef = m => Math.max(0, m.card.def + (m.defMod || 0));
 const fieldMonsters = pi => D.p[pi].mz.map((m, i) => m ? { m, i } : null).filter(Boolean);
 const freeZone = (pi, kind) => (kind === 's' ? D.p[pi].sz : D.p[pi].mz).indexOf(null);
 
@@ -2729,10 +2755,28 @@ function destroyMonster(pi, zi, reason){
   toGrave(pi, m);
   dlog(m.card.n + ' is destroyed.');
   emit({ type:'destroy', pi, zi, name:m.card.n });
-  if (m.card.fx === 'boom'){
-    dlog(m.card.n + ' goes off — 500 to both players.');
-    damage(0, 500, m.card.n); damage(1, 500, m.card.n);
-  }
+  if (m.card.fx === 'boom') boomBoth(m.card.n, pi);
+}
+/* "500 damage to BOTH players" — and it has to be BOTH, at the same moment.
+   Two sequential damage() calls meant the first one could end the duel and the
+   second was then skipped, so on a mutual-lethal seat 0 always died alone and
+   seat 1 walked away untouched. Now the life points come off together and the
+   duel is decided afterwards; if it takes both of them out, the one who was
+   holding the thing goes down with it and the other is last man standing. */
+function boomBoth(name, ctrl){
+  if (D.over) return;
+  dlog(name + ' goes off — 500 to both players.');
+  const before = [D.p[0].lp, D.p[1].lp];
+  [0, 1].forEach(i => {
+    const P = D.p[i];
+    P.lp = Math.max(0, P.lp - 500);
+    emit({ type:'lp', pi:i, delta: P.lp - before[i], lp:P.lp });
+    dlog(P.name + ' takes ' + (before[i] - P.lp) + ' — ' + name + '. (' + P.lp + ' LP)');
+  });
+  const out0 = D.p[0].lp <= 0, out1 = D.p[1].lp <= 0;
+  if (out0 && out1) endDuel(1 - ctrl, 'Both of them go up with ' + name + ' — whoever lit it goes first.');
+  else if (out0) endDuel(1, D.p[0].name + ' is out of Life Points.');
+  else if (out1) endDuel(0, D.p[1].name + ' is out of Life Points.');
 }
 function destroyST(pi, zi){
   const P = D.p[pi];
@@ -2777,14 +2821,19 @@ function summon(pi, handIdx, zi, pos, faceDown, tributeIdx){
     const i = Number(raw), m = P.mz[i];
     if (m){ dlog(m.card.n + ' is tributed.'); P.mz[i] = null; toGrave(pi, m); }
   });
-  if (P.mz[zi]) zi = freeZone(pi, 'm');
+  /* zi has to be a real zone. It arrives from the UI, from the AI, and over the
+     wire from the other phone in an online duel — an index of 7 used to grow
+     the five-zone array to eight and put a monster in a zone nothing renders. */
+  if (!Number.isInteger(zi) || zi < 0 || zi >= ZONES || P.mz[zi]) zi = freeZone(pi, 'm');
   if (zi < 0) return { ok:false, why:'No free monster zone.' };
   P.hand.splice(handIdx, 1);
   const inst = {
     uid: ++uid, cid: card.id, card, owner: pi,   /* never changes, even when stolen */
-    pos: pos || 'atk', fd: !!faceDown, mod:0, tempMod:0,
+    pos: pos || 'atk', fd: !!faceDown, mod:0, tempMod:0, defMod:0,
     atkCount:0, maxAtk: card.fx === 'double' || card.fx === 'cleave' ? 2 : 1,
-    monsterOnly: card.fx === 'cleave', shieldUsed:false, sumTurn: D.turnCount
+    /* monsterOnly = cleave. `hit` is who it has already been at THIS turn, so
+       "two enemy monsters" is two DIFFERENT enemy monsters. */
+    monsterOnly: card.fx === 'cleave', hit:[], shieldUsed:false, sumTurn: D.turnCount
   };
   P.mz[zi] = inst;
   P.normalSummoned = true;
@@ -2855,7 +2904,7 @@ function setST(pi, handIdx, zi){
   const card = cardById(P.hand[handIdx]);
   if (!card || card.t === 'monster') return { ok:false, why:'Not a spell or trap.' };
   if (pi === 0) netSend('set', { hi:handIdx, zi });
-  if (P.sz[zi]) zi = freeZone(pi, 's');
+  if (!Number.isInteger(zi) || zi < 0 || zi >= ZONES || P.sz[zi]) zi = freeZone(pi, 's');
   if (zi < 0) return { ok:false, why:'No free spell/trap zone.' };
   P.hand.splice(handIdx, 1);
   P.sz[zi] = { uid: ++uid, cid: card.id, card, setTurn: D.turnCount, fd:true };
@@ -2874,11 +2923,17 @@ function spellTargets(pi, card){
     return fieldMonsters(1 - pi).map(x => ({ side:1 - pi, i:x.i, m:x.m }));
   return [];
 }
+/* "Nothing to use it on" is a REFUSAL, not a shrug: a card that would resolve
+   into thin air is never offered, so it cannot be spent for nothing by a
+   mis-tap. Every branch here is a card whose text promises something it could
+   not deliver on the current board. */
 function canActivateSpell(pi, card){
   if (card.t !== 'spell') return false;
   if (card.fx === 's_steal' && freeZone(pi, 'm') < 0) return false;
   if (spellNeedsTarget(card) && spellTargets(pi, card).length === 0) return false;
   if (card.fx === 's_search' && !D.p[pi].deck.some(id => cardById(id).t === 'monster')) return false;
+  if (card.fx === 's_buffall' && fieldMonsters(pi).length === 0) return false;
+  if (card.fx === 's_discard' && D.p[1 - pi].hand.length === 0) return false;
   return true;
 }
 function activateSpell(pi, handIdx, target){
@@ -2886,6 +2941,15 @@ function activateSpell(pi, handIdx, target){
   const card = cardById(P.hand[handIdx]);
   if (!card || card.t !== 'spell') return { ok:false, why:'Not a spell.' };
   if (!canActivateSpell(pi, card)) return { ok:false, why:'Nothing to use it on.' };
+  /* A targeted spell must actually name something that is there. The UI only
+     ever offers legal targets, but the AI and the other phone in an online duel
+     both call straight in here, and a bad index used to spend the card for
+     nothing (or throw halfway through resolving it). */
+  if (spellNeedsTarget(card)){
+    const legal = spellTargets(pi, card);
+    if (!target || !legal.some(t => t.side === target.side && t.i === target.i))
+      return { ok:false, why:'Pick a target first.' };
+  }
   if (pi === 0) netSend('spell', { hi:handIdx, target: target ? { side:target.side, i:target.i } : null });
   P.hand.splice(handIdx, 1);
   P.grave.push(card.id);
@@ -2916,11 +2980,16 @@ function activateSpell(pi, handIdx, target){
       const zi = freeZone(pi, 'm');
       const m = D.p[oi].mz[target.i];
       if (m && zi >= 0){
+        const wasHidden = m.fd;
         D.p[oi].mz[target.i] = null;
-        m.fd = false; m.pos = 'atk'; m.atkCount = 0;
+        m.fd = false; m.pos = 'atk'; m.atkCount = 0; m.hit = [];
         P.mz[zi] = m;
         (D.stolen = D.stolen || []).push({ m, from: oi, fromZone: target.i, to: pi, toZone: zi });
         dlog(P.name + ' knows someone — ' + m.card.n + ' switches sides for the turn.');
+        /* it has just been turned face-up, and everywhere else in the engine a
+           monster turning face-up fires its effect. It fires for whoever is
+           holding it now, which for one turn is the thief. */
+        if (wasHidden) onSummonFx(pi, zi);
       }
       break;
     }
@@ -2975,11 +3044,18 @@ function triggerTraps(defPi, atkPi, attacker, defZone){
   const out = {};
   switch (card.fx){
     case 't_negate':  out.negate = true; dlog('The attack is stopped dead.'); break;
+    /* "the attacker's ATK" is the ATK it is swinging with — `a` already carries
+       the ring bonus, which the ring itself calls ATK, and it is the number the
+       log just printed. Reflecting the smaller card value instead made the
+       balcony punish a countered attack LESS than an uncountered one. */
     case 't_mirror':  out.negate = true;
                       dlog('The attack is thrown straight back.');
-                      damage(atkPi, effAtk(attacker), card.n); break;
+                      damage(atkPi, a, card.n); break;
+    /* "this battle", not this turn: a double attacker used to carry the -800
+       into its second swing as well. doAttack hands it back when the battle is
+       over (see `weakened` below). */
     case 't_weaken':  attacker.tempMod -= 800;
-                      (D.tempOwners = D.tempOwners || []).push(attacker);
+                      attacker.weakBattle = (attacker.weakBattle || 0) + 800;
                       dlog(attacker.card.n + ' loses 800 ATK for this battle.'); break;
     case 't_burn':    damage(atkPi, 1000, card.n); break;
     case 't_destroy': {
@@ -3023,22 +3099,49 @@ function canAttack(pi, zi){
   if (P.noAttackTurn === D.turnCount) return false;
   return m.atkCount < m.maxAtk;
 }
+/* -1 = a direct attack at the life points.
+   A cleave monster ("attacks two enemy monsters") gets its two swings at two
+   DIFFERENT monsters — it can no longer hit the same wall twice — and the extra
+   swing is the part that needs a monster: with their side empty it still makes
+   the one ordinary attack every monster is entitled to, instead of standing
+   there with no legal move at all. */
 function legalAttackTargets(pi, zi){
   const m = D.p[pi].mz[zi];
+  if (!m) return [];
   const enemy = fieldMonsters(1 - pi);
-  if (!enemy.length) return m && m.monsterOnly ? [] : [-1];   // -1 = direct
+  if (!enemy.length) return (m.monsterOnly && m.atkCount > 0) ? [] : [-1];
   const t = tauntZone(1 - pi);
-  return t >= 0 ? [t] : enemy.map(x => x.i);
+  let list = t >= 0 ? [t] : enemy.map(x => x.i);
+  if (m.monsterOnly && m.hit && m.hit.length){
+    const O = D.p[1 - pi];
+    list = list.filter(i => O.mz[i] && m.hit.indexOf(O.mz[i].uid) < 0);
+  }
+  return list;
 }
+/* The declaration and the bookkeeping. Everything a battle can do to a card —
+   traps, flip effects, boom, thorns — happens inside resolveAttack, and the
+   `finally` is what guarantees a one-battle debuff lasts exactly one battle
+   however the battle ended. */
 function doAttack(pi, zi, targetZone){
-  const oi = 1 - pi;
-  const P = D.p[pi], O = D.p[oi];
+  const P = D.p[pi], O = D.p[1 - pi];
   if (!canAttack(pi, zi)) return { ok:false, why:'That monster cannot attack.' };
   const legal = legalAttackTargets(pi, zi);
   if (legal.indexOf(targetZone) < 0) return { ok:false, why:'Not a legal target.' };
   if (pi === 0) netSend('attack', { zi, t:targetZone });
   const A = P.mz[zi];
   A.atkCount++;
+  /* remember WHO it went for, so "two enemy monsters" cannot be one monster
+     twice. Recorded now, because the target may not survive the battle. */
+  if (targetZone >= 0 && O.mz[targetZone]) (A.hit = A.hit || []).push(O.mz[targetZone].uid);
+  try {
+    return resolveAttack(pi, zi, targetZone, A);
+  } finally {
+    if (A.weakBattle){ A.tempMod += A.weakBattle; A.weakBattle = 0; }
+  }
+}
+function resolveAttack(pi, zi, targetZone, A){
+  const oi = 1 - pi;
+  const P = D.p[pi], O = D.p[oi];
 
   const tr = triggerTraps(oi, pi, A, targetZone);
   if (tr.negate){ emit({ type:'attack', pi, zi, targetZone, negated:true }); return { ok:true, negated:true }; }
@@ -3146,7 +3249,7 @@ function beginTurn(){
   const pi = D.turn;
   const P = D.p[pi];
   P.normalSummoned = false;
-  P.mz.forEach(m => { if (m) m.atkCount = 0; });
+  P.mz.forEach(m => { if (m){ m.atkCount = 0; m.hit = []; } });
   D.phase = 'draw';
   dlog('── Turn ' + D.turnCount + ' · ' + P.name + ' ──');
   emit({ type:'turn', pi });
@@ -3487,8 +3590,12 @@ function paintZoneRow(host, side, kind){
     } else if (kind === 's' && !inst){
       z.innerHTML = '<span style="font-size:9px;color:var(--dim2);letter-spacing:.1em">S/T</span>';
     }
-    /* highlight states */
-    if (UI.mode === 'zone' && side === 0 && kind === UI.plan.kind && !arr[i]) z.classList.add('legal');
+    /* highlight states.
+       A zone you have just paid as a tribute is about to be empty, so it is a
+       legal place to put the thing you paid for — with a full board it is the
+       ONLY legal place, and it used to be the one zone not lit up. */
+    if (UI.mode === 'zone' && side === 0 && kind === UI.plan.kind &&
+        (!arr[i] || (kind === 'm' && UI.tributes.indexOf(i) >= 0))) z.classList.add('legal');
     if (UI.mode === 'tribute' && side === 0 && kind === 'm' && arr[i]){
       z.classList.add(UI.tributes.indexOf(i) >= 0 ? 'sel' : 'legal');
     }
@@ -3566,7 +3673,10 @@ function paintActionBar(){
 
 /* ── player interaction ── */
 function handClick(i){
-  if (D.over || D.turn !== 0 || UI.busy) return;
+  /* Never a dead tap: every refusal says what it is waiting for. */
+  if (D.over){ toast('The duel is over.'); return; }
+  if (D.turn !== 0){ toast('Hold on — it is their turn.'); return; }
+  if (UI.busy){ toast('One second — that is still resolving.'); return; }
   if (UI.mode !== 'idle'){ cancelUI(); return; }
   if (D.phase !== 'main'){ toast('You can only play cards in the Main phase.'); return; }
   const c = cardById(D.p[0].hand[i]);
@@ -3641,22 +3751,28 @@ function beginSpell(handIdx, card){
   renderDuel();
 }
 function zoneClick(side, kind, i){
-  if (D.over || UI.busy) return;
+  if (D.over){ toast('The duel is over.'); return; }
+  if (UI.busy){ toast('Hold on — something is still resolving.'); return; }
   const P = D.p[0];
 
   if (UI.mode === 'tribute'){
-    if (side !== 0 || kind !== 'm' || !P.mz[i]) return;
+    if (side !== 0 || kind !== 'm'){ toast('Tap ' + UI.need + ' of YOUR OWN monsters to tribute.'); return; }
+    if (!P.mz[i]){ toast('That zone is empty — a tribute has to be a monster you own.'); return; }
     const at = UI.tributes.indexOf(i);
     if (at >= 0) UI.tributes.splice(at, 1);
     else if (UI.tributes.length < UI.need) UI.tributes.push(i);
-    if (UI.tributes.length === UI.need){ UI.mode = 'zone'; toast('Now pick a zone.'); }
+    else { toast('That is already ' + UI.need + ' — tap one again to take it back.'); return; }
+    if (UI.tributes.length === UI.need){ UI.mode = 'zone'; toast('Now pick a zone for it.'); }
     renderDuel(); return;
   }
   if (UI.mode === 'zone'){
-    if (side !== 0 || kind !== UI.plan.kind) return;
+    if (side !== 0 || kind !== UI.plan.kind){
+      toast(UI.plan.kind === 'm' ? 'Pick one of YOUR monster zones.' : 'Pick one of YOUR spell/trap zones.');
+      return;
+    }
     const arr = kind === 'm' ? P.mz : P.sz;
     const willFree = kind === 'm' ? UI.tributes.indexOf(i) >= 0 : false;
-    if (arr[i] && !willFree) return;
+    if (arr[i] && !willFree){ toast('That zone is taken. Pick an empty one.'); return; }
     if (kind === 'm'){
       const r = summon(0, UI.plan.handIdx, i, UI.plan.pos, UI.plan.fd, UI.tributes);
       if (!r.ok) toast(r.why);
@@ -3669,18 +3785,29 @@ function zoneClick(side, kind, i){
   }
   if (UI.mode === 'target'){
     const t = UI.plan.targets.find(x => x.side === side && x.i === i);
-    if (!t) return;
-    activateSpell(0, UI.plan.handIdx, { side:t.side, i:t.i });
+    if (!t){ toast('Not a legal target for that card. The lit zones are the ones you can pick.'); return; }
+    const r = activateSpell(0, UI.plan.handIdx, { side:t.side, i:t.i });
+    if (!r.ok) toast(r.why);
     resetUI(); renderDuel(); return;
   }
   if (UI.mode === 'attack'){
-    if (side === 1 && kind === 'm' && UI.targets.indexOf(i) >= 0) runAttack(UI.atkZone, i);
-    else cancelUI();
+    if (side === 1 && kind === 'm' && UI.targets.indexOf(i) >= 0){ runAttack(UI.atkZone, i); return; }
+    /* a tap on an enemy monster that is not a legal target is a question, not a
+       cancel — say why it is not, and keep the attack you had lined up */
+    if (side === 1 && kind === 'm' && D.p[1].mz[i]){
+      const taunt = tauntZone(1);
+      const A = D.p[0].mz[UI.atkZone];
+      toast(taunt >= 0 ? 'Taunt — you have to go through that one first.'
+        : (A && A.monsterOnly) ? A.card.n + ' has already been at that one. It needs a different monster.'
+        : 'Not a legal target.');
+      return;
+    }
+    cancelUI();
     return;
   }
 
   /* idle taps on your own field */
-  if (D.turn !== 0) return;
+  if (D.turn !== 0){ toast('Their turn. Sit on your hands.'); return; }
   if (side === 0 && kind === 'm' && P.mz[i]){
     const m = P.mz[i];
     if (D.phase === 'battle'){
@@ -3692,7 +3819,12 @@ function zoneClick(side, kind, i){
         return;
       }
       const targets = legalAttackTargets(0, i);
-      if (!targets.length){ toast('No legal target.'); return; }
+      if (!targets.length){
+        toast(!m.monsterOnly ? 'Nothing it can legally attack.'
+          : fieldMonsters(1).length ? m.card.n + ' has already been at every monster over there.'
+          : m.card.n + ' gets one swing at an empty table — the second one is for monsters.');
+        return;
+      }
       UI.mode = 'attack'; UI.atkZone = i; UI.targets = targets;
       if (tauntZone(1) >= 0) toast('Taunt — you must hit that one first.');
       renderDuel();
@@ -3740,7 +3872,17 @@ async function playerEndTurn(){
   UI.busy = true;
   resetUI(); UI.busy = true;
   renderDuel();
-  endTurn();
+  /* endTurn() resolves the standby effects, the discards, the stolen monsters
+     and the whole of the next player's draw step. If any of that throws while
+     UI.busy is up, the action bar has nothing on it but a disabled "Opponent is
+     thinking…" and the only way out of the duel is to forfeit it. */
+  try { endTurn(); }
+  catch (e){
+    if (window.console) console.error('endTurn', e);
+    toast('Something went wrong ending the turn.');
+    UI.busy = false; resetUI(); renderDuel();
+    return;
+  }
   renderDuel();
   /* Pass-and-play and online take the turn over here instead of the local AI.
      Deliberately NO re-render afterwards: the hook owns the screen from this
@@ -3756,7 +3898,7 @@ async function runAITurn(){
   /* Same reasoning as runAttack: a throw inside the opponent's turn used to
      leave UI.busy true forever, and the only escape was forfeiting. */
   try {
-    while (!D.over && D.turn === 1 && guard++ < 60){
+    while (!D.over && D.turn === 1 && guard++ < 120){
       await wait(560);
       aiStep();
       renderDuel();
@@ -3764,8 +3906,15 @@ async function runAITurn(){
   } catch (e) {
     toast('The opponent got confused. Your turn.');
     if (window.console) console.error('runAITurn', e);
-    if (D && !D.over && D.turn === 1) { try { endTurn(); } catch (_) {} }
   } finally {
+    /* However the loop ended — a throw, or the guard running out because the AI
+       got itself into a decision it kept re-making — the turn has to come back
+       to the player. Leaving it on seat 1 renders the disabled "Opponent is
+       thinking…" for good, with forfeit as the only way out. */
+    if (D && !D.over && D.turn === 1){
+      try { endTurn(); }
+      catch (_) { try { endDuel(0, D.p[1].name + ' cannot finish the turn.'); } catch (__) {} }
+    }
     UI.busy = false;
     resetUI();
     renderDuel();

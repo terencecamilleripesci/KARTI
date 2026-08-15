@@ -56,6 +56,28 @@ numbers, watermark, signature, logo, blurry, cluttered, nsfw`
 
 ---
 
+## 1b. THE KARTI COIN — 2 images
+
+Maltese themed and it carries our emblem — but **the emblem is not generated**.
+No image model can reproduce a specific logo; ask for one and you get a coin
+with a confident, wrong crest on it. So the obverse is minted with a **blank
+raised centre disc** and `art/ui/emblem.png` is composited into the middle. Our
+real logo, pin sharp, on a coin that looks struck rather than drawn.
+
+| id | side | subject |
+|---|---|---|
+| `coin-face` | obverse | worn gold coin face on, rim ringed with tiny Maltese crosses, centre a **smooth blank disc** — it MUST come back empty, that hole is the emblem |
+| `coin-back` | reverse | worn gold coin face on, a luzzu with the painted eye on its prow in relief, laurel wreath inside the rim |
+
+Both perfectly circular and centred so the coin can be spun in CSS for the toss.
+Used for the IL-KIRI money, the toss that picks who starts, and shop currency.
+
+**Check the obverse before accepting it.** If the model has decorated the centre
+instead of leaving it blank, the composite has nowhere to go — regenerate with
+`no design in the middle` pushed earlier in the prompt.
+
+---
+
 ## 2. PER-GAME ASSETS
 
 Each game's own brief lists its images. Generate these together in one batch so

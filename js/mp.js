@@ -8,7 +8,23 @@
       the two seats round so the person holding the phone is always
       player 0 — the duel UI then works exactly as it always has.
 
-   2) ONLINE — real internet play, different houses
+   2) ONLINE — real internet play, different houses, THREE GAMES
+      A room is a room OF something: the card duel, chess, or dama. You
+      pick which before you open it, everybody's room list says what
+      each one is, and the relay refuses a move for a game the room is
+      not playing. A room with no game on it at all is a card duel —
+      that is what every room was before this existed, so an older
+      client keeps working in both directions.
+
+      Chess and dama ride the same rails as the duel: both engines are
+      deterministic and strictly turn-based, so only the MOVE crosses
+      the wire and each phone plays it on its own board. Who is White
+      is drawn from a seed that is the XOR of a number from EACH phone,
+      sent before either has seen the other's — the host does not hand
+      itself the first move. Every incoming move is looked up in our
+      OWN legal-move list before it is applied, and a move that is not
+      in it stops the game instead of being played. There is no undo
+      online, on purpose: see js/chess.js.
       The page is served from GitHub Pages over https. It opens a wss://
       socket to a small relay (server/karti_server.py) that runs on the
       Pi and is published to the internet by Tailscale Funnel. It is a
@@ -79,6 +95,57 @@ const K = window.KARTI;
 if (!K) return;
 const $ = K.$, $$ = K.$$, esc = K.esc;
 const ico = n => (window.ICO ? window.ICO(n) : '');
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHAT A ROOM CAN BE A ROOM OF
+   ───────────────────────────────────────────────────────────────────
+   'cards' is first and is the fallback everywhere, because a room with
+   no game on it — from an older client, or from an older relay that
+   cannot label one — is a card duel and always was.
+
+   chess and dama live in js/party.js + js/chess.js + js/dama.js and
+   are driven through KARTI_PARTY.online[game]. If those files are not
+   on the phone, the two tiles simply are not offered.
+   ═══════════════════════════════════════════════════════════════════ */
+const GAMES = [
+  { k:'cards', name:'Card duel', short:'CARDS', icon:'cards',
+    blurb:'Your deck against theirs.' },
+  { k:'chess', name:'Chess',     short:'CHESS', sym:'pt-p-k',
+    blurb:'Sixteen each, one king.' },
+  { k:'dama',  name:'Dama',      short:'DAMA',  sym:'pt-crown',
+    blurb:'Twelve stones. Takes are compulsory.' }
+];
+const GAME_KEYS = GAMES.map(g => g.k);
+const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
+const cleanGame = k => (typeof k === 'string' && GAME_KEYS.indexOf(k) >= 0) ? k : 'cards';
+/* is this game actually installed on this phone? */
+function gamePlayable(k){
+  if (k === 'cards') return true;
+  const P = window.KARTI_PARTY;
+  return !!(P && P.online && P.online[k]);
+}
+/* the mark for a game. chess and dama borrow the piece sprite party.js
+   injects; if party.js is not loaded yet we fall back to a plain icon
+   rather than draw a hole. */
+function gameIcon(k){
+  const g = gameMeta(k);
+  const P = window.KARTI_PARTY;
+  if (g.sym && P && P.ui && P.ui.sprite){
+    try { P.ui.sprite(); } catch (e){}
+    return '<svg class="mp-gsym" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+           '<use href="#' + g.sym + '"></use></svg>';
+  }
+  return ico(g.icon || 'deck');
+}
+function rand32(){
+  try {
+    const a = new Uint32Array(1);
+    (window.crypto || window.msCrypto).getRandomValues(a);
+    return a[0] >>> 0;
+  } catch (e){
+    return (Math.floor(Math.random() * 0x100000000)) >>> 0;
+  }
+}
 
 /* ───────────────────────── deck choices ─────────────────────────
    Pass-and-play is a party mode: both seats may use any starter deck
@@ -279,8 +346,99 @@ const MP = {
   transport:null, seed:0,
   /* room-list era: did we ask for a private room, did we actually GET one, when
      did it open (for the "waiting 34s" line), and the 1s clock that paints it */
-  wantPrivate:false, private:false, openedAt:0, waitTimer:null, autoNote:false
+  wantPrivate:false, private:false, openedAt:0, waitTimer:null, autoNote:false,
+  /* which game. `game` is what the ROOM says it is (the relay tells us, so we
+     never have to take the other player's word for it); wantGame is what we
+     asked for when opening; joinHint is what the room list said when we tapped
+     it, and is only ever used against a relay too old to answer. */
+  game:'cards', wantGame:'cards', joinHint:null, filter:'all',
+  /* the two halves of the colour draw, and whether a board is on screen */
+  myNonce:null, peerNonce:null, boardLive:false,
+  /* the invitation we are taking up, and whether the relay took our session */
+  inviteId:null, authProbe:false
 };
+
+/* ═══════════════════════════════════════════════════════════════════
+   INVITES — "come and play chess", left for a NAMED player
+   ───────────────────────────────────────────────────────────────────
+   The room list is for whoever turns up. This is for asking one
+   particular person, by their account name, and having it waiting for
+   them when they open the app.
+
+   It needs an account on BOTH sides: you have to be signed in to send
+   one (an anonymous socket may not spray invites at named players),
+   and it is addressed to an account rather than to a socket so it
+   survives them being offline. Everything else — the room code, who
+   is where — stays exactly as private as it was.
+
+   IN-APP ONLY, and said plainly in the UI: this reaches you when the
+   app is open, not on a locked phone. Real lock-screen notifications
+   need Web Push, VAPID keys and an installed PWA; see docs/ONLINE.md.
+   ═══════════════════════════════════════════════════════════════════ */
+const INBOX = { list:[], name:'', authed:false };
+const INBOX_MAX = 8;
+
+/* The session token belongs to js/sync.js, which is not ours to edit. Ask it
+   nicely first, and fall back to the localStorage key it writes. If neither
+   works we simply do not offer invites — never a broken button. */
+function sessionToken(){
+  try {
+    const S = window.KARTI_SYNC;
+    if (S && typeof S.token === 'function'){
+      const t = S.token();
+      if (typeof t === 'string' && t.length >= 16) return t;
+    }
+  } catch (e){}
+  try {
+    const active = JSON.parse(localStorage.getItem('karti_active') || 'null');
+    if (!active) return '';
+    const s = JSON.parse(localStorage.getItem('karti_sync_' + active) || 'null');
+    return (s && typeof s.tok === 'string' && s.tok.length >= 16) ? s.tok : '';
+  } catch (e){ return ''; }
+}
+const canInvite = () => !!sessionToken();
+
+/* one invite, normalised. It arrives over the public internet like everything
+   else, so nothing in it is drawn without being bounded first. */
+function inboxAdd(m){
+  if (!m || typeof m.id !== 'string' || !m.id) return;
+  const left = (typeof m.left === 'number' && isFinite(m.left) && m.left > 0)
+    ? Math.min(3600, Math.floor(m.left)) : 0;
+  if (!left) return;
+  const row = {
+    id: m.id.slice(0, 64),
+    from: ((typeof m.from === 'string' && m.from) ? m.from : 'SOMEBODY').slice(0, NAME_MAX),
+    game: cleanGame(m.game),
+    until: Date.now() + left * 1000
+  };
+  INBOX.list = INBOX.list.filter(x => x.id !== row.id);
+  INBOX.list.unshift(row);
+  INBOX.list = INBOX.list.slice(0, INBOX_MAX);
+  inboxPaint();
+}
+function inboxDrop(id){
+  INBOX.list = INBOX.list.filter(x => x.id !== id);
+  inboxPaint();
+}
+/* an invite that has run out of time is not an invite */
+function inboxLive(){
+  const now = Date.now();
+  const before = INBOX.list.length;
+  INBOX.list = INBOX.list.filter(x => x.until > now);
+  if (INBOX.list.length !== before) inboxPaint();
+  return INBOX.list;
+}
+function inboxPaint(){ paintHomePanel(); paintInvites(); }
+
+/* the game picker remembers itself, so somebody who only ever plays chess
+   opens Online and finds chess already chosen */
+function storedGame(){
+  try { return cleanGame(localStorage.getItem('karti.mp.game') || 'cards'); }
+  catch (e){ return 'cards'; }
+}
+function rememberGame(k){
+  try { localStorage.setItem('karti.mp.game', cleanGame(k)); } catch (e){}
+}
 
 /* "34s" / "6m" / "2h" — used both for how long a room has waited and for how
    long you have been sitting in your own. */
@@ -355,7 +513,7 @@ function setState(key, note){
    but ONLY while we are between rooms: the moment a real connection state has
    something to say (connecting, waiting, live, stopped…) it owns the line and
    this stays out of the way. */
-function presenceNote(open){
+function presenceNote(open, by){
   if (!(MP.state === 'idle' || MP.state === 'ok' || MP.autoNote)) return;
   let key, note;
   if (PR.err){
@@ -365,7 +523,12 @@ function presenceNote(open){
     return;
   } else if (open > 0){
     key = 'ok';
-    note = open + (open === 1 ? ' room is' : ' rooms are') + ' open. Tap one to join.';
+    /* say what KIND of rooms, not just how many — that is the whole point */
+    const parts = by ? GAME_KEYS.filter(k => by[k] > 0)
+                                .map(k => by[k] + ' ' + gameMeta(k).short.toLowerCase())
+                     : [];
+    note = open + (open === 1 ? ' room is' : ' rooms are') + ' open' +
+           (parts.length > 1 ? ' (' + parts.join(', ') + ')' : '') + '. Tap one to join.';
   } else {
     key = 'ok';
     note = 'Server is up. Nobody is waiting — open a room and they will see it.';
@@ -374,6 +537,17 @@ function presenceNote(open){
   MP.autoNote = true;
 }
 function paintState(){
+  /* While a board game is up the lobby is not on screen, so the connection
+     has one place to speak: the thin line above the board. Nothing at all is
+     said while everything is fine. */
+  if (MP.boardLive){
+    const api = partyAPI();
+    if (api && api.note){
+      const s = STATES[MP.state] || STATES.idle;
+      const tone = s.dot === 'bad' ? 'bad' : s.dot === 'wait' ? 'warn' : '';
+      api.note(MP.state === 'live' ? '' : (MP.note || s.text), tone);
+    }
+  }
   const host = $('#mp-stat');
   if (!host) return;
   const s = STATES[MP.state] || STATES.idle;
@@ -410,6 +584,75 @@ function injectCSS(){
     '#scr-mp .mp-codein{text-align:center;letter-spacing:.28em;text-transform:uppercase;' +
       'font:700 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}' +
     '#scr-mp .mp-url{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}' +
+
+    /* ── which game (one tap, before you open a room) ── */
+    '#scr-mp .mp-pick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;' +
+      'margin:2px 0 4px}' +
+    '#scr-mp .mp-g{display:flex;flex-direction:column;align-items:center;gap:5px;' +
+      'min-height:92px;padding:11px 6px 9px;border-radius:15px;color:#F4EFFF;cursor:pointer;' +
+      'text-align:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12);' +
+      'transition:background .14s,border-color .14s}' +
+    '#scr-mp .mp-g[aria-pressed="true"]{background:rgba(255,197,66,.14);' +
+      'border-color:rgba(255,197,66,.55)}' +
+    '#scr-mp .mp-g:active{background:rgba(255,255,255,.09)}' +
+    '#scr-mp .mp-g b{font:900 11px/1.15 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'letter-spacing:.05em;text-transform:uppercase}' +
+    '#scr-mp .mp-g i{font-style:normal;font-size:9.5px;line-height:1.35;color:#A093C4}' +
+    '#scr-mp .mp-gi{height:26px;font-size:22px;line-height:1;color:#A093C4;display:block}' +
+    '#scr-mp .mp-g[aria-pressed="true"] .mp-gi{color:#FFC542}' +
+    '#scr-mp .mp-gi .ico{width:24px;height:24px}' +
+    '#scr-mp .mp-gsym{width:24px;height:24px;display:block;fill:currentColor;stroke:none}' +
+    '#scr-mp .mp-g[disabled]{opacity:.45}' +
+
+    /* ── filter chips over the list ── */
+    '#scr-mp .mp-filt{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 9px}' +
+    '#scr-mp .mp-chip{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;' +
+      'border-radius:999px;font:700 10.5px/1 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'letter-spacing:.08em;text-transform:uppercase;color:#A093C4;cursor:pointer;' +
+      'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12)}' +
+    '#scr-mp .mp-chip[aria-pressed="true"]{color:#241800;background:#FFC542;' +
+      'border-color:#FFC542}' +
+    '#scr-mp .mp-chip .n{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;opacity:.85}' +
+
+    /* ── what kind of room this row is ── */
+    '#scr-mp .mp-rtag{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;' +
+      'margin-right:6px;border-radius:999px;font:900 9px/1.35 Orbitron,"Arial Black",' +
+      'system-ui,sans-serif;letter-spacing:.1em;vertical-align:1px}' +
+    '#scr-mp .mp-rtag .mp-gsym,#scr-mp .mp-rtag .ico{width:11px;height:11px}' +
+    '#scr-mp .g-cards{color:#FFC542;background:rgba(255,197,66,.16);' +
+      'border:1px solid rgba(255,197,66,.4)}' +
+    '#scr-mp .g-chess{color:#8FD8FF;background:rgba(94,190,255,.16);' +
+      'border:1px solid rgba(94,190,255,.42)}' +
+    '#scr-mp .g-dama{color:#FF9F86;background:rgba(255,120,90,.16);' +
+      'border:1px solid rgba(255,120,90,.42)}' +
+
+    /* ── invitations ──
+       NOT scoped to #scr-mp: the same card is drawn on the home screen, in
+       the who's-online panel, which is not inside our screen. Every selector
+       here starts with .mp-, so it can still only reach what we drew. */
+    '.mp-inbox{display:flex;flex-direction:column;gap:8px;margin:10px 0 14px}' +
+    '.mp-invite{display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:15px;' +
+      'background:linear-gradient(180deg,rgba(61,220,132,.16),rgba(61,220,132,.05));' +
+      'border:1px solid rgba(61,220,132,.45);color:#F4EFFF}' +
+    '.mp-ivi{flex:0 0 auto;width:34px;height:34px;border-radius:11px;display:grid;' +
+      'place-items:center;color:#3DDC84;background:rgba(61,220,132,.16);' +
+      'border:1px solid rgba(61,220,132,.34)}' +
+    '.mp-ivi .ico,.mp-ivi .mp-gsym{width:19px;height:19px}' +
+    '.mp-ivw{flex:1;min-width:0;font-size:12.5px;line-height:1.45}' +
+    '.mp-ivw b{font-family:Orbitron,"Arial Black",system-ui,sans-serif;font-size:12px;' +
+      'letter-spacing:.04em}' +
+    '.mp-ivw i{display:block;font-style:normal;margin-top:2px;font-size:10px;' +
+      'letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:#8FE7B6}' +
+    '.mp-ivb{flex:0 0 auto;display:flex;align-items:center;gap:6px}' +
+    '.mp-ivgo{padding:9px 13px;border-radius:11px;background:#3DDC84;color:#062C17;' +
+      'font:900 12px/1 Orbitron,"Arial Black",system-ui,sans-serif;letter-spacing:.09em;' +
+      'cursor:pointer;border:0}' +
+    '.mp-ivno{width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.06);' +
+      'border:1px solid rgba(255,255,255,.14);color:#A093C4;font-size:14px;cursor:pointer}' +
+    '.mp-ivgo:active,.mp-ivno:active{transform:scale(.94)}' +
+    '#scr-mp .mp-who{display:flex;flex-wrap:wrap;gap:6px}' +
+    '#scr-mp .mp-ask{margin:14px 0 12px}' +
+    '#scr-mp .mp-quiet{display:block;margin-top:5px;color:#7F73A0;font-size:11.5px}' +
 
     /* ── the room list: the primary way in ── */
     '#scr-mp .mp-rhead{display:flex;align-items:center;gap:8px;margin:2px 0 9px}' +
@@ -472,6 +715,9 @@ function mpScreen(){
   injectCSS();
   MP.url = MP.url || defaultURL();
   const insecure = isSecurePage() && MP.url.slice(0, 6).toLowerCase() !== 'wss://';
+  /* the picked game has to survive js/party.js not being on the phone */
+  if (!gamePlayable(MP.wantGame)) MP.wantGame = 'cards';
+  const want = MP.wantGame;
 
   $('#scr-mp').innerHTML =
     '<div class="tbar">' +
@@ -480,21 +726,40 @@ function mpScreen(){
       '<h2>Online</h2>' +
     '</div>' +
     '<div class="scroll" id="mp-body">' +
-      '<p class="blurb">Every room waiting for a player is listed below. <b>Tap one to ' +
-      'join</b> — nothing to type, no code to read out. Nobody about? Open a room and the ' +
-      'next person online sees it.</p>' +
+      '<p class="blurb">Every room waiting for a player is listed below, and each one ' +
+      'says what it is. <b>Tap one to join</b> — nothing to type, no code to read out. ' +
+      'Nobody about? Pick a game, open a room, and the next person online sees it.</p>' +
       '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
       (insecure
         ? '<div class="mp-box bad"><b>That server address will not work from this page.</b><br>' +
           'KARTI is loaded over https, so it can only open a <code>wss://</code> connection. ' +
           'Fix the address below or leave it on the default.</div>'
         : '') +
+      '<div id="mp-inbox"></div>' +
       '<div id="mp-rooms"></div>' +
-      '<button class="btn primary" id="mp-open" style="margin-top:12px">' + ico('plus') +
-        ' Open a room</button>' +
-      '<p class="mp-more">One tap. Everyone online sees it straight away.</p>' +
-      '<div class="tiny" style="margin:18px 0 7px">Your deck</div>' +
-      '<div class="deckpick" id="mp-deck"></div>' +
+      '<div class="tiny" style="margin:18px 0 8px">Open a room of your own</div>' +
+      '<div class="mp-pick" id="mp-pick">' +
+        GAMES.map(g => {
+          const off = !gamePlayable(g.k);
+          return '<button class="mp-g" data-g="' + esc(g.k) + '" ' +
+            'aria-pressed="' + (g.k === want ? 'true' : 'false') + '"' +
+            (off ? ' disabled aria-disabled="true"' : '') + '>' +
+            '<span class="mp-gi">' + gameIcon(g.k) + '</span>' +
+            '<b>' + esc(g.name) + '</b><i>' + esc(off ? 'Not on this phone' : g.blurb) + '</i>' +
+            '</button>';
+        }).join('') +
+      '</div>' +
+      '<button class="btn primary" id="mp-open" style="margin-top:10px">' + ico('plus') +
+        ' Open a ' + esc(gameMeta(want).name.toLowerCase()) + ' room</button>' +
+      '<p class="mp-more">One tap. Everyone online sees it straight away, labelled ' +
+        esc(gameMeta(want).short) + '.</p>' +
+      (want === 'cards'
+        ? '<div class="tiny" style="margin:18px 0 7px">Your deck</div>' +
+          '<div class="deckpick" id="mp-deck"></div>'
+        : '<div class="mp-box">' + gameIcon(want) + ' <b>' + esc(gameMeta(want).name) +
+          '</b> needs no deck and touches nothing in your collection. Colours are drawn ' +
+          'from a number each phone throws in, so neither of you can hand yourself the ' +
+          'first move.</div>') +
       '<details style="margin:18px 0 8px"><summary class="tiny">Other ways in</summary>' +
         '<div class="mp-box">Only needed to reach <b>one particular person</b> while several ' +
         'rooms are open. Otherwise just use the list.</div>' +
@@ -527,10 +792,27 @@ function mpScreen(){
 
   $('#mp-back').onclick = () => { mpLeave(); K.go('home'); };
 
-  const opts = deckPicker($('#mp-deck'), MP.myDeckId || deckOptions()[0].id, o => {
-    MP.myDeckId = o.id; mpScreen();
+  /* Picking a game also points the list at it — somebody who came here for
+     chess should not have to filter by hand as well. "All" is one tap away. */
+  $$('#mp-pick .mp-g').forEach(b => {
+    b.onclick = () => {
+      const g = cleanGame(b.dataset.g);
+      if (!gamePlayable(g)) return;
+      MP.wantGame = g;
+      MP.filter = g;
+      rememberGame(g);
+      mpScreen();
+    };
   });
-  if (!MP.myDeckId) MP.myDeckId = opts[0].id;
+
+  if ($('#mp-deck')){
+    const opts = deckPicker($('#mp-deck'), MP.myDeckId || deckOptions()[0].id, o => {
+      MP.myDeckId = o.id; mpScreen();
+    });
+    if (!MP.myDeckId) MP.myDeckId = opts[0].id;
+  } else if (!MP.myDeckId){
+    MP.myDeckId = deckOptions()[0].id;
+  }
 
   const urlIn = $('#mp-url');
   urlIn.onchange = () => {
@@ -542,8 +824,8 @@ function mpScreen(){
   $('#mp-reset').onclick = () => { rememberRelay(''); MP.url = RELAY_URL; mpScreen(); };
   $('#mp-test').onclick = testServer;
 
-  $('#mp-open').onclick     = () => start('create', null, null, false);
-  $('#mp-openpriv').onclick = () => start('create', null, null, true);
+  $('#mp-open').onclick     = () => start('create', null, null, false, MP.wantGame);
+  $('#mp-openpriv').onclick = () => start('create', null, null, true,  MP.wantGame);
   $('#mp-join').onclick = () => {
     const c = cleanCode($('#mp-code').value);
     if (c.length !== CODE_LEN){ K.toast('A room code is ' + CODE_LEN + ' characters.'); return; }
@@ -554,6 +836,7 @@ function mpScreen(){
 
   setState(MP.state === 'idle' ? 'idle' : MP.state, MP.note);
   paintRooms();                 /* whatever the shared poller already knows */
+  paintInvites();
 }
 
 function testServer(){
@@ -579,7 +862,7 @@ function testServer(){
 /* intent: 'create' (priv=true keeps the room out of the public list) |
    'join' (needs a room code) | 'joinid' (needs the public handle of a room from
    the room list — you never see, type or learn its room code) | 'rejoin' */
-function start(intent, code, id, priv){
+function start(intent, code, id, priv, game){
   MP.url = ((($('#mp-url') || {}).value) || MP.url || defaultURL()).trim();
   if (!/^wss?:\/\//i.test(MP.url)){
     setState('unreachable', 'That is not a valid server address.');
@@ -593,11 +876,19 @@ function start(intent, code, id, priv){
   presenceBeaconClose();          /* one socket per device, never two */
   MP.code = intent === 'join' ? code : null;
   MP.joinId = intent === 'joinid' ? (id || null) : null;
+  if (intent !== 'invite') MP.inviteId = null;
   MP.wantPrivate = intent === 'create' ? !!priv : false;
   MP.private = MP.wantPrivate;
   MP.openedAt = 0;
   MP.token = null; MP.lastSeq = 0; MP.tries = 0;
   MP.joined = false; MP.peerHere = false; MP.peerList = null;
+  /* what we are asking for (create) vs what the list said (joinid). The room
+     itself is the authority either way: the relay tells us in `created` and
+     `joined`, so neither the list nor the other player is ever trusted for it. */
+  MP.wantGame = intent === 'create' ? cleanGame(game) : MP.wantGame;
+  MP.joinHint = intent === 'joinid' ? (game ? cleanGame(game) : null) : null;
+  MP.game = intent === 'create' ? MP.wantGame : (MP.joinHint || 'cards');
+  MP.myNonce = null; MP.peerNonce = null;
   openSocket(intent);
 }
 
@@ -624,12 +915,27 @@ function openSocket(intent){
        onServerError swallow exactly that one reply so nothing looks broken. */
     MP.nameProbe = true;
     send({ t:'name', n: myPresenceName() });
+    /* Prove who we are, if this profile has a cloud account. It is what lets
+       us send an invite to a named player and collect the ones left for us.
+       An older relay does not know the message and says so; onServerError
+       swallows exactly that reply, and invites simply are not offered. */
+    authProbe();
     /* An older relay does not know "private" and simply ignores it — it also has
        no room list to hide from, and `created` will come back without the flag,
        which is how we spot it and say so out loud. */
-    if (intent === 'create') send({ t:'create', private: !!MP.wantPrivate });
+    /* `game` on both of these is new. An older relay does not know the field
+       and ignores it, which is exactly right for a card duel and is caught
+       out loud in `created` for anything else. */
+    if (intent === 'create')
+      send({ t:'create', private: !!MP.wantPrivate, game: MP.wantGame || 'cards' });
     else if (intent === 'join') send({ t:'join', code: MP.code });
-    else if (intent === 'joinid') send({ t:'joinid', id: MP.joinId });
+    else if (intent === 'joinid')
+      send(MP.joinHint ? { t:'joinid', id: MP.joinId, game: MP.joinHint }
+                       : { t:'joinid', id: MP.joinId });
+    /* Taking up an invitation. The room code is never in our hands: the relay
+       resolves it from the note it sent us, and only for the account it was
+       addressed to. */
+    else if (intent === 'invite') send({ t:'acceptinvite', id: MP.inviteId });
     else send({ t:'rejoin', code: MP.code, token: MP.token, since: MP.lastSeq });
   };
   ws.onmessage = e => {
@@ -686,6 +992,24 @@ function send(o){
    direct loopback so the lockstep mirroring can be tested without a server. */
 function relay(d){ if (MP.transport) MP.transport(d); else send({ t:'relay', d }); }
 
+/* Whichever socket this device has open — the room one if we are in a room,
+   otherwise the who's-online beacon. Invites are answered over either. */
+function sendAny(o){
+  const ws = (MP.ws && MP.ws.readyState === 1) ? MP.ws
+           : (PR.ws && PR.ws.readyState === 1) ? PR.ws : null;
+  if (!ws) return false;
+  try { ws.send(JSON.stringify(o)); return true; } catch (e){ return false; }
+}
+/* say who we are on whichever socket has just opened */
+function authProbe(ws){
+  const tok = sessionToken();
+  if (!tok) return;
+  MP.authProbe = true;
+  const msg = JSON.stringify({ t:'auth', session: tok });
+  if (ws){ try { ws.send(msg); } catch (e){} }
+  else send({ t:'auth', session: tok });
+}
+
 function hardClose(){
   MP.stopping = true;
   clearTimeout(MP.retryTimer); clearTimeout(MP.openTimer); stopPing();
@@ -717,29 +1041,77 @@ function onServer(m){
       MP.nameProbe = false;
       return;
 
+    /* ── invitations ── */
+    case 'authed':
+      MP.authProbe = false;
+      INBOX.authed = true;
+      INBOX.name = (typeof m.name === 'string' ? m.name : '').slice(0, NAME_MAX);
+      return;
+
+    case 'invite':
+      inboxAdd(m);
+      if (document.querySelector('#scr-home.on') || document.querySelector('#scr-mp.on'))
+        K.toast((m && m.from ? m.from : 'Somebody') + ' wants a game of ' +
+                gameMeta(cleanGame(m && m.game)).name.toLowerCase() + '.');
+      return;
+
+    case 'invited':                    /* our own invite went out */
+      K.toast('If ' + ((m && m.to) || 'they') +
+              ' has a KARTI account, it is waiting for them.');
+      paintInvites();
+      return;
+
+    case 'invitegone':                 /* withdrawn: the room filled or closed */
+      inboxDrop(m && m.id);
+      return;
+
     case 'created':
       MP.host = true; MP.code = m.code; MP.token = m.token || null;
       MP.joined = true; MP.lastSeq = m.seq || 0; MP.tries = 0;
       MP.private = m.private === true;      /* what we actually got, not what we asked */
       MP.openedAt = Date.now();
+      /* A relay that understands games echoes one. One that does not cannot
+         LABEL the room either — so whoever tapped it would arrive expecting a
+         card duel. Rather than seat two people at different games we close the
+         room and say why. */
+      if (typeof m.game !== 'string'){
+        if (MP.wantGame !== 'cards'){
+          mpLeave();
+          setState('unreachable', 'This relay is an older build: it can only open card ' +
+            'rooms, and cannot tell anybody a room is ' + gameMeta(MP.wantGame).name +
+            '. The room was closed rather than seat somebody at the wrong game.');
+          mpScreen();
+          K.toast('That server cannot host ' + gameMeta(MP.wantGame).name + ' yet.');
+          return;
+        }
+        MP.game = 'cards';
+      } else MP.game = cleanGame(m.game);
       lobby();
       setState('waiting', MP.private
-        ? 'Private room open — nobody can see it but you.'
-        : 'Your room is in the list. Waiting for someone to join…');
+        ? 'Private ' + gameMeta(MP.game).name.toLowerCase() +
+          ' room open — nobody can see it but you.'
+        : 'Your ' + gameMeta(MP.game).name.toLowerCase() +
+          ' room is in the list. Waiting for someone to join…');
       return;
 
     case 'joined':
       MP.host = false; MP.code = m.code; MP.token = m.token || null;
       MP.joined = true; MP.lastSeq = m.seq || 0; MP.tries = 0;
       MP.peerHere = true;
+      /* the room says what it is; the list we tapped is only a fallback for a
+         relay too old to answer */
+      MP.game = (typeof m.game === 'string') ? cleanGame(m.game) : (MP.joinHint || 'cards');
+      if (MP.inviteId){ inboxDrop(MP.inviteId); MP.inviteId = null; }
       lobby();
-      setState('ready', 'Connected. Swapping decks…');
+      setState('ready', MP.game === 'cards'
+        ? 'Connected. Swapping decks…' : 'Connected. Drawing for colours…');
       sendHello();
       return;
 
     case 'rejoined':
       MP.host = !!m.host; MP.tries = 0; MP.joined = true;
       MP.peerHere = !!m.peer;
+      if (typeof m.game === 'string') MP.game = cleanGame(m.game);
       /* the missed relays arrive immediately after this message */
       setState(MP.live ? 'live' : (m.peer ? 'ready' : 'waiting'),
                MP.live ? 'Back in. Carrying on where you left off.' : null);
@@ -760,7 +1132,9 @@ function onServer(m){
         setState('reconnecting', 'Your opponent dropped out — waiting for them to come back…');
       } else {                                   /* left */
         MP.peerHere = false; MP.peerList = null;
-        if (MP.live) endMatch('Your opponent left the duel.');
+        if (MP.live) endMatch(MP.game === 'cards'
+          ? 'Your opponent left the duel.' : 'Your opponent left the game.');
+        else if (MP.boardLive) setState('gone', 'They have gone.');
         else { setState('gone', 'They left. Still waiting for someone to join…'); lobby(); }
       }
       return;
@@ -787,11 +1161,40 @@ function onServerError(why){
     MP.nameProbe = false;
     if (/^Bad message/i.test(why)) return;       /* older relay, no name support */
   }
+  /* An older relay does not know "auth"; a newer one says "Sign in first" when
+     the token has expired. Neither is anything the player did, and neither
+     stops a single thing working — it only means no invites. */
+  if (MP.authProbe && (/^Bad message/i.test(why) || /^Sign in first/i.test(why))){
+    MP.authProbe = false;
+    INBOX.authed = false;
+    return;
+  }
+  if (/^That invitation has gone/i.test(why)){
+    if (MP.inviteId) inboxDrop(MP.inviteId);
+    MP.inviteId = null; MP.token = null; MP.code = null; MP.joined = false;
+    setState('unreachable', 'That invitation has gone — they filled the room or closed ' +
+             'it. Nothing you did; open a room of your own, or tap one from the list.');
+    K.toast('That invitation has gone.');
+    return;
+  }
+  if (/^Open a room before/i.test(why) || /^Sign in first/i.test(why)){
+    K.toast(why);
+    return;
+  }
   if (/not waiting/i.test(why)){
     MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
     setState('unreachable', 'That room has gone — somebody else got there first, or they ' +
              'closed it. The list below refreshes on its own; or open a room of your own.');
     K.toast('That room has gone.');
+    return;
+  }
+  if (/not the game this room/i.test(why)){
+    /* the list was a second or two out of date and the room turned out to be
+       something else. Not an error the player did anything to cause. */
+    MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
+    setState('unreachable', 'That room turned out to be a different game — the list had ' +
+             'moved on. It refreshes on its own; tap another one.');
+    K.toast('That room is a different game.');
     return;
   }
   if (/No room with that code/i.test(why)){
@@ -832,6 +1235,7 @@ function lobby(){
       '<button class="btn ghost" id="mp-cancel">Leave the room</button>';
   } else {
     const me = esc(myPresenceName());
+    const gm = gameMeta(MP.game);
     const codeBlock =
       '<div class="mp-code" id="mp-showcode">' + esc(MP.code) + '</div>' +
       '<button class="btn ghost" id="mp-copy">' + ico('cards') + ' Copy the code</button>';
@@ -845,11 +1249,13 @@ function lobby(){
       '<div class="mp-hold">' +
         '<div class="mp-ring"></div>' +
         '<h3>Waiting for someone</h3>' +
-        '<p class="mp-holdp">' + (MP.private
+        '<p class="mp-holdp"><span class="mp-rtag g-' + esc(MP.game) + '">' +
+          gameIcon(MP.game) + esc(gm.short) + '</span>' + (MP.private
           ? 'This room is <b>private</b> — it is in nobody\'s list. Give the code below to ' +
             'the one person you want to play, and only they can get in.'
-          : 'Your room is in the list right now as <b>' + me + '</b>. Anyone who opens ' +
-            'Online sees it and can tap straight in — they do not need a code.') + '</p>' +
+          : 'Your room is in the list right now as <b>' + me + '</b>, labelled <b>' +
+            esc(gm.short) + '</b>. Anyone who opens Online sees what it is and can tap ' +
+            'straight in — they do not need a code.') + '</p>' +
         '<p class="mp-holdage" id="mp-age">open for 0s</p>' +
       '</div>' +
       (MP.private
@@ -859,8 +1265,16 @@ function lobby(){
           'text-transform:none;letter-spacing:0">Give them this code and they can come ' +
           'straight to you with <b>Other ways in › Join by code</b>.</p>' +
           '<div style="display:grid;gap:9px;margin-top:9px">' + codeBlock + '</div></details>') +
+      /* asking one particular person, by name */
+      (canInvite()
+        ? '<details class="mp-ask" open><summary class="tiny">' +
+          'Invite somebody to this room</summary><div id="mp-askbox"></div></details>'
+        : '<div class="mp-box"><b>Want to ask one particular person?</b> Sign in to your ' +
+          'KARTI account and you can invite them by name — it turns up on their home ' +
+          'screen. Without an account, the room list is the way in.</div>') +
       '<button class="btn ghost" id="mp-cancel">✕ Cancel and go back</button>';
     startWaitClock();
+    invitePanel();
   }
 
   const cp = $('#mp-copy');
@@ -892,23 +1306,93 @@ function paintWaitAge(){
 }
 
 function sendHello(){
-  const d = findDeck(MP.myDeckId);
   MP.myName = K.displayName().toUpperCase();
+  if (MP.game !== 'cards'){
+    /* our half of the colour draw, thrown before we have seen theirs */
+    MP.myNonce = rand32();
+    relay({ k:'bhello', game:MP.game, name:MP.myName, nonce:MP.myNonce });
+    return;
+  }
+  const d = findDeck(MP.myDeckId);
   relay({ k:'hello', name:MP.myName, list:d.list, deckKey:d.attr, deckName:d.name });
+}
+
+/* The two of us think we are playing different things. That can only happen
+   against an older build, so say so once and stop — never guess. */
+function gameMismatch(){
+  relay({ k:'bail', why:'We are not playing the same game.' });
+  endMatch('You and your opponent are not on the same game — one of you is running an ' +
+           'older version of KARTI. Reload the page on both phones and try again.');
 }
 
 function onPeer(d){
   if (!d || typeof d !== 'object' || !d.k) return;
+
+  /* ── the card duel ── */
   if (d.k === 'hello'){
+    if (MP.game !== 'cards'){ gameMismatch(); return; }
     MP.peerName = d.name || 'THEM';
     MP.peerList = d.list; MP.peerKey = d.deckKey || null;
     if (MP.host) hostStart();
     else setState('ready', 'Ready. Waiting for the host to deal…');
     return;
   }
-  if (d.k === 'start'){ if (!MP.live) beginOnline(d); return; }
+  if (d.k === 'start'){
+    if (MP.game !== 'cards'){ gameMismatch(); return; }
+    if (!MP.live) beginOnline(d);
+    return;
+  }
   if (d.k === 'act'){ applyRemote(d); return; }
-  if (d.k === 'bail'){ endMatch(d.why || 'They stopped the duel.'); return; }
+
+  /* ── chess and dama ── */
+  if (d.k === 'bhello'){
+    const g = cleanGame(d.game);
+    /* Against a relay too old to label a room, the HOST's own hello is the
+       only thing that says what this is. The guest takes it and says hello
+       again properly; the host never takes the guest's word for its own room. */
+    if (!MP.live && !MP.host && MP.game !== g && (g === 'chess' || g === 'dama')){
+      MP.game = g;
+      sendHello();
+    }
+    if (MP.game !== g){ gameMismatch(); return; }
+    if (!gamePlayable(g)){
+      relay({ k:'bail', why:'That game is not on this phone.' });
+      endMatch('This copy of KARTI does not have ' + gameMeta(g).name + ' in it yet.');
+      return;
+    }
+    MP.peerName = d.name || 'THEM';
+    MP.peerNonce = (typeof d.nonce === 'number') ? (d.nonce >>> 0) : null;
+    if (MP.host) hostStartBoard();
+    else setState('ready', 'Ready. Drawing for colours…');
+    return;
+  }
+  if (d.k === 'bstart'){
+    if (MP.live) return;
+    if (MP.game !== cleanGame(d.game)){ gameMismatch(); return; }
+    /* VERIFY THE DRAW. The seed must be the XOR of the two halves, and we hold
+       both, so a host that quietly picked a seed to hand itself White is caught
+       here rather than trusted. */
+    if (!MP.host && typeof MP.peerNonce === 'number' && typeof MP.myNonce === 'number'){
+      if ((d.seed >>> 0) !== ((MP.peerNonce ^ MP.myNonce) >>> 0)){
+        relay({ k:'bail', why:'The colour draw did not add up.' });
+        endMatch('The colour draw did not add up — the other phone did not use both ' +
+                 'halves of it. Stopped rather than play a rigged game.', 'cheat');
+        return;
+      }
+    }
+    beginBoard(d);
+    return;
+  }
+  if (d.k === 'bact'){ boardRemote(d); return; }
+  if (d.k === 'btake'){
+    const api = partyAPI();
+    if (!api || !MP.boardLive || !api.take) return;
+    if (MP.game !== cleanGame(d.game)){ gameMismatch(); return; }
+    api.take(d);
+    return;
+  }
+
+  if (d.k === 'bail'){ endMatch(d.why || 'They stopped the game.'); return; }
 }
 
 /* the host deals: one seed, both decks pre-shuffled, sent to the guest so
@@ -961,6 +1445,121 @@ function beginOnline(p){
   K.renderDuel();
   setState('live');
   K.toast('Room ' + MP.code + (iGoFirst ? ' — you go first.' : ' — they go first.'));
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CHESS AND DAMA OVER THE SAME WIRE
+   ───────────────────────────────────────────────────────────────────
+   Both engines are deterministic and strictly turn-based, so there is
+   nothing to deal and nothing to seed: only the MOVE crosses, and each
+   phone plays it on its own board.
+
+   WHO IS WHITE is the one thing that has to be agreed, and it is NOT
+   the host's to give. Each phone throws a 32-bit number into its
+   hello, before it has seen the other's; the seed is the XOR of the
+   two; White is the low bit. The guest can check that arithmetic — it
+   holds both halves — and stops the game if it does not come out.
+
+   Every move that arrives is handed to the game's own engine, which
+   looks it up in the legal-move list it generated from OUR board. A
+   move that is not in that list is refused BY NAME and the game ends,
+   exactly as illegalRemote() does for the card duel.
+   ═══════════════════════════════════════════════════════════════════ */
+function partyAPI(){
+  const P = window.KARTI_PARTY;
+  return (P && P.online && P.online[MP.game]) || null;
+}
+
+function hostStartBoard(){
+  const seed = (typeof MP.myNonce === 'number' && typeof MP.peerNonce === 'number')
+    ? ((MP.myNonce ^ MP.peerNonce) >>> 0)
+    : rand32();
+  const p = { k:'bstart', game:MP.game, seed };
+  relay(p);
+  beginBoard(p);
+}
+
+/* the same sum on both phones, from the same number */
+function myColour(seed){
+  const hostWhite = ((seed >>> 0) & 1) === 0;
+  return (MP.host ? hostWhite : !hostWhite) ? 'w' : 'b';
+}
+
+function beginBoard(p){
+  const P = window.KARTI_PARTY;
+  const api = partyAPI();
+  if (!P || !api){
+    relay({ k:'bail', why:'That game is not on this phone.' });
+    endMatch('This copy of KARTI does not have ' + gameMeta(MP.game).name + ' in it yet.');
+    return;
+  }
+  MP.live = true; MP.boardLive = true; MP.seed = p.seed >>> 0;
+  window.KHOOK = null;
+  K.NET.send = null;
+  presenceUnmount();            /* nothing polls while a board is up */
+  stopWaitClock();
+  P.show();                     /* the party screen takes over from the lobby */
+  const mine = myColour(MP.seed);
+  api.start({
+    colour: mine,
+    me: MP.myName || myPresenceName(),
+    foe: MP.peerName || 'THEM',
+    /* a move, or a resignation, on its way out */
+    send: (kind, m, ck) => relay({ k:'bact', game:MP.game, kind,
+                                   m: m || null, ck: ck || null }),
+    /* a takeback ask / yes / no. Everything about WHEN one is allowed lives in
+       the game; all this does is put it on the wire. */
+    take: (kind, o) => relay({ k:'btake', game:MP.game, kind,
+                               n: (o && o.n) || 0, id: (o && o.id) || 0,
+                               ck: (o && o.ck) || null }),
+    /* the game reached a real result: the room is done, but nobody was cut off */
+    onEnd: () => { MP.live = false; },
+    /* "back to the rooms" */
+    onLeave: backToRooms,
+    /* the board went away without us: the app navigated somewhere else */
+    onGone: boardGone
+  });
+  setState('live', '');
+  K.toast(gameMeta(MP.game).name + ' — you are ' +
+          (mine === 'w' ? (MP.game === 'dama' ? 'the ġbejniet, and you start.'
+                                              : 'White, and you start.')
+                        : (MP.game === 'dama' ? 'the bajtar. They start.'
+                                              : 'Black. They start.')));
+}
+
+/* a move from the other phone. The engine is the referee, not the relay. */
+function boardRemote(d){
+  const api = partyAPI();
+  if (!api || !MP.boardLive) return;
+  if (MP.game !== cleanGame(d.game)){ gameMismatch(); return; }
+  const bad = api.remote(d);
+  if (!bad) return;
+  if (bad.desync){
+    relay({ k:'bail', why:'The two boards went out of step.' });
+    endMatch('The two devices went out of step, so the game was stopped rather than ' +
+             'fake it.');
+    return;
+  }
+  relay({ k:'bail', why:'Illegal move refused.' });
+  endMatch('Your opponent sent ' + bad.why + ', which the rules do not allow. The game ' +
+           'was stopped — nothing was awarded.', 'cheat');
+}
+
+/* the only way back to the lobby from a board */
+function backToRooms(){
+  MP.boardLive = false;
+  mpLeave();
+  mpScreen();
+  K.go('mp');                   /* turns #scr-mp on, which stands the board down */
+}
+
+/* the board was torn down by something other than us — a nav tap, a restored
+   session, anything that switches screens. Leaving the screen leaves the room. */
+function boardGone(){
+  if (!MP.boardLive) return;
+  MP.boardLive = false;
+  if (MP.live){ relay({ k:'bail', why:'They left the game.' }); MP.live = false; }
+  mpLeave();
 }
 
 /* Canonical board fingerprint. Built host-seat-first so both devices, which
@@ -1133,6 +1732,14 @@ function endMatch(why, flavour){
   hardClose();
   MP.token = null; MP.joined = false;
   setState('stopped', why);
+  /* A board game says this on its own screen, not in the card game's modal —
+     the player is looking at #scr-party, and boardLive stays true so the
+     "back to the rooms" button on that card still works. */
+  if (MP.boardLive){
+    const api = partyAPI();
+    if (api) api.stop(why, flavour);
+    return;
+  }
   if (!wasLive) return;
   const title = flavour === 'cheat' ? 'NO DEAL' : 'CUT OFF';
   K.openModal(
@@ -1240,13 +1847,32 @@ function presenceBeaconOpen(){
   PR.ws = ws;
   ws.onopen = () => {
     try { ws.send(JSON.stringify({ t:'name', n: myPresenceName() })); } catch (e){}
+    /* and, if this profile has an account, collect anything left for us while
+       we were away — this is the socket that is open while you are sat on the
+       home screen doing nothing */
+    authProbe(ws);
   };
-  /* The beacon listens for exactly one thing: the relay confirming our display
-     name. Until that lands, /presence would list us as an anonymous PLAYER —
-     so we hold the first poll back until we know we are on the list properly. */
+  /* The beacon listens for the relay confirming our display name — until that
+     lands, /presence would list us as an anonymous PLAYER, so the first poll
+     is held back — and for invitations addressed to this account. */
   ws.onmessage = e => {
     let m; try { m = JSON.parse(e.data); } catch (err){ return; }
-    if (m && m.t === 'named') presenceTick();
+    if (!m || typeof m !== 'object') return;
+    if (m.t === 'named'){ presenceTick(); return; }
+    if (m.t === 'authed'){
+      MP.authProbe = false;
+      INBOX.authed = true;
+      INBOX.name = (typeof m.name === 'string' ? m.name : '').slice(0, NAME_MAX);
+      return;
+    }
+    if (m.t === 'invite'){
+      inboxAdd(m);
+      K.toast((m.from || 'Somebody') + ' wants a game of ' +
+              gameMeta(cleanGame(m.game)).name.toLowerCase() + '.');
+      return;
+    }
+    if (m.t === 'invitegone'){ inboxDrop(m.id); return; }
+    if (m.t === 'error' && MP.authProbe){ MP.authProbe = false; INBOX.authed = false; }
   };
   ws.onerror = () => {};
   ws.onclose = () => { if (PR.ws === ws) PR.ws = null; };
@@ -1313,16 +1939,21 @@ const STATE_WORD = {
 
 /* One poll, two things drawn from it: the home-screen panel and the Online
    screen's room list. Each is a no-op when its element is not on the page. */
-function presencePaint(){ paintHomePanel(); paintRooms(); }
+function presencePaint(){ inboxLive(); paintHomePanel(); paintRooms(); paintInvites(); }
 
 function paintHomePanel(){
   const host = $('#home-online');
   if (!host) return;
+  injectCSS();
   if (!PR.mounted){ host.className = 'onlinebox'; host.innerHTML = ''; return; }
 
   const me = myPresenceName();
   const d = PR.data;
   let tone = '', count = '', body = '';
+  /* An invitation goes at the TOP, before anything else on this panel. Being
+     asked for a game by name is the most interesting thing that can be on
+     this screen, and having to hunt for it would defeat the point. */
+  const invites = inviteCards('home');
 
   if (PR.err){
     tone = ' on-bad';
@@ -1372,13 +2003,15 @@ function paintHomePanel(){
                         'to start one.</p>');
   }
 
-  host.className = 'onlinebox' + tone;
+  host.className = 'onlinebox' + (invites ? ' on-invited' : '') + tone;
   host.innerHTML =
     '<div class="on-head"><span class="on-dot"></span><h2>Who&rsquo;s online</h2>' +
       '<span class="on-count">' + esc(count) + '</span>' +
       '<button class="on-ref" id="on-refresh" aria-label="Check again">' + ico('refresh') +
       '</button></div>' +
+    invites +
     '<div class="on-body" role="status" aria-live="polite">' + body + '</div>';
+  wireInvites(host);
 
   const ref = $('#on-refresh');
   if (ref) ref.onclick = () => {
@@ -1413,8 +2046,30 @@ function roomsFrom(d){
             .map(r => ({
               id: r.id.slice(0, 64),
               n: ((typeof r.n === 'string' && r.n) ? r.n : 'PLAYER').slice(0, NAME_MAX),
-              w: (typeof r.w === 'number' && isFinite(r.w) && r.w >= 0) ? Math.floor(r.w) : null
+              w: (typeof r.w === 'number' && isFinite(r.w) && r.w >= 0) ? Math.floor(r.w) : null,
+              /* a relay too old to label a room sends no `g` at all, and every
+                 room on one of those IS a card duel. `known` remembers which of
+                 the two it was, so we only send the game back on a join when we
+                 were actually told it. */
+              g: cleanGame(r.g),
+              known: (typeof r.g === 'string' && GAME_KEYS.indexOf(r.g) >= 0)
             }));
+}
+
+/* How many rooms of each kind are open — the relay counts them BEFORE it caps
+   the list, so these stay honest even when the list is a sample. An older relay
+   sends no count, and everything it has is a card duel. */
+function openByGame(d, rooms){
+  const out = { cards:0, chess:0, dama:0 };
+  if (d && d.openBy && typeof d.openBy === 'object'){
+    GAME_KEYS.forEach(k => {
+      const n = d.openBy[k];
+      out[k] = (typeof n === 'number' && isFinite(n) && n >= 0) ? Math.floor(n) : 0;
+    });
+    return out;
+  }
+  (rooms || []).forEach(r => { out[r.g] = (out[r.g] || 0) + 1; });
+  return out;
 }
 
 function paintRooms(){
@@ -1422,12 +2077,21 @@ function paintRooms(){
   if (!host || !PR.mounted) return;
 
   const me = myPresenceName();
-  const rooms = roomsFrom(PR.data);
+  const all = roomsFrom(PR.data);
   /* how many are REALLY open, which can be more than the relay chose to name */
-  const open = !rooms ? 0
-    : (PR.data && typeof PR.data.open === 'number' ? PR.data.open : rooms.length);
+  const open = !all ? 0
+    : (PR.data && typeof PR.data.open === 'number' ? PR.data.open : all.length);
+  const by = openByGame(PR.data, all);
+  if (GAME_KEYS.indexOf(MP.filter) < 0) MP.filter = 'all';
+  /* A filter with nothing behind it is worse than no filter: it says "no chess
+     rooms" over a list that has three cards rooms in it, and the chip row that
+     would let you undo it is not even drawn. So it lets go of itself. */
+  if (MP.filter !== 'all' && !by[MP.filter]) MP.filter = 'all';
+  const rooms = !all ? all
+    : (MP.filter === 'all' ? all : all.filter(r => r.g === MP.filter));
+  const shownOpen = MP.filter === 'all' ? open : (by[MP.filter] || 0);
   let count = '', body = '';
-  presenceNote(open);
+  presenceNote(open, by);
 
   if (PR.err){
     count = 'offline';
@@ -1452,34 +2116,65 @@ function paintRooms(){
   } else if (!rooms.length){
     count = '0';
     body = '<div class="mp-empty"><div class="e">' + ico('users') + '</div>' +
-           '<b>No rooms open</b><p>Open one with the button below and wait — it lands on ' +
-           'everybody else’s screen the moment you do, and they can tap straight in.</p></div>';
+           (MP.filter === 'all'
+             ? '<b>No rooms open</b><p>Pick a game below and open one — it lands on ' +
+               'everybody else’s screen the moment you do, and they can tap straight in.</p>'
+             : '<b>No ' + esc(gameMeta(MP.filter).name.toLowerCase()) + ' rooms</b>' +
+               '<p>Nobody is waiting for a game of ' +
+               esc(gameMeta(MP.filter).name.toLowerCase()) + ' right now. Tap <b>All</b> ' +
+               'above to see what else is on, or open one of your own below.</p>') +
+           '</div>';
   } else {
     const shown = rooms.slice(0, ROOM_ROWS);
-    count = String(open);
+    count = String(shownOpen);
     body = '<div class="mp-rlist">' + shown.map(r => {
       const name = (r && r.n) || 'PLAYER';
       const mine = name === me;
+      const gm = gameMeta(r.g);
       const wait = (r.w === null || r.w === undefined)
         ? 'waiting for a player'
         : (r.w < 8 ? 'just opened' : 'waiting ' + ago(r.w));
-      return '<button class="mp-room" data-room="' + esc(r.id) + '" data-who="' + esc(name) + '">' +
+      return '<button class="mp-room" data-room="' + esc(r.id) + '" data-who="' + esc(name) +
+        '" data-game="' + esc(r.known ? r.g : '') + '" ' +
+        'aria-label="Join ' + esc(name) + ', ' + esc(gm.name) + ', ' + esc(wait) + '">' +
         '<span class="mp-rav">' + esc(name.slice(0, 2)) + '</span>' +
         '<span class="mp-rwho"><span class="mp-rname">' + esc(name) +
           (mine ? ' <span class="mp-rme">(you)</span>' : '') + '</span>' +
-          '<span class="mp-rage">' + wait + '</span></span>' +
+          '<span class="mp-rage"><span class="mp-rtag g-' + esc(r.g) + '">' +
+            gameIcon(r.g) + esc(gm.short) + '</span>' + wait + '</span></span>' +
         '<span class="mp-rgo">Join</span></button>';
     }).join('') + '</div>';
-    const more = open - shown.length;
+    const more = shownOpen - shown.length;
     if (more > 0) body += '<p class="mp-more">and ' + more + ' more open right now</p>';
   }
 
+  /* The chips are only worth the room they take up once there is a list worth
+     sifting. One room, or one kind of room, and they stay out of the way. */
+  const kinds = GAME_KEYS.filter(k => by[k] > 0).length;
+  const chips = (!PR.err && rooms && open > 1 && kinds > 1)
+    ? '<div class="mp-filt" id="mp-filt">' +
+        '<button class="mp-chip" data-f="all" aria-pressed="' +
+          (MP.filter === 'all') + '">All <span class="n">' + open + '</span></button>' +
+        GAME_KEYS.filter(k => by[k] > 0).map(k =>
+          '<button class="mp-chip" data-f="' + esc(k) + '" aria-pressed="' +
+          (MP.filter === k) + '">' + esc(gameMeta(k).short) +
+          ' <span class="n">' + by[k] + '</span></button>').join('') +
+      '</div>'
+    : '';
+
   host.innerHTML =
-    '<div class="mp-rhead"><h3>Rooms open now</h3>' +
+    '<div class="mp-rhead"><h3>' +
+      (MP.filter === 'all' ? 'Rooms open now'
+                           : esc(gameMeta(MP.filter).name) + ' rooms') + '</h3>' +
       '<span class="mp-rcount">' + esc(count) + '</span>' +
       '<button class="mp-ref" id="mp-refresh" aria-label="Check for rooms again">' +
         ico('refresh') + '</button></div>' +
+    chips +
     '<div role="status" aria-live="polite">' + body + '</div>';
+
+  K.$$('[data-f]', host).forEach(el => {
+    el.onclick = () => { MP.filter = el.getAttribute('data-f') || 'all'; paintRooms(); };
+  });
 
   const ref = $('#mp-refresh');
   if (ref) ref.onclick = () => {
@@ -1487,8 +2182,110 @@ function paintRooms(){
     presencePoll();
   };
   K.$$('[data-room]', host).forEach(el => {
-    el.onclick = () => joinRoom(el.getAttribute('data-room'), el.getAttribute('data-who'));
+    el.onclick = () => joinRoom(el.getAttribute('data-room'), el.getAttribute('data-who'),
+                                el.getAttribute('data-game'));
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   INVITES ON SCREEN
+   Two places, deliberately: the HOME screen, because an invitation you
+   have to go hunting for is not an invitation, and the Online screen,
+   because that is where you were heading anyway.
+   ═══════════════════════════════════════════════════════════════════ */
+function inviteCards(where){
+  const list = inboxLive();
+  if (!list.length) return '';
+  return '<div class="mp-inbox">' + list.map(r => {
+    const gm = gameMeta(r.game);
+    const left = Math.max(0, Math.round((r.until - Date.now()) / 1000));
+    return '<div class="mp-invite">' +
+      '<span class="mp-ivi">' + gameIcon(r.game) + '</span>' +
+      '<span class="mp-ivw"><b>' + esc(r.from) + '</b> wants a game of <b>' +
+        esc(gm.name.toLowerCase()) + '</b>' +
+        '<i>' + (left > 60 ? Math.ceil(left / 60) + ' min left' : left + 's left') + '</i></span>' +
+      '<span class="mp-ivb">' +
+        '<button class="mp-ivgo" data-acc="' + esc(r.id) + '" data-where="' + esc(where) +
+          '">Join</button>' +
+        '<button class="mp-ivno" data-dec="' + esc(r.id) + '" aria-label="No thanks">' +
+          '✕</button>' +
+      '</span></div>';
+  }).join('') + '</div>';
+}
+function wireInvites(host){
+  if (!host) return;
+  K.$$('[data-acc]', host).forEach(el => {
+    el.onclick = () => acceptInvite(el.getAttribute('data-acc'));
+  });
+  K.$$('[data-dec]', host).forEach(el => {
+    el.onclick = () => declineInvite(el.getAttribute('data-dec'));
+  });
+}
+/* One tap: a new socket, our session, and the id. We never learn the code. */
+function acceptInvite(id){
+  if (!id) return;
+  window.KHOOK = null;
+  MP.inviteId = id;
+  if (!document.querySelector('#scr-mp.on')){ mpScreen(); K.go('mp'); }
+  start('invite', null, null, false, null);
+  setState('connecting', 'Taking up that invitation…');
+}
+/* Declining is quiet. Nothing at all is sent to whoever asked. */
+function declineInvite(id){
+  if (!id) return;
+  sendAny({ t:'declineinvite', id });
+  inboxDrop(id);
+}
+
+/* the panel on the Online screen, above the room list */
+function paintInvites(){
+  const host = $('#mp-inbox');
+  if (!host) return;
+  const body = inviteCards('mp');
+  host.innerHTML = body;
+  wireInvites(host);
+}
+
+/* ── asking one particular person ──────────────────────────────────
+   Only offered while you are SITTING in a room you opened: an invite
+   is an invite to somewhere, and the relay refuses one that is not. */
+function invitePanel(){
+  const host = $('#mp-askbox');
+  if (!host) return;
+  const players = ((PR.data && PR.data.players) || [])
+    .filter(p => p && typeof p.n === 'string' && p.n !== myPresenceName() &&
+                 p.n !== INBOX.name)
+    .slice(0, 8);
+  host.innerHTML =
+    '<div class="mp-box"><b>Ask somebody by name.</b> They get it the moment they open ' +
+    'KARTI — and it is still waiting for them if they are not on right now. ' +
+    '<span class="mp-quiet">In-app only: it will not light up a locked phone.</span></div>' +
+    (players.length
+      ? '<div class="tiny" style="margin:12px 0 7px">On right now</div>' +
+        '<div class="mp-who">' + players.map(p =>
+          '<button class="mp-chip" data-inv="' + esc(p.n) + '">' + esc(p.n) + '</button>'
+        ).join('') + '</div>'
+      : '') +
+    '<div class="tiny" style="margin:14px 0 7px">Or type their KARTI name</div>' +
+    '<div style="display:grid;gap:8px">' +
+      '<input class="field" id="mp-invname" maxlength="' + NAME_MAX + '" ' +
+        'placeholder="THEIR NAME" autocomplete="off" spellcheck="false" ' +
+        'aria-label="Who to invite">' +
+      '<button class="btn" id="mp-invgo">' + ico('users') + ' Send the invitation</button>' +
+    '</div>';
+  K.$$('[data-inv]', host).forEach(el => {
+    el.onclick = () => sendInvite(el.getAttribute('data-inv'));
+  });
+  const go = $('#mp-invgo');
+  if (go) go.onclick = () => sendInvite(($('#mp-invname') || {}).value || '');
+}
+function sendInvite(name){
+  const to = String(name || '').trim().slice(0, NAME_MAX);
+  if (!to){ K.toast('Type the name they signed up with.'); return; }
+  if (!canInvite()){ K.toast('Sign in to your KARTI account first.'); return; }
+  send({ t:'invite', to });
+  const box = $('#mp-invname');
+  if (box) box.value = '';
 }
 
 /* Take the empty seat a room is advertising. No room code is ever typed, read
@@ -1496,17 +2293,37 @@ function paintRooms(){
    re-resolves it itself, refusing it unless that room really is open, public
    and still short of a player. Works from the home panel (rebuild the Online
    screen on the way) and from the room list itself (already there). */
-function joinRoom(id, who){
+function joinRoom(id, who, game){
   if (!id) return;
+  const g = (typeof game === 'string' && GAME_KEYS.indexOf(game) >= 0) ? game : null;
+  if (g && !gamePlayable(g)){
+    K.toast('This copy of KARTI does not have ' + gameMeta(g).name + ' in it yet.');
+    return;
+  }
   window.KHOOK = null;
   if (!document.querySelector('#scr-mp.on')){
     mpScreen();
     K.go('mp');                                 /* re-points the poller on the way */
   }
-  start('joinid', null, id);
-  setState('connecting', 'Joining ' + (who || 'them') + '…');
+  start('joinid', null, id, false, g);
+  setState('connecting', 'Joining ' + (who || 'them') +
+           (g ? ' for ' + gameMeta(g).name.toLowerCase() : '') + '…');
 }
 const joinWaiting = joinRoom;                   /* the name the old panel used */
+
+/* The way in from js/chess.js and js/dama.js: their setup sheet's "somebody
+   online" option lands here with the game already chosen. */
+function openFor(game){
+  const g = cleanGame(game);
+  MP.wantGame = gamePlayable(g) ? g : 'cards';
+  MP.filter = MP.wantGame;
+  rememberGame(MP.wantGame);
+  window.KHOOK = null;
+  const P = window.KARTI_PARTY;
+  if (P && P.standDown) P.standDown();
+  mpScreen();
+  K.go('mp');
+}
 
 /* ── mount / unmount ──────────────────────────────────────────────
    Two screens want this data now, so the mount carries which one: Online gets a
@@ -1578,6 +2395,11 @@ window.addEventListener('pagehide', presenceBeaconClose);
    rather than throwing. The PNP code below is now unreachable from the UI. */
 function chooser(){ window.KHOOK = null; mpScreen(); K.go('mp'); }
 function wire(){
+  /* whatever you opened last time is already picked. The LIST always starts on
+     "all" though — a filter you did not ask for, hiding rooms that are really
+     there, is exactly the thing this screen exists to abolish. */
+  MP.wantGame = storedGame();
+  MP.filter = 'all';
   const p = $('#btn-pnp'), o = $('#btn-online'), m = $('#btn-mp');
   if (p) p.onclick = () => { window.KHOOK = null; mpScreen(); K.go('mp'); };
   if (o) o.onclick = () => { window.KHOOK = null; mpScreen(); K.go('mp'); };
@@ -1594,11 +2416,17 @@ window.KARTI_MP = {
   mpScreen, mpLeave, checksum, applyRemote, beginOnline, onPeer, onServer, chooser,
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
+  /* the three-games era */
+  GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, openFor,
+  beginBoard, boardRemote, hostStartBoard, myColour, backToRooms, openByGame,
   /* who's-online panel + the room list (one poller, two paints) */
   PR, onScreen, presenceMount, presenceUnmount, presencePoll, presencePaint,
   paintHomePanel, paintRooms, roomsFrom, ago,
   presenceURL, presenceBeaconOpen, presenceBeaconClose, myPresenceName,
   joinRoom, joinWaiting, lobby,
+  /* invitations */
+  INBOX, inboxAdd, inboxDrop, inboxLive, sessionToken, canInvite,
+  sendInvite, acceptInvite, declineInvite, paintInvites, invitePanel, inviteCards,
   RELAY_URL, RELAY_HEALTH, RELAY_PRESENCE, CODE_LEN, CODE_ALPHABET,
   ROOM_ROWS, PRESENCE_LOBBY, PRESENCE_MIN_GAP,
   /* older name kept so nothing that reached for it breaks */

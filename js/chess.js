@@ -666,9 +666,12 @@ let G = null;   /* the live game, or null */
 
 function newGame(opts){
   G = {
-    mode: opts.mode,                  /* 'pnp' | 'ai' */
+    mode: opts.mode,                  /* 'pnp' | 'ai' | 'online' */
     level: +opts.level || 2,
-    human: opts.side === 'b' ? 'b' : 'w',   /* only meaningful vs the phone */
+    human: opts.side === 'b' ? 'b' : 'w',   /* your colour vs the phone OR online */
+    /* online only: the pipe back to js/mp.js, and the two names */
+    net: opts.net || null,
+    me: opts.me || 'YOU', foe: opts.foe || 'THEM', netNote: '',
     st: startPos(),
     hist: [],                         /* {st, move, san} before each move */
     keys: {},                         /* posKey -> times seen */
@@ -680,20 +683,29 @@ function newGame(opts){
   maybeAI();
 }
 
-function flipped(){ return G.mode === 'ai' && G.human === 'b'; }
+function online(){ return G.mode === 'online'; }
+/* your own men are always at the bottom, whoever you are playing */
+function flipped(){ return (G.mode === 'ai' || G.mode === 'online') && G.human === 'b'; }
 /* screen row/col -> board index */
 function sqAt(row, col){ return flipped() ? SQ(7 - col, 7 - row) : SQ(col, row); }
 
 function paint(){
+  const net = online();
   const ctx = P.ui.frame({
     title: 'Chess',
-    onBack: () => { leave(); P.hub(); },
+    /* online, walking away is leaving a ROOM, not closing a board — the back
+       arrow has to go through js/mp.js so the other player is told */
+    onBack: net ? () => askLeave() : () => { leave(); P.hub(); },
     leave,
-    buttons: [
-      { id:'ch-undo',   label:'Undo',   icon:'refresh' },
-      { id:'ch-resign', label:'Resign', icon:'flag' },
-      { id:'ch-new',    label:'New',    icon:'play' }
-    ]
+    /* Online the Undo button is still here — it just has to be ASKED for.
+       New game is not: that is not one player's to decide. */
+    buttons: net
+      ? [ { id:'ch-undo',   label:'Takeback', icon:'refresh' },
+          { id:'ch-resign', label:'Resign',   icon:'flag' },
+          { id:'ch-leave',  label:'Leave',    icon:'back' } ]
+      : [ { id:'ch-undo',   label:'Undo',   icon:'refresh' },
+          { id:'ch-resign', label:'Resign', icon:'flag' },
+          { id:'ch-new',    label:'New',    icon:'play' } ]
   });
   G.ctx = ctx;
 
@@ -714,16 +726,37 @@ function paint(){
       G.cells[i] = b;
     }
   }
-  ctx.btn('ch-undo').onclick   = undo;
+  if (ctx.btn('ch-undo')) ctx.btn('ch-undo').onclick = undo;
   ctx.btn('ch-resign').onclick = () => P.ui.confirm(ctx, {
     head: 'Resign?', why: 'You hand them the game. There is no taking it back.',
-    yes: 'Yes, I resign', go: () => finish({ end:'resign', win: G.st.black ? 'w' : 'b' })
+    yes: 'Yes, I resign',
+    /* offline the side to move resigns; online YOU resign, whoever's turn it is */
+    go: () => {
+      if (net){
+        if (G.net) G.net.send('resign', null, null);
+        finish({ end:'resign', win: G.human === 'w' ? 'b' : 'w' });
+      } else finish({ end:'resign', win: G.st.black ? 'w' : 'b' });
+    }
   });
-  ctx.btn('ch-new').onclick    = () => P.ui.confirm(ctx, {
+  if (ctx.btn('ch-new')) ctx.btn('ch-new').onclick = () => P.ui.confirm(ctx, {
     head: 'Start again?', why: 'This board goes in the bin and a fresh one comes out.',
     yes: 'Yes, new game', go: () => start()
   });
+  if (ctx.btn('ch-leave')) ctx.btn('ch-leave').onclick = askLeave;
   render();
+}
+
+/* Leaving an online game mid-play is a forfeit in everything but name, so it
+   is asked out loud. Once the game is over it is just a door. */
+function askLeave(){
+  if (!G) return;
+  if (G.over){ if (G.net) G.net.onLeave(); return; }
+  P.ui.confirm(G.ctx, {
+    head: 'Leave the game?',
+    why: 'They are sat there waiting for your move. Walking out ends it for both of you.',
+    yes: 'Yes, leave', no: 'No, carry on',
+    go: () => { if (G && G.net) G.net.onLeave(); }
+  });
 }
 
 function render(){
@@ -756,6 +789,8 @@ function render(){
   strip();
   const u = G.ctx.btn('ch-undo');
   if (u) u.disabled = !G.hist.length || G.thinking || !!G.over;
+  const r = G.ctx.btn('ch-resign');
+  if (r) r.disabled = !!G.over;
 }
 const PNAME = { 1:'pawn', 2:'knight', 3:'bishop', 4:'rook', 5:'queen', 6:'king' };
 
@@ -795,6 +830,7 @@ function rails(){
 function whoLabel(black){
   if (G.mode === 'pnp') return black ? 'Black to move' : 'White to move';
   const mine = (black ? 'b' : 'w') === G.human;
+  if (online()) return mine ? 'Your move' : G.foe + ' to move';
   return mine ? 'Your move' : 'The phone is thinking';
 }
 
@@ -810,16 +846,24 @@ function strip(){
     who: G.over ? 'Game over' : whoLabel(st.black),
     note, alert: check && !G.over
   });
-  G.ctx.badge.textContent = G.mode === 'pnp' ? 'Two players'
+  G.ctx.badge.textContent = online() ? (G.human === 'w' ? 'Online · White' : 'Online · Black')
+    : G.mode === 'pnp' ? 'Two players'
     : ['', 'Turist', 'Kazin', 'Nanna'][G.level] || 'Phone';
 }
 
 /* ── input ─────────────────────────────────────────────────────── */
 function myTurn(){
   if (G.over || G.thinking) return false;
+  /* while a takeback of ours is in the air the board is LOCKED. That is not
+     politeness: it is what stops us playing a move into a position the other
+     phone has already rolled back out of. */
+  if (G.tb && G.tb.busy()) return false;
   if (G.mode === 'pnp') return true;
   return (G.st.black ? 'b' : 'w') === G.human;
 }
+/* the fingerprint that travels with every move: if the two boards are not the
+   same board, the duel stops rather than tell either of you a lie */
+function fingerprint(st){ return posKey(st) + '/' + st.half; }
 
 function tap(i){
   if (!myTurn()) return;
@@ -886,8 +930,13 @@ function promoPicker(alts){
   over.querySelector('button').focus();
 }
 
-function play(m){
+function play(m, fromNet){
   const st = G.st;
+  /* moving on withdraws any takeback question that was still in the air */
+  if (online() && !fromNet && G.tb) G.tb.cancel(true);
+  /* the checksum is the PRE-move board, so the receiver compares it against
+     the position it is about to play the move on */
+  if (online() && !fromNet && G.net) G.net.send('move', wireOf(m), fingerprint(st));
   G.hist.push({ st: clone(st), last: G.last, lastSan: G.lastSan, keys: Object.assign({}, G.keys) });
   const text = san(st, m);
   G.st = applied(st, m);
@@ -928,28 +977,67 @@ function maybeAI(){
   }, 60);
 }
 
-function undo(){
-  if (!G.hist.length || G.thinking || G.over) return;
-  const back = () => {
+/* take n plies off this board and nothing else. Both clients call this with
+   the same n, off identical histories, so both land on the same position. */
+function rollback(n){
+  for (let i = 0; i < n && G.hist.length; i++){
     const h = G.hist.pop();
     G.st = h.st; G.last = h.last; G.lastSan = h.lastSan; G.keys = h.keys;
-  };
-  back();
-  /* vs the phone, one tap should hand YOU the move back, not the phone */
-  if (G.mode === 'ai' && G.hist.length && (G.st.black ? 'b' : 'w') !== G.human) back();
+  }
   G.sel = -1; G.marks = []; G.over = null;
   const over = G.ctx.root.querySelector('.pt-over'); if (over) over.remove();
   render();
 }
+/* the fingerprint of the position n plies back, or null if we cannot get
+   there. This is what stops two boards rolling back to different places. */
+function markBack(n){
+  if (!G || n < 1 || G.hist.length < n) return null;
+  return fingerprint(G.hist[G.hist.length - n].st);
+}
+
+function undo(){
+  if (online()){ askTakeback(); return; }
+  if (!G.hist.length || G.thinking || G.over) return;
+  /* vs the phone, one tap should hand YOU the move back, not the phone */
+  const two = (G.mode === 'ai' && G.hist.length > 1 &&
+               (G.hist[G.hist.length - 1].st.black ? 'b' : 'w') !== G.human);
+  rollback(two ? 2 : 1);
+}
+
+/* ONLINE: undo is a request, not a button. How far back is not a slider —
+   it is however many plies it takes to hand the move back to the asker. */
+function askTakeback(){
+  if (!G || !G.tb || G.over || G.thinking) return;
+  const mineNow = (G.st.black ? 'b' : 'w') === G.human;
+  const n = Math.min(G.hist.length, mineNow ? 2 : 1);
+  if (n < 1){ P.ui.setNet(G.ctx, 'Nothing to take back yet.', 'warn'); return; }
+  P.ui.confirm(G.ctx, {
+    head: 'Ask for a takeback?',
+    why: 'They have to agree. Until they do, nothing moves on either board — and ' +
+         'you cannot play a move while you are asking.',
+    yes: 'Ask ' + G.foe, no: 'No, leave it',
+    go: () => {
+      const r = G.tb.request(n);
+      if (!r.ok) P.ui.setNet(G.ctx, r.why, 'warn');
+      render();
+    }
+  });
+}
 
 /* ── the full stop ─────────────────────────────────────────────── */
+/* THE ONE PLACE A GAME OF CHESS IS RESOLVED. Every ending — mate, stalemate,
+   the fifty-move rule, a resignation, a dead position — arrives here and
+   nowhere else, so anything that wants to hear about a finished game (a stats
+   module, a ledger, a leaderboard) has exactly one line to hook. */
 function finish(s){
   G.over = s;
   G.sel = -1; G.marks = [];
+  if (G.tb) G.tb.cancel(true);          /* no takeback survives the full stop */
   render();
 
-  const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : 'The phone');
-  const bname = G.mode === 'pnp' ? 'Black' : (G.human === 'b' ? 'You' : 'The phone');
+  const them = online() ? G.foe : 'The phone';
+  const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : them);
+  const bname = G.mode === 'pnp' ? 'Black' : (G.human === 'b' ? 'You' : them);
   const winner = s.win ? (s.win === 'w' ? wname : bname) : null;
   let head, why, tone = 'draw';
 
@@ -960,12 +1048,33 @@ function finish(s){
   else if (s.end === 'repeat'){ head = 'Three times over'; why = 'The same position for the third time. Draw, before somebody falls asleep.'; }
   else { head = 'Dead position'; why = 'Nobody has the wood left to mate anybody. Draw.'; }
 
+  /* The ledger is "how you get on against the phone" and nothing else — an
+     online result is not written into it, because a stranger's board is not
+     evidence about the machine. */
   let quip = pick(QUIP_DRAW);
   if (s.win){
     if (G.mode === 'pnp'){ tone = 'win'; quip = 'Shake hands. Then argue about move eleven.'; }
-    else if (s.win === G.human){ tone = 'win'; quip = pick(QUIP_WIN); P.record('chess', 'w'); }
-    else { tone = 'lose'; quip = pick(QUIP_LOSE); P.record('chess', 'l'); }
+    else if (s.win === G.human){
+      tone = 'win'; quip = online() ? 'Beaten a real person, on a real board. Say nothing, just nod.'
+                                    : pick(QUIP_WIN);
+      if (G.mode === 'ai') P.record('chess', 'w');
+    } else {
+      tone = 'lose'; quip = online() ? 'They had it. Ask for another one.' : pick(QUIP_LOSE);
+      if (G.mode === 'ai') P.record('chess', 'l');
+    }
   } else if (G.mode === 'ai'){ P.record('chess', 'd'); }
+
+  if (online()){
+    if (G.net && G.net.onEnd) G.net.onEnd(s);
+    P.ui.result(G.ctx, {
+      tone, head, why, quip,
+      buttons: [
+        { label:'Back to the rooms', icon:'back', cls:'primary',
+          go: () => { if (G && G.net) G.net.onLeave(); } }
+      ]
+    });
+    return;
+  }
 
   P.ui.result(G.ctx, {
     tone, head, why, quip,
@@ -976,6 +1085,121 @@ function finish(s){
     ]
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   4. THE SAME GAME, TWO PHONES
+   js/mp.js owns the socket, the room and the lobby. It knows nothing
+   about chess. This block is the whole of the contract between them:
+
+     start(o)    put an online board up. o.colour is MY colour, drawn
+                 by BOTH devices from a shared seed — see js/mp.js.
+     remote(d)   a move (or a resignation) the other phone sent. It is
+                 re-checked against OUR copy of the rules before it is
+                 applied and refused if it is not in the legal list:
+                 the relay is a dumb pipe and the peer may have
+                 devtools open. Returns null when it was fine, or
+                 {why, desync} when it was not, and mp.js ends the
+                 match honestly rather than playing on.
+     note(t)     one line about the connection, shown over the board.
+     stop(why)   the match ended for a reason that is not a result.
+
+   THERE IS NO UNDO ONLINE, on purpose. An undo would have to be a
+   request the other phone agrees to, and the moment it exists you can
+   see their reply, take your move back, and try something else. The
+   two engines are in lockstep from move one; the honest buttons are
+   Resign and Leave, and those are the two on the bar.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* a move on the wire: from, to, and what a pawn came back as */
+function wireOf(m){ return { f: m.from, t: m.to, p: m.promo ? typ(m.promo) : 0 }; }
+
+/* THE gate. Only a move the engine itself generated from OUR position can
+   ever be applied — anything else is refused by name. */
+function fromWire(w){
+  if (!w || typeof w !== 'object') return null;
+  const f = w.f, t = w.t, want = w.p ? (w.p & 7) : 0;
+  if (typeof f !== 'number' || typeof t !== 'number') return null;
+  const legal = genMoves(G.st);
+  for (const m of legal)
+    if (m.from === f && m.to === t && (m.promo ? typ(m.promo) : 0) === want) return m;
+  return null;
+}
+
+function onlineStart(o){
+  newGame({ mode:'online', side:o.colour, net:o, me:o.me, foe:o.foe });
+  /* the shared takeback machinery. Chess seats one other player; the same
+     object handles three or four for the games that seat that many. */
+  G.tb = P.ui.takeback({
+    peers: 1,
+    send: (kind, body) => o.take(kind, body),
+    rollback: rollback,
+    mark: markBack,
+    note: (t, tone) => P.ui.setNet(G.ctx, t, tone),
+    after: () => render(),
+    dismiss: () => { const q = G.ctx.root.querySelector('.pt-ask'); if (q) q.remove(); },
+    ask: (info, yes, no) => P.ui.confirm(G.ctx, {
+      head: G.foe + ' asks for a takeback',
+      why: 'They want the last ' + info.n + (info.n === 1 ? ' move' : ' moves') +
+           ' back. Say no and nothing at all happens — they are not told off for asking.',
+      yes: 'Allow it', no: 'No, play on', go: yes, onNo: no
+    })
+  });
+  P.ui.setNet(G.ctx, o.note || '', '');
+}
+
+function onlineRemote(d){
+  if (!G || !online()) return { why:'a move with no game on the table' };
+  if (G.over) return null;                        /* it is finished; let it lie */
+  if (d.kind === 'resign'){
+    if (G.tb) G.tb.cancel(true);
+    finish({ end:'resign', win: G.human });
+    return null;
+  }
+  if (d.kind !== 'move') return { why:'a move KARTI does not have' };
+  if ((G.st.black ? 'b' : 'w') === G.human) return { why:'a move out of turn' };
+  if (d.ck && d.ck !== fingerprint(G.st))
+    return { why:'a move from a board that is not this one', desync:true };
+  const m = fromWire(d.m);
+  if (!m) return { why:'a move the rules of chess do not allow' };
+  /* they played on instead of answering: the question is dead */
+  if (G.tb) G.tb.cancel(true);
+  play(m, true);
+  return null;
+}
+
+/* a takeback message from the other phone */
+function onlineTake(d){
+  if (!G || !online() || !G.tb) return;
+  G.tb.incoming(d);
+}
+
+function onlineNote(text, tone){
+  if (!G || !online()) return;
+  P.ui.setNet(G.ctx, text || '', tone || '');
+}
+
+function onlineStop(why, tone){
+  if (!G || !online()) return;
+  if (!G.over){ G.over = { end:'stopped', win:null }; render(); }
+  P.ui.setNet(G.ctx, '', '');
+  P.ui.result(G.ctx, {
+    tone: tone === 'cheat' ? 'lose' : 'draw',
+    head: tone === 'cheat' ? 'No deal' : 'Cut off',
+    why: why || 'The match stopped.',
+    quip: 'Nothing was awarded. Nobody lost anything for a bad line.',
+    buttons: [
+      { label:'Back to the rooms', icon:'back', cls:'primary',
+        go: () => { if (G && G.net) G.net.onLeave(); } }
+    ]
+  });
+}
+
+P.online = P.online || {};
+P.online.chess = {
+  start: onlineStart, remote: onlineRemote, take: onlineTake,
+  note: onlineNote, stop: onlineStop,
+  live: () => !!(G && online() && !G.dead)
+};
 
 /* ── wiring into the hub ───────────────────────────────────────── */
 function start(){
@@ -1000,16 +1224,24 @@ function menu(){
       { k:'b', name:'Black', cls:'b', note:'It goes first' }
     ],
     onStart: o => newGame(o),
+    onOnline: () => { if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('chess'); },
     onBack: () => P.hub()
   });
 }
+/* Called for every way OUT of the board, including the app navigating out from
+   under us. Online that has to reach js/mp.js — a player who taps Home mid-game
+   has left the room, and the other one must be told. */
 function leave(){
-  if (G){ G.dead = true; if (G.ctx && G.ctx.stopFit) G.ctx.stopFit(); }
+  if (!G){ return; }
+  const net = online() ? G.net : null;
+  G.dead = true;
+  if (G.ctx && G.ctx.stopFit) G.ctx.stopFit();
   G = null;
+  if (net && net.onGone) net.onGone();
 }
 
 P.register({
-  id:'chess', order:10, name:'CHESS', mt:'Iċ-ċess', sprite:'pt-p-k', status:'live',
+  id:'chess', order:10, kind:'board', name:'CHESS', mt:'Iċ-ċess', sprite:'pt-p-k', status:'live',
   tag:'Sixteen each, one king, and no luck to blame. Two of you on one phone, or ' +
       'take on the machine.',
   open: menu

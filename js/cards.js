@@ -89,9 +89,9 @@ const CARDS = [
   {id:'turist',   n:'Sunburnt Tourist',      e:'🦞', f:'bahar', r:'komuni', t:'monster', lvl:3, atk:600,  def:1800,
    txt:'Factor 50 was right there in the shop. He walked past it.', eff:'No effect — cheap wall.', fx:''},
   {id:'qarnita',  n:'Summer Octopus',        e:'🐙', f:'bahar', r:'rari',   t:'monster', lvl:4, atk:1750, def:1500,
-   txt:'Eight arms, eight problems.', eff:'Attacks two enemy monsters in one battle phase.', fx:'cleave'},
+   txt:'Eight arms, eight problems.', eff:'Attacks two DIFFERENT enemy monsters in one battle phase.', fx:'cleave'},
   {id:'bram',     n:'Jellyfish Invasion',    e:'🪼', f:'bahar', r:'epiku',  t:'monster', lvl:5, atk:2450, def:2700,
-   txt:'Beach ruined for three weeks.', eff:'Any monster that attacks it takes 400 damage.', fx:'thorns'},
+   txt:'Beach ruined for three weeks.', eff:'Whoever attacks it takes 400 damage.', fx:'thorns'},
 
   /* ══════════ TROUBLE — the properly rude ones ══════════ */
   {id:'gar',      n:'The Nosy Neighbour',    e:'👁️', f:'hazen', r:'rari', t:'monster', lvl:3, atk:1400, def:1400,

@@ -342,8 +342,10 @@ let G = null;
 
 function newGame(opts){
   G = {
-    mode: opts.mode, level: +opts.level || 2,
+    mode: opts.mode, level: +opts.level || 2,   /* 'pnp' | 'ai' | 'online' */
     human: opts.side === 'b' ? 'b' : 'w',
+    net: opts.net || null,
+    me: opts.me || 'YOU', foe: opts.foe || 'THEM',
     st: startPos(),
     hist: [], keys: {},
     sel: -1, marks: [], chain: null, last: null, lastText: '',
@@ -354,19 +356,23 @@ function newGame(opts){
   maybeAI();
 }
 
-function flipped(){ return G.mode === 'ai' && G.human === 'b'; }
+function online(){ return G.mode === 'online'; }
+function flipped(){ return (G.mode === 'ai' || G.mode === 'online') && G.human === 'b'; }
 function sqAt(row, col){ return flipped() ? SQ(7 - col, 7 - row) : SQ(col, row); }
 
 function paint(){
+  const net = online();
   const ctx = P.ui.frame({
     title: 'Dama',
-    onBack: () => { leave(); P.hub(); },
+    onBack: net ? () => askLeave() : () => { leave(); P.hub(); },
     leave,
-    buttons: [
-      { id:'dm-undo',   label:'Undo',   icon:'refresh' },
-      { id:'dm-resign', label:'Resign', icon:'flag' },
-      { id:'dm-new',    label:'New',    icon:'play' }
-    ]
+    buttons: net
+      ? [ { id:'dm-undo',   label:'Takeback', icon:'refresh' },
+          { id:'dm-resign', label:'Resign',   icon:'flag' },
+          { id:'dm-leave',  label:'Leave',    icon:'back' } ]
+      : [ { id:'dm-undo',   label:'Undo',   icon:'refresh' },
+          { id:'dm-resign', label:'Resign', icon:'flag' },
+          { id:'dm-new',    label:'New',    icon:'play' } ]
   });
   G.ctx = ctx;
   const board = ctx.board;
@@ -385,16 +391,34 @@ function paint(){
       G.cells[i] = b;
     }
   }
-  ctx.btn('dm-undo').onclick   = undo;
+  if (ctx.btn('dm-undo')) ctx.btn('dm-undo').onclick = undo;
   ctx.btn('dm-resign').onclick = () => P.ui.confirm(ctx, {
     head:'Resign?', why:'You hand them the game and there is no taking it back.',
-    yes:'Yes, I resign', go: () => finish({ end:'resign', win: G.st.black ? 'w' : 'b' })
+    yes:'Yes, I resign',
+    go: () => {
+      if (net){
+        if (G.net) G.net.send('resign', null, null);
+        finish({ end:'resign', win: G.human === 'w' ? 'b' : 'w' });
+      } else finish({ end:'resign', win: G.st.black ? 'w' : 'b' });
+    }
   });
-  ctx.btn('dm-new').onclick    = () => P.ui.confirm(ctx, {
+  if (ctx.btn('dm-new')) ctx.btn('dm-new').onclick = () => P.ui.confirm(ctx, {
     head:'Start again?', why:'Twelve fresh stones each and we say no more about it.',
     yes:'Yes, new game', go: () => start()
   });
+  if (ctx.btn('dm-leave')) ctx.btn('dm-leave').onclick = askLeave;
   render();
+}
+
+function askLeave(){
+  if (!G) return;
+  if (G.over){ if (G.net) G.net.onLeave(); return; }
+  P.ui.confirm(G.ctx, {
+    head:'Leave the game?',
+    why:'They are sat there waiting for your move. Walking out ends it for both of you.',
+    yes:'Yes, leave', no:'No, carry on',
+    go: () => { if (G && G.net) G.net.onLeave(); }
+  });
 }
 
 function stoneHTML(p){
@@ -429,6 +453,8 @@ function render(){
   strip();
   const u = G.ctx.btn('dm-undo');
   if (u) u.disabled = !G.hist.length || G.thinking || !!G.over || !!G.chain;
+  const r = G.ctx.btn('dm-resign');
+  if (r) r.disabled = !!G.over;
 }
 
 function rails(){
@@ -450,7 +476,9 @@ function rails(){
 
 function whoLabel(black){
   if (G.mode === 'pnp') return black ? 'Black to move' : 'White to move';
-  return (black ? 'b' : 'w') === G.human ? 'Your move' : 'The phone is thinking';
+  const mine = (black ? 'b' : 'w') === G.human;
+  if (online()) return mine ? 'Your move' : G.foe + ' to move';
+  return mine ? 'Your move' : 'The phone is thinking';
 }
 
 function strip(){
@@ -466,15 +494,21 @@ function strip(){
     who: G.over ? 'Game over' : whoLabel(st.black),
     note, alert: (forced || !!G.chain) && !G.over
   });
-  G.ctx.badge.textContent = G.mode === 'pnp' ? 'Two players'
+  G.ctx.badge.textContent = online() ? (G.human === 'w' ? 'Online · Ġbejniet' : 'Online · Bajtar')
+    : G.mode === 'pnp' ? 'Two players'
     : ['', 'Turist', 'Kazin', 'Nanna'][G.level] || 'Phone';
 }
 
 function myTurn(){
   if (G.over || G.thinking) return false;
+  /* locked while our own takeback is in the air — see js/chess.js */
+  if (G.tb && G.tb.busy()) return false;
   if (G.mode === 'pnp') return true;
   return (G.st.black ? 'b' : 'w') === G.human;
 }
+/* board + side + the quiet clock: everything that makes two dama positions
+   the same position. Travels with every move so the two boards cannot drift. */
+function fingerprint(st){ return posKey(st) + '/' + st.quiet; }
 
 /* ── input ─────────────────────────────────────────────────────────
    A multi-jump is one move to the engine but several taps to a human.
@@ -546,8 +580,11 @@ function advance(to){
   render();
 }
 
-function play(m){
+function play(m, fromNet){
   const st = G.st;
+  if (online() && !fromNet && G.tb) G.tb.cancel(true);
+  if (online() && !fromNet && G.net)
+    G.net.send('move', { p: m.path.slice(), c: m.caps.slice() }, fingerprint(st));
   G.hist.push({ st: clone(st), last: G.last, lastText: G.lastText,
                 keys: Object.assign({}, G.keys) });
   const text = notate(m);
@@ -587,26 +624,59 @@ function maybeAI(){
   }, 60);
 }
 
-function undo(){
-  if (!G.hist.length || G.thinking || G.over) return;
-  const back = () => {
+/* n plies off this board and nothing else — see the same function in chess.js */
+function rollback(n){
+  for (let i = 0; i < n && G.hist.length; i++){
     const h = G.hist.pop();
     G.st = h.st; G.last = h.last; G.lastText = h.lastText; G.keys = h.keys;
-  };
-  back();
-  if (G.mode === 'ai' && G.hist.length && (G.st.black ? 'b' : 'w') !== G.human) back();
+  }
   G.sel = -1; G.marks = []; G.chain = null; G.over = null;
   const over = G.ctx.root.querySelector('.pt-over'); if (over) over.remove();
   render();
 }
+function markBack(n){
+  if (!G || n < 1 || G.hist.length < n) return null;
+  return fingerprint(G.hist[G.hist.length - n].st);
+}
 
+function undo(){
+  if (online()){ askTakeback(); return; }
+  if (!G.hist.length || G.thinking || G.over) return;
+  const two = (G.mode === 'ai' && G.hist.length > 1 &&
+               (G.hist[G.hist.length - 1].st.black ? 'b' : 'w') !== G.human);
+  rollback(two ? 2 : 1);
+}
+
+function askTakeback(){
+  if (!G || !G.tb || G.over || G.thinking || G.chain) return;
+  const mineNow = (G.st.black ? 'b' : 'w') === G.human;
+  const n = Math.min(G.hist.length, mineNow ? 2 : 1);
+  if (n < 1){ P.ui.setNet(G.ctx, 'Nothing to take back yet.', 'warn'); return; }
+  P.ui.confirm(G.ctx, {
+    head:'Ask for a takeback?',
+    why:'They have to agree. Until they do, nothing moves on either board — and you ' +
+        'cannot play a move while you are asking.',
+    yes:'Ask ' + G.foe, no:'No, leave it',
+    go: () => {
+      const r = G.tb.request(n);
+      if (!r.ok) P.ui.setNet(G.ctx, r.why, 'warn');
+      render();
+    }
+  });
+}
+
+/* THE ONE PLACE A GAME OF DAMA IS RESOLVED — boxed in, wiped out, resigned,
+   or drawn. Every ending comes through here, so there is exactly one line to
+   hook for anything that wants to record a finished game. */
 function finish(s){
   G.over = s;
   G.sel = -1; G.marks = []; G.chain = null;
+  if (G.tb) G.tb.cancel(true);
   render();
 
-  const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : 'The phone');
-  const bname = G.mode === 'pnp' ? 'Black' : (G.human === 'b' ? 'You' : 'The phone');
+  const them = online() ? G.foe : 'The phone';
+  const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : them);
+  const bname = G.mode === 'pnp' ? 'Black' : (G.human === 'b' ? 'You' : them);
   const winner = s.win ? (s.win === 'w' ? wname : bname) : null;
   const loser  = s.win ? (s.win === 'w' ? bname : wname) : null;
   let head, why, tone = 'draw';
@@ -629,12 +699,32 @@ function finish(s){
     why = 'The same position for the third time. Draw, before the table wears out.';
   }
 
+  /* the ledger counts games against the PHONE and nothing else */
   let quip = pick(QUIP_DRAW);
   if (s.win){
     if (G.mode === 'pnp'){ tone = 'win'; quip = 'Set them up again. Best of three, always.'; }
-    else if (s.win === G.human){ tone = 'win'; quip = pick(QUIP_WIN); P.record('dama', 'w'); }
-    else { tone = 'lose'; quip = pick(QUIP_LOSE); P.record('dama', 'l'); }
+    else if (s.win === G.human){
+      tone = 'win';
+      quip = online() ? 'A real opponent, boxed in. That one counts twice.' : pick(QUIP_WIN);
+      if (G.mode === 'ai') P.record('dama', 'w');
+    } else {
+      tone = 'lose';
+      quip = online() ? 'They had the take and they took it. Run it back.' : pick(QUIP_LOSE);
+      if (G.mode === 'ai') P.record('dama', 'l');
+    }
   } else if (G.mode === 'ai') P.record('dama', 'd');
+
+  if (online()){
+    if (G.net && G.net.onEnd) G.net.onEnd(s);
+    P.ui.result(G.ctx, {
+      tone, head, why, quip,
+      buttons: [
+        { label:'Back to the rooms', icon:'back', cls:'primary',
+          go: () => { if (G && G.net) G.net.onLeave(); } }
+      ]
+    });
+    return;
+  }
 
   P.ui.result(G.ctx, {
     tone, head, why, quip,
@@ -645,6 +735,98 @@ function finish(s){
     ]
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SAME GAME, TWO PHONES
+   The contract with js/mp.js, identical in shape to the one in
+   js/chess.js — start / remote / note / stop. mp.js owns the socket
+   and knows nothing about dama; this block knows nothing about
+   sockets. No undo online, for the reason spelled out in chess.js.
+   ═══════════════════════════════════════════════════════════════════ */
+const asKey = a => (a || []).slice().sort((x, y) => x - y).join(',');
+
+/* ONLY a move this engine generated from OUR board can be applied. That means
+   the compulsory take and the whole jump chain are enforced against a remote
+   move exactly as they are against a tap on the glass. */
+function fromWire(w){
+  if (!w || typeof w !== 'object' || !Array.isArray(w.p)) return null;
+  const path = w.p.join(','), caps = asKey(w.c);
+  for (const m of genMoves(G.st))
+    if (m.path.join(',') === path && asKey(m.caps) === caps) return m;
+  return null;
+}
+
+function onlineStart(o){
+  newGame({ mode:'online', side:o.colour, net:o, me:o.me, foe:o.foe });
+  G.tb = P.ui.takeback({
+    peers: 1,
+    send: (kind, body) => o.take(kind, body),
+    rollback: rollback,
+    mark: markBack,
+    note: (t, tone) => P.ui.setNet(G.ctx, t, tone),
+    after: () => render(),
+    dismiss: () => { const q = G.ctx.root.querySelector('.pt-ask'); if (q) q.remove(); },
+    ask: (info, yes, no) => P.ui.confirm(G.ctx, {
+      head: G.foe + ' asks for a takeback',
+      why: 'They want the last ' + info.n + (info.n === 1 ? ' move' : ' moves') +
+           ' back. Say no and nothing at all happens — they are not told off for asking.',
+      yes:'Allow it', no:'No, play on', go: yes, onNo: no
+    })
+  });
+  P.ui.setNet(G.ctx, o.note || '', '');
+}
+
+function onlineRemote(d){
+  if (!G || !online()) return { why:'a move with no game on the table' };
+  if (G.over) return null;
+  if (d.kind === 'resign'){
+    if (G.tb) G.tb.cancel(true);
+    finish({ end:'resign', win: G.human });
+    return null;
+  }
+  if (d.kind !== 'move') return { why:'a move KARTI does not have' };
+  if ((G.st.black ? 'b' : 'w') === G.human) return { why:'a move out of turn' };
+  if (d.ck && d.ck !== fingerprint(G.st))
+    return { why:'a move from a board that is not this one', desync:true };
+  const m = fromWire(d.m);
+  if (!m) return { why:'a move the rules of dama do not allow' };
+  if (G.tb) G.tb.cancel(true);
+  play(m, true);
+  return null;
+}
+
+function onlineTake(d){
+  if (!G || !online() || !G.tb) return;
+  G.tb.incoming(d);
+}
+
+function onlineNote(text, tone){
+  if (!G || !online()) return;
+  P.ui.setNet(G.ctx, text || '', tone || '');
+}
+
+function onlineStop(why, tone){
+  if (!G || !online()) return;
+  if (!G.over){ G.over = { end:'stopped', win:null }; render(); }
+  P.ui.setNet(G.ctx, '', '');
+  P.ui.result(G.ctx, {
+    tone: tone === 'cheat' ? 'lose' : 'draw',
+    head: tone === 'cheat' ? 'No deal' : 'Cut off',
+    why: why || 'The match stopped.',
+    quip: 'Nothing was awarded. Nobody lost anything for a bad line.',
+    buttons: [
+      { label:'Back to the rooms', icon:'back', cls:'primary',
+        go: () => { if (G && G.net) G.net.onLeave(); } }
+    ]
+  });
+}
+
+P.online = P.online || {};
+P.online.dama = {
+  start: onlineStart, remote: onlineRemote, take: onlineTake,
+  note: onlineNote, stop: onlineStop,
+  live: () => !!(G && online() && !G.dead)
+};
 
 function start(){
   const p = P.pref('dama');
@@ -668,16 +850,21 @@ function menu(){
       { k:'b', name:'Bajtar',   cls:'r', note:'The red ones. It goes first.' }
     ],
     onStart: o => newGame(o),
+    onOnline: () => { if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('dama'); },
     onBack: () => P.hub()
   });
 }
 function leave(){
-  if (G){ G.dead = true; if (G.ctx && G.ctx.stopFit) G.ctx.stopFit(); }
+  if (!G) return;
+  const net = online() ? G.net : null;
+  G.dead = true;
+  if (G.ctx && G.ctx.stopFit) G.ctx.stopFit();
   G = null;
+  if (net && net.onGone) net.onGone();
 }
 
 P.register({
-  id:'dama', order:20, name:'DAMA', mt:'Id-dama', sprite:'pt-crown', status:'live',
+  id:'dama', order:20, kind:'board', name:'DAMA', mt:'Id-dama', sprite:'pt-crown', status:'live',
   tag:'Draughts, done properly: if there is a take on the board you take it, and ' +
       'you finish the chain. No wriggling out.',
   open: menu

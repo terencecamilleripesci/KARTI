@@ -514,17 +514,37 @@ function uiAssets() {
      image models render lettering as convincing garbage. Same rule as the KARTI
      emblem, and the reason every prompt here bans text outright. */
   const PARTY_LOGOS = {
-    party:  'a battered Maltese bar table seen from above with a deck of cards, two dice and a bottle cap arranged on it, warm overhead light',
-    chess:  'a single carved limestone chess knight in three-quarter view, chipped and old, a faint Maltese cross cut into its base, dramatic side light',
-    dama:   'three stacked draughts pieces in olive green and terracotta, the top one crowned, at a low angle on a worn wooden board',
-    skarta: 'a fan of four bold blank playing cards thrown down hard, one landing face up, motion lines and a small puff of dust',
-    kiri:   'a small honey limestone Maltese townhouse with an enclosed wooden balcony, a signpost with a completely blank face, a construction crane looming behind',
+    party:  'a battered Maltese bar table from above, a deck of cards, two dice and a bottle cap on it, warm overhead light',
+    chess:  'a carved limestone chess knight, chipped and old, a faint Maltese cross on its base, dramatic side light',
+    dama:   'three stacked draughts pieces in olive and terracotta, the top one crowned, on a worn wooden board',
+    skarta: 'a fan of four blank playing cards thrown down hard, one landing face up, motion lines and a puff of dust',
+    kiri:   'a honey limestone Maltese townhouse with a wooden balcony, a signpost with a blank face, a crane behind',
   };
   for (const [id, subj] of Object.entries(PARTY_LOGOS)) {
     add({ id:`logo-${id}`, file:`art/ui/logo-${id}.png`, priority:'P1', w:1024, h:1024, alpha:true,
       out:{ w:512, h:512, fmt:'png' }, kind:'object',
       purpose:`Party-games emblem for ${id}. Wordmark is CSS text — never generated.`,
-      subject:`${subj}, centred, generous empty margin, isolated on pure flat black background` });
+      subject:`${subj}, centred, isolated on pure flat black background` });
+  }
+
+  /* ── the KARTI coin ──────────────────────────────────────────────────────
+     Maltese themed, and it carries our emblem — but the emblem is NOT
+     generated. No image model can reproduce a specific logo; asking for one
+     gets you a coin with a confident, wrong crest on it. So the obverse is
+     minted with a BLANK raised centre disc and art/ui/emblem.png is composited
+     into it, exactly like the wordmark treatment everywhere else. The result is
+     our real logo, pin sharp, on a coin that looks struck rather than drawn.
+     Used for the IL-KIRI money, the coin toss that picks who starts, and the
+     pack-shop currency. */
+  const COINS = {
+    'coin-face': 'a thick worn gold coin face on, rim ringed with tiny Maltese crosses, its centre a smooth blank disc, no design in the middle',
+    'coin-back': 'a thick worn gold coin face on, a Maltese luzzu boat with a painted eye on its prow in relief, a laurel wreath inside the rim',
+  };
+  for (const [id, subj] of Object.entries(COINS)) {
+    add({ id, file:`art/ui/${id}.png`, priority:'P1', w:1024, h:1024, alpha:true,
+      out:{ w:512, h:512, fmt:'png' }, kind:'object',
+      purpose:`KARTI coin ${id === 'coin-face' ? 'obverse — the blank centre disc is where art/ui/emblem.png is composited; it MUST come back smooth and empty' : 'reverse'}. Perfectly circular, centred, so it can be spun in CSS.`,
+      subject:`${subj}, perfectly circular, isolated on pure flat black background` });
   }
 
   /* ── one portrait per story boss ─────────────────────────────────────────

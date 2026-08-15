@@ -94,9 +94,9 @@ function mkInst(cid, pos, fd, sumTurn){
   if (!card) return null;
   return {
     uid: ++tuid, cid, card, owner: 0,
-    pos: pos || 'atk', fd: !!fd, mod:0, tempMod:0,
+    pos: pos || 'atk', fd: !!fd, mod:0, tempMod:0, defMod:0,
     atkCount:0, maxAtk: (card.fx === 'double' || card.fx === 'cleave') ? 2 : 1,
-    monsterOnly: card.fx === 'cleave', shieldUsed:false,
+    monsterOnly: card.fx === 'cleave', hit:[], shieldUsed:false,
     sumTurn: sumTurn === undefined ? -1 : sumTurn
   };
 }

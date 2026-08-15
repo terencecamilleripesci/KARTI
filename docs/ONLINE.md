@@ -37,7 +37,8 @@ off — KARTI plays exactly as it always has. Sync is an addition, never a depen
 | The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players and passes JSON moves between them, and answers `/presence` with who is connected **and which rooms are open**. |
 | The accounts | the same process, `/var/lib/karti/accounts.db` | KARTI accounts and one save file each, so a player can log in on a second phone and find their collection. **The only thing here that writes to disk** — see section 4. |
 | The tunnel | Tailscale Funnel, `:8443` under `/karti` | Gives the relay a public HTTPS/WSS address without opening a router port. |
-| The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and draws both the room list and the who's-online panel. |
+| The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and draws the room list, the who's-online panel and any invitations waiting for you. **Owns the socket and nothing else** — it knows no rules of chess, dama or the card duel. |
+| The board games | `js/party.js` + `js/chess.js` + `js/dama.js` | The engines, the boards, and the shared takeback machinery. Each registers an online controller on `KARTI_PARTY.online[game]` — `start / remote / take / note / stop` — which is the whole of the contract with `js/mp.js`. |
 | The sync client | `js/sync.js` | Sign up, log in, upload and download the save, and the "which of these two games do you want to keep?" conversation. Self-contained; the game plays perfectly without it. |
 
 **The endpoint lives in exactly one place.** Top of `js/mp.js`:
@@ -57,11 +58,108 @@ var ACCT_URL = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/acct';
 `js/sync.js` asks `KARTI_MP.defaultURL()` first and only falls back to that constant, so
 `?relay=…` and the *Server settings* box move duels and cloud saves together.
 
+### Three games, and a room is a room OF one of them
+
+A room is not just "a room" any more. Before you open one you tap **card duel**, **chess**
+or **dama**; every room in everybody's list says which it is; and the relay refuses to
+carry a move for a game the room is not playing.
+
+| | Card duel | Chess | Dama |
+|---|---|---|---|
+| engine | `js/game.js` | `js/chess.js` | `js/dama.js` |
+| what crosses the wire | the deal (seed + both pre-shuffled decks), then one message per action | one move | one move (the whole jump chain is one move) |
+| who goes first / is White | low bit of the shared seed | low bit of the shared seed | low bit of the shared seed |
+| deck needed | yes | no | no |
+| touches your collection | wins pay coins | never | never |
+
+**A room with no game on it is a card duel**, at every layer — an older client that sends
+`{"t":"create"}` with no `game` field gets exactly the room it always got, and an older
+client reading the new room list sees a field it does not understand and ignores it.
+
+Chess and dama ride the same rails as the duel because both engines are deterministic and
+strictly turn-based: only the *move* crosses, and each phone plays it on its own board.
+Three things ride along with it:
+
+* **a fingerprint with every move** — the position the sender was looking at. If the two
+  boards have drifted apart, the game stops instead of lying about the result.
+* **the receiver's own rules** — an incoming move is looked up in the legal-move list
+  *our* engine generated from *our* board. Anything not in that list is refused by name
+  ("a move the rules of chess do not allow") and the game ends. This is the board-game
+  twin of `illegalRemote()` and it is the only thing between you and a peer with devtools
+  open.
+* **a colour draw neither side controls** — see below.
+
+### Who is White is not the host's to give
+
+Going first is worth something in every one of these games, and in the card duel the host
+used to take it every time. Now:
+
+1. each phone throws a random 32-bit number into its `bhello`, **before it has seen the
+   other's**;
+2. the seed is the **XOR** of the two;
+3. White is the low bit of the seed;
+4. the guest holds both halves, so it **checks the host's arithmetic** and stops the game
+   if the seed it was sent is not the XOR of the two nonces.
+
+A host that grinds seeds to hand itself White fails step 4. (The card duel's own
+`hostFirst` is one step behind this — it is derived from the host's seed rather than from
+both — and is left alone deliberately: changing it would break every client already out
+there mid-duel.)
+
+### Undo online is a takeback REQUEST
+
+Offline, undo is a button. Online it is asked for, and it only happens when **every other
+player in the game** allows it. The machinery is generic (`KARTI_PARTY.ui.takeback`) so the
+games that seat three or four players can use the same one rather than each inventing half
+of it.
+
+* the asker's board is **locked** while the question is open — they cannot play a move
+  into a position somebody has already rolled back out of;
+* the ask carries the **fingerprint of the position it wants to get back to**. A client
+  whose own history would not land on that exact position **declines automatically**. If
+  the boards cannot both roll back to the same place, the takeback simply does not happen;
+* one decline ends it, **quietly** — the person who said no is never named, and the asker
+  gets one small line saying to carry on;
+* it expires after 30 s unanswered, is withdrawn if anybody moves or the game ends, and is
+  capped both in the client (15 s between asks) and on the relay (`L.TAKE_BURST` /
+  `L.TAKE_RATE`: three, then one every fifteen seconds).
+
+### Inviting one particular person
+
+The room list is for whoever turns up. An **invite** is for asking *Terence* by name.
+
+* You must be **signed in** to send one, and it is addressed to an **account**, not to a
+  socket — so it is still waiting for them when they open the app half an hour later.
+* They see it **on the home screen**, in the who's-online panel: who asked, which game, how
+  long is left, **Join** and a quiet ✕.
+* It never carries a room code. Accepting hands the id back and the relay resolves the
+  room itself, exactly like a join handle from the room list.
+* It expires after five minutes, and is withdrawn — with `{"t":"invitegone"}` to whoever is
+  holding it — the moment the room fills, closes or times out.
+* Declining is silent. Nothing at all goes back to the sender.
+
+**It is not account enumeration.** Inviting a name nobody has is answered with the
+*identical* `{"t":"invited","to":…,"game":…}` reply, in the same shape, as inviting a real
+one. Nothing in the invite path ever answers the question "is there a user called X". The
+UI says so out loud: *"If ROBERT has a KARTI account, it is waiting for them."*
+
+**This is in-app, not a real notification.** It reaches a phone that has KARTI open, or the
+next time it is opened. It will **not** light up a locked screen. Doing that properly needs
+Web Push: a VAPID key pair on the Pi, a `push` subscription stored per device, the service
+worker handling a `push` event, and — on iOS — the app **installed to the home screen**,
+because Apple does not allow push from a Safari tab at all. That is a separate piece of
+work with its own moving parts (subscription expiry, per-device fan-out, a quiet-hours
+rule) and none of it is built here.
+
 ### The room list — the way in
 
 **Nobody reads a code out.** Opening *Multiplayer › Online* shows every room that is
-currently waiting for an opponent: who opened it and how long they have been sat there.
-Tap one and you are in the duel. Opening a room of your own is one tap on **Open a room**,
+currently waiting for an opponent: **what game it is**, who opened it and how long they
+have been sat there. Tap one and you are in. When more than one kind of room is open, a
+row of chips (`ALL 5 · CARDS 2 · CHESS 2 · DAMA 1`) narrows it; picking a game in the
+opener also points the list at it. A filter with nothing behind it lets go of itself
+rather than show "no chess rooms" over a list of three card rooms.
+Opening a room of your own is one tap on **Open a room**,
 which puts you in everybody else's list within a few seconds and shows you a plain
 "waiting for someone" state with an obvious way to cancel. With nothing open the screen
 says *"No rooms open — open one and wait"*, with the button right there; it never looks
@@ -241,7 +339,7 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (118 checks, 0 failed)
+# SELFTEST: ALL PASS  (144 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -265,6 +363,33 @@ code, that an outsider cannot join a room they were never offered, that one conn
 only hold one room in the list at a time, and that the list stays capped while `open` keeps
 telling the truth about how many rooms there really are.
 
+The **game-room block** proves that a chess room says so in both the create reply and the
+room list; that cards, chess and dama sit in one list each saying what it is, with honest
+per-game counts; that a `joinid` carrying the wrong game is refused without disturbing the
+opener; that a chess room relays a hello, a seed, a move and a resignation rebuilt field by
+field; that a whole three-stone dama jump chain survives intact; that **a move for a game
+the room is not playing never reaches the other player**, in either direction and for every
+combination; that `bail` still works in a room of any kind; and that a reconnecting player
+is told which game they have come back to and replayed what they missed. The abuse list it
+feeds includes off-board squares, a chain longer than the board, a chess move dressed as a
+dama one, an unknown game id, a missing game id and an oversized checksum.
+
+The **takeback block** proves an ask and its answer cross the relay rebuilt field by field,
+that seven kinds of malformed takeback never reach the other player, that spamming requests
+is cut off after the burst, and that *answering* is never rate limited — being unable to say
+no would be worse than the flood.
+
+The **invite block** proves a session token binds a socket to an account; that an
+unauthenticated socket can neither invite, accept, nor fake a session; that you cannot
+invite anybody before you have a room open; that an invite reaches a signed-in player live
+with the game and who sent it and **no room code**; that **inviting a name that does not
+exist is answered identically** to inviting one that does; that a second invite from the
+same sender replaces the first; that a made-up id or somebody else's invite is refused;
+that accepting seats you in that exact room with nothing typed; that an invite is withdrawn
+the moment its room fills; that one whose room has closed cannot be redeemed even by
+somebody still holding the id; that an unanswered invite expires on its own; and that
+invites are rate limited per connection.
+
 **Two real browsers through the real transport** (what was used to verify this build).
 Two *separate* browsers, not two tabs — two tabs in one browser cannot both be visible, and
 the poller stops when the page is hidden. Serve the repo on `:8123`, run the relay on
@@ -280,6 +405,33 @@ What was asserted, and passed, 21/21:
 * 20 rooms opened from plain sockets → the relay publishes 16, the client draws 12 and
   says "and 8 more open right now"; the count stays honest.
 * An unreachable relay renders the red "cannot reach the server" box, never an empty list.
+
+**The three-games build was driven the same way, 60/60 across five runs** (two separate
+Chromium instances, 440×894, `deviceScaleFactor:3`, and zero page errors):
+
+* **chess, 15/15** — A picks *chess* in the opener, opens a room; B's list shows it
+  labelled `CHESS` alongside a `CARDS` and a `DAMA` room; the `CHESS` chip narrows the list;
+  B joins **with nothing typed**; both phones land on the **same seed and opposite colours**,
+  and the seed really is the XOR of the two nonces; Black cannot move out of turn; five
+  half-moves are tapped on the real boards and the two FENs stay identical; and a rook
+  teleported in by a peer with devtools open is **refused** and the game stopped honestly.
+* **dama, 6/6** — the same, plus an illegal jump refused *by name* as a dama move.
+* **takeback, 14/14** — the button says *Takeback*; the other player is asked by name and
+  told how many moves; the asker is locked and told nothing has moved; a **decline changes
+  nothing on either board** and produces no telling-off on either screen; an **allow rolls
+  both boards back to the byte-identical position** with the asker to move; play carries on
+  in step; asking again straight away is refused by the cooldown and never sent; a
+  resignation ends the game on both phones the right way round.
+* **edges, 13/13** — an unanswered takeback expires, is taken off the other screen, moves
+  nothing, and unlocks the board; a real socket drop is **said on the board** and the
+  reconnect puts both phones back on the same position; leaving tells the other player;
+  **and a card-duel room still deals a real card duel on the duel screen with identical
+  checksums** — the old flow untouched.
+* **invites, 17/17** — two real accounts, sessions stored where `js/sync.js` keeps them,
+  A invites B by name, B sees it **on the home screen** and joins in one tap onto A's chess
+  board; an unauthenticated socket is refused; a real name and a made-up one are answered
+  identically; and the invitation is withdrawn on screen the moment a stranger takes the
+  seat off the public list.
 
 **Both directions of compatibility were also driven in real browsers** (7/7): today's live
 `js/mp.js` against the new relay (creates rooms, panel unchanged, joins off the panel,
@@ -482,13 +634,20 @@ One JSON object per WebSocket text frame. Everything is capped at 16 KiB.
 
 | Client sends | Server answers |
 |---|---|
-| `{"t":"create","private":false}` | `{"t":"created","code":"W2AZG","token":"…","host":true,"seq":0,"private":false}` |
+| `{"t":"create","private":false,"game":"chess"}` | `{"t":"created","code":"W2AZG","token":"…","host":true,"seq":0,"private":false,"game":"chess"}` |
+| | `game` is `cards` \| `chess` \| `dama`. **No `game` field means the card duel** — that is what every room was before this existed, so an older client gets exactly what it always got. It is echoed back so a client that asked for chess can tell a relay that understands the field from an older one that ignored it, and say so instead of seating somebody at the wrong game |
 | `{"t":"create","private":true}` | the same, with `"private":true` — the room is in **no** list and hands out **no** join handle; its code is the only way in. The flag is echoed back on purpose, so a client can tell a relay that understands it from an older one that ignored it |
 | `{"t":"join","code":"W2AZG"}` | `{"t":"joined",…}` — and the host gets `{"t":"peer","state":"joined"}` |
-| `{"t":"joinid","id":"…"}` | the same `joined` reply. `id` is the opaque public handle carried by each entry in the `/presence` room list, so tapping a room seats you without your ever being told its code. The relay re-resolves the handle itself and refuses it unless that room is still open, public and short of a player |
+| `{"t":"joinid","id":"…","game":"chess"}` | the same `joined` reply. `id` is the opaque public handle carried by each entry in the `/presence` room list, so tapping a room seats you without your ever being told its code. The relay re-resolves the handle itself and refuses it unless that room is still open, public and short of a player. `game`, when sent, is what the client *believed* it was tapping; a mismatch is refused with `E_WRONGGAME`, because a room list is a second or two old by the time a thumb lands on it |
+| `{"t":"auth","session":"…"}` | `{"t":"authed","name":"Terence"}`, followed by one `{"t":"invite",…}` for every invitation waiting for that account. The token is one issued by `/acct/login`; it binds this socket to an account for as long as it lives and is never written anywhere. Everything an anonymous socket could do before, it can still do |
+| `{"t":"invite","to":"Robert"}` | `{"t":"invited","to":"Robert","game":"chess"}` — **the same reply whether or not that account exists**, so this is not a way to find out who has one. Requires `auth` and a room of your own standing open. Whoever it is addressed to gets `{"t":"invite","id":"…","from":"Terence","game":"chess","left":300}` if they are online, and the same the next time they sign in |
+| `{"t":"acceptinvite","id":"…"}` | the normal `joined` reply for that room. The room code is resolved server-side from an invitation this account was actually sent; a made-up id, or somebody else's, gets `E_NOINVITE` |
+| `{"t":"declineinvite","id":"…"}` | `{"t":"invitegone","id":"…"}` **to the decliner only**. Nothing at all goes to whoever asked |
+| | `{"t":"invitegone","id":"…"}` arrives unprompted when an invitation is withdrawn — its room filled, closed or timed out |
 | `{"t":"name","n":"TERENCE"}` | `{"t":"named","n":"TERENCE"}` — the display name for the online list, scrubbed and capped at 16 characters, kept only for the life of the socket |
 | `{"t":"rejoin","code":…,"token":…,"since":N}` | `{"t":"rejoined",…}` then every relay after `N` that it missed |
 | `{"t":"relay","d":{…}}` | the other player gets `{"t":"relay","n":SEQ,"d":{…}}` |
+| | `d.k` is one of `hello` / `start` / `act` (the card duel), `bhello` / `bstart` / `bact` / `btake` (chess and dama), or `bail` (stop the match — the only one that belongs in a room of any kind). **A payload for a game the room is not playing is refused, not forwarded**, whichever direction it is going |
 | `{"t":"leave"}` | the other player gets `{"t":"peer","state":"left"}` |
 | `{"t":"ping"}` | `{"t":"pong"}` |
 |  | `{"t":"error","why":"…"}` — always one of a fixed set of strings |
@@ -505,13 +664,16 @@ reaching one particular person.
 {"ok":true,"count":4,"idle":1,"waiting":3,"playing":0,
  "shown":4,"max":24,"every":12,
  "players":[{"n":"TERENCE","s":"waiting","id":"gu1kgetrHl0"}, …],
- "rooms":[{"id":"gu1kgetrHl0","n":"TERENCE","w":37}, …],
- "open":3,"roomsMax":16}
+ "rooms":[{"id":"gu1kgetrHl0","n":"TERENCE","w":37,"g":"chess"}, …],
+ "open":3,"roomsMax":16,
+ "openBy":{"cards":1,"chess":2,"dama":0},"games":["cards","chess","dama"]}
 ```
 
 `rooms` is the room list: one entry per open, **public**, still-empty room — the opaque
-per-socket handle, the opener's scrubbed display name, and `w`, how many seconds it has
-waited. `open` is how many are *really* open, which can exceed `rooms.length`. A private
+per-socket handle, the opener's scrubbed display name, `w`, how many seconds it has
+waited, and `g`, **what game it is**. `openBy` counts each kind *before* the list is
+capped, so "2 chess" cannot quietly become "1 chess" because a sample was taken.
+`open` is how many are *really* open, which can exceed `rooms.length`. A private
 room contributes to `waiting` and to nothing else: no `rooms` entry, and its host's
 `players` entry carries no `id`.
 
@@ -684,6 +846,19 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 | Names published by `/presence` | 24 |
 | Rooms published by `/presence` | 16 (a random sample once more are open) |
 | Rooms one connection may hold at once | 1 |
+| Games a room can be | `cards`, `chess`, `dama` — nothing else, and no field means `cards` |
+| Chess move on the wire | two board indices 0–63 and a promotion piece 0–15 |
+| Dama move on the wire | a path of 2–13 squares and up to 12 captures, all 0–63 |
+| Takeback plies | 1–8 |
+| Takeback **requests** per connection | 3 burst, then 1 per 15 s (answers are never limited) |
+| Client-side wait between takeback asks | 15 s |
+| Unanswered takeback dies after | 30 s |
+| **Invitations held at once, whole server** | 256, in memory only — never written to disk |
+| Invitations one player may be holding | 8 (full is full; a flooder cannot push real ones out) |
+| Invitations one connection may have out | 5, and **one per sender per recipient** (a second replaces the first) |
+| Invitations sent per connection | 4 burst, then 1 per 20 s |
+| Invitation lifetime | 5 minutes, then swept |
+| Bad `auth` attempts before disconnect | 6 |
 | `/presence` answer cache | 3 s |
 | `/presence` rate per caller | 1/s sustained, 8 burst (then 429) |
 | Dropped-seat grace | 60 s |
@@ -760,6 +935,33 @@ What it does **not** catch, and cannot:
   believe it. The validator re-uses the engine's checkers, so it inherits their blind
   spots.
 
+### Chess and dama are a better case, and it is worth saying why
+
+The board games do not have the card duel's two structural holes, because there is
+nothing hidden and nothing dealt.
+
+* **There is no hidden information at all.** Both boards are face up from move one.
+  There is nothing to read out of memory that you cannot see by looking at the screen.
+* **There is nothing to stack.** No shuffle, no deal — both engines start from the same
+  fixed position.
+* **Colour cannot be taken.** The seed is the XOR of a number from each phone, thrown
+  before either has seen the other's, and the guest verifies the arithmetic.
+* **Every move is re-generated, not just re-checked.** `fromWire()` looks the incoming
+  move up in the list our own engine produced from our own board; if it is not in that
+  list it does not exist. That means the compulsory take, the whole jump chain, castling
+  rights, en passant and "you may not leave your own king in check" are all enforced
+  against a remote move exactly as they are against a tap on the glass — there is no
+  second, weaker code path for them to slip through.
+* **A takeback cannot be used to diverge the boards.** It is granted by everyone or by
+  nobody, and a client whose history would not land on the asked-for position declines
+  rather than roll back to somewhere else.
+
+What is still open, and is the same for every game here: **stalling** (someone can simply
+stop moving — after 60 s of silence the seat expires and the game ends with no result),
+**an engine bug** (if our rules are wrong, both sides are wrong together), and the fact
+that nothing stops somebody running a real chess engine in another window. That last one
+is a social problem, not a protocol one, and it is not being solved on a Pi.
+
 **Verdict:** proportionate for a private group of friends, which is what this is for.
 It is not cheat-proof, and nothing in the UI claims it is.
 
@@ -770,6 +972,24 @@ It is not cheat-proof, and nothing in the UI claims it is.
 * Exactly two players per room. No spectators, no matchmaking, no ranking. The room list
   is a list, not a queue: first tap wins, and the other person is told *"that room has
   gone"* rather than being quietly dropped.
+* **Invitations are in-app only.** They reach a phone with KARTI open, and they are waiting
+  the next time it is opened — they will not light up a locked screen. Doing that needs
+  **Web Push**, which is a real piece of work and is not built: a VAPID key pair generated
+  once and kept on the Pi, a `pushsubscription` per device stored against the account (with
+  its own expiry and re-subscribe handling), `pushManager.subscribe()` and a `push` handler
+  added to `sw.js`, a sender on the relay that fans out to every device an account has and
+  prunes the ones that 410, a permission prompt asked at a moment that makes sense rather
+  than at boot, and a quiet-hours rule so a 2 a.m. chess invite does not cost a friendship.
+  On **iOS it additionally requires the app to be installed to the home screen** — Apple
+  does not allow push from a Safari tab at all — so it only works for people who added
+  KARTI to their home screen, and it silently does nothing for everybody else. Budget it as
+  its own job, not as a flag.
+* **Invitations are held in memory.** Restarting the relay forgets every pending one. With
+  a five-minute lifetime that is a fair trade for never writing them to disk, but it does
+  mean a restart during a match-making evening loses whatever was in flight.
+* **Takebacks are all-or-nothing and never partial.** If two clients disagree about where
+  they would land, the takeback is declined rather than applied — the boards stay in step
+  and the players simply play on. There is no way to take back further than eight plies.
 * A new room takes about 4 s (8 s worst case) to reach somebody else's screen — 3 s of
   server-side cache plus a 5 s poll. Going faster means either a socket push or lowering
   the polling floor, and the floor is what keeps a menu left open from costing anything.

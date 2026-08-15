@@ -1,0 +1,75 @@
+# sk-back   ->  art/skarta/back.jpg   seed 989630257   832x1216 -> 590x860.jpg
+The card back. ALSO THE SENTINEL — js/skarta-ui.js loads this to decide whether art/skarta/ exists. If this one file is missing the whole pack is ignored and the game falls back to its CSS cards.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, an ornate symmetrical playing card back pattern, a Maltese eight-pointed cross woven into a repeating tile of festa fireworks and prickly pear paddles, deep indigo and warm gold, dense pattern edge to edge
+
+------------------------------------------------------------------------------
+
+# sk-face-festa   ->  art/skarta/face-festa.jpg   seed 3209423263   832x1216 -> 590x860.jpg
+The painted window behind every FESTA number card. SECOND SENTINEL — face-festa.jpg is the other file js/skarta-ui.js probes, so a half-uploaded folder cannot half-skin the game. The numeral is CSS dead centre: keep the middle third empty.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a Maltese village square at night from below, a lit church facade far at the top, fireworks bursting along the top edge, festoon lights strung across the bottom, wide, empty quiet middle
+
+------------------------------------------------------------------------------
+
+# sk-face-bahar   ->  art/skarta/face-bahar.jpg   seed 290841382   832x1216 -> 590x860.jpg
+The painted window behind every BAĦAR number card. SECOND SENTINEL — face-festa.jpg is the other file js/skarta-ui.js probes, so a half-uploaded folder cannot half-skin the game. The numeral is CSS dead centre: keep the middle third empty.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a bright Mediterranean bay from above, painted luzzu boats along the top edge, rocks and a swimmer at the bottom edge, wide flat empty turquoise water through the middle, empty quiet middle
+
+------------------------------------------------------------------------------
+
+# sk-face-razzett   ->  art/skarta/face-razzett.jpg   seed 4223156498   832x1216 -> 590x860.jpg
+The painted window behind every RAŻŻETT number card. SECOND SENTINEL — face-festa.jpg is the other file js/skarta-ui.js probes, so a half-uploaded folder cannot half-skin the game. The numeral is CSS dead centre: keep the middle third empty.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a sunlit Maltese farm terrace, a low rubble wall and a carob tree along the top edge, a dozing dog and a bucket at the bottom, wide empty ochre field through, empty quiet middle
+
+------------------------------------------------------------------------------
+
+# sk-face-bajtra   ->  art/skarta/face-bajtra.jpg   seed 1371846596   832x1216 -> 590x860.jpg
+The painted window behind every BAJTRA number card. SECOND SENTINEL — face-festa.jpg is the other file js/skarta-ui.js probes, so a half-uploaded folder cannot half-skin the game. The numeral is CSS dead centre: keep the middle third empty.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a hot Maltese roadside in summer, tall prickly pear cactus paddles along the top edge, a crate of picked fruit at the bottom, wide empty pale sky through the middle, empty quiet middle
+
+------------------------------------------------------------------------------
+
+# sk-act-skip   ->  art/skarta/act-skip.png   seed 1445827798   1024x1024 -> 512x512.png (alpha)
+ERĠA' EJJA GĦADA (skip) — one cut-out subject, laid over whichever suit colour the card already carries. The card name and the +2 / 4-7 stay CSS text underneath it.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a grumpy government clerk slamming a service window shutter down on a despairing man's paperwork, papers flying, one rubber, isolated on pure flat black background
+
+------------------------------------------------------------------------------
+
+# sk-act-reverse   ->  art/skarta/act-reverse.png   seed 1924237377   1024x1024 -> 512x512.png (alpha)
+DAWRA TA' MARSA (reverse) — one cut-out subject, laid over whichever suit colour the card already carries. The card name and the +2 / 4-7 stay CSS text underneath it.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, two little cartoon cars nose to nose on a roundabout both swinging into the same u-turn, tyres smoking, one driver, isolated on pure flat black background
+
+------------------------------------------------------------------------------
+
+# sk-act-draw2   ->  art/skarta/act-draw2.png   seed 2392972831   1024x1024 -> 512x512.png (alpha)
+IL-KUNJATA (draw two) — one cut-out subject, laid over whichever suit colour the card already carries. The card name and the +2 / 4-7 stay CSS text underneath it.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a tiny fierce Maltese grandmother marching in with an enormous shopping bag under each arm, chin up, entirely unstoppable, isolated on pure flat black background
+
+------------------------------------------------------------------------------
+
+# sk-act-kazin   ->  art/skarta/act-kazin.png   seed 320096422   1024x1024 -> 512x512.png (alpha)
+IL-KAŻIN (wild) — one cut-out subject, laid over whichever suit colour the card already carries. The card name and the +2 / 4-7 stay CSS text underneath it.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a crowded village band club bar counter seen head on, four different club scarves hung side by side above it, isolated on pure flat black background
+
+------------------------------------------------------------------------------
+
+# sk-act-kaxxa   ->  art/skarta/act-kaxxa.png   seed 1119702468   1024x1024 -> 512x512.png (alpha)
+IL-KAXXA INFERNALI (the choice card) — one cut-out subject, laid over whichever suit colour the card already carries. The card name and the +2 / 4-7 stay CSS text underneath it.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, a huge wooden festa firework crate erupting in one enormous ground burst, sparks in every direction, a man sprinting, isolated on pure flat black background
+
+------------------------------------------------------------------------------
+
+# sk-table   ->  art/skarta/table.jpg   seed 348029670   1216x832 -> 1200x820.jpg
+The felt behind the draw pile and the discard pile. The cards sit dead centre and the chain badge sits along the top, so keep the middle plain.
+
+funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, a worn dark green baize card table top seen from directly above, faint ring stains and old cigarette scorches around the outer edge, a scattering of pistachio shells in the, plain empty middle
+

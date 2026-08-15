@@ -54,9 +54,13 @@ const BOSSES = [
     win:'Denied. You may appeal in writing, within fifteen days, in triplicate.',
     lose:'Fine. Approved. But I am noting in the file that you were rude to me.',
     reward:{ coins:180, packs:1 },
-    list:{ kju:3, garaxx:2, hanut:3, rota:3, kaxxier:3, sinjal:3, bus:3, burokrat:3,
-           parkegg:2, kunsill:2, penthouse:2,
-           qassata:3, mistura:2,
+    /* Round 2 used to be EASIER than round 1 — 94% against a beginner, because
+       twenty-seven bodies with an average of nine hundred ATK cannot take a life
+       point off anybody. She keeps the queue and the forms; the drill, the crane
+       and the speed camera are what give her something to actually hit with. */
+    list:{ kju:1, hanut:3, rota:2, kaxxier:3, sinjal:2, bus:3, burokrat:3,
+           skavaturi:2, krejn:1, spettur:2, kunsill:2, penthouse:2, kera:1,
+           qassata:3, mistura:2, bulldozer:2,
            wegha:3, barriera:2, garanzija:1 }
   },
   {
@@ -86,7 +90,10 @@ const BOSSES = [
     win:'Back to the beach, sur. The water is mine.',
     lose:'Alright. But you are carrying the cooler up the steps.',
     reward:{ coins:260, packs:1 },
-    list:{ rizzi:2, qroll:2, kajakk:2, lampuka:3, klamari:3, kurrent:2, nassa:2, mask:2,
+    /* the jet ski and the third fish trap replaced two 400-ATK souvenirs: round
+       4 was measured EASIER than round 3, and a boat full of sunbathers who
+       cannot reach a life total is not a fight. */
+    list:{ rizzi:1, kajakk:2, lampuka:3, klamari:3, kurrent:2, nassa:3, mask:2, jetski:2,
            qarnita:3, dghajsa:2, bahri:2, regatta:2, pixxispad:2, mewga:1, sirena:1,
            baharkalm:2, xita:2,
            ncempel:2, dawl:2, bolla:1 }
@@ -102,8 +109,11 @@ const BOSSES = [
     win:'Lunch is at twelve on Sunday. Do not be late, and do not wear that shirt.',
     lose:'Well. You are still not what I would have chosen. But you can carve, I will give you that.',
     reward:{ coins:300, packs:2 },
-    list:{ wattsapp:2, ghajn:2, qarrejja:2, kuntu:2, gar:3, gossip:3, debtor:2, skiet:3,
-           kunjatu:2, bocci:2, wirt:2, ommgharusa:2, spiter:2, vat:1,
+    /* same reason as round 4: the voice note and the evil eye were 500 and 800
+       ATK of pure atmosphere. The runaway karozzin and the family group chat
+       are the same joke with something behind it. */
+    list:{ ghajn:1, qarrejja:2, kuntu:2, gar:3, gossip:3, debtor:2, skiet:3,
+           kunjatu:2, bocci:2, karozzin:2, group:1, wirt:2, ommgharusa:2, spiter:2, vat:1,
            screenshot:3, mistura:2,
            ommok:2, garanzija:2, tiswija:1 }
   },
@@ -149,10 +159,19 @@ const BOSSES = [
     win:'Come back next week. Bring the plate back. And bring an appetite.',
     lose:'Good boy. Now finish the plate before you start celebrating.',
     reward:{ coins:600, packs:3 },
-    list:{ gbejna:2, patata:2, fenek:3, nanna:2, zija:2, kelb:2, raddiena:2, serra:2,
-           mahzen:2, tigrija:2, kaccatur:2, ghasfur:2, nannaslip:2, kunjata:1, ministru:1,
-           kappella:2, siesta:2, wirja:2, tapit:1,
-           nannathares:2, ommok:2 }
+    /* REBUILT, because the final boss was measured as the EASIEST of the last
+       three: a beginner beat her 81% of the time while the two bosses before
+       her held them to 49% and 44%. The reason was the mistake cards.js already
+       warns about in capital letters — she had NINETEEN tribute monsters behind
+       nine free bodies, so most of her hand could not be played and she stood
+       there being a lovely old lady with nothing on the table.
+       Same kitchen, same jokes, same FARM: eighteen free bodies (twelve of them
+       doing something the turn they land), five payoffs, and a back row that
+       actually answers. She is now the hardest fight on the ladder. */
+    list:{ fenek:3, patata:3, gbejna:2, bettieha:2, hmar:2, ghasfur:2, nannu:2, klieb:2,
+           zija:2, kaccatur:1, mahzen:1, nannaslip:1,
+           kafe:2, wirja:2, tapit:2, kappella:1, imnarja:1, mistura:1,
+           nannathares:2, ommok:2, qattus:2, hass:1, garanzija:1 }
   }
 ];
 

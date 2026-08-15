@@ -1,0 +1,101 @@
+[
+  {
+    "id": "skarta-back",
+    "file": "art/skarta/back.jpg",
+    "w": 832, "h": 1216,
+    "alpha": false,
+    "out": { "w": 590, "h": 860 },
+    "purpose": "The SKARTA card back — the most-seen image in the game. ALSO THE SENTINEL: js/skarta-ui.js waits for a real load event on this file before switching any art on. NOT a cut-out — do not append the black-background clause to this one.",
+    "subject": "an ornate symmetrical card back pattern, a Maltese eight-pointed cross woven through repeating fireworks and prickly pear paddles, deep indigo and gold, dense edge to edge"
+  },
+  {
+    "id": "skarta-face-festa",
+    "file": "art/skarta/face-festa.jpg",
+    "w": 832, "h": 1216,
+    "alpha": false,
+    "out": { "w": 590, "h": 860 },
+    "purpose": "The painted window behind all 25 FESTA number cards. SECOND SENTINEL. The numeral is CSS at 52% of the card width dead centre, so the middle third MUST come back empty. NOT a cut-out — no black-background clause.",
+    "subject": "a village square at night seen from below, lit church facade above, fireworks along the top, festoon lights below, empty dark sky through the middle"
+  },
+  {
+    "id": "skarta-face-bahar",
+    "file": "art/skarta/face-bahar.jpg",
+    "w": 832, "h": 1216,
+    "alpha": false,
+    "out": { "w": 590, "h": 860 },
+    "purpose": "The painted window behind all 25 BAĦAR number cards. Middle third must come back empty — a CSS numeral sits there. NOT a cut-out — no black-background clause.",
+    "subject": "a Mediterranean bay from above, painted luzzu boats along the top, rocks and a swimmer below, empty turquoise water through the middle"
+  },
+  {
+    "id": "skarta-face-razzett",
+    "file": "art/skarta/face-razzett.jpg",
+    "w": 832, "h": 1216,
+    "alpha": false,
+    "out": { "w": 590, "h": 860 },
+    "purpose": "The painted window behind all 25 RAŻŻETT number cards. Middle third must come back empty — a CSS numeral sits there. NOT a cut-out — no black-background clause.",
+    "subject": "a sunlit farm terrace, rubble wall and carob tree along the top, a dozing dog and a bucket below, empty ochre field through the middle"
+  },
+  {
+    "id": "skarta-face-bajtra",
+    "file": "art/skarta/face-bajtra.jpg",
+    "w": 832, "h": 1216,
+    "alpha": false,
+    "out": { "w": 590, "h": 860 },
+    "purpose": "The painted window behind all 25 BAJTRA number cards. Middle third must come back empty — a CSS numeral sits there. NOT a cut-out — no black-background clause.",
+    "subject": "a hot roadside in summer, tall prickly pear paddles along the top, a crate of picked fruit below, empty pale sky through the middle"
+  },
+  {
+    "id": "skarta-act-skip",
+    "file": "art/skarta/act-skip.png",
+    "w": 1024, "h": 1024,
+    "alpha": true,
+    "out": { "w": 512, "h": 512 },
+    "purpose": "ERĠA' EJJA GĦADA (skip) — the cut-out subject laid over whichever suit colour the card already is, which is why there are five of these and not twenty. The card name stays CSS text underneath.",
+    "subject": "a grumpy clerk slamming a service window shutter down on a despairing man's paperwork, papers flying, a rubber stamp mid-air"
+  },
+  {
+    "id": "skarta-act-reverse",
+    "file": "art/skarta/act-reverse.png",
+    "w": 1024, "h": 1024,
+    "alpha": true,
+    "out": { "w": 512, "h": 512 },
+    "purpose": "DAWRA TA' MARSA (reverse) — cut-out subject over the card's own suit colour. Card name is CSS text underneath.",
+    "subject": "two little cars nose to nose on a roundabout swinging into the same u-turn, tyres smoking, one driver throwing both hands up"
+  },
+  {
+    "id": "skarta-act-draw2",
+    "file": "art/skarta/act-draw2.png",
+    "w": 1024, "h": 1024,
+    "alpha": true,
+    "out": { "w": 512, "h": 512 },
+    "purpose": "IL-KUNJATA (draw two) — cut-out subject over the card's own suit colour. The +2 is CSS text over the top of it and must never be generated.",
+    "subject": "a tiny fierce Maltese grandmother marching in with an enormous shopping bag under each arm, chin up, entirely unstoppable"
+  },
+  {
+    "id": "skarta-act-kazin",
+    "file": "art/skarta/act-kazin.png",
+    "w": 1024, "h": 1024,
+    "alpha": true,
+    "out": { "w": 512, "h": 512 },
+    "purpose": "IL-KAŻIN (the wild that names the suit) — cut-out subject sitting on the four-suit card field. Card name is CSS text underneath.",
+    "subject": "a crowded village band club bar counter head on, four different club scarves hung side by side above it, glasses everywhere"
+  },
+  {
+    "id": "skarta-act-kaxxa",
+    "file": "art/skarta/act-kaxxa.png",
+    "w": 1024, "h": 1024,
+    "alpha": true,
+    "out": { "w": 512, "h": 512 },
+    "purpose": "IL-KAXXA INFERNALI — the card the whole game turns on, where you choose +4 or +7. The 4/7 is CSS text over the top and must never be generated: if the +7 is ever rebalanced to a +6 that has to be one character of JavaScript, not another pod rental.",
+    "subject": "a huge wooden festa firework crate erupting in one enormous ground burst, sparks in every direction, a man sprinting away clutching his hat"
+  },
+  {
+    "id": "skarta-table",
+    "file": "art/skarta/table.jpg",
+    "w": 1216, "h": 832,
+    "alpha": false,
+    "out": { "w": 1200, "h": 820 },
+    "purpose": "The felt behind the draw pile and the discard pile — the largest single surface on the screen. Both piles sit dead centre and the chain badge sits along the top, so the middle stays plain. NOT a cut-out — no black-background clause.",
+    "subject": "a worn dark green baize card table top from directly above, ring stains and scorches around the outer edge, plain empty felt in the centre"
+  }
+]
