@@ -2419,11 +2419,20 @@ async function runAttack(zi, target){
   UI.busy = true;
   resetUI(); UI.busy = true;
   renderDuel();
-  const r = doAttack(0, zi, target);
-  if (!r.ok) toast(r.why);
-  await wait(520);
-  UI.busy = false;
-  renderDuel();
+  /* If anything in here throws, UI.busy must still come back down. Left stuck
+     true the action bar renders only the disabled "Opponent is thinking…" — no
+     End turn, no Cancel — and the only way out of the duel is to forfeit it. */
+  try {
+    const r = doAttack(0, zi, target);
+    if (!r.ok) toast(r.why);
+    await wait(520);
+  } catch (e) {
+    toast('Something went wrong with that attack.');
+    if (window.console) console.error('runAttack', e);
+  } finally {
+    UI.busy = false;
+    renderDuel();
+  }
 }
 async function playerEndTurn(){
   if (UI.busy) return;
@@ -2443,14 +2452,23 @@ async function playerEndTurn(){
 }
 async function runAITurn(){
   let guard = 0;
-  while (!D.over && D.turn === 1 && guard++ < 60){
-    await wait(560);
-    aiStep();
+  /* Same reasoning as runAttack: a throw inside the opponent's turn used to
+     leave UI.busy true forever, and the only escape was forfeiting. */
+  try {
+    while (!D.over && D.turn === 1 && guard++ < 60){
+      await wait(560);
+      aiStep();
+      renderDuel();
+    }
+  } catch (e) {
+    toast('The opponent got confused. Your turn.');
+    if (window.console) console.error('runAITurn', e);
+    if (D && !D.over && D.turn === 1) { try { endTurn(); } catch (_) {} }
+  } finally {
+    UI.busy = false;
+    resetUI();
     renderDuel();
   }
-  UI.busy = false;
-  resetUI();
-  renderDuel();
 }
 function logSheet(){
   const lines = D.log.slice(-40).reverse()

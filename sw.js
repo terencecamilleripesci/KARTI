@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v12';
+const CACHE = 'karti-v13';
 const CORE = [
   './',
   './index.html',
@@ -64,12 +64,20 @@ self.addEventListener('fetch', event => {
   const isFullArt = /\/art\/[^/]+\.(jpe?g|png|webp)$/i.test(url.pathname) &&
                     !/\/art\/thumb\//i.test(url.pathname);
 
+  /* A failed fetch REJECTS, but a 500 or a captive-portal interstitial RESOLVES —
+     so returning it straight through handed the player an error page while a
+     perfectly good cached copy sat right there. Treat a non-OK response the same
+     as no response at all, and only fall back to the network result if we have
+     nothing cached. */
   event.respondWith(
     fetch(req)
       .then(res => {
         if (res && res.ok && res.type === 'basic' && !isFullArt){
           const copy = res.clone();
           caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
+        if (res && !res.ok){
+          return caches.match(req).then(hit => hit || res);
         }
         return res;
       })
