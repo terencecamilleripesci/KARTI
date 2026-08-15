@@ -927,6 +927,12 @@ function profileSheet(){
             '<span class="sub">keeps everything · play on any phone</span></button>' +
         '</div>'
       : '') +
+    /* The record book and the board are their own module (js/stats.js); it
+       binds these by data attribute, so this stays markup only. */
+    '<div class="opts">' +
+      '<button class="btn ghost" data-karti-stats>' + ilb('cards', 'Record book') + '</button>' +
+      '<button class="btn ghost" data-karti-stats="board">' + ilb('crown', 'Leaderboard') + '</button>' +
+    '</div>' +
     '<div class="opts">' +
       '<button class="btn ghost" id="pf-switch">' + ilb('users', 'Switch player') + '</button>' +
       '<button class="btn ghost" id="pf-set">' + ilb('gear', 'Settings') + '</button>' +
