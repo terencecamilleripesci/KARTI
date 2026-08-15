@@ -359,9 +359,18 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   /* `safe` matters: a plain centred flex column that overflows pushes its first
      child off the TOP of the scroll box, where it can never be scrolled back to.
      That is what was beheading the logo on a short screen. */
-  justify-content:center;justify-content:safe center;
+  /* Start at the top and ALWAYS have somewhere to scroll. The owner wants Party
+     Games to sit below the fold so you discover it by scrolling, and a home
+     screen that scrolls also behaves like a normal document on iOS instead of a
+     locked pane. The extra height is what guarantees both. */
+  justify-content:flex-start;
 }
 .homemid::-webkit-scrollbar{display:none}
+/* A deliberate tail of empty space at the end of the home column, so there is
+   always something to scroll and Party Games sits below the fold — the owner
+   asked for it to be found by scrolling. It also keeps the page behaving like
+   a normal document on iOS rather than a locked pane. */
+.homefill{flex:0 0 auto;height:200px;pointer-events:none}
 .brand{flex:0 0 auto}
 #scr-home .logo{font-size:clamp(34px,min(13vw,8vh),64px)}
 #scr-home .wallet{margin:0;flex:0 0 auto}
@@ -1308,11 +1317,20 @@ body.reduced .hint{animation:none!important;opacity:.8}
           ><span class="sub">Eight bosses. Beat the village.</span></button>
         <button class="btn primary pick" id="btn-mp"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
           aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Multiplayer</span></span
-          ><span class="sub">One phone, or two on the same wi-fi</span></button>
+          ><span class="sub">Play someone in another house</span></button>
       </div>
       <!-- js/mp.js fills this in and empties it again when you leave Home.
            It is the ONLY part of KARTI that needs the internet. -->
       <section class="onlinebox" id="home-online" aria-label="Who is online"></section>
+      <!-- Party games. Deliberately the last thing in the scroll column: Home is
+           meant to scroll a little, both so this is a discovery and so the page
+           behaves like a normal document on iOS. -->
+      <div class="menu" style="margin-top:14px">
+        <button class="btn ghost pick" id="btn-party"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Party Games</span></span
+          ><span class="sub">Chess, Dama and more — pass the phone</span></button>
+      </div>
+      <div class="homefill" aria-hidden="true"></div>
     </div>
 
     <!-- The 18+ small print used to sit under the buttons as bottom filler. It is
@@ -1488,7 +1506,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 33;
+var KARTI_BUILD = 35;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1522,7 +1540,20 @@ window.swVersion = function(){
     s.onload = s.onerror = function(){ next(i + 1); };
     document.head.appendChild(s);
   })(0);
-  if ('serviceWorker' in navigator){
+  /* Party Games entry. js/party.js is loaded separately and may not be present on
+   every deploy, so this is wired here rather than in game.js: if the hub is
+   there it opens, and if it is not the player is told plainly instead of
+   tapping a dead button. */
+addEventListener('DOMContentLoaded', function(){
+  var b = document.getElementById('btn-party');
+  if (!b) return;
+  b.onclick = function(){
+    if (window.KARTI_PARTY && KARTI_PARTY.open) { KARTI_PARTY.open(); return; }
+    if (window.KARTI && KARTI.toast) KARTI.toast('Party games are on the way — chess and dama first.');
+  };
+});
+
+if ('serviceWorker' in navigator){
     var sw = navigator.serviceWorker;
     var born = Date.now();
     window.addEventListener('load', function(){

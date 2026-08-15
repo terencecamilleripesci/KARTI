@@ -285,6 +285,9 @@ function load(){
   S = Object.assign(DEFAULT_STATE(), o || {});
   S.rec = Object.assign({ w:0, l:0 }, S.rec || {});
   S.owned = S.owned || {}; S.decks = S.decks || []; S.starters = S.starters || [];
+  /* An old save (or a half-finished sync) can carry an activeDeck id whose deck
+     is gone. Repair it on the way in, not on the way to a duel. */
+  fixDeckState();
 }
 /* Sync is strictly optional: it is notified AFTER the local write, and every
    call inside it is wrapped, so the game saves exactly as before whether the
@@ -480,6 +483,13 @@ function navSync(name){
 }
 
 function go(name){
+  /* Leaving the Inventory screen commits whatever the deck builder was holding
+     and drops you back on the deck LIST, so arriving at Inventory from anywhere
+     always shows your decks rather than mid-edit card soup. */
+  if (current === 'deck' && name !== 'deck'){
+    if (typeof commitDraft === 'function') commitDraft();
+    dbDeck = null; deckView = 'list';
+  }
   SCREENS.forEach(s => { const el = $('#scr-' + s); if (el) el.classList.toggle('on', s === name); });
   current = name;
   navSync(name);
@@ -626,6 +636,11 @@ function renderHome(){
   const dtab = $('#btn-deck');
   if (dtab) dtab.title = d ? d.name + ' · ' + deckTotal(d.list) + '/' + DECK_SIZE +
     (legal ? '' : ' — not legal') : 'pick a deck first';
+  /* Everything that changes a deck from outside the Inventory screen —
+     chooseSide() on the beginner picker, a cloud pull in js/sync.js — ends with
+     renderHome(). If the player is looking at the deck list right now, repaint
+     it too, so it can never show a deck that has just been replaced. */
+  if (current === 'deck' && deckView === 'list' && $('#inv-root')) renderInventory();
 }
 function profileSheet(){
   openSheet(
@@ -757,7 +772,13 @@ function chooseSide(key){
     return;
   }
   const deck = S.decks.find(x => x.starter === key);
-  S.side = key; if (deck) S.activeDeck = deck.id;
+  S.side = key;
+  /* The picker may only hand you a deck you could actually duel with — the
+     Inventory options sheet applies the same rule, so "active" means the same
+     thing however you got there. */
+  if (deck && deckIsLegal(deck.list)) S.activeDeck = deck.id;
+  else if (deck) toast('“' + deck.name + '” is not legal yet — fix it in Inventory.');
+  fixDeckState();
   save(); renderHome();
 }
 
@@ -1431,18 +1452,499 @@ function paintCollGrid(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   DECK BUILDER
+   INVENTORY  +  DECK BUILDER
+
+   The Inventory tab used to drop you straight into the card-by-card builder,
+   which is the LAST screen you want when all you asked for is "my stuff".
+   #scr-deck now carries two views:
+
+     deckView = 'list'   the Inventory landing — what you own, every deck you
+                         have, and the things you can DO with each of them.
+     deckView = 'build'  the original pool/deck builder, reached by choosing
+                         EDIT on a deck. Backing out of it returns here.
+
+   The landing is built at RUNTIME into #scr-deck, and its CSS is injected once
+   from this file (see invCSS), because index.html and css/ belong to another
+   part of the build. Nothing here adds transform/filter/backdrop-filter to an
+   ancestor of .tabbar — the landing lives inside #scr-deck, which is not one.
    ═══════════════════════════════════════════════════════════════════ */
 const dbF = { cat:'all', attr:'all', rar:'all', q:'' };
 let dbDeck = null;          // working copy {id,name,starter,list}
 let dbPane = 'pool';
+let deckView = 'list';      // 'list' (inventory landing) | 'build' (deck builder)
 
+/* ── invariants ───────────────────────────────────────────────────────────
+   Two things must never be true after any deck operation: the player has no
+   decks at all, or S.activeDeck points at a deck that has been deleted. Every
+   mutation below funnels through here rather than each remembering to. */
+function fixDeckState(){
+  if (!Array.isArray(S.decks)) S.decks = [];
+  if (S.activeDeck && !deckById(S.activeDeck)) S.activeDeck = null;
+  if (!S.activeDeck && S.decks.length) S.activeDeck = S.decks[0].id;
+  if (!S.decks.length) S.activeDeck = null;
+}
+
+/* The draft in the builder is written back to the save BEFORE any navigation,
+   so backing out can never lose work. A never-saved, still-empty draft is the
+   one thing that is discarded — otherwise "New deck" then "back" would litter
+   the list with blanks. Legality is NOT required to store a deck; an illegal
+   deck is stored and flagged, and startDuel() still refuses it. */
+function commitDraft(){
+  if (!dbDeck) return;
+  const existing = deckById(dbDeck.id);
+  if (!existing && deckTotal(dbDeck.list) === 0){ dbDeck = null; return; }
+  if (!String(dbDeck.name || '').trim()) dbDeck.name = 'MY DECK';
+  if (existing){
+    existing.name = dbDeck.name;
+    existing.list = Object.assign({}, dbDeck.list);
+  } else {
+    S.decks.push({ id:dbDeck.id, name:dbDeck.name, starter:dbDeck.starter,
+                   list: Object.assign({}, dbDeck.list) });
+  }
+  fixDeckState();
+  save();
+}
+
+const deckId = () => 'd' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const clipName = s => String(s || '').trim().slice(0, 22) || 'MY DECK';
+
+/* A deck's glyph: its starter's attribute if it came from one, otherwise the
+   attribute its monsters actually lean on. Keeps a home-built deck from being
+   the only anonymous row in the list. */
+function deckGlyph(d){
+  if (d.starter && STARTER_DECKS[d.starter])
+    return ATTR_ICON[STARTER_DECKS[d.starter].f || d.starter] || 'deck';
+  const tally = {};
+  Object.entries(d.list || {}).forEach(([id, n]) => {
+    const c = cardById(id);
+    if (c && c.t === 'monster' && c.f) tally[c.f] = (tally[c.f] || 0) + n;
+  });
+  const top = Object.keys(tally).sort((a, b) => tally[b] - tally[a])[0];
+  return (top && ATTR_ICON[top]) || 'deck';
+}
+function deckMix(d){
+  const m = { monster:0, spell:0, trap:0 };
+  Object.entries(d.list || {}).forEach(([id, n]) => {
+    const c = cardById(id);
+    if (c && m[c.t] != null) m[c.t] += n;
+  });
+  return m;
+}
+
+/* ── runtime stylesheet ───────────────────────────────────────────────── */
+function invCSS(){
+  if (document.getElementById('inv-runtime-css')) return;
+  const st = document.createElement('style');
+  st.id = 'inv-runtime-css';
+  st.textContent =
+    '#scr-deck .invroot{display:none;flex:1;min-height:0;flex-direction:column}' +
+    '#scr-deck .invroot.on{display:flex}' +
+    /* summary strip — same chip language as the collection filters, but it
+       WRAPS rather than scrolls: these are facts, not filters, and a fact you
+       have to swipe sideways to find is a fact you never read */
+    '#scr-deck .invsum{display:flex;flex-wrap:wrap;gap:5px;padding:1px 0 8px;flex:0 0 auto}' +
+    '#scr-deck .invsum .chip{cursor:default;min-height:34px;padding:0 9px;font-size:11px;' +
+      'letter-spacing:.03em}' +
+    '#scr-deck .invsum .chip b{opacity:.95;font-variant-numeric:tabular-nums}' +
+    '#scr-deck .ivlist{display:flex;flex-direction:column;gap:9px}' +
+    /* one deck = one 68px row = one tap target that opens its options */
+    '#scr-deck .ivdeck{display:flex;align-items:center;gap:11px;width:100%;text-align:left;' +
+      'min-height:68px;padding:11px 12px;border-radius:16px;color:var(--txt);cursor:pointer;' +
+      'border:1px solid var(--line2);background:linear-gradient(180deg,var(--panel2),var(--panel));' +
+      'transition:transform .13s var(--ease),border-color .16s,background .16s}' +
+    '#scr-deck .ivdeck:active{transform:scale(.985)}' +
+    '#scr-deck .ivdeck.on{border-color:rgba(255,197,66,.62);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.17),rgba(255,197,66,.045));' +
+      'box-shadow:0 0 22px -8px rgba(255,197,66,.9)}' +
+    '#scr-deck .ivglyph{flex:0 0 auto;width:44px;height:44px;border-radius:14px;display:grid;' +
+      'place-items:center;color:var(--gold);background:rgba(255,197,66,.12);' +
+      'border:1px solid rgba(255,197,66,.28)}' +
+    '#scr-deck .ivglyph .ico{font-size:23px}' +
+    '#scr-deck .ivdeck.bad .ivglyph{color:var(--bad);background:rgba(255,84,104,.12);' +
+      'border-color:rgba(255,84,104,.30)}' +
+    '#scr-deck .ivtxt{flex:1;min-width:0}' +
+    '#scr-deck .ivname{display:block;font-family:var(--disp);font-weight:900;font-size:13.5px;' +
+      'letter-spacing:.03em;text-transform:uppercase;line-height:1.25;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-deck .ivmeta{display:flex;align-items:center;gap:5px;margin-top:6px;flex-wrap:wrap}' +
+    /* status is never colour-only: every tag carries an icon and words */
+    '#scr-deck .ivtag{display:inline-flex;align-items:center;gap:4px;padding:2.5px 7px;' +
+      'border-radius:999px;font-family:var(--body);font-weight:800;font-size:10px;line-height:1.5;' +
+      'letter-spacing:.07em;text-transform:uppercase;white-space:nowrap;' +
+      'background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--dim)}' +
+    '#scr-deck .ivtag .ico{font-size:12px}' +
+    '#scr-deck .ivtag.ok{color:var(--ok);border-color:rgba(61,220,132,.42);' +
+      'background:rgba(61,220,132,.13)}' +
+    '#scr-deck .ivtag.bad{color:var(--bad);border-color:rgba(255,84,104,.45);' +
+      'background:rgba(255,84,104,.13)}' +
+    '#scr-deck .ivtag.act{color:#241800;border-color:#FFE9B0;' +
+      'background:linear-gradient(180deg,#FFDE8B,var(--gold))}' +
+    /* monster/spell/trap counts ride in ONE chip, so every row keeps to a
+       single line of tags and the list does not go ragged */
+    '#scr-deck .ivtag.mix{gap:3px;letter-spacing:.02em}' +
+    '#scr-deck .ivtag.mix i{font-style:normal;margin-right:5px}' +
+    '#scr-deck .ivtag.mix i:last-child{margin-right:0}' +
+    '#scr-deck .ivmore{flex:0 0 auto;width:38px;height:38px;border-radius:12px;display:grid;' +
+      'place-items:center;color:var(--dim);background:rgba(255,255,255,.05);' +
+      'border:1px solid var(--line)}' +
+    '#scr-deck .ivmore .ico{font-size:19px}' +
+    '#scr-deck .ivdeck.on .ivmore{color:var(--gold);border-color:rgba(255,197,66,.35)}' +
+    /* nothing owned yet, or every deck deleted down to none */
+    '#scr-deck .ivempty{padding:24px 18px;border-radius:16px;text-align:center;' +
+      'border:1px dashed var(--line2);background:rgba(255,255,255,.03)}' +
+    '#scr-deck .ivempty .ico{font-size:30px;color:var(--dim2)}' +
+    '#scr-deck .ivempty b{display:block;font-family:var(--disp);font-size:13px;letter-spacing:.06em;' +
+      'margin:9px 0 6px}' +
+    '#scr-deck .ivempty p{font-size:12.5px;line-height:1.6;color:var(--dim);margin:0}' +
+    '.ivnote{font-size:11.5px;line-height:1.55;color:var(--dim2);margin:8px 2px 0}' +
+    '#scr-deck .ivpad{height:14px}' +
+    /* sheet bits, shared by the per-deck menu and the create/rename flows */
+    '.ivsheet-h{display:flex;align-items:center;gap:10px;margin-bottom:2px}' +
+    '.ivsheet-h .ivglyph{flex:0 0 auto;width:40px;height:40px;border-radius:13px;display:grid;' +
+      'place-items:center;color:var(--gold);background:rgba(255,197,66,.12);' +
+      'border:1px solid rgba(255,197,66,.28)}' +
+    '.ivsheet-h .ivglyph .ico{font-size:21px}' +
+    '.ivsheet-h h3{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    /* a menu of choices reads better ranged left than centred like a CTA */
+    '.btn.ivopt{align-items:stretch;text-align:left}' +
+    '.btn.ivopt .bl{width:100%;justify-content:flex-start}' +
+    '.btn.ivopt .bl>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '.btn.ivdanger{color:var(--bad);border-color:rgba(255,84,104,.45);' +
+      'background:rgba(255,84,104,.09)}';
+  document.head.appendChild(st);
+}
+
+/* ── the landing's DOM, built once inside the existing #scr-deck ────────── */
+function invRoot(){
+  let root = $('#inv-root');
+  if (root) return root;
+  const scr = $('#scr-deck');
+  if (!scr) return null;
+  invCSS();
+  root = document.createElement('div');
+  root.className = 'invroot';
+  root.id = 'inv-root';
+  root.innerHTML =
+    '<div class="invsum" id="inv-sum"></div>' +
+    '<div class="dhead"><span>' + ico('deck') + ' YOUR DECKS</span>' +
+      '<span id="inv-dcount"></span></div>' +
+    '<div class="scroll" id="inv-scroll">' +
+      '<div class="ivlist" id="inv-list"></div>' +
+      '<div id="inv-starters"></div>' +
+      '<div class="ivpad"></div>' +
+    '</div>' +
+    '<div class="savebar">' +
+      '<button class="btn primary sm" id="inv-new" style="flex:1">' +
+        ilb('plus', 'New deck') + '</button>' +
+    '</div>';
+  /* the builder's savebar is the anchor: the landing sits directly before it */
+  const bar = $('#db-save') ? $('#db-save').parentElement : null;
+  if (bar && bar.parentElement === scr) scr.insertBefore(root, bar);
+  else scr.appendChild(root);
+
+  /* The seven-deck starter picker used to sit above the builder. Move the two
+     live nodes (renderDeckPicker still finds them by id) into the landing and
+     retire the now-empty wrapper index.html left behind. */
+  const sel = $('#decksel'), tag = $('#decktag');
+  const host = root.querySelector('#inv-starters');
+  if (sel && host){
+    const wrap = sel.parentElement;
+    const head = document.createElement('div');
+    head.className = 'dhead';
+    head.innerHTML = '<span>' + ico('cards') + ' BEGINNER DECKS</span>';
+    host.appendChild(head);
+    host.appendChild(sel);
+    if (tag) host.appendChild(tag);
+    if (wrap && wrap !== host && wrap.parentElement === scr) wrap.style.display = 'none';
+  }
+  $('#inv-new').onclick = newDeckSheet;
+  return root;
+}
+
+/* ── view switching ───────────────────────────────────────────────────── */
+function deckChrome(build){
+  const scr = $('#scr-deck');
+  if (!scr) return;
+  const seg = $('#db-seg'), bar = $('#db-save') ? $('#db-save').parentElement : null;
+  if (seg) seg.style.display = build ? '' : 'none';
+  if (bar) bar.style.display = build ? '' : 'none';
+  if (!build){
+    const pp = $('#pane-pool'), pd = $('#pane-deck');
+    if (pp) pp.classList.remove('on');
+    if (pd) pd.classList.remove('on');
+  }
+  const root = invRoot();
+  if (root) root.classList.toggle('on', !build);
+  const back = $('#deck-back');
+  if (back) back.setAttribute('aria-label', build ? 'Back to your decks' : 'Back to home');
+  const h = scr.querySelector('.tbar h2');
+  if (h) h.textContent = build && dbDeck ? clipName(dbDeck.name) : 'Inventory';
+}
+
+/* go() routes here for the Inventory tab. Which of the two views you land on is
+   decided by deckView, and arriving from anywhere else always means the list. */
 function renderDeckBuilder(){
-  renderDeckPicker();          /* the picker lives on this screen now */
+  invCSS();
+  renderDeckPicker();
+  if (deckView !== 'build' || !dbDeck){ deckView = 'list'; renderInventory(); return; }
+  deckChrome(true);
+  renderBuilderPane();
+}
+
+function showInventory(){
+  commitDraft();
+  dbDeck = null;
+  deckView = 'list';
+  renderDeckBuilder();
+}
+
+/* EDIT is the only door into the builder. */
+function openBuilder(d){
+  dbDeck = { id:d.id, name:d.name, starter:d.starter, list: Object.assign({}, d.list) };
+  dbPane = deckTotal(dbDeck.list) ? 'deck' : 'pool';
+  deckView = 'build';
+  renderDeckBuilder();
+}
+
+/* the tbar arrow: out of the builder goes to the list, out of the list goes home */
+function deckBack(){
+  if (deckView === 'build'){ showInventory(); return; }
+  commitDraft(); dbDeck = null;
+  go('home');
+}
+
+/* ── the landing ──────────────────────────────────────────────────────── */
+function renderInventory(){
+  const root = invRoot();
+  if (!root) return;
+  fixDeckState();
+  deckChrome(false);
+
+  const copies = Object.values(S.owned || {}).reduce((a, b) => a + b, 0);
+  const legalCount = S.decks.filter(d => deckIsLegal(d.list)).length;
+  /* Three facts, because four does not fit on one line at 390px and a summary
+     that wraps to a lonely second row reads worse than a shorter summary.
+     Coins and dust are already on Home's wallet and in the Store. */
+  $('#inv-sum').innerHTML =
+    '<span class="chip">' + ico('cards') + ' Cards <b>' + uniqueOwned() + '/' + CARDS.length + '</b></span>' +
+    '<span class="chip">' + ico('pile') + ' Copies <b>' + copies + '</b></span>' +
+    '<span class="chip">' + ico('deck') + ' Decks <b>' + S.decks.length + '</b></span>';
+  $('#deck-count').innerHTML = '<span class="mono">' + S.decks.length + '</span>' +
+    (S.decks.length === 1 ? ' deck' : ' decks');
+  $('#inv-dcount').textContent = S.decks.length
+    ? legalCount + '/' + S.decks.length + ' READY' : '';
+
+  const host = $('#inv-list');
+  host.innerHTML = '';
+  if (!S.decks.length){
+    host.innerHTML =
+      '<div class="ivempty">' + ico('deck') +
+        '<b>No decks yet</b>' +
+        '<p>Take a beginner deck below, or build one from scratch with ' +
+          'New deck. A deck needs exactly ' + DECK_SIZE + ' cards you own.</p></div>';
+    return;
+  }
+  S.decks.forEach(d => host.appendChild(deckRow(d)));
+  const note = document.createElement('p');
+  note.className = 'ivnote';
+  note.textContent = 'Tap a deck for its options — use it, edit the cards, rename, ' +
+    'duplicate or delete. Max ' + MAX_COPIES + ' copies of any card.';
+  host.appendChild(note);
+}
+
+function deckRow(d){
+  const tot = deckTotal(d.list);
+  const legal = deckIsLegal(d.list);
+  const act = S.activeDeck === d.id;
+  const mix = deckMix(d);
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ivdeck' + (act ? ' on' : '') + (legal ? '' : ' bad');
+  b.setAttribute('aria-label', d.name + ', ' + tot + ' of ' + DECK_SIZE + ' cards, ' +
+    (legal ? 'ready' : 'not legal') + (act ? ', active deck' : '') + '. Options.');
+  b.innerHTML =
+    '<span class="ivglyph">' + ico(deckGlyph(d)) + '</span>' +
+    '<span class="ivtxt">' +
+      '<span class="ivname">' + esc(d.name) + '</span>' +
+      '<span class="ivmeta">' +
+        (act ? '<span class="ivtag act">' + ico('check') + ' Active</span>' : '') +
+        /* the count carries a tick when the deck is legal and spells the
+           problem out when it is not — the exception is what needs words */
+        '<span class="ivtag ' + (legal ? 'ok' : 'bad') + '">' +
+          ico(legal ? 'check' : 'warn') + ' ' + tot + '/' + DECK_SIZE +
+          (legal ? '' : ' Not legal') + '</span>' +
+        '<span class="ivtag mix">' +
+          '<i>' + ico('type-monster') + ' ' + mix.monster + '</i>' +
+          '<i>' + ico('type-spell') + ' ' + mix.spell + '</i>' +
+          '<i>' + ico('type-trap') + ' ' + mix.trap + '</i></span>' +
+      '</span>' +
+    '</span>' +
+    '<span class="ivmore">' + ico('menu') + '</span>';
+  b.onclick = () => deckOptions(d.id);
+  return b;
+}
+
+/* ── the options sheet: THE point of the rework ────────────────────────── */
+function deckOptions(id){
+  const d = deckById(id);
+  if (!d){ renderInventory(); return; }
+  const tot = deckTotal(d.list);
+  const legal = deckIsLegal(d.list);
+  const act = S.activeDeck === d.id;
+  const last = S.decks.length <= 1;
+  openSheet(
+    '<div class="ivsheet-h"><span class="ivglyph">' + ico(deckGlyph(d)) + '</span>' +
+      '<h3>' + esc(d.name) + '</h3></div>' +
+    '<p class="muted">' + tot + '/' + DECK_SIZE + ' cards · ' +
+      (legal ? 'legal and ready to duel' : 'not legal yet — cannot be used in a duel') +
+      (act ? ' · your active deck' : '') + '</p>' +
+    '<div class="opts">' +
+      (act
+        ? '<button class="btn ghost sm ivopt" disabled>' + ilb('check', 'Already your active deck') + '</button>'
+        : '<button class="btn primary sm ivopt" id="do-use"' + (legal ? '' : ' disabled') + '>' +
+            ilb('check', legal ? 'Use this deck' : 'Use this deck — needs ' + DECK_SIZE + ' cards') +
+          '</button>') +
+      '<button class="btn ghost sm ivopt" id="do-edit">' + ilb('cards', 'Edit cards — deck builder') + '</button>' +
+      '<button class="btn ghost sm ivopt" id="do-ren">' + ilb('save', 'Rename') + '</button>' +
+      '<button class="btn ghost sm ivopt" id="do-dup">' + ilb('plus', 'Duplicate') + '</button>' +
+      '<button class="btn ghost sm ivopt ivdanger" id="do-del"' + (last ? ' disabled' : '') + '>' +
+        ilb('close', 'Delete deck') + '</button>' +
+      (last ? '<p class="ivnote">This is your only deck, so it cannot be deleted — ' +
+              'make another one first.</p>' : '') +
+      '<button class="btn ghost" id="do-close">Close</button>' +
+    '</div>');
+  const on = (sel, fn) => { const el = $(sel); if (el) el.onclick = fn; };
+  on('#do-close', closeSheet);
+  on('#do-use', () => {
+    S.activeDeck = d.id;
+    if (d.starter && STARTER_DECKS[d.starter]) S.side = d.starter;
+    save(); closeSheet(); renderInventory();
+    toast('“' + d.name + '” is now your active deck.');
+  });
+  on('#do-edit', () => { closeSheet(); openBuilder(d); });
+  on('#do-ren', () => renameSheet(d.id));
+  on('#do-dup', () => {
+    const copy = { id: deckId(), name: clipName(d.name.replace(/\s+COPY$/i, '') + ' COPY'),
+                   starter: d.starter, list: Object.assign({}, d.list) };
+    S.decks.push(copy); fixDeckState(); save();
+    closeSheet(); renderInventory();
+    toast('Copied to “' + copy.name + '”.');
+  });
+  on('#do-del', () => deleteSheet(d.id));
+}
+
+function renameSheet(id){
+  const d = deckById(id);
+  if (!d) return;
+  openSheet(
+    '<h3>Rename deck</h3><p class="muted">Up to 22 characters.</p>' +
+    '<div class="opts">' +
+      '<label class="tiny" for="dr-name">Deck name</label>' +
+      '<input class="field" id="dr-name" maxlength="22" autocomplete="off">' +
+      '<button class="btn primary sm" id="dr-go">Save name</button>' +
+      '<button class="btn ghost" id="dr-no">Cancel</button>' +
+    '</div>');
+  const inp = $('#dr-name');
+  inp.value = d.name;
+  inp.focus(); inp.select();
+  const commit = () => {
+    const t = deckById(id);
+    if (!t) { closeSheet(); renderInventory(); return; }
+    t.name = clipName(inp.value);
+    if (dbDeck && dbDeck.id === t.id) dbDeck.name = t.name;
+    save(); closeSheet(); renderInventory();
+    toast('Renamed to “' + t.name + '”.');
+  };
+  $('#dr-go').onclick = commit;
+  $('#dr-no').onclick = () => { closeSheet(); deckOptions(id); };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') commit(); });
+}
+
+/* Destructive, so it is confirmed, and it is refused outright when it would
+   leave the player with nothing to duel with. */
+function deleteSheet(id){
+  const d = deckById(id);
+  if (!d) return;
+  if (S.decks.length <= 1){ toast('That is your only deck — build another one first.'); return; }
+  openSheet(
+    '<h3>Delete “' + esc(d.name) + '”?</h3>' +
+    '<p class="muted">The deck list goes; the cards stay in your collection. ' +
+      'This cannot be undone.</p>' +
+    '<div class="opts">' +
+      '<button class="btn ghost sm ivdanger" id="dd-yes">' + ilb('close', 'Delete deck') + '</button>' +
+      '<button class="btn ghost" id="dd-no">Keep it</button>' +
+    '</div>');
+  $('#dd-no').onclick = () => { closeSheet(); deckOptions(id); };
+  $('#dd-yes').onclick = () => {
+    const i = S.decks.findIndex(x => x.id === id);
+    if (i < 0){ closeSheet(); renderInventory(); return; }
+    const name = S.decks[i].name;
+    S.decks.splice(i, 1);
+    if (dbDeck && dbDeck.id === id) dbDeck = null;
+    fixDeckState();
+    /* S.side backs the beginner-deck picker; drop it if its deck just went */
+    if (S.side && !S.decks.some(x => x.starter === S.side)) S.side = null;
+    save(); closeSheet(); renderInventory();
+    toast('Deleted “' + name + '”.');
+  };
+}
+
+/* ── creating a deck ──────────────────────────────────────────────────── */
+function newDeckSheet(){
+  const copyable = S.decks.filter(d => deckTotal(d.list) > 0);
+  const starters = Object.keys(STARTER_DECKS).filter(k => S.starters.indexOf(k) >= 0);
+  openSheet(
+    '<h3>New deck</h3><p class="muted">Start from nothing, or from something you ' +
+      'already have. ' + DECK_SIZE + ' cards, max ' + MAX_COPIES + ' copies each.</p>' +
+    '<div class="opts">' +
+      '<button class="btn primary sm ivopt" id="nd-empty">' + ilb('plus', 'Empty deck') + '</button>' +
+      (copyable.length
+        ? '<div class="dhead"><span>COPY ONE OF YOURS</span></div>' +
+          copyable.map(d => '<button class="btn ghost sm ivopt" data-from="' + esc(d.id) + '">' +
+            ilb(deckGlyph(d), esc(d.name) + ' <b style="opacity:.55">' +
+              deckTotal(d.list) + '/' + DECK_SIZE + '</b>') + '</button>').join('')
+        : '') +
+      (starters.length
+        ? '<div class="dhead"><span>FROM A BEGINNER LIST</span></div>' +
+          starters.map(k => '<button class="btn ghost sm ivopt" data-starter="' + esc(k) + '">' +
+            ilb(ATTR_ICON[STARTER_DECKS[k].f || k] || 'deck',
+                esc(STARTER_DECKS[k].name) + ' list') + '</button>').join('')
+        : '') +
+      '<button class="btn ghost" id="nd-close">Close</button>' +
+    '</div>');
+  $('#nd-close').onclick = closeSheet;
+  $('#nd-empty').onclick = () => {
+    closeSheet();
+    openBuilder({ id: deckId(), name:'NEW DECK', starter:null, list:{} });
+    toast('Empty deck — add ' + DECK_SIZE + ' cards from the Pool.');
+  };
+  $$('#sheet [data-from]').forEach(b => b.onclick = () => {
+    const src = deckById(b.dataset.from);
+    if (!src) return;
+    closeSheet();
+    openBuilder({ id: deckId(), name: clipName(src.name.replace(/\s+COPY$/i, '') + ' COPY'),
+                  starter: src.starter, list: Object.assign({}, src.list) });
+  });
+  $$('#sheet [data-starter]').forEach(b => b.onclick = () => {
+    const k = b.dataset.starter, sd = STARTER_DECKS[k];
+    const missing = Object.entries(sd.list).filter(([id, n]) => ownedCount(id) < n);
+    if (missing.length){
+      toast('You are ' + missing.length + ' card' + (missing.length === 1 ? '' : 's') +
+            ' short of the full ' + sd.name + ' list.');
+      return;
+    }
+    closeSheet();
+    openBuilder({ id: deckId(), name: clipName(sd.name + ' COPY'), starter:k,
+                  list: Object.assign({}, sd.list) });
+  });
+}
+
+/* ═══ the builder itself — reached only through EDIT ═══════════════════ */
+function renderBuilderPane(){
   if (!dbDeck){
     const a = activeDeck();
     dbDeck = a ? { id:a.id, name:a.name, starter:a.starter, list: Object.assign({}, a.list) }
-               : { id:'d' + Date.now(), name:'NEW DECK', list:{} };
+               : { id: deckId(), name:'NEW DECK', list:{} };
   }
   $$('#db-seg button').forEach(b => {
     b.classList.toggle('on', b.dataset.pane === dbPane);
@@ -1479,7 +1981,9 @@ function renderDeckBuilder(){
   paintDeckList();
 
   $('#db-save').onclick = saveDeck;
+  /* the ⋯ button is the builder's escape hatch back to the deck list */
   $('#db-menu').onclick = deckMenu;
+  $('#db-menu').setAttribute('aria-label', 'Deck menu — back to your decks');
 }
 
 function poolRow(c){
@@ -1637,43 +2141,38 @@ function saveDeck(){
   if (existing){ existing.name = dbDeck.name; existing.list = Object.assign({}, dbDeck.list); }
   else S.decks.push({ id:dbDeck.id, name:dbDeck.name, starter:dbDeck.starter, list: Object.assign({}, dbDeck.list) });
   S.activeDeck = dbDeck.id;
+  fixDeckState();
   save();
-  toast('Saved. “' + dbDeck.name + '” is now your active deck.');
+  const n = dbDeck.name;
+  /* Saving is the end of the job, so it hands you back to the deck list rather
+     than leaving you staring at the pool wondering whether it took. */
+  dbDeck = null; deckView = 'list'; renderDeckBuilder();
+  toast('Saved. “' + n + '” is now your active deck.');
 }
+/* The builder's ⋯ menu. Everything that creates or manages a deck now lives on
+   the Inventory landing, so this is deliberately thin: get back to the list, or
+   switch which deck you are editing. Both commit the current draft first. */
 function deckMenu(){
-  const opts = S.decks.map(d =>
-    '<button class="btn ghost sm" data-load="' + esc(d.id) + '" style="justify-content:space-between">' +
-      '<span>' + esc(d.name) + '</span><span style="opacity:.6">' + deckTotal(d.list) + '/' + DECK_SIZE +
-      (S.activeDeck === d.id ? ' ' + ico('check', 'active deck') : '') + '</span></button>').join('');
-  const starters = Object.keys(STARTER_DECKS).map(k =>
-    '<button class="btn ghost sm" data-starter="' + k + '">' +
-      ilb(ATTR_ICON[STARTER_DECKS[k].f || k] || 'deck',
-          'Load ' + esc(STARTER_DECKS[k].name) + ' starter list') + '</button>').join('');
+  const others = S.decks.filter(d => !dbDeck || d.id !== dbDeck.id);
   openSheet(
-    '<h3>Decks</h3><p class="muted">Saved on this profile. Pick one to edit and make active.</p>' +
-    '<div class="opts">' + (opts || '<p class="muted">No saved decks yet.</p>') +
-      '<div class="dhead"><span>START FROM A STARTER</span></div>' + starters +
-      '<button class="btn ghost sm" data-new="1">' + ilb('plus', 'New empty deck') + '</button>' +
+    '<h3>Deck builder</h3><p class="muted">Changes are kept as you go — you cannot ' +
+      'lose a deck by backing out.</p>' +
+    '<div class="opts">' +
+      '<button class="btn primary sm ivopt" id="dm-back">' + ilb('back', 'All my decks') + '</button>' +
+      (others.length
+        ? '<div class="dhead"><span>EDIT ANOTHER DECK</span></div>' +
+          others.map(d => '<button class="btn ghost sm ivopt" data-load="' + esc(d.id) + '">' +
+            ilb(deckGlyph(d), esc(d.name) + ' <b style="opacity:.55">' +
+              deckTotal(d.list) + '/' + DECK_SIZE + '</b>') + '</button>').join('')
+        : '') +
       '<button class="btn ghost" id="dm-close">Close</button></div>');
   $('#dm-close').onclick = closeSheet;
+  $('#dm-back').onclick = () => { closeSheet(); showInventory(); };
   $$('#sheet [data-load]').forEach(b => b.onclick = () => {
+    commitDraft();
     const d = deckById(b.dataset.load);
-    dbDeck = { id:d.id, name:d.name, starter:d.starter, list: Object.assign({}, d.list) };
-    S.activeDeck = d.id; save(); closeSheet(); renderDeckBuilder();
-  });
-  $$('#sheet [data-starter]').forEach(b => b.onclick = () => {
-    const k = b.dataset.starter, sd = STARTER_DECKS[k];
-    const missing = Object.entries(sd.list).filter(([id, n]) => ownedCount(id) < n);
-    if (missing.length){
-      toast('You don\'t own all of ' + sd.name + ' yet — unlock it on the home screen.');
-      return;
-    }
-    dbDeck = { id:'d' + Date.now(), name: sd.name + ' COPY', starter:k, list: Object.assign({}, sd.list) };
-    closeSheet(); dbPane = 'deck'; renderDeckBuilder();
-  });
-  $$('#sheet [data-new]').forEach(b => b.onclick = () => {
-    dbDeck = { id:'d' + Date.now(), name:'NEW DECK', list:{} };
-    closeSheet(); dbPane = 'deck'; renderDeckBuilder();
+    closeSheet();
+    if (d) openBuilder(d); else showInventory();
   });
 }
 
@@ -2922,7 +3421,7 @@ function wireStatic(){
   };
   $('#pack-back').onclick = () => go('home');
   $('#coll-back').onclick = () => go('home');
-  $('#deck-back').onclick = () => { dbDeck = null; go('home'); };
+  $('#deck-back').onclick = deckBack;
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape'){ closeSheet(); closeModal(); if (UI.mode !== 'idle') cancelUI(); }
   });
@@ -3021,6 +3520,9 @@ window.KARTI = {
   /* the reveal kit, so the starter unboxing runs the identical choreography
      off the identical table instead of a second copy that drifts */
   FX_HTML, REVEAL, RTIER, revConf, setFxColor, fxGo, fxHost, shineEl, shineGo, holdFor,
+  /* Inventory landing + the builder behind it */
+  renderInventory, renderDeckBuilder, renderDeckPicker, showInventory, openBuilder,
+  deckOptions, newDeckSheet, deckMenu, saveDeck, commitDraft, fixDeckState, deckGlyph,
   renderDuel, renderHome, startDuel, startCustomDuel, runAITurn, playerEndTurn, endDuel,
   showResult, DEFAULT_STATE, resetUI, onDuelEvent, dlog,
   toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne
