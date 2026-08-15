@@ -355,7 +355,11 @@ const MP = {
   /* the two halves of the colour draw, and whether a board is on screen */
   myNonce:null, peerNonce:null, boardLive:false,
   /* the invitation we are taking up, and whether the relay took our session */
-  inviteId:null, authProbe:false
+  inviteId:null, authProbe:false,
+  /* set when we arrived with the game already decided and went straight for a
+     seat: if that seat has gone, open a room of the same game rather than
+     showing a menu the player has already answered */
+  autoOpen:null
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -877,6 +881,7 @@ function start(intent, code, id, priv, game){
   MP.code = intent === 'join' ? code : null;
   MP.joinId = intent === 'joinid' ? (id || null) : null;
   if (intent !== 'invite') MP.inviteId = null;
+  if (intent !== 'joinid') MP.autoOpen = null;
   MP.wantPrivate = intent === 'create' ? !!priv : false;
   MP.private = MP.wantPrivate;
   MP.openedAt = 0;
@@ -1024,7 +1029,7 @@ function mpLeave(){
   hardClose();
   stopWaitClock();
   MP.code = null; MP.token = null; MP.live = false; MP.joined = false;
-  MP.joinId = null; MP.nameProbe = false;
+  MP.joinId = null; MP.nameProbe = false; MP.autoOpen = null;
   MP.wantPrivate = false; MP.private = false; MP.openedAt = 0;
   MP.peerHere = false; MP.peerList = null; MP.lastSeq = 0; MP.tries = 0;
   if (MP.state !== 'unreachable') setState('idle');
@@ -1086,6 +1091,7 @@ function onServer(m){
         }
         MP.game = 'cards';
       } else MP.game = cleanGame(m.game);
+      MP.autoOpen = null;
       lobby();
       setState('waiting', MP.private
         ? 'Private ' + gameMeta(MP.game).name.toLowerCase() +
@@ -1102,6 +1108,7 @@ function onServer(m){
          relay too old to answer */
       MP.game = (typeof m.game === 'string') ? cleanGame(m.game) : (MP.joinHint || 'cards');
       if (MP.inviteId){ inboxDrop(MP.inviteId); MP.inviteId = null; }
+      MP.autoOpen = null;                  /* we got the seat; no fallback needed */
       lobby();
       setState('ready', MP.game === 'cards'
         ? 'Connected. Swapping decks…' : 'Connected. Drawing for colours…');
@@ -1182,6 +1189,9 @@ function onServerError(why){
     return;
   }
   if (/not waiting/i.test(why)){
+    /* Arrived from inside a game with the game already decided: do not put a
+       menu in front of them, just open the room we were going to open. */
+    if (autoOpenFallback()) return;
     MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
     setState('unreachable', 'That room has gone — somebody else got there first, or they ' +
              'closed it. The list below refreshes on its own; or open a room of your own.');
@@ -1191,6 +1201,7 @@ function onServerError(why){
   if (/not the game this room/i.test(why)){
     /* the list was a second or two out of date and the room turned out to be
        something else. Not an error the player did anything to cause. */
+    if (autoOpenFallback()) return;
     MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
     setState('unreachable', 'That room turned out to be a different game — the list had ' +
              'moved on. It refreshes on its own; tap another one.');
@@ -2311,8 +2322,23 @@ function joinRoom(id, who, game){
 }
 const joinWaiting = joinRoom;                   /* the name the old panel used */
 
-/* The way in from js/chess.js and js/dama.js: their setup sheet's "somebody
-   online" option lands here with the game already chosen. */
+/* ═══════════════════════════════════════════════════════════════════
+   ARRIVING WITH THE GAME ALREADY DECIDED
+   ───────────────────────────────────────────────────────────────────
+   js/chess.js and js/dama.js land here from their own setup sheet's
+   "somebody online". The player has just told us, twice, that they
+   want chess — the room-type picker at that point is a question whose
+   answer we already have, and one more screen between wanting to play
+   and playing.
+
+   So we do not ask. We take a chess room that is already waiting if
+   there is one (straight onto the board), and open one if there is
+   not. Either way the next thing on screen is a ROOM, never a menu.
+
+   The picker still exists, and is still the right thing, for the one
+   case it was built for: Multiplayer from the home screen, where the
+   player has arrived with no game in mind.
+   ═══════════════════════════════════════════════════════════════════ */
 function openFor(game){
   const g = cleanGame(game);
   MP.wantGame = gamePlayable(g) ? g : 'cards';
@@ -2323,6 +2349,42 @@ function openFor(game){
   if (P && P.standDown) P.standDown();
   mpScreen();
   K.go('mp');
+
+  /* Somebody already sat there waiting for this exact game? Take their
+     seat. It is one fewer person waiting and one fewer screen. */
+  const waiting = pickWaiting(MP.wantGame);
+  if (waiting){
+    /* the list is a second or two old, so if that seat has gone by the time
+       we get there we open our own instead of dumping them back on a menu */
+    MP.autoOpen = MP.wantGame;
+    joinRoom(waiting.id, waiting.n, waiting.g);
+    return;
+  }
+  start('create', null, null, false, MP.wantGame);
+  setState('connecting',
+           'Opening a ' + gameMeta(MP.wantGame).name.toLowerCase() + ' room…');
+}
+
+/* The room of this game that has waited longest, and is not our own. Longest
+   first on purpose: whoever has been sitting there gets the game. */
+function pickWaiting(game){
+  const me = myPresenceName();
+  const rows = roomsFrom(PR.data) || [];
+  const open = rows.filter(r => r.known && r.g === game && r.n !== me);
+  open.sort((a, b) => (b.w || 0) - (a.w || 0));
+  return open[0] || null;
+}
+
+/* the auto-join above missed its seat: open a room of the same game instead */
+function autoOpenFallback(){
+  if (!MP.autoOpen) return false;
+  const g = MP.autoOpen;
+  MP.autoOpen = null;
+  MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
+  start('create', null, null, false, g);
+  setState('connecting', 'They were taken — opening a ' +
+           gameMeta(g).name.toLowerCase() + ' room of your own…');
+  return true;
 }
 
 /* ── mount / unmount ──────────────────────────────────────────────
@@ -2417,7 +2479,7 @@ window.KARTI_MP = {
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
   /* the three-games era */
-  GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, openFor,
+  GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, openFor, pickWaiting,
   beginBoard, boardRemote, hostStartBoard, myColour, backToRooms, openByGame,
   /* who's-online panel + the room list (one poller, two paints) */
   PR, onScreen, presenceMount, presenceUnmount, presencePoll, presencePaint,

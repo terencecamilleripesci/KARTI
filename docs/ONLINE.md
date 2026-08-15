@@ -153,6 +153,109 @@ rule) and none of it is built here.
 
 ### The room list — the way in
 
+### A party, not a duel — rooms are 2 to 16 chairs
+
+The two-player duel is the **narrow** case. Everything else here is a table:
+SKARTA, IL-KIRI, TOMBLA and the four playing-card games all seat a room full of friends,
+and the seat count is primary room data rather than an exception bolted on.
+
+**The relay knows which game and how many chairs, and nothing else.** It enforces each
+game's declared range and refuses anything outside it without knowing one rule — the
+seating twin of `payload_fits()`. Every maximum is read out of the game's own code:
+
+| Game | Chairs | Why that number |
+|---|---|---|
+| card duel, chess, dama | 2 | it is a duel |
+| SKARTA | 2–15 | 108 cards, `RULES.HAND = 7` each plus a starter flip → 15×7+1 = 106. Dealable at 15; the draw pile is two cards, so the game may well advertise fewer |
+| IL-KIRI | 2–8 | a player is a 9pt dot on a 44pt square and eight is as many hues as stay apart. Not the money, not the board |
+| TOMBLA | 2–16 | everybody plays at once, nobody waits for a turn |
+| Bixkla / Briscola | 2–4 | partnership games |
+| Sette e Mezzo | 2–8 | a table |
+| Il-Gidba | 3–8 | needs somebody to lie to |
+
+`L.MAX_SEATS = 16` is the hard ceiling over all of them, and exists so one number bounds
+every buffer and bitmask in the file.
+
+**A DUEL'S WIRE DID NOT CHANGE.** A two-seat room sends exactly the bytes it sent before
+tables existed — no roster, no seat numbers, no sender stamp. Everything new is gated on
+`room.is_table()`, which is why all 144 pre-existing self-test checks still pass unedited.
+That is the regression net, not a claim.
+
+**What a table adds**
+
+* `{"t":"create","game":"skarta","seats":6}` → `created` echoes `seats`, `seat`, `variant`,
+  `started`. No `seats` back means an older relay, and the client says so rather than
+  seating five people who will never arrive.
+* `{"t":"table",…}` — the roster, to everyone, whenever it changes: who is in which chair,
+  whether they are still connected, and which chairs are bots. Names only.
+* `{"t":"start","bots":[4,5]}` — **the host** closes the table. The relay generates the
+  seed, so no player can grind a favourable deal, and each client XORs its own nonce in so
+  a compromised relay cannot fix one either. Everyone gets the same `began`.
+* Every relayed payload is **stamped with the chair it came from** (`"s":4`). The stamp is
+  the relay's, never the client's: at a table you have to know who played, and a client
+  that could label itself could label itself as somebody else.
+* `{"t":"relay","for":4}` is how the host plays a **bot's** chair — honoured only for a
+  chair that was actually given to a bot at start, and still validated by every other
+  client against its own rules exactly like a human's move.
+* A move at a table is one named action with up to two indices, a choice, an amount and a
+  short list — `{"a":"play","i":3,"s":"bahar"}`. Bounded and rebuilt field by field like
+  everything else; extra keys are dropped, not forwarded.
+
+**Dropping out is the common path, not an error path.** With eight phones somebody walking
+into a lift is routine. The table is told which chair went quiet and carries on; the chair
+is held for the reconnect grace and the game decides whether the machine takes it over.
+
+### How many tables fit — measured, not estimated
+
+Run on the Pi with everything else it normally runs. `deliveries seen` matched
+`sent × (seats − 1)` **exactly** in every run, which is what proves the fan-out is real and
+uncapped rather than a flat number from a silent `slice`:
+
+| Load | Delivered | Latency p50/p95/p99 | Relay CPU | RSS |
+|---|---|---|---|---|
+| 4 tables × 16 seats, a move every 3 s | 276 msg/s | 1 / 4 / 24 ms | 2.0% | 40 MB |
+| 6 × 16 (96 sockets), a move every 1 s | 1,167 msg/s | 1 / 3 / 28 ms | 3.3% | 41 MB |
+| 6 × 16, a move every 250 ms (**4× any real game**) | 3,484 msg/s | 1 / 16 / 38 ms | 6.1% | 41 MB |
+| **16 × 16 (256 sockets)**, a move every 1 s | 3,158 msg/s | 1 / 3 / 21 ms | 3.8% | 39 MB |
+
+Fan-out scales exactly as it should: at 4 / 8 / 16 seats one move produced 3 / 7 / 15
+deliveries, every time.
+
+**The honest number: sixteen full sixteen-seat tables at once is comfortable** — under 4%
+of one core of four, 39 MB, 258 threads, p99 of 21 ms. `MAX_WS` is set to **256 sockets**
+because that is exactly the configuration that was measured, not because it is where the
+Pi runs out. The binding cost is one OS thread per socket (~150 KB RSS each), so the next
+real limit is thread scheduling somewhere north of 300–400 sockets — *not* CPU, memory or
+bandwidth. If more than sixteen simultaneous full tables is ever wanted, raise `MAX_WS`
+and re-measure; nothing else needs to change.
+
+### Never ask a question you already know the answer to
+
+There are two ways into online play and they are **not** the same journey.
+
+**From inside a game** — *Party Games › Chess › Find somebody to play* — the player has
+already said "chess" twice by the time they get there, so they are not asked a third time.
+`KARTI_MP.openFor('chess')` takes a chess room that is already waiting if there is one
+(straight onto the board) and opens one if there is not. Either way the next thing on
+screen is a **room**, never another menu. If that seat was taken between the list and the
+thumb, it quietly opens a room of the same game rather than dropping them on a picker.
+
+**From Multiplayer on the home screen** — no game in mind, so the picker is exactly the
+right thing and is shown, with the last game already selected and the button reading
+*Open a chess room* rather than blocking on a choice.
+
+**Taps from "I want to play chess with Sammy" to a board: 3** —
+`PARTY GAMES → CHESS → Find somebody to play`. It was 4: there was a room-type picker in
+the middle that existed because the code wanted a value, not because the player needed a
+choice. Joining is one tap and always was — tapping a room labelled `CHESS` **is** the
+answer, and nothing asks you to confirm it afterwards.
+
+None of the safety changed: `create` still carries `game`, `payload_fits()` still refuses
+cross-game payloads in both directions, and `joinid` still refuses a stale-list mismatch.
+Only the number of screens moved.
+
+### The room list — the way in
+
 **Nobody reads a code out.** Opening *Multiplayer › Online* shows every room that is
 currently waiting for an opponent: **what game it is**, who opened it and how long they
 have been sat there. Tap one and you are in. When more than one kind of room is open, a
@@ -339,7 +442,7 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (144 checks, 0 failed)
+# SELFTEST: ALL PASS  (159 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -406,7 +509,7 @@ What was asserted, and passed, 21/21:
   says "and 8 more open right now"; the count stays honest.
 * An unreachable relay renders the red "cannot reach the server" box, never an empty list.
 
-**The three-games build was driven the same way, 60/60 across five runs** (two separate
+**The three-games build was driven the same way, 73/73 across six runs** (two separate
 Chromium instances, 440×894, `deviceScaleFactor:3`, and zero page errors):
 
 * **chess, 15/15** — A picks *chess* in the opener, opens a room; B's list shows it
@@ -427,6 +530,12 @@ Chromium instances, 440×894, `deviceScaleFactor:3`, and zero page errors):
   reconnect puts both phones back on the same position; leaving tells the other player;
   **and a card-duel room still deals a real card duel on the duel screen with identical
   checksums** — the old flow untouched.
+* **taps, 13/13** — the whole journey counted through real clicks: the chess sheet opens
+  with *online* already chosen, **three taps** puts a chess room on screen when nobody is
+  waiting and puts you **on a live board** when somebody is, the room-type picker is never
+  shown on that path and no confirmation follows a join, a seat that vanished opens a room
+  of your own instead of a menu — and the lobby still labels and filters room types for
+  somebody who arrived with no game in mind.
 * **invites, 17/17** — two real accounts, sessions stored where `js/sync.js` keeps them,
   A invites B by name, B sees it **on the home screen** and joins in one tap onto A's chess
   board; an unauthenticated socket is refused; a real name and a made-up one are answered
@@ -846,7 +955,10 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 | Names published by `/presence` | 24 |
 | Rooms published by `/presence` | 16 (a random sample once more are open) |
 | Rooms one connection may hold at once | 1 |
-| Games a room can be | `cards`, `chess`, `dama` — nothing else, and no field means `cards` |
+| **Chairs at one table** | **2 to 16**, and each game declares its own range inside that |
+| Games a room can be | `cards`, `chess`, `dama`, `skarta`, `klabb`, `kiri`, `tombla` — nothing else, and no field means `cards` |
+| Relayed messages per ROOM | 40/s sustained, 80 burst — this is the amplification cap, so one fast client cannot shout across fifteen sockets |
+| A table move | one action id (≤16 chars), two indices 0–255, a choice id, an amount 0–999999, a list of ≤32 indices |
 | Chess move on the wire | two board indices 0–63 and a promotion piece 0–15 |
 | Dama move on the wire | a path of 2–13 squares and up to 12 captures, all 0–63 |
 | Takeback plies | 1–8 |

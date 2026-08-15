@@ -189,17 +189,105 @@ CODE_RE = re.compile("^[%s]{%d}$" % (CODE_ALPHABET, CODE_LEN))
 # client opens a room and says nothing (cards), and an old client reading the
 # new room list sees a field it does not know and ignores it.
 DEFAULT_GAME = "cards"
-BOARD_GAMES = ("chess", "dama")             # turn-based, deterministic, no deck
-GAME_IDS = (DEFAULT_GAME,) + BOARD_GAMES
+DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
+BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
+TABLES = ("skarta", "klabb", "kiri", "tombla")
+GAME_IDS = DUELS + TABLES
+# Everything that plays over bhello/bstart/bact/btake — i.e. everything except
+# the card duel, which has had its own four payloads since before any of this.
+PLAY_GAMES = BOARD_GAMES + TABLES
+
+# ── HOW MANY CHAIRS ──────────────────────────────────────────────────────────
+#
+# These are PARTY games. A table full of friends is the normal case and the
+# two-player duel is the special one, so the seat count is the primary piece of
+# room data, not an exception bolted on.
+#
+# THE RELAY KNOWS NOTHING ELSE ABOUT ANY OF THEM. This is the seating twin of
+# payload_fits(): it knows which game and how many chairs, and refuses anything
+# outside that, without knowing one rule. A game whose range changes edits one
+# line here and nothing else in this file.
+#
+# Every maximum below is READ OUT OF THE GAME'S OWN CODE, not guessed:
+#
+#   skarta  108 cards, RULES.HAND = 7 each plus one starter flip, so 15 players
+#           is 15*7+1 = 106 of 108 — the arithmetic ceiling. It is DEALABLE at
+#           15 but the draw pile is two cards, so js/skarta.js may well want to
+#           advertise fewer; that is the game's call, not the relay's.
+#   kiri    EIGHT, and the reason is worth writing down because it is not the
+#           rules: a player is a 9pt coloured dot on a 44pt square, and eight
+#           is as many hues as stay apart at that size. Its money and its board
+#           would carry more. (This said FOUR until js/kiri.js removed a quiet
+#           seats.slice(0, 4) — a cap that had been making its own seat-count
+#           experiments return identical results for 4 through 10.)
+#   tombla  everybody plays at once and nobody waits for a turn, so it takes
+#           the largest table the relay will set.
+#   klabb   per VARIANT — see GAME_VARIANT_SEATS below. Bixkla and Briscola are
+#           partnership games at 2 or 4; Sette e Mezzo takes a whole table.
+#
+#   game        (min, max, default)
+GAME_SEATS = {
+    "cards":  (2, 2, 2),
+    "chess":  (2, 2, 2),
+    "dama":   (2, 2, 2),
+    "skarta": (2, 15, 6),
+    "klabb":  (2, 8, 4),
+    "kiri":   (2, 8, 4),
+    "tombla": (2, 16, 8),
+}
+
+# Which flavour of a game a room is playing, where that is a real choice. Kept
+# here rather than in the game so the relay can publish it in the room list
+# without ever having to know what "briscola" means.
+GAME_VARIANTS = {
+    "klabb": ("bixkla", "briscola", "sette", "gidba"),
+}
+# A variant may narrow its game's range. Partnership games need even seats, but
+# the relay does not know what a partnership IS — it just carries the numbers
+# the game declared.
+GAME_VARIANT_SEATS = {
+    ("klabb", "bixkla"):   (2, 4, 4),
+    ("klabb", "briscola"): (2, 4, 4),
+    ("klabb", "sette"):    (2, 8, 5),
+    ("klabb", "gidba"):    (3, 8, 5),
+}
+
+
+def seat_range(game, variant=None):
+    """(min, max, default) chairs for this game, narrowed by its variant."""
+    if variant is not None and (game, variant) in GAME_VARIANT_SEATS:
+        return GAME_VARIANT_SEATS[(game, variant)]
+    return GAME_SEATS.get(game, (2, 2, 2))
 
 
 class L:
     """Every hard limit in one place. --selftest overrides some of these."""
 
-    MAX_SOCKETS = 96            # concurrent TCP connections accepted at all
-    MAX_WS = 64                 # concurrent upgraded WebSockets
+    MAX_SOCKETS = 320           # concurrent TCP connections accepted at all
+    MAX_WS = 256                # concurrent upgraded WebSockets — SIXTEEN full
+                                #   sixteen-seat tables, or 128 duels, or any
+                                #   mix of the two. One OS thread each, which is
+                                #   the real cost, and this number was MEASURED
+                                #   rather than guessed: at exactly this many
+                                #   sockets, all of them playing, the relay sat
+                                #   at 3.8% of one core and 39 MB of RSS with a
+                                #   p99 latency of 21 ms. See "How many tables
+                                #   fit" in docs/ONLINE.md.
     MAX_ROOMS = 128             # concurrent rooms
-    SEATS = 2                   # players per room. Not configurable on purpose.
+    MAX_SEATS = 16              # chairs at the biggest table the relay will set.
+                                #   Each game declares its own range in
+                                #   GAME_SEATS; this is the hard ceiling over
+                                #   all of them, and it exists so one number
+                                #   bounds every buffer and bitmask in here.
+
+    # ── fan-out ──────────────────────────────────────────────────────────
+    # One move at an eight-seat table is SEVEN sends. The per-connection
+    # message bucket limits what one player may say; this limits how loud a
+    # whole ROOM may be, so a single fast client cannot amplify itself across
+    # seven sockets. It is per room, not per player, on purpose: it is the
+    # amplification that costs the Pi, not the typing.
+    FAN_RATE = 40.0             # relayed messages/second per room, sustained
+    FAN_BURST = 80.0
 
     MAX_MSG = 16 * 1024         # bytes, one WebSocket message (largest real
                                 # message, the deal, is ~2 KB)
@@ -268,6 +356,10 @@ E_WRONGGAME = "That is not the game this room is playing."
 E_NOAUTH = "Sign in first."
 E_NOROOMYET = "Open a room before you invite anybody."
 E_NOINVITE = "That invitation has gone."
+E_NOTHOST = "Only the player who opened the table can start it."
+E_ALREADY = "That game has already started."
+E_BADSEAT = "That chair is not free."
+E_TOOFEW = "Not enough players for that game yet."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
@@ -345,6 +437,12 @@ BOARD_KINDS = ("bhello", "bstart", "bact", "btake")
 RELAY_KINDS = CARD_KINDS + ("bail",) + BOARD_KINDS
 
 BACT_KINDS = ("move", "resign")
+# a table move: one named action, up to two indices, a choice, an amount, and a
+# short list (the cards you are discarding, the numbers you just marked)
+MOVE_ACT_RE = re.compile(r"^[a-z0-9_-]{1,16}$")
+MAX_MOVE_IDX = 255
+MAX_MOVE_AMT = 999999
+MAX_MOVE_LIST = 32
 # A takeback is a REQUEST every other player has to allow. ask / yes / no, and
 # nothing at all happens on any board until the answers are in — see js/party.js.
 BTAKE_KINDS = ("ask", "yes", "no")
@@ -408,13 +506,40 @@ def v_decklist(v):
 
 def v_game(v, board_only=False):
     """A game id. `None` means the card duel, so that a client which has never
-    heard of this field asks for exactly what it always got."""
+    heard of this field asks for exactly what it always got.
+
+    `board_only` is the set of games that play over the bhello/bstart/bact/
+    btake payloads — which is everything EXCEPT the card duel, because the duel
+    has its own four and always has."""
     if v is None and not board_only:
         return DEFAULT_GAME
     if not isinstance(v, str):
         raise Reject("game")
-    if v not in (BOARD_GAMES if board_only else GAME_IDS):
+    if v not in (PLAY_GAMES if board_only else GAME_IDS):
         raise Reject("game")
+    return v
+
+
+def v_seats(game, v, variant=None):
+    """How many chairs to put out. `None` means the game's own default, so a
+    client that has never heard of the field gets a sensible table rather than
+    an error — and for the duels that is still exactly two."""
+    lo, hi, default = seat_range(game, variant)
+    if v is None:
+        return default
+    n = v_int(v, 2, L.MAX_SEATS)
+    if n < lo or n > hi:
+        raise Reject("seats")
+    return n
+
+
+def v_variant(game, v):
+    """Which flavour of the game, where the game has flavours."""
+    if v is None:
+        return None
+    allowed = GAME_VARIANTS.get(game)
+    if not allowed or not isinstance(v, str) or v not in allowed:
+        raise Reject("variant")
     return v
 
 
@@ -467,11 +592,44 @@ def v_board_move(game, m):
     if game == "chess":
         return {"f": v_int(m.get("f"), 0, 63), "t": v_int(m.get("t"), 0, 63),
                 "p": v_int(m.get("p") or 0, 0, 15)}
-    # dama
-    path = v_intlist(m.get("p"), MAX_CHAIN, 0, 63)
-    if len(path) < 2:
-        raise Reject("path")
-    return {"p": path, "c": v_intlist(m.get("c") or [], MAX_CAPS, 0, 63)}
+    if game == "dama":
+        path = v_intlist(m.get("p"), MAX_CHAIN, 0, 63)
+        if len(path) < 2:
+            raise Reject("path")
+        return {"p": path, "c": v_intlist(m.get("c") or [], MAX_CAPS, 0, 63)}
+
+    # ── a move at a TABLE ────────────────────────────────────────────────
+    # SKARTA, IL-KIRI, TOMBLA and the playing-card games all move by doing one
+    # named thing to one or two indices, sometimes with a choice or an amount
+    # attached: "play the third card in my hand and call bahar", "buy it",
+    # "bid 120", "mark number 47", "draw".
+    #
+    # This is NOT a passthrough. Every field is optional, every field is
+    # bounded, and the object the peer receives is built here from these five
+    # keys and nothing else — anything a client invents is dropped on the
+    # floor exactly like every other payload in this file. The relay still has
+    # no idea what "bahar" means or whether it was your turn; that is the
+    # receiving CLIENT's job, against its own copy of the rules.
+    out = {"a": v_move_act(m.get("a"))}
+    if m.get("i") is not None:
+        out["i"] = v_int(m.get("i"), 0, MAX_MOVE_IDX)
+    if m.get("j") is not None:
+        out["j"] = v_int(m.get("j"), 0, MAX_MOVE_IDX)
+    if m.get("s") is not None:
+        out["s"] = v_move_act(m.get("s"))
+    if m.get("n") is not None:
+        out["n"] = v_int(m.get("n"), 0, MAX_MOVE_AMT)
+    if m.get("k") is not None:
+        out["k"] = v_intlist(m.get("k"), MAX_MOVE_LIST, 0, MAX_MOVE_IDX)
+    return out
+
+
+def v_move_act(v):
+    """A short lower-case id: an action name, a suit, a colour. Never shown to
+    anybody as HTML by this process, but kept inert anyway."""
+    if not isinstance(v, str) or not MOVE_ACT_RE.match(v):
+        raise Reject("act")
+    return v
 
 
 def sanitize_relay(d):
@@ -770,28 +928,47 @@ class Seat:
 
 
 class Room:
-    __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
-                 "private", "game")
+    """A room is N chairs round a table. N is 2 for a duel — which is every
+    room that existed before this — and up to L.MAX_SEATS for a card table.
 
-    def __init__(self, code, private=False, game=DEFAULT_GAME):
+    Nothing below knows a rule of any game. It knows how many chairs there
+    are, who is in them, whether the host has started, and which chairs the
+    host is playing as bots. That is the whole of it."""
+
+    __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
+                 "private", "game", "size", "variant", "started", "bots", "fan")
+
+    def __init__(self, code, private=False, game=DEFAULT_GAME, size=2, variant=None):
         self.code = code
         # What is being played in here. Fixed when the room opens and never
-        # changed: both players are told it when they are seated, and a payload
+        # changed: everyone is told it when they are seated, and a payload
         # for anything else is refused rather than relayed.
         self.game = game if game in GAME_IDS else DEFAULT_GAME
-        self.seats = [None, None]           # Seat or None
+        self.variant = variant
+        lo, hi, _ = seat_range(self.game, self.variant)
+        self.size = max(lo, min(hi, min(L.MAX_SEATS, int(size or 2))))
+        self.seats = [None] * self.size     # Seat or None, index == seat number
         self.seq = 0
-        self.buf = collections.deque()      # (n, to_slot, text) for rejoin replay
+        # (n, mask, text): ONE copy of the text however many chairs it went to,
+        # and a bitmask of which ones, so a rejoining seat can be replayed
+        # exactly what it missed without the buffer growing with the table.
+        self.buf = collections.deque()
         self.buf_bytes = 0
         self.created = time.monotonic()
         self.touched = time.monotonic()
         # A private room is never named in /presence and cannot be entered with a
         # join handle. The only way in is the room code, which only its opener has.
         self.private = bool(private)
+        # A two-seat room starts the moment it fills, exactly as it always did.
+        # A bigger table starts when the HOST says so, because players trickle
+        # in and only the host knows whether they are still waiting for anyone.
+        self.started = False
+        self.bots = set()                   # seats the host is playing for
+        self.fan = Bucket(L.FAN_RATE, L.FAN_BURST)
 
-    def push(self, to_slot, text):
+    def push(self, mask, text):
         self.seq += 1
-        self.buf.append((self.seq, to_slot, text))
+        self.buf.append((self.seq, mask, text))
         self.buf_bytes += len(text)
         while len(self.buf) > L.REPLAY_MSGS or self.buf_bytes > L.REPLAY_BYTES:
             _, _, old = self.buf.popleft()
@@ -801,8 +978,61 @@ class Room:
     def occupied(self):
         return sum(1 for s in self.seats if s is not None)
 
+    def here(self):
+        """Seats with a LIVE socket in them. A seat inside its reconnect grace
+        is occupied but not here."""
+        return sum(1 for s in self.seats if s is not None and s.conn is not None)
+
+    def free_seat(self):
+        for i, s in enumerate(self.seats):
+            if s is None:
+                return i
+        return None
+
+    def full(self):
+        return self.free_seat() is None
+
+    def open_to_join(self):
+        """Is there a chair anybody may sit in? Once the host starts, no."""
+        return (not self.started) and not self.full()
+
     def live_conns(self):
         return [s.conn for s in self.seats if s is not None and s.conn is not None]
+
+    def others(self, slot):
+        """Every seat index except this one that has somebody in it."""
+        return [i for i, s in enumerate(self.seats)
+                if i != slot and s is not None]
+
+    def mask_of(self, slots):
+        m = 0
+        for i in slots:
+            m |= (1 << i)
+        return m
+
+    def mask_all(self):
+        return self.mask_of(range(self.size))
+
+    def is_table(self):
+        """More than two chairs. THE WIRE OF A DUEL DOES NOT CHANGE: a two-seat
+        room sends exactly the bytes it sent before tables existed — no roster,
+        no seat numbers, no sender stamp. Everything new here is additive and
+        only ever goes to a room that actually has a table in it, so the client
+        already on everybody's phone cannot be affected by any of it."""
+        return self.size > 2
+
+    def roster(self):
+        """What everyone at the table is allowed to know about it. Names only —
+        no tokens, no addresses, no room code."""
+        return {"t": "table", "code": self.code, "game": self.game,
+                "seats": self.size, "started": self.started,
+                "variant": self.variant,
+                "who": [None if s is None else
+                        {"i": i,
+                         "n": (s.conn.pname or "PLAYER") if s.conn is not None else "",
+                         "here": s.conn is not None,
+                         "bot": i in self.bots}
+                        for i, s in enumerate(self.seats)]}
 
 
 # ── all shared mutable state, behind one lock ────────────────────────────────
@@ -849,14 +1079,15 @@ class RoomBook:
         The one question the invite book needs to ask about a room."""
         with self._lock:
             room = self._rooms.get(code)
-            return room is not None and room.occupied() == 1
+            return room is not None and room.open_to_join()
 
     def my_open_room(self, conn):
-        """The room this connection is sitting alone in, or None. An invite can
-        only ever point at one of those."""
+        """The room this connection is sitting in that still has a chair free,
+        or None. An invite can only ever point at one of those — and at a table
+        ANY of the players may ask somebody, not just the host."""
         with self._lock:
             room = self._room_of(conn)
-            if room is None or room.occupied() != 1:
+            if room is None or not room.open_to_join():
                 return None
             return room.code, room.game
 
@@ -888,23 +1119,30 @@ class RoomBook:
                 room = self._room_of(conn)
                 if room is None:
                     state = "idle"
-                elif room.occupied() >= 2:
+                elif room.started or room.full():
+                    # A duel is "playing" the moment it fills, exactly as it
+                    # always was. A table is playing once the host starts it.
                     state = "playing"
                 else:
                     state = "waiting"
                 counts[state] += 1
-                # A handle is published for exactly one situation: this player is
-                # sitting alone in a room that anybody is welcome to join.
-                offered = state == "waiting" and not room.private
+                # ONE handle per room, and it belongs to the host's socket. At a
+                # table with three people already sat down there is still only
+                # one way in, and it is still a handle that dies with the room.
+                offered = (state == "waiting" and not room.private
+                           and conn.slot == 0 and room.open_to_join())
                 rows.append((state, conn.pname or "PLAYER",
                              conn.pid if offered else None))
                 if offered:
                     # "g" is what makes the list an informed choice rather than
-                    # a lucky dip. An older client normalises each row down to
-                    # id/name/wait and simply never sees it.
+                    # a lucky dip; "c" of "m" is how full the table is, so you
+                    # can see at a glance whether there is a chair free. An
+                    # older client normalises each row down to id/name/wait and
+                    # simply never sees any of it.
                     rooms.append({"id": conn.pid, "n": conn.pname or "PLAYER",
                                   "w": max(0, int(now - room.created)),
-                                  "g": room.game})
+                                  "g": room.game, "c": room.occupied(),
+                                  "m": room.size, "v": room.variant})
 
         # waiting first: that is the only row anybody can act on
         order = {"waiting": 0, "playing": 1, "idle": 2}
@@ -1002,39 +1240,48 @@ class RoomBook:
         return room
 
     def _detach(self, conn, permanent):
-        """Take conn off its seat. Returns (peer_conn|None, room|None)."""
+        """Take conn off its chair. Returns ([(other_conn, seat_left)], room) —
+        a LIST, because a table has more than one other person at it."""
         room = self._room_of(conn)
         code, slot = conn.room_code, conn.slot
         conn.room_code = None
         conn.slot = -1
         if room is None:
-            return None, None
+            return [], None
         seat = room.seats[slot]
         seat.conn = None
         seat.gone_at = time.monotonic()
         if permanent:
             room.seats[slot] = None
         room.touched = time.monotonic()
-        other = room.seats[1 - slot]
-        peer = other.conn if other is not None else None
+        rest = [(room.seats[i].conn, slot) for i in room.others(slot)
+                if room.seats[i].conn is not None]
         if room.occupied() == 0:
             self._rooms.pop(code, None)
-        return peer, room
+        return rest, room
+
+    @staticmethod
+    def _tell_left(rest, table=False):
+        """"They have gone" to everyone still at the table. At a DUEL this is
+        the exact message it has always been; `seat` is only added where there
+        is more than one other chair it could mean."""
+        if table:
+            return [(c, {"t": "peer", "state": "left", "seat": i}) for c, i in rest]
+        return [(c, {"t": "peer", "state": "left"}) for c, _ in rest]
 
     # -- actions -----------------------------------------------------------
 
-    def create(self, conn, private=False, game=DEFAULT_GAME):
-        """Open a room. A connection may hold exactly ONE room at a time — the
-        detach below closes whatever it had open — and may only ever open
-        L.MAX_CREATES of them, so one socket cannot stack up a pile of rooms in
-        the public list."""
+    def create(self, conn, private=False, game=DEFAULT_GAME, seats=None, variant=None):
+        """Open a room — that is, put N chairs out. A connection may hold
+        exactly ONE room at a time (the detach below closes whatever it had
+        open) and may only ever open L.MAX_CREATES of them, so one socket
+        cannot stack up a pile of tables in the public list."""
         out = []
         if conn.creates >= L.MAX_CREATES:
             return [(conn, {"t": "error", "why": E_TOOMANY})]
         with self._lock:
-            peer, _ = self._detach(conn, permanent=True)
-            if peer is not None:
-                out.append((peer, {"t": "peer", "state": "left"}))
+            rest, oldroom = self._detach(conn, permanent=True)
+            out += self._tell_left(rest, oldroom is not None and oldroom.is_table())
             if len(self._rooms) >= L.MAX_ROOMS:
                 out.append((conn, {"t": "error", "why": E_FULL_SERVER}))
                 return out
@@ -1042,7 +1289,7 @@ class RoomBook:
             if code is None:
                 out.append((conn, {"t": "error", "why": E_FULL_SERVER}))
                 return out
-            room = Room(code, private=private, game=game)
+            room = Room(code, private=private, game=game, size=seats, variant=variant)
             seat = Seat(secrets.token_urlsafe(12))
             seat.conn = conn
             room.seats[0] = seat
@@ -1051,17 +1298,18 @@ class RoomBook:
             conn.slot = 0
             conn.creates += 1
             token = seat.token
-            made = room.game
+            made, size, var = room.game, room.size, room.variant
         LOG("room-create", code=code, rooms=len(self._rooms), private=int(bool(private)),
-            game=made)
-        # "private" and "game" are both echoed so the client can tell a relay
-        # that understands the flag from an older one that quietly ignored it.
-        # A client that asked for chess and gets no "game" back knows it is
-        # talking to a relay that cannot label the room, and says so out loud
-        # rather than seating somebody at the wrong game.
+            game=made, seats=size)
+        # "private", "game" and "seats" are all echoed so the client can tell a
+        # relay that understands the field from an older one that quietly
+        # ignored it. A client that asked for a six-handed SKARTA table and
+        # gets no "seats" back knows it is talking to an older relay and says
+        # so out loud rather than seating five people who will never arrive.
         out.append((conn, {"t": "created", "code": code, "token": token,
                            "host": True, "seq": 0, "private": bool(private),
-                           "game": made}))
+                           "game": made, "seats": size, "seat": 0,
+                           "variant": var, "started": False}))
         return out
 
     def join(self, conn, code):
@@ -1082,39 +1330,112 @@ class RoomBook:
                 seat = room.seats[conn.slot]
                 return [(conn, {"t": "joined", "code": code, "token": seat.token,
                                 "host": conn.slot == 0, "seq": room.seq,
-                                "game": room.game})]
-            if room.seats[1] is None:
-                free = 1
-            elif room.seats[0] is None:
-                free = 0
-            else:
-                free = None
+                                "game": room.game, "seats": room.size,
+                                "seat": conn.slot, "variant": room.variant,
+                                "started": room.started})]
+            # A table that has already been started is not taking anybody else.
+            if room.started:
+                conn.bad_joins += 1
+                return [(conn, {"t": "error", "why": E_FULL_ROOM})]
+            free = room.free_seat()
             if free is None:
                 conn.bad_joins += 1
                 return [(conn, {"t": "error", "why": E_FULL_ROOM})]
-            peer, _ = self._detach(conn, permanent=True)
-            if peer is not None:
-                out.append((peer, {"t": "peer", "state": "left"}))
+            rest, oldroom = self._detach(conn, permanent=True)
+            out += self._tell_left(rest, oldroom is not None and oldroom.is_table())
             room = self._rooms.get(code)                    # re-check after detach
-            if room is None or room.seats[free] is not None:
-                out.append((conn, {"t": "error", "why": E_NOROOM}))
-                return out
+            if room is None or room.started or room.seats[free] is not None:
+                free2 = room.free_seat() if room is not None and not room.started else None
+                if free2 is None:
+                    out.append((conn, {"t": "error", "why": E_NOROOM}))
+                    return out
+                free = free2
             seat = Seat(secrets.token_urlsafe(12))
             seat.conn = conn
             room.seats[free] = seat
             room.touched = time.monotonic()
             conn.room_code = code
             conn.slot = free
-            other = room.seats[1 - free]
-            other_conn = other.conn if other is not None else None
-            # The room says what it is. The joiner never has to trust the list
-            # it tapped, or the other player, for that one fact.
+            # A DUEL still starts the instant it fills, exactly as it always
+            # has. A table waits for the host, because people trickle in.
+            if room.size == 2 and room.full():
+                room.started = True
+            # The room says what it is and how big it is. The joiner never has
+            # to trust the list it tapped, or another player, for either.
             reply = {"t": "joined", "code": code, "token": seat.token,
-                     "host": free == 0, "seq": room.seq, "game": room.game}
-        LOG("room-join", code=code)
+                     "host": free == 0, "seq": room.seq, "game": room.game,
+                     "seats": room.size, "seat": free, "variant": room.variant,
+                     "started": room.started}
+            others = [room.seats[i].conn for i in room.others(free)
+                      if room.seats[i].conn is not None]
+            is_tbl = room.is_table()
+            roster = room.roster() if is_tbl else None
+        LOG("room-join", code=code, seat=free)
         out.append((conn, reply))
-        if other_conn is not None:
-            out.append((other_conn, {"t": "peer", "state": "joined"}))
+        for c in others:
+            # `peer` is exactly what a duel has always sent. Only a table adds
+            # the chair number, because only a table has more than one it
+            # could possibly mean.
+            out.append((c, {"t": "peer", "state": "joined", "seat": free}
+                        if is_tbl else {"t": "peer", "state": "joined"}))
+        if is_tbl:
+            # everyone at the table, including the arrival, gets the new roster
+            for c in others + [conn]:
+                out.append((c, roster))
+        return out
+
+    def start(self, conn, bots):
+        """The HOST says the table is ready. Two things happen and nothing
+        else: the room stops taking people, and everyone is handed the same
+        random number to build the game from.
+
+        The relay contributes that number rather than the host, so no player
+        can grind a favourable deal — and each client XORs its own nonce into
+        it (see docs/ONLINE.md), so a compromised relay cannot fix one either.
+
+        `bots` are the chairs the host will play for. They are recorded so the
+        relay can stamp a move the host sends ON BEHALF OF one of them; every
+        other client still validates that move against its own rules exactly
+        as it would a human's."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if conn.slot != 0:
+                return [(conn, {"t": "error", "why": E_NOTHOST})]
+            if room.started:
+                return [(conn, {"t": "error", "why": E_ALREADY})]
+            free = [i for i, s in enumerate(room.seats) if s is None]
+            want = []
+            if bots is not None:
+                if not isinstance(bots, list) or len(bots) > L.MAX_SEATS:
+                    return [(conn, {"t": "error", "why": E_SHAPE})]
+                for b in bots:
+                    if not isinstance(b, int) or isinstance(b, bool):
+                        return [(conn, {"t": "error", "why": E_SHAPE})]
+                    if b not in free or b in want:
+                        # a bot may only ever be put in an EMPTY chair, and
+                        # never on top of a person
+                        return [(conn, {"t": "error", "why": E_BADSEAT})]
+                    want.append(b)
+            lo, _, _ = seat_range(room.game, room.variant)
+            if room.occupied() + len(want) < lo:
+                return [(conn, {"t": "error", "why": E_TOOFEW})]
+            room.bots = set(want)
+            room.started = True
+            room.touched = time.monotonic()
+            seed = secrets.randbits(32)
+            began = {"t": "began", "seed": seed, "seats": room.size,
+                     "bots": sorted(room.bots), "game": room.game,
+                     "variant": room.variant,
+                     "filled": sorted([i for i, s in enumerate(room.seats)
+                                       if s is not None] + list(room.bots))}
+            room.push(room.mask_all(), json.dumps(began, separators=(",", ":")))
+            targets = room.live_conns()
+            roster = room.roster()
+        LOG("room-start", code=room.code, seats=room.size, bots=len(want))
+        out = [(c, began) for c in targets]
+        out += [(c, roster) for c in targets]
         return out
 
     def rejoin(self, conn, code, token, since):
@@ -1141,9 +1462,9 @@ class RoomBook:
             if slot < 0:
                 conn.bad_joins += 1
                 return [(conn, {"t": "error", "why": E_BADTOKEN})]
-            old, _ = self._detach(conn, permanent=True)     # leave any other room
-            if old is not None:
-                out.append((old, {"t": "peer", "state": "left"}))
+            # leave any OTHER room this socket was sitting in first
+            old, oldroom = self._detach(conn, permanent=True)
+            out += self._tell_left(old, oldroom is not None and oldroom.is_table())
             room = self._rooms.get(code)
             if room is None or room.seats[slot] is None:
                 out.append((conn, {"t": "error", "why": E_NOROOM}))
@@ -1155,26 +1476,46 @@ class RoomBook:
             room.touched = time.monotonic()
             conn.room_code = code
             conn.slot = slot
-            other = room.seats[1 - slot]
-            other_conn = other.conn if other is not None else None
-            replay = [text for (n, to, text) in room.buf if to == slot and n > since]
+            others = [(room.seats[i].conn, i) for i in room.others(slot)
+                      if room.seats[i].conn is not None]
+            bit = 1 << slot
+            replay = [text for (n, mask, text) in room.buf
+                      if (mask & bit) and n > since]
             head = {"t": "rejoined", "code": code, "host": slot == 0,
-                    "seq": room.seq, "peer": other_conn is not None,
-                    "game": room.game}
+                    "seq": room.seq, "peer": len(others) > 0,
+                    "game": room.game, "seats": room.size, "seat": slot,
+                    "variant": room.variant, "started": room.started}
+            is_tbl = room.is_table()
+            roster = room.roster() if is_tbl else None
         if evicted is not None and evicted is not conn:
             evicted.send_json({"t": "closed", "why": "You reconnected somewhere else."})
             evicted.doom("replaced")
             evicted.kill()
-        LOG("room-rejoin", code=code, replay=len(replay))
+        LOG("room-rejoin", code=code, replay=len(replay), seat=slot)
         out.append((conn, head))
         for text in replay:
             out.append((conn, text))                        # already-serialised
-        if other_conn is not None:
-            out.append((other_conn, {"t": "peer", "state": "rejoined"}))
+        for c, _ in others:
+            out.append((c, {"t": "peer", "state": "rejoined", "seat": slot}
+                        if is_tbl else {"t": "peer", "state": "rejoined"}))
+        if is_tbl:
+            for c, _ in others:
+                out.append((c, roster))
+            out.append((conn, roster))
         return out
 
-    def relay(self, conn, payload, claimed_code):
-        """payload is ALREADY sanitised. claimed_code, if given, must match."""
+    def relay(self, conn, payload, claimed_code, for_seat=None):
+        """payload is ALREADY sanitised. claimed_code, if given, must match.
+
+        Fans the payload out to every OTHER occupied chair, stamped with the
+        seat it came from. The stamp is the relay's, never the client's: at a
+        table you have to know who played, and a client that could label itself
+        could label itself as somebody else.
+
+        `for_seat` is how the host plays a BOT's chair. It is only honoured for
+        a chair the host was given at start, and it is still just a stamp —
+        every other client validates the move against its own rules exactly as
+        it would a human's."""
         with self._lock:
             room = self._room_of(conn)
             if room is None:
@@ -1183,39 +1524,62 @@ class RoomBook:
                 return [(conn, {"t": "error", "why": E_NOTIN})]
             if not payload_fits(payload, room.game):
                 return [(conn, {"t": "error", "why": E_WRONGGAME})]
-            other = room.seats[1 - conn.slot]
-            if other is None:
+            src = conn.slot
+            if for_seat is not None:
+                if conn.slot != 0 or for_seat not in room.bots:
+                    return [(conn, {"t": "error", "why": E_BADSEAT})]
+                src = for_seat
+            others = room.others(conn.slot)
+            if not others:
                 return [(conn, {"t": "error", "why": E_NOPEER})]
-            to = 1 - conn.slot
-            text = json.dumps({"t": "relay", "n": room.seq + 1, "d": payload},
-                              separators=(",", ":"))
-            room.push(to, text)
+            # ONE bucket for the whole table. Seven sockets hearing every move
+            # is the cost that actually lands on the Pi, so that is what is
+            # metered — not how fast any one player can type.
+            if not room.fan.take():
+                return [(conn, {"t": "error", "why": E_FLOOD})]
+            body = {"t": "relay", "n": room.seq + 1, "d": payload}
+            if room.is_table():
+                # who played it. A duel has never needed this and still does
+                # not: there is only one other chair it could have come from.
+                body["s"] = src
+            text = json.dumps(body, separators=(",", ":"))
+            room.push(room.mask_of(others), text)
             room.touched = time.monotonic()
-            peer = other.conn
-        if peer is None:
-            return []                       # buffered; they get it when they rejoin
-        return [(peer, text)]
+            targets = [room.seats[i].conn for i in others
+                       if room.seats[i].conn is not None]
+        # anybody mid-reconnect simply gets it replayed when they come back
+        return [(c, text) for c in targets]
 
     def leave(self, conn):
         with self._lock:
-            peer, _ = self._detach(conn, permanent=True)
-        return [(peer, {"t": "peer", "state": "left"})] if peer is not None else []
+            rest, room = self._detach(conn, permanent=True)
+            tbl = room is not None and room.is_table()
+        return self._tell_left(rest, tbl)
 
     def drop(self, conn):
-        """Socket died. Hold the seat for GRACE seconds."""
+        """Socket died. Hold the chair for GRACE seconds.
+
+        At a table this is the COMMON path, not an error one: with eight phones
+        somebody walking into a lift is routine. The table is told which chair
+        went quiet and carries on; what the GAME does about it — hand the chair
+        to the machine, or fold it — is the game's decision, not the relay's."""
         with self._lock:
             room = self._room_of(conn)
             if room is None:
                 self._detach(conn, permanent=True)
                 return []
             slot = conn.slot
-            self._detach(conn, permanent=False)
+            rest, _ = self._detach(conn, permanent=False)
             room = self._rooms.get(room.code)
             if room is None:
                 return []
-            other = room.seats[1 - slot]
-            peer = other.conn if other is not None else None
-        return [(peer, {"t": "peer", "state": "dropped"})] if peer is not None else []
+            is_tbl = room.is_table()
+            roster = room.roster() if is_tbl else None
+        out = [(c, {"t": "peer", "state": "dropped", "seat": slot} if is_tbl
+                else {"t": "peer", "state": "dropped"}) for c, _ in rest]
+        if is_tbl:
+            out += [(c, roster) for c, _ in rest]
+        return out
 
     def sweep(self):
         """Bin expired seats and idle rooms. Returns messages to send."""
@@ -1237,14 +1601,26 @@ class RoomBook:
                             seat.conn.slot = -1
                     self._rooms.pop(code, None)
                     continue
+                gone = []
                 for i, seat in enumerate(room.seats):
                     if seat is None or seat.conn is not None or seat.gone_at == 0.0:
                         continue
                     if (now - seat.gone_at) > L.GRACE:
                         room.seats[i] = None
-                        other = room.seats[1 - i]
-                        if other is not None and other.conn is not None:
-                            out.append((other.conn, {"t": "peer", "state": "left"}))
+                        gone.append(i)
+                tbl = room.is_table()
+                for i in gone:
+                    for c in room.live_conns():
+                        out.append((c, {"t": "peer", "state": "left", "seat": i}
+                                    if tbl else {"t": "peer", "state": "left"}))
+                if gone and tbl:
+                    roster = room.roster()
+                    for c in room.live_conns():
+                        out.append((c, roster))
+                # An empty table is binned whatever its size — and a table
+                # whose chairs all emptied mid-game goes the same way as a
+                # duel does, so a dead sixteen-seat room is reaped exactly as
+                # reliably as a dead two-seat one.
                 if room.occupied() == 0:
                     self._rooms.pop(code, None)
         return out
@@ -1522,10 +1898,15 @@ def handle_ws_message(conn, raw):
         # same goes for the game: no field means the card duel.
         try:
             game = v_game(msg.get("game"))
+            variant = v_variant(game, msg.get("variant"))
+            seats = v_seats(game, msg.get("seats"), variant)
         except Reject:
             conn.error(E_SHAPE)
             return
-        dispatch(ROOMS.create(conn, msg.get("private") is True, game))
+        dispatch(ROOMS.create(conn, msg.get("private") is True, game, seats, variant))
+
+    elif kind == "start":
+        dispatch(ROOMS.start(conn, msg.get("bots")))
 
     elif kind == "join":
         dispatch(ROOMS.join(conn, msg.get("code")))
@@ -1570,7 +1951,16 @@ def handle_ws_message(conn, raw):
             if not conn.takes.take():
                 conn.error(E_SLOW)
                 return
-        dispatch(ROOMS.relay(conn, payload, code.strip().upper() if code else None))
+        # the host playing a bot's chair. Validated inside relay() against the
+        # chairs that were actually handed to bots at start.
+        for_seat = msg.get("for")
+        if for_seat is not None:
+            if (not isinstance(for_seat, int) or isinstance(for_seat, bool)
+                    or not (0 <= for_seat < L.MAX_SEATS)):
+                conn.error(E_SHAPE)
+                return
+        dispatch(ROOMS.relay(conn, payload, code.strip().upper() if code else None,
+                             for_seat))
 
     elif kind == "auth":
         dispatch(ws_auth(conn, msg.get("session")))
@@ -3441,7 +3831,7 @@ def selftest():
             text = raw.decode("utf-8", "replace")
             leaks = []
             for r in got.get("rooms") or []:
-                if set(r.keys()) - {"id", "n", "w", "g"}:
+                if set(r.keys()) - {"id", "n", "w", "g", "c", "m", "v"}:
                     leaks.append("extra field %r" % sorted(r.keys()))
                 if r.get("g") not in GAME_IDS:
                     leaks.append("bad game id %r" % (r.get("g"),))
@@ -3664,7 +4054,9 @@ def selftest():
             ok = ok and (dmade or {}).get("game") == "dama"
             ok = ok and by.get("CARDSER") == "cards" and by.get("CHESSER") == "chess"
             ok = ok and by.get("DAMISTA") == "dama"
-            ok = ok and got.get("openBy", {}) == {"cards": 1, "chess": 1, "dama": 1}
+            by = got.get("openBy", {})
+            ok = ok and by.get("cards") == 1 and by.get("chess") == 1 and by.get("dama") == 1
+            ok = ok and sum(by.values()) == 3
             check("cards, chess and dama sit in one list, each saying what it is",
                   ok, "listed=%r openBy=%r" % (by, got.get("openBy")))
         except Exception as e:
@@ -4687,6 +5079,327 @@ def selftest():
             bye(x)
         except Exception as e:
             check("relay unaffected by accounts", False, repr(e))
+
+        # ═══════════ tables ═══════════
+        print("")
+        print(" TABLES  (a party, not a duel: 2 to %d chairs)" % L.MAX_SEATS)
+
+        tb = []
+        made = None
+        try:
+            _end = time.monotonic() + 10
+            while time.monotonic() < _end and ROOMS.stats()[0] > 1:
+                time.sleep(0.2)
+            thost = cli(origin=PAGES_ORIGIN)
+            thost.send_json({"t": "name", "n": "HOST"})
+            thost.recv_json(2.0)
+            thost.send_json({"t": "create", "game": "skarta", "seats": 6})
+            made = thost.recv_json(2.0)
+            tb.append(thost)
+            ok = (made or {}).get("game") == "skarta"
+            ok = ok and (made or {}).get("seats") == 6
+            ok = ok and (made or {}).get("seat") == 0
+            ok = ok and (made or {}).get("started") is False
+            check("a six-chair table opens, and says how many chairs it has", ok, made)
+        except Exception as e:
+            check("table opens", False, repr(e))
+
+        try:
+            seated = []
+            for i in range(3):
+                c = cli(origin=PAGES_ORIGIN)
+                c.send_json({"t": "name", "n": "P%d" % (i + 1)})
+                c.recv_json(2.0)
+                c.send_json({"t": "join", "code": made["code"]})
+                seated.append(c.recv_json(2.0))
+                tb.append(c)
+            rosters = []
+            end = time.monotonic() + 3
+            while time.monotonic() < end:
+                m = tb[0].recv_json(0.6)
+                if m is None:
+                    break
+                if m.get("t") == "table":
+                    rosters.append(m)
+            last = rosters[-1] if rosters else {}
+            names = [w and w.get("n") for w in (last.get("who") or [])]
+            ok = [s.get("seat") for s in seated] == [1, 2, 3]
+            ok = ok and all(s.get("seats") == 6 and s.get("started") is False
+                            for s in seated)
+            ok = ok and last.get("seats") == 6
+            ok = ok and names[:4] == ["HOST", "P1", "P2", "P3"]
+            ok = ok and names[4] is None and names[5] is None
+            check("players trickle in and everyone gets the roster, chair by chair",
+                  ok, "seats=%r names=%r" % ([s.get("seat") for s in seated], names))
+        except Exception as e:
+            check("table fills up", False, repr(e))
+
+        try:
+            _, _, _, got = pres()
+            mine = [r for r in got["rooms"] if r["n"] == "HOST"]
+            ok = len(mine) == 1 and mine[0].get("c") == 4 and mine[0].get("m") == 6
+            ok = ok and mine[0].get("g") == "skarta"
+            check("the room list says how FULL the table is, not just that it exists",
+                  ok, mine)
+        except Exception as e:
+            check("occupancy is published", False, repr(e))
+
+        try:
+            for c in tb:                      # drain the roster traffic first
+                while c.raw_recv(0.15) not in (TIMEOUT, None):
+                    pass
+            tb[1].send_json({"t": "start"})
+            notyou = tb[1].recv_json(2.0)
+            check("a player who did not open the table cannot start it",
+                  (notyou or {}).get("why") == E_NOTHOST, notyou)
+        except Exception as e:
+            check("only the host starts", False, repr(e))
+
+        try:
+            tb[0].send_json({"t": "start", "bots": [1]})
+            onperson = tb[0].recv_json(2.0)
+            tb[0].send_json({"t": "start", "bots": [4, 4]})
+            twice = tb[0].recv_json(2.0)
+            tb[0].send_json({"t": "start", "bots": [9]})
+            nochair = tb[0].recv_json(2.0)
+            ok = all((r or {}).get("why") == E_BADSEAT
+                     for r in (onperson, twice, nochair))
+            check("a bot cannot be sat on a person, twice, or on a chair that "
+                  "does not exist", ok, "%r %r %r" % (onperson, twice, nochair))
+        except Exception as e:
+            check("bot seating is checked", False, repr(e))
+
+        try:
+            for c in tb:
+                while c.raw_recv(0.15) not in (TIMEOUT, None):
+                    pass
+            tb[0].send_json({"t": "start", "bots": [4, 5]})
+            began = tb[0].recv_json(3.0)
+            others = [c.recv_json(3.0) for c in tb[1:]]
+            ok = (began or {}).get("t") == "began"
+            ok = ok and isinstance(began.get("seed"), int)
+            ok = ok and 0 <= began["seed"] <= 0xFFFFFFFF
+            ok = ok and began.get("bots") == [4, 5]
+            ok = ok and began.get("filled") == [0, 1, 2, 3, 4, 5]
+            ok = ok and all((m or {}).get("t") == "began" and
+                            m.get("seed") == began["seed"] for m in others)
+            check("the host starts, and EVERY chair gets the same seed from the relay",
+                  ok, "began=%r others=%r" % (began, [m and m.get("seed") for m in others]))
+        except Exception as e:
+            check("start deals one seed to everyone", False, repr(e))
+
+        try:
+            time.sleep(0.3)
+            _, _, _, got = pres()
+            listed = [r["n"] for r in got["rooms"]]
+            latecomer = cli(origin=PAGES_ORIGIN)
+            latecomer.send_json({"t": "join", "code": made["code"]})
+            late = latecomer.recv_json(2.0)
+            check("a table that has started is off the list and takes nobody else",
+                  "HOST" not in listed and (late or {}).get("why") == E_FULL_ROOM,
+                  "listed=%r late=%r" % (listed, late))
+            bye(latecomer)
+        except Exception as e:
+            check("a started table is closed", False, repr(e))
+
+        try:
+            for c in tb:
+                while c.raw_recv(0.15) not in (TIMEOUT, None):
+                    pass
+            mv = {"k": "bact", "game": "skarta", "kind": "move",
+                  "m": {"a": "play", "i": 3, "s": "bahar"}, "ck": None}
+            tb[1].send_json({"t": "relay", "d": mv})
+            heard = [c.recv_json(3.0) for c in [tb[0]] + tb[2:]]
+            ok = all((m or {}).get("t") == "relay" and m.get("d") == mv and
+                     m.get("s") == 1 for m in heard)
+            ok = ok and len(heard) == 3
+            ok = ok and tb[1].silent(0.4)
+            check("one move reaches every other chair, stamped with the seat that "
+                  "played it", ok, heard)
+        except Exception as e:
+            check("fan-out stamps the seat", False, repr(e))
+
+        try:
+            bot = {"k": "bact", "game": "skarta", "kind": "move",
+                   "m": {"a": "draw"}, "ck": None}
+            tb[0].send_json({"t": "relay", "d": bot, "for": 4})
+            got1 = tb[1].recv_json(3.0)
+            for c in tb[2:]:
+                c.recv_json(1.0)
+            tb[1].send_json({"t": "relay", "d": bot, "for": 5})
+            stolen = tb[1].recv_json(2.0)
+            tb[0].send_json({"t": "relay", "d": bot, "for": 2})
+            notabot = tb[0].recv_json(2.0)
+            ok = (got1 or {}).get("s") == 4 and (got1 or {}).get("d") == bot
+            ok = ok and (stolen or {}).get("why") == E_BADSEAT
+            ok = ok and (notabot or {}).get("why") == E_BADSEAT
+            check("only the host may play a BOT's chair, and only a chair that is "
+                  "actually a bot", ok, "bot=%r stolen=%r notabot=%r"
+                  % (got1, stolen, notabot))
+        except Exception as e:
+            check("bot chairs are the host's alone", False, repr(e))
+
+        try:
+            bad = []
+            junk = [
+                {"k": "bact", "game": "skarta", "kind": "move", "m": {"a": "PLAY"}},
+                {"k": "bact", "game": "skarta", "kind": "move", "m": {"a": "x" * 40}},
+                {"k": "bact", "game": "skarta", "kind": "move", "m": {}},
+                {"k": "bact", "game": "skarta", "kind": "move",
+                 "m": {"a": "play", "i": 9999}},
+                {"k": "bact", "game": "skarta", "kind": "move",
+                 "m": {"a": "play", "n": -1}},
+                {"k": "bact", "game": "skarta", "kind": "move",
+                 "m": {"a": "play", "k": list(range(80))}},
+                {"k": "bact", "game": "skarta", "kind": "move",
+                 "m": {"a": "play", "s": "<script>"}},
+            ]
+            for n in junk:
+                tb[1].send_json({"t": "relay", "d": n})
+                r = tb[1].recv_json(2.0)
+                if (r or {}).get("t") != "error":
+                    bad.append(("not refused", n))
+                if tb[0].raw_recv(0.25) is not TIMEOUT:
+                    bad.append(("reached the table", n))
+            check("a junk table move never reaches the table", not bad, bad)
+        except Exception as e:
+            check("table moves are validated", False, repr(e))
+
+        try:
+            tb[1].send_json({"t": "relay", "d": {
+                "k": "bact", "game": "skarta", "kind": "move",
+                "m": {"a": "play", "i": 1, "evil": "wipe", "__proto__": "x"}}})
+            seen = tb[0].recv_json(3.0)
+            for c in tb[2:]:
+                c.recv_json(1.0)
+            got_m = (seen or {}).get("d", {}).get("m", {})
+            check("extra fields on a table move are dropped, not relayed",
+                  set(got_m.keys()) == {"a", "i"}, got_m)
+        except Exception as e:
+            check("table moves are rebuilt", False, repr(e))
+
+        try:
+            gone = tb[2]
+            bye(gone)
+            tb.remove(gone)
+            told = []
+            end = time.monotonic() + 3
+            while time.monotonic() < end:
+                m = tb[0].recv_json(0.6)
+                if m is None:
+                    break
+                told.append(m)
+            drops = [m for m in told
+                     if m.get("t") == "peer" and m.get("state") == "dropped"]
+            rost = [m for m in told if m.get("t") == "table"]
+            ok = bool(drops) and drops[0].get("seat") == 2
+            ok = ok and bool(rost) and rost[-1]["who"][2]["here"] is False
+            ok = ok and rost[-1]["who"][0]["here"] is True
+            tb[1].send_json({"t": "relay", "d": {
+                "k": "bact", "game": "skarta", "kind": "move", "m": {"a": "pass"}}})
+            still = tb[0].recv_json(3.0)
+            ok = ok and (still or {}).get("s") == 1
+            check("one chair dropping does not end the table for everybody else",
+                  ok, "drops=%r still=%r" % (drops, still))
+        except Exception as e:
+            check("a drop does not kill the table", False, repr(e))
+
+        try:
+            keep_r, keep_b = L.FAN_RATE, L.FAN_BURST
+            L.FAN_RATE, L.FAN_BURST = 1.0, 5.0
+            f_host = cli(origin=PAGES_ORIGIN)
+            f_host.send_json({"t": "create", "game": "skarta", "seats": 4})
+            fmade = f_host.recv_json(2.0)
+            fpeers = []
+            for i in range(3):
+                c = cli(origin=PAGES_ORIGIN)
+                c.send_json({"t": "join", "code": fmade["code"]})
+                c.recv_json(2.0)
+                fpeers.append(c)
+            L.FAN_RATE, L.FAN_BURST = keep_r, keep_b
+            for c in [f_host] + fpeers:
+                while c.raw_recv(0.1) not in (TIMEOUT, None):
+                    pass
+            f_host.send_json({"t": "start"})
+            f_host.recv_json(2.0)
+            for c in fpeers:
+                c.recv_json(2.0)
+            # fire them ALL first: reading between sends would pace the loop
+            # and quietly let the bucket refill
+            for i in range(20):
+                f_host.send_json({"t": "relay", "d": {
+                    "k": "bact", "game": "skarta", "kind": "move", "m": {"a": "p"}}})
+            slowed = 0
+            end = time.monotonic() + 4
+            while time.monotonic() < end:
+                r = f_host.raw_recv(0.4)
+                if r is None:
+                    break
+                if r is TIMEOUT:
+                    continue
+                try:
+                    if json.loads(r).get("why") == E_FLOOD:
+                        slowed += 1
+                except ValueError:
+                    pass
+            check("one fast client cannot amplify itself across the whole table",
+                  slowed >= 5, "slowed=%d of 20" % slowed)
+            for c in [f_host] + fpeers:
+                bye(c)
+        except Exception as e:
+            L.FAN_RATE, L.FAN_BURST = 40.0, 80.0
+            check("fan-out is capped per room", False, repr(e))
+
+        try:
+            code_was = made["code"]
+            for c in list(tb):
+                bye(c)
+            tb = []
+            # every chair has to run out its reconnect grace before the room goes
+            end = time.monotonic() + L.GRACE + L.SWEEP * 6 + 2
+            while time.monotonic() < end and code_was in ROOMS._rooms:
+                time.sleep(0.2)
+            check("an emptied table is reaped like any other room",
+                  code_was not in ROOMS._rooms, code_was)
+        except Exception as e:
+            check("tables are reaped", False, repr(e))
+
+        try:
+            probe = cli(origin=PAGES_ORIGIN)
+            cases = [
+                ({"game": "chess", "seats": 4}, False, "chess above two"),
+                ({"game": "cards", "seats": 3}, False, "a card duel above two"),
+                ({"game": "kiri", "seats": 9}, False, "IL-KIRI above its eight hues"),
+                ({"game": "kiri", "seats": 8}, True, "IL-KIRI at eight"),
+                ({"game": "skarta", "seats": 15}, True, "SKARTA at fifteen"),
+                ({"game": "skarta", "seats": 16}, False, "SKARTA above its deal"),
+                ({"game": "tombla", "seats": 16}, True, "TOMBLA at sixteen"),
+                ({"game": "tombla", "seats": 17}, False, "anything above the ceiling"),
+                ({"game": "skarta", "seats": 1}, False, "a table of one"),
+                ({"game": "klabb", "variant": "briscola", "seats": 8}, False,
+                 "Briscola above its partnership four"),
+                ({"game": "klabb", "variant": "sette", "seats": 8}, True,
+                 "Sette e Mezzo at eight"),
+                ({"game": "klabb", "variant": "poker"}, False, "a variant nobody has"),
+            ]
+            bad = []
+            for body, allowed, label in cases:
+                body = dict(body)
+                body["t"] = "create"
+                probe.send_json(body)
+                r = probe.recv_json(2.0)
+                made_ok = (r or {}).get("t") == "created"
+                if made_ok != allowed:
+                    bad.append((label, r))
+                if made_ok:
+                    probe.send_json({"t": "leave"})
+                    time.sleep(0.05)
+            check("every game's own seat range is enforced, and nothing else is",
+                  not bad, bad)
+            bye(probe)
+            time.sleep(0.3)
+        except Exception as e:
+            check("seat ranges are enforced", False, repr(e))
 
         # ═══════════ takebacks ═══════════
         print("")

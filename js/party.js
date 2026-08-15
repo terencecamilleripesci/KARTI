@@ -81,6 +81,17 @@ function register(def){
   if (at >= 0) GAMES[at] = def; else GAMES.push(def);
   GAMES.sort((a, b) => (a.order || 99) - (b.order || 99));
 }
+/* The other half of register(), which was missing and cost somebody a
+   workaround: a game file that decides a tile should not be there any more —
+   a placeholder it has outgrown, a variant it has folded into another — can
+   take it off the shelf instead of squatting on the id to hide it. */
+function unregister(id){
+  const at = GAMES.findIndex(g => g.id === id);
+  if (at < 0) return false;
+  GAMES.splice(at, 1);
+  if (live) hub();
+  return true;
+}
 
 /* ── two shelves, not one ──────────────────────────────────────────
    A flat grid of four or five tiles is a list you have to read. Two
@@ -93,6 +104,20 @@ const SHELVES = [
   { kind:'card',  title:'Card games',  note:'A deck, a hand, and a straight face.' }
 ];
 
+/* Which shelf a game belongs on. Deliberately forgiving: this convention was
+   invented after js/klabb.js and js/kiri-ui.js were already being written, and
+   a game landing on the wrong shelf because it said `cat:'cards'` instead of
+   `kind:'card'` is our bug, not theirs. Order: what they said, then the other
+   spelling, then what their icon gives away, then board — which is what
+   everything here was before there were two shelves. */
+function shelfOf(g){
+  const said = String(g.kind || g.cat || '').toLowerCase();
+  if (said === 'card' || said === 'cards') return 'card';
+  if (said === 'board' || said === 'boards') return 'board';
+  if (g.icon === 'cards' || g.icon === 'discard' || g.icon === 'deck') return 'card';
+  return 'board';
+}
+
 /* the two that are coming, under names nobody's lawyer owns. They are
    registered here so the shelf reads as a collection rather than two lonely
    buttons; each one turns real the moment its own file registers over the
@@ -102,10 +127,10 @@ register({
   tag:'Get rid of your hand before the rest of the table gets rid of theirs. ' +
       'Matching colours, matching numbers, and one card that ruins somebody\'s evening.'
 });
-register({
-  id:'klabb', order:35, kind:'card', name:'PLAYING CARDS', icon:'cards', status:'soon',
-  tag:'The ordinary pack, and the games everybody already knows how to play with it.'
-});
+/* There is deliberately NO "playing cards" placeholder. The four games in the
+   ordinary pack — Bixkla, Briscola, Sette e Mezzo, Il-Gidba — each put their
+   own tile on the card shelf, because that is what they are: four games, not
+   one wrapper called PLAYING CARDS with four games hiding inside it. */
 register({
   id:'kiri', order:40, kind:'board', name:'IL-KIRI', icon:'coin', status:'soon',
   tag:'Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
@@ -268,7 +293,7 @@ function hub(){
     const grid = el.querySelector('#pt-grid-' + s.kind);
     let n = 0;
     sorted.forEach(g => {
-      if ((g.kind || 'board') !== s.kind) return;
+      if (shelfOf(g) !== s.kind) return;
       n++;
       const soon = g.status === 'soon';
       const r = recOf(g.id);
@@ -383,8 +408,7 @@ function setup(cfg){
         ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' + r.l +
           '</b> lost, <b>' + r.d + '</b> drawn.</p>'
         : '') +
-      '<button class="btn primary" id="pt-start" style="margin:16px 0 24px">' +
-        (window.ILB ? window.ILB('play', 'Start') : 'Start') + '</button>' +
+      '<button class="btn primary" id="pt-start" style="margin:16px 0 24px"></button>' +
     '</div>';
 
   const sync = () => {
@@ -395,6 +419,13 @@ function setup(cfg){
     el.querySelectorAll('#pt-side .pt-opt').forEach(b =>
       b.classList.toggle('on', b.dataset.v === side));
     el.querySelector('#pt-aibits').hidden = (mode !== 'ai');
+    /* The button says what the next tap actually DOES. Online, the next thing
+       on screen is a room — not another menu asking which game this is, which
+       is a question the player has already answered twice by getting here. */
+    const b = el.querySelector('#pt-start');
+    const label = mode === 'online' ? 'Find somebody to play' : 'Start';
+    const icon  = mode === 'online' ? 'users' : 'play';
+    b.innerHTML = window.ILB ? window.ILB(icon, label) : label;
   };
   el.querySelectorAll('#pt-mode .pt-opt').forEach(b =>
     b.onclick = () => { mode = b.dataset.v; sync(); });
@@ -1046,7 +1077,7 @@ document.addEventListener('click', e => {
    index.html calls KARTI_PARTY.open() from the home screen button.
    ═══════════════════════════════════════════════════════════════════ */
 window.KARTI_PARTY = {
-  open, close, hub, register,
+  open, close, hub, register, unregister,
   /* show() puts our screen up WITHOUT painting the hub over it — js/mp.js
      needs that to drop an online board straight onto the screen. */
   show, standDown,
