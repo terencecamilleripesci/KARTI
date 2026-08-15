@@ -11,9 +11,17 @@
    2) ONLINE — real internet play, different houses
       The page is served from GitHub Pages over https. It opens a wss://
       socket to a small relay (server/karti_server.py) that runs on the
-      Pi and is published to the internet by Tailscale Funnel. The relay
-      pairs two players by a 5-character room code and passes moves
-      between them. It is a relay, NOT a referee.
+      Pi and is published to the internet by Tailscale Funnel. It is a
+      relay, NOT a referee.
+
+      NOBODY READS A CODE OUT. Opening Online shows the ROOM LIST: every
+      room currently waiting for an opponent, who opened it and how long
+      they have been sat there. Tap one and you are in. Opening a room of
+      your own is one tap and puts you in everybody else's list at once.
+      A room code still exists and still works — it is the only way to
+      reach one *particular* person when several rooms are open — but it
+      lives behind "Other ways in", along with "open a private room",
+      which keeps a room out of the list entirely.
 
       Both devices run the same deterministic engine from the same seed
       and the same pre-dealt decks, and every move is mirrored. Two
@@ -54,13 +62,17 @@ const PONG_DEADLINE = 55000;    /* no pong for this long -> assume dead */
 const OPEN_TIMEOUT  = 9000;     /* socket must open within this, ms */
 const RETRY_WAITS   = [400, 900, 1800, 3500, 6000, 8000, 8000, 8000];  /* ~37s */
 
-/* who's-online panel on the home screen */
+/* who's-online panel on the home screen, AND the room list on the Online screen —
+   ONE poller feeds both. There is deliberately no second timer anywhere. */
 const PRESENCE_EVERY   = 12000;  /* ms between polls while Home is up and visible */
+const PRESENCE_LOBBY   = 5000;   /* while the Online screen is up: livelier, but
+                                    still comfortably above the hard floor below */
 const PRESENCE_MIN_GAP = 4000;   /* never poll faster than this, whatever asks */
 const PRESENCE_PING    = 45000;  /* keep the beacon socket alive (server cuts at 120s) */
 const PRESENCE_HIDE_GRACE = 60000; /* hidden this long -> hand the socket back */
 const PRESENCE_HTTP_TO = 8000;   /* give up on one poll after this */
 const PRESENCE_ROWS    = 24;     /* names we will render, whatever the relay sends */
+const ROOM_ROWS        = 12;     /* rooms we will render, whatever the relay sends */
 const NAME_MAX         = 16;     /* must match L.NAME_LEN on the relay */
 
 const K = window.KARTI;
@@ -264,8 +276,21 @@ const MP = {
   myDeckId:null, myName:'', peerName:'', peerList:null, peerKey:null,
   state:'idle', note:'', tries:0,
   retryTimer:null, openTimer:null, pingTimer:null, lastPong:0,
-  transport:null, seed:0
+  transport:null, seed:0,
+  /* room-list era: did we ask for a private room, did we actually GET one, when
+     did it open (for the "waiting 34s" line), and the 1s clock that paints it */
+  wantPrivate:false, private:false, openedAt:0, waitTimer:null, autoNote:false
 };
+
+/* "34s" / "6m" / "2h" — used both for how long a room has waited and for how
+   long you have been sitting in your own. */
+function ago(sec){
+  let s = Math.max(0, Math.floor(sec || 0));
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm';
+  return Math.floor(m / 60) + 'h';
+}
 
 /* deterministic RNG — both devices must roll the same numbers in the same
    order or the two boards drift apart */
@@ -307,7 +332,8 @@ const cleanCode = s => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
 
 /* ── connection state, said out loud ───────────────────────────────── */
 const STATES = {
-  idle:        { dot:'off',  text:'Not connected' },
+  idle:        { dot:'off',  text:'Not in a room yet' },
+  ok:          { dot:'on',   text:'Server is up.' },
   connecting:  { dot:'wait', text:'Connecting to the server…' },
   waiting:     { dot:'wait', text:'Waiting for your opponent to join…' },
   ready:       { dot:'on',   text:'Connected — dealing the cards…' },
@@ -320,7 +346,32 @@ const STATES = {
 function setState(key, note){
   MP.state = key;
   MP.note = note || '';
+  MP.autoNote = false;
   paintState();
+}
+/* The status line must never contradict the list underneath it — "Not connected"
+   above eight joinable rooms is nonsense, and so is a cheerful line above a red
+   "cannot reach the server" box. So the shared presence poll keeps it honest,
+   but ONLY while we are between rooms: the moment a real connection state has
+   something to say (connecting, waiting, live, stopped…) it owns the line and
+   this stays out of the way. */
+function presenceNote(open){
+  if (!(MP.state === 'idle' || MP.state === 'ok' || MP.autoNote)) return;
+  let key, note;
+  if (PR.err){
+    key = 'unreachable';
+    note = 'Cannot reach the server — the list below is not an answer.';
+  } else if (!PR.tried || !PR.data){
+    return;
+  } else if (open > 0){
+    key = 'ok';
+    note = open + (open === 1 ? ' room is' : ' rooms are') + ' open. Tap one to join.';
+  } else {
+    key = 'ok';
+    note = 'Server is up. Nobody is waiting — open a room and they will see it.';
+  }
+  setState(key, note);
+  MP.autoNote = true;
 }
 function paintState(){
   const host = $('#mp-stat');
@@ -358,7 +409,61 @@ function injectCSS(){
     '#scr-mp .mp-box.bad{background:rgba(255,84,104,.10);border-color:rgba(255,84,104,.35)}' +
     '#scr-mp .mp-codein{text-align:center;letter-spacing:.28em;text-transform:uppercase;' +
       'font:700 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}' +
-    '#scr-mp .mp-url{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}';
+    '#scr-mp .mp-url{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}' +
+
+    /* ── the room list: the primary way in ── */
+    '#scr-mp .mp-rhead{display:flex;align-items:center;gap:8px;margin:2px 0 9px}' +
+    '#scr-mp .mp-rhead h3{flex:1;font-size:12px;letter-spacing:.15em;text-transform:uppercase;' +
+      'color:#EFE7FF}' +
+    '#scr-mp .mp-rcount{flex:0 0 auto;padding:4px 9px;border-radius:999px;font:700 11px/1.4 ' +
+      'ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.06em;' +
+      'background:rgba(255,197,66,.14);color:#FFC542;border:1px solid rgba(255,197,66,.32)}' +
+    '#scr-mp .mp-ref{flex:0 0 auto;width:34px;height:34px;border-radius:11px;display:grid;' +
+      'place-items:center;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);' +
+      'color:#A093C4;cursor:pointer}' +
+    '#scr-mp .mp-ref:active{transform:scale(.92)}' +
+    '#scr-mp .mp-rlist{display:flex;flex-direction:column;gap:8px}' +
+    '#scr-mp .mp-room{display:flex;align-items:center;gap:11px;width:100%;text-align:left;' +
+      'min-height:64px;padding:10px 12px;border-radius:15px;color:#F4EFFF;cursor:pointer;' +
+      'border:1px solid rgba(255,197,66,.45);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.14),rgba(255,197,66,.05));' +
+      'transition:transform .13s ease,background .13s}' +
+    '#scr-mp .mp-room:active{transform:scale(.985);background:rgba(255,197,66,.20)}' +
+    '#scr-mp .mp-rav{flex:0 0 auto;width:40px;height:40px;border-radius:13px;display:grid;' +
+      'place-items:center;font:900 14px/1 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'letter-spacing:.02em;color:#FFDE93;background:rgba(255,197,66,.20);' +
+      'border:1px solid rgba(255,197,66,.36)}' +
+    '#scr-mp .mp-rwho{flex:1;min-width:0}' +
+    '#scr-mp .mp-rname{display:block;font:900 14px/1.25 Orbitron,"Arial Black",system-ui,' +
+      'sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-mp .mp-rage{display:block;margin-top:3px;font-size:10px;letter-spacing:.09em;' +
+      'text-transform:uppercase;font-weight:700;color:#A093C4}' +
+    '#scr-mp .mp-rme{color:#7F73A0}' +
+    '#scr-mp .mp-rgo{flex:0 0 auto;padding:9px 12px;border-radius:11px;background:#FFC542;' +
+      'color:#241800;font:900 12px/1 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'letter-spacing:.10em}' +
+    '#scr-mp .mp-more{text-align:center;font-size:11px;color:#7F73A0;margin:9px 0 0}' +
+    '#scr-mp .mp-empty{padding:20px 16px;border-radius:15px;text-align:center;' +
+      'border:1px dashed rgba(255,255,255,.20);background:rgba(255,255,255,.03)}' +
+    '#scr-mp .mp-empty .e{font-size:26px;opacity:.55;line-height:1;margin-bottom:8px}' +
+    '#scr-mp .mp-empty b{display:block;font-family:Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'font-size:13px;letter-spacing:.06em;margin-bottom:6px}' +
+    '#scr-mp .mp-empty p{font-size:12.5px;line-height:1.6;color:#A093C4;margin:0}' +
+
+    /* ── you have opened a room and are sitting there ── */
+    '#scr-mp .mp-hold{padding:22px 16px 18px;border-radius:16px;text-align:center;margin:12px 0;' +
+      'border:1px solid rgba(255,197,66,.30);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.10),rgba(255,255,255,.03))}' +
+    '#scr-mp .mp-ring{width:58px;height:58px;margin:0 auto 14px;border-radius:50%;' +
+      'border:3px solid rgba(255,197,66,.22);border-top-color:#FFC542;' +
+      'animation:mpSpin 1.1s linear infinite}' +
+    '#scr-mp .mp-ring.on{border-color:rgba(61,220,132,.30);border-top-color:#3DDC84;' +
+      'animation-duration:.7s}' +
+    '@keyframes mpSpin{to{transform:rotate(360deg)}}' +
+    '#scr-mp .mp-hold h3{font-size:15px;letter-spacing:.05em}' +
+    '#scr-mp .mp-holdp{font-size:12.5px;line-height:1.65;color:#A093C4;margin:9px 4px 0}' +
+    '#scr-mp .mp-holdage{margin:12px 0 0;font-size:10.5px;letter-spacing:.12em;font-weight:700;' +
+      'text-transform:uppercase;color:#7F73A0}';
   document.head.appendChild(st);
 }
 
@@ -375,26 +480,42 @@ function mpScreen(){
       '<h2>Online</h2>' +
     '</div>' +
     '<div class="scroll" id="mp-body">' +
-      '<p class="blurb">Play someone in another house. One of you makes a room and reads ' +
-      'out the code; the other types it in. Both phones need the internet — nothing else.</p>' +
+      '<p class="blurb">Every room waiting for a player is listed below. <b>Tap one to ' +
+      'join</b> — nothing to type, no code to read out. Nobody about? Open a room and the ' +
+      'next person online sees it.</p>' +
       '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
       (insecure
         ? '<div class="mp-box bad"><b>That server address will not work from this page.</b><br>' +
           'KARTI is loaded over https, so it can only open a <code>wss://</code> connection. ' +
           'Fix the address below or leave it on the default.</div>'
         : '') +
-      '<div class="tiny">Your deck</div>' +
+      '<div id="mp-rooms"></div>' +
+      '<button class="btn primary" id="mp-open" style="margin-top:12px">' + ico('plus') +
+        ' Open a room</button>' +
+      '<p class="mp-more">One tap. Everyone online sees it straight away.</p>' +
+      '<div class="tiny" style="margin:18px 0 7px">Your deck</div>' +
       '<div class="deckpick" id="mp-deck"></div>' +
-      '<div style="display:grid;gap:9px;margin-top:14px">' +
-        '<button class="btn primary" id="mp-create">' + ico('plus') + ' Create a room</button>' +
-        '<div class="tiny" style="text-align:center;margin-top:2px">or join one</div>' +
-        '<input class="field mp-codein" id="mp-code" maxlength="' + CODE_LEN + '" ' +
-          'placeholder="CODE" autocomplete="off" autocapitalize="characters" ' +
-          'spellcheck="false" aria-label="Room code">' +
-        '<button class="btn" id="mp-join">↪ Join room</button>' +
-        '<button class="btn ghost" id="mp-pnp">' + ico('users') + ' Use Pass &amp; Play instead</button>' +
-      '</div>' +
-      '<details style="margin:16px 0 26px"><summary class="tiny">Server settings</summary>' +
+      '<details style="margin:18px 0 8px"><summary class="tiny">Other ways in</summary>' +
+        '<div class="mp-box">Only needed to reach <b>one particular person</b> while several ' +
+        'rooms are open. Otherwise just use the list.</div>' +
+        '<div class="tiny">Join by code</div>' +
+        '<div style="display:grid;gap:9px;margin-top:7px">' +
+          '<input class="field mp-codein" id="mp-code" maxlength="' + CODE_LEN + '" ' +
+            'placeholder="CODE" autocomplete="off" autocapitalize="characters" ' +
+            'spellcheck="false" aria-label="Room code">' +
+          '<button class="btn" id="mp-join">↪ Join by code</button>' +
+        '</div>' +
+        '<div class="tiny" style="margin:18px 0 7px">Keep a room to yourself</div>' +
+        '<button class="btn ghost" id="mp-openpriv">' + ico('lock') +
+          ' Open a private room</button>' +
+        '<p class="tiny" style="line-height:1.7;margin-top:7px;text-transform:none;' +
+          'letter-spacing:0">A private room is <b>not</b> in anybody\'s list. Only the person ' +
+          'you hand the code to can get in.</p>' +
+        '<div style="height:14px"></div>' +
+        '<button class="btn ghost" id="mp-pnp">' + ico('users') +
+          ' Use Pass &amp; Play instead</button>' +
+      '</details>' +
+      '<details style="margin:8px 0 26px"><summary class="tiny">Server settings</summary>' +
         '<div class="tiny" style="margin-top:8px">Relay address</div>' +
         '<input class="field mp-url" id="mp-url" value="' + esc(MP.url) + '" ' +
           'aria-label="Relay server address" spellcheck="false">' +
@@ -425,7 +546,8 @@ function mpScreen(){
   $('#mp-reset').onclick = () => { rememberRelay(''); MP.url = RELAY_URL; mpScreen(); };
   $('#mp-test').onclick = testServer;
 
-  $('#mp-create').onclick = () => start('create');
+  $('#mp-open').onclick     = () => start('create', null, null, false);
+  $('#mp-openpriv').onclick = () => start('create', null, null, true);
   $('#mp-join').onclick = () => {
     const c = cleanCode($('#mp-code').value);
     if (c.length !== CODE_LEN){ K.toast('A room code is ' + CODE_LEN + ' characters.'); return; }
@@ -435,6 +557,7 @@ function mpScreen(){
   codeIn.oninput = () => { codeIn.value = cleanCode(codeIn.value); };
 
   setState(MP.state === 'idle' ? 'idle' : MP.state, MP.note);
+  paintRooms();                 /* whatever the shared poller already knows */
 }
 
 function testServer(){
@@ -457,10 +580,10 @@ function testServer(){
 }
 
 /* ── socket lifecycle ─────────────────────────────────────────────── */
-/* intent: 'create' | 'join' (needs a room code) | 'joinid' (needs the public
-   handle of a waiting player, straight off the who's-online panel — you never
-   see, type or learn their room code) | 'rejoin' */
-function start(intent, code, id){
+/* intent: 'create' (priv=true keeps the room out of the public list) |
+   'join' (needs a room code) | 'joinid' (needs the public handle of a room from
+   the room list — you never see, type or learn its room code) | 'rejoin' */
+function start(intent, code, id, priv){
   MP.url = ((($('#mp-url') || {}).value) || MP.url || defaultURL()).trim();
   if (!/^wss?:\/\//i.test(MP.url)){
     setState('unreachable', 'That is not a valid server address.');
@@ -474,6 +597,9 @@ function start(intent, code, id){
   presenceBeaconClose();          /* one socket per device, never two */
   MP.code = intent === 'join' ? code : null;
   MP.joinId = intent === 'joinid' ? (id || null) : null;
+  MP.wantPrivate = intent === 'create' ? !!priv : false;
+  MP.private = MP.wantPrivate;
+  MP.openedAt = 0;
   MP.token = null; MP.lastSeq = 0; MP.tries = 0;
   MP.joined = false; MP.peerHere = false; MP.peerList = null;
   openSocket(intent);
@@ -502,7 +628,10 @@ function openSocket(intent){
        onServerError swallow exactly that one reply so nothing looks broken. */
     MP.nameProbe = true;
     send({ t:'name', n: myPresenceName() });
-    if (intent === 'create') send({ t:'create' });
+    /* An older relay does not know "private" and simply ignores it — it also has
+       no room list to hide from, and `created` will come back without the flag,
+       which is how we spot it and say so out loud. */
+    if (intent === 'create') send({ t:'create', private: !!MP.wantPrivate });
     else if (intent === 'join') send({ t:'join', code: MP.code });
     else if (intent === 'joinid') send({ t:'joinid', id: MP.joinId });
     else send({ t:'rejoin', code: MP.code, token: MP.token, since: MP.lastSeq });
@@ -573,8 +702,10 @@ function hardClose(){
 function mpLeave(){
   if (MP.ws && MP.ws.readyState === 1){ try { MP.ws.send(JSON.stringify({ t:'leave' })); } catch (e){} }
   hardClose();
+  stopWaitClock();
   MP.code = null; MP.token = null; MP.live = false; MP.joined = false;
   MP.joinId = null; MP.nameProbe = false;
+  MP.wantPrivate = false; MP.private = false; MP.openedAt = 0;
   MP.peerHere = false; MP.peerList = null; MP.lastSeq = 0; MP.tries = 0;
   if (MP.state !== 'unreachable') setState('idle');
 }
@@ -593,8 +724,12 @@ function onServer(m){
     case 'created':
       MP.host = true; MP.code = m.code; MP.token = m.token || null;
       MP.joined = true; MP.lastSeq = m.seq || 0; MP.tries = 0;
+      MP.private = m.private === true;      /* what we actually got, not what we asked */
+      MP.openedAt = Date.now();
       lobby();
-      setState('waiting');
+      setState('waiting', MP.private
+        ? 'Private room open — nobody can see it but you.'
+        : 'Your room is in the list. Waiting for someone to join…');
       return;
 
     case 'joined':
@@ -658,9 +793,9 @@ function onServerError(why){
   }
   if (/not waiting/i.test(why)){
     MP.token = null; MP.code = null; MP.joinId = null; MP.joined = false;
-    setState('unreachable', 'That player is not waiting any more — someone else got there ' +
-             'first, or they closed the game. Make a room of your own instead.');
-    K.toast('They are not waiting any more.');
+    setState('unreachable', 'That room has gone — somebody else got there first, or they ' +
+             'closed it. The list below refreshes on its own; or open a room of your own.');
+    K.toast('That room has gone.');
     return;
   }
   if (/No room with that code/i.test(why)){
@@ -681,19 +816,57 @@ function onServerError(why){
   K.toast(why || 'Server error');
 }
 
+/* ── you are sitting in a room ──────────────────────────────────────────────
+   Two shapes. WAITING: a big honest "nobody yet", who can see you, how long you
+   have been there, and one obvious way out. PAIRED: they turned up, hold on.
+   The room code is still here — it is the one thing that reaches a particular
+   person — but for a public room it is folded away, because reading a code out
+   is exactly what the room list exists to abolish. */
 function lobby(){
   const body = $('#mp-body');
   if (!body || !MP.code) return;
-  body.innerHTML =
-    '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
-    '<div class="mp-box">Read this code out to the other player. They tap <b>Join room</b> ' +
-    'and type it in.</div>' +
-    '<div class="mp-code" id="mp-showcode">' + esc(MP.code) + '</div>' +
-    '<p class="tiny" style="text-align:center">Room ' + esc(MP.code) + ' · you are the ' +
-      (MP.host ? 'host, so you go first' : 'guest, so they go first') + '</p>' +
-    '<div style="display:grid;gap:9px;margin-top:16px">' +
-      '<button class="btn ghost" id="mp-copy">' + ico('cards') + ' Copy the code</button>' +
-      '<button class="btn ghost" id="mp-cancel">Leave the room</button></div>';
+  stopWaitClock();
+
+  if (MP.peerHere){
+    body.innerHTML =
+      '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
+      '<div class="mp-hold"><div class="mp-ring on"></div>' +
+        '<h3>Somebody joined</h3>' +
+        '<p class="mp-holdp">Swapping decks and dealing. This takes a second.</p></div>' +
+      '<button class="btn ghost" id="mp-cancel">Leave the room</button>';
+  } else {
+    const me = esc(myPresenceName());
+    const codeBlock =
+      '<div class="mp-code" id="mp-showcode">' + esc(MP.code) + '</div>' +
+      '<button class="btn ghost" id="mp-copy">' + ico('cards') + ' Copy the code</button>';
+    body.innerHTML =
+      '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
+      (MP.wantPrivate && !MP.private
+        ? '<div class="mp-box warn"><b>This relay is an older build.</b> It cannot hide a ' +
+          'room, so this one may still show up as waiting. Nothing is broken — but if you ' +
+          'wanted it private, take the code to your friend quickly.</div>'
+        : '') +
+      '<div class="mp-hold">' +
+        '<div class="mp-ring"></div>' +
+        '<h3>Waiting for someone</h3>' +
+        '<p class="mp-holdp">' + (MP.private
+          ? 'This room is <b>private</b> — it is in nobody\'s list. Give the code below to ' +
+            'the one person you want to play, and only they can get in.'
+          : 'Your room is in the list right now as <b>' + me + '</b>. Anyone who opens ' +
+            'Online sees it and can tap straight in — they do not need a code.') + '</p>' +
+        '<p class="mp-holdage" id="mp-age">open for 0s</p>' +
+      '</div>' +
+      (MP.private
+        ? '<div style="display:grid;gap:9px">' + codeBlock + '</div>'
+        : '<details style="margin:4px 0 14px"><summary class="tiny">Waiting for one ' +
+          'particular person?</summary><p class="tiny" style="line-height:1.7;margin:8px 0 0;' +
+          'text-transform:none;letter-spacing:0">Give them this code and they can come ' +
+          'straight to you with <b>Other ways in › Join by code</b>.</p>' +
+          '<div style="display:grid;gap:9px;margin-top:9px">' + codeBlock + '</div></details>') +
+      '<button class="btn ghost" id="mp-cancel">✕ Cancel and go back</button>';
+    startWaitClock();
+  }
+
   const cp = $('#mp-copy');
   if (cp) cp.onclick = () => {
     try { navigator.clipboard.writeText(MP.code); K.toast('Code copied.'); }
@@ -702,6 +875,24 @@ function lobby(){
   const cx = $('#mp-cancel');
   if (cx) cx.onclick = () => { mpLeave(); mpScreen(); };
   paintState();
+}
+
+/* A 1s text clock, and nothing else — it touches one text node, never the
+   network. It is stopped the moment the element goes, the tab is hidden, or the
+   room is left, so a forgotten lobby costs nothing. */
+function startWaitClock(){
+  stopWaitClock();
+  if (!MP.openedAt) MP.openedAt = Date.now();
+  paintWaitAge();
+  MP.waitTimer = setInterval(paintWaitAge, 1000);
+}
+function stopWaitClock(){
+  if (MP.waitTimer){ clearInterval(MP.waitTimer); MP.waitTimer = null; }
+}
+function paintWaitAge(){
+  const el = $('#mp-age');
+  if (!el){ stopWaitClock(); return; }
+  el.textContent = 'open for ' + ago((Date.now() - MP.openedAt) / 1000);
 }
 
 function sendHello(){
@@ -1010,7 +1201,7 @@ function mpResult(winner, why){
    as "nobody is online".
    ═══════════════════════════════════════════════════════════════════ */
 const PR = {
-  mounted:false, ws:null, pingTimer:null, timer:null, hideTimer:null,
+  mounted:false, fast:false, ws:null, pingTimer:null, timer:null, hideTimer:null,
   last:0, busy:false, data:null, err:null, tried:false
 };
 
@@ -1102,7 +1293,7 @@ function presencePoll(){
 function presenceTick(){
   clearTimeout(PR.timer);
   const since = Date.now() - PR.last;
-  let wait = PRESENCE_EVERY;
+  let wait = PR.fast ? PRESENCE_LOBBY : PRESENCE_EVERY;
   if (since >= PRESENCE_MIN_GAP) presencePoll();
   else wait = PRESENCE_MIN_GAP - since + 120;
   PR.timer = setTimeout(presenceTick, wait);
@@ -1115,7 +1306,11 @@ const STATE_WORD = {
   playing: { word:'in a duel', icon:'type-monster' }
 };
 
-function presencePaint(){
+/* One poll, two things drawn from it: the home-screen panel and the Online
+   screen's room list. Each is a no-op when its element is not on the page. */
+function presencePaint(){ paintHomePanel(); paintRooms(); }
+
+function paintHomePanel(){
   const host = $('#home-online');
   if (!host) return;
   if (!PR.mounted){ host.className = 'onlinebox'; host.innerHTML = ''; return; }
@@ -1186,27 +1381,144 @@ function presencePaint(){
     presencePoll();
   };
   K.$$('[data-join]', host).forEach(el => {
-    el.onclick = () => joinWaiting(el.getAttribute('data-join'), el.getAttribute('data-who'));
+    el.onclick = () => joinRoom(el.getAttribute('data-join'), el.getAttribute('data-who'));
   });
 }
 
-/* Take the empty seat somebody is advertising. No room code is ever typed,
-   read out, or even shown to us — the relay resolves the handle itself. */
-function joinWaiting(id, who){
+/* ── the room list ───────────────────────────────────────────────────────────
+   Fed by the same /presence answer as the home panel. The relay gives us
+   `rooms`: [{id, n, w}] — an opaque per-socket handle, the opener's scrubbed
+   display name, and how many seconds it has waited. NO room code is in there,
+   for our own room or anyone else's, and the handle only exists while that
+   seat is genuinely free and public. An older relay sends no `rooms` at all, so
+   we fall back to the waiting players it does list. */
+function roomsFrom(d){
+  if (!d) return null;
+  let raw = null;
+  if (Array.isArray(d.rooms)) raw = d.rooms;
+  else if (Array.isArray(d.players))
+    raw = d.players.filter(p => p && p.s === 'waiting' && p.id);
+  if (!raw) return null;
+  /* The relay is ours, but the answer arrives over the public internet, so every
+     row is normalised before it is drawn: a handle must be a string, a name is
+     capped at the same length the relay caps it, a wait time must be a real
+     non-negative number, and the list itself is capped whatever we are sent. */
+  return raw.filter(r => r && typeof r === 'object' && typeof r.id === 'string' && r.id)
+            .slice(0, PRESENCE_ROWS)
+            .map(r => ({
+              id: r.id.slice(0, 64),
+              n: ((typeof r.n === 'string' && r.n) ? r.n : 'PLAYER').slice(0, NAME_MAX),
+              w: (typeof r.w === 'number' && isFinite(r.w) && r.w >= 0) ? Math.floor(r.w) : null
+            }));
+}
+
+function paintRooms(){
+  const host = $('#mp-rooms');
+  if (!host || !PR.mounted) return;
+
+  const me = myPresenceName();
+  const rooms = roomsFrom(PR.data);
+  /* how many are REALLY open, which can be more than the relay chose to name */
+  const open = !rooms ? 0
+    : (PR.data && typeof PR.data.open === 'number' ? PR.data.open : rooms.length);
+  let count = '', body = '';
+  presenceNote(open);
+
+  if (PR.err){
+    count = 'offline';
+    body =
+      '<div class="mp-box bad"><b>Cannot reach the KARTI server.</b> Nothing has crashed and ' +
+      'nobody has vanished — the list simply could not be fetched, so it is not being shown. ' +
+      'This is <b>not</b> an empty list.' +
+      (PR.err === 'old'
+        ? '<br><br>That relay is an older build with no room list on it.'
+        : PR.err === 'busy'
+        ? '<br><br>The server asked us to slow down. It will try again shortly.'
+        : PR.err === 'notrelay'
+        ? '<br><br>Something answered, but it was not the KARTI relay.'
+        : '<br><br><b>If Tailscale is on, turn it off.</b> A public web page is not allowed ' +
+          'to talk to a private network address, so the relay looks unreachable until you ' +
+          'do. Otherwise: check you are online, or the server may be down.') +
+      '</div>';
+  } else if (!PR.tried || !rooms){
+    count = '…';
+    body = '<div class="mp-empty"><div class="e">' + ico('refresh') + '</div>' +
+           '<b>Looking for rooms</b><p>One moment.</p></div>';
+  } else if (!rooms.length){
+    count = '0';
+    body = '<div class="mp-empty"><div class="e">' + ico('users') + '</div>' +
+           '<b>No rooms open</b><p>Open one with the button below and wait — it lands on ' +
+           'everybody else’s screen the moment you do, and they can tap straight in.</p></div>';
+  } else {
+    const shown = rooms.slice(0, ROOM_ROWS);
+    count = String(open);
+    body = '<div class="mp-rlist">' + shown.map(r => {
+      const name = (r && r.n) || 'PLAYER';
+      const mine = name === me;
+      const wait = (r.w === null || r.w === undefined)
+        ? 'waiting for a player'
+        : (r.w < 8 ? 'just opened' : 'waiting ' + ago(r.w));
+      return '<button class="mp-room" data-room="' + esc(r.id) + '" data-who="' + esc(name) + '">' +
+        '<span class="mp-rav">' + esc(name.slice(0, 2)) + '</span>' +
+        '<span class="mp-rwho"><span class="mp-rname">' + esc(name) +
+          (mine ? ' <span class="mp-rme">(you)</span>' : '') + '</span>' +
+          '<span class="mp-rage">' + wait + '</span></span>' +
+        '<span class="mp-rgo">Join</span></button>';
+    }).join('') + '</div>';
+    const more = open - shown.length;
+    if (more > 0) body += '<p class="mp-more">and ' + more + ' more open right now</p>';
+  }
+
+  host.innerHTML =
+    '<div class="mp-rhead"><h3>Rooms open now</h3>' +
+      '<span class="mp-rcount">' + esc(count) + '</span>' +
+      '<button class="mp-ref" id="mp-refresh" aria-label="Check for rooms again">' +
+        ico('refresh') + '</button></div>' +
+    '<div role="status" aria-live="polite">' + body + '</div>';
+
+  const ref = $('#mp-refresh');
+  if (ref) ref.onclick = () => {
+    if (Date.now() - PR.last < PRESENCE_MIN_GAP){ K.toast('Just a moment…'); return; }
+    presencePoll();
+  };
+  K.$$('[data-room]', host).forEach(el => {
+    el.onclick = () => joinRoom(el.getAttribute('data-room'), el.getAttribute('data-who'));
+  });
+}
+
+/* Take the empty seat a room is advertising. No room code is ever typed, read
+   out, or even shown to us: we hand back the opaque handle and the relay
+   re-resolves it itself, refusing it unless that room really is open, public
+   and still short of a player. Works from the home panel (rebuild the Online
+   screen on the way) and from the room list itself (already there). */
+function joinRoom(id, who){
   if (!id) return;
   window.KHOOK = null;
-  mpScreen();
-  K.go('mp');                                   /* unmounts the panel on the way */
+  if (!document.querySelector('#scr-mp.on')){
+    mpScreen();
+    K.go('mp');                                 /* re-points the poller on the way */
+  }
   start('joinid', null, id);
   setState('connecting', 'Joining ' + (who || 'them') + '…');
 }
+const joinWaiting = joinRoom;                   /* the name the old panel used */
 
-/* ── mount / unmount ────────────────────────────────────────────── */
-function presenceMount(){
-  if (PR.mounted) return;
+/* ── mount / unmount ──────────────────────────────────────────────
+   Two screens want this data now, so the mount carries which one: Online gets a
+   livelier cadence than Home, because a room list that is 12 s stale feels dead.
+   It is still ONE timer and one socket, and PRESENCE_MIN_GAP is still the floor
+   underneath both. */
+function presenceMount(which){
+  const fast = which === 'mp';
+  if (PR.mounted){
+    if (PR.fast !== fast){ PR.fast = fast; presenceTick(); }
+    presencePaint();
+    return;
+  }
   PR.mounted = true;
-  /* deliberately NOT clearing PR.data: coming straight back to Home should show
-     the list we already had, then refresh it, rather than blink to "checking". */
+  PR.fast = fast;
+  /* deliberately NOT clearing PR.data: coming straight back should show the list
+     we already had, then refresh it, rather than blink to "checking". */
   presencePaint();
   presenceBeaconOpen();
   /* Give the beacon a moment to register our name before the first poll; if it
@@ -1215,16 +1527,20 @@ function presenceMount(){
   PR.timer = setTimeout(presenceTick, 900);
 }
 function presenceUnmount(){
+  stopWaitClock();
   if (!PR.mounted) return;
   PR.mounted = false;
+  PR.fast = false;
   clearTimeout(PR.timer); PR.timer = null;
   clearTimeout(PR.hideTimer); PR.hideTimer = null;
   presenceBeaconClose();
   presencePaint();                              /* empties the panel */
 }
-/* game.js calls this from go(). Home is the only screen that wants presence. */
+/* game.js calls this from go(). Home wants the who's-online panel; Online wants
+   the room list. Nothing else on the phone polls at all. */
 function onScreen(name){
-  if (name === 'home') presenceMount(); else presenceUnmount();
+  if (name === 'home' || name === 'mp') presenceMount(name);
+  else presenceUnmount();
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -1237,10 +1553,12 @@ document.addEventListener('visibilitychange', () => {
     clearTimeout(PR.timer); PR.timer = null;
     clearTimeout(PR.hideTimer);
     PR.hideTimer = setTimeout(presenceBeaconClose, PRESENCE_HIDE_GRACE);
+    stopWaitClock();
   } else if (PR.mounted){
     clearTimeout(PR.hideTimer); PR.hideTimer = null;
     presenceBeaconOpen();
     presenceTick();
+    if (MP.joined && !MP.peerHere && MP.openedAt && $('#mp-age')) startWaitClock();
   }
 });
 /* a phone that goes to sleep gets frozen, not hidden — let go of the socket */
@@ -1269,7 +1587,7 @@ function wire(){
   if (m) m.onclick = chooser;
   /* game.js runs boot() — and therefore go('home') — before this file has even
      been fetched, so the first mount has to happen here. */
-  if (document.querySelector('#scr-home.on')) presenceMount();
+  if (document.querySelector('#scr-home.on')) presenceMount('home');
 }
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
 else wire();
@@ -1279,10 +1597,13 @@ window.KARTI_MP = {
   mpScreen, mpLeave, checksum, applyRemote, beginOnline, onPeer, onServer, chooser,
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
-  /* who's-online panel */
+  /* who's-online panel + the room list (one poller, two paints) */
   PR, onScreen, presenceMount, presenceUnmount, presencePoll, presencePaint,
-  presenceURL, presenceBeaconOpen, presenceBeaconClose, myPresenceName, joinWaiting,
+  paintHomePanel, paintRooms, roomsFrom, ago,
+  presenceURL, presenceBeaconOpen, presenceBeaconClose, myPresenceName,
+  joinRoom, joinWaiting, lobby,
   RELAY_URL, RELAY_HEALTH, RELAY_PRESENCE, CODE_LEN, CODE_ALPHABET,
+  ROOM_ROWS, PRESENCE_LOBBY, PRESENCE_MIN_GAP,
   /* older name kept so nothing that reached for it breaks */
   mpConnect: (action, code) => start(action, code)
 };

@@ -29,20 +29,27 @@ ROUTES
     GET  /karti/ws        (or /ws)        WebSocket upgrade, the relay itself
     GET  /karti/health    (or /health)    tiny JSON status, no room contents
     GET  /karti/presence  (or /presence)  who is connected right now: chosen
-                                          display names + a state, nothing else
+                                          display names + a state, plus THE ROOM
+                                          LIST (open rooms waiting for an
+                                          opponent). No codes, no tokens, no IPs.
     anything else                         404 JSON. No disk access, ever.
 
 PROTOCOL  (one JSON object per WebSocket text frame, both directions)
     client -> server                        server -> client
-    {"t":"create"}                          {"t":"created","code":C,"token":T,
-                                             "host":true,"seq":0}
+    {"t":"create","private":false}          {"t":"created","code":C,"token":T,
+                                             "host":true,"seq":0,"private":false}
+                                            "private":true opens a room that is
+                                            NOT in the public room list and can
+                                            only be entered with its code.
     {"t":"join","code":C}                   {"t":"joined","code":C,"token":T,
                                              "host":false,"seq":N}
                                             peer: {"t":"peer","state":"joined"}
     {"t":"joinid","id":P}                   same "joined" reply. P is the public
-                                            handle from /presence, so you can
-                                            join a waiting player without ever
-                                            being told anybody's room code.
+                                            handle from /presence — the one
+                                            carried by each entry in the room
+                                            list — so you tap a room and are
+                                            seated without ever being told, or
+                                            typing, anybody's room code.
     {"t":"name","n":"TERENCE"}              {"t":"named","n":"TERENCE"}
     {"t":"rejoin","code":C,"token":T,       {"t":"rejoined","code":C,"host":B,
               "since":N}                     "seq":N,"peer":B} + replayed relays
@@ -54,14 +61,17 @@ PROTOCOL  (one JSON object per WebSocket text frame, both directions)
                                             {"t":"closed","why":"..."}  then close
 
 PRESENCE, AND WHAT IT DELIBERATELY DOES NOT SAY
-    /presence answers with counts and a capped list of {name, state} where
-    state is idle | waiting | playing. It NEVER contains an IP address, a seat
-    token, or the room code of a room the reader is not sitting in. A player
-    who is "waiting" also gets an opaque one-connection handle ("id") purely so
-    a stranger can take the empty seat they are advertising; that handle dies
-    with the socket and resolves to nothing once the room is full. Names are
-    player-chosen, scrubbed with the same filter as every other name on the
-    wire, capped in length and in number, and live only in memory.
+    /presence answers with counts, a capped list of {name, state} where state is
+    idle | waiting | playing, and the ROOM LIST: every open, public, still-empty
+    room as {"id":handle,"n":opener's name,"w":seconds waited}. It NEVER
+    contains an IP address, a seat token, or the room code of a room the reader
+    is not sitting in. The handle is an opaque one-connection value published
+    ONLY while that player is advertising a free public seat; it dies with the
+    socket, resolves to nothing once the room is full, and never appears at all
+    for a private room. Names are player-chosen, scrubbed with the same filter
+    as every other name on the wire, capped in length and in number, and live
+    only in memory. The room list is capped too, and over the cap a random
+    sample goes out rather than the head of a sortable list.
 
     A socket that dies is NOT a forfeit: the seat is held for GRACE seconds
     (the peer is told {"t":"peer","state":"dropped"}) so a phone that loses
@@ -84,6 +94,7 @@ import collections
 import hashlib
 import json
 import os
+import random
 import re
 import secrets
 import socket
@@ -135,6 +146,9 @@ class L:
 
     NAME_LEN = 16               # characters of a display name that survive
     PRESENCE_MAX = 24           # names /presence will ever list
+    ROOMS_MAX = 16              # OPEN ROOMS /presence will ever list. Over that a
+                                # random sample is published, so no fixed ordering
+                                # can be gamed to bury one particular real room.
     PRESENCE_CACHE = 3.0        # seconds one /presence answer is reused for
     PRESENCE_RATE = 1.0         # sustained /presence requests per second, per
     PRESENCE_BURST = 8.0        #   caller, and the burst it may spend at once
@@ -545,9 +559,10 @@ class Seat:
 
 
 class Room:
-    __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched")
+    __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
+                 "private")
 
-    def __init__(self, code):
+    def __init__(self, code, private=False):
         self.code = code
         self.seats = [None, None]           # Seat or None
         self.seq = 0
@@ -555,6 +570,9 @@ class Room:
         self.buf_bytes = 0
         self.created = time.monotonic()
         self.touched = time.monotonic()
+        # A private room is never named in /presence and cannot be entered with a
+        # join handle. The only way in is the room code, which only its opener has.
+        self.private = bool(private)
 
     def push(self, to_slot, text):
         self.seq += 1
@@ -606,15 +624,26 @@ class RoomBook:
     # -- presence ---------------------------------------------------------
 
     def presence(self):
-        """Counts, plus a capped list of {name, state}. Assembled here, under
-        the one lock, so the HTTP thread never walks live room structures.
+        """Counts, a capped list of {name, state}, and THE ROOM LIST. Assembled
+        here, under the one lock, so the HTTP thread never walks live room
+        structures.
 
-        What goes out: a display name the player typed into their own phone,
-        and one of three words. What NEVER goes out: the peer address, the seat
-        token, the room code, the room contents, how long anyone has been on,
-        or any handle at all for a player who is not advertising a free seat."""
+        The room list is the whole point of the Online screen: every room that
+        is open, not private, and still short of an opponent, as
+        {id, name, waited-seconds}. `id` is the SAME opaque per-socket join
+        handle the who's-online panel already used — it belongs to one socket,
+        it is withdrawn the instant the room fills, and `joinid` re-resolves it
+        server-side, so a client never names a room it wants to enter.
+
+        What goes out: a display name the player typed into their own phone, one
+        of three words, and how long a room has been waiting. What NEVER goes
+        out: the peer address, the seat token, the room CODE, the room contents,
+        anything at all about a private room, or any handle for a player who is
+        not advertising a free seat."""
         rows = []
+        rooms = []
         counts = {"idle": 0, "waiting": 0, "playing": 0}
+        now = time.monotonic()
         with self._lock:
             for conn in self._conns:
                 room = self._room_of(conn)
@@ -625,8 +654,14 @@ class RoomBook:
                 else:
                     state = "waiting"
                 counts[state] += 1
+                # A handle is published for exactly one situation: this player is
+                # sitting alone in a room that anybody is welcome to join.
+                offered = state == "waiting" and not room.private
                 rows.append((state, conn.pname or "PLAYER",
-                             conn.pid if state == "waiting" else None))
+                             conn.pid if offered else None))
+                if offered:
+                    rooms.append({"id": conn.pid, "n": conn.pname or "PLAYER",
+                                  "w": max(0, int(now - room.created))})
 
         # waiting first: that is the only row anybody can act on
         order = {"waiting": 0, "playing": 1, "idle": 2}
@@ -637,11 +672,22 @@ class RoomBook:
             if pid:
                 entry["id"] = pid
             players.append(entry)
+
+        # More open rooms than we will publish -> take a RANDOM sample, not the
+        # head of a sorted list. Somebody holding a pile of sockets still takes
+        # up their share of the list, but they cannot choose which real room
+        # falls off it. The sample is then shown longest-waiting first.
+        open_rooms = len(rooms)
+        if open_rooms > L.ROOMS_MAX:
+            rooms = random.sample(rooms, L.ROOMS_MAX)
+        rooms.sort(key=lambda r: (-r["w"], r["n"]))
+
         total = counts["idle"] + counts["waiting"] + counts["playing"]
         return {"ok": True, "count": total, "idle": counts["idle"],
                 "waiting": counts["waiting"], "playing": counts["playing"],
                 "shown": len(players), "max": L.PRESENCE_MAX,
-                "every": 12, "players": players}
+                "every": 12, "players": players,
+                "rooms": rooms, "open": open_rooms, "roomsMax": L.ROOMS_MAX}
 
     def set_name(self, conn, raw):
         """A display name for the presence list. Scrubbed and capped exactly
@@ -659,14 +705,15 @@ class RoomBook:
     def join_by_id(self, conn, pid):
         """Take the empty seat a waiting player is advertising. The caller
         never learns the room code until they are actually sitting in it, and
-        a handle for anyone who is NOT waiting resolves to nothing."""
+        a handle for anyone who is NOT publicly waiting resolves to nothing —
+        including a private room, which can only ever be entered by code."""
         code = None
         if isinstance(pid, str) and 0 < len(pid) <= 32:
             with self._lock:
                 host = self._by_pid.get(pid)
                 if host is not None and host is not conn:
                     room = self._room_of(host)
-                    if room is not None and room.occupied() == 1:
+                    if room is not None and room.occupied() == 1 and not room.private:
                         code = room.code
         if code is None:
             conn.bad_joins += 1
@@ -715,7 +762,11 @@ class RoomBook:
 
     # -- actions -----------------------------------------------------------
 
-    def create(self, conn):
+    def create(self, conn, private=False):
+        """Open a room. A connection may hold exactly ONE room at a time — the
+        detach below closes whatever it had open — and may only ever open
+        L.MAX_CREATES of them, so one socket cannot stack up a pile of rooms in
+        the public list."""
         out = []
         if conn.creates >= L.MAX_CREATES:
             return [(conn, {"t": "error", "why": E_TOOMANY})]
@@ -730,7 +781,7 @@ class RoomBook:
             if code is None:
                 out.append((conn, {"t": "error", "why": E_FULL_SERVER}))
                 return out
-            room = Room(code)
+            room = Room(code, private=private)
             seat = Seat(secrets.token_urlsafe(12))
             seat.conn = conn
             room.seats[0] = seat
@@ -739,9 +790,11 @@ class RoomBook:
             conn.slot = 0
             conn.creates += 1
             token = seat.token
-        LOG("room-create", code=code, rooms=len(self._rooms))
+        LOG("room-create", code=code, rooms=len(self._rooms), private=int(bool(private)))
+        # "private" is echoed so the client can tell a relay that understands the
+        # flag from an older one that quietly ignored it.
         out.append((conn, {"t": "created", "code": code, "token": token,
-                           "host": True, "seq": 0}))
+                           "host": True, "seq": 0, "private": bool(private)}))
         return out
 
     def join(self, conn, code):
@@ -961,7 +1014,9 @@ def handle_ws_message(conn, raw):
     kind = msg.get("t")
 
     if kind == "create":
-        dispatch(ROOMS.create(conn))
+        # Anything other than a literal true is a public room. An older client
+        # sends no flag at all and gets exactly what it always got.
+        dispatch(ROOMS.create(conn, msg.get("private") is True))
 
     elif kind == "join":
         dispatch(ROOMS.join(conn, msg.get("code")))
@@ -1344,8 +1399,8 @@ def print_banner(host, port):
     print("  listening on   : http://%s:%d" % (host, port))
     print("  websocket      : ws://%s:%d%s/ws" % (host, port, PATH_PREFIX))
     print("  health         : http://%s:%d%s/health" % (host, port, PATH_PREFIX))
-    print("  presence       : http://%s:%d%s/presence  (names + state, no IPs,"
-          " no tokens, no codes)" % (host, port, PATH_PREFIX))
+    print("  presence       : http://%s:%d%s/presence  (names, state and the open"
+          " room list — no IPs, no tokens, no codes)" % (host, port, PATH_PREFIX))
     print("  allowed origin : %s (+ loopback)" % PAGES_ORIGIN)
     print("  caps           : %d rooms, %d sockets, %d KiB/message"
           % (L.MAX_ROOMS, L.MAX_WS, L.MAX_MSG // 1024))
@@ -1552,6 +1607,7 @@ def selftest():
     L.MAX_ROOMS = 8
     L.MAX_CREATES = 4
     L.PRESENCE_MAX = 6
+    L.ROOMS_MAX = 3
     L.PRESENCE_CACHE = 1.0
 
     host = "127.0.0.1"
@@ -1934,6 +1990,215 @@ def selftest():
                   not gone, "still listed: %s" % gone)
         except Exception as e:
             check("presence forgets closed sockets", False, repr(e))
+
+        # ═══════════ the room list ═══════════
+        print("")
+        print(" ROOM LIST  (the primary way in — no code is ever typed)")
+
+        def pid_of(name):
+            """White-box: the private handle of a named connection. Used only to
+            prove that a handle which was never published still does nothing."""
+            with ROOMS._lock:
+                for c in list(ROOMS._conns):
+                    if c.pname == name:
+                        return c.pid
+            return None
+
+        host_a = guest_b = priv = out1 = out2 = None
+        try:
+            host_a = cli(origin=PAGES_ORIGIN)
+            host_a.send_json({"t": "name", "n": "OPENER"})
+            host_a.recv_json(2.0)
+            host_a.send_json({"t": "create"})
+            made = host_a.recv_json(2.0)
+            time.sleep(1.2)                      # so the wait time is visibly > 0
+            _, _, _, got = pres()
+            rl = got.get("rooms")
+            mine = [r for r in (rl or []) if r.get("n") == "OPENER"]
+            ok = isinstance(rl, list) and len(mine) == 1
+            ok = ok and isinstance(mine[0].get("id"), str) and mine[0]["id"]
+            ok = ok and isinstance(mine[0].get("w"), int) and mine[0]["w"] >= 1
+            ok = ok and got.get("open") == len(rl)
+            ok = ok and (made or {}).get("private") is False
+            check("opening a room puts it in the list with a name and a wait time",
+                  ok, "made=%r rooms=%r" % (made, rl))
+        except Exception as e:
+            check("opened room appears in the room list", False, repr(e))
+
+        try:
+            _, _, raw, got = pres()
+            text = raw.decode("utf-8", "replace")
+            leaks = []
+            for r in got.get("rooms") or []:
+                if set(r.keys()) - {"id", "n", "w"}:
+                    leaks.append("extra field %r" % sorted(r.keys()))
+            for tok in (token_a or "", token_b or ""):
+                if tok and tok in text:
+                    leaks.append("seat token")
+            for c in [code] + [ROOMS._rooms[k].code for k in list(ROOMS._rooms)]:
+                if c and c in text:
+                    leaks.append("room code %s" % c)
+            check("the room list carries no room code and no seat token",
+                  not leaks, "%s :: %s" % (leaks, text[:200]))
+        except Exception as e:
+            check("room list leaks nothing", False, repr(e))
+
+        try:
+            _, _, _, got = pres()
+            handle = [r["id"] for r in got["rooms"] if r["n"] == "OPENER"][0]
+            guest_b = cli(origin=PAGES_ORIGIN)
+            guest_b.send_json({"t": "name", "n": "TAPPER"})
+            guest_b.recv_json(2.0)
+            guest_b.send_json({"t": "joinid", "id": handle})
+            seated = guest_b.recv_json(3.0)
+            told = host_a.recv_json(3.0)
+            ok = (seated or {}).get("t") == "joined"
+            ok = ok and (told or {}) == {"t": "peer", "state": "joined"}
+            check("tapping a room in the list seats you, with no code typed", ok,
+                  "seated=%r told=%r" % (seated, told))
+        except Exception as e:
+            check("tapping a listed room seats you", False, repr(e))
+
+        try:
+            time.sleep(0.15)
+            _, _, _, got = pres()
+            names = [r["n"] for r in got["rooms"]]
+            check("a full room drops straight out of the list",
+                  "OPENER" not in names and got.get("open") == len(got["rooms"]),
+                  got)
+        except Exception as e:
+            check("full room leaves the list", False, repr(e))
+
+        try:
+            host_a.send_json({"t": "leave"})
+            guest_b.recv_json(2.0)
+            bye(host_a)
+            bye(guest_b)
+            host_a = guest_b = None
+            time.sleep(0.3)
+            _, _, _, got = pres()
+            names = [r["n"] for r in got["rooms"]]
+            check("the opener leaving takes the room off the list",
+                  "OPENER" not in names and "TAPPER" not in names, got)
+        except Exception as e:
+            check("leaving removes the room", False, repr(e))
+
+        # --- private rooms --------------------------------------------------
+        try:
+            priv = cli(origin=PAGES_ORIGIN)
+            priv.send_json({"t": "name", "n": "PRIVATE"})
+            priv.recv_json(2.0)
+            priv.send_json({"t": "create", "private": True})
+            made = priv.recv_json(2.0)
+            pcode = (made or {}).get("code")
+            time.sleep(0.15)
+            _, _, raw, got = pres()
+            listed = [r["n"] for r in got["rooms"]]
+            player = [p for p in got["players"] if p["n"] == "PRIVATE"]
+            ok = (made or {}).get("private") is True
+            ok = ok and "PRIVATE" not in listed
+            ok = ok and len(player) == 1 and player[0].get("id") is None
+            ok = ok and pcode and pcode.encode() not in raw
+            check("a private room is not in the list and hands out no join handle",
+                  ok, "made=%r rooms=%r player=%r" % (made, got["rooms"], player))
+        except Exception as e:
+            check("private room stays out of the list", False, repr(e))
+            pcode = None
+
+        try:
+            hidden = pid_of("PRIVATE")
+            snoop = cli(origin=PAGES_ORIGIN)
+            snoop.send_json({"t": "joinid", "id": hidden})
+            r = snoop.recv_json(2.0)
+            quiet = priv.silent(0.4)
+            check("even the private room's own handle refuses a joinid",
+                  bool(hidden) and (r or {}).get("why") == E_NOWAIT and quiet,
+                  "handle=%r r=%r quiet=%s" % (bool(hidden), r, quiet))
+            bye(snoop)
+        except Exception as e:
+            check("private room handle is dead", False, repr(e))
+
+        try:
+            friend = cli(origin=PAGES_ORIGIN)
+            friend.send_json({"t": "join", "code": pcode})
+            seated = friend.recv_json(3.0)
+            told = priv.recv_json(3.0)
+            ok = (seated or {}).get("t") == "joined" and seated.get("code") == pcode
+            ok = ok and (told or {}) == {"t": "peer", "state": "joined"}
+            check("a private room can still be joined by its code", ok,
+                  "seated=%r told=%r" % (seated, told))
+            bye(friend)
+            bye(priv)
+            priv = None
+            time.sleep(0.3)
+        except Exception as e:
+            check("private room joins by code", False, repr(e))
+
+        # --- an outsider must not be able to reach a room ---------------------
+        try:
+            out1 = cli(origin=PAGES_ORIGIN)
+            out1.send_json({"t": "name", "n": "SITTING"})
+            out1.recv_json(2.0)
+            out2 = cli(origin=PAGES_ORIGIN)
+            out2.send_json({"t": "name", "n": "STRANGER"})
+            out2.recv_json(2.0)
+            idle_handle = pid_of("SITTING")      # never published: SITTING has no room
+            _, _, raw, got = pres()
+            bad = []
+            if idle_handle and idle_handle.encode() in raw:
+                bad.append("an idle player's handle was published")
+            out2.send_json({"t": "joinid", "id": idle_handle})
+            if (out2.recv_json(2.0) or {}).get("why") != E_NOWAIT:
+                bad.append("joinid on an idle player was not refused")
+            out2.send_json({"t": "joinid", "id": secrets.token_urlsafe(8)})
+            if (out2.recv_json(2.0) or {}).get("why") != E_NOWAIT:
+                bad.append("a made-up handle was not refused")
+            check("an outsider cannot join a room they were never offered",
+                  not bad and out1.silent(0.4), bad)
+        except Exception as e:
+            check("outsider cannot join an unoffered room", False, repr(e))
+
+        try:
+            out1.send_json({"t": "create"})
+            first = (out1.recv_json(2.0) or {}).get("code")
+            out1.send_json({"t": "create"})
+            second = (out1.recv_json(2.0) or {}).get("code")
+            time.sleep(0.15)
+            _, _, _, got = pres()
+            mine = [r for r in got["rooms"] if r["n"] == "SITTING"]
+            ok = first and second and first != second and len(mine) == 1
+            ok = ok and first not in ROOMS._rooms and second in ROOMS._rooms
+            check("one connection can only hold one room in the list at a time",
+                  ok, "first=%r second=%r listed=%d" % (first, second, len(mine)))
+            bye(out1)
+            bye(out2)
+            out1 = out2 = None
+            time.sleep(0.3)
+        except Exception as e:
+            check("one room per connection", False, repr(e))
+
+        try:
+            floods = []
+            for i in range(L.ROOMS_MAX + 3):
+                c = cli(origin=PAGES_ORIGIN)
+                c.send_json({"t": "name", "n": "FLOOD%02d" % i})
+                c.recv_json(2.0)
+                c.send_json({"t": "create"})
+                c.recv_json(2.0)
+                floods.append(c)
+            time.sleep(0.2)
+            _, _, _, got = pres()
+            ok = len(got["rooms"]) <= L.ROOMS_MAX
+            ok = ok and got["roomsMax"] == L.ROOMS_MAX
+            ok = ok and got["open"] > L.ROOMS_MAX          # the count stays honest
+            check("the room list is capped at %d, and says how many are really open"
+                  % L.ROOMS_MAX, ok,
+                  "listed=%d open=%s" % (len(got["rooms"]), got.get("open")))
+            for c in floods:
+                bye(c)
+            time.sleep(0.3)
+        except Exception as e:
+            check("room list is capped", False, repr(e))
 
         # ═══════════ abuse ═══════════
         print("")

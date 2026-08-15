@@ -26,9 +26,9 @@ cannot do to it.
 | Piece | Where | What it does |
 |---|---|---|
 | The game | GitHub Pages, `https://terencecamilleripesci.github.io/KARTI/` | All the HTML/JS/art. Static. |
-| The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players by room code and passes JSON moves between them, and answers `/presence` with who is connected. |
+| The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players and passes JSON moves between them, and answers `/presence` with who is connected **and which rooms are open**. |
 | The tunnel | Tailscale Funnel, `:8443` under `/karti` | Gives the relay a public HTTPS/WSS address without opening a router port. |
-| The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and runs the who's-online panel on the home screen. |
+| The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and draws both the room list and the who's-online panel. |
 
 **The endpoint lives in exactly one place.** Top of `js/mp.js`:
 
@@ -38,26 +38,47 @@ const RELAY_HEALTH   = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/h
 const RELAY_PRESENCE = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/presence';
 ```
 
-### The who's-online panel
+### The room list — the way in
 
-The home screen shows who is on the relay right now. Two halves, both of which stop
-completely the moment you leave Home:
+**Nobody reads a code out.** Opening *Multiplayer › Online* shows every room that is
+currently waiting for an opponent: who opened it and how long they have been sat there.
+Tap one and you are in the duel. Opening a room of your own is one tap on **Open a room**,
+which puts you in everybody else's list within a few seconds and shows you a plain
+"waiting for someone" state with an obvious way to cancel. With nothing open the screen
+says *"No rooms open — open one and wait"*, with the button right there; it never looks
+broken or blank.
+
+The room code has not gone away, it has just stopped being the front door. It lives under
+**Other ways in**, where it does the one thing a list cannot: reach *one particular
+person* when several rooms are open. Under the same heading, **Open a private room** opens
+a room that is **not published at all** — no entry in the list, no join handle anywhere,
+only its code gets in.
+
+### One poller, two screens
+
+There is exactly one timer and one beacon socket in `js/mp.js`, and both stop completely
+the moment you leave Home *and* Online:
 
 * a **beacon** — one WebSocket that sends a display name (`{"t":"name"}`, taken from the
   account or guest name that already exists, so nothing extra is ever asked for) and then
   a keep-alive every 45 s. It is what puts *you* in everyone else's list. Hiding the tab
   stops the polling immediately and hands the socket back after 60 s; `pagehide` hands it
   back at once.
-* a **poll** — `GET /presence` every 12 s, never faster than once every 4 s no matter what
-  asks for it.
+* a **poll** — `GET /presence`, every 12 s while Home is up and every 5 s while the Online
+  screen is up (a stale room list feels dead), and **never faster than once every 4 s** no
+  matter what asks for it — refresh button included. The same answer draws both the room
+  list and the home panel; there is deliberately no second poller.
 
-A player shown as `waiting` can be joined with one tap: the panel sends `{"t":"joinid"}`
-with their public handle and the relay seats you, so no room code is typed or shown.
+A room in the list is joined with one tap: the client sends `{"t":"joinid"}` with the
+room's opaque public handle and the relay re-resolves it and seats you, so no room code is
+typed, shown or even downloaded. **End-to-end that is: up to 3 s of server-side cache plus
+up to 5 s of poll, so a new room appears on somebody else's screen in about 4 s typically
+and 8 s at worst.**
 
-If the relay cannot be reached the panel says exactly that, in red, and explains the most
-likely cause — **Tailscale being on**, which stops a public https page opening a connection
-to a private address. It never renders that as "nobody is online". Everything else in KARTI
-keeps working with no network at all.
+If the relay cannot be reached, both the panel and the room list say exactly that, in red,
+and explain the most likely cause — **Tailscale being on**, which stops a public https page
+opening a connection to a private address. Neither ever renders that as an empty list.
+Everything else in KARTI keeps working with no internet at all.
 
 If the server ever moves, change those two lines and redeploy the Pages site.
 (There is also a `?relay=wss://…` query parameter and a *Server settings* box in the
@@ -84,7 +105,7 @@ Useful flags:
 | Flag | Meaning |
 |---|---|
 | `--port 8101` | Listening port (default 8101). |
-| `--selftest` | Runs 50 built-in checks — happy path, reconnect, presence, and every abuse case. Exits non-zero on failure. |
+| `--selftest` | Runs 61 built-in checks — happy path, reconnect, presence, the room list, and every abuse case. Exits non-zero on failure. |
 | `--log /path/file` | Append-only event log. Records event names, room codes and counters. **Never** records message contents. Off by default. |
 | `--origin https://x` | Allow an extra browser origin (repeatable). |
 | `--verbose` | HTTP oddities to stderr. |
@@ -187,7 +208,7 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (50 checks, 0 failed)
+# SELFTEST: ALL PASS  (61 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -202,11 +223,36 @@ given a join handle and that the handle dies the moment their room fills, that t
 capped however many people are on, that the answer is cached and rate limited, and that a
 player disappears the instant their socket closes.
 
-**Two real browsers through the real transport** (what was used to verify this build):
-serve the repo on `:8000`, run the relay on `:8101`, then open two browser contexts on
-`http://127.0.0.1:8000/?relay=ws://127.0.0.1:8101/karti/ws`, create a room in one, join
-from the other, and play a duel out. The acceptance test is that
-`KARTI_MP.checksum()` is **identical on both devices when the duel ends**.
+The **room-list block** proves, in the same run: that opening a room publishes it with a
+name and a wait time, that the published room carries no room code and no seat token, that
+tapping it seats you with nothing typed, that a full room and an abandoned room both drop
+straight out of the list, that a **private** room appears nowhere and hands out no handle
+(and that even its own handle is refused for `joinid`) while still being joinable by its
+code, that an outsider cannot join a room they were never offered, that one connection can
+only hold one room in the list at a time, and that the list stays capped while `open` keeps
+telling the truth about how many rooms there really are.
+
+**Two real browsers through the real transport** (what was used to verify this build).
+Two *separate* browsers, not two tabs — two tabs in one browser cannot both be visible, and
+the poller stops when the page is hidden. Serve the repo on `:8123`, run the relay on
+`:8102`, and open both on
+`http://127.0.0.1:8123/index.html?relay=ws://127.0.0.1:8102/karti/ws` at 390×844.
+What was asserted, and passed, 21/21:
+
+* A opens a room with one tap → **B sees it in the list ~0.5 s later without typing
+  anything** → B taps it → both are in the same live duel → a move made on A is mirrored
+  onto B → `KARTI_MP.checksum()` **identical on both devices** before and after the move.
+* The room is out of the list the moment it fills, and out again the moment A cancels.
+* A private room is in nobody's list, hands out no handle, and still joins by code.
+* 20 rooms opened from plain sockets → the relay publishes 16, the client draws 12 and
+  says "and 8 more open right now"; the count stays honest.
+* An unreachable relay renders the red "cannot reach the server" box, never an empty list.
+
+**Both directions of compatibility were also driven in real browsers** (7/7): today's live
+`js/mp.js` against the new relay (creates rooms, panel unchanged, joins off the panel,
+checksums agree), and the new `js/mp.js` against today's live relay (it derives a room list
+from the player list, tapping still starts a duel, and asking an old relay for a *private*
+room is reported honestly instead of pretended).
 
 ---
 
@@ -216,9 +262,10 @@ One JSON object per WebSocket text frame. Everything is capped at 16 KiB.
 
 | Client sends | Server answers |
 |---|---|
-| `{"t":"create"}` | `{"t":"created","code":"W2AZG","token":"…","host":true,"seq":0}` |
+| `{"t":"create","private":false}` | `{"t":"created","code":"W2AZG","token":"…","host":true,"seq":0,"private":false}` |
+| `{"t":"create","private":true}` | the same, with `"private":true` — the room is in **no** list and hands out **no** join handle; its code is the only way in. The flag is echoed back on purpose, so a client can tell a relay that understands it from an older one that ignored it |
 | `{"t":"join","code":"W2AZG"}` | `{"t":"joined",…}` — and the host gets `{"t":"peer","state":"joined"}` |
-| `{"t":"joinid","id":"…"}` | the same `joined` reply. `id` is the public handle a *waiting* player is given by `/presence`, so you can take the seat somebody is advertising without ever being told their room code |
+| `{"t":"joinid","id":"…"}` | the same `joined` reply. `id` is the opaque public handle carried by each entry in the `/presence` room list, so tapping a room seats you without your ever being told its code. The relay re-resolves the handle itself and refuses it unless that room is still open, public and short of a player |
 | `{"t":"name","n":"TERENCE"}` | `{"t":"named","n":"TERENCE"}` — the display name for the online list, scrubbed and capped at 16 characters, kept only for the life of the socket |
 | `{"t":"rejoin","code":…,"token":…,"since":N}` | `{"t":"rejoined",…}` then every relay after `N` that it missed |
 | `{"t":"relay","d":{…}}` | the other player gets `{"t":"relay","n":SEQ,"d":{…}}` |
@@ -229,7 +276,24 @@ One JSON object per WebSocket text frame. Everything is capped at 16 KiB.
 
 Room codes are 5 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` — no `O`, `0`,
 `I` or `1`, so they can be read down the phone without an argument. 33,554,432
-possibilities.
+possibilities. In normal play **nobody ever sees one**: they are for private rooms and for
+reaching one particular person.
+
+`GET /presence` answers, in full:
+
+```json
+{"ok":true,"count":4,"idle":1,"waiting":3,"playing":0,
+ "shown":4,"max":24,"every":12,
+ "players":[{"n":"TERENCE","s":"waiting","id":"gu1kgetrHl0"}, …],
+ "rooms":[{"id":"gu1kgetrHl0","n":"TERENCE","w":37}, …],
+ "open":3,"roomsMax":16}
+```
+
+`rooms` is the room list: one entry per open, **public**, still-empty room — the opaque
+per-socket handle, the opener's scrubbed display name, and `w`, how many seconds it has
+waited. `open` is how many are *really* open, which can exceed `rooms.length`. A private
+room contributes to `waiting` and to nothing else: no `rooms` entry, and its host's
+`players` entry carries no `id`.
 
 **Losing signal is not a forfeit.** When a socket dies the seat is held for 60 seconds
 (the other player is told `peer/dropped`), the relay keeps buffering moves, and the
@@ -246,16 +310,34 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 ### What an attacker on the internet CAN do
 
 * **Find it and talk to it.** `GET /karti/health` returns `{"ok":true,"rooms":N,"clients":M}`
-  and the caps. `GET /karti/presence` returns counts plus up to 24 player-chosen display
-  names, each with one of three words — `idle`, `waiting`, `playing`. That is the whole
-  disclosure. **No IP address, no seat token, no room code, no room contents.** Names are
-  put through the same filter as every other name on the wire (control characters and
-  `<>&"'\`` removed, 16 characters kept) because they land on a page on the public
-  internet. The answer is cached for 3 seconds and rate limited per caller — the caller is
-  keyed by a truncated SHA-256 of the peer address, so not even the rate limiter keeps an
-  IP. A player who is `waiting` also gets an opaque handle so a stranger can take the free
-  seat they are advertising; it belongs to one socket, it is withdrawn the moment the room
-  fills, and it resolves to nothing for anybody who is not waiting.
+  and the caps. `GET /karti/presence` returns counts, up to 24 player-chosen display names
+  each with one of three words — `idle`, `waiting`, `playing` — and the room list: up to 16
+  open public rooms as `{id, name, seconds waited}`. That is the whole disclosure.
+  **No IP address, no seat token, no room code, no room contents, nothing whatsoever about
+  a private room.** Names are put through the same filter as every other name on the wire
+  (control characters and `<>&"'\`` removed, 16 characters kept) because they land on a page
+  on the public internet. The answer is cached for 3 seconds and rate limited per caller —
+  the caller is keyed by a truncated SHA-256 of the peer address, so not even the rate
+  limiter keeps an IP. The `id` is an opaque per-socket handle published for exactly one
+  situation: that player is sitting alone in a room anybody is welcome to join. It belongs
+  to one socket, it is withdrawn the moment the room fills, and it resolves to nothing for
+  a private room, for an idle player, or for anybody else. Joining is authorised entirely
+  server-side — the client never names the room it is entering, so there is nothing there
+  to forge.
+* **Fill the room list with junk.** This is the honest weak point of the room list and it
+  should be said plainly. A connection may hold **one** room at a time and may only ever
+  open 5, so a fake room costs a whole socket; with 64 sockets an attacker can hold ~63
+  rooms out of the 128 cap. Only 16 are ever published, and when more than 16 are open the
+  relay publishes a **random sample** rather than the head of a sorted list — so an
+  attacker cannot choose *which* real room falls off, but with 63 fakes against 2 real
+  rooms they will still take most of the slots most of the time. What blunts it: the real
+  count (`open`) is published and the client shows it, so a list full of strangers with a
+  suspicious count is visible for what it is; **join-by-code is completely unaffected**, so
+  a specific friend can always be reached; a private room cannot be crowded out because it
+  was never in the list; every fake room expires (30 min idle, and instantly when the
+  socket drops); and `systemctl restart karti-relay` clears the lot. There is no per-IP
+  limit and there cannot be a useful one — behind Funnel every connection arrives from
+  `127.0.0.1`.
 * **Open a WebSocket.** The `Origin` allow-list (`https://terencecamilleripesci.github.io`
   plus loopback) only stops *browsers* on other sites; a script that sets no `Origin`
   header, or forges one, gets in. That is inherent to WebSockets and is why the origin
@@ -302,6 +384,12 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 * **See another room's traffic.** Membership is by seat, not by anything the client
   claims. A `relay` may carry a `code`, and if it does not match the sender's actual room
   the message is refused.
+* **Get into a room they were not offered.** `joinid` is resolved server-side from the
+  handle to the room; a handle that was never published (an idle player, a private room),
+  one that has gone stale, one belonging to a room that has since filled, and a made-up
+  one are all refused with the same fixed string, and nobody in that room is disturbed.
+  The client never sends a room identity of its own, so there is nothing to spoof — and
+  the alternative, guessing the 5-character code, costs a new TLS handshake every 20 tries.
 * **Learn anything from an error message.** Error strings are a fixed set of constants.
   Nothing an attacker sends is ever echoed back to them or to anyone else.
 * **Persist anything.** All state is in RAM. A restart wipes every room. Nothing is
@@ -325,6 +413,8 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 | Display-name changes per connection | 8 |
 | Display name length | 16 characters |
 | Names published by `/presence` | 24 |
+| Rooms published by `/presence` | 16 (a random sample once more are open) |
+| Rooms one connection may hold at once | 1 |
 | `/presence` answer cache | 3 s |
 | `/presence` rate per caller | 1/s sustained, 8 burst (then 429) |
 | Dropped-seat grace | 60 s |
@@ -393,9 +483,17 @@ It is not cheat-proof, and nothing in the UI claims it is.
 
 ## 7 · Known limitations
 
-* Exactly two players per room. No spectators, no lobby list, no matchmaking, no ranking.
+* Exactly two players per room. No spectators, no matchmaking, no ranking. The room list
+  is a list, not a queue: first tap wins, and the other person is told *"that room has
+  gone"* rather than being quietly dropped.
+* A new room takes about 4 s (8 s worst case) to reach somebody else's screen — 3 s of
+  server-side cache plus a 5 s poll. Going faster means either a socket push or lowering
+  the polling floor, and the floor is what keeps a menu left open from costing anything.
+* Anybody online can join any public room; that is the entire point of the list, and the
+  answer for "I only want to play *him*" is **Open a private room** and hand over the code.
 * All state is in RAM. Restarting the relay ends every duel in progress.
-* No accounts and no authentication: whoever has the code and a free seat is the opponent.
+* No accounts and no authentication: whoever taps the room first, or has the code and a
+  free seat, is the opponent.
 * Reconnect covers about 37 seconds of client retries against a 60-second server grace,
   and replays at most the last 96 messages. A phone that is off for a minute has lost
   the duel.
