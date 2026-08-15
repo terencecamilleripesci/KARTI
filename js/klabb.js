@@ -736,16 +736,7 @@ function define(def){
    learn nothing. Four tiles, four real names, one tap less. */
 function shelve(def){
   P.register({
-    /* THE ODD ONE OUT. js/party.js carries a placeholder tile of its own
-       — {id:'klabb', name:'PLAYING CARDS', status:'soon'} — whose comment
-       says it "turns real the moment its own file registers over the top
-       of this entry with an open()". We are that file, and register()
-       replaces by id, so taking the slot is the only way to retire it
-       without editing a file another build is live in. Bixkla takes it,
-       being the headline game.
-       When that placeholder is deleted from js/party.js, this whole
-       property goes and Bixkla registers under 'bixkla' like the rest. */
-    id: def.shelfId || def.id,
+    id: def.id,
     order: def.order,
     name: def.name,
     mt: def.mt,
