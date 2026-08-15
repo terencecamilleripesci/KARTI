@@ -1,9 +1,9 @@
 ═══════════════════════════════════════════════════════════════
   IL-KIRI — ART PROMPTS
 ═══════════════════════════════════════════════════════════════
-  images            : 29
-  P1 / P2           : 19 / 10
-  alpha cut-outs    : 7
+  images            : 33
+  P1 / P2           : 19 / 14
+  alpha cut-outs    : 11
   unique ids        : OK
   unique filenames  : OK
   filename-safe ids : OK
@@ -107,6 +107,22 @@
 ── kiri-tok-goat  [P1]  art/ui/kiri-tok-goat.png  (64 tok)
    Player token 4, Il-Mogħża (The Goat).
    funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, exaggerated goofy comic expression, humorous caricature, one character centred, isolated on pure flat black background, a stubborn brown Maltese goat standing square on, chewing, one ear flopped
+
+── kiri-tok-luzzu  [P2]  art/ui/kiri-tok-luzzu.png  (60 tok)
+   Player token 5, Il-Luzzu (The Luzzu).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a small painted Maltese fishing boat side on, high curved prow with a painted eye on it
+
+── kiri-tok-pastizz  [P2]  art/ui/kiri-tok-pastizz.png  (67 tok)
+   Player token 6, Il-Pastizz (The Pastizz).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, one golden flaky diamond shaped pastry with one corner bitten off, crumbs falling, centred, generous empty margin, simple uncluttered background
+
+── kiri-tok-bandiera  [P2]  art/ui/kiri-tok-bandiera.png  (60 tok)
+   Player token 7, Il-Bandiera (The Banner). Cloth MUST come back blank.
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a small festa banner of plain blank cloth on a short pole, hanging in a lazy curl
+
+── kiri-tok-bajtra  [P2]  art/ui/kiri-tok-bajtra.png  (68 tok)
+   Player token 8, Il-Bajtra (The Prickly Pear).
+   funny colourful cartoon comic illustration, thick black outline, flat bright colours, cel shaded, one object centred, isolated on pure flat black background, a fat prickly pear cactus paddle with three ripe orange fruit along its rim, centred, generous empty margin, simple uncluttered background
 
 ── kiri-build-floor  [P1]  art/ui/kiri-build-floor.png  (69 tok)
    One SULAR (floor). Up to four go on a property before the penthouse.

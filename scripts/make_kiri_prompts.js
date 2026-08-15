@@ -100,7 +100,7 @@ const GEN = { w:1024, h:1024 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
    THE LIST
-   29 images. Every one of them is REUSED:
+   33 images. Every one of them is REUSED:
      6 locality washes cover all 16 properties (one per colour group)
      7 fate illustrations cover all 36 cards (two deck faces + five outcomes)
    That is the whole trick. A weak picture per square would be 32 images
@@ -215,6 +215,26 @@ const ASSETS = [
   { id:'kiri-tok-goat', kind:'chara', p:'P1', alpha:true, out:{ w:256, h:256, fmt:'png', fit:'contain' },
     purpose:'Player token 4, Il-Mogħża (The Goat).',
     subject:'a stubborn brown Maltese goat standing square on, chewing, one ear flopped' },
+
+  /* tokens 5-8 — the table seats EIGHT, and eight is set by how many
+     token colours stay apart at 9 points on a board square. Give these
+     four genuinely different SILHOUETTES and that ceiling can be
+     raised; make them four more round blobs and it cannot. */
+  { id:'kiri-tok-luzzu', kind:'cut', p:'P2', alpha:true, out:{ w:256, h:256, fmt:'png', fit:'contain' },
+    purpose:'Player token 5, Il-Luzzu (The Luzzu).',
+    subject:'a small painted Maltese fishing boat side on, high curved prow with a painted eye on it' },
+
+  { id:'kiri-tok-pastizz', kind:'cut', p:'P2', alpha:true, out:{ w:256, h:256, fmt:'png', fit:'contain' },
+    purpose:'Player token 6, Il-Pastizz (The Pastizz).',
+    subject:'one golden flaky diamond shaped pastry with one corner bitten off, crumbs falling' },
+
+  { id:'kiri-tok-bandiera', kind:'cut', p:'P2', alpha:true, out:{ w:256, h:256, fmt:'png', fit:'contain' },
+    purpose:'Player token 7, Il-Bandiera (The Banner). Cloth MUST come back blank.',
+    subject:'a small festa banner of plain blank cloth on a short pole, hanging in a lazy curl' },
+
+  { id:'kiri-tok-bajtra', kind:'cut', p:'P2', alpha:true, out:{ w:256, h:256, fmt:'png', fit:'contain' },
+    purpose:'Player token 8, Il-Bajtra (The Prickly Pear).',
+    subject:'a fat prickly pear cactus paddle with three ripe orange fruit along its rim' },
 
   /* ── 5. THE BUILD LADDER ────────────────────────────────────────────────
      Floors and a penthouse, not houses and hotels. Drawn at 15 points as a

@@ -312,6 +312,58 @@
     "subject": "a stubborn brown Maltese goat standing square on, chewing, one ear flopped"
   },
   {
+    "id": "kiri-tok-luzzu",
+    "file": "art/ui/kiri-tok-luzzu.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 5, Il-Luzzu (The Luzzu).",
+    "subject": "a small painted Maltese fishing boat side on, high curved prow with a painted eye on it"
+  },
+  {
+    "id": "kiri-tok-pastizz",
+    "file": "art/ui/kiri-tok-pastizz.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 6, Il-Pastizz (The Pastizz).",
+    "subject": "one golden flaky diamond shaped pastry with one corner bitten off, crumbs falling"
+  },
+  {
+    "id": "kiri-tok-bandiera",
+    "file": "art/ui/kiri-tok-bandiera.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 7, Il-Bandiera (The Banner). Cloth MUST come back blank.",
+    "subject": "a small festa banner of plain blank cloth on a short pole, hanging in a lazy curl"
+  },
+  {
+    "id": "kiri-tok-bajtra",
+    "file": "art/ui/kiri-tok-bajtra.png",
+    "w": 1024,
+    "h": 1024,
+    "alpha": true,
+    "out": {
+      "w": 256,
+      "h": 256
+    },
+    "purpose": "Player token 8, Il-Bajtra (The Prickly Pear).",
+    "subject": "a fat prickly pear cactus paddle with three ripe orange fruit along its rim"
+  },
+  {
     "id": "kiri-build-floor",
     "file": "art/ui/kiri-build-floor.png",
     "w": 1024,

@@ -36,6 +36,11 @@
 
 (function(){
 
+/* loaded twice — a stale service worker, a duplicated <script> — is a
+   real way to end up with two sets of listeners on one board. */
+if (window.KIRI) return;
+
+
 const SAVE_KEY = 'karti_kiri_v1';
 const VERSION  = 1;
 
@@ -378,11 +383,33 @@ const DECKS = {
    5. PLAYER COLOURS AND TOKENS
    ═══════════════════════════════════════════════════════════════════ */
 const SEATS = [
-  { c:'#FFC542', e:'🔑', n:'Il-Muftieħ',  en:'The Key' },
-  { c:'#3DDC84', e:'🛵', n:'Il-Mutur',    en:'The Scooter' },
-  { c:'#FF5468', e:'🧱', n:'Il-Ġebla',    en:'The Brick' },
-  { c:'#4FC3F7', e:'🐐', n:'Il-Mogħża',   en:'The Goat' },
+  { c:'#FFC542', e:'🔑', n:'Il-Muftieħ',  en:'The Key',        code:'MU' },
+  { c:'#3DDC84', e:'🛵', n:'Il-Mutur',    en:'The Scooter',    code:'MT' },
+  { c:'#FF5468', e:'🧱', n:'Il-Ġebla',    en:'The Brick',      code:'ĠB' },
+  { c:'#4FC3F7', e:'🐐', n:'Il-Mogħża',   en:'The Goat',       code:'MG' },
+  { c:'#FF9F45', e:'🛥️', n:'Il-Luzzu',    en:'The Luzzu',      code:'LZ' },
+  { c:'#C77DFF', e:'🥟', n:'Il-Pastizz',  en:'The Pastizz',    code:'PS' },
+  { c:'#F4EFFF', e:'🚩', n:'Il-Bandiera', en:'The Banner',     code:'BN' },
+  { c:'#7BE0D6', e:'🌵', n:'Il-Bajtra',   en:'The Prickly Pear', code:'BJ' },
 ];
+
+/* THE BIGGEST TABLE THIS GAME CAN ACTUALLY DEAL.
+   Eight, and it is the TOKENS that decide it, not the rules. A player
+   is identified on a 44-point board square by a 9-point coloured dot,
+   and eight is as many colours as stay honestly distinguishable at
+   that size — a ninth would be a shade of one of the first eight and
+   somebody would move the wrong piece.
+
+   Everything else scales further than that. The bank's concrete (24
+   floors, 8 penthouses) is shared, not per player. The money supply is
+   the bank's and the bank does not run out. What DOES change with a
+   big table is that sixteen properties spread thinner — two each at
+   eight seats — so nobody completes a colour group by landing on it
+   and every set has to be TRADED for. That is the game getting more
+   interesting, not less, and it is measured rather than assumed:
+   see the seat-count run reported with this build. */
+const MAX_SEATS = SEATS.length;
+const MIN_SEATS = 2;
 
 /* ═══════════════════════════════════════════════════════════════════
    6. NEW GAME
@@ -404,7 +431,7 @@ function newGame(opts){
     dice: null,
     doubles: 0,
     moved: false,          /* has the current seat already moved this turn */
-    players: seats.slice(0, 4).map((p, i) => ({
+    players: seats.slice(0, MAX_SEATS).map((p, i) => ({
       i,
       name: String(p.name || SEATS[i].en).slice(0, 14),
       kind: p.kind === 'cpu' ? 'cpu' : 'human',
@@ -1393,7 +1420,7 @@ function money(n){
    19. PUBLIC FACE
    ═══════════════════════════════════════════════════════════════════ */
 window.KIRI = {
-  VERSION, SAVE_KEY, BOARD, GROUPS, DECKS, LADDER, SEATS, SUPPLY,
+  VERSION, SAVE_KEY, BOARD, GROUPS, DECKS, LADDER, SEATS, SUPPLY, MAX_SEATS, MIN_SEATS,
   RAILS, UTILS, SALARY, START_CASH, JAIL, BAIL, RAIL_RENT,
   HARD_ROUNDS,
   newGame, roll, canRoll, advance, goTo, land, toJail,

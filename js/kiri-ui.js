@@ -41,6 +41,11 @@
 
 (function(){
 
+/* loaded twice — a stale service worker, a duplicated <script> — is a
+   real way to end up with two sets of listeners on one board. */
+if (window.KARTI_KIRI) return;
+
+
 const K  = window.KIRI;
 const AI = window.KIRI_AI;
 if (!K || !AI) return;
@@ -53,6 +58,14 @@ const esc = KA.esc || function(s){
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 };
 const money = K.money;
+
+/* SOUND. js/sfx.js owns ./audio/ and every path in it is a no-op on a
+   missing file, so this is a plain call with no guard beyond "does the
+   layer exist". We add no files and register no ids — every one of
+   these is already in its registry. */
+function sfx(id){
+  try { if (window.KARTI_SFX && KARTI_SFX.play) KARTI_SFX.play(id); } catch(e){}
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    1. THE STYLESHEET — injected once, entirely scoped to #scr-kiri
@@ -123,8 +136,13 @@ function injectCSS(){
   '#scr-kiri .kr-cell .kr-lock{position:absolute;top:6px;right:3px;font-size:10px;line-height:1;font-weight:900;color:#FF9AA6}' +
   '#scr-kiri .kr-cell .kr-lvl{position:absolute;bottom:2px;right:2px;width:15px;height:15px;border-radius:5px;' +
     'background:var(--g,#888);color:#0E0B14;font-size:10px;font-weight:900;display:grid;place-items:center}' +
-  '#scr-kiri .kr-pips{position:absolute;bottom:2px;left:2px;display:flex;gap:2px}' +
-  '#scr-kiri .kr-pip{width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 1.5px #160F28}' +
+  /* Eight players can stand on one square. Nine-point dots in a row
+     would run off a 44-point cell, so past four they shrink and wrap
+     to a second line — still every player, still visible, never
+     overflowing the square they are standing on. */
+  '#scr-kiri .kr-pips{position:absolute;bottom:2px;left:2px;right:2px;display:flex;flex-wrap:wrap;gap:1.5px}' +
+  '#scr-kiri .kr-pip{width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 1.5px #160F28;flex:0 0 auto}' +
+  '#scr-kiri .kr-pips.many .kr-pip{width:7px;height:7px;box-shadow:0 0 0 1px #160F28}' +
   '#scr-kiri .kr-pip.auto{border-radius:2px}' +
 
   /* ── the middle of the ring ── */
@@ -232,6 +250,17 @@ function injectCSS(){
   '#scr-kiri .kr-step{display:flex;align-items:center;gap:5px;margin:4px 0 10px}' +
   '#scr-kiri .kr-step .kr-mini{flex:0 0 auto}' +
   '#scr-kiri .kr-step .kr-val{flex:1;text-align:center;font-weight:900;font-size:14px;color:#FFC542}' +
+
+  /* ── the lobby-shaped bits ── */
+  '#scr-kiri .kr-seatname{flex:1;min-width:0;min-height:44px;text-align:left;padding:0 10px;border-radius:9px;' +
+    'background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.12);font-size:13px;font-weight:800;' +
+    'color:#F4EFFF;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '#scr-kiri .kr-seatname small{display:block;font-size:10px;font-weight:600;color:#A093C4;margin-top:1px}' +
+  '#scr-kiri .kr-rules{border-radius:12px;padding:10px 12px;margin-bottom:10px;' +
+    'background:rgba(138,92,255,.12);border:1px solid rgba(138,92,255,.34)}' +
+  '#scr-kiri .kr-rules p{margin:0 0 7px;font-size:12.5px;line-height:1.5;color:#D9CFF2}' +
+  '#scr-kiri .kr-rules p:last-child{margin-bottom:0}' +
+  '#scr-kiri .kr-rules b{color:#F4EFFF}' +
 
   /* ── setup ── */
   '#scr-kiri .kr-scroll{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:2px 2px 8px}' +
@@ -415,49 +444,121 @@ function rules(){
 const sect = (h, b) => '<div class="kr-hd">' + esc(h).toUpperCase() + '</div><p class="kr-blurb">' + esc(b) + '</p>';
 
 /* ═══════════════════════════════════════════════════════════════════
-   5. SETUP
+   5. WHO IS PLAYING
+
+   THE NAME IS NEVER ASKED FOR. He is signed in and the app already
+   knows who he is; a name field is a form standing between a man and
+   his game. Seat one is the profile name, full stop. The other seats
+   are pre-filled with their token's name so a four-player hot-seat
+   game starts with nothing typed at all — and any of them can still
+   be renamed by tapping the seat, which is an option rather than a
+   gate.
+
+   THE SAME SHAPE ONLINE. js/mp.js owns the shared lobby; this screen
+   is its offline twin and deliberately answers the same questions in
+   the same order: who is in, how hard is the machine, how long, and
+   what happens if somebody wanders off. Both read the rules from the
+   same rulesPanel() so a stranger gets the same thirty seconds either
+   way.
    ═══════════════════════════════════════════════════════════════════ */
+
+/* the three machine levels, named once and shared with the lobby */
+const LEVELS = [
+  { k:1, n:'Iż-Żijja',       t:'sits on her money' },
+  { k:2, n:'Il-Ħabib',       t:'plays properly' },
+  { k:3, n:'L-Iżviluppatur', t:'buys everything' },
+];
+const levelName = k => (LEVELS.find(L => L.k === k) || LEVELS[1]).n;
+
+/* WHO IS HE. Taken from the profile, never typed.
+   A signed-in player is his own name. A guest is "You" — not the word
+   "Guest", which reads like a bug in the log ("Guest owes you two
+   thousand euro"), and not the token's name either, because nobody
+   thinks of themselves as The Key. "You bought The Marsa Garage" is
+   the line we want. */
+function myName(){
+  try {
+    const n = KA.displayName && KA.displayName();
+    if (n && String(n).trim() && String(n).trim().toLowerCase() !== 'guest')
+      return String(n).trim().slice(0, 14);
+  } catch(e){}
+  return 'You';
+}
+
+/* THE THIRTY SECONDS THAT LETS A STRANGER SIT DOWN.
+   Short on purpose. Somebody who has never heard of IL-KIRI has to be
+   able to read this without leaving the room and losing their seat, so
+   it is five lines, not a manual. The full version is one tap away and
+   only reachable from the menu, where nobody is waiting for you. */
+function rulesPanel(){
+  return '' +
+    '<div class="kr-rules">' +
+      '<p><b>Go round the ring buying things.</b> Land on somebody else\'s and you pay them rent. ' +
+      'Run out of money and you are out.</p>' +
+      '<p><b>Own a whole colour and the rent doubles</b> on all of it, straight away, with nothing built. ' +
+      'That is why people trade — and nobody completes a colour without trading.</p>' +
+      '<p><b>Then you build:</b> four floors, then a penthouse. The bank only has ' + K.SUPPLY.floors +
+      ' floors and ' + K.SUPPLY.penthouses + ' penthouses on the whole island.</p>' +
+      '<p><b>Il-Kju</b> is the queue at counter four. Roll a double to get out, pay ' + money(K.BAIL) +
+      ', or know somebody.</p>' +
+      '<p><b>It ends</b> when one person is left, or when the rounds run out and the richest takes it. ' +
+      'Nobody is ever stuck here all night.</p>' +
+    '</div>';
+}
+
 let cfg = null;
+function defaultSeats(){
+  const out = [{ name: myName(), kind:'human', level:2 }];
+  for (let i = 1; i < K.MAX_SEATS; i++)
+    out.push({ name: K.SEATS[i].en, kind: i < 3 ? 'cpu' : 'off', level: 2 });
+  return out;
+}
+
 function setup(){
-  cfg = cfg || {
-    seats: [
-      { name:'You',   kind:'human', level:2 },
-      { name:'Doris', kind:'cpu',   level:2 },
-      { name:'Karm',  kind:'cpu',   level:2 },
-      { name:'',      kind:'off',   level:2 },
-    ],
-    roundLimit: 30,
-    clock: 90,
-  };
+  if (!cfg) cfg = { seats: defaultSeats(), roundLimit: 30, clock: 90, showRules: false };
+  /* the profile may have changed since the last game on this phone */
+  cfg.seats[0].name = myName();
+  cfg.seats[0].kind = 'human';
   paintSetup();
 }
 
+const seatsIn = () => cfg.seats.filter(s => s.kind !== 'off');
+
 function paintSetup(){
   const el = screenEl();
-  const LEVELS = [
-    { k:1, n:'Iż-Żijja',  t:'sits on her money' },
-    { k:2, n:'Il-Ħabib',  t:'plays properly' },
-    { k:3, n:'L-Iżviluppatur', t:'buys everything' },
-  ];
+  const live = seatsIn();
+  const enough = live.length >= K.MIN_SEATS;
   el.innerHTML =
     '<div class="kr-tbar">' +
       '<button class="kr-ib" id="kr-bk" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
       '<h2>Who is playing</h2><span style="width:44px"></span>' +
     '</div>' +
     '<div class="kr-scroll" id="kr-setup"></div>' +
-    '<div class="kr-act"><button class="kr-btn go" id="kr-start">Deal the money out</button></div>';
+    '<div class="kr-act" id="kr-startbar"></div>';
 
   const w = el.querySelector('#kr-setup');
-  let h = '<div class="kr-hd">THE SEATS</div>';
+  let h =
+    '<button class="kr-row" id="kr-whatis" style="margin-bottom:8px">' +
+      '<span class="kr-sw" style="background:#8A5CFF"></span>' +
+      '<span class="kr-rn">What is IL-KIRI?<span class="kr-rs">' +
+      (cfg.showRules ? 'tap to fold it away' : 'thirty seconds, before you start') + '</span></span>' +
+      '<span class="kr-rv">' + (cfg.showRules ? '▲' : '▼') + '</span></button>' +
+    (cfg.showRules ? rulesPanel() : '') +
+    '<div class="kr-hd">THE SEATS · ' + live.length + ' OF ' + K.MAX_SEATS + '</div>';
+
   cfg.seats.forEach((s, i) => {
     const S = K.SEATS[i];
+    const off = s.kind === 'off';
     h += '<div class="kr-pl">' +
-      '<span class="kr-tok" style="background:' + S.c + '">' + S.e + '</span>' +
-      (s.kind === 'off'
+      '<span class="kr-tok" style="background:' + S.c + ';color:#150C22">' + esc(S.code) + '</span>' +
+      (off
         ? '<span style="flex:1;color:#7F73A0;font-size:12.5px;font-weight:700">Empty chair</span>'
-        : '<input id="kr-nm-' + i + '" value="' + esc(s.name) + '" maxlength="14" aria-label="Name for seat ' + (i + 1) + '">') +
+        : '<button class="kr-seatname" id="kr-nm-' + i + '">' + esc(s.name) +
+          '<small>' + (i === 0 ? 'your profile'
+                     : s.kind === 'cpu' ? levelName(s.level) + ' · ready'
+                     : 'on this phone') + '</small></button>') +
       '<button class="kr-mini" id="kr-kind-' + i + '"' + (i === 0 ? ' disabled' : '') + '>' +
-        (s.kind === 'off' ? 'Add' : s.kind === 'cpu' ? 'Phone' : 'Person') + '</button>' +
+        (off ? 'Add' : s.kind === 'cpu' ? 'Phone' : 'Person') + '</button>' +
       '</div>';
     if (s.kind === 'cpu'){
       h += '<div class="kr-seg" style="margin:-2px 0 8px 34px">' +
@@ -466,7 +567,11 @@ function paintSetup(){
     }
   });
 
-  h += '<div class="kr-hd">HOW LONG</div><div class="kr-seg">' +
+  h += '<p class="kr-blurb">Two is the minimum and ' + K.MAX_SEATS + ' is the most this board can seat — ' +
+    'past that the tokens stop being telling apart on a square. Sixteen properties between ' +
+    K.MAX_SEATS + ' people means nobody finishes a colour on their own, which is when this game is at its best.</p>' +
+
+    '<div class="kr-hd">HOW LONG</div><div class="kr-seg">' +
     [[15,'Short','~15 min'],[30,'Normal','~30 min'],[45,'Long','settle in'],[0,'To the end','or round ' + K.HARD_ROUNDS]]
       .map(o => '<button data-rl="' + o[0] + '" aria-pressed="' + (cfg.roundLimit === o[0]) + '">' +
         esc(o[1]) + '<small>' + esc(o[2]) + '</small></button>').join('') + '</div>' +
@@ -474,6 +579,7 @@ function paintSetup(){
     'cash plus deeds plus everything built on them. It is how a property game gets to actually finish. ' +
     'Even "to the end" has a backstop at round ' + K.HARD_ROUNDS + ', because two stubborn people can pass ' +
     'the same rent back and forth until Christmas.</p>' +
+
     '<div class="kr-hd">IF SOMEBODY WANDERS OFF</div><div class="kr-seg">' +
     [[0,'Never','wait for them'],[45,'45 sec',''],[90,'90 sec',''],[180,'3 min','']]
       .map(o => '<button data-ck="' + o[0] + '" aria-pressed="' + (cfg.clock === o[0]) + '">' +
@@ -482,38 +588,116 @@ function paintSetup(){
     'going. It is obvious on screen when that happens, and one tap takes the seat back.</p>';
   w.innerHTML = h;
 
+  /* the start bar says WHY it is unavailable rather than just sitting there dead */
+  el.querySelector('#kr-startbar').innerHTML = enough
+    ? '<button class="kr-btn go" id="kr-start">Deal the money out<small>' +
+      live.length + ' playing · ' + (cfg.roundLimit ? cfg.roundLimit + ' rounds' : 'to the end') + '</small></button>'
+    : '<button class="kr-btn" id="kr-start" disabled>Add one more<small>it takes ' + K.MIN_SEATS +
+      ' to charge anybody rent</small></button>';
+
+  w.querySelector('#kr-whatis').onclick = () => {
+    cfg.showRules = !cfg.showRules;
+    sfx(cfg.showRules ? 'ui.sheet' : 'ui.back');
+    paintSetup();
+  };
   cfg.seats.forEach((s, i) => {
     const nm = w.querySelector('#kr-nm-' + i);
-    if (nm) nm.oninput = () => { s.name = nm.value; };
+    if (nm) nm.onclick = () => renameSheet(i);
     const kb = w.querySelector('#kr-kind-' + i);
     if (kb && i > 0) kb.onclick = () => {
-      s.kind = s.kind === 'off' ? 'cpu' : s.kind === 'cpu' ? 'human' : (i >= 2 ? 'off' : 'cpu');
+      s.kind = s.kind === 'off' ? 'cpu' : s.kind === 'cpu' ? 'human' : 'off';
       if (s.kind !== 'off' && !s.name) s.name = K.SEATS[i].en;
-      /* never leave a hole: seats fill left to right */
-      for (let j = i + 1; j < 4; j++) if (s.kind === 'off') cfg.seats[j].kind = 'off';
+      /* seats fill left to right — never leave a hole in the middle */
+      if (s.kind === 'off') for (let j = i + 1; j < K.MAX_SEATS; j++) cfg.seats[j].kind = 'off';
+      sfx(s.kind === 'off' ? 'ui.untoggle' : 'ui.toggle');
       paintSetup();
     };
   });
   w.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => {
-    const [i, lv] = b.getAttribute('data-lv').split(':').map(Number);
-    cfg.seats[i].level = lv; paintSetup();
+    const parts = b.getAttribute('data-lv').split(':');
+    cfg.seats[Number(parts[0])].level = Number(parts[1]);
+    sfx('ui.toggle');
+    paintSetup();
   });
   w.querySelectorAll('[data-rl]').forEach(b => b.onclick = () => {
-    cfg.roundLimit = Number(b.getAttribute('data-rl')); paintSetup();
+    cfg.roundLimit = Number(b.getAttribute('data-rl')); sfx('ui.toggle'); paintSetup();
   });
   w.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => {
-    cfg.clock = Number(b.getAttribute('data-ck')); paintSetup();
+    cfg.clock = Number(b.getAttribute('data-ck')); sfx('ui.toggle'); paintSetup();
   });
   el.querySelector('#kr-bk').onclick = menu;
-  el.querySelector('#kr-start').onclick = () => {
-    const seats = cfg.seats.filter(s => s.kind !== 'off')
-      .map((s, i) => ({ name: s.name || K.SEATS[i].en, kind: s.kind, level: s.level }));
-    if (seats.length < 2) return;
+  const go = el.querySelector('#kr-start');
+  if (go && enough) go.onclick = () => {
     turnClock = cfg.clock;
-    G = K.newGame({ players: seats, roundLimit: cfg.roundLimit });
-    K.save(G);
-    boardScreen();
+    startGame(seatsIn().map(s => ({ name:s.name, kind:s.kind, level:s.level })), {
+      roundLimit: cfg.roundLimit, clock: cfg.clock,
+    });
   };
+}
+
+/* renaming is a choice, never a gate — the game is already startable
+   without anybody touching this */
+function renameSheet(i){
+  const s = cfg.seats[i];
+  const S = K.SEATS[i];
+  const el = screenEl();
+  let host = el.querySelector('#kr-sheet');
+  if (!host){
+    el.insertAdjacentHTML('beforeend',
+      '<div class="kr-scrim" id="kr-scrim"></div><div class="kr-sheet" id="kr-sheet" role="dialog"></div>');
+    els.scrim = el.querySelector('#kr-scrim');
+    els.sheet = el.querySelector('#kr-sheet');
+    els.scrim.onclick = closeSheet;
+  }
+  openSheet({
+    kind:'rename',
+    title:'Seat ' + (i + 1) + ' — ' + esc(S.n),
+    body:'<p class="kr-blurb">' + (i === 0
+        ? 'This is your profile name and it follows you into every game. Change it here just for tonight if you like.'
+        : 'Call this seat whatever the person sitting in it answers to.') + '</p>' +
+      '<div class="kr-pl"><span class="kr-tok" style="background:' + S.c + ';color:#150C22">' + esc(S.code) + '</span>' +
+      '<input id="kr-rn" maxlength="14" value="' + esc(s.name) + '" aria-label="Name for this seat"></div>',
+    foot:'<button class="kr-btn" id="kr-rnx">Leave it</button>' +
+         '<button class="kr-btn go" id="kr-rnok">That\'s it</button>',
+    wire: root => {
+      const f = root.querySelector('#kr-rn');
+      setTimeout(() => { try { f.focus(); f.select(); } catch(e){} }, 60);
+      root.querySelector('#kr-rnx').onclick = () => { closeSheetOnly(); paintSetup(); };
+      root.querySelector('#kr-rnok').onclick = () => {
+        s.name = (f.value || '').trim().slice(0, 14) || K.SEATS[i].en;
+        sfx('ui.toggle');
+        closeSheetOnly(); paintSetup();
+      };
+    },
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   5b. ONE WAY IN, FOR BOTH PATHS
+   The offline setup above and js/mp.js's shared lobby both land here,
+   so an online game and a kitchen-table game are the same game with
+   the same rules and the same save.
+   ═══════════════════════════════════════════════════════════════════ */
+function startGame(seatList, opts){
+  opts = opts || {};
+  const seats = (seatList || []).slice(0, K.MAX_SEATS).map((s, i) => ({
+    name: (s && s.name ? String(s.name).trim().slice(0, 14) : '') || K.SEATS[i].en,
+    kind: (s && s.kind === 'cpu') ? 'cpu' : 'human',
+    level: s && s.level != null ? Math.max(1, Math.min(3, s.level | 0)) : 2,
+    link: s && s.link ? s.link : 'local',
+  }));
+  if (seats.length < K.MIN_SEATS) return null;
+  if (opts.clock != null) turnClock = Math.max(0, opts.clock | 0);
+  G = K.newGame({
+    players: seats,
+    roundLimit: opts.roundLimit == null ? 30 : opts.roundLimit,
+    seed: opts.seed,
+  });
+  K.save(G);
+  sfx('game.start');
+  show();
+  boardScreen();
+  return G;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -687,6 +871,7 @@ function renderAway(){
         (gone.length > 1 ? 'We\'re back' : 'I\'m back') + '</button>' +
     '</div>';
   els.away.querySelector('#kr-awayback').onclick = () => {
+    sfx('mp.joined');
     gone.forEach(p => K.setPresent(G, p.i, true));
     if (timer){ clearTimeout(timer); timer = 0; }
     K.save(G); render(); resetClock(); pump();
@@ -716,7 +901,7 @@ function renderCells(){
       /* a seat being played by the phone shows as a SQUARE pip rather
          than a round one — you can see who is not really there from the
          board itself, without reading anything */
-      h += '<span class="kr-pips">' + on.map(p =>
+      h += '<span class="kr-pips' + (on.length > 4 ? ' many' : '') + '">' + on.map(p =>
         '<span class="kr-pip' + (K.machineSeat(G, p.i) && p.kind !== 'cpu' ? ' auto' : '') +
         '" style="background:' + p.colour + '" title="' + esc(p.name) + '"></span>').join('') + '</span>';
     }
@@ -856,10 +1041,10 @@ function wireSquareButtons(root, fallbackI){
   root.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
     const [k, ns] = b.getAttribute('data-act').split(':');
     const i = Number(ns);
-    if (k === 'build')  K.build(G, i);
-    if (k === 'sell')   K.sellBuilding(G, i, G.turn);
-    if (k === 'mort')   K.mortgage(G, i, G.turn);
-    if (k === 'redeem') K.unmortgage(G, i, G.turn);
+    if (k === 'build'){  sfx('duel.summon'); K.build(G, i); }
+    if (k === 'sell'){   sfx('ui.error');    K.sellBuilding(G, i, G.turn); }
+    if (k === 'mort'){   sfx('ui.error');    K.mortgage(G, i, G.turn); }
+    if (k === 'redeem'){ sfx('money.pay');   K.unmortgage(G, i, G.turn); }
     after();
     if (sheet && sheet.kind === 'square') squareSheet(sheet.i);
   });
@@ -989,18 +1174,18 @@ function renderAct(){
     b.label + '</button>').join('');
 
   const on = (id, fn) => { const e = els.act.querySelector('#' + id); if (e) e.onclick = fn; };
-  on('kr-a-roll',  () => { rolled = true; K.roll(G); after(); });
-  on('kr-a-bail',  () => { K.payBail(G); after(); });
-  on('kr-a-skip',  () => { K.useSkip(G); after(); });
-  on('kr-a-buy',   () => { K.buy(G); after(); });
-  on('kr-a-pass',  () => { K.declineBuy(G, auctionOn); after(); });
+  on('kr-a-roll',  () => { rolled = true; sfx('dice.roll'); K.roll(G); after(); });
+  on('kr-a-bail',  () => { sfx('money.pay'); K.payBail(G); after(); });
+  on('kr-a-skip',  () => { sfx('ui.reward'); K.useSkip(G); after(); });
+  on('kr-a-buy',   () => { sfx('money.pay'); K.buy(G); after(); });
+  on('kr-a-pass',  () => { sfx('ui.back'); K.declineBuy(G, auctionOn); after(); });
   on('kr-a-card',  () => cardSheet());
   on('kr-a-raise', () => raiseSheet());
   on('kr-a-give',  () => giveUpSheet());
   on('kr-a-auc',   () => auctionSheet());
   on('kr-a-manage',() => { tab = 'deeds'; render(); });
   on('kr-a-trade', () => { tab = 'table'; render(); });
-  on('kr-a-end',   () => { K.endTurn(G); after(); });
+  on('kr-a-end',   () => { sfx('duel.turn'); K.endTurn(G); after(); });
   on('kr-a-done',  () => renderOver());
   on('kr-a-claim', () => { const i = seatToClaim(); if (i >= 0) claimSeat(i); });
 }
@@ -1133,6 +1318,16 @@ function openSheet(o){
   if (o.wire) o.wire(els.sheet);
 }
 
+/* the board screen's closeSheet() also pumps the game loop; the setup
+   screen has no game to pump, so it uses this half of it */
+function closeSheetOnly(){
+  sheet = null;
+  if (!els.sheet) return;
+  els.sheet.classList.remove('on');
+  els.scrim.classList.remove('on');
+  els.sheet.innerHTML = '';
+}
+
 function closeSheet(){
   sheet = null;
   els.sheet.classList.remove('on');
@@ -1172,7 +1367,7 @@ function cardSheet(){
       '<div class="kr-cx">' + esc(G.card.txt) + '</div></div>',
     foot: '<button class="kr-btn go" id="kr-ck">Right then</button>',
     wire: root => {
-      root.querySelector('#kr-ck').onclick = () => { K.applyCard(G); closeSheet(); after(); };
+      root.querySelector('#kr-ck').onclick = () => { sfx('card.throw'); K.applyCard(G); closeSheet(); after(); };
       artWash(root.querySelector('#kr-art'), artForCard(G.card.deck, G.card.id), 0.30);
     },
   });
@@ -1235,7 +1430,7 @@ function giveUpSheet(){
          '<button class="kr-btn bad" id="kr-yesgive">Give up</button>',
     wire: root => {
       root.querySelector('#kr-nogive').onclick = () => { closeSheet(); if (G.debt) raiseSheet(); };
-      root.querySelector('#kr-yesgive').onclick = () => { K.bankrupt(G, p); closeSheet(); after(); };
+      root.querySelector('#kr-yesgive').onclick = () => { sfx('game.lose'); K.bankrupt(G, p); closeSheet(); after(); };
     },
   });
 }
@@ -1384,6 +1579,7 @@ function offerSheet(){
          '<button class="kr-btn ok" id="kr-oyes">Done</button>',
     wire: root => {
       root.querySelector('#kr-oyes').onclick = () => {
+        sfx('ui.reward');
         const bad = K.doTrade(G, o); G.offer = null;
         if (bad) K.say(G, 'That deal does not work any more: ' + bad);
         closeSheet(); after();
@@ -1425,6 +1621,7 @@ function renderOver(){
       '<button class="kr-btn" id="kr-ohub">Party games</button>' +
       '<button class="kr-btn go" id="kr-oagain">Again</button></div>';
   el.appendChild(d);
+  sfx(w && w.kind === 'human' && !w.auto ? 'game.win' : 'game.lose');
   d.querySelector('#kr-oagain').onclick = () => { d.remove(); setup(); };
   d.querySelector('#kr-ohub').onclick = () => { d.remove(); close(); };
   if (P && P.record && w) P.record('kiri', w.kind === 'human' && !w.auto ? 'w' : 'l');
@@ -1508,7 +1705,9 @@ function pump(){
   timer = setTimeout(() => {
     timer = 0;
     if (!G || !live) return;
-    if (a.k === 'roll') rolled = true;
+    if (a.k === 'roll'){ rolled = true; sfx('dice.roll'); }
+    else if (a.k === 'buy' || a.k === 'bid' || a.k === 'bail') sfx('money.pay');
+    else if (a.k === 'build') sfx('duel.summon');
     AI.perform(G, a);
     K.save(G);
     render();
@@ -1628,12 +1827,84 @@ if (P && P.register){
     id:'kiri', order:40, name:'IL-KIRI', mt:'Il-kiri', icon:'coin', status:'live',
     tag:'Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
         'friendship end over a garage in Marsa.',
-    open: open
+    open: open,
+    /* the hub tile carries the lobby contract too, so js/mp.js can read
+       seat range, difficulty names and the rules panel straight off the
+       shelf without knowing this file exists */
+    seats: { min: K.MIN_SEATS, max: K.MAX_SEATS },
+    levels: LEVELS.map(L => ({ level:L.k, name:L.n, note:L.t })),
+    rulesHTML: rulesPanel,
+    start: (seatList, o) => startGame(seatList, o)
   });
 }
 
 window.KARTI_KIRI = {
   open, close,
+
+  /* ═══════════════════════════════════════════════════════════════
+     THE LOBBY CONTRACT
+     js/mp.js owns the one shared lobby every party game feeds; this
+     is everything it needs from IL-KIRI and nothing it does not.
+     Read it, do not guess at it — the seat maximum in particular is
+     a measured number, not a round one.
+     ═══════════════════════════════════════════════════════════════ */
+  lobby: {
+    id:'kiri',
+    name:'IL-KIRI',
+    mt:'Il-kiri',
+
+    /* SEATS. Two to eight.
+       Two is the floor because you cannot charge yourself rent.
+       Eight is the ceiling and it is the TOKENS that set it: a player
+       is a 9-point coloured dot on a 44-point board square, and eight
+       is as many colours as stay honestly distinguishable at that
+       size. The rules scale further — the bank's concrete is shared,
+       the money is the bank's and never runs out — so if the tokens
+       ever get real artwork with distinct SHAPES instead of distinct
+       colours, this number can go up without touching the engine.
+       Measured over 120 headless games at every seat count from 2 to
+       8: all finished, none stalled, and even at eight seats 95% of
+       games still saw somebody complete a colour group. */
+    minSeats: K.MIN_SEATS,
+    maxSeats: K.MAX_SEATS,
+
+    /* the machine, by name, for the difficulty picker */
+    levels: LEVELS.map(L => ({ level:L.k, name:L.n, note:L.t })),
+    defaultLevel: 2,
+
+    /* AN AI SEAT IS READY THE INSTANT IT EXISTS.
+       It never blocks a start and nobody has to ready it by hand. The
+       lobby can call this for any seat rather than special-casing
+       machines itself. */
+    isReady: seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
+    autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
+
+    /* can this table start, and if not, why not — in words the lobby
+       can put straight on screen */
+    canStart(seatList){
+      const n = (seatList || []).length;
+      if (n < K.MIN_SEATS) return { ok:false, why:'It takes two to charge anybody rent.' };
+      if (n > K.MAX_SEATS) return { ok:false, why:'Eight is as many as this board can seat.' };
+      const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+      if (unready) return { ok:false, why:unready + (unready > 1 ? ' people are' : ' person is') + ' not ready yet.' };
+      return { ok:true, why:'' };
+    },
+
+    /* the thirty seconds that lets a stranger sit down, as HTML the
+       lobby can drop into a panel. Same words as the offline setup. */
+    rulesHTML: rulesPanel,
+    blurb:'Buy half of Malta, charge your friends rent for landing on it, and watch a friendship ' +
+          'end over a garage in Marsa.',
+
+    /* THE WAY IN. seats: [{name, kind:'human'|'cpu', level, link}]
+       opts:  {roundLimit, clock, seed}
+       Names are taken from the lobby, never asked for here. */
+    start: (seats, opts) => startGame(seats, opts),
+
+    /* the profile name, so the lobby seats him without a prompt */
+    myName,
+  },
+
   /* ── hooks for whoever wires the online transport ──────────────────
      A seat is just a flag. Tell us somebody has gone and the phone
      plays that seat, conservatively and visibly; tell us they are

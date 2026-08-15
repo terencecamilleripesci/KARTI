@@ -36,6 +36,11 @@
 
 (function(){
 
+/* loaded twice — a stale service worker, a duplicated <script> — is a
+   real way to end up with two sets of listeners on one board. */
+if (window.KIRI_AI) return;
+
+
 const K = window.KIRI;
 if (!K) return;
 
