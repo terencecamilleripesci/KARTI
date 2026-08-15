@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v42';
+const CACHE = 'karti-v43';
 const CORE = [
   './',
   './index.html',
@@ -25,6 +25,10 @@ const CORE = [
   './js/dama.js',
   './js/skarta.js',
   './js/skarta-ui.js',
+  './js/klabb.js',
+  './js/klabb-briscola.js',
+  './js/klabb-sette.js',
+  './js/klabb-cheat.js',
   './js/sfx.js',
   /* The 38 mp3s under ./audio/ are deliberately NOT precached. They are 416 KB,
      the game is designed to be perfect without a single one of them, and a
