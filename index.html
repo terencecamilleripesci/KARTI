@@ -102,17 +102,14 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    habit) leaves #app short and a band of bare body background along the bottom.
    Pin it geometrically and there is no number to be wrong. */
 #app{position:fixed;inset:0;overflow:hidden}
-/* THE DOCUMENTED iOS FIX. With black-translucent the page is drawn from y=0
-   under the status bar, but iOS sizes the viewport as screen MINUS the status
-   bar — measured on his phone: screen 956, viewport 894, inset 62. The document
-   is therefore short by exactly env(safe-area-inset-top), and the fix is to add
-   that back. Standalone only; a browser tab already reaches the bottom.
-   Worth knowing: the status-bar meta is baked into the home-screen icon when it
-   is added, so changing it on the site does nothing to an installed app — the
-   page has to adapt to it, not the other way round. */
-@media (display-mode: standalone){
-  #app{ bottom:auto; height:calc(100% + env(safe-area-inset-top,0px)) }
-}
+/* NO extra height. iOS gives an installed black-translucent app 894 visible
+   pixels of a 956px screen, and the missing 62 are simply NOT DISPLAYED.
+   Making the page taller does not reveal them — it pushes content into a
+   zone that is never painted, which sliced the Store buttons in half and
+   hid the tab labels. The page therefore stays exactly the visible
+   viewport, and the strip below is handled by body background-color
+   matching the tab bar, so it reads as a continuation of it. That is what
+   LuxuryLifts does by accident: white nav, white page, invisible strip. */
 @media (display-mode: browser){
   #app{bottom:auto;height:100svh;height:var(--app-h,100svh)}
 }
@@ -409,7 +406,11 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    of the taller shell. In a browser tab it stays position:fixed, where pinning
    to the viewport is exactly right. */
 @media (display-mode: standalone){
-  .tabbar{ position:static; flex:0 0 auto }
+  /* Stays in flow at the bottom of the 894px visible page. The home indicator
+     lives in the 62px strip BELOW the viewport, which the page cannot reach, so
+     the bar does not also need var(--sab) of clearance — that double-count was
+     the ~100px of dead space under the labels. */
+  .tabbar{ position:static; flex:0 0 auto; padding-bottom:8px }
 }
 /* The old standalone padding override is gone. It existed because
    black-translucent left a 62px strip below the viewport that already contained
@@ -1511,7 +1512,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 28;
+var KARTI_BUILD = 29;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
