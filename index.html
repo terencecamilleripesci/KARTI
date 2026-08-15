@@ -2,25 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#08050F">
 <meta name="description" content="KARTI — the 18+ Maltese card duel. Festa, City, Farm, Sea or Trouble. Pick a side and ruin somebody's afternoon.">
 <title>KARTI — Maltese Card Duel</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<!-- "black", NOT "black-translucent". black-translucent draws the page from y=0
-     under the status bar while iOS still sizes the viewport as screen MINUS the
-     status bar, so the document ends ~62px above the physical bottom and those
-     pixels are never painted. Every "gap at the bottom" workaround in this file
-     was compensating for that. With "black" the viewport is positioned below the
-     status bar and genuinely reaches the bottom edge, so the tab bar can simply
-     be fixed to bottom:0 and pad itself with env(safe-area-inset-bottom).
-     NOTE: iOS bakes this value into the home-screen icon when the app is added.
-     Changing it does nothing to an already-installed app until it is removed and
-     re-added. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<!-- Deliberately NO apple-mobile-web-app-capable and NO
+     apple-mobile-web-app-status-bar-style. Those are the LEGACY iOS full-screen
+     mechanism from before manifests, and they make iOS lay the WebView out the
+     old way: it reports a viewport a status-bar shorter than the screen (measured
+     on his phone: 894 of 956) and leaves a dead strip along the bottom that no
+     page CSS can reach. Every bottom-gap workaround this file has carried was
+     chasing that. The mia-party app, which renders correctly on the same phone,
+     sets neither and relies on manifest "display":"standalone" alone — modern iOS
+     honours it and gives the page the whole screen with real safe-area insets.
+     Do not add them back. -->
 <meta name="mobile-web-app-capable" content="yes">
 <!-- The home background is the first thing the player sees and it is only ever
      requested from JS (detectArt's probe). Preloading it starts the download in
@@ -1490,7 +1488,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 32;
+var KARTI_BUILD = 33;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
