@@ -303,12 +303,11 @@
 #scr-home{background-image:var(--art-home);background-size:cover;background-position:center top;
   background-origin:border-box;
   background-repeat:no-repeat;background-color:var(--bg);overflow:hidden;
-  /* padding-bottom matches .screen's (var(--sab) + 8px) EXACTLY, because the
-     tab bar's negative bottom margin undoes that same figure to reach the true
-     bottom edge. It briefly sat at +6px against the bar's -8px, which pushed
-     the bar 2px past the screen edge into the overflow clip. The bar consumes
-     the whole bottom padding either way, so this changes no visible spacing. */
-  padding-top:calc(var(--sat) + 6px);padding-bottom:calc(var(--sab) + 8px)}
+  /* The tab bar is position:fixed now, so it is out of flow and would sit on top
+     of the content. Reserve its height here instead — --tabbar-h is the row plus
+     its padding, and the safe-area inset is already inside it. */
+  padding-top:calc(var(--sat) + 6px);
+  padding-bottom:calc(var(--tabbar-h, 62px) + var(--sab) + 6px)}
 /* The home art is a bright, busy street scene and the duel screen was the only one
    with a scrim, so the logo and the buttons were unreadable on top of it.
    The bottom used to be crushed to .92 alpha because a row of ghost buttons sat
@@ -318,7 +317,11 @@
 #scr-home::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
   background:linear-gradient(180deg,rgba(8,5,16,.70),rgba(8,5,16,.50) 30%,
              rgba(8,5,16,.60) 64%,rgba(8,5,16,.74))}
-#scr-home>*{position:relative;z-index:1}
+/* :not(.tabbar) matters. This rule lifts the content above the scrim, but an ID
+   selector outranks a class, so it was quietly overriding .tabbar's
+   position:fixed back to relative — which is why the bar sat 68px up the screen
+   instead of on the bottom edge. The bar carries its own z-index. */
+#scr-home>*:not(.tabbar){position:relative;z-index:1}
 /* The tab bar carries its own opaque surface (see .tabbar in index.html), so it
    is legible over the street scene without the scrim having to do the work.
    What it does need over the art is a hard top edge: the scrim now stops at .74

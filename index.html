@@ -92,7 +92,12 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
 }
 .screen.on{display:flex;animation:scrIn .26s var(--ease) both}
-@keyframes scrIn{from{opacity:0;transform:translate3d(0,14px,0)}to{opacity:1;transform:none}}
+/* Opacity only — deliberately NO transform. `animation-fill-mode: both` keeps the
+   final keyframe applied forever, and even `transform:none` computes to an
+   identity matrix, which makes the element a containing block for any
+   position:fixed descendant. That is what was catching the bottom tab bar and
+   holding it 68px above the bottom of the screen. The slide is not worth it. */
+@keyframes scrIn{from{opacity:0}to{opacity:1}}
 .scroll{overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;flex:1;min-height:0}
 .scroll::-webkit-scrollbar{width:6px}
 .scroll::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px}
@@ -325,18 +330,17 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    The bottom padding carries the safe-area inset, so on a notched phone the
    bar's SURFACE runs under the home indicator while its TAPPABLE tabs stop
    above it. */
+/* Pinned to the VIEWPORT, exactly like the LuxuryLifts bottom nav, which is the
+   one that behaves on his iPhone. As a flex child it depended on every parent in
+   the chain being the right height, and that is what kept failing — behind the
+   Safari toolbar, or floating above a short #app. `position:fixed; bottom:0`
+   asks the browser to pin it to the bottom of the visible area and stops caring
+   what any ancestor thinks. translateZ(0) gives it its own compositing layer,
+   which is what stops the bar tearing and flickering while iOS scrolls. */
 .tabbar{
-  flex:0 0 auto;
+  position:fixed;bottom:0;left:0;right:0;z-index:200;
   display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
-  /* The negative bottom margin must undo the FULL .screen bottom padding
-     (var(--sab) + 8px), or the bar floats a couple of pixels above the real
-     bottom edge and the background shows through beneath it. Its own
-     padding-bottom below re-adds the inset so the tappable row still clears
-     the home indicator — surface to the edge, touch targets above it. */
-  margin:clamp(7px,1.5vh,13px)
-         calc(-1 * (var(--sar) + 12px))
-         calc(-1 * (var(--sab) + 8px))
-         calc(-1 * (var(--sal) + 12px));
+  transform:translateZ(0);-webkit-transform:translateZ(0);
   padding:5px calc(var(--sar) + 6px) calc(var(--sab) + 5px) calc(var(--sal) + 6px);
   background:linear-gradient(180deg,rgba(14,10,26,.90),rgba(8,5,16,.985));
   border-top:1px solid rgba(255,255,255,.15);
