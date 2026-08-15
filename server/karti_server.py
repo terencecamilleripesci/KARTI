@@ -4,14 +4,23 @@
 KARTI relay — a small, hostile-internet-facing WebSocket room relay.
 
 WHAT IT IS
-    Python 3 standard library ONLY. No pip, no framework, no database.
-    It does exactly one job: pair two players by a short room code and pass
-    validated JSON duel moves between them. That is the whole feature set.
+    Python 3 standard library ONLY. No pip, no framework, no ORM.
+    It does two jobs and no others:
+      1. pair two players by a short room code and pass validated JSON duel
+         moves between them;
+      2. hold KARTI ACCOUNTS and one save file each, so a player can log in on
+         a second phone and find their cards, decks and story progress there.
+    Job 2 is the only thing in this process that touches the disk, it is a
+    single SQLite file, and it switches itself off cleanly if that file cannot
+    be opened.
 
 WHAT IT IS NOT
-    * It is NOT a web server. It never opens a file, never lists a directory,
-      never serves anything from disk. The game itself is hosted on GitHub
-      Pages; this process only relays.
+    * It is NOT a web server. It never opens a file it was not pointed at,
+      never lists a directory, never serves anything from disk. The game itself
+      is hosted on GitHub Pages; this process only relays and stores saves.
+    * It does NOT understand a save. The blob is size-capped, depth-capped and
+      checked to be well-formed JSON, then stored and returned VERBATIM. It is
+      never merged, never interpreted, never eval'd.
     * It is NOT a referee. It does not know the rules of KARTI. The two
       clients run the same deterministic engine in lockstep and compare
       checksums; the relay only carries the moves. A cheating client can
@@ -32,7 +41,27 @@ ROUTES
                                           display names + a state, plus THE ROOM
                                           LIST (open rooms waiting for an
                                           opponent). No codes, no tokens, no IPs.
-    anything else                         404 JSON. No disk access, ever.
+    anything else                         404 JSON.
+
+ACCOUNT ROUTES  (POST, JSON in and JSON out, also served at /acct/<x>)
+    POST /karti/acct/register  {u,pw}                    -> 201 {tok,exp,u,name,ver:0}
+    POST /karti/acct/login     {u,pw}                    -> 200 {tok,exp,u,name,ver,at,save}
+    POST /karti/acct/logout    {tok}                     -> 200 {ok}
+    POST /karti/acct/pull      {tok[,prev]}              -> 200 {ver,at,save,hasPrev}
+    POST /karti/acct/push      {tok,base,save[,force]}   -> 200 {ver,at}
+                                                            409 {code:"stale",ver,at,save}
+    register and login are the ONLY unauthenticated routes; both are token
+    bucketed per caller and capped globally. `pw` is an opaque secret string —
+    the official client sends a SHA-256 of the real password so the Pi never
+    sees it, and the server hashes WHATEVER ARRIVES again with a slow salted
+    KDF (scrypt, pbkdf2-sha256 if OpenSSL has no scrypt). No route ever echoes
+    a password, a hash or another account's token, and /health and /presence
+    say nothing at all about who has an account.
+
+    409 is the whole point of the versioning: two phones that both played
+    offline both hold a save the other has not seen, so the second push is
+    REFUSED with the server's copy attached and the player is asked which to
+    keep. The blob a push replaces is kept (prev_*) and can be pulled back.
 
 PROTOCOL  (one JSON object per WebSocket text frame, both directions)
     client -> server                        server -> client
@@ -82,6 +111,8 @@ RUN
     python3 server/karti_server.py --port 8101
     python3 server/karti_server.py --selftest      # abuse + happy-path tests
     python3 server/karti_server.py --log /var/log/karti-relay.log
+    python3 server/karti_server.py --accounts /var/lib/karti/accounts.db
+    python3 server/karti_server.py --no-accounts   # pure relay, never writes
 
     See docs/ONLINE.md for the systemd unit and the tailscale funnel command.
 """
@@ -92,14 +123,18 @@ import argparse
 import base64
 import collections
 import hashlib
+import hmac
 import json
 import os
 import random
 import re
 import secrets
+import shutil
 import socket
+import sqlite3
 import struct
 import sys
+import tempfile
 import threading
 import time
 import traceback
@@ -110,6 +145,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_HOST = "127.0.0.1"          # loopback ONLY. Tailscale does the exposing.
 DEFAULT_PORT = 8101
 PATH_PREFIX = "/karti"              # funnel forwards the full path
+ACCT_PREFIX = "/acct"               # the only POST routes in the whole process
+
+# The one file this process ever writes (accounts + saved games). It is under
+# /var/lib on purpose: the systemd unit is ProtectSystem=strict + ProtectHome=
+# read-only, so this path has to be handed back explicitly with StateDirectory=
+# / ReadWritePaths=. If it cannot be opened, accounts simply switch themselves
+# off and everything else — relay, multiplayer, offline play — carries on.
+DEFAULT_ACCT_DB = "/var/lib/karti/accounts.db"
 
 # The one browser origin that is allowed to open a socket here. Extra origins
 # can be added with --origin; loopback origins are allowed so the whole thing
@@ -1127,6 +1170,558 @@ def ws_pump(conn, rfile):
         traceback.print_exc()
 
 
+# ── accounts + cross-device save sync ────────────────────────────────────────
+#
+# WHY THIS EXISTS AT ALL
+#     Everything above this line is stateless: the relay forgets a room the
+#     moment both players leave, and it never opens a file. This block is the
+#     one deliberate exception, and it earns that exception for exactly one
+#     reason — a player who logs in on a SECOND phone should find their cards,
+#     their decks and their story progress waiting for them.
+#
+# WHAT IT IS NOT
+#     It is not an authority on the game. To this process the save is an
+#     OPAQUE STRING: size-capped, depth-capped, checked to be well-formed JSON,
+#     then stored verbatim and handed back verbatim. Nothing here reads a card
+#     id, a coin count or a win record, so there is nothing here for a lying
+#     client to trick. It is not eval'd, not merged, not interpreted.
+#
+# WHAT IT REFUSES TO DO
+#     Lose a save. Two phones both play offline and both come back holding a
+#     save the other has never seen. So every save carries a version, a push
+#     whose base version is not the server's current one is REFUSED (409) with
+#     the server's copy attached, and the client has to ask the player which to
+#     keep. When the player does choose to overwrite, the overwritten blob is
+#     kept in the same row (prev_*) and can still be pulled back.
+#
+# WHAT IT IS BUILT TO SURVIVE
+#     A stranger with the public URL. Register and log in are the only two
+#     unauthenticated routes and both are token-bucketed per caller AND capped
+#     globally; accounts are capped; total stored bytes are capped; the body is
+#     refused on Content-Length before a single byte is read; passwords go
+#     through a memory-hard KDF behind a concurrency gate so a flood of logins
+#     cannot eat the Pi's RAM; and no route ever echoes a password, a hash or a
+#     session token belonging to anybody else.
+
+class A:
+    """Every account/sync limit in one place. --selftest squeezes some."""
+
+    ENABLED = True
+
+    MAX_ACCOUNTS = 250          # total accounts this server will ever hold
+    MAX_SAVE = 128 * 1024       # bytes of one save blob (a real KARTI save is
+                                # about 4 KB, so this is ~30x headroom)
+    MAX_TOTAL = 24 * 1024 * 1024  # bytes of save data across ALL accounts
+    MAX_BODY = MAX_SAVE + 16 * 1024   # bytes of one HTTP request body
+    MAX_DEPTH = 32              # nesting allowed inside a save blob
+    MAX_DEVICE = 24             # characters of the optional device label
+
+    NAME_MIN = 1
+    NAME_MAX = 16               # matches the local profile rule in js/game.js
+    PW_MIN = 8                  # of the string ON THE WIRE. The official client
+    PW_MAX = 256                #   sends a 64-char hash of a >= 6 char password.
+
+    SESSION_TTL = 30 * 86400.0  # a token is dead this long after it was issued
+    SESSION_IDLE = 14 * 86400.0 # ...or this long after it was last used
+    MAX_SESSIONS = 8            # live sessions per account (oldest is dropped)
+
+    # per-caller token buckets (caller = a truncated hash of the peer address)
+    REG_RATE = 1.0 / 300.0      # one registration per five minutes, sustained
+    REG_BURST = 3.0
+    LOGIN_RATE = 1.0 / 10.0
+    LOGIN_BURST = 5.0
+    API_RATE = 1.0              # authenticated push/pull
+    API_BURST = 12.0
+    CALLERS = 512               # buckets kept before the table is binned
+
+    # ...and a global ceiling, because per-caller limits mean nothing to
+    # somebody with a botnet.
+    REG_GLOBAL_RATE = 20.0 / 3600.0
+    REG_GLOBAL_BURST = 20.0
+
+    FAIL_MAX = 10               # wrong passwords for one account...
+    FAIL_LOCK = 900.0           # ...before that account stops answering, seconds
+
+    KDF_N = 1 << 14             # scrypt cost. 16 MiB and ~50 ms on this Pi.
+    KDF_R = 8
+    KDF_P = 1
+    KDF_LEN = 32
+    KDF_ITERS = 200000          # pbkdf2 fallback (~105 ms on this Pi)
+    KDF_GATE = 2                # KDFs allowed to run AT ONCE, server-wide. This
+                                # is the memory guard: 2 x 16 MiB, never more,
+                                # however many people are logging in.
+    KDF_WAIT = 5.0              # seconds to wait for a slot before giving up
+
+
+# Fixed strings. Nothing a caller sends is ever reflected back, and "no such
+# user" and "wrong password" are deliberately the SAME sentence so the login
+# route cannot be used to find out who has an account here.
+E_ACCT_OFF = "Accounts are switched off on this server."
+E_ACCT_BAD_JSON = "Bad request."
+E_ACCT_BIG = "That is too big."
+E_ACCT_NAME = "Usernames are 1-16 characters: letters, numbers, space, dot, dash, underscore."
+E_ACCT_PW = "That password is too short."
+E_ACCT_TAKEN = "That name is already taken."
+E_ACCT_FULL = "This server is not taking new accounts."
+E_ACCT_STORE = "This server has no room left for save data."
+E_ACCT_CREDS = "Wrong username or password."
+E_ACCT_LOCKED = "Too many wrong passwords. Try again later."
+E_ACCT_TOKEN = "Please log in again."
+E_ACCT_SLOW = "Slow down."
+E_ACCT_BUSY = "The server is busy. Try again in a moment."
+E_ACCT_SAVE = "That save file is not something KARTI could have written."
+E_ACCT_STALE = "Your other device has saved since this one last synced."
+
+# Deliberately NARROWER than the local-profile rule in js/game.js: no quote, no
+# backslash, no angle bracket, nothing that has to be escaped anywhere it is
+# later shown. A local profile called O'Brien registers online as OBrien.
+NAME_RE = re.compile(r"^[A-Za-z0-9_ .\-]{%d,%d}$" % (A.NAME_MIN, A.NAME_MAX))
+LOCAL_SENTINELS = {"__guest__", "guest"}
+
+_KDF_GATE = threading.BoundedSemaphore(A.KDF_GATE)
+HAVE_SCRYPT = hasattr(hashlib, "scrypt")
+
+
+def kdf_hash(cred, salt, algo, n, r, p):
+    """Slow, salted, one-way. Never called without the gate held."""
+    if algo == "scrypt":
+        return hashlib.scrypt(cred, salt=salt, n=n, r=r, p=p, dklen=A.KDF_LEN)
+    return hashlib.pbkdf2_hmac("sha256", cred, salt, n, dklen=A.KDF_LEN)
+
+
+def kdf_params():
+    if HAVE_SCRYPT:
+        return "scrypt", A.KDF_N, A.KDF_R, A.KDF_P
+    return "pbkdf2_sha256", A.KDF_ITERS, 0, 0
+
+
+class KDFBusy(Exception):
+    """Every KDF slot is taken. Better a 503 than an out-of-memory kill."""
+
+
+def kdf_guarded(cred, salt, algo, n, r, p):
+    if not _KDF_GATE.acquire(timeout=A.KDF_WAIT):
+        raise KDFBusy()
+    try:
+        return kdf_hash(cred, salt, algo, n, r, p)
+    finally:
+        _KDF_GATE.release()
+
+
+def json_depth_ok(s, maxd):
+    """True when s is balanced JSON-ish text nested no deeper than maxd.
+
+    Run BEFORE json.loads, because CPython's JSON scanner recurses and a
+    stranger should not be able to choose our stack depth. Pure scan, no
+    recursion, no allocation beyond the loop.
+    """
+    depth = 0
+    in_str = False
+    escaped = False
+    for ch in s:
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "[" or ch == "{":
+            depth += 1
+            if depth > maxd:
+                return False
+        elif ch == "]" or ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0 and not in_str
+
+
+def check_save_blob(s):
+    """The save is stored as text and never interpreted. All we assert is that
+    it is a bounded, well-formed JSON OBJECT, so a bad client cannot park 128 KB
+    of arbitrary payload in the database and cannot make a future reader choke.
+    The parsed result is thrown away on purpose."""
+    if not isinstance(s, str):
+        raise Reject("save")
+    raw = s.encode("utf-8", "surrogatepass")
+    if len(raw) > A.MAX_SAVE:
+        raise Reject("big")
+    t = s.strip()
+    if not t.startswith("{") or not t.endswith("}"):
+        raise Reject("save")
+    if not json_depth_ok(s, A.MAX_DEPTH):
+        raise Reject("save")
+    try:
+        obj = json.loads(s)
+    except Exception:
+        raise Reject("save")
+    if not isinstance(obj, dict):
+        raise Reject("save")
+    del obj                     # nothing in this process looks inside a save
+    return s, len(raw)
+
+
+def v_username(v):
+    if not isinstance(v, str):
+        raise Reject("name")
+    name = v.strip()
+    if not NAME_RE.match(name) or NAME_BAD.search(name):
+        raise Reject("name")
+    key = name.lower()
+    if key in LOCAL_SENTINELS or not key.strip():
+        raise Reject("name")
+    return name, key
+
+
+def v_credential(v):
+    """Whatever arrives here is treated as an opaque secret STRING and is
+    hashed again server-side. It is never stored, never logged, never echoed,
+    and the server does not care whether the client pre-hashed it."""
+    if not isinstance(v, str):
+        raise Reject("pw")
+    if len(v) < A.PW_MIN or len(v) > A.PW_MAX:
+        raise Reject("pw")
+    if "\x00" in v:
+        raise Reject("pw")
+    return v.encode("utf-8", "surrogatepass")
+
+
+def v_device(v):
+    if v is None:
+        return ""
+    if not isinstance(v, str):
+        raise Reject("device")
+    return NAME_BAD.sub("", v)[:A.MAX_DEVICE]
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS accounts (
+    uname   TEXT PRIMARY KEY,
+    name    TEXT NOT NULL,
+    algo    TEXT NOT NULL,
+    kn      INTEGER NOT NULL,
+    kr      INTEGER NOT NULL,
+    kp      INTEGER NOT NULL,
+    salt    BLOB NOT NULL,
+    pwhash  BLOB NOT NULL,
+    created REAL NOT NULL,
+    seen    REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS saves (
+    uname     TEXT PRIMARY KEY,
+    ver       INTEGER NOT NULL,
+    blob      TEXT NOT NULL,
+    bytes     INTEGER NOT NULL,
+    at        REAL NOT NULL,
+    device    TEXT NOT NULL DEFAULT '',
+    prev_ver  INTEGER,
+    prev_blob TEXT,
+    prev_at   REAL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    tok    TEXT PRIMARY KEY,
+    uname  TEXT NOT NULL,
+    made   REAL NOT NULL,
+    seen   REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_uname ON sessions(uname);
+"""
+
+
+class Accounts:
+    """The only thing in this process that writes to disk.
+
+    One SQLite file, one connection, one lock. The load here is a handful of
+    requests a minute from a handful of phones; a connection pool would be more
+    moving parts than the whole feature is worth.
+    """
+
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.RLock()
+        directory = os.path.dirname(os.path.abspath(path))
+        if directory and not os.path.isdir(directory):
+            os.makedirs(directory, mode=0o700, exist_ok=True)
+        self.db = sqlite3.connect(path, check_same_thread=False, timeout=5.0)
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA synchronous=NORMAL")
+        self.db.executescript(SCHEMA)
+        self.db.commit()
+        try:
+            os.chmod(path, 0o600)       # password hashes are nobody else's business
+        except OSError:
+            pass
+        self._pruned = 0.0
+
+    def close(self):
+        with self.lock:
+            try:
+                self.db.close()
+            except Exception:
+                pass
+
+    # -- housekeeping ------------------------------------------------------
+
+    def prune(self, force=False):
+        now = time.time()
+        if not force and (now - self._pruned) < 60.0:
+            return
+        self._pruned = now
+        with self.lock:
+            self.db.execute("DELETE FROM sessions WHERE made < ? OR seen < ?",
+                            (now - A.SESSION_TTL, now - A.SESSION_IDLE))
+            self.db.commit()
+
+    def stats(self):
+        with self.lock:
+            users = self.db.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+            total = self.db.execute("SELECT COALESCE(SUM(bytes),0) FROM saves").fetchone()[0]
+        return int(users), int(total)
+
+    # -- accounts ----------------------------------------------------------
+
+    def create(self, name, key, cred):
+        algo, n, r, p = kdf_params()
+        salt = secrets.token_bytes(16)
+        with self.lock:
+            users = self.db.execute("SELECT COUNT(*) FROM accounts").fetchone()[0]
+            if users >= A.MAX_ACCOUNTS:
+                return "full"
+            if self.db.execute("SELECT 1 FROM accounts WHERE uname=?", (key,)).fetchone():
+                return "taken"
+        digest = kdf_guarded(cred, salt, algo, n, r, p)
+        now = time.time()
+        with self.lock:
+            try:
+                self.db.execute(
+                    "INSERT INTO accounts(uname,name,algo,kn,kr,kp,salt,pwhash,created,seen)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (key, name, algo, n, r, p, salt, digest, now, now))
+                self.db.commit()
+            except sqlite3.IntegrityError:
+                return "taken"        # somebody won the race by microseconds
+        return None
+
+    def verify(self, key, cred):
+        """Returns the display name on success, None on failure. Constant in
+        the only way that matters: the answer for a name that does not exist
+        and the answer for a wrong password are identical."""
+        with self.lock:
+            row = self.db.execute(
+                "SELECT name,algo,kn,kr,kp,salt,pwhash FROM accounts WHERE uname=?",
+                (key,)).fetchone()
+        if row is None:
+            # Still burn a KDF, so "no such user" and "wrong password" do not
+            # differ by 50 ms of wall clock.
+            try:
+                algo, n, r, p = kdf_params()
+                kdf_guarded(cred, b"\x00" * 16, algo, n, r, p)
+            except KDFBusy:
+                pass
+            return None
+        name, algo, n, r, p, salt, stored = row
+        digest = kdf_guarded(cred, bytes(salt), algo, int(n), int(r), int(p))
+        if not hmac.compare_digest(digest, bytes(stored)):
+            return None
+        with self.lock:
+            self.db.execute("UPDATE accounts SET seen=? WHERE uname=?", (time.time(), key))
+            self.db.commit()
+        return name
+
+    # -- sessions ----------------------------------------------------------
+
+    def open_session(self, key):
+        tok = secrets.token_urlsafe(32)
+        digest = hashlib.sha256(tok.encode("ascii")).hexdigest()
+        now = time.time()
+        with self.lock:
+            self.db.execute("INSERT OR REPLACE INTO sessions(tok,uname,made,seen)"
+                            " VALUES(?,?,?,?)", (digest, key, now, now))
+            # keep the newest MAX_SESSIONS and no more
+            self.db.execute(
+                "DELETE FROM sessions WHERE uname=? AND tok NOT IN ("
+                "  SELECT tok FROM sessions WHERE uname=? ORDER BY made DESC LIMIT ?)",
+                (key, key, A.MAX_SESSIONS))
+            self.db.commit()
+        return tok, now + A.SESSION_TTL
+
+    def session(self, tok):
+        """Token -> (uname, display name), or None. Only a SHA-256 of the token
+        is ever on disk, so a stolen database file hands over no live session."""
+        if not isinstance(tok, str) or not (16 <= len(tok) <= 128):
+            return None
+        digest = hashlib.sha256(tok.encode("utf-8", "replace")).hexdigest()
+        now = time.time()
+        with self.lock:
+            row = self.db.execute(
+                "SELECT s.uname, s.made, s.seen, a.name FROM sessions s"
+                " JOIN accounts a ON a.uname = s.uname WHERE s.tok=?", (digest,)).fetchone()
+            if row is None:
+                return None
+            uname, made, seen, name = row
+            if (now - made) > A.SESSION_TTL or (now - seen) > A.SESSION_IDLE:
+                self.db.execute("DELETE FROM sessions WHERE tok=?", (digest,))
+                self.db.commit()
+                return None
+            self.db.execute("UPDATE sessions SET seen=? WHERE tok=?", (now, digest))
+            self.db.commit()
+        return uname, name
+
+    def close_session(self, tok):
+        if not isinstance(tok, str):
+            return
+        digest = hashlib.sha256(tok.encode("utf-8", "replace")).hexdigest()
+        with self.lock:
+            self.db.execute("DELETE FROM sessions WHERE tok=?", (digest,))
+            self.db.commit()
+
+    def expire_all_sessions(self, key):
+        with self.lock:
+            self.db.execute("DELETE FROM sessions WHERE uname=?", (key,))
+            self.db.commit()
+
+    # -- saves -------------------------------------------------------------
+
+    def get_save(self, key):
+        with self.lock:
+            row = self.db.execute(
+                "SELECT ver,blob,at,device,prev_ver,prev_blob,prev_at FROM saves"
+                " WHERE uname=?", (key,)).fetchone()
+        if row is None:
+            return {"ver": 0, "blob": None, "at": 0.0, "device": "",
+                    "prevVer": 0, "prevBlob": None, "prevAt": 0.0}
+        return {"ver": int(row[0]), "blob": row[1], "at": float(row[2]),
+                "device": row[3] or "",
+                "prevVer": int(row[4] or 0), "prevBlob": row[5],
+                "prevAt": float(row[6] or 0.0)}
+
+    def put_save(self, key, base, blob, nbytes, device, force):
+        """Version-checked write. Returns (ok, info).
+
+        A push is accepted only when `base` is exactly the version the server
+        is holding. Anything else is a genuine conflict — two devices that both
+        played offline — and is refused rather than resolved by guesswork.
+        `force` is the player's own answer to that conflict, and even then the
+        blob being replaced is kept in prev_* rather than dropped.
+        """
+        now = time.time()
+        with self.lock:
+            cur = self.get_save(key)
+            if not force and int(base) != cur["ver"]:
+                return False, cur
+            total = self.db.execute("SELECT COALESCE(SUM(bytes),0) FROM saves").fetchone()[0]
+            grown = nbytes - (len(cur["blob"].encode("utf-8", "surrogatepass"))
+                              if cur["blob"] else 0)
+            if total + grown > A.MAX_TOTAL:
+                return False, "full"
+            ver = cur["ver"] + 1
+            self.db.execute(
+                "INSERT INTO saves(uname,ver,blob,bytes,at,device,prev_ver,prev_blob,prev_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?)"
+                " ON CONFLICT(uname) DO UPDATE SET ver=excluded.ver, blob=excluded.blob,"
+                " bytes=excluded.bytes, at=excluded.at, device=excluded.device,"
+                " prev_ver=excluded.prev_ver, prev_blob=excluded.prev_blob,"
+                " prev_at=excluded.prev_at",
+                (key, ver, blob, nbytes, now, device,
+                 cur["ver"] or None, cur["blob"], cur["at"] or None))
+            self.db.commit()
+        return True, {"ver": ver, "at": now}
+
+
+ACCOUNTS = None                 # set by main() / selftest, None = feature off
+
+
+def accounts_open(path):
+    """Open the store, or return None and say why. A store that cannot be
+    opened must NEVER stop the relay: multiplayer keeps working, the account
+    routes simply answer 503 and the game stays fully playable offline."""
+    global ACCOUNTS
+    try:
+        ACCOUNTS = Accounts(path)
+    except Exception as e:
+        ACCOUNTS = None
+        print("warning: accounts are OFF — cannot use %s (%s).\n"
+              "         The relay and offline play are unaffected. See docs/ONLINE.md\n"
+              "         for the ReadWritePaths= line the systemd unit needs."
+              % (path, e.__class__.__name__), file=sys.stderr)
+    return ACCOUNTS
+
+
+# ── account rate limiting ────────────────────────────────────────────────────
+
+_ACCT_LOCK = threading.Lock()
+_ACCT_BUCKETS = {"reg": {}, "login": {}, "api": {}}
+_ACCT_GLOBAL_REG = Bucket(A.REG_GLOBAL_RATE, A.REG_GLOBAL_BURST)
+_ACCT_FAILS = {}
+
+
+def caller_key(addr):
+    """Truncated hash of the peer address. Enough to tell callers apart; no raw
+    IP is ever held in this process, exactly as /presence already does it."""
+    return hashlib.sha256(str(addr or "?").encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def acct_allowed(kind, addr):
+    rate, burst = {"reg": (A.REG_RATE, A.REG_BURST),
+                   "login": (A.LOGIN_RATE, A.LOGIN_BURST),
+                   "api": (A.API_RATE, A.API_BURST)}[kind]
+    key = caller_key(addr)
+    with _ACCT_LOCK:
+        table = _ACCT_BUCKETS[kind]
+        if len(table) > A.CALLERS:
+            table.clear()
+        bucket = table.get(key)
+        if bucket is None:
+            bucket = Bucket(rate, burst)
+            table[key] = bucket
+        return bucket.take()
+
+
+def acct_global_reg_allowed():
+    with _ACCT_LOCK:
+        return _ACCT_GLOBAL_REG.take()
+
+
+def acct_locked(key):
+    with _ACCT_LOCK:
+        entry = _ACCT_FAILS.get(key)
+        if not entry:
+            return False
+        fails, until = entry
+        if fails >= A.FAIL_MAX and time.monotonic() < until:
+            return True
+        if time.monotonic() >= until:
+            _ACCT_FAILS.pop(key, None)
+        return False
+
+
+def acct_note_fail(key):
+    with _ACCT_LOCK:
+        if len(_ACCT_FAILS) > A.CALLERS:
+            _ACCT_FAILS.clear()
+        fails, _ = _ACCT_FAILS.get(key, (0, 0.0))
+        _ACCT_FAILS[key] = (fails + 1, time.monotonic() + A.FAIL_LOCK)
+
+
+def acct_note_ok(key):
+    with _ACCT_LOCK:
+        _ACCT_FAILS.pop(key, None)
+
+
+def accounts_reset():
+    """Drop every rate-limit bucket and lockout. Only the self-test uses it."""
+    global _ACCT_GLOBAL_REG
+    with _ACCT_LOCK:
+        for table in _ACCT_BUCKETS.values():
+            table.clear()
+        _ACCT_FAILS.clear()
+        _ACCT_GLOBAL_REG = Bucket(A.REG_GLOBAL_RATE, A.REG_GLOBAL_BURST)
+
+
 # ── HTTP front door ──────────────────────────────────────────────────────────
 
 ALLOWED_ORIGINS = {PAGES_ORIGIN}
@@ -1248,9 +1843,9 @@ class KartiHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Allow", "GET, HEAD, OPTIONS")
-        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Allow", "GET, HEAD, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
         self.cors()
@@ -1262,8 +1857,14 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.handle_websocket()
         elif path == "/health":
             rooms, clients = ROOMS.stats()
-            self.reply(200, {"ok": True, "rooms": rooms, "clients": clients,
-                             "maxRooms": L.MAX_ROOMS, "maxClients": L.MAX_WS})
+            # Extra keys only — every existing client ignores what it does not
+            # know, so an old js/mp.js keeps working unchanged. Nothing here
+            # names an account, a token or a hash: it is a yes/no and two caps.
+            body = {"ok": True, "rooms": rooms, "clients": clients,
+                    "maxRooms": L.MAX_ROOMS, "maxClients": L.MAX_WS,
+                    "accounts": ACCOUNTS is not None,
+                    "maxSave": A.MAX_SAVE}
+            self.reply(200, body)
         elif path == "/presence":
             addr = self.client_address[0] if self.client_address else ""
             if not presence_allowed(addr):
@@ -1283,9 +1884,253 @@ class KartiHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_POST(self):
+        path = self.route()
+        if path.startswith(ACCT_PREFIX + "/"):
+            self.handle_account(path[len(ACCT_PREFIX) + 1:])
+            return
+        # Everything else is exactly as it was before accounts existed.
         self.reply(405, {"ok": False, "why": "GET only."})
 
-    do_PUT = do_DELETE = do_PATCH = do_POST
+    def do_PUT(self):
+        self.reply(405, {"ok": False, "why": "GET only."})
+
+    do_DELETE = do_PATCH = do_PUT
+
+    # -- accounts ---------------------------------------------------------
+
+    def acct_fail(self, status, why, extra=None):
+        body = {"ok": False, "why": why}
+        if extra:
+            body.update(extra)
+        self.reply(status, body)
+
+    def read_json_body(self):
+        """Bounded, exact-length body read. Returns a dict, or None having
+        already answered. The size is refused from the Content-Length header,
+        BEFORE a single byte of the body is read off the socket."""
+        if (self.headers.get("Transfer-Encoding") or "").strip().lower():
+            self.close_connection = True
+            self.acct_fail(411, E_ACCT_BAD_JSON)
+            return None
+        raw_len = self.headers.get("Content-Length")
+        try:
+            n = int(raw_len)
+        except (TypeError, ValueError):
+            self.close_connection = True
+            self.acct_fail(411, E_ACCT_BAD_JSON)
+            return None
+        if n < 0:
+            self.close_connection = True
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return None
+        if n > A.MAX_BODY:
+            self.close_connection = True     # we are not going to drain it
+            self.acct_fail(413, E_ACCT_BIG)
+            return None
+        ctype = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if ctype and ctype != "application/json":
+            self.close_connection = True
+            self.acct_fail(415, E_ACCT_BAD_JSON)
+            return None
+        try:
+            data = self.rfile.read(n) if n else b""
+        except OSError:
+            self.close_connection = True
+            return None
+        if len(data) != n:
+            self.close_connection = True
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return None
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return None
+        if not json_depth_ok(text, A.MAX_DEPTH):
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return None
+        try:
+            obj = json.loads(text)
+        except Exception:
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return None
+        if not isinstance(obj, dict):
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return None
+        return obj
+
+    def bearer(self, body):
+        auth = (self.headers.get("Authorization") or "").strip()
+        if auth[:7].lower() == "bearer ":
+            return auth[7:].strip()
+        tok = body.get("tok")
+        return tok if isinstance(tok, str) else ""
+
+    def handle_account(self, action):
+        addr = self.client_address[0] if self.client_address else ""
+
+        # Same allow-list as every other route. A page on a random origin gets
+        # no CORS header AND no answer.
+        if not origin_ok(self.headers.get("Origin")):
+            self.close_connection = True
+            self.acct_fail(403, "Origin not allowed.")
+            return
+        if action not in ("register", "login", "logout", "pull", "push"):
+            self.acct_fail(404, "No such account route.")
+            return
+        if ACCOUNTS is None:
+            self.acct_fail(503, E_ACCT_OFF)
+            return
+
+        body = self.read_json_body()
+        if body is None:
+            return
+        try:
+            ACCOUNTS.prune()
+            if action == "register":
+                self.acct_register(addr, body)
+            elif action == "login":
+                self.acct_login(addr, body)
+            elif action == "logout":
+                self.acct_logout(addr, body)
+            elif action == "pull":
+                self.acct_pull(addr, body)
+            else:
+                self.acct_push(addr, body)
+        except KDFBusy:
+            self.acct_fail(503, E_ACCT_BUSY, {"retry": True})
+        except Reject:
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+        except sqlite3.Error:
+            LOG("acct-db-error")
+            self.acct_fail(503, E_ACCT_BUSY)
+
+    def acct_register(self, addr, body):
+        if not acct_allowed("reg", addr) or not acct_global_reg_allowed():
+            self.acct_fail(429, E_ACCT_SLOW, {"retryAfter": 300})
+            return
+        try:
+            name, key = v_username(body.get("u"))
+        except Reject:
+            self.acct_fail(400, E_ACCT_NAME)
+            return
+        try:
+            cred = v_credential(body.get("pw"))
+        except Reject:
+            self.acct_fail(400, E_ACCT_PW)
+            return
+        err = ACCOUNTS.create(name, key, cred)
+        del cred
+        if err == "taken":
+            self.acct_fail(409, E_ACCT_TAKEN)
+            return
+        if err == "full":
+            self.acct_fail(507, E_ACCT_FULL)
+            return
+        tok, exp = ACCOUNTS.open_session(key)
+        LOG("acct-new", u=key)
+        self.reply(201, {"ok": True, "tok": tok, "exp": int(exp), "u": key,
+                         "name": name, "ver": 0, "at": 0, "save": None})
+
+    def acct_login(self, addr, body):
+        if not acct_allowed("login", addr):
+            self.acct_fail(429, E_ACCT_SLOW, {"retryAfter": 30})
+            return
+        try:
+            name_in, key = v_username(body.get("u"))
+        except Reject:
+            self.acct_fail(401, E_ACCT_CREDS)
+            return
+        try:
+            cred = v_credential(body.get("pw"))
+        except Reject:
+            self.acct_fail(401, E_ACCT_CREDS)
+            return
+        if acct_locked(key):
+            self.acct_fail(429, E_ACCT_LOCKED, {"retryAfter": int(A.FAIL_LOCK)})
+            return
+        name = ACCOUNTS.verify(key, cred)
+        del cred
+        if name is None:
+            acct_note_fail(key)
+            self.acct_fail(401, E_ACCT_CREDS)
+            return
+        acct_note_ok(key)
+        tok, exp = ACCOUNTS.open_session(key)
+        st = ACCOUNTS.get_save(key)
+        LOG("acct-login", u=key)
+        self.reply(200, {"ok": True, "tok": tok, "exp": int(exp), "u": key,
+                         "name": name, "ver": st["ver"], "at": int(st["at"]),
+                         "save": st["blob"], "device": st["device"]})
+
+    def authed(self, addr, body):
+        """(uname, name) or None having already answered."""
+        if not acct_allowed("api", addr):
+            self.acct_fail(429, E_ACCT_SLOW, {"retryAfter": 5})
+            return None
+        who = ACCOUNTS.session(self.bearer(body))
+        if who is None:
+            self.acct_fail(401, E_ACCT_TOKEN, {"relogin": True})
+            return None
+        return who
+
+    def acct_logout(self, addr, body):
+        # Deliberately not authenticated-and-then-checked: presenting a token
+        # is the whole request, and an unknown token is a silent success so
+        # this route says nothing about which tokens exist.
+        if not acct_allowed("api", addr):
+            self.acct_fail(429, E_ACCT_SLOW, {"retryAfter": 5})
+            return
+        ACCOUNTS.close_session(self.bearer(body))
+        self.reply(200, {"ok": True})
+
+    def acct_pull(self, addr, body):
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, name = who
+        st = ACCOUNTS.get_save(key)
+        if body.get("prev") is True:
+            self.reply(200, {"ok": True, "u": key, "name": name,
+                             "ver": st["prevVer"], "at": int(st["prevAt"]),
+                             "save": st["prevBlob"], "prev": True})
+            return
+        self.reply(200, {"ok": True, "u": key, "name": name,
+                         "ver": st["ver"], "at": int(st["at"]),
+                         "save": st["blob"], "device": st["device"],
+                         "hasPrev": st["prevBlob"] is not None})
+
+    def acct_push(self, addr, body):
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, name = who
+        try:
+            blob, nbytes = check_save_blob(body.get("save"))
+        except Reject as e:
+            self.acct_fail(413 if str(e) == "big" else 400,
+                           E_ACCT_BIG if str(e) == "big" else E_ACCT_SAVE)
+            return
+        base = body.get("base", 0)
+        if isinstance(base, bool) or not isinstance(base, int) or not (0 <= base <= 1 << 40):
+            self.acct_fail(400, E_ACCT_BAD_JSON)
+            return
+        force = body.get("force") is True
+        device = v_device(body.get("device"))
+        ok, info = ACCOUNTS.put_save(key, base, blob, nbytes, device, force)
+        if not ok and info == "full":
+            self.acct_fail(507, E_ACCT_STORE)
+            return
+        if not ok:
+            # A genuine conflict. Hand back what the server is holding so the
+            # player can be shown BOTH and choose; nothing has been written.
+            self.acct_fail(409, E_ACCT_STALE,
+                           {"code": "stale", "ver": info["ver"],
+                            "at": int(info["at"]), "save": info["blob"],
+                            "device": info["device"]})
+            return
+        self.reply(200, {"ok": True, "u": key, "ver": info["ver"],
+                         "at": int(info["at"]), "bytes": nbytes})
 
     # -- upgrade ----------------------------------------------------------
 
@@ -1413,6 +2258,15 @@ def print_banner(host, port):
     print("  allowed origin : %s (+ loopback)" % PAGES_ORIGIN)
     print("  caps           : %d rooms, %d sockets, %d KiB/message"
           % (L.MAX_ROOMS, L.MAX_WS, L.MAX_MSG // 1024))
+    if ACCOUNTS is None:
+        print("  accounts       : OFF (pure relay — no disk, no saved games)")
+    else:
+        users, stored = ACCOUNTS.stats()
+        print("  accounts       : %s  (%d/%d accounts, %d/%d KiB of saves, %s)"
+              % (ACCOUNTS.path, users, A.MAX_ACCOUNTS,
+                 stored // 1024, A.MAX_TOTAL // 1024, kdf_params()[0]))
+        print("  account routes : POST %s%s/{register,login,logout,pull,push}"
+              % (PATH_PREFIX, ACCT_PREFIX))
     print("")
     print("  Publish it with Tailscale Funnel — see docs/ONLINE.md.")
     print("  Ctrl+C to stop.")
@@ -1590,6 +2444,40 @@ def _http_get(host, port, path, timeout=5.0, origin=None, method="GET"):
     return status, head.decode("latin-1"), body
 
 
+def _http_post(host, port, path, obj, timeout=15.0, origin=None, raw=None,
+               ctype="application/json", clen=None, headers=""):
+    """POST JSON and decode the answer. `raw`/`clen` exist so the abuse tests
+    can lie about the body and about its length."""
+    payload = raw if raw is not None else json.dumps(obj).encode("utf-8")
+    n = len(payload) if clen is None else clen
+    s = socket.create_connection((host, port), timeout=timeout)
+    s.settimeout(timeout)
+    try:
+        head = ("POST %s HTTP/1.0\r\nHost: %s\r\n%s%sContent-Type: %s\r\n"
+                "Content-Length: %d\r\n%sConnection: close\r\n\r\n"
+                % (path, host, ("Origin: %s\r\n" % origin) if origin else "",
+                   headers, ctype, n, ""))
+        s.sendall(head.encode("ascii") + payload)
+        chunks = []
+        while True:
+            b = s.recv(65536)
+            if not b:
+                break
+            chunks.append(b)
+    finally:
+        s.close()
+    rawresp = b"".join(chunks)
+    hd, _, body = rawresp.partition(b"\r\n\r\n")
+    first = hd.split(b"\r\n", 1)[0].decode("latin-1")
+    parts = first.split()
+    status = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    try:
+        js = json.loads(body.decode("utf-8"))
+    except Exception:
+        js = None
+    return status, js, hd.decode("latin-1")
+
+
 # ── self-test ────────────────────────────────────────────────────────────────
 
 def _deck40():
@@ -1618,6 +2506,18 @@ def selftest():
     L.PRESENCE_MAX = 6
     L.ROOMS_MAX = 3
     L.PRESENCE_CACHE = 1.0
+
+    # Accounts: same code, tiny numbers, in a throwaway directory. The KDF cost
+    # is the only thing turned down for speed — the algorithm, the salting and
+    # the comparison are exactly what production runs.
+    A.KDF_N = 1 << 11
+    A.KDF_ITERS = 2000
+    A.MAX_ACCOUNTS = 12
+    A.MAX_SAVE = 16 * 1024
+    A.MAX_TOTAL = 40 * 1024
+    A.MAX_BODY = A.MAX_SAVE + 16 * 1024
+    acct_dir = tempfile.mkdtemp(prefix="karti-selftest-")
+    accounts_open(os.path.join(acct_dir, "accounts.db"))
 
     host = "127.0.0.1"
     httpd = make_server(host, 0, quiet=True)
@@ -2537,6 +3437,515 @@ def selftest():
         except Exception as e:
             check("bare /ws works", False, repr(e))
 
+        # ═══════════ accounts: sign up, log in ═══════════
+        print("")
+        print(" ACCOUNTS — SIGN UP AND LOG IN")
+
+        AP = PATH_PREFIX + ACCT_PREFIX               # /karti/acct
+        PW_A = "a" * 40                              # stands in for the client's
+        PW_B = "b" * 40                              # 64-char pre-hash
+        POST = lambda p, o, **kw: _http_post(host, port, AP + p, o,
+                                             origin=PAGES_ORIGIN, **kw)
+
+        tok_a1 = tok_a2 = tok_b = None
+        try:
+            accounts_reset()
+            st, js, _ = POST("/register", {"u": "Alice", "pw": PW_A})
+            tok_a1 = (js or {}).get("tok")
+            ok = st == 201 and (js or {}).get("ok") is True
+            ok = ok and isinstance(tok_a1, str) and len(tok_a1) >= 32
+            ok = ok and (js or {}).get("ver") == 0 and (js or {}).get("save") is None
+            check("register creates an account and hands back a session token", ok,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("register creates an account", False, repr(e))
+
+        try:
+            blob = json.dumps(js or {})
+            leaked = PW_A in blob or "hash" in blob.lower() or "salt" in blob.lower()
+            check("the register answer contains no password, hash or salt", not leaked, blob[:160])
+        except Exception as e:
+            check("register answer leaks nothing", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/register", {"u": "alice", "pw": PW_B})
+            check("a duplicate username is refused (and case does not dodge it)",
+                  st == 409, "%s %s" % (st, js))
+        except Exception as e:
+            check("duplicate username refused", False, repr(e))
+
+        for label, uname in (("a script tag", "<b>x</b>"), ("a quote", "O'Brien"),
+                             ("17 characters", "A" * 17), ("nothing at all", ""),
+                             ("the guest sentinel", "__guest__")):
+            try:
+                accounts_reset()
+                st, _, _ = POST("/register", {"u": uname, "pw": PW_A})
+                check("a username with %s is refused" % label, st == 400, st)
+            except Exception as e:
+                check("username with %s refused" % label, False, repr(e))
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/register", {"u": "Shorty", "pw": "abc"})
+            check("a too-short password is refused", st == 400, st)
+        except Exception as e:
+            check("short password refused", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/login", {"u": "ALICE", "pw": PW_A})
+            tok_a2 = (js or {}).get("tok")
+            ok = st == 200 and isinstance(tok_a2, str) and tok_a2 != tok_a1
+            check("log in with the right password -> a second, different token", ok,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("login works", False, repr(e))
+
+        try:
+            accounts_reset()
+            st1, js1, _ = POST("/login", {"u": "Alice", "pw": PW_A[:-1] + "z"})
+            accounts_reset()
+            st2, js2, _ = POST("/login", {"u": "NobodyHere", "pw": PW_A})
+            ok = st1 == 401 and st2 == 401 and js1 == js2
+            check("wrong password and unknown user give the SAME 401 (no user oracle)",
+                  ok, "%s %s / %s %s" % (st1, js1, st2, js2))
+        except Exception as e:
+            check("login gives no user oracle", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/login", {"u": "Alice", "pw": PW_A[:-1] + "z"})
+            check("one wrong character is enough to fail (the hash is compared, "
+                  "not the prefix)", st == 401, st)
+        except Exception as e:
+            check("one wrong character fails", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = _http_post(host, port, ACCT_PREFIX + "/login",
+                                   {"u": "Alice", "pw": PW_A}, origin=PAGES_ORIGIN)
+            check("the account routes answer on the bare /acct path too "
+                  "(prefix stripped or not)", st == 200 and (js or {}).get("ok") is True,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("bare /acct path works", False, repr(e))
+
+        try:
+            st, _, _ = _http_get(host, port, AP + "/login")
+            check("GET on an account route is still a plain 404", st == 404, st)
+        except Exception as e:
+            check("GET on account route 404s", False, repr(e))
+
+        try:
+            st, _, _ = _http_get(host, port, PATH_PREFIX + "/health", method="POST")
+            check("POST on /health is still 405 (nothing else grew a POST)",
+                  st == 405, st)
+        except Exception as e:
+            check("health still refuses POST", False, repr(e))
+
+        # ═══════════ accounts: the actual point ═══════════
+        print("")
+        print(" ACCOUNTS — THE SAVE CROSSES DEVICES")
+
+        SAVE_1 = json.dumps({"owned": {"petard": 3, "bandist": 2}, "coins": 1234,
+                             "decks": [{"id": "d1", "name": "MALTA",
+                                        "list": {"petard": 3}}],
+                             "activeDeck": "d1", "rec": {"w": 7, "l": 2},
+                             "story": {"chapter": 4}}, separators=(",", ":"))
+        SAVE_2 = json.dumps({"owned": {"petard": 3, "bandist": 3, "grezz": 1},
+                             "coins": 90, "decks": [], "rec": {"w": 9, "l": 2},
+                             "story": {"chapter": 6}}, separators=(",", ":"))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/push", {"tok": tok_a1, "base": 0, "save": SAVE_1,
+                                       "device": "phone"})
+            check("push a save -> version 1", st == 200 and (js or {}).get("ver") == 1,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("push a save", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_a1})
+            ok = st == 200 and (js or {}).get("save") == SAVE_1 and (js or {}).get("ver") == 1
+            check("pull hands back the save BYTE FOR BYTE", ok, "%s %s" % (st, js))
+        except Exception as e:
+            check("pull round-trips exactly", False, repr(e))
+
+        try:
+            # This is the whole feature: a second device, a fresh login, and the
+            # collection is there.
+            accounts_reset()
+            _, js_l, _ = POST("/login", {"u": "alice", "pw": PW_A})
+            tok_a2 = (js_l or {}).get("tok")
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_a2})
+            got = json.loads((js or {}).get("save") or "{}")
+            want = json.loads(SAVE_1)
+            check("a SECOND device logs in and finds the same cards, decks and story",
+                  st == 200 and got == want, "%s %s" % (st, str(js)[:160]))
+        except Exception as e:
+            check("second device sees the save", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/register", {"u": "Bob", "pw": PW_B})
+            tok_b = (js or {}).get("tok")
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_b})
+            check("one account's token cannot read another account's save",
+                  st == 200 and (js or {}).get("save") is None and (js or {}).get("u") == "bob",
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("tokens are scoped to their account", False, repr(e))
+
+        for label, tok in (("a made-up token", "x" * 43), ("no token at all", None),
+                           ("an empty token", ""), ("a number", 12345)):
+            try:
+                accounts_reset()
+                st, js, _ = POST("/pull", {"tok": tok} if tok is not None else {})
+                check("pull with %s -> 401" % label, st == 401, "%s %s" % (st, js))
+            except Exception as e:
+                check("pull with %s refused" % label, False, repr(e))
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/logout", {"tok": tok_a2})
+            accounts_reset()
+            st2, _, _ = POST("/pull", {"tok": tok_a2})
+            accounts_reset()
+            st3, _, _ = POST("/pull", {"tok": tok_a1})
+            check("logout kills that one session and leaves the other device signed in",
+                  st == 200 and st2 == 401 and st3 == 200, "%s %s %s" % (st, st2, st3))
+        except Exception as e:
+            check("logout scoped to one session", False, repr(e))
+
+        try:
+            keep = A.SESSION_IDLE
+            A.SESSION_IDLE = -1.0                 # everything is now stale
+            accounts_reset()
+            st, _, _ = POST("/pull", {"tok": tok_a1})
+            A.SESSION_IDLE = keep
+            accounts_reset()
+            st2, _, _ = POST("/pull", {"tok": tok_a1})
+            check("an expired session is refused, and the dead row is dropped",
+                  st == 401 and st2 == 401, "%s %s" % (st, st2))
+            accounts_reset()
+            _, js_l, _ = POST("/login", {"u": "alice", "pw": PW_A})
+            tok_a1 = (js_l or {}).get("tok")
+        except Exception as e:
+            check("expired session refused", False, repr(e))
+
+        # ═══════════ accounts: conflict, and never losing a collection ═══════
+        print("")
+        print(" ACCOUNTS — CONFLICT (NOTHING IS EVER LOST)")
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/push", {"tok": tok_a1, "base": 1, "save": SAVE_2,
+                                       "device": "tablet"})
+            ok = st == 200 and (js or {}).get("ver") == 2
+            check("a push from the version the server holds is accepted", ok,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("in-order push accepted", False, repr(e))
+
+        try:
+            # Device one has been offline; it still thinks the world is at v1.
+            accounts_reset()
+            stale = json.dumps({"owned": {"petard": 1}, "coins": 5}, separators=(",", ":"))
+            st, js, _ = POST("/push", {"tok": tok_a1, "base": 1, "save": stale})
+            ok = st == 409 and (js or {}).get("code") == "stale"
+            check("a stale push is REFUSED, not merged and not silently applied", ok,
+                  "%s %s" % (st, str(js)[:160]))
+            check("the refusal hands back the server's copy so the player can be "
+                  "shown both", (js or {}).get("save") == SAVE_2 and (js or {}).get("ver") == 2,
+                  str(js)[:200])
+        except Exception as e:
+            check("stale push refused", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_a1})
+            check("after the refusal the server's save is completely UNCHANGED",
+                  st == 200 and (js or {}).get("save") == SAVE_2 and (js or {}).get("ver") == 2,
+                  str(js)[:160])
+        except Exception as e:
+            check("nothing was written by the refused push", False, repr(e))
+
+        try:
+            accounts_reset()
+            keeper = json.dumps({"owned": {"petard": 3}, "coins": 42,
+                                 "note": "the player chose this one"}, separators=(",", ":"))
+            st, js, _ = POST("/push", {"tok": tok_a1, "base": 0, "save": keeper,
+                                       "force": True})
+            ok = st == 200 and (js or {}).get("ver") == 3
+            check("when the player picks a side, force overwrites and the version "
+                  "still only goes up", ok, "%s %s" % (st, js))
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_a1, "prev": True})
+            check("...and the overwritten save is STILL THERE, one pull away",
+                  st == 200 and (js or {}).get("save") == SAVE_2, str(js)[:160])
+        except Exception as e:
+            check("force keeps a copy of what it replaced", False, repr(e))
+
+        # ═══════════ accounts: abuse ═══════════
+        print("")
+        print(" ACCOUNTS — ABUSE")
+
+        try:
+            accounts_reset()
+            fat = json.dumps({"x": "y" * (A.MAX_SAVE + 500)}, separators=(",", ":"))
+            st, js, _ = POST("/push", {"tok": tok_a1, "base": 3, "save": fat})
+            check("an oversized save blob is refused (413)", st == 413, "%s %s" % (st, js))
+        except Exception as e:
+            check("oversized save refused", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/push", {"tok": tok_a1, "base": 3, "save": "{}"},
+                             raw=b'{"x":1}', clen=A.MAX_BODY + 5000)
+            check("an oversized BODY is refused on Content-Length, before a byte "
+                  "is read", st == 413, "%s %s" % (st, js))
+        except Exception as e:
+            check("oversized body refused early", False, repr(e))
+
+        for label, bad in (("not JSON at all", '{"a":}'),
+                           ("a JSON array, not an object", "[1,2,3]"),
+                           ("a bare number", "12345"),
+                           ("a JSON string", '"hello"'),
+                           ("nested 200 deep", "[" * 200 + "]" * 200),
+                           ("not a string", 12345)):
+            try:
+                accounts_reset()
+                st, _, _ = POST("/push", {"tok": tok_a1, "base": 3, "save": bad})
+                check("a save that is %s is refused" % label, st == 400, st)
+            except Exception as e:
+                check("save that is %s refused" % label, False, repr(e))
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/push", {"tok": tok_a1, "base": -1, "save": SAVE_1})
+            accounts_reset()
+            st2, _, _ = POST("/push", {"tok": tok_a1, "base": "one", "save": SAVE_1})
+            check("a nonsense base version is refused", st == 400 and st2 == 400,
+                  "%s %s" % (st, st2))
+        except Exception as e:
+            check("nonsense base refused", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/push", {"tok": tok_a1}, raw=b"not json", clen=8)
+            accounts_reset()
+            st2, _, _ = POST("/pull", {}, raw=b'"a string"', clen=10)
+            check("a request body that is not a JSON object is refused",
+                  st == 400 and st2 == 400, "%s %s" % (st, st2))
+        except Exception as e:
+            check("bad request body refused", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/pull", {"tok": tok_a1}, ctype="text/plain")
+            accounts_reset()
+            st2, _, _ = POST("/pull", {"tok": tok_a1}, clen=None, raw=b"{}",
+                             headers="")
+            check("a non-JSON Content-Type is refused", st == 415, "%s %s" % (st, st2))
+        except Exception as e:
+            check("wrong content type refused", False, repr(e))
+
+        try:
+            accounts_reset()
+            codes = []
+            for _ in range(12):
+                st, _, _ = POST("/login", {"u": "Bob", "pw": PW_B})
+                codes.append(st)
+            check("a login flood is rate limited (429 after the burst)",
+                  429 in codes, codes)
+        except Exception as e:
+            check("login flood limited", False, repr(e))
+
+        try:
+            accounts_reset()
+            codes = []
+            for i in range(8):
+                st, _, _ = POST("/register", {"u": "Flood%d" % i, "pw": PW_A})
+                codes.append(st)
+            check("a registration flood is rate limited (429 after the burst)",
+                  429 in codes, codes)
+        except Exception as e:
+            check("register flood limited", False, repr(e))
+
+        try:
+            keepr, keepb = A.LOGIN_RATE, A.LOGIN_BURST
+            A.LOGIN_RATE, A.LOGIN_BURST = 1000.0, 1000.0    # take the IP limit out
+            accounts_reset()                                #   of the way
+            for _ in range(A.FAIL_MAX + 1):
+                POST("/login", {"u": "Bob", "pw": "z" * 40})
+            st, js, _ = POST("/login", {"u": "Bob", "pw": PW_B})
+            A.LOGIN_RATE, A.LOGIN_BURST = keepr, keepb
+            accounts_reset()
+            check("guessing at one account locks that account out, right password "
+                  "or not", st == 429, "%s %s" % (st, js))
+        except Exception as e:
+            A.LOGIN_RATE, A.LOGIN_BURST = 1.0 / 10.0, 5.0
+            check("password guessing locks the account", False, repr(e))
+
+        try:
+            keepr, keepb = A.API_RATE, A.API_BURST
+            A.API_RATE, A.API_BURST = 1000.0, 1000.0
+            accounts_reset()
+            big = json.dumps({"pad": "z" * (A.MAX_SAVE - 200)}, separators=(",", ":"))
+            got507 = False
+            for name, pw in (("Store1", PW_A), ("Store2", PW_A), ("Store3", PW_A)):
+                accounts_reset()
+                _, jr, _ = POST("/register", {"u": name, "pw": pw})
+                t = (jr or {}).get("tok")
+                accounts_reset()
+                A.API_RATE, A.API_BURST = 1000.0, 1000.0
+                st, _, _ = POST("/push", {"tok": t, "base": 0, "save": big})
+                if st == 507:
+                    got507 = True
+                    break
+            A.API_RATE, A.API_BURST = keepr, keepb
+            check("total stored save data is capped — a stranger cannot fill the "
+                  "disk", got507)
+        except Exception as e:
+            A.API_RATE, A.API_BURST = 1.0, 12.0
+            check("total storage capped", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_a1})
+            check("the saves stored before the cap was hit are still intact",
+                  st == 200 and (js or {}).get("ver") == 3, str(js)[:120])
+        except Exception as e:
+            check("earlier saves survive the cap", False, repr(e))
+
+        try:
+            got507 = False
+            for i in range(A.MAX_ACCOUNTS + 4):
+                accounts_reset()
+                st, _, _ = POST("/register", {"u": "Cap%d" % i, "pw": PW_A})
+                if st == 507:
+                    got507 = True
+                    break
+            users, _ = ACCOUNTS.stats()
+            check("the number of accounts is capped (507 once it is full)",
+                  got507 and users <= A.MAX_ACCOUNTS, "users=%d" % users)
+        except Exception as e:
+            check("account count capped", False, repr(e))
+
+        try:
+            accounts_reset()
+            bad = []
+            for route in ("register", "login", "logout", "pull", "push"):
+                st, _, hd = _http_post(host, port, AP + "/" + route, {"u": "x", "pw": PW_A},
+                                       origin="https://evil.example")
+                if st != 403 or "access-control-allow-origin" in hd.lower():
+                    bad.append((route, st))
+            check("every account route refuses a foreign origin, with no CORS header",
+                  not bad, bad)
+        except Exception as e:
+            check("foreign origin refused on account routes", False, repr(e))
+
+        try:
+            st, _, body = _http_get(host, port, PATH_PREFIX + "/health")
+            js = json.loads(body.decode())
+            ok = js.get("accounts") is True and js.get("maxSave") == A.MAX_SAVE
+            leaked = any(k in body.decode().lower()
+                         for k in ("alice", "bob", "tok", "hash", "salt", "pw"))
+            check("/health says accounts are on and names nobody", ok and not leaked,
+                  body[:160])
+        except Exception as e:
+            check("/health leaks nothing about accounts", False, repr(e))
+
+        try:
+            presence_reset()
+            st, _, body = _http_get(host, port, PATH_PREFIX + "/presence")
+            low = body.decode().lower()
+            leaked = [w for w in ("alice", "bob", "tok", "hash", "salt", "uname")
+                      if w in low]
+            check("/presence still mentions no account, token or hash", not leaked,
+                  leaked)
+        except Exception as e:
+            check("/presence mentions no account", False, repr(e))
+
+        try:
+            with open(ACCOUNTS.path, "rb") as fh:
+                disk = fh.read()
+            for extra in ("-wal", "-shm"):
+                try:
+                    with open(ACCOUNTS.path + extra, "rb") as fh:
+                        disk += fh.read()
+                except OSError:
+                    pass
+            plain = [PW_A.encode(), PW_B.encode()]
+            plain += [tok.encode() for tok in (tok_a1, tok_b) if tok]
+            found = [p[:12] for p in plain if p in disk]
+            check("the database on disk holds no password and no live session "
+                  "token", not found, found)
+        except Exception as e:
+            check("nothing plaintext on disk", False, repr(e))
+
+        try:
+            with ACCOUNTS.lock:
+                rows = ACCOUNTS.db.execute(
+                    "SELECT uname,algo,kn,salt,pwhash FROM accounts").fetchall()
+            algos = {r[1] for r in rows}
+            salts = {bytes(r[3]) for r in rows}
+            ok = bool(rows) and algos <= {"scrypt", "pbkdf2_sha256"}
+            ok = ok and all(len(bytes(r[3])) == 16 and len(bytes(r[4])) == 32 and r[2] >= 1024
+                            for r in rows)
+            check("every stored credential is a slow KDF digest with its own random "
+                  "salt", ok and len(salts) == len(rows),
+                  "%s rows=%d salts=%d" % (algos, len(rows), len(salts)))
+        except Exception as e:
+            check("a slow salted KDF is what is stored", False, repr(e))
+
+        try:
+            with ACCOUNTS.lock:
+                row = ACCOUNTS.db.execute(
+                    "SELECT pwhash FROM accounts WHERE uname='alice'").fetchone()
+            digest = bytes(row[0])
+            ok = PW_A.encode() not in digest and hashlib.sha256(PW_A.encode()).digest() != digest
+            check("the digest is neither the password nor a plain SHA-256 of it", ok)
+        except Exception as e:
+            check("digest is not a plain hash", False, repr(e))
+
+        try:
+            mode = os.stat(ACCOUNTS.path).st_mode & 0o777
+            check("the account database is not world readable", mode == 0o600,
+                  oct(mode))
+        except Exception as e:
+            check("db file mode", False, repr(e))
+
+        saved = ACCOUNTS
+        try:
+            globals()["ACCOUNTS"] = None
+            accounts_reset()
+            st, js, _ = POST("/pull", {"tok": tok_a1})
+            globals()["ACCOUNTS"] = saved
+            _, _, hbody = _http_get(host, port, PATH_PREFIX + "/health")[0:3]
+            check("with the store unavailable the account routes say so (503) and "
+                  "the relay carries on", st == 503 and (js or {}).get("ok") is False,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            globals()["ACCOUNTS"] = saved
+            check("accounts off degrades gracefully", False, repr(e))
+
+        try:
+            accounts_reset()
+            x = cli(origin=PAGES_ORIGIN)
+            x.send_json({"t": "create"})
+            m = x.recv_json(2.0)
+            check("the relay itself still works with accounts bolted on",
+                  (m or {}).get("t") == "created", m)
+            bye(x)
+        except Exception as e:
+            check("relay unaffected by accounts", False, repr(e))
+
         # ═══════════ housekeeping ═══════════
         print("")
         print(" HOUSEKEEPING")
@@ -2580,6 +3989,9 @@ def selftest():
             httpd.server_close()
         except Exception:
             pass
+        if ACCOUNTS is not None:
+            ACCOUNTS.close()
+        shutil.rmtree(acct_dir, ignore_errors=True)
 
     fails = sum(1 for _, ok in results if not ok)
     print("")
@@ -2604,6 +4016,11 @@ def main(argv=None):
                    help="DEBUG ONLY: accept any Origin header")
     p.add_argument("--log", default=None, help="append-only event log file (no message contents)")
     p.add_argument("--verbose", action="store_true", help="log HTTP oddities to stderr")
+    p.add_argument("--accounts", default=DEFAULT_ACCT_DB,
+                   help="SQLite file for accounts + cross-device saves (default %s)"
+                        % DEFAULT_ACCT_DB)
+    p.add_argument("--no-accounts", action="store_true",
+                   help="run as a pure relay: no accounts, no saved games, no disk")
     p.add_argument("--selftest", action="store_true", help="run the built-in tests and exit")
     args = p.parse_args(argv)
 
@@ -2615,6 +4032,9 @@ def main(argv=None):
 
     if args.selftest:
         return selftest()
+
+    if not args.no_accounts:
+        accounts_open(args.accounts)
 
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print("warning: binding to %s exposes the relay directly. Tailscale Funnel "
@@ -2633,6 +4053,8 @@ def main(argv=None):
         stop.set()
         httpd.shutdown()
         httpd.server_close()
+        if ACCOUNTS is not None:
+            ACCOUNTS.close()
         LOG("stop")
     return 0
 

@@ -1,23 +1,31 @@
 # KARTI online — running the relay, and what it is actually safe against
 
 Online play is two phones running the **same deterministic engine in lockstep**, with a
-tiny **relay** in the middle that only passes moves along. This document covers how to
-run and publish that relay, and — honestly — what someone on the internet can and
-cannot do to it.
+tiny **relay** in the middle that only passes moves along. The same little service also
+holds **KARTI accounts and one save file each**, which is what lets a player log in on a
+second phone and find their collection. This document covers how to run and publish it,
+and — honestly — what someone on the internet can and cannot do to it.
 
 ```
   phone A                          the Pi                          phone B
   ───────                          ──────                          ───────
   https://terencecamilleripesci.github.io/KARTI/   (GitHub Pages, static files)
         │                                                              │
-        │  wss://raspberrypi.silverside-tench.ts.net:8443/karti/ws     │
+        │  wss://…:8443/karti/ws        duels                          │
+        │  https://…:8443/karti/acct/*  accounts + saves               │
         └──────────────►  Tailscale Funnel (public, TLS)  ◄────────────┘
                                     │
-                          http://127.0.0.1:8101/karti/ws
+                          http://127.0.0.1:8101/karti/…
                                     │
-                       server/karti_server.py  ── relays moves. No files.
-                                                  No rules. No database.
+                       server/karti_server.py
+                         ├── relays moves.  No rules, all in RAM.
+                         └── accounts + saves in ONE SQLite file,
+                             /var/lib/karti/accounts.db.  Nothing else
+                             on this machine is ever written to.
 ```
+
+**The game never stops working without any of this.** No account, no signal, Pi switched
+off — KARTI plays exactly as it always has. Sync is an addition, never a dependency.
 
 ---
 
@@ -27,8 +35,10 @@ cannot do to it.
 |---|---|---|
 | The game | GitHub Pages, `https://terencecamilleripesci.github.io/KARTI/` | All the HTML/JS/art. Static. |
 | The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players and passes JSON moves between them, and answers `/presence` with who is connected **and which rooms are open**. |
+| The accounts | the same process, `/var/lib/karti/accounts.db` | KARTI accounts and one save file each, so a player can log in on a second phone and find their collection. **The only thing here that writes to disk** — see section 4. |
 | The tunnel | Tailscale Funnel, `:8443` under `/karti` | Gives the relay a public HTTPS/WSS address without opening a router port. |
 | The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and draws both the room list and the who's-online panel. |
+| The sync client | `js/sync.js` | Sign up, log in, upload and download the save, and the "which of these two games do you want to keep?" conversation. Self-contained; the game plays perfectly without it. |
 
 **The endpoint lives in exactly one place.** Top of `js/mp.js`:
 
@@ -37,6 +47,15 @@ const RELAY_URL      = 'wss://raspberrypi.silverside-tench.ts.net:8443/karti/ws'
 const RELAY_HEALTH   = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/health';
 const RELAY_PRESENCE = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/presence';
 ```
+
+…and its twin at the top of `js/sync.js`, which must stay in step:
+
+```js
+var ACCT_URL = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/acct';
+```
+
+`js/sync.js` asks `KARTI_MP.defaultURL()` first and only falls back to that constant, so
+`?relay=…` and the *Server settings* box move duels and cloud saves together.
 
 ### The room list — the way in
 
@@ -105,7 +124,9 @@ Useful flags:
 | Flag | Meaning |
 |---|---|
 | `--port 8101` | Listening port (default 8101). |
-| `--selftest` | Runs 61 built-in checks — happy path, reconnect, presence, the room list, and every abuse case. Exits non-zero on failure. |
+| `--selftest` | Runs 118 built-in checks — happy path, reconnect, presence, the room list, accounts, cross-device saves, the conflict path, and every abuse case. Exits non-zero on failure. |
+| `--accounts /path/db` | SQLite file for accounts and saves (default `/var/lib/karti/accounts.db`). If it cannot be opened, accounts switch themselves off and everything else carries on. |
+| `--no-accounts` | Pure relay: no accounts, no saves, no disk at all — exactly the process as it was before section 4 existed. |
 | `--log /path/file` | Append-only event log. Records event names, room codes and counters. **Never** records message contents. Off by default. |
 | `--origin https://x` | Allow an extra browser origin (repeatable). |
 | `--verbose` | HTTP oddities to stderr. |
@@ -129,7 +150,14 @@ ExecStart=/usr/bin/python3 /home/foxhound/webclients/karti-malta/server/karti_se
 Restart=on-failure
 RestartSec=3
 
-# --- hardening: this process needs nothing but a loopback socket ---
+# --- the ONE writable path: accounts + cross-device saves (see section 4).
+#     Delete these three lines, or add --no-accounts, to go back to a relay
+#     that never touches the disk. Nothing else breaks either way.
+StateDirectory=karti
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/karti
+
+# --- hardening: apart from that one directory, nothing but a loopback socket ---
 NoNewPrivileges=yes
 CapabilityBoundingSet=
 PrivateTmp=yes
@@ -169,7 +197,12 @@ Two notes on that unit:
   delete those two lines — binding to loopback already does the important half.
 * If you use `--log`, add `ReadWritePaths=/var/log/karti` (and create that directory)
   because `ProtectSystem=strict` + `ProtectHome=read-only` make everything else read-only.
-  That read-only filesystem is a feature: the relay has no business writing anywhere.
+  Keep that read-only filesystem: apart from `/var/lib/karti`, the relay has no business
+  writing anywhere.
+* `StateDirectory=karti` is what makes `/var/lib/karti` exist, be owned by `foxhound` and
+  be writable despite `ProtectSystem=strict`. Without it (and without
+  `ReadWritePaths=/var/lib/karti`) the process starts perfectly happily, prints one
+  warning, and serves `"accounts":false` — duels are unaffected. See section 4.
 
 ### Publishing it with Tailscale Funnel
 
@@ -208,7 +241,7 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (61 checks, 0 failed)
+# SELFTEST: ALL PASS  (118 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -254,9 +287,196 @@ checksums agree), and the new `js/mp.js` against today's live relay (it derives 
 from the player list, tapping still starts a duel, and asking an old relay for a *private*
 room is reported honestly instead of pretended).
 
+### The accounts block — 57 of the 118 checks
+
+Everything in section 4 is asserted by performing it, in the same run, against a throwaway
+database: register, log in, a second token, a byte-for-byte save round trip, and — the
+point of the feature — **a second session logging in and finding the same save**. Then the
+abuse: a duplicate username, a script tag in a username, a 17-character username, a
+too-short password, a made-up token, no token, an empty token, an expired session, one
+account's token pointed at another account's save, a 200 KB save, an oversized *body*
+refused on `Content-Length` before a byte is read, a save that is not JSON, is an array, is
+a bare number, is nested 200 deep, a login flood, a registration flood, password guessing
+against one account, the account cap, the total-storage cap, and a foreign `Origin` on all
+five routes. It also proves that the wrong password and an unknown user give **byte-
+identical** answers, that the database holds no plaintext password and no live token, that
+every stored credential is a slow KDF digest with its own random salt, that the file is
+`0600`, that `/health` and `/presence` name nobody, and that with the store unavailable the
+routes answer 503 while the relay carries on.
+
+The **conflict block** proves the promise in section 4: a stale push is refused, the
+refusal carries the server's copy, **the server's save is completely unchanged afterwards**,
+choosing a side is an ordinary in-order write, and the blob that was replaced is still one
+`pull {prev:true}` away.
+
+### Two separate browsers, one account (what was used to verify this build)
+
+Two *browsers*, not two tabs, each with its own profile directory and no shared storage.
+Serve the repo on `:8188`, run a test relay on `:8102`, and open both on
+`http://127.0.0.1:8188/index.html?relay=ws://127.0.0.1:8102/karti/ws`. Asserted and passed,
+**26/26**:
+
+* Browser A seeds a recognisable collection (5 cards, a named deck, 4321 coins, 77 dust,
+  4 story stages, 13W/4L), registers, and pushes → version 1.
+* Browser B — a **separate browser**, verified to start with nothing in `localStorage` —
+  logs in as the same user and **every one of those fields arrives unchanged**: cards,
+  decks, active deck, story progress, coins, dust and win record. No question was asked,
+  because a clean device has nothing to lose.
+* The conflict path, driven for real: B plays on and pushes (v2); A, which never saw that,
+  pushes and is **refused**; the player is shown both summaries (A's 1111 coins vs the
+  cloud's 9999); while undecided the server still holds B's save **and** A's local save is
+  untouched; A chooses "keep this device" (v3); **B's overwritten save is still pulled back
+  from the server**; B then chooses the cloud, its own copy is backed up locally, and
+  `restoreBackup()` puts it back exactly.
+* From the page itself: a made-up token → 401, no token → 401, a 200 KB save → 413.
+
+**With the relay switched off entirely** (12/12): the game boots, `js/sync.js` loads and
+gets in nobody's way, a guest picks a starter deck and plays a duel through a turn, saving
+works, `notifySaved()` is a silent no-op, `reachable()` correctly says no, logging in and
+registering return a plain sentence instead of throwing, the offline game is untouched by
+the failed attempts, the Cloud save panel still opens and explains where the account lives,
+and **no script error occurs anywhere**.
+
 ---
 
-## 4 · The protocol
+## 4 · Accounts and cloud saves — logging in on a second phone
+
+Until now a KARTI account was a row in one browser's `localStorage`. Change phone, lose
+everything. This section is the fix: **a real account on the Pi, and one save file per
+account**, so you can log in somewhere else and your cards, decks, coins and story
+progress are already there.
+
+### Why it is on the Pi and not on GitHub
+
+The obvious idea is "put the saves in the GitHub repo". It cannot be done safely, and it
+is worth writing down why so nobody tries it again later:
+
+* Writing to GitHub needs a token.
+* The game is a **static public page**. Anything the page can use, a visitor can read out
+  of it with two clicks of the developer tools.
+* A GitHub token is not scoped to "one file in one repo" in any way that helps — a
+  classic token with `repo` scope can write to **every repository on the account**.
+
+So the token would be public and it would grant write access to everything. The Pi already
+hosts the relay, already has a public HTTPS address through Funnel, and can keep a secret.
+That is where it goes.
+
+### What the player sees
+
+* **Nothing, unless they want it.** No login wall, no prompt. `Play now` still starts a
+  guest game with no account of any kind, and everything below still works with the Pi
+  switched off and the phone in flight mode.
+* A **Cloud save** panel (`js/sync.js`, `KARTI_SYNC.openPanel()`) with two buttons —
+  create an account, or log in — and copy that says, in plain words, that the account
+  lives on Terence's Raspberry Pi, that if it is off then logging in and syncing will not
+  work, and that **the game itself keeps working with no internet at all**.
+* Once signed in, the save uploads itself a few seconds after any change (debounced 6 s,
+  never more often than once every 20 s, and skipped entirely if nothing actually changed).
+
+### The one thing this must never do: lose a collection
+
+Two phones both play offline. Both come back holding progress the other has never seen.
+There is no correct automatic answer, so **nothing automatic is attempted**:
+
+1. Every save on the server carries a **version number** that only ever goes up.
+2. A push must state the version it is based on. If that is not the version the server is
+   holding, the push is **refused with 409** — nothing is written — and the server's copy
+   comes back with the refusal.
+3. The client then shows the player **both**, summarised in words they understand
+   ("14 different cards, 3 decks, 4321 coins, 4 story stages cleared, 13W/4L") and asks
+   which to keep. "Decide later" is a real option; the game carries on offline in the
+   meantime.
+4. Whichever they pick, **the other one is kept**. The server keeps the blob it replaced
+   (`prev_*`, one `pull {prev:true}` away). The client takes a local backup before it ever
+   overwrites the local save, and the panel has a *"Put back this device's previous game"*
+   button.
+
+Nothing is ever merged. Merging two collections silently is how you end up with duplicated
+legendaries and a player who cannot tell what happened.
+
+### Passwords
+
+* The client sends `SHA-256("karti-acct-v1|" + lowercased username + "|" + password)`, so
+  the plaintext password never reaches the Pi at all — players reuse passwords and that is
+  not Terence's problem to hold.
+* **The server does not trust that for a second.** It treats whatever arrives as an opaque
+  secret string and hashes it again with a slow, salted, memory-hard KDF —
+  `hashlib.scrypt` (n=2^14, r=8, p=1: 16 MiB, ~50 ms on this Pi), falling back to
+  `hashlib.pbkdf2_hmac('sha256', …, 200 000)` if OpenSSL has no scrypt. Per-user 16-byte
+  random salt from `secrets.token_bytes`. Comparison with `hmac.compare_digest`.
+* At most **two** KDFs run at once, server-wide, behind a semaphore. That is the memory
+  guard: 2 × 16 MiB and no more, however many people are logging in at the same time,
+  which matters under the unit's `MemoryMax=256M`.
+* An unknown username **also** burns a KDF, so "no such user" and "wrong password" do not
+  differ by 50 ms of wall clock — and they return byte-identical JSON.
+* Session tokens are `secrets.token_urlsafe(32)`. Only a **SHA-256 of the token** is ever
+  on disk, so a stolen database file hands over no live session. Tokens expire 30 days
+  after they are issued and 14 days after they were last used, and one account keeps at
+  most 8 live sessions.
+
+### Storage, and the systemd change you must make
+
+Everything lives in **one SQLite file** (stdlib `sqlite3`, WAL, `chmod 0600`), default
+`/var/lib/karti/accounts.db`.
+
+**The unit as it stands cannot write anywhere.** `ProtectSystem=strict` plus
+`ProtectHome=read-only` is deliberate and should stay. Add exactly this to the `[Service]`
+section of `/etc/systemd/system/karti-relay.service`:
+
+```ini
+StateDirectory=karti
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/karti
+```
+
+`StateDirectory=karti` creates `/var/lib/karti` owned by `User=foxhound` on every start and
+makes it writable; `ReadWritePaths=` is the belt to that braces and is what you would use
+on its own if you would rather create the directory by hand:
+
+```bash
+sudo install -d -o foxhound -g foxhound -m 0700 /var/lib/karti
+sudo systemctl daemon-reload && sudo systemctl restart karti-relay
+```
+
+**If you skip this, nothing breaks.** The relay prints a warning, `/health` reports
+`"accounts":false`, the five account routes answer `503 {"why":"Accounts are switched off
+on this server."}`, and duels and offline play are completely unaffected. That path is
+tested. `--no-accounts` makes it explicit.
+
+### The routes
+
+All `POST`, JSON in and JSON out, and — like everything else here — served both at
+`/karti/acct/<x>` and `/acct/<x>`.
+
+| Route | Body | Answer |
+|---|---|---|
+| `/karti/acct/register` | `{u, pw}` | `201 {tok, exp, u, name, ver:0, save:null}` · `409` name taken · `507` server full |
+| `/karti/acct/login` | `{u, pw}` | `200 {tok, exp, u, name, ver, at, save}` · `401` wrong username **or** password (same answer for both) |
+| `/karti/acct/logout` | `{tok}` | `200 {ok:true}` — always, even for a token that never existed |
+| `/karti/acct/pull` | `{tok}` or `{tok, prev:true}` | `200 {ver, at, save, hasPrev}` · `401` bad or expired token |
+| `/karti/acct/push` | `{tok, base, save, force?, device?}` | `200 {ver, at, bytes}` · **`409 {code:"stale", ver, at, save}`** · `413` too big · `507` no room left |
+
+`register` and `login` are the only unauthenticated routes. The token may be sent as
+`{"tok": …}` in the body or as `Authorization: Bearer …`. `GET` on any of them is still
+the same plain 404 as before, and `POST /karti/health` is still `405` — nothing else in
+the process grew a POST.
+
+### The client — `js/sync.js`
+
+Self-contained. It has its own SHA-256, its own overlay UI with inline styles (no class
+from `css/extra.css`, no helper from `js/game.js`), and it talks to the game through
+exactly two things: the `localStorage` keys `karti_active` and `karti_save_<profile>`, and
+`window.KARTI.load()`. Both are behind `KARTI_SYNC.adapter` so they can be repointed
+without editing the file. It follows whatever relay `js/mp.js` is pointed at, so
+`?relay=…` and the *Server settings* box move duels and saves together.
+
+Every network call is wrapped: an unreachable Pi, a captive portal, a flight-mode phone
+and a CORS refusal all come back as a status string. **Nothing in `js/sync.js` is ever on
+the critical path of playing KARTI.**
+
+---
+
+## 5 · The protocol
 
 One JSON object per WebSocket text frame. Everything is capped at 16 KiB.
 
@@ -302,7 +522,7 @@ everything it missed. `js/mp.js` retries 8 times over about 37 seconds.
 
 ---
 
-## 5 · Security model
+## 6 · Security model
 
 Assume the endpoint is public knowledge. `*.ts.net` names appear in Certificate
 Transparency logs, so "nobody knows the URL" is not a control and is not treated as one.
@@ -354,20 +574,41 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
   they did land on a room that still has a free seat, they would simply become the
   opponent — they cannot take a seat that is already occupied, because that needs the
   96-bit seat token, which only ever goes to the player who took the seat.
-* **Cheat inside a duel they are legitimately in.** See section 6.
+* **Cheat inside a duel they are legitimately in.** See section 7.
+* **Create an account, and store up to 128 KiB in it.** That is the feature working. What
+  it costs them: registration is token-bucketed at one per five minutes per caller with a
+  burst of 3, *and* globally at 20 per hour however many callers there are, the server
+  refuses account 251 with `507`, and it refuses any push that would take total stored save
+  data past 24 MiB. Worst case on disk is therefore ~24 MiB plus the same again for the
+  "previous save" column, not "the Pi's disk".
+* **Try passwords.** 1 login per 10 s per caller with a burst of 5; and after 10 wrong
+  passwords **that account stops answering for 15 minutes** whether the next guess is right
+  or not. Each attempt costs the server ~50 ms of scrypt, and at most two of those run at
+  once, so a guessing flood queues rather than eating RAM. They cannot tell a wrong password
+  from a username that does not exist: the two answers are byte-identical and both burn a
+  KDF, so they do not differ in timing either.
+* **Store junk in their own save.** 128 KiB of well-formed JSON of their choosing. It is
+  never parsed for meaning, never merged, never executed, and it is only ever handed back
+  to the account that stored it.
+* **Annoy one player they already have the password of.** Nothing here defends a player
+  who gives their password away. The blast radius is that one account's save, and even
+  then the previous save is still on the server.
 
 ### What an attacker CANNOT do
 
-* **Read or write a single file.** The relay is not built on `SimpleHTTPRequestHandler`
-  and contains no filesystem code at all — no `open()` outside the optional log, no
-  `os.path`, no directory listing, no static route. `/`, `/index.html`, `/js/game.js`,
-  `/.git/config`, `/../../etc/passwd` and `/%2e%2e/…` all return the same 404 JSON, and
-  the self-test proves it every run.
+* **Read or write a single file of their choosing.** The relay is not built on
+  `SimpleHTTPRequestHandler` and has no filesystem code driven by input — no directory
+  listing, no static route, and the only paths it ever opens are the two named on the
+  command line (`--accounts`, `--log`). `/`, `/index.html`, `/js/game.js`, `/.git/config`,
+  `/../../etc/passwd` and `/%2e%2e/…` all return the same 404 JSON, and the self-test
+  proves it every run.
 * **Run anything.** No `eval`, no `exec`, no `pickle`, no `subprocess`, no shell, no
-  `os.system`, no imports driven by input. Stdlib only, nothing from pip.
+  `os.system`, no imports driven by input. Stdlib only, nothing from pip. Every SQL
+  statement is a fixed string with bound parameters; nothing a caller sends is ever
+  concatenated into one.
 * **Reach anything else on the Pi.** The process binds loopback only; Funnel publishes
-  one port scoped to one path. The systemd unit above additionally denies it a writable
-  filesystem, extra capabilities, and non-loopback network.
+  one port scoped to one path. The systemd unit above denies it extra capabilities,
+  non-loopback network, and every writable path except `/var/lib/karti`.
 * **Exhaust memory.** Every structure is bounded, and the ceiling is arithmetic, not
   hope: ≤128 rooms × (96 buffered messages / 192 KiB) ≈ 24 MiB of room state, plus
   ≤64 sockets × 16 KiB of message buffer. A frame that merely *claims* a huge length is
@@ -392,8 +633,36 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
   the alternative, guessing the 5-character code, costs a new TLS handshake every 20 tries.
 * **Learn anything from an error message.** Error strings are a fixed set of constants.
   Nothing an attacker sends is ever echoed back to them or to anyone else.
-* **Persist anything.** All state is in RAM. A restart wipes every room. Nothing is
-  written to disk unless `--log` is on, and that log contains no user content.
+* **Persist anything except their own account's save.** Every duel and every room is in
+  RAM and a restart wipes the lot. The *only* disk state is `/var/lib/karti/accounts.db`
+  (and the optional `--log`, which contains no user content). Nothing a caller sends
+  chooses a path, a filename or a directory — the database path comes from the command
+  line and nowhere else.
+* **Read anybody else's save.** Every route except `register` and `login` needs a session
+  token, and the token resolves server-side to exactly one account. There is no route that
+  takes a username and returns a save, no route that lists accounts, and no route that
+  returns anything about an account other than the caller's own. `/health` says only
+  whether accounts are switched on; `/presence` says nothing about them at all.
+* **Get a password or a hash back out.** No response ever contains the credential, the
+  salt, the digest or another account's token — the self-test asserts it on the register
+  answer specifically. The plaintext password never reaches the Pi in the first place (the
+  client pre-hashes), and what is stored is a scrypt digest over a per-user random salt.
+  Reversing that is the point of using a slow memory-hard KDF.
+* **Use a stolen database file to log in.** Sessions are stored as a SHA-256 of the token,
+  so the file contains no usable token; and the password column is a KDF digest.
+* **Make the server parse something dangerous.** The request body is refused on
+  `Content-Length` above 144 KiB before a byte is read, refused unless the `Content-Type`
+  is `application/json`, and depth-scanned to 32 levels **before** `json.loads` is allowed
+  near it — so nobody chooses our recursion depth. The save blob gets the same treatment
+  again, must be a JSON *object*, and is then stored as text: this process never looks
+  inside a save, so there is nothing inside a save for it to be fooled by. No `eval`, no
+  `pickle`, no dynamic import, anywhere.
+* **CSRF a logged-in player.** There are no cookies. The session token travels in the JSON
+  body (or an `Authorization` header) and a page on another origin cannot read it. On top
+  of that, every account route enforces the same `Origin` allow-list as everything else and
+  returns 403 with no CORS header to anybody else.
+* **Fill the disk.** 250 accounts, 128 KiB each, plus one previous save each: ~64 MiB
+  ceiling, with a hard global cap of 24 MiB of *current* saves enforced on every push.
 
 ### Caps, in one place
 
@@ -421,10 +690,25 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 | Idle room timeout | 30 min |
 | Idle socket timeout | 120 s |
 | Handshake timeout | 15 s |
+| **Accounts on the server** | **250** (then `507`) |
+| One save blob | 128 KiB (then `413`) |
+| All saves together | 24 MiB (then `507`) |
+| One HTTP request body | 144 KiB, refused on `Content-Length` |
+| JSON nesting, request and save | 32 levels |
+| Username | 1–16 of `A-Z a-z 0-9 _ . -` and a space |
+| Registrations per caller | 1 per 5 min, burst 3 |
+| Registrations, whole server | 20 per hour, burst 20 |
+| Logins per caller | 1 per 10 s, burst 5 |
+| Wrong passwords before an account is locked | 10, then 15 min |
+| Authenticated calls per caller | 1/s sustained, 12 burst |
+| Password KDF | scrypt n=2¹⁴ r=8 p=1 (16 MiB, ~50 ms), pbkdf2-sha256 ×200 000 if no scrypt |
+| KDFs running at once, whole server | 2 (then `503`, so RAM stays bounded) |
+| Session token | `secrets.token_urlsafe(32)`; 30 days from issue, 14 days idle |
+| Live sessions per account | 8 (oldest dropped) |
 
 ---
 
-## 6 · Cheating: what is and is not defended
+## 7 · Cheating: what is and is not defended
 
 This deserves to be stated plainly rather than buried.
 
@@ -481,7 +765,7 @@ It is not cheat-proof, and nothing in the UI claims it is.
 
 ---
 
-## 7 · Known limitations
+## 8 · Known limitations
 
 * Exactly two players per room. No spectators, no matchmaking, no ranking. The room list
   is a list, not a queue: first tap wins, and the other person is told *"that room has
@@ -491,9 +775,30 @@ It is not cheat-proof, and nothing in the UI claims it is.
   the polling floor, and the floor is what keeps a menu left open from costing anything.
 * Anybody online can join any public room; that is the entire point of the list, and the
   answer for "I only want to play *him*" is **Open a private room** and hand over the code.
-* All state is in RAM. Restarting the relay ends every duel in progress.
-* No accounts and no authentication: whoever taps the room first, or has the code and a
-  free seat, is the opponent.
+* All *duel* state is in RAM. Restarting the relay ends every duel in progress. Accounts
+  and saves survive a restart; live sessions do too, because they are in the same file.
+* **Duels are still unauthenticated.** A KARTI account authenticates you to your *save*,
+  not to a room. Whoever taps the room first, or has the code and a free seat, is the
+  opponent, exactly as before. Wiring accounts into matchmaking is a separate job.
+* **If the Pi is off, there is no logging in and no syncing.** That is the deal with
+  self-hosting and the UI says so in as many words. Local play, story mode, packs, deck
+  building and pass-and-play are all completely unaffected — the game is offline-first and
+  stays that way.
+* **There is no password reset.** Nobody has an email address, there is no mail server, and
+  a "reset" route on a public endpoint is a way in, not a feature. A forgotten password
+  means a new account; the old save is still in the database and Terence can hand it back
+  by hand. Say this out loud to players before they choose a password.
+* **One save per account, and it is the whole save.** Sync replaces a file; it does not
+  merge two collections. That is deliberate (see section 4) but it does mean a player with
+  two phones has to answer a question now and then.
+* **A cloud account and a local profile are not the same thing.** The local profile is
+  still the row in `localStorage` that `js/game.js` has always used; the cloud account is
+  what backs it up. Signing out of cloud save leaves the local profile exactly as it was.
+* Usernames on the server are narrower than local ones: no apostrophe, so a local profile
+  called `O'Brien` registers online as `OBrien`.
+* The server does not know a KARTI save from a shopping list. A player who edits their own
+  `localStorage` will happily sync the result. Save data is **not** an anti-cheat surface
+  and was never going to be one — see section 7.
 * Reconnect covers about 37 seconds of client retries against a 60-second server grace,
   and replays at most the last 96 messages. A phone that is off for a minute has lost
   the duel.
@@ -504,4 +809,7 @@ It is not cheat-proof, and nothing in the UI claims it is.
 * The relay is single-process Python with a thread per connection. Fine for a handful of
   friends on a Pi; it is not built for a hundred simultaneous duels.
 * After deploying a change, bump the service worker cache version in `sw.js` or phones
-  will keep serving the old `mp.js`.
+  will keep serving the old `mp.js` / `sync.js`.
+* `/var/lib/karti/accounts.db` is **not backed up by anything**. It is one file; copy it
+  somewhere occasionally (`sqlite3 accounts.db ".backup /path/copy.db"` is safe while the
+  service is running).

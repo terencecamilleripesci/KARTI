@@ -1,0 +1,1030 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   KARTI — cloud save (js/sync.js)
+   ───────────────────────────────────────────────────────────────────────────
+   ONE JOB
+     Let a player log in on a DIFFERENT phone and find their cards, their decks
+     and their story progress waiting for them.
+
+   WHERE IT LIVES
+     On Terence's Raspberry Pi — the same little machine that already relays
+     online duels — published over HTTPS by Tailscale Funnel. Not GitHub, not a
+     cloud provider. That is a deliberate choice and the UI says so in plain
+     words: writing to GitHub from a public page would mean shipping a GitHub
+     token inside the page, and anyone could read it out and write to every one
+     of his repositories.
+
+   THE RULE THIS FILE WILL NOT BREAK
+     KARTI is offline-first and stays offline-first. Nothing in here is ever on
+     the critical path of playing. Every network call is wrapped, every failure
+     is swallowed into a status string, and a player with no account, no signal
+     or a switched-off Pi gets exactly the game they have today. Sync is an
+     addition. It is never a dependency.
+
+   THE OTHER RULE
+     Never lose a collection. Two phones both play offline and both come home
+     with progress the other has not seen. This file NEVER guesses which one
+     wins. It detects the divergence, shows the player both — cards, coins,
+     decks, story, when — and makes them choose. Before it ever overwrites the
+     local save it takes a local backup that can be restored from the panel.
+
+   HOW IT TALKS TO THE GAME
+     Only through localStorage keys that js/game.js already owns
+     ('karti_active', 'karti_save_<profile>') and through window.KARTI.load().
+     Both are behind KARTI_SYNC.adapter so they can be repointed without
+     touching this file. It reads and writes the save as an opaque STRING, so
+     it never has to know what a card is.
+
+   PUBLIC API — window.KARTI_SYNC
+     attach(localKey)      bind to a local profile (call after login/boot)
+     detach()              unbind (call on logout)
+     rekey(old, new)       carry a session across upgradeGuest()
+     status()              plain object, safe to render
+     onChange(fn)          called whenever status() changes
+     available()           is a server address configured at all
+     reachable()           Promise<bool> — is the Pi answering right now
+     register(user, pass)  Promise<{ok}|{err}>
+     login(user, pass)     Promise<{ok}|{err}>
+     signOut()            Promise — ends the session, touches no local save
+     syncNow(opts)         Promise — pull, compare, push or ask
+     push(opts) / pull(opts)
+     notifySaved()         debounced auto-push; call at the end of game save()
+     openPanel()           the whole account UI, self-contained, no CSS needed
+     restoreBackup()       put back the local save that a "use the cloud copy"
+                           replaced
+     TEXT                  every user-facing string, in one object
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+(function () {
+'use strict';
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE ONE THING YOU CHANGE IF THE SERVER MOVES
+   Keep it in step with RELAY_URL at the top of js/mp.js.
+   ═══════════════════════════════════════════════════════════════════ */
+var ACCT_URL = 'https://raspberrypi.silverside-tench.ts.net:8443/karti/acct';
+var DEV_PORT = 8101;            /* page served over plain http -> same machine */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+var PW_MIN      = 6;            /* real characters the player must type */
+var NAME_RE     = /^[A-Za-z0-9_ .\-]{1,16}$/;   /* must match the server's rule */
+var NET_MS      = 20000;        /* a login runs a slow KDF on a Pi; be patient */
+var PUSH_DEBOUNCE = 6000;       /* quiet time after a save before uploading */
+var PUSH_MIN_GAP  = 20000;      /* never upload more often than this */
+
+/* ─────────────────────────── SHA-256 ───────────────────────────
+   Self-contained on purpose: this file must not depend on load order, and the
+   pre-hash below has to produce the SAME string on every device forever.
+   Used for two things, neither of which is "security by itself":
+     1. the password never leaves the phone in the clear, so the Pi never holds
+        a password a player may have reused elsewhere. The SERVER hashes what
+        it receives again, slowly and salted — see server/karti_server.py;
+     2. a cheap, collision-free "has this save changed?" fingerprint.          */
+var SHA256 = (function () {
+  var K = new Uint32Array([
+    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2]);
+  function rr(x, n){ return (x >>> n) | (x << (32 - n)); }
+  return function (str) {
+    var utf = unescape(encodeURIComponent(String(str)));
+    var len = utf.length;
+    var withPad = (((len + 8) >> 6) + 1) << 4;
+    var w = new Uint32Array(withPad), i, j;
+    for (i = 0; i < len; i++) w[i >> 2] |= utf.charCodeAt(i) << ((3 - (i & 3)) * 8);
+    w[len >> 2] |= 0x80 << ((3 - (len & 3)) * 8);
+    w[withPad - 1] = len * 8;
+    var H = new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,
+                             0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+    var m = new Uint32Array(64);
+    for (i = 0; i < withPad; i += 16) {
+      for (j = 0; j < 16; j++) m[j] = w[i + j];
+      for (j = 16; j < 64; j++) {
+        var s0 = rr(m[j-15],7) ^ rr(m[j-15],18) ^ (m[j-15] >>> 3);
+        var s1 = rr(m[j-2],17) ^ rr(m[j-2],19) ^ (m[j-2] >>> 10);
+        m[j] = (m[j-16] + s0 + m[j-7] + s1) >>> 0;
+      }
+      var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+      for (j = 0; j < 64; j++) {
+        var S1 = rr(e,6) ^ rr(e,11) ^ rr(e,25);
+        var ch = (e & f) ^ (~e & g);
+        var t1 = (h + S1 + ch + K[j] + m[j]) >>> 0;
+        var S0 = rr(a,2) ^ rr(a,13) ^ rr(a,22);
+        var mj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + mj) >>> 0;
+        h=g; g=f; f=e; e=(d+t1)>>>0; d=c; c=b; b=a; a=(t1+t2)>>>0;
+      }
+      H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;
+      H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;
+    }
+    var out = '';
+    for (i = 0; i < 8; i++) out += ('00000000' + H[i].toString(16)).slice(-8);
+    return out;
+  };
+})();
+
+/* The credential that actually travels. Salted with the account name so the
+   same password on two accounts does not produce the same string, and tagged
+   with a version so it can be changed later without breaking old accounts.
+   NEVER change this without a migration — every existing password depends on
+   it byte for byte. */
+function credential(userKey, password) {
+  return SHA256('karti-acct-v1|' + userKey + '|' + password);
+}
+
+/* ─────────────────────────── user-facing copy ───────────────────────────
+   All of it here, in one place, and all of it honest. */
+var TEXT = {
+  what:      'Cloud save keeps your cards, decks, coins and story on Terence’s ' +
+             'Raspberry Pi, so you can log in on another phone and carry on where ' +
+             'you left off.',
+  whereFrom: 'It is his own little machine at home — not Google, not GitHub. ' +
+             'If it is switched off, logging in and syncing will not work. ' +
+             'The game itself keeps working perfectly with no internet at all.',
+  offlineOk: 'No account? Nothing changes. KARTI plays offline exactly as it does now.',
+  linked:    'Signed in — this device is backed up.',
+  notLinked: 'Not signed in — this device only.',
+  unreachable: 'Cannot reach the server right now. Your game is safe on this device; ' +
+             'it will sync itself when the server is back.',
+  syncing:   'Syncing…',
+  synced:    'Everything is up to date.',
+  pushed:    'Saved to the cloud.',
+  pulled:    'Loaded from the cloud.',
+  conflict:  'This device and the cloud have both moved on since they last spoke. ' +
+             'Nothing has been overwritten. Pick the one you want to keep — ' +
+             'the other one is kept and can be put back.',
+  conflictKeepLocal: 'Keep THIS device’s game',
+  conflictKeepCloud: 'Use the game from the cloud',
+  conflictLater:     'Decide later',
+  backupNote: 'A copy of this device’s game was saved before the cloud copy was ' +
+             'loaded. You can put it back from this panel.',
+  badName:   'Usernames are 1–16 characters: letters, numbers, space, dot, dash, underscore.',
+  badPass:   'Pick a password of at least ' + PW_MIN + ' characters.',
+  mismatch:  'The two passwords do not match.',
+  taken:     'That name is already taken on the server. Try another.',
+  creds:     'Wrong username or password.',
+  serverOff: 'This server is not offering cloud saves.',
+  tooBig:    'This save is too big for the server. Tell Terence.',
+  slow:      'Too many tries. Wait a minute and go again.',
+  reLogin:   'Your session has expired. Log in again to keep syncing.',
+  guest:     'You are playing as a guest. Signing in will put THIS guest game in ' +
+             'the cloud under your new name.'
+};
+
+/* ─────────────────────────── storage adapter ───────────────────────────
+   The only place this file knows anything about js/game.js. */
+var adapter = {
+  activeKey: function () {
+    try { return JSON.parse(localStorage.getItem('karti_active') || 'null'); }
+    catch (e) { return null; }
+  },
+  /* the save exactly as game.js wrote it: a JSON string, byte for byte */
+  readRaw: function (localKey) {
+    try { return localStorage.getItem('karti_save_' + localKey); }
+    catch (e) { return null; }
+  },
+  writeRaw: function (localKey, blob) {
+    try { localStorage.setItem('karti_save_' + localKey, blob); return true; }
+    catch (e) { return false; }
+  },
+  /* make the running game pick up a save we just wrote underneath it */
+  reload: function () {
+    try {
+      if (window.KARTI && typeof KARTI.load === 'function') KARTI.load();
+      if (window.KARTI && typeof KARTI.renderHome === 'function') KARTI.renderHome();
+    } catch (e) {}
+  },
+  displayName: function () {
+    try { return (window.KARTI && KARTI.displayName && KARTI.displayName()) || ''; }
+    catch (e) { return ''; }
+  }
+};
+
+function sessKey(localKey) { return 'karti_sync_' + localKey; }
+function backupKey(localKey) { return 'karti_sync_backup_' + localKey; }
+
+function lsRead(k) {
+  try { var v = localStorage.getItem(k); return v == null ? null : JSON.parse(v); }
+  catch (e) { return null; }
+}
+function lsWrite(k, v) {
+  try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+  catch (e) { return false; }
+}
+function lsDrop(k) { try { localStorage.removeItem(k); } catch (e) {} }
+
+/* ─────────────────────────── where is the server? ─────────────────────────── */
+function baseURL() {
+  /* Follow whatever relay js/mp.js is pointed at, so ?relay=… and the Server
+     settings box move BOTH features together and a tester never ends up with
+     duels on one box and saves on another. */
+  var u = '';
+  try {
+    if (window.KARTI_MP && typeof KARTI_MP.defaultURL === 'function')
+      u = (KARTI_MP.defaultURL() || '').trim();
+  } catch (e) {}
+  if (/^wss?:\/\//i.test(u))
+    return u.replace(/^ws/i, 'http').replace(/\/ws(\/)?$/i, '') + '/acct';
+  if (location.protocol === 'http:' && location.hostname)
+    return 'http://' + location.hostname + ':' + DEV_PORT + '/karti/acct';
+  return ACCT_URL;
+}
+
+/* ─────────────────────────── state ─────────────────────────── */
+var ST = {
+  local: null,        /* which local profile we are bound to */
+  sess: null,         /* { u, name, tok, exp, ver, at, mark } or null */
+  busy: false,
+  phase: 'idle',      /* idle | syncing | conflict | error */
+  msg: '',
+  online: null,       /* null = unknown, true/false = last answer */
+  conflict: null      /* { serverVer, serverSave, serverAt, localSave } */
+};
+var listeners = [];
+
+function fire() {
+  var s = status();
+  for (var i = 0; i < listeners.length; i++) {
+    try { listeners[i](s); } catch (e) {}
+  }
+  repaintPanel();
+}
+
+function status() {
+  return {
+    supported: canStore(),
+    available: !!baseURL(),
+    local: ST.local,
+    linked: !!(ST.sess && ST.sess.tok),
+    user: ST.sess ? ST.sess.name : '',
+    ver: ST.sess ? (ST.sess.ver || 0) : 0,
+    lastAt: ST.sess ? (ST.sess.at || 0) : 0,
+    busy: ST.busy,
+    phase: ST.phase,
+    msg: ST.msg,
+    online: ST.online,
+    conflict: !!ST.conflict,
+    hasBackup: !!(ST.local && lsRead(backupKey(ST.local)))
+  };
+}
+
+function canStore() {
+  try { localStorage.setItem('karti_sync_t', '1'); localStorage.removeItem('karti_sync_t');
+        return true; } catch (e) { return false; }
+}
+
+function setPhase(phase, msg) { ST.phase = phase; ST.msg = msg || ''; fire(); }
+
+function saveSess() {
+  if (!ST.local) return;
+  if (ST.sess) lsWrite(sessKey(ST.local), ST.sess);
+  else lsDrop(sessKey(ST.local));
+}
+
+/* ─────────────────────────── the wire ───────────────────────────
+   Every call goes through here. It NEVER throws: an unreachable Pi, a captive
+   portal, an aeroplane, a CORS refusal and a 500 all come back as
+   { err:'…', code:… } and the game carries on. */
+function call(route, body, ms) {
+  var url = baseURL() + '/' + route;
+  var ctrl = null, timer = null;
+  try { ctrl = new AbortController(); } catch (e) {}
+  var opts = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+    credentials: 'omit',
+    cache: 'no-store',
+    mode: 'cors'
+  };
+  if (ctrl) {
+    opts.signal = ctrl.signal;
+    timer = setTimeout(function () { try { ctrl.abort(); } catch (e) {} }, ms || NET_MS);
+  }
+  return fetch(url, opts).then(function (r) {
+    return r.text().then(function (t) {
+      var js = null;
+      try { js = JSON.parse(t); } catch (e) {}
+      return { status: r.status, js: js || {} };
+    });
+  }).then(function (r) {
+    if (timer) clearTimeout(timer);
+    ST.online = true;
+    if (r.status >= 200 && r.status < 300) return { ok: true, status: r.status, d: r.js };
+    return { err: r.js.why || 'The server said no.', status: r.status, d: r.js };
+  }).catch(function () {
+    if (timer) clearTimeout(timer);
+    ST.online = false;
+    return { err: TEXT.unreachable, status: 0, offline: true, d: {} };
+  });
+}
+
+/* Is the Pi answering at all? Used only to colour the panel — never to gate
+   anything the player is doing. */
+function reachable() {
+  var url = baseURL().replace(/\/acct$/, '/health');
+  var ctrl = null, timer = null;
+  try { ctrl = new AbortController(); } catch (e) {}
+  var opts = { cache: 'no-store', mode: 'cors' };
+  if (ctrl) { opts.signal = ctrl.signal;
+              timer = setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 6000); }
+  return fetch(url, opts).then(function (r) { return r.json(); }).then(function (j) {
+    if (timer) clearTimeout(timer);
+    ST.online = true;
+    fire();
+    return { ok: true, accounts: j && j.accounts !== false, maxSave: (j && j.maxSave) || 0 };
+  }).catch(function () {
+    if (timer) clearTimeout(timer);
+    ST.online = false;
+    fire();
+    return { ok: false };
+  });
+}
+
+/* ─────────────────────────── reading a save ─────────────────────────── */
+function localRaw() {
+  if (!ST.local) return null;
+  var raw = adapter.readRaw(ST.local);
+  if (raw == null) return null;
+  /* must be a JSON object; the server refuses anything else and we would
+     rather find out here than round-trip a broken upload */
+  var t = String(raw).trim();
+  if (t.charAt(0) !== '{' || t.charAt(t.length - 1) !== '}') return null;
+  return raw;
+}
+function mark(blob) { return blob == null ? '' : SHA256(blob); }
+
+/* A human sentence about a save, built defensively — the blob may be from an
+   older version of the game, or from a device that has been fiddled with. */
+function summarise(blob) {
+  var o = {};
+  try { o = JSON.parse(blob) || {}; } catch (e) { o = {}; }
+  if (typeof o !== 'object' || !o) o = {};
+  var owned = (o.owned && typeof o.owned === 'object') ? o.owned : {};
+  var unique = 0, total = 0, k;
+  for (k in owned) {
+    if (!Object.prototype.hasOwnProperty.call(owned, k)) continue;
+    var n = +owned[k]; if (n > 0) { unique++; total += n; }
+  }
+  var decks = Array.isArray(o.decks) ? o.decks.length : 0;
+  var rec = (o.rec && typeof o.rec === 'object') ? o.rec : {};
+  var cleared = 0;
+  try { cleared = Object.keys((o.story && o.story.cleared) || {}).length; } catch (e) {}
+  return {
+    unique: unique, total: total, decks: decks,
+    coins: Math.max(0, +o.coins || 0),
+    wins: Math.max(0, +rec.w || 0), losses: Math.max(0, +rec.l || 0),
+    stages: cleared, bytes: (blob || '').length
+  };
+}
+function summaryLine(s) {
+  return s.unique + ' different cards (' + s.total + ' in all) · ' +
+         s.decks + ' deck' + (s.decks === 1 ? '' : 's') + ' · ' +
+         s.coins + ' coins · ' + s.stages + ' story stage' +
+         (s.stages === 1 ? '' : 's') + ' cleared · ' +
+         s.wins + 'W/' + s.losses + 'L';
+}
+function whenText(seconds) {
+  if (!seconds) return 'never';
+  var d = new Date(seconds * 1000);
+  if (isNaN(d.getTime())) return 'unknown';
+  var diff = (Date.now() - d.getTime()) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.round(diff / 60) + ' min ago';
+  if (diff < 86400) return Math.round(diff / 3600) + ' h ago';
+  return d.toLocaleDateString();
+}
+
+function deviceLabel() {
+  var ua = navigator.userAgent || '';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Windows/i.test(ua)) return 'Windows';
+  if (/Mac OS/i.test(ua)) return 'Mac';
+  if (/Linux/i.test(ua)) return 'Linux';
+  return 'device';
+}
+
+/* ─────────────────────────── binding ─────────────────────────── */
+function attach(localKey) {
+  if (!localKey) return detach();
+  ST.local = localKey;
+  ST.sess = lsRead(sessKey(localKey));
+  ST.conflict = null;
+  ST.phase = 'idle';
+  ST.msg = '';
+  fire();
+  if (ST.sess && ST.sess.tok) syncNow({ quiet: true });
+}
+function detach() {
+  ST.local = null; ST.sess = null; ST.conflict = null;
+  ST.phase = 'idle'; ST.msg = '';
+  clearTimeout(pushTimer); pushTimer = 0;
+  fire();
+}
+/* upgradeGuest() renames the local profile underneath us; carry the session. */
+function rekey(oldKey, newKey) {
+  if (!oldKey || !newKey || oldKey === newKey) return;
+  var s = lsRead(sessKey(oldKey));
+  if (s) { lsWrite(sessKey(newKey), s); lsDrop(sessKey(oldKey)); }
+  var b = lsRead(backupKey(oldKey));
+  if (b) { lsWrite(backupKey(newKey), b); lsDrop(backupKey(oldKey)); }
+  if (ST.local === oldKey) attach(newKey);
+}
+
+/* ─────────────────────────── sign up / in / out ─────────────────────────── */
+function validate(user, pass) {
+  var name = String(user == null ? '' : user).trim();
+  if (!NAME_RE.test(name)) return { err: TEXT.badName };
+  if (String(pass || '').length < PW_MIN) return { err: TEXT.badPass };
+  return { ok: true, name: name, key: name.toLowerCase() };
+}
+
+function wireError(r) {
+  if (r.offline) return TEXT.unreachable;
+  if (r.status === 409) return TEXT.taken;
+  if (r.status === 401) return TEXT.creds;
+  if (r.status === 413) return TEXT.tooBig;
+  if (r.status === 429) return r.d && r.d.why ? r.d.why : TEXT.slow;
+  if (r.status === 503) return TEXT.serverOff;
+  return r.err || 'Something went wrong.';
+}
+
+function register(user, pass) {
+  var v = validate(user, pass);
+  if (v.err) return Promise.resolve(v);
+  if (!ST.local) return Promise.resolve({ err: 'No profile is loaded yet.' });
+  ST.busy = true; setPhase('syncing', TEXT.syncing);
+  return call('register', { u: v.name, pw: credential(v.key, String(pass)) })
+    .then(function (r) {
+      ST.busy = false;
+      if (!r.ok) { setPhase('error', wireError(r)); return { err: wireError(r) }; }
+      ST.sess = { u: r.d.u, name: r.d.name, tok: r.d.tok, exp: r.d.exp,
+                  ver: 0, at: 0, mark: '' };
+      saveSess();
+      /* A brand new account starts empty, so this device's game goes straight
+         up. base 0 is exactly right and can never clobber anything. */
+      return push({ silent: true }).then(function () {
+        setPhase('idle', TEXT.pushed);
+        return { ok: true, name: r.d.name };
+      });
+    });
+}
+
+function login(user, pass) {
+  var v = validate(user, pass);
+  if (v.err) return Promise.resolve(v);
+  if (!ST.local) return Promise.resolve({ err: 'No profile is loaded yet.' });
+  ST.busy = true; setPhase('syncing', TEXT.syncing);
+  return call('login', { u: v.name, pw: credential(v.key, String(pass)) })
+    .then(function (r) {
+      ST.busy = false;
+      if (!r.ok) { setPhase('error', wireError(r)); return { err: wireError(r) }; }
+      ST.sess = { u: r.d.u, name: r.d.name, tok: r.d.tok, exp: r.d.exp,
+                  ver: 0, at: 0, mark: '' };
+      saveSess();
+      /* ver/mark deliberately left at 0/'' — this device has never agreed with
+         this account before, so the very first sync treats any difference as a
+         real conflict and ASKS, rather than quietly picking one. */
+      return syncNow({ fromLogin: true }).then(function () {
+        return { ok: true, name: r.d.name };
+      });
+    });
+}
+
+function signOut() {
+  var tok = ST.sess && ST.sess.tok;
+  ST.sess = null; ST.conflict = null;
+  saveSess();
+  setPhase('idle', TEXT.notLinked);
+  if (!tok) return Promise.resolve({ ok: true });
+  /* fire and forget: the local game is untouched either way */
+  return call('logout', { tok: tok }, 6000).then(function () { return { ok: true }; });
+}
+
+function expired() {
+  ST.sess = null; saveSess();
+  setPhase('error', TEXT.reLogin);
+}
+
+/* ─────────────────────────── pull / push ─────────────────────────── */
+function pull(opts) {
+  opts = opts || {};
+  if (!ST.sess || !ST.sess.tok) return Promise.resolve({ err: 'not-linked' });
+  return call('pull', { tok: ST.sess.tok, prev: !!opts.prev }).then(function (r) {
+    if (!r.ok) {
+      if (r.status === 401) expired();
+      else if (!opts.silent) setPhase('error', wireError(r));
+      return { err: wireError(r), status: r.status };
+    }
+    return { ok: true, ver: r.d.ver || 0, at: r.d.at || 0,
+             save: (typeof r.d.save === 'string' ? r.d.save : null),
+             hasPrev: !!r.d.hasPrev, device: r.d.device || '' };
+  });
+}
+
+function push(opts) {
+  opts = opts || {};
+  if (!ST.sess || !ST.sess.tok) return Promise.resolve({ err: 'not-linked' });
+  var blob = localRaw();
+  if (blob == null) return Promise.resolve({ err: 'nothing-to-push' });
+  var base = (typeof opts.base === 'number') ? opts.base : (ST.sess.ver || 0);
+  return call('push', { tok: ST.sess.tok, base: base, save: blob,
+                        force: !!opts.force, device: deviceLabel() })
+    .then(function (r) {
+      if (r.ok) {
+        ST.sess.ver = r.d.ver || (base + 1);
+        ST.sess.at = r.d.at || Math.floor(Date.now() / 1000);
+        ST.sess.mark = mark(blob);
+        saveSess();
+        ST.conflict = null;
+        lastPush = Date.now();
+        if (!opts.silent) setPhase('idle', TEXT.pushed); else fire();
+        return { ok: true, ver: ST.sess.ver };
+      }
+      if (r.status === 401) { expired(); return { err: TEXT.reLogin }; }
+      if (r.status === 409) {
+        /* Someone else got there first. NOTHING has been written on the
+           server and nothing is touched here. Show the player both. */
+        return raiseConflict(r.d.ver || 0, r.d.save, r.d.at || 0, blob);
+      }
+      if (!opts.silent) setPhase('error', wireError(r));
+      return { err: wireError(r), status: r.status };
+    });
+}
+
+/* ─────────────────────────── the decision ───────────────────────────
+   syncNow is the only thing that ever decides anything, and it has exactly
+   three outcomes: nothing to do, a safe one-way copy, or ASK THE PLAYER. */
+function syncNow(opts) {
+  opts = opts || {};
+  if (!ST.local) return Promise.resolve({ err: 'not-attached' });
+  if (!ST.sess || !ST.sess.tok) return Promise.resolve({ err: 'not-linked' });
+  if (ST.busy) return Promise.resolve({ err: 'busy' });
+  ST.busy = true;
+  if (!opts.quiet) setPhase('syncing', TEXT.syncing);
+  return pull({ silent: !!opts.quiet }).then(function (r) {
+    ST.busy = false;
+    if (r.err) { fire(); return r; }
+
+    var here = localRaw();
+    var hereMark = mark(here);
+    var seenVer = ST.sess.ver || 0;
+    var seenMark = ST.sess.mark || '';
+    var serverMoved = (r.ver || 0) !== seenVer;
+    var localMoved = hereMark !== seenMark;
+
+    /* 1. nobody moved */
+    if (!serverMoved && !localMoved) {
+      ST.sess.at = r.at || ST.sess.at;
+      saveSess();
+      setPhase('idle', TEXT.synced);
+      return { ok: true, action: 'none' };
+    }
+
+    /* 2. only this device moved -> upload. The push is version-checked on the
+          server, so a race still ends in a 409 and a question, never a loss. */
+    if (!serverMoved && localMoved) {
+      return push({ base: r.ver || 0, silent: !!opts.quiet })
+        .then(function (p) { return p.ok ? { ok: true, action: 'push' } : p; });
+    }
+
+    /* 3. only the cloud moved -> this device is simply behind. Copy down.
+          Still take a backup first: "behind" is our belief, not a fact. */
+    if (serverMoved && !localMoved && typeof r.save === 'string') {
+      return applyServer(r, { quiet: !!opts.quiet })
+        .then(function () { return { ok: true, action: 'pull' }; });
+    }
+
+    /* 4. both moved, or the cloud has something and we have never agreed with
+          this account before. This is the one that loses collections if you
+          get clever. So: do not get clever. Ask. */
+    if (typeof r.save === 'string') {
+      return raiseConflict(r.ver || 0, r.save, r.at || 0, here, opts);
+    }
+
+    /* the cloud has nothing at all yet */
+    return push({ base: r.ver || 0, silent: !!opts.quiet })
+      .then(function (p) { return p.ok ? { ok: true, action: 'push' } : p; });
+  }).catch(function (e) {
+    ST.busy = false;
+    setPhase('error', TEXT.unreachable);
+    return { err: TEXT.unreachable };
+  });
+}
+
+/* Write the server's copy into the local slot — but never without first
+   putting this device's copy somewhere it can be got back from. */
+function applyServer(r, opts) {
+  opts = opts || {};
+  var here = localRaw();
+  if (here != null) {
+    lsWrite(backupKey(ST.local), { save: here, at: Math.floor(Date.now() / 1000),
+                                   why: 'replaced by the cloud copy' });
+  }
+  var wrote = adapter.writeRaw(ST.local, r.save);
+  if (!wrote) {
+    setPhase('error', 'This browser will not let the game save, so the cloud ' +
+                      'copy was not loaded. Nothing was lost.');
+    return Promise.resolve({ err: 'no-storage' });
+  }
+  ST.sess.ver = r.ver || 0;
+  ST.sess.at = r.at || 0;
+  ST.sess.mark = mark(r.save);
+  ST.conflict = null;
+  saveSess();
+  adapter.reload();
+  setPhase('idle', TEXT.pulled);
+  return Promise.resolve({ ok: true });
+}
+
+function raiseConflict(serverVer, serverSave, serverAt, localSave, opts) {
+  ST.conflict = { ver: serverVer, save: serverSave, at: serverAt,
+                  local: localSave, localAt: Math.floor(Date.now() / 1000) };
+  setPhase('conflict', TEXT.conflict);
+  var ask = (typeof KARTI_SYNC.onConflict === 'function')
+    ? KARTI_SYNC.onConflict : defaultConflictUI;
+  var info = {
+    server: summarise(serverSave), serverVer: serverVer, serverAt: serverAt,
+    local: summarise(localSave || '{}'), localAt: ST.conflict.localAt
+  };
+  return Promise.resolve(ask(info)).then(function (choice) {
+    return resolveConflict(choice);
+  }, function () { return { err: 'conflict', pending: true }; });
+}
+
+/* 'local' | 'cloud' | anything else = leave it alone */
+function resolveConflict(choice) {
+  var c = ST.conflict;
+  if (!c) return Promise.resolve({ err: 'no-conflict' });
+  if (choice === 'local') {
+    /* base = the version the server is actually holding, so this is an
+       ordinary in-order write, not a smash. The server keeps the blob it
+       replaced either way. */
+    return push({ base: c.ver, silent: true }).then(function (p) {
+      if (p.ok) setPhase('idle', TEXT.pushed);
+      return p;
+    });
+  }
+  if (choice === 'cloud') {
+    return applyServer({ ver: c.ver, save: c.save, at: c.at })
+      .then(function (p) {
+        if (p.ok) setPhase('idle', TEXT.pulled + ' ' + TEXT.backupNote);
+        return p;
+      });
+  }
+  setPhase('conflict', TEXT.conflict);
+  return Promise.resolve({ ok: false, deferred: true });
+}
+
+function restoreBackup() {
+  if (!ST.local) return { err: 'not-attached' };
+  var b = lsRead(backupKey(ST.local));
+  if (!b || typeof b.save !== 'string') return { err: 'no-backup' };
+  var now = localRaw();
+  if (now != null) lsWrite(backupKey(ST.local) + '_swap', { save: now, at: Math.floor(Date.now()/1000) });
+  if (!adapter.writeRaw(ST.local, b.save)) return { err: 'no-storage' };
+  if (ST.sess) { ST.sess.mark = ''; saveSess(); }   /* force the next sync to ask */
+  adapter.reload();
+  setPhase('idle', 'The backup has been put back. Sync again when you are ready.');
+  return { ok: true };
+}
+
+/* ─────────────────────────── auto-push ───────────────────────────
+   Called from the game's save(). Debounced, rate limited, silent, and a
+   complete no-op unless there is a live session and something has changed. */
+var pushTimer = 0, lastPush = 0;
+function notifySaved() {
+  if (!ST.sess || !ST.sess.tok || !ST.local) return;
+  if (ST.conflict) return;                 /* never auto-resolve a conflict */
+  clearTimeout(pushTimer);
+  var wait = Math.max(PUSH_DEBOUNCE, PUSH_MIN_GAP - (Date.now() - lastPush));
+  pushTimer = setTimeout(function () {
+    pushTimer = 0;
+    if (!ST.sess || !ST.sess.tok || ST.conflict || ST.busy) return;
+    if (mark(localRaw()) === (ST.sess.mark || '')) return;   /* nothing new */
+    push({ silent: true });
+  }, wait);
+}
+
+/* Best effort on the way out. Not relied on by anything. */
+function flush() {
+  if (!ST.sess || !ST.sess.tok || ST.conflict) return;
+  var blob = localRaw();
+  if (blob == null || mark(blob) === (ST.sess.mark || '')) return;
+  try {
+    fetch(baseURL() + '/push', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tok: ST.sess.tok, base: ST.sess.ver || 0,
+                             save: blob, device: deviceLabel() }),
+      keepalive: true, mode: 'cors', cache: 'no-store', credentials: 'omit'
+    });
+  } catch (e) {}
+}
+
+/* ═══════════════════════════ the panel ═══════════════════════════
+   Deliberately self-contained: its own overlay, its own inline styles, no
+   class from css/extra.css and no helper from js/game.js. It therefore cannot
+   be broken by a restyle, and it works even if it is the only thing that
+   loaded. game.js needs one button that calls KARTI_SYNC.openPanel(). */
+var panel = null, panelMode = 'menu', panelErr = '', lastFocus = null;
+
+function el(tag, css, html) {
+  var n = document.createElement(tag);
+  if (css) n.setAttribute('style', css);
+  if (html != null) n.innerHTML = html;
+  return n;
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
+var CSS = {
+  wrap: 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;' +
+        'justify-content:center;background:rgba(6,8,14,.72);padding:16px;' +
+        '-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);',
+  box:  'width:100%;max-width:430px;max-height:88vh;overflow:auto;' +
+        'background:#121722;color:#eef2f8;border:1px solid #2b3446;border-radius:16px;' +
+        'padding:18px 18px 16px;box-shadow:0 24px 60px rgba(0,0,0,.55);' +
+        'font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;',
+  h:    'margin:0 0 6px;font-size:19px;font-weight:700;letter-spacing:.2px;',
+  p:    'margin:0 0 10px;color:#a9b4c6;font-size:13.5px;',
+  note: 'margin:10px 0 0;padding:9px 11px;border-radius:10px;background:#1a2130;' +
+        'border:1px solid #2b3446;color:#9fb0c8;font-size:12.5px;',
+  err:  'margin:10px 0 0;padding:9px 11px;border-radius:10px;background:#3a1620;' +
+        'border:1px solid #7a2438;color:#ffc9d3;font-size:13px;',
+  ok:   'margin:10px 0 0;padding:9px 11px;border-radius:10px;background:#12281d;' +
+        'border:1px solid #245c3a;color:#b6f0cd;font-size:13px;',
+  lab:  'display:block;margin:10px 0 4px;font-size:12.5px;color:#a9b4c6;',
+  inp:  'width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;' +
+        'border:1px solid #2b3446;background:#0d1119;color:#eef2f8;font-size:16px;',
+  btn:  'display:block;width:100%;box-sizing:border-box;margin-top:10px;padding:12px;' +
+        'border-radius:11px;border:1px solid #2b3446;background:#1b2333;color:#eef2f8;' +
+        'font-size:15px;font-weight:600;cursor:pointer;text-align:center;',
+  hot:  'display:block;width:100%;box-sizing:border-box;margin-top:10px;padding:12px;' +
+        'border-radius:11px;border:0;background:#c8102e;color:#fff;font-size:15px;' +
+        'font-weight:700;cursor:pointer;text-align:center;',
+  ghost:'display:block;width:100%;box-sizing:border-box;margin-top:8px;padding:10px;' +
+        'border-radius:11px;border:0;background:transparent;color:#8fa0b8;' +
+        'font-size:13.5px;cursor:pointer;text-align:center;',
+  card: 'margin-top:10px;padding:11px 12px;border-radius:12px;background:#0f1622;' +
+        'border:1px solid #2b3446;',
+  sm:   'font-size:12.5px;color:#9fb0c8;margin:3px 0 0;'
+};
+
+function openPanel(mode) {
+  panelMode = mode || (status().linked ? 'account' : 'menu');
+  panelErr = '';
+  if (!panel) {
+    lastFocus = document.activeElement;
+    panel = el('div', CSS.wrap);
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-label', 'Cloud save');
+    panel.addEventListener('click', function (e) { if (e.target === panel) closePanel(); });
+    document.addEventListener('keydown', onPanelKey, true);
+    document.body.appendChild(panel);
+  }
+  repaintPanel();
+  reachable();
+  var f = panel.querySelector('input');
+  if (f) { try { f.focus(); } catch (e) {} }
+}
+function closePanel() {
+  if (!panel) return;
+  /* Closing the panel mid-conflict is "decide later", not a hung promise. The
+     conflict itself stays on record; auto-push stays paused until it is
+     answered, so neither copy can be quietly overwritten in the meantime. */
+  if (pendingConflict) { var f = pendingConflict; pendingConflict = null; f('later'); }
+  document.removeEventListener('keydown', onPanelKey, true);
+  try { panel.remove(); } catch (e) {}
+  panel = null;
+  if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch (e) {} }
+  lastFocus = null;
+}
+function onPanelKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closePanel(); } }
+
+function repaintPanel() {
+  if (!panel) return;
+  var s = status();
+  var box = el('div', CSS.box);
+  var body = '';
+
+  if (panelMode === 'menu' || panelMode === 'account') {
+    body += '<h2 style="' + CSS.h + '">Cloud save</h2>';
+    if (s.linked) {
+      body += '<p style="' + CSS.p + '">Signed in as <b>' + esc(s.user) + '</b> on this ' +
+              'server. Your game uploads itself a few seconds after you play.</p>';
+      body += '<div style="' + CSS.card + '"><b>This device</b><p style="' + CSS.sm + '">' +
+              esc(summaryLine(summarise(localRaw() || '{}'))) + '</p>' +
+              '<p style="' + CSS.sm + '">Cloud copy: version ' + s.ver +
+              ', ' + esc(whenText(s.lastAt)) + '</p></div>';
+      body += '<button data-a="sync" style="' + CSS.hot + '">Sync now</button>';
+      body += '<button data-a="signout" style="' + CSS.btn + '">Sign out of cloud save</button>';
+      if (s.hasBackup)
+        body += '<button data-a="restore" style="' + CSS.btn + '">Put back this device’s ' +
+                'previous game</button>';
+    } else {
+      body += '<p style="' + CSS.p + '">' + esc(TEXT.what) + '</p>';
+      body += '<button data-a="go-signup" style="' + CSS.hot + '">Create a cloud account</button>';
+      body += '<button data-a="go-login" style="' + CSS.btn + '">Log in to cloud save</button>';
+    }
+    body += '<p style="' + CSS.note + '">' + esc(TEXT.whereFrom) + '</p>';
+    if (!s.linked) body += '<p style="' + CSS.note + '">' + esc(TEXT.offlineOk) + '</p>';
+    if (s.online === false)
+      body += '<p style="' + CSS.err + '">' + esc(TEXT.unreachable) + '</p>';
+  } else if (panelMode === 'signup' || panelMode === 'signin') {
+    var isNew = panelMode === 'signup';
+    body += '<h2 style="' + CSS.h + '">' + (isNew ? 'Create a cloud account' : 'Log in to cloud save') + '</h2>';
+    body += '<p style="' + CSS.p + '">' + esc(isNew
+        ? 'This name and password are for the server only. They are not your local ' +
+          'profile, and the password never leaves this phone in readable form.'
+        : 'Log in and this device will be brought in line with your cloud game. ' +
+          'If the two have both changed, you will be asked which to keep — ' +
+          'nothing is overwritten behind your back.') + '</p>';
+    if (ST.local === '__guest__')
+      body += '<p style="' + CSS.note + '">' + esc(TEXT.guest) + '</p>';
+    body += '<label style="' + CSS.lab + '" for="ks-u">Username</label>' +
+            '<input id="ks-u" style="' + CSS.inp + '" autocomplete="username" ' +
+            'autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="16">';
+    body += '<label style="' + CSS.lab + '" for="ks-p">Password</label>' +
+            '<input id="ks-p" type="password" style="' + CSS.inp + '" autocomplete="' +
+            (isNew ? 'new-password' : 'current-password') + '">';
+    if (isNew)
+      body += '<label style="' + CSS.lab + '" for="ks-p2">Password again</label>' +
+              '<input id="ks-p2" type="password" style="' + CSS.inp + '" autocomplete="new-password">';
+    body += '<button data-a="' + (isNew ? 'do-signup' : 'do-login') + '" style="' + CSS.hot +
+            '"' + (s.busy ? ' disabled' : '') + '>' +
+            (s.busy ? 'Working…' : (isNew ? 'Create account' : 'Log in')) + '</button>';
+    body += '<button data-a="back" style="' + CSS.ghost + '">Back</button>';
+    body += '<p style="' + CSS.note + '">' + esc(TEXT.whereFrom) + '</p>';
+  } else if (panelMode === 'conflict' && ST.conflict) {
+    var a = summarise(ST.conflict.local || '{}');
+    var b = summarise(ST.conflict.save || '{}');
+    body += '<h2 style="' + CSS.h + '">Two games, one account</h2>';
+    body += '<p style="' + CSS.p + '">' + esc(TEXT.conflict) + '</p>';
+    body += '<div style="' + CSS.card + '"><b>This device</b><p style="' + CSS.sm + '">' +
+            esc(summaryLine(a)) + '</p></div>';
+    body += '<div style="' + CSS.card + '"><b>The cloud</b><p style="' + CSS.sm + '">' +
+            esc(summaryLine(b)) + '</p><p style="' + CSS.sm + '">saved ' +
+            esc(whenText(ST.conflict.at)) + '</p></div>';
+    body += '<button data-a="keep-local" style="' + CSS.hot + '">' +
+            esc(TEXT.conflictKeepLocal) + '</button>';
+    body += '<button data-a="keep-cloud" style="' + CSS.btn + '">' +
+            esc(TEXT.conflictKeepCloud) + '</button>';
+    body += '<button data-a="later" style="' + CSS.ghost + '">' +
+            esc(TEXT.conflictLater) + '</button>';
+    body += '<p style="' + CSS.note + '">Whichever you pick, the other one is kept: the ' +
+            'server holds the copy it replaced, and this device keeps a backup you can ' +
+            'put back from this panel.</p>';
+  }
+
+  if (panelErr) body += '<p style="' + CSS.err + '">' + esc(panelErr) + '</p>';
+  else if (s.msg && s.phase !== 'conflict')
+    body += '<p style="' + (s.phase === 'error' ? CSS.err : CSS.ok) + '">' + esc(s.msg) + '</p>';
+  body += '<button data-a="close" style="' + CSS.ghost + '">Close</button>';
+
+  box.innerHTML = body;
+  panel.innerHTML = '';
+  panel.appendChild(box);
+  box.addEventListener('click', onPanelClick);
+  box.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+      var go = box.querySelector('[data-a="do-signup"],[data-a="do-login"]');
+      if (go) go.click();
+    }
+  });
+}
+
+function onPanelClick(e) {
+  var t = e.target;
+  while (t && t !== panel && !t.getAttribute) t = t.parentNode;
+  var a = t && t.getAttribute ? t.getAttribute('data-a') : null;
+  if (!a) return;
+  e.preventDefault();
+  panelErr = '';
+  var box = panel.querySelector('div');
+  var val = function (id) { var n = box.querySelector('#' + id); return n ? n.value : ''; };
+
+  if (a === 'close') return closePanel();
+  if (a === 'back') { panelMode = 'menu'; return repaintPanel(); }
+  if (a === 'go-signup') { panelMode = 'signup'; ST.msg = ''; return repaintPanel(); }
+  if (a === 'go-login') { panelMode = 'signin'; ST.msg = ''; return repaintPanel(); }
+  if (a === 'sync') { return syncNow({}); }
+  if (a === 'signout') { return signOut().then(function () { panelMode = 'menu'; repaintPanel(); }); }
+  if (a === 'restore') {
+    var r = restoreBackup();
+    if (r.err) { panelErr = 'There is no backup to put back.'; repaintPanel(); }
+    return;
+  }
+  if (a === 'do-signup' || a === 'do-login') {
+    var u = val('ks-u'), p = val('ks-p');
+    if (a === 'do-signup' && p !== val('ks-p2')) {
+      panelErr = TEXT.mismatch; return repaintPanel();
+    }
+    var fn = a === 'do-signup' ? register : login;
+    ST.busy = true; repaintPanel();
+    return fn(u, p).then(function (res) {
+      ST.busy = false;
+      if (res && res.err) { panelErr = res.err; panelMode = a === 'do-signup' ? 'signup' : 'signin'; }
+      else { panelMode = ST.conflict ? 'conflict' : 'account'; }
+      repaintPanel();
+    });
+  }
+  if (a === 'keep-local' || a === 'keep-cloud' || a === 'later') {
+    var choice = a === 'keep-local' ? 'local' : (a === 'keep-cloud' ? 'cloud' : 'later');
+    if (pendingConflict) { var f = pendingConflict; pendingConflict = null; f(choice); }
+    else resolveConflict(choice);
+    panelMode = choice === 'later' ? 'account' : 'account';
+    return repaintPanel();
+  }
+}
+
+/* The default answer to "which save do you want?" — the panel, opened on the
+   conflict page, resolving when a button is pressed. Overridable:
+   KARTI_SYNC.onConflict = function(info){ return Promise.resolve('local'); } */
+var pendingConflict = null;
+function defaultConflictUI(info) {
+  return new Promise(function (resolve) {
+    pendingConflict = resolve;
+    panelMode = 'conflict';
+    openPanel('conflict');
+  });
+}
+
+/* ─────────────────────────── wiring ─────────────────────────── */
+window.addEventListener('pagehide', flush);
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) flush();
+  else if (ST.sess && ST.sess.tok && !ST.conflict) syncNow({ quiet: true });
+});
+/* Another tab of the same game signed in or out. */
+window.addEventListener('storage', function (e) {
+  if (!e || !e.key || !ST.local) return;
+  if (e.key === sessKey(ST.local)) { ST.sess = lsRead(sessKey(ST.local)); fire(); }
+});
+
+/* Belt and braces: if nobody ever calls attach(), follow karti_active by
+   itself so the feature still works. One localStorage read every few seconds,
+   only while the tab is visible. */
+var seenActive = null;
+setInterval(function () {
+  if (document.hidden) return;
+  var k = adapter.activeKey();
+  if (k && k !== seenActive) { seenActive = k; if (k !== ST.local) attach(k); }
+  if (!k && ST.local) { seenActive = null; detach(); }
+}, 3000);
+
+/* ─────────────────────────── export ─────────────────────────── */
+var KARTI_SYNC = {
+  VERSION: 1,
+  TEXT: TEXT,
+  adapter: adapter,
+  onConflict: null,
+
+  attach: attach,
+  detach: detach,
+  rekey: rekey,
+  status: status,
+  onChange: function (fn) { if (typeof fn === 'function') listeners.push(fn); },
+  available: function () { return !!baseURL(); },
+  reachable: reachable,
+  baseURL: baseURL,
+
+  register: register,
+  login: login,
+  signOut: signOut,
+
+  pull: pull,
+  push: push,
+  syncNow: syncNow,
+  resolveConflict: resolveConflict,
+  restoreBackup: restoreBackup,
+  notifySaved: notifySaved,
+  flush: flush,
+
+  openPanel: openPanel,
+  closePanel: closePanel,
+
+  /* used by the headless verification harness */
+  _summarise: summarise,
+  _credential: credential,
+  _mark: mark
+};
+window.KARTI_SYNC = KARTI_SYNC;
+
+/* Bind to whatever profile is already loaded, if any. Harmless when there is
+   none, and it means a page that forgot the attach() hook still syncs. */
+try {
+  var k0 = adapter.activeKey();
+  if (k0) { seenActive = k0; attach(k0); }
+} catch (e) {}
+
+})();

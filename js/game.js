@@ -250,14 +250,18 @@ function upgradeGuest(name, pw){
   if (carried) lsSet(saveKeyFor(r.key), carried);
   try { localStorage.removeItem(saveKeyFor(GUEST)); } catch(e){}
   switchTo(r.key);
+  /* carry any cloud session across from the guest profile */
+  if (window.KARTI_SYNC) KARTI_SYNC.rekey(GUEST, r.key);
   return { ok:true, key:r.key };
 }
 function switchTo(key){
   ACTIVE = key;
   lsSet(ACTIVE_KEY, key);
   load();
+  if (window.KARTI_SYNC) KARTI_SYNC.attach(key);
 }
 function logout(){
+  if (window.KARTI_SYNC) KARTI_SYNC.detach();
   ACTIVE = null;
   try { localStorage.removeItem(ACTIVE_KEY); } catch(e){}
   D = null;
@@ -282,7 +286,13 @@ function load(){
   S.rec = Object.assign({ w:0, l:0 }, S.rec || {});
   S.owned = S.owned || {}; S.decks = S.decks || []; S.starters = S.starters || [];
 }
-function save(){ if (ACTIVE) lsSet(saveKeyFor(ACTIVE), S); }
+/* Sync is strictly optional: it is notified AFTER the local write, and every
+   call inside it is wrapped, so the game saves exactly as before whether the
+   Pi is reachable, unreachable, or the module was never loaded at all. */
+function save(){
+  if (ACTIVE) lsSet(saveKeyFor(ACTIVE), S);
+  if (window.KARTI_SYNC) KARTI_SYNC.notifySaved();
+}
 
 const ownedCount = id => S.owned[id] || 0;
 const uniqueOwned = () => CARDS.filter(c => ownedCount(c.id) > 0).length;
@@ -617,6 +627,9 @@ function profileSheet(){
       (ACTIVE === GUEST
         ? '<button class="btn primary" id="pf-upgrade">' + ilb('save', 'Save my progress') +
           '<span class="sub">make an account · keeps everything</span></button>' : '') +
+      /* Cloud sync — the whole account UI lives inside sync.js's own panel. */
+      (window.KARTI_SYNC ? '<button class="btn ghost" id="pf-cloud">' +
+        ilb('refresh', 'Play on another phone') + '</button>' : '') +
       '<button class="btn ghost" id="pf-switch">Switch player</button>' +
       '<button class="btn ghost" id="pf-out">Log out</button>' +
       '<button class="btn ghost" id="pf-wipe" style="opacity:.7">Wipe this profile\'s save</button>' +
@@ -629,6 +642,7 @@ function profileSheet(){
   $('#pf-close').onclick = closeSheet;
   const up = $('#pf-upgrade');
   if (up) up.onclick = upgradeSheet;
+  { const c = $('#pf-cloud'); if (c) c.onclick = () => { closeSheet(); KARTI_SYNC.openPanel(); }; }
   $('#pf-switch').onclick = () => { closeSheet(); logout(); };
   $('#pf-out').onclick = () => { closeSheet(); logout(); };
   $('#pf-wipe').onclick = () => {
