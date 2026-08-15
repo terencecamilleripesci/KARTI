@@ -49,7 +49,10 @@
 /* Deliberately does NOT grow to fill. Stretching it just produced a tall empty
    panel, and the leftover height is better spent showing the street art behind
    than on a box with two names in it. It scrolls internally once it is busy. */
-.onlinebox{flex:0 1 auto;max-height:38vh;border:1px solid var(--line);border-radius:15px;
+/* 0 0 auto — must NOT shrink. As `0 1 auto` flexbox crushed it to 19px when the
+   column ran out of room, so its rows spilled out and collided with whatever
+   sat below. The column is meant to OVERFLOW and scroll, not compress. */
+.onlinebox{flex:0 0 auto;max-height:38vh;border:1px solid var(--line);border-radius:15px;
   background:rgba(14,10,26,.82);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
   padding:9px 10px 8px;min-height:0;display:flex;flex-direction:column;gap:7px}
 .onlinebox .on-list{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:none}

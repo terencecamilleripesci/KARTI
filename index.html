@@ -372,6 +372,7 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    a normal document on iOS rather than a locked pane. */
 .homefill{flex:0 0 auto;height:200px;pointer-events:none}
 .brand{flex:0 0 auto}
+.homemid>.menu{flex:0 0 auto}
 #scr-home .logo{font-size:clamp(34px,min(13vw,8vh),64px)}
 #scr-home .wallet{margin:0;flex:0 0 auto}
 #scr-home .menu{margin:0;flex:0 0 auto}
@@ -1506,7 +1507,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 35;
+var KARTI_BUILD = 36;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
