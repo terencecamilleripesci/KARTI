@@ -391,6 +391,16 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   box-shadow:0 -1px 0 rgba(255,255,255,.05) inset,0 -12px 30px rgba(0,0,0,.55);
   backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
 }
+/* In an installed app with a black-translucent status bar, iOS hands the page a
+   viewport 62px SHORTER than the screen (measured on his phone: screen 956,
+   viewport 894). Those 62px sit below the page and already contain the home
+   indicator — so the bar's own safe-area padding counts that clearance a second
+   time and leaves about 100px of dead space under the labels. In standalone the
+   phantom strip IS the safe area, so a small flat pad is enough. A browser tab
+   keeps var(--sab), because there the viewport really does reach the bottom. */
+@media (display-mode: standalone){
+  .tabbar{ padding-bottom:7px }
+}
 .tab{
   position:relative;min-width:0;   /* min-width:0 or a long label stretches its column */
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
@@ -589,21 +599,28 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .fxback>*,.fxtop>*{position:absolute;opacity:0}
 
 .fxwash{inset:-25%;
-  background:radial-gradient(ellipse at 50% 46%,var(--fxc,#FFD24A) 0%,transparent 58%),
-             radial-gradient(ellipse at 50% 46%,transparent 26%,rgba(6,4,12,.88) 76%)}
+  background:radial-gradient(ellipse at 50% 46%,var(--fxc,#FFD24A) 0%,transparent 56%),
+             radial-gradient(ellipse at 50% 46%,transparent 24%,rgba(6,4,12,.9) 74%)}
 .fxwash.on{animation:washGo var(--fxdur,1.6s) var(--ease) forwards}
-@keyframes washGo{0%{opacity:0}18%{opacity:.55}70%{opacity:.5}100%{opacity:0}}
+@keyframes washGo{0%{opacity:0}18%{opacity:.42}70%{opacity:.38}100%{opacity:0}}
 
-.fxbeam{left:50%;top:-32%;width:250px;height:164%;margin-left:-125px;
-  background:linear-gradient(90deg,transparent,var(--fxc,#FFD24A) 40%,#fff 50%,
-    var(--fxc,#FFD24A) 60%,transparent);
-  -webkit-mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);
-          mask:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent)}
+/* Deliberately soft. A first pass had a pure-white core and it read as a
+   fluorescent tube standing behind the card rather than as light — at this
+   size a blown-out highlight is just a white stripe. mix-blend-mode:screen
+   makes the beam ADD light to the stage instead of painting over it, which is
+   what stops it flattening everything it crosses. */
+.fxbeam{left:50%;top:-32%;width:300px;height:164%;margin-left:-150px;mix-blend-mode:screen;
+  background:linear-gradient(90deg,transparent,
+    color-mix(in srgb,var(--fxc,#FFD24A) 40%,transparent) 30%,
+    var(--fxc,#FFD24A) 50%,
+    color-mix(in srgb,var(--fxc,#FFD24A) 40%,transparent) 70%,transparent);
+  -webkit-mask:linear-gradient(180deg,transparent,#000 32%,#000 68%,transparent);
+          mask:linear-gradient(180deg,transparent,#000 32%,#000 68%,transparent)}
 .fxbeam.on{animation:beamGo var(--fxdur,1.6s) var(--ease) forwards}
 @keyframes beamGo{0%{opacity:0;transform:scaleX(.08) scaleY(.5)}
-  16%{opacity:.85;transform:scaleX(1) scaleY(1)}
-  62%{opacity:.5;transform:scaleX(.8) scaleY(1)}
-  100%{opacity:0;transform:scaleX(.42) scaleY(1)}}
+  16%{opacity:.62;transform:scaleX(1) scaleY(1)}
+  62%{opacity:.36;transform:scaleX(.82) scaleY(1)}
+  100%{opacity:0;transform:scaleX(.44) scaleY(1)}}
 
 /* THE STRIPES. A single repeating-conic-gradient masked into a ring, scaled
    down towards the card so the lines read as energy rushing inward. */
@@ -629,6 +646,20 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   color:var(--dim);text-align:center;margin:0;animation:pulse 1.7s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
 .fan{position:absolute;inset:0;display:grid;place-items:center;z-index:6}
+/* An ambient bloom under the stack, in the colour of the best card in the
+   pack. It is the same tell as the tear light, held quietly under the deck for
+   as long as there are cards left to turn: the player is looking at gold
+   before they turn anything over. One element, one slow opacity/scale cycle. */
+.fan::before{content:'';position:absolute;left:50%;top:50%;width:300px;height:300px;
+  margin:-150px 0 0 -150px;pointer-events:none;z-index:-1;
+  background:radial-gradient(circle,var(--fxc,#FFD24A) 0%,transparent 62%);
+  opacity:.16;animation:fanGlow 3.2s ease-in-out infinite}
+@keyframes fanGlow{0%,100%{opacity:.11;transform:scale(.9)}50%{opacity:.2;transform:scale(1.06)}}
+/* Once the cards are out, everything that is not a card gets out of the way:
+   the set picker was clashing with the RARE / EPIC / LEGENDARY banner and
+   stealing attention from the one thing on screen that matters. */
+.setpick.hushed{opacity:.13;pointer-events:none;transition:opacity .45s var(--ease)}
+.setpick{transition:opacity .45s var(--ease)}
 .slot{position:absolute;transition:transform .5s var(--ease),opacity .4s;will-change:transform;
   transform:translate3d(var(--sx,0px),var(--sy,0px),0) rotate(var(--sr,0deg)) scale(var(--ss,1))}
 /* Exit is deliberately faster than entry (~60%): a card that has been seen
@@ -712,14 +743,17 @@ body.shake #app{animation:scShake .5s var(--ease)}
    A list, not a row of pills: every card by name, by rarity, with its own
    verdict (NEW / DUPLICATE), each row a 52px tap target that opens the card. */
 .sumwrap{place-self:stretch;display:flex;flex-direction:column;min-height:0;
-  width:100%;max-width:440px;margin:0 auto;padding:4px 0 0;gap:9px}
+  width:100%;max-width:440px;margin:0 auto;padding:4px 0 0;gap:11px;
+  /* safe centre: five rows sit in the middle of the stage, but a set with more
+     to say still scrolls from the top instead of losing its head */
+  justify-content:safe center}
 .sumhead{text-align:center;flex:0 0 auto}
 .sumhead h2{font-size:clamp(18px,5.6vw,23px);letter-spacing:.06em}
 .sumsub{margin:5px 0 0;font-size:12px;color:var(--dim);display:flex;gap:8px;
   justify-content:center;flex-wrap:wrap;align-items:center}
 .sumsub b{display:inline-flex;align-items:center;gap:3px;font-weight:800}
 .sumlist{display:flex;flex-direction:column;gap:7px;overflow-y:auto;min-height:0;
-  flex:1 1 auto;padding:1px 2px 4px;-webkit-overflow-scrolling:touch}
+  flex:0 1 auto;padding:1px 2px 4px;-webkit-overflow-scrolling:touch}
 .sumrow{display:flex;align-items:center;gap:10px;width:100%;min-height:54px;
   padding:7px 11px 7px 8px;border-radius:13px;text-align:left;
   background:linear-gradient(100deg,color-mix(in srgb,var(--rc,#888) 17%,var(--panel)),var(--panel) 62%);
@@ -906,6 +940,7 @@ body.reduced .pack .seam{display:none!important}
 body.reduced .sumrow,body.reduced .dupebadge,body.reduced .newbadge,
 body.reduced .pack.charge{animation:none!important}
 body.reduced .slot.windup .lift{animation:none!important}
+body.reduced .fan::before{animation:none!important;opacity:.12}
 body.reduced .hint{animation:none!important;opacity:.8}
 </style>
 </head>
@@ -1419,7 +1454,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 24;
+var KARTI_BUILD = 25;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
