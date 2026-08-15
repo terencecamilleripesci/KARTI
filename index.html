@@ -69,13 +69,12 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tag .ico{vertical-align:-.18em}
 
 /* ══════════════════ SHELL ══════════════════ */
-/* Same ladder the LuxuryLifts app uses, which is proven full-screen on his
-   iPhone: 100vh as the plain fallback, then 100svh. `svh` is the SMALL viewport
-   — the height with the browser chrome showing — so the layout never assumes
-   room it might lose, and nothing shifts when the toolbars slide away. `dvh`
-   was worse in both directions: it grows when the bar hides, which handed a
-   centred column a pile of extra height and spread the menu out. */
-#app{position:fixed;inset:0;overflow:hidden;height:100vh;height:100svh}
+/* NO explicit height. `position:fixed; inset:0` already resolves to exactly the
+   visual viewport on every browser, including an installed iOS PWA. Pinning a
+   height on top of that was the bug: when the unit disagreed with the real
+   screen — which it does in iOS standalone — #app came up short and the body
+   gradient showed through underneath as a black band below the tab bar. */
+#app{position:fixed;inset:0;overflow:hidden}
 .screen{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
@@ -317,9 +316,14 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tabbar{
   flex:0 0 auto;
   display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
+  /* The negative bottom margin must undo the FULL .screen bottom padding
+     (var(--sab) + 8px), or the bar floats a couple of pixels above the real
+     bottom edge and the background shows through beneath it. Its own
+     padding-bottom below re-adds the inset so the tappable row still clears
+     the home indicator — surface to the edge, touch targets above it. */
   margin:clamp(7px,1.5vh,13px)
          calc(-1 * (var(--sar) + 12px))
-         calc(-1 * (var(--sab) + 6px))
+         calc(-1 * (var(--sab) + 8px))
          calc(-1 * (var(--sal) + 12px));
   padding:5px calc(var(--sar) + 6px) calc(var(--sab) + 5px) calc(var(--sal) + 6px);
   background:linear-gradient(180deg,rgba(14,10,26,.90),rgba(8,5,16,.985));
