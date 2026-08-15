@@ -457,6 +457,12 @@ function go(name){
   if (name === 'pack') renderPackScreen();
   if (name === 'coll') renderCollection();
   if (name === 'deck') renderDeckBuilder();
+  /* The multiplayer screens paint themselves before navigating, so reaching them
+     any other way — a back gesture, a restored session, anything that calls go()
+     directly — left the player staring at a blank screen. Paint on arrival too;
+     both renders are idempotent. */
+  if (name === 'mp'  && window.KARTI_MP && KARTI_MP.mpScreen)  KARTI_MP.mpScreen();
+  if (name === 'pnp' && window.KARTI_MP && KARTI_MP.pnpScreen) KARTI_MP.pnpScreen();
 }
 
 /* ───────────────────────── AUTH screen ───────────────────────── */

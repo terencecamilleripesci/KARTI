@@ -76,13 +76,16 @@ function deckOptions(){
   const out = [];
   Object.keys(K.STARTER_DECKS).forEach(k => {
     const sd = K.STARTER_DECKS[k];
-    out.push({ key:k, id:'starter:' + k, name:sd.name, e:sd.e, c:sd.c,
-               kind:'starter', list:sd.list, attr: sd.f || k });
+    /* the deck's own `e` is still an emoji in the card data — draw the faction
+       icon instead so the seat picker matches the rest of the UI */
+    out.push({ key:k, id:'starter:' + k, name:sd.name,
+               e:(K.ATTR_ICON ? ico(K.ATTR_ICON[sd.f || k] || 'deck') : ico('deck')),
+               c:sd.c, kind:'starter', list:sd.list, attr: sd.f || k });
   });
   (K.S.decks || []).forEach(d => {
     if (!K.deckIsLegal(d.list)) return;
     const sd = d.starter && K.STARTER_DECKS[d.starter];
-    out.push({ key:d.starter || null, id:'mine:' + d.id, name:d.name, e:'🗂️',
+    out.push({ key:d.starter || null, id:'mine:' + d.id, name:d.name, e:'' + ico('deck') + '',
                c: sd ? sd.c : '#8A5CFF', kind:'yours', list:d.list,
                attr: sd ? (sd.f || d.starter) : null });
   });
@@ -130,8 +133,8 @@ function pnpScreen(){
         seatCard(0, a) + seatCard(1, b) +
       '</div>' +
       '<div style="display:grid;gap:9px;padding-bottom:24px">' +
-        '<button class="btn hot" id="pp-go">⚔️ Start the duel</button>' +
-        '<button class="btn ghost" id="pp-swap">🔁 Swap who goes first</button>' +
+        '<button class="btn hot" id="pp-go">' + ico('type-monster') + ' Start the duel</button>' +
+        '<button class="btn ghost" id="pp-swap">' + ico('refresh') + ' Swap who goes first</button>' +
       '</div>' +
     '</div>';
 
@@ -184,7 +187,7 @@ function pnpHandover(){
   const el = $('#handover');
   el.setAttribute('aria-hidden', 'false');
   el.innerHTML =
-    '<div class="eyes">🙈</div>' +
+    '<div class="eyes">' + ico('lock') + '</div>' +
     '<h2>PASS THE PHONE</h2>' +
     '<div class="to">' + esc(next.name) + '</div>' +
     '<p>' + esc(me.name) + ' is done. Do not look at the screen until it is your turn — ' +
@@ -194,7 +197,7 @@ function pnpHandover(){
       '<span class="pill">' + esc(me.name) + ' <span class="mono">' + K.D.p[0].lp + '</span></span>' +
       '<span class="pill">Turn <span class="mono">' + K.D.turnCount + '</span></span>' +
     '</div>' +
-    '<button class="btn primary" id="ho-go">👀 I am ' + esc(next.name) + ' — my turn</button>' +
+    '<button class="btn primary" id="ho-go">' + ico('play') + ' I am ' + esc(next.name) + ' — my turn</button>' +
     '<button class="btn ghost" id="ho-quit" style="max-width:340px">Give up and go home</button>';
   el.classList.add('on');
   $('#ho-go').onclick = pnpResume;
@@ -240,7 +243,7 @@ function pnpResult(winner, why){
         'nothing touched in ' + esc(K.displayName()) + '\'s collection.</p>' +
       '<div style="display:grid;gap:9px;width:100%;margin-top:4px">' +
         '<button class="btn hot" id="pr-again">↻ Run it back</button>' +
-        '<button class="btn ghost" id="pr-set">🤝 Change seats or decks</button>' +
+        '<button class="btn ghost" id="pr-set">' + ico('users') + ' Change seats or decks</button>' +
         '<button class="btn ghost" id="pr-home">Back to menu</button>' +
       '</div>' +
     '</div>');
@@ -383,20 +386,20 @@ function mpScreen(){
       '<div class="tiny">Your deck</div>' +
       '<div class="deckpick" id="mp-deck"></div>' +
       '<div style="display:grid;gap:9px;margin-top:14px">' +
-        '<button class="btn primary" id="mp-create">➕ Create a room</button>' +
+        '<button class="btn primary" id="mp-create">' + ico('plus') + ' Create a room</button>' +
         '<div class="tiny" style="text-align:center;margin-top:2px">or join one</div>' +
         '<input class="field mp-codein" id="mp-code" maxlength="' + CODE_LEN + '" ' +
           'placeholder="CODE" autocomplete="off" autocapitalize="characters" ' +
           'spellcheck="false" aria-label="Room code">' +
         '<button class="btn" id="mp-join">↪ Join room</button>' +
-        '<button class="btn ghost" id="mp-pnp">🤝 Use Pass &amp; Play instead</button>' +
+        '<button class="btn ghost" id="mp-pnp">' + ico('users') + ' Use Pass &amp; Play instead</button>' +
       '</div>' +
       '<details style="margin:16px 0 26px"><summary class="tiny">Server settings</summary>' +
         '<div class="tiny" style="margin-top:8px">Relay address</div>' +
         '<input class="field mp-url" id="mp-url" value="' + esc(MP.url) + '" ' +
           'aria-label="Relay server address" spellcheck="false">' +
         '<div style="display:grid;gap:8px;margin-top:8px">' +
-          '<button class="btn ghost" id="mp-test">🔌 Test the connection</button>' +
+          '<button class="btn ghost" id="mp-test">' + ico('bolt') + ' Test the connection</button>' +
           '<button class="btn ghost" id="mp-reset">↺ Back to the default address</button>' +
         '</div>' +
         '<p class="tiny" style="line-height:1.6;margin-top:8px">Default is the Pi relay. ' +
@@ -689,7 +692,7 @@ function lobby(){
     '<p class="tiny" style="text-align:center">Room ' + esc(MP.code) + ' · you are the ' +
       (MP.host ? 'host, so you go first' : 'guest, so they go first') + '</p>' +
     '<div style="display:grid;gap:9px;margin-top:16px">' +
-      '<button class="btn ghost" id="mp-copy">📋 Copy the code</button>' +
+      '<button class="btn ghost" id="mp-copy">' + ico('cards') + ' Copy the code</button>' +
       '<button class="btn ghost" id="mp-cancel">Leave the room</button></div>';
   const cp = $('#mp-copy');
   if (cp) cp.onclick = () => {
@@ -942,7 +945,7 @@ function endMatch(why, flavour){
     '<p class="tiny" style="line-height:1.6">Nothing was awarded. Pass &amp; Play never does this ' +
     'to you — it needs no network at all.</p>' +
     '<div style="display:grid;gap:9px;width:100%;margin-top:6px">' +
-      '<button class="btn hot" id="do-pnp">🤝 Pass &amp; Play instead</button>' +
+      '<button class="btn hot" id="do-pnp">' + ico('users') + ' Pass &amp; Play instead</button>' +
       '<button class="btn ghost" id="do-home">Back to menu</button></div></div>');
   const p = $('#do-pnp'), h = $('#do-home');
   if (p) p.onclick = () => { K.closeModal(); K.D = null; mpLeave(); pnpScreen(); K.go('pnp'); };
@@ -969,8 +972,8 @@ function mpResult(winner, why){
       '<p class="tiny">' + (won ? 'You beat ' : 'Beaten by ') + esc(K.D ? K.D.p[1].name : 'them') + '</p>' +
       '<p class="muted">' + esc(why) + '</p>' +
       '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
-        '<span class="pill">🪙 +' + coins + '</span>' +
-        '<span class="pill">🏆 ' + S.rec.w + '–' + S.rec.l + '</span></div>' +
+        '<span class="pill">' + ico('coin') + ' +' + coins + '</span>' +
+        '<span class="pill">' + ico('trophy') + ' ' + S.rec.w + '–' + S.rec.l + '</span></div>' +
       '<p class="tiny" style="line-height:1.6">Online duels pay coins only — no packs.</p>' +
       '<div style="display:grid;gap:9px;width:100%;margin-top:4px">' +
         '<button class="btn ghost" id="mr-home">Back to menu</button></div>' +
@@ -1250,9 +1253,9 @@ function chooser(){
     '<h3>Multiplayer</h3>' +
     '<p class="muted">Two humans. One of these works with no network at all.</p>' +
     '<div class="opts">' +
-      '<button class="btn primary" id="mc-pnp">🤝 Pass &amp; Play' +
+      '<button class="btn primary" id="mc-pnp">' + ico('users') + ' Pass &amp; Play' +
         '<span class="sub">two players, one phone · always works</span></button>' +
-      '<button class="btn" id="mc-net">📡 Online' +
+      '<button class="btn" id="mc-net">' + ico('map') + ' Online' +
         '<span class="sub">different houses · needs the internet</span></button>' +
       '<button class="btn ghost" id="mc-x">Close</button></div>');
   $('#mc-x').onclick = K.closeSheet;
