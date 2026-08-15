@@ -47,7 +47,16 @@
   --ease:cubic-bezier(.22,.9,.28,1);
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{height:100%}
+/* THE MIA-PARTY SHELL. webclients/mia-party is the one app already proven to
+   render correctly on his exact phone, installed from a manifest with
+   display:standalone — so its shape is copied here wholesale rather than
+   invented again: html/body/#app all height:100dvh and overflow:hidden, shell
+   position:relative, safe-area insets carried as padding. 100dvh is the
+   DYNAMIC viewport — the height that is genuinely visible right now. It
+   tracks Safari's toolbars in a tab, and in the installed app it is simply
+   the screen; the 100vh line before each dvh is only a fallback for engines
+   without dvh support. */
+html,body{height:100vh;height:100dvh;overflow:hidden}
 /* A base colour rather than a gradient, chosen to match the tab bar. Not a
    workaround: with status-bar-style "black" the viewport reaches the physical
    bottom and there is no strip to hide. It simply means any area the browser
@@ -59,14 +68,9 @@ body{
     radial-gradient(1100px 700px at 50% -12%, #2A1B47 0%, transparent 62%),
     radial-gradient(700px 500px at 110% 100%, #23123A 0%, transparent 60%);
   color:var(--txt);font-family:var(--body);font-size:16px;line-height:1.45;
-  /* NOT overflow:hidden. A locked, unscrollable document is why iOS never
-     treats this like a normal page: with nothing to scroll it keeps the short
-     layout viewport and the difference shows up as a dead band. LuxuryLifts
-     scrolls normally, which is the whole reason its shell behaves. The +1px
-     gives the document somewhere to go so iOS resolves the full viewport;
-     overscroll-behavior:none still kills the rubber-band, and #app is fixed,
-     so nothing in the game actually moves. */
-  min-height:calc(100vh + 1px);
+  /* overflow:hidden on html AND body, exactly like mia-party. The build-31
+     theory that the document must stay scrollable is contradicted by that
+     working app: it locks the document and still reaches the bottom edge. */
   overscroll-behavior:none;touch-action:manipulation;
   -webkit-user-select:none;user-select:none;
 }
@@ -98,37 +102,16 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tag .ico{vertical-align:-.18em}
 
 /* ══════════════════ SHELL ══════════════════ */
-/* On iOS Safari `position:fixed` is measured against the LAYOUT viewport, not
-   the visible one — so with the toolbars showing, the bottom of a fixed,
-   inset:0 element sits behind the toolbar and the tab bar is pushed out of
-   sight. No CSS length fixes that: vh is the tall viewport, svh is the short
-   one, and Safari moves between them as you scroll.
-   So the real visible height is measured with visualViewport and written to
-   --app-h (see the shell script at the end of the file). 100svh is only the
-   fallback for the first paint and for anything that has no visualViewport.
-   THE INSTALLED APP DOES NOT GET TO USE ANY OF THAT. In standalone there are no
-   toolbars, the layout viewport IS the screen, and `inset:0` is exactly right —
-   which is precisely how the LuxuryLifts shell works and why it has never
-   misbehaved on his phone. Sizing the installed shell off a JS measurement
-   means one wrong number out of visualViewport at cold launch (a real iOS
-   habit) leaves #app short and a band of bare body background along the bottom.
-   Pin it geometrically and there is no number to be wrong. */
-/* height:100vh, NOT inset:0 and NOT svh. On iOS `vh` is the LARGE viewport —
-   the full screen — while inset:0 resolves against the LAYOUT viewport, which
-   a black-translucent standalone app reports 62px short. That single
-   difference is why the LuxuryLifts shell (body/main both min-height:100vh)
-   covers the whole screen and this one stopped short. svh was worse still: it
-   is the SMALL viewport, i.e. the short one, which is the opposite of what an
-   installed app needs. A browser tab is handled separately below, because
-   there Safari genuinely does take height away for its toolbars. */
-#app{position:fixed;top:0;left:0;right:0;height:100vh;overflow:hidden}
-/* No explicit height, no measured height, no extra height. position:fixed with
-   inset:0 IS the viewport, in the installed app and in a tab alike. The browser
-   media query below exists only because Safari's toolbars change the visible
-   area as you scroll; standalone has no toolbars and needs nothing. */
-@media (display-mode: browser){
-  #app{bottom:auto;height:100svh;height:var(--app-h,100svh)}
-}
+/* The mia-party shell (see the note on html,body above): position:RELATIVE,
+   not fixed, so this is a normal in-flow box and nothing here depends on how
+   iOS chooses to anchor fixed elements against a layout viewport it sometimes
+   mis-sizes; height:100dvh, the dynamic viewport, which is the visible height
+   in a tab and the whole screen in the installed app. No display-mode media
+   queries, no JS-measured heights — the same declaration serves both. Build 31
+   (position:fixed + height:100vh) sized the shell to the LARGE viewport, which
+   in a stale black-translucent install is 62px taller than what is painted, so
+   the tab bar's bottom was pushed off-screen. dvh cannot overshoot like that. */
+#app{position:relative;height:100vh;height:100dvh;overflow:hidden}
 .screen{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
@@ -398,11 +381,10 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    The bottom padding carries the safe-area inset, so on a notched phone the
    bar's SURFACE runs under the home indicator while its TAPPABLE tabs stop
    above it. */
-/* Pinned to the viewport, like the LuxuryLifts bottom nav. The background runs
-   to the physical bottom edge while padding-bottom carries
+/* Anchored to the bottom of the 100dvh shell. The background runs to the
+   bottom edge of the visible viewport while padding-bottom carries
    env(safe-area-inset-bottom) so the tappable row clears the home indicator.
-   No standalone special case: with status-bar-style "black" the viewport ends
-   where the screen does, so bottom:0 means bottom.
+   No standalone special case.
    Do NOT put transform, filter, backdrop-filter or will-change on any ANCESTOR
    of this element — each creates a containing block and drags a fixed child off
    the bottom. That has bitten this file before. */
@@ -1508,7 +1490,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 31;
+var KARTI_BUILD = 32;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1525,32 +1507,9 @@ window.swVersion = function(){
   });
 };
 
-/* ── the real visible height ──────────────────────────────────────────────
-   iOS Safari measures position:fixed against the LAYOUT viewport, so with the
-   toolbars on screen the bottom of the app hides behind them. visualViewport
-   reports what is genuinely visible, which is correct in a tab AND in the
-   installed app (where it is just the screen). Runs before the game loads so
-   the first paint is already right. */
-(function appHeight(){
-  var vv = window.visualViewport;
-  var raf = 0;
-  function apply(){
-    raf = 0;
-    var h = vv ? vv.height : window.innerHeight;
-    if (h > 0) document.documentElement.style.setProperty('--app-h', Math.round(h) + 'px');
-  }
-  function queue(){ if (!raf) raf = requestAnimationFrame(apply); }
-  apply();
-  if (vv){
-    vv.addEventListener('resize', queue);
-    /* Safari slides its toolbars in and out DURING a scroll, changing the
-       visible height without ever firing resize. */
-    vv.addEventListener('scroll', queue);
-  }
-  addEventListener('resize', queue);
-  addEventListener('orientationchange', function(){ setTimeout(apply, 250); });
-  addEventListener('pageshow', queue);
-})();
+/* The shell is sized purely by CSS (100dvh — see the SHELL block in the style
+   above). The old appHeight() IIFE that measured visualViewport into --app-h
+   is gone with the --app-h rule it fed. */
 
 /* Sequential loader: card sets are optional and may not all exist yet.
    A missing set must never stop the game booting. game.js always loads last. */
@@ -1631,9 +1590,8 @@ window.swVersion = function(){
      numbers. Everything here is a read — no element is moved, sized or styled
      as a result, so this cannot itself cause the bug it is measuring.
 
-       sa|br|fs|mu   which display-mode media query actually matches. If an
-                     installed app reports `br` then it is falling through to
-                     the browser-mode --app-h path and that is the whole story.
+       sa|br|fs|mu   which display-mode media query actually matches (the
+                     shell no longer branches on it — this is context only).
        ih / vv / sc  innerHeight, visualViewport.height, screen.height. The
                      gaps BETWEEN these three are the diagnosis.
        app h/b       #app's own height and where its bottom edge really lands.

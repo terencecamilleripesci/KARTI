@@ -511,9 +511,6 @@ function mpScreen(){
         '<p class="tiny" style="line-height:1.7;margin-top:7px;text-transform:none;' +
           'letter-spacing:0">A private room is <b>not</b> in anybody\'s list. Only the person ' +
           'you hand the code to can get in.</p>' +
-        '<div style="height:14px"></div>' +
-        '<button class="btn ghost" id="mp-pnp">' + ico('users') +
-          ' Use Pass &amp; Play instead</button>' +
       '</details>' +
       '<details style="margin:8px 0 26px"><summary class="tiny">Server settings</summary>' +
         '<div class="tiny" style="margin-top:8px">Relay address</div>' +
@@ -529,7 +526,6 @@ function mpScreen(){
     '</div>';
 
   $('#mp-back').onclick = () => { mpLeave(); K.go('home'); };
-  $('#mp-pnp').onclick = () => { mpLeave(); pnpScreen(); K.go('pnp'); };
 
   const opts = deckPicker($('#mp-deck'), MP.myDeckId || deckOptions()[0].id, o => {
     MP.myDeckId = o.id; mpScreen();
@@ -1142,13 +1138,13 @@ function endMatch(why, flavour){
   K.openModal(
     '<div class="result"><div class="big lose">' + title + '</div>' +
     '<p class="muted">' + esc(why) + '</p>' +
-    '<p class="tiny" style="line-height:1.6">Nothing was awarded. Pass &amp; Play never does this ' +
-    'to you — it needs no network at all.</p>' +
+    '<p class="tiny" style="line-height:1.6">Nothing was awarded — neither of you ' +
+    'lost anything for a connection problem.</p>' +
     '<div style="display:grid;gap:9px;width:100%;margin-top:6px">' +
-      '<button class="btn hot" id="do-pnp">' + ico('users') + ' Pass &amp; Play instead</button>' +
+      '<button class="btn hot" id="do-retry">' + ico('refresh') + ' Try another room</button>' +
       '<button class="btn ghost" id="do-home">Back to menu</button></div></div>');
-  const p = $('#do-pnp'), h = $('#do-home');
-  if (p) p.onclick = () => { K.closeModal(); K.D = null; mpLeave(); pnpScreen(); K.go('pnp'); };
+  const p = $('#do-retry'), h = $('#do-home');
+  if (p) p.onclick = () => { K.closeModal(); K.D = null; mpLeave(); mpScreen(); K.go('mp'); };
   if (h) h.onclick = () => { K.closeModal(); K.D = null; mpLeave(); K.go('home'); };
 }
 /* kept under the old name: other code (and the harness) calls dropOut() */
@@ -1575,23 +1571,15 @@ window.addEventListener('pagehide', presenceBeaconClose);
 
 /* ───────────────────────── entry ───────────────────────── */
 /* The home screen offers one MULTIPLAYER button; the choice of how lives here. */
-function chooser(){
-  K.openSheet(
-    '<h3>Multiplayer</h3>' +
-    '<p class="muted">Two humans. One of these works with no network at all.</p>' +
-    '<div class="opts">' +
-      '<button class="btn primary" id="mc-pnp">' + ico('users') + ' Pass &amp; Play' +
-        '<span class="sub">two players, one phone · always works</span></button>' +
-      '<button class="btn" id="mc-net">' + ico('map') + ' Online' +
-        '<span class="sub">different houses · needs the internet</span></button>' +
-      '<button class="btn ghost" id="mc-x">Close</button></div>');
-  $('#mc-x').onclick = K.closeSheet;
-  $('#mc-pnp').onclick = () => { K.closeSheet(); window.KHOOK = null; pnpScreen(); K.go('pnp'); };
-  $('#mc-net').onclick = () => { K.closeSheet(); window.KHOOK = null; mpScreen(); K.go('mp'); };
-}
+/* Pass-and-play was removed at the owner's request — online multiplayer covers
+   it. Multiplayer therefore goes straight to the room list instead of asking
+   which kind first. chooser() is kept as a thin alias so anything still
+   calling it (including an older cached build) lands somewhere sensible
+   rather than throwing. The PNP code below is now unreachable from the UI. */
+function chooser(){ window.KHOOK = null; mpScreen(); K.go('mp'); }
 function wire(){
   const p = $('#btn-pnp'), o = $('#btn-online'), m = $('#btn-mp');
-  if (p) p.onclick = () => { window.KHOOK = null; pnpScreen(); K.go('pnp'); };
+  if (p) p.onclick = () => { window.KHOOK = null; mpScreen(); K.go('mp'); };
   if (o) o.onclick = () => { window.KHOOK = null; mpScreen(); K.go('mp'); };
   if (m) m.onclick = chooser;
   /* game.js runs boot() — and therefore go('home') — before this file has even
