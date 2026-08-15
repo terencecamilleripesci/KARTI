@@ -10,15 +10,7 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<!-- NOT black-translucent. That draws the page from y=0 under the status bar while
-     iOS still sizes the viewport as screen MINUS the status bar, so the page always
-     ends short of the physical bottom — measured on his iPhone: screen 956, viewport
-     894, a dead 62px strip below the tab bar that nothing in the document can paint.
-     With "black" the viewport is positioned BELOW the status bar and genuinely runs to
-     the bottom edge, so the home indicator sits inside the page where --sab handles it.
-     The cost is the artwork no longer showing behind the clock; the gain is the app
-     actually ending where the screen does. -->
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- The home background is the first thing the player sees and it is only ever
      requested from JS (detectArt's probe). Preloading it starts the download in
@@ -110,6 +102,17 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    habit) leaves #app short and a band of bare body background along the bottom.
    Pin it geometrically and there is no number to be wrong. */
 #app{position:fixed;inset:0;overflow:hidden}
+/* THE DOCUMENTED iOS FIX. With black-translucent the page is drawn from y=0
+   under the status bar, but iOS sizes the viewport as screen MINUS the status
+   bar — measured on his phone: screen 956, viewport 894, inset 62. The document
+   is therefore short by exactly env(safe-area-inset-top), and the fix is to add
+   that back. Standalone only; a browser tab already reaches the bottom.
+   Worth knowing: the status-bar meta is baked into the home-screen icon when it
+   is added, so changing it on the site does nothing to an installed app — the
+   page has to adapt to it, not the other way round. */
+@media (display-mode: standalone){
+  #app{ bottom:auto; height:calc(100% + env(safe-area-inset-top,0px)) }
+}
 @media (display-mode: browser){
   #app{bottom:auto;height:100svh;height:var(--app-h,100svh)}
 }
@@ -399,7 +402,16 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   box-shadow:0 -1px 0 rgba(255,255,255,.05) inset,0 -12px 30px rgba(0,0,0,.55);
   backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
 }
-/* The standalone override that used to live here is gone. It existed because
+/* In standalone the shell is now taller than the viewport (see #app above), so a
+   viewport-pinned bar would stop at the SHORT viewport bottom — 894 instead of
+   956 — which is the gap all over again. In the installed app the bar therefore
+   goes back into normal flow as the last flex child, landing on the real bottom
+   of the taller shell. In a browser tab it stays position:fixed, where pinning
+   to the viewport is exactly right. */
+@media (display-mode: standalone){
+  .tabbar{ position:static; flex:0 0 auto }
+}
+/* The old standalone padding override is gone. It existed because
    black-translucent left a 62px strip below the viewport that already contained
    the home indicator, so var(--sab) was double-counting it. Now the status bar
    style is "black", the viewport reaches the physical bottom, the home indicator
@@ -1475,7 +1487,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 26;
+var KARTI_BUILD = 27;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

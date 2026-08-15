@@ -307,7 +307,14 @@
      of the content. Reserve its height here instead — --tabbar-h is the row plus
      its padding, and the safe-area inset is already inside it. */
   padding-top:calc(var(--sat) + 6px);
+  /* In a browser tab the bar is position:fixed and out of flow, so its height
+     has to be reserved here. In the installed app it is back in normal flow as
+     the last flex child, and reserving it a second time pushed the bar 100px up
+     the screen. */
   padding-bottom:calc(var(--tabbar-h, 62px) + var(--sab) + 6px)}
+@media (display-mode: standalone){
+  #scr-home{ padding-bottom:0 }
+}
 /* The home art is a bright, busy street scene and the duel screen was the only one
    with a scrim, so the logo and the buttons were unreadable on top of it.
    The bottom used to be crushed to .92 alpha because a row of ghost buttons sat
