@@ -26,9 +26,29 @@
      before the home screen even renders — and the copy lands in the HTTP cache
      as a second safety net beside the service-worker precache. -->
 <link rel="preload" as="image" href="art/ui/home-bg.jpg" fetchpriority="high">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&display=swap">
+<!-- The display face is SELF-HOSTED, and it is Exo 2 rather than Orbitron, for
+     two reasons that are really one.
+     1. A Google Fonts stylesheet is a third-party request, so an offline PWA
+        lost its display face the moment the phone had no signal.
+     2. Orbitron ships a "latin" subset ONLY — U+0000-00FF. Maltese lives in
+        Latin Extended-A: ħ U+0127, ġ U+0121, ż U+017C, ċ U+010B. So every
+        Maltese heading in this game — BAĦAR, RAŻŻETT, IL-ĦAŻEN — was being
+        rendered half in Orbitron and half in the fallback face, MID-WORD.
+        In a game written in Maltese that is not a small thing.
+     Exo 2 keeps the same squared, technical character and carries latin-ext,
+     so the language the game is written in renders in one typeface. Both
+     weights come from one variable file per subset; 77 KB for the lot. -->
+<link rel="preload" as="font" type="font/woff2" href="fonts/exo2-700-latin.woff2" crossorigin>
+<style>@font-face{font-family:'Exo 2';font-style:normal;font-weight:700;font-display:swap;src:url(fonts/exo2-700-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'Exo 2';font-style:normal;font-weight:700;font-display:swap;src:url(fonts/exo2-700-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+@font-face{font-family:'Exo 2';font-style:normal;font-weight:900;font-display:swap;src:url(fonts/exo2-700-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF}
+@font-face{font-family:'Exo 2';font-style:normal;font-weight:900;font-display:swap;src:url(fonts/exo2-700-latin.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}/* COMPATIBILITY ALIAS. Several modules still name Orbitron directly in their
+   injected CSS, and their files are owned by other work in flight. Without
+   this they would silently drop to Arial Black now that Orbitron is not
+   loaded, so the multiplayer screens would not match the rest of the app.
+   Pointing the old name at the same files means nothing regresses and those
+   modules can move to var(--disp) whenever they are next touched. */
+@font-face{font-family:'Orbitron';font-style:normal;font-weight:700;font-display:swap;src:url(fonts/exo2-700-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122}@font-face{font-family:'Orbitron';font-style:normal;font-weight:700;font-display:swap;src:url(fonts/exo2-700-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+1E00-1E9F,U+2C60-2C7F,U+A720-A7FF}@font-face{font-family:'Orbitron';font-style:normal;font-weight:900;font-display:swap;src:url(fonts/exo2-700-latin.woff2) format('woff2');unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+20AC,U+2122}@font-face{font-family:'Orbitron';font-style:normal;font-weight:900;font-display:swap;src:url(fonts/exo2-700-latin-ext.woff2) format('woff2');unicode-range:U+0100-02BA,U+1E00-1E9F,U+2C60-2C7F,U+A720-A7FF}</style>
 <link rel="stylesheet" href="css/extra.css">
 <link rel="stylesheet" href="css/cardview.css">
 <style>
@@ -40,7 +60,7 @@
   --gold:#FFC542; --hot:#E8452C; --neon:#8A5CFF; --ok:#3DDC84; --bad:#FF5468;
   --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
   --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
-  --disp:'Orbitron','Arial Black',system-ui,sans-serif;
+  --disp:'Exo 2','Arial Black',system-ui,sans-serif;
   --body:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
   --ease:cubic-bezier(.22,.9,.28,1);
 }
@@ -1510,7 +1530,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 48;
+var KARTI_BUILD = 49;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

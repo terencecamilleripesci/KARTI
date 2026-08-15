@@ -2,13 +2,15 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v48';
+const CACHE = 'karti-v49';
 const CORE = [
   './',
   './index.html',
   './manifest.json',
   './css/extra.css',
   './css/cardview.css',
+  './fonts/exo2-700-latin.woff2',
+  './fonts/exo2-700-latin-ext.woff2',
   './js/artkit.js',
   './js/cards.js',
   './js/set2.js',
