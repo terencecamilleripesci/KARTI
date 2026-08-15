@@ -81,12 +81,19 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    sight. No CSS length fixes that: vh is the tall viewport, svh is the short
    one, and Safari moves between them as you scroll.
    So the real visible height is measured with visualViewport and written to
-   --app-h (see the shell script at the end of the file). It is exactly right in
-   a browser tab AND in the installed app, where it simply equals the screen.
-   100svh is only the fallback for the first paint and for anything that has no
-   visualViewport. */
-#app{position:fixed;top:0;left:0;right:0;overflow:hidden;
-     height:100svh;height:var(--app-h,100svh)}
+   --app-h (see the shell script at the end of the file). 100svh is only the
+   fallback for the first paint and for anything that has no visualViewport.
+   THE INSTALLED APP DOES NOT GET TO USE ANY OF THAT. In standalone there are no
+   toolbars, the layout viewport IS the screen, and `inset:0` is exactly right —
+   which is precisely how the LuxuryLifts shell works and why it has never
+   misbehaved on his phone. Sizing the installed shell off a JS measurement
+   means one wrong number out of visualViewport at cold launch (a real iOS
+   habit) leaves #app short and a band of bare body background along the bottom.
+   Pin it geometrically and there is no number to be wrong. */
+#app{position:fixed;inset:0;overflow:hidden}
+@media (display-mode: browser){
+  #app{bottom:auto;height:100svh;height:var(--app-h,100svh)}
+}
 .screen{
   position:absolute;inset:0;display:none;flex-direction:column;
   padding:calc(var(--sat) + 8px) calc(var(--sar) + 12px) calc(var(--sab) + 8px) calc(var(--sal) + 12px);
@@ -374,6 +381,22 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .tdot{position:absolute;top:4px;left:calc(50% + 7px);width:9px;height:9px;border-radius:50%;
   background:var(--hot);border:1.5px solid #0B0716;box-shadow:0 0 8px rgba(232,69,44,.9)}
 .tdot[hidden]{display:none}
+/* ══ BUILD TAG — DIAGNOSTIC, DELETE WHEN SETTLED ══════════════════════════════
+   Three things to delete together: this CSS block, the <p id="buildtag"> inside
+   the tab bar, and the buildTag() IIFE in the shell script at the end of file.
+   Sits in the strip directly ABOVE the bar (bottom:100% of the fixed .tabbar),
+   so it costs zero layout space, never touches the home indicator, and appears
+   in every screenshot of the home screen. */
+#buildtag{position:absolute;bottom:100%;left:0;right:0;margin:0;
+  padding:3px 10px;text-align:center;pointer-events:none;
+  font:600 9px/1.3 var(--body);letter-spacing:.07em;text-transform:uppercase;
+  color:rgba(244,239,255,.55);text-shadow:0 1px 3px rgba(0,0,0,.9)}
+/* an update really is waiting: turn into a tappable strip you cannot miss */
+#buildtag.upd{pointer-events:auto;cursor:pointer;padding:8px 10px;
+  font-size:11px;font-weight:800;color:#241800;text-shadow:none;
+  background:linear-gradient(180deg,#FFDE8B,var(--gold));
+  border-top:1px solid #FFE9B0;box-shadow:0 -6px 18px rgba(255,197,66,.35)}
+/* ══ END BUILD TAG ══ */
 /* Short phones (iPhone SE, 360x640 Androids). The two fat rows are the wallet
    and the secondary nav — both wrap to THREE lines at 360px on the normal
    scale. Tightening the type and the padding puts each back to two lines and
@@ -1047,6 +1070,10 @@ body.reduced .pt,body.reduced .rays,body.reduced .burst{display:none!important}
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg>
         <span class="tl">Guide</span>
       </button>
+      <!-- BUILD TAG — diagnostic, delete with its CSS + script blocks.
+           Filled by buildTag() in the shell script; absolutely positioned, so
+           it does not become a fifth grid column. -->
+      <p id="buildtag" aria-live="polite"></p>
     </nav>
   </section>
 
@@ -1175,6 +1202,31 @@ window.ILB = function(name, html, cls){
   return '<span class="bl">' + window.ICO(name, null, cls) + '<span>' + html + '</span></span>';
 };
 
+/* ── which build is this phone REALLY running ─────────────────────────────
+   BUILD is baked into index.html, and the shell CSS is inline in this SAME
+   file — so "v22" here is the truth about the layout on screen; it cannot say
+   new while rendering old. What it cannot tell you is which WORKER is serving
+   the files: for that, swVersion() asks the live controlling service worker
+   over a MessageChannel, and the answer comes from the script iOS actually
+   activated — not from the server, not from a constant. Keep BUILD in step
+   with CACHE in sw.js (bump both on every deploy). */
+var KARTI_BUILD = 22;
+window.KARTI_BUILD = KARTI_BUILD;
+window.swVersion = function(){
+  return new Promise(function(resolve){
+    var ctl = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!ctl) return resolve(null);
+    var mc = new MessageChannel();
+    var t = setTimeout(function(){ resolve(null); }, 1500);
+    mc.port1.onmessage = function(e){
+      clearTimeout(t);
+      resolve(e.data && e.data.cache ? String(e.data.cache) : null);
+    };
+    try { ctl.postMessage({ type: 'VERSION' }, [mc.port2]); }
+    catch (err){ clearTimeout(t); resolve(null); }
+  });
+};
+
 /* ── the real visible height ──────────────────────────────────────────────
    iOS Safari measures position:fixed against the LAYOUT viewport, so with the
    toolbars on screen the bottom of the app hides behind them. visualViewport
@@ -1216,11 +1268,129 @@ window.ILB = function(name, html, cls){
     document.head.appendChild(s);
   })(0);
   if ('serviceWorker' in navigator){
+    var sw = navigator.serviceWorker;
+    var born = Date.now();
     window.addEventListener('load', function(){
-      navigator.serviceWorker.register('sw.js').catch(function(){});
+      /* updateViaCache:'none' — belt and braces. The spec default ('imports')
+         already makes update checks bypass the HTTP cache for the top-level
+         worker script, but Pages serves sw.js with max-age=600 and older WebKit
+         was sloppy about this; 'none' removes any version of iOS from the
+         argument. */
+      sw.register('sw.js', { updateViaCache: 'none' }).then(function(reg){
+        /* iOS decides for itself when to look for a new worker, and in an
+           installed app that can lag for days. Asking on every return to the
+           app (and on load, which register() implies) means a deploy lands on
+           the next launch — combined with the reload below, usually THE SAME
+           launch. */
+        document.addEventListener('visibilitychange', function(){
+          if (!document.hidden) reg.update().catch(function(){});
+        });
+        window.addEventListener('pageshow', function(){
+          reg.update().catch(function(){});
+        });
+      }).catch(function(){});
     });
+    /* A NEW worker just took control — but this page was served by the OLD one,
+       so its shell may be a version behind. Reload once and the network-first
+       fetch hands over the fresh build. Guards, in order: not on the very first
+       claim after install (nothing stale to replace); only within ten seconds
+       of launch, so an update arriving mid-duel lights up the build tag instead
+       of yanking a live game away; and never twice in 30s, so a broken worker
+       cannot reload-loop the app. */
+    (function(){
+      var had = !!sw.controller;
+      sw.addEventListener('controllerchange', function(){
+        if (!had){ had = true; return; }
+        if (Date.now() - born > 10000) return;
+        var K = 'karti-ccreload', last = 0;
+        try { last = +sessionStorage.getItem(K) || 0; } catch (e) {}
+        if (Date.now() - last < 30000) return;
+        try { sessionStorage.setItem(K, String(Date.now())); } catch (e) {}
+        location.reload();
+      });
+    })();
   }
 })();
+
+/* ══ BUILD TAG — DIAGNOSTIC, DELETE WHEN SETTLED ══════════════════════════════
+   Delete together with its CSS block ("BUILD TAG" in the <style> above) and the
+   <p id="buildtag"> inside the tab bar. Renders e.g. "v22 · sw 22 · art ok" in
+   the strip above the bar: the page build from this very file, the worker
+   version from the worker actually in control, and a live probe of the home
+   artwork. Every home-screen screenshot now answers "which build is this phone
+   running" by itself. It also asks the server (sw.js with cache:no-store, which
+   can never be answered by a cache) whether a newer build is deployed than
+   whatever is running — and if so becomes a tap-to-update strip that refreshes
+   the worker, refetches the shell past every cache, and reloads. */
+(function buildTag(){
+  var el = document.getElementById('buildtag');
+  if (!el) return;
+  var state = { swN: 0, sw: 'sw …', art: 'art …', avail: 0 };
+  function paint(){
+    /* Keyed off the PAGE build, not the worker: the layout lives in this file,
+       so a phone whose worker updated but whose page did not is still stale in
+       the way that matters, and must still be offered the update. */
+    if (state.avail > KARTI_BUILD){
+      el.className = 'upd';
+      el.textContent = 'Update ready — tap to load v' + state.avail +
+        ' (this is v' + KARTI_BUILD + ')';
+    } else {
+      el.className = '';
+      el.textContent = 'v' + KARTI_BUILD + ' · ' + state.sw + ' · ' + state.art;
+    }
+  }
+  (function artProbe(){
+    var im = new Image();
+    im.onload = function(){ state.art = 'art ok'; paint(); };
+    im.onerror = function(){ state.art = 'no art'; paint(); };
+    im.src = 'art/ui/home-bg.jpg';
+  })();
+  function askSW(){
+    if (!('serviceWorker' in navigator)){ state.sw = 'no sw'; return paint(); }
+    window.swVersion().then(function(v){
+      if (v){
+        state.swN = +((String(v).match(/\d+/) || [0])[0]);
+        state.sw = 'sw ' + (state.swN || v);
+      } else { state.swN = 0; state.sw = 'no sw'; }
+      paint();
+    });
+  }
+  function askServer(){
+    fetch('sw.js', { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.text() : ''; })
+      .then(function(t){
+        var m = t.match(/karti-v(\d+)/);
+        if (m){ state.avail = +m[1]; paint(); }
+      })
+      .catch(function(){ /* offline — nothing to report */ });
+  }
+  el.addEventListener('click', function(){
+    if (!el.classList.contains('upd')) return;
+    el.textContent = 'Updating…';
+    var reload = function(){ location.reload(); };
+    var upd = ('serviceWorker' in navigator)
+      ? navigator.serviceWorker.getRegistrations()
+          .then(function(rs){ return Promise.all(rs.map(function(r){ return r.update(); })); })
+          .catch(function(){})
+      : Promise.resolve();
+    upd.then(function(){
+      /* pull the shell past the HTTP cache AND through the (new) worker, so the
+         reload has a fresh copy waiting whichever path ends up serving it */
+      return Promise.all([
+        fetch('index.html', { cache: 'reload' }).catch(function(){}),
+        fetch('./', { cache: 'reload' }).catch(function(){})
+      ]);
+    }).then(reload, reload);
+  });
+  paint(); askSW(); askServer();
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden){ askSW(); askServer(); }
+  });
+  if ('serviceWorker' in navigator)
+    navigator.serviceWorker.addEventListener('controllerchange',
+      function(){ setTimeout(askSW, 400); });
+})();
+/* ══ END BUILD TAG ══ */
 </script>
 </body>
 </html>

@@ -649,13 +649,19 @@ function profileSheet(){
   { const el = $('#pf-build');
     if (el){
       const art = ART.base ? 'art ok' : 'art fallback';
-      el.textContent = 'build …';
-      const show = v => { el.textContent = 'build ' + v + ' · ' + art; };
-      if (navigator.serviceWorker && navigator.serviceWorker.controller){
-        fetch('sw.js', { cache:'no-store' }).then(r => r.text())
-          .then(t => show((t.match(/karti-v\d+/) || ['unknown'])[0]))
-          .catch(() => show('offline'));
-      } else show('no service worker');
+      /* The page build comes straight out of THIS device's index.html (the
+         shell CSS is inline there, so it is the truth about the layout on
+         screen), and the worker version is the answer of the worker actually
+         in control. The old code fetched sw.js from the SERVER, which reports
+         the latest deploy and says nothing about what this phone is running —
+         the exact staleness it was supposed to expose. */
+      const page = 'page v' + (window.KARTI_BUILD || '?');
+      el.textContent = page + ' · ' + art;
+      if (window.swVersion) window.swVersion().then(v => {
+        el.textContent = page + ' · ' +
+          (v ? 'sw ' + String(v).replace('karti-v', 'v') : 'no service worker') +
+          ' · ' + art;
+      });
     } }
   { const c = $('#pf-cloud'); if (c) c.onclick = () => { closeSheet(); KARTI_SYNC.openPanel(); }; }
   $('#pf-switch').onclick = () => { closeSheet(); logout(); };

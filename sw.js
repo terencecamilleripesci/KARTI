@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v21';
+const CACHE = 'karti-v22';
 const CORE = [
   './',
   './index.html',
@@ -40,6 +40,30 @@ const CORE = [
   './art/ui/pile-banish.png'
 ];
 
+/* fetch that bypasses HTTP-cache freshness (revalidates with the server) and
+   treats a non-2xx as a failure, so error pages never get cached. */
+async function freshOK(url){
+  /* guarded: if this WebKit predates the cache option, fall back to a plain
+     fetch rather than throwing — a throw here would silently hand the install
+     over to the carry-the-old-cache-forward path, i.e. guaranteed staleness */
+  let req;
+  try { req = new Request(url, { cache: 'no-cache' }); } catch (e) { req = url; }
+  const res = await fetch(req);
+  if (!res || !res.ok) throw new Error('bad response for ' + url);
+  return res;
+}
+
+/* The page can ask the RUNNING worker which build it is. This is the one answer
+   that cannot lie about staleness: it comes from the script iOS actually
+   activated, not from the server and not from a constant baked into the page. */
+self.addEventListener('message', event => {
+  if (event.data && event.data.type === 'VERSION'){
+    const reply = { type: 'VERSION', cache: CACHE };
+    if (event.ports && event.ports[0]) event.ports[0].postMessage(reply);
+    else if (event.source) event.source.postMessage(reply);
+  }
+});
+
 self.addEventListener('install', event => {
   self.skipWaiting();
   event.waitUntil((async () => {
@@ -47,8 +71,16 @@ self.addEventListener('install', event => {
     /* the old caches still exist here — activate has not pruned them yet */
     const oldKeys = (await caches.keys()).filter(k => k !== CACHE);
     await Promise.all(CORE.map(async url => {
-      /* network first so a deploy really refreshes the file… */
-      try { await cache.add(url); return; } catch (e) {}
+      /* network first so a deploy really refreshes the file…
+         cache:'no-cache' is NOT optional. GitHub Pages serves everything with
+         max-age=600, and a plain cache.add() honours the HTTP cache — so a
+         version bump installed within ten minutes of the deploy would copy the
+         PREVIOUS build's index.html out of the HTTP disk cache and seal it into
+         the NEW cache bucket. That is precisely what happened across nineteen
+         same-day deploys: every "fix" the owner tested was a stale shell wearing
+         a fresh version number. no-cache forces an ETag revalidation (a 304 when
+         nothing changed), so the precache can never be older than the server. */
+      try { await cache.put(url, await freshOK(url)); return; } catch (e) {}
       /* …but if the network fails mid-install, carry the previous version's
          copy forward rather than losing a file the device already had. That is
          what used to happen on every bump: activate deleted the old cache and
@@ -100,8 +132,22 @@ self.addEventListener('fetch', event => {
      perfectly good cached copy sat right there. Treat a non-OK response the same
      as no response at all, and only fall back to the network result if we have
      nothing cached. */
+  /* Navigations carry the whole shell — the layout CSS is INLINE in index.html,
+     so a stale index.html means a stale app no matter how new everything else
+     is. Pages serves it with max-age=600; the default cache mode happily returns
+     that ≤10-minute-old copy without asking the server, which is how the
+     installed app kept rendering an old shell minutes after every deploy.
+     no-cache = always revalidate: one conditional request, a 304 when nothing
+     changed, and the phone can never render an index.html older than the
+     server's. Offline behaviour is unchanged — a dead network still rejects and
+     falls through to the cache below. */
+  let netReq = req;
+  if (req.mode === 'navigate'){
+    try { netReq = new Request(req.url, { cache: 'no-cache' }); } catch (e) {}
+  }
+
   event.respondWith(
-    fetch(req)
+    fetch(netReq)
       .then(res => {
         if (res && res.ok && res.type === 'basic' && !isFullArt){
           const copy = res.clone();
