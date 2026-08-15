@@ -79,7 +79,7 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 /* icon + label inside a .btn: .btn is a column flexbox, so the pair has to be
    wrapped or the icon lands on its own line above the words */
 .bl{display:inline-flex;align-items:center;justify-content:center;gap:.55em;line-height:1.15}
-.pill .ico,.chip .ico,.badge .ico,.tag .ico,.sumitem .ico{font-size:1.25em}
+.pill .ico,.chip .ico,.badge .ico,.tag .ico{font-size:1.25em}
 .btn .ico{font-size:1.3em}
 .btn.sm .ico{font-size:1.35em}
 .dhead .ico,.seg2 .ico,.segwrap .ico{font-size:1.25em}
@@ -803,8 +803,12 @@ body.shake .stage,body.shake .ub-stage{animation:scShake .5s var(--ease)}
 .sumrow .snm{font-family:var(--disp);font-weight:900;font-size:13px;letter-spacing:.02em;
   color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sumrow .smeta{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
-  color:var(--dim2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sumrow .smeta .r{color:var(--rc,#888)}
+  color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The rarity word is lifted towards white rather than printed in the raw
+   rarity colour: Rare's blue is only about 4:1 on this panel and this is 10px
+   type. The hue still reads, and the gem and the row tint say it again, so the
+   tier is never carried by colour alone. */
+.sumrow .smeta .r{color:color-mix(in srgb,var(--rc,#888) 66%,#FFFFFF)}
 .stag{flex:0 0 auto;display:inline-flex;align-items:center;gap:4px;height:25px;padding:0 9px;
   border-radius:999px;font-family:var(--disp);font-weight:900;font-size:9.5px;letter-spacing:.13em}
 .stag.new{background:linear-gradient(180deg,#8CFFC0,var(--ok));color:#04240F;
@@ -901,11 +905,21 @@ body.shake .stage,body.shake .ub-stage{animation:scShake .5s var(--ease)}
 .hand .h.no .card{filter:brightness(.5) saturate(.5)}
 .actbar{flex:0 0 auto;display:flex;gap:7px;padding-top:2px}
 .actbar .btn{min-height:48px;font-size:11.5px;flex:1;letter-spacing:.04em}
+/* visibility matters, and it is NOT just tidiness. The closed sheet "hides" by
+   translating 110% below the viewport — but in the installed app the page is
+   62px TALLER than the viewport (see #app), so "just below the viewport" is
+   real, visible screen: the parked sheet's rounded top edge sat exactly over
+   the tab bar's label row, which is why the installed app showed four icons,
+   no labels, and a slab of dead purple under them. visibility:hidden makes the
+   closed sheet actually invisible wherever it is parked. The transition pair
+   keeps the animation: closing slides for .28s THEN hides (visibility flips
+   discretely at the end); opening unhides instantly (0s 0s) and slides up. */
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:200;background:linear-gradient(180deg,#241A3E,#150F22);
   border-top:1px solid var(--line2);border-radius:20px 20px 0 0;padding:14px 14px calc(var(--sab) + 14px);
-  transform:translate3d(0,110%,0);transition:transform .28s var(--ease);box-shadow:0 -14px 40px rgba(0,0,0,.6);
+  transform:translate3d(0,110%,0);box-shadow:0 -14px 40px rgba(0,0,0,.6);
+  visibility:hidden;transition:transform .28s var(--ease),visibility 0s .28s;
   max-height:78vh;overflow-y:auto}
-.sheet.on{transform:none}
+.sheet.on{transform:none;visibility:visible;transition:transform .28s var(--ease),visibility 0s 0s}
 .sheet h3{font-size:15px;margin-bottom:3px}
 .sheet .opts{display:grid;gap:8px;margin-top:12px}
 .scrim{position:fixed;inset:0;background:rgba(4,2,10,.66);z-index:150;opacity:0;pointer-events:none;
@@ -944,6 +958,16 @@ body.shake .stage,body.shake .ub-stage{animation:scShake .5s var(--ease)}
 .toast.on{animation:tst 2.5s var(--ease) forwards}
 @keyframes tst{0%{opacity:0;transform:translate3d(-50%,14px,0)}12%{opacity:1;transform:translate3d(-50%,0,0)}
   84%{opacity:1}100%{opacity:0;transform:translate3d(-50%,-8px,0)}}
+/* Same standalone geometry as #app: position:fixed pins to the SHORT viewport,
+   which in the installed app ends 62px (env(safe-area-inset-top)) above the
+   physical bottom of the screen. An OPEN sheet, a modal backdrop or the scrim
+   would therefore stop 62px short, with the tab bar showing through the bare
+   strip underneath. Pulling their bottom edge down by the same inset lands
+   them on the true bottom, exactly like the shell. Browser tabs are untouched
+   — there the viewport bottom IS the bottom. */
+@media (display-mode: standalone){
+  .sheet,.scrim,.modal{ bottom:calc(0px - var(--sat)) }
+}
 .result{text-align:center;display:grid;gap:12px;place-items:center}
 .result .big{font-family:var(--disp);font-weight:900;font-size:clamp(36px,12vw,56px);letter-spacing:.08em;line-height:1}
 .result .big.win{background:linear-gradient(180deg,#FFF3CF,var(--gold),#C77A00);-webkit-background-clip:text;
@@ -1487,7 +1511,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 27;
+var KARTI_BUILD = 28;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

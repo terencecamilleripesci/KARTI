@@ -366,7 +366,8 @@ async function unbox(key){
       '<div class="ub-tray" id="ub-tray"></div>' +
     '</div>' +
     '<div class="savebar">' +
-      '<button class="btn ghost sm" id="ub-skip" style="flex:1">⏩ Reveal everything</button>' +
+      '<button class="btn ghost sm" id="ub-skip" style="flex:1">' +
+        K.ilb('arrow-right', 'Reveal everything') + '</button>' +
     '</div>';
   $('#ub-skip').onclick = () => { skipAll = true; };
   $('#ub-stage').onclick = () => { hurry = true; };
@@ -408,7 +409,7 @@ async function unbox(key){
 function miniCard(x){
   const cell = document.createElement('div');
   cell.className = 'gcell';
-  const el = K.cardEl(x.c, { size:'xs', tap:true, isNew: isFresh(x.c) });
+  const el = K.cardEl(x.c, { size:'xs', tap:true, isNew: isFresh(x.c), isDupe: !isFresh(x.c) });
   el.onclick = () => K.cardViewModal(x.c);
   el.style.animation = 'pop .3s var(--ease) both';
   cell.appendChild(el);
@@ -420,34 +421,56 @@ function miniCard(x){
   return cell;
 }
 
-/* one card, flipped on the stage, with the pack opener's own rarity effects */
+/* One card, turned over on the stage, running the PACK OPENER'S choreography —
+   same REVEAL table, same wind-up, same stripes, same screen-level treatment
+   for an epic or a legendary. Nothing is duplicated here: the kit comes off
+   KARTI, so the two screens cannot drift apart. The grant already happened
+   (see confirmKeep) — none of this owns a card. */
 async function bigReveal(x){
   const stage = $('#ub-stage');
   if (!stage) return;
-  stage.innerHTML = '';
+  const conf = K.revConf(x.c.r);
+  /* the FX layer is rebuilt with the stage each time; it is inert until used */
+  stage.innerHTML = K.FX_HTML;
   const slot = document.createElement('div');
   slot.className = 'slot ubslot ' + x.c.r;
+  slot.style.setProperty('--flipd', conf.flip + 'ms');
   slot.innerHTML = '<div class="aura"></div>';
+  const lift = document.createElement('div');
+  lift.className = 'lift';
   const flip = document.createElement('div');
   flip.className = 'flipper';
   flip.appendChild(K.backEl());
   const front = document.createElement('div');
   front.className = 'fr';
-  front.appendChild(K.cardEl(x.c, { size:'md', isNew: isFresh(x.c) }));
+  /* isFresh() was read BEFORE the deck was granted, so a card the player
+     already had gets the DUPLICATE banner and a genuinely new one gets NEW —
+     exactly as in the pack opener. */
+  front.appendChild(K.cardEl(x.c, { size:'md', isNew: isFresh(x.c), isDupe: !isFresh(x.c) }));
+  front.appendChild(K.shineEl(x.c.r));
   if (x.n > 1){
     const b = document.createElement('span');
     b.className = 'cnt'; b.textContent = '×' + x.n;
     front.appendChild(b);
   }
   flip.appendChild(front);
-  slot.appendChild(flip);
+  lift.appendChild(flip);
+  slot.appendChild(lift);
   stage.appendChild(slot);
 
   hurry = false;
   await K.wait(120);
+  /* the held breath before an epic or a legendary turns */
+  if (conf.wind && !hurry && !skipAll){
+    slot.style.setProperty('--wd', conf.wind + 'ms');
+    slot.classList.add('windup');
+    if (conf.streak) K.fxGo(stage, 'fxstreaks', conf.wind + 150);
+    for (let t = 0; t < conf.wind && !hurry && !skipAll; t += 60) await K.wait(60);
+  }
   slot.classList.add('flipped');
+  setTimeout(() => K.shineGo(slot), Math.round(conf.flip * .55));
   K.rarityFx(slot, x.c.r, $('#ub-label'));
-  const hold = x.c.r === 'leggendarju' ? 1500 : x.c.r === 'epiku' ? 900 : 620;
+  const hold = conf.flip + conf.hold;
   for (let t = 0; t < hold && !hurry && !skipAll; t += 60) await K.wait(60);
 }
 
@@ -493,7 +516,7 @@ function summary(key, all){
     '</div>';
   const bh = $('#ub-best');
   best.forEach(x => {
-    const el = K.cardEl(x.c, { size:'xs', tap:true, isNew: isFresh(x.c) });
+    const el = K.cardEl(x.c, { size:'xs', tap:true, isNew: isFresh(x.c), isDupe: !isFresh(x.c) });
     el.onclick = () => K.cardViewModal(x.c);
     bh.appendChild(el);
   });

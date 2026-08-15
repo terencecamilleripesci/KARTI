@@ -412,9 +412,17 @@ function cardEl(card, opts){
     '</div>' +
     /* Only ever passed at the moment a card is RECEIVED — never in the
        Collection, where a card you own is not news. Outside .in on purpose:
-       .in clips its overflow and the banner has to stand proud of the frame. */
-    (opts.isNew ? '<span class="newbadge">New</span>' : '');
+       .in clips its overflow and the banner has to stand proud of the frame.
+       isNew and isDupe are two states of one verdict and are mutually
+       exclusive: whoever grants the card decides which, reading ownership
+       BEFORE the grant (see addCard) or every card in the game reads as a
+       duplicate. dupeDust, when non-zero, is what the copy turned into. */
+    (opts.isNew ? '<span class="newbadge">New</span>' :
+     opts.isDupe ? '<span class="dupebadge">Duplicate' +
+       (opts.dupeDust ? '<i>' + ico('dust') + '+' + opts.dupeDust + '</i>' : '') +
+       '</span>' : '');
   if (opts.isNew) d.classList.add('is-new');
+  else if (opts.isDupe) d.classList.add('is-dupe');
   return d;
 }
 function backEl(size){
@@ -760,6 +768,80 @@ const PACK_COST = 150;
 let packBusy = false;
 let tiltHooked = false;
 
+/* ── the reveal grammar ────────────────────────────────────────────────────
+   One table decides everything about how a card arrives, so the four tiers are
+   different in KIND and not just in colour, and so the whole pacing can be
+   retuned in one place.
+     wind    the held breath BEFORE the turn. Zero for a common — it flips and
+             gets out of the way. Nearly a second for a legendary.
+     flip    how long the card takes to come over. A legendary turns slowly.
+     hold    how long it sits there afterwards before it is flicked away.
+     shine   how many light stripes rake across the face (the "stripes").
+     parts   particle count. Kept low on purpose: the big effects are CSS on a
+             handful of composited layers, not a cloud of DOM nodes.
+   Worst case — five commons — is about 6s; a pack with a legendary in it is
+   about 9s. Both are skippable from the first frame. */
+const RTIER = { komuni:0, rari:1, epiku:2, leggendarju:3 };
+const REVEAL = {
+  komuni:      { wind:0,   flip:380, hold:420,  shine:1, shd:620,  parts:0,
+                 ring:false, beam:false, wash:false, streak:false, flash:false, label:'' },
+  rari:        { wind:200, flip:520, hold:700,  shine:1, shd:760,  parts:0,
+                 ring:true,  beam:false, wash:false, streak:false, flash:false, label:'RARE' },
+  epiku:       { wind:480, flip:680, hold:1000, shine:2, shd:820,  parts:10,
+                 ring:true,  beam:true,  wash:true,  streak:true,  flash:false, label:'EPIC' },
+  leggendarju: { wind:850, flip:920, hold:1550, shine:3, shd:1000, parts:16,
+                 ring:true,  beam:true,  wash:true,  streak:true,  flash:true,  label:'LEGENDARY' },
+};
+const revConf = r => REVEAL[r] || REVEAL.komuni;
+
+/* The FX layer. Injected into whichever stage is running a reveal — the pack
+   stage here, and the starter unboxing's stage from gacha.js — so both screens
+   get the identical treatment from the identical CSS. Inert until a class is
+   added; a screen that is display:none runs none of it. */
+const FX_HTML =
+  '<div class="fxback" aria-hidden="true">' +
+    '<div class="fxwash"></div><div class="fxbeam"></div>' +
+    '<div class="fxstreaks"></div><div class="fxring"></div></div>' +
+  '<div class="fxtop" aria-hidden="true"><div class="fxflash"></div></div>';
+
+/* One property, read by the wash, the beam, the stripes, the ring, the flash,
+   the tear burst and the light sweeps on the card face. Set it once and the
+   whole stage changes colour together. */
+function setFxColor(host, c){ if (host) host.style.setProperty('--fxc', c); }
+function fxHost(el){ return el && el.closest ? el.closest('.stage,.ub-stage') : null; }
+/* restart a CSS animation from the top: drop the class, force the style to be
+   recomputed, put it back. One forced layout per effect, a handful per card. */
+function fxGo(host, cls, dur){
+  if (!host || REDUCED) return;
+  const el = host.querySelector('.' + cls);
+  if (!el) return;
+  el.classList.remove('on');
+  void el.offsetWidth;
+  if (dur) el.style.setProperty('--fxdur', Math.round(dur) + 'ms');
+  el.classList.add('on');
+}
+/* the light sweep across the card face, scaled by rarity: one quick rake for a
+   common, three staggered and colour-tinted for a legendary */
+function shineEl(rarity){
+  const conf = revConf(rarity);
+  const w = document.createElement('div');
+  w.className = 'shinewrap';
+  for (let i = 0; i < conf.shine; i++){
+    const s = document.createElement('i');
+    if (i > 0) s.className = 'tint';
+    s.style.setProperty('--shd', conf.shd + 'ms');
+    s.style.setProperty('--shdel', (i * 0.16).toFixed(2) + 's');
+    w.appendChild(s);
+  }
+  return w;
+}
+function shineGo(slot){
+  if (REDUCED || !slot) return;
+  slot.querySelectorAll('.shinewrap i').forEach(s => {
+    s.classList.remove('go'); void s.offsetWidth; s.classList.add('go');
+  });
+}
+
 /* Which of the four sets the next pack comes from. Each set is 50 cards with an
    identical rarity spread, so this is a choice of jokes, never a choice of value. */
 function activeSet(){
@@ -785,7 +867,15 @@ function renderSetPicker(){
   });
 }
 function renderPackScreen(){
+  /* anything still running against the old stage is now orphaned — the token
+     is what tells it to stop touching the DOM */
+  packSeq++;
+  packSkip = false;
   packBusy = false;
+  packSkipFn = null;
+  /* the reveal dims the set picker; #pack-sets is refilled but never replaced,
+     so leaving mid-reveal used to strand it at 13% opacity for good */
+  const sp = $('#pack-sets'); if (sp) sp.classList.remove('hushed');
   $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
   const set = activeSet();
   const face = set && uiArt('pack', set.art);
@@ -803,9 +893,12 @@ function renderPackScreen(){
         '<div class="foil"></div>' +
       '</div>' +
       '<div class="lid">TEAR HERE</div>' +
+      '<div class="seam"></div>' +
     '</div>' +
     '<div class="burst" id="burst"></div>' +
-    '<div class="rays" id="rays"></div>';
+    '<div class="rays" id="rays"></div>' +
+    FX_HTML;
+  stage.style.removeProperty('--fxc');
   renderSetPicker();
   hookTilt();
   const pk = $('#the-pack');
@@ -871,6 +964,14 @@ function hookTilt(){
   stage.addEventListener('pointerdown', () => { const pk = $('#the-pack'); if (pk) pk.dataset.touched = '1'; });
 }
 
+/* Everything that runs after the pull is guarded by this token. A re-render, a
+   navigation away, or a second pack started from the summary bumps it, and any
+   sequence still in flight against the old stage quietly stops instead of
+   writing into DOM that no longer exists. */
+let packSeq = 0;
+let packSkip = false;    /* Skip pressed — cut straight to the summary        */
+let packHurry = false;   /* tapped during a hold — shorten this one card      */
+
 function tryOpen(){
   if (packBusy) return;
   if (S.packs > 0){ S.packs--; }
@@ -881,118 +982,276 @@ function tryOpen(){
   runPackOpen();
 }
 
+/* A hold that can be cut short. Polls in 50ms slices so a tap on the stage
+   (packHurry) or the Skip button (packSkip) is felt within a frame or two
+   rather than at the end of a one-and-a-half second legendary pose. */
+async function holdFor(ms, alive){
+  const step = 50;
+  for (let t = 0; t < ms; t += step){
+    if (packSkip || packHurry || !alive()) return;
+    await wait(step);
+  }
+}
+
 async function runPackOpen(){
+  const seq = ++packSeq;
+  packSkip = false; packHurry = false;
+  const alive = () => seq === packSeq && current === 'pack';
+
+  /* ── 1. THE PULL, AND THE SAVE ──────────────────────────────────────────
+     Rolled and committed to disk before a single pixel moves. Whatever the
+     animation does from here — a phone that locks, an app that gets swiped
+     away, a tab closed mid-flip — the cards are already in the collection.
+     No card is ever owed to an animation finishing.
+     ownedCount() is read BEFORE addCard() adds the copy, which is the whole
+     reason isNew can be trusted; get that the wrong way round and every card
+     in the game reports as a duplicate. */
   const cards = openPack(5, S.packSet);
   const results = cards.map(c => {
+    const before = ownedCount(c.id);
     const r = addCard(c.id);
-    return { card:c, isNew:r.isNew, dusted:r.dusted };
+    return { card:c, isNew:r.isNew, dusted:r.dusted, before:before, after:ownedCount(c.id) };
   });
   save();
 
-  const pk = $('#the-pack');
-  $('#pack-bar').innerHTML = '<p class="hint">Tap each card to flip it</p>';
-  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
-
-  if (pk){
-    pk.classList.add('shake');
-    await wait(430);
-    pk.classList.add('tearing');
-    $('#burst').classList.add('go');
-    $('#rays').classList.add('go');
-  }
-  await wait(560);
+  /* Reduced motion: no tear, no flips, no light. Straight to the list of what
+     was pulled, which is the part that actually carries the information. */
+  if (REDUCED){ showSummary(results); return; }
 
   const stage = $('#pack-stage');
-  stage.innerHTML = '<div class="fan" id="fan"></div>';
-  const fan = $('#fan');
+  if (!stage) return;
 
-  results.forEach((res, i) => {
+  /* Skip is armed HERE — before the first frame of the tear, not after the fan
+     is built. Wired up any later and the button that is already on screen
+     during the tear does nothing when you press it, which is exactly the
+     twelve seconds nobody wants. It never skips the grant (that is done and
+     saved); it only ends the theatre. */
+  const skipNow = () => {
+    if (packSkip || seq !== packSeq) return;
+    packSkip = true;
+    showSummary(results);
+  };
+  packSkipFn = skipNow;
+
+  /* ── 2. THE BUILD-UP ────────────────────────────────────────────────────
+     The light coming out of the pack is the colour of the BEST card inside it.
+     Gold spilling out of the seam means a legendary is in there, and the
+     player knows it a second and a half before they see it. That anticipation
+     is the whole trick; the tear is just the delivery. */
+  const bestKey = results.reduce((a, r) => RTIER[r.card.r] > RTIER[a] ? r.card.r : a, 'komuni');
+  const best = RTIER[bestKey];
+  setFxColor(stage, RARITY[bestKey] ? RARITY[bestKey].c : '#FFD24A');
+
+  packBar('open', 0, results.length);
+  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+  const sets = $('#pack-sets'); if (sets) sets.classList.add('hushed');
+
+  /* Build the five cards NOW, detached, while the pack is still charging.
+     Five full-size cards with their artwork is the single most expensive frame
+     in the whole sequence; done at the moment the stage is swapped it lands as
+     a visible hitch right where the cards are supposed to be flying out. Built
+     here, the images are already fetched and decoded by the time anything is
+     attached, and the cost is spent behind the tear. */
+  const fan = document.createElement('div');
+  fan.className = 'fan'; fan.id = 'fan';
+  const entrances = results.map((res, i) => {
     const slot = document.createElement('div');
     slot.className = 'slot ' + res.card.r;
     slot.dataset.i = String(i);
     const depth = results.length - 1 - i;
-    slot.style.setProperty('--sx', (depth * 5) + 'px');
-    slot.style.setProperty('--sy', (depth * -6) + 'px');
-    slot.style.setProperty('--sr', (depth * 2.2 - 4) + 'deg');
-    slot.style.setProperty('--ss', String(1 - depth * .035));
-    slot.style.zIndex = String(10 + i * -1 + results.length);
+    const rest = { x:depth * 5, y:depth * -6, r:depth * 2.2 - 4, s:1 - depth * .035 };
+    slot.style.setProperty('--sx', rest.x + 'px');
+    slot.style.setProperty('--sy', rest.y + 'px');
+    slot.style.setProperty('--sr', rest.r.toFixed(1) + 'deg');
+    slot.style.setProperty('--ss', rest.s.toFixed(3));
+    slot.style.setProperty('--flipd', revConf(res.card.r).flip + 'ms');
+    slot.style.zIndex = String(10 + results.length - i);
     slot.innerHTML = '<div class="aura"></div>';
+
+    const lift = document.createElement('div');
+    lift.className = 'lift';
     const flip = document.createElement('div');
     flip.className = 'flipper';
     flip.appendChild(backEl());
     const front = document.createElement('div');
     front.className = 'fr';
     /* res.isNew came from addCard(), which reads ownership BEFORE it adds the
-       copy — so this really does mean "did not own it a moment ago". */
-    front.appendChild(cardEl(res.card, { size:'md', isNew: res.isNew }));
+       copy — so this really does mean "did not own it a moment ago", and its
+       opposite really does mean duplicate. */
+    front.appendChild(cardEl(res.card, {
+      size:'md', isNew: res.isNew, isDupe: !res.isNew, dupeDust: res.dusted }));
+    front.appendChild(shineEl(res.card.r));
     flip.appendChild(front);
-    slot.appendChild(flip);
+    lift.appendChild(flip);
+    slot.appendChild(lift);
+
     const tip = document.createElement('div');
     tip.className = 'tapme'; tip.textContent = i === 0 ? 'Tap to flip' : '';
     slot.appendChild(tip);
     fan.appendChild(slot);
+    return { slot:slot, rest:rest, i:i };
   });
 
-  /* entrance */
-  fan.querySelectorAll('.slot').forEach((s, i) => {
-    s.animate(
-      [{ transform:'translate3d(0,140px,0) scale(.5)', opacity:0 }, { opacity:1, offset:.4 },
-       { transform:getComputedStyle(s).transform === 'none' ? 'none' : getComputedStyle(s).transform }],
-      { duration: REDUCED ? 1 : 520, delay: REDUCED ? 0 : i * 70, easing:'cubic-bezier(.22,.9,.28,1)' });
+  const pk = $('#the-pack');
+  if (pk){
+    pk.classList.add('charge');                       /* pull in on itself   */
+    await wait(500); if (packSkip || !alive()) return;
+    pk.classList.remove('charge');
+    pk.classList.add('shake');
+    await wait(380); if (packSkip || !alive()) return;
+    pk.classList.add('tearing');                      /* the seam splits     */
+    /* A beat for the seam alone. The burst used to fire on the same frame and
+       simply ate it — you never saw the pack come apart, only the flash. */
+    await wait(170); if (packSkip || !alive()) return;
+    const b = $('#burst'), r = $('#rays');
+    if (b) b.classList.add('go');
+    if (r) r.classList.add('go');
+    if (best >= 2) fxGo(stage, 'fxstreaks', 900);
+    if (best >= 3) fxGo(stage, 'fxflash');
+  }
+  await wait(430); if (packSkip || !alive()) return;
+
+  /* ── 3. THE DEAL ─────────────────────────────────────────
+     Five cards arc out of the burst and stack into a fan with a little
+     overshoot, weakest on top. */
+  stage.innerHTML = FX_HTML;
+  stage.appendChild(fan);
+  setFxColor(stage, RARITY[bestKey] ? RARITY[bestKey].c : '#FFD24A');
+
+  /* The arc in, started only once the cards are in the document. Explicit
+     keyframes rather than reading each element's computed transform back off
+     the page — five forced layouts for nothing was the old way, and it reads
+     better anyway: up out of the burst, a touch past the resting place, then
+     settle. */
+  const at = (x, y, r, s) =>
+    'translate3d(' + x + 'px,' + y + 'px,0) rotate(' + r + 'deg) scale(' + s + ')';
+  entrances.forEach(e => {
+    const rest = e.rest;
+    e.slot.animate([
+      { transform: at(0, 150, rest.r - 16, .46), opacity:0, offset:0 },
+      { opacity:1, offset:.34 },
+      { transform: at(rest.x, rest.y - 9, rest.r + 2.5, rest.s * 1.045), offset:.72 },
+      { transform: at(rest.x, rest.y, rest.r, rest.s), opacity:1, offset:1 },
+    ], { duration:560, delay:e.i * 65, easing:'cubic-bezier(.22,.9,.28,1)', fill:'backwards' });
   });
 
-  let idx = 0;
-  const revealNext = async () => {
+  /* ── 4. THE REVEALS ─────────────────────────────────────────────────────
+     One tap turns the next card. A second tap while it is posing cuts the
+     pose short, so the fortieth pack of the evening is as fast as you can
+     tap and the first one is still a ceremony. */
+  let idx = 0, busy = false;
+  packBar('reveal', 0, results.length);
+
+  const advance = async () => {
+    if (packSkip || !alive()) return;
+    if (busy){ packHurry = true; return; }
     const slot = fan.querySelector('.slot[data-i="' + idx + '"]');
-    if (!slot || slot.classList.contains('flipped')) return;
+    if (!slot) return;
+    busy = true; packHurry = false;
+    const tip0 = slot.querySelector('.tapme'); if (tip0) tip0.remove();
     const res = results[idx];
+    const conf = revConf(res.card.r);
+    const RC = RARITY[res.card.r] ? RARITY[res.card.r].c : '#fff';
+    setFxColor(stage, RC);
+
+    /* the wind-up: the card lifts and the stripes converge on it. Commons get
+       none of this — they flip on the frame you tap. */
+    if (conf.wind){
+      slot.style.setProperty('--wd', conf.wind + 'ms');
+      slot.classList.add('windup');
+      if (conf.streak) fxGo(stage, 'fxstreaks', conf.wind + 150);
+      await wait(conf.wind);
+      if (packSkip || !alive()) return;
+    }
+
     slot.classList.add('flipped');
+    /* the light sweep is timed to arrive as the face comes square on */
+    setTimeout(() => shineGo(slot), Math.round(conf.flip * .55));
     rarityFx(slot, res.card.r);
-    const slow = res.card.r === 'leggendarju';
-    await wait(slow ? 1500 : 780);
-    slot.style.setProperty('--sx', '-140vw');
-    slot.style.setProperty('--sr', '-22deg');
+    packBar('reveal', idx + 1, results.length);
+
+    await holdFor(conf.flip + conf.hold, alive);
+    if (packSkip || !alive()) return;
+
+    /* out, faster than it came in */
+    slot.classList.add('gone');
+    slot.style.setProperty('--sx', '-135vw');
+    slot.style.setProperty('--sr', '-26deg');
+    slot.style.setProperty('--ss', '.82');
     slot.style.opacity = '0';
     idx++;
     const nxt = fan.querySelector('.slot[data-i="' + idx + '"]');
     if (nxt){
       nxt.style.setProperty('--sx', '0px'); nxt.style.setProperty('--sy', '0px');
       nxt.style.setProperty('--sr', '0deg'); nxt.style.setProperty('--ss', '1');
-      const tip = nxt.querySelector('.tapme'); if (tip) tip.textContent = 'Tap to flip';
+      const t2 = nxt.querySelector('.tapme'); if (t2) t2.textContent = 'Tap to flip';
+      busy = false;
     } else {
-      await wait(320);
+      await wait(280);
+      if (!alive()) return;
       showSummary(results);
     }
   };
-  fan.onclick = revealNext;
+
+  fan.onclick = advance;
   fan.tabIndex = 0;
   fan.setAttribute('role', 'button');
-  fan.setAttribute('aria-label', 'Tap to flip the next card');
-  fan.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); revealNext(); } };
+  fan.setAttribute('aria-label', 'Tap to turn the next card over');
+  fan.onkeydown = e => { if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); advance(); } };
+
+}
+
+/* The bar under the stage. Three states, one function, so the reveal always
+   has a visible way out and a visible end. */
+let packSkipFn = null;
+function packBar(mode, done, total){
+  const bar = $('#pack-bar');
+  if (!bar) return;
+  if (mode === 'open'){
+    bar.innerHTML =
+      '<div class="revrow"><p class="hint">Tearing…</p>' +
+      '<button class="btn ghost sm" id="pack-skip">Skip</button></div>';
+  } else {
+    bar.innerHTML =
+      '<div class="revrow"><p class="hint">Tap the card</p>' +
+      '<span class="pcounter">' + done + ' / ' + total + '</span>' +
+      '<button class="btn ghost sm" id="pack-skip">Skip</button></div>';
+  }
+  const b = $('#pack-skip');
+  if (b) b.onclick = () => { if (packSkipFn) packSkipFn(); };
 }
 
 /* labelEl lets another screen (the starter gacha) borrow this whole effect
-   without fighting the pack screen over the #rlabel element. */
+   without fighting the pack screen over the #rlabel element. Everything is
+   driven off the one REVEAL table, so the two screens cannot drift apart. */
 function rarityFx(slot, rarity, labelEl){
+  const conf = revConf(rarity);
   const label = labelEl || $('#rlabel');
   const RC = RARITY[rarity] ? RARITY[rarity].c : '#fff';
-  if (rarity === 'rari'){
-    label.textContent = 'RARE'; label.style.color = RC;
+  const host = fxHost(slot);
+  setFxColor(host, RC);
+
+  if (conf.label && label){
+    label.innerHTML = rarity === 'leggendarju'
+      ? ico('star') + ' ' + conf.label + ' ' + ico('star') : conf.label;
+    label.style.color = RC;
     label.classList.remove('go'); void label.offsetWidth; label.classList.add('go');
   }
-  if (rarity === 'epiku'){
-    label.textContent = 'EPIC'; label.style.color = RC;
-    label.classList.remove('go'); void label.offsetWidth; label.classList.add('go');
-    particles(slot, 18, '#C46BFF', 150);
+  if (host){
+    /* the screen-level treatment: a colour wash that also darkens everything
+       around the card, and a shaft of light standing behind it. Epic and
+       legendary only — a rare gets the ring and nothing more, a common gets
+       nothing at all, and that is what makes the tiers legible without a
+       single word being read. */
+    if (conf.wash) fxGo(host, 'fxwash', conf.flip + conf.hold);
+    if (conf.beam) fxGo(host, 'fxbeam', conf.flip + conf.hold);
+    if (conf.ring) fxGo(host, 'fxring');
+    if (conf.flash) fxGo(host, 'fxflash');
   }
-  if (rarity === 'leggendarju'){
-    label.innerHTML = ico('star') + ' LEGENDARY ' + ico('star'); label.style.color = RC;
-    label.classList.remove('go'); void label.offsetWidth; label.classList.add('go');
-    particles(slot, 42, '#FFD24A', 230);
-    if (!REDUCED){
-      document.body.classList.add('shake');
-      setTimeout(() => document.body.classList.remove('shake'), 520);
-    }
+  if (conf.parts) particles(slot, conf.parts, RC, rarity === 'leggendarju' ? 215 : 155);
+  if (rarity === 'leggendarju' && !REDUCED){
+    document.body.classList.add('shake');
+    setTimeout(() => document.body.classList.remove('shake'), 520);
   }
 }
 function particles(host, n, color, spread){
@@ -1012,32 +1271,64 @@ function particles(host, n, color, spread){
   }
 }
 
+/* ── WHAT YOU ACTUALLY GOT ────────────────────────────────────────────────
+   He asked for this in as many words: after the reveal, say what came out.
+   Every card by name, with its rarity spelled out and colour-coded, and its
+   verdict — NEW, or DUPLICATE and what the duplicate turned into. Each row is
+   a 54px tap target that opens the card. Nothing here depends on having
+   watched the animation, so it is also the whole of the reduced-motion path
+   and the whole of what Skip lands you on. */
+function summaryRow(res, i){
+  const rar = RARITY[res.card.r] || { n:'?', c:'#888' };
+  const b = document.createElement('button');
+  b.className = 'sumrow';
+  b.style.setProperty('--rc', rar.c);
+  b.style.setProperty('--sd', (i * .045).toFixed(3) + 's');
+  const meta = '<span class="r">' + esc(rar.n) + '</span> · ' + esc(typeName(res.card)) +
+    (res.card.t === 'monster' ? ' · ' + res.card.atk + ' ATK' : '');
+  const tag = res.isNew
+    ? '<span class="stag new">' + ico('check') + 'New</span>'
+    : '<span class="stag dupe">' +
+        (res.dusted ? ico('dust') + '<span class="dust">+' + res.dusted + '</span>'
+                    : 'Dupe') + '</span>';
+  b.innerHTML =
+    '<span class="rgem">' + ico(RARITY_ICON[res.card.r] || 'rar-komuni') + '</span>' +
+    '<span class="scol"><span class="snm">' + esc(res.card.n) + '</span>' +
+      '<span class="smeta">' + meta + '</span></span>' + tag;
+  b.setAttribute('aria-label', res.card.n + ', ' + rar.n + ', ' +
+    (res.isNew ? 'new card' :
+     res.dusted ? 'duplicate, turned into ' + res.dusted + ' dust' :
+     'duplicate, copy ' + res.after + ' of ' + MAX_COPIES) + '. Tap to inspect.');
+  b.onclick = () => cardViewModal(res.card);
+  return b;
+}
+
 function showSummary(results){
+  packSeq++;                 /* nothing from the reveal may touch the DOM now */
   packBusy = false;
+  packSkipFn = null;
+  document.body.classList.remove('shake');
+  const sets = $('#pack-sets'); if (sets) sets.classList.remove('hushed');
   const stage = $('#pack-stage');
+  if (!stage) return;
   const news = results.filter(r => r.isNew).length;
+  const dupes = results.length - news;
   const dust = results.reduce((a, r) => a + r.dusted, 0);
+
   stage.innerHTML =
-    '<div style="text-align:center;padding:8px 4px">' +
-      '<h2 style="font-size:17px;margin-bottom:10px">You pulled</h2>' +
-      '<div class="summary" id="sum"></div>' +
-      '<p class="muted" style="margin-top:12px">' +
-        (news ? '<b style="color:var(--ok)">' + news + ' new</b>' : 'Nothing new') +
-        (dust ? ' · duplicates dusted for <b style="color:var(--gold)">' + ico('dust', 'dust') +
-          dust + '</b>' : '') +
-      '</p>' +
+    '<div class="sumwrap">' +
+      '<div class="sumhead"><h2>You pulled ' + results.length + ' cards</h2>' +
+        '<p class="sumsub">' +
+          (news ? '<b style="color:var(--ok)">' + news + ' new</b>' : '<b>nothing new</b>') +
+          (dupes ? '<b style="color:#B7A9DE">' + dupes + ' duplicate' +
+            (dupes > 1 ? 's' : '') + '</b>' : '') +
+          (dust ? '<b style="color:var(--gold)">' + ico('dust', 'dust') + '+' + dust + '</b>' : '') +
+        '</p></div>' +
+      '<div class="sumlist" id="sum"></div>' +
     '</div>';
   const sum = $('#sum');
-  results.forEach(r => {
-    const b = document.createElement('button');
-    b.className = 'sumitem';
-    b.style.borderColor = RARITY[r.card.r] ? RARITY[r.card.r].c : 'var(--line)';
-    b.innerHTML = '<span style="font-size:15px">' + esc(r.card.e) + '</span>' + esc(r.card.n) +
-      (r.isNew ? ' <b style="color:var(--ok)">NEW</b>'
-                : (r.dusted ? ' <b style="color:var(--gold)">' + ico('dust', 'dust') + r.dusted + '</b>' : ''));
-    b.onclick = () => cardViewModal(r.card);
-    sum.appendChild(b);
-  });
+  results.forEach((r, i) => sum.appendChild(summaryRow(r, i)));
+
   const canMore = S.packs > 0 || S.coins >= PACK_COST;
   $('#pack-bar').innerHTML =
     '<button class="btn primary" id="p-again"' + (canMore ? '' : ' disabled') + '>' +
@@ -2727,6 +3018,9 @@ window.KARTI = {
   fieldMonsters, freeZone, tauntZone, counterBonus, spellTargets, canActivateSpell,
   spellNeedsTarget, trapPriority, deckTotal, deckById, activeDeck, displayName,
   cardEl, backEl, rarityFx, particles, cardViewModal, starterPrice, chooseSide, afterLogin,
+  /* the reveal kit, so the starter unboxing runs the identical choreography
+     off the identical table instead of a second copy that drifts */
+  FX_HTML, REVEAL, RTIER, revConf, setFxColor, fxGo, fxHost, shineEl, shineGo, holdFor,
   renderDuel, renderHome, startDuel, startCustomDuel, runAITurn, playerEndTurn, endDuel,
   showResult, DEFAULT_STATE, resetUI, onDuelEvent, dlog,
   toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne
