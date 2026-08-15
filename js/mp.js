@@ -113,7 +113,11 @@ const GAMES = [
   { k:'chess', name:'Chess',     short:'CHESS', sym:'pt-p-k',
     blurb:'Sixteen each, one king.' },
   { k:'dama',  name:'Dama',      short:'DAMA',  sym:'pt-crown',
-    blurb:'Twelve stones. Takes are compulsory.' }
+    blurb:'Twelve stones. Takes are compulsory.' },
+  /* Tombla is the reason the relay learned to seat sixteen: nobody waits for
+     a turn, so a big table costs nothing but makes the game better. */
+  { k:'tombla', name:'Tombla',   short:'TOMBLA', sym:'tb-mark',
+    blurb:'Ninety numbers. Everybody at once.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];

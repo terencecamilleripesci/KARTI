@@ -468,6 +468,24 @@ turns out to need a genuinely new sound, add it here then — do not guess now.
 | money.pay | money-pay.mp3 | 1.0 | 0.85 | false | - | A few coins set down one after another onto a felt-covered table, warm muted clinks with no bright ring, damped, dry, single isolated sound effect, clean foley recording, no jingle, no music |
 | dice.roll | dice-roll.mp3 | 1.2 | 0.85 | false | - | Two wooden dice shaken briefly in a cupped hand and rolled across a felt table, muted tumbling that settles quickly, warm and rounded, dry, single isolated sound effect, clean foley recording, no clatter, no music |
 
+### 6.7 TOMBLA — 4 files (third pass)
+
+Tombla asks for its own four because it borrows badly. A number call is a
+wooden token out of a cloth bag, not a die; a counter pressed onto card stock
+is drier than a piece on a felt board; and a rung going in a room full of
+people is a crowd, not a bell.
+
+The mark sound matters most: it happens **fifteen-plus times a game per player**
+and it is the one the ear tires of first. It is the quietest thing in the whole
+set by design.
+
+| id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
+|---|---|---|---|---|---|---|
+| tombla.call | tombla-call.mp3 | 0.8 | 0.85 | false | 0.55 | A small wooden token drawn out of a cloth bag and set down firmly on a wooden table, one dry rounded knock with a brief cloth rustle before it, close and clearly audible, warm and dark, single isolated sound effect, clean foley recording, no rattle, no reverb, no music |
+| tombla.mark | tombla-mark.mp3 | 0.5 | 0.9 | false | 0.16 | A small plastic counter pressed down onto stiff card, one short dry tick with a muted yielding paper give under it, close and clearly audible, dull and rounded, single isolated sound effect, clean foley recording, no click, no snap, no reverb, no music |
+| tombla.near | tombla-near.mp3 | 1.4 | 0.75 | false | - | Two warm mellow marimba notes rising a step and held, unresolved and expectant, dark and rounded, close and clearly audible, single isolated sound effect, no percussion, no alarm, no reverb tail, no music bed |
+| tombla.shout | tombla-shout.mp3 | 2.0 | 0.75 | false | - | A small indoor crowd of a dozen people reacting together in one warm swell of delight, a single mellow hand bell struck once through it, close and roomy but not a stadium, no words, no cheering chant, single isolated sound effect, no music |
+
 ### 6.6 Ambience loops — 2 files (optional, do last)
 
 **Set `loop: true` and use `eleven_text_to_sound_v2`** for these two rows only.

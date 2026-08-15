@@ -149,6 +149,18 @@
     /* A declaration: AĦĦAR WAĦDA in SKARTA, and any other "I am calling it"
        moment. Not speech — a counter bell. Speech never mixes with foley.  */
     'call.bell':   { f: 'call-bell.mp3',   g: 0.62 },
+
+    /* TOMBLA. It borrowed dice.roll, piece.place, board.check and call.bell,
+       and all four were wrong in the same direction: a token out of a cloth
+       bag is not a die, a counter on card stock is drier than a piece on a
+       felt board, and a rung going in a room of people is a crowd rather than
+       a bell. tombla.mark is the quietest thing in the whole registry on
+       purpose — it fires fifteen-plus times a game per player and it is the
+       one the ear tires of first. */
+    'tombla.call':  { f: 'tombla-call.mp3',  g: 0.58 },
+    'tombla.mark':  { f: 'tombla-mark.mp3',  g: 0.34 },
+    'tombla.near':  { f: 'tombla-near.mp3',  g: 0.55 },
+    'tombla.shout': { f: 'tombla-shout.mp3', g: 0.60 },
     /* ANTICIPATION. The pack charges and shakes for 880 ms before the seam
        goes, and until now all of it was silent — the payoff arrived with no
        build. This is the single most addictive file in the set for the
