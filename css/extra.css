@@ -312,17 +312,6 @@
      the last flex child, and reserving it a second time pushed the bar 100px up
      the screen. */
   padding-bottom:calc(var(--tabbar-h, 62px) + var(--sab) + 6px)}
-@media (display-mode: standalone){
-  #scr-home{ padding-bottom:0 }
-  /* The card-detail popup (cardview.css) is position:fixed;inset:0, and in the
-     installed app the viewport ends 62px above the physical bottom of the
-     screen (see #app in index.html) — so its backdrop and bottom sheet stopped
-     62px short, with the tab bar showing through the bare strip underneath.
-     Pull its bottom edge down by the same inset, like the shell does.
-     `body .kcv-root` outranks cardview.css's `.kcv-root` whatever the load
-     order; its .kcv-sheet is bottom:0 INSIDE the root, so it follows. */
-  body .kcv-root{ bottom:calc(0px - var(--sat)) }
-}
 /* The home art is a bright, busy street scene and the duel screen was the only one
    with a scrim, so the logo and the buttons were unreadable on top of it.
    The bottom used to be crushed to .92 alpha because a row of ghost buttons sat

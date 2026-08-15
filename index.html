@@ -10,7 +10,17 @@
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- "black", NOT "black-translucent". black-translucent draws the page from y=0
+     under the status bar while iOS still sizes the viewport as screen MINUS the
+     status bar, so the document ends ~62px above the physical bottom and those
+     pixels are never painted. Every "gap at the bottom" workaround in this file
+     was compensating for that. With "black" the viewport is positioned below the
+     status bar and genuinely reaches the bottom edge, so the tab bar can simply
+     be fixed to bottom:0 and pad itself with env(safe-area-inset-bottom).
+     NOTE: iOS bakes this value into the home-screen icon when the app is added.
+     Changing it does nothing to an already-installed app until it is removed and
+     re-added. -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="mobile-web-app-capable" content="yes">
 <!-- The home background is the first thing the player sees and it is only ever
      requested from JS (detectArt's probe). Preloading it starts the download in
@@ -38,17 +48,11 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%}
-/* THE BAND UNDER THE TAB BAR. With apple-mobile-web-app-status-bar-style set to
-   black-translucent the page is drawn from y=0, under the status bar — but iOS
-   still sizes the viewport as screen MINUS the status bar. Measured on his
-   iPhone: screen 956, viewport 894, status bar 62. Those missing 62px sit below
-   the viewport, outside the document; nothing in the page can paint there. iOS
-   fills them with the page's background COLOUR, and ours was a purple gradient
-   over --bg, so it read as a dark band beneath the bar. LuxuryLifts hides the
-   identical strip by accident — its page and its bottom nav are both white.
-   The base colour is therefore the tab bar's own bottom colour, so the strip
-   iOS paints is an invisible continuation of the bar. The gradients stay as
-   background-image, which is clipped to the real viewport. */
+/* A base colour rather than a gradient, chosen to match the tab bar. Not a
+   workaround: with status-bar-style "black" the viewport reaches the physical
+   bottom and there is no strip to hide. It simply means any area the browser
+   paints outside the document (rubber-banding, a UI transition) matches the
+   chrome instead of flashing a different colour. */
 body{
   margin:0;background-color:#08050F;
   background-image:
@@ -102,14 +106,10 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    habit) leaves #app short and a band of bare body background along the bottom.
    Pin it geometrically and there is no number to be wrong. */
 #app{position:fixed;inset:0;overflow:hidden}
-/* NO extra height. iOS gives an installed black-translucent app 894 visible
-   pixels of a 956px screen, and the missing 62 are simply NOT DISPLAYED.
-   Making the page taller does not reveal them — it pushes content into a
-   zone that is never painted, which sliced the Store buttons in half and
-   hid the tab labels. The page therefore stays exactly the visible
-   viewport, and the strip below is handled by body background-color
-   matching the tab bar, so it reads as a continuation of it. That is what
-   LuxuryLifts does by accident: white nav, white page, invisible strip. */
+/* No explicit height, no measured height, no extra height. position:fixed with
+   inset:0 IS the viewport, in the installed app and in a tab alike. The browser
+   media query below exists only because Safari's toolbars change the visible
+   area as you scroll; standalone has no toolbars and needs nothing. */
 @media (display-mode: browser){
   #app{bottom:auto;height:100svh;height:var(--app-h,100svh)}
 }
@@ -382,13 +382,14 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    The bottom padding carries the safe-area inset, so on a notched phone the
    bar's SURFACE runs under the home indicator while its TAPPABLE tabs stop
    above it. */
-/* Pinned to the VIEWPORT, exactly like the LuxuryLifts bottom nav, which is the
-   one that behaves on his iPhone. As a flex child it depended on every parent in
-   the chain being the right height, and that is what kept failing — behind the
-   Safari toolbar, or floating above a short #app. `position:fixed; bottom:0`
-   asks the browser to pin it to the bottom of the visible area and stops caring
-   what any ancestor thinks. translateZ(0) gives it its own compositing layer,
-   which is what stops the bar tearing and flickering while iOS scrolls. */
+/* Pinned to the viewport, like the LuxuryLifts bottom nav. The background runs
+   to the physical bottom edge while padding-bottom carries
+   env(safe-area-inset-bottom) so the tappable row clears the home indicator.
+   No standalone special case: with status-bar-style "black" the viewport ends
+   where the screen does, so bottom:0 means bottom.
+   Do NOT put transform, filter, backdrop-filter or will-change on any ANCESTOR
+   of this element — each creates a containing block and drags a fixed child off
+   the bottom. That has bitten this file before. */
 .tabbar{
   position:fixed;bottom:0;left:0;right:0;z-index:200;
   display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
@@ -399,24 +400,6 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   box-shadow:0 -1px 0 rgba(255,255,255,.05) inset,0 -12px 30px rgba(0,0,0,.55);
   backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
 }
-/* In standalone the shell is now taller than the viewport (see #app above), so a
-   viewport-pinned bar would stop at the SHORT viewport bottom — 894 instead of
-   956 — which is the gap all over again. In the installed app the bar therefore
-   goes back into normal flow as the last flex child, landing on the real bottom
-   of the taller shell. In a browser tab it stays position:fixed, where pinning
-   to the viewport is exactly right. */
-@media (display-mode: standalone){
-  /* Stays in flow at the bottom of the 894px visible page. The home indicator
-     lives in the 62px strip BELOW the viewport, which the page cannot reach, so
-     the bar does not also need var(--sab) of clearance — that double-count was
-     the ~100px of dead space under the labels. */
-  .tabbar{ position:static; flex:0 0 auto; padding-bottom:8px }
-}
-/* The old standalone padding override is gone. It existed because
-   black-translucent left a 62px strip below the viewport that already contained
-   the home indicator, so var(--sab) was double-counting it. Now the status bar
-   style is "black", the viewport reaches the physical bottom, the home indicator
-   is inside the page, and var(--sab) above is exactly right again. */
 .tab{
   position:relative;min-width:0;   /* min-width:0 or a long label stretches its column */
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
@@ -966,9 +949,6 @@ body.shake .stage,body.shake .ub-stage{animation:scShake .5s var(--ease)}
    strip underneath. Pulling their bottom edge down by the same inset lands
    them on the true bottom, exactly like the shell. Browser tabs are untouched
    — there the viewport bottom IS the bottom. */
-@media (display-mode: standalone){
-  .sheet,.scrim,.modal{ bottom:calc(0px - var(--sat)) }
-}
 .result{text-align:center;display:grid;gap:12px;place-items:center}
 .result .big{font-family:var(--disp);font-weight:900;font-size:clamp(36px,12vw,56px);letter-spacing:.08em;line-height:1}
 .result .big.win{background:linear-gradient(180deg,#FFF3CF,var(--gold),#C77A00);-webkit-background-clip:text;
@@ -1512,7 +1492,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 29;
+var KARTI_BUILD = 30;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
