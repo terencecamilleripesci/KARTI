@@ -40,9 +40,11 @@ const SET3 = [
   {id:'girandola', n:'The Catherine Wheel',      e:'🎡', f:'festa', r:'komuni', t:'monster', lvl:4, atk:1800, def:1300,
    txt:'Spins beautifully for eleven seconds, then leaves the frame and picks someone in the crowd personally.',
    eff:'No effect — solid level-4 beater.', fx:''},
-  {id:'tromba',    n:'The Trumpet Solo',         e:'🎷', f:'festa', r:'komuni', t:'monster', lvl:4, atk:1750, def:1750,
+  /* PROMOTED — see THE TWO PROMOTIONS at the foot of this file. 1750/1750 with
+     no tribute is the biggest free-summon body in the game; it was a Common. */
+  {id:'tromba',    n:'The Trumpet Solo',         e:'🎷', f:'festa', r:'epiku', t:'monster', lvl:4, atk:1750, def:1750,
    txt:'One man, one high note, zero chance. The whole square holds its breath and he misses it anyway.',
-   eff:'No effect — balanced level-4 body.', fx:''},
+   eff:'No effect — the biggest body in the game that costs no tribute.', fx:''},
   {id:'narmarina', n:'The Fireworks Barge',      e:'🚢', f:'festa', r:'rari',   t:'monster', lvl:5, atk:2550, def:2000,
    txt:'Fired from out at sea so the mistakes land in the water instead of on your aunt. Mostly.',
    eff:'Excess battle damage to a defending monster hits the opponent\'s LP.', fx:'pierce'},
@@ -81,9 +83,11 @@ const SET3 = [
   {id:'hmar',      n:'The Stubborn Donkey',      e:'🫏', f:'razzett', r:'komuni', t:'monster', lvl:4, atk:1800, def:1400,
    txt:'He has decided. You have not been told what he decided, and you will not be. But he has decided.',
    eff:'No effect — solid level-4 body.', fx:''},
-  {id:'bettieha',  n:'The Watermelon Van',       e:'🍉', f:'razzett', r:'komuni', t:'monster', lvl:4, atk:1800, def:1550,
+  /* PROMOTED — see THE TWO PROMOTIONS at the foot of this file. 1800/1550 free
+     beats fifteen of the eighteen Level-4 Rares on raw stats. */
+  {id:'bettieha',  n:'The Watermelon Van',       e:'🍉', f:'razzett', r:'epiku', t:'monster', lvl:4, atk:1800, def:1550,
    txt:'Through the village at six with a loudspeaker shouting the price. The price is never the price.',
-   eff:'No effect — balanced level-4 body.', fx:''},
+   eff:'No effect — a free-summon wall and beater in the same card.', fx:''},
   {id:'klieb',     n:'The Hunting Dogs',         e:'🐩', f:'razzett', r:'rari',   t:'monster', lvl:4, atk:1800, def:1100,
    txt:'Two of them, ninety kilos between them, and neither has been fed since the argument started.',
    eff:'Attacks two enemy monsters in one battle phase.', fx:'cleave'},
@@ -326,3 +330,29 @@ const SET3_DECKS = {
   },
 };
 Object.assign(STARTER_DECKS, SET3_DECKS);
+
+/* ═══════════════ THE TWO PROMOTIONS ═══════════════
+   The 200 used to sit at 110 Common / 56 Rare / 26 Epic / 8 Legendary. Four
+   equal sets need every one of those numbers divisible by four; 110 and 26 are
+   not. Moving exactly two Commons up to Epic gives 108 / 56 / 28 / 8, which is
+   27 / 14 / 7 / 2 per set, and is the smallest possible change to the pool.
+
+   Which two was not a taste call. After the rebalance, Levels 1-4 are priced on
+   LEVEL, not rarity — the Level-4 Common cohort averages 2989 total stats and
+   the Level-4 RARE cohort averages 3036, i.e. the same card. Two Commons sit a
+   long way over that line:
+
+     tromba    1750/1750 = 3500   +464 over the Level-4 Rare mean.
+                                  Out-totals seventeen of the eighteen Level-4
+                                  Rares and every other Common in the game.
+     bettieha  1800/1550 = 3350   +314 over the same mean, second-highest
+                                  Common total, beats fifteen of those Rares.
+
+   Both are free summons, so they were the best turn-one bodies in the game at
+   Common price. Nothing else moved: no ATK, no DEF, no level, no fx, and the
+   counter ring is untouched. Their `eff` lines were reworded because "balanced
+   level-4 body" is not a thing you say about an Epic.
+
+   Side effect worth having: FARM had only two Epics, the fewest of any
+   attribute. bettieha makes it three, so the FARM-led pack has an Epic of its
+   own attribute to give you.                                              */

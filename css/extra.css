@@ -305,3 +305,32 @@
   .seatgrid{grid-template-columns:1fr 1fr}
   .gacha-cell{width:200px}
 }
+
+/* ══════════════════ PACK SET PICKER ══════════════════
+   Four sets of 50 with identical rarity spreads, so this picks which jokes you
+   want, never which pack is worth more. Scrolls rather than wraps: four chips
+   wrapping to two rows pushed the pack itself off a short screen. */
+.setpick{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;
+  padding:6px 2px 8px;flex:0 0 auto}
+.setpick::-webkit-scrollbar{display:none}
+.setchip{flex:0 0 auto;max-width:46vw;min-height:44px;padding:6px 12px;border-radius:12px;
+  background:rgba(255,255,255,.05);border:1.5px solid var(--line);
+  display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+  transition:border-color .15s var(--ease),background .15s var(--ease)}
+.setchip.on{border-color:var(--dc,var(--gold));background:rgba(255,255,255,.09);
+  box-shadow:0 0 16px -6px var(--dc,var(--gold))}
+.setchip:active{transform:scale(.97)}
+.setchip .sc{font-family:var(--disp);font-weight:900;font-size:11px;letter-spacing:.12em;
+  color:var(--dc,var(--gold))}
+.setchip .sn{font-size:9.5px;color:var(--dim);white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;max-width:100%}
+
+/* The pack face now carries real set art, so the code and set name sit on top of
+   a busy illustration. A scrim behind the text keeps them readable without
+   hiding the art. */
+.pack .fc.front .plogo,.pack .fc.front .psub{position:relative;z-index:2;
+  text-shadow:0 2px 6px rgba(0,0,0,.85)}
+.pack .fc.front::after{content:'';position:absolute;inset:0;z-index:1;pointer-events:none;
+  background:linear-gradient(180deg,rgba(8,5,16,.62),rgba(8,5,16,.12) 42%,
+             rgba(8,5,16,.18) 62%,rgba(8,5,16,.72))}
+.pack .fc.front .pemo,.pack .fc.front .pcount,.pack .fc.front .foil{position:relative;z-index:2}

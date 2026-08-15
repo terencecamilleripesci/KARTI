@@ -268,7 +268,11 @@ function logout(){
 const DEFAULT_STATE = () => ({
   owned:{}, dust:0, coins:300, packs:1,
   decks:[], activeDeck:null, starters:[], side:null,
-  rec:{ w:0, l:0 }
+  rec:{ w:0, l:0 },
+  /* which of the four sets packs come from, and the pity counters that stop a
+     player sitting on a long dry run. load() Object.assigns over these defaults,
+     so an old save picks them up without a migration. */
+  packSet:null, pity:{ leg:0, epic:0, packs:0 }
 });
 let S = DEFAULT_STATE();
 
@@ -673,18 +677,45 @@ const PACK_COST = 150;
 let packBusy = false;
 let tiltHooked = false;
 
+/* Which of the four sets the next pack comes from. Each set is 50 cards with an
+   identical rarity spread, so this is a choice of jokes, never a choice of value. */
+function activeSet(){
+  const sets = window.CARD_SETS || KARTI.CARD_SETS || [];
+  if (!sets.length) return null;
+  return sets.find(s => s.id === S.packSet) || sets[0];
+}
+function renderSetPicker(){
+  const sets = window.CARD_SETS || KARTI.CARD_SETS || [];
+  const host = $('#pack-sets');
+  if (!host || !sets.length) return;
+  const cur = activeSet();
+  host.innerHTML = '';
+  sets.forEach(s => {
+    const b = document.createElement('button');
+    b.className = 'setchip' + (cur && s.id === cur.id ? ' on' : '');
+    b.style.setProperty('--dc', s.c || 'var(--gold)');
+    b.setAttribute('aria-pressed', String(!!cur && s.id === cur.id));
+    b.innerHTML = '<span class="sc">' + esc(s.code) + '</span>' +
+                  '<span class="sn">' + esc(s.name) + '</span>';
+    b.onclick = () => { if (packBusy) return; S.packSet = s.id; save(); renderPackScreen(); };
+    host.appendChild(b);
+  });
+}
 function renderPackScreen(){
   packBusy = false;
   $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+  const set = activeSet();
+  const face = set && uiArt('pack', set.art);
   const stage = $('#pack-stage');
   stage.innerHTML =
     '<div class="pack" id="the-pack" role="button" tabindex="0" aria-label="Sealed card pack — tap to tear open">' +
       '<div class="fc back2"></div>' +
       '<div class="side sL"></div><div class="side sR"></div>' +
-      '<div class="fc front">' +
+      '<div class="fc front"' + (face ? ' style="background-image:url(' + face + ');background-size:cover;background-position:center"' : '') + '>' +
         '<div class="pemo">' + ico('cross-malta') + '</div>' +
-        '<div class="plogo">KARTI</div>' +
-        '<div class="psub">Sealed foil · 5 cards<br>1 rare or better guaranteed</div>' +
+        '<div class="plogo">' + (set ? esc(set.code) : 'KARTI') + '</div>' +
+        '<div class="psub">' + (set ? esc(set.name) + '<br>' : '') +
+          'Sealed foil · 5 cards · 1 rare or better</div>' +
         '<div class="pcount">18+</div>' +
         '<div class="foil"></div>' +
       '</div>' +
@@ -692,6 +723,7 @@ function renderPackScreen(){
     '</div>' +
     '<div class="burst" id="burst"></div>' +
     '<div class="rays" id="rays"></div>';
+  renderSetPicker();
   hookTilt();
   const pk = $('#the-pack');
   pk.onclick = tryOpen;
@@ -767,7 +799,7 @@ function tryOpen(){
 }
 
 async function runPackOpen(){
-  const cards = openPack(5);
+  const cards = openPack(5, S.packSet);
   const results = cards.map(c => {
     const r = addCard(c.id);
     return { card:c, isNew:r.isNew, dusted:r.dusted };

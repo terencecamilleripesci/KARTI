@@ -32,6 +32,12 @@ const K = window.KARTI;
 if (!K) return;
 const $ = K.$, esc = K.esc;
 
+/* cards.js owns the four sets and the pack odds, but it is loaded before
+   game.js exists, so it parks its API on window.KARTI_PACKS. This file loads
+   last, so this is where CARD_SETS / openPack / packPity become reachable as
+   window.KARTI.* for the rest of the game and for the test harness. */
+if (window.KARTI_PACKS) Object.assign(K, window.KARTI_PACKS);
+
 /* The three beginner decks, and the only decks the game ever hands out.
    One per ring attribute, so the counter triangle is symmetric: every
    beginner beats exactly one of the others and loses to exactly one.
