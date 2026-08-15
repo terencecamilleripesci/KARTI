@@ -36,7 +36,7 @@ cause is something else and I have been wrong about it.
 
 ## 1. SOUND — the thing I most want your ear on
 
-47 effects. Levels are the one thing I can measure but not judge.
+51 effects. Levels are the one thing I can measure but not judge.
 
 - Tap around the app. Taps, tabs, sheets opening, going back.
 - **The tabs should sound like an instrument, not a button.** Each one is a
@@ -58,6 +58,19 @@ Party Games is now split into **Board games** and **Card games**, and nothing
 says COMING SOON.
 
 **Board**
+- **TOMBLA** — new, and the research on this one is worth two minutes of your
+  time. **Malta does not play the Italian ladder.** The Lotteries and Other
+  Games Act (Cap. 438) defines a tombola game as won on the **LINE** or the
+  **HOUSE** — that is the entire ladder, shorter even than UK bingo. And the
+  words *ambo, terna, kwaterna* belong to **il-lottu** in Maltese, not to
+  tombla. So shipping the Italian ladder and calling it Maltese would have been
+  a made-up variant.
+  Both are in there under their own names: **Tombla klassika** (five rungs, the
+  default, because nobody is out after two minutes) and **Tal-każin** (VERS then
+  FATTA, the documented Maltese one). It also uses the real **laqmijiet** —
+  Malta's own number nicknames, 53 *il-pastizz*, 90 *ix-xiħa* — kept separate
+  from our own jokes so the two can never be confused. You mark your own
+  numbers; there is no highlight, only a count.
 - **CHESS** — move-generation is perft-verified, so the rules are right.
 - **DAMA** — forced capture, chains, king me.
 - **IL-KIRI** — the property game. The thing to test is the one you asked for:
@@ -125,16 +138,14 @@ address. Test it with someone outside the house, or on mobile data.
 
 ## WHAT IS STILL BEING BUILT WHILE YOU SLEEP
 
-- **TOMBLA** — Maltese bingo, the full ladder: ambo, terna, kwaterna, ċinkwina,
-  tombla. The one game that gets *better* with a big table, since everybody
-  marks at once and nobody waits for a turn.
 - **The shared lobby screen.** The transport under it is DONE and measured —
   sixteen full sixteen-seat tables at once run at under 4% of one core on the
   Pi, which is 256 sockets. The lobby UI itself is not written yet, so the games
   cannot be joined from a room until it is.
-- **SKARTA's seat cap.** It ships capped at 4 chairs, which contradicts
-  "make it 8plus". 108 cards and a hand of 7 deal to fifteen players, so the
-  real number is being worked out rather than picked for tidiness.
+Everything else is done. SKARTA now seats **ten** — measured, not picked: the
+discard is recycled, so what decides a big table is the pool against the twelve
+cards a maxed chain can demand, and at ten it never once fell below 22 over 400
+games. Eleven has zero margin.
 
 ---
 
