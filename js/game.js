@@ -637,11 +637,26 @@ function profileSheet(){
     '</div>' +
     /* the 18+ line — it lives here rather than under the bottom nav, where it was
        just filler taking up the last row of a phone screen */
+    /* Build + art state, so a support question stops being guesswork: it says
+       which service worker version the phone is really running (an installed
+       PWA can sit on a stale one for days) and whether the artwork loaded. */
+    '<p class="fineprint" id="pf-build" style="margin-top:10px;opacity:.55"></p>' +
     '<p class="fineprint" style="margin-top:12px">18+ · Contains mothers-in-law, ' +
     'Marsa traffic and one very accurate slipper.</p>');
   $('#pf-close').onclick = closeSheet;
   const up = $('#pf-upgrade');
   if (up) up.onclick = upgradeSheet;
+  { const el = $('#pf-build');
+    if (el){
+      const art = ART.base ? 'art ok' : 'art fallback';
+      el.textContent = 'build …';
+      const show = v => { el.textContent = 'build ' + v + ' · ' + art; };
+      if (navigator.serviceWorker && navigator.serviceWorker.controller){
+        fetch('sw.js', { cache:'no-store' }).then(r => r.text())
+          .then(t => show((t.match(/karti-v\d+/) || ['unknown'])[0]))
+          .catch(() => show('offline'));
+      } else show('no service worker');
+    } }
   { const c = $('#pf-cloud'); if (c) c.onclick = () => { closeSheet(); KARTI_SYNC.openPanel(); }; }
   $('#pf-switch').onclick = () => { closeSheet(); logout(); };
   $('#pf-out').onclick = () => { closeSheet(); logout(); };

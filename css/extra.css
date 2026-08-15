@@ -266,7 +266,14 @@
           --art-home is a designed gradient in the brand palette, so a missing
           image reads as a calmer skin, not a broken screen. detectArt()
           overwrites this with the photo the moment the probe succeeds. */
-       --art-home:radial-gradient(140% 72% at 50% -14%, #372259 0%, rgba(20,14,34,0) 62%),
+       /* The photo is named DIRECTLY here, not switched on by JavaScript. It used
+          to depend on detectArt() probing an Image(), which depended on the
+          service worker having cached it, which a version bump could wipe — three
+          things that can fail, for a background picture. A plain url() just paints
+          when the file loads. The gradients sit underneath as the fallback, so a
+          missing file still reads as a designed screen rather than flat black. */
+       --art-home:url("../art/ui/home-bg.jpg"),
+                  radial-gradient(140% 72% at 50% -14%, #372259 0%, rgba(20,14,34,0) 62%),
                   radial-gradient(120% 58% at 50% 118%, #2A1640 0%, rgba(20,14,34,0) 58%),
                   linear-gradient(180deg,#171126 0%,#0E0B14 55%,#130D20 100%);
        --art-pile-deck:none; --art-pile-grave:none; --art-pile-banish:none; }
