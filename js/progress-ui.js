@@ -555,7 +555,9 @@ function injectCSS(){
     'text-transform:uppercase;color:var(--txt,#F4EFFF);text-align:center;line-height:1.25}' +
   '#kx-pick .kx-f i{font-style:normal;font-size:8.5px;letter-spacing:.1em;font-weight:700;' +
     'text-transform:uppercase;color:var(--dim2,#7F73A0)}' +
-  '#kx-pick .kx-blurb{flex:0 0 auto;margin:10px 2px 0;min-height:32px;font-size:11.5px;line-height:1.45;' +
+  '.kx-pkph{margin:10px 0 0}' +
+    '.kx-pkphb{width:100%}' +
+    '#kx-pick .kx-blurb{flex:0 0 auto;margin:10px 2px 0;min-height:32px;font-size:11.5px;line-height:1.45;' +
     'color:var(--dim,#A093C4);text-align:center;font-style:italic}' +
   '#kx-pick .kx-acts2{display:flex;gap:8px;margin-top:10px;flex:0 0 auto}' +
   '#kx-pick .kx-acts2 button{flex:1;min-height:46px;border-radius:12px;font-family:var(--disp);' +
@@ -1344,7 +1346,7 @@ function openPicker(o){
   }
   PK.el = el;
   PK.first = !!o.first;
-  PK.sel = XP.avatar();
+  PK.sel = (XP.usingPhoto() && XP.hasPhoto()) ? '__photo__' : XP.avatar();
   paintPicker();
   el.classList.add('on');
   sfx(function(S){ S.play('ui.sheet'); });
@@ -1352,6 +1354,20 @@ function openPicker(o){
 
 function closePicker(){
   if (PK.el) PK.el.classList.remove('on');
+}
+
+function photoPickHTML(){
+  if (!XP.canPhoto()) return '';                 /* a guest cannot have one */
+  var has = XP.hasPhoto(), on = XP.usingPhoto() && PK.sel === '__photo__';
+  var name = '';
+  try { if (window.KARTI && KARTI.displayName) name = KARTI.displayName(); } catch (e){}
+  return '<div class="kx-pkph">' +
+    '<button type="button" class="kx-f kx-pkphb' + (on ? ' on' : '') + '" data-photo="1">' +
+      '<span class="kx-fw">' +
+        (has ? avatarHTML(name, { size:54, me:true }) : ico('person')) + '</span>' +
+      '<b>' + (has ? 'Your photo' : 'A photo of you') + '</b>' +
+      '<i>' + (has ? 'Yours' : 'Choose one') + '</i>' +
+    '</button></div>';
 }
 
 function paintPicker(){
@@ -1377,7 +1393,16 @@ function paintPicker(){
                  '<i>' + (got ? (f.lvl <= 1 ? 'Free' : 'Yours') : 'Level ' + f.lvl) + '</i></button>';
         }).join('') +
       '</div>' +
-      '<p class="kx-blurb">' + esc(sel ? sel.blurb : '') + '</p>' +
+      /* THE PHOTOGRAPH IS A CHOICE HERE, not only in the customisation
+         screen. This picker is what you get by tapping your own face, so it
+         is where a person looks to change it — and a photo that can only be
+         chosen somewhere else is a photo nobody finds. Worse, picking any
+         drawn face turns the photo OFF, so without this there was no way
+         back to it from the screen that took it away. */
+      photoPickHTML() +
+      '<p class="kx-blurb">' + esc(PK.sel === '__photo__'
+          ? 'Your own picture, kept on the Pi so everybody else sees it too.'
+          : (sel ? sel.blurb : '')) + '</p>' +
       '<div class="kx-acts2">' +
         (PK.first ? '' : '<button type="button" class="ghost" id="kx-pk-x">Close</button>') +
         '<button type="button" id="kx-pk-ok">' + (PK.first ? 'This is me' : 'Use this face') + '</button>' +
@@ -1397,9 +1422,24 @@ function paintPicker(){
       paintPicker();
     };
   });
+  var ph = $('.kx-pkphb', el);
+  if (ph) ph.onclick = function(){
+    if (!XP.hasPhoto()){
+      /* nothing to wear yet — send them where the picture is chosen */
+      closePicker();
+      XP.open('you');
+      return;
+    }
+    PK.sel = '__photo__';
+    sfx(function(S){ S.note(4, { gain:0.3 }); });
+    paintPicker();
+  };
   var ok = $('#kx-pk-ok', el);
   if (ok) ok.onclick = function(){
-    XP.setAvatar(PK.sel);
+    /* the photo is a choice like any other: choosing it wears it, and
+       choosing a drawn face takes it off. One decision, one place. */
+    if (PK.sel === '__photo__'){ XP.usePhoto(true); }
+    else { XP.usePhoto(false); XP.setAvatar(PK.sel); }
     closePicker();
     if (SC.live) renderScreen();
     queueRepaint();
