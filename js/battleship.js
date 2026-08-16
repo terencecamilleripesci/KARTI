@@ -650,7 +650,13 @@ function apply(st, seat, mv){
 
   if (t === 'mode'){
     if (st.phase !== 'mode') return { ok:true, stale:true, ev:ev };
-    if (seat !== 0) return { ok:false, why:'only the host picks the mode', ev:ev };
+    /* the picker is the lowest seat still IN, not literally seat 0. If
+       the host walks out during the pick (a real online sequence: tap
+       Leave on the KLASSIKA/KARTI question), the chair passes — the old
+       hard-coded 0 left a table where nobody alive was allowed to pick
+       the mode, which is a table that can never start and never end. */
+    var picker = aliveSeats(st)[0];
+    if (seat !== picker) return { ok:false, why:'only the host picks the mode', ev:ev };
     st.mode = mv.o ? 'karti' : 'klassika';
     st.phase = 'place';
     ev.push({ e:'phase', phase:'place' });

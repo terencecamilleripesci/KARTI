@@ -516,6 +516,7 @@ function buildState(opts, seed, log){
 
 function startMatch(opts, seed, log){
   stopThinking();
+  stopVote();
   M = {
     opts: clone(opts || {}),
     seed: (seed == null ? newSeed() : seed) >>> 0,
@@ -542,9 +543,19 @@ function applyMeta(){
   });
 }
 function iDrive(){ return !M || !M.net || M.net.host; }
+/* the AI/table beat timer ONLY. The vote clock is deliberately not
+   cleared here: step() calls this at the tail of every render, and
+   killing the vote interval there was the bug that made online silence
+   last forever — the 20-second countdown died on the very render that
+   started it, so a silent phone never sent its 'go' and the whole
+   table waited on it without end. voteClock() manages its own life;
+   stopVote() is for the moments the match itself is being put away. */
 function stopThinking(){
   if (M && M.timer){ clearTimeout(M.timer); M.timer = 0; }
+}
+function stopVote(){
   if (M && M.voteTimer){ clearInterval(M.voteTimer); M.voteTimer = 0; }
+  if (M && M.tmp) M.tmp.voteUntil = 0;
 }
 function ownerOf(i){
   if (!M) return 'ai';
@@ -574,6 +585,7 @@ function rollbackTo(n){
   if (!M) return null;
   n = Math.max(0, Math.min(M.log.length, n | 0));
   stopThinking();
+  stopVote();
   M.log = M.log.slice(0, n);
   M.st = buildState(M.opts, M.seed, M.log);
   applyMeta();
@@ -1137,6 +1149,7 @@ function leftTable(){
   const ctx = M && M.ctx;
   if (!ctx) return;
   stopThinking();
+  stopVote();
   M.finished = true;
   const net = M.net;
   P.ui.result(ctx, {
@@ -1218,6 +1231,7 @@ function finish(done){
   if (M.finished) return;
   M.finished = true;
   stopThinking();
+  stopVote();
   cueIn(260, () => cue(done.tone === 'win' ? 'game.win'
                      : done.tone === 'lose' ? 'game.lose' : 'ui.toast', { gain: 1 }, true));
   saveSlot(null);
@@ -1303,6 +1317,7 @@ function openBoard(onBack){
 
 function leave(){
   stopThinking();
+  stopVote();
   if (M){
     autosave();
     persistNow();
@@ -1355,8 +1370,29 @@ const modeName = mode => (E.modeOf(mode) === 'ghaxra' ? 'GĦAXRA · ten cards' :
    preference in its own key, so it survives games and reloads. The
    table tally rides at the top — the scoreboard, one tap away
    mid-hand, without a second overlay. ───────────────────────────── */
+/* THE STANDING RULE: nothing may ever cover the player's hand. Portrait
+   leaves the 54% CSS cap miles clear of it, but a landscape phone does
+   not — measured, the open panel reached ~28px into the top card row.
+   So the cap is taken off the hand's actual position instead of trusting
+   a percentage: the panel may grow down to just above the hand and no
+   further, and its body scrolls inside whatever that leaves. */
+function clampRules(){
+  if (!UI || !UI.rules || !UI.hand) return;
+  try {
+    const hr = UI.hand.getBoundingClientRect();
+    const rr = UI.root.getBoundingClientRect();
+    if (hr.height > 0 && rr.height > 0){
+      const room = Math.floor(hr.top - rr.top - 6);
+      UI.rules.style.maxHeight =
+        Math.min(Math.max(80, room), Math.floor(rr.height * 0.54)) + 'px';
+    }
+  } catch(e){}
+}
+window.addEventListener('resize', () => { if (UI && rulesOpen) clampRules(); });
+
 function paintRules(){
   if (!UI || !UI.rules) return;
+  clampRules();
   const mode = M ? M.st.mode : 'classic';
   UI.rules.querySelector('#rm-rules-t').textContent =
     modeName(mode) + ' — the rules';
@@ -1387,7 +1423,7 @@ function setRules(open){
 function setupSheet(){
   injectCSS();
   P.show();
-  stopThinking(); M = null; UI = null;
+  stopThinking(); stopVote(); M = null; UI = null;
   const el = P.ui.screenEl();
   const p = pref();
   let seats  = Math.max(2, Math.min(12, p.seats || 4));
@@ -1638,6 +1674,7 @@ function onlineStop(why, tone){
   if (!M || M.dead || !M.ctx) return;
   const ctx = M.ctx;
   stopThinking();
+  stopVote();
   M.finished = true;
   P.ui.setNet(ctx, '', '');
   P.ui.result(ctx, {

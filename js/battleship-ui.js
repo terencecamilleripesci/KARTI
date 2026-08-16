@@ -1303,10 +1303,15 @@ function paintPlaceWait(){
     '</div>';
 }
 function paintModePick(){
-  const host = G.mode === 'online' ? (G.mySeat === 0) : true;
-  setTurnStrip({ col:'#FFC542', who: host ? 'Pick the game' : nameOf(0) + ' is picking the game', note:'' });
+  /* the picker is the lowest seat still in — the engine's rule, mirrored.
+     If the host leaves during the pick the question moves to the next
+     chair instead of the table waiting on somebody who has gone. */
+  const alive = E.aliveSeats(G.st);
+  const picker = alive.length ? alive[0] : 0;
+  const host = G.mode === 'online' ? (G.mySeat === picker) : true;
+  setTurnStrip({ col:'#FFC542', who: host ? 'Pick the game' : nameOf(picker) + ' is picking the game', note:'' });
   if (!host){
-    G.els.stage.innerHTML = '<div class="bs-waitbox"><p>' + esc(nameOf(0)) +
+    G.els.stage.innerHTML = '<div class="bs-waitbox"><p>' + esc(nameOf(picker)) +
       ' is choosing between KLASSIKA and KARTI TAL-KANUN…</p></div>';
     return;
   }
@@ -1319,8 +1324,8 @@ function paintModePick(){
       '<button class="pt-opt" id="bs-ml">' + ico('shield') +
         '<b>Klassika</b><i>One shell a turn. The serious one.</i></button>' +
     '</div></div>';
-  G.els.stage.querySelector('#bs-mk').onclick = () => localApply(0, { t:'mode', o:1 });
-  G.els.stage.querySelector('#bs-ml').onclick = () => localApply(0, { t:'mode', o:0 });
+  G.els.stage.querySelector('#bs-mk').onclick = () => localApply(picker, { t:'mode', o:1 });
+  G.els.stage.querySelector('#bs-ml').onclick = () => localApply(picker, { t:'mode', o:0 });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
