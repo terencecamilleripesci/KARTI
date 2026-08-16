@@ -420,9 +420,30 @@ function newGame(opts){
     { name:'You',   kind:'human' },
     { name:'Doris', kind:'cpu', level:2 },
   ];
+  const seed = (opts.seed != null ? (opts.seed | 0) : (Math.random() * 2147483647) | 0);
   const G = {
     v: VERSION,
-    rng: (opts.seed != null ? (opts.seed | 0) : (Math.random() * 2147483647) | 0),
+    rng: seed,
+    /* WHAT THIS TABLE WAS BUILT FROM, kept so replay() can build it again.
+       The seed and the seat list ARE the deal: two phones handed these
+       four things deal themselves the same game without a byte of state
+       ever crossing the wire. See §20. */
+    setup: {
+      seed,
+      roundLimit: (opts.roundLimit == null ? 30 : opts.roundLimit),
+      auction: opts.auction !== false,
+      players: seats.slice(0, MAX_SEATS).map(p => ({
+        name: p.name, kind: p.kind === 'cpu' ? 'cpu' : 'human',
+        level: p.level == null ? 2 : p.level, link: p.link || 'local',
+      })),
+    },
+    /* DECLINING IS NOT FREE — but whether it goes under the hammer is a
+       table setting, not a decision the person declining gets to make.
+       It lives on the game object so every phone in a room reads the
+       same answer out of the same deal. */
+    auctionOn: opts.auction !== false,
+    /* every action anybody has taken, in order. §20. */
+    moves: [],
     started: Date.now(),
     round: 1,
     roundLimit: (opts.roundLimit == null ? 30 : opts.roundLimit),   /* 0 = last one standing */
@@ -598,9 +619,13 @@ function holdings(G, p){
    and a shrug.
    ═══════════════════════════════════════════════════════════════════ */
 let FX = null;
+/* A REBUILD MAKES NO NOISE. replay() and rollbackTo() run the same
+   mutators a real game runs, so without this a rollback would fire two
+   hundred dice sounds at once. See §20. */
+let quiet = 0;
 function onFx(fn){ FX = (typeof fn === 'function') ? fn : null; return FX; }
 function fx(k, d){
-  if (!FX) return;
+  if (!FX || quiet) return;
   try { d = d || {}; d.k = k; FX(d); } catch(e){}
 }
 
@@ -910,6 +935,9 @@ function buy(G){
    whatever anybody will pay, starting at ten euro. */
 function declineBuy(G, auctionOn){
   if (G.phase !== 'awaitBuy') return false;
+  /* the caller may say; if it does not, the TABLE says — G.auctionOn is
+     part of the deal and is therefore the same on every phone */
+  if (auctionOn === undefined) auctionOn = (G.auctionOn !== false);
   const i = cur(G).pos;
   fx('decline', { p: G.turn, i });
   if (auctionOn === false){
@@ -1479,6 +1507,485 @@ function money(n){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   20. THE ONE DOOR — apply(G, seat, move)
+   ───────────────────────────────────────────────────────────────────
+   Everything above this line is a mutator. Everything below is the
+   ONLY way any of them may be called: a finger, the machine, and a
+   packet off the relay all come through here and are gated by the
+   same three questions.
+
+     1. IS THIS A MOVE THIS GAME MAKES?    an unknown name is refused
+     2. IS IT THIS SEAT'S TO MAKE?         actorOf() — and the seat is
+                                           never the sender's word for
+                                           it, it is the relay's stamp
+     3. DO THE RULES ALLOW IT RIGHT NOW?   the phase, and the canX()
+                                           predicates that were always
+                                           there
+
+   A refusal is a REFUSAL, not an absorption. Nothing is mutated,
+   nothing is logged, nothing is announced, and the caller is handed
+   the reason in words. That is the property the online half rests on:
+   a stale or hostile packet leaves the table exactly as it was, and
+   the other phones can be told what was refused and by whom.
+
+   WHY THIS IS THE WHOLE VOCABULARY. Eighteen names. Sixteen of them
+   are the obvious ones; the two that look like plumbing are not:
+     · `card`  — the face-up card is a real decision point. The table
+                 waits on somebody saying "right then", and until they
+                 do the state has not moved. If that were a local tap
+                 the other phones would sit on a card that never
+                 resolved.
+     · `settle` — paying a debt the moment you have raised the money.
+                 Selling a floor settles it automatically; tapping
+                 "Pay" when you were already good for it does not.
+
+   ...and two more that never leave this phone, `away` and `back`.
+   They come through the door because nothing may mutate G except
+   through the door — but they are NOT logged and NOT relayed, and
+   §20.4 says why at length.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* every name, and the phases it is allowed in. A phase not on the line
+   is a refusal by phase, not by rule — which is a different sentence
+   for the player and a different bug for us. */
+const PHASES_OF = {
+  roll:       ['awaitRoll'],
+  card:       ['card'],
+  buy:        ['awaitBuy'],
+  decline:    ['awaitBuy'],
+  bid:        ['auction'],
+  pass:       ['auction'],
+  build:      ['awaitRoll', 'awaitBuy', 'awaitEnd'],
+  sell:       ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
+  mortgage:   ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
+  unmortgage: ['awaitRoll', 'awaitBuy', 'awaitEnd'],
+  offer:      ['awaitEnd'],
+  accept:     ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
+  refuse:     ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
+  settle:     ['debt'],
+  bail:       ['awaitRoll'],
+  skip:       ['awaitRoll'],
+  end:        ['awaitEnd'],
+  bankrupt:   ['debt'],
+};
+
+/* the names that cross the wire — `away`/`back` deliberately do not */
+const WIRE_MOVES = Object.keys(PHASES_OF);
+
+/* WHOSE MOVE IS THIS, RIGHT NOW?
+   Usually the seat whose turn it is. Not always: an auction goes round
+   every seat in turn, a trade offer is answered by whoever it was put
+   to, and a debt is raised by whoever owes it. One function answers it
+   for every move name, so the UI, the machine and the transport can
+   never disagree about who is allowed to press what. */
+function actorOf(G, t){
+  if (!G || G.over) return -1;
+  switch (t){
+    case 'bid': case 'pass':
+      return (G.phase === 'auction' && G.auction) ? auctionBidder(G) : -1;
+    case 'accept': case 'refuse':
+      return G.offer ? G.offer.to : -1;
+    case 'settle': case 'bankrupt':
+      return (G.phase === 'debt' && G.debt) ? G.debt.who : -1;
+    case 'sell': case 'mortgage':
+      /* raising money is done by whoever owes it, which is the seat
+         whose turn it is in every path the engine can reach — but say
+         so explicitly rather than assume it */
+      return (G.phase === 'debt' && G.debt) ? G.debt.who : G.turn;
+    default:
+      return G.turn;
+  }
+}
+
+const no  = (err, why) => ({ ok:false, err, why });
+const yes = extra => Object.assign({ ok:true, err:null, why:'' }, extra || {});
+
+/* the reasons a refused trade can be given, as codes rather than
+   sentences, so the machine's own words survive a trip over a wire
+   that carries nothing but small integers */
+const REFUSAL_LINES = [
+  'said no.',
+  'is on autopilot and is not signing anything.',
+  'will not put that much cash out of the door.',
+  'says that is worse than doing nothing.',
+  'says finishing that set costs more than that.',
+  'says close, but not close enough.',
+];
+
+/* a canonical copy of an offer — the shape that goes in the log and on
+   the wire, with nothing of the caller's own object left in it */
+function cleanOffer(G, from, o){
+  const cap = 32;
+  const list = a => (Array.isArray(a) ? a : [])
+    .map(x => x | 0).filter(x => x >= 0 && x < cap)
+    .filter((x, n, all) => all.indexOf(x) === n)
+    .sort((x, y) => x - y);
+  return {
+    from,
+    to: o.to | 0,
+    propsFrom: list(o.propsFrom),
+    propsTo:   list(o.propsTo),
+    cashFrom:  Math.max(0, Math.round(o.cashFrom || 0)),
+    cashTo:    Math.max(0, Math.round(o.cashTo || 0)),
+    skipsFrom: Math.max(0, Math.min(255, o.skipsFrom | 0)),
+    skipsTo:   Math.max(0, Math.min(255, o.skipsTo | 0)),
+  };
+}
+
+function apply(G, seat, move, src){
+  if (!G) return no('no-game', 'there is no game on the table');
+  if (!move || typeof move !== 'object') return no('no-move', 'an empty move');
+  const t = String(move.t || '');
+  seat = seat | 0;
+  if (!G.players[seat]) return no('no-seat', 'a move from a chair that is not at this table');
+
+  /* ── §20.4 the two that never leave the phone ──────────────────
+     A seat going quiet is not a thing that HAPPENED at the table; it
+     is a thing that happened to one person's phone. It comes through
+     the door because nothing may mutate G except through the door,
+     and then it stops here: it is not pushed onto moves[], it is not
+     announced to onMove(), and checksum() cannot see it. That is
+     deliberate and it is what makes the online path safe —
+       · only the device that owns a seat ever marks that seat away,
+         so no two phones can race to decide it;
+       · presence is the one thing that legitimately DIFFERS between
+         phones, and a fingerprint that included it would have every
+         client disagreeing the moment somebody put their phone down.
+     What the machine then plays for that seat is an ordinary move and
+     crosses like any other. */
+  if (t === 'away' || t === 'back'){
+    const P = G.players[seat];
+    if (P.kind === 'cpu') return no('cpu-seat', 'a machine chair cannot go anywhere');
+    if (P.out) return no('out', 'that seat is already finished');
+    const want = (t === 'away');
+    if (!!P.auto === want) return no('no-change', want ? 'that seat is already on autopilot'
+                                                       : 'that seat is already being played');
+    setPresent(G, seat, !want, move.why);
+    return yes({ local:true });
+  }
+
+  if (!PHASES_OF[t]) return no('unknown-move', 'a move this game does not have');
+  if (G.over) return no('over', 'a move after the game had already finished');
+
+  /* who is allowed to do it */
+  const actor = actorOf(G, t);
+  /* a seat that is out still has to be stepped over, and endTurn is how */
+  const outEnd = (t === 'end' && G.players[G.turn].out && seat === G.turn);
+  if (!outEnd && actor !== seat)
+    return no('not-turn', 'a move out of turn');
+
+  /* ...and when */
+  if (!outEnd && PHASES_OF[t].indexOf(G.phase) < 0)
+    return no('bad-phase', 'a move that does not belong in this part of the turn');
+
+  const i = move.i | 0;
+  let rec = null;
+
+  switch (t){
+
+    case 'roll':
+      if (!canRoll(G)) return no('cannot-roll', 'a roll when the dice are not theirs to throw');
+      roll(G);
+      rec = { t };
+      break;
+
+    case 'card':
+      if (!G.card) return no('no-card', 'turning over a card that is not there');
+      applyCard(G);
+      rec = { t };
+      break;
+
+    case 'buy':
+      if (!canBuy(G)) return no('cannot-buy', 'buying something that is not for sale, or not affordable');
+      buy(G);
+      rec = { t };
+      break;
+
+    case 'decline':
+      if (!declineBuy(G)) return no('cannot-decline', 'passing on something that was never offered');
+      rec = { t };
+      break;
+
+    case 'bid': {
+      const n = Math.round(Number(move.n));
+      if (!isFinite(n) || n <= 0) return no('bad-bid', 'a bid that is not a number');
+      if (n <= G.auction.bid) return no('bad-bid', 'a bid that does not beat the one on the table');
+      if (n > G.players[seat].cash) return no('bad-bid', 'a bid bigger than what that chair is holding');
+      auctionBid(G, n);
+      rec = { t, n };
+      break;
+    }
+
+    case 'pass':
+      if (G.auction.out.indexOf(seat) >= 0) return no('already-out', 'a chair dropping out of an auction it already left');
+      auctionPass(G);
+      rec = { t };
+      break;
+
+    case 'build':
+      if (!canBuild(G, seat, i)) return no('cannot-build', 'a floor where the rules do not allow one');
+      build(G, i);
+      rec = { t, i };
+      break;
+
+    case 'sell':
+      if (!canSell(G, seat, i)) return no('cannot-sell', 'selling a floor that is not theirs to sell');
+      sellBuilding(G, i, seat);
+      rec = { t, i };
+      break;
+
+    case 'mortgage':
+      if (!canMortgage(G, seat, i)) return no('cannot-mortgage', 'mortgaging something that cannot be mortgaged');
+      mortgage(G, i, seat);
+      rec = { t, i };
+      break;
+
+    case 'unmortgage':
+      if (!canUnmortgage(G, seat, i)) return no('cannot-redeem', 'clearing a mortgage they cannot pay for');
+      unmortgage(G, i, seat);
+      rec = { t, i };
+      break;
+
+    case 'offer': {
+      if (G.offer) return no('offer-open', 'a second offer while one is still on the table');
+      const o = cleanOffer(G, seat, move);
+      if (o.to === seat) return no('bad-offer', 'an offer to themselves');
+      const bad = tradeLegal(G, o);
+      if (bad) return no('bad-offer', 'an offer the rules refuse: ' + bad);
+      G.offer = o;
+      G.tradeTries = (G.tradeTries || 0) + 1;
+      say(G, G.players[o.from].name + ' has put something to ' + G.players[o.to].name + '.', 'card');
+      fx('offer', { from:o.from, to:o.to });
+      rec = { t, to:o.to, propsFrom:o.propsFrom, propsTo:o.propsTo,
+              cashFrom:o.cashFrom, cashTo:o.cashTo,
+              skipsFrom:o.skipsFrom, skipsTo:o.skipsTo };
+      break;
+    }
+
+    case 'accept': {
+      if (!G.offer) return no('no-offer', 'accepting a deal nobody offered');
+      const bad = doTrade(G, G.offer);
+      if (bad){ G.offer = null; return no('stale-offer', 'a deal that stopped working: ' + bad); }
+      rec = { t };
+      break;
+    }
+
+    case 'refuse': {
+      if (!G.offer) return no('no-offer', 'turning down a deal nobody offered');
+      const n = Math.max(0, Math.min(REFUSAL_LINES.length - 1, move.n | 0));
+      const g = (move.i != null && BOARD[i] && BOARD[i].g) ? GROUPS[BOARD[i].g].n : '';
+      say(G, G.players[G.offer.to].name + ' ' +
+             (n === 4 && g ? 'says finishing ' + g + ' costs more than that.' : REFUSAL_LINES[n]));
+      refuse(G, G.offer);
+      rec = { t, n };
+      if (move.i != null) rec.i = i;
+      break;
+    }
+
+    case 'settle':
+      if (!settle(G)) return no('cannot-settle', 'paying a debt they have not got the money for');
+      rec = { t };
+      break;
+
+    case 'bail':
+      if (!payBail(G)) return no('cannot-bail', 'paying the fifty when they are not in the queue, or cannot');
+      rec = { t };
+      break;
+
+    case 'skip':
+      if (!useSkip(G)) return no('cannot-skip', 'a Skip The Queue they are not holding');
+      rec = { t };
+      break;
+
+    case 'end':
+      /* AN OFFER MUST NEVER BE QUIETLY STEPPED OVER. Ending your own
+         turn while somebody is still looking at your deal would leave
+         the other phone holding a sheet for a game that had moved on. */
+      if (G.offer) return no('offer-open', 'ending a turn while a deal is still on the table');
+      if (!endTurn(G)) return no('cannot-end', 'ending a turn that is not finished');
+      rec = { t };
+      break;
+
+    case 'bankrupt':
+      bankrupt(G, seat);
+      rec = { t };
+      break;
+
+    default:
+      return no('unknown-move', 'a move this game does not have');
+  }
+
+  rec.s = seat;
+  G.moves.push(rec);
+  /* AFTER the log, never before: anything listening must be able to see
+     the move it is being told about already in moves[] */
+  fireMove(rec, { seat, index: G.moves.length - 1,
+                  src: src || (machineSeat(G, seat) ? 'ai' : 'local') });
+  return yes();
+}
+
+/* ── who is listening ────────────────────────────────────────────── */
+let MOVERS = [];
+function onMove(fn){
+  if (typeof fn !== 'function') return () => {};
+  MOVERS.push(fn);
+  return () => { MOVERS = MOVERS.filter(x => x !== fn); };
+}
+function fireMove(rec, info){
+  if (quiet || !MOVERS.length) return;
+  for (const fn of MOVERS.slice()){ try { fn(rec, info); } catch(e){} }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   20b. REPLAY, ROLLBACK, AND THE TWO FINGERPRINTS
+   ───────────────────────────────────────────────────────────────────
+   The engine was deterministic before any of this existed: every
+   random number in the game comes out of rnd(G) on G.rng, the decks
+   reshuffle from that same stream, and the auction lives entirely in
+   G.auction. So a game IS (seed, seats, options, moves) and nothing
+   else, and these four functions are just saying so out loud.
+   ═══════════════════════════════════════════════════════════════════ */
+function replay(seed, seats, moves, opts){
+  quiet++;
+  try {
+    const G = newGame({
+      seed, players: seats,
+      roundLimit: (opts && opts.roundLimit != null) ? opts.roundLimit : 30,
+      auction: !(opts && opts.auction === false),
+    });
+    const list = moves || [];
+    for (let n = 0; n < list.length; n++){
+      const r = apply(G, list[n].s, list[n], 'replay');
+      if (!r.ok) return { G, at:n, err:r.err };   /* say WHERE it stopped agreeing */
+    }
+    return { G, at:list.length, err:null };
+  } finally { quiet--; }
+}
+
+/* re-deal from the seed and play n moves. ONE implementation, so a
+   rebuild after a dropped packet and a rebuild in a test can never
+   drift into disagreeing about what "back to move n" means.
+   IL-KIRI HAS NO TAKEBACK — the owner ruled it and this is not one.
+   It is the tool that proves the move log is the game. */
+function rollbackTo(G, n){
+  if (!G || !G.setup) return null;
+  const keep = G.moves.slice(0, Math.max(0, Math.min(n | 0, G.moves.length)));
+  const out = replay(G.setup.seed, G.setup.players, keep, G.setup);
+  return out.err ? null : out.G;
+}
+
+/* THE TWO FINGERPRINTS, AND WHY THERE ARE TWO.
+
+   canon()   is for THIS phone: is the game I rebuilt the game I had?
+             Everything material, including the log, because a replay
+             that produces a different sentence produced a different
+             game. It drops `started` (a wall clock, different on
+             every device), `savedAt` (written by load()), and the
+             three presence flags (see §20.4).
+
+   checksum() is for TWO phones: are we still playing the same game?
+             Everything checksum can see must be identical on every
+             device in the room, so on top of the above it also drops
+             the LOG — because presence is announced locally and only
+             locally, so one phone's log legitimately carries a line
+             another phone's does not. */
+const VOLATILE = { started:1, savedAt:1 };
+const VOLATILE_SEAT = { present:1, auto:1, autoWhy:1 };
+
+function canon(G){
+  const out = {};
+  for (const k of Object.keys(G)){
+    if (VOLATILE[k]) continue;
+    if (k === 'players'){
+      out.players = G.players.map(p => {
+        const q = {};
+        for (const j of Object.keys(p)) if (!VOLATILE_SEAT[j]) q[j] = p[j];
+        return q;
+      });
+      continue;
+    }
+    out[k] = G[k];
+  }
+  return JSON.stringify(out);
+}
+
+function checksum(G){
+  if (!G) return '';
+  const s = [
+    G.setup ? G.setup.seed : 0, G.rng, G.moves.length, G.round, G.turn, G.phase,
+    G.moved ? 1 : 0, G.doubles, (G.dice || []).join('.'),
+    G.own.join(','), G.lvl.join(','), G.mort.map(x => x ? 1 : 0).join(''),
+    G.supply.floors + '/' + G.supply.penthouses,
+    G.players.map(p => [p.cash, p.pos, p.jail, p.skips, p.out ? 1 : 0].join('.')).join('|'),
+    Object.keys(G.deck).sort().map(k => k + ':' + G.deck[k].at).join(','),
+    G.card ? (G.card.deck + '#' + G.card.id) : '-',
+    G.debt ? [G.debt.who, G.debt.amt, G.debt.to].join('.') : '-',
+    G.auction ? [G.auction.pos, G.auction.bid, G.auction.high, G.auction.seat,
+                 G.auction.out.join('.')].join('/') : '-',
+    G.offer ? offerSig(G.offer) + '$' + G.offer.cashFrom + '/' + G.offer.cashTo : '-',
+    G.over ? (G.over.winner + ':' + G.over.why) : '-',
+  ].join('|');
+  let h = 2166136261;
+  for (let n = 0; n < s.length; n++){ h ^= s.charCodeAt(n); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   20c. WHAT ONE SEAT IS ALLOWED TO SEE
+   ───────────────────────────────────────────────────────────────────
+   A board game is mostly public — the deeds, the floors, the money and
+   the position of every token are on the table where everybody can see
+   them, and that is the whole point of the genre. Three things are not,
+   and all three are here:
+
+     · G.rng          the dice. The RNG state is not "hidden state", it
+                      is EVERY FUTURE ROLL, and a client holding it can
+                      compute exactly what it is about to throw and what
+                      everybody else is about to throw. It goes, and so
+                      does setup.seed, which is the same number.
+     · G.deck[].order the card decks in the order they will come out.
+                      Handing a client the order is handing it the next
+                      card off the top. Only how many are left survives.
+     · G.offer        a deal that has been put to somebody and not yet
+                      answered is between those two people. Everybody
+                      else is told that a deal is on the table and who
+                      it is between, and nothing else, until it is done
+                      or refused — at which point the log says so.
+
+   Two more go, and the second one is the one that nearly got away:
+
+     · G.refused    a list of the deeds in deals that were declined in
+                    private. No screen reads it.
+     · G.moves      REDACTING G.offer IS NOT ENOUGH ON ITS OWN. The
+                    move log holds the `offer` record — every deed and
+                    every euro in it — from the instant it is applied,
+                    so a client handed moves[] could read the pending
+                    deal straight out of the history that G.offer had
+                    just been carefully stripped of. Nothing on screen
+                    reads moves[]; it is transport bookkeeping. It
+                    goes, and moveCount is published separately.
+
+   Nothing else in G is secret.
+   ═══════════════════════════════════════════════════════════════════ */
+function view(G, seat){
+  if (!G) return null;
+  seat = seat | 0;
+  const V = JSON.parse(JSON.stringify(G));
+  delete V.rng;
+  delete V.refused;
+  delete V.moves;
+  V.moveCount = G.moves.length;
+  if (V.setup) delete V.setup.seed;
+  V.deck = {};
+  for (const k of Object.keys(G.deck))
+    V.deck[k] = { left: Math.max(0, G.deck[k].order.length - G.deck[k].at) };
+  if (V.offer && seat !== V.offer.from && seat !== V.offer.to)
+    V.offer = { from: V.offer.from, to: V.offer.to, pending: true };
+  V.you = seat;
+  return V;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    19. PUBLIC FACE
    ═══════════════════════════════════════════════════════════════════ */
 window.KIRI = {
@@ -1498,6 +2005,9 @@ window.KIRI = {
   setPresent, setAuto, machineSeat, tableEmpty,
   save, load, clearSave, hasSave,
   onFx,
+  /* §20 — the one door, and everything that rests on it */
+  apply, actorOf, onMove, replay, rollbackTo, checksum, canon, view,
+  MOVES: WIRE_MOVES, PHASES_OF, REFUSAL_LINES,
 };
 
 })();

@@ -288,6 +288,9 @@ function injectCSS(){
     'border-radius:11px;background:rgba(138,92,255,.16);border:1px solid rgba(138,92,255,.42);flex:0 0 auto}' +
   '#scr-kiri .kr-away .kr-awt{flex:1;min-width:0;font-size:11.5px;line-height:1.25;color:#D9CFF2}' +
   '#scr-kiri .kr-away .kr-awt b{color:#F4EFFF}' +
+  /* the transport's one line, warmer when it is bad news */
+  '#scr-kiri .kr-away.warn{background:rgba(255,84,104,.16);border-color:rgba(255,84,104,.45)}' +
+  '#scr-kiri .kr-away.warn .kr-awt{color:#FF9AA6}' +
 
   /* ── the board ── */
   '#scr-kiri .kr-wrap{flex:0 0 auto;display:grid;place-items:center;padding:2px 0}' +
@@ -450,9 +453,18 @@ function injectCSS(){
   '#scr-kiri .kr-pl .kr-mini{min-width:56px}' +
 
   /* ── result ── */
+  /* THE RESULT SCREEN SCROLLS ITSELF, AND NOTHING ELSE DOES. Eight
+     seats of standings on a phone lying on its side is more than 440
+     points of content whatever we do to it, and an absolutely
+     positioned child that overflows pushes its PARENT's scroll height
+     out — which is how a screen with overflow:hidden ends up with the
+     Again button somewhere below the glass. It gets its own scroller
+     and the board screen keeps its promise. */
   '#scr-kiri .kr-over{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;' +
     'align-items:center;justify-content:center;gap:10px;padding:22px;text-align:center;' +
+    'overflow-y:auto;-webkit-overflow-scrolling:touch;' +
     'background:radial-gradient(90% 60% at 50% 30%,rgba(138,92,255,.28),rgba(6,4,12,.95) 70%)}' +
+  '#scr-kiri .kr-over > *{flex:0 0 auto}' +
   '#scr-kiri .kr-over h3{margin:0;font-family:var(--disp);font-size:25px;' +
     'letter-spacing:.05em;line-height:1.15}' +
   '#scr-kiri .kr-over p{margin:0;font-size:13px;line-height:1.55;color:#C9BEE6;max-width:320px}' +
@@ -462,7 +474,34 @@ function injectCSS(){
   '@media (max-height:720px){' +
     '#scr-kiri .kr-tbar{min-height:40px}' +
     '#scr-kiri .kr-btn{min-height:46px}' +
-    '#scr-kiri .kr-die{width:29px;height:29px;font-size:16px}}';
+    '#scr-kiri .kr-die{width:29px;height:29px;font-size:16px}}' +
+
+  /* ── A PHONE ON ITS SIDE ──────────────────────────────────────────
+     894x440 is the house's second shape and the column layout above
+     cannot hold it: the ring alone will not go under 300 points, the
+     dock will not go under 280, and 300 + 280 + the chrome is 688 in
+     a 440-point window. The board screen has NEVER fitted on its side
+     — the page did not scroll (this screen is inset:0 with
+     overflow:hidden) but the action bar sat forty points below the
+     glass, so the one button you actually need was the one you could
+     not reach.
+
+     Turned on its side there is width instead, so the ring goes beside
+     the dock rather than above it. Same markup, same handlers, same
+     everything: four grid placements and a different sum in
+     sizeBoard(). */
+  '@media (orientation:landscape) and (max-height:560px){' +
+    '#scr-kiri .kr-over{gap:6px;padding:12px;justify-content:flex-start}' +
+    '#scr-kiri .kr-over h3{font-size:20px}' +
+    '#scr-kiri.on{display:grid;column-gap:8px;' +
+      'grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr)}' +
+    '#scr-kiri .kr-tbar{grid-area:1/1/2/3;min-height:38px}' +
+    '#scr-kiri .kr-wrap{grid-area:2/1/5/2;align-self:start;padding:0}' +
+    '#scr-kiri .kr-strip{grid-area:2/2/3/3;margin:0 0 4px}' +
+    '#scr-kiri #kr-awayhost{grid-area:3/2/4/3}' +
+    '#scr-kiri .kr-dock{grid-area:4/2/5/3;margin-top:0}' +
+    '#scr-kiri .kr-die{width:26px;height:26px;font-size:15px}' +
+    '#scr-kiri .kr-btn{min-height:44px}}';
   document.head.appendChild(st);
 }
 
@@ -578,13 +617,95 @@ let timer = 0;            /* the machine's next move */
 let clockT = 0;           /* the turn clock */
 let clockLeft = 0;
 let turnClock = 90;       /* seconds a human seat gets before the phone takes over; 0 = off */
-let auctionOn = true;
 let rolled = false;       /* for the dice shake */
 let sheet = null;         /* {kind, ...} currently open */
 let trade = null;         /* the offer being built */
 
 const P_OF = i => G.players[i];
 const me = () => G.players[G.turn];
+
+/* ═══════════════════════════════════════════════════════════════════
+   3b. THE ONLY WAY THIS SCREEN TOUCHES THE GAME
+   ───────────────────────────────────────────────────────────────────
+   Fifteen handlers used to call js/kiri.js's mutators straight —
+   K.roll(G), K.buy(G), K.build(G,i) — which was fine while a finger
+   on this phone was the only thing that could move a piece.
+
+   It is not fine now. js/kiri.js §20 has ONE door, apply(G, seat,
+   move), and a move that goes round it is a move the transport never
+   sees: it would happen on this screen and nowhere else, and the two
+   tables would drift apart with nothing to say so. So every single
+   tap below goes through act(), act() ends in K.apply(), and there is
+   no second path in this file. The test that proves it greps this
+   file for `K.<mutator>(` and expects nothing.
+
+   WHICH CHAIR IS PRESSING?
+     · offline there is one phone and it holds every chair, so the
+       chair is whichever one the move belongs to — and the engine's
+       own actorOf() answers that, so the screen and the machine and a
+       packet all get the answer from the same place.
+     · online this phone owns exactly ONE chair and may only ever act
+       as that one. A tap that is not ours is handed in as ours and
+       refused BY NAME, which is the behaviour we want: it is said out
+       loud instead of quietly doing nothing.
+   ═══════════════════════════════════════════════════════════════════ */
+let NET = null;                 /* null offline; the room otherwise. §12 */
+let netMsg = { t:'', k:'' };    /* the one line the transport may say */
+
+/* is this chair ours to answer for? Offline: all of them. */
+const isMine = i => (!NET || i === NET.mySeat);
+
+/* WHO WORKS OUT THE MACHINE'S MOVE FOR THIS CHAIR — and, because the
+   move then goes out on the wire, who SENDS it. Exactly one phone per
+   chair, or the same move arrives twice.
+     · offline           this phone, for everything
+     · online, own chair this phone, including while it is on autopilot
+     · online, a machine the host, because the relay will only carry a
+                         move stamped for a chair the host declared as
+                         a machine when the room started. A dropped
+                         PERSON'S chair therefore cannot be covered by
+                         anybody else — see the report. */
+function iDrive(i){
+  if (!G || !G.players[i]) return false;
+  if (!NET) return true;
+  if (i === NET.mySeat) return true;
+  return !!NET.host && G.players[i].kind === 'cpu';
+}
+
+/* the seat the table is waiting on, whether that is a roll, a bid or
+   an answer to a deal. One answer, used by the clock, by the sheets
+   and by the action bar. */
+function askedSeat(){
+  if (!G || G.over) return -1;
+  if (G.offer) return G.offer.to;
+  if (G.phase === 'auction' && G.auction) return K.auctionBidder(G);
+  if (G.phase === 'debt' && G.debt) return G.debt.who;
+  return G.turn;
+}
+
+/* THE DOOR. Nothing else in this file may change G. */
+function act(mv, seat){
+  if (!G || !mv) return { ok:false, err:'no-game', why:'' };
+  const s = (seat != null) ? seat
+          : (NET ? NET.mySeat : K.actorOf(G, mv.t));
+  const r = K.apply(G, s, mv, 'local');
+  if (!r.ok) refusedHere(r);
+  return r;
+}
+
+/* A REFUSED TAP IS SAID, NOT SWALLOWED. Offline this is nearly always
+   a disabled button somebody got to anyway; online it is the useful
+   half of the contract — "that was out of turn" beats a dead button. */
+function refusedHere(r){
+  cue('ui.error', { gain: 0.80 }, 2);
+  if (!NET) return;
+  netNote('That was ' + (r.why || 'not allowed') + '.', 'warn');
+}
+
+function netNote(text, tone){
+  netMsg = { t: String(text || ''), k: tone || '' };
+  if (els && els.away) renderAway();
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    4. THE WAY IN
@@ -597,7 +718,15 @@ function open(){
 function menu(){
   stopLoop();
   G = null;
-  const saved = K.load();
+  NET = null;
+  netMsg = { t:'', k:'' };
+  let saved = K.load();
+  /* A ROOM'S GAME IS NOT RESUMABLE FROM HERE. It is saved after every
+     action like every other game — that is the crash net, and it is
+     what the absence handling rests on — but the other seven people
+     are not in this room any more, so offering to "carry on" with it
+     would hand somebody a hotseat game they never agreed to play. */
+  if (saved && saved.players.some(p => p.link === 'net')){ K.clearSave(); saved = null; }
   const el = screenEl();
   el.innerHTML =
     '<div class="kr-tbar">' +
@@ -905,6 +1034,9 @@ function startGame(seatList, opts){
     players: seats,
     roundLimit: opts.roundLimit == null ? 30 : opts.roundLimit,
     seed: opts.seed,
+    /* part of the DEAL, not a per-tap choice — see G.auctionOn in
+       js/kiri.js, and the note over declineBuy() */
+    auction: opts.auction !== false,
   });
   K.save(G);
   cue('game.start', { gain: 1.00 }, 0);
@@ -967,7 +1099,15 @@ function boardScreen(){
     scrim: el.querySelector('#kr-scrim'),
     sheet: el.querySelector('#kr-sheet'),
   };
-  el.querySelector('#kr-menu').onclick = () => { K.save(G); menu(); };
+  /* the back arrow. Offline it is our own menu; online the way out of a
+     table is the room list, exactly as it is for every other party game
+     — this screen is not the place to explain that a room still exists. */
+  el.querySelector('#kr-menu').onclick = () => {
+    K.save(G);
+    if (NET){ const n = NET; NET = null; netMsg = { t:'', k:'' }; stopLoop();
+              if (n.onLeave) n.onLeave(); else close(); return; }
+    menu();
+  };
   el.querySelectorAll('.kr-tab').forEach(b => b.onclick = () => {
     tab = b.getAttribute('data-tab'); render();
   });
@@ -1009,7 +1149,14 @@ function sizeBoard(){
   const w = el.clientWidth - 16;
   const h = el.clientHeight;
   const DOCK_MIN = 280, CHROME = 108;
-  const s = Math.max(300, Math.min(w, h - CHROME - DOCK_MIN, 460));
+  /* the same test the stylesheet makes, so the sum and the layout can
+     never disagree about which way up the phone is */
+  const onItsSide = w > h && h <= 560;
+  const s = onItsSide
+    /* beside the dock: the height is what runs out first, and the dock
+       still needs its 280 points of WIDTH to be a dock */
+    ? Math.max(260, Math.min(h - 52, w - DOCK_MIN, 460))
+    : Math.max(300, Math.min(w, h - CHROME - DOCK_MIN, 460));
   els.board.style.setProperty('--bs', Math.floor(s) + 'px');
 }
 function startSizer(){
@@ -1052,7 +1199,14 @@ function renderStrip(){
       : p.auto ? '<span class="kr-auto">ON AUTOPILOT</span>' : '') +
     (p.jail > 0 ? '<span class="kr-auto" style="background:rgba(255,84,104,.2);color:#FF9AA6;border-color:rgba(255,84,104,.45)">IN THE QUEUE</span>' : '') +
     (p.skips > 0 ? '<span class="kr-auto" style="background:rgba(61,220,132,.18);color:#3DDC84;border-color:rgba(61,220,132,.45)">SKIP ×' + p.skips + '</span>' : '') +
-    '<span class="kr-cash">' + money(p.cash) + '</span>';
+    '<span class="kr-cash">' + money(p.cash) + '</span>' +
+    /* ONLINE THE STRIP IS SOMEBODY ELSE HALF THE TIME, so your own
+       money goes on it too — otherwise the only place you can see what
+       you are worth is a tab you have to switch to. */
+    (NET && G.turn !== NET.mySeat && G.players[NET.mySeat]
+      ? '<span class="kr-auto" style="background:rgba(61,220,132,.16);color:#3DDC84;' +
+        'border-color:rgba(61,220,132,.4)">YOU ' + money(G.players[NET.mySeat].cash) + '</span>'
+      : '');
   /* the button that hands a seat back lives in ONE place, the away bar
      below — two of them on screen at once just looks like a mistake */
   if (!auto && turnClock > 0 && clockLeft <= 20 && clockLeft > 0 && !G.over)
@@ -1071,9 +1225,17 @@ function renderStrip(){
 function renderAway(){
   if (!els.away) return;
   const gone = G.players.filter(p => !p.out && p.kind !== 'cpu' && p.auto);
-  if (!gone.length || G.over){ els.away.innerHTML = ''; return; }
+  /* THE ONE LINE THE TRANSPORT MAY SAY. js/mp.js hands us a sentence —
+     somebody joined, somebody dropped, a packet was refused — and it
+     goes here, in the bar that already exists, so the online build adds
+     no chrome and nothing can push the board off a 894-point screen. */
+  const net = netMsg.t
+    ? '<div class="kr-away' + (netMsg.k === 'warn' ? ' warn' : '') + '" role="status" aria-live="polite">' +
+      '<span class="kr-awt">' + esc(netMsg.t) + '</span></div>'
+    : '';
+  if (!gone.length || G.over){ els.away.innerHTML = G.over ? '' : net; return; }
   const why = { clock:'has not moved', signal:'has lost the connection', away:'has gone', asked:'asked the phone to play' };
-  els.away.innerHTML =
+  els.away.innerHTML = net +
     '<div class="kr-away" role="status" aria-live="polite">' +
       gone.map(p => '<span class="kr-tok" style="background:' + p.colour +
         ';width:22px;height:22px;font-size:12px">' + p.token + '</span>').join('') +
@@ -1085,7 +1247,7 @@ function renderAway(){
     '</div>';
   els.away.querySelector('#kr-awayback').onclick = () => {
     cue('mp.joined', { gain: 1.00 }, 1);
-    gone.forEach(p => K.setPresent(G, p.i, true));
+    gone.forEach(p => act({ t:'back' }, p.i));
     if (timer){ clearTimeout(timer); timer = 0; }
     K.save(G); render(); resetClock(); pump();
   };
@@ -1237,8 +1399,14 @@ function squareBody(i){
   return h;
 }
 
+/* WHAT YOU CAN DO WITH A SQUARE, RIGHT NOW.
+   The engine builds, sells and mortgages as the seat whose TURN it is
+   — it always has — so these buttons only ever appear for the chair
+   holding the dice. Online that has to be OUR chair as well, or the
+   deeds pane offers you buttons for somebody else's property that the
+   door would refuse. */
 function ownerActions(i){
-  if (!G || G.own[i] !== G.turn) return [];
+  if (!G || G.own[i] !== G.turn || !isMine(G.turn)) return [];
   const p = G.turn, s = K.BOARD[i];
   const out = [];
   if (s.t === 'prop'){
@@ -1254,17 +1422,18 @@ function wireSquareButtons(root, fallbackI){
   root.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
     const [k, ns] = b.getAttribute('data-act').split(':');
     const i = Number(ns);
-    if (k === 'build')  K.build(G, i);
-    if (k === 'sell')   K.sellBuilding(G, i, G.turn);
-    if (k === 'mort')   K.mortgage(G, i, G.turn);
-    if (k === 'redeem') K.unmortgage(G, i, G.turn);
+    const t = k === 'build' ? 'build' : k === 'sell' ? 'sell' :
+              k === 'mort' ? 'mortgage' : k === 'redeem' ? 'unmortgage' : null;
+    if (t) act({ t, i });
     after();
     if (sheet && sheet.kind === 'square') squareSheet(sheet.i);
   });
 }
 
 function paneDeeds(){
-  const p = G.turn;
+  /* offline the dock belongs to whoever has the dice; online it
+     belongs to YOU, always, whosever turn it is */
+  const p = NET ? NET.mySeat : G.turn;
   const mine = K.holdings(G, p);
   if (!mine.length){
     els.pane.innerHTML = '<div class="kr-empty">Not one deed. You are, at present, a tourist.</div>';
@@ -1322,7 +1491,10 @@ function paneTable(){
       '<span class="kr-rv">' + money(p.cash) + '</span></div>';
   });
   const opp = G.players.filter(p => !p.out && p.i !== G.turn);
-  if (!G.over && opp.length && G.phase === 'awaitEnd' && !K.machineSeat(G, G.turn)){
+  /* a deal is proposed by the chair holding the dice, and online that
+     chair has to be ours as well */
+  if (!G.over && opp.length && G.phase === 'awaitEnd' && !G.offer &&
+      isMine(G.turn) && !K.machineSeat(G, G.turn)){
     h += '<div class="kr-hd">DO A DEAL</div>';
     opp.forEach(p => {
       h += '<button class="kr-row" data-trade="' + p.i + '" style="--g:' + p.colour + '">' +
@@ -1350,11 +1522,21 @@ function paneLog(){
 function renderAct(){
   const p = me();
   const machine = K.machineSeat(G, G.turn);
+  const asked = askedSeat();
   const B = [];
   const add = (id, label, cls, on) => B.push({ id, label, cls, on: on !== false });
 
   if (G.over) add('kr-a-done', 'See how it finished', 'go');
-  else if (K.tableEmpty(G)) add('kr-a-claim', 'Take a seat back', 'go');
+  else if (K.tableEmpty(G) && !NET) add('kr-a-claim', 'Take a seat back', 'go');
+  /* ONLINE, THE BAR IS ONLY EVER YOURS. Every other chair is somebody
+     else's phone, and a button that says Roll on it when it is not
+     your roll is a button that lies. The engine would refuse the tap
+     anyway; this is so nobody has to find that out. */
+  else if (NET && asked >= 0 && !isMine(asked))
+    add('kr-a-wait', (G.players[asked] ? G.players[asked].name : 'The table') +
+        (K.machineSeat(G, asked) ? ' is thinking…' : ' to answer…'), '', false);
+  else if (NET && G.players[NET.mySeat] && G.players[NET.mySeat].auto)
+    add('kr-a-claim', 'Take your seat back', 'go');
   else if (machine) add('kr-a-wait', p.name + ' is thinking…', '', false);
   else switch (G.phase){
     case 'awaitRoll':
@@ -1367,7 +1549,7 @@ function renderAct(){
     case 'awaitBuy': {
       const s = K.BOARD[p.pos];
       add('kr-a-buy', 'Buy it<small>' + money(s.price) + '</small>', 'buy', p.cash >= s.price);
-      add('kr-a-pass', auctionOn ? 'Let it go to auction' : 'Leave it', '');
+      add('kr-a-pass', G.auctionOn !== false ? 'Let it go to auction' : 'Leave it', '');
       break;
     }
     case 'card':  add('kr-a-card', 'Read it', 'go'); break;
@@ -1391,20 +1573,20 @@ function renderAct(){
      the engine announces what it did, so the sound is identical whether a
      finger or the phone pressed it — and it arrives after the delegated
      ui.tap instead of on top of it. */
-  on('kr-a-roll',  () => { rolled = true; K.roll(G); after(); });
-  on('kr-a-bail',  () => { K.payBail(G); after(); });
-  on('kr-a-skip',  () => { K.useSkip(G); after(); });
-  on('kr-a-buy',   () => { K.buy(G); after(); });
-  on('kr-a-pass',  () => { K.declineBuy(G, auctionOn); after(); });
+  on('kr-a-roll',  () => { rolled = true; act({ t:'roll' }); after(); });
+  on('kr-a-bail',  () => { act({ t:'bail' }); after(); });
+  on('kr-a-skip',  () => { act({ t:'skip' }); after(); });
+  on('kr-a-buy',   () => { act({ t:'buy' }); after(); });
+  on('kr-a-pass',  () => { act({ t:'decline' }); after(); });
   on('kr-a-card',  () => cardSheet());
   on('kr-a-raise', () => raiseSheet());
   on('kr-a-give',  () => giveUpSheet());
   on('kr-a-auc',   () => auctionSheet());
   on('kr-a-manage',() => { tab = 'deeds'; render(); });
   on('kr-a-trade', () => { tab = 'table'; render(); });
-  on('kr-a-end',   () => { K.endTurn(G); after(); });
+  on('kr-a-end',   () => { act({ t:'end' }); after(); });
   on('kr-a-done',  () => renderOver());
-  on('kr-a-claim', () => { const i = seatToClaim(); if (i >= 0) claimSeat(i); });
+  on('kr-a-claim', () => { const i = NET ? NET.mySeat : seatToClaim(); if (i >= 0) claimSeat(i); });
 }
 
 function endLabel(){
@@ -1572,6 +1754,7 @@ function squareSheet(i){
 /* ── a card turned over ───────────────────────────────────────────── */
 function cardSheet(){
   if (!G || !G.card) return;
+  if (!isMine(G.turn)) return;        /* somebody else's card to turn over */
   const D = K.DECKS[G.card.deck];
   openSheet({
     kind:'card', dismissable:false,
@@ -1586,7 +1769,7 @@ function cardSheet(){
     wire: root => {
       /* the card already made its noise when it was turned over; what it
          DOES makes the next one, whatever that turns out to be */
-      root.querySelector('#kr-ck').onclick = () => { K.applyCard(G); closeSheet(); after(); };
+      root.querySelector('#kr-ck').onclick = () => { act({ t:'card' }); closeSheet(); after(); };
       artWash(root.querySelector('#kr-art'), artForCard(G.card.deck, G.card.id), 0.30);
     },
   });
@@ -1595,6 +1778,7 @@ function cardSheet(){
 /* ── raising money ────────────────────────────────────────────────── */
 function raiseSheet(){
   if (!G || !G.debt) return;
+  if (!isMine(G.debt.who)) return;   /* somebody else's money to find */
   const p = G.debt.who;
   const need = G.debt.amt;
   const have = G.players[p].cash;
@@ -1625,19 +1809,20 @@ function raiseSheet(){
     wire: root => {
       root.querySelectorAll('[data-liq]').forEach(b => b.onclick = () => {
         const x = list[Number(b.getAttribute('data-liq'))];
-        if (x.kind === 'sell') K.sellBuilding(G, x.i, p); else K.mortgage(G, x.i, p);
+        act({ t: x.kind === 'sell' ? 'sell' : 'mortgage', i: x.i }, p);
         K.save(G); render();
         if (!G.debt){ closeSheet(); after(); } else raiseSheet();
       });
       root.querySelector('#kr-give').onclick = giveUpSheet;
       const pay = root.querySelector('#kr-paynow');
-      if (pay) pay.onclick = () => { K.settle(G); closeSheet(); after(); };
+      if (pay) pay.onclick = () => { act({ t:'settle' }, p); closeSheet(); after(); };
     },
   });
 }
 
 function giveUpSheet(){
   const p = G.debt ? G.debt.who : G.turn;
+  if (!isMine(p)) return;
   const to = G.debt && !G.debt.split && G.debt.to >= 0 ? G.players[G.debt.to] : null;
   openSheet({
     kind:'give',
@@ -1649,7 +1834,7 @@ function giveUpSheet(){
          '<button class="kr-btn bad" id="kr-yesgive">Give up</button>',
     wire: root => {
       root.querySelector('#kr-nogive').onclick = () => { closeSheet(); if (G.debt) raiseSheet(); };
-      root.querySelector('#kr-yesgive').onclick = () => { K.bankrupt(G, p); closeSheet(); after(); };
+      root.querySelector('#kr-yesgive').onclick = () => { act({ t:'bankrupt' }, p); closeSheet(); after(); };
     },
   });
 }
@@ -1660,6 +1845,7 @@ function auctionSheet(){
   const A = G.auction;
   const b = K.auctionBidder(G);
   if (b < 0 || K.machineSeat(G, b)){ pump(); return; }
+  if (!isMine(b)) return;            /* somebody else's bid to make */
   const s = K.BOARD[A.pos];
   const P = G.players[b];
   const step = Math.max(10, Math.round((s.price || 100) * 0.08 / 10) * 10);
@@ -1681,11 +1867,11 @@ function auctionSheet(){
     foot:'<button class="kr-btn bad" id="kr-aout">Out</button>' +
          (opts.length ? '<button class="kr-btn buy" id="kr-abid">Bid ' + money(A.bid + opts[0]) + '</button>' : ''),
     wire: root => {
-      const go = n => { K.auctionBid(G, n); K.save(G); closeSheet(); after(); };
+      const go = n => { act({ t:'bid', n }, b); K.save(G); closeSheet(); after(); };
       root.querySelectorAll('[data-bid]').forEach(x => x.onclick = () => go(Number(x.getAttribute('data-bid'))));
       const bb = root.querySelector('#kr-abid');
       if (bb) bb.onclick = () => go(A.bid + opts[0]);
-      root.querySelector('#kr-aout').onclick = () => { K.auctionPass(G); K.save(G); closeSheet(); after(); };
+      root.querySelector('#kr-aout').onclick = () => { act({ t:'pass' }, b); K.save(G); closeSheet(); after(); };
     },
   });
 }
@@ -1766,10 +1952,14 @@ function paintTrade(){
       };
       const off = root.querySelector('#kr-toffer');
       if (off) off.onclick = () => {
-        G.offer = JSON.parse(JSON.stringify(trade));
+        const o = trade;
+        const r = act({ t:'offer', to:o.to, propsFrom:o.propsFrom, propsTo:o.propsTo,
+                        cashFrom:o.cashFrom, cashTo:o.cashTo,
+                        skipsFrom:o.skipsFrom, skipsTo:o.skipsTo }, o.from);
+        if (!r.ok) return;                       /* the sheet stays up, reason said */
         trade = null;
         closeSheet(); after();
-        if (G.offer && !K.machineSeat(G, G.offer.to)) offerSheet();
+        if (G.offer && isMine(G.offer.to) && !K.machineSeat(G, G.offer.to)) offerSheet();
       };
     },
   });
@@ -1779,6 +1969,7 @@ function paintTrade(){
 function offerSheet(){
   const o = G.offer;
   if (!o) return;
+  if (!isMine(o.to)) return;         /* somebody else's call to make */
   const A = G.players[o.from], Bp = G.players[o.to];
   const line = (list, cash, skips, who) => {
     const bits = (list || []).map(i => K.BOARD[i].n);
@@ -1798,13 +1989,11 @@ function offerSheet(){
          '<button class="kr-btn ok" id="kr-oyes">Done</button>',
     wire: root => {
       root.querySelector('#kr-oyes').onclick = () => {
-        const bad = K.doTrade(G, o); G.offer = null;
-        if (bad) K.say(G, 'That deal does not work any more: ' + bad);
+        act({ t:'accept' }, o.to);
         closeSheet(); after();
       };
       root.querySelector('#kr-ono').onclick = () => {
-        K.say(G, G.players[o.to].name + ' said no.');
-        K.refuse(G, o);          /* and will not be asked the same thing again */
+        act({ t:'refuse', n:0 }, o.to);   /* and will not be asked the same thing again */
         closeSheet(); after();
       };
     },
@@ -1836,13 +2025,24 @@ function renderOver(){
       '<span class="kr-rs">' + (p.out ? 'went under' : K.holdings(G, p.i).length + ' deed(s)') + '</span></span>' +
       '<span class="kr-rv">' + money(p.out ? 0 : K.netWorth(G, p.i)) + '</span></div>').join('') + '</div>' +
     '<div style="display:flex;gap:6px;width:100%;max-width:330px">' +
-      '<button class="kr-btn" id="kr-ohub">Party games</button>' +
-      '<button class="kr-btn go" id="kr-oagain">Again</button></div>';
+      (NET ? '<button class="kr-btn go" id="kr-orooms">Back to the rooms</button>'
+           : '<button class="kr-btn" id="kr-ohub">Party games</button>' +
+             '<button class="kr-btn go" id="kr-oagain">Again</button>') + '</div>';
   el.appendChild(d);
-  cue(w && w.kind === 'human' && !w.auto ? 'game.win' : 'game.lose', { gain: 1.00 }, 0);
-  d.querySelector('#kr-oagain').onclick = () => { d.remove(); setup(); };
-  d.querySelector('#kr-ohub').onclick = () => { d.remove(); close(); };
-  if (P && P.record && w) P.record('kiri', w.kind === 'human' && !w.auto ? 'w' : 'l');
+  /* DID *YOU* WIN? Offline that is "a person, not on autopilot"; online
+     it is your chair and nobody else's, however many people were human. */
+  const won = NET ? (G.over.winner === NET.mySeat) : !!(w && w.kind === 'human' && !w.auto);
+  cue(won ? 'game.win' : 'game.lose', { gain: 1.00 }, 0);
+  const again = d.querySelector('#kr-oagain');
+  if (again) again.onclick = () => { d.remove(); setup(); };
+  const hub = d.querySelector('#kr-ohub');
+  if (hub) hub.onclick = () => { d.remove(); close(); };
+  const rooms = d.querySelector('#kr-orooms');
+  if (rooms) rooms.onclick = () => {
+    const n = NET; d.remove(); NET = null; netMsg = { t:'', k:'' };
+    if (n && n.onLeave) n.onLeave(); else close();
+  };
+  if (P && P.record && w) P.record('kiri', won ? 'w' : 'l');
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1867,8 +2067,9 @@ let dogT = 0;
 function startDog(){
   if (dogT) return;
   dogT = setInterval(() => {
-    if (!G || G.over || !live || document.hidden || sheet || timer) return;
-    if (K.tableEmpty(G)) return;
+    if (!G || G.over || !live || sheet || timer) return;
+    if (document.hidden && !NET) return;
+    if (!NET && K.tableEmpty(G)) return;
     if (!K.machineSeat(G, G.turn) && !(G.offer && K.machineSeat(G, G.offer.to)) &&
         !(G.phase === 'auction' && G.auction && K.machineSeat(G, K.auctionBidder(G)))) return;
     pump();
@@ -1898,34 +2099,47 @@ function pump(){
      the machine's own pace. The only thing allowed to cancel a pending
      move is a person taking the seat back. */
   if (timer) return;
-  if (document.hidden) return;                 /* the phone is in a pocket */
+  /* offline a hidden tab means nobody is watching; online it means one
+     person is, and eight other people are waiting on this chair */
+  if (document.hidden && !NET) return;
 
-  /* a person has to answer something: put the right sheet up and wait */
+  /* a person has to answer something: put the right sheet up and wait.
+     ONLINE, only if that person is us — the other chairs are being
+     asked on their own phones. */
   if (!sheet){
-    if (G.phase === 'card' && !K.machineSeat(G, G.turn)) { cardSheet(); return; }
+    if (G.phase === 'card' && !K.machineSeat(G, G.turn) && isMine(G.turn)) { cardSheet(); return; }
     if (G.phase === 'auction' && G.auction){
       const b = K.auctionBidder(G);
-      if (b >= 0 && !K.machineSeat(G, b)) { auctionSheet(); return; }
+      if (b >= 0 && !K.machineSeat(G, b) && isMine(b)) { auctionSheet(); return; }
     }
-    if (G.offer && !K.machineSeat(G, G.offer.to)) { offerSheet(); return; }
+    if (G.offer && !K.machineSeat(G, G.offer.to) && isMine(G.offer.to)) { offerSheet(); return; }
   }
   if (sheet) return;
 
   /* nobody at the table at all — stop dead, do not play the game out
-     to a winner behind everybody's back */
-  if (K.tableEmpty(G)){
+     to a winner behind everybody's back. Online there IS somebody at
+     the table, on another phone, and stopping would strand them. */
+  if (!NET && K.tableEmpty(G)){
     K.save(G);
     return;
   }
 
   const a = AI.next(G);
   if (!a) return;                              /* waiting on a person */
+  /* ONE PHONE PER CHAIR. Offline this phone drives every machine seat;
+     online it drives its own chair and, if it is the host, the machines
+     — because those are the only chairs the relay will carry a move for
+     from this socket. Without this every phone in the room would compute
+     the same machine move and send it, and the table would play it
+     once per player. */
+  const who = AI.seatFor(G, a);
+  if (who < 0 || !iDrive(who)) return;
   timer = setTimeout(() => {
     timer = 0;
     if (!G || !live) return;
     if (a.k === 'roll') rolled = true;
-    /* no sounds here either — AI.perform goes through the same engine calls
-       a person does, and the engine is what makes the noise */
+    /* no sounds here either — AI.perform goes through the same door a
+       person does, and the engine is what makes the noise */
     AI.perform(G, a);
     K.save(G);
     render();
@@ -1945,12 +2159,21 @@ function pump(){
    the stall this whole feature exists to prevent. */
 function waitingOn(){
   if (!G || G.over) return -1;
-  if (G.offer && !K.machineSeat(G, G.offer.to)) return G.offer.to;
-  if (G.phase === 'auction' && G.auction){
+  let seat = -1;
+  if (G.offer && !K.machineSeat(G, G.offer.to)) seat = G.offer.to;
+  else if (G.phase === 'auction' && G.auction){
     const b = K.auctionBidder(G);
-    if (b >= 0 && !K.machineSeat(G, b)) return b;
+    if (b >= 0 && !K.machineSeat(G, b)) seat = b;
   }
-  return K.machineSeat(G, G.turn) ? -1 : G.turn;
+  else if (!K.machineSeat(G, G.turn)) seat = G.turn;
+  /* ONLINE THE CLOCK ONLY EVER RUNS ON OUR OWN CHAIR.
+     Every phone in the room can see that chair 3 has not moved, and if
+     every phone acted on it three phones would each decide chair 3 was
+     away — a race with no winner. So each device watches exactly one
+     person: the one holding it. If somebody else goes quiet, it is
+     THEIR phone that notices and THEIR phone that plays the seat. */
+  if (NET && seat !== NET.mySeat) return -1;
+  return seat;
 }
 
 /* the seat a returning person would want back */
@@ -1976,7 +2199,7 @@ function resetClock(){
     if (clockLeft <= 20) renderStrip();
     if (clockLeft <= 0){
       clearInterval(clockT); clockT = 0;
-      K.setPresent(G, seat, false, 'clock');
+      act({ t:'away', why:'clock' }, seat);
       K.save(G);
       /* the sheet that seat was being asked to answer belongs to nobody
          now — take it down so the machine can answer through the engine */
@@ -1997,8 +2220,9 @@ function resetClock(){
    their turn the machine's pending move is cancelled before it lands. */
 function claimSeat(i){
   if (!G) return false;
+  if (NET && i !== NET.mySeat) return false;    /* only ever your own */
   if (timer){ clearTimeout(timer); timer = 0; }
-  const changed = K.setPresent(G, i, true);
+  const changed = act({ t:'back' }, i).ok;
   K.save(G);
   render();
   resetClock();
@@ -2008,7 +2232,8 @@ function claimSeat(i){
 
 function releaseSeat(i, why){
   if (!G) return false;
-  const changed = K.setPresent(G, i, false, why || 'away');
+  if (NET && i !== NET.mySeat) return false;    /* only ever your own */
+  const changed = act({ t:'away', why: why || 'away' }, i).ok;
   K.save(G);
   render();
   pump();
@@ -2020,8 +2245,14 @@ function releaseSeat(i, why){
    the game out while nobody is looking. */
 document.addEventListener('visibilitychange', () => {
   if (!G || !live) return;
-  if (document.hidden){ stopLoop(); K.save(G); }
-  else { render(); resetClock(); pump(); }
+  /* OFFLINE a hidden tab is everybody leaving at once, so we stop dead
+     rather than play the game out where nobody can see it. ONLINE it is
+     one person putting their phone in a pocket while eight other people
+     wait — so the loop keeps running (throttled by the browser, which
+     is fine) and this phone goes on answering for its own chair. */
+  if (document.hidden && !NET){ stopLoop(); K.save(G); return; }
+  if (document.hidden){ K.save(G); return; }
+  render(); resetClock(); pump();
 });
 window.addEventListener('pagehide', () => { if (G) K.save(G); });
 
@@ -2030,8 +2261,333 @@ document.addEventListener('keydown', e => {
   if (!live || e.key !== 'Escape') return;
   if (sheet && sheet.dismissable !== false){ closeSheet(); return; }
   if (G) K.save(G);
+  if (NET) return;             /* leaving a room is a deliberate tap, not a key */
   menu();
 });
+
+/* ═══════════════════════════════════════════════════════════════════
+   12. THE TRANSPORT HALF
+   ───────────────────────────────────────────────────────────────────
+   The lobby half of IL-KIRI shipped first and js/mp.js's shared lobby
+   was written against it, so a room of this game could always be
+   opened, filled, readied and started — and then landed on a game
+   with no way to carry a move. This is that way.
+
+   THE FOUR THINGS THAT MAKE IT SAFE, three of which the engine was
+   already built for:
+
+   1. NOTHING BUT MOVES CROSSES. The deal is (seed, seat list, round
+      limit) and every phone deals it for itself. The relay carries
+      {a, n, k[]} — a short name and a handful of bytes — and never a
+      board. No client is ever SENT the state, so there is no snapshot
+      on the wire to read the next card off.
+   2. A PACKET GOES THROUGH THE DOOR A TAP GOES THROUGH. remote() ends
+      in K.apply(), the same call every button on this screen ends in,
+      so a move out of turn is REFUSED BY NAME and said out loud
+      rather than absorbed. Nothing else in this file can change G.
+   3. THE SEAT IS THE RELAY'S, NEVER THE SENDER'S. The move on the
+      wire carries no seat at all — encMove() does not put one on it —
+      and remote() is told which chair it came from by js/mp.js, which
+      got it from the Pi. A phone cannot play as somebody else because
+      it has nowhere to say that it is.
+   4. THE ABSENCE HANDLING IS THE ONE THAT WAS ALREADY THERE. A seat
+      that goes quiet is played conservatively by the machine, saved
+      after every action with the RNG state in the save, and handed
+      back on one tap. Online, the phone that does that is the phone
+      that OWNS the chair — see waitingOn() and iDrive(). Presence
+      never crosses the wire and is not in the checksum, so two phones
+      cannot race to decide that somebody has gone.
+
+   WHAT IS HIDDEN. Most of a board game is public and that is the
+   point of the genre — but three things are not, and hooks.view()
+   below hands out K.view(G, seat), never the game: it strips the RNG
+   state (which is every future roll), the deck order (which is the
+   next card) and the contents of a deal that has been put to somebody
+   and not yet answered. See §20c of js/kiri.js.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── the codec ────────────────────────────────────────────────────
+   js/mp.js carries a move as an action name plus a BITMASK of which
+   declared fields are present plus a list of BYTES. An IL-KIRI move
+   mostly fits that as it stands — a square index, a chair — but two
+   do not: a bid is a sum of money, and an offer is two lists of
+   deeds, two sums of money and two cards. So they are spread over
+   fields HERE, in the game, which is what `lobby.wire` is for and
+   what the note over WIRE_FIELDS in js/mp.js asks for.
+
+     i            a square, 0..31 — and the group square on a refusal
+     na nb nc     ONE number, big-endian, three bytes: the bid, the
+                  reason a deal was turned down, or what the proposer
+                  is putting in
+     j            the other chair in a deal
+     ma mb mc     the second number: what the other side puts in
+     pa..pd       the proposer's deeds, as a 32-bit board mask
+     qa..qd       the other side's deeds, same
+     sa sb        a Skip The Queue from each side
+
+   The board mask is the whole trick: a deed is a square number 0..31
+   and there are 32 squares, so ANY set of deeds is exactly four bytes
+   and no list ever has to be sent.
+
+   EIGHTEEN, AND NOT NINETEEN, AND THIS IS NOT TASTE.
+   The relay bounds every field of a table move, and the field the
+   bitmask travels in is bounded at 999,999 (MAX_MOVE_AMT in
+   server/karti_server.py). A mask is 2^k - 1 at worst, so twenty
+   declared fields can produce 1,048,575 and the Pi REFUSES THE WHOLE
+   PACKET — with an error back to the sender only. The sender has
+   already applied its own move, so the table silently drifts apart
+   and nothing on either phone says so. That is exactly what happened
+   with a twenty-one field list, on an offer, and it took two
+   browsers and a wire dump to see. Nineteen fields is the ceiling
+   (524,287); this is eighteen, and the test asserts the worst-case
+   mask of every move name rather than the count. */
+const WIRE_FIELDS = ['i', 'na', 'nb', 'nc', 'j', 'ma', 'mb', 'mc',
+                     'pa', 'pb', 'pc', 'pd', 'qa', 'qb', 'qc', 'qd', 'sa', 'sb'];
+
+const B3 = 16777215;
+function put3(w, k, v){
+  v = Math.max(0, Math.min(B3, Math.round(v || 0)));
+  w[k[0]] = (v >>> 16) & 255; w[k[1]] = (v >>> 8) & 255; w[k[2]] = v & 255;
+}
+const get3 = (w, k) => ((w[k[0]] | 0) << 16) + ((w[k[1]] | 0) << 8) + (w[k[2]] | 0);
+
+function putMask(w, k, list){
+  let m = 0;
+  (list || []).forEach(i => { i = i | 0; if (i >= 0 && i < 32) m |= (1 << i); });
+  m = m >>> 0;
+  w[k[0]] = (m >>> 24) & 255; w[k[1]] = (m >>> 16) & 255;
+  w[k[2]] = (m >>> 8) & 255;  w[k[3]] = m & 255;
+}
+function getMask(w, k){
+  const m = ((((w[k[0]] | 0) << 24) >>> 0) + ((w[k[1]] | 0) << 16) +
+             ((w[k[2]] | 0) << 8) + (w[k[3]] | 0)) >>> 0;
+  const out = [];
+  for (let i = 0; i < 32; i++) if (m & (1 << i)) out.push(i);
+  return out;
+}
+
+const N1 = ['na', 'nb', 'nc'], N2 = ['ma', 'mb', 'mc'];
+const PM = ['pa', 'pb', 'pc', 'pd'], QM = ['qa', 'qb', 'qc', 'qd'];
+
+/* the engine's logged move -> the wire. Never carries a chair. */
+function encMove(m){
+  if (!m || K.MOVES.indexOf(m.t) < 0) return null;
+  const w = { t: m.t };
+  switch (m.t){
+    case 'build': case 'sell': case 'mortgage': case 'unmortgage':
+      w.i = m.i | 0; break;
+    case 'bid':
+      put3(w, N1, m.n); break;
+    case 'refuse':
+      put3(w, N1, Math.max(0, Math.min(255, m.n | 0)));
+      if (m.i != null) w.i = m.i | 0;
+      break;
+    case 'offer':
+      w.j = m.to | 0;
+      put3(w, N1, m.cashFrom); put3(w, N2, m.cashTo);
+      putMask(w, PM, m.propsFrom); putMask(w, QM, m.propsTo);
+      w.sa = Math.max(0, Math.min(255, m.skipsFrom | 0));
+      w.sb = Math.max(0, Math.min(255, m.skipsTo | 0));
+      break;
+  }
+  return w;
+}
+
+/* ...and back. Everything in `w` has already been rebuilt field by
+   field on the Pi and is a bounded integer before it is looked at, but
+   a shape this table cannot make is still refused HERE rather than
+   handed to the engine to puzzle over. */
+function decMove(w){
+  if (!w || typeof w.t !== 'string') return null;
+  if (K.MOVES.indexOf(w.t) < 0) return null;
+  const sq = n => (n >= 0 && n < 32) ? n : -1;
+  switch (w.t){
+    case 'build': case 'sell': case 'mortgage': case 'unmortgage': {
+      const i = sq(w.i | 0);
+      return i < 0 ? null : { t: w.t, i };
+    }
+    case 'bid': {
+      const n = get3(w, N1);
+      return n > 0 ? { t: 'bid', n } : null;
+    }
+    case 'refuse': {
+      const n = get3(w, N1);
+      if (n > 255) return null;
+      const m = { t: 'refuse', n };
+      if (w.i !== undefined){ const i = sq(w.i | 0); if (i < 0) return null; m.i = i; }
+      return m;
+    }
+    case 'offer': {
+      const to = w.j | 0;
+      if (to < 0 || to >= K.MAX_SEATS) return null;
+      return { t: 'offer', to,
+               cashFrom: get3(w, N1), cashTo: get3(w, N2),
+               propsFrom: getMask(w, PM), propsTo: getMask(w, QM),
+               skipsFrom: Math.max(0, w.sa | 0), skipsTo: Math.max(0, w.sb | 0) };
+    }
+    default:
+      return { t: w.t };          /* the twelve that carry nothing */
+  }
+}
+
+/* ── the room's chairs, and ours ──────────────────────────────────
+   A room is opened at the game's MAXIMUM so it reads as a table
+   filling up, and people sit in it from chair 0 up — but the host puts
+   machines in chairs it picked, so the chairs actually playing are not
+   necessarily 0..n-1. The relay stamps a move with the ROOM chair; the
+   engine seats n players numbered 0..n-1. Two numbering systems, so
+   there is a map, built once at start from the list the lobby hands us
+   and never guessed at afterwards. */
+function onlineStart(cfg){
+  cfg = cfg || {};
+  const chairs = (cfg.seats || []).filter(Boolean);
+  if (chairs.length < K.MIN_SEATS) throw new Error('IL-KIRI: it takes two to charge anybody rent');
+  if (chairs.length > K.MAX_SEATS) throw new Error('IL-KIRI: eight is as many as this board seats');
+
+  const toGame = {}, toRoom = [];
+  chairs.forEach((s, g) => {
+    const room = (typeof s.seat === 'number') ? s.seat : g;
+    toGame[room] = g;
+    toRoom[g] = room;
+  });
+  const mine = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
+
+  /* THE HOST DRIVES THE MACHINES, and every phone works that out from
+     the same two numbers rather than being told. */
+  NET = Object.assign({}, cfg.net, {
+    mySeat: mine,
+    host: (cfg.you === (cfg.host | 0)),
+    toGame, toRoom,
+    room: (cfg.net && typeof cfg.net.seat === 'number') ? cfg.net.seat : (cfg.you | 0),
+    onLeave: cfg.net && cfg.net.onLeave,
+  });
+  netMsg = { t:'', k:'' };
+
+  /* the seat list is IDENTICAL on every phone — a machine is a machine
+     everywhere — because it is what the game is dealt from */
+  const list = chairs.map((s, g) => ({
+    name: String(s.name || ('Player ' + (g + 1))).slice(0, 14),
+    kind: s.kind === 'cpu' ? 'cpu' : 'human',
+    level: s.level == null ? 2 : s.level,
+    link: g === mine ? 'local' : (s.kind === 'cpu' ? 'cpu' : 'net'),
+  }));
+
+  const g = startGame(list, {
+    seed: (cfg.seed >>> 0),
+    roundLimit: cfg.roundLimit == null ? 30 : cfg.roundLimit,
+    clock: cfg.clock == null ? 90 : cfg.clock,
+    auction: true,
+  });
+  if (!g){ NET = null; throw new Error('IL-KIRI: that table would not deal'); }
+  netNote('Chair ' + (NET.room + 1) + ' is yours. Everybody has been dealt the same board.', '');
+  return K.checksum(G);
+}
+
+/* A move from another chair. `seat` is the RELAY's stamp and the packet
+   carries no seat of its own, so there is nothing here to spoof. */
+function onlineRemote(room, w){
+  if (!G || !NET) return { ok:false, why:'no IL-KIRI on the table' };
+  const seat = NET.toGame[room];
+  if (seat === undefined) return { ok:false, why:'a move from a chair that is not at this table' };
+  const mv = decMove(w);
+  if (!mv) return { ok:false, why:'a move this table does not know how to make' };
+  const r = K.apply(G, seat, mv, 'net');
+  if (!r.ok){
+    /* REFUSED, NOT ABSORBED. The engine has not touched the state and
+       the reason is the engine's own, in words js/mp.js can put in
+       front of somebody without a code in it. */
+    return { ok:false, why: r.why + ' from ' + (G.players[seat] ? G.players[seat].name : 'that chair') };
+  }
+  /* a sheet this phone was holding may have just been answered from
+     elsewhere — a deal accepted, an auction moved on */
+  if (sheet && ((sheet.kind === 'offer' && !G.offer) ||
+                (sheet.kind === 'auction' && (!G.auction || !isMine(K.auctionBidder(G)))))){
+    sheet = null;
+    els.sheet.classList.remove('on');
+    els.scrim.classList.remove('on');
+    els.sheet.innerHTML = '';
+  }
+  K.save(G);
+  render();
+  resetClock();
+  if (!G.over) pump();
+  return null;
+}
+
+function onlineNote(text, tone){ netNote(text, tone); }
+
+function onlineStop(why, tone){
+  /* NO BOARD, NO SCREEN TO SAY IT ON. js/mp.js's tableStop() falls back
+     to its own "stopped" panel if this throws, which is exactly the
+     right place for a room that never reached a table — so throw
+     rather than swallow it and leave somebody looking at nothing. */
+  if (!G || !live) throw new Error('IL-KIRI: no table to stop');
+  stopLoop();
+  const el = screenEl();
+  if (el.querySelector('.kr-over')) return;
+  /* the room is over the moment it is cut off: the overlay covers the
+     board, and NET going null means a tap that got underneath it is
+     refused rather than posted into a dead socket */
+  const n = NET;
+  NET = null;
+  netMsg = { t:'', k:'' };
+  const d = document.createElement('div');
+  d.className = 'kr-over';
+  d.innerHTML =
+    '<div style="font-size:44px">' + (tone === 'cheat' ? '⛔' : '🔌') + '</div>' +
+    '<h3>' + (tone === 'cheat' ? 'NO DEAL' : 'CUT OFF') + '</h3>' +
+    '<p>' + esc(why || 'The table stopped.') + '</p>' +
+    '<p style="opacity:.8">Nothing was recorded. Nobody loses a garage in Marsa over a ' +
+      'dropped connection.</p>' +
+    '<div style="display:flex;gap:6px;width:100%;max-width:330px">' +
+      '<button class="kr-btn go" id="kr-nback">Back to the rooms</button></div>';
+  el.appendChild(d);
+  d.querySelector('#kr-nback').onclick = () => {
+    d.remove();
+    if (n && n.onLeave) n.onLeave(); else close();
+  };
+}
+
+/* ── what js/mp.js drives the wire with ───────────────────────────
+   Read off the shelf BEFORE start() is called, so it is a static
+   object over module state rather than something start() builds. */
+const HOOKS = {
+  live:      () => !!(G && NET && !G.over),
+  phase:     () => (!G || !NET) ? 'idle' : (G.over ? 'over' : 'play'),
+  seed:      () => (G && G.setup) ? G.setup.seed : null,
+  turn:      () => (G && NET) ? (NET.toRoom[G.turn] == null ? -1 : NET.toRoom[G.turn]) : -1,
+  over:      () => (G ? G.over : null),
+  moveCount: () => (G ? G.moves.length : 0),
+  /* the agreement check. Two phones that have applied the same moves in
+     the same order from the same seed print the same few characters. It
+     deliberately cannot see the log, the wall clock or who is on
+     autopilot — all three legitimately differ per device. */
+  check:     () => (G ? K.checksum(G) : ''),
+  /* NEVER the game itself — see the header. This is the one shape a
+     client may be handed, and §20c of js/kiri.js says what it strips. */
+  view:      room => (G && NET && NET.toGame[room] !== undefined)
+                       ? K.view(G, NET.toGame[room]) : null,
+  /* every move this phone applied, in the relay's shape, with the ROOM
+     chair on it and where it came from. js/mp.js forwards the ones made
+     here and drops the ones it delivered itself a moment ago. */
+  onMove: fn => K.onMove((rec, info) => {
+    if (!G || !NET) return;
+    const w = encMove(rec);
+    if (!w) return;
+    const room = NET.toRoom[info.seat];
+    fn(w, { seat: (room == null ? info.seat : room), src: info.src });
+  }),
+  apply: (room, w) => onlineRemote(room, w),
+};
+
+if (P){
+  P.online = P.online || {};
+  P.online.kiri = {
+    start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
+    live: () => HOOKS.live(),
+    hooks: HOOKS,
+  };
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    11. REGISTER WITH THE PARTY HUB, AND THE PUBLIC FACE
@@ -2115,9 +2671,18 @@ window.KARTI_KIRI = {
           'end over a garage in Marsa.',
 
     /* THE WAY IN. seats: [{name, kind:'human'|'cpu', level, link}]
-       opts:  {roundLimit, clock, seed}
+       opts:  {roundLimit, clock, seed, auction}
        Names are taken from the lobby, never asked for here. */
     start: (seats, opts) => startGame(seats, opts),
+
+    /* HOW AN IL-KIRI MOVE FOLDS ONTO THE RELAY'S BYTES.
+       js/mp.js's own table of field lists says, in as many words, that
+       this belongs in the game — so here it is. Twenty-one names, all
+       of them bytes, and encMove()/decMove() in §12 are what fill and
+       read them. A move with a field that is not on this line is
+       refused by js/mp.js loudly, at the point of sending, rather than
+       arriving somewhere else with half of it missing. */
+    wire: { fields: WIRE_FIELDS, moves: K.MOVES },
 
     /* the profile name, so the lobby seats him without a prompt */
     myName,
@@ -2140,6 +2705,14 @@ window.KARTI_KIRI = {
   },
   state:  () => G,
   engine: K,
+
+  /* THE CODEC, OUT LOUD. js/mp.js only ever reads `lobby.wire.fields`,
+     but a field list is half a contract — the half that is checkable is
+     what encMove/decMove actually DO with it. They are published here so
+     a test can round-trip every move name and, more to the point, work
+     out the bitmask each one produces and prove it is inside the bound
+     the relay enforces. See the note over WIRE_FIELDS. */
+  wire: { fields: WIRE_FIELDS, enc: encMove, dec: decMove },
   ai:     AI,
   save:   () => (G ? K.save(G) : false),
   hasSave: () => K.hasSave(),

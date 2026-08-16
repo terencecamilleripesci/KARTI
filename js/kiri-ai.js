@@ -310,7 +310,12 @@ function judge(G, p, o){
   const P = G.players[p];
   /* AUTOPILOT: no. Not "probably not" — no. A seat being played for
      somebody who is not here does not sign anything. */
-  if (conservative(P)) return { ok:false, why:'That seat is on autopilot and is not signing anything.' };
+  /* THE REASON TRAVELS AS A NUMBER. Every one of these lines is
+     REFUSAL_LINES[code] in js/kiri.js, so the machine's own words come
+     out of the engine on every phone in the room rather than out of
+     this file on one of them. `gi` names a colour group by one of its
+     squares, for the only line that has a group in it. */
+  if (conservative(P)) return { ok:false, code:1, why:'That seat is on autopilot and is not signing anything.' };
 
   const me = delta(G, p, o);
   const them = delta(G, p === o.from ? o.to : o.from, o);
@@ -320,22 +325,23 @@ function judge(G, p, o){
   /* cash sanity — never trade down to nothing */
   const outgoing = (p === o.from ? (o.cashFrom || 0) : (o.cashTo || 0));
   if (outgoing > P.cash - Math.round(reserve(G, p) * 0.5))
-    return { ok:false, why:'Not with that much cash out of the door.' };
+    return { ok:false, code:2, why:'Not with that much cash out of the door.' };
 
-  if (me <= 0) return { ok:false, why:'That is worse for me than doing nothing.' };
+  if (me <= 0) return { ok:false, code:3, why:'That is worse for me than doing nothing.' };
 
   const gift = completesFor(G, o, other);
   if (gift){
     /* handing over the last square of somebody's set: they must be
        paying most of what it is worth to them */
     const need = them * (lvl >= 3 ? 0.85 : lvl === 2 ? 0.65 : 0.45);
-    if (me < need) return { ok:false, why:'You want ' + G_ROUPS[gift].n + ' finished. That costs more.' };
+    if (me < need) return { ok:false, code:4, gi:G_ROUPS[gift].props[0],
+                            why:'You want ' + G_ROUPS[gift].n + ' finished. That costs more.' };
   }
 
   const margin = lvl >= 3 ? 0.12 : lvl === 2 ? 0.05 : -0.05;
   const basis = Math.max(120, Math.abs(them));
-  if (me < basis * margin) return { ok:false, why:'Close. Not close enough.' };
-  return { ok:true, why:'Done.' };
+  if (me < basis * margin) return { ok:false, code:5, why:'Close. Not close enough.' };
+  return { ok:true, code:0, why:'Done.' };
 }
 
 /* find an offer worth making. The machine only ever asks for the ONE
@@ -428,7 +434,7 @@ function next(G){
   if (G.offer){
     if (!K.machineSeat(G, G.offer.to)) return null;
     const v = judge(G, G.offer.to, G.offer);
-    return { k: v.ok ? 'acceptTrade' : 'declineTrade', why: v.why };
+    return { k: v.ok ? 'acceptTrade' : 'declineTrade', why: v.why, code: v.code, gi: v.gi };
   }
 
   if (!K.machineSeat(G, p)) return null;
@@ -473,45 +479,78 @@ function next(G){
   return null;
 }
 
-/* apply an action through the engine — never around it */
-function perform(G, a){
-  if (!a) return false;
+/* ═══════════════════════════════════════════════════════════════════
+   7. TAKING THE ACTION — THROUGH THE DOOR, NEVER AROUND IT
+   ───────────────────────────────────────────────────────────────────
+   This used to call the engine's mutators directly, which was fine
+   while the only thing that could move a piece was this phone. It is
+   not fine now: js/kiri.js §20 has one door, apply(G, seat, move),
+   and a move that does not go through it is a move the transport
+   never sees — so a machine seat the host is playing would move on
+   the host's screen and nowhere else.
+
+   So next() still decides WHAT, and this turns it into the engine's
+   own move object and hands it in. Nothing here mutates G.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* next()'s action -> the engine's move, and the chair making it */
+function toMove(G, a){
   switch (a.k){
-    case 'roll':        return !!K.roll(G);
-    case 'card':        K.applyCard(G); return true;
-    case 'buy':         return K.buy(G);
-    case 'pass':        return K.declineBuy(G, true);
-    case 'bid':         return K.auctionBid(G, a.n);
-    case 'auctionPass': return K.auctionPass(G);
-    case 'build':       return K.build(G, a.i);
-    case 'unmortgage':  return K.unmortgage(G, a.i, G.turn);
-    case 'mortgage':    return K.mortgage(G, a.i, G.turn);
-    case 'sell':        return K.sellBuilding(G, a.i, G.turn);
-    case 'settle':      return K.settle(G);
-    case 'bail':        return K.payBail(G);
-    case 'skip':        return K.useSkip(G);
-    case 'bankrupt':    return K.bankrupt(G, G.turn);
-    case 'end':         return K.endTurn(G);
-    case 'offer':       G.offer = a.offer; G.tradeTries = (G.tradeTries || 0) + 1; return true;
-    case 'acceptTrade': {
-      const o = G.offer;
-      if (!o) return false;
-      const bad = K.doTrade(G, o);
-      G.offer = null;
-      return !bad;
+    case 'roll':        return { t:'roll' };
+    case 'card':        return { t:'card' };
+    case 'buy':         return { t:'buy' };
+    case 'pass':        return { t:'decline' };
+    case 'bid':         return { t:'bid', n:a.n };
+    case 'auctionPass': return { t:'pass' };
+    case 'build':       return { t:'build', i:a.i };
+    case 'unmortgage':  return { t:'unmortgage', i:a.i };
+    case 'mortgage':    return { t:'mortgage', i:a.i };
+    case 'sell':        return { t:'sell', i:a.i };
+    case 'settle':      return { t:'settle' };
+    case 'bail':        return { t:'bail' };
+    case 'skip':        return { t:'skip' };
+    case 'bankrupt':    return { t:'bankrupt' };
+    case 'end':         return { t:'end' };
+    case 'offer': {
+      const o = a.offer || {};
+      return { t:'offer', to:o.to, propsFrom:o.propsFrom, propsTo:o.propsTo,
+               cashFrom:o.cashFrom, cashTo:o.cashTo,
+               skipsFrom:o.skipsFrom, skipsTo:o.skipsTo };
     }
-    case 'declineTrade':
-      if (G.offer){ K.say(G, G.players[G.offer.to].name + ' said no. ' + (a.why || '')); K.refuse(G, G.offer); }
-      return true;
+    case 'acceptTrade':  return { t:'accept' };
+    case 'declineTrade': {
+      const m = { t:'refuse', n: a.code == null ? 0 : a.code };
+      if (a.gi != null) m.i = a.gi;
+      return m;
+    }
   }
-  return false;
+  return null;
+}
+
+/* the chair this action belongs to. actorOf() is the engine's own
+   answer to that question, so the machine and a finger and a packet
+   all get it from the same place. */
+function seatFor(G, a){
+  const mv = toMove(G, a);
+  if (!mv) return -1;
+  if (a.seat != null) return a.seat;
+  return K.actorOf(G, mv.t);
+}
+
+function perform(G, a, src){
+  if (!a) return false;
+  const mv = toMove(G, a);
+  if (!mv) return false;
+  const seat = (a.seat != null) ? a.seat : K.actorOf(G, mv.t);
+  if (seat < 0) return false;
+  return K.apply(G, seat, mv, src || 'ai').ok;
 }
 
 window.KIRI_AI = {
   score, gainOf, danger, reserve,
   wantsBuy, bidTo, bid, jailPlan, nextBuild, nextUnmortgage,
   judge, proposeTrade, delta, completesFor,
-  raiseStep, next, perform,
+  raiseStep, next, perform, toMove, seatFor,
 };
 
 })();
