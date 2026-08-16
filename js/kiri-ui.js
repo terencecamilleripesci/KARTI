@@ -278,18 +278,6 @@ function injectCSS(){
   '#scr-kiri .kr-strip{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 10px;' +
     'border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);' +
     'margin:4px 0;flex:0 0 auto}' +
-  /* A SEAT'S TOKEN IS THE SAME SILHOUETTE IT HAS ON THE BOARD, on a
-     dark plate so it reads on any row. It used to be an emoji, which
-     on a device with no colour emoji font is a hollow box — and the
-     board deliberately does not use emoji for exactly that reason, so
-     the strip above it should not either. */
-  '#scr-kiri .kr-tok{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;' +
-    'flex:0 0 auto;background:radial-gradient(80% 80% at 32% 26%,#2A1F49,#0E0B14);' +
-    'box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 0 0 1.5px rgba(255,255,255,.16),' +
-      '0 2px 4px rgba(0,0,0,.55);font-size:11px;font-weight:900;color:#150C22}' +
-  '#scr-kiri .kr-tok .kr-pip{width:15px;height:15px}' +
-  '#scr-kiri .kr-tok.sm{width:22px;height:22px}' +
-  '#scr-kiri .kr-tok.sm .kr-pip{width:12px;height:12px}' +
   '#scr-kiri .kr-who{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
   '#scr-kiri .kr-cash{margin-left:auto;font-weight:900;font-size:15px;color:#FFC542;white-space:nowrap}' +
   '#scr-kiri .kr-auto{font-size:10px;font-weight:800;letter-spacing:.04em;padding:4px 7px;border-radius:7px;' +
@@ -328,8 +316,26 @@ function injectCSS(){
      to the eye — which is where the code, the price and the floors
      have to live. Any deeper and the tap target starts to be the
      thing you notice. */
-  '#scr-kiri .kr-wrap{flex:0 0 auto;display:grid;place-items:center;padding:2px 0}' +
-  '#scr-kiri .kr-board{--rail:1.18fr;width:var(--bs,340px);height:var(--bs,340px);display:grid;gap:2px;' +
+  /* ── THE STAGE ──────────────────────────────────────────────────
+     The board no longer sits in a centred grid cell that is exactly
+     its own size. It sits INSIDE a stage — a window it can be bigger
+     than — because the ring is now something you can pinch, drag and
+     double-tap. The stage takes every point the dock is not using
+     (flex:1) and clips; the board is absolutely positioned inside it
+     and moved with ONE transform. The page itself still cannot
+     scroll: #scr-kiri is inset:0 with overflow:hidden and the stage
+     has overflow:hidden of its own, so there is nowhere for a scroll
+     to come from. touch-action:none is what stops the browser
+     claiming the pinch before we see it.
+
+     The negative side margin is the screen's own 8-point padding
+     given back: the ring is the one thing on this screen that should
+     touch the glass, and on a 440-point phone that is sixteen points
+     of board (nearly four per cent) for nothing. */
+  '#scr-kiri .kr-wrap{flex:1 1 auto;min-height:0;min-width:0;position:relative;overflow:hidden;' +
+    'margin:2px -8px 0;touch-action:none;-webkit-user-select:none;user-select:none}' +
+  '#scr-kiri .kr-board{position:absolute;left:0;top:0;transform-origin:0 0;' +
+    '--rail:1.18fr;width:var(--bs,340px);height:var(--bs,340px);display:grid;gap:2px;' +
     'grid-template-columns:var(--rail) repeat(7,1fr) var(--rail);' +
     'grid-template-rows:var(--rail) repeat(7,1fr) var(--rail);' +
     'padding:7px;border-radius:18px;position:relative;' +
@@ -352,6 +358,34 @@ function injectCSS(){
   '#scr-kiri .kr-cell::after{content:"";position:absolute;inset:0;pointer-events:none;' +
     'background:var(--g,transparent);opacity:.15}' +
   '#scr-kiri .kr-cell:active{filter:brightness(1.35)}' +
+
+  /* ── EVERY SQUARE IS A PICTURE OF ITSELF ────────────────────────
+     The drawing fills the tile and the code sits on top of it, which
+     is the only arrangement that fits: a cell is forty-odd points and
+     a mark stacked ABOVE a code plus a price is three lines in the
+     room for two. Underneath at half strength it costs nothing, is
+     the square's own object at a glance, and becomes a proper little
+     illustration the moment you pinch — which is half the reason the
+     zoom is here at all. The ink is js/artkit.js's warm near-black, declared
+     here because .ka-g inherits --ka-ink from whatever contains it. */
+  '#scr-kiri .kr-pic{position:absolute;z-index:0;pointer-events:none;--ka-ink:#0B0716;' +
+    'display:grid;place-items:center;line-height:0;opacity:.5;' +
+    /* the group colour is already on the band and in the tint of the
+       tile, so the drawing takes a LIGHT version of it: enough that the
+       Sliema squares are blue and the Ħamrun ones olive, not so much
+       that a brown silhouette disappears into a brown tile */
+    'color:color-mix(in srgb,var(--pc,#C6B4F0) 42%,#F1E9FF);' +
+    'left:8%;right:8%;top:8%;bottom:8%}' +
+  '#scr-kiri .kr-pic .ka-g{width:100%;height:100%;display:block;stroke-width:.9}' +
+  '#scr-kiri .kr-cell.s-l .kr-pic{right:16%}' +
+  '#scr-kiri .kr-cell.s-r .kr-pic{left:16%}' +
+  '#scr-kiri .kr-cell.s-t .kr-pic{bottom:16%}' +
+  '#scr-kiri .kr-cell.s-b .kr-pic{top:16%}' +
+  /* a corner has no price and no group, so its drawing is the point of
+     it: bigger, brighter, in the house gold, and ABOVE its name rather
+     than behind it */
+  '#scr-kiri .kr-cell.corner .kr-pic{opacity:.9;color:#FFC94E;left:12%;right:12%;top:5%;bottom:32%}' +
+  '#scr-kiri .kr-cell.chance .kr-pic{opacity:.4;color:color-mix(in srgb,var(--g,#FFC542) 55%,#FFF4DC)}' +
 
   /* ── THE COLOUR STRIP FACES THE MIDDLE ──────────────────────────
      On every board ever printed the group colour runs along the edge
@@ -397,25 +431,27 @@ function injectCSS(){
      is drawn anywhere from 276 to 560 points across depending on the
      window, and 12.5px is right in the middle of that and wrong at
      both ends. clamp() keeps it readable on the smallest phone and
-     stops it shouting on the biggest. */
+     stops it shouting on the biggest.
+
+     AND IT NOW STANDS ON A DRAWING, so it carries its own night with
+     it: a tight dark shadow plus two soft ones, which is what keeps a
+     three-letter code readable over a silhouette without putting a
+     plate behind it and losing the picture. */
   '#scr-kiri .kr-cell .kr-e{font-size:clamp(9px,calc(var(--bs,340px) * .0305),16px);line-height:1;' +
-    'font-weight:900;letter-spacing:.02em;color:#F6F1FF;font-family:var(--disp);' +
-    'text-shadow:0 1px 2px rgba(0,0,0,.75);position:relative;z-index:1}' +
+    'font-weight:900;letter-spacing:.02em;color:#FFFDF8;font-family:var(--disp);' +
+    'text-shadow:0 1px 1.5px #08050F,0 0 5px rgba(8,5,15,.95),0 0 10px rgba(8,5,15,.8);' +
+    'position:relative;z-index:1}' +
   '#scr-kiri .kr-cell .kr-p{font-size:clamp(7px,calc(var(--bs,340px) * .0215),11px);line-height:1;' +
-    'font-weight:800;letter-spacing:.02em;color:#C0AFEC;position:relative;z-index:1}' +
-  '#scr-kiri .kr-cell .kr-oc{position:relative;z-index:1;height:auto;' +
-    'width:clamp(6px,calc(var(--bs,340px) * .021),11px)}' +
-  /* the silhouette on the squares that are not property: same sprite,
-     same ink and same 24-grid as every other mark in the app */
-  '#scr-kiri .kr-cell .kr-gl{width:clamp(11px,calc(var(--bs,340px) * .036),19px);height:auto;' +
-    'aspect-ratio:1;color:#D5CAF0;position:relative;z-index:1;' +
-    'display:block;line-height:0}' +
-  '#scr-kiri .kr-cell .kr-gl .ka-g{stroke-width:1}' +
-  '#scr-kiri .kr-cell.corner{background:linear-gradient(180deg,#3E2D63 0%,#2A1F50 55%,#1C1439 100%)}' +
+    'font-weight:800;letter-spacing:.02em;color:#D9CBFF;position:relative;z-index:1;' +
+    'text-shadow:0 1px 1.5px #08050F,0 0 5px rgba(8,5,15,.95)}' +
+  '#scr-kiri .kr-cell.corner{background:linear-gradient(180deg,#3E2D63 0%,#2A1F50 55%,#1C1439 100%);' +
+    'justify-content:flex-end}' +
   '#scr-kiri .kr-cell.corner .kr-e{font-size:clamp(8px,calc(var(--bs,340px) * .0265),14px);color:#FFC542}' +
-  '#scr-kiri .kr-cell.corner .kr-gl{width:clamp(14px,calc(var(--bs,340px) * .048),25px);color:#FFC542}' +
-  '#scr-kiri .kr-cell.chance .kr-e{font-size:clamp(14px,calc(var(--bs,340px) * .048),25px);' +
-    'color:var(--g,#FFC542);text-shadow:0 0 8px var(--g,#FFC542)}' +
+  /* the two decks keep their ? and !, because a question mark IS the
+     mark on every board ever printed — but it now stands in front of
+     the deck's own drawing rather than on a bare tile */
+  '#scr-kiri .kr-cell.chance .kr-e{font-size:clamp(13px,calc(var(--bs,340px) * .044),23px);' +
+    'color:var(--g,#FFC542);text-shadow:0 1px 3px #06040C,0 0 8px var(--g,#FFC542)}' +
   /* where the piece is standing, lit from inside */
   '#scr-kiri .kr-cell.here{border-color:#FFC542;' +
     'box-shadow:inset 0 0 0 1px #FFC542,inset 0 0 14px rgba(255,197,66,.32),0 0 12px rgba(255,197,66,.30)}' +
@@ -429,42 +465,91 @@ function injectCSS(){
   '#scr-kiri .kr-cell .kr-lock{position:absolute;top:1px;left:1px;z-index:3;font-size:8px;line-height:1;' +
     'font-weight:900;color:#0E0B14;background:#FF5468;border-radius:3px;padding:1px 2px}' +
 
-  /* ── THE EIGHT SEATS, TOLD APART BY SHAPE ───────────────────────
-     Eight colours is as many as stay honestly apart at nine points,
-     which is why eight is the seat maximum. A SHAPE does not run out:
-     the pips are a disc, a square, a diamond, a triangle, a pentagon,
-     a hexagon, a bar and a cross, so the colour is now the second
-     thing telling them apart rather than the only one. That is the
-     accessible reading (never colour alone) and it is also the thing
-     that would let the table seat more than eight. */
-  '#scr-kiri .kr-pips{position:absolute;z-index:3;bottom:1px;left:1px;right:1px;' +
-    'display:flex;flex-wrap:wrap;justify-content:center;gap:1.5px}' +
-  '#scr-kiri .kr-cell.s-l .kr-pips{right:9px}' +
-  '#scr-kiri .kr-cell.s-r .kr-pips{left:9px}' +
-  '#scr-kiri .kr-cell.s-t .kr-pips{bottom:9px}' +
-  '#scr-kiri .kr-pip{width:clamp(7px,calc(var(--bs,340px) * .0245),12px);height:auto;aspect-ratio:1;' +
-    'flex:0 0 auto;background:var(--c,#fff);' +
-    'filter:drop-shadow(0 0 1.4px #0E0B14) drop-shadow(0 1px 1px rgba(0,0,0,.7))}' +
-  '#scr-kiri .kr-pips.many .kr-pip{width:clamp(6px,calc(var(--bs,340px) * .019),9px)}' +
-  /* EIGHT PEOPLE START ON THE SAME CORNER. Two rows of tokens plus a
-     silhouette plus a code does not go in one square, and of the three
-     the decoration is the one nobody needs: a corner that has somebody
-     standing on it drops its glyph and keeps its name. */
-  '#scr-kiri .kr-cell.corner.busy .kr-gl{display:none}' +
-  '#scr-kiri .kr-cell.corner.busy{padding-bottom:34%}' +
-  '#scr-kiri .kr-pip.k0{border-radius:50%}' +
-  '#scr-kiri .kr-pip.k1{border-radius:2px}' +
-  '#scr-kiri .kr-pip.k2{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}' +
-  '#scr-kiri .kr-pip.k3{clip-path:polygon(50% 4%,100% 96%,0 96%)}' +
-  '#scr-kiri .kr-pip.k4{clip-path:polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)}' +
-  '#scr-kiri .kr-pip.k5{clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%)}' +
-  '#scr-kiri .kr-pip.k6{clip-path:polygon(0 28%,100% 28%,100% 72%,0 72%);border-radius:1px}' +
-  '#scr-kiri .kr-pip.k7{clip-path:polygon(36% 0,64% 0,64% 36%,100% 36%,100% 64%,64% 64%,' +
-    '64% 100%,36% 100%,36% 64%,0 64%,0 36%,36% 36%)}' +
-  /* a seat the phone is playing is HATCHED, not a different shape —
-     the shape is who you are and must not change when you step out */
-  '#scr-kiri .kr-pip.auto{background:repeating-linear-gradient(45deg,var(--c,#fff) 0 2px,' +
-    'rgba(14,11,20,.85) 2px 4px)}' +
+  /* ── THE PIECES ARE THE PLAYERS' FACES ──────────────────────────
+     A player already HAS a face everywhere else in KARTI — a drawn
+     Maltese one, or their own photograph, with whatever border they
+     have unlocked — and there is exactly one renderer for it. So the
+     piece is that face, drawn by that renderer, and nothing here
+     knows how to draw a face at all.
+
+     THE SHAPE STAYED, AS THE FRAME. Eight faces at eighteen points
+     are eight faces; the disc, square, diamond, triangle, pentagon,
+     hexagon, bar and cross are what tell you WHICH IS YOURS across
+     the width of a board without reading anything, and the ring is
+     also where the seat colour lives. So the shape is now a collar
+     the face sits in — clipped plate underneath, face centred on top
+     at 74% — which keeps the never-colour-alone reading and does not
+     crop anybody's chin.
+
+     .kr-tok is the token anywhere a seat is named. --tz is its size
+     in points, set by whoever writes it, because the face inside is
+     a fixed pixel size handed to the renderer and the two must agree. */
+  '#scr-kiri .kr-tok{position:relative;width:var(--tz,34px);height:var(--tz,34px);flex:0 0 auto;' +
+    'display:grid;place-items:center;line-height:0}' +
+  '#scr-kiri .kr-tok::before{content:"";position:absolute;inset:0;background:var(--c,#fff);' +
+    'filter:drop-shadow(0 0 1.4px #0E0B14) drop-shadow(0 1.5px 1.5px rgba(0,0,0,.75))}' +
+  '#scr-kiri .kr-tok > *{position:relative;z-index:1}' +
+  '#scr-kiri .kr-tok .kx-av{display:block}' +
+  /* the phone is playing this seat: the COLLAR is hatched, never the
+     face — you must still be able to see who is not really there */
+  '#scr-kiri .kr-tok.auto::before{background:repeating-linear-gradient(45deg,var(--c,#fff) 0 2.5px,' +
+    'rgba(14,11,20,.9) 2.5px 5px)}' +
+  /* THE EIGHT SHAPES, ONCE. The token wears them on its collar and the
+     little owner chip on a sold square wears the same one at eight
+     points, so "who has this" and "who is standing here" are the same
+     eight silhouettes and never drift apart. */
+  '#scr-kiri .kr-oc{position:relative;z-index:1;height:auto;aspect-ratio:1;background:var(--c,#fff);' +
+    'width:clamp(6px,calc(var(--bs,340px) * .021),11px);' +
+    'filter:drop-shadow(0 0 1.3px #0E0B14) drop-shadow(0 1px 1px rgba(0,0,0,.7))}' +
+  '#scr-kiri .kr-tok.k0::before,#scr-kiri .kr-oc.k0{border-radius:50%}' +
+  '#scr-kiri .kr-tok.k1::before,#scr-kiri .kr-oc.k1{border-radius:14%}' +
+  '#scr-kiri .kr-tok.k2::before,#scr-kiri .kr-oc.k2{clip-path:polygon(50% -6%,106% 50%,50% 106%,-6% 50%)}' +
+  '#scr-kiri .kr-tok.k3::before,#scr-kiri .kr-oc.k3{clip-path:polygon(50% -10%,112% 104%,-12% 104%)}' +
+  '#scr-kiri .kr-tok.k4::before,#scr-kiri .kr-oc.k4{clip-path:polygon(50% -4%,104% 36%,86% 106%,14% 106%,-4% 36%)}' +
+  '#scr-kiri .kr-tok.k5::before,#scr-kiri .kr-oc.k5{clip-path:polygon(25% -2%,75% -2%,104% 50%,75% 102%,25% 102%,-4% 50%)}' +
+  '#scr-kiri .kr-tok.k6::before,#scr-kiri .kr-oc.k6{clip-path:polygon(-4% 16%,104% 16%,104% 84%,-4% 84%)}' +
+  '#scr-kiri .kr-tok.k7::before,#scr-kiri .kr-oc.k7{clip-path:polygon(31% -4%,69% -4%,69% 31%,104% 31%,104% 69%,' +
+    '69% 69%,69% 104%,31% 104%,31% 69%,-4% 69%,-4% 31%,31% 31%)}' +
+  /* whose turn it is, on the board itself */
+  '#scr-kiri .kr-tok.now::after{content:"";position:absolute;inset:-13%;border-radius:50%;' +
+    'box-shadow:0 0 0 1.5px #FFC542,0 0 9px rgba(255,197,66,.75);pointer-events:none}' +
+
+  /* ── WHO IS STANDING ON A SQUARE ────────────────────────────────
+     Its own layer, one grid cell per square, laid over the tiles and
+     NOT inside them: a tile is clipped (its picture has to be) and a
+     crowd is not. The layer takes no taps — the tile underneath is
+     still the thing you press, which is what opens the list of
+     everybody on it.
+
+     Eight people start on Il-Bidu. Eight faces do not go on one
+     forty-point square at any size that is worth drawing, so the
+     board shows as many as are worth showing and says +N for the
+     rest, out loud, rather than quietly dropping anybody. How many
+     fit is a function of the zoom, so pinching in genuinely reveals
+     more of them, and tapping the square lists every single one with
+     their name.
+
+     A PIECE STANDS AT THE INNER EDGE AND OVERHANGS THE FELT, which is
+     where a piece sits on a real board and is also the only place it
+     can go: the square itself is where the code and the price are, and
+     a token dropped in the middle of one covers both. Which edge is
+     "inner" is the side the square is on, and the same class the
+     colour strip uses says so. */
+  '#scr-kiri .kr-toks{position:relative;z-index:6;pointer-events:none;min-width:0;min-height:0;' +
+    'display:flex;flex-wrap:wrap;align-content:center;justify-content:center;' +
+    'align-items:center;gap:1.5px;padding:0}' +
+  '#scr-kiri .kr-toks.s-b{align-content:flex-start;top:-22%}' +
+  '#scr-kiri .kr-toks.s-t{align-content:flex-end;top:22%}' +
+  '#scr-kiri .kr-toks.s-l{justify-content:flex-end;left:22%}' +
+  '#scr-kiri .kr-toks.s-r{justify-content:flex-start;left:-22%}' +
+  '#scr-kiri .kr-toks.corner{align-content:flex-start;top:-14%}' +
+  /* a corner with somebody standing on it lets its drawing go quiet —
+     eight people start on one and the piece is the thing to look at */
+  '#scr-kiri .kr-cell.corner.busy .kr-pic{opacity:.34}' +
+  '#scr-kiri .kr-more{flex:0 0 auto;font-size:calc(var(--tz,18px) * .58);line-height:1;font-weight:900;' +
+    'font-family:var(--disp);color:#FFE6A8;background:rgba(10,7,18,.88);border-radius:99px;' +
+    'padding:calc(var(--tz,18px) * .16) calc(var(--tz,18px) * .24);' +
+    'box-shadow:0 0 0 1px rgba(255,197,66,.55),0 1px 3px rgba(0,0,0,.7)}' +
 
   /* ── THE MIDDLE OF THE TABLE ────────────────────────────────────
      js/artkit.js's felt, the same cut as the kazin card table, with
@@ -532,15 +617,13 @@ function injectCSS(){
   '#scr-kiri .kr-plate .kr-e{font-family:var(--disp);font-size:13px;font-weight:900;line-height:1;' +
     'color:#F6F1FF;text-shadow:0 1px 2px rgba(0,0,0,.7)}' +
   '#scr-kiri .kr-plate.chance .kr-e{font-size:20px;color:var(--g,#FFC542)}' +
-  '#scr-kiri .kr-plate .kr-gl{width:17px;height:17px;color:#D5CAF0;display:block;line-height:0}' +
-  '#scr-kiri .kr-plate .kr-gl .ka-g{stroke-width:1}' +
+  '#scr-kiri .kr-plate .kr-pic{opacity:.5;left:12%;right:12%;top:8%;bottom:22%}' +
+  '#scr-kiri .kr-plate.corner .kr-pic{opacity:.62;color:#FFC542}' +
 
   /* the winner, on a plate the size of a medal */
   '#scr-kiri .kr-crown{width:74px;height:74px;border-radius:50%;display:grid;place-items:center;' +
     'background:radial-gradient(70% 70% at 34% 26%,rgba(255,197,66,.35),rgba(14,11,20,.9));' +
     'box-shadow:0 0 0 2px rgba(255,197,66,.6),0 0 30px rgba(255,197,66,.35)}' +
-  '#scr-kiri .kr-crown .kr-tok{width:52px;height:52px}' +
-  '#scr-kiri .kr-crown .kr-pip{width:30px;height:30px}' +
   /* a cut cable, drawn: two ends and the gap between them */
   '#scr-kiri .kr-plug{width:76px;height:16px;border-radius:8px;' +
     'background:linear-gradient(90deg,#8A5CFF 0 40%,rgba(0,0,0,0) 40% 60%,#8A5CFF 60% 100%);' +
@@ -548,8 +631,54 @@ function injectCSS(){
   '#scr-kiri .kr-plug.no{background:linear-gradient(90deg,#FF5468 0 40%,rgba(0,0,0,0) 40% 60%,' +
     '#FF5468 60% 100%);box-shadow:0 0 18px rgba(255,84,104,.5)}' +
 
-  /* ── the dock ── */
-  '#scr-kiri .kr-dock{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:5px;margin-top:5px}' +
+  /* ── ZOOM, WHERE IT CANNOT BE MISSED ────────────────────────────
+     Pinch is the real gesture and double-tap is the quick one, but
+     neither is discoverable and neither exists on a laptop, so the
+     stage carries three small buttons in its own corner. FIT is the
+     important one: it is the way back from having zoomed into a
+     corner, it appears the instant the board is not fitted, and it is
+     always exactly one tap. When the board IS fitted there is nothing
+     to go back from, so it stands down and leaves + and − at half
+     strength over the rim. */
+  '#scr-kiri .kr-zoom{position:absolute;right:5px;bottom:5px;z-index:9;display:flex;gap:5px;align-items:center}' +
+  '#scr-kiri .kr-zb{min-width:36px;height:36px;border-radius:11px;padding:0 8px;' +
+    'border:1px solid rgba(255,255,255,.18);background:rgba(12,8,22,.72);color:#E7DEFF;' +
+    'font-size:17px;font-weight:900;line-height:1;display:grid;place-items:center;opacity:.62}' +
+  '#scr-kiri .kr-zb:active{background:rgba(138,92,255,.5);opacity:1}' +
+  '#scr-kiri .kr-zb[disabled]{opacity:.22}' +
+  '#scr-kiri .kr-zb.fit{font-size:11px;letter-spacing:.08em;font-family:var(--disp);opacity:1;' +
+    'background:rgba(255,197,66,.92);border-color:#FFE29A;color:#2B1D00}' +
+  '#scr-kiri .kr-zoom.fitted .fit{display:none}' +
+  '#scr-kiri .kr-zoom.fitted .kr-zb{opacity:.45}' +
+
+  /* ── the dock, which slides down ────────────────────────────────
+     The four tabs are worth a third of the screen when you are
+     reading a deed and worth nothing at all when you are looking at
+     the board, so they fold away behind a grab handle the width of
+     the dock. What stays when it is down is chosen, not left over:
+     the turn strip above it (whose turn, and what they have) never
+     belonged to the dock, and the ACTION BAR comes down with the
+     handle — a collapsed dock that hides the one button the game is
+     waiting on is worse than no collapse at all. The state is
+     remembered, because it is a preference and not a mode. */
+  '#scr-kiri .kr-dock{flex:0 0 var(--dockh,268px);min-height:0;display:flex;flex-direction:column;' +
+    'gap:5px;margin-top:5px}' +
+  '#scr-kiri .kr-dock.down{flex:0 0 auto}' +
+  '#scr-kiri .kr-dock.down .kr-tabs,#scr-kiri .kr-dock.down .kr-pane{display:none}' +
+  '#scr-kiri .kr-grip{flex:0 0 auto;min-height:32px;width:100%;border-radius:11px;padding:0 10px;' +
+    'border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);' +
+    'display:flex;align-items:center;justify-content:center;gap:8px;' +
+    'font-size:10px;font-weight:900;letter-spacing:.1em;color:#8E80B4}' +
+  '#scr-kiri .kr-grip:active{background:rgba(255,255,255,.13)}' +
+  '#scr-kiri .kr-grip i{width:34px;height:4px;border-radius:2px;background:rgba(255,255,255,.30);' +
+    'flex:0 0 auto}' +
+  '#scr-kiri .kr-grip svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.4;' +
+    'stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;transition:transform .16s ease}' +
+  /* DOWN, the handle is the only way back, so it grows to a full
+     44-point target and says which tab it will open */
+  '#scr-kiri .kr-dock.down .kr-grip{min-height:44px;background:rgba(138,92,255,.16);' +
+    'border-color:rgba(138,92,255,.4);color:#C4AEFF}' +
+  '#scr-kiri .kr-dock.down .kr-grip svg{transform:rotate(180deg)}' +
   '#scr-kiri .kr-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;flex:0 0 auto}' +
   '#scr-kiri .kr-tab{min-height:44px;border-radius:10px;border:1px solid rgba(255,255,255,.10);' +
     'background:rgba(255,255,255,.04);font-size:11px;font-weight:800;letter-spacing:.04em;color:#A093C4}' +
@@ -715,20 +844,32 @@ function injectCSS(){
      Turned on its side there is width instead, so the ring goes beside
      the dock rather than above it. Same markup, same handlers, same
      everything: four grid placements and a different sum in
-     sizeBoard(). */
+     sizeBoard().
+
+     THE COLUMN IS NOW A NUMBER, not `auto`. The board is absolutely
+     positioned inside its stage so the stage has no intrinsic width
+     of its own — an `auto` track would measure zero and the ring
+     would vanish. --kw names the BOARD's column instead, and
+     sizeBoard() can state it exactly: on its side the ring is limited
+     by the 440 points of height and by nothing else. Every remaining
+     point then goes to the dock instead of to two empty gutters
+     either side of a board that cannot use them. */
   '@media (orientation:landscape) and (max-height:560px){' +
     '#scr-kiri .kr-over{gap:6px;padding:12px;justify-content:flex-start}' +
     '#scr-kiri .kr-over h3{font-size:20px}' +
-    '#scr-kiri.on{display:grid;column-gap:8px;' +
-      'grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr)}' +
+    '#scr-kiri.on{display:grid;column-gap:6px;' +
+      'grid-template-columns:var(--kw,300px) minmax(0,1fr);' +
+      'grid-template-rows:auto auto auto minmax(0,1fr)}' +
     /* THE TITLE BAR GOES IN THE DOCK'S COLUMN. It used to span both,
        which cost the ring its own height in points for a row of chrome
        that had a whole empty column to sit in. */
     '#scr-kiri .kr-tbar{grid-area:1/2/2/3;min-height:38px}' +
-    '#scr-kiri .kr-wrap{grid-area:1/1/5/2;align-self:stretch;padding:0}' +
+    '#scr-kiri .kr-wrap{grid-area:1/1/5/2;align-self:stretch;margin:0 0 0 -8px}' +
     '#scr-kiri .kr-strip{grid-area:2/2/3/3;margin:0 0 4px}' +
     '#scr-kiri #kr-awayhost{grid-area:3/2/4/3}' +
-    '#scr-kiri .kr-dock{grid-area:4/2/5/3;margin-top:0}' +
+    '#scr-kiri .kr-dock{grid-area:4/2/5/3;margin-top:0;flex:1 1 auto;justify-content:flex-end}' +
+    '#scr-kiri .kr-dock.down{flex:1 1 auto}' +
+    '#scr-kiri .kr-dock .kr-grip{order:-1}' +
     '#scr-kiri .kr-die{width:26px;height:26px;font-size:15px}' +
     '#scr-kiri .kr-btn{min-height:44px}}' +
 
@@ -1233,7 +1374,10 @@ function paintSetup(){
     const S = K.SEATS[i];
     const off = s.kind === 'off';
     h += '<div class="kr-pl">' +
-      tok(i, S.c, S.n) +
+      /* the face on the chair is the PERSON sitting in it, drawn by the
+         one renderer, so the piece you pick here is the piece you see
+         on the board. An empty chair gets the shape and no face. */
+      tok(i, S.c, off ? S.n : s.name, 34, off ? 'bare' : '') +
       (off
         ? '<span style="flex:1;color:#7F73A0;font-size:12.5px;font-weight:700">Empty chair</span>'
         : '<button class="kr-seatname" id="kr-nm-' + i + '">' + esc(s.name) +
@@ -1337,7 +1481,7 @@ function renameSheet(i){
     body:'<p class="kr-blurb">' + (i === 0
         ? 'This is your profile name and it follows you into every game. Change it here just for tonight if you like.'
         : 'Call this seat whatever the person sitting in it answers to.') + '</p>' +
-      '<div class="kr-pl">' + tok(i, S.c, S.n) +
+      '<div class="kr-pl">' + tok(i, S.c, s.name) +
       '<input id="kr-rn" maxlength="14" value="' + esc(s.name) + '" aria-label="Name for this seat"></div>',
     foot:'<button class="kr-btn" id="kr-rnx">Leave it</button>' +
          '<button class="kr-btn go" id="kr-rnok">That\'s it</button>',
@@ -1414,8 +1558,18 @@ function boardScreen(){
     '</div>' +
     '<div class="kr-strip" id="kr-strip"></div>' +
     '<div id="kr-awayhost"></div>' +
-    '<div class="kr-wrap"><div class="kr-board" id="kr-board"></div></div>' +
-    '<div class="kr-dock">' +
+    '<div class="kr-wrap" id="kr-stage">' +
+      '<div class="kr-board" id="kr-board"></div>' +
+      '<div class="kr-zoom fitted" id="kr-zoom">' +
+        '<button class="kr-zb fit" id="kr-zfit" aria-label="Fit the whole board on the screen">FIT</button>' +
+        '<button class="kr-zb" id="kr-zout" aria-label="Zoom out">&#8722;</button>' +
+        '<button class="kr-zb" id="kr-zin" aria-label="Zoom in">+</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="kr-dock' + (dockDown ? ' down' : '') + '" id="kr-dock">' +
+      '<button class="kr-grip" id="kr-grip" aria-controls="kr-dock" aria-expanded="' +
+        (dockDown ? 'false' : 'true') + '"><i></i><span id="kr-griptx"></span>' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 15l6-6 6 6"/></svg></button>' +
       '<div class="kr-tabs" role="tablist">' +
         '<button class="kr-tab" role="tab" data-tab="square">SQUARE</button>' +
         '<button class="kr-tab" role="tab" data-tab="deeds">DEEDS</button>' +
@@ -1438,6 +1592,10 @@ function boardScreen(){
     act:   el.querySelector('#kr-act'),
     scrim: el.querySelector('#kr-scrim'),
     sheet: el.querySelector('#kr-sheet'),
+    dock:  el.querySelector('#kr-dock'),
+    grip:  el.querySelector('#kr-grip'),
+    gript: el.querySelector('#kr-griptx'),
+    zoom:  el.querySelector('#kr-zoom'),
   };
   /* the back arrow. Offline it asks what "leave" means — put it down
      for later, or end it here — because a game that is autosaved after
@@ -1455,7 +1613,11 @@ function boardScreen(){
   });
   els.scrim.onclick = () => { if (!sheet || sheet.dismissable !== false) closeSheet(); };
 
+  els.grip.onclick = () => setDock(!dockDown);
+  wireZoom(el);
+
   /* the ring, built once */
+  injectSprite();
   for (let i = 0; i < 32; i++){
     const s = K.BOARD[i];
     const c = document.createElement('button');
@@ -1465,7 +1627,12 @@ function boardScreen(){
     const [r, col] = cellPos(i);
     c.style.gridRow = r; c.style.gridColumn = col;
     c.setAttribute('aria-label', s.n);
-    c.onclick = () => squareSheet(i);
+    /* A DRAG IS NOT A TAP. The stage under this button pans the board,
+       and a pan that started on a square used to open that square when
+       your thumb came up. `panning` is set the moment the gesture
+       passes the same slop threshold SKARTA's drag-to-arrange uses, so
+       a tap still selects and a drag still drags. */
+    c.onclick = () => { if (!panning) squareSheet(i); };
     els.board.appendChild(c);
   }
   const mid = document.createElement('div');
@@ -1477,7 +1644,24 @@ function boardScreen(){
   els.board.appendChild(mid);
   els.mid = mid;
 
+  /* THE PIECES LIVE OVER THE RING, NOT IN IT. One grid cell per
+     square, same placement, no pointer events — see the note over
+     .kr-toks. A tile has to clip (its picture fills it); a crowd of
+     eight faces must not. */
+  els.toks = [];
+  for (let i = 0; i < 32; i++){
+    const t = document.createElement('div');
+    t.className = 'kr-toks ' + (sideOf(i) || 'corner');
+    t.id = 'kr-t' + i;
+    const [r, col] = cellPos(i);
+    t.style.gridRow = r; t.style.gridColumn = col;
+    els.board.appendChild(t);
+    els.toks.push(t);
+  }
+
+  paintDock();
   sizeBoard();
+  fitView();
   if (!sizerOn) startSizer();
   render();
   resetClock();
@@ -1485,56 +1669,99 @@ function boardScreen(){
   pump();
 }
 
-/* ── THE RING IS AS BIG AS THE WINDOW ALLOWS ────────────────────────
-   It used to be a sum over three hardcoded constants — 108 points of
-   "chrome", 280 of dock, 16 of padding — and constants drift: the
-   safe-area inset is not 0 on a real phone, the away bar appears and
-   disappears, and the landscape layout moved. So the two numbers that
-   can be MEASURED are measured. `wrap.offsetTop` is the exact height
-   of everything above the ring, whatever that turned out to be, and
-   the screen's own computed padding is the exact inset. Only the
-   dock's minimum is a judgement, and it scales with the phone.
+/* ═══════════════════════════════════════════════════════════════════
+   6b. THE DOCK SLIDES DOWN
+   A preference, so it is remembered — and remembered in its own key,
+   never in the save: binning the game must not also forget that you
+   like the board big. Everything the game is WAITING on stays on
+   screen when it is down (the turn strip above it, the action bar
+   inside it); only the four tabs and the pane they scroll fold away.
+   ═══════════════════════════════════════════════════════════════════ */
+const UI_KEY = 'karti_kiri_ui_v1';
+let dockDown = false;
+try { dockDown = localStorage.getItem(UI_KEY + '.dock') === '1'; } catch(e){}
+
+const TABNAME = { square:'SQUARE', deeds:'DEEDS', table:'TABLE', log:'LOG' };
+function paintDock(){
+  if (!els.dock) return;
+  els.dock.classList.toggle('down', dockDown);
+  els.grip.setAttribute('aria-expanded', dockDown ? 'false' : 'true');
+  els.grip.setAttribute('aria-label', dockDown
+    ? 'Show the tabs' : 'Hide the tabs and give the board the room');
+  if (els.gript) els.gript.textContent = dockDown ? (TABNAME[tab] || 'TABS') + ' — TAP TO OPEN' : 'HIDE';
+}
+function setDock(down){
+  dockDown = !!down;
+  try { localStorage.setItem(UI_KEY + '.dock', dockDown ? '1' : '0'); } catch(e){}
+  paintDock();
+  /* the stage just changed height; refit rather than leave the board
+     hanging where the old one put it */
+  sizeBoard();
+  fitView();
+  if (!dockDown) render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   6c. THE RING IS AS BIG AS THE STAGE, AND THE STAGE IS MEASURED
+   The old sum was arithmetic over the chrome: read the title bar's
+   height, guess the dock's, subtract, hope. It has been replaced by
+   the layout doing its own job — the dock is told what it is worth
+   (--dockh, or --kw for the board's column beside it) and the stage
+   is `flex:1`,
+   so `stage.clientWidth/Height` IS the answer and there is nothing
+   left to get wrong. The board is then the largest square that fits
+   it, with no cap: on a tall phone with the dock down that is the
+   whole screen, which is exactly what was asked for.
+
+   Nothing here can feed back on itself. The board is absolutely
+   positioned inside the stage, so its size cannot change the stage's;
+   and --dockh is a function of the SCREEN's height, never the stage's.
 
    The page must never scroll — #scr-kiri is inset:0 with
-   overflow:hidden — so the ring is only ever allowed to take height
-   that is genuinely spare. */
+   overflow:hidden and the stage clips too — so no amount of zooming
+   can put a scrollbar anywhere.
+   ═══════════════════════════════════════════════════════════════════ */
 let sizerOn = false, ro = null;
-const BOARD_CAP = 560;
+function onItsSide(){
+  const el = screenEl();
+  return !!el && el.clientWidth > el.clientHeight && el.clientHeight <= 560;
+}
 function sizeBoard(){
   const el = screenEl();
   if (!el || !els.board || !els.wrap) return;
-  const cs = getComputedStyle(el);
-  const padL = parseFloat(cs.paddingLeft) || 0;
-  const padR = parseFloat(cs.paddingRight) || 0;
-  const padT = parseFloat(cs.paddingTop) || 0;
-  const padB = parseFloat(cs.paddingBottom) || 0;
-  const w = el.clientWidth - padL - padR;
-  /* the same test the stylesheet makes, so the sum and the layout can
-     never disagree about which way up the phone is */
-  const onItsSide = el.clientWidth > el.clientHeight && el.clientHeight <= 560;
-  /* PORTRAIT: everything above the ring, as actually laid out — the
-     title bar, the turn strip and the away bar if there is one. Their
-     heights do not depend on the ring's, so reading it back is safe.
-     ON ITS SIDE the ring has its own full-height column and nothing is
-     above it, so offsetTop would be the ring's own centring offset —
-     measuring THAT would feed the answer back into itself and the
-     board would shrink a little every time the observer fired. */
-  const top = onItsSide ? padT : els.wrap.offsetTop;
-  const h = el.clientHeight - top - padB;        /* everything left for the ring and the dock */
-  /* what a dock has to be to be a dock: four 44-point tabs, a 44-point
-     action bar and something between them. On a tall phone it can have
-     its full 280; on a 660-point one, insisting on 280 was costing the
-     board forty points it could have had. */
-  const dock = onItsSide ? 268
-             : Math.max(198, Math.min(280, Math.round(el.clientHeight * 0.34)));
-  const s = onItsSide
-    /* BESIDE the dock: the full height is the ring's, because the title
-       bar went into the other column with everything else */
-    ? Math.max(240, Math.min(h, w - dock - 8, BOARD_CAP))
-    : Math.max(276, Math.min(w, h - dock - 5, BOARD_CAP));
-  const px = Math.floor(s) + 'px';
-  if (els.board.style.getPropertyValue('--bs') !== px)
-    els.board.style.setProperty('--bs', px);
+  /* what a dock has to be to be a dock: a grab handle, four 44-point
+     tabs, a 50-point action bar and something to read between them.
+     On a tall phone it can have its full 280; on a 660-point one,
+     insisting on 280 was costing the board forty points it could have
+     had. Beside the board it is a width instead of a height. */
+  if (onItsSide()){
+    /* BESIDE THE DOCK the ring is limited by HEIGHT, always — 440
+       points of phone on its side is less than half its width. So the
+       board's column is told exactly how wide the board will be and
+       every remaining point goes to the dock, instead of the ring
+       floating in the middle of a column with a hundred and fifty
+       points of nothing either side of it. */
+    const cs = getComputedStyle(el);
+    const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+    const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+    const minDock = dockDown ? 210 : 262;
+    el.style.setProperty('--kw', Math.max(240,
+      Math.min(el.clientHeight - padY, el.clientWidth - padX - 6 - minDock)) + 'px');
+    el.style.removeProperty('--dockh');
+  } else {
+    el.style.removeProperty('--kw');
+    el.style.setProperty('--dockh',
+      Math.max(198, Math.min(280, Math.round(el.clientHeight * 0.34))) + 'px');
+  }
+  const w = els.wrap.clientWidth, h = els.wrap.clientHeight;
+  if (!w || !h) return;
+  const s = Math.max(240, Math.floor(Math.min(w, h)));
+  if (s !== base){
+    base = s;
+    els.board.style.setProperty('--bs', s + 'px');
+    if (G) renderCells();          /* the token sizes are a fraction of it */
+  }
+  clampView();
 }
 function startSizer(){
   sizerOn = true;
@@ -1542,6 +1769,258 @@ function startSizer(){
     ro = new ResizeObserver(sizeBoard);
     ro.observe(screenEl());
   } else window.addEventListener('resize', sizeBoard);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   6d. PINCH, DRAG, DOUBLE-TAP, FIT
+   The board is a physical object on a table and the table is bigger
+   than the phone, so you move it. All of it is ONE transform on
+   .kr-board — translate then scale, origin at its top-left corner —
+   which is the only thing on this screen that touches the compositor
+   and the only thing that could not be done in layout.
+
+   THE PAGE STILL CANNOT SCROLL. Zoom and pan happen strictly inside
+   the stage's own overflow:hidden box; the document's scroll height
+   never changes, whatever the zoom is. touch-action:none on the stage
+   is what stops the browser taking the pinch for itself first.
+
+   A TAP AND A DRAG ARE TOLD APART BY DISTANCE, the same nine points
+   SKARTA uses to tell playing a card from rearranging your hand.
+   Under the threshold the finger never moved and the square's own
+   click runs; over it, `panning` is set and the click is dropped.
+
+   YOU CAN NEVER BE STRANDED. The moment the board is not fitted, FIT
+   appears in the corner of the stage and is one tap; double-tapping
+   anywhere zooms straight back out; and the board is clamped so it
+   can never be dragged off its own stage.
+   ═══════════════════════════════════════════════════════════════════ */
+const ZMAX = 4, ZTAP = 2.4, DRAG_SLOP = 9;
+let base = 320;                     /* the fitted size of the board, in points */
+let vw = { k:1, x:0, y:0 };
+let panning = false;                /* this gesture has become a drag */
+let pts = new Map();                /* live pointers on the stage */
+let gest = null;                    /* the gesture in flight */
+let lastTap = 0, lastTapX = 0, lastTapY = 0;
+let dblWired = false;
+
+function applyView(){
+  if (!els.board) return;
+  els.board.style.transform =
+    'translate(' + vw.x.toFixed(1) + 'px,' + vw.y.toFixed(1) + 'px) scale(' + vw.k.toFixed(4) + ')';
+  if (els.zoom){
+    els.zoom.classList.toggle('fitted', vw.k <= 1.001);
+    const zi = els.zoom.querySelector('#kr-zin'), zo = els.zoom.querySelector('#kr-zout');
+    if (zi) zi.disabled = vw.k >= ZMAX - 0.001;
+    if (zo) zo.disabled = vw.k <= 1.001;
+  }
+}
+function clampView(){
+  if (!els.wrap) return;
+  const w = els.wrap.clientWidth, h = els.wrap.clientHeight, c = base * vw.k;
+  vw.x = c <= w ? (w - c) / 2 : Math.min(0, Math.max(w - c, vw.x));
+  vw.y = c <= h ? (h - c) / 2 : Math.min(0, Math.max(h - c, vw.y));
+  applyView();
+}
+function fitView(){ vw.k = 1; followed = -1; clampView(); }
+
+/* ── ZOOMED IN, THE GAME COMES TO YOU ───────────────────────────────
+   Somebody who has pinched into the Belt corner should not have to
+   pan back every time it is somebody else's turn. When the board is
+   zoomed and the seat whose turn it is has moved to a square that is
+   COMPLETELY off the stage, the board slides that square to the
+   middle. Only completely off — a square you can still see is a
+   square you were probably looking at, and shoving it about would be
+   the board arguing with your thumb. */
+let followed = -1;
+function followTurn(){
+  if (!G || G.over || vw.k <= 1.02 || !els.wrap) return;
+  if (G.turn === followed) return;
+  followed = G.turn;
+  const p = G.players[G.turn];
+  const c = p && document.getElementById('kr-c' + p.pos);
+  if (!c) return;
+  const r = c.getBoundingClientRect(), s = els.wrap.getBoundingClientRect();
+  if (r.right > s.left && r.left < s.right && r.bottom > s.top && r.top < s.bottom) return;
+  vw.x += els.wrap.clientWidth / 2 - ((r.left + r.right) / 2 - s.left);
+  vw.y += els.wrap.clientHeight / 2 - ((r.top + r.bottom) / 2 - s.top);
+  clampView();
+}
+/* zoom about a point in stage coordinates, so what is under your
+   fingers stays under your fingers */
+function zoomTo(k, px, py){
+  k = Math.max(1, Math.min(ZMAX, k));
+  if (Math.abs(k - vw.k) < 0.0005) return;
+  const r = k / vw.k;
+  vw.x = px - (px - vw.x) * r;
+  vw.y = py - (py - vw.y) * r;
+  vw.k = k;
+  clampView();
+  tokenReflow();
+}
+function stagePt(e){
+  const r = els.wrap.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+function centrePt(){ return [els.wrap.clientWidth / 2, els.wrap.clientHeight / 2]; }
+function zoomStep(mul){
+  const c = centrePt();
+  zoomTo(vw.k * mul, c[0], c[1]);
+}
+
+/* HOW MANY FACES A SQUARE CAN SHOW depends on how big that square
+   actually is ON THE GLASS, which is the cell size times the zoom —
+   so pinching in really does reveal more of a crowd rather than just
+   magnifying the same three. Only ever on a settled gesture: a
+   re-render in the middle of a pinch is a stutter nobody asked for. */
+let reflowT = 0, lastCap = 0;
+function tokenReflow(){
+  if (reflowT) return;
+  reflowT = setTimeout(() => {
+    reflowT = 0;
+    if (G && els.board && tokCap() !== lastCap) renderCells();
+  }, 90);
+}
+
+function wireZoom(el){
+  const z = id => el.querySelector('#' + id);
+  /* NO sfx() ON ANY OF THESE. sfx.js already puts ui.tap on every
+     <button> in the app, and a hand-rolled second one is two files on
+     the same frame — see the note over cue(). */
+  z('kr-zin').onclick  = () => zoomStep(1.5);
+  z('kr-zout').onclick = () => zoomStep(1 / 1.5);
+  z('kr-zfit').onclick = () => { fitView(); tokenReflow(); };
+
+  const st = els.wrap;
+  const dist = () => {
+    const a = [...pts.values()];
+    return Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y);
+  };
+  const mid = () => {
+    const a = [...pts.values()], r = st.getBoundingClientRect();
+    return [(a[0].x + a[1].x) / 2 - r.left, (a[0].y + a[1].y) / 2 - r.top];
+  };
+
+  st.addEventListener('pointerdown', e => {
+    pts.set(e.pointerId, { x:e.clientX, y:e.clientY });
+    if (pts.size === 1){
+      const p = stagePt(e);
+      gest = { mode:'maybe', id:e.pointerId, x0:p[0], y0:p[1], vx:vw.x, vy:vw.y };
+      panning = false;
+    } else if (pts.size === 2){
+      const m = mid();
+      gest = { mode:'pinch', d0:dist(), k0:vw.k, mx:m[0], my:m[1], vx:vw.x, vy:vw.y };
+      panning = true;                       /* two fingers is never a tap */
+      grab(e.pointerId);
+    }
+  });
+
+  /* CAPTURE ONLY ONCE IT IS A DRAG, never on the way down. A captured
+     pointer retargets the compatibility click as well, so capturing on
+     pointerdown would send every tap on a square to the stage and no
+     square would ever open — which is the one thing that must not
+     break. Taking the pointer at the moment the gesture passes the
+     slop threshold gets both: a drag that survives the finger leaving
+     the board, and a tap that still lands on the tile. */
+  function grab(id){ try { st.setPointerCapture(id); } catch(err){} }
+
+  st.addEventListener('pointermove', e => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    p.x = e.clientX; p.y = e.clientY;
+    if (!gest) return;
+    if (gest.mode === 'pinch' && pts.size >= 2){
+      const d = dist();
+      if (!gest.d0) return;
+      const k = Math.max(1, Math.min(ZMAX, gest.k0 * (d / gest.d0)));
+      const m = mid();
+      const r = k / gest.k0;
+      vw.k = k;
+      /* the pinch's own midpoint may have travelled too — that is the
+         two-finger pan, and leaving it out makes a zoom feel nailed down */
+      vw.x = m[0] - (gest.mx - gest.vx) * r;
+      vw.y = m[1] - (gest.my - gest.vy) * r;
+      clampView();
+      e.preventDefault();
+      return;
+    }
+    if (gest.mode === 'maybe'){
+      const q = stagePt(e);
+      if (Math.abs(q[0] - gest.x0) + Math.abs(q[1] - gest.y0) < DRAG_SLOP) return;
+      gest.mode = 'pan';
+      panning = true;
+      grab(e.pointerId);
+    }
+    if (gest.mode === 'pan'){
+      const q = stagePt(e);
+      vw.x = gest.vx + (q[0] - gest.x0);
+      vw.y = gest.vy + (q[1] - gest.y0);
+      clampView();
+      e.preventDefault();
+    }
+  });
+
+  const up = e => {
+    pts.delete(e.pointerId);
+    if (pts.size === 0){
+      const wasPan = gest && (gest.mode === 'pan' || gest.mode === 'pinch');
+      gest = null;
+      if (wasPan) tokenReflow();
+      /* the click that follows this pointerup has to see `panning`;
+         the tick after it has to not */
+      setTimeout(() => { panning = false; }, 0);
+    } else if (pts.size === 1 && gest && gest.mode === 'pinch'){
+      /* one finger lifted out of a pinch — carry on as a pan from here */
+      const only = [...pts.entries()][0];
+      const r = els.wrap.getBoundingClientRect();
+      gest = { mode:'pan', id:only[0], x0:only[1].x - r.left, y0:only[1].y - r.top,
+               vx:vw.x, vy:vw.y };
+    }
+  };
+  st.addEventListener('pointerup', up);
+  st.addEventListener('pointercancel', up);
+
+  /* a laptop, and anybody testing this on one */
+  st.addEventListener('wheel', e => {
+    const p = stagePt(e);
+    zoomTo(vw.k * (e.deltaY < 0 ? 1.16 : 1 / 1.16), p[0], p[1]);
+    e.preventDefault();
+  }, { passive:false });
+
+  /* DOUBLE-TAP, ON THE WHOLE SCREEN AND ON PURPOSE. The second tap of
+     a double-tap on a square lands on the scrim of the sheet the FIRST
+     tap opened, so a listener on the stage alone would never see it and
+     double-tap would work everywhere except on the squares — which are
+     the only places worth double-tapping. Listening in the capture
+     phase on the screen catches both, and the only sheet it is allowed
+     to dismiss is the harmless one it opened itself.
+
+     ONCE, EVER. The stage is rebuilt every time the board screen is
+     and takes its own listeners with it, but #scr-kiri is the same
+     element for the life of the app — adding this again on every new
+     game would fire the zoom once per game ever started. */
+  if (dblWired) return;
+  dblWired = true;
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button) return;
+    if (!els.wrap || !els.wrap.isConnected) return;
+    const inStage = els.wrap.contains(e.target);
+    const onScrim = els.scrim && e.target === els.scrim;
+    if (!inStage && !onScrim) return;
+    const now = Date.now();
+    const near = Math.abs(e.clientX - lastTapX) + Math.abs(e.clientY - lastTapY) < 34;
+    if (now - lastTap < 320 && near){
+      lastTap = 0;
+      if (sheet && sheet.kind === 'square') closeSheetOnly();
+      const r = els.wrap.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      if (vw.k > 1.02){ fitView(); tokenReflow(); }
+      else zoomTo(ZTAP, px, py);
+      panning = true;                 /* and do not open anything */
+      setTimeout(() => { panning = false; }, 0);
+      return;
+    }
+    lastTap = now; lastTapX = e.clientX; lastTapY = e.clientY;
+  }, true);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1553,6 +2032,7 @@ function render(){
   renderStrip();
   renderAway();
   renderCells();
+  followTurn();
   renderMid();
   renderPane();
   renderAct();
@@ -1614,7 +2094,7 @@ function renderAway(){
   const why = { clock:'has not moved', signal:'has lost the connection', away:'has gone', asked:'asked the phone to play' };
   els.away.innerHTML = net +
     '<div class="kr-away" role="status" aria-live="polite">' +
-      gone.map(p => tok(p.i, p.colour, p.name, 1)).join('') +
+      gone.map(p => tok(p.i, p.colour, p.name, 28)).join('') +
       '<span class="kr-awt"><b>' + gone.map(p => esc(p.name)).join(', ') + '</b> ' +
         (gone.length > 1 ? 'are away' : (why[gone[0].autoWhy] || 'is away')) +
         ' — the phone is playing ' + (gone.length > 1 ? 'those seats' : 'that seat') + '.</span>' +
@@ -1632,28 +2112,296 @@ function renderAway(){
   };
 }
 
-/* ── WHAT IS DRAWN ON A SQUARE THAT IS NOT PROPERTY ─────────────────
-   js/artkit.js already ships the house's silhouettes on one 24-grid
-   with one ink, so the corners and the services borrow from there
-   rather than inventing a second set of shapes for one screen. The
-   two card decks keep their ? and ! — a question mark IS the mark on
-   every board ever printed, and no drawing beats it at eleven points. */
-const GLYPH = {
-  bidu:'coin', kju:'gate', pjazza:'party', marsa:'crane',
-  taxxa:'gavel', cens:'gavel',
-  vapur:'ferry', terminus:'bus', karozzin:'bus', taxi:'bus',
-  bowser:'water', generator:'power',
+/* ═══════════════════════════════════════════════════════════════════
+   6e. THIRTY DRAWINGS, ONE FOR EVERY SQUARE
+
+   A short code is what a square is CALLED. It is not what a square
+   IS, and thirty-two tiles that differ only in three letters is a
+   list, not a board. So every square on this ring is now drawn —
+   sixteen properties in six groups, four transport, two services,
+   two taxes, two decks and four corners — and the drawing is of that
+   square in particular, off the joke printed under its own name in
+   js/kiri.js. The garage is a garage with a sofa in it. The shop has
+   its sign still hanging. The Mdina house has one lit window and one
+   dark one, because nobody has slept in it since 1987.
+
+   IT IS THE SAME LANGUAGE js/artkit.js SPEAKS, not a second one.
+   Same 24x24 grid, same filled silhouette with the holes cut by
+   fill-rule="evenodd" rather than painted over, the same two shadow
+   tones at fill-opacity .45 and .75, the same warm near-black ink,
+   and the kit's own .ka-g class doing the stroking — so a KIRI
+   square and a KARTI emblem sit on the same shelf. Where the kit
+   already owns a shape (the ferry, the bus) this asks for it with an
+   '@' rather than drawing a second one. The sprite lives here only
+   because js/artkit.js is not this file's to edit; everything about
+   the drawing obeys it.
+
+   NO EMOJI, and no generated art file: the board still ships
+   finished with nothing in art/ at all.
+   ═══════════════════════════════════════════════════════════════════ */
+/* an ellipse as a path, so it can be a hole inside another path */
+const ell = (cx, cy, rx, ry) =>
+  'M' + (cx - rx) + ' ' + cy + 'a' + rx + ' ' + ry + ' 0 1 0 ' + (rx * 2) + ' 0' +
+  'a' + rx + ' ' + ry + ' 0 1 0 ' + (-rx * 2) + ' 0Z';
+const rct = (x, y, w, h) => 'M' + x + ' ' + y + 'h' + w + 'v' + h + 'h' + (-w) + 'Z';
+/* a grid of little windows, as holes */
+function panes(x, y, w, h, gx, gy, cols, rows){
+  let d = '';
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      d += rct(+(x + c * (w + gx)).toFixed(2), +(y + r * (h + gy)).toFixed(2), w, h);
+  return d;
+}
+/* a tyre: a fat ring lying flat */
+const tyre = (cx, cy, r) =>
+  '<path fill-rule="evenodd" d="' + ell(cx, cy, r, r * 0.52) +
+  ell(cx, cy, r * 0.4, r * 0.21) + '"/>';
+
+const KR_MARKS = {
+
+  /* ── the four corners ───────────────────────────────────────── */
+  /* IL-BIDU: the post you set off from, and the way round the board */
+  bidu: '<path d="' + rct(2.2, 2.4, 2.8, 19.2) + '"/>' +
+        '<path d="M7.4 9h6.4V4.2L21.8 12l-8 7.8V15H7.4Z"/>',
+  /* IL-KJU: three people, one behind the other, at counter four */
+  kju:  '<path fill-rule="evenodd" d="' + ell(5.2, 6.4, 2.7, 2.7) + '"/>' +
+        '<path d="M1.5 21.6v-6.9a3.7 3.7 0 0 1 7.4 0v6.9Z"/>' +
+        '<path fill-opacity=".75" d="' + ell(12, 7, 2.4, 2.4) + '"/>' +
+        '<path fill-opacity=".75" d="M8.8 21.6v-6.4a3.2 3.2 0 0 1 6.4 0v6.4Z"/>' +
+        '<path fill-opacity=".45" d="' + ell(18.6, 7.5, 2.2, 2.2) + '"/>' +
+        '<path fill-opacity=".45" d="M15.7 21.6v-6a2.9 2.9 0 0 1 5.8 0v6Z"/>',
+  /* IL-PJAZZA: a café table, a cup on it, and two chairs nobody has
+     got up from since the first coffee */
+  pjazza: '<path fill-opacity=".45" d="' + rct(0.6, 6.4, 2.2, 10.4) + rct(0.6, 16.8, 4.8, 1.8) +
+        rct(1.4, 18.6, 1.4, 3.2) + rct(21.2, 6.4, 2.2, 10.4) + rct(18.6, 16.8, 4.8, 1.8) +
+        rct(21.2, 18.6, 1.4, 3.2) + '"/>' +
+        '<path d="' + rct(4.6, 13.4, 14.8, 2.2) + rct(10.9, 15.6, 2.2, 5.2) +
+        rct(7.6, 20.8, 8.8, 1.8) + '"/>' +
+        '<path d="M9.2 6.2h5.4v4.2a2.7 2.7 0 0 1-5.4 0Z"/>' +
+        '<path fill-opacity=".75" d="M14.9 7h1.3a1.8 1.8 0 0 1 0 3.6h-1.3Z"/>' +
+        '<path d="' + rct(7.6, 11.4, 8.6, 1.6) + '"/>',
+  /* IL-MARSA: the lights, and the lane you are in is the wrong one */
+  junction: '<path fill-rule="evenodd" d="M7.4 1.2h9.2a2.2 2.2 0 0 1 2.2 2.2v13a2.2 2.2 0 0 1-2.2 2.2H7.4' +
+        'a2.2 2.2 0 0 1-2.2-2.2v-13a2.2 2.2 0 0 1 2.2-2.2Z' +
+        ell(12, 5.4, 1.9, 1.9) + ell(12, 9.9, 1.9, 1.9) + ell(12, 14.4, 1.9, 1.9) + '"/>' +
+        '<path d="' + rct(10.9, 18.6, 2.2, 4.2) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(7.4, 21.4, 9.2, 1.6) + '"/>',
+
+  /* ── what the state takes ───────────────────────────────────── */
+  /* IT-TAXXA: the till receipt, torn off at the bottom */
+  taxxa: '<path fill-rule="evenodd" d="M4.2 1.6h15.6v19.6l-1.95-1.5-1.95 1.5-1.95-1.5-1.95 1.5' +
+        '-1.95-1.5-1.95 1.5-1.95-1.5L4.2 21.2Z' +
+        rct(6.8, 5, 10.4, 1.7) + rct(6.8, 8.6, 10.4, 1.7) + rct(6.8, 12.2, 6.6, 1.7) + '"/>',
+  /* IĊ-ĊENS: set in 1912, sealed, and it will outlive the building */
+  cens: '<path fill-rule="evenodd" d="M4.4 2.2h11.4a2.6 2.6 0 0 1 2.6 2.6v12.6a2.6 2.6 0 0 1-2.6 2.6H4.4' +
+        'a2.6 2.6 0 0 1-2.6-2.6V4.8a2.6 2.6 0 0 1 2.6-2.6Z' +
+        rct(5.4, 6, 8.6, 1.6) + rct(5.4, 9.6, 8.6, 1.6) + rct(5.4, 13.2, 5.4, 1.6) + '"/>' +
+        '<path fill-rule="evenodd" d="' + ell(17.4, 17.6, 4.2, 4.2) + ell(17.4, 17.6, 1.7, 1.7) + '"/>',
+
+  /* ── transport ──────────────────────────────────────────────── */
+  /* IL-KAROZZIN: forty euro to be pulled past things you could walk to */
+  /* the horse is ONE closed path, not a body with parts stuck on it:
+     four separate shapes each get their own ink outline and the
+     animal comes out looking assembled rather than drawn */
+  karozzin: '<path fill-opacity=".75" d="M11.4 10.2 18.6 10.2 20 5.8 19.6 4.4 21.2 5 23.4 5 23.4 8' +
+        ' 21.2 8.4 20.4 11 19.8 15.2 19.8 19.2 18 19.2 18 15.2 14.6 15.2 14.6 19.2 12.8 19.2' +
+        ' 12.8 15.2 11.4 15.2Z"/>' +
+        '<path d="M0.8 8h8.7a1.9 1.9 0 0 1 1.9 1.9v5.3h-10.6Z"/>' +
+        '<path fill-opacity=".45" d="' + rct(0.8, 5.4, 7.4, 2.6) + '"/>' +
+        '<path fill-rule="evenodd" d="' + ell(5.8, 17.6, 4.6, 4.6) + ell(5.8, 17.6, 1.6, 1.6) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(10.6, 13.4, 3, 1.4) + '"/>',
+  /* IT-TAXI: the fare is fixed, at a different number every time */
+  taxi: '<path d="M8.6 1.4h6.8a1.3 1.3 0 0 1 1.3 1.3v2.5H7.3V2.7A1.3 1.3 0 0 1 8.6 1.4Z"/>' +
+        '<path fill-rule="evenodd" d="M4.6 6.4h14.8a2.1 2.1 0 0 1 2 1.5l1.3 4.2v4.7a1.5 1.5 0 0 1-1.5 1.5' +
+        'H2.8a1.5 1.5 0 0 1-1.5-1.5v-4.7l1.3-4.2a2.1 2.1 0 0 1 2-1.5Z' +
+        'M5.6 8.6 4.4 12.2h6.6V8.6Z M13 8.6v3.6h6.6L18.4 8.6Z"/>' +
+        '<path fill-rule="evenodd" d="' + ell(6.2, 18.8, 2.9, 2.9) + ell(6.2, 18.8, 1, 1) +
+        ell(17.8, 18.8, 2.9, 2.9) + ell(17.8, 18.8, 1, 1) + '"/>',
+
+  /* ── services ───────────────────────────────────────────────── */
+  /* IL-BOWSER: he comes when he comes, and he does not do Tuesdays */
+  bowser: '<path d="M1.2 8a3.9 3.9 0 0 1 3.9-3.9h6.6A3.9 3.9 0 0 1 15.6 8v4.2' +
+        'a3.9 3.9 0 0 1-3.9 3.9H5.1a3.9 3.9 0 0 1-3.9-3.9Z"/>' +
+        '<path fill-opacity=".45" d="' + rct(7.7, 4.6, 1.4, 11) + '"/>' +
+        '<path fill-rule="evenodd" d="M16.4 7.4h3.2l3.2 4.4v4.3h-6.4Z M18 9.2v2.8h3.1L19.1 9.2Z"/>' +
+        '<path fill-rule="evenodd" d="' + ell(6, 18.6, 2.7, 2.7) + ell(6, 18.6, .9, .9) +
+        ell(18.2, 18.6, 2.7, 2.7) + ell(18.2, 18.6, .9, .9) + '"/>',
+  /* IL-ĠENERATUR: eleven seconds after the power cuts */
+  generatur: '<path fill-opacity=".45" d="' + rct(4.4, 1.6, 3, 4.4) + '"/>' +
+        '<path fill-rule="evenodd" d="M2.2 6.2h19.6a2 2 0 0 1 2 2v9.4a2 2 0 0 1-2 2H2.2a2 2 0 0 1-2-2V8.2' +
+        'a2 2 0 0 1 2-2Z M13.4 8 8.2 13.9h3.2l-1 4.5 5.4-6.1h-3.4Z"/>' +
+        '<path fill-opacity=".45" d="' + rct(3, 19.6, 3.4, 2.6) + rct(17.6, 19.6, 3.4, 2.6) + '"/>',
+
+  /* ── the two decks ──────────────────────────────────────────── */
+  /* GĦAJDUT: she said it because it was TRUE, and you were not there */
+  ghajdut: '<path fill-rule="evenodd" d="' + ell(6.6, 6.8, 3.6, 3.6) + '"/>' +
+        '<path d="M1.2 21.8v-5.4a5.4 5.4 0 0 1 10.8 0v5.4Z"/>' +
+        '<path fill-opacity=".55" d="' + ell(17.6, 8.2, 3, 3) + '"/>' +
+        '<path fill-opacity=".55" d="M13.2 21.8v-4.4a4.4 4.4 0 0 1 8.8 0v4.4Z"/>' +
+        '<path fill-opacity=".45" d="' + rct(10.6, 9.4, 4.2, 1.5) + '"/>',
+  /* TAL-GVERN: a brown envelope with a window in it */
+  gvern: '<path fill-rule="evenodd" d="M2 4.4h20a2 2 0 0 1 2 2v11.2a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V6.4' +
+        'a2 2 0 0 1 2-2Z ' + rct(12.8, 12.4, 7.2, 4.6) + '"/>' +
+        '<path fill-opacity=".45" d="M2.2 5h19.6L12 10.8Z"/>',
+
+  /* ── IL-MARSA: brown ────────────────────────────────────────── */
+  /* IL-GARAXX: advertised as a workshop, contains a sofa */
+  garaxx: '<path fill-rule="evenodd" d="' + rct(1.8, 1.6, 20.4, 7.6) +
+        rct(3.6, 3.3, 16.8, 1.1) + rct(3.6, 5.6, 16.8, 1.1) + '"/>' +
+        '<path d="' + rct(5, 11.6, 14, 3.4) + '"/>' +
+        '<path d="' + rct(3.8, 14, 2.8, 3.4) + rct(17.4, 14, 2.8, 3.4) + '"/>' +
+        '<path d="' + rct(5.2, 15, 13.6, 3.8) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(11.5, 15.2, 1, 3.4) + '"/>' +
+        '<path d="' + rct(5.4, 18.8, 1.6, 2) + rct(17, 18.8, 1.6, 2) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(1.4, 21, 21.2, 1.6) + '"/>',
+  /* IL-MAĦŻEN: six tonnes of metal and a man who knows the price of copper */
+  mahzen: '<path fill-opacity=".45" d="M1.4 7.2 12 2 22.6 7.2v2H1.4Z"/>' +
+        '<path fill-rule="evenodd" d="' + ell(6.6, 15.8, 5.4, 5.4) + ell(6.6, 15.8, 2.2, 2.2) + '"/>' +
+        '<path d="' + rct(13, 11.4, 9.6, 2.6) + '"/>' +
+        '<path fill-opacity=".75" d="' + rct(14, 14.8, 8.6, 2.6) + '"/>' +
+        '<path d="' + rct(13, 18.2, 9.6, 2.6) + '"/>',
+  /* ── IL-ĦAMRUN: olive ───────────────────────────────────────── */
+  /* IL-ĦANUT: closing down since 2016, and the sign has not aged */
+  hanut: '<path d="' + rct(1.2, 3.4, 21.6, 3.2) + '"/>' +
+        '<path d="M1.2 6.6h21.6v2.2a1.8 1.8 0 0 1-3.6 0 1.8 1.8 0 0 1-3.6 0 1.8 1.8 0 0 1-3.6 0' +
+        ' 1.8 1.8 0 0 1-3.6 0 1.8 1.8 0 0 1-3.6 0 1.8 1.8 0 0 1-3.6 0Z"/>' +
+        '<path fill-rule="evenodd" d="' + rct(3, 11.4, 18, 10.8) +
+        rct(4.8, 13.2, 14.4, 1.2) + rct(4.8, 15.8, 14.4, 1.2) + rct(4.8, 18.4, 14.4, 1.2) + '"/>' +
+        '<path transform="rotate(-13 15.6 15.4)" d="' + rct(10.4, 12.4, 10.4, 6) + '"/>',
+  /* IL-FURNAR: warm all year, and at four in the morning you are awake */
+  furnar: '<path fill-rule="evenodd" d="' + rct(4.4, 1.2, 15.2, 7.6) +
+        panes(6.2, 3, 3.2, 3.6, 1.4, 0, 3, 1) + '"/>' +
+        '<path fill-rule="evenodd" d="' + ell(12, 16.4, 8.2, 5.8) +
+        'M8 14.1l1.5-1.2 2.8 3.6-1.5 1.2Z M12.1 13.6l1.5-1.2 2.8 3.6-1.5 1.2Z"/>',
+  /* ID-DAR BL-UMDITÀ: the surveyor called it rising, the wardrobe calls it home */
+  umdita: '<path fill-rule="evenodd" d="M12 1.4 23 9.8v12.2H1V9.8Z ' + rct(4, 11.4, 16, 8.8) + '"/>' +
+        '<path fill-opacity=".75" d="M6.6 13c2.4-1.5 4.4.6 6.3-.2 2-.9 3.5.4 3.9 1.9.5 1.9-.8 3.6-2.8 4' +
+        '-2.2.4-3.6-.8-5.3-.3-1.8.5-3.1-.7-3.2-2.2-.1-1.5.8-2.6 1.1-3.2Z"/>' +
+        '<path d="M8.2 19c.7.8 1.1 1.4 1.1 1.9a1.1 1.1 0 0 1-2.2 0c0-.5.4-1.1 1.1-1.9Z' +
+        'M13.6 19.3c.6.7 1 1.3 1 1.7a1 1 0 0 1-2 0c0-.4.4-1 1-1.7Z"/>',
+  /* ── IL-BIRGU: red ──────────────────────────────────────────── */
+  /* IL-BIR: twelve metres deep and under where the dishwasher goes */
+  bir: '<path d="' + rct(2.8, 0.8, 18.4, 2) + rct(4.2, 2.8, 1.9, 5.6) + rct(17.9, 2.8, 1.9, 5.6) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(11.2, 2.8, 1.6, 4.6) + '"/>' +
+        '<path d="M9.2 7.4h5.6l-.8 4H10Z"/>' +
+        '<path fill-rule="evenodd" d="' + rct(2.4, 12.4, 19.2, 9.8) +
+        rct(4.4, 14.4, 15.2, 1.3) + rct(4.4, 17.4, 15.2, 1.3) + '"/>',
+  /* ID-DAR TAL-KARATTRU: every ceiling four centimetres lower than your head */
+  karattru: '<path fill-rule="evenodd" d="M12 1.8a8.8 8.8 0 0 1 8.8 8.8v11.4H3.2V10.6A8.8 8.8 0 0 1 12 1.8Z' +
+        'M12 4.6a6 6 0 0 0-6 6v9h12v-9a6 6 0 0 0-6-6Z"/>' +
+        '<path fill-opacity=".45" d="' + rct(11.2, 11.4, 1.6, 8.2) + '"/>' +
+        '<path fill-rule="evenodd" d="' + ell(9.2, 13.6, 1.6, 1.6) + ell(9.2, 13.6, .6, .6) + '"/>',
+  /* L-ISTALLA: the horse would still find it about right */
+  stalla: '<path fill-rule="evenodd" d="' + rct(3.4, 2.2, 17.2, 19.6) + rct(5.6, 4.4, 12.8, 6.4) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(3.4, 11.6, 17.2, 1.4) + '"/>' +
+        '<path fill-rule="evenodd" d="M12 13.6a4.4 4.4 0 0 1 4.4 4.4v3h-2.6v-3a1.8 1.8 0 0 0-3.6 0v3H7.6v-3' +
+        'A4.4 4.4 0 0 1 12 13.6Z"/>',
+  /* ── IS-SWIEQI: orange ──────────────────────────────────────── */
+  /* IL-BLOKK BLA PERMESS: the paperwork says "boundary wall" */
+  blokk: '<path d="' + rct(1.8, 2.6, 18.4, 3.6) + '"/>' +
+        '<path fill-rule="evenodd" d="' + rct(4.6, 6.2, 11.6, 15.8) +
+        panes(6.4, 8.2, 3, 2.6, 1.8, 2.2, 2, 3) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(18.2, 6.4, 1.6, 15.6) + rct(16.4, 21.2, 5.6, 1.4) + '"/>',
+  /* IL-MAISONETTE TAL-ĦABIB: he will do you a price, and be thanked for it */
+  maisonette: '<path d="M0.8 7 9.4 1.6 18 7Z"/>' +
+        '<path fill-rule="evenodd" d="' + rct(2.4, 7, 14, 14.8) +
+        rct(4.6, 9.2, 3.4, 3.2) + rct(9.8, 9.2, 3.4, 3.2) + rct(4.6, 15, 3.4, 4.8) + '"/>' +
+        '<path fill-opacity=".75" d="M16.4 21.8v-2.4h1.7V17h1.7v-2.4h1.7v-2.4h1.7v11.6Z"/>',
+  /* PENTHOUSE BIT-TIKKA BAĦAR: nine centimetres of sea, going in April */
+  penthouse: '<path fill-opacity=".45" d="M1.2 5.6h21.6v1.5H1.2Z M1.2 8.6h21.6v1.5H1.2Z"/>' +
+        '<path d="M3 6.6a9 9 0 0 1 18 0Z"/>' +
+        '<path d="' + rct(11.2, 6.6, 1.6, 9.4) + rct(1.4, 15.4, 21.2, 2) + '"/>' +
+        '<path fill-opacity=".75" d="' + rct(2.6, 17.8, 1.5, 4.4) + rct(11.2, 17.8, 1.5, 4.4) +
+        rct(19.9, 17.8, 1.5, 4.4) + rct(2.6, 17.8, 18.8, 1.3) + '"/>',
+  /* ── TAS-SLIEMA: sea blue ───────────────────────────────────── */
+  /* IL-FLAT TAL-FRONT: everyone can tell you what it went for */
+  front: '<path d="' + rct(2.2, 1.4, 19.6, 2.2) + '"/>' +
+        '<path fill-rule="evenodd" d="' + rct(3.4, 3.6, 17.2, 11.6) +
+        rct(5.4, 5.6, 3.4, 5.6) + rct(10.3, 5.6, 3.4, 5.6) + rct(15.2, 5.6, 3.4, 5.6) + '"/>' +
+        '<path fill-opacity=".45" d="M5 15.2h14v1.8l-1.8 1.4h-10.4L5 17Z"/>' +
+        '<path fill-opacity=".75" d="M0.8 19.6h4.6v1.6H0.8Z M6.8 21h4.6v1.6H6.8Z M12.8 19.6h4.6v1.6h-4.6Z' +
+        ' M18.8 21h4.4v1.6h-4.4Z"/>',
+  /* IT-TORRI: eleven people live in it, four of them exist */
+  torri: '<path fill-rule="evenodd" d="' + rct(6, 1.2, 12, 18.6) +
+        panes(7.6, 3, 2.4, 2.2, 1.4, 1.9, 3, 4) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(0.8, 20, 22.4, 1.5) + rct(0.8, 22.2, 22.4, 1.2) + '"/>',
+  /* ŻEWĠ KMAMAR BIL-VISTA: you will show people the view for life */
+  vista: '<path fill-opacity=".75" d="' + rct(0.8, 3.2, 4.4, 15.4) + rct(18.8, 3.2, 4.4, 15.4) + '"/>' +
+        '<path fill-rule="evenodd" d="' + rct(6, 3.2, 12, 15.4) + rct(8, 5.2, 8, 11.4) + '"/>' +
+        '<path d="' + ell(13.4, 8.6, 2, 2) + '"/>' +
+        '<path d="' + rct(8, 12.4, 8, 1.5) + '"/>',
+  /* ── IL-BELT: purple ────────────────────────────────────────── */
+  /* IL-PALAZZ: you may look at it, pay for it, and change nothing */
+  palazz: '<path d="M0.8 6.4 12 1.2l11.2 5.2Z"/>' +
+        '<path fill-rule="evenodd" d="' + rct(2.2, 6.4, 19.6, 15.6) +
+        rct(4.6, 9, 3.4, 4.4) + rct(16, 9, 3.4, 4.4) + '"/>' +
+        '<path d="M9.6 15.2h4.8v6.8H9.6Z"/>' +
+        '<path fill-opacity=".75" d="M9.4 8.4h5.2v3.6L12 14.6 9.4 12Z"/>',
+  /* ID-DAR TAL-IMDINA: nobody has slept in it since 1987 */
+  imdina: '<path d="' + rct(1.2, 3.8, 3.4, 3.4) + rct(7, 3.8, 3.4, 3.4) +
+        rct(12.8, 3.8, 3.4, 3.4) + rct(18.6, 3.8, 3.4, 3.4) + '"/>' +
+        '<path fill-rule="evenodd" d="' + rct(1.2, 7.2, 21.6, 14.8) +
+        'M12 12.4a2.8 2.8 0 0 0-2.8 2.8V22h5.6v-6.8a2.8 2.8 0 0 0-2.8-2.8Z"/>' +
+        '<path d="' + rct(4, 9.8, 3, 3) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(17, 9.8, 3, 3) + '"/>',
 };
-/* the glyph is looked up by square id where there is one and by type
-   otherwise, so a renamed square never silently loses its picture */
-const BYTYPE = { go:'coin', jail:'gate', rest:'party', togo:'crane',
-                 tax:'gavel', rail:'bus', util:'power' };
-function glyphFor(s){
-  const n = (s.id && GLYPH[s.id]) || BYTYPE[s.t] || '';
-  const a = artkit();
-  if (!n || !a || !a.mark) return '';
-  const g = a.mark(n);
-  return g ? '<span class="kr-gl">' + g + '</span>' : '';
+
+/* the sprite, injected once. Same shape as js/artkit.js's, with our
+   own id prefix so the two can never collide. */
+let spriteIn = false;
+function injectSprite(){
+  if (spriteIn || document.getElementById('kiri-sprite')){ spriteIn = true; return; }
+  if (!document.body) return;
+  spriteIn = true;
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('id', 'kiri-sprite');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
+  let s = '';
+  for (const k in KR_MARKS)
+    if (Object.prototype.hasOwnProperty.call(KR_MARKS, k))
+      s += '<symbol id="kr-m-' + k + '" viewBox="0 0 24 24">' + KR_MARKS[k] + '</symbol>';
+  svg.innerHTML = s;
+  document.body.appendChild(svg);
+}
+
+/* WHICH DRAWING BELONGS TO WHICH SQUARE, by the square's own id — so
+   a renamed square never silently loses its picture, and a new one
+   without a drawing is simply a tile with a code on it rather than a
+   broken cell. An '@' means the shared kit already draws it. */
+const DRAW = {
+  bidu:'bidu', kju:'kju', pjazza:'pjazza', junction:'junction',
+  taxxa:'taxxa', cens:'cens',
+  vapur:'@ferry', terminus:'@bus', karozzin:'karozzin', taxi:'taxi',
+  bowser:'bowser', generatur:'generatur',
+  garaxx:'garaxx', mahzen:'mahzen',
+  hanut:'hanut', furnar:'furnar', umdita:'umdita',
+  bir:'bir', karattru:'karattru', stalla:'stalla',
+  blokk:'blokk', maisonette:'maisonette', penthouse:'penthouse',
+  front:'front', torri:'torri', vista:'vista',
+  palazz:'palazz', imdina:'imdina',
+};
+const DECK_DRAW = { ghajdut:'ghajdut', gvern:'gvern' };
+
+function drawOf(s){
+  return s.t === 'card' ? (DECK_DRAW[s.deck] || '') : (DRAW[s.id] || '');
+}
+function markSVG(n){
+  if (!n) return '';
+  if (n.charAt(0) === '@'){
+    const a = artkit();
+    return (a && a.mark) ? a.mark(n.slice(1)) : '';
+  }
+  injectSprite();
+  return '<svg class="ka-g" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+         '<use href="#kr-m-' + n + '"></use></svg>';
+}
+/* the picture that fills a tile, tinted with the square's own colour */
+function pictureFor(s, colour){
+  const g = markSVG(drawOf(s));
+  return g ? '<span class="kr-pic"' +
+             (colour ? ' style="--pc:' + colour + '"' : '') + '>' + g + '</span>' : '';
 }
 
 /* WHICH SIDE OF THE RING A SQUARE IS ON. It never changes, so it is
@@ -1672,15 +2420,63 @@ function sideOf(i){
    ninth shape, not the ninth shade of blue. */
 const pipClass = i => 'k' + (i % 8);
 
-/* the token, wherever a seat has to be named: strip, away bar, table,
-   standings, setup. Shape plus colour, and never a glyph from a font
-   this phone may not have. */
-function tok(i, colour, name, sm){
-  return '<span class="kr-tok' + (sm ? ' sm' : '') + '" title="' + esc(name || '') + '">' +
-         '<span class="kr-pip ' + pipClass(i) + '" style="--c:' + colour + '"></span></span>';
+/* ── A PLAYER IS THEIR OWN FACE ─────────────────────────────────────
+   THE ONLY WAY A FACE IS DRAWN IN THIS FILE. js/progress-ui.js owns
+   every face in KARTI — the drawn Maltese ones, somebody's own
+   photograph, the border they have unlocked — and it fills in this
+   span wherever it finds one. Nothing here knows or decides anything
+   about what a player looks like, which is the entire point: the last
+   time two places both "knew", it cost four bugs in a day.
+
+   The shape around it is the seat, not the person: eight collars
+   (disc, square, diamond, triangle, pentagon, hexagon, bar, cross) in
+   the eight seat colours, so that at the far side of the board you can
+   still find yours without recognising a face nine points across. */
+function faceSpan(name, px){
+  return '<span data-kx-av="' + esc(name || '') + '" data-kx-size="' + Math.round(px) + '"></span>';
+}
+/* the token, wherever a seat has to be named: board, strip, away bar,
+   table, standings, setup. `sz` is its width in points; the face
+   inside is 74% of it, which leaves the collar showing all round. */
+function tok(i, colour, name, sz, cls){
+  const s = sz || 34;
+  /* 'bare' is the empty chair in the lobby: the piece exists, nobody is
+     holding it, and a face on it would be a person who is not there */
+  const bare = cls && cls.indexOf('bare') >= 0;
+  return '<span class="kr-tok ' + pipClass(i) + (cls ? ' ' + cls : '') +
+         '" style="--tz:' + s + 'px;--c:' + colour + '" title="' + esc(name || '') + '">' +
+         (bare ? '' : faceSpan(name, s * 0.74)) + '</span>';
+}
+/* the same token for a seat that may be being played by the phone */
+function seatTok(p, sz, cls){
+  const auto = K.machineSeat(G, p.i) && p.kind !== 'cpu';
+  return tok(p.i, p.colour, p.name, sz, (auto ? 'auto ' : '') + (cls || ''));
 }
 
+/* ── HOW BIG A SQUARE ACTUALLY IS ───────────────────────────────────
+   The ring is a 9x9 grid of one padding, eight two-point gaps and
+   nine tracks, the outer two of which are 1.18 of the inner seven.
+   Everything drawn on top of a square in points — a face, a crowd —
+   is a fraction of THAT, not of a constant, so it is right at 240
+   points and right at 900. */
+function cellUnit(){
+  return Math.max(14, (base - 14 - 16) / 9.36);
+}
+/* how many faces are worth drawing on one square, given how big that
+   square is ON THE GLASS right now — which is why pinching in shows
+   you more of a crowd instead of just bigger versions of the same
+   three. Eight people start on Il-Bidu; that is the case this is for.
+   A corner is 1.18 wider than a side square and gets one more face
+   for it. */
+function capFor(cw){
+  const eff = cw * vw.k;
+  return eff < 46 ? 3 : eff < 74 ? 4 : eff < 110 ? 6 : 8;
+}
+function tokCap(){ return capFor(cellUnit()) * 10 + capFor(cellUnit() * 1.18); }
+
 function renderCells(){
+  const unit = cellUnit();
+  lastCap = tokCap();
   for (let i = 0; i < 32; i++){
     const s = K.BOARD[i], c = document.getElementById('kr-c' + i);
     if (!c) continue;
@@ -1710,9 +2506,9 @@ function renderCells(){
     if (s.t === 'prop' && G.lvl[i] > 0)
       floors = G.lvl[i] === 5 ? '<i class="kr-fl pent"></i>'
                               : new Array(G.lvl[i]).fill('<i class="kr-fl"></i>').join('');
-    let h = (banded && g ? '<span class="kr-band" style="--g:' + g + '">' + floors + '</span>' : '') +
+    let h = pictureFor(s, g) +
+            (banded && g ? '<span class="kr-band" style="--g:' + g + '">' + floors + '</span>' : '') +
             (own ? '<span class="kr-own"></span>' : '') +
-            (s.t === 'prop' ? '' : glyphFor(s)) +
             '<span class="kr-e">' + esc(s.code) + '</span>' +
             /* SECOND LINE: what it costs, or who has it. A board with
                prices on it is a board you can plan a turn from without
@@ -1723,22 +2519,12 @@ function renderCells(){
                  board itself. SOLD: the owner's own silhouette, never
                  their initials — two letters under the square's own
                  three-letter code is a code nobody can read. */
-              ? (own ? '<span class="kr-pip kr-oc ' + pipClass(own.i) +
+              ? (own ? '<span class="kr-oc ' + pipClass(own.i) +
                        '" style="--c:' + own.colour + '"></span>'
                      : '<span class="kr-p">' + money(s.price) + '</span>')
               : '') +
             (G.mort[i] ? '<span class="kr-lock">M</span>' : '');
     const on = G.players.filter(p => !p.out && p.pos === i);
-    if (on.length){
-      /* a seat being played by the phone shows HATCHED rather than
-         solid — you can see who is not really there from the board
-         itself, without reading anything, and without the piece
-         turning into somebody else's shape while they are gone */
-      h += '<span class="kr-pips' + (on.length > 4 ? ' many' : '') + '">' + on.map(p =>
-        '<span class="kr-pip ' + pipClass(p.i) +
-        (K.machineSeat(G, p.i) && p.kind !== 'cpu' ? ' auto' : '') +
-        '" style="--c:' + p.colour + '" title="' + esc(p.name) + '"></span>').join('') + '</span>';
-    }
     c.innerHTML = h;
     c.className = 'kr-cell ' + sideOf(i) +
       (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? ' corner' : '') +
@@ -1747,6 +2533,31 @@ function renderCells(){
       (me().pos === i ? ' here' : '');
     c.style.setProperty('--o', own ? own.colour : 'transparent');
     c.style.setProperty('--g', g || 'transparent');
+    c.setAttribute('aria-label', s.n + (on.length
+      ? ' — ' + on.map(p => p.name).join(', ') + ' ' + (on.length > 1 ? 'are' : 'is') + ' here' : ''));
+
+    /* ── the crowd, in its own layer over the tile ──────────────
+       As many faces as are worth drawing at this zoom, then +N, out
+       loud, for the rest — never a silent truncation. Tapping the
+       square names every one of them. */
+    const T = els.toks && els.toks[i];
+    if (!T) continue;
+    if (!on.length){ if (T.firstChild) T.innerHTML = ''; continue; }
+    const cw = unit * (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? 1.18 : 1);
+    const cap = capFor(cw);
+    const show = on.length <= cap ? on.length : Math.max(1, cap - 1);
+    /* the size is chosen so the cluster WRAPS to a tidy block inside
+       the square rather than to whatever flexbox happens to fit: one
+       across, two across, then three, at 66 / 50 / 44 / 30 per cent of
+       the square. Above four they spill a little onto the felt, which
+       is where a real pile of pieces spills to. */
+    const tz = Math.round(Math.max(11,
+      show <= 1 ? cw * 0.66 : show <= 2 ? cw * 0.46 :
+      show <= 4 ? cw * 0.44 : cw * 0.30));
+    T.style.setProperty('--tz', tz + 'px');
+    T.innerHTML = on.slice(0, show).map(p =>
+        seatTok(p, tz, p.i === G.turn && !G.over ? 'now' : '')).join('') +
+      (on.length > show ? '<span class="kr-more">+' + (on.length - show) + '</span>' : '');
   }
 }
 
@@ -1836,8 +2647,9 @@ function plate(i){
           : s.t === 'util' ? '#4FC3F7'
           : s.t === 'card' ? ((K.DECKS[s.deck] || {}).c || '#FFC542') : '#FFC542';
   return '<span class="kr-plate' + (s.t === 'card' ? ' chance' : '') +
+         (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? ' corner' : '') +
          '" style="--g:' + g + '" aria-hidden="true">' +
-         (s.t === 'prop' ? '' : glyphFor(s)) +
+         pictureFor(s, g) +
          '<span class="kr-e">' + esc(s.code) + '</span></span>';
 }
 
@@ -1853,6 +2665,25 @@ function squareBody(i){
       '<span style="flex:1;min-width:0"><b style="font-size:14.5px;line-height:1.2;display:block">' + esc(s.n) + '</b>' +
       '<span style="font-size:11px;color:#A093C4;font-style:italic">' + esc(s.mt) + '</span></span>' +
     '</div>';
+
+  /* ── WHO IS ACTUALLY STANDING ON IT ──────────────────────────────
+     Eight people start on Il-Bidu and no square that size can show
+     eight faces, so the board shows what fits and says +N — and THIS
+     is where the +N goes when you tap it: everybody on the square,
+     with their own face and their own name, in the sheet that was
+     already opening anyway. Nothing is ever silently dropped. */
+  const here = G.players.filter(p => !p.out && p.pos === i);
+  if (here.length){
+    h += '<div class="kr-hd">' + (here.length > 1 ? 'STANDING HERE — ' + here.length : 'STANDING HERE') + '</div>' +
+      here.map(p => '<div class="kr-row" style="--g:' + p.colour + '">' +
+        '<span class="kr-sw"></span>' + seatTok(p, 30) +
+        '<span class="kr-rn">' + esc(p.name) +
+        '<span class="kr-rs">' + (p.i === G.turn && !G.over ? 'it is their turn' :
+          p.jail > 0 ? 'in the queue' :
+          K.machineSeat(G, p.i) && p.kind !== 'cpu' ? 'the phone is playing this seat' :
+          p.kind === 'cpu' ? 'the phone' : 'waiting') + '</span></span>' +
+        '<span class="kr-rv">' + money(p.cash) + '</span></div>').join('');
+  }
 
   if (o >= 0){
     h += '<div class="kr-row" style="margin-top:8px;--g:' + (G.players[o].colour) + '">' +
@@ -1994,7 +2825,7 @@ function paneTable(){
     const badge = p.out ? 'OUT' : p.kind === 'cpu' ? 'PHONE' : p.auto ? 'AUTOPILOT' : '';
     h += '<div class="kr-row" style="--g:' + p.colour + (p.out ? ';opacity:.45' : '') + '">' +
       '<span class="kr-sw"></span>' +
-      tok(p.i, p.colour, p.name, 1) +
+      tok(p.i, p.colour, p.name, 30) +
       '<span class="kr-rn">' + esc(p.name) + (badge ? ' <span class="kr-auto">' + badge + '</span>' : '') +
       '<span class="kr-rs">' + (p.out ? 'finished' :
         K.holdings(G, p.i).length + ' deed(s) · worth ' + money(K.netWorth(G, p.i)) +
@@ -2523,7 +3354,7 @@ function renderOver(){
   const d = document.createElement('div');
   d.className = 'kr-over';
   d.innerHTML =
-    (w ? '<div class="kr-crown">' + tok(w.i, w.colour, w.name) + '</div>' : '') +
+    (w ? '<div class="kr-crown">' + tok(w.i, w.colour, w.name, 54) + '</div>' : '') +
     '<h3>' + esc(w ? w.name.toUpperCase() : 'NOBODY') + '</h3>' +
     '<p>' + (G.over.why === 'rounds'
       ? 'The rounds ran out and ' + esc(w.name) + ' was worth the most. ' + money(K.netWorth(G, w.i)) +
@@ -2532,7 +3363,7 @@ function renderOver(){
         'explain, at length, exactly how it was done.') + '</p>' +
     '<div class="kr-standings">' + rank.map((p, n) =>
       '<div class="kr-row" style="--g:' + p.colour + '"><span class="kr-sw"></span>' +
-      tok(p.i, p.colour, p.name, 1) +
+      tok(p.i, p.colour, p.name, 30) +
       '<span class="kr-rn">' + (n + 1) + '. ' + esc(p.name) +
       '<span class="kr-rs">' + (p.out ? 'went under' : K.holdings(G, p.i).length + ' deed(s)') + '</span></span>' +
       '<span class="kr-rv">' + money(p.out ? 0 : K.netWorth(G, p.i)) + '</span></div>').join('') + '</div>' +

@@ -1594,7 +1594,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 85;
+var KARTI_BUILD = 86;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1636,8 +1636,16 @@ window.swVersion = function(){
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
                'js/cardview.js','js/tutor.js','js/sync.js',
                'js/party.js','js/chess.js','js/dama.js',
+               'js/battleship.js','js/battleship-ui.js',
                'js/skarta.js','js/skarta-ui.js',
                'js/klabb.js','js/klabb-briscola.js','js/klabb-sette.js','js/klabb-cheat.js',
+               /* RUMMY: rummy.js is the pure engine, rummy-ui.js the table.
+                  After klabb.js on purpose — the felt draws its card faces
+                  through KARTI_KLABB.deck. */
+               'js/rummy.js','js/rummy-ui.js',
+               /* GIN RUMMY: gin.js is the pure engine, gin-ui.js the table.
+                  Also after klabb.js — same reason, same deck. */
+               'js/gin.js','js/gin-ui.js',
                'js/tombla.js','js/tombla-ui.js',
                /* the spoken tombla calls. tombla-ui.js injects this itself if
                   the tag is missing, but that injection is a second request

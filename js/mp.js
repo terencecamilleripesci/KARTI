@@ -134,6 +134,10 @@ const GAMES = [
      we have never heard of is drawn wrongly. */
   { k:'skarta', name:'Skarta',   short:'SKARTA', icon:'discard',
     blurb:'Empty your hand first. Ten can play.' },
+  /* sea battle, table of 2–6. Engine js/battleship.js, screen
+     js/battleship-ui.js, contract on window.KARTI_GHARRAQ.lobby. */
+  { k:'gharraq', name:'Għarraqhom', short:'BAĦAR', sym:'bs-boat',
+    blurb:'Five boats each. Sink the neighbours.' },
   { k:'kiri',   name:'Il-Kiri',  short:'KIRI',   icon:'coin',
     blurb:'Rent, deeds, and a ruined friendship.' },
   { k:'klabb',  name:'Card club', short:'KLABB', icon:'cards',
@@ -182,7 +186,8 @@ function gamePlayable(k){
 
 /* where a game hangs its contract, if it has one */
 const LOBBY_GLOBAL = {
-  kiri:'KARTI_KIRI', skarta:'KARTI_SKARTA', tombla:'KARTI_TOMBLA', klabb:'KARTI_KLABB'
+  kiri:'KARTI_KIRI', skarta:'KARTI_SKARTA', tombla:'KARTI_TOMBLA', klabb:'KARTI_KLABB',
+  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -192,7 +197,8 @@ const LOBBY_GLOBAL = {
    loudly at create time rather than seating people who cannot play. */
 const SEATS_FALLBACK = {
   cards:[2, 2, 2], chess:[2, 2, 2], dama:[2, 2, 2],
-  skarta:[2, 10, 6], klabb:[2, 4, 4], kiri:[2, 8, 4], tombla:[2, 16, 8]
+  skarta:[2, 10, 6], klabb:[2, 4, 4], kiri:[2, 8, 4], tombla:[2, 16, 8],
+  gharraq:[2, 6, 4], rummy:[2, 12, 4], gin:[2, 2, 2]
 };
 
 /* A machine has to be called something before it can sit down. Only used when
@@ -2490,7 +2496,12 @@ const WIRE_FIELDS = {
      is refused HERE, loudly, rather than silently arriving incomplete. */
   skarta: ['s', 'v', 'i', 'j', 'c', 'n', 'p'],
   klabb:  ['s', 'v', 'i', 'j', 'c', 'n', 'p'],
-  kiri:   ['s', 'v', 'i', 'j', 'c', 'n', 'p']
+  kiri:   ['s', 'v', 'i', 'j', 'c', 'n', 'p'],
+  /* js/battleship.js "THE WIRE SHAPE": mode{o} place{p0..p9}
+     fire{g,c,o,w,x,u,z} auto{g,u,z} quit{}. The published contract on
+     KARTI_GHARRAQ.lobby.wire is preferred; this line is its mirror. */
+  gharraq: ['g', 'c', 'o', 'w', 'x', 'u', 'z',
+            'p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9']
 };
 const WIRE_SKIP = { t:1, a:1 };          /* the action name, carried in `a` */
 

@@ -283,7 +283,7 @@ CODE_RE = re.compile("^[%s]{%d}$" % (CODE_ALPHABET, CODE_LEN))
 DEFAULT_GAME = "cards"
 DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
-TABLES = ("skarta", "klabb", "kiri", "tombla")
+TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -333,6 +333,14 @@ GAME_SEATS = {
     "klabb":  (2, 8, 4),
     "kiri":   (2, 8, 4),
     "tombla": (2, 16, 8),
+    # Rummy's ceiling is 12 and its own engine refuses to deal a 9-12 seat
+    # table on fewer than three packs — measured, not picked: on two packs a
+    # 12-player deal leaves under 20 cards of stock and 36% of jokerless hands
+    # end up blocked. The relay only owns the seat count; the deck rule lives
+    # in the game, where it can be enforced against the actual deal.
+    "rummy":  (2, 12, 4),
+    "gin":    (2, 2, 2),      # gin is two people, and always was
+    "gharraq": (2, 6, 4),
 }
 
 # Which flavour of a game a room is playing, where that is a real choice. Kept

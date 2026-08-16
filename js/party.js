@@ -138,7 +138,7 @@ const SHELVES = [
    several are being edited by other hands right now, and the shelving
    is a decision about this screen — not a fact about how bixkla works.
    A new game may simply declare kind:'deck' and skip this entirely. */
-const STANDARD_PACK = { bixkla:1, briscola:1, sette:1, gidba:1, rummy:1, gin:1 };
+const STANDARD_PACK = { bixkla:1, briscola:1, sette:1, cheat:1, rummy:1, gin:1 };
 
 /* Which shelf a game belongs on. Deliberately forgiving: this convention was
    invented after js/klabb.js and js/kiri-ui.js were already being written, and
