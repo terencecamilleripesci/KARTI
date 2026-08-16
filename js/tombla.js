@@ -54,15 +54,29 @@
    THE ĠOG.        A player is not handed a kartella, they are handed a
                    ĠOG: one sheet of SIX cartelli which between them
                    carry all ninety numbers exactly once. That is how
-                   it is sold and how it is played, and it is the
-                   default here. It means every number called is on
-                   your sheet somewhere, so you mark on every single
-                   call — ninety times, not fifteen — and the question
-                   stops being "is it mine" and becomes "which of my
-                   six". Fewer cartelli are offered for a short game
-                   between two people. See IL-ĠOG further down for the
-                   construction, and deal() for why no two players can
-                   ever be given the same arrangement.
+                   it is sold and how it is played. It means every
+                   number called is on your sheet somewhere, so you
+                   mark on every single call — ninety times, not
+                   fifteen — and the question stops being "is it mine"
+                   and becomes "which of my six". See IL-ĠOG further
+                   down for the construction, and deal() for why no two
+                   players can ever be given the same arrangement.
+
+                   ── AND THE SHEET IS NOT A SETTING ──
+                   How many cartelli you hold is decided by WHICH GAME
+                   YOU ARE PLAYING and by nothing else. See THE LADDER
+                   below: klassika deals ONE, tal-każin deals the full
+                   six, always. A Maltese hall has never once dealt a
+                   half ġog and there is no dial for it here. optsOf()
+                   is where that is enforced, in one line, so no caller
+                   anywhere — screen, relay or replay — can ask for a
+                   sheet the mode does not have.
+
+   PRIZES ARE PER CARTELLA. A vers is five on one row OF ONE CARTELLA;
+                   a fatta is one cartella complete. Nothing ever spans
+                   the sheet, and holds() takes exactly one cartella at
+                   a time for that reason. Six cartelli are six separate
+                   chances, not one big card.
 
    THE COLUMNS.    Column 1 holds 1-9, column 2 holds 10-19, ... ,
                    column 8 holds 70-79, and column 9 holds 80-90.
@@ -114,16 +128,33 @@
    WHAT WE DID INSTEAD — two named modes, both real, neither disguised:
 
      'ladder'  TOMBLA KLASSIKA — the Italian tombola ladder, five
-               prizes, ambo → terna → kwaterna → ċinkwina → tombla.
-               THE DEFAULT, because it is the better game: five prizes
-               means nobody is out of it after two minutes, and the
-               laddering is the whole tension. Labelled on screen as
-               the classic/Italian rules, which is what it is.
+               prizes, ambo → terna → kwaterna → ċinkwina → tombla,
+               ON ONE NORMAL KARTELLA. THE DEFAULT, because it is the
+               better short game: five prizes means nobody is out of it
+               after two minutes, one sheet of fifteen means you are
+               watching fifteen numbers and not ninety, and the whole
+               thing is over in ten minutes. Labelled on screen as the
+               classic/Italian rules, which is what it is.
      'hall'    TAL-KAŻIN — Malta's own: VERS (the line, five on one
-               row) then FATTA (the house, all fifteen). This is the
-               game the band clubs, the parishes and the halls actually
-               play, and it is the one the word "tombla" denotes in
-               Maltese law.
+               row) then FATTA (the house, all fifteen), ON THE FULL
+               ĠOG OF SIX. This is the game the band clubs, the
+               parishes and the halls actually play, it is the one the
+               word "tombla" denotes in Maltese law, and in Malta it is
+               ALWAYS the whole ġog — nobody has ever been sold half a
+               sheet. It is the long game: every number is on your
+               sheet, so you mark ninety times and the room stays in it
+               to the last ball.
+
+   ── THE SHEET IS PART OF THE MODE, NOT A SEPARATE DIAL ──
+   This used to be a third setting — pick a ladder, then pick one to
+   six cartelli — and the two are not independent. One cartella of the
+   Maltese pair is a game where you sit doing nothing for eighty calls;
+   six cartelli of the Italian ladder gives an ambo away on the third
+   number. The pairing above is the two games people actually play, and
+   binding the sheet to the mode makes them genuinely DIFFERENT GAMES
+   rather than the same game scored twice — the quick tense one, and
+   the każin night. It also takes a row off a setup sheet that was too
+   long. optsOf() enforces it and there is no way round it.
 
    Both use the identical card, bag and claim machinery. 'hall' is the
    same PRIZES table with three rungs switched off.
@@ -199,6 +230,27 @@
       are held for the same reason. It is a state, not a stopped timer,
       so all eight phones agree about it. Full reasoning at the 'pause'
       branch of apply().
+
+   3b. A SHOUT STOPS THE BAG, AND ONLY THE HOST STARTS IT AGAIN.
+      The moment anybody claims anything, the caller halts — the claim
+      branch of apply() sets the SAME pause the host's button sets, and
+      marks it `hold:'claim'` so a screen can say why. It stays stopped
+      after the verdict, for a good claim and a false one alike, until
+      the host (or whoever is holding the ball) starts it again.
+
+      This is not tidiness. THEY ARE PLAYING FOR MONEY — chips on the
+      table, a prize being decided — and while a prize is being decided
+      nothing else may move. A number that comes out during a check is
+      a number somebody missed, and at a real table the caller simply
+      stops talking until the kartella has been read back. A false
+      shout stops it too, because after a wrong one the room needs a
+      moment to enjoy it before the next number.
+
+      It is done INSIDE apply(), not by the clock, for the usual
+      reason: a stop that lives in one phone's timer is a stop the
+      other fifteen phones do not have. This one is in the state, it
+      replays from (opts, seed, log), and it is in the fingerprint
+      because st.paused already was.
 
    4. A FALSE CLAIM COSTS YOU.
       Tap AMBO without one and the claim is refused and that seat is
@@ -751,11 +803,12 @@ const DEFAULTS = {
                 that is not in one room. See callerSpeaks().           */
   caller: 'manual',
   seats: 6,          /* 2..MAX_SEATS */
-  /* SIX. A ġog is what a player is handed in Malta and it is what the
-     game is built round — see IL-ĠOG above. Fewer is offered because
-     two people at a kitchen table may want a shorter game, but six is
-     the real thing and it is the default. */
-  cards: GOG,        /* 1..6 cartelli — six is a whole ġog            */
+  /* HOW MANY CARTELLI — DERIVED, NEVER ASKED FOR.
+     It is written here so the shape of an opts object is complete and
+     so DEFAULTS still describes a whole game, but optsOf() overwrites
+     it from `mode` every single time: klassika ONE, tal-każin SIX.
+     See THE SHEET IS PART OF THE MODE in the header. */
+  cards: 1,          /* set by mode: ladder → 1, hall → 6 (a whole ġog) */
   speed: 2,          /* 1 slow · 2 the real thing · 3 quick            */
   level: 2,          /* how sharp the machine players are, 1..3        */
   auto: false        /* auto-mark. OFF. It is an accessibility option
@@ -767,11 +820,16 @@ function optsOf(o){
   o = o || {};
   const n = v => (typeof v === 'number' && isFinite(v)) ? v : null;
   const clampi = (v, a, b, d) => { const x = n(v); return x == null ? d : Math.max(a, Math.min(b, Math.round(x))); };
+  const mode = (o.mode === 'hall' ? 'hall' : 'ladder');
   return {
-    mode: (o.mode === 'hall' ? 'hall' : 'ladder'),
+    mode,
     caller: (o.caller === 'auto' ? 'auto' : 'manual'),
     seats: clampi(o.seats, 2, MAX_SEATS, DEFAULTS.seats),
-    cards: clampi(o.cards, 1, GOG, DEFAULTS.cards),
+    /* THE ONE LINE THAT BINDS THE SHEET TO THE GAME. Whatever anybody
+       passed in — a screen, a relay, a five-month-old saved snapshot —
+       the mode decides, so sixteen phones that agree about `mode` are
+       holding the same size sheet without another byte being sent. */
+    cards: (mode === 'hall' ? GOG : 1),
     speed: clampi(o.speed, 1, 3, DEFAULTS.speed),
     level: clampi(o.level, 1, 3, DEFAULTS.level),
     auto:  !!o.auto
@@ -823,6 +881,13 @@ function deal(opts, seed){
        agrees about it and nobody's clock keeps calling. See the
        'pause' branch in apply() for what it does and does not stop. */
     paused: -1,
+    /* WHY it is stopped: '' when the host stopped it by hand, 'claim'
+       when a shout stopped it. Both are the same halt — this only
+       exists so the screen can put the right words on the banner and
+       so a resume reads as "the host is starting us again" rather than
+       as somebody undoing their own tap. Derived inside apply(), so it
+       replays. See ruling 3b. */
+    hold: '',
     /* the last shout and what the room made of it. Every phone
        computes it from the same state, so everybody watches the same
        card get read back and sees the same verdict. */
@@ -1017,6 +1082,10 @@ function apply(st, mv){
     const want = mv.v ? si : -1;
     if (st.paused === want) return { ok:true, dup:true };
     st.paused = want;
+    /* whoever touches this button owns the stop from here on, so the
+       reason goes. A hold that outlived its pause would leave the
+       banner telling the room a kartella is being checked forever. */
+    st.hold = '';
     return { ok:true, paused: st.paused };
   }
 
@@ -1065,8 +1134,7 @@ function apply(st, mv){
         markNumber(st, i, n);
       }
     }
-    if (!st.bag.length && st.called.length >= 90) finishIfDone(st);
-    return { ok:true, n };
+    return { ok:true, n, dry: !st.bag.length };
   }
 
   if (t === 'mark' || t === 'unmark'){
@@ -1155,6 +1223,21 @@ function apply(st, mv){
       line: verdictLine(st, v, key)
     };
 
+    /* ── THE BAG STOPS. HERE, AND FOR EVERYBODY. ─────────────────────
+       Ruling 3b. A prize is being decided, they are playing for chips,
+       and nothing else may move until the kartella has been read back
+       — so the shout sets the same halt the host's button sets, before
+       the verdict is even known, and it stays set afterwards whichever
+       way the verdict went. Only a {t:'pause', v:false} lifts it, and
+       apply() only takes that from the host or the caller.
+
+       It is deliberately the claimant's seat number in st.paused: that
+       is the seat the room is waiting on, and it makes the banner read
+       "stopped — Rita is being checked" for free. The state is now
+       stopped for a phone whose clock is mid-gap; the clock re-reads
+       st.paused before every draw, so it simply does not fire. */
+    if (st.phase === 'play'){ st.paused = si; st.hold = 'claim'; }
+
     if (!v.ok){
       /* a wrong shout is not free, and it is not a telling-off either:
          two calls of sitting on your hands while the room enjoys it */
@@ -1189,7 +1272,9 @@ function apply(st, mv){
     if (st.phase === 'done') return { ok:true, dup:true };
     if ((mv.s | 0) !== st.host) return { ok:false, why:'only the host can end it' };
     st.phase = 'done';
-    st.ended = { why:'ended', seat: mv.s | 0 };
+    /* ending a game whose bag has run dry is not "calling it off" — it
+       is the night finishing on its own, and over() should say so */
+    st.ended = { why: (st.bag && st.bag.length) ? 'ended' : 'flat', seat: mv.s | 0 };
     return { ok:true };
   }
 
@@ -1255,22 +1340,41 @@ function recount(st){
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   WHEN IS IT OVER
+   ───────────────────────────────────────────────────────────────────
+   ON THE TOMBLA, and on nothing else that happens by itself.
+
+   THE EMPTY BAG USED TO END IT HERE, AND THAT COST SOMEBODY A TOMBLA.
+   The reasoning was that fifteen numbers on a card and ninety out of
+   the bag means every card is complete, so the game is over anyway —
+   which is true of the CARD and false of the PLAYER, because in this
+   game you have to put the counter down yourself. One game in six, the
+   last of your fifteen is the ninetieth ball. The old code pushed that
+   ball out, saw the bag was empty and ended the match in the same
+   instant — before a finger could reach the square, with the winner
+   sitting there holding fourteen counters and a prize they had just
+   been told they could not have. In a room playing for chips that is
+   not a tidy ending, it is an argument.
+
+   So the empty bag ends NOTHING. It means the anunzjatur has run out of
+   numbers, which is a thing you can see: the last ball is on the rail,
+   everybody marks it, whoever has it shouts, and the game ends on that
+   claim like every other game does. If nobody shouts, the host taps
+   TEMM — which they have always had — and over() reports it as the bag
+   running dry rather than as a game called off, because that is what it
+   was. Nothing can hang: {t:'end'} is one tap away for the host from
+   the moment the game starts.
+   ═══════════════════════════════════════════════════════════════════ */
 function finishIfDone(st){
   if (st.phase === 'done') return;
   if (st.prizes.tombla.done){
     st.phase = 'done';
     st.ended = { why:'tombla', seat: st.prizes.tombla.seat };
-    return;
-  }
-  if (st.called.length >= 90){
-    /* cannot really happen — fifteen numbers on a card and ninety out
-       of the bag means every card is complete — but a game that ends
-       because the bag emptied must still end tidily rather than sit
-       there forever waiting for a claim nobody is going to make. */
-    st.phase = 'done';
-    st.ended = { why:'bag empty', seat:-1 };
   }
 }
+/* has the anunzjatur run out? Not the same question as "is it over" */
+const bagDry = st => !!(st && st.phase === 'play' && (!st.bag || !st.bag.length));
 
 /* ═══════════════════════════════════════════════════════════════════
    WHAT A SEAT MAY DO RIGHT NOW
@@ -1790,6 +1894,17 @@ function autosave(){
 }
 function resume(snap){
   if (!snap || snap.gid !== 'tombla') return null;
+  /* ── A SNAPSHOT FROM BEFORE THE SHEET BECAME PART OF THE MODE ─────
+     optsOf() now derives `cards` from `mode`, so a game saved when the
+     two were separate can name a sheet this build would not deal — six
+     cartelli of klassika, say. Replaying its log against a one-cartella
+     deal does not crash (apply() refuses "no such card") but it silently
+     drops half the marks and hands back a game that is subtly wrong,
+     which is worse. Throw it away instead, and clear the slot so the
+     menu stops offering it. */
+  const want = optsOf(snap.opts);
+  const had = snap.opts && snap.opts.cards;
+  if (had != null && had !== want.cards){ saveSlot(null); return null; }
   const m = startMatch(snap.opts, snap.seed, snap.log);
   return m;
 }
@@ -1823,6 +1938,19 @@ function doMove(seat, mv, src){
   if (r.dup) return r;
 
   M.log.push(move);
+  /* ── A SHOUT FREEZES THIS PHONE TOO ──────────────────────────────
+     apply() has just stopped the bag in the STATE (ruling 3b). This
+     stops the machinery that hangs off it: the clock, and every marking
+     and claiming move the machine seats had queued for the call that
+     was in flight. Otherwise the room would watch Rita go on quietly
+     dabbing her ġog behind the check overlay while a prize is being
+     decided, which is exactly the thing the halt exists to stop.
+
+     Dropping their pending moves loses nothing: aiMoves() is a pure
+     function of the state and of (seed, seat, call), so the resume in
+     setPaused() asks the same question and gets the same answer. It is
+     the same trick the pause has always used — see setPaused(). */
+  if (move.t === 'claim') stopClock();
   autosave();
   fire(moveSubs, move, { src, seat, res:r });
   fire(stateSubs, { reason:'move', move, res:r });
@@ -2009,7 +2137,7 @@ const API = {
   GOG, COL_TOTAL, makeGog, cardIsLegal, gogIsLegal, cardSig, gogSig,
   holds, checkClaim, verdictLine, calledSet, rowClaimed, cardClaimed,
   nearest, rowMarks, cardMarks,
-  deal, apply, legal, turn, over, table, fingerprint,
+  deal, apply, legal, turn, over, table, fingerprint, bagDry,
   optsOf, DEFAULTS, GAP, MAX_SEATS, SEAT_NAMES,
   patter, callOf, mtNum, LAQAM, JOKE, PLAIN, SHOUT, SHOUT_HALL, shoutOf,
   LADDERS, rungsOf, inLadder, prizeName,

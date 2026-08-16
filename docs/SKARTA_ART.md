@@ -21,7 +21,8 @@ kind**. `js/skarta-ui.js` draws the card in HTML around the art, exactly the way
 
 > **so we can tweak or nerf easy.**
 
-In SKARTA that is not theoretical. The Kaxxa Infernali currently reads **4 / 7**. If the
+In SKARTA that is not theoretical. The Kaxxa Infernali currently reads **TAKE 4-7** over a
+row of four solid and three outlined card pips. If the
 +7 turns out to be too strong and becomes a +6, that is one character in `js/skarta.js`
 — *unless* somebody baked a **7** into a JPEG, in which case it is another pod rental.
 Same for the **+2** on the Kunjata, every numeral 0–9, the word **SKARTA** on the back,
@@ -92,7 +93,7 @@ the exception and asks for the opposite: dense pattern, edge to edge.
 | `sk-act-kaxxa` | `act-kaxxa.png` | **Il-Kaxxa Infernali** — the crate going off, and a man running |
 
 This is where the game's comedy actually lives, so these five are the ones worth a
-second take if a take is disappointing. The **+2** on the Kunjata and the **4 / 7** on
+second take if a take is disappointing. The pips, the captions and the counts on
 the Kaxxa are CSS text drawn over the top of the picture. Never generated. If the +7 is
 ever rebalanced to a +6 that must be one character of JavaScript.
 
@@ -246,7 +247,8 @@ blank rectangle, and a broken-image glyph can never appear. That is deliberate, 
 is why you can ship six of the eleven and come back for the rest.
 
 The one thing the art **replaces** is the line glyph in the middle of an action card —
-the painted subject stands in for it. The CSS caption, the **+2** and the **4 / 7** stay
+the painted subject stands in for it. The CSS caption and the row of card pips that
+show how many cards are coming stay
 exactly where they were, drawn as text over the top of the picture, in every case.
 
 ---
@@ -254,8 +256,8 @@ exactly where they were, drawn as text over the top of the picture, in every cas
 ## 7. What must never be generated for this game
 
 - the word **SKARTA**, on the back, the logo, or anywhere else
-- **AĦĦAR WAĦDA**, **QABADTEK**, **IL-KATINA**, **IL-LIMITU**, or any card name
-- the numerals **0–9**, the **+2**, or the **4** and **7** of the Kaxxa
+- **LAST ONE**, **CAUGHT**, or any card name or caption
+- the numerals **0–9**, the pip rows, or any count of cards to be drawn
 - a card frame, a border, a rounded rectangle around the art, or a nameplate
 - a fifth suit — there are four and the engine will never know about a fifth
 - a suit mark of any kind — see §2b, those are SVG on purpose

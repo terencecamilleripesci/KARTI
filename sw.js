@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v60';
+const CACHE = 'karti-v61';
 const CORE = [
   './',
   './index.html',
@@ -34,11 +34,13 @@ const CORE = [
   './js/klabb-cheat.js',
   './js/tombla.js',
   './js/tombla-ui.js',
+  './js/tombla-caller.js',
   './js/kiri.js',
   './js/kiri-ai.js',
   './js/kiri-ui.js',
   './js/stats.js',
   './js/sfx.js',
+  './js/nav.js',
   /* The 38 mp3s under ./audio/ are deliberately NOT precached. They are 416 KB,
      the game is designed to be perfect without a single one of them, and a
      precache list that 404s fails the whole install — which is how a cache bump

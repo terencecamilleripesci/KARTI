@@ -75,6 +75,16 @@
    the screen; the 100vh line before each dvh is only a fallback for engines
    without dvh support. */
 html,body{height:100vh;height:100dvh;overflow:hidden}
+/* CHROME'S PULL-TO-REFRESH. `overscroll-behavior` was set on <body> only.
+   The viewport takes its value from the ROOT element, and the body→viewport
+   propagation Chrome does only happens while the root's own value is `auto`
+   — which it is here by accident, not by intent, and any future rule on
+   <html> would silently switch pull-to-refresh back on. It is stated on the
+   root as well so it cannot: a downward swipe on a board, a hand of cards or
+   a tombla card is a game gesture, and letting it reload the app mid-game is
+   an easy way to lose one. Nothing on iOS changes — Safari has no
+   pull-to-refresh and already honoured this against rubber-banding. */
+html{overscroll-behavior:none}
 /* A base colour rather than a gradient, chosen to match the tab bar. Not a
    workaround: with status-bar-style "black" the viewport reaches the physical
    bottom and there is no strip to hide. It simply means any area the browser
@@ -919,6 +929,53 @@ body.shake .stage,body.shake .ub-stage{animation:scShake .5s var(--ease)}
 .hand .h.no .card{filter:brightness(.5) saturate(.5)}
 .actbar{flex:0 0 auto;display:flex;gap:7px;padding-top:2px}
 .actbar .btn{min-height:48px;font-size:11.5px;flex:1;letter-spacing:.04em}
+/* ── THE DUEL, SIDEWAYS ──────────────────────────────────────────────
+   The manifest used to say "orientation":"portrait", which on Android is
+   not a hint but a LOCK: an installed PWA simply would not rotate, so
+   this case could not happen and was never designed. It says "any" now
+   (tombla is meant to be played with the phone turned sideways), and the
+   duel was the one screen that did not survive the change.
+
+   Why it did not: this column is nine fixed-height bands — two player
+   strips, four zone rows, the ticker, the hand and the action bar — and
+   --fw, the width of a card, was bounded by the viewport WIDTH only. Turn
+   the phone and the width goes UP, so --fw stayed at its 78px maximum and
+   the column needed ~630px of height inside 360. The shell is
+   overflow:hidden and must never scroll, so the overflow was not a
+   scrollbar: the player's own monster row, spell row, hand and action bar
+   were simply not on the screen. Measured at 800x360, 854x384, 894x440
+   and 915x412 — every landscape phone size, i.e. all of them.
+
+   So --fw takes a THIRD bound, the height: whatever is left once the
+   bands that cannot shrink have had their share, divided by the 5.08
+   card-heights the four rows come to (two full rows plus two at .74,
+   each 86/59 tall). Everything else steps down with it. The board gets
+   small — a duel is a portrait game and this is the graceful version of
+   sideways, not the good one — but every zone, every card in hand and
+   every button is ON the screen and tappable, which is the whole of the
+   difference. Nothing here applies in portrait: the query needs BOTH a
+   short viewport and landscape, so his 440x894 phone never sees it. */
+@media (orientation:landscape) and (max-height:560px){
+  #scr-duel{padding:calc(var(--sat) + 2px) calc(var(--sar) + 6px)
+            calc(var(--sab) + 2px) calc(var(--sal) + 6px)}
+  .duel{gap:2px;
+    /* 150px is what the bands that do NOT scale with a card come to — the
+       two player strips, the ticker, the action bar, the gaps and the
+       padding. 6.8 is what one card-width costs in height: 5.08 of it in
+       the four zone rows, 1.68 more in the hand, whose cards are sized off
+       --fw here too so the whole column shrinks together. Solved rather
+       than guessed, and checked at 360, 384, 412 and 440 tall. */
+    --fw:min(78px, calc((100vw - 42px)/5), calc((100dvh - 150px)/6.8))}
+  .pinfo{padding:0 4px;gap:5px}
+  .lp{font-size:15px}
+  .lpbar{height:7px}
+  .badge{padding:2px 5px;font-size:9px}
+  .mid{min-height:26px;padding:1px 2px}
+  .hand{min-height:0;padding:4px 2px 5px}
+  .hand .card{--cw:calc(var(--fw)*1.15)}
+  .actbar{padding-top:0}
+  .actbar .btn{min-height:40px;font-size:11px}
+}
 /* visibility matters, and it is NOT just tidiness. The closed sheet "hides" by
    translating 110% below the viewport — but in the installed app the page is
    62px TALLER than the viewport (see #app), so "just below the viewport" is
@@ -1530,7 +1587,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 60;
+var KARTI_BUILD = 61;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1561,9 +1618,22 @@ window.swVersion = function(){
                'js/skarta.js','js/skarta-ui.js',
                'js/klabb.js','js/klabb-briscola.js','js/klabb-sette.js','js/klabb-cheat.js',
                'js/tombla.js','js/tombla-ui.js',
+               /* the spoken tombla calls. tombla-ui.js injects this itself if
+                  the tag is missing, but that injection is a second request
+                  the service worker has never been told about — so on a cold
+                  Android launch with no signal the anunzjatur was silent even
+                  though the module was in the cache. Loaded properly here and
+                  precached in sw.js CORE; ensureCaller() there sees the global
+                  and becomes a no-op. */
+               'js/tombla-caller.js',
                'js/kiri.js','js/kiri-ai.js','js/kiri-ui.js',
                'js/stats.js',
-               'js/sfx.js'];
+               'js/sfx.js',
+               /* LAST. nav.js is the Android back button, and it works by
+                  observing every other module's screens — so it must boot
+                  after all of them are registered, or its first look at the
+                  app finds no #scr-party, no #scr-kiri and no #scr-stats. */
+               'js/nav.js'];
   (function next(i){
     if (i >= files.length) return;
     var s = document.createElement('script');
@@ -1574,9 +1644,27 @@ window.swVersion = function(){
   /* Is this WebView shorter than the physical screen? That is the signature of an
    icon installed under the old apple-mobile-web-app metas (his phone reports 894
    of 956). Measured, not guessed, and re-checked on orientation change. */
+/* iOS ONLY, and now stated rather than assumed. The measurement it makes —
+   "the window is shorter than the screen" — is TRUE of ordinary Chrome on
+   Android for an entirely different reason: the address bar in a tab, and
+   the gesture bar in an installed app, are both a few dozen pixels, which
+   lands inside this 20–200 window. The class it sets is a workaround for one
+   iOS layout bug and means nothing on Android, so an Android phone was
+   quietly wearing an iOS patch. (It is only 3px of tab-bar padding, which is
+   why nobody saw it — but the next thing hung on this class would not be.)
+   Android's screen.height is also unreliable in landscape on some builds,
+   which is a second reason not to let it decide anything here. */
 (function shortWebView(){
+  var isIOS = false;
+  try {
+    isIOS = /iP(hone|ad|od)/.test(navigator.platform || '') ||
+            (/Mac/.test(navigator.platform || '') && navigator.maxTouchPoints > 1) ||
+            (/iPhone|iPad|iPod/.test(navigator.userAgent || '') &&
+             !/Android/.test(navigator.userAgent || ''));
+  } catch (e) {}
   function check(){
     try{
+      if (!isIOS){ document.documentElement.classList.remove('short-webview'); return; }
       var gap = (screen && screen.height ? screen.height : innerHeight) - innerHeight;
       document.documentElement.classList.toggle('short-webview', gap > 20 && gap < 200);
     }catch(e){}

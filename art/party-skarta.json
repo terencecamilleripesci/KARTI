@@ -68,7 +68,7 @@
     "w": 1024, "h": 1024,
     "alpha": true,
     "out": { "w": 512, "h": 512 },
-    "purpose": "IL-KUNJATA (draw two) — cut-out subject over the card's own suit colour. The +2 is CSS text over the top of it and must never be generated.",
+    "purpose": "IL-KUNJATA (draw two) — cut-out subject over the card's own suit colour. The row of two card pips showing what is coming is CSS over the top and must never be generated.",
     "subject": "a tiny fierce Maltese grandmother marching in with an enormous shopping bag under each arm, chin up, entirely unstoppable"
   },
   {
@@ -86,7 +86,7 @@
     "w": 1024, "h": 1024,
     "alpha": true,
     "out": { "w": 512, "h": 512 },
-    "purpose": "IL-KAXXA INFERNALI — the card the whole game turns on, where you choose +4 or +7. The 4/7 is CSS text over the top and must never be generated: if the +7 is ever rebalanced to a +6 that has to be one character of JavaScript, not another pod rental.",
+    "purpose": "IL-KAXXA INFERNALI — the card the whole game turns on, where you choose +4 or +7. The caption and the row of pips showing how many cards are coming are CSS over the top and must never be generated: if the +7 is ever rebalanced to a +6 that has to be one character of JavaScript, not another pod rental.",
     "subject": "a huge wooden festa firework crate erupting in one enormous ground burst, sparks in every direction, a man sprinting away clutching his hat"
   },
   {

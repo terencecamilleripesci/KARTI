@@ -105,9 +105,44 @@ function injectSprite(){
        just a pattern of red dots, which is exactly what a real one
        looks like with the counters on.
    ═══════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   THE ANUNZJATUR'S MODULE, IF NOBODY ELSE HAS LOADED IT
+   ───────────────────────────────────────────────────────────────────
+   js/tombla-caller.js is in index.html's loader list and in sw.js's
+   CORE, which is where it belongs. This is the net under that: if the
+   tag is ever dropped, or a build ships without it, the first thing
+   that opens a tombla fetches it — once, and only if the global is not
+   already there.
+
+   IT IS CALLED FROM HERE AND NOT AT LOAD TIME. index.html loads the
+   modules in a chain, and this file is earlier in that chain than the
+   caller is — so a check made while this file is executing always says
+   "missing", injects, and the app ends up running the module twice.
+   By the time anybody has opened the tombla screen the chain is long
+   finished, and the answer is the true one.
+
+   It cannot fail loudly. A 404 leaves window.KARTI_CALLER undefined,
+   every call site is `window.KARTI_CALLER && ...`, and TOMBLA is
+   exactly as silent as it was before any of this existed. Rule 1 of
+   docs/TOMBLA_CALLER.md §9.
+   ═══════════════════════════════════════════════════════════════════ */
+function ensureCaller(){
+  if (window.KARTI_CALLER) return;
+  if (document.querySelector('script[src*="tombla-caller.js"]')) return;
+  try {
+    const s = document.createElement('script');
+    s.id = 'tb-caller-js';
+    s.src = 'js/tombla-caller.js';
+    s.async = false;
+    s.onerror = () => {};
+    document.head.appendChild(s);
+  } catch(e){}
+}
+
 function injectCSS(){
   try { P.ui.css(); } catch(e){}
   injectSprite();
+  ensureCaller();
   if (document.getElementById('tb-runtime-css')) return;
   const st = document.createElement('style');
   st.id = 'tb-runtime-css';
@@ -161,15 +196,55 @@ function injectCSS(){
   '#scr-party .tb-joke{font-size:11.5px;line-height:1.4;color:var(--dim);' +
     'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:32px}' +
 
-  /* the last few out of the bag, smallest first */
-  '#scr-party .tb-prev{flex:0 0 auto;display:flex;gap:5px;align-items:center;' +
-    'justify-content:flex-end;height:32px;overflow:hidden}' +
-  '#scr-party .tb-prev span{flex:0 0 auto;min-width:32px;height:30px;padding:0 6px;border-radius:8px;' +
-    'display:grid;place-items:center;font:900 14px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
+  /* ══ THE RAIL — WHAT HAS COME OUT, RUNNING RIGHT TO LEFT ══
+     "Right always the right one then move to left for what come out so
+     every can see what come out rather then asking."
+
+     The newest number lands on the RIGHT, gold and a size up, and every
+     older one shuffles left and fades. It is the one thing at a real
+     tombla that a phone can do better than a person: nobody has to
+     shout "what was that one?" over the table, and nobody has to ask
+     the caller to say it again.
+
+     THE DOM IS OLDEST-FIRST and the strip is justify-content:flex-end,
+     so it hugs the right edge and the overflow falls off the LEFT and
+     is clipped — which is exactly the motion he described. Nothing is
+     measured, nothing is truncated in JavaScript, and it therefore
+     shows precisely as many as fit on whatever phone it is on, in
+     either orientation.
+
+     IT COSTS THE KARTELLI NOTHING. Thirty pixels, and it takes them
+     from the miniature tabellone below, which said the same thing in
+     dots and is switched off wherever the rail is on. Tapping the rail
+     opens the full board, which is the job the miniature was doing. */
+  '#scr-party .tb-rail{flex:0 0 auto;display:flex;gap:4px;align-items:center;width:100%;' +
+    'justify-content:flex-end;height:30px;overflow:hidden;padding:0;border:0;' +
+    'background:none;-webkit-tap-highlight-color:transparent}' +
+  '#scr-party .tb-rail span{flex:0 0 auto;min-width:30px;height:26px;padding:0 5px;border-radius:7px;' +
+    'display:grid;place-items:center;font:900 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
     'color:#3A2408;background:linear-gradient(180deg,#EFE0BC,#CFB98A);' +
     'box-shadow:0 2px 0 -1px rgba(0,0,0,.4)}' +
-  '#scr-party .tb-prev span.old{opacity:.42}' +
-  '#scr-party .tb-prev em{font-style:normal;font-size:9.5px;font-weight:900;letter-spacing:.12em;' +
+  /* the one that just came out */
+  '#scr-party .tb-rail span.now{min-width:38px;height:30px;font-size:16px;' +
+    'background:linear-gradient(180deg,#FFD873,#F0A81E);' +
+    'box-shadow:0 0 0 2px rgba(255,255,255,.4),0 3px 0 -1px rgba(0,0,0,.45)}' +
+  /* ONLY ON A NEW NUMBER, and it lands in place rather than sliding in
+     from the right. Two things were wrong with the slide: the strip is
+     overflow:hidden and flush to the right edge, so a chip translated
+     14px right began its life clipped in half — and the caller bar
+     repaints on things that are not calls (a machine seat marking, a
+     peek, a pause), so the newest number re-animated several times per
+     call and flickered. The `just` class is put on by paintChrome only
+     when the number has actually changed. */
+  '#scr-party .tb-rail span.now.just{animation:tbSlide .3s var(--ease) both}' +
+  '@keyframes tbSlide{0%{transform:scale(.7);opacity:0}' +
+    '62%{transform:scale(1.07);opacity:1}100%{transform:scale(1);opacity:1}}' +
+  /* older ones fade the further left they get. Done with nth-last-child
+     rather than a class per chip, so the fade is a property of POSITION
+     and cannot drift out of step with the order. */
+  '#scr-party .tb-rail span:nth-last-child(n+5){opacity:.62}' +
+  '#scr-party .tb-rail span:nth-last-child(n+9){opacity:.38}' +
+  '#scr-party .tb-rail em{font-style:normal;font-size:9.5px;font-weight:900;letter-spacing:.12em;' +
     'text-transform:uppercase;color:var(--dim2);margin-right:auto;white-space:nowrap}' +
 
   /* ══ THE KARTELLA ══ */
@@ -177,18 +252,27 @@ function injectCSS(){
      phone with room to spare must not end up with two hundred dead
      pixels under the seats — the card floats in the middle of the
      space instead, which is where the eye already is. */
-  /* ── WHEN SIX WILL NOT FIT ───────────────────────────────────────
-     On an 894 phone a ġog fits exactly. On a 660 one it cannot be made
-     to: six kartelli in 472 pixels is a row of twenty-one, which is
-     not a small number, it is an unreadable one. So the FLOOR wins and
-     this one block scrolls. The house rule is that the PAGE never
-     scrolls, and it does not; a panel may, and this is the panel. It
-     is also what you do with a paper ġog that will not fit on the
-     table — you move it. */
+  /* ── THE ĠOG IS A SHEET, NOT A LIST ──────────────────────────────
+     "Row one 3 ticket stacks, row 2 3 ticket stacks, so side by side" —
+     TWO COLUMNS OF THREE. That is how the paper is printed and how he
+     is holding it, and it was wrong here: six cartelli were stacked one
+     under the other down the page, which needed 577 pixels on a phone
+     whose card area is 361 of them. The last two were not small, they
+     were BELOW THE FOLD of a block that scrolls — which is why he
+     counted four kartelli and not six.
+
+     Two across turns eighteen rows of cells into nine and the whole ġog
+     fits with room over. The column count is not hard-coded: fitCards()
+     sets --tbcols from the space it actually measures, so a phone
+     turned sideways gets THREE across and two down, which is the same
+     sheet folded the other way and is the better shape when width is
+     the plentiful axis. See fitCards() for the arithmetic and for why
+     none of it is added up from the stylesheet any more. */
   '#scr-party .tb-cards{flex:1 1 auto;display:flex;flex-direction:column;gap:10px;' +
     'justify-content:center;min-height:0;overflow-y:auto;overflow-x:hidden;' +
     '-webkit-overflow-scrolling:touch;overscroll-behavior:contain}' +
-  '#scr-party .tb.gog .tb-cards{justify-content:flex-start}' +
+  '#scr-party .tb.gog .tb-cards{display:grid;gap:5px;align-content:center;' +
+    'grid-template-columns:repeat(var(--tbcols,2),minmax(0,1fr))}' +
   '#scr-party .tb-card{position:relative;padding:6px;border-radius:13px;' +
     'background:linear-gradient(180deg,var(--rule),var(--rule2));' +
     'box-shadow:0 7px 0 -3px rgba(0,0,0,.45),0 12px 26px rgba(0,0,0,.45)}' +
@@ -196,10 +280,19 @@ function injectCSS(){
   '#scr-party .tb-grid{display:grid;grid-template-columns:repeat(9,1fr);' +
     'grid-auto-rows:var(--tbh,58px);gap:2px;background:var(--paper2);padding:2px;border-radius:8px}' +
   /* one cell */
+  /* ── THE NUMBER IS SIZED OFF BOTH SIDES OF ITS CELL ──────────────
+     It used to be sized off the HEIGHT alone, which is correct while a
+     cartella is the full width of the phone and forty-three pixels a
+     column. Two cartelli across is twenty, and a number sized off a
+     thirty-pixel row then draws nineteen pixels of digits into a
+     twenty-pixel box: the ninety on your sheet touch their own edges
+     and read as a smear. So it takes the SMALLER of what each axis can
+     carry. --tbw is written by fitCards() from the cell it measured;
+     the 26px ceiling is still there for one big kartella. */
   '#scr-party .tb-c{position:relative;display:grid;place-items:center;padding:0;border:0;' +
     'border-radius:4px;background:var(--paper);color:var(--ink);' +
     'font-family:var(--disp);font-weight:900;line-height:1;letter-spacing:-.02em;' +
-    'font-size:min(26px,calc(var(--tbh,58px) * .56));' +
+    'font-size:min(26px,calc(var(--tbh,58px) * .56),calc(var(--tbw,44px) * .64));' +
     '-webkit-tap-highlight-color:transparent}' +
   /* a blank is not "nothing" — it is what gives a row its shape, and
      finding your number is half a matter of finding the gap it sits
@@ -248,13 +341,16 @@ function injectCSS(){
   /* ══ SIX KARTELLI ON A PHONE ══
      A ġog is the whole screen and then some, so in `.tb.gog` every
      other block gives up what it can: the token shrinks and goes
-     inline, the "before that" strip and the room strip disappear
-     entirely, the ladder halves, and js/party.js's turn strip is
-     hidden because everything it said now lives in the caller bar.
-     The kartelli take all of it. Nothing else on this screen is
-     allowed to cost a cartella a pixel — including the two host
-     controls, which live inside the button bar that was already
-     there. */
+     inline, the miniature board and the room strip disappear entirely,
+     the ladder halves, and js/party.js's turn strip is hidden because
+     everything it said now lives in the caller bar. The kartelli take
+     all of it. Nothing else on this screen is allowed to cost a
+     cartella a pixel — including the two host controls, which live
+     inside the button bar that was already there.
+
+     THE RAIL IS THE ONE EXCEPTION AND IT IS NOT AN EXCEPTION: it takes
+     the thirty pixels the miniature board gives up in the same breath,
+     and it does that block's job better. Net cost to the ġog: nothing. */
   '#scr-party .pt-wrap.tbgog .pt-turn{display:none}' +
   '#scr-party .tb.gog{gap:6px}' +
   '#scr-party .tb.gog .tb-cards{gap:5px}' +
@@ -275,8 +371,19 @@ function injectCSS(){
   '#scr-party .tb.gog .tb-mt{font-size:13px}' +
   '#scr-party .tb.gog .tb-laqam{font-size:11px}' +
   '#scr-party .tb.gog .tb-joke{display:none}' +
-  '#scr-party .tb.gog .tb-prev,#scr-party .tb.gog .tb-seats,' +
+  /* the miniature board goes: the rail says the same thing in numbers
+     and opens the same panel. The ROOM STRIP stays — it used to be
+     hidden here because six cartelli stacked down the page needed every
+     pixel, and two across do not. Sixteen people playing for chips want
+     to see who is at the table. It is still dropped on a short phone and
+     sideways, by the media queries at the foot of this sheet. */
   '#scr-party .tb.gog .tb-mini{display:none}' +
+  '#scr-party .tb.gog .tb-seats{grid-template-columns:repeat(4,minmax(0,1fr));gap:3px}' +
+  '#scr-party .tb.gog .tb-seat{padding:3px 5px;border-radius:7px;gap:4px}' +
+  '#scr-party .tb.gog .tb-seat b{font-size:9px}' +
+  '#scr-party .tb.gog .tb-rail{height:26px}' +
+  '#scr-party .tb.gog .tb-rail span{height:22px;min-width:27px;font-size:12px}' +
+  '#scr-party .tb.gog .tb-rail span.now{height:26px;min-width:34px;font-size:14.5px}' +
   '#scr-party .tb.gog .tb-rung{padding:3px 2px 2px;border-radius:7px}' +
   '#scr-party .tb.gog .tb-rung b{font-size:8px}' +
   '#scr-party .tb.gog .tb-rung i{font-size:8px;margin-top:1px}' +
@@ -351,12 +458,26 @@ function injectCSS(){
   /* ══ THE CHECK ══
      Somebody shouts, the room goes quiet, and the card is read back
      number by number while everybody waits. This overlay is that. */
+  /* ── AND THE ROOM GOES DARK ──────────────────────────────────────
+     The gradient alone was drawn over a mostly-dark board with ONE
+     kartella on it. Over a full ġog it is six cream rectangles showing
+     through the middle of it, and the numbers being read back sit on
+     top of ninety other numbers. A near-opaque base goes UNDER the
+     gradient: the warm middle is still there, the room still darkens
+     from the edges in, and the only thing you can read is the kartella
+     being checked. That is the point of the moment — they are playing
+     for chips and a prize is being decided. */
   '#scr-party .tb-chk{position:absolute;inset:0;z-index:25;display:flex;flex-direction:column;' +
     'align-items:center;justify-content:center;gap:14px;padding:24px;pointer-events:none;' +
-    'background:radial-gradient(circle at 50% 42%,rgba(255,197,66,.16),rgba(6,4,12,.965) 62%)}' +
-  '#scr-party .tb-chk .who{font:900 12px/1.4 var(--disp);letter-spacing:.14em;' +
-    'text-transform:uppercase;color:var(--txt);text-align:center;opacity:.85}' +
+    'background:radial-gradient(circle at 50% 42%,rgba(255,197,66,.17),rgba(6,4,12,.99) 60%),' +
+    'rgba(6,4,12,.93)}' +
+  '#scr-party .tb-chk .who{font:900 12px/1.5 var(--disp);letter-spacing:.14em;' +
+    'text-transform:uppercase;color:var(--txt);text-align:center;opacity:.85;max-width:300px}' +
   '#scr-party .tb-chk .who b{color:var(--gold)}' +
+  /* which of the six, on its own line and in the gold, because with a
+     ġog in front of you that is the first thing anybody asks */
+  '#scr-party .tb-chk .who i{display:block;font-style:normal;margin-top:5px;font-size:13px;' +
+    'letter-spacing:.1em;color:var(--gold)}' +
   '#scr-party .tb-chk .read{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:340px}' +
   '#scr-party .tb-chk .read span{min-width:44px;height:44px;padding:0 7px;border-radius:11px;' +
     'display:grid;place-items:center;font:900 19px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
@@ -434,9 +555,13 @@ function injectCSS(){
   '#scr-party .tb-seat.peeking{outline:2px solid var(--gold);outline-offset:-2px}' +
   '#scr-party .tb-seat.ready .tb-pip{background:var(--ok)}' +
 
-  /* ══ THE CLAIM BUTTON ══ */
-  '#scr-party .pt-bar.tb-bar{grid-template-columns:1fr 62px}' +
-  '#scr-party .pt-bar.tb-bar .btn{min-height:56px}' +
+  /* ══ THE CLAIM BUTTON ══
+     NOTE: the bar's own grid is declared ONCE, up in THE HOST CONTROLS,
+     as `1fr 52px 52px`. It used to be declared a second time down here
+     as `1fr 62px` — two tracks for three buttons — so the MORE button
+     wrapped onto a second row and the button bar was silently twice as
+     tall as it was drawn to be. Sixty pixels off the kartelli, in every
+     orientation, from a rule nobody could see. Do not re-add it. */
   '#scr-party #tb-claim{font-family:var(--disp);font-weight:900;font-size:16px;letter-spacing:.09em;' +
     'text-transform:uppercase;transition:background .16s var(--ease),color .16s var(--ease)}' +
   '#scr-party #tb-claim .tb-sub{display:block;font:700 9px/1.2 var(--disp);letter-spacing:.1em;' +
@@ -582,82 +707,224 @@ function injectCSS(){
     '#scr-party .tb-ball{width:66px;height:66px}' +
     '#scr-party .tb-ball b{font-size:28px}' +
     '#scr-party .tb-joke{-webkit-line-clamp:1;min-height:0}' +
-    '#scr-party .tb-prev{height:22px}' +
+    '#scr-party .tb-rail{height:26px}' +
+    '#scr-party .tb-rail span{height:22px;min-width:27px;font-size:12px}' +
+    '#scr-party .tb-rail span.now{height:26px;min-width:34px;font-size:14.5px}' +
     '#scr-party .pt-bar.tb-bar .btn{min-height:50px}}' +
   '@media (max-height:660px){' +
     '#scr-party .tb-seats{display:none}' +
-    '#scr-party .tb-call{padding:6px 9px}}';
+    '#scr-party .tb-call{padding:6px 9px}}' +
+
+  /* ══ THE PHONE TURNED SIDEWAYS ══
+     Not "does not break" — the better way to play a ġog, and worth
+     saying out loud. A cartella is NINE COLUMNS WIDE, so width is the
+     axis it wants and portrait is the axis that is short of it. Turned
+     sideways there is nearly nine hundred pixels of it, the sheet goes
+     three across and two down (fitCards() works that out from the
+     measurement, not from this rule), and every cell comes out BIGGER
+     than it can ever be in portrait.
+
+     What is scarce is now height, so everything that stacks gives:
+     the joke, the miniature board, the room strip and the turn strip
+     all go, the ball comes down to a token, and the button bar loses
+     its generous thumb height because a thumb reaching a landscape
+     phone is coming from the side anyway.
+
+     Nothing here locks or forces an orientation. The player turns the
+     phone; the app follows, and fitCards() re-measures on the resize —
+     iOS resizes in stages, so it is asked more than once. */
+  '@media (orientation:landscape) and (max-height:600px){' +
+    '#scr-party .tb{gap:4px}' +
+    '#scr-party .pt-wrap .pt-turn{display:none}' +
+    '#scr-party .tb-call{padding:4px 9px;gap:9px;border-radius:12px}' +
+    '#scr-party .tb-ball,#scr-party .tb.gog .tb-ball{width:46px;height:46px}' +
+    '#scr-party .tb-ball b,#scr-party .tb.gog .tb-ball b{font-size:20px}' +
+    '#scr-party .tb-ball.none b,#scr-party .tb.gog .tb-ball.none b{font-size:9px}' +
+    '#scr-party .tb-ball.draw b,#scr-party .tb.gog .tb-ball.draw b{font-size:9.5px}' +
+    '#scr-party .tb-joke{display:none}' +
+    '#scr-party .tb-seats,#scr-party .tb-mini{display:none}' +
+    '#scr-party .tb-rail,#scr-party .tb.gog .tb-rail{height:24px}' +
+    '#scr-party .tb-rail span,#scr-party .tb.gog .tb-rail span{height:20px;min-width:26px;font-size:11.5px}' +
+    '#scr-party .tb-rail span.now,#scr-party .tb.gog .tb-rail span.now{height:24px;min-width:32px;font-size:13.5px}' +
+    '#scr-party .tb-rung,#scr-party .tb.gog .tb-rung{padding:2px 2px 1px;border-radius:6px}' +
+    '#scr-party .tb-rung b,#scr-party .tb.gog .tb-rung b{font-size:8px}' +
+    '#scr-party .tb-rung i,#scr-party .tb.gog .tb-rung i{font-size:7.5px;margin-top:0}' +
+    '#scr-party .pt-bar.tb-bar .btn{min-height:38px}' +
+    '#scr-party .pt-bar.tb-bar .btn.sq .ico{width:18px;height:18px}' +
+    '#scr-party #tb-claim{font-size:14px}' +
+    '#scr-party #tb-claim .tb-sub{font-size:8px;margin-top:1px}' +
+    '#scr-party .tb-chk{gap:9px;padding:14px}' +
+    '#scr-party .tb-chk .read{max-width:min(92%,620px)}' +
+    '#scr-party .tb-chk .read span{min-width:36px;height:36px;font-size:16px}' +
+    '#scr-party .tb-chk .say{font:900 22px/1.15 var(--disp);min-height:0}' +
+    '#scr-party .tb-chk .say.no{font-size:25px}' +
+    '#scr-party .tb-shout b{font-size:30px;padding:6px 12px 10px}' +
+    '#scr-party .tb-shout.big b{font-size:34px}}' +
+
+  /* the small phone, sideways — an SE is 375 tall in landscape and a
+     ġog wants every pixel of it. The laqam is the first thing to go
+     after the joke: it is the nickname, it is lovely, and it is not
+     what anybody is looking at while they hunt for a number. The
+     Maltese name of the number and the ball stay, because those are
+     the call itself. */
+  '@media (orientation:landscape) and (max-height:430px){' +
+    '#scr-party .tb.gog .tb-laqam{display:none}' +
+    '#scr-party .tb.gog .tb-call{padding:3px 8px}' +
+    '#scr-party .tb.gog .tb-cards{gap:4px}' +
+    '#scr-party .tb.gog .tb-card{padding:2px;border-radius:7px}' +
+    '#scr-party .tb.gog .tb-grid{gap:1px;padding:1px;border-radius:5px}}';
 
   document.head.appendChild(st);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   HOW BIG IS A CELL
-   The kartella must never be the thing that gets squeezed, so the
-   cell HEIGHT is computed from whatever vertical slack is left after
-   the caller, the ladder, the seats and the button bar have had
-   theirs — clamped so it can never go below 40px (unreadable) or
-   above 74px (silly). Width takes care of itself: nine equal columns
-   of a full-width card, which on a 440 phone is about 43px each.
+   HOW THE ĠOG IS LAID OUT
+   ───────────────────────────────────────────────────────────────────
+   Two jobs, and they are the same arithmetic: HOW MANY CARTELLI ACROSS
+   and HOW TALL A CELL IS.
 
-   Recomputed on resize because a phone that rotates, or an iOS
-   keyboard that opens and closes, changes the slack under us.
+   THIS IS THE CODE THAT LOST HIM TWO KARTELLI, so it is worth saying
+   exactly what went wrong. The old version added up the heights of the
+   blocks around the cards — the caller bar, the ladder, the seats, the
+   flex gaps between them — and subtracted. Adding up a layout is a
+   guess dressed as a measurement: it double-counted the gaps of blocks
+   that were display:none, it guessed a card's own chrome, and the
+   error came out of the bottom of a block that CLIPS. The kartella did
+   not get smaller. It went away, with nothing on screen saying so, and
+   he counted four.
+
+   Nothing is added up here any more. THREE MEASUREMENTS, ALL TAKEN
+   FROM THE DOM AFTER IT HAS BEEN LAID OUT:
+
+     the space         .tb-cards is flex:1 with min-height:0, so after
+                       a layout pass its clientHeight and clientWidth
+                       ARE the space it was given, whatever is around
+                       it, in either orientation. There is nothing to
+                       add up because the browser has already done it.
+     a card's chrome   its own height minus the three rows it is
+                       currently drawing; its own width minus the nine
+                       cells it is currently drawing. Self-correcting,
+                       and it cannot drift when the stylesheet changes.
+     the answer        written back as two custom properties.
+
+   HOW MANY ACROSS. Two in portrait and three sideways — his sheet, and
+   the same sheet folded the other way. It is chosen from the measured
+   ASPECT of the card area rather than from a media query, so a fold-out
+   phone or a window nobody thought of gets the shape that fits rather
+   than the shape somebody typed. If the columns would drive a cell
+   under MIN_W it steps back down, because an unreadable kartella is
+   worse than a differently-shaped one.
+
+   HOW TALL. Whatever is left, capped at one and a half times the cell's
+   own WIDTH. Without that cap a ġog two across on a tall phone gets
+   nine rows to share six hundred pixels and every cell becomes a
+   sixty-pixel letterbox with a number floating in it. Paper does not
+   look like that. The slack goes into air around the sheet instead —
+   align-content:center — which is what a ġog on a table looks like.
    ═══════════════════════════════════════════════════════════════════ */
+const MIN_W = 15;      /* under this two digits do not fit, at any size */
+const MIN_H = 20;      /* small and legible still beats absent          */
+const MAX_H = 76;      /* above this one cartella stretches into a bar  */
+
 function fitCards(){
   if (!U || !U.root || !U.root.isConnected) return;
-  const cards = U.root.querySelectorAll('.tb-grid');
-  if (!cards.length) return;
-  const host = U.ctx.host;
-  const stack = U.root;
-  /* ── MEASURED, NOT GUESSED ───────────────────────────────────────
-     The first version of this added up hard-coded paddings and gaps
-     and was wrong twice: it counted the flex gap of blocks that were
-     display:none (a ġog hides three of them), and it guessed a card's
-     own chrome. Both errors pushed the sixth kartella off the bottom
-     of a host that CLIPS, so the card did not get smaller, it
-     disappeared, and nothing anywhere said so.
+  const host = U.root.querySelector('#tb-cardhost');
+  if (!host) return;
+  const grids = host.querySelectorAll('.tb-grid');
+  if (!grids.length) return;
 
-     So: count only the blocks that are actually on screen, and read a
-     card's chrome straight out of the DOM by subtracting the three
-     rows it is currently drawing. Self-correcting, and it cannot drift
-     when the stylesheet changes. */
-  const vis = [];
-  for (const el of stack.children) if (el.offsetHeight > 0) vis.push(el);
-  const gStack = U.gog ? 6 : 8, gCard = U.gog ? 5 : 10;
-  let used = 0;
-  for (const el of vis) if (!el.classList.contains('tb-cards')) used += el.offsetHeight;
-  const gaps = gStack * Math.max(0, vis.length - 1) + gCard * (cards.length - 1);
+  const availW = host.clientWidth, availH = host.clientHeight;
+  /* not laid out yet (or laid out to nothing). Leave whatever is there
+     rather than writing a number computed from zero — this runs off a
+     ResizeObserver and will be asked again the moment there is a box. */
+  if (availW < 60 || availH < 60) return;
 
-  const curH = parseFloat(cards[0].style.getPropertyValue('--tbh')) ||
-               parseFloat(getComputedStyle(cards[0]).getPropertyValue('--tbh')) || 58;
-  const chrome = Math.max(0, (cards[0].parentNode.offsetHeight || 0) - curH * 3);
-  const avail = host.clientHeight - used - gaps;
-  /* ── 26 IS THE FLOOR, NOT 40 ─────────────────────────────────────
-     A ġog is six kartelli and eighteen rows of them. A floor set high
-     enough for a single card is a floor that loses a kartella. Small
-     and legible beats absent. 76 stays the ceiling so one or two cards
-     do not stretch into letterboxes. */
-  const h = Math.max(26, Math.min(76,
-    Math.floor((avail - cards.length * chrome) / (cards.length * 3))));
-  /* written only when it actually changes: this runs off a
+  const n = grids.length;
+  const card0 = grids[0].parentNode;
+  const cell0 = grids[0].querySelector('.tb-c');
+  /* the gap between cartelli, read off the stylesheet rather than typed
+     in again here. A landscape media query trims it and this must not
+     have to know that. */
+  const cs = getComputedStyle(host);
+  const gap = parseFloat(cs.rowGap) || parseFloat(cs.gap) || (U.gog ? 5 : 10);
+
+  const curH = parseFloat(grids[0].style.getPropertyValue('--tbh')) ||
+               parseFloat(getComputedStyle(grids[0]).getPropertyValue('--tbh')) || 26;
+  const chromeH = Math.max(0, card0.offsetHeight - curH * 3);
+  const cw0 = cell0 ? cell0.getBoundingClientRect().width : 0;
+  const chromeW = cw0 > 0
+    ? Math.max(0, card0.getBoundingClientRect().width - cw0 * 9)
+    : 26;                                   /* padding + eight gutters  */
+
+  /* ── how many cartelli across ── */
+  let cols = 1, cellW = 0;
+  if (U.gog){
+    cols = availW >= availH * 1.15 ? 3 : 2;
+    for (;;){
+      cellW = ((availW - (cols - 1) * gap) / cols - chromeW) / 9;
+      if (cellW >= MIN_W || cols <= 1) break;
+      cols--;
+    }
+  } else {
+    cellW = (availW - chromeW) / 9;
+  }
+
+  /* ── and how tall a cell can be in what is left ── */
+  const rows = Math.ceil(n / cols);
+  let h = Math.floor((availH - (rows - 1) * gap - rows * chromeH) / (rows * 3));
+  h = Math.min(h, Math.round(cellW * 1.75), MAX_H);
+  h = Math.max(MIN_H, h);
+  const w = Math.max(MIN_W, Math.round(cellW));
+
+  /* written only when they actually change: this runs off a
      ResizeObserver and off every repaint, and a style write that says
      the same thing is a layout the phone did not need. */
-  for (const g of cards)
+  if (host.style.getPropertyValue('--tbcols') !== String(cols))
+    host.style.setProperty('--tbcols', String(cols));
+  for (const g of grids){
     if (g.style.getPropertyValue('--tbh') !== h + 'px') g.style.setProperty('--tbh', h + 'px');
+    /* the cell's own width, for the font. Measured rather than derived
+       from the column count, so a stylesheet change to a padding
+       cannot make the digits overflow their box. */
+    if (g.style.getPropertyValue('--tbw') !== w + 'px') g.style.setProperty('--tbw', w + 'px');
+  }
 }
 
-let fitRO = null;
+/* ── WHEN TO MEASURE AGAIN ─────────────────────────────────────────
+   A ResizeObserver on the host catches everything that changes the box
+   under us — a rotation, an iOS URL bar sliding away, a keyboard. But
+   iOS resizes a rotation in STAGES: the first pass can report the old
+   width with the new height, and a layout computed from that is a
+   layout of a phone that does not exist. So a rotation is also asked
+   again a beat later, twice, and fitCards() is cheap and idempotent —
+   it writes nothing when the answer has not moved. */
+let fitRO = null, fitOri = null;
+function againSoon(){
+  fitCards();
+  requestAnimationFrame(fitCards);
+  soon(fitCards, 140);
+  soon(fitCards, 420);
+}
 function watchFit(){
   stopFit();
+  fitOri = () => againSoon();
+  window.addEventListener('orientationchange', fitOri);
+  window.addEventListener('resize', fitOri);
   if (typeof ResizeObserver !== 'function'){
-    window.addEventListener('resize', fitCards);
-    fitRO = { disconnect(){ window.removeEventListener('resize', fitCards); } };
+    fitRO = { disconnect(){} };
     return;
   }
   fitRO = new ResizeObserver(() => fitCards());
   if (U && U.ctx && U.ctx.host) fitRO.observe(U.ctx.host);
 }
-function stopFit(){ if (fitRO){ try { fitRO.disconnect(); } catch(e){} fitRO = null; } }
+function stopFit(){
+  if (fitOri){
+    window.removeEventListener('orientationchange', fitOri);
+    window.removeEventListener('resize', fitOri);
+    fitOri = null;
+  }
+  if (fitRO){ try { fitRO.disconnect(); } catch(e){} fitRO = null; }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    THE LIVE SCREEN
@@ -679,6 +946,9 @@ const isLocalSeat = i => { const st = T.state(); const s = st && st.seats[i];
 
 function leave(){
   stopFit();
+  /* the voice goes with the table. A number half-said while the player
+     is already back on the shelf is the app talking to an empty room. */
+  try { if (window.KARTI_CALLER){ window.KARTI_CALLER.stop(); window.KARTI_CALLER.setEnabled(false); } } catch(e){}
   if (U){
     if (U.off) { try { U.off(); } catch(e){} }
     try { closeSheets(); } catch(e){}
@@ -741,15 +1011,21 @@ function stepRow(id, label, note, val){
    handed to js/mp.js's shared lobby as `rulesHTML()`. Written once so the two
    can never disagree about what a vers is. */
 function rulesPanel(){
-  return '<p><b>Tombla klassika</b> is the Italian ladder: <b>ambo</b> two on one row, ' +
-      '<b>terna</b> three, <b>kwaterna</b> four, <b>ċinkwina</b> the whole row of five, ' +
-      'then <b>TOMBLA</b> — all fifteen on one kartella. Each is won once and the game ' +
-      'carries on for the next, which is why nobody leaves the table.</p>' +
-    '<p><b>Tal-każin</b> is Malta\'s own. The Lotteries and Other Games Act defines a ' +
-      'tombla as won by the <b>vers</b> — five on one row — or the <b>fatta</b>, all ' +
-      'fifteen. No ambo, no terna. That is the game the band clubs and the parishes ' +
-      'play, and with a full ġog in front of everybody it is the better paced of the ' +
-      'two: an ambo among sixteen ġogs is gone by the third number.</p>' +
+  return '<p><b>Tombla klassika</b> — <b>one kartella</b>, the Italian ladder: <b>ambo</b> ' +
+      'two on one row, <b>terna</b> three, <b>kwaterna</b> four, <b>ċinkwina</b> the whole ' +
+      'row of five, then <b>TOMBLA</b> — all fifteen. Each is won once and the game carries ' +
+      'on for the next, which is why nobody leaves the table. Fifteen numbers to watch, and ' +
+      'it is over in ten minutes.</p>' +
+    '<p><b>Tal-każin</b> — <b>the full ġog of six</b>, and in Malta it is always the full ' +
+      'six. The Lotteries and Other Games Act defines a tombla as won by the <b>vers</b> — ' +
+      'five on one row — or the <b>fatta</b>, all fifteen. No ambo, no terna. That is the ' +
+      'game the band clubs and the parishes play. Every number that comes out is somewhere ' +
+      'on your sheet, so you mark ninety times instead of fifteen and the room is in it to ' +
+      'the last ball.</p>' +
+    '<p>The prize is always <b>on one kartella</b>: a row of that one, or that one filled. ' +
+      'Nothing counts across the sheet — six cartelli are six chances, not one big card. ' +
+      'And no two people are ever dealt the same arrangement, so who wins is the sheet you ' +
+      'were handed.</p>' +
     '<p>Both are here under their own names. Neither is invented.</p>' +
     '<p>You mark your own numbers and you shout for your own prize. Nobody waits for a ' +
       'turn, which is why this table seats sixteen.</p>';
@@ -776,7 +1052,17 @@ function menu(){
   const canOnline = !!(M && M.openFor && M.GAME_KEYS &&
                        M.GAME_KEYS.indexOf('tombla') >= 0 && P.online && P.online.tombla);
   const relayDown = !!(canOnline && M.PR && M.PR.tried && M.PR.err);
-  let play  = (p.play === 'pnp' || p.play === 'ai' || p.play === 'online')
+  /* ── THERE IS NO PASS-THE-PHONE TOMBLA ───────────────────────────
+     "Tombla will not go pass the phone, it can't be played like that,
+     impossible." He is right, and it is not a weak option, it is an
+     impossible one: everybody marks at the SAME MOMENT on their own
+     sheet, so there is no turn to hand over. A hot-seat tombla means
+     passing the phone after every single number, ninety times, while
+     five people wait. Every other game in KARTI has a turn and can do
+     it; this one cannot, and the option is gone rather than greyed
+     out. Two honest ways to play: everybody on their own phone, or
+     you against the machine. */
+  let play  = (p.play === 'ai' || p.play === 'online')
                 ? p.play : (canOnline ? 'online' : 'ai');
   if (play === 'online' && (!canOnline || relayDown)) play = 'ai';
   let rules = p.mode === 'hall' ? 'hall' : 'ladder';
@@ -784,7 +1070,6 @@ function menu(){
   let seats = Math.max(2, Math.min(T.MAX_SEATS, p.seats || T.DEFAULTS.seats));
   let level = [1,2,3].indexOf(p.level) >= 0 ? p.level : 2;
   let speed = [1,2,3].indexOf(p.speed) >= 0 ? p.speed : 2;
-  let cards = [1,2,3,6].indexOf(p.cards) >= 0 ? p.cards : 6;
   let auto  = !!p.auto;
   let hints = !!p.hints;
   let open  = false;
@@ -796,9 +1081,9 @@ function menu(){
       '<h2>Tombla</h2>' +
     '</div>' +
     '<div class="scroll">' +
-      '<p class="blurb">Ninety numbers in a bag and a <b>ġog</b> of six kartelli in front of you — ' +
-        'so every number called is on your sheet somewhere. You mark your own, and nobody ' +
-        'checks a thing until somebody shouts.</p>' +
+      '<p class="blurb">Ninety numbers in a bag. <b>Klassika</b> deals you one kartella and ' +
+        'five prizes; <b>tal-każin</b> deals the whole <b>ġog</b> of six, the way a band club ' +
+        'does. You mark your own, and nobody checks a thing until somebody shouts.</p>' +
 
       (saved ? '<button class="btn primary" id="tb-resume" style="margin:2px 0 10px">' +
         ilb('play', 'Carry on — call ' +
@@ -812,8 +1097,6 @@ function menu(){
           : '') +
         '<button class="pt-opt" data-v="ai">' + ico('coach') +
           '<b>You and the phone</b><i>The rest of the table is the machine.</i></button>' +
-        '<button class="pt-opt sub" data-v="pnp">' + ico('users') +
-          '<b>One phone, everybody round it</b><i>Tap your own name, mark your own ġog.</i></button>' +
       '</div>' +
       (relayDown
         ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right now. ' +
@@ -821,14 +1104,16 @@ function menu(){
         : '') +
 
       '<div class="tiny pt-lbl">The game</div>' +
-      setRow('tb-rules', 'Rules', 'Klassika is the five-rung ladder. Tal-każin is vers, then fatta.',
+      /* THE MODE CARRIES THE SHEET. The note under it is the whole
+         difference between the two games, in eleven words, and it is
+         the row that used to be two rows. */
+      setRow('tb-rules', 'Which game', '',
              [{ v:'ladder', l:'Klassika' }, { v:'hall', l:'Tal-każin' }], rules) +
+      '<p class="tb-note" id="tb-rulesnote"></p>' +
       setRow('tb-who', 'Who reads them out', 'Manual: you tap the bag and say it yourself. The app stays quiet.',
              [{ v:'manual', l:'A person' }, { v:'auto', l:'The phone' }], who) +
       stepRow('tb-seats', 'Chairs', 'Two to sixteen. Nobody ever waits for a turn.', seats) +
       '<div class="tb-chairs" id="tb-chairview"></div>' +
-      setRow('tb-cards', 'Kartelli each', 'Six is a whole ġog — all ninety numbers on your sheet.',
-             [{ v:1, l:'1' }, { v:2, l:'2' }, { v:3, l:'3' }, { v:6, l:'Ġog' }], cards) +
       '<div id="tb-speedrow">' +
       setRow('tb-speed', 'How fast the phone reads', 'Only when the phone is calling.',
              [{ v:1, l:'Slow' }, { v:2, l:'Normal' }, { v:3, l:'Quick' }], speed) +
@@ -862,8 +1147,11 @@ function menu(){
     el.querySelectorAll('#tb-play .pt-opt').forEach(b2 => b2.classList.toggle('on', b2.dataset.v === play));
     const mark = (id, v) => el.querySelectorAll('#' + id + ' .tb-sq').forEach(b2 =>
       b2.classList.toggle('on', b2.dataset.v === String(v)));
-    mark('tb-rules', rules); mark('tb-who', who); mark('tb-cards', cards);
+    mark('tb-rules', rules); mark('tb-who', who);
     mark('tb-speed', speed); mark('tb-lvl', level);
+    el.querySelector('#tb-rulesnote').textContent = rules === 'hall'
+      ? 'Tal-każin: the full ġog of six kartelli, every number on your sheet. Vers, then fatta.'
+      : 'Klassika: one kartella. Ambo, terna, kwaterna, ċinkwina, then tombla.';
     mark('tb-hints', hints ? 1 : 0); mark('tb-auto', auto ? 1 : 0);
     el.querySelector('#tb-seats .val').textContent = seats;
     el.querySelector('#tb-seats button[data-d="-1"]').disabled = seats <= 2;
@@ -890,7 +1178,6 @@ function menu(){
   });
   seg('tb-rules', 0, v => { rules = v; });
   seg('tb-who',   0, v => { who = v; });
-  seg('tb-cards', 0, v => { cards = +v; });
   seg('tb-speed', 0, v => { speed = +v; });
   seg('tb-lvl',   0, v => { level = +v; });
   seg('tb-hints', 0, v => { hints = v === '1'; });
@@ -918,9 +1205,11 @@ function menu(){
     if (T.state().phase === 'play') T.runClock();
   };
   el.querySelector('#tb-start').onclick = () => {
-    T.pref({ play, mode:rules, caller:who, seats, level, speed, cards, auto, hints });
+    T.pref({ play, mode:rules, caller:who, seats, level, speed, auto, hints });
     if (play === 'online'){ if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('tombla'); return; }
-    newGame({ mode:rules, caller:who, seats, level, speed, cards, auto }, play === 'pnp');
+    /* no `cards` — optsOf() takes it off the mode, and it is the only
+       thing in the app allowed to decide it */
+    newGame({ mode:rules, caller:who, seats, level, speed, auto });
   };
 }
 
@@ -931,9 +1220,8 @@ function menu(){
    shape offline uses too — one code path, and the online build gets a
    lobby that has already been played on a phone.
    ═══════════════════════════════════════════════════════════════════ */
-function newGame(opts, pnp){
+function newGame(opts){
   T.startMatch(opts);
-  if (pnp) for (let i = 0; i < opts.seats; i++) T.hooks.setOwner(i, 'hot');
   board();
   /* the machine seats wander in and say they are ready, one at a time,
      because sixteen names all going green on the same frame looks like
@@ -959,7 +1247,9 @@ function board(){
   const st = T.state();
   if (!st) { menu(); return; }
   const hall = st.opts.mode === 'hall';
-  const gog  = st.opts.cards >= 3;
+  /* one sheet or the whole ġog — and now that the mode decides it (see
+     optsOf() in js/tombla.js) this is exactly "is this tal-każin" */
+  const gog  = st.opts.cards > 1;
 
   const ctx = P.ui.frame({
     title: hall ? 'Tombla tal-każin' : 'Tombla',
@@ -989,11 +1279,22 @@ function board(){
     seat: localSeat(),
     peek: localSeat(),
     timers: [], sheets: [],
-    lastN: 0, ending: 0, shownCheck: 0, busy: 0, ran: 0,
+    lastN: 0, railN: 0, ending: 0, shownCheck: 0, busy: 0, ran: 0,
     net: null, off: null
   };
   U.peek = U.seat;
   U.off = T.onState(ev => onState(ev));
+
+  /* ── SWITCH THE ANUNZJATUR ON, OR LEAVE IT OFF ───────────────────
+     T.callerSpeaks() is the single gate every caller sound in this file
+     passes through, and this hands the same answer to the voice module
+     so it can refuse a play on its own account too. The caller mode is
+     fixed for the life of a match (it is in opts), so once here is
+     enough — and switching a match off, in leave() below, stops
+     whatever is talking mid-word. */
+  try {
+    if (window.KARTI_CALLER) window.KARTI_CALLER.setEnabled(T.callerSpeaks(st));
+  } catch(e){}
 
   ctx.btn('tb-pause').onclick = () => onPause();
   ctx.btn('tb-more').onclick  = () => moreSheet();
@@ -1051,6 +1352,26 @@ function onCall(n){
   paintChrome(st);
   const ball = U.root.querySelector('.tb-ball');
   if (ball){ ball.classList.remove('pop'); void ball.offsetWidth; ball.classList.add('pop'); }
+  /* ── AND NOW THE VOICE ───────────────────────────────────────────
+     AFTER the repaint, never before. The number is on the glass first
+     and the voice is decoration — js/tombla-caller.js is fire-and-
+     forget, returns nothing, throws nothing, and is silent if
+     audio/call/ is not there at all. It is gated on the same
+     T.callerSpeaks() every other caller sound goes through, so manual
+     mode stays completely quiet: a person is reading the numbers out
+     and the phone does not talk over them.
+
+     The warm() is prefetch FROM THE PAST — two numbers still in the
+     bag, chosen at random. Never the next ball: view() hides the
+     undrawn bag on purpose and warming the future would put call 38 in
+     the network panel for an online opponent to read. See §9.4 of
+     docs/TOMBLA_CALLER.md, and the module's own header. */
+  if (T.callerSpeaks(st)) try {
+    if (window.KARTI_CALLER){
+      window.KARTI_CALLER.say(n);
+      window.KARTI_CALLER.warm(st.called);
+    }
+  } catch(e){}
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1162,7 +1483,7 @@ function toast(msg, bad){
 function paintTable(st){
   U.root.innerHTML =
     '<div class="tb-call" id="tb-callbar"></div>' +
-    '<div class="tb-prev" id="tb-prev"></div>' +
+    '<button class="tb-rail" id="tb-rail" aria-label="What has come out. Tap for the whole board."></button>' +
     '<div class="tb-cards" id="tb-cardhost"></div>' +
     '<button class="tb-mini" id="tb-mini" aria-label="the board"></button>' +
     '<div class="tb-lad" id="tb-ladder"></div>' +
@@ -1177,6 +1498,7 @@ function paintTable(st){
     onCell(+b.dataset.c, +b.dataset.i, b);
   };
   U.root.querySelector('#tb-mini').onclick = () => { sfx('ui.sheet'); tabellone(); };
+  U.root.querySelector('#tb-rail').onclick = () => { sfx('ui.sheet'); tabellone(); };
   paintCards(st);
   paintChrome(st);
   /* synchronously AND on the next frame. The rAF alone is the correct
@@ -1244,33 +1566,73 @@ function paintChrome(st){
   const paused = st.paused >= 0;
   const canDraw = manual && mine && !paused && st.phase === 'play' && st.bag.length;
 
-  /* the bag. In manual it is the draw button; in auto it is a token. */
+  /* ── the bag ─────────────────────────────────────────────────────
+     In manual it is the draw button; in auto it is a token; and when
+     the ninetieth ball is out it becomes TEMM, for the host.
+
+     THE EMPTY BAG NO LONGER ENDS THE GAME BY ITSELF — see finishIfDone()
+     in js/tombla.js. One game in six the last of somebody's fifteen IS
+     the ninetieth ball, and ending on the call that produced it took
+     the tombla off them before they could put the counter down. So the
+     numbers simply run out, everybody marks the last one and whoever
+     has it shouts. This button is how the night finishes if nobody
+     does. */
+  const dry = T.bagDry(st);
   const ballIn = U.lastN ? '<b>' + U.lastN + '</b>'
                          : '<b>' + (canDraw ? 'IĠBED' : 'WAIT') + '</b>';
   const ball = canDraw
     ? '<button class="tb-ball draw" id="tb-draw" aria-label="Draw the next number">' +
       (U.lastN ? '<b>' + U.lastN + '</b>' : '<b>IĠBED</b>') + '</button>'
-    : '<div class="tb-ball' + (U.lastN ? '' : ' none') + '">' + ballIn + '</div>';
+    : (dry && st.host === U.seat && isLocalSeat(U.seat))
+      ? '<button class="tb-ball draw" id="tb-done" aria-label="The bag is empty. Finish the game.">' +
+        '<b>TEMM</b></button>'
+      : '<div class="tb-ball' + (U.lastN ? '' : ' none') + '">' + ballIn + '</div>';
 
   U.root.querySelector('#tb-callbar').innerHTML =
     ball +
     '<div class="tb-say">' +
       '<div class="tb-mt">' + esc(U.lastN ? call.mt : (canDraw ? 'tap the bag' : 'eyes down')) + '</div>' +
-      '<div class="tb-laqam">' + (call.laqam
-          ? esc(call.laqam) + ' <i>&middot; ' + esc(call.gloss) + '</i>'
-          : '<i>' + esc(U.lastN ? 'number ' + U.lastN : 'nothing out yet') + '</i>') + '</div>' +
-      '<div class="tb-joke">' + esc(call.say || '') + '</div>' +
+      '<div class="tb-laqam">' + (dry
+          ? '<i>the bag is empty — mark the last one and shout</i>'
+          : call.laqam
+            ? esc(call.laqam) + ' <i>&middot; ' + esc(call.gloss) + '</i>'
+            : '<i>' + esc(U.lastN ? 'number ' + U.lastN : 'nothing out yet') + '</i>') + '</div>' +
+      '<div class="tb-joke">' + esc(dry ? 'Ninety out of ninety. Anybody?' : (call.say || '')) + '</div>' +
       statusHTML(st) +
     '</div>';
   const dr = U.root.querySelector('#tb-draw');
   if (dr) dr.onclick = () => onDraw();
+  const dn = U.root.querySelector('#tb-done');
+  if (dn) dn.onclick = () => {
+    const r = T.doMove(U.seat, { t:'end' }, 'tap');
+    if (!r.ok){ sfx('ui.error'); toast(r.why || 'No.', true); return; }
+    T.stopClock();
+    if (!U.ending){ U.ending = 1; finish(); }
+  };
 
-  /* before that */
-  const prev = st.called.slice(-9, -1).reverse();
-  U.root.querySelector('#tb-prev').innerHTML =
-    '<em>before that</em>' +
-    (prev.length ? prev.map((n, k) => '<span' + (k > 1 ? ' class="old"' : '') + '>' + n + '</span>').join('')
-                 : '<span class="old">-</span>');
+  /* ── THE RAIL ─────────────────────────────────────────────────────
+     Everything that has come out, oldest on the left, NEWEST ON THE
+     RIGHT, and the newest one gold. The overflow falls off the left
+     edge and is clipped by the stylesheet, so it shows exactly as many
+     as fit on this phone in this orientation and there is no number
+     here to keep in step with a screen size.
+
+     THE ONE JUST CALLED IS IN IT. It used to be left out — the strip
+     said "before that" and started at the number before the ball —
+     which meant that a number called while something else was on
+     screen, a check being read back most of all, was never anywhere a
+     player could see it. It was on the ball, behind an opaque overlay,
+     for four seconds, and then gone. That is the number he could not
+     find. It is in the rail now, and it stays there. */
+  const seen = st.called.slice(-24);
+  const newest = seen.length ? seen[seen.length - 1] : 0;
+  const fresh = newest && U.railN !== newest;
+  U.railN = newest;
+  U.root.querySelector('#tb-rail').innerHTML = seen.length
+    ? seen.map((n, k) =>
+        '<span' + (k === seen.length - 1 ? ' class="now' + (fresh ? ' just' : '') + '"' : '') +
+        '>' + n + '</span>').join('')
+    : '<em>nothing out of the bag yet</em>';
 
   /* the board, in miniature */
   const out = {};
@@ -1318,18 +1680,46 @@ function statusHTML(st){
   if (st.opts.caller === 'manual')
     bits.push('<span class="' + (st.caller === U.seat ? 'on' : '') + '">' +
       (st.caller === U.seat ? 'you are calling' : esc(c ? c.name : '?') + ' is calling') + '</span>');
-  if (U.peek !== U.seat) bits.push('<span class="on">' + esc(st.seats[U.peek].name) + '’s ġog</span>');
+  if (U.peek !== U.seat)
+    bits.push('<span class="on">' + esc(st.seats[U.peek].name) + '’s ' +
+              (st.opts.cards > 1 ? 'ġog' : 'kartella') + '</span>');
   if (st.paused >= 0) bits.push('<span class="hot">stopped</span>');
   return '<div class="tb-stat">' + bits.join('<span>&middot;</span>') + '</div>';
 }
 
-/* the paused banner: a stalled caller must never read as a bug */
+/* ── the paused banner ────────────────────────────────────────────
+   A stalled caller must never read as a bug, and there are now two
+   reasons it can be stalled. The banner says which:
+
+     the host stopped it   "Stopped by Karm · keep marking"
+     a shout stopped it    "Rita shouted VERS · the host starts us
+                            again" — because after the kartella has
+                            been read back the room is looking at a
+                            screen that has gone quiet on purpose, and
+                            the one thing everybody needs to know is
+                            who is going to start it again and that
+                            nothing is broken.
+
+   They are playing for chips. A number that arrived while a prize was
+   being decided is a number somebody missed, and that is worth more
+   than the four seconds it costs. */
 function paintHold(st){
   const old = U.ctx.root.querySelector('.tb-hold');
   if (st.paused < 0){ if (old) old.remove(); return; }
   const by = st.seats[st.paused];
-  const txt = 'Stopped by ' + (st.paused === U.seat ? 'you' : (by ? by.name : 'the host')) +
-              ' · keep marking';
+  const host = st.seats[st.host];
+  let txt;
+  if (st.hold === 'claim'){
+    const v = st.check;
+    const nm = v ? T.prizeName(st, v.prize) : '';
+    txt = (st.paused === U.seat ? 'You' : (by ? by.name : 'Somebody')) +
+          ' shouted' + (nm ? ' ' + nm : '') + ' · ' +
+          (st.host === U.seat ? 'start us again when the room is ready'
+                              : (host ? host.name : 'the host') + ' starts us again');
+  } else {
+    txt = 'Stopped by ' + (st.paused === U.seat ? 'you' : (by ? by.name : 'the host')) +
+          ' · keep marking';
+  }
   if (old){ old.textContent = txt; return; }
   const el = document.createElement('div');
   el.className = 'tb-hold';
@@ -1436,6 +1826,17 @@ function onDraw(){
 function onPause(){
   const st = T.state();
   if (!st || st.phase !== 'play') return;
+  /* NOT WHILE A KARTELLA IS BEING READ BACK. The check overlay does not
+     take taps (pointer-events:none, so the board underneath keeps its
+     scroll), which leaves this button live behind it — and a host who
+     taps GO in the middle of a read-back sends the next number out over
+     a prize that has not been settled. The whole point of the halt is
+     that nothing moves until it is proven. */
+  if (U.busy){
+    sfx('ui.error');
+    toast('Wait — the kartella is being read back.', true);
+    return;
+  }
   /* THE PAUSE BELONGS TO WHOEVER IS CALLING, and to the host. They are
      the two people who can actually stop the numbers: the caller
      because they are the one who has stopped talking, the host because
@@ -1629,6 +2030,16 @@ function onClaim(){
    taken out, is the suspense sting here: it is a held rising tension
    note and this is exactly the moment it was made for.
    ═══════════════════════════════════════════════════════════════════ */
+/* which of the seven shout files this rung is, in this mode. The same
+   swap js/tombla.js's shoutOf() makes on screen, so the voice and the
+   caption can never name the prize two different things. */
+function shoutKey(st, key){
+  if (st.opts.mode !== 'hall') return key;
+  if (key === 'cinkwina') return 'vers';
+  if (key === 'tombla')   return 'fatta';
+  return key;
+}
+
 function onShout(st){
   const v = st.check;
   if (!U || !v || v.id === U.shownCheck) { paintChrome(st); return; }
@@ -1650,9 +2061,20 @@ function onShout(st){
   const box = document.createElement('div');
   box.className = 'tb-chk';
   box.setAttribute('role', 'status');
+  /* WHICH OF THE SIX. A prize is always ON ONE CARTELLA — a row of that
+     one, or that one filled — and with a ġog in front of you the first
+     question anybody asks is "which ticket?". The engine has always
+     known (st.check.card); it was simply never said. On one kartella
+     there is nothing to say, so nothing is said. */
+  const total = st.seats[v.seat] ? st.seats[v.seat].cards.length : 1;
+  /* ON ITS OWN LINE. All of it on one was forty-seven characters of
+     spaced caps running the whole width of the phone and butting into
+     the numbers underneath — and the one word in it anybody needs, the
+     KARTELLA NUMBER, was at the far end of it. */
+  const which = total > 1 ? '<i>kartella ' + (v.card + 1) + ' ta\' ' + total + '</i>' : '';
   box.innerHTML =
     '<div class="who">Checking <b>' + esc(mine ? 'your' : who.name + '’s') + '</b> kartella' +
-      ' &middot; ' + esc(nm) + '</div>' +
+      ' &middot; ' + esc(nm) + which + '</div>' +
     '<div class="read">' + read.map(n => '<span data-n="' + n + '">' + n + '</span>').join('') +
       (read.length ? '' : '<span class="ghost">-</span>') + '</div>' +
     '<div class="say" id="tb-say"></div>' +
@@ -1676,6 +2098,14 @@ function onShout(st){
       say.textContent = nm + (mine ? ' — YOU' : ' — ' + who.name.toUpperCase());
       sub.textContent = v.line;
       sfx('tombla.shout', { force:true });
+      /* the anunzjatur shouts the prize too, under the same gate and by
+         its MODE NAME: a każin hears VERS and FATTA, and the seven
+         shout files carry both sets. Silent in manual — a person is
+         doing the shouting, and they are already halfway out of their
+         chair. */
+      if (T.callerSpeaks(st)) try {
+        if (window.KARTI_CALLER) window.KARTI_CALLER.shout(shoutKey(st, v.prize));
+      } catch(e){}
       if (v.prize === 'tombla') soon(() => sfx(mine ? 'duel.win' : 'duel.lose', { force:true }), 300);
     } else {
       say.className = 'say no';
@@ -1807,8 +2237,7 @@ function finish(){
     tone, head, why, quip,
     buttons: [
       { label:'Again', icon:'refresh', cls:'primary',
-        go: () => { const o2 = st.opts; const p = st.seats.every(s => s.own === 'hot');
-                    leave(); newGame(o2, p); } },
+        go: () => { const o2 = st.opts; leave(); newGame(o2); } },
       { label:'Back', icon:'back', cls:'ghost', go: () => { leave(); menu(); } }
     ]
   });
@@ -1938,7 +2367,7 @@ const LOBBY = {
     o.seats = Math.max(2, Math.min(T.MAX_SEATS, (seats || []).length || o.seats));
     const lv = (seats || []).map(s => s && s.level).find(v => v);
     if (lv) o.level = lv;
-    return newGame(o, false);
+    return newGame(o);
   },
 
   /* THE NAME IS NEVER ASKED FOR. He is signed in and the app already knows
@@ -2007,6 +2436,10 @@ T.open = menu;                    /* KARTI_TOMBLA.open() — the asked-for entry
    sheet has to be in the document from the moment this file loads */
 if (document.body) injectSprite();
 else document.addEventListener('DOMContentLoaded', injectSprite);
+
+/* nothing else at the foot of this file — the caller module's safety
+   net lives beside injectCSS(), which is the one thing both the setup
+   sheet and the board call before they draw anything. */
 
 /* ── test hooks — inert unless the page is opened with ?pttest ──── */
 try {

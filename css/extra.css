@@ -386,3 +386,68 @@
   background:linear-gradient(180deg,rgba(8,5,16,.62),rgba(8,5,16,.12) 42%,
              rgba(8,5,16,.18) 62%,rgba(8,5,16,.72))}
 .pack .fc.front .pemo,.pack .fc.front .pcount,.pack .fc.front .foil{position:relative;z-index:2}
+
+/* ══════════════════ THE BACK-BUTTON CONFIRM ══════════════════
+   js/nav.js's own yes/no, asked when an Android back press — or the
+   visible control the same guard protects — would throw away a game that
+   is still going. It is nav's own rather than party.js's confirm() because
+   it has to be askable on #scr-duel too, where there is no board context,
+   and because the question should be worded and placed identically
+   wherever it comes up.
+
+   Positioned against #app, which is the 100dvh shell, so it is centred on
+   what is actually visible rather than on a layout viewport Safari
+   sometimes mis-sizes. z-index 1200 clears everything it could ever be
+   asked over — scrim 150, sheet 200, modal 300, toast 500, the card
+   viewer 600 — and stays under the scanline overlay at 9000, which is
+   decorative and must remain on top of everything.
+   The padding carries the safe-area insets so the card never lands under a
+   notch in landscape, where the left/right insets are the real ones. */
+.knav-ask{
+  position:absolute;inset:0;z-index:1200;
+  display:flex;align-items:center;justify-content:center;
+  padding:calc(var(--sat) + 16px) calc(var(--sar) + 16px)
+          calc(var(--sab) + 16px) calc(var(--sal) + 16px);
+  background:rgba(6,4,12,.74);
+  -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
+  animation:knavIn .16s var(--ease) both;
+}
+@keyframes knavIn{from{opacity:0}to{opacity:1}}
+.knav-ask .knav-card{
+  width:100%;max-width:340px;max-height:100%;overflow-y:auto;
+  padding:18px 16px 14px;border-radius:18px;
+  background:var(--panel);border:1px solid var(--line2);
+  box-shadow:0 24px 60px -18px rgba(0,0,0,.85);
+  text-align:center;
+}
+.knav-ask h3{font-size:17px;letter-spacing:.04em;text-transform:uppercase;margin:0 0 8px}
+.knav-ask p{margin:0;font-size:13.5px;line-height:1.5;color:var(--dim)}
+/* Column, not a row: two targets side by side are ~150px each at 360px
+   wide once the padding is off, which is where "Leave it" starts getting
+   tapped by mistake. The destructive one sits ON TOP and the safe one at
+   the bottom, because a thumb rests low on a phone — so the button under
+   it, the one a fumbled tap lands on, is "No, carry on". */
+.knav-ask .knav-acts{display:grid;gap:9px;margin-top:16px}
+.knav-ask .knav-acts button{
+  min-height:46px;padding:0 14px;border-radius:12px;
+  font-family:var(--disp);font-weight:900;font-size:13.5px;letter-spacing:.06em;
+  text-transform:uppercase;border:1px solid var(--line2);
+  background:rgba(255,255,255,.06);color:var(--txt);
+}
+.knav-ask .knav-acts .knav-yes{background:var(--hot);border-color:var(--hot);color:#fff}
+.knav-ask .knav-acts button:active{transform:scale(.97)}
+@media (prefers-reduced-motion:reduce){
+  .knav-ask{animation:none}
+  .knav-ask .knav-acts button:active{transform:none}
+}
+/* Landscape: a 360px-tall window has no room for 18px of padding above a
+   card with three stacked blocks in it, so the card tightens rather than
+   scrolling the page — the shell never scrolls. */
+@media (max-height:460px){
+  .knav-ask .knav-card{padding:13px 14px 11px;max-width:420px}
+  .knav-ask h3{font-size:15px;margin-bottom:5px}
+  .knav-ask p{font-size:12.5px}
+  .knav-ask .knav-acts{grid-template-columns:1fr 1fr;margin-top:11px}
+  .knav-ask .knav-acts .knav-yes{order:2}
+  .knav-ask .knav-acts button{min-height:42px;font-size:12.5px}
+}

@@ -159,7 +159,16 @@ function logoProbe(){
   if (!(K.ART && K.ART.base)) { logoPack = false; return; }
   logoProbing = true;
   const img = new Image();
-  img.onload  = () => { logoPack = true;  logoProbing = false; if (live) hub(); };
+  img.onload  = () => {
+    logoPack = true; logoProbing = false;
+    /* Repaint ONLY if the shelf is still what is on screen. `live` merely
+       means the party section is open — a game is open inside it too, and
+       hub() calls currentGame.leave(), so a slow image landing mid-game
+       would not just paint over the board, it would QUIT the game. Harmless
+       today because logo-chess.png 404s; it becomes a live bug the hour the
+       art run finishes, which is a bad hour to discover it. */
+    if (live && !currentGame) hub();
+  };
   img.onerror = () => { logoPack = false; logoProbing = false; };
   img.src = LOGO_DIR + 'logo-chess.png';
 }
@@ -408,7 +417,20 @@ function setup(cfg){
         ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' + r.l +
           '</b> lost, <b>' + r.d + '</b> drawn.</p>'
         : '') +
-      '<button class="btn primary" id="pt-start" style="margin:16px 0 24px"></button>' +
+      /* Start is NOT in here — see below. */
+      '<div style="height:8px"></div>' +
+    '</div>' +
+    /* THE START BUTTON IS PINNED, OUTSIDE THE SCROLLING COLUMN.
+       It used to live at the bottom of the scroll, and choosing an opponent
+       reveals the difficulty and side rows and GROWS the sheet — measured at
+       390x660 it pushed Start from y=382 to y=767 in a 660px window, 107px
+       below the bottom edge. The tap simply landed on nothing, and you had to
+       notice the sheet had grown and scroll to find it. Reachable at 440x894
+       too whenever the relay-down warning is showing, which is the owner's own
+       phone with Tailscale on. Chess now has its own door; this fixes the
+       shared sheet for dama and for every game that uses it next. */
+    '<div class="pt-startbar">' +
+      '<button class="btn primary" id="pt-start"></button>' +
     '</div>';
 
   const sync = () => {
@@ -884,6 +906,8 @@ function injectCSS(){
       'border:1px solid var(--line)}' +
     '#scr-party .pt-rec{font:700 9.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
       'letter-spacing:.06em;color:var(--dim2)}' +
+    '#scr-party .pt-startbar{flex:0 0 auto;padding:10px calc(var(--sar) + 14px) calc(var(--sab) + 14px) calc(var(--sal) + 14px);background:linear-gradient(180deg,rgba(14,11,20,0) 0%,rgba(14,11,20,.92) 38%,rgba(14,11,20,.98) 100%)}' +
+    '#scr-party .pt-startbar .btn{width:100%;margin:0}' +
     '#scr-party .pt-foot{font-size:11.5px;line-height:1.6;color:var(--dim2);margin:0 2px 24px}' +
 
     /* ── setup ── */

@@ -485,6 +485,27 @@ const KING_END =
      -50,-30,-30,-30,-30,-30,-30,-50];
 const MIRROR = i => (7 - RANK(i)) * 8 + FILE(i);
 
+/* WHICH WAY UP ARE THE TABLES. Index 0 is a8, so row 0 of every table above
+   is rank 8 and row 7 is rank 1 — which means the tables as written are
+   WHITE's, read straight off the index, and it is BLACK that has to be
+   mirrored. They were the other way round, and the numbers said so out loud:
+
+     white pawn on e2, at home        150      white pawn on e7, one square
+     white king on g1, castled        -20      from queening               80
+     white king on g8, up a ladder      0
+
+   Every level was quietly being paid to leave its pawns at home and walk its
+   king up the board, and it cost the DEEPEST search the most, because it
+   believed the table hardest: In-nanna answered 1.e4 with 1...Na6, every
+   time, and over twenty-five games against Tal-każin she could only manage
+   seven wins and sixteen draws — the top of the ladder was barely above the
+   middle of it. Right way up she opens 1...Nc6 and the ladder separates.
+
+   The move generator was never in this. perft(4) from the start position is
+   197281 before and after, and Kiwipete perft(3) is 97862 before and after.
+   It is one index, in the scoring, and nothing else was touched. */
+const pstAt = (p, i) => isB(p) ? MIRROR(i) : i;
+
 /* score from the side-to-move's point of view */
 function evaluate(st){
   const b = st.b;
@@ -494,7 +515,7 @@ function evaluate(st){
     const t = typ(p);
     if (t === QUEEN || t === ROOK) heavy++;
     if (t === BISHOP){ if (isB(p)) bb++; else wb++; }
-    const v = VAL[t] + (t === KING ? 0 : PST[t][isB(p) ? i : MIRROR(i)]);
+    const v = VAL[t] + (t === KING ? 0 : PST[t][pstAt(p, i)]);
     s += isB(p) ? -v : v;
   }
   /* king safety early, king activity late */
@@ -502,7 +523,7 @@ function evaluate(st){
   for (let i = 0; i < 64; i++){
     const p = b[i]; if (typ(p) !== KING) continue;
     const tb = endgame ? KING_END : PST[6];
-    s += (isB(p) ? -1 : 1) * tb[isB(p) ? i : MIRROR(i)];
+    s += (isB(p) ? -1 : 1) * tb[pstAt(p, i)];
   }
   if (wb >= 2) s += 30;                      /* the pair is worth having */
   if (bb >= 2) s -= 30;
@@ -662,10 +683,210 @@ const QUIP_DRAW = [
 ];
 const pick = a => a[Math.floor(Math.random() * a.length)];
 
+/* the three levels, named once. js/party.js writes the level into its own
+   prefs as a STRING, so every read of it goes through +.  */
+const LVL = {
+  1: { name:'It-turist', note:'Sees one move ahead, and forgets half of those.', icon:'diff-1',
+       badge:'Turist' },
+  2: { name:'Tal-każin', note:'Plays every Sunday at the club. Will take your queen.', icon:'diff-2',
+       badge:'Każin' },
+  3: { name:'In-nanna',  note:'Five moves ahead and she has never lost at anything.', icon:'diff-3',
+       badge:'Nanna' }
+};
+const lvlOf = n => LVL[+n] || LVL[2];
+
+/* ── this file's own stylesheet ────────────────────────────────────
+   js/party.js owns the shared board CSS and is not ours to edit, so the
+   chess-only chrome — the door screen, the two player plates, the glide a
+   piece makes when it lands — is injected from here, once, and scoped hard
+   to #scr-party so it cannot reach a rule anywhere else. Every rule that
+   touches a class js/dama.js also uses — .pt-sq, .pt-rail, .pt-board, the
+   frame itself — is written through a `.ch` that only a chess board ever
+   carries (paint() adds it), which both scopes it away from dama AND gives
+   it the extra class of specificity it needs to beat the party.js rule it is
+   overriding. Nothing here is a bare .pt-* selector. */
+function chessCSS(){
+  if (document.getElementById('ch-css')) return;
+  const st = document.createElement('style');
+  st.id = 'ch-css';
+  st.textContent =
+    /* ── the door: one screen, no scrolling, and the opponent IS the start ── */
+    '#scr-party .ch-doors{display:grid;gap:9px;margin-bottom:2px}' +
+    '#scr-party .ch-door{display:grid;grid-template-columns:26px 1fr 16px;column-gap:12px;' +
+      'row-gap:1px;align-items:center;text-align:left;width:100%;min-height:62px;' +
+      'padding:10px 13px;border-radius:15px;color:var(--txt);' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.035));' +
+      'border:1px solid var(--line2);transition:background .15s,border-color .15s}' +
+    /* every child gets an EXPLICIT column. Two of them span both rows, and a
+       grid places every definite-row item before it places any auto one — so
+       left to itself the chevron took column 2 and the words were squeezed
+       into the 16px column, one letter per line. */
+    '#scr-party .ch-door>.ico:first-child{grid-column:1;grid-row:1/3;width:24px;height:24px;' +
+      'color:var(--gold)}' +
+    '#scr-party .ch-door>.ch-chev{grid-column:3;grid-row:1/3;width:16px;height:16px;' +
+      'color:var(--dim2)}' +
+    '#scr-party .ch-door b{grid-column:2;grid-row:1;font-family:var(--disp);font-size:13px;' +
+      'letter-spacing:.06em;text-transform:uppercase;line-height:1.2}' +
+    '#scr-party .ch-door i{grid-column:2;grid-row:2;font-style:normal;font-size:11.5px;' +
+      'line-height:1.35;color:var(--dim)}' +
+    '#scr-party .ch-door:active{background:rgba(255,197,66,.16);border-color:rgba(255,197,66,.55)}' +
+    '#scr-party .ch-door.hero{background:linear-gradient(180deg,rgba(255,197,66,.16),' +
+      'rgba(255,197,66,.06));border-color:rgba(255,197,66,.45)}' +
+    '#scr-party .ch-door.off{opacity:.5}' +
+    '#scr-party .ch-chips{display:flex;gap:7px}' +
+    '#scr-party .ch-chip{flex:1 1 0;min-width:0;min-height:46px;padding:6px 4px;border-radius:13px;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;' +
+      'color:var(--txt);background:rgba(255,255,255,.04);border:1px solid var(--line);' +
+      'font-family:var(--disp);font-weight:900;font-size:11px;letter-spacing:.05em;' +
+      'text-transform:uppercase;transition:background .15s,border-color .15s}' +
+    '#scr-party .ch-chip.on{background:rgba(255,197,66,.15);border-color:rgba(255,197,66,.55);' +
+      'color:var(--gold)}' +
+    '#scr-party .ch-chip:active{background:rgba(255,255,255,.1)}' +
+    '#scr-party .ch-chip .pt-swatch{width:16px;height:16px;border-width:1.5px}' +
+    '#scr-party .ch-chip .ico{width:17px;height:17px;color:var(--dim)}' +
+    '#scr-party .ch-chip.on .ico{color:var(--gold)}' +
+    '#scr-party .ch-note{font-size:11.5px;line-height:1.45;color:var(--dim);margin:7px 3px 0;' +
+      'text-transform:none;letter-spacing:0;min-height:17px}' +
+    '#scr-party .ch-setup .pt-lbl{margin:15px 0 7px}' +
+    '#scr-party .ch-setup .blurb{margin-bottom:2px}' +
+
+    /* ── the table the board is standing on ──
+       A square board on a portrait phone is width-limited, so there is always
+       slack above and below it that no amount of arithmetic will fill. Left
+       flat it reads as a board floating in a void; one soft pool of light
+       under it and the same pixels read as a table with a lamp over it. */
+    '#scr-party .pt-wrap.ch .pt-host{background:radial-gradient(112% 58% at 50% 50%,' +
+      'rgba(255,214,120,.105),rgba(255,197,66,.038) 46%,rgba(0,0,0,0) 74%)}' +
+
+    /* ── the two player plates, one above the board and one below ──
+       They carry four things at once: which colour you are, what you have
+       taken off them, who is up on material, and — the glow — whose move it
+       is. That last one is why the plates are worth the pixels. */
+    '#scr-party .pt-wrap.ch .pt-rail{min-height:38px;gap:5px;padding:3px 9px;border-radius:11px;' +
+      'background:rgba(255,255,255,.035);border:1px solid transparent;margin:3px 0}' +
+    '#scr-party .pt-wrap.ch .pt-rail.live{background:rgba(255,197,66,.10);' +
+      'border-color:rgba(255,197,66,.34)}' +
+    '#scr-party .ch .pt-rail .ch-nm{font-family:var(--disp);font-weight:900;font-size:10.5px;' +
+      'letter-spacing:.09em;text-transform:uppercase;color:var(--dim);white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis;max-width:44%;flex:0 0 auto}' +
+    '#scr-party .ch .pt-rail.live .ch-nm{color:var(--txt)}' +
+    '#scr-party .ch .pt-rail .ch-took{display:flex;align-items:center;gap:1px;margin-left:auto;' +
+      'flex:0 1 auto;overflow:hidden;min-width:0}' +
+    '#scr-party .pt-wrap.ch .pt-rail .pt-mini{width:16px;height:16px}' +
+    '#scr-party .ch .pt-rail .pt-edge{margin-left:5px;flex:0 0 auto}' +
+    '#scr-party .ch .pt-rail .ch-thinks{margin-left:auto;flex:0 0 auto;font:700 9.5px/1 var(--disp);' +
+      'letter-spacing:.12em;text-transform:uppercase;color:var(--gold);opacity:.9;' +
+      'animation:chPulse 1.1s ease-in-out infinite}' +
+    '@keyframes chPulse{0%,100%{opacity:.35}50%{opacity:1}}' +
+
+    /* ── the turn strip, chess\'s own ── */
+    '#scr-party .ch .ch-last{margin-left:auto;flex:0 0 auto;display:flex;align-items:center;gap:6px;' +
+      'font:700 10.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;' +
+      'color:var(--dim);max-width:52%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}' +
+    '#scr-party .ch .ch-last b{color:var(--txt);font-weight:700}' +
+    '#scr-party .ch .pt-turn.alert .ch-last{color:#FFB3BC}' +
+    '#scr-party .ch .pt-turn.alert .ch-last b{color:#FFD1D6}' +
+    '#scr-party .ch .ch-badge-btn{cursor:pointer}' +
+    /* "nothing to do here just now" — dimmed, but still a real button that
+       answers when you press it. Nothing on this board is ever inert. */
+    '#scr-party .ch .pt-bar .btn.off{opacity:.42}' +
+
+    /* ── the board itself ──
+       A real board has a rim you can see. The squares get one more step of
+       contrast than they had, because "which one is dark" has to survive
+       sunlight on a phone held at arm\'s length. */
+    '#scr-party .pt-wrap.ch .pt-board{border-width:3px;border-color:#1A0E2A;' +
+      'box-shadow:0 0 0 2px rgba(255,197,66,.16),0 14px 34px rgba(0,0,0,.6)}' +
+    /* The men are silhouettes with a rim, and the rim is what makes them
+       readable: a cream piece on a cream square and a near-black piece on a
+       dark square are both about 1.5:1 against their own square, so all the
+       separation comes from the outline. At 45px a square on a 660-tall phone
+       that outline is under two pixels, so it gets a little more, and the
+       piece itself gets 4% more of the square to stand in. */
+    '#scr-party .pt-wrap.ch .pt-pc{inset:6%}' +
+    '#scr-party .pt-wrap.ch .pt-pcs{stroke-width:1.25}' +
+    '#scr-party .pt-wrap.ch .pt-sq .pt-co{font-size:9px;font-weight:800;opacity:.62}' +
+    '#scr-party .pt-wrap.ch .pt-sq.d .pt-co{color:#C9B6E8}' +
+    '#scr-party .pt-wrap.ch .pt-sq .pt-co.f{right:3px;bottom:2px}' +
+    '#scr-party .pt-wrap.ch .pt-sq .pt-co.r{left:3px;top:2px}' +
+    /* the square a piece is standing on while it slides has to sit ABOVE its
+       neighbours, or the piece travels underneath them */
+    '#scr-party .ch .pt-sq.ch-fly{z-index:6}' +
+    '#scr-party .ch .pt-sq .pt-pc.ch-glide{will-change:transform}' +
+    /* where the check is coming FROM — the answer to "yes, but from what?" */
+    '#scr-party .ch .pt-sq.ch-from::after{content:"";position:absolute;inset:0;' +
+      'box-shadow:inset 0 0 0 3px rgba(255,84,104,.75)}' +
+    /* the mated king does not just sit there red — it throbs */
+    '#scr-party .ch .pt-board.ch-mate .pt-sq.chk::after{animation:chMate .85s ease-in-out infinite}' +
+    '@keyframes chMate{0%,100%{box-shadow:inset 0 0 0 3px var(--danger)}' +
+      '50%{box-shadow:inset 0 0 0 7px var(--danger)}}' +
+    /* WHERE THE LAST MOVE WENT. A flat amber wash reads as bright amber on a
+       dark square and as a coffee stain on a light one — the two ends of the
+       same move did not look like the same thing. A ring is the same ring on
+       both, so the pair reads as a pair. */
+    '#scr-party .ch .pt-sq.last::before{background:rgba(255,197,66,.13);' +
+      'box-shadow:inset 0 0 0 3px rgba(255,197,66,.78)}' +
+    /* selecting a piece: the square lifts a little rather than only outlining.
+       Deliberately AFTER the .last rule — same specificity, so a piece picked
+       up on the square it just came from reads as picked up, not as history. */
+    '#scr-party .ch .pt-sq.sel::before{content:"";position:absolute;inset:0;' +
+      'background:rgba(61,220,132,.24);box-shadow:none}' +
+    /* A CAPTURE LANDS WITH A THUMP YOU CAN SEE. Last of the three, and that
+       ordering is the whole rule: .last, .sel and this all paint the SAME
+       ::before, they all carry one class, so whichever is written last wins.
+       The square a capture happens on is always also the square the last move
+       landed on — written any earlier, the crunch came out gold. */
+    '#scr-party .ch .pt-sq.ch-hit::before{content:"";position:absolute;inset:0;' +
+      'background:radial-gradient(circle at 50% 50%,rgba(255,84,104,.9),rgba(255,84,104,0) 70%);' +
+      'box-shadow:none;animation:chHit .34s var(--ease) both}' +
+    '@keyframes chHit{0%{opacity:0;transform:scale(.4)}35%{opacity:1}100%{opacity:0;transform:scale(1.25)}}' +
+    /* the legal-move dots are the single most useful thing on the board, so
+       they are bigger and brighter than they were */
+    '#scr-party .pt-wrap.ch .pt-mark{width:34%;height:34%;margin:-17% 0 0 -17%;' +
+      'box-shadow:0 0 0 1px rgba(0,0,0,.35),0 2px 5px rgba(0,0,0,.4)}' +
+    '#scr-party .pt-wrap.ch .pt-mark.cap{width:90%;height:90%;margin:-45% 0 0 -45%;' +
+      'box-shadow:inset 0 0 0 5px var(--hint)}' +
+
+    /* ── promotion: a strip that lands over the board, not a form to fill in ── */
+    '#scr-party .ch .ch-promo-head{font-size:12px;line-height:1.5;color:var(--dim);margin:8px 2px 0}' +
+
+    /* ── short phones: the board is still the point, so the plates shrink ── */
+    '@media (max-height:700px){' +
+      '#scr-party .pt-wrap.ch .pt-rail{min-height:30px;margin:2px 0}' +
+      '#scr-party .pt-wrap.ch .pt-rail .pt-mini{width:13px;height:13px}' +
+      '#scr-party .ch-door{min-height:56px}' +
+      '#scr-party .ch-setup .pt-lbl{margin:11px 0 6px}}' +
+    /* ── tall phones have room to spare, so the plates take some of it ── */
+    '@media (min-height:820px){' +
+      '#scr-party .pt-wrap.ch .pt-rail{min-height:50px;padding:5px 11px;margin:5px 0}' +
+      '#scr-party .pt-wrap.ch .pt-rail .pt-mini{width:20px;height:20px}' +
+      '#scr-party .ch .pt-rail .ch-nm{font-size:11.5px}}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .ch .pt-sq .pt-pc{transition:none!important}' +
+      '#scr-party .ch .pt-board.ch-mate .pt-sq.chk::after{animation:none}' +
+      '#scr-party .ch .pt-rail .ch-thinks{animation:none;opacity:.9}}';
+  document.head.appendChild(st);
+}
+
 let G = null;   /* the live game, or null */
 
+/* EVERY GAME GETS A NUMBER, and every callback that comes back later carries
+   the number of the game it was started for. Without it, "New" (or Rematch,
+   or Change opponent) tapped while the phone is thinking leaves a timer in
+   flight that wakes up, finds a perfectly healthy G — the NEW one — and plays
+   the old game's move onto the new board. Reproduced: tap New 300 ms after
+   1.e4 against It-turist and the fresh game opens with 1...e5 already on it
+   and Black still to move. leave() cannot cover this, because start() swaps
+   the game without going through it. */
+let GEN = 0;
+const gen = () => (G ? G.gen : -1);
+/* is the game this callback was made for still the game on the table? */
+const same = g => !!(G && !G.dead && G.gen === g);
+
 function newGame(opts){
+  if (G){ G.dead = true; clearTimeout(G.endTimer); }
   G = {
+    gen: ++GEN,
     mode: opts.mode,                  /* 'pnp' | 'ai' | 'online' */
     level: +opts.level || 2,
     human: opts.side === 'b' ? 'b' : 'w',   /* your colour vs the phone OR online */
@@ -675,8 +896,8 @@ function newGame(opts){
     st: startPos(),
     hist: [],                         /* {st, move, san} before each move */
     keys: {},                         /* posKey -> times seen */
-    sel: -1, marks: [], last: null,
-    over: null, thinking: false, ctx: null, dead: false
+    sel: -1, marks: [], last: null, lastSan: '', lastWho: '',
+    over: null, thinking: false, ctx: null, dead: false, endTimer: 0
   };
   G.keys[posKey(G.st)] = 1;
   paint();
@@ -690,6 +911,7 @@ function flipped(){ return (G.mode === 'ai' || G.mode === 'online') && G.human =
 function sqAt(row, col){ return flipped() ? SQ(7 - col, 7 - row) : SQ(col, row); }
 
 function paint(){
+  chessCSS();
   const net = online();
   const ctx = P.ui.frame({
     title: 'Chess',
@@ -708,10 +930,14 @@ function paint(){
           { id:'ch-new',    label:'New',    icon:'play' } ]
   });
   G.ctx = ctx;
+  /* every chess-only rule in this file's stylesheet hangs off this class, so
+     nothing here can reach js/dama.js, which shares the same frame */
+  ctx.root.classList.add('ch');
 
   /* 64 buttons, built once; render() only changes their innards */
   const board = ctx.board;
   board.innerHTML = '';
+  G.board = board;
   G.cells = [];
   for (let row = 0; row < 8; row++){
     for (let col = 0; col < 8; col++){
@@ -727,7 +953,9 @@ function paint(){
     }
   }
   if (ctx.btn('ch-undo')) ctx.btn('ch-undo').onclick = undo;
-  ctx.btn('ch-resign').onclick = () => P.ui.confirm(ctx, {
+  ctx.btn('ch-resign').onclick = () => G.over
+    ? nudge('It is already finished — nothing left to resign.')
+    : P.ui.confirm(ctx, {
     head: 'Resign?', why: 'You hand them the game. There is no taking it back.',
     yes: 'Yes, I resign',
     /* offline the side to move resigns; online YOU resign, whoever's turn it is */
@@ -743,6 +971,22 @@ function paint(){
     yes: 'Yes, new game', go: () => start()
   });
   if (ctx.btn('ch-leave')) ctx.btn('ch-leave').onclick = askLeave;
+  /* the badge is not decoration — offline it is the way back to the door
+     without finishing the game you are in, which is the only place the level
+     and the colour can be changed once you are sat down */
+  if (!net && ctx.badge){
+    ctx.badge.className = 'pt-badge ch-badge-btn';
+    ctx.badge.setAttribute('role', 'button');
+    ctx.badge.setAttribute('tabindex', '0');
+    ctx.badge.title = 'Change opponent';
+    ctx.badge.onclick = () => P.ui.confirm(ctx, {
+      head: 'Change opponent?',
+      why: 'This game goes in the bin and you pick again — who you are playing, ' +
+           'how hard, and which colour.',
+      yes: 'Yes, pick again', no: 'No, carry on',
+      go: () => menu()
+    });
+  }
   render();
 }
 
@@ -759,9 +1003,29 @@ function askLeave(){
   });
 }
 
+/* screen row / column of a board index, once flipped() has had its say */
+const scrRow = i => flipped() ? 7 - RANK(i) : RANK(i);
+const scrCol = i => flipped() ? 7 - FILE(i) : FILE(i);
+
+/* every square the side to move is being checked FROM. "Check" on its own is
+   half an answer on a small screen — the other half is which piece, and the
+   only honest way to show that is to ring the square it is standing on. */
+function checkers(st){
+  const k = kingSq(st.b, st.black);
+  if (k < 0) return [];
+  const foe = clone(st);
+  foe.black = !st.black; foe.ep = -1;
+  const out = [];
+  for (const m of genPseudo(foe))
+    if (m.to === k && !(m.fl & (F_CK | F_CQ)) && out.indexOf(m.from) < 0) out.push(m.from);
+  return out;
+}
+
 function render(){
   const st = G.st, cells = G.cells;
-  const chkSq = inCheck(st) ? kingSq(st.b, st.black) : -1;
+  const checked = inCheck(st);
+  const chkSq = checked ? kingSq(st.b, st.black) : -1;
+  const from = (checked && !G.over) || (G.over && G.over.end === 'mate') ? checkers(st) : [];
 
   for (let i = 0; i < 64; i++){
     const el = cells[i];
@@ -771,31 +1035,49 @@ function render(){
     if (G.last && (i === G.last.from || i === G.last.to)) cls += ' last';
     if (i === G.sel) cls += ' sel';
     if (i === chkSq) cls += ' chk';
+    if (from.indexOf(i) >= 0) cls += ' ch-from';
     el.className = cls;
 
     const mark = G.marks.find(m => m.to === i);
-    const row = flipped() ? 7 - RANK(i) : RANK(i);
-    const col = flipped() ? 7 - FILE(i) : FILE(i);
+    const row = scrRow(i), col = scrCol(i);
     el.innerHTML =
       (row === 7 ? '<span class="pt-co f">' + 'abcdefgh'[FILE(i)] + '</span>' : '') +
       (col === 0 ? '<span class="pt-co r">' + (8 - RANK(i)) + '</span>' : '') +
       (p ? '<span class="pt-pc ' + (isB(p) ? 'pt-b' : 'pt-w') + '">' +
            U.pieceSVG(SYM[typ(p)]) + '</span>' : '') +
       (mark ? '<span class="pt-mark' + (mark.cap ? ' cap' : '') + '"></span>' : '');
+    /* a screen reader gets the same three facts a sighted player gets from
+       the colours: what is here, and what this tap would do */
     el.setAttribute('aria-label',
-      NAME(i) + (p ? ', ' + (isB(p) ? 'black ' : 'white ') + PNAME[typ(p)] : ', empty'));
+      NAME(i) + (p ? ', ' + (isB(p) ? 'black ' : 'white ') + PNAME[typ(p)] : ', empty') +
+      (mark ? (mark.cap ? ', take it' : ', you can move here') : '') +
+      (i === G.sel ? ', picked up' : '') +
+      (i === chkSq ? ', in check' : ''));
   }
-  rails();
+  if (G.board) G.board.classList.toggle('ch-mate', !!(G.over && G.over.end === 'mate'));
+  plates();
   strip();
+  /* NOT disabled, ever. A greyed button is a tap that goes nowhere and says
+     nothing; these two answer in words instead — see undo() and resign. */
   const u = G.ctx.btn('ch-undo');
-  if (u) u.disabled = !G.hist.length || G.thinking || !!G.over;
-  const r = G.ctx.btn('ch-resign');
-  if (r) r.disabled = !!G.over;
+  if (u) u.classList.toggle('off', !G.hist.length || G.thinking || !!G.over);
 }
 const PNAME = { 1:'pawn', 2:'knight', 3:'bishop', 4:'rook', 5:'queen', 6:'king' };
 
-/* what each side has taken off, and who is up on material */
-function rails(){
+/* ── the two player plates ─────────────────────────────────────────
+   One above the board and one below, each belonging to the player whose men
+   start on that side. A plate carries four things at once: which colour that
+   player is, what they have taken off the other one, who is up on material,
+   and — the glow — whose move it is. A player who has looked away can pick
+   the game back up from the plates alone. */
+function whoName(black){
+  const c = black ? 'b' : 'w';
+  if (G.mode === 'pnp') return black ? 'Black' : 'White';
+  if (online()) return c === G.human ? (G.me || 'You') : (G.foe || 'Them');
+  return c === G.human ? 'You' : 'The phone · ' + lvlOf(G.level).badge;
+}
+
+function plates(){
   const start = { 1:8, 2:2, 3:2, 4:2, 5:1 };
   const have = { w:{}, b:{} };
   for (let i = 0; i < 64; i++){
@@ -810,21 +1092,36 @@ function rails(){
     return out;
   };
   const score = side => gone(side).reduce((a, t) => a + VAL[t], 0);
-  const bar = (lost, edge) =>
-    lost.map(t => '<svg class="pt-mini ' + (edge.me === 'w' ? 'pt-w' : 'pt-b') +
-      '" viewBox="0 0 24 24" aria-hidden="true"><use href="#' + SYM[t] + '"></use></svg>').join('') +
-    (edge.n > 0 ? '<span class="pt-edge">+' + edge.n + '</span>' : '');
-
   const wLost = gone('w'), bLost = gone('b');
   const diff = score('b') - score('w');    /* positive = white is up */
+  const turnBlack = G.st.black;
+
+  /* `black` is the colour of the player this plate belongs to; the pieces on
+     it are the ones they have TAKEN, which are the other colour's losses. */
+  const fill = (el, black) => {
+    if (!el) return;
+    const took = black ? wLost : bLost;
+    const edge = black ? (diff < 0 ? Math.round(-diff / 100) : 0)
+                       : (diff > 0 ? Math.round(diff / 100) : 0);
+    const mine = black ? 'w' : 'b';       /* the taken men are the other colour */
+    const live = (turnBlack === black) && !G.over;
+    const think = live && G.thinking;
+    el.className = 'pt-rail' + (live ? ' live' : '');
+    el.innerHTML =
+      '<span class="pt-dot ' + (black ? 'b' : 'w') + '"></span>' +
+      '<span class="ch-nm">' + esc(whoName(black)) + '</span>' +
+      (think ? '<span class="ch-thinks">Thinking</span>' : '') +
+      '<span class="ch-took">' +
+        took.map(t => '<svg class="pt-mini ' + (mine === 'w' ? 'pt-w' : 'pt-b') +
+          '" viewBox="0 0 24 24" aria-hidden="true"><use href="#' + SYM[t] + '"></use></svg>').join('') +
+      '</span>' +
+      (edge > 0 ? '<span class="pt-edge">+' + edge + '</span>' : '');
+  };
+  /* the plate above the board belongs to whoever is sitting at the top, and
+     your own men are always at the bottom */
   const topIsBlack = !flipped();
-  /* the rail above the board belongs to the player at the top */
-  G.ctx.railTop.innerHTML = topIsBlack
-    ? bar(wLost, { me:'w', n: diff < 0 ? Math.round(-diff / 100) : 0 })
-    : bar(bLost, { me:'b', n: diff > 0 ? Math.round(diff / 100) : 0 });
-  G.ctx.railBot.innerHTML = topIsBlack
-    ? bar(bLost, { me:'b', n: diff > 0 ? Math.round(diff / 100) : 0 })
-    : bar(wLost, { me:'w', n: diff < 0 ? Math.round(-diff / 100) : 0 });
+  fill(G.ctx.railTop, topIsBlack);
+  fill(G.ctx.railBot, !topIsBlack);
 }
 
 function whoLabel(black){
@@ -834,21 +1131,37 @@ function whoLabel(black){
   return mine ? 'Your move' : 'The phone is thinking';
 }
 
+/* ── the turn strip ────────────────────────────────────────────────
+   The single most important line on the screen, so chess writes its own
+   rather than take the shared two-field one: whose move it is on the left,
+   and on the right the thing that just happened — the move in notation, or
+   where the check is coming from. Ten seconds of looking away should cost
+   nobody a guess. */
 function strip(){
-  const st = G.st;
-  const check = inCheck(st);
-  let note = '';
-  if (G.thinking) note = 'Thinking';
-  else if (check) note = 'Check';
-  else if (G.lastSan) note = G.lastSan;
-  P.ui.setTurn(G.ctx, {
-    cls: st.black ? 'b' : 'w',
-    who: G.over ? 'Game over' : whoLabel(st.black),
-    note, alert: check && !G.over
-  });
-  G.ctx.badge.textContent = online() ? (G.human === 'w' ? 'Online · White' : 'Online · Black')
+  const st = G.st, ctx = G.ctx;
+  const check = inCheck(st) && !G.over;
+  let right = '';
+  if (check){
+    const cs = checkers(st).map(NAME);
+    right = '<b>Check</b>' + (cs.length ? '<span>from ' + esc(cs.join(', ')) + '</span>' : '');
+  } else if (G.lastSan){
+    right = '<span>' + esc(G.lastWho || '') + '</span><b>' + esc(G.lastSan) + '</b>';
+  }
+  ctx.turn.className = 'pt-turn' + (check ? ' alert' : '');
+  ctx.turn.innerHTML =
+    '<span class="pt-dot ' + (st.black ? 'b' : 'w') + '"></span>' +
+    '<span class="pt-who">' + esc(G.over ? overWord() : whoLabel(st.black)) + '</span>' +
+    (right ? '<span class="ch-last">' + right + '</span>' : '');
+  ctx.badge.textContent = online() ? (G.human === 'w' ? 'Online · White' : 'Online · Black')
     : G.mode === 'pnp' ? 'Two players'
-    : ['', 'Turist', 'Kazin', 'Nanna'][G.level] || 'Phone';
+    : lvlOf(G.level).badge + ' · ' + (G.human === 'w' ? 'White' : 'Black');
+}
+function overWord(){
+  const e = G.over && G.over.end;
+  return e === 'mate' ? 'Checkmate'
+       : e === 'resign' ? 'Resigned'
+       : e === 'stalemate' ? 'Stalemate'
+       : e === 'stopped' ? 'Stopped' : 'Drawn';
 }
 
 /* ── input ─────────────────────────────────────────────────────── */
@@ -865,8 +1178,32 @@ function myTurn(){
    same board, the duel stops rather than tell either of you a lie */
 function fingerprint(st){ return posKey(st) + '/' + st.half; }
 
+/* ── a refusal is a sentence, never a tap that does nothing ────────
+   Everything on this board that will not do what you asked says so out loud.
+   Throttled, because the answer to eight impatient taps is one line, not
+   eight. ⚠ is the app-wide marker for bad news: js/sfx.js reads it off the
+   toast and gives it the blunt "no" instead of the bell. */
+let nudgeAt = 0;
+function nudge(text){
+  const now = Date.now();
+  if (now - nudgeAt < 700) return;
+  nudgeAt = now;
+  const S = SFX(); if (S) S.boardIllegal({});
+  if (K && K.toast) K.toast('⚠ ' + text);
+}
+
+/* why the board is not listening, in the player's words */
+function whyLocked(){
+  if (G.over) return 'That game is finished. Rematch, or pick a new opponent.';
+  if (G.thinking) return 'Hold on — the phone is still thinking.';
+  if (G.tb && G.tb.busy()) return 'You have asked for a takeback. Nothing moves until they answer.';
+  if (G.mode === 'ai') return 'Not your turn yet.';
+  if (online()) return 'It is ' + (G.foe || 'their') + ' move. Sit tight.';
+  return 'It is ' + (G.st.black ? 'Black' : 'White') + ' to move — hand the phone over.';
+}
+
 function tap(i){
-  if (!myTurn()) return;
+  if (!myTurn()){ nudge(whyLocked()); return; }
   const st = G.st;
   const mark = G.marks.find(m => m.to === i);
   if (mark){ choose(mark); return; }
@@ -887,15 +1224,27 @@ function tap(i){
         G.marks.push(entry);
       }
       if (!G.marks.length){
-        SFX() && SFX().boardIllegal({});
-        /* ⚠ so js/sfx.js gives the toast the same blunt "no" boardIllegal just
-           played, and the dedupe window makes it one sound rather than two. */
-        K.toast && K.toast('⚠ That one has nowhere to go.');
+        /* and say WHY it cannot move, which is nearly always the king */
+        nudge(inCheck(st)
+          ? 'Your king is in check — that ' + PNAME[typ(p)] + ' cannot help.'
+          : 'That ' + PNAME[typ(p)] + ' has nowhere to go.');
       }
     }
     render();
     return;
   }
+  /* a tap on a square the picked-up piece cannot reach. Deselecting silently
+     is the same gesture as putting it back down, so the piece IS put back
+     down — but the player is told which of the two just happened. */
+  if (G.sel >= 0){
+    const what = PNAME[typ(st.b[G.sel])] || 'piece';
+    nudge(p ? 'Your ' + what + ' cannot take on ' + NAME(i) + '.'
+            : 'Your ' + what + ' cannot reach ' + NAME(i) + '.');
+    G.sel = -1; G.marks = [];
+    render();
+    return;
+  }
+  if (p) nudge('That one is theirs. Tap one of yours.');
   G.sel = -1; G.marks = [];
   render();
 }
@@ -919,21 +1268,35 @@ function promoPicker(alts){
   const black = isB(alts[0].p);
   over.innerHTML =
     '<div class="pt-card"><h3>It made it</h3>' +
-    '<p class="pt-why">The pawn walked the whole board. What does it come back as?</p>' +
+    '<p class="pt-why">The pawn walked the whole board. Tap what it comes back as.</p>' +
     '<div class="pt-promo">' +
       [QUEEN, ROOK, BISHOP, KNIGHT].map(t =>
-        '<button type="button" data-t="' + t + '" aria-label="' + PNAME[t] + '">' +
+        '<button type="button" data-t="' + t + '" aria-label="Promote to ' + PNAME[t] + '">' +
         '<span class="pt-pc ' + (black ? 'pt-b' : 'pt-w') + '" style="position:static;display:block;' +
         'width:100%;height:100%">' + U.pieceSVG(SYM[t]) + '</span></button>').join('') +
-    '</div></div>';
-  over.querySelectorAll('button').forEach(b => b.onclick = () => {
+    '</div>' +
+    '<p class="ch-promo-head">Queen, rook, bishop, knight. Take the queen unless you ' +
+      'have a very good reason.</p>' +
+    /* THE WAY OUT. Four choices and no fifth is a modal you can only leave by
+       committing to a move you may have tapped by accident — on a phone, with
+       no Escape key, that is a corner. Backing out simply puts the pawn down
+       again with its dots still on. */
+    '<button type="button" class="btn ghost" id="ch-promo-no" ' +
+      'style="margin-top:14px;width:100%;min-height:46px;font-size:12px">' +
+      'No, put it back</button></div>';
+  over.querySelectorAll('.pt-promo button').forEach(b => b.onclick = () => {
     const t = +b.dataset.t;
     over.remove();
     const m = alts.find(x => typ(x.promo) === t) || alts[0];
     play(m);
   });
+  const back = () => { over.remove(); const S = SFX(); if (S) S.boardCancel(); render(); };
+  over.querySelector('#ch-promo-no').onclick = back;
+  /* tapping the dark outside the card is the same thing, because everybody
+     tries it before they look for a button */
+  over.onclick = e => { if (e.target === over) back(); };
   ctx.root.appendChild(over);
-  over.querySelector('button').focus();
+  over.querySelector('.pt-promo button').focus();
 }
 
 /* ── sound ────────────────────────────────────────────────────────────────
@@ -943,14 +1306,107 @@ function promoPicker(alts){
    delegated auto-wire layer precisely so a move can have its own sound
    instead of a generic UI tap, which is why these calls have to exist. */
 const SFX = () => window.KARTI_SFX || null;
+/* TIMED AGAINST THE FILES, not against the code. Measured onsets, at 8 kHz,
+   of the three that matter here:
+
+     piece-slide.mp3    starts at   0 ms, body ends at 170 ms
+     piece-place.mp3    starts at 120 ms  (that much of it is silence)
+     piece-capture.mp3  starts at  30 ms
+
+   js/sfx.js plays the slide immediately and the knock 75 ms later, so a quiet
+   move is actually HEARD as a scrape from 0 to 170 ms and a knock at 195 ms.
+   That is why the glide below is 170 ms: the piece comes to rest and the wood
+   knocks, in that order, the way it does on a real table.
+
+   A capture goes through the same after(75) but its file has almost no lead-in,
+   so the crunch would land at 105 ms — 65 ms before the piece has arrived, and
+   you hear it as a sound that belongs to nothing. Held back by 60 ms here it
+   lands at 165 ms, on the piece. js/sfx.js is not this file's to edit, so the
+   compensation lives on this side of the call. */
 function sfxMove(st, m){
   const S = SFX(); if (!S) return;
-  S.boardMove({ game:'chess', capture: !!m.cap, castle: !!(m.fl & (F_CK | F_CQ)),
-                promo: !!m.promo });
+  const o = { game:'chess', capture: !!m.cap, castle: !!(m.fl & (F_CK | F_CQ)),
+              promo: !!m.promo };
+  if (o.capture && !o.castle) setTimeout(() => { const s = SFX(); if (s) s.boardMove(o); }, 60);
+  else S.boardMove(o);
 }
 function sfxCheck(st){
   const S = SFX(); if (!S) return;
   try { if (inCheck(st)) S.boardCheck(); } catch(e){}
+}
+
+/* who just moved, in two words or fewer, for the turn strip */
+function shortName(black){
+  if (G.mode === 'pnp') return black ? 'Black' : 'White';
+  if (online()) return (black ? 'b' : 'w') === G.human ? 'You' : (G.foe || 'Them');
+  return (black ? 'b' : 'w') === G.human ? 'You' : 'Phone';
+}
+
+/* ── the piece lands, it does not teleport ─────────────────────────
+   Purely cosmetic and deliberately incapable of blocking anything: the
+   position, the sound and the turn have all already changed by the time this
+   runs. It puts the arriving piece back where it came from and lets one CSS
+   transition carry it home, so a move you did not make is a thing you SAW
+   rather than a board that is suddenly different. Castling is one motion
+   because both men glide together. */
+const GLIDE_MS = 170;
+function animate(m){
+  if (!G || !G.cells || !m) return;
+  let sq = 0;
+  try { sq = G.cells[m.to].getBoundingClientRect().width; } catch(e){ return; }
+  if (!sq) return;
+  const glide = (from, to) => {
+    const cell = G.cells[to];
+    const el = cell && cell.querySelector('.pt-pc');
+    if (!el) return;
+    const dx = (scrCol(from) - scrCol(to)) * sq;
+    const dy = (scrRow(from) - scrRow(to)) * sq;
+    if (!dx && !dy) return;
+    cell.classList.add('ch-fly');
+    el.classList.add('ch-glide');
+    el.style.transition = 'none';
+    el.style.transform = 'translate(' + dx + 'px,' + dy + 'px)';
+    void el.offsetWidth;                       /* commit the start frame */
+    el.style.transition = 'transform ' + GLIDE_MS + 'ms cubic-bezier(.2,.7,.35,1)';
+    el.style.transform = 'translate(0,0)';
+    setTimeout(() => {
+      if (!cell) return;
+      cell.classList.remove('ch-fly');
+      el.classList.remove('ch-glide');
+      el.style.transition = ''; el.style.transform = '';
+    }, GLIDE_MS + 40);
+  };
+  glide(m.from, m.to);
+  /* the rook comes with the king, in the same breath */
+  if (m.fl & F_CK) glide(isB(m.p) ? 7  : 63, isB(m.p) ? 5 : 61);
+  if (m.fl & F_CQ) glide(isB(m.p) ? 0  : 56, isB(m.p) ? 3 : 59);
+  /* a capture leaves a mark on the square it happened on */
+  if (m.capSq >= 0 && G.cells[m.capSq]){
+    const hit = G.cells[m.capSq];
+    hit.classList.add('ch-hit');
+    setTimeout(() => hit.classList.remove('ch-hit'), 360);
+  }
+}
+
+/* everything that has to happen when a move goes on the board, from either
+   hand. ONE path, so the human, the phone and the other player's phone can
+   never drift apart. */
+function commit(m){
+  const st = G.st;
+  const text = san(st, m);
+  const who = shortName(st.black);
+  sfxMove(st, m);
+  G.hist.push({ st: clone(st), last: G.last, lastSan: G.lastSan,
+                lastWho: G.lastWho, keys: Object.assign({}, G.keys) });
+  G.st = applied(st, m);
+  G.last = { from:m.from, to:m.to };
+  G.lastSan = text; G.lastWho = who;
+  G.sel = -1; G.marks = [];
+  const key = posKey(G.st);
+  G.keys[key] = (G.keys[key] || 0) + 1;
+  render();
+  animate(m);
+  return status(G.st, G.keys[key]);
 }
 
 function play(m, fromNet){
@@ -960,48 +1416,58 @@ function play(m, fromNet){
   /* the checksum is the PRE-move board, so the receiver compares it against
      the position it is about to play the move on */
   if (online() && !fromNet && G.net) G.net.send('move', wireOf(m), fingerprint(st));
-  G.hist.push({ st: clone(st), last: G.last, lastSan: G.lastSan, keys: Object.assign({}, G.keys) });
-  const text = san(st, m);
-  sfxMove(st, m);
-  G.st = applied(st, m);
-  G.last = { from:m.from, to:m.to };
-  G.lastSan = text;
-  G.sel = -1; G.marks = [];
-  const key = posKey(G.st);
-  G.keys[key] = (G.keys[key] || 0) + 1;
-  render();
-  const s = status(G.st, G.keys[key]);
+  const s = commit(m);
   if (s.end){ finish(s); return; }
   sfxCheck(G.st);
   maybeAI();
 }
 
+/* It-turist answers in about twenty milliseconds, and an opponent that
+   replies before your own piece has finished landing does not read as an
+   opponent at all — it reads as the board arguing with you. So the phone is
+   never allowed to answer faster than this after your move has settled. It
+   costs the strong levels nothing (they are already slower than it) and it
+   gives the weak one the beat it needs to look like somebody sitting there. */
+const MIN_THINK = 280;
+
 function maybeAI(){
   if (G.mode !== 'ai' || G.over) return;
   if ((G.st.black ? 'b' : 'w') === G.human) return;
+  /* the board is locked from THIS line, not from the repaint below — myTurn()
+     reads the flag, so nothing can be tapped in the meantime */
   G.thinking = true;
-  strip();
-  render();
-  /* two frames of breathing room so the player's own move paints first */
+  /* NO render() HERE. render() rewrites all sixty-four squares' innerHTML,
+     which throws away the very element the player's own piece is gliding on
+     and strips the class that lifts it above its neighbours — so calling it
+     on this line silently killed the human's animation and left only the
+     phone's. Everything below waits for the glide to be over. */
+  /* the game these three nested waits belong to. Every one of them checks it
+     before touching anything — see the note on GEN. */
+  const g = gen();
   setTimeout(() => {
-    if (!G || G.dead || G.over) return;
-    let m = null;
-    try { m = bestMove(G.st, G.level); } catch(e){ m = null; }
-    G.thinking = false;
-    if (!m){ render(); return; }
-    const text = san(G.st, m);
-    sfxMove(G.st, m);
-    G.hist.push({ st: clone(G.st), last: G.last, lastSan: G.lastSan, keys: Object.assign({}, G.keys) });
-    G.st = applied(G.st, m);
-    G.last = { from:m.from, to:m.to };
-    G.lastSan = text;
-    const key = posKey(G.st);
-    G.keys[key] = (G.keys[key] || 0) + 1;
-    render();
-    const s = status(G.st, G.keys[key]);
-    if (s.end) return finish(s);
-    sfxCheck(G.st);
-  }, 60);
+    if (!same(g) || G.over) return;
+    render();                       /* now the plate can say "Thinking" */
+    /* and one more turn of the loop so that paint actually reaches the
+       screen: bestMove() below blocks this thread for up to 1.2 s at
+       In-nanna, and a "Thinking" that is drawn after the thinking has
+       finished is worse than none at all */
+    setTimeout(() => {
+      if (!same(g) || G.over) return;
+      const t0 = Date.now();
+      let m = null;
+      try { m = bestMove(G.st, G.level); } catch(e){ m = null; }
+      const rest = Math.max(0, MIN_THINK - (Date.now() - t0));
+      const land = () => {
+        if (!same(g) || G.over) return;
+        G.thinking = false;
+        if (!m){ render(); return; }
+        const s = commit(m);
+        if (s.end) return finish(s);
+        sfxCheck(G.st);
+      };
+      if (rest) setTimeout(land, rest); else land();
+    }, 30);
+  }, GLIDE_MS + 40);
 }
 
 /* take n plies off this board and nothing else. Both clients call this with
@@ -1013,9 +1479,11 @@ function rollback(n){
   { const S = SFX(); if (S && G.hist.length) S.takeback('undo'); }
   for (let i = 0; i < n && G.hist.length; i++){
     const h = G.hist.pop();
-    G.st = h.st; G.last = h.last; G.lastSan = h.lastSan; G.keys = h.keys;
+    G.st = h.st; G.last = h.last; G.lastSan = h.lastSan; G.lastWho = h.lastWho;
+    G.keys = h.keys;
   }
   G.sel = -1; G.marks = []; G.over = null;
+  clearTimeout(G.endTimer); G.endTimer = 0;
   const over = G.ctx.root.querySelector('.pt-over'); if (over) over.remove();
   render();
 }
@@ -1028,7 +1496,10 @@ function markBack(n){
 
 function undo(){
   if (online()){ askTakeback(); return; }
-  if (!G.hist.length || G.thinking || G.over) return;
+  /* the three ways this button can say no, all of them out loud */
+  if (G.over){ nudge('The game is over — Rematch starts a fresh one.'); return; }
+  if (G.thinking){ nudge('Let it finish thinking, then take it back.'); return; }
+  if (!G.hist.length){ nudge('Nothing has been played yet.'); return; }
   /* vs the phone, one tap should hand YOU the move back, not the phone */
   const two = (G.mode === 'ai' && G.hist.length > 1 &&
                (G.hist[G.hist.length - 1].st.black ? 'b' : 'w') !== G.human);
@@ -1038,7 +1509,9 @@ function undo(){
 /* ONLINE: undo is a request, not a button. How far back is not a slider —
    it is however many plies it takes to hand the move back to the asker. */
 function askTakeback(){
-  if (!G || !G.tb || G.over || G.thinking) return;
+  if (!G || !G.tb) return;
+  if (G.over){ nudge('The game is finished. There is nothing left to take back.'); return; }
+  if (G.thinking){ nudge('Give it a second.'); return; }
   const mineNow = (G.st.black ? 'b' : 'w') === G.human;
   const n = Math.min(G.hist.length, mineNow ? 2 : 1);
   if (n < 1){ P.ui.setNet(G.ctx, 'Nothing to take back yet.', 'warn'); return; }
@@ -1062,13 +1535,34 @@ function askTakeback(){
    module, a ledger, a leaderboard) has exactly one line to hook. */
 function finish(s){
   G.over = s;
-  G.sel = -1; G.marks = [];
+  G.sel = -1; G.marks = []; G.thinking = false;
+  if (G.tb) G.tb.cancel(true);          /* no takeback survives the full stop */
+
+  /* A game that ends on a MOVE deserves to be watched. The board used to be
+     covered by the result card in the same frame the mating piece landed, so
+     nobody ever saw the mate happen. The board is locked the instant G.over
+     is set above — this delay costs the player nothing and buys them the one
+     moment the whole game was for: the piece glides in, the king throbs red,
+     the king topples, and only then does the card come down. */
+  const played = s.end === 'mate' || s.end === 'stalemate' ||
+                 s.end === 'fifty' || s.end === 'repeat' || s.end === 'material';
+  const wait = played ? 820 : 0;
+  const g = gen();
+  clearTimeout(G.endTimer);
+  /* The repaint is held back for exactly the same reason the card is: it
+     rewrites all sixty-four squares, and the mating piece is in the middle of
+     gliding onto one of them. The board is already showing the finished
+     position — commit() painted it — and G.over above has locked the input,
+     so all this repaint adds is the red throb on the king and the ring round
+     the piece delivering it. Those land as the piece does. */
+  if (played) setTimeout(() => { if (same(g) && G.over === s) render(); }, GLIDE_MS + 40);
+  else render();
   { const S = SFX();
     if (S){ const meW = (G.mode === 'pnp') ? null : (G.human === 'w');
-      S.boardEnd({ mate: s.end === 'mate', draw: !s.win,
-                   win: s.win && meW !== null ? ((s.win === 'w') === meW) : false }); } }
-  if (G.tb) G.tb.cancel(true);          /* no takeback survives the full stop */
-  render();
+      const o = { mate: s.end === 'mate', draw: !s.win,
+                  win: s.win && meW !== null ? ((s.win === 'w') === meW) : false };
+      if (played) setTimeout(() => { if (same(g) && G.over === s) S.boardEnd(o); }, 340);
+      else S.boardEnd(o); } }
 
   const them = online() ? G.foe : 'The phone';
   const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : them);
@@ -1099,26 +1593,25 @@ function finish(s){
     }
   } else if (G.mode === 'ai'){ P.record('chess', 'd'); }
 
-  if (online()){
-    if (G.net && G.net.onEnd) G.net.onEnd(s);
-    P.ui.result(G.ctx, {
-      tone, head, why, quip,
-      buttons: [
-        { label:'Back to the rooms', icon:'back', cls:'primary',
-          go: () => { if (G && G.net) G.net.onLeave(); } }
-      ]
-    });
-    return;
-  }
-
-  P.ui.result(G.ctx, {
-    tone, head, why, quip,
-    buttons: [
-      { label:'Play again', icon:'play', cls:'primary', go: () => start() },
-      { label:'Change opponent', icon:'users', go: () => menu() },
-      { label:'Back to party games', icon:'back', go: () => { leave(); P.hub(); } }
-    ]
-  });
+  const card = online()
+    ? { tone, head, why, quip,
+        buttons: [
+          { label:'Back to the rooms', icon:'back', cls:'primary',
+            go: () => { if (G && G.net) G.net.onLeave(); } }
+        ] }
+    : { tone, head, why, quip,
+        buttons: [
+          { label:'Rematch, same opponent', icon:'play', cls:'primary', go: () => start() },
+          { label:'Change opponent', icon:'users', go: () => menu() },
+          { label:'Back to party games', icon:'back', go: () => { leave(); P.hub(); } }
+        ] };
+  if (online() && G.net && G.net.onEnd) G.net.onEnd(s);
+  if (!wait){ P.ui.result(G.ctx, card); return; }
+  G.endTimer = setTimeout(() => {
+    if (!same(g) || G.over !== s) return;
+    G.endTimer = 0;
+    P.ui.result(G.ctx, card);
+  }, wait);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1224,6 +1717,9 @@ function onlineNote(text, tone){
 
 function onlineStop(why, tone){
   if (!G || !online()) return;
+  /* a result card that was still on its way down must not land on top of this
+     one — the match stopping outranks whatever it was about to say */
+  clearTimeout(G.endTimer); G.endTimer = 0;
   if (!G.over){ G.over = { end:'stopped', win:null }; render(); }
   P.ui.setNet(G.ctx, '', '');
   P.ui.result(G.ctx, {
@@ -1246,31 +1742,135 @@ P.online.chess = {
 };
 
 /* ── wiring into the hub ───────────────────────────────────────── */
+/* "Rematch, same opponent" means exactly that: the board that is on screen,
+   played again. Prefs are only the fallback for a cold start. */
 function start(){
   const p = P.pref('chess');
-  newGame({ mode: p.mode || 'ai', level: p.level || 2, side: p.side || 'w' });
+  const o = (G && G.mode !== 'online')
+    ? { mode: G.mode, level: G.level, side: G.human }
+    : { mode: (p.mode === 'pnp' ? 'pnp' : 'ai'), level: p.level || 2, side: p.side || 'w' };
+  newGame(o);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE DOOR
+   ───────────────────────────────────────────────────────────────────
+   The shared sheet in js/party.js asks four questions and then makes you
+   press Start, and it does it inside a scrolling column — so on a 660-tall
+   phone, choosing "You vs the phone" grows the sheet and pushes Start clean
+   off the bottom of the screen. MEASURED: at 390x660 the Start button sits at
+   y=767 in a 660px window. The tap lands on nothing, and the game looks like
+   it refuses to open. That is the worst bug a game can have, because it is
+   the door.
+
+   So chess owns its own door, and it is built on one rule: THE OPPONENT IS
+   THE START. There is no separate Start button to fall off anything — you
+   tap who you are playing and you are playing them. Difficulty and colour
+   are not questions you have to answer to get in; they sit underneath with
+   sensible defaults, they are one tap each to change, they say what they are
+   doing in the door above them, and they can be changed from the board
+   afterwards by tapping the badge. Two taps from the shelf to a moving
+   board, down from three, and nothing on this screen scrolls at 390x660.
+   ═══════════════════════════════════════════════════════════════════ */
 function menu(){
   leave();
-  P.ui.setup({
-    id: 'chess',
-    title: 'Chess',
-    blurb: 'The proper thing. Castling, en passant, the pawn that walks all the way and ' +
-           'comes back a queen. It will not let you leave your own king in check either — ' +
-           'try it and the square simply is not offered.',
-    levels: [
-      { k:1, name:'It-turist', note:'Sees one move. Sometimes not even that.', icon:'diff-1' },
-      { k:2, name:'Tal-kazin', note:'Plays every Sunday. Will take your queen.', icon:'diff-2' },
-      { k:3, name:'In-nanna',  note:'Thinks five moves ahead and never blinks.', icon:'diff-3' }
-    ],
-    sides: [
-      { k:'w', name:'White', cls:'w', note:'You go first' },
-      { k:'b', name:'Black', cls:'b', note:'It goes first' }
-    ],
-    onStart: o => newGame(o),
-    onOnline: () => { if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('chess'); },
-    onBack: () => P.hub()
+  P.ui.css();
+  chessCSS();
+  const el = P.ui.screenEl();
+  const p = P.pref('chess');
+  const M = window.KARTI_MP;
+  const canOnline = !!(M && M.openFor);
+  /* the owner's own phones cannot reach the relay while Tailscale is on, so
+     if the last presence poll failed we say it in words rather than send
+     somebody through a door that does not open */
+  const relayDown = !!(canOnline && M.PR && M.PR.tried && M.PR.err);
+  let level = LVL[+p.level] ? String(+p.level) : '2';
+  let side  = (p.side === 'b') ? 'b' : 'w';
+  const r = P.recOf ? P.recOf('chess') : { w:0, l:0, d:0 };
+  const played = r.w + r.l + r.d;
+
+  const door = (v, icon, name, sub, cls) =>
+    '<button type="button" class="ch-door' + (cls ? ' ' + cls : '') + '" data-go="' + v + '">' +
+      ico(icon) + '<b>' + esc(name) + '</b><i id="ch-sub-' + v + '">' + esc(sub) + '</i>' +
+      '<svg class="ico ch-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<use href="#i-arrow-right"></use></svg>' +
+    '</button>';
+
+  el.innerHTML =
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>Chess</h2>' +
+      (played ? '<span class="pt-badge">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '') +
+    '</div>' +
+    '<div class="scroll ch-setup">' +
+      '<p class="blurb">The proper thing — castling, en passant, and the pawn that walks all ' +
+        'the way and comes back a queen. Pick who you are playing and you are playing.</p>' +
+      '<div class="tiny pt-lbl">Who are you playing</div>' +
+      '<div class="ch-doors">' +
+        (canOnline ? door('online', 'users', 'Somebody online',
+            relayDown ? 'The server cannot be reached from this phone.'
+                      : 'Open a room, or take one that is waiting.',
+            relayDown ? 'off' : '') : '') +
+        door('ai', 'coach', 'You vs the phone', '', 'hero') +
+        door('pnp', 'users', 'Pass the phone', 'Two of you, one screen, no internet.') +
+      '</div>' +
+      (relayDown
+        ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right ' +
+          'now, so an online game would not get past the room list. <b>If Tailscale is ' +
+          'on, turn it off.</b> The phone and pass-the-phone both work with no internet ' +
+          'at all.</p>'
+        : '') +
+      '<div class="tiny pt-lbl">How hard is the phone</div>' +
+      '<div class="ch-chips" id="ch-lvl">' +
+        [1, 2, 3].map(k => '<button type="button" class="ch-chip" data-v="' + k + '">' +
+          ico(LVL[k].icon) + esc(LVL[k].name) + '</button>').join('') +
+      '</div>' +
+      '<p class="ch-note" id="ch-lvl-note"></p>' +
+      '<div class="tiny pt-lbl">And you play</div>' +
+      '<div class="ch-chips" id="ch-side">' +
+        '<button type="button" class="ch-chip" data-v="w">' +
+          '<span class="pt-swatch w"></span>White</button>' +
+        '<button type="button" class="ch-chip" data-v="b">' +
+          '<span class="pt-swatch b"></span>Black</button>' +
+      '</div>' +
+      (played
+        ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' + r.l +
+          '</b> lost, <b>' + r.d + '</b> drawn.</p>'
+        : '') +
+      '<p class="pt-foot">None of this is a decision you are stuck with. Once you are ' +
+        'sitting at the board, the pill in the top corner brings you straight back here.</p>' +
+    '</div>';
+
+  const sync = () => {
+    el.querySelectorAll('#ch-lvl .ch-chip').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === String(level)));
+    el.querySelectorAll('#ch-side .ch-chip').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === side));
+    const L = lvlOf(level);
+    el.querySelector('#ch-lvl-note').textContent = L.note;
+    /* the door says exactly what it is about to do */
+    const sub = el.querySelector('#ch-sub-ai');
+    if (sub) sub.textContent = L.name + ' · you are ' + (side === 'w' ? 'White, and you go first'
+                                                                     : 'Black, and it goes first');
+  };
+  el.querySelectorAll('#ch-lvl .ch-chip').forEach(b =>
+    b.onclick = () => { level = b.dataset.v; sync(); });
+  el.querySelectorAll('#ch-side .ch-chip').forEach(b =>
+    b.onclick = () => { side = b.dataset.v; sync(); });
+  sync();
+
+  el.querySelectorAll('.ch-door').forEach(b => b.onclick = () => {
+    const go = b.dataset.go;
+    P.pref('chess', { mode: go, level: level, side: side });
+    if (go === 'online'){
+      if (!canOnline){ nudge('Online is not built into this copy.'); return; }
+      M.openFor('chess');
+      return;
+    }
+    newGame({ mode: go, level: level, side: side });
   });
+  el.querySelector('#pt-back').onclick = () => P.hub();
 }
 /* Called for every way OUT of the board, including the app navigating out from
    under us. Online that has to reach js/mp.js — a player who taps Home mid-game
@@ -1279,6 +1879,7 @@ function leave(){
   if (!G){ return; }
   const net = online() ? G.net : null;
   G.dead = true;
+  clearTimeout(G.endTimer);
   if (G.ctx && G.ctx.stopFit) G.ctx.stopFit();
   G = null;
   if (net && net.onGone) net.onGone();
@@ -1286,8 +1887,8 @@ function leave(){
 
 P.register({
   id:'chess', order:10, kind:'board', name:'CHESS', mt:'Iċ-ċess', sprite:'pt-p-k', status:'live',
-  tag:'Sixteen each, one king, and no luck to blame. Two of you on one phone, or ' +
-      'take on the machine.',
+  tag:'Sixteen each, one king, and no luck to blame. Somebody online, the machine, ' +
+      'or the two of you passing one phone.',
   open: menu
 });
 
