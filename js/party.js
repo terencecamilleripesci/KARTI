@@ -151,6 +151,7 @@ const STANDARD_PACK = { bixkla:1, briscola:1, sette:1, cheat:1, rummy:1, gin:1 }
    board — which is what everything here was before there were any shelves. */
 function shelfOf(g){
   const said = String(g.kind || g.cat || '').toLowerCase();
+  if (said === 'other') return 'other';
   if (said === 'deck' || said === 'playing' || STANDARD_PACK[g.id]) return 'deck';
   if (said === 'card' || said === 'cards') return 'card';
   if (said === 'board' || said === 'boards') return 'board';

@@ -34,8 +34,18 @@
 <meta name="twitter:description" content="200 cards, 12 party games and a fleet to sink. Free, on your phone. 18+">
 <meta name="twitter:image"       content="https://terencecamilleripesci.github.io/KARTI/art/ui/share.jpg">
 <link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="icon" href="icons/icon-192.png" type="image/png">
+<!-- THE ICON, DECLARED THE WAY THINGS ACTUALLY ASK FOR IT.
+     /favicon.ico is requested BY NAME, at the site root, by browsers and by
+     iOS when it builds the link card in the share sheet. Ours 404'd, so the
+     share sheet fell back to Safari's compass — the app looked unbranded at
+     the exact moment somebody was sending it to a friend, which is the one
+     moment it cannot afford to.
+     apple-touch-icon is 180 because that is the size iOS asks for; it was
+     pointed at the 192 PWA icon and resampled every time. -->
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="icons/icon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png">
 <!-- Deliberately NO apple-mobile-web-app-capable and NO
      apple-mobile-web-app-status-bar-style. Those are the LEGACY iOS full-screen
      mechanism from before manifests, and they make iOS lay the WebView out the
@@ -1621,7 +1631,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 98;
+var KARTI_BUILD = 99;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
