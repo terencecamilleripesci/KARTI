@@ -125,7 +125,11 @@ function closeSheet(){ $('#sheet').classList.remove('on'); $('#scrim').classList
 
 /* ───────────────────────── SHA-256 (pure JS, portable) ─────────────────────────
    Used to hash local profile passwords with a per-user random salt.
-   These are LOCAL profiles on one device — never a real secure account. */
+   A profile starts local and becomes a real account the moment one is made:
+   the relay holds it, it syncs, and it follows him to another phone. The
+   screen used to carry a line calling these "local profiles only, not a real
+   secure account" — true when it was written, stale once the relay landed,
+   and it was the first thing a new player read. */
 const SHA256 = (function(){
   const K = new Uint32Array([
     0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
@@ -682,7 +686,7 @@ function renderAuth(){
       /* No login wall: the first and biggest button plays the game. An account
          is optional and can be made later without losing anything. */
       '<div style="display:grid;gap:9px">' +
-        '<button class="btn hot" data-act="guest">▶ Play now<span class="sub">no account needed</span></button>' +
+        '<button class="btn hot" data-act="guest">▶ Play now</button>' +
       '</div>' +
       (names.length
         ? '<p class="tiny" style="text-align:center;margin:14px 0 8px">or pick up where you left off</p>' +
