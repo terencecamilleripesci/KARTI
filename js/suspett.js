@@ -385,6 +385,7 @@ function create(o){
     accused: -1,
     verdict: {},         /* seat -> true(hati)/false */
     shotQueue: [],       /* dead kaċċaturi still owed their shot */
+    shotBack: '',        /* where dawn resumes once the queue drains: 'day' (night deaths) or 'night' (a daytime lynch) */
     news: {},            /* seat -> last night's private result, view() only */
     log: [],             /* public events, what the pjazza knows */
     winner: null, winners: [], over: false
@@ -504,7 +505,7 @@ function act(G, mv){
         logAdd(G, G.P[mv.seat].name + ' spara fl-ajru.');
       }
       if (winCheck(G)) return { ok:true };
-      if (!G.shotQueue.length) afterDeaths(G);
+      if (!G.shotQueue.length) resolveAfterShot(G);
       return { ok:true };
     }
     case 'shotEnd': {
@@ -513,7 +514,7 @@ function act(G, mv){
       if (G.phase !== 'shot') return no('Ħadd ma jispara issa.');
       const who = G.shotQueue.shift();
       if (who !== undefined) logAdd(G, G.P[who].name + ' dam wisq — it-tir mar fl-ajru.');
-      if (!G.shotQueue.length && !G.over) afterDeaths(G);
+      if (!G.shotQueue.length && !G.over) resolveAfterShot(G);
       return { ok:true };
     }
     case 'reveal': {
@@ -711,9 +712,20 @@ function resolveNight(G){
   for (const s of deaths) grudgeCheck(G, s, false);
 
   G.acts = {}; G.acts2 = {};
+  /* THE SHOT COMES BEFORE THE WIN (header order 7 before 9): a Kaċċatur who
+     died tonight always fires, even if his own death would otherwise end the
+     game this instant — his tir can change who wins. */
+  if (G.shotQueue.length){ G.shotBack = 'day'; G.phase = 'shot'; return; }
   if (winCheck(G)) return;
-  if (G.shotQueue.length){ G.phase = 'shot'; return; }
   afterDeaths(G);
+}
+
+/* dawn resumes once the shot queue has drained: re-check the win with the
+   shot's death final, then go where the night (or the lynch) was headed. */
+function resolveAfterShot(G){
+  if (winCheck(G)) return;
+  if (G.shotBack === 'night') toNight(G);
+  else afterDeaths(G);
 }
 
 /* the mira died — by vote it feeds the grudge, any other way it voids
@@ -811,11 +823,13 @@ function closeVerdict(G){
                 'għamiltuha bl-idejn. Il-lejla ħadd mhu se joqtol — ir-raħal ' +
                 'baqa’ skantat. Il-logħba tkompli mingħajru.');
     }
-    if (winCheck(G)) return;
+    /* the lynched Kaċċatur fires BEFORE the win is called, and dawn after his
+       shot leads into the NIGHT (a lynch closes the day) — not back to day */
     if (p.role === 'kaccatur' && !isBot(G, s)){
-      G.shotQueue.push(s); G.phase = 'shot';
+      G.shotQueue.push(s); G.shotBack = 'night'; G.phase = 'shot';
       return;
     }
+    if (winCheck(G)) return;
   } else {
     logAdd(G, 'Mhux ħati (' + hati + '-' + le + '). ' + G.P[s].name + ' jinżel mill-planka.');
   }

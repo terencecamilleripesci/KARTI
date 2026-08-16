@@ -599,8 +599,13 @@ function check(st, mv, seat) {
       if (mv.t === 'take') return canTakeUp(st);
       if (mv.t === 'sweep') {
         if (!canSweep(st, seat)) return false;
-        const i = mv.i | 0;
-        return i >= 0 && i < st.discard.length;
+        /* the index must BE an integer. `mv.i | 0` here turned a
+           MISSING i into 0 — and index 0 is "sweep the whole
+           spread", the dearest move in the game. The falsy-index
+           class has bitten this move before; the last door does not
+           coerce, it refuses. */
+        if (!Number.isInteger(mv.i)) return false;
+        return mv.i >= 0 && mv.i < st.discard.length;
       }
       return false;
     case 'act': {
@@ -626,7 +631,11 @@ function check(st, mv, seat) {
       }
       if (mv.t === 'lay') {
         if (!st.down[seat] || h.indexOf(mv.c) < 0 || h.length < 2) return false;
-        const tm = st.table[mv.m | 0];
+        /* same falsy-index class as the sweep: a missing m must not
+           coerce to meld 0 and quietly land the card somewhere the
+           caller never named */
+        if (!Number.isInteger(mv.m)) return false;
+        const tm = st.table[mv.m];
         if (!tm) return false;
         if (!LAY_ON_FOE && tm.by !== seat) return false;
         return canExtend(tm.cs, mv.c);

@@ -374,8 +374,14 @@ VARIANT_ALIAS = {
 GAME_VARIANT_SEATS = {
     ("klabb", "bixkla"):   (2, 4, 4),
     ("klabb", "briscola"): (2, 4, 4),
-    ("klabb", "sette"):    (2, 8, 5),
-    ("klabb", "gidba"):    (3, 8, 5),
+    # NARROWED to what the CLIENTS can actually deal. The relay was seating up
+    # to eight for these two while js/klabb-sette.js caps at four and
+    # js/klabb-cheat.js clamps at four — so a five-seat room would have been
+    # seated here and then silently mis-dealt on the phones. Nothing in the UI
+    # asks for more than four today, so this was a trap waiting for the first
+    # client that did rather than a live fault.
+    ("klabb", "sette"):    (2, 4, 4),
+    ("klabb", "gidba"):    (3, 4, 4),
     # Both rummy variants seat the same range; the pack count that makes a
     # twelve-seat table possible is the GAME's business, not the relay's —
     # deal() enforces it against the actual deal, where it can be checked.
@@ -7018,8 +7024,19 @@ def selftest():
                 ({"game": "skarta", "seats": 1}, False, "a table of one"),
                 ({"game": "klabb", "variant": "briscola", "seats": 8}, False,
                  "Briscola above its partnership four"),
-                ({"game": "klabb", "variant": "sette", "seats": 8}, True,
-                 "Sette e Mezzo at eight"),
+                # The relay used to seat these two up to eight and this check
+                # asserted that was correct. It is not: js/klabb-sette.js
+                # declares seats:[3,2,4] and js/klabb-cheat.js seats:[4,3] —
+                # those are LISTS OF ALLOWED COUNTS, not ranges, so both games
+                # top out at FOUR. Seating five here would have been accepted
+                # by the relay and then mis-dealt on every phone. The contract
+                # is now what the clients can actually play.
+                ({"game": "klabb", "variant": "sette", "seats": 4}, True,
+                 "Sette e Mezzo at its four"),
+                ({"game": "klabb", "variant": "sette", "seats": 8}, False,
+                 "Sette e Mezzo above the four its deal can fill"),
+                ({"game": "klabb", "variant": "gidba", "seats": 8}, False,
+                 "Il-Gidba above its four"),
                 ({"game": "klabb", "variant": "poker"}, False, "a variant nobody has"),
             ]
             bad = []

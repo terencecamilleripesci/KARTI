@@ -203,7 +203,7 @@ const SEATS_FALLBACK = {
   gharraq:[2, 6, 4], rummy:[2, 12, 4], gin:[2, 2, 2],
   /* L-ISPJUN wants a ROOM, not a duel — three is the fewest that can hide a
      liar, and sixteen is what the relay already seats for tombla. */
-  spy:[3, 16, 6]
+  spy:[3, 16, 6], suspett:[5, 16, 9]
 };
 
 /* A machine has to be called something before it can sit down. Only used when
