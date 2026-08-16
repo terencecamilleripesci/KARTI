@@ -922,16 +922,20 @@ function cloudLine(){
   const s = cloudStatus();
   if (ACTIVE === GUEST && !s.linked)
     return { cls:'off', text:'Playing as a guest — this game is on this phone only.' };
+  /* THERE IS NO SUCH THING AS A "CLOUD ACCOUNT" HERE. An account IS kept for
+     you and IS saved — that is what making one means, and the owner has said
+     so twice. Naming the cloud separately invented a second idea a player then
+     had to reason about, and made a signed-in player wonder whether they were
+     missing a step. So the line says who you are and when it last saved. */
   if (s.linked){
     const when = (KARTI_SYNC.whenText ? KARTI_SYNC.whenText(s.lastAt) : '');
     if (s.phase === 'conflict')
-      return { cls:'warn', text:'Cloud account ' + s.user + ' — waiting for you to choose ' +
-                                'which game to keep.' };
+      return { cls:'warn', text:s.user + ' — waiting for you to choose which game to keep.' };
     if (s.online === false)
-      return { cls:'warn', text:'Cloud account ' + s.user + ' — the server is not answering. ' +
-                                'Your game is safe on this phone.' };
-    return { cls:'on', text:'Cloud account ' + s.user + ' · ' +
-             (s.lastAt ? 'synced ' + when : 'not uploaded yet') };
+      return { cls:'warn', text:s.user + ' — the server is not answering. Your game is ' +
+                                'safe on this phone and will save when it does.' };
+    return { cls:'on', text:s.user + ' · ' +
+             (s.lastAt ? 'saved ' + when : 'saving…') };
   }
   if (cloudPending)
     return { cls:'warn', text:'Made on this phone. It goes to the cloud as soon as the ' +
@@ -966,8 +970,8 @@ function profileSheet(){
     (needsAccount
       ? '<div class="opts" style="margin-top:10px">' +
           '<button class="btn primary" id="pf-make">' +
-            ilb('save', ACTIVE === GUEST ? 'Create an account' : 'Put this game in the cloud') +
-            '<span class="sub">keeps everything · play on any phone</span></button>' +
+            ilb('save', 'Create an account') +
+            '<span class="sub">saves by itself · play on any phone</span></button>' +
         '</div>'
       : '') +
     /* The record book and the board are their own module (js/stats.js); it

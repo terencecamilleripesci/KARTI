@@ -231,7 +231,18 @@ function paintOne(el){
   if (el.getAttribute('data-kx-done') === stamp) return;
   if (explicit != null){
     var sz = parseInt(el.getAttribute('data-kx-size'), 10) || 34;
-    el.innerHTML = avatarHTML(name, { size:sz });
+    /* me:true, because this box was written with a name ON PURPOSE — the
+       profile sheet and the customisation screen both do — and inferring
+       "is this me" from a string comparison is a worse answer than being
+       told. */
+    el.innerHTML = avatarHTML(name, { size:sz, me:true });
+    /* AND MOUNT THE PHOTOGRAPH. avatarHTML only writes data-kx-pic; wirePics
+       is what probes it and puts the decoded image in. The other branch below
+       calls it and this one did not, so the drawn face appeared everywhere and
+       the photograph appeared only where something else happened to sweep the
+       subtree afterwards — which is why it showed on the home pill and not in
+       the profile sheet or the customisation screen. */
+    wirePics(el);
   } else {
     /* somebody else's box — the mark, and the ring over it, and leave
        the box itself alone. The border follows a player everywhere a
