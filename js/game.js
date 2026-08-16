@@ -856,6 +856,36 @@ function starterPrice(key){
   if (window.KARTI_GACHA && KARTI_GACHA.priceOf) return KARTI_GACHA.priceOf(key);
   return 400;
 }
+/* THE LEVEL, ON THE FIRST SCREEN.
+
+   Everywhere else the level rides in the bottom of the avatar's ring,
+   but the home chip's medallion is 32px and that badge is deliberately
+   suppressed below 40 — at 32 the digits would be six pixels tall,
+   which is not a number, it is grit on the ring. Growing the medallion
+   instead would push the chip past the 44-point row the whole header is
+   built on.
+
+   So on home it is a chip of its own, in the badge's exact palette so
+   nobody has to be told the two are the same thing, and it carries what
+   the ring badge cannot: the progress bar underneath, which is the part
+   that makes a level worth looking at twice.
+
+   Returns nothing at all if the XP module has not loaded — the header
+   is not allowed to depend on it. */
+function lvChip(){
+  try {
+    const XP = window.KARTI_XP;
+    if (!XP || !XP.level) return '';
+    const lv = XP.level() | 0;
+    const into = XP.xpInto ? XP.xpInto() : 0;
+    const need = XP.xpNeeded ? XP.xpNeeded() : 0;
+    const pct = need ? Math.max(0, Math.min(100, Math.round((into / need) * 100))) : 100;
+    return '<span class="pc-lv" title="' +
+      (need ? into + ' of ' + need + ' XP to level ' + (lv + 1) : 'Maximum level') + '">' +
+      '<b>' + lv + '</b><i style="width:' + pct + '%"></i></span>';
+  } catch (e){ return ''; }
+}
+
 function renderHome(){
   /* No deck yet? You do not get a free pick of all seven — you get a roll of
      three (js/gacha.js). Routed from here so a reload cannot dodge it. */
@@ -875,7 +905,8 @@ function renderHome(){
   chip.innerHTML =
     '<span class="avatar" data-kx-av="' + esc(nm) + '" data-kx-size="32">' +
       esc(nm.charAt(0).toUpperCase()) + '</span>' +
-    esc(nm);
+    '<span class="pc-nm">' + esc(nm) + '</span>' +
+    lvChip();
   chip.onclick = profileSheet;
   try { window.KARTI_XP && KARTI_XP.paint && KARTI_XP.paint(chip); } catch (e){}
 

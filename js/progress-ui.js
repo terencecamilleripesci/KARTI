@@ -148,6 +148,20 @@ function gameDef(id){
    animation frame and every span carries a stamp of what it was last
    painted as, so it converges in one pass and cannot chase its tail.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE LEVEL ON A FACE, decided in ONE place.
+
+   The level rides with the medallion: for the player themselves we know
+   it, and for anybody else it is whatever the relay published beside
+   their name. Two callers need the answer — the painter, which draws
+   it, and the stamp, which decides whether to redraw at all — and if
+   those two ever disagree by a single digit the badge silently stops
+   updating. So neither of them works it out; both ask this. */
+function levelFor(o, d){
+  if (o && o.lv != null) return o.lv | 0;
+  if (d && d.mine) { try { return XP.level ? XP.level() : 0; } catch (e){ return 0; } }
+  return 0;
+}
+
 function avatarHTML(name, opts){
   var o = opts || {};
   /* one descriptor for everybody — face, ring, photograph — so the
@@ -156,13 +170,9 @@ function avatarHTML(name, opts){
   var d = XP.describe(name, { me:o.me, who:o.who, hint:o.hint,
                               border:o.border, pv:o.pv, face:o.face });
   var f = XP.face(d.face);
-  /* the level rides with the face; for the player themselves we know it, and
-     for anybody else it is whatever the relay published beside their name */
-  var lv = (o.lv != null) ? (o.lv | 0)
-         : (d.mine ? (XP.level ? XP.level() : 0) : 0);
   return FACES.frame(d.face, {
     size: o.size || 38,
-    lv: lv,
+    lv: levelFor(o, d),
     accent: o.accent || (f && f.ax) || '#FFC542',
     cls: o.cls,
     style: o.style,
@@ -270,9 +280,18 @@ function paintOne(el){
   if (pv != null && pv !== '') o.pv = pv | 0;
 
   /* the stamp is describe()'s own answer, so the span repaints when —
-     and only when — the truth about the player has changed */
+     and only when — the truth about the player has changed.
+
+     THE LEVEL IS PART OF THAT TRUTH and has to be in the stamp. It was
+     not, at first, and the bug that produced is quiet and nasty: face,
+     border and photo are all unchanged when you level up, so the stamp
+     matched, the early return fired, and every avatar on the screen
+     went on displaying the old number until something else about the
+     player happened to change. The badge would have looked broken in
+     exactly the situation it exists for. */
   var d = XP.describe(name, o);
-  var stamp = o.size + '|' + d.face + '|' + (d.border || '') + '|' + (d.pic || '');
+  var stamp = o.size + '|' + d.face + '|' + (d.border || '') + '|' + (d.pic || '') +
+              '|' + levelFor(o, d);
   if (el.getAttribute('data-kx-done') === stamp) return;
   el.innerHTML = avatarHTML(name, o);
   wirePics(el);
@@ -502,6 +521,37 @@ function injectCSS(){
   '#scr-kx .kx-st.earn{background:rgba(255,197,66,.14);color:var(--gold,#FFC542)}' +
   '#scr-kx .kx-how{display:block;margin-top:3px;color:var(--gold,#FFC542);font-weight:800;' +
     'font-size:10px;letter-spacing:.06em;text-transform:uppercase}' +
+
+  /* ── THE SHELF: one row per slot ──────────────────────────────
+     Deliberately built out of .kx-it's own grid, one size up, so a
+     slot row and the items inside it are visibly the same kind of
+     object — you tap a row that looks like this and land in a list of
+     things that look like this. Three lines of text, not two: what
+     the slot is, what you are wearing, and what the slot is for. */
+  '#scr-kx .kx-shelf{display:flex;flex-direction:column;gap:9px;flex:0 0 auto}' +
+  '#scr-kx .kx-slotrow{display:grid;grid-template-columns:60px minmax(0,1fr) auto;' +
+    'align-items:center;column-gap:13px;padding:12px 11px;border-radius:16px;width:100%;' +
+    'text-align:left;background:var(--panel,#1B1430);' +
+    'border:1px solid var(--line,rgba(255,255,255,.10))}' +
+  '#scr-kx .kx-slotrow:active{transform:scale(.985)}' +
+  '#scr-kx .kx-slotrow .kx-pv{width:60px;height:60px;background:none;border:0}' +
+  '#scr-kx .kx-slotrow .kx-nm i{color:var(--gold,#FFC542);font-weight:800;' +
+    'font-size:11.5px;letter-spacing:.02em}' +
+  '#scr-kx .kx-slotrow .kx-nm u{display:block;margin-top:3px;text-decoration:none;' +
+    'font-size:10.5px;line-height:1.4;color:var(--dim2,#7F73A0)}' +
+  '#scr-kx .kx-slotn{flex:0 0 auto;display:flex;align-items:center;gap:5px;' +
+    'font-family:var(--disp);font-weight:900;font-size:13px;color:var(--txt,#F4EFFF)}' +
+  '#scr-kx .kx-slotn small{font-size:10px;font-weight:800;color:var(--dim2,#7F73A0)}' +
+  '#scr-kx .kx-slotn .ico{font-size:15px;color:var(--dim2,#7F73A0)}' +
+  /* the way back up, at the top of the list where a thumb expects it */
+  '#scr-kx .kx-slotback{flex:0 0 auto;align-self:flex-start;display:flex;align-items:center;' +
+    'gap:6px;margin:0 0 4px;padding:7px 12px 7px 9px;border-radius:999px;' +
+    'background:rgba(255,255,255,.06);border:1px solid var(--line,rgba(255,255,255,.10));' +
+    'font-family:var(--disp);font-weight:900;font-size:10px;letter-spacing:.11em;' +
+    'text-transform:uppercase;color:var(--dim,#A093C4);min-height:34px}' +
+  '#scr-kx .kx-slotback .ico{font-size:14px}' +
+  '#scr-kx .kx-foot3{flex:0 0 auto;margin:12px 2px 0;font-size:10.5px;line-height:1.55;' +
+    'color:var(--dim2,#7F73A0)}' +
 
   /* ── the photograph row ── */
   '#scr-kx .kx-photo{cursor:pointer}' +
@@ -975,7 +1025,7 @@ function close(){
    keeps a MutationObserver as the safety net: the moment anything else
    switches a screen on we stand down instead of floating over it.
    ═══════════════════════════════════════════════════════════════════ */
-var SC = { el:null, live:false, watching:false, tab:'you', from:'home' };
+var SC = { el:null, live:false, watching:false, tab:'you', slot:'', from:'home' };
 
 /* EVERY game gets a tab, not only the ones that have put something on
    the shelf — "intory meed to be every game tab". A game with nothing
@@ -1114,13 +1164,27 @@ function renderScreen(){
     '<p class="kx-foot2">Levels never lock a game. Every game, every mode, ' +
       'every opponent is open from the first minute — this is only what it looks like.</p>';
 
-  $('#kx-back', el).onclick = closeScreen;
+  /* Back leaves the SLOT before it leaves the SCREEN. One button, two
+     depths: closing the whole wardrobe when the player only meant to
+     step out of the border list is the single most irritating thing a
+     nested screen can do, and it is also what the Android hardware
+     back button routes into. */
+  $('#kx-back', el).onclick = function(){
+    if (SC.tab === 'you' && SC.slot){
+      SC.slot = '';
+      sfx(function(S){ S.play('ui.back'); });
+      paintBody();
+      return;
+    }
+    closeScreen();
+  };
   $('#kx-face', el).onclick = function(){ openPicker({}); };
   $$('#kx-tabs button', el).forEach(function(b){
     b.onclick = function(){
       var t = b.getAttribute('data-t');
       if (t === SC.tab) return;
       SC.tab = t;
+      SC.slot = '';                /* a new tab always opens at its own top */
       sfx(function(S){ S.play('ui.tap'); });
       renderScreen();
     };
@@ -1149,12 +1213,102 @@ var SLOT_WORD = {
 };
 function slotWord(s){ return SLOT_WORD[s] || (s.charAt(0).toUpperCase() + s.slice(1)); }
 
-function paintBody(){
-  var host = $('#kx-body', SC.el);
-  if (!host) return;
+/* ═══════════════════════════════════════════════════════════════════
+   YOU — A SHELF OF SLOTS, NOT ONE LONG LIST
 
-  if (SC.tab === 'you'){
-    host.innerHTML = photoHTML() +
+   It used to be a single scroll: the photo tile, then every drawn face,
+   then every border, one after the other. That works while there are
+   two kinds of thing and stops working the moment there is a third —
+   the border ladder is already twelve items deep, so choosing a face
+   meant scrolling past somebody else's category to reach it, and
+   anything added later would land at the bottom where nobody goes.
+
+   So YOU is now a shelf: one row per slot, each showing what you are
+   wearing and how much of that slot you own, and opening into its own
+   list. Adding a slot later is one entry in SLOTS and nothing else —
+   which is the whole reason for doing it now, while there are two.
+   ═══════════════════════════════════════════════════════════════════ */
+var SLOTS = [
+  { id:'face',   name:'Your face',
+    hint:'The drawn faces, or a photograph of your own.' },
+  { id:'border', name:'Your border',
+    hint:'The ring around it. This is the one everyone else sees.' }
+];
+
+function myName(){
+  try { if (window.KARTI && KARTI.displayName) return KARTI.displayName() || ''; } catch (e){}
+  return '';
+}
+
+function slotCount(id){
+  var n = 0, i, list;
+  if (id === 'face'){
+    list = XP.faces();
+    for (i = 0; i < list.length; i++) if (XP.ownsFace(list[i].id)) n++;
+    /* a photograph is a face you own, so it counts as one when it exists */
+    return { own:n + (XP.hasPhoto() ? 1 : 0), all:list.length + 1 };
+  }
+  list = XP.borders();
+  for (i = 0; i < list.length; i++) if (XP.owns(list[i].id)) n++;
+  return { own:n, all:list.length };
+}
+
+/* what is on right now, in words, under the slot's name */
+function slotWorn(id){
+  var d;
+  if (id === 'face'){
+    if (XP.usingPhoto() && XP.hasPhoto()) return 'Your photograph';
+    d = XP.face(XP.avatar());
+    return d ? d.name : 'A face';
+  }
+  d = XP.def(XP.border());
+  return d ? d.name : 'No border';
+}
+
+function paintYou(host){
+  /* the shelf */
+  if (!SC.slot){
+    host.innerHTML =
+      '<div class="kx-shelf">' +
+      SLOTS.map(function(s){
+        var c = slotCount(s.id);
+        return '<button type="button" class="kx-slotrow" data-slot="' + esc(s.id) + '">' +
+          '<span class="kx-pv">' +
+            avatarHTML(myName(), {
+              size:56,
+              /* the border row previews the BORDER on your real face, and
+                 the face row previews the face without one, so each row
+                 shows the thing it is actually about */
+              noBorder: s.id === 'face' }) +
+          '</span>' +
+          '<span class="kx-nm"><b>' + esc(s.name) + '</b>' +
+            '<i>' + esc(slotWorn(s.id)) + '</i>' +
+            '<u>' + esc(s.hint) + '</u></span>' +
+          '<span class="kx-slotn">' + c.own + '<small>/' + c.all + '</small>' +
+            ico('arrow-right') + '</span></button>';
+      }).join('') +
+      '</div>' +
+      '<p class="kx-foot3">Everything here is paint. Nothing on this screen ' +
+        'changes a single rule in a single game.</p>';
+
+    $$('.kx-slotrow', host).forEach(function(b){
+      b.onclick = function(){
+        SC.slot = b.getAttribute('data-slot');
+        sfx(function(S){ S.play('ui.tap'); });
+        paintBody();
+        repaintAvatars(SC.el);
+      };
+    });
+    repaintAvatars(host);
+    return;
+  }
+
+  /* inside a slot */
+  var back = '<button type="button" class="kx-slotback" id="kx-slotback">' +
+    ico('back') + 'All of you</button>';
+
+  if (SC.slot === 'face'){
+    host.innerHTML = back + photoHTML() +
       '<p class="kx-slot">The drawn faces</p>' +
       XP.faces().map(function(f){
         var got = XP.ownsFace(f.id), on = !XP.usingPhoto() && XP.avatar() === f.id;
@@ -1164,10 +1318,7 @@ function paintBody(){
                '<span class="kx-nm"><b>' + esc(f.name) + '</b><i>' + esc(f.blurb) + '</i></span>' +
                '<span class="kx-st ' + (on ? 'on' : got ? '' : 'lock') + '">' +
                  (on ? 'Worn' : got ? 'Wear' : ico('lock') + 'Lv ' + f.lvl) + '</span></button>';
-      }).join('') +
-      '<p class="kx-slot">The border</p>' +
-      XP.borders().map(function(d){ return itemHTML(d, XP.border() === d.id); }).join('');
-
+      }).join('');
     wirePhoto(host);
     $$('.kx-it[data-face]', host).forEach(function(b){
       b.onclick = function(){
@@ -1181,10 +1332,28 @@ function paintBody(){
         renderScreen();
       };
     });
+  } else {
+    host.innerHTML = back +
+      '<p class="kx-slot">The border</p>' +
+      XP.borders().map(function(d){ return itemHTML(d, XP.border() === d.id); }).join('');
     wireItems(host);
     drawPreviews(host, 'karti');
-    return;
   }
+
+  var bk = $('#kx-slotback', host);
+  if (bk) bk.onclick = function(){
+    SC.slot = '';
+    sfx(function(S){ S.play('ui.back'); });
+    paintBody();
+  };
+  repaintAvatars(host);
+}
+
+function paintBody(){
+  var host = $('#kx-body', SC.el);
+  if (!host) return;
+
+  if (SC.tab === 'you'){ paintYou(host); return; }
 
   var list = XP.defsFor(SC.tab);
   if (!list.length){

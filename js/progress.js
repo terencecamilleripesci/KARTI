@@ -322,7 +322,9 @@ function register(defs){
            and it is why these two are the only cosmetics in the set
            whose level is meaningless. {how: one sentence, test: fn} */
         earn: (d.earn && typeof d.earn.test === 'function')
-                ? { how:String(d.earn.how || ''), test:d.earn.test } : null
+                ? { how:String(d.earn.how || ''), test:d.earn.test,
+                    /* asked every time and never remembered — see owns() */
+                    live:!!d.earn.live } : null
       };
       def.key = def.game + '.' + def.slot;
       if (!DEFS[id]) ORDER.push(id);
@@ -398,6 +400,17 @@ function owns(id){
   var d = DEFS[id];
   if (!d) return false;
   var p = root();
+  /* A LIVE test is asked every single time and is never written down.
+     "Once earned, always yours" is right for an achievement — a streak
+     border must survive the eleventh game being a loss — but it is
+     exactly wrong for an identity one. Tempesta is owned by WHO YOU
+     ARE, not by what you did, so the moment that stops being true it
+     has to stop being yours; a sticky answer would leave it sitting in
+     the wardrobe of the next person to sign in on the same phone, and
+     a one-of-a-kind item that two people have is not one. */
+  if (d.earn && d.earn.live){
+    try { return !!d.earn.test(); } catch (e){ return false; }
+  }
   /* once earned, always yours — the test is run until it passes and
      then the answer is written down, so a border won with a ten-game
      streak is not taken away by the eleventh game being a loss */
@@ -1209,10 +1222,34 @@ function storyDone(){
   } catch (e){ return false; }
 }
 
+/* ── THE ONE THAT IS NOT EARNED ────────────────────────────────────
+   Tempesta belongs to the account that owns the game. The test is the
+   signed-in account NAME, normalised — not the local device, because
+   the whole point is that it follows him onto any phone he signs into,
+   and not the display name, because that is free to change.
+
+   ADMIN_NAMES is an exact list, not a prefix match: `startsWith` would
+   hand a one-of-a-kind border to anybody who registered "terence2",
+   which is precisely the failure a one-of-a-kind item cannot have. If
+   his relay account turns out to be spelled differently, this list is
+   the one line to change. */
+var ADMIN_NAMES = { terence:1, terencecamilleri:1, terencecamilleripesci:1 };
+function isAdmin(){
+  try {
+    var k = String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    /* an unsigned-in device falls back to a local key, which must never
+       match — so a guest on his own phone does not inherit it */
+    if (!k || !session()) return false;
+    return !!ADMIN_NAMES[k];
+  } catch (e){ return false; }
+}
+
 var EARN_TEST = { streak: function(){ return bestStreakAnywhere() >= 10; },
-                  story:  storyDone };
+                  story:  storyDone,
+                  admin:  isAdmin };
 var EARN_HOW  = { streak: 'Win ten in a row in any one game',
-                  story:  'Clear every boss in Story Mode' };
+                  story:  'Clear every boss in Story Mode',
+                  admin:  'Not available. There is one, and it is spoken for.' };
 
 function registerBorders(){
   var B = [];
@@ -1226,8 +1263,10 @@ function registerBorders(){
       name: b.name,
       blurb: b.blurb,
       level: b.lvl || 0,
-      sort: b.id === 'none' ? -1 : (b.earn ? 90 : (b.lvl || 0)),
-      earn: b.earn ? { how: EARN_HOW[b.earn], test: EARN_TEST[b.earn] } : null,
+      /* the one-of-one sorts last of all, below even the earned ones */
+      sort: b.id === 'none' ? -1 : (b.solo ? 99 : (b.earn ? 90 : (b.lvl || 0))),
+      earn: b.earn ? { how: EARN_HOW[b.earn], test: EARN_TEST[b.earn],
+                       live: b.earn === 'admin' } : null,
       /* the preview is the border doing its actual job: a real
          medallion, wearing the player's own face, at the size the
          inventory draws it. Nothing to imagine. */

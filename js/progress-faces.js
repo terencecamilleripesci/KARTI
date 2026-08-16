@@ -308,10 +308,21 @@ function injectCSS(){
     '.kx-ring{position:absolute;inset:0;border-radius:inherit;pointer-events:none;' +
       '--kx-bw:max(2px,calc(var(--kx-size,38px) * .075));--kx-fb:rgba(255,255,255,.5)}' +
     '.kx-av>.kx-ring{z-index:2}' +
-    /* centred on the bottom edge and overlapping it, so it reads as part of
-       the ring rather than as something stuck underneath the face. Sized from
-       --kx-size so one rule covers a 44px seat plate and a 96px picker tile. */
-    '.kx-av>.kx-lvb{position:absolute;z-index:3;left:50%;bottom:calc(var(--kx-size,38px) * -0.06);' +
+    /* THE LEVEL SITS INSIDE THE RING, and this is why it has to.
+
+       The medallion is `overflow:hidden` — it has to be, or a photograph
+       would spill out of the rounded corners it was cropped to. So a badge
+       hung BELOW the bottom edge does not hang, it is guillotined: the
+       first version used bottom:-6% and every level on every one of the
+       twelve borders came out sliced flat across the digits. It read as a
+       rendering fault rather than as a badge.
+
+       Sitting it just inside the edge costs nothing — it still overlaps
+       the band, so it still reads as part of the border — and it cannot be
+       cut, because there is no longer anything of it outside the box doing
+       the cutting. Sized entirely from --kx-size, so one rule covers a
+       44px seat plate and a 96px picker tile. */
+    '.kx-av>.kx-lvb{position:absolute;z-index:3;left:50%;bottom:calc(var(--kx-size,38px) * .022);' +
       'transform:translateX(-50%);min-width:calc(var(--kx-size,38px) * .34);' +
       'height:calc(var(--kx-size,38px) * .26);padding:0 calc(var(--kx-size,38px) * .07);' +
       'border-radius:999px;display:grid;place-items:center;' +
@@ -319,7 +330,13 @@ function injectCSS(){
       'font-size:calc(var(--kx-size,38px) * .19);letter-spacing:.02em;' +
       'background:linear-gradient(180deg,#FFD873,#F0A81E);color:#2A1B0C;' +
       'border:calc(var(--kx-size,38px) * .028) solid ' + INK + ';' +
-      'box-shadow:0 1px 2px rgba(0,0,0,.45)}' +
+      'box-shadow:0 1px 3px rgba(0,0,0,.6)}' +
+    /* On the one border that is pure black, gold-on-black is the only
+       pairing in the set that does not carry its own contrast — so the
+       admin badge takes the storm's colours instead of the ladder's. */
+    '.kx-av:has(>.kx-r-tempesta)>.kx-lvb{' +
+      'background:linear-gradient(180deg,#E4D6FF,#9B6BFF);color:#160B2E;' +
+      'border-color:#2A0F4E;box-shadow:0 0 calc(var(--kx-size,38px) * .12) rgba(155,107,255,.85)}' +
 
     /* the patterned ones are ONE technique: a full-bleed background
        masked down to the band. Unsupported engines never see the mask
@@ -397,7 +414,57 @@ function injectCSS(){
        the phone's, and the app's own Reduce motion in Settings. */
     '@media (prefers-reduced-motion:reduce){' +
       '.kx-r-gold::before{animation:none;transform:rotate(-.12turn)}}' +
-    '.reduced .kx-r-gold::before{animation:none;transform:rotate(-.12turn)}';
+    '.reduced .kx-r-gold::before{animation:none;transform:rotate(-.12turn)}' +
+
+    /* ═══ TEMPESTA — THE ONE THAT IS NOT FOR SALE ═══════════════════
+       Gold is the top of the ladder and it glows warm; this one had to
+       be unmistakably NOT that, at a glance, on a 44px seat plate,
+       across a room. So it inverts every choice gold makes: the band is
+       near-black instead of bright, the highlight is a pair of thin
+       cold spikes instead of one broad warm sweep, and it does not
+       rotate smoothly — it stutters.
+
+       WHY THE STUTTER IS THE WHOLE TRICK. Lightning is not a moving
+       light, it is a still light that stops existing. A conic gradient
+       turning at a constant rate reads as a polished chrome sweep, which
+       is gold's job. Rotating it and flickering the opacity on a
+       `steps()` timeline — two spikes at .35 opacity, then one frame at
+       full, then dark — reads as a storm, and the two animations are on
+       `transform` and `opacity` ONLY, so it is still nothing but the
+       compositor moving a layer it already rasterised. No timer, no
+       JavaScript, no per-avatar state. Same cost as gold.
+
+       The aura is a drop-shadow on the MEDALLION, not on the ring:
+       .kx-ring.pat is mask-composited down to the band, and a mask
+       clips an outer shadow away completely (this was tried — the glow
+       simply never appeared). The parent is not masked, so the glow
+       survives there. :has() is guarded; an engine without it gets the
+       storm without the halo, which is still the right border. */
+    '.kx-r-tempesta{--kx-fb:#7B4BD8;' +
+      '--kx-pat:conic-gradient(from 0turn,#0A0611 0turn,#1A0F33 .12turn,' +
+        '#0A0611 .2turn,#5B2FB0 .235turn,#C9A6FF .25turn,#FFFFFF .258turn,' +
+        '#C9A6FF .266turn,#5B2FB0 .28turn,#0A0611 .34turn,' +
+        '#0A0611 .68turn,#7B4BD8 .73turn,#EBDCFF .75turn,#7B4BD8 .77turn,' +
+        '#0A0611 .82turn,#0A0611 1turn);' +
+      'overflow:hidden}' +
+    '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
+      '.kx-r-tempesta{background-image:none}' +
+      '.kx-r-tempesta::before{content:"";position:absolute;inset:-45%;' +
+        'background:var(--kx-pat);' +
+        'animation:kxStorm 5.6s linear infinite,kxArc 2.3s steps(1,end) infinite}}' +
+    '@keyframes kxStorm{from{transform:rotate(0turn)}to{transform:rotate(1turn)}}' +
+    /* dark for most of the cycle, one hot frame, then dark again */
+    '@keyframes kxArc{0%,58%{opacity:.34}60%{opacity:1}64%{opacity:.5}' +
+      '66%{opacity:1}72%,100%{opacity:.34}}' +
+    '@supports selector(:has(*)){' +
+      '.kx-av:has(>.kx-r-tempesta){' +
+        'filter:drop-shadow(0 0 calc(var(--kx-size,38px) * .1) rgba(123,75,216,.9))' +
+        ' drop-shadow(0 0 calc(var(--kx-size,38px) * .22) rgba(90,40,180,.55))}}' +
+    /* Still, it is a black ring with the arc parked where the key light
+       falls on everything else in this app — not a disabled one. */
+    '@media (prefers-reduced-motion:reduce){' +
+      '.kx-r-tempesta::before{animation:none;transform:rotate(-.12turn);opacity:1}}' +
+    '.reduced .kx-r-tempesta::before{animation:none;transform:rotate(-.12turn);opacity:1}';
   document.head.appendChild(st);
 }
 
@@ -420,14 +487,22 @@ var BORDERS = [
   { id:'story',    name:'Village Champion', lvl:0,  earn:'story',
     blurb:'All eight bosses. The village is yours, apparently.' },
   { id:'gold',     name:'Kampjun Gold',     lvl:25, anim:true,
-    blurb:'It moves. Everyone in the lobby will see that it moves.' }
+    blurb:'It moves. Everyone in the lobby will see that it moves.' },
+  /* ONE OF ONE. Not the top of the ladder — off the ladder entirely.
+     It has no level, because no amount of play reaches it, and that is
+     the point: everything else in this list is a promise to the player
+     that grinding gets them there, and this is the single thing in the
+     app that is honest about not being for sale. It belongs to the man
+     whose game it is. See EARN_TEST.admin in js/progress.js. */
+  { id:'tempesta', name:'Tempesta',         lvl:0,  earn:'admin', anim:true, solo:true,
+    blurb:'Black, and there is lightning in it. One of these exists.' }
 ];
 var B_BY = {};
 for (var bi = 0; bi < BORDERS.length; bi++) B_BY[BORDERS[bi].id] = BORDERS[bi];
 
 /* which borders are painted as a masked band rather than as an inset
    box-shadow — the gradients and the patterns */
-var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1 };
+var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1, tempesta:1 };
 var B_RE = /^[a-z]{2,12}$/;
 function ringHTML(id){
   if (!id || id === 'none' || !B_RE.test(id) || !B_BY[id]) return '';
