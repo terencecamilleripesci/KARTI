@@ -1025,7 +1025,7 @@ function settingsSheet(){
             ? '<button class="btn ghost" id="st-cloud">' + ilb('cloud', 'Cloud save') +
               '<span class="sub">sync now · sign this phone out · backups</span></button>'
             : '<button class="btn ghost" id="st-cloud">' +
-              ilb('save', ACTIVE === GUEST ? 'Create an account' : 'Put this game in the cloud') +
+              ilb('save', 'Create an account') +
               '</button>')
         + '</div>'
       : '') +
