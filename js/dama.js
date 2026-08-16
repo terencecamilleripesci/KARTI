@@ -530,14 +530,17 @@ function tap(i){
 
   const st = G.st, p = st.b[i];
   if (p && isBk(p) === st.black){
-    if (G.sel === i){ G.sel = -1; G.marks = []; render(); return; }
+    if (G.sel === i){ G.sel = -1; G.marks = []; SFX() && SFX().boardCancel(); render(); return; }
     const mine = genMoves(st).filter(m => m.path[0] === i);
     G.sel = i;
+    SFX() && SFX().boardPick('dama');
     G.marks = firstHops(mine);
     if (!mine.length)
-      K.toast && K.toast(genJumps(st).length
-        ? 'There is a take on the board. You have to take it.'
-        : 'That one is not going anywhere.');
+      { const forced = genJumps(st).length > 0;
+        SFX() && SFX().boardIllegal({ forced });
+        K.toast && K.toast(forced
+          ? 'There is a take on the board. You have to take it.'
+          : 'That one is not going anywhere.'); }
     render();
     return;
   }
@@ -580,6 +583,37 @@ function advance(to){
   render();
 }
 
+/* ── sound ────────────────────────────────────────────────────────────────
+   js/sfx.js owns the noises; this file only reports what happened. All of it
+   is optional and a no-op when sfx.js is absent or sound is off.
+   The chain is the good one: boardChain() is called PER HOP, so a four-jump
+   sweep rises 7% in pitch a hop with a pentatonic note climbing under it and
+   announces itself as a four-jump sweep before you have finished counting. */
+const SFX = () => window.KARTI_SFX || null;
+function sfxPlay(st, m){
+  const S = SFX(); if (!S) return;
+  const hops = (m.caps && m.caps.length) || 0;
+  /* crowning is not a flag on the move: a man is crowned when it ENDS on the
+     far rank, which is exactly the test applied() makes. Read it the same way
+     rather than inventing a second source of truth that can drift. */
+  let crowned = false;
+  try {
+    const from = m.path[0], to = m.path[m.path.length - 1];
+    crowned = typ(st.b[from]) === MAN && RANK(to) === (st.black ? 7 : 0);
+  } catch(e){ crowned = false; }
+
+  if (hops > 0){
+    /* one call per hop: the clack rises 7% each time and a pentatonic note
+       climbs under it, so the board announces a four-jump sweep as a
+       four-jump sweep. Spaced so they read as separate takes. */
+    for (let h = 1; h <= hops; h++)
+      setTimeout(function(){ S.boardChain(h, hops); }, (h - 1) * 150);
+  } else {
+    S.boardMove({ game: 'dama' });
+  }
+  if (crowned) setTimeout(function(){ S.boardCrown(); }, hops * 150 + 120);
+}
+
 function play(m, fromNet){
   const st = G.st;
   if (online() && !fromNet && G.tb) G.tb.cancel(true);
@@ -588,6 +622,7 @@ function play(m, fromNet){
   G.hist.push({ st: clone(st), last: G.last, lastText: G.lastText,
                 keys: Object.assign({}, G.keys) });
   const text = notate(m);
+  sfxPlay(st, m);
   G.st = applied(st, m);
   G.last = m.path.slice();
   G.lastText = text;
@@ -614,6 +649,7 @@ function maybeAI(){
     G.hist.push({ st: clone(G.st), last: G.last, lastText: G.lastText,
                   keys: Object.assign({}, G.keys) });
     G.lastText = notate(m);
+    sfxPlay(G.st, m);
     G.st = applied(G.st, m);
     G.last = m.path.slice();
     const key = posKey(G.st);
@@ -669,6 +705,10 @@ function askTakeback(){
    or drawn. Every ending comes through here, so there is exactly one line to
    hook for anything that wants to record a finished game. */
 function finish(s){
+  { const S = SFX();
+    if (S){ const meB = (G.mode === 'pnp') ? null : (G.human === 'b');
+      S.boardEnd({ draw: !s.win,
+                   win: s.win && meB !== null ? ((s.win === 'b') === meB) : false }); } }
   G.over = s;
   G.sel = -1; G.marks = []; G.chain = null;
   if (G.tb) G.tb.cancel(true);

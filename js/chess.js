@@ -872,9 +872,10 @@ function tap(i){
   if (mark){ choose(mark); return; }
   const p = st.b[i];
   if (p && ((isB(p) ? 'b' : 'w') === (st.black ? 'b' : 'w'))){
-    if (G.sel === i){ G.sel = -1; G.marks = []; }
+    if (G.sel === i){ G.sel = -1; G.marks = []; SFX() && SFX().boardCancel(); }
     else {
       G.sel = i;
+      SFX() && SFX().boardPick('chess');
       const all = genMoves(st).filter(m => m.from === i);
       /* the four promotion moves share one square — one mark each square */
       const seen = {};
@@ -930,6 +931,23 @@ function promoPicker(alts){
   over.querySelector('button').focus();
 }
 
+/* ── sound ────────────────────────────────────────────────────────────────
+   js/sfx.js owns the noises; this file only says WHAT happened. Everything
+   is optional: with sfx.js absent, or the player's sound off, every call
+   below is a no-op. Board squares are deliberately excluded from the
+   delegated auto-wire layer precisely so a move can have its own sound
+   instead of a generic UI tap, which is why these calls have to exist. */
+const SFX = () => window.KARTI_SFX || null;
+function sfxMove(st, m){
+  const S = SFX(); if (!S) return;
+  S.boardMove({ game:'chess', capture: !!m.cap, castle: !!(m.fl & (F_CK | F_CQ)),
+                promo: !!m.promo });
+}
+function sfxCheck(st){
+  const S = SFX(); if (!S) return;
+  try { if (inCheck(st)) S.boardCheck(); } catch(e){}
+}
+
 function play(m, fromNet){
   const st = G.st;
   /* moving on withdraws any takeback question that was still in the air */
@@ -939,6 +957,7 @@ function play(m, fromNet){
   if (online() && !fromNet && G.net) G.net.send('move', wireOf(m), fingerprint(st));
   G.hist.push({ st: clone(st), last: G.last, lastSan: G.lastSan, keys: Object.assign({}, G.keys) });
   const text = san(st, m);
+  sfxMove(st, m);
   G.st = applied(st, m);
   G.last = { from:m.from, to:m.to };
   G.lastSan = text;
@@ -948,6 +967,7 @@ function play(m, fromNet){
   render();
   const s = status(G.st, G.keys[key]);
   if (s.end){ finish(s); return; }
+  sfxCheck(G.st);
   maybeAI();
 }
 
@@ -965,6 +985,7 @@ function maybeAI(){
     G.thinking = false;
     if (!m){ render(); return; }
     const text = san(G.st, m);
+    sfxMove(G.st, m);
     G.hist.push({ st: clone(G.st), last: G.last, lastSan: G.lastSan, keys: Object.assign({}, G.keys) });
     G.st = applied(G.st, m);
     G.last = { from:m.from, to:m.to };
@@ -973,7 +994,8 @@ function maybeAI(){
     G.keys[key] = (G.keys[key] || 0) + 1;
     render();
     const s = status(G.st, G.keys[key]);
-    if (s.end) finish(s);
+    if (s.end) return finish(s);
+    sfxCheck(G.st);
   }, 60);
 }
 
@@ -1032,6 +1054,10 @@ function askTakeback(){
 function finish(s){
   G.over = s;
   G.sel = -1; G.marks = [];
+  { const S = SFX();
+    if (S){ const meW = (G.mode === 'pnp') ? null : (G.human === 'w');
+      S.boardEnd({ mate: s.end === 'mate', draw: !s.win,
+                   win: s.win && meW !== null ? ((s.win === 'w') === meW) : false }); } }
   if (G.tb) G.tb.cancel(true);          /* no takeback survives the full stop */
   render();
 
