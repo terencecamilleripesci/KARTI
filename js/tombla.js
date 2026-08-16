@@ -51,6 +51,19 @@
                    column carries between one and three numbers, and
                    the numbers inside a column run downwards in order.
 
+   THE ĠOG.        A player is not handed a kartella, they are handed a
+                   ĠOG: one sheet of SIX cartelli which between them
+                   carry all ninety numbers exactly once. That is how
+                   it is sold and how it is played, and it is the
+                   default here. It means every number called is on
+                   your sheet somewhere, so you mark on every single
+                   call — ninety times, not fifteen — and the question
+                   stops being "is it mine" and becomes "which of my
+                   six". Fewer cartelli are offered for a short game
+                   between two people. See IL-ĠOG further down for the
+                   construction, and deal() for why no two players can
+                   ever be given the same arrangement.
+
    THE COLUMNS.    Column 1 holds 1-9, column 2 holds 10-19, ... ,
                    column 8 holds 70-79, and column 9 holds 80-90.
                    9 + (7 x 10) + 11 = 90.
@@ -178,7 +191,16 @@
       moving instead of letting a forgotten ambo be cashed in after the
       tombla.)
 
-   3. A FALSE CLAIM COSTS YOU.
+   3. THE HOST MAY STOP THE ANUNZJATUR, AND ONLY THE ANUNZJATUR.
+      Pause draws no new number and stops nothing else. Everybody goes
+      on marking, and everybody may still claim, because the person the
+      pause exists for is the one who fell behind and has just found an
+      ambo they have been sitting on for three calls. The machine seats
+      are held for the same reason. It is a state, not a stopped timer,
+      so all eight phones agree about it. Full reasoning at the 'pause'
+      branch of apply().
+
+   4. A FALSE CLAIM COSTS YOU.
       Tap AMBO without one and the claim is refused and that seat is
       locked out of claiming for a few seconds. Otherwise the optimal
       strategy is to hammer every button every call, which is not a
@@ -251,20 +273,88 @@ const LO = [ 1, 10, 20, 30, 40, 50, 60, 70, 80];
 const HI = [ 9, 19, 29, 39, 49, 59, 69, 79, 90];
 const colOf = n => (n <= 9 ? 0 : n >= 80 ? 8 : Math.floor(n / 10));
 
-/* ── how many numbers each column gets ─────────────────────────────
-   Every column carries at least one (a card with a whole empty column
-   looks broken and is not what a cartella looks like), at most three
-   (three is the whole height), and they sum to fifteen. Start at one
-   each — that is nine — and hand out the remaining six. */
-function colCounts(st){
-  const c = [1,1,1,1,1,1,1,1,1];
-  let extra = ON_CARD - COLS;                 /* 6 */
-  let guard = 0;
-  while (extra > 0 && guard++ < 400){
-    const j = rint(st, COLS);
-    if (c[j] < ROWS){ c[j]++; extra--; }
+/* ═══════════════════════════════════════════════════════════════════
+   IL-ĠOG — THE SHEET OF SIX
+   ───────────────────────────────────────────────────────────────────
+   You do not buy a kartella in Malta. You buy a ĠOG: one sheet with
+   SIX cartelli printed on it, and the six between them carry all
+   ninety numbers exactly once. That is how it is sold, that is what is
+   in front of everybody at the table, and it is the reason the column
+   layout at the top of this file has to be nine wide at the left and
+   eleven wide at the right — 9 + (7 x 10) + 11 = 90 only partitions
+   into six sheets of fifteen if the ends are those sizes. The header
+   argued that months before the deal did it.
+
+   WHAT THE ĠOG CHANGES ABOUT THE GAME
+   Every number that comes out of the bag is on your sheet somewhere.
+   Always. So the question stops being "is it mine" and becomes "WHICH
+   of my six, and where" — and you mark on every single call, ninety
+   times, instead of fifteen. That is the real game and it is why the
+   room goes quiet.
+
+   AND THE THING THAT MAKES IT A GAME AT ALL
+   If every sheet holds all ninety numbers, then every sheet holds the
+   SAME NUMBERS. The only thing that can differ between two players —
+   and therefore the only thing the entire game turns on — is how those
+   ninety are split across the six cartelli and how they fall into rows.
+   Two players dealt the same arrangement would mark identically, fill
+   identically and tie on every prize forever, and nothing on screen
+   would ever tell you why. See deal() for how that is made impossible
+   rather than merely unlikely.
+   ═══════════════════════════════════════════════════════════════════ */
+const GOG = 6;
+/* how many numbers each column has to place across the whole sheet */
+const COL_TOTAL = LO.map((lo, j) => HI[j] - lo + 1);   /* 9,10×7,11 */
+
+/* ── how many of each column land on each of the six ───────────────
+   A 6 x 9 matrix. Every cell is 1..3 (a cartella never has an empty
+   column and never more than three, because three is the whole
+   height), every ROW sums to fifteen, and every COLUMN sums to that
+   column's share of the ninety. Get this right and the partition of
+   1..90 falls out for free further down.
+
+   Filled by water-level: repeatedly take the column with the most
+   still to place, and give one to the cartella that still needs the
+   most — preferring, among equals, the cartella that has fewest of
+   that column already.
+
+   The column end of that pair can never jam: six cartelli can absorb
+   twelve extras in one column and no column ever wants more than five.
+   The cartella end can, in principle, jam very late, which is why
+   there is a bounded retry — and why the harness counts how often it
+   fires (answer, over hundreds of thousands of sheets: never). */
+function gogCounts(st){
+  for (let attempt = 0; attempt < 60; attempt++){
+    const c = [];
+    for (let t = 0; t < GOG; t++) c.push([1,1,1,1,1,1,1,1,1]);
+    const rem  = COL_TOTAL.map(v => v - GOG);            /* 3,4×7,5 = 36 */
+    const need = new Array(GOG).fill(ON_CARD - COLS);    /* 6 each  = 36 */
+    let left = 0;
+    for (const v of rem) left += v;
+    let stuck = false;
+
+    while (left > 0){
+      let bj = -1, bv = -1;
+      for (let j = 0; j < COLS; j++){
+        if (rem[j] <= 0) continue;
+        const v = rem[j] * 8 + rint(st, 8);              /* random among equals */
+        if (v > bv){ bv = v; bj = j; }
+      }
+      let bt = -1, bw = -1;
+      for (let t = 0; t < GOG; t++){
+        if (need[t] <= 0 || c[t][bj] >= ROWS) continue;
+        const w = need[t] * 64 + (ROWS - c[t][bj]) * 8 + rint(st, 8);
+        if (w > bw){ bw = w; bt = t; }
+      }
+      if (bt < 0){ stuck = true; break; }
+      c[bt][bj]++; rem[bj]--; need[bt]--; left--;
+    }
+    if (stuck) continue;
+    let ok = true;
+    for (const n of need) if (n !== 0) ok = false;
+    if (ok) return c;
   }
-  return c;
+  return null;
 }
 
 /* ── which rows those numbers sit in ───────────────────────────────
@@ -301,28 +391,85 @@ function occupancy(st, c){
   return grid;
 }
 
-/* ── the finished cartella ─────────────────────────────────────────
-   Numbers inside a column run downwards, which is how a printed one
-   reads and how your eye finds a number in a hurry. */
-function makeCard(st){
-  for (let attempt = 0; attempt < 40; attempt++){
-    const c = colCounts(st);
-    const grid = occupancy(st, c);
-    if (!grid) continue;
-    const cells = new Array(ROWS * COLS).fill(0);
+/* ── the finished sheet ────────────────────────────────────────────
+   Six cartelli. The partition of 1..90 is not checked for afterwards,
+   it is BUILT: each column's numbers are shuffled once and then dealt
+   out along the six cartelli in one pass, so every number is placed
+   exactly once and none is placed twice. Inside a cartella a column
+   still runs downwards, which is how a printed one reads and how your
+   eye finds a number in a hurry. */
+function makeGog(st){
+  for (let attempt = 0; attempt < 24; attempt++){
+    const c = gogCounts(st);
+    if (!c) continue;
+    const grids = [];
+    let bad = false;
+    for (let t = 0; t < GOG; t++){
+      const g = occupancy(st, c[t]);
+      if (!g){ bad = true; break; }
+      grids.push(g);
+    }
+    if (bad) continue;
+
+    const cards = [];
+    for (let t = 0; t < GOG; t++) cards.push(new Array(ROWS * COLS).fill(0));
     for (let j = 0; j < COLS; j++){
       const pool = [];
       for (let n = LO[j]; n <= HI[j]; n++) pool.push(n);
       shuffle(st, pool);
-      const picked = pool.slice(0, c[j]).sort((a, b) => a - b);
       let at = 0;
-      for (let r = 0; r < ROWS; r++){
-        if (grid[r * COLS + j]) cells[r * COLS + j] = picked[at++];
+      for (let t = 0; t < GOG; t++){
+        const mine = pool.slice(at, at + c[t][j]).sort((a, b) => a - b);
+        at += c[t][j];
+        let k = 0;
+        for (let r = 0; r < ROWS; r++)
+          if (grids[t][r * COLS + j]) cards[t][r * COLS + j] = mine[k++];
       }
     }
-    return cells;
+    return cards;
   }
   return null;
+}
+
+/* ── the fingerprint of ONE cartella, for "has anybody got this box" ──
+   Not the cells array: two cartelli that hold the same fifteen numbers
+   grouped into the same three rows will complete every line and the
+   tombla on exactly the same call, whichever ROW ORDER they are
+   printed in. So the signature is the three rows as number lists,
+   sorted among themselves. Two boxes with the same signature are the
+   same box as far as winning is concerned, and that is the only sense
+   that matters. */
+function cardSig(cells){
+  const rows = [];
+  for (let r = 0; r < ROWS; r++){
+    const a = [];
+    for (let j = 0; j < COLS; j++){ const n = cells[r * COLS + j]; if (n) a.push(n); }
+    rows.push(a.join('.'));
+  }
+  rows.sort();
+  return rows.join('|');
+}
+/* the whole sheet, as one string — the six box signatures, sorted */
+function gogSig(cards){ return cards.map(cardSig).sort().join('/'); }
+
+/* Is this a real ġog: six legal cartelli that between them carry
+   1..90 exactly once? Asserted by the harness, and used by load()
+   before it will accept a deal off the wire. */
+function gogIsLegal(cards){
+  if (!Array.isArray(cards) || cards.length !== GOG) return false;
+  const seen = new Uint8Array(91);
+  let total = 0;
+  for (const c of cards){
+    if (!cardIsLegal(c)) return false;
+    for (const n of c){
+      if (!n) continue;
+      if (seen[n]) return false;               /* twice on one sheet */
+      seen[n] = 1; total++;
+    }
+  }
+  if (total !== 90) return false;
+  for (let n = 1; n <= 90; n++) if (!seen[n]) return false;
+  return true;
 }
 
 /* Is this thing a legal cartella? Used by the test harness, and by
@@ -429,6 +576,127 @@ function holds(cells, marks, key){
   return best;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE CHECK — "read it back to me"
+   ───────────────────────────────────────────────────────────────────
+   holds() above says what the PLAYER'S COUNTERS claim. It is what arms
+   the shout button, and it is deliberately credulous: if you have put
+   five counters on one row then as far as your kartella is concerned
+   you have a ċinkwina, and you are entitled to shout.
+
+   checkClaim() is the room going quiet. It reads the marked squares
+   back against the numbers that were actually drawn, and it is the
+   only thing in this file that decides anything. Every phone runs it
+   on the same state and gets the same answer, so a claim is settled by
+   arithmetic that all eight of them can do, not by trusting the one
+   that shouted.
+
+   It never answers "no". It answers WHY, with a number in its hand:
+
+     short      you have not put enough counters on any one row
+     scattered  you have enough counters, but not on the same row
+     ghost      one of the numbers you marked never came out of the bag
+     ok         read back, every one of them, and they are all good
+
+   The specificity is the point twice over. It makes a wrong shout
+   funny instead of baffling, and it teaches somebody the rules without
+   ever showing them a tutorial.
+   ═══════════════════════════════════════════════════════════════════ */
+function calledSet(st){
+  const out = {};
+  for (const n of st.called) out[n] = 1;
+  return out;
+}
+
+/* the numbers a row's counters are sitting on, in reading order */
+function rowClaimed(cells, marks, r){
+  const out = [];
+  for (let j = 0; j < COLS; j++){
+    const i = r * COLS + j;
+    if (marks[i] && cells[i]) out.push(cells[i]);
+  }
+  return out;
+}
+function cardClaimed(cells, marks){
+  const out = [];
+  for (let i = 0; i < ROWS * COLS; i++) if (marks[i] && cells[i]) out.push(cells[i]);
+  return out;
+}
+
+function checkClaim(st, cells, marks, key){
+  const out = calledSet(st);
+  const need = (key === 'tombla') ? ON_CARD : (prizeAt(key) ? prizeAt(key).need : 0);
+
+  /* ── the full card ── */
+  if (key === 'tombla'){
+    const put = cardClaimed(cells, marks);
+    const read = put.slice().sort((a, b) => a - b);
+    const ghosts = read.filter(n => !out[n]);
+    if (put.length < ON_CARD)
+      return { ok:false, code:'short', need, have:put.length, read,
+               short: ON_CARD - put.length };
+    if (ghosts.length) return { ok:false, code:'ghost', read, ghosts, need };
+    return { ok:true, row:3, read };
+  }
+
+  /* ── a line ──
+     THE WHOLE ROW HAS TO BE CLEAN. A row qualifies only if it carries
+     at least `need` counters AND every single counter on it is on a
+     number that came out. Not "at least two of your five are good" —
+     if there is a wrong counter on the row you are claiming, the row
+     is wrong, and the caller reading it back will say which number.
+
+     That strictness is what makes the read-back mean anything. Under
+     the lenient reading a player could scatter counters over a row,
+     have two of them happen to be real, and be given an ambo while the
+     room watched four wrong numbers light up red — an award nobody
+     watching would have believed. It also costs an honest player
+     nothing, because an honest player has no wrong counters, and it
+     tells a careless one exactly which square to clear. */
+  let best = -1, bestPut = -1;
+  for (let r = 0; r < ROWS; r++){
+    const put = rowClaimed(cells, marks, r);
+    if (put.length < need) { if (put.length > bestPut){ best = r; bestPut = put.length; } continue; }
+    let clean = true;
+    for (const n of put) if (!out[n]) clean = false;
+    if (clean) return { ok:true, row:r, read:put };
+    if (put.length > bestPut){ best = r; bestPut = put.length; }
+  }
+  if (best < 0) best = 0;
+  const read = rowClaimed(cells, marks, best);
+  const ghosts = read.filter(n => !out[n]);
+  if (read.length >= need && ghosts.length)
+    return { ok:false, code:'ghost', row:best, read, ghosts, need };
+  /* not enough on any one row. Is it because they are spread about? */
+  const all = cardClaimed(cells, marks);
+  if (all.length >= need)
+    return { ok:false, code:'scattered', row:best, read, need,
+             have:read.length, spread:all.length };
+  return { ok:false, code:'short', row:best, read, need,
+           have:read.length, short: need - read.length };
+}
+
+/* the same verdict, in a sentence a person reads while the table
+   waits. Kept beside the check so the two can never drift apart. */
+function verdictLine(st, v, key){
+  const nm = prizeName(st, key);
+  if (v.ok) return 'Read back, every one of them. ' + nm + '.';
+  if (v.code === 'ghost'){
+    const g = v.ghosts;
+    if (g.length === 1) return g[0] + ' never came out of the bag.';
+    if (g.length === 2) return g[0] + ' and ' + g[1] + ' never came out.';
+    return g.length + ' of those never came out — ' + g.slice(0, 2).join(', ') + ' for a start.';
+  }
+  if (v.code === 'scattered')
+    return 'Those are not on the same row. A ' + nm.toLowerCase() +
+           ' is ' + v.need + ' on ONE row of one kartella.';
+  if (v.code === 'short'){
+    if (v.short === 1) return 'One number short.';
+    return v.short + ' numbers short.';
+  }
+  return 'Not this time.';
+}
+
 /* How far off is this card from the next thing it could win? Used for
    the "one away" strip, and by the machine players to decide how hard
    to concentrate. Returns {key, away, row} for the nearest LIVE prize. */
@@ -473,8 +741,21 @@ const DEFAULTS = {
      game). 'hall'  = Malta's own vers-then-fatta. See THE LADDER in
      the header — these are two real rule sets, not a difficulty. */
   mode: 'ladder',
-  seats: 4,          /* 2..8 */
-  cards: 1,          /* 1..2 cards each — see the note in the UI file  */
+  /* WHO READS THE NUMBERS OUT.
+     'manual' — a PERSON does. One player holds the ball, taps to draw,
+                and reads it to the room in Maltese themselves. The
+                phone is the bag and the board; the human is the voice,
+                and the app says NOTHING. This is the real game, it is
+                the default, and it needs no recorded audio at all.
+     'auto'   — the app paces the draw and announces it, for a table
+                that is not in one room. See callerSpeaks().           */
+  caller: 'manual',
+  seats: 6,          /* 2..MAX_SEATS */
+  /* SIX. A ġog is what a player is handed in Malta and it is what the
+     game is built round — see IL-ĠOG above. Fewer is offered because
+     two people at a kitchen table may want a shorter game, but six is
+     the real thing and it is the default. */
+  cards: GOG,        /* 1..6 cartelli — six is a whole ġog            */
   speed: 2,          /* 1 slow · 2 the real thing · 3 quick            */
   level: 2,          /* how sharp the machine players are, 1..3        */
   auto: false        /* auto-mark. OFF. It is an accessibility option
@@ -488,18 +769,34 @@ function optsOf(o){
   const clampi = (v, a, b, d) => { const x = n(v); return x == null ? d : Math.max(a, Math.min(b, Math.round(x))); };
   return {
     mode: (o.mode === 'hall' ? 'hall' : 'ladder'),
-    seats: clampi(o.seats, 2, 8, DEFAULTS.seats),
-    cards: clampi(o.cards, 1, 2, DEFAULTS.cards),
+    caller: (o.caller === 'auto' ? 'auto' : 'manual'),
+    seats: clampi(o.seats, 2, MAX_SEATS, DEFAULTS.seats),
+    cards: clampi(o.cards, 1, GOG, DEFAULTS.cards),
     speed: clampi(o.speed, 1, 3, DEFAULTS.speed),
     level: clampi(o.level, 1, 3, DEFAULTS.level),
     auto:  !!o.auto
   };
 }
 
+/* ── HOW BIG THE TABLE GOES ────────────────────────────────────────
+   SIXTEEN. Not because sixteen is tidy, but because tombla is the one
+   game in KARTI with no turn order at all — everybody marks at once,
+   nobody ever waits for anybody, and a sixteenth player costs the
+   fifteenth others nothing but noise. Chess is two by definition;
+   tombla is a room.
+
+   This number and the relay's GAME_SEATS entry for 'tombla' MUST be
+   the same number. A relay that seats sixteen and an engine that deals
+   eight does not error — it silently drops half the room, which is the
+   worst kind of bug because everybody blames their phone. */
+const MAX_SEATS = 16;
+
 const SEAT_NAMES = [
   'Int',            /* seat 0 is always you when there is a you       */
-  'Rita',  'Ġanni', 'Doris', 'Karm',
-  'Marija','Toni',  'Pawlu'
+  'Rita',   'Ġanni',  'Doris',  'Karm',
+  'Marija', 'Toni',   'Pawlu',  'Ċetta',
+  'Lorry',  'Guża',   'Salvu',  'Nina',
+  'Wenzu',  'Grezzja','Ġorġ',   'Rożi'
 ];
 
 function deal(opts, seed){
@@ -511,10 +808,26 @@ function deal(opts, seed){
     opts: o,
     phase: 'lobby',
     host: 0,
+    /* THE BALL. The seat that holds the right to draw. It starts with
+       the host and it can be given away and taken back — see the
+       'caller' branch of apply(). Exactly one at a time, always, and it
+       is state rather than a local flag so eight phones cannot disagree
+       about whose turn it is to read the numbers out. */
+    caller: 0,
     seats: [],
     bag: [],
     called: [],
     calls: 0,
+    /* THE PAUSE. -1 is running; anything else is the seat that called
+       it. It is STATE, not a stopped timer, so every phone in a room
+       agrees about it and nobody's clock keeps calling. See the
+       'pause' branch in apply() for what it does and does not stop. */
+    paused: -1,
+    /* the last shout and what the room made of it. Every phone
+       computes it from the same state, so everybody watches the same
+       card get read back and sees the same verdict. */
+    check: null,
+    checks: 0,
     prizes: {},
     ended: null
   };
@@ -523,13 +836,47 @@ function deal(opts, seed){
     st.prizes[p.k] = { done:false, void:false, off: rungs.indexOf(p.k) < 0,
                        seat:-1, card:-1, row:-1, at:-1 };
 
+  /* ── EVERY SEAT GETS A DIFFERENT ARRANGEMENT, BY CONSTRUCTION ────
+     Once each sheet carries all ninety numbers, two seats dealt the
+     same arrangement would mark identically, fill identically and tie
+     on every prize for the whole game — and nothing on screen would
+     ever say why. This is the one collision the game cannot survive,
+     so it is not left to probability.
+
+     `taken` holds the signature of every cartella dealt SO FAR, to
+     anybody. A sheet whose boxes clash with one already on the table
+     is thrown away and rerolled. Checking at the level of the single
+     cartella is stricter than checking whole sheets, and it is the
+     level that matters: two players holding the same box would tie on
+     that box even if the other five differed. No two identical boxes
+     anywhere also means no two identical sheets anywhere, for free.
+
+     It stays deterministic: the reroll consumes the same RNG stream in
+     the same order on every phone, so seat 3 gets the identical ġog on
+     all eight of them.
+
+     (The space of arrangements is somewhere past 10^40, so the reroll
+     has never once fired in testing — see the harness. It is here so
+     that "never" is a property of the code rather than of the odds.) */
+  const taken = {};
   for (let i = 0; i < o.seats; i++){
-    const cards = [], marks = [];
-    for (let c = 0; c < o.cards; c++){
-      const cells = makeCard(st);
-      cards.push(cells);
-      marks.push(new Array(ROWS * COLS).fill(0));
+    const marks = [];
+    let cards = null;
+    for (let attempt = 0; attempt < 32 && !cards; attempt++){
+      const g = makeGog(st);
+      if (!g) continue;
+      const mine = g.slice(0, o.cards);
+      const sig = mine.map(cardSig);
+      let clash = false;
+      for (const x of sig) if (taken[x]) clash = true;
+      if (clash) continue;                       /* somebody holds that box */
+      for (const x of sig) taken[x] = 1;
+      cards = mine;
     }
+    /* cannot happen, and a seat with no cartella is not a seat, so if
+       the impossible happens we deal one and let the harness scream */
+    if (!cards) cards = (makeGog(st) || []).slice(0, o.cards);
+    for (let c = 0; c < cards.length; c++) marks.push(new Array(ROWS * COLS).fill(0));
     st.seats.push({
       own: i === 0 ? 'me' : 'ai',
       name: SEAT_NAMES[i] || ('Seat ' + (i + 1)),
@@ -538,7 +885,9 @@ function deal(opts, seed){
       won: [],                  /* prize keys, in the order they landed */
       pts: 0,
       lock: -1,                 /* refused-claim lockout, in call index */
-      missed: 0                 /* numbers on the card, called, not marked */
+      missed: 0,                /* numbers on the sheet, called, not marked */
+      wrong: 0,                 /* shouts that did not survive the check    */
+      badMarks: []              /* the counters the last check threw out    */
     });
   }
 
@@ -597,8 +946,87 @@ function apply(st, mv){
     return { ok:true };
   }
 
+  /* ── THE PAUSE ───────────────────────────────────────────────────
+     The host stops the ANUNZJATUR, not the game. This is the one
+     control that had to be got exactly right, because "pause" in most
+     games means "nothing may happen", and here it means the opposite:
+
+       · NO NEW NUMBER comes out — the 'call' branch below refuses.
+       · EVERYBODY GOES ON MARKING. That is what it is FOR. Ninety
+         numbers across six cartelli and one person who looked away is
+         going to happen every single game, and this is how they catch
+         up without the table having to shout at the caller.
+       · CLAIMS STILL WORK. Somebody catching up may find they have
+         had an ambo for three calls. The late-claim window is exactly
+         as forgiving paused as running, and freezing it would punish
+         the very person the pause exists for.
+       · AUTO-MARK stops on its own, because it lives inside the 'call'
+         branch and there are no calls. Nothing extra to do.
+
+     Only the host may call it. The machine players are held by the
+     runner rather than by this branch — see stopClock() and the note
+     in tickMachines(). */
+  /* ── WHO HOLDS THE BALL ──────────────────────────────────────────
+     {t:'caller', s, to} — s gives the ball to seat `to`.
+
+     WHO MAY MOVE IT
+       · the HOST, always. It is their room; they may keep it, hand it
+         to anybody, and take it straight back.
+       · the CALLER, to hand it on themselves.
+       · ANYBODY, to take it. That looks loose and it is deliberate: a
+         caller who puts the phone down and goes to talk to somebody
+         stalls the whole table forever, and a game that can deadlock
+         is worse than a game where somebody can grab the ball. It is
+         never silent — every phone repaints with the new name on it —
+         and the host can take it back with one tap. The UI only offers
+         "take the ball" once the draw has actually gone quiet; the
+         rule underneath is permissive on purpose, the same way the
+         claim lockout is permissive and the CLAIM button is polite.
+         Nothing about holding the ball can win you a prize, so there
+         is nothing here worth hardening against.
+
+     WHAT IT MAY NOT DO
+       It cannot be checked against who is BEHIND a seat. `own` is
+       transport metadata, it is not in the move log, and a replay
+       deals every seat as 'ai' before the transport reassigns them —
+       so a rule that read `own` would refuse on replay what it allowed
+       live, and the eight phones would drift apart. The UI is what
+       keeps the ball away from a machine seat; the engine only asks
+       whether the seat exists and is still in. */
+  if (t === 'caller'){
+    if (st.phase === 'done') return { ok:false, why:'the game is over' };
+    const to = mv.to | 0;
+    const s2 = st.seats[to];
+    if (!s2) return { ok:false, why:'no such seat' };
+    if (s2.out) return { ok:false, why:'that seat has left' };
+    if (st.caller === to) return { ok:true, dup:true };
+    st.caller = to;
+    return { ok:true, caller: to };
+  }
+
+  if (t === 'pause'){
+    if (st.phase !== 'play') return { ok:false, why:'nothing is being played' };
+    const si = mv.s | 0;
+    /* THE PAUSE BELONGS TO WHOEVER IS CALLING, and to the host.
+       Pausing means "stop drawing", and the person drawing is the
+       caller — it would be odd for the host to be able to stop a ball
+       they are not holding while the person holding it could not. The
+       host keeps the right too, because it is their room. */
+    if (si !== st.host && si !== st.caller)
+      return { ok:false, why:'only the caller or the host stops the game' };
+    const want = mv.v ? si : -1;
+    if (st.paused === want) return { ok:true, dup:true };
+    st.paused = want;
+    return { ok:true, paused: st.paused };
+  }
+
   if (t === 'call'){
     if (st.phase !== 'play') return { ok:false, why:'nothing is being played' };
+    if (st.paused >= 0) return { ok:false, why:'the caller is stopped', paused:true };
+    /* the ball, checked. Every phone can prove a number came from the
+       seat that was holding it, because both facts are in the state. */
+    if ((mv.s | 0) !== st.caller)
+      return { ok:false, why:'that seat is not holding the ball', notCaller:true };
     /* idempotent: a call that has already happened is a no-op, not an
        error. Online, the same call can arrive twice from two paths and
        the second one must not shove the bag along. */
@@ -652,17 +1080,49 @@ function apply(st, mv){
     const n = cells[i];
     if (!n) return { ok:false, why:'that square is empty' };
     if (t === 'mark'){
-      /* THE GATE. You cannot mark a number that has not been called.
-         Everything else in this engine leans on this one line. */
-      if (st.called.indexOf(n) < 0) return { ok:false, why:'that number has not come out' };
+      /* ── MARKING IS FREE. NOTHING CHECKS IT. ──────────────────────
+         This used to refuse a number that had not been called, which
+         is a very sensible thing for a computer to do and is not
+         tombla. On paper nobody stops you putting a counter on the
+         wrong square, or on a number that never came out, or on one
+         you are only hoping for. Nobody checks anything at all.
+
+         NOBODY CHECKS UNTIL SOMEBODY SHOUTS — and then everybody does,
+         out loud, one number at a time. That moment is the best thing
+         in the game and it only exists if a wrong mark is possible.
+
+         This is not a hole in the security, because the security was
+         never here. It is in checkClaim(), which does arithmetic on
+         the call history that every phone in the room already has. A
+         modified client can fill its whole ġog with counters and shout
+         TOMBLA, and all seven other phones will independently read the
+         card back and refuse it, naming the number that never came out.
+         See the CLAIM branch below. */
+      if (marks[i]) return { ok:true, dup:true, n };
       marks[i] = 1;
     } else {
+      if (!marks[i]) return { ok:true, dup:true, n };
       marks[i] = 0;
     }
     recount(st);
     return { ok:true, n };
   }
 
+  /* ── SOMEBODY SHOUTS ─────────────────────────────────────────────
+     A claim ALWAYS lands. It is a move, it always goes in the log, and
+     every phone in the room applies it and runs the same check on the
+     same state — because a check that only the claimant's phone sees
+     is not drama, it is a private argument.
+
+     What the branch refuses outright is a MALFORMED claim: a seat that
+     is not there, a kartella that is not theirs, a prize that is not
+     being played. Those are protocol errors, not shouts, and they never
+     reach the log.
+
+     Everything else — including a shout with nothing behind it — is a
+     real event with a real verdict, recorded in st.check so the screen
+     can read the card back number by number and the whole table can
+     watch it happen. */
   if (t === 'claim'){
     if (st.phase !== 'play') return { ok:false, why:'nothing is being played' };
     const si = mv.s|0;
@@ -675,26 +1135,41 @@ function apply(st, mv){
     if (pz.off) return { ok:false, why:'that one is not played in these rules' };
     if (pz.done) return { ok:false, why:'that one has gone already' };
     if (pz.void) return { ok:false, why:'that one is closed — the game moved on' };
-
-    /* ── the whole of the anti-cheat, in four lines ──────────────────
-       The claim is decided by the cards and the calls that are in the
-       state, and by nothing the claimant said. A packet cannot claim
-       a tombla it does not hold, because holds() is looking at the
-       marks, and every one of those marks had to get past the gate in
-       the mark branch above. */
     const ci = mv.c|0;
     const cells = s.cards[ci], marks = s.marks[ci];
-    if (!cells) return { ok:false, why:'no such card' };
-    const row = holds(cells, marks, key);
-    if (row < 0){
-      /* refused. A false claim is not free — see ruling 3. */
+    if (!cells) return { ok:false, why:'no such kartella' };
+
+    /* ── THE ONLY PLACE ANYTHING IS DECIDED ────────────────────────
+       Arithmetic on the shared call history. Nothing the claimant said
+       is taken on trust — not the prize, not the row, not one of the
+       counters. A client that fills its whole ġog and shouts TOMBLA
+       gets `ghost` back on every other phone, with the number that
+       never came out named in the verdict. */
+    const v = checkClaim(st, cells, marks, key);
+    st.checks = (st.checks || 0) + 1;
+    st.check = {
+      id: st.checks, seat: si, card: ci, prize: key, at: st.calls,
+      ok: !!v.ok, code: v.code || 'ok', row: v.row == null ? -1 : v.row,
+      read: v.read || [], ghosts: v.ghosts || [],
+      need: v.need || 0, short: v.short || 0,
+      line: verdictLine(st, v, key)
+    };
+
+    if (!v.ok){
+      /* a wrong shout is not free, and it is not a telling-off either:
+         two calls of sitting on your hands while the room enjoys it */
       s.lock = st.calls + LOCK_CALLS;
-      return { ok:false, why:'you have not got it', refused:true, lock:s.lock };
+      s.wrong = (s.wrong || 0) + 1;
+      /* what they got wrong, so a machine seat can take its counter
+         back off the square and a screen can point at it */
+      s.badMarks = (v.ghosts || []).slice();
+      return { ok:true, verdict: st.check, refused:true, lock:s.lock };
     }
 
-    pz.done = true; pz.seat = si; pz.card = ci; pz.row = row; pz.at = st.calls;
+    pz.done = true; pz.seat = si; pz.card = ci; pz.row = v.row; pz.at = st.calls;
     s.won.push(key);
     s.pts += prizeAt(key).pts;
+    s.badMarks = [];
 
     /* ruling 2: everything below this rung is now shut. */
     const rank = prizeRank(key);
@@ -704,13 +1179,39 @@ function apply(st, mv){
     }
 
     finishIfDone(st);
-    return { ok:true, prize:key, row, seat:si };
+    return { ok:true, verdict: st.check, prize:key, row:v.row, seat:si };
+  }
+
+  /* the host calls it a night. Destructive, so the SCREEN asks first —
+     but the rule lives here, because online it has to be a move like
+     any other or the other seven phones carry on without it. */
+  if (t === 'end'){
+    if (st.phase === 'done') return { ok:true, dup:true };
+    if ((mv.s | 0) !== st.host) return { ok:false, why:'only the host can end it' };
+    st.phase = 'done';
+    st.ended = { why:'ended', seat: mv.s | 0 };
+    return { ok:true };
   }
 
   if (t === 'quit'){
     const s = st.seats[mv.s|0];
     if (!s) return { ok:false, why:'no such seat' };
     s.out = true;
+    /* the chair does not leave with them. If the host walks out while
+       the table is paused, the pause would otherwise outlive the only
+       person allowed to lift it and the game would be stuck for good. */
+    if ((mv.s | 0) === st.host){
+      const next = st.seats.findIndex(x => !x.out);
+      st.host = next < 0 ? 0 : next;
+      if (st.paused >= 0) st.paused = -1;
+    }
+    /* and the ball goes back to the chair rather than out of the door
+       with them — otherwise the bag belongs to somebody who has left */
+    if (st.seats[st.caller] && st.seats[st.caller].out){
+      st.caller = st.seats[st.host] && !st.seats[st.host].out
+        ? st.host
+        : Math.max(0, st.seats.findIndex(x => !x.out));
+    }
     if (st.seats.every(x => x.out)) { st.phase = 'done'; st.ended = { why:'everybody left' }; }
     return { ok:true };
   }
@@ -788,6 +1289,16 @@ function legal(st, seat){
     return out;
   }
   if (st.phase !== 'play') return out;
+  if (seat === st.host || seat === st.caller)
+    out.push({ t:'pause', s:seat, v: st.paused < 0 });
+  /* the draw itself is a move, and only the seat holding the ball has
+     it. In 'auto' the clock plays it for them; in 'manual' a person
+     taps it, and nothing at all happens until they do. */
+  if (seat === st.caller && st.paused < 0 && st.bag.length)
+    out.push({ t:'call', s:seat, k:st.calls, n:st.bag[0] });
+  if (seat !== st.caller) out.push({ t:'caller', s:seat, to:seat });
+  /* marking and claiming are DELIBERATELY still legal while paused —
+     see the pause branch in apply() */
   for (let c = 0; c < s.cards.length; c++){
     const cells = s.cards[c], marks = s.marks[c];
     for (let i = 0; i < cells.length; i++){
@@ -823,6 +1334,9 @@ function over(st){
       at:t.at
     };
   }
+  if (st.ended && st.ended.why === 'ended')
+    return { end:'ended', seat:-1, head:'Called off',
+             why:'The host ended the game before anybody filled a kartella.' };
   return { end:'flat', seat:-1, head:'The bag is empty', why:'Ninety numbers and nobody shouted.' };
 }
 
@@ -841,6 +1355,10 @@ function fingerprint(st){
   let h = 2166136261 >>> 0;
   const bite = v => { h = Math.imul(h ^ (v & 255), 16777619) >>> 0; h = Math.imul(h ^ ((v >>> 8) & 255), 16777619) >>> 0; };
   bite(st.calls);
+  bite(st.paused + 2);
+  bite(st.host + 1);
+  bite(st.caller + 1);
+  bite(st.checks || 0);
   for (const n of st.called) bite(n);
   for (const s of st.seats){
     for (const m of s.marks) for (let i = 0; i < m.length; i++) if (m[i]) bite(i + 1);
@@ -863,6 +1381,21 @@ function fingerprint(st){
    running the same match agree about what Rita did without a single
    byte going over the wire about it.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── AND ONE OF THEM GETS IT WRONG ────────────────────────────────
+   Only 'Nofs rieqda', the sleepy one, and only rarely: it puts a
+   counter on a square whose number has not come out. Then it shouts on
+   it, the room reads the kartella back, and it is caught — which is the
+   only way a player ever finds out that the check exists, short of
+   getting it wrong themselves. It takes the counter back off
+   afterwards, because that is what a person does.
+
+   Pure like every other machine decision: hash32 of the seed, the seat
+   and the call, so all eight phones watch Rita make the same mistake. */
+function aiFumbles(st, seat, call){
+  if (st.opts.level !== 1) return false;
+  return hashF(st.seed ^ 0xF00D, seat, call) < 0.05;
+}
+
 /* chance a seat spots the number on the call it is read out */
 const SHARP = { 1:0.62, 2:0.80, 3:0.93 };
 /* chance it goes back and picks up something it missed, per call */
@@ -907,17 +1440,55 @@ function aiMoves(st, seat){
         if (cells[i] === last && !s.marks[c][i]) out.push({ t:'mark', s:seat, c, i });
     }
   }
+  /* NOTE for anybody reading this next to the pause: aiMoves() is a
+     pure function of the state and of (seed, seat, call), so calling
+     it twice for the same call gives the same answer twice. That is
+     what lets the runner throw the machine seats' pending moves away
+     when the host pauses and simply ask again on resume. */
+  /* 1b — it takes back a counter the room just threw out. Straight
+     after a wrong shout, before anything else, because a seat that
+     kept the bad counter on would shout the same wrong thing forever
+     the moment its lockout expired. */
+  if (s.badMarks && s.badMarks.length){
+    for (let c = 0; c < s.cards.length; c++){
+      const cells = s.cards[c];
+      for (let i = 0; i < cells.length; i++)
+        if (s.marks[c][i] && s.badMarks.indexOf(cells[i]) >= 0) out.push({ t:'unmark', s:seat, c, i });
+    }
+    if (out.length) return out;
+  }
+
+  /* 1c — the sleepy one's wrong counter. See aiFumbles(). */
+  if (aiFumbles(st, seat, call)){
+    const pick = [];
+    for (let c = 0; c < s.cards.length; c++){
+      const cells = s.cards[c];
+      for (let i = 0; i < cells.length; i++)
+        if (cells[i] && !s.marks[c][i] && st.called.indexOf(cells[i]) < 0) pick.push([c, i]);
+    }
+    if (pick.length){
+      const at = pick[hash32(st.seed ^ 0xBAD1, seat, call) % pick.length];
+      out.push({ t:'mark', s:seat, c:at[0], i:at[1] });
+    }
+  }
+
   /* 2 — does it go back for one it fumbled? One at a time, oldest
-     first, exactly the way a person scans back up the card. */
+     first, exactly the way a person scans back up the sheet.
+
+     With a ġog this used to be the most expensive thing in the file:
+     ninety called numbers scanned against six cartelli of twenty-seven
+     cells, every call, for every machine seat. One pass over the sheet
+     builds the number -> square lookup instead, and the scan back up
+     the calls is then ninety lookups. */
   if (s.missed > 0 && aiCatchesUp(st, seat, call)){
-    outer:
+    const where = {};
+    for (let c = 0; c < s.cards.length; c++){
+      const cells = s.cards[c];
+      for (let i = 0; i < cells.length; i++) if (cells[i] && !s.marks[c][i]) where[cells[i]] = [c, i];
+    }
     for (const n of st.called){
-      for (let c = 0; c < s.cards.length; c++){
-        const cells = s.cards[c];
-        for (let i = 0; i < cells.length; i++){
-          if (cells[i] === n && !s.marks[c][i]){ out.push({ t:'mark', s:seat, c, i }); break outer; }
-        }
-      }
+      const at = where[n];
+      if (at){ out.push({ t:'mark', s:seat, c:at[0], i:at[1] }); break; }
     }
   }
   return out;
@@ -1231,15 +1802,20 @@ function doMove(seat, mv, src){
   if (!M || M.dead) return { ok:false, why:'no game' };
   const st = M.st;
   const move = Object.assign({}, mv);
-  if (move.t !== 'start' && move.t !== 'call') move.s = seat;
+  /* a call carries the seat that drew it now, because apply() checks it
+     against st.caller — 'the ball' is a right, and a right that is not
+     on the move cannot be verified by the other seven phones */
+  if (move.t !== 'start') move.s = seat;
 
   /* a remote seat may only move its own seat, and may never call the
      bag — the bag belongs to whoever the transport made the authority */
   if (src === 'net'){
-    if (move.t === 'call' && !(M.net && M.net.callsAllowed)) return { ok:false, why:'that phone does not hold the bag' };
+    /* a relayed call needs no local permission flag: apply() refuses
+       any call whose seat is not the one holding the ball, and that is
+       a fact both phones can see. */
     if (move.t === 'start' && seat !== st.host) return { ok:false, why:'only the host starts' };
   }
-  if (src === 'tap' && !isLocal(seat) && move.t !== 'call' && move.t !== 'start')
+  if (src === 'tap' && !isLocal(seat) && move.t !== 'start')
     return { ok:false, why:'not your seat' };
 
   const r = apply(st, move);
@@ -1283,10 +1859,47 @@ const isLocal = i => { const o = ownerOf(i); return o === 'me' || o === 'hot'; }
    ═══════════════════════════════════════════════════════════════════ */
 const GAP = { 1:5200, 2:3800, 3:2600 };
 
+/* ── DOES THE PHONE SPEAK? ──────────────────────────────────────────
+   The single gate for every sound the ANUNZJATUR would make, and the
+   one place the recorded ninety will hook into when they land.
+
+   In 'manual' the answer is NO, always, in every mode of play. A
+   person is holding the ball, they are reading the number out to the
+   room in Maltese, and a phone talking over them is not atmosphere, it
+   is a second caller. Marks and the shout when a prize goes are not
+   the caller's voice — they are the table's — and they stay.        */
+function callerSpeaks(st){
+  const x = st || (M && M.st);
+  return !!(x && x.opts && x.opts.caller === 'auto');
+}
+function isManual(){ return !!(M && M.st.opts.caller === 'manual'); }
+
+/* ── WHOSE PHONE RUNS THE CLOCK ────────────────────────────────────
+   Only in 'auto', and only the phone that owns the seat holding the
+   ball. In 'manual' nothing is paced at all: the game advances when a
+   person taps, and not one millisecond before.
+
+   `M.net.callsAllowed` is still honoured as a veto so a transport can
+   say "not you" during a handover, but it is no longer the authority —
+   the authority is st.caller, which is in the state, so every phone can
+   prove a number came from the seat that was holding the ball. */
 function callsHere(){
-  if (!M) return false;
-  if (!M.net) return true;
-  return !!M.net.callsAllowed;
+  if (!M || M.st.opts.caller !== 'auto') return false;
+  if (!isLocal(M.st.caller)) return false;
+  if (M.net && M.net.callsAllowed === false) return false;
+  return true;
+}
+
+/* ── THE MANUAL DRAW ───────────────────────────────────────────────
+   A person taps the bag. Same move, same log, same gate — the only
+   difference from the automatic one is that a finger started it. */
+function drawOne(seat){
+  if (!M || M.dead) return { ok:false, why:'no game' };
+  const n = bagPeek(M.st);
+  if (!n) return { ok:false, why:'the bag is empty' };
+  const r = doMove(seat, { t:'call', k:M.st.calls, n }, 'tap');
+  if (r.ok && !r.dup) tickMachines();
+  return r;
 }
 
 function stopClock(){
@@ -1310,21 +1923,55 @@ function runClock(){
   if (!M || M.dead || M.st.phase !== 'play') return;
   if (M.clock) return;
   if (!callsHere()) return;
+  if (M.st.paused >= 0) return;              /* the host stopped the caller */
   const gap = FAST ? 0 : (GAP[M.opts.speed] || GAP[2]);
   M.clock = setTimeout(() => {
     M.clock = 0;
     if (!M || M.dead || M.st.phase !== 'play') return;
+    if (M.st.paused >= 0) return;            /* paused inside the gap */
     const n = bagPeek(M.st);
     if (!n) return;
-    doMove(-1, { t:'call', k:M.st.calls, n }, 'clock');
+    doMove(M.st.caller, { t:'call', k:M.st.calls, n }, 'clock');
     tickMachines();
     runClock();
   }, gap);
 }
 
+/* ── STOPPING AND STARTING THE ANUNZJATUR ──────────────────────────
+   The state says whether the table is paused; these two put the local
+   machinery in step with it.
+
+   RESUMING MUST NOT CATCH UP. A pause that ends with three numbers
+   arriving at once is worse than no pause at all, so resume() throws
+   the old clock away and starts a WHOLE fresh gap — you always get the
+   full breath before the next number, however long the pause ran.
+
+   The machine seats are held here rather than in apply(): stopClock()
+   drops every move they had pending, and resume() simply asks
+   tickMachines() again. aiMoves() is a pure function of the state and
+   of (seed, seat, call), none of which the pause changed, so they pick
+   up precisely the moves they were about to make — no double marks (a
+   mark that is already down is a dup and never reaches the log) and
+   nothing silently lost.
+
+   While paused the machine seats therefore do NOT mark and do NOT
+   claim, which is the whole point: the pause is for the person who has
+   fallen behind, and it would be worth nothing if the machine spent it
+   catching up too. */
+function setPaused(seat, on){
+  if (!M || M.dead) return { ok:false, why:'no game' };
+  const r = doMove(seat, { t:'pause', v: !!on }, 'tap');
+  if (!r.ok) return r;
+  stopClock();
+  if (M.st.paused < 0){ runClock(); tickMachines(); }
+  return r;
+}
+function isPaused(){ return !!(M && M.st && M.st.paused >= 0); }
+
 /* the machine seats react to the number that just came out */
 function tickMachines(){
   if (!M || M.dead || M.st.phase !== 'play') return;
+  if (M.st.paused >= 0) return;              /* held while the caller is stopped */
   const st = M.st;
   for (let i = 0; i < st.seats.length; i++){
     if (st.seats[i].own !== 'ai') continue;
@@ -1359,9 +2006,11 @@ const API = {
   /* — the rules, for anybody who wants to reason about a card — */
   ROWS, COLS, PER_ROW, ON_CARD, LO, HI, colOf,
   PRIZES, PRIZE_KEYS, prizeAt, prizeRank,
-  makeCard, cardIsLegal, holds, nearest, rowMarks, cardMarks,
+  GOG, COL_TOTAL, makeGog, cardIsLegal, gogIsLegal, cardSig, gogSig,
+  holds, checkClaim, verdictLine, calledSet, rowClaimed, cardClaimed,
+  nearest, rowMarks, cardMarks,
   deal, apply, legal, turn, over, table, fingerprint,
-  optsOf, DEFAULTS, GAP,
+  optsOf, DEFAULTS, GAP, MAX_SEATS, SEAT_NAMES,
   patter, callOf, mtNum, LAQAM, JOKE, PLAIN, SHOUT, SHOUT_HALL, shoutOf,
   LADDERS, rungsOf, inLadder, prizeName,
   aiMoves, aiClaim, aiClaimDelay,
@@ -1371,7 +2020,8 @@ const API = {
   match: () => M,
   state: () => (M ? M.st : null),
   startMatch, snapshot, resume, rollbackTo, doMove, ownerOf, isLocal,
-  runClock, stopClock, tickMachines, callsHere,
+  runClock, stopClock, tickMachines, callsHere, setPaused, isPaused,
+  drawOne, callerSpeaks, isManual,
   end(){ if (M){ stopClock(); M.dead = true; M = null; } },
   fast(on){ FAST = !!on; },
 
@@ -1389,8 +2039,10 @@ const API = {
 
      1. THE LOBBY. The room fills. Every phone calls begin(opts, seed)
         with the SAME opts and the SAME seed — one number, agreed once
-        by the host — and every phone then has eight identical cards in
-        an identical order. Nothing else is ever sent about the deal.
+        by the host — and every phone then holds eight DIFFERENT ġogs,
+        identical seat for seat across all eight phones. Nothing else
+        is ever sent about the deal. Forty-eight cartelli, from one
+        32-bit number.
      2. READY UP. Each seat sends {t:'ready',v:true}; the transport
         forwards it; every phone applies it. When they are all ready
         the host sends {t:'start'}.
@@ -1408,6 +2060,14 @@ const API = {
         on the number having been called and a claim on the card
         actually holding it, so a modified client can shout TOMBLA all
         night and the other seven phones will all refuse it.
+     4b. THE PAUSE. {t:'pause', v:true|false} from the host seat, and
+        forwarded like anything else — hooks.apply() stops the local
+        caller and the local machine seats when it lands, so the room
+        stays in step. apply() refuses it from any seat that is not the
+        host, so it cannot be used to jam a game from the outside. If
+        the host drops, call hooks.setHost(seat): it moves the chair AND
+        lifts a pause the old host is no longer there to lift, so a room
+        can never be stuck stopped.
      5. DROP AND REJOIN. snapshot() is {opts, seed, log} — a few
         hundred bytes even at call 80. load(snap) rebuilds the phone
         into exactly the same game. Nothing to reconcile.
@@ -1430,6 +2090,36 @@ const API = {
     over:      () => (M ? over(M.st) : null),
     table:     () => (M ? table(M.st) : []),
     calls:     () => (M ? M.st.calls : 0),
+    /* -1 running, otherwise the seat that stopped the caller. A relayed
+       state like any other: it travels as a {t:'pause'} move, so every
+       phone in the room agrees and no phone keeps calling on its own. */
+    paused:    () => (M ? M.st.paused : -1),
+    /* the seat holding the ball, and the way to move it. Relayed state
+       exactly like the pause: it travels as a {t:'caller'} move so every
+       phone knows who is reading the numbers out. */
+    caller:    () => (M ? M.st.caller : -1),
+    /* the last shout and what the room made of it — {seat, card,
+       prize, ok, code, read, ghosts, line}. Recomputed identically on
+       every phone from the same state; nothing about it travels. */
+    verdict:   () => (M && M.st.check ? clone(M.st.check) : null),
+    callerMode:() => (M ? M.st.opts.caller : null),
+    speaks:    () => callerSpeaks(),
+    setCaller: (from, to) => {
+      const r = doMove(from, { t:'caller', to }, 'net');
+      if (r.ok && !r.dup){ stopClock(); if (M.st.paused < 0) runClock(); }
+      return r;
+    },
+    /* the transport hands the chair over when a host drops. A pause the
+       host is no longer there to lift is lifted with it. */
+    setHost: seat => {
+      if (!M || !M.st.seats[seat]) return false;
+      M.st.host = seat;
+      if (M.st.paused >= 0 && M.st.paused !== seat) M.st.paused = -1;
+      stopClock();
+      if (M.st.phase === 'play' && M.st.paused < 0) runClock();
+      fire(stateSubs, { reason:'host' });
+      return true;
+    },
     called:    () => (M ? M.st.called.slice() : []),
     prizes:    () => (M ? clone(M.st.prizes) : null),
     check:     () => (M ? fingerprint(M.st) : ''),
@@ -1455,7 +2145,17 @@ const API = {
        expected to shout about it rather than swallow it — a refused
        packet is either a bug or somebody trying it on, and both of
        those are things you want to see. */
-    apply: (seat, move) => doMove(seat, move, 'net'),
+    apply: (seat, move) => {
+      const r = doMove(seat, move, 'net');
+      /* a pause that arrived from another phone has to stop THIS
+         phone's caller and machine seats too, or the room disagrees */
+      if (r.ok && !r.dup && move && (move.t === 'pause' || move.t === 'caller')){
+        stopClock();
+        if (M && M.st.paused < 0){ runClock(); if (move.t === 'pause') tickMachines(); }
+      }
+      if (r.ok && !r.dup && move && move.t === 'call') tickMachines();
+      return r;
+    },
 
     moveLog:   () => (M ? clone(M.log) : []),
     moveCount: () => (M ? M.log.length : 0),
@@ -1515,7 +2215,7 @@ try {
       M: () => M,
       st: () => (M ? M.st : null),
       api: API,
-      rnd, rint, shuffle, hash32, occupancy, colCounts, makeCard,
+      rnd, rint, shuffle, hash32, occupancy, gogCounts, makeGog,
       markNumber, recount, aiMoves, aiClaim
     };
   }
