@@ -58,6 +58,9 @@ const esc = KA.esc || function(s){
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 };
 const money = K.money;
+/* js/artkit.js's silhouettes, if it is on the page. It always is in the
+   app; a bare test harness that loads only this file still draws. */
+const artkit = () => window.KARTI_ART || null;
 
 /* ═══════════════════════════════════════════════════════════════════
    SOUND
@@ -275,8 +278,18 @@ function injectCSS(){
   '#scr-kiri .kr-strip{display:flex;align-items:center;gap:8px;min-height:44px;padding:0 10px;' +
     'border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);' +
     'margin:4px 0;flex:0 0 auto}' +
+  /* A SEAT'S TOKEN IS THE SAME SILHOUETTE IT HAS ON THE BOARD, on a
+     dark plate so it reads on any row. It used to be an emoji, which
+     on a device with no colour emoji font is a hollow box — and the
+     board deliberately does not use emoji for exactly that reason, so
+     the strip above it should not either. */
   '#scr-kiri .kr-tok{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;' +
-    'font-size:14px;flex:0 0 auto;box-shadow:0 0 0 2px rgba(0,0,0,.4)}' +
+    'flex:0 0 auto;background:radial-gradient(80% 80% at 32% 26%,#2A1F49,#0E0B14);' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 0 0 1.5px rgba(255,255,255,.16),' +
+      '0 2px 4px rgba(0,0,0,.55);font-size:11px;font-weight:900;color:#150C22}' +
+  '#scr-kiri .kr-tok .kr-pip{width:15px;height:15px}' +
+  '#scr-kiri .kr-tok.sm{width:22px;height:22px}' +
+  '#scr-kiri .kr-tok.sm .kr-pip{width:12px;height:12px}' +
   '#scr-kiri .kr-who{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
   '#scr-kiri .kr-cash{margin-left:auto;font-weight:900;font-size:15px;color:#FFC542;white-space:nowrap}' +
   '#scr-kiri .kr-auto{font-size:10px;font-weight:800;letter-spacing:.04em;padding:4px 7px;border-radius:7px;' +
@@ -292,50 +305,248 @@ function injectCSS(){
   '#scr-kiri .kr-away.warn{background:rgba(255,84,104,.16);border-color:rgba(255,84,104,.45)}' +
   '#scr-kiri .kr-away.warn .kr-awt{color:#FF9AA6}' +
 
-  /* ── the board ── */
-  '#scr-kiri .kr-wrap{flex:0 0 auto;display:grid;place-items:center;padding:2px 0}' +
-  '#scr-kiri .kr-board{width:var(--bs,340px);height:var(--bs,340px);display:grid;gap:2px;' +
-    'grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(9,1fr);' +
-    'padding:4px;border-radius:14px;background:#160F28;border:1px solid rgba(255,255,255,.10);' +
-    'box-shadow:0 10px 30px rgba(0,0,0,.5)}' +
-  '#scr-kiri .kr-cell{position:relative;border-radius:6px;background:#241A3E;border:1px solid rgba(255,255,255,.07);' +
-    'display:flex;align-items:center;justify-content:center;padding:0;overflow:hidden;min-width:0;min-height:0}' +
-  '#scr-kiri .kr-cell:active{background:#33265a}' +
-  '#scr-kiri .kr-cell .kr-band{position:absolute;top:0;left:0;right:0;height:5px;background:var(--g,transparent)}' +
-  '#scr-kiri .kr-cell .kr-e{font-size:13px;line-height:1;margin-top:4px;font-weight:900;letter-spacing:.02em;' +
-    'color:#EDE6FF;font-family:var(--disp)}' +
-  '#scr-kiri .kr-cell.corner .kr-e{font-size:11.5px;color:#FFC542}' +
-  '#scr-kiri .kr-cell.corner{background:#2E2150}' +
-  '#scr-kiri .kr-cell.here{outline:2px solid #FFC542;outline-offset:-2px}' +
-  '#scr-kiri .kr-cell.mine{box-shadow:inset 0 0 0 2px var(--o)}' +
-  '#scr-kiri .kr-cell.mort{opacity:.45}' +
-  '#scr-kiri .kr-cell .kr-lock{position:absolute;top:6px;right:3px;font-size:10px;line-height:1;font-weight:900;color:#FF9AA6}' +
-  '#scr-kiri .kr-cell .kr-lvl{position:absolute;bottom:2px;right:2px;width:15px;height:15px;border-radius:5px;' +
-    'background:var(--g,#888);color:#0E0B14;font-size:10px;font-weight:900;display:grid;place-items:center}' +
-  /* Eight players can stand on one square. Nine-point dots in a row
-     would run off a 44-point cell, so past four they shrink and wrap
-     to a second line — still every player, still visible, never
-     overflowing the square they are standing on. */
-  '#scr-kiri .kr-pips{position:absolute;bottom:2px;left:2px;right:2px;display:flex;flex-wrap:wrap;gap:1.5px}' +
-  '#scr-kiri .kr-pip{width:9px;height:9px;border-radius:50%;box-shadow:0 0 0 1.5px #160F28;flex:0 0 auto}' +
-  '#scr-kiri .kr-pips.many .kr-pip{width:7px;height:7px;box-shadow:0 0 0 1px #160F28}' +
-  '#scr-kiri .kr-pip.auto{border-radius:2px}' +
+  /* ── THE BOARD, AS AN OBJECT ────────────────────────────────────
+     It used to be thirty-two flat rectangles in a dark box, which is
+     correct and reads like a spreadsheet. A board is a THING on a
+     table: it has a rim you could pick it up by, tiles that sit down
+     into it, and a middle that is the middle of a table rather than
+     a hole. All of that is CSS — gradients, layered shadows, one
+     inset highlight along the top edge for a single light source
+     above and behind, exactly the lighting js/artkit.js's surfaces
+     are drawn to. No image is loaded and none is needed.
 
-  /* ── the middle of the ring ── */
-  '#scr-kiri .kr-mid{grid-column:2/9;grid-row:2/9;border-radius:10px;background:rgba(14,11,20,.55);' +
-    'border:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;align-items:center;' +
-    'justify-content:center;gap:6px;padding:8px;text-align:center;min-width:0;overflow:hidden}' +
-  '#scr-kiri .kr-dice{display:flex;gap:8px}' +
-  '#scr-kiri .kr-die{width:34px;height:34px;border-radius:8px;background:#F4EFFF;color:#0E0B14;' +
-    'display:grid;place-items:center;font-weight:900;font-size:19px;box-shadow:0 3px 0 rgba(0,0,0,.35)}' +
+     THE RING IS DEEPER THAN THE SQUARES ARE WIDE. A real board's edge
+     squares are narrower across than they are deep, and that one
+     ratio is most of why a board looks like a board: --rail sets the
+     two outer grid tracks to 1.28 of the seven inner ones, so the
+     ring reads as a band with room for a name AND a price instead of
+     a strip of tiny boxes.
+
+     1.18 is the measured compromise, not a taste. At 440 points wide a
+     flat 9x9 gives 43 by 43; 1.18 gives 42 by 50, so a square is two
+     thirds of a point narrower to the finger and seven points deeper
+     to the eye — which is where the code, the price and the floors
+     have to live. Any deeper and the tap target starts to be the
+     thing you notice. */
+  '#scr-kiri .kr-wrap{flex:0 0 auto;display:grid;place-items:center;padding:2px 0}' +
+  '#scr-kiri .kr-board{--rail:1.18fr;width:var(--bs,340px);height:var(--bs,340px);display:grid;gap:2px;' +
+    'grid-template-columns:var(--rail) repeat(7,1fr) var(--rail);' +
+    'grid-template-rows:var(--rail) repeat(7,1fr) var(--rail);' +
+    'padding:7px;border-radius:18px;position:relative;' +
+    'background:linear-gradient(158deg,#584174 0%,#3B2B62 16%,#281D46 44%,#1A1233 74%,#100B1F 100%);' +
+    'border:1px solid rgba(255,197,66,.22);' +
+    'box-shadow:inset 0 1.5px 0 rgba(255,255,255,.26),inset 0 0 0 1.5px rgba(255,197,66,.16),' +
+      'inset 0 -14px 26px rgba(0,0,0,.45),0 2px 0 rgba(255,255,255,.05),' +
+      '0 18px 34px rgba(0,0,0,.62),0 44px 64px rgba(0,0,0,.38)}' +
+
+  /* a tile sits DOWN in the rim: dark face, one hairline of light on
+     its top edge, and its own small shadow underneath */
+  '#scr-kiri .kr-cell{position:relative;border-radius:5px;' +
+    'background:linear-gradient(180deg,#2A2050 0%,#1C1438 55%,#150E2B 100%);' +
+    'border:1px solid rgba(255,255,255,.06);' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 1px 2px rgba(0,0,0,.45);' +
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;' +
+    'padding:2px;overflow:hidden;min-width:0;min-height:0;transition:filter .12s ease}' +
+  /* the group tint, under everything, so a colour group reads even
+     where the strip itself is behind a token */
+  '#scr-kiri .kr-cell::after{content:"";position:absolute;inset:0;pointer-events:none;' +
+    'background:var(--g,transparent);opacity:.15}' +
+  '#scr-kiri .kr-cell:active{filter:brightness(1.35)}' +
+
+  /* ── THE COLOUR STRIP FACES THE MIDDLE ──────────────────────────
+     On every board ever printed the group colour runs along the edge
+     of the square that faces the centre of the table, so the four
+     bands frame the middle and you read a group as a block. Which
+     edge that is depends only on which side of the ring the square
+     is on, and that never changes, so the side is a class set once
+     when the ring is built. The floors stand ON the strip, which is
+     also where they stand on a real board. */
+  '#scr-kiri .kr-cell .kr-band{position:absolute;z-index:1;background:var(--g,transparent);' +
+    'display:flex;align-items:center;justify-content:center;gap:2px;overflow:hidden;' +
+    'box-shadow:inset 0 0 0 1px rgba(0,0,0,.30)}' +
+  '#scr-kiri .kr-cell.s-l .kr-band{right:0;top:0;bottom:0;width:8px;flex-direction:column}' +
+  '#scr-kiri .kr-cell.s-r .kr-band{left:0;top:0;bottom:0;width:8px;flex-direction:column}' +
+  '#scr-kiri .kr-cell.s-t .kr-band{bottom:0;left:0;right:0;height:8px}' +
+  '#scr-kiri .kr-cell.s-b .kr-band{top:0;left:0;right:0;height:8px}' +
+  '#scr-kiri .kr-cell.s-l{padding-right:10px}' +
+  '#scr-kiri .kr-cell.s-r{padding-left:10px}' +
+  '#scr-kiri .kr-cell.s-t{padding-bottom:10px}' +
+  '#scr-kiri .kr-cell.s-b{padding-top:10px}' +
+  /* a floor is a little block standing on the strip; the penthouse is
+     one wide slab with a gold roofline, which is what it is */
+  '#scr-kiri .kr-fl{flex:0 0 auto;width:4px;height:4px;border-radius:1px;background:#120C22;' +
+    'box-shadow:0 0 0 1px rgba(255,255,255,.55)}' +
+  '#scr-kiri .kr-fl.pent{width:15px;height:5px;border-radius:1.5px;background:#0E0B14;' +
+    'box-shadow:0 0 0 1px #FFC542,0 0 6px rgba(255,197,66,.55)}' +
+  '#scr-kiri .kr-cell.s-l .kr-fl.pent,#scr-kiri .kr-cell.s-r .kr-fl.pent{width:5px;height:15px}' +
+
+  /* ── WHO OWNS IT reads on the OUTSIDE edge ──────────────────────
+     Deliberately the opposite edge from the group strip, so the two
+     never argue: colour groups point in, deeds point out, and the
+     board grows a coloured hem as the table gets bought up. */
+  '#scr-kiri .kr-cell .kr-own{position:absolute;z-index:1;background:var(--o,transparent);' +
+    'box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}' +
+  '#scr-kiri .kr-cell.s-l .kr-own{left:0;top:0;bottom:0;width:4px}' +
+  '#scr-kiri .kr-cell.s-r .kr-own{right:0;top:0;bottom:0;width:4px}' +
+  '#scr-kiri .kr-cell.s-t .kr-own{top:0;left:0;right:0;height:4px}' +
+  '#scr-kiri .kr-cell.s-b .kr-own{bottom:0;left:0;right:0;height:4px}' +
+  '#scr-kiri .kr-cell.mine{box-shadow:inset 0 0 0 1px var(--o),inset 0 1px 0 rgba(255,255,255,.09),' +
+    '0 1px 2px rgba(0,0,0,.45)}' +
+
+  /* THE TYPE IS A FRACTION OF THE BOARD, not a fixed number. The ring
+     is drawn anywhere from 276 to 560 points across depending on the
+     window, and 12.5px is right in the middle of that and wrong at
+     both ends. clamp() keeps it readable on the smallest phone and
+     stops it shouting on the biggest. */
+  '#scr-kiri .kr-cell .kr-e{font-size:clamp(9px,calc(var(--bs,340px) * .0305),16px);line-height:1;' +
+    'font-weight:900;letter-spacing:.02em;color:#F6F1FF;font-family:var(--disp);' +
+    'text-shadow:0 1px 2px rgba(0,0,0,.75);position:relative;z-index:1}' +
+  '#scr-kiri .kr-cell .kr-p{font-size:clamp(7px,calc(var(--bs,340px) * .0215),11px);line-height:1;' +
+    'font-weight:800;letter-spacing:.02em;color:#C0AFEC;position:relative;z-index:1}' +
+  '#scr-kiri .kr-cell .kr-oc{position:relative;z-index:1;height:auto;' +
+    'width:clamp(6px,calc(var(--bs,340px) * .021),11px)}' +
+  /* the silhouette on the squares that are not property: same sprite,
+     same ink and same 24-grid as every other mark in the app */
+  '#scr-kiri .kr-cell .kr-gl{width:clamp(11px,calc(var(--bs,340px) * .036),19px);height:auto;' +
+    'aspect-ratio:1;color:#D5CAF0;position:relative;z-index:1;' +
+    'display:block;line-height:0}' +
+  '#scr-kiri .kr-cell .kr-gl .ka-g{stroke-width:1}' +
+  '#scr-kiri .kr-cell.corner{background:linear-gradient(180deg,#3E2D63 0%,#2A1F50 55%,#1C1439 100%)}' +
+  '#scr-kiri .kr-cell.corner .kr-e{font-size:clamp(8px,calc(var(--bs,340px) * .0265),14px);color:#FFC542}' +
+  '#scr-kiri .kr-cell.corner .kr-gl{width:clamp(14px,calc(var(--bs,340px) * .048),25px);color:#FFC542}' +
+  '#scr-kiri .kr-cell.chance .kr-e{font-size:clamp(14px,calc(var(--bs,340px) * .048),25px);' +
+    'color:var(--g,#FFC542);text-shadow:0 0 8px var(--g,#FFC542)}' +
+  /* where the piece is standing, lit from inside */
+  '#scr-kiri .kr-cell.here{border-color:#FFC542;' +
+    'box-shadow:inset 0 0 0 1px #FFC542,inset 0 0 14px rgba(255,197,66,.32),0 0 12px rgba(255,197,66,.30)}' +
+  /* MORTGAGED: dimmed is not enough on a dark board, so it is also
+     struck through with a hatch — the colour-blind reading of "this
+     one is out of play" and the paper metaphor at the same time */
+  '#scr-kiri .kr-cell.mort{filter:saturate(.35)}' +
+  '#scr-kiri .kr-cell.mort::before{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;' +
+    'background:repeating-linear-gradient(45deg,rgba(255,84,104,.30) 0 2px,rgba(0,0,0,0) 2px 6px)}' +
+  '#scr-kiri .kr-cell.mort .kr-e,#scr-kiri .kr-cell.mort .kr-p{opacity:.5}' +
+  '#scr-kiri .kr-cell .kr-lock{position:absolute;top:1px;left:1px;z-index:3;font-size:8px;line-height:1;' +
+    'font-weight:900;color:#0E0B14;background:#FF5468;border-radius:3px;padding:1px 2px}' +
+
+  /* ── THE EIGHT SEATS, TOLD APART BY SHAPE ───────────────────────
+     Eight colours is as many as stay honestly apart at nine points,
+     which is why eight is the seat maximum. A SHAPE does not run out:
+     the pips are a disc, a square, a diamond, a triangle, a pentagon,
+     a hexagon, a bar and a cross, so the colour is now the second
+     thing telling them apart rather than the only one. That is the
+     accessible reading (never colour alone) and it is also the thing
+     that would let the table seat more than eight. */
+  '#scr-kiri .kr-pips{position:absolute;z-index:3;bottom:1px;left:1px;right:1px;' +
+    'display:flex;flex-wrap:wrap;justify-content:center;gap:1.5px}' +
+  '#scr-kiri .kr-cell.s-l .kr-pips{right:9px}' +
+  '#scr-kiri .kr-cell.s-r .kr-pips{left:9px}' +
+  '#scr-kiri .kr-cell.s-t .kr-pips{bottom:9px}' +
+  '#scr-kiri .kr-pip{width:clamp(7px,calc(var(--bs,340px) * .0245),12px);height:auto;aspect-ratio:1;' +
+    'flex:0 0 auto;background:var(--c,#fff);' +
+    'filter:drop-shadow(0 0 1.4px #0E0B14) drop-shadow(0 1px 1px rgba(0,0,0,.7))}' +
+  '#scr-kiri .kr-pips.many .kr-pip{width:clamp(6px,calc(var(--bs,340px) * .019),9px)}' +
+  /* EIGHT PEOPLE START ON THE SAME CORNER. Two rows of tokens plus a
+     silhouette plus a code does not go in one square, and of the three
+     the decoration is the one nobody needs: a corner that has somebody
+     standing on it drops its glyph and keeps its name. */
+  '#scr-kiri .kr-cell.corner.busy .kr-gl{display:none}' +
+  '#scr-kiri .kr-cell.corner.busy{padding-bottom:34%}' +
+  '#scr-kiri .kr-pip.k0{border-radius:50%}' +
+  '#scr-kiri .kr-pip.k1{border-radius:2px}' +
+  '#scr-kiri .kr-pip.k2{clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%)}' +
+  '#scr-kiri .kr-pip.k3{clip-path:polygon(50% 4%,100% 96%,0 96%)}' +
+  '#scr-kiri .kr-pip.k4{clip-path:polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)}' +
+  '#scr-kiri .kr-pip.k5{clip-path:polygon(25% 3%,75% 3%,100% 50%,75% 97%,25% 97%,0 50%)}' +
+  '#scr-kiri .kr-pip.k6{clip-path:polygon(0 28%,100% 28%,100% 72%,0 72%);border-radius:1px}' +
+  '#scr-kiri .kr-pip.k7{clip-path:polygon(36% 0,64% 0,64% 36%,100% 36%,100% 64%,64% 64%,' +
+    '64% 100%,36% 100%,36% 64%,0 64%,0 36%,36% 36%)}' +
+  /* a seat the phone is playing is HATCHED, not a different shape —
+     the shape is who you are and must not change when you step out */
+  '#scr-kiri .kr-pip.auto{background:repeating-linear-gradient(45deg,var(--c,#fff) 0 2px,' +
+    'rgba(14,11,20,.85) 2px 4px)}' +
+
+  /* ── THE MIDDLE OF THE TABLE ────────────────────────────────────
+     js/artkit.js's felt, the same cut as the kazin card table, with
+     the game's name laid across it the way a board has its name laid
+     across it, and the dice on top. The wordmark is drawn at 4% so it
+     is furniture, not a label competing with the square you are
+     standing on. */
+  '#scr-kiri .kr-mid{grid-column:2/9;grid-row:2/9;border-radius:9px;position:relative;overflow:hidden;' +
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;' +
+    'padding:8px;text-align:center;min-width:0;' +
+    'box-shadow:inset 0 0 0 1px rgba(255,197,66,.20),inset 0 2px 10px rgba(0,0,0,.55),' +
+      'inset 0 -16px 30px rgba(0,0,0,.45)}' +
+  /* js/artkit.js's felt is drawn lit from above for a card table with
+     the light on. Inside a board rim it is in shadow, so it gets one
+     scrim — which also stops a bright green square from out-shouting
+     the ring, which is the thing you are meant to be looking at. */
+  '#scr-kiri .kr-mid::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;' +
+    'background:radial-gradient(120% 90% at 50% 0%,rgba(4,12,8,.30),rgba(3,9,6,.72) 80%)}' +
+  '#scr-kiri .kr-mid > *{position:relative;z-index:1}' +
+  '#scr-kiri .kr-midmark{position:absolute;z-index:0;inset:0;display:grid;place-items:center;' +
+    'pointer-events:none;overflow:hidden}' +
+  '#scr-kiri .kr-midmark b{font-family:var(--disp);font-size:calc(var(--bs,340px) * .095);font-weight:900;' +
+    'letter-spacing:.16em;color:#EAF6EE;opacity:.085;transform:rotate(-27deg);white-space:nowrap;' +
+    'text-shadow:0 1px 0 rgba(0,0,0,.5)}' +
+
+  /* real dice: three-by-three, pips drawn, ivory face with a lit top
+     edge and a dark seat under it so they look like they are lying on
+     the felt rather than printed on it */
+  '#scr-kiri .kr-dice{display:flex;gap:9px}' +
+  '#scr-kiri .kr-die{width:clamp(26px,calc(var(--bs,340px) * .085),46px);height:auto;aspect-ratio:1;' +
+    'border-radius:9px;padding:11%;display:grid;gap:5%;' +
+    'grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);' +
+    'background:linear-gradient(158deg,#FFFCF2 0%,#F1E7D1 52%,#D9CBAE 100%);' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -2px 3px rgba(120,96,58,.4),' +
+      '0 3px 0 rgba(0,0,0,.35),0 6px 12px rgba(0,0,0,.5)}' +
+  '#scr-kiri .kr-die i{border-radius:50%;background:transparent}' +
+  '#scr-kiri .kr-die i.on{background:radial-gradient(circle at 34% 30%,#4A3B2A,#160E06 70%);' +
+    'box-shadow:inset 0 -.5px .5px rgba(255,255,255,.35)}' +
+  '#scr-kiri .kr-die.idle i.on{opacity:.16}' +
   '#scr-kiri .kr-die.roll{animation:krshake .34s ease}' +
   '@keyframes krshake{0%{transform:translateY(0) rotate(0)}30%{transform:translateY(-7px) rotate(-11deg)}' +
     '60%{transform:translateY(3px) rotate(9deg)}100%{transform:none}}' +
-  '#scr-kiri .kr-midn{font-weight:900;font-size:15px;line-height:1.15;max-width:100%}' +
-  '#scr-kiri .kr-midmt{font-size:11px;color:#A093C4;font-style:italic}' +
-  '#scr-kiri .kr-midask{font-size:12px;color:#F4EFFF;background:rgba(255,255,255,.07);border-radius:9px;' +
-    'padding:6px 10px;line-height:1.3;max-width:100%}' +
-  '#scr-kiri .kr-midask.warn{background:rgba(255,84,104,.16);color:#FFB9C1}' +
+  '#scr-kiri .kr-midn{font-family:var(--disp);font-weight:900;font-size:14px;line-height:1.15;' +
+    'letter-spacing:.03em;max-width:100%;text-shadow:0 1px 3px rgba(0,0,0,.7)}' +
+  '#scr-kiri .kr-midmt{font-size:11px;color:#CFE6D8;font-style:italic;opacity:.85}' +
+  '#scr-kiri .kr-midask{font-size:12px;color:#F4EFFF;background:rgba(6,16,11,.55);border-radius:9px;' +
+    'border:1px solid rgba(255,255,255,.14);padding:6px 10px;line-height:1.3;max-width:100%}' +
+  '#scr-kiri .kr-midask.warn{background:rgba(255,84,104,.28);color:#FFD3D8;border-color:rgba(255,84,104,.5)}' +
+  /* what the bank has left, which is the one number that lives in the
+     middle of a table rather than in anybody's hand */
+  '#scr-kiri .kr-supply{display:flex;gap:8px;font-size:9px;font-weight:900;letter-spacing:.08em;' +
+    'color:#BFD9C9;opacity:.9}' +
+  '#scr-kiri .kr-supply span{display:flex;align-items:center;gap:3px}' +
+  '#scr-kiri .kr-supply i{width:6px;height:6px;border-radius:1px;background:#120C22;' +
+    'box-shadow:0 0 0 1px rgba(255,255,255,.6)}' +
+  '#scr-kiri .kr-supply i.p{width:11px;height:5px;box-shadow:0 0 0 1px #FFC542}' +
+
+  /* one square, at reading size, wherever it has to be named */
+  '#scr-kiri .kr-plate{width:44px;height:52px;border-radius:7px;flex:0 0 auto;position:relative;' +
+    'overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;' +
+    'padding:0 2px 8px;background:linear-gradient(180deg,#2A2050,#150E2B);' +
+    'box-shadow:inset 0 0 0 1px rgba(255,255,255,.10),0 3px 8px rgba(0,0,0,.5)}' +
+  '#scr-kiri .kr-plate::after{content:"";position:absolute;left:0;right:0;bottom:0;height:7px;' +
+    'background:var(--g,transparent)}' +
+  '#scr-kiri .kr-plate .kr-e{font-family:var(--disp);font-size:13px;font-weight:900;line-height:1;' +
+    'color:#F6F1FF;text-shadow:0 1px 2px rgba(0,0,0,.7)}' +
+  '#scr-kiri .kr-plate.chance .kr-e{font-size:20px;color:var(--g,#FFC542)}' +
+  '#scr-kiri .kr-plate .kr-gl{width:17px;height:17px;color:#D5CAF0;display:block;line-height:0}' +
+  '#scr-kiri .kr-plate .kr-gl .ka-g{stroke-width:1}' +
+
+  /* the winner, on a plate the size of a medal */
+  '#scr-kiri .kr-crown{width:74px;height:74px;border-radius:50%;display:grid;place-items:center;' +
+    'background:radial-gradient(70% 70% at 34% 26%,rgba(255,197,66,.35),rgba(14,11,20,.9));' +
+    'box-shadow:0 0 0 2px rgba(255,197,66,.6),0 0 30px rgba(255,197,66,.35)}' +
+  '#scr-kiri .kr-crown .kr-tok{width:52px;height:52px}' +
+  '#scr-kiri .kr-crown .kr-pip{width:30px;height:30px}' +
+  /* a cut cable, drawn: two ends and the gap between them */
+  '#scr-kiri .kr-plug{width:76px;height:16px;border-radius:8px;' +
+    'background:linear-gradient(90deg,#8A5CFF 0 40%,rgba(0,0,0,0) 40% 60%,#8A5CFF 60% 100%);' +
+    'box-shadow:0 0 18px rgba(138,92,255,.5)}' +
+  '#scr-kiri .kr-plug.no{background:linear-gradient(90deg,#FF5468 0 40%,rgba(0,0,0,0) 40% 60%,' +
+    '#FF5468 60% 100%);box-shadow:0 0 18px rgba(255,84,104,.5)}' +
 
   /* ── the dock ── */
   '#scr-kiri .kr-dock{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:5px;margin-top:5px}' +
@@ -355,6 +566,14 @@ function injectCSS(){
   '#scr-kiri .kr-btn.bad{background:rgba(255,84,104,.18);border-color:rgba(255,84,104,.5);color:#FF9AA6}' +
   '#scr-kiri .kr-btn.ok{background:rgba(61,220,132,.16);border-color:rgba(61,220,132,.5);color:#3DDC84}' +
   '#scr-kiri .kr-btn small{display:block;font-size:10px;font-weight:600;opacity:.8}' +
+  /* a destructive button that has been asked once and is waiting for the
+     second tap. It goes solid — the state has to be unmistakable, because
+     the next tap is the one that cannot be taken back. */
+  '#scr-kiri .kr-btn.bad.armed{background:#FF5468;border-color:#FF8A98;color:#2A0409;' +
+    'box-shadow:0 0 0 3px rgba(255,84,104,.28);animation:krarm .18s ease}' +
+  '@keyframes krarm{from{transform:scale(.97)}to{transform:none}}' +
+  '#scr-kiri .kr-saved{border-radius:14px;padding:9px;margin-bottom:10px;' +
+    'background:rgba(255,197,66,.07);border:1px solid rgba(255,197,66,.26)}' +
 
   /* ── list rows in the dock ── */
   '#scr-kiri .kr-row{display:flex;align-items:center;gap:8px;min-height:46px;padding:5px 8px;border-radius:10px;' +
@@ -411,7 +630,10 @@ function injectCSS(){
   /* ── the card ── */
   '#scr-kiri .kr-card{border-radius:14px;padding:16px 14px;text-align:center;border:2px solid var(--c,#FFC542);' +
     'background:linear-gradient(180deg,rgba(255,255,255,.09),rgba(255,255,255,.03))}' +
-  '#scr-kiri .kr-card .kr-ce{font-size:34px;line-height:1}' +
+  '#scr-kiri .kr-card .kr-ce{width:52px;height:52px;margin:0 auto;border-radius:50%;' +
+    'display:grid;place-items:center;font-family:var(--disp);font-size:30px;font-weight:900;' +
+    'line-height:1;color:var(--c,#FFC542);background:rgba(14,11,20,.55);' +
+    'box-shadow:inset 0 0 0 2px var(--c,#FFC542),0 0 18px rgba(0,0,0,.5)}' +
   '#scr-kiri .kr-card .kr-cd{font-size:10px;font-weight:900;letter-spacing:.16em;color:var(--c,#FFC542);margin:6px 0 4px}' +
   '#scr-kiri .kr-card .kr-ct{font-size:17px;font-weight:900;line-height:1.2;margin-bottom:8px}' +
   '#scr-kiri .kr-card .kr-cx{font-size:13px;line-height:1.55;color:#D9CFF2}' +
@@ -463,7 +685,11 @@ function injectCSS(){
   '#scr-kiri .kr-over{position:absolute;inset:0;z-index:30;display:flex;flex-direction:column;' +
     'align-items:center;justify-content:center;gap:10px;padding:22px;text-align:center;' +
     'overflow-y:auto;-webkit-overflow-scrolling:touch;' +
-    'background:radial-gradient(90% 60% at 50% 30%,rgba(138,92,255,.28),rgba(6,4,12,.95) 70%)}' +
+    /* NEARLY OPAQUE, on purpose. At .95 with a soft edge the board's own
+       text read straight through the winner's name, which is the one
+       word on this screen. */
+    'background:linear-gradient(rgba(8,5,16,.955),rgba(8,5,16,.975)),' +
+      'radial-gradient(90% 60% at 50% 28%,rgba(138,92,255,.42),rgba(6,4,12,1) 68%)}' +
   '#scr-kiri .kr-over > *{flex:0 0 auto}' +
   '#scr-kiri .kr-over h3{margin:0;font-family:var(--disp);font-size:25px;' +
     'letter-spacing:.05em;line-height:1.15}' +
@@ -495,13 +721,24 @@ function injectCSS(){
     '#scr-kiri .kr-over h3{font-size:20px}' +
     '#scr-kiri.on{display:grid;column-gap:8px;' +
       'grid-template-columns:auto minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr)}' +
-    '#scr-kiri .kr-tbar{grid-area:1/1/2/3;min-height:38px}' +
-    '#scr-kiri .kr-wrap{grid-area:2/1/5/2;align-self:start;padding:0}' +
+    /* THE TITLE BAR GOES IN THE DOCK'S COLUMN. It used to span both,
+       which cost the ring its own height in points for a row of chrome
+       that had a whole empty column to sit in. */
+    '#scr-kiri .kr-tbar{grid-area:1/2/2/3;min-height:38px}' +
+    '#scr-kiri .kr-wrap{grid-area:1/1/5/2;align-self:stretch;padding:0}' +
     '#scr-kiri .kr-strip{grid-area:2/2/3/3;margin:0 0 4px}' +
     '#scr-kiri #kr-awayhost{grid-area:3/2/4/3}' +
     '#scr-kiri .kr-dock{grid-area:4/2/5/3;margin-top:0}' +
     '#scr-kiri .kr-die{width:26px;height:26px;font-size:15px}' +
-    '#scr-kiri .kr-btn{min-height:44px}}';
+    '#scr-kiri .kr-btn{min-height:44px}}' +
+
+  /* ── SOMEBODY WHO HAS ASKED FOR LESS MOVEMENT ────────────────────
+     The dice shake, the sheet's rise and the arming flash all say
+     something, but none of them says anything the words do not. Off
+     they go, and the game plays identically. */
+  '@media (prefers-reduced-motion:reduce){' +
+    '#scr-kiri .kr-die.roll,#scr-kiri .kr-sheet.on,#scr-kiri .kr-btn.bad.armed{animation:none}' +
+    '#scr-kiri .kr-cell{transition:none}}';
   document.head.appendChild(st);
 }
 
@@ -593,11 +830,21 @@ function watchDead(el){
   catch(err){ try { el.addEventListener('click', down, true); } catch(_){} }
 }
 
+/* ── THE CRASH NET, AND ONLY THE CRASH NET ──────────────────────────
+   Every idle exit — standing the screen down, the tab going away, the
+   page unloading, Escape — writes the board so a phone that dies
+   mid-game comes back to it. A FINISHED game must never be written:
+   renderOver() bins the save the moment the game ends, and half a
+   second later close() used to put it straight back, which is how a
+   game you had already won turned up on the menu offering to be
+   carried on with. One guard, one place. */
+function stash(){ if (G && !G.over) K.save(G); return !!(G && !G.over); }
+
 function standDown(){
   live = false;
   stopLoop();
   hushQueue();          /* nothing queued may follow us onto another screen */
-  if (G) K.save(G);
+  stash();
   if (scr) scr.classList.remove('on');
 }
 
@@ -738,10 +985,21 @@ function menu(){
       '<p class="kr-blurb">Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
       'friendship end over a garage in Marsa. Thirty-two squares, six colour groups, floors instead of ' +
       'houses, and a queue at counter four instead of a prison cell.</p>' +
-      (saved ? '<button class="kr-btn go" id="kr-resume" style="width:100%;margin-bottom:8px">' +
-        'Carry on with the game you left<small>' + resumeLine(saved) + '</small></button>' : '') +
-      '<button class="kr-btn buy" id="kr-new" style="width:100%;margin-bottom:8px">' +
-        (saved ? 'Start a new one instead<small>the saved game goes in the bin</small>' : 'Start a game') + '</button>' +
+      /* ── THE ONE UNFINISHED GAME, AND THE WAY OUT OF IT ────────────
+         There is exactly one save slot (js/kiri.js's SAVE_KEY), so this
+         is never a list — it is one game, and it gets a bin of its own
+         rather than only ever being replaced by another one. */
+      (saved
+        ? '<div class="kr-saved">' +
+            '<div class="kr-hd" style="margin-top:0">THE GAME YOU LEFT</div>' +
+            '<button class="kr-btn go" id="kr-resume" style="width:100%">' +
+              'Carry on with it<small>' + esc(resumeLine(saved)) + '</small></button>' +
+            '<div class="kr-act" style="margin-top:6px">' +
+              '<button class="kr-btn" id="kr-new">Start a new one<small>this one goes in the bin</small></button>' +
+              '<button class="kr-btn bad" id="kr-bin" style="flex:0 0 40%">Bin it<small>and be rid of it</small></button>' +
+            '</div>' +
+          '</div>'
+        : '<button class="kr-btn buy" id="kr-new" style="width:100%;margin-bottom:8px">Start a game</button>') +
       '<button class="kr-btn" id="kr-rules" style="width:100%">How it works<small>the rules, in one screen</small></button>' +
     '</div>';
   artWash(el.querySelector('#kr-heroart'), 'kiri-hero', 0.22);
@@ -750,13 +1008,94 @@ function menu(){
   el.querySelector('#kr-rules').onclick = rules;
   const r = el.querySelector('#kr-resume');
   if (r) r.onclick = () => { G = saved; boardScreen(); };
+  const bin = el.querySelector('#kr-bin');
+  if (bin) arm(bin, 'Bin it<small>and be rid of it</small>', 'Sure?', () => {
+    K.clearSave();
+    cue('duel.destroy', { gain: 0.85 }, 2);
+    menu();
+  });
+}
+
+/* ── A DESTRUCTIVE BUTTON THAT ASKS ONCE, IN PLACE ──────────────────
+   Binning a game cannot be undone, so it may not happen on a stray
+   tap — but a second sheet on top of a sheet is how a delete ends up
+   buried, and buried is the bug we are here to fix. So the button
+   arms itself: the first tap changes what it says, the second does it,
+   and it disarms itself after four seconds if the answer was no. One
+   confirmation, no new screen, and the label always says exactly what
+   the next tap will do. */
+function arm(btn, label, ask, done){
+  let hot = 0, t = 0;
+  const off = () => { hot = 0; btn.classList.remove('armed'); btn.innerHTML = label; };
+  btn.onclick = () => {
+    if (hot){ clearTimeout(t); off(); done(); return; }
+    hot = 1;
+    btn.classList.add('armed');
+    btn.innerHTML = ask + '<small>this cannot be undone</small>';
+    cue('ui.error', { gain: 0.70 }, 3);
+    t = setTimeout(off, 4000);
+  };
 }
 
 function resumeLine(g){
+  /* ENOUGH TO RECOGNISE IT, not the whole table. Eight seats of names
+     and money is two lines of small print on a button, and the thing
+     you actually need to know is which game this is. */
   const live = g.players.filter(p => !p.out);
-  return 'Round ' + g.round + (g.roundLimit ? ' of ' + g.roundLimit : '') + ' · ' +
-         live.map(p => p.name + ' ' + money(p.cash)).join(' · ');
+  const names = live.slice(0, 2).map(p => p.name);
+  if (live.length > 2) names.push('and ' + (live.length - 2) + ' more');
+  return 'Round ' + g.round + (g.roundLimit ? ' of ' + g.roundLimit : '') +
+         ' · ' + names.join(', ') +
+         (live[0] ? ' · you had ' + money(live[0].cash) : '');
 }
+
+/* ── WHAT "LEAVE" MEANS ─────────────────────────────────────────────
+   Two different things, and the game used to guess. Put it down and it
+   is waiting for you; end it and it is gone. Both from one tap on the
+   back arrow, both said in as many words. */
+function leaveSheet(){
+  K.save(G);            /* whichever way this goes, nothing is lost meanwhile */
+  openSheet({
+    kind:'leave',
+    title:'Leave the game?',
+    body:'<p class="kr-blurb">It is written down after every roll, so putting it down here costs nothing — ' +
+      'it will be waiting on the IL-KIRI screen, exactly as you left it.</p>' +
+      '<div class="kr-hd">OR BE DONE WITH IT</div>' +
+      '<button class="kr-btn bad" id="kr-endit" style="width:100%">Temm il-logħba' +
+        '<small>end it here and throw it away</small></button>' +
+      '<p class="kr-blurb" style="margin:8px 2px 2px">Nobody wins, nothing goes on anybody\'s record, and the ' +
+      'IL-KIRI screen comes back empty. It does not come back.</p>',
+    foot:'<button class="kr-btn" id="kr-stay">Stay here</button>' +
+         '<button class="kr-btn go" id="kr-keep">Put it down<small>and come back to it</small></button>',
+    wire: root => {
+      root.querySelector('#kr-stay').onclick = closeSheet;
+      root.querySelector('#kr-keep').onclick = () => { K.save(G); closeSheetOnly(); menu(); };
+      arm(root.querySelector('#kr-endit'),
+          'Temm il-logħba<small>end it here and throw it away</small>', 'Sure?', () => {
+        K.clearSave();
+        cue('duel.destroy', { gain: 0.90 }, 2);
+        closeSheetOnly();
+        menu();               /* which sets G to null and offers a fresh start */
+      });
+    },
+  });
+}
+
+/* ── LEAVING A ROOM, FROM WHEREVER ──────────────────────────────────
+   The save-after-every-action is a crash net for a phone that died
+   mid-game. It is NOT a reason to keep a room's board once this phone
+   has walked out of the room: the other seven are not there any more,
+   and menu() would have to bin it on sight anyway. So it goes here,
+   at the moment of leaving, and no ghost is ever written. */
+function dropRoom(n){
+  NET = null;
+  netMsg = { t:'', k:'' };
+  stopLoop();
+  K.clearSave();
+  G = null;
+  if (n && n.onLeave) n.onLeave(); else close();
+}
+function leaveRoom(){ dropRoom(NET); }
 
 function rules(){
   const el = screenEl();
@@ -894,7 +1233,7 @@ function paintSetup(){
     const S = K.SEATS[i];
     const off = s.kind === 'off';
     h += '<div class="kr-pl">' +
-      '<span class="kr-tok" style="background:' + S.c + ';color:#150C22">' + esc(S.code) + '</span>' +
+      tok(i, S.c, S.n) +
       (off
         ? '<span style="flex:1;color:#7F73A0;font-size:12.5px;font-weight:700">Empty chair</span>'
         : '<button class="kr-seatname" id="kr-nm-' + i + '">' + esc(s.name) +
@@ -998,7 +1337,7 @@ function renameSheet(i){
     body:'<p class="kr-blurb">' + (i === 0
         ? 'This is your profile name and it follows you into every game. Change it here just for tonight if you like.'
         : 'Call this seat whatever the person sitting in it answers to.') + '</p>' +
-      '<div class="kr-pl"><span class="kr-tok" style="background:' + S.c + ';color:#150C22">' + esc(S.code) + '</span>' +
+      '<div class="kr-pl">' + tok(i, S.c, S.n) +
       '<input id="kr-rn" maxlength="14" value="' + esc(s.name) + '" aria-label="Name for this seat"></div>',
     foot:'<button class="kr-btn" id="kr-rnx">Leave it</button>' +
          '<button class="kr-btn go" id="kr-rnok">That\'s it</button>',
@@ -1093,20 +1432,23 @@ function boardScreen(){
     round: el.querySelector('#kr-round'),
     strip: el.querySelector('#kr-strip'),
     away:  el.querySelector('#kr-awayhost'),
+    wrap:  el.querySelector('.kr-wrap'),
     board: el.querySelector('#kr-board'),
     pane:  el.querySelector('#kr-pane'),
     act:   el.querySelector('#kr-act'),
     scrim: el.querySelector('#kr-scrim'),
     sheet: el.querySelector('#kr-sheet'),
   };
-  /* the back arrow. Offline it is our own menu; online the way out of a
-     table is the room list, exactly as it is for every other party game
-     — this screen is not the place to explain that a room still exists. */
+  /* the back arrow. Offline it asks what "leave" means — put it down
+     for later, or end it here — because a game that is autosaved after
+     every single action and can only ever be REPLACED is a game you are
+     stuck with. Online the way out of a table is the room list, exactly
+     as it is for every other party game, and leaving the room takes the
+     save with it: the crash net is for a phone that died mid-game, not
+     for a room you deliberately walked out of. */
   el.querySelector('#kr-menu').onclick = () => {
-    K.save(G);
-    if (NET){ const n = NET; NET = null; netMsg = { t:'', k:'' }; stopLoop();
-              if (n.onLeave) n.onLeave(); else close(); return; }
-    menu();
+    if (NET){ leaveRoom(); return; }
+    leaveSheet();
   };
   el.querySelectorAll('.kr-tab').forEach(b => b.onclick = () => {
     tab = b.getAttribute('data-tab'); render();
@@ -1128,6 +1470,10 @@ function boardScreen(){
   }
   const mid = document.createElement('div');
   mid.className = 'kr-mid'; mid.id = 'kr-mid';
+  /* THE MIDDLE OF A TABLE IS A TABLE. js/artkit.js already owns the
+     house's felt — the same cut as the kazin card table — so the ring
+     asks the kit for it rather than mixing a second green here. */
+  try { const a = artkit(); if (a && a.paint) a.paint(mid, 'felt'); } catch(e){}
   els.board.appendChild(mid);
   els.mid = mid;
 
@@ -1139,25 +1485,56 @@ function boardScreen(){
   pump();
 }
 
-/* the ring is the biggest square that fits without squeezing the dock
-   below its usable minimum. Cells never go under 40px; on anything
-   phone-shaped they land at 44 or better. */
+/* ── THE RING IS AS BIG AS THE WINDOW ALLOWS ────────────────────────
+   It used to be a sum over three hardcoded constants — 108 points of
+   "chrome", 280 of dock, 16 of padding — and constants drift: the
+   safe-area inset is not 0 on a real phone, the away bar appears and
+   disappears, and the landscape layout moved. So the two numbers that
+   can be MEASURED are measured. `wrap.offsetTop` is the exact height
+   of everything above the ring, whatever that turned out to be, and
+   the screen's own computed padding is the exact inset. Only the
+   dock's minimum is a judgement, and it scales with the phone.
+
+   The page must never scroll — #scr-kiri is inset:0 with
+   overflow:hidden — so the ring is only ever allowed to take height
+   that is genuinely spare. */
 let sizerOn = false, ro = null;
+const BOARD_CAP = 560;
 function sizeBoard(){
   const el = screenEl();
-  if (!el || !els.board) return;
-  const w = el.clientWidth - 16;
-  const h = el.clientHeight;
-  const DOCK_MIN = 280, CHROME = 108;
+  if (!el || !els.board || !els.wrap) return;
+  const cs = getComputedStyle(el);
+  const padL = parseFloat(cs.paddingLeft) || 0;
+  const padR = parseFloat(cs.paddingRight) || 0;
+  const padT = parseFloat(cs.paddingTop) || 0;
+  const padB = parseFloat(cs.paddingBottom) || 0;
+  const w = el.clientWidth - padL - padR;
   /* the same test the stylesheet makes, so the sum and the layout can
      never disagree about which way up the phone is */
-  const onItsSide = w > h && h <= 560;
+  const onItsSide = el.clientWidth > el.clientHeight && el.clientHeight <= 560;
+  /* PORTRAIT: everything above the ring, as actually laid out — the
+     title bar, the turn strip and the away bar if there is one. Their
+     heights do not depend on the ring's, so reading it back is safe.
+     ON ITS SIDE the ring has its own full-height column and nothing is
+     above it, so offsetTop would be the ring's own centring offset —
+     measuring THAT would feed the answer back into itself and the
+     board would shrink a little every time the observer fired. */
+  const top = onItsSide ? padT : els.wrap.offsetTop;
+  const h = el.clientHeight - top - padB;        /* everything left for the ring and the dock */
+  /* what a dock has to be to be a dock: four 44-point tabs, a 44-point
+     action bar and something between them. On a tall phone it can have
+     its full 280; on a 660-point one, insisting on 280 was costing the
+     board forty points it could have had. */
+  const dock = onItsSide ? 268
+             : Math.max(198, Math.min(280, Math.round(el.clientHeight * 0.34)));
   const s = onItsSide
-    /* beside the dock: the height is what runs out first, and the dock
-       still needs its 280 points of WIDTH to be a dock */
-    ? Math.max(260, Math.min(h - 52, w - DOCK_MIN, 460))
-    : Math.max(300, Math.min(w, h - CHROME - DOCK_MIN, 460));
-  els.board.style.setProperty('--bs', Math.floor(s) + 'px');
+    /* BESIDE the dock: the full height is the ring's, because the title
+       bar went into the other column with everything else */
+    ? Math.max(240, Math.min(h, w - dock - 8, BOARD_CAP))
+    : Math.max(276, Math.min(w, h - dock - 5, BOARD_CAP));
+  const px = Math.floor(s) + 'px';
+  if (els.board.style.getPropertyValue('--bs') !== px)
+    els.board.style.setProperty('--bs', px);
 }
 function startSizer(){
   sizerOn = true;
@@ -1193,7 +1570,7 @@ function renderStrip(){
   const auto = K.machineSeat(G, G.turn);
   const empty = K.tableEmpty(G) && !G.over;
   let h =
-    '<span class="kr-tok" style="background:' + p.colour + '">' + p.token + '</span>' +
+    tok(p.i, p.colour, p.name) +
     '<span class="kr-who">' + esc(p.name) + '</span>' +
     (p.kind === 'cpu' ? '<span class="kr-auto">PHONE</span>'
       : p.auto ? '<span class="kr-auto">ON AUTOPILOT</span>' : '') +
@@ -1233,18 +1610,20 @@ function renderAway(){
     ? '<div class="kr-away' + (netMsg.k === 'warn' ? ' warn' : '') + '" role="status" aria-live="polite">' +
       '<span class="kr-awt">' + esc(netMsg.t) + '</span></div>'
     : '';
-  if (!gone.length || G.over){ els.away.innerHTML = G.over ? '' : net; return; }
+  if (!gone.length || G.over){ els.away.innerHTML = G.over ? '' : net; sizeBoard(); return; }
   const why = { clock:'has not moved', signal:'has lost the connection', away:'has gone', asked:'asked the phone to play' };
   els.away.innerHTML = net +
     '<div class="kr-away" role="status" aria-live="polite">' +
-      gone.map(p => '<span class="kr-tok" style="background:' + p.colour +
-        ';width:22px;height:22px;font-size:12px">' + p.token + '</span>').join('') +
+      gone.map(p => tok(p.i, p.colour, p.name, 1)).join('') +
       '<span class="kr-awt"><b>' + gone.map(p => esc(p.name)).join(', ') + '</b> ' +
         (gone.length > 1 ? 'are away' : (why[gone[0].autoWhy] || 'is away')) +
         ' — the phone is playing ' + (gone.length > 1 ? 'those seats' : 'that seat') + '.</span>' +
       '<button class="kr-back" id="kr-awayback">' +
         (gone.length > 1 ? 'We\'re back' : 'I\'m back') + '</button>' +
     '</div>';
+  /* the away bar appearing or going away changes how much room is left
+     above the ring, and nothing else would notice */
+  sizeBoard();
   els.away.querySelector('#kr-awayback').onclick = () => {
     cue('mp.joined', { gain: 1.00 }, 1);
     gone.forEach(p => act({ t:'back' }, p.i));
@@ -1253,12 +1632,71 @@ function renderAway(){
   };
 }
 
+/* ── WHAT IS DRAWN ON A SQUARE THAT IS NOT PROPERTY ─────────────────
+   js/artkit.js already ships the house's silhouettes on one 24-grid
+   with one ink, so the corners and the services borrow from there
+   rather than inventing a second set of shapes for one screen. The
+   two card decks keep their ? and ! — a question mark IS the mark on
+   every board ever printed, and no drawing beats it at eleven points. */
+const GLYPH = {
+  bidu:'coin', kju:'gate', pjazza:'party', marsa:'crane',
+  taxxa:'gavel', cens:'gavel',
+  vapur:'ferry', terminus:'bus', karozzin:'bus', taxi:'bus',
+  bowser:'water', generator:'power',
+};
+/* the glyph is looked up by square id where there is one and by type
+   otherwise, so a renamed square never silently loses its picture */
+const BYTYPE = { go:'coin', jail:'gate', rest:'party', togo:'crane',
+                 tax:'gavel', rail:'bus', util:'power' };
+function glyphFor(s){
+  const n = (s.id && GLYPH[s.id]) || BYTYPE[s.t] || '';
+  const a = artkit();
+  if (!n || !a || !a.mark) return '';
+  const g = a.mark(n);
+  return g ? '<span class="kr-gl">' + g + '</span>' : '';
+}
+
+/* WHICH SIDE OF THE RING A SQUARE IS ON. It never changes, so it is
+   worked out once when the ring is built and lives on the cell as a
+   class — the colour strip, the deed hem and the token row all hang
+   off it. Corners get no side: nothing on them faces anywhere. */
+function sideOf(i){
+  if (i === 0 || i === 8 || i === 16 || i === 24) return '';
+  if (i < 8)  return 's-l';
+  if (i < 16) return 's-t';
+  if (i < 24) return 's-r';
+  return 's-b';
+}
+
+/* the seat's silhouette. Eight are drawn; the ninth would be the
+   ninth shape, not the ninth shade of blue. */
+const pipClass = i => 'k' + (i % 8);
+
+/* the token, wherever a seat has to be named: strip, away bar, table,
+   standings, setup. Shape plus colour, and never a glyph from a font
+   this phone may not have. */
+function tok(i, colour, name, sm){
+  return '<span class="kr-tok' + (sm ? ' sm' : '') + '" title="' + esc(name || '') + '">' +
+         '<span class="kr-pip ' + pipClass(i) + '" style="--c:' + colour + '"></span></span>';
+}
+
 function renderCells(){
   for (let i = 0; i < 32; i++){
     const s = K.BOARD[i], c = document.getElementById('kr-c' + i);
     if (!c) continue;
-    const g = s.g ? K.GROUPS[s.g].c : (s.t === 'rail' ? '#7F73A0' : s.t === 'util' ? '#4FC3F7' : '');
+    /* every square has a colour; only the ones that can be BOUGHT get
+       the strip. The two decks are told apart by theirs — gossip is the
+       house purple, the government is the house gold — which is how you
+       learn which card is coming before you land on it. */
+    const g = s.g ? K.GROUPS[s.g].c
+            : s.t === 'rail' ? '#B79E70'
+            : s.t === 'util' ? '#4FC3F7'
+            /* the deck's OWN colour, the one the card itself is drawn
+               in, so you can see which one is coming before you land */
+            : s.t === 'card' ? ((K.DECKS[s.deck] || {}).c || '#FFC542') : '';
+    const banded = s.t === 'prop' || s.t === 'rail' || s.t === 'util';
     const o = G.own[i];
+    const own = o >= 0 ? G.players[o] : null;
     /* The square's mark is a SHORT CODE drawn in CSS, not an emoji.
        Emoji are the house style everywhere else in KARTI, but a board
        cell is 44 points and the only thing on it — if a device has no
@@ -1266,26 +1704,66 @@ function renderCells(){
        identical grey box and the board is destroyed. A code always
        renders, is sharper at this size, and the full name is one tap
        away and printed in the middle of the ring anyway. */
-    let h = (g ? '<span class="kr-band" style="--g:' + g + '"></span>' : '') +
-            '<span class="kr-e">' + esc(s.code) + '</span>' +
-            (G.mort[i] ? '<span class="kr-lock">M</span>' : '');
+    const priced = (s.t === 'prop' || s.t === 'rail' || s.t === 'util');
+    /* the strip, and the concrete standing on it */
+    let floors = '';
     if (s.t === 'prop' && G.lvl[i] > 0)
-      h += '<span class="kr-lvl" style="--g:' + g + '">' + (G.lvl[i] === 5 ? 'P' : G.lvl[i]) + '</span>';
+      floors = G.lvl[i] === 5 ? '<i class="kr-fl pent"></i>'
+                              : new Array(G.lvl[i]).fill('<i class="kr-fl"></i>').join('');
+    let h = (banded && g ? '<span class="kr-band" style="--g:' + g + '">' + floors + '</span>' : '') +
+            (own ? '<span class="kr-own"></span>' : '') +
+            (s.t === 'prop' ? '' : glyphFor(s)) +
+            '<span class="kr-e">' + esc(s.code) + '</span>' +
+            /* SECOND LINE: what it costs, or who has it. A board with
+               prices on it is a board you can plan a turn from without
+               opening anything; once it is sold the price is history
+               and the owner is the useful fact. */
+            (priced
+              /* UNSOLD: what it costs, so a turn can be planned off the
+                 board itself. SOLD: the owner's own silhouette, never
+                 their initials — two letters under the square's own
+                 three-letter code is a code nobody can read. */
+              ? (own ? '<span class="kr-pip kr-oc ' + pipClass(own.i) +
+                       '" style="--c:' + own.colour + '"></span>'
+                     : '<span class="kr-p">' + money(s.price) + '</span>')
+              : '') +
+            (G.mort[i] ? '<span class="kr-lock">M</span>' : '');
     const on = G.players.filter(p => !p.out && p.pos === i);
     if (on.length){
-      /* a seat being played by the phone shows as a SQUARE pip rather
-         than a round one — you can see who is not really there from the
-         board itself, without reading anything */
+      /* a seat being played by the phone shows HATCHED rather than
+         solid — you can see who is not really there from the board
+         itself, without reading anything, and without the piece
+         turning into somebody else's shape while they are gone */
       h += '<span class="kr-pips' + (on.length > 4 ? ' many' : '') + '">' + on.map(p =>
-        '<span class="kr-pip' + (K.machineSeat(G, p.i) && p.kind !== 'cpu' ? ' auto' : '') +
-        '" style="background:' + p.colour + '" title="' + esc(p.name) + '"></span>').join('') + '</span>';
+        '<span class="kr-pip ' + pipClass(p.i) +
+        (K.machineSeat(G, p.i) && p.kind !== 'cpu' ? ' auto' : '') +
+        '" style="--c:' + p.colour + '" title="' + esc(p.name) + '"></span>').join('') + '</span>';
     }
     c.innerHTML = h;
-    c.className = 'kr-cell' + (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? ' corner' : '') +
-      (o >= 0 ? ' mine' : '') + (G.mort[i] ? ' mort' : '') +
+    c.className = 'kr-cell ' + sideOf(i) +
+      (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? ' corner' : '') +
+      (s.t === 'card' ? ' chance' : '') + (on.length ? ' busy' : '') +
+      (own ? ' mine' : '') + (G.mort[i] ? ' mort' : '') +
       (me().pos === i ? ' here' : '');
-    c.style.setProperty('--o', o >= 0 ? G.players[o].colour : 'transparent');
+    c.style.setProperty('--o', own ? own.colour : 'transparent');
+    c.style.setProperty('--g', g || 'transparent');
   }
+}
+
+/* a real die face: three by three, pips drawn. A digit on a white
+   square is a number; six dots is a die, and it is the same amount of
+   markup either way. */
+const PIPS = [[], [4], [0,8], [0,4,8], [0,2,6,8], [0,2,4,6,8], [0,2,3,5,6,8]];
+function die(n){
+  /* AN UNROLLED DIE IS STILL A DIE. Nine empty holes read as a blank
+     tile and look like something failed to draw, so before the first
+     roll the pips are there and simply not lit. */
+  const idle = !(n >= 1 && n <= 6);
+  const on = PIPS[idle ? 5 : n];
+  let h = '';
+  for (let k = 0; k < 9; k++) h += '<i' + (on.indexOf(k) >= 0 ? ' class="on"' : '') + '></i>';
+  return '<span class="kr-die' + (idle ? ' idle' : '') + (rolled ? ' roll' : '') +
+         '" aria-hidden="true">' + h + '</span>';
 }
 
 function renderMid(){
@@ -1302,14 +1780,29 @@ function renderMid(){
   else if (G.phase === 'card') ask = 'A card.';
   else ask = 'Build, deal, or end the turn.';
 
+  /* WHAT IS LEFT IN THE BANK'S YARD. Money the bank cannot run out of;
+     concrete it can, and that is the one number that belongs in the
+     middle of the table rather than on anybody's own sheet. */
+  let fl = 0, pn = 0;
+  for (let i = 0; i < 32; i++){
+    if (G.lvl[i] === 5) pn++;
+    else fl += G.lvl[i] || 0;
+  }
+
   els.mid.innerHTML =
-    '<div class="kr-dice">' +
-      '<span class="kr-die' + (rolled ? ' roll' : '') + '">' + (d ? d[0] : '·') + '</span>' +
-      '<span class="kr-die' + (rolled ? ' roll' : '') + '">' + (d ? d[1] : '·') + '</span>' +
+    '<div class="kr-midmark" aria-hidden="true"><b>IL-KIRI</b></div>' +
+    '<div class="kr-dice" role="img" aria-label="' +
+      (d ? 'Dice ' + d[0] + ' and ' + d[1] : 'The dice are not rolled') + '">' +
+      die(d ? d[0] : 0) + die(d ? d[1] : 0) +
     '</div>' +
     '<div class="kr-midn">' + esc(s.n) + '</div>' +
     '<div class="kr-midmt">' + esc(s.mt) + '</div>' +
-    '<div class="kr-midask' + (warn ? ' warn' : '') + '">' + esc(ask) + '</div>';
+    '<div class="kr-midask' + (warn ? ' warn' : '') + '">' + esc(ask) + '</div>' +
+    '<div class="kr-supply" aria-label="Left in the bank: ' + (K.SUPPLY.floors - fl) +
+      ' floors, ' + (K.SUPPLY.penthouses - pn) + ' penthouses">' +
+      '<span><i></i>' + (K.SUPPLY.floors - fl) + ' LEFT</span>' +
+      '<span><i class="p"></i>' + (K.SUPPLY.penthouses - pn) + ' LEFT</span>' +
+    '</div>';
   rolled = false;
 }
 
@@ -1330,6 +1823,24 @@ function paneSquare(){
   wireSquareButtons(els.pane, i);
 }
 
+/* ── THE SQUARE, AS THE BOARD DRAWS IT, AT READING SIZE ─────────────
+   The sheet and the auction used to head themselves with the square's
+   emoji, which on a phone with no colour emoji font is an empty box —
+   the exact failure the board itself refuses to risk. So they show a
+   little tile instead: same colour strip, same code, same silhouette,
+   drawn the same way. You are looking at the thing you tapped. */
+function plate(i){
+  const s = K.BOARD[i];
+  const g = s.g ? K.GROUPS[s.g].c
+          : s.t === 'rail' ? '#B79E70'
+          : s.t === 'util' ? '#4FC3F7'
+          : s.t === 'card' ? ((K.DECKS[s.deck] || {}).c || '#FFC542') : '#FFC542';
+  return '<span class="kr-plate' + (s.t === 'card' ? ' chance' : '') +
+         '" style="--g:' + g + '" aria-hidden="true">' +
+         (s.t === 'prop' ? '' : glyphFor(s)) +
+         '<span class="kr-e">' + esc(s.code) + '</span></span>';
+}
+
 /* the full picture of one square — reused by the tab and by the sheet */
 function squareBody(i){
   const s = K.BOARD[i];
@@ -1338,7 +1849,7 @@ function squareBody(i){
   let h = '<div class="kr-hd">' + esc(g ? g.n.toUpperCase() : s.t === 'rail' ? 'TRANSPORT' :
           s.t === 'util' ? 'SERVICES' : s.t === 'card' ? esc(s.n).toUpperCase() : 'THE BOARD') + '</div>' +
     '<div style="display:flex;align-items:center;gap:9px">' +
-      '<span style="font-size:28px">' + s.e + '</span>' +
+      plate(i) +
       '<span style="flex:1;min-width:0"><b style="font-size:14.5px;line-height:1.2;display:block">' + esc(s.n) + '</b>' +
       '<span style="font-size:11px;color:#A093C4;font-style:italic">' + esc(s.mt) + '</span></span>' +
     '</div>';
@@ -1483,7 +1994,7 @@ function paneTable(){
     const badge = p.out ? 'OUT' : p.kind === 'cpu' ? 'PHONE' : p.auto ? 'AUTOPILOT' : '';
     h += '<div class="kr-row" style="--g:' + p.colour + (p.out ? ';opacity:.45' : '') + '">' +
       '<span class="kr-sw"></span>' +
-      '<span class="kr-tok" style="background:' + p.colour + ';width:22px;height:22px;font-size:12px">' + p.token + '</span>' +
+      tok(p.i, p.colour, p.name, 1) +
       '<span class="kr-rn">' + esc(p.name) + (badge ? ' <span class="kr-auto">' + badge + '</span>' : '') +
       '<span class="kr-rs">' + (p.out ? 'finished' :
         K.holdings(G, p.i).length + ' deed(s) · worth ' + money(K.netWorth(G, p.i)) +
@@ -1505,7 +2016,7 @@ function paneTable(){
   }
   h += '<div class="kr-hd">THE BANK</div><div class="kr-row"><span class="kr-sw"></span>' +
     '<span class="kr-rn">Concrete left<span class="kr-rs">when it runs out, nobody builds</span></span>' +
-    '<span class="kr-rv">' + G.supply.floors + ' ⌂ · ' + G.supply.penthouses + ' P</span></div>';
+    '<span class="kr-rv">' + G.supply.floors + ' floors · ' + G.supply.penthouses + ' pent</span></div>';
   els.pane.innerHTML = h;
   els.pane.querySelectorAll('[data-trade]').forEach(b =>
     b.onclick = () => tradeSheet(Number(b.getAttribute('data-trade'))));
@@ -1761,7 +2272,7 @@ function cardSheet(){
     title: esc(D.n),
     body: '<div class="kr-card" style="--c:' + D.c + '" id="kr-cardbox">' +
       '<div class="kr-art" id="kr-art"></div>' +
-      '<div class="kr-ce">' + D.e + '</div>' +
+      '<div class="kr-ce">' + (G.card.deck === 'ghajdut' ? '?' : '!') + '</div>' +
       '<div class="kr-cd">' + esc(D.n.toUpperCase()) + '</div>' +
       '<div class="kr-ct">' + esc(G.card.n) + '</div>' +
       '<div class="kr-cx">' + esc(G.card.txt) + '</div></div>',
@@ -1854,7 +2365,7 @@ function auctionSheet(){
     kind:'auction', dismissable:false,
     title:'Going once…',
     body:'<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">' +
-      '<span style="font-size:28px">' + s.e + '</span>' +
+      plate(A.pos) +
       '<span style="flex:1"><b style="display:block;font-size:14.5px">' + esc(s.n) + '</b>' +
       '<span style="font-size:11px;color:#A093C4">bank price ' + money(s.price) + '</span></span></div>' +
       '<div class="kr-row"><span class="kr-sw"></span><span class="kr-rn">' +
@@ -2012,7 +2523,7 @@ function renderOver(){
   const d = document.createElement('div');
   d.className = 'kr-over';
   d.innerHTML =
-    '<div style="font-size:44px">' + (w ? w.token : '🏁') + '</div>' +
+    (w ? '<div class="kr-crown">' + tok(w.i, w.colour, w.name) + '</div>' : '') +
     '<h3>' + esc(w ? w.name.toUpperCase() : 'NOBODY') + '</h3>' +
     '<p>' + (G.over.why === 'rounds'
       ? 'The rounds ran out and ' + esc(w.name) + ' was worth the most. ' + money(K.netWorth(G, w.i)) +
@@ -2021,6 +2532,7 @@ function renderOver(){
         'explain, at length, exactly how it was done.') + '</p>' +
     '<div class="kr-standings">' + rank.map((p, n) =>
       '<div class="kr-row" style="--g:' + p.colour + '"><span class="kr-sw"></span>' +
+      tok(p.i, p.colour, p.name, 1) +
       '<span class="kr-rn">' + (n + 1) + '. ' + esc(p.name) +
       '<span class="kr-rs">' + (p.out ? 'went under' : K.holdings(G, p.i).length + ' deed(s)') + '</span></span>' +
       '<span class="kr-rv">' + money(p.out ? 0 : K.netWorth(G, p.i)) + '</span></div>').join('') + '</div>' +
@@ -2039,8 +2551,7 @@ function renderOver(){
   if (hub) hub.onclick = () => { d.remove(); close(); };
   const rooms = d.querySelector('#kr-orooms');
   if (rooms) rooms.onclick = () => {
-    const n = NET; d.remove(); NET = null; netMsg = { t:'', k:'' };
-    if (n && n.onLeave) n.onLeave(); else close();
+    const n = NET; d.remove(); dropRoom(n);
   };
   if (P && P.record && w) P.record('kiri', won ? 'w' : 'l');
 }
@@ -2250,17 +2761,17 @@ document.addEventListener('visibilitychange', () => {
      one person putting their phone in a pocket while eight other people
      wait — so the loop keeps running (throttled by the browser, which
      is fine) and this phone goes on answering for its own chair. */
-  if (document.hidden && !NET){ stopLoop(); K.save(G); return; }
-  if (document.hidden){ K.save(G); return; }
+  if (document.hidden && !NET){ stopLoop(); stash(); return; }
+  if (document.hidden){ stash(); return; }
   render(); resetClock(); pump();
 });
-window.addEventListener('pagehide', () => { if (G) K.save(G); });
+window.addEventListener('pagehide', stash);
 
 /* Escape closes whatever is on top, then leaves */
 document.addEventListener('keydown', e => {
   if (!live || e.key !== 'Escape') return;
   if (sheet && sheet.dismissable !== false){ closeSheet(); return; }
-  if (G) K.save(G);
+  stash();
   if (NET) return;             /* leaving a room is a deliberate tap, not a key */
   menu();
 });
@@ -2534,7 +3045,7 @@ function onlineStop(why, tone){
   const d = document.createElement('div');
   d.className = 'kr-over';
   d.innerHTML =
-    '<div style="font-size:44px">' + (tone === 'cheat' ? '⛔' : '🔌') + '</div>' +
+    '<div class="kr-plug' + (tone === 'cheat' ? ' no' : '') + '" aria-hidden="true"></div>' +
     '<h3>' + (tone === 'cheat' ? 'NO DEAL' : 'CUT OFF') + '</h3>' +
     '<p>' + esc(why || 'The table stopped.') + '</p>' +
     '<p style="opacity:.8">Nothing was recorded. Nobody loses a garage in Marsa over a ' +
@@ -2542,10 +3053,7 @@ function onlineStop(why, tone){
     '<div style="display:flex;gap:6px;width:100%;max-width:330px">' +
       '<button class="kr-btn go" id="kr-nback">Back to the rooms</button></div>';
   el.appendChild(d);
-  d.querySelector('#kr-nback').onclick = () => {
-    d.remove();
-    if (n && n.onLeave) n.onLeave(); else close();
-  };
+  d.querySelector('#kr-nback').onclick = () => { d.remove(); dropRoom(n); };
 }
 
 /* ── what js/mp.js drives the wire with ───────────────────────────
@@ -2714,7 +3222,8 @@ window.KARTI_KIRI = {
      the relay enforces. See the note over WIRE_FIELDS. */
   wire: { fields: WIRE_FIELDS, enc: encMove, dec: decMove },
   ai:     AI,
-  save:   () => (G ? K.save(G) : false),
+  save:   () => stash(),
+  clearSave: () => K.clearSave(),
   hasSave: () => K.hasSave(),
 };
 
