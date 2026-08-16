@@ -279,6 +279,16 @@ function injectCSS(){
        the canvas already did, so a picture can never letterbox. */
     '.kx-av>img.kx-ph{display:block;width:100%;height:100%;object-fit:cover;' +
       'border-radius:inherit}' +
+    /* THE PHOTOGRAPH AND THE DRAWN FACE MUST SHARE ONE CELL.
+       .kx-av is an inline-grid, and a grid with no template puts each
+       child in its OWN ROW — so the photo was not covering the face, it
+       was sitting underneath it in a second row and being clipped away by
+       the medallion's own size. Everything else was working perfectly:
+       the file was on the Pi, the phone had a copy, it was worn, and the
+       image decoded. It was simply drawn somewhere you cannot see.
+       Pinning both to cell 1/1 makes them overlap, which is what
+       place-items:center was always assuming. */
+    '.kx-av>svg,.kx-av>img.kx-ph{grid-area:1/1}' +
 
     /* ═══════════════════════════════════════════════════════════
        BORDERS
