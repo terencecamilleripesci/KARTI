@@ -103,7 +103,32 @@ OUT_KBPS       = 32        # mono MP3, 22.05 kHz — the spoken-word bitrate
 OUT_RATE       = 22050
 PER_FILE_KB    = 10.0      # any single call over this is a defect
 TOTAL_KB       = 600.0     # batch A + batch C, the shipped set
-LOUDNORM       = 'I=-19:TP=-3.0:LRA=7'   # a touch louder than the SFX set: it
+LOUDNORM       = 'I=-14:TP=-1.5:LRA=9'
+# Single-pass loudnorm matches INTEGRATED loudness, and speech has a far lower
+# peak-to-loudness ratio than a percussive one-shot — so hitting -14 LUFS left
+# the calls peaking at -16.6 dB against -5.4 for tombla.call. Matching them by
+# loudness alone under-serves the voice, and the voice is the point: the number
+# is what the room is waiting for, the token out of the bag is the flourish. A
+# fixed makeup after loudnorm keeps them consistent with EACH OTHER (which is
+# what loudnorm is for) while putting the set where the effects live.
+# SPOKEN NUMBERS ONLY. The seven prize shouts come off a different model and
+# already arrive hot — they measured -2.7 dB peak, and giving them the same
+# makeup drove them to 0.0 and clipped. The 90 calls are the ones that were
+# 16 dB under the effects.
+MAKEUP         = '13dB'
+SHOUT_PEAK     = -3.0      # dB; the shouts are levelled by PEAK, not loudness   # RAISED from I=-19. The owner: "more siund
+                                         # golute in annocements". Measured, the
+                                         # shipped calls peaked at -22 dB against
+                                         # -5.4 for tombla.call and -7.1 for the
+                                         # shouts — the voice was 16 dB under the
+                                         # bag it is announcing, which is the wrong
+                                         # way round: the number is the point and
+                                         # the token is the flourish. Speech also
+                                         # carries a much lower peak-to-loudness
+                                         # ratio than a percussive one-shot, so
+                                         # matching them by integrated loudness
+                                         # alone under-serves the voice.
+                                         # a touch louder than the SFX set: it
                                          # is speech, and it must cut through
 FADE           = 0.015
 
@@ -395,7 +420,19 @@ def duration(path):
         return 0.0
 
 
-def encode(rawpath, outpath, trim_to):
+def peak_of(path):
+    """Measured peak in dB, or None. Used to level the shouts."""
+    out = subprocess.run(['ffmpeg', '-hide_banner', '-i', path, '-af',
+                          'volumedetect', '-f', 'null', '/dev/null'],
+                         capture_output=True, text=True).stderr
+    for line in out.split('\n'):
+        if 'max_volume' in line:
+            try: return float(line.split(':')[1].replace('dB', '').strip())
+            except ValueError: return None
+    return None
+
+
+def encode(rawpath, outpath, trim_to, makeup='', peak_to=None):
     """Silence-strip, level, encode, and only then cut if still too long.
 
     Returns (ok, hard_cut, seconds, bytes). `hard_cut` true means the text is
@@ -413,7 +450,10 @@ def encode(rawpath, outpath, trim_to):
 
     tmp = outpath + '.part.mp3'
     cmd = ['ffmpeg', '-v', 'error', '-y', '-i', rawpath,
-           '-af', strip + ',loudnorm=' + LOUDNORM] + common + [tmp]
+           '-af', (strip + ',volume=%.2fdB' % (peak_to - (peak_of(rawpath) or 0.0))
+                   if peak_to is not None
+                   else strip + ',loudnorm=' + LOUDNORM +
+                        (',volume=' + makeup if makeup else ''))] + common + [tmp]
     try:
         subprocess.run(cmd, check=True)
     except (OSError, subprocess.CalledProcessError) as exc:
@@ -580,8 +620,10 @@ def main():
             if not os.path.exists(raw):
                 miss += 1
                 continue
-            ok, hard, secs, size = encode(raw, os.path.join(OUTDIR, row['file']),
-                                          row['trim_to'])
+            ok, hard, secs, size = encode(
+                raw, os.path.join(OUTDIR, row['file']), row['trim_to'],
+                makeup=(MAKEUP if batch_of(row['id']) == 'calls' else ''),
+                peak_to=(SHOUT_PEAK if batch_of(row['id']) == 'shouts' else None))
             if ok:
                 done += 1
                 cut += 1 if hard else 0
