@@ -35,7 +35,8 @@ off — KARTI plays exactly as it always has. Sync is an addition, never a depen
 |---|---|---|
 | The game | GitHub Pages, `https://terencecamilleripesci.github.io/KARTI/` | All the HTML/JS/art. Static. |
 | The relay | `server/karti_server.py` on the Pi, `127.0.0.1:8101` | Pairs two players and passes JSON moves between them, and answers `/presence` with who is connected **and which rooms are open**. |
-| The accounts | the same process, `/var/lib/karti/accounts.db` | KARTI accounts and one save file each, so a player can log in on a second phone and find their collection. **The only thing here that writes to disk** — see section 4. |
+| The accounts | the same process, `/var/lib/karti/accounts.db` | KARTI accounts and one save file each, so a player can log in on a second phone and find their collection — see section 4. |
+| The avatars | `server/karti_avatar.py`, `/var/lib/karti/avatars.db` | A player's own photograph as a 128×128 JPEG, so it can be drawn on **other people's** phones — the leaderboard, the lobby roster, the seat plates. Re-encoded server-side, which is what strips the GPS tag out of a phone photo. See section 4b. |
 | The tunnel | Tailscale Funnel, `:8443` under `/karti` | Gives the relay a public HTTPS/WSS address without opening a router port. |
 | The client | `js/mp.js` | Knows the address, handles the lobby, reconnects, checks the other player's moves, and draws the room list, the who's-online panel and any invitations waiting for you. **Owns the socket and nothing else** — it knows no rules of chess, dama or the card duel. |
 | The board games | `js/party.js` + `js/chess.js` + `js/dama.js` | The engines, the boards, and the shared takeback machinery. Each registers an online controller on `KARTI_PARTY.online[game]` — `start / remote / take / note / stop` — which is the whole of the contract with `js/mp.js`. |
@@ -351,7 +352,9 @@ ExecStart=/usr/bin/python3 /home/foxhound/webclients/karti-malta/server/karti_se
 Restart=on-failure
 RestartSec=3
 
-# --- the ONE writable path: accounts + cross-device saves (see section 4).
+# --- the ONE writable path: accounts + cross-device saves (section 4), the
+#     leaderboard, and avatar photographs (section 4b) — all in /var/lib/karti,
+#     so ADDING AVATARS DID NOT CHANGE THIS UNIT.
 #     Delete these three lines, or add --no-accounts, to go back to a relay
 #     that never touches the disk. Nothing else breaks either way.
 StateDirectory=karti
@@ -442,7 +445,10 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (184 checks, 0 failed)
+# SELFTEST: ALL PASS  (215 checks, 0 failed)
+
+python3 server/karti_avatar.py --selftest   # the photo pipeline, no relay needed
+# AVATAR SELFTEST: ALL PASS  (17 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -678,7 +684,9 @@ legendaries and a player who cannot tell what happened.
 ### Storage, and the systemd change you must make
 
 Everything lives in **one SQLite file** (stdlib `sqlite3`, WAL, `chmod 0600`), default
-`/var/lib/karti/accounts.db`.
+`/var/lib/karti/accounts.db`. The leaderboard and the avatar photographs (section 4b) sit
+beside it in the same directory, so the unit change below covers all three and adding
+avatars did not change it again.
 
 **The unit as it stands cannot write anywhere.** `ProtectSystem=strict` plus
 `ProtectHome=read-only` is deliberate and should stay. Add exactly this to the `[Service]`
@@ -734,6 +742,162 @@ without editing the file. It follows whatever relay `js/mp.js` is pointed at, so
 Every network call is wrapped: an unreachable Pi, a captive portal, a flight-mode phone
 and a CORS refusal all come back as a status string. **Nothing in `js/sync.js` is ever on
 the critical path of playing KARTI.**
+
+---
+
+## 4b · Avatar photographs — a real face, on everybody else's phone
+
+The owner asked for it in one line: *"they need to upload photo auto save to pie etc on
+relay."* He is right, and for a bigger reason than storage.
+
+### Why it cannot live in the save
+
+A face kept inside the account save blob only ever reaches **that player's own devices**.
+The whole point of a photograph is that *other people* see it — on the leaderboard, in the
+online lobby roster, on the seat plates round a table. For any of that, somebody **else's**
+phone has to be able to fetch it, so it has to live on the Pi. It also keeps a photograph
+out of the 128 KiB save cap, which is shared with the entire card collection.
+
+### The three routes
+
+Served both at `/karti/avatar…` and `/avatar…`, like everything else here.
+
+| Route | Body | Answer |
+|---|---|---|
+| `POST /karti/avatar` | `{tok, img:"data:image/…;base64,…"}` | `200 {ok, ver, bytes, size}` · `401` no/bad token · `400` not a picture · `413` too big · `429` slow down · `503` busy · `507` no room left |
+| `GET /karti/avatar/<who>` | — | `200` the JPEG · `304` on `If-None-Match` · `404` no photo |
+| `DELETE /karti/avatar` | `{tok}` | `200 {ok, had}` — back to the drawn face |
+
+`<who>` is the **account key**, which is the display name **case-folded** — exactly what
+`v_username()` produces and exactly what every `/karti/acct/*` route already uses as its
+primary key. The GET lower-cases what it is given, so `/avatar/Sammy` and `/avatar/sammy`
+are the same person. The token may be `{"tok": …}` or `Authorization: Bearer …`, as
+everywhere else.
+
+**Only the GET is open.** An `<img src>` cannot carry a bearer token, and a display name
+is not a secret — this route says exactly as much about who has an account as the invite
+route does, which is nothing you did not already have to know. POST and DELETE need a live
+session and are origin-checked like the account routes.
+
+### `ver`, and where it is published
+
+`ver` is a small integer that increments on **every** change and never goes backwards. It
+is published as **`pv`** beside every place a player is named:
+
+| Where | Field |
+|---|---|
+| `{"t":"who"}` — the lobby roster | `people[].pv` |
+| `{"t":"who"}` — recently played with | `recent[].pv` |
+| `{"t":"who"}` — yourself | `you.pv` |
+| `POST /karti/stats/board` and `GET …/board` | `rows[].pv` and `you.pv` |
+| `POST /karti/acct/login` | `pv` |
+| `POST /karti/acct/pull` | `pv` |
+
+So a client builds `…/karti/avatar/sammy?v=7` and caches it for a year without ever showing
+a stale face. **`pv` is only present when there IS a photograph.** Its *absence* is the
+answer "draw the picked face, and do not ask" — which is what stops a lobby of twenty-five
+firing twenty-five requests that all end in 404.
+
+Two deliberate omissions. `pv` is **not** in the public `GET /karti/presence`: that endpoint
+names guests, says nothing about accounts on purpose, and it is going to stay that way.
+And `karti_stats.py` was **not edited** — the board rows are stamped on the way out, in
+`KartiHandler.reply()`, so the record book stays exactly as it was written and tested.
+
+### What arrives is never what is stored
+
+The client centre-crops and shrinks to about 128×128 before it posts. **Nothing on the
+server assumes that happened**, because anybody can post whatever they like to this route.
+
+In order, and the order is the point:
+
+1. the body is refused from **`Content-Length`**, before a byte is read off the socket;
+2. the base64 payload is capped **before** and **after** decoding;
+3. Pillow opens the **header only** — no pixels yet;
+4. the **format** is checked against a whitelist. Not by the `data:` prefix and not by a
+   file extension: by what the decoder says it is. This matters more than it looks —
+   Pillow's EPS plugin shells out to **Ghostscript** — so "whatever Pillow can open" is not
+   an acceptable answer to "what is an avatar";
+5. the **declared dimensions** are refused if absurd. This is the bomb check, and it happens
+   while the file is still two kilobytes on the heap. `Image.MAX_IMAGE_PIXELS` is set to the
+   same number as a second wall;
+6. *now* it decodes, **frame zero only**;
+7. centre-crop to a square, resize to 128×128;
+8. paste onto a **brand-new canvas**, so not one byte of the source's `info` — EXIF, GPS,
+   ICC profile, comments, an animation's other frames — can ride along;
+9. encode **JPEG**. What is stored is always a JPEG this process produced.
+
+**EXIF, and why it is not a footnote.** A photograph taken on a phone carries the GPS
+coordinates it was taken at. Sharing that with everyone in the lobby is a real privacy leak,
+and it is the kind that nobody notices until it matters. Re-decoding and re-encoding
+destroys it, and the self-test proves it with a real GPS tag rather than asserting it.
+
+**No path is ever built from a name.** The images are BLOBs in SQLite, one row per account.
+There is no directory of avatar files, so there is nothing to traverse out of: a name reaches
+the database only as a bound SQL parameter. It is validated against the account charset
+anyway, after percent-decoding, because two walls cost nothing.
+
+### One size, and why not two
+
+Measured, not guessed. A 128×128 JPEG at q80 is **3–6 KiB** for a real photograph (the
+self-test's synthetic worst case is 3.5 KiB; the flat test images come out at 383 bytes). A
+48×48 thumbnail for leaderboard rows would be about 0.9 KiB.
+
+A 25-row leaderboard is therefore **88 KiB at one size against 23 KiB at two** — and only
+*once*, because `?v=` makes every file immutably cacheable for a year. Saving 65 KiB one
+time is not worth a second column, a second encode, a second cache key and a client that has
+to choose a size. **One 128 px file serves both**, and a row draws it at whatever size it
+likes.
+
+### Caching, and the cheap miss
+
+* `?v=<the version actually being served>` → `Cache-Control: public, max-age=31536000, immutable`.
+* No `v`, or a stale one → `max-age=60`, so a client that omitted it is never frozen on an
+  old face.
+* `ETag: "<ver>"` and `304` on `If-None-Match`.
+* A miss is a **memory lookup, not a database hit**: a tiny JSON `404` with `max-age=30`.
+
+### Storage, limits and the ceiling
+
+A second SQLite file, `/var/lib/karti/avatars.db`, WAL, `chmod 0600`, in the **same
+directory the accounts database already needs** — so `StateDirectory=karti` and
+`ReadWritePaths=/var/lib/karti` from section 4 cover it and **the systemd unit does not
+change**.
+
+At the disk ceiling a **new** photo is refused with `507`, but a **replacement that does not
+grow the total is still accepted** — nobody is ever locked out of changing their own face
+because somebody else filled the disk. 250 accounts × ~6 KiB is 1.5 MiB against an 8 MiB
+cap, so in practice it is unreachable.
+
+**An account's photograph never outlives it.** `DELETE` removes it on request, and the
+sweeper prunes orphans — rows whose account is gone, however it went, including somebody
+with `sqlite3` and the file — every ten minutes and five seconds after start. A resolver
+that cannot answer deletes **nothing**, because *"I do not know who exists"* must never read
+as *"nobody does"*.
+
+### Pillow, and what happens without it
+
+This is the **only** third-party import in the whole process. It is imported defensively:
+if Pillow is missing, or the photo store cannot be opened, avatars switch themselves off —
+the three routes answer `503`, the banner says so, and **everything else in the relay is
+untouched**. That is the same bargain accounts already make with their database. `--no-avatars`
+makes it explicit.
+
+Decoding is gated to **two at a time, server-wide** — the same instinct as the KDF gate. A
+four-megapixel picture is ~12 MB of RGB while it is being worked on, the unit gives this
+process `MemoryMax=256M`, and scrypt is already allowed 2 × 16 MiB of it. A third caller
+waits, then gets a `503` with `retry:true`, rather than the process being OOM-killed.
+
+### Rate limits, and one thing worth knowing about Funnel
+
+Per **account**: 1 upload a minute sustained, burst 5. That is the real control, because an
+upload cannot happen without a token and a token is exactly one account.
+
+Per **address**: deliberately *loose* — 30 sustained, burst 30. **The relay is behind
+Tailscale Funnel, so every player in the world arrives from the same client address as far
+as this process can see.** A tight per-address cap here would not stop an abuser; it would
+stop the whole party from picking a photo at once. It is a backstop against a flood of
+decode work and nothing more. (The same caveat already applies to the account routes' own
+per-caller buckets.)
 
 ---
 
@@ -1154,14 +1318,24 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 
 * **Read or write a single file of their choosing.** The relay is not built on
   `SimpleHTTPRequestHandler` and has no filesystem code driven by input — no directory
-  listing, no static route, and the only paths it ever opens are the two named on the
-  command line (`--accounts`, `--log`). `/`, `/index.html`, `/js/game.js`, `/.git/config`,
-  `/../../etc/passwd` and `/%2e%2e/…` all return the same 404 JSON, and the self-test
-  proves it every run.
+  listing, no static route, and the only paths it ever opens are the four named on the
+  command line (`--accounts`, `--avatars`, `--stats`, `--log`). `/`, `/index.html`,
+  `/js/game.js`, `/.git/config`, `/../../etc/passwd` and `/%2e%2e/…` all return the same
+  404 JSON, and the self-test proves it every run.
+  **`GET /karti/avatar/<who>` is the one route with a name in its path, and it is still
+  not a file route**: the images are SQLite BLOBs, so there is no directory to escape
+  from, and the name reaches the database only as a bound parameter after being
+  percent-decoded and matched against the account charset. Thirteen traversal payloads —
+  `../`, `%2e%2e%2f`, `....//`, a NUL byte, a UTF-8 overlong `%c0%ae` — are fired at it
+  every self-test run and every one gets the same 404.
 * **Run anything.** No `eval`, no `exec`, no `pickle`, no `subprocess`, no shell, no
-  `os.system`, no imports driven by input. Stdlib only, nothing from pip. Every SQL
-  statement is a fixed string with bound parameters; nothing a caller sends is ever
-  concatenated into one.
+  `os.system`, no imports driven by input. Every SQL statement is a fixed string with
+  bound parameters; nothing a caller sends is ever concatenated into one.
+  **One dependency, and only one:** avatar photographs need **Pillow**, which is the sole
+  non-stdlib import in the process. It is imported defensively — without it, avatars are
+  simply off and nothing else changes. The formats it is allowed to *decode* are
+  whitelisted precisely because "whatever Pillow can open" includes EPS, and Pillow's EPS
+  plugin shells out to Ghostscript. Everything else in the relay remains stdlib only.
 * **Reach anything else on the Pi.** The process binds loopback only; Funnel publishes
   one port scoped to one path. The systemd unit above denies it extra capabilities,
   non-loopback network, and every writable path except `/var/lib/karti`.
@@ -1189,11 +1363,28 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
   the alternative, guessing the 5-character code, costs a new TLS handshake every 20 tries.
 * **Learn anything from an error message.** Error strings are a fixed set of constants.
   Nothing an attacker sends is ever echoed back to them or to anyone else.
-* **Persist anything except their own account's save.** Every duel and every room is in
-  RAM and a restart wipes the lot. The *only* disk state is `/var/lib/karti/accounts.db`
-  (and the optional `--log`, which contains no user content). Nothing a caller sends
-  chooses a path, a filename or a directory — the database path comes from the command
-  line and nowhere else.
+* **Persist anything except their own account's save, record and photograph.** Every duel
+  and every room is in RAM and a restart wipes the lot. The *only* disk state is the three
+  SQLite files in `/var/lib/karti` — `accounts.db`, `avatars.db`, `stats.db` — and the
+  optional `--log`, which contains no user content. Nothing a caller sends chooses a path,
+  a filename or a directory: the database paths come from the command line and nowhere
+  else, and an avatar is a row, not a file.
+* **Store bytes of their choosing.** An uploaded picture is never kept. It is decoded,
+  cropped, resized and **re-encoded as a JPEG this process produced**, so what lands on
+  disk and what is served to other players is bytes the server wrote. That is also what
+  destroys EXIF — including the **GPS coordinates** a phone writes into a photograph,
+  which would otherwise be handed to everyone in the lobby. The self-test uploads a real
+  GPS tag and asserts that nothing of it survives, in the served bytes *and* in the blob
+  on disk.
+* **Make the server render a bomb.** A decompression bomb is a tiny file that claims
+  enormous dimensions; the self-test's is **2.5 gigapixels in 69 bytes**. The declared
+  size is read from the image header and refused *before* any decode, `Image.MAX_IMAGE_PIXELS`
+  is pinned to the same number as a second wall, and decodes are gated to two at a time so
+  even legitimate ones cannot stack up into an OOM kill.
+* **Put a photograph on somebody else's name.** There is no field in the upload body that
+  names an account — the session token is the only thing that decides whose face is being
+  set. The self-test posts as one player with `u`, `uname`, `who`, `user`, `name` and
+  `for` all set to another player's key and asserts it lands only on the sender.
 * **Read anybody else's save.** Every route except `register` and `login` needs a session
   token, and the token resolves server-side to exactly one account. There is no route that
   takes a username and returns a save, no route that lists accounts, and no route that
@@ -1219,6 +1410,9 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
   returns 403 with no CORS header to anybody else.
 * **Fill the disk.** 250 accounts, 128 KiB each, plus one previous save each: ~64 MiB
   ceiling, with a hard global cap of 24 MiB of *current* saves enforced on every push.
+  Avatars add their own 8 MiB ceiling on top, enforced on every upload — and at the
+  ceiling a *new* photo is refused while a *replacement* that does not grow the total is
+  still allowed, so filling the disk cannot stop anybody changing their own face.
 
 ### Caps, in one place
 
@@ -1277,6 +1471,21 @@ Transparency logs, so "nobody knows the URL" is not a control and is not treated
 | KDFs running at once, whole server | 2 (then `503`, so RAM stays bounded) |
 | Session token | `secrets.token_urlsafe(32)`; 30 days from issue, 14 days idle |
 | Live sessions per account | 8 (oldest dropped) |
+| **Avatar stored size** | **128×128 JPEG, q80** — one size, ~3–6 KiB |
+| Avatar upload body | 192 KiB, refused on `Content-Length` |
+| Avatar image bytes, after base64 | 128 KiB (then `413`) |
+| Avatar **declared pixels** | 4 000 000, and no side over 8192 (then `413` — this is the decompression-bomb wall, checked from the header before any decode) |
+| Formats accepted for **decoding** | JPEG, PNG, WebP, GIF, BMP — by what the decoder says, never by the `data:` prefix. Everything else, including EPS and PDF, is refused |
+| Format **stored** | JPEG only, always re-encoded here |
+| One stored avatar | 32 KiB (unreachable at 128×128; a floor under the disk cap) |
+| All avatars together | 8 MiB (then `507` for a NEW photo; a replacement that does not grow the total is still allowed) |
+| Avatar rows | 2000 |
+| Avatar uploads per **account** | 1 per minute, burst 5 |
+| Avatar uploads per **address** | 30/s sustained, burst 30 — loose on purpose; behind Funnel everybody shares one address |
+| Avatar reads per address | 20/s sustained, burst 120 (a 25-row board cannot trip it) |
+| Image decodes running at once, whole server | 2 (then `503`, so RAM stays bounded under `MemoryMax=256M`) |
+| Avatar name on the GET | percent-decoded, then 1–16 of `a-z 0-9 _ . -` and a space, case-folded — anything else is a `404` |
+| Orphaned avatars swept | every 10 min (and 5 s after start) |
 
 ---
 

@@ -41,7 +41,41 @@ ROUTES
                                           display names + a state, plus THE ROOM
                                           LIST (open rooms waiting for an
                                           opponent). No codes, no tokens, no IPs.
+    GET  /karti/avatar/<who>              a player's avatar PHOTOGRAPH as a
+                                          128x128 JPEG, or 404. Open to anyone
+                                          who already knows a name, because an
+                                          <img src> carries no token — the same
+                                          reasoning as the invite route. <who>
+                                          is the account key, i.e. the display
+                                          name CASE-FOLDED, and it is matched
+                                          against the account charset and then
+                                          looked up as a bound SQL parameter.
+                                          No path is ever built from it: the
+                                          images are BLOBs, not files.
     anything else                         404 JSON.
+
+AVATAR ROUTES  (also served at /avatar)
+    POST   /karti/avatar   {tok, img:"data:image/...;base64,..."} -> {ok, ver}
+    DELETE /karti/avatar   {tok}                                  -> {ok}
+                                          Both need a live session token; there
+                                          is no field in either body that names
+                                          an account, so there is nothing to
+                                          spoof. Whatever picture arrives is
+                                          RE-DECODED, cropped, resized and
+                                          RE-ENCODED here — the bytes a client
+                                          sent are never stored and never
+                                          served, which is also how EXIF (and
+                                          the GPS tag a phone writes into a
+                                          photograph) is destroyed. See
+                                          server/karti_avatar.py for every cap.
+
+    `ver` counts up on every change and is published beside the player's name
+    in the WebSocket "who" answer (people[].pv, recent[].pv, you.pv), in the
+    leaderboard rows (rows[].pv, you.pv) and in the login/pull answers (pv), so
+    a client builds …/avatar/sammy?v=7 and caches it for a year without ever
+    showing a stale face. NO `pv` beside a name means NO PHOTOGRAPH — draw the
+    face and do not ask, which is what keeps a lobby of twenty-five from firing
+    twenty-five requests that all end in 404.
 
 ACCOUNT ROUTES  (POST, JSON in and JSON out, also served at /acct/<x>)
     POST /karti/acct/register  {u,pw}                    -> 201 {tok,exp,u,name,ver:0}
@@ -183,11 +217,17 @@ import base64
 import collections
 import hashlib
 import hmac
+import io
 
 # The record book and the leaderboard live in their own module so they could
 # be written while this file was being changed by other work. Everything they
 # add answers 503 until open_store() is called, so an unmounted build is a
-# feature that is off rather than a route that breaks.
+# feature that is off rather than a route that breaks. Avatar photos are the
+# same arrangement, and are additionally the ONLY place this process touches a
+# third-party library (Pillow): karti_avatar imports it defensively and simply
+# stays switched off if it is not there, so the relay can never fail to start
+# because of a picture.
+import karti_avatar
 import karti_stats
 import json
 import os
@@ -210,7 +250,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DEFAULT_HOST = "127.0.0.1"          # loopback ONLY. Tailscale does the exposing.
 DEFAULT_PORT = 8101
 PATH_PREFIX = "/karti"              # funnel forwards the full path
-ACCT_PREFIX = "/acct"               # the only POST routes in the whole process
+ACCT_PREFIX = "/acct"               # accounts: POST only
+AVATAR_PREFIX = "/avatar"           # avatar photos: POST, DELETE, and the one
+                                    # GET in this process that answers with
+                                    # something other than JSON
 
 # The one file this process ever writes (accounts + saved games). It is under
 # /var/lib on purpose: the systemd unit is ProtectSystem=strict + ProtectHome=
@@ -218,6 +261,7 @@ ACCT_PREFIX = "/acct"               # the only POST routes in the whole process
 # / ReadWritePaths=. If it cannot be opened, accounts simply switch themselves
 # off and everything else — relay, multiplayer, offline play — carries on.
 DEFAULT_ACCT_DB = "/var/lib/karti/accounts.db"
+DEFAULT_AVATAR_DB = "/var/lib/karti/avatars.db"
 
 # The one browser origin that is allowed to open a socket here. Extra origins
 # can be added with --origin; loopback origins are allowed so the whole thing
@@ -1322,6 +1366,16 @@ class RoomBook:
                     continue
                 state, room, pid = self._state_of(conn)
                 row = {"n": conn.aname or conn.pname or "PLAYER", "s": state}
+                # THE FACE. `pv` is the version of this player's avatar
+                # photograph, and it is here rather than in a second request
+                # because the roster is exactly where somebody else's face has
+                # to be drawn. It is a small integer, it is only present when
+                # there IS a photograph, and its ABSENCE tells the client to
+                # draw the picked face and not to ask. The URL is built from
+                # the name, case-folded, which is the account key.
+                pv = karti_avatar.version(conn.acct)
+                if pv:
+                    row["pv"] = pv
                 if room is not None:
                     row["g"] = room.game
                     row["c"] = room.taken()
@@ -1340,9 +1394,13 @@ class RoomBook:
         # app open and nothing to do is somebody who would say yes. Playing
         # last, and only so you can see they are alive.
         rows.sort(key=lambda r: (rank[r["s"]], r["n"].lower()))
+        you = {"n": asker.aname, "s": mine, "vis": bool(asker.vis)}
+        mypv = karti_avatar.version(asker.acct)
+        if mypv:
+            you["pv"] = mypv
         return {"people": rows[:L.PEOPLE_MAX], "shown": min(len(rows), L.PEOPLE_MAX),
                 "here": len(rows), "sockets": total,
-                "you": {"n": asker.aname, "s": mine, "vis": bool(asker.vis)},
+                "you": you,
                 "keys": [k for k in best]}
 
     def account_states(self, keys):
@@ -2333,6 +2391,9 @@ def ws_who(conn):
             st = states.get(r["k"])
             e = {"n": r["n"], "games": r["games"],
                  "ago": max(0, int(time.time() - r["at"]))}
+            pv = karti_avatar.version(r["k"])   # their face, in your own list
+            if pv:
+                e["pv"] = pv
             if st is not None:
                 e["s"], e["g"] = st[0], st[1]
                 if st[2]:
@@ -3503,12 +3564,24 @@ class KartiHandler(BaseHTTPRequestHandler):
             pass
 
     def reply(self, status, obj):
+        # THE ONE PLACE THE LEADERBOARD GETS FACES. karti_stats.py builds the
+        # board and knows nothing about photographs; the flag below is set only
+        # around a call into it, and the rows are stamped with `pv` on the way
+        # out. Doing it here rather than in that module means the record book
+        # stays exactly as it was written and tested.
+        if (self._board_faces and status == 200 and isinstance(obj, dict)
+                and isinstance(obj.get("rows"), list)):
+            karti_avatar.annotate(obj["rows"], key="u")
+            if isinstance(obj.get("you"), dict):
+                karti_avatar.annotate([obj["you"]], key="u")
         self.reply_bytes(status, json.dumps(obj, separators=(",", ":")).encode("utf-8"))
+
+    _board_faces = False        # set only while a call is inside karti_stats
 
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Allow", "GET, HEAD, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+        self.send_header("Allow", "GET, HEAD, POST, DELETE, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.send_header("Access-Control-Max-Age", "600")
         self.send_header("Content-Length", "0")
@@ -3537,12 +3610,37 @@ class KartiHandler(BaseHTTPRequestHandler):
             else:
                 self.reply_bytes(200, presence_body())
         elif path.startswith("/stats/"):
-            karti_stats.handle_get(self, path[len("/stats/"):], self.path)
+            self._board_faces = True
+            try:
+                karti_stats.handle_get(self, path[len("/stats/"):], self.path)
+            finally:
+                self._board_faces = False
+        elif path.startswith(AVATAR_PREFIX + "/"):
+            # STILL NOT A FILE SERVER. The rest of the path is a NAME, it is
+            # checked against the account charset, and it reaches SQLite as a
+            # bound parameter. There is no directory of avatars to escape from.
+            karti_avatar.handle_get(self, path[len(AVATAR_PREFIX) + 1:], self.path)
         else:
             self.reply(404, {"ok": False, "why": "This is the KARTI relay, not a web server."})
 
     def do_HEAD(self):
-        self.send_response(200 if self.route() in ("/ws", "/health", "/presence") else 404)
+        path = self.route()
+        if path.startswith(AVATAR_PREFIX + "/"):
+            # A HEAD is a cheap "has this player a photo?", and it must answer
+            # the same way the GET would.
+            ver = karti_avatar.version(
+                karti_avatar.clean_key(path[len(AVATAR_PREFIX) + 1:]) or "")
+            self.send_response(200 if ver else 404)
+            self.send_header("Content-Type", "image/jpeg" if ver
+                             else "application/json; charset=utf-8")
+            self.send_header("Content-Length", "0")
+            self.send_header("Cache-Control", "public, max-age=30")
+            if ver:
+                self.send_header("ETag", '"%d"' % ver)
+            self.cors()
+            self.end_headers()
+            return
+        self.send_response(200 if path in ("/ws", "/health", "/presence") else 404)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", "0")
         self.send_header("Cache-Control", "no-store")
@@ -3555,15 +3653,48 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.handle_account(path[len(ACCT_PREFIX) + 1:])
             return
         if path.startswith("/stats/"):
-            karti_stats.handle_post(self, path[len("/stats/"):])
+            self._board_faces = True
+            try:
+                karti_stats.handle_post(self, path[len("/stats/"):])
+            finally:
+                self._board_faces = False
+            return
+        if path == AVATAR_PREFIX:
+            self.handle_avatar("POST")
             return
         # Everything else is exactly as it was before accounts existed.
+        self.reply(405, {"ok": False, "why": "GET only."})
+
+    def do_DELETE(self):
+        if self.route() == AVATAR_PREFIX:
+            self.handle_avatar("DELETE")
+            return
         self.reply(405, {"ok": False, "why": "GET only."})
 
     def do_PUT(self):
         self.reply(405, {"ok": False, "why": "GET only."})
 
-    do_DELETE = do_PATCH = do_PUT
+    do_PATCH = do_PUT
+
+    # -- avatars ----------------------------------------------------------
+
+    def handle_avatar(self, method):
+        """The two writing routes. Origin-checked exactly like the account
+        routes: a page on a random origin gets no CORS header AND no answer.
+        (The READING route is not, because an <img> tag sends no Origin and a
+        photograph that only loads on one page is not a photograph.)"""
+        if not origin_ok(self.headers.get("Origin")):
+            self.close_connection = True
+            self.reply(403, {"ok": False, "why": "Origin not allowed."})
+            return
+        try:
+            if method == "POST":
+                karti_avatar.handle_post(self)
+            else:
+                karti_avatar.handle_delete(self)
+        except sqlite3.Error:
+            LOG("avatar-db-error")
+            self.reply(503, {"ok": False, "why": E_ACCT_BUSY})
 
     # -- accounts ---------------------------------------------------------
 
@@ -3573,10 +3704,16 @@ class KartiHandler(BaseHTTPRequestHandler):
             body.update(extra)
         self.reply(status, body)
 
-    def read_json_body(self):
+    def read_json_body(self, maxbody=None):
         """Bounded, exact-length body read. Returns a dict, or None having
         already answered. The size is refused from the Content-Length header,
-        BEFORE a single byte of the body is read off the socket."""
+        BEFORE a single byte of the body is read off the socket.
+
+        `maxbody` lets a route pick its own ceiling — an avatar upload is
+        allowed more than a save is not, and less than a save is: a picture is
+        capped tighter than the 128 KB a save may use. Left alone it is
+        A.MAX_BODY, which is what every account route has always used."""
+        cap = A.MAX_BODY if maxbody is None else int(maxbody)
         if (self.headers.get("Transfer-Encoding") or "").strip().lower():
             self.close_connection = True
             self.acct_fail(411, E_ACCT_BAD_JSON)
@@ -3592,7 +3729,7 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self.acct_fail(400, E_ACCT_BAD_JSON)
             return None
-        if n > A.MAX_BODY:
+        if n > cap:
             self.close_connection = True     # we are not going to drain it
             self.acct_fail(413, E_ACCT_BIG)
             return None
@@ -3728,9 +3865,17 @@ class KartiHandler(BaseHTTPRequestHandler):
         tok, exp = ACCOUNTS.open_session(key)
         st = ACCOUNTS.get_save(key)
         LOG("acct-login", u=key)
-        self.reply(200, {"ok": True, "tok": tok, "exp": int(exp), "u": key,
-                         "name": name, "ver": st["ver"], "at": int(st["at"]),
-                         "save": st["blob"], "device": st["device"]})
+        # `pv` here is the player's OWN avatar version, so a phone that has
+        # just signed in knows straight away whether this account has a
+        # photograph — and which one — without a second request. Absent means
+        # no photograph.
+        out = {"ok": True, "tok": tok, "exp": int(exp), "u": key,
+               "name": name, "ver": st["ver"], "at": int(st["at"]),
+               "save": st["blob"], "device": st["device"]}
+        pv = karti_avatar.version(key)
+        if pv:
+            out["pv"] = pv
+        self.reply(200, out)
 
     def authed(self, addr, body):
         """(uname, name) or None having already answered."""
@@ -3764,10 +3909,14 @@ class KartiHandler(BaseHTTPRequestHandler):
                              "ver": st["prevVer"], "at": int(st["prevAt"]),
                              "save": st["prevBlob"], "prev": True})
             return
-        self.reply(200, {"ok": True, "u": key, "name": name,
-                         "ver": st["ver"], "at": int(st["at"]),
-                         "save": st["blob"], "device": st["device"],
-                         "hasPrev": st["prevBlob"] is not None})
+        out = {"ok": True, "u": key, "name": name,
+               "ver": st["ver"], "at": int(st["at"]),
+               "save": st["blob"], "device": st["device"],
+               "hasPrev": st["prevBlob"] is not None}
+        pv = karti_avatar.version(key)          # your own face, on every pull
+        if pv:
+            out["pv"] = pv
+        self.reply(200, out)
 
     def acct_push(self, addr, body):
         who = self.authed(addr, body)
@@ -3901,9 +4050,20 @@ def make_server(host, port, quiet=True):
 
 
 def start_sweeper(stop_event):
+    next_orphans = [time.monotonic() + 5.0]
+
     def loop():
         while not stop_event.wait(L.SWEEP):
             try:
+                # ORPHANED PHOTOGRAPHS. Nothing in this process deletes an
+                # account today, but if one ever goes — by a future route, or
+                # by somebody with sqlite3 and the file — its face must not
+                # outlive it. Ten minutes apart, over at most a few hundred
+                # rows, and it deletes nothing at all if it cannot get a
+                # straight answer about who exists.
+                if time.monotonic() >= next_orphans[0]:
+                    next_orphans[0] = time.monotonic() + 600.0
+                    karti_avatar.prune()
                 out = ROOMS.sweep()
                 # An invite whose room has filled, closed or timed out is
                 # withdrawn, and whoever is holding it is told so they are not
@@ -3947,6 +4107,17 @@ def print_banner(host, port):
                  stored // 1024, A.MAX_TOTAL // 1024, kdf_params()[0]))
         print("  account routes : POST %s%s/{register,login,logout,pull,push}"
               % (PATH_PREFIX, ACCT_PREFIX))
+    if not karti_avatar.enabled():
+        print("  avatar photos  : OFF (%s)"
+              % ("Pillow is not installed" if not karti_avatar.HAVE_PIL
+                 else "the photo store could not be opened"))
+    else:
+        faces, fbytes = karti_avatar.STORE.counts()
+        print("  avatar photos  : %s  (%d photos, %d/%d KiB, %dx%d JPEG)"
+              % (karti_avatar.STORE.path, faces, fbytes // 1024,
+                 karti_avatar.MAX_TOTAL // 1024, karti_avatar.SIZE, karti_avatar.SIZE))
+        print("  avatar routes  : POST/DELETE %s%s, GET %s%s/<name>"
+              % (PATH_PREFIX, AVATAR_PREFIX, PATH_PREFIX, AVATAR_PREFIX))
     print("")
     print("  Publish it with Tailscale Funnel — see docs/ONLINE.md.")
     print("  Ctrl+C to stop.")
@@ -4125,17 +4296,18 @@ def _http_get(host, port, path, timeout=5.0, origin=None, method="GET"):
 
 
 def _http_post(host, port, path, obj, timeout=15.0, origin=None, raw=None,
-               ctype="application/json", clen=None, headers=""):
+               ctype="application/json", clen=None, headers="", method="POST"):
     """POST JSON and decode the answer. `raw`/`clen` exist so the abuse tests
-    can lie about the body and about its length."""
+    can lie about the body and about its length; `method` exists because
+    DELETE /karti/avatar carries a token in its body like everything else."""
     payload = raw if raw is not None else json.dumps(obj).encode("utf-8")
     n = len(payload) if clen is None else clen
     s = socket.create_connection((host, port), timeout=timeout)
     s.settimeout(timeout)
     try:
-        head = ("POST %s HTTP/1.0\r\nHost: %s\r\n%s%sContent-Type: %s\r\n"
+        head = ("%s %s HTTP/1.0\r\nHost: %s\r\n%s%sContent-Type: %s\r\n"
                 "Content-Length: %d\r\n%sConnection: close\r\n\r\n"
-                % (path, host, ("Origin: %s\r\n" % origin) if origin else "",
+                % (method, path, host, ("Origin: %s\r\n" % origin) if origin else "",
                    headers, ctype, n, ""))
         s.sendall(head.encode("ascii") + payload)
         chunks = []
@@ -4203,6 +4375,12 @@ def selftest():
     A.MAX_BODY = A.MAX_SAVE + 16 * 1024
     acct_dir = tempfile.mkdtemp(prefix="karti-selftest-")
     accounts_open(os.path.join(acct_dir, "accounts.db"))
+    # Avatars: the same code, a throwaway file in the same throwaway directory,
+    # and the same two callables main() passes. Nothing here is turned down —
+    # the caps under test have to be the production ones.
+    karti_avatar.open_store(os.path.join(acct_dir, "avatars.db"),
+                            lambda tok: ACCOUNTS.session(tok) if ACCOUNTS else None,
+                            lambda u: bool(ACCOUNTS and ACCOUNTS.find(u)))
 
     host = "127.0.0.1"
     httpd = make_server(host, 0, quiet=True)
@@ -6974,6 +7152,438 @@ def selftest():
         except Exception as e:
             check("presence nudges are coalesced", False, repr(e))
 
+        # ═══════════ avatar photographs ═══════════
+        print("")
+        print(" AVATAR PHOTOS  (assume the client's downscale never happened)")
+
+        AV = PATH_PREFIX + AVATAR_PREFIX             # /karti/avatar
+
+        def _png(w, h, colour=(200, 30, 30), fmt="PNG", **kw):
+            from PIL import Image as _I
+            im = _I.new("RGB", (w, h), colour)
+            buf = io.BytesIO()
+            im.save(buf, fmt, **kw)
+            return buf.getvalue()
+
+        def _dataurl(raw, kind="png"):
+            return ("data:image/%s;base64," % kind) + base64.b64encode(raw).decode("ascii")
+
+        def AVPOST(obj, **kw):
+            return _http_post(host, port, AV, obj, origin=PAGES_ORIGIN, **kw)
+
+        def AVGET(who, **kw):
+            return _http_get(host, port, AV + "/" + who, origin=PAGES_ORIGIN, **kw)
+
+        sess_av = sess_bv = None
+        # The account cap was squeezed to a dozen for the "server is full"
+        # check further up, which has already run. These tests need a couple of
+        # throwaway accounts, so give the cap back.
+        A.MAX_ACCOUNTS = 64
+        try:
+            karti_avatar.buckets_reset()
+            accounts_reset()
+            sess_av = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            sess_bv = (POST("/login", {"u": "Bob", "pw": PW_B})[1] or {}).get("tok")
+            st, _, _ = AVGET("alice")
+            check("a player with no photo is a cheap 404, not an error", st == 404, st)
+        except Exception as e:
+            check("no photo is 404", False, repr(e))
+
+        try:
+            st, js, _ = AVPOST({"img": _dataurl(_png(300, 200))})
+            ok = st == 401
+            st2, js2, _ = AVPOST({"tok": "n" * 44, "img": _dataurl(_png(300, 200))})
+            check("an unauthenticated POST is refused, and so is a made-up token",
+                  ok and st2 == 401, "%s %s / %s %s" % (st, js, st2, js2))
+        except Exception as e:
+            check("unauthenticated POST refused", False, repr(e))
+
+        try:
+            karti_avatar.buckets_reset()
+            st, js, _ = AVPOST({"tok": sess_av, "img": _dataurl(_png(300, 200))})
+            check("a normal upload is accepted and comes back version 1",
+                  st == 200 and (js or {}).get("ok") is True and js.get("ver") == 1,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("upload accepted", False, repr(e))
+
+        try:
+            st, head, body = AVGET("alice")
+            from PIL import Image as _I
+            im = _I.open(io.BytesIO(body))
+            ok = st == 200 and "image/jpeg" in head.lower()
+            ok = ok and body[:2] == b"\xff\xd8"          # it really is a JPEG
+            ok = ok and im.format == "JPEG" and im.size == (128, 128)
+            check("it round-trips as a 128x128 JPEG this server encoded", ok,
+                  "%s %s %s" % (st, len(body), getattr(im, "size", None)))
+            check("...and it is small enough to put beside twenty-five names",
+                  len(body) < 12 * 1024, len(body))
+        except Exception as e:
+            check("upload round-trips", False, repr(e))
+
+        try:
+            st1, _, b1 = AVGET("alice")
+            st2, _, b2 = AVGET("ALICE")
+            st3, _, b3 = AVGET("AlIcE")
+            check("the name is case-folded exactly as the accounts store folds it",
+                  st1 == st2 == st3 == 200 and b1 == b2 == b3, (st1, st2, st3))
+        except Exception as e:
+            check("name is case-folded", False, repr(e))
+
+        try:
+            st, head, _ = _http_get(host, port, AV + "/alice?v=1", origin=PAGES_ORIGIN)
+            ok = "immutable" in head.lower() and 'etag: "1"' in head.lower()
+            st2, head2, _ = AVGET("alice")
+            ok = ok and "immutable" not in head2.lower()
+            check("?v=<the version served> caches for a year, a bare GET for a minute",
+                  st == 200 and ok, head[:200])
+        except Exception as e:
+            check("cache headers", False, repr(e))
+
+        try:
+            # A REAL PHOTOGRAPH, WITH GPS IN IT. This is the privacy one.
+            from PIL import Image as _I
+            ex = _I.Exif()
+            ex[0x8825] = {1: "N", 2: (35.0, 53.0, 25.0), 3: "E", 4: (14.0, 30.0, 42.0)}
+            ex[0x010F] = "SuperPhone"
+            ex[0x9286] = "taken at home"
+            src = _png(600, 400, (10, 90, 200), fmt="JPEG", exif=ex.tobytes())
+            had = _I.open(io.BytesIO(src))
+            check("the test photograph really does carry GPS and a camera name",
+                  bool(had.getexif()) and b"SuperPhone" in src and b"\x88\x25" in src[:4096])
+            karti_avatar.buckets_reset()
+            st, js, _ = AVPOST({"tok": sess_av, "img": _dataurl(src, "jpeg")})
+            _, _, out = AVGET("alice")
+            got = dict(_I.open(io.BytesIO(out)).getexif())
+            ok = st == 200 and (js or {}).get("ver") == 2
+            ok = ok and not got                      # no EXIF at all survived
+            ok = ok and b"SuperPhone" not in out and b"taken at home" not in out
+            ok = ok and out != src                   # and it is not their bytes
+            check("EXIF, the camera name and the GPS tag do not survive the re-encode",
+                  ok, "%s ver=%s exif=%s" % (st, (js or {}).get("ver"), got))
+        except Exception as e:
+            check("EXIF and GPS are stripped", False, repr(e))
+
+        try:
+            # The version is what makes hard caching safe.
+            st, _, b_new = AVGET("alice")
+            _, head, _ = _http_get(host, port, AV + "/alice?v=1", origin=PAGES_ORIGIN)
+            check("a stale ?v= is NOT cached for a year, so no face is ever stuck",
+                  "immutable" not in head.lower(), head[:160])
+        except Exception as e:
+            check("stale version is not cached hard", False, repr(e))
+
+        # -- the caps, every one of them refused -----------------------------
+
+        try:
+            karti_avatar.buckets_reset()
+            fat = b"x" * (karti_avatar.MAX_BODY + 4096)
+            st, js, _ = AVPOST(None, raw=fat, timeout=8.0)
+            check("a body over the ceiling is refused from Content-Length alone",
+                  st == 413, "%s %s" % (st, js))
+        except Exception as e:
+            check("oversized body refused", False, repr(e))
+
+        try:
+            karti_avatar.buckets_reset()
+            st, js, _ = AVPOST({"tok": sess_av,
+                                "img": _dataurl(b"I am a sentence, not a photograph.")})
+            ok = st == 400
+            # ...and a data URL that LIES about what it holds is no better: the
+            # prefix is never the proof, the decoder is.
+            st2, _, _ = AVPOST({"tok": sess_av,
+                                "img": "data:image/png;base64," +
+                                       base64.b64encode(b"%PDF-1.4 not a png").decode()})
+            check("a non-image is refused by DECODING it, not by trusting its prefix",
+                  ok and st2 == 400, "%s %s" % (st, st2))
+        except Exception as e:
+            check("non-image refused", False, repr(e))
+
+        try:
+            karti_avatar.buckets_reset()
+            bomb = karti_avatar.bomb_png(50000, 50000)
+            st, js, _ = AVPOST({"tok": sess_av, "img": _dataurl(bomb)})
+            ok = st in (400, 413) and len(bomb) < 1024
+            _, _, still = AVGET("alice")
+            ok = ok and len(still) > 100         # the good photo is untouched
+            check("a decompression bomb (2.5 gigapixels in under 1 KB) is refused",
+                  ok, "%s %s bomb=%dB" % (st, js, len(bomb)))
+        except Exception as e:
+            check("bomb refused", False, repr(e))
+
+        try:
+            karti_avatar.buckets_reset()
+            st, _, _ = AVPOST({"tok": sess_av,
+                               "img": _dataurl(karti_avatar.bomb_png(2400, 2400))})
+            check("an image just over the pixel cap is refused too", st in (400, 413), st)
+        except Exception as e:
+            check("pixel cap refused", False, repr(e))
+
+        try:
+            karti_avatar.buckets_reset()
+            st, _, _ = AVPOST({"tok": sess_av, "img": _dataurl(b"", "png")})
+            st2, _, _ = AVPOST({"tok": sess_av, "img": 12345})
+            st3, _, _ = AVPOST({"tok": sess_av})
+            check("an empty, a numeric and a missing picture are all refused",
+                  st == 400 and st2 == 400 and st3 == 400, (st, st2, st3))
+        except Exception as e:
+            check("junk pictures refused", False, repr(e))
+
+        # -- one account cannot touch another's ------------------------------
+
+        try:
+            karti_avatar.buckets_reset()
+            before = karti_avatar.version("alice")
+            # every field a hostile client might hope names somebody else
+            st, js, _ = AVPOST({"tok": sess_bv, "u": "alice", "uname": "alice",
+                                "who": "alice", "user": "alice", "name": "Alice",
+                                "img": _dataurl(_png(200, 200, (0, 200, 0)))})
+            after = karti_avatar.version("alice")
+            ok = st == 200 and after == before        # Alice is untouched
+            ok = ok and karti_avatar.version("bob") == 1   # it landed on Bob
+            _, _, ab = AVGET("alice")
+            _, _, bb = AVGET("bob")
+            ok = ok and ab != bb
+            check("another account cannot overwrite your avatar, whatever it claims",
+                  ok, "%s alice %s->%s bob=%s" % (st, before, after,
+                                                  karti_avatar.version("bob")))
+        except Exception as e:
+            check("no cross-account overwrite", False, repr(e))
+
+        # -- the directory that is not there ---------------------------------
+
+        try:
+            nasties = ["../../etc/passwd", "..%2f..%2fetc%2fpasswd",
+                       "%2e%2e%2f%2e%2e%2fetc%2fpasswd", "alice%00.jpg",
+                       "..", ".", "alice/../bob", "%2e%2e", "a" * 40,
+                       "%2fvar%2flib%2fkarti%2faccounts.db"]
+            bad = []
+            for n in nasties:
+                s2, h2, b2 = AVGET(n)
+                # 404 is the only acceptable answer, and it must be OUR json
+                if s2 != 404 or b"root:" in b2 or b"SQLite" in b2 or len(b2) > 200:
+                    bad.append((n, s2, len(b2)))
+            check("no name with .. , a slash or a NUL can escape the store", not bad, bad)
+        except Exception as e:
+            check("traversal refused", False, repr(e))
+
+        try:
+            st, _, body = _http_get(host, port, AV, origin=PAGES_ORIGIN)
+            st2, _, _ = _http_get(host, port, AV + "/", origin=PAGES_ORIGIN)
+            check("there is no listing: /avatar and /avatar/ are not a directory",
+                  st in (404, 405) and st2 in (404, 405), (st, st2))
+        except Exception as e:
+            check("no listing", False, repr(e))
+
+        # -- rate limiting ----------------------------------------------------
+
+        try:
+            karti_avatar.buckets_reset()
+            refused = 0
+            for i in range(int(karti_avatar.UP_BURST) + 6):
+                s2, _, _ = AVPOST({"tok": sess_av,
+                                   "img": _dataurl(_png(60, 60, (i * 7 % 255, 0, 0)))})
+                if s2 == 429:
+                    refused += 1
+            check("changing your face over and over is rate limited", refused >= 3,
+                  "refused=%d of %d" % (refused, int(karti_avatar.UP_BURST) + 6))
+        except Exception as e:
+            check("upload rate limit", False, repr(e))
+
+        try:
+            # ...and reading is NOT limited so tightly that a roster of
+            # twenty-five faces trips it.
+            karti_avatar.buckets_reset()
+            ok = all(_http_get(host, port, AV + "/alice", origin=PAGES_ORIGIN)[0] == 200
+                     for _ in range(25))
+            check("a roster of twenty-five faces does not trip the read limit", ok)
+        except Exception as e:
+            check("read limit is roomy", False, repr(e))
+
+        # -- the disk ceiling -------------------------------------------------
+
+        try:
+            karti_avatar.buckets_reset()
+            keep_total = karti_avatar.MAX_TOTAL
+            karti_avatar.MAX_TOTAL = 1          # the cap, reached
+            st, js, _ = AVPOST({"tok": sess_av,
+                                "img": _dataurl(_png(90, 90, (9, 9, 200)))})
+            replaced = st                        # a REPLACEMENT is still allowed
+            accounts_reset()
+            POST("/register", {"u": "Newbie", "pw": PW_A})
+            karti_avatar.buckets_reset()
+            s_n = (POST("/login", {"u": "Newbie", "pw": PW_A})[1] or {}).get("tok")
+            st2, js2, _ = AVPOST({"tok": s_n, "img": _dataurl(_png(90, 90))})
+            karti_avatar.MAX_TOTAL = keep_total
+            check("at the disk ceiling a NEW photo is refused with 507", st2 == 507,
+                  "%s %s" % (st2, js2))
+            check("...but you may always still replace your OWN face",
+                  replaced == 200, replaced)
+        except Exception as e:
+            karti_avatar.MAX_TOTAL = 8 * 1024 * 1024
+            check("disk ceiling", False, repr(e))
+
+        # -- the version is published where a player is named -----------------
+
+        try:
+            karti_avatar.buckets_reset()
+            pv_a = karti_avatar.version("alice")
+            av_a = cli(origin=PAGES_ORIGIN)
+            av_a.send_json({"t": "auth", "session": sess_av})
+            av_a.recv_json(3.0)
+            av_b = cli(origin=PAGES_ORIGIN)
+            av_b.send_json({"t": "auth", "session": sess_bv})
+            av_b.recv_json(3.0)
+            time.sleep(0.2)
+            av_a.send_json({"t": "who"})
+            w = av_a.recv_json(3.0) or {}
+            bob = ([p for p in w.get("people", []) if p["n"] == "Bob"] or [{}])[0]
+            ok = bob.get("pv") == karti_avatar.version("bob")
+            ok = ok and w.get("you", {}).get("pv") == pv_a
+            check("the who-is-around roster carries each player's photo version", ok,
+                  "%s you=%s" % (bob, w.get("you")))
+            bye(av_a)
+            bye(av_b)
+        except Exception as e:
+            check("who carries pv", False, repr(e))
+
+        try:
+            st, js, _ = POST("/login", {"u": "Alice", "pw": PW_A})
+            ok = (js or {}).get("pv") == karti_avatar.version("alice")
+            st2, js2, _ = POST("/pull", {"tok": (js or {}).get("tok")})
+            ok = ok and (js2 or {}).get("pv") == karti_avatar.version("alice")
+            check("login and pull tell a player their OWN photo version", ok,
+                  "%s / %s" % ((js or {}).get("pv"), (js2 or {}).get("pv")))
+        except Exception as e:
+            check("login/pull carry pv", False, repr(e))
+
+        try:
+            # THE LEADERBOARD. karti_stats.py is untouched: the rows are
+            # stamped on the way out of this file's reply().
+            karti_stats.open_store(":memory:",
+                                   lambda t: ACCOUNTS.session(t) if ACCOUNTS else None)
+            karti_stats.buckets_reset()
+            s_a = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            s_b = (POST("/login", {"u": "Bob", "pw": PW_B})[1] or {}).get("tok")
+            karti_avatar.forget("bob")               # Bob has no photo now
+            _http_post(host, port, PATH_PREFIX + "/stats/push",
+                       {"tok": s_a, "games": {"chess": {"p": 2, "w": 2, "l": 0, "d": 0}}},
+                       origin=PAGES_ORIGIN)
+            _http_post(host, port, PATH_PREFIX + "/stats/push",
+                       {"tok": s_b, "games": {"chess": {"p": 1, "w": 1, "l": 0, "d": 0}}},
+                       origin=PAGES_ORIGIN)
+            st, js, _ = _http_post(host, port, PATH_PREFIX + "/stats/board",
+                                   {"game": "chess", "tok": s_a}, origin=PAGES_ORIGIN)
+            rows = {r["u"]: r for r in (js or {}).get("rows", [])}
+            ok = st == 200 and rows
+            ok = ok and rows["alice"].get("pv") == karti_avatar.version("alice")
+            ok = ok and "pv" not in rows["bob"]      # no photo, so nothing to ask for
+            ok = ok and (js or {}).get("you", {}).get("pv") == karti_avatar.version("alice")
+            check("leaderboard rows carry pv, and say nothing where there is no photo",
+                  ok, "%s %s" % (st, rows))
+            karti_stats.close_store()
+        except Exception as e:
+            try:
+                karti_stats.close_store()
+            except Exception:
+                pass
+            check("board rows carry pv", False, repr(e))
+
+        # -- taking it away, and orphans --------------------------------------
+
+        try:
+            karti_avatar.buckets_reset()
+            st, js, _ = AVPOST(None, method="DELETE", raw=b'{}')
+            ok = st == 401
+            st2, js2, _ = AVPOST({"tok": sess_av}, method="DELETE")
+            _, _, _ = AVGET("alice")
+            st3, _, _ = AVGET("alice")
+            ok = ok and st2 == 200 and st3 == 404 and karti_avatar.version("alice") == 0
+            check("DELETE needs a token, and then puts the drawn face back", ok,
+                  "%s %s %s" % (st, st2, st3))
+        except Exception as e:
+            check("delete works", False, repr(e))
+
+        try:
+            st, _, _ = _http_post(host, port, PATH_PREFIX + "/health", {},
+                                  origin=PAGES_ORIGIN, method="DELETE")
+            check("DELETE anywhere else is still 405", st == 405, st)
+        except Exception as e:
+            check("DELETE elsewhere is 405", False, repr(e))
+
+        try:
+            # AN ACCOUNT GOES. Its photograph must not outlive it. Nothing in
+            # the relay deletes an account today, so this is done the way it
+            # would really happen — the row simply is not there any more — and
+            # the sweeper's prune has to notice.
+            karti_avatar.buckets_reset()
+            accounts_reset()
+            POST("/register", {"u": "Ghost", "pw": PW_A})
+            s_g = (POST("/login", {"u": "Ghost", "pw": PW_A})[1] or {}).get("tok")
+            AVPOST({"tok": s_g, "img": _dataurl(_png(150, 150, (0, 0, 200)))})
+            had = karti_avatar.version("ghost") > 0 and AVGET("ghost")[0] == 200
+            with ACCOUNTS.lock:
+                ACCOUNTS.db.execute("DELETE FROM accounts WHERE uname=?", ("ghost",))
+                ACCOUNTS.db.commit()
+            dropped = karti_avatar.prune()
+            left = karti_avatar.STORE.db.execute(
+                "SELECT COUNT(*) FROM avatars WHERE uname=?", ("ghost",)).fetchone()[0]
+            ok = had and dropped == 1 and left == 0 and AVGET("ghost")[0] == 404
+            ok = ok and karti_avatar.version("alice") == 0     # nothing else touched
+            check("a deleted account leaves no photograph behind", ok,
+                  "had=%s dropped=%s left=%s" % (had, dropped, left))
+        except Exception as e:
+            check("deleted account leaves nothing", False, repr(e))
+
+        try:
+            # ...and a resolver that cannot answer deletes NOTHING, because
+            # "I do not know who exists" must never read as "nobody does".
+            karti_avatar.buckets_reset()
+            s_a2 = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            AVPOST({"tok": s_a2, "img": _dataurl(_png(120, 120, (7, 7, 7)))})
+            before = karti_avatar.version("alice")
+            keep_ex = karti_avatar.EXISTS
+            karti_avatar.EXISTS = lambda u: (_ for _ in ()).throw(RuntimeError("db down"))
+            dropped = karti_avatar.prune()
+            karti_avatar.EXISTS = keep_ex
+            check("a sick accounts store makes the sweeper delete nothing",
+                  dropped == 0 and karti_avatar.version("alice") == before,
+                  "dropped=%s %s->%s" % (dropped, before, karti_avatar.version("alice")))
+        except Exception as e:
+            karti_avatar.EXISTS = keep_ex
+            check("prune is fail-safe", False, repr(e))
+
+        try:
+            st, _, _ = _http_post(host, port, AV, {"tok": sess_av,
+                                                   "img": _dataurl(_png(60, 60))},
+                                  origin="https://evil.example")
+            check("a POST from a foreign origin gets nothing", st == 403, st)
+        except Exception as e:
+            check("foreign origin refused", False, repr(e))
+
+        try:
+            # THE MEMORY GUARD. Every decode slot taken means 503, not an
+            # out-of-memory kill — the same bargain the KDF gate makes.
+            karti_avatar.buckets_reset()
+            keep_wait = karti_avatar.DECODE_WAIT
+            karti_avatar.DECODE_WAIT = 0.2
+            held = [karti_avatar._GATE.acquire(timeout=1.0)
+                    for _ in range(karti_avatar.DECODE_GATE)]
+            s_a3 = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            st, js, _ = AVPOST({"tok": s_a3, "img": _dataurl(_png(200, 200))})
+            for got in held:
+                if got:
+                    karti_avatar._GATE.release()
+            karti_avatar.DECODE_WAIT = keep_wait
+            ok = st == 503 and (js or {}).get("retry") is True
+            karti_avatar.buckets_reset()
+            st2, _, _ = AVPOST({"tok": s_a3, "img": _dataurl(_png(200, 200))})
+            check("with every decode slot taken it answers 503, and recovers after",
+                  ok and st2 == 200, "%s %s then %s" % (st, js, st2))
+        except Exception as e:
+            karti_avatar.DECODE_WAIT = 4.0
+            check("decode gate", False, repr(e))
+
         # ═══════════ housekeeping ═══════════
         print("")
         print(" HOUSEKEEPING")
@@ -7019,6 +7629,7 @@ def selftest():
             pass
         if ACCOUNTS is not None:
             ACCOUNTS.close()
+        karti_avatar.close_store()
         shutil.rmtree(acct_dir, ignore_errors=True)
 
     fails = sum(1 for _, ok in results if not ok)
@@ -7050,6 +7661,11 @@ def main(argv=None):
     p.add_argument("--accounts", default=DEFAULT_ACCT_DB,
                    help="SQLite file for accounts + cross-device saves (default %s)"
                         % DEFAULT_ACCT_DB)
+    p.add_argument("--avatars", default=DEFAULT_AVATAR_DB,
+                   help="SQLite file for avatar photographs (default %s)"
+                        % DEFAULT_AVATAR_DB)
+    p.add_argument("--no-avatars", action="store_true",
+                   help="do not accept avatar photographs at all")
     p.add_argument("--no-accounts", action="store_true",
                    help="run as a pure relay: no accounts, no saved games, no disk")
     p.add_argument("--selftest", action="store_true", help="run the built-in tests and exit")
@@ -7071,6 +7687,15 @@ def main(argv=None):
         # resolver instead, so a crafted name is not even parsed.
         karti_stats.open_store(args.stats,
                                lambda tok: ACCOUNTS.session(tok) if ACCOUNTS else None)
+        # Avatars get the same session resolver — a token is the only way to
+        # say who you are, so there is no name in a request body to forge — and
+        # a second callable that answers "does this account still exist?", used
+        # ONLY to sweep photographs whose owner has gone.
+        if not args.no_avatars:
+            karti_avatar.open_store(
+                args.avatars,
+                lambda tok: ACCOUNTS.session(tok) if ACCOUNTS else None,
+                lambda u: bool(ACCOUNTS and ACCOUNTS.find(u)))
 
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print("warning: binding to %s exposes the relay directly. Tailscale Funnel "

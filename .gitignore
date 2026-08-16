@@ -16,3 +16,6 @@ art/prompts.jsonl
 # python bytecode
 server/__pycache__/
 audio/call/_raw/
+
+# rollback copies kept by scripts/deploy_relay.sh — local safety net, not history
+server/_deploy_bak/
