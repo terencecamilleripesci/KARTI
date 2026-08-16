@@ -858,9 +858,20 @@ function renderHome(){
      three (js/gacha.js). Routed from here so a reload cannot dodge it. */
   if (!S.starters.length && window.KARTI_GACHA && KARTI_GACHA.open){ KARTI_GACHA.open(); return; }
   const chip = $('#profile-chip');
-  chip.innerHTML = '<span class="avatar">' + esc(displayName().charAt(0).toUpperCase()) + '</span>' +
-    esc(displayName());
+  /* The face, drawn by the one renderer everything else uses, so the home pill
+     cannot disagree with the profile sheet or the leaderboard about what you
+     look like. It used to be a bare initial in a .avatar box — which meant an
+     equipped border landed on a chip that had never been through the renderer,
+     so the ring sized itself from the 38px default while the pill is 32px and
+     sat off the edge of the face. Passing the real size is the fix. */
+  const nm = displayName();
+  chip.innerHTML =
+    ((window.KARTI_XP && KARTI_XP.avatarHTML)
+       ? KARTI_XP.avatarHTML(nm, { size: 32, me: true, cls: 'avatar' })
+       : '<span class="avatar">' + esc(nm.charAt(0).toUpperCase()) + '</span>') +
+    esc(nm);
   chip.onclick = profileSheet;
+  try { window.KARTI_XP && KARTI_XP.paint && KARTI_XP.paint(chip); } catch (e){}
 
   const d = activeDeck();
   $('#wallet').innerHTML =
