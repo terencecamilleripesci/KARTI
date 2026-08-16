@@ -1014,8 +1014,12 @@ function settingsSheet(){
     ((s.linked || ACTIVE === GUEST || cloudReady())
       ? '<div class="opts">' +
           (s.linked
-            ? '<button class="btn ghost" id="st-cloud">' + ilb('cloud', 'Cloud save') +
-              '<span class="sub">sync now · sign this phone out · backups</span></button>'
+            /* NOT "Cloud save". Saving is automatic and always has been; naming
+               it here implied there was a save you had to go and perform, which
+               is exactly the doubt he raised. What is actually behind this row
+               is the ACCOUNT — signing this phone out, and the backups. */
+            ? '<button class="btn ghost" id="st-cloud">' + ilb('cloud', 'Your account') +
+              '<span class="sub">saves by itself · sign this phone out · backups</span></button>'
             : '<button class="btn ghost" id="st-cloud">' +
               ilb('save', 'Create an account') +
               '</button>')
