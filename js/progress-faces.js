@@ -308,6 +308,18 @@ function injectCSS(){
     '.kx-ring{position:absolute;inset:0;border-radius:inherit;pointer-events:none;' +
       '--kx-bw:max(2px,calc(var(--kx-size,38px) * .075));--kx-fb:rgba(255,255,255,.5)}' +
     '.kx-av>.kx-ring{z-index:2}' +
+    /* centred on the bottom edge and overlapping it, so it reads as part of
+       the ring rather than as something stuck underneath the face. Sized from
+       --kx-size so one rule covers a 44px seat plate and a 96px picker tile. */
+    '.kx-av>.kx-lvb{position:absolute;z-index:3;left:50%;bottom:calc(var(--kx-size,38px) * -0.06);' +
+      'transform:translateX(-50%);min-width:calc(var(--kx-size,38px) * .34);' +
+      'height:calc(var(--kx-size,38px) * .26);padding:0 calc(var(--kx-size,38px) * .07);' +
+      'border-radius:999px;display:grid;place-items:center;' +
+      'font-family:var(--disp);font-weight:900;line-height:1;' +
+      'font-size:calc(var(--kx-size,38px) * .19);letter-spacing:.02em;' +
+      'background:linear-gradient(180deg,#FFD873,#F0A81E);color:#2A1B0C;' +
+      'border:calc(var(--kx-size,38px) * .028) solid ' + INK + ';' +
+      'box-shadow:0 1px 2px rgba(0,0,0,.45)}' +
 
     /* the patterned ones are ONE technique: a full-bleed background
        masked down to the band. Unsupported engines never see the mask
@@ -449,6 +461,18 @@ function q(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
    this app that can show a broken-image glyph, and a relay that is
    unreachable (which is most of the time from his own phone) simply
    leaves the drawn face showing, which was never wrong. */
+/* THE LEVEL, SITTING IN THE BOTTOM OF THE RING.
+   It rides with the border rather than being a separate chip beside the face,
+   so it follows a player everywhere their face goes — the profile, the record
+   book, a seat plate — without every caller having to remember it.
+   Suppressed below 40px: at 26 on a leaderboard row the digits would be two
+   or three pixels tall, which is not a number, it is grit on the ring. */
+function lvHTML(lv, size){
+  lv = lv | 0;
+  if (!lv || (size | 0) < 40) return '';
+  return '<span class="kx-lvb" aria-hidden="true">' + lv + '</span>';
+}
+
 function frameHTML(id, opts){
   ready();
   var o = opts || {};
@@ -460,7 +484,7 @@ function frameHTML(id, opts){
          (o.pic ? ' data-kx-pic="' + q(o.pic) + '"' : '') +
          ' style="' + st + '"' +
          (o.label ? ' role="img" aria-label="' + q(o.label) + '"' : ' aria-hidden="true"') + '>' +
-         markHTML(id, '') + ringHTML(o.border) + '</span>';
+         markHTML(id, '') + ringHTML(o.border) + lvHTML(o.lv, sz) + '</span>';
 }
 
 window.KARTI_FACES = {

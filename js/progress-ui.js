@@ -156,8 +156,13 @@ function avatarHTML(name, opts){
   var d = XP.describe(name, { me:o.me, who:o.who, hint:o.hint,
                               border:o.border, pv:o.pv, face:o.face });
   var f = XP.face(d.face);
+  /* the level rides with the face; for the player themselves we know it, and
+     for anybody else it is whatever the relay published beside their name */
+  var lv = (o.lv != null) ? (o.lv | 0)
+         : (d.mine ? (XP.level ? XP.level() : 0) : 0);
   return FACES.frame(d.face, {
     size: o.size || 38,
+    lv: lv,
     accent: o.accent || (f && f.ax) || '#FFC542',
     cls: o.cls,
     style: o.style,
@@ -252,6 +257,8 @@ function paintOne(el){
   var name = el.getAttribute('data-kx-av') || '';
   var o = { size: parseInt(el.getAttribute('data-kx-size'), 10) || 34,
             hint: el.getAttribute('data-kx-face') || '' };
+  var lvAttr = el.getAttribute('data-kx-lv');
+  if (lvAttr != null && lvAttr !== '') o.lv = parseInt(lvAttr, 10) || 0;
   /* the relay-published look of somebody who is not on this phone —
      a roster or a seat plate writes these beside the name. No pv, no
      photograph, no request: exactly describe()'s rule. */
