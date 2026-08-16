@@ -1053,14 +1053,12 @@ function settingsSheet(){
         esc(displayName()) + '’s save</button>' +
     '</div>' +
 
-    '<p class="fineprint" id="pf-build" style="margin-top:12px;opacity:.55"></p>' +
     '<p class="fineprint" style="margin-top:8px">18+ · Contains mothers-in-law, ' +
     'Marsa traffic and one very accurate slipper.</p>' +
     '<div class="opts">' +
       '<button class="btn ghost" id="st-back">Back</button>' +
     '</div>');
 
-  buildLine($('#pf-build'));
   $('#st-back').onclick = profileSheet;
   { const n = $('#st-notify');
     if (n) n.onclick = () => {
@@ -1100,16 +1098,6 @@ function settingsSheet(){
    on a stale one for days) and whether the artwork loaded. The page build comes
    straight out of THIS device's index.html — the shell CSS is inline there, so
    it is the truth about the layout on screen. */
-function buildLine(el){
-  if (!el) return;
-  const art = ART.base ? 'art ok' : 'art fallback';
-  const page = 'page v' + (window.KARTI_BUILD || '?');
-  el.textContent = page + ' · ' + art;
-  if (window.swVersion) window.swVersion().then(v => {
-    el.textContent = page + ' · ' +
-      (v ? 'sw ' + String(v).replace('karti-v', 'v') : 'no service worker') + ' · ' + art;
-  });
-}
 /* The guest's route to an account. One form, one account: it becomes a real
    profile on this phone AND a cloud account, in that order, and the cloud half
    never holds anything up. */
