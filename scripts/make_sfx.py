@@ -344,7 +344,14 @@ def main():
               % ','.join(r for r, _ in failures))
 
     print("""
-NEXT — listen before you trust any of it:
+NEXT — run the trimmer, then listen:
+  * python3 scripts/trim_sfx.py
+    The sheet's trim_to column is NOT applied at generation time. Until it is
+    run, every one-shot plays its full generated length: ui.back is specified
+    at 0.10 s and arrives at 0.52 s, which is audibly a fifth of a second of
+    dead tail on every back tap. The trimmer is idempotent.
+
+Then, listen before you trust any of it:
   * The API returns SEVERAL takes separated by silence, filling the duration.
     Keep take one, delete the rest. Leading silence must be trimmed, it cannot
     be prompted away.
