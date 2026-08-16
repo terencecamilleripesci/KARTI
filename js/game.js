@@ -924,6 +924,19 @@ function profileSheet(){
   const needsAccount = !s.linked && (ACTIVE === GUEST || cloudReady());
   openSheet(
     '<h3>' + esc(displayName()) + '</h3>' +
+    /* NAME, THEN FACE, AND THE FACE IS THE DOOR. There is no
+       "Customise" row any more: the thing you want to change is
+       already on screen, and tapping the thing you want to change is
+       the obvious gesture. js/progress-ui.js draws the face into the
+       data-kx-av span and styles .kx-pfav; the caption under it is
+       there so this can never be a hidden hotspot. */
+    (window.KARTI_XP
+      ? '<button class="kx-pfav" id="pf-av" aria-label="Change how you look">' +
+          '<span data-kx-av="' + esc(displayName()) + '" data-kx-size="76"></span>' +
+          '<span class="kx-pfpen" aria-hidden="true">' + ico('star') + '</span>' +
+        '</button>' +
+        '<p class="kx-pfcap">Tap your face to change it</p>'
+      : '') +
     '<p class="cloudline ' + line.cls + '"><i></i><span>' + esc(line.text) + '</span></p>' +
     (needsAccount
       ? '<div class="opts" style="margin-top:10px">' +
@@ -938,12 +951,6 @@ function profileSheet(){
       '<button class="btn ghost" data-karti-stats>' + ilb('cards', 'Record book') + '</button>' +
       '<button class="btn ghost" data-karti-stats="board">' + ilb('crown', 'Leaderboard') + '</button>' +
     '</div>' +
-    /* The ladder and the wardrobe are their own module (js/progress.js);
-       it binds these by data attribute too, so this stays markup only. */
-    '<div class="opts">' +
-      '<button class="btn ghost" data-karti-xp>' + ilb('star', 'Customise') +
-        '<span class="sub">your face, boards, pieces</span></button>' +
-    '</div>' +
     '<div class="opts">' +
       '<button class="btn ghost" id="pf-switch">' + ilb('users', 'Switch player') + '</button>' +
       '<button class="btn ghost" id="pf-set">' + ilb('gear', 'Settings') + '</button>' +
@@ -951,6 +958,11 @@ function profileSheet(){
     '</div>' +
     '<button class="btn ghost" id="pf-close" style="margin-top:8px;width:100%">Close</button>');
   $('#pf-close').onclick = closeSheet;
+  { const av = $('#pf-av');
+    if (av) av.onclick = () => {
+      closeSheet();
+      try { if (window.KARTI_XP) KARTI_XP.open('you'); } catch(e){}
+    }; }
   { const m = $('#pf-make');
     if (m) m.onclick = () => {
       if (ACTIVE === GUEST) return upgradeSheet();

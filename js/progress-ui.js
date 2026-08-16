@@ -132,14 +132,81 @@ function faceAccent(id){
    ═══════════════════════════════════════════════════════════════════ */
 function avatarHTML(name, opts){
   var o = opts || {};
-  var id = o.face || XP.avatarFor(name, o.hint);
-  var f = XP.face(id);
-  return FACES.frame(id, {
+  /* one descriptor for everybody — face, ring, photograph — so the
+     leaderboard, the roster and a seat plate cannot disagree about
+     what a player looks like */
+  var d = XP.describe(name, { me:o.me, who:o.who, hint:o.hint,
+                              border:o.border, pv:o.pv, face:o.face });
+  var f = XP.face(d.face);
+  return FACES.frame(d.face, {
     size: o.size || 38,
     accent: o.accent || (f && f.ax) || '#FFC542',
     cls: o.cls,
     style: o.style,
+    border: o.noBorder ? '' : d.border,
+    pic: o.noPic ? '' : d.pic,
     label: o.label || (name ? String(name) + (f ? ' — ' + f.name : '') : (f ? f.name : 'Player'))
+  });
+}
+
+/* ── PROBE, THEN MOUNT ────────────────────────────────────────────
+   The rule js/artkit.js and js/stats.js already work by, and the only
+   honest way to put a photograph that lives on a frequently
+   unreachable Pi into a screen that must always be finished:
+
+     · the drawn face is ALREADY in the markup and is never removed;
+     · a photograph is fetched by a plain `new Image()` and is only
+       put in the document once it has actually decoded;
+     · one probe per URL for the whole app, remembered — including the
+       failures, so twenty-five rows asking for one absent photo cost
+       one request, not twenty-five;
+     · and because the URL carries the version the relay published
+       beside the player's name, a player with NO photo has no URL at
+       all and therefore costs nothing whatsoever.
+
+   There is no code path here that can show a broken image, and none
+   that leaves somebody faceless because the server was off. */
+var picState = {};                 /* url -> 'probing' | 'ok' | 'no' */
+
+function mountPic(host, url){
+  if (host.querySelector('img.kx-ph')) return;
+  var im = document.createElement('img');
+  im.className = 'kx-ph';
+  im.alt = '';
+  im.setAttribute('aria-hidden', 'true');
+  im.decoding = 'async';
+  im.src = url;
+  /* after the drawn face so it covers it, before the ring so the ring
+     stays on top — the border frames the photograph, not the reverse */
+  var ring = host.querySelector('.kx-ring');
+  if (ring) host.insertBefore(im, ring); else host.appendChild(im);
+}
+
+function sweepPic(url){
+  $$('[data-kx-pic]').forEach(function(h){
+    if (h.getAttribute('data-kx-pic') === url) mountPic(h, url);
+  });
+}
+
+function wirePics(root){
+  $$('[data-kx-pic]', root || document).forEach(function(host){
+    var url = host.getAttribute('data-kx-pic');
+    if (!url || host.querySelector('img.kx-ph')) return;
+    var st = picState[url];
+    if (st === 'no' || st === 'probing') return;
+    if (st === 'ok'){ mountPic(host, url); return; }
+    /* a data: URL is my own photo out of local storage — already
+       decoded, already here, nothing to probe and nothing that can
+       404. It is why my own face is right with no network at all. */
+    if (url.slice(0, 5) === 'data:'){ picState[url] = 'ok'; mountPic(host, url); return; }
+    picState[url] = 'probing';
+    var im = new Image();
+    im.onload = function(){
+      picState[url] = im.naturalWidth > 0 ? 'ok' : 'no';
+      if (picState[url] === 'ok') sweepPic(url);
+    };
+    im.onerror = function(){ picState[url] = 'no'; };
+    im.src = url;
   });
 }
 
@@ -159,16 +226,22 @@ function paintOne(el){
   var explicit = el.getAttribute('data-kx-av');
   var name = explicit != null && explicit !== '' ? explicit : nameNear(el);
   var id = XP.avatarFor(name, el.getAttribute('data-kx-face') || '');
-  if (el.getAttribute('data-kx-done') === id) return;
+  var d = XP.describe(name, { hint: el.getAttribute('data-kx-face') || '' });
+  var stamp = d.face + '|' + (d.border || '') + '|' + (d.pic || '');
+  if (el.getAttribute('data-kx-done') === stamp) return;
   if (explicit != null){
     var sz = parseInt(el.getAttribute('data-kx-size'), 10) || 34;
     el.innerHTML = avatarHTML(name, { size:sz });
   } else {
-    /* somebody else's box — put the mark in it and leave the box alone */
-    el.innerHTML = FACES.mark(id, 'kx-in');
+    /* somebody else's box — the mark, and the ring over it, and leave
+       the box itself alone. The border follows a player everywhere a
+       player is, including into a chip this file did not build. */
+    el.innerHTML = FACES.mark(id, 'kx-in') + FACES.ring(d.border);
     el.style.color = faceAccent(id);
+    if (d.pic){ el.setAttribute('data-kx-pic', d.pic); wirePics(el.parentNode || el); }
+    else el.removeAttribute('data-kx-pic');
   }
-  el.setAttribute('data-kx-done', id);
+  el.setAttribute('data-kx-done', stamp);
 }
 
 function repaintAvatars(root){
@@ -178,6 +251,7 @@ function repaintAvatars(root){
   try {
     $$('[data-kx-av]', r).forEach(paintOne);
     $$('.avatar', r).forEach(paintOne);
+    wirePics(r);
   } catch (e){}
 }
 
@@ -187,13 +261,24 @@ function queueRepaint(){
   repaintQ = requestAnimationFrame(function(){ repaintQ = 0; repaintAvatars(); });
 }
 
+/* THREE ROOTS, NOT ONE, AND NOT document.body. #sheet and #modal are
+   SIBLINGS of #app in index.html, so an observer on #app alone never
+   saw the profile sheet and the face in it stayed an empty box — which
+   is exactly what happened the first time this was tried. Watching
+   document.body instead would have fixed it and put a subtree
+   observer over every board repaint in the app; these three cover
+   every place a player can be named, and two of them are small
+   dialogs that repaint once when they open. */
 function watchAvatars(){
   if (typeof MutationObserver !== 'function') return;
-  var app = document.getElementById('app') || document.body;
-  if (!app) return;
-  new MutationObserver(function(recs){
-    for (var i = 0; i < recs.length; i++) if (recs[i].addedNodes && recs[i].addedNodes.length){ queueRepaint(); return; }
-  }).observe(app, { childList:true, subtree:true });
+  var obs = new MutationObserver(function(recs){
+    for (var i = 0; i < recs.length; i++)
+      if (recs[i].addedNodes && recs[i].addedNodes.length){ queueRepaint(); return; }
+  });
+  ['app', 'sheet', 'modal'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) obs.observe(el, { childList:true, subtree:true });
+  });
   queueRepaint();
 }
 
@@ -380,6 +465,29 @@ function injectCSS(){
   '#scr-kx .kx-st.on{background:var(--gold,#FFC542);color:#241800}' +
   '#scr-kx .kx-st.lock{color:var(--dim2,#7F73A0)}' +
   '#scr-kx .kx-st .ico{font-size:1.25em}' +
+  '#scr-kx .kx-st.earn{background:rgba(255,197,66,.14);color:var(--gold,#FFC542)}' +
+  '#scr-kx .kx-how{display:block;margin-top:3px;color:var(--gold,#FFC542);font-weight:800;' +
+    'font-size:10px;letter-spacing:.06em;text-transform:uppercase}' +
+
+  /* ── the photograph row ── */
+  '#scr-kx .kx-photo{cursor:pointer}' +
+  '#scr-kx .kx-photo .kx-pv .ico{font-size:30px;color:var(--dim2,#7F73A0)}' +
+  '#scr-kx .kx-prow{display:flex;gap:7px;flex:0 0 auto;margin:1px 0 2px}' +
+  '#scr-kx .kx-pbtn{flex:1;min-height:42px;border-radius:11px;font-family:var(--disp);' +
+    'font-weight:900;font-size:11px;letter-spacing:.08em;text-transform:uppercase;' +
+    'background:var(--gold,#FFC542);color:#241800;border:0}' +
+  '#scr-kx .kx-pbtn.gh{flex:0 0 auto;padding:0 14px;background:rgba(255,255,255,.07);' +
+    'color:var(--txt,#F4EFFF);border:1px solid rgba(255,255,255,.16)}' +
+  /* the input is real and reachable, never display:none — a hidden
+     input is a hidden input to a screen reader too. It is clipped. */
+  '#scr-kx .kx-file{position:absolute;width:1px;height:1px;padding:0;margin:-1px;' +
+    'overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}' +
+  '#scr-kx .kx-pnote{flex:0 0 auto;margin:2px 4px 0;font-size:11px;line-height:1.45;' +
+    'color:var(--dim,#A093C4);min-height:0}' +
+  '#scr-kx .kx-pnote.ok{color:var(--ok,#3DDC84)}' +
+  '#scr-kx .kx-pnote.bad{color:var(--bad,#FF5468)}' +
+  '#scr-kx .kx-pnote.busy{color:var(--gold,#FFC542)}' +
+
   '#scr-kx .kx-empty{margin:auto;padding:26px 18px;text-align:center;color:var(--dim,#A093C4);' +
     'font-size:12.5px;line-height:1.65}' +
   '#scr-kx .kx-empty .ico{display:block;margin:0 auto 11px;width:34px;height:34px;font-size:34px;' +
@@ -388,6 +496,29 @@ function injectCSS(){
     'letter-spacing:.07em;text-transform:uppercase;color:var(--txt,#F4EFFF);margin-bottom:7px}' +
   '#scr-kx .kx-foot2{flex:0 0 auto;margin:8px 2px 0;font-size:10.5px;line-height:1.55;' +
     'color:var(--dim2,#7F73A0);text-align:center}' +
+
+  /* ─────────────── the face in the profile sheet ───────────────
+     The avatar IS the customise button, so it has to look like one at
+     a glance: a gold ring, a badge, a caption, and a real press
+     state. A hidden hotspot would be worse than the row it replaced. */
+  '.kx-pfav{display:block;margin:12px auto 0;padding:4px;border:0;background:none;position:relative;' +
+    'border-radius:26px;line-height:0;transition:transform .12s var(--ease,ease)}' +
+  '.kx-pfav:active{transform:scale(.95)}' +
+  '.reduced .kx-pfav{transition:none}' +
+  '.reduced .kx-pfav:active{transform:none}' +
+  '.kx-pfav>[data-kx-av]{display:block;box-shadow:0 0 0 2px rgba(255,197,66,.55),0 6px 16px rgba(0,0,0,.45);' +
+    'border-radius:21px}' +
+  '.kx-pfpen{position:absolute;right:-2px;bottom:-2px;width:26px;height:26px;border-radius:50%;' +
+    'display:grid;place-items:center;background:var(--gold,#FFC542);color:#241800;' +
+    'box-shadow:0 2px 6px rgba(0,0,0,.5)}' +
+  '.kx-pfpen .ico{font-size:15px}' +
+  '.kx-pfcap{margin:8px 0 2px;text-align:center;font-size:10.5px;letter-spacing:.1em;' +
+    'text-transform:uppercase;font-weight:700;color:var(--dim2,#7F73A0)}' +
+  /* the name belongs over the face, not off to one side of it. :has()
+     is the only way to reach a heading js/game.js wrote; an engine
+     without it simply leaves the name where it already was, which was
+     never broken. */
+  '#sheet h3:has(+ .kx-pfav){text-align:center}' +
 
   /* ─────────────── the face picker ─────────────── */
   '#kx-pick{position:fixed;inset:0;z-index:420;display:none;background:rgba(8,5,14,.80)}' +
@@ -881,13 +1012,16 @@ function openScreen(tab){
 
 /* how many of a game's things are already yours — the number on the tab */
 function ownedCount(game){
-  var list = game === 'you' ? XP.faces().map(function(f){ return { id:'face.' + f.id, level:f.lvl }; })
-                            : XP.defsFor(game);
-  var n = 0, i;
-  for (i = 0; i < list.length; i++){
-    if (game === 'you'){ if (XP.ownsFace(list[i].id.slice(5))) n++; }
-    else if (XP.owns(list[i].id)) n++;
+  var n = 0, i, list;
+  if (game === 'you'){
+    list = XP.faces();
+    for (i = 0; i < list.length; i++) if (XP.ownsFace(list[i].id)) n++;
+    var b = XP.borders();
+    for (i = 0; i < b.length; i++) if (XP.owns(b[i].id)) n++;
+    return { own:n, all:list.length + b.length };
   }
+  list = XP.defsFor(game);
+  for (i = 0; i < list.length; i++) if (XP.owns(list[i].id)) n++;
   return { own:n, all:list.length };
 }
 
@@ -984,15 +1118,21 @@ function paintBody(){
   if (!host) return;
 
   if (SC.tab === 'you'){
-    host.innerHTML = XP.faces().map(function(f){
-      var got = XP.ownsFace(f.id), on = XP.avatar() === f.id;
-      return '<button type="button" class="kx-it' + (on ? ' on' : got ? '' : ' off') +
-             '" data-face="' + esc(f.id) + '"' + (got ? '' : ' aria-disabled="true"') + '>' +
-             '<span class="kx-pv">' + FACES.frame(f.id, { size:62, accent:f.ax }) + '</span>' +
-             '<span class="kx-nm"><b>' + esc(f.name) + '</b><i>' + esc(f.blurb) + '</i></span>' +
-             '<span class="kx-st ' + (on ? 'on' : got ? '' : 'lock') + '">' +
-               (on ? 'Worn' : got ? 'Wear' : ico('lock') + 'Lv ' + f.lvl) + '</span></button>';
-    }).join('');
+    host.innerHTML = photoHTML() +
+      '<p class="kx-slot">The drawn faces</p>' +
+      XP.faces().map(function(f){
+        var got = XP.ownsFace(f.id), on = !XP.usingPhoto() && XP.avatar() === f.id;
+        return '<button type="button" class="kx-it' + (on ? ' on' : got ? '' : ' off') +
+               '" data-face="' + esc(f.id) + '"' + (got ? '' : ' aria-disabled="true"') + '>' +
+               '<span class="kx-pv">' + FACES.frame(f.id, { size:62, accent:f.ax }) + '</span>' +
+               '<span class="kx-nm"><b>' + esc(f.name) + '</b><i>' + esc(f.blurb) + '</i></span>' +
+               '<span class="kx-st ' + (on ? 'on' : got ? '' : 'lock') + '">' +
+                 (on ? 'Worn' : got ? 'Wear' : ico('lock') + 'Lv ' + f.lvl) + '</span></button>';
+      }).join('') +
+      '<p class="kx-slot">The border</p>' +
+      XP.borders().map(function(d){ return itemHTML(d, XP.border() === d.id); }).join('');
+
+    wirePhoto(host);
     $$('.kx-it[data-face]', host).forEach(function(b){
       b.onclick = function(){
         var r = XP.setAvatar(b.getAttribute('data-face'));
@@ -1001,9 +1141,12 @@ function paintBody(){
           sfx(function(S){ S.play('ui.error'); });
           return;
         }
+        XP.usePhoto(false);          /* choosing a drawn face means wearing it */
         renderScreen();
       };
     });
+    wireItems(host);
+    drawPreviews(host, 'karti');
     return;
   }
 
@@ -1026,42 +1169,144 @@ function paintBody(){
   host.innerHTML = order.map(function(slot){
     var eq = XP.equipped(slot, SC.tab);
     return '<p class="kx-slot">' + esc(slotWord(slot)) + '</p>' +
-      bySlot[slot].map(function(d){
-        var got = XP.owns(d.id), on = eq === d.id;
-        return '<button type="button" class="kx-it' + (on ? ' on' : got ? '' : ' off') +
-               '" data-c="' + esc(d.id) + '">' +
-               '<span class="kx-pv" data-pv="' + esc(d.id) + '"></span>' +
-               '<span class="kx-nm"><b>' + esc(d.name) + '</b><i>' + esc(d.blurb || '') + '</i></span>' +
-               '<span class="kx-st ' + (on ? 'on' : got ? '' : 'lock') + '">' +
-                 (on ? 'On' : got ? 'Use' : ico('lock') + 'Lv ' + d.level) + '</span></button>';
-      }).join('');
+      bySlot[slot].map(function(d){ return itemHTML(d, eq === d.id); }).join('');
   }).join('');
 
-  /* preview() is the whole point of the registry: this file draws a
-     pink chess board without knowing what a chess board is. A preview
-     that throws, or that a game forgot to give, degrades to the game's
-     two letters — never to a hole in the list. */
+  drawPreviews(host, SC.tab);
+  wireItems(host);
+}
+
+/* One row, for a chess board and for a border alike — a border is a
+   cosmetic registered through the same register() as everything else,
+   so it gets the same row with no special case. An EARNED one says
+   what to go and do instead of a level it will never reach. */
+function itemHTML(d, on){
+  var got = XP.owns(d.id);
+  var state = on ? '<span class="kx-st on">On</span>'
+            : got ? '<span class="kx-st">Use</span>'
+            : d.earn ? '<span class="kx-st earn">' + ico('trophy') + 'Earn</span>'
+                     : '<span class="kx-st lock">' + ico('lock') + 'Lv ' + d.level + '</span>';
+  var sub = got || !d.earn ? esc(d.blurb || '')
+          : esc(d.blurb || '') + ' <b class="kx-how">' + esc(d.earn.how) + '</b>';
+  return '<button type="button" class="kx-it' + (on ? ' on' : got ? '' : ' off') +
+         '" data-c="' + esc(d.id) + '">' +
+         '<span class="kx-pv" data-pv="' + esc(d.id) + '"></span>' +
+         '<span class="kx-nm"><b>' + esc(d.name) + '</b><i>' + sub + '</i></span>' +
+         state + '</button>';
+}
+
+/* preview() is the whole point of the registry: this file draws a pink
+   chess board, and a milled gold ring, without knowing what either
+   is. A preview that throws, or that a game forgot to give, degrades
+   to the game's two letters — never to a hole in the list. */
+function drawPreviews(host, tab){
   $$('[data-pv]', host).forEach(function(box){
     var d = XP.def(box.getAttribute('data-pv'));
     if (!previewInto(box, d))
       box.innerHTML = '<span style="font-family:var(--disp);font-weight:900;font-size:11px;' +
-        'letter-spacing:.1em;color:var(--dim2,#7F73A0)">' + esc(gameDef(SC.tab).mono || '') + '</span>';
+        'letter-spacing:.1em;color:var(--dim2,#7F73A0)">' + esc(gameDef(tab).mono || '') + '</span>';
   });
+  wirePics(host);
+}
 
+function wireItems(host){
   $$('.kx-it[data-c]', host).forEach(function(b){
     b.onclick = function(){
       var id = b.getAttribute('data-c'), d = XP.def(id);
       if (!d) return;
       if (!XP.owns(id)){
-        if (window.KARTI && KARTI.toast) KARTI.toast(d.name + ' arrives at level ' + d.level + '.');
+        if (window.KARTI && KARTI.toast)
+          KARTI.toast(d.earn ? d.name + ' is earned, not levelled — ' + d.earn.how.toLowerCase() + '.'
+                             : d.name + ' arrives at level ' + d.level + '.');
         sfx(function(S){ S.play('ui.error'); });
         return;
       }
       if (XP.equipped(d.slot, d.game) === id) XP.unequip(d.slot, d.game);
       else XP.equip(d.slot, id);
-      paintBody();
+      /* the border is worn by the head of this very screen, so a
+         border change has to repaint more than the list */
+      if (d.slot === 'border') renderScreen(); else paintBody();
     };
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   4b. THE PHOTOGRAPH
+   One picture per account, kept on the Pi. A guest is TOLD why they
+   cannot have one rather than being shown a dead button — "make an
+   account and your face follows you to the leaderboard" is a better
+   argument for signing up than anything on the sign-up screen.
+   ═══════════════════════════════════════════════════════════════════ */
+function photoHTML(){
+  var can = XP.canPhoto(), has = XP.hasPhoto(), on = XP.usingPhoto();
+  var name = '';
+  try { if (window.KARTI && KARTI.displayName) name = KARTI.displayName(); } catch (e){}
+  return '<p class="kx-slot">Your own photo</p>' +
+    '<div class="kx-it kx-photo' + (on ? ' on' : can ? '' : ' off') + '">' +
+      '<span class="kx-pv">' +
+        (has ? avatarHTML(name, { size:62, me:true }) : ico('person')) + '</span>' +
+      '<span class="kx-nm"><b>' + (has ? 'Your photo' : 'Use a photo') + '</b><i>' +
+        (!can
+          ? 'A photo needs an account — it is kept for you on Terence’s Pi so it ' +
+            'follows you to another phone and shows up on the leaderboard.'
+          : has
+            ? 'Shrunk to a square and kept on the Pi, so everybody else sees it too.'
+            : 'One picture, cropped square and made small. Everyone else sees it ' +
+              'on the board and in the lobby.') +
+      '</i></span>' +
+      '<span class="kx-st' + (on ? ' on' : '') + '">' + (on ? 'Worn' : has ? 'Wear' : '') + '</span>' +
+    '</div>' +
+    (can
+      ? '<div class="kx-prow">' +
+          '<button type="button" class="kx-pbtn" id="kx-pick-file">' +
+            (has ? 'Change photo' : 'Choose a photo') + '</button>' +
+          (has ? '<button type="button" class="kx-pbtn gh" id="kx-drop-file">Remove</button>' : '') +
+        '</div>' +
+        '<input type="file" accept="image/*" id="kx-file" class="kx-file" ' +
+          'aria-label="Choose a photo">' +
+        '<p class="kx-pnote" id="kx-pnote"></p>'
+      : '<div class="kx-prow"><button type="button" class="kx-pbtn" id="kx-mkacct">' +
+          'Make an account</button></div>');
+}
+
+function wirePhoto(host){
+  var f = $('#kx-file', host), note = $('#kx-pnote', host);
+  var pick = $('#kx-pick-file', host), drop = $('#kx-drop-file', host);
+  var mk = $('#kx-mkacct', host);
+  var row = $('.kx-photo', host);
+
+  if (row && XP.hasPhoto()) row.onclick = function(){
+    XP.usePhoto(!XP.usingPhoto()); renderScreen();
+  };
+  if (mk) mk.onclick = function(){
+    closeScreen();
+    try {
+      if (window.KARTI && KARTI.upgradeSheet) KARTI.upgradeSheet();
+      else if (window.KARTI_SYNC && KARTI_SYNC.openPanel) KARTI_SYNC.openPanel('signup', {});
+    } catch (e){}
+  };
+  if (pick && f) pick.onclick = function(){ f.click(); };
+  if (drop) drop.onclick = function(){ XP.removePhoto(); renderScreen(); };
+  if (!f) return;
+  f.onchange = function(){
+    var file = f.files && f.files[0];
+    f.value = '';
+    if (!file) return;
+    if (note){ note.className = 'kx-pnote busy'; note.textContent = 'Shrinking it…'; }
+    XP.uploadPhoto(file).then(function(r){
+      if (!note) { renderScreen(); return; }
+      if (r.ok){
+        note.className = 'kx-pnote ok';
+        note.textContent = 'Done — ' + Math.round(r.bytes / 102.4) / 10 + ' KB on the Pi.';
+        sfx(function(S){ S.play('ui.reward', { gain:0.6 }); });
+        setTimeout(renderScreen, 700);
+      } else {
+        note.className = 'kx-pnote bad';
+        note.textContent = r.why;
+        sfx(function(S){ S.play('ui.error'); });
+      }
+    });
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════════

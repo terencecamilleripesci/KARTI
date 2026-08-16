@@ -977,7 +977,12 @@ function pushNow(force){
      what the board needs the day it wants to show either. */
   var body = { tok:s.tok, games:games };
   try {
-    if (window.KARTI_XP){ body.av = KARTI_XP.avatar(); body.lv = KARTI_XP.level(); }
+    if (window.KARTI_XP){
+      body.av = KARTI_XP.avatar();          /* the drawn face, always  */
+      body.lv = KARTI_XP.level();
+      body.bd = KARTI_XP.border();          /* the ring, if one is on  */
+      body.pv = KARTI_XP.photoVer();        /* 0 = no photo, so no URL */
+    }
   } catch (e){}
   return post('push', body, NET_MS).then(function(r){
     pushing = false;
@@ -1087,7 +1092,8 @@ function lrow(r, rank, me){
                 until a relay build echoes their own `av` back, which
                 avatarFor() will prefer the moment it does. */
              (window.KARTI_XP && KARTI_XP.avatarHTML
-               ? KARTI_XP.avatarHTML(r.name || '?', { size:26, hint:r.av }) : '') +
+               ? KARTI_XP.avatarHTML(r.name || '?', { size:26, hint:r.av,
+                   border:r.bd, who:r.u, pv:r.pv }) : '') +
              '<b>' + esc(r.name || '?') + '</b>' +
              (me ? '<span class="sx-mine">You</span>' : '') + '</span>' +
            '<span class="sx-wld">' +
@@ -1211,6 +1217,14 @@ document.addEventListener('click', function(ev){
   var b = t && t.closest ? t.closest('[data-karti-stats]') : null;
   if (!b) return;
   ev.preventDefault();
+  /* A DESTINATION CLOSES THE SHEET IT WAS TAPPED IN. Both of these
+     buttons live in js/game.js's profile sheet, and both used to
+     navigate and leave that sheet sitting over the top of where you
+     had just arrived — so the record book opened underneath a menu,
+     and js/nav.js's back press then closed the menu and left you on a
+     screen you never knowingly went to. Fixed here rather than in
+     game.js so it holds for every place that ever uses the attribute. */
+  try { if (window.KARTI && KARTI.closeSheet) KARTI.closeSheet(); } catch (e){}
   var what = (b.getAttribute('data-karti-stats') || '').toLowerCase();
   if (what === 'board' || what === 'leaderboard') openLeaderboard();
   else openProfile();

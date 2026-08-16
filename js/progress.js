@@ -171,7 +171,16 @@ var FKEY = 'karti_prog_v1';
 var SEEN_MAX = 120;
 
 function blank(){
-  return { v:1, xp:0, av:'', eq:{}, own:{}, day:'', n:{}, fw:{}, last:{}, seen:[], seenAv:0 };
+  /* pv is the version of THIS player's photograph on the relay, or 0
+     for "no photo". THE IMAGE ITSELF IS NOT IN HERE AND MUST NEVER
+     BE. server/karti_server.py caps one save at 128 KB, shared with
+     two hundred cards, every deck and the whole story — and, far more
+     to the point, a picture that lives in a save only ever reaches
+     that player's own phones, which is no use whatsoever to a
+     leaderboard, a lobby roster or the seat opposite. The bytes live
+     on the Pi; this is only the pointer, and it costs one integer. */
+  return { v:1, xp:0, av:'', pv:0, usePic:0,
+           eq:{}, own:{}, day:'', n:{}, fw:{}, last:{}, seen:[], seenAv:0 };
 }
 
 var FB = null;                   /* the standalone fallback slot       */
@@ -191,6 +200,9 @@ function norm(p){
   if (typeof p.xp !== 'number' || !isFinite(p.xp) || p.xp < 0) p.xp = 0;
   p.xp = Math.floor(p.xp);
   if (typeof p.av !== 'string') p.av = '';
+  if (typeof p.pv !== 'number' || !isFinite(p.pv) || p.pv < 0) p.pv = 0;
+  p.pv = Math.floor(p.pv);
+  p.usePic = p.usePic ? 1 : 0;
   if (!p.eq || typeof p.eq !== 'object') p.eq = {};
   if (!p.own || typeof p.own !== 'object') p.own = {};
   if (!p.n || typeof p.n !== 'object') p.n = {};
@@ -303,7 +315,14 @@ function register(defs){
         level: lvl,
         sort: (typeof d.sort === 'number' && isFinite(d.sort)) ? d.sort : 0,
         preview: (typeof d.preview === 'function') ? d.preview : null,
-        accent: typeof d.accent === 'string' ? d.accent : ''
+        accent: typeof d.accent === 'string' ? d.accent : '',
+        /* EARNED, not levelled. A def with an `earn` is not on the
+           ladder at all — no amount of XP produces it, you have to go
+           and do the thing. That is what "exclusive" actually means,
+           and it is why these two are the only cosmetics in the set
+           whose level is meaningless. {how: one sentence, test: fn} */
+        earn: (d.earn && typeof d.earn.test === 'function')
+                ? { how:String(d.earn.how || ''), test:d.earn.test } : null
       };
       def.key = def.game + '.' + def.slot;
       if (!DEFS[id]) ORDER.push(id);
@@ -378,9 +397,36 @@ function atMax(){ return level() >= MAX_LEVEL; }
 function owns(id){
   var d = DEFS[id];
   if (!d) return false;
+  var p = root();
+  /* once earned, always yours — the test is run until it passes and
+     then the answer is written down, so a border won with a ten-game
+     streak is not taken away by the eleventh game being a loss */
+  if (p.own[id]) return true;
+  if (d.earn){
+    var got = false;
+    try { got = !!d.earn.test(); } catch (e){ got = false; }
+    if (got){
+      p.own[id] = 1;
+      commit();
+      fire(unlockCbs, { earned:true, level:level(), unlocked:[d] });
+      return true;
+    }
+    return false;
+  }
   if (d.level <= 1) return true;
-  if (root().own[id]) return true;
   return level() >= d.level;
+}
+
+/* The earned ones have to be CHECKED, or a player who does the thing
+   only finds out next time they open the wardrobe. Run after every
+   award — once a game, and only over the handful of defs that have an
+   `earn` at all. owns() does the writing and the announcing. */
+function sweepEarned(){
+  var i, list = ORDER;
+  for (i = 0; i < list.length; i++){
+    var d = DEFS[list[i]];
+    if (d && d.earn && !root().own[d.id]) owns(d.id);
+  }
 }
 
 /* The next thing there is to get, and at what level. Optionally within
@@ -634,6 +680,7 @@ function award(game, result, opts){
 
     commit();
 
+    sweepEarned();
     fire(awardCbs, out);
     if (out.levelled){
       fire(levelCbs, out);
@@ -777,8 +824,383 @@ function avatarHTML(name, opts){
          'px;border-radius:' + Math.round(sz * 0.27) + 'px;display:inline-grid;place-items:center;' +
          'background:#241A3E;color:#FFC542;font-weight:900">' + ch + '</span>';
 }
-function repaintAvatars(){
-  try { if (UI && typeof UI.repaintAvatars === 'function') UI.repaintAvatars(); } catch (e){}
+function repaintAvatars(root){
+  try { if (UI && typeof UI.repaintAvatars === 'function') UI.repaintAvatars(root); } catch (e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   8b. THE PHOTOGRAPH
+   "Anyone can upload one photo there choice boss."
+
+   ONE PHOTO PER ACCOUNT, ON THE PI, NOT IN THE SAVE. A picture in the
+   save blob would only ever reach that player's own phones; the whole
+   point of a face is that other people see it, so the bytes go to the
+   relay and everything else here is a pointer to them:
+
+     POST   /karti/avatar        {token, img}  -> {ok, ver}
+     GET    /karti/avatar/<who>?v=<ver>        -> the bytes, or 404
+     DELETE /karti/avatar        {token}       -> {ok}
+
+   `ver` increments on every change and is published beside a player's
+   name, so a URL carrying it can be cached hard and can never be
+   stale. It is also the thing that makes a missing photo FREE: no
+   ver, no request. A leaderboard of twenty-five players with no
+   photos makes zero avatar requests, not twenty-five 404s.
+
+   THE DRAWN FACE IS THE TRUTH ON THE PHONE. His relay is unreachable
+   from his own devices most of the time — a public https page cannot
+   open a connection to a private address at all — so every avatar in
+   this app is finished before any photograph is fetched, and the
+   picture is mounted over it only after a real load event. There is
+   no path here that shows a broken image, and there is no path that
+   leaves somebody without a face because the Pi was off.
+   ═══════════════════════════════════════════════════════════════════ */
+var PIC_MAX_CHARS = 20000;       /* data-URL ceiling. A 128x128 JPEG at
+                                    q0.7 lands near 7 KB ≈ 9500 chars,
+                                    so this is generous — but it is a
+                                    HARD stop, and the upload refuses
+                                    with a sentence rather than posting
+                                    four megabytes over a funnel. */
+var PIC_SIDE = 128;
+var PIC_Q = [0.7, 0.6, 0.5, 0.42];
+
+/* Same derivation as js/stats.js's baseURL(), off the one login that
+   js/sync.js already owns. There is no second copy of a server
+   address and no second copy of a token. */
+function picBase(){
+  var u = '';
+  try {
+    if (window.KARTI_SYNC && typeof KARTI_SYNC.baseURL === 'function') u = KARTI_SYNC.baseURL() || '';
+  } catch (e){}
+  if (u) return u.replace(/\/acct$/i, '') + '/avatar';
+  if (location.protocol === 'http:' && location.hostname)
+    return 'http://' + location.hostname + ':8101/karti/avatar';
+  return 'https://raspberrypi.silverside-tench.ts.net:8443/karti/avatar';
+}
+
+function session(){
+  var s = null;
+  try { s = lsGet('karti_sync_' + activeKey(), null); } catch (e){}
+  if (!s || typeof s !== 'object' || typeof s.tok !== 'string' || !s.tok) return null;
+  return s;
+}
+
+/* A photo is keyed to an account, so a guest cannot have one. That is
+   not hidden — js/progress-ui.js says so and offers the account,
+   because "make one and your face follows you" is a better reason to
+   sign up than anything on the sign-up screen. */
+function canPhoto(){ return !!session(); }
+
+function picURL(who, ver){
+  if (!who || !ver) return '';
+  return picBase() + '/' + encodeURIComponent(String(who)) + '?v=' + (ver | 0);
+}
+
+/* My own photo, kept as a data URL in a key of ITS OWN — deliberately
+   not in the save, so it can never count against the 128 KB the Pi
+   allows a save and can never be pushed anywhere. It exists so my own
+   face is instant and correct with no network at all; for everybody
+   else's, the relay is the only source. */
+function myPicKey(){ return 'karti_pic_' + activeKey(); }
+function myPic(){
+  var p = root();
+  if (!p.pv || !p.usePic) return '';
+  var v = lsGet(myPicKey(), null);
+  return (v && typeof v.img === 'string' && v.ver === p.pv) ? v.img : '';
+}
+
+/* ── decoding, and the two things that actually go wrong ──
+   ORIENTATION. Photos off a phone carry an EXIF rotation and a canvas
+   does not honour it for free; drawing one straight gives a sideways
+   face, which is the single likeliest way this feature fails on his
+   first try. createImageBitmap(blob,{imageOrientation:'from-image'})
+   is the clean route. The <img> fallback is not a guess either: every
+   engine this app runs on now defaults to image-orientation:from-image
+   for <img>, so naturalWidth/Height and drawImage are both already
+   rotated.
+   HEIC. iOS hands out .heic and Safari decodes it in an <img> — which
+   is exactly the fallback path — so a canvas round-trip converts it to
+   JPEG for us. Chrome on Android cannot decode HEIC at all, and both
+   paths fail; that is not guessed at either, it is caught and said out
+   loud in a sentence. */
+function decode(file){
+  return new Promise(function(resolve, reject){
+    var done = false;
+    function viaImg(){
+      var url = '', im = new Image();
+      try { url = URL.createObjectURL(file); } catch (e){ reject('read'); return; }
+      im.onload = function(){
+        if (done) return; done = true;
+        try { URL.revokeObjectURL(url); } catch (e){}
+        if (!im.naturalWidth || !im.naturalHeight) return reject('format');
+        resolve(im);
+      };
+      im.onerror = function(){
+        if (done) return; done = true;
+        try { URL.revokeObjectURL(url); } catch (e){}
+        reject('format');
+      };
+      im.src = url;
+    }
+    if (typeof createImageBitmap === 'function'){
+      var pr = null;
+      try { pr = createImageBitmap(file, { imageOrientation:'from-image' }); } catch (e){ pr = null; }
+      if (pr && pr.then){
+        pr.then(function(b){ if (!done){ done = true; resolve(b); } }, function(){ if (!done) viaImg(); });
+        return;
+      }
+    }
+    viaImg();
+  });
+}
+
+/**
+ * shrink(file) -> Promise<{img, bytes, w}>
+ * Centre-crop to a square, down to 128x128, JPEG. Quality is stepped
+ * down and then the side after that, because a picture that will not
+ * fit must come back smaller rather than come back refused.
+ */
+function shrink(file){
+  return decode(file).then(function(src){
+    var w = src.width || src.naturalWidth, h = src.height || src.naturalHeight;
+    if (!w || !h) throw 'format';
+    var side = Math.min(w, h);
+    var sx = Math.floor((w - side) / 2), sy = Math.floor((h - side) / 2);
+    var out = '', px = PIC_SIDE, qi, tries = 0;
+    for (px = PIC_SIDE; px >= 80; px -= 24){
+      var c = document.createElement('canvas');
+      c.width = c.height = px;
+      var g = c.getContext('2d');
+      if (!g) throw 'canvas';
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(src, sx, sy, side, side, 0, 0, px, px);
+      for (qi = 0; qi < PIC_Q.length; qi++){
+        tries++;
+        var d = c.toDataURL('image/jpeg', PIC_Q[qi]);
+        if (d.length <= PIC_MAX_CHARS){ out = d; break; }
+      }
+      if (out) break;
+    }
+    try { if (src.close) src.close(); } catch (e){}
+    if (!out) throw 'toobig';
+    return { img:out, chars:out.length, bytes:Math.round(out.length * 0.75), tries:tries };
+  });
+}
+
+function post(route, body, method){
+  var ctrl = null, timer = null;
+  try { ctrl = new AbortController(); } catch (e){}
+  var o = { method: method || 'POST', headers:{ 'Content-Type':'application/json' },
+            body: JSON.stringify(body || {}), credentials:'omit', cache:'no-store', mode:'cors' };
+  if (ctrl){ o.signal = ctrl.signal; timer = setTimeout(function(){ try { ctrl.abort(); } catch (e){} }, 20000); }
+  return fetch(picBase() + (route || ''), o).then(function(r){
+    return r.text().then(function(t){
+      var j = null; try { j = JSON.parse(t); } catch (e){}
+      return { status:r.status, d: j || {} };
+    });
+  }).then(function(r){
+    if (timer) clearTimeout(timer);
+    if (r.status >= 200 && r.status < 300) return { ok:true, d:r.d };
+    return { ok:false, status:r.status, why:r.d.why || '' };
+  }, function(){ if (timer) clearTimeout(timer); return { ok:false, status:0, offline:true }; });
+}
+
+/* A SERVER STRING IS NOT A SENTENCE FOR A PERSON. The relay answers a
+   route it does not have with things like "GET only." — which is
+   perfectly true and completely useless to somebody who has just
+   picked a photo of themselves. Every failure is turned into a
+   sentence here, by status, and the two that will actually happen are
+   the two that read best:
+     · the Pi is unreachable, which is the normal state of affairs from
+       his own phone, and
+     · the Pi is reachable but is an OLDER BUILD with no photo routes
+       on it yet — which is exactly where this lands until the relay is
+       restarted, so it says so instead of blaming the picture. */
+function sayWhy(res){
+  if (res.offline || !res.status)
+    return 'Cannot reach the Pi from here, so the photo has nowhere to go yet. ' +
+           'Your drawn face still works everywhere.';
+  var st = res.status;
+  if (st === 404 || st === 405 || st === 501 || st === 400)
+    return 'This Pi does not do photos yet — it needs the newer server. ' +
+           'Your drawn face works everywhere in the meantime.';
+  if (st === 401 || st === 403)
+    return 'This phone is not signed in to the Pi any more. Log in again, then try the photo.';
+  if (st === 413) return 'The server says that picture is still too big.';
+  if (st === 415) return 'The server would not take that kind of picture.';
+  if (st === 429) return 'Too many tries at once. Give it a minute.';
+  return 'The server would not take that picture.';
+}
+
+/**
+ * uploadPhoto(file) -> Promise<{ok, ver, bytes, why}>
+ * Never throws. Every failure comes back as a sentence a person can
+ * read, because "it did not work" on a photo somebody just chose of
+ * themselves is the worst possible answer.
+ */
+function uploadPhoto(file){
+  var s = session();
+  if (!s) return Promise.resolve({ ok:false, why:'You need an account for a photo — it is kept for you, not on this phone.' });
+  if (!file) return Promise.resolve({ ok:false, why:'No picture was chosen.' });
+  return shrink(file).then(function(r){
+    return post('', { tok:s.tok, token:s.tok, img:r.img }).then(function(res){
+      if (!res.ok) return { ok:false, bytes:r.bytes, why: sayWhy(res) };
+      var ver = (res.d && res.d.ver) | 0;
+      if (!ver) ver = (root().pv | 0) + 1;
+      var p = root();
+      p.pv = ver; p.usePic = 1;
+      commit();
+      lsSet(myPicKey(), { ver:ver, img:r.img });
+      fire(equipCbs, { slot:'karti.avatar', game:'karti', id:'photo', photo:true });
+      repaintAvatars();
+      return { ok:true, ver:ver, bytes:r.bytes, chars:r.chars };
+    });
+  }, function(why){
+    var msg = why === 'toobig' ? 'That picture will not shrink small enough. Try a different one.'
+            : why === 'format' ? 'This phone cannot read that picture. A JPEG or a PNG will work.'
+            : why === 'canvas' ? 'This browser will not let the app resize a picture.'
+            : 'That picture could not be read.';
+    return { ok:false, why:msg };
+  });
+}
+
+/* Back to a drawn face. The Pi is told, but a delete that cannot reach
+   it still takes the photo off THIS phone — refusing to undo a choice
+   because a server is off is the wrong way round. */
+function removePhoto(){
+  var p = root();
+  p.usePic = 0; p.pv = 0;
+  commit();
+  try { localStorage.removeItem(myPicKey()); } catch (e){}
+  repaintAvatars();
+  var s = session();
+  if (s) post('', { tok:s.tok, token:s.tok }, 'DELETE');
+  fire(equipCbs, { slot:'karti.avatar', game:'karti', id:avatar(), photo:false });
+  return { ok:true };
+}
+
+function usePhoto(on){
+  var p = root();
+  if (on && !p.pv) return { ok:false, why:'no-photo' };
+  p.usePic = on ? 1 : 0;
+  commit();
+  repaintAvatars();
+  return { ok:true };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   8c. WHO SOMEBODY LOOKS LIKE
+   One descriptor, used by every avatar this app draws: the face, the
+   ring round it, and the photograph if there is one to be had. Built
+   here rather than at each call site so the leaderboard, the lobby
+   roster and a seat plate cannot disagree about what a player looks
+   like.
+   ═══════════════════════════════════════════════════════════════════ */
+function describe(name, opts){
+  var o = opts || {};
+  var me = '';
+  try { if (window.KARTI && KARTI.displayName) me = KARTI.displayName(); } catch (e){}
+  var mine = o.me === true ||
+             (!o.who && name && me && String(name).toLowerCase() === String(me).toLowerCase());
+
+  if (mine){
+    var p = root();
+    return {
+      face: o.face || avatar(),
+      border: bareBorder(equipped('border', 'karti')),
+      pic: (p.usePic && p.pv) ? (myPic() || picURL(activeKey(), p.pv)) : '',
+      mine: true
+    };
+  }
+  /* somebody else. Everything comes from what the relay published
+     beside their name — and if it published nothing, they still have
+     a face, because a stable hash of a name is a face and a blank
+     circle is not. NO ver, NO request: a board of twenty-five people
+     with no photos costs zero image loads, which is the whole reason
+     the version number is worth carrying. */
+  return {
+    face: (o.hint && FACE_BY[o.hint]) ? o.hint : defaultFaceFor(name),
+    border: (o.border && FACES_BORDER(o.border)) ? o.border : '',
+    pic: (o.who && o.pv) ? picURL(o.who, o.pv) : '',
+    mine: false
+  };
+}
+function FACES_BORDER(id){
+  try { return !!(window.KARTI_FACES && KARTI_FACES.border(id)); } catch (e){ return false; }
+}
+/* A border is registered as the cosmetic id 'border.gold', because
+   every cosmetic id in the registry is namespaced. The RING is drawn
+   from the bare word — a CSS class, and a value small enough to put
+   on the wire beside a player's name. One place converts, so the two
+   can never drift. (They did once: the ladder equipped correctly and
+   nothing appeared, because 'border.gold' is not a class name.) */
+function bareBorder(id){
+  if (!id) return '';
+  var bare = String(id).replace(/^border\./, '');
+  return FACES_BORDER(bare) ? bare : '';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   8d. THE BORDER LADDER
+   Registered through the SAME register() every game uses, so a border
+   is a cosmetic like any other and turns up in the inventory beside
+   the chess boards with no special case anywhere in the UI.
+
+   It is its own slot because a ring is not a face: it draws OVER
+   whatever is underneath, which is what makes it work over a
+   photograph as well as over a drawn face — and that is what makes
+   the photo feature better rather than redundant.
+   ═══════════════════════════════════════════════════════════════════ */
+function bestStreakAnywhere(){
+  var best = 0;
+  try {
+    var all = window.KARTI_STATS && KARTI_STATS.all ? KARTI_STATS.all() : {};
+    for (var k in all) if (all[k] && all[k].bestStreak > best) best = all[k].bestStreak;
+  } catch (e){}
+  return best;
+}
+function storyDone(){
+  try {
+    var S = window.KARTI_STORY;
+    if (!S || typeof S.clearedCount !== 'function' || !S.BOSSES) return false;
+    return S.clearedCount() >= S.BOSSES.length && S.BOSSES.length > 0;
+  } catch (e){ return false; }
+}
+
+var EARN_TEST = { streak: function(){ return bestStreakAnywhere() >= 10; },
+                  story:  storyDone };
+var EARN_HOW  = { streak: 'Win ten in a row in any one game',
+                  story:  'Clear every boss in Story Mode' };
+
+function registerBorders(){
+  var B = [];
+  try { B = (window.KARTI_FACES && KARTI_FACES.BORDERS) || []; } catch (e){}
+  if (!B.length) return 0;
+  return register(B.map(function(b){
+    return {
+      id: 'border.' + b.id,
+      game: 'karti',
+      slot: 'border',
+      name: b.name,
+      blurb: b.blurb,
+      level: b.lvl || 0,
+      sort: b.id === 'none' ? -1 : (b.earn ? 90 : (b.lvl || 0)),
+      earn: b.earn ? { how: EARN_HOW[b.earn], test: EARN_TEST[b.earn] } : null,
+      /* the preview is the border doing its actual job: a real
+         medallion, wearing the player's own face, at the size the
+         inventory draws it. Nothing to imagine. */
+      preview: (function(id){
+        return function(size){
+          var el = document.createElement('span');
+          try {
+            el.innerHTML = KARTI_FACES.frame(avatar(), {
+              size: size || 62, accent: (FACE_BY[avatar()] || {}).ax, border: id });
+          } catch (e){}
+          return el;
+        };
+      })(b.id)
+    };
+  }));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -903,6 +1325,8 @@ var UI = null;                   /* filled by js/progress-ui.js        */
    replaces its own export later (or a deploy that reorders the loader)
    must not quietly cost the player every party game's XP. Cheap, and
    it stops after twelve seconds. */
+registerBorders();
+
 function wireAll(){
   var ok = 0;
   ok += wrapRecorder(window.KARTI_PARTY, 'record', 'party') ? 1 : 0;
@@ -935,6 +1359,9 @@ document.addEventListener('click', function(ev){
   var b = t && t.closest ? t.closest('[data-karti-xp]') : null;
   if (!b) return;
   ev.preventDefault();
+  /* same rule as js/stats.js: going somewhere closes the sheet you
+     went from, or it is left hanging over the destination */
+  try { if (window.KARTI && KARTI.closeSheet) KARTI.closeSheet(); } catch (e){}
   var what = (b.getAttribute('data-karti-xp') || '').toLowerCase();
   if (what === 'avatar' || what === 'face') pickAvatar();
   else open(what || '');
@@ -1008,6 +1435,34 @@ window.KARTI_XP = {
   setAvatar: setAvatar,
   avatarFor: avatarFor,
   avatarHTML: avatarHTML,
+  /* the whole look of one player — face, ring and photograph — for a
+     caller that draws its own box (a seat plate, the lobby roster):
+       KARTI_XP.describe(name, {who, hint, border, pv})            */
+  describe: describe,
+  /* paint(root) — draw every avatar inside a node this file did not
+     build, and mount any photographs that have arrived. The observer
+     covers #app, #sheet and #modal on its own; this is for a caller
+     that wants it NOW, or that renders into a detached node. */
+  paint: function(root){ repaintAvatars(root); },
+
+  /* the photograph. One per account, on the relay, never in the save. */
+  photo: function(){ var p = root(); return (p.usePic && p.pv) ? (myPic() || picURL(activeKey(), p.pv)) : ''; },
+  hasPhoto: function(){ return !!root().pv; },
+  usingPhoto: function(){ var p = root(); return !!(p.usePic && p.pv); },
+  canPhoto: canPhoto,
+  uploadPhoto: uploadPhoto,
+  removePhoto: removePhoto,
+  usePhoto: usePhoto,
+  photoVer: function(){ return root().pv | 0; },
+  photoURL: picURL,
+  PIC: { MAX_CHARS: PIC_MAX_CHARS, SIDE: PIC_SIDE, Q: PIC_Q },
+
+  /* borders — registered through register() like anything else, so
+     KARTI_XP.defsFor('karti') lists them with the faces */
+  borders: function(){ return defsFor('karti').filter(function(d){ return d.slot === 'border'; }); },
+  /* the BARE id — what goes on the wire and what names the CSS class */
+  border: function(){ return bareBorder(equipped('border', 'karti')); },
+  borderDef: function(){ return equipped('border', 'karti') || ''; },
 
   /* the economy, readable — the inventory quotes it and so does
      docs/PROGRESSION.md's generator */
@@ -1040,7 +1495,13 @@ window.KARTI_XP = {
     commit();
   },
   _wire: wireAll,
-  _defaultFaceFor: defaultFaceFor
+  _defaultFaceFor: defaultFaceFor,
+  _sweepEarned: sweepEarned,
+  _shrink: shrink,
+  _decode: function(f){ return decode(f).then(function(b){
+    var r = { w:b.width||b.naturalWidth, h:b.height||b.naturalHeight };
+    try { if (b.close) b.close(); } catch(e){} return r; }); },
+  _registerBorders: registerBorders
 };
 
 })();

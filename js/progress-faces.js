@@ -266,8 +266,147 @@ function injectCSS(){
     /* the face dropped straight into somebody else's round chip
        (js/game.js's .avatar) — no frame of ours, just the mark */
     '.avatar>svg.kx-in{display:block;width:100%;height:100%;fill:currentColor;' +
-      'stroke:' + INK + ';stroke-width:1.5;stroke-linejoin:round;paint-order:stroke fill}';
+      'stroke:' + INK + ';stroke-width:1.5;stroke-linejoin:round;paint-order:stroke fill}' +
+
+    /* ── the player's own photograph ──────────────────────────────
+       Same medallion, same frame, so a photo and a drawn face are the
+       same object at every size. object-fit:cover finishes the crop
+       the canvas already did, so a picture can never letterbox. */
+    '.kx-av>img.kx-ph{display:block;width:100%;height:100%;object-fit:cover;' +
+      'border-radius:inherit}' +
+    '.avatar>img.kx-ph{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}' +
+
+    /* ═══════════════════════════════════════════════════════════
+       BORDERS
+       A ring sits OVER the medallion, so one border works over a
+       drawn face and over a photograph without knowing which it is.
+
+       WHAT SURVIVES 30px. Ornament does not — at a leaderboard row a
+       laurel and a knurl are the same grey smudge. COLOUR and
+       THICKNESS do. So every border in the ladder is separated by
+       hue first, and the pattern is texture that only resolves when
+       the same ring is 96px on the profile. That is why the plain
+       early ones are not a lesser version of the fancy ones: at the
+       size they are seen most, they are equally legible.
+
+       Thickness is a fraction of the frame with a 2px floor, so one
+       rule covers a 26px leaderboard face and a 96px picker tile. */
+    '.kx-ring{position:absolute;inset:0;border-radius:inherit;pointer-events:none;' +
+      '--kx-bw:max(2px,calc(var(--kx-size,38px) * .075));--kx-fb:rgba(255,255,255,.5)}' +
+    '.kx-av>.kx-ring,.avatar>.kx-ring{z-index:2}' +
+
+    /* the patterned ones are ONE technique: a full-bleed background
+       masked down to the band. Unsupported engines never see the mask
+       — they get a solid ring in the same colour from the border
+       below, which is the whole point of declaring it first. */
+    '.kx-ring.pat{border:var(--kx-bw) solid var(--kx-fb)}' +
+    '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
+      '.kx-ring.pat{border:0;padding:var(--kx-bw);background-image:var(--kx-pat);' +
+        '-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);' +
+        '-webkit-mask-composite:xor;' +
+        'mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);' +
+        'mask-composite:exclude}}' +
+
+    /* ── the plain ones. Box-shadow, not border, so the ring sits
+         inside the frame and never changes the avatar's size ── */
+    '.kx-r-hairline{box-shadow:inset 0 0 0 max(1px,calc(var(--kx-size,38px) * .04)) rgba(255,255,255,.78)}' +
+    '.kx-r-twine{box-shadow:inset 0 0 0 var(--kx-bw) #C99A5B,' +
+      'inset 0 0 0 calc(var(--kx-bw) * 1.9) rgba(90,58,25,.75)}' +
+    '.kx-r-brass{box-shadow:inset 0 0 0 var(--kx-bw) #E0A94A,' +
+      'inset 0 0 0 1px rgba(255,240,200,.55),' +
+      'inset 0 0 0 calc(var(--kx-bw) + 1px) rgba(90,58,0,.55)}' +
+    '.kx-r-stone{box-shadow:inset 0 0 0 var(--kx-bw) #EFE6CE,' +
+      'inset 0 0 0 calc(var(--kx-bw) * 1.8) #6E6350}' +
+    /* Sea Glass is a GRADIENT, so it cannot be a box-shadow — and the
+       padding-box/border-box two-layer trick does not work here
+       either: the layer that hides the middle has to be opaque, and
+       over a photograph there is nothing opaque to hide it with. (It
+       was tried, and it painted a solid blue tile over the face.) So
+       it goes through the same masked band as the patterned ones. */
+    '.kx-r-sea{--kx-fb:#4FA9E8;--kx-pat:linear-gradient(150deg,#BFE7FA,#4FA9E8 52%,#12557F)}' +
+    '.kx-r-neon{box-shadow:inset 0 0 0 var(--kx-bw) #8A5CFF,' +
+      '0 0 calc(var(--kx-size,38px) * .18) rgba(138,92,255,.55)}' +
+
+    /* ── the patterned ones. repeating-conic-gradient in the band:
+         no image, no SVG, one paint, and it scales to any size ── */
+    '.kx-r-milled{--kx-fb:#D8C79B;--kx-pat:repeating-conic-gradient(from 0deg,' +
+      '#EFE3C2 0deg 5.6deg,#9C8A5E 5.6deg 11.25deg)}' +
+    '.kx-r-festa{--kx-fb:#FF9E2C;--kx-pat:repeating-conic-gradient(from 0deg,' +
+      '#FFD979 0deg 11.25deg,#E8452C 11.25deg 22.5deg)}' +
+    '.kx-r-streak{--kx-fb:#3DDC84;--kx-pat:repeating-conic-gradient(from -90deg,' +
+      '#5CFFA8 0deg 25.2deg,rgba(20,60,38,.85) 25.2deg 36deg)}' +
+    '.kx-r-story{box-shadow:inset 0 0 0 var(--kx-bw) #C0384A,' +
+      'inset 0 0 0 calc(var(--kx-bw) * 1.75) #FFC542}' +
+
+    /* ═══ THE TOP OF THE LADDER, AND THE ONLY THING THAT MOVES ═══
+       One border in the whole set is animated, deliberately: motion
+       stops meaning anything the moment two things have it. A slow
+       highlight travels the ring — a conic gradient on a rotating
+       pseudo-element, masked to the band by the same rule as every
+       other pattern above.
+
+       WHY THIS IS CHEAP. The animated property is `transform` and
+       nothing else, so the paint happens once and every frame after
+       that is the compositor turning an already-rasterised layer.
+       There is no JavaScript timer, no per-avatar state, and nothing
+       to tear down: twenty-five of these on a leaderboard cost one
+       composited transform each. No will-change — twenty-five
+       promoted layers would trade a cost nobody can measure for
+       memory anybody can. */
+    '.kx-r-gold{--kx-fb:#FFC542;overflow:hidden}' +
+    '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
+      '.kx-r-gold::before{content:"";position:absolute;inset:-45%;' +
+        'background:conic-gradient(from 0turn,' +
+          'rgba(176,126,18,.85) 0turn,rgba(255,197,66,.9) .07turn,' +
+          '#FFE9B0 .12turn,#FFFDF2 .15turn,#FFE9B0 .18turn,' +
+          'rgba(255,197,66,.9) .24turn,rgba(176,126,18,.85) .34turn,' +
+          'rgba(176,126,18,.85) 1turn);' +
+        'animation:kxSweep 4.2s linear infinite}}' +
+    '@keyframes kxSweep{from{transform:rotate(0turn)}to{transform:rotate(1turn)}}' +
+
+    /* Somebody who has asked for less movement gets a BEAUTIFUL still
+       version, not a disabled one: the sweep parks at the angle where
+       the highlight sits top-left, which is where the key light is on
+       every other surface in this app. Both switches are honoured —
+       the phone's, and the app's own Reduce motion in Settings. */
+    '@media (prefers-reduced-motion:reduce){' +
+      '.kx-r-gold::before{animation:none;transform:rotate(-.12turn)}}' +
+    '.reduced .kx-r-gold::before{animation:none;transform:rotate(-.12turn)}';
   document.head.appendChild(st);
+}
+
+/* ── THE LADDER, in one place ──────────────────────────────────────
+   Nine on levels, two earned, and the animated one at the very top.
+   `earn` is a plain english sentence; js/progress.js owns the test.
+   Ordered as the inventory lists them. */
+var BORDERS = [
+  { id:'none',     name:'No Border',        lvl:0,  blurb:'The frame on its own. Nothing to prove.' },
+  { id:'hairline', name:'Hairline',         lvl:0,  blurb:'One clean line. Free, and it always looked right.' },
+  { id:'twine',    name:'Twine',            lvl:2,  blurb:'Off the same roll as everything else in the drawer.' },
+  { id:'brass',    name:'Brass',            lvl:4,  blurb:'Polished once, in 1974, by somebody who cared.' },
+  { id:'stone',    name:'Limestone',        lvl:7,  blurb:'Cut from the same rock as every wall on this island.' },
+  { id:'sea',      name:'Sea Glass',        lvl:10, blurb:'Ten years in the water to get that edge.' },
+  { id:'neon',     name:'Neon Sign',        lvl:13, blurb:'Buzzes faintly. Nobody has fixed it. Nobody will.' },
+  { id:'milled',   name:'Milled Metal',     lvl:16, blurb:'Knurled all the way round, the way a good coin is.' },
+  { id:'festa',    name:'Festa Burst',      lvl:20, blurb:'Every colour the square goes on the last night.' },
+  { id:'streak',   name:'Ten In A Row',     lvl:0,  earn:'streak',
+    blurb:'Ten wins on the trot in one game. No excuses accepted.' },
+  { id:'story',    name:'Village Champion', lvl:0,  earn:'story',
+    blurb:'All eight bosses. The village is yours, apparently.' },
+  { id:'gold',     name:'Kampjun Gold',     lvl:25, anim:true,
+    blurb:'It moves. Everyone in the lobby will see that it moves.' }
+];
+var B_BY = {};
+for (var bi = 0; bi < BORDERS.length; bi++) B_BY[BORDERS[bi].id] = BORDERS[bi];
+
+/* which borders are painted as a masked band rather than as an inset
+   box-shadow — the gradients and the patterns */
+var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1 };
+var B_RE = /^[a-z]{2,12}$/;
+function ringHTML(id){
+  if (!id || id === 'none' || !B_RE.test(id) || !B_BY[id]) return '';
+  var pat = B_PAT[id] ? ' pat' : '';
+  return '<span class="kx-ring' + pat + ' kx-r-' + id + '"></span>';
 }
 
 function ready(){
@@ -285,7 +424,17 @@ function markHTML(id, cls){
          'focusable="false"><use href="#kx-f-' + id + '"></use></svg>';
 }
 
-/* the whole thing: medallion, mark, accent */
+function q(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+
+/* The whole thing: medallion, mark, ring.
+
+   THE DRAWN FACE IS ALWAYS IN THE MARKUP, even when a photograph is
+   coming. js/progress.js mounts the <img> over it only once a real
+   load event has fired — the probe-then-mount rule js/artkit.js and
+   js/stats.js already work by — so there is no code path anywhere in
+   this app that can show a broken-image glyph, and a relay that is
+   unreachable (which is most of the time from his own phone) simply
+   leaves the drawn face showing, which was never wrong. */
 function frameHTML(id, opts){
   ready();
   var o = opts || {};
@@ -294,10 +443,10 @@ function frameHTML(id, opts){
   var st = '--kx-size:' + sz + 'px;--kx-ax:' + ax + (o.style ? ';' + o.style : '');
   return '<span class="kx-av' + (o.cls ? ' ' + o.cls : '') + '"' +
          (sz < 30 ? ' data-sm="1"' : '') +
+         (o.pic ? ' data-kx-pic="' + q(o.pic) + '"' : '') +
          ' style="' + st + '"' +
-         (o.label ? ' role="img" aria-label="' + String(o.label).replace(/"/g, '&quot;') + '"'
-                  : ' aria-hidden="true"') + '>' +
-         markHTML(id, '') + '</span>';
+         (o.label ? ' role="img" aria-label="' + q(o.label) + '"' : ' aria-hidden="true"') + '>' +
+         markHTML(id, '') + ringHTML(o.border) + '</span>';
 }
 
 window.KARTI_FACES = {
@@ -306,7 +455,12 @@ window.KARTI_FACES = {
   mark: markHTML,
   frame: frameHTML,
   ready: ready,
-  INK: INK
+  INK: INK,
+  /* the border ladder, and the ring on its own for a caller with a
+     box of its own (js/game.js's round .avatar chip) */
+  BORDERS: BORDERS,
+  border: function(id){ return B_BY[id] || null; },
+  ring: ringHTML
 };
 
 })();
