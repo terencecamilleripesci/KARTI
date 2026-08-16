@@ -1103,7 +1103,7 @@ class Conn:
 
 
 class Seat:
-    __slots__ = ("token", "conn", "gone_at", "ready")
+    __slots__ = ("token", "conn", "gone_at", "ready", "acct")
 
     def __init__(self, token):
         self.token = token
@@ -1113,6 +1113,12 @@ class Seat:
         # at all (see Room.botseats) precisely so that it can never be here
         # holding a table up.
         self.ready = False
+        # [push] WHO WAS SITTING HERE. The account key, remembered so that a
+        # chair whose socket has died can still be told "your turn" by web
+        # push. It is written wherever a conn binds to this seat and again
+        # when the socket drops; it is never sent to anybody and it dies with
+        # the seat. None for guests, who cannot receive pushes at all.
+        self.acct = None
 
 
 class Room:
@@ -1467,6 +1473,28 @@ class RoomBook:
         with self._lock:
             return [c for c in self._conns if c.acct == key]
 
+    # [push] ---------------------------------------------------------------
+    def push_view(self, conn):
+        """A read-only snapshot of the room this conn is sitting in, for the
+        WEB PUSH block and nothing else: which chair the caller holds, and for
+        every chair whether a live socket is in it and whose account it is.
+        No tokens, no room contents — just enough to decide who to nudge."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return None
+            seats = []
+            for s in room.seats:
+                if s is None:
+                    seats.append(None)
+                else:
+                    seats.append({"here": s.conn is not None,
+                                  "acct": (s.conn.acct if s.conn is not None
+                                           else s.acct)})
+            return {"code": room.code, "game": room.game, "slot": conn.slot,
+                    "size": room.size, "started": room.started, "seats": seats}
+    # -----------------------------------------------------------------------
+
     def joinable(self, code):
         """Is that room still open, public or not, and still short of a player?
         The one question the invite book needs to ask about a room."""
@@ -1650,6 +1678,9 @@ class RoomBook:
         if room is None:
             return [], None
         seat = room.seats[slot]
+        if conn.acct:
+            seat.acct = conn.acct       # [push] remember who was sitting here,
+                                        # so a dead socket can still be nudged
         seat.conn = None
         seat.gone_at = time.monotonic()
         if permanent:
@@ -1694,6 +1725,7 @@ class RoomBook:
             room = Room(code, private=private, game=game, size=seats, variant=variant)
             seat = Seat(secrets.token_urlsafe(12))
             seat.conn = conn
+            seat.acct = conn.acct                                   # [push]
             room.seats[0] = seat
             self._rooms[code] = room
             conn.room_code = code
@@ -1755,6 +1787,7 @@ class RoomBook:
                 free = free2
             seat = Seat(secrets.token_urlsafe(12))
             seat.conn = conn
+            seat.acct = conn.acct                                   # [push]
             room.seats[free] = seat
             room.touched = time.monotonic()
             conn.room_code = code
@@ -1980,6 +2013,8 @@ class RoomBook:
             seat = room.seats[slot]
             evicted = seat.conn
             seat.conn = conn
+            if conn.acct:
+                seat.acct = conn.acct                               # [push]
             seat.gone_at = 0.0
             room.touched = time.monotonic()
             conn.room_code = code
@@ -2289,6 +2324,530 @@ class Invites:
 INVITES = Invites()
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# ── WEB PUSH — "your phone tells you it is your turn" ────────────────────────
+#
+# SELF-CONTAINED BLOCK. Everything push lives between these fences, plus a
+# handful of one-line hooks elsewhere, each marked "[push]":
+#   Seat.acct, the seat-bind lines in create/join/rejoin/_detach,
+#   RoomBook.push_view(), the call in ws_invite, the call after the relay in
+#   handle_ws_message, the three routes in KartiHandler, and main()/selftest
+#   wiring. Nothing else in the file knows push exists.
+#
+# WHAT IT DOES
+#   Two notifications and only two, both queued to a background thread so a
+#   slow push service can never block a game:
+#     "Your turn in CHESS."            when a relayed move makes it a player's
+#                                      turn and that player has NO live socket
+#                                      (their app is closed or backgrounded);
+#     "TERENCE wants a game of SKARTA."  when an invite lands for an account
+#                                      with no live socket — exactly the case
+#                                      where a knock is written to disk.
+#
+# WHAT IT REFUSES TO SAY
+#   No card, no role, no hand, no word, no room code in the visible text. A
+#   lock screen is readable by anyone holding the phone; the game name and the
+#   inviter's display name are the whole vocabulary.
+#
+# HOW "WHOSE TURN" IS KNOWN when the relay referees nothing:
+#   · chess/dama: strictly alternating, so a relayed {"k":"bact","kind":"move"}
+#     means it is now the OTHER chair's turn;
+#   · the card duel: {"k":"act","kind":"end"} is the explicit end-of-turn;
+#   · a TABLE: the relay cannot know, so the mover's client may add "nt": N
+#     (next turn, a seat index) to its {"t":"relay"} message. Validated,
+#     bounded, never the mover itself, and games opt in as their UIs adopt it.
+#
+# WHY IT CANNOT SPAM
+#   One nudge per chair per P.TURN_GAP, a token bucket per receiving account,
+#   a `tag` in the payload so the phone REPLACES rather than stacks, and no
+#   send at all while the player has any live socket (they are looking at it).
+#
+# THE VAPID PRIVATE KEY NEVER ENTERS THE REPO. It lives in a mode-600 JSON
+# file OUTSIDE the working tree (default /var/lib/karti/vapid.json — writable
+# under the systemd sandbox, unlike $HOME), minted on first run. The public
+# half is served at GET /karti/push/key. .gitignore refuses vapid files as a
+# belt-and-braces on top.
+#
+# ROUTES  (origin-checked and session-token-gated exactly like /karti/avatar)
+#   GET    /karti/push/key   -> {ok, key}          the VAPID public key
+#   POST   /karti/push       {tok, sub:{endpoint,keys:{p256dh,auth}}} -> {ok, subs}
+#   DELETE /karti/push       {tok[, endpoint]}     -> {ok}   this device, or all
+#
+# A subscription is an ACCOUNT's. Toggling off deletes it here, not just
+# stops sending; a push service answering 404/410 deletes it too.
+# ═════════════════════════════════════════════════════════════════════════════
+
+PUSH_PREFIX = "/push"
+DEFAULT_PUSH_DB = "/var/lib/karti/push.db"
+DEFAULT_VAPID_FILE = "/var/lib/karti/vapid.json"
+
+E_PUSH_OFF = "Notifications are switched off on this relay."
+E_PUSH_BAD = "That is not a push subscription."
+
+try:
+    from pywebpush import webpush as _webpush, WebPushException as _WebPushExc
+except Exception:                       # a Pi without the library: push is off
+    _webpush = None                     # and the relay is otherwise untouched
+
+    class _WebPushExc(Exception):
+        pass
+
+
+class P:
+    """Every push limit in one place, same shape as L and A."""
+    MAX_SUBS = 4                # devices one account may register
+    MAX_ENDPOINT = 1024         # characters of a push-service URL
+    MAX_BODY = 8 * 1024         # bytes of a subscribe request body
+    ADDR_RATE, ADDR_BURST = 1 / 5.0, 8.0    # route calls per address
+    ACCT_RATE, ACCT_BURST = 1 / 10.0, 6.0   # ...and per account
+    SEND_RATE, SEND_BURST = 1 / 15.0, 6.0   # notifications per receiving
+                                            #   account: a burst when a table
+                                            #   wakes, then one per 15 s
+    TURN_GAP = 12.0             # seconds before the same chair is nudged again
+    TTL_TURN = 900              # push-service TTL: a stale "your turn" is noise
+    TTL_INVITE = 3600           # an invite lives 5 min; the knock much longer
+    QUEUE_MAX = 512             # queued sends before new ones are dropped
+    FAILS_DROP = 8              # consecutive failures before a sub is dead
+    STATE_MAX = 512             # debounce entries / rate buckets kept
+
+
+def _b64u(b):
+    return base64.urlsafe_b64encode(b).decode("ascii").rstrip("=")
+
+
+def _b64u_dec(s):
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+def _vapid_load(path):
+    """{'privateKey','publicKey'} (base64url raw), minted on first run and
+    written 0600. Returns None when the file can neither be read nor made —
+    push then simply stays off and the relay carries on."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        if (isinstance(d, dict) and isinstance(d.get("privateKey"), str)
+                and isinstance(d.get("publicKey"), str)
+                and len(_b64u_dec(d["privateKey"])) == 32
+                and len(_b64u_dec(d["publicKey"])) == 65):
+            return {"privateKey": d["privateKey"], "publicKey": d["publicKey"]}
+        return None                     # a corrupt file is never overwritten
+    except FileNotFoundError:
+        pass
+    except Exception:
+        return None
+    try:
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization
+        key = ec.generate_private_key(ec.SECP256R1())
+        raw = key.private_numbers().private_value.to_bytes(32, "big")
+        pub = key.public_key().public_bytes(
+            serialization.Encoding.X962,
+            serialization.PublicFormat.UncompressedPoint)
+        out = {"privateKey": _b64u(raw), "publicKey": _b64u(pub)}
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(out, f)
+        return out
+    except Exception:
+        return None
+
+
+class PushBook:
+    """Subscriptions in SQLite, sends on a queue, all state behind one lock.
+    No socket write and no network call ever happens under the lock."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.db = None
+        self.keys = None                # {"privateKey","publicKey"} or None
+        self.sub_claim = "mailto:terencecamilleripesci@gmail.com"
+        self._q = collections.deque()
+        self._wake = threading.Event()
+        self._worker = None
+        self._turn_last = collections.OrderedDict()   # (code, seat) -> mono
+        self._buckets = {}                            # (kind, key) -> Bucket
+        # Selftest hook: when set, enqueue() hands (uname, sub, note, ttl) to
+        # it synchronously and nothing touches the network. Never set in
+        # production.
+        self.test_hook = None
+
+    def ready(self):
+        return self.db is not None and self.keys is not None
+
+    def open(self, db_path, vapid_path):
+        """-> None, or a sentence saying why push stays off."""
+        if _webpush is None:
+            return "pywebpush is not installed"
+        keys = _vapid_load(vapid_path)
+        if keys is None:
+            return "no VAPID key pair at %s (unreadable, corrupt, or unwritable)" % vapid_path
+        try:
+            db = sqlite3.connect(db_path, check_same_thread=False)
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA busy_timeout=4000")
+            db.execute("CREATE TABLE IF NOT EXISTS subs("
+                       " endpoint TEXT PRIMARY KEY,"
+                       " uname    TEXT NOT NULL,"
+                       " p256dh   TEXT NOT NULL,"
+                       " auth     TEXT NOT NULL,"
+                       " made     REAL NOT NULL,"
+                       " fails    INTEGER NOT NULL DEFAULT 0)")
+            db.execute("CREATE INDEX IF NOT EXISTS subs_uname ON subs(uname)")
+            db.commit()
+        except sqlite3.Error as e:
+            return "push db refused: %r" % (e,)
+        with self._lock:
+            self.db = db
+            self.keys = keys
+        return None
+
+    def close(self):
+        with self._lock:
+            if self.db is not None:
+                try:
+                    self.db.close()
+                except sqlite3.Error:
+                    pass
+            self.db = None
+            self.keys = None
+            self._q.clear()
+            self._turn_last.clear()
+            self._buckets.clear()
+
+    # -- the store ---------------------------------------------------------
+
+    def put(self, uname, endpoint, p256dh, auth):
+        """Store one device's subscription. Re-posting the same endpoint
+        REPLACES it (and re-homes it if the account changed — one browser has
+        one subscription, whoever is signed in). -> how many this account has."""
+        with self._lock:
+            self.db.execute(
+                "INSERT OR REPLACE INTO subs(endpoint,uname,p256dh,auth,made,fails)"
+                " VALUES(?,?,?,?,?,0)",
+                (endpoint, uname, p256dh, auth, time.time()))
+            # newest P.MAX_SUBS survive; a fifth phone quietly retires the oldest
+            self.db.execute(
+                "DELETE FROM subs WHERE uname=? AND endpoint NOT IN ("
+                " SELECT endpoint FROM subs WHERE uname=?"
+                " ORDER BY made DESC LIMIT ?)",
+                (uname, uname, P.MAX_SUBS))
+            self.db.commit()
+            row = self.db.execute("SELECT COUNT(*) FROM subs WHERE uname=?",
+                                  (uname,)).fetchone()
+            return int(row[0]) if row else 0
+
+    def drop(self, uname, endpoint=None):
+        """This device's subscription, or every one the account has.
+        -> rows removed."""
+        with self._lock:
+            if endpoint:
+                cur = self.db.execute(
+                    "DELETE FROM subs WHERE uname=? AND endpoint=?",
+                    (uname, endpoint))
+            else:
+                cur = self.db.execute("DELETE FROM subs WHERE uname=?", (uname,))
+            self.db.commit()
+            return cur.rowcount if cur.rowcount is not None else 0
+
+    def drop_endpoint(self, endpoint):
+        """The push service said 404/410: that subscription no longer exists."""
+        try:
+            with self._lock:
+                self.db.execute("DELETE FROM subs WHERE endpoint=?", (endpoint,))
+                self.db.commit()
+        except sqlite3.Error:
+            LOG("push-db-error")
+
+    def note_fail(self, endpoint):
+        """Count a delivery failure; a subscription that only ever fails is
+        dead weight and is dropped after P.FAILS_DROP in a row."""
+        try:
+            with self._lock:
+                self.db.execute("UPDATE subs SET fails=fails+1 WHERE endpoint=?",
+                                (endpoint,))
+                self.db.execute("DELETE FROM subs WHERE endpoint=? AND fails>=?",
+                                (endpoint, P.FAILS_DROP))
+                self.db.commit()
+        except sqlite3.Error:
+            LOG("push-db-error")
+
+    def subs_for(self, uname):
+        with self._lock:
+            rows = self.db.execute(
+                "SELECT endpoint,p256dh,auth FROM subs WHERE uname=?",
+                (uname,)).fetchall()
+        return [{"endpoint": r[0], "keys": {"p256dh": r[1], "auth": r[2]}}
+                for r in rows]
+
+    def count(self, uname):
+        with self._lock:
+            row = self.db.execute("SELECT COUNT(*) FROM subs WHERE uname=?",
+                                  (uname,)).fetchone()
+            return int(row[0]) if row else 0
+
+    # -- limits ------------------------------------------------------------
+
+    def allow(self, kind, key, rate, burst):
+        with self._lock:
+            if len(self._buckets) > P.STATE_MAX:
+                self._buckets.clear()   # coarse, bounded, and refills are fast
+            b = self._buckets.get((kind, key))
+            if b is None:
+                b = Bucket(rate, burst)
+                self._buckets[(kind, key)] = b
+            return b.take()
+
+    def turn_ok(self, code, seat):
+        """One nudge per chair per P.TURN_GAP, however fast the moves come."""
+        now = time.monotonic()
+        with self._lock:
+            k = (code, seat)
+            if now - self._turn_last.get(k, 0.0) < P.TURN_GAP:
+                return False
+            self._turn_last[k] = now
+            self._turn_last.move_to_end(k)
+            while len(self._turn_last) > P.STATE_MAX:
+                self._turn_last.popitem(last=False)
+            return True
+
+    # -- the queue ---------------------------------------------------------
+
+    def enqueue(self, uname, sub, note, ttl):
+        if self.test_hook is not None:
+            try:
+                self.test_hook(uname, dict(sub), dict(note), ttl)
+            except Exception:
+                pass
+            return
+        with self._lock:
+            if len(self._q) >= P.QUEUE_MAX:
+                return                  # shed load rather than remember it
+            self._q.append((uname, sub, note, ttl))
+            if self._worker is None or not self._worker.is_alive():
+                self._worker = threading.Thread(target=self._run,
+                                                name="karti-push", daemon=True)
+                self._worker.start()
+        self._wake.set()
+
+    def _run(self):
+        while True:
+            self._wake.wait(timeout=60.0)
+            while True:
+                with self._lock:
+                    if not self._q:
+                        self._wake.clear()
+                        break
+                    uname, sub, note, ttl = self._q.popleft()
+                self._send(sub, note, ttl)
+
+    def _send(self, sub, note, ttl):
+        """One HTTPS POST to one push service. Never raises; never under the
+        lock. vapid_claims is a FRESH dict every call — pywebpush mutates it."""
+        try:
+            _webpush(subscription_info=sub,
+                     data=json.dumps(note, separators=(",", ":")),
+                     vapid_private_key=self.keys["privateKey"],
+                     vapid_claims={"sub": self.sub_claim},
+                     ttl=int(ttl), timeout=10)
+            LOG("push-sent", kind=note.get("t"))
+        except _WebPushExc as e:
+            code = getattr(getattr(e, "response", None), "status_code", None)
+            if code in (404, 410):
+                self.drop_endpoint(sub.get("endpoint") or "")
+                LOG("push-endpoint-gone")
+            else:
+                self.note_fail(sub.get("endpoint") or "")
+                LOG("push-refused", code=int(code or 0))
+        except Exception:
+            # DNS down, outbound blocked (the systemd unit's IPAddressDeny
+            # must allow egress for push to leave the Pi), TLS trouble — the
+            # game must never notice.
+            self.note_fail(sub.get("endpoint") or "")
+            LOG("push-send-failed")
+
+
+PUSH = PushBook()
+
+
+def push_ready():
+    return PUSH.ready()
+
+
+def v_push_sub(sub):
+    """endpoint/p256dh/auth pulled out of a PushSubscription.toJSON(), every
+    field rebuilt and bounded, or Reject. The endpoint must be an https URL
+    (it is only ever used as one, by this process, outbound); p256dh must be
+    an uncompressed P-256 point, auth a 16-byte secret."""
+    if not isinstance(sub, dict):
+        raise Reject("sub")
+    ep = sub.get("endpoint")
+    if (not isinstance(ep, str) or not ep.startswith("https://")
+            or not (12 <= len(ep) <= P.MAX_ENDPOINT)
+            or any(c.isspace() or ord(c) < 0x21 or ord(c) == 0x7F for c in ep)):
+        raise Reject("endpoint")
+    keys = sub.get("keys")
+    if not isinstance(keys, dict):
+        raise Reject("keys")
+    p256, auth = keys.get("p256dh"), keys.get("auth")
+    for val, want in ((p256, 65), (auth, 16)):
+        if not isinstance(val, str) or not (0 < len(val) <= 200):
+            raise Reject("keys")
+        try:
+            if len(_b64u_dec(val)) != want:
+                raise Reject("keys")
+        except Reject:
+            raise
+        except Exception:
+            raise Reject("keys")
+    if _b64u_dec(p256)[0] != 0x04:
+        raise Reject("keys")
+    return ep, p256, auth
+
+
+def push_handle_http(handler, method):
+    """POST (subscribe) and DELETE (unsubscribe) on /karti/push. The same
+    shape as the avatar writes: origin allow-list, bounded JSON body, and a
+    live session token as the ONLY way to say whose subscription it is."""
+    if not origin_ok(handler.headers.get("Origin")):
+        handler.close_connection = True
+        handler.reply(403, {"ok": False, "why": "Origin not allowed."})
+        return
+    addr = handler.client_address[0] if handler.client_address else ""
+    if not PUSH.allow("addr", addr, P.ADDR_RATE, P.ADDR_BURST):
+        handler.reply(429, {"ok": False, "why": E_SLOW, "retryAfter": 5})
+        return
+    if not push_ready() or ACCOUNTS is None:
+        handler.reply(503, {"ok": False, "why": E_PUSH_OFF})
+        return
+    body = handler.read_json_body(P.MAX_BODY)
+    if body is None:
+        return                          # it has already answered
+    who = ACCOUNTS.session(handler.bearer(body))
+    if who is None:
+        handler.reply(401, {"ok": False, "why": E_ACCT_TOKEN, "relogin": True})
+        return
+    uname = who[0]
+    if not PUSH.allow("acct", uname, P.ACCT_RATE, P.ACCT_BURST):
+        handler.reply(429, {"ok": False, "why": E_SLOW, "retryAfter": 10})
+        return
+    try:
+        if method == "POST":
+            try:
+                ep, p256, auth = v_push_sub(body.get("sub"))
+            except Reject:
+                handler.reply(400, {"ok": False, "why": E_PUSH_BAD})
+                return
+            n = PUSH.put(uname, ep, p256, auth)
+            LOG("push-sub", u=uname, subs=n)
+            handler.reply(200, {"ok": True, "subs": n})
+        else:
+            ep = body.get("endpoint")
+            if ep is not None and (not isinstance(ep, str)
+                                   or len(ep) > P.MAX_ENDPOINT):
+                handler.reply(400, {"ok": False, "why": E_PUSH_BAD})
+                return
+            gone = PUSH.drop(uname, ep)
+            LOG("push-unsub", u=uname, gone=int(gone))
+            handler.reply(200, {"ok": True, "had": int(gone)})
+    except sqlite3.Error:
+        LOG("push-db-error")
+        handler.reply(503, {"ok": False, "why": E_ACCT_BUSY})
+
+
+def push_handle_key(handler):
+    """GET /karti/push/key — the VAPID PUBLIC key. Public on purpose: it is
+    in every subscription the browser makes anyway. Rate-limited like the
+    other cheap reads."""
+    addr = handler.client_address[0] if handler.client_address else ""
+    if not PUSH.allow("addr", addr, P.ADDR_RATE, P.ADDR_BURST):
+        handler.reply(429, {"ok": False, "why": E_SLOW, "retryAfter": 5})
+        return
+    if not push_ready():
+        handler.reply(503, {"ok": False, "why": E_PUSH_OFF})
+        return
+    handler.reply(200, {"ok": True, "key": PUSH.keys["publicKey"]})
+
+
+def push_to_account(uname, note, ttl):
+    """Queue `note` to every device this account registered. The per-account
+    bucket is spent here, once, whatever the device count."""
+    if not push_ready() or not uname:
+        return
+    if not PUSH.allow("send", uname, P.SEND_RATE, P.SEND_BURST):
+        return
+    try:
+        subs = PUSH.subs_for(uname)
+    except sqlite3.Error:
+        LOG("push-db-error")
+        return
+    for sub in subs:
+        PUSH.enqueue(uname, sub, note, ttl)
+
+
+def _push_game_label(game):
+    return "the card duel" if game == DEFAULT_GAME else str(game or "").upper()
+
+
+def push_on_invite(to_key, from_name, game):
+    """Called from ws_invite ONLY on the no-live-socket branch — the same
+    branch that writes the knock. Somebody looking at the app gets the live
+    invite instead, and no push."""
+    push_to_account(to_key,
+                    {"t": "invite", "title": "KARTI",
+                     "body": "%s wants a game of %s." % (from_name, _push_game_label(game)),
+                     "tag": "karti-invite", "url": "./#mp"},
+                    P.TTL_INVITE)
+
+
+def push_after_relay(conn, payload, nt):
+    """After a relayed payload: did somebody's turn just start while their
+    phone is closed? Never raises — a push must never break a game."""
+    try:
+        if not push_ready():
+            return
+        view = ROOMS.push_view(conn)
+        if view is None or not view["started"]:
+            return
+        k = payload.get("k")
+        src = view["slot"]
+        nxt = None
+        if view["size"] == 2 and src in (0, 1):
+            # the two cases the relay can be SURE about, and only those
+            if (k == "bact" and payload.get("kind") == "move"
+                    and view["game"] in BOARD_GAMES
+                    and payload.get("game") == view["game"]):
+                nxt = 1 - src           # chess and dama alternate strictly
+            elif (k == "act" and payload.get("kind") == "end"
+                    and view["game"] == DEFAULT_GAME):
+                nxt = 1 - src           # the duel's explicit end-of-turn
+        if nxt is None and isinstance(nt, int) and not isinstance(nt, bool):
+            # a table: the mover's client says which chair is next (see the
+            # block comment). Bounded, and never the mover itself.
+            if k in ("act", "bact") and 0 <= nt < view["size"] and nt != src:
+                nxt = nt
+        if nxt is None or not (0 <= nxt < len(view["seats"])):
+            return
+        seat = view["seats"][nxt]
+        if seat is None or seat["here"] or not seat["acct"]:
+            return                      # empty chair, or they are looking at it
+        if ROOMS.conns_for(seat["acct"]):
+            return                      # the app is open on some device: silence
+        if not PUSH.turn_ok(view["code"], nxt):
+            return
+        game = view["game"]
+        push_to_account(seat["acct"],
+                        {"t": "turn", "title": "KARTI",
+                         "body": "Your turn in %s." % ("KARTI" if game == DEFAULT_GAME
+                                                       else str(game).upper()),
+                         "tag": "karti-turn-" + view["code"], "url": "./#mp"},
+                        P.TTL_TURN)
+    except Exception:
+        LOG("push-turn-error")
+
+# ── end of the WEB PUSH block ────────────────────────────────────────────────
+
+
 def dispatch(messages):
     """Send a list of (conn, dict-or-str). Never called with a lock held."""
     for conn, msg in messages:
@@ -2502,6 +3061,12 @@ def ws_invite(conn, to):
                     ACCOUNTS.knock(key, conn.acct, conn.aname or "SOMEBODY", game)
                 except Exception:
                     LOG("knock-failed")
+                # [push] same branch, same meaning: nobody is looking at the
+                # app, so this is exactly when a locked phone should light up.
+                try:
+                    push_on_invite(key, conn.aname or "SOMEBODY", game)
+                except Exception:
+                    LOG("push-invite-error")
     LOG("invite", game=game)
     out.append((conn, {"t": "invited", "to": name, "game": game}))
     return out
@@ -2661,6 +3226,9 @@ def handle_ws_message(conn, raw):
                 return
         dispatch(ROOMS.relay(conn, payload, code.strip().upper() if code else None,
                              for_seat))
+        # [push] after the fan-out: is it now the turn of somebody whose phone
+        # is closed? Self-contained, never raises — see the WEB PUSH block.
+        push_after_relay(conn, payload, msg.get("nt"))
 
     elif kind == "auth":
         dispatch(ws_auth(conn, msg.get("session")))
@@ -3638,6 +4206,8 @@ class KartiHandler(BaseHTTPRequestHandler):
             # checked against the account charset, and it reaches SQLite as a
             # bound parameter. There is no directory of avatars to escape from.
             karti_avatar.handle_get(self, path[len(AVATAR_PREFIX) + 1:], self.path)
+        elif path == PUSH_PREFIX + "/key":
+            push_handle_key(self)                                   # [push]
         else:
             self.reply(404, {"ok": False, "why": "This is the KARTI relay, not a web server."})
 
@@ -3680,12 +4250,19 @@ class KartiHandler(BaseHTTPRequestHandler):
         if path == AVATAR_PREFIX:
             self.handle_avatar("POST")
             return
+        if path == PUSH_PREFIX:
+            push_handle_http(self, "POST")                          # [push]
+            return
         # Everything else is exactly as it was before accounts existed.
         self.reply(405, {"ok": False, "why": "GET only."})
 
     def do_DELETE(self):
-        if self.route() == AVATAR_PREFIX:
+        path = self.route()
+        if path == AVATAR_PREFIX:
             self.handle_avatar("DELETE")
+            return
+        if path == PUSH_PREFIX:
+            push_handle_http(self, "DELETE")                        # [push]
             return
         self.reply(405, {"ok": False, "why": "GET only."})
 
@@ -4136,6 +4713,14 @@ def print_banner(host, port):
                  karti_avatar.MAX_TOTAL // 1024, karti_avatar.SIZE, karti_avatar.SIZE))
         print("  avatar routes  : POST/DELETE %s%s, GET %s%s/<name>"
               % (PATH_PREFIX, AVATAR_PREFIX, PATH_PREFIX, AVATAR_PREFIX))
+    # [push]
+    if not push_ready():
+        print("  web push       : OFF (no key pair, no library, or --no-push)")
+    else:
+        print("  web push       : ON  (POST/DELETE %s%s, GET %s%s/key)"
+              % (PATH_PREFIX, PUSH_PREFIX, PATH_PREFIX, PUSH_PREFIX))
+        print("                   NOTE: sends need outbound HTTPS — the systemd"
+              " unit's IPAddressDeny must allow it.")
     print("")
     print("  Publish it with Tailscale Funnel — see docs/ONLINE.md.")
     print("  Ctrl+C to stop.")
@@ -7602,6 +8187,155 @@ def selftest():
             karti_avatar.DECODE_WAIT = 4.0
             check("decode gate", False, repr(e))
 
+        # ═══════════ web push ═══════════
+        # [push] The whole block up to HOUSEKEEPING. Sends are captured by
+        # PUSH.test_hook — nothing here ever touches the network.
+        print("")
+        print(" WEB PUSH  (a subscription is an ACCOUNT's; a locked phone is nudged)")
+
+        P.ADDR_RATE, P.ADDR_BURST = 50.0, 200.0     # not what is under test
+        P.ACCT_RATE, P.ACCT_BURST = 50.0, 200.0
+        P.SEND_RATE, P.SEND_BURST = 50.0, 200.0     # turn_ok is the limiter
+        PP = PATH_PREFIX + PUSH_PREFIX               # /karti/push
+        PPOST = lambda o, **kw: _http_post(host, port, PP, o,
+                                           origin=PAGES_ORIGIN, **kw)
+        captured = []
+        PUSH.test_hook = lambda u, sub, note, ttl: captured.append((u, note))
+
+        def drain(c):
+            while c.raw_recv(0.35) not in (TIMEOUT, None):
+                pass
+
+        try:
+            pdir = os.path.join(acct_dir, "push")
+            os.makedirs(pdir, exist_ok=True)
+            vfile = os.path.join(pdir, "vapid.json")
+            err = PUSH.open(os.path.join(pdir, "push.db"), vfile)
+            mode = os.stat(vfile).st_mode & 0o777
+            check("push opens, mints a VAPID pair, and the key file is mode 600",
+                  err is None and push_ready() and mode == 0o600,
+                  "%s mode=%o" % (err, mode))
+        except Exception as e:
+            check("push opens and mints a VAPID pair", False, repr(e))
+
+        try:
+            st, _, body2 = _http_get(host, port, PP + "/key")
+            js = json.loads(body2.decode())
+            key = js.get("key") or ""
+            ok = (st == 200 and js.get("ok") is True
+                  and len(_b64u_dec(key)) == 65 and _b64u_dec(key)[0] == 0x04)
+            check("the VAPID public key is served at /karti/push/key", ok,
+                  "%s %r" % (st, key[:24]))
+        except Exception as e:
+            check("public key served", False, repr(e))
+
+        SUB1 = {"endpoint": "https://push.example.test/dev/alice-1",
+                "keys": {"p256dh": _b64u(b"\x04" + b"\x11" * 64),
+                         "auth": _b64u(b"\x22" * 16)}}
+        try:
+            s_a = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            st, js, _ = PPOST({"sub": SUB1})
+            check("subscribing without a session token is refused", st == 401, st)
+            st2, js2, _ = PPOST({"tok": s_a, "sub": {"endpoint": "http://not-https/x",
+                                                     "keys": {"p256dh": "AA", "auth": "AA"}}})
+            check("a malformed subscription is refused, not stored",
+                  st2 == 400 and PUSH.count("alice") == 0, "%s %s" % (st2, js2))
+            st3, js3, _ = PPOST({"tok": s_a, "sub": SUB1})
+            st4, js4, _ = PPOST({"tok": s_a, "sub": SUB1})
+            check("a device subscribes once — re-posting replaces, never stacks",
+                  st3 == 200 and (js3 or {}).get("subs") == 1
+                  and st4 == 200 and (js4 or {}).get("subs") == 1,
+                  "%s %s / %s %s" % (st3, js3, st4, js4))
+        except Exception as e:
+            check("subscribe routes", False, repr(e))
+
+        try:
+            for i in range(5):
+                sub_i = {"endpoint": "https://push.example.test/dev/alice-x%d" % i,
+                         "keys": SUB1["keys"]}
+                PPOST({"tok": s_a, "sub": sub_i})
+            check("an account holds at most %d device subscriptions" % P.MAX_SUBS,
+                  PUSH.count("alice") == P.MAX_SUBS, PUSH.count("alice"))
+        except Exception as e:
+            check("subscription cap", False, repr(e))
+
+        try:
+            st, _, _ = _http_post(host, port, PP, {"tok": s_a, "sub": SUB1},
+                                  origin="https://evil.example")
+            check("a subscribe from a foreign origin gets nothing", st == 403, st)
+        except Exception as e:
+            check("foreign origin subscribe refused", False, repr(e))
+
+        try:
+            st, js, _ = PPOST({"tok": s_a}, method="DELETE")
+            check("toggling off DELETES the subscriptions, it does not just mute",
+                  st == 200 and (js or {}).get("had", 0) >= 1
+                  and PUSH.count("alice") == 0, "%s %s" % (st, js))
+        except Exception as e:
+            check("unsubscribe deletes", False, repr(e))
+
+        # -- the nudge itself: chess, one phone closed ----------------------
+        try:
+            s_b = (POST("/login", {"u": "Bob", "pw": PW_B})[1] or {}).get("tok")
+            PPOST({"tok": s_b, "sub": {"endpoint": "https://push.example.test/dev/bob-phone",
+                                       "keys": SUB1["keys"]}})
+            wa = cli(origin=PAGES_ORIGIN)
+            wb = cli(origin=PAGES_ORIGIN)
+            wa.send_json({"t": "auth", "session": s_a}); drain(wa)
+            wb.send_json({"t": "auth", "session": s_b}); drain(wb)
+            wa.send_json({"t": "create", "game": "chess"})
+            code_p = (wa.recv_json(2.0) or {}).get("code")
+            wb.send_json({"t": "join", "code": code_p})
+            drain(wb); drain(wa)
+            captured[:] = []
+            mv = {"t": "relay", "d": {"k": "bact", "game": "chess",
+                                      "kind": "move", "m": {"f": 8, "t": 16, "p": 0}}}
+            wa.send_json(mv)
+            drain(wb)
+            check("no notification while the other player is looking at the app",
+                  captured == [], captured)
+
+            bye(wb)                     # the phone "closes" — socket dies
+            end = time.monotonic() + 4.0
+            while time.monotonic() < end and ROOMS.conns_for("bob"):
+                time.sleep(0.1)
+            time.sleep(0.3)
+            wa.send_json(mv)
+            time.sleep(0.4)
+            ok = (len(captured) == 1 and captured[0][0] == "bob"
+                  and captured[0][1].get("t") == "turn"
+                  and captured[0][1].get("body") == "Your turn in CHESS."
+                  and code_p not in json.dumps(captured[0][1]).replace(
+                      captured[0][1].get("tag", ""), ""))
+            check("a move against a closed phone pushes 'Your turn in CHESS.'",
+                  ok, captured)
+            wa.send_json(mv)
+            time.sleep(0.4)
+            check("the same chair is not nudged twice in one turn window",
+                  len(captured) == 1, len(captured))
+        except Exception as e:
+            check("turn push", False, repr(e))
+
+        # -- an invite against a closed phone -------------------------------
+        try:
+            captured[:] = []
+            wa.send_json({"t": "leave"}); drain(wa)
+            wa.send_json({"t": "create", "game": "chess"})
+            drain(wa)
+            wa.send_json({"t": "invite", "to": "Bob"})
+            drain(wa)
+            time.sleep(0.3)
+            ok = (len(captured) == 1 and captured[0][0] == "bob"
+                  and captured[0][1].get("t") == "invite"
+                  and captured[0][1].get("body") == "Alice wants a game of CHESS.")
+            check("an invite to a closed phone pushes who and which game — no code",
+                  ok and "code" not in captured[0][1], captured)
+            bye(wa)
+        except Exception as e:
+            check("invite push", False, repr(e))
+        finally:
+            PUSH.test_hook = None
+
         # ═══════════ housekeeping ═══════════
         print("")
         print(" HOUSEKEEPING")
@@ -7648,6 +8382,8 @@ def selftest():
         if ACCOUNTS is not None:
             ACCOUNTS.close()
         karti_avatar.close_store()
+        PUSH.test_hook = None                                       # [push]
+        PUSH.close()                                                # [push]
         shutil.rmtree(acct_dir, ignore_errors=True)
 
     fails = sum(1 for _, ok in results if not ok)
@@ -7684,6 +8420,16 @@ def main(argv=None):
                         % DEFAULT_AVATAR_DB)
     p.add_argument("--no-avatars", action="store_true",
                    help="do not accept avatar photographs at all")
+    # [push] ------------------------------------------------------------------
+    p.add_argument("--push-db", default=DEFAULT_PUSH_DB,
+                   help="SQLite file for web-push subscriptions (default %s)"
+                        % DEFAULT_PUSH_DB)
+    p.add_argument("--vapid", default=DEFAULT_VAPID_FILE,
+                   help="VAPID key pair, minted on first run, NEVER in the repo"
+                        " (default %s)" % DEFAULT_VAPID_FILE)
+    p.add_argument("--no-push", action="store_true",
+                   help="do not send web-push notifications at all")
+    # -------------------------------------------------------------------------
     p.add_argument("--no-accounts", action="store_true",
                    help="run as a pure relay: no accounts, no saved games, no disk")
     p.add_argument("--selftest", action="store_true", help="run the built-in tests and exit")
@@ -7714,6 +8460,11 @@ def main(argv=None):
                 args.avatars,
                 lambda tok: ACCOUNTS.session(tok) if ACCOUNTS else None,
                 lambda u: bool(ACCOUNTS and ACCOUNTS.find(u)))
+        # [push] a subscription is an account's, so push needs accounts on
+        if not args.no_push:
+            err = PUSH.open(args.push_db, args.vapid)
+            if err:
+                print("warning: web push is OFF — %s" % err, file=sys.stderr)
 
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print("warning: binding to %s exposes the relay directly. Tailscale Funnel "
@@ -7734,6 +8485,7 @@ def main(argv=None):
         httpd.server_close()
         if ACCOUNTS is not None:
             ACCOUNTS.close()
+        PUSH.close()                                                # [push]
         LOG("stop")
     return 0
 

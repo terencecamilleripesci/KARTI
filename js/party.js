@@ -133,7 +133,12 @@ function unregister(id){
    since the record book was written. */
 const SHELVES = [
   { kind:'board', title:'Board games', note:'A board, pieces, and nowhere to hide.' },
-  { kind:'card',  title:'Card games',  note:'A deck, a hand, and a straight face.' }
+  { kind:'card',  title:'Card games',  note:'A deck, a hand, and a straight face.' },
+  /* Everything that is neither. A word game needs no board and no deck — it
+     needs a room full of people and something to lie about — so filing it
+     under either of the others would be a lie about what it is. Empty until
+     something declares kind:'other', and an empty shelf does not draw. */
+  { kind:'other', title:'Other',       note:'No board, no cards. Just the room.' }
 ];
 
 /* Games played with a standard pack — the ones behind the door. Kept as a

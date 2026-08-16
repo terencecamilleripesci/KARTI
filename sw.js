@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v101';
+const CACHE = 'karti-v103';
 const CORE = [
   './',
   './index.html',
@@ -32,6 +32,11 @@ const CORE = [
   './js/skarta.js',
   './js/skarta-ui.js',
   './js/klabb.js',
+  './js/spy-words.js',
+  './js/spy.js',
+  './js/spy-ui.js',
+  './js/suspett.js',
+  './js/suspett-ui.js',
   './js/rummy.js',
   './js/rummy-ui.js',
   './js/gin.js',
@@ -199,4 +204,54 @@ self.addEventListener('fetch', event => {
         )
       )
   );
+});
+
+/* ── WEB PUSH ────────────────────────────────────────────────────────────────
+   The relay (server/karti_server.py, WEB PUSH block) sends a small JSON note:
+   { t:'turn'|'invite', title, body, tag, url }. The text is composed on the
+   relay and deliberately never contains a card, a role, a word, a hand or a
+   room code — a lock screen is readable by anyone holding the phone.
+
+   ALWAYS show something. On iOS a push that renders no notification is a
+   strike against the subscription (three strikes and the OS silently revokes
+   it), so even an unparseable payload shows the app name and nothing else.
+
+   `tag` REPLACES rather than stacks: five moves at a table while the phone
+   is in a pocket is one notification saying "your turn", not five. */
+self.addEventListener('push', event => {
+  let d = {};
+  try { d = event.data ? (event.data.json() || {}) : {}; } catch (e) {}
+  const title = (typeof d.title === 'string' && d.title) ? d.title : 'KARTI';
+  const opts = {
+    body: (typeof d.body === 'string') ? d.body : '',
+    tag: (typeof d.tag === 'string' && d.tag) ? d.tag : 'karti',
+    icon: './icons/icon-192.png',
+    badge: './icons/icon-192.png',
+    data: { url: (typeof d.url === 'string' && d.url) ? d.url : './' }
+  };
+  event.waitUntil(self.registration.showNotification(title, opts));
+});
+
+/* Tapping it must land IN THE GAME, not on a cold home screen. If a window
+   already exists (iOS keeps the standalone app alive in the background far
+   longer than it keeps its socket), focus it and tell the page where the tap
+   wanted to go — the page resumes its socket and, on '#mp', opens the Online
+   screen. Only when there is no window at all is a fresh one opened, with the
+   hash carried in the URL so js/game.js's boot can read it. */
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || './';
+  event.waitUntil((async () => {
+    let wins = [];
+    try { wins = await clients.matchAll({ type: 'window', includeUncontrolled: true }); }
+    catch (e) {}
+    for (const w of wins){
+      if ('focus' in w){
+        try { w.postMessage({ type: 'KARTI_OPEN', url: url }); } catch (e) {}
+        try { return await w.focus(); } catch (e) {}
+      }
+    }
+    try { return await clients.openWindow(new URL(url, self.registration.scope).href); }
+    catch (e) { return undefined; }
+  })());
 });

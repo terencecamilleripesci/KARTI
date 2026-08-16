@@ -27,16 +27,42 @@
        is 15, together 45. The 45 is a TOTAL ACROSS MELDS, not one
        meld's worth (and the solver's meldValOf() is exactly that
        total).
-     · THE TURN, for everybody, open or not: DRAW ONE CARD FROM THE
-       DECK, THEN DISCARD ONE. The one exception in the whole game:
-       on the FIRST turn of a hand the player to move may take the
-       last discarded card (the dealt upcard) instead of drawing.
-     · THE SPREAD IS A RECORD, NOT A SOURCE. Discards are laid out
-       face up, left to right in the order thrown, row under row, so
-       everyone can see what has gone — and NOBODY takes from it.
-       (An earlier pass of this build let open players sweep it;
-       the owner chose "always a new card off the deck" and the
-       sweep is deleted, not switched off.)
+     · THE TURN DEPENDS ON WHETHER YOU ARE OPEN, and this is the
+       thing the build got wrong twice before the owner settled it
+       with a screenshot of a real hand:
+
+         "if u can see in that table i'm out, and in discard pile
+          there is 3 Q. i can take from queen of spades and match
+          the 3 Q there is in the table and put them out in my pile.
+          all so extra cards will go on my hand so i can put them on
+          table or other people. all so have to discard because i
+          picked from discard pile because i had 45 out"
+
+       — NOT OPEN: DRAW FROM THE DECK, THEN DISCARD. The one
+         exception: on the FIRST turn of a hand the player to move
+         may take the last discarded card instead of drawing.
+       - OPEN: each turn you CHOOSE. Either draw off the deck, or
+         REACH INTO THE SPREAD — name any card in it and you take
+         that card AND EVERY CARD TO ITS RIGHT (the rest of its row,
+         then all rows below; the spread reads left-to-right, top to
+         bottom, oldest to newest). The card you reached for is the
+         one you wanted; the rest of the sweep lands in your hand,
+         where it may be melded, laid onto your own table or onto
+         anybody else's, or simply held. THEN DISCARD ONE, always —
+         "also have to discard because i picked from discard pile".
+
+       His first telling of the game said exactly this ("when u put
+       45 u have option to pick from any card that is in discard but
+       have to take all right cards, or draw from deck"); a later
+       question that failed to separate the open case from the
+       closed one got "always a new card off the deck", which is the
+       CLOSED half only. Both are now in force, each on its own side
+       of the 45. THE SWEEP IS A REAL MOVE AND IS ON THE WIRE.
+     · THE SPREAD IS A RECORD UNTIL YOU ARE OPEN, AND A RESOURCE
+       AFTER. Discards are laid out face up, left to right in the
+       order thrown, row under row, so everyone can see what has
+       gone. A closed player may never take from it (bar the
+       first-turn upcard). An open player may, by the rule above.
      · MATCH 45 AND PUT THEM DOWN: when the melds in your hand total
        45 or more you may put them out, face up on the table, in one
        go. That OPENS you. It does NOT end the hand.
@@ -80,14 +106,14 @@
 
    WHAT SURVIVED FROM THE LAST BUILD: the deck shape, the seeded RNG
    whose whole state is one integer in st.rs, the meld solver with
-   its memo (now with a branch-and-bound, kept from the sweep
-   experiment — it makes big hands instant and changes no answer),
-   and the replay discipline: (opts, seed, log) rebuilds the match
-   to the bit, so undo, autosave and two phones in lockstep are all
-   the same operation. What DIED in this pass: laying down ending
-   the hand (it OPENS you now), knocking's whole family (long gone),
-   the up0/up1 take-or-pass ritual (the first-turn take is one plain
-   option in 'main'), and the short-lived spread sweep.
+   its memo (with a branch-and-bound that makes the big hands a
+   sweep produces instant and changes no answer), and the replay
+   discipline: (opts, seed, log) rebuilds the match to the bit, so
+   undo, autosave and two phones in lockstep are all the same
+   operation. What DIED in this pass: laying down ending the hand
+   (it OPENS you now), knocking's whole family (long gone), and the
+   up0/up1 take-or-pass ritual (the first-turn take is one plain
+   option in 'main').
 
    Loads in the browser (window.KARTI_GIN.E) and in Node
    (module.exports), so the simulation harness drives the exact code
@@ -466,9 +492,31 @@ function discRefused(st, seat, c) {
 }
 
 /* may the player to move take the last discarded card? Only on the
-   hand's opening turn — after that the spread is a record. */
+   hand's opening turn — before anybody is open, the spread is a
+   record and this is the single exception to it. */
 function canTakeUp(st) {
   return st.plies < FIRST_TAKE_PLY && st.discard.length > 0;
+}
+
+/* ── THE SWEEP ────────────────────────────────────────────────────
+   The open player's alternative to the deck: name a card in the
+   spread and take it with every card to its right. "have to take
+   all right cards" — you cannot pick the one you want out of the
+   middle and leave the rest, and that is the whole cost of the
+   move: reach deep for a queen and you carry everything thrown
+   after it, which is dead weight in your hand until you can place
+   it, and minus points if the hand ends while you hold it.
+
+   Gated on being OPEN, because that is the owner's condition —
+   "because i had 45 out". A closed player reaching into the spread
+   is refused here, in the engine, not merely hidden in the UI. */
+function canSweep(st, seat) {
+  return !!(st.down[seat] && st.discard.length > 0);
+}
+
+/* the run a sweep at i takes: that card and everything after it */
+function sweepRun(st, i) {
+  return (i >= 0 && i < st.discard.length) ? st.discard.slice(i) : [];
 }
 
 /* the best OPENING available to an over-full closed hand: the
@@ -497,6 +545,10 @@ function legal(st, seat) {
       const out = [];
       if (st.stock.length) out.push({ t: 'draw' });
       if (canTakeUp(st)) out.push({ t: 'take' });
+      /* the open player's reach into the spread: one move per card
+         in it, each taking that card and all to its right */
+      if (canSweep(st, seat))
+        for (let i = 0; i < st.discard.length; i++) out.push({ t: 'sweep', i });
       return out;
     }
     case 'act': {
@@ -545,6 +597,11 @@ function check(st, mv, seat) {
     case 'main':
       if (mv.t === 'draw') return st.stock.length > 0;
       if (mv.t === 'take') return canTakeUp(st);
+      if (mv.t === 'sweep') {
+        if (!canSweep(st, seat)) return false;
+        const i = mv.i | 0;
+        return i >= 0 && i < st.discard.length;
+      }
       return false;
     case 'act': {
       if (mv.t === 'disc') {
@@ -701,6 +758,25 @@ function apply(st, mv) {
       st.turn = seat;
       break;
     }
+    case 'sweep': {                            /* the open player's reach */
+      const i = mv.i | 0;
+      const run = st.discard.splice(i);        /* that card and all to its right */
+      const want = run[0];
+      for (const c of run) st.seats[seat].hand.push(c);
+      /* the card you REACHED FOR is the one you may not throw
+         straight back — same ban the first-turn take carries, and
+         without it sweeping the newest card alone would be a free
+         pass. The rest of the run is yours to throw at once if you
+         want; carrying it is the price you already paid. */
+      st.picked = want;
+      st.drew = { seat, from: 'spread', c: want, n: run.length };
+      st.last.c = want;
+      st.last.n = run.length;
+      st.last.i = i;
+      st.phase = 'act';
+      st.turn = seat;
+      break;
+    }
     case 'down': {                             /* the opening: discard + lay the 45 */
       const h = st.seats[seat].hand;
       h.splice(h.indexOf(mv.c), 1);
@@ -843,11 +919,13 @@ function protoVal(dead) {
 /* the three temperaments, as numbers:
    openNet — net (melds − loose) demanded before putting the 45 down
    layW    — how hard a card that fits the TABLE is held on to
+   holdW   — how dearly the dead weight a SWEEP would strand in the
+             hand is counted against the points it would place
    protoW/tieDear — the old discard temperament, unchanged */
 function brain(lvl) {
-  if (lvl === 1) return { openNet: -Infinity, layW: 0,   protoW: 1.0, tieDear: +1 };
-  if (lvl === 3) return { openNet: 15,        layW: 0.5, protoW: 0.5, tieDear: -1 };
-  return            { openNet: 30,        layW: 0.5, protoW: 0.5, tieDear: +1 };
+  if (lvl === 1) return { openNet: -Infinity, layW: 0,   holdW: 0.3, protoW: 1.0, tieDear: +1 };
+  if (lvl === 3) return { openNet: 15,        layW: 0.5, holdW: 0.8, protoW: 0.5, tieDear: -1 };
+  return            { openNet: 30,        layW: 0.5, holdW: 0.8, protoW: 0.5, tieDear: +1 };
 }
 const OPEN_PLIES = 30;        /* past this, even tal-każin stops waiting */
 
@@ -926,6 +1004,42 @@ function think(st, seat, lvl) {
                                  : (melded || after - now >= 10);
       if (take) return { t: 'take' };
     }
+
+    /* THE SWEEP, weighed. Once open, reaching into the spread is
+       worth it when what the run ADDS to the table beats what it
+       leaves stranded in the hand. Every index is scored the same
+       way and the best one runs against the deck:
+         gain  = points this run can put down at once (melds it
+                 completes in hand + cards that fit a table meld,
+                 mine or theirs — a lay scores for whoever lays it)
+         cost  = what is left over, at its face value, because that
+                 is exactly what it costs if the hand ends on it
+       Deep reaches are naturally rare: the further left you go the
+       more dead weight you carry, and the arithmetic says so
+       without needing a rule to forbid it. */
+    if (canSweep(st, seat)) {
+      let bestSweep = null;
+      const L = st.discard.length;
+      for (let i = 0; i < L; i++) {
+        const run = st.discard.slice(i);
+        const after2 = h.concat(run);
+        const b2 = best(after2);
+        /* what this hand could now put on a table, in one turn */
+        const placeable = handPts(after2) - b2.dw;
+        let fits = 0;
+        for (const c of b2.dead) if (layFit(st, seat, c) === 1) fits += pts(c);
+        const nowPts = handPts(h) - best(h).dw;
+        const gain = (placeable - nowPts) + fits;
+        const stranded = b2.dw - fits;         /* left holding, at face value */
+        const score = gain - stranded * B.holdW;
+        if (!bestSweep || score > bestSweep.score) bestSweep = { i, score, gain };
+      }
+      /* the deck is a free unknown card; the sweep has to beat it by
+         a real margin or it is just hoarding */
+      if (bestSweep && bestSweep.score >= 10 && bestSweep.gain > 0)
+        return { t: 'sweep', i: bestSweep.i };
+    }
+
     if (st.stock.length) return { t: 'draw' };
     const l = legal(st, seat);
     return l[0] || null;
@@ -974,7 +1088,8 @@ const E = {
   rnd, shuffle, clone,
   deal, dealHand, legal, check, apply, turn, over, think,
   best, bestDiscard, bestOpen, fingerprint, upTop,
-  isSet, isRun, validMeld, canExtend, canTakeUp, bannedOf, discRefused,
+  isSet, isRun, validMeld, canExtend, canTakeUp, canSweep, sweepRun,
+  bannedOf, discRefused,
   nextLay, extendsTable, layFit, brain,
   protoVal, SIZES, sizeOf,
   /* the gate of a particular table (always 45 in the app; the

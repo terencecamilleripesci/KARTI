@@ -138,6 +138,8 @@ const GAMES = [
      js/battleship-ui.js, contract on window.KARTI_GHARRAQ.lobby. */
   { k:'gharraq', name:'Għarraqhom', short:'BAĦAR', sym:'bs-boat',
     blurb:'Five boats each. Sink the neighbours.' },
+  { k:'spy', name:'L-Ispjun', short:'SPJUN', sym:'sp-spy',
+    blurb:'One word, one liar. Sixteen can play.' },
   { k:'kiri',   name:'Il-Kiri',  short:'KIRI',   icon:'coin',
     blurb:'Rent, deeds, and a ruined friendship.' },
   { k:'klabb',  name:'Card club', short:'KLABB', icon:'cards',
@@ -187,7 +189,7 @@ function gamePlayable(k){
 /* where a game hangs its contract, if it has one */
 const LOBBY_GLOBAL = {
   kiri:'KARTI_KIRI', skarta:'KARTI_SKARTA', tombla:'KARTI_TOMBLA', klabb:'KARTI_KLABB',
-  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY'
+  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY', spy:'KARTI_SPY'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -198,7 +200,10 @@ const LOBBY_GLOBAL = {
 const SEATS_FALLBACK = {
   cards:[2, 2, 2], chess:[2, 2, 2], dama:[2, 2, 2],
   skarta:[2, 10, 6], klabb:[2, 4, 4], kiri:[2, 8, 4], tombla:[2, 16, 8],
-  gharraq:[2, 6, 4], rummy:[2, 12, 4], gin:[2, 2, 2]
+  gharraq:[2, 6, 4], rummy:[2, 12, 4], gin:[2, 2, 2],
+  /* L-ISPJUN wants a ROOM, not a duel — three is the fewest that can hide a
+     liar, and sixteen is what the relay already seats for tombla. */
+  spy:[3, 16, 6]
 };
 
 /* A machine has to be called something before it can sit down. Only used when

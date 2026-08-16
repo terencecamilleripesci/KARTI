@@ -69,12 +69,40 @@ const SFX = () => window.KARTI_SFX || null;
 function cue(id, opts) { const S = SFX(); if (S) { try { S.play(id, opts); } catch (e) {} } }
 function cueRun(id, n, gap, opts) { const S = SFX(); if (S) { try { S.run(id, n, gap, opts); } catch (e) {} } }
 
-/* the spread's shape: SEVEN cards a row, the same on every phone, so
-   two players looking at their own screens see the same picture.
-   Chosen from the real card size: at 360px wide the seven minis are
-   still ~40px cards, comfortably readable and never tappable-small
-   (they are a record, not buttons). */
-const PER_ROW = 7;
+/* ── THE SPREAD'S SHAPE ───────────────────────────────────────────
+   The owner, having played it: "discard pile is nice and u can
+   overlap them, middle only show the corner top, and when click it
+   will show full card".
+
+   So the thrown cards are laid the way cards really are laid on a
+   table: each one covering most of the card before it, with only its
+   TOP-LEFT CORNER — the rank and the suit pip — showing. That corner
+   is the whole of what anybody reads off a discard pile, and it is
+   why the corner is printed there in the first place.
+
+   The numbers come off js/klabb.js's own card art rather than a
+   guess. Its face is a 100x140 viewBox whose corner block is the
+   rank text centred at x=11.5 (up to 17 wide, so it ends by x=20)
+   with the suit pip beneath at y=39.5, 13 across. The left 20% of a
+   card therefore carries everything, and the sliver left on show is
+   30% — half again as much as is strictly needed, because a thumb
+   is not a caliper.
+
+   The gain is the point. At 390 wide the old grid of whole minis fit
+   SEVEN to a row and cut them off at that; the same strip now holds
+   FOURTEEN with the cards BIGGER than they were. The last card of a
+   run sits whole, so the newest throw — the one that matters — is
+   always fully readable at the end of it.
+
+   And any card can be tapped for the full face, because a corner
+   under a thumb is occasionally ambiguous and reading this pile is
+   the whole game. Nothing about the RULES moves: it is still a
+   record, and still nobody's to pick up. */
+const SPREAD_SHOW = 0.30;    /* the fraction of each card left uncovered */
+const SPREAD_ROWS_MAX = 3;   /* rows on show before the spread scrolls */
+/* the Tables sheet: piles as ROWS up to this many, a GRID past it —
+   his own number ("if more than 5 out make it as table") */
+const SPEC_ROWS_MAX = 5;
 
 /* ── our corner of localStorage ──────────────────────────────────
    SAVE VERSION 3. The rules changed under this game AGAIN — going
@@ -198,11 +226,34 @@ function injectCSS() {
   const st = document.createElement('style');
   st.id = 'gn-runtime-css';
   st.textContent =
-    '#scr-party .gn-felt{--gn-felt:#1A2E4A;--gn-felt2:#101F33;flex:1;min-height:0;width:100%;' +
-      'display:flex;flex-direction:column;gap:5px;padding:8px 7px 6px;border-radius:16px;position:relative;' +
-      'background:radial-gradient(120% 85% at 50% 8%,#274468 0%,var(--gn-felt) 45%,var(--gn-felt2) 100%);' +
+    /* ── THE FELT ──────────────────────────────────────────────────
+       A surface cards are played ON, the way js/skarta-ui.js's
+       .sk-felt is a surface: a lit centre falling off to dark
+       corners, a hairline rail inside the edge, and a soft wash
+       under the middle where the deck and the spread sit. It is all
+       paint — no layout, nothing that moves — so it costs the phone
+       one gradient and can never push a control anywhere. ── */
+    /* justify-content:space-between is how the leftover height is
+       spent. Pinning the hand to the bottom (margin-top:auto) put
+       ALL of it in one 190px band under your table — the owner's
+       "a lot of space" with a different postcode. Spread evenly
+       between the four bands it stops being a hole and becomes the
+       spacing of a laid-out table: the seats breathe, the deck and
+       the spread sit clear of both, and your cards are not crammed
+       under your melds. */
+    '#scr-party .gn-felt{--gn-felt:#1A2E4A;--gn-felt2:#0E1B2D;flex:1;min-height:0;width:100%;' +
+      'display:flex;flex-direction:column;justify-content:space-between;gap:5px;' +
+      'padding:8px 7px 6px;border-radius:16px;position:relative;' +
+      'overflow:hidden;' +
+      'background:radial-gradient(115% 78% at 50% 30%,#2B4C74 0%,var(--gn-felt) 46%,var(--gn-felt2) 100%);' +
       'border:1px solid rgba(0,0,0,.5);box-shadow:inset 0 2px 0 rgba(255,255,255,.07),' +
-      'inset 0 -18px 34px rgba(0,0,0,.42);overscroll-behavior:none}' +
+      'inset 0 0 0 1px rgba(255,255,255,.045),inset 0 -22px 40px rgba(0,0,0,.45);' +
+      'overscroll-behavior:none}' +
+    /* the wash under the play area — pure decoration, behind everything */
+    '#scr-party .gn-felt::before{content:"";position:absolute;left:6%;right:6%;top:12%;height:44%;' +
+      'z-index:0;pointer-events:none;border-radius:50%;' +
+      'background:radial-gradient(closest-side,rgba(120,180,255,.10),transparent 72%)}' +
+    '#scr-party .gn-felt > *{position:relative;z-index:1}' +
 
     /* klabb's card faces, restated under our scope (klabb only injects
        its sheet when a klabb table opens) */
@@ -249,40 +300,89 @@ function injectCSS() {
       '-webkit-tap-highlight-color:transparent}' +
     '#scr-party .gn-specbtn.locked{opacity:.55}' +
 
-    /* ── the middle band: deck + the spread, the prompt, the buttons ── */
-    '#scr-party .gn-mid{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;' +
-      'justify-content:center;gap:6px;position:relative;width:100%}' +
-    '#scr-party .gn-piles{display:flex;align-items:flex-start;justify-content:center;gap:10px;' +
+    /* ── the middle band: deck + the spread, the prompt, the buttons.
+       flex:0 0 auto ON PURPOSE. It used to be flex:1 with its
+       contents centred, which is exactly what put a band of empty
+       felt above and below the prompt — the owner's "a lot of
+       space". The middle now takes only what it needs and the SLACK
+       GOES TO YOUR TABLE, which is the thing that grows all game. ── */
+    '#scr-party .gn-mid{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;' +
+      'justify-content:flex-start;gap:6px;position:relative;width:100%}' +
+    '#scr-party .gn-piles{display:flex;align-items:flex-start;justify-content:center;gap:9px;' +
       'width:100%;min-height:0}' +
     '#scr-party .gn-pilebox{display:flex;flex-direction:column;align-items:center;gap:3px;flex:0 0 auto}' +
     '#scr-party .gn-pilelbl{font:900 8.5px/1 var(--disp);letter-spacing:.14em;text-transform:uppercase;' +
       'color:rgba(255,255,255,.45)}' +
-    '#scr-party .gn-pilebtn{position:relative;display:block;width:min(58px,10.5vh);height:min(81px,14.7vh);' +
+    /* the strip says which of the two games you are in, and the half
+       that changes when your 45 goes down is the half that lights */
+    '#scr-party .gn-pilelbl b{color:#3DDC84}' +
+    /* the deck reads as a DECK: klabb's own stacked-edge trick, so it
+       has thickness instead of being one lonely card */
+    '#scr-party .gn-pilebtn{position:relative;display:block;width:min(66px,11.6vh);height:min(92px,16.2vh);' +
       'padding:0;border:0;border-radius:7px;background:none;line-height:0;cursor:pointer;' +
-      '-webkit-tap-highlight-color:transparent;box-shadow:0 3px 6px rgba(0,0,0,.5),0 8px 18px rgba(0,0,0,.35);' +
+      '-webkit-tap-highlight-color:transparent;' +
+      'box-shadow:0 4px 12px rgba(0,0,0,.5),3px -3px 0 -1px #16283F,3px -3px 0 0 rgba(255,255,255,.13),' +
+        '6px -6px 0 -1px #16283F,6px -6px 0 0 rgba(255,255,255,.09);' +
       'transition:box-shadow .15s var(--ease),opacity .15s}' +
-    '#scr-party .gn-pilebtn.can{box-shadow:0 0 0 2.5px rgba(61,220,132,.85),0 6px 14px rgba(0,0,0,.45)}' +
+    '#scr-party .gn-pilebtn.can{box-shadow:0 0 0 2.5px rgba(61,220,132,.85),0 6px 14px rgba(0,0,0,.45),' +
+      '3px -3px 0 -1px #16283F,6px -6px 0 -1px #16283F}' +
     '#scr-party .gn-pilebtn.dim{opacity:.5;cursor:default}' +
     '#scr-party .gn-pilebtn .gn-count{position:absolute;right:-7px;top:-7px;z-index:2;min-width:20px;height:20px;' +
       'padding:0 5px;border-radius:999px;display:grid;place-items:center;font:900 9.5px/1 var(--disp);' +
       'color:#241800;background:var(--gold);border:1px solid #FFE9B0;line-height:20px}' +
 
-    /* THE SPREAD — every discard, face up, in the order thrown, seven
-       a row, wrapping downward. A record, not a control: the only
-       card that is ever a button is the newest one, on the hand's
-       first turn. Grows to ~2.4 rows then scrolls, newest in view. */
+    /* THE SPREAD — overlapped, corner-out, wrapping into rows. Each
+       row is a flex line of cards pulled left onto each other by a
+       negative margin, so only SPREAD_SHOW of each is uncovered and
+       the last of a run sits whole. position:relative and nothing
+       else does the stacking: positioned siblings paint in document
+       order, so every card lands on top of the one it was thrown
+       after — which is the right way round for a pile. */
     '#scr-party .gn-sprbox{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px;' +
       'align-items:stretch}' +
-    '#scr-party .gn-spread{display:grid;grid-template-columns:repeat(' + PER_ROW + ',minmax(0,1fr));' +
-      'gap:3px;width:100%;overflow-y:auto;overscroll-behavior:contain;border-radius:8px;' +
-      'padding:3px;background:rgba(0,0,0,.22);border:1px dashed rgba(255,255,255,.14)}' +
-    '#scr-party .gn-dcard{position:relative;aspect-ratio:5/7;border-radius:4px;line-height:0;padding:0;' +
-      'border:0;background:none;box-shadow:0 1px 3px rgba(0,0,0,.45)}' +
-    '#scr-party button.gn-dcard{cursor:pointer;-webkit-tap-highlight-color:transparent}' +
-    '#scr-party .gn-dcard.up{box-shadow:0 0 0 2px rgba(61,220,132,.85),0 2px 6px rgba(0,0,0,.5)}' +
-    '#scr-party .gn-dcard.drop{box-shadow:0 0 0 2px var(--gold),0 2px 6px rgba(0,0,0,.5)}' +
-    '#scr-party .gn-spread:empty{min-height:34px}' +
-    '#scr-party .gn-spread.drop{border-color:var(--gold);background:rgba(255,197,66,.08)}' +
+    '#scr-party .gn-spread{display:flex;flex-direction:column;gap:4px;width:100%;' +
+      'overflow-y:auto;overscroll-behavior:contain;border-radius:9px;padding:5px 6px;' +
+      'background:linear-gradient(180deg,rgba(0,0,0,.30),rgba(0,0,0,.16));' +
+      'border:1px solid rgba(255,255,255,.09);box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}' +
+    '#scr-party .gn-sprow{display:flex;align-items:flex-start;flex:0 0 auto}' +
+    '#scr-party .gn-dcard{position:relative;flex:0 0 auto;border-radius:4px;line-height:0;padding:0;' +
+      'border:0;background:none;cursor:pointer;-webkit-tap-highlight-color:transparent;' +
+      'box-shadow:-1px 0 2px rgba(0,0,0,.55),0 2px 5px rgba(0,0,0,.4);' +
+      'transition:transform .14s var(--ease)}' +
+    '#scr-party .gn-dcard:first-child{box-shadow:0 2px 5px rgba(0,0,0,.4)}' +
+    /* the newest throw, whole and ringed: the one card anybody hunts for */
+    '#scr-party .gn-dcard.new{box-shadow:0 0 0 2px rgba(255,197,66,.75),0 2px 6px rgba(0,0,0,.5)}' +
+    '#scr-party .gn-dcard.up{box-shadow:0 0 0 2.5px rgba(61,220,132,.9),0 2px 6px rgba(0,0,0,.5)}' +
+    '#scr-party .gn-dcard.peek{transform:translateY(-3px);z-index:5}' +
+    /* THE RUN YOU ARE ABOUT TO CARRY OFF — lit whole, before you
+       commit, with everything you would leave behind dimmed. The
+       card you reached for is ringed brightest because it is the one
+       you actually wanted; the rest is the price. */
+    '#scr-party .gn-dcard.run{box-shadow:0 0 0 2px rgba(61,220,132,.9),0 3px 8px rgba(0,0,0,.5);' +
+      'transform:translateY(-4px);z-index:4}' +
+    '#scr-party .gn-dcard.want{box-shadow:0 0 0 3px var(--gold),0 4px 12px rgba(0,0,0,.55);' +
+      'transform:translateY(-7px);z-index:6}' +
+    '#scr-party .gn-dcard.faded{filter:brightness(.5) saturate(.6)}' +
+    '#scr-party .gn-spread.aim{border-color:rgba(61,220,132,.5);' +
+      'background:linear-gradient(180deg,rgba(61,220,132,.12),rgba(0,0,0,.2))}' +
+    '#scr-party .gn-spread.drop{border-color:var(--gold);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.16),rgba(255,197,66,.06))}' +
+    '#scr-party .gn-sprempty{display:grid;place-items:center;min-height:44px;' +
+      'font:900 9px/1.4 var(--disp);letter-spacing:.11em;text-transform:uppercase;' +
+      'color:rgba(255,255,255,.32);text-align:center}' +
+
+    /* the full card, on tap. Lives inside the middle band like the
+       spectator sheet does, so it can never reach the hand. */
+    '#scr-party .gn-zoom{position:absolute;inset:0;z-index:13;display:flex;align-items:center;' +
+      'justify-content:center;gap:12px;padding:8px;border-radius:12px;background:rgba(7,5,14,.9);' +
+      'border:1px solid rgba(255,255,255,.14);animation:gn-pop .16s var(--ease)}' +
+    '@keyframes gn-pop{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}' +
+    '#scr-party .gn-zoom .gn-zc{width:min(96px,19vh);flex:0 0 auto;line-height:0;border-radius:8px;' +
+      'box-shadow:0 10px 24px rgba(0,0,0,.6)}' +
+    '#scr-party .gn-zoom .gn-zt{display:flex;flex-direction:column;gap:7px;align-items:flex-start;' +
+      'min-width:0}' +
+    '#scr-party .gn-zoom .gn-zt b{font:900 13px/1.2 var(--disp);color:var(--gold)}' +
+    '#scr-party .gn-zoom .gn-zt i{font:700 11px/1.45 var(--body);font-style:normal;color:var(--dim)}' +
 
     '#scr-party .gn-say{font:700 11.5px/1.5 var(--body);color:rgba(255,255,255,.85);text-align:center;' +
       'padding:0 10px;max-width:360px;min-height:17px}' +
@@ -299,19 +399,43 @@ function injectCSS() {
     '#scr-party .gn-act[disabled]{opacity:.4;cursor:default}' +
     '#scr-party .gn-act:not([disabled]):active{transform:translateY(2px);box-shadow:none}' +
 
-    /* ── YOUR TABLE — always on screen once you are open ── */
-    '#scr-party .gn-tbl{flex:0 0 auto;display:flex;align-items:center;gap:7px;width:100%;' +
-      'padding:4px 5px;border-radius:10px;background:rgba(0,0,0,.2);' +
-      'border:1px solid rgba(255,255,255,.09)}' +
-    '#scr-party .gn-tbl .gn-tlbl{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;' +
-      'font:900 8.5px/1.2 var(--disp);letter-spacing:.1em;text-transform:uppercase;' +
-      'color:rgba(255,255,255,.5)}' +
-    '#scr-party .gn-tbl .gn-tlbl b{color:#3DDC84;font:900 12px/1 var(--disp)}' +
-    '#scr-party .gn-melds{display:flex;flex-wrap:wrap;gap:6px 9px;align-items:center;flex:1 1 auto;' +
-      'min-width:0;max-height:96px;overflow-y:auto;overscroll-behavior:contain}' +
+    /* ── YOUR TABLE — the band that TAKES THE SLACK ────────────────
+       It grows all game and it is the thing you are proudest of, so
+       it gets the felt's spare height rather than the gaps did. Held
+       shut it is not hidden — an empty table is still your table, so
+       it says so, with the one number that opens it. ── */
+    /* flex:0 1 auto — it sizes to the melds it holds and SHRINKS
+       (its meld tray scrolling) when the felt is tight, but it never
+       inflates to fill space it has nothing to put in. An empty
+       table that had taken the slack was 250px of blue nothing at
+       390 — the owner's complaint moved, not fixed. Where the slack
+       actually goes is the note on .gn-me. */
+    '#scr-party .gn-tbl{flex:0 1 auto;min-height:60px;display:flex;align-items:stretch;gap:8px;' +
+      'width:100%;padding:6px 7px;border-radius:12px;position:relative;overflow:hidden;' +
+      'background:radial-gradient(120% 140% at 12% 0%,rgba(61,220,132,.10) 0%,rgba(0,0,0,.26) 55%,' +
+        'rgba(0,0,0,.32) 100%);' +
+      'border:1px solid rgba(255,255,255,.11);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}' +
+    '#scr-party .gn-tbl.shut{border-style:dashed;border-color:rgba(255,255,255,.14);' +
+      'background:rgba(0,0,0,.18)}' +
+    '#scr-party .gn-tbl .gn-tlbl{flex:0 0 auto;display:flex;flex-direction:column;gap:3px;' +
+      'justify-content:center;font:900 8.5px/1.2 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.5)}' +
+    '#scr-party .gn-tbl .gn-tlbl b{color:#3DDC84;font:900 14px/1 var(--disp)}' +
+    '#scr-party .gn-melds{display:flex;flex-wrap:wrap;gap:7px 10px;align-content:flex-start;' +
+      'flex:1 1 auto;min-width:0;overflow-y:auto;overscroll-behavior:contain}' +
+    /* the deliberate empty table: a place waiting for cards, saying
+       what puts them there. Not a hole, and not filler either. */
+    '#scr-party .gn-tblwait{flex:1 1 auto;display:flex;flex-direction:column;justify-content:center;' +
+      'gap:3px;min-width:0;font:700 11px/1.45 var(--body);color:rgba(255,255,255,.5)}' +
+    '#scr-party .gn-tblwait b{color:var(--gold);font-weight:900}' +
+    '#scr-party .gn-tblbar{height:5px;border-radius:99px;background:rgba(255,255,255,.09);' +
+      'overflow:hidden;margin-top:2px}' +
+    '#scr-party .gn-tblbar i{display:block;height:100%;border-radius:99px;' +
+      'background:linear-gradient(90deg,var(--gold),#3DDC84);transform-origin:left center;' +
+      'transition:transform .3s var(--ease)}' +
     '#scr-party .gn-meld{display:flex;padding:0;border:0;background:none;line-height:0;cursor:pointer;' +
       'border-radius:5px;-webkit-tap-highlight-color:transparent}' +
-    '#scr-party .gn-meld .gn-mc{width:27px;height:38px;margin-left:-15px;border-radius:3.5px;' +
+    '#scr-party .gn-meld .gn-mc{width:31px;height:43px;margin-left:-17px;border-radius:3.5px;' +
       'box-shadow:0 1px 3px rgba(0,0,0,.5);line-height:0;background:#FCF7EA}' +
     '#scr-party .gn-meld .gn-mc:first-child{margin-left:0}' +
     '#scr-party .gn-meld.fit{box-shadow:0 0 0 2.5px rgba(61,220,132,.9);border-radius:6px}' +
@@ -334,6 +458,45 @@ function injectCSS() {
     '#scr-party .gn-spec .gn-melds{max-height:none}' +
     '#scr-party .gn-spec .gn-meld .gn-mc{width:34px;height:48px;margin-left:-17px}' +
     '#scr-party .gn-spec .gn-meld .gn-mc:first-child{margin-left:0}' +
+
+    /* ── the Tables sheet: who is out, then every pile by name ──── */
+    '#scr-party .gn-who{display:flex;flex-direction:column;gap:4px}' +
+    '#scr-party .gn-whorow{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;' +
+      'padding:5px 8px;border-radius:8px;background:rgba(255,255,255,.04);' +
+      'border-left:3px solid rgba(255,255,255,.14)}' +
+    '#scr-party .gn-whorow.out{border-left-color:#3DDC84;background:rgba(61,220,132,.08)}' +
+    '#scr-party .gn-whorow b{font:900 11.5px/1.2 var(--disp);color:var(--txt)}' +
+    '#scr-party .gn-whorow i{font:700 10px/1.3 var(--body);font-style:normal;color:var(--dim)}' +
+    '#scr-party .gn-whorow i b{font:900 10px/1.3 var(--disp);color:#3DDC84}' +
+    /* rows while the piles are few… */
+    '#scr-party .gn-tabs{display:flex;flex-direction:column;gap:6px}' +
+    /* …and a real table once there are more than five of them */
+    '#scr-party .gn-tabs.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));' +
+      'gap:6px 8px;align-items:start}' +
+    '#scr-party .gn-trow{display:flex;align-items:center;gap:8px;min-width:0;' +
+      'padding:5px 7px;border-radius:9px;background:rgba(0,0,0,.26);' +
+      'border:1px solid rgba(255,255,255,.09)}' +
+    '#scr-party .gn-trow.mine{border-color:rgba(61,220,132,.4);background:rgba(61,220,132,.07)}' +
+    '#scr-party .gn-tname{flex:0 0 auto;max-width:34%;overflow:hidden;text-overflow:ellipsis;' +
+      'white-space:nowrap;font:900 9px/1.2 var(--disp);letter-spacing:.08em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.62)}' +
+    '#scr-party .gn-trow.mine .gn-tname{color:#3DDC84}' +
+    '#scr-party .gn-trow .gn-meld{flex:1 1 auto;min-width:0;justify-content:flex-start}' +
+    '#scr-party .gn-tval{flex:0 0 auto;margin-left:auto;font:900 10px/1 var(--disp);' +
+      'color:var(--gold)}' +
+    /* in grid mode the cards must give way, not the layout */
+    '#scr-party .gn-tabs.grid .gn-meld .gn-mc{width:25px;height:35px;margin-left:-14px}' +
+    '#scr-party .gn-tabs.grid .gn-tname{max-width:100%;font-size:8.5px}' +
+
+    /* THE MIDDLE GROWS FOR IT. "the middle needs to grow that space":
+       while the sheet is open it is the most important thing on the
+       felt, so the middle band claims the felt's slack and your own
+       table strip stands down — the sheet lists YOUR piles too, so
+       nothing is lost by it and the sheet gets the room. The hand is
+       untouched: handMetrics reserves the table's minimum whether it
+       is on screen or not, precisely so this cannot move it. */
+    '#scr-party .gn-felt.specing .gn-mid{flex:1 1 auto;min-height:0}' +
+    '#scr-party .gn-felt.specing .gn-tbl{display:none}' +
     '#scr-party .gn-spec .gn-note{font:700 11px/1.5 var(--body);color:var(--dim)}' +
     '#scr-party .gn-spec .gn-note b{color:var(--txt)}' +
     '#scr-party .gn-hintchip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;' +
@@ -346,7 +509,15 @@ function injectCSS() {
     '@keyframes gn-deny{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}' +
       '55%{transform:translateX(6px)}80%{transform:translateX(-3px)}}' +
 
-    /* ── my side: the dashboard and the hand ── */
+    /* ── my side: the dashboard and the hand ──────────────────────
+       margin-top:auto is where the felt's spare height goes, and it
+       is the one honest answer. The deck and the spread belong at
+       the top of a table, your melds under them, your hand at the
+       near edge — so the slack collects in ONE band between your
+       table and your dashboard, which is precisely where a real
+       table has bare felt — but ALL of it in that one band was still
+       a hole, so the felt spreads it between every pair of rows
+       instead (see .gn-felt's justify-content). ── */
     '#scr-party .gn-me{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}' +
     '#scr-party .gn-dash{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;' +
       'min-height:26px}' +
@@ -412,31 +583,42 @@ function injectCSS() {
       '#scr-party .gn-mid{gap:4px}' +
       '#scr-party .gn-say{font-size:10.5px;min-height:0}' +
       '#scr-party .gn-act{min-height:36px;padding:0 12px}' +
-      '#scr-party .gn-melds{max-height:52px}' +
-      '#scr-party .gn-meld .gn-mc{width:23px;height:32px;margin-left:-13px}}' +
+      '#scr-party .gn-tbl{min-height:56px;padding:5px 6px}' +
+      '#scr-party .gn-tblwait{font-size:10px;line-height:1.35}' +
+      '#scr-party .gn-meld .gn-mc{width:27px;height:38px;margin-left:-15px}}' +
     /* SIDEWAYS — both orientations are first-class here. The felt
        becomes a two-column grid: the seats, your table and your hand
        on the left; the deck, the spread, the prompt and the buttons
        in a column on the right. Spectator mode still opens over the
        right column only, so the hand stays live. */
     '@media (max-height:480px){' +
-      '#scr-party .gn-felt{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);' +
-        'grid-template-rows:auto auto minmax(0,1fr);gap:4px 10px;padding:6px 8px 5px;' +
-        'grid-template-areas:"top mid" "tbl mid" "me mid";align-items:center}' +
-      '#scr-party .gn-top{grid-area:top;min-height:22px;gap:6px;justify-content:flex-start}' +
+      /* the TABLE row takes the slack here too — middle row minmax(0,1fr),
+         with the seats above it and the hand below at their own heights */
+      '#scr-party .gn-felt{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);' +
+        'grid-template-rows:auto minmax(0,1fr) auto;gap:4px 10px;padding:6px 8px 5px;' +
+        'grid-template-areas:"top mid" "tbl mid" "me mid";align-items:stretch}' +
+      '#scr-party .gn-felt::before{top:6%;height:52%}' +
+      '#scr-party .gn-top{grid-area:top;min-height:22px;gap:6px;justify-content:flex-start;' +
+        'align-items:center}' +
       '#scr-party .gn-mid{grid-area:mid;gap:5px;align-self:stretch;justify-content:flex-start;' +
         'padding-top:2px}' +
-      '#scr-party .gn-tbl{grid-area:tbl;align-self:start}' +
+      '#scr-party .gn-tbl{grid-area:tbl;align-self:stretch;min-height:46px}' +
+      '#scr-party .gn-tblwait{font-size:10px;line-height:1.35}' +
       '#scr-party .gn-me{grid-area:me;gap:2px;align-self:end}' +
       '#scr-party .gn-backs .gn-b{width:14px;height:20px;margin-left:-8px}' +
       '#scr-party .gn-pilelbl{display:none}' +
-      '#scr-party .gn-pilebtn{width:min(46px,12vh);height:min(64px,16.8vh)}' +
+      '#scr-party .gn-pilebtn{width:min(50px,13vh);height:min(70px,18.2vh);' +
+        'box-shadow:0 3px 8px rgba(0,0,0,.5),2px -2px 0 -1px #16283F,2px -2px 0 0 rgba(255,255,255,.12),' +
+        '4px -4px 0 -1px #16283F,4px -4px 0 0 rgba(255,255,255,.08)}' +
       '#scr-party .gn-pilebtn .gn-count{min-width:17px;height:17px;line-height:17px;font-size:9px}' +
       '#scr-party .gn-piles{gap:6px}' +
       '#scr-party .gn-say{max-width:none;font-size:10px;line-height:1.4}' +
       '#scr-party .gn-acts{gap:5px}' +
       '#scr-party .gn-dash{min-height:22px;justify-content:flex-start}' +
-      '#scr-party .gn-melds{max-height:44px}' +
+      '#scr-party .gn-meld .gn-mc{width:25px;height:35px;margin-left:-14px}' +
+      '#scr-party .gn-zoom{gap:9px}' +
+      '#scr-party .gn-zoom .gn-zc{width:min(62px,17vh)}' +
+      '#scr-party .gn-zoom .gn-zt i{font-size:10px;line-height:1.35}' +
       '#scr-party .gn-act{min-height:30px;font-size:10px;padding:0 10px}' +
       '#scr-party .pt-turn.pt-turn{min-height:28px;margin-bottom:4px;padding:3px 10px}}';
   document.head.appendChild(st);
@@ -464,6 +646,9 @@ function startMatch(opts, seed, log) {
     mySeat: 0, arr: [], sel: null, drag: null, dragJust: false,
     fresh: null,                      /* the card just drawn, ringed once */
     spec: false,                      /* spectator mode open? */
+    zoom: null,                       /* the thrown card being read whole */
+    pick: null,                       /* the spread index a sweep is AIMED at */
+    spm: null,                        /* the spread's measured geometry */
     timer: 0, dead: false, finished: false, net: null
   };
   M.st = buildState(M.opts, M.seed, M.log);
@@ -516,13 +701,19 @@ function wireOf(mv) {
   const w = { a: mv.t };
   if (mv.t === 'meld') w.k = mv.cs.slice();
   else if (mv.t === 'lay') { w.i = mv.c | 0; w.j = mv.m | 0; }
+  else if (mv.t === 'sweep') w.i = mv.i | 0;    /* WHERE in the spread, not which card */
   else if (mv.c != null) w.i = mv.c | 0;
   return w;
 }
-/* NOTE what is NOT in this list, on purpose: 'knock' (the knock game
-   died two builds ago) and the sweep-era indexed take. A peer still
-   on either build is refused by name, not humoured. */
-const WIRE_OK = { take: 1, draw: 1, disc: 1, down: 1, meld: 1, lay: 1 };
+/* 'sweep' is BACK, and it travels as an INDEX into the spread, not as
+   a card: the run it takes is "this one and everything right of it",
+   which is a position, and both phones hold the identical spread in
+   the identical order (the fingerprint carries st.discard, so if they
+   ever did not, the move is refused before it lands rather than
+   silently taking the wrong cards).
+   NOTE what is NOT in this list, on purpose: 'knock' (the knock game
+   died two builds ago). A peer still on it is refused by name. */
+const WIRE_OK = { take: 1, draw: 1, disc: 1, down: 1, meld: 1, lay: 1, sweep: 1 };
 function moveFromWire(d) {
   if (!d || typeof d.a !== 'string' || !WIRE_OK[d.a]) return null;
   const mv = { t: d.a };
@@ -540,6 +731,11 @@ function moveFromWire(d) {
     const c = d.i | 0, m = d.j | 0;
     if (c < 0 || c > 51 || m < 0 || m > 255) return null;
     mv.c = c; mv.m = m;
+  } else if (d.a === 'sweep') {
+    if (d.i == null) return null;
+    const i = d.i | 0;
+    if (i < 0 || i > 255) return null;         /* E.check bounds it to the real spread */
+    mv.i = i;
   } else if (d.a === 'disc' || d.a === 'down') {
     if (d.i == null) return null;
     const c = d.i | 0;
@@ -571,6 +767,15 @@ function sound(mv, seat, src) {
   switch (mv.t) {
     case 'draw': cue('card.deal', { gain: mine ? 0.9 : 0.7 }); break;
     case 'take': cue('pack.flip', { gain: mine ? 0.9 : 0.7 }); break;
+    case 'sweep': {
+      /* a fistful of cards coming off the felt: the flip, then a
+         short run of deals whose length IS the size of the reach, so
+         a big sweep sounds like one without anybody being told */
+      cue('pack.flip', { gain: mine ? 0.95 : 0.75 });
+      const n = Math.min((M.st.last && M.st.last.n) || 1, 6);
+      if (n > 1) cueRun('card.deal', n, FAST ? 1 : 55, { gain: mine ? 0.7 : 0.5 });
+      break;
+    }
     case 'disc':
       cue('card.throw', { gain: mine ? 0.8 : 0.6, rate: mine ? 1 : 0.95 });
       /* the spread going back into the deck — worth hearing */
@@ -800,6 +1005,7 @@ function render() {
   paintTable();
   paintDash();
   paintHand();
+  paintZoom();
   paintSpec();
   paintVerdict();
 
@@ -860,6 +1066,8 @@ function paintTop() {
       return;
     }
     M.spec = !M.spec;
+    M.zoom = null;                  /* one sheet over the middle at a time */
+    M.pick = null;                  /* and no reach left aimed behind it */
     cue('ui.tap', { gain: 0.8 });
     render();
   };
@@ -884,9 +1092,25 @@ function paintMid() {
   if (!ready) say = 'Agreeing the house rules with ' + esc(st.seats[1 - me].name) + '…';
   else if (!myGo && t >= 0) say = 'Waiting on ' + esc(st.seats[1 - me].name) + '…';
   else if (ph === 'main') {
-    say = canUp
-      ? 'First turn: take the <b>' + esc(nameOfCard(E.upTop(st))) + '</b> — or draw blind. After this, the deck only.'
-      : 'Draw your card off the <b>deck</b>.';
+    /* the prompt has to tell the truth about WHICH game you are in:
+       closed, the deck is the whole of it; open, the spread is a
+       second place to draw and the strip must say so */
+    const canSw = E.canSweep(st, me) && myGo;
+    if (M.pick != null && canSw) {
+      const run = E.sweepRun(st, M.pick);
+      say = 'Take the <b>' + esc(nameOfCard(run[0])) + '</b>' +
+        (run.length > 1
+          ? ' and the <b>' + (run.length - 1) + '</b> thrown after it — ' +
+            '<b>' + run.length + '</b> cards into your hand'
+          : ' — the newest card') + '?';
+    } else if (canUp) {
+      say = 'First turn: take the <b>' + esc(nameOfCard(E.upTop(st))) + '</b> — or draw blind.';
+    } else if (canSw) {
+      say = 'Draw off the <b>deck</b> — or <b>reach into the spread</b>: tap any card to take it ' +
+        'and everything right of it.';
+    } else {
+      say = 'Draw your card off the <b>deck</b>. The spread is not yours until your <b>45</b> is down.';
+    }
   } else if (acting) {
     if (M.sel != null) {
       if (M.sel === banned) say = 'Not that one — you only just took it. Throw another.';
@@ -903,20 +1127,7 @@ function paintMid() {
     }
   } else say = '';
 
-  /* the spread, oldest top-left, newest last. Only the newest card is
-     ever a button, and only on the hand's first turn. */
-  let spread = '';
   const L = st.discard.length;
-  for (let i = 0; i < L; i++) {
-    const c = st.discard[i];
-    const newest = i === L - 1;
-    if (newest && canUp)
-      spread += '<button type="button" class="gn-dcard up tapme" id="gn-upbtn" ' +
-        'aria-label="Take the ' + esc(nameOfCard(c)) + ' — first turn only.">' + faceHTML(c) + '</button>';
-    else
-      spread += '<span class="gn-dcard" aria-hidden="true">' + faceHTML(c) + '</span>';
-  }
-
   $id('gn-mid').innerHTML =
     '<div class="gn-piles">' +
       '<div class="gn-pilebox"><span class="gn-pilelbl">Deck</span>' +
@@ -924,27 +1135,35 @@ function paintMid() {
           'aria-label="Draw a blind card from the deck. ' + st.stock.length + ' left."' +
           (canDraw ? '' : ' aria-disabled="true"') + '>' +
           backHTML() + '<span class="gn-count">' + st.stock.length + '</span></button></div>' +
-      '<div class="gn-sprbox"><span class="gn-pilelbl">Thrown · oldest to newest · nobody picks these up</span>' +
-        '<div class="gn-spread" id="gn-pile" aria-label="The thrown cards, ' + L + ' of them, in the order they went.">' +
-        spread + '</div></div>' +
+      '<div class="gn-sprbox"><span class="gn-pilelbl">' +
+        (E.canSweep(st, me)
+          ? 'Thrown · ' + L + ' · take any card <b>and everything right of it</b>'
+          : 'Thrown · ' + L + ' · not yours until your 45 is down') + '</span>' +
+        '<div class="gn-spread" id="gn-pile" aria-label="The thrown cards, ' + L +
+          ' of them, oldest first. ' +
+          (E.canSweep(st, me)
+            ? 'Your 45 is down, so you may take any of them together with every card thrown after it.'
+            : 'A record only: nobody takes from here until their 45 is down.') + '">' +
+        '</div></div>' +
     '</div>' +
     '<div class="gn-say" id="gn-say" role="status" aria-live="polite">' + say + '</div>' +
     '<div class="gn-acts" id="gn-acts"></div>';
 
-  /* the spread scrolls to its newest rows, and its height is capped
-     so it can never push the hand off the felt */
-  const sp = $id('gn-pile');
-  if (sp) {
-    const cardH = (sp.clientWidth / PER_ROW) * 1.4;
-    const hostH = M.ctx.host.clientHeight || 500;
-    sp.style.maxHeight = Math.max(46, Math.min(cardH * 2.4, hostH * 0.28)) + 'px';
-    sp.scrollTop = sp.scrollHeight;
-  }
+  paintSpread(canUp);
 
   /* the action row: honest buttons under the same taps */
   const acts = $id('gn-acts');
   let h = '';
-  if (canUp) {
+  /* THE AIMED SWEEP — the second, deliberate press. Nothing has left
+     the spread until this is hit, and the run it would take is lit
+     on the felt behind it while the player reads the number. */
+  if (M.pick != null && canSweepNow()) {
+    const run = E.sweepRun(st, M.pick);
+    h += '<button type="button" class="gn-act hot tapme" data-a="sweep">Take ' +
+      (run.length === 1 ? 'this card' : 'these ' + run.length) + '</button>';
+    h += '<button type="button" class="gn-act ghost tapme" data-a="peek">See it whole</button>';
+    h += '<button type="button" class="gn-act ghost tapme" data-a="unpick">Cancel</button>';
+  } else if (canUp) {
     h += '<button type="button" class="gn-act tapme" data-a="take">Take it</button>';
     h += '<button type="button" class="gn-act ghost tapme" data-a="draw">Draw blind</button>';
   }
@@ -978,8 +1197,177 @@ function paintMid() {
     if (stx.phase === 'act') { nag('You have your card — now throw one.'); return; }
     act('draw');
   };
-  const upb = $id('gn-upbtn');
-  if (upb) upb.onclick = () => act('take');
+}
+
+/* ── THE SPREAD, laid out ─────────────────────────────────────────
+   Measured, not guessed: the card size comes off the width the box
+   really has and the height the felt can really spare, and the
+   number to a row falls out of the two. Everything here is computed
+   layout — offsetWidth/clientWidth and inline styles — with nothing
+   read back off a painted rect, because painted rects are exactly
+   what a headless render cannot be trusted about. */
+function spreadMetrics(boxW, hostH) {
+  /* wide enough to read at arm's length, short enough that three
+     rows of them never eat the hand's budget */
+  let w = Math.round(Math.min(58, Math.max(34, boxW * 0.19)));
+  w = Math.min(w, Math.round(Math.max(44, hostH * 0.15) / 1.4));
+  const h = Math.round(w * 1.4);
+  const step = Math.max(10, Math.round(w * SPREAD_SHOW));   /* the sliver on show */
+  const per = Math.max(1, Math.floor((boxW - w) / step) + 1);
+  return { w, h, step, per };
+}
+
+function paintSpread(canUp) {
+  const st = M.st;
+  const box = $id('gn-pile');
+  if (!box) return;
+  const cs = getComputedStyle(box);
+  const boxW = Math.max(60, box.clientWidth -
+    (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0));
+  const hostH = M.ctx.host.clientHeight || 500;
+  const m = spreadMetrics(boxW, hostH);
+  M.spm = m;
+
+  const L = st.discard.length;
+  if (!L) {
+    box.innerHTML = '<span class="gn-sprempty">Nothing thrown yet</span>';
+    box.style.maxHeight = '';
+    return;
+  }
+  const pick = (M.pick != null && M.pick >= 0 && M.pick < L && canSweepNow()) ? M.pick : null;
+  if (M.pick != null && pick == null) M.pick = null;      /* the spread moved on */
+
+  const pull = -(m.w - m.step);            /* how far each card sits ON the last */
+  let html = '';
+  for (let i = 0; i < L; i += m.per) {
+    html += '<div class="gn-sprow">';
+    const end = Math.min(i + m.per, L);
+    for (let j = i; j < end; j++) {
+      const c = st.discard[j];
+      const newest = j === L - 1;
+      const first = j === i;
+      /* the run this tap would carry off, lit before it is committed */
+      const inRun = pick != null && j >= pick;
+      html += '<button type="button" class="gn-dcard tapme' +
+        (newest ? (canUp ? ' up' : ' new') : '') +
+        (inRun ? (j === pick ? ' run want' : ' run') : (pick != null ? ' faded' : '')) +
+        '" data-di="' + j + '" data-c="' + c + '" ' +
+        'style="width:' + m.w + 'px;height:' + m.h + 'px' +
+        (first ? '' : ';margin-left:' + pull + 'px') + '" ' +
+        'aria-label="' + esc(nameOfCard(c)) + ', thrown ' + (j + 1) + ' of ' + L +
+        (newest ? ', the newest' : '') + '. Tap to see it whole.">' +
+        faceHTML(c) + '</button>';
+    }
+    html += '</div>';
+  }
+  box.innerHTML = html;
+  box.classList.toggle('aim', pick != null);
+
+  /* the height it may occupy, and the newest rows kept in view */
+  /* THE CAP IS A SHARE OF THE FELT, NOT A NUMBER OF ROWS. Sizing it
+     at "three rows of whatever the cards happen to be" made it swing
+     with the card size and, once reserved, swung the hand with it —
+     on a 360 it drove the hand into two rows and off the bottom of
+     the felt. A flat share of the host is steady in every state, and
+     the row ceiling is left on top of it as a sanity bound. */
+  const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+  const cap = Math.round(Math.min(
+    m.h * SPREAD_ROWS_MAX + 4 * (SPREAD_ROWS_MAX - 1) + pad,
+    Math.max(m.h + pad + 6, hostH * 0.26)));
+  box.style.maxHeight = cap + 'px';
+  box.scrollTop = box.scrollHeight;
+  /* THE HAND MUST NOT MOVE WHEN A CARD IS THROWN. The spread grows a
+     row at a time as the hand goes on, and if the hand's budget were
+     measured off the spread AS IT STANDS, every card thrown would
+     shave the player's own cards a little. So the cap is published
+     here and handMetrics reserves the FULL cap from the start — the
+     spread then grows into room already set aside for it, and the
+     hand is the same size on the last throw as on the first. */
+  M.spm.cap = cap;
+  M.spm.h = box.offsetHeight;
+
+  box.querySelectorAll('.gn-dcard').forEach(el => {
+    el.onclick = () => {
+      if (!M || M.dead) return;
+      const i = +el.dataset.di;
+      /* ── LOOKING IS NEVER TAKING ────────────────────────────────
+         When a sweep is on the table this tap AIMS it and nothing
+         more: the run lights up, the strip says what it would cost,
+         and the take is a separate, labelled press. A player must
+         never carry off half the pile because they wanted to squint
+         at a corner — so the destructive move is the one that needs
+         the second thumb, and the harmless one (a plain look) is
+         still a single tap when there is nothing to take. */
+      if (canSweepNow()) {
+        M.pick = (M.pick === i) ? null : i;     /* tap again to call it off */
+        M.zoom = null;
+        cue('ui.tap', { gain: 0.7 });
+      } else {
+        M.zoom = { c: +el.dataset.c, i };
+        M.pick = null;
+        cue('ui.tap', { gain: 0.7 });
+      }
+      render();
+    };
+  });
+}
+
+/* is reaching into the spread available to me, right now? */
+function canSweepNow() {
+  if (!M || M.dead || !houseReady()) return false;
+  const st = M.st;
+  return E.turn(st) === M.mySeat && st.phase === 'main' && E.canSweep(st, M.mySeat);
+}
+
+/* ── the full card, on tap ────────────────────────────────────────
+   "when click it will show full card". It opens inside the middle
+   band — never over the hand — says where in the run the card sits,
+   and carries the one action that card could ever have (the hand's
+   first turn, and only then). Any tap closes it. */
+function paintZoom() {
+  const mid = $id('gn-mid');
+  if (!mid) return;
+  const old = mid.querySelector('.gn-zoom');
+  if (old) old.remove();
+  if (!M.zoom) return;
+  const st = M.st;
+  const { c, i } = M.zoom;
+  if (st.discard[i] !== c) { M.zoom = null; return; }    /* the pile moved on */
+  const L = st.discard.length;
+  const newest = i === L - 1;
+  const takeable = newest && E.turn(st) === M.mySeat && st.phase === 'main' &&
+                   houseReady() && E.canTakeUp(st);
+  const sweepable = canSweepNow();
+  const run = sweepable ? E.sweepRun(st, i) : [];
+  const div = document.createElement('div');
+  div.className = 'gn-zoom';
+  div.innerHTML =
+    '<span class="gn-zc">' + faceHTML(c) + '</span>' +
+    '<span class="gn-zt">' +
+      '<b>' + esc(nameOfCard(c)) + '</b>' +
+      '<i>Thrown <b>' + (i + 1) + '</b> of ' + L + (newest ? ' — the newest' : '') + '.<br>' +
+        'Worth ' + E.pts(c) + ' if it is caught in a hand.' +
+        (sweepable
+          ? '<br>Reaching here takes <b>' + run.length + '</b> card' +
+            (run.length === 1 ? '' : 's') + ' — this one and everything right of it.'
+          : '') + '</i>' +
+      (takeable
+        ? '<button type="button" class="gn-act tapme" id="gn-ztake">Take it</button>'
+        : sweepable
+          ? '<button type="button" class="gn-act hot tapme" id="gn-zsweep">Take ' +
+              (run.length === 1 ? 'this card' : 'these ' + run.length) + '</button>'
+          : '<i>Thrown cards stay thrown until your 45 is down — until then the deck ' +
+            'is the only place to draw.</i>') +
+      '<button type="button" class="gn-act ghost tapme" id="gn-zx">Close</button>' +
+    '</span>';
+  mid.appendChild(div);
+  const shut = () => { M.zoom = null; render(); };
+  div.onclick = ev => { if (ev.target === div) shut(); };
+  div.querySelector('#gn-zx').onclick = () => { cue('ui.tap', { gain: 0.6 }); shut(); };
+  const tk = div.querySelector('#gn-ztake');
+  if (tk) tk.onclick = () => { M.zoom = null; act('take'); };
+  const sw = div.querySelector('#gn-zsweep');
+  if (sw) sw.onclick = () => { M.zoom = null; M.pick = i; act('sweep'); };
 }
 
 /* Online, the hand size is agreed before anything is touched — see
@@ -1044,6 +1432,19 @@ function act(a) {
   let mv = null;
   if (a === 'take') mv = { t: 'take' };
   else if (a === 'draw') mv = { t: 'draw' };
+  else if (a === 'sweep') {
+    if (M.pick == null || !canSweepNow()) return;
+    mv = { t: 'sweep', i: M.pick };
+  } else if (a === 'unpick') { M.pick = null; cue('ui.tap', { gain: 0.6 }); render(); return; }
+  else if (a === 'peek') {
+    /* the look, from the aimed state: the card you are reaching for,
+       shown whole, WITHOUT taking anything */
+    if (M.pick == null) return;
+    M.zoom = { c: M.st.discard[M.pick], i: M.pick, aimed: true };
+    cue('ui.tap', { gain: 0.7 });
+    render();
+    return;
+  }
   else if (a === 'disc') {
     if (M.sel == null) return;
     mv = { t: 'disc', c: M.sel };
@@ -1079,8 +1480,8 @@ function act(a) {
     denySay(mv);
     return;
   }
-  if (mv.t !== 'lay') M.sel = null;
-  else M.sel = null;
+  M.sel = null;
+  if (mv.t === 'sweep') M.pick = null;         /* the reach is spent */
   render();
 }
 
@@ -1122,15 +1523,40 @@ function nag(text) {
   if (K.toast) K.toast('⚠ ' + (text || 'The rules said no. Take it up with the rules.'));
 }
 
-/* ── YOUR TABLE — the melds you have down, always visible ───────── */
+/* ── YOUR TABLE — the melds you have down ─────────────────────────
+   It is never hidden any more. Held shut it is still your table, so
+   it says what would open it and shows how near you are; the moment
+   you go down it fills with the cards and keeps filling all game.
+   That is what the felt's spare height is FOR — the old build parked
+   the slack in the middle as empty blue, which is the thing the
+   owner complained about. */
 function paintTable() {
   const st = M.st, me = M.mySeat;
   const box = $id('gn-tbl');
   if (!box) return;
+  box.style.display = '';
   const mine = [];
   st.table.forEach((t, ti) => { if (t.by === me) mine.push(ti); });
-  if (!st.down[me] && !mine.length) { box.style.display = 'none'; return; }
-  box.style.display = '';
+
+  if (!st.down[me] && !mine.length) {
+    /* the deliberate empty table: what it is, and the one number
+       that puts cards on it, drawn as progress towards 45 */
+    const n = dashNums();
+    const mv = n.open ? st.open : n.mv;
+    const frac = Math.max(0, Math.min(1, mv / (st.open || 45)));
+    box.className = 'gn-tbl shut';
+    box.innerHTML =
+      '<span class="gn-tlbl">Your<br>table</span>' +
+      '<span class="gn-tblwait">' +
+        'Nothing down yet. Match <b>45</b> in melds and put them here — ' +
+        'then the table is yours to feed.' +
+        '<span class="gn-tblbar" role="img" aria-label="' + mv + ' of ' + st.open + ' towards opening">' +
+          '<i style="transform:scaleX(' + frac.toFixed(3) + ')"></i></span>' +
+      '</span>';
+    return;
+  }
+
+  box.className = 'gn-tbl';
   let h = '<span class="gn-tlbl">Your<br>table<b>+' + st.laid[me] + '</b></span>' +
     '<div class="gn-melds" id="gn-mymelds">';
   for (const ti of mine) h += meldHTML(st.table[ti], ti);
@@ -1186,21 +1612,56 @@ function paintSpec() {
   if (!mid) return;
   const old = mid.querySelector('.gn-spec');
   if (old) old.remove();
+  const feltEl = $id('gn-felt');
+  if (feltEl) feltEl.classList.remove('specing');
   if (!M.spec) return;
   const st = M.st, me = M.mySeat, foe = 1 - me;
   if (!st.down[me]) { M.spec = false; return; }   /* the gate re-checks itself */
 
-  const foeMelds = [];
-  st.table.forEach((t, ti) => { if (t.by === foe) foeMelds.push(ti); });
+  /* ── EVERY TABLE, BY NAME ─────────────────────────────────────
+     The owner: "Tables tab can make dynamic — show name who's are
+     out — and we need to make it with row. And if more than 5 out
+     make it as table, and the middle needs to grow that space."
 
+     So this is no longer just a peek at the other chair. It is the
+     whole felt: every pile that has been put out, each carrying the
+     NAME of whoever put it there — which is the thing you actually
+     need, because a lay scores for whoever lays it and every pile on
+     the table is somewhere your cards may go, yours included.
+     One pile per ROW while they are few; past five the rows become
+     a GRID, because a sixth row of one meld each is a scroll where a
+     table would have been. */
   let body = '';
-  body += '<div class="gn-note"><b>' + esc(st.seats[foe].name) + '</b> — ' +
-    (st.down[foe] ? ('open, <b>+' + st.laid[foe] + '</b> laid, ' + st.seats[foe].hand.length + ' cards in hand.')
-                  : 'not open yet: nothing on their table.') + '</div>';
-  if (foeMelds.length) {
-    body += '<div class="gn-melds">';
-    for (const ti of foeMelds) body += meldHTML(st.table[ti], ti);
+  const piles = st.table.map((t, ti) => ({ t, ti }));
+
+  /* who is where, in one line each — the "who's are out" */
+  body += '<div class="gn-who">';
+  for (const s of [me, foe]) {
+    const n = st.table.filter(t => t.by === s).length;
+    body += '<span class="gn-whorow' + (st.down[s] ? ' out' : '') + '">' +
+      '<b>' + esc(st.seats[s].name) + (s === me ? ' (you)' : '') + '</b>' +
+      (st.down[s]
+        ? '<i>out · ' + n + ' pile' + (n === 1 ? '' : 's') + ' · <b>+' + st.laid[s] + '</b> laid · ' +
+          st.seats[s].hand.length + ' in hand</i>'
+        : '<i>not out yet · ' + st.seats[s].hand.length + ' in hand</i>') +
+      '</span>';
+  }
+  body += '</div>';
+
+  if (piles.length) {
+    /* past five piles this stops being a list and becomes a table */
+    body += '<div class="gn-tabs' + (piles.length > SPEC_ROWS_MAX ? ' grid' : '') + '">';
+    for (const p of piles) {
+      const mine = p.t.by === me;
+      body += '<div class="gn-trow' + (mine ? ' mine' : '') + '">' +
+        '<span class="gn-tname">' + esc(seatName(p.t.by)) + '</span>' +
+        meldHTML(p.t, p.ti) +
+        '<span class="gn-tval">+' + E.handPts(p.t.cs) + '</span>' +
+        '</div>';
+    }
     body += '</div>';
+  } else {
+    body += '<div class="gn-note">Nothing is out yet. The first 45 opens the table.</div>';
   }
   /* the beginner aid, and ONLY with hints on: what of yours fits
      where. With hints off the tables are shown and nothing more. */
@@ -1218,10 +1679,12 @@ function paintSpec() {
     }
   }
 
+  const felt = $id('gn-felt');
+  if (felt) felt.classList.add('specing');
   const div = document.createElement('div');
   div.className = 'gn-spec';
   div.innerHTML =
-    '<h4><span>The tables</span>' +
+    '<h4><span>The tables · ' + st.table.length + ' out</span>' +
       '<button type="button" class="gn-specbtn tapme" id="gn-spec-x">Back</button></h4>' +
     '<div class="gn-spbody">' + body + '</div>';
   mid.appendChild(div);
@@ -1324,13 +1787,22 @@ function handMetrics() {
   const mid = $id('gn-mid');
   let minMid = 150;
   if (mid && mid.children.length) {
-    let need = 0;
+    let need = 0, inFlow = 0;
     for (let i = 0; i < mid.children.length; i++) {
       const el = mid.children[i];
-      if (el.classList && el.classList.contains('gn-spec')) continue;  /* overlay, not flow */
+      /* the spectator sheet and the zoomed card are absolute overlays
+         ON the middle band, not rows IN it — counting them would
+         reserve their height twice and starve the hand */
+      if (el.classList && (el.classList.contains('gn-spec') ||
+                           el.classList.contains('gn-zoom'))) continue;
       need += el.offsetHeight;
+      inFlow++;
     }
-    need += 6 * (mid.children.length - 1);
+    need += 6 * Math.max(0, inFlow - 1);
+    /* …plus the room the spread has NOT grown into yet (see the cap
+       note in paintSpread): reserved from the first throw, so the
+       hand never shifts as the pile builds up */
+    if (M.spm && M.spm.cap) need += Math.max(0, M.spm.cap - (M.spm.h || 0));
     minMid = Math.min(Math.max(need, 96), hostH * 0.55);
   }
   const felt = $id('gn-felt');
@@ -1340,7 +1812,16 @@ function handMetrics() {
     chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
              (parseFloat(cs.rowGap) || parseFloat(cs.gap) || 0) * 3 + 6;
   }
-  const budget = Math.max(90, hostH - hOf('gn-top') - hOf('gn-dash') - hOf('gn-tbl') - minMid - chrome);
+  /* YOUR TABLE is the band that takes the felt's slack (flex:1), so
+     what it MEASURES is whatever was left over — feed that back into
+     the hand's budget and the two would chase each other, the hand
+     shrinking every time a meld went down. It is reserved at its
+     MINIMUM instead, which is the only part of it the hand actually
+     has to make way for; the table keeps the rest by growing into
+     what the hand does not take. */
+  const TBL_MIN = 64;                                 /* matches .gn-tbl min-height */
+  const tblH = Math.min(hOf('gn-tbl') || TBL_MIN, TBL_MIN);
+  const budget = Math.max(90, hostH - hOf('gn-top') - hOf('gn-dash') - tblH - minMid - chrome);
 
   const plan = rows => {
     const per = Math.ceil(n / rows);
@@ -1817,13 +2298,16 @@ function iAmRoomHost() {
    refuses to understand. Prevented at the door instead:
 
    1. BOTH PHONES SAY THE NEW WORD FIRST. Every board opens by
-      sending {a:'house45o', i:hand} — the host with its hand size,
+      sending {a:'house45s', i:hand} — the host with its hand size,
       the guest with 0 as a plain ack. An OLD build receiving
-      'house45o' refuses it by name ("a move gin rummy does not know
+      'house45s' refuses it by name ("a move gin rummy does not know
       how to make") and stops the room honestly before a card is
-      touched. The old builds' own hellos — 'house45' (the
-      45-ends-it build) and 'house' (the knock build) — are refused
-      here just as honestly, each with its own truthful message.
+      touched. The older builds' own hellos are refused here just as
+      honestly, each with its own truthful message: 'house45o' (the
+      spread-is-only-a-record build — the dangerous one, because it
+      agrees about everything EXCEPT the sweep and would desync
+      mid-hand with points already scored), 'house45' (the
+      45-ends-it build) and 'house' (the knock build).
       Two new builds pass each other in the night and play.
    2. THE ROOM'S OPENER IS THE HOUSE: their setup sheet's hand size
       plays. The guest deals ten, waits for the hello, and re-deals
@@ -1836,7 +2320,15 @@ function iAmRoomHost() {
       refused on its very first scored move.
    ═══════════════════════════════════════════════════════════════════ */
 const HOUSE_WAIT = 2500;
-const HELLO = 'house45o';                        /* o for the OPEN game */
+/* THE WORD CHANGES WHENEVER THE RULES DO, and restoring the sweep is
+   exactly that. The build before this one also said 'house45o' but
+   played the spread as a pure record: pair the two and they would
+   shake hands happily, agree a hand size, and run in step until the
+   first time somebody reached into the spread — at which point one
+   phone has seven more cards than the other and the fingerprint
+   catches it mid-hand, with points already on the board. Refusing at
+   the door instead costs nobody a scored hand. */
+const HELLO = 'house45s';                        /* s for the SWEEP game */
 
 function onlineStart(o) {
   const seed = netSeed();
@@ -1870,8 +2362,10 @@ function houseClock() {
       return;
     }
     onlineStop('The other phone never said the new hello, which means it is on an older ' +
-      'gin. This build plays the open game: put the 45 down, lay on anybody, first hand ' +
-      'empty wins +' + E.OUT_BONUS + '. Update both phones and deal again. Nothing was scored.', 'cheat');
+      'gin. This build plays the open game: put the 45 down, then each turn take the deck ' +
+      'OR reach into the spread for any card and everything right of it, lay on anybody, ' +
+      'first hand empty wins +' + E.OUT_BONUS + '. Update both phones and deal again. ' +
+      'Nothing was scored.', 'cheat');
   }, HOUSE_WAIT);
 }
 
@@ -1917,6 +2411,10 @@ function onlineRemote(d) {
      whole point of the hello is that the two boards do not match yet */
   if (d.m && d.m.a === HELLO) return houseHello(d.m.i | 0);
   /* the previous builds' hellos: refused by name, not humoured */
+  if (d.m && d.m.a === 'house45o')
+    return { why: 'a gin hand from the build where the discard pile was only a record. ' +
+      'In this one, once your 45 is down you may take any card in the spread and ' +
+      'everything right of it. Update both phones' };
   if (d.m && d.m.a === 'house45')
     return { why: 'a gin hand under the PREVIOUS rules, where putting your cards down ' +
       'ended the hand. This build plays the open game: update both phones' };
@@ -2083,6 +2581,11 @@ try {
       fast: on => { FAST = !!on; },
       spec: on => { if (M) { M.spec = !!on; render(); } },
       doMove, render, E,
+      wireOf, moveFromWire,
+      /* the whole match rebuilt from (opts, seed, log) — the same
+         operation undo and the two phones use, exposed so a test can
+         prove a log containing sweeps still replays to the bit */
+      rebuild: () => buildState(M.opts, M.seed, M.log),
       net: { start: onlineStart, remote: onlineRemote }
     };
   }

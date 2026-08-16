@@ -341,6 +341,11 @@ function switchTo(key){
 function logout(mode){
   if (window.KARTI_SYNC){
     if (mode === 'out'){
+      /* the push subscription is THIS ACCOUNT's — it must not keep ringing
+         for a phone that signed out. pushUnsubscribe() reads the session
+         token synchronously before the sign-out below drops it, then works
+         in the background; it can never block or fail the sign-out. */
+      try { pushUnsubscribe(); } catch(e){}
       /* push anything unsaved before the token goes, then drop the token.
          signOut() keeps this device's sync bookkeeping, so logging back in
          does not look like a divergence and does not ask a pointless
@@ -1009,10 +1014,246 @@ function profileSheet(){
   $('#pf-out').onclick = () => { closeSheet(); logout('out'); };
 }
 
+/* ───────────────────────── WEB PUSH ─────────────────────────
+   The real thing: "your turn" and "somebody invited you" reaching a LOCKED
+   phone, via the relay's /karti/push routes (see server/karti_server.py,
+   WEB PUSH block) and the push/notificationclick handlers in sw.js.
+
+   THE RULES THIS BLOCK LIVES BY:
+   · iOS only does Web Push for an app INSTALLED to the Home Screen (16.4+).
+     In a Safari tab there is no PushManager at all — the row says how to fix
+     that instead of pretending to be broken.
+   · Permission is only ever requested from HIS TAP on the toggle, and only
+     while it is 'default'. A 'denied' can never be re-prompted — the row
+     says where in iOS Settings to undo it, because the app cannot.
+   · A subscription is an ACCOUNT's. Toggling off DELETES it from the relay
+     (this device's endpoint), it does not just stop asking; signing out does
+     the same. No account, no toggle.
+   · The pref is PREFS.push, default OFF — a notification nobody asked for
+     is spam. PREFS.notify (the row above it) stays what it always was: the
+     in-app invite popups. */
+function pushSupported(){
+  return !!(('serviceWorker' in navigator) && ('PushManager' in window) &&
+            ('Notification' in window));
+}
+function pushInstalled(){
+  try {
+    if (navigator.standalone === true) return true;
+    return !!(window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  } catch (e){ return false; }
+}
+function pushIsIOS(){
+  return /iP(hone|ad|od)/.test(navigator.userAgent || '') ||
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+/* Same derivation as picBase() in js/progress.js: one relay address for the
+   whole app, following ?relay= / the Server box via sync.js. */
+function pushBase(){
+  let u = '';
+  try {
+    if (window.KARTI_SYNC && typeof KARTI_SYNC.baseURL === 'function')
+      u = KARTI_SYNC.baseURL() || '';
+  } catch (e){}
+  if (u) return u.replace(/\/acct$/i, '') + '/push';
+  if (location.protocol === 'http:' && location.hostname)
+    return 'http://' + location.hostname + ':8101/karti/push';
+  return 'https://raspberrypi.silverside-tench.ts.net:8443/karti/push';
+}
+/* The session sync.js already owns, read the way progress.js reads it —
+   there is no second token and no second server address in this feature. */
+function pushSession(){
+  if (!ACTIVE) return null;
+  const s = lsGet('karti_sync_' + ACTIVE, null);
+  return (s && typeof s.tok === 'string' && s.tok) ? s : null;
+}
+/* The four truths the row can tell, exactly one at a time. */
+function pushState(){
+  if (!pushSupported()){
+    return (pushIsIOS() && !pushInstalled())
+      ? { mode: 'install',
+          sub: 'iPhone only allows these from the installed app. Share → Add to ' +
+               'Home Screen, then flip this switch there.' }
+      : { mode: 'unsupported', sub: 'This browser cannot do notifications.' };
+  }
+  if (Notification.permission === 'denied')
+    return { mode: 'denied',
+             sub: 'Blocked on this phone — KARTI cannot undo that. Settings → ' +
+                  'Notifications → KARTI → Allow, then come back.' };
+  if (!pushSession())
+    return { mode: 'nosession', sub: 'Sign in first — alerts follow your account.' };
+  if (PREFS.push === true && Notification.permission === 'granted')
+    return { mode: 'on',
+             sub: 'Your turn & invites reach this phone even when KARTI is closed.' };
+  return { mode: 'off',
+           sub: 'Get told when it is your turn, and when somebody invites you — ' +
+                'even with KARTI closed.' };
+}
+function pushRowHTML(){
+  const st = pushState();
+  const on = st.mode === 'on';
+  const tag = { install: 'Install first', unsupported: 'Unavailable',
+                denied: 'Blocked', nosession: 'Sign in' }[st.mode];
+  return '<button class="setrow" id="st-push" role="switch" aria-checked="' +
+           (on ? 'true' : 'false') + '">' +
+           '<span class="sl"><b>Notifications</b><small>' + esc(st.sub) + '</small></span>' +
+           (tag ? '<span class="soontag">' + esc(tag) + '</span>'
+                : '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>') +
+         '</button>';
+}
+function pushB64ToU8(s){
+  const pad = '===='.slice(0, (4 - s.length % 4) % 4);
+  const raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+/* Subscribe this device and file it under the signed-in account. Throws a
+   short reason string in Error.message; the caller turns it into a sentence. */
+async function pushSubscribe(){
+  const sess = pushSession();
+  if (!sess) throw new Error('nosession');
+  const reg = await navigator.serviceWorker.ready;
+  const kr = await fetch(pushBase() + '/key', { cache: 'no-store' });
+  const kj = await kr.json().catch(() => null);
+  if (!kr.ok || !kj || !kj.key) throw new Error('nokey');
+  const opts = { userVisibleOnly: true, applicationServerKey: pushB64ToU8(kj.key) };
+  let sub;
+  try { sub = await reg.pushManager.subscribe(opts); }
+  catch (e){
+    /* a subscription made under a rotated VAPID key refuses quietly —
+       drop it and take a fresh one */
+    const old = await reg.pushManager.getSubscription().catch(() => null);
+    if (!old) throw e;
+    try { await old.unsubscribe(); } catch (e2){}
+    sub = await reg.pushManager.subscribe(opts);
+  }
+  const res = await fetch(pushBase(), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tok: sess.tok, sub: sub.toJSON() })
+  });
+  if (res.status === 401) throw new Error('relogin');
+  if (!res.ok) throw new Error('relay');
+  return true;
+}
+/* Take this device off the relay AND off the browser. The DELETE names only
+   this device's endpoint, so his other phone keeps its alerts. Never throws —
+   it is called from sign-out, which must not be blockable. */
+async function pushUnsubscribe(){
+  const sess = pushSession();          /* read NOW, before a sign-out drops it */
+  try {
+    if (!pushSupported()) return;
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    if (sess){
+      try {
+        await fetch(pushBase(), {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tok: sess.tok, endpoint: sub.endpoint })
+        });
+      } catch (e){}
+    }
+    try { await sub.unsubscribe(); } catch (e){}
+  } catch (e){}
+}
+/* THE TAP. The one place permission may be requested, because this is the
+   one user gesture that means "yes, ask me". */
+function pushToggleTap(){
+  const st = pushState();
+  if (st.mode !== 'on' && st.mode !== 'off'){ toast(st.sub); return; }
+  if (st.mode === 'on'){
+    setPref('push', false);
+    pushUnsubscribe().then(() => toast('Notifications off — this phone was taken off the list.'));
+    try { settingsSheet(); } catch (e){}
+    return;
+  }
+  const goOn = () => {
+    pushSubscribe().then(() => {
+      setPref('push', true);
+      toast('On. Your phone will say when it is your turn, and who wants a game.');
+      try { settingsSheet(); } catch (e){}
+    }).catch(err => {
+      const why = (err && err.message) || '';
+      toast(why === 'relogin'
+        ? 'Your session expired — sign in again, then flip this.'
+        : 'Could not register this phone with the relay. Try again when you are online.');
+      try { settingsSheet(); } catch (e){}
+    });
+  };
+  if (Notification.permission === 'granted'){ goOn(); return; }
+  /* 'default' — the only state that may ask. Whichever form this WebKit
+     speaks (promise or the ancient callback), the first answer wins. */
+  const asked = new Promise(resolve => {
+    let r;
+    try { r = Notification.requestPermission(resolve); }
+    catch (e){ resolve('default'); return; }
+    if (r && typeof r.then === 'function') r.then(resolve, () => resolve('default'));
+  });
+  asked.then(p => {
+    if (p === 'granted'){ goOn(); return; }
+    toast(p === 'denied'
+      ? 'You said no, so nothing will ever be sent. Changed your mind? Settings → Notifications → KARTI.'
+      : 'Not turned on.');
+    try { settingsSheet(); } catch (e){}
+  }).catch(() => toast('Could not ask for permission.'));
+}
+/* Silence is a feature: the moment he is LOOKING at the app, anything still
+   on the lock screen is stale — close it. */
+function pushClearShown(){
+  try {
+    if (!('serviceWorker' in navigator)) return;
+    navigator.serviceWorker.getRegistration().then(reg => {
+      if (reg && reg.getNotifications)
+        reg.getNotifications().then(ns => { ns.forEach(n => { try { n.close(); } catch (e){} }); })
+                              .catch(() => {});
+    }).catch(() => {});
+  } catch (e){}
+}
+/* A notification tap must land in the game. Two ways in:
+   · the window already existed → sw.js focuses it and posts KARTI_OPEN;
+   · a cold start → sw.js opens ./#mp and boot's wiring below reads the hash.
+   Either way: go to the Online screen, where mp.js resumes its socket. If he
+   is ALREADY on it (backgrounded mid-game), do nothing — repainting the
+   lobby over a live board would be worse than the notification. */
+function pushOpenFrom(url){
+  try {
+    if (!/#mp\b/.test(url || '')) return;
+    if (ACTIVE && current !== 'mp') go('mp');
+  } catch (e){}
+}
+function pushBootWire(){
+  pushClearShown();
+  if (location.hash === '#mp'){
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e){}
+    setTimeout(() => { try { if (ACTIVE && current !== 'mp') go('mp'); } catch (e){} }, 250);
+  }
+  /* keep the relay's copy of this device fresh: quietly re-post (or remake)
+     the subscription when the toggle is on and permission still stands */
+  setTimeout(() => {
+    try {
+      if (PREFS.push === true && pushSupported() &&
+          Notification.permission === 'granted' && pushSession())
+        pushSubscribe().catch(() => {});
+    } catch (e){}
+  }, 4000);
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pushClearShown(); });
+window.addEventListener('pageshow', pushClearShown);
+if ('serviceWorker' in navigator){
+  try {
+    navigator.serviceWorker.addEventListener('message', ev => {
+      if (ev.data && ev.data.type === 'KARTI_OPEN') pushOpenFrom(ev.data.url || '');
+    });
+  } catch (e){}
+}
+if (document.readyState === 'complete') pushBootWire();
+else window.addEventListener('load', pushBootWire);
+
 /* ───────────────────────── SETTINGS ─────────────────────────
-   Only things that are real. Notifications and sounds are not built yet, so
-   they say so and cannot be pressed — a switch that flips and changes nothing
-   is worse than no switch at all. */
+   Only things that are real. Sounds without their module still say so and
+   cannot be pressed — a switch that flips and changes nothing is worse than
+   no switch at all. Notifications ARE real now (the WEB PUSH block above);
+   the row tells whichever of its four truths applies. */
 function settingsSheet(){
   injectAccountCSS();
   const s = cloudStatus();
@@ -1055,16 +1296,17 @@ function settingsSheet(){
           'animations. Follows your phone’s own setting until you change it here.</small></span>' +
         '<span class="sw' + (on ? ' on' : '') + '"><i></i></span>' +
       '</button>' +
-      /* Invites arrive over the live socket while the app is OPEN. Waking a
-         locked phone is a different thing entirely — it needs Web Push, VAPID
-         keys and, on iOS, the app installed to the home screen. So this row
-         controls the part that exists and says plainly what it does not. */
+      /* Two different rows on purpose. INVITES is the in-app popups over the
+         live socket, exactly as it always was. NOTIFICATIONS is Web Push —
+         the locked phone — and its row is honest about all four states it
+         can be in (see pushState() above). */
       '<button class="setrow" id="st-notify" role="switch" aria-checked="' +
           (notifyOn() ? 'true' : 'false') + '">' +
         '<span class="sl"><b>Invites</b><small>Let other players invite you to a ' +
-          'game. They arrive while KARTI is open — a locked phone stays quiet.</small></span>' +
+          'game while KARTI is open.</small></span>' +
         '<span class="sw' + (notifyOn() ? ' on' : '') + '"><i></i></span>' +
       '</button>' +
+      pushRowHTML() +
       (window.KARTI_SFX
         ? KARTI_SFX.settingsHTML()
         : '<div class="setrow soon" aria-disabled="true">' +
@@ -1094,6 +1336,8 @@ function settingsSheet(){
       n.querySelector('.sw').classList.toggle('on', v);
       try { window.KARTI_MP && KARTI_MP.refreshInbox && KARTI_MP.refreshInbox(); } catch (e){}
     }; }
+  { const p = $('#st-push');
+    if (p) p.onclick = pushToggleTap; }
   if (window.KARTI_SFX) { try { KARTI_SFX.bindSettings(); } catch (e){} }
   { const c = $('#st-cloud');
     if (c) c.onclick = () => {
@@ -4246,6 +4490,9 @@ window.KARTI = {
   /* accounts + settings */
   logout, profileSheet, settingsSheet, upgradeSheet, cloudLink, cloudStatus, cloudLine,
   signInFromCloud, authAction, setPref, applyPrefs, get PREFS(){ return PREFS; },
+  /* web push — exported for the headless verification harness */
+  pushState, pushRowHTML, pushToggleTap, pushSubscribe, pushUnsubscribe,
+  pushBase, pushSupported, pushSession, pushB64ToU8, pushOpenFrom,
   get REDUCED(){ return REDUCED; }, get ACTIVE(){ return ACTIVE; },
   fieldMonsters, freeZone, tauntZone, counterBonus, spellTargets, canActivateSpell,
   spellNeedsTarget, trapPriority, deckTotal, deckById, activeDeck, displayName,

@@ -19,3 +19,11 @@ audio/call/_raw/
 
 # rollback copies kept by scripts/deploy_relay.sh — local safety net, not history
 server/_deploy_bak/
+
+# [push] VAPID keys must NEVER enter the repo (Pages would publish the private
+# half). The live pair sits outside the tree (/var/lib/karti/vapid.json); this
+# is belt-and-braces against a stray copy.
+vapid*.json
+*.vapid.json
+.karti_vapid.json
+push.db

@@ -1628,7 +1628,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 101;
+var KARTI_BUILD = 103;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1690,6 +1690,16 @@ window.swVersion = function(){
                   and becomes a no-op. */
                'js/tombla-caller.js',
                'js/kiri.js','js/kiri-ai.js','js/kiri-ui.js',
+               /* L-ISPJUN: spy-words.js is the pool, spy.js the pure engine,
+                  spy-ui.js the screen. After party.js on purpose — the tile
+                  registers through KARTI_PARTY like every other party game. */
+               'js/spy-words.js','js/spy.js','js/spy-ui.js',
+               /* SUSPETT: suspett.js is the pure engine (roles, night order,
+                  channels), suspett-ui.js the screen — curtain, chat, referee.
+                  After party.js and mp.js on purpose: the tile registers
+                  through KARTI_PARTY and the online id is taught to KARTI_MP
+                  the way gin and rummy do it. */
+               'js/suspett.js','js/suspett-ui.js',
                'js/stats.js',
                'js/sfx.js',
                /* LAST. nav.js is the Android back button, and it works by
