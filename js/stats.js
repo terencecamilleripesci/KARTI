@@ -298,6 +298,13 @@ function record(game, opts){
     var stored = persist();
     render();          /* free: only paints if our screen is actually up */
     queuePush();
+    /* THE LADDER (js/progress.js). Every game in the box already
+       reports a COUNTED result here and record() is idempotent twice
+       over, so this is the one honest place to pay XP from: a result
+       that did not count here does not pay, and one that was reported
+       twice is not paid twice. No game had to learn a new call. */
+    if (window.KARTI_XP && KARTI_XP._fromStats)
+      KARTI_XP._fromStats(id, { result:res, id:mid, ms:ms });
     return { ok:true, counted:true, stored:stored };
   } catch (err){
     return { ok:false, counted:false, why:'error' };
@@ -428,6 +435,14 @@ function wireArt(root){
    initial goes there. Until that image exists the coin is struck in CSS,
    which is the fallback and also perfectly presentable on its own. */
 function coin(initial){
+  /* The player's own face, once js/progress.js is loaded — the record
+     book is one of the five places a player is supposed to appear. The
+     minted coin below is still the fallback and is still perfectly
+     presentable on its own, which is why it was not deleted. */
+  try {
+    if (window.KARTI_XP && KARTI_XP.avatarHTML)
+      return KARTI_XP.avatarHTML(playerName(), { size:62 });
+  } catch (e){}
   return '<span class="sx-coin">' +
            '<img class="sx-art sx-coinface" alt="" aria-hidden="true" decoding="async"' +
              ' data-stem="coin-face" src="art/ui/coin-face.png">' +
@@ -957,7 +972,14 @@ function pushNow(force){
     if (!e.p) continue;
     games[k] = { p:e.p, w:e.w, l:e.l, d:e.d, bs:e.bs, bm:e.bm, bt:e.bt, sc:e.sc };
   }
-  return post('push', { tok:s.tok, games:games }, NET_MS).then(function(r){
+  /* the face and the level ride along. Both are one small field, both
+     are ignored by a server that has never heard of them, and both are
+     what the board needs the day it wants to show either. */
+  var body = { tok:s.tok, games:games };
+  try {
+    if (window.KARTI_XP){ body.av = KARTI_XP.avatar(); body.lv = KARTI_XP.level(); }
+  } catch (e){}
+  return post('push', body, NET_MS).then(function(r){
     pushing = false;
     return r;
   }, function(){ pushing = false; return { ok:false }; });
@@ -1059,6 +1081,13 @@ function lrow(r, rank, me){
   return '<div class="' + cls + '">' +
            '<span class="sx-rank">' + rank + '</span>' +
            '<span class="sx-who">' + (rank === 1 ? ico('trophy') : '') +
+             /* everybody on the board has a face. Yours is the one you
+                picked; somebody else's is derived from their name, so
+                the same person is the same face to everyone looking —
+                until a relay build echoes their own `av` back, which
+                avatarFor() will prefer the moment it does. */
+             (window.KARTI_XP && KARTI_XP.avatarHTML
+               ? KARTI_XP.avatarHTML(r.name || '?', { size:26, hint:r.av }) : '') +
              '<b>' + esc(r.name || '?') + '</b>' +
              (me ? '<span class="sx-mine">You</span>' : '') + '</span>' +
            '<span class="sx-wld">' +

@@ -58,6 +58,17 @@ function record(id, outcome){          /* outcome: 'w' | 'l' | 'd' */
   const r = ST.rec[id] || (ST.rec[id] = { w:0, l:0, d:0 });
   if (outcome === 'w' || outcome === 'l' || outcome === 'd') r[outcome]++;
   persist();
+  /* …and forward to the record book, which is a different thing: this ledger
+     is local to the party shelf and never leaves the phone, while js/stats.js
+     is what the profile and the leaderboard read. Every party game funnels
+     through here, so ONE forward covers chess, dama, IL-KIRI and all four
+     klabb games. It was missing, and the effect was quiet in the worst way —
+     the games played fine and simply never appeared in the record book.
+     Guarded and wrapped: stats.js is optional, and a fault in the record book
+     must never take down a game that has just finished. */
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record) KARTI_STATS.record(id, { result: outcome });
+  } catch (e) {}
   return r;
 }
 function recOf(id){ return ST.rec[id] || { w:0, l:0, d:0 }; }

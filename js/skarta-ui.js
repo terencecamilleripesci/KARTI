@@ -1457,6 +1457,16 @@ function showResult() {
   const humanWin = !E.isAI(S.players[w]);
   const iWon = w === G.view || (G.humans === 1 && humanWin);
   ST.rec[iWon ? 'w' : 'l']++; persist();
+  /* SKARTA kept its own tally and reported to nothing else, so it was the
+     one game absent from BOTH the party ledger and the record book. Guarded:
+     stats.js is optional and a fault there must not take down a finished
+     game. The match id makes it idempotent, since showResult() is reachable
+     from more than one place. */
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('skarta', { result: iWon ? 'win' : 'loss',
+                                     id: (G && G.S && G.S.gid) || undefined });
+  } catch (e) {}
 
   const table = S.over.scores.slice().sort((a, b) => a.points - b.points)
     .map(s => s.name + ' — ' + s.cards + (s.cards === 1 ? ' card' : ' cards') +

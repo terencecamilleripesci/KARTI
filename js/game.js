@@ -758,6 +758,11 @@ function authAction(act){
     const r = createAccount(name, pw);
     if (r.err){ authErr(r.err); return; }
     switchTo(r.key); authMode = 'menu'; afterLogin();
+    /* A face, once, right after the account exists. Deliberately AFTER
+       — the wording above was already right and is untouched — and it
+       is skippable, changeable, and never in the way of playing. */
+    if (window.KARTI_XP && KARTI_XP.pickAvatar)
+      setTimeout(() => { try { KARTI_XP.pickAvatar({ first:true }); } catch(e){} }, 420);
     cloudLink(r.key, name.trim(), pw, {}).then(res => {
       if (res && res.ok && res.made) toast('Account made. Your game is in the cloud now.');
       else if (res && res.ok && res.joined) toast('Logged in to your cloud account.');
@@ -932,6 +937,12 @@ function profileSheet(){
     '<div class="opts">' +
       '<button class="btn ghost" data-karti-stats>' + ilb('cards', 'Record book') + '</button>' +
       '<button class="btn ghost" data-karti-stats="board">' + ilb('crown', 'Leaderboard') + '</button>' +
+    '</div>' +
+    /* The ladder and the wardrobe are their own module (js/progress.js);
+       it binds these by data attribute too, so this stays markup only. */
+    '<div class="opts">' +
+      '<button class="btn ghost" data-karti-xp>' + ilb('star', 'Customise') +
+        '<span class="sub">your face, boards, pieces</span></button>' +
     '</div>' +
     '<div class="opts">' +
       '<button class="btn ghost" id="pf-switch">' + ilb('users', 'Switch player') + '</button>' +
@@ -3487,6 +3498,13 @@ function startCustomDuel(cfg){
 
 /* ── events → juice ── */
 function onDuelEvent(ev){
+  /* THE LADDER, for the whole duel, in one line. The card game is the
+     only thing in the box that does not report to js/party.js, and D.mode
+     already says which of the four duels this was — solo, story,
+     pass-and-play or online — so js/progress.js can tell them apart
+     without a second hook per mode. It pays once per duel: the award is
+     deduped there the same way record() is deduped in js/stats.js. */
+  if (ev.type === 'over' && window.KARTI_XP && KARTI_XP.duelOver) KARTI_XP.duelOver(ev);
   /* SOUND, for the whole duel, in one line. Every interesting thing that
      happens in a duel already comes through here — summon, set, flip, attack,
      damage, destroy, draw, spell, trap, turn, phase, win, lose — so the sound

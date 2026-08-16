@@ -1587,7 +1587,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 61;
+var KARTI_BUILD = 62;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1628,7 +1628,7 @@ window.swVersion = function(){
                'js/tombla-caller.js',
                'js/kiri.js','js/kiri-ai.js','js/kiri-ui.js',
                'js/stats.js',
-               'js/sfx.js',
+               'js/sfx.js','js/progress-faces.js','js/progress.js','js/progress-ui.js',
                /* LAST. nav.js is the Android back button, and it works by
                   observing every other module's screens — so it must boot
                   after all of them are registered, or its first look at the
