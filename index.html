@@ -1587,7 +1587,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 72;
+var KARTI_BUILD = 73;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1655,6 +1655,51 @@ window.swVersion = function(){
     s.onload = s.onerror = function(){ next(i + 1); };
     document.head.appendChild(s);
   })(0);
+
+  /* ── THE ESCAPE HATCH ──────────────────────────────────────────────────
+     A service worker that caches this hard can strand the app: if an update
+     lands badly — a bad network on the one request that mattered, an install
+     that half-finished, a worker claiming a page that had already loaded the
+     previous shell — you get a black screen and NO WAY BACK, because the
+     thing that would fix it is the thing that will not start. The cache has
+     been bumped more than thirty times in a day; that is not a hypothetical.
+     So: if the app has not come up after eight seconds, say so and offer the
+     one action that always works — throw every cache away, unregister the
+     worker, and fetch a clean copy. It is deliberately plain HTML and inline
+     style, because it has to work when nothing else has. */
+  setTimeout(function(){
+    if (window.KARTI) return;                    /* it booted; nothing to do */
+    if (document.getElementById('bootfail')) return;
+    var d = document.createElement('div');
+    d.id = 'bootfail';
+    d.setAttribute('style',
+      'position:fixed;inset:0;z-index:99999;display:grid;place-items:center;' +
+      'background:#0E0B14;color:#EDE6FF;font:15px/1.5 system-ui,sans-serif;' +
+      'padding:28px;text-align:center');
+    d.innerHTML =
+      '<div style="max-width:300px">' +
+        '<p style="font-weight:800;font-size:18px;margin:0 0 8px">KARTI did not start</p>' +
+        '<p style="opacity:.75;margin:0 0 18px">Something went wrong while updating. ' +
+        'This clears the stored copy and fetches a fresh one. Your game is saved ' +
+        'separately and is not touched.</p>' +
+        '<button id="bootfix" style="width:100%;padding:14px;border-radius:12px;border:0;' +
+        'background:#FFC542;color:#241800;font-weight:800;font-size:15px">Fix it</button>' +
+      '</div>';
+    document.body.appendChild(d);
+    document.getElementById('bootfix').onclick = function(){
+      this.textContent = 'Fixing…'; this.disabled = true;
+      var done = function(){ location.replace(location.pathname + '?fresh=' + Date.now()); };
+      var jobs = [];
+      try { if (window.caches && caches.keys)
+        jobs.push(caches.keys().then(function(k){ return Promise.all(k.map(function(n){ return caches.delete(n); })); })); } catch (e){}
+      try { if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations)
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){
+          return Promise.all(rs.map(function(r){ return r.unregister(); })); })); } catch (e){}
+      /* never hang on a promise that will not settle — five seconds, then go */
+      Promise.race([Promise.all(jobs), new Promise(function(r){ setTimeout(r, 5000); })])
+        .then(done, done);
+    };
+  }, 8000);
   /* Is this WebView shorter than the physical screen? That is the signature of an
    icon installed under the old apple-mobile-web-app metas (his phone reports 894
    of 956). Measured, not guessed, and re-checked on orientation change. */
