@@ -280,6 +280,14 @@ function injectCSS(){
     '#scr-party .rm-meld.can{background:rgba(61,220,132,.14);' +
       'border-color:rgba(61,220,132,.6)}' +
     '#scr-party .rm-meld.can:active{background:rgba(61,220,132,.3)}' +
+    /* GĦAXRA's loose pile — the cards that are not working yet, set
+       apart from the melds by a dashed rule rather than by colour */
+    '#scr-party .rm-loose{border-style:dashed;border-color:rgba(255,255,255,.22);' +
+      'border-radius:10px;opacity:.85}' +
+    /* GĦAXRA never fills this shelf — three small melds at most — so
+       its arrangement is centred in the space rather than pinned to
+       the top with a hole under it */
+    '#scr-party .rm-melds.rm-gx{align-content:center}' +
     '#scr-party .rm-none{width:100%;font:700 10.5px/1.5 var(--disp);letter-spacing:.11em;' +
       'text-transform:uppercase;color:rgba(255,255,255,.3);text-align:center;padding:14px 8px}' +
 
@@ -331,17 +339,26 @@ function injectCSS(){
        the right, the player rail across the top. Nothing sits below
        the fold; the meld shelf alone scrolls. */
     '@media (max-height:520px){' +
-      '#scr-party .rm-table{display:grid;column-gap:8px;row-gap:3px;padding:5px 6px 6px;' +
-        'grid-template-columns:5fr 4fr;grid-template-rows:auto auto minmax(0,1fr) auto;' +
-        'grid-template-areas:"opps opps" "draws hand" "melds hand" "melds acts";' +
+      /* THE HAND GETS THE FULL WIDTH. It used to share a row with the
+         table in two columns, which was fine for a seven-card classic
+         hand and broke the moment GĦAXRA dealt eleven: the fan wrapped
+         to a second row inside a narrow column and sat on top of the
+         buttons. Table furniture side by side, hand across the bottom,
+         buttons under it — nothing overlaps at any hand size. */
+      '#scr-party .rm-table{display:grid;column-gap:10px;row-gap:3px;padding:5px 6px 6px;' +
+        'grid-template-columns:auto minmax(0,1fr);' +
+        'grid-template-rows:auto minmax(0,1fr) auto auto;' +
+        'grid-template-areas:"opps opps" "draws melds" "hand hand" "acts acts";' +
         'overflow-y:auto;-webkit-overflow-scrolling:touch}' +
       '#scr-party .rm-opps{grid-area:opps}' +
-      '#scr-party .rm-draws{grid-area:draws;padding:0}' +
-      '#scr-party .rm-melds{grid-area:melds;min-height:30px;overflow-y:auto}' +
+      '#scr-party .rm-draws{grid-area:draws;padding:0;align-self:center}' +
+      '#scr-party .rm-melds{grid-area:melds;min-height:30px;overflow-y:auto;' +
+        'align-content:center}' +
       /* the hint line goes: the glowing buttons and the aria labels
          carry it, and 200px of felt has no row to spare */
       '#scr-party .rm-say{display:none}' +
-      '#scr-party .rm-hand{grid-area:hand;align-self:start}' +
+      '#scr-party .rm-hand{grid-area:hand;align-self:end}' +
+      '#scr-party .rm-row{padding-top:4px}' +
       '#scr-party .rm-acts{grid-area:acts;padding-top:2px;align-self:end}' +
       '#scr-party .rm-opp{min-width:46px;padding:2px 5px}' +
       '#scr-party .rm-opp .c{font-size:11px}' +
@@ -492,6 +509,10 @@ moveSubs.push(ev => {
       cue('card.throw', { gain: mine ? 0.7 : 0.5, rate: 1.08 }); return;
     case 'disc':
       cue('card.throw', { gain: mine ? 0.8 : 0.58 }); return;
+    /* the declaration — the hand going down flat on the table. The
+       once-a-hand sound, so it is allowed to be the loud one. */
+    case 'out':
+      cue('rummy.call', { gain: mine ? 1 : 0.8 }, true); return;
     case 'next':
       cue('card.shuffle', { gain: 0.8 }, true);
       cueIn(240, () => { const S = window.KARTI_SFX; if (S && S.run) S.run('card.deal', 6, 90, { gain: 0.5 }); });
@@ -580,6 +601,17 @@ function onTap(t){
     const s = sel();
     if (a === 'meld' && mine && st.phase === 'act' && s.length >= 3)
       tryMove({ t:'meld', cards: s.slice() });
+    else if (a === 'out' && mine && st.phase === 'act'){
+      const c = findOut(st, me);
+      if (c == null){
+        /* refused, and it SAYS what is missing rather than just buzzing */
+        cue('ui.error', { gain: 0.9 }, true);
+        if (K.toast) K.toast('⚠ ' + whyNotOut(E.bestCover(st.seats[me].hand))
+                               .replace(/<[^>]*>/g, ''));
+        return;
+      }
+      tryMove({ t:'out', c });
+    }
     else if (a === 'disc' && mine && st.phase === 'act' && s.length === 1)
       tryMove({ t:'disc', c: s[0] });
     else if (a === 'sort'){
@@ -606,6 +638,37 @@ function tryMove(mv){
   if (M.net && M.net.onMove){ try { M.net.onMove(clone(mv), r.index); } catch(e){} }
   M.tmp.sel = [];
   render();
+}
+
+/* ── GĦAXRA: is there a declaration in this hand, and which card does
+   it throw? Preferring the card the player has actually picked up, so
+   "select the one I want gone, tap Declare" does what it looks like. ── */
+function findOut(st, seat){
+  const me = st.seats[seat];
+  if (!me || st.phase !== 'act') return null;
+  const want = (M.tmp.sel || [])[0];
+  const order = (want != null && me.hand.indexOf(want) >= 0)
+    ? [want].concat(me.hand.filter(c => c !== want))
+    : me.hand;
+  for (const c of order)
+    if (E.check(st, { t:'out', c }, seat)) return c;
+  return null;
+}
+
+/* WHY NOT, IN WORDS. A refusal that just says "no" on a hand the
+   player believes is finished is the single most infuriating thing a
+   rules engine can do, so this counts what is actually there and says
+   it. It reads bestCover(), which is the same search the engine
+   scores with — it cannot disagree with the gate. */
+function whyNotOut(cov){
+  const made = cov.melds.length, loose = cov.loose.length;
+  const shape = cov.melds.map(m => m.cards.length).sort((a, b) => b - a);
+  if (!made) return 'You need <b>4+3+3</b>. Nothing is arranged yet.';
+  if (loose === 0)
+    return 'Every card is working, but the shape is ' + shape.join('+') +
+           ' — it has to be <b>4+3+3</b>.';
+  return made + (made === 1 ? ' meld' : ' melds') + ' made (' + shape.join('+') + '), <b>' +
+         loose + (loose === 1 ? ' card' : ' cards') + ' loose</b>. Throw one and keep hunting.';
 }
 
 /* what the hand looks like on screen: sorted for reading if asked */
@@ -669,11 +732,48 @@ function render(){
           cardBtn(top, { w:drawW }) + '</button>') +
     '</div>';
 
-  /* — the meld shelf — */
-  const canLayNow = mine && st.phase === 'act' && M.tmp.sel.length === 1;
+  /* — the shelf — */
+  const gh = E.isGhaxra(st);
+  const canLayNow = !gh && mine && st.phase === 'act' && M.tmp.sel.length === 1;
   const layC = canLayNow ? M.tmp.sel[0] : -1;
+  /* GĦAXRA holds nothing on the table, so the shelf shows YOUR OWN
+     best arrangement instead — which is the one thing you actually
+     want to see in a mode where going out means the whole hand at
+     once. At the end it shows the winner's declared 4+3+3. */
+  const cov = gh ? E.bestCover(hand) : null;
+  UI.melds.className = 'rm-melds' + (gh ? ' rm-gx' : '');
   if (st.phase === 'handover' && !done){
     UI.melds.innerHTML = interlude(st);
+  } else if (gh){
+    if (st.show && st.show.melds){
+      UI.melds.innerHTML =
+        '<div class="rm-none" style="padding:2px 6px">' +
+          esc(st.seats[st.show.seat].name) + ' declared</div>' +
+        st.show.melds.map(m =>
+          '<span class="rm-meld" aria-label="' + esc(meldLabel(m)) + '">' +
+          m.cards.map(c => cardBtn(c, { w: short ? 26 : 32 })).join('') + '</span>').join('');
+    } else if (!cov.melds.length){
+      UI.melds.innerHTML = '<div class="rm-none">Nothing arranged yet. You need a four ' +
+        'and two threes — ten cards, all of them working.</div>';
+    } else {
+      /* the melds you have, and then the cards that are doing nothing —
+         dimmed and set apart. In a mode where the whole hand has to
+         work, "which of these is dead weight" is the only question you
+         ever ask, and it is worth answering on the felt rather than
+         making somebody re-sort eleven cards to find out. */
+      UI.melds.innerHTML =
+        '<div class="rm-none" style="padding:2px 6px;width:100%">Your arrangement — ' +
+          cov.melds.length + ' of 3' +
+          (cov.loose.length ? ', ' + cov.loose.length + ' loose' : ', nothing loose') + '</div>' +
+        cov.melds.map(m =>
+          '<span class="rm-meld" aria-label="' + esc(meldLabel(m)) + '">' +
+          m.cards.map(c => cardBtn(c, { w: short ? 26 : 32 })).join('') + '</span>').join('') +
+        (cov.loose.length
+          ? '<span class="rm-meld rm-loose" aria-label="' + cov.loose.length +
+            ' cards not in any meld">' +
+            cov.loose.map(c => cardBtn(c, { w: short ? 24 : 28, dim:true })).join('') + '</span>'
+          : '');
+    }
   } else if (!st.melds.length){
     UI.melds.innerHTML = '<div class="rm-none">Nothing on the table yet. Three of a kind, ' +
       'or three in a row, one suit.</div>';
@@ -689,12 +789,17 @@ function render(){
   }
 
   /* — the hint line — */
+  const outNow = (gh && mine && st.phase === 'act') ? findOut(st, me) : null;
   UI.say.innerHTML =
     done ? '' :
     st.phase === 'handover' ? 'Counting the hand…' :
     !mine ? (t === -1 ? '…' : esc(st.seats[t].name) + ' is thinking.') :
     st.phase === 'draw'
       ? '<b>Draw first</b> — the stock, or the top of the pile.' :
+    gh
+      ? (outNow != null
+          ? '<b>You are out.</b> Tap DECLARE and show them.'
+          : whyNotOut(cov)) :
     M.tmp.sel.length >= 3 ? (E.readMeld(M.tmp.sel) ? '<b>That melds.</b> Put it down.'
                                                    : 'Those three don’t go together.') :
     M.tmp.sel.length === 1
@@ -704,10 +809,11 @@ function render(){
     M.tmp.sel.length === 2 ? 'One more for a meld.' :
     'Pick up cards to meld, or one card to lay off or throw.';
 
-  /* — the hand — */
-  const wide = short ? Math.max(180, Math.floor(UI.wide() * 4 / 9) - 8) : UI.wide();
+  /* — the hand — full width in both layouts; short screens simply cap
+       how tall the fan may be so it stays a single row above the
+       buttons rather than growing into them — */
   const shown = shownHand();
-  const plan = DECK.fanPlan(shown.length, wide, short ? 72 : 200);
+  const plan = DECK.fanPlan(shown.length, UI.wide(), short ? 78 : 200);
   let h = '';
   plan.rows.forEach(seg => {
     h += '<div class="rm-row">';
@@ -724,17 +830,33 @@ function render(){
   });
   UI.hand.innerHTML = h;
 
-  /* — the two buttons a turn is made of — */
-  const canMeld = mine && st.phase === 'act' && M.tmp.sel.length >= 3 && !!E.readMeld(M.tmp.sel);
+  /* — the buttons a turn is made of — */
   const canDisc = mine && st.phase === 'act' && M.tmp.sel.length === 1 &&
                   E.check(st, { t:'disc', c: M.tmp.sel[0] }, me);
-  UI.acts.innerHTML =
-    '<button class="rm-act" data-act="meld" data-sfx="own"' + (canMeld ? '' : ' disabled') +
-      '>Meld ' + (canMeld ? M.tmp.sel.length : '') + '</button>' +
-    '<button class="rm-act" data-act="disc" data-sfx="own"' + (canDisc ? '' : ' disabled') +
-      '>Throw</button>' +
-    '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
-      (M.tmp.sorted === false ? 'Sort' : 'Sorted') + '</button>';
+  if (gh){
+    /* DECLARE is offered whenever a legal declaration exists at all —
+       it is never left enabled on a hand that would be refused, and
+       never hidden on one that would be allowed. Tapping it with a
+       card picked up throws THAT card if that works; otherwise it
+       finds the card that does, because being made to hunt for the
+       right discard on a finished hand is not a game. */
+    UI.acts.innerHTML =
+      '<button class="rm-act" data-act="out" data-sfx="own"' +
+        (outNow != null ? '' : ' disabled') + '>Declare</button>' +
+      '<button class="rm-act" data-act="disc" data-sfx="own"' + (canDisc ? '' : ' disabled') +
+        '>Throw</button>' +
+      '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
+        (M.tmp.sorted === false ? 'Sort' : 'Sorted') + '</button>';
+  } else {
+    const canMeld = mine && st.phase === 'act' && M.tmp.sel.length >= 3 && !!E.readMeld(M.tmp.sel);
+    UI.acts.innerHTML =
+      '<button class="rm-act" data-act="meld" data-sfx="own"' + (canMeld ? '' : ' disabled') +
+        '>Meld ' + (canMeld ? M.tmp.sel.length : '') + '</button>' +
+      '<button class="rm-act" data-act="disc" data-sfx="own"' + (canDisc ? '' : ' disabled') +
+        '>Throw</button>' +
+      '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
+        (M.tmp.sorted === false ? 'Sort' : 'Sorted') + '</button>';
+  }
 
   paintTurn(t, done);
   paintBar();
@@ -819,9 +941,11 @@ function finish(done){
   stopThinking();
   cueIn(260, () => cue(done.tone === 'win' ? 'game.win'
                      : done.tone === 'lose' ? 'game.lose' : 'ui.toast', { gain: 1 }, true));
-  if (done.tone === 'win' && M.st.done && M.st.done.row.kind === 'rummy')
-    /* going out in one turn is the RUMMY, and it now has its own noise:
-       a hand slapped flat on the table and a short brass sting */
+  /* going out in one turn is the RUMMY, and it has its own noise: a
+     hand slapped flat on the table and a short brass sting. GĦAXRA
+     already sounded it on the declaration itself a beat ago, so it is
+     not struck twice. */
+  if (done.tone === 'win' && M.st.done && M.st.done.row.kind === 'rummy' && !E.isGhaxra(M.st))
     cueIn(700, () => cue('rummy.call', { gain: 0.9 }, true));
   saveSlot(null);
   if (!M.net && done.tone){
@@ -871,7 +995,7 @@ function newGame(opts, snap){
 
 function openBoard(onBack){
   M.ctx = P.ui.frame({
-    title: 'RUMMY',
+    title: (M && E.isGhaxra(M.st)) ? 'GĦAXRA' : 'RUMMY',
     onBack,
     leave: () => leave(),
     buttons: M && M.net
@@ -882,7 +1006,7 @@ function openBoard(onBack){
          { id:'rm-new',   label:'New',   icon:'refresh', cls:'ghost' }]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = 'Ir-Rummy';
+  M.ctx.badge.textContent = E.isGhaxra(M.st) ? '4+3+3' : 'Ir-Rummy';
   table();
   const u = M.ctx.btn('rm-undo');
   if (M.net){
@@ -939,18 +1063,55 @@ const RULES = [
   'Packs by table: 1–4 players one, 5–8 two, 9–12 three. The extra pack is optional; ' +
     'the minimum is not.'
 ];
+
+/* ── GĦAXRA, and every decision the 4+3+3 shape forces ────────────
+   Each of these is a real choice with a reason, and the reason is in
+   the report as well as here. In short: because the winning hand must
+   be exactly ten cards in three melds, anything that changes how many
+   cards you hold would make going out impossible — which rules out
+   laying off, and rules out putting melds down early. */
+const RULES_GHAXRA = [
+  '<b>Ten cards each</b>, whatever the size of the table.',
+  '<b>Draw one</b> — the stock, or the top of the pile — then throw one. Never the ' +
+    'card you have just taken off the pile.',
+  '<b>Nothing goes on the table</b> until somebody wins. You hold your melds in your ' +
+    'hand, and nobody sees them.',
+  '<b>To go out you DECLARE</b>: throw a card and show the ten behind it as exactly ' +
+    'one meld of four and two melds of three. Not nine, not eleven, not two melds of five.',
+  'A meld is what it always is: a set (same rank, suits all different) or a run ' +
+    '(same suit, ranks in a row, ace low — A-2-3, never Q-K-A).',
+  '<b>No laying off</b> in this mode, on your own melds or anybody else’s — your ' +
+    'hand has to finish at exactly ten, so giving a card away would make going out ' +
+    'impossible.',
+  'Jokers (if the table plays them): wild inside a meld and always outnumbered by ' +
+    'real cards, so no meld of three carries two of them.',
+  'Declaring on your very first turn of the hand — the whole thing out of the deal — ' +
+    'is <b>RUMMY</b> and pays double.',
+  'The winner scores each other player’s <b>loose cards only</b> — what will not fit ' +
+    'into a meld. Cards sitting in a good meld cost you nothing, because in this mode ' +
+    'you were never able to put them down.',
+  'Stock runs dry: the pile is shuffled back, twice. The third time nobody can ' +
+    'declare and the hand is <b>blocked</b> — fewest loose cards takes it.',
+  'Packs by table (ten cards each is a lot of cards): 2–3 players one, 4–6 two, ' +
+    '7–10 three, 11–12 four. <b>With no jokers, one pack more</b> — a full 4+3+3 is ' +
+    'far harder to finish, and without the extra pack a quarter of the hands die undeclared.'
+];
+const rulesFor = mode => (E.modeOf(mode) === 'ghaxra' ? RULES_GHAXRA : RULES);
+const modeName = mode => (E.modeOf(mode) === 'ghaxra' ? 'GĦAXRA' : 'RUMMY');
+
 function rulesSheet(){
   const ctx = M ? M.ctx : null;
   if (!ctx) return;
   const old = ctx.root.querySelector('.pt-ask'); if (old) old.remove();
   const ask = document.createElement('div');
   ask.className = 'pt-over pt-ask';
+  const mode = M ? M.st.mode : 'classic';
   ask.innerHTML =
     '<div class="pt-card" style="max-width:340px;text-align:left">' +
-      '<h3 style="text-align:center">RUMMY</h3>' +
+      '<h3 style="text-align:center">' + esc(modeName(mode)) + '</h3>' +
       '<div class="kb-rules" style="margin:12px 0 0;padding:12px 14px;border-radius:14px;' +
         'background:rgba(255,255,255,.04);border:1px solid var(--line)"><ul style="margin:0;padding:0">' +
-        RULES.map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);' +
+        rulesFor(mode).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);' +
           'margin:0 0 6px 16px">' + r + '</li>').join('') +
       '</ul></div>' +
       '<div class="pt-acts"><button class="btn ghost" id="rm-rx">Right, got it</button></div>' +
@@ -977,10 +1138,17 @@ function setupSheet(){
   let jokers = p.jokers !== false;
   let target = [0, 200, 500].indexOf(p.target | 0) >= 0 ? (p.target | 0) : 0;
   let lvl    = p.lvl || 2;
+  let mode   = E.modeOf(p.mode);
 
   function paint(){
-    const rule = E.deckRule(seats);
+    const rule = E.deckRule(seats, mode, jokers);
     if (decks < rule.min || decks > rule.max) decks = rule.min;
+    /* the pack choices are whatever the rule leaves — usually the
+       minimum and one more, but at the very top of GĦAXRA (twelve
+       players, no jokers) the minimum IS the ceiling and there is
+       exactly one honest option */
+    const deckOpts = [];
+    for (let d = rule.min; d <= rule.max; d++) deckOpts.push(d);
     const MPX = window.KARTI_MP;
     /* Can the shared lobby actually open a rummy room on this build?
        Feature-detected, not assumed: gameLobby() folds an unknown id
@@ -995,9 +1163,21 @@ function setupSheet(){
         '<h2>RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        '<p class="blurb">Draw one, meld your sets and runs, throw one. First hand empty ' +
-        'takes the lot — and the pack count grows with the table, because that is how ' +
-        'twelve people play one game.</p>' +
+        '<p class="blurb">Draw one, throw one, and get your hand into melds. Two ways to ' +
+        'play it — and either way the pack count grows with the table, because that is ' +
+        'how twelve people play one game.</p>' +
+
+        '<div class="tiny pt-lbl">Which game</div>' +
+        '<div class="pt-opts" id="rm-mode">' +
+          '<button class="pt-opt' + (mode === 'classic' ? ' on' : '') + '" data-m="classic">' +
+            ico('cards') + '<b>Rummy</b>' +
+            '<i>Seven cards. Melds go down as you make them, lay off on anybody’s, ' +
+            'and win by emptying your hand.</i></button>' +
+          '<button class="pt-opt' + (mode === 'ghaxra' ? ' on' : '') + '" data-m="ghaxra">' +
+            ico('trophy') + '<b>Għaxra — 4+3+3</b>' +
+            '<i>Ten cards. Nothing goes on the table: you hold it all and DECLARE ' +
+            'one four and two threes in one go.</i></button>' +
+        '</div>' +
 
         '<div class="tiny pt-lbl">How many at the table</div>' +
         '<div class="rm-step">' +
@@ -1007,11 +1187,14 @@ function setupSheet(){
         '</div>' +
 
         '<div class="tiny pt-lbl">How many packs</div>' +
-        '<div class="pt-opts two" id="rm-decks">' +
-          [rule.min, rule.min + 1].map(d =>
+        '<div class="pt-opts' + (deckOpts.length > 1 ? ' two' : '') + '" id="rm-decks">' +
+          deckOpts.map(d =>
             '<button class="pt-opt' + (d === decks ? ' on' : '') + '" data-d="' + d + '">' +
               ico('cards') + '<b>' + d + (d === 1 ? ' pack' : ' packs') + '</b>' +
-              '<i>' + (d === rule.min ? 'The table’s minimum.' : 'Optional — a looser game.') + '</i>' +
+              '<i>' + (d === rule.min
+                ? (deckOpts.length > 1 ? 'The table’s minimum.'
+                                       : 'The minimum, and as many as this table takes.')
+                : 'Optional — a looser game.') + '</i>' +
             '</button>').join('') +
         '</div>' +
         '<p class="rm-why">' + esc(rule.why) + '</p>' +
@@ -1019,9 +1202,11 @@ function setupSheet(){
         '<div class="tiny pt-lbl">Jokers</div>' +
         '<div class="pt-opts two" id="rm-jok">' +
           '<button class="pt-opt' + (jokers ? ' on' : '') + '" data-j="1">' + ico('cards') +
-            '<b>Two per pack</b><i>Wild in a new meld. 15 against you if caught.</i></button>' +
+            '<b>Two per pack</b><i>Wild inside a meld. 15 against you if caught.</i></button>' +
           '<button class="pt-opt' + (!jokers ? ' on' : '') + '" data-j="0">' + ico('lock') +
-            '<b>None</b><i>The purist’s table.</i></button>' +
+            '<b>None</b><i>The purist’s table.' +
+            (mode === 'ghaxra' ? ' Costs a pack — a full 4+3+3 is much harder without them.' : '') +
+            '</i></button>' +
         '</div>' +
 
         '<div class="tiny pt-lbl">How long a match</div>' +
@@ -1056,26 +1241,33 @@ function setupSheet(){
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
           '<h5 style="font:900 10px/1 var(--disp);letter-spacing:.11em;text-transform:uppercase;' +
             'color:var(--gold);margin:0 0 9px">The rules, as this table plays them</h5><ul style="margin:0;padding:0">' +
-          RULES.map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);' +
+          rulesFor(mode).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);' +
             'margin:0 0 6px 16px">' + r + '</li>').join('') + '</ul></div>' +
       '</div>';
 
     el.querySelector('#rm-back').onclick = () => P.hub();
+    /* changing the mode or the jokers can change what the pack rule
+       allows, so the chosen count is dropped back to "let the rule
+       decide" rather than left pointing at a number that is no longer
+       on offer */
+    el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
+      mode = E.modeOf(b.dataset.m); decks = 0; paint(); });
     el.querySelector('#rm-s-dn').onclick = () => { if (seats > 2){ seats--; decks = 0; paint(); } };
     el.querySelector('#rm-s-up').onclick = () => { if (seats < 12){ seats++; decks = 0; paint(); } };
     el.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { decks = +b.dataset.d; paint(); });
-    el.querySelectorAll('[data-j]').forEach(b => b.onclick = () => { jokers = !!+b.dataset.j; paint(); });
+    el.querySelectorAll('[data-j]').forEach(b => b.onclick = () => {
+      jokers = !!+b.dataset.j; decks = 0; paint(); });
     el.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { target = +b.dataset.t; paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
     el.querySelector('#rm-go').onclick = () => {
-      pref({ seats, decks, jokers, target, lvl });
-      newGame({ seats, decks, jokers, target, humans: 1, lvl });
+      pref({ seats, decks, jokers, target, lvl, mode });
+      newGame({ seats, decks, jokers, target, humans: 1, lvl, mode });
     };
     const rs = el.querySelector('#rm-res');
     if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
     const on = el.querySelector('#rm-online');
     if (on) on.onclick = () => {
-      pref({ seats, decks, jokers, target, lvl });
+      pref({ seats, decks, jokers, target, lvl, mode });
       openOnline();
     };
   }
@@ -1119,7 +1311,17 @@ function onlineStart(cfg){
   }));
 
   leave();
-  const opts = { seats: n, decks: 0, jokers: true, target: 0, humans: n, lvl };
+  /* WHICH GAME IS THE ROOM PLAYING. js/mp.js already forwards the
+     room's `variant` as opts.mode — that is how klabb picks briscola
+     over bixkla — so if a room ever says 'ghaxra', every phone in it
+     is told the same word at the same moment and they all deal the
+     same way. The LIVE relay only whitelists klabb's variants today,
+     so in practice this arrives empty and every online table is
+     classic; the two server lines that would open it are in the
+     report. Either way the phones agree, which is the only thing
+     that must never be left to chance. */
+  const mode = E.modeOf(cfg.opts && cfg.opts.mode);
+  const opts = { seats: n, decks: 0, jokers: true, target: 0, humans: n, lvl, mode };
   const m = startMatch(opts, cfg.seed >>> 0);
   if (!m) throw new Error('RUMMY would not deal ' + n + ' hands');
   M.meta = meta;
@@ -1275,7 +1477,10 @@ R.lobby = {
     'everything left in every other hand.</p>' +
     '<p>2 to 12 players. The pack count follows the table — one pack to 4, two to 8, ' +
     'three to 12 — and an online table always plays the house setup: the mandatory ' +
-    'packs, jokers in, one decisive hand.</p>',
+    'packs, jokers in, one decisive hand.</p>' +
+    '<p>Offline there is a second game on the same tile: <b>G\u0126AXRA</b>, ten cards ' +
+    'each, nothing on the table, and you win by declaring one four and two threes at ' +
+    'once. A room plays it as soon as the relay can label one.</p>',
   blurb:'Draw one, meld, throw one. First hand empty takes the lot. Up to twelve, ' +
         'and the pack count grows with the table.',
   start(seatsList, opts){
@@ -1284,6 +1489,7 @@ R.lobby = {
     const lvl = (list.map(s => s && s.level).find(v => v)) || 2;
     return newGame({ seats: n, decks: 0, jokers: true,
                      target: 0, humans: 1, lvl,
+                     mode: (opts && opts.mode) || 'classic',
                      seed: opts && opts.seed });
   },
   myName(){
@@ -1306,8 +1512,8 @@ const TILE = {
   id:'rummy', order:35, kind:'card', name:'RUMMY', mt:'Ir-Rummy',
   sprite:'rm-t-rummy', icon:'cards', status:'live',
   get tag(){
-    return 'Draw one, meld your sets and runs, throw one. Up to twelve players, ' +
-           'and the pack count grows with the table.' +
+    return 'Draw one, throw one. Melds on the table as you make them — or GĦAXRA, ' +
+           'ten cards held back and declared as 4+3+3 in one go. Up to twelve players.' +
            (ST.save ? ' There is a hand of this half-played.' : '');
   },
   open: () => setupSheet(),

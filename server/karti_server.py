@@ -348,6 +348,11 @@ GAME_SEATS = {
 # without ever having to know what "briscola" means.
 GAME_VARIANTS = {
     "klabb": ("bixkla", "briscola", "sette", "gidba"),
+    # Rummy has two genuinely different games behind one id: the classic
+    # empty-your-hand one, and GĦAXRA — ten cards declared as 4+3+3. They deal
+    # different hand sizes off the same seed, so a room has to say which it is
+    # before anybody sits down, exactly as a klabb room names its flavour.
+    "rummy": ("classic", "ghaxra"),
 }
 # The client calls the bluffing game "cheat" — that id is baked into its own
 # storage key and into the stats registry, so it is not free to rename. The
@@ -365,6 +370,11 @@ GAME_VARIANT_SEATS = {
     ("klabb", "briscola"): (2, 4, 4),
     ("klabb", "sette"):    (2, 8, 5),
     ("klabb", "gidba"):    (3, 8, 5),
+    # Both rummy variants seat the same range; the pack count that makes a
+    # twelve-seat table possible is the GAME's business, not the relay's —
+    # deal() enforces it against the actual deal, where it can be checked.
+    ("rummy", "classic"):  (2, 12, 4),
+    ("rummy", "ghaxra"):   (2, 12, 4),
 }
 
 
