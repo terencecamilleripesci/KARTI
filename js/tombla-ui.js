@@ -154,6 +154,25 @@ function injectCSS(){
     '--bean:#C1361F;--bean2:#8E2412;--beanTx:#FFF3DC;' +
     '--ball:#FFF6E2;--live:#3DDC84;--warn:#FF5468}' +
 
+  /* ══ THE ĠOG TAKES THE WHOLE PANE ══
+     index.html gives every .screen twelve pixels down each side, and at
+     760px and wider it stops being a phone screen at all and becomes a
+     720-wide reading column in the middle of the glass. That column is
+     correct for a page of text and it is wrong for a ġog: a phone turned
+     sideways is 894 wide and the sheet was being drawn into 720 of them,
+     with 87 pixels of nothing down each edge. A hundred and seventy-four
+     pixels is SIX PIXELS OFF EVERY COLUMN OF EVERY CARTELLA — the single
+     biggest thing on this screen that was not a number.
+
+     So while a ġog is on the table the screen keeps the SAFE AREAS and
+     nothing else. Four pixels are left down the sides in portrait, and
+     three sideways, because a phone with rounded corners will shave a
+     card that is flush to the glass. The class is put on by board() and
+     taken off by leave(), so it can never leak onto the hub or another
+     game. */
+  '#scr-party.tb-edge{padding:calc(var(--sat) + 4px) calc(var(--sar) + 4px) ' +
+    'calc(var(--sab) + 4px) calc(var(--sal) + 4px)}' +
+
   /* ── the stack that fills pt-host ── */
   /* space-between, not flex-start: whatever slack a tall phone leaves
      over becomes generous air BETWEEN the six blocks rather than one
@@ -353,17 +372,80 @@ function injectCSS(){
      and it does that block's job better. Net cost to the ġog: nothing. */
   '#scr-party .pt-wrap.tbgog .pt-turn{display:none}' +
   '#scr-party .tb.gog{gap:6px}' +
-  '#scr-party .tb.gog .tb-cards{gap:5px}' +
-  '#scr-party .tb.gog .tb-card{padding:3px;border-radius:9px;box-shadow:0 4px 0 -2px rgba(0,0,0,.45),' +
+  /* ── WHAT A CARTELLA SPENDS ON THINGS THAT ARE NOT A NUMBER ───────
+     SIX CARTELLI MEANS EVERY PIXEL OF CHROME IS PAID SIX TIMES, and
+     across the width it is paid twice on top of that (two cards across).
+     Measured on a 440-wide phone, one cartella used to spend 26.4 of its
+     205 pixels of width on things that are not a digit:
+
+         card padding (the red rule)   3 + 3
+         grid padding                  2 + 2
+         EIGHT GUTTERS BETWEEN CELLS   8 x 2 = 16
+
+     The gutters were the whole story: sixteen pixels, eight per cent of
+     the cartella, spent on lines. At a device pixel ratio of three a ONE
+     pixel gutter is still three real lines on the glass and reads
+     perfectly as the rule on a printed card, so the gutter is 1, the grid
+     padding is 1 and the red rule is 2. Chrome 26.4 -> 14.4, and every
+     one of those twelve pixels goes back into the nine columns. */
+  '#scr-party .tb.gog .tb-cards{gap:4px}' +
+  '#scr-party .tb.gog .tb-card{padding:2px;border-radius:8px;box-shadow:0 4px 0 -2px rgba(0,0,0,.45),' +
     '0 8px 16px rgba(0,0,0,.4)}' +
-  '#scr-party .tb.gog .tb-grid{gap:2px;padding:2px;border-radius:6px}' +
-  '#scr-party .tb.gog .tb-c{border-radius:3px}' +
+  /* the gutter is one pixel now, so it has to be a pixel you can SEE: the
+     grid's backing goes a clear step darker than the paper, and the rule
+     between two numbers reads as a printed rule instead of a seam. Free
+     — it is a colour, not a pixel of layout. */
+  '#scr-party .tb.gog .tb-grid{gap:1px;padding:1px;border-radius:6px;background:#C7AE81}' +
+  /* ── THE DIGITS, CONDENSED, WHICH IS FREE HEIGHT ─────────────────
+     The number is sized off the smaller of what each axis can carry, and
+     on a ġog that is ALWAYS the width — a portrait cell is about 22 wide
+     and 43 tall, so the height cap never binds and the whole legibility
+     problem is one of horizontal room.
+
+     Measured rather than assumed: in the display face at weight 900 the
+     widest pair of digits, "88", is 1.278em wide, and with the -.02em
+     tracking this cell already carries it is 1.238em. So a two-digit
+     number fits a cell of width W at any size up to .808W, and the old
+     .64W was leaving eighteen per cent of the room unused.
+
+     It is taken in two bites. The factor goes to .80 — which draws the
+     digits at .99W, edge to edge — and then the span is squeezed to 90%
+     of its width, putting the ink back to .89W with four per cent of air
+     down each side. Net: the SAME width as a .72 factor would give, and
+     digits ELEVEN PER CENT TALLER than that for nothing. A geometric sans
+     at 90% reads as a condensed cut, not as a squashed one, and it is the
+     cut a printed cartella uses for the same reason.
+
+     ĠOG ONLY. One big kartella is 43 pixels a column, its font is already
+     up against the 26px ceiling, and condensing it there would make the
+     digits smaller for no reason at all. */
+  '#scr-party .tb.gog .tb-c{border-radius:3px;' +
+    'font-size:min(26px,calc(var(--tbh,26px) * .56),calc(var(--tbw,20px) * .80))}' +
+  '#scr-party .tb.gog .tb-n{transform:scaleX(.9)}' +
+  /* ── THE GUTTER IS PART OF THE SQUARE YOU AIMED AT ────────────────
+     He marks ninety times a game and a wrong mark now stays until
+     somebody shouts, so the failure to hunt is not "too small to hit", it
+     is "hit nothing" and "hit the wrong one". A tap that lands on the
+     rule between two cells used to reach .tb-grid, match nothing, and do
+     absolutely nothing — a silent miss on a screen where every call needs
+     a tap. Each numbered square now claims half the gutter on every side,
+     so the squares of a cartella TILE: there is no dead line anywhere on
+     the sheet and the nearest number always wins. Half, not all, so two
+     neighbours never overlap and a boundary tap cannot go to the wrong
+     one. Blanks are spans, not buttons, and are left out of this — they
+     have no handler and tapping one goes on doing nothing, quietly. */
+  '#scr-party .tb.gog button.tb-c::after{content:"";position:absolute;inset:-0.5px}' +
   /* a ġog cell is 41 wide and 26 tall, so a counter sized as a circle
      off the WIDTH overflows the row and the six kartelli start to look
      like they are bleeding into one another. Sized to the box it lands
      in it is a slightly squashed disc — which is what a dried bean
      looks like anyway. */
-  '#scr-party .tb.gog .tb-c.on::before{width:94%;height:90%;aspect-ratio:auto}' +
+  /* ...and now that a ġog cell is twice as tall as it is wide, 90% of the
+     height is a red LOZENGE rather than a counter. It is held to about
+     one and a half times its own width, which is the shape a dried broad
+     bean actually is, and the extra height stays paper. */
+  '#scr-party .tb.gog .tb-c.on::before{width:94%;' +
+    'height:min(90%,calc(var(--tbw,20px) * 1.45));aspect-ratio:auto}' +
   '#scr-party .tb.gog .tb-call{padding:6px 9px;gap:9px}' +
   '#scr-party .tb.gog .tb-ball{width:58px;height:58px}' +
   '#scr-party .tb.gog .tb-ball b{font-size:25px}' +
@@ -631,6 +713,36 @@ function injectCSS(){
     'color:var(--gold)}' +
   '#scr-party .tb-note{font-size:11px;line-height:1.55;color:var(--dim2);margin:7px 2px 0;' +
     'text-transform:none;letter-spacing:0}' +
+
+  /* ══ WHICH GAME — AND HOW MANY KARTELLI YOU ARE ABOUT TO BE HANDED ══
+     "There is only 1 tocket in tombla not all 6 wtf." He opened a game,
+     got one kartella, and thought the app was broken. It was not broken;
+     he had klassika selected, and klassika deals one. That is MY fault
+     and not his: the sheet is now the biggest single difference between
+     the two games and it was being announced by the word "Klassika" and
+     a line of small grey type underneath.
+
+     So the choice is not a pair of chips any more. It is two cards, and
+     the first thing on each of them is A PICTURE OF THE SHEET — one
+     cartella against six, drawn at the same size so the difference is a
+     shape and not a sentence. Nobody has to read anything to see that one
+     of these deals six times as much paper. It is drawn geometry (cream
+     rectangles with the red rule, ruled across like a cartella), which is
+     the same thing the rest of this file draws instead of pictures. */
+  '#scr-party .tb-modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:4px 0 2px}' +
+  '#scr-party .tb-mode{display:flex;flex-direction:column;align-items:flex-start;gap:8px;' +
+    'min-height:0;padding:10px 10px 11px;text-align:left;letter-spacing:0}' +
+  '#scr-party .tb-mode .pic{display:grid;grid-template-columns:repeat(2,27px);grid-auto-rows:17px;' +
+    'gap:3px;justify-content:start;align-content:start;height:57px}' +
+  '#scr-party .tb-mode .pic i{display:block;border-radius:3px;background:#F6E9CC;' +
+    'box-shadow:0 0 0 1.5px #A8321E;' +
+    'background-image:repeating-linear-gradient(180deg,transparent 0 4px,rgba(120,80,30,.3) 4px 5px)}' +
+  '#scr-party .tb-mode b{font:900 12.5px/1.2 var(--disp);letter-spacing:.05em;text-transform:uppercase}' +
+  '#scr-party .tb-mode u{text-decoration:none;font:900 10.5px/1.25 var(--disp);letter-spacing:.08em;' +
+    'text-transform:uppercase;color:var(--gold)}' +
+  '#scr-party .tb-mode i{font-style:normal;font-size:10.5px;line-height:1.45;color:var(--dim2)}' +
+  '#scr-party .tb-mode:not(.on) u{color:var(--dim)}' +
+  '#scr-party .tb-mode:not(.on) .pic i{opacity:.55}' +
   /* one setting, one row */
   '#scr-party .tb-set{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;' +
     'min-height:50px;padding:5px 2px;border-bottom:1px solid var(--line)}' +
@@ -761,6 +873,59 @@ function injectCSS(){
     '#scr-party .tb-shout b{font-size:30px;padding:6px 12px 10px}' +
     '#scr-party .tb-shout.big b{font-size:34px}}' +
 
+  /* ══ SIDEWAYS, A ĠOG IS THE WHOLE SCREEN ══
+     "Even la d scap is small u should use full screen boss." He is right,
+     and the reason he was right is measurable. Turned sideways a phone is
+     894 pixels wide; the sheet was being drawn into 720 of them (see
+     .tb-edge above), and then of the 440 pixels of HEIGHT it had, 256 —
+     fifty-eight per cent — went on a title bar, a caller bar, a rail on
+     its own line, a ladder and a button bar. The kartelli got 184.
+
+     Turned sideways this is therefore not the portrait layout rotated.
+     It is a different composition:
+
+       THE TITLE BAR GOES. In portrait it earns its band; sideways it
+       costs fifty-six pixels of the scarce axis to say a word the caller
+       bar already says. Nothing is lost with it — the badge said 12/90
+       and the status line in the caller bar says 12/90 — so only the way
+       back has to be rehomed, and it becomes a small disc in the corner
+       of the caller bar. It is still #pt-back, so party.js's handler,
+       Escape and the back arrow all go on working untouched.
+
+       THE STRIP IS ONE ROW, NOT THREE. The ball, the rail and the ladder
+       stop stacking and sit side by side across the top: the ball is
+       fifty pixels tall and the other two are shorter than that, so two
+       of the three now cost nothing at all. .tb is a grid for exactly
+       this and for no other reason.
+
+     WHAT IS NOT DONE, AND THE NUMBERS FOR WHY. The button bar was going
+     to float over the cards. It was measured first: once the width is
+     back, a landscape cell is 31 wide and its digits are sized off the
+     WIDTH, so the bar costs the numbers nothing — floating it would have
+     bought zero legibility, put the CLAIM button on top of somebody's
+     kartella, and taken the same button away from the lobby that shares
+     it. It stays in the flow, one row, at the foot. */
+  '@media (orientation:landscape) and (max-height:600px){' +
+    '#scr-party .pt-wrap.tbgog.tbplay>.tbar{position:absolute;z-index:21;top:var(--sat);left:var(--sal);' +
+      'display:block;width:auto;min-height:0;height:auto;margin:0;padding:0;border:0;background:none}' +
+    '#scr-party .pt-wrap.tbgog.tbplay>.tbar h2,' +
+    '#scr-party .pt-wrap.tbgog.tbplay>.tbar .pt-badge{display:none}' +
+    '#scr-party .pt-wrap.tbgog.tbplay>.tbar .iconbtn{width:30px;height:30px;min-height:0;min-width:0;' +
+      'border-radius:50%;background:rgba(255,255,255,.09);color:var(--dim)}' +
+    '#scr-party .tbplay .tb.gog{display:grid;gap:4px 8px;align-content:stretch;' +
+      'grid-template-columns:minmax(0,1.15fr) minmax(0,1.5fr) auto;' +
+      'grid-template-rows:auto minmax(0,1fr)}' +
+    /* the strip is as tall as the ball and not a pixel taller. The status
+       line was wrapping to two lines inside a narrow caller bar and every
+       one of those lines came off all six cartelli. */
+    '#scr-party .tbplay .tb.gog .tb-stat{flex-wrap:nowrap;overflow:hidden;white-space:nowrap}' +
+    /* the left of the strip keeps the thirty pixels the back disc sits in */
+    '#scr-party .tbplay .tb.gog .tb-call{grid-column:1;grid-row:1;padding:2px 8px 2px 32px;border-radius:10px}' +
+    '#scr-party .tbplay .tb.gog .tb-rail{grid-column:2;grid-row:1;align-self:center}' +
+    '#scr-party .tbplay .tb.gog .tb-lad{grid-column:3;grid-row:1;align-self:center;width:128px;gap:3px}' +
+    '#scr-party .tbplay .tb.gog .tb-cards{grid-column:1/4;grid-row:2}' +
+    '#scr-party .pt-wrap.tbgog.tbplay .pt-bar{margin-top:4px}}' +
+
   /* the small phone, sideways — an SE is 375 tall in landscape and a
      ġog wants every pixel of it. The laqam is the first thing to go
      after the joke: it is the nickname, it is lovely, and it is not
@@ -872,7 +1037,21 @@ function fitCards(){
   /* ── and how tall a cell can be in what is left ── */
   const rows = Math.ceil(n / cols);
   let h = Math.floor((availH - (rows - 1) * gap - rows * chromeH) / (rows * 3));
-  h = Math.min(h, Math.round(cellW * 1.75), MAX_H);
+  /* ── AND HOW TALL, WITH THE CAP THAT DECIDES HOW FULL IT LOOKS ────
+     On a ġog the height is never the scarce axis — nine columns in half a
+     phone is about twenty-two pixels a column, and the row that carries
+     them could be sixty. So this cap is not protecting the layout from
+     running out of room, it is deciding how much of the screen the sheet
+     COVERS, and 1.75 was leaving two hundred pixels of nothing above and
+     below six cartelli on a 894-tall phone. A sheet floating in a third
+     of the screen is what "it doesn't fit right" looks like even when
+     every card is on it.
+     TWO, for a ġog. That fills the pane, and it buys the thing he
+     actually asked for on top: the square gets taller, so the target the
+     thumb is aiming at grows on the axis that had the room to give. One
+     big kartella keeps 1.75 — it is 43 pixels a column and already up
+     against MAX_H, and stretching it further only makes a bar. */
+  h = Math.min(h, Math.round(cellW * (U.gog ? 2 : 1.75)), MAX_H);
   h = Math.max(MIN_H, h);
   const w = Math.max(MIN_W, Math.round(cellW));
 
@@ -946,6 +1125,8 @@ const isLocalSeat = i => { const st = T.state(); const s = st && st.seats[i];
 
 function leave(){
   stopFit();
+  /* the pane gets its margins back the moment the ġog is off it */
+  try { P.ui.screenEl().classList.remove('tb-edge'); } catch(e){}
   /* the voice goes with the table. A number half-said while the player
      is already back on the shelf is the app talking to an empty room. */
   try { if (window.KARTI_CALLER){ window.KARTI_CALLER.stop(); window.KARTI_CALLER.setEnabled(false); } } catch(e){}
@@ -996,6 +1177,17 @@ function setRow(id, label, note, opts, cur){
       '<button class="tb-sq' + (String(o.v) === String(cur) ? ' on' : '') +
       '" data-v="' + esc(o.v) + '">' + esc(o.l) + '</button>').join('') + '</div></div>';
 }
+/* one of the two games, with its SHEET drawn on it. `n` mini cartelli,
+   laid out two across the way a real ġog is folded, so one card against
+   six is a shape you cannot mistake for a shorter sentence. */
+function modeCard(v, name, n, sheet, note){
+  let pic = '';
+  for (let i = 0; i < n; i++) pic += '<i></i>';
+  return '<button class="tb-sq tb-mode" data-v="' + esc(v) + '">' +
+    '<span class="pic" aria-hidden="true">' + pic + '</span>' +
+    '<b>' + esc(name) + '</b><u>' + esc(sheet) + '</u><i>' + esc(note) + '</i></button>';
+}
+
 function stepRow(id, label, note, val){
   return '<div class="tb-set"><span class="lab"><b>' + esc(label) + '</b>' +
     (note ? '<i>' + esc(note) + '</i>' : '') + '</span>' +
@@ -1065,7 +1257,21 @@ function menu(){
   let play  = (p.play === 'ai' || p.play === 'online')
                 ? p.play : (canOnline ? 'online' : 'ai');
   if (play === 'online' && (!canOnline || relayDown)) play = 'ai';
-  let rules = p.mode === 'hall' ? 'hall' : 'ladder';
+  /* ── TAL-KAŻIN IS WHAT "TOMBLA" MEANS HERE, SO IT IS WHAT OPENS ────
+     Klassika used to be the default on the argument that five rungs are
+     a friendlier first game. Three things beat that argument:
+       · "Maltese always get the full 6 for a play." A ġog of six is what
+         is sold at the door of every każin on the island, and it is the
+         game Cap. 438 is describing when it says "tombla".
+       · the pacing measurement came out the other way — six cartelli and
+         two rungs is the better-paced game, because every ball is yours
+         and the room never goes idle.
+       · the friendliness argument was really an argument about the SETUP
+         SHEET not saying what you were about to be handed. That is fixed
+         above, with a picture, so it is no longer paying for a default.
+     A player who has chosen klassika before still gets klassika: the
+     saved preference is read first and only an absent one lands here. */
+  let rules = p.mode === 'ladder' ? 'ladder' : 'hall';
   let who   = p.caller === 'auto' ? 'auto' : 'manual';
   let seats = Math.max(2, Math.min(T.MAX_SEATS, p.seats || T.DEFAULTS.seats));
   let level = [1,2,3].indexOf(p.level) >= 0 ? p.level : 2;
@@ -1103,13 +1309,17 @@ function menu(){
           '<b>If Tailscale is on, turn it off.</b> Everything else here works with no internet.</p>'
         : '') +
 
-      '<div class="tiny pt-lbl">The game</div>' +
-      /* THE MODE CARRIES THE SHEET. The note under it is the whole
-         difference between the two games, in eleven words, and it is
-         the row that used to be two rows. */
-      setRow('tb-rules', 'Which game', '',
-             [{ v:'ladder', l:'Klassika' }, { v:'hall', l:'Tal-każin' }], rules) +
-      '<p class="tb-note" id="tb-rulesnote"></p>' +
+      '<div class="tiny pt-lbl">The game — and how much paper it deals you</div>' +
+      /* THE MODE CARRIES THE SHEET, so the sheet is the headline. See
+         WHICH GAME in the stylesheet for why this is not two chips. */
+      '<div class="tb-modes" id="tb-rules">' +
+        modeCard('ladder', 'Klassika', 1, 'One kartella',
+                 'Five prizes: ambo, terna, kwaterna, ċinkwina, then tombla. ' +
+                 'Fifteen numbers to watch, over in ten minutes.') +
+        modeCard('hall', 'Tal-każin', 6, 'Six kartelli · il-ġog',
+                 'Vers, then fatta. Every number that comes out is somewhere on your ' +
+                 'sheet, so you mark ninety times. The game the każini play.') +
+      '</div>' +
       setRow('tb-who', 'Who reads them out', 'Manual: you tap the bag and say it yourself. The app stays quiet.',
              [{ v:'manual', l:'A person' }, { v:'auto', l:'The phone' }], who) +
       stepRow('tb-seats', 'Chairs', 'Two to sixteen. Nobody ever waits for a turn.', seats) +
@@ -1149,9 +1359,6 @@ function menu(){
       b2.classList.toggle('on', b2.dataset.v === String(v)));
     mark('tb-rules', rules); mark('tb-who', who);
     mark('tb-speed', speed); mark('tb-lvl', level);
-    el.querySelector('#tb-rulesnote').textContent = rules === 'hall'
-      ? 'Tal-każin: the full ġog of six kartelli, every number on your sheet. Vers, then fatta.'
-      : 'Klassika: one kartella. Ambo, terna, kwaterna, ċinkwina, then tombla.';
     mark('tb-hints', hints ? 1 : 0); mark('tb-auto', auto ? 1 : 0);
     el.querySelector('#tb-seats .val').textContent = seats;
     el.querySelector('#tb-seats button[data-d="-1"]').disabled = seats <= 2;
@@ -1273,6 +1480,11 @@ function board(){
   /* six kartelli need the turn strip's forty-nine pixels more than the
      turn strip needs them; everything it said moves into the caller bar */
   if (gog) ctx.root.classList.add('tbgog');
+  /* and the pane gives up its reading margins for as long as a ġog is on
+     it — see .tb-edge in the stylesheet. On the screen element rather
+     than on ours because the margins are the screen's, and taken off
+     again by leave(), which every way out of this board goes through. */
+  try { if (gog) P.ui.screenEl().classList.add('tb-edge'); } catch(e){}
 
   U = {
     ctx, root, gog,
@@ -1393,6 +1605,7 @@ function render(){
 const initialOf = n => String(n || '?').trim().charAt(0).toUpperCase() || '?';
 
 function paintLobby(st){
+  U.ctx.root.classList.remove('tbplay');
   const me = U.seat;
   const all = st.seats.every(s => s.ready);
   const host = st.host === me;
@@ -1481,6 +1694,13 @@ function toast(msg, bad){
 }
 
 function paintTable(st){
+  /* THE SIDEWAYS COMPOSITION IS FOR THE TABLE, NOT FOR THE LOBBY. Turned
+     sideways .tb becomes a three-column grid and the title bar goes, and
+     both of those are nonsense over a list of sixteen chairs — the lobby
+     has room to spare and wants its heading. One class, put on when the
+     cartelli are on screen and taken off when they are not, because the
+     rules that need to know live on .pt-wrap, above us. */
+  U.ctx.root.classList.add('tbplay');
   U.root.innerHTML =
     '<div class="tb-call" id="tb-callbar"></div>' +
     '<button class="tb-rail" id="tb-rail" aria-label="What has come out. Tap for the whole board."></button>' +

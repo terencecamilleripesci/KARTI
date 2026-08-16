@@ -129,13 +129,14 @@
 
      'ladder'  TOMBLA KLASSIKA — the Italian tombola ladder, five
                prizes, ambo → terna → kwaterna → ċinkwina → tombla,
-               ON ONE NORMAL KARTELLA. THE DEFAULT, because it is the
-               better short game: five prizes means nobody is out of it
-               after two minutes, one sheet of fifteen means you are
-               watching fifteen numbers and not ninety, and the whole
-               thing is over in ten minutes. Labelled on screen as the
-               classic/Italian rules, which is what it is.
-     'hall'    TAL-KAŻIN — Malta's own: VERS (the line, five on one
+               ON ONE NORMAL KARTELLA. The better SHORT game: five prizes
+               means nobody is out of it after two minutes, one sheet of
+               fifteen means you are watching fifteen numbers and not
+               ninety, and the whole thing is over in ten minutes.
+               Labelled on screen as the classic/Italian rules, which is
+               what it is. It was the default and is not any more — see
+               DEFAULTS below.
+     'hall'    TAL-KAŻIN — Malta's own, AND THE DEFAULT: VERS (the line, five on one
                row) then FATTA (the house, all fifteen), ON THE FULL
                ĠOG OF SIX. This is the game the band clubs, the
                parishes and the halls actually play, it is the one the
@@ -789,10 +790,20 @@ function nearest(st, cells, marks){
                ever won it. See ruling 2 in the header.
    ═══════════════════════════════════════════════════════════════════ */
 const DEFAULTS = {
-  /* 'ladder' = the Italian five-rung tombola (the default; the better
-     game). 'hall'  = Malta's own vers-then-fatta. See THE LADDER in
-     the header — these are two real rule sets, not a difficulty. */
-  mode: 'ladder',
+  /* 'hall' = Malta's own vers-then-fatta on the full ġog of six, AND THE
+     DEFAULT. 'ladder' = the Italian five-rung tombola on one kartella.
+     See THE LADDER in the header — these are two real rule sets, not a
+     difficulty, and the default moved to the Maltese one because that is
+     what the word denotes here and what every każin sells at the door.
+
+     NOTE WHAT DID NOT MOVE. optsOf() below still reads an ABSENT or
+     unrecognised mode as 'ladder', and it has to: that normalising rule
+     is in the fingerprint, and every phone in a room and every saved log
+     replays through it. Nothing ever reaches it without a mode — deal()
+     stores the opts already normalised — so THIS line is what a new game
+     starts from and THAT line is what an old one replays through. They
+     are allowed to differ, and tidying them together would be a bug. */
+  mode: 'hall',
   /* WHO READS THE NUMBERS OUT.
      'manual' — a PERSON does. One player holds the ball, taps to draw,
                 and reads it to the room in Maltese themselves. The
