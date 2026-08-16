@@ -6,6 +6,33 @@
 <meta name="theme-color" content="#08050F">
 <meta name="description" content="KARTI — the 18+ Maltese card duel. Festa, City, Farm, Sea or Trouble. Pick a side and ruin somebody's afternoon.">
 <title>KARTI — Maltese Card Duel</title>
+
+<!-- ══ WHAT A SHARED LINK LOOKS LIKE ═══════════════════════════════════
+     Without these, pasting the link into WhatsApp shows a bare URL and
+     nobody taps it. These are what build the preview card: the image, the
+     name, the one line that has to do the selling.
+
+     THE URLs MUST BE ABSOLUTE. WhatsApp, Messenger and iMessage fetch the
+     page from their own servers with no notion of where it came from, so a
+     relative path resolves against nothing and the preview comes back
+     blank. That is the single most common way this is got wrong.
+
+     The image is a JPEG on purpose: WhatsApp quietly drops previews over
+     ~300KB, and the PNG of the same card is 590KB against the JPEG's 108. -->
+<meta property="og:type"        content="website">
+<meta property="og:site_name"   content="KARTI">
+<meta property="og:title"       content="KARTI — Malta's rudest card duel">
+<meta property="og:description" content="200 cards, 12 party games and a fleet to sink. Free, on your phone. 18+">
+<meta property="og:url"         content="https://terencecamilleripesci.github.io/KARTI/">
+<meta property="og:image"       content="https://terencecamilleripesci.github.io/KARTI/art/ui/share.jpg">
+<meta property="og:image:width"  content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt"   content="KARTI — Malta's rudest card duel">
+<meta property="og:locale"      content="en_MT">
+<meta name="twitter:card"        content="summary_large_image">
+<meta name="twitter:title"       content="KARTI — Malta's rudest card duel">
+<meta name="twitter:description" content="200 cards, 12 party games and a fleet to sink. Free, on your phone. 18+">
+<meta name="twitter:image"       content="https://terencecamilleripesci.github.io/KARTI/art/ui/share.jpg">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
@@ -1594,7 +1621,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 97;
+var KARTI_BUILD = 98;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

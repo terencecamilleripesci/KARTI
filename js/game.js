@@ -1034,6 +1034,16 @@ function settingsSheet(){
         + '</div>'
       : '') +
 
+    /* SHARING IS THE ONLY WAY ANYBODY ELSE FINDS THIS.
+       There is no store listing and no marketing; the app spreads by one
+       person sending a link to a group chat. So the button is high up,
+       not buried under the toggles. */
+    '<p class="setgrp">Tell somebody</p>' +
+    '<div class="opts">' +
+      '<button class="btn ghost" id="st-share">' + ilb('users', 'Share KARTI') +
+        '<span class="sub">send the link to a friend</span></button>' +
+    '</div>' +
+
     '<p class="setgrp">Game</p>' +
     '<div class="setlist">' +
       '<button class="setrow" id="st-motion" role="switch" aria-checked="' + (on ? 'true' : 'false') + '">' +
@@ -1088,6 +1098,35 @@ function settingsSheet(){
       else if (ACTIVE === GUEST) upgradeSheet();
       else KARTI_SYNC.openPanel('signup', { user: displayName() });
     }; }
+  /* THE SHARE SHEET, WITH A REAL FALLBACK.
+     navigator.share is the good path — on his iPhone it opens the system
+     sheet with WhatsApp first, which is where this actually spreads. It
+     needs a user gesture (this is one) and it REJECTS when the player
+     dismisses the sheet, which is not an error and must not be reported as
+     one. Everywhere it does not exist, copy the link instead and say so,
+     because a button that silently does nothing is worse than no button. */
+  const shareBtn = $('#st-share');
+  if (shareBtn) shareBtn.onclick = async () => {
+    const url  = 'https://terencecamilleripesci.github.io/KARTI/';
+    const text = "KARTI — Malta's rudest card duel. 200 cards, 12 party games. " +
+                 'Free, on your phone. 18+';
+    try {
+      if (navigator.share){
+        await navigator.share({ title: 'KARTI', text, url });
+        return;                       /* shared, or quietly dismissed */
+      }
+    } catch (e){
+      /* AbortError is the player closing the sheet — say nothing at all */
+      if (e && e.name === 'AbortError') return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Link copied — paste it to your friends.');
+    } catch (e){
+      toast(url);                     /* last resort: show it so it can be read */
+    }
+  };
+
   $('#st-motion').onclick = () => {
     setPref('motion', !REDUCED);
     settingsSheet();
