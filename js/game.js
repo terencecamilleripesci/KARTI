@@ -872,6 +872,20 @@ function renderHome(){
     esc(nm);
   chip.onclick = profileSheet;
   try { window.KARTI_XP && KARTI_XP.paint && KARTI_XP.paint(chip); } catch (e){}
+  /* Repaint the pill when the player changes their face, their border or their
+     photograph. renderHome() builds this chip ONCE, so without this you could
+     pick a new avatar, come back to the main menu, and still be looking at the
+     old one — which is exactly what "my avatar didnt change" was. Registered
+     once, not per render, or every visit home would add another listener. */
+  if (window.KARTI_XP && KARTI_XP.onEquip && !renderHome._avWired){
+    renderHome._avWired = true;
+    try {
+      KARTI_XP.onEquip(function(){
+        const c = document.getElementById('profile-chip');
+        if (c && document.getElementById('scr-home')) renderHome();
+      });
+    } catch (e){}
+  }
 
   const d = activeDeck();
   $('#wallet').innerHTML =

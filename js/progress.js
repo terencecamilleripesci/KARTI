@@ -1038,6 +1038,20 @@ function sayWhy(res){
  * read, because "it did not work" on a photo somebody just chose of
  * themselves is the worst possible answer.
  */
+/* Push the save the moment the face changes, rather than waiting for the next
+   scheduled sync. The photograph's BYTES live on the Pi, but the pointer to
+   them — pv, and whether it is in use — lives in the save, so without this a
+   player who set or removed a photo on one phone would keep seeing the old one
+   on the other until something else happened to trigger a push. Fire and
+   forget: it is a convenience, and a failed push must never make setting your
+   own face look broken. */
+function syncNow(){
+  try {
+    if (window.KARTI_SYNC && typeof KARTI_SYNC.push === 'function')
+      Promise.resolve(KARTI_SYNC.push({ quiet:true })).catch(function(){});
+  } catch (e){}
+}
+
 function uploadPhoto(file){
   var s = session();
   if (!s) return Promise.resolve({ ok:false, why:'You need an account for a photo — it is kept for you, not on this phone.' });
@@ -1053,6 +1067,7 @@ function uploadPhoto(file){
       lsSet(myPicKey(), { ver:ver, img:r.img });
       fire(equipCbs, { slot:'karti.avatar', game:'karti', id:'photo', photo:true });
       repaintAvatars();
+      syncNow();
       return { ok:true, ver:ver, bytes:r.bytes, chars:r.chars };
     });
   }, function(why){
@@ -1076,6 +1091,7 @@ function removePhoto(){
   var s = session();
   if (s) post('', { tok:s.tok, token:s.tok }, 'DELETE');
   fire(equipCbs, { slot:'karti.avatar', game:'karti', id:avatar(), photo:false });
+  syncNow();
   return { ok:true };
 }
 
@@ -1105,10 +1121,18 @@ function describe(name, opts){
 
   if (mine){
     var p = root();
+    /* An explicit border/pic wins over what is equipped. A caller that asks for
+       a specific one — the customisation previews, a picker tile, anything
+       showing what a border WOULD look like — was silently given the equipped
+       one instead, so every preview drew the same ring and choosing looked
+       broken. `face` was already honoured; the other two were not, which is the
+       kind of asymmetry that only shows up once somebody tries to preview. */
     return {
       face: o.face || avatar(),
-      border: bareBorder(equipped('border', 'karti')),
-      pic: (p.usePic && p.pv) ? (myPic() || picURL(activeKey(), p.pv)) : '',
+      border: bareBorder(o.border || equipped('border', 'karti')),
+      pic: (o.pv === 0) ? ''
+         : (o.pv ? picURL(activeKey(), o.pv)
+                 : ((p.usePic && p.pv) ? (myPic() || picURL(activeKey(), p.pv)) : '')),
       mine: true
     };
   }
