@@ -1949,7 +1949,17 @@ function ownRoster(){
                      ready:MP.iAmReady, lv:0 };
   return { t:'table', code:MP.code, game:MP.game, seats:MP.size, started:false,
            variant:MP.variant, taken:1, min:gameLobby(MP.game).minSeats,
-           waiting:MP.iAmReady ? 0 : 1, who };
+           waiting:MP.iAmReady ? 0 : 1, who,
+           /* THIS ROSTER IS A GUESS, AND THE SCREEN HAS TO SAY SO.
+              It is what we draw before the relay has told us anything: one
+              chair, ours, filled in from what we asked for. Left unmarked it
+              is indistinguishable from a real answer, so the lobby happily
+              said "your table is in the list" about a table the server had
+              never heard of — and then a machine added to it went nowhere,
+              because the message that adds one goes to the relay. A player
+              seeing a confident empty room and an ignored machine has no way
+              to know the connection is the problem. */
+           local:true };
 }
 
 /* seats as the LOBBY CONTRACT wants them: {name, kind, level, ready, link} */
@@ -2128,9 +2138,15 @@ function tableLobby(){
   /* The status line is about the ROOM. The line under the start button is about
      the START. They used to both say "1 person is not ready yet", which read
      like the screen was nagging. */
-  setState(verdict.ok ? 'ready' : 'waiting',
-           MP.private ? 'Private table — only somebody with the code can get in.'
-         : taken < 2 ? 'Your table is in the list. Nobody else yet — it only takes one.'
+  /* the honest case first: nothing below this line is true if the relay has
+     not answered, so it is said before any of it */
+  const unconfirmed = !!(MP.roster && MP.roster.local);
+  setState(unconfirmed ? 'waiting' : verdict.ok ? 'ready' : 'waiting',
+           unconfirmed ? 'Still reaching the server — this table is not open to '
+                       + 'anybody yet, and a machine added now will not stick.'
+         : MP.private ? 'Private table — only somebody with the code can get in.'
+         : taken < 2 ? 'Your table is in the list. Nobody else yet — put a machine '
+                     + 'in a chair and start, or wait for somebody.'
          : verdict.ok ? 'Everybody is ready. ' + taken + ' at the table.'
          : taken + ' at the table, ' + free.length +
            (free.length === 1 ? ' chair free.' : ' chairs free.'));
