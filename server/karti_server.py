@@ -141,6 +141,12 @@ import base64
 import collections
 import hashlib
 import hmac
+
+# The record book and the leaderboard live in their own module so they could
+# be written while this file was being changed by other work. Everything they
+# add answers 503 until open_store() is called, so an unmounted build is a
+# feature that is off rather than a route that breaks.
+import karti_stats
 import json
 import os
 import random
@@ -2762,6 +2768,8 @@ class KartiHandler(BaseHTTPRequestHandler):
                                  (("Retry-After", "5"),))
             else:
                 self.reply_bytes(200, presence_body())
+        elif path.startswith("/stats/"):
+            karti_stats.handle_get(self, path[len("/stats/"):], self.path)
         else:
             self.reply(404, {"ok": False, "why": "This is the KARTI relay, not a web server."})
 
@@ -2777,6 +2785,9 @@ class KartiHandler(BaseHTTPRequestHandler):
         path = self.route()
         if path.startswith(ACCT_PREFIX + "/"):
             self.handle_account(path[len(ACCT_PREFIX) + 1:])
+            return
+        if path.startswith("/stats/"):
+            karti_stats.handle_post(self, path[len("/stats/"):])
             return
         # Everything else is exactly as it was before accounts existed.
         self.reply(405, {"ok": False, "why": "GET only."})
@@ -5796,6 +5807,9 @@ def main(argv=None):
                    help="DEBUG ONLY: accept any Origin header")
     p.add_argument("--log", default=None, help="append-only event log file (no message contents)")
     p.add_argument("--verbose", action="store_true", help="log HTTP oddities to stderr")
+    p.add_argument("--stats", default=karti_stats.DEFAULT_DB,
+                   help="where the record book and leaderboard live (default %s)"
+                        % karti_stats.DEFAULT_DB)
     p.add_argument("--accounts", default=DEFAULT_ACCT_DB,
                    help="SQLite file for accounts + cross-device saves (default %s)"
                         % DEFAULT_ACCT_DB)
@@ -5815,6 +5829,11 @@ def main(argv=None):
 
     if not args.no_accounts:
         accounts_open(args.accounts)
+        # The leaderboard needs to know WHICH account is submitting, and it
+        # must never take that from the request body. It gets the session
+        # resolver instead, so a crafted name is not even parsed.
+        karti_stats.open_store(args.stats,
+                               lambda tok: ACCOUNTS.session(tok) if ACCOUNTS else None)
 
     if args.host not in ("127.0.0.1", "::1", "localhost"):
         print("warning: binding to %s exposes the relay directly. Tailscale Funnel "
