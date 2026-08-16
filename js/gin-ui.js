@@ -99,14 +99,23 @@ const LEVELS = [
 ];
 const levelName = k => (LEVELS.find(l => l.k === k) || LEVELS[1]).n;
 
+/* the rules card, in the words of whichever table you are at */
+function rulesFor(hand) {
+  const h = hand === 13 ? 13 : 10;
+  const k = h === 13 ? 13 : 10;
+  return RULES.map(r => r
+    .replace(/\{H\}/g, String(h))
+    .replace(/\{K\}/g, String(k)));
+}
 const RULES = [
-  '<b>Ten cards each.</b> Melds are three or four of a rank, or runs of three or more in one suit.',
+  '<b>{H} cards each.</b> Melds are three or four of a rank, or runs of three or more in one suit.',
   'On your turn <b>take the top discard or draw blind</b> from the stock, then throw one card back. You may not throw back the discard you just took.',
-  'Loose cards are <b>deadwood</b> — ace 1, pips face value, tens and courts 10. At <b>10 or less</b> you may <b>KNOCK</b>: throw your last card and show your hand.',
+  'Loose cards are <b>deadwood</b> — ace 1, pips face value, tens and courts 10. At <b>{K} or less</b> you may <b>KNOCK</b>: throw your last card and show your hand.',
   '<b>GIN</b> — every card melded — pays <b>25 extra</b> and nothing may be laid off against it.',
   'After a knock the other hand <b>lays off</b> what fits on your melds. If they finish with <b>the same or less</b> deadwood, that is an <b>UNDERCUT</b>: they take the difference plus 25, and you will hear about it for a week.',
   'First to <b>100</b>. The winner adds a <b>100 game bonus</b> and both sides add <b>25 a hand won</b>. Lose without winning a single hand and the lot is <b>doubled</b>.',
-  'Two cards left in the stock and nobody has knocked? The hand is <b>dead</b> — no score, same dealer deals again.'
+  'Two cards left in the stock and nobody has knocked? The hand is <b>dead</b> — no score, same dealer deals again.',
+  'At <b>thirteen cards</b> everything above is the same game: only the knock limit moves, to 13 — one point of deadwood per card, exactly the ratio ten-card gin uses.'
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -255,13 +264,16 @@ function injectCSS() {
        touch-action:none on each card — that line is the iOS fix: the
        browser is told the gesture is ours before it starts, so the
        page never scrolls out from under a drag. */
-    '#scr-party .gn-hand{position:relative;width:100%;flex:0 0 auto;' +
+    '#scr-party .gn-hand{position:relative;width:100%;flex:0 0 auto;box-sizing:content-box;' +
       '-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}' +
-    '#scr-party .gn-card{position:absolute;bottom:2px;padding:0;border:0;background:none;line-height:0;' +
+    /* positioned from the TOP, because the rail may be two rows deep at
+       thirteen cards and a row has to be able to sit under another one */
+    '#scr-party .gn-card{position:absolute;top:0;padding:0;border:0;background:none;line-height:0;' +
       'border-radius:6px;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;' +
       '-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;' +
       'box-shadow:0 2px 4px rgba(0,0,0,.5),0 6px 14px rgba(0,0,0,.35);' +
-      'transition:left .16s var(--ease),transform .16s var(--ease),box-shadow .16s var(--ease)}' +
+      'transition:left .16s var(--ease),top .16s var(--ease),transform .16s var(--ease),' +
+        'box-shadow .16s var(--ease)}' +
     '#scr-party .gn-card .kb-svg{pointer-events:none}' +
     '#scr-party .gn-card.sel{transform:translateY(-16px);' +
       'box-shadow:0 0 0 3px var(--gold),0 10px 20px rgba(0,0,0,.5)}' +
@@ -542,7 +554,7 @@ function openBoard() {
          { id: 'gn-new', label: 'New', icon: 'refresh', cls: 'ghost' }]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = 'Il-Ġin';
+  M.ctx.badge.textContent = M.st.hs === 13 ? 'Il-Ġin · 13' : 'Il-Ġin';
   M.ctx.host.classList.add('kb-host');
   M.ctx.host.style.alignItems = 'stretch';
   M.ctx.host.style.justifyContent = 'stretch';
@@ -592,6 +604,7 @@ function openBoard() {
 
 function leave() {
   stopClocks();
+  if (M && M.houseTimer) { clearTimeout(M.houseTimer); M.houseTimer = 0; }
   if (M) {
     autosave();
     persistNow();
@@ -656,7 +669,7 @@ function render() {
   /* the other chair */
   const foeS = st.seats[foe];
   let backs = '';
-  const nb = Math.min(foeS.hand.length, 10);
+  const nb = Math.min(foeS.hand.length, st.hs);
   for (let i = 0; i < nb; i++) backs += '<span class="gn-b" aria-hidden="true">' + backHTML() + '</span>';
   $id('gn-top').innerHTML =
     '<span class="gn-nm' + (t === foe ? ' turn' : '') + '">' + esc(foeS.name) + '</span>' +
@@ -680,13 +693,15 @@ function paintMid() {
   const myGo = t === me;
   const ph = st.phase;
   const up = E.upTop(st);
-  const canTake = myGo && (ph === 'up0' || ph === 'up1' || ph === 'main');
-  const canDraw = myGo && (ph === 'main' || ph === 'draw1');
+  const ready = houseReady();
+  const canTake = myGo && ready && (ph === 'up0' || ph === 'up1' || ph === 'main');
+  const canDraw = myGo && ready && (ph === 'main' || ph === 'draw1');
   const throwing = myGo && ph === 'off';
   const banned = (st.drew && st.drew.from === 'pile') ? st.drew.c : null;
 
   let say;
-  if (!myGo && t >= 0) say = 'Waiting on ' + esc(st.seats[1 - me].name) + '…';
+  if (!houseReady()) say = 'Agreeing the house rules with ' + esc(st.seats[1 - me].name) + '…';
+  else if (!myGo && t >= 0) say = 'Waiting on ' + esc(st.seats[1 - me].name) + '…';
   else if (ph === 'up0' || ph === 'up1')
     say = 'First card up: <b>' + esc(nameOfCard(up)) + '</b>. Take it, or pass.';
   else if (ph === 'draw1') say = 'Both passed — you <b>draw blind</b> from the stock.';
@@ -723,11 +738,11 @@ function paintMid() {
   /* the action row: honest buttons under the same taps */
   const acts = $id('gn-acts');
   let h = '';
-  if (myGo && (ph === 'up0' || ph === 'up1')) {
+  if (myGo && houseReady() && (ph === 'up0' || ph === 'up1')) {
     h += '<button type="button" class="gn-act tapme" data-a="take">Take it</button>';
     h += '<button type="button" class="gn-act ghost tapme" data-a="pass">Pass</button>';
   }
-  if (throwing && M.sel != null && M.sel !== banned) {
+  if (throwing && houseReady() && M.sel != null && M.sel !== banned) {
     h += '<button type="button" class="gn-act ghost tapme" data-a="disc">Throw it</button>';
     const kd = knockDwFor(M.sel);
     if (kd != null)
@@ -739,14 +754,14 @@ function paintMid() {
     b.onclick = () => act(b.getAttribute('data-a'));
   });
   $id('gn-stock').onclick = () => {
-    if (!M || M.dead) return;
+    if (!M || M.dead || !houseReady()) return;
     const stx = M.st, tt = E.turn(stx);
     if (tt !== M.mySeat) return;
     if (stx.phase === 'up0' || stx.phase === 'up1') { nag('Take the upcard or pass — the stock waits.'); return; }
     act('draw');
   };
   $id('gn-pile').onclick = () => {
-    if (!M || M.dead) return;
+    if (!M || M.dead || !houseReady()) return;
     const stx = M.st, tt = E.turn(stx);
     if (tt !== M.mySeat) return;
     if (stx.phase === 'off') { if (M.sel != null) act('disc'); return; }
@@ -754,15 +769,22 @@ function paintMid() {
   };
 }
 
+/* Online, the hand size is agreed before anything is touched — see
+   THE HOUSE SETUP. Offline there is nothing to agree and this is
+   always true. */
+function houseReady() { return !(M && M.house && !M.house.settled); }
+
 function knockDwFor(c) {
-  const h = M.st.seats[M.mySeat].hand;
-  if (h.length !== 11) return null;
+  const st = M.st;
+  const h = st.seats[M.mySeat].hand;
+  if (h.length !== st.hs + 1) return null;
   const dw = E.best(h.filter(x => x !== c)).dw;
-  return dw <= E.KNOCK_MAX ? dw : null;
+  return dw <= st.knock ? dw : null;
 }
 
 function act(a) {
   if (!M || M.dead) return;
+  if (!houseReady()) return;
   const me = M.mySeat;
   let mv = null;
   if (a === 'take') mv = { t: 'take' };
@@ -794,11 +816,11 @@ function paintDash() {
   const hand = st.seats[me].hand;
   const b = E.best(hand);
   let line;
-  if (hand.length === 11) {
+  if (hand.length === st.hs + 1) {
     const bd = E.bestDiscard(hand, (st.drew && st.drew.from === 'pile') ? st.drew.c : null);
-    line = '<span class="gn-chip' + (bd.dw <= E.KNOCK_MAX ? ' hot' : '') + '">Deadwood after best throw <b>' + bd.dw + '</b></span>';
+    line = '<span class="gn-chip' + (bd.dw <= st.knock ? ' hot' : '') + '">Deadwood after best throw <b>' + bd.dw + '</b></span>';
   } else {
-    line = '<span class="gn-chip' + (b.dw <= E.KNOCK_MAX ? ' hot' : '') + '">Deadwood <b>' + b.dw + '</b></span>';
+    line = '<span class="gn-chip' + (b.dw <= st.knock ? ' hot' : '') + '">Deadwood <b>' + b.dw + '</b></span>';
   }
   const selAt = M.sel != null ? M.arr.indexOf(M.sel) : -1;
   $id('gn-dash').innerHTML =
@@ -828,16 +850,105 @@ function nudge(dir) {
 /* ── the hand itself ─────────────────────────────────────────────── */
 const DRAG_SLOP = 9;
 
+/* ── how the hand is laid out ─────────────────────────────────────
+   ONE ROW UNTIL A THUMB WOULD SUFFER, THEN TWO.
+
+   The exposed width of a card in a single row is (W - w) / (n - 1),
+   and that is the only part of it a thumb can actually land on —
+   everything else is under the next card. At ten cards on a 390 the
+   sum comes out around 32px, which is fine. At THIRTEEN on a 360 it
+   is 24px, and 24px of a 63px-tall card is a target people miss.
+
+   So the rail wraps, the way js/klabb.js's fan does rather than
+   squeezing: two rows of seven give 44px of exposed card instead of
+   24, nearly double the target for no loss of readability.
+
+   IT ONLY WRAPS IF THE REST OF THE FELT CAN SPARE THE HEIGHT, and
+   that is measured rather than assumed. A first attempt allowed two
+   rows whenever they fitted in "half the host", and on a 360x640 the
+   result was two rows of 101px cards sitting straight on top of the
+   discard pile — the rows fitted, and nothing else did. So the
+   budget is worked out from what is actually on the felt: the seat
+   line and the dashboard as they measure right now, and enough left
+   for the two piles and their prompt, which is the one part of the
+   screen the game cannot be played without.
+
+   Held sideways the felt is a two-column grid and the hand keeps one
+   row, because a landscape rail has width to spare and no height at
+   all to give away. */
+const MIN_SHOW = 30;         /* px of card that must stay uncovered */
+const MIN_TWO_W = 44;        /* below this a second row is not worth it */
+
 function handMetrics() {
   const rail = $id('gn-hand');
   const W = Math.max(200, rail.clientWidth - 8);
   const n = Math.max(1, M.arr.length);
   const hostH = M.ctx.host.clientHeight || 400;
-  const cap = hostH < 260 ? 0.30 : 0.34;      /* sideways: shorter cards */
-  let w = Math.min(72, Math.floor((W - 4) / (1 + (n - 1) * 0.52)));
-  w = Math.max(36, Math.min(w, Math.floor((hostH * cap) / 1.4)));
-  const step = n > 1 ? Math.min(w + 4, (W - 4 - w) / (n - 1)) : 0;
-  return { w, h: Math.round(w * 1.4), step, x0: 4, lift: hostH < 260 ? 18 : 26 };
+  const gap = 4;
+  const lift = hostH < 260 ? 18 : 26;         /* room for a chosen card to rise */
+
+  /* What the rail may actually have, once the felt has been served.
+     The middle is MEASURED — the piles, the prompt and the buttons
+     really in it, added up — rather than allowed a guessed constant.
+     The guess (a pile plus 62px) is how the first attempt put TAKE
+     IT and PASS straight on top of the deadwood chip on a 360. */
+  const hOf = id => { const el = $id(id); return el ? el.offsetHeight : 0; };
+  const mid = $id('gn-mid');
+  let minMid = 170;
+  if (mid && mid.children.length) {
+    let need = 0;
+    for (let i = 0; i < mid.children.length; i++) need += mid.children[i].offsetHeight;
+    need += 7 * (mid.children.length - 1);            /* the flex gaps */
+    /* capped, so that a wordy prompt can never starve the hand */
+    minMid = Math.min(Math.max(need, 96), hostH * 0.55);
+  }
+  /* …and the felt's OWN overhead — its padding and the flex gaps
+     between its three bands — measured off the box rather than
+     guessed at, because guessing it is what left the prompt sitting
+     on the dashboard by a dozen pixels. */
+  const felt = $id('gn-felt');
+  let chrome = 30;
+  if (felt) {
+    const cs = getComputedStyle(felt);
+    chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
+             (parseFloat(cs.rowGap) || parseFloat(cs.gap) || 0) * 2 + 6;
+  }
+  const budget = Math.max(96, hostH - hOf('gn-top') - hOf('gn-dash') - minMid - chrome);
+
+  const plan = rows => {
+    const per = Math.ceil(n / rows);
+    let w = Math.min(72, Math.floor((W - 4) / (1 + (per - 1) * 0.52)));
+    const vCap = (budget - lift - (rows - 1) * gap) / (rows * 1.4);
+    w = Math.max(36, Math.min(w, Math.floor(vCap)));
+    const h = Math.round(w * 1.4);
+    const step = per > 1 ? Math.min(w + 4, (W - 4 - w) / (per - 1)) : 0;
+    return { w, h, step, per, rows, x0: 4, gap, lift,
+             show: per > 1 ? step : w,
+             height: h * rows + (rows - 1) * gap };
+  };
+
+  const one = plan(1);
+  if (one.show >= MIN_SHOW || n < 8 || hostH < 260) return one;
+  const two = plan(2);
+  /* a second row of postage stamps is worse than one row of real cards */
+  if (two.w < MIN_TWO_W || two.height + lift > budget) return one;
+  return two;
+}
+
+/* where card `i` sits, in the rail's own coordinates */
+function slotXY(m, i) {
+  const r = Math.floor(i / m.per);
+  const c = i - r * m.per;
+  return { x: m.x0 + c * m.step, y: r * (m.h + m.gap) };
+}
+/* …and the reverse: which slot is under this point */
+function slotAt(m, x, y) {
+  const r = m.rows > 1
+    ? Math.max(0, Math.min(m.rows - 1, Math.floor(y / (m.h + m.gap))))
+    : 0;
+  const c = m.step > 0 ? Math.round((x - m.x0) / m.step) : 0;
+  const n = M.arr.length;
+  return Math.max(0, Math.min(n - 1, r * m.per + Math.max(0, Math.min(m.per - 1, c))));
 }
 
 function paintHand() {
@@ -867,17 +978,52 @@ function paintHand() {
   rail.querySelectorAll('.gn-card').forEach(wireCard);
 }
 
+/* THE FIRST PLACEMENT IS NOT A MOVE, AND MUST NOT ANIMATE.
+   paintHand() rebuilds the rail on every render, so every card is a
+   brand-new element sitting at the stylesheet's left:0 / top:0 — and
+   with left and top both transitioned, each one then SLID into place
+   over 160ms. Two things were wrong with that: at thirteen cards the
+   second row visibly swept down out of the first on every repaint,
+   and for those 160ms a card was not where the layout said it was,
+   so a drag begun inside that window measured from the wrong place.
+   A cross-row drag test caught it; on a phone it would have been a
+   thumb picking up the wrong card.
+
+   So a NEW card is put down with transitions off, one reflow is
+   forced for the whole rail, and then they are handed back. Cards
+   already on the rail — the ones previewOrder() shuffles about mid
+   drag — go on animating, which is the only place the animation was
+   ever wanted. */
 function layoutHand() {
   const rail = $id('gn-hand');
   if (!rail) return;
   const m = handMetrics();
-  rail.style.height = (m.h + m.lift) + 'px';
-  rail.querySelectorAll('.gn-card').forEach(el => {
-    const i = +el.dataset.i;
+  /* THE LIFT GOES ABOVE THE CARDS, NOT BELOW THEM. A chosen card
+     rises 16px (.gn-card.sel), and with the spare height parked at
+     the bottom of the rail it rose straight over the deadwood chip
+     and the SORT button. As padding it is room the cards are placed
+     BELOW, so the lift has somewhere to go. content-box so the two
+     numbers stay independent of the app's global box-sizing. */
+  rail.style.boxSizing = 'content-box';
+  rail.style.paddingTop = m.lift + 'px';
+  rail.style.height = m.height + 'px';
+  const els = [];
+  rail.querySelectorAll('.gn-card').forEach(el => els.push(el));
+  const fresh = els.filter(el => !el.dataset.placed);
+  fresh.forEach(el => { el.style.transition = 'none'; });
+  els.forEach(el => {
+    const p = slotXY(m, +el.dataset.i);
     el.style.width = m.w + 'px';
     el.style.height = m.h + 'px';
-    if (!el.classList.contains('drag')) el.style.left = (m.x0 + i * m.step) + 'px';
+    if (!el.classList.contains('drag')) {
+      el.style.left = p.x + 'px';
+      el.style.top = p.y + 'px';
+    }
   });
+  if (fresh.length) {
+    void rail.offsetWidth;                 /* one flush, not one per card */
+    fresh.forEach(el => { el.style.transition = ''; el.dataset.placed = '1'; });
+  }
 }
 
 /* ── PICKING A CARD UP — Pointer Events, capture, slop ────────────
@@ -901,7 +1047,9 @@ function wireCard(el) {
     const m = handMetrics();
     M.drag = {
       el, c: +el.dataset.c, from: +el.dataset.i,
-      x0: ev.clientX, y0: ev.clientY, left0: parseFloat(el.style.left) || 0,
+      x0: ev.clientX, y0: ev.clientY,
+      left0: parseFloat(el.style.left) || 0,
+      top0: parseFloat(el.style.top) || 0,
       live: false, to: +el.dataset.i, m
     };
     M.dragJust = false;
@@ -917,13 +1065,22 @@ function wireCard(el) {
     }
     ev.preventDefault();
     const dx = ev.clientX - d.x0;
-    const dy = Math.max(-46, Math.min(26, ev.clientY - d.y0));
-    el.style.left = (d.left0 + dx) + 'px';
-    el.style.transform = 'translateY(' + dy + 'px) scale(1.05)';
-    /* where would it land? */
-    const centre = d.left0 + dx + d.m.w / 2;
-    let to = d.m.step > 0 ? Math.round((centre - d.m.x0 - d.m.w / 2) / d.m.step) : 0;
-    to = Math.max(0, Math.min(M.arr.length - 1, to));
+    const dy = ev.clientY - d.y0;
+    /* the card follows the thumb. In two rows it follows it VERTICALLY
+       too, because moving a card between rows is the whole point of
+       having them; in one row it only lifts, as it always did. */
+    if (d.m.rows > 1) {
+      el.style.left = (d.left0 + dx) + 'px';
+      el.style.top = (d.top0 + dy) + 'px';
+      el.style.transform = 'scale(1.05)';
+    } else {
+      el.style.left = (d.left0 + dx) + 'px';
+      el.style.transform = 'translateY(' +
+        Math.max(-46, Math.min(26, dy)) + 'px) scale(1.05)';
+    }
+    /* where would it land? Measured from the card's own centre in the
+       rail's coordinates, so the answer is the same in either layout. */
+    const to = slotAt(d.m, d.left0 + dx, d.top0 + dy + d.m.h / 2);
     if (to !== d.to) { d.to = to; previewOrder(d); }
     /* …or onto the pile? */
     const pile = $id('gn-pile');
@@ -931,7 +1088,8 @@ function wireCard(el) {
       const r = pile.getBoundingClientRect();
       const over = ev.clientX >= r.left - 8 && ev.clientX <= r.right + 8 &&
                    ev.clientY >= r.top - 8 && ev.clientY <= r.bottom + 8;
-      d.onPile = over && M.st.phase === 'off' && E.turn(M.st) === M.mySeat;
+      d.onPile = over && houseReady() &&
+                 M.st.phase === 'off' && E.turn(M.st) === M.mySeat;
       pile.classList.toggle('drop', !!d.onPile);
     }
   });
@@ -977,8 +1135,9 @@ function previewOrder(d) {
   order.splice(d.to, 0, d.c);
   rail.querySelectorAll('.gn-card').forEach(el => {
     if (el === d.el) return;
-    const at = order.indexOf(+el.dataset.c);
-    el.style.left = (d.m.x0 + at * d.m.step) + 'px';
+    const p = slotXY(d.m, order.indexOf(+el.dataset.c));
+    el.style.left = p.x + 'px';
+    el.style.top = p.y + 'px';
   });
 }
 
@@ -986,7 +1145,7 @@ function previewOrder(d) {
 function verdictWords(row, me) {
   if (row.dead) return {
     head: 'Dead hand', bad: false,
-    body: 'Two cards left and nobody knocked. No score — the same dealer deals it again.'
+    body: 'The stock ran out and nobody knocked. No score — the same dealer deals it again.'
   };
   const kName = seatName(row.knocker), dName = seatName(1 - row.knocker);
   const meWin = row.win === me;
@@ -1092,10 +1251,11 @@ function rulesSheet() {
   ask.className = 'pt-over pt-ask';
   ask.innerHTML =
     '<div class="pt-card" style="max-width:340px;text-align:left">' +
-      '<h3 style="text-align:center">GIN RUMMY</h3>' +
+      '<h3 style="text-align:center">GIN RUMMY' +
+        (M && M.st.hs === 13 ? ' · 13' : '') + '</h3>' +
       '<div class="kb-rules" style="margin:12px 0 0;padding:12px 14px;border-radius:14px;' +
         'background:rgba(255,255,255,.04);border:1px solid var(--line)"><ul style="margin:0">' +
-        RULES.map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+        rulesFor(M ? M.st.hs : 10).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
       '</ul></div>' +
       '<div class="pt-acts"><button class="btn ghost" id="gn-rx">Right, got it</button></div>' +
     '</div>';
@@ -1121,6 +1281,7 @@ function newGame(opts, snap) {
   const lvl = opts.lvl || 2;
   const full = {
     lvl,
+    hand: opts.hand === 13 ? 13 : 10,
     target: opts.target || 100,
     names: [myName(), levelName(lvl)],
     owns: ['me', 'ai']
@@ -1139,6 +1300,7 @@ function setupSheet(prevOpts) {
   const p = ST.pref;
   let lvl = (prevOpts && prevOpts.lvl) || p.lvl || 2;
   let target = (prevOpts && prevOpts.target) || p.target || 100;
+  let hand = ((prevOpts && prevOpts.hand) || p.hand) === 13 ? 13 : 10;
 
   /* has the online lobby learned the word "gin" on this build? We
      teach it ourselves below, so normally yes — but say so honestly
@@ -1154,15 +1316,24 @@ function setupSheet(prevOpts) {
         '<h2>GIN RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        '<p class="blurb">Ten cards, a straight face, and one knuckle on the table. ' +
-        'Draw, arrange, and knock before they do — <b>each of you on your own phone</b>.</p>' +
+        '<p class="blurb">Ten cards — or thirteen if you like a longer look at them — ' +
+        'a straight face, and one knuckle on the table. Draw, arrange, and knock before ' +
+        'they do, <b>each of you on your own phone</b>.</p>' +
         (online
           ? '<div class="pt-opts" style="margin-bottom:10px">' +
               '<button class="pt-opt" id="gn-online">' + ico('users') +
-              '<b>Somebody online</b><i>Open a gin room, or take one that is waiting.</i></button>' +
+              '<b>Somebody online</b><i>Open a gin room, or take one that is waiting. ' +
+              'The player who opens the room sets the hand size.</i></button>' +
             '</div>'
           : '<p class="pt-warn">Online gin needs the KARTI server to learn the word "gin" — ' +
             'until then it is you against the machine here.</p>') +
+        '<div class="tiny pt-lbl">The hand</div>' +
+        '<div class="pt-opts" id="gn-hand-opt">' +
+          [[10, 'Ten cards', 'Gin as everybody plays it. Knock at 10.'],
+           [13, 'Thirteen cards', 'A bigger hand and more to arrange. Knock at 13.']].map(o =>
+            '<button class="pt-opt' + (o[0] === hand ? ' on' : '') + '" data-hand="' + o[0] + '">' +
+              ico('cards') + '<b>' + o[1] + '</b><i>' + o[2] + '</i></button>').join('') +
+        '</div>' +
         '<div class="tiny pt-lbl">The machine</div>' +
         '<div class="pt-opts" id="gn-lvl">' +
           LEVELS.map(o => '<button class="pt-opt' + (o.k === lvl ? ' on' : '') + '" data-lvl="' + o.k + '">' +
@@ -1183,15 +1354,16 @@ function setupSheet(prevOpts) {
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
           '<h5 style="font:900 10px/1 var(--disp);letter-spacing:.11em;text-transform:uppercase;' +
             'color:var(--gold);margin:0 0 9px">The rules, as we play them</h5><ul style="margin:0">' +
-          RULES.map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+          rulesFor(hand).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
         '</ul></div>' +
       '</div>';
     el.querySelector('#gn-back').onclick = () => P.hub();
+    el.querySelectorAll('[data-hand]').forEach(b => b.onclick = () => { hand = +b.dataset.hand; paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
     el.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => { target = +b.dataset.tgt; paint(); });
     el.querySelector('#gn-go').onclick = () => {
-      ST.pref.lvl = lvl; ST.pref.target = target; persist();
-      newGame({ lvl, target });
+      ST.pref.lvl = lvl; ST.pref.target = target; ST.pref.hand = hand; persist();
+      newGame({ lvl, target, hand });
     };
     const r = el.querySelector('#gn-res');
     if (r) r.onclick = () => {
@@ -1203,7 +1375,7 @@ function setupSheet(prevOpts) {
     };
     const on = el.querySelector('#gn-online');
     if (on) on.onclick = () => {
-      ST.pref.lvl = lvl; ST.pref.target = target; persist();
+      ST.pref.lvl = lvl; ST.pref.target = target; ST.pref.hand = hand; persist();
       try { MPX.openFor('gin'); } catch (e) {}
     };
   }
@@ -1220,19 +1392,89 @@ function setupSheet(prevOpts) {
 function netSeed() {
   try { return (window.KARTI_MP.MP.seed >>> 0) || 1; } catch (e) { return 1; }
 }
+function iAmRoomHost() {
+  try { return !!window.KARTI_MP.MP.host; } catch (e) { return false; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE HOUSE SETUP — how two phones agree on the hand size
+   ───────────────────────────────────────────────────────────────────
+   The relay carries a room's FLAVOUR in a `variant` field, but that
+   field is whitelisted per game on the Pi and gin has no list there,
+   so asking for one would have the room refused outright. The hand
+   size therefore travels the only channel gin already owns: its own
+   move payload, as {a:'house', i:13}.
+
+   THE RULES OF IT, and each one is load-bearing:
+
+   1. THE ROOM'S OPENER IS THE HOUSE. Whoever opened the room plays
+      their own setup sheet's answer. That is what "the house setup"
+      means at a card table and it needs no negotiation.
+   2. A TEN-CARD ROOM SENDS NOTHING AT ALL. Ten is the default on
+      both phones, so a ten-card game puts exactly the same bytes on
+      the wire as it did before this option existed — an older build
+      that has never heard of `house` plays a ten-card room perfectly.
+      Only a THIRTEEN-card room needs both phones updated, and one
+      that is not gets mp.js's honest "the rules do not allow that"
+      stop rather than a silent divergence.
+   3. THE GUEST DOES NOT TOUCH A CARD UNTIL IT KNOWS. It deals ten,
+      then waits — for the packet, or for HOUSE_WAIT to pass, which
+      is what says "they are on ten". Re-dealing is free while the
+      log is empty: same seed, same everything, one field different.
+   4. AND THE FINGERPRINT IS THE BACKSTOP. hs and knock are inside
+      it, so if the two ever did disagree the very first move would
+      be refused as a desync instead of two people playing two
+      different games at each other.
+   ═══════════════════════════════════════════════════════════════════ */
+const HOUSE_WAIT = 2000;
 
 function onlineStart(o) {
   const seed = netSeed();
   const mySeat = o.colour === 'w' ? 0 : 1;
   const names = mySeat === 0 ? [o.me, o.foe] : [o.foe, o.me];
   const owns = mySeat === 0 ? ['me', 'net'] : ['net', 'me'];
-  startMatch({ lvl: 2, target: 100, names, owns, dealer: 1 }, seed);
+  const host = iAmRoomHost();
+  const myHand = ST.pref.hand === 13 ? 13 : 10;
+  const hand = host ? myHand : 10;
+  startMatch({ lvl: 2, target: 100, names, owns, dealer: 1, hand }, seed);
   M.mySeat = mySeat;
   M.net = o;
+  M.house = { settled: host, host, want: hand };
   M.arr = (ST.netArr && ST.netArr.seed === seed && Array.isArray(ST.netArr.arr))
     ? ST.netArr.arr.slice() : [];
   openBoard();
   P.ui.setNet(M.ctx, o.note || '', '');
+
+  if (host) {
+    /* say so before a card is touched — and only when it is news */
+    if (hand !== 10) { try { o.send('move', { a: 'house', i: hand }, null); } catch (e) {} }
+  } else {
+    M.houseTimer = setTimeout(() => {
+      if (!M || M.dead || !M.house || M.house.settled) return;
+      M.house.settled = true;
+      M.houseTimer = 0;
+      render();
+    }, HOUSE_WAIT);
+  }
+}
+
+/* the house packet, applied by the guest before anything has happened */
+function houseSetup(n) {
+  if (!M || !M.house) return { why: 'a house rule with no table under it' };
+  const want = n === 13 ? 13 : 10;
+  if (M.house.settled && M.st.hs === want) return null;   /* already agreed */
+  if (M.log.length) return { why: 'a change of hand size after the deal had started', desync: true };
+  clearTimeout(M.houseTimer); M.houseTimer = 0;
+  if (M.st.hs !== want) {
+    const o = E.clone(M.opts);
+    o.hand = want;
+    const seat = M.mySeat, net = M.net, arr = M.arr.slice(), ctx = M.ctx, ro = M.stopRO;
+    startMatch(o, M.seed, []);
+    M.mySeat = seat; M.net = net; M.arr = arr; M.ctx = ctx; M.stopRO = ro;
+  }
+  M.house = { settled: true, host: false, want };
+  render();
+  return null;
 }
 
 function onlineRemote(d) {
@@ -1243,6 +1485,10 @@ function onlineRemote(d) {
     return null;
   }
   if (d.kind !== 'move') return { why: 'a move gin rummy does not have' };
+
+  /* THE HOUSE SETUP FIRST, before the fingerprint is looked at — the
+     whole point of the packet is that the two boards do not match yet */
+  if (d.m && d.m.a === 'house') return houseSetup(d.m.i | 0);
 
   /* the table's own beats first: their phone may already have counted
      the hand its timer was still sitting on here */
@@ -1343,7 +1589,8 @@ P.register({
   get tag() {
     return 'Draw, arrange, knock. The politest way to rob your uncle blind — and an ' +
       'undercut if he was not bluffing.' +
-      (ST.save ? ' There is a match of this half-played.' : '');
+      (ST.save ? ' There is a ' + (ST.save.opts && ST.save.opts.hand === 13 ? 'thirteen-card ' : '') +
+                 'match of this half-played.' : '');
   },
   open: () => setupSheet()
 });
@@ -1379,7 +1626,8 @@ window.KARTI_GIN.lobby = {
     'deadwood or less, gin for the lot. First to 100, boxes and bonuses counted properly.</p>',
   blurb: 'Ten cards. Knock first.',
   myName,
-  start: () => { newGame({ lvl: ST.pref.lvl || 2, target: ST.pref.target || 100 }); return true; },
+  start: () => { newGame({ lvl: ST.pref.lvl || 2, target: ST.pref.target || 100,
+                          hand: ST.pref.hand === 13 ? 13 : 10 }); return true; },
   wire: { fields: ['i'] },
   takeback: false
 };

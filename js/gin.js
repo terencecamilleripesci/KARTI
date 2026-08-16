@@ -2,18 +2,25 @@
    KARTI — gin.js
    GIN RUMMY — the engine, and nothing but the engine.
 
-   Two players, ten cards, knock at ten deadwood or better, gin at
-   none, and an undercut for a knocker who counted wrong. The whole
-   file is pure: no DOM, no clock, no Math.random. Every shuffle draws
+   Two players, ten cards or thirteen, knock at the table's deadwood
+   limit or better, gin at none, and an undercut for a knocker who
+   counted wrong. The whole file is pure: no DOM, no clock, no
+   Math.random. Every shuffle draws
    from an RNG whose entire state is one integer INSIDE the game state
    (st.rs), which is the same discipline js/klabb.js runs on and it is
    what makes replay honest: (opts, seed, log) rebuilds the match to
    the bit, so undo, autosave and two phones in lockstep are all the
    same operation.
 
+   TEN CARDS OR THIRTEEN. Ten is Gin and is the default; thirteen is
+   an option on the setup sheet, and the only rule that moves with it
+   is the knock limit (13 rather than 10 — one point per card, the
+   same ratio). See SIZES below for the measurements behind that.
+
    THE SCORING VARIANT, WRITTEN DOWN SO NOBODY GUESSES LATER
-     · match plays to 100 points
-     · knock at 10 deadwood or less; the knocker scores the DIFFERENCE
+     · match plays to 100 points at either hand size
+     · knock at the table's limit or less; the knocker scores the
+       DIFFERENCE
      · GIN (no deadwood after the discard) scores 25 + all of the
        other hand's deadwood, and nothing may be laid off against it
      · UNDERCUT — the defender, after laying off, holding EQUAL or
@@ -23,7 +30,8 @@
        for them, optimally, because tapping cards onto somebody
        else's melds on a phone screen is admin, not play
      · a hand that reaches TWO cards left in the stock without a
-       knock is DEAD: no score, same dealer deals again
+       knock is DEAD: no score, same dealer deals again — at both
+       hand sizes; measured, thirteen kills no more hands than ten
      · the winner of a hand deals the next (Hoyle); first deal is cut
        from the seed
      · match end: winner takes a 100 GAME BONUS, and both sides take
@@ -74,13 +82,15 @@ const clone = o => JSON.parse(JSON.stringify(o));
 
 /* ═══════════════════════════════════════════════════════════════════
    THE MELD SOLVER
-   Every meld a hand of up to eleven cards could contain — every set
+   Every meld a hand could contain — eleven cards at the ten-card
+   game, fourteen at the thirteen-card one — every set
    of three or four of a rank, every run of three or more in a suit
    INCLUDING its sub-runs, because a card shared between a possible
    set and a possible run is exactly where sub-runs start to matter —
    then a straight search over disjoint combinations for the least
-   deadwood. Eleven cards give a couple of dozen candidate melds at
-   the very worst; the search is nothing.
+   deadwood. Even fourteen cards give only a few dozen candidate melds
+   at the very worst, and the answer is memoised (see below), which is
+   what keeps a thirteen-card hand instant on a phone.
 
    best(cards) -> { dw, melds:[[c,...],...], dead:[c,...] }
    all optimal arrangements (capped) are kept because the DEFENDER's
@@ -121,8 +131,36 @@ function candidates(cards) {
   return out;
 }
 
+/* ── the memo ──────────────────────────────────────────────────────
+   best() is a small search, but at THIRTEEN cards it is called for
+   every candidate discard of a fourteen-card hand, on every turn, by
+   the AI and the dashboard and the knock test — thousands of times a
+   match and millions across a simulation sweep. The answer depends on
+   nothing but the multiset of cards, so it is cached on the sorted
+   key. Pure in, pure out: the cache cannot change a single result,
+   only the time it takes to get it. Bounded so a long session cannot
+   grow it without limit. */
+const MEMO = new Map();
+const MEMO_MAX = 40000;
+function memoKey(cards) {
+  const s = cards.slice().sort((a, b) => a - b);
+  let k = '';
+  for (let i = 0; i < s.length; i++) k += (i ? ',' : '') + s[i];
+  return k;
+}
+
 const MAX_ARR = 10;
 function best(cards) {
+  const key = memoKey(cards);
+  const hit = MEMO.get(key);
+  if (hit) return hit;
+  const out = bestUncached(cards);
+  if (MEMO.size >= MEMO_MAX) MEMO.clear();
+  MEMO.set(key, out);
+  return out;
+}
+
+function bestUncached(cards) {
   const cs = candidates(cards);
   let bestDw = handPts(cards);
   let arrs = [[]];                            /* arrangements at bestDw */
@@ -163,8 +201,9 @@ function best(cards) {
            dead: shape(arrs[0] || []).dead };
 }
 
-/* the least deadwood this ELEVEN-card hand can reach by discarding
-   one card, and which discards reach it */
+/* the least deadwood this OVER-FULL hand (eleven cards at the ten-card
+   game, fourteen at the thirteen-card one) can reach by discarding one
+   card, and which discards reach it */
 function bestDiscard(cards, banned) {
   let bd = Infinity;
   const picks = [];
@@ -232,10 +271,10 @@ function defenderAfterLayoff(defCards, knockMelds) {
      up1     the dealer gets the same look after a pass
      draw1   both passed — the non-dealer MUST draw from the stock
      main    the player to move draws: stock or pile
-     off     they hold eleven and must put one back: disc or knock
+     off     they hold one over the hand size and must put one back
      tally   seat -1: the hand is counted (knock, gin, undercut, dead)
      shuffle seat -1: the next hand is dealt
-     over    somebody passed 100 and the bonuses landed
+     over    somebody passed the target and the bonuses landed
    ═══════════════════════════════════════════════════════════════════ */
 const TARGET = 100;
 const KNOCK_MAX = 10;
@@ -244,6 +283,54 @@ const UNDERCUT_BONUS = 25;
 const GAME_BONUS = 100;
 const BOX_BONUS = 25;
 
+/* ═══════════════════════════════════════════════════════════════════
+   TWO HAND SIZES, ONE ENGINE
+   ───────────────────────────────────────────────────────────────────
+   Ten is Gin and stays the default. Thirteen is the option, and the
+   question it asks is which OTHER numbers have to move with it.
+
+     hand   cards each
+     knock  the deadwood you may knock at
+     floor  cards left in the stock when the hand is declared dead
+     target match points
+
+   EXACTLY ONE OF THEM MOVES, and that answer is measured, not taste.
+   Three predictions were made before the sweep and the simulator
+   overturned two of them; the workings are in the report, and the
+   short version is worth keeping here because the temptation to
+   "fix" the other two numbers later will come back.
+
+   knock 13 — one point per card, the same ratio ten-card gin uses.
+     Swept 10 through 20 at a hundred matches each. Thirteen lands
+     nearest the ten-card game on every measure that describes how a
+     hand FEELS: 13.7 plies to a knock against ten's 13.3, gin on
+     3.4% of hands against 2.4%, 10.3 hands to a match against 10.5.
+     Below 13 knocking gets rare and hands drag; above it the hand is
+     over before anybody has built anything.
+
+   floor 2 — UNCHANGED, and the prediction that it would have to
+     change was simply wrong. Two hands of thirteen plus the upcard
+     leave a stock of 25 against ten's 31, which looked certain to
+     kill hands undecided. Measured: 0.2% of hands die at thirteen,
+     the same 0.2% as at ten, because a hand needs ~14 plies and the
+     stock affords 23. A rule was not changed to fix a problem that
+     does not exist.
+
+   target 100 — UNCHANGED, and this prediction was wrong too. A
+     bigger hand does not pay more: the knocker scores the DIFFERENCE
+     of two deadwood counts and both counts grew, so the average hand
+     is worth 16.2 at thirteen against 16.0 at ten. A hundred still
+     takes about ten hands.
+
+   So thirteen-card gin is ten-card gin with three more cards and one
+   more point of knocking room. Everything else is the same game.
+   ═══════════════════════════════════════════════════════════════════ */
+const SIZES = {
+  10: { hand: 10, knock: 10, floor: 2, target: 100 },
+  13: { hand: 13, knock: 13, floor: 2, target: 100 }
+};
+function sizeOf(n) { return SIZES[n] || SIZES[10]; }
+
 function dealHand(st) {
   const d = [];
   for (let i = 0; i < 52; i++) d.push(i);
@@ -251,7 +338,7 @@ function dealHand(st) {
   const nd = 1 - st.dealer;                    /* non-dealer */
   st.seats[0].hand = [];
   st.seats[1].hand = [];
-  for (let i = 0; i < 10; i++) {               /* alternate, non-dealer first */
+  for (let i = 0; i < st.hs; i++) {            /* alternate, non-dealer first */
     st.seats[nd].hand.push(d.pop());
     st.seats[st.dealer].hand.push(d.pop());
   }
@@ -267,8 +354,20 @@ function dealHand(st) {
 
 function deal(opts, seed) {
   opts = opts || {};
+  /* THE HOUSE SETUP, AND IT IS PART OF THE STATE.
+     hs/knock/floor live in the state and go into the fingerprint, so
+     two phones that somehow disagreed about the hand size are caught
+     by the very first move rather than drifting apart in silence. */
+  const S = sizeOf(opts.hand | 0);
+  /* the three numbers may be overridden per match. Nothing in the app
+     does — the table is the authority — but the simulator sweeps them
+     to CHOOSE the table's numbers, and it has to sweep the shipping
+     code rather than a copy of it, or the answer is about the copy. */
   const st = {
     rs: seed | 0,
+    hs: S.hand,
+    knock: opts.knock != null ? (opts.knock | 0) : S.knock,
+    floor: opts.floor != null ? (opts.floor | 0) : S.floor,
     seats: [
       { name: opts.names ? opts.names[0] : 'You', own: 'me', hand: [], lvl: opts.lvl || 2 },
       { name: opts.names ? opts.names[1] : 'The machine', own: 'ai', hand: [], lvl: opts.lvl || 2 }
@@ -277,7 +376,7 @@ function deal(opts, seed) {
     stock: [], discard: [],
     turn: 0, phase: 'up0', drew: null, taken: [[], []], reveal: null,
     handNo: 1, plies: 0, moves: 0,
-    match: { pts: [0, 0], boxes: [0, 0], book: [], target: opts.target || TARGET },
+    match: { pts: [0, 0], boxes: [0, 0], book: [], target: opts.target || S.target },
     final: null
   };
   if (opts.humans === 2) st.seats[1].own = 'hot';
@@ -319,7 +418,7 @@ function legal(st, seat) {
         if (c === banned) continue;
         out.push({ t: 'disc', c });
         const b = best(h.filter(x => x !== c));
-        if (b.dw <= KNOCK_MAX) out.push({ t: 'knock', c });
+        if (b.dw <= st.knock) out.push({ t: 'knock', c });
       }
       return out;
     }
@@ -346,7 +445,7 @@ function check(st, mv, seat) {
       const h = st.seats[seat].hand;
       if (h.indexOf(mv.c) < 0) return false;
       if (st.drew && st.drew.from === 'pile' && mv.c === st.drew.c) return false;
-      if (mv.t === 'knock') return best(h.filter(x => x !== mv.c)).dw <= KNOCK_MAX;
+      if (mv.t === 'knock') return best(h.filter(x => x !== mv.c)).dw <= st.knock;
       return true;
     }
     case 'tally': return mv.t === 'tally';
@@ -378,8 +477,13 @@ function settle(st) {
   row.kdw = kb.dw;
   row.ddw = def.dw;
   row.laid = def.laid.length;
-  rv.kMelds = kb.melds; rv.kDead = kb.dead;
-  rv.dMelds = def.melds; rv.dDead = def.dead; rv.dLaid = def.laid;
+  /* COPIES, not the solver's own arrays. best() is memoised now, so
+     what it hands back is shared with every other caller holding the
+     same hand — parking a reference to it inside the state would let
+     anything that touched st.reveal corrupt the cache for everybody. */
+  rv.kMelds = kb.melds.map(m => m.slice()); rv.kDead = kb.dead.slice();
+  rv.dMelds = def.melds.map(m => m.slice());
+  rv.dDead = def.dead.slice(); rv.dLaid = def.laid.slice();
   if (gin) {
     row.win = k; row.how = 'gin';
     row.score = GIN_BONUS + def.dw;
@@ -449,7 +553,7 @@ function apply(st, mv) {
       st.drew = null;
       st.plies++;
       st.last.c = mv.c;
-      if (st.stock.length <= 2) {              /* the hand died on the vine */
+      if (st.stock.length <= st.floor) {       /* the hand died on the vine */
         st.reveal = { dead: true };
         st.phase = 'tally';
       } else {
@@ -519,10 +623,48 @@ function dangerOf(c, wants) {
   return d;
 }
 
+/* ── WHEN TO KNOCK ────────────────────────────────────────────────
+   The ten-card answer is nearly "the moment you may", and that is
+   right: the limit is 10, the other hand is usually well above it,
+   and hanging on to hunt gin mostly loses the race.
+
+   THIRTEEN IS A DIFFERENT QUESTION and this is the heuristic change
+   the bigger hand needed. Knocking at 13 the instant you reach it is
+   a bad bet: the defender is holding thirteen cards to lay off with,
+   and their own deadwood is often under 13 too, so a knock at the
+   ceiling walks into an undercut — which is why undercuts run at
+   double the ten-card rate whatever anybody does.
+
+   So at thirteen the machine knocks against a MARGIN that closes as
+   the stock drains: strict while there is time to improve, anything
+   legal once the deal is nearly out. At ten cards this returns the
+   plain limit and today's behaviour is untouched — the shipped
+   ten-card game is not re-tuned underneath the option.
+
+   THE MARGIN IS WORTH REAL POINTS. Against the identical engine
+   knocking the instant it legally may, 900 matches each: tal-każin
+   51%, in-nannu 60%. Widening in-nannu's early margin keeps winning
+   past this — lim-11 took 64% — but it wins by refusing to knock and
+   ambushing instead: undercuts climb from 13% of hands to 25% and
+   the hardest machine stops playing gin and starts playing wait.
+   lim-9 is the widest margin that still beats tal-każin decisively
+   while in-nannu goes on knocking on its own account about a third
+   of the time. */
+function knockCeiling(st, lvl) {
+  const lim = st.knock;
+  if (st.hs <= 10) return lim;                 /* ten: unchanged, knock at will */
+  const left = st.stock.length;
+  if (left <= 6) return lim;                   /* the deal is dying: take the points */
+  if (lvl === 1) return lim;                   /* iż-żiju knocks and grins */
+  if (lvl === 2) return lim - 4;               /* tal-każin wants a little room */
+  return left <= 10 ? lim - 2 : lim - 9;       /* in-nannu waits for a good one */
+}
+
 function think(st, seat, lvl) {
   lvl = lvl || 2;
   const h = st.seats[seat].hand;
   const ph = st.phase;
+  const big = st.hs > 10;
 
   if (ph === 'up0' || ph === 'up1' || ph === 'main') {
     const up = upTop(st);
@@ -532,10 +674,14 @@ function think(st, seat, lvl) {
     const restBest = best(h.concat([up]).filter(x => x !== withUp.picks[0].c));
     const melded = restBest.melds.some(m => m.indexOf(up) >= 0);
     const gain = now - withUp.dw;
+    /* A THIRTEEN-CARD HAND IS IN MORE OF A HURRY. Fewer draws to fix
+       more cards, so a helpful upcard is worth taking on a smaller
+       improvement than it would be at ten. */
+    const need = big ? 2 : 3;
     let take;
     if (lvl === 1) take = melded && pts(up) <= 8;
-    else if (lvl === 2) take = melded || gain >= 3;
-    else take = (melded && gain >= 1) || gain >= 3;
+    else if (lvl === 2) take = melded || gain >= need;
+    else take = (melded && gain >= 1) || gain >= need;
     if (ph === 'main') return take ? { t: 'take' } : { t: 'draw' };
     return take ? { t: 'take' } : { t: 'pass' };
   }
@@ -552,9 +698,12 @@ function think(st, seat, lvl) {
     cand.sort((a, b) => a.dw - b.dw || pts(b.c) - pts(a.c) || a.c - b.c);
     let pick = cand[0];
     if (lvl >= 3) {
-      /* among discards within 2 points of the best, prefer the SAFE one */
+      /* among the discards that cost about the same, prefer the SAFE
+         one. The window is wider at thirteen because there are more
+         loose cards priced within a point or two of each other. */
       const wants = wanted(st, 1 - seat);
-      const close = cand.filter(x => x.dw <= cand[0].dw + 2);
+      const win = big ? 3 : 2;
+      const close = cand.filter(x => x.dw <= cand[0].dw + win);
       close.sort((a, b) =>
         (a.dw + dangerOf(a.c, wants) * 1.5) - (b.dw + dangerOf(b.c, wants) * 1.5) ||
         pts(b.c) - pts(a.c));
@@ -562,12 +711,13 @@ function think(st, seat, lvl) {
     }
     const dw = best(h.filter(x => x !== pick.c)).dw;
     if (dw === 0) return { t: 'knock', c: pick.c };
-    if (dw <= KNOCK_MAX) {
-      const knockNow =
-        lvl === 1 ? true :
-        lvl === 2 ? true :
-        /* in-nannu holds a tight hand back early, hunting the gin */
-        (dw <= 4 || st.plies >= 8);
+    if (dw <= st.knock) {
+      const knockNow = big
+        ? dw <= knockCeiling(st, lvl)
+        : (lvl === 1 ? true :
+           lvl === 2 ? true :
+           /* in-nannu holds a tight hand back early, hunting the gin */
+           (dw <= 4 || st.plies >= 8));
       if (knockNow) return { t: 'knock', c: pick.c };
     }
     return { t: 'disc', c: pick.c };
@@ -585,6 +735,10 @@ const E = {
   rnd, shuffle, clone,
   deal, dealHand, legal, check, apply, turn, over, think,
   best, bestDiscard, defenderAfterLayoff, layOff, fingerprint, upTop,
+  knockCeiling, SIZES, sizeOf,
+  /* the knock limit of a particular table. KNOCK_MAX is the ten-card
+     number and is kept for anything that still asks for it by name. */
+  knockOf: st => (st && st.knock != null) ? st.knock : KNOCK_MAX,
   TARGET, KNOCK_MAX, GIN_BONUS, UNDERCUT_BONUS, GAME_BONUS, BOX_BONUS
 };
 

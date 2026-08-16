@@ -446,8 +446,12 @@ function injectCSS() {
 
     /* ── the sheets: name a suit, choose a charge, read the rules ──── */
     '#scr-party .sk-sheet{position:absolute;inset:0;z-index:40;display:flex;align-items:flex-end;' +
-      'justify-content:center;background:rgba(6,4,12,.72);padding:12px}' +
-    '#scr-party .sk-sheet .sk-panel{width:100%;max-width:420px;max-height:100%;overflow-y:auto;' +
+      'justify-content:center;background:rgba(6,4,12,.72);padding:12px;' +
+      'padding-bottom:calc(12px + var(--skhand,0px))}' +
+    /* the panel may only use the room ABOVE the hand, or a long one grows
+       back down over the very cards this was meant to uncover */
+    '#scr-party .sk-sheet .sk-panel{width:100%;max-width:420px;' +
+      'max-height:calc(100% - var(--skhand,0px));overflow-y:auto;' +
       'background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line2);' +
       'border-radius:18px;padding:15px 14px calc(15px + var(--sab,0px));' +
       'box-shadow:0 -8px 40px rgba(0,0,0,.6);animation:skUp .22s var(--ease)}' +
@@ -1372,6 +1376,33 @@ function sheet(html, wire) {
   s.setAttribute('role', 'dialog');
   s.setAttribute('aria-modal', 'true');
   s.innerHTML = '<div class="sk-panel">' + html + '</div>';
+  /* SIT ABOVE THE HAND, NOT ON TOP OF IT.
+     The sheet is bottom-anchored, which is right for a thumb — but the hand
+     is at the bottom too, so the panel landed straight over the cards. For
+     the suit picker that is backwards: naming a suit is a decision ABOUT the
+     cards you are holding, and it was being asked with them hidden. It is
+     why that sheet prints a count of each suit you hold — a caption standing
+     in for the thing itself, which you can now simply look at.
+
+     Measured rather than assumed, because the hand's height moves with the
+     card size and the phone; measured BEFORE the sheet enters the document,
+     so the reading cannot include the sheet itself; and zero when there is
+     no hand on screen, which leaves every other sheet exactly as it was. */
+  const handEl = root.querySelector('.sk-hand');
+  /* THE LIFT IS TO THE HAND'S TOP, NOT ITS HEIGHT. Measured the obvious way
+     first — the hand is 124px tall, so lift by 124 — and it still covered
+     the cards, because the hand is not flush to the bottom: on a 390x844
+     phone it ends 65px up, above the safe-area inset. The distance that
+     matters is from the bottom of the box the sheet lives in to the TOP of
+     the hand, which is the only reading that does not depend on what else
+     the layout has put underneath. */
+  let lift = 0;
+  if (handEl){
+    const rr = root.getBoundingClientRect();
+    const hr = handEl.getBoundingClientRect();
+    lift = Math.max(0, Math.round(rr.bottom - hr.top));
+  }
+  if (lift) s.style.setProperty('--skhand', lift + 'px');
   root.appendChild(s);
   wire(s, () => s.remove());
   const f = s.querySelector('button'); if (f) f.focus();
