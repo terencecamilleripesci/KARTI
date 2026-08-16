@@ -115,6 +115,26 @@
     'duel.draw':   { f: 'duel-draw.mp3',   g: 0.55 },
     'duel.shuffle':{ f: 'duel-shuffle.mp3',g: 0.55 },
     'duel.summon': { f: 'duel-summon.mp3', g: 0.85 },
+    /* ── THE SEA, AND TWO CARD-TABLE NOISES ──────────────────────
+       GĦARRAQHOM! shipped borrowing sixteen effects from other games — a
+       card-duel explosion for a boat going under, a dice-place for a
+       shell hitting water. It was never silent; it just was not a sea.
+
+       THESE GAINS ARE MEASURED, NOT SET BY EAR, and they are untidy on
+       purpose. Each is derived from what survives a 500Hz highpass,
+       which is roughly what a phone speaker reproduces: the splash and
+       the sonar come out of the generator far hotter (mean -18 dB) than
+       the sink, the horn and the two card sounds (-27 to -31 dB), so the
+       loud two are held down and the quiet four pushed up. Do NOT tidy
+       these into round numbers — that is precisely how the rarity ladder
+       ended up running backwards once already. */
+    'sea.splash':  { f: 'sea-splash.mp3',  g: 0.50 },
+    'sea.sink':    { f: 'sea-sink.mp3',    g: 0.95 },
+    'sea.horn':    { f: 'sea-horn.mp3',    g: 0.90 },
+    'sea.sonar':   { f: 'sea-sonar.mp3',   g: 0.52 },
+    'gin.knock':   { f: 'gin-knock.mp3',   g: 1.00 },
+    'rummy.call':  { f: 'rummy-call.mp3',  g: 1.00 },
+
     'duel.boss':   { f: 'duel-boss.mp3',   g: 0.76 },
     'duel.attack': { f: 'duel-attack.mp3', g: 0.56 },
     'duel.hit':    { f: 'duel-hit.mp3',    g: 0.62 },

@@ -820,7 +820,9 @@ function finish(done){
   cueIn(260, () => cue(done.tone === 'win' ? 'game.win'
                      : done.tone === 'lose' ? 'game.lose' : 'ui.toast', { gain: 1 }, true));
   if (done.tone === 'win' && M.st.done && M.st.done.row.kind === 'rummy')
-    cueIn(700, () => cue('call.bell', { gain: 0.8 }, true));
+    /* going out in one turn is the RUMMY, and it now has its own noise:
+       a hand slapped flat on the table and a short brass sting */
+    cueIn(700, () => cue('rummy.call', { gain: 0.9 }, true));
   saveSlot(null);
   if (!M.net && done.tone){
     const o = done.tone === 'win' ? 'w' : done.tone === 'lose' ? 'l' : 'd';

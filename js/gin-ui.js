@@ -446,9 +446,13 @@ function sound(mv, seat, src) {
     case 'disc': cue('card.throw', { gain: mine ? 0.8 : 0.6, rate: mine ? 1 : 0.95 }); break;
     case 'knock':
       cue('card.throw', { gain: 0.7 });
-      /* the knuckle on the table — see the report: a real knock sample
-         is wanted here; call.bell is the stand-in */
-      setTimeout(() => cue('call.bell', { gain: 0.95 }), FAST ? 1 : 180);
+      /* the knuckle on the table. This was call.bell standing in until the
+         real sample existed; it now does — gin.knock, two hard raps on
+         heavy timber. (Asking the generator for "two sharp knuckle raps,
+         dry room, no reverb tail" returned an EMPTY file: describe a
+         small quiet sound to it and you get the noise floor. Asking for
+         someone knocking hard on a heavy door produced it first try.) */
+      setTimeout(() => cue('gin.knock', { gain: 0.95 }), FAST ? 1 : 180);
       break;
     case 'tally': {
       const row = M.st.match.book[M.st.match.book.length - 1];
