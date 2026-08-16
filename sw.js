@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v69';
+const CACHE = 'karti-v70';
 const CORE = [
   './',
   './index.html',
@@ -16,6 +16,9 @@ const CORE = [
   './js/set2.js',
   './js/set3.js',
   './js/game.js',
+  './js/progress-faces.js',
+  './js/progress.js',
+  './js/progress-ui.js',
   './js/ai.js',
   './js/gacha.js',
   './js/story.js',
@@ -40,9 +43,6 @@ const CORE = [
   './js/kiri-ui.js',
   './js/stats.js',
   './js/sfx.js',
-  './js/progress-faces.js',
-  './js/progress.js',
-  './js/progress-ui.js',
   './js/nav.js',
   /* The 38 mp3s under ./audio/ are deliberately NOT precached. They are 416 KB,
      the game is designed to be perfect without a single one of them, and a

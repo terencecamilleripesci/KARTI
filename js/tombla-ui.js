@@ -41,6 +41,48 @@ const esc = K.esc || (s => String(s == null ? '' : s));
 const ico = (n, l) => (window.ICO ? window.ICO(n, l) : '');
 const ilb = (n, s) => (window.ILB ? window.ILB(n, s) : s);
 const sfx = (id, o) => { try { if (window.KARTI_SFX) window.KARTI_SFX.play(id, o); } catch(e){} };
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHEN THE SOUNDS LAND
+   ───────────────────────────────────────────────────────────────────
+   Tombla is the only screen in KARTI with a VOICE on it, and a voice
+   is the one thing that cannot share a moment with anything else: two
+   sounds at once is a texture, a sound over a word is a word you did
+   not hear. Every one of these numbers is the MEASURED BODY of a file
+   — where its energy actually is, not how long the file is. That
+   distinction is the whole of this block, because scripts/trim_sfx.py
+   trims each cue to a target and leaves the reverb tail on, so the
+   duration on the sheet is much longer than the sound:
+
+     file                 duration   audible body (RMS to -35 dB)
+     tombla-call.mp3       0.601 s     0.30 s   the token out of the bag
+     tombla-near.mp3       0.627 s     0.30 s   the room going quiet
+     tombla-shout.mp3      1.776 s     0.45 s   the verdict
+     duel-win.mp3          2.247 s     0.90 s   the fanfare
+     audio/call/call-NN     0.63-1.88 s          the spoken number
+     audio/call/shout-*     0.57-0.91 s          the spoken prize
+
+   Timed off the FILE lengths the sequence would have three seconds of
+   dead air in it. Timed off nothing at all — which is what it was —
+   the voice starts inside the bag rattle and the fanfare starts inside
+   the shout. Both were measured; these are the gaps that came out. */
+
+/* THE CALL. The token comes out of the bag, and THEN the number is
+   said. The bag is 300ms of sound, so the voice waits 340 and the two
+   are one cue instead of two racing. Even at the quickest speed the
+   gap between calls is 2600ms and the longest number is 1880, so a
+   delayed voice still finishes with room; and if it does not, a new
+   call cuts it off the way it always did. */
+const SAY_AFTER_BAG = 340;
+/* THE VERDICT, which is the best moment in the game and had three
+   sounds stacked on one instant. It is a sequence now:
+     +0      tombla.shout   the sting          body 450ms
+     +480    the voice      "VERS" / "FATTA"   body ~450ms
+     +1000   duel.win/lose  only for the fatta body 900ms
+   and the fanfare's body then ends at +1900, which is the exact
+   moment the read-back box comes down and the result screen goes up. */
+const SAY_AFTER_STING = 480;
+const FANFARE_AFTER_SAY = 1000;
 /* one of OUR sprite's glyphs, drawn the way ICO() draws the app's */
 const mark = (id, label) =>
   '<svg class="ico" viewBox="0 0 24 24" ' +
@@ -273,20 +315,23 @@ function injectCSS(){
      space instead, which is where the eye already is. */
   /* ── THE ĠOG IS A SHEET, NOT A LIST ──────────────────────────────
      "Row one 3 ticket stacks, row 2 3 ticket stacks, so side by side" —
-     TWO COLUMNS OF THREE. That is how the paper is printed and how he
-     is holding it, and it was wrong here: six cartelli were stacked one
-     under the other down the page, which needed 577 pixels on a phone
-     whose card area is 361 of them. The last two were not small, they
-     were BELOW THE FOLD of a block that scrolls — which is why he
-     counted four kartelli and not six.
+     his paper is printed two columns of three, and for a while so was
+     this. It was two across because the first version stacked all six
+     down the page and needed 577 pixels on a phone whose card area was
+     361 of them: the last two were not small, they were BELOW THE FOLD
+     of a block that scrolls, which is why he counted four kartelli and
+     not six. Two across fixed the count and it never was the answer to
+     the SIZE — it gave every cartella a 214-pixel box for nine columns,
+     which is a 22-pixel square, and 22 pixels is why he then asked for
+     "more bigger please so easy clicable".
 
-     Two across turns eighteen rows of cells into nine and the whole ġog
-     fits with room over. The column count is not hard-coded: fitCards()
-     sets --tbcols from the space it actually measures, so a phone
-     turned sideways gets THREE across and two down, which is the same
-     sheet folded the other way and is the better shape when width is
-     the plentiful axis. See fitCards() for the arithmetic and for why
-     none of it is added up from the stylesheet any more. */
+     Neither shape is hard-coded now. fitCards() costs one across, two
+     across and three across in the box it actually measured and keeps
+     the one with the biggest short side; on a tall phone that is ONE
+     ACROSS AND SIX DOWN, which fits because the height is measured
+     rather than assumed, and sideways it is two across and three down.
+     See fitCards() for the arithmetic and for the numbers each screen
+     lands on. */
   '#scr-party .tb-cards{flex:1 1 auto;display:flex;flex-direction:column;gap:10px;' +
     'justify-content:center;min-height:0;overflow-y:auto;overflow-x:hidden;' +
     '-webkit-overflow-scrolling:touch;overscroll-behavior:contain}' +
@@ -398,11 +443,25 @@ function injectCSS(){
   '#scr-party .tb.gog .tb-grid{gap:1px;padding:1px;border-radius:6px;background:#C7AE81}' +
   /* ── THE DIGITS, CONDENSED, WHICH IS FREE HEIGHT ─────────────────
      The number is sized off the smaller of what each axis can carry, and
-     on a ġog that is ALWAYS the width — a portrait cell is about 22 wide
-     and 43 tall, so the height cap never binds and the whole legibility
-     problem is one of horizontal room.
+     it used to be true that on a ġog that is ALWAYS the width. It is not
+     true any more: a cartella across the full width of the phone is 46
+     pixels a column and 28 pixels a row, so the HEIGHT is now what binds
+     and the height factor stopped being a spare cap and became the whole
+     answer. Left at .56 the new bigger square drew SMALLER digits than
+     the old cramped one — 15.1px in a 34x27 cell sideways where the 22x42
+     cell it replaced got 17.6 — which is the opposite of what was asked
+     for. So it is measured now too, on the same face and the same canvas:
 
-     Measured rather than assumed: in the display face at weight 900 the
+       Exo 2 at weight 900 draws "88" 0.72em above the baseline and 0.01em
+       below it, so the INK of a two-digit number is 0.73 of the font size.
+
+     At .72 the digits stand 0.53 of the row, which is a printed cartella
+     and leaves a clear margin top and bottom inside the counter that may
+     land on them (the counter is 90% of the row). At .56 they stood 0.41
+     of it, and eleven pixels of a twenty-eight pixel row were air nobody
+     asked for.
+
+     The width factor is unchanged and still the one that was measured: the
      widest pair of digits, "88", is 1.278em wide, and with the -.02em
      tracking this cell already carries it is 1.238em. So a two-digit
      number fits a cell of width W at any size up to .808W, and the old
@@ -420,7 +479,7 @@ function injectCSS(){
      up against the 26px ceiling, and condensing it there would make the
      digits smaller for no reason at all. */
   '#scr-party .tb.gog .tb-c{border-radius:3px;' +
-    'font-size:min(26px,calc(var(--tbh,26px) * .56),calc(var(--tbw,20px) * .80))}' +
+    'font-size:min(26px,calc(var(--tbh,26px) * .72),calc(var(--tbw,20px) * .80))}' +
   '#scr-party .tb.gog .tb-n{transform:scaleX(.9)}' +
   /* ── THE GUTTER IS PART OF THE SQUARE YOU AIMED AT ────────────────
      He marks ninety times a game and a wrong mark now stays until
@@ -440,11 +499,16 @@ function injectCSS(){
      like they are bleeding into one another. Sized to the box it lands
      in it is a slightly squashed disc — which is what a dried bean
      looks like anyway. */
-  /* ...and now that a ġog cell is twice as tall as it is wide, 90% of the
-     height is a red LOZENGE rather than a counter. It is held to about
-     one and a half times its own width, which is the shape a dried broad
-     bean actually is, and the extra height stays paper. */
-  '#scr-party .tb.gog .tb-c.on::before{width:94%;' +
+  /* ...and a ġog cell is no longer reliably taller than it is wide. Full
+     width down a portrait phone it is 46 by 28, sideways it is 47 by 32,
+     and on a short phone three across it is still 27 by 37. So the
+     counter is held off BOTH of the cell's dimensions rather than one:
+     whichever axis is the long one, the bean is capped at about one and
+     a half times the short one and the rest of that axis stays paper.
+     Held off only the width, a 46x28 cell drew a 44x25 pill that ran the
+     whole way to its neighbours and the sheet read as stripes. */
+  '#scr-party .tb.gog .tb-c.on::before{' +
+    'width:min(94%,calc(var(--tbh,26px) * 1.30));' +
     'height:min(90%,calc(var(--tbw,20px) * 1.45));aspect-ratio:auto}' +
   '#scr-party .tb.gog .tb-call{padding:6px 9px;gap:9px}' +
   '#scr-party .tb.gog .tb-ball{width:58px;height:58px}' +
@@ -832,9 +896,10 @@ function injectCSS(){
      saying out loud. A cartella is NINE COLUMNS WIDE, so width is the
      axis it wants and portrait is the axis that is short of it. Turned
      sideways there is nearly nine hundred pixels of it, the sheet goes
-     three across and two down (fitCards() works that out from the
-     measurement, not from this rule), and every cell comes out BIGGER
-     than it can ever be in portrait.
+     two across and three down on a phone and three across and two down
+     on a short one (fitCards() works that out from the measurement, not
+     from this rule), and every cell comes out BIGGER than it can ever be
+     in portrait.
 
      What is scarce is now height, so everything that stacks gives:
      the joke, the miniature board, the room strip and the turn strip
@@ -972,19 +1037,59 @@ function injectCSS(){
                        and it cannot drift when the stylesheet changes.
      the answer        written back as two custom properties.
 
-   HOW MANY ACROSS. Two in portrait and three sideways — his sheet, and
-   the same sheet folded the other way. It is chosen from the measured
-   ASPECT of the card area rather than from a media query, so a fold-out
-   phone or a window nobody thought of gets the shape that fits rather
-   than the shape somebody typed. If the columns would drive a cell
-   under MIN_W it steps back down, because an unreadable kartella is
-   worse than a differently-shaped one.
+   HOW MANY ACROSS — AND WHY THE OLD ANSWER WAS COSTING HIM THE SQUARE.
+   "The tombla need to be more bigger please so easy clicable please even
+   landscape." The column count used to be picked from the ASPECT of the
+   card area: wide box, three across; tall box, two. That reads sensibly
+   and it is the wrong question, because a cartella is NINE COLUMNS BY
+   THREE ROWS and a cell is therefore
 
-   HOW TALL. Whatever is left, capped at one and a half times the cell's
-   own WIDTH. Without that cap a ġog two across on a tall phone gets
-   nine rows to share six hundred pixels and every cell becomes a
-   sixty-pixel letterbox with a number floating in it. Paper does not
-   look like that. The slack goes into air around the sheet instead —
+       min( cardWidth / 9 , cardHeight / 3 )
+
+   on the axis a thumb actually has to hit. A card box that is not about
+   three to one wastes one of its two axes outright, and the aspect rule
+   was handing out boxes that were nowhere near it. Measured on a 440x894
+   phone, two across gave each cartella a 214-pixel box for 9 columns and
+   140 pixels of height for 3 rows: cells 22 WIDE and 44 TALL, with two
+   thirds of every cell's height doing nothing while the digits were
+   squeezed into twenty-two pixels. Sideways it was the same fault, milder.
+
+   So nothing is picked from the aspect any more. EVERY COLUMN COUNT THAT
+   COULD FIT IS COSTED, in the real measured box, and the winner is the
+   one with the biggest SHORT SIDE — because the short side is the whole
+   of "easy to tap" and the whole of how big the digits can be. A
+   candidate is only eligible if it clears both floors: MIN_W, or two
+   digits do not fit, and MIN_H WITHOUT BEING CLAMPED UP TO IT, which is
+   the important one — a row forced up to the floor is a row the ġog does
+   not have the height for, and THAT is how six kartelli became four. The
+   cost function does not know or care what the numbers come out as; it
+   is run out fresh on whatever box the browser gives.
+
+   What it lands on, and it is worth having the numbers written down:
+
+     440x894  one across, six down     22.2 -> 28.1   (was 2 x 3)
+     412x915  one across, six down     20.5 -> 29.3   (was 2 x 3)
+     360x800  one across, six down     17.6 -> 22.9   (was 2 x 3)
+     390x660  two across, three down   19.4 -> 19.4   one across is 17.9
+                                                      here and does not
+                                                      fit: rejected, and
+                                                      by measurement
+     894x440  two across, three down   30.9 -> 31.9   (was 3 x 2)
+     660x390  two across, three down   22.3 -> 28.4   (was 3 x 2)
+     800x360  three across, two down   27.5 -> 27.5   two across is 25.0
+                                                      on a 245-tall box:
+                                                      rejected
+
+   A tall phone therefore gets ONE CARTELLA ACROSS, full width, six down
+   — which is not the two stacks of three his paper is printed in, and
+   that is a real cost. It is paid because he asked for bigger and easier
+   to tap in the same sentence and a 22-pixel column is the answer to
+   why: full width buys the square 47 pixels across and 28 down instead
+   of 22 across and 44 down. Same paper, unfolded.
+
+   HOW TALL. Whatever is left, capped at twice the cell's own WIDTH so a
+   cartella cannot stretch into a bar of letterboxes when the height is
+   the plentiful axis. The slack goes into air around the sheet instead —
    align-content:center — which is what a ġog on a table looks like.
    ═══════════════════════════════════════════════════════════════════ */
 const MIN_W = 15;      /* under this two digits do not fit, at any size */
@@ -1013,47 +1118,66 @@ function fitCards(){
   const cs = getComputedStyle(host);
   const gap = parseFloat(cs.rowGap) || parseFloat(cs.gap) || (U.gog ? 5 : 10);
 
-  const curH = parseFloat(grids[0].style.getPropertyValue('--tbh')) ||
-               parseFloat(getComputedStyle(grids[0]).getPropertyValue('--tbh')) || 26;
-  const chromeH = Math.max(0, card0.offsetHeight - curH * 3);
+  /* a card's own chrome, on BOTH axes, taken the same way: what the card
+     is drawing now, minus the cells it is drawing it with. The height
+     used to be read off the --tbh we last wrote, which is nothing at all
+     on the first pass — so the first fit of a fresh ġog costed a chrome
+     of ninety-odd pixels and picked its columns from it. It is the
+     PAINTED row that is measured now, exactly as the column already was,
+     so the very first pass is right and there is no shape to flicker
+     out of. */
   const cw0 = cell0 ? cell0.getBoundingClientRect().width : 0;
+  const ch0 = cell0 ? cell0.getBoundingClientRect().height : 0;
   const chromeW = cw0 > 0
     ? Math.max(0, card0.getBoundingClientRect().width - cw0 * 9)
     : 26;                                   /* padding + eight gutters  */
-
-  /* ── how many cartelli across ── */
-  let cols = 1, cellW = 0;
-  if (U.gog){
-    cols = availW >= availH * 1.15 ? 3 : 2;
-    for (;;){
-      cellW = ((availW - (cols - 1) * gap) / cols - chromeW) / 9;
-      if (cellW >= MIN_W || cols <= 1) break;
-      cols--;
-    }
+  let chromeH;
+  if (ch0 > 0){
+    chromeH = Math.max(0, card0.getBoundingClientRect().height - ch0 * 3);
   } else {
-    cellW = (availW - chromeW) / 9;
+    const curH = parseFloat(grids[0].style.getPropertyValue('--tbh')) ||
+                 parseFloat(getComputedStyle(grids[0]).getPropertyValue('--tbh')) || 26;
+    chromeH = Math.max(0, card0.offsetHeight - curH * 3);
   }
 
-  /* ── and how tall a cell can be in what is left ── */
-  const rows = Math.ceil(n / cols);
-  let h = Math.floor((availH - (rows - 1) * gap - rows * chromeH) / (rows * 3));
-  /* ── AND HOW TALL, WITH THE CAP THAT DECIDES HOW FULL IT LOOKS ────
-     On a ġog the height is never the scarce axis — nine columns in half a
-     phone is about twenty-two pixels a column, and the row that carries
-     them could be sixty. So this cap is not protecting the layout from
-     running out of room, it is deciding how much of the screen the sheet
-     COVERS, and 1.75 was leaving two hundred pixels of nothing above and
-     below six cartelli on a 894-tall phone. A sheet floating in a third
-     of the screen is what "it doesn't fit right" looks like even when
-     every card is on it.
-     TWO, for a ġog. That fills the pane, and it buys the thing he
-     actually asked for on top: the square gets taller, so the target the
-     thumb is aiming at grows on the axis that had the room to give. One
-     big kartella keeps 1.75 — it is 43 pixels a column and already up
-     against MAX_H, and stretching it further only makes a bar. */
-  h = Math.min(h, Math.round(cellW * (U.gog ? 2 : 1.75)), MAX_H);
-  h = Math.max(MIN_H, h);
-  const w = Math.max(MIN_W, Math.round(cellW));
+  /* ── how many cartelli across, and how tall a cell is in what is left ──
+     One arithmetic, run for every column count that could hold n cards,
+     and then the best short side wins. See the block above for why the
+     short side is the only thing worth maximising here. */
+  const cell = (cols) => {
+    const rows = Math.ceil(n / cols);
+    const w = ((availW - (cols - 1) * gap) / cols - chromeW) / 9;
+    /* the height this many rows can HONESTLY have. Not clamped up to
+       MIN_H — a candidate that needs clamping is a candidate that does
+       not fit, and it has to be able to say so. */
+    const hFits = (availH - (rows - 1) * gap - rows * chromeH) / (rows * 3);
+    const h = Math.min(Math.floor(hFits), Math.round(w * (U.gog ? 2 : 1.75)), MAX_H);
+    return { cols, rows, w, h, hFits, ok: w >= MIN_W && hFits >= MIN_H,
+             short: Math.min(w, h), area: w * h };
+  };
+
+  let pick;
+  if (U.gog){
+    const tries = [];
+    for (let c = 1; c <= Math.min(3, n); c++) tries.push(cell(c));
+    const fit = tries.filter(t => t.ok);
+    /* among the ones that fit: biggest short side, and if two are within
+       a pixel of each other the bigger square wins. If NOTHING fits —
+       a screen smaller than anything real — take the one that at least
+       does not need the height it has not got, so a cartella is small
+       rather than off the bottom of a block that clips. */
+    const rank = (a, b) => (Math.abs(b.short - a.short) > 1
+      ? b.short - a.short : b.area - a.area);
+    pick = fit.length ? fit.sort(rank)[0]
+         : tries.filter(t => t.hFits >= MIN_H).sort(rank)[0]
+         || tries.sort((a, b) => b.hFits - a.hFits)[0];
+  } else {
+    pick = cell(1);                 /* one big kartella: nothing to choose */
+  }
+
+  const cols = pick.cols;
+  const h = Math.max(MIN_H, pick.h);
+  const w = Math.max(MIN_W, Math.round(pick.w));
 
   /* written only when they actually change: this runs off a
      ResizeObserver and off every repaint, and a style write that says
@@ -1544,7 +1668,20 @@ function onState(ev){
      twice costs nothing. */
   if (st.phase === 'play' && !U.ran){ U.ran = 1; render(); T.runClock(); return; }
   paintChrome(st);
-  if (st.phase === 'done' && !U.ending){ U.ending = 1; soon(finish, 700); }
+  /* ── NOT OVER THE READ-BACK ──────────────────────────────────────
+     A fatta ends the game, so the state says `done` while the winning
+     kartella is still being read out number by number — and the AI
+     seats have marks still landing behind it, each of which brings us
+     back in here with no move on the event. This branch then put the
+     RESULT SCREEN up 700ms in, measured: on a fatta the tally and its
+     ticks started 1326ms BEFORE the verdict, on top of the shout, over
+     the one moment of the game everybody is listening to.
+     U.busy is already the flag for "a kartella is being read back" —
+     onPause() has honoured it since the halt was built — and onShout()
+     already ends by calling finish() itself once the box comes down.
+     So while it is busy this simply stands aside; nothing is lost and
+     the ending arrives on the beat it was written for. */
+  if (st.phase === 'done' && !U.ending && !U.busy){ U.ending = 1; soon(finish, 700); }
 }
 
 function onCall(n){
@@ -1565,25 +1702,38 @@ function onCall(n){
   const ball = U.root.querySelector('.tb-ball');
   if (ball){ ball.classList.remove('pop'); void ball.offsetWidth; ball.classList.add('pop'); }
   /* ── AND NOW THE VOICE ───────────────────────────────────────────
-     AFTER the repaint, never before. The number is on the glass first
-     and the voice is decoration — js/tombla-caller.js is fire-and-
-     forget, returns nothing, throws nothing, and is silent if
-     audio/call/ is not there at all. It is gated on the same
+     AFTER the repaint, never before, and AFTER THE BAG. The number is
+     on the glass first and the voice is decoration — js/tombla-caller.js
+     is fire-and-forget, returns nothing, throws nothing, and is silent
+     if audio/call/ is not there at all. It is gated on the same
      T.callerSpeaks() every other caller sound goes through, so manual
      mode stays completely quiet: a person is reading the numbers out
      and the phone does not talk over them.
+
+     THE 340 IS THE POINT. It used to say the number in the same
+     millisecond as the bag rattle, so the first syllable of every
+     single call in the game was under 300ms of noise — the one word
+     the whole screen exists to deliver, mixed into the sound of the
+     token. It waits for the bag now. The wait is a tracked timer, so
+     leaving the table takes it with everything else, and it checks
+     that this is still the number on the ball: a call that has already
+     been overtaken says nothing rather than talking over its
+     successor.
 
      The warm() is prefetch FROM THE PAST — two numbers still in the
      bag, chosen at random. Never the next ball: view() hides the
      undrawn bag on purpose and warming the future would put call 38 in
      the network panel for an online opponent to read. See §9.4 of
      docs/TOMBLA_CALLER.md, and the module's own header. */
-  if (T.callerSpeaks(st)) try {
-    if (window.KARTI_CALLER){
-      window.KARTI_CALLER.say(n);
-      window.KARTI_CALLER.warm(st.called);
-    }
-  } catch(e){}
+  if (T.callerSpeaks(st)) soon(() => {
+    if (!U || U.lastN !== n) return;         /* overtaken — stay quiet */
+    try {
+      if (window.KARTI_CALLER){
+        window.KARTI_CALLER.say(n);
+        window.KARTI_CALLER.warm(st.called);
+      }
+    } catch(e){}
+  }, SAY_AFTER_BAG);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2322,11 +2472,23 @@ function onShout(st){
          its MODE NAME: a każin hears VERS and FATTA, and the seven
          shout files carry both sets. Silent in manual — a person is
          doing the shouting, and they are already halfway out of their
-         chair. */
-      if (T.callerSpeaks(st)) try {
-        if (window.KARTI_CALLER) window.KARTI_CALLER.shout(shoutKey(st, v.prize));
-      } catch(e){}
-      if (v.prize === 'tombla') soon(() => sfx(mine ? 'duel.win' : 'duel.lose', { force:true }), 300);
+         chair.
+         AFTER THE STING, not on top of it: the sting is 450ms of body
+         and the shout is one word, and played together they were one
+         noise in which neither could be made out. Sting, then the word.
+         See SAY_AFTER_STING. */
+      if (T.callerSpeaks(st)) soon(() => {
+        try {
+          if (window.KARTI_CALLER) window.KARTI_CALLER.shout(shoutKey(st, v.prize));
+        } catch(e){}
+      }, SAY_AFTER_STING);
+      /* and the fanfare last, and only for the fatta. At 300 it started
+         inside both the sting and the word — a two-and-a-quarter second
+         file laid over the half second the whole game is building to.
+         At 1000 its body runs 1000-1900, which lands its last note on
+         the result screen going up. */
+      if (v.prize === 'tombla')
+        soon(() => sfx(mine ? 'duel.win' : 'duel.lose', { force:true }), FANFARE_AFTER_SAY);
     } else {
       say.className = 'say no';
       say.textContent = 'LE';

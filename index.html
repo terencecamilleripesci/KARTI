@@ -1587,7 +1587,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 69;
+var KARTI_BUILD = 70;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1612,6 +1612,17 @@ window.swVersion = function(){
    A missing set must never stop the game booting. game.js always loads last. */
 (function(){
   var files = ['js/artkit.js','js/cards.js','js/set2.js','js/set3.js','js/game.js',
+               /* The identity stack rides DIRECTLY behind game.js. game.js
+                  boots (and paints Home) the moment it executes, with a
+                  lettered fallback in the profile pill; when these three sat
+                  at the tail of this list the real face arrived ~25 scripts
+                  later and the pill visibly changed long after Home was up —
+                  one of the "the game refreshes three times" repaints. They
+                  depend only on game.js (save + displayName); everything
+                  later — stats, party, sfx — they reach for lazily, and the
+                  XP hooks into party/klabb are wired by progress.js's own
+                  retry timer once those files land. */
+               'js/progress-faces.js','js/progress.js','js/progress-ui.js',
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
                'js/cardview.js','js/tutor.js','js/sync.js',
                'js/party.js','js/chess.js','js/dama.js',
@@ -1628,7 +1639,7 @@ window.swVersion = function(){
                'js/tombla-caller.js',
                'js/kiri.js','js/kiri-ai.js','js/kiri-ui.js',
                'js/stats.js',
-               'js/sfx.js','js/progress-faces.js','js/progress.js','js/progress-ui.js',
+               'js/sfx.js',
                /* LAST. nav.js is the Android back button, and it works by
                   observing every other module's screens — so it must boot
                   after all of them are registered, or its first look at the
