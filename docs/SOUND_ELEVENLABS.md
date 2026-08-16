@@ -358,7 +358,7 @@ boring.** A UI click with personality is unbearable by the fortieth tap.
 | ui.toggle | ui-toggle.mp3 | 0.5 | 0.9 | false | 0.14 | A heavy brass latch thrown on a thick wooden door, one deep solid clunk with the wood resonating dully underneath it, close and clearly audible, dark warm and rounded, dry and tight, single isolated sound effect, clean foley recording, no ring, no rattle, no hiss, no reverb, no music |
 | ui.toast | ui-toast.mp3 | 0.7 | 0.8 | false | 0.45 | One single warm marimba note struck with a felt mallet, mellow and rounded with a short decay, dry, single isolated sound effect, one note only, no melody, no music bed |
 | ui.error | ui-error.mp3 | 0.7 | 0.85 | false | 0.35 | A single close wooden thud, blunt dull and warm with no sharpness, a flat hand laid firmly on a wooden table, clearly audible, dry and tight, single isolated sound effect, clean foley recording, no buzzer, no alarm, no reverb, no music |
-| ui.reward | ui-reward.mp3 | 1.2 | 0.8 | false | - | Two warm marimba notes rising with one mellow bell over them, rounded and pleasant, dry and short, clean foley recording, no fanfare, no music bed |
+| ui.reward | ui-reward.mp3 | 1.2 | 0.8 | false | 0.70 | Two warm marimba notes rising with one mellow bell over them, rounded and pleasant, dry and short, clean foley recording, no fanfare, no music bed |
 | ui.coin | ui-coin.mp3 | 1.5 | 0.85 | false | - | A coin flicked spinning into the air with a warm whir, then settling and rocking to rest on a felt-covered table, muted and rounded, dry, single isolated sound effect, no bright metallic ring, no music |
 
 > `ui-error` is the most important sound here and the easiest to get wrong. It
@@ -369,16 +369,16 @@ boring.** A UI click with personality is unbearable by the fortieth tap.
 
 | id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
 |---|---|---|---|---|---|---|
-| duel.start | duel-start.mp3 | 2.0 | 0.75 | false | - | A short mellow brass phrase of three rising notes played by a small village band, warm rounded and unhurried, dry recording, ending cleanly, no drums, no reverb tail, no blare |
+| duel.start | duel-start.mp3 | 2.0 | 0.75 | false | 1.70 | A short mellow brass phrase of three rising notes played by a small village band, warm rounded and unhurried, dry recording, ending cleanly, no drums, no reverb tail, no blare |
 | duel.draw | duel-draw.mp3 | 0.5 | 0.85 | false | 0.30 | A single card sliding off the top of a deck, muted paper friction, dry short and tight, single isolated sound effect, clean foley recording, one card only, no snap, no music |
-| duel.shuffle | duel-shuffle.mp3 | 1.2 | 0.85 | false | - | A deck of cards riffle shuffled once and squared up on a felt table, muted rounded paper, dry and smooth, clean foley recording, no sharp riffle, no music |
+| duel.shuffle | duel-shuffle.mp3 | 1.2 | 0.85 | false | 1.05 | A deck of cards riffle shuffled once and squared up on a felt table, muted rounded paper, dry and smooth, clean foley recording, no sharp riffle, no music |
 | duel.summon | duel-summon.mp3 | 0.8 | 0.8 | false | 0.55 | A thick card laid down flat on a felt-covered wooden table, one rounded muted thump with a warm woody body, dry and punchy, single isolated sound effect, clean foley recording, no slap, no sharp attack, no reverb, no music |
-| duel.boss | duel-boss.mp3 | 2.0 | 0.8 | false | - | A heavy stone block settling onto a stone floor, deep muted thud with a warm rumble that fades quickly, weighty and dark, dry, single isolated sound effect, no crack, no music |
+| duel.boss | duel-boss.mp3 | 2.0 | 0.8 | false | 1.40 | Three low brass horns playing one long unison note together, the growl and rasp of the brass clearly present in the middle of the sound with a heavy dark weight underneath it, ominous and swelling then stopping, close-miked and dry, single isolated sound effect, no drums, no rumble, no reverb, no music bed |
 | duel.attack | duel-attack.mp3 | 0.7 | 0.85 | false | 0.45 | A rounded whoosh of something heavy moving quickly through the air, warm and muted with a swell, dry and short, single isolated sound effect, no sharp edge, no impact at the end, no music |
-| duel.hit | duel-hit.mp3 | 0.8 | 0.85 | false | 0.55 | A deep muted thump against a heavy padded wooden door, warm and rounded with a short dark body, firm but damped, dry and punchy, single isolated sound effect, no crack, no reverb, no music |
-| duel.destroy | duel-destroy.mp3 | 1.2 | 0.85 | false | - | A terracotta pot cracking and falling apart onto cloth, one muted dull break then scattering pieces, warm and rounded, dry, single isolated sound effect, no sharp smash, no reverb, no music |
-| duel.spell | duel-spell.mp3 | 1.0 | 0.75 | false | - | A warm shimmer of marimba and glass notes rising, mellow and rounded with a short decay, dry, single isolated sound effect, no melody, no music bed |
-| duel.trap | duel-trap.mp3 | 1.0 | 0.8 | false | - | A muted wooden snap of a small trap closing, one rounded click then a dark low settle, sudden but damped, dry and tight, single isolated sound effect, no metallic ring, no music |
+| duel.hit | duel-hit.mp3 | 0.8 | 0.85 | false | 0.45 | A padded mallet striking a thick hardwood plank hard, the woody midrange knock of the plank leading clearly with a short dark thump behind it, firm and solid and damped, close-miked and dry and punchy, single isolated sound effect, no crack, no rumble, no reverb, no music |
+| duel.destroy | duel-destroy.mp3 | 1.2 | 0.85 | false | 0.45 | A terracotta pot cracking and falling apart onto cloth, one muted dull break then scattering pieces, warm and rounded, dry, single isolated sound effect, no sharp smash, no reverb, no music |
+| duel.spell | duel-spell.mp3 | 1.0 | 0.75 | false | 0.65 | A warm shimmer of marimba and glass notes rising, mellow and rounded with a short decay, dry, single isolated sound effect, no melody, no music bed |
+| duel.trap | duel-trap.mp3 | 1.0 | 0.8 | false | 0.70 | A heavy wooden box lid slamming shut, a deep dull thud with real low weight arriving first and a short muted wooden snap on top of it, sudden and final and damped, dark and thick, close-miked and dry, single isolated sound effect, no metallic ring, no spring, no reverb, no music |
 | duel.turn | duel-turn.mp3 | 0.6 | 0.8 | false | 0.45 | A single close wooden block knock, dark hollow and rounded, struck firmly, one hit only, clearly audible, dry and tight, single isolated sound effect, no reverb, no music |
 | duel.win | duel-win.mp3 | 2.5 | 0.75 | false | 2.20 | A short village brass band flourish, mellow warm and slightly ragged, with a brushed cymbal and one distant muffled firework, rounded and joyful, dry recording, ending cleanly, no blare, no long reverb tail |
 | duel.lose | duel-lose.mp3 | 2.2 | 0.75 | false | 1.90 | A deflating tuba phrase of two falling notes played by one tired bandsman, warm mellow and comically resigned, rounded, dry recording, ending cleanly, no blare, no reverb tail |
@@ -409,13 +409,13 @@ this is a good one — and the escalation is **pitch and richness, not volume**:
 
 | id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
 |---|---|---|---|---|---|---|
-| pack.tear | pack-tear.mp3 | 1.2 | 0.85 | false | - | A paper packet opened in one pull, muted tearing of thin paper, warm and rounded with no sharp crackle, dry, single isolated sound effect, clean foley recording, one continuous tear ending cleanly, no music |
+| pack.tear | pack-tear.mp3 | 1.2 | 0.85 | false | 1.15 | A paper packet opened in one pull, muted tearing of thin paper, warm and rounded with no sharp crackle, dry, single isolated sound effect, clean foley recording, one continuous tear ending cleanly, no music |
 | pack.flip | pack-flip.mp3 | 0.6 | 0.85 | false | 0.35 | A single card turned over and settling face up on a felt table, one rounded paper flutter and a muted tap, dry short and tight, single isolated sound effect, clean foley recording, no snap, no music |
 | pack.dupe | pack-dupe.mp3 | 0.8 | 0.85 | false | 0.60 | A single flat muted card landing on a pile of cards, dull rounded and dead with no ring at all, deliberately anticlimactic, dry, single isolated sound effect, clean foley recording, no music |
 | pack.tally | pack-tally.mp3 | 0.5 | 0.9 | false | 0.12 | A single close marimba note struck low, dry short and tight, one note only, clearly audible, single isolated sound effect, no reverb, no music |
-| rar.komuni | rar-komuni.mp3 | 0.6 | 0.85 | false | 0.35 | A single low muted marimba note, dull plain and rounded with a short decay and no brightness, dry, single isolated sound effect, one note, no music |
-| rar.rari | rar-rari.mp3 | 0.9 | 0.8 | false | 0.80 | A single warm mid-range marimba note doubled by one mellow glass bell, clear but rounded, with a short decay, dry, single isolated sound effect, one note, no melody, no music |
-| rar.epiku | rar-epiku.mp3 | 1.8 | 0.75 | false | 1.60 | Three mellow bells rising in pitch, warm and glowing, over a low brass swell, rounded and never harsh, short, dry, no drums, no music bed |
+| rar.komuni | rar-komuni.mp3 | 0.6 | 0.85 | false | 0.35 | A single mid-range wooden marimba note struck once, the woody knock of the bar clearly present, plain and rounded and unremarkable with a short decay, close-miked and dry, single isolated sound effect, one note, no low boom, no reverb, no music |
+| rar.rari | rar-rari.mp3 | 0.9 | 0.8 | false | 0.80 | Two bright glass bells struck together and ringing clearly in the upper middle, a warm wooden note underneath them, present and clearly audible, rounded not piercing, short decay, dry, single isolated sound effect, one note, no melody, no music |
+| rar.epiku | rar-epiku.mp3 | 1.8 | 0.75 | false | 1.30 | Four bright glass bells struck in a rising figure, the bells leading the sound clearly and ringing out in the upper middle, with a warm brass swell filling in underneath them, glowing and generous and building, close-miked and dry, single isolated sound effect, no low boom, no drums, no reverb, no music bed |
 | rar.leggendarju | rar-leggendarju.mp3 | 3.5 | 0.7 | false | 3.00 | A warm village festa celebration arriving, mellow church bells ringing a rising figure with a brass band swelling underneath and one distant muffled firework, joyful glowing and generous, warm and rounded, starting immediately and ending cleanly, dry recording, no crash, no blare, no long reverb tail |
 
 > **The Legendary is the money shot** — one pack in sixteen, over a white flash
@@ -438,8 +438,8 @@ for dama, felt underneath both.
 | piece.lift | piece-lift.mp3 | 0.5 | 0.9 | false | 0.12 | A small wooden piece lifted off a wooden board, one very short felt scuff, dull and rounded, dry and tight, single isolated sound effect, clean foley recording, no click, no reverb, no music |
 | piece.place | piece-place.mp3 | 0.5 | 0.9 | false | 0.25 | A felt-bottomed wooden chess piece set down on a wooden board, one warm rounded knock, damped and satisfying with no sharp click, dry and punchy, single isolated sound effect, clean foley recording, single hit, no reverb, no music |
 | piece.capture | piece-capture.mp3 | 0.7 | 0.85 | false | 0.50 | One wooden piece nudged aside by another and sliding off a board, a muted rounded knock then a short wooden slide, dry and tight, single isolated sound effect, clean foley recording, no clatter, no music |
-| piece.king | piece-king.mp3 | 1.0 | 0.8 | false | - | A ceramic draughts piece stacked onto another with a rounded click, followed by one warm marimba note, dry and short, single isolated sound effect, clean foley recording, no music |
-| board.check | board-check.mp3 | 1.0 | 0.8 | false | - | Two low warm knuckle knocks on a felt-covered wooden table, dull firm and rounded, close together, dry and tight, single isolated sound effect, clean foley recording, no reverb, no music |
+| piece.king | piece-king.mp3 | 1.0 | 0.8 | false | 0.92 | A ceramic draughts piece stacked onto another with a rounded click, followed by one warm marimba note, dry and short, single isolated sound effect, clean foley recording, no music |
+| board.check | board-check.mp3 | 1.0 | 0.8 | false | 0.70 | Two low warm knuckle knocks on a felt-covered wooden table, dull firm and rounded, close together, dry and tight, single isolated sound effect, clean foley recording, no reverb, no music |
 
 ### 6.5 SKARTA, IL-KIRI and the playing-card games — 4 files
 
@@ -463,10 +463,10 @@ turns out to need a genuinely new sound, add it here then — do not guess now.
 
 | id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
 |---|---|---|---|---|---|---|
-| card.throw | card-throw.mp3 | 0.6 | 0.85 | false | 0.40 | A card laid down firmly onto a pile of cards on a felt table, one rounded paper slap, confident but damped and warm, dry and punchy, single isolated sound effect, clean foley recording, no sharp crack, no music |
-| card.sweep | card-sweep.mp3 | 1.0 | 0.85 | false | - | A pile of cards drawn across a felt table and gathered up in one movement, muted rounded paper rustle, warm, dry, single isolated sound effect, clean foley recording, no music |
-| money.pay | money-pay.mp3 | 1.0 | 0.85 | false | - | A few coins set down one after another onto a felt-covered table, warm muted clinks with no bright ring, damped, dry, single isolated sound effect, clean foley recording, no jingle, no music |
-| dice.roll | dice-roll.mp3 | 1.2 | 0.85 | false | - | Two wooden dice shaken briefly in a cupped hand and rolled across a felt table, muted tumbling that settles quickly, warm and rounded, dry, single isolated sound effect, clean foley recording, no clatter, no music |
+| card.throw | card-throw.mp3 | 0.6 | 0.85 | false | 0.30 | A stiff playing card thrown down hard onto a pile of cards on a felt table, one firm full-bodied paper slap with a strong clear attack, warm and rounded but definite and close, close-miked and dry and punchy, single isolated sound effect, clean foley recording, no sharp crack, no reverb, no music |
+| card.sweep | card-sweep.mp3 | 1.0 | 0.85 | false | 0.82 | A pile of cards drawn across a felt table and gathered up in one movement, muted rounded paper rustle, warm, dry, single isolated sound effect, clean foley recording, no music |
+| money.pay | money-pay.mp3 | 1.2 | 0.85 | false | 0.70 | Heavy coins dropped from a hand into a shallow wooden bowl on a table, the dull wooden knock of the bowl arriving first with the coins settling into it, thick and warm and bottom-heavy, dark rounded clinks with no bright ring and no sparkle, close-miked and dry, single isolated sound effect, clean foley recording, no jingle, no cash register, no reverb, no music |
+| dice.roll | dice-roll.mp3 | 1.2 | 0.85 | false | 0.85 | Two heavy wooden dice tumbling and landing on a thick wooden table, deep hollow knocks with real weight as they bounce twice and stop, warm dark low wood tone underneath, brief and settling quickly, close-miked and dry, single isolated sound effect, clean foley recording, no rattle, no clatter, no reverb, no music |
 
 ### 6.7 TOMBLA — 4 files (third pass)
 
@@ -483,8 +483,8 @@ set by design.
 |---|---|---|---|---|---|---|
 | tombla.call | tombla-call.mp3 | 0.8 | 0.85 | false | 0.55 | A small wooden token drawn out of a cloth bag and set down firmly on a wooden table, one dry rounded knock with a brief cloth rustle before it, close and clearly audible, warm and dark, single isolated sound effect, clean foley recording, no rattle, no reverb, no music |
 | tombla.mark | tombla-mark.mp3 | 0.5 | 0.9 | false | 0.16 | A small plastic counter pressed down onto stiff card, one short dry tick with a muted yielding paper give under it, close and clearly audible, dull and rounded, single isolated sound effect, clean foley recording, no click, no snap, no reverb, no music |
-| tombla.near | tombla-near.mp3 | 1.4 | 0.75 | false | - | Two warm mellow marimba notes rising a step and held, unresolved and expectant, dark and rounded, close and clearly audible, single isolated sound effect, no percussion, no alarm, no reverb tail, no music bed |
-| tombla.shout | tombla-shout.mp3 | 2.0 | 0.75 | false | - | A small indoor crowd of a dozen people reacting together in one warm swell of delight, a single mellow hand bell struck once through it, close and roomy but not a stadium, no words, no cheering chant, single isolated sound effect, no music |
+| tombla.near | tombla-near.mp3 | 1.4 | 0.75 | false | 0.58 | Two warm mellow marimba notes rising a step and held, unresolved and expectant, dark and rounded, close and clearly audible, single isolated sound effect, no percussion, no alarm, no reverb tail, no music bed |
+| tombla.shout | tombla-shout.mp3 | 2.0 | 0.75 | false | 1.74 | A small indoor crowd of a dozen people reacting together in one warm swell of delight, a single mellow hand bell struck once through it, close and roomy but not a stadium, no words, no cheering chant, single isolated sound effect, no music |
 
 ### 6.6 Ambience loops — 2 files (optional, do last)
 
@@ -832,7 +832,7 @@ there. **Aim at the narrow band between literal silence and harsh, on purpose.**
 | id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
 |---|---|---|---|---|---|---|
 | piece.slide | piece-slide.mp3 | 0.5 | 0.9 | false | 0.20 | A felt-bottomed wooden chess piece pushed a short distance across a wooden board, one warm rounded scrape with a woody body, close and clearly audible, dry and tight, single isolated sound effect, clean foley recording, no squeak, no click, no reverb, no music |
-| board.mate | board-mate.mp3 | 1.5 | 0.85 | false | 1.20 | A tall wooden chess king toppled over and rolling to rest on a wooden board, one firm rounded knock then a short warm wooden roll that settles and stops, close and clearly audible, dry, single isolated sound effect, clean foley recording, no clatter, no reverb, no music |
+| board.mate | board-mate.mp3 | 1.5 | 0.85 | false | 0.30 | A tall wooden chess king toppled over and rolling to rest on a wooden board, one firm rounded knock then a short warm wooden roll that settles and stops, close and clearly audible, dry, single isolated sound effect, clean foley recording, no clatter, no reverb, no music |
 | dama.place | dama-place.mp3 | 0.5 | 0.9 | false | 0.22 | A flat terracotta draughts disc set down firmly on a wooden board, one warm rounded clack with a short earthy body, damped and clearly audible, dry and punchy, single isolated sound effect, clean foley recording, no ring, no reverb, no music |
 | dama.jump | dama-jump.mp3 | 0.6 | 0.85 | false | 0.30 | A terracotta draughts disc hopped over another and landing on a wooden board, one short skip through the air then a warm rounded clack, close and clearly audible, dry and punchy, single isolated sound effect, clean foley recording, no clatter, no reverb, no music |
 
@@ -849,7 +849,7 @@ there. **Aim at the narrow band between literal silence and harsh, on purpose.**
 
 | id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
 |---|---|---|---|---|---|---|
-| call.bell | call-bell.mp3 | 1.0 | 0.85 | false | 0.75 | A small dark brass counter bell struck once with the flat of a hand, one warm rounded ding with a mellow body that decays quickly, close and clearly audible, dry, single isolated sound effect, one strike only, clean foley recording, no long ring, no reverb, no music |
+| call.bell | call-bell.mp3 | 1.0 | 0.85 | false | 0.60 | A heavy brass counter bell struck once with the flat of the hand, the dull thud of the hand landing on it first and a warm dark low ding blooming underneath, thick and round and full-bodied, mellow, decaying quickly, close-miked and dry, single isolated sound effect, one strike only, clean foley recording, no shrill top, no long ring, no reverb, no music |
 | pack.charge | pack-charge.mp3 | 1.5 | 0.8 | false | 1.10 | A paper packet gripped tight and squeezed in both hands, a rising rounded paper crush and creak swelling for one second and stopping dead just before it opens, warm and close, clearly audible, dry, single isolated sound effect, clean foley recording, no tear, no crackle, no reverb, no music |
 
 > **`pack-charge` must not tear.** It is the 880 ms of build *before*
@@ -965,3 +965,212 @@ On top of §8:
 - [ ] `KARTI_SFX.diag()` — `registered` is **49**, `missing` is empty once all
       nine are in, and `auto` shows every channel.
 - [ ] Delete all nine new files and confirm KARTI is exactly as it was.
+
+---
+
+# 11. FOURTH PASS — WIRING EVERY GAME, AND FOUR SOUNDS MEASURED WRONG
+
+This pass wired the games that were still silent (the main duel, the story
+ladder, SKARTA's chain, and the last gaps in chess and dama) and then **played
+every one of them to a finish with a probe on `play()`**, counting what
+actually came out of the speaker rather than what the source said it would.
+Most of the findings were wiring. Four were the files themselves.
+
+## 11.1 How to tell a thin sound from a soft one, with numbers
+
+"It feels like air" is measurable, and it is the one complaint that cannot be
+fixed with the `g:` column — turning up a sound with no body just gives you a
+louder hiss. Two numbers, taken over the whole file with DC removed:
+
+- **spectral centroid** — where the energy actually sits, in Hz.
+- **share of energy below 400 Hz** — whether there is anything underneath it.
+
+The calibration point is `ui-swipe`, because it is the one the owner picked out
+unprompted. The take he objected to measured **4408 Hz / 2.8 %**. Rewritten for
+body it measures **1542 Hz / 20.0 %** and the complaint went away. So:
+
+| centroid | low share | verdict |
+|---|---|---|
+| under ~2500 Hz | over ~15 % | has a body, leave it alone |
+| over ~3000 Hz | under ~5 % | it is air — **regenerate, do not re-level** |
+
+Run it with `ffmpeg -i audio/<f>.mp3 -ac 1 -ar 22050 -f f32le -` into an FFT.
+**Measure before rewriting.** Three files that "felt thin" measured fine and
+were left alone; the four below did not.
+
+## 11.2 The second measurement: THIS SHIPS ON A PHONE
+
+The centroid test above finds sounds that are all air. It does not find the
+opposite fault, and the opposite fault turned out to be worse.
+
+**A phone speaker puts out almost nothing below about 500 Hz.** So a sound whose
+energy is all underneath that is not "warm" on the target device — it is
+missing. Measure every file twice: once flat, and once through a 12 dB/octave
+roll-off below 500 Hz, which is a conservative model of a phone. The gap
+between the two numbers is how much of that sound the handset throws away.
+
+The result, across all 51 files:
+
+| | flat | through a phone |
+|---|---|---|
+| spread, loudest to quietest | 23.3 dB | **29.5 dB** |
+
+Thirty decibels between the loudest and the quietest thing in the mix is not a
+set, it is a pile. And the ordering inverts — several files that measure among
+the LOUDEST flat are among the quietest on a phone:
+
+| id | flat | phone | thrown away | what it is |
+|---|---|---|---|---|
+| `duel.boss` | −14.4 | **−45.3** | 30.9 dB | the boss sting. The biggest moment in the game. |
+| `duel.hit` | −13.9 | **−43.7** | 29.8 dB | taking damage, 9–12 times a duel |
+| `rar.komuni` | −15.6 | **−33.8** | 18.2 dB | every common in every pack |
+| `rar.epiku` | −17.6 | **−33.8** | 16.2 dB | every epic pull |
+
+### The rarity ladder does not go up
+
+This is the clearest single failure in the set, and it is exactly the thing
+that is supposed to make opening a pack addictive:
+
+| rung | phone level | |
+|---|---|---|
+| `rar.komuni` | −33.8 dB | |
+| `rar.rari` | −28.6 dB | rises 5 dB ✓ |
+| `rar.epiku` | **−33.8 dB** | **falls 5 dB ✗** |
+| `rar.leggendarju` | −16.5 dB | jumps 17 dB |
+
+**Pulling an EPIC currently sounds quieter than pulling a plain RARE.** Flat, it
+is no better — `rar.komuni` is the loudest of the four, so on headphones the
+commons boom hardest. The escalation does not exist on either device.
+
+## 11.3 What was fixed in code, free, and what needs credits
+
+**Six re-levelled in `js/sfx.js` — no credits, instant, reversible.** These are
+files whose energy IS in the band a phone reproduces; they were simply set too
+low. `g:` fixes those completely:
+
+| id | g was | g now | phone dB was | now |
+|---|---|---|---|---|
+| `duel.turn` | 0.40 | 0.80 | −35.4 | −29.4 |
+| `duel.draw` | 0.42 | 0.55 | −30.1 | −27.7 |
+| `pack.flip` | 0.48 | 0.72 | −28.7 | −25.2 |
+| `pack.charge` | 0.58 | 0.88 | −28.3 | −24.6 |
+| `duel.summon` | 0.58 | 0.85 | −28.7 | −25.4 |
+| `board.check` | 0.64 | 0.90 | −29.1 | −26.2 |
+
+**Nine to regenerate — about 408 credits of the ~7000 left.** Every one of them
+is beyond what `g:` can reach, for one of two opposite reasons.
+
+*Too much air — high centroid, nothing underneath (the `ui-swipe` fault):*
+
+| id | measured | why it is wrong |
+|---|---|---|
+| `money.pay` | 9399 Hz / 0.3 % | The airiest file in the set, more than twice as thin as the `ui-swipe` take that was rejected. It is money: buying a pack, paying rent in IL-KIRI, redeeming a mortgage. Coins have mass; this has none. |
+| `dice.roll` | 6631 Hz / 0.1 % | Dice are wood on wood. There is no knock in this at all — the shake without the arrival. IL-KIRI's most repeated sound. |
+| `call.bell` | 3029 Hz / 0.0 % | **Zero** energy below 400 Hz. It is AĦĦAR WAĦDA in SKARTA, the tensest moment in that game, and it rings without ever having been struck. |
+| `duel.trap` | 3032 Hz / 1.8 % | A trap springing, IL-LIMITU closing a chain, QABADTEK. Every one is a gotcha, and a gotcha needs a thump under the snap. |
+
+*All body, nothing a phone can reproduce — the opposite fault, and the one that
+matters more because these are the big moments:*
+
+| id | measured | why it is wrong |
+|---|---|---|
+| `duel.boss` | 58 Hz, loses 30.9 dB | The boss sting is inaudible on the target device. Raising `g:` only raises bass the speaker cannot move. |
+| `duel.hit` | 58 Hz, loses 29.8 dB | Taking damage is the core feedback of a duel and it does not read on a phone. |
+| `rar.komuni` | 175 Hz, loses 18.2 dB | Loudest of the four flat, joint-quietest on a phone. Breaks the ladder at both ends. |
+| `rar.epiku` | 161 Hz, loses 16.2 dB | Makes an epic quieter than a rare. This is the payoff the whole pack ceremony builds to. |
+
+*And one that is simply recorded ten decibels below the rest of the set:*
+
+| id | measured | why it is wrong |
+|---|---|---|
+| `card.throw` | peak 0.30 vs 0.63 typical; **−35.4 dB, the quietest in the set** | It is the main event sound of **five** games — SKARTA (46 times in one hand) and all four playing-card games. Even at `g: 1.0` it cannot reach its band, so this one cannot be fixed in code at all. |
+
+### The technique, in one line
+
+Every rewritten row **names the thing a phone can reproduce FIRST and the body
+second** — the bowl before the coins, the table before the dice, the hand before
+the ding, the plank before the thump, the bells before the brass swell. That
+inversion is what fixed `ui-swipe`, and it is the whole trick. The rows
+themselves are rewritten in place in §6.1–§6.5 and §10.3.3; they are not
+repeated here, because `scripts/make_sfx.py` parses this document as one sheet
+and rejects a duplicate id.
+
+To redo them (the key is held elsewhere — do not run this speculatively):
+
+```
+python3 scripts/make_sfx.py --dry-run --only money.pay,dice.roll,call.bell,duel.trap,duel.boss,duel.hit,rar.komuni,rar.epiku,card.throw --force
+python3 scripts/make_sfx.py          --only money.pay,dice.roll,call.bell,duel.trap,duel.boss,duel.hit,rar.komuni,rar.epiku,card.throw --force
+python3 scripts/trim_sfx.py
+```
+
+Then **re-measure before accepting**. Acceptance for the new takes:
+
+- nothing over 3000 Hz centroid with under 5 % below 400 Hz (that is air);
+- nothing losing more than ~10 dB through the phone filter (that is sub-bass);
+- `rar.komuni < rar.rari < rar.epiku < rar.leggendarju` on the phone measure,
+  monotonically. If the ladder does not climb, the take is wrong however nice
+  it sounds on its own.
+
+## 11.4 Twelve dead tails, fixed for nothing
+
+`trim_to` was measured wrong — or never set — on twelve rows, and a dead tail is
+the difference between snappy and sluggish. Measured as "the last moment the
+file is still above −40 dB of its own peak":
+
+| id | file is | sound ends at | dead | trim_to now |
+|---|---|---|---|---|
+| `board.mate` | 1.20 s | **0.24 s** | 0.96 s | 0.30 |
+| `tombla.near` | 1.36 s | 0.54 s | 0.82 s | 0.58 |
+| `duel.destroy` | 1.20 s | 0.41 s | 0.79 s | 0.45 |
+| `ui.reward` | 1.20 s | 0.65 s | 0.55 s | 0.70 |
+| `duel.spell` | 1.00 s | 0.61 s | 0.39 s | 0.65 |
+| `duel.start` | 2.00 s | 1.64 s | 0.37 s | 1.70 |
+| `board.check` | 1.00 s | 0.66 s | 0.34 s | 0.70 |
+| `tombla.shout` | 2.00 s | 1.70 s | 0.30 s | 1.74 |
+| `card.sweep` | 1.00 s | 0.78 s | 0.22 s | 0.82 |
+| `duel.shuffle` | 1.20 s | 1.00 s | 0.20 s | 1.05 |
+| `piece.king` | 1.00 s | 0.88 s | 0.12 s | 0.92 |
+| `pack.tear` | 1.20 s | 1.11 s | 0.10 s | 1.15 |
+
+`board.mate` had a `trim_to` of 1.20 against a sound that is over at 0.24 s —
+the take simply has a second of silence in it. **These cost no credits at all:**
+
+```
+python3 scripts/trim_sfx.py        # idempotent, no API key needed
+```
+
+### And the two `after()` gaps that were timed against the wrong number
+
+Sequencing must be measured against the SOUND, not the file. Two of mine were
+not, and both were found by the table above:
+
+- **`boardEnd` mate:** the victory sting waited 560 ms behind `board.mate`. The
+  king finishes rolling at 240 ms, so there was a third of a second of silence
+  in the middle of checkmate. Now 280 ms.
+- **`DUEL.destroy` wipe stagger:** 110 ms between kills, against a pot that
+  takes 410 ms to finish breaking — four monsters dying came out three-deep and
+  read as mud. Now 170 ms, so a board wipe sounds like four things, not one.
+
+## 11.4 QA for this pass
+
+- [ ] Play a duel to a finish. Turn change and card draw must be **two beats**,
+      not one — they used to land on the same millisecond.
+- [ ] Tribute-summon a Level 7. It must sound bigger than a Level 3.
+- [ ] Tap a bottom-nav tab. **One sound.** If you hear a whoosh behind the
+      note, the nav claim in `js/sfx.js` has been broken again.
+- [ ] Play a SKARTA hand with a +4 or +7 in it. The chain must climb as it
+      grows and fall as somebody eats it.
+- [ ] Undo a move in chess and in dama. It must sound, and it used to not —
+      the button disables itself as it runs.
+- [ ] Take a multi-jump in dama one tap at a time. **Every tap clacks.** They
+      used to bank up silently and all fire at the end.
+- [ ] Block `audio/` entirely and play a duel and a chess game. Zero errors,
+      zero sound, no difference to the game.
+- [ ] **One action, one sound.** Tap every control in every game and count.
+      Two ids on one frame is the most amateur fault in a sound set and the
+      40 ms dedupe cannot catch it, because it only collapses the SAME id.
+- [ ] Re-measure the set after any regeneration and check the spread. It was
+      23.3 dB flat / 29.5 dB through a phone before this pass. Anything that
+      wide means something jumps out.
+- [ ] Check the rarity ladder CLIMBS on the phone measure, komuni through
+      leggendarju. It did not before this pass — epiku was quieter than rari.

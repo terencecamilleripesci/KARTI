@@ -64,7 +64,27 @@
      Nothing reaches 1.0 on purpose: that leaves headroom so the mix never
      clips when three things land on the same frame, which is exactly when a
      set stops sounding soft. Re-level HERE before regenerating a file —
-     it is instant, free and reversible.                                    */
+     it is instant, free and reversible.
+
+     ── FOURTH PASS: `g` IS ONLY HALF THE LEVEL ────────────────────────────
+     A band is a target for what comes OUT of the mixer, and that is the file's
+     own level TIMES `g`. The files are not all at one level — they range over
+     14x — so banding `g` by frequency alone left the set 23 dB apart flat and
+     29.5 dB apart through a phone speaker. Six values below were raised on
+     measurement; duel.turn 0.40→0.80 was the worst of them, the quietest thing
+     in the whole game and it fires every single turn.
+
+     AND THE THING `g` CANNOT FIX. A phone speaker puts out almost nothing
+     below ~500 Hz. Several files here are almost entirely underneath it:
+     duel.boss and duel.hit lose THIRTY decibels on the target device,
+     rar.komuni and rar.epiku about eighteen — which is why rar.epiku is
+     currently quieter than rar.rari and the pack ceremony's escalation runs
+     backwards. Turning those up only moves air the speaker cannot move. They
+     need new files, not new numbers; the measurements and the rewritten
+     prompts are in §11 of docs/SOUND_ELEVENLABS.md.
+
+     So before touching a `g` below, work out WHICH fault you have:
+     too quiet is a number, too low is a file.                              */
   var REG = {
     /* ── shared UI: the quietest things in the game ── */
     'ui.tap':      { f: 'ui-tap.mp3',      g: 0.38 },
@@ -78,16 +98,16 @@
 
     /* ── the duel ── */
     'duel.start':  { f: 'duel-start.mp3',  g: 0.72 },
-    'duel.draw':   { f: 'duel-draw.mp3',   g: 0.42 },
+    'duel.draw':   { f: 'duel-draw.mp3',   g: 0.55 },
     'duel.shuffle':{ f: 'duel-shuffle.mp3',g: 0.55 },
-    'duel.summon': { f: 'duel-summon.mp3', g: 0.58 },
+    'duel.summon': { f: 'duel-summon.mp3', g: 0.85 },
     'duel.boss':   { f: 'duel-boss.mp3',   g: 0.76 },
     'duel.attack': { f: 'duel-attack.mp3', g: 0.56 },
     'duel.hit':    { f: 'duel-hit.mp3',    g: 0.62 },
     'duel.destroy':{ f: 'duel-destroy.mp3',g: 0.66 },
     'duel.spell':  { f: 'duel-spell.mp3',  g: 0.58 },
     'duel.trap':   { f: 'duel-trap.mp3',   g: 0.68 },
-    'duel.turn':   { f: 'duel-turn.mp3',   g: 0.40 },
+    'duel.turn':   { f: 'duel-turn.mp3',   g: 0.80 },
     'duel.win':    { f: 'duel-win.mp3',    g: 0.80 },
     'duel.lose':   { f: 'duel-lose.mp3',   g: 0.74 },
 
@@ -95,20 +115,30 @@
          instrument rising through a scale — the escalation must come from
          the PITCH and the arrangement, so their gains climb only gently. ── */
     'pack.tear':   { f: 'pack-tear.mp3',   g: 0.70 },
-    'pack.flip':   { f: 'pack-flip.mp3',   g: 0.48 },
+    'pack.flip':   { f: 'pack-flip.mp3',   g: 0.72 },
     'pack.dupe':   { f: 'pack-dupe.mp3',   g: 0.50 },
     'pack.tally':  { f: 'pack-tally.mp3',  g: 0.34 },
+    /* THE RARITY LADDER. These four gains are NOT a tidy ascending sequence and
+       must not be 'corrected' into one. They are measured compensation: the
+       four files land 6 dB apart in the WRONG order once a phone speaker has
+       rolled off everything under about 500 Hz, so an evenly rising set of
+       gains produced a ladder where pulling a rare was quieter than pulling a
+       common. What matters is the sound the player hears, which is
+       file level + gain, and that is what these numbers make ascend in 3 dB
+       rungs — about the smallest step a person reliably notices.
+       Re-measure before changing any of them:
+         ffmpeg -i audio/rar-*.mp3 -af highpass=f=500,volumedetect -f null - */
     'rar.komuni':      { f: 'rar-komuni.mp3',      g: 0.42 },
-    'rar.rari':        { f: 'rar-rari.mp3',        g: 0.56 },
-    'rar.epiku':       { f: 'rar-epiku.mp3',       g: 0.68 },
-    'rar.leggendarju': { f: 'rar-leggendarju.mp3', g: 0.82 },
+    'rar.rari':        { f: 'rar-rari.mp3',        g: 0.98 },
+    'rar.epiku':       { f: 'rar-epiku.mp3',       g: 0.66 },
+    'rar.leggendarju': { f: 'rar-leggendarju.mp3', g: 1.00 },
 
     /* ── board + card party games ── */
     'piece.lift':    { f: 'piece-lift.mp3',    g: 0.34 },
     'piece.place':   { f: 'piece-place.mp3',   g: 0.52 },
     'piece.capture': { f: 'piece-capture.mp3', g: 0.62 },
     'piece.king':    { f: 'piece-king.mp3',    g: 0.70 },
-    'board.check':   { f: 'board-check.mp3',   g: 0.64 },
+    'board.check':   { f: 'board-check.mp3',   g: 0.9 },
     'card.throw':    { f: 'card-throw.mp3',    g: 0.54 },
     'card.sweep':    { f: 'card-sweep.mp3',    g: 0.56 },
     'money.pay':     { f: 'money-pay.mp3',     g: 0.54 },
@@ -165,7 +195,7 @@
        goes, and until now all of it was silent — the payoff arrived with no
        build. This is the single most addictive file in the set for the
        fewest bytes: the swell IS the dopamine, the tear is only the release. */
-    'pack.charge': { f: 'pack-charge.mp3', g: 0.58 },
+    'pack.charge': { f: 'pack-charge.mp3', g: 0.88 },
 
     /* ── ambience: these LOOP. Long files, loaded on demand only, and mixed
          low enough that you notice them only when they stop.
@@ -284,6 +314,18 @@
   var enabledOverride = null; /* set by setEnabled(), beats the stored pref  */
   var supported = false;
   var DEBUG = false;
+
+  /* TEST ONLY. null in every real session, so the whole observer costs one
+     `if` per play(). Set by _tap() and read by nothing else. It exists
+     because the interesting question is never "did the call site call" —
+     it is "did a NOISE come out, and did TWO come out where one was
+     meant to", and only play() itself can answer that: the delegated
+     auto-wire layer never goes through the exported API.               */
+  var TAP = null;
+  function tap(id, ev){
+    if (!TAP) return;
+    try { TAP(id, ev); } catch (e) {}
+  }
 
   var AC = global.AudioContext || global.webkitAudioContext || null;
   try { supported = !!AC || typeof Audio === 'function'; } catch (e) { supported = false; }
@@ -499,14 +541,18 @@
     try {
       if (!supported) return;
       var key = resolve(id);
-      if (!key) return;                       /* unknown id → silence        */
+      if (!key) { tap(String(id), 'unknown'); return; }  /* unknown id → silence */
+      tap(key, 'call');
       if (!isEnabled()) return;               /* muted                       */
       if (!unlocked) return;                  /* pre-gesture → iOS says no    */
-      if (dead[key]) return;
+      if (dead[key]) { tap(key, 'missing'); return; }
       if (REG[key].loop) return loop(key, opts);
       var now = Date.now();
-      if (!(opts && opts.force) && now - (lastAt[key] || 0) < DEDUPE_MS) return;
+      if (!(opts && opts.force) && now - (lastAt[key] || 0) < DEDUPE_MS) {
+        tap(key, 'dedupe'); return;
+      }
       lastAt[key] = now;
+      tap(key, 'sound');
 
       if (!AC) { fireHtml(key, opts); return; }
       if (buffers[key]) { fire(key, opts); return; }
@@ -560,19 +606,63 @@
      Two things this cannot know and which need their own one-liners:
      `duel.boss` (the event does not carry the card's level) and everything in
      the pack opener, which is timed to animation frames rather than events. */
+  /* beginTurn() hands over the turn and draws a card in the same frame, so
+     duel.turn and duel.draw were landing on the same millisecond, every turn,
+     for the whole duel — measured, not guessed. They are two different events
+     and at a real table they are two beats: "your go", and then the card comes
+     off the deck. So a draw that arrives right behind a turn is pushed back far
+     enough to read as its own thing. A draw from a SPELL, which is the other
+     way a card is drawn, is nowhere near a turn change and is untouched.     */
+  var turnAt = 0;
+  var killAt = 0, killN = 0;
   var DUEL = {
     start:    function(){ play('duel.start'); preloadFor('duel'); },
-    draw:     function(){ play('duel.draw'); },
+    draw:     function(ev){
+      var n = Math.max(1, (ev && ev.n) | 0);
+      var late = (Date.now() - turnAt < 60) ? 190 : 0;
+      /* "draw two" is two cards off the deck, and it should sound like two */
+      var go = (n > 1) ? function(){ run('duel.draw', n, 95); }
+                       : function(){ play('duel.draw', { force: !!late }); };
+      if (late) after(late, go); else go();
+    },
     summon:   function(ev){ play(ev.faceDown ? 'pack.flip' : 'duel.summon'); },
     set:      function(){ play('duel.summon', { gain: 0.6 }); },
     flip:     function(){ play('pack.flip'); },
     attack:   function(){ play('duel.attack'); },
-    destroy:  function(){ play('duel.destroy'); },
+    /* A board wipe emits one `destroy` PER MONSTER, all in the same frame, and
+       the dedupe window turned three monsters dying into one noise — measured
+       in a real duel, two suppressed. Three cards leaving the field is a bigger
+       event than one and has to sound like it, so consecutive destroys are
+       staggered instead of collapsed, each one a little higher than the last.
+       Capped at four so a freak wipe cannot machine-gun. */
+    destroy:  function(){
+      var now = Date.now();
+      if (now - killAt > 220) killN = 0;      /* a new wipe, not the same one */
+      killAt = now;
+      var k = killN++;
+      if (k === 0){ play('duel.destroy'); return; }
+      if (k > 3) return;
+      /* 170 ms, not 110: the pot takes 0.41 s to finish breaking, so at 110 ms
+         four of them were three-deep on top of each other and read as mud
+         rather than as four things dying. Spaced against the real sound. */
+      after(k * 170, function(){
+        play('duel.destroy', { force: true, rate: 1 + k * 0.05, gain: 0.9 });
+      });
+    },
     shield:   function(){ play('duel.trap', { gain: 0.7 }); },
     spell:    function(){ play('duel.spell'); },
     trap:     function(){ play('duel.trap'); },
-    turn:     function(){ play('duel.turn'); },
-    phase:    function(){ play('duel.turn', { gain: 0.6 }); },
+    turn:     function(){ turnAt = Date.now(); play('duel.turn'); },
+    /* PHASE used to be duel.turn again at 0.6, and measuring a real duel showed
+       what that costs: beginTurn() emits `turn` and then `phase:'main'` in the
+       same frame, so of 36 turn-or-phase events in a thirteen-turn duel, TWELVE
+       were dropped by the dedupe window and the rest were the same file twice a
+       turn. The main phase beginning is not a second event — it IS the turn
+       beginning, and it is already sounded. So main is silent, and going to
+       BATTLE — the one phase change a player actually chooses — gets a note off
+       the instrument instead: a different sound for a different thing, and no
+       new file. */
+    phase:    function(ev){ if (ev && ev.phase === 'battle') note(3, { gain: 0.45 }); },
     position: function(){ play('ui.tap'); },
     counter:  function(){ play('ui.reward', { gain: 0.6 }); },
     lp:       function(ev){ play(ev.delta < 0 ? 'duel.hit' : 'ui.reward', { gain: ev.delta < 0 ? 1 : 0.55 }); },
@@ -643,11 +733,42 @@
     for (var i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
     return Math.abs(h) % PENT.length;
   }
+  /* ONE TAP, ONE SOUND. This used to lay ui.swipe under the note "as texture",
+     and the owner heard it immediately and exactly right: "and with tab there
+     is back sound as well". It was not texture — it was a second sound, from a
+     second file, on a tap that had already spoken. A note and a whoosh do not
+     blend into one event at phone-speaker size; they read as two.
+
+     The note alone is enough BECAUSE it is destination-keyed: Collection is
+     always the same note, Packs is always a different one, so the bottom nav
+     is an instrument and every tab already sounds unlike its neighbours. The
+     swipe added nothing to that and muddied all of it.
+
+     Removing it exposed the reason it was there. See claimNav() below: the
+     swipe was doubling as the screen-change sound's silencer, by being the
+     same id so DEDUPE_MS ate it. That was luck dressed up as design — it only
+     ever worked because the two happened to share a file.                  */
   function navNote(key, opts){
     var step = NAV_STEP.hasOwnProperty(key) ? NAV_STEP[key] : hashStep(key);
     note(step, { gain: (opts && opts.gain) || 1 });
-    play('ui.swipe', { gain: 0.55 });     /* the texture under the note */
+    claimNav();
   }
+
+  /* ── who gets to make the navigation sound ────────────────────────────────
+     Two listeners can both truthfully say "the player navigated": the click
+     handler, which saw the tap, and the screen observer, which saw the screen.
+     They must not both sound, and DEDUPE_MS cannot arbitrate because they
+     reach for different files — which is precisely how the tab bug survived.
+
+     So the tap CLAIMS the navigation. Whichever screen change follows within
+     the window belongs to a tap that has already been acknowledged, and the
+     observer stands down. It keeps its real job: every navigation NOBODY
+     tapped — a back gesture, a restored session, a game calling go() when it
+     finishes — still gets the transition sound.                            */
+  var navAt = 0;
+  function claimNav(){ navAt = Date.now(); }
+  var NAV_CLAIM_MS = 500;
+  function navClaimed(){ return Date.now() - navAt < NAV_CLAIM_MS; }
 
   /* A switch flipping ON and a switch flipping OFF are two different events.
      Two different files, and the note under them moves the opposite way.
@@ -723,7 +844,11 @@
     o = o || {};
     if (o.mate){
       play('board.mate');
-      after(560, function(){ play(o.win ? 'duel.win' : 'duel.lose'); });
+      /* 560 ms was measured against the file's LENGTH. The file is 1.2 s but
+         the king has finished rolling at 0.24 s — the rest was encoder tail —
+         so the band was coming in after a third of a second of silence. Timed
+         against the sound instead of the file, it lands as the roll settles. */
+      after(280, function(){ play(o.win ? 'duel.win' : 'duel.lose'); });
       return;
     }
     if (o.draw){ play('ui.toast'); return; }
@@ -1022,8 +1147,23 @@
      silent taps in the app. They now get a pentatonic note keyed to their
      position in the row, so running along a filter row plays a scale.
      .card and .gcell STAY, because they are duel surfaces too — the cards
-     channel below lets them through only inside Collection and Inventory. */
-  var SKIP = '.pt-sq,.card,.slot,.zone,.gacha-cell,.gcell,.fan,.tapme,' +
+     channel below lets them through only inside Collection and Inventory.
+
+     THIRD FAULT, and the one that actually bit. This list is CLASS NAMES, and
+     every game that arrived after it was written invented its own: the playing
+     cards are `.kb-card`, SKARTA's hand is `.sk-h`. Neither matches `.card`, so
+     both got a generic ui.tap on top of the sound their own call site was
+     already making — the exact double-fire this list exists to prevent, caused
+     by the list itself going stale. It was found by tapping real cards in the
+     real DOM; driving the engine directly hides it completely, because the
+     delegated layer never sees a click at all.
+
+     So there is now a name-independent way in: put `data-sfx="own"` on
+     anything that makes its own noise and the layer will not touch it, whatever
+     it is called. New games opt out without editing this file, which is the
+     only version of this that stays true.                                   */
+  var SKIP = '[data-sfx="own"],' +
+             '.pt-sq,.card,.slot,.zone,.gacha-cell,.gcell,.fan,.tapme,' +
              '.deckface,.flipper,#ticker';
   /* the app's actual chrome vocabulary, read off index.html and game.js */
   var CHROME = 'button,.btn,.tab,.setrow,[role="switch"]';
@@ -1070,17 +1210,31 @@
      listener runs at document ahead of every element handler, records what the
      switch was, and the bubble handler plays the opposite — because a switch
      click always flips it. Right on every row, and it stays right when a row
-     is added later. */
-  var swPre = null;
+     is added later.
+
+     THE SAME TRAP, a second time. A button that DISABLES ITSELF inside its own
+     handler — dama's Undo is the one that caught us: roll back the last ply and
+     there is nothing left to roll back, so the button greys out — was read as
+     `disabled` by the bubble handler and dropped as a dead tap. It was not a
+     dead tap; it was the most consequential tap on the screen. So the capture
+     listener records `disabled` at the moment of the press too, and the bubble
+     handler trusts that rather than the DOM it is now looking at.           */
+  var swPre = null, disPre = null;
   function preClick(e){
     try {
-      swPre = null;
+      swPre = null; disPre = null;
       var t = e && e.target;
       if (!t || !t.closest) return;
       var el = t.closest(CHROME);
-      if (!el || el.disabled || !looksSwitch(el)) return;
+      if (!el) return;
+      disPre = { el: el, dis: !!el.disabled };
+      if (el.disabled || !looksSwitch(el)) return;
       swPre = { el: el, on: switchOn(el) };
     } catch (err) {}
+  }
+  /* was this element disabled when the finger went down? */
+  function wasDisabled(el){
+    return (disPre && disPre.el === el) ? disPre.dis : !!el.disabled;
   }
 
   /* A row of choices plays a scale: position in the row picks the note, so a
@@ -1120,10 +1274,10 @@
         if (cue){ play(cue); return; }
       }
 
-      if (!AUTO.taps) { swPre = null; return; }
+      if (!AUTO.taps) { swPre = null; disPre = null; return; }
       if (t.closest(SKIP)) return;            /* a game surface — not ours   */
       var el = t.closest(CHROME);
-      if (!el || el.disabled) return;
+      if (!el || wasDisabled(el)) return;
 
       /* the bottom nav is an instrument: one fixed note per destination */
       if (AUTO.nav && t.closest('#home-nav .tab')){
@@ -1136,8 +1290,11 @@
         switchTone(next);
         return;
       }
-      if (AUTO.nav && matches(el, PICKS)){ pickNote(el); return; }
+      if (AUTO.nav && matches(el, PICKS)){ pickNote(el); claimNav(); return; }
       play(looksBack(el) ? 'ui.back' : 'ui.tap');
+      /* whatever this tap turns out to have done, it has been acknowledged —
+         so if a screen changes because of it, that is not a second event. */
+      claimNav();
     } catch (err) { warn('autowire click', err && err.message); }
   }
 
@@ -1268,15 +1425,15 @@
        menu tile, a resumed session and a tab tap ALL make the transition
        sound, without a single edit to game.js.
 
-       Where the change did come from a tab tap, navNote() has already played
-       ui.swipe microseconds earlier in the same click, and DEDUPE_MS drops
-       this one — so the nav note stays a note and does not double up. */
+       Where the change DID come from a tap, that tap has already made its own
+       sound and claimed the navigation — see claimNav(). This fires only for
+       the navigations nobody tapped, which is what it was always for. */
     var screens = [];
     try { screens = d.querySelectorAll('section.screen[id^="scr-"]'); } catch (e) {}
     for (var si = 0; si < screens.length; si++)
       (function (el){
         watchClass(el, 'on',
-          function(){ if (AUTO.nav) play('screen.push', { gain: 0.75 }); },
+          function(){ if (AUTO.nav && !navClaimed()) play('screen.push', { gain: 0.75 }); },
           function(){});
       })(screens[si]);
 
@@ -1362,6 +1519,9 @@
     diag: diag,
     get debug(){ return DEBUG; }, set debug(v){ DEBUG = !!v; },
     /* test hooks only — never call these from game code */
-    _unlock: unlock, _reg: REG
+    _unlock: unlock, _reg: REG,
+    /* _tap(fn) → fn(id, 'call'|'sound'|'dedupe'|'missing'|'unknown') on every
+       play(), whoever called it. _tap(null) removes it. */
+    _tap: function (fn){ TAP = (typeof fn === 'function') ? fn : null; }
   };
 })(typeof window !== 'undefined' ? window : this);

@@ -348,7 +348,20 @@ function fight(b){
   introModal(b);
 }
 
+/* ── sound ────────────────────────────────────────────────────────────────
+   The duel itself is already wired: K.onDuelEvent above feeds js/sfx.js the
+   whole event stream, so summons, attacks, traps, damage and the result all
+   sound here exactly as they do in a Quick Duel. What is NOT in that stream
+   is the story: a boss arriving, a boss opening their mouth, and the coins
+   landing afterwards. Those three are this file's, and they are all optional —
+   no sfx.js, or sound off, and every one of them is a no-op. */
+const SFX = () => window.KARTI_SFX || null;
+
 function introModal(b){
+  /* THE BOSS IS HERE. This is the one moment duelEvent cannot see: the modal
+     goes up before a single card is dealt. It comes in behind the modal's own
+     sheet noise so the two do not land together. */
+  { const S = SFX(); if (S) setTimeout(() => { try { S.play('duel.boss'); } catch(e){} }, 180); }
   K.openModal(
     '<div class="bossline">' + faceHTML(b) +
       '<span class="said"><b>' + esc(b.n) + '</b>“' + esc(b.intro) + '”</span>' +
@@ -371,6 +384,11 @@ function bossReacts(ev){
   say(b, b.taunts[key % b.taunts.length]);
 }
 function say(b, line){
+  /* A taunt is the boss cutting in over the duel, and #taunt is not #toast so
+     the delegated layer never sees it. Three times a duel at most — see the
+     `taunted` guard above — and pitched low and pulled back, because it lands
+     on top of whatever just happened to provoke it. */
+  { const S = SFX(); if (S) S.play('ui.toast', { gain: 0.5, rate: 0.88 }); }
   let el = $('#taunt');
   if (!el){
     el = document.createElement('div');
@@ -405,6 +423,24 @@ function onResult(winner, why){
 
   const nextB = BOSSES[BOSSES.indexOf(b) + 1];
   const allDone = clearedCount() === BOSSES.length;
+
+  /* THE PAYOUT. duel.win has already gone off in the duel; this is the money
+     landing on the table after it, which is a separate pleasure and the reason
+     anybody grinds a ladder. It is sequenced behind the modal so the three do
+     not stack: modal, then the coins counting, then the chime for a first
+     clear. Losing gets none of it — duel.lose already said everything. */
+  { const S = SFX();
+    if (S && won) setTimeout(() => {
+      try {
+        /* the counter runs longer for a bigger purse, but run() caps at 12 so
+           a 600-coin final boss cannot turn into a machine gun */
+        S.run('coin.tick', Math.max(3, Math.min(10, Math.round(coins / 60))), 65, { gain: 0.7 });
+        setTimeout(() => { try { S.play('ui.coin'); } catch(e){} }, 480);
+        /* a boss beaten for the FIRST time is the rung going in */
+        if (first) setTimeout(() => { try { S.ladder(1, 4, 1, 95, { gain: 0.6 }); } catch(e){} }, 700);
+      } catch(e){}
+    }, 420);
+  }
 
   K.openModal(
     '<div class="result">' +

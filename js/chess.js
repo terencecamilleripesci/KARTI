@@ -886,7 +886,12 @@ function tap(i){
         seen[m.to] = entry;
         G.marks.push(entry);
       }
-      if (!G.marks.length) K.toast && K.toast('That one has nowhere to go.');
+      if (!G.marks.length){
+        SFX() && SFX().boardIllegal({});
+        /* ⚠ so js/sfx.js gives the toast the same blunt "no" boardIllegal just
+           played, and the dedupe window makes it one sound rather than two. */
+        K.toast && K.toast('⚠ That one has nowhere to go.');
+      }
     }
     render();
     return;
@@ -1002,6 +1007,10 @@ function maybeAI(){
 /* take n plies off this board and nothing else. Both clients call this with
    the same n, off identical histories, so both land on the same position. */
 function rollback(n){
+  /* the board going backwards has its own sound, and it has to be made here:
+     Undo disables ITSELF on the last ply, and a button that is already
+     disabled by the time the click bubbles reads as a dead tap. */
+  { const S = SFX(); if (S && G.hist.length) S.takeback('undo'); }
   for (let i = 0; i < n && G.hist.length; i++){
     const h = G.hist.pop();
     G.st = h.st; G.last = h.last; G.lastSan = h.lastSan; G.keys = h.keys;
@@ -1163,12 +1172,21 @@ function onlineStart(o){
     note: (t, tone) => P.ui.setNet(G.ctx, t, tone),
     after: () => render(),
     dismiss: () => { const q = G.ctx.root.querySelector('.pt-ask'); if (q) q.remove(); },
-    ask: (info, yes, no) => P.ui.confirm(G.ctx, {
-      head: G.foe + ' asks for a takeback',
-      why: 'They want the last ' + info.n + (info.n === 1 ? ' move' : ' moves') +
-           ' back. Say no and nothing at all happens — they are not told off for asking.',
-      yes: 'Allow it', no: 'No, play on', go: yes, onNo: no
-    })
+    /* A takeback question arriving from the other phone is the one thing in an
+       online game that happens with no input from this one, so it is the one
+       thing that most needs a noise. Saying no gets the blunt "no" as it is
+       sent; saying yes needs nothing here, because rollback() below already
+       plays the board going backwards. */
+    ask: (info, yes, no) => {
+      const S = SFX(); if (S) S.takeback('ask');
+      return P.ui.confirm(G.ctx, {
+        head: G.foe + ' asks for a takeback',
+        why: 'They want the last ' + info.n + (info.n === 1 ? ' move' : ' moves') +
+             ' back. Say no and nothing at all happens — they are not told off for asking.',
+        yes: 'Allow it', no: 'No, play on', go: yes,
+        onNo: () => { const s = SFX(); if (s) s.takeback('no'); return no && no(); }
+      });
+    }
   });
   P.ui.setNet(G.ctx, o.note || '', '');
 }

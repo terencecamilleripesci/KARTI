@@ -419,7 +419,14 @@ function cardEl(c, o){
   const face = o.face !== false;
   const tag = o.tap ? 'button' : 'span';
   const w = o.w || 62;
-  let cls = 'kb-card' + (o.cls ? ' ' + o.cls : '');
+  /* `tapme` carries no style at all — see the note on .kb-table in
+     table(). It is the marker js/sfx.js's auto-wire layer skips, and it
+     has to be on the CARD and not only on the felt around it: tapping a
+     card re-renders the hand, so by the time the click bubbles up to
+     that layer's document listener the element it is holding has been
+     detached and can no longer see its own ancestors. A marker on the
+     thing itself survives that. */
+  let cls = 'kb-card tapme' + (o.cls ? ' ' + o.cls : '');
   if (!face) cls += ' down';
   return '<' + tag + ' class="' + cls + '"' +
     (o.tap ? ' type="button"' : '') +
@@ -776,6 +783,221 @@ function fire(list, a, b){
   for (const f of list.slice()){ try { f(a, b); } catch(e){} }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE SOUND
+   Four games, ONE subscriber. Every move in every game already goes
+   through doMove() — a tap, the machine, the table's own beats and a
+   packet off the wire all of them — and doMove tells moveSubs what
+   happened. So the whole card room is wired by reading that one feed
+   and mapping move.t (plus M.gid, where the same letter means two
+   different things) onto a sound. Four games cannot drift apart
+   because there is only one table to drift from.
+
+   WHY moveSubs AND NOT stateSubs. rollbackTo() rebuilds the match by
+   dealing from the seed again and replaying the log through
+   def.apply() directly — it never calls doMove — so an undo that
+   throws away twelve moves fires moveSubs exactly zero times. Sound
+   hung on moveSubs is storm-proof by construction rather than by a
+   flag somebody has to remember to set. (Asserted in the harness:
+   an undo of a full trick makes one noise, not twenty.)
+
+   WHY NOTHING IS PLAYED FROM AN ENGINE. def.deal() and def.apply()
+   are run again for every single move of the log on every rebuild.
+   A play() in there would be a hundred sounds on one Undo. The
+   engines stay pure; everything audible is read off the state from
+   here, afterwards.
+
+   GAIN. The rule from the head of js/sfx.js: the sound you hear four
+   hundred times an evening must be quieter than the one you hear
+   once. A hand of Bixkla is forty cards, so the card-on-felt is
+   pulled well back and the trick sweep, which comes once every four
+   cards, is allowed to be louder. The once-a-match sounds — the
+   deal, the trump turning, the win — are the only ones near the top.
+
+   WHOSE TRICK IS IT. trick.win is one file, so "you took it" and
+   "they took it" are told apart by PITCH and level: yours comes back
+   a shade brighter and louder, theirs lower and softer. Eyes shut,
+   you know who is gathering.
+   ═══════════════════════════════════════════════════════════════════ */
+const SFX = () => window.KARTI_SFX || null;
+
+/* THE SPACER. The machine is on a 600–1500 ms clock in a real game and
+   nothing here can collide — but FAST mode drops every clock to 1 ms and
+   several seats then resolve inside one frame, which is exactly where a
+   machine-gun hides. Rather than queue the backlog — late audio is worse
+   than none, which is the same call js/sfx.js makes at MAX_VOICES —
+   anything arriving too soon after the last cue is DROPPED. How soon
+   depends on how much the moment matters:
+
+     lvl 0  texture   the card drawn after a trick, a card picked up
+     lvl 1  ordinary  a card thrown, a stake, a card asked for
+     lvl 2  headline  a trick taken, a bust, a verdict, a match won
+
+   A headline never waits and is never dropped; the texture under it is,
+   which is the right way round — you lose the shuffle under the sweep,
+   never the sweep. */
+const CUE_GAP = [70, 26, 0];
+let cueAt = 0;
+function cue(id, opts, lvl){
+  const S = SFX(); if (!S) return;
+  const now = Date.now();
+  lvl = lvl | 0;
+  if (lvl < 2 && now - cueAt < CUE_GAP[lvl]) return;
+  cueAt = Math.max(cueAt, now);
+  S.play(id, opts);
+}
+/* a run of the same sound — a deal, a face-down play, a score being
+   counted. sfx.run() spaces and caps them; here we hold a run back until
+   whatever is already sounding has finished, and abandon it altogether if
+   that is more than half a second away, so nothing arrives long after the
+   thing it was describing. */
+function cueRun(id, n, gap, opts){
+  const S = SFX(); if (!S) return;
+  n = Math.max(1, Math.min(8, n | 0)); gap = gap || 95;
+  const now = Date.now();
+  const wait = Math.max(0, cueAt + CUE_GAP[1] - now);
+  if (wait > 500) return;
+  cueAt = Math.max(cueAt, now + wait + (n - 1) * gap);
+  if (!wait) S.run(id, n, gap, opts);
+  else cueIn(wait, () => S.run(id, n, gap, opts));
+}
+/* a cue that belongs a beat later than the move that caused it. It is
+   dropped if the table has gone away in the meantime, so leaving a
+   game never leaves a sound trailing after it. */
+function cueIn(ms, fn){
+  const m = M;
+  const t = setTimeout(() => {
+    clearTimeout(t);
+    if (M !== m || !M || M.dead) return;
+    try { fn(); } catch(e){}
+  }, ms);
+  return t;
+}
+const meSeat = st => st.seats.findIndex(s => s.own === 'me' || s.own === 'hot');
+
+/* ── the deal ──────────────────────────────────────────────────────
+   Shuffle, then a RUN of cards going out — one card is a card, several
+   cards is a deal — and then, in the two trick games, the turn-up
+   landing face up on the table. */
+function soundDeal(){
+  if (!M) return;
+  const st = M.st, gid = M.gid;
+  cue('card.shuffle', { gain: 0.85 }, 2);
+  /* how many cards actually leave the pack in front of you. Sette deals
+     nothing until the stakes are down, so it gets the shuffle only. */
+  const n = gid === 'sette' ? 0
+          : gid === 'cheat' ? 8
+          : Math.min(st.n * 3, 8);
+  if (n) cueIn(210, () => cueRun('card.deal', n, 95, { gain: 0.5 }));
+  if ((gid === 'bixkla' || gid === 'briscola') && st.turnUp)
+    cueIn(210 + n * 95 + 110, () => cue('pack.flip', { gain: 0.95 }, 2));
+}
+
+/* ── a trick gathered ─────────────────────────────────────────────── */
+function soundTrick(st){
+  const last = st.last;
+  if (!last) return;
+  const won = isLocal(last.winner);
+  cue('trick.win', { gain: won ? 0.85 : 0.6, rate: won ? 1.06 : 0.9 }, 2);
+  /* the replacement card off the stock, quiet: it happens after every
+     single trick and it is scenery, not news */
+  if (st.stock && st.stock.length) cueIn(200, () => cue('card.deal', { gain: 0.45 }, 0));
+  /* the hand is over and is being counted */
+  if (st.phase === 'handover' || st.phase === 'done'){
+    cueIn(430, () => cueRun('pack.tally', 4, 115, { gain: 0.9 }));
+    const row = st.book[st.book.length - 1];
+    const my = st.seats[Math.max(0, meSeat(st))];
+    if (row && my && row.win === my.team && st.phase !== 'done')
+      cueIn(980, () => cue('ui.reward', { gain: 0.7 }, 1));
+  }
+}
+
+/* ── Sette e Mezzo ────────────────────────────────────────────────── */
+function soundBet(st, mine){
+  cue('money.pay', { gain: mine ? 0.9 : 0.7 }, 1);
+  /* the last stake down deals one card, face down, to everybody in */
+  if (st.phase !== 'bet'){
+    const n = st.seats.filter(s => !s.out && s.hand.length).length;
+    cueIn(260, () => cueRun('card.deal', Math.max(2, n), 105, { gain: 0.55 }));
+  }
+}
+function soundHit(st, seat, mine){
+  cue('card.deal', { gain: mine ? 0.95 : 0.75 }, 1);
+  const v = M.def._score ? M.def._score(st.seats[seat].hand) : null;
+  if (!v) return;
+  if (v.bust) cueIn(240, () => cue('duel.destroy', { gain: mine ? 0.9 : 0.7 }, 2));
+  else if (v.cls >= 2){                    /* the royal, or the triplé */
+    cueIn(240, () => cue('ui.reward', { gain: 0.95 }, 2));
+    cueIn(450, () => cue('call.bell', { gain: 0.8 }, 2));
+  }
+  else if (v.total === 7.5) cueIn(240, () => cue('ui.reward', { gain: 0.8 }, 2));
+}
+function soundSettle(st){
+  const row = st.book[st.book.length - 1] || { rows: [] };
+  cueRun('pack.tally', Math.min(row.rows.length + 1, 5), 120, { gain: 0.85 });
+  const me = meSeat(st);
+  const mineRow = row.rows.filter(r => r.seat === me)[0];
+  /* holding the bank you are not in the rows — you are the other side
+     of every one of them */
+  const asBank = (st.last && st.last.banker === me)
+    ? row.rows.reduce((a, r) => a + (r.win > 0 ? -r.gain : (st.seats[r.seat].bet || 0)), 0)
+    : null;
+  const good = mineRow ? mineRow.win > 0 : (asBank == null ? null : asBank >= 0);
+  if (good !== null)
+    cueIn(500, () => cue(good ? 'ui.coin' : 'money.pay', { gain: good ? 0.95 : 0.7 }, 2));
+  if (st.last && st.last.takeBank >= 0)
+    cueIn(780, () => cue('call.bell', { gain: 0.75 }, 2));
+}
+
+/* ── Il-Gidba ─────────────────────────────────────────────────────── */
+function soundCall(st){
+  cue('call.bell', { gain: 0.85 }, 2);          /* CHEAT! */
+  const r = st.reveal;
+  if (!r) return;
+  const n = Math.min((r.cards || []).length, 4) || 1;
+  cueIn(280, () => cueRun('pack.flip', n, 95, { gain: 0.75 }));   /* turned over */
+  /* the verdict: a lie caught is a trap springing, a call that was
+     wrong is the blunt no — and it is the CALLER who is wrong there */
+  cueIn(280 + n * 95 + 150,
+        () => cue(r.honest ? 'ui.error' : 'duel.trap', { gain: r.honest ? 0.85 : 0.9 }, 2));
+}
+function soundEat(st){
+  const r = st.reveal;
+  if (!r) return;
+  const mineEats = isLocal(r.loser);
+  cue('card.sweep', { gain: mineEats ? 0.8 : 0.6, rate: mineEats ? 0.9 : 1.04 }, 2);
+  /* eating it yourself gets the falling ladder — the deflation device */
+  if (mineEats) cueIn(160, () => { const S = SFX(); if (S) S.ladder(4, 3, -1, 95, { gain: 0.5 }); });
+}
+
+/* ── THE ONE SUBSCRIBER ───────────────────────────────────────────── */
+function soundMove(ev){
+  if (!M || M.dead || !SFX()) return;
+  const st = M.st, gid = M.gid, mv = (ev && ev.move) || {}, seat = ev.seat;
+  const mine = seat >= 0 && isLocal(seat);
+  switch (mv.t){
+    case 'play':
+      if (gid === 'cheat')                        /* one to four, face down */
+        cueRun('card.throw', (mv.cards || []).length || 1, 90,
+               { gain: mine ? 0.72 : 0.6 });
+      else                                        /* one card to the trick */
+        cue('card.throw', { gain: mine ? 0.8 : 0.62, rate: mine ? 1 : 0.96 }, 1);
+      return;
+    case 'gather': return soundTrick(st);
+    case 'next':   return soundDeal();            /* the next hand is dealt */
+    case 'bet':    return soundBet(st, mine);
+    case 'hit':    return soundHit(st, seat, mine);
+    case 'stand':  cue('duel.turn', { gain: mine ? 0.8 : 0.65 }, 2); return;
+    case 'settle': return soundSettle(st);
+    case 'call':   return soundCall(st);
+    case 'after':  return soundEat(st);
+    /* 'pass' is deliberately SILENT. Up to three of them land between
+       one play and the next in a four-handed Gidba, they mean "nothing
+       happened", and a sound on each is a rattle. */
+  }
+}
+moveSubs.push(soundMove);
+
 function buildState(gid, opts, seed, log){
   const def = BY_ID[gid];
   const st = def.deal(opts, seed >>> 0);
@@ -945,7 +1167,17 @@ function table(){
   const ctx = M.ctx;
   ctx.host.classList.add('kb-host');
   ctx.host.innerHTML =
-    '<div class="kb-table" id="kb-table">' +
+    /* `tapme` is not a style — nothing in css/ or index.html targets it
+       outside `.slot .tapme`, and there is no .slot within a mile of the
+       felt. It is there for js/sfx.js: its delegated auto-wire layer puts
+       a ui.tap on every button in the app's chrome, and skips anything
+       inside its SKIP list — of which `.tapme` is one. The felt is NOT
+       chrome. Every tappable thing on it (a card, HIT, CHEAT!, a stake)
+       already makes its own, better noise a millisecond later through
+       doMove, and without this marker you would hear both: a click and
+       then a card, on every single tap. One class, checked first, and
+       the sound of the table belongs to the table. */
+    '<div class="kb-table tapme" id="kb-table">' +
       '<div class="kb-top" id="kb-top"></div>' +
       '<div class="kb-mid" id="kb-mid"></div>' +
       '<div class="kb-bot" id="kb-bot"></div>' +
@@ -989,7 +1221,10 @@ function table(){
        handler below turns a tap into doMove(). */
     act(label, mv, o){
       o = o || {};
-      return '<button class="kb-act ' + (o.cls || '') + '" type="button"' +
+      /* `tapme` = "the auto-wire layer leaves this one alone", as on the
+         cards. HIT, STAND, CHEAT! and the stakes all make their own
+         noise through the move they cause. */
+      return '<button class="kb-act tapme ' + (o.cls || '') + '" type="button"' +
         (o.dis ? ' disabled' : '') +
         (mv ? " data-mv='" + JSON.stringify(mv).replace(/'/g, '&#39;') + "'" : '') +
         (o.id ? ' data-id="' + esc(o.id) + '"' : '') +
@@ -998,7 +1233,7 @@ function table(){
     /* a button that only changes what is on screen — see data-tap */
     pick(label, id, o){
       o = o || {};
-      return '<button class="kb-act ' + (o.cls || '') + '" type="button"' +
+      return '<button class="kb-act tapme ' + (o.cls || '') + '" type="button"' +
         (o.dis ? ' disabled' : '') + ' data-tap="' + esc(id) + '">' + esc(label) + '</button>';
     },
     card: cardEl, fan: fanHTML, plan: fanPlan,
@@ -1018,6 +1253,10 @@ function table(){
        wire, which is exactly right for a selection. */
     if (t.hasAttribute('data-tap')){
       if (M.def.uiTap) { try { M.def.uiTap(UI, M.st, t.getAttribute('data-tap'), M.tmp); } catch(err){} }
+      /* picking a card up off your own hand is not a move and makes no
+         card noise — it is the plain UI tap the chrome would have made
+         if the felt were not carved out of the auto-wire layer above. */
+      cue('ui.tap', { gain: 0.9 }, 2);
       render();
       return;
     }
@@ -1028,7 +1267,16 @@ function table(){
     if (!isLocal(seat)) return;
     mv.seat = seat;
     const r = doMove(seat, mv, 'tap');
-    if (!r.ok){ if (K.toast) K.toast(nag(mv)); return; }
+    if (!r.ok){
+      /* refused. The blunt no goes out from here rather than being left
+         to the toast: nag() is prefixed with the app's own ⚠, which is
+         what js/sfx.js's toast watcher reads to pick ui.error over the
+         friendly ui.toast — so its call lands on the SAME id inside the
+         40 ms dedupe window and is dropped. One refusal, one noise. */
+      cue('ui.error', { gain: 0.9 }, 2);
+      if (K.toast) K.toast(nag(mv));
+      return;
+    }
     if (M.net && M.net.onMove) { try { M.net.onMove(clone(mv), r.index); } catch(err){} }
     M.shown = seat;
     M.tmp = {};                       /* a move clears the selection */
@@ -1040,10 +1288,12 @@ function table(){
 /* what the app says when you try something the rules will not have.
    Written per game where it matters; this is the fallback. */
 function nag(){
+  /* the ⚠ is the app's own marker for a toast that is bad news — game.js
+     writes it the same way — and js/sfx.js's toast watcher keys off it. */
   const lines = [
-    'You cannot do that. Try one that is actually allowed.',
-    'No. Nice try, but no.',
-    'The rules said no. Take it up with the rules.'
+    '⚠ You cannot do that. Try one that is actually allowed.',
+    '⚠ No. Nice try, but no.',
+    '⚠ The rules said no. Take it up with the rules.'
   ];
   return lines[(Date.now() / 1000 | 0) % lines.length];
 }
@@ -1057,7 +1307,7 @@ function veilHTML(seat){
     '<h4>' + esc(s.name) + ', your turn</h4>' +
     '<p>Everyone else: look away, or at least pretend to. Tap when the phone is ' +
     'in the right hands.</p>' +
-    '<button class="kb-act" type="button" data-id="lift">I am ' + esc(s.name) + '</button>' +
+    '<button class="kb-act tapme" type="button" data-id="lift">I am ' + esc(s.name) + '</button>' +
     '</div>';
 }
 
@@ -1086,7 +1336,11 @@ function render(){
   if (M.veil){
     UI.root.insertAdjacentHTML('beforeend', veilHTML(M.veil));
     const b = UI.root.querySelector('#kb-veil [data-id="lift"]');
-    if (b) b.onclick = () => { M.shown = M.veil; M.veil = 0; render(); };
+    /* the veil is inside the felt, so it is carved out of the auto-wire
+       layer with everything else here: handing the phone over is a turn
+       changing, and it sounds like one. */
+    if (b) b.onclick = () => { cue('duel.turn', { gain: 0.85 }, 2);
+                               M.shown = M.veil; M.veil = 0; render(); };
     return;                      /* nothing else moves while the veil is up */
   }
   if (t >= 0 && isLocal(t)) M.shown = t;
@@ -1172,6 +1426,11 @@ function finish(done){
   if (M.finished) return;
   M.finished = true;
   stopThinking();
+  /* a beat behind the last trick, so the sweep and the result are two
+     events and not one chord */
+  cueIn(280, () => cue(done.tone === 'win' ? 'game.win'
+                     : done.tone === 'lose' ? 'game.lose' : 'ui.toast',
+                       { gain: 1 }, 2));
   saveSlot(M.gid, null);
   if (!M.net && done.tone){
     const o = done.tone === 'win' ? 'w' : done.tone === 'lose' ? 'l' : 'd';
@@ -1254,6 +1513,10 @@ function newGame(gid, opts, snap){
     });
   };
   render();
+  /* the cards coming out of the box. Once per match, so it is allowed to
+     be the loudest thing on the table. */
+  cue('game.start', { gain: 0.9 }, 2);
+  cueIn(300, soundDeal);
 }
 
 function leave(){

@@ -1451,8 +1451,16 @@ let packHurry = false;   /* tapped during a hold — shorten this one card      
 function tryOpen(){
   if (packBusy) return;
   if (S.packs > 0){ S.packs--; }
-  else if (S.coins >= PACK_COST){ S.coins -= PACK_COST; }
-  else { toast('No packs and not enough coins. Win a duel.'); return; }
+  else if (S.coins >= PACK_COST){
+    S.coins -= PACK_COST;
+    /* a free pack and a bought one are not the same event, and the difference
+       is money. Only the bought one costs anything, so only it makes the
+       sound — the ceremony that follows is identical either way. */
+    if (window.KARTI_SFX) { try { KARTI_SFX.play('shop.buy'); } catch(e){} }
+  }
+  /* ⚠ turns the toast's chime into the blunt "no" — see js/sfx.js, which reads
+     the marker off the toast text. "You cannot afford this" is a refusal. */
+  else { toast('⚠ No packs and not enough coins. Win a duel.'); return; }
   save();
   packBusy = true;
   runPackOpen();
@@ -2683,6 +2691,9 @@ function newDuel(myList, aiKey, opts){
     diff: opts.diff || (S && S.diff) || 'normal',
     on: opts.on || null
   };
+  /* the decks have just been shuffled — say so, before the gong. This is the
+     one place in a duel a shuffle happens, so it is the one place it sounds. */
+  if (window.KARTI_SFX) { try { KARTI_SFX.play('duel.shuffle'); } catch(e){} }
   for (let i = 0; i < 5; i++){ rawDraw(0); rawDraw(1); }
   dlog('Duel start — ' + D.p[0].name + ' vs ' + D.p[1].name + '. 8000 LP each.');
   emit({ type:'start' });
@@ -2845,7 +2856,9 @@ function summon(pi, handIdx, zi, pos, faceDown, tributeIdx){
   P.normalSummoned = true;
   dlog(P.name + (faceDown ? ' sets a monster face-down.' : ' summons ' + card.n +
     ' (' + card.atk + '/' + card.def + ').'));
-  emit({ type:'summon', pi, zi, faceDown, name:card.n });
+  /* `tributes` rides along purely so the sound layer can tell a boss from a
+     beater — see onDuelEvent. It costs nothing and no rule reads it. */
+  emit({ type:'summon', pi, zi, faceDown, name:card.n, lvl:card.lvl, tributes:info.need });
   if (!faceDown) onSummonFx(pi, zi);
   return { ok:true, zi };
 }
@@ -3474,6 +3487,28 @@ function startCustomDuel(cfg){
 
 /* ── events → juice ── */
 function onDuelEvent(ev){
+  /* SOUND, for the whole duel, in one line. Every interesting thing that
+     happens in a duel already comes through here — summon, set, flip, attack,
+     damage, destroy, draw, spell, trap, turn, phase, win, lose — so the sound
+     layer reads the rules' own event stream rather than shadowing it, and
+     cannot drift out of step with them. It is a no-op with sfx.js absent or
+     the player's sound off, and story mode, pass-and-play and an online duel
+     all arrive here too: js/story.js wraps this function rather than replacing
+     it, and js/mp.js applies remote moves through the same engine.
+     Deliberately NOT sounded by duelEvent: 'log', which fires on every ticker
+     line, and 'peek', which opens a modal that makes its own noise. */
+  if (window.KARTI_SFX){
+    try {
+      KARTI_SFX.duelEvent(ev);
+      /* The one thing the event stream cannot tell it: a BOSS has landed.
+         duelEvent only knows a monster was summoned, not that two tributes
+         were paid for it — and a Level 7 arriving has to sound different from
+         a Level 3 or the biggest play in the game is the same noise as the
+         smallest. The thump lands first, the motif comes in under it. */
+      if (ev.type === 'summon' && !ev.faceDown && ev.tributes >= 2)
+        setTimeout(() => { try { KARTI_SFX.play('duel.boss'); } catch(e){} }, 150);
+    } catch (e) {}
+  }
   if (ev.type === 'lp'){
     const el = ev.pi === 0 ? $('#me-lp') : $('#ai-lp');
     if (el){
@@ -3953,6 +3988,20 @@ function showResult(winner, why){
   if (won){ S.rec.w++; S.coins += 120; S.packs += 1; }
   else { S.rec.l++; S.coins += 40; S.dust += 25; }
   save();
+  /* THE PAYOUT. duel.win / duel.lose has already gone off on the `over` event;
+     this is the coins landing after it, which is a separate pleasure and the
+     reason anybody plays another one. Sequenced behind the result modal so the
+     two do not stack. A loss still pays 40 and still counts them — quieter,
+     and with no chime on the end. */
+  if (window.KARTI_SFX){
+    const S2 = window.KARTI_SFX;
+    setTimeout(() => {
+      try {
+        S2.run('coin.tick', won ? 6 : 3, 65, { gain: won ? 0.7 : 0.45 });
+        if (won) setTimeout(() => { try { S2.play('ui.coin'); } catch(e){} }, 430);
+      } catch(e){}
+    }, 420);
+  }
   const box = $('#mbox');
   box.innerHTML =
     '<div class="result">' +

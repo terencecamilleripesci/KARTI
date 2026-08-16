@@ -538,9 +538,14 @@ function tap(i){
     if (!mine.length)
       { const forced = genJumps(st).length > 0;
         SFX() && SFX().boardIllegal({ forced });
+        /* the ⚠ is not decoration: js/sfx.js reads it off the toast and plays
+           the blunt "no" instead of the bell, which is the SAME ui.error that
+           boardIllegal just fired — so the 40 ms dedupe window collapses the
+           two into one sound. Without it you get a thud AND a chime on top of
+           each other every time you pick up the wrong stone. */
         K.toast && K.toast(forced
-          ? 'There is a take on the board. You have to take it.'
-          : 'That one is not going anywhere.'); }
+          ? '⚠ There is a take on the board. You have to take it.'
+          : '⚠ That one is not going anywhere.'); }
     render();
     return;
   }
@@ -560,12 +565,23 @@ function firstHops(moves, step){
   return out;
 }
 
+/* A multi-jump is played ONE TAP AT A TIME, and every one of those taps moves
+   the stone on screen — so every one of them has to clack as it lands, not
+   silently bank the noise until the chain is finished. `heard` is how many
+   hops have already been sounded; play() passes it on so sfxPlay() fires only
+   the ones the player has not heard yet. Without it a four-jump sweep is three
+   silent taps and then four clacks at once, which is the wrong game entirely.
+   The machine's own chains never come through here: they arrive at play() in
+   one piece with heard = 0 and get the whole rising run, spaced out. */
+function hop(n){ const S = SFX(); if (S) S.boardChain(n, 0); }
+
 function begin(mark){
   const set = mark.moves;
   if (set.length === 1 && set[0].path.length === 2){ play(set[0]); return; }
   if (set.every(m => m.path.length === 2)){ play(set[0]); return; }
   /* a chain: walk the first hop on screen and ask for the next */
-  G.chain = { moves:set, at:1, from:G.sel };
+  G.chain = { moves:set, at:1, from:G.sel, heard:1 };
+  hop(1);
   G.sel = mark.to;
   G.marks = firstHops(set, 2);
   render();
@@ -576,8 +592,9 @@ function advance(to){
   const at = c.at + 1;
   const set = c.moves.filter(m => m.path[at] === to);
   const done = set.filter(m => m.path.length === at + 1);
-  if (done.length && set.length === done.length){ play(done[0]); return; }
-  c.moves = set; c.at = at;
+  if (done.length && set.length === done.length){ play(done[0], false, c.heard); return; }
+  c.moves = set; c.at = at; c.heard = at;
+  hop(at);
   G.sel = to;
   G.marks = firstHops(set, at + 1);
   render();
@@ -590,9 +607,10 @@ function advance(to){
    sweep rises 7% in pitch a hop with a pentatonic note climbing under it and
    announces itself as a four-jump sweep before you have finished counting. */
 const SFX = () => window.KARTI_SFX || null;
-function sfxPlay(st, m){
+function sfxPlay(st, m, heard){
   const S = SFX(); if (!S) return;
   const hops = (m.caps && m.caps.length) || 0;
+  heard = Math.max(0, Math.min(hops, heard | 0));   /* hops already clacked */
   /* crowning is not a flag on the move: a man is crowned when it ENDS on the
      far rank, which is exactly the test applied() makes. Read it the same way
      rather than inventing a second source of truth that can drift. */
@@ -606,15 +624,15 @@ function sfxPlay(st, m){
     /* one call per hop: the clack rises 7% each time and a pentatonic note
        climbs under it, so the board announces a four-jump sweep as a
        four-jump sweep. Spaced so they read as separate takes. */
-    for (let h = 1; h <= hops; h++)
-      setTimeout(function(){ S.boardChain(h, hops); }, (h - 1) * 150);
+    for (let h = heard + 1; h <= hops; h++)
+      setTimeout(function(){ S.boardChain(h, hops); }, (h - heard - 1) * 150);
   } else {
     S.boardMove({ game: 'dama' });
   }
-  if (crowned) setTimeout(function(){ S.boardCrown(); }, hops * 150 + 120);
+  if (crowned) setTimeout(function(){ S.boardCrown(); }, (hops - heard) * 150 + 120);
 }
 
-function play(m, fromNet){
+function play(m, fromNet, heard){
   const st = G.st;
   if (online() && !fromNet && G.tb) G.tb.cancel(true);
   if (online() && !fromNet && G.net)
@@ -622,7 +640,7 @@ function play(m, fromNet){
   G.hist.push({ st: clone(st), last: G.last, lastText: G.lastText,
                 keys: Object.assign({}, G.keys) });
   const text = notate(m);
-  sfxPlay(st, m);
+  sfxPlay(st, m, heard);
   G.st = applied(st, m);
   G.last = m.path.slice();
   G.lastText = text;
@@ -662,6 +680,11 @@ function maybeAI(){
 
 /* n plies off this board and nothing else — see the same function in chess.js */
 function rollback(n){
+  /* The board going backwards is its own sound — a swipe and a stone set back
+     down. It is also the one tap the delegated UI layer cannot make for us:
+     Undo greys ITSELF out as it runs, and a button that is disabled by the
+     time the click bubbles reads as a dead tap. */
+  { const S = SFX(); if (S && G.hist.length) S.takeback('undo'); }
   for (let i = 0; i < n && G.hist.length; i++){
     const h = G.hist.pop();
     G.st = h.st; G.last = h.last; G.lastText = h.lastText; G.keys = h.keys;
@@ -806,12 +829,20 @@ function onlineStart(o){
     note: (t, tone) => P.ui.setNet(G.ctx, t, tone),
     after: () => render(),
     dismiss: () => { const q = G.ctx.root.querySelector('.pt-ask'); if (q) q.remove(); },
-    ask: (info, yes, no) => P.ui.confirm(G.ctx, {
-      head: G.foe + ' asks for a takeback',
-      why: 'They want the last ' + info.n + (info.n === 1 ? ' move' : ' moves') +
-           ' back. Say no and nothing at all happens — they are not told off for asking.',
-      yes:'Allow it', no:'No, play on', go: yes, onNo: no
-    })
+    /* see the same block in js/chess.js: a question arriving from the other
+       phone is the one event here with no local input behind it, so it is the
+       one that most needs announcing. Yes needs nothing — rollback() already
+       plays the board going backwards. */
+    ask: (info, yes, no) => {
+      const S = SFX(); if (S) S.takeback('ask');
+      return P.ui.confirm(G.ctx, {
+        head: G.foe + ' asks for a takeback',
+        why: 'They want the last ' + info.n + (info.n === 1 ? ' move' : ' moves') +
+             ' back. Say no and nothing at all happens — they are not told off for asking.',
+        yes:'Allow it', no:'No, play on', go: yes,
+        onNo: () => { const s = SFX(); if (s) s.takeback('no'); return no && no(); }
+      });
+    }
   });
   P.ui.setNet(G.ctx, o.note || '', '');
 }

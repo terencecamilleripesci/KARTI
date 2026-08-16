@@ -578,6 +578,33 @@ function holdings(G, p){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   8a. WHAT JUST HAPPENED — the sound bus
+   The engine makes no noise and knows nothing about audio. It only
+   announces, in one word, what it just did; js/kiri-ui.js decides
+   which file that is, how loud, and how far apart two of them are
+   allowed to land.
+
+   WHY IT LIVES HERE AND NOT ON THE BUTTONS.
+   A rent payment is a rent payment whether a finger caused it or the
+   machine did, and a version of this that hangs the sound off the
+   button only ever sounds for the human — which is precisely half a
+   game of IL-KIRI, since two thirds of the seats are usually the
+   phone. Every one of these fires on the machine's turn too, for
+   free, because the machine goes through the same functions.
+
+   One listener, set by the screen. No queue and no state kept here:
+   a listener that throws, or is not there at all, must be exactly as
+   harmless as one that plays a sound, so the whole thing is a try
+   and a shrug.
+   ═══════════════════════════════════════════════════════════════════ */
+let FX = null;
+function onFx(fn){ FX = (typeof fn === 'function') ? fn : null; return FX; }
+function fx(k, d){
+  if (!FX) return;
+  try { d = d || {}; d.k = k; FX(d); } catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    8. THE LOG — short, in the voice, and capped
    ═══════════════════════════════════════════════════════════════════ */
 function say(G, text, tone){
@@ -601,10 +628,12 @@ function pay(G, from, amt, to){
   if (P.cash >= amt){
     P.cash -= amt;
     if (to >= 0) credit(G, to, amt);
+    fx('pay', { from, amt, to: (to == null ? -1 : to) });
     return true;
   }
   G.debt = { who: from, amt, to: (to == null ? -1 : to) };
   G.phase = 'debt';
+  fx('short', { who: from, amt });
   return false;
 }
 
@@ -616,10 +645,12 @@ function payMany(G, from, list){
   if (P.cash >= total){
     P.cash -= total;
     list.forEach(x => credit(G, x.p, x.amt));
+    fx('pay', { from, amt: total, to: -1, split: list });
     return true;
   }
   G.debt = { who: from, amt: total, to: -1, split: list };
   G.phase = 'debt';
+  fx('short', { who: from, amt: total });
   return false;
 }
 
@@ -632,6 +663,7 @@ function settle(G){
   P.cash -= d.amt;
   if (d.split) d.split.forEach(x => credit(G, x.p, x.amt));
   else if (d.to >= 0) credit(G, d.to, d.amt);
+  fx('pay', { from: d.who, amt: d.amt, to: (d.to == null ? -1 : d.to), split: d.split });
   G.debt = null;
   G.phase = G.moved ? 'awaitEnd' : 'awaitRoll';
   return true;
@@ -651,11 +683,13 @@ function roll(G, forced){
   G.dice = d;
   G.stat.rolls++;
   const dbl = d[0] === d[1];
+  fx('roll', { p: P.i, dbl, n: d[0] + d[1] });
 
   /* in the queue: doubles get you out, three failures and you pay */
   if (P.jail > 0){
     if (dbl){
       P.jail = 0;
+      fx('freed', { p: P.i, how: 'double' });
       say(G, P.name + ' rolled a double and is finally past counter four.', 'good');
       G.doubles = 0;                       /* out of the queue is not a free extra go */
       advance(G, d[0] + d[1]);
@@ -670,6 +704,7 @@ function roll(G, forced){
       return d;
     }
     say(G, P.name + ' is still at the counter. Ticket has not moved.', 'bad');
+    fx('stuck', { p: P.i });
     G.phase = 'awaitEnd';
     G.moved = true;
     return d;
@@ -695,8 +730,10 @@ function advance(G, n){
   const P = cur(G);
   const from = P.pos;
   P.pos = (from + n) % 32;
+  fx('move', { p: P.i, from, to: P.pos, n });
   if (P.pos < from || n >= 32){
     credit(G, P.i, SALARY);
+    fx('salary', { p: P.i, amt: SALARY });
     say(G, P.name + ' passed Il-Bidu. Two hundred, and not a word about where it comes from.', 'good');
   }
   G.moved = true;
@@ -708,7 +745,11 @@ function goTo(G, p, to, salary){
   const P = G.players[p];
   const from = P.pos;
   P.pos = to;
-  if (salary !== false && to < from) credit(G, p, SALARY);
+  fx('move', { p, from, to });
+  if (salary !== false && to < from){
+    credit(G, p, SALARY);
+    fx('salary', { p, amt: SALARY });
+  }
   G.moved = true;
 }
 
@@ -719,6 +760,7 @@ function toJail(G, p){
   G.doubles = 0;
   G.moved = true;
   G.phase = 'awaitEnd';
+  fx('jail', { p });
   say(G, P.name + ' is in the queue. Ticket B-207.', 'bad');
 }
 
@@ -777,6 +819,7 @@ function drawCard(G, deckKey){
   const card = DECKS[deckKey].cards.find(c => c.id === id);
   G.card = { deck: deckKey, id, n: card.n, txt: card.txt };
   G.phase = 'card';
+  fx('card', { deck: deckKey, p: G.turn });
   return card;
 }
 
@@ -793,9 +836,9 @@ function applyCard(G){
   const done = () => { if (G.phase === 'card' || G.phase === 'awaitRoll') G.phase = 'awaitEnd'; };
 
   switch (a.k){
-    case 'get':   credit(G, P.i, a.n); say(G, P.name + ' takes ' + money(a.n) + '.', 'good'); done(); break;
+    case 'get':   credit(G, P.i, a.n); fx('get', { p: P.i, amt: a.n }); say(G, P.name + ' takes ' + money(a.n) + '.', 'good'); done(); break;
     case 'pay':   if (pay(G, P.i, a.n, -1)) done(); break;
-    case 'skip':  P.skips++; say(G, P.name + ' pockets a Skip The Queue.', 'good'); done(); break;
+    case 'skip':  P.skips++; fx('get', { p: P.i, amt: 0, token: true }); say(G, P.name + ' pockets a Skip The Queue.', 'good'); done(); break;
     case 'jail':  toJail(G, P.i); break;
     case 'move':  goTo(G, P.i, a.to, true);  land(G); break;
     case 'back':  goTo(G, P.i, a.to, false); if (a.to === JAIL){ P.jail = 1; say(G, P.name + ' is back in the queue.', 'bad'); G.phase = 'awaitEnd'; } else land(G); break;
@@ -808,6 +851,7 @@ function applyCard(G){
         q.cash -= take; got += take;
       });
       credit(G, P.i, got);
+      fx('get', { p: P.i, amt: got });
       say(G, P.name + ' collects ' + money(got) + ' from the table.', 'good');
       done(); break;
     }
@@ -851,9 +895,10 @@ function canBuy(G){
 function buy(G){
   if (G.phase !== 'awaitBuy') return false;
   const P = cur(G), i = P.pos, s = BOARD[i];
-  if (G.own[i] >= 0 || P.cash < s.price) return false;
+  if (G.own[i] >= 0 || P.cash < s.price){ fx('nope', { p: P.i, i }); return false; }
   P.cash -= s.price;
   G.own[i] = P.i;
+  fx('buy', { p: P.i, i, amt: s.price });
   say(G, P.name + ' bought ' + s.n + ' for ' + money(s.price) + '.', 'good');
   G.phase = 'awaitEnd';
   return true;
@@ -866,6 +911,7 @@ function buy(G){
 function declineBuy(G, auctionOn){
   if (G.phase !== 'awaitBuy') return false;
   const i = cur(G).pos;
+  fx('decline', { p: G.turn, i });
   if (auctionOn === false){
     say(G, 'Nobody wanted ' + BOARD[i].n + '. It stays empty.');
     G.phase = 'awaitEnd';
@@ -883,6 +929,7 @@ function startAuction(G, i){
   }
   G.auction = { pos:i, bid:0, high:-1, seat:0, order: inIt, out: [] };
   G.phase = 'auction';
+  fx('auction', { i });
   say(G, BOARD[i].n + ' goes under the hammer.', 'card');
   return true;
 }
@@ -912,8 +959,9 @@ function auctionBid(G, amount){
   if (!A) return false;
   const p = auctionBidder(G);
   amount = Math.round(amount);
-  if (amount <= A.bid || amount > G.players[p].cash) return false;
+  if (amount <= A.bid || amount > G.players[p].cash){ fx('nope', { p }); return false; }
   A.bid = amount; A.high = p;
+  fx('bid', { p, amt: amount, i: A.pos, price: BOARD[A.pos].price || 100 });
   say(G, G.players[p].name + ' bids ' + money(amount) + '.');
   auctionStep(G);
   return true;
@@ -924,6 +972,7 @@ function auctionPass(G){
   if (!A) return false;
   const p = auctionBidder(G);
   if (A.out.indexOf(p) < 0) A.out.push(p);
+  fx('aucOut', { p });
   say(G, G.players[p].name + ' is out.');
   auctionStep(G);
   return true;
@@ -936,8 +985,10 @@ function finishAuction(G){
   if (A.high >= 0 && A.bid > 0){
     G.players[A.high].cash -= A.bid;
     G.own[i] = A.high;
+    fx('hammer', { p: A.high, i, amt: A.bid });
     say(G, G.players[A.high].name + ' takes ' + BOARD[i].n + ' for ' + money(A.bid) + '.', 'good');
   } else {
+    fx('hammer', { p: -1, i, amt: 0 });
     say(G, 'Not one bid. ' + BOARD[i].n + ' stays on the market.');
   }
   G.auction = null;
@@ -973,12 +1024,13 @@ function canBuild(G, p, i){
 
 function build(G, i){
   const p = G.turn;
-  if (!canBuild(G, p, i)) return false;
+  if (!canBuild(G, p, i)){ fx('nope', { p, i }); return false; }
   const cost = buildCost(i);
   G.players[p].cash -= cost;
   if (G.lvl[i] === 4){ G.supply.penthouses--; G.supply.floors += 4; G.lvl[i] = 5; }
   else { G.supply.floors--; G.lvl[i]++; }
   G.stat.builds++;
+  fx('build', { p, i, amt: cost, pent: G.lvl[i] === 5 });
   say(G, G.players[p].name + ' put up ' + LADDER[G.lvl[i]].mt.toLowerCase() + ' on ' + BOARD[i].n + '. ' + money(cost) + '.', 'good');
   return true;
 }
@@ -998,11 +1050,12 @@ function sellValue(i){ return Math.floor(buildCost(i) / 2); }
 
 function sellBuilding(G, i, p){
   p = (p == null ? G.turn : p);
-  if (!canSell(G, p, i)) return false;
+  if (!canSell(G, p, i)){ fx('nope', { p, i }); return false; }
   const back = sellValue(i) * (G.lvl[i] === 5 ? 5 : 1);
   if (G.lvl[i] === 5){ G.lvl[i] = 4; G.supply.penthouses++; G.supply.floors -= 4; }
   else { G.lvl[i]--; G.supply.floors++; }
   G.players[p].cash += back;
+  fx('sell', { p, i, amt: back });
   say(G, G.players[p].name + ' sold a floor off ' + BOARD[i].n + ' for ' + money(back) + '.', 'bad');
   if (G.debt && G.debt.who === p) settle(G);
   return true;
@@ -1025,9 +1078,10 @@ function canMortgage(G, p, i){
 
 function mortgage(G, i, p){
   p = (p == null ? G.turn : p);
-  if (!canMortgage(G, p, i)) return false;
+  if (!canMortgage(G, p, i)){ fx('nope', { p, i }); return false; }
   G.mort[i] = true;
   G.players[p].cash += mortgageValue(i);
+  fx('mortgage', { p, i, amt: mortgageValue(i) });
   say(G, G.players[p].name + ' mortgaged ' + BOARD[i].n + ' for ' + money(mortgageValue(i)) + '.', 'bad');
   if (G.debt && G.debt.who === p) settle(G);
   return true;
@@ -1040,9 +1094,10 @@ function canUnmortgage(G, p, i){
 
 function unmortgage(G, i, p){
   p = (p == null ? G.turn : p);
-  if (!canUnmortgage(G, p, i)) return false;
+  if (!canUnmortgage(G, p, i)){ fx('nope', { p, i }); return false; }
   G.players[p].cash -= unmortgageCost(i);
   G.mort[i] = false;
+  fx('redeem', { p, i, amt: unmortgageCost(i) });
   say(G, G.players[p].name + ' cleared the mortgage on ' + BOARD[i].n + ' — ' + money(unmortgageCost(i)) + ' with the interest.', 'good');
   return true;
 }
@@ -1068,6 +1123,7 @@ function refuse(G, o){
   const sig = offerSig(o);
   if (G.refused.indexOf(sig) < 0) G.refused.push(sig);
   if (G.refused.length > 60) G.refused.splice(0, G.refused.length - 60);
+  fx('refused', { from: o.from, to: o.to });
   G.offer = null;
 }
 
@@ -1101,7 +1157,7 @@ function tradeLegal(G, o){
 
 function doTrade(G, o){
   const bad = tradeLegal(G, o);
-  if (bad) return bad;
+  if (bad){ fx('nope', { p: o && o.to }); return bad; }
   const a = G.players[o.from], b = G.players[o.to];
   const ca = Math.max(0, Math.round(o.cashFrom || 0));
   const cb = Math.max(0, Math.round(o.cashTo || 0));
@@ -1120,6 +1176,7 @@ function doTrade(G, o){
   if ((o.propsTo || []).length) bits.push(b.name + ' gives ' + o.propsTo.map(i => BOARD[i].n).join(', '));
   if (cb) bits.push(b.name + ' gives ' + money(cb));
   say(G, 'Deal done — ' + bits.join('; ') + '.', 'card');
+  fx('trade', { from: o.from, to: o.to });
   G.offer = null;
   return null;
 }
@@ -1168,6 +1225,7 @@ function bankrupt(G, p){
   const to = d && !d.split && d.to >= 0 ? d.to : -1;
   P.out = true;
   G.stat.bankrupt++;
+  fx('bankrupt', { p, to });
 
   if (to >= 0){
     /* the creditor gets the lot, mortgages and all */
@@ -1288,24 +1346,28 @@ function endTurn(G, afterBankruptcy){
     if (G.round > cap){ finishOnTime(G); return true; }
   }
   G.phase = 'awaitRoll';
+  fx('turn', { p: G.turn, round: G.round });
   return true;
 }
 
 /* the queue, paid or skipped */
 function payBail(G){
   const P = cur(G);
-  if (P.jail <= 0 || P.cash < BAIL) return false;
+  if (P.jail <= 0 || P.cash < BAIL){ fx('nope', { p: P.i }); return false; }
   P.cash -= BAIL;
   P.jail = 0;
+  fx('pay', { from: P.i, amt: BAIL, to: -1 });
+  fx('freed', { p: P.i, how: 'bail' });
   say(G, P.name + ' paid the fifty and walked out of counter four a free adult.', 'good');
   return true;
 }
 
 function useSkip(G){
   const P = cur(G);
-  if (P.jail <= 0 || P.skips < 1) return false;
+  if (P.jail <= 0 || P.skips < 1){ fx('nope', { p: P.i }); return false; }
   P.skips--;
   P.jail = 0;
+  fx('freed', { p: P.i, how: 'skip' });
   say(G, P.name + ' knew somebody. Straight out.', 'good');
   return true;
 }
@@ -1435,6 +1497,7 @@ window.KIRI = {
   sq, cur, alive, isProp, say, money, rnd, die, shuffle,
   setPresent, setAuto, machineSeat, tableEmpty,
   save, load, clearSave, hasSave,
+  onFx,
 };
 
 })();

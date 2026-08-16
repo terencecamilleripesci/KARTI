@@ -1035,8 +1035,15 @@ function render() {
      events, and you must still be able to pick up a card you cannot play in
      order to move it somewhere else in your hand. Playability is carried by
      aria-disabled and the dimmed class, and onCard() refuses illegal plays. */
+  /* data-sfx="own" tells js/sfx.js's delegated tap layer to keep its hands off
+     these: a card in this hand already makes card.throw (or ui.error when it
+     is refused) through the engine's own event stream, and without the marker
+     every single card tap ALSO got a generic ui.tap on top of it. The layer
+     skips `.card`, which is what the duel's cards are called — ours are
+     `.sk-h`, so the class-name list never covered them. Measured by tapping
+     real cards: card.throw + ui.tap on every play, until this landed. */
   hand.innerHTML = me.hand.map((c, i) =>
-    '<button data-i="' + i + '" data-uid="' + esc(c.uid) + '" class="sk-h' +
+    '<button data-sfx="own" data-i="' + i + '" data-uid="' + esc(c.uid) + '" class="sk-h' +
     (mine ? (legal.indexOf(i) >= 0 ? ' yes' : ' no') : '') + '"' +
     (mine && legal.indexOf(i) < 0 ? ' aria-disabled="true"' : '') +
     ' aria-label="' + esc(E.cardLabel(c)) + '">' + cardHTML(c) + '</button>').join('');

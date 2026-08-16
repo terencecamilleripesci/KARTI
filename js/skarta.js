@@ -490,6 +490,7 @@ function applyEffect(S, p, c, opts) {
 
     case 'draw2':
       S.chain.n += 2; S.chain.kind = 'draw2';
+      emit('chain', { n: S.chain.n, seat: p.id });
       advance(S, 1);
       break;
 
@@ -509,12 +510,17 @@ function applyEffect(S, p, c, opts) {
       } else {
         say(S, p.name + ' — half a box. Four.');
       }
+      emit('chain', { n: S.chain.n, seat: p.id, big: big });
       advance(S, 1);
       break;
     }
   }
-  if (S.chain.n >= RULES.CHAIN_CAP) {
+  /* THE CAP closing is the loudest thing the rules can do to a table — the
+     pile stops moving and somebody is definitely eating it. It gets said once,
+     on the play that closes it, and never again while it stays closed. */
+  if (S.chain.n >= RULES.CHAIN_CAP && !S.chain.closed) {
     S.chain.closed = true;
+    emit('shut', { n: S.chain.n });
     say(S, 'THE CAP — ' + S.chain.n + ' on the pile. Nobody may pass it on again.');
   }
 }

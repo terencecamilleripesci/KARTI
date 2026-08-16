@@ -59,13 +59,186 @@ const esc = KA.esc || function(s){
 };
 const money = K.money;
 
-/* SOUND. js/sfx.js owns ./audio/ and every path in it is a no-op on a
-   missing file, so this is a plain call with no guard beyond "does the
-   layer exist". We add no files and register no ids — every one of
-   these is already in its registry. */
-function sfx(id){
-  try { if (window.KARTI_SFX && KARTI_SFX.play) KARTI_SFX.play(id); } catch(e){}
+/* ═══════════════════════════════════════════════════════════════════
+   SOUND
+   js/sfx.js owns ./audio/ and every path in it is a no-op on a missing
+   file, so these are plain calls with no guard beyond "does the layer
+   exist". We add no files and register no ids — every one of these is
+   already in its registry.
+
+   THREE THINGS THIS SECTION EXISTS TO GET RIGHT
+   ───────────────────────────────────────────────────────────────────
+   1. THE MACHINE MUST MAKE THE SAME NOISES YOU DO. Two thirds of the
+      seats at a normal table are the phone. Hanging sounds off button
+      handlers only ever sounds a third of the game, so every game
+      moment comes from js/kiri.js's fx() bus instead — the machine
+      goes through exactly the same engine functions a finger does, so
+      it gets the same sounds for nothing.
+
+   2. NOTHING MAY LAND ON TOP OF ANYTHING ELSE. A machine turn can
+      resolve a roll, a move, a salary, a rent payment and the end of
+      the turn inside one frame. Five files starting together is not a
+      game, it is a crash. So nothing plays immediately: everything
+      goes into cue(), which spaces sounds GAP apart, and when the
+      queue runs long it DROPS the least important rather than playing
+      late — sfx.js's own note, "late audio is worse than no audio".
+
+   3. THE DELEGATED LAYER ALREADY SOUNDED THE BUTTON. sfx.js puts
+      ui.tap on every <button> in the app, including all of ours. A
+      hand-rolled sound on the same click is a second file on the same
+      frame — two different ids, so the 40 ms dedupe does not save us.
+      Everything here is therefore a CONSEQUENCE, played at least LEAD
+      ms after the finger, never a second opinion about the tap. The
+      chrome (setup toggles, tabs, close buttons) is left entirely to
+      the delegated layer.
+   ═══════════════════════════════════════════════════════════════════ */
+function sfx(id, opts){
+  try { if (window.KARTI_SFX && KARTI_SFX.play) KARTI_SFX.play(id, opts); } catch(e){}
 }
+/* the pitched kalimba — one file, a different rate per step */
+function snote(step, opts){
+  try { if (window.KARTI_SFX && KARTI_SFX.note) KARTI_SFX.note(step, opts); } catch(e){}
+}
+
+/* ── the spacer ────────────────────────────────────────────────────
+   GAP  — how far apart two of our sounds may land
+   LEAD — the shortest gap between the tap that caused it and the
+          sound of what it did; enough that they read as cause and
+          effect and not as one clipped noise
+   MAX  — how deep the queue may get before we start dropping. Four is
+          about a second of backlog; past that the sound is describing
+          something that is no longer on screen.
+   OLD  — anything that has waited this long is stale and goes, unless
+          it is important enough (pri 0/1) to be worth being late.  */
+const GAP = 130, LEAD = 85, MAXQ = 4, OLD = 900;
+let Q = [], qT = 0, qAt = 0;
+
+function cue(id, opts, pri, step){
+  if (!id && step == null) return;
+  Q.push({ id, opts, pri: pri == null ? 5 : pri, step, at: Date.now() });
+  while (Q.length > MAXQ){
+    /* keep the running order — drop the least consequential thing in
+       the queue, latest first, so the news survives and the texture goes */
+    let worst = 0;
+    for (let i = 1; i < Q.length; i++) if (Q[i].pri >= Q[worst].pri) worst = i;
+    Q.splice(worst, 1);
+  }
+  kick();
+}
+
+function kick(){
+  if (qT || !Q.length) return;
+  const wait = Math.max(LEAD, GAP - (Date.now() - qAt));
+  qT = setTimeout(() => {
+    qT = 0;
+    const now = Date.now();
+    let it;
+    while ((it = Q.shift())){
+      if (it.pri <= 1 || now - it.at < OLD) break;   /* stale texture, binned */
+      it = null;
+    }
+    if (it){
+      qAt = now;
+      if (it.step != null) snote(it.step, it.opts); else sfx(it.id, it.opts);
+    }
+    kick();
+  }, wait);
+}
+
+function hushQueue(){
+  Q = [];
+  if (qT){ clearTimeout(qT); qT = 0; }
+}
+
+/* is this seat a person sitting here, rather than the phone? */
+const human = i => !!G && i >= 0 && i < G.players.length && !K.machineSeat(G, i);
+
+/* ── one game moment → one sound ───────────────────────────────────
+   THE NUMBER IN `gain` IS A MULTIPLIER, NOT A LEVEL. sfx.js's fire()
+   does `REG[id].g * opts.gain`, so 1 means "the level the registry
+   already chose for this file" and everything here is a nudge either
+   side of it. Getting that backwards is how a sound set ends up
+   quieter the harder it tries.
+
+   Which way to nudge is decided the way REG decides it: by FREQUENCY,
+   not by importance. A roll and a token landing happen fifty times a
+   game each and are pulled BELOW their registry level; a bankruptcy
+   happens once and is pushed above it. And the machine is quieter
+   than you are at the same thing — its rent, its purchases and its
+   salary are background, yours are the news.                       */
+function onFx(e){
+  if (!live || !G) return;
+  switch (e.k){
+    /* ── heard constantly: under the registry level ── */
+    case 'roll':
+      cue('dice.roll', { gain: 0.86 }, 3);
+      /* a double is a free go, and it must be audibly not a plain roll:
+         the dice, then the instrument up the pentatonic. */
+      if (e.dbl) cue(null, { gain: 1.10 }, 4, 7);
+      break;
+    case 'move':   cue('piece.place', { gain: 0.78 }, 4); break;
+    case 'turn':   if (human(e.p)) cue('duel.turn', { gain: 1.00 }, 4); break;
+
+    /* ── money. The centre of the game, and the reason it hurts. ──
+       Rent out of YOUR hand is the only thing in IL-KIRI pushed past
+       its registry level; rent out of the phone's is background. */
+    case 'pay': {
+      const mine = human(e.from);
+      cue('money.pay', { gain: mine ? (e.to >= 0 ? 1.12 : 1.00) : 0.70 }, e.to >= 0 ? 1 : 2);
+      if (e.to >= 0 && human(e.to)) cue('ui.coin', { gain: 0.90 }, 1);
+      else if (e.split && e.split.some(x => human(x.p))) cue('ui.coin', { gain: 0.75 }, 2);
+      break;
+    }
+    case 'salary': cue('ui.coin', { gain: human(e.p) ? 0.92 : 0.50 }, 2); break;
+    case 'get':    cue('ui.coin', { gain: human(e.p) ? 0.88 : 0.50 }, 2); break;
+
+    /* ── deeds ── */
+    case 'buy':
+      cue('money.pay', { gain: human(e.p) ? 1.00 : 0.70 }, 1);
+      cue('ui.reward', { gain: human(e.p) ? 0.65 : 0.45 }, 2);
+      break;
+    case 'decline': cue('ui.back', { gain: 1.00 }, 3); break;
+
+    /* ── the auction. Every bid is one step further up the scale, so
+         a hard-fought lot literally climbs; the hammer is the bell. ── */
+    case 'auction': cue('call.bell', { gain: 0.75 }, 2); break;
+    case 'bid':     cue(null, { gain: 1.15 }, 3,
+                        Math.max(0, Math.min(9, Math.round((e.amt / (e.price || 100)) * 6)))); break;
+    case 'aucOut':  cue('ui.back', { gain: 0.80 }, 4); break;
+    case 'hammer':
+      cue('call.bell', { gain: 1.00 }, 1);
+      if (e.p >= 0) cue('money.pay', { gain: human(e.p) ? 1.00 : 0.70 }, 2);
+      break;
+
+    /* ── concrete ── */
+    case 'build':
+      cue('duel.summon', { gain: e.pent ? 1.05 : 0.90 }, 2);
+      if (e.pent) cue('ui.reward', { gain: 0.85 }, 3);
+      break;
+    case 'sell':     cue('duel.destroy', { gain: 0.85 }, 2); cue('ui.coin', { gain: 0.62 }, 3); break;
+    /* a mortgage is the deed coming off the board and cash going on */
+    case 'mortgage': cue('piece.lift', { gain: 1.15 }, 2); cue('ui.coin', { gain: 0.65 }, 3); break;
+    case 'redeem':   cue('money.pay', { gain: 0.95 }, 2); cue('piece.place', { gain: 0.95 }, 3); break;
+
+    /* ── the queue at counter four ── */
+    case 'jail':   cue('duel.trap', { gain: 0.95 }, 1); break;
+    case 'freed':  cue('ui.reward', { gain: 0.85 }, 2); break;
+    case 'stuck':  cue('ui.error', { gain: 0.75 }, 3); break;
+
+    /* ── paper ── */
+    case 'card':   cue('card.throw', { gain: 1.00 }, 2); break;
+    case 'trade':  cue('ui.reward', { gain: 0.85 }, 2); break;
+
+    /* ── heard once, and remembered: at or above the registry level ── */
+    case 'short':    cue('ui.error', { gain: 1.05 }, 1); break;
+    case 'refused':  cue('ui.error', { gain: 0.90 }, 2); break;
+    case 'nope':     cue('ui.error', { gain: 0.80 }, 3); break;
+    case 'bankrupt':
+      cue(human(e.p) ? 'game.lose' : 'duel.destroy', { gain: 1.05 }, 0);
+      break;
+  }
+}
+try { K.onFx(onFx); } catch(e){}
 
 /* ═══════════════════════════════════════════════════════════════════
    1. THE STYLESHEET — injected once, entirely scoped to #scr-kiri
@@ -338,11 +511,53 @@ function show(){
   el.classList.add('on');
   live = true;
   watch();
+  watchDead(el);
+}
+
+/* ── THE TAP THAT DOES NOTHING ──────────────────────────────────────
+   Buy it with forty euro in your pocket, Build with the group half
+   sold, Pay the fifty when you cannot: the answer is a `disabled`
+   button, and Chrome dispatches NO click for one of those — not to
+   the button, not to anything above it. So sfx.js's delegated layer
+   physically cannot sound a refused tap, and the most frustrating
+   thing you can do in this game is also the quietest.
+
+   pointerdown still fires, so we listen for that, once, on our own
+   screen only, passive, and never touch the event.
+
+   The same listener does a second job. sfx.js's delegated layer puts
+   ui.tap on every live button, and the queue cannot see that — so a
+   consequence cued by the same click could still land 40 ms behind
+   the tap, which is close enough to sound like one broken noise. A
+   tap therefore counts as "a sound just happened" and the queue
+   waits its full GAP from it, not the shorter LEAD.                */
+let deadWired = false;
+function watchDead(el){
+  if (deadWired || !el) return;
+  deadWired = true;
+  const down = e => {
+    try {
+      const t = e.target && e.target.closest && e.target.closest('button,.btn');
+      if (!t || !el.contains(t)) return;
+      if (t.disabled){ cue('ui.error', { gain: 0.80 }, 2); return; }
+      /* the delegated layer is about to tap. Count it as one of ours, and
+         push out anything already on its way so the tap keeps its own air. */
+      qAt = Date.now();
+      if (qT){ clearTimeout(qT); qT = 0; kick(); }
+    } catch(err){}
+  };
+  try { el.addEventListener('pointerdown', down, { passive: true }); }
+  catch(err){ try { el.addEventListener('pointerdown', down, false); } catch(_){} }
+  /* a synthetic .click() (the tests, and anything scripted) never sends a
+     pointerdown, so the tap has to be noticed on the click as well */
+  try { el.addEventListener('click', down, { passive: true, capture: true }); }
+  catch(err){ try { el.addEventListener('click', down, true); } catch(_){} }
 }
 
 function standDown(){
   live = false;
   stopLoop();
+  hushQueue();          /* nothing queued may follow us onto another screen */
   if (G) K.save(G);
   if (scr) scr.classList.remove('on');
 }
@@ -597,7 +812,8 @@ function paintSetup(){
 
   w.querySelector('#kr-whatis').onclick = () => {
     cfg.showRules = !cfg.showRules;
-    sfx(cfg.showRules ? 'ui.sheet' : 'ui.back');
+    /* no sound: sfx.js's delegated layer already tapped this button, and a
+       second file on the same frame is the double-fire, not a flourish */
     paintSetup();
   };
   cfg.seats.forEach((s, i) => {
@@ -609,21 +825,19 @@ function paintSetup(){
       if (s.kind !== 'off' && !s.name) s.name = K.SEATS[i].en;
       /* seats fill left to right — never leave a hole in the middle */
       if (s.kind === 'off') for (let j = i + 1; j < K.MAX_SEATS; j++) cfg.seats[j].kind = 'off';
-      sfx(s.kind === 'off' ? 'ui.untoggle' : 'ui.toggle');
       paintSetup();
     };
   });
   w.querySelectorAll('[data-lv]').forEach(b => b.onclick = () => {
     const parts = b.getAttribute('data-lv').split(':');
     cfg.seats[Number(parts[0])].level = Number(parts[1]);
-    sfx('ui.toggle');
     paintSetup();
   });
   w.querySelectorAll('[data-rl]').forEach(b => b.onclick = () => {
-    cfg.roundLimit = Number(b.getAttribute('data-rl')); sfx('ui.toggle'); paintSetup();
+    cfg.roundLimit = Number(b.getAttribute('data-rl')); paintSetup();
   });
   w.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => {
-    cfg.clock = Number(b.getAttribute('data-ck')); sfx('ui.toggle'); paintSetup();
+    cfg.clock = Number(b.getAttribute('data-ck')); paintSetup();
   });
   el.querySelector('#kr-bk').onclick = menu;
   const go = el.querySelector('#kr-start');
@@ -665,7 +879,6 @@ function renameSheet(i){
       root.querySelector('#kr-rnx').onclick = () => { closeSheetOnly(); paintSetup(); };
       root.querySelector('#kr-rnok').onclick = () => {
         s.name = (f.value || '').trim().slice(0, 14) || K.SEATS[i].en;
-        sfx('ui.toggle');
         closeSheetOnly(); paintSetup();
       };
     },
@@ -694,7 +907,7 @@ function startGame(seatList, opts){
     seed: opts.seed,
   });
   K.save(G);
-  sfx('game.start');
+  cue('game.start', { gain: 1.00 }, 0);
   show();
   boardScreen();
   return G;
@@ -871,7 +1084,7 @@ function renderAway(){
         (gone.length > 1 ? 'We\'re back' : 'I\'m back') + '</button>' +
     '</div>';
   els.away.querySelector('#kr-awayback').onclick = () => {
-    sfx('mp.joined');
+    cue('mp.joined', { gain: 1.00 }, 1);
     gone.forEach(p => K.setPresent(G, p.i, true));
     if (timer){ clearTimeout(timer); timer = 0; }
     K.save(G); render(); resetClock(); pump();
@@ -1041,10 +1254,10 @@ function wireSquareButtons(root, fallbackI){
   root.querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
     const [k, ns] = b.getAttribute('data-act').split(':');
     const i = Number(ns);
-    if (k === 'build'){  sfx('duel.summon'); K.build(G, i); }
-    if (k === 'sell'){   sfx('ui.error');    K.sellBuilding(G, i, G.turn); }
-    if (k === 'mort'){   sfx('ui.error');    K.mortgage(G, i, G.turn); }
-    if (k === 'redeem'){ sfx('money.pay');   K.unmortgage(G, i, G.turn); }
+    if (k === 'build')  K.build(G, i);
+    if (k === 'sell')   K.sellBuilding(G, i, G.turn);
+    if (k === 'mort')   K.mortgage(G, i, G.turn);
+    if (k === 'redeem') K.unmortgage(G, i, G.turn);
     after();
     if (sheet && sheet.kind === 'square') squareSheet(sheet.i);
   });
@@ -1174,18 +1387,22 @@ function renderAct(){
     b.label + '</button>').join('');
 
   const on = (id, fn) => { const e = els.act.querySelector('#' + id); if (e) e.onclick = fn; };
-  on('kr-a-roll',  () => { rolled = true; sfx('dice.roll'); K.roll(G); after(); });
-  on('kr-a-bail',  () => { sfx('money.pay'); K.payBail(G); after(); });
-  on('kr-a-skip',  () => { sfx('ui.reward'); K.useSkip(G); after(); });
-  on('kr-a-buy',   () => { sfx('money.pay'); K.buy(G); after(); });
-  on('kr-a-pass',  () => { sfx('ui.back'); K.declineBuy(G, auctionOn); after(); });
+  /* NOT ONE sfx() ON THIS BAR. Every button here ends in an engine call and
+     the engine announces what it did, so the sound is identical whether a
+     finger or the phone pressed it — and it arrives after the delegated
+     ui.tap instead of on top of it. */
+  on('kr-a-roll',  () => { rolled = true; K.roll(G); after(); });
+  on('kr-a-bail',  () => { K.payBail(G); after(); });
+  on('kr-a-skip',  () => { K.useSkip(G); after(); });
+  on('kr-a-buy',   () => { K.buy(G); after(); });
+  on('kr-a-pass',  () => { K.declineBuy(G, auctionOn); after(); });
   on('kr-a-card',  () => cardSheet());
   on('kr-a-raise', () => raiseSheet());
   on('kr-a-give',  () => giveUpSheet());
   on('kr-a-auc',   () => auctionSheet());
   on('kr-a-manage',() => { tab = 'deeds'; render(); });
   on('kr-a-trade', () => { tab = 'table'; render(); });
-  on('kr-a-end',   () => { sfx('duel.turn'); K.endTurn(G); after(); });
+  on('kr-a-end',   () => { K.endTurn(G); after(); });
   on('kr-a-done',  () => renderOver());
   on('kr-a-claim', () => { const i = seatToClaim(); if (i >= 0) claimSeat(i); });
 }
@@ -1367,7 +1584,9 @@ function cardSheet(){
       '<div class="kr-cx">' + esc(G.card.txt) + '</div></div>',
     foot: '<button class="kr-btn go" id="kr-ck">Right then</button>',
     wire: root => {
-      root.querySelector('#kr-ck').onclick = () => { sfx('card.throw'); K.applyCard(G); closeSheet(); after(); };
+      /* the card already made its noise when it was turned over; what it
+         DOES makes the next one, whatever that turns out to be */
+      root.querySelector('#kr-ck').onclick = () => { K.applyCard(G); closeSheet(); after(); };
       artWash(root.querySelector('#kr-art'), artForCard(G.card.deck, G.card.id), 0.30);
     },
   });
@@ -1430,7 +1649,7 @@ function giveUpSheet(){
          '<button class="kr-btn bad" id="kr-yesgive">Give up</button>',
     wire: root => {
       root.querySelector('#kr-nogive').onclick = () => { closeSheet(); if (G.debt) raiseSheet(); };
-      root.querySelector('#kr-yesgive').onclick = () => { sfx('game.lose'); K.bankrupt(G, p); closeSheet(); after(); };
+      root.querySelector('#kr-yesgive').onclick = () => { K.bankrupt(G, p); closeSheet(); after(); };
     },
   });
 }
@@ -1579,7 +1798,6 @@ function offerSheet(){
          '<button class="kr-btn ok" id="kr-oyes">Done</button>',
     wire: root => {
       root.querySelector('#kr-oyes').onclick = () => {
-        sfx('ui.reward');
         const bad = K.doTrade(G, o); G.offer = null;
         if (bad) K.say(G, 'That deal does not work any more: ' + bad);
         closeSheet(); after();
@@ -1621,7 +1839,7 @@ function renderOver(){
       '<button class="kr-btn" id="kr-ohub">Party games</button>' +
       '<button class="kr-btn go" id="kr-oagain">Again</button></div>';
   el.appendChild(d);
-  sfx(w && w.kind === 'human' && !w.auto ? 'game.win' : 'game.lose');
+  cue(w && w.kind === 'human' && !w.auto ? 'game.win' : 'game.lose', { gain: 1.00 }, 0);
   d.querySelector('#kr-oagain').onclick = () => { d.remove(); setup(); };
   d.querySelector('#kr-ohub').onclick = () => { d.remove(); close(); };
   if (P && P.record && w) P.record('kiri', w.kind === 'human' && !w.auto ? 'w' : 'l');
@@ -1705,9 +1923,9 @@ function pump(){
   timer = setTimeout(() => {
     timer = 0;
     if (!G || !live) return;
-    if (a.k === 'roll'){ rolled = true; sfx('dice.roll'); }
-    else if (a.k === 'buy' || a.k === 'bid' || a.k === 'bail') sfx('money.pay');
-    else if (a.k === 'build') sfx('duel.summon');
+    if (a.k === 'roll') rolled = true;
+    /* no sounds here either — AI.perform goes through the same engine calls
+       a person does, and the engine is what makes the noise */
     AI.perform(G, a);
     K.save(G);
     render();
