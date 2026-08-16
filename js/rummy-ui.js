@@ -85,6 +85,14 @@ function pref(patch){
 }
 function saveSlot(snap){ ST.save = snap || null; persist(); }
 
+/* ── UI-only preferences, in their OWN key (il-kiri's dock rule): a
+   UI preference is not the game. Binning or finishing a game must
+   never forget that you keep the rules out, and clearing this must
+   never touch a saved hand. ──────────────────────────────────────── */
+const UIKEY = 'karti_rummy_ui_v1';
+let rulesOpen = false;
+try { rulesOpen = localStorage.getItem(UIKEY + '.rules') === '1'; } catch(e){}
+
 /* the machine, by the club's own names — read off klabb's published
    lobby so a difficulty is called the same thing at every table */
 function levels(){
@@ -251,17 +259,48 @@ function injectCSS(){
     '#scr-party .rm-opp .s{font:700 8.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
       'color:rgba(255,255,255,.5)}' +
 
-    /* ── stock and pile ── */
-    '#scr-party .rm-draws{flex:0 0 auto;display:flex;align-items:flex-end;justify-content:center;' +
-      'gap:18px;padding:2px 0}' +
-    '#scr-party .rm-pilebox{display:flex;flex-direction:column;align-items:center;gap:3px}' +
-    '#scr-party .rm-pilebox .t{font:900 8.5px/1 var(--disp);letter-spacing:.11em;' +
+    /* ── the draw felt — the skarta idea: not a strip of boxes but a
+       table surface the stock and the pile SIT ON, each a slot with
+       its small label underneath. The pile is drawn as a pile. */
+    '#scr-party .rm-draws{flex:1 1 auto;min-height:106px;max-height:172px;position:relative;' +
+      'display:flex;align-items:center;justify-content:center;gap:26px;padding:8px 8px 5px;' +
+      'border-radius:14px;overflow:hidden;' +
+      'background:radial-gradient(115% 95% at 50% 28%,#274475 0%,#172A4E 62%,#0E1B36 100%);' +
+      'border:1px solid rgba(0,0,0,.45);' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -12px 26px rgba(0,0,0,.35)}' +
+    /* the etched inner ring: an empty middle still reads as laid on
+       purpose — which is GĦAXRA every hand, where nothing goes down */
+    '#scr-party .rm-draws::before{content:"";position:absolute;inset:6px;border-radius:9px;' +
+      'border:1px solid rgba(255,255,255,.07);pointer-events:none}' +
+    '#scr-party .rm-slot{position:relative;z-index:1;display:flex;flex-direction:column;' +
+      'align-items:center;gap:5px}' +
+    '#scr-party .rm-slot .t{font:900 8.5px/1 var(--disp);letter-spacing:.12em;' +
       'text-transform:uppercase;color:rgba(255,255,255,.5)}' +
+    '#scr-party .rm-feltag{position:absolute;right:10px;bottom:6px;font:900 9.5px/1 var(--disp);' +
+      'letter-spacing:.16em;color:rgba(255,255,255,.16);pointer-events:none}' +
     '#scr-party .rm-drawbtn{position:relative;padding:0;border:0;background:none;line-height:0;' +
       'border-radius:7px;-webkit-tap-highlight-color:transparent}' +
     '#scr-party .rm-drawbtn.go .kb-card{box-shadow:0 0 0 2.5px rgba(61,220,132,.9),' +
       '0 6px 14px rgba(0,0,0,.4)}' +
     '#scr-party .rm-drawbtn[disabled]{opacity:.75}' +
+    /* the stock looks like a deck: offset sheets behind the top back */
+    '#scr-party .rm-stock .kb-card{box-shadow:0 4px 12px rgba(0,0,0,.5),' +
+      '3px -3px 0 -1px #10203E,3px -3px 0 0 rgba(255,255,255,.13),' +
+      '6px -6px 0 -1px #10203E,6px -6px 0 0 rgba(255,255,255,.09)}' +
+    '#scr-party .rm-stock.go .kb-card{box-shadow:0 0 0 2.5px rgba(61,220,132,.9),' +
+      '0 4px 12px rgba(0,0,0,.5),' +
+      '3px -3px 0 -1px #10203E,3px -3px 0 0 rgba(255,255,255,.13),' +
+      '6px -6px 0 -1px #10203E,6px -6px 0 0 rgba(255,255,255,.09)}' +
+    /* the pile is a HEAP — every card in the same grid cell at its own
+       fixed angle, the ones underneath dimmed (skarta's trick) */
+    '#scr-party .rm-pile{position:relative;display:grid}' +
+    '#scr-party .rm-pile .rm-pl{grid-area:1/1;' +
+      'transform:translate(var(--dx,0px),var(--dy,0px)) rotate(var(--r))}' +
+    '#scr-party .rm-pile .rm-pl:last-child{position:relative;z-index:2}' +
+    '#scr-party .rm-pile .rm-pl:not(:last-child) .kb-card{filter:brightness(.72);' +
+      'box-shadow:0 1px 4px rgba(0,0,0,.45)}' +
+    '#scr-party .rm-empty{display:block;aspect-ratio:5/7;border-radius:7px;' +
+      'border:1.5px dashed rgba(255,255,255,.26)}' +
     '#scr-party .rm-count{position:absolute;right:-7px;top:-7px;min-width:22px;height:22px;' +
       'border-radius:999px;display:grid;place-items:center;padding:0 5px;' +
       'font:900 10.5px/1 var(--disp);color:#241800;background:var(--rm-gold);' +
@@ -318,6 +357,36 @@ function injectCSS(){
       'Menlo,monospace}' +
     '#scr-party .rm-book tr.win td{color:var(--rm-gold)}' +
 
+    /* ── the rules: a panel that HIDES AND SLIDES, not a wall. It
+       drops from the top of the table and stops well above the hand,
+       because a rule is only useful next to the cards it applies to.
+       No scrim — the table under it stays live. transform+opacity
+       only, and reduced motion gets an instant show/hide. ── */
+    '#scr-party .rm-rules{position:absolute;top:0;left:0;right:0;z-index:30;max-height:54%;' +
+      'display:flex;flex-direction:column;border-radius:14px;overflow:hidden;' +
+      'background:linear-gradient(180deg,#1D2F55,#101E3C);border:1px solid rgba(255,255,255,.16);' +
+      'box-shadow:0 14px 30px rgba(0,0,0,.55);' +
+      'transform:translateY(-108%);opacity:0;visibility:hidden;pointer-events:none;' +
+      'transition:transform .26s var(--ease),opacity .26s var(--ease),visibility 0s .26s}' +
+    '#scr-party .rm-rules.open{transform:none;opacity:1;visibility:visible;pointer-events:auto;' +
+      'transition:transform .26s var(--ease),opacity .26s var(--ease)}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .rm-rules{transition:none}}' +
+    'body.reduced #scr-party .rm-rules{transition:none}' +
+    '#scr-party .rm-rules-h{flex:0 0 auto;display:flex;align-items:center;' +
+      'justify-content:space-between;padding:9px 4px 2px 14px}' +
+    '#scr-party .rm-rules-h h4{margin:0;font:900 12px/1 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--rm-gold)}' +
+    '#scr-party .rm-rules-x{width:44px;height:44px;margin:-6px 0;border:0;background:none;' +
+      'color:var(--txt);cursor:pointer;display:grid;place-items:center;' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .rm-rules-x svg{width:16px;height:16px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.2;stroke-linecap:round}' +
+    '#scr-party .rm-rules-b{min-height:0;overflow-y:auto;padding:2px 14px 12px;' +
+      '-webkit-overflow-scrolling:touch}' +
+    '#scr-party .rm-rules-b ul{margin:0;padding:0}' +
+    '#scr-party .rm-rules-b li{font-size:12px;line-height:1.6;color:var(--dim);' +
+      'margin:0 0 6px 14px}' +
+
     /* ── the setup sheet's deck line ── */
     '#scr-party .rm-why{font-size:11.5px;line-height:1.6;margin:8px 2px 0;padding:9px 11px;' +
       'border-radius:12px;text-transform:none;letter-spacing:0;color:#CFE0FF;' +
@@ -347,11 +416,24 @@ function injectCSS(){
          buttons under it — nothing overlaps at any hand size. */
       '#scr-party .rm-table{display:grid;column-gap:10px;row-gap:3px;padding:5px 6px 6px;' +
         'grid-template-columns:auto minmax(0,1fr);' +
-        'grid-template-rows:auto minmax(0,1fr) auto auto;' +
+        /* the felt row has a FLOOR: a 40px card is 56 tall and the felt
+           clips (overflow:hidden), so a squeezed row would cut the
+           stock and pile in half. If the floor overflows the table it
+           scrolls, and render() keeps the hand above the fold. */
+        'grid-template-rows:auto minmax(66px,1fr) auto auto;' +
         'grid-template-areas:"opps opps" "draws melds" "hand hand" "acts acts";' +
         'overflow-y:auto;-webkit-overflow-scrolling:touch}' +
       '#scr-party .rm-opps{grid-area:opps}' +
-      '#scr-party .rm-draws{grid-area:draws;padding:0;align-self:center}' +
+      /* the felt keeps its surface in the side-by-side layout — it
+         stretches to match the meld shelf's row instead of growing.
+         The slot labels go the way of the hint line: ~66px of felt
+         has no row for captions, and the count badge and the glow
+         say which slot is which. */
+      '#scr-party .rm-draws{grid-area:draws;align-self:stretch;min-height:0;max-height:none;' +
+        'padding:5px 9px 3px;gap:14px}' +
+      '#scr-party .rm-slot{gap:0}' +
+      '#scr-party .rm-slot .t{display:none}' +
+      '#scr-party .rm-count{top:-2px;right:-6px}' +
       '#scr-party .rm-melds{grid-area:melds;min-height:30px;overflow-y:auto;' +
         'align-content:center}' +
       /* the hint line goes: the glowing buttons and the aria labels
@@ -363,7 +445,6 @@ function injectCSS(){
       '#scr-party .rm-opp{min-width:46px;padding:2px 5px}' +
       '#scr-party .rm-opp .c{font-size:11px}' +
       '#scr-party .rm-opp .s{display:none}' +
-      '#scr-party .rm-pilebox .t{font-size:7.5px}' +
       '#scr-party .rm-count{min-width:18px;height:18px;font-size:9px}' +
       '#scr-party .rm-row{padding-top:9px}' +
       '#scr-party .rm-acts .rm-act{min-height:34px;padding:0 12px;font-size:10px}}';
@@ -536,6 +617,15 @@ function table(){
       '<div class="rm-say" id="rm-say"></div>' +
       '<div class="rm-hand" id="rm-hand"></div>' +
       '<div class="rm-acts" id="rm-acts"></div>' +
+      /* the rules panel lives OVER the table, never reflowing it, and
+         render() never touches it — only paintRules() does */
+      '<div class="rm-rules" id="rm-rulespanel" aria-hidden="true">' +
+        '<div class="rm-rules-h"><h4 id="rm-rules-t"></h4>' +
+          '<button class="rm-rules-x" id="rm-rules-x" aria-label="Put the rules away">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+        '<div class="rm-rules-b" id="rm-rules-b"></div>' +
+      '</div>' +
     '</div>';
   const root = ctx.host.querySelector('#rm-table');
   UI = {
@@ -546,8 +636,17 @@ function table(){
     say:   root.querySelector('#rm-say'),
     hand:  root.querySelector('#rm-hand'),
     acts:  root.querySelector('#rm-acts'),
+    rules: root.querySelector('#rm-rulespanel'),
     wide: () => Math.max(240, root.clientWidth - 24)
   };
+  root.querySelector('#rm-rules-x').addEventListener('click', () => setRules(false));
+  /* tap anywhere OUTSIDE the panel puts it away — the table under it
+     stays live, so this must never eat the tap itself */
+  ctx.root.addEventListener('pointerdown', e => {
+    if (!rulesOpen || !UI || !UI.rules) return;
+    const rb = ctx.btn && ctx.btn('rm-rules');
+    if (!UI.rules.contains(e.target) && !(rb && rb.contains(e.target))) setRules(false);
+  }, true);
   /* one delegated listener for the whole felt */
   root.addEventListener('click', e => {
     if (!M || M.dead) return;
@@ -711,26 +810,46 @@ function render(){
       try { on.scrollIntoView(false); } catch(e2){} }
   }
 
-  /* — stock and pile — */
+  /* — the felt: the stock and the pile, sitting on a table surface — */
   const short = (UI.root.clientHeight || 500) < 430;   /* a landscape phone */
   const drawW = short ? 40 : 58;
   const drawable = mine && st.phase === 'draw' && !done;
   const top = st.disc[st.disc.length - 1];
+  /* the pile drawn as a PILE: the top card plus up to four peeking out
+     beneath it. Each angle is fixed by the card's position in st.disc —
+     never random — so the heap is identical on every repaint and on
+     every phone at the table, and cards keep their lie as the pile
+     grows or the top is taken. */
+  const PILE_R = [-9, 7, -4, 12, -7, 5, -12, 9];
+  const PILE_XY = [[-3, 1], [2, -2], [-1, 3], [3, 0], [-2, -2], [1, 2], [3, -1], [-3, 0]];
+  const depth = Math.min(st.disc.length, 5);
+  const pcs = st.disc.slice(-depth);
+  const base = st.disc.length - depth;
   UI.draws.innerHTML =
-    '<div class="rm-pilebox"><span class="t">Stock</span>' +
-      '<button class="rm-drawbtn' + (drawable ? ' go' : '') + '" data-draw="0" data-sfx="own"' +
+    '<div class="rm-slot">' +
+      '<button class="rm-drawbtn rm-stock' + (drawable ? ' go' : '') + '" data-draw="0" data-sfx="own"' +
         (drawable ? '' : ' disabled') + ' aria-label="Draw from the stock. ' +
         st.stock.length + ' cards left.">' +
         cardBtn(-1, { face:false, w:drawW }) +
         '<span class="rm-count">' + st.stock.length + '</span>' +
-      '</button></div>' +
-    '<div class="rm-pilebox"><span class="t">Pile</span>' +
+      '</button><span class="t">Stock</span></div>' +
+    '<div class="rm-slot">' +
       (top === undefined
-        ? '<span class="rm-none" style="padding:20px 6px">empty</span>'
+        ? '<span class="rm-empty" style="width:' + drawW + 'px" aria-hidden="true"></span>'
         : '<button class="rm-drawbtn' + (drawable ? ' go' : '') + '" data-draw="1" data-sfx="own"' +
           (drawable ? '' : ' disabled') + ' aria-label="Take the top of the pile.">' +
-          cardBtn(top, { w:drawW }) + '</button>') +
-    '</div>';
+          '<span class="rm-pile">' +
+          pcs.map((c, i) => {
+            const top2 = i === pcs.length - 1;
+            const j = (base + i) % PILE_R.length;
+            const xy = top2 ? [0, 0] : PILE_XY[j];
+            return '<span class="rm-pl" style="--r:' + (top2 ? 0 : PILE_R[j]) + 'deg;' +
+              '--dx:' + xy[0] + 'px;--dy:' + xy[1] + 'px">' +
+              cardBtn(c, { w:drawW }) + '</span>';
+          }).join('') +
+          '</span></button>') +
+      '<span class="t">Pile</span></div>' +
+    (E.isGhaxra(st) ? '<span class="rm-feltag" aria-hidden="true">4+3+3</span>' : '');
 
   /* — the shelf — */
   const gh = E.isGhaxra(st);
@@ -787,6 +906,19 @@ function render(){
         '</button>';
     }).join('');
   }
+  /* a glowing meld he can lay on must be IN the shelf's window, not
+     below its fold — centred with scrollTop arithmetic, never
+     scrollIntoView (that is free to scroll the app shell; see
+     js/progress-ui.js centreTab for the precedent) */
+  if (canLayNow){
+    const can1 = UI.melds.querySelector('.rm-meld.can');
+    if (can1){
+      const sr = UI.melds.getBoundingClientRect();
+      const mr = can1.getBoundingClientRect();
+      if (mr.top < sr.top || mr.bottom > sr.bottom)
+        UI.melds.scrollTop += (mr.top + mr.height / 2) - (sr.top + sr.height / 2);
+    }
+  }
 
   /* — the hint line — */
   const outNow = (gh && mine && st.phase === 'act') ? findOut(st, me) : null;
@@ -819,11 +951,14 @@ function render(){
     h += '<div class="rm-row">';
     for (let i = seg[0]; i < seg[1]; i++){
       const c = shown[i];
+      /* NEVER dimmed during the draw: choosing stock-or-pile IS a
+         comparison against this hand, and a hand at 45% grey is a
+         hand you cannot think with. The glowing draw buttons and the
+         hint line carry the "draw first" signal on their own. */
       h += cardBtn(c, {
         tap: true, w: plan.w,
         left: i === seg[0] ? 0 : Math.round(plan.step - plan.w),
-        sel: M.tmp.sel.indexOf(c) >= 0,
-        dim: mine && st.phase === 'draw'
+        sel: M.tmp.sel.indexOf(c) >= 0
       });
     }
     h += '</div>';
@@ -856,6 +991,17 @@ function render(){
         '>Throw</button>' +
       '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
         (M.tmp.sorted === false ? 'Sort' : 'Sorted') + '</button>';
+  }
+
+  /* landscape scrolls the whole table — whenever it is HIS decision,
+     the hand and its buttons must be above the fold. scrollTop
+     arithmetic again, and only when actually cut off, so a player
+     peering at the top of the shelf is not yanked about. */
+  if (mine && !done){
+    const rr = UI.root.getBoundingClientRect();
+    const ar = UI.acts.getBoundingClientRect();
+    const cut = ar.bottom - rr.bottom;
+    if (cut > 1) UI.root.scrollTop += cut + 4;
   }
 
   paintTurn(t, done);
@@ -1019,7 +1165,8 @@ function openBoard(onBack){
     const o = M.ctx.root.querySelector('.pt-over'); if (o) o.remove();
     render();
   };
-  M.ctx.btn('rm-rules').onclick = () => rulesSheet();
+  M.ctx.btn('rm-rules').onclick = () => setRules(!rulesOpen);
+  paintRules();   /* remembered open stays open across deals and reloads */
   const nb = M.ctx.btn('rm-new');
   if (nb) nb.onclick = () => {
     P.ui.confirm(M.ctx, {
@@ -1099,26 +1246,24 @@ const RULES_GHAXRA = [
 const rulesFor = mode => (E.modeOf(mode) === 'ghaxra' ? RULES_GHAXRA : RULES);
 const modeName = mode => (E.modeOf(mode) === 'ghaxra' ? 'GĦAXRA' : 'RUMMY');
 
-function rulesSheet(){
-  const ctx = M ? M.ctx : null;
-  if (!ctx) return;
-  const old = ctx.root.querySelector('.pt-ask'); if (old) old.remove();
-  const ask = document.createElement('div');
-  ask.className = 'pt-over pt-ask';
+/* ── the rules panel: hide and slide, never a wall. State is a UI
+   preference in its own key, so it survives games and reloads. ──── */
+function paintRules(){
+  if (!UI || !UI.rules) return;
   const mode = M ? M.st.mode : 'classic';
-  ask.innerHTML =
-    '<div class="pt-card" style="max-width:340px;text-align:left">' +
-      '<h3 style="text-align:center">' + esc(modeName(mode)) + '</h3>' +
-      '<div class="kb-rules" style="margin:12px 0 0;padding:12px 14px;border-radius:14px;' +
-        'background:rgba(255,255,255,.04);border:1px solid var(--line)"><ul style="margin:0;padding:0">' +
-        rulesFor(mode).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);' +
-          'margin:0 0 6px 16px">' + r + '</li>').join('') +
-      '</ul></div>' +
-      '<div class="pt-acts"><button class="btn ghost" id="rm-rx">Right, got it</button></div>' +
-    '</div>';
-  ctx.root.appendChild(ask);
-  ask.querySelector('#rm-rx').onclick = () => ask.remove();
-  ask.querySelector('#rm-rx').focus();
+  UI.rules.querySelector('#rm-rules-t').textContent =
+    modeName(mode) + ' — the rules';
+  UI.rules.querySelector('#rm-rules-b').innerHTML =
+    '<ul>' + rulesFor(mode).map(r => '<li>' + r + '</li>').join('') + '</ul>';
+  UI.rules.classList.toggle('open', rulesOpen);
+  UI.rules.setAttribute('aria-hidden', rulesOpen ? 'false' : 'true');
+  const rb = M && M.ctx && M.ctx.btn && M.ctx.btn('rm-rules');
+  if (rb) rb.setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
+}
+function setRules(open){
+  rulesOpen = !!open;
+  try { localStorage.setItem(UIKEY + '.rules', rulesOpen ? '1' : '0'); } catch(e){}
+  paintRules();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
