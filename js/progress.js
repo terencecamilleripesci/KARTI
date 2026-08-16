@@ -886,6 +886,29 @@ function session(){
    sign up than anything on the sign-up screen. */
 function canPhoto(){ return !!session(); }
 
+/* THE NAME THE PHOTO IS FILED UNDER IS THE ACCOUNT, NOT THE PROFILE.
+   A local profile and a cloud account are two different things with two
+   different names — you can make an account called "terence" from a profile
+   called anything at all, and the relay files the photograph under the
+   ACCOUNT (lower-cased). Building the URL from the profile key therefore
+   asked the Pi for a player that does not exist, got a 404, and fell back to
+   the drawn face — with the photograph sitting on the server the whole time,
+   uploaded perfectly, reachable by everybody except its owner.
+   The session carries the account key as `u`; use it, and only fall back to
+   the profile key when there is no account (where a photo is impossible
+   anyway, so the fallback can never be wrong). */
+function accountKey(){
+  var s = session();
+  if (s && typeof s.u === 'string' && s.u) return s.u;
+  /* signed out on this device leaves a residue with the name but no token —
+     still the right key for a photo that is still on the Pi */
+  try {
+    var r = lsGet('karti_sync_' + activeKey(), null);
+    if (r && typeof r.u === 'string' && r.u) return r.u;
+  } catch (e){}
+  return activeKey();
+}
+
 function picURL(who, ver){
   if (!who || !ver) return '';
   return picBase() + '/' + encodeURIComponent(String(who)) + '?v=' + (ver | 0);
@@ -1126,8 +1149,8 @@ function describe(name, opts){
       face: o.face || avatar(),
       border: bareBorder(o.border || equipped('border', 'karti')),
       pic: (o.pv === 0) ? ''
-         : (o.pv ? picURL(activeKey(), o.pv)
-                 : ((p.usePic && p.pv) ? (myPic() || picURL(activeKey(), p.pv)) : '')),
+         : (o.pv ? picURL(accountKey(), o.pv)
+                 : ((p.usePic && p.pv) ? (myPic() || picURL(accountKey(), p.pv)) : '')),
       mine: true
     };
   }
@@ -1477,7 +1500,7 @@ window.KARTI_XP = {
   paint: function(root){ repaintAvatars(root); },
 
   /* the photograph. One per account, on the relay, never in the save. */
-  photo: function(){ var p = root(); return (p.usePic && p.pv) ? (myPic() || picURL(activeKey(), p.pv)) : ''; },
+  photo: function(){ var p = root(); return (p.usePic && p.pv) ? (myPic() || picURL(accountKey(), p.pv)) : ''; },
   hasPhoto: function(){ return !!root().pv; },
   usingPhoto: function(){ var p = root(); return !!(p.usePic && p.pv); },
   canPhoto: canPhoto,
