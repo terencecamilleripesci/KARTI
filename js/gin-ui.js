@@ -1639,7 +1639,8 @@ function paintSpec() {
   for (const s of [me, foe]) {
     const n = st.table.filter(t => t.by === s).length;
     body += '<span class="gn-whorow' + (st.down[s] ? ' out' : '') + '">' +
-      '<b>' + esc(st.seats[s].name) + (s === me ? ' (you)' : '') + '</b>' +
+      '<b>' + esc(st.seats[s].name) +
+        (s === me && !/^you$/i.test(st.seats[s].name) ? ' (you)' : '') + '</b>' +
       (st.down[s]
         ? '<i>out · ' + n + ' pile' + (n === 1 ? '' : 's') + ' · <b>+' + st.laid[s] + '</b> laid · ' +
           st.seats[s].hand.length + ' in hand</i>'
