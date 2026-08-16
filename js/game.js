@@ -688,7 +688,10 @@ function renderAuth(){
         ? '<p class="tiny" style="text-align:center;margin:14px 0 8px">or pick up where you left off</p>' +
           '<div class="userlist">' + names.map(k =>
             '<button class="userrow" data-u="' + esc(k) + '">' +
-              '<span class="avatar">' + esc(users[k].name.charAt(0).toUpperCase()) + '</span>' +
+              /* the same declarative avatar span as everywhere else; the
+                 initial inside is only the no-modules fallback */
+              '<span class="avatar" data-kx-av="' + esc(users[k].name) + '" data-kx-size="38">' +
+                esc(users[k].name.charAt(0).toUpperCase()) + '</span>' +
               '<span class="n">' + esc(users[k].name) + '</span>' +
               '<span class="tiny">Log in ›</span></button>').join('') + '</div>'
         : '') +
@@ -858,34 +861,23 @@ function renderHome(){
      three (js/gacha.js). Routed from here so a reload cannot dodge it. */
   if (!S.starters.length && window.KARTI_GACHA && KARTI_GACHA.open){ KARTI_GACHA.open(); return; }
   const chip = $('#profile-chip');
-  /* The face, drawn by the one renderer everything else uses, so the home pill
-     cannot disagree with the profile sheet or the leaderboard about what you
-     look like. It used to be a bare initial in a .avatar box — which meant an
-     equipped border landed on a chip that had never been through the renderer,
-     so the ring sized itself from the 38px default while the pill is 32px and
-     sat off the edge of the face. Passing the real size is the fix. */
+  /* The pill is a data-kx-av span like every other face in the app — the
+     SAME declarative box the profile sheet uses, filled by the same
+     paintOne() in js/progress-ui.js, which is the only avatar renderer
+     there is. This chip has been wrong three separate ways precisely
+     because it used to be special (a bare initial, then a direct call
+     with its own options); now there is nothing here to get wrong but a
+     name and a size. The initial inside is the fallback for a boot where
+     the XP modules never arrive. paint() fills it synchronously when
+     they are already here; the observer in progress-ui fills it the
+     moment they load, and repaints it on every face/border/photo change. */
   const nm = displayName();
   chip.innerHTML =
-    ((window.KARTI_XP && KARTI_XP.avatarHTML)
-       ? KARTI_XP.avatarHTML(nm, { size: 32, me: true, cls: 'avatar' })
-       : '<span class="avatar">' + esc(nm.charAt(0).toUpperCase()) + '</span>') +
+    '<span class="avatar" data-kx-av="' + esc(nm) + '" data-kx-size="32">' +
+      esc(nm.charAt(0).toUpperCase()) + '</span>' +
     esc(nm);
   chip.onclick = profileSheet;
   try { window.KARTI_XP && KARTI_XP.paint && KARTI_XP.paint(chip); } catch (e){}
-  /* Repaint the pill when the player changes their face, their border or their
-     photograph. renderHome() builds this chip ONCE, so without this you could
-     pick a new avatar, come back to the main menu, and still be looking at the
-     old one — which is exactly what "my avatar didnt change" was. Registered
-     once, not per render, or every visit home would add another listener. */
-  if (window.KARTI_XP && KARTI_XP.onEquip && !renderHome._avWired){
-    renderHome._avWired = true;
-    try {
-      KARTI_XP.onEquip(function(){
-        const c = document.getElementById('profile-chip');
-        if (c && document.getElementById('scr-home')) renderHome();
-      });
-    } catch (e){}
-  }
 
   const d = activeDeck();
   $('#wallet').innerHTML =
@@ -4188,12 +4180,15 @@ function boot(){
   if (act && (act === GUEST || users[act])){ ACTIVE = act; load(); go('home'); }
   else { ACTIVE = null; authMode = 'menu'; go('auth'); }
 }
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
-else boot();
-
 /* test / debug surface — used by the headless verification harness.
    cards.js declares its data with `const`, which is NOT a window property,
-   so re-export the references here for anything outside this script scope. */
+   so re-export the references here for anything outside this script scope.
+   PUBLISHED BEFORE boot() RUNS (the call is below this object, not above):
+   boot()'s first renderHome() has js/progress-ui.js paint the profile pill,
+   and that paint asks window.KARTI for the save and the display name — with
+   the old order it found neither on the very first frame and drew the
+   name-hash face instead of the chosen one, which then visibly swapped when
+   anything repainted. One more of the "refreshes three times" flickers. */
 window.KARTI = {
   get S(){ return S; }, get D(){ return D; }, set D(v){ D = v; },
   get UI(){ return UI; },
@@ -4222,3 +4217,6 @@ window.KARTI = {
   showResult, DEFAULT_STATE, resetUI, onDuelEvent, dlog,
   toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne
 };
+
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+else boot();

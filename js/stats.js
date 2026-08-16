@@ -981,7 +981,11 @@ function pushNow(force){
       body.av = KARTI_XP.avatar();          /* the drawn face, always  */
       body.lv = KARTI_XP.level();
       body.bd = KARTI_XP.border();          /* the ring, if one is on  */
-      body.pv = KARTI_XP.photoVer();        /* 0 = no photo, so no URL */
+      /* 0 = nothing to fetch. WORN, not merely uploaded: a player who
+         has a photo on the Pi but has switched back to the drawn face
+         must look like the drawn face to everybody, not just to
+         themselves — one truth, the same truth, on every phone. */
+      body.pv = KARTI_XP.usingPhoto() ? KARTI_XP.photoVer() : 0;
     }
   } catch (e){}
   return post('push', body, NET_MS).then(function(r){

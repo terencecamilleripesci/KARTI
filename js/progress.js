@@ -800,17 +800,12 @@ function setAvatar(id){
 }
 
 /* Somebody else's face — the leaderboard, the lobby, the seat opposite.
-   Their choice is not on this phone, so it is derived from their name,
-   which at least means the same person is always the same face to
-   everybody. If a future relay build echoes an `av` field back with
-   the board rows, avatarFor() will prefer it; passing it costs one
-   field in the push and nothing if the server ignores it. */
+   THIS IS describe() AND NOTHING ELSE. It used to be its own copy of
+   the who-is-this logic, which is exactly the kind of second answer
+   that let three avatar surfaces disagree in one day; now it is a
+   convenience spelling of the one answer and cannot drift from it. */
 function avatarFor(name, hint){
-  if (hint && FACE_BY[hint]) return hint;
-  var me = '';
-  try { if (window.KARTI && KARTI.displayName) me = KARTI.displayName(); } catch (e){}
-  if (name && me && String(name).toLowerCase() === String(me).toLowerCase()) return avatar();
-  return defaultFaceFor(name);
+  return describe(name, { hint: hint }).face;
 }
 
 /* Drawn by js/progress-ui.js, which owns the sprite. With the UI file
@@ -1344,11 +1339,13 @@ function duelOver(ev){
    ═══════════════════════════════════════════════════════════════════ */
 var UI = null;                   /* filled by js/progress-ui.js        */
 
-/* The wrappers are applied on load and re-checked a few times: this
-   file loads after party.js, klabb.js and the rest, but a module that
-   replaces its own export later (or a deploy that reorders the loader)
-   must not quietly cost the player every party game's XP. Cheap, and
-   it stops after twelve seconds. */
+/* The wrappers are applied on load and re-checked on a timer: this file
+   now loads BEFORE party.js and klabb.js (it moved up the loader so the
+   home pill has a face on the frame home first paints), so the first
+   pass finds nothing and the timer does the real wiring as those files
+   land. It stands down the moment all three hooks are on, and gives a
+   slow connection a full minute rather than twelve seconds — a phone
+   that takes 20s to fetch party.js must not quietly lose party XP. */
 registerBorders();
 
 function wireAll(){
@@ -1358,9 +1355,19 @@ function wireAll(){
   ok += wrapPartyUI() ? 1 : 0;
   return ok;
 }
+function allWired(){
+  try {
+    return !!(window.KARTI_PARTY && KARTI_PARTY.record && KARTI_PARTY.record.__kx &&
+              window.KARTI_KLABB && KARTI_KLABB.record && KARTI_KLABB.record.__kx &&
+              KARTI_PARTY.ui && KARTI_PARTY.ui.result && KARTI_PARTY.ui.result.__kx);
+  } catch (e){ return false; }
+}
 wireAll();
 var tries = 0;
-var wireT = setInterval(function(){ wireAll(); if (++tries > 12) clearInterval(wireT); }, 1000);
+var wireT = setInterval(function(){
+  wireAll();
+  if (allWired() || ++tries > 60) clearInterval(wireT);
+}, 1000);
 
 /* A profile switch has to move the ladder with it. Nothing is cached,
    so the only thing to reset is the in-memory repeat guard and the

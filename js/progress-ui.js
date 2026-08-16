@@ -110,25 +110,43 @@ function gameDef(id){
   return { id:id, name:pretty, icon:'deck', mono:'??', accent:'#A093C4' };
 }
 
-function faceAccent(id){
-  var f = XP.face(id);
-  return (f && f.ax) || '#FFC542';
-}
-
 /* ═══════════════════════════════════════════════════════════════════
    1. FACES, WHEREVER A PLAYER IS
-   Two ways in. `data-kx-av="<name>"` is the explicit one and is what
-   js/mp.js's lobby roster and a game's seat plate should use. The
-   second is js/game.js's existing `<span class="avatar">T</span>` —
-   the profile chip and the log-in list — which is upgraded in place
-   rather than by editing two innerHTML strings in a file that belongs
-   to somebody else.
 
-   The observer exists because js/game.js repaints the chip on every
-   renderHome() and would wipe the face off it otherwise. It is
-   debounced to one animation frame, only ever looks at elements it has
-   not already done, and marks what it touches — so it converges after
-   one pass and cannot chase its own tail.
+   ONE WAY TO DRAW A PLAYER, BY CONSTRUCTION. This screen was wrong
+   three times in one day, and all three faults had the same shape:
+   somewhere had its own way of turning a player into markup — a bare
+   initial here, a describe() call skipped there, a photograph mounted
+   on one branch and not the other. So the branches are gone:
+
+     · XP.describe(name, opts) is the ONLY statement of what a player
+       looks like — face, ring, photograph URL. Nothing else decides.
+     · avatarHTML() below is the ONLY renderer, and it is nothing but
+       describe() handed to FACES.frame(). Every surface — the home
+       pill, the profile sheet, this screen, the record book, the
+       leaderboard — is a call to it, directly or via the span.
+     · wirePics() is the ONLY thing that mounts a photograph, and it
+       runs unconditionally after every paint plus on every DOM sweep,
+       so there is no branch left that can forget it.
+
+   The declarative form, for markup that is written before this file
+   has painted it (or by files that must stay markup-only):
+
+     <span data-kx-av="<name>" data-kx-size="34"
+           data-kx-face="hint" data-kx-who="acct" data-kx-pv="3"
+           data-kx-border="sea"></span>
+
+   paintOne() reads those attributes, calls avatarHTML() and mounts
+   the photo — it OWNS NO RENDERING LOGIC OF ITS OWN, so it cannot
+   disagree with a direct call. The old second branch, which upgraded
+   js/game.js's bare `<span class="avatar">T</span>` with hand-built
+   mark+ring markup, is deleted; js/game.js now writes the span above
+   itself (with the initial inside as the no-module fallback).
+
+   The observer exists because screens repaint their own DOM whenever
+   they like and the spans arrive empty. It is debounced to one
+   animation frame and every span carries a stamp of what it was last
+   painted as, so it converges in one pass and cannot chase its tail.
    ═══════════════════════════════════════════════════════════════════ */
 function avatarHTML(name, opts){
   var o = opts || {};
@@ -210,48 +228,31 @@ function wirePics(root){
   });
 }
 
-function nameNear(el){
-  /* the log-in list: <button class="userrow"><span class="avatar">T</span><span class="n">Terence</span> */
-  var row = el.closest ? el.closest('.userrow') : null;
-  if (row){ var n = $('.n', row); if (n) return n.textContent.trim(); }
-  /* the profile chip is always the player who is signed in */
-  if (el.parentNode && el.parentNode.id === 'profile-chip'){
-    try { if (window.KARTI && KARTI.displayName) return KARTI.displayName(); } catch (e){}
-  }
-  var t = (el.parentNode && el.parentNode.textContent || '').trim();
-  return t || el.textContent.trim();
-}
-
+/* Fill one declarative span. Everything it knows comes off the
+   attributes; everything it draws comes out of avatarHTML(); the
+   photograph goes through wirePics() every single time. There is no
+   second branch for this function to disagree with itself in. */
 function paintOne(el){
-  var explicit = el.getAttribute('data-kx-av');
-  var name = explicit != null && explicit !== '' ? explicit : nameNear(el);
-  var id = XP.avatarFor(name, el.getAttribute('data-kx-face') || '');
-  var d = XP.describe(name, { hint: el.getAttribute('data-kx-face') || '' });
-  var stamp = d.face + '|' + (d.border || '') + '|' + (d.pic || '');
+  var name = el.getAttribute('data-kx-av') || '';
+  var o = { size: parseInt(el.getAttribute('data-kx-size'), 10) || 34,
+            hint: el.getAttribute('data-kx-face') || '' };
+  /* the relay-published look of somebody who is not on this phone —
+     a roster or a seat plate writes these beside the name. No pv, no
+     photograph, no request: exactly describe()'s rule. */
+  var who = el.getAttribute('data-kx-who');
+  if (who) o.who = who;
+  var bd = el.getAttribute('data-kx-border');
+  if (bd) o.border = bd;
+  var pv = el.getAttribute('data-kx-pv');
+  if (pv != null && pv !== '') o.pv = pv | 0;
+
+  /* the stamp is describe()'s own answer, so the span repaints when —
+     and only when — the truth about the player has changed */
+  var d = XP.describe(name, o);
+  var stamp = o.size + '|' + d.face + '|' + (d.border || '') + '|' + (d.pic || '');
   if (el.getAttribute('data-kx-done') === stamp) return;
-  if (explicit != null){
-    var sz = parseInt(el.getAttribute('data-kx-size'), 10) || 34;
-    /* me:true, because this box was written with a name ON PURPOSE — the
-       profile sheet and the customisation screen both do — and inferring
-       "is this me" from a string comparison is a worse answer than being
-       told. */
-    el.innerHTML = avatarHTML(name, { size:sz, me:true });
-    /* AND MOUNT THE PHOTOGRAPH. avatarHTML only writes data-kx-pic; wirePics
-       is what probes it and puts the decoded image in. The other branch below
-       calls it and this one did not, so the drawn face appeared everywhere and
-       the photograph appeared only where something else happened to sweep the
-       subtree afterwards — which is why it showed on the home pill and not in
-       the profile sheet or the customisation screen. */
-    wirePics(el);
-  } else {
-    /* somebody else's box — the mark, and the ring over it, and leave
-       the box itself alone. The border follows a player everywhere a
-       player is, including into a chip this file did not build. */
-    el.innerHTML = FACES.mark(id, 'kx-in') + FACES.ring(d.border);
-    el.style.color = faceAccent(id);
-    if (d.pic){ el.setAttribute('data-kx-pic', d.pic); wirePics(el.parentNode || el); }
-    else el.removeAttribute('data-kx-pic');
-  }
+  el.innerHTML = avatarHTML(name, o);
+  wirePics(el);
   el.setAttribute('data-kx-done', stamp);
 }
 
@@ -261,7 +262,6 @@ function repaintAvatars(root){
   var r = root || document;
   try {
     $$('[data-kx-av]', r).forEach(paintOne);
-    $$('.avatar', r).forEach(paintOne);
     wirePics(r);
   } catch (e){}
 }
@@ -1420,6 +1420,14 @@ if (FACES) FACES.ready();
 if (document.readyState === 'loading')
   document.addEventListener('DOMContentLoaded', watchAvatars);
 else watchAvatars();
+
+/* Any change to what a player wears repaints every avatar span, HERE,
+   in the module that owns them. js/game.js used to re-render the whole
+   home screen from its own onEquip listener to get the pill repainted —
+   a full-screen rebuild for a 32px face, and it also fired on every
+   register() batch a late-loading game sent. The stamp in paintOne()
+   makes this a no-op for events that change nothing. */
+try { XP.onEquip(function(){ queueRepaint(); }); } catch (e){}
 
 /* Android back: while the level-up card is holding, a back press should
    put it away, not walk out of the screen underneath it. */

@@ -263,10 +263,15 @@ function injectCSS(){
       'fill:currentColor;stroke:' + INK + ';stroke-width:1.4;stroke-linejoin:round;' +
       'paint-order:stroke fill;overflow:visible}' +
     '.kx-av[data-sm="1"]>svg{stroke-width:1}' +
-    /* the face dropped straight into somebody else's round chip
-       (js/game.js's .avatar) — no frame of ours, just the mark */
-    '.avatar>svg.kx-in{display:block;width:100%;height:100%;fill:currentColor;' +
-      'stroke:' + INK + ';stroke-width:1.5;stroke-linejoin:round;paint-order:stroke fill}' +
+    /* the declarative box js/progress-ui.js fills. It holds exactly one
+       medallion, so it is a transparent grid the medallion sits in —
+       and when the box is js/game.js's old gold .avatar chip, the gold
+       goes: the medallion IS the avatar now, and a gold rim peeking out
+       at the corners would be a border nobody equipped. (With the XP
+       modules missing the rule is never injected and the chip stays a
+       gold square wearing an initial, which is the honest fallback.) */
+    '[data-kx-av]{display:inline-grid;place-items:center;line-height:0}' +
+    '.avatar[data-kx-av]{background:none}' +
 
     /* ── the player's own photograph ──────────────────────────────
        Same medallion, same frame, so a photo and a drawn face are the
@@ -274,7 +279,6 @@ function injectCSS(){
        the canvas already did, so a picture can never letterbox. */
     '.kx-av>img.kx-ph{display:block;width:100%;height:100%;object-fit:cover;' +
       'border-radius:inherit}' +
-    '.avatar>img.kx-ph{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}' +
 
     /* ═══════════════════════════════════════════════════════════
        BORDERS
@@ -293,7 +297,7 @@ function injectCSS(){
        rule covers a 26px leaderboard face and a 96px picker tile. */
     '.kx-ring{position:absolute;inset:0;border-radius:inherit;pointer-events:none;' +
       '--kx-bw:max(2px,calc(var(--kx-size,38px) * .075));--kx-fb:rgba(255,255,255,.5)}' +
-    '.kx-av>.kx-ring,.avatar>.kx-ring{z-index:2}' +
+    '.kx-av>.kx-ring{z-index:2}' +
 
     /* the patterned ones are ONE technique: a full-bleed background
        masked down to the band. Unsupported engines never see the mask
@@ -456,8 +460,10 @@ window.KARTI_FACES = {
   frame: frameHTML,
   ready: ready,
   INK: INK,
-  /* the border ladder, and the ring on its own for a caller with a
-     box of its own (js/game.js's round .avatar chip) */
+  /* the border ladder. ring() is frame()'s own ingredient, exported for
+     completeness — nothing should draw a ring around a box that did not
+     come out of frame(), because that is how a ring ends up the wrong
+     size for the face it circles (it happened: 38px ring, 32px chip). */
   BORDERS: BORDERS,
   border: function(id){ return B_BY[id] || null; },
   ring: ringHTML
