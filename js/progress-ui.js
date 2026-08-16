@@ -1266,6 +1266,21 @@ function wireItems(host){
    account and your face follows you to the leaderboard" is a better
    argument for signing up than anything on the sign-up screen.
    ═══════════════════════════════════════════════════════════════════ */
+function photoState(){
+  var bits = [];
+  try {
+    var st = XP._state ? XP._state() : null;
+    bits.push('on the Pi as v' + ((st && st.pv) | 0));
+    bits.push(XP.photo && String(XP.photo()).slice(0, 5) === 'data:'
+      ? 'copy on this phone'
+      : 'not stored on this phone');
+    bits.push(XP.usingPhoto() ? 'worn' : 'not worn');
+    bits.push(picFail ? 'DID NOT LOAD' : 'loaded');
+  } catch (e){ bits.push('state unreadable'); }
+  bits.push('build ' + (window.KARTI_BUILD || '?'));
+  return bits.join(' · ');
+}
+
 function photoHTML(){
   var can = XP.canPhoto(), has = XP.hasPhoto(), on = XP.usingPhoto();
   var name = '';
@@ -1285,6 +1300,12 @@ function photoHTML(){
       '</i></span>' +
       '<span class="kx-st' + (on ? ' on' : '') + '">' + (on ? 'Worn' : has ? 'Wear' : '') + '</span>' +
     '</div>' +
+    /* THE STATE, IN WORDS. A photograph has four separate things that can be
+       true or false — it is on the Pi, this phone has a copy, you are wearing
+       it, and the picture actually loaded — and when the answer is "you see a
+       nanna" all four look identical from the outside. Saying which is which
+       turns a guessing game into a glance. */
+    (has ? '<p class="kx-pstate">' + esc(photoState()) + '</p>' : '') +
     (can
       ? '<div class="kx-prow">' +
           '<button type="button" class="kx-pbtn" id="kx-pick-file">' +
