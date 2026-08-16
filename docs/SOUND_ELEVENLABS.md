@@ -486,6 +486,32 @@ set by design.
 | tombla.near | tombla-near.mp3 | 1.4 | 0.75 | false | 0.58 | Two warm mellow marimba notes rising a step and held, unresolved and expectant, dark and rounded, close and clearly audible, single isolated sound effect, no percussion, no alarm, no reverb tail, no music bed |
 | tombla.shout | tombla-shout.mp3 | 2.0 | 0.75 | false | 1.74 | A small indoor crowd of a dozen people reacting together in one warm swell of delight, a single mellow hand bell struck once through it, close and roomy but not a stadium, no words, no cheering chant, single isolated sound effect, no music |
 
+### 6.8 THE XP MOMENT — 4 files (fourth pass)
+
+Seen after **every single game**, which is the only fact that matters when
+designing it. `ui.reward` already exists and is the right sound for a small
+win; these four are the progression cue specifically, and they are deliberately
+kept apart so the end-of-game screen can be one designed sequence rather than
+four sounds fired near each other.
+
+The order they play in: **tick** while the number counts, **fill** as the bar
+runs, **level** only when it crosses, **unlock** when the thing you earned is
+shown. Most games play the first two and stop — a level is rare and must feel
+it.
+
+Two constraints carried from everything already learned here. Everything is
+named for what a **phone speaker** can reproduce first and body second, because
+measuring through a 500 Hz high-pass is what caught `duel.boss` being 31 dB
+down and inaudible. And the word "soft" never appears, because ElevenLabs takes
+it literally and returns a file at the noise floor.
+
+| id | file | duration_seconds | prompt_influence | loop | trim_to | prompt |
+|---|---|---|---|---|---|---|
+| xp.tick | xp-tick.mp3 | 0.5 | 0.9 | false | 0.10 | One small glass bell tapped once high and clean, a warm wooden body under it, very short, close and clearly audible, single isolated sound effect, clean foley recording, no ring out, no reverb, no music |
+| xp.fill | xp-fill.mp3 | 1.5 | 0.75 | false | 1.10 | A warm mellow tone rising steadily in pitch and swelling as it climbs, glass and wood together, smooth and even with no wobble, close and clearly audible, rounded not piercing, ending on a held note, single isolated sound effect, no percussion, no reverb tail, no music bed |
+| xp.level | xp-level.mp3 | 2.5 | 0.7 | false | 2.10 | A short warm flourish of bright bells rising to a single struck chime, a mellow brass swell underneath rising with them, celebratory and generous but rounded and unhurried, close and clearly audible, ending clean, single isolated sound effect, no fanfare trumpets, no cymbal, no reverb wash, no music bed |
+| xp.unlock | xp-unlock.mp3 | 1.2 | 0.8 | false | 0.85 | A wooden box lid lifting and settling open with one bright glass chime landing over it, warm and satisfying, close and clearly audible, dry and rounded, single isolated sound effect, clean foley recording, no creak, no reverb, no music |
+
 ### 6.6 Ambience loops — 2 files (optional, do last)
 
 **Set `loop: true` and use `eleven_text_to_sound_v2`** for these two rows only.

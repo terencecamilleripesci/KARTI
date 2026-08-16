@@ -96,6 +96,20 @@
     'ui.reward':   { f: 'ui-reward.mp3',   g: 0.70 },
     'ui.coin':     { f: 'ui-coin.mp3',     g: 0.68 },
 
+    /* THE XP LADDER — same measured compensation as the rarity stings, and for
+       the same reason: an evenly rising set of gains produced a ladder where the
+       LEVEL-UP, which happens rarely and is the payoff, was quieter through a
+       phone speaker than the tick that fires dozens of times a screen. What the
+       player hears is file level + gain, and that is what these make rise.
+       xp.tick is the quietest thing here on purpose — it is heard after every
+       game, dozens of times per screen, and it is the first sound the ear tires
+       of. Re-measure before changing any of them:
+         ffmpeg -i audio/xp-*.mp3 -af highpass=f=500,volumedetect -f null - */
+    'xp.tick':     { f: 'xp-tick.mp3',     g: 0.21 },
+    'xp.fill':     { f: 'xp-fill.mp3',     g: 0.29 },
+    'xp.unlock':   { f: 'xp-unlock.mp3',   g: 1.00 },
+    'xp.level':    { f: 'xp-level.mp3',    g: 1.00 },
+
     /* ── the duel ── */
     'duel.start':  { f: 'duel-start.mp3',  g: 0.72 },
     'duel.draw':   { f: 'duel-draw.mp3',   g: 0.55 },
