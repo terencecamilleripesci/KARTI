@@ -74,7 +74,15 @@ var GAMES = [
   { id:'bixkla',      name:'Bixkla',        sub:'playing cards',     logo:'logo-party', icon:'cards',   mono:'BX', accent:'#8A5CFF', sig:'score'  },
   { id:'briscola',    name:'Briscola',      sub:'playing cards',     logo:'logo-party', icon:'cards',   mono:'BR', accent:'#3DDC84', sig:'score'  },
   { id:'sette',       name:'Sette e Mezzo', sub:'playing cards',     logo:'logo-party', icon:'coin',    mono:'SM', accent:'#E8452C', sig:'score'  },
-  { id:'cheat',       name:'Il-Gidba',      sub:'playing cards',     logo:'logo-party', icon:'discard', mono:'GD', accent:'#FF5468', sig:'streak' }
+  { id:'cheat',       name:'Il-Gidba',      sub:'playing cards',     logo:'logo-party', icon:'discard', mono:'GD', accent:'#FF5468', sig:'streak' },
+  /* Tombla was never in this list, so every tombla result the record book
+     has ever counted was drawn through the unknown-id fallback row — it
+     counted correctly and looked like nothing. The three new games would
+     have joined it there. */
+  { id:'tombla',      name:'Tombla',        sub:'party games',       logo:'logo-tombla',  icon:'coin',    mono:'TB', accent:'#FFB300', sig:'streak' },
+  { id:'gharraq',     name:'Għarraqhom!',   sub:'party games',       logo:'logo-gharraq', icon:'bomb',    mono:'GĦ', accent:'#4FA9E8', sig:'moves'  },
+  { id:'rummy',       name:'Rummy',         sub:'playing cards',     logo:'logo-rummy',   icon:'cards',   mono:'RM', accent:'#3DDC84', sig:'score'  },
+  { id:'gin',         name:'Gin Rummy',     sub:'playing cards',     logo:'logo-gin',     icon:'deck',    mono:'GN', accent:'#D8C79B', sig:'score'  }
 ];
 
 var BY_ID = {};
