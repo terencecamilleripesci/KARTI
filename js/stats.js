@@ -81,7 +81,7 @@ var GAMES = [
      have joined it there. */
   { id:'tombla',      name:'Tombla',        sub:'party games',       logo:'logo-tombla',  icon:'coin',    mono:'TB', accent:'#FFB300', sig:'streak' },
   { id:'gharraq',     name:'Għarraqhom!',   sub:'party games',       logo:'logo-gharraq', icon:'bomb',    mono:'GĦ', accent:'#4FA9E8', sig:'moves'  },
-  { id:'rummy',       name:'Rummy',         sub:'playing cards',     logo:'logo-rummy',   icon:'cards',   mono:'RM', accent:'#3DDC84', sig:'score'  },
+  { id:'rummy',       name:'Rummy',         sub:'playing cards',     logo:'logo-rummy',   icon:'cards',   mono:'RM', accent:'#3DDC84', sig:'streak' },
   { id:'gin',         name:'Gin Rummy',     sub:'playing cards',     logo:'logo-gin',     icon:'deck',    mono:'GN', accent:'#D8C79B', sig:'score'  }
 ];
 

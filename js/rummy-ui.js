@@ -5,25 +5,25 @@
    deliberately: a match is (opts, seed, log), every move goes through
    one doMove() gate, and rollback is cutting the log and replaying.
 
+   THE GAME ON THIS SCREEN (the owner's own words are in the engine
+   header): one game, seven cards or ten, hold everything, draw one,
+   throw one, and the moment your whole hand is melds — 4+3, or
+   4+3+3 — you tap RUMMY! and you have won. No points anywhere on
+   this screen: no deadwood, no totals, no target. After a win every
+   seat answers PLAY AGAIN or leaves, and the table keeps the human
+   scoreboard — hands won and streaks — read straight off st.book.
+
    WHAT THIS FILE IS
-     · the shelf tile and the setup sheet (seats, DECKS — enforced,
-       see js/rummy.js's header — jokers, match length, the machine)
-     · the felt: opponents strip, stock + pile, the meld shelf, the
-       hand, and the two buttons a turn is made of
+     · the shelf tile and the setup sheet (hand size, seats, DECKS —
+       enforced, see js/rummy.js — jokers, the machine), with the
+       rules FOLDED shut so starting a game is short
+     · the felt: opponents rail, stock + pile, your own arrangement
+       (the melds you hold and the cards not working yet), the hand,
+       and the two buttons a turn is made of — RUMMY! and Throw
+     · the play-again vote and the table tally after every won hand
      · the runner: log, seed, autosave (karti_rummy_v1), undo offline
      · the online half js/mp.js drives: KARTI_RUMMY.lobby and
        KARTI_PARTY.online.rummy
-
-   THE PHONE PROBLEM, SOLVED WHERE IT IS WORST
-     Twelve people means eleven other hands, a growing shelf of melds
-     and your own thirteen cards on a 390-point screen. The answer:
-     · other players are a RAIL of plates (name · cards · score) that
-       scrolls sideways and keeps whoever is on turn in view — the
-       skarta answer, which ten seats already proved out;
-     · the melds are a SHELF of compact stacks that wraps and scrolls
-       vertically — each meld is one tap target for laying off;
-     · your hand uses klabb's fan arithmetic, which wraps to a second
-       row before a card gets too narrow to read.
 
    HOUSE RULES OBEYED
      · borrows #scr-party via KARTI_PARTY, injects its own CSS once,
@@ -52,13 +52,17 @@ const clone = o => JSON.parse(JSON.stringify(o));
 
 /* ── our corner of localStorage ──────────────────────────────────── */
 const STORE = 'karti_rummy_v1';
+const SAVE_V = 2;      /* v1 saves are the old scored, melds-on-the-table
+                          game and cannot replay through these rules —
+                          they are dropped here, quietly and honestly,
+                          instead of desyncing a resumed hand */
 let ST = { v:1, pref:{}, rec:{ w:0, l:0, d:0 }, save:null };
 try {
   const j = JSON.parse(localStorage.getItem(STORE) || 'null');
   if (j && typeof j === 'object'){
     ST.pref = (j.pref && typeof j.pref === 'object') ? j.pref : {};
     ST.rec  = (j.rec  && typeof j.rec  === 'object') ? j.rec  : ST.rec;
-    ST.save = j.save || null;
+    ST.save = (j.save && j.save.v === SAVE_V) ? j.save : null;
   }
 } catch(e){}
 let persistPending = 0;
@@ -87,11 +91,20 @@ function saveSlot(snap){ ST.save = snap || null; persist(); }
 
 /* ── UI-only preferences, in their OWN key (il-kiri's dock rule): a
    UI preference is not the game. Binning or finishing a game must
-   never forget that you keep the rules out, and clearing this must
-   never touch a saved hand. ──────────────────────────────────────── */
+   never forget how you keep the rules folded, and clearing this must
+   never touch a saved hand in karti_rummy_v1. Two flags live here:
+   the in-game rules panel, and the setup sheet's rules fold. ─────── */
 const UIKEY = 'karti_rummy_ui_v1';
 let rulesOpen = false;
+let setupOpen = false;               /* the setup sheet's rules — CLOSED by
+                                        default, because starting a game
+                                        should be short */
 try { rulesOpen = localStorage.getItem(UIKEY + '.rules') === '1'; } catch(e){}
+try { setupOpen = localStorage.getItem(UIKEY + '.setup') === '1'; } catch(e){}
+function setSetupOpen(open){
+  setupOpen = !!open;
+  try { localStorage.setItem(UIKEY + '.setup', setupOpen ? '1' : '0'); } catch(e){}
+}
 
 /* the machine, by the club's own names — read off klabb's published
    lobby so a difficulty is called the same thing at every table */
@@ -269,7 +282,7 @@ function injectCSS(){
       'border:1px solid rgba(0,0,0,.45);' +
       'box-shadow:inset 0 1px 0 rgba(255,255,255,.06),inset 0 -12px 26px rgba(0,0,0,.35)}' +
     /* the etched inner ring: an empty middle still reads as laid on
-       purpose — which is GĦAXRA every hand, where nothing goes down */
+       purpose — which is every hand here, where nothing goes down */
     '#scr-party .rm-draws::before{content:"";position:absolute;inset:6px;border-radius:9px;' +
       'border:1px solid rgba(255,255,255,.07);pointer-events:none}' +
     '#scr-party .rm-slot{position:relative;z-index:1;display:flex;flex-direction:column;' +
@@ -306,29 +319,24 @@ function injectCSS(){
       'font:900 10.5px/1 var(--disp);color:#241800;background:var(--rm-gold);' +
       'border:1px solid #FFE9B0;box-shadow:0 2px 5px rgba(0,0,0,.5)}' +
 
-    /* ── the meld shelf ── */
+    /* ── the arrangement shelf: YOUR melds and the cards not working
+       yet — hand organisation, never a score ── */
     '#scr-party .rm-melds{flex:1;min-height:52px;display:flex;flex-wrap:wrap;gap:7px 9px;' +
-      'align-content:flex-start;justify-content:center;overflow-y:auto;overflow-x:hidden;' +
+      'align-content:center;justify-content:center;overflow-y:auto;overflow-x:hidden;' +
       'padding:5px 3px;border-radius:12px;background:rgba(0,0,0,.16);' +
       '-webkit-overflow-scrolling:touch}' +
     '#scr-party .rm-meld{flex:0 0 auto;display:flex;align-items:center;padding:5px 6px 4px;' +
-      'border:1px solid transparent;border-radius:10px;background:none;line-height:0;' +
-      '-webkit-tap-highlight-color:transparent}' +
+      'border:1px solid transparent;border-radius:10px;background:none;line-height:0}' +
     '#scr-party .rm-meld .kb-card{margin-left:-17px;box-shadow:0 1px 3px rgba(0,0,0,.5)}' +
     '#scr-party .rm-meld .kb-card:first-child{margin-left:0}' +
-    '#scr-party .rm-meld.can{background:rgba(61,220,132,.14);' +
-      'border-color:rgba(61,220,132,.6)}' +
-    '#scr-party .rm-meld.can:active{background:rgba(61,220,132,.3)}' +
-    /* GĦAXRA's loose pile — the cards that are not working yet, set
-       apart from the melds by a dashed rule rather than by colour */
+    /* the loose pile — the cards that are not working yet, set apart
+       from the melds by a dashed rule rather than by colour */
     '#scr-party .rm-loose{border-style:dashed;border-color:rgba(255,255,255,.22);' +
       'border-radius:10px;opacity:.85}' +
-    /* GĦAXRA never fills this shelf — three small melds at most — so
-       its arrangement is centred in the space rather than pinned to
-       the top with a hole under it */
-    '#scr-party .rm-melds.rm-gx{align-content:center}' +
     '#scr-party .rm-none{width:100%;font:700 10.5px/1.5 var(--disp);letter-spacing:.11em;' +
       'text-transform:uppercase;color:rgba(255,255,255,.3);text-align:center;padding:14px 8px}' +
+    /* the winning reveal lands as a victory, not a caption */
+    '#scr-party .rm-none.rm-won{color:var(--rm-gold);font-size:13px;padding:4px 8px}' +
 
     /* ── the hint and the hand ── */
     '#scr-party .rm-say{flex:0 0 auto;font:700 11px/1.45 var(--body);color:rgba(255,255,255,.8);' +
@@ -349,19 +357,23 @@ function injectCSS(){
     '#scr-party .rm-act[disabled]{opacity:.38}' +
     '#scr-party .rm-act:not([disabled]):active{transform:translateY(2px);box-shadow:none}' +
 
-    /* ── the interlude between hands (multi-hand matches) ── */
+    /* ── the table tally (hands won · streaks) and the vote ── */
     '#scr-party .rm-book{width:100%;max-width:300px;margin:6px auto;border-collapse:collapse}' +
     '#scr-party .rm-book td{padding:4px 8px;font-size:11.5px;color:rgba(255,255,255,.8);' +
       'border-bottom:1px solid rgba(255,255,255,.1)}' +
-    '#scr-party .rm-book td.n{text-align:right;font:700 12px/1 ui-monospace,SFMono-Regular,' +
-      'Menlo,monospace}' +
+    '#scr-party .rm-book td.n{text-align:right;font:700 11px/1.4 ui-monospace,SFMono-Regular,' +
+      'Menlo,monospace;white-space:nowrap}' +
     '#scr-party .rm-book tr.win td{color:var(--rm-gold)}' +
+    '#scr-party .rm-book tr.out td{color:rgba(255,255,255,.38)}' +
+    '#scr-party .rm-book td i{font-style:normal;color:rgba(255,255,255,.45);font-size:10px}' +
 
     /* ── the rules: a panel that HIDES AND SLIDES, not a wall. It
        drops from the top of the table and stops well above the hand,
        because a rule is only useful next to the cards it applies to.
        No scrim — the table under it stays live. transform+opacity
-       only, and reduced motion gets an instant show/hide. ── */
+       only, and reduced motion gets an instant show/hide. The table
+       tally lives at the top of it, so the scoreboard is one tap away
+       mid-hand without covering the cards. ── */
     '#scr-party .rm-rules{position:absolute;top:0;left:0;right:0;z-index:30;max-height:54%;' +
       'display:flex;flex-direction:column;border-radius:14px;overflow:hidden;' +
       'background:linear-gradient(180deg,#1D2F55,#101E3C);border:1px solid rgba(255,255,255,.16);' +
@@ -386,8 +398,12 @@ function injectCSS(){
     '#scr-party .rm-rules-b ul{margin:0;padding:0}' +
     '#scr-party .rm-rules-b li{font-size:12px;line-height:1.6;color:var(--dim);' +
       'margin:0 0 6px 14px}' +
+    '#scr-party .rm-rules-b .rm-tallyh{font:900 10px/1 var(--disp);letter-spacing:.11em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.5);margin:4px 0 2px}' +
 
-    /* ── the setup sheet's deck line ── */
+    /* ── the setup sheet: the deck line, the steppers, and the rules
+       FOLD — grid-rows 0fr→1fr for the height, transform+opacity on
+       the list inside, so it slides instead of appearing ── */
     '#scr-party .rm-why{font-size:11.5px;line-height:1.6;margin:8px 2px 0;padding:9px 11px;' +
       'border-radius:12px;text-transform:none;letter-spacing:0;color:#CFE0FF;' +
       'background:rgba(80,130,255,.10);border:1px solid rgba(80,130,255,.32)}' +
@@ -400,20 +416,38 @@ function injectCSS(){
     '#scr-party .rm-rnd{width:46px;height:46px;border-radius:12px;font:900 22px/1 var(--disp);' +
       'color:var(--txt);background:rgba(255,255,255,.09);border:1px solid rgba(255,255,255,.2)}' +
     '#scr-party .rm-rnd[disabled]{opacity:.35}' +
+    '#scr-party .rm-fold-h{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
+      'border:0;background:none;padding:2px 0;margin:0;color:var(--txt);cursor:pointer;' +
+      'min-height:44px;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .rm-fold-h span{flex:1;min-width:0}' +
+    '#scr-party .rm-fold-h b{display:block;font:900 10px/1.4 var(--disp);letter-spacing:.11em;' +
+      'text-transform:uppercase;color:var(--gold,#FFC542)}' +
+    '#scr-party .rm-fold-h i{display:block;font-style:normal;font-size:10.5px;line-height:1.4;' +
+      'color:var(--dim);margin-top:3px}' +
+    '#scr-party .rm-fold-h em{flex:0 0 auto;width:24px;height:24px;display:grid;' +
+      'place-items:center;color:var(--dim)}' +
+    '#scr-party .rm-fold-h em svg{width:15px;height:15px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transform:rotate(90deg);' +
+      'transition:transform .22s var(--ease)}' +
+    '#scr-party .rm-fold-h[aria-expanded="true"] em svg{transform:rotate(-90deg)}' +
+    '#scr-party .rm-fold-b{display:grid;grid-template-rows:0fr;' +
+      'transition:grid-template-rows .28s var(--ease)}' +
+    '#scr-party .rm-fold-b.open{grid-template-rows:1fr}' +
+    '#scr-party .rm-fold-i{overflow:hidden;min-height:0}' +
+    '#scr-party .rm-fold-i ul{transform:translateY(-10px);opacity:0;' +
+      'transition:transform .28s var(--ease),opacity .28s var(--ease)}' +
+    '#scr-party .rm-fold-b.open .rm-fold-i ul{transform:none;opacity:1}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .rm-fold-b,#scr-party .rm-fold-i ul' +
+      '{transition:none}}' +
+    'body.reduced #scr-party .rm-fold-b,body.reduced #scr-party .rm-fold-i ul{transition:none}' +
 
     /* ── short screens (landscape phones) ──
        A landscape phone gets ~200px of felt and the portrait stack
        cannot fit it — so the felt becomes TWO COLUMNS: the table
-       (stock, pile, melds) on the left, your hand and its buttons on
-       the right, the player rail across the top. Nothing sits below
-       the fold; the meld shelf alone scrolls. */
+       (stock, pile, arrangement) on the left, your hand and its
+       buttons on the right, the player rail across the top. Nothing
+       sits below the fold; the arrangement shelf alone scrolls. */
     '@media (max-height:520px){' +
-      /* THE HAND GETS THE FULL WIDTH. It used to share a row with the
-         table in two columns, which was fine for a seven-card classic
-         hand and broke the moment GĦAXRA dealt eleven: the fan wrapped
-         to a second row inside a narrow column and sat on top of the
-         buttons. Table furniture side by side, hand across the bottom,
-         buttons under it — nothing overlaps at any hand size. */
       '#scr-party .rm-table{display:grid;column-gap:10px;row-gap:3px;padding:5px 6px 6px;' +
         'grid-template-columns:auto minmax(0,1fr);' +
         /* the felt row has a FLOOR: a 40px card is 56 tall and the felt
@@ -424,11 +458,6 @@ function injectCSS(){
         'grid-template-areas:"opps opps" "draws melds" "hand hand" "acts acts";' +
         'overflow-y:auto;-webkit-overflow-scrolling:touch}' +
       '#scr-party .rm-opps{grid-area:opps}' +
-      /* the felt keeps its surface in the side-by-side layout — it
-         stretches to match the meld shelf's row instead of growing.
-         The slot labels go the way of the hint line: ~66px of felt
-         has no row for captions, and the count badge and the glow
-         say which slot is which. */
       '#scr-party .rm-draws{grid-area:draws;align-self:stretch;min-height:0;max-height:none;' +
         'padding:5px 9px 3px;gap:14px}' +
       '#scr-party .rm-slot{gap:0}' +
@@ -436,8 +465,6 @@ function injectCSS(){
       '#scr-party .rm-count{top:-2px;right:-6px}' +
       '#scr-party .rm-melds{grid-area:melds;min-height:30px;overflow-y:auto;' +
         'align-content:center}' +
-      /* the hint line goes: the glowing buttons and the aria labels
-         carry it, and 200px of felt has no row to spare */
       '#scr-party .rm-say{display:none}' +
       '#scr-party .rm-hand{grid-area:hand;align-self:end}' +
       '#scr-party .rm-row{padding-top:4px}' +
@@ -495,10 +522,12 @@ function startMatch(opts, seed, log){
     log: log ? clone(log) : [],
     st: null, ctx: null,
     tmp: {},                       /* sel: cards picked up off the hand */
-    timer: 0, dead: false, finished: false,
+    timer: 0, voteTimer: 0, dead: false, finished: false,
+    recorded: 0,                   /* book rows already sent to the record */
     net: null, meta: null
   };
   M.st = buildState(M.opts, M.seed, M.log);
+  M.recorded = M.st.book.length;   /* a restored save does not re-count */
   applyMeta();
   return M;
 }
@@ -513,7 +542,10 @@ function applyMeta(){
   });
 }
 function iDrive(){ return !M || !M.net || M.net.host; }
-function stopThinking(){ if (M && M.timer){ clearTimeout(M.timer); M.timer = 0; } }
+function stopThinking(){
+  if (M && M.timer){ clearTimeout(M.timer); M.timer = 0; }
+  if (M && M.voteTimer){ clearInterval(M.voteTimer); M.voteTimer = 0; }
+}
 function ownerOf(i){
   if (!M) return 'ai';
   const s = M.st.seats[i];
@@ -546,27 +578,28 @@ function rollbackTo(n){
   M.st = buildState(M.opts, M.seed, M.log);
   applyMeta();
   M.tmp = {};
+  M.recorded = Math.min(M.recorded, M.st.book.length);
   autosave();
   fire(stateSubs, { reason:'rollback', index:n });
   return n;
 }
 /* offline undo point: back to just before this player's last DRAW —
-   a turn is draw…discard, and unpicking half a turn is a mess */
+   a turn is draw…throw, and unpicking half a turn is a mess. It never
+   crosses back over a won hand: undoing somebody's RUMMY call is not
+   a thing this table does. */
 function undoPoint(){
   if (!M) return -1;
-  for (let i = M.log.length - 1; i >= 0; i--)
-    if (isLocal(M.log[i].seat) && M.log[i].t === 'draw') return i;
-  return -1;
-}
-function lastMoveOf(seat){
-  if (!M) return -1;
-  for (let i = M.log.length - 1; i >= 0; i--) if (M.log[i].seat === seat) return i;
+  for (let i = M.log.length - 1; i >= 0; i--){
+    const mv = M.log[i];
+    if (mv.t === 'out' || mv.t === 'next' || mv.t === 'stay' || mv.t === 'go') return -1;
+    if (isLocal(mv.seat) && mv.t === 'draw') return i;
+  }
   return -1;
 }
 
 function snapshot(){
   if (!M) return null;
-  return { v:1, gid:'rummy', opts:clone(M.opts), seed:M.seed, log:clone(M.log) };
+  return { v:SAVE_V, gid:'rummy', opts:clone(M.opts), seed:M.seed, log:clone(M.log) };
 }
 function autosave(){
   if (!M || M.net) return;
@@ -576,7 +609,9 @@ function autosave(){
 
 /* ═══════════════════════════════════════════════════════════════════
    THE SOUND OF A MOVE — one subscriber; rollback replays are silent
-   by construction because they never pass through doMove.
+   by construction because they never pass through doMove. The record
+   book (W/L, offline only) also hangs here: every WON HAND is a
+   result, because a hand is the whole game now.
    ═══════════════════════════════════════════════════════════════════ */
 moveSubs.push(ev => {
   if (!M || M.dead) return;
@@ -584,16 +619,24 @@ moveSubs.push(ev => {
   switch (mv.t){
     case 'draw':
       cue(mv.p ? 'pack.flip' : 'card.deal', { gain: mine ? 0.85 : 0.55 }); return;
-    case 'meld':
-      cue('card.sweep', { gain: mine ? 0.85 : 0.62, rate: mine ? 1.05 : 0.95 }, true); return;
-    case 'lay':
-      cue('card.throw', { gain: mine ? 0.7 : 0.5, rate: 1.08 }); return;
     case 'disc':
       cue('card.throw', { gain: mine ? 0.8 : 0.58 }); return;
-    /* the declaration — the hand going down flat on the table. The
+    /* the RUMMY call — the hand slapped flat on the table. The
        once-a-hand sound, so it is allowed to be the loud one. */
     case 'out':
-      cue('rummy.call', { gain: mine ? 1 : 0.8 }, true); return;
+      cue('rummy.call', { gain: mine ? 1 : 0.85 }, true);
+      if (!M.net && M.st.book.length > M.recorded){
+        M.recorded = M.st.book.length;
+        const won = isLocal(M.st.book[M.st.book.length - 1].winner);
+        const o = won ? 'w' : 'l';
+        ST.rec[o] = (ST.rec[o] | 0) + 1; persist();
+        if (typeof P.record === 'function'){ try { P.record('rummy', o); } catch(e){} }
+      }
+      return;
+    case 'stay':
+      cue('ui.tap', { gain: mine ? 0.9 : 0.6 }, true); return;
+    case 'go':
+      cue('ui.back', { gain: mine ? 0.9 : 0.6 }, true); return;
     case 'next':
       cue('card.shuffle', { gain: 0.8 }, true);
       cueIn(240, () => { const S = window.KARTI_SFX; if (S && S.run) S.run('card.deal', 6, 90, { gain: 0.5 }); });
@@ -651,11 +694,11 @@ function table(){
   root.addEventListener('click', e => {
     if (!M || M.dead) return;
     /* NOTE the hand-card selector is scoped: every card face carries
-       data-cid, including the minis inside a meld button and the top
+       data-cid, including the minis inside the arrangement and the top
        of the pile inside the draw button — an unscoped [data-cid]
        would catch those FIRST on the way up and swallow the tap. */
     const t = e.target && e.target.closest &&
-              e.target.closest('[data-draw],[data-meld],[data-act],#rm-hand [data-cid]');
+              e.target.closest('[data-draw],[data-act],#rm-hand [data-cid]');
     if (!t || t.disabled) return;
     e.preventDefault();
     onTap(t);
@@ -688,24 +731,15 @@ function onTap(t){
     tryMove({ t:'draw', p: +t.getAttribute('data-draw') });
     return;
   }
-  if (t.hasAttribute('data-meld')){
-    /* one card picked up + a glowing meld = lay it off */
-    const s = sel();
-    if (!mine || st.phase !== 'act' || s.length !== 1) return;
-    tryMove({ t:'lay', c: s[0], m: +t.getAttribute('data-meld') });
-    return;
-  }
   if (t.hasAttribute('data-act')){
     const a = t.getAttribute('data-act');
     const s = sel();
-    if (a === 'meld' && mine && st.phase === 'act' && s.length >= 3)
-      tryMove({ t:'meld', cards: s.slice() });
-    else if (a === 'out' && mine && st.phase === 'act'){
+    if (a === 'out' && mine && st.phase === 'act'){
       const c = findOut(st, me);
       if (c == null){
         /* refused, and it SAYS what is missing rather than just buzzing */
         cue('ui.error', { gain: 0.9 }, true);
-        if (K.toast) K.toast('⚠ ' + whyNotOut(E.bestCover(st.seats[me].hand))
+        if (K.toast) K.toast('⚠ ' + whyNotOut(E.bestCover(st.seats[me].hand), st.mode)
                                .replace(/<[^>]*>/g, ''));
         return;
       }
@@ -717,6 +751,16 @@ function onTap(t){
       M.tmp.sorted = !M.tmp.sorted;
       cue('ui.toggle', { gain: 0.8 }, true);
       render();
+    }
+    else if (a === 'stay' && st.phase === 'vote' && E.turn(st) === me)
+      tryMove({ t:'stay' });
+    else if (a === 'go' && st.phase === 'vote' && E.turn(st) === me){
+      P.ui.confirm(M.ctx, {
+        head:'Leave the table?',
+        why:'The others play on without you. The tally stays theirs.',
+        yes:'Leave', no:'No, stay in',
+        go: () => { tryMove({ t:'go' }); }
+      });
     }
   }
 }
@@ -736,12 +780,19 @@ function tryMove(mv){
   }
   if (M.net && M.net.onMove){ try { M.net.onMove(clone(mv), r.index); } catch(e){} }
   M.tmp.sel = [];
+  /* MY 'go' is the one vote with a next screen of its own: the leaver
+     is told the table carried on, instead of watching a game he has
+     left himself out of. */
+  if (mv.t === 'go'){ leftTable(); return; }
   render();
 }
 
-/* ── GĦAXRA: is there a declaration in this hand, and which card does
+/* ── is there a winning RUMMY call in this hand, and which card does
    it throw? Preferring the card the player has actually picked up, so
-   "select the one I want gone, tap Declare" does what it looks like. ── */
+   "select the one I want gone, tap RUMMY!" does what it looks like —
+   and when nothing is picked up the call chooses its own throw,
+   because the hand ends on the spot and the choice cannot matter to
+   anybody. One tap, never a hunt. ── */
 function findOut(st, seat){
   const me = st.seats[seat];
   if (!me || st.phase !== 'act') return null;
@@ -756,18 +807,21 @@ function findOut(st, seat){
 
 /* WHY NOT, IN WORDS. A refusal that just says "no" on a hand the
    player believes is finished is the single most infuriating thing a
-   rules engine can do, so this counts what is actually there and says
-   it. It reads bestCover(), which is the same search the engine
-   scores with — it cannot disagree with the gate. */
-function whyNotOut(cov){
+   rules engine can do, so this says what the hand is missing — shape
+   talk, never points, because this game has none. It reads
+   bestCover(), the same search the AI steers by; outCheck() stays
+   the only gate. */
+function whyNotOut(cov, mode){
+  const S = E.shapeName(mode);
   const made = cov.melds.length, loose = cov.loose.length;
   const shape = cov.melds.map(m => m.cards.length).sort((a, b) => b - a);
-  if (!made) return 'You need <b>4+3+3</b>. Nothing is arranged yet.';
+  if (!made) return 'You need <b>' + S + '</b>. Nothing is arranged yet.';
   if (loose === 0)
     return 'Every card is working, but the shape is ' + shape.join('+') +
-           ' — it has to be <b>4+3+3</b>.';
+           ' — it has to be <b>' + S + '</b>.';
   return made + (made === 1 ? ' meld' : ' melds') + ' made (' + shape.join('+') + '), <b>' +
-         loose + (loose === 1 ? ' card' : ' cards') + ' loose</b>. Throw one and keep hunting.';
+         loose + (loose === 1 ? ' card' : ' cards') + ' not working yet</b>. ' +
+         'Throw one and keep hunting.';
 }
 
 /* what the hand looks like on screen: sorted for reading if asked */
@@ -783,6 +837,26 @@ function shownHand(){
   });
 }
 
+/* ── the table tally, as one small table. Hands won and streaks —
+   the human scoreboard, derived from st.book, never stored twice. ── */
+function tallyRows(st, voting){
+  const t = E.tally(st);
+  const rows = st.seats.map((p, i) => {
+    if (p.gone && !t[i].won && !voting) return '';       /* long gone, never won */
+    const status = !voting ? ''
+      : p.gone ? '<i> · left the table</i>'
+      : p.vote === 'stay' ? '<i> · in</i>'
+      : p.vote === 'go' ? '<i> · leaving</i>'
+      : '<i> · deciding…</i>';
+    const streak = t[i].streak > 1 ? ' · ' + t[i].streak + ' straight' : '';
+    const best = t[i].best > 1 ? ' <i>(best ' + t[i].best + ')</i>' : '';
+    return '<tr class="' + (p.gone ? 'out' : (t[i].streak > 0 ? 'win' : '')) + '">' +
+      '<td>' + esc(p.name) + status + '</td>' +
+      '<td class="n">' + t[i].won + ' won' + streak + best + '</td></tr>';
+  }).join('');
+  return rows ? '<table class="rm-book">' + rows + '</table>' : '';
+}
+
 function render(){
   if (!M || M.dead || !M.ctx || !UI) return;
   const st = M.st;
@@ -794,14 +868,27 @@ function render(){
   /* a selection can go stale after a remote move or an undo */
   const hand = st.seats[me].hand;
   M.tmp.sel = s.filter(c => hand.indexOf(c) >= 0);
+  const voting = st.phase === 'vote';
 
-  /* — the rail of other players — */
+  /* somebody who left must be SAID to have left, not just vanish */
+  const goneNow = st.seats.map(p => !!p.gone);
+  if (M.tmp.goneSeen){
+    st.seats.forEach((p, i) => {
+      if (goneNow[i] && !M.tmp.goneSeen[i] && i !== me && K.toast)
+        K.toast(esc(p.name) + ' left the table.');
+    });
+  }
+  M.tmp.goneSeen = goneNow;
+
+  /* — the rail of other players: cards in hand, hands won — */
+  const tl = E.tally(st);
   UI.opps.innerHTML = st.seats.map((p, i) => {
-    if (i === me) return '';
+    if (i === me || p.gone) return '';
     return '<div class="rm-opp' + (t === i ? ' on' : '') + '" data-seat="' + i + '">' +
       '<span class="n">' + esc(p.name) + '</span>' +
       '<span class="c">' + p.hand.length + '<i>KRT</i></span>' +
-      (st.target || st.book.length ? '<span class="s">' + p.score + ' pt</span>' : '') +
+      (st.book.length ? '<span class="s">' + tl[i].won + ' won' +
+        (tl[i].streak > 1 ? ' ·' + tl[i].streak : '') + '</span>' : '') +
       '</div>';
   }).join('');
   const on = UI.opps.querySelector('.rm-opp.on');
@@ -849,97 +936,71 @@ function render(){
           }).join('') +
           '</span></button>') +
       '<span class="t">Pile</span></div>' +
-    (E.isGhaxra(st) ? '<span class="rm-feltag" aria-hidden="true">4+3+3</span>' : '');
+    '<span class="rm-feltag" aria-hidden="true">' + E.shapeName(st.mode) + '</span>';
 
-  /* — the shelf — */
-  const gh = E.isGhaxra(st);
-  const canLayNow = !gh && mine && st.phase === 'act' && M.tmp.sel.length === 1;
-  const layC = canLayNow ? M.tmp.sel[0] : -1;
-  /* GĦAXRA holds nothing on the table, so the shelf shows YOUR OWN
-     best arrangement instead — which is the one thing you actually
-     want to see in a mode where going out means the whole hand at
-     once. At the end it shows the winner's declared 4+3+3. */
-  const cov = gh ? E.bestCover(hand) : null;
-  UI.melds.className = 'rm-melds' + (gh ? ' rm-gx' : '');
-  if (st.phase === 'handover' && !done){
-    UI.melds.innerHTML = interlude(st);
-  } else if (gh){
-    if (st.show && st.show.melds){
-      UI.melds.innerHTML =
-        '<div class="rm-none" style="padding:2px 6px">' +
-          esc(st.seats[st.show.seat].name) + ' declared</div>' +
-        st.show.melds.map(m =>
-          '<span class="rm-meld" aria-label="' + esc(meldLabel(m)) + '">' +
-          m.cards.map(c => cardBtn(c, { w: short ? 26 : 32 })).join('') + '</span>').join('');
-    } else if (!cov.melds.length){
-      UI.melds.innerHTML = '<div class="rm-none">Nothing arranged yet. You need a four ' +
-        'and two threes — ten cards, all of them working.</div>';
-    } else {
-      /* the melds you have, and then the cards that are doing nothing —
-         dimmed and set apart. In a mode where the whole hand has to
-         work, "which of these is dead weight" is the only question you
-         ever ask, and it is worth answering on the felt rather than
-         making somebody re-sort eleven cards to find out. */
-      UI.melds.innerHTML =
-        '<div class="rm-none" style="padding:2px 6px;width:100%">Your arrangement — ' +
-          cov.melds.length + ' of 3' +
-          (cov.loose.length ? ', ' + cov.loose.length + ' loose' : ', nothing loose') + '</div>' +
-        cov.melds.map(m =>
-          '<span class="rm-meld" aria-label="' + esc(meldLabel(m)) + '">' +
-          m.cards.map(c => cardBtn(c, { w: short ? 26 : 32 })).join('') + '</span>').join('') +
-        (cov.loose.length
-          ? '<span class="rm-meld rm-loose" aria-label="' + cov.loose.length +
-            ' cards not in any meld">' +
-            cov.loose.map(c => cardBtn(c, { w: short ? 24 : 28, dim:true })).join('') + '</span>'
-          : '');
-    }
-  } else if (!st.melds.length){
-    UI.melds.innerHTML = '<div class="rm-none">Nothing on the table yet. Three of a kind, ' +
-      'or three in a row, one suit.</div>';
+  /* — the arrangement shelf. Nothing is ever on the table in this
+     game, so the shelf shows YOUR OWN hand arranged: the melds you
+     hold and the cards not working yet — which is the one thing you
+     actually want to see when winning means the whole hand at once.
+     On a win it shows the winner's hand, as the victory it is; during
+     the vote and the handover it carries the tally. — */
+  const cov = E.bestCover(hand);
+  const lastRow = st.book[st.book.length - 1];
+  if (voting || st.phase === 'handover' || done){
+    const won = st.show && st.show.melds;
+    UI.melds.innerHTML =
+      (won
+        ? '<div class="rm-none rm-won">' +
+            (st.show.seat === me ? 'RUMMY! You win the hand'
+                                 : 'RUMMY! ' + esc(st.seats[st.show.seat].name) +
+                                   ' wins the hand') + '</div>' +
+          st.show.melds.map(m =>
+            '<span class="rm-meld" aria-label="' + esc(meldLabel(m)) + '">' +
+            m.cards.map(c => cardBtn(c, { w: short ? 26 : 32 })).join('') + '</span>').join('')
+        : (lastRow && lastRow.kind === 'dead'
+            ? '<div class="rm-none">The stock died a third time and nobody called RUMMY. ' +
+              'Nobody won it — the cards go back in and the deal comes round again.</div>'
+            : '')) +
+      (st.book.length ? tallyRows(st, voting) : '');
+  } else if (!cov.melds.length){
+    UI.melds.innerHTML = '<div class="rm-none">Nothing arranged yet. You need ' +
+      (E.isGhaxra(st) ? 'a four and two threes — ten cards, all of them working.'
+                      : 'a four and a three — seven cards, all of them working.') + '</div>';
   } else {
-    UI.melds.innerHTML = st.melds.map((m, mi) => {
-      const can = layC >= 0 && E.canLay(m, layC);
-      return '<button class="rm-meld' + (can ? ' can' : '') + '" data-meld="' + mi + '"' +
-        ' data-sfx="own"' + (canLayNow ? '' : ' tabindex="-1"') +
-        ' aria-label="' + esc(meldLabel(m) + (can ? '. Your card fits here.' : '')) + '">' +
-        m.cards.map(c => cardBtn(c, { w: short ? 28 : 34 })).join('') +
-        '</button>';
-    }).join('');
-  }
-  /* a glowing meld he can lay on must be IN the shelf's window, not
-     below its fold — centred with scrollTop arithmetic, never
-     scrollIntoView (that is free to scroll the app shell; see
-     js/progress-ui.js centreTab for the precedent) */
-  if (canLayNow){
-    const can1 = UI.melds.querySelector('.rm-meld.can');
-    if (can1){
-      const sr = UI.melds.getBoundingClientRect();
-      const mr = can1.getBoundingClientRect();
-      if (mr.top < sr.top || mr.bottom > sr.bottom)
-        UI.melds.scrollTop += (mr.top + mr.height / 2) - (sr.top + sr.height / 2);
-    }
+    /* the melds you have, and then the cards doing nothing — dimmed
+       and set apart. In a game where the whole hand has to work,
+       "which of these is dead weight" is the only question you ever
+       ask, and it is worth answering on the felt rather than making
+       somebody re-sort eleven cards to find out. */
+    UI.melds.innerHTML =
+      '<div class="rm-none" style="padding:2px 6px;width:100%">Your arrangement — ' +
+        cov.melds.length + ' of ' + E.outShape(st.mode).length +
+        (cov.loose.length ? '' : ', every card working') + '</div>' +
+      cov.melds.map(m =>
+        '<span class="rm-meld" aria-label="' + esc(meldLabel(m)) + '">' +
+        m.cards.map(c => cardBtn(c, { w: short ? 26 : 32 })).join('') + '</span>').join('') +
+      (cov.loose.length
+        ? '<span class="rm-meld rm-loose" aria-label="' + cov.loose.length +
+          ' cards not in any meld">' +
+          cov.loose.map(c => cardBtn(c, { w: short ? 24 : 28, dim:true })).join('') + '</span>'
+        : '');
   }
 
   /* — the hint line — */
-  const outNow = (gh && mine && st.phase === 'act') ? findOut(st, me) : null;
+  const outNow = (mine && st.phase === 'act') ? findOut(st, me) : null;
   UI.say.innerHTML =
     done ? '' :
-    st.phase === 'handover' ? 'Counting the hand…' :
+    voting ? voteSay(st, me, t) :
+    st.phase === 'handover' ? (lastRow && lastRow.kind === 'dead' ? 'Dead hand. Dealing fresh…'
+                                                                 : 'Dealing fresh…') :
     !mine ? (t === -1 ? '…' : esc(st.seats[t].name) + ' is thinking.') :
     st.phase === 'draw'
       ? '<b>Draw first</b> — the stock, or the top of the pile.' :
-    gh
-      ? (outNow != null
-          ? '<b>You are out.</b> Tap DECLARE and show them.'
-          : whyNotOut(cov)) :
-    M.tmp.sel.length >= 3 ? (E.readMeld(M.tmp.sel) ? '<b>That melds.</b> Put it down.'
-                                                   : 'Those three don’t go together.') :
-    M.tmp.sel.length === 1
-      ? (st.melds.some(m => E.canLay(m, M.tmp.sel[0]))
-          ? 'Lay it on a glowing meld, or <b>throw it</b> to finish.'
-          : 'Throw it to finish your turn, or pick up more for a meld.') :
-    M.tmp.sel.length === 2 ? 'One more for a meld.' :
-    'Pick up cards to meld, or one card to lay off or throw.';
+    outNow != null
+      ? '<b>That is the whole hand.</b> Call <b>RUMMY!</b>'
+      : (M.tmp.sel.length === 1
+          ? 'Throw it to finish your turn.'
+          : whyNotOut(cov, st.mode));
 
   /* — the hand — full width in both layouts; short screens simply cap
        how tall the fan may be so it stays a single row above the
@@ -965,28 +1026,29 @@ function render(){
   });
   UI.hand.innerHTML = h;
 
-  /* — the buttons a turn is made of — */
+  /* — the buttons a turn is made of. RUMMY! is offered whenever a
+     legal call exists at all — never enabled on a hand that would be
+     refused, never hidden on one that would be allowed. The call
+     handles its own throw (see findOut): one obvious tap, never two
+     fiddly steps. — */
   const canDisc = mine && st.phase === 'act' && M.tmp.sel.length === 1 &&
                   E.check(st, { t:'disc', c: M.tmp.sel[0] }, me);
-  if (gh){
-    /* DECLARE is offered whenever a legal declaration exists at all —
-       it is never left enabled on a hand that would be refused, and
-       never hidden on one that would be allowed. Tapping it with a
-       card picked up throws THAT card if that works; otherwise it
-       finds the card that does, because being made to hunt for the
-       right discard on a finished hand is not a game. */
+  if (voting){
+    const myVote = st.seats[me].vote;
+    const iAmGone = st.seats[me].gone;
+    UI.acts.innerHTML = (myVote || iAmGone)
+      ? '<button class="rm-act" disabled>Play again</button>' +
+        '<button class="rm-act ghost" disabled>Waiting…</button>'
+      : '<button class="rm-act" data-act="stay" data-sfx="own"' +
+          (t === me ? '' : ' disabled') + '>Play again</button>' +
+        '<button class="rm-act ghost" data-act="go" data-sfx="own"' +
+          (t === me ? '' : ' disabled') + '>Leave the table</button>';
+  } else if (done){
+    UI.acts.innerHTML = '';
+  } else {
     UI.acts.innerHTML =
       '<button class="rm-act" data-act="out" data-sfx="own"' +
-        (outNow != null ? '' : ' disabled') + '>Declare</button>' +
-      '<button class="rm-act" data-act="disc" data-sfx="own"' + (canDisc ? '' : ' disabled') +
-        '>Throw</button>' +
-      '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
-        (M.tmp.sorted === false ? 'Sort' : 'Sorted') + '</button>';
-  } else {
-    const canMeld = mine && st.phase === 'act' && M.tmp.sel.length >= 3 && !!E.readMeld(M.tmp.sel);
-    UI.acts.innerHTML =
-      '<button class="rm-act" data-act="meld" data-sfx="own"' + (canMeld ? '' : ' disabled') +
-        '>Meld ' + (canMeld ? M.tmp.sel.length : '') + '</button>' +
+        (outNow != null ? '' : ' disabled') + '>RUMMY!</button>' +
       '<button class="rm-act" data-act="disc" data-sfx="own"' + (canDisc ? '' : ' disabled') +
         '>Throw</button>' +
       '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
@@ -995,15 +1057,16 @@ function render(){
 
   /* landscape scrolls the whole table — whenever it is HIS decision,
      the hand and its buttons must be above the fold. scrollTop
-     arithmetic again, and only when actually cut off, so a player
-     peering at the top of the shelf is not yanked about. */
-  if (mine && !done){
-    const rr = UI.root.getBoundingClientRect();
+     arithmetic, and only when actually cut off, so a player peering
+     at the top of the shelf is not yanked about. */
+  if ((mine || voting) && !done){
+    const rrr = UI.root.getBoundingClientRect();
     const ar = UI.acts.getBoundingClientRect();
-    const cut = ar.bottom - rr.bottom;
+    const cut = ar.bottom - rrr.bottom;
     if (cut > 1) UI.root.scrollTop += cut + 4;
   }
 
+  voteClock(st, me);
   paintTurn(t, done);
   paintBar();
   if (done){ finish(done); return; }
@@ -1016,23 +1079,92 @@ function meldLabel(m){
          DECK.RANK_SHORT[m.lo] + ' to ' + DECK.RANK_SHORT[m.lo + m.cards.length - 1];
 }
 
-function interlude(st){
-  const row = st.book[st.book.length - 1];
-  if (!row) return '';
-  return '<table class="rm-book">' + st.seats.map((p, i) =>
-    '<tr' + (i === row.winner ? ' class="win"' : '') + '><td>' + esc(p.name) +
-    (i === row.winner ? (row.kind === 'rummy' ? ' — RUMMY!' : ' — out') : '') +
-    '</td><td class="n">' + p.score + '</td></tr>').join('') + '</table>';
+/* ── the vote: who is in, who is deciding, and — online — the clock.
+
+   OFFLINE the machines always stay and the table waits for YOU as
+   long as you like: a countdown against nobody would only rush a man
+   playing alone. ONLINE every phone enforces the 20-second answer on
+   ITSELF — when the clock runs out on YOUR undecided vote, your own
+   phone sends the 'go'. Silence counts as leaving, exactly like the
+   undo-objection window, and because the timeout arrives as that
+   seat's own move on the wire, every phone agrees on it without any
+   second clock. (A phone that has died entirely answers nothing; the
+   room's own disconnect handling stops that table honestly — the
+   relay has no way to vote on a player's behalf, and inventing one
+   host-side would be a desync machine.) ── */
+const VOTE_S = 20;
+function voteSay(st, me, t){
+  if (t === me && !st.seats[me].vote && !st.seats[me].gone){
+    const base = '<b>Play again?</b> Whoever does not is out.';
+    if (M.net && M.tmp.voteUntil){
+      const left = Math.max(0, Math.ceil((M.tmp.voteUntil - Date.now()) / 1000));
+      return base + ' Silence counts as leaving — <b>' + left + 's</b>.';
+    }
+    return base;
+  }
+  if (t >= 0) return esc(st.seats[t].name) + ' is deciding whether to play again…';
+  return 'Settling the table…';
+}
+function voteClock(st, me){
+  const myGo = st.phase === 'vote' && E.turn(st) === me &&
+               !st.seats[me].vote && !st.seats[me].gone;
+  if (!myGo || !M.net){
+    if (M.voteTimer){ clearInterval(M.voteTimer); M.voteTimer = 0; }
+    M.tmp.voteUntil = 0;
+    return;
+  }
+  if (M.voteTimer) return;                       /* already ticking */
+  M.tmp.voteUntil = Date.now() + VOTE_S * 1000;
+  const m = M;
+  M.voteTimer = setInterval(() => {
+    if (M !== m || !M || M.dead){ clearInterval(m.voteTimer); return; }
+    const st2 = M.st;
+    if (st2.phase !== 'vote' || E.turn(st2) !== mySeat()){
+      clearInterval(M.voteTimer); M.voteTimer = 0; M.tmp.voteUntil = 0;
+      return;
+    }
+    if (Date.now() >= M.tmp.voteUntil){
+      clearInterval(M.voteTimer); M.voteTimer = 0;
+      tryMove({ t:'go' });                       /* my own silence, my own move */
+      return;
+    }
+    if (UI && UI.say) UI.say.innerHTML = voteSay(st2, mySeat(), E.turn(st2));
+  }, 250);
+}
+
+/* the leaver's own next screen: told plainly the table carried on */
+function leftTable(){
+  const ctx = M && M.ctx;
+  if (!ctx) return;
+  stopThinking();
+  M.finished = true;
+  const net = M.net;
+  P.ui.result(ctx, {
+    tone:'draw',
+    head:'You left the table',
+    why:'The table carries on without you. The tally stays with the ones still in it.',
+    quip:'Somewhere behind you, somebody is calling RUMMY on your cards.',
+    buttons: net
+      ? [{ label:'Back to the rooms', icon:'back', cls:'primary',
+           go: () => { const n = net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); } }]
+      : [{ label:'New table', icon:'refresh', cls:'primary',
+           go: () => { leave(); setupSheet(); } },
+         { label:'Back to the shelf', icon:'back', cls:'ghost',
+           go: () => { leave(); P.hub(); } }]
+  });
+  if (!net){ saveSlot(null); }
 }
 
 function paintTurn(t, done){
   const st = M.st;
   if (done){ P.ui.setTurn(M.ctx, { cls:'', who:done.head, note:'' }); return; }
-  const who = st.phase === 'handover' ? 'Next hand…'
+  const who = st.phase === 'vote'
+              ? (E.turn(st) === mySeat() && !st.seats[mySeat()].vote ? 'Play again?' : 'The vote…')
+            : st.phase === 'handover' ? 'Next hand…'
             : t === -1 ? 'The table…'
             : isLocal(t) ? 'Your turn'
             : st.seats[t].name + ' is thinking…';
-  P.ui.setTurn(M.ctx, { cls: t >= 0 && isLocal(t) ? 'w' : '', who, note: E.note(st) });
+  P.ui.setTurn(M.ctx, { cls: (t >= 0 && isLocal(t)) ? 'w' : '', who, note: E.note(st) });
 }
 function paintBar(){
   const b = M.ctx.btn('rm-undo');
@@ -1075,11 +1207,12 @@ function step(){
     const r = doMove(t, mv, 'ai');
     if (r.ok && M.net && M.net.onMove){ try { M.net.onMove(clone(mv), r.index, t); } catch(e){} }
     render();
-  }, FAST ? 1 : 520 + ((Date.now() % 5) * 90));
+  }, FAST ? 1 : (st.phase === 'vote' ? 700 : 520 + ((Date.now() % 5) * 90)));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE END
+   THE END — which is only ever the table breaking up. A WON HAND is
+   not an end: it is the vote, painted by render() on the live felt.
    ═══════════════════════════════════════════════════════════════════ */
 function finish(done){
   if (M.finished) return;
@@ -1087,18 +1220,7 @@ function finish(done){
   stopThinking();
   cueIn(260, () => cue(done.tone === 'win' ? 'game.win'
                      : done.tone === 'lose' ? 'game.lose' : 'ui.toast', { gain: 1 }, true));
-  /* going out in one turn is the RUMMY, and it has its own noise: a
-     hand slapped flat on the table and a short brass sting. GĦAXRA
-     already sounded it on the declaration itself a beat ago, so it is
-     not struck twice. */
-  if (done.tone === 'win' && M.st.done && M.st.done.row.kind === 'rummy' && !E.isGhaxra(M.st))
-    cueIn(700, () => cue('rummy.call', { gain: 0.9 }, true));
   saveSlot(null);
-  if (!M.net && done.tone){
-    const o = done.tone === 'win' ? 'w' : done.tone === 'lose' ? 'l' : 'd';
-    const r = ST.rec; r[o] = (r[o] | 0) + 1; persist();
-    if (typeof P.record === 'function'){ try { P.record('rummy', o); } catch(e){} }
-  }
   P.ui.result(M.ctx, {
     tone: done.tone || 'draw',
     head: done.head, why: done.why, quip: done.quip,
@@ -1106,7 +1228,7 @@ function finish(done){
       ? [{ label:'Back to the rooms', icon:'back', cls:'primary',
            go: () => { const n = M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); } }]
       : [
-          { label:'Deal again', icon:'refresh', cls:'primary',
+          { label:'New table', icon:'refresh', cls:'primary',
             go: () => newGame(M.opts) },
           { label:'Back to the shelf', icon:'back', cls:'ghost', go: () => P.hub() }
         ]
@@ -1141,7 +1263,7 @@ function newGame(opts, snap){
 
 function openBoard(onBack){
   M.ctx = P.ui.frame({
-    title: (M && E.isGhaxra(M.st)) ? 'GĦAXRA' : 'RUMMY',
+    title: 'RUMMY',
     onBack,
     leave: () => leave(),
     buttons: M && M.net
@@ -1152,7 +1274,8 @@ function openBoard(onBack){
          { id:'rm-new',   label:'New',   icon:'refresh', cls:'ghost' }]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = E.isGhaxra(M.st) ? '4+3+3' : 'Ir-Rummy';
+  M.ctx.badge.textContent = E.shapeName(M.st.mode) +
+    (E.isGhaxra(M.st) ? ' · Għaxra' : '');
   table();
   const u = M.ctx.btn('rm-undo');
   if (M.net){
@@ -1170,9 +1293,9 @@ function openBoard(onBack){
   const nb = M.ctx.btn('rm-new');
   if (nb) nb.onclick = () => {
     P.ui.confirm(M.ctx, {
-      head:'Throw this hand in?',
-      why:'The cards go back in the box and you deal fresh. Nothing is scored.',
-      yes:'Deal again', no:'No, carry on',
+      head:'Throw this table in?',
+      why:'The cards go back in the box, the tally goes with them, and you deal a fresh table.',
+      yes:'Deal fresh', no:'No, carry on',
       go: () => newGame(M.opts)
     });
   };
@@ -1190,70 +1313,57 @@ function leave(){
   M = null; UI = null;
 }
 
-/* ── the rules card, over the felt ────────────────────────────────── */
-const RULES = [
-  '<b>Draw one</b> — off the stock, or the top card of the pile.',
-  '<b>Meld</b> three or more: a set (same rank, suits all different) or a run ' +
-    '(same suit, ranks in a row, ace low — A-2-3, never Q-K-A).',
-  '<b>Lay off</b> single cards onto any meld on the table, whoever laid it.',
-  '<b>Throw one</b> to end your turn. Not the card you just took off the pile — ' +
-    'unless it is your last.',
-  'Out of cards <b>wins the hand</b> and scores everything left in every other ' +
-    'hand: court cards 10, ace 1, joker 15. The whole hand in one go, never having ' +
-    'melded before — <b>RUMMY</b> — pays double.',
-  'With more than one pack, two identical cards never sit in the same meld: ' +
-    'a set wants different suits, a run wants different ranks. Two different melds, fine.',
-  'Jokers (if the table plays them, two per pack): wild inside a new meld, always ' +
-    'outnumbered by real cards, never laid off. Caught holding one: 15 against you.',
-  'When the stock runs dry the pile is shuffled back — twice. The third time, the ' +
-    'hand is <b>blocked</b>: lowest hand takes it.',
-  'Packs by table: 1–4 players one, 5–8 two, 9–12 three. The extra pack is optional; ' +
-    'the minimum is not.'
-];
-
-/* ── GĦAXRA, and every decision the 4+3+3 shape forces ────────────
-   Each of these is a real choice with a reason, and the reason is in
-   the report as well as here. In short: because the winning hand must
-   be exactly ten cards in three melds, anything that changes how many
-   cards you hold would make going out impossible — which rules out
-   laying off, and rules out putting melds down early. */
-const RULES_GHAXRA = [
-  '<b>Ten cards each</b>, whatever the size of the table.',
-  '<b>Draw one</b> — the stock, or the top of the pile — then throw one. Never the ' +
-    'card you have just taken off the pile.',
-  '<b>Nothing goes on the table</b> until somebody wins. You hold your melds in your ' +
-    'hand, and nobody sees them.',
-  '<b>To go out you DECLARE</b>: throw a card and show the ten behind it as exactly ' +
-    'one meld of four and two melds of three. Not nine, not eleven, not two melds of five.',
-  'A meld is what it always is: a set (same rank, suits all different) or a run ' +
-    '(same suit, ranks in a row, ace low — A-2-3, never Q-K-A).',
-  '<b>No laying off</b> in this mode, on your own melds or anybody else’s — your ' +
-    'hand has to finish at exactly ten, so giving a card away would make going out ' +
-    'impossible.',
-  'Jokers (if the table plays them): wild inside a meld and always outnumbered by ' +
-    'real cards, so no meld of three carries two of them.',
-  'Declaring on your very first turn of the hand — the whole thing out of the deal — ' +
-    'is <b>RUMMY</b> and pays double.',
-  'The winner scores each other player’s <b>loose cards only</b> — what will not fit ' +
-    'into a meld. Cards sitting in a good meld cost you nothing, because in this mode ' +
-    'you were never able to put them down.',
-  'Stock runs dry: the pile is shuffled back, twice. The third time nobody can ' +
-    'declare and the hand is <b>blocked</b> — fewest loose cards takes it.',
-  'Packs by table (ten cards each is a lot of cards): 2–3 players one, 4–6 two, ' +
-    '7–10 three, 11–12 four. <b>With no jokers, one pack more</b> — a full 4+3+3 is ' +
-    'far harder to finish, and without the extra pack a quarter of the hands die undeclared.'
-];
-const rulesFor = mode => (E.modeOf(mode) === 'ghaxra' ? RULES_GHAXRA : RULES);
-const modeName = mode => (E.modeOf(mode) === 'ghaxra' ? 'GĦAXRA' : 'RUMMY');
+/* ── the rules card — ONE game, told once, with only the hand size
+   changing the words. In his language: match your hand, call RUMMY,
+   you have won. No points anywhere. ─────────────────────────────── */
+function rulesFor(mode){
+  const ten = E.modeOf(mode) === 'ghaxra';
+  const S = E.shapeName(mode);                     /* 4+3 or 4+3+3 */
+  const melds = ten ? 'one meld of four and two of three'
+                    : 'one meld of four and one of three';
+  return [
+    '<b>' + (ten ? 'Ten' : 'Seven') + ' cards each</b>' +
+      (ten ? ' — GĦAXRA, the ten-card table.' : '.'),
+    '<b>Draw one</b> — off the stock, or the top card of the pile — then <b>throw ' +
+      'one</b>. Never the card you have just taken off the pile.',
+    '<b>Nothing goes on the table.</b> You hold everything and nobody sees your hand.',
+    'A meld is three or four: a <b>set</b> (same rank, suits all different) or a ' +
+      '<b>run</b> (same suit, ranks in a row, ace low — A-2-3, never Q-K-A).',
+    'The moment your whole hand is melds — <b>' + S + '</b>, ' + melds + ' — you call ' +
+      '<b>RUMMY</b>, show the hand, and <b>you have won</b>.',
+    '<b>No points.</b> Nothing is counted, nothing is doubled, nothing is settled. ' +
+      'The call is the win. (Counting to a total is gin rummy — the other tile.)',
+    'With more than one pack, two identical cards never sit in the same meld: a set ' +
+      'wants different suits, a run wants different ranks.',
+    'Jokers (if the table plays them, two per pack): wild inside a meld, always ' +
+      'outnumbered by real cards.',
+    'When the stock runs dry the pile is shuffled back — twice. The third time the ' +
+      'hand is <b>dead</b>: nobody won it, and the same table is dealt fresh.',
+    'After a win everybody says <b>play again</b> — whoever does not, leaves the ' +
+      'table. The table keeps the tally: hands won, and streaks.',
+    ten
+      ? 'Packs by table: one to 3 players, two to 8, three to 12. <b>No jokers pays ' +
+        'earlier</b>: two packs only to 6, three to 10, four beyond — a full 4+3+3 ' +
+        'with no wilds eats the stock. Measured, not guessed.'
+      : 'Packs by table: one to 5 players (4 without jokers), two to 10 (9), three ' +
+        'to 12. The minimum is not optional — measured, not guessed.'
+  ];
+}
+const modeName = mode => (E.modeOf(mode) === 'ghaxra' ? 'GĦAXRA · ten cards' : 'RUMMY · seven cards');
 
 /* ── the rules panel: hide and slide, never a wall. State is a UI
-   preference in its own key, so it survives games and reloads. ──── */
+   preference in its own key, so it survives games and reloads. The
+   table tally rides at the top — the scoreboard, one tap away
+   mid-hand, without a second overlay. ───────────────────────────── */
 function paintRules(){
   if (!UI || !UI.rules) return;
   const mode = M ? M.st.mode : 'classic';
   UI.rules.querySelector('#rm-rules-t').textContent =
     modeName(mode) + ' — the rules';
   UI.rules.querySelector('#rm-rules-b').innerHTML =
+    (M && M.st.book.length
+      ? '<div class="rm-tallyh">This table — hands won</div>' + tallyRows(M.st, false)
+      : '') +
     '<ul>' + rulesFor(mode).map(r => '<li>' + r + '</li>').join('') + '</ul>';
   UI.rules.classList.toggle('open', rulesOpen);
   UI.rules.setAttribute('aria-hidden', rulesOpen ? 'false' : 'true');
@@ -1267,10 +1377,12 @@ function setRules(open){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE SETUP SHEET — where the deck rule is a visible, enforced thing.
-   No pass-the-phone here, on purpose: rummy is a hidden hand and
-   eleven people cannot look away. Your phone, the machine's chairs,
-   or a room where everybody holds their own.
+   THE SETUP SHEET — hand size, seats, the enforced pack rule, jokers,
+   the machine. No pass-the-phone (rummy is a hidden hand and eleven
+   people cannot look away), no match-length knob (there are no points
+   to play up to — the table simply plays until it breaks up), and the
+   rules FOLDED SHUT by default: creating a game is short, and the
+   rules are one tap away.
    ═══════════════════════════════════════════════════════════════════ */
 function setupSheet(){
   injectCSS();
@@ -1281,7 +1393,6 @@ function setupSheet(){
   let seats  = Math.max(2, Math.min(12, p.seats || 4));
   let decks  = p.decks || 0;
   let jokers = p.jokers !== false;
-  let target = [0, 200, 500].indexOf(p.target | 0) >= 0 ? (p.target | 0) : 0;
   let lvl    = p.lvl || 2;
   let mode   = E.modeOf(p.mode);
 
@@ -1289,15 +1400,12 @@ function setupSheet(){
     const rule = E.deckRule(seats, mode, jokers);
     if (decks < rule.min || decks > rule.max) decks = rule.min;
     /* the pack choices are whatever the rule leaves — usually the
-       minimum and one more, but at the very top of GĦAXRA (twelve
-       players, no jokers) the minimum IS the ceiling and there is
-       exactly one honest option */
+       minimum and one more */
     const deckOpts = [];
     for (let d = rule.min; d <= rule.max; d++) deckOpts.push(d);
     const MPX = window.KARTI_MP;
     /* Can the shared lobby actually open a rummy room on this build?
-       Feature-detected, not assumed: gameLobby() folds an unknown id
-       back to 'cards', so the answer is one honest comparison. */
+       Feature-detected, not assumed. */
     let onlineReady = false;
     try { onlineReady = !!(MPX && MPX.gameLobby && MPX.gameLobby('rummy').id === 'rummy'); } catch(e){}
 
@@ -1308,20 +1416,17 @@ function setupSheet(){
         '<h2>RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        '<p class="blurb">Draw one, throw one, and get your hand into melds. Two ways to ' +
-        'play it — and either way the pack count grows with the table, because that is ' +
-        'how twelve people play one game.</p>' +
+        '<p class="blurb">Draw one, throw one, and the moment your whole hand is melds ' +
+        'you call <b>RUMMY</b> and you have won. Nothing to count — the shout takes it.</p>' +
 
-        '<div class="tiny pt-lbl">Which game</div>' +
-        '<div class="pt-opts" id="rm-mode">' +
+        '<div class="tiny pt-lbl">How many cards in the hand</div>' +
+        '<div class="pt-opts two" id="rm-mode">' +
           '<button class="pt-opt' + (mode === 'classic' ? ' on' : '') + '" data-m="classic">' +
-            ico('cards') + '<b>Rummy</b>' +
-            '<i>Seven cards. Melds go down as you make them, lay off on anybody’s, ' +
-            'and win by emptying your hand.</i></button>' +
+            ico('cards') + '<b>Seven — 4+3</b>' +
+            '<i>A four and a three. The quick table.</i></button>' +
           '<button class="pt-opt' + (mode === 'ghaxra' ? ' on' : '') + '" data-m="ghaxra">' +
-            ico('trophy') + '<b>Għaxra — 4+3+3</b>' +
-            '<i>Ten cards. Nothing goes on the table: you hold it all and DECLARE ' +
-            'one four and two threes in one go.</i></button>' +
+            ico('trophy') + '<b>Għaxra · ten — 4+3+3</b>' +
+            '<i>A four and two threes. The long hunt.</i></button>' +
         '</div>' +
 
         '<div class="tiny pt-lbl">How many at the table</div>' +
@@ -1347,20 +1452,13 @@ function setupSheet(){
         '<div class="tiny pt-lbl">Jokers</div>' +
         '<div class="pt-opts two" id="rm-jok">' +
           '<button class="pt-opt' + (jokers ? ' on' : '') + '" data-j="1">' + ico('cards') +
-            '<b>Two per pack</b><i>Wild inside a meld. 15 against you if caught.</i></button>' +
+            '<b>Two per pack</b><i>Wild inside a meld, never a majority.</i></button>' +
           '<button class="pt-opt' + (!jokers ? ' on' : '') + '" data-j="0">' + ico('lock') +
             '<b>None</b><i>The purist’s table.' +
-            (mode === 'ghaxra' ? ' Costs a pack — a full 4+3+3 is much harder without them.' : '') +
+            (mode === 'ghaxra' && seats >= 7
+              ? ' At this size it costs a pack — a full 4+3+3 is much harder without them.'
+              : '') +
             '</i></button>' +
-        '</div>' +
-
-        '<div class="tiny pt-lbl">How long a match</div>' +
-        '<div class="pt-opts" id="rm-target">' +
-          [[0, 'One hand', 'Decisive. The party option.'],
-           [200, 'First to 200', 'A few hands.'],
-           [500, 'First to 500', 'An evening.']].map(o =>
-            '<button class="pt-opt' + (o[0] === target ? ' on' : '') + '" data-t="' + o[0] + '">' +
-              ico('trophy') + '<b>' + o[1] + '</b><i>' + o[2] + '</i></button>').join('') +
         '</div>' +
 
         '<div class="tiny pt-lbl">How sharp is the machine</div>' +
@@ -1373,7 +1471,7 @@ function setupSheet(){
         '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
           '<button class="btn primary" id="rm-go">Deal — you vs ' + (seats - 1) +
             ' machine' + (seats - 1 === 1 ? '' : 's') + '</button>' +
-          (ST.save ? '<button class="btn ghost" id="rm-res">Carry on the saved hand</button>' : '') +
+          (ST.save ? '<button class="btn ghost" id="rm-res">Carry on the saved table</button>' : '') +
           (window.KARTI_MP
             ? (onlineReady
                 ? '<button class="btn ghost" id="rm-online">Open an online RUMMY room</button>'
@@ -1382,19 +1480,34 @@ function setupSheet(){
                   'waiting for those two lines.</p>')
             : '') +
         '</div>' +
-        '<div class="kb-rules" style="margin:16px 2px 20px;padding:12px 14px;border-radius:14px;' +
+
+        /* ── the rules, FOLDED. Game creation used to end in an eleven-
+           line wall printed every single time; now it is a header that
+           slides the list open on demand, remembers itself in the
+           UI-only key, and swaps its text when the hand size above
+           changes. Closed by default: the sheet's job is dealing. ── */
+        '<div class="kb-rules" style="margin:16px 2px 20px;padding:2px 14px;border-radius:14px;' +
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
-          '<h5 style="font:900 10px/1 var(--disp);letter-spacing:.11em;text-transform:uppercase;' +
-            'color:var(--gold);margin:0 0 9px">The rules, as this table plays them</h5><ul style="margin:0;padding:0">' +
-          rulesFor(mode).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);' +
-            'margin:0 0 6px 16px">' + r + '</li>').join('') + '</ul></div>' +
+          '<button type="button" class="rm-fold-h" id="rm-srules-h" aria-controls="rm-srules-b"' +
+            ' aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
+            '<span><b>The rules, as this table plays them</b>' +
+            '<i id="rm-srules-i">' + esc(modeName(mode)) + ' — ' +
+              (setupOpen ? 'tap to fold them away.' : 'tap to read them.') + '</i></span>' +
+            '<em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></em>' +
+          '</button>' +
+          '<div class="rm-fold-b' + (setupOpen ? ' open' : '') + '" id="rm-srules-b">' +
+            '<div class="rm-fold-i"><ul style="margin:6px 0 12px;padding:0">' +
+              rulesFor(mode).map(r => '<li style="font-size:12px;line-height:1.65;' +
+                'color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+            '</ul></div></div>' +
+        '</div>' +
       '</div>';
 
     el.querySelector('#rm-back').onclick = () => P.hub();
-    /* changing the mode or the jokers can change what the pack rule
-       allows, so the chosen count is dropped back to "let the rule
-       decide" rather than left pointing at a number that is no longer
-       on offer */
+    /* changing the hand size or the jokers can change what the pack
+       rule allows, so the chosen count is dropped back to "let the
+       rule decide" rather than left pointing at a number that is no
+       longer on offer */
     el.querySelectorAll('[data-m]').forEach(b => b.onclick = () => {
       mode = E.modeOf(b.dataset.m); decks = 0; paint(); });
     el.querySelector('#rm-s-dn').onclick = () => { if (seats > 2){ seats--; decks = 0; paint(); } };
@@ -1402,18 +1515,31 @@ function setupSheet(){
     el.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { decks = +b.dataset.d; paint(); });
     el.querySelectorAll('[data-j]').forEach(b => b.onclick = () => {
       jokers = !!+b.dataset.j; decks = 0; paint(); });
-    el.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { target = +b.dataset.t; paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
     el.querySelector('#rm-go').onclick = () => {
-      pref({ seats, decks, jokers, target, lvl, mode });
-      newGame({ seats, decks, jokers, target, humans: 1, lvl, mode });
+      pref({ seats, decks, jokers, lvl, mode });
+      newGame({ seats, decks, jokers, humans: 1, lvl, mode });
     };
     const rs = el.querySelector('#rm-res');
     if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
     const on = el.querySelector('#rm-online');
     if (on) on.onclick = () => {
-      pref({ seats, decks, jokers, target, lvl, mode });
+      pref({ seats, decks, jokers, lvl, mode });
       openOnline();
+    };
+    /* the fold toggles WITHOUT repainting, so the slide actually
+       slides; a mode change above repaints and rulesFor(mode) brings
+       the right text into whatever state the fold is in */
+    const sh = el.querySelector('#rm-srules-h');
+    if (sh) sh.onclick = () => {
+      setSetupOpen(!setupOpen);
+      sh.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
+      const b = el.querySelector('#rm-srules-b');
+      if (b) b.classList.toggle('open', setupOpen);
+      const hint = el.querySelector('#rm-srules-i');
+      if (hint) hint.textContent = modeName(mode) + ' — ' +
+        (setupOpen ? 'tap to fold them away.' : 'tap to read them.');
+      cue(setupOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 }, true);
     };
   }
   paint();
@@ -1421,14 +1547,19 @@ function setupSheet(){
 
 /* ═══════════════════════════════════════════════════════════════════
    ONLINE — the two halves js/mp.js reads: KARTI_RUMMY.lobby before a
-   card exists, KARTI_PARTY.online.rummy to carry a move. Everything
-   below is live the moment mp.js's GAMES list and the relay's TABLES
-   learn the id 'rummy'; until then the setup sheet says so honestly.
+   card exists, KARTI_PARTY.online.rummy to carry a move.
 
    ONE HOUSE SETUP ONLINE. Every phone must deal the identical game
    from the shared seed, and the roster carries no settings — so an
-   online table is always: the mandatory pack count for its size,
-   jokers in, one decisive hand. The knobs are an offline luxury.
+   online table is always: the mandatory pack count for its size and
+   jokers in. The hand size arrives as the room's variant ('classic'
+   = seven, 'ghaxra' = ten), which is how klabb picks briscola over
+   bixkla — every phone is told the same word at the same moment.
+
+   The play-again vote rides the same wire as every other move, one
+   seat at a time in seat order, each phone sending only its OWN
+   seat's answer — see voteClock() for how silence becomes a 'go'
+   without a second source of truth.
    ═══════════════════════════════════════════════════════════════════ */
 let NET = null;
 
@@ -1456,17 +1587,8 @@ function onlineStart(cfg){
   }));
 
   leave();
-  /* WHICH GAME IS THE ROOM PLAYING. js/mp.js already forwards the
-     room's `variant` as opts.mode — that is how klabb picks briscola
-     over bixkla — so if a room ever says 'ghaxra', every phone in it
-     is told the same word at the same moment and they all deal the
-     same way. The LIVE relay only whitelists klabb's variants today,
-     so in practice this arrives empty and every online table is
-     classic; the two server lines that would open it are in the
-     report. Either way the phones agree, which is the only thing
-     that must never be left to chance. */
   const mode = E.modeOf(cfg.opts && cfg.opts.mode);
-  const opts = { seats: n, decks: 0, jokers: true, target: 0, humans: n, lvl, mode };
+  const opts = { seats: n, decks: 0, jokers: true, humans: n, lvl, mode };
   const m = startMatch(opts, cfg.seed >>> 0);
   if (!m) throw new Error('RUMMY would not deal ' + n + ' hands');
   M.meta = meta;
@@ -1503,7 +1625,7 @@ function onlineRemote(seat, wire){
     const e = String(r.err || 'refused');
     return { ok:false, why: (/turn/.test(e) ? 'a move out of turn'
                            : /illegal/.test(e) ? 'a card the rules will not have'
-                           : /over/.test(e) ? 'a move after the hand had finished'
+                           : /over/.test(e) ? 'a move after the table had broken up'
                            : 'a refused move (' + e + ')') + ' from ' + who };
   }
   M.tmp.sel = [];
@@ -1522,7 +1644,7 @@ function onlineStop(why, tone){
     tone: tone === 'cheat' ? 'lose' : 'draw',
     head: tone === 'cheat' ? 'No deal' : 'Cut off',
     why: why || 'The table stopped.',
-    quip: 'Nothing was scored. Nobody loses a hand over a dropped connection.',
+    quip: 'Nothing was counted, because nothing ever is. Nobody loses a hand over a dropped connection.',
     buttons: [{ label:'Back to the rooms', icon:'back', cls:'primary',
                 go: () => { const nx = NET; leave();
                             if (nx && nx.onLeave) nx.onLeave(); else P.hub(); } }]
@@ -1538,21 +1660,21 @@ const NET_HOOKS = {
                                  ? NET.toRoom[E.turn(M.st)] : -1) : -1,
   over:      () => (M ? E.over(M.st) : null),
   moveCount: () => (M ? M.log.length : 0),
-  /* the agreement line for a bug report: hands, melds, stock, log, hashed */
+  /* the agreement line for a bug report: hands, votes, book, hashed */
   check(){
     if (!M) return '';
     const st = M.st;
-    const s = ['rummy', M.seed, M.log.length, E.turn(st),
-               st.seats.map(x => x.hand.length + '/' + x.score).join('.'),
-               st.melds.map(m => m.cards.join('-')).join(','),
+    const s = ['rummy', M.seed, M.log.length, E.turn(st), st.phase,
+               st.seats.map(x => x.hand.length + (x.gone ? 'g' : '') +
+                                 (x.vote ? x.vote[0] : '')).join('.'),
+               st.book.map(r => r.kind[0] + r.winner).join(','),
                st.stock.length, st.disc.length].join('|');
     let h = 2166136261;
     for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
     return (h >>> 0).toString(36);
   },
   /* NEVER the whole state over the wire. Other hands become counts,
-     the stock becomes a count; the pile and the melds are face up on
-     the table and stay. */
+     the stock becomes a count; the pile is face up and stays. */
   view: seat => {
     if (!M || !NET || NET.toGame[seat] === undefined) return null;
     const g = NET.toGame[seat];
@@ -1618,22 +1740,22 @@ R.lobby = {
     return { ok:true, why:'' };
   },
   rulesHTML: () =>
-    '<p>Draw one, meld sets and runs, lay off, throw one. First hand empty scores ' +
-    'everything left in every other hand.</p>' +
-    '<p>2 to 12 players. The pack count follows the table — one pack to 4, two to 8, ' +
-    'three to 12 — and an online table always plays the house setup: the mandatory ' +
-    'packs, jokers in, one decisive hand.</p>' +
-    '<p>Offline there is a second game on the same tile: <b>G\u0126AXRA</b>, ten cards ' +
-    'each, nothing on the table, and you win by declaring one four and two threes at ' +
-    'once. A room plays it as soon as the relay can label one.</p>',
-  blurb:'Draw one, meld, throw one. First hand empty takes the lot. Up to twelve, ' +
-        'and the pack count grows with the table.',
+    '<p>Draw one, throw one, hold everything. The moment your whole hand is melds — ' +
+    'one four and one three at seven cards, one four and two threes at ten — you call ' +
+    '<b>RUMMY</b> and you have won. No points; the call is the win.</p>' +
+    '<p>2 to 12 players. The pack count follows the table, and an online room always ' +
+    'plays the house setup: the mandatory packs, jokers in. After every won hand the ' +
+    'table votes to play again — whoever does not, leaves — and the table keeps the ' +
+    'tally of hands won and streaks.</p>' +
+    '<p>The room’s variant picks the hand: <b>seven cards (4+3)</b> or <b>GĦAXRA — ' +
+    'ten (4+3+3)</b>.</p>',
+  blurb:'Draw one, throw one, and the first whole hand of melds calls RUMMY and wins. ' +
+        'Up to twelve, seven or ten cards a head.',
   start(seatsList, opts){
     const list = (seatsList || []).filter(Boolean);
     const n = Math.max(2, Math.min(12, list.length || 4));
     const lvl = (list.map(s => s && s.level).find(v => v)) || 2;
-    return newGame({ seats: n, decks: 0, jokers: true,
-                     target: 0, humans: 1, lvl,
+    return newGame({ seats: n, decks: 0, jokers: true, humans: 1, lvl,
                      mode: (opts && opts.mode) || 'classic',
                      seed: opts && opts.seed });
   },
@@ -1657,15 +1779,13 @@ const TILE = {
   id:'rummy', order:35, kind:'card', name:'RUMMY', mt:'Ir-Rummy',
   sprite:'rm-t-rummy', icon:'cards', status:'live',
   get tag(){
-    return 'Draw one, throw one. Melds on the table as you make them — or GĦAXRA, ' +
-           'ten cards held back and declared as 4+3+3 in one go. Up to twelve players.' +
-           (ST.save ? ' There is a hand of this half-played.' : '');
+    return 'Match your whole hand — 4+3 at seven cards, 4+3+3 at ten — call RUMMY ' +
+           'and win. No points, up to twelve players.' +
+           (ST.save ? ' There is a table of this half-played.' : '');
   },
   open: () => setupSheet(),
   /* the fields js/mp.js's gameLobby() reads OFF THE TILE when the game
-     has no LOBBY_GLOBAL entry yet — seats, levels, rules, start. The
-     one thing a tile cannot carry is `wire`, which is why the report
-     asks for the single LOBBY_GLOBAL line. */
+     has no LOBBY_GLOBAL entry yet — seats, levels, rules, start. */
   seats: { min:2, max:12 },
   levels: levels(),
   rulesHTML: () => R.lobby.rulesHTML(),
@@ -1685,7 +1805,7 @@ P.register(TILE);
   if (!MPX || !Array.isArray(MPX.GAMES) || !Array.isArray(MPX.GAME_KEYS)) return;
   if (MPX.GAME_KEYS.indexOf('rummy') >= 0) return;
   MPX.GAMES.push({ k:'rummy', name:'Rummy', short:'RUMMY', icon:'cards',
-    blurb:'Meld, lay off, throw one. Twelve can play.' });
+    blurb:'Match the whole hand, call RUMMY, win. Twelve can play.' });
   MPX.GAME_KEYS.push('rummy');
   if (MPX.SEATS_FALLBACK) MPX.SEATS_FALLBACK.rummy = [2, 12, 4];
 })();
@@ -1702,11 +1822,12 @@ try {
       M: () => M,
       st: () => (M ? M.st : null),
       engine: E,
-      start: opts => { newGame(opts || { seats:4, decks:0, jokers:true, target:0, humans:1, lvl:2 }); return true; },
-      startSeed: (opts, seed) => { newGame(null, { v:1, gid:'rummy', opts, seed, log:[] }); return true; },
+      start: opts => { newGame(opts || { seats:4, decks:0, jokers:true, humans:1, lvl:2 }); return true; },
+      startSeed: (opts, seed) => { newGame(null, { v:SAVE_V, gid:'rummy', opts, seed, log:[] }); return true; },
       fast: on => { FAST = !!on; },
       doMove, rollbackTo, undoPoint, snapshot,
       render, setup: setupSheet,
+      tally: () => (M ? E.tally(M.st) : null),
       sel: () => (M ? (M.tmp.sel || []) : []),
       store: () => ST
     };

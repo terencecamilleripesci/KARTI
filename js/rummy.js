@@ -9,61 +9,80 @@
    runner shape: a match is (opts, seed, log), the state is always
    deal() plus a replay of the log, and rollback is cutting the log.
 
-   THE GAME, AS THIS TABLE PLAYS IT
-     · Draw one — off the stock or the top of the discard pile.
-     · Meld sets (same rank, suits all different) and runs (same suit,
-       ranks in a row, ace LOW only — A-2-3 yes, Q-K-A no).
-     · Lay off single cards onto any meld on the table, whoever laid it.
-     · Discard one to end the turn. You may not throw back the card
-       you just took off the pile — unless it is your last card,
-       because going out is not stalling.
-     · Out of cards = you win the hand, and you score the pip value of
-       everything still in everybody else's hand. Court cards 10,
-       ace 1, jokers 15. Going out in ONE turn, never having melded
-       before — RUMMY — pays double.
-     · Stock empty: the discard pile (all but its top card) is
-       shuffled back in — the seeded RNG lives in the state, so every
-       phone reshuffles it identically. Twice per hand. The THIRD time
-       the stock runs dry the hand is BLOCKED: it ends, the lowest
-       hand wins, and scores the differences.
+   THE GAME, AS THE OWNER PLAYS IT — his words, three of them:
+     "when u have 4 3 3 u call rummy and win"
+     "in rummy as well when u match 4 and 3 u win"
+     "only gin rummy u have to match for 45 points then put ur cards
+      out. u made rummy like the gin rummy. fix it."
 
-   THE TABLE-SIZE RULE (the reason this game exists here)
-     · 2–4 players: one 52-card deck. A second is optional.
-     · 5–8 players: two decks MANDATORY. A third optional.
-     · 9–12 players: three decks MANDATORY. A fourth optional.
-       Measured, not guessed: at 12 players on two decks the stock
-       after the deal is 104-84-1 = 19 cards — the first lap of the
-       table eats it before anybody has seen a second turn, and the
-       simulation harness (scripts/, run at 400 hands per size) had
-       the pile recycling 4+ times a hand and blocking outright far
-       above the 8-player rate. Three decks (162 cards, stock 77)
-       brings 12 players back to the same shape as 8 on two.
+   So: RUMMY IS ONE GAME, AND IT HAS NO POINTS.
+     · Deal SEVEN cards — or TEN, the option (GĦAXRA, Maltese for
+       ten). The hand size is the only knob the rules have.
+     · Draw one — off the stock or the top of the pile — then throw
+       one. Never the card you have just taken off the pile.
+     · NOTHING GOES ON THE TABLE. You hold everything; nobody melds
+       down, nobody lays off on anybody. (That machinery is gin's and
+       classic-American rummy's, and it is exactly what this file used
+       to have wrong.)
+     · The moment your whole hand is melds — one four and one three
+       at seven cards, one four and two threes at ten — you CALL
+       RUMMY, show the hand, and YOU HAVE WON. No deadwood count, no
+       doubling, no score to settle. The call is the win.
+     · Stock empty: the pile (all but its top card) is shuffled back
+       in — the seeded RNG lives in the state, so every phone
+       reshuffles identically. Twice per hand. The THIRD time the
+       stock runs dry the hand is DEAD: nobody won it, the cards go
+       back in, and the same table is simply dealt a fresh hand.
+       (No "lowest hand wins" — that would be counting, and there is
+       no counting in this game.)
+     · After a win the table votes: every seat says PLAY AGAIN or
+       LEAVES. The stayers are re-dealt at the same table — the book
+       (st.book) keeps every hand's result, which is where the
+       table's tally of hands won and win-streaks comes from. Fewer
+       than two stayers and the table breaks up; that is the only way
+       a match actually ends.
+
+   A MELD is what it always is: a set (same rank, suits all
+   different) or a run (same suit, ranks in a row, ace LOW only —
+   A-2-3 yes, Q-K-A no). Never more than four cards, because the
+   winning shapes only ever ask for a four and threes.
+
+   THE TABLE-SIZE RULE (measured, not guessed — scripts run the sim)
+     Ten cards a head eats far more of the box than seven, so the two
+     hand sizes carry different pack mandates; see deckRule() for the
+     numbers and the measured dead-hand rates behind them.
 
    DUPLICATE CARDS, DECIDED AND WRITTEN DOWN
      With two or three packs there are two or three of every card.
      · In a SET the suits must all be different, so two identical
        cards can never sit in one set and a set never grows past 4.
-       Allowing 9♠9♠9♥ would make sets trivially cheap at a table
-       where dozens of duplicates circulate.
      · In a RUN the ranks are strictly consecutive, so two identical
        cards cannot sit in one run by construction.
-     · The same card may appear in two DIFFERENT melds on the table —
-       that is what owning three packs means.
 
    JOKERS (a setting — some tables want them, some spit)
-     · Two per deck, always — 2, 4 or 6 in the box, never a odd house
-       count nobody can verify.
-     · A joker stands in for a card inside a NEW meld, and in any meld
+     · Two per deck, always — 2, 4 or 6 in the box, never an odd
+       house count nobody can verify.
+     · A joker stands in for a card inside a meld, and in any meld
        the jokers must be OUTNUMBERED by real cards.
-     · A joker may not be laid off onto the table, and nobody swaps
-       one out. It went down as a card; it stays the card it claimed.
-     · Caught in your hand it costs 15.
 
    CARDS AS INTEGERS
      c = copy*54 + f. f 0..51 is klabb's own face id (suit*13+rank-1);
      f 52 and 53 are the two jokers. copy is which pack it came from.
-     Three decks top out at 161, and the relay's wire carries bytes,
-     so a card always fits.
+     Five decks top out at 269, and the relay's wire carries bytes, so
+     a single-card move sends FACE and PACK as two small fields.
+
+   COMPATIBILITY, SAID PLAINLY
+     · The wire move for the winning call is still `t:'out'` — the
+       word predates the vocabulary fix and phones already speak it.
+     · The mode ids are still 'classic' (= seven cards) and 'ghaxra'
+       (= ten): the live relay whitelists exactly those two variant
+       strings and the relay is not ours to touch mid-party.
+     · The vote moves 'stay'/'go' are new. An older build receiving
+       one refuses it and mp.js stops the table honestly — a mixed
+       room fails loudly, it never drifts.
+     · Old SAVES are from the scored, melds-on-the-table game and
+       cannot replay through these rules; js/rummy-ui.js version-
+       gates them (snapshot v:2) and quietly drops v:1.
    ═══════════════════════════════════════════════════════════════════ */
 'use strict';
 
@@ -75,7 +94,6 @@ const faceOf  = c => c % PER_DECK;
 const isJoker = c => faceOf(c) >= 52;
 const suitOf  = c => (faceOf(c) / 13) | 0;          /* junk for jokers */
 const rankOf  = c => (faceOf(c) % 13) + 1;          /* 1=A … 13=K      */
-const val     = c => isJoker(c) ? 15 : (rankOf(c) >= 11 ? 10 : rankOf(c));
 
 /* ── seeded randomness — the whole RNG state is st.rs ────────────── */
 function rnd(st){
@@ -94,81 +112,87 @@ function shuffle(st, a){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE TWO MODES
-     'classic'  seven cards (ten head to head), melds go on the table
-                as you make them, you win by emptying your hand.
-     'ghaxra'   GĦAXRA — ten cards to everybody, nothing goes on the
-                table at all, and you win by DECLARING: one meld of
-                four and two of three, exactly, all at once.
-   The mode is part of the deal, so it is part of (opts, seed, log) and
-   therefore part of what every phone in a room agrees on.
+   THE ONE OPTION — hand size, carried as the room "variant" because
+   that is the word the live relay already whitelists:
+     'classic'  seven cards, win on 4+3
+     'ghaxra'   ten cards,   win on 4+3+3
+   The ids are wire vocabulary and MUST NOT change; what they mean on
+   screen ("Seven" / "Għaxra — ten") lives in js/rummy-ui.js.
    ═══════════════════════════════════════════════════════════════════ */
 const MODES = ['classic', 'ghaxra'];
 const modeOf = m => (MODES.indexOf(m) >= 0 ? m : 'classic');
-/* GĦAXRA's shape: 4 + 3 + 3 = 10. Written as data because the check,
-   the AI and the rules card all read the same numbers. */
-const OUT_SHAPE = [4, 3, 3];
-const OUT_TOTAL = 10;
+const isGhaxra = st => st.mode === 'ghaxra';
+const handSize = mode => (modeOf(mode) === 'ghaxra' ? 10 : 7);
+/* the winning shape, as data — the check, the AI and the rules card
+   all read the same numbers */
+const outShape = mode => (modeOf(mode) === 'ghaxra' ? [4, 3, 3] : [4, 3]);
+const shapeName = mode => outShape(mode).join('+');
+
+const MAX_RECYCLE = 2;               /* third exhaustion kills the hand */
+const MAX_MELD = 4;                  /* the shapes never ask for more   */
+const MAX_DECKS = 5;
 
 /* ── THE TABLE-SIZE RULE, as one function everybody asks ──────────
-   Two modes, two answers, because GĦAXRA deals ten cards to every
-   seat instead of seven and that is a different sum. Measured, not
-   carried over: see the header of the sim numbers in the report and
-   the note under each branch. */
-function deckRule(n, mode, jokers){
-  if (modeOf(mode) === 'ghaxra'){
-    /* TEN CARDS A HEAD, so the sums are not the classic ones and were
-       re-measured rather than carried over: twelve players is 120
-       cards dealt before the stock exists at all, which two packs
-       (108) cannot even do.
+   Measured against THIS engine — 400 hands a cell at seven cards,
+   300 at ten, AI level 2, "dead" = the stock died a third time with
+   nobody calling RUMMY. The mandate is the smallest pack count that
+   keeps a cell under 5% dead.
 
-       AND JOKERS ARE PART OF THE TABLE SIZE HERE, which they are not
-       in classic. Declaring a whole 4+3+3 with no wilds is so much
-       harder that hands run roughly twice as long, and a longer hand
-       eats the stock: measured at 200 hands a size, three players on
-       one pack went from 2.5% dead hands with jokers to 23.5% without,
-       six on two packs from 0% to 24.5%, ten on three from 0% to 28%.
-       One extra pack puts every one of those back under 5%. So: no
-       jokers costs a pack, and the sheet says so. */
-    const noJok = (jokers === false) ? 1 : 0;
-    const cap = v => Math.min(MAX_DECKS, v);
-    const dealt = n * OUT_TOTAL;
-    let base, why;
+   SEVEN CARDS (4+3), dead-hand % on the minimum:
+     jokers   1 pack to 5p (5p: 4.3) · 2 packs to 10p (10p: 1.5)
+              · 3 packs 11–12p (12p: 0.0). One pack at 6p died 39.8%.
+     none     1 pack to 4p (4p: 4.0; 5p ran 29.8) · 2 packs to 9p
+              (9p: 4.8; 10p ran 21.3) · 3 packs 10–12p (12p: 0.3).
+
+   TEN CARDS (4+3+3), the harder shape:
+     jokers   1 pack to 3p (4p ran 6.7) · 2 packs to 8p (8p: 3.7;
+              9p ran 34.3) · 3 packs to 12p (12p: 1.0).
+     none     1 pack to 3p (3p: 0.7) · 2 packs to 6p (7p ran 5.3)
+              · 3 packs to 10p (11p ran 5.0) · 4 packs 11–12p.
+   So at ten cards a purist no-joker table pays extra packs from
+   seven players up — a full 4+3+3 with no wilds eats the stock. */
+function deckRule(n, mode, jokers){
+  const cap = v => Math.min(MAX_DECKS, v);
+  const dealt = n * handSize(mode);
+  const jok = jokers !== false;
+  let min, why;
+  if (modeOf(mode) === 'ghaxra'){
     if (n <= 3){
-      base = 1;
+      min = 1;
       why = n + ' at ten cards each can play off one pack; a second makes it looser.';
-    } else if (n <= 6){
-      base = 2;
+    } else if (n <= (jok ? 8 : 6)){
+      min = 2;
       why = n + ' players at ten cards each need two packs — one deals ' + dealt +
-            ' cards and leaves a stock of ' + Math.max(0, 54 - dealt - 1) + '.';
-    } else if (n <= 10){
-      base = 3;
-      why = n + ' players at ten cards each need three packs; two leaves ' +
-            Math.max(0, 108 - dealt - 1) + ' cards of stock, which a table this size eats ' +
-            'before everybody has drawn twice.';
+            ' cards before the stock exists at all.' +
+            (jok ? '' : ' Two hold it with no jokers at this size; more heads would not.');
+    } else if (n <= (jok ? 12 : 10)){
+      min = 3;
+      why = n + ' players at ten cards each need three packs — on two, a table this ' +
+            'size ran a third of its hands into a dead stock. Measured, not guessed.' +
+            (jok ? '' : ' No jokers makes the full 4+3+3 harder still, so the third pack ' +
+                        'arrives earlier than it would with them.');
     } else {
-      base = 4;
-      why = n + ' players need ' + dealt + ' cards dealt before the stock exists at all — ' +
-            'two packs cannot deal it, three leaves it starving. Four packs. Measured.';
+      min = 4;
+      why = n + ' players at ten cards, no jokers, need four packs — a full 4+3+3 with ' +
+            'no wilds eats three packs dry one hand in four. Measured.';
     }
-    if (noJok)
-      why += ' With no jokers a full 4+3+3 is much harder to finish, so this table takes ' +
-             'one pack more — without it a quarter of the hands die undeclared.';
-    const min = cap(base + noJok);
-    return { min, max: cap(min + 1), why };
+  } else {
+    if (n <= (jok ? 5 : 4)){
+      min = 1;
+      why = n + ' at seven cards each play off one pack; a second makes it looser.';
+    } else if (n <= (jok ? 10 : 9)){
+      min = 2;
+      why = n + ' players at seven cards each need two packs — one deals ' + dealt +
+            ' of its cards and the stock dies under the table. Measured.';
+    } else {
+      min = 3;
+      why = n + ' players at seven cards each need three packs — on two, a table this ' +
+            'size ran one hand in five into a dead stock. Measured, not guessed.';
+    }
   }
-  if (n <= 4) return { min:1, max:2,
-    why: n + ' can play off one pack; add a second for a looser game.' };
-  if (n <= 8) return { min:2, max:3,
-    why: n + ' players need two packs — one deals ' + n + ' hands and leaves no stock. A third is optional.' };
-  return { min:3, max:4,
-    why: n + ' players need three packs. On two, the deal leaves under 20 cards of stock ' +
-         'and the pile recycles itself ragged — measured, not guessed. A fourth is optional.' };
+  min = cap(min);
+  return { min, max: cap(min + 1), why };
 }
-const handSize = (n, mode) => (modeOf(mode) === 'ghaxra' ? OUT_TOTAL : (n === 2 ? 10 : 7));
-const MAX_RECYCLE = 2;               /* third exhaustion blocks the hand */
-const MAX_MELD = 12;                 /* wire ceiling; a hand is 11 at most */
-const MAX_DECKS = 5;
 
 /* ═══════════════════════════════════════════════════════════════════
    MELDS
@@ -177,8 +201,8 @@ const MAX_DECKS = 5;
    ═══════════════════════════════════════════════════════════════════ */
 
 /* Try to read `cards` (from one hand, order irrelevant) as ONE valid
-   new meld. Returns the meld object or null. Deterministic: spare
-   jokers extend a run at the TOP first, then the bottom. */
+   meld. Returns the meld object or null. Deterministic: spare jokers
+   extend a run at the TOP first, then the bottom. */
 function readMeld(cards){
   const n = cards.length;
   if (n < 3 || n > MAX_MELD) return null;
@@ -191,7 +215,6 @@ function readMeld(cards){
 
   /* SET: every natural the same rank, suits all different, four at most */
   if (nats.every(c => rankOf(c) === rankOf(nats[0]))){
-    if (n > 4) return null;
     const suits = nats.map(suitOf);
     for (let i = 0; i < suits.length; i++)
       if (suits.indexOf(suits[i]) !== i) return null;   /* twin suit — see header */
@@ -224,24 +247,9 @@ function readMeld(cards){
   return { k:'r', s, lo, cards: out };
 }
 
-/* can card `c` be laid off onto meld `m`?  (jokers never lay off) */
-function canLay(m, c){
-  if (isJoker(c)) return false;
-  if (m.k === 's')
-    return rankOf(c) === m.r && m.cards.length < 4 && m.suits.indexOf(suitOf(c)) < 0;
-  const hi = m.lo + m.cards.length - 1;
-  if (suitOf(c) !== m.s) return false;
-  return (rankOf(c) === m.lo - 1 && m.lo > 1) || (rankOf(c) === hi + 1 && hi < 13);
-}
-function layInto(m, c){                 /* mutate — caller checked canLay */
-  if (m.k === 's'){ m.cards.push(c); m.suits.push(suitOf(c)); return; }
-  if (rankOf(c) === m.lo - 1){ m.cards.unshift(c); m.lo--; }
-  else m.cards.push(c);
-}
-
 /* ═══════════════════════════════════════════════════════════════════
-   THE PARTITION SEARCH — GĦAXRA's whole game, and the one piece of
-   this file that is not allowed to be approximately right.
+   THE PARTITION SEARCH — the whole game, and the one piece of this
+   file that is not allowed to be approximately right.
 
    "The app says my hand is not valid when it is" is unforgivable, so
    nothing here is greedy and nothing here takes the first answer it
@@ -251,20 +259,22 @@ function layInto(m, c){                 /* mutate — caller checked canLay */
      every meld's NATURAL cards are either all the same rank (a set)
      or all the same suit (a run) — there is no third kind.
 
-   So instead of walking all 2^11 subsets of a hand, we walk only the
+   So instead of walking all subsets of a hand, we walk only the
    subsets INSIDE each rank group and each suit group, each widened by
-   the jokers (which may join anything). Those groups are three or
-   four cards long, so the candidate list is tiny — and it provably
-   contains every meld the hand can make, because a meld outside every
-   such group would have to have naturals of two ranks AND two suits,
-   which readMeld() refuses by definition.
+   the jokers (which may join anything). Those groups are a few cards
+   long, so the candidate list is tiny — and it provably contains
+   every meld the hand can make, because a meld outside every such
+   group would need naturals of two ranks AND two suits, which
+   readMeld() refuses by definition.
 
-   readMeld() stays the only authority on whether a candidate is legal.
-   This function decides only WHICH candidates are worth asking about.
+   readMeld() stays the only authority on whether a candidate is
+   legal. This function decides only WHICH candidates are worth asking
+   about. Verified against a brute-force partitioner at BOTH hand
+   sizes, with jokers and without — the numbers are in the report.
    ═══════════════════════════════════════════════════════════════════ */
 
 /* every valid meld of size lo..hi that is a subset of `hand`, as
-   {mask, size, val}. mask is a bitmask over hand positions. */
+   {mask, size}. mask is a bitmask over hand positions. */
 function meldMasks(hand, lo, hi){
   const n = hand.length;
   hi = Math.min(hi, n);
@@ -286,88 +296,87 @@ function meldMasks(hand, lo, hi){
       let size = 0;
       for (let b = bits; b; b >>= 1) size += (b & 1);
       if (size < lo || size > hi) continue;
-      let mask = 0, val = 0;
+      let mask = 0;
       const cards = [];
       for (let k = 0; k < L; k++){
         if (!(bits & (1 << k))) continue;
         const i = pool[k];
         mask |= (1 << i);
-        val += val0(hand[i]);
         cards.push(hand[i]);
       }
       if (seen[mask]) continue;
       if (!readMeld(cards)) { seen[mask] = 2; continue; }
       seen[mask] = 1;
-      out.push({ mask, size, val });
+      out.push({ mask, size });
     }
   }
   for (const r in byRank) sweep(byRank[r].concat(jok));
   for (const s in bySuit) sweep(bySuit[s].concat(jok));
   return out;
 }
-const val0 = c => val(c);
 
-/* CAN THIS HAND GO OUT? Exact. `hand` must be exactly ten cards, and
-   the answer is a partition into one meld of four and two of three
-   covering every card. Returns the three melds, or null.
+/* CAN THIS HAND CALL RUMMY? Exact. `hand` must be exactly the mode's
+   hand size, and the answer is a partition into the mode's shape —
+   one 4 and one 3 at seven cards, one 4 and two 3s at ten — covering
+   every card. Returns the melds, or null.
 
-   Note it searches the FOUR first and then two THREES out of what is
+   It searches the FOUR first and then the threes out of what is
    left — and it keeps searching if a promising four leads nowhere,
    which is precisely where a greedy answer goes wrong: the widest
    meld in the hand is often the one that must be broken up. */
-function outCheck(hand){
-  if (!Array.isArray(hand) || hand.length !== OUT_TOTAL) return null;
-  const full = (1 << OUT_TOTAL) - 1;
+function outCheck(hand, mode){
+  const shape = outShape(mode);
+  const total = shape.reduce((a, b) => a + b, 0);
+  if (!Array.isArray(hand) || hand.length !== total) return null;
+  const full = (1 << total) - 1;
   const ms = meldMasks(hand, 3, 4);
   const four = ms.filter(m => m.size === 4);
   const three = ms.filter(m => m.size === 3);
+  const built = mk => {
+    const cards = [];
+    for (let i = 0; i < total; i++) if (mk & (1 << i)) cards.push(hand[i]);
+    return readMeld(cards);
+  };
   for (let a = 0; a < four.length; a++){
     const A = four[a].mask;
-    for (let b = 0; b < three.length; b++){
+    if (shape.length === 2){                     /* 4+3 — seven cards */
+      const need = full & ~A;
+      for (let b = 0; b < three.length; b++)
+        if (three[b].mask === need) return [A, need].map(built);
+      continue;
+    }
+    for (let b = 0; b < three.length; b++){      /* 4+3+3 — ten cards */
       const B = three[b].mask;
       if (A & B) continue;
       const need = full & ~(A | B);
       for (let c = b + 1; c < three.length; c++){
         if (three[c].mask !== need) continue;
-        /* rebuild the three melds as objects for the table to show */
-        return [A, B, need].map(mk2 => {
-          const cards = [];
-          for (let i = 0; i < OUT_TOTAL; i++) if (mk2 & (1 << i)) cards.push(hand[i]);
-          return readMeld(cards);
-        });
+        return [A, B, need].map(built);
       }
     }
   }
   return null;
 }
 
-/* HOW CLOSE IS THIS HAND? The most valuable set of disjoint melds it
-   can make, and what is left over. Used for the blocked-hand score,
-   for the AI's discard, and for the line under your hand that tells
-   you how far off you are.
-
-   Sizes 3..5 only: a longer run always splits into shorter ones, and
-   a set stops at four, so nothing of value is missed — with one
-   honest exception, a 6+ run carrying enough jokers that neither half
-   can keep them outnumbered. That case can only ever make this
-   REPORT slightly more deadwood than a human would score, never
-   less, and it cannot affect whether a hand may go out (which is
-   outCheck's exact job, above). */
+/* HOW CLOSE IS THIS HAND? The arrangement that fits the MOST cards
+   into disjoint melds, and what is left over. This is the AI's whole
+   compass and the hand-organiser the felt draws — it is NOT a score,
+   nothing here is worth points, and outCheck() above stays the only
+   authority on whether a call is legal. */
 function bestCover(hand){
   const n = hand.length;
-  const ms = meldMasks(hand, 3, 5);
+  const ms = meldMasks(hand, 3, 4);
   const full = (1 << n) - 1;
   const best = new Int32Array(full + 1).fill(-1);
   const via = new Int32Array(full + 1).fill(-1);
   best[0] = 0;
-  /* over every reachable set of used cards, in increasing order */
   for (let used = 0; used <= full; used++){
     if (best[used] < 0) continue;
     for (let k = 0; k < ms.length; k++){
       const m = ms[k];
       if (used & m.mask) continue;
       const nx = used | m.mask;
-      if (best[nx] < best[used] + m.val){ best[nx] = best[used] + m.val; via[nx] = k; }
+      if (best[nx] < best[used] + m.size){ best[nx] = best[used] + m.size; via[nx] = k; }
     }
   }
   let top = 0, at = 0;
@@ -382,16 +391,16 @@ function bestCover(hand){
     melds.push(readMeld(cards));
     u &= ~m.mask;
   }
-  let dead = 0;
   const loose = [];
-  for (let i = 0; i < n; i++) if (!(at & (1 << i))){ dead += val(hand[i]); loose.push(hand[i]); }
-  return { covered: top, deadwood: dead, melds, loose, mask: at };
+  for (let i = 0; i < n; i++) if (!(at & (1 << i))) loose.push(hand[i]);
+  return { covered: top, melds, loose, mask: at };
 }
 
 /* ═══════════════════════════════════════════════════════════════════
    THE DEAL
-   opts: { seats, decks, jokers, target, humans, lvl }
-     target 0 = one decisive hand; otherwise first to that many points.
+   opts: { seats, decks, jokers, humans, lvl, mode }
+   No target and no scoring — the match runs hand after hand until the
+   table itself breaks up.
    ═══════════════════════════════════════════════════════════════════ */
 function deal(opts, seed){
   const n = Math.max(2, Math.min(12, opts.seats | 0 || 2));
@@ -406,23 +415,20 @@ function deal(opts, seed){
   if (opts.force) decks = Math.max(1, Math.min(MAX_DECKS, opts.decks | 0));
   const jokers = opts.jokers !== false;
   /* THE FLOOR NOTHING MAY GO UNDER. The mandate above is about a game
-     that plays well; this is about a game that can be DEALT at all —
-     ten cards to twelve seats is 120 cards before the stock exists,
-     and a short deal would hand somebody four cards and call it a
-     hand. Even a forced harness run cannot go below it. */
-  const need = n * handSize(n, mode) + 2;
+     that plays well; this is about a game that can be DEALT at all.
+     Even a forced harness run cannot go below it. */
+  const need = n * handSize(mode) + 2;
   while (decks * (jokers ? 54 : 52) < need && decks < MAX_DECKS) decks++;
   const st = {
-    v:1, n, decks, mode,
-    jokers,
-    target: Math.max(0, opts.target | 0),
+    v:2, n, decks, mode, jokers,
     rs: seed | 0,
     seats: [], dealer: 0, handNo: 1,
-    stock: [], disc: [], melds: [],
+    stock: [], disc: [],
     turn: 0, phase: 'draw',
-    tookDisc: -1, laidThisTurn: 0, recycles: 0,
-    blocked: false, book: [], done: null,
-    show: null                        /* GĦAXRA: the declared 4+3+3 */
+    tookDisc: -1, recycles: 0,
+    book: [],            /* one row per finished hand — the table's tally */
+    done: null,
+    show: null           /* the winning melds, shown on the RUMMY call   */
   };
   const humans = Math.max(1, Math.min(n, opts.humans | 0 || 1));
   for (let i = 0; i < n; i++)
@@ -430,10 +436,24 @@ function deal(opts, seed){
       name: i < humans ? (humans === 1 ? 'You' : 'Player ' + (i + 1)) : 'MAKNA ' + (i + 1 - humans),
       own:  i < humans ? (i === 0 ? 'me' : 'hot') : 'ai',
       lvl:  opts.lvl | 0 || 2,
-      hand: [], score: 0, laid: false, turns: 0
+      hand: [], gone: false, vote: null
     });
   dealHand(st);
   return st;
+}
+
+/* the seats still at the table */
+function liveIdx(st){
+  const out = [];
+  for (let i = 0; i < st.n; i++) if (!st.seats[i].gone) out.push(i);
+  return out;
+}
+function nextLive(st, from){
+  for (let k = 1; k <= st.n; k++){
+    const i = (from + k) % st.n;
+    if (!st.seats[i].gone) return i;
+  }
+  return from;
 }
 
 function dealHand(st){
@@ -441,22 +461,24 @@ function dealHand(st){
   for (let d = 0; d < st.decks; d++)
     for (let f = 0; f < (st.jokers ? 54 : 52); f++) cards.push(d * PER_DECK + f);
   shuffle(st, cards);
-  const hs = handSize(st.n, st.mode);
-  st.seats.forEach(s => { s.hand = cards.splice(0, hs); s.laid = false; s.turns = 0; });
+  const hs = handSize(st.mode);
+  st.seats.forEach(s => { s.hand = s.gone ? [] : cards.splice(0, hs); s.vote = null; });
   st.disc = [cards.pop()];
   st.stock = cards;
-  st.melds = [];
   st.show = null;
-  st.turn = (st.dealer + 1) % st.n;
+  st.turn = nextLive(st, st.dealer);
   st.phase = 'draw';
-  st.tookDisc = -1; st.laidThisTurn = 0;
-  st.recycles = 0; st.blocked = false;
+  st.tookDisc = -1;
+  st.recycles = 0;
 }
-const isGhaxra = st => st.mode === 'ghaxra';
 
 /* ═══════════════════════════════════════════════════════════════════
-   TURN ORDER — seat -1 is the table itself (a beat between hands, or
-   the blocked verdict), exactly klabb's convention.
+   TURN ORDER — seat -1 is the table itself (the beat between hands
+   and the dead-stock verdict), exactly klabb's convention. During the
+   play-again vote the "turn" is the lowest-numbered seat that has not
+   answered yet: votes go one at a time, in seat order, because the
+   wire carries one move at a time and every phone must agree on whose
+   move it was.
    ═══════════════════════════════════════════════════════════════════ */
 function stockDead(st){
   return !st.stock.length && !(st.disc.length > 1 && st.recycles < MAX_RECYCLE);
@@ -464,7 +486,12 @@ function stockDead(st){
 function turn(st){
   if (st.done) return -2;
   if (st.phase === 'handover') return -1;
-  if (st.phase === 'draw' && stockDead(st)) return -1;   /* blocked — table calls it */
+  if (st.phase === 'vote'){
+    for (let i = 0; i < st.n; i++)
+      if (!st.seats[i].gone && st.seats[i].vote === null) return i;
+    return -1;
+  }
+  if (st.phase === 'draw' && stockDead(st)) return -1;   /* dead — table calls it */
   return st.turn;
 }
 
@@ -478,38 +505,28 @@ function legal(st, seat){
   if (turn(st) !== seat) return [];
   const me = st.seats[seat];
   const out = [];
+  if (st.phase === 'vote') return [{ t:'stay' }, { t:'go' }];
   if (st.phase === 'draw'){
     out.push({ t:'draw', p:0 });
     if (st.disc.length) out.push({ t:'draw', p:1 });
     return out;
   }
-  /* ── GĦAXRA: nothing goes on the table, so the only two things you
-     can do are throw one away or DECLARE. A declaration is a discard
-     that happens to leave a hand of exactly 4+3+3 behind it. ── */
-  if (isGhaxra(st)){
-    me.hand.forEach(c => {
-      if (c === st.tookDisc) return;         /* never the card just taken */
-      const rest = me.hand.slice();
-      pull(rest, c);
-      if (outCheck(rest)) out.push({ t:'out', c });
-      out.push({ t:'disc', c });
-    });
-    return out;
-  }
-  /* act phase: melds (from the finder — check() is the real gate for a
-     human's own combinations), layoffs, discards */
-  findMelds(me.hand).forEach(m => out.push({ t:'meld', cards: m.slice() }));
-  me.hand.forEach(c => st.melds.forEach((m, mi) => {
-    if (canLay(m, c)) out.push({ t:'lay', c, m: mi });
-  }));
+  /* act: throw one away, or CALL RUMMY — the call is a discard that
+     happens to leave a hand of exactly the winning shape behind it */
   me.hand.forEach(c => {
-    if (c === st.tookDisc && me.hand.length > 1) return;
+    if (c === st.tookDisc) return;         /* never the card just taken */
+    const rest = me.hand.slice();
+    pull(rest, c);
+    if (outCheck(rest, st.mode)) out.push({ t:'out', c });
     out.push({ t:'disc', c });
   });
   return out;
 }
 
-/* THE gate. Every move — thumb, machine, wire — is measured here. */
+/* THE gate. Every move — thumb, machine, wire — is measured here.
+   The RUMMY call is checked by the exhaustive partition search —
+   never by the AI's opinion of the hand and never by whatever the
+   client believed. */
 function check(st, mv, seat){
   if (!mv || st.done) return false;
   if (turn(st) !== seat) return false;
@@ -517,36 +534,20 @@ function check(st, mv, seat){
     return (mv.t === 'next' && st.phase === 'handover') ||
            (mv.t === 'block' && st.phase === 'draw' && stockDead(st));
   const me = st.seats[seat];
-  if (!me) return false;
+  if (!me || me.gone) return false;
+  if (st.phase === 'vote')
+    return (mv.t === 'stay' || mv.t === 'go') && me.vote === null;
   const inHand = c => me.hand.indexOf(c) >= 0;
   if (st.phase === 'draw')
     return mv.t === 'draw' && (mv.p === 0 || (mv.p === 1 && st.disc.length > 0));
   if (st.phase !== 'act') return false;
-  /* ── GĦAXRA's gate. Two moves only, and the declaration is checked
-     by the exhaustive partition search — never by the AI's opinion of
-     the hand and never by whatever the client believed. ── */
-  if (isGhaxra(st)){
-    if (mv.t === 'disc')
-      return inHand(mv.c) && mv.c !== st.tookDisc;
-    if (mv.t === 'out'){
-      if (!inHand(mv.c) || mv.c === st.tookDisc) return false;
-      const rest = me.hand.slice();
-      pull(rest, mv.c);
-      return !!outCheck(rest);
-    }
-    return false;
-  }
-  if (mv.t === 'meld'){
-    if (!Array.isArray(mv.cards) || !mv.cards.every(inHand)) return false;
-    return !!readMeld(mv.cards);
-  }
-  if (mv.t === 'lay'){
-    const m = st.melds[mv.m | 0];
-    return !!m && inHand(mv.c) && canLay(m, mv.c);
-  }
-  if (mv.t === 'disc'){
-    if (!inHand(mv.c)) return false;
-    return mv.c !== st.tookDisc || me.hand.length === 1;
+  if (mv.t === 'disc')
+    return inHand(mv.c) && mv.c !== st.tookDisc;
+  if (mv.t === 'out'){
+    if (!inHand(mv.c) || mv.c === st.tookDisc) return false;
+    const rest = me.hand.slice();
+    pull(rest, mv.c);
+    return !!outCheck(rest, st.mode);
   }
   return false;
 }
@@ -559,8 +560,18 @@ function pull(hand, c){ const i = hand.indexOf(c); if (i >= 0) hand.splice(i, 1)
 function apply(st, mv){
   const seat = mv.seat;
   if (seat === -1){
-    if (mv.t === 'next'){ st.dealer = (st.dealer + 1) % st.n; st.handNo++; dealHand(st); }
-    else if (mv.t === 'block') endHand(st, -1);
+    if (mv.t === 'next'){
+      st.dealer = nextLive(st, st.dealer);
+      st.handNo++;
+      dealHand(st);
+    } else if (mv.t === 'block'){
+      /* the stock died a third time: a DEAD hand. Nobody won, nobody
+         is counted — the cards go back in the box and the same table
+         is dealt again. (A dead hand does not break anybody's
+         streak, for the same reason: nobody beat anybody.) */
+      st.book.push({ hand: st.handNo, winner: -1, kind:'dead' });
+      st.phase = 'handover';
+    }
     return;
   }
   const me = st.seats[seat];
@@ -582,211 +593,125 @@ function apply(st, mv){
     st.phase = 'act';
     return;
   }
-  if (mv.t === 'meld'){
-    const m = readMeld(mv.cards);
-    mv.cards.forEach(c => pull(me.hand, c));
-    st.melds.push(m);
-    st.laidThisTurn++;
-    if (!me.hand.length){ endHand(st, seat); return; }
-    return;
-  }
-  if (mv.t === 'lay'){
-    pull(me.hand, mv.c);
-    layInto(st.melds[mv.m], mv.c);
-    st.laidThisTurn++;
-    if (!me.hand.length){ endHand(st, seat); return; }
-    return;
-  }
-  /* ── GĦAXRA: the declaration. The discard goes on the pile exactly
-     like any other, the ten cards behind it are shown as the three
-     melds they are, and the hand is over. check() has already proved
-     the partition; outCheck is called once more only to HOLD it, so
-     the table has something to draw. ── */
+  /* the RUMMY call — the winning move, and the whole game. The spare
+     card goes on the pile exactly like any discard, the hand behind
+     it is shown as the melds it is, and the hand is WON on the spot.
+     check() has already proved the partition; outCheck is called once
+     more only to HOLD it, so the table has something to draw. Then
+     the table goes to the vote: play again, or leave. */
   if (mv.t === 'out'){
     pull(me.hand, mv.c);
     st.disc.push(mv.c);
-    st.show = { seat, melds: outCheck(me.hand) };
-    me.turns++;
-    endHand(st, seat);
+    st.show = { seat, melds: outCheck(me.hand, st.mode) };
+    st.book.push({ hand: st.handNo, winner: seat, kind:'rummy' });
+    st.seats.forEach(s => { s.vote = null; });
+    st.phase = 'vote';
     return;
   }
   if (mv.t === 'disc'){
     pull(me.hand, mv.c);
     st.disc.push(mv.c);
-    me.turns++;
-    if (!me.hand.length){ endHand(st, seat); return; }
-    /* the turn passes */
-    if (st.laidThisTurn) me.laid = true;
-    st.turn = (seat + 1) % st.n;
+    st.turn = nextLive(st, seat);
     st.phase = 'draw';
-    st.tookDisc = -1; st.laidThisTurn = 0;
+    st.tookDisc = -1;
+    return;
   }
-}
-
-const handWorth = h => h.reduce((a, c) => a + val(c), 0);
-/* WHAT A HAND IS WORTH AGAINST YOU AT THE END.
-   Classic: everything you are still holding — your melds went on the
-   table as you made them, so whatever is left is by definition junk.
-   GĦAXRA: only the cards NOT in a valid meld. Nothing was ever laid
-   down in that mode, so charging a player for a run they were holding
-   would punish the exact thing the mode asks them to do. */
-function deadOf(st, hand){
-  return isGhaxra(st) ? bestCover(hand).deadwood : handWorth(hand);
-}
-
-/* the hand ends: `who` went out, or -1 = blocked */
-function endHand(st, who){
-  const dw = st.seats.map(s => deadOf(st, s.hand));
-  let row;
-  if (who >= 0){
-    /* RUMMY, the double. Classic: everything laid in the one going-out
-       turn, nothing before. GĦAXRA: declared on your very first turn of
-       the hand, which is the same feat — the whole thing at once, out
-       of the deal. */
-    const rummy = isGhaxra(st) ? (st.seats[who].turns <= 1) : !st.seats[who].laid;
-    let gain = 0;
-    dw.forEach((v, i) => { if (i !== who) gain += v; });
-    if (rummy) gain *= 2;
-    st.seats[who].score += gain;
-    row = { hand: st.handNo, winner: who, kind: rummy ? 'rummy' : 'out',
-            gain, dw };
-  } else {
-    /* blocked: lowest hand wins the differences. Ties: nearest the
-       dealer's left — deterministic, and said out loud in the book. */
-    let min = Math.min.apply(null, dw), win = -1;
-    for (let k = 1; k <= st.n; k++){
-      const i = (st.dealer + k) % st.n;
-      if (dw[i] === min){ win = i; break; }
+  /* the play-again vote. One answer per seat, in seat order; the last
+     answer resolves the table, deterministically, inside this same
+     apply — no timer and no second source of truth. */
+  if (mv.t === 'stay' || mv.t === 'go'){
+    me.vote = mv.t;
+    for (let i = 0; i < st.n; i++)
+      if (!st.seats[i].gone && st.seats[i].vote === null) return;   /* still voting */
+    /* everybody has answered: the leavers leave */
+    st.seats.forEach(s => { if (!s.gone && s.vote === 'go'){ s.gone = true; s.hand = []; } });
+    const alive = liveIdx(st);
+    if (alive.length >= 2){
+      st.phase = 'handover';                       /* beat, then 'next' re-deals */
+    } else {
+      st.done = { kind:'folded', left: alive };
+      st.phase = 'done';
     }
-    let gain = 0;
-    dw.forEach(v => { gain += v - min; });
-    st.seats[win].score += gain;
-    st.blocked = true;
-    row = { hand: st.handNo, winner: win, kind:'blocked', gain, dw };
-  }
-  st.book.push(row);
-  st.phase = 'handover';
-  const top = Math.max.apply(null, st.seats.map(s => s.score));
-  if (!st.target || top >= st.target){
-    st.done = { row };
-    st.phase = 'done';
+    return;
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   OVER — the verdict, read relative to the local player.
+   THE TABLE'S TALLY — hands won and streaks, read straight off the
+   book. This is the ONLY source of truth for the scoreboard: it is
+   part of the replayed state, so every phone at an online table
+   derives the identical tally from the identical log, and a reload
+   mid-session rebuilds it from the autosave. Dead hands neither score
+   nor break a streak.
+   ═══════════════════════════════════════════════════════════════════ */
+function tally(st){
+  const t = st.seats.map(() => ({ won: 0, streak: 0, best: 0 }));
+  let run = -1, len = 0;
+  st.book.forEach(row => {
+    if (row.kind !== 'rummy') return;              /* dead hands don't count */
+    const w = row.winner;
+    t[w].won++;
+    if (w === run) len++; else { run = w; len = 1; }
+    if (len > t[w].best) t[w].best = len;
+  });
+  st.seats.forEach((s, i) => { t[i].streak = (i === run) ? len : 0; });
+  return t;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   OVER — the verdict, read relative to the local player. The only
+   ending is the table breaking up (fewer than two stayed); a WON HAND
+   is not an ending, it is a vote.
    ═══════════════════════════════════════════════════════════════════ */
 function over(st){
   if (!st.done) return null;
   let me = st.seats.findIndex(s => s.own === 'me' || s.own === 'hot');
   if (me < 0) me = 0;
-  const top = Math.max.apply(null, st.seats.map(s => s.score));
-  const winners = st.seats.map((s, i) => i).filter(i => st.seats[i].score === top);
-  const row = st.done.row;
-  const wname = st.seats[winners[0]].name;
-  const iWon = winners.indexOf(me) >= 0;
-  const tone = winners.length > 1 && iWon ? 'draw' : iWon ? 'win' : 'lose';
-  const kind = row.kind === 'rummy'
-                 ? (isGhaxra(st) ? 'RUMMY! Declared off the deal — double points.'
-                                 : 'RUMMY! The whole hand in one go — double points.')
-             : row.kind === 'blocked'
-                 ? (isGhaxra(st) ? 'The stock ran dry three times and nobody could declare. ' +
-                                   'Fewest loose cards takes it.'
-                                 : 'The stock ran dry three times. Lowest hand takes it.')
-             : '';
-  const why = (st.book.length > 1 ? st.book.length + ' hands. ' : '') +
-              (iWon ? 'You finish on ' + st.seats[me].score + '.'
-                    : wname + ' finishes on ' + top + '; you made ' + st.seats[me].score + '.') +
-              (kind ? ' ' + kind : '');
+  const t = tally(st);
+  const hands = st.book.filter(r => r.kind === 'rummy').length;
+  const most = Math.max.apply(null, t.map(x => x.won));
+  const tops = st.seats.map((s, i) => i).filter(i => t[i].won === most && most > 0);
+  const iTop = tops.indexOf(me) >= 0;
+  const tone = !hands ? 'draw' : (iTop ? (tops.length > 1 ? 'draw' : 'win') : 'lose');
+  const why = !hands
+    ? 'The table broke up before anybody called RUMMY.'
+    : hands + (hands === 1 ? ' hand' : ' hands') + ' played. ' +
+      (tops.length === 1
+        ? st.seats[tops[0]].name + ' took ' + most + ' of them' +
+          (t[tops[0]].best > 1 ? ' — best streak ' + t[tops[0]].best + '.' : '.')
+        : tops.map(i => st.seats[i].name).join(' and ') + ' shared the top on ' + most + '.');
   return {
     tone,
-    head: tone === 'win' ? 'Table’s yours' : tone === 'draw' ? 'Shared table' : wname + ' takes it',
+    head: tone === 'win' ? 'The table was yours'
+        : tone === 'draw' ? 'The table breaks up'
+        : st.seats[tops[0]].name + ' owned the table',
     why,
-    quip: tone === 'win'
-      ? (row.kind === 'rummy' && row.winner === me
-          ? 'One turn. They never saw a card of it coming.'
-          : 'Deadwood is what other people hold.')
-      : tone === 'lose'
-      ? (row.kind === 'blocked' ? 'Nobody went out. You just went down slower than most... no, wait.'
-                                : 'Every card in your hand just paid their bar bill.')
-      : 'Split it and argue about it forever.'
+    quip: tone === 'win' ? 'They left because of you. Wear it.'
+        : tone === 'lose' ? 'You can always say you were letting them win.'
+        : 'Nobody won the argument. That IS rummy.'
   };
 }
 
 function note(st){
-  if (st.done || st.phase === 'handover') return '';
-  return (isGhaxra(st) ? '4+3+3 · ' : '') + 'Stock ' + st.stock.length +
-         (st.target ? ' · to ' + st.target : '') +
+  if (st.done || st.phase === 'handover' || st.phase === 'vote') return '';
+  return shapeName(st.mode) + ' · Stock ' + st.stock.length +
          (st.book.length ? ' · hand ' + st.handNo : '');
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE MELD FINDER — shared by the machine and the human's hint layer.
-   Greedy, longest first: real runs, real sets, then joker-completed
-   ones. Not optimal — optimal set-partitioning is not what MAKNA 2
-   plays like — but it never returns an illegal meld.
-   ═══════════════════════════════════════════════════════════════════ */
-function findMelds(hand){
-  const left = hand.slice();
-  const out = [];
-  for (;;){
-    const m = bestMeldIn(left);
-    if (!m) break;
-    out.push(m);
-    m.forEach(c => pull(left, c));
-  }
-  return out;
-}
-function bestMeldIn(cards){
-  const nats = cards.filter(c => !isJoker(c));
-  const joks = cards.filter(isJoker);
-  let best = null;
-  const take = m => { if (m && (!best || m.length > best.length)) best = m; };
+   THE MACHINE — one brain for both hand sizes, because it is one
+   game. The measure is the LOOSE CARDS — the ones bestCover() cannot
+   fit into a meld — and every decision is "which choice leaves me
+   holding the fewest". Not points: progress toward the shape.
 
-  /* natural runs */
-  for (let s = 0; s < 4; s++){
-    const suit = nats.filter(c => suitOf(c) === s)
-                     .sort((a, b) => rankOf(a) - rankOf(b))
-                     .filter((c, i, a) => !i || rankOf(c) !== rankOf(a[i - 1]));
-    let run = [];
-    for (let i = 0; i <= suit.length; i++){
-      if (i && i < suit.length && rankOf(suit[i]) === rankOf(suit[i - 1]) + 1){ run.push(suit[i]); continue; }
-      if (run.length >= 3) take(run.slice(0, MAX_MELD));
-      if (i < suit.length) run = [suit[i]];
-    }
-  }
-  /* natural sets */
-  for (let r = 1; r <= 13; r++){
-    const set = [];
-    for (const c of nats)
-      if (rankOf(c) === r && !set.some(x => suitOf(x) === suitOf(c))) set.push(c);
-    if (set.length >= 3) take(set.slice(0, 4));
-  }
-  if (best) return best;
-  if (!joks.length) return null;
-
-  /* one joker on a natural pair — gap runs first, then sets */
-  for (let i = 0; i < nats.length; i++) for (let j = i + 1; j < nats.length; j++){
-    const a = nats[i], b = nats[j];
-    if (suitOf(a) === suitOf(b)){
-      const d = Math.abs(rankOf(a) - rankOf(b));
-      if (d === 1 || d === 2){
-        const m = readMeld([a, b, joks[0]]);
-        if (m) return [a, b, joks[0]];
-      }
-    }
-    if (rankOf(a) === rankOf(b) && suitOf(a) !== suitOf(b)) return [a, b, joks[0]];
-  }
-  return null;
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   THE MACHINE
-   lvl 1  draws blind, melds what screams, throws the dearest card
-   lvl 2  takes the pile when it completes something, lays off, keeps
-          pairs and gap-runs
-   lvl 3  as 2, and it has been watching the pile — a card whose
-          neighbours are dead is worth less to hold
+     draw   take the pile card only if it actually joins a meld
+            (lvl 3 also takes it when it merely joins a pair it can
+            still use), otherwise the stock
+     out    call RUMMY THE MOMENT it is legal — never sit on a made
+            hand, checked over every possible throw
+     throw  the loose card doing the least for the melds that are
+            half-built; a joker never, obviously
+     vote   the machine always stays. It has nowhere better to be.
    ═══════════════════════════════════════════════════════════════════ */
 function usefulness(st, hand, c, lvl){
   if (isJoker(c)) return 99;                      /* never throw a joker */
@@ -802,8 +727,7 @@ function usefulness(st, hand, c, lvl){
   if (lvl >= 3 && u > 0){
     /* how much of what completes this is already face up and gone? */
     let dead = 0;
-    const gone = st.disc.concat.apply(st.disc, st.melds.map(m => m.cards));
-    for (const g of gone){
+    for (const g of st.disc){
       if (isJoker(g)) continue;
       if (rankOf(g) === rankOf(c) && suitOf(g) !== suitOf(c)) dead++;
       if (suitOf(g) === suitOf(c) && Math.abs(rankOf(g) - rankOf(c)) <= 2) dead++;
@@ -813,105 +737,45 @@ function usefulness(st, hand, c, lvl){
   return u;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   THE MACHINE, PLAYING GĦAXRA
-   A classic brain turned loose on this mode looks broken, and it
-   looks broken in a specific way: it hunts one long meld, throws
-   everything that is not in it, and NEVER DECLARES, because the
-   classic goal (empty the hand) is unreachable here. So the whole
-   objective is swapped.
-
-   The measure is DEADWOOD — the cards bestCover() cannot fit into a
-   meld — and every decision is "which choice leaves me holding the
-   least junk". Called once per decision on an eleven-card hand, not
-   once per candidate, which is what keeps a twelve-seat table quick.
-
-     draw   take the pile card only if it actually lowers deadwood
-            (lvl 3 also takes it when it merely joins a pair it can
-            still use), otherwise the stock
-     out    declare THE MOMENT it is legal — never sit on a made hand
-     throw  the loose card that costs the most, deciding ties by how
-            little it does for the melds that are half-built
-   ═══════════════════════════════════════════════════════════════════ */
-function thinkGhaxra(st, seat, lvl){
+function think(st, seat, lvl){
+  lvl = lvl || 2;
   const me = st.seats[seat];
+  if (st.phase === 'vote') return { t:'stay' };
   if (st.phase === 'draw'){
     const top = st.disc[st.disc.length - 1];
     if (top !== undefined){
-      const now = bestCover(me.hand).deadwood;
-      const after = bestCover(me.hand.concat([top])).deadwood;
+      const now = bestCover(me.hand).loose.length;
+      const after = bestCover(me.hand.concat([top])).loose.length;
       /* the pile card is only worth taking if it lands in a meld —
-         "deadwood did not go up" is not the same thing, because you
-         must throw something back anyway */
+         "no worse" is not the same thing, because you must throw
+         something back anyway */
       if (after < now) return { t:'draw', p:1 };
-      if (lvl >= 3 && !isJoker(top) && usefulness(st, me.hand, top, lvl) >= 3 &&
-          val(top) <= 6) return { t:'draw', p:1 };
+      if (lvl >= 3 && !isJoker(top) && usefulness(st, me.hand, top, lvl) >= 3)
+        return { t:'draw', p:1 };
     }
     return { t:'draw', p:0 };
   }
-  /* DECLARE if the hand is there. Exhaustive, so this is never a
-     guess, and it is checked over every possible discard. */
+  /* CALL RUMMY if the hand is there. Exhaustive, so this is never a
+     guess, and it is checked over every possible throw. */
   const cov = bestCover(me.hand);
   if (cov.loose.length <= 1){
     for (const c of me.hand){
       if (c === st.tookDisc) continue;
       const rest = me.hand.slice();
       pull(rest, c);
-      if (outCheck(rest)) return { t:'out', c };
+      if (outCheck(rest, st.mode)) return { t:'out', c };
     }
   }
-  /* otherwise throw the dearest loose card. Level 1 does not look at
-     the melds at all — it simply sheds the most expensive junk. */
+  /* otherwise throw the loose card doing the least. Level 1 does not
+     look at half-built melds at all — it throws the first dead card
+     it sees. */
   const loose = cov.loose.filter(c => c !== st.tookDisc);
   const pool = loose.length ? loose : me.hand.filter(c => c !== st.tookDisc);
-  let pick = null, key = -1;
+  let pick = null, key = 1e9;
   for (const c of pool){
-    const k = (lvl === 1) ? val(c)
-                          : val(c) * 2 - usefulness(st, me.hand, c, lvl) * 5;
-    if (k > key){ key = k; pick = c; }
-  }
-  if (pick == null) pick = me.hand[0];
-  return { t:'disc', c: pick };
-}
-
-function think(st, seat, lvl){
-  lvl = lvl || 2;
-  const me = st.seats[seat];
-  if (isGhaxra(st)) return thinkGhaxra(st, seat, lvl);
-  if (st.phase === 'draw'){
-    const top = st.disc[st.disc.length - 1];
-    if (top !== undefined && !isJoker(top)){
-      const with2 = me.hand.concat([top]);
-      const melds = findMelds(with2);
-      const helps = melds.some(m => m.indexOf(top) >= 0) ||
-                    (lvl >= 2 && st.melds.some(m => canLay(m, top)));
-      if (helps) return { t:'draw', p:1 };
-      if (lvl >= 3 && usefulness(st, me.hand, top, lvl) >= 3 && val(top) <= 5)
-        return { t:'draw', p:1 };
-    }
-    return { t:'draw', p:0 };
-  }
-  /* meld everything the finder sees */
-  const melds = findMelds(me.hand);
-  if (melds.length) return { t:'meld', cards: melds[0] };
-  /* lay off everything that fits — but never strand yourself with no discard */
-  if (lvl >= 1){
-    for (const c of me.hand){
-      if (me.hand.length === 2 && c !== st.tookDisc){
-        /* laying this off would leave only the pile card to throw — fine */
-      }
-      for (let mi = 0; mi < st.melds.length; mi++)
-        if (canLay(st.melds[mi], c)) return { t:'lay', c, m: mi };
-    }
-  }
-  /* discard: the dearest, least useful card the rules let go of */
-  let pick = null, pickKey = -1;
-  for (const c of me.hand){
-    if (c === st.tookDisc && me.hand.length > 1) continue;
-    const key = (lvl === 1 ? val(c)
-                           : val(c) * 2 - usefulness(st, me.hand, c, lvl) * 7) +
-                (isJoker(c) ? -999 : 0);
-    if (key > pickKey){ pickKey = key; pick = c; }
+    const k = (lvl === 1) ? (isJoker(c) ? 999 : 0)
+                          : usefulness(st, me.hand, c, lvl) + (isJoker(c) ? 999 : 0);
+    if (k < key){ key = k; pick = c; }
   }
   if (pick == null) pick = me.hand[0];
   return { t:'disc', c: pick };
@@ -919,20 +783,24 @@ function think(st, seat, lvl){
 
 /* ═══════════════════════════════════════════════════════════════════
    THE WIRE — a move as flat byte fields, for js/mp.js's generic
-   codec. Fields list published on the lobby contract; a meld's cards
-   ride as c0..c11 (a hand is 11 cards at the very most).
-   ═══════════════════════════════════════════════════════════════════ */
-/* THE RELAY CARRIES BYTES — every field is bounded 0..255 on the Pi
-   (MAX_MOVE_IDX in server/karti_server.py) and a value over that is
-   not truncated, it is REFUSED. A card id is copy*54 + face, so at
-   five packs it reaches 269 and would not fit. Five packs is real:
-   GĦAXRA with no jokers at eleven or twelve seats needs them.
+   codec. The relay carries bytes: every field is bounded 0..255 on
+   the Pi and a value over that is REFUSED, not truncated. A card id
+   is copy*54 + face and five packs reaches 269, so a single-card move
+   sends the FACE (0..53) and the PACK (0..4) as two small fields and
+   the far side multiplies them back.
 
-   So a single-card move sends the FACE (0..53) and the PACK (0..4)
-   as two small fields and the far side multiplies them back. Melds
-   are classic-only, classic caps at four packs, and 3*54+53 = 215
-   fits — but the guard below refuses anything out of range anyway
-   rather than letting a silent overflow become a desync. */
+   The winning call rides as `t:'out'` — the wire word predates the
+   vocabulary fix and is left alone so phones keep agreeing. The vote
+   moves 'stay'/'go' carry no fields at all. WIRE_FIELDS keeps the old
+   full list (m, c1..c11 are no longer sent but a published contract
+   is cheaper to leave wide than to shrink under an old peer).
+
+   GĦAXRA note: the RUMMY call is ONE card on the wire — the cards
+   behind it are already in every phone's copy of that seat's hand,
+   and each phone re-runs the exhaustive outCheck itself before
+   accepting it. A client cannot call RUMMY on a hand it does not
+   hold.
+   ═══════════════════════════════════════════════════════════════════ */
 const WIRE_FIELDS = ['p', 'm', 'd', 'c0', 'c1', 'c2', 'c3', 'c4', 'c5',
                      'c6', 'c7', 'c8', 'c9', 'c10', 'c11'];
 const copyOf = c => (c / PER_DECK) | 0;
@@ -941,47 +809,26 @@ const byteOK = v => v >= 0 && v <= 255;
 function encWire(mv){
   if (!mv) return null;
   if (mv.t === 'draw') return { t:'draw', p: mv.p ? 1 : 0 };
-  if (mv.t === 'disc' || mv.t === 'out' || mv.t === 'lay'){
+  if (mv.t === 'stay' || mv.t === 'go') return { t: mv.t };
+  if (mv.t === 'disc' || mv.t === 'out'){
     const c = mv.c | 0;
     if (c < 0) return null;
     const w = { t: mv.t, c0: faceOf(c), d: copyOf(c) };
-    if (mv.t === 'lay') w.m = mv.m | 0;
-    return (byteOK(w.c0) && byteOK(w.d) && byteOK(w.m == null ? 0 : w.m)) ? w : null;
-  }
-  if (mv.t === 'meld'){
-    if (!Array.isArray(mv.cards) || mv.cards.length > MAX_MELD) return null;
-    const w = { t:'meld' };
-    for (let i = 0; i < mv.cards.length; i++){
-      const c = mv.cards[i] | 0;
-      if (!byteOK(c)) return null;                 /* never send a truncated card */
-      w['c' + i] = c;
-    }
-    return w;
+    return (byteOK(w.c0) && byteOK(w.d)) ? w : null;
   }
   return null;                                     /* table beats never travel */
 }
 function decWire(w){
   if (!w || typeof w.t !== 'string') return null;
   if (w.t === 'draw') return { t:'draw', p: w.p ? 1 : 0 };
-  /* face + pack, back into one card id — see encWire. GĦAXRA's
-     declaration is ONE card on the wire: the ten behind it are
-     already in every phone's copy of that seat's hand, and each phone
-     re-runs the exhaustive outCheck itself before accepting it. A
-     client cannot declare a hand it does not hold. */
-  if (w.t === 'disc' || w.t === 'out' || w.t === 'lay'){
+  if (w.t === 'stay' || w.t === 'go') return { t: w.t };
+  if (w.t === 'disc' || w.t === 'out'){
     if (w.c0 === undefined) return null;
-    const c = (w.d | 0) * PER_DECK + (w.c0 | 0);
-    if (w.t === 'lay') return { t:'lay', c, m: w.m | 0 };
-    return { t: w.t, c };
+    return { t: w.t, c: (w.d | 0) * PER_DECK + (w.c0 | 0) };
   }
-  if (w.t === 'meld'){
-    const cards = [];
-    for (let i = 0; i < MAX_MELD; i++){
-      if (w['c' + i] === undefined) break;
-      cards.push(w['c' + i] | 0);
-    }
-    return cards.length >= 3 ? { t:'meld', cards } : null;
-  }
+  /* 'meld' and 'lay' were the old scored game's moves. A peer still
+     sending them is running that build; refusing here makes mp.js
+     stop the table honestly instead of letting two rule books drift. */
   return null;
 }
 
@@ -990,12 +837,12 @@ function decWire(w){
    ═══════════════════════════════════════════════════════════════════ */
 root.KARTI_RUMMY = root.KARTI_RUMMY || {};
 root.KARTI_RUMMY.engine = {
-  PER_DECK, faceOf, isJoker, suitOf, rankOf, val,
-  deckRule, handSize, MAX_RECYCLE, MAX_MELD, MAX_DECKS,
-  MODES, modeOf, OUT_SHAPE, OUT_TOTAL, isGhaxra,
-  deal, legal, check, apply, turn, over, note,
-  readMeld, canLay, findMelds, think, handWorth,
-  meldMasks, outCheck, bestCover, deadOf,
+  PER_DECK, faceOf, isJoker, suitOf, rankOf,
+  deckRule, handSize, outShape, shapeName, MAX_RECYCLE, MAX_DECKS,
+  MODES, modeOf, isGhaxra,
+  deal, legal, check, apply, turn, over, note, tally, liveIdx,
+  readMeld, think,
+  meldMasks, outCheck, bestCover,
   encWire, decWire, WIRE_FIELDS
 };
 
