@@ -132,6 +132,11 @@
     'sea.sink':    { f: 'sea-sink.mp3',    g: 0.95 },
     'sea.horn':    { f: 'sea-horn.mp3',    g: 0.90 },
     'sea.sonar':   { f: 'sea-sonar.mp3',   g: 0.52 },
+    /* the flight beat. Held right down: it plays UNDER duel.attack and
+       the impacts rather than beside them, and it arrives hotter out of
+       the generator than anything else in the set (mean -11 dB against
+       -27 for the horn). It is the sound of waiting, not of an event. */
+    'sea.whistle': { f: 'sea-whistle.mp3', g: 0.34 },
     'gin.knock':   { f: 'gin-knock.mp3',   g: 1.00 },
     'rummy.call':  { f: 'rummy-call.mp3',  g: 1.00 },
 

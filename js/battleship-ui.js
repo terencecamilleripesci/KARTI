@@ -136,6 +136,14 @@ window.addEventListener('pagehide', () => saveGame());
 /* ── one local PRNG for shuffle buttons (never the shared stream) ── */
 let uiRng = { rng: (Date.now() ^ 0x5DEECE66) >>> 0 };
 
+/* ── reduced motion, the same two doors cardview.js honours ────────── */
+function reducedMo(){
+  try {
+    if (document.body && document.body.classList.contains('reduced')) return true;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch(e){ return false; }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    2 · APPLY — the single local door, mirroring the engine's.
    Every tap-made move goes through here: engine first, then the wire
@@ -307,24 +315,73 @@ function diagram(p){
   return out + '</span>';
 }
 
-/* ── a volley landing, shell by shell ─────────────────────────────── */
+/* ── a volley landing, shell by shell ─────────────────────────────────
+   THE SALVO, IN THREE BEATS. Anticipation: the launch glow on the
+   shooter's rail, then the shells themselves in the air — each one a
+   tracer arcing in from the shooter's side of the sea while its landing
+   shadow grows on the square it is about to ruin. Impact: the burst and
+   shockwave on a hull, the plume that stands up and falls back on open
+   water. Aftermath: the scorch that stays, the last shell of a salvo
+   landing a beat late and hardest, the stage kicked by the big cards,
+   and a boat that goes down doing it in full view — revealed, listing,
+   settling — under sea.sink.
+
+   ALL OF IT IS PRESENTATION. The engine resolved this volley before the
+   first frame; the timetable below only decides when the phone admits
+   each part. Compositor-only: every moving thing animates transform /
+   opacity (the sink wobble uses the individual rotate/translate
+   properties so it composes with a vertical boat's 90° transform).
+   Wall-clock: impacts keep the old 170/260ms rhythm; the only paid
+   additions are +200ms of lead-in on the two big:2 cards and one +90ms
+   breath before the final shell of a multi-shell salvo. */
 function volley(e, done){
   /* always watch the grid being shot at */
   G.target = e.g;
   G.view = (e.g === G.mySeat) ? 'mine' : 'them';
   paintBoard();
+  const pat = E.PATTERNS[e.p] || E.PATTERNS[0];
+  const heavy = pat.big === 2;
+  const rm = reducedMo();
+  const fromTop = (e.g === G.mySeat);      /* shells arrive from the enemy */
+  const px = cellPxNow();
   sfx('duel.attack');
-  let t = 420;
+  /* the wait is the drama, so the wait gets a sound. ONE whistle per salvo,
+     not one per shell — six overlapping whistles is a kettle, not a bombardment
+     — and skipped entirely when motion is reduced, because then there is no
+     flight for it to be under. */
+  if (!rm) sfx('sea.whistle', { gain: heavy ? 0.42 : 0.3 });
+  fxMuzzle(fromTop, heavy);
+  const step = e.cells.length > 4 ? 170 : 260;
+  const flight = heavy ? 520 : 400;        /* time in the air, overlapped */
+  let anyHit = false;
+  for (let i = 0; i < e.cells.length; i++) if (e.cells[i].r === 'hit') anyHit = true;
+  let t = heavy ? 620 : 420;
   for (let i = 0; i < e.cells.length; i++){
     const c = e.cells[i];
+    const last = i === e.cells.length - 1;
+    if (last && e.cells.length > 1) t += 90;      /* a breath before the closer */
+    const at = t;
+    if (!rm){
+      const launch = Math.max(0, at - flight);
+      setTimeout(() => { if (G) fxShell(e.g, c.c, fromTop, at - launch, px, heavy); }, launch);
+    }
     setTimeout(() => {
       if (!G) return;
       markCell(e.g, c);
-      if (c.r === 'hit'){ sfx('duel.hit'); }
-      else if (c.r === 'miss'){ sfx('sea.splash'); }
-      else { sfx('ui.tap', { gain:0.3 }); }
-    }, t);
-    t += e.cells.length > 4 ? 170 : 260;
+      if (c.r === 'hit'){
+        sfx('duel.hit');
+        fxHit(e.g, c.c, px, heavy && last);
+        if (heavy && last) quake(true);
+        else if (last && anyHit && e.cells.length > 1) quake(false);
+      } else if (c.r === 'miss'){
+        sfx('sea.splash');
+        fxMiss(e.g, c.c, px);
+      } else {
+        sfx('ui.tap', { gain:0.3 });
+        fxOld(e.g, c.c, px);
+      }
+    }, at);
+    t += step;
   }
   if (e.sunk.length){
     for (let k = 0; k < e.sunk.length; k++){
@@ -333,10 +390,30 @@ function volley(e, done){
         if (!G) return;
         /* ONE BOAT going under. A whole FLEET going under is the louder
            thing below, and the two must not sound the same — that is the
-           difference between "they lost the luzzu" and "they are out". */
+           difference between "they lost the luzzu" and "they are out".
+           The picture is painted WITH the sound: G.fxSink tags this hull
+           so the repaint draws it with the sinking animation — on an
+           enemy sea that is also the moment the boat is first REVEALED,
+           which is the whole reward of the shot. */
         sfx('sea.sink');
+        G.fxSink = id;
         banner('GĦEREQ ' + E.FLEET[id].name.toUpperCase() + ' of ' + nameOf(e.g) + '!', 'hot');
         paintBoard();
+        G.fxSink = -1;
+        quake(false);
+        /* the sea closes over it: foam rings walk the length of the
+           hull while it lists, bow to stern */
+        if (!rm){
+          const seat2 = G.st.seats[e.g];
+          const sh2 = seat2 && seat2.ships ? seat2.ships.find(s2 => s2.id === id) : null;
+          if (sh2){
+            const px2 = cellPxNow();
+            for (let j = 0; j < sh2.cells.length; j++){
+              const fc = sh2.cells[j];
+              setTimeout(() => { if (G) fxFoam(e.g, fc, px2); }, 120 + j * 110);
+            }
+          }
+        }
       }, t + 420 + k * 800);
     }
     t += 420 + e.sunk.length * 800;
@@ -348,10 +425,86 @@ function volley(e, done){
       setTimeout(() => sfx('board.mate'), 180);
       banner(nameOf(e.dead).toUpperCase() + ' HAS NO FLEET LEFT. GĦARRAQHOM.', 'hot');
       paintBoard();
+      quake(true);
     }, t + 500);
     t += 1300;
   }
   done(t + 420);
+}
+
+/* ── the fx layer: everything transient lands in .bs-fx, a clipped,
+   pointer-blind sheet over the sea. Positions are written ONCE at
+   spawn (left/top/width/height are never animated); the motion is all
+   keyframes on transform and opacity. ───────────────────────────── */
+function fxHost(g){
+  if (!G || !G.root) return null;
+  const showingTarget = (G.view === 'them' && G.target === g) ||
+                        (G.view === 'mine' && seatViewable() === g);
+  if (!showingTarget) return null;
+  return G.root.querySelector('.bs-gwrap .bs-fx');
+}
+function cellPxNow(){
+  const el = G && G.root && G.root.querySelector('#bs-grid');
+  if (!el) return gridPx();
+  const w = el.getBoundingClientRect().width;
+  return w ? w / E.W : gridPx();
+}
+function fxDrop(host, cls, c, px, css, html, life){
+  const el = document.createElement('div');
+  el.className = cls;
+  el.style.cssText = 'left:' + (E.CX(c) * px) + 'px;top:' + (E.CY(c) * px) + 'px;' +
+    'width:' + px + 'px;height:' + px + 'px;' + (css || '');
+  el.innerHTML = html;
+  host.appendChild(el);
+  setTimeout(() => { if (el.isConnected) el.remove(); }, life);
+}
+/* the shell in the air: <u> is the landing shadow growing on the target
+   square, <i> the tracer arcing in from the shooter's rail */
+function fxShell(g, c, fromTop, dur, px, heavy){
+  const host = fxHost(g); if (!host) return;
+  const sy = fromTop ? -(E.CY(c) * px + px) : (E.H * px - E.CY(c) * px);
+  const sx = ((E.W / 2 - 0.5) - E.CX(c)) * px * 0.5;
+  fxDrop(host, 'bs-shell' + (heavy ? ' hv' : ''), c, px,
+    '--sx:' + sx.toFixed(1) + 'px;--sy:' + sy.toFixed(1) + 'px;--fd:' + (dur | 0) + 'ms;',
+    '<u></u><i></i>', dur + 80);
+}
+function fxHit(g, c, px, big){
+  const host = fxHost(g); if (!host) return;
+  fxDrop(host, 'bs-boom' + (big ? ' big' : ''), c, px, '', '<i></i><u></u>', big ? 900 : 700);
+}
+function fxMiss(g, c, px){
+  const host = fxHost(g); if (!host) return;
+  fxDrop(host, 'bs-plume', c, px, '', '<u></u><i></i>', 800);
+}
+function fxOld(g, c, px){
+  const host = fxHost(g); if (!host) return;
+  fxDrop(host, 'bs-fizz', c, px, '', '<u></u>', 500);
+}
+function fxFoam(g, c, px){
+  const host = fxHost(g); if (!host) return;
+  fxDrop(host, 'bs-foam', c, px, '', '<u></u>', 1000);
+}
+/* the launch: a glow along the rail the shells leave from */
+function fxMuzzle(fromTop, heavy){
+  if (reducedMo() || !G || !G.root) return;
+  const lay = G.root.querySelector('.bs-gwrap .bs-fx');
+  if (!lay) return;
+  const el = document.createElement('div');
+  el.className = 'bs-muzz' + (fromTop ? ' n' : '') + (heavy ? ' hv' : '');
+  lay.appendChild(el);
+  setTimeout(() => { if (el.isConnected) el.remove(); }, 700);
+}
+/* the kick. On the pane, never on #app — the same lesson the pack
+   opener's shake paid for: shaking an ancestor of fixed chrome drags
+   the chrome with it and promotes the whole app layer. */
+function quake(big){
+  if (reducedMo() || !G || !G.root) return;
+  const p = G.root.querySelector('.bs-pane');
+  if (!p) return;
+  p.classList.remove('bs-quake', 'bs-quake2');
+  void p.offsetWidth;                        /* restart the animation */
+  p.classList.add(big ? 'bs-quake2' : 'bs-quake');
+  setTimeout(() => { if (p.isConnected) p.classList.remove('bs-quake', 'bs-quake2'); }, big ? 560 : 420);
 }
 function markCell(g, c){
   /* pin one shell onto the grid on screen without a full repaint */
@@ -792,7 +945,14 @@ function shipLayer(seat, reveal, px, placement){
       if (!reveal && !sh.sunk) continue;
       const a = sh.cells[0];
       const o = (sh.cells.length > 1 && sh.cells[1] === a + E.W) ? 1 : 0;
-      out += shipSVG(sh.id, a, o, px, sh.sunk ? 'sunk' : '', sh.hit);
+      /* the hull tagged by the volley goes down ON CAMERA: `sinking`
+         plays the list-and-settle, and on an enemy sea (where a live
+         boat is never drawn) it fades in as it lists — the reveal IS
+         the sinking. On your own sea (`own`) the hull was already
+         visible, so it only lists, it does not blink. */
+      let cls = sh.sunk ? 'sunk' : '';
+      if (sh.sunk && G.fxSink === sh.id) cls += reveal ? ' sinking own' : ' sinking';
+      out += shipSVG(sh.id, a, o, px, cls, sh.hit);
     }
   }
   return out + '</div>';
@@ -1199,6 +1359,40 @@ function paintBoard(){
   /* the strip */
   const turnSeat = st.seats[st.turn];
   const mine = myTurn();
+
+  /* YOUR TURN OPENS IN FIRE MODE.
+     volley() deliberately swings the view to your own sea so you can watch
+     the shells land on you — that part is right and stays. What was wrong
+     is where it LEAVES you: control came back with your own base on screen
+     and the only way out was a small toggle under the grid, so every turn
+     began by hunting for it.
+
+     Snapped ONCE per turn, keyed on the engine's own turn counter, which
+     is the whole reason this is not simply `if (mine) view = 'them'`:
+     that version would fight the player. Tapping through to your own sea
+     DURING your turn has to keep working — this moves you at the start of
+     a turn, it does not hold you there.
+
+     THE STAMP IS TAKEN ON EVERY MY-TURN PAINT, NOT ONLY WHEN FLIPPING.
+     The first cut stamped snapTurn inside the view==='mine' branch, and
+     the test found the hole: a turn that OPENS on the enemy sea (your
+     first turn, or the machine shot somebody else) never stamped — so
+     the first peek at your own base that turn was bounced straight back
+     to the enemy by the very next repaint. Stamp first, then flip only
+     if the stamp was actually stale AND you were left on your own sea. */
+  if (mine && G.snapTurn !== st.tcount){
+    G.snapTurn = st.tcount;
+    if (G.view === 'mine'){
+      G.view = 'them';
+      /* and it must be somebody real to shoot at: the last grid watched
+         may have been our own, or a seat since knocked out */
+      const t = st.seats[G.target];
+      if (G.target === me || !t || t.out){
+        for (let i = 0; i < st.seats.length; i++)
+          if (i !== me && st.seats[i] && !st.seats[i].out){ G.target = i; break; }
+      }
+    }
+  }
   const pat = st.mode === 'karti' ? E.PATTERNS[st.drawn] : null;
   setTurnStrip({
     col: mine ? '#3DDC84' : '#FF9F86',
@@ -1241,8 +1435,15 @@ function paintBoard(){
   }
   /* YOUR sea shows your fleet; THEIRS shows only what you have already
      sunk. Drawing a half-hit boat on an opponent's grid would hand its
-     shape — and therefore the rest of its cells — away for nothing. */
-  grid += '</div>' + shipLayer(subject, showMine, px, null) + '</div></div>';
+     shape — and therefore the rest of its cells — away for nothing.
+     The .bs-fx sheet on top is where shells, plumes and bursts live;
+     and when you peek at your own sea DURING your own turn, the cue
+     pill says out loud what a tap on the water already did quietly:
+     it puts you back on the enemy, aiming. */
+  grid += '</div>' + shipLayer(subject, showMine, px, null) +
+    '<div class="bs-fx"></div>' +
+    (showMine && mine ? '<div class="bs-firecue"><b>SPARA!</b><i>Tap the sea to aim</i></div>' : '') +
+    '</div></div>';
 
   /* my little sea + fleet health */
   const my = st.seats[me];
@@ -1253,7 +1454,10 @@ function paintBoard(){
     mini += '<span class="bs-c' + (my.shot[c] === 2 ? ' hit' : my.shot[c] === 1 ? ' miss' : '') +
             (sh ? ' ship' : '') + '"></span>';
   }
-  mini += '</span><i>' + (showMine ? 'LURA GĦAT-TIR' : 'IL-BAĦAR TIEGĦEK') + '</i></button>';
+  /* on your own turn the way back is not a direction, it is the thing you
+     came here to do — so it says so */
+  mini += '</span><i>' + (showMine ? (mine ? 'SPARA!' : 'LURA GĦAT-TIR')
+                                   : 'IL-BAĦAR TIEGĦEK') + '</i></button>';
   const fleet = '<div class="bs-fleet">' + E.FLEET.map(f => {
     const sh = subjectFleet(showMine ? my : subject, f.id);
     return '<div class="bs-fl' + (sh && sh.sunk ? ' sunk' : '') + '">' +
@@ -1728,6 +1932,108 @@ function injectCSS(){
     '#scr-party .bs-chip .bs-hull .lt{fill:#8CA3C2;stroke-width:.35}' +
     '#scr-party .bs-boat.on .bs-chip .bs-hull{fill:#8FF0BC}' +
 
+    /* ══ THE SALVO ══
+       Everything transient lives on .bs-fx, one clipped sheet over the
+       sea. Every animation below moves only transform and opacity —
+       positions are inline, written once at spawn. The sink wobble uses
+       the individual rotate/translate properties so it COMPOSES with the
+       90° inline transform a vertical boat already carries. */
+    '#scr-party .bs-fx{position:absolute;inset:0;pointer-events:none;z-index:4;' +
+      'overflow:hidden;border-radius:10px}' +
+    '#scr-party .bs-fx>div{position:absolute}' +
+    /* the shell: tracer arcs in from the shooter\'s rail (big near the
+       camera, small at the water), its landing shadow grows where it
+       will strike — the wait before the impact is the impact */
+    '#scr-party .bs-shell i{position:absolute;inset:0;' +
+      'animation:bsFly var(--fd,400ms) cubic-bezier(.5,.05,.75,.4) both}' +
+    '#scr-party .bs-shell i::before{content:"";position:absolute;left:50%;top:50%;' +
+      'width:34%;height:34%;margin:-17% 0 0 -17%;border-radius:50%;' +
+      'background:radial-gradient(circle at 35% 30%,#FFF6D8,#FFB35C 55%,#8C4A1C);' +
+      'box-shadow:0 0 9px rgba(255,179,92,.85),0 0 20px rgba(255,179,92,.4)}' +
+    '#scr-party .bs-shell.hv i::before{width:46%;height:46%;margin:-23% 0 0 -23%}' +
+    '@keyframes bsFly{0%{transform:translate(var(--sx),var(--sy)) scale(1.7);opacity:0}' +
+      '16%{opacity:1}' +
+      '55%{transform:translate(calc(var(--sx)*.42),calc(var(--sy)*.45 - 15px)) scale(1.15)}' +
+      '100%{transform:translate(0,0) scale(.55);opacity:1}}' +
+    '#scr-party .bs-shell u{position:absolute;inset:30%;border-radius:50%;' +
+      'background:rgba(5,9,17,.6);animation:bsMark var(--fd,400ms) linear both}' +
+    '@keyframes bsMark{from{transform:scale(.25);opacity:0}to{transform:scale(1);opacity:.6}}' +
+    /* impact on a hull: the burst, then the shockwave */
+    '#scr-party .bs-boom i{position:absolute;inset:-32%;border-radius:50%;' +
+      'background:radial-gradient(circle,#FFFDF0 0%,#FFD873 26%,#E8452C 58%,rgba(232,69,44,0) 72%);' +
+      'animation:bsBoom .4s var(--ease) both}' +
+    '@keyframes bsBoom{0%{transform:scale(.25);opacity:0}' +
+      '22%{opacity:1;transform:scale(1)}100%{transform:scale(1.3);opacity:0}}' +
+    '#scr-party .bs-boom u{position:absolute;inset:-4%;border-radius:50%;' +
+      'border:2px solid rgba(255,211,140,.9);transform:scale(1.6);' +
+      'animation:bsRing .55s cubic-bezier(.2,.7,.3,1) both}' +
+    '@keyframes bsRing{0%{transform:scale(.3);opacity:.95}100%{transform:scale(2.3);opacity:0}}' +
+    /* the last shell of a big card lands hardest */
+    '#scr-party .bs-boom.big i{inset:-75%;animation-duration:.55s}' +
+    '#scr-party .bs-boom.big u{animation-name:bsRingBig;animation-duration:.75s}' +
+    '@keyframes bsRingBig{0%{transform:scale(.3);opacity:1}100%{transform:scale(3.4);opacity:0}}' +
+    /* open water: the plume stands up, hangs, falls back; the ripple runs out */
+    '#scr-party .bs-plume i{position:absolute;left:31%;right:31%;top:-52%;bottom:42%;' +
+      'border-radius:46% 46% 30% 30%;transform-origin:50% 100%;' +
+      'background:linear-gradient(180deg,rgba(246,251,255,.95),rgba(163,203,242,.8) 55%,rgba(163,203,242,0));' +
+      'animation:bsPlume .64s cubic-bezier(.2,.6,.35,1) both}' +
+    '@keyframes bsPlume{0%{transform:scaleY(0) scaleX(.55);opacity:0}' +
+      '30%{opacity:1;transform:scaleY(1.08) scaleX(.9)}' +
+      '55%{transform:scaleY(.96) scaleX(1)}' +
+      '100%{transform:scaleY(.05) scaleX(1.3);opacity:0}}' +
+    '#scr-party .bs-plume u,#scr-party .bs-fizz u{position:absolute;inset:6%;border-radius:50%;' +
+      'border:2px solid rgba(185,212,242,.75);transform:scale(1.4);' +
+      'animation:bsRipple .7s cubic-bezier(.2,.7,.3,1) both}' +
+    '@keyframes bsRipple{0%{transform:scale(.35);opacity:.85}100%{transform:scale(1.9);opacity:0}}' +
+    /* a shell wasted on an old crater barely raises the water */
+    '#scr-party .bs-fizz u{border-color:rgba(150,170,195,.5);animation-duration:.45s}' +
+    /* foam walking the length of a hull as the sea closes over it */
+    '#scr-party .bs-foam u{position:absolute;inset:2%;border-radius:50%;' +
+      'border:2.5px solid rgba(214,235,252,.8);transform:scale(1.5);' +
+      'animation:bsFoam .9s cubic-bezier(.2,.6,.3,1) both}' +
+    '@keyframes bsFoam{0%{transform:scale(.3);opacity:0}' +
+      '25%{opacity:.9}100%{transform:scale(1.75);opacity:0}}' +
+    /* the launch glow on the rail the shells leave from */
+    '#scr-party .bs-muzz{left:0;right:0;bottom:0;height:15%;transform-origin:50% 100%;' +
+      'background:linear-gradient(0deg,rgba(255,197,66,.5),rgba(255,197,66,0));' +
+      'animation:bsMuzz .5s var(--ease) both}' +
+    '#scr-party .bs-muzz.n{bottom:auto;top:0;transform-origin:50% 0;' +
+      'background:linear-gradient(180deg,rgba(232,69,44,.45),rgba(232,69,44,0))}' +
+    '#scr-party .bs-muzz.hv{height:22%;animation-duration:.65s}' +
+    '@keyframes bsMuzz{0%{transform:scaleY(.2);opacity:0}30%{opacity:1;transform:scaleY(1)}' +
+      '100%{transform:scaleY(.6);opacity:0}}' +
+    /* the kick — on the pane, small, and only when it is earned */
+    '#scr-party .bs-pane.bs-quake{animation:bsQuake .38s var(--ease) both}' +
+    '@keyframes bsQuake{0%,100%{transform:translate3d(0,0,0)}' +
+      '25%{transform:translate3d(-3px,2px,0)}55%{transform:translate3d(3px,-2px,0)}' +
+      '80%{transform:translate3d(-2px,-1px,0)}}' +
+    '#scr-party .bs-pane.bs-quake2{animation:bsQuake2 .52s var(--ease) both}' +
+    '@keyframes bsQuake2{0%,100%{transform:translate3d(0,0,0)}' +
+      '14%{transform:translate3d(-8px,5px,0)}32%{transform:translate3d(7px,-5px,0)}' +
+      '52%{transform:translate3d(-6px,-3px,0)}72%{transform:translate3d(5px,4px,0)}' +
+      '88%{transform:translate3d(-2px,-2px,0)}}' +
+    /* THE MONEY SHOT: the tagged hull lists, settles, and stays down.
+       On an enemy sea it fades in as it lists — being seen at all is the
+       news — and `own` keeps your own boat solid while it goes. */
+    '#scr-party .bs-ship.sinking{animation:bsSink 1.05s cubic-bezier(.35,0,.35,1) both}' +
+    '@keyframes bsSink{0%{opacity:0;translate:0 -5px;rotate:0deg}18%{opacity:1}' +
+      '38%{rotate:-5deg;translate:3px 1px}66%{rotate:3deg;translate:-2px 3px}' +
+      '100%{rotate:0deg;translate:0 0;opacity:1}}' +
+    '#scr-party .bs-ship.sinking.own{animation-name:bsSinkOwn}' +
+    '@keyframes bsSinkOwn{0%{rotate:0deg;translate:0 0}30%{rotate:-5deg;translate:3px 1px}' +
+      '64%{rotate:3deg;translate:-2px 3px}100%{rotate:0deg;translate:0 0}}' +
+    /* the way back to the fight, said out loud */
+    '#scr-party .bs-firecue{position:absolute;left:50%;top:50%;z-index:5;pointer-events:none;' +
+      'transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px;' +
+      'padding:10px 18px;border-radius:14px;background:rgba(10,8,16,.8);' +
+      'border:1px solid rgba(255,197,66,.55);box-shadow:0 10px 26px rgba(0,0,0,.5);' +
+      'animation:bsCue 1.5s ease-in-out infinite}' +
+    '#scr-party .bs-firecue b{font:900 16px/1 var(--disp);letter-spacing:.08em;color:var(--gold)}' +
+    '#scr-party .bs-firecue i{font-style:normal;font:700 9.5px/1 var(--disp);letter-spacing:.09em;' +
+      'text-transform:uppercase;color:var(--dim)}' +
+    '@keyframes bsCue{0%,100%{opacity:.82;transform:translate(-50%,-50%) scale(1)}' +
+      '50%{opacity:1;transform:translate(-50%,-50%) scale(1.035)}}' +
+
     /* ══ THE GESTURE ══
        touch-action is declared HERE, before any gesture exists. Setting it
        on pointerdown is too late: the browser has already given the touch
@@ -1840,7 +2146,41 @@ function injectCSS(){
         'grid-template-columns:1fr}' +
       '#scr-party .bs-dock{width:auto;order:2;flex-direction:column;max-width:180px}' +
       '#scr-party .bs-hint{flex-basis:100%;order:4}' +
-      '#scr-party .bs-hint.aim{order:4}}';
+      '#scr-party .bs-hint.aim{order:4}}' +
+
+    /* ── reduced motion: still, readable, never disabled ──────────────
+       The same two doors the avatar borders honour: the OS setting and
+       the app's own body.reduced. Nothing flies and nothing shakes; an
+       impact is a quiet fade at its resting size (the base transforms
+       above ARE the readable frame), a sunk boat simply appears settled.
+       The volley timetable is untouched, so the pacing — and lockstep —
+       is identical. */
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .bs-shell,#scr-party .bs-muzz{display:none}' +
+      '#scr-party .bs-boom i,#scr-party .bs-boom u,#scr-party .bs-plume i,' +
+      '#scr-party .bs-plume u,#scr-party .bs-fizz u{animation:bsStillFx .5s linear both}' +
+      '#scr-party .bs-plume i{transform:none}' +
+      '#scr-party .bs-boom i{transform:scale(1)}' +
+      '#scr-party .bs-c.fresh::after{animation:none}' +
+      '#scr-party .bs-pane.bs-quake,#scr-party .bs-pane.bs-quake2{animation:none}' +
+      '#scr-party .bs-ship.sinking,#scr-party .bs-ship.sinking.own{animation:bsStillIn .3s linear both}' +
+      '#scr-party .bs-firecue{animation:none}' +
+      '#scr-party .bs-flip{animation:none}}' +
+    'body.reduced #scr-party .bs-shell,body.reduced #scr-party .bs-muzz{display:none}' +
+    'body.reduced #scr-party .bs-boom i,body.reduced #scr-party .bs-boom u,' +
+    'body.reduced #scr-party .bs-plume i,body.reduced #scr-party .bs-plume u,' +
+    'body.reduced #scr-party .bs-fizz u{animation:bsStillFx .5s linear both}' +
+    'body.reduced #scr-party .bs-plume i{transform:none}' +
+    'body.reduced #scr-party .bs-boom i{transform:scale(1)}' +
+    'body.reduced #scr-party .bs-c.fresh::after{animation:none}' +
+    'body.reduced #scr-party .bs-pane.bs-quake,' +
+    'body.reduced #scr-party .bs-pane.bs-quake2{animation:none}' +
+    'body.reduced #scr-party .bs-ship.sinking,' +
+    'body.reduced #scr-party .bs-ship.sinking.own{animation:bsStillIn .3s linear both}' +
+    'body.reduced #scr-party .bs-firecue{animation:none}' +
+    'body.reduced #scr-party .bs-flip{animation:none}' +
+    '@keyframes bsStillFx{0%{opacity:0}30%{opacity:.8}70%{opacity:.8}100%{opacity:0}}' +
+    '@keyframes bsStillIn{from{opacity:0}to{opacity:1}}';
   document.head.appendChild(st);
 }
 
@@ -1853,7 +2193,10 @@ try {
       state: () => (G ? G.st : null),
       drain: () => { if (G){ G.q = []; G.busy = false; } },
       reveal: p => { if (G) reveal({ e:'draw', s:0, p: p | 0 }, () => {}); },
-      setDraft: p => { if (G){ ensureDraft(); G.draft.p = p; paintPlace(); } }
+      setDraft: p => { if (G){ ensureDraft(); G.draft.p = p; paintPlace(); } },
+      act: e => { if (G) act(e, () => {}); },
+      myTurn: () => myTurn(),
+      reduced: () => reducedMo()
     };
   }
 } catch(e){}
