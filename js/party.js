@@ -1078,6 +1078,16 @@ document.addEventListener('click', e => {
    ═══════════════════════════════════════════════════════════════════ */
 window.KARTI_PARTY = {
   open, close, hub, register, unregister,
+  /* THE SHELF, READABLE.
+     register() has always been write-only, which meant js/mp.js — the one
+     file that owns the shared online lobby — could not read the seat range,
+     the difficulty names or the rules panel a game hangs on its own tile, and
+     had to reach for each game's global by name instead. This hands the list
+     over so the lobby can ask the shelf "what did you publish?" without
+     knowing that any particular game exists.
+
+     A COPY, not the array. Nothing outside this file may reorder the shelf. */
+  games: () => GAMES.slice(),
   /* show() puts our screen up WITHOUT painting the hub over it — js/mp.js
      needs that to drop an online board straight onto the screen. */
   show, standDown,

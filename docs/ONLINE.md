@@ -442,7 +442,7 @@ when you run it locally for testing. Nothing depends on guessing that behaviour 
 
 ```bash
 python3 server/karti_server.py --selftest
-# SELFTEST: ALL PASS  (159 checks, 0 failed)
+# SELFTEST: ALL PASS  (184 checks, 0 failed)
 ```
 
 Those checks are not decorative — each abuse case is *performed* and the rejection is
@@ -757,6 +757,15 @@ One JSON object per WebSocket text frame. Everything is capped at 16 KiB.
 | `{"t":"rejoin","code":…,"token":…,"since":N}` | `{"t":"rejoined",…}` then every relay after `N` that it missed |
 | `{"t":"relay","d":{…}}` | the other player gets `{"t":"relay","n":SEQ,"d":{…}}` |
 | | `d.k` is one of `hello` / `start` / `act` (the card duel), `bhello` / `bstart` / `bact` / `btake` (chess and dama), or `bail` (stop the match — the only one that belongs in a room of any kind). **A payload for a game the room is not playing is refused, not forwarded**, whichever direction it is going |
+| `{"t":"start","bots":[3,5]}` | **the host only.** Everyone at the table gets `{"t":"began","seed":N,"seats":8,"bots":[…],"levels":{"3":2},"names":{"3":"…"},"filled":[…]}` and a fresh roster. The relay contributes the seed rather than the host, so no player can grind a favourable deal; each client XORs its own nonce in, so a compromised relay cannot fix one either. Refused with `E_NOTREADY` while a *person* at the table has not readied |
+| `{"t":"ready","on":true}` | everyone at the table gets the new `{"t":"table",…}`. A thumb bouncing on the button changes nothing and is told so privately — an unchanged bit is not news. **There is deliberately no way to send this for a machine chair**, because a machine chair is not a `Seat` |
+| `{"t":"bot","seat":3,"level":2,"name":"Il-Ħabib"}` | **the host only, lobby only.** Everyone gets the new roster, with that chair `{"bot":true,"ready":true,"lv":2}`. `"on":false` takes it out again. A chair with somebody in it, a chair off the end, a difficulty outside 1–9, or a two-seat room are all refused |
+| | `{"t":"table",…}` arrives unprompted whenever the table changes: `{code, game, seats, started, variant, taken, min, waiting, who:[…]}`. `who[i]` is `null`, a person `{i,n,here,bot:false,ready,lv:0}`, or a machine `{i,n,here:true,bot:true,ready:true,lv}`. `taken` counts people **and** machines; `waiting` counts only people who have not readied. **Only a room with more than two chairs is ever sent one** |
+| `{"t":"who"}` | `{"t":"who","people":[…],"recent":[…],"you":{…},"here":N,"sockets":N,"every":4}` — see section 5c. **Requires `auth`**; a guest gets `Sign in first` |
+| `{"t":"visible","on":false}` | `{"t":"visible","on":false}`. Appear offline. Stored on the account, so it follows you to your other phone |
+| `{"t":"dropknock","id":"…"}` | `{"t":"knockgone","id":"…"}` to the person putting it down and **to nobody else** |
+| | `{"t":"knock","id":"…","from":"Terence","game":"dama","ago":7200}` arrives on `auth` for every invitation left while this account was away. It carries **no room** |
+| | `{"t":"stir"}` — "the who-is-around answer has moved." Nine bytes, no names, at most one every 4 seconds however much changed. Ask again if you care |
 | `{"t":"leave"}` | the other player gets `{"t":"peer","state":"left"}` |
 | `{"t":"ping"}` | `{"t":"pong"}` |
 |  | `{"t":"error","why":"…"}` — always one of a fixed set of strings |
@@ -790,6 +799,282 @@ room contributes to `waiting` and to nothing else: no `rooms` entry, and its hos
 (the other player is told `peer/dropped`), the relay keeps buffering moves, and the
 phone that dropped comes back with `rejoin` + its private seat token and is sent
 everything it missed. `js/mp.js` retries 8 times over about 37 seconds.
+
+---
+
+## 5b · The shared lobby — one screen every party game feeds
+
+Before this existed the relay could seat sixteen people and **nothing could join a
+table**, because `js/mp.js` had a waiting screen for a duel and no screen at all for a
+room with more than two chairs in it. This is that screen.
+
+### What it is
+
+One lobby, in `js/mp.js`, that knows the rules of **no** game. It reads a contract off
+whichever game the room is a room of, and draws whatever came back:
+
+```
+id · name · minSeats · maxSeats · defaultLevel
+levels    [{level, name, note}]
+isReady(seat)      cpu -> true always; human -> seat.ready
+autoReady(seat)    marks a machine ready, leaves people alone
+canStart(seats)    -> {ok, why}   `why` is display-ready TEXT, not a code
+rulesHTML()        the short panel, folded open in place
+blurb, myName()
+start(seats, opts) seats:[{name,kind,level,link}] opts:{roundLimit,clock,seed}
+wire:{fields:[…]}  (optional) how this game's move object folds onto the
+                   relay's five bounded fields — see "One move, on the wire"
+```
+
+`js/kiri-ui.js` shipped the reference implementation as `window.KARTI_KIRI.lobby` and
+hangs the same fields on its hub tile. `gameLobby(k)` in `js/mp.js` resolves a contract
+in four steps and **never throws**:
+
+1. `window.KARTI_<GAME>.lobby` — the published contract;
+2. the tile the game put on the party shelf (`KARTI_PARTY.games()`, added for this);
+3. `KARTI_PARTY.online[game]` — the transport half;
+4. `SEATS_FALLBACK` / `LEVELS_FALLBACK` in `js/mp.js`, which mirror `GAME_SEATS` on the
+   relay and are documented as mirrors.
+
+Every field it had to fill in itself is recorded. `KARTI_MP.lobbyReport()` prints the
+list — that is the list to hand to whoever owns each game's file.
+
+### The seven things the owner asked for, and where each one is
+
+> *"Kiri auro use orofike name and if clicked inline it will join in game and u will see
+> other players for invite to start the game there need to be 2 players and in thst state
+> can add ai all so to join with diffciltu no jeed make and rules becefore u hit start and
+> everyone resdy ai will auto ready appoun soawn if soawned boss."*
+
+| Asked for | Where it is |
+|---|---|
+| **The profile name, never asked for** | The relay is told who we are in `ws.onopen`, before the lobby exists. There is no text input anywhere in the flow and no place one could be added |
+| **Tap the online option, land in the room** | `openFor(game)` takes a seat at a table that is already waiting, or opens one. The next thing on screen is a **room**. No menu, no confirm — "to much reesting" |
+| **See who is in it, invite from inside it** | The roster *is* the screen. "Ask somebody" is a drawer that opens **in place**, so nobody leaves and loses their chair |
+| **Two minimum, and it says why** | `tableCanStart()` asks the game's own `canStart()` first. The start button is disabled and the line under it is the game's own words |
+| **Add AI, with a difficulty** | `{"t":"bot","seat":i,"level":n,"name":"…"}`. The machine appears in **everybody's** roster before the start, not only at it |
+| **Rules readable before you start** | `rulesHTML()` folded open above the chairs. `MP.showRules` — no navigation, no lost seat |
+| **Everybody readies, the host starts** | `{"t":"ready","on":true}` → the relay rebroadcasts the roster. The host is not exempt |
+| **An AI seat is ready the instant it spawns** | A machine chair is **not a `Seat`** on the relay: it lives in `Room.botseats`, has no token, and there is nothing there to be un-ready. `Room.unready()` cannot return one. It is a property of the design, not a rule somebody has to remember |
+
+### It is a table, not a bigger duel
+
+`"This is a oarty not duo stop maint it for small group pie will allways stay on"`. So:
+
+* the header is an **occupancy** — `4 of 8` — and it is on screen at all times;
+* the empty chairs are **one line** that says how many, not one row each. Drawing them
+  as rows was the first thing that went wrong on a real 440×894 phone: an eight-seat
+  table with three friends at it became five identical grey rows and the ready button
+  went below the fold;
+* the copy never says "waiting for your opponent". A duel is the special case here.
+
+Everything above only happens for a room with more than two chairs. `lobby()` branches
+on `MP.size > 2` in its first three lines; **a two-seat room draws exactly what it always
+drew and the duel wire is unchanged byte for byte.**
+
+### One move, on the wire
+
+The relay's table payload is `{a, i, j, s, n, k[]}` — narrow, bounded, and rebuilt field
+by field on the Pi. A game's own move object is not that shape (tombla's is `{t,s,c,i}`,
+`{t,k,n}`, `{t,s,c,p}`), so `js/mp.js` carries one generic codec:
+
+```
+a  the action name        (the move's `t`)
+n  a bitmask of which declared fields are present
+k  their values, in the declared order, one byte each
+```
+
+It is lossless for any move that is a name plus a handful of small numbers and booleans,
+which is every move all four table games make. A field that is *missing* stays missing —
+that is what the bitmask is for, and it is why `{t:'ready',v:false}` survives as `false`
+rather than arriving as "absent". A move the codec cannot carry **stops the table
+loudly** rather than arriving half-formed.
+
+The field order lives in `WIRE_FIELDS` in `js/mp.js`, one line per game, with the game's
+name on it. **It belongs in the game's own contract as `wire:{fields:[…]}`** — the list
+is the game's business and it will drift the first time somebody adds a move.
+`gameLobby()` already prefers a published one.
+
+Outbound, the lobby subscribes to `hooks.onMove` and forwards every move whose source is
+**not** `net`. That is the only place in the file that sends a move, so there is no
+second place that can send one twice.
+
+### What each game still owes the lobby
+
+Measured in a browser with `KARTI_MP.lobbyReport()` on the current build:
+
+| Game | Seats | Playable online | Published a contract | Still needs |
+|---|---|---|---|---|
+| `cards` | 2 | duel path (its own, older) | no | nothing — it predates all of this |
+| `chess` | 2 | **yes** | no | nothing for a duel; `lobby` only if it ever wants a table |
+| `dama` | 2 | **yes** | no | as chess |
+| `tombla` | 2–8 | **yes** | **no** | `KARTI_TOMBLA.lobby` — `minSeats/maxSeats`, `levels` (it has three, `Nofs rieqda` / `Tal-każin` / `In-nanna`, but they are private to `js/tombla-ui.js`), `rulesHTML`, `wire.fields`. Until then the lobby shows **generic** difficulty names, which is the one visible downgrade in this build |
+| `kiri` | 2–8 | **no** | **yes**, in full | `KARTI_PARTY.online.kiri = {start, remote, note, stop, live}` and `hooks.onMove`. Its lobby half is complete and is the reference for everybody else |
+| `skarta` | 2–10 | **no** | no | everything: `KARTI_SKARTA.lobby` **and** `KARTI_PARTY.online.skarta`. It exposes `apply/snapshot/rollbackTo` on its engine but publishes neither |
+| `klabb` | 2–8 | **no** | no | `KARTI_KLABB.lobby` per variant **and** `KARTI_PARTY.online.klabb`. It has `hooks` with `apply/snapshot/rollbackTo/attachNet/onMove` already — the transport is nearly free |
+
+Two things to hand on that are **not** the lobby's to fix:
+
+* **`klabb` calls its fourth variant `cheat`; the relay calls it `gidba`.** `GAME_VARIANTS`
+  in `server/karti_server.py` lists `("bixkla","briscola","sette","gidba")` and
+  `js/klabb-cheat.js` registers `id:'cheat'`. A room opened for that variant will be
+  refused. One of the two has to move; the relay's name is the Maltese one.
+* **`skarta` and `kiri` are named in `js/mp.js`'s `GAMES` array on purpose**, even though
+  neither can be played online yet. The relay can already *label* a room `skarta`, and a
+  client whose list has never heard of skarta runs that label through `cleanGame()`,
+  turns it into `cards`, and shows somebody a card duel that is not there. A game we know
+  the name of but cannot play is drawn honestly; a game we have never heard of is drawn
+  wrongly.
+
+---
+
+## 5c · Who is around — the social layer
+
+> *"Online should see online playera boss that are on idle on game so easy to i vite or
+> recently played so iff offline jnvite him and auto notficion trigger for the friend to
+> join boom we will have a social network wirh this"*
+
+### It is on the socket, not on an HTTP route
+
+`{"t":"who"}` → `{"t":"who", people, recent, you, …}`, over whichever socket the device
+already has open. Three reasons, and the first is the one that matters:
+
+1. **Presence dies with the socket.** Somebody who closed the app stops being invitable
+   *at once*, not in twelve seconds' time when a poll notices. An idle player who is not
+   actually there is worse than no list at all.
+2. Only a socket that has proved an account with `{"t":"auth"}` may ask, so a stranger
+   with the public URL cannot reach it.
+3. The per-connection message bucket already meters it. No second rate-limit table.
+
+### What it says
+
+```json
+{"t":"who",
+ "people":[{"n":"Grazzja","s":"waiting","g":"tombla","c":3,"m":8,"id":"6TIZWyAg6Vk"},
+           {"n":"Salvu","s":"idle"},
+           {"n":"Rita","s":"playing","g":"chess","c":2,"m":2}],
+ "shown":3,"here":3,"sockets":9,
+ "you":{"n":"Terence","s":"idle","vis":true},
+ "recent":[{"n":"Grazzja","games":4,"ago":900,"s":"waiting","g":"tombla","id":"…"},
+           {"n":"Robert","games":11,"ago":86400,"s":"off"}],
+ "every":4}
+```
+
+* **`waiting` is a chair you can take this second** — it carries `id`, the same opaque
+  join handle the room list uses, so it is one tap and no code. Sorted first.
+* **`idle` is the valuable one.** Somebody with the app open and nothing on is somebody
+  who would say yes. Sorted second.
+* **`playing`** is there so you can see they are alive, and carries no handle.
+* One row **per account**, not per socket. A phone and a tablet is one person, shown
+  doing the more interesting of the two things.
+* `sockets` is everybody connected, guests included. `here` is how many are *named*. The
+  gap between them is guests plus invisible players and is deliberately not broken down.
+
+### Recently played with
+
+A short per-account list of people this player **actually shared a game with**. It is
+written from the live room, under the room lock, at the moment a table starts or a duel
+fills — never from anything a client said, because that list is a one-tap invite and
+writing yourself into somebody's would be a way to reach them.
+
+It is in the **accounts store** (`played` table, one row per ordered pair, capped at
+`L.RECENT_MAX = 12`, most recent kept), so it survives a relay restart. That is the whole
+point: a shortcut that empties every time the Pi reboots is a shortcut nobody comes to
+rely on. It is annotated with what each person is doing **now**, and somebody who is
+offline stays on the list, because inviting them is exactly what you want to do.
+
+### Invites that outlive the app being closed
+
+Two tiers, because they answer two different questions:
+
+| | **Invite** (unchanged) | **Knock** (new) |
+|---|---|---|
+| means | "come and play chess, I am in a room now" | "somebody wanted a game while you were out" |
+| lives | in memory, 5 minutes | on disk, 7 days (`knocks` table) |
+| carries | a room code, server-side only | **no room** — by the time it is read the room is gone |
+| answered by | joining that exact room | **asking them back**: one tap opens a table of the same game and the invitation goes out the moment there is a room to point at |
+
+A knock is written only when the recipient has **no live socket**, so somebody who is
+here does not also collect a knock they already answered. On `auth`, every stored knock
+is checked: if the sender is online *right now* and sitting in an open room of the same
+game, it is **promoted into a live invite** on the spot, because the honest thing is a
+button that joins it.
+
+### Privacy — what was decided, not just implemented
+
+Four rules, all enforced in `RoomBook.people()` and nowhere else:
+
+1. **Only signed-in accounts are in the answer.** A guest is counted in `sockets` and
+   named nowhere. Guests can play; guests are not a directory.
+2. **Only a signed-in account gets an answer at all.** A guest asking `who` gets
+   `Sign in first` — the same refusal a guest gets for anything else.
+3. **A player can be invisible.** `{"t":"visible","on":false}`. Stored on the **account**
+   (`accounts.vis`), not on the socket, so going invisible on the phone means invisible on
+   the tablet. An invisible player is in `sockets` and in nobody's list, still sees
+   everyone else, and can still open a table.
+4. **Presence is not a way to enumerate accounts.** There is no query in this process
+   that can name an account without a live socket. `people()` walks connections, not the
+   database. That is the same instinct as the invite route, which answers identically
+   whether or not the name it was given exists — carried through unchanged.
+
+`GET /presence` is **untouched**. It says exactly what it said before: counts, the coarse
+name/state list, and the room list, all of which are things a player published by opening
+a public room. Nothing about accounts was added to it, and the self-test asserts that.
+
+### What presence costs
+
+Nothing is broadcast when a player's state changes. Every change bumps one integer
+(`RoomBook._epoch`) and **sends nothing**. The sweeper compares it against what it last
+announced and, if it moved, sends one `{"t":"stir"}` — nine bytes of payload — to at most
+`L.STIR_MAX = 96` listening sockets, and no more often than `L.STIR_EVERY = 4` seconds.
+Clients that care ask again; the client's own floor is 3.5 s on top of that.
+
+Measured, on the same Pi and the same rig as the 256-socket figure in section 1:
+
+| | naive (broadcast per player per change) | coalesced (this) |
+|---|---|---|
+| 256 sockets, 12 state changes in 4 s | 3,072 sends | **≤ 96 sends** (one tick) |
+| self-test assertion | — | *"a dozen changes cost one nudge, not a broadcast each"* — 12 state changes must produce 1–2 nudges |
+| CPU at 256 sockets, all playing | 3.8 % of one core (unchanged) | **3.8 % of one core** |
+
+The nudge is a *hint*, not data: it carries no names, so a socket that ignores it loses
+nothing but freshness, and the answer itself is still per-caller and still bucketed.
+
+### Web Push is NOT in this pass — what is left
+
+The owner asked for "auto notficion trigger for the friend to join". What shipped is
+**in-app delivery only**: a knock is handed over the moment that account next connects,
+and it is on screen before they have done anything else. Waking a **locked phone** is a
+separate job and these are the pieces, precisely:
+
+1. **VAPID keys.** Generate an EC P-256 pair once, keep the private half in the same
+   `StateDirectory` as `accounts.db`, publish the public half from `/health` or a new
+   route so the client can pass it to `pushManager.subscribe({applicationServerKey})`.
+2. **A subscriptions table** in `accounts.db`: `(endpoint PRIMARY KEY, uname, p256dh,
+   auth, made, seen)`. One row per *device*, not per account — a person with two phones
+   has two — with the same "keep the newest N" trim as `sessions`.
+3. **`pushManager.subscribe()` in the client**, behind an explicit tap. Notification
+   permission asked for from a user gesture and never on load; a refusal must leave
+   everything else working exactly as it does today.
+4. **A `push` handler in `sw.js`** (not this task's file — see below) calling
+   `showNotification`, plus a `notificationclick` handler that focuses an existing client
+   or opens `/#invite=<id>`.
+5. **A sender**: Web Push is not a POST of JSON. It needs the payload encrypted with
+   `aes128gcm` against the subscription's `p256dh`/`auth`, a signed VAPID JWT in the
+   `Authorization` header, and a `TTL`. Python has no stdlib for this — either vendor
+   `pywebpush`/`http_ece`+`cryptography`, or write ~150 lines of HKDF and AES-GCM against
+   `cryptography` directly. **This is the actual work**, and it is why it is its own job.
+6. **Prune 410s.** A `410 Gone` or `404` from a push service means that subscription is
+   dead and the row must be deleted, or the table grows forever and every send burns a
+   TLS handshake on nobody.
+7. **Rate limits and quiet hours.** One push per sender per recipient per N minutes, on
+   top of the invite bucket. A knock at 3 a.m. is how an app gets uninstalled.
+8. **iOS.** Web Push only works if the app is **installed to the home screen** (A2HS) and
+   only on iOS 16.4+. Safari in a tab gets nothing. Anything the UI promises has to be
+   conditional on `Notification.permission` *and* on being in standalone display mode.
+
+Nothing in the current build blocks any of it: the knock is already a durable, addressed,
+per-account note, which is the thing a push would be a second delivery channel *for*.
 
 ---
 

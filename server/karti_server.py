@@ -101,6 +101,48 @@ PROTOCOL  (one JSON object per WebSocket text frame, both directions)
                                             bact (chess and dama). A payload for
                                             a game the room is not playing is
                                             REFUSED, not forwarded.
+    {"t":"start","bots":[3,5]}              all: {"t":"began","seed":N,"seats":8,
+                                                  "bots":[..],"levels":{"3":2},
+                                                  "names":{"3":".."},"filled":[..]}
+                                            HOST ONLY. Refused while a PERSON at
+                                            the table has not readied.
+    {"t":"ready","on":true}                 all: {"t":"table",...}
+                                            One bit, per person. There is no way
+                                            to send it for a machine chair —
+                                            a machine chair is not a Seat.
+    {"t":"bot","seat":3,"level":2,          all: {"t":"table",...}
+             "name":"Il-Habib"}             HOST ONLY, LOBBY ONLY. A machine put
+                                            out here is in everybody's roster
+                                            BEFORE the start, ready the instant
+                                            it exists, and never in a chair
+                                            somebody is sitting in.
+                                            {"t":"table","seats":N,"taken":N,
+                                             "min":N,"waiting":N,"who":[...]}
+                                            arrives unprompted whenever the table
+                                            changes. ONLY a room with more than
+                                            two chairs is ever sent one.
+    {"t":"who"}                             {"t":"who","people":[..],"recent":[..],
+                                             "you":{..},"here":N,"sockets":N}
+                                            WHO IS AROUND. Requires "auth": a
+                                            guest is counted and named nowhere,
+                                            and cannot ask. See docs/ONLINE.md
+                                            section 5c for what was decided and
+                                            why, including "invisible".
+    {"t":"visible","on":false}              {"t":"visible","on":false}
+                                            Appear offline. On the ACCOUNT, so it
+                                            follows you to your other phone.
+    {"t":"dropknock","id":I}                {"t":"knockgone","id":I}
+                                            {"t":"knock","id":I,"from":"..",
+                                             "game":"dama","ago":7200} arrives on
+                                            auth for every invitation left while
+                                            this account was away. NO room code:
+                                            by then the room is gone, and the
+                                            answer is to ask them back.
+                                            {"t":"stir"} — "who-is-around moved".
+                                            Nine bytes, no names, at most one
+                                            every STIR_EVERY seconds however much
+                                            changed. Nothing is ever broadcast
+                                            per player per change.
     {"t":"leave"}                           peer: {"t":"peer","state":"left"}
     {"t":"ping"}                            {"t":"pong"}
                                             {"t":"error","why":"..."}   (fixed text)
@@ -255,6 +297,14 @@ GAME_SEATS = {
 GAME_VARIANTS = {
     "klabb": ("bixkla", "briscola", "sette", "gidba"),
 }
+# The client calls the bluffing game "cheat" — that id is baked into its own
+# storage key and into the stats registry, so it is not free to rename. The
+# relay publishes the Maltese name, "gidba". Rather than make either side wrong,
+# accept the client's id and normalise it here. Without this a room opened for
+# that variant is refused outright, which is how it shipped.
+VARIANT_ALIAS = {
+    ("klabb", "cheat"): "gidba",
+}
 # A variant may narrow its game's range. Partnership games need even seats, but
 # the relay does not know what a partnership IS — it just carries the numbers
 # the game declared.
@@ -341,6 +391,50 @@ class L:
     PRESENCE_BURST = 8.0        #   caller, and the burst it may spend at once
     PRESENCE_CALLERS = 512      # rate-limit buckets kept before they are binned
 
+    # ── the table lobby ──────────────────────────────────────────────────
+    # Everybody readies, the host starts. A machine chair is ready the instant
+    # it is put out and can never hold a table up, so the only thing these
+    # limit is how fast a PERSON may change their mind.
+    READY_RATE = 2.0            # ready/unready toggles per second, sustained
+    READY_BURST = 8.0
+    BOT_RATE = 2.0              # add/remove-a-machine taps per second (host only)
+    BOT_BURST = 12.0
+    BOT_NAME = 16               # characters of the name a game gives its machine
+
+    # ── the social layer ─────────────────────────────────────────────────
+    # WHO IS AROUND. Deliberately on the SOCKET and not on an HTTP route:
+    #   · only a socket that has proved an account with {"t":"auth"} may ask,
+    #     so a stranger with the public URL cannot enumerate anybody;
+    #   · presence dies with the socket, which is the whole point — an idle
+    #     player who closed the app must stop being invitable at once, not in
+    #     twelve seconds' time;
+    #   · the per-connection message bucket already meters it, so this needs
+    #     no second rate-limit table of its own.
+    WHO_RATE = 0.5              # {"t":"who"} answers per second, sustained
+    WHO_BURST = 6.0             # ...and the burst a screen change may spend
+    PEOPLE_MAX = 40             # people one `who` answer will ever name
+    RECENT_MAX = 12             # "recently played with" kept per ACCOUNT
+
+    # THE COALESCED NUDGE. Nothing is broadcast when a player's state changes.
+    # A counter is bumped instead, and at most once every STIR_EVERY seconds
+    # the sweeper sends ONE four-byte-ish {"t":"stir"} to at most STIR_MAX
+    # listening sockets. Sixteen people all joining rooms in the same second
+    # therefore cost one tick's worth of sends between them, not sixteen
+    # broadcasts to sixteen sockets each. See "What presence costs" in
+    # docs/ONLINE.md for the measurement.
+    STIR_EVERY = 4.0            # seconds between nudges, whatever changed
+    STIR_MAX = 96               # sockets nudged in one tick, oldest-first
+
+    # ── the knock: an invite that survives the app being closed ───────────
+    # A live invite points at a room and dies with it (INVITE_TTL above). A
+    # KNOCK is the note left behind — "TERENCE wanted a game of chess" — and it
+    # is on DISK, so it is still there when they open the app tomorrow. It
+    # never carries a room code: by then the room is long gone, and the reply
+    # is to ask them back rather than to walk into a room that no longer is.
+    KNOCK_TTL = 7 * 86400.0     # seconds a knock is kept before it is binned
+    KNOCKS_TO = 12              # knocks one account may be holding
+    KNOCKS_TOTAL = 4000         # knocks on the whole server
+
     ROOM_IDLE = 30 * 60.0       # seconds of silence before a room is binned
     GRACE = 60.0                # seconds a dropped seat is held for a rejoin
     REPLAY_MSGS = 96            # per room: buffered messages for a rejoin
@@ -373,6 +467,9 @@ E_NOTHOST = "Only the player who opened the table can start it."
 E_ALREADY = "That game has already started."
 E_BADSEAT = "That chair is not free."
 E_TOOFEW = "Not enough players for that game yet."
+E_STARTED = "That table has already started."
+E_NOTABLE = "That is a two-player room, not a table."
+E_NOTREADY = "Somebody at the table is not ready yet."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
@@ -550,8 +647,11 @@ def v_variant(game, v):
     """Which flavour of the game, where the game has flavours."""
     if v is None:
         return None
+    if not isinstance(v, str):
+        raise Reject("variant")
+    v = VARIANT_ALIAS.get((game, v), v)
     allowed = GAME_VARIANTS.get(game)
-    if not allowed or not isinstance(v, str) or v not in allowed:
+    if not allowed or v not in allowed:
         raise Reject("variant")
     return v
 
@@ -884,6 +984,15 @@ class Conn:
         self.aname = ""             # the display name that account registered
         self.invites = Bucket(L.INVITE_RATE, L.INVITE_BURST)
         self.auth_tries = 0
+        # ── the social layer ──
+        # `vis` is "may other signed-in players see me at all". It is loaded
+        # from the account on auth and is NOT a property of this socket: a
+        # player who went invisible on one phone is invisible on the other.
+        self.vis = True
+        self.whos = Bucket(L.WHO_RATE, L.WHO_BURST)
+        self.listening = False      # has asked at least once, so wants a stir
+        self.readies = Bucket(L.READY_RATE, L.READY_BURST)
+        self.botsets = Bucket(L.BOT_RATE, L.BOT_BURST)
 
     def _raw(self, data):
         with self.send_lock:
@@ -932,12 +1041,16 @@ class Conn:
 
 
 class Seat:
-    __slots__ = ("token", "conn", "gone_at")
+    __slots__ = ("token", "conn", "gone_at", "ready")
 
     def __init__(self, token):
         self.token = token
         self.conn = None
         self.gone_at = 0.0          # monotonic time the socket dropped, 0 = present
+        # "I am ready." A PERSON has to say it. A machine chair is not a Seat
+        # at all (see Room.botseats) precisely so that it can never be here
+        # holding a table up.
+        self.ready = False
 
 
 class Room:
@@ -949,7 +1062,8 @@ class Room:
     host is playing as bots. That is the whole of it."""
 
     __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
-                 "private", "game", "size", "variant", "started", "bots", "fan")
+                 "private", "game", "size", "variant", "started", "bots", "fan",
+                 "botseats", "readying")
 
     def __init__(self, code, private=False, game=DEFAULT_GAME, size=2, variant=None):
         self.code = code
@@ -978,6 +1092,27 @@ class Room:
         self.started = False
         self.bots = set()                   # seats the host is playing for
         self.fan = Bucket(L.FAN_RATE, L.FAN_BURST)
+        # MACHINE CHAIRS, PUT OUT IN THE LOBBY.
+        # {seat index: {"lv": difficulty, "n": name}}. They exist BEFORE the
+        # start, not only at it, because the lobby has to show them: a table
+        # filling up with three friends and two machines should look like five
+        # chairs taken, and everybody at it should be able to see that.
+        #
+        # A machine chair is NOT a Seat. It has no token, nobody can rejoin
+        # into it, and nothing can ever be sitting in it that is waiting to be
+        # made ready. That is the whole design: an AI seat cannot block a start
+        # because there is nothing there to block with.
+        self.botseats = {}
+        # Has anybody in this room ever used the ready protocol? Set the first
+        # time a seat says so and never cleared.
+        #
+        # WHY IT IS OPT-IN PER ROOM rather than always on: a client written
+        # before the lobby existed does not send "ready" and never will, and
+        # refusing to start ITS table would be this file breaking a game it
+        # does not understand — which is precisely what the relay is not for.
+        # The moment one modern client is in the room the gate is live for
+        # everybody, and the host cannot turn it off again.
+        self.readying = False
 
     def push(self, mask, text):
         self.seq += 1
@@ -998,9 +1133,21 @@ class Room:
 
     def free_seat(self):
         for i, s in enumerate(self.seats):
-            if s is None:
+            if s is None and i not in self.botseats:
                 return i
         return None
+
+    def taken(self):
+        """Chairs that are SPOKEN FOR — people plus machines. This, not
+        occupied(), is what the lobby shows as "5 of 10" and what the start
+        floor is measured against."""
+        return self.occupied() + len(self.botseats)
+
+    def unready(self):
+        """People at this table who have not said they are ready. A machine is
+        never in here; that is the point of keeping machines out of seats."""
+        return [i for i, s in enumerate(self.seats)
+                if s is not None and not s.ready]
 
     def full(self):
         return self.free_seat() is None
@@ -1036,16 +1183,40 @@ class Room:
 
     def roster(self):
         """What everyone at the table is allowed to know about it. Names only —
-        no tokens, no addresses, no room code."""
+        no tokens, no addresses, no room code.
+
+        `ready` is on every entry and a machine's is ALWAYS true. A client
+        never has to special-case a machine to work out whether the table can
+        go: it counts the entries whose `ready` is false, and if that is zero
+        and there are enough chairs taken, the host may start."""
+        who = []
+        for i, s in enumerate(self.seats):
+            if s is None:
+                bot = self.botseats.get(i)
+                if bot is None:
+                    who.append(None)
+                    continue
+                # a machine: here the instant it is put out, ready the instant
+                # it is here, and never waiting for anybody
+                who.append({"i": i, "n": bot["n"], "here": True, "bot": True,
+                            "ready": True, "lv": bot["lv"]})
+                continue
+            who.append({"i": i,
+                        "n": (s.conn.pname or "PLAYER") if s.conn is not None else "",
+                        "here": s.conn is not None,
+                        "bot": i in self.bots,
+                        "ready": bool(s.ready),
+                        "lv": 0})
+        lo, _, _ = seat_range(self.game, self.variant)
         return {"t": "table", "code": self.code, "game": self.game,
                 "seats": self.size, "started": self.started,
                 "variant": self.variant,
-                "who": [None if s is None else
-                        {"i": i,
-                         "n": (s.conn.pname or "PLAYER") if s.conn is not None else "",
-                         "here": s.conn is not None,
-                         "bot": i in self.bots}
-                        for i, s in enumerate(self.seats)]}
+                # how full, how full it has to be, and who is still not ready.
+                # All three so the client can say WHY start is unavailable
+                # without having to re-derive it from `who`.
+                "taken": self.taken(), "min": lo,
+                "waiting": len(self.unready()),
+                "who": who}
 
 
 # ── all shared mutable state, behind one lock ────────────────────────────────
@@ -1058,6 +1229,17 @@ class RoomBook:
         self._rooms = {}
         self._conns = set()
         self._by_pid = {}
+        # THE COALESCED NUDGE, and the only reason it exists: without it the
+        # honest way to keep a "who is around" list fresh is a broadcast every
+        # time anybody does anything, which at 256 sockets is 256 sends for one
+        # person opening a room. Instead every change bumps this integer and
+        # nothing at all is sent. The sweeper compares it against what it last
+        # announced and, if it moved, sends ONE tiny nudge per listening socket
+        # and no more often than L.STIR_EVERY. Ten changes inside four seconds
+        # cost exactly what one change costs.
+        self._epoch = 0
+        self._told = 0
+        self._stirred = 0.0
 
     # -- registry ---------------------------------------------------------
 
@@ -1074,6 +1256,128 @@ class RoomBook:
             self._conns.discard(conn)
             if self._by_pid.get(conn.pid) is conn:
                 self._by_pid.pop(conn.pid, None)
+            self._epoch += 1
+
+    # -- who is around ----------------------------------------------------
+
+    def stir(self):
+        """Something about the picture changed. Costs one integer."""
+        with self._lock:
+            self._epoch += 1
+
+    def due_stir(self):
+        """-> the sockets to nudge, or []. Called by the sweeper and nobody
+        else. Never returns anything twice for the same change, never returns
+        anything at all more often than L.STIR_EVERY, and never returns more
+        than L.STIR_MAX sockets — over that the rest simply find out on their
+        next ordinary ask, which is what a poller was doing anyway."""
+        now = time.monotonic()
+        with self._lock:
+            if self._epoch == self._told:
+                return []
+            if (now - self._stirred) < L.STIR_EVERY:
+                return []
+            self._told = self._epoch
+            self._stirred = now
+            listeners = [c for c in self._conns if c.listening and c.acct is not None]
+        return listeners[:L.STIR_MAX]
+
+    def _state_of(self, conn):
+        """idle | waiting | playing, and what of. Lock must be held."""
+        room = self._room_of(conn)
+        if room is None:
+            return "idle", None, None
+        if room.started or room.full():
+            return "playing", room, None
+        return "waiting", room, (conn.pid if (conn.slot == 0 and not room.private
+                                              and room.open_to_join()) else None)
+
+    def people(self, asker):
+        """WHO IS AROUND, and what they are doing.
+
+        THE PRIVACY RULES, all four of them enforced right here:
+          1. only a socket that has proved an ACCOUNT gets an answer at all —
+             the caller is `asker`, and a caller with no account never reaches
+             this function;
+          2. only signed-in accounts are IN the answer. A guest is counted in
+             the total and is named nowhere. Guests can play; guests are not
+             a directory;
+          3. an account that has gone invisible is in nothing but the total;
+          4. only accounts with a LIVE SOCKET right now. There is no query in
+             this process that can list an account that is not connected, so
+             presence cannot be walked to find out who has registered here.
+             That is the same instinct as the invite route, which answers
+             identically whether or not the name it was given exists.
+
+        One row per ACCOUNT, not per socket: somebody with the app open on a
+        phone and a tablet is one person, shown doing the more interesting of
+        the two things."""
+        rank = {"waiting": 0, "idle": 1, "playing": 2}
+        best = {}
+        total = 0
+        with self._lock:
+            for conn in self._conns:
+                total += 1
+                if conn.acct is None or not conn.vis or conn.acct == asker.acct:
+                    continue
+                state, room, pid = self._state_of(conn)
+                row = {"n": conn.aname or conn.pname or "PLAYER", "s": state}
+                if room is not None:
+                    row["g"] = room.game
+                    row["c"] = room.taken()
+                    row["m"] = room.size
+                    if room.variant:
+                        row["v"] = room.variant
+                if pid:
+                    row["id"] = pid
+                was = best.get(conn.acct)
+                if was is None or rank[state] < rank[was[1]["s"]]:
+                    best[conn.acct] = (conn.acct, row)
+            mine, myroom, _ = self._state_of(asker)
+        rows = [v[1] for v in best.values()]
+        # waiting first — that is a chair you can take THIS SECOND. Then idle,
+        # which is the state the owner actually asked for: somebody with the
+        # app open and nothing to do is somebody who would say yes. Playing
+        # last, and only so you can see they are alive.
+        rows.sort(key=lambda r: (rank[r["s"]], r["n"].lower()))
+        return {"people": rows[:L.PEOPLE_MAX], "shown": min(len(rows), L.PEOPLE_MAX),
+                "here": len(rows), "sockets": total,
+                "you": {"n": asker.aname, "s": mine, "vis": bool(asker.vis)},
+                "keys": [k for k in best]}
+
+    def account_states(self, keys):
+        """For a list of account keys -> {key: (state, game, pid)} for the ones
+        that are online AND visible. Used to light up "recently played with";
+        it can only ever answer about somebody already connected."""
+        want = set(keys or ())
+        out = {}
+        rank = {"waiting": 0, "idle": 1, "playing": 2}
+        with self._lock:
+            for conn in self._conns:
+                if conn.acct not in want or not conn.vis:
+                    continue
+                state, room, pid = self._state_of(conn)
+                was = out.get(conn.acct)
+                if was is None or rank[state] < rank[was[0]]:
+                    out[conn.acct] = (state, room.game if room else None, pid)
+        return out
+
+    def set_visible(self, conn, on):
+        with self._lock:
+            conn.vis = bool(on)
+            self._epoch += 1
+
+    def playing_with(self, conn):
+        """The OTHER accounts sitting at this player's table right now. The one
+        question "recently played with" needs answered, and it is answered from
+        the live room rather than from anything a client claimed."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return []
+            return [(s.conn.acct, s.conn.aname) for i, s in enumerate(room.seats)
+                    if s is not None and s.conn is not None and i != conn.slot
+                    and s.conn.acct]
 
     def stats(self):
         with self._lock:
@@ -1154,7 +1458,7 @@ class RoomBook:
                     # simply never sees any of it.
                     rooms.append({"id": conn.pid, "n": conn.pname or "PLAYER",
                                   "w": max(0, int(now - room.created)),
-                                  "g": room.game, "c": room.occupied(),
+                                  "g": room.game, "c": room.taken(),
                                   "m": room.size, "v": room.variant})
 
         # waiting first: that is the only row anybody can act on
@@ -1201,6 +1505,8 @@ class RoomBook:
             return [(conn, {"t": "error", "why": E_SHAPE})]
         conn.name_sets += 1
         conn.pname = name
+        with self._lock:
+            self._epoch += 1
         return [(conn, {"t": "named", "n": name})]
 
     def join_by_id(self, conn, pid, game=None):
@@ -1220,7 +1526,13 @@ class RoomBook:
                 host = self._by_pid.get(pid)
                 if host is not None and host is not conn:
                     room = self._room_of(host)
-                    if room is not None and room.occupied() == 1 and not room.private:
+                    # open_to_join(), not occupied() == 1. For a DUEL the two
+                    # are the same sentence — one player in a two-chair room is
+                    # exactly a room with a chair free. For a TABLE they are
+                    # not: a six-handed room with three friends already in it is
+                    # still advertising a seat, and the whole point of a party
+                    # game is that the fourth person can tap it.
+                    if room is not None and room.open_to_join() and not room.private:
                         if game is not None and game != room.game:
                             wrong = True
                         else:
@@ -1267,6 +1579,7 @@ class RoomBook:
         if permanent:
             room.seats[slot] = None
         room.touched = time.monotonic()
+        self._epoch += 1
         rest = [(room.seats[i].conn, slot) for i in room.others(slot)
                 if room.seats[i].conn is not None]
         if room.occupied() == 0:
@@ -1310,6 +1623,7 @@ class RoomBook:
             conn.room_code = code
             conn.slot = 0
             conn.creates += 1
+            self._epoch += 1
             token = seat.token
             made, size, var = room.game, room.size, room.variant
         LOG("room-create", code=code, rooms=len(self._rooms), private=int(bool(private)),
@@ -1369,10 +1683,17 @@ class RoomBook:
             room.touched = time.monotonic()
             conn.room_code = code
             conn.slot = free
+            self._epoch += 1
             # A DUEL still starts the instant it fills, exactly as it always
             # has. A table waits for the host, because people trickle in.
+            duel = []
             if room.size == 2 and room.full():
                 room.started = True
+                # A DUEL that has just filled is two people who are now playing
+                # each other, so it goes in the "recently played with" list on
+                # exactly the same footing as a table the host started.
+                duel = [(s.conn.acct, s.conn.aname) for s in room.seats
+                        if s is not None and s.conn is not None and s.conn.acct]
             # The room says what it is and how big it is. The joiner never has
             # to trust the list it tapped, or another player, for either.
             reply = {"t": "joined", "code": code, "token": seat.token,
@@ -1384,6 +1705,7 @@ class RoomBook:
             is_tbl = room.is_table()
             roster = room.roster() if is_tbl else None
         LOG("room-join", code=code, seat=free)
+        remember_table(duel)
         out.append((conn, reply))
         for c in others:
             # `peer` is exactly what a duel has always sent. Only a table adds
@@ -1396,6 +1718,77 @@ class RoomBook:
             for c in others + [conn]:
                 out.append((c, roster))
         return out
+
+    def ready(self, conn, on):
+        """"I am ready." One bit, per person, and the only thing in this file
+        that can make a table wait.
+
+        It is a PERSON's bit on purpose. There is deliberately no way to send
+        this for a machine chair, because a machine chair has nothing to send
+        it with — see Room.botseats. That is what makes "an AI seat can never
+        block the start" a property of the design rather than a rule somebody
+        has to remember to apply."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if room.started:
+                return [(conn, {"t": "error", "why": E_STARTED})]
+            if not conn.readies.take():
+                return [(conn, {"t": "error", "why": E_SLOW})]
+            seat = room.seats[conn.slot]
+            want = on is not False              # anything but a literal false
+            room.readying = True
+            if seat.ready == want:
+                # nothing changed: answer this socket and say nothing to the
+                # rest of the table. A thumb bouncing on a button is not news.
+                return [(conn, room.roster())]
+            seat.ready = want
+            room.touched = time.monotonic()
+            self._epoch += 1
+            roster = room.roster()
+            targets = room.live_conns()
+        return [(c, roster) for c in targets]
+
+    def set_bot(self, conn, seat_i, level, name, on):
+        """The host puts a machine in a chair, or takes it out again.
+
+        Only in the LOBBY, only by the host, and only into a chair that is
+        genuinely empty — never on top of somebody, and never once the table
+        has started. The relay does not know what `level` means; it carries it
+        so every client can show the same difficulty next to the same chair."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if conn.slot != 0:
+                return [(conn, {"t": "error", "why": E_NOTHOST})]
+            if room.started:
+                return [(conn, {"t": "error", "why": E_STARTED})]
+            if not room.is_table():
+                # a two-chair room is a duel: the other chair is a person or
+                # the room is not a room. Machines belong to the offline game.
+                return [(conn, {"t": "error", "why": E_NOTABLE})]
+            if not conn.botsets.take():
+                return [(conn, {"t": "error", "why": E_SLOW})]
+            if not on:
+                if room.botseats.pop(seat_i, None) is None:
+                    return [(conn, {"t": "error", "why": E_BADSEAT})]
+            else:
+                if seat_i in room.botseats:
+                    room.botseats[seat_i]["lv"] = level
+                    room.botseats[seat_i]["n"] = name
+                elif room.seats[seat_i] is not None:
+                    return [(conn, {"t": "error", "why": E_BADSEAT})]
+                elif room.taken() >= room.size:
+                    return [(conn, {"t": "error", "why": E_FULL_ROOM})]
+                else:
+                    room.botseats[seat_i] = {"lv": level, "n": name}
+            room.touched = time.monotonic()
+            self._epoch += 1
+            roster = room.roster()
+            targets = room.live_conns()
+        return [(c, roster) for c in targets]
 
     def start(self, conn, bots):
         """The HOST says the table is ready. Two things happen and nothing
@@ -1431,22 +1824,48 @@ class RoomBook:
                         # never on top of a person
                         return [(conn, {"t": "error", "why": E_BADSEAT})]
                     want.append(b)
+            # Machines put out in the LOBBY count too, and are folded in here
+            # so `began` carries one list whatever route they arrived by. A
+            # client that declares them all at start-time — which is every
+            # client written before the lobby existed — is unaffected.
+            for i in sorted(room.botseats):
+                if i not in want and room.seats[i] is None:
+                    want.append(i)
             lo, _, _ = seat_range(room.game, room.variant)
             if room.occupied() + len(want) < lo:
                 return [(conn, {"t": "error", "why": E_TOOFEW})]
+            # EVERYBODY READIES, THE HOST STARTS. The host is not exempt: it is
+            # the same bit for the same reason, and a host who has not readied
+            # is a host who is still adding machines. A machine is never in
+            # here to be waited for.
+            if room.is_table() and room.readying and room.unready():
+                return [(conn, {"t": "error", "why": E_NOTREADY})]
             room.bots = set(want)
             room.started = True
+            self._epoch += 1
             room.touched = time.monotonic()
             seed = secrets.randbits(32)
             began = {"t": "began", "seed": seed, "seats": room.size,
                      "bots": sorted(room.bots), "game": room.game,
                      "variant": room.variant,
+                     # what the machines are, in the same shape the roster uses,
+                     # so every phone builds the same table without asking
+                     "levels": {str(i): room.botseats[i]["lv"]
+                                for i in sorted(room.botseats)},
+                     "names": {str(i): room.botseats[i]["n"]
+                               for i in sorted(room.botseats)},
                      "filled": sorted([i for i, s in enumerate(room.seats)
                                        if s is not None] + list(room.bots))}
             room.push(room.mask_all(), json.dumps(began, separators=(",", ":")))
             targets = room.live_conns()
             roster = room.roster()
+            # WHO ACTUALLY SAT DOWN TOGETHER. Taken from the live room under
+            # the lock, never from anything a client said, and only the seats
+            # that proved an account — a guest is played with and not recorded.
+            table = [(s.conn.acct, s.conn.aname) for s in room.seats
+                     if s is not None and s.conn is not None and s.conn.acct]
         LOG("room-start", code=room.code, seats=room.size, bots=len(want))
+        remember_table(table)
         out = [(c, began) for c in targets]
         out += [(c, roster) for c in targets]
         return out
@@ -1642,6 +2061,26 @@ class RoomBook:
 ROOMS = RoomBook()
 
 
+def remember_table(table):
+    """`table` is [(account key, display name)] — the signed-in players who
+    just sat down together, read out of the live room, never off the wire.
+
+    Writes each ORDERED pair, so both people get the other in their list. It is
+    the only thing outside the account routes that touches the database, it
+    does nothing at all when accounts are switched off, and a failure here can
+    never stop a game starting — the try/except is the point, not laziness."""
+    if not table or len(table) < 2 or ACCOUNTS is None:
+        return
+    try:
+        now = time.time()
+        for key, _ in table:
+            for other, other_name in table:
+                if other != key:
+                    ACCOUNTS.note_played(key, other, other_name, now)
+    except Exception:
+        LOG("played-failed")
+
+
 # ── invitations ──────────────────────────────────────────────────────────────
 #
 # "Come and play chess" — a note addressed to an ACCOUNT rather than to a
@@ -1804,11 +2243,140 @@ def ws_auth(conn, session):
     if who is None:
         return [(conn, {"t": "error", "why": E_NOAUTH})]
     conn.acct, conn.aname = who[0], who[1]
-    out = [(conn, {"t": "authed", "name": conn.aname})]
+    try:
+        conn.vis = ACCOUNTS.visible(conn.acct)
+    except Exception:
+        conn.vis = True
+    ROOMS.stir()                    # one more person around: worth a nudge
+    out = [(conn, {"t": "authed", "name": conn.aname, "vis": bool(conn.vis)})]
     # whatever was left for them while they were away
     for m in INVITES.waiting_for(conn.acct):
         out.append((conn, m))
+    # ...and whatever was left for them while they were GONE. A knock outlives
+    # the room it was sent from, so it is delivered as its own thing and can
+    # never be mistaken for a seat that is still there to be taken.
+    out += knocks_for_conn(conn)
     return out
+
+
+def knocks_for_conn(conn):
+    """Persisted invitations, handed over the moment somebody signs in.
+
+    A knock whose sender is online RIGHT NOW and sitting in an open room of the
+    same game is promoted into a live invite on the spot — the note said "come
+    and play chess", they are in a chess room this second, so the honest thing
+    is a button that joins it. Everything else is delivered as a knock: who
+    wanted a game, what game, and how long ago."""
+    if ACCOUNTS is None or conn.acct is None:
+        return []
+    try:
+        knocks = ACCOUNTS.knocks_for(conn.acct)
+    except Exception:
+        return []
+    out = []
+    now = time.time()
+    for k in knocks:
+        live = None
+        for c in ROOMS.conns_for(k["k"]):
+            mine = ROOMS.my_open_room(c)
+            if mine is not None and mine[1] == k["game"]:
+                live = (c, mine[0])
+                break
+        if live is not None:
+            iid = INVITES.add(conn.acct, k["from"], k["game"], live[1], k["k"])
+            if iid is not None:
+                try:
+                    ACCOUNTS.drop_knock(conn.acct, k["id"])
+                except Exception:
+                    pass
+                out.append((conn, {"t": "invite", "id": iid, "from": k["from"],
+                                   "game": k["game"], "left": int(L.INVITE_TTL)}))
+                continue
+        out.append((conn, {"t": "knock", "id": k["id"], "from": k["from"],
+                           "game": k["game"], "ago": max(0, int(now - k["at"]))}))
+    return out
+
+
+def ws_who(conn):
+    """WHO IS AROUND. Only ever answered to a socket that has proved an
+    account — a guest asking gets the same "Sign in first" a guest gets for
+    anything else, and there is no other route in this process that will name
+    a player at all.
+
+    The answer is built fresh rather than cached, because it is per-caller (it
+    never contains the caller, and it is annotated with the caller's own
+    friends) and because the bucket above already bounds how often anybody may
+    ask for one."""
+    if conn.acct is None:
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if not conn.whos.take():
+        return [(conn, {"t": "error", "why": E_SLOW})]
+    conn.listening = True           # ...and therefore worth nudging
+    body = ROOMS.people(conn)
+    keys = body.pop("keys", [])
+    body["t"] = "who"
+    body["every"] = int(L.STIR_EVERY)
+
+    # RECENTLY PLAYED WITH: the short list that makes inviting the same four
+    # friends one tap and no typing. It is the caller's OWN list, it lives in
+    # the accounts file so it survives a restart, and it is annotated with what
+    # each of them is doing only where they are online and visible — an entry
+    # that is not is simply "offline", which is still worth a knock.
+    recent = []
+    if ACCOUNTS is not None:
+        try:
+            rows = ACCOUNTS.recent(conn.acct)
+        except Exception:
+            rows = []
+        states = ROOMS.account_states([r["k"] for r in rows])
+        for r in rows:
+            st = states.get(r["k"])
+            e = {"n": r["n"], "games": r["games"],
+                 "ago": max(0, int(time.time() - r["at"]))}
+            if st is not None:
+                e["s"], e["g"] = st[0], st[1]
+                if st[2]:
+                    e["id"] = st[2]
+            else:
+                e["s"] = "off"
+            recent.append(e)
+    body["recent"] = recent
+    # `keys` never goes out: it is account keys, and the answer names people by
+    # DISPLAY name only. Popped above, referenced here so nobody re-adds it.
+    del keys
+    return [(conn, body)]
+
+
+def ws_visible(conn, on):
+    """Appear offline. Stored on the account, so it follows the player to
+    their other phone rather than being a per-socket setting they have to
+    remember to set twice."""
+    if conn.acct is None:
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    want = on is not False
+    if ACCOUNTS is not None:
+        try:
+            ACCOUNTS.set_visible(conn.acct, want)
+        except Exception:
+            pass
+    # every socket this account holds, not just the one that asked
+    for c in ROOMS.conns_for(conn.acct):
+        ROOMS.set_visible(c, want)
+    ROOMS.set_visible(conn, want)
+    return [(conn, {"t": "visible", "on": want})]
+
+
+def ws_knock_clear(conn, kid):
+    """Put a knock down. Quiet, like declining an invite: nothing at all goes
+    back to whoever knocked."""
+    if conn.acct is None or ACCOUNTS is None:
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if isinstance(kid, str) and 0 < len(kid) <= 32:
+        try:
+            ACCOUNTS.drop_knock(conn.acct, kid)
+        except Exception:
+            pass
+    return [(conn, {"t": "knockgone", "id": kid if isinstance(kid, str) else ""})]
 
 
 def ws_invite(conn, to):
@@ -1838,12 +2406,23 @@ def ws_invite(conn, to):
         target = ACCOUNTS.find(key)
         if target is not None:
             iid = INVITES.add(key, conn.aname or "SOMEBODY", game, code, conn.acct)
+            here = ROOMS.conns_for(key)
             if iid is not None:
-                now = time.monotonic()
                 note = {"t": "invite", "id": iid, "from": conn.aname or "SOMEBODY",
                         "game": game, "left": int(L.INVITE_TTL)}
-                for c in ROOMS.conns_for(key):
+                for c in here:
                     out.append((c, note))
+            # NOBODY IS THERE TO HEAR IT -> leave the note on disk instead.
+            # This is the whole difference between an invite that dies in five
+            # minutes and one that is waiting when they open the app tomorrow.
+            # It is only written when the account has no live socket, so
+            # somebody who IS here does not also collect a knock they already
+            # answered.
+            if not here:
+                try:
+                    ACCOUNTS.knock(key, conn.acct, conn.aname or "SOMEBODY", game)
+                except Exception:
+                    LOG("knock-failed")
     LOG("invite", game=game)
     out.append((conn, {"t": "invited", "to": name, "game": game}))
     return out
@@ -1920,6 +2499,35 @@ def handle_ws_message(conn, raw):
 
     elif kind == "start":
         dispatch(ROOMS.start(conn, msg.get("bots")))
+
+    elif kind == "ready":
+        dispatch(ROOMS.ready(conn, msg.get("on")))
+
+    elif kind == "bot":
+        # The host putting a machine in a chair, from the lobby. Everything is
+        # validated here rather than in the room: an index that is not an int,
+        # a difficulty that is not one of three, a name that is not a name.
+        seat_i = msg.get("seat")
+        if (not isinstance(seat_i, int) or isinstance(seat_i, bool)
+                or not (0 <= seat_i < L.MAX_SEATS)):
+            conn.error(E_SHAPE)
+            return
+        try:
+            level = v_int(msg.get("level", 2), 1, 9)
+            name = v_name(msg.get("name") or "MACHINE", L.BOT_NAME)
+        except Reject:
+            conn.error(E_SHAPE)
+            return
+        dispatch(ROOMS.set_bot(conn, seat_i, level, name, msg.get("on") is not False))
+
+    elif kind == "who":
+        dispatch(ws_who(conn))
+
+    elif kind == "visible":
+        dispatch(ws_visible(conn, msg.get("on")))
+
+    elif kind == "dropknock":
+        dispatch(ws_knock_clear(conn, msg.get("id")))
 
     elif kind == "join":
         dispatch(ROOMS.join(conn, msg.get("code")))
@@ -2316,6 +2924,41 @@ CREATE TABLE IF NOT EXISTS sessions (
     seen   REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_uname ON sessions(uname);
+
+/* RECENTLY PLAYED WITH.
+   Two accounts that actually sat at the same table. It is here, in the
+   accounts file, and not in memory, because the whole value of the list is
+   that inviting the same four friends is one tap and no typing — and a list
+   that empties every time the Pi reboots is a list nobody comes to rely on.
+
+   One row per ORDERED pair, so A's list and B's list are separate rows and
+   either of them can be trimmed or cleared without touching the other. `name`
+   is cached alongside the key so the list can be drawn for somebody who is
+   offline, which is exactly when you most want to see it. */
+CREATE TABLE IF NOT EXISTS played (
+    uname  TEXT NOT NULL,
+    other  TEXT NOT NULL,
+    name   TEXT NOT NULL,
+    games  INTEGER NOT NULL DEFAULT 1,
+    at     REAL NOT NULL,
+    PRIMARY KEY (uname, other)
+);
+CREATE INDEX IF NOT EXISTS played_uname ON played(uname, at DESC);
+
+/* THE KNOCK — an invitation that survives the app being closed.
+   A live invite points at a ROOM and dies with it. This is the note left
+   behind, and it carries no room code precisely because by the time it is read
+   the room is gone. Delivered the moment that account next proves itself on a
+   socket. */
+CREATE TABLE IF NOT EXISTS knocks (
+    id     TEXT PRIMARY KEY,
+    uname  TEXT NOT NULL,
+    fromk  TEXT NOT NULL,
+    name   TEXT NOT NULL,
+    game   TEXT NOT NULL,
+    at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS knocks_uname ON knocks(uname, at DESC);
 """
 
 
@@ -2337,6 +2980,14 @@ class Accounts:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.executescript(SCHEMA)
+        # A database written before "invisible" existed has no column for it.
+        # Adding it here rather than in SCHEMA means an upgrade is one restart
+        # and no export/import, and a DEFAULT of 1 means every account that was
+        # already there keeps behaving exactly as it did.
+        try:
+            self.db.execute("ALTER TABLE accounts ADD COLUMN vis INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass                        # already there
         self.db.commit()
         try:
             os.chmod(path, 0o600)       # password hashes are nobody else's business
@@ -2479,6 +3130,123 @@ class Accounts:
         with self.lock:
             self.db.execute("DELETE FROM sessions WHERE uname=?", (key,))
             self.db.commit()
+
+    # -- being seen, or not ------------------------------------------------
+
+    def visible(self, key):
+        """Is this account willing to be seen by other signed-in players? It
+        is stored on the ACCOUNT and not on the socket, so going invisible on
+        the phone means invisible on the tablet too."""
+        with self.lock:
+            row = self.db.execute("SELECT vis FROM accounts WHERE uname=?",
+                                  (key,)).fetchone()
+        return True if row is None else bool(row[0])
+
+    def set_visible(self, key, on):
+        with self.lock:
+            self.db.execute("UPDATE accounts SET vis=? WHERE uname=?",
+                            (1 if on else 0, key))
+            self.db.commit()
+        return bool(on)
+
+    # -- recently played with ----------------------------------------------
+
+    def note_played(self, key, other, other_name, now=None):
+        """A and B sat at the same table. One row, bumped, never duplicated.
+
+        Nothing a client SAID reaches this function: the caller reads the pair
+        out of the live room under the room lock. There is therefore no way for
+        a player to write themselves into somebody's list, which matters,
+        because that list is a one-tap invite."""
+        if not key or not other or key == other:
+            return
+        now = time.time() if now is None else now
+        with self.lock:
+            self.db.execute(
+                "INSERT INTO played(uname,other,name,games,at) VALUES(?,?,?,1,?)"
+                " ON CONFLICT(uname,other) DO UPDATE SET"
+                "   games = games + 1, at = excluded.at, name = excluded.name",
+                (key, other, other_name or other, now))
+            # keep the most recent RECENT_MAX and no more. A list you scroll is
+            # not a shortcut.
+            self.db.execute(
+                "DELETE FROM played WHERE uname=? AND other NOT IN ("
+                "  SELECT other FROM played WHERE uname=? ORDER BY at DESC LIMIT ?)",
+                (key, key, L.RECENT_MAX))
+            self.db.commit()
+
+    def recent(self, key, limit=None):
+        """-> [{k, n, games, at}] most recent first. `k` is the account key and
+        never leaves this process by name — see who_answer()."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT other,name,games,at FROM played WHERE uname=?"
+                " ORDER BY at DESC LIMIT ?",
+                (key, int(limit or L.RECENT_MAX))).fetchall()
+        return [{"k": r[0], "n": r[1], "games": int(r[2]), "at": float(r[3])}
+                for r in rows]
+
+    def forget_played(self, key, other):
+        with self.lock:
+            self.db.execute("DELETE FROM played WHERE uname=? AND other=?",
+                            (key, other))
+            self.db.commit()
+
+    # -- knocks: invitations that survive the app being closed --------------
+
+    def knock(self, to_key, from_key, from_name, game, now=None):
+        """Leave a note. -> the knock id, or None if it could not be stored.
+        The caller MUST NOT let the difference show: this is on the same path
+        as an invite, and an invite never says whether an account exists."""
+        now = time.time() if now is None else now
+        with self.lock:
+            self.db.execute("DELETE FROM knocks WHERE at < ?", (now - L.KNOCK_TTL,))
+            total = self.db.execute("SELECT COUNT(*) FROM knocks").fetchone()[0]
+            if total >= L.KNOCKS_TOTAL:
+                self.db.commit()
+                return None
+            # one knock per sender per recipient: knocking twice is still one
+            # person at the door, and it moves to the top rather than stacking
+            self.db.execute("DELETE FROM knocks WHERE uname=? AND fromk=?",
+                            (to_key, from_key))
+            kid = secrets.token_urlsafe(9)
+            self.db.execute(
+                "INSERT INTO knocks(id,uname,fromk,name,game,at) VALUES(?,?,?,?,?,?)",
+                (kid, to_key, from_key, from_name or from_key, game, now))
+            self.db.execute(
+                "DELETE FROM knocks WHERE uname=? AND id NOT IN ("
+                "  SELECT id FROM knocks WHERE uname=? ORDER BY at DESC LIMIT ?)",
+                (to_key, to_key, L.KNOCKS_TO))
+            self.db.commit()
+        return kid
+
+    def knocks_for(self, key, now=None):
+        now = time.time() if now is None else now
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT id,fromk,name,game,at FROM knocks WHERE uname=? AND at >= ?"
+                " ORDER BY at DESC LIMIT ?",
+                (key, now - L.KNOCK_TTL, L.KNOCKS_TO)).fetchall()
+        return [{"id": r[0], "k": r[1], "from": r[2], "game": r[3], "at": float(r[4])}
+                for r in rows]
+
+    def drop_knock(self, key, kid):
+        """Only ever the addressee's own. A guessed id belonging to somebody
+        else deletes nothing."""
+        with self.lock:
+            cur = self.db.execute("DELETE FROM knocks WHERE uname=? AND id=?",
+                                  (key, kid))
+            self.db.commit()
+        return cur.rowcount > 0
+
+    def knock_sender(self, key, kid):
+        """-> (sender key, sender name, game) for a knock this account really
+        holds, or None."""
+        with self.lock:
+            row = self.db.execute(
+                "SELECT fromk,name,game FROM knocks WHERE uname=? AND id=?",
+                (key, kid)).fetchone()
+        return (row[0], row[1], row[2]) if row else None
 
     # -- saves -------------------------------------------------------------
 
@@ -3141,6 +3909,13 @@ def start_sweeper(stop_event):
                 # withdrawn, and whoever is holding it is told so they are not
                 # left with a button that does nothing.
                 out += invites_withdrawn(INVITES.sweep(ROOMS.joinable))
+                # THE ONLY THING THIS PROCESS EVER BROADCASTS ABOUT PRESENCE,
+                # and it is nine bytes of payload. Anybody who has asked "who
+                # is around" at least once is told, at most once every
+                # STIR_EVERY seconds and only when something actually changed,
+                # that the answer has moved. They ask again if they care. No
+                # per-player fan-out, no per-change fan-out.
+                out += [(c, {"t": "stir"}) for c in ROOMS.due_stir()]
                 dispatch(out)
                 for conn, _ in out:
                     if conn is not None and conn.doomed:
@@ -5736,6 +6511,468 @@ def selftest():
                   INVITES.count() >= 0, INVITES.count())
         except Exception as e:
             check("invite cleanup", False, repr(e))
+
+        # ═══════════ the shared lobby ═══════════
+        print("")
+        print(" THE LOBBY  (ready, machines, and a start that says why not)")
+
+        lb_a = lb_b = lb_c = None
+        try:
+            lb_a = cli(origin=PAGES_ORIGIN)
+            lb_a.send_json({"t": "name", "n": "HOSTESS"})
+            lb_a.recv_json(2.0)
+            lb_a.send_json({"t": "create", "game": "skarta", "seats": 6})
+            made = lb_a.recv_json(2.0)
+            lb_b = cli(origin=PAGES_ORIGIN)
+            lb_b.send_json({"t": "name", "n": "SECOND"})
+            lb_b.recv_json(2.0)
+            lb_b.send_json({"t": "join", "code": (made or {}).get("code")})
+            lb_b.recv_json(2.0)                     # joined
+            roster = None
+            for _ in range(4):
+                m = lb_b.recv_json(2.0)
+                if (m or {}).get("t") == "table":
+                    roster = m
+                    break
+            ok = roster is not None
+            ok = ok and roster.get("taken") == 2 and roster.get("min") == 2
+            ok = ok and roster.get("waiting") == 2      # nobody has readied yet
+            ok = ok and [w["n"] for w in roster["who"] if w] == ["HOSTESS", "SECOND"]
+            ok = ok and all(w["ready"] is False for w in roster["who"] if w)
+            check("the roster says how full the table is, and who is not ready", ok,
+                  roster)
+        except Exception as e:
+            check("roster carries occupancy and ready", False, repr(e))
+
+        try:
+            # the host puts a machine in chair 3, from the LOBBY, before start
+            lb_a.send_json({"t": "bot", "seat": 3, "level": 3, "name": "IL-BUFFU"})
+            r = None
+            for _ in range(8):
+                m = lb_a.recv_json(0.6)
+                if m is None:
+                    break
+                if (m or {}).get("t") == "table":
+                    r = m           # keep the LAST one: the join roster is older
+            bot = (r or {}).get("who", [None] * 4)[3]
+            ok = bot is not None and bot.get("bot") is True
+            # THE ONE THAT MATTERS: it is ready the instant it exists
+            ok = ok and bot.get("ready") is True and bot.get("lv") == 3
+            ok = ok and bot.get("n") == "IL-BUFFU" and bot.get("here") is True
+            ok = ok and r.get("taken") == 3
+            ok = ok and r.get("waiting") == 2       # still only the two PEOPLE
+            check("a machine chair is ready the instant it is put out, and never waited for",
+                  ok, r)
+            lb_b.raw_recv(0.2)
+        except Exception as e:
+            check("machine chair auto-ready", False, repr(e))
+
+        try:
+            lb_c = cli(origin=PAGES_ORIGIN)
+            lb_c.send_json({"t": "name", "n": "THIRD"})
+            lb_c.recv_json(2.0)
+            lb_c.send_json({"t": "join", "code": (made or {}).get("code")})
+            j = lb_c.recv_json(2.0)
+            check("a machine's chair is never handed to somebody who joins later",
+                  (j or {}).get("seat") == 2, j)
+            lb_a.raw_recv(0.2)
+            lb_b.raw_recv(0.2)
+        except Exception as e:
+            check("machines hold their chair", False, repr(e))
+
+        try:
+            # start is refused while a PERSON has not readied
+            lb_a.send_json({"t": "ready", "on": True})
+            for _ in range(3):
+                lb_a.raw_recv(0.2)
+            lb_b.raw_recv(0.2)
+            lb_c.raw_recv(0.2)
+            lb_a.send_json({"t": "start"})
+            no = lb_a.recv_json(2.0)
+            check("the host cannot start while somebody is not ready",
+                  (no or {}).get("why") == E_NOTREADY, no)
+        except Exception as e:
+            check("start waits for everybody", False, repr(e))
+
+        try:
+            lb_c.send_json({"t": "start"})
+            no = None
+            for _ in range(5):
+                m = lb_c.recv_json(1.0)
+                if (m or {}).get("t") == "error":
+                    no = m
+                    break
+            check("only the host may start the table, however ready everyone is",
+                  (no or {}).get("why") == E_NOTHOST, no)
+        except Exception as e:
+            check("only the host starts", False, repr(e))
+
+        try:
+            lb_b.send_json({"t": "ready", "on": True})
+            lb_c.send_json({"t": "ready", "on": True})
+            time.sleep(0.3)
+            last = None
+            for c in (lb_a, lb_b, lb_c):
+                for _ in range(8):
+                    m = c.recv_json(0.4)
+                    if m is None:
+                        break
+                    if (m or {}).get("t") == "table":
+                        last = m
+            ok = last is not None and last.get("waiting") == 0 and last.get("taken") == 4
+            check("everyone readies and the table says so, machines included", ok, last)
+        except Exception as e:
+            check("everybody ready", False, repr(e))
+
+        try:
+            lb_a.send_json({"t": "start"})
+            began = {}
+            for _ in range(6):
+                m = lb_a.recv_json(2.0)
+                if (m or {}).get("t") == "began":
+                    began = m
+                    break
+            ok = began.get("t") == "began" and isinstance(began.get("seed"), int)
+            ok = ok and began.get("bots") == [3]
+            ok = ok and began.get("levels") == {"3": 3}
+            ok = ok and began.get("names") == {"3": "IL-BUZZU"[:0] + "IL-BUFFU"}
+            ok = ok and began.get("filled") == [0, 1, 2, 3]
+            # every chair gets the SAME number
+            others = []
+            for c in (lb_b, lb_c):
+                for _ in range(6):
+                    m = c.recv_json(2.0)
+                    if (m or {}).get("t") == "began":
+                        others.append(m.get("seed"))
+                        break
+            ok = ok and others == [began.get("seed"), began.get("seed")]
+            check("the host starts and every chair gets the same seed and the same machines",
+                  ok, "%r others=%r" % (began, others))
+        except Exception as e:
+            check("host start hands out one seed", False, repr(e))
+
+        try:
+            lb_a.send_json({"t": "bot", "seat": 4, "level": 2, "name": "LATE"})
+            r = None
+            for _ in range(6):
+                m = lb_a.recv_json(1.0)
+                if (m or {}).get("t") == "error":
+                    r = m
+                    break
+            check("no machine may be added once the table has started",
+                  (r or {}).get("why") == E_STARTED, r)
+        except Exception as e:
+            check("no late machines", False, repr(e))
+
+        try:
+            lb_a.send_json({"t": "bot", "seat": 1, "level": 2, "name": "THIEF"})
+            lb_a.send_json({"t": "bot", "seat": 99, "level": 2, "name": "OFF"})
+            lb_a.send_json({"t": "bot", "seat": 2, "level": 44, "name": "SILLY"})
+            bad = []
+            for _ in range(8):
+                m = lb_a.recv_json(0.6)
+                if m is None:
+                    break
+                if (m or {}).get("t") == "error":
+                    bad.append(m.get("why"))
+            check("a machine on top of a person, off the end, or at a made-up "
+                  "difficulty is refused", len(bad) >= 3, bad)
+        except Exception as e:
+            check("bad machine placements refused", False, repr(e))
+
+        try:
+            for c in (lb_a, lb_b, lb_c):
+                if c is not None:
+                    bye(c)
+            lb_a = lb_b = lb_c = None
+            # a two-chair room is a duel: machines belong to the offline game
+            d = cli(origin=PAGES_ORIGIN)
+            d.send_json({"t": "create", "game": "chess"})
+            d.recv_json(2.0)
+            d.send_json({"t": "bot", "seat": 1, "level": 2, "name": "MACHINE"})
+            r = d.recv_json(2.0)
+            check("a duel is not a table and takes no machine",
+                  (r or {}).get("why") == E_NOTABLE, r)
+            bye(d)
+        except Exception as e:
+            check("no machines in a duel", False, repr(e))
+
+        # ═══════════ who is around ═══════════
+        print("")
+        print(" SOCIAL PRESENCE  (only accounts, only if they want to be seen)")
+
+        so_a = so_b = so_g = None
+        try:
+            accounts_reset()
+            s_a = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            s_b = (POST("/login", {"u": "Bob", "pw": PW_B})[1] or {}).get("tok")
+            so_g = cli(origin=PAGES_ORIGIN)          # a GUEST: never signs in
+            so_g.send_json({"t": "name", "n": "NOBODY"})
+            so_g.recv_json(2.0)
+            so_g.send_json({"t": "who"})
+            r = so_g.recv_json(2.0)
+            check("a guest cannot ask who is around at all",
+                  (r or {}).get("why") == E_NOAUTH, r)
+        except Exception as e:
+            check("guest cannot ask", False, repr(e))
+
+        try:
+            so_a = cli(origin=PAGES_ORIGIN)
+            so_a.send_json({"t": "auth", "session": s_a})
+            so_a.recv_json(3.0)
+            so_b = cli(origin=PAGES_ORIGIN)
+            so_b.send_json({"t": "auth", "session": s_b})
+            so_b.recv_json(3.0)
+            time.sleep(0.2)
+            so_a.send_json({"t": "who"})
+            w = so_a.recv_json(3.0)
+            names = [p["n"] for p in (w or {}).get("people", [])]
+            ok = (w or {}).get("t") == "who"
+            ok = ok and "Bob" in names               # a signed-in account, idle
+            ok = ok and "NOBODY" not in names        # the guest is never named
+            ok = ok and "Alice" not in names         # nor is the asker
+            ok = ok and (w or {}).get("you", {}).get("n") == "Alice"
+            ok = ok and [p for p in w["people"] if p["n"] == "Bob"][0]["s"] == "idle"
+            check("who-is-around names signed-in accounts and never a guest", ok, w)
+        except Exception as e:
+            check("who names accounts only", False, repr(e))
+
+        try:
+            so_b.send_json({"t": "create", "game": "tombla", "seats": 8})
+            so_b.recv_json(2.0)
+            time.sleep(0.2)
+            so_a.send_json({"t": "who"})
+            w = so_a.recv_json(3.0)
+            bob = [p for p in (w or {}).get("people", []) if p["n"] == "Bob"]
+            ok = bool(bob)
+            bob = bob[0] if bob else {}
+            # IDLE was the valuable state; WAITING is the one you can act on
+            ok = ok and bob.get("s") == "waiting" and bob.get("g") == "tombla"
+            ok = ok and bob.get("c") == 1 and bob.get("m") == 8
+            ok = ok and isinstance(bob.get("id"), str)   # tap-to-join handle
+            check("who says what each person is doing, and hands you the way in", ok, w)
+        except Exception as e:
+            check("who says what they are doing", False, repr(e))
+
+        try:
+            so_b.send_json({"t": "visible", "on": False})
+            r = None
+            for _ in range(8):
+                m = so_b.recv_json(1.0)
+                if m is None or (m or {}).get("t") == "visible":
+                    r = m
+                    break
+            time.sleep(0.2)
+            so_a.send_json({"t": "who"})
+            w = so_a.recv_json(3.0)
+            ok = (r or {}) == {"t": "visible", "on": False}
+            ok = ok and "Bob" not in [p["n"] for p in (w or {}).get("people", [])]
+            ok = ok and (w or {}).get("sockets", 0) >= 2   # still counted, never named
+            check("a player who goes invisible is in the count and in nobody's list",
+                  ok, "%r %r" % (r, w))
+        except Exception as e:
+            check("invisible", False, repr(e))
+
+        try:
+            # ...and it is on the ACCOUNT, so a second phone is invisible too
+            so_b2 = cli(origin=PAGES_ORIGIN)
+            so_b2.send_json({"t": "auth", "session": s_b})
+            au = so_b2.recv_json(3.0)
+            check("invisible follows the account to its other phone",
+                  (au or {}).get("vis") is False, au)
+            so_b2.send_json({"t": "visible", "on": True})
+            so_b2.recv_json(2.0)
+            bye(so_b2)
+        except Exception as e:
+            check("invisible follows the account", False, repr(e))
+
+        try:
+            burned = 0
+            for _ in range(int(L.WHO_BURST) + 6):
+                so_a.send_json({"t": "who"})
+                m = so_a.recv_json(2.0)
+                if (m or {}).get("why") == E_SLOW:
+                    burned += 1
+            check("asking who is around is rate limited like everything else",
+                  burned >= 2, "refused %d" % burned)
+        except Exception as e:
+            check("who is rate limited", False, repr(e))
+
+        try:
+            _, body, _ = None, None, None
+            presence_reset()
+            st, _, raw = _http_get(host, port, PATH_PREFIX + "/presence")
+            text = raw.decode("utf-8", "replace")
+            # the PUBLIC endpoint learned nothing new about accounts
+            leaks = [w for w in ("Alice", "Bob", "recent", "vis", "acct") if w in text]
+            check("the public /presence still says nothing about any account",
+                  st == 200 and not leaks, "%s %s" % (leaks, text[:140]))
+        except Exception as e:
+            check("presence says nothing about accounts", False, repr(e))
+
+        try:
+            # RECENTLY PLAYED WITH. Alice and Bob actually sit down together.
+            so_a.send_json({"t": "create", "game": "chess"})
+            rc = (so_a.recv_json(2.0) or {}).get("code")
+            so_b.send_json({"t": "join", "code": rc})
+            so_b.recv_json(2.0)
+            so_a.raw_recv(0.3)
+            time.sleep(0.3)
+            rows = ACCOUNTS.recent("alice")
+            ok = [r["n"] for r in rows] == ["Bob"] and rows[0]["games"] >= 1
+            back = ACCOUNTS.recent("bob")
+            ok = ok and [r["n"] for r in back] == ["Alice"]
+            check("sitting down together puts each of you in the other's recent list",
+                  ok, "%r / %r" % (rows, back))
+        except Exception as e:
+            check("recently played with is recorded", False, repr(e))
+
+        try:
+            so_a.send_json({"t": "leave"})
+            so_b.send_json({"t": "leave"})
+            time.sleep(0.3)
+            for _ in range(6):
+                if so_a.recv_json(0.3) is None:
+                    break
+            time.sleep(1.0 / L.WHO_RATE + 0.3)   # the flood test above spent the bucket
+            w = None
+            for _ in range(4):
+                so_a.send_json({"t": "who"})
+                for _ in range(8):
+                    m = so_a.recv_json(1.5)
+                    if m is None:
+                        break
+                    if (m or {}).get("t") == "who":
+                        w = m
+                        break
+                if w is not None:
+                    break
+                time.sleep(1.0 / L.WHO_RATE + 0.3)
+            rec = (w or {}).get("recent", [])
+            ok = bool(rec) and rec[0]["n"] == "Bob" and rec[0]["s"] in ("idle", "waiting")
+            check("the recent list comes back annotated with what they are doing now",
+                  ok, w)
+        except Exception as e:
+            check("recent list is annotated", False, repr(e))
+
+        try:
+            # it is in the STORE, so it is still there after a restart
+            keep = ACCOUNTS.recent("alice")
+            path = ACCOUNTS.path
+            ACCOUNTS.close()
+            accounts_open(path)
+            again = ACCOUNTS.recent("alice")
+            check("the recent list survives the relay being restarted",
+                  [r["n"] for r in again] == [r["n"] for r in keep] and again,
+                  "%r -> %r" % (keep, again))
+        except Exception as e:
+            check("recent list survives a restart", False, repr(e))
+
+        try:
+            for c in (so_a, so_b, so_g):
+                if c is not None:
+                    bye(c)
+            so_a = so_b = so_g = None
+            time.sleep(0.3)
+            # Bob is now OFFLINE. Alice knocks.
+            s_a = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            ka = cli(origin=PAGES_ORIGIN)
+            ka.send_json({"t": "auth", "session": s_a})
+            ka.recv_json(3.0)
+            ka.send_json({"t": "create", "game": "dama"})
+            ka.recv_json(2.0)
+            ka.send_json({"t": "invite", "to": "Bob"})
+            sent = ka.recv_json(3.0)
+            time.sleep(0.2)
+            held = ACCOUNTS.knocks_for("bob")
+            ok = (sent or {}).get("t") == "invited"
+            ok = ok and len(held) == 1 and held[0]["from"] == "Alice"
+            ok = ok and held[0]["game"] == "dama"
+            check("inviting somebody who is offline leaves a note that is written down",
+                  ok, "%r %r" % (sent, held))
+            bye(ka)
+        except Exception as e:
+            check("offline invite is persisted", False, repr(e))
+
+        try:
+            # ...and it is still there after a restart, and delivered on sign-in
+            path = ACCOUNTS.path
+            ACCOUNTS.close()
+            accounts_open(path)
+            time.sleep(0.3)
+            s_b = (POST("/login", {"u": "Bob", "pw": PW_B})[1] or {}).get("tok")
+            kb = cli(origin=PAGES_ORIGIN)
+            kb.send_json({"t": "auth", "session": s_b})
+            got = []
+            for _ in range(6):
+                m = kb.recv_json(2.0)
+                if m is None:
+                    break
+                got.append(m)
+            knock = [m for m in got if m.get("t") == "knock"]
+            ok = len(knock) == 1 and knock[0]["from"] == "Alice"
+            ok = ok and knock[0]["game"] == "dama" and knock[0].get("ago", -1) >= 0
+            ok = ok and "code" not in knock[0]      # a knock NEVER carries a room
+            check("a knock survives a restart and is handed over the moment they sign in",
+                  ok, got)
+            kid = knock[0]["id"] if knock else ""
+        except Exception as e:
+            check("knock delivered on sign-in", False, repr(e))
+            kid = ""
+
+        try:
+            kb.send_json({"t": "dropknock", "id": kid})
+            r = kb.recv_json(2.0)
+            time.sleep(0.2)
+            left = ACCOUNTS.knocks_for("bob")
+            check("putting a knock down clears it, and tells nobody",
+                  (r or {}).get("t") == "knockgone" and not left, "%r %r" % (r, left))
+        except Exception as e:
+            check("knock can be put down", False, repr(e))
+
+        try:
+            other = ACCOUNTS.knock("bob", "alice", "Alice", "chess")
+            gone = ACCOUNTS.drop_knock("carol", other)
+            still = ACCOUNTS.knocks_for("bob")
+            check("a knock addressed to somebody else cannot be deleted by guessing its id",
+                  gone is False and len(still) == 1, "%r %r" % (gone, still))
+            ACCOUNTS.drop_knock("bob", other)
+            bye(kb)
+        except Exception as e:
+            check("knocks are not guessable", False, repr(e))
+
+        try:
+            # THE COALESCED NUDGE. Nothing is broadcast per change.
+            s_a = (POST("/login", {"u": "Alice", "pw": PW_A})[1] or {}).get("tok")
+            na = cli(origin=PAGES_ORIGIN)
+            na.send_json({"t": "auth", "session": s_a})
+            na.recv_json(3.0)
+            na.send_json({"t": "who"})
+            na.recv_json(3.0)                        # now listening
+            noise = []
+            for i in range(6):
+                n = cli(origin=PAGES_ORIGIN)
+                n.send_json({"t": "name", "n": "NOISE%d" % i})
+                n.recv_json(1.0)
+                n.send_json({"t": "create"})
+                n.recv_json(1.0)
+                noise.append(n)
+            stirs = 0
+            deadline = time.monotonic() + L.STIR_EVERY + 2.0
+            while time.monotonic() < deadline:
+                m = na.recv_json(0.5)
+                if m is None:
+                    continue
+                if m.get("t") == "stir":
+                    stirs += 1
+            # twelve state changes, at most one nudge per STIR_EVERY window
+            check("a dozen changes cost one nudge, not a broadcast each",
+                  1 <= stirs <= 2, "stirs=%d for 12 changes" % stirs)
+            for n in noise:
+                bye(n)
+            bye(na)
+        except Exception as e:
+            check("presence nudges are coalesced", False, repr(e))
 
         # ═══════════ housekeeping ═══════════
         print("")

@@ -95,6 +95,12 @@ const K = window.KARTI;
 if (!K) return;
 const $ = K.$, $$ = K.$$, esc = K.esc;
 const ico = n => (window.ICO ? window.ICO(n) : '');
+/* The sound kit is somebody else's file and may not be on the phone at all.
+   Never a hard dependency, never a thrown error, never an audio file added
+   from here — js/sfx.js owns audio/ and this only ever asks it to play. */
+function sfx(id){
+  try { if (window.KARTI_SFX && KARTI_SFX.play) KARTI_SFX.play(id); } catch (e){}
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    WHAT A ROOM CAN BE A ROOM OF
@@ -117,16 +123,213 @@ const GAMES = [
   /* Tombla is the reason the relay learned to seat sixteen: nobody waits for
      a turn, so a big table costs nothing but makes the game better. */
   { k:'tombla', name:'Tombla',   short:'TOMBLA', sym:'tb-mark',
-    blurb:'Ninety numbers. Everybody at once.' }
+    blurb:'Ninety numbers. Everybody at once.' },
+  /* THE TABLE GAMES.
+     They are in this list even while their own file has not published an
+     online half yet, and that is deliberate: the relay can already LABEL a
+     room `skarta`, and a client whose GAMES array has never heard of skarta
+     runs that label through cleanGame(), turns it into 'cards', and shows
+     somebody a card duel that is not there. A game we know the name of but
+     cannot play is drawn honestly (see gamePlayable and lobbyReport); a game
+     we have never heard of is drawn wrongly. */
+  { k:'skarta', name:'Skarta',   short:'SKARTA', icon:'discard',
+    blurb:'Empty your hand first. Ten can play.' },
+  { k:'kiri',   name:'Il-Kiri',  short:'KIRI',   icon:'coin',
+    blurb:'Rent, deeds, and a ruined friendship.' },
+  { k:'klabb',  name:'Card club', short:'KLABB', icon:'cards',
+    blurb:'Bixkla, Briscola, Sette, Il-Gidba.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
 const cleanGame = k => (typeof k === 'string' && GAME_KEYS.indexOf(k) >= 0) ? k : 'cards';
-/* is this game actually installed on this phone? */
+/* is this game actually installed on this phone, with a way to send a move? */
 function gamePlayable(k){
   if (k === 'cards') return true;
   const P = window.KARTI_PARTY;
-  return !!(P && P.online && P.online[k]);
+  return !!(P && P.online && P.online[k] && P.online[k].start && P.online[k].remote);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE ONE SHARED LOBBY, AND WHERE IT READS A GAME FROM
+   ───────────────────────────────────────────────────────────────────
+   Every party game feeds ONE lobby. This file must therefore be able
+   to answer four questions about a game it has never heard of:
+
+       how many chairs · how hard can the machine be ·
+       what are the rules · how do I start it
+
+   IL-KIRI shipped the reference answer as window.KARTI_KIRI.lobby and
+   hung the same fields on its hub tile. That is the contract, and it
+   is read here — not guessed at:
+
+       id · name · minSeats · maxSeats · defaultLevel
+       levels    [{level, name, blurb}]
+       isReady(seat)      cpu -> true always; human -> seat.ready
+       autoReady(seat)    marks a machine ready, leaves people alone
+       canStart(seats)    -> {ok, why}   `why` is display-ready TEXT
+       rulesHTML()        the short panel
+       blurb, myName()
+       start(seats, opts) seats:[{name,kind,level,link}]
+                          opts:{roundLimit,clock,seed}
+
+   NOT every game has published it yet. So this resolves a contract in
+   four steps, keeps a note of every field it had to fill in itself,
+   and NEVER throws: a game that published nothing at all still gets a
+   working lobby with honest words in it, and lobbyReport() says
+   exactly what each game still owes. Degrading is the behaviour; the
+   report is how it gets fixed.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* where a game hangs its contract, if it has one */
+const LOBBY_GLOBAL = {
+  kiri:'KARTI_KIRI', skarta:'KARTI_SKARTA', tombla:'KARTI_TOMBLA', klabb:'KARTI_KLABB'
+};
+
+/* LAST-RESORT SEAT RANGES — [min, max, sensible default].
+   These MIRROR GAME_SEATS in server/karti_server.py and exist only for a game
+   that has not published minSeats/maxSeats itself. They are not the authority:
+   the relay refuses a size outside its own range, so a wrong number here fails
+   loudly at create time rather than seating people who cannot play. */
+const SEATS_FALLBACK = {
+  cards:[2, 2, 2], chess:[2, 2, 2], dama:[2, 2, 2],
+  skarta:[2, 10, 6], klabb:[2, 8, 4], kiri:[2, 8, 4], tombla:[2, 8, 6]
+};
+
+/* A machine has to be called something before it can sit down. Only used when
+   the game published no level names of its own — we do not invent Maltese for
+   somebody else's game. */
+const LEVELS_FALLBACK = [
+  { level:1, name:'Gentle',  note:'Will miss things.' },
+  { level:2, name:'Normal',  note:'Plays properly.' },
+  { level:3, name:'Ruthless', note:'Plays to win.' }
+];
+
+/* the tile a game put on the party shelf, if js/party.js is on this phone */
+function shelfTile(k){
+  try {
+    const P = window.KARTI_PARTY;
+    if (!P || !P.games) return null;
+    return P.games().find(g => g && g.id === k) || null;
+  } catch (e){ return null; }
+}
+
+/* the game's own global, if it has one */
+function gameGlobal(k){
+  const name = LOBBY_GLOBAL[k];
+  try { return name ? (window[name] || null) : null; } catch (e){ return null; }
+}
+
+const LOBBY_CACHE = {};
+
+/* one normalised contract for `k`, built from whatever that game published.
+   Cached, because it is read on every repaint of the roster. */
+function gameLobby(k){
+  k = cleanGame(k);
+  if (LOBBY_CACHE[k]) return LOBBY_CACHE[k];
+
+  const meta  = gameMeta(k);
+  const G     = gameGlobal(k);
+  const pub   = (G && G.lobby && typeof G.lobby === 'object') ? G.lobby : null;
+  const tile  = shelfTile(k);
+  const gaps  = [];
+  const fb    = SEATS_FALLBACK[k] || [2, 2, 2];
+
+  /* ── seats ── */
+  let min = num(pub && pub.minSeats);
+  let max = num(pub && pub.maxSeats);
+  if (min == null && tile && tile.seats) min = num(tile.seats.min);
+  if (max == null && tile && tile.seats) max = num(tile.seats.max);
+  if (min == null || max == null){ gaps.push('minSeats/maxSeats'); }
+  min = Math.max(2, min == null ? fb[0] : min);
+  max = Math.max(min, Math.min(16, max == null ? fb[1] : max));
+  const def = Math.max(min, Math.min(max, fb[2]));
+
+  /* ── the machine, by name ── */
+  let levels = list(pub && pub.levels) || list(tile && tile.levels);
+  if (!levels){ gaps.push('levels'); levels = LEVELS_FALLBACK; }
+  levels = levels.slice(0, 5).map((L, i) => ({
+    level: num(L && (L.level != null ? L.level : L.k)) || (i + 1),
+    name:  String((L && (L.name || L.n)) || ('Level ' + (i + 1))).slice(0, 22),
+    note:  String((L && (L.note || L.blurb || L.t)) || '').slice(0, 80)
+  }));
+  let defLevel = num(pub && pub.defaultLevel);
+  if (defLevel == null) defLevel = levels.length > 1 ? levels[1].level : levels[0].level;
+
+  /* ── the rules, folded open in place ── */
+  let rulesHTML = fn(pub && pub.rulesHTML) || fn(tile && tile.rulesHTML);
+  const blurb = String((pub && pub.blurb) || (tile && tile.tag) || meta.blurb || '');
+  if (!rulesHTML){
+    gaps.push('rulesHTML');
+    /* An honest panel beats an empty one and beats a crash. Whatever the game
+       DID say about itself, said properly, plus the one thing the lobby always
+       knows: how many chairs there are. */
+    rulesHTML = () =>
+      '<p>' + esc(blurb || 'This one has not written its short rules for the lobby yet.') + '</p>' +
+      '<p><b>' + esc(meta.name) + '</b> seats ' + min + ' to ' + max + '. ' +
+      'The full rules are in the game itself, off the party shelf.</p>';
+  }
+
+  /* ── how it is started ── */
+  const startFn = fn(pub && pub.start) || fn(tile && tile.start);
+  if (!startFn) gaps.push('start');
+
+  /* ── the transport: the half that actually carries a move ── */
+  const P = window.KARTI_PARTY;
+  const net = (P && P.online && P.online[k]) || null;
+  if (!net || !net.remote) gaps.push('online.' + k + ' {start,remote,note,stop,live}');
+
+  /* ── ready, and who is allowed to hold a table up ── */
+  const isReady = fn(pub && pub.isReady) ||
+    (s => !!(s && (s.kind === 'cpu' || s.ready)));
+  const autoReady = fn(pub && pub.autoReady) ||
+    (s => (s && s.kind === 'cpu') ? Object.assign({}, s, { ready:true }) : s);
+
+  /* canStart says WHY in words, never a code. A game that published its own
+     wording wins; ours is the fallback and is written to read the same way. */
+  const canStart = fn(pub && pub.canStart) || (seats => {
+    const n = (seats || []).length;
+    if (n < min) return { ok:false, why:'It takes ' + min + ' to play ' + meta.name + '.' };
+    if (n > max) return { ok:false, why:max + ' is as many as this table seats.' };
+    const not = (seats || []).filter(s => s && !isReady(s)).length;
+    if (not) return { ok:false,
+      why:not + (not > 1 ? ' people are' : ' person is') + ' not ready yet.' };
+    return { ok:true, why:'' };
+  });
+
+  const L = {
+    id:k, name:meta.name, short:meta.short, mt:(pub && pub.mt) || '',
+    minSeats:min, maxSeats:max, defaultSeats:def,
+    levels, defaultLevel:defLevel,
+    isReady, autoReady, canStart, rulesHTML, blurb,
+    myName: fn(pub && pub.myName) || (() => myPresenceName()),
+    start:startFn, net,
+    /* how this game's own move object folds onto the relay's five bounded
+       fields. See toWire/fromWire — a game that publishes one wins. */
+    wire: (pub && pub.wire) || null,
+    /* Can a room of this be OPENED at all? A lobby with no way to send a move
+       is a room nobody can play in, so it is not offered — but it is named. */
+    online: !!(net && net.start && net.remote),
+    gaps,
+    /* published nothing we could not have guessed */
+    bare: !pub
+  };
+  LOBBY_CACHE[k] = L;
+  return L;
+}
+
+function num(v){ return (typeof v === 'number' && isFinite(v)) ? Math.floor(v) : null; }
+function list(v){ return (Array.isArray(v) && v.length) ? v : null; }
+function fn(v){ return (typeof v === 'function') ? v : null; }
+
+/* WHAT EACH GAME STILL OWES THE LOBBY.
+   Not decoration: this is the list to hand to whoever owns that game's file.
+   KARTI_MP.lobbyReport() in the console, and docs/ONLINE.md carries a copy. */
+function lobbyReport(){
+  return GAME_KEYS.map(k => {
+    const L = gameLobby(k);
+    return { game:k, name:L.name, seats:[L.minSeats, L.maxSeats],
+             online:L.online, publishedContract:!L.bare, needs:L.gaps.slice() };
+  });
 }
 /* the mark for a game. chess and dama borrow the piece sprite party.js
    injects; if party.js is not loaded yet we fall back to a plain icon
@@ -363,8 +566,53 @@ const MP = {
   /* set when we arrived with the game already decided and went straight for a
      seat: if that seat has gone, open a room of the same game rather than
      showing a menu the player has already answered */
-  autoOpen:null
+  autoOpen:null,
+
+  /* ── THE TABLE ────────────────────────────────────────────────────
+     Everything below is only ever set for a room with more than two
+     chairs in it. A duel never touches any of it and the relay never
+     sends any of it to one, so the two-player path is byte for byte
+     what it always was. */
+  size:2,               /* chairs the ROOM has, straight from the relay   */
+  mySeat:0,             /* which one is mine, straight from the relay     */
+  roster:null,          /* the last {t:'table'} — the whole truth on who  */
+  iAmReady:false,       /* my own bit, echoed back by the roster          */
+  wantSeats:0,          /* chairs we asked for when we opened it          */
+  variant:null,         /* which flavour, where a game has flavours       */
+  showRules:false,      /* the rules panel, folded open IN PLACE          */
+  panel:null,           /* which inline drawer is open: 'ai' | 'ask' | null */
+  aiSeat:-1,            /* the empty chair the machine picker is aimed at */
+  began:null,           /* the relay's {t:'began'} — seed, bots, levels    */
+  askBack:null,         /* somebody to invite the moment we have a room     */
+  unMove:null           /* unsubscribe from the game's own move feed        */
 };
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHO IS AROUND — the social half
+   ───────────────────────────────────────────────────────────────────
+   The room list answers "what is open". This answers "who would say
+   yes". Both come off the same relay; only this one needs an account,
+   because only signed-in players are ever named in it (see
+   docs/ONLINE.md, "What presence says and what it refuses to say").
+
+   It rides the presence BEACON socket, not an HTTP route, for one
+   reason that matters more than tidiness: a socket dies the instant
+   the app is closed, so somebody who has gone stops being invitable
+   at once instead of lingering in a poll for twelve seconds. An idle
+   player who is not actually there is worse than no list at all.
+   ═══════════════════════════════════════════════════════════════════ */
+const WHO = {
+  people:[],       /* [{n,s,g,c,m,id}] — waiting first, then idle, then playing */
+  recent:[],       /* [{n,s,g,games,ago,id}] — recently played with            */
+  here:0, sockets:0,
+  me:null,         /* {n,s,vis}                                                */
+  asked:0,         /* when we last asked, ms                                   */
+  got:false,       /* have we ever had an answer                               */
+  off:false,       /* the relay said "sign in first" — no account, no list     */
+  knocks:[]        /* [{id,from,game,ago}] — invites left while we were away    */
+};
+const WHO_MIN_GAP = 3500;   /* never ask faster than this, whatever nudges us */
+const KNOCK_MAX   = 6;
 
 /* ═══════════════════════════════════════════════════════════════════
    INVITES — "come and play chess", left for a NAMED player
@@ -603,7 +851,7 @@ function injectCSS(){
     '#scr-mp .mp-g[aria-pressed="true"]{background:rgba(255,197,66,.14);' +
       'border-color:rgba(255,197,66,.55)}' +
     '#scr-mp .mp-g:active{background:rgba(255,255,255,.09)}' +
-    '#scr-mp .mp-g b{font:900 11px/1.15 Orbitron,"Arial Black",system-ui,sans-serif;' +
+    '#scr-mp .mp-g b{font:900 11px/1.15 var(--disp);' +
       'letter-spacing:.05em;text-transform:uppercase}' +
     '#scr-mp .mp-g i{font-style:normal;font-size:9.5px;line-height:1.35;color:#A093C4}' +
     '#scr-mp .mp-gi{height:26px;font-size:22px;line-height:1;color:#A093C4;display:block}' +
@@ -615,7 +863,7 @@ function injectCSS(){
     /* ── filter chips over the list ── */
     '#scr-mp .mp-filt{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 9px}' +
     '#scr-mp .mp-chip{display:inline-flex;align-items:center;gap:5px;padding:6px 10px;' +
-      'border-radius:999px;font:700 10.5px/1 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'border-radius:999px;font:700 10.5px/1 var(--disp);' +
       'letter-spacing:.08em;text-transform:uppercase;color:#A093C4;cursor:pointer;' +
       'background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.12)}' +
     '#scr-mp .mp-chip[aria-pressed="true"]{color:#241800;background:#FFC542;' +
@@ -624,7 +872,7 @@ function injectCSS(){
 
     /* ── what kind of room this row is ── */
     '#scr-mp .mp-rtag{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;' +
-      'margin-right:6px;border-radius:999px;font:900 9px/1.35 Orbitron,"Arial Black",' +
+      'margin-right:6px;border-radius:999px;font:900 9px/1.35 var(--disp)' +
       'system-ui,sans-serif;letter-spacing:.1em;vertical-align:1px}' +
     '#scr-mp .mp-rtag .mp-gsym,#scr-mp .mp-rtag .ico{width:11px;height:11px}' +
     '#scr-mp .g-cards{color:#FFC542;background:rgba(255,197,66,.16);' +
@@ -647,13 +895,13 @@ function injectCSS(){
       'border:1px solid rgba(61,220,132,.34)}' +
     '.mp-ivi .ico,.mp-ivi .mp-gsym{width:19px;height:19px}' +
     '.mp-ivw{flex:1;min-width:0;font-size:12.5px;line-height:1.45}' +
-    '.mp-ivw b{font-family:Orbitron,"Arial Black",system-ui,sans-serif;font-size:12px;' +
+    '.mp-ivw b{font-family:var(--disp);font-size:12px;' +
       'letter-spacing:.04em}' +
     '.mp-ivw i{display:block;font-style:normal;margin-top:2px;font-size:10px;' +
       'letter-spacing:.09em;text-transform:uppercase;font-weight:700;color:#8FE7B6}' +
     '.mp-ivb{flex:0 0 auto;display:flex;align-items:center;gap:6px}' +
     '.mp-ivgo{padding:9px 13px;border-radius:11px;background:#3DDC84;color:#062C17;' +
-      'font:900 12px/1 Orbitron,"Arial Black",system-ui,sans-serif;letter-spacing:.09em;' +
+      'font:900 12px/1 var(--disp);letter-spacing:.09em;' +
       'cursor:pointer;border:0}' +
     '.mp-ivno{width:32px;height:32px;border-radius:10px;background:rgba(255,255,255,.06);' +
       'border:1px solid rgba(255,255,255,.14);color:#A093C4;font-size:14px;cursor:pointer}' +
@@ -681,23 +929,23 @@ function injectCSS(){
       'transition:transform .13s ease,background .13s}' +
     '#scr-mp .mp-room:active{transform:scale(.985);background:rgba(255,197,66,.20)}' +
     '#scr-mp .mp-rav{flex:0 0 auto;width:40px;height:40px;border-radius:13px;display:grid;' +
-      'place-items:center;font:900 14px/1 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'place-items:center;font:900 14px/1 var(--disp);' +
       'letter-spacing:.02em;color:#FFDE93;background:rgba(255,197,66,.20);' +
       'border:1px solid rgba(255,197,66,.36)}' +
     '#scr-mp .mp-rwho{flex:1;min-width:0}' +
-    '#scr-mp .mp-rname{display:block;font:900 14px/1.25 Orbitron,"Arial Black",system-ui,' +
-      'sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-mp .mp-rname{display:block;font:900 14px/1.25 var(--disp);' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '#scr-mp .mp-rage{display:block;margin-top:3px;font-size:10px;letter-spacing:.09em;' +
       'text-transform:uppercase;font-weight:700;color:#A093C4}' +
     '#scr-mp .mp-rme{color:#7F73A0}' +
     '#scr-mp .mp-rgo{flex:0 0 auto;padding:9px 12px;border-radius:11px;background:#FFC542;' +
-      'color:#241800;font:900 12px/1 Orbitron,"Arial Black",system-ui,sans-serif;' +
+      'color:#241800;font:900 12px/1 var(--disp);' +
       'letter-spacing:.10em}' +
     '#scr-mp .mp-more{text-align:center;font-size:11px;color:#7F73A0;margin:9px 0 0}' +
     '#scr-mp .mp-empty{padding:20px 16px;border-radius:15px;text-align:center;' +
       'border:1px dashed rgba(255,255,255,.20);background:rgba(255,255,255,.03)}' +
     '#scr-mp .mp-empty .e{font-size:26px;opacity:.55;line-height:1;margin-bottom:8px}' +
-    '#scr-mp .mp-empty b{display:block;font-family:Orbitron,"Arial Black",system-ui,sans-serif;' +
+    '#scr-mp .mp-empty b{display:block;font-family:var(--disp);' +
       'font-size:13px;letter-spacing:.06em;margin-bottom:6px}' +
     '#scr-mp .mp-empty p{font-size:12.5px;line-height:1.6;color:#A093C4;margin:0}' +
 
@@ -714,7 +962,198 @@ function injectCSS(){
     '#scr-mp .mp-hold h3{font-size:15px;letter-spacing:.05em}' +
     '#scr-mp .mp-holdp{font-size:12.5px;line-height:1.65;color:#A093C4;margin:9px 4px 0}' +
     '#scr-mp .mp-holdage{margin:12px 0 0;font-size:10.5px;letter-spacing:.12em;font-weight:700;' +
-      'text-transform:uppercase;color:#7F73A0}';
+      'text-transform:uppercase;color:#7F73A0}' +
+    /* ═══ THE SHARED LOBBY ═══════════════════════════════════════════
+       Phone first, 440x894. Nothing in here has a fixed height and
+       nothing in here scrolls: the page shell is height:100dvh with
+       overflow:hidden and the ONE scroller is .scroll around it. Every
+       tap target is at least 44px tall. */
+    '#scr-mp .mp-thead{display:flex;align-items:center;gap:9px;margin:2px 0 6px}' +
+    '#scr-mp .mp-thead .mp-rtag{margin:0}' +
+    '#scr-mp .mp-tcount{margin-left:auto;padding:5px 12px;border-radius:999px;' +
+      'font:700 12px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em;' +
+      'color:#FFDE93;background:rgba(255,197,66,.14);border:1px solid rgba(255,197,66,.34)}' +
+    '#scr-mp .mp-tcount b{font-size:15px;color:#FFC542}' +
+    '#scr-mp .mp-tsub{margin:0 2px 12px;font-size:12.5px;line-height:1.6;color:#A093C4}' +
+
+    /* the rules, folded open IN PLACE */
+    '#scr-mp .mp-fold{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
+      'min-height:52px;padding:9px 12px;border-radius:14px;color:#F4EFFF;cursor:pointer;' +
+      'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.11)}' +
+    '#scr-mp .mp-fold:active{background:rgba(255,255,255,.09)}' +
+    '#scr-mp .mp-fold .ico{width:19px;height:19px;flex:0 0 auto;color:#A98BFF}' +
+    '#scr-mp .mp-fold span{flex:1;min-width:0;font-size:13px;font-weight:800;line-height:1.3}' +
+    '#scr-mp .mp-fold i{display:block;font-style:normal;margin-top:2px;font-size:10px;' +
+      'font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#8478A8}' +
+    '#scr-mp .mp-fold em{flex:0 0 auto;width:22px;height:22px;display:grid;' +
+      'place-items:center;color:#A093C4;transition:transform .16s var(--ease,ease)}' +
+    '#scr-mp .mp-fold em .ico{width:17px;height:17px;transform:rotate(90deg)}' +
+    '#scr-mp .mp-fold em.up .ico{transform:rotate(-90deg)}' +
+    '#scr-mp .mp-rules{margin:8px 0 4px;padding:12px 14px;border-radius:14px;' +
+      'background:rgba(138,92,255,.12);border:1px solid rgba(138,92,255,.32)}' +
+    '#scr-mp .mp-rules p{margin:0 0 8px;font-size:12.5px;line-height:1.6;color:#D9CFF2}' +
+    '#scr-mp .mp-rules p:last-child{margin-bottom:0}' +
+    '#scr-mp .mp-rules b{color:#F4EFFF}' +
+
+    '#scr-mp .mp-thd{margin:16px 2px 8px;font:700 10px/1 var(--disp);letter-spacing:.16em;' +
+      'text-transform:uppercase;color:#8478A8}' +
+
+    /* the chairs */
+    '#scr-mp .mp-chairs{display:flex;flex-direction:column;gap:7px}' +
+    '#scr-mp .mp-chair{display:flex;align-items:center;gap:10px;min-height:56px;' +
+      'padding:8px 11px;border-radius:14px;' +
+      'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10)}' +
+    '#scr-mp .mp-chair.empty{background:rgba(255,255,255,.02);' +
+      'border:1px dashed rgba(255,255,255,.16)}' +
+    '#scr-mp .mp-chair.ready{background:linear-gradient(180deg,rgba(61,220,132,.13),' +
+      'rgba(61,220,132,.04));border-color:rgba(61,220,132,.38)}' +
+    '#scr-mp .mp-chair.bot{background:linear-gradient(180deg,rgba(138,92,255,.14),' +
+      'rgba(138,92,255,.04));border-color:rgba(138,92,255,.36)}' +
+    '#scr-mp .mp-chair.me{box-shadow:inset 3px 0 0 #FFC542}' +
+    '#scr-mp .mp-chair.away{opacity:.6}' +
+    '#scr-mp .mp-cn{flex:0 0 auto;width:28px;height:28px;border-radius:9px;display:grid;' +
+      'place-items:center;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
+      'color:#A093C4;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.10)}' +
+    '#scr-mp .mp-chair.ready .mp-cn{color:#8FE7B6;border-color:rgba(61,220,132,.34)}' +
+    '#scr-mp .mp-chair.bot .mp-cn{color:#C6AEFF;border-color:rgba(138,92,255,.38)}' +
+    '#scr-mp .mp-cw{flex:1;min-width:0}' +
+    '#scr-mp .mp-cw b{display:block;font-size:13.5px;font-weight:800;line-height:1.25;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-mp .mp-cw em{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.1em;' +
+      'text-transform:uppercase;color:#FFC542;padding:1px 5px;border-radius:5px;' +
+      'background:rgba(255,197,66,.16);vertical-align:2px}' +
+    '#scr-mp .mp-cw i{display:block;font-style:normal;margin-top:2px;font-size:10px;' +
+      'font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#8478A8}' +
+    '#scr-mp .mp-chair.ready .mp-cw i{color:#6FD3A2}' +
+    '#scr-mp .mp-chair.bot .mp-cw i{color:#A98BFF}' +
+    '#scr-mp .mp-ctick{flex:0 0 auto;width:30px;height:30px;border-radius:50%;display:grid;' +
+      'place-items:center;color:#3DDC84;background:rgba(61,220,132,.18);' +
+      'border:1px solid rgba(61,220,132,.42)}' +
+    '#scr-mp .mp-ctick .ico{width:16px;height:16px}' +
+    '#scr-mp .mp-ctick.off{background:transparent;border:1px dashed rgba(255,255,255,.20)}' +
+    '#scr-mp .mp-cbtn{flex:0 0 auto;min-height:44px;padding:0 12px;border-radius:11px;' +
+      'display:inline-flex;align-items:center;gap:5px;cursor:pointer;' +
+      'font:900 11px/1 var(--disp);letter-spacing:.08em;' +
+      'color:#241800;background:#FFC542;border:0}' +
+    '#scr-mp .mp-cbtn .ico{width:14px;height:14px}' +
+    '#scr-mp .mp-cbtn.ghost{width:44px;padding:0;justify-content:center;color:#C6AEFF;' +
+      'background:rgba(138,92,255,.16);border:1px solid rgba(138,92,255,.36)}' +
+    '#scr-mp .mp-cbtn:active{transform:scale(.94)}' +
+    '#scr-mp .mp-free{display:flex;align-items:center;gap:10px;min-height:52px;' +
+      'padding:7px 11px;border-radius:14px;background:rgba(255,255,255,.022);' +
+      'border:1px dashed rgba(255,255,255,.16)}' +
+    '#scr-mp .mp-freen{flex:0 0 auto;width:28px;height:28px;border-radius:9px;display:grid;' +
+      'place-items:center;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
+      'color:#7F73A0;background:rgba(0,0,0,.24);border:1px dashed rgba(255,255,255,.18)}' +
+    '#scr-mp .mp-free .mp-cw b{color:#B9AEDA;font-weight:700}' +
+    '#scr-mp .mp-free .mp-cbtn{background:rgba(138,92,255,.20);color:#C6AEFF;' +
+      'border:1px solid rgba(138,92,255,.40)}' +
+
+    /* the two drawers — they open IN PLACE, never on their own screen */
+    '#scr-mp .mp-drawer{margin:9px 0 4px;padding:12px;border-radius:16px;' +
+      'background:rgba(10,6,20,.55);border:1px solid rgba(255,255,255,.14);' +
+      'animation:mpDrop .16s ease both}' +
+    '@keyframes mpDrop{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}' +
+    '#scr-mp .mp-dhd{display:flex;align-items:center;gap:8px;margin-bottom:7px}' +
+    '#scr-mp .mp-dhd b{flex:1;font:900 12.5px/1.2 var(--disp);letter-spacing:.05em}' +
+    '#scr-mp .mp-dx{flex:0 0 auto;width:34px;height:34px;border-radius:10px;display:grid;' +
+      'place-items:center;color:#A093C4;background:rgba(255,255,255,.06);' +
+      'border:1px solid rgba(255,255,255,.14);cursor:pointer}' +
+    '#scr-mp .mp-dx .ico{width:15px;height:15px}' +
+    '#scr-mp .mp-dp{margin:0 0 9px;font-size:12px;line-height:1.6;color:#A093C4}' +
+    '#scr-mp .mp-dsub{margin:11px 0 6px;font:700 9.5px/1 var(--disp);letter-spacing:.14em;' +
+      'text-transform:uppercase;color:#7F73A0}' +
+    '#scr-mp .mp-lv{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
+      'min-height:54px;padding:8px 11px;margin-bottom:6px;border-radius:13px;color:#F4EFFF;' +
+      'cursor:pointer;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}' +
+    '#scr-mp .mp-lv:active{background:rgba(138,92,255,.22);border-color:#A98BFF}' +
+    '#scr-mp .mp-lv .ico{width:22px;height:22px;flex:0 0 auto;color:#A98BFF}' +
+    '#scr-mp .mp-lv span{flex:1;min-width:0}' +
+    '#scr-mp .mp-lv b{display:block;font-size:13px;font-weight:800}' +
+    '#scr-mp .mp-lv i{display:block;font-style:normal;margin-top:2px;font-size:11px;' +
+      'line-height:1.45;color:#A093C4}' +
+
+    /* ready + start */
+    '#scr-mp .mp-acts{display:grid;gap:9px;margin:16px 0 4px}' +
+    '#scr-mp .mp-ready{min-height:56px;border-radius:15px;padding:8px 14px;cursor:pointer;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;' +
+      'font:900 13px/1.2 var(--disp);letter-spacing:.06em;color:#F4EFFF;' +
+      'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.16)}' +
+    '#scr-mp .mp-ready .ico{width:16px;height:16px;vertical-align:-2px}' +
+    '#scr-mp .mp-ready i{font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.09em;' +
+      'text-transform:uppercase;color:#8478A8}' +
+    '#scr-mp .mp-ready.on{color:#062C17;background:#3DDC84;border-color:#3DDC84}' +
+    '#scr-mp .mp-ready.on i{color:rgba(6,44,23,.62)}' +
+    '#scr-mp .mp-ready:active{transform:scale(.985)}' +
+    '#scr-mp .mp-why{margin:0 2px;text-align:center;font-size:11.5px;line-height:1.55;' +
+      'color:#A093C4}' +
+    /* A start button that cannot be pressed must not look like one that can.
+       The shared .btn.primary is gold whatever its disabled state, and a gold
+       button under the words "Not yet" is a button people tap twice and then
+       distrust. */
+    '#scr-mp .mp-acts .btn.primary[disabled]{background:rgba(255,255,255,.05);' +
+      'color:#7F73A0;border:1px solid rgba(255,255,255,.12);box-shadow:none;' +
+      'filter:none;opacity:1;cursor:default}' +
+    '#scr-mp .mp-acts .btn.primary[disabled] .ico{color:#7F73A0;opacity:.7}' +
+    '#scr-mp .mp-why.ok{color:#6FD3A2}' +
+
+    /* who is around */
+    '#scr-mp .mp-person{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
+      'min-height:56px;padding:8px 11px;margin-bottom:7px;border-radius:14px;color:#F4EFFF;' +
+      'cursor:pointer;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10)}' +
+    '#scr-mp .mp-person.s-waiting{background:linear-gradient(180deg,rgba(255,197,66,.14),' +
+      'rgba(255,197,66,.04));border-color:rgba(255,197,66,.42)}' +
+    '#scr-mp .mp-person.s-playing{opacity:.62;cursor:default}' +
+    '#scr-mp .mp-person:active{transform:scale(.985)}' +
+    '#scr-mp .mp-pav{flex:0 0 auto;width:36px;height:36px;border-radius:12px;display:grid;' +
+      'place-items:center;font:900 12px/1 var(--disp);letter-spacing:.02em;color:#C6AEFF;' +
+      'background:rgba(138,92,255,.18);border:1px solid rgba(138,92,255,.34)}' +
+    '#scr-mp .mp-person.s-waiting .mp-pav{color:#FFDE93;background:rgba(255,197,66,.20);' +
+      'border-color:rgba(255,197,66,.38)}' +
+    '#scr-mp .mp-pw{flex:1;min-width:0}' +
+    '#scr-mp .mp-pw b{display:block;font-size:13.5px;font-weight:800;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-mp .mp-pw i{display:block;font-style:normal;margin-top:2px;font-size:10px;' +
+      'font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#8478A8}' +
+    '#scr-mp .mp-pgo{flex:0 0 auto;padding:8px 11px;border-radius:10px;' +
+      'font:900 10.5px/1 var(--disp);letter-spacing:.1em;color:#241800;background:#FFC542}' +
+    '#scr-mp .mp-person.s-idle .mp-pgo{color:#C6AEFF;background:rgba(138,92,255,.20);' +
+      'border:1px solid rgba(138,92,255,.36)}' +
+    '#scr-mp .mp-person.s-playing .mp-pgo{display:none}' +
+
+    /* recently played with — NOT scoped to #scr-mp: it is drawn on Home too */
+    '.mp-recent{margin:10px 0 2px}' +
+    '.mp-rectitle{display:flex;align-items:center;gap:6px;margin-bottom:7px;' +
+      'font:700 9.5px/1 var(--disp);letter-spacing:.14em;text-transform:uppercase;color:#7F73A0}' +
+    '.mp-rectitle .ico{width:13px;height:13px}' +
+    '.mp-pills{display:flex;flex-wrap:wrap;gap:6px}' +
+    '.mp-pill{min-height:44px;padding:6px 11px;border-radius:12px;text-align:left;' +
+      'cursor:pointer;color:#F4EFFF;font-size:12.5px;font-weight:800;' +
+      'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14)}' +
+    '.mp-pill i{display:block;font-style:normal;margin-top:1px;font-size:9.5px;' +
+      'font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:#8478A8}' +
+    '.mp-pill.go{color:#241800;background:#FFC542;border-color:#FFC542}' +
+    '.mp-pill.go i{color:rgba(36,24,0,.62)}' +
+    '.mp-pill.off{opacity:.66}' +
+    '.mp-pill:active{transform:scale(.95)}' +
+    '#scr-mp .mp-askrow{display:flex;gap:7px}' +
+    '#scr-mp .mp-askrow .field{flex:1;min-width:0}' +
+    '#scr-mp .mp-askrow .btn{flex:0 0 auto;min-width:74px}' +
+
+    /* a knock reads like an invite but is honestly a different thing */
+    '.mp-knock{background:linear-gradient(180deg,rgba(138,92,255,.18),rgba(138,92,255,.05));' +
+      'border-color:rgba(169,139,255,.5)}' +
+    '.mp-knock .mp-ivi{color:#C6AEFF;background:rgba(138,92,255,.18);' +
+      'border-color:rgba(138,92,255,.38)}' +
+    '.mp-knock .mp-ivw i{color:#A98BFF}' +
+    '.mp-knock .mp-ivgo{background:#A98BFF;color:#160C2A}' +
+
+    /* short phones: the chairs are the screen, so they lose the least */
+    '@media (max-height:740px){' +
+      '#scr-mp .mp-chair{min-height:50px;padding:6px 10px}' +
+      '#scr-mp .mp-ready{min-height:50px}' +
+      '#scr-mp .mp-tsub{margin-bottom:9px}}';
+
   document.head.appendChild(st);
 }
 
@@ -744,6 +1183,7 @@ function mpScreen(){
           'Fix the address below or leave it on the default.</div>'
         : '') +
       '<div id="mp-inbox"></div>' +
+      '<div id="mp-social"></div>' +
       '<div id="mp-rooms"></div>' +
       '<div class="tiny" style="margin:18px 0 8px">Open a room of your own</div>' +
       '<div class="mp-pick" id="mp-pick">' +
@@ -845,6 +1285,8 @@ function mpScreen(){
   setState(MP.state === 'idle' ? 'idle' : MP.state, MP.note);
   paintRooms();                 /* whatever the shared poller already knows */
   paintInvites();
+  paintOnlineSocial();
+  whoAsk(true);                 /* and ask who is about, once */
 }
 
 function testServer(){
@@ -935,8 +1377,23 @@ function openSocket(intent){
     /* `game` on both of these is new. An older relay does not know the field
        and ignores it, which is exactly right for a card duel and is caught
        out loud in `created` for anything else. */
-    if (intent === 'create')
-      send({ t:'create', private: !!MP.wantPrivate, game: MP.wantGame || 'cards' });
+    if (intent === 'create'){
+      /* HOW MANY CHAIRS. The seat count is the primary piece of room data, not
+         an afterthought: "This is a oarty not duo". We ask for the game's own
+         maximum so the room reads as a table filling up — "1 of 8" — rather
+         than a duel that somebody might sit out. Nobody is ever obliged to
+         fill it; the host starts the moment there are enough.
+         An older relay ignores `seats` and answers without it, which is how
+         `created` spots one and says so. */
+      const LB = gameLobby(MP.wantGame || 'cards');
+      MP.wantSeats = LB.maxSeats;
+      MP.variant = MP.variant || null;
+      const msg = { t:'create', private: !!MP.wantPrivate,
+                    game: MP.wantGame || 'cards' };
+      if (LB.maxSeats > 2) msg.seats = LB.maxSeats;
+      if (MP.variant) msg.variant = MP.variant;
+      send(msg);
+    }
     else if (intent === 'join') send({ t:'join', code: MP.code });
     else if (intent === 'joinid')
       send(MP.joinHint ? { t:'joinid', id: MP.joinId, game: MP.joinHint }
@@ -1000,6 +1457,13 @@ function send(o){
 /* Pluggable transport. Normally the room server socket; the harness swaps in a
    direct loopback so the lockstep mirroring can be tested without a server. */
 function relay(d){ if (MP.transport) MP.transport(d); else send({ t:'relay', d }); }
+/* the same, ON BEHALF OF a chair the relay gave us at start. The stamp is the
+   relay's to apply; all we do is ask, and it refuses for any chair that is not
+   one of ours. */
+function sendFor(seat, d){
+  if (MP.transport) return MP.transport(d);
+  send({ t:'relay', d, for: seat });
+}
 
 /* Whichever socket this device has open — the room one if we are in a room,
    otherwise the who's-online beacon. Invites are answered over either. */
@@ -1011,6 +1475,12 @@ function sendAny(o){
 }
 /* say who we are on whichever socket has just opened */
 function authProbe(ws){
+  /* A NEW SOCKET IS A STRANGER UNTIL IT SAYS OTHERWISE. `authed` is a property
+     of the connection, not of the phone: carrying it across a reconnect is how
+     "who is around" ended up asking on a socket that had not proved anything
+     yet and switching itself off over the refusal. */
+  INBOX.authed = false;
+  WHO.off = false;
   const tok = sessionToken();
   if (!tok) return;
   MP.authProbe = true;
@@ -1036,6 +1506,11 @@ function mpLeave(){
   MP.joinId = null; MP.nameProbe = false; MP.autoOpen = null;
   MP.wantPrivate = false; MP.private = false; MP.openedAt = 0;
   MP.peerHere = false; MP.peerList = null; MP.lastSeq = 0; MP.tries = 0;
+  /* the table, put away with the room it belonged to */
+  MP.size = 2; MP.mySeat = 0; MP.roster = null; MP.iAmReady = false;
+  MP.began = null; MP.panel = null; MP.aiSeat = -1; MP.showRules = false;
+  MP.wantSeats = 0; MP.variant = null; MP.askBack = null;
+  if (MP.unMove){ try { MP.unMove(); } catch (e){} MP.unMove = null; }
   if (MP.state !== 'unreachable') setState('idle');
 }
 
@@ -1055,6 +1530,11 @@ function onServer(m){
       MP.authProbe = false;
       INBOX.authed = true;
       INBOX.name = (typeof m.name === 'string' ? m.name : '').slice(0, NAME_MAX);
+      WHO.off = false;
+      WHO.asked = 0;
+      WHO.me = { n: INBOX.name, s:'idle', vis: m.vis !== false };
+      /* the moment we are somebody, ask who else is */
+      whoAsk(true);
       return;
 
     case 'invite':
@@ -1095,8 +1575,31 @@ function onServer(m){
         }
         MP.game = 'cards';
       } else MP.game = cleanGame(m.game);
+      /* HOW MANY CHAIRS WE ACTUALLY GOT. A relay too old to seat a table
+         answers with no `seats` at all, and a table of one is not a table —
+         say so rather than sit somebody in a room three friends can never
+         reach. */
+      MP.size = (typeof m.seats === 'number' && m.seats >= 2) ? (m.seats | 0) : 2;
+      MP.mySeat = (typeof m.seat === 'number') ? (m.seat | 0) : 0;
+      MP.variant = (typeof m.variant === 'string') ? m.variant : null;
+      MP.roster = null; MP.iAmReady = false; MP.began = null;
+      MP.panel = null; MP.aiSeat = -1;
+      if (MP.wantSeats > 2 && MP.size < MP.wantSeats && typeof m.seats !== 'number'){
+        mpLeave();
+        setState('unreachable', 'This relay is an older build: it can only seat two, so a ' +
+          gameMeta(MP.wantGame).name + ' table cannot be opened on it. The room was closed ' +
+          'rather than leave you waiting for people who could never get in.');
+        mpScreen();
+        return;
+      }
       MP.autoOpen = null;
+      /* ASK THEM BACK. Tapping a friend on the who's-around strip opened this
+         room; the invitation could not go out until there was a room to point
+         at, and now there is. One tap did both — that is the extra screen he
+         complained about, removed. */
+      if (MP.askBack){ sendInvite(MP.askBack); MP.askBack = null; }
       lobby();
+      if (MP.size > 2) return;      /* the table paints its own status line */
       setState('waiting', MP.private
         ? 'Private ' + gameMeta(MP.game).name.toLowerCase() +
           ' room open — nobody can see it but you.'
@@ -1111,8 +1614,21 @@ function onServer(m){
       /* the room says what it is; the list we tapped is only a fallback for a
          relay too old to answer */
       MP.game = (typeof m.game === 'string') ? cleanGame(m.game) : (MP.joinHint || 'cards');
+      MP.size = (typeof m.seats === 'number' && m.seats >= 2) ? (m.seats | 0) : 2;
+      MP.mySeat = (typeof m.seat === 'number') ? (m.seat | 0) : 1;
+      MP.variant = (typeof m.variant === 'string') ? m.variant : null;
+      MP.roster = null; MP.iAmReady = false; MP.began = null;
+      MP.panel = null; MP.aiSeat = -1;
       if (MP.inviteId){ inboxDrop(MP.inviteId); MP.inviteId = null; }
       MP.autoOpen = null;                  /* we got the seat; no fallback needed */
+      /* A TABLE DOES NOT DEAL THE MOMENT YOU SIT DOWN. You are in the room,
+         you can see who else is, and the host starts it when everybody is
+         ready. Only a duel still goes straight into the hello. */
+      if (MP.size > 2){
+        MP.peerHere = false;
+        lobby();
+        return;
+      }
       lobby();
       setState('ready', MP.game === 'cards'
         ? 'Connected. Swapping decks…' : 'Connected. Drawing for colours…');
@@ -1130,6 +1646,16 @@ function onServer(m){
       return;
 
     case 'peer':
+      /* AT A TABLE this message is news, not a starting gun: the roster that
+         follows it is what the lobby actually draws from, and the host is the
+         only thing that starts a game. A DUEL is untouched — same two lines it
+         has always run. */
+      if (MP.size > 2){
+        if (m.state === 'joined' || m.state === 'rejoined') K.toast('Somebody sat down.');
+        else if (m.state === 'left' && MP.live) tableSeatGone(m.seat, 'left');
+        else if (m.state === 'dropped' && MP.live) tableSeatGone(m.seat, 'dropped');
+        return;
+      }
       if (m.state === 'joined'){
         MP.peerHere = true;
         setState('ready', 'They are in. Swapping decks…');
@@ -1150,9 +1676,45 @@ function onServer(m){
       }
       return;
 
+    /* ── the table ── */
+    case 'table':
+      onRoster(m);
+      return;
+
+    case 'began':
+      onBegan(m);
+      return;
+
+    /* ── who is around ── */
+    case 'stir':
+      /* NINE BYTES. "The answer moved." We ask again, no faster than our own
+         floor allows, and nothing at all is pushed at us. */
+      whoAsk();
+      return;
+
+    case 'who':
+      onWho(m);
+      return;
+
+    case 'visible':
+      if (WHO.me) WHO.me.vis = m.on !== false;
+      K.toast(m.on === false ? 'You are invisible to other players now.'
+                             : 'Other players can see you again.');
+      paintSocial();
+      return;
+
+    case 'knock':
+      knockAdd(m);
+      return;
+
+    case 'knockgone':
+      WHO.knocks = WHO.knocks.filter(x => x.id !== (m && m.id));
+      paintSocial();
+      return;
+
     case 'relay':
       if (typeof m.n === 'number' && m.n > MP.lastSeq) MP.lastSeq = m.n;
-      onPeer(m.d);
+      onPeer(m.d, m.s);
       return;
 
     case 'closed':
@@ -1241,6 +1803,11 @@ function lobby(){
   if (!body || !MP.code) return;
   stopWaitClock();
 
+  /* MORE THAN TWO CHAIRS IS A DIFFERENT ROOM, not a bigger one. Everything
+     below this line is the duel's waiting screen and is untouched by any of
+     it — a two-seat room draws exactly what it always drew. */
+  if (MP.size > 2){ tableLobby(); return; }
+
   if (MP.peerHere){
     body.innerHTML =
       '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
@@ -1302,6 +1869,767 @@ function lobby(){
   paintState();
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE SHARED LOBBY
+   ───────────────────────────────────────────────────────────────────
+   One screen. Every party game feeds it, and it knows the rules of
+   none of them — it reads a contract (see gameLobby above) and draws
+   whatever came back.
+
+   WHAT THE OWNER ASKED FOR, IN HIS ORDER:
+     "Kiri auro use orofike name"            — the profile name is used
+        automatically. There is no name field anywhere in this flow,
+        and there is no place one could be added: the relay is told
+        who we are when the socket opens, before this screen exists.
+     "if clicked inline it will join in game" — tapping the online
+        option opens the room and puts you in it. One tap. There is no
+        menu, no confirm, no "choose your seat". He has said "to much
+        reesting" twice; this is the answer to it.
+     "u will see other players for invite"  — the roster IS the screen,
+        and asking somebody happens inside the room, in a drawer, so
+        nobody has to leave and lose their chair.
+     "there need to be 2 players and in thst state can add ai"
+                                            — below the game's own
+        minimum the start button says WHY in words. Machines are added
+        from here, with a difficulty, one tap each.
+     "no jeed make and rules becefore u hit start" — the rules fold
+        open IN PLACE, above the chairs. Nobody navigates away.
+     "everyone resdy ai will auto ready appoun soawn"
+                                            — everybody readies and
+        the host starts; a machine is ready the instant it is put out
+        and cannot hold the table up. That is enforced on the relay
+        too, where a machine is not a seat at all.
+
+   AND THE FRAMING: "This is a oarty not duo stop maint it for small
+   group pie will allways stay on". So the header is an occupancy —
+   "4 of 10" — and the empty chairs are drawn as chairs. There is no
+   screen anywhere in here that says "waiting for your opponent".
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* the roster, straight off the relay. It is the only thing this screen
+   believes about who is in the room. */
+function onRoster(m){
+  if (!m || !Array.isArray(m.who)) return;
+  MP.roster = m;
+  if (typeof m.seats === 'number' && m.seats >= 2) MP.size = m.seats | 0;
+  const mine = m.who[MP.mySeat];
+  MP.iAmReady = !!(mine && mine.ready);
+  if (MP.live || MP.boardLive) return;    /* the board is up; nothing to repaint */
+  tableLobby();
+}
+
+/* THE ROSTER BEFORE THERE IS A ROSTER.
+   The relay sends {t:'table'} whenever the table CHANGES, which means the host
+   who has just opened one has not been sent anything yet. Rather than draw a
+   table on which even his own chair is empty — the exact opposite of "a room
+   filling up" — the one chair we already know about is derived from what the
+   relay said in `created`: our seat number, our name, and the fact that we are
+   plainly here. Nothing is invented; it is replaced by the real roster the
+   instant anybody else touches the room. */
+function ownRoster(){
+  const who = [];
+  for (let i = 0; i < MP.size; i++) who.push(null);
+  who[MP.mySeat] = { i:MP.mySeat, n:myPresenceName(), here:true, bot:false,
+                     ready:MP.iAmReady, lv:0 };
+  return { t:'table', code:MP.code, game:MP.game, seats:MP.size, started:false,
+           variant:MP.variant, taken:1, min:gameLobby(MP.game).minSeats,
+           waiting:MP.iAmReady ? 0 : 1, who };
+}
+
+/* seats as the LOBBY CONTRACT wants them: {name, kind, level, ready, link} */
+function rosterSeats(){
+  const r = MP.roster;
+  if (!r) return [];
+  return r.who.filter(Boolean).map(w => ({
+    seat: w.i,
+    name: w.n || 'PLAYER',
+    kind: w.bot ? 'cpu' : 'human',
+    level: w.lv || 0,
+    ready: w.bot ? true : !!w.ready,
+    here: w.here !== false,
+    link: w.bot ? 'cpu' : 'net'
+  }));
+}
+
+/* Can this table go, and if not, in WORDS.
+   The game's own canStart() answers first — it knows things the lobby does
+   not, like whether a partnership game needs an even number. Ours is only the
+   floor underneath it. */
+function tableCanStart(){
+  const LB = gameLobby(MP.game);
+  const seats = rosterSeats();
+  if (seats.length < 2)
+    return { ok:false, why:'A game needs somebody to play it with. Ask a friend, or ' +
+                           'put a machine in a chair.' };
+  let verdict;
+  try { verdict = LB.canStart(seats); }
+  catch (e){ verdict = null; }
+  if (!verdict || typeof verdict.ok !== 'boolean'){
+    const short = seats.length < LB.minSeats;
+    const not = seats.filter(s => !s.ready).length;
+    verdict = short ? { ok:false, why:'It takes ' + LB.minSeats + ' to play ' + LB.name + '.' }
+            : not   ? { ok:false, why:not + (not > 1 ? ' people are' : ' person is') +
+                                       ' not ready yet.' }
+                    : { ok:true, why:'' };
+  }
+  return verdict;
+}
+
+/* ── the screen ─────────────────────────────────────────────────── */
+function tableLobby(){
+  const body = $('#mp-body');
+  if (!body) return;
+  const LB = gameLobby(MP.game);
+  if (!MP.roster) MP.roster = ownRoster();
+  const seats = rosterSeats();
+  const taken = seats.length;
+  const iAmHost = MP.mySeat === 0;
+  const verdict = tableCanStart();
+  const free = [];
+  for (let i = 0; i < MP.size; i++)
+    if (!seats.some(s => s.seat === i)) free.push(i);
+
+  body.innerHTML =
+    '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
+
+    /* ── the table, said once, at the top ── */
+    '<div class="mp-thead">' +
+      '<span class="mp-rtag g-' + esc(MP.game) + '">' + gameIcon(MP.game) +
+        esc(LB.short || LB.name) + '</span>' +
+      '<span class="mp-tcount"><b>' + taken + '</b> of ' + MP.size + '</span>' +
+    '</div>' +
+    '<p class="mp-tsub" id="mp-tsub">' + esc(tableLine(taken, free.length, iAmHost)) + '</p>' +
+
+    /* ── the thirty seconds that lets a stranger sit down ── */
+    '<button class="mp-fold" id="mp-rulesbtn" aria-expanded="' + (MP.showRules ? 'true' : 'false') + '">' +
+      ico('book') + '<span>What is ' + esc(LB.name) + '?' +
+      '<i>' + (MP.showRules ? 'tap to fold it away' : 'thirty seconds, without leaving your chair') +
+      /* the sprite, not a glyph. A unicode chevron or a minus sign renders as an
+         emoji or as tofu on some phones and it has bitten this project twice. */
+      '</i></span><em class="' + (MP.showRules ? 'up' : '') + '">' + ico('arrow-right') +
+      '</em></button>' +
+    (MP.showRules ? '<div class="mp-rules">' + safeRules(LB) + '</div>' : '') +
+
+    /* ── the chairs ── */
+    '<div class="mp-thd">THE TABLE</div>' +
+    '<div class="mp-chairs" id="mp-chairs">' +
+      chairRows(seats, free, iAmHost, LB) +
+    '</div>' +
+
+    /* ── the two drawers, both of which open IN PLACE ── */
+    (MP.panel === 'ai'  ? aiDrawer(LB) : '') +
+    (MP.panel === 'ask' ? askDrawer() : '') +
+
+    /* ── ready, and start ── */
+    '<div class="mp-acts">' +
+      '<button class="mp-ready' + (MP.iAmReady ? ' on' : '') + '" id="mp-ready">' +
+        (MP.iAmReady ? ico('check') + ' You are ready' : 'I am ready') +
+        '<i>' + (MP.iAmReady ? 'tap to say you are not' : 'everybody readies, then the host starts') +
+        '</i></button>' +
+      (iAmHost
+        ? '<button class="btn primary" id="mp-start"' + (verdict.ok ? '' : ' disabled') + '>' +
+            (verdict.ok ? ico('play') + ' Start the game' : 'Not yet') + '</button>' +
+          (verdict.ok
+            ? '<p class="mp-why ok">Everybody is ready. ' + taken + ' playing.</p>'
+            : '<p class="mp-why">' + esc(verdict.why) + '</p>')
+        : '<p class="mp-why">' + (verdict.ok
+            ? esc((seats[0] ? seats[0].name : 'The host') + ' can start whenever they like.')
+            : esc(verdict.why)) + '</p>') +
+    '</div>' +
+
+    /* ── ask somebody, without leaving the room ── */
+    '<button class="btn ghost" id="mp-askbtn" style="margin-top:4px">' + ico('users') +
+      ' Ask somebody to join</button>' +
+
+    /* ── the code, folded away: the list is the way in ── */
+    '<details style="margin:14px 0 10px"><summary class="tiny">' +
+      (MP.private ? 'The code for this room' : 'Waiting for one particular person?') +
+      '</summary>' +
+      '<p class="tiny" style="line-height:1.7;margin:8px 0 0;text-transform:none;letter-spacing:0">' +
+      (MP.private
+        ? 'This table is <b>private</b> — it is in nobody’s list. Only somebody you hand ' +
+          'this code to can get in.'
+        : 'Your table is in everybody’s list right now, labelled <b>' + esc(LB.short || LB.name) +
+          '</b> with ' + taken + ' of ' + MP.size + ' chairs taken. If you want one ' +
+          'particular person, give them this code.') + '</p>' +
+      '<div class="mp-code" id="mp-showcode">' + esc(MP.code) + '</div>' +
+      '<button class="btn ghost" id="mp-copy">' + ico('cards') + ' Copy the code</button>' +
+    '</details>' +
+
+    '<button class="btn ghost" id="mp-cancel">Leave the table</button>';
+
+  /* ── wiring ── */
+  $('#mp-rulesbtn').onclick = () => {
+    MP.showRules = !MP.showRules;
+    sfx(MP.showRules ? 'ui.sheet' : 'ui.back');
+    tableLobby();
+  };
+  const rd = $('#mp-ready');
+  if (rd) rd.onclick = () => {
+    /* optimistic only in SOUND. The bit itself is the relay's answer: the
+       roster that comes back is what redraws this button, so two phones can
+       never disagree about who is ready. */
+    sfx(MP.iAmReady ? 'ui.untoggle' : 'ui.toggle');
+    send({ t:'ready', on: !MP.iAmReady });
+  };
+  const st = $('#mp-start');
+  if (st) st.onclick = () => { sfx('game.start'); send({ t:'start' }); };
+  $('#mp-askbtn').onclick = () => {
+    MP.panel = MP.panel === 'ask' ? null : 'ask';
+    if (MP.panel === 'ask') whoAsk(true);
+    sfx('ui.sheet');
+    tableLobby();
+  };
+  $$('#mp-chairs [data-addai]').forEach(b => b.onclick = () => {
+    MP.aiSeat = Number(b.dataset.addai);
+    MP.panel = 'ai';
+    sfx('ui.sheet');
+    tableLobby();
+  });
+  $$('#mp-chairs [data-dropai]').forEach(b => b.onclick = () => {
+    sfx('ui.untoggle');
+    send({ t:'bot', seat: Number(b.dataset.dropai), on:false });
+  });
+  $$('[data-ailv]').forEach(b => b.onclick = () => {
+    const lv = Number(b.dataset.ailv);
+    sfx('ui.toggle');
+    send({ t:'bot', seat: MP.aiSeat, level: lv, name: botName(MP.game, lv), on:true });
+    MP.panel = null; MP.aiSeat = -1;
+    tableLobby();
+  });
+  const ax = $('#mp-aix');
+  if (ax) ax.onclick = () => { MP.panel = null; MP.aiSeat = -1; sfx('ui.back'); tableLobby(); };
+  wireAskDrawer();
+
+  const cp = $('#mp-copy');
+  if (cp) cp.onclick = () => {
+    try { navigator.clipboard.writeText(MP.code); K.toast('Code copied.'); }
+    catch (e){ K.toast('Code: ' + MP.code); }
+  };
+  $('#mp-cancel').onclick = () => { mpLeave(); mpScreen(); };
+
+  /* the status line is the room's own, and never contradicts the chairs */
+  /* The status line is about the ROOM. The line under the start button is about
+     the START. They used to both say "1 person is not ready yet", which read
+     like the screen was nagging. */
+  setState(verdict.ok ? 'ready' : 'waiting',
+           MP.private ? 'Private table — only somebody with the code can get in.'
+         : taken < 2 ? 'Your table is in the list. Nobody else yet — it only takes one.'
+         : verdict.ok ? 'Everybody is ready. ' + taken + ' at the table.'
+         : taken + ' at the table, ' + free.length +
+           (free.length === 1 ? ' chair free.' : ' chairs free.'));
+  paintState();
+}
+
+/* the one line under the header. It is the difference between a room that is
+   filling up and a room that is empty, so it never says "waiting". */
+function tableLine(taken, free, iAmHost){
+  /* The count is already on the badge and in the status line. This says what
+     to DO about it, which is the one thing neither of those can. */
+  if (taken < 2)
+    return 'Anyone who opens Online sees your table and can tap straight in — or put a ' +
+           'machine in a chair and start right now.';
+  if (free > 0)
+    return iAmHost ? 'You do not have to fill it. Start whenever everybody is ready.'
+                   : 'There is still room for anybody else you want to ask.';
+  return 'Every chair is taken.';
+}
+
+/* a game's rules panel is HTML the GAME wrote, dropped into ours. It is the
+   only third-party HTML this file inserts, and it is the game's own file on
+   the same origin — the same trust as calling its start(). A game that throws
+   gets its blurb instead of taking the lobby down with it. */
+function safeRules(LB){
+  try {
+    const h = LB.rulesHTML();
+    if (typeof h === 'string' && h.trim()) return h;
+  } catch (e){}
+  return '<p>' + esc(LB.blurb || 'No rules panel from this one yet.') + '</p>';
+}
+
+/* ── the chairs ─────────────────────────────────────────────────── */
+function chairRows(seats, free, iAmHost, LB){
+  /* PEOPLE FIRST, FURNITURE AFTER.
+     Drawing every empty chair as its own row was the first thing that went
+     wrong on a real phone: an eight-seat tombla table with three friends at it
+     became five identical grey rows, and the ready button — the only thing
+     anybody came here to press — went below the fold. At sixteen chairs it is
+     worse. So the TAKEN chairs are the list, and the free ones are ONE line
+     that says how many. The host does not care which chair a machine sits in;
+     it takes the next free one. */
+  let h = '';
+  for (let i = 0; i < MP.size; i++){
+    const s = seats.find(x => x.seat === i);
+    if (!s) continue;
+    const me = s.seat === MP.mySeat;
+    const lvl = s.kind === 'cpu'
+      ? (LB.levels.find(x => x.level === s.level) || { name:'Machine' }).name : '';
+    h += '<div class="mp-chair' + (s.ready ? ' ready' : '') + (me ? ' me' : '') +
+          (s.kind === 'cpu' ? ' bot' : '') + (s.here ? '' : ' away') + '">' +
+      '<span class="mp-cn">' + (i + 1) + '</span>' +
+      '<span class="mp-cw"><b>' + esc(s.name) + (me ? ' <em>you</em>' : '') +
+        (i === 0 ? ' <em>host</em>' : '') + '</b>' +
+      '<i>' + (s.kind === 'cpu'
+                 ? esc(lvl) + ' · ready'
+                 : !s.here ? 'lost signal — the chair is held'
+                 : s.ready ? 'ready' : 'not ready yet') + '</i></span>' +
+      (s.kind === 'cpu'
+        ? (iAmHost ? '<button class="mp-cbtn ghost" data-dropai="' + i + '" ' +
+                     'aria-label="Take the machine out of chair ' + (i + 1) + '">' +
+                     ico('close') + '</button>' : '<span class="mp-ctick">' + ico('check') + '</span>')
+        : '<span class="mp-ctick' + (s.ready ? '' : ' off') + '">' +
+          (s.ready ? ico('check') : '') + '</span>') +
+      '</div>';
+  }
+  if (free.length){
+    h += '<div class="mp-free">' +
+      '<span class="mp-freen">' + free.length + '</span>' +
+      '<span class="mp-cw"><b>' + free.length +
+        (free.length > 1 ? ' chairs still free' : ' chair still free') + '</b>' +
+      '<i>' + (MP.private ? 'only with the code' : 'anybody can tap in') + '</i></span>' +
+      (iAmHost && LB.levels.length
+        ? '<button class="mp-cbtn" data-addai="' + free[0] + '">' + ico('plus') +
+          ' Machine</button>'
+        : '') +
+      '</div>';
+  }
+  return h;
+}
+
+/* ── the machine drawer ─────────────────────────────────────────── */
+function aiDrawer(LB){
+  return '<div class="mp-drawer" id="mp-ai">' +
+    '<div class="mp-dhd"><b>A machine in chair ' + (MP.aiSeat + 1) + '</b>' +
+      '<button class="mp-dx" id="mp-aix" aria-label="Close">' + ico('close') + '</button></div>' +
+    '<p class="mp-dp">It sits down ready. It will never be the reason the table is ' +
+      'waiting for somebody.</p>' +
+    LB.levels.map(L =>
+      '<button class="mp-lv" data-ailv="' + L.level + '">' +
+        ico('diff-' + Math.max(1, Math.min(3, L.level))) +
+        '<span><b>' + esc(L.name) + '</b>' +
+        (L.note ? '<i>' + esc(L.note) + '</i>' : '') + '</span></button>').join('') +
+    '</div>';
+}
+
+/* ── asking somebody, from inside the room ──────────────────────── */
+function askDrawer(){
+  const rec = WHO.recent.slice(0, 8);
+  const around = WHO.people.filter(p => p.s === 'idle').slice(0, 8);
+  let h = '<div class="mp-drawer" id="mp-ask">' +
+    '<div class="mp-dhd"><b>Ask somebody</b>' +
+      '<button class="mp-dx" id="mp-askx" aria-label="Close">' + ico('close') + '</button></div>';
+
+  if (!canInvite()){
+    h += '<p class="mp-dp">Asking one particular person needs a KARTI account on your side — ' +
+         'it is what the invitation is addressed to. Without one, your table is still in ' +
+         'everybody’s list and anyone can tap it.</p></div>';
+    return h;
+  }
+  if (WHO.off){
+    h += '<p class="mp-dp">This relay is an older build and cannot say who is around. ' +
+         'You can still invite by name.</p>';
+  }
+  if (rec.length){
+    h += '<div class="mp-dsub">WHO YOU USUALLY PLAY WITH</div><div class="mp-pills">' +
+      rec.map(p => '<button class="mp-pill' + (p.s === 'off' ? ' off' : '') +
+        '" data-ask="' + esc(p.n) + '">' + esc(p.n) +
+        '<i>' + esc(p.s === 'off' ? 'offline · they will get it later' : whoWord(p)) +
+        '</i></button>').join('') + '</div>';
+  }
+  if (around.length){
+    h += '<div class="mp-dsub">AROUND RIGHT NOW, NOT PLAYING</div><div class="mp-pills">' +
+      around.map(p => '<button class="mp-pill" data-ask="' + esc(p.n) + '">' + esc(p.n) +
+        '<i>open, nothing on</i></button>').join('') + '</div>';
+  }
+  if (!rec.length && !around.length && !WHO.off){
+    h += '<p class="mp-dp">Nobody you have played with is around yet. Ask by name and it ' +
+         'will be waiting for them the moment they open KARTI.</p>';
+  }
+  h += '<div class="mp-dsub">BY NAME</div>' +
+    '<div class="mp-askrow"><input class="field" id="mp-invname" maxlength="' + NAME_MAX + '" ' +
+      'placeholder="Their KARTI name" autocomplete="off" spellcheck="false" ' +
+      'aria-label="Who to invite">' +
+    '<button class="btn" id="mp-invgo">Ask</button></div>' +
+    '<p class="mp-dp">Nothing is ever said about whether that name has an account — the ' +
+      'answer is the same either way. If they do, it is waiting for them.</p>' +
+    '</div>';
+  return h;
+}
+
+function wireAskDrawer(){
+  const x = $('#mp-askx');
+  if (x) x.onclick = () => { MP.panel = null; sfx('ui.back'); tableLobby(); };
+  $$('[data-ask]').forEach(b => b.onclick = () => { sendInvite(b.dataset.ask); });
+  const go = $('#mp-invgo');
+  if (go) go.onclick = () => sendInvite(($('#mp-invname') || {}).value || '');
+}
+
+/* ── somebody left mid-game ─────────────────────────────────────── */
+function tableSeatGone(seat, how){
+  const LB = gameLobby(MP.game);
+  const net = LB.net;
+  const name = (MP.roster && MP.roster.who[seat] && MP.roster.who[seat].n) || 'Somebody';
+  if (net && net.note)
+    net.note(name + (how === 'dropped' ? ' lost signal — holding their chair.'
+                                       : ' left the table.'),
+             how === 'dropped' ? 'warn' : '');
+  K.toast(name + (how === 'dropped' ? ' dropped out.' : ' left.'));
+}
+
+/* ── the relay says go ──────────────────────────────────────────── */
+function onBegan(m){
+  if (MP.live || MP.boardLive) return;
+  MP.began = m;
+  MP.seed = (typeof m.seed === 'number') ? (m.seed >>> 0) : 0;
+  const LB = gameLobby(MP.game);
+  if (!LB.online){
+    /* The lobby did its job and the game cannot take the ball. Say which half
+       is missing rather than showing a blank board. */
+    setState('unreachable', LB.name + ' has a lobby but no online half on this phone yet ' +
+      '(it needs KARTI_PARTY.online.' + MP.game + '). Nothing was lost — the table is ' +
+      'still here.');
+    K.toast(LB.name + ' cannot be played online from this build yet.');
+    return;
+  }
+  const bots  = Array.isArray(m.bots) ? m.bots : [];
+  const names = (m.names && typeof m.names === 'object') ? m.names : {};
+  const lvls  = (m.levels && typeof m.levels === 'object') ? m.levels : {};
+  const seats = [];
+  for (let i = 0; i < MP.size; i++){
+    const w = MP.roster && MP.roster.who ? MP.roster.who[i] : null;
+    if (bots.indexOf(i) >= 0){
+      seats.push({ seat:i, name: names[String(i)] || 'MACHINE', kind:'cpu',
+                   level: Number(lvls[String(i)]) || LB.defaultLevel, own:'ai', link:'cpu' });
+    } else if (w){
+      seats.push({ seat:i, name: w.n || 'PLAYER', kind:'human',
+                   level: LB.defaultLevel,
+                   own: i === MP.mySeat ? 'me' : 'net',
+                   link: i === MP.mySeat ? 'local' : 'net' });
+    } else {
+      seats.push(null);
+    }
+  }
+  const live = seats.filter(Boolean);
+
+  /* THE MACHINE IS READY BEFORE ANYBODY LOOKS AT IT. autoReady() is the game's
+     own, and is called for every seat rather than only the ones we think are
+     machines — that is what the contract is for. */
+  const readied = live.map(s => { try { return LB.autoReady(s) || s; } catch (e){ return s; } });
+
+  MP.live = true;
+  MP.boardLive = true;
+  window.KHOOK = null;
+  const net = {
+    /* one move out, stamped by the relay on the way in */
+    send: d => relay(Object.assign({ k:'bact', game:MP.game }, d || {})),
+    move: (kind, a) => relay({ k:'bact', game:MP.game, kind: kind || 'move', m: a || {} }),
+    bail: why => { relay({ k:'bail', why: String(why || 'stopped') }); tableStop(why); },
+    onLeave: backToRooms,
+    seat: MP.mySeat,
+    seats: MP.size,
+    host: 0
+  };
+  /* EVERY LOCAL MOVE GOES OUT, AND ONLY LOCAL ONES.
+     A table game announces each move it applies through hooks.onMove with the
+     source it came from, exactly so a transport can forward the ones a person
+     here made and ignore the ones it delivered itself a moment ago. That is
+     the whole of the outbound path — there is no second place in this file
+     that sends a move, so there is no second place that can send one twice. */
+  const hooks = LB.net.hooks || (LB.net.hooks = null);
+  if (hooks && typeof hooks.onMove === 'function'){
+    if (MP.unMove){ try { MP.unMove(); } catch (e){} }
+    MP.unMove = hooks.onMove((mv, info) => {
+      if (!MP.live) return;
+      if (info && info.src === 'net') return;          /* it came from the wire */
+      if (info && typeof info.seat === 'number' && info.seat !== MP.mySeat){
+        /* a machine chair the host is playing for. The relay stamps it as that
+           chair only if the host was actually given it at start. */
+        if (!MP.began || (MP.began.bots || []).indexOf(info.seat) < 0) return;
+        const w = toWire(MP.game, mv);
+        if (w) sendFor(info.seat, { k:'bact', game:MP.game, kind:'move', m:w });
+        return;
+      }
+      const w = toWire(MP.game, mv);
+      if (!w){
+        /* rather than send half a move, stop. A move the codec cannot carry is
+           a bug in WIRE_FIELDS, and a table quietly drifting apart is worse
+           than a table that says so. */
+        relay({ k:'bail', why:'A move would not fit on the wire.' });
+        tableStop('A ' + LB.name + ' move could not be sent: this build does not know how ' +
+                  'to put "' + String(mv && (mv.t || mv.a)) + '" on the wire. Stopped rather ' +
+                  'than let the tables drift apart.', 'cheat');
+        return;
+      }
+      relay({ k:'bact', game:MP.game, kind:'move', m:w });
+    });
+  }
+  try {
+    LB.net.start({
+      /* HOW MANY ARE ACTUALLY PLAYING. Without it a game deals its own default
+         table — tombla deals four whatever arrived — and three people sit down
+         to find a fourth hand nobody is holding. `seats` is the one opt every
+         one of these games understands, because it is the one thing the lobby
+         is authoritative about. */
+      opts: Object.assign({ seats: live.length }, m.variant ? { mode:m.variant } : {}),
+      seed: MP.seed, seats: readied, you: MP.mySeat, host: 0, net,
+      /* the same three names the offline setup uses, so a game that reads
+         either shape gets what it expects */
+      roundLimit: 30, clock: 90
+    });
+    /* THE GAME'S OWN LOBBY, ANSWERED FROM OURS.
+       Two of these games keep an internal lobby phase — tombla will not let a
+       number out of the bag until every seat has said ready and the host has
+       said start. Our lobby has just asked exactly those questions, of exactly
+       those people, and got exactly those answers, and asking again inside the
+       game would be the second screen he keeps complaining about.
+
+       So the answers are replayed straight into the engine, LOCALLY, on every
+       phone. They are the same moves in the same order from the same seed on
+       all of them, so the tables cannot drift; nothing crosses the wire; and a
+       game with no lobby phase never notices this code exists. */
+    if (hooks && typeof hooks.phase === 'function' && typeof hooks.apply === 'function'){
+      try {
+        if (hooks.phase() === 'lobby'){
+          for (let i = 0; i < live.length; i++) hooks.apply(i, { t:'ready', s:i, v:true });
+          hooks.apply(0, { t:'start' });
+          /* ...and hand the transport over AGAIN. A game that starts its own
+             clock does it when the net is attached, and the net was attached a
+             moment ago when this table was still in its lobby phase — so
+             without this the numbers never come out of the bag. Re-attaching
+             is the game's own idempotent "we are playing now". */
+          if (typeof hooks.attachNet === 'function') hooks.attachNet(net);
+        }
+      } catch (e){}
+    }
+    sfx('game.start');
+    setState('live', null);
+  } catch (e){
+    MP.live = false; MP.boardLive = false;
+    setState('unreachable', 'That game would not start from the lobby. Nothing was lost.');
+  }
+}
+
+/* a move from another chair. The engine is the referee, not the relay — the
+   same rule the duel has always run under, applied per seat. */
+function tableRemote(seat, d){
+  const LB = gameLobby(MP.game);
+  if (!MP.live || !LB.net || !LB.net.remote) return;
+  if (seat === MP.mySeat) return;             /* our own move, echoed: ignore */
+  let bad = null;
+  try {
+    /* two shapes are in the wild and both are the game's own choice:
+       remote(seat, move) — tombla, skarta, klabb;  remote(d) — chess, dama. */
+    if (LB.net.remote.length >= 2){
+      const mv = fromWire(MP.game, d.m || d);
+      if (!mv) return;                    /* not a shape this game makes */
+      bad = LB.net.remote(seat, mv);
+    } else {
+      bad = LB.net.remote(d);
+    }
+  } catch (e){ bad = { ok:false, why:'That move could not be applied.' }; }
+  if (bad && bad.ok === false && bad.why){
+    relay({ k:'bail', why:'A move did not fit the rules here.' });
+    tableStop('A move from ' + rosterName(seat) + ' did not fit the rules on this phone: ' +
+              bad.why + ' The game was stopped rather than carry on out of step.', 'cheat');
+    return;
+  }
+  if (bad && bad.why && bad.desync){
+    relay({ k:'bail', why:'The two tables stopped matching.' });
+    tableStop('The tables stopped matching. Stopped rather than lie about the result.', 'cheat');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ONE MOVE, ON THE WIRE
+   ───────────────────────────────────────────────────────────────────
+   The relay's table payload is deliberately narrow and it is not a
+   passthrough: `{a, i, j, s, n, k[]}`, every field bounded, the object
+   the other phones receive built field by field on the Pi. A game's own
+   move object is not that shape — tombla's is {t,s,c,i}, {t,k,n},
+   {t,s,c,p} — so something has to translate, and the relay must not,
+   because the relay knowing what "claim" means is the one thing this
+   whole design is built to avoid.
+
+   So: ONE generic codec, driven by a declared FIELD ORDER per game.
+
+       a  the action name          (the move's `t`, or `a`)
+       n  a bitmask of which of the declared fields are present
+       k  their values, in that order, one byte each
+
+   It is lossless for any move that is a name plus a handful of small
+   numbers and booleans, which is every move all four table games
+   make. A field that is missing is missing, not zero — that is what
+   the bitmask is for, and it is why {t:'ready',v:false} survives the
+   trip as false rather than arriving as "absent".
+
+   THIS BELONGS IN THE GAME, NOT HERE. The right home for it is
+   `wire:{fields:[...]}` (or a toWire/fromWire pair) on the game's own
+   lobby contract, next to rulesHTML and canStart — the field list is
+   the game's business and it will drift the first time somebody adds a
+   move. It is here, in one table, with the game's name on each line,
+   so it is obvious what to delete. gameLobby() already prefers a
+   published `wire` if it finds one. See docs/ONLINE.md.
+   ═══════════════════════════════════════════════════════════════════ */
+const WIRE_FIELDS = {
+  /* js/tombla.js "THE MOVES": ready{s,v} start{} call{k,n} mark{s,c,i}
+     unmark{s,c,i} claim{s,c,p} quit{s} caller{s,to} pause{s,v} */
+  tombla: ['s', 'v', 'k', 'n', 'c', 'i', 'p', 'to'],
+  /* room to grow: these three have not published a move shape to the lobby
+     yet, so the codec carries the fields they are most likely to use and
+     lobbyReport() names them. A move with a field that is not in this list
+     is refused HERE, loudly, rather than silently arriving incomplete. */
+  skarta: ['s', 'v', 'i', 'j', 'c', 'n', 'p'],
+  klabb:  ['s', 'v', 'i', 'j', 'c', 'n', 'p'],
+  kiri:   ['s', 'v', 'i', 'j', 'c', 'n', 'p']
+};
+const WIRE_SKIP = { t:1, a:1 };          /* the action name, carried in `a` */
+
+function wireFields(game){
+  const LB = gameLobby(game);
+  const pub = LB && LB.wire && Array.isArray(LB.wire.fields) ? LB.wire.fields : null;
+  return pub || WIRE_FIELDS[game] || WIRE_FIELDS.tombla;
+}
+
+/* the game's move -> the relay's five fields, or null if it will not fit */
+function toWire(game, mv){
+  if (!mv || typeof mv !== 'object') return null;
+  const act = String(mv.t || mv.a || '').toLowerCase();
+  if (!/^[a-z0-9_-]{1,16}$/.test(act)) return null;
+  const fields = wireFields(game);
+  let mask = 0;
+  const vals = [];
+  for (let f = 0; f < fields.length; f++){
+    const v = mv[fields[f]];
+    if (v === undefined || v === null) continue;
+    const n = (v === true) ? 1 : (v === false) ? 0 : Math.floor(Number(v));
+    if (!isFinite(n) || n < 0 || n > 255) return null;
+    mask |= (1 << f);
+    vals.push(n);
+  }
+  /* anything the field list does not cover would arrive silently truncated,
+     which is worse than not arriving. Refuse it here, where it is visible. */
+  for (const key in mv)
+    if (!WIRE_SKIP[key] && fields.indexOf(key) < 0 && mv[key] !== undefined) return null;
+  const out = { a:act, n:mask };
+  if (vals.length) out.k = vals;
+  return out;
+}
+
+/* ...and back. `d` has already been rebuilt field by field on the relay, so
+   everything in here is a bounded integer before it is looked at. */
+function fromWire(game, d){
+  if (!d || typeof d !== 'object' || typeof d.a !== 'string') return null;
+  const fields = wireFields(game);
+  const mask = d.n | 0;
+  const vals = Array.isArray(d.k) ? d.k : [];
+  const mv = { t:d.a };
+  let at = 0;
+  for (let f = 0; f < fields.length; f++){
+    if (!(mask & (1 << f))) continue;
+    if (at >= vals.length) return null;
+    mv[fields[f]] = vals[at++];
+  }
+  /* the two fields every one of these games treats as a flag rather than a
+     number, restored as flags so a strict engine sees what it wrote */
+  if (mv.v !== undefined) mv.v = !!mv.v;
+  return mv;
+}
+
+/* WHAT TO CALL A MACHINE.
+   A game that named its own difficulties named its machine at the same time —
+   IL-KIRI's "Iż-Żijja" is a person at the table, not a slider position — so
+   those words are used. A game that published nothing gets "MACHINE", because
+   the generic level names in LEVELS_FALLBACK are OURS and inventing a player
+   called "Ruthless" out of a fallback would be the lobby making something up.
+   Either way the difficulty is on the line underneath, every time. */
+function botName(game, level){
+  const LB = gameLobby(game);
+  if (LB.bare) return 'MACHINE';
+  const L = LB.levels.find(x => x.level === level);
+  return (L && L.name) || 'MACHINE';
+}
+
+function rosterName(i){
+  const w = MP.roster && MP.roster.who ? MP.roster.who[i] : null;
+  return (w && w.n) || ('Chair ' + (i + 1));
+}
+
+function tableStop(why, tone){
+  const LB = gameLobby(MP.game);
+  MP.live = false;
+  if (LB.net && LB.net.stop){
+    try { LB.net.stop(why || 'The game stopped.', tone || ''); return; } catch (e){}
+  }
+  MP.boardLive = false;
+  setState('stopped', why || 'The game stopped.');
+  mpScreen();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHO IS AROUND
+   ───────────────────────────────────────────────────────────────────
+   One ask, one answer, over whichever socket this device already has
+   open. Never polled on a timer of its own: it is asked when a screen
+   that shows it comes up, and re-asked when the relay NUDGES us —
+   which it does at most once every few seconds however much has
+   changed. See docs/ONLINE.md, "What presence costs".
+   ═══════════════════════════════════════════════════════════════════ */
+function whoAsk(force){
+  if (WHO.off) return;
+  if (!canInvite()) return;             /* no account, no list — by design */
+  /* ...and not before THIS socket has proved it. Asking a second too early
+     earns a "Sign in first", which used to switch the whole panel off for the
+     rest of the session over nothing but a race with the handshake. */
+  if (!INBOX.authed) return;
+  const now = Date.now();
+  if (!force && (now - WHO.asked) < WHO_MIN_GAP) return;
+  if (force && (now - WHO.asked) < 900) return;   /* a floor even for a tap */
+  WHO.asked = now;
+  sendAny({ t:'who' });
+}
+
+function onWho(m){
+  WHO.people  = Array.isArray(m.people) ? m.people.slice(0, PRESENCE_ROWS) : [];
+  WHO.recent  = Array.isArray(m.recent) ? m.recent.slice(0, 12) : [];
+  WHO.here    = m.here | 0;
+  WHO.sockets = m.sockets | 0;
+  if (m.you && typeof m.you === 'object') WHO.me = m.you;
+  WHO.got = true;
+  paintSocial();
+  if (MP.panel === 'ask' && MP.size > 2) tableLobby();
+}
+
+/* an invitation that was left while the app was shut. It is not a room — the
+   room is long gone — so it is never drawn as one. */
+function knockAdd(m){
+  if (!m || typeof m.id !== 'string') return;
+  WHO.knocks = WHO.knocks.filter(x => x.id !== m.id);
+  WHO.knocks.unshift({ id:m.id, from:String(m.from || 'Somebody').slice(0, NAME_MAX),
+                       game:cleanGame(m.game), ago:m.ago | 0 });
+  WHO.knocks = WHO.knocks.slice(0, KNOCK_MAX);
+  paintSocial();
+  if (document.querySelector('#scr-home.on') || document.querySelector('#scr-mp.on'))
+    K.toast((m.from || 'Somebody') + ' asked you for a game while you were away.');
+}
+
+/* "asking them back" is the whole answer to a knock: their room is gone, so we
+   open one of the same game and leave the invitation with them. */
+function knockAnswer(id){
+  const k = WHO.knocks.find(x => x.id === id);
+  if (!k) return;
+  WHO.knocks = WHO.knocks.filter(x => x.id !== id);
+  sendAny({ t:'dropknock', id });
+  MP.askBack = k.from;
+  openFor(k.game);
+}
+
+const whoWord = p =>
+  p.s === 'waiting' ? ('a ' + gameMeta(p.g).name.toLowerCase() + ' table, ' +
+                       (p.c || 1) + ' of ' + (p.m || 2))
+  : p.s === 'playing' ? ('playing ' + gameMeta(p.g).name.toLowerCase())
+  : p.s === 'off' ? 'offline'
+  : 'open, nothing on';
+
 /* A 1s text clock, and nothing else — it touches one text node, never the
    network. It is stopped the moment the element goes, the tab is hidden, or the
    room is left, so a forgotten lobby costs nothing. */
@@ -1340,8 +2668,21 @@ function gameMismatch(){
            'older version of KARTI. Reload the page on both phones and try again.');
 }
 
-function onPeer(d){
+function onPeer(d, from){
   if (!d || typeof d !== 'object' || !d.k) return;
+
+  /* ── the table ──
+     `from` is the RELAY's stamp: which chair actually sent this. It is never
+     taken from inside the payload, because a client that can label itself can
+     label itself as somebody else. At a table it is the only thing that says
+     whose move this is, so a payload that arrives without one is dropped
+     rather than guessed at. */
+  if (MP.size > 2){
+    if (d.k === 'bail'){ tableStop(d.why || 'Somebody stopped the game.'); return; }
+    if (typeof from !== 'number'){ return; }
+    tableRemote(from, d);
+    return;
+  }
 
   /* ── the card duel ── */
   if (d.k === 'hello'){
@@ -1878,6 +3219,10 @@ function presenceBeaconOpen(){
       MP.authProbe = false;
       INBOX.authed = true;
       INBOX.name = (typeof m.name === 'string' ? m.name : '').slice(0, NAME_MAX);
+      WHO.off = false;
+      WHO.asked = 0;
+      WHO.me = { n: INBOX.name, s:'idle', vis: m.vis !== false };
+      whoAsk(true);
       return;
     }
     if (m.t === 'invite'){
@@ -1887,7 +3232,30 @@ function presenceBeaconOpen(){
       return;
     }
     if (m.t === 'invitegone'){ inboxDrop(m.id); return; }
-    if (m.t === 'error' && MP.authProbe){ MP.authProbe = false; INBOX.authed = false; }
+    /* ── the social half, on the socket that is already open ── */
+    if (m.t === 'stir'){ whoAsk(); return; }
+    if (m.t === 'who'){ onWho(m); return; }
+    if (m.t === 'knock'){ knockAdd(m); return; }
+    if (m.t === 'knockgone'){
+      WHO.knocks = WHO.knocks.filter(x => x.id !== m.id); paintSocial(); return;
+    }
+    if (m.t === 'visible'){
+      if (WHO.me) WHO.me.vis = m.on !== false;
+      K.toast(m.on === false ? 'You are invisible to other players now.'
+                             : 'Other players can see you again.');
+      paintSocial();
+      return;
+    }
+    if (m.t === 'error'){
+      /* An older relay does not know "who" and says "Bad message."; a newer one
+         says "Sign in first" when there is no account. Either way the list is
+         simply not offered, and nothing else on the screen is affected. */
+      if (/^Bad message/i.test(m.why || '') || /^Sign in first/i.test(m.why || '')){
+        WHO.off = true;
+        paintSocial();
+      }
+      if (MP.authProbe){ MP.authProbe = false; INBOX.authed = false; }
+    }
   };
   ws.onerror = () => {};
   ws.onclose = () => { if (PR.ws === ws) PR.ws = null; };
@@ -2018,15 +3386,19 @@ function paintHomePanel(){
                         'to start one.</p>');
   }
 
-  host.className = 'onlinebox' + (invites ? ' on-invited' : '') + tone;
+  const knocks = knockCards();
+  host.className = 'onlinebox' + (invites || knocks ? ' on-invited' : '') + tone;
   host.innerHTML =
     '<div class="on-head"><span class="on-dot"></span><h2>Who&rsquo;s online</h2>' +
       '<span class="on-count">' + esc(count) + '</span>' +
       '<button class="on-ref" id="on-refresh" aria-label="Check again">' + ico('refresh') +
       '</button></div>' +
-    invites +
-    '<div class="on-body" role="status" aria-live="polite">' + body + '</div>';
+    invites + knocks +
+    '<div class="on-body" role="status" aria-live="polite">' + body + '</div>' +
+    recentStrip();
   wireInvites(host);
+  wireKnocks(host);
+  wireRecent(host);
 
   const ref = $('#on-refresh');
   if (ref) ref.onclick = () => {
@@ -2036,6 +3408,157 @@ function paintHomePanel(){
   K.$$('[data-join]', host).forEach(el => {
     el.onclick = () => joinRoom(el.getAttribute('data-join'), el.getAttribute('data-who'));
   });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SOCIAL PANEL
+   ───────────────────────────────────────────────────────────────────
+   Two things, and they answer two different questions.
+
+   A KNOCK is somebody who wanted a game while the app was shut. It is
+   drawn at the very top because it is the most interesting thing that
+   can be on this screen — and it is drawn as "ask them back", never
+   as a room, because the room it came from is long gone. Tapping it
+   opens a table of the same game and leaves the invitation with them.
+
+   RECENTLY PLAYED WITH is the short list that makes inviting the same
+   four friends one tap and no typing: "so easy to i vite or recently
+   played so iff offline jnvite him". An offline friend is still on it,
+   because inviting them is exactly what you want to do — the note
+   waits for them.
+   ═══════════════════════════════════════════════════════════════════ */
+
+function paintSocial(){ paintHomePanel(); paintOnlineSocial(); }
+
+function knockCards(){
+  if (!WHO.knocks.length) return '';
+  return '<div class="mp-inbox">' + WHO.knocks.map(k => {
+    const gm = gameMeta(k.game);
+    return '<div class="mp-invite mp-knock" data-knock="' + esc(k.id) + '">' +
+      '<span class="mp-ivi">' + gameIcon(k.game) + '</span>' +
+      '<span class="mp-ivw"><b>' + esc(k.from) + '</b> wanted a game of ' +
+        esc(gm.name.toLowerCase()) + '<i>' + esc(ago(k.ago)) + ' ago · they are not in that ' +
+        'room any more</i></span>' +
+      '<span class="mp-ivb">' +
+        '<button class="mp-ivgo" data-knockgo="' + esc(k.id) + '">Ask back</button>' +
+        '<button class="mp-ivno" data-knockno="' + esc(k.id) + '" ' +
+          'aria-label="Put it down">' + ico('close') + '</button>' +
+      '</span></div>';
+  }).join('') + '</div>';
+}
+
+function wireKnocks(host){
+  K.$$('[data-knockgo]', host).forEach(b => b.onclick = () => knockAnswer(b.dataset.knockgo));
+  K.$$('[data-knockno]', host).forEach(b => b.onclick = () => {
+    const id = b.dataset.knockno;
+    WHO.knocks = WHO.knocks.filter(x => x.id !== id);
+    sendAny({ t:'dropknock', id });
+    sfx('ui.back');
+    paintSocial();
+  });
+}
+
+/* the strip of people you actually play with. Nothing at all when it is
+   empty — an empty shortcut is worse than no shortcut. */
+function recentStrip(){
+  if (!canInvite() || !WHO.recent.length) return '';
+  const rows = WHO.recent.slice(0, 8);
+  return '<div class="mp-recent"><div class="mp-rectitle">' + ico('users') +
+    ' You usually play with</div><div class="mp-pills">' +
+    rows.map(p => '<button class="mp-pill' + (p.s === 'off' ? ' off' : '') +
+      (p.s === 'waiting' && p.id ? ' go' : '') + '"' +
+      (p.s === 'waiting' && p.id ? ' data-recjoin="' + esc(p.id) + '"' +
+                                   ' data-recg="' + esc(p.g || '') + '"'
+                                 : ' data-recask="' + esc(p.n) + '"') +
+      ' data-who="' + esc(p.n) + '">' + esc(p.n) +
+      '<i>' + esc(p.s === 'waiting' ? 'tap to join them' : whoWord(p)) + '</i></button>').join('') +
+    '</div></div>';
+}
+
+function wireRecent(host){
+  K.$$('[data-recjoin]', host).forEach(b => b.onclick = () =>
+    joinRoom(b.dataset.recjoin, b.dataset.who, b.dataset.recg || null));
+  K.$$('[data-recask]', host).forEach(b => b.onclick = () => {
+    /* You cannot invite anybody without a room open, and making somebody open
+       one first is exactly the extra screen he complained about. So: open a
+       table of whatever they last played with you, and the invitation goes out
+       the moment we are sitting in it. */
+    MP.askBack = b.dataset.recask;
+    const p = WHO.recent.find(x => x.n === b.dataset.recask);
+    openFor((p && p.g) || MP.wantGame || storedGame());
+  });
+}
+
+/* ── the same two lists, on the Online screen, above the rooms ──── */
+function paintOnlineSocial(){
+  const host = $('#mp-social');
+  if (!host) return;
+  /* THE RELAY IS NOT THERE. Which, from the owner's own phone, is the normal
+     case — a public https page may not talk to a private address. The room
+     list underneath already says so at length; a second panel offering to
+     show him who is around would be this screen lying about what it can do. */
+  if (PR.err){ host.innerHTML = ''; return; }
+  if (!canInvite()){
+    host.innerHTML =
+      '<div class="mp-box"><b>Sign in and you can see who is about.</b> Only signed-in ' +
+      'players are ever named here — a guest is counted and never listed, which is why ' +
+      'you have to be one to read it. The room list below needs no account at all.</div>';
+    return;
+  }
+  if (WHO.off){ host.innerHTML = ''; return; }
+  const idle    = WHO.people.filter(p => p.s === 'idle');
+  const waiting = WHO.people.filter(p => p.s === 'waiting');
+  const playing = WHO.people.filter(p => p.s === 'playing');
+  const vis = !WHO.me || WHO.me.vis !== false;
+
+  let body = '';
+  if (!WHO.got){
+    body = '<p class="on-note">Looking for people…</p>';
+  } else if (!WHO.people.length){
+    body = '<p class="on-note">Nobody signed in is around right now. Open a table anyway — ' +
+           'it goes in everybody’s list, and anyone you ask will get the invitation ' +
+           'whenever they next open KARTI.</p>';
+  } else {
+    const row = p =>
+      '<button class="mp-person s-' + esc(p.s) + '"' +
+        (p.s === 'waiting' && p.id ? ' data-pjoin="' + esc(p.id) + '" data-pg="' +
+          esc(p.g || '') + '"' : ' data-pask="' + esc(p.n) + '" data-pg="' +
+          esc(p.g || '') + '"') +
+        ' data-who="' + esc(p.n) + '">' +
+        '<span class="mp-pav">' + esc((p.n || '?').slice(0, 2).toUpperCase()) + '</span>' +
+        '<span class="mp-pw"><b>' + esc(p.n) + '</b><i>' + esc(whoWord(p)) + '</i></span>' +
+        '<span class="mp-pgo">' + (p.s === 'waiting' ? 'Join' : p.s === 'idle' ? 'Ask' : '') +
+        '</span></button>';
+    body =
+      (waiting.length ? '<div class="mp-dsub">A CHAIR YOU CAN TAKE NOW</div>' +
+        waiting.map(row).join('') : '') +
+      (idle.length ? '<div class="mp-dsub">OPEN AND NOT PLAYING</div>' +
+        idle.map(row).join('') : '') +
+      (playing.length ? '<div class="mp-dsub">MID-GAME</div>' +
+        playing.map(row).join('') : '');
+  }
+
+  host.innerHTML =
+    '<div class="mp-rhead"><h3>Who is around</h3>' +
+      '<span class="mp-rcount">' + (WHO.got ? WHO.here : '…') + '</span>' +
+      '<button class="mp-ref" id="mp-vis" aria-label="' +
+        (vis ? 'Go invisible' : 'Be visible again') + '" title="' +
+        (vis ? 'Go invisible' : 'Be visible again') + '">' +
+        ico(vis ? 'star' : 'lock') + '</button></div>' +
+    (vis ? '' : '<div class="mp-box warn">You are <b>invisible</b>. Nobody sees you in ' +
+                'their list and nobody can tap you. You can still see them, and you can ' +
+                'still open a table.</div>') +
+    body + recentStrip();
+
+  const v = $('#mp-vis');
+  if (v) v.onclick = () => { sfx('ui.toggle'); sendAny({ t:'visible', on: !vis }); };
+  K.$$('[data-pjoin]', host).forEach(b => b.onclick = () =>
+    joinRoom(b.dataset.pjoin, b.dataset.who, b.dataset.pg || null));
+  K.$$('[data-pask]', host).forEach(b => b.onclick = () => {
+    MP.askBack = b.dataset.pask;
+    openFor(b.dataset.pg || MP.wantGame || storedGame());
+  });
+  wireRecent(host);
 }
 
 /* ── the room list ───────────────────────────────────────────────────────────
@@ -2345,6 +3868,18 @@ const joinWaiting = joinRoom;                   /* the name the old panel used *
    ═══════════════════════════════════════════════════════════════════ */
 function openFor(game){
   const g = cleanGame(game);
+  if (g !== 'cards' && !gamePlayable(g)){
+    /* THE HONEST DEGRADE. The lobby is ready for this game; the game has not
+       shipped the half that carries a move. Say which, and do not open a room
+       nobody could play in. */
+    const LB = gameLobby(g);
+    K.go('mp');
+    mpScreen();
+    setState('unreachable', LB.name + ' cannot be played online from this build yet — it ' +
+      'still needs ' + (LB.gaps[LB.gaps.length - 1] || 'its online half') + '. Everything ' +
+      'else here works.');
+    return;
+  }
   MP.wantGame = gamePlayable(g) ? g : 'cards';
   MP.filter = MP.wantGame;
   rememberGame(MP.wantGame);
@@ -2409,6 +3944,7 @@ function presenceMount(which){
      we already had, then refresh it, rather than blink to "checking". */
   presencePaint();
   presenceBeaconOpen();
+  WHO.asked = 0;                 /* a fresh screen may ask straight away */
   /* Give the beacon a moment to register our name before the first poll; if it
      never connects this fires anyway, so a dead relay still reports itself. */
   clearTimeout(PR.timer);
@@ -2493,6 +4029,12 @@ window.KARTI_MP = {
   /* invitations */
   INBOX, inboxAdd, inboxDrop, inboxLive, sessionToken, canInvite,
   sendInvite, acceptInvite, declineInvite, paintInvites, invitePanel, inviteCards,
+  /* ── the shared lobby: one screen, every party game feeds it ── */
+  gameLobby, lobbyReport, tableLobby, rosterSeats, tableCanStart, onRoster, onBegan,
+  tableRemote, tableStop, SEATS_FALLBACK,
+  /* ── who is around ── */
+  WHO, whoAsk, onWho, paintSocial, paintOnlineSocial, knockAdd, knockAnswer,
+  recentStrip, knockCards,
   RELAY_URL, RELAY_HEALTH, RELAY_PRESENCE, CODE_LEN, CODE_ALPHABET,
   ROOM_ROWS, PRESENCE_LOBBY, PRESENCE_MIN_GAP,
   /* older name kept so nothing that reached for it breaks */
