@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════
    KARTI — gin-ui.js
-   GIN RUMMY — the table, the thumbs, and the wire.
+   GIN RUMMY, THE HOUSE GAME — the table, the thumbs, and the wire.
 
    js/gin.js holds the rules and holds no DOM; this file holds
    everything else: the tile on the Party Games shelf, the setup
@@ -14,37 +14,43 @@
        does, so Escape, the back arrow and the "another screen took
        over" watcher all keep working without being written twice.
      · js/party.js, js/klabb.js, js/mp.js are READ, never edited.
-       Registration is done entirely through their public faces:
-       KARTI_PARTY.register() for the tile, KARTI_PARTY.online.gin
-       for the transport, and — because js/mp.js exports its GAMES /
-       GAME_KEYS / SEATS_FALLBACK structures live — the lobby learns
-       the word "gin" by us appending to those, not by anybody
-       editing mp.js.
      · the card faces are js/klabb.js's own SVG deck (KARTI_KLABB
-       .deck), so a seven of hearts here is the same seven of hearts
-       it is at the bixkla table. The handful of CSS rules those
-       faces need are re-declared here under our own scope, because
-       klabb only injects its stylesheet when a klabb game opens.
+       .deck); the handful of CSS rules those faces need are
+       re-declared here under our own scope.
      · persistence lives in karti_gin_v1 and nowhere else.
      · sounds are asked of js/sfx.js by id; audio/ is never touched.
 
-   THE INTERACTION, WHICH IS THE POINT
-     · the hand is YOURS. Drag a card and the others step aside; the
-       order you leave is kept, across turns, across a reload,
-       across the app being killed in the background. Nothing ever
-       re-sorts it behind your back — SORT is a button, and pressing
-       it is the only thing that sorts.
-     · dragging is Pointer Events + setPointerCapture, with
-       touch-action:none on the cards themselves, which is what stops
-       iOS Safari deciding mid-drag that you meant to scroll. The
-       felt screen has no scroller of its own, so there is nothing
-       above the hand to steal the gesture either.
-     · a small move is a tap (DRAG_SLOP, same trick as js/skarta-ui),
-       so picking a card to throw never accidentally rearranges.
-     · the stock and the pile are two fat buttons side by side —
-       blind card on the left, the face-up discard on the right —
-       and your melds-towards-45 are counted live under the hand,
-       with the price of your loose cards beside them.
+   THE SCREEN, WHICH WAS THE OWNER'S WORRY ("I think it's impossible
+   to display all player cards in the field plus the outside pile").
+   The answer, in his own words once he found it: "Discard pile
+   always available and ur table any time, but there is a spectator
+   mode to view other tables." So the MAIN SCREEN carries exactly
+   three things, always visible, never covered:
+     1. THE SPREAD — every discard, face up, left to right in the
+        order thrown, wrapping into rows. It is a RECORD: deck-only
+        draws mean nothing in it is ever picked up (the one
+        exception, the hand's first turn, lights the newest card
+        up). It scrolls when it grows tall, newest rows in view.
+     2. YOUR TABLE — your melds, face up, any time.
+     3. YOUR HAND — drag to arrange, nothing re-sorts behind your
+        back, SORT is a button.
+   Everything belonging to the OTHER side lives in SPECTATOR MODE
+   (the button says "Tables"), a place you go and leave: it opens
+   over the middle band only — your dashboard, your table and your
+   hand stay live below it — and you can LAY OFF from inside it,
+   because looking at their table and playing onto it is one motion
+   ("when u play i need to view all players what card put so u can
+   get points and try to empty ur hands"). It is GATED: until your
+   own 45 is down you may not look, and the closed door says why.
+
+   HINTS ARE A SETTING, OFF BY DEFAULT. The owner is explicit:
+   "dont add help like 'a card can go on terence pile' — those are
+   optional for beginners, make it on and off." With hints off the
+   tables are shown and nothing is pointed at; reading them is the
+   game. The attention penalty (engine rule: an open player may not
+   throw away a card that fits the table) is announced honestly when
+   it bites — but WHERE the card fits is only ever said with hints
+   ON.
    ═══════════════════════════════════════════════════════════════════ */
 'use strict';
 
@@ -63,13 +69,21 @@ const SFX = () => window.KARTI_SFX || null;
 function cue(id, opts) { const S = SFX(); if (S) { try { S.play(id, opts); } catch (e) {} } }
 function cueRun(id, n, gap, opts) { const S = SFX(); if (S) { try { S.run(id, n, gap, opts); } catch (e) {} } }
 
+/* the spread's shape: SEVEN cards a row, the same on every phone, so
+   two players looking at their own screens see the same picture.
+   Chosen from the real card size: at 360px wide the seven minis are
+   still ~40px cards, comfortably readable and never tappable-small
+   (they are a record, not buttons). */
+const PER_ROW = 7;
+
 /* ── our corner of localStorage ──────────────────────────────────
-   SAVE VERSION 2. The rules changed under this game — house prices,
-   the 45 gate, minus scoring — so a v1 save is a log of moves that
-   THIS engine would replay into a different match. It is refused,
-   with a message on the setup sheet, never silently re-scored. */
+   SAVE VERSION 3. The rules changed under this game AGAIN — going
+   down now OPENS you instead of ending the hand, lay-offs and the
+   out bonus exist — so a v1/v2 save is a log of moves this engine
+   would replay into a different match. Refused with a message on
+   the setup sheet, never silently re-scored. */
 const STORE = 'karti_gin_v1';
-const SAVE_V = 2;
+const SAVE_V = 3;
 let oldSaveDropped = false;
 let ST = { v: 1, pref: {}, save: null, netArr: null };
 try {
@@ -79,7 +93,6 @@ try {
     ST.save = (j.save && typeof j.save === 'object') ? j.save : null;
     ST.netArr = (j.netArr && typeof j.netArr === 'object') ? j.netArr : null;
     if (ST.save && ST.save.v !== SAVE_V) { ST.save = null; oldSaveDropped = true; }
-    /* old prefs pointed at the knock game's targets (50/100) */
     if (ST.pref.target !== 150 && ST.pref.target !== 300) delete ST.pref.target;
   }
 } catch (e) {}
@@ -101,32 +114,37 @@ function persistNow() {
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
 window.addEventListener('pagehide', persistNow);
 
+const hintsOn = () => !!ST.pref.hints;        /* beginner aid, OFF by default */
+
 /* ── the machine, by name — the same three chairs the każin keeps ── */
 const LEVELS = [
-  { k: 1, n: 'Iż-żiju',   d: 'Hoards every shiny card he sees. Goes out even at a loss.', i: 'diff-1' },
-  { k: 2, n: 'Tal-każin', d: 'Builds properly, but waits to show you a proper score.',    i: 'diff-2' },
-  { k: 3, n: 'In-nannu',  d: 'Counts only what is made. Out the moment it pays.',         i: 'diff-3' }
+  { k: 1, n: 'Iż-żiju',   d: 'Hoards every shiny card and calls a pair a plan.',            i: 'diff-1' },
+  { k: 2, n: 'Tal-każin', d: 'Builds properly, but sits on his 45 waiting for better.',     i: 'diff-2' },
+  { k: 3, n: 'In-nannu',  d: 'Down the moment it pays, and nothing he holds ever fits your table.', i: 'diff-3' }
 ];
 const levelName = k => (LEVELS.find(l => l.k === k) || LEVELS[1]).n;
 
-/* the rules card — THE HOUSE GAME, in the owner's own three
-   sentences made long enough to play by */
+/* the rules card — THE HOUSE GAME, in the owner's own sentences made
+   long enough to play by */
 function rulesFor(hand, target) {
   const h = hand === 13 ? 13 : 10;
   const t = target === 150 ? 150 : 300;
   return RULES.map(r => r
     .replace(/\{H\}/g, String(h))
-    .replace(/\{T\}/g, String(t)));
+    .replace(/\{T\}/g, String(t))
+    .replace(/\{B\}/g, String(E.OUT_BONUS)));
 }
 const RULES = [
   '<b>{H} cards each.</b> Melds are three or four of a rank, or runs of three or more in one suit.',
-  'The prices: <b>2 to 9 are worth 5</b> each, <b>10, J, Q and K are worth 10</b>, and the <b>ace is worth 15</b>. Three aces alone are 45.',
-  'On your turn <b>take the top discard or draw blind</b> from the stock, then throw one card back. You may not throw back the discard you just took.',
-  'You may not put anything down until the melds in your hand are worth <b>45 points or more</b>. That is the whole game: <b>match 45, then put your cards out</b>.',
-  'Putting them out <b>ends the hand</b>. Your melds count <b>for</b> you; your loose cards count <b>against</b> you — and the other hand, every card of it, melds included, counts <b>against them</b>. Cards not put down always count minus.',
-  'The stock never runs dry: when it is down to its last two cards the pile is shuffled straight back in. <b>Somebody always gets there.</b>',
-  'Scores run plus and minus. Sink to <b>−{T}</b> and you have lost the match; reach <b>+{T}</b> and you have won it outright. The floor is the one to watch — the loser of a hand falls about twice what the winner climbs.',
-  'At <b>thirteen cards</b> the gate is the same 45 with more cards to build it from — the hand ends sooner, and a caught hand costs half as much again.'
+  'The prices: <b>2 to 9 are 5</b>, <b>10, J, Q and K are 10</b>, the <b>ace is 15</b>. Three aces are 45 on the nose — so is A-2-3-4 of diamonds with 5-6-7 of clubs.',
+  'Every turn: <b>one new card off the deck</b>, then <b>always throw one</b> out. Only the first turn of a hand may take the last thrown card instead.',
+  'The thrown cards lie <b>face up, left to right, row under row</b> — a record everyone can read. Nobody picks them up.',
+  'Match <b>45 points of melds</b> and put them down, face up, in one go. That <b>opens</b> you — and the hand carries on.',
+  'Open players may keep laying: new melds, or single cards onto <b>any meld on the table, theirs or yours</b> — and the points go to <b>whoever laid the card</b>. The fourth ace on their three is your 15.',
+  'Open players may also go and <b>look at the other tables</b>; closed players may not. And an open player may <b>not throw away a card that fits the table</b> — the throw is refused. Pay attention.',
+  'First hand played <b>empty</b> ends it, and earns <b>+{B}</b>. Everything laid counts <b>for</b> whoever laid it; everything still in a hand counts <b>against</b> its owner — open or not.',
+  'Deck dry with nobody out? The thrown cards are shuffled straight back in and it carries on.',
+  'First to <b>+{T}</b> takes the match; sink to <b>−{T}</b> and you have lost it on the spot.'
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -158,9 +176,6 @@ function injectDefs() {
   svg.setAttribute('id', 'gn-defs');
   svg.setAttribute('aria-hidden', 'true');
   svg.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
-  /* two cards squared off a little apart — the knock — and three short
-     rap-lines where the knuckle lands. Silhouette-first, like the
-     other card tiles, so it reads at thirty pixels. */
   svg.innerHTML =
     '<symbol id="gn-t-gin" viewBox="0 0 24 24">' +
     '<g transform="rotate(-14 9 14)">' + cardFrame(4.6, 6.2, 8.8, 14, 1.05) + '</g>' +
@@ -203,16 +218,21 @@ function injectCSS() {
     '#scr-party .gn-felt .kb-face{fill:#FCF7EA;stroke:currentColor;stroke-width:1.5}' +
     '#scr-party .gn-felt .kb-hair{stroke:currentColor;stroke-width:1.1;opacity:.55;fill:none}' +
 
-    /* ── the other chair ── */
-    '#scr-party .gn-top{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:8px;' +
-      'min-height:40px;flex-wrap:wrap}' +
+    /* ── the other chair: one thin honest line ── */
+    '#scr-party .gn-top{flex:0 0 auto;display:flex;align-items:center;justify-content:center;gap:6px;' +
+      'min-height:34px;flex-wrap:wrap}' +
     '#scr-party .gn-nm{font:900 10px/1.2 var(--disp);letter-spacing:.09em;text-transform:uppercase;' +
       'color:rgba(255,255,255,.72);padding:4px 9px;border-radius:999px;background:rgba(0,0,0,.28);' +
-      'border:1px solid rgba(255,255,255,.09);max-width:38%;overflow:hidden;text-overflow:ellipsis;' +
+      'border:1px solid rgba(255,255,255,.09);max-width:32%;overflow:hidden;text-overflow:ellipsis;' +
       'white-space:nowrap}' +
     '#scr-party .gn-nm.turn{color:#241800;background:var(--gold);border-color:#FFE9B0}' +
+    '#scr-party button.gn-nm{cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    /* the beginner badge: a live count riding the name (hints ON only) */
+    '#scr-party .gn-fitn{display:inline-grid;place-items:center;min-width:16px;height:16px;' +
+      'margin-left:5px;padding:0 4px;border-radius:999px;font:900 9.5px/1 var(--disp);' +
+      'color:#04230F;background:#3DDC84;border:1px solid #8FF0BC;vertical-align:middle}' +
     '#scr-party .gn-backs{display:flex;align-items:center}' +
-    '#scr-party .gn-backs .gn-b{width:22px;height:31px;margin-left:-12px;border-radius:4px;' +
+    '#scr-party .gn-backs .gn-b{width:17px;height:24px;margin-left:-10px;border-radius:3px;' +
       'box-shadow:0 1px 3px rgba(0,0,0,.5);line-height:0}' +
     '#scr-party .gn-backs .gn-b:first-child{margin-left:0}' +
     '#scr-party .gn-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;' +
@@ -220,36 +240,55 @@ function injectCSS() {
       'letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.78);white-space:nowrap}' +
     '#scr-party .gn-chip b{color:var(--gold);font:inherit}' +
     '#scr-party .gn-chip.hot b{color:#FF8A9B}' +
+    '#scr-party .gn-chip.open{background:rgba(61,220,132,.16);border-color:rgba(61,220,132,.45);' +
+      'color:#BFF3D6}' +
+    '#scr-party .gn-chip.open b{color:#3DDC84}' +
+    '#scr-party .gn-specbtn{min-height:28px;padding:0 11px;border-radius:999px;cursor:pointer;' +
+      'font:900 9.5px/1 var(--disp);letter-spacing:.1em;text-transform:uppercase;color:var(--txt);' +
+      'background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.24);' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .gn-specbtn.locked{opacity:.55}' +
 
-    /* ── the two piles: the whole middle of the game ── */
+    /* ── the middle band: deck + the spread, the prompt, the buttons ── */
     '#scr-party .gn-mid{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;' +
-      'justify-content:center;gap:7px}' +
-    '#scr-party .gn-piles{display:flex;align-items:flex-end;justify-content:center;gap:22px}' +
-    '#scr-party .gn-pilebox{display:flex;flex-direction:column;align-items:center;gap:4px}' +
+      'justify-content:center;gap:6px;position:relative;width:100%}' +
+    '#scr-party .gn-piles{display:flex;align-items:flex-start;justify-content:center;gap:10px;' +
+      'width:100%;min-height:0}' +
+    '#scr-party .gn-pilebox{display:flex;flex-direction:column;align-items:center;gap:3px;flex:0 0 auto}' +
     '#scr-party .gn-pilelbl{font:900 8.5px/1 var(--disp);letter-spacing:.14em;text-transform:uppercase;' +
       'color:rgba(255,255,255,.45)}' +
-    /* sized against the viewport HEIGHT so a phone held sideways gets
-       piles that fit instead of piles that sit on top of the hand */
-    '#scr-party .gn-pilebtn{position:relative;display:block;width:min(74px,13vh);height:min(104px,18.2vh);' +
-      'padding:0;border:0;' +
-      'border-radius:8px;background:none;line-height:0;cursor:pointer;' +
+    '#scr-party .gn-pilebtn{position:relative;display:block;width:min(58px,10.5vh);height:min(81px,14.7vh);' +
+      'padding:0;border:0;border-radius:7px;background:none;line-height:0;cursor:pointer;' +
       '-webkit-tap-highlight-color:transparent;box-shadow:0 3px 6px rgba(0,0,0,.5),0 8px 18px rgba(0,0,0,.35);' +
       'transition:box-shadow .15s var(--ease),opacity .15s}' +
     '#scr-party .gn-pilebtn.can{box-shadow:0 0 0 2.5px rgba(61,220,132,.85),0 6px 14px rgba(0,0,0,.45)}' +
-    '#scr-party .gn-pilebtn.drop{box-shadow:0 0 0 3px var(--gold),0 6px 16px rgba(0,0,0,.5)}' +
-    '#scr-party .gn-pilebtn.dim{opacity:.45;cursor:default}' +
-    '#scr-party .gn-pilebtn .gn-count{position:absolute;right:-7px;top:-7px;z-index:2;min-width:22px;height:22px;' +
-      'padding:0 5px;border-radius:999px;display:grid;place-items:center;font:900 10px/1 var(--disp);' +
-      'color:#241800;background:var(--gold);border:1px solid #FFE9B0;line-height:22px}' +
-    '#scr-party .gn-empty{width:100%;height:100%;border-radius:8px;border:2px dashed rgba(255,255,255,.22);' +
-      'display:grid;place-items:center;color:rgba(255,255,255,.3);font:900 9px/1.3 var(--disp);' +
-      'letter-spacing:.1em;text-transform:uppercase}' +
+    '#scr-party .gn-pilebtn.dim{opacity:.5;cursor:default}' +
+    '#scr-party .gn-pilebtn .gn-count{position:absolute;right:-7px;top:-7px;z-index:2;min-width:20px;height:20px;' +
+      'padding:0 5px;border-radius:999px;display:grid;place-items:center;font:900 9.5px/1 var(--disp);' +
+      'color:#241800;background:var(--gold);border:1px solid #FFE9B0;line-height:20px}' +
+
+    /* THE SPREAD — every discard, face up, in the order thrown, seven
+       a row, wrapping downward. A record, not a control: the only
+       card that is ever a button is the newest one, on the hand's
+       first turn. Grows to ~2.4 rows then scrolls, newest in view. */
+    '#scr-party .gn-sprbox{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:3px;' +
+      'align-items:stretch}' +
+    '#scr-party .gn-spread{display:grid;grid-template-columns:repeat(' + PER_ROW + ',minmax(0,1fr));' +
+      'gap:3px;width:100%;overflow-y:auto;overscroll-behavior:contain;border-radius:8px;' +
+      'padding:3px;background:rgba(0,0,0,.22);border:1px dashed rgba(255,255,255,.14)}' +
+    '#scr-party .gn-dcard{position:relative;aspect-ratio:5/7;border-radius:4px;line-height:0;padding:0;' +
+      'border:0;background:none;box-shadow:0 1px 3px rgba(0,0,0,.45)}' +
+    '#scr-party button.gn-dcard{cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .gn-dcard.up{box-shadow:0 0 0 2px rgba(61,220,132,.85),0 2px 6px rgba(0,0,0,.5)}' +
+    '#scr-party .gn-dcard.drop{box-shadow:0 0 0 2px var(--gold),0 2px 6px rgba(0,0,0,.5)}' +
+    '#scr-party .gn-spread:empty{min-height:34px}' +
+    '#scr-party .gn-spread.drop{border-color:var(--gold);background:rgba(255,197,66,.08)}' +
 
     '#scr-party .gn-say{font:700 11.5px/1.5 var(--body);color:rgba(255,255,255,.85);text-align:center;' +
-      'padding:0 10px;max-width:340px;min-height:17px}' +
+      'padding:0 10px;max-width:360px;min-height:17px}' +
     '#scr-party .gn-say b{color:var(--gold);font-weight:900}' +
     '#scr-party .gn-acts{display:flex;flex-wrap:wrap;gap:7px;justify-content:center;min-height:0}' +
-    '#scr-party .gn-act{min-height:44px;padding:0 16px;border-radius:12px;font:900 11px/1 var(--disp);' +
+    '#scr-party .gn-act{min-height:42px;padding:0 15px;border-radius:12px;font:900 11px/1 var(--disp);' +
       'letter-spacing:.08em;text-transform:uppercase;color:#241800;' +
       'background:linear-gradient(180deg,#FFD979,var(--gold));border:1px solid #FFE9B0;' +
       'box-shadow:0 3px 0 -1px rgba(0,0,0,.4);cursor:pointer;-webkit-tap-highlight-color:transparent}' +
@@ -259,6 +298,53 @@ function injectCSS() {
       'border-color:#FFA894}' +
     '#scr-party .gn-act[disabled]{opacity:.4;cursor:default}' +
     '#scr-party .gn-act:not([disabled]):active{transform:translateY(2px);box-shadow:none}' +
+
+    /* ── YOUR TABLE — always on screen once you are open ── */
+    '#scr-party .gn-tbl{flex:0 0 auto;display:flex;align-items:center;gap:7px;width:100%;' +
+      'padding:4px 5px;border-radius:10px;background:rgba(0,0,0,.2);' +
+      'border:1px solid rgba(255,255,255,.09)}' +
+    '#scr-party .gn-tbl .gn-tlbl{flex:0 0 auto;display:flex;flex-direction:column;gap:2px;' +
+      'font:900 8.5px/1.2 var(--disp);letter-spacing:.1em;text-transform:uppercase;' +
+      'color:rgba(255,255,255,.5)}' +
+    '#scr-party .gn-tbl .gn-tlbl b{color:#3DDC84;font:900 12px/1 var(--disp)}' +
+    '#scr-party .gn-melds{display:flex;flex-wrap:wrap;gap:6px 9px;align-items:center;flex:1 1 auto;' +
+      'min-width:0;max-height:96px;overflow-y:auto;overscroll-behavior:contain}' +
+    '#scr-party .gn-meld{display:flex;padding:0;border:0;background:none;line-height:0;cursor:pointer;' +
+      'border-radius:5px;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .gn-meld .gn-mc{width:27px;height:38px;margin-left:-15px;border-radius:3.5px;' +
+      'box-shadow:0 1px 3px rgba(0,0,0,.5);line-height:0;background:#FCF7EA}' +
+    '#scr-party .gn-meld .gn-mc:first-child{margin-left:0}' +
+    '#scr-party .gn-meld.fit{box-shadow:0 0 0 2.5px rgba(61,220,132,.9);border-radius:6px}' +
+    '#scr-party .gn-meld.closed{opacity:.88}' +
+    '#scr-party .gn-meld.flash{animation:gn-flash .5s var(--ease)}' +
+    '@keyframes gn-flash{0%{transform:scale(1)}35%{transform:scale(1.12)}100%{transform:scale(1)}}' +
+
+    /* ── SPECTATOR MODE — over the middle band only: your dash, your
+       table and your hand stay live below it ── */
+    '#scr-party .gn-spec{position:absolute;inset:0;z-index:12;display:flex;flex-direction:column;' +
+      'gap:6px;padding:8px;border-radius:12px;' +
+      'background:linear-gradient(180deg,#151024 0%,#0D0918 100%);' +
+      'border:1px solid rgba(255,255,255,.16);box-shadow:0 14px 34px rgba(0,0,0,.6)}' +
+    '#scr-party .gn-spec h4{margin:0;font:900 11px/1.3 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--gold);display:flex;align-items:center;gap:8px;' +
+      'justify-content:space-between}' +
+    '#scr-party .gn-spec .gn-sphead{display:flex;align-items:center;gap:8px;flex-wrap:wrap}' +
+    '#scr-party .gn-spec .gn-spbody{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;' +
+      'display:flex;flex-direction:column;gap:8px}' +
+    '#scr-party .gn-spec .gn-melds{max-height:none}' +
+    '#scr-party .gn-spec .gn-meld .gn-mc{width:34px;height:48px;margin-left:-17px}' +
+    '#scr-party .gn-spec .gn-meld .gn-mc:first-child{margin-left:0}' +
+    '#scr-party .gn-spec .gn-note{font:700 11px/1.5 var(--body);color:var(--dim)}' +
+    '#scr-party .gn-spec .gn-note b{color:var(--txt)}' +
+    '#scr-party .gn-hintchip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;' +
+      'border-radius:999px;background:rgba(61,220,132,.14);border:1px solid rgba(61,220,132,.4);' +
+      'font:900 10px/1 var(--disp);letter-spacing:.06em;color:#BFF3D6;cursor:pointer;' +
+      '-webkit-tap-highlight-color:transparent}' +
+
+    /* the refused throw: a shake, not a modal */
+    '#scr-party .gn-card.deny{animation:gn-deny .4s var(--ease)}' +
+    '@keyframes gn-deny{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}' +
+      '55%{transform:translateX(6px)}80%{transform:translateX(-3px)}}' +
 
     /* ── my side: the dashboard and the hand ── */
     '#scr-party .gn-me{flex:0 0 auto;display:flex;flex-direction:column;gap:4px}' +
@@ -277,8 +363,6 @@ function injectCSS() {
        page never scrolls out from under a drag. */
     '#scr-party .gn-hand{position:relative;width:100%;flex:0 0 auto;box-sizing:content-box;' +
       '-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}' +
-    /* positioned from the TOP, because the rail may be two rows deep at
-       thirteen cards and a row has to be able to sit under another one */
     '#scr-party .gn-card{position:absolute;top:0;padding:0;border:0;background:none;line-height:0;' +
       'border-radius:6px;cursor:grab;touch-action:none;-webkit-tap-highlight-color:transparent;' +
       '-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;' +
@@ -298,7 +382,7 @@ function injectCSS() {
     '#scr-party .gn-card.m1 .gn-rib{display:block;background:#3DDC84}' +
     '#scr-party .gn-card.m2 .gn-rib{display:block;background:#8A5CFF}' +
     '#scr-party .gn-card.m3 .gn-rib{display:block;background:#FF5468}' +
-    /* deadwood price tag on loose cards */
+    /* price tag on loose cards */
     '#scr-party .gn-card .gn-dwtag{position:absolute;right:2px;top:2px;min-width:15px;height:15px;' +
       'border-radius:999px;display:none;place-items:center;font:900 9px/15px var(--disp);text-align:center;' +
       'color:#FFD98A;background:rgba(20,10,30,.85);border:1px solid rgba(255,197,66,.5);pointer-events:none}' +
@@ -322,37 +406,38 @@ function injectCSS() {
     '#scr-party .gn-vscore .gn-vs b{font:900 22px/1 var(--disp);color:var(--txt)}' +
     '#scr-party .gn-vcard .gn-act{width:100%}' +
 
-    /* short phones and landscape: the same felt, tightened */
+    /* short phones: the same felt, tightened */
     '@media (max-height:640px){' +
-      '#scr-party .gn-top{min-height:28px}' +
+      '#scr-party .gn-top{min-height:26px}' +
       '#scr-party .gn-mid{gap:4px}' +
       '#scr-party .gn-say{font-size:10.5px;min-height:0}' +
-      '#scr-party .gn-act{min-height:38px;padding:0 12px}}' +
-    /* SIDEWAYS. There is not enough height to stack the piles on top
-       of the hand, so the felt becomes a two-column grid: the hand and
-       the seats on the left, the piles with their prompt and buttons
-       in a column on the right. Nothing overlaps because nothing has
-       to fit a column taller than the phone is. */
+      '#scr-party .gn-act{min-height:36px;padding:0 12px}' +
+      '#scr-party .gn-melds{max-height:52px}' +
+      '#scr-party .gn-meld .gn-mc{width:23px;height:32px;margin-left:-13px}}' +
+    /* SIDEWAYS — both orientations are first-class here. The felt
+       becomes a two-column grid: the seats, your table and your hand
+       on the left; the deck, the spread, the prompt and the buttons
+       in a column on the right. Spectator mode still opens over the
+       right column only, so the hand stays live. */
     '@media (max-height:480px){' +
-      '#scr-party .gn-felt{display:grid;grid-template-columns:minmax(0,1fr) auto;' +
-        'grid-template-rows:auto minmax(0,1fr);gap:4px 10px;padding:6px 8px 5px;' +
-        'grid-template-areas:"top mid" "me mid";align-items:center}' +
+      '#scr-party .gn-felt{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);' +
+        'grid-template-rows:auto auto minmax(0,1fr);gap:4px 10px;padding:6px 8px 5px;' +
+        'grid-template-areas:"top mid" "tbl mid" "me mid";align-items:center}' +
       '#scr-party .gn-top{grid-area:top;min-height:22px;gap:6px;justify-content:flex-start}' +
-      '#scr-party .gn-mid{grid-area:mid;flex-direction:column;gap:6px;min-width:170px;' +
-        'align-self:center}' +
+      '#scr-party .gn-mid{grid-area:mid;gap:5px;align-self:stretch;justify-content:flex-start;' +
+        'padding-top:2px}' +
+      '#scr-party .gn-tbl{grid-area:tbl;align-self:start}' +
       '#scr-party .gn-me{grid-area:me;gap:2px;align-self:end}' +
-      '#scr-party .gn-backs .gn-b{width:15px;height:21px;margin-left:-9px}' +
+      '#scr-party .gn-backs .gn-b{width:14px;height:20px;margin-left:-8px}' +
       '#scr-party .gn-pilelbl{display:none}' +
-      '#scr-party .gn-pilebtn{width:min(74px,15vh);height:min(104px,21vh)}' +
-      '#scr-party .gn-pilebtn .gn-count{min-width:18px;height:18px;line-height:18px;font-size:9px}' +
-      '#scr-party .gn-piles{gap:10px}' +
-      '#scr-party .gn-say{max-width:180px;font-size:10px;line-height:1.4}' +
+      '#scr-party .gn-pilebtn{width:min(46px,12vh);height:min(64px,16.8vh)}' +
+      '#scr-party .gn-pilebtn .gn-count{min-width:17px;height:17px;line-height:17px;font-size:9px}' +
+      '#scr-party .gn-piles{gap:6px}' +
+      '#scr-party .gn-say{max-width:none;font-size:10px;line-height:1.4}' +
       '#scr-party .gn-acts{gap:5px}' +
       '#scr-party .gn-dash{min-height:22px;justify-content:flex-start}' +
+      '#scr-party .gn-melds{max-height:44px}' +
       '#scr-party .gn-act{min-height:30px;font-size:10px;padding:0 10px}' +
-      /* the shared turn strip above the felt is party.js's element; one
-         scoped, sideways-only squeeze, doubled-class to outrank party's
-         own short-phone rule whichever stylesheet landed last */
       '#scr-party .pt-turn.pt-turn{min-height:28px;margin-bottom:4px;padding:3px 10px}}';
   document.head.appendChild(st);
 }
@@ -378,8 +463,8 @@ function startMatch(opts, seed, log) {
     st: null, ctx: null,
     mySeat: 0, arr: [], sel: null, drag: null, dragJust: false,
     fresh: null,                      /* the card just drawn, ringed once */
-    timer: 0, dead: false, finished: false, net: null,
-    handSeen: 0
+    spec: false,                      /* spectator mode open? */
+    timer: 0, dead: false, finished: false, net: null
   };
   M.st = buildState(M.opts, M.seed, M.log);
   return M;
@@ -429,25 +514,43 @@ function doMove(seat, mv, src) {
 
 function wireOf(mv) {
   const w = { a: mv.t };
-  if (mv.c != null) w.i = mv.c | 0;
+  if (mv.t === 'meld') w.k = mv.cs.slice();
+  else if (mv.t === 'lay') { w.i = mv.c | 0; w.j = mv.m | 0; }
+  else if (mv.c != null) w.i = mv.c | 0;
   return w;
 }
-/* NOTE 'knock' is gone from this list on purpose: a peer still on
-   the old build who knocks is refused by name, not humoured. */
-const WIRE_OK = { take: 1, pass: 1, draw: 1, disc: 1, down: 1 };
+/* NOTE what is NOT in this list, on purpose: 'knock' (the knock game
+   died two builds ago) and the sweep-era indexed take. A peer still
+   on either build is refused by name, not humoured. */
+const WIRE_OK = { take: 1, draw: 1, disc: 1, down: 1, meld: 1, lay: 1 };
 function moveFromWire(d) {
   if (!d || typeof d.a !== 'string' || !WIRE_OK[d.a]) return null;
   const mv = { t: d.a };
-  if (d.i != null) {
+  if (d.a === 'meld') {
+    if (!Array.isArray(d.k) || d.k.length < 3 || d.k.length > 13) return null;
+    const cs = [];
+    for (const x of d.k) {
+      const c = x | 0;
+      if (c < 0 || c > 51) return null;
+      cs.push(c);
+    }
+    mv.cs = cs;
+  } else if (d.a === 'lay') {
+    if (d.i == null || d.j == null) return null;
+    const c = d.i | 0, m = d.j | 0;
+    if (c < 0 || c > 51 || m < 0 || m > 255) return null;
+    mv.c = c; mv.m = m;
+  } else if (d.a === 'disc' || d.a === 'down') {
+    if (d.i == null) return null;
     const c = d.i | 0;
     if (c < 0 || c > 51) return null;
     mv.c = c;
   }
-  if ((mv.t === 'disc' || mv.t === 'down') && mv.c == null) return null;
   return mv;
 }
 
-/* offline undo: back to just before the last thing I did */
+/* offline undo: back to just before the last thing I did (repeat
+   presses walk back through a lay chain one placement at a time) */
 function undoPoint() {
   if (!M) return -1;
   for (let i = M.log.length - 1; i >= 0; i--) if (M.log[i].seat === M.mySeat) return i;
@@ -470,17 +573,23 @@ function sound(mv, seat, src) {
     case 'take': cue('pack.flip', { gain: mine ? 0.9 : 0.7 }); break;
     case 'disc':
       cue('card.throw', { gain: mine ? 0.8 : 0.6, rate: mine ? 1 : 0.95 });
-      /* the pile going back into the stock — rare, and worth hearing */
+      /* the spread going back into the deck — worth hearing */
       if (M.st.last && M.st.last.recycled)
         setTimeout(() => cue('card.shuffle', { gain: 0.8 }), FAST ? 1 : 200);
       break;
     case 'down':
-      /* the cards going OUT — gin.knock's new home. It used to be the
-         knuckle rap of the knock; knocking is gone from this game, and
-         two hard raps on heavy timber is exactly the sound of a hand
-         being slapped down on the każin table. */
+      /* the 45 hitting the table — gin.knock's home: two hard raps
+         on heavy timber is exactly a hand being slapped down open */
       cue('card.throw', { gain: 0.7 });
       setTimeout(() => cue('gin.knock', { gain: 0.95 }), FAST ? 1 : 180);
+      break;
+    case 'meld':
+      cue('card.throw', { gain: mine ? 0.7 : 0.55 });
+      break;
+    case 'lay':
+      /* a single card finding its home — somebody just made points,
+         possibly off somebody else's meld */
+      cue('card.deal', { gain: mine ? 0.8 : 0.6, rate: 1.05 });
       break;
     case 'tally': {
       const row = M.st.match.book[M.st.match.book.length - 1];
@@ -491,7 +600,7 @@ function sound(mv, seat, src) {
       } else {
         const won = row.win === M.mySeat;
         const t = FAST ? 1 : 520;
-        if (row.out) setTimeout(() => cue('ui.reward', { gain: 0.95 }), t);
+        setTimeout(() => cue('ui.reward', { gain: 0.9 }), t);
         setTimeout(() => cue(won ? 'ui.coin' : 'money.pay', { gain: won ? 0.95 : 0.7 }), FAST ? 2 : 820);
       }
       break;
@@ -532,7 +641,9 @@ function step() {
   if (isMine(t)) return;
   const own = st.seats[t].own;
   if (own === 'net') return;                     /* their phone, their clock */
-  /* the machine */
+  /* the machine. A lay chain gets a quicker beat than a decision, so
+     laying four cards reads as placing them one after another. */
+  const laying = st.phase === 'act' && st.down[t];
   M.timer = setTimeout(() => {
     M.timer = 0;
     if (!M || M.dead) return;
@@ -543,7 +654,7 @@ function step() {
     if (!mv) return;
     doMove(t, mv, 'ai');
     render();
-  }, FAST ? 1 : 650 + Math.floor(Math.random() * 500));
+  }, FAST ? 1 : (laying ? 420 : 650) + Math.floor(Math.random() * (laying ? 200 : 500)));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -579,6 +690,7 @@ function openBoard() {
     '<div class="gn-felt tapme" id="gn-felt">' +
       '<div class="gn-top" id="gn-top"></div>' +
       '<div class="gn-mid" id="gn-mid"></div>' +
+      '<div class="gn-tbl" id="gn-tbl" aria-label="Your table" style="display:none"></div>' +
       '<div class="gn-me">' +
         '<div class="gn-dash" id="gn-dash"></div>' +
         '<div class="gn-hand" id="gn-hand" aria-label="Your hand. Drag to arrange."></div>' +
@@ -683,89 +795,177 @@ function render() {
     note: 'Hand ' + st.handNo
   });
 
-  /* the other chair */
-  const foeS = st.seats[foe];
-  let backs = '';
-  const nb = Math.min(foeS.hand.length, st.hs);
-  for (let i = 0; i < nb; i++) backs += '<span class="gn-b" aria-hidden="true">' + backHTML() + '</span>';
-  $id('gn-top').innerHTML =
-    '<span class="gn-nm' + (t === foe ? ' turn' : '') + '">' + esc(foeS.name) + '</span>' +
-    '<span class="gn-backs" aria-label="' + foeS.hand.length + ' cards in their hand">' + backs + '</span>' +
-    '<span class="gn-chip" aria-label="Match score: you ' + st.match.pts[me] + ', them ' +
-      st.match.pts[foe] + '">You <b>' + st.match.pts[me] + '</b> · them <b>' +
-      st.match.pts[foe] + '</b></span>';
-
+  paintTop();
   paintMid();
+  paintTable();
   paintDash();
   paintHand();
+  paintSpec();
   paintVerdict();
 
   if (ov) { finish(); return; }
   step();
 }
 
+/* ── the other chair: name, cards, open state, the door to their
+   table. Their MELDS are not here — they are in spectator mode,
+   which is the point of it. ── */
+function paintTop() {
+  const st = M.st, me = M.mySeat, foe = 1 - me;
+  const t = E.turn(st);
+  const foeS = st.seats[foe];
+  let backs = '';
+  const nb = Math.min(foeS.hand.length, 14);
+  for (let i = 0; i < nb; i++) backs += '<span class="gn-b" aria-hidden="true">' + backHTML() + '</span>';
+  /* THE BEGINNER BADGE, his own design: "it will show a popup on
+     player name… when click it will show. this mode is for
+     beginners. But dont leave it default." Hints ON and you are
+     open: the name carries a live count of YOUR cards that fit
+     THEIR melds — recomputed every paint, so it can never go stale.
+     Zero shows nothing. Hints OFF (the default, the real game):
+     never a badge; reading the table is your job, and the discard
+     refusal is what enforces it. Same calculation either way — the
+     toggle only decides whether it is shown. */
+  let fitBadge = '';
+  if (hintsOn() && st.down[me]) {
+    let nFit = 0;
+    for (const c of st.seats[me].hand)
+      if (layTargets(c).some(ti => st.table[ti].by === foe)) nFit++;
+    if (nFit > 0)
+      fitBadge = ' <b class="gn-fitn" aria-label="' + nFit + ' of your cards fit their melds. ' +
+        'Tap to see.">' + nFit + '</b>';
+  }
+  $id('gn-top').innerHTML =
+    '<button type="button" class="gn-nm tapme' + (t === foe ? ' turn' : '') + '" id="gn-foenm" ' +
+      'aria-label="' + esc(foeS.name) + '. Tap to look at their table.">' +
+      esc(foeS.name) + fitBadge + '</button>' +
+    '<span class="gn-backs" aria-label="' + foeS.hand.length + ' cards in their hand">' + backs + '</span>' +
+    (st.down[foe]
+      ? '<span class="gn-chip open" aria-label="They are open with ' + st.laid[foe] +
+          ' points laid.">Open <b>+' + st.laid[foe] + '</b></span>'
+      : '<span class="gn-chip" aria-label="They have not put their 45 down.">Closed</span>') +
+    '<span class="gn-chip" aria-label="Match score: you ' + st.match.pts[me] + ', them ' +
+      st.match.pts[foe] + '">You <b>' + st.match.pts[me] + '</b> · them <b>' +
+      st.match.pts[foe] + '</b></span>' +
+    '<button type="button" class="gn-specbtn tapme' + (st.down[me] ? '' : ' locked') + '" id="gn-spec-btn" ' +
+      'aria-label="' + (st.down[me] ? 'Look at the other tables.'
+        : 'Locked. Put your 45 down to see the other tables.') + '">Tables</button>';
+  const goSpec = () => {
+    if (!M) return;
+    /* THE GATE, in one honest line: no table for closed eyes */
+    if (!M.st.down[M.mySeat]) {
+      cue('ui.error', { gain: 0.7 });
+      const say = $id('gn-say');
+      if (say) say.innerHTML = 'Put your <b>45 down</b> first — then you may go and look at the other tables.';
+      return;
+    }
+    M.spec = !M.spec;
+    cue('ui.tap', { gain: 0.8 });
+    render();
+  };
+  $id('gn-spec-btn').onclick = goSpec;
+  $id('gn-foenm').onclick = goSpec;              /* the badge's click-to-see */
+}
+
+/* ── the middle band: the deck, the spread, the prompt, the acts ── */
 function paintMid() {
   const st = M.st, me = M.mySeat;
   const t = E.turn(st);
   const myGo = t === me;
   const ph = st.phase;
-  const up = E.upTop(st);
   const ready = houseReady();
-  const canTake = myGo && ready && (ph === 'up0' || ph === 'up1' || ph === 'main');
-  const canDraw = myGo && ready && (ph === 'main' || ph === 'draw1');
-  const throwing = myGo && ph === 'off';
-  const banned = (st.drew && st.drew.from === 'pile') ? st.drew.c : null;
+  const canDraw = myGo && ready && ph === 'main' && st.stock.length > 0;
+  const canUp = myGo && ready && ph === 'main' && E.canTakeUp(st);
+  const acting = myGo && ready && ph === 'act';
+  const banned = E.bannedOf(st, me);
+  const iDown = st.down[me];
 
   let say;
-  if (!houseReady()) say = 'Agreeing the house rules with ' + esc(st.seats[1 - me].name) + '…';
+  if (!ready) say = 'Agreeing the house rules with ' + esc(st.seats[1 - me].name) + '…';
   else if (!myGo && t >= 0) say = 'Waiting on ' + esc(st.seats[1 - me].name) + '…';
-  else if (ph === 'up0' || ph === 'up1')
-    say = 'First card up: <b>' + esc(nameOfCard(up)) + '</b>. Take it, or pass.';
-  else if (ph === 'draw1') say = 'Both passed — you <b>draw blind</b> from the stock.';
-  else if (ph === 'main') say = 'Take the <b>' + esc(nameOfCard(up)) + '</b>, or draw blind.';
-  else if (throwing) {
-    say = M.sel != null
-      ? (M.sel === banned
-          ? 'Not that one — you only just took it off the pile.'
-          : 'Throw the <b>' + esc(nameOfCard(M.sel)) + '</b> on the pile' +
-            (downFor(M.sel) ? ', or put your cards out' : '') + '.')
-      : 'One card too many. <b>Tap one</b> to throw it back — or drag it straight onto the pile.';
+  else if (ph === 'main') {
+    say = canUp
+      ? 'First turn: take the <b>' + esc(nameOfCard(E.upTop(st))) + '</b> — or draw blind. After this, the deck only.'
+      : 'Draw your card off the <b>deck</b>.';
+  } else if (acting) {
+    if (M.sel != null) {
+      if (M.sel === banned) say = 'Not that one — you only just took it. Throw another.';
+      else {
+        const dn = !iDown ? downFor(M.sel) : null;
+        say = 'Throw the <b>' + esc(nameOfCard(M.sel)) + '</b>' +
+          (dn ? ' — or put your <b>45 down</b> with it out' : '') +
+          (iDown ? ' — or tap a meld to lay it there' : '') + '.';
+      }
+    } else {
+      say = iDown
+        ? 'Lay what you can — melds down, cards onto any table — then <b>throw one</b>.'
+        : 'Now <b>throw one back</b>. Tap a card' + (bestOpenNow() ? ' — your <b>45 is ready</b>' : '') + '.';
+    }
   } else say = '';
 
-  const pileInner = up < 0
-    ? '<span class="gn-empty">empty</span>'
-    : faceHTML(up);
+  /* the spread, oldest top-left, newest last. Only the newest card is
+     ever a button, and only on the hand's first turn. */
+  let spread = '';
+  const L = st.discard.length;
+  for (let i = 0; i < L; i++) {
+    const c = st.discard[i];
+    const newest = i === L - 1;
+    if (newest && canUp)
+      spread += '<button type="button" class="gn-dcard up tapme" id="gn-upbtn" ' +
+        'aria-label="Take the ' + esc(nameOfCard(c)) + ' — first turn only.">' + faceHTML(c) + '</button>';
+    else
+      spread += '<span class="gn-dcard" aria-hidden="true">' + faceHTML(c) + '</span>';
+  }
+
   $id('gn-mid').innerHTML =
     '<div class="gn-piles">' +
-      '<div class="gn-pilebox"><span class="gn-pilelbl">Stock</span>' +
-        '<button type="button" class="gn-pilebtn tapme' + (canDraw ? ' can' : (myGo && (ph === 'up0' || ph === 'up1') ? ' dim' : '')) + '" id="gn-stock" ' +
-          'aria-label="Draw a blind card from the stock. ' + st.stock.length + ' left."' +
+      '<div class="gn-pilebox"><span class="gn-pilelbl">Deck</span>' +
+        '<button type="button" class="gn-pilebtn tapme' + (canDraw ? ' can' : (myGo && ph === 'act' ? ' dim' : '')) + '" id="gn-stock" ' +
+          'aria-label="Draw a blind card from the deck. ' + st.stock.length + ' left."' +
           (canDraw ? '' : ' aria-disabled="true"') + '>' +
           backHTML() + '<span class="gn-count">' + st.stock.length + '</span></button></div>' +
-      '<div class="gn-pilebox"><span class="gn-pilelbl">Discards</span>' +
-        '<button type="button" class="gn-pilebtn tapme' + (canTake || (throwing && M.sel != null && M.sel !== banned) ? ' can' : '') + '" id="gn-pile" ' +
-          'aria-label="' + (up < 0 ? 'The discard pile is empty.'
-            : throwing ? 'Throw your chosen card on the pile.'
-            : 'Take the ' + nameOfCard(up) + ' from the discards.') + '">' +
-          pileInner + '</button></div>' +
+      '<div class="gn-sprbox"><span class="gn-pilelbl">Thrown · oldest to newest · nobody picks these up</span>' +
+        '<div class="gn-spread" id="gn-pile" aria-label="The thrown cards, ' + L + ' of them, in the order they went.">' +
+        spread + '</div></div>' +
     '</div>' +
     '<div class="gn-say" id="gn-say" role="status" aria-live="polite">' + say + '</div>' +
     '<div class="gn-acts" id="gn-acts"></div>';
 
+  /* the spread scrolls to its newest rows, and its height is capped
+     so it can never push the hand off the felt */
+  const sp = $id('gn-pile');
+  if (sp) {
+    const cardH = (sp.clientWidth / PER_ROW) * 1.4;
+    const hostH = M.ctx.host.clientHeight || 500;
+    sp.style.maxHeight = Math.max(46, Math.min(cardH * 2.4, hostH * 0.28)) + 'px';
+    sp.scrollTop = sp.scrollHeight;
+  }
+
   /* the action row: honest buttons under the same taps */
   const acts = $id('gn-acts');
   let h = '';
-  if (myGo && houseReady() && (ph === 'up0' || ph === 'up1')) {
+  if (canUp) {
     h += '<button type="button" class="gn-act tapme" data-a="take">Take it</button>';
-    h += '<button type="button" class="gn-act ghost tapme" data-a="pass">Pass</button>';
+    h += '<button type="button" class="gn-act ghost tapme" data-a="draw">Draw blind</button>';
   }
-  if (throwing && houseReady() && M.sel != null && M.sel !== banned) {
-    h += '<button type="button" class="gn-act ghost tapme" data-a="disc">Throw it</button>';
-    const dn = downFor(M.sel);
-    if (dn)
-      h += '<button type="button" class="gn-act hot tapme" data-a="down">' +
-        (dn.dw === 0 ? 'ALL OUT · +' + dn.mv
-                     : 'Put them out · ' + (dn.net >= 0 ? '+' : '') + dn.net) + '</button>';
+  if (acting) {
+    if (!iDown) {
+      const op = M.sel != null ? downFor(M.sel) : null;
+      if (M.sel != null && M.sel !== banned)
+        h += '<button type="button" class="gn-act ghost tapme" data-a="disc">Throw it</button>';
+      if (op)
+        h += '<button type="button" class="gn-act hot tapme" data-a="down">Put the 45 down · +' + op.mv + '</button>';
+      else if (M.sel == null && bestOpenNow())
+        h += '<button type="button" class="gn-act hot tapme" data-a="downbest">Put the 45 down</button>';
+    } else {
+      const meldable = meldsInHand();
+      if (meldable.pts > 0)
+        h += '<button type="button" class="gn-act tapme" data-a="meldall">Melds down · +' + meldable.pts + '</button>';
+      if (M.sel != null && M.sel !== banned)
+        h += '<button type="button" class="gn-act ghost tapme" data-a="disc">Throw it</button>';
+      if (hintsOn() && M.sel != null && layTargets(M.sel).length)
+        h += '<button type="button" class="gn-act hot tapme" data-a="layhint">Lay it · +' + E.pts(M.sel) + '</button>';
+    }
   }
   acts.innerHTML = h;
   acts.querySelectorAll('[data-a]').forEach(b => {
@@ -775,16 +975,11 @@ function paintMid() {
     if (!M || M.dead || !houseReady()) return;
     const stx = M.st, tt = E.turn(stx);
     if (tt !== M.mySeat) return;
-    if (stx.phase === 'up0' || stx.phase === 'up1') { nag('Take the upcard or pass — the stock waits.'); return; }
+    if (stx.phase === 'act') { nag('You have your card — now throw one.'); return; }
     act('draw');
   };
-  $id('gn-pile').onclick = () => {
-    if (!M || M.dead || !houseReady()) return;
-    const stx = M.st, tt = E.turn(stx);
-    if (tt !== M.mySeat) return;
-    if (stx.phase === 'off') { if (M.sel != null) act('disc'); return; }
-    act('take');
-  };
+  const upb = $id('gn-upbtn');
+  if (upb) upb.onclick = () => act('take');
 }
 
 /* Online, the hand size is agreed before anything is touched — see
@@ -792,16 +987,54 @@ function paintMid() {
    always true. */
 function houseReady() { return !(M && M.house && !M.house.settled); }
 
-/* what putting the cards out with THIS discard would look like:
-   {mv, dw, net} if the 45 gate is open, null if it is not */
+/* what OPENING with THIS discard would put down: {mv, dw} if the 45
+   gate is open with it, null if not */
 function downFor(c) {
   const st = M.st;
+  if (st.down[M.mySeat]) return null;
   const h = st.seats[M.mySeat].hand;
-  if (h.length !== st.hs + 1) return null;
   const rest = h.filter(x => x !== c);
   const b = E.best(rest);
   const mv = E.handPts(rest) - b.dw;
-  return mv >= st.open ? { mv, dw: b.dw, net: mv - b.dw } : null;
+  return mv >= st.open ? { mv, dw: b.dw } : null;
+}
+function bestOpenNow() {
+  const st = M.st;
+  if (st.phase !== 'act' || st.down[M.mySeat]) return null;
+  return E.bestOpen(st, st.seats[M.mySeat].hand);
+}
+
+/* every full meld sitting in my hand right now (the ones "Melds
+   down" would lay), and their worth */
+function meldsInHand() {
+  const st = M.st, h = st.seats[M.mySeat].hand;
+  if (!st.down[M.mySeat] || h.length < 4) return { melds: [], pts: 0 };
+  const b = E.best(h);
+  const melds = b.melds.filter(m => h.length - m.length >= 1);
+  let pts = 0;
+  /* they are laid one after another; re-solve the shrinking hand so
+     the promise matches what the button will actually do */
+  let rest = h.slice(), out = [];
+  for (;;) {
+    const bb = E.best(rest);
+    const m = bb.melds.find(x => rest.length - x.length >= 1);
+    if (!m) break;
+    out.push(m);
+    pts += E.handPts(m);
+    const S = new Set(m);
+    rest = rest.filter(c => !S.has(c));
+  }
+  return { melds: out, pts };
+}
+
+/* table melds this card could go onto, as st.table indices */
+function layTargets(c) {
+  const st = M.st, me = M.mySeat;
+  const out = [];
+  for (let ti = 0; ti < st.table.length; ti++)
+    if ((E.LAY_ON_FOE || st.table[ti].by === me) && E.canExtend(st.table[ti].cs, c))
+      out.push(ti);
+  return out;
 }
 
 function act(a) {
@@ -810,60 +1043,236 @@ function act(a) {
   const me = M.mySeat;
   let mv = null;
   if (a === 'take') mv = { t: 'take' };
-  else if (a === 'pass') mv = { t: 'pass' };
   else if (a === 'draw') mv = { t: 'draw' };
-  else if (a === 'disc' || a === 'down') {
+  else if (a === 'disc') {
     if (M.sel == null) return;
-    mv = { t: a, c: M.sel };
+    mv = { t: 'disc', c: M.sel };
+  } else if (a === 'down') {
+    if (M.sel == null) return;
+    mv = { t: 'down', c: M.sel };
+  } else if (a === 'downbest') {
+    const op = bestOpenNow();
+    if (!op) return;
+    mv = { t: 'down', c: op.c };
+  } else if (a === 'meldall') {
+    /* the whole chain, one honest button: every full meld goes down */
+    let n = 0;
+    for (;;) {
+      const lm = E.nextLay(M.st, me);
+      if (!lm || lm.t !== 'meld') break;
+      if (!doMove(me, lm, 'tap').ok) break;
+      n++;
+      if (n > 20) break;
+    }
+    if (n) { M.sel = null; render(); }
+    return;
+  } else if (a === 'layhint') {
+    /* hints ON only: lay the chosen card on the first place it fits */
+    if (M.sel == null) return;
+    const ts = layTargets(M.sel);
+    if (!ts.length) return;
+    mv = { t: 'lay', c: M.sel, m: ts[0] };
   }
   if (!mv) return;
   const r = doMove(me, mv, 'tap');
   if (!r.ok) {
-    cue('ui.error', { gain: 0.9 });
-    nag(r.err === 'illegal move' && mv.t === 'disc'
-      ? 'You cannot throw back the card you just took.' : null);
+    denySay(mv);
     return;
   }
-  M.sel = null;
+  if (mv.t !== 'lay') M.sel = null;
+  else M.sel = null;
   render();
+}
+
+/* the honest refusal: WHY was that not allowed? The attention
+   penalty is announced but never located (unless hints are on —
+   finding the spot is the game). */
+function denySay(mv) {
+  cue('ui.error', { gain: 0.9 });
+  const st = M.st, me = M.mySeat;
+  if (mv.t === 'disc' && mv.c != null && E.discRefused(st, me, mv.c)) {
+    shakeCard(mv.c);
+    if (hintsOn()) {
+      const ts = layTargets(mv.c);
+      const t0 = ts.length ? st.table[ts[0]] : null;
+      nag('That card fits ' + (t0 ? (t0.by === me ? 'your own' : esc(st.seats[t0.by].name) + '’s') : 'a') +
+        ' meld — lay it, you cannot throw it away.');
+    } else {
+      nag('Refused: that card has a home on the table. Find it — or throw something else.');
+    }
+    return;
+  }
+  if (mv.t === 'disc' && mv.c === E.bannedOf(st, me)) {
+    nag('You cannot throw back the card you just took.');
+    return;
+  }
+  if (mv.t === 'lay') { nag('It does not fit there.'); return; }
+  nag(null);
+}
+
+function shakeCard(c) {
+  const el = M.ctx.host.querySelector('.gn-card[data-c="' + c + '"]');
+  if (!el) return;
+  el.classList.remove('deny');
+  void el.offsetWidth;
+  el.classList.add('deny');
 }
 
 function nag(text) {
   if (K.toast) K.toast('⚠ ' + (text || 'The rules said no. Take it up with the rules.'));
 }
 
-/* ── the dashboard: melds towards 45, loose cost, sort, nudge ─────
-   The number that runs the game is the VALUE OF YOUR MELDS against
-   the 45 gate, so that is the number on the dash — with the price
-   of your loose cards beside it, because that is what you are
-   caught holding. Over-full it shows the best throw's version. */
+/* ── YOUR TABLE — the melds you have down, always visible ───────── */
+function paintTable() {
+  const st = M.st, me = M.mySeat;
+  const box = $id('gn-tbl');
+  if (!box) return;
+  const mine = [];
+  st.table.forEach((t, ti) => { if (t.by === me) mine.push(ti); });
+  if (!st.down[me] && !mine.length) { box.style.display = 'none'; return; }
+  box.style.display = '';
+  let h = '<span class="gn-tlbl">Your<br>table<b>+' + st.laid[me] + '</b></span>' +
+    '<div class="gn-melds" id="gn-mymelds">';
+  for (const ti of mine) h += meldHTML(st.table[ti], ti);
+  h += '</div>';
+  box.innerHTML = h;
+  wireMeldTaps(box);
+}
+
+function meldHTML(t, ti) {
+  const closed = t.cs.length === 4 && E.isSet(t.cs);
+  let cards = '';
+  for (const c of t.cs) cards += '<span class="gn-mc">' + faceHTML(c) + '</span>';
+  const fit = hintsOn() && M.sel != null && E.canExtend(t.cs, M.sel) &&
+              (E.LAY_ON_FOE || t.by === M.mySeat);
+  return '<button type="button" class="gn-meld tapme' + (closed ? ' closed' : '') +
+    (fit ? ' fit' : '') + '" data-ti="' + ti + '" aria-label="' +
+    esc(t.cs.map(nameOfCard).join(', ')) + (closed ? '. Closed.' : '') + '">' + cards + '</button>';
+}
+
+/* tapping a meld with a card chosen tries to LAY it there — the
+   attempt is always allowed; the rules answer. With hints off
+   nothing is highlighted first: reading the table is the game. */
+function wireMeldTaps(root) {
+  root.querySelectorAll('.gn-meld').forEach(el => {
+    el.onclick = () => {
+      if (!M || M.dead || !houseReady()) return;
+      const st = M.st, me = M.mySeat;
+      const ti = +el.dataset.ti;
+      if (M.sel == null) {
+        if (E.turn(st) === me && st.phase === 'act' && st.down[me])
+          nag('Pick the card in your hand first, then tap where it goes.');
+        return;
+      }
+      if (E.turn(st) !== me || st.phase !== 'act' || !st.down[me]) {
+        nag(st.down[me] ? 'Not now — finish your pick first.' : 'You are not open yet.');
+        return;
+      }
+      const mv = { t: 'lay', c: M.sel, m: ti };
+      const r = doMove(me, mv, 'tap');
+      if (!r.ok) { denySay(mv); return; }
+      M.sel = null;
+      const again = M.ctx.host.querySelector('.gn-meld[data-ti="' + ti + '"]');
+      if (again) { again.classList.add('flash'); }
+      render();
+    };
+  });
+}
+
+/* ── SPECTATOR MODE — the other tables, and the thumb that plays
+   onto them. Opens over the middle band only. ── */
+function paintSpec() {
+  const mid = $id('gn-mid');
+  if (!mid) return;
+  const old = mid.querySelector('.gn-spec');
+  if (old) old.remove();
+  if (!M.spec) return;
+  const st = M.st, me = M.mySeat, foe = 1 - me;
+  if (!st.down[me]) { M.spec = false; return; }   /* the gate re-checks itself */
+
+  const foeMelds = [];
+  st.table.forEach((t, ti) => { if (t.by === foe) foeMelds.push(ti); });
+
+  let body = '';
+  body += '<div class="gn-note"><b>' + esc(st.seats[foe].name) + '</b> — ' +
+    (st.down[foe] ? ('open, <b>+' + st.laid[foe] + '</b> laid, ' + st.seats[foe].hand.length + ' cards in hand.')
+                  : 'not open yet: nothing on their table.') + '</div>';
+  if (foeMelds.length) {
+    body += '<div class="gn-melds">';
+    for (const ti of foeMelds) body += meldHTML(st.table[ti], ti);
+    body += '</div>';
+  }
+  /* the beginner aid, and ONLY with hints on: what of yours fits
+     where. With hints off the tables are shown and nothing more. */
+  if (hintsOn()) {
+    const plays = [];
+    for (const c of st.seats[me].hand)
+      for (const ti of layTargets(c))
+        plays.push({ c, ti });
+    if (E.turn(st) === me && st.phase === 'act') {
+      body += plays.length
+        ? '<div class="gn-note">You could lay: ' + plays.map(p =>
+            '<button type="button" class="gn-hintchip tapme" data-hc="' + p.c + '" data-hti="' + p.ti +
+            '">' + esc(txtOf(p.c)) + ' → ' + esc(seatName(st.table[p.ti].by)) + '</button>').join(' ') + '</div>'
+        : '<div class="gn-note">Nothing of yours fits any table right now.</div>';
+    }
+  }
+
+  const div = document.createElement('div');
+  div.className = 'gn-spec';
+  div.innerHTML =
+    '<h4><span>The tables</span>' +
+      '<button type="button" class="gn-specbtn tapme" id="gn-spec-x">Back</button></h4>' +
+    '<div class="gn-spbody">' + body + '</div>';
+  mid.appendChild(div);
+  div.querySelector('#gn-spec-x').onclick = () => { M.spec = false; cue('ui.tap', { gain: 0.7 }); render(); };
+  wireMeldTaps(div);
+  div.querySelectorAll('[data-hc]').forEach(b => {
+    b.onclick = () => {
+      const mv = { t: 'lay', c: +b.dataset.hc, m: +b.dataset.hti };
+      const r = doMove(M.mySeat, mv, 'tap');
+      if (!r.ok) { denySay(mv); return; }
+      M.sel = null;
+      render();                                  /* updates in place; mode stays open */
+    };
+  });
+}
+
+/* ── the dashboard: the numbers that run the game ────────────────
+   Closed: your melds against the 45 gate, and the price of your
+   loose cards. Open: what you have laid, against what you are still
+   holding (which is what counts minus if somebody goes out). */
 function dashNums() {
   const st = M.st, hand = st.seats[M.mySeat].hand;
-  if (hand.length === st.hs + 1) {
-    const banned = (st.drew && st.drew.from === 'pile') ? st.drew.c : null;
+  if (st.down[M.mySeat]) return { open: true, laid: st.laid[M.mySeat], held: E.handPts(hand) };
+  if (st.phase === 'act' && E.turn(st) === M.mySeat) {
+    /* over-full: show the best throw's version */
     let mv = -1, dw = 0;
     for (const c of hand) {
-      if (c === banned) continue;
       const rest = hand.filter(x => x !== c);
       const b = E.best(rest);
       const m = E.handPts(rest) - b.dw;
       if (m > mv || (m === mv && b.dw < dw)) { mv = m; dw = b.dw; }
     }
-    return { mv, dw };
+    return { open: false, mv, dw };
   }
   const b = E.best(hand);
-  return { mv: E.handPts(hand) - b.dw, dw: b.dw };
+  return { open: false, mv: E.handPts(hand) - b.dw, dw: b.dw };
 }
 
 function paintDash() {
   const st = M.st;
   const n = dashNums();
-  const line =
-    '<span class="gn-chip' + (n.mv >= st.open ? ' hot' : '') +
-      '" aria-label="Your melds are worth ' + n.mv + ' of the ' + st.open + ' you need.">' +
-      'Melds <b>' + n.mv + '</b>&thinsp;/&thinsp;' + st.open + '</span>' +
-    '<span class="gn-chip" aria-label="Your loose cards would count ' + n.dw + ' against you.">' +
-      'Loose <b>&minus;' + n.dw + '</b></span>';
+  const line = n.open
+    ? '<span class="gn-chip open" aria-label="You are open with ' + n.laid + ' points laid.">' +
+        'Laid <b>+' + n.laid + '</b></span>' +
+      '<span class="gn-chip" aria-label="The cards still in your hand would count ' + n.held +
+        ' against you.">Hand <b>&minus;' + n.held + '</b></span>'
+    : '<span class="gn-chip' + (n.mv >= st.open ? ' hot' : '') +
+        '" aria-label="Your melds are worth ' + n.mv + ' of the ' + st.open + ' you need.">' +
+        'Melds <b>' + n.mv + '</b>&thinsp;/&thinsp;' + st.open + '</span>' +
+      '<span class="gn-chip" aria-label="Your loose cards would count ' + n.dw + ' against you.">' +
+        'Loose <b>&minus;' + n.dw + '</b></span>';
   const selAt = M.sel != null ? M.arr.indexOf(M.sel) : -1;
   $id('gn-dash').innerHTML =
     line +
@@ -893,31 +1302,13 @@ function nudge(dir) {
 const DRAG_SLOP = 9;
 
 /* ── how the hand is laid out ─────────────────────────────────────
-   ONE ROW UNTIL A THUMB WOULD SUFFER, THEN TWO.
-
-   The exposed width of a card in a single row is (W - w) / (n - 1),
-   and that is the only part of it a thumb can actually land on —
-   everything else is under the next card. At ten cards on a 390 the
-   sum comes out around 32px, which is fine. At THIRTEEN on a 360 it
-   is 24px, and 24px of a 63px-tall card is a target people miss.
-
-   So the rail wraps, the way js/klabb.js's fan does rather than
-   squeezing: two rows of seven give 44px of exposed card instead of
-   24, nearly double the target for no loss of readability.
-
-   IT ONLY WRAPS IF THE REST OF THE FELT CAN SPARE THE HEIGHT, and
-   that is measured rather than assumed. A first attempt allowed two
-   rows whenever they fitted in "half the host", and on a 360x640 the
-   result was two rows of 101px cards sitting straight on top of the
-   discard pile — the rows fitted, and nothing else did. So the
-   budget is worked out from what is actually on the felt: the seat
-   line and the dashboard as they measure right now, and enough left
-   for the two piles and their prompt, which is the one part of the
-   screen the game cannot be played without.
-
-   Held sideways the felt is a two-column grid and the hand keeps one
-   row, because a landscape rail has width to spare and no height at
-   all to give away. */
+   ONE ROW UNTIL A THUMB WOULD SUFFER, THEN TWO. The exposed width of
+   a card in one row is (W - w)/(n - 1); below MIN_SHOW the rail
+   wraps to two rows instead of squeezing. It only wraps if the rest
+   of the felt can spare the height, and that is MEASURED — the seat
+   line, the dashboard, your table strip and the real contents of the
+   middle band as they stand — not assumed. Held sideways the felt is
+   a two-column grid and the hand keeps one row. */
 const MIN_SHOW = 30;         /* px of card that must stay uncovered */
 const MIN_TWO_W = 44;        /* below this a second row is not worth it */
 
@@ -929,33 +1320,27 @@ function handMetrics() {
   const gap = 4;
   const lift = hostH < 260 ? 18 : 26;         /* room for a chosen card to rise */
 
-  /* What the rail may actually have, once the felt has been served.
-     The middle is MEASURED — the piles, the prompt and the buttons
-     really in it, added up — rather than allowed a guessed constant.
-     The guess (a pile plus 62px) is how the first attempt put TAKE
-     IT and PASS straight on top of the deadwood chip on a 360. */
   const hOf = id => { const el = $id(id); return el ? el.offsetHeight : 0; };
   const mid = $id('gn-mid');
-  let minMid = 170;
+  let minMid = 150;
   if (mid && mid.children.length) {
     let need = 0;
-    for (let i = 0; i < mid.children.length; i++) need += mid.children[i].offsetHeight;
-    need += 7 * (mid.children.length - 1);            /* the flex gaps */
-    /* capped, so that a wordy prompt can never starve the hand */
+    for (let i = 0; i < mid.children.length; i++) {
+      const el = mid.children[i];
+      if (el.classList && el.classList.contains('gn-spec')) continue;  /* overlay, not flow */
+      need += el.offsetHeight;
+    }
+    need += 6 * (mid.children.length - 1);
     minMid = Math.min(Math.max(need, 96), hostH * 0.55);
   }
-  /* …and the felt's OWN overhead — its padding and the flex gaps
-     between its three bands — measured off the box rather than
-     guessed at, because guessing it is what left the prompt sitting
-     on the dashboard by a dozen pixels. */
   const felt = $id('gn-felt');
-  let chrome = 30;
+  let chrome = 34;
   if (felt) {
     const cs = getComputedStyle(felt);
     chrome = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) +
-             (parseFloat(cs.rowGap) || parseFloat(cs.gap) || 0) * 2 + 6;
+             (parseFloat(cs.rowGap) || parseFloat(cs.gap) || 0) * 3 + 6;
   }
-  const budget = Math.max(96, hostH - hOf('gn-top') - hOf('gn-dash') - minMid - chrome);
+  const budget = Math.max(90, hostH - hOf('gn-top') - hOf('gn-dash') - hOf('gn-tbl') - minMid - chrome);
 
   const plan = rows => {
     const per = Math.ceil(n / rows);
@@ -972,7 +1357,6 @@ function handMetrics() {
   const one = plan(1);
   if (one.show >= MIN_SHOW || n < 8 || hostH < 260) return one;
   const two = plan(2);
-  /* a second row of postage stamps is worse than one row of real cards */
   if (two.w < MIN_TWO_W || two.height + lift > budget) return one;
   return two;
 }
@@ -1020,32 +1404,15 @@ function paintHand() {
   rail.querySelectorAll('.gn-card').forEach(wireCard);
 }
 
-/* THE FIRST PLACEMENT IS NOT A MOVE, AND MUST NOT ANIMATE.
-   paintHand() rebuilds the rail on every render, so every card is a
-   brand-new element sitting at the stylesheet's left:0 / top:0 — and
-   with left and top both transitioned, each one then SLID into place
-   over 160ms. Two things were wrong with that: at thirteen cards the
-   second row visibly swept down out of the first on every repaint,
-   and for those 160ms a card was not where the layout said it was,
-   so a drag begun inside that window measured from the wrong place.
-   A cross-row drag test caught it; on a phone it would have been a
-   thumb picking up the wrong card.
-
-   So a NEW card is put down with transitions off, one reflow is
-   forced for the whole rail, and then they are handed back. Cards
-   already on the rail — the ones previewOrder() shuffles about mid
-   drag — go on animating, which is the only place the animation was
-   ever wanted. */
+/* THE FIRST PLACEMENT IS NOT A MOVE, AND MUST NOT ANIMATE — a new
+   card is put down with transitions off, one reflow is forced for
+   the whole rail, and then they are handed back. Cards already on
+   the rail (the ones previewOrder() shuffles about mid-drag) go on
+   animating, which is the only place the animation was ever wanted. */
 function layoutHand() {
   const rail = $id('gn-hand');
   if (!rail) return;
   const m = handMetrics();
-  /* THE LIFT GOES ABOVE THE CARDS, NOT BELOW THEM. A chosen card
-     rises 16px (.gn-card.sel), and with the spare height parked at
-     the bottom of the rail it rose straight over the deadwood chip
-     and the SORT button. As padding it is room the cards are placed
-     BELOW, so the lift has somewhere to go. content-box so the two
-     numbers stay independent of the app's global box-sizing. */
   rail.style.boxSizing = 'content-box';
   rail.style.paddingTop = m.lift + 'px';
   rail.style.height = m.height + 'px';
@@ -1068,12 +1435,7 @@ function layoutHand() {
   }
 }
 
-/* ── PICKING A CARD UP — Pointer Events, capture, slop ────────────
-   The same shape js/skarta-ui.js proved on the phone: pointerdown
-   remembers, movement past DRAG_SLOP makes it a drag, capture keeps
-   the stream when the thumb leaves the little card, and anything
-   under the slop is still a tap. touch-action:none on the card (see
-   the stylesheet) is what keeps iOS Safari's scroller out of it. */
+/* ── PICKING A CARD UP — Pointer Events, capture, slop ──────────── */
 function wireCard(el) {
   el.onclick = () => {
     if (!M || M.dragJust) return;
@@ -1108,9 +1470,6 @@ function wireCard(el) {
     ev.preventDefault();
     const dx = ev.clientX - d.x0;
     const dy = ev.clientY - d.y0;
-    /* the card follows the thumb. In two rows it follows it VERTICALLY
-       too, because moving a card between rows is the whole point of
-       having them; in one row it only lifts, as it always did. */
     if (d.m.rows > 1) {
       el.style.left = (d.left0 + dx) + 'px';
       el.style.top = (d.top0 + dy) + 'px';
@@ -1120,22 +1479,21 @@ function wireCard(el) {
       el.style.transform = 'translateY(' +
         Math.max(-46, Math.min(26, dy)) + 'px) scale(1.05)';
     }
-    /* where would it land? Measured from the card's own centre in the
-       rail's coordinates, so the answer is the same in either layout. */
     const to = slotAt(d.m, d.left0 + dx, d.top0 + dy + d.m.h / 2);
     if (to !== d.to) { d.to = to; previewOrder(d); }
-    /* …or onto the pile? */
+    /* …or onto the spread? Dragging a card up to the thrown cards is
+       the discard gesture. */
     const pile = $id('gn-pile');
     if (pile) {
       const r = pile.getBoundingClientRect();
       const over = ev.clientX >= r.left - 8 && ev.clientX <= r.right + 8 &&
                    ev.clientY >= r.top - 8 && ev.clientY <= r.bottom + 8;
       d.onPile = over && houseReady() &&
-                 M.st.phase === 'off' && E.turn(M.st) === M.mySeat;
+                 M.st.phase === 'act' && E.turn(M.st) === M.mySeat;
       pile.classList.toggle('drop', !!d.onPile);
     }
   });
-  const finish = ev => {
+  const finishDrag = ev => {
     const d = M && M.drag;
     if (!d || d.el !== el) return;
     M.drag = null;
@@ -1145,10 +1503,10 @@ function wireCard(el) {
     if (pile) pile.classList.remove('drop');
     if (!d.live) { M.dragJust = false; return; }
     if (d.onPile) {
-      const r = doMove(M.mySeat, { t: 'disc', c: d.c }, 'tap');
+      const mv = { t: 'disc', c: d.c };
+      const r = doMove(M.mySeat, mv, 'tap');
       if (!r.ok) {
-        cue('ui.error', { gain: 0.9 });
-        nag('You cannot throw back the card you just took.');
+        denySay(mv);
         render();
       } else { M.sel = null; render(); }
     } else {
@@ -1164,8 +1522,8 @@ function wireCard(el) {
     }
     setTimeout(() => { if (M) M.dragJust = false; }, 0);
   };
-  el.addEventListener('pointerup', finish);
-  el.addEventListener('pointercancel', finish);
+  el.addEventListener('pointerup', finishDrag);
+  el.addEventListener('pointercancel', finishDrag);
 }
 
 /* while dragging, the others step aside to show the landing slot */
@@ -1185,28 +1543,22 @@ function previewOrder(d) {
 
 /* ── the hand-end verdict ────────────────────────────────────────── */
 function verdictWords(row, me) {
+  const you = row.delta[me], them = row.delta[1 - me];
+  const fmt = v => (v >= 0 ? '+' : '−') + Math.abs(v);
   if (row.dead) return {
-    head: 'Nobody got there', bad: true,
-    body: 'The pile went round twice and neither of you reached 45. Everything still in a ' +
-      'hand counts minus: <b>−' + row.loss[me] + '</b> you, <b>−' + row.loss[1 - me] +
-      '</b> them. Somebody deal better.'
+    head: 'Nobody got out', bad: you < them,
+    body: 'The deck went round ' + (E.RECYCLE_MAX + 1) + ' times and nobody played their hand empty. ' +
+      'What was laid counts, what was held counts against: <b>' + fmt(you) + '</b> you, <b>' +
+      fmt(them) + '</b> them.'
   };
-  const kName = seatName(row.opener), dName = seatName(1 - row.opener);
-  const meWin = row.win === me;
-  let head, body;
-  if (row.out) {
-    head = meWin ? 'ALL OUT!' : 'All out. Theirs.';
-    body = '<b>' + esc(kName) + '</b> put out the whole hand — <b>+' + row.meld +
-      '</b>, nothing held back. <b>' + esc(dName) + '</b> put down nothing, so the lot counts ' +
-      'minus: <b>−' + row.loss + '</b>.';
-  } else {
-    head = meWin ? 'Cards out' : 'Caught holding';
-    body = '<b>' + esc(kName) + '</b> matched 45 and put out <b>' + row.meld +
-      '</b> in melds, holding ' + row.loose + ' loose: <b>' +
-      (row.gain >= 0 ? '+' : '') + row.gain + '</b>. <b>' + esc(dName) +
-      '</b> put down nothing — the whole hand counts minus: <b>−' + row.loss + '</b>.';
-  }
-  return { head, bad: !meWin, body };
+  const kName = seatName(row.win), meWin = row.win === me;
+  return {
+    head: meWin ? 'OUT — hand yours' : 'They played out',
+    bad: !meWin,
+    body: '<b>' + esc(kName) + '</b> played the last card out of ' + (meWin ? 'your' : 'their') +
+      ' hand: <b>+' + row.bonus + '</b> on top of the table. Laid counts plus, held counts minus: ' +
+      '<b>' + fmt(you) + '</b> you, <b>' + fmt(them) + '</b> them.'
+  };
 }
 function seatName(s) { return M.st.seats[s].own === 'me' ? 'You' : M.st.seats[s].name; }
 
@@ -1234,8 +1586,6 @@ function paintVerdict() {
     '</div>';
   felt.appendChild(div);
   div.querySelector('#gn-nexthand').onclick = () => {
-    /* the beat the timer was going to make, made now. Deterministic,
-       so making it early can never disagree with the other phone. */
     stopClocks();
     const opts = E.legal(M.st, -1);
     if (opts.length) { doMove(-1, opts[0], 'auto'); render(); }
@@ -1260,12 +1610,12 @@ function finish() {
     ' after ' + fin.hands + ' hand' + (fin.hands === 1 ? '' : 's') +
     (fin.how === 'floor'
       ? ' — ' + (won ? 'they' : 'you') + ' went through the floor at −' + M.st.match.target + '.'
-      : ' — over the top at +' + M.st.match.target + '.');
+      : ' — first over the top at +' + M.st.match.target + '.');
   const quip = won
-    ? (fin.how === 'up' ? 'Over the top. Nobody even does that. Frame it.'
+    ? (fin.how === 'up' ? 'Your table did the talking. As it should.'
                         : 'You did not win so much as watch them sink. Still counts.')
-    : (fin.how === 'floor' ? 'Every card you did not put down, counted. That was the deal.'
-                           : 'They went over the top. On you, that is practically art.');
+    : (fin.how === 'floor' ? 'Every card you never put down, counted. That was the deal.'
+                           : 'They fed the table faster. Painful to watch, honestly.');
   if (M.net && M.net.onEnd) { try { M.net.onEnd(fin); } catch (e) {} }
   P.ui.result(M.ctx, {
     tone: won ? 'win' : 'lose',
@@ -1345,9 +1695,6 @@ function setupSheet(prevOpts) {
   if (target !== 150 && target !== 300) target = 300;
   let hand = ((prevOpts && prevOpts.hand) || p.hand) === 13 ? 13 : 10;
 
-  /* has the online lobby learned the word "gin" on this build? We
-     teach it ourselves below, so normally yes — but say so honestly
-     if mp.js is missing altogether. */
   const MPX = window.KARTI_MP;
   const online = !!(MPX && MPX.openFor && MPX.GAME_KEYS && MPX.GAME_KEYS.indexOf('gin') >= 0);
 
@@ -1359,14 +1706,15 @@ function setupSheet(prevOpts) {
         '<h2>GIN RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        '<p class="blurb">The house game: match <b>45 points of melds</b>, then put your ' +
-        'cards out. Aces are 15, courts and tens are 10, the rest are 5 — and every card ' +
-        'you are caught still holding <b>counts against you</b>. On your own phone, or ' +
-        '<b>each of you on your own</b>.</p>' +
+        '<p class="blurb">The house game: match <b>45 points of melds</b> and put them down ' +
+        '<b>face up</b> — that opens you, and the hand carries on. Open players lay onto ' +
+        '<b>anybody’s</b> melds and the points go to them; first hand played empty takes ' +
+        '<b>+' + E.OUT_BONUS + '</b>. Whatever stays in a hand counts <b>against</b> it.</p>' +
         (oldSaveDropped
-          ? '<p class="pt-warn">Your half-played match was under the old knock-and-deadwood ' +
-            'rules. The game has changed to the house rules — match 45, put them out — so ' +
-            'that save was retired rather than counted wrongly.</p>'
+          ? '<p class="pt-warn">Your half-played match was under the old rules, where putting ' +
+            'your cards down ended the hand. The game has grown — going down now <b>opens</b> you, ' +
+            'the table is live, and there is a bonus for going out — so that save was retired ' +
+            'rather than counted wrongly.</p>'
           : '') +
         (online
           ? '<div class="pt-opts" style="margin-bottom:10px">' +
@@ -1378,8 +1726,8 @@ function setupSheet(prevOpts) {
             'until then it is you against the machine here.</p>') +
         '<div class="tiny pt-lbl">The hand</div>' +
         '<div class="pt-opts" id="gn-hand-opt">' +
-          [[10, 'Ten cards', 'The house game as it comes. Match 45, put them out.'],
-           [13, 'Thirteen cards', 'More to build 45 from — hands end sooner and a caught hand costs half as much again.']].map(o =>
+          [[10, 'Ten cards', 'The house game as it comes.'],
+           [13, 'Thirteen cards', 'More to build 45 from — the gate falls sooner and the table gets bigger.']].map(o =>
             '<button class="pt-opt' + (o[0] === hand ? ' on' : '') + '" data-hand="' + o[0] + '">' +
               ico('cards') + '<b>' + o[1] + '</b><i>' + o[2] + '</i></button>').join('') +
         '</div>' +
@@ -1390,10 +1738,18 @@ function setupSheet(prevOpts) {
         '</div>' +
         '<div class="tiny pt-lbl">The match</div>' +
         '<div class="pt-opts two" id="gn-tgt" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
-          [[150, 'Quick one', 'Sunk at −150. About four hands.'],
-           [300, 'The proper game', 'Sunk at −300. About ten.']].map(o =>
+          [[150, 'Quick one', 'First to 150. About two hands.'],
+           [300, 'The proper game', 'First to 300. About four.']].map(o =>
             '<button class="pt-opt' + (o[0] === target ? ' on' : '') + '" data-tgt="' + o[0] + '">' +
               ico('coach') + '<b>' + o[1] + '</b><i>' + o[2] + '</i></button>').join('') +
+        '</div>' +
+        '<div class="tiny pt-lbl">Help</div>' +
+        '<div class="pt-opts" id="gn-hints">' +
+          '<button class="pt-opt' + (p.hints ? ' on' : '') + '" data-hints="1">' + ico('book') +
+          '<b>Beginner hints ' + (p.hints ? 'on' : 'off') + '</b><i>For beginners, and off unless you ask: ' +
+          'a badge on a player’s name counts your cards that fit their melds — tap it to see where. ' +
+          'Off, the game expects you to look — and it <b>refuses</b> a throw the table would have taken ' +
+          'either way.</i></button>' +
         '</div>' +
         '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
           '<button class="btn primary" id="gn-go">Deal</button>' +
@@ -1411,6 +1767,9 @@ function setupSheet(prevOpts) {
     el.querySelectorAll('[data-hand]').forEach(b => b.onclick = () => { hand = +b.dataset.hand; paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
     el.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => { target = +b.dataset.tgt; paint(); });
+    el.querySelectorAll('[data-hints]').forEach(b => b.onclick = () => {
+      ST.pref.hints = !ST.pref.hints; persist(); paint();
+    });
     el.querySelector('#gn-go').onclick = () => {
       ST.pref.lvl = lvl; ST.pref.target = target; ST.pref.hand = hand; persist();
       newGame({ lvl, target, hand });
@@ -1435,9 +1794,10 @@ function setupSheet(prevOpts) {
 /* ═══════════════════════════════════════════════════════════════════
    ONLINE — the chess-shaped controller js/mp.js drives for a
    two-seat room: start(o) / remote(d) / note / stop / live.
-   Both phones deal the same match from the room's shared seed and
-   only {a, i} ever crosses; every incoming move is re-checked by OUR
-   copy of the rules and refused by name if it does not fit.
+   Both phones deal the same match from the room's shared seed; only
+   small named payloads ever cross, and every incoming move is
+   re-checked by OUR copy of the rules and refused by name if it
+   does not fit.
    ═══════════════════════════════════════════════════════════════════ */
 function netSeed() {
   try { return (window.KARTI_MP.MP.seed >>> 0) || 1; } catch (e) { return 1; }
@@ -1450,36 +1810,33 @@ function iAmRoomHost() {
    THE HOUSE SETUP — how two phones agree they are playing THE SAME
    GAME, and then on the hand size
    ───────────────────────────────────────────────────────────────────
-   The rules of gin CHANGED on this build (the 45 game, house prices,
-   minus scoring). The mechanics of the early moves — take, draw,
-   throw — are byte-identical to the old build's, so two mismatched
-   phones would agree fingerprints right up until one of them scored
-   a hand the other refuses to understand. That is the silent-drift
-   shape the fingerprint exists to prevent, so it is prevented at the
-   door instead:
+   The rules of gin have now changed TWICE on this table (knock-era →
+   45-ends-it → the open game). The early moves — draw, throw — are
+   byte-identical across builds, so two mismatched phones would agree
+   fingerprints right up until one of them scored a hand the other
+   refuses to understand. Prevented at the door instead:
 
    1. BOTH PHONES SAY THE NEW WORD FIRST. Every board opens by
-      sending {a:'house45', i:hand} — the host with its hand size,
+      sending {a:'house45o', i:hand} — the host with its hand size,
       the guest with 0 as a plain ack. An OLD build receiving
-      'house45' refuses it by name ("a move gin rummy does not know
+      'house45o' refuses it by name ("a move gin rummy does not know
       how to make") and stops the room honestly before a card is
-      touched. An old build's own hello — {a:'house'}, or silence —
-      is refused here just as honestly (below). Two new builds pass
-      each other in the night and play.
-   2. THE ROOM'S OPENER IS THE HOUSE. Whoever opened the room plays
-      their own setup sheet's hand size; the guest deals ten, waits
-      for the hello, and re-deals if the house said thirteen —
-      re-dealing is free while the log is empty: same seed, same
-      everything, one field different.
+      touched. The old builds' own hellos — 'house45' (the
+      45-ends-it build) and 'house' (the knock build) — are refused
+      here just as honestly, each with its own truthful message.
+      Two new builds pass each other in the night and play.
+   2. THE ROOM'S OPENER IS THE HOUSE: their setup sheet's hand size
+      plays. The guest deals ten, waits for the hello, and re-deals
+      if the house said thirteen — free while the log is empty.
    3. THE GUEST DOES NOT TOUCH A CARD UNTIL IT KNOWS. houseReady()
-      keeps its thumbs off the felt until the hello has landed. If
-      nothing lands, the hello is said once more, and then the board
-      stops with the truth: the other phone is on the old rules.
-   4. AND THE FINGERPRINT IS THE BACKSTOP. hs and the 45 gate are
-      inside it, so even a phone that somehow lied through the hello
-      is refused on its very first scored move.
+      keeps thumbs off the felt until the hello lands; said once
+      more if it does not, then the board stops with the truth.
+   4. AND THE FINGERPRINT IS THE BACKSTOP: down/laid/table are all
+      inside it, so even a phone that lied through the hello is
+      refused on its very first scored move.
    ═══════════════════════════════════════════════════════════════════ */
 const HOUSE_WAIT = 2500;
+const HELLO = 'house45o';                        /* o for the OPEN game */
 
 function onlineStart(o) {
   const seed = netSeed();
@@ -1499,7 +1856,7 @@ function onlineStart(o) {
   P.ui.setNet(M.ctx, o.note || '', '');
 
   /* the hello — both phones, always (rule 1) */
-  try { o.send('move', { a: 'house45', i: host ? hand : 0 }, null); } catch (e) {}
+  try { o.send('move', { a: HELLO, i: host ? hand : 0 }, null); } catch (e) {}
   if (!host) houseClock();
 }
 
@@ -1508,14 +1865,13 @@ function houseClock() {
     if (!M || M.dead || !M.house || M.house.settled) return;
     M.houseTimer = 0;
     if (M.house.tries++ < 1) {
-      /* once more, in case the first hello crossed the join */
-      try { M.net.send('move', { a: 'house45', i: 0 }, null); } catch (e) {}
+      try { M.net.send('move', { a: HELLO, i: 0 }, null); } catch (e) {}
       houseClock();
       return;
     }
-    onlineStop('The other phone never said the new hello, which means it is still on ' +
-      'the old gin — knocking and deadwood. This build plays the house game: match 45, ' +
-      'put them out. Update both phones and deal again. Nothing was scored.', 'cheat');
+    onlineStop('The other phone never said the new hello, which means it is on an older ' +
+      'gin. This build plays the open game: put the 45 down, lay on anybody, first hand ' +
+      'empty wins +' + E.OUT_BONUS + '. Update both phones and deal again. Nothing was scored.', 'cheat');
   }, HOUSE_WAIT);
 }
 
@@ -1523,7 +1879,14 @@ function houseClock() {
    hand size and re-deals if the house plays thirteen. */
 function houseHello(n) {
   if (!M || !M.house) return { why: 'a house rule with no table under it' };
-  if (M.house.host) return null;               /* the guest's ack: nothing to set */
+  if (M.house.host) {
+    /* the guest's ack. Answer it with the hello AGAIN: if our first
+       hello raced the guest's board opening and was refused into the
+       void, this one lands. Idempotent — the guest settles once and
+       ignores repeats that agree — and bounded, because acks are. */
+    try { M.net.send('move', { a: HELLO, i: M.st.hs }, null); } catch (e) {}
+    return null;
+  }
   const want = n === 13 ? 13 : 10;
   if (M.house.settled) return (M.st.hs === want) ? null
     : { why: 'a change of hand size after the deal had started', desync: true };
@@ -1552,12 +1915,14 @@ function onlineRemote(d) {
 
   /* THE HOUSE SETUP FIRST, before the fingerprint is looked at — the
      whole point of the hello is that the two boards do not match yet */
-  if (d.m && d.m.a === 'house45') return houseHello(d.m.i | 0);
-  /* the OLD build's house packet: a thirteen-card room from the
-     knock-game era. Refused by name, not humoured. */
+  if (d.m && d.m.a === HELLO) return houseHello(d.m.i | 0);
+  /* the previous builds' hellos: refused by name, not humoured */
+  if (d.m && d.m.a === 'house45')
+    return { why: 'a gin hand under the PREVIOUS rules, where putting your cards down ' +
+      'ended the hand. This build plays the open game: update both phones' };
   if (d.m && d.m.a === 'house')
     return { why: 'a gin hand under the OLD rules — knocking and deadwood. This build ' +
-      'plays the house game (match 45, put them out): update both phones' };
+      'plays the open game: update both phones' };
 
   /* the table's own beats first: their phone may already have counted
      the hand its timer was still sitting on here */
@@ -1656,8 +2021,9 @@ P.register({
   id: 'gin', order: 34, kind: 'card', name: 'GIN RUMMY', mt: 'Il-Ġin',
   sprite: 'gn-t-gin', icon: 'cards', status: 'live',
   get tag() {
-    return 'The house rules: match 45 points of melds, put your cards out, and every card ' +
-      'they are still holding counts against them. Aces are 15 — and so is being caught with one.' +
+    return 'The house game: match 45, put it down face up, then feed the table — lay on ' +
+      'anybody’s melds and the points are yours. First hand played empty takes +' +
+      E.OUT_BONUS + '; whatever you are still holding counts against you.' +
       (ST.save ? ' There is a ' + (ST.save.opts && ST.save.opts.hand === 13 ? 'thirteen-card ' : '') +
                  'match of this half-played.' : '');
   },
@@ -1665,18 +2031,16 @@ P.register({
 });
 
 /* js/mp.js exports its game registry LIVE, precisely so a game file
-   can introduce itself without anybody editing mp.js. cleanGame()
-   and gameMeta() close over these same arrays. The relay must also
-   know the id — see the report: one word in server/karti_server.py
-   — and until it does, opening a gin room fails with mp.js's own
-   honest "that server cannot host…" message rather than anything
-   worse. */
+   can introduce itself without anybody editing mp.js. The relay must
+   also know the id — one word in server/karti_server.py — and until
+   it does, opening a gin room fails with mp.js's own honest "that
+   server cannot host…" message rather than anything worse. */
 (function teachLobby() {
   const MPX = window.KARTI_MP;
   if (!MPX || !Array.isArray(MPX.GAMES) || !Array.isArray(MPX.GAME_KEYS)) return;
   if (MPX.GAME_KEYS.indexOf('gin') >= 0) return;
   MPX.GAMES.push({ k: 'gin', name: 'Gin Rummy', short: 'GIN', icon: 'cards',
-    blurb: 'Match 45. Put them out.' });
+    blurb: 'Match 45. Open the table.' });
   MPX.GAME_KEYS.push('gin');
   if (MPX.SEATS_FALLBACK) MPX.SEATS_FALLBACK.gin = [2, 2, 2];
 })();
@@ -1692,13 +2056,15 @@ window.KARTI_GIN.lobby = {
   canStart: list => (list || []).length === 2
     ? { ok: true, why: '' } : { ok: false, why: 'Gin is a game for exactly two.' },
   rulesHTML: () => '<p>Gin rummy, house rules: aces 15, courts and tens 10, the rest 5. ' +
-    'Match 45 points of melds, then put your cards out — everything still in a hand counts ' +
-    'minus. Sunk at \u2212300 loses the match.</p>',
-  blurb: 'Match 45. Put them out.',
+    'Match 45 points of melds and put them down face up — that opens you, and the hand ' +
+    'carries on. Open players lay onto any meld on the table and the points go to whoever ' +
+    'laid the card; first hand played empty takes +' + E.OUT_BONUS + '. Whatever stays in ' +
+    'a hand counts minus. First to +300 takes the match.</p>',
+  blurb: 'Match 45. Open the table.',
   myName,
   start: () => { newGame({ lvl: ST.pref.lvl || 2, target: ST.pref.target || 300,
                           hand: ST.pref.hand === 13 ? 13 : 10 }); return true; },
-  wire: { fields: ['i'] },
+  wire: { fields: ['i', 'j', 'k'] },
   takeback: false
 };
 window.KARTI_GIN.open = () => setupSheet();
@@ -1715,6 +2081,7 @@ try {
         startMatch(s.opts, s.seed, s.log); M.arr = (s.arr || []).slice(); openBoard(); return true; },
       store: () => ST,
       fast: on => { FAST = !!on; },
+      spec: on => { if (M) { M.spec = !!on; render(); } },
       doMove, render, E,
       net: { start: onlineStart, remote: onlineRemote }
     };

@@ -2,56 +2,92 @@
    KARTI — gin.js
    GIN RUMMY, THE HOUSE GAME — the engine, and nothing but the engine.
 
-   THIS IS NOT HOYLE'S GIN ANY MORE. The owner plays his own game and
-   said so in three sentences, and this file is those three sentences
-   made precise:
+   THIS IS NOT HOYLE'S GIN. It is the owner's own game, built from his
+   own sentences, and the final telling came with a worked example:
 
-     "Only gin rummy u have to match for 45 points then put ur
-      cards out"
-     "If u dont put down the cards it will count to -"
      "2-9 is 5 points, 10 j q k 10 points, 1 is 15 points"
+     "every turn in gin rummy u need to pick a new card, only first
+      turn can pick last discarded card"  — and, asked to choose:
+      "Always a new card off the deck."
+     "when 45 points u throw down those cards out, everybody will see"
+     "i have 3 A thats 45 points. if someone have 1 2 3 4 diamonds
+      etc thats 30, then they put clubs 5 6 7 thats 45. those two
+      players they can lay their hand on other opponents out cards.
+      example if the second guy in his turn have A and i have 3 he
+      can close my ace pile and take 15 points direct to his table"
+     "everyone can make point. the winner will get 50 extra points
+      for finishing it with no cards in hand. if no one finishes the
+      pile will be re-decked and shuffled"
+     "If u dont put down the cards it will count to -"
 
-   So:
+   So, precisely:
      · CARD PRICES — 2..9 are 5, ten and the courts are 10, the ACE
-       is 15. Three aces are exactly 45; the values and the threshold
-       were clearly designed together and are kept together here.
-     · YOU MAY NOT PUT YOUR CARDS OUT until the melds you are putting
-       out are worth 45 POINTS OR MORE. There is no knocking and no
-       deadwood limit: 45 in melds is the one and only gate.
-     · PUTTING THEM OUT ENDS THE HAND. The opener's melds count FOR
-       them, and every card still in a hand — the opener's loose
-       cards AND the other player's entire hand, melds or not —
-       counts AGAINST whoever is holding it. "If u dont put down the
-       cards it will count to -": nothing that stayed in a hand ever
-       scores a point.
-     · THE STOCK NEVER DIES. When it runs down the discard pile (all
-       but its top card) is shuffled straight back in, because in
-       this game somebody always gets to 45 — a hand that ends with
-       nobody putting cards out is not a hand. (Backstop: after two
-       full recycles the hand is called off and both sides count
-       their hands minus, which the simulator has never once seen
-       happen with either machine at the table.)
-     · THE MATCH is first to +TARGET — or first to sink to −TARGET,
-       who loses it, whichever comes first. The floor matters because
-       the scoring is minus-heavy: the loser of a hand drops more
-       than the winner gains, so most matches END at the floor. The
-       measurements behind the number are below at SIZES.
-     · No gin bonus, no undercut, no boxes, no game bonus. The owner
-       named none of them and the scoring above already pays a clean
-       sweep (everything melded, nothing loose) all it deserves.
+       is 15. His own example checks out against them: three aces
+       are 45 on the nose; A-2-3-4 of diamonds is 30 and clubs 5-6-7
+       is 15, together 45. The 45 is a TOTAL ACROSS MELDS, not one
+       meld's worth (and the solver's meldValOf() is exactly that
+       total).
+     · THE TURN, for everybody, open or not: DRAW ONE CARD FROM THE
+       DECK, THEN DISCARD ONE. The one exception in the whole game:
+       on the FIRST turn of a hand the player to move may take the
+       last discarded card (the dealt upcard) instead of drawing.
+     · THE SPREAD IS A RECORD, NOT A SOURCE. Discards are laid out
+       face up, left to right in the order thrown, row under row, so
+       everyone can see what has gone — and NOBODY takes from it.
+       (An earlier pass of this build let open players sweep it;
+       the owner chose "always a new card off the deck" and the
+       sweep is deleted, not switched off.)
+     · MATCH 45 AND PUT THEM DOWN: when the melds in your hand total
+       45 or more you may put them out, face up on the table, in one
+       go. That OPENS you. It does NOT end the hand.
+     · OPEN PLAYERS CONTROL THE TABLE: on their turn, after drawing,
+       they may put down further melds and lay single cards from
+       their hand onto ANY meld on the table — their own or the
+       other side's — and every card laid scores for WHOEVER LAID
+       IT. The fourth ace on somebody's three aces takes 15 points
+       "direct to his table". A set closes at four of its rank; a
+       run grows off either end (ace low).
+     · THE HAND ENDS when somebody's discard leaves their hand
+       EMPTY. They collect OUT_BONUS (50) on top. Then the count:
+       every point you LAID counts plus; everything still IN a hand
+       counts minus — open or not, melds or not, because "if u dont
+       put down the cards it will count to -".
+     · NOBODY OUT, DECK DRY: the spread (all but its newest card) is
+       shuffled straight back into the deck and play continues.
+       Backstops for the truly pathological table are at the
+       constants below.
+     · THE MATCH is first to +TARGET — or first THROUGH THE FLOOR at
+       -TARGET, who loses it. Measured numbers at SIZES.
 
-   WHAT SURVIVED FROM THE OLD FILE, because it was never about
-   Hoyle: the deck shape, the seeded RNG whose entire state is one
-   integer in st.rs, the meld solver with its memo, and the
-   deterministic replay discipline — (opts, seed, log) rebuilds the
-   match to the bit, so undo, autosave and two phones in lockstep are
-   all the same operation. What DIED: knocking, deadwood limits,
-   lay-offs against the knocker, gin/undercut/box/game bonuses, and
-   the whole tally of Hoyle's match arithmetic.
+   ── DECISIONS THE OWNER HAS NOT RULED ON — one place, each
+      flippable (the constants sit together below) ──
+     · FIRST_TAKE_PLY: "only first turn can pick last discarded
+       card" is read as the FIRST TURN OF THE HAND (the non-dealer's
+       opening turn, classic gin's upcard offer with no pass-around).
+       Raise the constant to 2 to give each player's first turn the
+       option instead.
+     · OUT_BONUS = 50 (he typed "59"; 50 confirmed). One constant.
+     · LAY_ON_FOE = true: laying off onto the OTHER side's melds is
+       what his fourth-ace example does. false walls the tables off.
+     · OPENING IS ATOMIC AND SOLVER-ARRANGED: {t:'down',c} discards
+       c and lays the best arrangement of the rest in one move. You
+       cannot hold a meld back while opening; on LATER turns you
+       hold cards back simply by not laying them. Keeps the wire
+       tiny and the two phones bit-identical.
+     · THE UPCARD YOU TOOK may not bounce straight back (classic
+       rule, and without it the first turn can be a null move). One
+       exception: if it is the last card in your hand.
 
-   TEN CARDS OR THIRTEEN. Ten stays the default; thirteen stays an
-   option, with the SAME 45-point gate — see SIZES for why the gate
-   does not move with the hand.
+   WHAT SURVIVED FROM THE LAST BUILD: the deck shape, the seeded RNG
+   whose whole state is one integer in st.rs, the meld solver with
+   its memo (now with a branch-and-bound, kept from the sweep
+   experiment — it makes big hands instant and changes no answer),
+   and the replay discipline: (opts, seed, log) rebuilds the match
+   to the bit, so undo, autosave and two phones in lockstep are all
+   the same operation. What DIED in this pass: laying down ending
+   the hand (it OPENS you now), knocking's whole family (long gone),
+   the up0/up1 take-or-pass ritual (the first-turn take is one plain
+   option in 'main'), and the short-lived spread sweep.
 
    Loads in the browser (window.KARTI_GIN.E) and in Node
    (module.exports), so the simulation harness drives the exact code
@@ -95,13 +131,16 @@ const clone = o => JSON.parse(JSON.stringify(o));
    Every meld a hand could contain — every set of three or four of a
    rank, every run of three or more in a suit INCLUDING its sub-runs,
    because a card shared between a possible set and a possible run is
-   exactly where sub-runs start to matter — then a straight search
-   over disjoint combinations for the least deadwood VALUE. Under the
-   house prices, minimising the value of the loose cards is the same
-   thing as MAXIMISING THE VALUE OF THE MELDS (the hand's total is
-   fixed), so the one search answers both "how much can I put out"
-   and "how little will I be caught holding". The answer is memoised
-   (see below), which is what keeps a big hand instant on a phone.
+   exactly where sub-runs start to matter — then a search over
+   disjoint combinations for the least loose VALUE. Minimising the
+   value of the loose cards is the same thing as MAXIMISING THE VALUE
+   OF THE MELDS (the hand's total is fixed), so the one search
+   answers both "how much can I put down" and "how little will I be
+   caught holding". Memoised, and carrying a branch-and-bound —
+   candidates sorted dear-first, and a suffix bound (the value of
+   every distinct card still reachable) prunes any line that can no
+   longer beat the best. Pure in, pure out: the pruning and the
+   cache change the time, never the answer.
 
    best(cards) -> { dw, melds:[[c,...],...], dead:[c,...] }
      dw is the VALUE of the loose cards at house prices; the meld
@@ -142,14 +181,11 @@ function candidates(cards) {
 }
 
 /* ── the memo ──────────────────────────────────────────────────────
-   best() is a small search, but it is called for every candidate
-   discard of an over-full hand, on every turn, by the AI and the
-   dashboard and the open test — thousands of times a match and
-   millions across a simulation sweep. The answer depends on nothing
-   but the multiset of cards, so it is cached on the sorted key. Pure
-   in, pure out: the cache cannot change a single result, only the
-   time it takes to get it. Bounded so a long session cannot grow it
-   without limit. */
+   best() is called for every candidate discard, every dashboard
+   repaint, every lay the machine weighs — thousands of times a
+   match, millions across a simulation sweep. The answer depends on
+   nothing but the multiset of cards, so it is cached on the sorted
+   key. Bounded so a long session cannot grow it without limit. */
 const MEMO = new Map();
 const MEMO_MAX = 40000;
 function memoKey(cards) {
@@ -172,13 +208,30 @@ function best(cards) {
 
 function bestUncached(cards) {
   const cs = candidates(cards);
-  let bestDw = handPts(cards);
-  let arrs = [[]];                            /* arrangements at bestDw */
+  /* dear melds first: better first answers, sharper pruning. sort()
+     is stable, so equal-value ties keep generation order and the
+     answer stays deterministic across phones. */
+  cs.sort((a, b) => handPts(b) - handPts(a));
+  /* suffix bound: the value of every DISTINCT card that appears in
+     any candidate from i on — no line through cs[i..] can meld more
+     than that, however the melds are chosen. */
+  const bound = new Array(cs.length + 1).fill(0);
+  {
+    const seen = new Set();
+    for (let i = cs.length - 1; i >= 0; i--) {
+      bound[i] = bound[i + 1];
+      for (const c of cs[i]) if (!seen.has(c)) { seen.add(c); bound[i] += pts(c); }
+    }
+  }
+  const total = handPts(cards);
+  let bestDw = total;                          /* i.e. best melded value 0 */
+  let arrs = [[]];                             /* arrangements at bestDw */
   const used = new Set();
 
   function dfs(i, melds, melded) {
+    if (melded.pts + bound[i] < total - bestDw) return;   /* cannot beat it */
     if (i >= cs.length) {
-      const dw = handPts(cards) - melded.pts;
+      const dw = total - melded.pts;
       if (dw < bestDw) { bestDw = dw; arrs = [melds.slice()]; }
       else if (dw === bestDw && arrs.length < MAX_ARR) arrs.push(melds.slice());
       return;
@@ -211,11 +264,11 @@ function bestUncached(cards) {
            dead: shape(arrs[0] || []).dead };
 }
 
-/* the value the melds of this hand can be put out for */
+/* the value the melds of this hand could be put down for */
 function meldValOf(cards) { return handPts(cards) - best(cards).dw; }
 
 /* the least loose VALUE this over-full hand can reach by discarding
-   one card, and which discards reach it (the dashboard's number) */
+   one card, and which discards reach it */
 function bestDiscard(cards, banned) {
   let bd = Infinity;
   const picks = [];
@@ -229,70 +282,69 @@ function bestDiscard(cards, banned) {
   return { dw: bd, picks };
 }
 
-/* the best PUT-THEM-OUT available to an over-full hand: among the
-   discards whose remaining melds reach the gate, the one that nets
-   the most (melds minus loose). null if the gate is out of reach.
-   The UI's button and the machine's decision both read this, so
-   they can never disagree about what going out is worth. */
-function bestDown(st, cards, banned) {
-  let out = null;
-  for (const c of cards) {
-    if (banned != null && c === banned) continue;
-    const rest = cards.filter(x => x !== c);
-    const b = best(rest);
-    const mv = handPts(rest) - b.dw;
-    if (mv < st.open) continue;
-    const net = mv - b.dw;
-    if (!out || net > out.net || (net === out.net && c < out.c))
-      out = { c, mv, dw: b.dw, net };
-  }
-  return out;
+/* ── melds ON THE TABLE: shape tests the lay-offs need ──────────── */
+function isSet(cs) {
+  if (cs.length < 3 || cs.length > 4) return false;
+  const r = rankOf(cs[0]);
+  return cs.every(c => rankOf(c) === r);
 }
+function isRun(cs) {
+  if (cs.length < 3) return false;
+  const s = suitOf(cs[0]);
+  if (!cs.every(c => suitOf(c) === s)) return false;
+  const rs = cs.map(rankOf).sort((a, b) => a - b);
+  for (let i = 1; i < rs.length; i++) if (rs[i] !== rs[i - 1] + 1) return false;
+  return true;
+}
+function validMeld(cs) { return isSet(cs) || isRun(cs); }
+/* may card c be laid on this table meld? A set CLOSES at four of its
+   rank (his own words: the fourth ace "closes my ace pile"); a run
+   grows off either end, ace low only, as in the solver. */
+function canExtend(cs, c) {
+  const r0 = rankOf(cs[0]);
+  if (cs.every(x => rankOf(x) === r0)) {                  /* a set */
+    return cs.length < 4 && rankOf(c) === r0;
+  }
+  if (suitOf(c) !== suitOf(cs[0])) return false;          /* a run */
+  let lo = 14, hi = 0;
+  for (const x of cs) { const r = rankOf(x); if (r < lo) lo = r; if (r > hi) hi = r; }
+  return rankOf(c) === lo - 1 || rankOf(c) === hi + 1;
+}
+const meldSort = m => m.sort((a, b) => rankOf(a) - rankOf(b) || suitOf(a) - suitOf(b));
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE STATE
-   phases:
-     up0     non-dealer looks at the first upcard: take or pass
-     up1     the dealer gets the same look after a pass
-     draw1   both passed — the non-dealer MUST draw from the stock
-     main    the player to move draws: stock or pile
-     off     they hold one over the hand size and must put one back
-     tally   seat -1: the hand is counted
-     shuffle seat -1: the next hand is dealt
-     over    somebody crossed the target — or sank to the floor
+   THE CONSTANTS — and the flippable decisions, all in one place
+   (the header explains each; change them HERE and nowhere else)
    ═══════════════════════════════════════════════════════════════════ */
-const OPEN_MIN = 45;                /* melds you must show to put cards out */
-const TARGET = 300;                 /* the default match, measured below */
-const RECYCLE_MAX = 2;              /* backstop; simulated matches never hit it */
+const OPEN_MIN = 45;          /* meld points you must put down in one go to open */
+const OUT_BONUS = 50;         /* "50 extra points for finishing with no cards in hand" */
+const FIRST_TAKE_PLY = 1;     /* plies on which the upcard may be taken: the
+                                 hand's first turn only. 2 = both players' first */
+const LAY_ON_FOE = true;      /* open players may lay onto the other side's melds */
+const TARGET = 300;           /* the default match, measured below */
+const RECYCLE_MAX = 4;        /* re-decks before the hand is called off dead */
+const PLIES_MAX = 240;        /* absolute backstop; machines never get near it */
 
 /* ═══════════════════════════════════════════════════════════════════
    TWO HAND SIZES, ONE GATE — the measurements
    ───────────────────────────────────────────────────────────────────
-   From the simulation harness driving THIS file, tal-każin against
-   tal-każin, 400 matches per setting (full workings in the report).
-   Predictions made before the sweep and overturned by it are marked,
-   because the temptation to "fix" these numbers later will come back:
-
-     · TEN CARDS: a dealt hand averages 73 points. A hand is a SPRINT
-       — ~7 plies and somebody is at 45 (the old knock game ran ~13).
-       The opener puts out ~54 in melds holding ~18 loose (net ~+36);
-       the caught hand counts ~-69. The stock recycle almost never
-       fires against machines (0 backstop deaths in 4,219 hands) but
-       stays: two hoarding HUMANS can still run the stock down.
-     · THIRTEEN CARDS, SAME 45 GATE: more meld material, so the gate
-       falls even sooner (~5 plies) and the caught hand is dearer
-       (~-91). The gate is NOT raised to match: the owner's number is
-       45, and thirteen is simply the faster, swingier table. The
-       option copy says so.
-     · TARGET 300, and the FLOOR is the game. Predicted: matches end
-       at +300. Measured: essentially NO match ends over the top
-       (1 in 300 at the loosest setting) — the loser of a hand drops
-       roughly twice what the winner gains, so every match ends with
-       somebody THROUGH THE FLOOR at −300. The match is a survival
-       race and the rules card says so honestly. Swept 150/200/250/
-       300/400 → 4.5/6.4/8.5/10.6/15.2 hands a match at ten cards:
-       300 matches the old game's ~10-hand feel and ships as the
-       default; 150 (~4 hands) ships as the quick one.
+   From the simulation harness driving THIS file (in-nannu against
+   in-nannu, seeds shared, seats swapped; full workings in the
+   report). The numbers are updated whenever the rules move:
+     · TEN CARDS: the 45 goes down around ply 18 and the hand ends
+       around ply 36 when the opener (usually) plays out — ~39 plies
+       a hand, ~3% called off dead on the backstops. A hand is worth
+       about +72 A SIDE on average: this scoring is POSITIVE-SUM
+       (laid points and the out bonus outweigh caught hands), so
+       measured matches end OVER THE TOP, essentially never at the
+       floor. The floor stays as the mercy rule for a run of truly
+       caught hands; the match itself is a race UP.
+     · THIRTEEN CARDS: the gate falls at ~ply 13, hands end sooner
+       (~ply 31), a hand is worth ~+95 a side, ~9% die on the
+       backstop — the swingier, bigger-table game, same 45.
+     · TARGET 300 = ~3.5 hands a match at ten cards; 150 = ~2 and
+       ships as the quick one. (Sweep: 150/200/300/400/500 →
+       1.9/2.5/3.5/4.6/5.9 hands.)
    ═══════════════════════════════════════════════════════════════════ */
 const SIZES = {
   10: { hand: 10, open: OPEN_MIN, floor: 2, target: TARGET },
@@ -300,6 +352,21 @@ const SIZES = {
 };
 function sizeOf(n) { return SIZES[n] || SIZES[10]; }
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE STATE
+   phases:
+     main    the player to move picks up: the deck — or, on the
+             hand's first turn only, the last discarded card
+     act     they hold the pick: open / lay (if open) / always
+             discard exactly one
+     tally   seat -1: the hand is counted
+     shuffle seat -1: the next hand is dealt
+     over    somebody crossed the target — or sank to the floor
+   The open game lives in: st.down[2] (who is open), st.laid[2]
+   (points each side has put on the table), st.table (the melds
+   down, in the order laid, each knowing who STARTED it), st.picked
+   (the upcard just taken, which may not bounce straight back).
+   ═══════════════════════════════════════════════════════════════════ */
 function dealHand(st) {
   const d = [];
   for (let i = 0; i < 52; i++) d.push(i);
@@ -311,12 +378,15 @@ function dealHand(st) {
     st.seats[nd].hand.push(d.pop());
     st.seats[st.dealer].hand.push(d.pop());
   }
-  st.discard = [d.pop()];
+  st.discard = [d.pop()];                      /* the spread starts one card long */
   st.stock = d;
   st.turn = nd;
-  st.phase = 'up0';
+  st.phase = 'main';
   st.drew = null;
-  st.taken = [[], []];                         /* pile cards each side took: public */
+  st.picked = null;
+  st.down = [false, false];
+  st.laid = [0, 0];
+  st.table = [];
   st.reveal = null;
   st.plies = 0;
   st.recycles = 0;
@@ -342,7 +412,8 @@ function deal(opts, seed) {
     ],
     dealer: 0,
     stock: [], discard: [],
-    turn: 0, phase: 'up0', drew: null, taken: [[], []], reveal: null,
+    turn: 0, phase: 'main', drew: null, picked: null,
+    down: [false, false], laid: [0, 0], table: [], reveal: null,
     handNo: 1, plies: 0, moves: 0, recycles: 0,
     match: { pts: [0, 0], boxes: [0, 0], book: [], target: opts.target || S.target },
     final: null
@@ -368,25 +439,93 @@ function over(st) { return st.phase === 'over' ? st.final : null; }
 
 function upTop(st) { return st.discard.length ? st.discard[st.discard.length - 1] : -1; }
 
+/* the upcard-you-took ban, with its one exception (the last card may
+   always be thrown — otherwise a hand of one could deadlock) */
+function bannedOf(st, seat) {
+  return (st.picked != null && st.seats[seat].hand.length > 1) ? st.picked : null;
+}
+
+/* THE ATTENTION PENALTY, the owner's rule in his own words: "someone
+   can try to discard, but if discard can be put on someone, they
+   will need to put other and they will have there card back, then
+   next turn they can place it in that person. This is penalty for
+   not paying attention."
+   An OPEN player may not throw away a card that has a home on the
+   table: the discard is refused and the card stays in their hand.
+   Closed players are exempt (they are not allowed to lay off, so
+   they cannot be punished for not doing it), and the LAST card in a
+   hand always goes through (laying it is impossible — one card must
+   remain to discard — so the turn must be allowed to end).
+   The turn can always be completed: while the hand is 2+ and a card
+   fits the table, LAYING that card is legal by the same test, so
+   "put it where it belongs" is available whenever "throw it away"
+   is refused. */
+function discRefused(st, seat, c) {
+  return !!(st.down[seat] && st.seats[seat].hand.length > 1 &&
+            extendsTable(st, seat, c));
+}
+
+/* may the player to move take the last discarded card? Only on the
+   hand's opening turn — after that the spread is a record. */
+function canTakeUp(st) {
+  return st.plies < FIRST_TAKE_PLY && st.discard.length > 0;
+}
+
+/* the best OPENING available to an over-full closed hand: the
+   discard whose remaining melds are worth the most, if any reach
+   the gate. The UI's button and the machine's decision both read
+   this, so they can never disagree about what opening is worth. */
+function bestOpen(st, cards) {
+  let out = null;
+  for (const c of cards) {
+    const rest = cards.filter(x => x !== c);
+    const b = best(rest);
+    const mv = handPts(rest) - b.dw;
+    if (mv < st.open) continue;
+    if (!out || mv > out.mv || (mv === out.mv && (b.dw < out.dw ||
+        (b.dw === out.dw && c < out.c))))
+      out = { c, mv, dw: b.dw, net: mv - b.dw };
+  }
+  return out;
+}
+
 function legal(st, seat) {
   const t = turn(st);
   if (t !== seat) return [];
   switch (st.phase) {
-    case 'up0': case 'up1':
-      return [{ t: 'take' }, { t: 'pass' }];
-    case 'draw1':
-      return [{ t: 'draw' }];
-    case 'main':
-      return [{ t: 'draw' }, { t: 'take' }];
-    case 'off': {
-      const h = st.seats[seat].hand;
-      const banned = (st.drew && st.drew.from === 'pile') ? st.drew.c : null;
+    case 'main': {
       const out = [];
-      for (const c of h) {
-        if (c === banned) continue;
-        out.push({ t: 'disc', c });
-        const rest = h.filter(x => x !== c);
-        if (handPts(rest) - best(rest).dw >= st.open) out.push({ t: 'down', c });
+      if (st.stock.length) out.push({ t: 'draw' });
+      if (canTakeUp(st)) out.push({ t: 'take' });
+      return out;
+    }
+    case 'act': {
+      const h = st.seats[seat].hand;
+      const banned = bannedOf(st, seat);
+      const out = [];
+      for (const c of h)
+        if (c !== banned && !discRefused(st, seat, c)) out.push({ t: 'disc', c });
+      if (!st.down[seat]) {
+        for (const c of h) {
+          const rest = h.filter(x => x !== c);
+          if (handPts(rest) - best(rest).dw >= st.open) out.push({ t: 'down', c });
+        }
+      } else {
+        if (h.length >= 4) {
+          const seen = new Set();
+          for (const m of candidates(h)) {
+            if (h.length - m.length < 1) continue;      /* keep one to discard */
+            const k = memoKey(m);
+            if (seen.has(k)) continue;
+            seen.add(k);
+            out.push({ t: 'meld', cs: m.slice() });
+          }
+        }
+        if (h.length >= 2)
+          for (const c of h)
+            for (let ti = 0; ti < st.table.length; ti++)
+              if ((LAY_ON_FOE || st.table[ti].by === seat) && canExtend(st.table[ti].cs, c))
+                out.push({ t: 'lay', c, m: ti });
       }
       return out;
     }
@@ -401,23 +540,41 @@ function check(st, mv, seat) {
   if (!mv || typeof mv.t !== 'string') return false;
   const t = turn(st);
   if (t !== seat) return false;
+  const h = st.seats[seat] ? st.seats[seat].hand : [];
   switch (st.phase) {
-    case 'up0': case 'up1':
-      return mv.t === 'take' || mv.t === 'pass';
-    case 'draw1':
-      return mv.t === 'draw';
     case 'main':
-      return mv.t === 'draw' || mv.t === 'take';
-    case 'off': {
-      if (mv.t !== 'disc' && mv.t !== 'down') return false;
-      const h = st.seats[seat].hand;
-      if (h.indexOf(mv.c) < 0) return false;
-      if (st.drew && st.drew.from === 'pile' && mv.c === st.drew.c) return false;
+      if (mv.t === 'draw') return st.stock.length > 0;
+      if (mv.t === 'take') return canTakeUp(st);
+      return false;
+    case 'act': {
+      if (mv.t === 'disc') {
+        if (h.indexOf(mv.c) < 0) return false;
+        if (mv.c === bannedOf(st, seat)) return false;
+        return !discRefused(st, seat, mv.c);   /* the attention penalty */
+      }
       if (mv.t === 'down') {
+        if (st.down[seat] || h.indexOf(mv.c) < 0) return false;
         const rest = h.filter(x => x !== mv.c);
         return handPts(rest) - best(rest).dw >= st.open;
       }
-      return true;
+      if (mv.t === 'meld') {
+        if (!st.down[seat] || !Array.isArray(mv.cs) || mv.cs.length < 3) return false;
+        if (h.length - mv.cs.length < 1) return false;      /* keep one to discard */
+        const seen = new Set();
+        for (const c of mv.cs) {
+          if (h.indexOf(c) < 0 || seen.has(c)) return false;
+          seen.add(c);
+        }
+        return validMeld(mv.cs);
+      }
+      if (mv.t === 'lay') {
+        if (!st.down[seat] || h.indexOf(mv.c) < 0 || h.length < 2) return false;
+        const tm = st.table[mv.m | 0];
+        if (!tm) return false;
+        if (!LAY_ON_FOE && tm.by !== seat) return false;
+        return canExtend(tm.cs, mv.c);
+      }
+      return false;
     }
     case 'tally': return mv.t === 'tally';
     case 'shuffle': return mv.t === 'next';
@@ -425,8 +582,9 @@ function check(st, mv, seat) {
   return false;
 }
 
-/* the pile, all but its top card, shuffled back into the stock —
-   seeded, so both phones deal the same refill */
+/* the spread, all but its newest card, shuffled back into the deck —
+   seeded, so both phones deal the same refill. "if no one finishes
+   the pile will be re-decked and shuffled." */
 function recycle(st) {
   const top = st.discard.pop();
   const back = st.discard;
@@ -436,47 +594,63 @@ function recycle(st) {
   st.recycles++;
 }
 
-/* ── the count, once somebody has put their cards out ─────────────
-   Opener: melds count plus, their loose cards count minus.
-   The other hand: EVERY card counts minus — melds included, because
-   they were never put down, and "if u dont put down the cards it
-   will count to -". No lay-offs: there is nothing to lay off onto,
-   the hand is over. */
+/* every turn ends here, after the discard (or the opening, which
+   carries its own discard): out? backstopped? refill the deck? */
+function endTurn(st, seat) {
+  if (st.seats[seat].hand.length === 0) {      /* played the hand EMPTY: out */
+    st.reveal = { seat };
+    st.phase = 'tally';
+    return;
+  }
+  if (st.plies >= PLIES_MAX) {                 /* the absolute backstop */
+    st.reveal = { dead: true };
+    st.phase = 'tally';
+    return;
+  }
+  if (st.stock.length <= st.floor && st.discard.length > 1) {
+    if (st.recycles >= RECYCLE_MAX) {
+      st.reveal = { dead: true };
+      st.phase = 'tally';
+      return;
+    }
+    recycle(st);
+    st.last.recycled = true;
+  }
+  if (!st.stock.length) {                      /* nothing left to pick anywhere */
+    st.reveal = { dead: true };
+    st.phase = 'tally';
+    return;
+  }
+  st.phase = 'main';
+  st.turn = 1 - seat;
+}
+
+/* ── the count, once somebody has played their hand empty ─────────
+   What you LAID counts plus — credited to whoever laid it, meld or
+   lay-off — and the out player collects OUT_BONUS on top. What is
+   still IN a hand counts minus, open or not, melds or not, because
+   it was never put down. */
 function settle(st) {
   const rv = st.reveal;
   const row = { hand: st.handNo, dealer: st.dealer };
+  const held = [handPts(st.seats[0].hand), handPts(st.seats[1].hand)];
+  const delta = [st.laid[0] - held[0], st.laid[1] - held[1]];
   if (rv.dead) {
-    /* the backstop: two full recycles and still nobody at 45.
-       Everybody is holding cards nobody put down: both count minus. */
-    const l0 = handPts(st.seats[0].hand), l1 = handPts(st.seats[1].hand);
     row.dead = true;
-    row.loss = [l0, l1];
     row.win = -1;
-    st.match.pts[0] -= l0;
-    st.match.pts[1] -= l1;
-    rv.kMelds = []; rv.kDead = [];
   } else {
-    const k = rv.seat, d = 1 - k;
-    const kb = best(st.seats[k].hand);
-    const meld = handPts(st.seats[k].hand) - kb.dw;
-    const loss = handPts(st.seats[d].hand);
-    row.opener = k;
-    row.win = k;
-    row.meld = meld;                 /* what they put out */
-    row.loose = kb.dw;               /* what they were still holding */
-    row.gain = meld - kb.dw;         /* their score for the hand */
-    row.loss = loss;                 /* the other hand, all of it, minus */
-    row.out = kb.dw === 0;           /* the clean sweep: every card out */
-    /* COPIES, not the solver's own arrays — best() is memoised and
-       what it returns is shared with every caller of the same hand. */
-    rv.kMelds = kb.melds.map(m => m.slice());
-    rv.kDead = kb.dead.slice();
-    rv.dHand = st.seats[d].hand.slice();
-    st.match.pts[k] += row.gain;
-    st.match.pts[d] -= loss;
-    st.match.boxes[k]++;
-    st.dealer = k;                   /* the winner of the hand deals the next */
+    delta[rv.seat] += OUT_BONUS;
+    row.win = rv.seat;                         /* who went out */
+    row.out = true;
+    row.bonus = OUT_BONUS;
+    st.match.boxes[rv.seat]++;
+    st.dealer = rv.seat;                       /* who went out deals the next */
   }
+  row.laid = st.laid.slice();
+  row.held = held;
+  row.delta = delta;
+  st.match.pts[0] += delta[0];
+  st.match.pts[1] += delta[1];
   st.match.book.push(row);
 
   /* the match: over the top, or through the floor — whichever first */
@@ -495,7 +669,7 @@ function settle(st) {
     st.final = {
       winner: w, how,
       raw: p.slice(),
-      total: p.slice(),              /* no bonuses: the totals ARE the points */
+      total: p.slice(),              /* no boxes-bonus arithmetic: these ARE the points */
       boxes: st.match.boxes.slice(),
       hands: st.match.book.filter(r => !r.dead).length
     };
@@ -507,59 +681,75 @@ function apply(st, mv) {
   st.moves++;
   st.last = { t: mv.t, seat };
   switch (mv.t) {
-    case 'take': {
+    case 'take': {                             /* the first-turn upcard */
       const c = st.discard.pop();
       st.seats[seat].hand.push(c);
+      st.picked = c;
       st.drew = { seat, from: 'pile', c };
-      st.taken[seat].push(c);
       st.last.c = c;
-      st.phase = 'off';
+      st.phase = 'act';
       st.turn = seat;
-      break;
-    }
-    case 'pass': {
-      if (st.phase === 'up0') { st.phase = 'up1'; st.turn = st.dealer; }
-      else { st.phase = 'draw1'; st.turn = 1 - st.dealer; }
       break;
     }
     case 'draw': {
       const c = st.stock.pop();
       st.seats[seat].hand.push(c);
+      st.picked = null;
       st.drew = { seat, from: 'stock', c };
       st.last.c = c;
-      st.phase = 'off';
+      st.phase = 'act';
       st.turn = seat;
       break;
     }
-    case 'disc': {
+    case 'down': {                             /* the opening: discard + lay the 45 */
       const h = st.seats[seat].hand;
       h.splice(h.indexOf(mv.c), 1);
       st.discard.push(mv.c);
+      const b = best(h);
+      for (const m of b.melds) {
+        const cs = meldSort(m.slice());
+        st.table.push({ cs, by: seat });
+        st.laid[seat] += handPts(cs);
+        for (const c of cs) h.splice(h.indexOf(c), 1);
+      }
+      st.down[seat] = true;
       st.drew = null;
+      st.picked = null;
       st.plies++;
       st.last.c = mv.c;
-      if (st.stock.length <= st.floor) {
-        if (st.recycles >= RECYCLE_MAX) {      /* the backstop */
-          st.reveal = { dead: true };
-          st.phase = 'tally';
-          break;
-        }
-        recycle(st);
-        st.last.recycled = true;
-      }
-      st.phase = 'main';
-      st.turn = 1 - seat;
+      st.last.n = st.laid[seat];
+      endTurn(st, seat);
       break;
     }
-    case 'down': {
+    case 'meld': {                             /* an open player lays a new meld */
+      const h = st.seats[seat].hand;
+      const cs = meldSort(mv.cs.slice());
+      for (const c of cs) h.splice(h.indexOf(c), 1);
+      st.table.push({ cs, by: seat });
+      st.laid[seat] += handPts(cs);
+      st.last.n = handPts(cs);
+      break;                                   /* still their turn: 'act' holds */
+    }
+    case 'lay': {                              /* one card onto a table meld */
+      const h = st.seats[seat].hand;
+      h.splice(h.indexOf(mv.c), 1);
+      const tm = st.table[mv.m | 0];
+      tm.cs.push(mv.c);
+      meldSort(tm.cs);
+      st.laid[seat] += pts(mv.c);
+      st.last.c = mv.c;
+      st.last.m = mv.m | 0;
+      break;                                   /* still their turn */
+    }
+    case 'disc': {                             /* every turn ends with one */
       const h = st.seats[seat].hand;
       h.splice(h.indexOf(mv.c), 1);
       st.discard.push(mv.c);
       st.drew = null;
+      st.picked = null;
       st.plies++;
       st.last.c = mv.c;
-      st.reveal = { seat };
-      st.phase = 'tally';
+      endTurn(st, seat);
       break;
     }
     case 'tally': {
@@ -577,11 +767,14 @@ function apply(st, mv) {
 }
 
 /* a short honest fingerprint of the position — travels with every
-   online move so drift is caught, not lied about. st.open is in it:
-   a phone still playing the knock game can never quietly score a
-   hand against one playing this game. */
+   online move so drift is caught, not lied about. The open flags,
+   the laid points and the table are all in it: a phone playing any
+   earlier gin (knock-era, or the lay-down-ends-it build) can never
+   quietly score a hand against this one. */
 function fingerprint(st) {
   const s = [st.rs, st.moves, st.phase, st.turn, st.dealer, st.open,
+    st.down.join(''), st.laid.join('/'), st.picked == null ? '' : st.picked,
+    st.table.map(t => t.by + ':' + t.cs.join('.')).join(';'),
     st.seats[0].hand.slice().sort((a, b) => a - b).join(','),
     st.seats[1].hand.slice().sort((a, b) => a - b).join(','),
     st.stock.length, st.discard.join(','),
@@ -592,65 +785,46 @@ function fingerprint(st) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE MACHINE — three of them, all playing THIS game: the race is to
-   45 points of melds, and the fear is being caught holding a hand.
+   THE MACHINE — three of them, all playing THIS game: race to put
+   the 45 down, because open is where the points are; then feed the
+   table every card that fits — the other side's melds very much
+   included — and be the first hand empty, for the 50.
 
-   THE GAME IS A SPRINT, AND THE SIMULATOR PROVED IT THE HARD WAY.
-   Every prediction about clever play was tested head-to-head over
-   400 matches a pairing (seeds shared, seats swapped) and most of
-   them LOST to the plain line:
-
-     · PATIENCE LOSES. Holding a legal 45 back to build a better net
-       was the obvious refinement and it is simply wrong: refusing to
-       go out below net +15 won only 45.3% against going out at once;
-       below +25, 30.3%; below +40, 14.0%. Another turn of building
-       is worth ~10 points; the risk is the whole ~105-point swing of
-       being caught instead. So patience is not a skill here — it is
-       the MIDDLE CHAIR'S FLAW (tal-każin waits for net +20), and
-       in-nannu refuses only a loss-making exit (net < 0, measured
-       49.3% against going out at once: indistinguishable, and it is
-       what a person would do).
-     · HOARDING HALF-MELDS LOSES. Pricing pairs and near-runs at full
-       value (so the machine holds a pair of aces as "half of 45")
-       scored 26.3% against the plain maximiser — it breaks made
-       melds to keep possibilities. At half price it is 51.3%: noise.
-     · GUARDING YOUR DISCARDS LOSES. Steering discards away from
-       ranks and suits the other player took off the pile — the
-       heart of the old gin machine — scored 45.0%: in a sprint,
-       slowing yourself down costs more than starving them.
-
-   So the chairs are, honestly (shipped brains, 600 matches a
-   pairing, seeds shared, seats swapped):
-     1 Iż-żiju    the bad habits, all of them: grabs any dear card
-                  that pairs something, hoards half-melds at full
-                  price (he will break a made meld to keep two aces),
-                  hangs on to his dear cards, and puts his cards out
-                  the instant it is legal even at a net loss.
-                  Measured: 23.2% against in-nannu, 33.3% against
-                  tal-każin.
-     2 Tal-każin  builds properly but cannot bear to throw a dear
-                  card while a cheap one is in reach, prices
-                  half-melds at half, and waits for a net +20 before
-                  he shows you — the patience that costs him.
-                  Measured: 44.0% against in-nannu.
-     3 In-nannu   the clean maximiser: the discard that leaves the
-                  most meld value on the table, dear ties shed first
-                  (he knows a loose ace is 15 against him), out the
-                  moment it pays. The strongest line the simulator
-                  could find.
+   MEASURED (the harness drives this exact file; seeds shared, seats
+   swapped, 200 games a pairing; workings in the report):
+     · OPEN EARLY. Against the tuned line (opens at net +15),
+       opening the instant it is legal scored 50.0% — identical —
+       but WAITING for net +30 scored 44.5%: patience past a small
+       margin is pure loss, because a closed hand is pure liability
+       while the table earns for the other side. Tal-każin waits
+       for +30, and that is his flaw, measured.
+     · HALF-MELDS AT HALF PRICE. protoW 0.5 beat protoW 0 (63.5%)
+       AND protoW 1.0 (70%): under these rules you always need the
+       NEXT meld — for the table, for going out — but pricing pairs
+       at full still breaks made melds to chase maybes.
+     · SHED DEAR. tieDear −1 beat +1 by 57% (and 65% in the
+       pre-tune sweep): a loose ace is 15 against you at any exit.
+     · KEEP THE KEY CARD: layW 0.5 vs 0 measured 53/47 — neutral to
+       a whisker positive. Kept at 0.5 because the fourth ace held
+       one extra turn is his own example of the game played well.
+     · LAY EVERYTHING once open. No holding-back variant beat it;
+       laid points are safe points and shedding is the out bonus.
+   The chairs (measured): iż-żiju 25% against in-nannu, tal-każin
+   45%, iż-żiju 27% against tal-każin — a clean staircase.
+     1 Iż-żiju    hoards every shiny card, prices half-melds at
+                  full, grabs a dear upcard on sight.
+     2 Tal-każin  builds properly but sits on his 45 waiting for a
+                  respectable net +30 — the patience that costs him
+                  — and cannot bear to shed a dear card.
+     3 In-nannu   opens at +15, lays everything, sheds dear loose
+                  cards first, keeps the card that closes your
+                  pile. The strongest line the simulator could find.
    Deterministic given the state, which keeps the simulations honest.
-
-   WHY VALUE AND NOT DEADWOOD: minimising loose value equals
-   maximising meld value (the hand's total is fixed), so best()
-   already points the discard search at the real goal. A machine
-   hunting the OLD game's low deadwood would be hunting the same
-   number — what changed is everything around it: the prices, the
-   gate test, and when to end the hand.
    ═══════════════════════════════════════════════════════════════════ */
 
 /* the value of the loose cards that are HALF a meld — a pair, or two
    suited cards within touching distance. The material 45 is built
-   from; also, at full price, a trap (see above). */
+   from; also, at full price, a trap. */
 function protoVal(dead) {
   let v = 0;
   for (let i = 0; i < dead.length; i++) {
@@ -666,63 +840,126 @@ function protoVal(dead) {
   return v;
 }
 
-/* the three temperaments, as numbers */
+/* the three temperaments, as numbers:
+   openNet — net (melds − loose) demanded before putting the 45 down
+   layW    — how hard a card that fits the TABLE is held on to
+   protoW/tieDear — the old discard temperament, unchanged */
 function brain(lvl) {
-  if (lvl === 1) return { protoW: 1.0, tieDear: +1, takeDearPair: true,  downNet: -Infinity };
-  if (lvl === 3) return { protoW: 0,   tieDear: -1, takeDearPair: false, downNet: 0 };
-  return            { protoW: 0.5, tieDear: +1, takeDearPair: false, downNet: 20 };
+  if (lvl === 1) return { openNet: -Infinity, layW: 0,   protoW: 1.0, tieDear: +1 };
+  if (lvl === 3) return { openNet: 15,        layW: 0.5, protoW: 0.5, tieDear: -1 };
+  return            { openNet: 30,        layW: 0.5, protoW: 0.5, tieDear: +1 };
 }
-const DOWN_PLIES = 26;              /* past this, anybody legal goes */
+const OPEN_PLIES = 30;        /* past this, even tal-każin stops waiting */
+
+/* the next lay an open player should make, or null when the hand is
+   down to what it keeps: melds first (dear first, best()'s order),
+   then single cards onto the table — always leaving one card back
+   for the discard. Deterministic, so it can drive both phones. */
+function nextLay(st, seat) {
+  const h = st.seats[seat].hand;
+  if (!st.down[seat]) return null;
+  if (h.length >= 4) {
+    const b = best(h);
+    for (const m of b.melds)
+      if (h.length - m.length >= 1) return { t: 'meld', cs: m.slice() };
+  }
+  if (h.length >= 2)
+    for (const c of h)
+      for (let ti = 0; ti < st.table.length; ti++)
+        if ((LAY_ON_FOE || st.table[ti].by === seat) && canExtend(st.table[ti].cs, c))
+          return { t: 'lay', c, m: ti };
+  return null;
+}
+
+/* does this card fit anything on the table this seat may touch? */
+function extendsTable(st, seat, c) {
+  for (const t of st.table)
+    if ((LAY_ON_FOE || t.by === seat) && canExtend(t.cs, c)) return true;
+  return false;
+}
+
+/* how close this card is to being layable: 1 = fits a table meld
+   right now, 0.4 = one card short of a run's end (the draw could
+   open the door), 0 = nothing on the table wants it. This is what
+   drains the endgame — a down hand that sheds its no-hopers and
+   keeps its maybes goes out instead of stalling into the backstop. */
+function layFit(st, seat, c) {
+  let f = 0;
+  for (const t of st.table) {
+    if (!LAY_ON_FOE && t.by !== seat) continue;
+    if (canExtend(t.cs, c)) return 1;
+    const r0 = rankOf(t.cs[0]);
+    if (t.cs.every(x => rankOf(x) === r0)) continue;   /* a set: now or never */
+    if (suitOf(c) !== suitOf(t.cs[0])) continue;
+    let lo = 14, hi = 0;
+    for (const x of t.cs) { const r = rankOf(x); if (r < lo) lo = r; if (r > hi) hi = r; }
+    const d = Math.min(Math.abs(rankOf(c) - (lo - 1)), Math.abs(rankOf(c) - (hi + 1)));
+    if (d === 1) f = Math.max(f, 0.4);
+  }
+  return f;
+}
 
 function think(st, seat, lvl) {
-  lvl = lvl || 2;
-  const B = brain(lvl);
+  /* lvl may be a brain OBJECT — the simulation harness sweeps
+     temperaments through here; the app only ever passes 1/2/3 */
+  const B = (lvl && typeof lvl === 'object') ? lvl : brain(lvl || 2);
   const h = st.seats[seat].hand;
   const ph = st.phase;
 
-  if (ph === 'up0' || ph === 'up1' || ph === 'main') {
-    const up = upTop(st);
-    const now = handPts(h) - best(h).dw;                  /* meld value held */
-    /* the best keep-the-upcard line: value of melds after the best
-       discard of the eleven */
-    let after = -1, melded = false;
-    const eleven = h.concat([up]);
-    for (const c of eleven) {
-      if (c === up) continue;                             /* may not throw it back */
-      const rest = eleven.filter(x => x !== c);
-      const b = best(rest);
-      const mv = handPts(rest) - b.dw;
-      if (mv > after) { after = mv; melded = b.melds.some(m => m.indexOf(up) >= 0); }
+  if (ph === 'main') {
+    /* the one choice here is the hand's first turn: the upcard, or
+       blind? Take it if it melds — or if it fits the table already
+       down (it never is on ply 0, but FIRST_TAKE_PLY is a dial). */
+    if (canTakeUp(st)) {
+      const up = upTop(st);
+      const now = handPts(h) - best(h).dw;
+      let after = -1, melded = false;
+      const eleven = h.concat([up]);
+      for (const c of eleven) {
+        if (c === up) continue;                /* may not throw it straight back */
+        const rest = eleven.filter(x => x !== c);
+        const b = best(rest);
+        const mvv = handPts(rest) - b.dw;
+        if (mvv > after) { after = mvv; melded = b.melds.some(m => m.indexOf(up) >= 0); }
+      }
+      const take = B.protoW >= 1 ? (melded || pts(up) >= 10)   /* iż-żiju's shiny-card eye */
+                                 : (melded || after - now >= 10);
+      if (take) return { t: 'take' };
     }
-    const gain = after - now;
-    let take = lvl === 1 ? melded : (melded || gain >= 10);
-    if (!take && B.takeDearPair)                          /* the shiny-card habit */
-      take = pts(up) >= 10 && h.some(c => rankOf(c) === rankOf(up));
-    if (ph === 'main') return take ? { t: 'take' } : { t: 'draw' };
-    return take ? { t: 'take' } : { t: 'pass' };
+    if (st.stock.length) return { t: 'draw' };
+    const l = legal(st, seat);
+    return l[0] || null;
   }
-  if (ph === 'draw1') return { t: 'draw' };
 
-  if (ph === 'off') {
-    const banned = (st.drew && st.drew.from === 'pile') ? st.drew.c : null;
-
-    /* FIRST: can we put them out, and should we? (see the sprint
-       note: yes, almost always) */
-    const down = bestDown(st, h, banned);
-    if (down && (down.net >= B.downNet || st.plies >= DOWN_PLIES))
-      return { t: 'down', c: down.c };
-
-    /* otherwise: the discard that keeps the most meld VALUE working */
+  if (ph === 'act') {
+    if (!st.down[seat]) {
+      /* THE RACE: open the moment it is legal (tal-każin's patience
+         is his flaw, and it is measured as one) */
+      const op = bestOpen(st, h);
+      if (op && (op.net >= B.openNet || st.plies >= OPEN_PLIES))
+        return { t: 'down', c: op.c };
+    } else {
+      /* LAY EVERYTHING (measured, not a mood — see the header) */
+      const lm = nextLay(st, seat);
+      if (lm) return lm;
+    }
+    /* the discard: keep the most meld value working; hold on to any
+       card the table would take (the fourth ace is 15 points the
+       moment you are open — and open players never reach here still
+       holding one unless it is their kept-back last card) */
+    const banned = bannedOf(st, seat);
     let pick = null, pickScore = -Infinity;
     for (const c of h) {
       if (c === banned) continue;
+      if (discRefused(st, seat, c)) continue;  /* the machine obeys the penalty too */
       const rest = h.filter(x => x !== c);
       const b = best(rest);
       let score = (handPts(rest) - b.dw) + B.protoW * protoVal(b.dead);
       score += B.tieDear * pts(c) * 0.01;     /* the tie: shed dear, or hoard it */
+      if (B.layW) score -= pts(c) * B.layW * layFit(st, seat, c);
       if (score > pickScore) { pickScore = score; pick = c; }
     }
-    return { t: 'disc', c: pick };
+    return pick != null ? { t: 'disc', c: pick } : (legal(st, seat)[0] || null);
   }
 
   const l = legal(st, seat);
@@ -736,12 +973,15 @@ const E = {
   suitOf, rankOf, mk, pts, handPts, meldValOf,
   rnd, shuffle, clone,
   deal, dealHand, legal, check, apply, turn, over, think,
-  best, bestDiscard, bestDown, fingerprint, upTop,
+  best, bestDiscard, bestOpen, fingerprint, upTop,
+  isSet, isRun, validMeld, canExtend, canTakeUp, bannedOf, discRefused,
+  nextLay, extendsTable, layFit, brain,
   protoVal, SIZES, sizeOf,
   /* the gate of a particular table (always 45 in the app; the
      simulator may have swept it) */
   openOf: st => (st && st.open != null) ? st.open : OPEN_MIN,
-  OPEN_MIN, TARGET, RECYCLE_MAX
+  OPEN_MIN, OUT_BONUS, TARGET, RECYCLE_MAX, PLIES_MAX,
+  FIRST_TAKE_PLY, LAY_ON_FOE
 };
 
 if (typeof module !== 'undefined' && module.exports) module.exports = E;
