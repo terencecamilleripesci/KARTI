@@ -772,7 +772,27 @@ function menu() {
       (ST.rec.w + ST.rec.l
         ? '<p class="pt-ledger">At this table so far: <b>' + ST.rec.w + '</b> won, <b>' +
           ST.rec.l + '</b> lost.</p>' : '') +
-      '<button class="btn ghost" id="sk-rules" style="margin:14px 0 0">' +
+      /* ONLINE HAS ALWAYS WORKED AND WAS NEVER OFFERED.
+         KARTI_PARTY.online.skarta — the transport half — has been in this
+         file the whole time, so a SKARTA table could be played over the
+         relay; but the only door to it was the multiplayer lobby, and
+         nobody looks for SKARTA there. They come to the SKARTA screen and
+         find a chair picker and a Deal button, which is a game that looks
+         offline-only because it never says otherwise.
+
+         It sits ABOVE Deal rather than beside it: the chairs above are the
+         answer to "who is at this table", and online is a different answer
+         to that same question, not a different way of pressing Deal.
+
+         The machines still come with you. Any chair left on `machine` is
+         played by the relay-seeded engine at an online table exactly as it
+         is offline — which is what makes a table of three people and five
+         machines reachable, and it is the normal case at a party. */
+      (window.KARTI_MP && window.KARTI_MP.openFor
+        ? '<button class="btn ghost" id="sk-online" style="margin:14px 0 0">' +
+            ilb('users', 'Play online — everyone on their own phone') + '</button>'
+        : '') +
+      '<button class="btn ghost" id="sk-rules" style="margin:9px 0 0">' +
         ilb('book', 'The house rules') + '</button>' +
       '<button class="btn primary" id="sk-go" style="margin:9px 0 24px">' +
         ilb('play', 'Deal') + '</button>' +
@@ -823,6 +843,19 @@ function menu() {
   el.querySelector('#sk-back').onclick = () => { teardown(); P.hub(); };
   { const cb = el.querySelector('#sk-carry');
     if (cb) cb.onclick = () => { if (!resumeSaved()) menu(); }; }
+  const on = el.querySelector('#sk-online');
+  if (on) on.onclick = () => {
+    /* Remember the chairs first, in this file's own idiom — the Deal
+       handler two lines below does exactly this. Walking to the lobby must
+       not lose the table the player has just set up.
+
+       The first version of this called pref() and sfx(), neither of which
+       exists in this file. It parsed perfectly and would have thrown on
+       the first tap: the failure `node --check` cannot see. */
+    ST.pref = { seats, level, kinds: kinds.slice(), sort: ST.pref.sort };
+    persist();
+    window.KARTI_MP.openFor('skarta');
+  };
   el.querySelector('#sk-rules').onclick = () => rulesSheet(el.querySelector('.sk-wrap'), null);
   el.querySelector('#sk-go').onclick = () => {
     ST.pref = { seats, level, kinds: kinds.slice(), sort: ST.pref.sort }; persist();

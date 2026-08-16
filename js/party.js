@@ -104,40 +104,43 @@ function unregister(id){
   return true;
 }
 
-/* ── three shelves now, and the third one is why ───────────────────
+/* ── two shelves, and one of the tiles is a door ───────────────────
    A flat grid of tiles is a list you have to read; labelled sections
    are a thing you can scan. It began as two — BOARD GAMES (a board and
-   pieces) and CARD GAMES (a deck in your hand) — and the second one is
-   now outgrowing the screen, because games played with an ordinary
-   pack of cards are ENDLESS. There are already four, rummy and gin
-   rummy are being built, and there is no natural end to that list:
-   every family on this island plays two more.
+   pieces) and CARD GAMES (a deck in your hand).
 
-   Left alone, that one shelf swallows the page and SKARTA — a game
-   with its own 108-card deck that we drew ourselves — ends up buried
-   fourteen tiles down among other people's classics.
+   Then the card shelf started outgrowing the screen, because games
+   played with an ordinary pack are ENDLESS: there are six already and
+   there is no natural end to the list, since every family on this
+   island plays two more. A third shelf was tried and it only moved the
+   problem — the hub became three headings and thirteen tiles, and you
+   still had to scroll past somebody else's classics to reach ours.
 
-   So the split is by WHAT IS IN YOUR HAND, not by whether it is cards:
+   So the six go behind ONE TILE. Card games holds SKARTA — our own
+   108-card deck, our own art — and PLAYING CARDS, which opens a screen
+   listing every standard-pack game we have. The hub stays six tiles
+   however many card games we add, and adding the seventh costs nothing:
+   it lands behind the door automatically, because the door lists
+   whatever answers to `deck`, never a hand-written menu.
 
+   The split is by WHAT IS IN YOUR HAND, not by whether it is cards:
      BOARD GAMES    a board and pieces
-     CARD GAMES     a deck that is OURS — KARTI's own art, our rules
-     PLAYING CARDS  a standard pack; games the island already knew
+     CARD GAMES     a deck that is OURS, and the door to the other kind
+     (behind it)    a standard pack; games the island already knew
 
    "Playing cards" is not a phrase invented here — js/stats.js has been
    filing bixkla, briscola and sette e mezzo under exactly that word
-   since the record book was written, so the app already agreed with
-   itself about this and only the shelf had not caught up. */
+   since the record book was written. */
 const SHELVES = [
-  { kind:'board', title:'Board games',   note:'A board, pieces, and nowhere to hide.' },
-  { kind:'card',  title:'Card games',    note:'Our own deck, our own rules.' },
-  { kind:'deck',  title:'Playing cards', note:'One ordinary pack. Games the island already knew.' }
+  { kind:'board', title:'Board games', note:'A board, pieces, and nowhere to hide.' },
+  { kind:'card',  title:'Card games',  note:'A deck, a hand, and a straight face.' }
 ];
 
-/* Games played with a standard pack. Kept as a LIST HERE rather than as
-   a `kind` in each game's own file on purpose: those files are stable,
-   several are being edited by other hands right now, and the shelving
-   is a decision about this screen — not a fact about how bixkla works.
-   A new game may simply declare kind:'deck' and skip this entirely. */
+/* Games played with a standard pack — the ones behind the door. Kept as a
+   LIST HERE rather than as a `kind` in each game's own file on purpose:
+   those files are stable, several are edited by other hands, and the
+   shelving is a decision about this screen, not a fact about how bixkla
+   works. A new game may simply declare kind:'deck' and skip this. */
 const STANDARD_PACK = { bixkla:1, briscola:1, sette:1, cheat:1, rummy:1, gin:1 };
 
 /* Which shelf a game belongs on. Deliberately forgiving: this convention was
@@ -333,41 +336,114 @@ function hub(){
     '</div>';
 
   /* live games first inside each shelf, then the ones still being built */
-  const sorted = GAMES.slice().sort((a, b) =>
-    ((a.status === 'soon') - (b.status === 'soon')) || ((a.order || 99) - (b.order || 99)));
+  const sorted = sortedGames();
   SHELVES.forEach(s => {
     const grid = el.querySelector('#pt-grid-' + s.kind);
     let n = 0;
     sorted.forEach(g => {
       if (shelfOf(g) !== s.kind) return;
       n++;
-      const soon = g.status === 'soon';
-      const r = recOf(g.id);
-      const played = r.w + r.l + r.d;
-      const b = document.createElement(soon ? 'div' : 'button');
-      b.className = 'pt-tile' + (soon ? ' soon' : '');
-      if (!soon) b.type = 'button';
-      b.innerHTML =
-        '<span class="pt-tio" data-logo="' + esc(g.id) + '">' +
-          (g.sprite ? pieceSVG(g.sprite) : ico(g.icon || 'deck')) + '</span>' +
-        '<span class="pt-tin">' + esc(g.name) + '</span>' +
-        (g.mt ? '<span class="pt-timt">' + esc(g.mt) + '</span>' : '') +
-        '<span class="pt-tit">' + esc(g.tag || '') + '</span>' +
-        '<span class="pt-tib">' +
-          (soon ? '<span class="pt-pill soon">' + ico('lock') + ' Coming soon</span>'
-                : '<span class="pt-pill live">' + ico('check') + ' Playable</span>' +
-                  (played ? '<span class="pt-rec">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '')) +
-        '</span>';
-      if (soon) b.setAttribute('aria-disabled', 'true');
-      else b.onclick = () => { if (g.open) g.open(); };
-      grid.appendChild(b);
-      logoInto(b.querySelector('[data-logo]'), g);
+      tileInto(grid, g);
     });
+    /* THE DOOR. It is the last tile on the card shelf rather than a
+       heading of its own, because it is the same KIND of thing as the
+       tiles beside it — something you tap to get to cards — and a player
+       should not have to learn that one row of this screen behaves
+       differently from the others. */
+    if (s.kind === 'card'){
+      const deck = sorted.filter(g => shelfOf(g) === 'deck');
+      if (deck.length){ n++; doorInto(grid, deck); }
+    }
     /* an empty shelf is not a shelf */
     el.querySelector('#pt-shelf-' + s.kind).hidden = !n;
   });
 
   el.querySelector('#pt-home').onclick = close;
+}
+
+function sortedGames(){
+  return GAMES.slice().sort((a, b) =>
+    ((a.status === 'soon') - (b.status === 'soon')) || ((a.order || 99) - (b.order || 99)));
+}
+
+/* one tile, used by the hub and by the room behind the door, so a game
+   cannot look like two different things in two places */
+function tileInto(grid, g){
+  const soon = g.status === 'soon';
+  const r = recOf(g.id);
+  const played = r.w + r.l + r.d;
+  const b = document.createElement(soon ? 'div' : 'button');
+  b.className = 'pt-tile' + (soon ? ' soon' : '');
+  if (!soon) b.type = 'button';
+  b.innerHTML =
+    '<span class="pt-tio" data-logo="' + esc(g.id) + '">' +
+      (g.sprite ? pieceSVG(g.sprite) : ico(g.icon || 'deck')) + '</span>' +
+    '<span class="pt-tin">' + esc(g.name) + '</span>' +
+    (g.mt ? '<span class="pt-timt">' + esc(g.mt) + '</span>' : '') +
+    '<span class="pt-tit">' + esc(g.tag || '') + '</span>' +
+    '<span class="pt-tib">' +
+      (soon ? '<span class="pt-pill soon">' + ico('lock') + ' Coming soon</span>'
+            : '<span class="pt-pill live">' + ico('check') + ' Playable</span>' +
+              (played ? '<span class="pt-rec">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '')) +
+    '</span>';
+  if (soon) b.setAttribute('aria-disabled', 'true');
+  else b.onclick = () => { if (g.open) g.open(); };
+  grid.appendChild(b);
+  logoInto(b.querySelector('[data-logo]'), g);
+  return b;
+}
+
+/* ── the PLAYING CARDS tile ────────────────────────────────────────
+   Built from the list it opens, never from a written-down number: it
+   names the games and counts the playable ones itself, so adding a
+   seventh standard-pack game updates this tile without anybody
+   remembering to. */
+function doorInto(grid, deck){
+  const live = deck.filter(g => g.status !== 'soon');
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'pt-tile pt-door';
+  b.innerHTML =
+    '<span class="pt-tio">' + ico('deck') + '</span>' +
+    '<span class="pt-tin">PLAYING CARDS</span>' +
+    '<span class="pt-timt">Il-karti tas-soltu</span>' +
+    '<span class="pt-tit">' +
+      esc(deck.slice(0, 4).map(g => g.name).join(' · ')) +
+      (deck.length > 4 ? ' and ' + (deck.length - 4) + ' more' : '') + '</span>' +
+    '<span class="pt-tib">' +
+      '<span class="pt-pill live">' + ico('arrow-right') + ' ' +
+        live.length + ' game' + (live.length === 1 ? '' : 's') + '</span>' +
+    '</span>';
+  b.onclick = deckRoom;
+  grid.appendChild(b);
+  return b;
+}
+
+/* ── behind the door ───────────────────────────────────────────────
+   The same tiles, on their own screen, with its own way back to the
+   hub. It builds from shelfOf() every time it opens, so it is never a
+   menu that can fall out of step with what is actually registered. */
+function deckRoom(){
+  if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
+  currentGame = null;
+  const el = screenEl();
+  el.innerHTML =
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-dback" aria-label="Back to party games">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>Playing Cards</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      '<p class="blurb">One ordinary pack, and the games this island already ' +
+      'knew. <b>Following suit is not compulsory</b> in any of the trick games ' +
+      'here — that is the rule the whole family plays by, not a bug.</p>' +
+      '<div class="pt-grid" id="pt-dgrid"></div>' +
+      '<p class="pt-foot">Every one of these can be played with the machine, or ' +
+      'with everybody on their own phone.</p>' +
+    '</div>';
+  const grid = el.querySelector('#pt-dgrid');
+  sortedGames().forEach(g => { if (shelfOf(g) === 'deck') tileInto(grid, g); });
+  el.querySelector('#pt-dback').onclick = hub;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
