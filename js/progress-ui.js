@@ -206,6 +206,7 @@ function sweepPic(url){
   });
 }
 
+var picFail = '';
 function wirePics(root){
   $$('[data-kx-pic]', root || document).forEach(function(host){
     var url = host.getAttribute('data-kx-pic');
@@ -223,7 +224,22 @@ function wirePics(root){
       picState[url] = im.naturalWidth > 0 ? 'ok' : 'no';
       if (picState[url] === 'ok') sweepPic(url);
     };
-    im.onerror = function(){ picState[url] = 'no'; };
+    im.onerror = function(){
+      picState[url] = 'no';
+      /* A silent fallback to the drawn face is exactly right for SOMEBODY
+         ELSE's photo — most players have none and a board of twenty-five must
+         not fill with broken images. It is exactly wrong for your OWN, because
+         then the app quietly shows you a face you did not choose and gives you
+         nothing to act on. Remember the failure so the customisation screen
+         can say what happened. */
+      picFail = url;
+      try {
+        var n = document.getElementById('kx-pnote');
+        if (n && !n.textContent) n.textContent =
+          'Your photo is on the Pi but this phone could not load it. ' +
+          'If Tailscale is on, turn it off and open KARTI again.';
+      } catch (e){}
+    };
     im.src = url;
   });
 }
