@@ -34,6 +34,17 @@ const ico  = (n, l) => (window.ICO ? window.ICO(n, l) : '');
 const ilb  = (n, h) => (window.ILB ? window.ILB(n, h) : h);
 const toast = (m) => { try { if (K.toast) K.toast(m); } catch (e) {} };
 
+/* THE MACHINE, BY NAME. Named once here because two screens want the
+   same three words: the setup sheet below, and js/mp.js's shared lobby
+   through KARTI_SKARTA.lobby.levels (§10). A difficulty that is called
+   one thing offline and another in a room is a bug you only ever find
+   on somebody else's phone. */
+const LV = [
+  { k: 1, n: 'EASY',  note: 'Plays whatever is legal and forgets to shout. You will win.' },
+  { k: 2, n: 'FAIR',  note: 'Sheds its expensive cards and keeps its wilds back.' },
+  { k: 3, n: 'NASTY', note: 'Watches which suit you keep running from. Then it uses it.' },
+];
+
 /* ═══════════════════════════════════════════════════════════════════
    OUR OWN CORNER OF localStorage
    Not karti_save_*, not karti_party_v1. A shedding game is not part of
@@ -634,6 +645,10 @@ function teardown() {
   clearTimeout(G.t); clearTimeout(G.catchT);
   if (G.ctx && G.ctx.stopFit) { try { G.ctx.stopFit(); } catch (e) {} }
   G = null;
+  /* the room this table came out of, if any, goes with it. The move
+     subscription itself is js/mp.js's to drop — it holds the unsubscribe
+     onMove() handed back — and everything of ours is guarded on G. */
+  NET = null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -670,12 +685,6 @@ function menu() {
   let kinds = Array.isArray(p.kinds) ? p.kinds.slice(0, MAXS) : ['you'];
   while (kinds.length < MAXS) kinds.push('ai');
   kinds[0] = 'you';
-
-  const LV = [
-    { k: 1, n: 'EASY',  note: 'Plays whatever is legal and forgets to shout. You will win.' },
-    { k: 2, n: 'FAIR',  note: 'Sheds its expensive cards and keeps its wilds back.' },
-    { k: 3, n: 'NASTY', note: 'Watches which suit you keep running from. Then it uses it.' },
-  ];
 
   el.innerHTML =
     '<div class="pt-wrap sk-wrap">' +
@@ -783,7 +792,6 @@ const BOTS = ['Ċikku', 'Ġuża', 'Salvu', 'Doris', 'Wenzu', 'Pawlu',
               'Rita', 'Toni', 'Karmnu', 'Manwela'];
 
 function start(cfg) {
-  injectCSS();
   const seats = cfg.seats, level = cfg.level;
   const kinds = cfg.kinds.slice(0, seats);
   const humans = kinds.filter(k => k === 'you').length;
@@ -796,7 +804,24 @@ function start(cfg) {
       ? { name: humans === 1 ? 'You' : (i === 0 ? 'You' : 'Player ' + (i + 1)),
           owner: i === 0 ? 'me' : 'hot' }
       : { name: BOTS[i - 1] || BOTS[i % BOTS.length], owner: 'ai', level });
-  const S = E.newGame({ seats: list });
+  return openTable(E.newGame({ seats: list }), { humans, seats });
+}
+
+/* THE TABLE ITSELF, once somebody has decided who is in it.
+   Split out of start() so the online half (§10) can put a relayed deal on
+   exactly the same screen rather than growing a second one. `o.seat` is
+   which chair this phone is looking out of — 0 offline, and whatever the
+   room gave us online. */
+function openTable(S, o) {
+  injectCSS();
+  /* Offline we arrived through menu(), which has already done this. Online we
+     arrived from the room list on another screen entirely, and party.js's
+     screen has to be the one that is on before a frame is built into it. */
+  P.show();
+  const seats = S.players.length;
+  const humans = (o && o.humans != null)
+    ? o.humans : S.players.filter(p => E.isLocal(p)).length;
+  const mySeat = Math.max(0, Math.min(seats - 1, (o && o.seat) | 0));
 
   /* borrow party.js's frame for the title bar, the turn strip and the
      button bar — then take the square-board sizer straight back off it,
@@ -847,7 +872,9 @@ function start(cfg) {
 
   G = {
     S, ctx, dead: false, humans, seats,
-    view: 0,               /* whose hand is face-up on this phone */
+    view: mySeat,          /* whose hand is face-up on this phone */
+    mySeat,                /* ...and, online, the ONLY one it may ever be */
+    net: null,             /* set by §10 when this table came off the relay */
     armed: false,          /* LAST ONE pressed early — fires the moment you hit one card */
     t: null, catchT: null, catchOn: null, callAt: 0,
     sort: !!ST.pref.sort,   /* opt-in: it must never rearrange a hand you arranged */
@@ -873,7 +900,16 @@ function start(cfg) {
   ctx.root.querySelector('#sk-deckbtn').onclick = onDraw;
 
   tick();
+  return G;
 }
+
+/* Does THIS phone drive the machines? Offline, always. Online, only the
+   host's, and that is not a nicety: every phone in the room runs the same
+   engine off the same seed, so if two of them ran the machine's turn the
+   same move would be made twice — once locally and once off the wire — and
+   the tables would part company on the very first bot go. One phone thinks;
+   the rest are told. See §10. */
+function iDrive() { return !G || !G.net || G.net.host; }
 
 /* the loop: paint, then either wait for a tap or let the machine move */
 function tick() {
@@ -883,14 +919,18 @@ function tick() {
   const p = S.players[S.turn];
 
   const ai = E.isAI(p);
-  if (!ai && S.turn !== G.view && G.humans > 1) { curtain(S.turn); return; }
-  if (!ai) G.view = S.turn;
+  /* ONLINE THERE IS NOTHING TO PASS. The curtain exists for several people
+     round one phone; over a relay every player has their own, and this one
+     only ever looks out of its own chair. */
+  if (G.net) G.view = G.mySeat;
+  else if (!ai && S.turn !== G.view && G.humans > 1) { curtain(S.turn); return; }
+  else if (!ai) G.view = S.turn;
   render();
   watchCall();
   /* the machine waits out the rest of anybody's call window before moving:
      if it played on, the engine would shut the window and a player who was
      reaching for the button would silently get away with it */
-  if (ai) G.t = setTimeout(aiStep, PACE + windowLeft());
+  if (ai && iDrive()) G.t = setTimeout(aiStep, PACE + windowLeft());
 }
 
 /* milliseconds still owed to a HUMAN sitting on one card and saying nothing */
@@ -913,7 +953,7 @@ function callWindow() {
 function aiStep() {
   if (!G || G.dead || G.S.over) { if (G && !G.dead) tick(); return; }
   const S = G.S;
-  if (!E.isAI(S.players[S.turn])) { tick(); return; }
+  if (!E.isAI(S.players[S.turn]) || !iDrive()) { tick(); return; }
   E.aiTurn(S);          /* it calls LAST ONE for itself — see maybeCall() */
   render();
   if (S.over) { showResult(); return; }
@@ -941,6 +981,10 @@ function watchCall() {
   G.catchT = setTimeout(() => {
     if (!G || G.dead) return;
     G.catchOn = null;
+    /* aiCatch() MAKES A MOVE, so it obeys the same one-phone rule the rest of
+       the machine does: online, only the host's copy shouts CAUGHT, and the
+       other phones are told about it like any other move. */
+    if (!iDrive()) return;
     const c = E.aiCatch(G.S);
     if (c) { toast(G.S.players[c.by].name + ': "' + E.RULES.CATCH + '" — ' +
                    G.S.players[c.target].name + ' takes ' + E.RULES.PENALTY + '.'); render(); }
@@ -1423,14 +1467,388 @@ function showResult() {
     head: S.players[w].name + (humanWin && G.humans === 1 && iWon ? ' — out!' : ' takes it'),
     why: 'Empty hand. ' + table,
     quip: (iWon ? QUIP_WIN : QUIP_LOSE)[Math.floor(Math.random() * 3)],
-    buttons: [
-      { label: 'Deal again', icon: 'refresh', cls: 'primary',
-        go: () => { const p = ST.pref; teardown(); start(p); } },
-      { label: 'The shelf', icon: 'back', cls: 'ghost',
-        go: () => { teardown(); P.hub(); } },
-    ],
+    /* A ROOM IS NOT DEALT AGAIN FROM HERE. Offline "Deal again" is this
+       phone's business; online it is nine other people's, and the way back
+       is the room list. So the online table offers the one button that is
+       actually true. */
+    buttons: G.net
+      ? [{ label: 'Back to the rooms', icon: 'back', cls: 'primary',
+           go: () => { const n = NET; teardown();
+                       if (n && n.onLeave) n.onLeave(); else P.hub(); } }]
+      : [
+          { label: 'Deal again', icon: 'refresh', cls: 'primary',
+            go: () => { const p = ST.pref; teardown(); start(p); } },
+          { label: 'The shelf', icon: 'back', cls: 'ghost',
+            go: () => { teardown(); P.hub(); } },
+        ],
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   8b. THE SHORT RULES, FOR A STRANGER IN A ROOM
+   The sheet above is the full house rules and it is a sheet — it takes
+   the screen, it has a Got it button, and it is the wrong object to
+   drop into somebody else's lobby. This is the thirty-second version
+   that folds open in place, and it is read off the same E.RULES block
+   so it cannot drift away from the sheet or from the engine.
+   ═══════════════════════════════════════════════════════════════════ */
+function rulesPanel() {
+  const R = E.RULES;
+  return '<p>Match the <b>suit</b> or match the <b>number</b>. If you cannot, you draw one — ' +
+      'and you may play it straight away or keep it. First to an empty hand takes it.</p>' +
+    '<p>Four suits, ' + R.HAND + ' cards each off a deck of 108. Miss-a-go, turn-round and ' +
+      'take-two do what they say. A wild names the suit. The <b>Kaxxa Infernali</b> names the ' +
+      'suit and then charges ' + R.KAXXA_SMALL + ' or ' + R.KAXXA_BIG + ' — the big one takes ' +
+      'you with it and you miss your own next turn.</p>' +
+    '<p>Draw cards <b>stack</b> and pass on, growing as they go; at ' + R.CHAIN_CAP + ' the ' +
+      'chain shuts and whoever is holding it takes the lot.</p>' +
+    '<p>Down to one card you shout <b>' + esc(R.CALL) + '</b>. Stay quiet until the next ' +
+      'player has finished and anybody may shout <b>' + esc(R.CATCH) + '</b> — and you take ' +
+      R.PENALTY + '.</p>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   10. ONLINE
+   ───────────────────────────────────────────────────────────────────
+   Two halves, and js/mp.js owns both ends of them.
+
+   THE LOBBY HALF is window.KARTI_SKARTA.lobby: how many chairs, what
+   the machine is called, what the rules are, and how a table is
+   started. It is read before a single card exists, to paint a room
+   list, and IL-KIRI's is the reference — this is the same object with
+   SKARTA's numbers in it.
+
+   THE TRANSPORT HALF is KARTI_PARTY.online.skarta: start a table the
+   room has already agreed the terms of, take a packet, say a line, and
+   stop. Tombla's is the model, because tombla is the other one that
+   seats more than two.
+
+   THE THREE THINGS THAT MAKE THIS SAFE, all of which the engine was
+   already built for:
+
+   1. NOTHING BUT MOVES CROSSES. The deal is (seed, seat list) and
+      every phone builds it for itself; the relay carries {a,i,j,s,n,k}
+      and never a card. A client is never SENT the state, so there is
+      no snapshot on the wire to read a hand out of. What this phone
+      draws on screen is E.view(S, mySeat) and always was — see
+      render() — which is the same redaction the engine asserts.
+   2. A PACKET GOES THROUGH THE DOOR A TAP GOES THROUGH. remote() ends
+      in E.apply(), the same call onCard() makes, so an out-of-turn
+      play or a card that is not in that seat's hand is REFUSED and
+      said out loud rather than absorbed. Nothing else in this file can
+      change the state.
+   3. THE SEAT IS THE RELAY'S, NEVER THE SENDER'S. The move on the
+      wire carries no seat at all — it is stripped on the way out —
+      and remote() is told which chair it came from by js/mp.js, which
+      got it from the Pi. A phone cannot play as somebody else because
+      it has nowhere to say that it is.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── the codec ────────────────────────────────────────────────────
+   The relay's table payload is five bounded fields and one short name:
+   {a, i, j, s, n, k[]}, every number 0..255. A SKARTA move is not that
+   shape — it names a card by uid ('c73') and a suit by key ('bajtra')
+   — so it is translated HERE, in the game, rather than in js/mp.js,
+   which is what `lobby.wire` is for and what the comment over
+   WIRE_FIELDS in that file asks for.
+
+   The uid is the only interesting one and it is free: buildDeck()
+   numbers the deck positionally, so 'c73' is the same card on every
+   phone that has ever built it, and the integer 73 is the whole of it.
+   Nothing is hashed and nothing is looked up. */
+const WIRE_FIELDS = ['c', 'p', 'n', 'j'];
+
+function encMove(m) {
+  if (!m || typeof m.t !== 'string') return null;
+  const w = { t: m.t };
+  if (m.t === 'play') {
+    if (typeof m.uid !== 'string' || m.uid[0] !== 'c') return null;
+    const c = parseInt(m.uid.slice(1), 10);
+    if (!(c >= 0 && c <= 255)) return null;
+    w.c = c;
+    if (m.suit) {
+      const p = E.SUIT_KEYS.indexOf(m.suit);
+      if (p < 0) return null;
+      w.p = p;
+    }
+    if (m.charge) w.n = m.charge | 0;
+  } else if (m.t === 'catch') {
+    w.j = m.target | 0;
+  }
+  return w;
+}
+
+function decMove(w) {
+  if (!w || typeof w.t !== 'string') return null;
+  switch (w.t) {
+    case 'draw': case 'take': case 'pass': case 'call':
+      return { t: w.t };
+    case 'play': {
+      const c = w.c | 0;
+      if (!(c >= 0 && c < 108)) return null;
+      const m = { t: 'play', uid: 'c' + c };
+      if (w.p !== undefined) {
+        const s = E.SUIT_KEYS[w.p | 0];
+        if (!s) return null;
+        m.suit = s;
+      }
+      if (w.n !== undefined) m.charge = w.n | 0;
+      return m;
+    }
+    case 'catch': {
+      const j = w.j | 0;
+      if (!(j >= 0 && j < E.RULES.MAX_SEATS)) return null;
+      return { t: 'catch', target: j };
+    }
+    default: return null;                     /* a name we do not make */
+  }
+}
+
+/* ── the room's chairs, and ours ──────────────────────────────────
+   A room is opened at the game's MAXIMUM so it reads as a table
+   filling up, and people sit in it from chair 0 up — but machines are
+   put in chairs the host picked, so the chairs that are actually
+   playing are not necessarily 0..n-1. The relay stamps a move with the
+   ROOM chair; the engine deals n hands numbered 0..n-1. Two numbering
+   systems, so there is a map, built once at start from the seat list
+   the lobby hands us and never guessed at afterwards. */
+let NET = null;      /* {send, seat, seats, host, onLeave, toGame[], toRoom[]} */
+
+function onlineStart(cfg) {
+  cfg = cfg || {};
+  const chairs = (cfg.seats || []).filter(Boolean);
+  if (chairs.length < E.RULES.MIN_SEATS) throw new Error('SKARTA: not enough chairs');
+  if (chairs.length > E.RULES.MAX_SEATS) throw new Error('SKARTA: too many chairs');
+
+  const toGame = {}, toRoom = [];
+  chairs.forEach((s, g) => {
+    const room = (typeof s.seat === 'number') ? s.seat : g;
+    toGame[room] = g;
+    toRoom[g] = room;
+  });
+  const mySeat = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
+  /* THE HOST DRIVES THE MACHINES. Chair 0 is the host at the relay and
+     js/mp.js passes it as `host`; every phone works out the same answer
+     from the same two numbers. See iDrive(). */
+  const iAmHost = (cfg.you === (cfg.host | 0));
+
+  /* Owners are IDENTICAL on every phone — a machine is 'ai' everywhere,
+     not 'ai' on the host and 'net' on the rest. That is deliberate: the
+     owner is what the table LABEL is read off and what openCalls() uses
+     to decide who needs a beat to shout, so if it differed between
+     phones the same table would look and behave two different ways. Who
+     THINKS is a separate question and iDrive() answers it. */
+  const list = chairs.map((s, g) => ({
+    name: String(s.name || ('Player ' + (g + 1))).slice(0, 14),
+    owner: g === mySeat ? 'me' : (s.kind === 'cpu' ? 'ai' : 'net'),
+    level: s.level || 3,
+  }));
+
+  teardown();
+  const S = E.newGame({ seed: cfg.seed >>> 0, seats: list });
+  openTable(S, { humans: 1, seats: list.length, seat: mySeat });
+
+  NET = Object.assign({}, cfg.net, {
+    host: iAmHost, toGame, toRoom,
+    room: (cfg.net && typeof cfg.net.seat === 'number') ? cfg.net.seat : cfg.you,
+  });
+  G.net = NET;
+  tick();
+  return E.snapshot(S);      /* for a caller that wants to post it; never sent */
+}
+
+/* A move from another chair. `seat` is the RELAY's stamp and the packet
+   carries no seat of its own, so there is nothing here to spoof. */
+function onlineRemote(seat, wire) {
+  if (!G || G.dead || !NET) return { ok: false, why: 'no skarta on the table' };
+  const g = NET.toGame[seat];
+  if (g === undefined) return { ok: false, why: 'a move from a chair that is not at this table' };
+  const mv = decMove(wire);
+  if (!mv) return { ok: false, why: 'a move this table does not know how to make' };
+  const r = E.apply(G.S, g, mv, 'net');
+  if (!r.ok) {
+    /* REFUSED, NOT ABSORBED. The engine has not touched the state, and
+       the reason is the engine's own — put into words js/mp.js can show
+       somebody without a code in it. */
+    return { ok: false, why: refusal(r.err, mv, g) };
+  }
+  render();
+  if (G.S.over) { showResult(); return null; }
+  tick();
+  return null;
+}
+
+/* the engine's error ids, said out loud. A player is told what happened,
+   never 'not-your-turn'. */
+const REFUSE = {
+  'no-move':      'an empty move',
+  'no-seat':      'a move for a chair that is not at this table',
+  'unknown-move': 'a move this game does not have',
+  'not-turn':     'a move out of turn',
+  'not-yours':    'a card that is not in their hand',
+  'no-card':      'a card that is not in their hand',
+  'illegal':      'a card that does not match the suit or the number',
+  'bad-suit':     'a suit that is not one of the four',
+  'bad-charge':   'a Kaxxa charged at something that is not on the card',
+  'chain-open':   'a draw when there is a chain on the table',
+  'no-chain':     'taking a chain that is not there',
+  'no-pending':   'playing on when there is nothing in the air',
+  'over':         'a move after the game had already finished',
+  'nothing-to-call': 'shouting ' + E.RULES.CALL + ' without one card',
+  'no-catch':     'shouting ' + E.RULES.CATCH + ' at somebody who is not open',
+};
+function refusal(err, mv, g) {
+  const who = (G && G.S.players[g]) ? G.S.players[g].name : 'that chair';
+  return (REFUSE[err] || ('a move the rules refused (' + String(err || 'refused') + ')')) +
+         ' from ' + who;
+}
+
+function onlineNote(text, tone) {
+  if (G && G.ctx) P.ui.setNet(G.ctx, text || '', tone || '');
+}
+
+function onlineStop(why, tone) {
+  if (!G || G.dead) return;
+  const ctx = G.ctx;
+  clearTimeout(G.t); clearTimeout(G.catchT);
+  G.t = G.catchT = null;
+  P.ui.setNet(ctx, '', '');
+  P.ui.result(ctx, {
+    tone: tone === 'cheat' ? 'lose' : 'draw',
+    head: tone === 'cheat' ? 'No deal' : 'Cut off',
+    why: why || 'The table stopped.',
+    quip: 'Nothing was recorded. Nobody loses a hand over a dropped connection.',
+    buttons: [{ label: 'Back to the rooms', icon: 'back', cls: 'primary',
+                go: () => { const n = NET; teardown();
+                            if (n && n.onLeave) n.onLeave(); else P.hub(); } }],
+  });
+}
+
+/* ── what js/mp.js drives the wire with ───────────────────────────
+   Read off the shelf BEFORE start() is called, so it is a static object
+   over module state rather than something start() builds. */
+const HOOKS = {
+  live:      () => !!(G && !G.dead && !G.S.over),
+  phase:     () => (!G || G.dead) ? 'idle' : (G.S.over ? 'over' : 'play'),
+  seed:      () => (G ? G.S.seed : null),
+  gameId:    () => (G ? G.S.gid : null),
+  turn:      () => (G && NET) ? (NET.toRoom[G.S.turn] != null ? NET.toRoom[G.S.turn] : -1) : -1,
+  over:      () => (G ? G.S.over : null),
+  moveCount: () => (G ? G.S.moves.length : 0),
+  /* the agreement check. Two phones that have applied the same moves in
+     the same order from the same seed print the same five characters. */
+  check:     () => (G ? E.checksum(G.S) : ''),
+  /* NEVER snapshot() over the wire — see the header. This is the one
+     shape a client may be handed, and the engine asserts what it strips. */
+  view:      seat => (G && NET && NET.toGame[seat] !== undefined)
+                       ? E.view(G.S, NET.toGame[seat]) : null,
+  /* every move this phone applied, in the relay's shape, with the ROOM
+     chair on it and where it came from. js/mp.js forwards the ones that
+     were made here and drops the ones it delivered itself. */
+  onMove: fn => E.onMove((rec, info) => {
+    if (!G || G.dead || !NET) return;
+    const w = encMove(rec);
+    if (!w) return;
+    const room = NET.toRoom[info.seat];
+    fn(w, { seat: (room == null ? info.seat : room), src: info.src });
+  }),
+  apply: (seat, wire) => onlineRemote(seat, wire),
+};
+
+P.online = P.online || {};
+P.online.skarta = {
+  start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
+  live: () => HOOKS.live(),
+  hooks: HOOKS,
+};
+
+/* ── the lobby contract ───────────────────────────────────────────
+   IL-KIRI's shape, SKARTA's numbers. js/mp.js reads it off
+   window.KARTI_SKARTA.lobby and off the hub tile, and never guesses. */
+const LOBBY = {
+  id: 'skarta',
+  name: 'SKARTA',
+  mt: 'Skarta kollox',
+
+  /* SEATS. Two to ten, and the ten is arithmetic rather than taste:
+     108 cards, ' + HAND + ' each and one turned up, so the stock after
+     an eleventh hand stops being able to pay for the game. Both numbers
+     are E.RULES', so this can never drift away from what deals. */
+  minSeats: E.RULES.MIN_SEATS,
+  maxSeats: E.RULES.MAX_SEATS,
+
+  /* the machine, by name, from the setup sheet above — one array, two
+     screens, so the room list and the offline table agree */
+  levels: LV.map(L => ({ level: L.k, name: L.n, note: L.note })),
+  defaultLevel: 3,
+
+  isReady: seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
+  autoReady: seat => (seat && seat.kind === 'cpu')
+    ? Object.assign({}, seat, { ready: true }) : seat,
+
+  canStart(seatList) {
+    const n = (seatList || []).length;
+    if (n < E.RULES.MIN_SEATS)
+      return { ok: false, why: 'There is nobody to skarta onto yet.' };
+    if (n > E.RULES.MAX_SEATS)
+      return { ok: false, why: 'Ten is as many hands as 108 cards will pay for.' };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready)
+      return { ok: false, why: unready + (unready > 1 ? ' people are' : ' person is') +
+                               ' not ready yet.' };
+    return { ok: true, why: '' };
+  },
+
+  rulesHTML: rulesPanel,
+  blurb: 'Get rid of your hand before the rest of the table gets rid of theirs. Matching ' +
+         'suits, matching numbers, and a Kaxxa Infernali that ruins somebody\'s evening.',
+
+  /* the offline twin, from a seat list rather than the setup sheet */
+  start(seats, opts) {
+    const list = (seats || []).slice(0, E.RULES.MAX_SEATS);
+    const level = (list.map(s => s && s.level).find(v => v)) || 3;
+    return start({
+      seats: Math.max(E.RULES.MIN_SEATS, list.length),
+      level,
+      kinds: list.map(s => (s && s.kind === 'cpu') ? 'ai' : 'you'),
+      sort: ST.pref.sort,
+    });
+  },
+
+  myName() {
+    try {
+      const n = K.displayName && K.displayName();
+      if (n && String(n).trim() && String(n).trim().toLowerCase() !== 'guest')
+        return String(n).trim().slice(0, 14);
+    } catch (e) {}
+    return 'You';
+  },
+
+  wire: { fields: WIRE_FIELDS },
+
+  /* NO TAKEBACK, AND IT IS A RULE RATHER THAN AN OMISSION.
+     Three reasons, in order of weight:
+
+     1. IT CANNOT BE UNSEEN. E.rollbackTo() puts the CARDS back
+        perfectly — it re-deals from the seed and replays the log, so
+        the state is exact. It cannot put back what the other nine
+        people saw. A player who lays the wrong card and takes it back
+        has shown the table a card out of their hand and been given
+        another go with it. That is worse than the misclick.
+     2. UNANIMITY DOES NOT SCALE. P.ui.takeback needs every other
+        player to agree inside thirty seconds. At two that is a
+        courtesy; at seven it is a thirty-second freeze ending in
+        "nobody answered".
+     3. THE ONE IRREVERSIBLE TAP ALREADY HAS ITS OWN UNDO, and it is
+        instant and private: a drawn card is held in S.pending until
+        you say play-or-keep, so the tap that costs you the game is
+        already a two-step. So is LAST ONE, which can be armed before
+        the card lands.
+
+     A card laid is a card played. That is the game in every każin in
+     Malta and it is the game here. */
+  takeback: false,
+};
 
 /* ═══════════════════════════════════════════════════════════════════
    9. ON THE SHELF
@@ -1446,12 +1864,20 @@ P.register({
   tag: 'Get rid of your hand before the rest of the table gets rid of theirs. Matching suits, ' +
        'matching numbers, and a Kaxxa Infernali that ruins somebody\'s evening — possibly yours.',
   open: menu,
+  /* the tile carries the lobby contract too, so js/mp.js can read the seat
+     range, the machine's names and the short rules straight off the shelf
+     without knowing this file exists — the same way IL-KIRI's does */
+  seats: { min: E.RULES.MIN_SEATS, max: E.RULES.MAX_SEATS },
+  levels: LOBBY.levels,
+  rulesHTML: rulesPanel,
+  start: (seatList, o) => LOBBY.start(seatList, o),
 });
 
 /* the entry point the hub tile and anything else needs */
 window.KARTI_SKARTA = {
   open: menu, close: () => { teardown(); P.hub(); },
   engine: E, cardHTML, backHTML, injectCSS,
+  lobby: LOBBY,
   get game() { return G ? G.S : null; },
 };
 

@@ -192,7 +192,7 @@ const LOBBY_GLOBAL = {
    loudly at create time rather than seating people who cannot play. */
 const SEATS_FALLBACK = {
   cards:[2, 2, 2], chess:[2, 2, 2], dama:[2, 2, 2],
-  skarta:[2, 10, 6], klabb:[2, 8, 4], kiri:[2, 8, 4], tombla:[2, 8, 6]
+  skarta:[2, 10, 6], klabb:[2, 4, 4], kiri:[2, 8, 4], tombla:[2, 16, 8]
 };
 
 /* A machine has to be called something before it can sit down. Only used when
@@ -225,7 +225,17 @@ const LOBBY_CACHE = {};
    Cached, because it is read on every repaint of the roster. */
 function gameLobby(k){
   k = cleanGame(k);
-  if (LOBBY_CACHE[k]) return LOBBY_CACHE[k];
+  /* The cache is a repaint optimisation, not a snapshot of the world. This
+     file loads BEFORE the game files, so a lobby read during boot saw no
+     transport and pinned online:false — and the game then said "Not on this
+     phone" for the whole session however long you waited. Cache the shape,
+     which cannot change; re-read the liveness, which can. */
+  if (LOBBY_CACHE[k]){
+    const c = LOBBY_CACHE[k];
+    c.online = !!(window.KARTI_PARTY && window.KARTI_PARTY.online &&
+                  window.KARTI_PARTY.online[k]);
+    return c;
+  }
 
   const meta  = gameMeta(k);
   const G     = gameGlobal(k);

@@ -1020,11 +1020,46 @@ function startMatch(gid, opts, seed, log){
     timer: 0,
     veil: 0,          /* seat we are waiting to hand the phone to, or 0/false */
     dead: false,
-    net: null         /* set by the online controller */
+    net: null,        /* set by the online controller */
+    /* WHO IS IN EACH CHAIR, KEPT OUTSIDE THE DEAL.
+       A match is (gid, opts, seed, log) and the state is buildState() of
+       those four — which is what makes rollback exact, and which also
+       means anything written onto a seat AFTER the deal is wiped the
+       next time the state is rebuilt. Offline nothing was: deal() works
+       the owners out from opts.humans and they never change. Online they
+       do — every seat is a person somewhere and the names come from the
+       room — so they are held here, outside the four, and re-applied
+       after every rebuild. See applyMeta(). */
+    meta: null        /* [{name, own, lvl}] or null offline */
   };
   M.st = buildState(gid, M.opts, M.seed, M.log);
+  applyMeta();
   return M;
 }
+
+/* the room's names and owners, put back on top of a freshly built state */
+function applyMeta(){
+  if (!M || !M.meta || !M.st) return;
+  M.meta.forEach((m, i) => {
+    const s = M.st.seats[i];
+    if (!s || !m) return;
+    if (m.name) s.name = m.name;
+    if (m.own)  s.own  = m.own;
+    if (m.lvl)  s.lvl  = m.lvl;
+  });
+}
+
+/* Does THIS phone drive the machines? Offline, always. Online, only the
+   host's — every phone runs the same engine off the same seed, so if two
+   of them took a machine's turn the same move would be made twice, once
+   locally and once off the wire, and the tables would part company on
+   the first bot go. One phone thinks; the rest are told.
+
+   The TABLE's own moves (seat -1: gather the trick, turn the next hand)
+   are NOT in here on purpose. They are forced — legal(st,-1)[0] and
+   nothing else — so every phone reaches the same one on its own and
+   there is nothing to send. */
+function iDrive(){ return !M || !M.net || M.net.host; }
 
 function stopThinking(){
   if (M && M.timer){ clearTimeout(M.timer); M.timer = 0; }
@@ -1110,6 +1145,7 @@ function rollbackTo(n){
   stopThinking();
   M.log = M.log.slice(0, n);
   M.st = buildState(M.gid, M.opts, M.seed, M.log);
+  applyMeta();                        /* the room's chairs are not in the deal */
   M.tmp = {};
   autosave();
   fire(stateSubs, { reason:'rollback', index:n });
@@ -1371,6 +1407,7 @@ function step(){
   }
   if (t < 0 || isLocal(t)) return;         /* waiting for a person */
   if (ownerOf(t) === 'net') return;        /* waiting for the wire */
+  if (!iDrive()) return;                   /* somebody else's phone thinks */
   /* the machine */
   M.timer = setTimeout(() => {
     M.timer = 0;
@@ -1445,11 +1482,18 @@ function finish(done){
     head: done.head,
     why:  done.why,
     quip: done.quip,
-    buttons: [
-      { label:'Deal again', icon:'refresh', cls:'primary',
-        go: () => newGame(M.gid, M.opts) },
-      { label:'Back to the shelf', icon:'back', cls:'ghost', go: () => P.hub() }
-    ]
+    /* A ROOM IS NOT DEALT AGAIN FROM HERE. Offline "Deal again" is this
+       phone's business; online it is three other people's, and the way
+       back is the room list. */
+    buttons: M.net
+      ? [{ label:'Back to the rooms', icon:'back', cls:'primary',
+           go: () => { const n = M.net; leave();
+                       if (n && n.onLeave) n.onLeave(); else P.hub(); } }]
+      : [
+          { label:'Deal again', icon:'refresh', cls:'primary',
+            go: () => newGame(M.gid, M.opts) },
+          { label:'Back to the shelf', icon:'back', cls:'ghost', go: () => P.hub() }
+        ]
   });
 }
 
@@ -1557,6 +1601,17 @@ function rulesSheet(def){
    Who is at the table. Kept short on purpose: a card game people
    already know should be two taps from the shelf to the first trick.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE MACHINE, BY NAME. Named once because three screens want the same
+   three words: the setup sheet below, js/mp.js's shared lobby through
+   KARTI_KLABB.lobby.levels, and the name the lobby puts on a machine
+   when the host sits one down. A difficulty called Tal-każin offline and
+   "Normal" in a room is a bug you only find on somebody else's phone. */
+const LEVELS = [
+  { k:1, n:'Iz-zijuh',  d:'Plays whatever is nearest. Bless him.',       i:'diff-1' },
+  { k:2, n:'Tal-kazin', d:'Counts the trumps. Remembers what fell.',     i:'diff-2' },
+  { k:3, n:'In-nannu',  d:'Knows what you have. He has been watching.',  i:'diff-3' }
+];
+
 function setupSheet(def){
   P.show();
   stopThinking(); M = null; UI = null;
@@ -1596,11 +1651,7 @@ function setupSheet(def){
         '</div>' +
         (humans < seats
           ? '<div class="tiny pt-lbl">How sharp is the machine</div>' +
-            '<div class="pt-opts">' + [
-              { k:1, n:'Iz-zijuh', d:'Plays whatever is nearest. Bless him.', i:'diff-1' },
-              { k:2, n:'Tal-kazin', d:'Counts the trumps. Remembers what fell.', i:'diff-2' },
-              { k:3, n:'In-nannu', d:'Knows what you have. He has been watching.', i:'diff-3' }
-            ].map(o =>
+            '<div class="pt-opts">' + LEVELS.map(o =>
               '<button class="pt-opt' + (o.k === lvl ? ' on' : '') + '" data-lvl="' + o.k + '">' +
                 ico(o.i) + '<b>' + o.n + '</b><i>' + o.d + '</i></button>').join('') + '</div>'
           : '') +
@@ -1608,6 +1659,17 @@ function setupSheet(def){
           '<button class="btn primary" id="kb-go">Deal</button>' +
           (savedSlot(def.id)
             ? '<button class="btn ghost" id="kb-res">Carry on the saved hand</button>' : '') +
+          /* ONLINE, AND IT OPENS THE RIGHT KIND OF ROOM.
+             The relay labels a klabb room with its FLAVOUR, and which
+             flavour you want is the question this screen has just
+             answered — so it is answered once, here, rather than asked
+             again in the room list. js/mp.js's shared lobby has no
+             variant picker of its own yet; until it grows one this is
+             the only place that knows a room should be a Briscola room
+             rather than a Gidba one. */
+          (window.KARTI_MP
+            ? '<button class="btn ghost" id="kb-online">Open an online ' +
+              esc(def.name) + ' room</button>' : '') +
         '</div>' +
         '<div class="kb-rules"><h5>The rules, as we play them</h5><ul>' +
           def.rules.map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
@@ -1627,6 +1689,11 @@ function setupSheet(def){
       const s = savedSlot(def.id);
       if (!s) return;
       newGame(def.id, s.opts, s);
+    };
+    const on = el.querySelector('#kb-online');
+    if (on) on.onclick = () => {
+      pref(def.id, { seats, humans, lvl });
+      openOnline(def.id);
     };
   }
   paint();
@@ -1650,10 +1717,500 @@ function open(id){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   ONLINE
+   ───────────────────────────────────────────────────────────────────
+   Two halves, both read by js/mp.js.
+
+   THE LOBBY HALF, window.KARTI_KLABB.lobby, is read before a card
+   exists: how many chairs, what the machine is called, what the rules
+   are. IL-KIRI's is the reference and this is the same object.
+
+   THE TRANSPORT HALF, KARTI_PARTY.online.klabb, carries a move.
+
+   FOUR GAMES, ONE ROOM TYPE. The relay labels a room `klabb` and its
+   FLAVOUR separately — bixkla, briscola, sette, gidba — because the
+   relay must not have to know what a briscola is. The client calls the
+   bluffing game `cheat`; the relay publishes the Maltese `gidba` and
+   normalises one to the other, so both ids are accepted here and the
+   engine keeps the one its storage key and its stats row are built on.
+
+   WHAT MAKES THIS SAFE, and all of it was already here:
+
+   1. NOTHING BUT MOVES CROSSES, AND NEVER A HAND. The deal is
+      buildState(gid, opts, seed, []) and every phone does it for
+      itself; the wire carries {a,i,j,s,n,k}. A seat is never SENT the
+      state, so there is no snapshot on the wire to read a hand out of.
+      hooks.view(seat) is the only shape a client may be handed and it
+      replaces every other hand with a count and empties the stock.
+   2. A PACKET GOES THROUGH THE DOOR A TAP GOES THROUGH. remote() ends
+      in doMove(), which is the same call the felt's click listener
+      makes: wrong seat, wrong turn, or a card that is not in that hand
+      and it is REFUSED and said out loud, with the log untouched.
+   3. THE SEAT IS THE RELAY'S. The move on the wire carries no seat —
+      it is stripped on the way out — and remote() is told which chair
+      it came from by js/mp.js, which got it from the Pi.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* the relay's id for each of ours, and back */
+const NET_VARIANT = { bixkla:'bixkla', briscola:'briscola', sette:'sette', cheat:'gidba' };
+const OUR_VARIANT = { bixkla:'bixkla', briscola:'briscola', sette:'sette',
+                      gidba:'cheat',   cheat:'cheat' };
+
+/* WHICH FLAVOUR, AND CAN IT SEAT THIS MANY.
+   `def.seats` is the list of counts a game will actually deal, and the
+   list is not a range: bixkla and briscola are PARTNERSHIP games and
+   play at two or four, never three. So the check is membership, not
+   min/max, and it is the game's own array that answers it. */
+const variantSeats = gid => (BY_ID[gid] ? BY_ID[gid].seats.slice() : []);
+const variantFits = (gid, n) => variantSeats(gid).indexOf(n) >= 0;
+
+/* Which flavour is the room open for, if anybody has said. The relay
+   tells js/mp.js when the room is created or joined and mp.js keeps it
+   on MP.variant; it is read here rather than copied, so the room is
+   always the authority for what it is. */
+function roomVariant(){
+  try {
+    const v = window.KARTI_MP && window.KARTI_MP.MP && window.KARTI_MP.MP.variant;
+    return v ? (OUR_VARIANT[String(v).toLowerCase()] || null) : null;
+  } catch(e){ return null; }
+}
+
+/* WHAT THIS TABLE IS PLAYING.
+   If the room SAID, that is the answer or there is no answer — a
+   briscola room with three chairs in it does not quietly become a
+   sette e mezzo, it refuses, because four people who joined a Briscola
+   room came for Briscola. Only a room that said nothing at all gets a
+   sensible default, and then it is the first of the four that will
+   seat them, in shelf order, so every phone reaches the same one. */
+function pickVariant(mode, n){
+  const said = String(mode || '').toLowerCase();
+  if (said){
+    const want = OUR_VARIANT[said];
+    return (want && variantFits(want, n)) ? want : null;
+  }
+  for (const g of GAMES) if (variantFits(g.id, n)) return g.id;
+  return null;
+}
+
+/* ── the codec ────────────────────────────────────────────────────
+   The relay's table payload is {a, i, j, s, n, k[]} with every number
+   bounded 0..255, and js/mp.js packs a declared field list into it. A
+   klabb move is already integers — a card is an index into a 40- or
+   52-card deck — so this is mostly a rename, with one real job: Gidba
+   plays ONE TO FOUR cards at once and an array is not a field. Four
+   named fields carry them in order.
+
+   `seat` is stripped. doMove() stamps it on the record from the seat
+   the RELAY said it came from, and a seat a client put in its own
+   packet is exactly the thing this design refuses to look at. */
+const WIRE_FIELDS = ['c', 'd', 'e', 'f', 'n'];
+const CARD_KEYS = ['c', 'd', 'e', 'f'];
+const BARE = { gather:1, next:1, settle:1, after:1, hit:1, stand:1, call:1, pass:1 };
+
+function encMove(mv){
+  if (!mv || typeof mv.t !== 'string') return null;
+  const w = { t: mv.t };
+  if (BARE[mv.t]) return w;
+  if (mv.t === 'bet'){ w.n = mv.n | 0; return (w.n >= 0 && w.n <= 255) ? w : null; }
+  if (mv.t === 'play'){
+    if (Array.isArray(mv.cards)){                 /* Il-Gidba */
+      if (!mv.cards.length || mv.cards.length > CARD_KEYS.length) return null;
+      for (let i = 0; i < mv.cards.length; i++){
+        const c = mv.cards[i] | 0;
+        if (!(c >= 0 && c <= 255)) return null;
+        w[CARD_KEYS[i]] = c;
+      }
+      return w;
+    }
+    const c = mv.c | 0;                           /* the trick games */
+    return (c >= 0 && c <= 255) ? Object.assign(w, { c }) : null;
+  }
+  return null;                                    /* a move we do not make */
+}
+
+function decMove(gid, d){
+  if (!d || typeof d.t !== 'string') return null;
+  if (BARE[d.t]) return { t: d.t };
+  if (d.t === 'bet'){
+    const n = d.n | 0;
+    return (n >= 0 && n <= 255) ? { t:'bet', n } : null;
+  }
+  if (d.t === 'play'){
+    if (gid === 'cheat'){
+      const cards = [];
+      for (const k of CARD_KEYS) if (d[k] !== undefined) cards.push(d[k] | 0);
+      /* the fields are positional, so a gap in them is a corrupt packet
+         rather than a short hand — refuse it rather than guess */
+      for (let i = 0; i < cards.length; i++) if (d[CARD_KEYS[i]] === undefined) return null;
+      return cards.length ? { t:'play', cards } : null;
+    }
+    return (d.c === undefined) ? null : { t:'play', c: d.c | 0 };
+  }
+  return null;
+}
+
+/* ── the room's chairs, and ours ─────────────────────────────────
+   A room is opened at the game's maximum and people sit in it from
+   chair 0 up, but a machine goes in whatever chair the host picked, so
+   the chairs actually playing need not be 0..n-1. The relay stamps a
+   move with the ROOM chair; the engine deals n hands numbered 0..n-1.
+   Two numbering systems, one map, built once from the seat list the
+   lobby hands us and never guessed at afterwards. */
+let NET = null;
+
+function onlineStart(cfg){
+  cfg = cfg || {};
+  const chairs = (cfg.seats || []).filter(Boolean);
+  const n = chairs.length;
+  const said = (cfg.opts && cfg.opts.mode) || roomVariant() || '';
+  const gid = pickVariant(said, n);
+  if (!gid)
+    throw new Error('KLABB: ' + (said ? (said + ' is not played by ' + n)
+                                      : 'no game at this club seats ' + n) +
+                    ' (bixkla and briscola want 2 or 4, sette 2 to 4, il-gidba 3 or 4)');
+
+  const toGame = {}, toRoom = [];
+  chairs.forEach((s, g) => {
+    const room = (typeof s.seat === 'number') ? s.seat : g;
+    toGame[room] = g;
+    toRoom[g] = room;
+  });
+  const mySeat = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
+  const iAmHost = (cfg.you === (cfg.host | 0));
+  const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
+
+  /* Owners are IDENTICAL on every phone: a machine is 'ai' everywhere,
+     not 'ai' here and 'net' there. The owner is what the seat plate and
+     the turn line are read off, so if it differed between phones the
+     same table would read two different ways. Who THINKS is a separate
+     question and iDrive() answers it. */
+  const meta = chairs.map((s, g) => ({
+    name: String(s.name || ('Player ' + (g + 1))).slice(0, 14),
+    own:  g === mySeat ? 'me' : (s.kind === 'cpu' ? 'ai' : 'net'),
+    lvl:  s.level || lvl
+  }));
+
+  leave();
+  /* humans:n so deal() puts a person in every chair; meta then says who
+     each of them actually is. The deal itself is (gid, opts, seed) and
+     is byte-identical on every phone in the room. */
+  const m = startMatch(gid, { seats:n, humans:n, lvl }, cfg.seed >>> 0);
+  if (!m) throw new Error('KLABB: ' + gid + ' would not deal ' + n + ' hands');
+  M.meta = meta;
+  applyMeta();
+
+  NET = Object.assign({}, cfg.net, { host: iAmHost, toGame, toRoom, gid });
+  M.net = NET;
+  openBoard(gid, mySeat);
+  return snapshot();                 /* for a caller that wants it; never sent */
+}
+
+/* the felt, for a match startMatch() has already built. newGame() deals
+   its own, which is exactly what an online table must not do. */
+function openBoard(gid, mySeat){
+  const def = BY_ID[gid];
+  injectCSS();
+  P.show();
+  M.view = mySeat;
+  M.shown = mySeat;
+  M.finished = false;
+  M.ctx = P.ui.frame({
+    title: def.name,
+    onBack: () => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); },
+    leave: () => leave(),
+    buttons: [
+      { id:'kb-undo',  label:'Undo',  icon:'back', cls:'ghost' },
+      { id:'kb-rules', label:'Rules', icon:'book', cls:'ghost' }
+    ]
+  });
+  if (M.ctx.stopFit) M.ctx.stopFit();
+  M.ctx.badge.textContent = def.mt || '';
+  table();
+  /* Undo is dead online and it SAYS so rather than sitting there
+     enabled and doing nothing — see the takeback note on the lobby. */
+  const u = M.ctx.btn('kb-undo');
+  if (u){ u.disabled = true; u.title = 'A card laid is a card played.'; }
+  M.ctx.btn('kb-rules').onclick = () => rulesSheet(def);
+  render();
+  cue('game.start', { gain: 0.9 }, 2);
+  cueIn(300, soundDeal);
+}
+
+/* A move from another chair. `seat` is the RELAY's stamp. */
+function onlineRemote(seat, wire){
+  if (!M || M.dead || !NET) return { ok:false, why:'no hand on this table' };
+  const g = NET.toGame[seat];
+  if (g === undefined) return { ok:false, why:'a move from a chair that is not at this table' };
+  const mv = decMove(M.gid, wire);
+  if (!mv) return { ok:false, why:'a move this table does not know how to make' };
+
+  /* THE TABLE'S OWN BEAT, FIRST.
+     Seat -1 is the table: gathering a finished trick, turning the next
+     hand. Those moves are forced and every phone makes them for itself
+     on a timer, so they are not relayed — but a timer is wall-clock and
+     the wire is not. A phone that has already gathered can send the
+     next play before this one's gather timer has fired, and doMove()
+     would then refuse a perfectly legal move because it is still the
+     table's turn. So the table's beat is FLUSHED here, in order, before
+     the packet is looked at. It is the same move it was going to make
+     a moment later; only the clock changes. */
+  let guard = 0;
+  while (M.def.turn(M.st) === -1 && guard++ < 8){
+    const opts = M.def.legal(M.st, -1) || [];
+    if (!opts.length) break;
+    if (!doMove(-1, opts[0], 'auto').ok) break;
+    M.tmp = {};
+  }
+
+  /* THE SAME OBJECT A THUMB MAKES.
+     allowed() measures a move against legal(), and for the trick games
+     that comparison is an exact key-for-key match — legal() lists
+     {t,c,seat}, so a move arriving without the seat on it is refused as
+     "illegal" even when the card is perfectly playable. The felt's own
+     click listener stamps the seat on before calling doMove and so does
+     this, from THE RELAY'S number and never from the packet, which is
+     the whole of the difference between the two. */
+  mv.seat = g;
+  const r = doMove(g, mv, 'net');
+  if (!r.ok) return { ok:false, why: refusal(r.err, g) };
+  M.tmp = {};
+  render();
+  return null;
+}
+
+function refusal(err, g){
+  const who = (M && M.st.seats[g]) ? M.st.seats[g].name : 'that chair';
+  const e = String(err || 'refused');
+  const said = /turn/.test(e)   ? 'a move out of turn'
+             : /illegal/.test(e) ? 'a card the rules will not have'
+             : /over/.test(e)    ? 'a move after the hand had finished'
+             : 'a move the rules refused (' + e + ')';
+  return said + ' from ' + who;
+}
+
+function onlineNote(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); }
+
+function onlineStop(why, tone){
+  if (!M || M.dead || !M.ctx) return;
+  const ctx = M.ctx;
+  stopThinking();
+  M.finished = true;
+  P.ui.setNet(ctx, '', '');
+  P.ui.result(ctx, {
+    tone: tone === 'cheat' ? 'lose' : 'draw',
+    head: tone === 'cheat' ? 'No deal' : 'Cut off',
+    why: why || 'The table stopped.',
+    quip: 'Nothing was scored. Nobody loses a hand over a dropped connection.',
+    buttons: [{ label:'Back to the rooms', icon:'back', cls:'primary',
+                go: () => { const nx = NET; leave();
+                            if (nx && nx.onLeave) nx.onLeave(); else P.hub(); } }]
+  });
+}
+
+/* ── what js/mp.js drives the wire with ──────────────────────────
+   Read off the shelf BEFORE start() is called, so it is a static object
+   over module state rather than something start() builds. */
+const NET_HOOKS = {
+  live:      () => !!(M && !M.dead && !M.def.over(M.st)),
+  phase:     () => !M ? 'idle' : (M.def.over(M.st) ? 'over' : 'play'),
+  seed:      () => (M ? M.seed : null),
+  gameId:    () => (M ? M.gid : null),
+  turn:      () => (M && NET) ? (NET.toRoom[M.def.turn(M.st)] != null
+                                 ? NET.toRoom[M.def.turn(M.st)] : -1) : -1,
+  over:      () => (M ? M.def.over(M.st) : null),
+  moveCount: () => (M ? M.log.length : 0),
+  /* THE AGREEMENT CHECK. klabb had none: a match is (gid, opts, seed,
+     log) and two phones with the same four are the same board by
+     construction, which is true and is not the same as being able to
+     SAY SO on a line of a bug report. This is that line — every hand
+     length, the trick, the turn and the log height, hashed. */
+  check(){
+    if (!M) return '';
+    const st = M.st;
+    const s = [M.gid, M.seed, M.log.length, M.def.turn(st),
+               st.seats.map(x => (x.hand ? x.hand.length : 0) + '/' +
+                                 (x.chips != null ? x.chips : (x.won ? x.won.length : 0))).join('.'),
+               (st.pool || st.trick || []).map(x => (x && x.c != null) ? x.c : x).join(','),
+               (st.stock ? st.stock.length : 0)].join('|');
+    let h = 2166136261;
+    for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0).toString(36);
+  },
+  /* NEVER snapshot() over the wire. This is the one shape a client may
+     be handed: every other hand a count, the stock emptied. */
+  view: seat => (M && NET && NET.toGame[seat] !== undefined)
+                  ? window.KARTI_KLABB.hooks.view(NET.toGame[seat]) : null,
+  /* every move this phone applied, in the relay's shape, with the ROOM
+     chair on it and where it came from. */
+  onMove: fn => window.KARTI_KLABB.hooks.onMove(info => {
+    if (!M || M.dead || !NET || !info) return;
+    const w = encMove(info.move);
+    if (!w) return;
+    const room = NET.toRoom[info.seat];
+    fn(w, { seat: (room == null ? info.seat : room), src: info.src });
+  }),
+  apply: (seat, wire) => onlineRemote(seat, wire)
+};
+
+P.online = P.online || {};
+P.online.klabb = {
+  start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
+  live: () => NET_HOOKS.live(),
+  hooks: NET_HOOKS
+};
+
+/* OPEN AN ONLINE ROOM OF ONE PARTICULAR GAME.
+   The relay carries the flavour as a separate field from the game id —
+   `klabb` + `briscola` — precisely so it never has to know what a
+   briscola is, and it normalises our `cheat` to its own `gidba` on the
+   way in. js/mp.js reads MP.variant when it opens a room but has
+   nothing that SETS it, so the answer is put there from the one screen
+   that has it. One tap: the room is opened, labelled, and sized to a
+   game this variant can actually deal. */
+function openOnline(gid){
+  const MPX = window.KARTI_MP;
+  if (!MPX || !MPX.MP) return;
+  /* out of whatever room was open, which is also what clears the last
+     variant — then say what this one is and open it */
+  try { MPX.mpLeave(); } catch(e){}
+  MPX.MP.variant = NET_VARIANT[gid] || gid;
+  MPX.MP.wantGame = 'klabb';
+  try { K.go('mp'); } catch(e){}
+  try { MPX.mpScreen(); } catch(e){}
+  MPX.start('create', null, null, false, 'klabb');
+}
+
+/* ── the lobby contract ──────────────────────────────────────────── */
+function rulesPanel(){
+  return '<p>Four games out of one Maltese każin, dealt off the same pack.</p>' +
+    GAMES.map(g =>
+      '<p><b>' + esc(g.name) + '</b> — ' + esc(g.mt || '') + '. ' +
+      esc(String(g.blurb || '').replace(/<[^>]*>/g, '')) + ' ' +
+      variantSeats(g.id).join(' or ') + ' players.</p>').join('') +
+    '<p>Which one a room is playing is chosen when the room is opened, and ' +
+    'everybody at the table plays the same one.</p>';
+}
+
+const LOBBY = {
+  id:'klabb',
+  name:'Card club',
+  mt:'Il-każin',
+
+  /* SEATS. Two to four across all four games, and FOUR IS THE REAL
+     CEILING: bixkla and briscola are partnership games and deal two
+     against two, sette e mezzo passes a bank round the table, and
+     il-gidba wants at least three to be worth lying to. Nothing here
+     deals a fifth hand — see `variants` below for what each one will
+     actually seat, because the range is not contiguous: a partnership
+     game plays at two or four and never at three. */
+  /* GETTERS, not values. This file loads BEFORE the four engine files
+     that call define(), so at the moment this object is built GAMES is
+     empty and any number taken from it now would be a number taken from
+     nothing. Read on demand, they are the games' own. */
+  get minSeats(){
+    const all = GAMES.map(g => variantSeats(g.id)).reduce((a, b) => a.concat(b), []);
+    return all.length ? Math.min.apply(null, all) : 2;
+  },
+  get maxSeats(){
+    const all = GAMES.map(g => variantSeats(g.id)).reduce((a, b) => a.concat(b), []);
+    return all.length ? Math.max.apply(null, all) : 4;
+  },
+
+  /* the flavours, and exactly what each will seat. Published so a lobby
+     that grows a variant picker can read the real numbers off the games
+     rather than carry a copy of them. */
+  get variants(){
+    return GAMES.map(g => ({
+      id: g.id, net: NET_VARIANT[g.id] || g.id, name: g.name, mt: g.mt || '',
+      seats: variantSeats(g.id)
+    }));
+  },
+
+  levels: LEVELS.map(L => ({ level:L.k, name:L.n, note:L.d })),
+  defaultLevel: 2,
+
+  isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
+  autoReady: seat => (seat && seat.kind === 'cpu')
+    ? Object.assign({}, seat, { ready:true }) : seat,
+
+  canStart(seatList){
+    const n = (seatList || []).length;
+    if (n < 2) return { ok:false, why:'Nobody deals to one.' };
+    if (n > 4) return { ok:false, why:'Four is a card table. Five is a queue.' };
+    /* THE ROOM'S OWN GAME ANSWERS FIRST. A room opened for Briscola is
+       a Briscola room whatever else could seat these people, so the
+       count is measured against THAT game's own list of table sizes —
+       which is a list, not a range: a partnership game deals two
+       against two and has nothing to do at three. */
+    const v = roomVariant();
+    if (v && !variantFits(v, n)){
+      const d = BY_ID[v];
+      return { ok:false, why:(d ? d.name : 'This game') + ' is played by ' +
+                              variantSeats(v).join(' or ') + '. There ' +
+                              (n === 1 ? 'is 1' : 'are ' + n) + ' here.' };
+    }
+    if (!v && !GAMES.some(g => variantFits(g.id, n)))
+      return { ok:false, why:'Three cannot play a partnership game — one more, or one fewer.' };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready)
+      return { ok:false, why:unready + (unready > 1 ? ' people are' : ' person is') +
+                             ' not ready yet.' };
+    return { ok:true, why:'' };
+  },
+
+  rulesHTML: rulesPanel,
+  blurb:'Bixkla, Briscola, Sette e Mezzo and Il-Gidba — four games out of one każin, ' +
+        'dealt off the same pack.',
+
+  /* the offline twin, from a seat list rather than the setup sheet */
+  start(seats, opts){
+    const list = (seats || []).filter(Boolean);
+    const n = Math.max(2, Math.min(4, list.length || 2));
+    const gid = pickVariant(opts && (opts.mode || opts.variant), n);
+    if (!gid) return null;
+    const lvl = (list.map(s => s && s.level).find(v => v)) || 2;
+    const humans = Math.max(1, list.filter(s => s && s.kind !== 'cpu').length);
+    return newGame(gid, { seats:n, humans, lvl });
+  },
+
+  myName(){
+    try {
+      const n = K.displayName && K.displayName();
+      if (n && String(n).trim() && String(n).trim().toLowerCase() !== 'guest')
+        return String(n).trim().slice(0, 14);
+    } catch(e){}
+    return 'You';
+  },
+
+  wire: { fields: WIRE_FIELDS },
+
+  /* NO TAKEBACK, AND HERE IT IS THE GAMES THAT SAY SO RATHER THAN THE
+     TRANSPORT. The machinery would work — a match is (gid, opts, seed,
+     log), rollbackTo(n) cuts the log and rebuilds, and four phones
+     given the same n land on the same board exactly. It is the card
+     games that refuse it:
+
+       BIXKLA and BRISCOLA are trick games and the whole information
+       content of a trick game is which card fell. Karta mgħoddija ma
+       tiġix lura. Taking one back is not undo, it is showing your
+       partner a card and then asking for it back.
+       SETTE E MEZZO — a hit that busts you IS the game. An undo on a
+       card you asked for is the one move that cannot be allowed.
+       IL-GIDBA is a bluffing game. A takeback after a challenge would
+       let you retract a lie you were caught in, which is the game.
+
+     So Undo is disabled on an online felt and says why, rather than
+     sitting there enabled and doing nothing. Offline it stays exactly
+     as it was: your phone, your business. */
+  takeback: false
+};
+
+/* ═══════════════════════════════════════════════════════════════════
    PUBLIC FACE
    The engine files below use define(). js/mp.js uses hooks.
    ═══════════════════════════════════════════════════════════════════ */
 window.KARTI_KLABB = {
+  lobby: LOBBY,
   /* open() with no argument goes to the shelf; open('bixkla') goes
      straight to that game's setup sheet. */
   open, close: () => { leave(); P.hub(); },
@@ -1696,15 +2253,47 @@ window.KARTI_KLABB = {
        Online, hand this to ONE authority (the host) and give the other
        seats view(). */
     state:     () => M ? clone(M.st) : null,
-    /* the same state with everybody else's hand replaced by a count,
-       for a client that must not be able to read the table */
+    /* ── THE ONLY SHAPE A CLIENT MAY BE HANDED ──────────────────
+       Everybody else's hand replaced by a count, and EVERY OTHER
+       FACE-DOWN CARD IN THE CLUB with it. There are four games here
+       and they hide four different things, so this lists them by name
+       rather than trusting one field:
+
+         seats[i].hand   every hand but yours                (all four)
+         stock           bixkla and briscola draw from it, and its
+                         last card is the turn-up — which stays, as
+                         st.trump, because it is face UP on the table
+         deck            sette e mezzo's shoe. It is not called
+                         `stock`, so an earlier version of this
+                         function walked straight past it and handed
+                         every client the next card off the top.
+         pile            IL-GIDBA'S WHOLE GAME. The heap is face
+                         down; a client that can read it knows every
+                         claim that was a lie and never gets caught
+                         calling. Its SIZE is public — it is a heap on
+                         the table — and its contents are not.
+         lastPlay.cards  the claim currently on the table, face down
+                         until somebody says otherwise. Who played,
+                         what they SAID it was and how many they put
+                         down are all public; what they actually put
+                         down is the question the game is about.
+
+       `reveal` is deliberately left whole: it exists only after a
+       challenge, and a challenge is the cards being turned over.     */
     view: seat => {
       if (!M) return null;
       const st = clone(M.st);
+      st.you = seat;
       st.seats.forEach((s, i) => {
         if (i !== seat && s.hand){ s.hidden = s.hand.length; s.hand = []; }
       });
-      if (st.stock) st.stockLeft = st.stock.length, st.stock = [];
+      if (st.stock){ st.stockLeft = st.stock.length; st.stock = []; }
+      if (st.deck){  st.deckLeft  = st.deck.length;  st.deck  = []; }
+      if (st.pile){  st.pileLeft  = st.pile.length;  st.pile  = []; }
+      if (st.lastPlay && st.lastPlay.cards){
+        st.lastPlay = { seat: st.lastPlay.seat, rank: st.lastPlay.rank,
+                        n: st.lastPlay.cards.length };
+      }
       return st;
     },
 

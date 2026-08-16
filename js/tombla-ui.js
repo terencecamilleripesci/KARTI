@@ -736,6 +736,25 @@ function stepRow(id, label, note, val){
     '</div></div>';
 }
 
+/* THE THIRTY SECONDS THAT SEATS A STRANGER.
+   The same words in two places — folded open in the setup sheet below, and
+   handed to js/mp.js's shared lobby as `rulesHTML()`. Written once so the two
+   can never disagree about what a vers is. */
+function rulesPanel(){
+  return '<p><b>Tombla klassika</b> is the Italian ladder: <b>ambo</b> two on one row, ' +
+      '<b>terna</b> three, <b>kwaterna</b> four, <b>ċinkwina</b> the whole row of five, ' +
+      'then <b>TOMBLA</b> — all fifteen on one kartella. Each is won once and the game ' +
+      'carries on for the next, which is why nobody leaves the table.</p>' +
+    '<p><b>Tal-każin</b> is Malta\'s own. The Lotteries and Other Games Act defines a ' +
+      'tombla as won by the <b>vers</b> — five on one row — or the <b>fatta</b>, all ' +
+      'fifteen. No ambo, no terna. That is the game the band clubs and the parishes ' +
+      'play, and with a full ġog in front of everybody it is the better paced of the ' +
+      'two: an ambo among sixteen ġogs is gone by the third number.</p>' +
+    '<p>Both are here under their own names. Neither is invented.</p>' +
+    '<p>You mark your own numbers and you shout for your own prize. Nobody waits for a ' +
+      'turn, which is why this table seats sixteen.</p>';
+}
+
 function menu(){
   injectCSS();
   leave();
@@ -825,17 +844,7 @@ function menu(){
 
       '<div class="tb-fold"><button id="tb-foldb">' + ico('book') +
         '<span>The rules, and why there are two</span><span class="cv">+</span></button>' +
-        '<div class="body" id="tb-foldbody" hidden>' +
-          '<p><b>Tombla klassika</b> is the Italian ladder: <b>ambo</b> two on one row, ' +
-            '<b>terna</b> three, <b>kwaterna</b> four, <b>ċinkwina</b> the whole row of five, ' +
-            'then <b>TOMBLA</b> — all fifteen on one kartella. Each is won once and the game ' +
-            'carries on for the next, which is why nobody leaves the table.</p>' +
-          '<p><b>Tal-każin</b> is Malta\'s own. The Lotteries and Other Games Act defines a ' +
-            'tombla as won by the <b>vers</b> — five on one row — or the <b>fatta</b>, all ' +
-            'fifteen. No ambo, no terna. That is the game the band clubs and the parishes ' +
-            'play, and with a full ġog in front of everybody it is the better paced of the ' +
-            'two: an ambo among sixteen ġogs is gone by the third number.</p>' +
-          '<p>Both are here under their own names. Neither is invented.</p>' +
+        '<div class="body" id="tb-foldbody" hidden>' + rulesPanel() +
         '</div></div>' +
 
       (rec.w + rec.l + rec.d
@@ -1863,7 +1872,111 @@ P.online.tombla = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════
+   6b · THE LOBBY CONTRACT
+   ───────────────────────────────────────────────────────────────────
+   The transport above shipped first, so js/mp.js has been able to CARRY
+   a tombla for a while — but it had to guess at everything it puts on
+   the screen BEFORE the first number comes out of the bag, and it
+   guessed from its own fallbacks: two-to-eight chairs (the table seats
+   SIXTEEN) and "Gentle / Normal / Ruthless" (the machine at this table
+   is Nofs rieqda, Tal-każin and In-nanna, and it always was). Those
+   three are people at a każin, not slider positions, and inventing
+   English for them was the one visible downgrade in the online build.
+
+   This is the same object IL-KIRI publishes, filled in for tombla.
+   Nothing here is new mechanism — every number in it was already a
+   constant in js/tombla.js or a name in the setup sheet above; all
+   that was missing was saying so out loud.
+   ═══════════════════════════════════════════════════════════════════ */
+const LOBBY = {
+  id:'tombla',
+  name:'TOMBLA',
+  mt:'It-tombla',
+
+  /* SEATS. Two to sixteen, and the sixteen is the point.
+     Nobody in tombla waits for a turn — every phone marks its own ġog
+     against the same number — so the table costs nothing to widen and
+     gets better as it does: a ċinkwina among sixteen ġogs is a race,
+     among three it is a formality. Sixteen is T.MAX_SEATS in
+     js/tombla.js and it is what the relay seats; two is the floor
+     because somebody has to be shouting at somebody. */
+  minSeats: 2,
+  maxSeats: T.MAX_SEATS,
+
+  /* the machine, by name. These are the three from the setup sheet
+     above, shared rather than copied, so the room list and the offline
+     screen can never call the same player two different things. */
+  levels: LEVELS.map(L => ({ level:L.k, name:L.name, note:L.note })),
+  defaultLevel: T.DEFAULTS.level,
+
+  /* an AI seat is ready the instant it exists and never holds a table up */
+  isReady: seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
+  autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
+
+  /* why this table cannot go yet, in words that can be put straight on
+     the screen */
+  canStart(seatList){
+    const n = (seatList || []).length;
+    if (n < 2) return { ok:false, why:'Somebody has to be shouting at somebody.' };
+    if (n > T.MAX_SEATS)
+      return { ok:false, why:'Sixteen ġogs is as many as one bag can feed.' };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready)
+      return { ok:false, why:unready + (unready > 1 ? ' people are' : ' person is') +
+                             ' not ready yet.' };
+    return { ok:true, why:'' };
+  },
+
+  rulesHTML: rulesPanel,
+  blurb:'A ġog of six kartelli, ninety numbers, and you mark every one yourself. ' +
+        'Up to sixteen of you at once, and nobody ever waits for a turn.',
+
+  /* the offline twin of the room, for anything that wants to open a
+     tombla from a seat list rather than from the setup sheet */
+  start(seats, opts){
+    const o = Object.assign({}, T.DEFAULTS, opts || {});
+    o.seats = Math.max(2, Math.min(T.MAX_SEATS, (seats || []).length || o.seats));
+    const lv = (seats || []).map(s => s && s.level).find(v => v);
+    if (lv) o.level = lv;
+    return newGame(o, false);
+  },
+
+  /* THE NAME IS NEVER ASKED FOR. He is signed in and the app already knows
+     who he is. A guest is "You" rather than the word "Guest", which reads
+     like a bug on a results board. Same rule as IL-KIRI's myName(). */
+  myName(){
+    try {
+      const n = K && K.displayName && K.displayName();
+      if (n && String(n).trim() && String(n).trim().toLowerCase() !== 'guest')
+        return String(n).trim().slice(0, 14);
+    } catch(e){}
+    return 'You';
+  },
+
+  /* HOW A TOMBLA MOVE FOLDS ONTO THE RELAY'S FIVE FIELDS.
+     js/mp.js carries this list in a table of its own with a comment
+     saying it belongs here instead. It does. Same order, so a phone on
+     the old build and a phone on this one still understand each other
+     byte for byte — the codec is positional and reordering it would
+     silently swap two fields on the wire.
+     js/tombla.js "THE MOVES": ready{s,v} start{} call{k,n} mark{s,c,i}
+     unmark{s,c,i} claim{s,c,p} quit{s} caller{s,to} pause{s,v}. */
+  wire: { fields: ['s', 'v', 'k', 'n', 'c', 'i', 'p', 'to'] },
+
+  /* NO TAKEBACK, AND THAT IS A RULE RATHER THAN AN OMISSION.
+     There is nothing to take back. A counter on the wrong square is
+     yours alone until you shout on it — unmark is a legal move, it is
+     instant, it is private, and nobody else's screen so much as
+     flickers. Asking sixteen people for permission to un-tap your own
+     square would be the worst button in the app. */
+  takeback: false,
+};
+
+/* ═══════════════════════════════════════════════════════════════════
    7 · ON THE SHELF
+   The tile carries the lobby contract too, so js/mp.js can read the
+   seat range, the machine's names and the rules panel straight off the
+   shelf without knowing this file exists.
    ═══════════════════════════════════════════════════════════════════ */
 P.register({
   id:'tombla', order:25, kind:'board', cat:'board',
@@ -1873,8 +1986,18 @@ P.register({
       'Up to sixteen of you at once, and nobody ever waits for a turn.' +
       (T.savedSlot() ? ' There is one half-called.' : '');
   },
-  open: menu
+  open: menu,
+  seats: { min: LOBBY.minSeats, max: LOBBY.maxSeats },
+  levels: LOBBY.levels,
+  rulesHTML: rulesPanel,
+  start: (seatList, o) => LOBBY.start(seatList, o)
 });
+
+/* js/mp.js looks for the contract on window.KARTI_TOMBLA — which is the
+   ENGINE's object, published by js/tombla.js. The lobby is a screen
+   concern and its words live in this file, so it is hung on there from
+   here rather than moved. */
+T.lobby = LOBBY;
 
 window.KARTI_TOMBLA_UI = { open: menu, board, leave, injectCSS };
 T.open = menu;                    /* KARTI_TOMBLA.open() — the asked-for entry point */

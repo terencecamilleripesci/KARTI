@@ -344,6 +344,33 @@ function emit(type, info) {
   try { listener(type, info || {}); } catch (e) {}
 }
 
+/* ── EVERY MOVE THAT WAS ACTUALLY MADE, AND WHERE IT CAME FROM ──────
+   emit() above says what HAPPENED, for the speakers: a chain was eaten,
+   somebody shouted. This says what was DONE, in the canonical logged
+   form, and it is what a transport forwards.
+
+   The `src` is the whole point of it. A transport must put a tap and a
+   machine's move on the wire and must NOT put back the move it just
+   took OFF the wire, or two phones bounce one move between them for
+   ever. apply() works `src` out for itself — a seat the rules already
+   know to be a machine is 'ai', anything else on this phone is 'local'
+   — so the AI did not have to be rewired to be forwardable, and only
+   the relay's own door has to say 'net' out loud.
+
+   Silent during a rebuild for exactly the reason emit() is: replay()
+   re-applies the whole log, and a transport that forwarded a rollback
+   would send the game round again. */
+const moveSubs = [];
+function onMove(fn) {
+  if (typeof fn !== 'function') return () => {};
+  moveSubs.push(fn);
+  return () => { const i = moveSubs.indexOf(fn); if (i >= 0) moveSubs.splice(i, 1); };
+}
+function fireMove(rec, info) {
+  if (quiet || !moveSubs.length) return;
+  for (const fn of moveSubs.slice()) { try { fn(rec, info); } catch (e) {} }
+}
+
 const top = S => S.discard[S.discard.length - 1] || null;
 const player = (S, id) => S.players[id];
 function say(S, text) { S.log.push({ n: S.moveNo, text }); if (S.log.length > 120) S.log.shift(); }
@@ -948,7 +975,7 @@ function aiCatch(S) {
    nothing is logged, and the caller is told why. A relay handing us a
    hostile or simply stale move must leave the table exactly as it was.
    ═══════════════════════════════════════════════════════════════════ */
-function apply(S, seat, move) {
+function apply(S, seat, move, src) {
   if (!move || typeof move !== 'object') return { ok: false, err: 'no-move' };
   if (!S.players[seat]) return { ok: false, err: 'no-seat' };
   const before = S.moveNo;
@@ -972,6 +999,10 @@ function apply(S, seat, move) {
   if (move.t === 'catch') rec.target = move.target;
   S.moves.push(rec);
   r.moved = S.moveNo !== before;
+  /* AFTER the log, never before: a subscriber that reads S.moves must see
+     the move it is being told about already in it. */
+  fireMove(rec, { seat, index: S.moves.length - 1,
+                  src: src || (isAI(S.players[seat]) ? 'ai' : 'local') });
   return r;
 }
 
@@ -1093,7 +1124,7 @@ function view(S, seat) {
 /* ═══════════════════════════════════════════════════════════════════ */
 const API = {
   SUITS, SUIT_KEYS, KINDS, RULES, OWNERS, suitOf, buildDeck, cardLabel, cardPoints,
-  isWild, isDraw, isAI, isLocal, mulberry32, callPlies, onEvent,
+  isWild, isDraw, isAI, isLocal, mulberry32, callPlies, onEvent, onMove,
   newGame, top, player, canPlay, legalMoves, chainLive, handIndex,
   play, playUid, drawOne, takeChain, pass, sayAhhar, canCatch, catchOut,
   sortHand, moveCard, openCalls,
