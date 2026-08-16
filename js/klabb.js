@@ -77,6 +77,17 @@ function persist(){
     try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){}
   }, 0);
 }
+/* the batching above loses exactly one write if the app is swiped away in
+   the same beat as a move — a setTimeout scheduled behind a pagehide never
+   runs. iOS fires these two on a swipe; flush the pending write inline. */
+function persistNow(){
+  if (!persistPending) return;
+  clearTimeout(persistPending);
+  persistPending = 0;
+  try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){}
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
+window.addEventListener('pagehide', persistNow);
 function pref(id, patch){
   const p = ST.pref[id] || (ST.pref[id] = {});
   if (patch){ Object.assign(p, patch); persist(); }

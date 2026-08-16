@@ -104,25 +104,51 @@ function unregister(id){
   return true;
 }
 
-/* ── two shelves, not one ──────────────────────────────────────────
-   A flat grid of four or five tiles is a list you have to read. Two
-   labelled sections are a thing you can scan: BOARD GAMES (a board
-   and pieces) and CARD GAMES (a deck in your hand). Every game says
-   which it is with `kind`; anything that forgets is a board game,
-   because that is what was here first. */
+/* ── three shelves now, and the third one is why ───────────────────
+   A flat grid of tiles is a list you have to read; labelled sections
+   are a thing you can scan. It began as two — BOARD GAMES (a board and
+   pieces) and CARD GAMES (a deck in your hand) — and the second one is
+   now outgrowing the screen, because games played with an ordinary
+   pack of cards are ENDLESS. There are already four, rummy and gin
+   rummy are being built, and there is no natural end to that list:
+   every family on this island plays two more.
+
+   Left alone, that one shelf swallows the page and SKARTA — a game
+   with its own 108-card deck that we drew ourselves — ends up buried
+   fourteen tiles down among other people's classics.
+
+   So the split is by WHAT IS IN YOUR HAND, not by whether it is cards:
+
+     BOARD GAMES    a board and pieces
+     CARD GAMES     a deck that is OURS — KARTI's own art, our rules
+     PLAYING CARDS  a standard pack; games the island already knew
+
+   "Playing cards" is not a phrase invented here — js/stats.js has been
+   filing bixkla, briscola and sette e mezzo under exactly that word
+   since the record book was written, so the app already agreed with
+   itself about this and only the shelf had not caught up. */
 const SHELVES = [
-  { kind:'board', title:'Board games', note:'A board, pieces, and nowhere to hide.' },
-  { kind:'card',  title:'Card games',  note:'A deck, a hand, and a straight face.' }
+  { kind:'board', title:'Board games',   note:'A board, pieces, and nowhere to hide.' },
+  { kind:'card',  title:'Card games',    note:'Our own deck, our own rules.' },
+  { kind:'deck',  title:'Playing cards', note:'One ordinary pack. Games the island already knew.' }
 ];
+
+/* Games played with a standard pack. Kept as a LIST HERE rather than as
+   a `kind` in each game's own file on purpose: those files are stable,
+   several are being edited by other hands right now, and the shelving
+   is a decision about this screen — not a fact about how bixkla works.
+   A new game may simply declare kind:'deck' and skip this entirely. */
+const STANDARD_PACK = { bixkla:1, briscola:1, sette:1, gidba:1, rummy:1, gin:1 };
 
 /* Which shelf a game belongs on. Deliberately forgiving: this convention was
    invented after js/klabb.js and js/kiri-ui.js were already being written, and
    a game landing on the wrong shelf because it said `cat:'cards'` instead of
-   `kind:'card'` is our bug, not theirs. Order: what they said, then the other
-   spelling, then what their icon gives away, then board — which is what
-   everything here was before there were two shelves. */
+   `kind:'card'` is our bug, not theirs. Order: the pack it uses, then what
+   they said, then the other spelling, then what their icon gives away, then
+   board — which is what everything here was before there were any shelves. */
 function shelfOf(g){
   const said = String(g.kind || g.cat || '').toLowerCase();
+  if (said === 'deck' || said === 'playing' || STANDARD_PACK[g.id]) return 'deck';
   if (said === 'card' || said === 'cards') return 'card';
   if (said === 'board' || said === 'boards') return 'board';
   if (g.icon === 'cards' || g.icon === 'discard' || g.icon === 'deck') return 'card';
@@ -392,6 +418,16 @@ function setup(cfg){
     '</div>' +
     '<div class="scroll">' +
       '<p class="blurb">' + cfg.blurb + '</p>' +
+      /* a board that was walked away from mid-game gets first billing —
+         cfg.resume is {line, go}, and any other start binning it is the
+         game's own business (its newGame clears its save slot) */
+      (cfg.resume
+        ? '<div class="pt-opts" style="margin-bottom:2px">' +
+            '<button class="pt-opt" id="pt-resume">' + ico('play') +
+              '<b>Carry on with the saved board</b><i>' + esc(cfg.resume.line || '') + '</i>' +
+            '</button>' +
+          '</div>'
+        : '') +
       '<div class="tiny pt-lbl">Who is playing</div>' +
       '<div class="pt-opts" id="pt-mode">' +
         /* Online is a DOOR, not a mode: tapping Start on it hands you to the
@@ -469,6 +505,8 @@ function setup(cfg){
   sync();
 
   el.querySelector('#pt-back').onclick = cfg.onBack || hub;
+  { const rb = el.querySelector('#pt-resume');
+    if (rb && cfg.resume && cfg.resume.go) rb.onclick = cfg.resume.go; }
   el.querySelector('#pt-start').onclick = () => {
     pref(cfg.id, { mode, level, side });
     if (mode === 'online'){ cfg.onOnline(); return; }

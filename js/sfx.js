@@ -428,10 +428,33 @@
   if (supported) attach();
 
   /* iOS suspends the context when the app goes to the background. Coming back
-     from the app switcher must not leave the rest of the session mute. */
+     from the app switcher must not leave the rest of the session mute.
+     THREE states come back from a long background, not one:
+       'suspended'   — the ordinary parking. resume() is the cure.
+       'interrupted' — WebKit's own word for a phone call, Siri, or a long
+                       stay in the switcher. Not in the spec, real on the
+                       phone, and it answers to resume() the same way. So
+                       the test is "not running", not "=== suspended".
+       'closed'      — iOS reclaimed the hardware outright. The old context
+                       is a brick and resume() on it is a no-op forever —
+                       the session used to stay mute for good here. Throw
+                       it away, build a fresh one, and re-arm the
+                       first-gesture unlock so the next tap pushes a
+                       sample through it. Decoded AudioBuffers survive:
+                       they are PCM, they do not belong to a context. */
   function rewake(){
     if (!unlocked || !ctx) return;
-    try { if (ctx.state === 'suspended') ctx.resume(); } catch (e) {}
+    var st = '';
+    try { st = String(ctx.state || ''); } catch (e) {}
+    if (st === 'closed'){
+      ctx = null; master = null;
+      unlocked = false;
+      ensureCtx();
+      attach();
+      warn('context closed by the OS — rebuilt, waiting on a tap');
+      return;
+    }
+    if (st !== 'running'){ try { ctx.resume(); } catch (e) {} }
   }
   try {
     global.addEventListener('visibilitychange', function(){ if (!global.document.hidden) rewake(); });

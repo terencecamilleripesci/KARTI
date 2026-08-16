@@ -883,10 +883,76 @@ const gen = () => (G ? G.gen : -1);
 /* is the game this callback was made for still the game on the table? */
 const same = g => !!(G && !G.dead && G.gen === g);
 
+/* ── THE CRASH NET ──────────────────────────────────────────────────
+   The same shape as js/kiri-ui.js: the board is written after every
+   committed move and on the tab going away, so a phone that dies
+   mid-game comes back to it. What is saved is not the position — it is
+   the MOVE LOG, the (opts, log) pattern the card games use, replayed
+   through the engine's own commit() on the way back in. That keeps the
+   save tiny (~20 bytes a move), gives the resumed game its full history
+   (undo, repetition counts, the turn strip) and costs nothing the rules
+   did not already pay. A FINISHED game is never written: finish() bins
+   the save the moment the game ends, and saveGame() refuses a G.over
+   board, so a game you already won can never turn up offering to be
+   carried on. Online games are never written — a room is not resumable
+   from here and must not eat the offline slot. */
+const SAVE_KEY = 'karti_chess_v1';
+let saveMoaned = false;
+function saveGame(){
+  if (!G || G.dead || G.over || online()) return;
+  if (!G.wlog || !G.wlog.length){ clearSave(); return; }
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(
+      { v:1, at: Date.now(), mode: G.mode, level: G.level, human: G.human, log: G.wlog }));
+  } catch(e){
+    /* a write that did not happen must be SAID — see lsSet in js/game.js */
+    if (!saveMoaned){
+      saveMoaned = true;
+      try { nudge('The phone is not letting chess save. Closing the app will lose this board.'); } catch(_){}
+    }
+  }
+}
+function loadSave(){
+  try {
+    const j = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (!j || j.v !== 1 || !Array.isArray(j.log) || !j.log.length) return null;
+    if (j.mode !== 'ai' && j.mode !== 'pnp') return null;
+    return j;
+  } catch(e){ return null; }
+}
+function clearSave(){ try { localStorage.removeItem(SAVE_KEY); } catch(e){} }
+
+/* Rebuild the saved board by replaying its log through commit() — the one
+   path every move already takes — with the noise, paint and glide held
+   back until the end. If any entry no longer parses (a save from another
+   build), the save is binned and a fresh board dealt instead of half of one. */
+function restoreSaved(){
+  const sv = loadSave();
+  if (!sv) return false;
+  newGame({ mode: sv.mode, level: sv.level, side: sv.human, replay: true });
+  for (const w of sv.log){
+    const m = fromWire(w);
+    if (!m){
+      clearSave();
+      newGame({ mode: sv.mode, level: sv.level, side: sv.human });
+      return false;
+    }
+    commit(m, true);
+  }
+  render();
+  saveGame();
+  maybeAI();
+  return true;
+}
+
 function newGame(opts){
   if (G){ G.dead = true; clearTimeout(G.endTimer); }
+  /* starting a FRESH offline board is choosing it over the saved one —
+     the resume door was right there. A replay rebuild keeps its save. */
+  if (opts.mode !== 'online' && !opts.replay) clearSave();
   G = {
     gen: ++GEN,
+    wlog: [],                         /* the committed moves, on the wire shape */
     mode: opts.mode,                  /* 'pnp' | 'ai' | 'online' */
     level: +opts.level || 2,
     human: opts.side === 'b' ? 'b' : 'w',   /* your colour vs the phone OR online */
@@ -901,7 +967,7 @@ function newGame(opts){
   };
   G.keys[posKey(G.st)] = 1;
   paint();
-  maybeAI();
+  if (!opts.replay) maybeAI();
 }
 
 function online(){ return G.mode === 'online'; }
@@ -1391,22 +1457,27 @@ function animate(m){
 /* everything that has to happen when a move goes on the board, from either
    hand. ONE path, so the human, the phone and the other player's phone can
    never drift apart. */
-function commit(m){
+function commit(m, quiet){
   const st = G.st;
   const text = san(st, m);
   const who = shortName(st.black);
-  sfxMove(st, m);
+  if (!quiet) sfxMove(st, m);
   G.hist.push({ st: clone(st), last: G.last, lastSan: G.lastSan,
                 lastWho: G.lastWho, keys: Object.assign({}, G.keys) });
   G.st = applied(st, m);
   G.last = { from:m.from, to:m.to };
   G.lastSan = text; G.lastWho = who;
   G.sel = -1; G.marks = [];
+  if (G.wlog) G.wlog.push(wireOf(m));
   const key = posKey(G.st);
   G.keys[key] = (G.keys[key] || 0) + 1;
-  render();
-  animate(m);
-  return status(G.st, G.keys[key]);
+  if (!quiet){ render(); animate(m); }
+  const s = status(G.st, G.keys[key]);
+  /* the crash net: every committed move that did not just END the game is
+     on disk before the next thing happens. A move that did end it is
+     finish()'s to bin. Quiet replays save once, at the end. */
+  if (!quiet && !s.end) saveGame();
+  return s;
 }
 
 function play(m, fromNet){
@@ -1481,8 +1552,10 @@ function rollback(n){
     const h = G.hist.pop();
     G.st = h.st; G.last = h.last; G.lastSan = h.lastSan; G.lastWho = h.lastWho;
     G.keys = h.keys;
+    if (G.wlog && G.wlog.length) G.wlog.pop();
   }
   G.sel = -1; G.marks = []; G.over = null;
+  saveGame();                     /* the shorter game is the game now */
   clearTimeout(G.endTimer); G.endTimer = 0;
   const over = G.ctx.root.querySelector('.pt-over'); if (over) over.remove();
   render();
@@ -1535,6 +1608,7 @@ function askTakeback(){
    module, a ledger, a leaderboard) has exactly one line to hook. */
 function finish(s){
   G.over = s;
+  clearSave();                    /* a finished game must never resurrect */
   G.sel = -1; G.marks = []; G.thinking = false;
   if (G.tb) G.tb.cancel(true);          /* no takeback survives the full stop */
 
@@ -1788,6 +1862,12 @@ function menu(){
   let side  = (p.side === 'b') ? 'b' : 'w';
   const r = P.recOf ? P.recOf('chess') : { w:0, l:0, d:0 };
   const played = r.w + r.l + r.d;
+  /* a board that was walked away from mid-game gets first billing */
+  const sv = loadSave();
+  const svLine = sv
+    ? (sv.mode === 'ai' ? 'You vs the phone' : 'Pass the phone') + ' — ' +
+      sv.log.length + (sv.log.length === 1 ? ' move' : ' moves') + ' in.'
+    : '';
 
   const door = (v, icon, name, sub, cls) =>
     '<button type="button" class="ch-door' + (cls ? ' ' + cls : '') + '" data-go="' + v + '">' +
@@ -1808,11 +1888,12 @@ function menu(){
         'the way and comes back a queen. Pick who you are playing and you are playing.</p>' +
       '<div class="tiny pt-lbl">Who are you playing</div>' +
       '<div class="ch-doors">' +
+        (sv ? door('resume', 'play', 'Carry on with the saved board', svLine, 'hero') : '') +
         (canOnline ? door('online', 'users', 'Somebody online',
             relayDown ? 'The server cannot be reached from this phone.'
                       : 'Open a room, or take one that is waiting.',
             relayDown ? 'off' : '') : '') +
-        door('ai', 'coach', 'You vs the phone', '', 'hero') +
+        door('ai', 'coach', 'You vs the phone', '', sv ? '' : 'hero') +
         door('pnp', 'users', 'Pass the phone', 'Two of you, one screen, no internet.') +
       '</div>' +
       (relayDown
@@ -1862,6 +1943,7 @@ function menu(){
 
   el.querySelectorAll('.ch-door').forEach(b => b.onclick = () => {
     const go = b.dataset.go;
+    if (go === 'resume'){ restoreSaved(); return; }
     P.pref('chess', { mode: go, level: level, side: side });
     if (go === 'online'){
       if (!canOnline){ nudge('Online is not built into this copy.'); return; }
@@ -1877,6 +1959,7 @@ function menu(){
    has left the room, and the other one must be told. */
 function leave(){
   if (!G){ return; }
+  saveGame();                     /* every way out writes the board first */
   const net = online() ? G.net : null;
   G.dead = true;
   clearTimeout(G.endTimer);
@@ -1884,6 +1967,12 @@ function leave(){
   G = null;
   if (net && net.onGone) net.onGone();
 }
+
+/* iOS does not fire unload and cannot be trusted with beforeunload; the
+   events that actually happen when somebody swipes away are these two.
+   saveGame() refuses finished, dead and online boards on its own. */
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
+window.addEventListener('pagehide', () => saveGame());
 
 P.register({
   id:'chess', order:10, kind:'board', name:'CHESS', mt:'Iċ-ċess', sprite:'pt-p-k', status:'live',

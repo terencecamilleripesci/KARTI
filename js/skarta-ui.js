@@ -52,15 +52,49 @@ const LV = [
    ═══════════════════════════════════════════════════════════════════ */
 const STORE = 'karti_skarta_v1';
 let ST = { rec: { w: 0, l: 0 },
-           pref: { seats: 3, level: 3, kinds: ['you', 'ai', 'ai', 'ai'], sort: false } };
+           pref: { seats: 3, level: 3, kinds: ['you', 'ai', 'ai', 'ai'], sort: false },
+           save: null };          /* ONE table in progress, or null */
 try {
   const j = JSON.parse(localStorage.getItem(STORE) || 'null');
   if (j && typeof j === 'object') {
     if (j.rec && typeof j.rec === 'object') ST.rec = { w: j.rec.w | 0, l: j.rec.l | 0 };
     if (j.pref && typeof j.pref === 'object') Object.assign(ST.pref, j.pref);
+    if (j.save && typeof j.save === 'object' && j.save.snap) ST.save = j.save;
   }
 } catch (e) {}
-function persist() { try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch (e) {} }
+function persist() {
+  try { localStorage.setItem(STORE, JSON.stringify(ST)); return true; }
+  catch (e) { return false; }
+}
+
+/* ── THE CRASH NET ──────────────────────────────────────────────────
+   The engine has no hidden state — E.snapshot(S) IS the table — so the
+   whole game is written after every repaint and on the tab going away,
+   exactly the way js/kiri-ui.js does it. A finished table is never
+   written (the slot is binned the moment S.over is seen), and a table
+   that came off the relay never touches the slot: the other chairs are
+   not in the room any more, so it is not resumable from here. */
+let saveMoaned = false;
+function stash() {
+  if (!G || G.dead || G.net || G.noSave) return;
+  if (G.S.over) { clearSlot(); return; }
+  ST.save = { v: 1, at: Date.now(), snap: E.snapshot(G.S) };
+  if (!persist() && !saveMoaned) {
+    saveMoaned = true;
+    toast('⚠ The phone is not letting SKARTA save. Closing the app will lose this table.');
+  }
+}
+function clearSlot() { if (ST.save) { ST.save = null; persist(); } }
+
+function resumeSaved() {
+  const sv = ST.save;
+  if (!sv || !sv.snap) return false;
+  let S = null;
+  try { S = E.load(sv.snap); } catch (e) { S = null; }
+  if (!S || S.over) { clearSlot(); return false; }
+  openTable(S, null);
+  return true;
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    THE ART HOOK
@@ -651,6 +685,11 @@ function teardown() {
   NET = null;
 }
 
+/* the two lifecycle events iOS actually fires on a swipe-away. stash()
+   already rides every repaint; this catches a tab dying mid-thought. */
+document.addEventListener('visibilitychange', () => { if (document.hidden) stash(); });
+window.addEventListener('pagehide', () => stash());
+
 /* ═══════════════════════════════════════════════════════════════════
    1. THE SETUP SHEET
    party.js's shared setup() asks "who is playing / how hard / which
@@ -704,6 +743,10 @@ function menu() {
       '<p class="blurb">Match the suit or match the number, and empty your hand before ' +
       'the rest of the table empties theirs. Down to your last card you shout ' +
       '<b>LAST ONE</b> — and if you forget, somebody will notice.</p>' +
+      (ST.save && ST.save.snap
+        ? '<button class="btn primary" id="sk-carry" style="margin:2px 0 10px">' +
+            ilb('play', 'Carry on with the saved table') + '</button>'
+        : '') +
       '<div class="tiny pt-lbl">How many chairs</div>' +
       '<div class="sk-step">' +
         '<button class="sk-stepb" id="sk-less" aria-label="Fewer chairs">&minus;</button>' +
@@ -778,6 +821,8 @@ function menu() {
   sync();
 
   el.querySelector('#sk-back').onclick = () => { teardown(); P.hub(); };
+  { const cb = el.querySelector('#sk-carry');
+    if (cb) cb.onclick = () => { if (!resumeSaved()) menu(); }; }
   el.querySelector('#sk-rules').onclick = () => rulesSheet(el.querySelector('.sk-wrap'), null);
   el.querySelector('#sk-go').onclick = () => {
     ST.pref = { seats, level, kinds: kinds.slice(), sort: ST.pref.sort }; persist();
@@ -875,6 +920,10 @@ function openTable(S, o) {
     view: mySeat,          /* whose hand is face-up on this phone */
     mySeat,                /* ...and, online, the ONLY one it may ever be */
     net: null,             /* set by §10 when this table came off the relay */
+    /* §10 sets G.net a moment AFTER this table is opened, and the first
+       tick lands in that gap — this flag keeps a relayed deal out of the
+       offline save slot from the very first paint */
+    noSave: !!(o && o.net),
     armed: false,          /* LAST ONE pressed early — fires the moment you hit one card */
     t: null, catchT: null, catchOn: null, callAt: 0,
     sort: !!ST.pref.sort,   /* opt-in: it must never rearrange a hand you arranged */
@@ -915,6 +964,7 @@ function iDrive() { return !G || !G.net || G.net.host; }
 function tick() {
   if (!G || G.dead) return;
   const S = G.S;
+  stash();     /* the curtain path below returns without a repaint */
   if (S.over) { render(); return void showResult(); }
   const p = S.players[S.turn];
 
@@ -1127,6 +1177,10 @@ function render() {
   ab.className = 'btn sm ' + (G.armed || me.said ? 'primary' : 'hot') +
                  (me.hand.length === 1 && !me.said && !S.over ? ' due' : '');
   ab.innerHTML = ilb('warn', me.said ? 'Called' : G.armed ? 'Armed' : E.RULES.CALL);
+
+  /* every repaint follows a state change, so the crash net rides on it —
+     stash() itself refuses finished, dead and relayed tables */
+  stash();
 }
 
 function lastLine(S) {
@@ -1452,6 +1506,7 @@ const QUIP_LOSE = [
 function showResult() {
   if (!G || G.dead) return;
   const S = G.S, ctx = G.ctx;
+  clearSlot();   /* a finished table must never turn up offering a resume */
   clearTimeout(G.catchT); G.catchT = null;
   const w = S.over.winner;
   const humanWin = !E.isAI(S.players[w]);
@@ -1656,7 +1711,7 @@ function onlineStart(cfg) {
 
   teardown();
   const S = E.newGame({ seed: cfg.seed >>> 0, seats: list });
-  openTable(S, { humans: 1, seats: list.length, seat: mySeat });
+  openTable(S, { humans: 1, seats: list.length, seat: mySeat, net: true });
 
   NET = Object.assign({}, cfg.net, {
     host: iAmHost, toGame, toRoom,

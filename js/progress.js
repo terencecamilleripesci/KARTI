@@ -1161,6 +1161,7 @@ function describe(name, opts){
     return {
       face: o.face || avatar(),
       border: bareBorder(o.border || equipped('border', 'karti')),
+      lvb: bareBadge(o.lvb || equipped('badge', 'karti')),
       pic: (o.pv === 0) ? ''
          : (o.pv ? picURL(accountKey(), o.pv)
                  : ((p.usePic && p.pv) ? (myPic() || picURL(accountKey(), p.pv)) : '')),
@@ -1176,6 +1177,7 @@ function describe(name, opts){
   return {
     face: (o.hint && FACE_BY[o.hint]) ? o.hint : defaultFaceFor(name),
     border: (o.border && FACES_BORDER(o.border)) ? o.border : '',
+    lvb: (o.lvb && FACES_BADGE(o.lvb)) ? o.lvb : '',
     pic: (o.who && o.pv) ? picURL(o.who, o.pv) : '',
     mine: false
   };
@@ -1193,6 +1195,14 @@ function bareBorder(id){
   if (!id) return '';
   var bare = String(id).replace(/^border\./, '');
   return FACES_BORDER(bare) ? bare : '';
+}
+function FACES_BADGE(id){
+  try { return !!(window.KARTI_FACES && KARTI_FACES.badge(id)); } catch (e){ return false; }
+}
+function bareBadge(id){
+  if (!id) return '';
+  var bare = String(id).replace(/^badge\./, '');
+  return FACES_BADGE(bare) ? bare : '';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1276,6 +1286,58 @@ function registerBorders(){
           try {
             el.innerHTML = KARTI_FACES.frame(avatar(), {
               size: size || 62, accent: (FACE_BY[avatar()] || {}).ax, border: id });
+          } catch (e){}
+          return el;
+        };
+      })(b.id)
+    };
+  }));
+}
+
+/* ── THE LEVEL-BOX LADDER ──────────────────────────────────────────
+   The same register() again, one slot along. It exists because the
+   border ladder alone is too coarse to grind against: twelve entries
+   spread over twenty-five levels means long stretches with nothing
+   coming, and the stretch between 20 and 25 is where a player decides
+   the wardrobe is finished.
+
+   This ladder is deliberately TIGHTER and deliberately OFFSET — 3, 6,
+   9, 12, 16, 20, 24, 30 against the borders' 2, 4, 7, 10, 13, 16, 20,
+   25 — so the two interleave and there is nearly always something four
+   or five levels out. It is also the cheaper of the two to want: a
+   border is how you look to the room, a level box is your own number,
+   and people will grind for their own number.
+
+   The preview is the real medallion wearing the player's real border,
+   so what is being chosen is visible in the place it will live. */
+function registerBadges(){
+  var B = [];
+  try { B = (window.KARTI_FACES && KARTI_FACES.BADGES) || []; } catch (e){}
+  if (!B.length) return 0;
+  return register(B.map(function(b){
+    return {
+      id: 'badge.' + b.id,
+      game: 'karti',
+      slot: 'badge',
+      name: b.name,
+      blurb: b.blurb,
+      level: b.lvl || 0,
+      sort: b.solo ? 99 : (b.earn ? 90 : (b.lvl || 0)),
+      earn: b.earn ? { how: EARN_HOW[b.earn], test: EARN_TEST[b.earn],
+                       live: b.earn === 'admin' } : null,
+      preview: (function(id){
+        return function(size){
+          var el = document.createElement('span');
+          try {
+            /* a real level, not a placeholder: the box is drawn at the
+               number the player actually has, because "how does MY
+               level look in this" is the only question being asked.
+               Floored at 1 so a brand-new player sees the box at all —
+               lvHTML draws nothing for level 0. */
+            el.innerHTML = KARTI_FACES.frame(avatar(), {
+              size: size || 62, accent: (FACE_BY[avatar()] || {}).ax,
+              border: bareBorder(equipped('border', 'karti')),
+              lv: Math.max(1, level()), lvb: id });
           } catch (e){}
           return el;
         };
@@ -1409,6 +1471,7 @@ var UI = null;                   /* filled by js/progress-ui.js        */
    slow connection a full minute rather than twelve seconds — a phone
    that takes 20s to fetch party.js must not quietly lose party XP. */
 registerBorders();
+registerBadges();
 
 function wireAll(){
   var ok = 0;
@@ -1556,6 +1619,12 @@ window.KARTI_XP = {
   /* the BARE id — what goes on the wire and what names the CSS class */
   border: function(){ return bareBorder(equipped('border', 'karti')); },
   borderDef: function(){ return equipped('border', 'karti') || ''; },
+
+  /* the level box — the same slot mechanism one along, so it needs no
+     new equip path: KARTI_XP.equip('badge.neon') already works */
+  badges: function(){ return defsFor('karti').filter(function(d){ return d.slot === 'badge'; }); },
+  badge: function(){ return bareBadge(equipped('badge', 'karti')); },
+  badgeDef: function(){ return equipped('badge', 'karti') || ''; },
 
   /* the economy, readable — the inventory quotes it and so does
      docs/PROGRESSION.md's generator */

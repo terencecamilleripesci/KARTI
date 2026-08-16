@@ -367,23 +367,16 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   font-weight:900;font-size:16px;color:#241800;background:linear-gradient(160deg,#FFD979,var(--gold));flex:0 0 auto}
 .userrow .n{flex:1;font-family:var(--disp);font-weight:700;font-size:14px;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
-.pchip{display:inline-flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
-  border-radius:99px;padding:5px 7px 5px 5px;min-height:44px;font-weight:700;font-size:13px;max-width:62vw}
-.pchip .avatar{width:32px;height:32px;font-size:14px;border-radius:9px}
-/* a long name yields to the level, never the other way round: the number
-   is fixed-width and the name is the thing allowed to ellipsis */
+/* The medallion is 44, not the 32 it was, because the level badge inside
+   the ring is suppressed below 40 by design — six-pixel digits are grit,
+   not a number. So the pill grows to fit the face rather than the face
+   being shrunk to fit the pill. */
+.pchip{display:inline-flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line);
+  border-radius:99px;padding:5px 15px 5px 5px;min-height:54px;font-weight:700;font-size:13px;max-width:66vw}
+.pchip .avatar{width:44px;height:44px;font-size:18px;border-radius:12px}
+/* the name is the only part allowed to ellipsis; the face never shrinks */
 .pchip .pc-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* THE LEVEL. Same gold as the badge in the avatar ring, so the two read as
-   one idea, with the bar the ring badge has no room for: a 3px track along
-   the bottom inside edge showing how far into the level you are. */
-.pchip .pc-lv{position:relative;flex:0 0 auto;display:grid;place-items:center;
-  min-width:30px;height:30px;padding:0 7px 3px;border-radius:9px;overflow:hidden;
-  background:linear-gradient(180deg,#FFD873,#F0A81E);
-  border:1px solid rgba(0,0,0,.45);box-shadow:inset 0 1px 0 rgba(255,255,255,.5)}
-.pchip .pc-lv b{font-family:var(--disp);font-weight:900;font-size:14px;line-height:1;color:#2A1B0C}
-.pchip .pc-lv i{position:absolute;left:0;bottom:0;height:3px;background:#2A1B0C;opacity:.42;
-  border-radius:0 2px 2px 0;transition:width .5s cubic-bezier(.4,0,.2,1)}
-@media (max-width:340px){.pchip .pc-nm{display:none}}
+@media (max-width:330px){.pchip .pc-nm{display:none}.pchip{padding-right:5px}}
 
 /* ══════════════════ HOME ══════════════════
    Home is a FULL-SCREEN menu, not a scrolling page: three bands inside the
@@ -1601,7 +1594,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 84;
+var KARTI_BUILD = 85;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

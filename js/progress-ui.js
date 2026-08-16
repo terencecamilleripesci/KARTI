@@ -168,11 +168,12 @@ function avatarHTML(name, opts){
      leaderboard, the roster and a seat plate cannot disagree about
      what a player looks like */
   var d = XP.describe(name, { me:o.me, who:o.who, hint:o.hint,
-                              border:o.border, pv:o.pv, face:o.face });
+                              border:o.border, lvb:o.lvb, pv:o.pv, face:o.face });
   var f = XP.face(d.face);
   return FACES.frame(d.face, {
     size: o.size || 38,
     lv: levelFor(o, d),
+    lvb: o.noBorder ? '' : d.lvb,
     accent: o.accent || (f && f.ax) || '#FFC542',
     cls: o.cls,
     style: o.style,
@@ -276,6 +277,8 @@ function paintOne(el){
   if (who) o.who = who;
   var bd = el.getAttribute('data-kx-border');
   if (bd) o.border = bd;
+  var lb = el.getAttribute('data-kx-lvb');
+  if (lb) o.lvb = lb;
   var pv = el.getAttribute('data-kx-pv');
   if (pv != null && pv !== '') o.pv = pv | 0;
 
@@ -291,7 +294,7 @@ function paintOne(el){
      exactly the situation it exists for. */
   var d = XP.describe(name, o);
   var stamp = o.size + '|' + d.face + '|' + (d.border || '') + '|' + (d.pic || '') +
-              '|' + levelFor(o, d);
+              '|' + levelFor(o, d) + '|' + (d.lvb || '');
   if (el.getAttribute('data-kx-done') === stamp) return;
   el.innerHTML = avatarHTML(name, o);
   wirePics(el);
@@ -1232,8 +1235,22 @@ var SLOTS = [
   { id:'face',   name:'Your face',
     hint:'The drawn faces, or a photograph of your own.' },
   { id:'border', name:'Your border',
-    hint:'The ring around it. This is the one everyone else sees.' }
+    hint:'The ring around it. This is the one everyone else sees.' },
+  { id:'badge',  name:'Your level box',
+    hint:'The number in the bottom of the ring. Yours, not the room\'s.' }
 ];
+
+/* WHAT IS WORN IN A SLOT, including when nothing has ever been chosen.
+   A fresh player has equipped nothing, so borderDef()/badgeDef() are ''
+   and no tile in either list shows as On — the wardrobe reads as though
+   the player is wearing something that is not in it. Every ladder has a
+   zero item that IS the default, so an empty slot resolves to that one. */
+var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold' };
+function wornId(slot){
+  var id = '';
+  try { id = (slot === 'badge') ? XP.badgeDef() : XP.borderDef(); } catch (e){}
+  return id || SLOT_DEFAULT[slot] || '';
+}
 
 function myName(){
   try { if (window.KARTI && KARTI.displayName) return KARTI.displayName() || ''; } catch (e){}
@@ -1248,7 +1265,7 @@ function slotCount(id){
     /* a photograph is a face you own, so it counts as one when it exists */
     return { own:n + (XP.hasPhoto() ? 1 : 0), all:list.length + 1 };
   }
-  list = XP.borders();
+  list = (id === 'badge') ? XP.badges() : XP.borders();
   for (i = 0; i < list.length; i++) if (XP.owns(list[i].id)) n++;
   return { own:n, all:list.length };
 }
@@ -1261,7 +1278,11 @@ function slotWorn(id){
     d = XP.face(XP.avatar());
     return d ? d.name : 'A face';
   }
-  d = XP.def(XP.border());
+  if (id === 'badge'){
+    d = XP.def(wornId('badge'));
+    return d ? d.name : 'Klassika';
+  }
+  d = XP.def(wornId('border'));
   return d ? d.name : 'No border';
 }
 
@@ -1276,9 +1297,10 @@ function paintYou(host){
           '<span class="kx-pv">' +
             avatarHTML(myName(), {
               size:56,
-              /* the border row previews the BORDER on your real face, and
-                 the face row previews the face without one, so each row
-                 shows the thing it is actually about */
+              /* each row previews the thing it is about: the face row
+                 drops the ring, the other two keep it — and every row
+                 carries the level, because the box row IS the level. */
+              lv: (s.id === 'face') ? 0 : Math.max(1, XP.level()),
               noBorder: s.id === 'face' }) +
           '</span>' +
           '<span class="kx-nm"><b>' + esc(s.name) + '</b>' +
@@ -1332,10 +1354,22 @@ function paintYou(host){
         renderScreen();
       };
     });
+  } else if (SC.slot === 'badge'){
+    host.innerHTML = back +
+      '<p class="kx-slot">The level box</p>' +
+      XP.badges().map(function(d){
+        return itemHTML(d, wornId('badge') === d.id); }).join('');
+    wireItems(host);
+    drawPreviews(host, 'karti');
   } else {
     host.innerHTML = back +
       '<p class="kx-slot">The border</p>' +
-      XP.borders().map(function(d){ return itemHTML(d, XP.border() === d.id); }).join('');
+      XP.borders().map(function(d){
+        /* XP.border() is the BARE id ('gold') and d.id is namespaced
+           ('border.gold'), so the old test here compared two things that
+           can never be equal and NOTHING in the border list has ever shown
+           as worn. borderDef() is the namespaced one. */
+        return itemHTML(d, wornId('border') === d.id); }).join('');
     wireItems(host);
     drawPreviews(host, 'karti');
   }

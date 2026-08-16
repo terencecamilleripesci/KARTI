@@ -331,12 +331,79 @@ function injectCSS(){
       'background:linear-gradient(180deg,#FFD873,#F0A81E);color:#2A1B0C;' +
       'border:calc(var(--kx-size,38px) * .028) solid ' + INK + ';' +
       'box-shadow:0 1px 3px rgba(0,0,0,.6)}' +
-    /* On the one border that is pure black, gold-on-black is the only
-       pairing in the set that does not carry its own contrast — so the
-       admin badge takes the storm's colours instead of the ladder's. */
-    '.kx-av:has(>.kx-r-tempesta)>.kx-lvb{' +
-      'background:linear-gradient(180deg,#E4D6FF,#9B6BFF);color:#160B2E;' +
-      'border-color:#2A0F4E;box-shadow:0 0 calc(var(--kx-size,38px) * .12) rgba(155,107,255,.85)}' +
+
+    /* ── THE LEVEL-BOX LADDER ──────────────────────────────────────
+       Each of these is a background and two colours over the base rule
+       above, which already owns the geometry. That is the entire
+       mechanism: a slot with ten entries and not one extra element,
+       render path or measurement anywhere in the app.
+
+       Every one keeps DARK TEXT ON A LIGHT BOX. It is tempting to do a
+       black box with white digits for variety, and it is wrong — this
+       thing sits on top of a border, and the borders run from white
+       hairline to pure black, so a dark box disappears on Tempesta and
+       a light one is legible on all twelve. The variety has to come
+       from hue, and the contrast has to stay put. */
+    /* EVERY ONE OF THESE IS WRITTEN .kx-av>.kx-lvb.kx-b-x, NOT .kx-b-x.
+       The base rule above is `.kx-av>.kx-lvb`, which is two classes and
+       beats a single class on specificity — written the short way, the
+       whole ladder rendered and every single box came out plain gold,
+       because `background` was being won by the rule underneath. */
+    '.kx-av>.kx-lvb.kx-b-ink{background:linear-gradient(180deg,#F6F3FF,#C9C2DE);' +
+      'color:#15102A;border-color:#15102A}' +
+    '.kx-av>.kx-lvb.kx-b-copper{background:linear-gradient(180deg,#F2C08A,#C2703A);' +
+      'color:#33170A}' +
+    '.kx-av>.kx-lvb.kx-b-sea{background:linear-gradient(180deg,#CDEEFF,#4FA9E8);' +
+      'color:#0A2E47}' +
+    '.kx-av>.kx-lvb.kx-b-stone{background:linear-gradient(180deg,#F3EBD5,#CBBE9C);' +
+      'color:#3A3222}' +
+    '.kx-av>.kx-lvb.kx-b-neon{background:linear-gradient(180deg,#DCC9FF,#8A5CFF);' +
+      'color:#1B0B3A;box-shadow:0 0 calc(var(--kx-size,38px) * .13) rgba(138,92,255,.75)}' +
+    '.kx-av>.kx-lvb.kx-b-festa{background:linear-gradient(180deg,#FFD979,#E8452C);' +
+      'color:#3A0D06}' +
+    '.kx-av>.kx-lvb.kx-b-chrome{background:linear-gradient(180deg,#FBF6E8,#9C8A5E 52%,#EFE3C2);' +
+      'color:#2A2416}' +
+
+    /* The two that move. Same discipline as the borders: the animated
+       property is a transform on a pseudo-element inside a clip, so it
+       is one composited layer and nothing repaints. `overflow:hidden`
+       plus the base rule's border-radius is what keeps the shine
+       inside the pill. */
+    '.kx-av>.kx-lvb{overflow:hidden;isolation:isolate}' +
+    '.kx-av>.kx-lvb.kx-b-kampjun{background:linear-gradient(180deg,#FFE9B0,#E8A81E);' +
+      'color:#2A1B0C}' +
+    /* THE SHINE IS AN OVERLAY, NOT A BACKDROP. It was z-index:-1 first,
+       which puts a child behind its own parent's background — and the
+       parent's background is an opaque gradient, so the animation ran
+       perfectly and was never once visible. It now sits ON TOP, at an
+       opacity low enough that the digits read straight through it,
+       which is also how gloss on a real enamel badge behaves. */
+    '.kx-b-kampjun::before{content:"";position:absolute;inset:-60%;z-index:1;' +
+      'pointer-events:none;' +
+      'background:linear-gradient(75deg,rgba(255,255,255,0) 38%,' +
+        'rgba(255,255,255,.72) 50%,rgba(255,255,255,0) 62%);' +
+      'animation:kxShine 2.8s ease-in-out infinite}' +
+    '@keyframes kxShine{0%{transform:translateX(-115%)}' +
+      '55%,100%{transform:translateX(115%)}}' +
+    /* the admin's: the storm, in a box the size of a thumbnail. It
+       reuses the border's own flicker timeline so the two are visibly
+       the same weather rather than two effects that happen to be
+       violet. */
+    '.kx-av>.kx-lvb.kx-b-tempesta{background:linear-gradient(180deg,#E4D6FF,#9B6BFF);' +
+      'color:#160B2E;border-color:#2A0F4E;' +
+      'box-shadow:0 0 calc(var(--kx-size,38px) * .14) rgba(155,107,255,.9)}' +
+    '.kx-b-tempesta::before{content:"";position:absolute;inset:-70%;z-index:1;' +
+      'pointer-events:none;' +
+      'background:conic-gradient(from 0turn,rgba(255,255,255,0) 0turn,' +
+        'rgba(255,255,255,.85) .12turn,rgba(255,255,255,0) .26turn,' +
+        'rgba(255,255,255,0) .62turn,rgba(235,220,255,.7) .72turn,' +
+        'rgba(255,255,255,0) .84turn,rgba(255,255,255,0) 1turn);' +
+      'animation:kxStorm 5.6s linear infinite,kxArc 2.3s steps(1,end) infinite}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '.kx-b-kampjun::before,.kx-b-tempesta::before{animation:none;opacity:.85;' +
+        'transform:none}}' +
+    '.reduced .kx-b-kampjun::before,.reduced .kx-b-tempesta::before{' +
+      'animation:none;opacity:.85;transform:none}' +
 
     /* the patterned ones are ONE technique: a full-bleed background
        masked down to the band. Unsupported engines never see the mask
@@ -503,6 +570,49 @@ for (var bi = 0; bi < BORDERS.length; bi++) B_BY[BORDERS[bi].id] = BORDERS[bi];
 /* which borders are painted as a masked band rather than as an inset
    box-shadow — the gradients and the patterns */
 var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1, tempesta:1 };
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE LEVEL BOX
+   The number in the bottom of the ring is now a slot of its own, and
+   the reason is grind: a border changes what the medallion looks like
+   from across the room, but the level box is the one thing on it that
+   is about YOUR NUMBER, so it is the piece a player most wants to make
+   theirs — and it is cheap to want, because there is a new one every
+   few levels rather than every ten.
+
+   Deliberately a SEPARATE ladder from the borders, on a tighter
+   spacing. The two ladders interleave, so there is nearly always
+   something four or five levels away rather than a fifteen-level
+   desert between border unlocks.
+
+   Every one of these is a background and two colours. No new element,
+   no second render path — lvHTML just adds a class. */
+var BADGES = [
+  { id:'gold',     name:'Klassika',      lvl:0,
+    blurb:'The one everybody starts with. It was always fine.' },
+  { id:'ink',      name:'Linka',         lvl:3,
+    blurb:'Black and white. Reads at any size, which is the whole trick.' },
+  { id:'copper',   name:'Ram',           lvl:6,
+    blurb:'The colour of every door knocker in Valletta.' },
+  { id:'sea',      name:'Baħar',         lvl:9,
+    blurb:'Blue, and lit from the top like water is.' },
+  { id:'stone',    name:'Ġebla',         lvl:12,
+    blurb:'Globigerina. The whole island is made of this colour.' },
+  { id:'neon',     name:'Neon',          lvl:16,
+    blurb:'Violet, with the buzz around it.' },
+  { id:'festa',    name:'Festa',         lvl:20,
+    blurb:'Red and gold, the way the bandstand is painted.' },
+  { id:'chrome',   name:'Kroma',         lvl:24,
+    blurb:'Milled, like the edge of a proper coin.' },
+  { id:'kampjun',  name:'Kampjun',       lvl:30, anim:true,
+    blurb:'It shines, and it keeps shining. The last one on the ladder.' },
+  /* the admin's. Same rule as Tempesta: off the ladder, not for sale. */
+  { id:'tempesta', name:'Tempesta',      lvl:0, earn:'admin', anim:true, solo:true,
+    blurb:'Lightning, in a box the size of a thumbnail. One of these exists.' }
+];
+var BG_BY = {};
+for (var gi = 0; gi < BADGES.length; gi++) BG_BY[BADGES[gi].id] = BADGES[gi];
+var BG_RE = /^[a-z0-9_-]{1,24}$/;
 var B_RE = /^[a-z]{2,12}$/;
 function ringHTML(id){
   if (!id || id === 'none' || !B_RE.test(id) || !B_BY[id]) return '';
@@ -542,10 +652,13 @@ function q(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
    book, a seat plate — without every caller having to remember it.
    Suppressed below 40px: at 26 on a leaderboard row the digits would be two
    or three pixels tall, which is not a number, it is grit on the ring. */
-function lvHTML(lv, size){
+function lvHTML(lv, size, box){
   lv = lv | 0;
   if (!lv || (size | 0) < 40) return '';
-  return '<span class="kx-lvb" aria-hidden="true">' + lv + '</span>';
+  /* an unknown or missing box is the plain gold one, never a missing
+     class — the number must render whatever else has gone wrong */
+  var b = (box && BG_RE.test(box) && BG_BY[box] && box !== 'gold') ? ' kx-b-' + box : '';
+  return '<span class="kx-lvb' + b + '" aria-hidden="true">' + lv + '</span>';
 }
 
 function frameHTML(id, opts){
@@ -559,7 +672,7 @@ function frameHTML(id, opts){
          (o.pic ? ' data-kx-pic="' + q(o.pic) + '"' : '') +
          ' style="' + st + '"' +
          (o.label ? ' role="img" aria-label="' + q(o.label) + '"' : ' aria-hidden="true"') + '>' +
-         markHTML(id, '') + ringHTML(o.border) + lvHTML(o.lv, sz) + '</span>';
+         markHTML(id, '') + ringHTML(o.border) + lvHTML(o.lv, sz, o.lvb) + '</span>';
 }
 
 window.KARTI_FACES = {
@@ -575,7 +688,11 @@ window.KARTI_FACES = {
      size for the face it circles (it happened: 38px ring, 32px chip). */
   BORDERS: BORDERS,
   border: function(id){ return B_BY[id] || null; },
-  ring: ringHTML
+  ring: ringHTML,
+  /* the level-box ladder, on the same terms as the borders */
+  BADGES: BADGES,
+  badge: function(id){ return BG_BY[id] || null; },
+  lv: lvHTML
 };
 
 })();

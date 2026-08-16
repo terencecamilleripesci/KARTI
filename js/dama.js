@@ -340,14 +340,74 @@ const pick = a => a[Math.floor(Math.random() * a.length)];
 
 let G = null;
 
+/* ── THE CRASH NET ──────────────────────────────────────────────────
+   Same shape as js/chess.js and js/kiri-ui.js: the MOVE LOG is written
+   after every stone that lands and on the tab going away, and replayed
+   through play() — the one path a move already takes — on the way back
+   in. A finished game is never written (finish() bins the save and
+   saveGame() refuses a G.over board), and an online game never touches
+   the offline slot. */
+const SAVE_KEY = 'karti_dama_v1';
+let saveMoaned = false;
+let REPLAYING = false;    /* a rebuild makes no noise and kicks no AI */
+function saveGame(){
+  if (!G || G.dead || G.over || online()) return;
+  if (!G.wlog || !G.wlog.length){ clearSave(); return; }
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(
+      { v:1, at: Date.now(), mode: G.mode, level: G.level, human: G.human, log: G.wlog }));
+  } catch(e){
+    if (!saveMoaned){
+      saveMoaned = true;
+      const K = window.KARTI;
+      try { K && K.toast && K.toast('⚠ The phone is not letting dama save. Closing the app will lose this board.'); } catch(_){}
+    }
+  }
+}
+function loadSave(){
+  try {
+    const j = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null');
+    if (!j || j.v !== 1 || !Array.isArray(j.log) || !j.log.length) return null;
+    if (j.mode !== 'ai' && j.mode !== 'pnp') return null;
+    return j;
+  } catch(e){ return null; }
+}
+function clearSave(){ try { localStorage.removeItem(SAVE_KEY); } catch(e){} }
+
+function restoreSaved(){
+  const sv = loadSave();
+  if (!sv) return false;
+  REPLAYING = true;
+  try {
+    newGame({ mode: sv.mode, level: sv.level, side: sv.human, replay: true });
+    for (const w of sv.log){
+      const m = fromWire(w);
+      if (!m){
+        /* a save from a board this build does not agree with: bin it,
+           deal fresh, say nothing — half a game is not a game */
+        REPLAYING = false;
+        clearSave();
+        newGame({ mode: sv.mode, level: sv.level, side: sv.human });
+        return false;
+      }
+      play(m, true);
+    }
+  } finally { REPLAYING = false; }
+  render();
+  saveGame();
+  maybeAI();
+  return true;
+}
+
 function newGame(opts){
+  if (opts.mode !== 'online' && !opts.replay) clearSave();
   G = {
     mode: opts.mode, level: +opts.level || 2,   /* 'pnp' | 'ai' | 'online' */
     human: opts.side === 'b' ? 'b' : 'w',
     net: opts.net || null,
     me: opts.me || 'YOU', foe: opts.foe || 'THEM',
     st: startPos(),
-    hist: [], keys: {},
+    hist: [], keys: {}, wlog: [],
     sel: -1, marks: [], chain: null, last: null, lastText: '',
     over: null, thinking: false, ctx: null, dead: false
   };
@@ -640,20 +700,23 @@ function play(m, fromNet, heard){
   G.hist.push({ st: clone(st), last: G.last, lastText: G.lastText,
                 keys: Object.assign({}, G.keys) });
   const text = notate(m);
-  sfxPlay(st, m, heard);
+  if (!REPLAYING) sfxPlay(st, m, heard);
   G.st = applied(st, m);
   G.last = m.path.slice();
   G.lastText = text;
   G.sel = -1; G.marks = []; G.chain = null;
+  if (G.wlog) G.wlog.push({ p: m.path.slice(), c: m.caps.slice() });
   const key = posKey(G.st);
   G.keys[key] = (G.keys[key] || 0) + 1;
-  render();
+  if (!REPLAYING) render();
   const s = status(G.st, G.keys[key]);
   if (s.end){ finish(s); return; }
+  if (!REPLAYING) saveGame();
   maybeAI();
 }
 
 function maybeAI(){
+  if (REPLAYING) return;
   if (G.mode !== 'ai' || G.over) return;
   if ((G.st.black ? 'b' : 'w') === G.human) return;
   G.thinking = true;
@@ -670,11 +733,13 @@ function maybeAI(){
     sfxPlay(G.st, m);
     G.st = applied(G.st, m);
     G.last = m.path.slice();
+    if (G.wlog) G.wlog.push({ p: m.path.slice(), c: m.caps.slice() });
     const key = posKey(G.st);
     G.keys[key] = (G.keys[key] || 0) + 1;
     render();
     const s = status(G.st, G.keys[key]);
     if (s.end) finish(s);
+    else saveGame();
   }, 60);
 }
 
@@ -688,8 +753,10 @@ function rollback(n){
   for (let i = 0; i < n && G.hist.length; i++){
     const h = G.hist.pop();
     G.st = h.st; G.last = h.last; G.lastText = h.lastText; G.keys = h.keys;
+    if (G.wlog && G.wlog.length) G.wlog.pop();
   }
   G.sel = -1; G.marks = []; G.chain = null; G.over = null;
+  saveGame();                     /* the shorter game is the game now */
   const over = G.ctx.root.querySelector('.pt-over'); if (over) over.remove();
   render();
 }
@@ -728,6 +795,7 @@ function askTakeback(){
    or drawn. Every ending comes through here, so there is exactly one line to
    hook for anything that wants to record a finished game. */
 function finish(s){
+  clearSave();                    /* a finished game must never resurrect */
   { const S = SFX();
     if (S){ const meB = (G.mode === 'pnp') ? null : (G.human === 'b');
       S.boardEnd({ draw: !s.win,
@@ -905,9 +973,15 @@ function start(){
 }
 function menu(){
   leave();
+  const sv = loadSave();
   P.ui.setup({
     id:'dama',
     title:'Dama',
+    resume: sv ? {
+      line: (sv.mode === 'ai' ? 'You vs the phone' : 'Pass the phone') + ' — ' +
+            sv.log.length + (sv.log.length === 1 ? ' move' : ' moves') + ' in.',
+      go: () => restoreSaved()
+    } : null,
     blurb:'Twelve stones each on the dark squares. If there is a take you TAKE it — ' +
           'the app will not let you wriggle out of it, same as your uncle would not. ' +
           'Get to the far side and you come back a king.',
@@ -927,12 +1001,17 @@ function menu(){
 }
 function leave(){
   if (!G) return;
+  saveGame();                     /* every way out writes the board first */
   const net = online() ? G.net : null;
   G.dead = true;
   if (G.ctx && G.ctx.stopFit) G.ctx.stopFit();
   G = null;
   if (net && net.onGone) net.onGone();
 }
+
+/* the two lifecycle events iOS actually fires on a swipe-away — see chess.js */
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveGame(); });
+window.addEventListener('pagehide', () => saveGame());
 
 P.register({
   id:'dama', order:20, kind:'board', name:'DAMA', mt:'Id-dama', sprite:'pt-crown', status:'live',
