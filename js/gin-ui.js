@@ -43,7 +43,8 @@
        so picking a card to throw never accidentally rearranges.
      · the stock and the pile are two fat buttons side by side —
        blind card on the left, the face-up discard on the right —
-       and your deadwood is counted live under the hand as you look.
+       and your melds-towards-45 are counted live under the hand,
+       with the price of your loose cards beside them.
    ═══════════════════════════════════════════════════════════════════ */
 'use strict';
 
@@ -62,8 +63,14 @@ const SFX = () => window.KARTI_SFX || null;
 function cue(id, opts) { const S = SFX(); if (S) { try { S.play(id, opts); } catch (e) {} } }
 function cueRun(id, n, gap, opts) { const S = SFX(); if (S) { try { S.run(id, n, gap, opts); } catch (e) {} } }
 
-/* ── our corner of localStorage ──────────────────────────────────── */
+/* ── our corner of localStorage ──────────────────────────────────
+   SAVE VERSION 2. The rules changed under this game — house prices,
+   the 45 gate, minus scoring — so a v1 save is a log of moves that
+   THIS engine would replay into a different match. It is refused,
+   with a message on the setup sheet, never silently re-scored. */
 const STORE = 'karti_gin_v1';
+const SAVE_V = 2;
+let oldSaveDropped = false;
 let ST = { v: 1, pref: {}, save: null, netArr: null };
 try {
   const j = JSON.parse(localStorage.getItem(STORE) || 'null');
@@ -71,6 +78,9 @@ try {
     ST.pref = (j.pref && typeof j.pref === 'object') ? j.pref : {};
     ST.save = (j.save && typeof j.save === 'object') ? j.save : null;
     ST.netArr = (j.netArr && typeof j.netArr === 'object') ? j.netArr : null;
+    if (ST.save && ST.save.v !== SAVE_V) { ST.save = null; oldSaveDropped = true; }
+    /* old prefs pointed at the knock game's targets (50/100) */
+    if (ST.pref.target !== 150 && ST.pref.target !== 300) delete ST.pref.target;
   }
 } catch (e) {}
 let persistPending = 0;
@@ -93,29 +103,30 @@ window.addEventListener('pagehide', persistNow);
 
 /* ── the machine, by name — the same three chairs the każin keeps ── */
 const LEVELS = [
-  { k: 1, n: 'Iż-żiju',   d: 'Knocks the moment he can. Tells you it is skill.', i: 'diff-1' },
-  { k: 2, n: 'Tal-każin', d: 'Draws with a plan and throws what costs least.',   i: 'diff-2' },
-  { k: 3, n: 'In-nannu',  d: 'Watches every card you take. Sits on gin. Waits.', i: 'diff-3' }
+  { k: 1, n: 'Iż-żiju',   d: 'Hoards every shiny card he sees. Goes out even at a loss.', i: 'diff-1' },
+  { k: 2, n: 'Tal-każin', d: 'Builds properly, but waits to show you a proper score.',    i: 'diff-2' },
+  { k: 3, n: 'In-nannu',  d: 'Counts only what is made. Out the moment it pays.',         i: 'diff-3' }
 ];
 const levelName = k => (LEVELS.find(l => l.k === k) || LEVELS[1]).n;
 
-/* the rules card, in the words of whichever table you are at */
-function rulesFor(hand) {
+/* the rules card — THE HOUSE GAME, in the owner's own three
+   sentences made long enough to play by */
+function rulesFor(hand, target) {
   const h = hand === 13 ? 13 : 10;
-  const k = h === 13 ? 13 : 10;
+  const t = target === 150 ? 150 : 300;
   return RULES.map(r => r
     .replace(/\{H\}/g, String(h))
-    .replace(/\{K\}/g, String(k)));
+    .replace(/\{T\}/g, String(t)));
 }
 const RULES = [
   '<b>{H} cards each.</b> Melds are three or four of a rank, or runs of three or more in one suit.',
+  'The prices: <b>2 to 9 are worth 5</b> each, <b>10, J, Q and K are worth 10</b>, and the <b>ace is worth 15</b>. Three aces alone are 45.',
   'On your turn <b>take the top discard or draw blind</b> from the stock, then throw one card back. You may not throw back the discard you just took.',
-  'Loose cards are <b>deadwood</b> — ace 1, pips face value, tens and courts 10. At <b>{K} or less</b> you may <b>KNOCK</b>: throw your last card and show your hand.',
-  '<b>GIN</b> — every card melded — pays <b>25 extra</b> and nothing may be laid off against it.',
-  'After a knock the other hand <b>lays off</b> what fits on your melds. If they finish with <b>the same or less</b> deadwood, that is an <b>UNDERCUT</b>: they take the difference plus 25, and you will hear about it for a week.',
-  'First to <b>100</b>. The winner adds a <b>100 game bonus</b> and both sides add <b>25 a hand won</b>. Lose without winning a single hand and the lot is <b>doubled</b>.',
-  'Two cards left in the stock and nobody has knocked? The hand is <b>dead</b> — no score, same dealer deals again.',
-  'At <b>thirteen cards</b> everything above is the same game: only the knock limit moves, to 13 — one point of deadwood per card, exactly the ratio ten-card gin uses.'
+  'You may not put anything down until the melds in your hand are worth <b>45 points or more</b>. That is the whole game: <b>match 45, then put your cards out</b>.',
+  'Putting them out <b>ends the hand</b>. Your melds count <b>for</b> you; your loose cards count <b>against</b> you — and the other hand, every card of it, melds included, counts <b>against them</b>. Cards not put down always count minus.',
+  'The stock never runs dry: when it is down to its last two cards the pile is shuffled straight back in. <b>Somebody always gets there.</b>',
+  'Scores run plus and minus. Sink to <b>−{T}</b> and you have lost the match; reach <b>+{T}</b> and you have won it outright. The floor is the one to watch — the loser of a hand falls about twice what the winner climbs.',
+  'At <b>thirteen cards</b> the gate is the same 45 with more cards to build it from — the hand ends sooner, and a caught hand costs half as much again.'
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -380,7 +391,7 @@ function isMine(seat) { return M && seat === M.mySeat; }
 
 function snapshot() {
   if (!M) return null;
-  return { v: 1, seed: M.seed, opts: E.clone(M.opts), log: E.clone(M.log), arr: M.arr.slice() };
+  return { v: SAVE_V, seed: M.seed, opts: E.clone(M.opts), log: E.clone(M.log), arr: M.arr.slice() };
 }
 function autosave() {
   if (!M) return;
@@ -421,7 +432,9 @@ function wireOf(mv) {
   if (mv.c != null) w.i = mv.c | 0;
   return w;
 }
-const WIRE_OK = { take: 1, pass: 1, draw: 1, disc: 1, knock: 1 };
+/* NOTE 'knock' is gone from this list on purpose: a peer still on
+   the old build who knocks is refused by name, not humoured. */
+const WIRE_OK = { take: 1, pass: 1, draw: 1, disc: 1, down: 1 };
 function moveFromWire(d) {
   if (!d || typeof d.a !== 'string' || !WIRE_OK[d.a]) return null;
   const mv = { t: d.a };
@@ -430,7 +443,7 @@ function moveFromWire(d) {
     if (c < 0 || c > 51) return null;
     mv.c = c;
   }
-  if ((mv.t === 'disc' || mv.t === 'knock') && mv.c == null) return null;
+  if ((mv.t === 'disc' || mv.t === 'down') && mv.c == null) return null;
   return mv;
 }
 
@@ -455,26 +468,30 @@ function sound(mv, seat, src) {
   switch (mv.t) {
     case 'draw': cue('card.deal', { gain: mine ? 0.9 : 0.7 }); break;
     case 'take': cue('pack.flip', { gain: mine ? 0.9 : 0.7 }); break;
-    case 'disc': cue('card.throw', { gain: mine ? 0.8 : 0.6, rate: mine ? 1 : 0.95 }); break;
-    case 'knock':
+    case 'disc':
+      cue('card.throw', { gain: mine ? 0.8 : 0.6, rate: mine ? 1 : 0.95 });
+      /* the pile going back into the stock — rare, and worth hearing */
+      if (M.st.last && M.st.last.recycled)
+        setTimeout(() => cue('card.shuffle', { gain: 0.8 }), FAST ? 1 : 200);
+      break;
+    case 'down':
+      /* the cards going OUT — gin.knock's new home. It used to be the
+         knuckle rap of the knock; knocking is gone from this game, and
+         two hard raps on heavy timber is exactly the sound of a hand
+         being slapped down on the każin table. */
       cue('card.throw', { gain: 0.7 });
-      /* the knuckle on the table. This was call.bell standing in until the
-         real sample existed; it now does — gin.knock, two hard raps on
-         heavy timber. (Asking the generator for "two sharp knuckle raps,
-         dry room, no reverb tail" returned an EMPTY file: describe a
-         small quiet sound to it and you get the noise floor. Asking for
-         someone knocking hard on a heavy door produced it first try.) */
       setTimeout(() => cue('gin.knock', { gain: 0.95 }), FAST ? 1 : 180);
       break;
     case 'tally': {
       const row = M.st.match.book[M.st.match.book.length - 1];
       if (!row) break;
       cueRun('pack.tally', 3, 120, { gain: 0.85 });
-      if (!row.dead) {
+      if (row.dead) {
+        setTimeout(() => cue('money.pay', { gain: 0.8 }), FAST ? 1 : 520);
+      } else {
         const won = row.win === M.mySeat;
         const t = FAST ? 1 : 520;
-        if (row.how === 'gin') setTimeout(() => cue('ui.reward', { gain: 0.95 }), t);
-        else if (row.how === 'undercut') setTimeout(() => cue('duel.trap', { gain: 0.9 }), t);
+        if (row.out) setTimeout(() => cue('ui.reward', { gain: 0.95 }), t);
         setTimeout(() => cue(won ? 'ui.coin' : 'money.pay', { gain: won ? 0.95 : 0.7 }), FAST ? 2 : 820);
       }
       break;
@@ -711,8 +728,8 @@ function paintMid() {
       ? (M.sel === banned
           ? 'Not that one — you only just took it off the pile.'
           : 'Throw the <b>' + esc(nameOfCard(M.sel)) + '</b> on the pile' +
-            (knockDwFor(M.sel) != null ? ', or knock with it' : '') + '.')
-      : 'Eleven cards. <b>Tap one</b> to throw it back — or drag it straight onto the pile.';
+            (downFor(M.sel) ? ', or put your cards out' : '') + '.')
+      : 'One card too many. <b>Tap one</b> to throw it back — or drag it straight onto the pile.';
   } else say = '';
 
   const pileInner = up < 0
@@ -744,10 +761,11 @@ function paintMid() {
   }
   if (throwing && houseReady() && M.sel != null && M.sel !== banned) {
     h += '<button type="button" class="gn-act ghost tapme" data-a="disc">Throw it</button>';
-    const kd = knockDwFor(M.sel);
-    if (kd != null)
-      h += '<button type="button" class="gn-act hot tapme" data-a="knock">' +
-        (kd === 0 ? 'GIN' : 'Knock · ' + kd) + '</button>';
+    const dn = downFor(M.sel);
+    if (dn)
+      h += '<button type="button" class="gn-act hot tapme" data-a="down">' +
+        (dn.dw === 0 ? 'ALL OUT · +' + dn.mv
+                     : 'Put them out · ' + (dn.net >= 0 ? '+' : '') + dn.net) + '</button>';
   }
   acts.innerHTML = h;
   acts.querySelectorAll('[data-a]').forEach(b => {
@@ -774,12 +792,16 @@ function paintMid() {
    always true. */
 function houseReady() { return !(M && M.house && !M.house.settled); }
 
-function knockDwFor(c) {
+/* what putting the cards out with THIS discard would look like:
+   {mv, dw, net} if the 45 gate is open, null if it is not */
+function downFor(c) {
   const st = M.st;
   const h = st.seats[M.mySeat].hand;
   if (h.length !== st.hs + 1) return null;
-  const dw = E.best(h.filter(x => x !== c)).dw;
-  return dw <= st.knock ? dw : null;
+  const rest = h.filter(x => x !== c);
+  const b = E.best(rest);
+  const mv = E.handPts(rest) - b.dw;
+  return mv >= st.open ? { mv, dw: b.dw, net: mv - b.dw } : null;
 }
 
 function act(a) {
@@ -790,7 +812,7 @@ function act(a) {
   if (a === 'take') mv = { t: 'take' };
   else if (a === 'pass') mv = { t: 'pass' };
   else if (a === 'draw') mv = { t: 'draw' };
-  else if (a === 'disc' || a === 'knock') {
+  else if (a === 'disc' || a === 'down') {
     if (M.sel == null) return;
     mv = { t: a, c: M.sel };
   }
@@ -810,18 +832,38 @@ function nag(text) {
   if (K.toast) K.toast('⚠ ' + (text || 'The rules said no. Take it up with the rules.'));
 }
 
-/* ── the dashboard: live deadwood, sort, nudge ───────────────────── */
-function paintDash() {
-  const st = M.st, me = M.mySeat;
-  const hand = st.seats[me].hand;
-  const b = E.best(hand);
-  let line;
+/* ── the dashboard: melds towards 45, loose cost, sort, nudge ─────
+   The number that runs the game is the VALUE OF YOUR MELDS against
+   the 45 gate, so that is the number on the dash — with the price
+   of your loose cards beside it, because that is what you are
+   caught holding. Over-full it shows the best throw's version. */
+function dashNums() {
+  const st = M.st, hand = st.seats[M.mySeat].hand;
   if (hand.length === st.hs + 1) {
-    const bd = E.bestDiscard(hand, (st.drew && st.drew.from === 'pile') ? st.drew.c : null);
-    line = '<span class="gn-chip' + (bd.dw <= st.knock ? ' hot' : '') + '">Deadwood after best throw <b>' + bd.dw + '</b></span>';
-  } else {
-    line = '<span class="gn-chip' + (b.dw <= st.knock ? ' hot' : '') + '">Deadwood <b>' + b.dw + '</b></span>';
+    const banned = (st.drew && st.drew.from === 'pile') ? st.drew.c : null;
+    let mv = -1, dw = 0;
+    for (const c of hand) {
+      if (c === banned) continue;
+      const rest = hand.filter(x => x !== c);
+      const b = E.best(rest);
+      const m = E.handPts(rest) - b.dw;
+      if (m > mv || (m === mv && b.dw < dw)) { mv = m; dw = b.dw; }
+    }
+    return { mv, dw };
   }
+  const b = E.best(hand);
+  return { mv: E.handPts(hand) - b.dw, dw: b.dw };
+}
+
+function paintDash() {
+  const st = M.st;
+  const n = dashNums();
+  const line =
+    '<span class="gn-chip' + (n.mv >= st.open ? ' hot' : '') +
+      '" aria-label="Your melds are worth ' + n.mv + ' of the ' + st.open + ' you need.">' +
+      'Melds <b>' + n.mv + '</b>&thinsp;/&thinsp;' + st.open + '</span>' +
+    '<span class="gn-chip" aria-label="Your loose cards would count ' + n.dw + ' against you.">' +
+      'Loose <b>&minus;' + n.dw + '</b></span>';
   const selAt = M.sel != null ? M.arr.indexOf(M.sel) : -1;
   $id('gn-dash').innerHTML =
     line +
@@ -961,7 +1003,7 @@ function paintHand() {
   M.arr.forEach((c, i) => {
     const inMeld = meldOf[c] !== undefined;
     const lbl = nameOfCard(c) +
-      (inMeld ? '. In a meld.' : '. Loose — worth ' + E.pts(c) + '.') +
+      (inMeld ? '. In a meld.' : '. Loose — ' + E.pts(c) + ' against you.') +
       ' Drag to arrange.';
     h += '<button type="button" class="gn-card tapme' +
       (inMeld ? ' m' + meldOf[c] : ' loose') +
@@ -1144,26 +1186,25 @@ function previewOrder(d) {
 /* ── the hand-end verdict ────────────────────────────────────────── */
 function verdictWords(row, me) {
   if (row.dead) return {
-    head: 'Dead hand', bad: false,
-    body: 'The stock ran out and nobody knocked. No score — the same dealer deals it again.'
+    head: 'Nobody got there', bad: true,
+    body: 'The pile went round twice and neither of you reached 45. Everything still in a ' +
+      'hand counts minus: <b>−' + row.loss[me] + '</b> you, <b>−' + row.loss[1 - me] +
+      '</b> them. Somebody deal better.'
   };
-  const kName = seatName(row.knocker), dName = seatName(1 - row.knocker);
+  const kName = seatName(row.opener), dName = seatName(1 - row.opener);
   const meWin = row.win === me;
   let head, body;
-  if (row.how === 'gin') {
-    head = row.knocker === me ? 'GIN!' : 'Gin. Theirs.';
-    body = '<b>' + esc(kName) + '</b> went gin — every card melded. 25 plus ' +
-      row.ddw + ' deadwood: <b>' + row.score + ' points</b>.';
-  } else if (row.how === 'undercut') {
-    head = meWin ? 'UNDERCUT!' : 'Undercut. Ouch.';
-    body = '<b>' + esc(kName) + '</b> knocked with ' + row.kdw + ' — but <b>' + esc(dName) +
-      '</b>' + (row.laid ? ' laid off ' + row.laid + ' and' : '') + ' finished on ' + row.ddw +
-      '. The knock backfires: <b>' + row.score + ' points</b> the other way.';
+  if (row.out) {
+    head = meWin ? 'ALL OUT!' : 'All out. Theirs.';
+    body = '<b>' + esc(kName) + '</b> put out the whole hand — <b>+' + row.meld +
+      '</b>, nothing held back. <b>' + esc(dName) + '</b> put down nothing, so the lot counts ' +
+      'minus: <b>−' + row.loss + '</b>.';
   } else {
-    head = meWin ? 'Your hand' : 'Their hand';
-    body = '<b>' + esc(kName) + '</b> knocked with ' + row.kdw + ' against ' + row.ddw +
-      (row.laid ? ' after ' + row.laid + ' laid off' : '') +
-      ': <b>' + row.score + ' points</b>.';
+    head = meWin ? 'Cards out' : 'Caught holding';
+    body = '<b>' + esc(kName) + '</b> matched 45 and put out <b>' + row.meld +
+      '</b> in melds, holding ' + row.loose + ' loose: <b>' +
+      (row.gain >= 0 ? '+' : '') + row.gain + '</b>. <b>' + esc(dName) +
+      '</b> put down nothing — the whole hand counts minus: <b>−' + row.loss + '</b>.';
   }
   return { head, bad: !meWin, body };
 }
@@ -1215,16 +1256,16 @@ function finish() {
     ST.save = null; persist();
     try { P.record('gin', won ? 'w' : 'l'); } catch (e) {}
   }
-  const l = 1 - fin.winner;
-  const why = 'Points ' + fin.raw[me] + '–' + fin.raw[1 - me] +
-    ', boxes ' + fin.boxes[me] + '–' + fin.boxes[1 - me] +
-    (fin.shutout ? ', and a shutout — everything doubled' : '') +
-    '. Full total ' + fin.total[me] + '–' + fin.total[1 - me] + '.';
+  const why = 'Points ' + fin.raw[me] + ' to ' + fin.raw[1 - me] +
+    ' after ' + fin.hands + ' hand' + (fin.hands === 1 ? '' : 's') +
+    (fin.how === 'floor'
+      ? ' — ' + (won ? 'they' : 'you') + ' went through the floor at −' + M.st.match.target + '.'
+      : ' — over the top at +' + M.st.match.target + '.');
   const quip = won
-    ? (fin.shutout ? 'A schneider. They will be paying for the pastizzi until Santa Marija.'
-                   : 'Knock knock. Who is there? A hundred points, that is who.')
-    : (fin.shutout ? 'Not one hand. Statistically impressive, in its way.'
-                   : 'The cards were against you. The cards, and every choice you made.');
+    ? (fin.how === 'up' ? 'Over the top. Nobody even does that. Frame it.'
+                        : 'You did not win so much as watch them sink. Still counts.')
+    : (fin.how === 'floor' ? 'Every card you did not put down, counted. That was the deal.'
+                           : 'They went over the top. On you, that is practically art.');
   if (M.net && M.net.onEnd) { try { M.net.onEnd(fin); } catch (e) {} }
   P.ui.result(M.ctx, {
     tone: won ? 'win' : 'lose',
@@ -1255,7 +1296,8 @@ function rulesSheet() {
         (M && M.st.hs === 13 ? ' · 13' : '') + '</h3>' +
       '<div class="kb-rules" style="margin:12px 0 0;padding:12px 14px;border-radius:14px;' +
         'background:rgba(255,255,255,.04);border:1px solid var(--line)"><ul style="margin:0">' +
-        rulesFor(M ? M.st.hs : 10).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+        rulesFor(M ? M.st.hs : 10, M ? M.st.match.target : 300)
+          .map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
       '</ul></div>' +
       '<div class="pt-acts"><button class="btn ghost" id="gn-rx">Right, got it</button></div>' +
     '</div>';
@@ -1282,7 +1324,7 @@ function newGame(opts, snap) {
   const full = {
     lvl,
     hand: opts.hand === 13 ? 13 : 10,
-    target: opts.target || 100,
+    target: (opts.target === 150 || opts.target === 300) ? opts.target : 300,
     names: [myName(), levelName(lvl)],
     owns: ['me', 'ai']
   };
@@ -1299,7 +1341,8 @@ function setupSheet(prevOpts) {
   const el = P.ui.screenEl();
   const p = ST.pref;
   let lvl = (prevOpts && prevOpts.lvl) || p.lvl || 2;
-  let target = (prevOpts && prevOpts.target) || p.target || 100;
+  let target = (prevOpts && prevOpts.target) || p.target || 300;
+  if (target !== 150 && target !== 300) target = 300;
   let hand = ((prevOpts && prevOpts.hand) || p.hand) === 13 ? 13 : 10;
 
   /* has the online lobby learned the word "gin" on this build? We
@@ -1316,9 +1359,15 @@ function setupSheet(prevOpts) {
         '<h2>GIN RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        '<p class="blurb">Ten cards — or thirteen if you like a longer look at them — ' +
-        'a straight face, and one knuckle on the table. Draw, arrange, and knock before ' +
-        'they do, <b>each of you on your own phone</b>.</p>' +
+        '<p class="blurb">The house game: match <b>45 points of melds</b>, then put your ' +
+        'cards out. Aces are 15, courts and tens are 10, the rest are 5 — and every card ' +
+        'you are caught still holding <b>counts against you</b>. On your own phone, or ' +
+        '<b>each of you on your own</b>.</p>' +
+        (oldSaveDropped
+          ? '<p class="pt-warn">Your half-played match was under the old knock-and-deadwood ' +
+            'rules. The game has changed to the house rules — match 45, put them out — so ' +
+            'that save was retired rather than counted wrongly.</p>'
+          : '') +
         (online
           ? '<div class="pt-opts" style="margin-bottom:10px">' +
               '<button class="pt-opt" id="gn-online">' + ico('users') +
@@ -1329,8 +1378,8 @@ function setupSheet(prevOpts) {
             'until then it is you against the machine here.</p>') +
         '<div class="tiny pt-lbl">The hand</div>' +
         '<div class="pt-opts" id="gn-hand-opt">' +
-          [[10, 'Ten cards', 'Gin as everybody plays it. Knock at 10.'],
-           [13, 'Thirteen cards', 'A bigger hand and more to arrange. Knock at 13.']].map(o =>
+          [[10, 'Ten cards', 'The house game as it comes. Match 45, put them out.'],
+           [13, 'Thirteen cards', 'More to build 45 from — hands end sooner and a caught hand costs half as much again.']].map(o =>
             '<button class="pt-opt' + (o[0] === hand ? ' on' : '') + '" data-hand="' + o[0] + '">' +
               ico('cards') + '<b>' + o[1] + '</b><i>' + o[2] + '</i></button>').join('') +
         '</div>' +
@@ -1341,7 +1390,8 @@ function setupSheet(prevOpts) {
         '</div>' +
         '<div class="tiny pt-lbl">The match</div>' +
         '<div class="pt-opts two" id="gn-tgt" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
-          [[50, 'Quick one', 'First to 50.'], [100, 'The proper game', 'First to 100.']].map(o =>
+          [[150, 'Quick one', 'Sunk at −150. About four hands.'],
+           [300, 'The proper game', 'Sunk at −300. About ten.']].map(o =>
             '<button class="pt-opt' + (o[0] === target ? ' on' : '') + '" data-tgt="' + o[0] + '">' +
               ico('coach') + '<b>' + o[1] + '</b><i>' + o[2] + '</i></button>').join('') +
         '</div>' +
@@ -1354,7 +1404,7 @@ function setupSheet(prevOpts) {
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
           '<h5 style="font:900 10px/1 var(--disp);letter-spacing:.11em;text-transform:uppercase;' +
             'color:var(--gold);margin:0 0 9px">The rules, as we play them</h5><ul style="margin:0">' +
-          rulesFor(hand).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+          rulesFor(hand, target).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
         '</ul></div>' +
       '</div>';
     el.querySelector('#gn-back').onclick = () => P.hub();
@@ -1397,36 +1447,39 @@ function iAmRoomHost() {
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE HOUSE SETUP — how two phones agree on the hand size
+   THE HOUSE SETUP — how two phones agree they are playing THE SAME
+   GAME, and then on the hand size
    ───────────────────────────────────────────────────────────────────
-   The relay carries a room's FLAVOUR in a `variant` field, but that
-   field is whitelisted per game on the Pi and gin has no list there,
-   so asking for one would have the room refused outright. The hand
-   size therefore travels the only channel gin already owns: its own
-   move payload, as {a:'house', i:13}.
+   The rules of gin CHANGED on this build (the 45 game, house prices,
+   minus scoring). The mechanics of the early moves — take, draw,
+   throw — are byte-identical to the old build's, so two mismatched
+   phones would agree fingerprints right up until one of them scored
+   a hand the other refuses to understand. That is the silent-drift
+   shape the fingerprint exists to prevent, so it is prevented at the
+   door instead:
 
-   THE RULES OF IT, and each one is load-bearing:
-
-   1. THE ROOM'S OPENER IS THE HOUSE. Whoever opened the room plays
-      their own setup sheet's answer. That is what "the house setup"
-      means at a card table and it needs no negotiation.
-   2. A TEN-CARD ROOM SENDS NOTHING AT ALL. Ten is the default on
-      both phones, so a ten-card game puts exactly the same bytes on
-      the wire as it did before this option existed — an older build
-      that has never heard of `house` plays a ten-card room perfectly.
-      Only a THIRTEEN-card room needs both phones updated, and one
-      that is not gets mp.js's honest "the rules do not allow that"
-      stop rather than a silent divergence.
-   3. THE GUEST DOES NOT TOUCH A CARD UNTIL IT KNOWS. It deals ten,
-      then waits — for the packet, or for HOUSE_WAIT to pass, which
-      is what says "they are on ten". Re-dealing is free while the
-      log is empty: same seed, same everything, one field different.
-   4. AND THE FINGERPRINT IS THE BACKSTOP. hs and knock are inside
-      it, so if the two ever did disagree the very first move would
-      be refused as a desync instead of two people playing two
-      different games at each other.
+   1. BOTH PHONES SAY THE NEW WORD FIRST. Every board opens by
+      sending {a:'house45', i:hand} — the host with its hand size,
+      the guest with 0 as a plain ack. An OLD build receiving
+      'house45' refuses it by name ("a move gin rummy does not know
+      how to make") and stops the room honestly before a card is
+      touched. An old build's own hello — {a:'house'}, or silence —
+      is refused here just as honestly (below). Two new builds pass
+      each other in the night and play.
+   2. THE ROOM'S OPENER IS THE HOUSE. Whoever opened the room plays
+      their own setup sheet's hand size; the guest deals ten, waits
+      for the hello, and re-deals if the house said thirteen —
+      re-dealing is free while the log is empty: same seed, same
+      everything, one field different.
+   3. THE GUEST DOES NOT TOUCH A CARD UNTIL IT KNOWS. houseReady()
+      keeps its thumbs off the felt until the hello has landed. If
+      nothing lands, the hello is said once more, and then the board
+      stops with the truth: the other phone is on the old rules.
+   4. AND THE FINGERPRINT IS THE BACKSTOP. hs and the 45 gate are
+      inside it, so even a phone that somehow lied through the hello
+      is refused on its very first scored move.
    ═══════════════════════════════════════════════════════════════════ */
-const HOUSE_WAIT = 2000;
+const HOUSE_WAIT = 2500;
 
 function onlineStart(o) {
   const seed = netSeed();
@@ -1436,33 +1489,44 @@ function onlineStart(o) {
   const host = iAmRoomHost();
   const myHand = ST.pref.hand === 13 ? 13 : 10;
   const hand = host ? myHand : 10;
-  startMatch({ lvl: 2, target: 100, names, owns, dealer: 1, hand }, seed);
+  startMatch({ lvl: 2, target: 300, names, owns, dealer: 1, hand }, seed);
   M.mySeat = mySeat;
   M.net = o;
-  M.house = { settled: host, host, want: hand };
+  M.house = { settled: host, host, want: hand, tries: 0 };
   M.arr = (ST.netArr && ST.netArr.seed === seed && Array.isArray(ST.netArr.arr))
     ? ST.netArr.arr.slice() : [];
   openBoard();
   P.ui.setNet(M.ctx, o.note || '', '');
 
-  if (host) {
-    /* say so before a card is touched — and only when it is news */
-    if (hand !== 10) { try { o.send('move', { a: 'house', i: hand }, null); } catch (e) {} }
-  } else {
-    M.houseTimer = setTimeout(() => {
-      if (!M || M.dead || !M.house || M.house.settled) return;
-      M.house.settled = true;
-      M.houseTimer = 0;
-      render();
-    }, HOUSE_WAIT);
-  }
+  /* the hello — both phones, always (rule 1) */
+  try { o.send('move', { a: 'house45', i: host ? hand : 0 }, null); } catch (e) {}
+  if (!host) houseClock();
 }
 
-/* the house packet, applied by the guest before anything has happened */
-function houseSetup(n) {
+function houseClock() {
+  M.houseTimer = setTimeout(() => {
+    if (!M || M.dead || !M.house || M.house.settled) return;
+    M.houseTimer = 0;
+    if (M.house.tries++ < 1) {
+      /* once more, in case the first hello crossed the join */
+      try { M.net.send('move', { a: 'house45', i: 0 }, null); } catch (e) {}
+      houseClock();
+      return;
+    }
+    onlineStop('The other phone never said the new hello, which means it is still on ' +
+      'the old gin — knocking and deadwood. This build plays the house game: match 45, ' +
+      'put them out. Update both phones and deal again. Nothing was scored.', 'cheat');
+  }, HOUSE_WAIT);
+}
+
+/* the hello, arriving. The host hears an ack; the guest hears the
+   hand size and re-deals if the house plays thirteen. */
+function houseHello(n) {
   if (!M || !M.house) return { why: 'a house rule with no table under it' };
+  if (M.house.host) return null;               /* the guest's ack: nothing to set */
   const want = n === 13 ? 13 : 10;
-  if (M.house.settled && M.st.hs === want) return null;   /* already agreed */
+  if (M.house.settled) return (M.st.hs === want) ? null
+    : { why: 'a change of hand size after the deal had started', desync: true };
   if (M.log.length) return { why: 'a change of hand size after the deal had started', desync: true };
   clearTimeout(M.houseTimer); M.houseTimer = 0;
   if (M.st.hs !== want) {
@@ -1472,7 +1536,7 @@ function houseSetup(n) {
     startMatch(o, M.seed, []);
     M.mySeat = seat; M.net = net; M.arr = arr; M.ctx = ctx; M.stopRO = ro;
   }
-  M.house = { settled: true, host: false, want };
+  M.house = { settled: true, host: false, want, tries: 0 };
   render();
   return null;
 }
@@ -1487,8 +1551,13 @@ function onlineRemote(d) {
   if (d.kind !== 'move') return { why: 'a move gin rummy does not have' };
 
   /* THE HOUSE SETUP FIRST, before the fingerprint is looked at — the
-     whole point of the packet is that the two boards do not match yet */
-  if (d.m && d.m.a === 'house') return houseSetup(d.m.i | 0);
+     whole point of the hello is that the two boards do not match yet */
+  if (d.m && d.m.a === 'house45') return houseHello(d.m.i | 0);
+  /* the OLD build's house packet: a thirteen-card room from the
+     knock-game era. Refused by name, not humoured. */
+  if (d.m && d.m.a === 'house')
+    return { why: 'a gin hand under the OLD rules — knocking and deadwood. This build ' +
+      'plays the house game (match 45, put them out): update both phones' };
 
   /* the table's own beats first: their phone may already have counted
      the hand its timer was still sitting on here */
@@ -1537,7 +1606,7 @@ function resignOnline() {
     tone: 'lose',
     head: 'You resigned',
     why: 'The match goes to ' + esc(M.st.seats[1 - M.mySeat].name) + '.',
-    quip: 'Sometimes the bravest knock is the door on the way out.',
+    quip: 'Sometimes the bravest cards are the ones you never put down.',
     buttons: [{ label: 'Back to the rooms', icon: 'back', cls: 'primary',
       go: () => { const n = M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); } }]
   });
@@ -1587,8 +1656,8 @@ P.register({
   id: 'gin', order: 34, kind: 'card', name: 'GIN RUMMY', mt: 'Il-Ġin',
   sprite: 'gn-t-gin', icon: 'cards', status: 'live',
   get tag() {
-    return 'Draw, arrange, knock. The politest way to rob your uncle blind — and an ' +
-      'undercut if he was not bluffing.' +
+    return 'The house rules: match 45 points of melds, put your cards out, and every card ' +
+      'they are still holding counts against them. Aces are 15 — and so is being caught with one.' +
       (ST.save ? ' There is a ' + (ST.save.opts && ST.save.opts.hand === 13 ? 'thirteen-card ' : '') +
                  'match of this half-played.' : '');
   },
@@ -1607,7 +1676,7 @@ P.register({
   if (!MPX || !Array.isArray(MPX.GAMES) || !Array.isArray(MPX.GAME_KEYS)) return;
   if (MPX.GAME_KEYS.indexOf('gin') >= 0) return;
   MPX.GAMES.push({ k: 'gin', name: 'Gin Rummy', short: 'GIN', icon: 'cards',
-    blurb: 'Ten cards. Knock first.' });
+    blurb: 'Match 45. Put them out.' });
   MPX.GAME_KEYS.push('gin');
   if (MPX.SEATS_FALLBACK) MPX.SEATS_FALLBACK.gin = [2, 2, 2];
 })();
@@ -1622,11 +1691,12 @@ window.KARTI_GIN.lobby = {
   autoReady: s => (s && s.kind === 'cpu') ? Object.assign({}, s, { ready: true }) : s,
   canStart: list => (list || []).length === 2
     ? { ok: true, why: '' } : { ok: false, why: 'Gin is a game for exactly two.' },
-  rulesHTML: () => '<p>Gin rummy: ten cards each, meld sets and runs, knock at ten ' +
-    'deadwood or less, gin for the lot. First to 100, boxes and bonuses counted properly.</p>',
-  blurb: 'Ten cards. Knock first.',
+  rulesHTML: () => '<p>Gin rummy, house rules: aces 15, courts and tens 10, the rest 5. ' +
+    'Match 45 points of melds, then put your cards out — everything still in a hand counts ' +
+    'minus. Sunk at \u2212300 loses the match.</p>',
+  blurb: 'Match 45. Put them out.',
   myName,
-  start: () => { newGame({ lvl: ST.pref.lvl || 2, target: ST.pref.target || 100,
+  start: () => { newGame({ lvl: ST.pref.lvl || 2, target: ST.pref.target || 300,
                           hand: ST.pref.hand === 13 ? 13 : 10 }); return true; },
   wire: { fields: ['i'] },
   takeback: false
@@ -1640,7 +1710,7 @@ try {
       M: () => M,
       st: () => (M ? M.st : null),
       arr: () => (M ? M.arr.slice() : null),
-      open: o => { setupSheet(); newGame(o || { lvl: 2, target: 100 }); },
+      open: o => { setupSheet(); newGame(o || { lvl: 2, target: 300 }); },
       resume: () => { const s = ST.save; if (!s) return false;
         startMatch(s.opts, s.seed, s.log); M.arr = (s.arr || []).slice(); openBoard(); return true; },
       store: () => ST,
