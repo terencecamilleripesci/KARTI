@@ -283,7 +283,8 @@ CODE_RE = re.compile("^[%s]{%d}$" % (CODE_ALPHABET, CODE_LEN))
 DEFAULT_GAME = "cards"
 DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
-TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq")
+TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
+          "spy", "suspett")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -341,6 +342,11 @@ GAME_SEATS = {
     "rummy":  (2, 12, 4),
     "gin":    (2, 2, 2),      # gin is two people, and always was
     "gharraq": (2, 6, 4),
+    # The two room games. Both want a ROOM rather than a duel: three is the
+    # fewest that can hide a liar, five the fewest that can hide a klikka, and
+    # sixteen is what this relay already seats for tombla.
+    "spy":     (3, 16, 6),
+    "suspett": (5, 16, 9),
 }
 
 # Which flavour of a game a room is playing, where that is a real choice. Kept
@@ -2047,6 +2053,44 @@ class RoomBook:
             out.append((conn, roster))
         return out
 
+    def chat(self, conn, ch, x, to):
+        """Table talk, carried to EXACTLY the seats named — and nowhere else.
+
+        THIS IS WHY IT IS NOT A RELAY. A relayed move goes to the whole table
+        and is replayed to anybody reconnecting, which is right for a move and
+        catastrophic for a private word: SUSPETT has a killers' channel and a
+        channel for the dead, and this app's whole architecture is every phone
+        running the same engine off the same seed. Fanned out, "private" would
+        mean nothing more than a client politely not rendering it — readable by
+        anybody who opens a console. Addressed here, the wire itself keeps the
+        secret, so the honest claim and the real behaviour are the same thing.
+
+        It is NEVER buffered for replay, and it never touches room.seq: a
+        message nobody has to have is better lost than resurrected into a phase
+        where it no longer makes sense. The sender is echoed their own line as
+        the delivery receipt.
+
+        The seat stamp is the relay's, exactly as in relay(): a client that
+        could label its own words could put them in somebody else's mouth."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if not room.fan.take():
+                return [(conn, {"t": "error", "why": E_FLOOD})]
+            body = {"t": "chat", "s": conn.slot, "ch": ch, "x": x}
+            text = json.dumps(body, separators=(",", ":"))
+            seats = set()
+            for i in to:
+                if not isinstance(i, int) or not (0 <= i < len(room.seats)):
+                    continue
+                seats.add(i)
+            seats.add(conn.slot)                 # the sender's own receipt
+            room.touched = time.monotonic()
+            targets = [room.seats[i].conn for i in sorted(seats)
+                       if room.seats[i].conn is not None]
+        return [(c, text) for c in targets]
+
     def relay(self, conn, payload, claimed_code, for_seat=None):
         """payload is ALREADY sanitised. claimed_code, if given, must match.
 
@@ -3198,6 +3242,22 @@ def handle_ws_message(conn, raw):
         if conn.bad_joins > L.MAX_BAD_JOINS:
             conn.doom("code guessing")
 
+    elif kind == "chat":
+        # Channelled table talk. NOT a game move: it never joins the replay
+        # buffer, is never interpreted, and is carried only to the seats named
+        # — which is what makes a private channel private ON THE WIRE rather
+        # than merely on screen. See RoomBook.chat().
+        to, ch, x = msg.get("to"), msg.get("ch"), msg.get("x")
+        if (not isinstance(to, list) or len(to) > L.MAX_SEATS or
+                not isinstance(ch, str) or len(ch) > 12 or
+                not isinstance(x, str)):
+            conn.error(E_SHAPE)
+            return
+        x = NAME_BAD.sub("", x)[:240]
+        if x:
+            dispatch(ROOMS.chat(conn, ch, x, to))
+        return
+
     elif kind == "relay":
         try:
             payload = sanitize_relay(msg.get("d"))
@@ -4186,6 +4246,12 @@ class KartiHandler(BaseHTTPRequestHandler):
             body = {"ok": True, "rooms": rooms, "clients": clients,
                     "maxRooms": L.MAX_ROOMS, "maxClients": L.MAX_WS,
                     "accounts": ACCOUNTS is not None,
+                    # SUSPETT feature-detects on this rather than probing with
+                    # a message an older relay would reject — an unknown kind
+                    # trips mp.js's "server cannot host this" path, which would
+                    # read as the game being broken rather than the relay being
+                    # old. Absent means: keep the chat switched off and say so.
+                    "chat": 1,
                     "maxSave": A.MAX_SAVE}
             self.reply(200, body)
         elif path == "/presence":
