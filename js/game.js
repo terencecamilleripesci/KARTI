@@ -1449,11 +1449,10 @@ function settingsSheet(){
     const mt = PREFS.lang === 'mt';
     const val = $('#st-ping-val'), note = $('#st-ping-note');
     if (!val || !window.KARTI_MP || !KARTI_MP.measure) return;
-    const st = KARTI_MP.MP && KARTI_MP.MP.ws;
-    if (!st || st.readyState !== 1){
+    if (!navigator.onLine){
       val.textContent = '—';
-      note.textContent = mt ? 'Mhux imqabbad mas-server bħalissa.'
-                            : 'Not connected to the server right now.';
+      note.textContent = mt ? 'Dan it-telefon m’huwiex onlajn.'
+                            : 'This phone is offline.';
       return;
     }
     val.textContent = '…';
@@ -1461,7 +1460,8 @@ function settingsSheet(){
     KARTI_MP.measure(8, (r) => {
       if (!r || !r.n){
         val.textContent = '—';
-        note.textContent = mt ? 'Ma wasal xejn lura.' : 'Nothing came back.';
+        note.textContent = mt ? 'Ma wasal xejn lura mis-server.'
+                              : 'Nothing came back from the server.';
         return;
       }
       val.textContent = r.med + ' ms';

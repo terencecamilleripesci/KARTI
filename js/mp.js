@@ -1516,17 +1516,61 @@ function pingStats(){
   return { n:a.length, last:MP.rtts[MP.rtts.length - 1],
            med:a[a.length >> 1], best:a[0], worst:a[a.length - 1] };
 }
+/* The same relay, over plain HTTP. The game socket only exists while you
+   are actually playing online, so from a Settings screen there is usually
+   nothing open to time — and "come back when you are in a game" is a
+   useless answer to "how fast is my connection". This walks the identical
+   network path (same host, same funnel, same phone radio) and reuses one
+   kept-alive connection, so after the first request the handshake is paid
+   and what is left is the round trip. The first request is thrown away
+   for exactly that reason. */
+function healthURL(){
+  let u = defaultURL();
+  u = u.replace(/^ws/i, 'http');                 /* ws->http, wss->https */
+  return u.replace(/\/ws(\?.*)?$/i, '/health');
+}
+function measureHTTP(n, cb){
+  const url = healthURL(), out = [];
+  let i = 0;
+  const one = () => {
+    const t0 = (typeof performance !== 'undefined' && performance.now)
+                 ? performance.now() : Date.now();
+    fetch(url, { cache:'no-store', credentials:'omit' })
+      .then(r => r.text())
+      .then(() => {
+        const t1 = (typeof performance !== 'undefined' && performance.now)
+                     ? performance.now() : Date.now();
+        /* i === 0 is the handshake, not the distance */
+        if (i > 0) out.push(Math.round(t1 - t0));
+        if (++i > n){ done(); return; }
+        setTimeout(one, 120);
+      })
+      .catch(() => done());
+  };
+  const done = () => {
+    if (!cb) return;
+    const a = out.slice().sort((x, y) => x - y);
+    cb(a.length ? { n:a.length, last:out[out.length - 1], med:a[a.length >> 1],
+                    best:a[0], worst:a[a.length - 1], via:'http' }
+                : { n:0, last:null, med:null, best:null, worst:null, via:'http' });
+  };
+  one();
+}
+
 /* A burst, for when somebody is actually looking at the number. The
    keep-alive is every 20s, which is right for a keep-alive and useless
-   for a reading you want now. */
+   for a reading you want now. Falls through to HTTP when no game socket
+   is open, which is the ordinary case from a menu. */
 function measure(n, cb){
   n = Math.max(1, Math.min(12, n | 0 || 8));
+  if (!MP.ws || MP.ws.readyState !== 1){ measureHTTP(n, cb); return; }
   let sent = 0;
   const t = setInterval(() => {
     if (!MP.ws || MP.ws.readyState !== 1 || sent >= n){
       clearInterval(t);
-      if (sent >= n && cb) setTimeout(() => cb(pingStats()), 400);
-      else if (cb) cb(pingStats());
+      if (sent >= n && cb) setTimeout(() => cb(
+        Object.assign(pingStats(), { via:'ws' })), 400);
+      else if (cb) cb(Object.assign(pingStats(), { via:'ws' }));
       return;
     }
     sent++; noteSent(); send({ t:'ping' });
@@ -4309,7 +4353,7 @@ window.KARTI_MP = {
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
   /* how far away the server is, measured rather than guessed */
-  pingStats, measure,
+  pingStats, measure, measureHTTP, healthURL,
   /* the three-games era */
   GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, openFor, pickWaiting,
   beginBoard, boardRemote, hostStartBoard, myColour, backToRooms, openByGame,
