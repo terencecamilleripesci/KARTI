@@ -240,6 +240,10 @@ function injectCSS(){
     '#scr-party .kb-hair{stroke:currentColor;stroke-width:1.1;opacity:.55;fill:none}' +
 
     /* ── ours ── */
+    /* the card just drawn rides high enough to catch the eye — a LIFT,
+       never colour alone. Declared before rm-sel so picking it up wins. */
+    '#scr-party .rm-c.rm-just{margin-top:-9px;' +
+      'box-shadow:0 3px 6px rgba(0,0,0,.55),0 8px 16px rgba(0,0,0,.4)}' +
     '#scr-party .rm-c.rm-sel{margin-top:-13px;' +
       'box-shadow:0 0 0 3px var(--rm-gold),0 8px 18px rgba(0,0,0,.5)}' +
     '#scr-party .rm-c.rm-dim{opacity:.45}' +
@@ -354,6 +358,17 @@ function injectCSS(){
       '-webkit-tap-highlight-color:transparent}' +
     '#scr-party .rm-act.ghost{color:var(--txt);background:rgba(255,255,255,.08);' +
       'border-color:rgba(255,255,255,.2);box-shadow:none}' +
+    /* the sort toggle is the player's own SMALL switch, not a third
+       big button — the two real actions keep the weight */
+    '#scr-party .rm-act.rm-mini{min-height:34px;align-self:center;padding:0 10px;' +
+      'font-size:9px;letter-spacing:.1em;border-radius:9px;opacity:.85}' +
+    '#scr-party .rm-act.rm-mini[aria-pressed="true"]{color:var(--rm-gold);' +
+      'border-color:rgba(255,197,66,.45)}' +
+
+    /* ── ADVANCED: the deck and the pile hold the MIDDLE of the felt,
+       the arrangement shelf is gone (render() empties and hides it),
+       and the drawn-felt simply grows into the freed centre ── */
+    '#scr-party .rm-table.rm-adv .rm-draws{flex:1 1 auto;max-height:none;gap:34px}' +
     '#scr-party .rm-act[disabled]{opacity:.38}' +
     '#scr-party .rm-act:not([disabled]):active{transform:translateY(2px);box-shadow:none}' +
 
@@ -474,7 +489,11 @@ function injectCSS(){
       '#scr-party .rm-opp .s{display:none}' +
       '#scr-party .rm-count{min-width:18px;height:18px;font-size:9px}' +
       '#scr-party .rm-row{padding-top:9px}' +
-      '#scr-party .rm-acts .rm-act{min-height:34px;padding:0 12px;font-size:10px}}';
+      '#scr-party .rm-acts .rm-act{min-height:34px;padding:0 12px;font-size:10px}' +
+      /* advanced hides the shelf, so the deck and pile take the whole
+         middle band instead of sharing the row with an empty box */
+      '#scr-party .rm-table.rm-adv{grid-template-columns:minmax(0,1fr);' +
+        'grid-template-areas:"opps" "draws" "hand" "acts"}}';
   document.head.appendChild(st);
 }
 
@@ -581,6 +600,32 @@ function doMove(seat, move, src){
   return { ok:true, index:idx };
 }
 
+/* THE QUIT DOOR — the one move that does not wait for a turn, so it
+   cannot go through doMove()'s turn gate. Same shape otherwise: into
+   the log, through apply, out to the subscribers (which is what puts a
+   LOCAL quit on the wire). Pending table beats are flushed first, the
+   same rule onlineRemote applies to every arriving move, so the quit
+   sits after the same beats in every phone's log. */
+function doQuit(seat, src){
+  if (!M || M.dead) return { ok:false };
+  if (E.over(M.st)) return { ok:false };
+  let guard = 0;
+  while (E.turn(M.st) === -1 && guard++ < 8){
+    const opts = E.legal(M.st, -1);
+    if (!opts.length) break;
+    if (!doMove(-1, opts[0], 'auto').ok) break;
+  }
+  if (!E.check(M.st, { t:'quit' }, seat)) return { ok:false };
+  const rec = { t:'quit', seat };
+  const idx = M.log.length;
+  M.log.push(rec);
+  E.apply(M.st, rec);
+  autosave();
+  fire(moveSubs, { seat, move:{ t:'quit' }, index:idx, src:src || 'gone' });
+  fire(stateSubs, { reason:'move', index:idx });
+  return { ok:true, index:idx };
+}
+
 function rollbackTo(n){
   if (!M) return null;
   n = Math.max(0, Math.min(M.log.length, n | 0));
@@ -625,6 +670,25 @@ function autosave(){
    book (W/L, offline only) also hangs here: every WON HAND is a
    result, because a hand is the whole game now.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE CARD YOU JUST TOOK, KEPT VISIBLE. A draw used to merge straight
+   into the hand and vanish — you re-read eleven cards every turn to
+   find what you got. So the just-taken card is remembered here and the
+   fan draws it LIFTED a few pixels (never colour alone). The mark is
+   the card's id, so it survives a sort; it clears the moment the turn
+   ends (throw or RUMMY) or a fresh hand is dealt, so it always means
+   "this is what you just got" and never becomes decoration. */
+moveSubs.push(ev => {
+  if (!M || M.dead) return;
+  const mv = ev.move;
+  if (ev.seat >= 0 && ev.seat === mySeat() && isLocal(ev.seat)){
+    if (mv.t === 'draw'){
+      const h = M.st.seats[ev.seat].hand;      /* apply() pushes the take last */
+      M.tmp.just = h.length ? [h[h.length - 1]] : null;
+    } else if (mv.t === 'disc' || mv.t === 'out') M.tmp.just = null;
+  }
+  if (mv.t === 'next' || mv.t === 'block') M.tmp.just = null;
+});
+
 moveSubs.push(ev => {
   if (!M || M.dead) return;
   const mv = ev.move, mine = ev.seat >= 0 && isLocal(ev.seat);
@@ -760,7 +824,7 @@ function onTap(t){
     else if (a === 'disc' && mine && st.phase === 'act' && s.length === 1)
       tryMove({ t:'disc', c: s[0] });
     else if (a === 'sort'){
-      M.tmp.sorted = !M.tmp.sorted;
+      pref({ sorted: !sortOn() });
       cue('ui.toggle', { gain: 0.8 }, true);
       render();
     }
@@ -836,10 +900,15 @@ function whyNotOut(cov, mode){
          'Throw one and keep hunting.';
 }
 
-/* what the hand looks like on screen: sorted for reading if asked */
+/* what the hand looks like on screen: sorted for reading if asked.
+   SORT IS THE PLAYER'S OWN SMALL TOGGLE (gin's rule — nothing ever
+   re-sorts a hand behind its owner's back): on it keeps itself sorted,
+   off the cards stay exactly in the order they arrived, and the choice
+   is remembered across games in the prefs. */
+const sortOn = () => ST.pref.sorted !== false;
 function shownHand(){
   const h = M.st.seats[mySeat()].hand.slice();
-  if (M.tmp.sorted === false) return h;
+  if (!sortOn()) return h;
   /* default ON: suits together, runs visible, jokers at the end */
   return h.sort((a, b) => {
     const ja = E.isJoker(a), jb = E.isJoker(b);
@@ -880,7 +949,13 @@ function render(){
   /* a selection can go stale after a remote move or an undo */
   const hand = st.seats[me].hand;
   M.tmp.sel = s.filter(c => hand.indexOf(c) >= 0);
+  if (M.tmp.just) M.tmp.just = M.tmp.just.filter(c => hand.indexOf(c) >= 0);
   const voting = st.phase === 'vote';
+  /* ADVANCED — the owner's option: deck and pile take the middle of
+     the felt and the arrangement help is gone. Presentation only —
+     the rules, the wire and the engine do not know it exists. */
+  const adv = !!ST.pref.adv;
+  UI.root.classList.toggle('rm-adv', adv);
 
   /* somebody who left must be SAID to have left, not just vanish */
   const goneNow = st.seats.map(p => !!p.gone);
@@ -958,6 +1033,7 @@ function render(){
      the vote and the handover it carries the tally. — */
   const cov = E.bestCover(hand);
   const lastRow = st.book[st.book.length - 1];
+  UI.melds.style.display = '';
   if (voting || st.phase === 'handover' || done){
     const won = st.show && st.show.melds;
     UI.melds.innerHTML =
@@ -974,6 +1050,12 @@ function render(){
               'Nobody won it — the cards go back in and the deal comes round again.</div>'
             : '')) +
       (st.book.length ? tallyRows(st, voting) : '');
+  } else if (adv){
+    /* ADVANCED mid-hand: no arrangement, no shelf — the middle belongs
+       to the deck and the pile. The winner's melds and the tally above
+       still paint, because a result is a result, not help. */
+    UI.melds.innerHTML = '';
+    UI.melds.style.display = 'none';
   } else if (!cov.melds.length){
     UI.melds.innerHTML = '<div class="rm-none">Nothing arranged yet. You need ' +
       (E.isGhaxra(st) ? 'a four and two threes — ten cards, all of them working.'
@@ -1012,7 +1094,8 @@ function render(){
       ? '<b>That is the whole hand.</b> Call <b>RUMMY!</b>'
       : (M.tmp.sel.length === 1
           ? 'Throw it to finish your turn.'
-          : whyNotOut(cov, st.mode));
+          : adv ? 'Pick a card and throw it. Your hand is your business.'
+                : whyNotOut(cov, st.mode));
 
   /* — the hand — full width in both layouts; short screens simply cap
        how tall the fan may be so it stays a single row above the
@@ -1031,7 +1114,11 @@ function render(){
       h += cardBtn(c, {
         tap: true, w: plan.w,
         left: i === seg[0] ? 0 : Math.round(plan.step - plan.w),
-        sel: M.tmp.sel.indexOf(c) >= 0
+        sel: M.tmp.sel.indexOf(c) >= 0,
+        /* the card just drawn or taken rides a little high, so the eye
+           lands on it — see the moveSubs note. Picking it up (sel)
+           outranks the lift. */
+        cls: (M.tmp.just && M.tmp.just.indexOf(c) >= 0) ? 'rm-just' : ''
       });
     }
     h += '</div>';
@@ -1063,8 +1150,11 @@ function render(){
         (outNow != null ? '' : ' disabled') + '>RUMMY!</button>' +
       '<button class="rm-act" data-act="disc" data-sfx="own"' + (canDisc ? '' : ' disabled') +
         '>Throw</button>' +
-      '<button class="rm-act ghost" data-act="sort" data-sfx="own">' +
-        (M.tmp.sorted === false ? 'Sort' : 'Sorted') + '</button>';
+      '<button class="rm-act ghost rm-mini" data-act="sort" data-sfx="own" ' +
+        'aria-pressed="' + (sortOn() ? 'true' : 'false') + '" ' +
+        'aria-label="' + (sortOn() ? 'Sorting is on. Tap to keep the cards in the order they arrive.'
+                                   : 'Sorting is off. Tap to keep the hand sorted.') + '">' +
+        (sortOn() ? 'SORTED' : 'SORT') + '</button>';
   }
 
   /* landscape scrolls the whole table — whenever it is HIS decision,
@@ -1315,10 +1405,28 @@ function openBoard(onBack){
   };
 }
 
+/* onlineStart() clears any previous match through leave() while the NEW
+   room is already live on the wire — a quit sent from that teardown would
+   arrive stamped as this player's seat at the fresh table. The flag makes
+   that one call quiet; every deliberate exit stays loud. */
+let quietLeave = false;
+
 function leave(){
   stopThinking();
   stopVote();
   if (M){
+    /* A DELIBERATE WALK-OUT MID-HAND tells the table before the socket
+       goes: the quit is this player's own move, applied here and carried
+       by the wire, so the remaining seats play on instead of waiting on
+       a ghost's turn forever. Nothing to say when the match is already
+       over, already finished on this screen, or when this seat is
+       already voted out. */
+    if (M.net && !quietLeave && !M.finished && M.st && !E.over(M.st)){
+      const me = mySeat();
+      if (M.st.seats[me] && !M.st.seats[me].gone){
+        try { doQuit(me, 'tap'); } catch(e){}
+      }
+    }
     autosave();
     persistNow();
     const net = M.net;
@@ -1431,6 +1539,7 @@ function setupSheet(){
   let jokers = p.jokers !== false;
   let lvl    = p.lvl || 2;
   let mode   = E.modeOf(p.mode);
+  let adv    = !!p.adv;                /* ADVANCED felt — presentation only */
 
   function paint(){
     const rule = E.deckRule(seats, mode, jokers);
@@ -1497,6 +1606,16 @@ function setupSheet(){
             '</i></button>' +
         '</div>' +
 
+        '<div class="tiny pt-lbl">The felt</div>' +
+        '<div class="pt-opts two" id="rm-advop">' +
+          '<button class="pt-opt' + (!adv ? ' on' : '') + '" data-adv="0">' + ico('cards') +
+            '<b>Normal</b><i>The felt arranges your hand and says what is still ' +
+            'missing.</i></button>' +
+          '<button class="pt-opt' + (adv ? ' on' : '') + '" data-adv="1">' + ico('trophy') +
+            '<b>Advanced</b><i>Deck and pile in the middle, no arranging help — ' +
+            'reading your own hand is the game.</i></button>' +
+        '</div>' +
+
         '<div class="tiny pt-lbl">How sharp is the machine</div>' +
         '<div class="pt-opts" id="rm-lvl">' + levels().map(o =>
           '<button class="pt-opt' + (o.level === lvl ? ' on' : '') + '" data-lvl="' + o.level + '">' +
@@ -1552,8 +1671,14 @@ function setupSheet(){
     el.querySelectorAll('[data-j]').forEach(b => b.onclick = () => {
       jokers = !!+b.dataset.j; decks = 0; paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
+    el.querySelectorAll('[data-adv]').forEach(b => b.onclick = () => {
+      adv = !!+b.dataset.adv;
+      pref({ adv });                   /* remembered at once — it is a felt
+                                          preference, not a rule of the game */
+      paint();
+    });
     el.querySelector('#rm-go').onclick = () => {
-      pref({ seats, decks, jokers, lvl, mode });
+      pref({ seats, decks, jokers, lvl, mode, adv });
       newGame({ seats, decks, jokers, humans: 1, lvl, mode });
     };
     const rs = el.querySelector('#rm-res');
@@ -1599,6 +1724,69 @@ function setupSheet(){
    ═══════════════════════════════════════════════════════════════════ */
 let NET = null;
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE HELLO — how a table full of phones proves it is one build of
+   RUMMY before a card moves. js/gin-ui.js's `house45s` is the worked
+   example; this is the same idea at table size.
+
+   This build added `t:'quit'` — a seat leaving mid-hand, applied by
+   every phone. The dangerous property of that word is that a mixed
+   room AGREES about everything until the first time somebody leaves:
+   the new phones seat the ghost out and play on, the old ones wait on
+   its turn forever, and the split only surfaces as a refused move
+   several turns later. So the word is said AT THE DOOR instead:
+
+     · every phone opens by broadcasting {a:'houseq1'} — never logged,
+       never a move, just the password of the quit-era build.
+     · an OLD build receiving it runs it through its decWire, gets
+       null, refuses it as "a move this table does not know how to
+       make", and mp.js stops that phone's table honestly — before it
+       has drawn a card. (That refusal path already shipped; see the
+       engine header's compatibility note.)
+     · a NEW build that does not hear the hello back from every human
+       seat inside the window says so and stops — with a bail on the
+       wire so the whole room stops together, not just this phone.
+     · a seat the relay reports gone before it ever spoke is excused:
+       its quit already answers for it.
+   ═══════════════════════════════════════════════════════════════════ */
+const HELLO = 'houseq1';
+const HELLO_RESAY_MS = 2500;
+const HELLO_DEADLINE_MS = 7000;
+
+function helloSay(){
+  if (!M || M.dead || !NET) return;
+  try { NET.move('move', { a: HELLO, n: 0 }); } catch(e){}
+}
+function helloHeard(roomSeat){
+  if (!M || !M.tmp.hello) return;
+  delete M.tmp.hello.need[roomSeat];
+}
+function helloExcuse(roomSeat){
+  helloHeard(roomSeat);
+}
+function helloWatch(){
+  if (!M || !NET) return;
+  const need = {};
+  M.st.seats.forEach((s, g) => {
+    if (s.own === 'net') need[NET.toRoom[g]] = s.name || ('Chair ' + (NET.toRoom[g] + 1));
+  });
+  M.tmp.hello = { need };
+  helloSay();
+  if (!Object.keys(need).length) return;
+  const m = M;
+  setTimeout(() => { if (M === m && M && !M.dead && M.tmp.hello &&
+                         Object.keys(M.tmp.hello.need).length) helloSay(); }, HELLO_RESAY_MS);
+  setTimeout(() => {
+    if (M !== m || !M || M.dead || !M.tmp.hello) return;
+    const missing = Object.keys(M.tmp.hello.need).map(k => M.tmp.hello.need[k]);
+    if (!missing.length) return;
+    const why = missing.join(', ') + ' never said the rummy hello — an older KARTI ' +
+      'build, or a phone that died at the deal. Stopped before a card was played; ' +
+      'update every phone and deal again.';
+    try { NET.bail(why); } catch(e){ onlineStop(why, 'cheat'); }
+  }, HELLO_DEADLINE_MS);
+}
+
 function onlineStart(cfg){
   cfg = cfg || {};
   const chairs = (cfg.seats || []).filter(Boolean);
@@ -1622,7 +1810,8 @@ function onlineStart(cfg){
     lvl:  s.level || lvl
   }));
 
-  leave();
+  quietLeave = true;
+  try { leave(); } finally { quietLeave = false; }
   const mode = E.modeOf(cfg.opts && cfg.opts.mode);
   const opts = { seats: n, decks: 0, jokers: true, humans: n, lvl, mode };
   const m = startMatch(opts, cfg.seed >>> 0);
@@ -1637,16 +1826,33 @@ function onlineStart(cfg){
   M.finished = false;
   openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   render();
+  helloWatch();                          /* the build password — see above */
   cue('game.start', { gain: 0.9 }, true);
   return snapshot();                     /* for a caller that wants it; never sent */
 }
 
 function onlineRemote(seat, wire){
-  if (!M || M.dead || !NET) return { ok:false, why:'no hand on this table' };
+  /* This phone has already put the board away (navigated off mid-game —
+     its own quit went out on the way). Complaining here would BAIL the
+     whole room over a phone that is not even looking; stay quiet. */
+  if (!M || M.dead || !NET) return null;
   const g = NET.toGame[seat];
   if (g === undefined) return { ok:false, why:'a move from a chair that is not at this table' };
+  /* the hello — the build password, never a move, never in the log */
+  if (wire && wire.t === HELLO){ helloHeard(seat); return null; }
   const mv = E.decWire(wire);
   if (!mv) return { ok:false, why:'a move this table does not know how to make' };
+  /* a QUIT goes through its own door: it does not wait for a turn, and
+     one that can no longer apply (seat already out, table already over)
+     is stale rather than wrong — the relay's own 'left' may have got
+     here first. */
+  if (mv.t === 'quit'){
+    helloExcuse(seat);
+    doQuit(g, 'net');
+    M.tmp.sel = [];
+    render();
+    return null;
+  }
   /* flush the table's own beats first — the wire outruns a timer */
   let guard = 0;
   while (E.turn(M.st) === -1 && guard++ < 8){
@@ -1734,7 +1940,24 @@ const NET_HOOKS = {
     moveSubs.push(f);
     return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
   },
-  apply: (seat, wire) => onlineRemote(seat, wire)
+  apply: (seat, wire) => onlineRemote(seat, wire),
+  /* the relay says a chair is gone FOR GOOD ('left' — a walk-out, or a
+     dropped chair its grace ran out on). Every remaining phone hears the
+     same message and seats the ghost out through the same quit the
+     leaver would have sent — idempotent with a quit that did arrive on
+     the wire, because the second one is refused as already true. The
+     engine passes the turn if it was theirs, folds the table honestly
+     if too few remain, and the tally remembers they were here. */
+  seatGone: seat => {
+    if (!M || M.dead || !NET) return;
+    const g = NET.toGame[seat];
+    if (g === undefined) return;
+    helloExcuse(seat);
+    if (E.over(M.st) || !M.st.seats[g] || M.st.seats[g].gone) return;
+    doQuit(g, 'gone');
+    M.tmp.sel = [];
+    render();
+  }
 };
 
 P.online = P.online || {};
@@ -1744,10 +1967,28 @@ P.online.rummy = {
   hooks: NET_HOOKS
 };
 
+/* THE ONLINE DOOR — through the same openFor() every other party game
+   uses (skarta, tombla, gharraq, spy, suspett, gin all do), instead of
+   blindly opening a public room of our own: take the rummy table that
+   has been waiting longest if there is one, open a fresh one if not,
+   and the Online screen keeps "open a private room" one tap away for
+   a table of friends. The old door here called start('create') with
+   private hard-coded to false and skipped the waiting-room check —
+   the one rummy-only path that behaved unlike the rest of the app.
+
+   The hand size chosen on the setup sheet rides along as the room's
+   VARIANT ('classic' seven / 'ghaxra' ten) — the word the relay already
+   whitelists and echoes to every phone in `began`, which is how a
+   GĦAXRA room deals ten on every phone at once. Joining somebody
+   else's waiting room plays THEIR variant, exactly as klabb rooms
+   play their opener's flavour. */
 function openOnline(){
   const MPX = window.KARTI_MP;
   if (!MPX || !MPX.MP) return;
   try { MPX.mpLeave(); } catch(e){}
+  MPX.MP.variant = E.modeOf(pref().mode);
+  if (MPX.openFor){ MPX.openFor('rummy'); return; }
+  /* an older mp.js without openFor: the previous door, kept honest */
   MPX.MP.wantGame = 'rummy';
   try { K.go('mp'); } catch(e){}
   try { MPX.mpScreen(); } catch(e){}
@@ -1770,10 +2011,18 @@ R.lobby = {
     const n = (seatList || []).length;
     if (n < 2) return { ok:false, why:'Nobody deals to one.' };
     if (n > 12) return { ok:false, why:'Twelve is the table. Thirteen is a queue.' };
-    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
-    if (unready)
-      return { ok:false, why:unready + (unready > 1 ? ' people are' : ' person is') +
-                             ' not ready yet.' };
+    /* the unready are NAMED. "1 person is not ready" next to "5 of 12"
+       reads like the booked size is the blocker — it never is; a rummy
+       table deals from two up whatever was booked. The blocker is ĠORĠ,
+       who wandered off, and the host deserves to know who to shout at. */
+    const un = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready);
+    if (un.length)
+      return { ok:false,
+               why:(un.length <= 2
+                     ? un.map(s => s.name || 'Somebody').join(' and ') + ' ' +
+                       (un.length > 1 ? 'have' : 'has')
+                     : un.length + ' people have') +
+                   ' not tapped ready yet. The empty chairs never hold a deal up.' };
     return { ok:true, why:'' };
   },
   rulesHTML: () =>

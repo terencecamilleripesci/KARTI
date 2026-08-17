@@ -266,15 +266,26 @@ function gameLobby(k){
   const def = Math.max(min, Math.min(max, fb[2]));
 
   /* ── the machine, by name ── */
+  /* `levels: []` is a STATEMENT, not an omission: a game that publishes an
+     empty list is saying "no machines at this table" (L-ISPJUN — a machine
+     cannot answer questions about a secret word). It must never be
+     overwritten with the generic fallback, or the lobby offers a "+ Machine"
+     button whose machine can never play. Only a game that published NOTHING
+     gets the fallback. */
+  const noMachines = !!(pub && Array.isArray(pub.levels) && !pub.levels.length);
   let levels = list(pub && pub.levels) || list(tile && tile.levels);
-  if (!levels){ gaps.push('levels'); levels = LEVELS_FALLBACK; }
+  if (!levels){
+    if (noMachines) levels = [];
+    else { gaps.push('levels'); levels = LEVELS_FALLBACK; }
+  }
   levels = levels.slice(0, 5).map((L, i) => ({
     level: num(L && (L.level != null ? L.level : L.k)) || (i + 1),
     name:  String((L && (L.name || L.n)) || ('Level ' + (i + 1))).slice(0, 22),
     note:  String((L && (L.note || L.blurb || L.t)) || '').slice(0, 80)
   }));
   let defLevel = num(pub && pub.defaultLevel);
-  if (defLevel == null) defLevel = levels.length > 1 ? levels[1].level : levels[0].level;
+  if (defLevel == null)
+    defLevel = !levels.length ? 1 : levels.length > 1 ? levels[1].level : levels[0].level;
 
   /* ── the rules, folded open in place ── */
   let rulesHTML = fn(pub && pub.rulesHTML) || fn(tile && tile.rulesHTML);
@@ -306,14 +317,23 @@ function gameLobby(k){
     (s => (s && s.kind === 'cpu') ? Object.assign({}, s, { ready:true }) : s);
 
   /* canStart says WHY in words, never a code. A game that published its own
-     wording wins; ours is the fallback and is written to read the same way. */
+     wording wins; ours is the fallback and is written to read the same way.
+     The unready are named: "1 person is not ready" on a party lobby reads
+     like the room is broken, when the truth is that ĠORĠ wandered off — and
+     the empty chairs are said not to matter, because "5 of 8" next to a dead
+     start button convinced the owner the BOOKED size was the blocker. It
+     never is: a table starts from the game's minimum up. */
   const canStart = fn(pub && pub.canStart) || (seats => {
     const n = (seats || []).length;
     if (n < min) return { ok:false, why:'It takes ' + min + ' to play ' + meta.name + '.' };
     if (n > max) return { ok:false, why:max + ' is as many as this table seats.' };
-    const not = (seats || []).filter(s => s && !isReady(s)).length;
-    if (not) return { ok:false,
-      why:not + (not > 1 ? ' people are' : ' person is') + ' not ready yet.' };
+    const not = (seats || []).filter(s => s && !isReady(s));
+    if (not.length) return { ok:false,
+      why:(not.length <= 2
+            ? not.map(s => s.name || 'Somebody').join(' and ') + ' ' +
+              (not.length > 1 ? 'have' : 'has')
+            : not.length + ' people have') +
+          ' not tapped ready yet. Empty chairs never hold a start up.' };
     return { ok:true, why:'' };
   });
 
@@ -1799,8 +1819,14 @@ function onServerError(why){
     MP.token = null; MP.code = null; MP.joined = false;
     setState('unreachable', 'No room with that code. Check it and try again.');
   } else if (/two players/i.test(why)){
+    /* The relay says this for a full DUEL and for any room whose game has
+       already started — including a table you left mid-hand. Said honestly:
+       a chair is only ever held through a dropped signal; walking out gives
+       it up, and a started table takes nobody new. */
     MP.token = null; MP.joined = false;
-    setState('unreachable', 'That room already has two players in it.');
+    setState('unreachable', 'That room is full, or its game has already started. A ' +
+      'started table takes nobody new — a chair is only held through a lost signal, ' +
+      'and a chair you leave on purpose is given up for good.');
   } else if (/busy/i.test(why)){
     setState('unreachable', 'The server is busy right now. Try again in a minute.');
   } else if (/not yours/i.test(why)){
@@ -1990,8 +2016,8 @@ function tableCanStart(){
   const LB = gameLobby(MP.game);
   const seats = rosterSeats();
   if (seats.length < 2)
-    return { ok:false, why:'A game needs somebody to play it with. Ask a friend, or ' +
-                           'put a machine in a chair.' };
+    return { ok:false, why:'A game needs somebody to play it with. Ask a friend' +
+                           (LB.levels.length ? ', or put a machine in a chair.' : '.') };
   let verdict;
   try { verdict = LB.canStart(seats); }
   catch (e){ verdict = null; }
@@ -2150,8 +2176,10 @@ function tableLobby(){
            unconfirmed ? 'Still reaching the server — this table is not open to '
                        + 'anybody yet, and a machine added now will not stick.'
          : MP.private ? 'Private table — only somebody with the code can get in.'
-         : taken < 2 ? 'Your table is in the list. Nobody else yet — put a machine '
-                     + 'in a chair and start, or wait for somebody.'
+         : taken < 2 ? 'Your table is in the list. Nobody else yet — ' +
+                       (LB.levels.length
+                         ? 'put a machine in a chair and start, or wait for somebody.'
+                         : 'wait for somebody to tap in.')
          : verdict.ok ? 'Everybody is ready. ' + taken + ' at the table.'
          : taken + ' at the table, ' + free.length +
            (free.length === 1 ? ' chair free.' : ' chairs free.'));
@@ -2162,12 +2190,15 @@ function tableLobby(){
    filling up and a room that is empty, so it never says "waiting". */
 function tableLine(taken, free, iAmHost){
   /* The count is already on the badge and in the status line. This says what
-     to DO about it, which is the one thing neither of those can. */
+     to DO about it, which is the one thing neither of those can. The machine
+     clause is only offered where the game actually seats machines. */
+  const canBot = !!gameLobby(MP.game).levels.length;
   if (taken < 2)
-    return 'Anyone who opens Online sees your table and can tap straight in — or put a ' +
-           'machine in a chair and start right now.';
+    return 'Anyone who opens Online sees your table and can tap straight in' +
+           (canBot ? ' — or put a machine in a chair and start right now.' : '.');
   if (free > 0)
-    return iAmHost ? 'You do not have to fill it. Start whenever everybody is ready.'
+    return iAmHost ? 'You do not have to fill it — the empty chairs never block a ' +
+                     'start. Go whenever everybody here is ready.'
                    : 'There is still room for anybody else you want to ask.';
   return 'Every chair is taken.';
 }
@@ -2311,6 +2342,16 @@ function tableSeatGone(seat, how){
                                        : ' left the table.'),
              how === 'dropped' ? 'warn' : '');
   K.toast(name + (how === 'dropped' ? ' dropped out.' : ' left.'));
+  /* A seat that is GONE FOR GOOD ('left' — a deliberate exit, or the relay
+     freeing a dropped chair after its grace) is handed to the game, IF the
+     game has said it knows what to do with one. hooks.seatGone is opt-in:
+     a game that publishes it seats the ghost out and plays on (RUMMY does);
+     a game that does not is exactly as it was — this call does not exist
+     for it. 'dropped' is deliberately NOT passed: a held chair may come
+     back, and folding somebody over a lift ride is not this file's call. */
+  if (how !== 'dropped' && net && net.hooks && typeof net.hooks.seatGone === 'function'){
+    try { net.hooks.seatGone(seat); } catch (e){}
+  }
 }
 
 /* ── the relay says go ──────────────────────────────────────────── */

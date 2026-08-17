@@ -80,6 +80,16 @@
      · The vote moves 'stay'/'go' are new. An older build receiving
        one refuses it and mp.js stops the table honestly — a mixed
        room fails loudly, it never drifts.
+     · `t:'quit'` is newer still: a seat leaving the table for good,
+       mid-hand included. It is deliberately COMMUTATIVE — it touches
+       no pile, no stock and never the RNG, so a quit racing another
+       seat's turn move lands on the same state whichever order the
+       two arrive in. The quitter's cards stay face-down in the gone
+       seat until the next deal rebuilds the whole box (returning
+       them to the stock would have moved the reshuffle point and
+       let two phones draw different cards). js/rummy-ui.js refuses
+       an old peer at the door before any of this can matter — see
+       its HELLO note.
      · Old SAVES are from the scored, melds-on-the-table game and
        cannot replay through these rules; js/rummy-ui.js version-
        gates them (snapshot v:2) and quietly drops v:1.
@@ -529,6 +539,11 @@ function legal(st, seat){
    client believed. */
 function check(st, mv, seat){
   if (!mv || st.done) return false;
+  /* QUIT is the one move that never waits for a turn: a player walks
+     out whenever they walk out. Any live seat may quit at any phase;
+     everything else stays strictly turn-gated below. */
+  if (mv.t === 'quit')
+    return seat >= 0 && seat < st.n && !!st.seats[seat] && !st.seats[seat].gone;
   if (turn(st) !== seat) return false;
   if (seat === -1)
     return (mv.t === 'next' && st.phase === 'handover') ||
@@ -621,18 +636,58 @@ function apply(st, mv){
      apply — no timer and no second source of truth. */
   if (mv.t === 'stay' || mv.t === 'go'){
     me.vote = mv.t;
-    for (let i = 0; i < st.n; i++)
-      if (!st.seats[i].gone && st.seats[i].vote === null) return;   /* still voting */
-    /* everybody has answered: the leavers leave */
-    st.seats.forEach(s => { if (!s.gone && s.vote === 'go'){ s.gone = true; s.hand = []; } });
+    settleVote(st);
+    return;
+  }
+  /* QUIT — a seat leaving the table for good, mid-hand included. On
+     the wire it is the deliberate leaver's own move; a seat the relay
+     reports gone is quit locally by every remaining phone off the
+     same message. Deliberately commutative (see the header): it sets
+     the gone flag, hands the turn on if it was theirs, and touches
+     nothing else — no pile, no stock, no RNG. Their cards lie face
+     down in the dead seat until the next deal rebuilds the box, so
+     card conservation holds mid-hand and no reshuffle point moves. */
+  if (mv.t === 'quit'){
+    if (me.gone) return;                           /* idempotent */
+    me.gone = true;
+    me.vote = null;
+    if (st.phase === 'vote'){
+      settleVote(st);                              /* one fewer voice to wait for */
+      return;
+    }
     const alive = liveIdx(st);
-    if (alive.length >= 2){
-      st.phase = 'handover';                       /* beat, then 'next' re-deals */
-    } else {
+    if (alive.length < 2){
+      /* too few to deal to: end the table honestly, mid-hand or not */
       st.done = { kind:'folded', left: alive };
       st.phase = 'done';
+      return;
+    }
+    if ((st.phase === 'draw' || st.phase === 'act') && st.turn === seat){
+      /* it was their turn: the turn passes cleanly, and the next
+         player starts a fresh draw whatever half-turn the leaver
+         abandoned */
+      st.turn = nextLive(st, seat);
+      st.phase = 'draw';
+      st.tookDisc = -1;
     }
     return;
+  }
+}
+
+/* everybody still owed a vote has answered? then the leavers leave and
+   the table either re-deals or breaks up. Called from stay/go AND from
+   a quit during the vote — a gone seat is one fewer voice to wait for,
+   and the same door must settle the table in both cases. */
+function settleVote(st){
+  for (let i = 0; i < st.n; i++)
+    if (!st.seats[i].gone && st.seats[i].vote === null) return;   /* still voting */
+  st.seats.forEach(s => { if (!s.gone && s.vote === 'go'){ s.gone = true; s.hand = []; } });
+  const alive = liveIdx(st);
+  if (alive.length >= 2){
+    st.phase = 'handover';                         /* beat, then 'next' re-deals */
+  } else {
+    st.done = { kind:'folded', left: alive };
+    st.phase = 'done';
   }
 }
 
@@ -791,9 +846,10 @@ function think(st, seat, lvl){
 
    The winning call rides as `t:'out'` — the wire word predates the
    vocabulary fix and is left alone so phones keep agreeing. The vote
-   moves 'stay'/'go' carry no fields at all. WIRE_FIELDS keeps the old
-   full list (m, c1..c11 are no longer sent but a published contract
-   is cheaper to leave wide than to shrink under an old peer).
+   moves 'stay'/'go' and the leaver's 'quit' carry no fields at all.
+   WIRE_FIELDS keeps the old full list (m, c1..c11 are no longer sent
+   but a published contract is cheaper to leave wide than to shrink
+   under an old peer).
 
    GĦAXRA note: the RUMMY call is ONE card on the wire — the cards
    behind it are already in every phone's copy of that seat's hand,
@@ -809,7 +865,7 @@ const byteOK = v => v >= 0 && v <= 255;
 function encWire(mv){
   if (!mv) return null;
   if (mv.t === 'draw') return { t:'draw', p: mv.p ? 1 : 0 };
-  if (mv.t === 'stay' || mv.t === 'go') return { t: mv.t };
+  if (mv.t === 'stay' || mv.t === 'go' || mv.t === 'quit') return { t: mv.t };
   if (mv.t === 'disc' || mv.t === 'out'){
     const c = mv.c | 0;
     if (c < 0) return null;
@@ -821,7 +877,7 @@ function encWire(mv){
 function decWire(w){
   if (!w || typeof w.t !== 'string') return null;
   if (w.t === 'draw') return { t:'draw', p: w.p ? 1 : 0 };
-  if (w.t === 'stay' || w.t === 'go') return { t: w.t };
+  if (w.t === 'stay' || w.t === 'go' || w.t === 'quit') return { t: w.t };
   if (w.t === 'disc' || w.t === 'out'){
     if (w.c0 === undefined) return null;
     return { t: w.t, c: (w.d | 0) * PER_DECK + (w.c0 | 0) };

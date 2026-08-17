@@ -1224,10 +1224,21 @@ class Room:
         return self.occupied() + len(self.botseats)
 
     def unready(self):
-        """People at this table who have not said they are ready. A machine is
-        never in here; that is the point of keeping machines out of seats."""
+        """People at this table who have not said they are ready AND are still
+        on the end of a socket. A machine is never in here; that is the point
+        of keeping machines out of seats.
+
+        THE `conn is not None` IS THE WHOLE POINT OF THIS FUNCTION NOW. A chair
+        whose owner walked off with their phone stays seated for the sixty
+        seconds of reconnect grace, and while it sat there unready it HELD THE
+        START for everybody else — which at a party reads as "five of us are
+        here and the game will not begin", with nothing on screen saying why.
+        A chair with no live socket cannot tap ready, so waiting for it to is
+        waiting for something that cannot happen. It is skipped; the grace
+        still protects its seat, and it still gets played by the machine or
+        seated out by the game once the table starts."""
         return [i for i, s in enumerate(self.seats)
-                if s is not None and not s.ready]
+                if s is not None and not s.ready and s.conn is not None]
 
     def full(self):
         return self.free_seat() is None
