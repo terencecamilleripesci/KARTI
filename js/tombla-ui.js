@@ -912,7 +912,9 @@ function injectCSS(){
      iOS resizes in stages, so it is asked more than once. */
   '@media (orientation:landscape) and (max-height:600px){' +
     '#scr-party .tb{gap:4px}' +
-    '#scr-party .pt-wrap .pt-turn{display:none}' +
+    /* OURS ONLY — see the note on .tbboard in board(). Without the
+       marker this hid the shared turn strip in every party game. */
+    '#scr-party .pt-wrap.tbboard .pt-turn{display:none}' +
     '#scr-party .tb-call{padding:4px 9px;gap:9px;border-radius:12px}' +
     '#scr-party .tb-ball,#scr-party .tb.gog .tb-ball{width:46px;height:46px}' +
     '#scr-party .tb-ball b,#scr-party .tb.gog .tb-ball b{font-size:20px}' +
@@ -1720,6 +1722,14 @@ function board(){
   /* six kartelli need the turn strip's forty-nine pixels more than the
      turn strip needs them; everything it said moves into the caller bar */
   if (gog) ctx.root.classList.add('tbgog');
+  /* A MARKER FOR OUR OWN BOARD, BOTH MODES. The landscape block below
+     hides .pt-turn — and .pt-turn is js/party.js's SHARED turn strip,
+     which chess, gin and GĦARRAQHOM draw too. Unqualified, that rule
+     leaked: open a tombla once and chess lost "Your move" in landscape
+     for the rest of the session, because our stylesheet is injected
+     into the document head and never comes out. .pt-wrap is rebuilt by
+     frame() on every screen, so this class cannot outlive our board. */
+  ctx.root.classList.add('tbboard');
   /* and the pane gives up its reading margins for as long as a ġog is on
      it — see .tb-edge in the stylesheet. On the screen element rather
      than on ours because the margins are the screen's, and taken off

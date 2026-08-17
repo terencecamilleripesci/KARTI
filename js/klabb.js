@@ -1799,6 +1799,13 @@ function heroHTML(def){
 }
 
 function setupSheet(def){
+  /* The stylesheet, BEFORE the first paint. The shelf tile calls this
+     function directly — not open(id) — so on a fresh boot this was the
+     first klabb code to touch the DOM, and it painted real card faces
+     with no .kb-card/.kb-svg rules behind them: unsized SVGs 360px
+     wide, a hero 2500px tall, no theme. Dealing once injected the CSS
+     and hid the fault for the rest of the session. */
+  injectCSS();
   P.show();
   stopThinking(); M = null; UI = null;
   const el = P.ui.screenEl();
