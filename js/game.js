@@ -446,7 +446,11 @@ const DEFAULT_STATE = () => ({
   /* which of the four sets packs come from, and the pity counters that stop a
      player sitting on a long dry run. load() Object.assigns over these defaults,
      so an old save picks them up without a migration. */
-  packSet:null, pity:{ leg:0, epic:0, packs:0 }
+  packSet:null, pity:{ leg:0, epic:0, packs:0 },
+  /* the daily free spin: the local date it was last taken, the epoch ms it was
+     taken at (the clock-tamper guard), how many ever taken, and what the last
+     one paid (shown on the come-back-tomorrow screen). */
+  spin:{ day:'', t:0, n:0, last:'' }
 });
 let S = DEFAULT_STATE();
 
@@ -455,6 +459,7 @@ function load(){
   S = Object.assign(DEFAULT_STATE(), o || {});
   S.rec = Object.assign({ w:0, l:0 }, S.rec || {});
   S.owned = S.owned || {}; S.decks = S.decks || []; S.starters = S.starters || [];
+  S.spin = Object.assign({ day:'', t:0, n:0, last:'' }, S.spin || {});
   /* An old save (or a half-finished sync) can carry an activeDeck id whose deck
      is gone. Repair it on the way in, not on the way to a duel. */
   fixDeckState();
@@ -663,6 +668,8 @@ function go(name){
   SCREENS.forEach(s => { const el = $('#scr-' + s); if (el) el.classList.toggle('on', s === name); });
   current = name;
   navSync(name);
+  /* the gold dot on the Store tab while the daily spin is waiting */
+  try { updateSpinBadge(); } catch (e){}
   closeSheet(); closeModal();
   /* mp.js keeps the who's-online panel alive only while Home is on screen —
      nothing polls or holds a socket once you have navigated away. */
@@ -1707,7 +1714,7 @@ function renderSetPicker(){
     host.appendChild(b);
   });
 }
-function renderPackScreen(){
+function renderPackTab(){
   /* anything still running against the old stage is now orphaned — the token
      is what tells it to stop touching the DOM */
   packSeq++;
@@ -1717,6 +1724,7 @@ function renderPackScreen(){
   /* the reveal dims the set picker; #pack-sets is refilled but never replaced,
      so leaving mid-reveal used to strand it at 13% opacity for good */
   const sp = $('#pack-sets'); if (sp) sp.classList.remove('hushed');
+  const tb0 = $('#store-tabs'); if (tb0) tb0.classList.remove('hushed');
   $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
   const set = activeSet();
   const face = set && uiArt('pack', set.art);
@@ -1894,6 +1902,7 @@ async function runPackOpen(){
   packBar('open', 0, results.length);
   $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
   const sets = $('#pack-sets'); if (sets) sets.classList.add('hushed');
+  const tbs = $('#store-tabs'); if (tbs) tbs.classList.add('hushed');
 
   /* Build the five cards NOW, detached, while the pack is still charging.
      Five full-size cards with their artwork is the single most expensive frame
@@ -2158,6 +2167,7 @@ function showSummary(results){
   packSkipFn = null;
   document.body.classList.remove('shake');
   const sets = $('#pack-sets'); if (sets) sets.classList.remove('hushed');
+  const tbs2 = $('#store-tabs'); if (tbs2) tbs2.classList.remove('hushed');
   const stage = $('#pack-stage');
   if (!stage) return;
   const news = results.filter(r => r.isNew).length;
@@ -2189,6 +2199,672 @@ function showSummary(results){
   $('#p-coll').onclick = () => go('coll');
   $('#p-home').onclick = () => go('home');
   $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE STORE
+   One screen, three shelves, because packs and paint are different
+   purchases made for different reasons:
+     · Packs     — the card packs, exactly as they were.
+     · Daily Spin — one free spin a day. The odds are printed on the
+       screen FROM THE SAME TABLE the roll reads, so what it says and
+       what it does cannot drift apart. Every spin pays something;
+       nothing about it ever costs a coin.
+     · Customise — the cosmetics the games register through KARTI_XP,
+       the low and middle shelves buyable with coins. The ladder keeps
+       its best things: anything above level 12, every border, badge
+       and face, and everything EARNED stays exactly as it was.
+   ═══════════════════════════════════════════════════════════════════ */
+let storeTab = 'cards';          /* sticky for the session, not saved  */
+let spinBusy = false;
+let spinTickT = 0;               /* the countdown repaint timer        */
+
+/* ── the daily gate ────────────────────────────────────────────────
+   Two rules, both must pass:
+     1. the LOCAL calendar date must differ from the date of the last
+        spin — "daily" means what a person means by it: a new day on
+        the clock on the wall, same as the ladder's first-win bonus;
+     2. at least SPIN_GAP_MS (10h) of REAL time (epoch, timezone-blind)
+        must have passed since the last spin.
+   Rule 2 is what makes rule 1 hard to game: changing the phone's
+   timezone changes the date but not the epoch, so a timezone tourist
+   gains nothing. Moving the CLOCK forward a day does move the epoch —
+   that spin cannot be stopped on a device with no server — but the
+   spin stamps the faked time, so putting the clock back leaves the
+   last-spin moment in the future and the gate stays shut until real
+   time has caught up past it. Cheated spins are borrowed, not free.
+   A genuine traveller is never wronged by either rule: flying either
+   way shifts the date by at most a day and the epoch not at all, so
+   the worst case is waiting for the next local midnight, and the 10h
+   floor only ever bites someone who spun late the night before. */
+const SPIN_GAP_MS = 10 * 3600 * 1000;
+
+function spinDayKey(now){
+  const d = new Date(now == null ? Date.now() : now);
+  return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+}
+/* When the next spin unlocks: the next local midnight, or the 10h
+   floor, whichever is later. */
+function spinNextAt(now){
+  now = now == null ? Date.now() : now;
+  const sp = S.spin || {};
+  const d = new Date(now); d.setHours(24, 0, 0, 0);
+  return Math.max(d.getTime(), (sp.t || 0) + SPIN_GAP_MS);
+}
+function spinState(now){
+  now = now == null ? Date.now() : now;
+  const sp = S.spin || (S.spin = { day:'', t:0, n:0, last:'' });
+  if (sp.day && sp.day === spinDayKey(now))
+    return { ok:false, why:'today', next: spinNextAt(now) };
+  if (sp.t && now < sp.t)
+    return { ok:false, why:'clock', next: spinNextAt(now) };
+  if (sp.t && now < sp.t + SPIN_GAP_MS)
+    return { ok:false, why:'soon', next: spinNextAt(now) };
+  return { ok:true };
+}
+
+/* ── the prize table ───────────────────────────────────────────────
+   THIS TABLE IS THE WHOLE TRUTH. The roll walks it, the odds screen
+   prints it, the reel is stocked from it. pct MUST sum to 100 — the
+   boot check below refuses to be quietly wrong about a printed number.
+   Worth: an average spin is ~55 coins-equivalent — about a third of
+   one duel win (120c + a pack), so a daily nudge, not a wage that
+   devalues playing. The 1% pack is his number, as asked. */
+const SPIN_TABLE = [
+  { id:'c30',  kind:'coins', n:30,  pct:41, label:'30 coins',   ic:'coin' },
+  { id:'c60',  kind:'coins', n:60,  pct:24, label:'60 coins',   ic:'coin' },
+  { id:'xp18', kind:'xp',    n:18,  pct:15, label:'+18 XP',     ic:'star' },
+  { id:'c120', kind:'coins', n:120, pct:10, label:'120 coins',  ic:'coin' },
+  { id:'d40',  kind:'dust',  n:40,  pct:6,  label:'40 dust',    ic:'dust' },
+  { id:'cosm', kind:'cosmetic',     pct:3,  label:'Shop item',  ic:'rar-epiku' },
+  { id:'pack', kind:'pack',  n:1,   pct:1,  label:'Card pack',  ic:'pack' },
+];
+if (SPIN_TABLE.reduce((a, p) => a + p.pct, 0) !== 100)
+  console.error('KARTI store: SPIN_TABLE odds do not sum to 100 — the printed odds are wrong.');
+
+/* The spin's randomness is its own: it must NEVER draw from rnd(),
+   because that stream is seeded lockstep during an online duel and a
+   spin taken mid-lobby would desync both phones. */
+function spinRand(){
+  try {
+    const u = new Uint32Array(1);
+    crypto.getRandomValues(u);
+    return u[0] / 4294967296;
+  } catch (e){ return Math.random(); }
+}
+function spinRoll(){
+  let r = spinRand() * 100;
+  for (let i = 0; i < SPIN_TABLE.length; i++){
+    r -= SPIN_TABLE[i].pct;
+    if (r < 0) return SPIN_TABLE[i];
+  }
+  return SPIN_TABLE[0];
+}
+
+/* ── granting ──────────────────────────────────────────────────────
+   Rolled, granted and SAVED before a single pixel of reel moves —
+   the same law the pack reveal lives by. Nothing is owed to an
+   animation finishing. */
+function spinGrant(prize, day){
+  const out = { prize:prize, label:prize.label, cosmetic:null, levelled:false };
+  if (prize.kind === 'coins'){ S.coins += prize.n; }
+  else if (prize.kind === 'dust'){ S.dust += prize.n; }
+  else if (prize.kind === 'pack'){ S.packs += 1; }
+  else if (prize.kind === 'xp'){
+    /* Paid through the ladder's own till so a level-up pays its coins
+       and packs and fires its listeners exactly as a played game does.
+       Deterministic: weight 6 (default) x win 2 x first-of-day 1.5 x
+       taper 1 (nothing else is filed under 'dailyspin' today) = 18.
+       The id makes the award idempotent per calendar day even if the
+       gate were somehow talked around. */
+    let ok = false;
+    try {
+      if (window.KARTI_XP){
+        const r = KARTI_XP.award('dailyspin', 'w', { id:'spin-' + day, ms:9e9, quiet:true });
+        ok = !!(r && r.counted);
+        out.levelled = !!(r && r.levelled);
+      }
+    } catch (e){}
+    if (!ok){ S.coins += 60; out.label = '60 coins'; out.fellBack = true; }
+  }
+  else if (prize.kind === 'cosmetic'){
+    const pool = storeBuyables().filter(d => !cosmOwned(d.id));
+    if (pool.length){
+      const d = pool[Math.floor(spinRand() * pool.length)];
+      grantCosmetic(d.id);
+      out.cosmetic = d;
+      out.label = d.name;
+    } else { S.coins += 150; out.label = '150 coins'; out.fellBack = true; }
+  }
+  return out;
+}
+/* doSpin(now) — `now` exists for the test harness only. */
+function doSpin(now){
+  const st = spinState(now);
+  if (!st.ok) return null;
+  now = now == null ? Date.now() : now;
+  const day = spinDayKey(now);
+  const prize = spinRoll();
+  const res = spinGrant(prize, day);
+  S.spin = { day:day, t:now, n:((S.spin && S.spin.n) | 0) + 1, last:res.label };
+  save();
+  updateSpinBadge();
+  return res;
+}
+
+/* ── the cosmetics shelf ───────────────────────────────────────────
+   Which registered cosmetics are for sale. The rule, not a list, so
+   whatever the games register lands on the right shelf on its own:
+     FOR SALE   game cosmetics (boards, backs, felts, tokens...) that
+                unlock between levels 2 and 12 and are not `earn`ed.
+     NOT FOR SALE
+       · level 0/1 things       — already everybody's;
+       · anything above 12      — the ladder keeps its best things,
+                                  or levelling stops meaning anything;
+       · anything with `earn`   — a streak border you can buy is a lie;
+       · everything of 'karti'  — borders, badges, faces are identity
+                                  and prestige, not merchandise.
+   Price rises with the level it would otherwise unlock at:
+   level 2 → 180 coins (about 1.5 duel wins) up to level 12 → 780. */
+const COSM_LEVEL_MAX = 12;
+function cosmPrice(d){ return 120 + 60 * Math.max(1, (d.level | 0) - 1); }
+function storeBuyables(){
+  try {
+    if (!window.KARTI_XP || !KARTI_XP.defs) return [];
+    return KARTI_XP.defs().filter(d =>
+      d.game !== 'karti' && !d.earn && d.level >= 2 && d.level <= COSM_LEVEL_MAX);
+  } catch (e){ return []; }
+}
+function cosmOwned(id){
+  try { return !!(window.KARTI_XP && KARTI_XP.owns(id)); } catch (e){ return false; }
+}
+/* The grant. KARTI_XP has no public grant call, but owns() reads
+   p.own[id] ahead of the level gate, and _state() hands back the live
+   prog object that lives INSIDE S — so writing the flag and calling
+   our own save() persists and syncs it exactly like everything else. */
+function grantCosmetic(id){
+  try {
+    if (!window.KARTI_XP || !KARTI_XP._state) return false;
+    const p = KARTI_XP._state();
+    if (!p || typeof p.own !== 'object') return false;
+    p.own[id] = 1;
+    save();
+    return true;
+  } catch (e){ return false; }
+}
+function buyCosmetic(id){
+  if (!window.KARTI_XP) return { ok:false, why:'no-xp' };
+  const d = KARTI_XP.def ? KARTI_XP.def(id) : null;
+  if (!d) return { ok:false, why:'unknown' };
+  if (!storeBuyables().some(b => b.id === id)) return { ok:false, why:'not-for-sale' };
+  if (cosmOwned(id)) return { ok:false, why:'owned' };
+  const price = cosmPrice(d);
+  if (S.coins < price) return { ok:false, why:'coins', price:price };
+  S.coins -= price;
+  if (!grantCosmetic(id)){ S.coins += price; save(); return { ok:false, why:'grant' }; }
+  save();
+  if (window.KARTI_SFX){ try { KARTI_SFX.play('shop.buy'); } catch (e){} }
+  return { ok:true, price:price, def:d };
+}
+function gameLabel(id){
+  try {
+    const shelf = (window.KARTI_STATS && KARTI_STATS.GAMES) || [];
+    for (let i = 0; i < shelf.length; i++) if (shelf[i].id === id) return shelf[i].name;
+  } catch (e){}
+  const NICE = { 'cards-solo':'The Card Duel', 'cards-story':'Story Mode',
+                 'cards-mp':'Multiplayer Duel', 'kiri':'IL-KIRI', 'tombla':'Tombla' };
+  return NICE[id] || (id.charAt(0).toUpperCase() + id.slice(1));
+}
+
+/* ── the screen ──────────────────────────────────────────────────── */
+function renderPackScreen(){
+  storeCSS();
+  renderStoreTabs();
+  clearTimeout(spinTickT);
+  const stage = $('#pack-stage');
+  const rl = $('#rlabel'); if (rl) rl.innerHTML = '';
+  const sp = $('#pack-sets');
+  if (storeTab === 'spin' || storeTab === 'cosm'){
+    /* orphan any pack reveal still in flight — same tokens the pack
+       screen itself uses */
+    packSeq++; packSkip = false; packBusy = false; packSkipFn = null;
+    if (sp){ sp.style.display = 'none'; sp.classList.remove('hushed'); }
+    if (stage) stage.classList.add('smode');
+    updateCoinsPill();
+    if (storeTab === 'spin') renderSpinTab();
+    else renderCosmTab();
+    return;
+  }
+  if (sp) sp.style.display = '';
+  if (stage) stage.classList.remove('smode');
+  renderPackTab();
+}
+function setStoreTab(t){
+  if (spinBusy || packBusy) return;
+  if (storeTab === t){ renderPackScreen(); return; }
+  storeTab = t;
+  if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.tap'); } catch (e){} }
+  renderPackScreen();
+}
+function renderStoreTabs(){
+  let tabs = $('#store-tabs');
+  if (!tabs){
+    const wrap = $('#scr-pack .packwrap');
+    if (!wrap) return;
+    tabs = document.createElement('div');
+    tabs.id = 'store-tabs';
+    tabs.className = 'storetabs';
+    tabs.setAttribute('role', 'tablist');
+    wrap.insertBefore(tabs, $('#pack-sets'));
+  }
+  const free = spinState().ok;
+  const one = (id, icon, label, dot) =>
+    '<button class="stab' + (storeTab === id ? ' on' : '') + '" data-st="' + id +
+    '" role="tab" aria-selected="' + (storeTab === id) + '">' +
+    ico(icon) + '<span>' + label + '</span>' +
+    (dot ? '<i class="sdot" aria-label="free spin waiting"></i>' : '') + '</button>';
+  tabs.innerHTML =
+    one('cards', 'pack', 'Packs', false) +
+    one('spin', 'star', 'Daily Spin', free) +
+    one('cosm', 'rar-epiku', 'Customise', false);
+  $$('.stab', tabs).forEach(b => { b.onclick = () => setStoreTab(b.dataset.st); });
+}
+function updateCoinsPill(){
+  const el = $('#pack-coins');
+  if (el) el.innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+}
+/* The gold dot on Home's Store tab (and the tab strip) while the free
+   spin is waiting. Pure decoration on markup game.js does not own, so
+   it adds and removes only its own element. */
+function updateSpinBadge(){
+  const btn = $('#btn-packs');
+  if (btn){
+    let dot = $('.sdot', btn);
+    const want = !!spinState().ok;
+    if (want && !dot){
+      dot = document.createElement('i');
+      dot.className = 'sdot';
+      dot.setAttribute('aria-hidden', 'true');
+      btn.appendChild(dot);
+    } else if (!want && dot) dot.remove();
+  }
+  if (current === 'pack'){
+    const tabs = $('#store-tabs');
+    if (tabs){
+      const st = $('.stab[data-st="spin"] .sdot', tabs);
+      const want2 = !!spinState().ok;
+      if (want2 && !st){
+        const b = $('.stab[data-st="spin"]', tabs);
+        if (b){ const i = document.createElement('i'); i.className = 'sdot'; b.appendChild(i); }
+      } else if (!want2 && st) st.remove();
+    }
+  }
+}
+
+/* ── DAILY SPIN, the shelf ─────────────────────────────────────────
+   The rules, said plainly, above the fold:
+     · one a day, free, forever — no coins taken, no second spin sold;
+     · the odds printed from the live table;
+     · every spin pays something;
+     · where the spin lives (your save), said out loud. */
+function spinCountdownText(next){
+  const ms = Math.max(0, next - Date.now());
+  let h = Math.floor(ms / 3600000);
+  let m = Math.ceil((ms % 3600000) / 60000);
+  if (m === 60){ h++; m = 0; }
+  return h > 0 ? h + 'h ' + m + 'm' : Math.max(1, m) + 'm';
+}
+function spinOddsHTML(){
+  return '<div class="oddsbox"><p class="oddshead">The odds, exactly:</p>' +
+    SPIN_TABLE.map(p =>
+      '<div class="oddsrow"><b class="mono">' + p.pct + '%</b>' +
+      '<span class="oi">' + ico(p.ic) + '</span><span>' +
+      (p.kind === 'cosmetic'
+        ? 'A customisation item you do not own <small>(all owned? 150 coins instead)</small>'
+        : esc(p.label)) + '</span></div>').join('') +
+    '<p class="oddsfoot">Every spin wins something. These numbers are the ones the ' +
+    'spin actually rolls — nothing hidden.</p></div>';
+}
+function renderSpinTab(){
+  clearTimeout(spinTickT);
+  spinBusy = false;
+  const stage = $('#pack-stage');
+  const bar = $('#pack-bar');
+  if (!stage || !bar) return;
+  const st = spinState();
+  const sp = S.spin || {};
+  stage.innerHTML =
+    '<div class="spinwrap">' +
+      '<div class="spinhead">' +
+        '<h3>' + ico('star') + ' One free spin a day</h3>' +
+        '<p class="tiny">Free means free — it never costs a coin and there is no second spin.</p>' +
+      '</div>' +
+      spinOddsHTML() +
+      (!st.ok && sp.last
+        ? '<p class="spinlast">Today you won: <b>' + esc(sp.last) + '</b></p>' : '') +
+      '<p class="spinnote">Your spin lives in your save — with an account it follows you ' +
+        'to any phone; as a guest it stays on this device.</p>' +
+    '</div>';
+  if (st.ok){
+    bar.innerHTML =
+      '<button class="btn primary" id="spin-go">' + ilb('star', 'Spin — free today') + '</button>' +
+      '<button class="btn ghost sm" id="spin-home">Back to menu</button>';
+    $('#spin-go').onclick = runSpin;
+  } else {
+    const why = st.why === 'clock'
+      ? 'This phone’s clock has jumped backwards. The spin unlocks when real time catches up.'
+      : 'Come back tomorrow — next free spin in ' + spinCountdownText(st.next) + '.';
+    bar.innerHTML =
+      '<p class="hint" id="spin-wait">' + why + '</p>' +
+      '<button class="btn ghost sm" id="spin-home">Back to menu</button>';
+    /* tick the countdown while the screen is up; flip to the button
+       the moment the day turns */
+    spinTickT = setTimeout(() => {
+      if (current === 'pack' && storeTab === 'spin' && !spinBusy) renderSpinTab();
+    }, 30000);
+  }
+  $('#spin-home').onclick = () => go('home');
+}
+
+/* ── the ceremony ──────────────────────────────────────────────────
+   A reel, 2.4 seconds, honestly stocked (the filler tiles are drawn
+   from the same odds, so the strip does not oversell packs), landing
+   on the prize that is ALREADY yours and saved. Tap to cut it short.
+   Reduced motion goes straight to the result. */
+function runSpin(){
+  if (spinBusy) return;
+  const st = spinState();
+  if (!st.ok){ renderSpinTab(); return; }
+  spinBusy = true;
+  const res = doSpin();
+  if (!res){ spinBusy = false; renderSpinTab(); return; }
+  updateCoinsPill();
+  if (REDUCED){ spinResult(res); return; }
+  const stage = $('#pack-stage');
+  const bar = $('#pack-bar');
+  if (!stage){ spinResult(res); return; }
+  if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.swipe'); } catch (e){} }
+  const LAND = 17, TILES = 22, TW = 88;
+  let tiles = '';
+  for (let i = 0; i < TILES; i++){
+    const p = i === LAND ? res.prize : spinRoll();   /* visual only */
+    const label = i === LAND ? res.label : p.label;
+    tiles += '<div class="stile' + (i === LAND ? ' win' : '') + '">' +
+      ico(p.ic) + '<span>' + esc(p.kind === 'cosmetic' && i !== LAND ? 'Item' : label) + '</span></div>';
+  }
+  stage.innerHTML =
+    '<div class="spinwrap">' +
+      '<div class="swheel" id="swheel"><div class="smark"></div>' +
+        '<div class="strack" id="strack">' + tiles + '</div></div>' +
+      '<p class="tiny" style="text-align:center">Tap to skip</p>' +
+    '</div>';
+  if (bar) bar.innerHTML = '';
+  const wheel = $('#swheel'), track = $('#strack');
+  const ww = wheel ? wheel.getBoundingClientRect().width : 320;
+  const jitter = Math.round((spinRand() - 0.5) * 36);
+  const dist = LAND * TW + TW / 2 - ww / 2 + jitter;
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    spinResult(res);
+  };
+  const anim = track.animate(
+    [{ transform:'translate3d(0,0,0)' }, { transform:'translate3d(' + (-dist) + 'px,0,0)' }],
+    { duration:2400, easing:'cubic-bezier(.16,.85,.25,1)', fill:'forwards' });
+  anim.onfinish = () => setTimeout(finish, 350);
+  /* belt and braces: the prize is already saved, so if the animation is ever
+     throttled into never finishing (background tab, odd engine), the result
+     still lands on real time */
+  setTimeout(finish, 3400);
+  /* the ratchet: ticks bunching up then dying away with the easing */
+  if (window.KARTI_SFX){
+    let t = 0;
+    for (let i = 1; i <= 12; i++){
+      t += 40 + i * 26;
+      setTimeout(() => { if (!done){ try { KARTI_SFX.play('rail.tick'); } catch (e){} } }, t);
+    }
+  }
+  stage.onclick = () => { try { anim.finish(); } catch (e){} finish(); };
+}
+function spinResult(res){
+  spinBusy = false;
+  const stage = $('#pack-stage');
+  const bar = $('#pack-bar');
+  if (!stage) return;
+  stage.onclick = null;
+  const st = spinState();
+  const isCosm = !!res.cosmetic;
+  const isPack = res.prize.kind === 'pack' && !res.fellBack;
+  let prevHTML = '';
+  if (isCosm && res.cosmetic.preview){
+    prevHTML = '<div class="sprev" id="sprev"></div>';
+  }
+  stage.innerHTML =
+    '<div class="spinwrap sres">' +
+      '<div class="spinres" id="spinres">' +
+        '<p class="srlead">Your daily spin pays</p>' +
+        (prevHTML || '<div class="srico">' + ico(res.prize.ic) + '</div>') +
+        '<div class="srwhat">' + esc(res.label) + '</div>' +
+        (isCosm ? '<p class="tiny">' + esc(res.cosmetic.blurb || '') + '</p>' : '') +
+        (res.levelled ? '<p class="srlvl">' + ico('trophy') + ' LEVEL UP!</p>' : '') +
+        (res.fellBack && res.prize.kind === 'cosmetic'
+          ? '<p class="tiny">You own every shop item — coins instead.</p>' : '') +
+      '</div>' +
+      '<p class="spinnote">Next free spin ' +
+        (st.next ? 'in ' + spinCountdownText(st.next) : 'tomorrow') + '.</p>' +
+    '</div>';
+  if (isCosm && res.cosmetic.preview){
+    try {
+      const pv = res.cosmetic.preview(96);
+      const host = $('#sprev');
+      if (host && pv) (typeof pv === 'string') ? host.innerHTML = pv : host.appendChild(pv);
+    } catch (e){}
+  }
+  const box = $('#spinres');
+  if (box && !REDUCED) particles(box, isCosm || isPack ? 16 : 8, 'var(--gold)', 150);
+  if (window.KARTI_SFX){
+    try {
+      KARTI_SFX.play('ui.reward');
+      if (res.prize.kind === 'coins' || res.fellBack)
+        setTimeout(() => { try { KARTI_SFX.play('ui.coin'); } catch (e){} }, 260);
+    } catch (e){}
+  }
+  updateCoinsPill();
+  if (bar){
+    bar.innerHTML =
+      (isPack ? '<button class="btn primary" id="sr-pack">' +
+                ilb('pack', 'Open it now') + '</button>' : '') +
+      (isCosm ? '<button class="btn primary" id="sr-wear">' +
+                ilb('check', 'Wear it now') + '</button>' : '') +
+      '<button class="btn ghost sm" id="sr-home">Back to menu</button>';
+    const bp = $('#sr-pack');
+    if (bp) bp.onclick = () => { storeTab = 'cards'; renderPackScreen(); };
+    const bw = $('#sr-wear');
+    if (bw) bw.onclick = () => {
+      try {
+        const r = KARTI_XP.equip('', res.cosmetic.id);
+        toast(r && r.ok ? '“' + res.cosmetic.name + '” equipped.' : '⚠ Could not equip it.');
+      } catch (e){ toast('⚠ Could not equip it.'); }
+      bw.disabled = true;
+    };
+    $('#sr-home').onclick = () => go('home');
+  }
+}
+
+/* ── CUSTOMISE, the shelf ────────────────────────────────────────── */
+let cosmConfirm = '';            /* two taps to spend real coins       */
+let cosmConfirmT = 0;
+function renderCosmTab(){
+  const stage = $('#pack-stage');
+  const bar = $('#pack-bar');
+  if (!stage || !bar) return;
+  const items = storeBuyables();
+  if (!items.length){
+    stage.innerHTML =
+      '<div class="spinwrap"><div class="cosmempty">' +
+        '<div class="srico">' + ico('rar-epiku') + '</div>' +
+        '<h3>The shelves are being stocked</h3>' +
+        '<p class="tiny">Boards, card backs, felts and more from every game land here ' +
+        'to buy with coins. Your level rewards already live in the wardrobe.</p>' +
+      '</div></div>';
+  } else {
+    const byGame = {};
+    items.forEach(d => { (byGame[d.game] || (byGame[d.game] = [])).push(d); });
+    let html = '<div class="spinwrap cosmwrap">';
+    Object.keys(byGame).forEach(g => {
+      html += '<p class="cosmgame">' + esc(gameLabel(g)) + '</p><div class="cosmgrid">';
+      byGame[g].forEach(d => {
+        const owned = cosmOwned(d.id);
+        const price = cosmPrice(d);
+        html +=
+          '<div class="citem" data-cid="' + esc(d.id) + '">' +
+            '<div class="cprev"></div>' +
+            '<div class="cname">' + esc(d.name) + '</div>' +
+            (d.blurb ? '<div class="cblurb">' + esc(d.blurb) + '</div>' : '') +
+            '<div class="cmeta tiny">or free at level ' + d.level + '</div>' +
+            (owned
+              ? '<div class="crow"><span class="ctag">' + ico('check') + ' Yours</span>' +
+                '<button class="btn ghost sm cwear" data-id="' + esc(d.id) + '">Wear</button></div>'
+              : '<button class="btn sm cbuy' + (S.coins >= price ? ' can' : '') +
+                '" data-id="' + esc(d.id) + '" data-price="' + price + '">' +
+                ilb('coin', (cosmConfirm === d.id ? 'Sure? ' : '') + price) + '</button>') +
+          '</div>';
+      });
+      html += '</div>';
+    });
+    html += '<p class="spinnote">Everything above level 12 — and every border, badge and ' +
+      'earned exclusive — is not for sale at any price. You level for those.</p></div>';
+    stage.innerHTML = html;
+    /* previews after the HTML lands — def.preview returns an element */
+    $$('.citem', stage).forEach(el => {
+      const d = items.find(x => x.id === el.dataset.cid);
+      if (!d || !d.preview) return;
+      try {
+        const pv = d.preview(72);
+        const host = $('.cprev', el);
+        if (host && pv) (typeof pv === 'string') ? host.innerHTML = pv : host.appendChild(pv);
+      } catch (e){}
+    });
+    $$('.cbuy', stage).forEach(b => { b.onclick = () => cosmBuyTap(b.dataset.id); });
+    $$('.cwear', stage).forEach(b => {
+      b.onclick = () => {
+        try {
+          const r = KARTI_XP.equip('', b.dataset.id);
+          toast(r && r.ok ? 'Equipped.' : '⚠ Could not equip it.');
+        } catch (e){ toast('⚠ Could not equip it.'); }
+      };
+    });
+  }
+  bar.innerHTML =
+    '<button class="btn ghost" id="cosm-ward" data-karti-xp>' +
+      ilb('star', 'Open the wardrobe') + '</button>' +
+    '<p class="spinnote">Equipping, level rewards and everything you own live there.</p>' +
+    '<button class="btn ghost sm" id="cosm-home">Back to menu</button>';
+  $('#cosm-home').onclick = () => go('home');
+}
+function cosmBuyTap(id){
+  if (cosmConfirm !== id){
+    /* first tap arms it; three seconds to mean it. Only the one button is
+       touched — a full re-render here would throw away the scroll position
+       of a long shelf under the player's thumb. */
+    cosmConfirm = id;
+    clearTimeout(cosmConfirmT);
+    const btn = $('.cbuy[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (btn) btn.innerHTML = ilb('coin', 'Sure? ' + btn.dataset.price);
+    cosmConfirmT = setTimeout(() => {
+      cosmConfirm = '';
+      const b2 = $('.cbuy[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+      if (b2) b2.innerHTML = ilb('coin', b2.dataset.price);
+    }, 3000);
+    return;
+  }
+  cosmConfirm = '';
+  clearTimeout(cosmConfirmT);
+  const r = buyCosmetic(id);
+  if (r.ok){
+    toast('“' + r.def.name + '” is yours — ' + r.price + ' coins.');
+    updateCoinsPill();
+  } else if (r.why === 'coins'){
+    if (window.KARTI_SFX){ try { KARTI_SFX.play('shop.broke'); } catch (e){} }
+    toast('⚠ Not enough coins — it costs ' + r.price + '.');
+  } else if (r.why === 'owned'){ toast('You already own that.'); }
+  else toast('⚠ That cannot be bought.');
+  renderCosmTab();
+}
+
+/* ── the store's CSS, injected once ──────────────────────────────── */
+function storeCSS(){
+  if ($('#kstore-css')) return;
+  const st = document.createElement('style');
+  st.id = 'kstore-css';
+  st.textContent =
+    '.storetabs{display:flex;gap:7px;width:100%;max-width:460px;padding:0 0 8px;transition:opacity .3s}' +
+    '.storetabs.hushed{opacity:.13;pointer-events:none}' +
+    '.stab{position:relative;flex:1;min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:6px;' +
+      'border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.04);color:var(--dim);' +
+      'font-family:var(--disp);font-weight:800;font-size:11.5px;letter-spacing:.06em;cursor:pointer}' +
+    '.stab .ico{width:15px;height:15px}' +
+    '.stab.on{color:var(--txt);border-color:var(--gold);background:rgba(255,197,66,.10)}' +
+    '.stab:active{transform:scale(.97)}' +
+    '.sdot{position:absolute;top:5px;right:8px;width:8px;height:8px;border-radius:50%;' +
+      'background:var(--gold);box-shadow:0 0 7px var(--gold)}' +
+    '#btn-packs{position:relative}' +
+    '#btn-packs .sdot{top:6px;right:22%}' +
+    '.stage.smode{display:block;place-items:unset;perspective:none;overflow-y:auto;' +
+      'scrollbar-width:none;padding:2px 2px 10px}' +
+    '.stage.smode::-webkit-scrollbar{display:none}' +
+    '.spinwrap{width:100%;max-width:460px;margin:0 auto;display:grid;gap:11px}' +
+    '.spinhead h3{margin:0;display:flex;align-items:center;gap:7px;font-family:var(--disp);font-size:17px}' +
+    '.spinhead .ico{width:18px;height:18px;color:var(--gold)}' +
+    '.spinhead .tiny{margin:3px 0 0}' +
+    '.oddsbox{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:11px 13px;display:grid;gap:6px}' +
+    '.oddshead{margin:0;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;font-weight:800}' +
+    '.oddsrow{display:flex;align-items:center;gap:9px;font-size:13.5px;min-height:22px}' +
+    '.oddsrow b{flex:0 0 42px;text-align:right;color:var(--gold)}' +
+    '.oddsrow .oi{display:inline-flex;width:16px}.oddsrow .oi .ico{width:15px;height:15px}' +
+    '.oddsrow small{color:var(--dim2)}' +
+    '.oddsfoot{margin:3px 0 0;font-size:11px;color:var(--dim)}' +
+    '.spinnote{margin:0;font-size:11px;color:var(--dim2);text-align:center}' +
+    '.spinlast{margin:0;text-align:center;font-size:13px;color:var(--dim)}' +
+    '.spinlast b{color:var(--gold)}' +
+    '.swheel{position:relative;overflow:hidden;border:1px solid var(--line2);border-radius:14px;' +
+      'background:var(--panel2);height:96px;margin-top:14vh}' +
+    '.smark{position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;' +
+      'background:var(--gold);z-index:2;box-shadow:0 0 8px var(--gold)}' +
+    '.smark:before{content:"";position:absolute;top:-1px;left:50%;transform:translateX(-50%);' +
+      'border:7px solid transparent;border-top-color:var(--gold)}' +
+    '.strack{display:flex;height:100%;will-change:transform}' +
+    '.stile{flex:0 0 88px;display:grid;place-items:center;align-content:center;gap:5px;' +
+      'border-right:1px solid var(--line);color:var(--txt);font-size:11px;font-weight:700;text-align:center;padding:0 4px}' +
+    '.stile .ico{width:22px;height:22px;color:var(--gold)}' +
+    '.stile.win{background:rgba(255,197,66,.12)}' +
+    '.sres{padding-top:8vh}' +
+    '.spinres{position:relative;border:1px solid var(--gold);border-radius:16px;background:var(--panel);' +
+      'padding:22px 16px;display:grid;gap:8px;justify-items:center;text-align:center;' +
+      'box-shadow:0 0 34px rgba(255,197,66,.14)}' +
+    '.srlead{margin:0;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.14em;font-weight:800}' +
+    '.srico .ico{width:44px;height:44px;color:var(--gold)}' +
+    '.srwhat{font-family:var(--disp);font-weight:900;font-size:24px;color:var(--gold)}' +
+    '.srlvl{margin:0;font-family:var(--disp);font-weight:900;color:var(--ok);display:flex;gap:6px;align-items:center}' +
+    '.srlvl .ico{width:16px;height:16px}' +
+    '.sprev{min-height:64px;display:grid;place-items:center}' +
+    '.cosmempty{border:1px dashed var(--line2);border-radius:16px;padding:26px 18px;text-align:center;display:grid;gap:8px;justify-items:center;margin-top:6vh}' +
+    '.cosmempty h3{margin:0;font-family:var(--disp)}' +
+    '.cosmwrap{gap:8px}' +
+    '.cosmgame{margin:8px 0 2px;font-size:11px;font-weight:800;color:var(--dim);text-transform:uppercase;letter-spacing:.12em}' +
+    '.cosmgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px}' +
+    '.citem{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:10px;display:grid;gap:6px;align-content:start}' +
+    '.cprev{min-height:64px;display:grid;place-items:center}' +
+    '.cname{font-family:var(--disp);font-weight:800;font-size:12.5px}' +
+    '.cblurb{font-size:11px;color:var(--dim);min-height:1em}' +
+    '.cmeta{color:var(--dim2)}' +
+    '.crow{display:flex;align-items:center;justify-content:space-between;gap:6px}' +
+    '.ctag{display:inline-flex;align-items:center;gap:4px;color:var(--ok);font-weight:800;font-size:12px}' +
+    '.ctag .ico{width:14px;height:14px}' +
+    '.cbuy{border-color:var(--line2);opacity:.6}' +
+    '.cbuy.can{opacity:1;border-color:var(--gold);color:var(--gold)}';
+  document.head.appendChild(st);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -4539,7 +5215,15 @@ window.KARTI = {
   deckOptions, newDeckSheet, deckMenu, saveDeck, commitDraft, fixDeckState, deckGlyph,
   renderDuel, renderHome, startDuel, startCustomDuel, runAITurn, playerEndTurn, endDuel,
   showResult, DEFAULT_STATE, resetUI, onDuelEvent, dlog,
-  toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne
+  toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne,
+  /* the Store — exported for the headless verification harness */
+  _store: {
+    SPIN_TABLE, SPIN_GAP_MS, COSM_LEVEL_MAX,
+    spinState, spinRoll, doSpin, spinDayKey, spinNextAt,
+    storeBuyables, buyCosmetic, cosmPrice, cosmOwned, grantCosmetic,
+    renderSpinTab, renderCosmTab, updateSpinBadge, spinResult,
+    get tab(){ return storeTab; }, set tab(v){ storeTab = v; }
+  }
 };
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
