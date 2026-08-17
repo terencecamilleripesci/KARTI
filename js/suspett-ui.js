@@ -313,10 +313,35 @@ function roleCardInto(host, G, seat){
     inner += '<div class="news">Il-MIRA tiegħek: ' + esc(v.mira.name) + '. Ġibha fuq il-planka.</div>';
   if (v.role.id === 'kuntrabandist')
     inner += '<div class="news">Moħbi li fadal: ' + v.hideLeft + '</div>';
-  if (v.news) inner += '<div class="news">' + esc(newsLine(v.news)) + '</div>';
+  if (v.role.id === 'tarronda'){
+    inner += '<div class="news">Tiri li fadal: ' + v.rondaShots + '</div>';
+    if (v.rondaGuilt)
+      inner += '<div class="news">Qtilt wieħed tar-raħal. Il-kuxjenza qed ' +
+               'tikolk — dan hu l-aħħar jum tiegħek.</div>';
+  }
+  if (v.poisoned)
+    inner += '<div class="news">INT AVVELENAT! Jekk it-Tabib ma jsibekx ' +
+             'il-lejla d-dieħla, tmut ma’ sbiħ il-jum. Għajjat għalih.</div>';
+  if (v.muted)
+    inner += '<div class="news">Is-sarima f’ħalqek: illum tivvota biss — ' +
+             'la titkellem u lanqas tikteb fil-pjazza.</div>';
+  if (v.news)
+    for (const nw of v.news) inner += '<div class="news">' + esc(newsLine(nw)) + '</div>';
   card.innerHTML = inner;
   host.appendChild(card);
 }
+/* the weapons, as il-Ħaffier names them */
+const WEAPON_MT = {
+  klikka:   'daqqa tal-klikka',
+  biccier:  'is-sikkina tal-Biċċier',
+  ronda:    'tir ta’ senter fil-lejl',
+  shot:     'l-aħħar tir ta’ Kaċċatur',
+  velenu:   'il-velenu',
+  xewka:    'ix-xewka',
+  kuxjenza: 'il-kuxjenza — mewt minn ġewwa',
+  vote:     'il-planka tal-pjazza',
+  night:    'daqqa fil-lejl (qabel żmienek)'
+};
 function newsLine(nw){
   if (nw.kind === 'nanna')
     return 'Lejl ' + nw.night + ': ' + nw.name + ' ' + (nw.clean ? 'NADIF/A.' : 'SUSPETTUŻ/A.');
@@ -326,6 +351,19 @@ function newsLine(nw){
   if (nw.kind === 'ghassies')
     return 'Lejl ' + nw.night + ': għand ' + nw.name + ' ' +
            (nw.who.length ? 'mar: ' + nw.who.map(w => w.name).join(', ') + '.' : 'ma mar ĦADD.');
+  if (nw.kind === 'xummiemu')
+    return 'Lejl ' + nw.night + ': ' + nw.name + ' ' +
+           (nw.who.length ? 'mar għand: ' + nw.who.map(w => w.name).join(', ') + '.'
+                          : 'baqa’ d-dar il-lejl kollu.');
+  if (nw.kind === 'haffier')
+    return 'Lejl ' + nw.night + ': ' + nw.name + ' inqatel bi: ' +
+           (WEAPON_MT[nw.weapon] || 'arma li ma tagħrafhiex') + '.';
+  if (nw.kind === 'velenat')
+    return 'Lejl ' + nw.night + ': tħossok ĦAŻIN — xi ħadd avvelenak. It-Tabib biss isalvak.';
+  if (nw.kind === 'kurat')
+    return 'Lejl ' + nw.night + ': it-Tabib sabek fil-ħin. Il-velenu ħareġ.';
+  if (nw.kind === 'ronda')
+    return 'Lejl ' + nw.night + ': it-tir tiegħek laqat wieħed tar-raħal. Il-lejl li ġej il-kuxjenza tiġbrok.';
   return '';
 }
 
@@ -344,6 +382,7 @@ function refWhy(v){
   if (!v.alive) return 'Int mejjet. Skiet sal-aħħar.';
   if (v.phase === 'night' || v.phase === 'shot') return 'Bil-lejl ħadd ma jitkellem.';
   if (v.phase === 'defence') return v.seat === v.accused ? 'Il-planka tiegħek.' : 'Ħalli lill-akkużat jitkellem.';
+  if (v.muted) return 'Is-sarima f’ħalqek — illum tivvota biss.';
   return 'Il-pjazza miftuħa.';
 }
 
@@ -357,11 +396,24 @@ function menu(){
   const pf = ST.pref;
   let mode  = pf.mode === 'pnp' ? 'pnp' : 'net';
   let seats = Math.min(16, Math.max(5, pf.seats | 0 || 7));
-  let pool  = Array.isArray(pf.pool) ? pf.pool.slice() : S.POOL_DEFAULT.slice();
+  let pmode = pf.pmode === 'borma' ? 'borma' : 'bilanc';
+  /* poolV 2 marks a pool saved AGAINST THE NEW CATALOGUE — an older
+     saved pool predates the new roles and is reset to its mode */
+  let pool  = (Array.isArray(pf.pool) && pf.poolV === 2)
+    ? pf.pool.slice() : modePool(pmode);
   let names = Array.isArray(pf.names) ? pf.names.slice() : [];
   let reveal = pf.reveal !== false;
   let dayT  = [180, 240, 300, 420].indexOf(pf.dayT) >= 0 ? pf.dayT : 240;
   let showPool = false;
+  function modePool(id){
+    const m = S.MODES.find(x => x.id === id);
+    return (m ? m.pool : S.POOL_DEFAULT).slice();
+  }
+  function samePool(a, b){
+    if (a.length !== b.length) return false;
+    const s2 = b.slice().sort();
+    return a.slice().sort().every((x, i) => x === s2[i]);
+  }
 
   function draw(){
     const saved = ST.save && ST.save.snap;
@@ -391,10 +443,19 @@ function menu(){
         : '') +
       '<h4>IR-RWOLI FIL-BORMA <span style="opacity:.6">(' +
         (mode === 'pnp' ? seats : 'skont il-kamra') + ' siġġu)</span></h4>' +
-      '<button class="su-opt" id="su-poolbtn"><b>' + (showPool ? 'Aħbi l-lista' : 'Agħżel ir-rwoli') + '</b>' +
-      '<i>Neħħi u żid rwoli — il-logħba tinbena minn dak li tħalli.</i></button>' +
+      /* THE TWO MODES — starting points, both editable afterwards */
+      '<div class="su-opts">' + S.MODES.map(m => {
+        const on = samePool(pool, m.pool);
+        return '<button class="su-opt' + (on ? ' on' : '') + '" data-pm="' + m.id + '">' +
+          '<b>' + esc(m.name) + '</b><i>' + esc(m.note) + '</i></button>';
+      }).join('') +
+      (S.MODES.some(m => samePool(pool, m.pool)) ? '' :
+        '<div class="su-bal">Borma tiegħek — bdilt ir-rwoli b’idejk. ' +
+        'Agħfas mod biex terġa’ lura.</div>') + '</div>' +
+      '<button class="su-opt" id="su-poolbtn"><b>' + (showPool ? 'Aħbi l-lista' : 'Biddel ir-rwoli') + '</b>' +
+      '<i>Neħħi u żid rwoli fuq il-mod li għażilt — il-logħba tinbena minn dak li tħalli.</i></button>' +
       (showPool ? '<div class="su-pool" id="su-pool">' +
-        S.POOL_DEFAULT.map(id => {
+        S.POOL_ALL.map(id => {
           const R = S.ROLES[id];
           const inPool = pool.indexOf(id) >= 0;
           const min = S.MIN_TABLE[id] || 0;
@@ -418,13 +479,16 @@ function menu(){
       '<i>Kemm iddum id-diskussjoni ta’ binhar qabel il-vot.</i></button></div>' +
       '<button class="su-btn gold" id="su-go" style="padding:14px">' +
       (mode === 'net' ? 'SIB KAMRA ONLINE' : 'QASSAM IR-RWOLI') + '</button>' +
-      '<button class="su-btn" id="su-rules">Ir-regoli u r-rwoli kollha</button>' +
+      '<button class="su-btn" id="su-rules">X’jagħmel xiex? Ir-regoli u r-rwoli</button>' +
       '</div>';
 
     el.querySelector('#su-back').onclick = () => { savePrefs(); P.open(); };
     const rs = el.querySelector('#su-resume');
     if (rs) rs.onclick = resumeSaved;
     el.querySelectorAll('.su-opt[data-m]').forEach(b => b.onclick = () => { mode = b.dataset.m; draw(); });
+    el.querySelectorAll('.su-opt[data-pm]').forEach(b => b.onclick = () => {
+      pmode = b.dataset.pm; pool = modePool(pmode); sfx('ui.toggle'); draw();
+    });
     if (mode === 'pnp'){
       el.querySelector('#su-less').onclick = () => { if (seats > 5){ seats--; draw(); } };
       el.querySelector('#su-more').onclick = () => { if (seats < 16){ seats++; draw(); } };
@@ -443,7 +507,7 @@ function menu(){
       const steps = [180, 240, 300, 420];
       dayT = steps[(steps.indexOf(dayT) + 1) % steps.length]; draw();
     };
-    el.querySelector('#su-rules').onclick = rulesSheet;
+    el.querySelector('#su-rules').onclick = () => rulesSheet(pool);
     el.querySelector('#su-go').onclick = () => {
       savePrefs();
       if (mode === 'net'){
@@ -461,31 +525,59 @@ function menu(){
   }
   function savePrefs(){
     ST.pref = Object.assign({}, ST.pref,
-      { mode, seats, pool, names, reveal, dayT });
+      { mode, seats, pmode, pool, poolV: 2, names, reveal, dayT });
     persist();
   }
   draw();
 }
 
-function rulesSheet(){
+/* ═══════════════ "X’JAGĦMEL XIEX" — the teaching panel ═══════════════
+   ONE generator, built from the ENGINE's ROLES and HOW so it can never
+   drift from what the code does. It leads with TONIGHT'S pot (the pool
+   the host actually left on), the full catalogue underneath. Used by
+   the in-game rules sheet AND published to the shared lobby through
+   LOBBY.rulesHTML() — the lobby's fold-open rules door renders it while
+   the room fills, for every player, without touching their seat. */
+function roleLineHTML(id){
+  const R = S.ROLES[id];
+  if (!R) return '';
+  const col = R.side === 'rahal' ? '#3DDC84' : R.side === 'klikka' ? '#FF7A6B' : '#C9B4FF';
+  const min = S.MIN_TABLE[id] || 0;
+  return '<p style="margin:7px 0 0"><b style="color:' + col + '">' + esc(R.name) + '</b>' +
+    (min > 5 ? ' <span style="opacity:.55;font-size:10px">(minn ' + min + ' ’il fuq)</span>' : '') +
+    ' — ' + esc(R.what) + '</p>';
+}
+function prefPool(){
+  const pf = ST.pref;
+  return (Array.isArray(pf.pool) && pf.poolV === 2) ? pf.pool.slice() : S.POOL_DEFAULT.slice();
+}
+function buildTeachHTML(pool){
+  pool = (Array.isArray(pool) && pool.length ? pool : S.POOL_DEFAULT)
+    .filter(id => S.ROLES[id]);
+  const H = S.HOW;
+  let h = '<p><b>SUSPETT</b> — raħal wieħed, klikka waħda moħbija ġo fih, u ' +
+    Object.keys(S.ROLES).length + '-il rwol fil-katalgu. Aqra hawn sakemm ' +
+    'timtela l-kamra — ħadd ma jitlef postu.</p>';
+  h += H.basics.map(b => '<p>• ' + esc(b) + '</p>').join('');
+  h += '<p style="margin-top:10px"><b>X’JIĠRI BIL-LEJL, BL-ORDNI:</b></p>' +
+    H.night.map((s, i) => '<p>' + (i + 1) + '. <b>' + esc(s.n) + '</b> — ' + esc(s.t) + '</p>').join('');
+  h += '<p style="margin-top:10px"><b>X’JIĠRI BINHAR:</b></p>' +
+    H.day.map(d => '<p>• ' + esc(d) + '</p>').join('');
+  h += '<p style="margin-top:12px"><b>IR-RWOLI FIL-BORMA TAL-LEJLA:</b></p>' +
+    ['klikka', 'rahli'].concat(pool).map(roleLineHTML).join('');
+  const rest = S.POOL_ALL.filter(id => pool.indexOf(id) < 0);
+  if (rest.length)
+    h += '<p style="margin-top:12px"><b>IL-BQIJA TAL-KATALGU (barra mil-lejla):</b></p>' +
+      rest.map(roleLineHTML).join('');
+  return h;
+}
+function rulesSheet(pool){
   showSecret(host => {
     const d = document.createElement('div');
     d.className = 'su-card';
     d.style.maxHeight = '68vh';
     d.style.overflowY = 'auto';
-    d.innerHTML = '<h3>SUSPETT</h3><p>' +
-      'Raħal wieħed, klikka waħda moħbija fih. Kull LEJL il-klikka toqtol bil-moħbi u ' +
-      'r-rwoli jaħdmu fis-skiet — bil-lejl ĦADD ma jitkellem b’leħnu, kollox bil-kitba. ' +
-      'Kull JUM il-pjazza tiftaħ, kulħadd jargumenta, u l-vot itella’ lil xi ħadd fuq ' +
-      'il-planka. Ir-raħal jirbaħ meta l-qattiela jispiċċaw; il-klikka tirbaħ meta jibqgħu ' +
-      'huma biss jgħoddu. L-ewwel lejl ħadd ma jinqatel. Il-mejtin MA JITKELLMUX — jiktbu ' +
-      'biss, bejniethom.</p>' +
-      Object.keys(S.ROLES).map(id => {
-        const R = S.ROLES[id];
-        return '<p style="margin-top:8px"><b style="color:' +
-          (R.side === 'rahal' ? '#3DDC84' : R.side === 'klikka' ? '#FF7A6B' : '#C9B4FF') +
-          '">' + esc(R.name) + '</b> — ' + esc(R.what) + '</p>';
-      }).join('');
+    d.innerHTML = '<h3>X’JAGĦMEL XIEX</h3>' + buildTeachHTML(pool || prefPool());
     host.appendChild(d);
   }, { closeLabel: 'Għalaqt' });
 }
@@ -564,7 +656,9 @@ function seatsHTML(G, mySeat){
       (p.seat === mySeat ? ' me' : '') + (G.accused === p.seat ? ' acc' : '') + '">' +
       '<b>' + esc(pub.name) + '</b>' +
       (tally[p.seat] ? '<span class="vt">' + tally[p.seat] + '</span>' : '') +
-      '<i>' + (pub.alive ? (pub.mayor ? 'SINDKU' : '') : (pub.role ? esc(pub.role) : 'MEJTA')) + '</i>' +
+      '<i>' + (pub.alive
+        ? (pub.mayor ? 'SINDKU' : (G.muted === p.seat ? 'SARIMA' : ''))
+        : (pub.role ? esc(pub.role) : 'MEJTA')) + '</i>' +
       '</div>';
   }).join('') + '</div>';
 }
@@ -659,6 +753,20 @@ function pnpFlow(){
   render();
 }
 
+/* who this role may point at tonight — ONE list for PnP and online */
+function nightOpts(G, v, seat){
+  if (v.role.id === 'haffier') return G.P.filter(p => !p.alive).map(p => p.seat);
+  const noSelf = ['nanna', 'barman', 'ghassies', 'pittur', 'biccier', 'surgent',
+                  'talbieb', 'xummiemu', 'velenu', 'sarima', 'tarronda', 'kappillan'];
+  return S.alive(G).map(p => p.seat).filter(s => {
+    if (v.role.id === 'kuntrabandist') return s === seat;
+    if (v.role.id === 'tabib') return s !== G.lastProtect;
+    if (v.role.id === 'surgent' && s === G.lastJail) return false;
+    if (noSelf.indexOf(v.role.id) >= 0 && s === seat) return false;
+    if (v.role.side === 'klikka' && S.ROLES[G.P[s].role].side === 'klikka') return false;
+    return true;
+  });
+}
 function targetGridInto(host, G, seats, onPick){
   const grid = document.createElement('div');
   grid.className = 'su-tgts';
@@ -680,18 +788,11 @@ function pnpNight(seat){
     roleCardInto(host, G, seat);
     const title = document.createElement('div');
     title.style.cssText = 'font-weight:900;font-size:13px;color:var(--dim)';
-    title.textContent = v.role.two ? 'Agħżel TNEJN:' : 'Agħżel:';
+    title.textContent = v.role.two ? 'Agħżel TNEJN:' :
+      v.role.id === 'haffier' ? 'Agħżel katavru:' : 'Agħżel:';
     host.appendChild(title);
     let first = -1;
-    const opts = S.alive(G).map(p => p.seat).filter(s => {
-      if (v.role.id === 'kuntrabandist') return s === seat;
-      if (v.role.id === 'tabib') return s !== G.lastProtect;
-      if (v.role.id === 'nanna' || v.role.id === 'barman' || v.role.id === 'ghassies' ||
-          v.role.id === 'pittur' || v.role.id === 'biccier') return s !== seat;
-      if (v.role.side === 'klikka' && S.ROLES[G.P[s].role].side === 'klikka') return false;
-      if (v.role.id === 'kappillan') return s !== seat;
-      return true;
-    });
+    const opts = nightOpts(G, v, seat);
     targetGridInto(host, G, opts, (s, btn) => {
       if (v.role.two && first < 0){
         first = s; btn.classList.add('on'); return;
@@ -895,10 +996,17 @@ function onlineStart(cfg){
   const names = seats.map((s2, i) => (s2 && s2.name) || ('Siġġu ' + (i + 1)));
   const bots = [];
   seats.forEach((s2, i) => { if (s2 && (s2.own === 'cpu' || s2.kind === 'cpu')) bots.push(i); });
+  /* room settings ride cfg.opts — the same object every phone receives
+     from the lobby, so every phone deals the identical game. The shape
+     matches LOBBY.settings below; a room that sends nothing gets the
+     balanced defaults. */
+  const op = cfg.opts || {};
+  const md = S.MODES.find(m => m.id === op.mode);
   const G = S.create({
     players: names, seed: (cfg.seed >>> 0) || 1, bots: bots,
-    pool: Array.isArray(ST.pref.pool) && cfg.you === 0 ? null : null,   /* pool is host-side only offline; online keeps the preset so every phone agrees */
-    revealRoles: true, dayTimer: 240
+    pool: md ? md.pool : null,
+    revealRoles: op.reveal !== false,
+    dayTimer: [180, 240, 300, 420].indexOf(op.dayT) >= 0 ? op.dayT : 240
   });
   U = { mode:'net', G, names, seat: cfg.you | 0, host: (cfg.host | 0) === (cfg.you | 0) || cfg.you === 0,
         net: cfg.net || null, ctx:null,
@@ -1168,18 +1276,11 @@ function netNightSheet(v){
   showSecret(host => {
     roleCardInto(host, G, U.seat);
     let first = -1;
-    const opts = S.alive(G).map(p => p.seat).filter(s => {
-      if (v.role.id === 'kuntrabandist') return s === U.seat;
-      if (v.role.id === 'tabib') return s !== G.lastProtect;
-      if (v.role.id === 'nanna' || v.role.id === 'barman' || v.role.id === 'ghassies' ||
-          v.role.id === 'pittur' || v.role.id === 'biccier') return s !== U.seat;
-      if (v.role.side === 'klikka' && S.ROLES[G.P[s].role].side === 'klikka') return false;
-      if (v.role.id === 'kappillan') return s !== U.seat;
-      return true;
-    });
+    const opts = nightOpts(G, v, U.seat);
     const t2 = document.createElement('div');
     t2.style.cssText = 'font-weight:900;font-size:13px;color:var(--dim)';
-    t2.textContent = v.role.two ? 'Agħżel TNEJN:' : 'Agħżel:';
+    t2.textContent = v.role.two ? 'Agħżel TNEJN:' :
+      v.role.id === 'haffier' ? 'Agħżel katavru:' : 'Agħżel:';
     host.appendChild(t2);
     targetGridInto(host, G, opts, (s, btn) => {
       if (v.role.two && first < 0){ first = s; btn.classList.add('on'); return; }
@@ -1276,12 +1377,29 @@ const LOBBY = {
     if (not) return { ok:false, why: not + (not > 1 ? ' għadhom' : ' għadu') + ' mhux lest.' };
     return { ok:true, why:'' };
   },
+  /* the lobby's fold-open rules door: the full teaching panel, tonight's
+     pot first — this is the "what does what" reading for the wait */
   rulesHTML(){
-    return '<p><b>SUSPETT</b> — raħal Malti, klikka moħbija. Bil-lejl il-klikka toqtol u ' +
-      'r-rwoli jaħdmu; binhar il-pjazza tivvota lil xi ħadd ’il barra. Kollox bil-kitba: ' +
-      'il-klikka għandha l-chat tagħha, il-mejtin tagħhom, u min imut MA JITKELLIMX aktar.</p>' +
-      '<p>Ħamsa sa sittax. Sittax-il rwol fil-borma — nanniet, tobba, kappillani, ' +
-      'kuntrabandisti u agħar.</p>';
+    return buildTeachHTML(prefPool());
+  },
+  /* ── ROOM SETTINGS, DECLARATIVELY ────────────────────────────────
+     Published for the shared lobby's settings mechanism (being built
+     in js/mp.js): the host changes these IN THE LOBBY, everybody sees
+     them change, nobody loses a chair. The chosen values arrive back
+     as `opts` on start() and ride cfg.opts into onlineStart — which
+     already consumes exactly these ids. Until the lobby mechanism
+     lands, rooms simply start with the defaults. */
+  settings: {
+    v: 1,
+    hostOnly: true,
+    fields: [
+      { id:'mode', type:'choice', label:'Il-borma tar-rwoli', def:'bilanc',
+        options: S.MODES.map(m => ({ v: m.id, label: m.name, note: m.note })) },
+      { id:'reveal', type:'bool', label:'Il-mejtin jikxfu r-rwol', def:true },
+      { id:'dayT', type:'choice', label:'Ħin il-pjazza', def:240,
+        options:[{ v:180, label:'3 min' }, { v:240, label:'4 min' },
+                 { v:300, label:'5 min' }, { v:420, label:'7 min' }] }
+    ]
   },
   blurb:'Min qed jigdeb? Raħal wieħed, klikka moħbija, u l-chat hu l-logħba.',
   myName(){
@@ -1330,7 +1448,7 @@ P.register({
   sprite:'su-mark', status:'live',
   get tag(){
     return 'One village, one hidden klikka, and everybody typing so the person beside you ' +
-      'hears nothing. Five to sixteen. Sixteen roles in the pot.' +
+      'hears nothing. Five to sixteen. ' + Object.keys(S.ROLES).length + ' roles in the pot.' +
       (ST.save ? ' There is a village mid-argument on this phone.' : '');
   },
   open: menu,

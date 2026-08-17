@@ -23,34 +23,83 @@
    not the UI and not a comment elsewhere. Every role in ROLES either
    appears in this list or provably does nothing at night.
 
-     1. BLOCK    Tal-Bar gets one player blind drunk. Every later
-                 action by a blocked player is cancelled outright:
-                 a blocked Tabib protects nobody, a blocked Nanna
-                 learns nothing, a blocked klikka member's kill pick
-                 is not counted, a blocked Biċċier kills nobody, a
-                 blocked Pittur paints nothing, a blocked Għassies
-                 sees nothing, a blocked Kappillan hears nothing, a
-                 blocked Kuntrabandist fails to hide. Tal-Bar acts
-                 first and therefore can never be blocked himself.
+     1. BLOCK    Tal-Bar gets one player blind drunk. He acts first
+                 and can never be blocked himself. THEN Is-Surġent
+                 locks one player in the għassa cell — unless the
+                 Surġent is the drunk one, in which case he locks
+                 nobody. Every later action by a BLOCKED player
+                 (drunk or jailed) is cancelled outright: a blocked
+                 Tabib protects nobody, a blocked Nanna learns
+                 nothing, a blocked klikka member's kill pick is not
+                 counted, a blocked Biċċier kills nobody, a blocked
+                 Pittur paints nothing, a blocked Velenu poisons
+                 nobody, a blocked Sarima gags nobody, a blocked
+                 Tal-Bieb guards nobody, a blocked Tar-Ronda fires
+                 nothing (and spends nothing), a blocked Għassies /
+                 Xummiemu / Ħaffier sees nothing, a blocked Kappillan
+                 hears nothing, a blocked Kuntrabandist fails to hide.
      2. HIDE     Il-Kuntrabandist hides (self-protection, limited
                  uses). Spent only if it actually happens (unblocked).
-     3. PROTECT  It-Tabib's protection lands on his target.
+     3. PROTECT  It-Tabib's protection lands on his target; the
+                 Surġent's cell counts as protection on the jailed
+                 man; Tal-Bieb takes up his post at his target's door
+                 (the redirect itself happens at step 5).
      4. FRAME    Il-Pittur paints his target: for TONIGHT's checks
                  (steps 6a/6b) that player reads as klikka-side.
-     5. KILLS    Both kills are COMPUTED first, then APPLIED
-                 simultaneously:
-                   - the klikka kill is the plurality of the picks of
-                     UNBLOCKED living klikka KILLERS (Il-Kap and
-                     Tal-Klikka; Il-Pittur paints, he does not kill).
-                     Ties break by the seeded RNG; no unblocked picks,
-                     no kill;
-                   - Il-Biċċier's kill is his own pick.
-                 A target under PROTECT or HIDE survives (the log says
-                 somebody was attacked and saved, naming nobody). Two
-                 kills on one unprotected target are one death, and
-                 because application is simultaneous the kills can
-                 cross: the klikka can kill Il-Biċċier the same night
-                 he kills one of them, and both die.
+     4b. GAG     Is-Sarima ties the muzzle: her target spends
+                 TOMORROW's day voting only — no speaking out loud,
+                 no writing in the pjazza. Announced at dawn. The
+                 planka unties it: an accused man always defends
+                 himself.
+     5. KILLS    Every kill is COMPUTED first, then all deaths are
+                 APPLIED simultaneously. The kill sources, in the
+                 order they are computed:
+                 a) the GUILT: a Tar-Ronda whose shot put a rahal-side
+                    body on the ground the previous night dies now.
+                    Internal — no protection, no cell, no doorman,
+                    nothing stops it, and he cannot act tonight.
+                 b) the POISON RIPENS: whoever Tal-Velenu poisoned the
+                    previous night dies now unless PROTECTED tonight
+                    (Tabib or cell) — that protection CURES him. HIDE
+                    and Tal-Bieb do not help: it is already inside.
+                 c) the klikka kill: the plurality of the picks of
+                    UNBLOCKED living klikka KILLERS (Il-Kap and
+                    Tal-Klikka; Pittur, Velenu and Sarima hold klikka
+                    seats but do not join the group kill). Ties break
+                    by the seeded RNG; no unblocked picks, no kill.
+                 d) Il-Biċċier's kill: his own pick.
+                 e) TAR-RONDA's kill: his own pick. He carries TWO
+                    cartridges for the whole game; one is spent the
+                    moment his kill is computed (unblocked, non-grace
+                    night) even if the target is then saved. If his
+                    shot lands a rahal-side body — including a doorman
+                    who stepped into it — the guilt kills him per (a)
+                    on the next non-grace night.
+                 f) the VIAL: Tal-Velenu poisons tonight's target —
+                    not a death tonight; the mark ripens per (b).
+                    PROTECT and HIDE stop the poisoning. Only one vial
+                    works at a time: while a mark is pending he cannot
+                    pour another.
+                 For (c)(d)(e)(f): a target under PROTECT or HIDE
+                 survives (the log says somebody was attacked and
+                 saved, naming nobody). A target guarded by TAL-BIEB
+                 is hit THROUGH the doorman: Tal-Bieb takes the kill
+                 (or the vial) himself, unless he too is protected.
+                 IX-XEWKA pricks back: if any of (c)(d)(e)(f)
+                 TARGETED her and FOUND her (she was not hidden;
+                 a doorman in front of her does not matter — they
+                 reached her house), ONE of the attackers, chosen by
+                 the seeded RNG, dies of the thorn — unless that
+                 attacker is himself protected. Any number of kills
+                 on one unprotected target are one death, and because
+                 application is simultaneous the kills can cross: the
+                 klikka can kill Il-Biċċier or Tar-Ronda the same
+                 night he kills one of them, and both die. Each
+                 corpse remembers its WEAPON (see 6e).
+                 GRACE NIGHTS (night 1, and the stunned night after a
+                 lynched Miġnun): NOTHING in step 5 happens — no kill,
+                 no guilt, no ripening, no poisoning, no prick, no
+                 cartridge spent. The frame and the gag still happen.
      6. LOOK     All information is gathered now, from the night as it
                  truly happened — death does not launder anyone, and a
                  result only reaches a looker who is alive at dawn and
@@ -64,15 +113,26 @@
                      a painted player counts as klikka.
                  6c. L-Għassies learns WHO VISITED the player he was
                      watching. A visit is an action performed ON a
-                     target: the barman, the tabib, the nanna, the
-                     pittur, the biċċier, the kappillan (his first
-                     pick only — the second he watches from the
-                     sagristija) and every unblocked klikka killer
-                     whose pick became the kill all visit their
-                     targets. A blocked player visits nobody. The
-                     kuntrabandist hides at home. Watching is not a
-                     visit.
-     6d. THE SÉANCE is NOT in this list on purpose. Tal-Karti's line
+                     living target: the barman, the surġent, the
+                     tabib, tal-bieb, the nanna, the pittur, the
+                     sarima, tal-velenu, the biċċier, tar-ronda, the
+                     kappillan (his first pick only — the second he
+                     watches from the sagristija) and every unblocked
+                     klikka killer whose pick became the kill all
+                     visit their targets. A blocked player visits
+                     nobody. The kuntrabandist hides at home.
+                     Watching (Għassies, Xummiemu) is not a visit,
+                     and Il-Ħaffier digs among the dead, not the
+                     living.
+                 6d. IX-XUMMIEMU learns WHERE HIS TARGET WENT: the
+                     visit (if any) his target performed tonight, by
+                     the same definition of a visit as 6c.
+                 6e. IL-ĦAFFIER examines one CORPSE — any corpse, any
+                     age — and learns the WEAPON that made it: the
+                     klikka's blow, the Biċċier's knife, Tar-Ronda's
+                     shotgun, the poison, the thorn, a Kaċċatur's
+                     last shot, the guilt, or the planka.
+     6f. THE SÉANCE is NOT in this list on purpose. Tal-Karti's line
                  to the dead is a CHAT CHANNEL, not a night action: it
                  opens whenever she is alive and it is night, and it
                  cannot be blocked, because chat lives outside the
@@ -201,6 +261,46 @@ const ROLES = {
          'kulħadd: minn dakinhar ’il quddiem il-vot tiegħek jgħodd DOPPJU. ' +
          'Imma sindku mikxuf hu fil-mira ta’ kulħadd — agħżel il-mument.'
   },
+  tarronda: {
+    name:'Tar-Ronda', side:'rahal', night:true, unique:true,
+    what:'Il-pulizija ’l bogħod u int xbajt tistenna. Bil-lejl toħroġ ' +
+         'iddur it-toroq bis-senter taħt il-kappott: għandek ŻEWĠ tiri ' +
+         'għal-logħba kollha. Attent fuq min tisparahom — jekk toqtol ' +
+         'wieħed tar-raħal, il-kuxjenza tikolk u tmut il-lejl ta’ wara.'
+  },
+  talbieb: {
+    name:'Tal-Bieb', side:'rahal', night:true, unique:true,
+    what:'Kull lejl tagħżel persuna u toqgħod għassa mal-bieb tagħha. ' +
+         'Jekk xi ħadd jiġi joqtolha — jew javvelenaha — id-daqqa ' +
+         'tieħuha INT minflokha. Xogħol ta’ unur, u ta’ demm.'
+  },
+  surgent: {
+    name:'Is-Surġent', side:'rahal', night:true, unique:true,
+    what:'Kull lejl taqfel persuna waħda fiċ-ċella tal-għassa: dik ' +
+         'il-persuna MA TAGĦMEL XEJN dak il-lejl, imma lanqas jista’ ' +
+         'għaliha ħadd — fiċ-ċella qiegħda fis-sod. Mhux l-istess ' +
+         'persuna żewġt iljieli wara xulxin.'
+  },
+  xummiemu: {
+    name:'Ix-Xummiemu', side:'rahal', night:true, unique:true,
+    what:'Imnieħrek twil u saqajk ħfief. Kull lejl timxi wara persuna ' +
+         'u sa filgħodu tkun taf GĦAND MIN marret dak il-lejl. Fejn ' +
+         'tmur in-nies bil-lejl jgħid ħafna fuqhom.'
+  },
+  haffier: {
+    name:'Il-Ħaffier', side:'rahal', night:true, unique:true,
+    what:'Int tħaffer l-oqbra, u l-katavri jkellmuk. Kull lejl ' +
+         'teżamina mejjet wieħed u sa filgħodu tkun taf B’LIEMA ARMA ' +
+         'nqatel — daqqa tal-klikka, sikkina, senter, velenu… Il-mod ' +
+         'kif imutu n-nies jikxef lil min qatilhom.'
+  },
+  xewka: {
+    name:'Ix-Xewka', side:'rahal', night:false, unique:true,
+    what:'Bil-lejl ma tagħmel xejn — imma min imidd idu fuqek jindem. ' +
+         'Jekk xi ħadd jiġi għalik bil-lejl, wieħed minnhom jitniggeż ' +
+         'bix-xewka u jmut hu wkoll. Int xorta tista’ tmut — imma ' +
+         'qatt waħdek.'
+  },
   kap: {
     name:'Il-Kap', side:'klikka', night:true, kills:true, unique:true,
     what:'Il-moħħ tal-klikka tal-każin l-ieħor. Kull lejl il-klikka ' +
@@ -218,6 +318,19 @@ const ROLES = {
     what:'Mal-klikka, imma s-sengħa tiegħek mhix id-demm: kull lejl ' +
          '"tpinġi" persuna, u dak il-lejl in-Nanna u l-Kappillan jarawha ' +
          'SUSPETTUŻA. Ħalli r-raħal jgħallaq lil min ma ħaqqux.'
+  },
+  velenu: {
+    name:'Tal-Velenu', side:'klikka', night:true, unique:true,
+    what:'Mal-klikka, imma s-sengħa tiegħek bil-mod taħdem: kull lejl ' +
+         'tqattar il-velenu f’tazza ta’ xi ħadd. Ma jmutx dak il-ħin — ' +
+         'imut il-lejl TA’ WARA, sakemm it-Tabib ma jsibux fil-ħin. ' +
+         'Il-vittma tinduna… u tibda titkarrab quddiem kulħadd.'
+  },
+  sarima: {
+    name:'Is-Sarima', side:'klikka', night:true, unique:true,
+    what:'Mal-klikka. Kull lejl tagħżel persuna u torbotilha s-sarima ' +
+         'ma’ ħalqha: l-għada fil-pjazza dik il-persuna MA TITKELLIMX ' +
+         'u ma tiktibx — tivvota biss. Sikket lil min jaf wisq.'
   },
   mignun: {
     name:'Il-Miġnun', side:'newtral', night:false, unique:true,
@@ -254,14 +367,13 @@ const ROLES = {
 /* how many klikka-side seats a table carries — MEASURED, not guessed:
    at two killers from seven chairs the sim gave the klikka 75% of
    games; one to seven, two to twelve, three to fifteen and four at
-   sixteen brought every preset inside 30-60% for the village */
+   sixteen brought every preset inside 30-60% for the village.
+   EVERY klikka-side role folds INTO this count (a Velenu or a Sarima
+   takes a killer seat, it does not add one), and the village-side
+   guns (Tar-Ronda, Ix-Xewka) are village chairs: a threat to the
+   klikka is not a killer in this arithmetic. */
 function killerCount(n){ return n >= 15 ? 3 : n >= 9 ? 2 : 1; }
 
-/* the order optional village/neutral roles enter as the table grows.
-   Information first, then the joke, then utility, then the rest. */
-const FILL_ORDER = ['nanna', 'tabib', 'mignun', 'barman', 'kaccatur',
-                    'talkarti', 'kappillan', 'ghassies', 'kuntrabandist',
-                    'sindku', 'vendetta'];
 /* roles that only earn a chair at a certain size even when enabled —
    below it they warp the game (a lone unfindable Kap broke 5-8 player
    villages at 1-12% wins in simulation; a Biċċier needs a crowd) */
@@ -269,26 +381,87 @@ const MIN_TABLE = { kap:10, pittur:12, biccier:13, vendetta:9, talkarti:8,
                     kappillan:9, ghassies:9, sindku:10, kuntrabandist:10,
                     /* at five chairs a mislynch on the fool ends the whole
                        evening in one vote — he waits for a sixth */
-                    mignun:6 };
+                    mignun:6,
+                    /* the new blood — floors measured in the same sim:
+                       a village gun below nine chairs crushes the lone
+                       klikkun; the jail and the thorn are late luxuries;
+                       the poison and the gag need a klikka big enough
+                       to spare a killer seat */
+                    tarronda:9, talbieb:8, haffier:9, xummiemu:10,
+                    xewka:10, surgent:12, velenu:11, sarima:11 };
 
-const POOL_DEFAULT = Object.keys(ROLES).filter(r => r !== 'rahli' && r !== 'klikka');
+/* every role a host may put in the pot */
+const POOL_ALL = Object.keys(ROLES).filter(r => r !== 'rahli' && r !== 'klikka');
+/* THE TWO MODES — both are STARTING POINTS: the host may edit either
+   pool afterwards, and the same builder defends whatever comes out.
+     bilanc  the measured, tested pot — tap a size and play.
+     borma   Il-Borma l-Kbira: the whole catalogue, chaos on purpose.
+   The balanced pot is POOL_ALL minus the wildest tools (jail,
+   poison, gag, tracker) — those live in the big pot, measured too.
+   Ix-Xewka stays in the balanced pot on purpose: she plays herself
+   (no decisions), and the 9-12 band needed her weight — see the
+   simulation table in the report. */
+const POOL_DEFAULT = POOL_ALL.filter(id =>
+  ['surgent', 'velenu', 'sarima', 'xummiemu'].indexOf(id) < 0);
+const MODES = [
+  { id:'bilanc', name:'Bilanċjata',
+    note:'Il-borma ppruvata bis-simulazzjoni — agħfas u ilagħbu.',
+    pool: POOL_DEFAULT },
+  { id:'borma', name:'Il-Borma l-Kbira',
+    note:'Il-katalgu kollu fil-borma: velenu, sarima, xewka, ċella… ' +
+         'Kollox jista’ jinzerta. Lejla differenti.',
+    pool: POOL_ALL }
+];
 
-function rosterFromPool(n, pool){
+/* THE AUTO-BALANCER. One builder for every path (presets, the setup
+   sheet, both modes, online): given the size and whatever pool the
+   host left enabled, it deals a table that plays:
+     - the klikka block never exceeds killerCount(n) and always holds
+       at least ONE true group killer; Pittur/Velenu/Sarima only take
+       the surplus killer seats;
+     - the village gets its SHAPE before its luxuries: one looker and
+       one protector are seated first (a village of nine Raħli and a
+       joke loses regardless of the killer count), then the fool,
+       then the village gun, then a seeded shuffle of the rest — so a
+       big pool gives a DIFFERENT village every deal, not the same
+       sixteen forever;
+     - size floors (MIN_TABLE) always hold.
+   The seed makes it deterministic per game: every phone in a room
+   deals the identical roster; without a seed (previews) it is fixed. */
+function rosterFromPool(n, pool, seed){
   pool = (Array.isArray(pool) && pool.length ? pool : POOL_DEFAULT)
     .filter(r => ROLES[r] && r !== 'rahli' && r !== 'klikka');
+  const rnd = mulberry32((((seed >>> 0) || 0x51CA) ^ Math.imul(n, 0x9E3779B9)) >>> 0);
   const has = id => pool.indexOf(id) >= 0 && n >= (MIN_TABLE[id] || 0);
+  const shuf = a => {
+    for (let i = a.length - 1; i > 0; i--){
+      const j = Math.floor(rnd() * (i + 1));
+      const t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  };
   const out = [];
-  /* the killing side, kap and pittur folding INTO its count */
+  /* the klikka block */
   let k = killerCount(n);
   if (has('kap')){ out.push('kap'); k--; }
-  if (k > 1 && has('pittur')){ out.push('pittur'); k--; }
+  const utils = shuf(['pittur', 'velenu', 'sarima'].filter(has));
+  while (k > 1 && utils.length){ out.push(utils.shift()); k--; }
   while (k-- > 0) out.push('klikka');
   if (has('biccier')) out.push('biccier');
-  for (const id of FILL_ORDER){
-    if (out.length >= n) break;
-    if (id === 'biccier') continue;
-    if (has(id)) out.push(id);
-  }
+  /* village SHAPE first: a looker, a protector, the joke, the gun */
+  const used = {};
+  for (const r of out) used[r] = 1;
+  const take = id => { out.push(id); used[id] = 1; };
+  const looks = ['nanna', 'kappillan', 'ghassies', 'xummiemu', 'haffier'].filter(has);
+  const prots = ['tabib', 'talbieb', 'surgent'].filter(has);
+  if (out.length < n && looks.length) take(looks[0]);
+  if (out.length < n && prots.length) take(prots[0]);
+  if (out.length < n && has('mignun')) take('mignun');
+  if (out.length < n && has('tarronda')) take('tarronda');
+  /* the rest of the enabled catalogue, seeded-shuffled for variety */
+  const rest = shuf(pool.filter(id => has(id) && !used[id] &&
+    ROLES[id].side !== 'klikka' && id !== 'biccier'));
+  while (out.length < n && rest.length) out.push(rest.shift());
   while (out.length < n) out.push('rahli');   /* plain villagers fill */
   return out.slice(0, n);
 }
@@ -304,7 +477,7 @@ function validateRoster(list, n){
     c[r] = (c[r] || 0) + 1;
   }
   const killers = list.filter(r => ROLES[r].side === 'klikka').length;
-  const kills = list.filter(r => ROLES[r].kills).length;
+  const kills = list.filter(r => ROLES[r].kills || r === 'biccier' || r === 'velenu').length;
   if (!kills) return { ok:false, why:'M’hemm ħadd li joqtol — logħba bla lejl mhix logħba.' };
   if (killers + (c.biccier || 0) >= Math.ceil(n / 2))
     return { ok:false, why:'Wisq qattiela: iridu jkunu inqas minn nofs ir-raħal.' };
@@ -338,10 +511,10 @@ for (let i = 5; i <= 16; i++) SETUPS[i] = rosterFromPool(i, null);
 function create(o){
   const names = o.players || [];
   const n = names.length;
-  const roster = (o.roster && o.roster.slice()) || rosterFromPool(n, o.pool || null);
+  const seed = (o.seed >>> 0) || 1;
+  const roster = (o.roster && o.roster.slice()) || rosterFromPool(n, o.pool || null, seed);
   const v = validateRoster(roster, n);
   if (!v.ok) throw new Error('SUSPETT: ' + v.why);
-  const seed = (o.seed >>> 0) || 1;
   const rnd = mulberry32(seed);
   /* seeded shuffle — every phone deals the same hand from the seed */
   const deal = roster.slice();
@@ -350,14 +523,31 @@ function create(o){
     const t = deal[i]; deal[i] = deal[j]; deal[j] = t;
   }
   /* A MACHINE CHAIR CANNOT LIE, so it must never hold a role that has
-     to. If the room seated bots, swap their roles toward plain Raħli
-     deterministically (lowest seat first). Every phone gets the same
-     bot list from the room, so every phone performs identical swaps. */
+     to — and above all it must never hold a KILL, because a machine
+     that never picks a victim can leave a table nobody can end. If
+     the room seated bots, swap their roles toward human chairs
+     deterministically, KILLERS FIRST: a bot holding a kill-capable
+     seat (klikka-side or Biċċier) trades with a human Raħli if one
+     exists, else with the lowest human rahal-side chair; only then
+     do the remaining named bot roles trade toward plain Raħli.
+     Every phone gets the same bot list from the room, so every phone
+     performs identical swaps. */
   const bots = Array.isArray(o.bots) ? o.bots.slice().sort((a, b) => a - b) : [];
+  const isBotSeat = i => bots.indexOf(i) >= 0;
+  const lethal = r => ROLES[r].side === 'klikka' || r === 'biccier';
+  for (const b of bots){
+    if (b < 0 || b >= n || !lethal(deal[b])) continue;
+    let to = -1;
+    for (let i = 0; i < n && to < 0; i++)
+      if (deal[i] === 'rahli' && !isBotSeat(i)) to = i;
+    for (let i = 0; i < n && to < 0; i++)
+      if (!isBotSeat(i) && !lethal(deal[i]) && ROLES[deal[i]].side === 'rahal') to = i;
+    if (to >= 0){ const t = deal[to]; deal[to] = deal[b]; deal[b] = t; }
+  }
   for (const b of bots){
     if (b < 0 || b >= n || deal[b] === 'rahli') continue;
     for (let i = 0; i < n; i++){
-      if (deal[i] === 'rahli' && bots.indexOf(i) < 0){
+      if (deal[i] === 'rahli' && !isBotSeat(i)){
         deal[i] = deal[b]; deal[b] = 'rahli'; break;
       }
     }
@@ -378,6 +568,11 @@ function create(o){
     acts2: {},           /* seat -> second target (kappillan)             */
     hideLeft: 2,         /* kuntrabandist charges */
     lastProtect: -1,     /* tabib may not repeat a target */
+    lastJail: -1,        /* surġent may not repeat a cell guest */
+    rondaShots: 2,       /* tar-ronda cartridges */
+    rondaGuilt: false,   /* he shot an innocent; dies next non-grace night */
+    poison: null,        /* {seat, night} — tal-velenu's pending mark */
+    muted: -1,           /* seat gagged by is-sarima for the current day */
     mayor: -1,           /* seat of a REVEALED sindku, else -1 */
     mira: -1,            /* tal-vendetta's grudge target */
     miraDone: false,     /* the pjazza voted the mira out */
@@ -386,7 +581,7 @@ function create(o){
     verdict: {},         /* seat -> true(hati)/false */
     shotQueue: [],       /* dead kaċċaturi still owed their shot */
     shotBack: '',        /* where dawn resumes once the queue drains: 'day' (night deaths) or 'night' (a daytime lynch) */
-    news: {},            /* seat -> last night's private result, view() only */
+    news: {},            /* seat -> ARRAY of last night's private results, view() only */
     log: [],             /* public events, what the pjazza knows */
     winner: null, winners: [], over: false
   };
@@ -428,6 +623,12 @@ function actorsTonight(G){
     if (isBot(G, p.seat)) return false;
     if (!ROLES[p.role].night) return false;
     if (p.role === 'kuntrabandist' && G.hideLeft <= 0) return false;
+    /* an empty gun, or the guilt night, keeps Tar-Ronda in bed */
+    if (p.role === 'tarronda' && ((G.rondaShots | 0) <= 0 || G.rondaGuilt)) return false;
+    /* the gravedigger needs a grave */
+    if (p.role === 'haffier' && !G.P.some(q => !q.alive)) return false;
+    /* one vial at a time: a pending mark keeps Tal-Velenu home */
+    if (p.role === 'velenu' && G.poison) return false;
     return true;
   }).map(p => p.seat);
 }
@@ -458,16 +659,28 @@ function act(G, mv){
       if (!p || !p.alive) return no('Il-mejtin ma jagħmlu xejn.');
       if (!ROLES[p.role].night) return no('Dan ir-rwol jorqod bil-lejl.');
       if (p.role === 'kuntrabandist' && G.hideLeft <= 0) return no('M’għandekx aktar moħbi.');
+      if (p.role === 'tarronda'){
+        if (G.rondaGuilt) return no('Il-kuxjenza ma tħallikx toħroġ illejla.');
+        if ((G.rondaShots | 0) <= 0) return no('M’għandekx aktar tiri.');
+      }
       const tgt = int(mv.target);
       const tgt2 = int(mv.target2);
       if (tgt !== -1){
         const q = G.P[tgt];
-        if (!q || !q.alive) return no('Dik il-persuna mhix fil-logħba.');
+        if (!q) return no('Dik il-persuna mhix fil-logħba.');
+        if (p.role === 'haffier'){
+          if (q.alive) return no('Il-Ħaffier jeżamina l-MEJTIN biss.');
+        } else if (!q.alive) return no('Dik il-persuna mhix fil-logħba.');
         if (p.role === 'tabib' && tgt === G.lastProtect) return no('Mhux l-istess persuna żewġt iljieli.');
+        if (p.role === 'surgent' && tgt === G.lastJail) return no('Mhux l-istess ċella żewġt iljieli.');
         if (p.role === 'kuntrabandist' && tgt !== p.seat) return no('Il-Kuntrabandist jistaħba hu biss.');
-        if (ROLES[p.role].kills && ROLES[q.role].side === 'klikka') return no('Mhux lil sħabek stess.');
+        if (p.role === 'velenu' && G.poison) return no('Il-velenu l-ieħor għadu jaħdem — stenna.');
+        if (ROLES[p.role].side === 'klikka' && ROLES[q.role].side === 'klikka')
+          return no('Mhux lil sħabek stess.');
         if ((p.role === 'biccier' || p.role === 'barman' || p.role === 'ghassies' ||
-             p.role === 'pittur' || p.role === 'nanna') && tgt === p.seat)
+             p.role === 'pittur' || p.role === 'nanna' || p.role === 'surgent' ||
+             p.role === 'talbieb' || p.role === 'xummiemu' || p.role === 'velenu' ||
+             p.role === 'sarima' || p.role === 'tarronda') && tgt === p.seat)
           return no('Le, mhux lilek innifsek.');
         if (p.role === 'kappillan'){
           if (tgt2 === -1) return no('Il-Kappillan iqabbel TNEJN.');
@@ -579,9 +792,18 @@ function resolveNight(G){
     return (s >= 0 && G.P[s].alive && A[s] !== undefined) ? A[s] : -1;
   };
 
-  /* 1. BLOCK */
+  /* 1. BLOCK — Tal-Bar first (never blockable), then Is-Surġent */
   const drunk = pick('barman');
-  const blocked = s => s === drunk;
+  const sgSeat = seatOf(G, 'surgent');
+  let jailed = -1;
+  if (sgSeat >= 0 && G.P[sgSeat].alive && sgSeat !== drunk){
+    const t = (A[sgSeat] !== undefined) ? A[sgSeat] : -1;
+    if (t >= 0){ jailed = t; G.lastJail = t; }
+    else G.lastJail = -1;
+  } else if (sgSeat >= 0){
+    G.lastJail = -1;
+  }
+  const blocked = s => s === drunk || s === jailed;
 
   /* 2. HIDE */
   let hidden = -1;
@@ -590,22 +812,34 @@ function resolveNight(G){
     hidden = kSeat; G.hideLeft--;
   }
 
-  /* 3. PROTECT */
-  let saved = -1;
+  /* 3. PROTECT — the tabib, the cell; Tal-Bieb takes up his post */
+  const savedL = [];
+  if (jailed >= 0) savedL.push(jailed);
   const dSeat = seatOf(G, 'tabib');
   if (dSeat >= 0 && G.P[dSeat].alive && !blocked(dSeat)){
     const t = (A[dSeat] !== undefined) ? A[dSeat] : -1;
-    if (t >= 0){ saved = t; G.lastProtect = t; }
+    if (t >= 0){ savedL.push(t); G.lastProtect = t; }
     else G.lastProtect = -1;
   } else if (dSeat >= 0){
     G.lastProtect = -1;
   }
+  const isSaved = s => savedL.indexOf(s) >= 0;
+  const gSeat = seatOf(G, 'talbieb');
+  let guardT = -1;
+  if (gSeat >= 0 && G.P[gSeat].alive && !blocked(gSeat) &&
+      A[gSeat] !== undefined && A[gSeat] >= 0) guardT = A[gSeat];
 
   /* 4. FRAME */
   let painted = -1;
   const fSeat = seatOf(G, 'pittur');
   if (fSeat >= 0 && G.P[fSeat].alive && !blocked(fSeat) &&
       A[fSeat] !== undefined && A[fSeat] >= 0) painted = A[fSeat];
+
+  /* 4b. GAG — noted now, tied to the state after the deaths land */
+  let muteT = -1;
+  const smSeat = seatOf(G, 'sarima');
+  if (smSeat >= 0 && G.P[smSeat].alive && !blocked(smSeat) &&
+      A[smSeat] !== undefined && A[smSeat] >= 0) muteT = A[smSeat];
 
   /* how a seat READS to tonight's checks (6a/6b) */
   const readsKlikka = s => {
@@ -614,13 +848,14 @@ function resolveNight(G){
     return ROLES[r].side === 'klikka' && r !== 'kap';
   };
 
-  /* 5. KILLS — compute both, then apply simultaneously.
-     NIGHT 1 IS A GRACE NIGHT: nobody dies. The klikka meets, the
-     lookers look, and the village gets one day of information before
-     the bodies start — without it the sim had the klikka at 70-86%
-     from eight chairs up. The kills below are simply not computed. */
+  /* 5. KILLS — computed per the header, applied simultaneously.
+     NIGHT 1 IS A GRACE NIGHT (and so is the stunned night): nothing
+     in step 5 happens. Without it the sim had the klikka at 70-86%
+     from eight chairs up. */
   const grace = G.night === 1 || G.stunned;
   G.stunned = false;
+
+  /* (c) the klikka group kill */
   const picks = {};
   for (const m of alive(G)){
     if (!ROLES[m.role].kills) continue;
@@ -637,79 +872,194 @@ function resolveNight(G){
   if (tied.length === 1) kkill = tied[0];
   else if (tied.length > 1) kkill = tied.sort((a, b) => a - b)[Math.floor(drawRnd(G) * tied.length)];
 
+  /* (d) Il-Biċċier */
   let bkill = -1;
   const bSeat = seatOf(G, 'biccier');
   if (bSeat >= 0 && G.P[bSeat].alive && !blocked(bSeat) && A[bSeat] !== undefined && A[bSeat] >= 0)
     bkill = A[bSeat];
-  if (grace){ kkill = -1; bkill = -1; }
 
-  const deaths = [];
+  /* (e) Tar-Ronda */
+  let rkill = -1;
+  const rSeat = seatOf(G, 'tarronda');
+  if (rSeat >= 0 && G.P[rSeat].alive && !G.rondaGuilt && (G.rondaShots | 0) > 0 &&
+      !blocked(rSeat) && A[rSeat] !== undefined && A[rSeat] >= 0)
+    rkill = A[rSeat];
+
+  /* (f) the vial */
+  let vTgt = -1;
+  const vSeat = seatOf(G, 'velenu');
+  if (vSeat >= 0 && G.P[vSeat].alive && !blocked(vSeat) && !G.poison &&
+      A[vSeat] !== undefined && A[vSeat] >= 0) vTgt = A[vSeat];
+
+  if (grace){ kkill = -1; bkill = -1; rkill = -1; vTgt = -1; }
+  if (rkill >= 0) G.rondaShots--;   /* spent the moment it is computed */
+
+  const deaths = [];                /* [{s, w}] — seat and weapon */
   let savedSomeone = false;
-  for (const tgt of [kkill, bkill]){
-    if (tgt < 0 || !G.P[tgt].alive) continue;
-    if (tgt === saved || tgt === hidden){ savedSomeone = true; continue; }
-    if (deaths.indexOf(tgt) < 0) deaths.push(tgt);
+  const dHas = s => deaths.some(d => d.s === s);
+  const pushD = (s, w) => { if (!dHas(s)) deaths.push({ s: s, w: w }); };
+  const xSeat = seatOf(G, 'xewka');
+  const pricks = [];                /* hands that touched the thorn */
+  /* one kill, through every defence in header order; returns the seat
+     that actually died, or -1 */
+  const applyKill = (tgt, w, from) => {
+    if (tgt < 0 || !G.P[tgt].alive) return -1;
+    if (tgt === xSeat && tgt !== hidden) for (const f of from) if (f >= 0) pricks.push(f);
+    if (tgt === hidden || isSaved(tgt)){ savedSomeone = true; return -1; }
+    if (guardT === tgt && gSeat !== tgt && G.P[gSeat].alive){
+      if (isSaved(gSeat)){ savedSomeone = true; return -1; }
+      pushD(gSeat, w); return gSeat;
+    }
+    pushD(tgt, w); return tgt;
+  };
+
+  /* (a) the guilt — internal, nothing stops it */
+  if (!grace && G.rondaGuilt){
+    if (rSeat >= 0 && G.P[rSeat].alive) pushD(rSeat, 'kuxjenza');
+    G.rondaGuilt = false;
   }
-  const diedTonight = s => deaths.indexOf(s) >= 0;
+  /* (b) the poison ripens — only PROTECT (tabib or cell) cures */
+  let cured = -1;
+  if (!grace && G.poison && G.poison.night < G.night){
+    const ps = G.poison.seat;
+    if (G.P[ps] && G.P[ps].alive){
+      if (isSaved(ps)){ cured = ps; savedSomeone = true; }
+      else pushD(ps, 'velenu');
+    }
+    G.poison = null;
+  }
+  /* (c)(d)(e) blades and bullets */
+  const kFrom = [];
+  if (kkill >= 0)
+    for (const m of alive(G))
+      if (ROLES[m.role].kills && !blocked(m.seat) && A[m.seat] === kkill) kFrom.push(m.seat);
+  applyKill(kkill, 'klikka', kFrom);
+  applyKill(bkill, 'biccier', bSeat >= 0 ? [bSeat] : []);
+  const rVictim = applyKill(rkill, 'ronda', rSeat >= 0 ? [rSeat] : []);
+  /* (f) the vial finds a throat — the doorman drinks it if he is there */
+  let poisonedNow = -1;
+  if (vTgt >= 0 && G.P[vTgt].alive){
+    if (vTgt === xSeat && vTgt !== hidden) pricks.push(vSeat);
+    if (vTgt === hidden || isSaved(vTgt)) savedSomeone = true;
+    else if (guardT === vTgt && gSeat !== vTgt && G.P[gSeat].alive){
+      if (isSaved(gSeat)) savedSomeone = true;
+      else { G.poison = { seat: gSeat, night: G.night }; poisonedNow = gSeat; }
+    } else {
+      G.poison = { seat: vTgt, night: G.night }; poisonedNow = vTgt;
+    }
+  }
+  /* the thorn pricks ONE hand, seeded */
+  if (pricks.length && xSeat >= 0){
+    const u = pricks.filter((v, i) => pricks.indexOf(v) === i)
+                    .filter(s => G.P[s].alive).sort((a, b) => a - b);
+    if (u.length){
+      const pk = u[Math.floor(drawRnd(G) * u.length)];
+      if (pk === hidden || isSaved(pk)) savedSomeone = true;
+      else pushD(pk, 'xewka');
+    }
+  }
+  /* tonight's shot landed an innocent? the guilt is set for NEXT night */
+  if (rVictim >= 0 && ROLES[G.P[rVictim].role].side === 'rahal') G.rondaGuilt = true;
+
+  const diedTonight = s => dHas(s);
 
   /* 6. LOOK — every result from the night as it truly happened */
   G.news = {};
+  const addNews = (s, o) => { (G.news[s] || (G.news[s] = [])).push(o); };
+  /* THE VISITS — one list, the 6c definition, used by 6c and 6d */
+  const V = [];
+  const vis = (f, t) => { if (f >= 0 && t >= 0) V.push({ f: f, t: t }); };
+  if (drunk >= 0){ const b2 = seatOf(G, 'barman'); if (b2 >= 0 && G.P[b2].alive) vis(b2, drunk); }
+  if (jailed >= 0) vis(sgSeat, jailed);
+  for (const rl of ['tabib', 'nanna', 'pittur', 'sarima', 'talbieb', 'kappillan']){
+    const s2 = seatOf(G, rl);
+    if (s2 >= 0 && G.P[s2].alive && !blocked(s2) && A[s2] !== undefined && A[s2] >= 0)
+      vis(s2, A[s2]);
+  }
+  if (bkill >= 0) vis(bSeat, bkill);
+  if (rkill >= 0) vis(rSeat, rkill);
+  if (vTgt >= 0) vis(vSeat, vTgt);
+  for (const f of kFrom) vis(f, kkill);
+
   /* 6a. In-Nanna */
   const nSeat = seatOf(G, 'nanna');
   if (nSeat >= 0 && G.P[nSeat].alive && !blocked(nSeat) && !diedTonight(nSeat) &&
       A[nSeat] !== undefined && A[nSeat] >= 0){
     const t = G.P[A[nSeat]];
-    G.news[nSeat] = { kind:'nanna', night:G.night, seat:t.seat, name:t.name,
-                      clean: !readsKlikka(t.seat) };
+    addNews(nSeat, { kind:'nanna', night:G.night, seat:t.seat, name:t.name,
+                     clean: !readsKlikka(t.seat) });
   }
   /* 6b. Il-Kappillan */
   const cSeat = seatOf(G, 'kappillan');
   if (cSeat >= 0 && G.P[cSeat].alive && !blocked(cSeat) && !diedTonight(cSeat) &&
       A[cSeat] !== undefined && A[cSeat] >= 0 && G.acts2[cSeat] >= 0){
     const a = G.P[A[cSeat]], b = G.P[G.acts2[cSeat]];
-    G.news[cSeat] = { kind:'kappillan', night:G.night,
-                      seat:a.seat, name:a.name, seat2:b.seat, name2:b.name,
-                      same: readsKlikka(a.seat) === readsKlikka(b.seat) };
+    addNews(cSeat, { kind:'kappillan', night:G.night,
+                     seat:a.seat, name:a.name, seat2:b.seat, name2:b.name,
+                     same: readsKlikka(a.seat) === readsKlikka(b.seat) });
   }
   /* 6c. L-Għassies — who visited his watch target */
   const wSeat = seatOf(G, 'ghassies');
   if (wSeat >= 0 && G.P[wSeat].alive && !blocked(wSeat) && !diedTonight(wSeat) &&
       A[wSeat] !== undefined && A[wSeat] >= 0){
     const watch = A[wSeat];
-    const visitors = [];
-    const visits = (s, t) => { if (t === watch && s !== wSeat) visitors.push(s); };
-    if (drunk >= 0){ const b2 = seatOf(G, 'barman'); if (b2 >= 0 && G.P[b2].alive) visits(b2, drunk); }
-    if (dSeat >= 0 && G.P[dSeat].alive && !blocked(dSeat) && A[dSeat] >= 0) visits(dSeat, A[dSeat]);
-    if (nSeat >= 0 && G.P[nSeat].alive && !blocked(nSeat) && A[nSeat] >= 0) visits(nSeat, A[nSeat]);
-    if (fSeat >= 0 && G.P[fSeat].alive && !blocked(fSeat) && A[fSeat] >= 0) visits(fSeat, A[fSeat]);
-    if (cSeat >= 0 && G.P[cSeat].alive && !blocked(cSeat) && A[cSeat] >= 0) visits(cSeat, A[cSeat]);
-    if (bSeat >= 0 && bkill >= 0) visits(bSeat, bkill);
-    if (kkill >= 0)
-      for (const m of alive(G))
-        if (ROLES[m.role].kills && !blocked(m.seat) && A[m.seat] === kkill) visits(m.seat, kkill);
-    const seen = visitors.filter((v, i) => visitors.indexOf(v) === i).sort((a, b) => a - b);
-    G.news[wSeat] = { kind:'ghassies', night:G.night, seat:watch, name:G.P[watch].name,
-                      who: seen.map(s => ({ seat:s, name:G.P[s].name })) };
+    const seen = V.filter(v2 => v2.t === watch && v2.f !== wSeat).map(v2 => v2.f)
+                  .filter((v2, i, a2) => a2.indexOf(v2) === i).sort((a2, b2) => a2 - b2);
+    addNews(wSeat, { kind:'ghassies', night:G.night, seat:watch, name:G.P[watch].name,
+                     who: seen.map(s2 => ({ seat:s2, name:G.P[s2].name })) });
   }
+  /* 6d. Ix-Xummiemu — where his target went */
+  const xmSeat = seatOf(G, 'xummiemu');
+  if (xmSeat >= 0 && G.P[xmSeat].alive && !blocked(xmSeat) && !diedTonight(xmSeat) &&
+      A[xmSeat] !== undefined && A[xmSeat] >= 0){
+    const trail = A[xmSeat];
+    const went = V.filter(v2 => v2.f === trail).map(v2 => v2.t)
+                  .filter((v2, i, a2) => a2.indexOf(v2) === i).sort((a2, b2) => a2 - b2);
+    addNews(xmSeat, { kind:'xummiemu', night:G.night, seat:trail, name:G.P[trail].name,
+                      who: went.map(s2 => ({ seat:s2, name:G.P[s2].name })) });
+  }
+  /* 6e. Il-Ħaffier — the corpse names its weapon */
+  const hfSeat = seatOf(G, 'haffier');
+  if (hfSeat >= 0 && G.P[hfSeat].alive && !blocked(hfSeat) && !diedTonight(hfSeat) &&
+      A[hfSeat] !== undefined && A[hfSeat] >= 0){
+    const c = G.P[A[hfSeat]];
+    if (c && !c.alive)
+      addNews(hfSeat, { kind:'haffier', night:G.night, seat:c.seat, name:c.name,
+                        weapon: String(c.diedOn || '').split(' ')[0] });
+  }
+  /* the victim knows: the poison, the cure, the guilt */
+  if (poisonedNow >= 0 && !diedTonight(poisonedNow))
+    addNews(poisonedNow, { kind:'velenat', night:G.night });
+  if (cured >= 0 && !diedTonight(cured))
+    addNews(cured, { kind:'kurat', night:G.night });
+  if (G.rondaGuilt && rSeat >= 0 && !diedTonight(rSeat))
+    addNews(rSeat, { kind:'ronda', night:G.night });
 
   /* apply the deaths */
-  deaths.sort((a, b) => a - b);
-  for (const s of deaths) kill(G, s, 'night');
+  deaths.sort((a, b) => a.s - b.s);
+  for (const d of deaths) kill(G, d.s, d.w);
   if (!deaths.length){
     logAdd(G, savedSomeone
       ? 'Sebaħ. Xi ħadd kien attakkat il-lejla — u xi ħadd salvah. Ħadd ma miet.'
       : 'Sebaħ, u ħadd ma miet. Lejl kwiet.');
   } else {
-    for (const s of deaths)
-      logAdd(G, 'Sebaħ, u sabu lil ' + G.P[s].name + ' mejjet.' + reveal(G, s));
+    for (const d of deaths)
+      logAdd(G, 'Sebaħ, u sabu lil ' + G.P[d.s].name + ' mejjet.' + reveal(G, d.s));
+  }
+  /* 4b lands: the gag survives the night only on a living mouth */
+  G.muted = -1;
+  if (muteT >= 0 && G.P[muteT].alive){
+    G.muted = muteT;
+    logAdd(G, G.P[muteT].name + ' qam bis-sarima marbuta ma’ ħalqu — illum ' +
+              'jivvota BISS: la kliem u lanqas kitba fil-pjazza.');
   }
 
   /* 7. THE SHOT (a machine chair never fires — it could not choose) */
-  for (const s of deaths)
-    if (G.P[s].role === 'kaccatur' && !isBot(G, s)) G.shotQueue.push(s);
+  for (const d of deaths)
+    if (G.P[d.s].role === 'kaccatur' && !isBot(G, d.s)) G.shotQueue.push(d.s);
 
   /* 8. GRUDGE */
-  for (const s of deaths) grudgeCheck(G, s, false);
+  for (const d of deaths) grudgeCheck(G, d.s, false);
 
   G.acts = {}; G.acts2 = {};
   /* THE SHOT COMES BEFORE THE WIN (header order 7 before 9): a Kaċċatur who
@@ -767,7 +1117,12 @@ function kill(G, s, how){
    They get their defence, then the verdict. No nominee = quiet day. */
 function closeDay(G){
   const liv = alive(G);
-  const need = Math.max(2, Math.ceil(liv.length / 4));
+  /* the quarter is counted over chairs that CAN vote: machine chairs
+     never do, and a quorum that counts them is unreachable by
+     construction in a bot-heavy room — the one way a table could
+     genuinely never end */
+  const canVote = liv.filter(a => !isBot(G, a.seat)).length;
+  const need = Math.max(2, Math.ceil(canVote / 4));
   const c = {};
   for (const a of liv){
     const t = G.votes[a.seat];
@@ -838,6 +1193,7 @@ function closeVerdict(G){
 
 function toNight(G){
   G.night++; G.phase = 'night'; G.acts = {}; G.acts2 = {}; G.votes = {}; G.verdict = {};
+  G.muted = -1;                       /* the gag lasts one day, no more */
   logAdd(G, 'Lejl ' + G.night + '. Ir-raħal jorqod' + String.fromCharCode(8230));
   /* a night with nobody to act in it resolves itself instantly */
   if (!actorsTonight(G).length) resolveNight(G);
@@ -866,6 +1222,19 @@ function winCheck(G){
   else if (!kl && !bi) win = 'rahal';
   else if (kl && !bi && kl >= liv.length - kl) win = 'klikka';
   else if (bi && !kl && liv.length <= 2) win = 'biccier';
+  /* a table that can no longer end, ends itself: with fewer than two
+     living HUMAN chairs no verdict quorum is ever reachable, and if
+     no living human holds a kill, no night will ever close a life
+     either (machine chairs never act). Only bot-heavy rooms can get
+     here; the survivors' side takes it. Measured in the fuzz — the
+     live build could spin such a room forever. */
+  if (!win){
+    const humans = liv.filter(p => !isBot(G, p.seat));
+    const humanLethal = humans.some(p => ROLES[p.role].kills || p.role === 'biccier' ||
+      p.role === 'velenu' || (p.role === 'tarronda' && (G.rondaShots | 0) > 0));
+    if (humans.length < 2 && !humanLethal)
+      win = kl ? 'klikka' : bi ? 'biccier' : 'rahal';
+  }
   if (!win) return false;
   G.over = true; G.winner = win;
   G.winners = G.P.filter(p => {
@@ -916,13 +1285,23 @@ function view(G, seat){
                (G.phase === 'day' || G.phase === 'defence' || G.phase === 'verdict'),
     accused: G.accused,
     hideLeft: me.role === 'kuntrabandist' ? G.hideLeft : 0,
-    news: (me.alive && G.news[seat]) ? G.news[seat] : null,
-    /* the referee: may this human open their mouth in the room? */
-    speak: me.alive && (G.phase === 'day' || G.phase === 'verdict' ||
-                        (G.phase === 'defence' && seat === G.accused)) && !G.over
+    rondaShots: me.role === 'tarronda' ? (G.rondaShots | 0) : 0,
+    rondaGuilt: me.role === 'tarronda' ? !!G.rondaGuilt : false,
+    poisoned: !!(G.poison && G.poison.seat === seat && me.alive),
+    muted: G.muted === seat,
+    news: (me.alive && G.news[seat] && G.news[seat].length) ? G.news[seat] : null,
+    /* the referee: may this human open their mouth in the room?
+       The gagged man may not — except on the planka: an accused man
+       always defends himself. */
+    speak: me.alive && !G.over && (
+      (G.phase === 'defence' && seat === G.accused) ||
+      ((G.phase === 'day' || G.phase === 'verdict') && G.muted !== seat))
   };
   if (me.alive && G.phase === 'night' && R.night &&
-      !(me.role === 'kuntrabandist' && G.hideLeft <= 0)) o.canAct = true;
+      !(me.role === 'kuntrabandist' && G.hideLeft <= 0) &&
+      !(me.role === 'tarronda' && ((G.rondaShots | 0) <= 0 || G.rondaGuilt)) &&
+      !(me.role === 'haffier' && !G.P.some(q => !q.alive)) &&
+      !(me.role === 'velenu' && G.poison)) o.canAct = true;
   return o;
 }
 
@@ -960,12 +1339,15 @@ function channels(G, seat){
   out.push({
     id:'pjazza', name:'Il-Pjazza', cls:'day',
     read: true,
+    /* the same rule as view().speak: the gagged write nothing by day,
+       but the planka unties the sarima */
     write: p.alive && !G.over &&
-           (G.phase === 'day' || G.phase === 'verdict' ||
-            (G.phase === 'defence' && seat === G.accused)),
+           ((G.phase === 'defence' && seat === G.accused) ||
+            ((G.phase === 'day' || G.phase === 'verdict') && G.muted !== seat)),
     note: G.phase === 'defence'
       ? (seat === G.accused ? 'Iddefendi ruħek.' : 'Il-planka għand l-akkużat.')
-      : (night ? 'Bil-lejl il-pjazza magħluqa.' : '')
+      : (G.muted === seat && !night ? 'Is-sarima f’ħalqek — illum tivvota biss.'
+         : (night ? 'Bil-lejl il-pjazza magħluqa.' : ''))
   });
   if (R.side === 'klikka' && p.alive){
     out.push({
@@ -1014,6 +1396,14 @@ function load(snap){
   if (!snap || typeof snap !== 'object' || !Array.isArray(snap.P) || !snap.opt) return null;
   const G = JSON.parse(JSON.stringify(snap));
   for (const p of G.P) if (!ROLES[p.role]) return null;
+  /* saves from before the new blood get the new fields' defaults */
+  if (typeof G.lastJail !== 'number') G.lastJail = -1;
+  if (typeof G.rondaShots !== 'number') G.rondaShots = 2;
+  if (typeof G.rondaGuilt !== 'boolean') G.rondaGuilt = false;
+  if (G.poison === undefined) G.poison = null;
+  if (typeof G.muted !== 'number') G.muted = -1;
+  if (!G.news || typeof G.news !== 'object') G.news = {};
+  for (const k in G.news) if (!Array.isArray(G.news[k])) G.news[k] = [G.news[k]];
   return G;
 }
 
@@ -1027,8 +1417,55 @@ function publicSeat(G, s){
   };
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   HOW — the teaching text, in plain words, living HERE beside the
+   rules it describes so the lobby's "what does what" panel can never
+   drift from what the engine actually does. The role list itself is
+   generated from ROLES; this is only the shape of an evening.
+   ═══════════════════════════════════════════════════════════════════ */
+const HOW = {
+  basics: [
+    'Bil-LEJL ħadd ma jitkellem b’leħnu — kollox bil-kitba, bil-moħbi. ' +
+      'Binhar il-pjazza tiftaħ u kulħadd jargumenta.',
+    'Il-MEJTIN ma jitkellmux qatt aktar — la b’leħinhom u lanqas ' +
+      'fil-pjazza. Jiktbu biss lill-mejtin l-oħra.',
+    'L-EWWEL LEJL ħadd ma jmut: araw, isimgħu, ibdew obsru.',
+    'Ir-raħal jirbaħ meta l-qattiela jispiċċaw; il-klikka meta jibqgħu ' +
+      'huma jgħoddu. Xi wħud jilagħbu għal rashom biss.'
+  ],
+  night: [
+    { n:'Ix-xorb u ċ-ċella', t:'Tal-Bar isakkar lil xi ħadd bix-xorb u ' +
+        's-Surġent jaqfel lil ieħor fl-għassa: it-tnejn ma jagħmlu XEJN ' +
+        'dak il-lejl — imma min hu fiċ-ċella għall-inqas rieqed fis-sod.' },
+    { n:'Il-moħbi u l-ħarsien', t:'Il-Kuntrabandist jistaħba, it-Tabib ' +
+        'jagħżel lil min iħares, u Tal-Bieb joqgħod għassa ma’ bieb ' +
+        'ħaddieħor — id-daqqa jeħodha hu.' },
+    { n:'Il-pinzell u s-sarima', t:'Il-Pittur ipinġi lil xi ħadd ħati ' +
+        'għal-lejla, u s-Sarima torbot ħalq għall-għada.' },
+    { n:'Id-demm', t:'Il-qattiela kollha jaqtgħu FL-ISTESS ĦIN: il-klikka ' +
+        'vittma waħda, il-Biċċier tiegħu, Tar-Ronda t-tir tiegħu, ' +
+        'Tal-Velenu jqattar (il-vittma tmut il-lejl ta’ wara jekk it-Tabib ' +
+        'ma jsibhiex). Min hu mħares jew moħbi jsalva — għalhekk it-Tabib ' +
+        'kultant "isalva lil ħadd": salva bil-moħbi.' },
+    { n:'L-għajnejn', t:'In-Nanna, il-Kappillan, l-Għassies, ix-Xummiemu ' +
+        'u l-Ħaffier jaraw il-lejl KIF ĠARA tassew — imma biss jekk baqgħu ' +
+        'ħajjin sa filgħodu u ħadd ma sakkarhom.' },
+    { n:'Is-senter tal-mejjet', t:'Kaċċatur li jmut jispara l-aħħar tir ' +
+        'tiegħu qabel titla’ x-xemx. Minn dak it-tir ħadd ma jsalva.' }
+  ],
+  day: [
+    'Kulħadd jivvota AKKUŻA (tista’ tibdilha sakemm jagħlaq il-jum).',
+    'L-aktar wieħed akkużat — jekk l-akkużi bis-serjetà — jitla’ fuq ' +
+      'il-planka u jiddefendi ruħu. Anki bis-sarima: fuq il-planka ' +
+      'titkellem dejjem.',
+    'Imbagħad il-VERDETT: ħati jew le. Ħati bil-maġġoranza u l-persuna ' +
+      'barra — u r-rwol tagħha jinkixef, jekk din ir-regola mixgħula.',
+    'Sindku mikxuf jgħodd doppju. Min qam bis-sarima, illum jivvota biss.'
+  ]
+};
+
 GLOB.SUSPETT = {
-  ROLES, SETUPS, POOL_DEFAULT, MIN_TABLE, killerCount,
+  ROLES, SETUPS, POOL_DEFAULT, POOL_ALL, MODES, MIN_TABLE, HOW, killerCount,
   rosterFromPool, validateRoster, rosterBalance,
   create, act, view, publicSeat,
   channels, chanReaders, chanWrite, snapshot, load,
