@@ -825,10 +825,86 @@ function injectCSS(){
   '#scr-kiri .kr-over p{margin:0;font-size:13px;line-height:1.55;color:#C9BEE6;max-width:320px}' +
   '#scr-kiri .kr-standings{width:100%;max-width:330px;margin-top:4px}' +
 
+  /* ── THE MENU'S IDENTITY PIECE ──────────────────────────────────
+     A corner of the board itself, drawn out of the board screen's own
+     vocabulary — the rim gradient, the sunken tiles, the group
+     strips, a token and the dice — tilted a few degrees and let run
+     off the panel's edge so it reads as a corner OF something, not a
+     diagram. Pure CSS and two inline SVGs; the art wash layers under
+     it when the pack exists and nothing changes when it does not. */
+  '#scr-kiri .kr-hero{position:relative;height:132px;border-radius:14px;margin-bottom:10px;' +
+    'overflow:hidden;flex:0 0 auto;' +
+    'background:radial-gradient(130% 140% at 20% 0%,#584174 0%,#2A1E4E 46%,#140E28 100%);' +
+    'border:1px solid rgba(255,197,66,.28);' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.14),inset 0 -12px 22px rgba(0,0,0,.4)}' +
+  '#scr-kiri .kr-hero .kr-art{z-index:0}' +
+  '#scr-kiri .kr-hcorner{position:absolute;left:10px;bottom:-16px;z-index:1;' +
+    'transform:rotate(-5deg);display:grid;gap:3px;padding:7px;border-radius:14px;' +
+    'grid-template-columns:52px 42px 42px 42px;grid-template-rows:42px 52px;' +
+    'background:linear-gradient(150deg,#584174,#281D46 60%,#150E2B);' +
+    'border:1px solid rgba(255,197,66,.3);' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.2),0 10px 22px rgba(0,0,0,.55)}' +
+  /* a tile, sunk into the rim exactly like .kr-cell */
+  '#scr-kiri .kr-ht{position:relative;border-radius:5px;' +
+    'background:linear-gradient(180deg,#2A2050,#160F2E);' +
+    'border:1px solid rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.10)}' +
+  '#scr-kiri .kr-ht i{position:absolute;left:3px;right:3px;top:3px;height:7px;' +
+    'border-radius:3px;background:var(--g,#5a4b86)}' +
+  '#scr-kiri .kr-ht b{position:absolute;left:5px;right:6px;top:15px;height:3px;' +
+    'border-radius:2px;background:rgba(255,255,255,.30)}' +
+  '#scr-kiri .kr-ht b+b{top:21px;right:14px;opacity:.55}' +
+  /* the START corner: gold-rimmed, with its arrow */
+  '#scr-kiri .kr-hc{position:relative;border-radius:6px;display:grid;place-items:center;' +
+    'background:linear-gradient(180deg,#33265C,#1A1233);border:1px solid rgba(255,197,66,.4);' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.12)}' +
+  '#scr-kiri .kr-hc svg{width:24px;height:24px;fill:#FFC542;' +
+    'filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))}' +
+  /* a token stood ON a square, and the pair of dice by it */
+  '#scr-kiri .kr-htok{position:absolute;z-index:2;width:23px;height:23px;border-radius:50%;' +
+    'background:radial-gradient(120% 120% at 32% 26%,#FFE9B0,#FFC542 55%,#B07E10);' +
+    'box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.4),0 3px 5px rgba(0,0,0,.55)}' +
+  '#scr-kiri .kr-htok.g{background:radial-gradient(120% 120% at 32% 26%,#B8F5D3,#3DDC84 55%,#12703E)}' +
+  '#scr-kiri .kr-hdie{position:absolute;z-index:2;width:19px;height:19px;border-radius:4px;' +
+    'background:linear-gradient(180deg,#FCF7EA,#E4DAC0);' +
+    'box-shadow:inset 0 1px 0 #fff,0 2px 4px rgba(0,0,0,.5)}' +
+  '#scr-kiri .kr-hdie svg{width:100%;height:100%;fill:#2A1C10}' +
+  /* the one-line caption chip, top right, out of the corner's way */
+  '#scr-kiri .kr-hchip{position:absolute;right:10px;top:10px;z-index:1;' +
+    'font-size:9.5px;font-weight:900;letter-spacing:.12em;color:#FFD87A;' +
+    'background:rgba(0,0,0,.42);border:1px solid rgba(255,197,66,.3);' +
+    'padding:5px 9px;border-radius:999px}' +
+  '#scr-kiri .kr-hchip2{position:absolute;right:10px;bottom:10px;z-index:1;' +
+    'font-size:9.5px;font-weight:900;letter-spacing:.12em;color:#C4AEFF;' +
+    'background:rgba(0,0,0,.42);border:1px solid rgba(138,92,255,.4);' +
+    'padding:5px 9px;border-radius:999px}' +
+
+  /* ── the menu's ledger line ── */
+  '#scr-kiri .kr-ledger{font-size:12px;line-height:1.6;color:#A093C4;' +
+    'margin:2px 2px 12px;text-align:center}' +
+  '#scr-kiri .kr-ledger b{color:#FFC542}' +
+
+  /* ── the rules, at the bottom of the menu, sliding ──
+     In the flow at the end of the scroll: open, they push the page
+     longer and cover nothing. transform/opacity only, and only on a
+     real toggle (.anim), never on a repaint. The menu's scroll is a
+     flex column and the panel takes margin-top:auto, so on a tall
+     phone with little above it the row still sits AT the bottom
+     instead of adrift in the middle. */
+  '#scr-kiri .kr-menuscroll{display:flex;flex-direction:column}' +
+  '#scr-kiri .kr-menuscroll>*{flex:0 0 auto}' +
+  '#scr-kiri .kr-menuscroll .kr-ruleslide{margin-top:auto}' +
+  '#scr-kiri .kr-ruleslide{border-radius:12px;border:1px solid rgba(255,255,255,.12);' +
+    'background:rgba(255,255,255,.04);overflow:hidden;margin-bottom:6px}' +
+  '#scr-kiri .kr-ruleslide .kr-row{margin-bottom:0;border:0;background:none;min-height:52px}' +
+  '#scr-kiri .kr-rbody{padding:2px 12px 10px}' +
+  '#scr-kiri .kr-ruleslide.anim.open .kr-rbody{animation:krslide .22s ease}' +
+  '@keyframes krslide{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}' +
+
   /* ── short phones ── */
   '@media (max-height:720px){' +
     '#scr-kiri .kr-tbar{min-height:40px}' +
     '#scr-kiri .kr-btn{min-height:46px}' +
+    '#scr-kiri .kr-hero{height:112px}' +
     '#scr-kiri .kr-die{width:29px;height:29px;font-size:16px}}' +
 
   /* ── A PHONE ON ITS SIDE ──────────────────────────────────────────
@@ -857,19 +933,23 @@ function injectCSS(){
   '@media (orientation:landscape) and (max-height:560px){' +
     '#scr-kiri .kr-over{gap:6px;padding:12px;justify-content:flex-start}' +
     '#scr-kiri .kr-over h3{font-size:20px}' +
-    '#scr-kiri.on{display:grid;column-gap:6px;' +
+    /* .kr-landgrid: only the BOARD screen turns into the side-by-side
+       grid — the menu and the setup stay ordinary columns, or the
+       menu's hero and buttons end up folded into a 300-point gutter
+       with the title floating in the other column. */
+    '#scr-kiri.on.kr-landgrid{display:grid;column-gap:6px;' +
       'grid-template-columns:var(--kw,300px) minmax(0,1fr);' +
       'grid-template-rows:auto auto auto minmax(0,1fr)}' +
     /* THE TITLE BAR GOES IN THE DOCK'S COLUMN. It used to span both,
        which cost the ring its own height in points for a row of chrome
        that had a whole empty column to sit in. */
-    '#scr-kiri .kr-tbar{grid-area:1/2/2/3;min-height:38px}' +
-    '#scr-kiri .kr-wrap{grid-area:1/1/5/2;align-self:stretch;margin:0 0 0 -8px}' +
-    '#scr-kiri .kr-strip{grid-area:2/2/3/3;margin:0 0 4px}' +
-    '#scr-kiri #kr-awayhost{grid-area:3/2/4/3}' +
-    '#scr-kiri .kr-dock{grid-area:4/2/5/3;margin-top:0;flex:1 1 auto;justify-content:flex-end}' +
-    '#scr-kiri .kr-dock.down{flex:1 1 auto}' +
-    '#scr-kiri .kr-dock .kr-grip{order:-1}' +
+    '#scr-kiri.kr-landgrid .kr-tbar{grid-area:1/2/2/3;min-height:38px}' +
+    '#scr-kiri.kr-landgrid .kr-wrap{grid-area:1/1/5/2;align-self:stretch;margin:0 0 0 -8px}' +
+    '#scr-kiri.kr-landgrid .kr-strip{grid-area:2/2/3/3;margin:0 0 4px}' +
+    '#scr-kiri.kr-landgrid #kr-awayhost{grid-area:3/2/4/3}' +
+    '#scr-kiri.kr-landgrid .kr-dock{grid-area:4/2/5/3;margin-top:0;flex:1 1 auto;justify-content:flex-end}' +
+    '#scr-kiri.kr-landgrid .kr-dock.down{flex:1 1 auto}' +
+    '#scr-kiri.kr-landgrid .kr-dock .kr-grip{order:-1}' +
     '#scr-kiri .kr-die{width:26px;height:26px;font-size:15px}' +
     '#scr-kiri .kr-btn{min-height:44px}}' +
 
@@ -879,7 +959,9 @@ function injectCSS(){
      they go, and the game plays identically. */
   '@media (prefers-reduced-motion:reduce){' +
     '#scr-kiri .kr-die.roll,#scr-kiri .kr-sheet.on,#scr-kiri .kr-btn.bad.armed{animation:none}' +
-    '#scr-kiri .kr-cell{transition:none}}';
+    '#scr-kiri .kr-ruleslide.anim.open .kr-rbody{animation:none}' +
+    '#scr-kiri .kr-cell{transition:none}}' +
+  'body.reduced #scr-kiri .kr-ruleslide.anim.open .kr-rbody{animation:none}';
   document.head.appendChild(st);
 }
 
@@ -1103,6 +1185,45 @@ function open(){
   menu();
 }
 
+/* ── THE MENU'S IDENTITY PIECE ──────────────────────────────────────
+   A corner of the board, built out of the board screen's own pieces:
+   the rim, three sunken tiles with their group strips, the START
+   square with its arrow, a token mid-journey and the dice that put it
+   there. It hangs off the bottom-left of the panel so it reads as a
+   corner of something bigger — which is exactly what it is. */
+function heroHTML(){
+  const g = id => (K.GROUPS[id] ? K.GROUPS[id].c : '#5a4b86');
+  const die = pips => '<span class="kr-hdie" style="' + pips[0] + '" aria-hidden="true">' +
+    '<svg viewBox="0 0 24 24">' + pips[1] + '</svg></span>';
+  const dot = (x, y) => '<circle cx="' + x + '" cy="' + y + '" r="2.6"/>';
+  return '<div class="kr-hero">' +
+    '<div class="kr-art" id="kr-heroart"></div>' +
+    '<div class="kr-hcorner" aria-hidden="true">' +
+      /* the column going up off the top of the panel */
+      '<span class="kr-ht" style="--g:' + g('marsa') + '"><i></i><b></b><b></b></span>' +
+      '<span class="kr-ht" style="--g:' + g('hamrun') + '"><i></i><b></b><b></b></span>' +
+      '<span class="kr-ht" style="--g:' + g('birgu') + '"><i></i><b></b><b></b></span>' +
+      '<span class="kr-ht" style="--g:' + g('sliema') + '"><i></i><b></b><b></b></span>' +
+      /* the START corner and the row running right, off the panel's edge */
+      '<span class="kr-hc"><svg viewBox="0 0 24 24">' +
+        '<path d="M12 3l6 6h-3.6v6h-4.8V9H6z"/>' +
+        '<path d="M6 17h12v3H6z" opacity=".7"/></svg></span>' +
+      '<span class="kr-ht" style="--g:' + g('swieqi') + '"><i></i><b></b><b></b></span>' +
+      '<span class="kr-ht" style="--g:' + g('belt') + '"><i></i><b></b><b></b></span>' +
+      '<span class="kr-ht" style="--g:' + g('hamrun') + '"><i></i><b></b><b></b></span>' +
+      /* a token that has just landed, and the roll that put it there */
+      '<span class="kr-htok" style="left:76px;top:62px"></span>' +
+      '<span class="kr-htok g" style="left:130px;top:66px"></span>' +
+    '</div>' +
+    die(['position:absolute;right:96px;top:46px;z-index:2;transform:rotate(-11deg)',
+         dot(7, 7) + dot(17, 7) + dot(7, 17) + dot(17, 17) + dot(12, 12)]) +
+    die(['position:absolute;right:70px;top:54px;z-index:2;transform:rotate(9deg)',
+         dot(7, 7) + dot(17, 17) + dot(12, 12)]) +
+    '<span class="kr-hchip">MALTA &middot; 32 SQUARES</span>' +
+    '<span class="kr-hchip2">RENT IS DUE</span>' +
+  '</div>';
+}
+
 function menu(){
   stopLoop();
   G = null;
@@ -1115,14 +1236,16 @@ function menu(){
      are not in this room any more, so offering to "carry on" with it
      would hand somebody a hotseat game they never agreed to play. */
   if (saved && saved.players.some(p => p.link === 'net')){ K.clearSave(); saved = null; }
+  const rec = (P && P.recOf) ? P.recOf('kiri') : { w:0, l:0, d:0 };
   const el = screenEl();
+  el.classList.remove('kr-landgrid');
   el.innerHTML =
     '<div class="kr-tbar">' +
       '<button class="kr-ib" id="kr-home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
       '<h2>IL-KIRI</h2><span style="width:44px"></span>' +
     '</div>' +
-    '<div class="kr-art" id="kr-heroart" style="height:120px;border-radius:14px;margin-bottom:8px"></div>' +
-    '<div class="kr-scroll">' +
+    '<div class="kr-scroll kr-menuscroll">' +
+      heroHTML() +
       '<p class="kr-blurb">Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
       'friendship end over a garage in Marsa. Thirty-two squares, six colour groups, floors instead of ' +
       'houses, and a queue at counter four instead of a prison cell.</p>' +
@@ -1133,20 +1256,50 @@ function menu(){
       (saved
         ? '<div class="kr-saved">' +
             '<div class="kr-hd" style="margin-top:0">THE GAME YOU LEFT</div>' +
-            '<button class="kr-btn go" id="kr-resume" style="width:100%">' +
+            '<button class="kr-btn buy" id="kr-resume" style="width:100%">' +
               'Carry on with it<small>' + esc(resumeLine(saved)) + '</small></button>' +
             '<div class="kr-act" style="margin-top:6px">' +
               '<button class="kr-btn" id="kr-new">Start a new one<small>this one goes in the bin</small></button>' +
               '<button class="kr-btn bad" id="kr-bin" style="flex:0 0 40%">Bin it<small>and be rid of it</small></button>' +
             '</div>' +
           '</div>'
-        : '<button class="kr-btn buy" id="kr-new" style="width:100%;margin-bottom:8px">Start a game</button>') +
-      '<button class="kr-btn" id="kr-rules" style="width:100%">How it works<small>the rules, in one screen</small></button>' +
+        : '<button class="kr-btn buy" id="kr-new" style="width:100%;margin-bottom:8px">Start a game' +
+          '<small>who is playing, then the money goes out</small></button>') +
+      (rec.w + rec.l
+        ? '<p class="kr-ledger">At this table so far: <b>' + rec.w + '</b> won, <b>' +
+          rec.l + '</b> lost.</p>' : '') +
+      /* ── THE RULES, AT THE BOTTOM, SLIDING ─────────────────────────
+         In the flow at the end of the scroll, closed by default: open,
+         they push the page longer and cover nothing. Remembered in the
+         UI key, never with a save. */
+      '<div class="kr-ruleslide' + (rulesDown ? ' open' : '') + '" id="kr-ruleswrap">' +
+        '<button class="kr-row" id="kr-rules" aria-controls="kr-rulebody"' +
+          ' aria-expanded="' + (rulesDown ? 'true' : 'false') + '">' +
+          '<span class="kr-sw" style="background:#8A5CFF"></span>' +
+          '<span class="kr-rn">How it works<span class="kr-rs">the rules &mdash; they slide out here, over nothing</span></span>' +
+          '<span class="kr-rv">' + (rulesDown ? '&#9650;' : '&#9660;') + '</span>' +
+        '</button>' +
+        '<div class="kr-rbody" id="kr-rulebody"' + (rulesDown ? '' : ' hidden') + '>' +
+          rulesLong() + '</div>' +
+      '</div>' +
     '</div>';
   artWash(el.querySelector('#kr-heroart'), 'kiri-hero', 0.22);
   el.querySelector('#kr-home').onclick = close;
   el.querySelector('#kr-new').onclick = setup;
-  el.querySelector('#kr-rules').onclick = rules;
+  el.querySelector('#kr-rules').onclick = () => {
+    rulesDown = !rulesDown;
+    try { localStorage.setItem(UI_KEY + '.rules', rulesDown ? '1' : '0'); } catch(e){}
+    const wrap = el.querySelector('#kr-ruleswrap');
+    wrap.classList.toggle('open', rulesDown);
+    wrap.classList.add('anim');               /* animate real toggles only */
+    el.querySelector('#kr-rulebody').hidden = !rulesDown;
+    el.querySelector('#kr-rules').setAttribute('aria-expanded', rulesDown ? 'true' : 'false');
+    el.querySelector('#kr-rules .kr-rv').innerHTML = rulesDown ? '&#9650;' : '&#9660;';
+    if (rulesDown){
+      try { wrap.scrollIntoView({ block:'nearest', behavior: noMotion() ? 'auto' : 'smooth' }); }
+      catch(e){}
+    }
+  };
   const r = el.querySelector('#kr-resume');
   if (r) r.onclick = () => { G = saved; boardScreen(); };
   const bin = el.querySelector('#kr-bin');
@@ -1238,32 +1391,26 @@ function dropRoom(n){
 }
 function leaveRoom(){ dropRoom(NET); }
 
-function rules(){
-  const el = screenEl();
-  el.innerHTML =
-    '<div class="kr-tbar">' +
-      '<button class="kr-ib" id="kr-bk" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-      '<h2>How it works</h2><span style="width:44px"></span>' +
-    '</div>' +
-    '<div class="kr-scroll">' +
-      sect('The point', 'Go round the ring. Buy what you land on. Charge everybody else rent when they land on it. ' +
-        'The game ends when there is one person left with money, or when the rounds run out — whichever comes first.') +
-      sect('Colour groups', 'Own every square of one colour and the base rent on all of them DOUBLES straight away, ' +
-        'even with nothing built. That is why people trade. Mortgage one of them and the double goes.') +
-      sect('Floors and the penthouse', 'With a full group and nothing in it mortgaged you can build: four floors, ' +
-        'then a penthouse. You must build evenly — no square may get more than one floor ahead of its neighbours. ' +
-        'The bank only has ' + K.SUPPLY.floors + ' floors and ' + K.SUPPLY.penthouses + ' penthouses, and when they are gone they are gone.') +
-      sect('Il-Kju — the queue', 'Land on Marsa Junction, draw the wrong card, or roll three doubles in a row and you ' +
-        'are at counter four. Roll a double to get out, pay ' + money(K.BAIL) + ', or use a Skip The Queue. ' +
-        'Three failed attempts and you pay anyway.') +
-      sect('Mortgages', 'Half the price now, and ten percent on top to get it back. Nothing can be mortgaged with a ' +
-        'floor standing anywhere in its group.') +
-      sect('When you cannot pay', 'The table stops. Sell floors, mortgage deeds, do a deal. If there is genuinely ' +
-        'nothing left, you hand everything you own to whoever you owed it to and go and sit down.') +
-      sect('Somebody wanders off', 'If a seat goes quiet the phone plays it, visibly, and hands it straight back when ' +
-        'they return. It plays that seat carefully — it will not sign a trade on somebody else\'s behalf.') +
-    '</div>';
-  el.querySelector('#kr-bk').onclick = menu;
+/* the full rules, as one block of sections — the menu's sliding panel
+   is the only reader now, so a stranger reads them where the game is
+   rather than on a separate screen a back-arrow away */
+function rulesLong(){
+  return sect('The point', 'Go round the ring. Buy what you land on. Charge everybody else rent when they land on it. ' +
+      'The game ends when there is one person left with money, or when the rounds run out — whichever comes first.') +
+    sect('Colour groups', 'Own every square of one colour and the base rent on all of them DOUBLES straight away, ' +
+      'even with nothing built. That is why people trade. Mortgage one of them and the double goes.') +
+    sect('Floors and the penthouse', 'With a full group and nothing in it mortgaged you can build: four floors, ' +
+      'then a penthouse. You must build evenly — no square may get more than one floor ahead of its neighbours. ' +
+      'The bank only has ' + K.SUPPLY.floors + ' floors and ' + K.SUPPLY.penthouses + ' penthouses, and when they are gone they are gone.') +
+    sect('Il-Kju — the queue', 'Land on Marsa Junction, draw the wrong card, or roll three doubles in a row and you ' +
+      'are at counter four. Roll a double to get out, pay ' + money(K.BAIL) + ', or use a Skip The Queue. ' +
+      'Three failed attempts and you pay anyway.') +
+    sect('Mortgages', 'Half the price now, and ten percent on top to get it back. Nothing can be mortgaged with a ' +
+      'floor standing anywhere in its group.') +
+    sect('When you cannot pay', 'The table stops. Sell floors, mortgage deeds, do a deal. If there is genuinely ' +
+      'nothing left, you hand everything you own to whoever you owed it to and go and sit down.') +
+    sect('Somebody wanders off', 'If a seat goes quiet the phone plays it, visibly, and hands it straight back when ' +
+      'they return. It plays that seat carefully — it will not sign a trade on somebody else\'s behalf.');
 }
 const sect = (h, b) => '<div class="kr-hd">' + esc(h).toUpperCase() + '</div><p class="kr-blurb">' + esc(b) + '</p>';
 
@@ -1350,6 +1497,7 @@ const seatsIn = () => cfg.seats.filter(s => s.kind !== 'off');
 
 function paintSetup(){
   const el = screenEl();
+  el.classList.remove('kr-landgrid');
   const live = seatsIn();
   const enough = live.length >= K.MIN_SEATS;
   el.innerHTML =
@@ -1550,6 +1698,9 @@ let els = {};
 function boardScreen(){
   show();
   const el = screenEl();
+  /* the landscape side-by-side grid belongs to the BOARD — the menu
+     and the setup are ordinary columns whichever way the phone faces */
+  el.classList.add('kr-landgrid');
   el.innerHTML =
     '<div class="kr-tbar">' +
       '<button class="kr-ib" id="kr-menu" aria-label="Leave the game"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
@@ -1680,6 +1831,17 @@ function boardScreen(){
 const UI_KEY = 'karti_kiri_ui_v1';
 let dockDown = false;
 try { dockDown = localStorage.getItem(UI_KEY + '.dock') === '1'; } catch(e){}
+/* whether the menu's rules panel is slid open — same idiom as .dock:
+   a screen preference in its own key, never written into a save */
+let rulesDown = false;
+try { rulesDown = localStorage.getItem(UI_KEY + '.rules') === '1'; } catch(e){}
+/* the OS setting and the app's own toggle both mean it */
+function noMotion(){
+  try {
+    return document.body.classList.contains('reduced') ||
+           (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch(e){ return false; }
+}
 
 const TABNAME = { square:'SQUARE', deeds:'DEEDS', table:'TABLE', log:'LOG' };
 function paintDock(){

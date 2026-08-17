@@ -88,6 +88,25 @@ function persistNow(){
 }
 document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
 window.addEventListener('pagehide', persistNow);
+
+/* ── UI preferences, in their OWN key ─────────────────────────────
+   Whether the rules panel on a setup sheet is slid open is a screen
+   preference, not a game — binning a saved hand must not also forget
+   that you like the rules out. Same idiom as karti_kiri_ui_v1.dock. */
+const UI_STORE = 'karti_klabb_ui_v1';
+let rulesOpen = false;
+try { rulesOpen = localStorage.getItem(UI_STORE + '.rules') === '1'; } catch(e){}
+function setRulesOpen(v){
+  rulesOpen = !!v;
+  try { localStorage.setItem(UI_STORE + '.rules', rulesOpen ? '1' : '0'); } catch(e){}
+}
+/* the OS setting and the app's own toggle both mean it */
+function noMotion(){
+  try {
+    return document.body.classList.contains('reduced') ||
+           (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch(e){ return false; }
+}
 function pref(id, patch){
   const p = ST.pref[id] || (ST.pref[id] = {});
   if (patch){ Object.assign(p, patch); persist(); }
@@ -708,6 +727,92 @@ function injectCSS(){
     '#scr-party .kb-rules li:last-child{margin-bottom:0}' +
     '#scr-party .kb-rules h5{font:900 10px/1 var(--disp);letter-spacing:.11em;' +
       'text-transform:uppercase;color:var(--gold);margin:0 0 9px}' +
+
+    /* ══ THE SETUP SHEET, DRESSED ═════════════════════════════════════
+       Four games off one builder, so the theme is FOUR CSS variables on
+       a wrapper class and nothing else — .kbm-th-<id> recolours the
+       hero, the chip and the rules chevron, and it cannot reach a
+       sibling screen because everything reads the vars through .kbm. */
+    '#scr-party .kbm{--kbm-g1:#2A2050;--kbm-g2:#150E2B;--kbm-acc:var(--gold);' +
+      '--kbm-line:rgba(255,255,255,.16)}' +
+    /* Bixkla: the felt itself — the green the game is played on */
+    '#scr-party .kbm-th-bixkla{--kbm-g1:#1B5B3F;--kbm-g2:#0B241A;--kbm-acc:#5FE3A1;' +
+      '--kbm-line:rgba(95,227,161,.32)}' +
+    /* Briscola: the boat it came off — harbour blue */
+    '#scr-party .kbm-th-briscola{--kbm-g1:#1E4C74;--kbm-g2:#0A1D30;--kbm-acc:#6FC1FF;' +
+      '--kbm-line:rgba(111,193,255,.32)}' +
+    /* Sette e Mezzo: Christmas — crimson baize and gold counters */
+    '#scr-party .kbm-th-sette{--kbm-g1:#6E1B24;--kbm-g2:#26090D;--kbm-acc:#FFC542;' +
+      '--kbm-line:rgba(255,197,66,.34)}' +
+    /* Il-Gidba: the card-back purple — the whole game is face down */
+    '#scr-party .kbm-th-cheat{--kbm-g1:#46356F;--kbm-g2:#160F28;--kbm-acc:#C4AEFF;' +
+      '--kbm-line:rgba(196,174,255,.32)}' +
+
+    /* ── the identity piece: a lit patch of the game's own table ── */
+    '#scr-party .kbm-hero{display:flex;flex-direction:column;align-items:center;gap:10px;' +
+      'padding:18px 10px 13px;margin:2px 0 12px;border-radius:16px;' +
+      'border:1px solid var(--kbm-line);' +
+      'background:radial-gradient(130% 105% at 50% 0%,var(--kbm-g1) 0%,var(--kbm-g2) 82%);' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.10),inset 0 -14px 26px rgba(0,0,0,.38)}' +
+    '#scr-party .kbm-row{display:flex;align-items:flex-end;justify-content:center}' +
+    /* the fan: five real cards off the same renderer as the felt */
+    '#scr-party .kbm-fan .kb-card{margin-left:-17px}' +
+    '#scr-party .kbm-fan .kb-card:first-child{margin-left:0}' +
+    '#scr-party .kbm-fan .kb-card.f1{transform:rotate(-12deg) translateY(7px)}' +
+    '#scr-party .kbm-fan .kb-card.f2{transform:rotate(-6deg) translateY(2px)}' +
+    '#scr-party .kbm-fan .kb-card.f4{transform:rotate(6deg) translateY(2px)}' +
+    '#scr-party .kbm-fan .kb-card.f5{transform:rotate(12deg) translateY(7px)}' +
+    /* the one card the game is ABOUT, lifted and ringed in the accent */
+    '#scr-party .kbm-fan .kb-card.kbm-star{z-index:2;' +
+      'box-shadow:0 0 0 2.5px var(--kbm-acc),0 8px 18px rgba(0,0,0,.55)}' +
+    '#scr-party .kbm-fan .kb-card.f3.kbm-star{transform:translateY(-8px)}' +
+    '#scr-party .kbm-fan .kb-card.f2.kbm-star{transform:rotate(-6deg) translateY(-8px)}' +
+    '#scr-party .kbm-fan .kb-card.f4.kbm-star{transform:rotate(6deg) translateY(-8px)}' +
+    /* the one line under the picture that says what the picture means */
+    '#scr-party .kbm-chip{font:900 9.5px/1.4 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;text-align:center;color:var(--kbm-acc);' +
+      'background:rgba(0,0,0,.38);border:1px solid var(--kbm-line);' +
+      'padding:6px 12px;border-radius:999px;max-width:100%}' +
+    /* sette: the stake — a short stack of gold counters by the cards */
+    '#scr-party .kbm-counters{display:flex;flex-direction:column;align-items:center;' +
+      'margin-left:14px;padding-bottom:3px}' +
+    '#scr-party .kbm-counters i{width:32px;height:11px;border-radius:50%;margin-top:-4px;' +
+      'background:linear-gradient(180deg,#FFD979 0%,#E8B13A 55%,#B07E10 100%);' +
+      'box-shadow:inset 0 1.5px 0 rgba(255,255,255,.6),0 1.5px 2px rgba(0,0,0,.5)}' +
+    '#scr-party .kbm-counters i:first-child{margin-top:0}' +
+    /* il-gidba: the raised eyebrow, drawn like everything else here */
+    '#scr-party .kbm-brow{width:52px;height:52px;margin:0 0 4px 12px;flex:0 0 auto;' +
+      'filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))}' +
+
+    /* ── the rules, at the bottom, sliding ──
+       In the flow at the END of the scroll, so open it can cover
+       nothing — it only ever pushes the page longer. The body slides
+       in with transform/opacity only, and only on a real toggle
+       (.kbm-anim), never on an ordinary repaint. */
+    '#scr-party .kbm-rules{margin:14px 0 22px;border-radius:14px;border:1px solid var(--line2);' +
+      'background:linear-gradient(180deg,var(--panel2),var(--panel));overflow:hidden}' +
+    '#scr-party .kbm-rbtn{display:flex;align-items:center;gap:11px;width:100%;min-height:52px;' +
+      'padding:8px 13px;border:0;background:none;color:var(--txt);cursor:pointer;text-align:left}' +
+    '#scr-party .kbm-rbtn:active{background:rgba(255,255,255,.05)}' +
+    '#scr-party .kbm-rbtn b{font:900 11px/1.2 var(--disp);letter-spacing:.09em;' +
+      'text-transform:uppercase;display:block}' +
+    '#scr-party .kbm-rbtn i{display:block;font-style:normal;font-size:10.5px;' +
+      'color:var(--dim2);margin-top:2px}' +
+    '#scr-party .kbm-chev{margin-left:auto;flex:0 0 auto;width:22px;height:22px;' +
+      'stroke:var(--kbm-acc);fill:none;stroke-width:2.2;stroke-linecap:round;' +
+      'stroke-linejoin:round;transition:transform .2s var(--ease)}' +
+    '#scr-party .kbm-rules.open .kbm-chev{transform:rotate(180deg)}' +
+    '#scr-party .kbm-rbody{padding:0 14px 12px}' +
+    '#scr-party .kbm-rbody ul{margin:0;padding:0}' +
+    '#scr-party .kbm-rbody li{font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px}' +
+    '#scr-party .kbm-rbody li b{color:var(--txt)}' +
+    '#scr-party .kbm-rules.kbm-anim.open .kbm-rbody{animation:kbmSlide .22s var(--ease)}' +
+    '@keyframes kbmSlide{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .kbm-rules.kbm-anim.open .kbm-rbody{animation:none}' +
+      '#scr-party .kbm-chev{transition:none}}' +
+    'body.reduced #scr-party .kbm-rules.kbm-anim.open .kbm-rbody{animation:none}' +
+    'body.reduced #scr-party .kbm-chev{transition:none}' +
 
     /* ── very short phones ── */
     '@media (max-height:700px){' +
@@ -1623,6 +1728,76 @@ const LEVELS = [
   { k:3, n:'In-nannu',  d:'Knows what you have. He has been watching.',  i:'diff-3' }
 ];
 
+/* ── THE IDENTITY PIECE ─────────────────────────────────────────────
+   One shared setup builder was giving four different games the same
+   anonymous first screen. Each now opens on its own picture, built out
+   of the SAME card renderer the felt uses — so the menu shows you the
+   exact objects you are about to be dealt, not clip-art of them.
+
+     bixkla    the top of the ranking, A·3·K·J·Q, the JACK lifted —
+               because the Jack over the Queen IS this game
+     briscola  the same five cards with the QUEEN lifted — the one
+               rule that differs is the one the picture shows
+     sette     a Seven and the matta making 7½, next to the counters
+               it pays; the King of Diamonds is the card lifted
+     cheat     a face-down pile, one more going on face down, and a
+               raised eyebrow watching it land
+
+   The eyebrow is inline SVG in the deck's own idiom — filled shapes,
+   warm ink, paint-order:stroke fill — because there is no card that
+   means "somebody at this table is lying". */
+function fan5(cards, star){
+  return '<div class="kbm-row kbm-fan" aria-hidden="true">' +
+    cards.map((c, i) =>
+      cardEl(c, { w:56, cls:'f' + (i + 1) + (i === star ? ' kbm-star' : '') })).join('') +
+    '</div>';
+}
+function browSVG(){
+  return '<svg class="kbm-brow" viewBox="0 0 48 48" aria-hidden="true" focusable="false">' +
+    '<g style="paint-order:stroke fill">' +
+    /* the face: the deck's ivory, inked round */
+    '<circle cx="24" cy="27" r="16" fill="#FCF7EA" stroke="#2A1C10" stroke-width="2.4"/>' +
+    /* one brow up, one flat: the whole verdict in two strokes */
+    '<path d="M11 13 Q17 6 26 10" fill="none" stroke="#2A1C10" stroke-width="3" stroke-linecap="round"/>' +
+    '<path d="M30 18 Q35 17 39 19" fill="none" stroke="#2A1C10" stroke-width="3" stroke-linecap="round"/>' +
+    '<circle cx="17.5" cy="24" r="2.3" fill="#2A1C10"/>' +
+    '<circle cx="33" cy="25.5" r="2.3" fill="#2A1C10"/>' +
+    /* the mouth of a man doing arithmetic on your honesty */
+    '<path d="M17 35 Q24 37.5 32 34" fill="none" stroke="#2A1C10" stroke-width="2.4" stroke-linecap="round"/>' +
+    '</g></svg>';
+}
+const HEROES = {
+  bixkla(){
+    return fan5([mk(0,1), mk(1,3), mk(3,13), mk(2,11), mk(0,12)], 3) +
+      '<div class="kbm-chip">A &middot; 3 &middot; K &mdash; then the JACK, then the Queen</div>';
+  },
+  briscola(){
+    return fan5([mk(2,1), mk(3,3), mk(1,13), mk(2,12), mk(0,11)], 3) +
+      '<div class="kbm-chip">A &middot; 3 &middot; K &mdash; the QUEEN back over the Jack</div>';
+  },
+  sette(){
+    return '<div class="kbm-row kbm-fan" aria-hidden="true">' +
+        cardEl(mk(0,7), { w:56, cls:'f2' }) +
+        cardEl(mk(2,13), { w:56, cls:'f4 kbm-star' }) +
+        '<span class="kbm-counters"><i></i><i></i><i></i><i></i></span>' +
+      '</div>' +
+      '<div class="kbm-chip">Seven and the matta: 7&frac12; in two, paid double</div>';
+  },
+  cheat(){
+    return '<div class="kbm-row kbm-fan" aria-hidden="true">' +
+        cardEl(-1, { face:false, w:54, cls:'f1' }) +
+        cardEl(-1, { face:false, w:54, cls:'f2' }) +
+        cardEl(-1, { face:false, w:56, cls:'f4 kbm-star' }) +
+        browSVG() +
+      '</div>' +
+      '<div class="kbm-chip">&ldquo;Three Kings.&rdquo; &mdash; and an eyebrow goes up</div>';
+  }
+};
+function heroHTML(def){
+  const draw = HEROES[def.id];
+  return '<div class="kbm-hero">' + (draw ? draw() : '') + '</div>';
+}
+
 function setupSheet(def){
   P.show();
   stopThinking(); M = null; UI = null;
@@ -1634,14 +1809,20 @@ function setupSheet(def){
   let lvl = p.lvl || 2;
 
   function paint(){
+    const rec = recOf(def.id);
     el.innerHTML =
+      '<div class="pt-wrap kbm kbm-th-' + def.id + '">' +
       '<div class="tbar">' +
         '<button class="iconbtn" id="kb-back" aria-label="Back">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
         '<h2>' + esc(def.name) + '</h2>' +
       '</div>' +
       '<div class="scroll">' +
+        heroHTML(def) +
         '<p class="blurb">' + def.blurb + '</p>' +
+        (savedSlot(def.id)
+          ? '<button class="btn primary" id="kb-res" style="margin:2px 0 10px">' +
+              'Carry on the saved hand</button>' : '') +
         (def.seats.length > 1
           ? '<div class="tiny pt-lbl">How many at the table</div>' +
             '<div class="pt-opts">' + def.seats.map(n =>
@@ -1666,10 +1847,12 @@ function setupSheet(def){
               '<button class="pt-opt' + (o.k === lvl ? ' on' : '') + '" data-lvl="' + o.k + '">' +
                 ico(o.i) + '<b>' + o.n + '</b><i>' + o.d + '</i></button>').join('') + '</div>'
           : '') +
-        '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
+        (rec.w + rec.l + rec.d
+          ? '<p class="pt-ledger">At this table so far: <b>' + rec.w + '</b> won, <b>' +
+            rec.l + '</b> lost' + (rec.d ? ', <b>' + rec.d + '</b> drawn' : '') + '.</p>'
+          : '') +
+        '<div class="pt-acts" style="margin-top:16px;display:grid;gap:9px">' +
           '<button class="btn primary" id="kb-go">Deal</button>' +
-          (savedSlot(def.id)
-            ? '<button class="btn ghost" id="kb-res">Carry on the saved hand</button>' : '') +
           /* ONLINE, AND IT OPENS THE RIGHT KIND OF ROOM.
              The relay labels a klabb room with its FLAVOUR, and which
              flavour you want is the question this screen has just
@@ -1682,10 +1865,35 @@ function setupSheet(def){
             ? '<button class="btn ghost" id="kb-online">Open an online ' +
               esc(def.name) + ' room</button>' : '') +
         '</div>' +
-        '<div class="kb-rules"><h5>The rules, as we play them</h5><ul>' +
-          def.rules.map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
-      '</div>';
+        /* THE RULES, AT THE BOTTOM, SLIDING. In the flow, after the
+           last button — so open they cover nothing and closed they cost
+           one row. Closed by default; the choice is remembered in the
+           UI key, never with a save. */
+        '<div class="kbm-rules' + (rulesOpen ? ' open' : '') + '" id="kb-ruleswrap">' +
+          '<button class="kbm-rbtn" id="kb-rulebtn" type="button" aria-controls="kb-rulebody"' +
+            ' aria-expanded="' + (rulesOpen ? 'true' : 'false') + '">' +
+            '<span><b>The rules, as we play them</b>' +
+            '<i>' + def.rules.length + ' lines &mdash; they slide out here, over nothing</i></span>' +
+            '<svg class="kbm-chev" viewBox="0 0 24 24" aria-hidden="true">' +
+              '<path d="M6 9l6 6 6-6"/></svg>' +
+          '</button>' +
+          '<div class="kbm-rbody" id="kb-rulebody"' + (rulesOpen ? '' : ' hidden') + '><ul>' +
+            def.rules.map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
+        '</div>' +
+      '</div></div>';
     el.querySelector('#kb-back').onclick = () => P.hub();
+    el.querySelector('#kb-rulebtn').onclick = () => {
+      setRulesOpen(!rulesOpen);
+      const wrap = el.querySelector('#kb-ruleswrap');
+      wrap.classList.toggle('open', rulesOpen);
+      wrap.classList.add('kbm-anim');          /* animate real toggles only */
+      el.querySelector('#kb-rulebody').hidden = !rulesOpen;
+      el.querySelector('#kb-rulebtn').setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
+      if (rulesOpen){
+        try { wrap.scrollIntoView({ block:'nearest', behavior: noMotion() ? 'auto' : 'smooth' }); }
+        catch(e){}
+      }
+    };
     el.querySelectorAll('[data-seats]').forEach(b => b.onclick = () => {
       seats = +b.dataset.seats; humans = Math.min(humans, seats); paint();
     });
