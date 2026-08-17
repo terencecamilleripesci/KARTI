@@ -144,6 +144,18 @@ window.addEventListener('pagehide', persistNow);
 
 const hintsOn = () => !!ST.pref.hints;        /* beginner aid, OFF by default */
 
+/* ── UI-only preference, in its OWN key (rummy's dock rule): how you
+   keep the setup sheet's rules folded is not the game, so it must
+   never ride in karti_gin_v1 where binning a save could forget it.
+   CLOSED by default — the sheet's job is dealing. ─────────────────── */
+const UIKEY = 'karti_gin_ui_v1';
+let setupOpen = false;
+try { setupOpen = localStorage.getItem(UIKEY + '.setup') === '1'; } catch (e) {}
+function setSetupOpen(open) {
+  setupOpen = !!open;
+  try { localStorage.setItem(UIKEY + '.setup', setupOpen ? '1' : '0'); } catch (e) {}
+}
+
 /* ── the machine, by name — the same three chairs the każin keeps ── */
 const LEVELS = [
   { k: 1, n: 'Iż-żiju',   d: 'Hoards every shiny card and calls a pair a plan.',            i: 'diff-1' },
@@ -620,7 +632,90 @@ function injectCSS() {
       '#scr-party .gn-zoom .gn-zc{width:min(62px,17vh)}' +
       '#scr-party .gn-zoom .gn-zt i{font-size:10px;line-height:1.35}' +
       '#scr-party .gn-act{min-height:30px;font-size:10px;padding:0 10px}' +
-      '#scr-party .pt-turn.pt-turn{min-height:28px;margin-bottom:4px;padding:3px 10px}}';
+      '#scr-party .pt-turn.pt-turn{min-height:28px;margin-bottom:4px;padding:3px 10px}}' +
+
+    /* ══ THE SETUP SHEET'S OWN FACE — scoped to .gn-menu ══
+       The identity piece is THE 45 ITSELF, because the 45 is what this
+       game is about: a meld laid FACE UP on the lit steel-blue felt —
+       three aces, 15 each — priced with the gold seal and answered by
+       the green OPEN chip. Nothing fanned, nothing held: cards lying
+       on a table is the picture of gin, exactly as a hand fanned into
+       melds is the picture of rummy next door. */
+    /* klabb's face rules, restated under this scope: the felt's copy
+       only lives under .gn-felt and the menu is not inside it */
+    '#scr-party .gn-menu .kb-svg{width:100%;height:100%;display:block;border-radius:5px;' +
+      'overflow:hidden;font-family:var(--body),-apple-system,"Segoe UI",Roboto,Arial,sans-serif}' +
+    '#scr-party .gn-menu .kb-stock{fill:#FCF7EA;stroke:rgba(0,0,0,.34);stroke-width:1.1}' +
+    '#scr-party .gn-menu .kb-svg.kb-r{fill:#C7192B;color:#C7192B}' +
+    '#scr-party .gn-menu .kb-svg.kb-b{fill:#17131B;color:#17131B}' +
+    '#scr-party .gn-menu .kb-idx text{font-weight:800;font-size:25px;letter-spacing:-.02em;' +
+      'fill:currentColor;stroke:none}' +
+    '#scr-party .gn-menu .kb-panel{fill:#F4E7C6;stroke:currentColor;stroke-width:1.5}' +
+    '#scr-party .gn-menu .kb-ink{fill:currentColor;stroke:none}' +
+    '#scr-party .gn-menu .kb-face{fill:#FCF7EA;stroke:currentColor;stroke-width:1.5}' +
+    '#scr-party .gn-menu .kb-hair{stroke:currentColor;stroke-width:1.1;opacity:.55;fill:none}' +
+
+    '#scr-party .gn-menu .pt-lbl{color:#9FD8B8}' +
+    '#scr-party .gn-menu .gn-hero{position:relative;display:flex;align-items:center;' +
+      'justify-content:center;gap:9px;margin:2px 0 12px;padding:18px 10px 17px;' +
+      'border-radius:16px;overflow:hidden;' +
+      'background:radial-gradient(115% 130% at 50% 0%,#2B4C74 0%,#1A2E4A 50%,#0E1B2D 100%);' +
+      'border:1px solid rgba(0,0,0,.5);box-shadow:inset 0 2px 0 rgba(255,255,255,.07),' +
+      'inset 0 -14px 26px rgba(0,0,0,.4)}' +
+    /* the felt's own wash, so the sheet and the table are one place */
+    '#scr-party .gn-menu .gn-hero::before{content:"";position:absolute;left:8%;right:8%;' +
+      'top:12%;height:56%;pointer-events:none;border-radius:50%;' +
+      'background:radial-gradient(closest-side,rgba(120,180,255,.10),transparent 72%)}' +
+    '#scr-party .gn-menu .gn-hero>*{position:relative}' +
+    '#scr-party .gn-menu .gn-hero-m{display:flex;flex:0 0 auto}' +
+    /* the meld lies as the spread lies: corner-out, left to right */
+    '#scr-party .gn-menu .gn-mcard{display:block;flex:0 0 auto;width:46px;height:64px;' +
+      'border-radius:5px;line-height:0;margin-left:-27px;' +
+      'box-shadow:-1px 0 2px rgba(0,0,0,.55),0 2px 5px rgba(0,0,0,.4)}' +
+    '#scr-party .gn-menu .gn-mcard:first-child{margin-left:0;box-shadow:0 2px 5px rgba(0,0,0,.4)}' +
+    '#scr-party .gn-menu .gn-hero-eq{font:900 18px/1 var(--disp);font-style:normal;' +
+      'color:rgba(255,255,255,.5)}' +
+    /* the price, as a coin — gold, because points are the whole game here */
+    '#scr-party .gn-menu .gn-hero-tag{display:grid;place-items:center;flex:0 0 auto;' +
+      'width:46px;height:46px;border-radius:50%;font:900 17px/1 var(--disp);color:#241800;' +
+      'background:linear-gradient(180deg,#FFD979,#FFC542);border:1px solid #FFE9B0;' +
+      'box-shadow:0 3px 8px rgba(0,0,0,.5)}' +
+    '#scr-party .gn-menu .gn-hero-open{flex:0 0 auto;font:900 9px/1.35 var(--disp);' +
+      'letter-spacing:.09em;text-transform:uppercase;text-align:center;color:#BFF3D6;' +
+      'background:rgba(61,220,132,.16);border:1px solid rgba(61,220,132,.45);' +
+      'border-radius:11px;padding:6px 8px;max-width:86px}' +
+    '#scr-party .gn-menu .gn-hero-cap{position:absolute;right:11px;bottom:7px;' +
+      'font:900 9.5px/1 var(--disp);letter-spacing:.18em;color:rgba(255,255,255,.30)}' +
+    '@media (max-height:520px){#scr-party .gn-menu .gn-hero{padding:12px 10px 13px}}' +
+
+    /* ── the rules FOLD on the setup sheet — rummy's slide, restated
+       under this scope: grid-rows 0fr→1fr for the height, transform +
+       opacity on the list inside, instant under reduced motion ── */
+    '#scr-party .gn-fold-h{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
+      'border:0;background:none;padding:2px 0;margin:0;color:var(--txt);cursor:pointer;' +
+      'min-height:44px;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .gn-fold-h span{flex:1;min-width:0}' +
+    '#scr-party .gn-fold-h b{display:block;font:900 10px/1.4 var(--disp);letter-spacing:.11em;' +
+      'text-transform:uppercase;color:var(--gold,#FFC542)}' +
+    '#scr-party .gn-fold-h i{display:block;font-style:normal;font-size:10.5px;line-height:1.4;' +
+      'color:var(--dim);margin-top:3px;text-transform:none;letter-spacing:0}' +
+    '#scr-party .gn-fold-h em{flex:0 0 auto;width:24px;height:24px;display:grid;' +
+      'place-items:center;color:var(--dim)}' +
+    '#scr-party .gn-fold-h em svg{width:15px;height:15px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transform:rotate(90deg);' +
+      'transition:transform .22s var(--ease)}' +
+    '#scr-party .gn-fold-h[aria-expanded="true"] em svg{transform:rotate(-90deg)}' +
+    '#scr-party .gn-fold-b{display:grid;grid-template-rows:0fr;' +
+      'transition:grid-template-rows .28s var(--ease)}' +
+    '#scr-party .gn-fold-b.open{grid-template-rows:1fr}' +
+    '#scr-party .gn-fold-i{overflow:hidden;min-height:0}' +
+    '#scr-party .gn-fold-i ul{transform:translateY(-10px);opacity:0;' +
+      'transition:transform .28s var(--ease),opacity .28s var(--ease)}' +
+    '#scr-party .gn-fold-b.open .gn-fold-i ul{transform:none;opacity:1}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .gn-fold-b,#scr-party .gn-fold-i ul,' +
+      '#scr-party .gn-fold-h em svg{transition:none}}' +
+    'body.reduced #scr-party .gn-fold-b,body.reduced #scr-party .gn-fold-i ul,' +
+    'body.reduced #scr-party .gn-fold-h em svg{transition:none}';
   document.head.appendChild(st);
 }
 
@@ -2180,14 +2275,38 @@ function setupSheet(prevOpts) {
   const MPX = window.KARTI_MP;
   const online = !!(MPX && MPX.openFor && MPX.GAME_KEYS && MPX.GAME_KEYS.indexOf('gin') >= 0);
 
+  /* the fold header's one line says what the rules below will say —
+     hand and target — so the fold explains itself while shut */
+  const foldHint = () =>
+    (hand === 13 ? 'Thirteen' : 'Ten') + ' cards, first to ' + target + ' — tap to ' +
+    (setupOpen ? 'fold them away.' : 'read them.');
+
   function paint() {
     el.innerHTML =
+      '<div class="pt-wrap gn-menu">' +
       '<div class="tbar">' +
         '<button class="iconbtn" id="gn-back" aria-label="Back">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
         '<h2>GIN RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
+        /* THE IDENTITY PIECE: the 45, laid face up. Three aces off the
+           real pack — 15 each, 45 on the nose, the cheapest sentence in
+           the rules made visible — priced with the gold seal and
+           answered by the OPEN chip. Decoration only: aria-hidden,
+           nothing tappable. Card indices are klabb's suit*13+(rank-1):
+           0 = A of spades, 13 = A of hearts, 26 = A of diamonds. */
+        '<div class="gn-hero" aria-hidden="true">' +
+          '<span class="gn-hero-m">' +
+            '<span class="gn-mcard">' + faceHTML(0) + '</span>' +
+            '<span class="gn-mcard">' + faceHTML(13) + '</span>' +
+            '<span class="gn-mcard">' + faceHTML(26) + '</span>' +
+          '</span>' +
+          '<i class="gn-hero-eq">=</i>' +
+          '<b class="gn-hero-tag">45</b>' +
+          '<span class="gn-hero-open">The table is open</span>' +
+          '<span class="gn-hero-cap">IL-45</span>' +
+        '</div>' +
         '<p class="blurb">The house game: match <b>45 points of melds</b> and put them down ' +
         '<b>face up</b> — that opens you, and the hand carries on. Open players lay onto ' +
         '<b>anybody’s</b> melds and the points go to them; first hand played empty takes ' +
@@ -2197,6 +2316,12 @@ function setupSheet(prevOpts) {
             'your cards down ended the hand. The game has grown — going down now <b>opens</b> you, ' +
             'the table is live, and there is a bonus for going out — so that save was retired ' +
             'rather than counted wrongly.</p>'
+          : '') +
+        /* a half-played match comes FIRST, gold, the skarta way — on a
+           return visit the likeliest tap should be the top one */
+        (ST.save
+          ? '<button class="btn primary" id="gn-res" style="margin:2px 0 10px">' +
+            'Carry on the saved match</button>'
           : '') +
         (online
           ? '<div class="pt-opts" style="margin-bottom:10px">' +
@@ -2235,16 +2360,26 @@ function setupSheet(prevOpts) {
         '</div>' +
         '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
           '<button class="btn primary" id="gn-go">Deal</button>' +
-          (ST.save
-            ? '<button class="btn ghost" id="gn-res">Carry on the saved match</button>' : '') +
         '</div>' +
-        '<div class="kb-rules" style="margin:16px 2px 20px;padding:12px 14px;border-radius:14px;' +
+        /* ── the rules, FOLDED, at the bottom — rummy's slide, this
+           game's words. Closed by default (the sheet's job is dealing),
+           remembered in the UI-only key, and the text follows the hand
+           size and target chosen above. ── */
+        '<div class="kb-rules" style="margin:16px 2px 20px;padding:2px 14px;border-radius:14px;' +
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
-          '<h5 style="font:900 10px/1 var(--disp);letter-spacing:.11em;text-transform:uppercase;' +
-            'color:var(--gold);margin:0 0 9px">The rules, as we play them</h5><ul style="margin:0">' +
-          rulesFor(hand, target).map(r => '<li style="font-size:12px;line-height:1.65;color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
-        '</ul></div>' +
-      '</div>';
+          '<button type="button" class="gn-fold-h" id="gn-srules-h" aria-controls="gn-srules-b"' +
+            ' aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
+            '<span><b>The rules, as we play them</b>' +
+            '<i id="gn-srules-i">' + foldHint() + '</i></span>' +
+            '<em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></em>' +
+          '</button>' +
+          '<div class="gn-fold-b' + (setupOpen ? ' open' : '') + '" id="gn-srules-b">' +
+            '<div class="gn-fold-i"><ul style="margin:6px 0 12px;padding:0">' +
+              rulesFor(hand, target).map(r => '<li style="font-size:12px;line-height:1.65;' +
+                'color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+            '</ul></div></div>' +
+        '</div>' +
+      '</div></div>';
     el.querySelector('#gn-back').onclick = () => P.hub();
     el.querySelectorAll('[data-hand]').forEach(b => b.onclick = () => { hand = +b.dataset.hand; paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
@@ -2268,6 +2403,19 @@ function setupSheet(prevOpts) {
     if (on) on.onclick = () => {
       ST.pref.lvl = lvl; ST.pref.target = target; ST.pref.hand = hand; persist();
       try { MPX.openFor('gin'); } catch (e) {}
+    };
+    /* the fold toggles WITHOUT repainting, so the slide actually
+       slides; changing the hand or target above repaints and brings
+       the right words into whatever state the fold is in */
+    const sh = el.querySelector('#gn-srules-h');
+    if (sh) sh.onclick = () => {
+      setSetupOpen(!setupOpen);
+      sh.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
+      const b = el.querySelector('#gn-srules-b');
+      if (b) b.classList.toggle('open', setupOpen);
+      const hint = el.querySelector('#gn-srules-i');
+      if (hint) hint.textContent = foldHint();
+      cue(setupOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 });
     };
   }
   paint();

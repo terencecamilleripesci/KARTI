@@ -40,6 +40,18 @@ const GID = 'gharraq';
 const TITLE = 'GĦARRAQHOM!';
 const SAVE_KEY = 'karti_gharraq_v1';
 
+/* ── UI-only preference, in its OWN key (the dock rule rummy and gin
+   follow): how you keep the setup sheet's rules folded is not the
+   battle, so it never rides in the save slot and binning a battle
+   never forgets it. CLOSED by default — the sheet's job is sailing. ── */
+const UIKEY = 'karti_gharraq_ui_v1';
+let setupOpen = false;
+try { setupOpen = localStorage.getItem(UIKEY + '.setup') === '1'; } catch(e){}
+function setSetupOpen(open){
+  setupOpen = !!open;
+  try { localStorage.setItem(UIKEY + '.setup', setupOpen ? '1' : '0'); } catch(e){}
+}
+
 const LEVELS = [
   { k:1, name:'It-Turist tal-Lido', note:'Shoots where the sun is nice.', icon:'diff-1' },
   { k:2, name:'Tal-Moll',           note:'Finds a boat and finishes it.', icon:'diff-2' },
@@ -572,14 +584,36 @@ function menu(){
   let level = String(pref.level || 2);
   let foes = String(pref.foes || 1);
   const r = P.recOf(GID);
+  /* the fold header's one line says what is inside while it is shut */
+  const foldHint = () => setupOpen
+    ? 'Tap to fold them away.'
+    : 'Both games, in a minute — tap to read them.';
 
   el.innerHTML =
+    '<div class="pt-wrap bs-menu">' +
     '<div class="tbar">' +
       '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
       '<h2>' + TITLE + '</h2>' +
     '</div>' +
     '<div class="scroll">' +
+      /* THE IDENTITY PIECE: the fleet itself, riding at anchor on the
+         gridded sea — the same five hulls the game draws, at chip size,
+         with one gold aim ring already out on the water. All artwork
+         this file already owns (SHIP_ART via shipChip); decoration
+         only, aria-hidden, nothing tappable. */
+      '<div class="bs-hero" aria-hidden="true">' +
+        '<span class="bs-hb" style="left:5%;top:9%">' + shipChip(0, 12) + '</span>' +
+        '<span class="bs-hb" style="right:6%;top:22%;transform:rotate(2deg)">' +
+          shipChip(1, 12) + '</span>' +
+        '<span class="bs-hb" style="left:13%;top:47%;transform:rotate(-2deg)">' +
+          shipChip(3, 12) + '</span>' +
+        '<span class="bs-hb" style="left:50%;top:56%;transform:rotate(-4deg)">' +
+          shipChip(2, 13) + '</span>' +
+        '<span class="bs-hb" style="right:15%;top:73%">' + shipChip(4, 11) + '</span>' +
+        '<span class="bs-haim" style="left:38%;top:15%"></span>' +
+        '<span class="bs-hcap">IL-FLOTTA</span>' +
+      '</div>' +
       '<p class="blurb">Five boats each, hidden on your own sea. Take turns shelling ' +
       'each other’s grid until one fleet is still floating. In <b>KARTI TAL-KANUN</b> ' +
       'every turn starts with a shot card drawn in front of the whole table — the card ' +
@@ -631,9 +665,24 @@ function menu(){
       '</div>' +
       (r.w + r.l + r.d ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' +
         r.l + '</b> lost.</p>' : '') +
+      /* ── the rules, FOLDED, at the bottom — the same slide rummy and
+         gin keep on their sheets. Closed by default, remembered in the
+         UI-only key, never a modal: the sheet under it stays live. ── */
+      '<div class="bs-foldbox">' +
+        '<button type="button" class="bs-fold-h" id="bs-srules-h" aria-controls="bs-srules-b"' +
+          ' aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
+          '<span><b>The rules, as this sea plays them</b>' +
+          '<i id="bs-srules-i">' + foldHint() + '</i></span>' +
+          '<em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></em>' +
+        '</button>' +
+        '<div class="bs-fold-b' + (setupOpen ? ' open' : '') + '" id="bs-srules-b">' +
+          '<div class="bs-fold-i"><div class="bs-fold-p">' + rulesPanel() + '</div></div>' +
+        '</div>' +
+      '</div>' +
       '<div style="height:8px"></div>' +
     '</div>' +
-    '<div class="pt-startbar"><button class="btn primary" id="bs-start"></button></div>';
+    '<div class="pt-startbar"><button class="btn primary" id="bs-start"></button></div>' +
+    '</div>';
 
   const sync = () => {
     el.querySelectorAll('#bs-gmode .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === mode));
@@ -676,6 +725,17 @@ function menu(){
     P.pref(GID, { gmode: mode, mode: who, level: +level, foes: +foes });
     if (who === 'online'){ if (M && M.openFor) M.openFor(GID); return; }
     newLocal({ gmode: mode, who, level: +level, foes: +foes });
+  };
+  /* the fold toggles in place — no repaint, so the slide actually slides */
+  const sh = el.querySelector('#bs-srules-h');
+  if (sh) sh.onclick = () => {
+    setSetupOpen(!setupOpen);
+    sh.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
+    const b = el.querySelector('#bs-srules-b');
+    if (b) b.classList.toggle('open', setupOpen);
+    const hint = el.querySelector('#bs-srules-i');
+    if (hint) hint.textContent = foldHint();
+    sfx(setupOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 });
   };
 }
 
@@ -2185,7 +2245,63 @@ function injectCSS(){
     'body.reduced #scr-party .bs-firecue{animation:none}' +
     'body.reduced #scr-party .bs-flip{animation:none}' +
     '@keyframes bsStillFx{0%{opacity:0}30%{opacity:.8}70%{opacity:.8}100%{opacity:0}}' +
-    '@keyframes bsStillIn{from{opacity:0}to{opacity:1}}';
+    '@keyframes bsStillIn{from{opacity:0}to{opacity:1}}' +
+
+    /* ══ THE SETUP SHEET'S OWN FACE — scoped to .bs-menu ══
+       The identity piece is THE FLEET AT ANCHOR: the same five hulls
+       the game draws (shipChip → SHIP_ART), chip-sized, riding on the
+       gridded sea the battle is fought on, one gold aim ring already
+       out on the water. Sea-blue through and through — this sheet
+       shares no felt with the card tables next door. */
+    '#scr-party .bs-menu .pt-lbl{color:#8FC6F2}' +
+    '#scr-party .bs-menu .bs-hero{position:relative;height:118px;margin:2px 0 12px;' +
+      'border-radius:16px;overflow:hidden;border:1px solid rgba(0,0,0,.55);' +
+      'background-image:linear-gradient(rgba(255,255,255,.045) 1px,transparent 1px),' +
+      'linear-gradient(90deg,rgba(255,255,255,.045) 1px,transparent 1px),' +
+      'radial-gradient(130% 140% at 50% 0%,#1E4A7C 0%,#173A63 48%,#0D2342 100%);' +
+      'background-size:24px 24px,24px 24px,100% 100%;' +
+      'box-shadow:inset 0 2px 0 rgba(255,255,255,.06),inset 0 -16px 28px rgba(0,0,0,.45)}' +
+    '#scr-party .bs-menu .bs-hb{position:absolute;line-height:0;' +
+      'filter:drop-shadow(0 2px 2px rgba(0,0,0,.5))}' +
+    /* the aim ring: somebody is already being lined up */
+    '#scr-party .bs-menu .bs-haim{position:absolute;width:18px;height:18px;border-radius:50%;' +
+      'border:2px solid rgba(255,197,66,.75);box-shadow:0 0 8px rgba(255,197,66,.35)}' +
+    '#scr-party .bs-menu .bs-haim::after{content:"";position:absolute;left:50%;top:50%;' +
+      'width:4px;height:4px;margin:-2px 0 0 -2px;border-radius:50%;background:var(--gold)}' +
+    '#scr-party .bs-menu .bs-hcap{position:absolute;right:11px;bottom:7px;' +
+      'font:900 9.5px/1 var(--disp);letter-spacing:.18em;color:rgba(255,255,255,.25)}' +
+    '@media (max-height:520px){#scr-party .bs-menu .bs-hero{height:96px}}' +
+
+    /* ── the rules FOLD on the setup sheet — rummy's slide, restated
+       under this scope. grid-rows 0fr→1fr for the height, transform +
+       opacity on the body, instant under reduced motion. ── */
+    '#scr-party .bs-foldbox{margin:14px 2px 4px;padding:2px 14px;border-radius:14px;' +
+      'background:rgba(255,255,255,.04);border:1px solid var(--line)}' +
+    '#scr-party .bs-fold-h{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
+      'border:0;background:none;padding:2px 0;margin:0;color:var(--txt);cursor:pointer;' +
+      'min-height:44px;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .bs-fold-h span{flex:1;min-width:0}' +
+    '#scr-party .bs-fold-h b{display:block;font:900 10px/1.4 var(--disp);letter-spacing:.11em;' +
+      'text-transform:uppercase;color:var(--gold,#FFC542)}' +
+    '#scr-party .bs-fold-h i{display:block;font-style:normal;font-size:10.5px;line-height:1.4;' +
+      'color:var(--dim);margin-top:3px;text-transform:none;letter-spacing:0}' +
+    '#scr-party .bs-fold-h em{flex:0 0 auto;width:24px;height:24px;display:grid;' +
+      'place-items:center;color:var(--dim)}' +
+    '#scr-party .bs-fold-h em svg{width:15px;height:15px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;transform:rotate(90deg);' +
+      'transition:transform .22s var(--ease)}' +
+    '#scr-party .bs-fold-h[aria-expanded="true"] em svg{transform:rotate(-90deg)}' +
+    '#scr-party .bs-fold-b{display:grid;grid-template-rows:0fr;' +
+      'transition:grid-template-rows .28s var(--ease)}' +
+    '#scr-party .bs-fold-b.open{grid-template-rows:1fr}' +
+    '#scr-party .bs-fold-i{overflow:hidden;min-height:0}' +
+    '#scr-party .bs-fold-p{padding:4px 0 12px;transform:translateY(-10px);opacity:0;' +
+      'transition:transform .28s var(--ease),opacity .28s var(--ease)}' +
+    '#scr-party .bs-fold-b.open .bs-fold-p{transform:none;opacity:1}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .bs-fold-b,#scr-party .bs-fold-p,' +
+      '#scr-party .bs-fold-h em svg{transition:none}}' +
+    'body.reduced #scr-party .bs-fold-b,body.reduced #scr-party .bs-fold-p,' +
+    'body.reduced #scr-party .bs-fold-h em svg{transition:none}';
   document.head.appendChild(st);
 }
 

@@ -971,33 +971,302 @@ function start(){
   const p = P.pref('dama');
   newGame({ mode: p.mode || 'ai', level: p.level || 2, side: p.side || 'w' });
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE DOOR
+   ───────────────────────────────────────────────────────────────────
+   Dama used to borrow party.js's shared setup sheet, which is a form:
+   pick a mode, pick a level, find Start. Chess's door screen showed the
+   better shape — THE OPPONENT IS THE START — so dama now owns its door
+   the same way, wearing its own colours: the cream and the terracotta
+   of its own stones, not chess's purple and not tombla's paper.
+   Everything below is scoped under .dmm and cannot reach the board.
+   ═══════════════════════════════════════════════════════════════════ */
+const UI_KEY = 'karti_dama_ui_v1';   /* UI preferences only — never a game save */
+
+const DM_LVL = {
+  1: { name:'It-turist', note:'Will hand you three stones and smile.', icon:'diff-1' },
+  2: { name:'Tal-kazin', note:'Sets traps. Small ones, but traps.',    icon:'diff-2' },
+  3: { name:'In-nanna',  note:'Nine moves deep. Do not take the bait.', icon:'diff-3' }
+};
+
+function damaCSS(){
+  if (document.getElementById('dm-css')) return;
+  const st = document.createElement('style');
+  st.id = 'dm-css';
+  st.textContent =
+    /* the door's palette: the stones' own cream and terracotta */
+    '#scr-party .dmm{--dm-cr:#E4D2AC;--dm-cr2:#B79E70;--dm-rd:#D93A20;--dm-rd2:#8C1E0C}' +
+
+    /* ── the identity piece: a fan of the game's own stones ──────────
+       The same discs the board draws — radial cream, radial terracotta,
+       the crowned king in the middle standing taller, and two of them
+       stacked the way counters sit at the side of a real table. */
+    '#scr-party .dmm-hero{position:relative;display:flex;justify-content:center;' +
+      'align-items:center;padding:14px 0 18px}' +
+    '#scr-party .dmm-hero::before{content:"";position:absolute;left:8%;right:8%;top:0;bottom:4px;' +
+      'background:radial-gradient(55% 78% at 50% 62%,rgba(217,58,32,.17),' +
+      'rgba(228,210,172,.10) 52%,transparent 78%);pointer-events:none}' +
+    '#scr-party .dmm-stone{position:relative;width:50px;height:50px;flex:0 0 auto;' +
+      'margin-left:-9px;border-radius:50%;display:grid;place-items:center;' +
+      'background:radial-gradient(circle at 34% 28%,#FFFCF2,var(--dm-cr) 58%,var(--dm-cr2));' +
+      'box-shadow:inset 0 -4px 7px rgba(120,80,30,.35),inset 0 0 0 2px rgba(255,255,255,.4),' +
+      '0 7px 14px rgba(0,0,0,.5)}' +
+    '#scr-party .dmm-stone:first-child{margin-left:0}' +
+    '#scr-party .dmm-stone.b{background:radial-gradient(circle at 34% 28%,#FF8A6B,' +
+      'var(--dm-rd) 55%,var(--dm-rd2));' +
+      'box-shadow:inset 0 -4px 7px rgba(60,10,4,.5),inset 0 0 0 2px rgba(255,255,255,.28),' +
+      '0 7px 14px rgba(0,0,0,.5)}' +
+    /* a stack: the same disc with one more of itself under it */
+    '#scr-party .dmm-stone.st{box-shadow:inset 0 -4px 7px rgba(120,80,30,.35),' +
+      'inset 0 0 0 2px rgba(255,255,255,.4),0 5px 0 -1px var(--dm-cr2),' +
+      '0 6px 0 0 rgba(0,0,0,.35),0 12px 16px rgba(0,0,0,.5)}' +
+    '#scr-party .dmm-stone.b.st{box-shadow:inset 0 -4px 7px rgba(60,10,4,.5),' +
+      'inset 0 0 0 2px rgba(255,255,255,.28),0 5px 0 -1px var(--dm-rd2),' +
+      '0 6px 0 0 rgba(0,0,0,.35),0 12px 16px rgba(0,0,0,.5)}' +
+    '#scr-party .dmm-stone:nth-child(1){transform:rotate(-9deg) translateY(7px)}' +
+    '#scr-party .dmm-stone:nth-child(2){transform:translateY(1px)}' +
+    '#scr-party .dmm-stone:nth-child(4){transform:translateY(1px)}' +
+    '#scr-party .dmm-stone:nth-child(5){transform:rotate(9deg) translateY(7px)}' +
+    '#scr-party .dmm-stone.k{width:62px;height:62px;z-index:2;transform:translateY(-8px);' +
+      'box-shadow:inset 0 -5px 8px rgba(60,10,4,.5),inset 0 0 0 2px rgba(255,255,255,.3),' +
+      '0 0 0 2px rgba(255,197,66,.7),0 9px 18px rgba(0,0,0,.6)}' +
+    '#scr-party .dmm-stone .pt-pcs{width:56%;height:56%;fill:#FFE9B0;stroke:none}' +
+
+    /* ── the doors — same shape as chess's, dressed in dama's colours ── */
+    '#scr-party .dm-doors{display:grid;gap:9px;margin-bottom:2px}' +
+    '#scr-party .dm-door{display:grid;grid-template-columns:26px 1fr 16px;column-gap:12px;' +
+      'row-gap:1px;align-items:center;text-align:left;width:100%;min-height:62px;' +
+      'padding:10px 13px;border-radius:15px;color:var(--txt);' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.035));' +
+      'border:1px solid var(--line2);transition:background .15s,border-color .15s}' +
+    '#scr-party .dm-door>.ico:first-child{grid-column:1;grid-row:1/3;width:24px;height:24px;' +
+      'color:#FF9C7E}' +
+    '#scr-party .dm-door>.dm-chev{grid-column:3;grid-row:1/3;width:16px;height:16px;' +
+      'color:var(--dim2)}' +
+    '#scr-party .dm-door b{grid-column:2;grid-row:1;font-family:var(--disp);font-size:13px;' +
+      'letter-spacing:.06em;text-transform:uppercase;line-height:1.2}' +
+    '#scr-party .dm-door i{grid-column:2;grid-row:2;font-style:normal;font-size:11.5px;' +
+      'line-height:1.35;color:var(--dim)}' +
+    '#scr-party .dm-door:active{background:rgba(217,58,32,.16);border-color:rgba(217,58,32,.5)}' +
+    '#scr-party .dm-door.hero{background:linear-gradient(180deg,rgba(217,58,32,.17),' +
+      'rgba(217,58,32,.06));border-color:rgba(217,58,32,.45)}' +
+    '#scr-party .dm-door.off{opacity:.5}' +
+    '#scr-party .dm-setup .pt-lbl{margin:15px 0 7px}' +
+    '#scr-party .dm-setup .blurb{margin-bottom:2px}' +
+
+    /* ── the rules dock at the foot — in the flow, never over anything ── */
+    '#scr-party .dmm-dock{flex:0 0 auto;margin-top:8px;border-radius:15px;overflow:hidden;' +
+      'border:1px solid var(--line2);' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02))}' +
+    '#scr-party .dmm-grip{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;' +
+      'padding:8px 14px;border:0;background:none;color:var(--dim);text-align:left;cursor:pointer;' +
+      'font:900 11px/1.3 var(--disp);letter-spacing:.1em;text-transform:uppercase}' +
+    '#scr-party .dmm-grip .ico{width:17px;height:17px;flex:0 0 auto}' +
+    '#scr-party .dmm-grip .cv{margin-left:auto;width:17px;height:17px;flex:0 0 auto;' +
+      'transition:transform .2s var(--ease)}' +
+    '#scr-party .dmm-dock.open{border-color:rgba(217,58,32,.5)}' +
+    '#scr-party .dmm-dock.open .dmm-grip{color:#FF9C7E}' +
+    '#scr-party .dmm-dock.open .cv{transform:rotate(180deg)}' +
+    '#scr-party .dmm-body{max-height:min(38vh,300px);overflow-y:auto;padding:0 14px 8px}' +
+    '#scr-party .dmm-body[hidden]{display:none}' +
+    '#scr-party .dmm-body>div{animation:dmmUp .22s var(--ease)}' +
+    '@keyframes dmmUp{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}' +
+    /* one rule: a stone, a name, a sentence */
+    '#scr-party .dmm-rule{display:grid;grid-template-columns:26px 1fr;column-gap:11px;' +
+      'row-gap:2px;padding:9px 0;border-top:1px solid var(--line)}' +
+    '#scr-party .dmm-rule:first-child{border-top:0}' +
+    '#scr-party .dmm-ric{grid-row:1/3;width:22px;height:22px;margin-top:3px;border-radius:50%;' +
+      'display:grid;place-items:center;' +
+      'background:radial-gradient(circle at 34% 28%,#FFFCF2,var(--dm-cr) 58%,var(--dm-cr2));' +
+      'box-shadow:inset 0 -2px 3px rgba(120,80,30,.35),0 2px 4px rgba(0,0,0,.4)}' +
+    '#scr-party .dmm-ric.b{background:radial-gradient(circle at 34% 28%,#FF8A6B,' +
+      'var(--dm-rd) 55%,var(--dm-rd2));box-shadow:inset 0 -2px 3px rgba(60,10,4,.5),' +
+      '0 2px 4px rgba(0,0,0,.4)}' +
+    '#scr-party .dmm-ric.x{background:rgba(255,255,255,.08);' +
+      'box-shadow:inset 0 0 0 2px var(--line2)}' +
+    '#scr-party .dmm-ric.d{background:linear-gradient(90deg,var(--dm-cr) 0 50%,' +
+      'var(--dm-rd) 50%);box-shadow:inset 0 -2px 3px rgba(0,0,0,.3),0 2px 4px rgba(0,0,0,.4)}' +
+    '#scr-party .dmm-ric .pt-pcs{width:64%;height:64%;fill:#FFE9B0;stroke:none}' +
+    '#scr-party .dmm-rule b{font:900 11px/1.35 var(--disp);letter-spacing:.07em;' +
+      'text-transform:uppercase;color:var(--txt)}' +
+    '#scr-party .dmm-rule i{font-style:normal;font-size:11px;line-height:1.45;color:var(--dim)}' +
+    /* sideways, the hero gives a little */
+    '@media (orientation:landscape) and (max-height:480px){' +
+      '#scr-party .dmm-hero{padding:6px 0 10px}' +
+      '#scr-party .dmm-stone{width:42px;height:42px}' +
+      '#scr-party .dmm-stone.k{width:50px;height:50px}}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .dmm-body>div{animation:none}' +
+      '#scr-party .dmm-grip .cv{transition:none}}' +
+    'body.reduced #scr-party .dmm-body>div{animation:none}' +
+    'body.reduced #scr-party .dmm-grip .cv{transition:none}';
+  document.head.appendChild(st);
+}
+
 function menu(){
   leave();
+  P.ui.css();
+  damaCSS();
+  const el = P.ui.screenEl();
+  const p = P.pref('dama');
+  const M = window.KARTI_MP;
+  const canOnline = !!(M && M.openFor);
+  const relayDown = !!(canOnline && M.PR && M.PR.tried && M.PR.err);
+  let level = DM_LVL[+p.level] ? String(+p.level) : '2';
+  let side  = (p.side === 'b') ? 'b' : 'w';
+  const r = P.recOf ? P.recOf('dama') : { w:0, l:0, d:0 };
+  const played = r.w + r.l + r.d;
   const sv = loadSave();
-  P.ui.setup({
-    id:'dama',
-    title:'Dama',
-    resume: sv ? {
-      line: (sv.mode === 'ai' ? 'You vs the phone' : 'Pass the phone') + ' — ' +
-            sv.log.length + (sv.log.length === 1 ? ' move' : ' moves') + ' in.',
-      go: () => restoreSaved()
-    } : null,
-    blurb:'Twelve stones each on the dark squares. If there is a take you TAKE it — ' +
-          'the app will not let you wriggle out of it, same as your uncle would not. ' +
-          'Get to the far side and you come back a king.',
-    levels: [
-      { k:1, name:'It-turist', note:'Will hand you three stones and smile.', icon:'diff-1' },
-      { k:2, name:'Tal-kazin', note:'Sets traps. Small ones, but traps.',    icon:'diff-2' },
-      { k:3, name:'In-nanna',  note:'Nine moves deep. Do not take the bait.', icon:'diff-3' }
-    ],
-    sides: [
-      { k:'w', name:'Gbejniet', cls:'w', note:'The cream ones. You go first.' },
-      { k:'b', name:'Bajtar',   cls:'r', note:'The red ones. It goes first.' }
-    ],
-    onStart: o => newGame(o),
-    onOnline: () => { if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('dama'); },
-    onBack: () => P.hub()
+  const svLine = sv
+    ? (sv.mode === 'ai' ? 'You vs the phone' : 'Pass the phone') + ' — ' +
+      sv.log.length + (sv.log.length === 1 ? ' move' : ' moves') + ' in.'
+    : '';
+
+  const door = (v, icon, name, sub, cls) =>
+    '<button type="button" class="dm-door' + (cls ? ' ' + cls : '') + '" data-go="' + v + '">' +
+      ico(icon) + '<b>' + esc(name) + '</b><i id="dm-sub-' + v + '">' + esc(sub) + '</i>' +
+      '<svg class="ico dm-chev" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<use href="#i-arrow-right"></use></svg>' +
+    '</button>';
+
+  /* the identity piece: the game's own stones, fanned — a stack of cream,
+     a bajtra, the crowned king standing tall, and back down the other side */
+  const hero =
+    '<div class="dmm-hero" aria-hidden="true">' +
+      '<span class="dmm-stone st"></span>' +
+      '<span class="dmm-stone b"></span>' +
+      '<span class="dmm-stone b k">' + U.pieceSVG('pt-crown') + '</span>' +
+      '<span class="dmm-stone"></span>' +
+      '<span class="dmm-stone b st"></span>' +
+    '</div>';
+
+  const rrow = (cls, name, text, crown) =>
+    '<div class="dmm-rule"><span class="dmm-ric ' + cls + '">' +
+    (crown ? U.pieceSVG('pt-crown') : '') + '</span><b>' + esc(name) + '</b><i>' +
+    esc(text) + '</i></div>';
+  const rulesRows =
+    rrow('b', 'Taking is compulsory',
+      'If a jump is on the board, nothing else is a move. The app will not let you ' +
+      'wriggle out of it, same as your uncle would not.') +
+    rrow('', 'Finish the chain',
+      'A jump that can carry on must carry on. The whole chain is one move — there is ' +
+      'no stopping halfway because you fancy the view.') +
+    rrow('b', 'Crowning',
+      'Reach the far row and you come back a king, and a king moves and takes backwards ' +
+      'too. Crowning ends the move on the spot, even if the new king could jump.', true) +
+    rrow('x', 'How you lose',
+      'Run out of legal moves. No stones left, or every one of them boxed in — twelve ' +
+      'on the board with nowhere to go is still a loss.') +
+    rrow('d', 'The draws',
+      'Forty moves each with nothing taken and no man moved, or the same position three ' +
+      'times over. Nobody pays.');
+
+  el.innerHTML =
+    '<div class="pt-wrap dmm">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>Dama</h2>' +
+      (played ? '<span class="pt-badge">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '') +
+    '</div>' +
+    '<div class="scroll dm-setup">' +
+      hero +
+      '<p class="blurb">Twelve stones each on the dark squares. If there is a take you ' +
+        '<b>TAKE</b> it — the app will not let you wriggle out of it. Get to the far side ' +
+        'and you come back a king.</p>' +
+      '<div class="tiny pt-lbl">Who are you playing</div>' +
+      '<div class="dm-doors">' +
+        (sv ? door('resume', 'play', 'Carry on with the saved board', svLine, 'hero') : '') +
+        (canOnline ? door('online', 'users', 'Somebody online',
+            relayDown ? 'The server cannot be reached from this phone.'
+                      : 'Open a room, or take one that is waiting.',
+            relayDown ? 'off' : '') : '') +
+        door('ai', 'coach', 'You vs the phone', '', sv ? '' : 'hero') +
+        door('pnp', 'users', 'Pass the phone', 'Two of you, one screen, no internet.') +
+      '</div>' +
+      (relayDown
+        ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right ' +
+          'now, so an online game would not get past the room list. <b>If Tailscale is ' +
+          'on, turn it off.</b> The phone and pass-the-phone both work with no internet ' +
+          'at all.</p>'
+        : '') +
+      '<div class="tiny pt-lbl">How hard is the phone</div>' +
+      '<div class="pt-opts" id="dm-lvl">' +
+        [1, 2, 3].map(k => '<button class="pt-opt" data-v="' + k + '">' +
+          ico(DM_LVL[k].icon) + '<b>' + esc(DM_LVL[k].name) + '</b><i>' +
+          esc(DM_LVL[k].note) + '</i></button>').join('') +
+      '</div>' +
+      '<div class="tiny pt-lbl">And you play</div>' +
+      '<div class="pt-opts two" id="dm-side">' +
+        '<button class="pt-opt" data-v="w"><span class="pt-swatch w"></span>' +
+          '<b>Ġbejniet</b><i>The cream ones. You go first.</i></button>' +
+        '<button class="pt-opt" data-v="b"><span class="pt-swatch r"></span>' +
+          '<b>Bajtar</b><i>The red ones. It goes first.</i></button>' +
+      '</div>' +
+      (played
+        ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' + r.l +
+          '</b> lost, <b>' + r.d + '</b> drawn.</p>'
+        : '') +
+      '<p class="pt-foot">Nothing here is a contract. Undo takes a move back, New deals ' +
+        'twelve fresh stones — and the house rules sit at the bottom if anybody argues.</p>' +
+    '</div>' +
+    '<div class="dmm-dock" id="dm-dock">' +
+      '<button type="button" class="dmm-grip" id="dm-grip" aria-expanded="false" ' +
+        'aria-controls="dm-dockbody" aria-label="Open the house rules">' +
+        ico('book') + '<span>The house rules</span>' +
+        '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+          '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+          'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</button>' +
+      '<div class="dmm-body" id="dm-dockbody" hidden><div>' + rulesRows + '</div></div>' +
+    '</div>' +
+    '</div>';
+
+  const sync = () => {
+    el.querySelectorAll('#dm-lvl .pt-opt').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === String(level)));
+    el.querySelectorAll('#dm-side .pt-opt').forEach(b =>
+      b.classList.toggle('on', b.dataset.v === side));
+    const L = DM_LVL[+level] || DM_LVL[2];
+    const sub = el.querySelector('#dm-sub-ai');
+    if (sub) sub.textContent = L.name + ' · you take the ' +
+      (side === 'w' ? 'Ġbejniet, and you go first' : 'Bajtar, and it goes first');
+  };
+  el.querySelectorAll('#dm-lvl .pt-opt').forEach(b =>
+    b.onclick = () => { level = b.dataset.v; sync(); });
+  el.querySelectorAll('#dm-side .pt-opt').forEach(b =>
+    b.onclick = () => { side = b.dataset.v; sync(); });
+  sync();
+
+  el.querySelectorAll('.dm-door').forEach(b => b.onclick = () => {
+    const go = b.dataset.go;
+    if (go === 'resume'){ restoreSaved(); return; }
+    P.pref('dama', { mode: go, level: level, side: side });
+    if (go === 'online'){
+      if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('dama');
+      return;
+    }
+    newGame({ mode: go, level: level, side: side });
   });
+  el.querySelector('#pt-back').onclick = () => P.hub();
+
+  /* the dock remembers whether you left it open — a UI preference, in a
+     UI-only key, never in the game save. Same pattern as kiri's dock. */
+  const dock = el.querySelector('#dm-dock');
+  const grip = el.querySelector('#dm-grip');
+  const dbody = el.querySelector('#dm-dockbody');
+  const setDock = open => {
+    dock.classList.toggle('open', open);
+    dbody.hidden = !open;
+    grip.setAttribute('aria-expanded', open ? 'true' : 'false');
+    grip.setAttribute('aria-label', open ? 'Close the house rules' : 'Open the house rules');
+    try { localStorage.setItem(UI_KEY + '.rules', open ? '1' : '0'); } catch(e){}
+  };
+  grip.onclick = () => setDock(dbody.hidden);
+  let dockOpen = false;
+  try { dockOpen = localStorage.getItem(UI_KEY + '.rules') === '1'; } catch(e){}
+  if (dockOpen) setDock(true);
 }
 function leave(){
   if (!G) return;

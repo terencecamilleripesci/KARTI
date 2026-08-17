@@ -1002,7 +1002,78 @@ function injectCSS(){
     '#scr-party .tb.gog .tb-call{padding:3px 8px}' +
     '#scr-party .tb.gog .tb-cards{gap:4px}' +
     '#scr-party .tb.gog .tb-card{padding:2px;border-radius:7px}' +
-    '#scr-party .tb.gog .tb-grid{gap:1px;padding:1px;border-radius:5px}}';
+    '#scr-party .tb.gog .tb-grid{gap:1px;padding:1px;border-radius:5px}}' +
+
+  /* ══ THE DOOR\'S OWN DRESS ═══════════════════════════════════════
+     Scoped under .tbm — the wrapper the setup sheet (and only the
+     setup sheet) puts on. The identity piece is a kartella mid-story:
+     a printed ticket, three numbers marked, and the token that has
+     just come out of the bag resting on its corner. Drawn in the same
+     cream, red rule and terracotta the game itself is drawn in, so
+     the door and the table are one object. */
+  '#scr-party .tbm{--tbm-paper:#F6E9CC;--tbm-blank:#DCC79C;--tbm-ink:#2A1B0C;' +
+    '--tbm-rule:#A8321E;--tbm-bean:#C1361F;--tbm-bean2:#8E2412}' +
+  '#scr-party .tbm-hero{position:relative;display:flex;justify-content:center;' +
+    'padding:10px 0 22px}' +
+  '#scr-party .tbm-hero::before{content:"";position:absolute;left:6%;right:6%;top:0;bottom:0;' +
+    'background:radial-gradient(60% 80% at 50% 55%,rgba(193,54,31,.16),' +
+    'rgba(246,233,204,.07) 55%,transparent 80%);pointer-events:none}' +
+  '#scr-party .tbm-tick{position:relative;transform:rotate(-2.5deg);' +
+    'background:var(--tbm-paper);border-radius:9px;padding:5px;' +
+    'box-shadow:0 0 0 2.5px var(--tbm-rule),0 0 0 4px rgba(0,0,0,.25),' +
+    '0 10px 22px rgba(0,0,0,.55)}' +
+  '#scr-party .tbm-grid{display:grid;grid-template-columns:repeat(9,clamp(23px,7vw,30px));' +
+    'grid-auto-rows:clamp(21px,6.2vw,27px);gap:2px}' +
+  '#scr-party .tbm-grid span{display:grid;place-items:center;border-radius:3px;' +
+    'background:var(--tbm-paper);box-shadow:inset 0 0 0 1px rgba(168,50,30,.4);' +
+    'font:900 12.5px/1 var(--disp);color:var(--tbm-ink)}' +
+  '#scr-party .tbm-grid span.e{background:var(--tbm-blank);' +
+    'box-shadow:inset 0 0 0 1px rgba(168,50,30,.22)}' +
+  /* a marked number is the game\'s own bean: terracotta, number knocked out */
+  '#scr-party .tbm-grid span.on{color:#FFF3DC;border-radius:50%;' +
+    'background:radial-gradient(circle at 34% 28%,#E85B36,var(--tbm-bean) 55%,var(--tbm-bean2));' +
+    'box-shadow:inset 0 -2px 3px rgba(0,0,0,.35),0 1px 3px rgba(0,0,0,.4)}' +
+  /* the token out of the bag, resting on the ticket\'s corner */
+  '#scr-party .tbm-ball{position:absolute;right:-12px;bottom:-16px;width:52px;height:52px;' +
+    'border-radius:50%;display:grid;place-items:center;transform:rotate(2.5deg);' +
+    'background:radial-gradient(circle at 34% 26%,#FFFDF4,#F0DFB8 52%,#C9AE79);' +
+    'box-shadow:inset 0 -4px 7px rgba(120,80,30,.28),inset 0 0 0 2.5px rgba(255,255,255,.5),' +
+    '0 6px 14px rgba(0,0,0,.55)}' +
+  '#scr-party .tbm-ball b{font:900 21px/1 var(--disp);color:#3A2408}' +
+
+  /* ── the rules dock at the foot — in the flow, never over anything.
+     The slide is transform-and-opacity on the words only; layout snaps,
+     the panel can never cover a setting or the Start button. ── */
+  '#scr-party .tbm-dock{flex:0 0 auto;margin-top:8px;border-radius:15px;overflow:hidden;' +
+    'border:1px solid var(--line2);' +
+    'background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02))}' +
+  '#scr-party .tbm-grip{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;' +
+    'padding:8px 14px;border:0;background:none;color:var(--dim);text-align:left;cursor:pointer;' +
+    'font:900 11px/1.3 var(--disp);letter-spacing:.1em;text-transform:uppercase}' +
+  '#scr-party .tbm-grip .ico{width:17px;height:17px;flex:0 0 auto}' +
+  '#scr-party .tbm-grip .cv{margin-left:auto;width:17px;height:17px;flex:0 0 auto;' +
+    'transition:transform .2s var(--ease)}' +
+  '#scr-party .tbm-dock.open{border-color:rgba(193,54,31,.55)}' +
+  '#scr-party .tbm-dock.open .tbm-grip{color:#FFB49A}' +
+  '#scr-party .tbm-dock.open .cv{transform:rotate(180deg)}' +
+  '#scr-party .tbm-body{max-height:min(38vh,300px);overflow-y:auto;padding:0 14px 10px}' +
+  '#scr-party .tbm-body[hidden]{display:none}' +
+  '#scr-party .tbm-body>div{animation:tbmUp .22s var(--ease)}' +
+  '@keyframes tbmUp{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}' +
+  '#scr-party .tbm-body p{font-size:11.5px;line-height:1.65;color:var(--dim);margin:8px 0 0;' +
+    'text-transform:none;letter-spacing:0}' +
+  '#scr-party .tbm-body p b{color:var(--gold)}' +
+  /* sideways, the ticket gives a little */
+  '@media (orientation:landscape) and (max-height:480px){' +
+    '#scr-party .tbm-hero{padding:4px 0 16px}' +
+    '#scr-party .tbm-grid{grid-template-columns:repeat(9,24px);grid-auto-rows:21px}' +
+    '#scr-party .tbm-ball{width:42px;height:42px}' +
+    '#scr-party .tbm-ball b{font-size:17px}}' +
+  '@media (prefers-reduced-motion:reduce){' +
+    '#scr-party .tbm-body>div{animation:none}' +
+    '#scr-party .tbm-grip .cv{transition:none}}' +
+  'body.reduced #scr-party .tbm-body>div{animation:none}' +
+  'body.reduced #scr-party .tbm-grip .cv{transition:none}';
 
   document.head.appendChild(st);
 }
@@ -1326,6 +1397,31 @@ function stepRow(id, label, note, val){
    The same words in two places — folded open in the setup sheet below, and
    handed to js/mp.js's shared lobby as `rulesHTML()`. Written once so the two
    can never disagree about what a vers is. */
+/* THE IDENTITY PIECE for the setup sheet: one kartella, mid-game. The
+   arrangement is fixed and legal (fifteen numbers, five a row, columns in
+   their decades), 48 has just come out of the bag — it is on the token AND
+   marked on the sheet — and two older calls are already beaned. Decoration
+   to a screen reader; the whole thing is aria-hidden. */
+const HERO_LAY = [
+   3, 17,  0, 34,  0, 56,  0, 71,  0,
+   0, 19, 25,  0, 48,  0, 62,  0, 88,
+  14,  0,  0, 39,  0, 53,  0, 77, 90];
+const HERO_ON = { 17:1, 48:1, 90:1 };
+function heroHTML(){
+  let cells = '';
+  for (const n of HERO_LAY)
+    cells += n ? '<span' + (HERO_ON[n] ? ' class="on"' : '') + '>' + n + '</span>'
+               : '<span class="e"></span>';
+  return '<div class="tbm-hero" aria-hidden="true"><div class="tbm-tick">' +
+    '<div class="tbm-grid">' + cells + '</div>' +
+    '<span class="tbm-ball"><b>48</b></span>' +
+  '</div></div>';
+}
+
+/* the rules dock's open state is a UI preference and lives in a UI-only
+   key — never with a game save. Same pattern as karti_kiri_ui_v1.dock. */
+const UI_KEY = 'karti_tombla_ui_v1';
+
 function rulesPanel(){
   return '<p><b>Tombla klassika</b> — <b>one kartella</b>, the Italian ladder: <b>ambo</b> ' +
       'two on one row, <b>terna</b> three, <b>kwaterna</b> four, <b>ċinkwina</b> the whole ' +
@@ -1402,15 +1498,16 @@ function menu(){
   let speed = [1,2,3].indexOf(p.speed) >= 0 ? p.speed : 2;
   let auto  = !!p.auto;
   let hints = !!p.hints;
-  let open  = false;
 
   el.innerHTML =
+    '<div class="pt-wrap tbm">' +
     '<div class="tbar">' +
       '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
       '<h2>Tombla</h2>' +
     '</div>' +
     '<div class="scroll">' +
+      heroHTML() +
       '<p class="blurb">Ninety numbers in a bag. <b>Klassika</b> deals you one kartella and ' +
         'five prizes; <b>tal-każin</b> deals the whole <b>ġog</b> of six, the way a band club ' +
         'does. You mark your own, and nobody checks a thing until somebody shouts.</p>' +
@@ -1461,17 +1558,25 @@ function menu(){
       setRow('tb-auto', 'Mark for me', 'Accessibility. The phone marks everything. It is not the game.',
              [{ v:0, l:'Off' }, { v:1, l:'On' }], auto ? 1 : 0) +
 
-      '<div class="tb-fold"><button id="tb-foldb">' + ico('book') +
-        '<span>The rules, and why there are two</span><span class="cv">+</span></button>' +
-        '<div class="body" id="tb-foldbody" hidden>' + rulesPanel() +
-        '</div></div>' +
-
       (rec.w + rec.l + rec.d
         ? '<p class="pt-ledger">Tombla so far: <b>' + rec.w + '</b> won, <b>' + rec.d +
           '</b> with a prize, <b>' + rec.l + '</b> with nothing.</p>'
         : '') +
 
       '<button class="btn primary" id="tb-start" style="margin:14px 0 24px"></button>' +
+    '</div>' +
+    /* the rules live at the foot, folded. In the flow, not over it: open
+       or shut, the dock can never cover a setting or the Start button. */
+    '<div class="tbm-dock" id="tb-dock">' +
+      '<button type="button" class="tbm-grip" id="tb-grip" aria-expanded="false" ' +
+        'aria-controls="tb-dockbody" aria-label="Open the rules">' + ico('book') +
+        '<span>The rules, and why there are two</span>' +
+        '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+          '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+          'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</button>' +
+      '<div class="tbm-body" id="tb-dockbody" hidden><div>' + rulesPanel() + '</div></div>' +
+    '</div>' +
     '</div>';
 
   const seg = (id, get, set) => el.querySelectorAll('#' + id + ' .tb-sq').forEach(b2 => {
@@ -1518,12 +1623,23 @@ function menu(){
     sfx('ui.note', { rate: 0.9 + seats / 20 });
     sync();
   });
-  el.querySelector('#tb-foldb').onclick = () => {
-    open = !open;
-    sfx(open ? 'ui.sheet' : 'ui.back');
-    el.querySelector('#tb-foldbody').hidden = !open;
-    el.querySelector('#tb-foldb .cv').textContent = open ? '−' : '+';
-  };
+  /* the dock: slide open on tap, remember the state in the UI-only key */
+  { const dock = el.querySelector('#tb-dock');
+    const grip = el.querySelector('#tb-grip');
+    const dbody = el.querySelector('#tb-dockbody');
+    const setDock = (isOpen, quiet) => {
+      dock.classList.toggle('open', isOpen);
+      dbody.hidden = !isOpen;
+      grip.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      grip.setAttribute('aria-label', isOpen ? 'Close the rules' : 'Open the rules');
+      if (!quiet) sfx(isOpen ? 'ui.sheet' : 'ui.back');
+      try { localStorage.setItem(UI_KEY + '.rules', isOpen ? '1' : '0'); } catch(e){}
+    };
+    grip.onclick = () => setDock(dbody.hidden);
+    let was = false;
+    try { was = localStorage.getItem(UI_KEY + '.rules') === '1'; } catch(e){}
+    if (was) setDock(true, true);
+  }
   sync();
 
   el.querySelector('#pt-back').onclick = () => P.hub();

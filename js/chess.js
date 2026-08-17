@@ -864,7 +864,85 @@ function chessCSS(){
     '@media (prefers-reduced-motion:reduce){' +
       '#scr-party .ch .pt-sq .pt-pc{transition:none!important}' +
       '#scr-party .ch .pt-board.ch-mate .pt-sq.chk::after{animation:none}' +
-      '#scr-party .ch .pt-rail .ch-thinks{animation:none;opacity:.9}}';
+      '#scr-party .ch .pt-rail .ch-thinks{animation:none;opacity:.9}}' +
+
+    /* ══ THE DOOR SCREEN\'S OWN DRESS ═══════════════════════════════════
+       Scoped under .chm — the wrapper the menu (and only the menu) puts
+       on — so none of it can reach the board, dama, or anything else that
+       shares this screen. The colours are the BOARD\'s own two woods, so
+       the door and the game it opens are recognisably one object. */
+    '#scr-party .chm{--chm-l:#E7D6AC;--chm-d:#4B3369}' +
+
+    /* ── the identity piece: five squares off the board, men stood on them ──
+       The same tiles, the same silhouettes and the same rims the game
+       itself draws, fanned the way SKARTA fans its cards. The king is the
+       centre and stands taller, because the king is the game. */
+    '#scr-party .chm-hero{position:relative;display:flex;justify-content:center;' +
+      'align-items:center;padding:12px 0 16px}' +
+    '#scr-party .chm-hero::before{content:"";position:absolute;left:8%;right:8%;top:0;bottom:4px;' +
+      'background:radial-gradient(55% 78% at 50% 60%,rgba(255,197,66,.16),' +
+      'rgba(75,51,105,.22) 52%,transparent 78%);pointer-events:none}' +
+    '#scr-party .chm-tile{position:relative;width:54px;aspect-ratio:1;flex:0 0 auto;' +
+      'margin-left:-7px;border-radius:9px;display:grid;place-items:center;' +
+      'background:linear-gradient(165deg,#5A3F7E,var(--chm-d) 60%,#31204A);' +
+      'box-shadow:inset 0 0 0 2px rgba(255,255,255,.14),0 7px 16px rgba(0,0,0,.55)}' +
+    '#scr-party .chm-tile.l{background:linear-gradient(165deg,#F2E4C0,var(--chm-l) 60%,#C7B287);' +
+      'box-shadow:inset 0 0 0 2px rgba(58,34,16,.28),0 7px 16px rgba(0,0,0,.55)}' +
+    '#scr-party .chm-tile:first-child{margin-left:0}' +
+    '#scr-party .chm-tile:nth-child(1){transform:rotate(-9deg) translateY(7px)}' +
+    '#scr-party .chm-tile:nth-child(2){transform:rotate(-4deg) translateY(1px)}' +
+    '#scr-party .chm-tile:nth-child(4){transform:rotate(4deg) translateY(1px)}' +
+    '#scr-party .chm-tile:nth-child(5){transform:rotate(9deg) translateY(7px)}' +
+    '#scr-party .chm-tile.k{width:66px;z-index:2;transform:translateY(-7px);border-radius:11px;' +
+      'box-shadow:inset 0 0 0 2px rgba(58,34,16,.28),0 0 0 2px rgba(255,197,66,.75),' +
+      '0 9px 20px rgba(0,0,0,.6)}' +
+    /* a fatter rim than the board wears: at 44-66px on the door these men
+       have no square-colour convention helping them, so the outline is
+       doing all the separating */
+    '#scr-party .chm-tile .pt-pcs{width:76%;height:76%;stroke-width:1.7}' +
+    '#scr-party .chm-tile.pw .pt-pcs{fill:var(--pcw);stroke:var(--rimw)}' +
+    '#scr-party .chm-tile.pb .pt-pcs{fill:var(--pcb);stroke:var(--rimb)}' +
+
+    /* ── the house rules, at the foot, folded ──────────────────────────
+       A dock, not a modal: it sits in the flow UNDER the scroll, so open
+       or shut it can never cover a door or the difficulty. The slide is
+       transform-and-opacity on the content only — layout snaps, the
+       words glide in. */
+    '#scr-party .chm-dock{flex:0 0 auto;margin-top:8px;border-radius:15px;overflow:hidden;' +
+      'border:1px solid var(--line2);' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02))}' +
+    '#scr-party .chm-grip{display:flex;align-items:center;gap:10px;width:100%;min-height:48px;' +
+      'padding:8px 14px;border:0;background:none;color:var(--dim);text-align:left;cursor:pointer;' +
+      'font:900 11px/1.3 var(--disp);letter-spacing:.1em;text-transform:uppercase}' +
+    '#scr-party .chm-grip .ico{width:17px;height:17px;flex:0 0 auto}' +
+    '#scr-party .chm-grip .cv{margin-left:auto;width:17px;height:17px;flex:0 0 auto;' +
+      'transition:transform .2s var(--ease)}' +
+    '#scr-party .chm-dock.open{border-color:rgba(255,197,66,.4)}' +
+    '#scr-party .chm-dock.open .chm-grip{color:var(--gold)}' +
+    '#scr-party .chm-dock.open .cv{transform:rotate(180deg)}' +
+    '#scr-party .chm-body{max-height:min(38vh,300px);overflow-y:auto;padding:0 14px 8px}' +
+    '#scr-party .chm-body[hidden]{display:none}' +
+    '#scr-party .chm-body>div{animation:chmUp .22s var(--ease)}' +
+    '@keyframes chmUp{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}' +
+    /* one rule: a piece, a name, a sentence */
+    '#scr-party .chm-rule{display:grid;grid-template-columns:26px 1fr;column-gap:11px;row-gap:2px;' +
+      'padding:9px 0;border-top:1px solid var(--line)}' +
+    '#scr-party .chm-rule:first-child{border-top:0}' +
+    '#scr-party .chm-rule .pt-pcs{grid-row:1/3;width:24px;height:24px;fill:var(--gold);' +
+      'stroke:none;margin-top:2px}' +
+    '#scr-party .chm-rule b{font:900 11px/1.35 var(--disp);letter-spacing:.07em;' +
+      'text-transform:uppercase;color:var(--txt)}' +
+    '#scr-party .chm-rule i{font-style:normal;font-size:11px;line-height:1.45;color:var(--dim)}' +
+    /* sideways, the hero gives a little so the doors keep the room */
+    '@media (orientation:landscape) and (max-height:480px){' +
+      '#scr-party .chm-hero{padding:4px 0 8px}' +
+      '#scr-party .chm-tile{width:44px}' +
+      '#scr-party .chm-tile.k{width:52px}}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .chm-body>div{animation:none}' +
+      '#scr-party .chm-grip .cv{transition:none}}' +
+    'body.reduced #scr-party .chm-body>div{animation:none}' +
+    'body.reduced #scr-party .chm-grip .cv{transition:none}';
   document.head.appendChild(st);
 }
 
@@ -897,6 +975,9 @@ const same = g => !!(G && !G.dead && G.gen === g);
    carried on. Online games are never written — a room is not resumable
    from here and must not eat the offline slot. */
 const SAVE_KEY = 'karti_chess_v1';
+/* UI preferences only — the rules dock's open/shut state lives here and
+   never in the game save. Same pattern as karti_kiri_ui_v1.dock. */
+const UI_KEY = 'karti_chess_ui_v1';
 let saveMoaned = false;
 function saveGame(){
   if (!G || G.dead || G.over || online()) return;
@@ -1876,7 +1957,41 @@ function menu(){
         '<use href="#i-arrow-right"></use></svg>' +
     '</button>';
 
+  /* the identity piece: five of the game's own tiles with five of its own
+     men stood on them, fanned the way SKARTA fans its cards. Drawn from the
+     same sprite and the same rim rules as the board, so the door and the
+     game are one object. Decoration to a screen reader. */
+  const tile = (cls, sym) =>
+    '<span class="chm-tile ' + cls + '">' + U.pieceSVG(sym) + '</span>';
+  const hero =
+    '<div class="chm-hero" aria-hidden="true">' +
+      tile('l pw', 'pt-p-r') + tile('pb', 'pt-p-n') + tile('l k pw', 'pt-p-k') +
+      tile('pb', 'pt-p-q') + tile('l pw', 'pt-p-b') +
+    '</div>';
+
+  /* the house rules, for the dock at the foot: a piece, a name, a sentence */
+  const rrow = (sym, name, text) =>
+    '<div class="chm-rule">' + U.pieceSVG(sym) + '<b>' + esc(name) + '</b><i>' +
+    esc(text) + '</i></div>';
+  const rulesRows =
+    rrow('pt-p-r', 'Castling, both ways',
+      'The king steps two squares towards his rook and the rook jumps over. Not out of ' +
+      'check, not through it, not into it — and neither piece may have moved.') +
+    rrow('pt-p-p', 'En passant',
+      'A pawn that double-steps past yours can be taken as if it had stepped once. ' +
+      'On the very next move only; after that the moment is gone.') +
+    rrow('pt-p-q', 'Promotion',
+      'A pawn on the far rank comes back as a queen, rook, bishop or knight. ' +
+      'Your choice, every time it happens.') +
+    rrow('pt-p-k', 'The king',
+      'No move may leave your own king in check. Out of moves entirely: checkmate if he ' +
+      'is attacked, stalemate if not — and stalemate is a draw, not a win.') +
+    rrow('pt-p-n', 'The draws',
+      'Fifty moves each with no capture and no pawn moved, the same position three ' +
+      'times over, or nobody with the wood left to mate. Nobody pays.');
+
   el.innerHTML =
+    '<div class="pt-wrap chm">' +
     '<div class="tbar">' +
       '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
@@ -1884,6 +1999,7 @@ function menu(){
       (played ? '<span class="pt-badge">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '') +
     '</div>' +
     '<div class="scroll ch-setup">' +
+      hero +
       '<p class="blurb">The proper thing — castling, en passant, and the pawn that walks all ' +
         'the way and comes back a queen. Pick who you are playing and you are playing.</p>' +
       '<div class="tiny pt-lbl">Who are you playing</div>' +
@@ -1921,7 +2037,37 @@ function menu(){
         : '') +
       '<p class="pt-foot">None of this is a decision you are stuck with. Once you are ' +
         'sitting at the board, the pill in the top corner brings you straight back here.</p>' +
+    '</div>' +
+    /* the rules live at the foot, folded. In the flow, not over it: open or
+       shut, the dock can never cover a door. */
+    '<div class="chm-dock" id="ch-dock">' +
+      '<button type="button" class="chm-grip" id="ch-grip" aria-expanded="false" ' +
+        'aria-controls="ch-dockbody" aria-label="Open the house rules">' +
+        ico('book') + '<span>The house rules</span>' +
+        '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+          '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+          'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</button>' +
+      '<div class="chm-body" id="ch-dockbody" hidden><div>' + rulesRows + '</div></div>' +
+    '</div>' +
     '</div>';
+
+  /* the dock remembers whether you left it open — a UI preference, in a
+     UI-only key, never in the game save. Same pattern as kiri's dock. */
+  const dock = el.querySelector('#ch-dock');
+  const grip = el.querySelector('#ch-grip');
+  const dbody = el.querySelector('#ch-dockbody');
+  const setDock = open => {
+    dock.classList.toggle('open', open);
+    dbody.hidden = !open;
+    grip.setAttribute('aria-expanded', open ? 'true' : 'false');
+    grip.setAttribute('aria-label', open ? 'Close the house rules' : 'Open the house rules');
+    try { localStorage.setItem(UI_KEY + '.rules', open ? '1' : '0'); } catch(e){}
+  };
+  grip.onclick = () => setDock(dbody.hidden);
+  let dockOpen = false;
+  try { dockOpen = localStorage.getItem(UI_KEY + '.rules') === '1'; } catch(e){}
+  if (dockOpen) setDock(true);
 
   const sync = () => {
     el.querySelectorAll('#ch-lvl .ch-chip').forEach(b =>

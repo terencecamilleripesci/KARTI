@@ -493,7 +493,38 @@ function injectCSS(){
       /* advanced hides the shelf, so the deck and pile take the whole
          middle band instead of sharing the row with an empty box */
       '#scr-party .rm-table.rm-adv{grid-template-columns:minmax(0,1fr);' +
-        'grid-template-areas:"opps" "draws" "hand" "acts"}}';
+        'grid-template-areas:"opps" "draws" "hand" "acts"}}' +
+
+    /* ── THE SETUP SHEET'S OWN FACE — the navy felt, worn as a badge.
+       The identity piece is THE SHAPE YOU ARE HUNTING, dealt out of the
+       real pack: a run and a set held as two little fans — 4+3 — and a
+       third fan joins them the moment GĦAXRA is picked above. Scoped to
+       .rm-menu so not one rule of it can reach another game's sheet. ── */
+    '#scr-party .rm-menu .pt-lbl{color:#8FB4E8}' +
+    '#scr-party .rm-menu .rm-hero{position:relative;display:flex;align-items:center;' +
+      'justify-content:center;margin:2px 0 12px;padding:18px 8px 17px;border-radius:16px;' +
+      'overflow:hidden;' +
+      'background:radial-gradient(120% 130% at 50% 0%,#28437A 0%,var(--rm-felt) 52%,var(--rm-felt2) 100%);' +
+      'border:1px solid rgba(0,0,0,.5);box-shadow:inset 0 2px 0 rgba(255,255,255,.07),' +
+      'inset 0 -14px 26px rgba(0,0,0,.4)}' +
+    /* the etched inner ring the draw felt wears mid-game, so the sheet
+       and the table are visibly the same place */
+    '#scr-party .rm-menu .rm-hero::before{content:"";position:absolute;inset:6px;' +
+      'border-radius:11px;border:1px solid rgba(255,255,255,.07);pointer-events:none}' +
+    '#scr-party .rm-menu .rm-hero-g{display:flex;flex:0 0 auto}' +
+    '#scr-party .rm-menu .rm-hero-g .kb-card{margin-left:-16px;' +
+      'box-shadow:0 2px 5px rgba(0,0,0,.55)}' +
+    '#scr-party .rm-menu .rm-hero-g.tight .kb-card{margin-left:-13px}' +
+    '#scr-party .rm-menu .rm-hero-g .kb-card:first-child{margin-left:0}' +
+    /* three little fans, each held at its own angle — a HAND, not a strip */
+    '#scr-party .rm-menu .rm-hero-g.run{transform:rotate(-5deg) translateY(2px)}' +
+    '#scr-party .rm-menu .rm-hero-g.set{transform:rotate(4deg)}' +
+    '#scr-party .rm-menu .rm-hero-g.set2{transform:rotate(8deg) translateY(3px)}' +
+    '#scr-party .rm-menu .rm-hero-plus{flex:0 0 auto;margin:0 9px;font:900 19px/1 var(--disp);' +
+      'font-style:normal;color:var(--rm-gold);text-shadow:0 2px 6px rgba(0,0,0,.6)}' +
+    '#scr-party .rm-menu .rm-hero-cap{position:absolute;right:11px;bottom:7px;' +
+      'font:900 9.5px/1 var(--disp);letter-spacing:.18em;color:rgba(255,255,255,.30)}' +
+    '@media (max-height:520px){#scr-party .rm-menu .rm-hero{padding:12px 8px 13px}}';
   document.head.appendChild(st);
 }
 
@@ -1554,15 +1585,47 @@ function setupSheet(){
     let onlineReady = false;
     try { onlineReady = !!(MPX && MPX.gameLobby && MPX.gameLobby('rummy').id === 'rummy'); } catch(e){}
 
+    /* THE IDENTITY PIECE: the winning shape, dealt from the real pack.
+       A run of hearts and a set of kings — 4+3 — and picking GĦAXRA
+       above deals the second set in, so the hero always shows exactly
+       the hand the Deal button below will ask for. Decoration only:
+       spans, aria-hidden, nothing tappable. */
+    const hw = mode === 'ghaxra' ? 34 : 44;
+    const hc = f => '<span class="kb-card" style="width:' + hw + 'px;height:' +
+      Math.round(hw * 1.4) + 'px">' + DECK.cardFace(f) + '</span>';
+    const mkc = DECK.mk;
+    const hero =
+      '<div class="rm-hero" aria-hidden="true">' +
+        '<span class="rm-hero-g run' + (mode === 'ghaxra' ? ' tight' : '') + '">' +
+          [mkc(1, 4), mkc(1, 5), mkc(1, 6), mkc(1, 7)].map(hc).join('') + '</span>' +
+        '<i class="rm-hero-plus">+</i>' +
+        '<span class="rm-hero-g set' + (mode === 'ghaxra' ? ' tight' : '') + '">' +
+          [mkc(0, 13), mkc(1, 13), mkc(3, 13)].map(hc).join('') + '</span>' +
+        (mode === 'ghaxra'
+          ? '<i class="rm-hero-plus">+</i>' +
+            '<span class="rm-hero-g set2 tight">' +
+            [mkc(2, 9), mkc(3, 9), mkc(0, 9)].map(hc).join('') + '</span>'
+          : '') +
+        '<span class="rm-hero-cap">' + esc(E.shapeName(mode)) + '</span>' +
+      '</div>';
+
     el.innerHTML =
+      '<div class="pt-wrap rm-menu">' +
       '<div class="tbar">' +
         '<button class="iconbtn" id="rm-back" aria-label="Back">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
         '<h2>RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
+        hero +
         '<p class="blurb">Draw one, throw one, and the moment your whole hand is melds ' +
         'you call <b>RUMMY</b> and you have won. Nothing to count — the shout takes it.</p>' +
+        /* a half-played table comes FIRST, gold, the skarta way — the
+           likeliest tap on a return visit should be the top one */
+        (ST.save
+          ? '<button class="btn primary" id="rm-res" style="margin:2px 0 10px">' +
+            'Carry on the saved table</button>'
+          : '') +
 
         '<div class="tiny pt-lbl">How many cards in the hand</div>' +
         '<div class="pt-opts two" id="rm-mode">' +
@@ -1623,10 +1686,13 @@ function setupSheet(){
           '</button>').join('') +
         '</div>' +
 
+        (ST.rec.w + ST.rec.l
+          ? '<p class="pt-ledger">At this table so far: <b>' + ST.rec.w + '</b> won, <b>' +
+            ST.rec.l + '</b> lost.</p>'
+          : '') +
         '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
           '<button class="btn primary" id="rm-go">Deal — you vs ' + (seats - 1) +
             ' machine' + (seats - 1 === 1 ? '' : 's') + '</button>' +
-          (ST.save ? '<button class="btn ghost" id="rm-res">Carry on the saved table</button>' : '') +
           (window.KARTI_MP
             ? (onlineReady
                 ? '<button class="btn ghost" id="rm-online">Open an online RUMMY room</button>'
@@ -1656,7 +1722,7 @@ function setupSheet(){
                 'color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
             '</ul></div></div>' +
         '</div>' +
-      '</div>';
+      '</div></div>';
 
     el.querySelector('#rm-back').onclick = () => P.hub();
     /* changing the hand size or the jokers can change what the pack
