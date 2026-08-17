@@ -2155,10 +2155,27 @@ class RoomBook:
         return [(c, text) for c in targets]
 
     def leave(self, conn):
+        """A DELIBERATE exit, and it must leave the room's picture correct.
+
+        This used to send only `peer/left`. A dropped SOCKET, by contrast,
+        gets a fresh roster pushed after it — so the two paths disagreed, and
+        a table that watched the roster rather than the peer message kept
+        drawing somebody who had stood up and walked off. At eight chairs
+        that is a ghost nobody can remove and a start nobody can reach.
+
+        The client now handles the lobby case by emptying exactly the chair
+        the relay names, but a STARTED game still had only the peer message
+        to go on. Sending the roster as well costs one small object and
+        removes the disagreement at its source rather than asking every
+        game to remember the difference."""
         with self._lock:
             rest, room = self._detach(conn, permanent=True)
             tbl = room is not None and room.is_table()
-        return self._tell_left(rest, tbl)
+            roster = room.roster() if (tbl and room is not None) else None
+        out = self._tell_left(rest, tbl)
+        if roster is not None:
+            out += [(c, roster) for c, _ in rest]
+        return out
 
     def drop(self, conn):
         """Socket died. Hold the chair for GRACE seconds.

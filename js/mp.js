@@ -1177,6 +1177,13 @@ function injectCSS(){
     '.mp-pill.go i{color:rgba(36,24,0,.62)}' +
     '.mp-pill.off{opacity:.66}' +
     '.mp-pill:active{transform:scale(.95)}' +
+    /* a pill that is only information (somebody mid-game) is a span, not a
+       button — it needs the button's box drawn on but no press affordance */
+    'span.mp-pill{display:inline-block;cursor:default}' +
+    'span.mp-pill:active{transform:none}' +
+    '.mp-arnote{margin:2px 0 0;font-size:11.5px;line-height:1.6;color:#A093C4}' +
+    '.mp-rectitle .n{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;' +
+      'color:#A093C4}' +
     '#scr-mp .mp-askrow{display:flex;gap:7px}' +
     '#scr-mp .mp-askrow .field{flex:1;min-width:0}' +
     '#scr-mp .mp-askrow .btn{flex:0 0 auto;min-width:74px}' +
@@ -1693,7 +1700,13 @@ function onServer(m){
          has always run. */
       if (MP.size > 2){
         if (m.state === 'joined' || m.state === 'rejoined') K.toast('Somebody sat down.');
-        else if (m.state === 'left' && MP.live) tableSeatGone(m.seat, 'left');
+        else if (m.state === 'left'){
+          if (MP.live) tableSeatGone(m.seat, 'left');
+          else tableChairFreed(m.seat);
+        }
+        /* 'dropped' needs nothing here in the lobby: the relay follows it with
+           a fresh {t:'table'} that marks the chair held, and that roster is
+           the thing this screen believes. Mid-game it is the game's business. */
         else if (m.state === 'dropped' && MP.live) tableSeatGone(m.seat, 'dropped');
         return;
       }
@@ -1887,6 +1900,9 @@ function lobby(){
             'straight in — they do not need a code.') + '</p>' +
         '<p class="mp-holdage" id="mp-age">open for 0s</p>' +
       '</div>' +
+      /* who is actually about, in the open — not behind a fold. Repainted in
+         place whenever the relay says the answer moved. */
+      '<div id="mp-around"></div>' +
       (MP.private
         ? '<div style="display:grid;gap:9px">' + codeBlock + '</div>'
         : '<details style="margin:4px 0 14px"><summary class="tiny">Waiting for one ' +
@@ -1904,6 +1920,8 @@ function lobby(){
       '<button class="btn ghost" id="mp-cancel">✕ Cancel and go back</button>';
     startWaitClock();
     invitePanel();
+    paintRoomAround();
+    whoAsk();                    /* freshen the strip; floored, never a poll */
   }
 
   const cp = $('#mp-copy');
@@ -2094,6 +2112,9 @@ function tableLobby(){
             : esc(verdict.why)) + '</p>') +
     '</div>' +
 
+    /* ── who is actually about — in the open, above the drawer ── */
+    '<div id="mp-around"></div>' +
+
     /* ── ask somebody, without leaving the room ── */
     '<button class="btn ghost" id="mp-askbtn" style="margin-top:4px">' + ico('users') +
       ' Ask somebody to join</button>' +
@@ -2157,6 +2178,8 @@ function tableLobby(){
   const ax = $('#mp-aix');
   if (ax) ax.onclick = () => { MP.panel = null; MP.aiSeat = -1; sfx('ui.back'); tableLobby(); };
   wireAskDrawer();
+  paintRoomAround();
+  whoAsk();                      /* freshen the strip; floored, never a poll */
 
   const cp = $('#mp-copy');
   if (cp) cp.onclick = () => {
@@ -2280,19 +2303,11 @@ function aiDrawer(LB){
 }
 
 /* ── asking somebody, from inside the room ──────────────────────── */
-function askDrawer(){
+/* the drawer's people lists, rebuilt whenever `who` answers */
+function askPeopleHTML(){
   const rec = WHO.recent.slice(0, 8);
   const around = WHO.people.filter(p => p.s === 'idle').slice(0, 8);
-  let h = '<div class="mp-drawer" id="mp-ask">' +
-    '<div class="mp-dhd"><b>Ask somebody</b>' +
-      '<button class="mp-dx" id="mp-askx" aria-label="Close">' + ico('close') + '</button></div>';
-
-  if (!canInvite()){
-    h += '<p class="mp-dp">Asking one particular person needs a KARTI account on your side — ' +
-         'it is what the invitation is addressed to. Without one, your table is still in ' +
-         'everybody’s list and anyone can tap it.</p></div>';
-    return h;
-  }
+  let h = '';
   if (WHO.off){
     h += '<p class="mp-dp">This relay is an older build and cannot say who is around. ' +
          'You can still invite by name.</p>';
@@ -2313,6 +2328,30 @@ function askDrawer(){
     h += '<p class="mp-dp">Nobody you have played with is around yet. Ask by name and it ' +
          'will be waiting for them the moment they open KARTI.</p>';
   }
+  return h;
+}
+function paintAskPeople(){
+  const host = $('#mp-askppl');
+  if (!host) return;
+  host.innerHTML = askPeopleHTML();
+  K.$$('[data-ask]', host).forEach(b => b.onclick = () => sendInvite(b.dataset.ask));
+}
+function askDrawer(){
+  let h = '<div class="mp-drawer" id="mp-ask">' +
+    '<div class="mp-dhd"><b>Ask somebody</b>' +
+      '<button class="mp-dx" id="mp-askx" aria-label="Close">' + ico('close') + '</button></div>';
+
+  if (!canInvite()){
+    h += '<p class="mp-dp">Asking one particular person needs a KARTI account on your side — ' +
+         'it is what the invitation is addressed to. Without one, your table is still in ' +
+         'everybody’s list and anyone can tap it.</p></div>';
+    return h;
+  }
+  /* the people lists live in their own container so a fresh `who` answer can
+     repaint THEM without redrawing the drawer — redrawing the drawer wipes
+     whatever is half-typed in the name box below, and the relay nudges us
+     every few seconds when the party is busy. */
+  h += '<div id="mp-askppl">' + askPeopleHTML() + '</div>';
   h += '<div class="mp-dsub">BY NAME</div>' +
     '<div class="mp-askrow"><input class="field" id="mp-invname" maxlength="' + NAME_MAX + '" ' +
       'placeholder="Their KARTI name" autocomplete="off" spellcheck="false" ' +
@@ -2330,6 +2369,99 @@ function wireAskDrawer(){
   $$('[data-ask]').forEach(b => b.onclick = () => { sendInvite(b.dataset.ask); });
   const go = $('#mp-invgo');
   if (go) go.onclick = () => sendInvite(($('#mp-invname') || {}).value || '');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WHO IS AROUND, IN THE ROOM ITSELF
+   ───────────────────────────────────────────────────────────────────
+   The one thing a person sitting in an empty room wants to know is
+   whether anybody else EXISTS — and the answer was already on this
+   phone, hidden behind a collapsed drawer. So it is drawn in the open,
+   in every room's waiting screen, duel and table alike.
+
+   What is shown is exactly the `who` answer and nothing else: named,
+   signed-in, visible accounts, each with the state the relay already
+   publishes (idle / at a table / mid-game). A guest is never named
+   here — the relay refuses to name them, on purpose — so every name
+   shown is a name an invitation can actually reach. Somebody mid-game
+   gets no button, because an invite they cannot see is a button that
+   lies. See docs/ONLINE.md, section 5c.
+   ═══════════════════════════════════════════════════════════════════ */
+function roomAroundHTML(){
+  /* no account -> no list, by the relay's own rule. The sign-in nudge is
+     already on the screen in both rooms, so nothing more is said here. */
+  if (!canInvite() || WHO.off || !MP.code) return '';
+  /* a full table can invite nobody — the relay refuses it — so the strip
+     would be all buttons that fail. The chairs already say "every chair is
+     taken"; stay out of the way. */
+  const taken = MP.roster ? rosterSeats().length : (MP.peerHere ? 2 : 1);
+  if (taken >= MP.size) return '';
+  /* people already at THIS table are on the chairs above, not in this list */
+  const seated = {};
+  ((MP.roster && MP.roster.who) || []).forEach(w => {
+    if (w && !w.bot && w.n) seated[String(w.n).toUpperCase()] = 1;
+  });
+  const ppl = WHO.people.filter(p => p && typeof p.n === 'string' && p.n &&
+                                     !seated[p.n.toUpperCase()]);
+  let inner;
+  if (!WHO.got){
+    inner = '<p class="mp-arnote">Checking who is about…</p>';
+  } else if (!ppl.length){
+    inner = '<p class="mp-arnote">Nobody signed in is around right now. ' +
+      (MP.private
+        ? 'This room is private, so only somebody you give the code to can find it.'
+        : 'Your room is still in everybody’s list — the next person to open ' +
+          'Online sees it straight away.') + '</p>';
+  } else {
+    const shown = ppl.slice(0, 8);
+    inner = '<div class="mp-pills">' + shown.map(p => {
+      if (p.s === 'playing')
+        return '<span class="mp-pill off">' + esc(p.n) +
+               '<i>' + esc(whoWord(p)) + '</i></span>';
+      return '<button class="mp-pill" data-around="' + esc(p.n) + '" ' +
+        'aria-label="Invite ' + esc(p.n) + '">' + esc(p.n) +
+        '<i>' + esc(whoWord(p)) + ' · tap to ask</i></button>';
+    }).join('') + '</div>' +
+    (ppl.length > shown.length
+      ? '<p class="mp-arnote">and ' + (ppl.length - shown.length) + ' more around.</p>'
+      : '');
+  }
+  return '<div class="mp-recent"><div class="mp-rectitle">' + ico('users') +
+    ' Who is around · <span class="n">' + (WHO.got ? WHO.here : '…') + '</span></div>' +
+    inner + '</div>';
+}
+/* painted into #mp-around — its own container, so a `who` answer refreshes
+   the strip without redrawing the room around it */
+function paintRoomAround(){
+  const host = $('#mp-around');
+  if (!host) return;
+  host.innerHTML = roomAroundHTML();
+  K.$$('[data-around]', host).forEach(b => b.onclick = () => {
+    sfx('ui.toggle');
+    sendInvite(b.dataset.around);          /* 'invited' reply says it went */
+  });
+}
+
+/* ── somebody left the LOBBY on purpose ─────────────────────────────
+   The relay announces a clean exit — {t:'peer', state:'left', seat:N} —
+   but sends no fresh {t:'table'} for it (a dropped signal gets one; a
+   deliberate leave does not). Without this, the chair sat "taken" on
+   every other phone until something else changed the table, which is a
+   roster telling everybody somebody is here who is not. Nothing is
+   invented: the one fact applied — that seat is now empty — is the
+   relay's own word, and the next real roster simply overwrites it. */
+function tableChairFreed(seat){
+  const r = MP.roster;
+  if (!r || !Array.isArray(r.who)) return;
+  if (typeof seat !== 'number' || seat < 0 || seat >= r.who.length) return;
+  const w = r.who[seat];
+  if (!w || w.bot) return;                 /* a machine never 'leaves' */
+  const name = w.n || 'Somebody';
+  r.who[seat] = null;
+  r.taken = r.who.filter(Boolean).length;
+  r.waiting = r.who.filter(x => x && !x.bot && !x.ready).length;
+  K.toast(name + ' left the table.');
+  if (!MP.live && !MP.boardLive) tableLobby();
 }
 
 /* ── somebody left mid-game ─────────────────────────────────────── */
@@ -2679,7 +2811,12 @@ function onWho(m){
   if (m.you && typeof m.you === 'object') WHO.me = m.you;
   WHO.got = true;
   paintSocial();
-  if (MP.panel === 'ask' && MP.size > 2) tableLobby();
+  /* the in-room views repaint their own containers IN PLACE. Redrawing the
+     whole lobby here is what used to wipe a half-typed name out of the ask
+     drawer every time the relay nudged — the party being busy made the
+     drawer unusable, which is exactly backwards. */
+  paintRoomAround();
+  if (MP.panel === 'ask' && MP.size > 2) paintAskPeople();
 }
 
 /* an invitation that was left while the app was shut. It is not a room — the
@@ -3602,23 +3739,49 @@ function paintOnlineSocial(){
            'it goes in everybody’s list, and anyone you ask will get the invitation ' +
            'whenever they next open KARTI.</p>';
   } else {
-    const row = p =>
-      '<button class="mp-person s-' + esc(p.s) + '"' +
-        (p.s === 'waiting' && p.id ? ' data-pjoin="' + esc(p.id) + '" data-pg="' +
-          esc(p.g || '') + '"' : ' data-pask="' + esc(p.n) + '" data-pg="' +
-          esc(p.g || '') + '"') +
+    /* Every row here is a NAMED ACCOUNT — that is the relay's rule, not ours
+       (a guest is counted and never listed). What each one offers is only
+       what is true: a waiting player with a join handle can be JOINED; an
+       idle player (or one holding a private/full room) can be ASKED; and
+       somebody MID-GAME can act on nothing right now, so their row is not a
+       button at all — it is drawn compact so sixteen people playing tombla
+       do not push the room list off the screen. */
+    const row = p => {
+      const act = (p.s === 'waiting' && p.id) ? 'join'
+                : (p.s !== 'playing') ? 'ask' : null;
+      const tag = act ? 'button' : 'div';
+      return '<' + tag + ' class="mp-person s-' + esc(p.s) + '"' +
+        (act === 'join' ? ' data-pjoin="' + esc(p.id) + '" data-pg="' + esc(p.g || '') + '"'
+       : act === 'ask'  ? ' data-pask="' + esc(p.n) + '" data-pg="' + esc(p.g || '') + '"'
+       : '') +
         ' data-who="' + esc(p.n) + '">' +
         '<span class="mp-pav">' + esc((p.n || '?').slice(0, 2).toUpperCase()) + '</span>' +
         '<span class="mp-pw"><b>' + esc(p.n) + '</b><i>' + esc(whoWord(p)) + '</i></span>' +
-        '<span class="mp-pgo">' + (p.s === 'waiting' ? 'Join' : p.s === 'idle' ? 'Ask' : '') +
-        '</span></button>';
+        '<span class="mp-pgo">' + (act === 'join' ? 'Join' : act === 'ask' ? 'Ask' : '') +
+        '</span></' + tag + '>';
+    };
     body =
       (waiting.length ? '<div class="mp-dsub">A CHAIR YOU CAN TAKE NOW</div>' +
         waiting.map(row).join('') : '') +
       (idle.length ? '<div class="mp-dsub">OPEN AND NOT PLAYING</div>' +
         idle.map(row).join('') : '') +
-      (playing.length ? '<div class="mp-dsub">MID-GAME</div>' +
-        playing.map(row).join('') : '');
+      (playing.length ? '<div class="mp-dsub">MID-GAME</div><div class="mp-pills">' +
+        playing.map(p => '<span class="mp-pill off">' + esc(p.n) +
+          '<i>' + esc(whoWord(p)) + '</i></span>').join('') + '</div>' : '');
+  }
+  /* the honest remainder. `sockets` counts every connection, `here` counts
+     the named people above, and one of the difference is our own socket. The
+     relay deliberately does not break the rest down (guests + the invisible),
+     so neither do we — but "nobody is around" over three unnamed connections
+     would be a lie in the other direction, so it is said in BOTH the full and
+     the empty state. Nothing here is on the wire that was not already. */
+  if (WHO.got){
+    const gap = Math.max(0, WHO.sockets - WHO.here - 1);
+    if (gap > 0)
+      body += '<p class="mp-quiet">' + gap + ' more ' + (gap === 1 ? 'is' : 'are') +
+        ' connected but not named — guests without an account, or players gone ' +
+        'invisible. A guest cannot be invited by name, but they can still see ' +
+        'and tap any room in the list.</p>';
   }
 
   host.innerHTML =
@@ -3873,30 +4036,24 @@ function paintInvites(){
 function invitePanel(){
   const host = $('#mp-askbox');
   if (!host) return;
-  const players = ((PR.data && PR.data.players) || [])
-    .filter(p => p && typeof p.n === 'string' && p.n !== myPresenceName() &&
-                 p.n !== INBOX.name)
-    .slice(0, 8);
+  /* The one-tap names live in the who-is-around strip above, which is built
+     from the `who` answer — every name in it is a signed-in account, so every
+     tap is an invitation that can actually arrive. The chips that used to sit
+     here were built from the PUBLIC presence list instead, which names guests
+     too — and a guest has no account for an invitation to reach, so some of
+     those chips were buttons that could only ever fail silently. Gone. */
   host.innerHTML =
     '<div class="mp-box"><b>Ask somebody by name.</b> They get it the moment they open ' +
-    'KARTI — and it is still waiting for them if they are not on right now. ' +
+    'KARTI — and it is still waiting for them if they are not on right now. Only a ' +
+    'name with a KARTI account can receive one; the list above shows who is on. ' +
     '<span class="mp-quiet">In-app only: it will not light up a locked phone.</span></div>' +
-    (players.length
-      ? '<div class="tiny" style="margin:12px 0 7px">On right now</div>' +
-        '<div class="mp-who">' + players.map(p =>
-          '<button class="mp-chip" data-inv="' + esc(p.n) + '">' + esc(p.n) + '</button>'
-        ).join('') + '</div>'
-      : '') +
-    '<div class="tiny" style="margin:14px 0 7px">Or type their KARTI name</div>' +
+    '<div class="tiny" style="margin:14px 0 7px">Their KARTI name</div>' +
     '<div style="display:grid;gap:8px">' +
       '<input class="field" id="mp-invname" maxlength="' + NAME_MAX + '" ' +
         'placeholder="THEIR NAME" autocomplete="off" spellcheck="false" ' +
         'aria-label="Who to invite">' +
       '<button class="btn" id="mp-invgo">' + ico('users') + ' Send the invitation</button>' +
     '</div>';
-  K.$$('[data-inv]', host).forEach(el => {
-    el.onclick = () => sendInvite(el.getAttribute('data-inv'));
-  });
   const go = $('#mp-invgo');
   if (go) go.onclick = () => sendInvite(($('#mp-invname') || {}).value || '');
 }
@@ -4117,7 +4274,8 @@ window.KARTI_MP = {
   tableRemote, tableStop, SEATS_FALLBACK,
   /* ── who is around ── */
   WHO, whoAsk, onWho, paintSocial, paintOnlineSocial, knockAdd, knockAnswer,
-  recentStrip, knockCards,
+  recentStrip, knockCards, roomAroundHTML, paintRoomAround, askPeopleHTML,
+  paintAskPeople,
   RELAY_URL, RELAY_HEALTH, RELAY_PRESENCE, CODE_LEN, CODE_ALPHABET,
   ROOM_ROWS, PRESENCE_LOBBY, PRESENCE_MIN_GAP,
   /* older name kept so nothing that reached for it breaks */
