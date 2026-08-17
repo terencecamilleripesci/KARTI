@@ -1335,6 +1335,7 @@ function table(){
       '<div class="kb-bot" id="kb-bot"></div>' +
     '</div>';
   const root = ctx.host.querySelector('#kb-table');
+  root.classList.add('kb-g-' + M.gid); /* per-game cosmetic scope for the kit shelf — the table is rebuilt per match so the class always matches the game being played */
   UI = {
     ctx, root,
     top: root.querySelector('#kb-top'),
@@ -2589,5 +2590,266 @@ try {
     };
   }
 } catch(e){}
+
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   KLABB — THE KIT SHELF (purely cosmetic, always)
+   Felts and card backs for the four card games, declared through
+   KARTI_XP.register() and applied as CSS scoped to the per-game
+   .kb-g-<gid> class that render() stamps on the table. A felt is one
+   background re-declaration of the stock radial; a back is a recolour
+   of the shared lattice SVG via CSS fill/stroke (which beat the SVG's
+   own presentation attributes) pointing at cloned <pattern>s in a
+   hidden sheet — the stock #kb-lat is never touched, so the other
+   three games keep their crimson. The style node is re-appended on
+   every change so it always lands after the game's own sheet, and an
+   empty shelf is an empty sheet: stock everything.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+var GIDS = ['bixkla', 'briscola', 'sette', 'cheat'];
+
+/* three moods per game: two grown out of the game's own menu palette
+   and one from a different shelf entirely, so the catalogue does not
+   read as one taste */
+var FELTS = {
+  'bixkla.felt.buskett':    { hi:'#2A7A52', mid:'#17503A', lo:'#0A2B1D' },
+  'bixkla.felt.laguna':     { hi:'#2E8C7A', mid:'#175E52', lo:'#08322B' },
+  'bixkla.felt.ghabex':     { hi:'#9A4A62', mid:'#6E2C44', lo:'#33101F' },
+  'briscola.felt.port':     { hi:'#2E6EA0', mid:'#1B4568', lo:'#0A1F33' },
+  'briscola.felt.fond':     { hi:'#46628C', mid:'#26374F', lo:'#0D1420' },
+  'briscola.felt.franka':   { hi:'#C9AF7E', mid:'#A88C58', lo:'#5F4A26' },
+  'sette.felt.inbid':       { hi:'#93303C', mid:'#5E1820', lo:'#250709' },
+  'sette.felt.deheb':       { hi:'#B07A2A', mid:'#7A4E14', lo:'#331F05' },
+  'sette.felt.irham':       { hi:'#5A6478', mid:'#333B4C', lo:'#12161F' },
+  'cheat.felt.vjola':       { hi:'#6A4FA0', mid:'#43306E', lo:'#1A102E' },
+  'cheat.felt.buganvilla':  { hi:'#8A3E86', mid:'#5C245C', lo:'#260B26' },
+  'cheat.felt.ram':         { hi:'#A0562E', mid:'#6E3618', lo:'#2B1305' },
+  /* ── MALTESE SUMMER ── carob granita: dark, sweet, and melting from
+     the top down. The każin is the same green as always, only lit by
+     one strip light and a fan at three in the morning. */
+  'sette.felt.granita':     { hi:'#8A5636', mid:'#4A2616', lo:'#1C0B05' },
+  'bixkla.felt.kazin':      { hi:'#4E6438', mid:'#243020', lo:'#0C1209' }
+};
+
+/* base+stripe feed the cloned lattice pattern; edge recolours the
+   inner frame rect, cross the Maltese cross <use> */
+var BACKS = {
+  'bixkla.back.weraq':      { pat:'weraq',    base:'#14503A', stripe:'#227E5A', edge:'#9FE8C4', cross:'#9FE8C4' },
+  'bixkla.back.menta':      { pat:'menta',    base:'#0B241A', stripe:'#2E8C64', edge:'#5FE3A1', cross:'#5FE3A1' },
+  'bixkla.back.faham':      { pat:'faham',    base:'#23262B', stripe:'#3A3E46', edge:'#FFC542', cross:'#FFC542' },
+  'briscola.back.moll':     { pat:'moll',     base:'#163A5A', stripe:'#2E6EA0', edge:'#A8D8F5', cross:'#A8D8F5' },
+  'briscola.back.fanal':    { pat:'fanal',    base:'#0C1D33', stripe:'#24466B', edge:'#6FC1FF', cross:'#6FC1FF' },
+  'briscola.back.luzzu':    { pat:'luzzu',    base:'#5E1F33', stripe:'#8A3350', edge:'#FFD1DE', cross:'#FFD1DE' },
+  'sette.back.indurat':     { pat:'indurat',  base:'#7A4E14', stripe:'#A9762A', edge:'#FFE9B0', cross:'#FFE9B0' },
+  'sette.back.demm':        { pat:'demm',     base:'#4A0F16', stripe:'#711B26', edge:'#FFC542', cross:'#FFC542' },
+  'sette.back.fliexken':    { pat:'fliexken', base:'#103828', stripe:'#1E5A42', edge:'#F2E5C4', cross:'#F2E5C4' },
+  'cheat.back.maskra':      { pat:'maskra',   base:'#362559', stripe:'#543C86', edge:'#C4AEFF', cross:'#C4AEFF' },
+  'cheat.back.gidba':       { pat:'gidba',    base:'#1B0F2E', stripe:'#3C1E52', edge:'#FF7ED8', cross:'#FF7ED8' },
+  'cheat.back.hgieg':       { pat:'hgieg',    base:'#0E3E44', stripe:'#1D6A72', edge:'#A8F0E8', cross:'#A8F0E8' },
+  /* ── MALTESE SUMMER ── hull paint at anchor, and the shoulders of a
+     man who walked past the factor 50. NOTE: this shelf already has a
+     'briscola.back.luzzu' (Pruwa tal-Luzzu, 39) and register() replaces
+     by id, so the summer one is 'luzzuxemx' — the whole boat in the sun
+     rather than the rose of its prow, which is a different item. */
+  'briscola.back.luzzuxemx':{ pat:'luzzuxemx',base:'#1B5FA8', stripe:'#F2B33D', edge:'#E8452C', cross:'#FFF6E4' },
+  'cheat.back.harqa':       { pat:'harqa',    base:'#C4402A', stripe:'#E8765C', edge:'#FFE6D2', cross:'#FFF2E8' }
+};
+
+function sheet(){
+  var st = document.getElementById('kbx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'kbx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own and always wins on specificity
+     ties. The #app prefix out-specifies the #scr-party stock rules. */
+  document.head.appendChild(st);
+  return st;
+}
+
+/* one hidden svg holding every recoloured lattice — same geometry as
+   the stock #kb-lat, injected once, inert until a back points at it */
+function pats(){
+  if (document.getElementById('kbx-pats')) return;
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = 'kbx-pats';
+  svg.setAttribute('width', '0');
+  svg.setAttribute('height', '0');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('style',
+    'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
+  var s = '';
+  for (var id in BACKS){
+    var b = BACKS[id];
+    s += '<pattern id="kbx-lat-' + b.pat + '" width="10" height="10" ' +
+         'patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+         '<rect width="10" height="10" fill="' + b.base + '"/>' +
+         '<path d="M0 0H10M0 5H10" stroke="' + b.stripe + '" stroke-width="2.4"/>' +
+         '</pattern>';
+  }
+  svg.innerHTML = s;
+  document.body.appendChild(svg);
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '';
+  for (var i = 0; i < GIDS.length; i++){
+    var gid = GIDS[i];
+    var f = FELTS[XP.equipped('felt', gid) || ''];
+    if (f) css += '#app #scr-party .kb-table.kb-g-' + gid +
+                  '{background:radial-gradient(120% 85% at 50% 8%,' +
+                  f.hi + ' 0%,' + f.mid + ' 45%,' + f.lo + ' 100%)}';
+    var b = BACKS[XP.equipped('back', gid) || ''];
+    if (b){
+      var sc = '#app #scr-party .kb-table.kb-g-' + gid + ' .kb-back ';
+      css += sc + 'rect[fill^="url"]{fill:url(#kbx-lat-' + b.pat + ')}' +
+             sc + 'rect[stroke="#FFD98A"]{stroke:' + b.edge + '}' +
+             sc + 'use{fill:' + b.cross + '}';
+    }
+  }
+  sheet().textContent = css;
+}
+
+/* previews: the felt is its own gradient in miniature; the back is a
+   little card — base, a 45-degree lattice, and a cross in the accent */
+function feltPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
+      'box-sizing:border-box;border:2px solid rgba(0,0,0,.55);' +
+      'background:radial-gradient(120% 85% at 50% 8%,' +
+      t.hi + ' 0%,' + t.mid + ' 45%,' + t.lo + ' 100%)');
+    return el;
+  };
+}
+
+function backPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    var w = Math.max(26, Math.round(s * .58)), h = Math.round(w * 1.4);
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    var card = document.createElement('span');
+    card.setAttribute('style',
+      'display:flex;align-items:center;justify-content:center;' +
+      'width:' + w + 'px;height:' + h + 'px;border-radius:5px;box-sizing:border-box;' +
+      'border:1.5px solid ' + t.edge + ';' +
+      'background:repeating-linear-gradient(45deg,' + t.stripe + ' 0 2.4px,' +
+      t.base + ' 2.4px 7px);box-shadow:0 2px 5px rgba(0,0,0,.4)');
+    var cross = document.createElement('span');
+    var c = Math.round(w * .42);
+    cross.setAttribute('style',
+      'display:block;width:' + c + 'px;height:' + c + 'px;background:' + t.cross + ';' +
+      'clip-path:polygon(35% 0,65% 0,65% 35%,100% 35%,100% 65%,65% 65%,' +
+      '65% 100%,35% 100%,35% 65%,0 65%,0 35%,35% 35%)');
+    card.appendChild(cross);
+    el.appendChild(card);
+    return el;
+  };
+}
+
+/* `set` is optional and left off entirely when absent, so the twelve
+   original moods stay uncollected and only the tagged ones shelve
+   together as a collection */
+function it(slot, id, level, name, blurb, set){
+  var t = slot === 'felt' ? FELTS[id] : BACKS[id];
+  var d = { slot:slot, id:id, level:level, name:name, blurb:blurb,
+            preview:(slot === 'felt' ? feltPv : backPv)(t) };
+  if (set) d.set = set;
+  return d;
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP || !document.body){
+    if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500);
+    return;
+  }
+  pats();
+
+  var KITS = {
+    bixkla: [
+      it('felt', 'bixkla.felt.buskett',   3,  'Il-Buskett',
+         'Woodland green, thick enough to lose a royal hunting party in.'),
+      it('felt', 'bixkla.felt.laguna',    13, 'Il-Laguna',
+         'Blue Lagoon teal, minus the tourists and the deckchair fees.'),
+      it('felt', 'bixkla.felt.ghabex',    27, 'Għabex Roża',
+         'The sky over Dingli at eight in the evening, pulled over a card table.'),
+      it('back', 'bixkla.back.weraq',     7,  'Weraq',
+         'Leaves on leaves. Nobody has ever read a hedge.'),
+      it('back', 'bixkla.back.menta',     19, 'Menta bil-Lejl',
+         'Mint on midnight green. Fresher than whoever dealt this.'),
+      it('back', 'bixkla.back.faham',     37, 'Faħam u Deheb',
+         'Charcoal with a gold cross. Funeral-grade elegance.'),
+      it('felt', 'bixkla.felt.kazin',     18, 'Każin f’Nofsillejl',
+         'August, gone midnight, fan on full, nobody leaving. One more hand and then home.',
+         'summer')
+    ],
+    briscola: [
+      it('felt', 'briscola.felt.port',    4,  'Il-Port il-Kbir',
+         'Grand Harbour blue. Somewhere under it there is still a briscola debt.'),
+      it('felt', 'briscola.felt.fond',    15, 'Baħar Fond',
+         'Deep-water navy. Things dropped here are not coming back.'),
+      it('felt', 'briscola.felt.franka',  29, 'Ġebla Franka',
+         'Limestone felt. Every game played on it counts as heritage.'),
+      it('back', 'briscola.back.moll',    8,  'Il-Moll',
+         'Dockside blue, weathered by salt and worse calls.'),
+      it('back', 'briscola.back.fanal',   21, 'Fanal Blu',
+         'A harbour lantern on ink water. It shows nothing of your hand.'),
+      it('back', 'briscola.back.luzzu',   39, 'Pruwa tal-Luzzu',
+         'Luzzu-hull rose. The eye on the prow saw you palm that trump.'),
+      it('back', 'briscola.back.luzzuxemx', 6, 'Luzzu fix-Xemx',
+         'Blue, yellow, red, tied up and going nowhere. The eye stays open in this heat.',
+         'summer')
+    ],
+    sette: [
+      it('felt', 'sette.felt.inbid',      5,  'Inbid Qadim',
+         'Old-wine crimson, breathing since your grandfather’s last sette.'),
+      it('felt', 'sette.felt.deheb',      16, 'Deheb Maħruq',
+         'Burnt gold. The banker approves; the priest pretends not to.'),
+      it('felt', 'sette.felt.irham',      30, 'Irħam Griż',
+         'Cold grey marble, for players who never once smiled at a seven.'),
+      it('back', 'sette.back.indurat',    9,  'Salib Indurat',
+         'Gilded like a festa statue, and insured like one too.'),
+      it('back', 'sette.back.demm',       22, 'Demm u Deheb',
+         'Ox-blood and gold. The seven of coins travels in style.'),
+      it('back', 'sette.back.fliexken',   43, 'Fliexken Ħodor',
+         'Bottle green with a cream cross. Deposit not refundable.'),
+      it('felt', 'sette.felt.granita',    9,  'Granita tal-Ħarrub',
+         'Carob, crushed ice, and a straw that gave up early. Dark, sweet, and in the shade.',
+         'summer')
+    ],
+    cheat: [
+      it('felt', 'cheat.felt.vjola',      6,  'Vjola Rjali',
+         'Royal purple, for lying with a certain dignity.'),
+      it('felt', 'cheat.felt.buganvilla', 18, 'Buganvilla',
+         'Bougainvillea over a back-street bar. Loud, like your last bluff.'),
+      it('felt', 'cheat.felt.ram',        33, 'Ram Antik',
+         'Old copper. It has seen worse hands and said nothing.'),
+      it('back', 'cheat.back.maskra',     10, 'Il-Maskra',
+         'A purple mask for cards with something to hide. All of them.'),
+      it('back', 'cheat.back.gidba',      24, 'Gidba Roża',
+         'A pink lie on midnight. Told beautifully, believed briefly.'),
+      it('back', 'cheat.back.hgieg',      45, 'Ħġieġ tal-Baħar',
+         'Sea glass, smoothed by the tide and other people’s cheating.'),
+      it('back', 'cheat.back.harqa',      12, 'Ħruq tax-Xemx',
+         'Somebody walked past the factor 50. Now everyone can see where the strap was.',
+         'summer')
+    ]
+  };
+
+  for (var i = 0; i < GIDS.length; i++){
+    var KIT = XP.forGame(GIDS[i]);
+    KIT.register(KITS[GIDS[i]]);
+    KIT.onChange(apply);
+  }
+  apply();
+}
+boot(0);
 
 })();

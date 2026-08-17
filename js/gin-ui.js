@@ -2741,3 +2741,194 @@ try {
 } catch (e) {}
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   GIN — THE KIT SHELF (purely cosmetic, always)
+   Felts, card backs and a table-edge trim through KARTI_XP.register(),
+   scoped under #app #scr-party .gn-felt so the setup sheet's hero and
+   every other game are out of reach. The face-down card is klabb's
+   shared SVG back; its lattice is a <pattern>, which CSS cannot
+   recolour — so a hidden defs-only svg (#gnx-pats) restates the stock
+   geometry (10x10, rotate(45), 2.4-wide rails) once per mood and one
+   attribute-selector rule points the back's fill at it. The edge rect
+   and the cross are presentation attributes, which plain CSS beats.
+   klabb.js is never touched; unequipped = empty sheet = stock. The
+   style node is re-appended on every change so it always lands after
+   gn-runtime-css.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+/* a/b/c: the three stops of the stock radial, restated in a mood */
+var FELTS = {
+  'gin.felt.kazin': { a:'#33684A', b:'#1A3A26', c:'#0D2014' },
+  'gin.felt.qahwa': { a:'#6E4A2E', b:'#3E2818', c:'#22150C' },
+  'gin.felt.roza':  { a:'#96566E', b:'#582E44', c:'#2F1624' },
+  'gin.felt.vjola': { a:'#4A3A78', b:'#241A44', c:'#120C26' },
+  /* ── MALTESE SUMMER ── read outwards: clear water in the middle, then
+     the bleached limestone shelf you climbed down. The only felt here
+     that gets lighter towards the edge, which is the whole point. */
+  'gin.felt.lapsi': { a:'#7FDCDA', b:'#4FA8B4', c:'#D6C9AC' }
+};
+/* pat: pattern id suffix; base/line: lattice; edge: inner rect stroke;
+   cross: the Maltese cross */
+var BACKS = {
+  'gin.back.bahar':  { pat:'bahar',  base:'#17466B', line:'#22608C', edge:'#C2E2F2', cross:'#C2E2F2' },
+  'gin.back.zebbug': { pat:'zebbug', base:'#3E4A1E', line:'#55642C', edge:'#F0D9A0', cross:'#F0D9A0' },
+  'gin.back.roza':   { pat:'roza',   base:'#7A2244', line:'#A03A60', edge:'#FBD7E2', cross:'#FBD7E2' },
+  'gin.back.iswed':  { pat:'iswed',  base:'#14161C', line:'#262B38', edge:'#F2CE7E', cross:'#F2CE7E' },
+  /* ── MALTESE SUMMER ── ricotta base, cream rails, an espresso frame
+     and one piece of candied peel doing the cross */
+  'gin.back.kannoli': { pat:'kannoli', base:'#EEDCBA', line:'#FFF6E8', edge:'#3C2410', cross:'#C4562E' }
+};
+var TRIMS = {
+  'gin.trim.deheb': { e:'rgba(255,197,66,.5)',   r:'rgba(255,197,66,.26)' },
+  'gin.trim.ram':   { e:'rgba(222,138,110,.55)', r:'rgba(222,138,110,.25)' }
+};
+
+/* the hidden pattern shelf — every mood's lattice, defined once */
+function pats(){
+  if (document.getElementById('gnx-pats') || !document.body) return;
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = 'gnx-pats';
+  svg.setAttribute('width', '0');
+  svg.setAttribute('height', '0');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('style',
+    'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
+  var s = '', k;
+  for (k in BACKS) if (Object.prototype.hasOwnProperty.call(BACKS, k)){
+    var b = BACKS[k];
+    s += '<pattern id="gnx-lat-' + b.pat + '" width="10" height="10" ' +
+         'patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+         '<rect width="10" height="10" fill="' + b.base + '"/>' +
+         '<path d="M0 0H10M0 5H10" stroke="' + b.line + '" stroke-width="2.4"/>' +
+         '</pattern>';
+  }
+  svg.innerHTML = s;
+  document.body.appendChild(svg);
+}
+
+function sheet(){
+  var st = document.getElementById('gnx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'gnx-kit-css'; }
+  /* appendChild MOVES an existing node to the end — always after the
+     game's own sheet, and #app out-specifies it besides */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  pats();
+  var css = '';
+  var f = FELTS[XP.equipped('felt', 'gin') || ''];
+  if (f) css += '#app #scr-party .gn-felt{background:radial-gradient(' +
+    '115% 78% at 50% 30%,' + f.a + ' 0%,' + f.b + ' 46%,' + f.c + ' 100%)}';
+  var b = BACKS[XP.equipped('back', 'gin') || ''];
+  if (b) css +=
+    '#app #scr-party .gn-felt .kb-back rect[fill^="url"]{fill:url(#gnx-lat-' + b.pat + ')}' +
+    '#app #scr-party .gn-felt .kb-back rect[stroke="#FFD98A"]{stroke:' + b.edge + '}' +
+    '#app #scr-party .gn-felt .kb-back use{fill:' + b.cross + '}';
+  var t = TRIMS[XP.equipped('trim', 'gin') || ''];
+  /* the ring stands in for the stock 1px white liner but the depth
+     shadows stay — dropping them would flatten the whole felt */
+  if (t) css += '#app #scr-party .gn-felt{border-color:' + t.e +
+    ';box-shadow:inset 0 0 0 1px ' + t.r +
+    ',inset 0 2px 0 rgba(255,255,255,.07),inset 0 -22px 40px rgba(0,0,0,.45)}';
+  sheet().textContent = css;
+}
+
+var STOCK_FELT = 'radial-gradient(115% 78% at 50% 30%,#2B4C74 0%,#1A2E4A 46%,#0E1B2D 100%)';
+
+function feltPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
+      Math.round(s * .7) + 'px;border-radius:10px;border:1px solid rgba(0,0,0,.55);' +
+      'box-sizing:border-box;background:radial-gradient(115% 78% at 50% 30%,' +
+      t.a + ' 0%,' + t.b + ' 46%,' + t.c + ' 100%)"></span>';
+    return el;
+  };
+}
+
+/* the back as CSS: the lattice as a repeating 45-degree gradient, the
+   cross as a rotated square outline — a stand-in, but never blank */
+function backPv(t){
+  return function(size){
+    var s = size || 62, h = Math.round(s * .8), w = Math.round(h * .72);
+    var c = Math.round(w * .34), m = -Math.round(c / 2);
+    var el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="position:relative;display:block;width:' + w + 'px;height:' +
+      h + 'px;border-radius:5px;background:repeating-linear-gradient(45deg,' +
+      t.base + ' 0 3.5px,' + t.line + ' 3.5px 5.5px);' +
+      'box-shadow:inset 0 0 0 2px ' + t.edge + ',0 1px 3px rgba(0,0,0,.5)">' +
+      '<span style="position:absolute;left:50%;top:50%;width:' + c + 'px;height:' + c + 'px;' +
+      'margin:' + m + 'px 0 0 ' + m + 'px;border:2px solid ' + t.cross + ';' +
+      'box-sizing:border-box;transform:rotate(45deg)"></span></span>';
+    return el;
+  };
+}
+
+function trimPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
+      Math.round(s * .7) + 'px;border-radius:10px;box-sizing:border-box;' +
+      'border:2px solid ' + t.e + ';box-shadow:inset 0 0 0 2px ' + t.r + ';' +
+      'background:' + STOCK_FELT + '"></span>';
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP || !document.body){
+    if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500);
+    return;
+  }
+  var KIT = XP.forGame('gin');
+  KIT.register([
+    { slot:'felt', id:'gin.felt.kazin', level:2,  name:'Feltru Aħdar',
+      blurb:'Green as promised. The deadwood is still yours.', preview:feltPv(FELTS['gin.felt.kazin']) },
+    { slot:'felt', id:'gin.felt.qahwa', level:8,  name:'Kafè u Tabakk',
+      blurb:'Coffee-brown felt. Third cup of the sitting, no regrets yet.', preview:feltPv(FELTS['gin.felt.qahwa']) },
+    { slot:'felt', id:'gin.felt.roza',  level:17, name:'Sħab Roża',
+      blurb:'Rose clouds over a plum table. You will still be knocked on, but gently.', preview:feltPv(FELTS['gin.felt.roza']) },
+    { slot:'felt', id:'gin.felt.vjola', level:32, name:'Vjola tal-Lejl',
+      blurb:'Deep violet. The colour of holding out for gin one turn too long.', preview:feltPv(FELTS['gin.felt.vjola']) },
+
+    { slot:'back', id:'gin.back.bahar',  level:6,  name:'Baħar Fond',
+      blurb:'Deep-water blue. What the stock knows, it keeps.', preview:backPv(BACKS['gin.back.bahar']) },
+    { slot:'back', id:'gin.back.zebbug', level:14, name:'Żebbuġ u Deheb',
+      blurb:'Olive and gold. The discard pile has never looked so respectable.', preview:backPv(BACKS['gin.back.zebbug']) },
+    { slot:'back', id:'gin.back.roza',   level:23, name:'Warda tal-Belt',
+      blurb:'City-rose lattice. Admired at length by opponents feeding you nothing.', preview:backPv(BACKS['gin.back.roza']) },
+    { slot:'back', id:'gin.back.iswed',  level:41, name:'Lejl Indurat',
+      blurb:'Black with a gold cross. The card equivalent of a raised eyebrow.', preview:backPv(BACKS['gin.back.iswed']) },
+
+    { slot:'trim', id:'gin.trim.deheb', level:28, name:'Faxxa tad-Deheb',
+      blurb:'A gold band around the felt. Knock politely.', preview:trimPv(TRIMS['gin.trim.deheb']) },
+    { slot:'trim', id:'gin.trim.ram',   level:47, name:'Faxxa tar-Ram',
+      blurb:'Copper edging. This far in, you have earned the good table.', preview:trimPv(TRIMS['gin.trim.ram']) },
+
+    /* ── MALTESE SUMMER ── two more moods, one shared tag */
+    { slot:'felt', id:'gin.felt.lapsi',   level:7,  set:'summer', name:'Għar Lapsi',
+      blurb:'White rock, water you can see the bottom of. Mind the urchins and mind your deadwood.', preview:feltPv(FELTS['gin.felt.lapsi']) },
+    { slot:'back', id:'gin.back.kannoli', level:16, set:'summer', name:'Kannol u Kafè',
+      blurb:'Ricotta, candied peel, and a coffee strong enough to hold your hand up for you.', preview:backPv(BACKS['gin.back.kannoli']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

@@ -2187,3 +2187,197 @@ try {
 } catch(e){}
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   RUMMY — THE KIT SHELF (purely cosmetic, always)
+   Felts, card backs and a table-edge trim through KARTI_XP.register(),
+   scoped under #app #scr-party .rm-table so the menu hero and every
+   other game keep their own clothes. The face-down card is klabb's
+   shared SVG back, whose lattice is a <pattern> — patterns cannot be
+   recoloured from CSS, so a hidden defs-only svg (#rmx-pats) restates
+   the exact stock geometry (10x10, rotate(45), 2.4-wide rails) once
+   per mood, and one attribute-selector rule points the back's fill at
+   it. The edge rect and the cross are presentation attributes, which
+   plain CSS fill/stroke beats. klabb.js itself is never touched.
+   Unequipped = empty sheet = stock. The style node is re-appended on
+   every change so it lands after rm-runtime-css.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+/* a/b/c: the three stops of the stock radial, restated in a mood */
+var FELTS = {
+  'rummy.felt.kazin': { a:'#35704A', b:'#1C4228', c:'#0E2414' },
+  'rummy.felt.bordo': { a:'#7A2E42', b:'#4A1826', c:'#2A0D16' },
+  'rummy.felt.roza':  { a:'#9A5A72', b:'#5E3048', c:'#331828' },
+  'rummy.felt.lejl':  { a:'#3A4258', b:'#1C2230', c:'#0C0F18' },
+  /* ── MALTESE SUMMER ── shallow over sand in the middle, dropping off
+     to the channel at the edges. Nobody believes the middle stop. */
+  'rummy.felt.comino': { a:'#7CE8DC', b:'#1FA6B8', c:'#0B6180' }
+};
+/* pat: the pattern id suffix; base/line: the lattice; edge: the inner
+   rect's stroke; cross: the Maltese cross */
+var BACKS = {
+  'rummy.back.bahar': { pat:'bahar', base:'#14456E', line:'#1F5E8E', edge:'#BFE0F5', cross:'#BFE0F5' },
+  'rummy.back.kazin': { pat:'kazin', base:'#1D5A2E', line:'#2E7A42', edge:'#FFD98A', cross:'#FFD98A' },
+  'rummy.back.linka': { pat:'linka', base:'#16181F', line:'#2C3140', edge:'#C9D2E4', cross:'#C9D2E4' },
+  'rummy.back.roza':  { pat:'roza',  base:'#6E1D36', line:'#9A3A56', edge:'#F7C9D6', cross:'#F7C9D6' },
+  'rummy.back.deheb': { pat:'deheb', base:'#8A6414', line:'#B8891F', edge:'#FFF7E4', cross:'#FFF7E4' },
+  /* ── MALTESE SUMMER ── strawberry under, cream rails over, and a
+     berry-dark cross so the motif survives all that sugar */
+  'rummy.back.gelat': { pat:'gelat', base:'#F0748F', line:'#FFE8DC', edge:'#A82843', cross:'#A82843' }
+};
+var TRIMS = {
+  'rummy.trim.deheb': { e:'rgba(255,197,66,.5)',  r:'rgba(255,197,66,.26)' },
+  'rummy.trim.fidda': { e:'rgba(214,222,236,.5)', r:'rgba(214,222,236,.22)' }
+};
+
+/* the hidden pattern shelf — every mood's lattice, defined once, in
+   klabb's exact geometry so only the colours differ */
+function pats(){
+  if (document.getElementById('rmx-pats') || !document.body) return;
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = 'rmx-pats';
+  svg.setAttribute('width', '0');
+  svg.setAttribute('height', '0');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.setAttribute('style',
+    'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
+  var s = '', k;
+  for (k in BACKS) if (Object.prototype.hasOwnProperty.call(BACKS, k)){
+    var b = BACKS[k];
+    s += '<pattern id="rmx-lat-' + b.pat + '" width="10" height="10" ' +
+         'patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
+         '<rect width="10" height="10" fill="' + b.base + '"/>' +
+         '<path d="M0 0H10M0 5H10" stroke="' + b.line + '" stroke-width="2.4"/>' +
+         '</pattern>';
+  }
+  svg.innerHTML = s;
+  document.body.appendChild(svg);
+}
+
+function sheet(){
+  var st = document.getElementById('rmx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'rmx-kit-css'; }
+  /* appendChild MOVES an existing node to the end — always after the
+     game's own sheet, and #app out-specifies it besides */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  pats();
+  var css = '';
+  var f = FELTS[XP.equipped('felt', 'rummy') || ''];
+  if (f) css += '#app #scr-party .rm-table{background:radial-gradient(' +
+    '120% 85% at 50% 8%,' + f.a + ' 0%,' + f.b + ' 45%,' + f.c + ' 100%)}';
+  var b = BACKS[XP.equipped('back', 'rummy') || ''];
+  if (b) css +=
+    '#app #scr-party .rm-table .kb-back rect[fill^="url"]{fill:url(#rmx-lat-' + b.pat + ')}' +
+    '#app #scr-party .rm-table .kb-back rect[stroke="#FFD98A"]{stroke:' + b.edge + '}' +
+    '#app #scr-party .rm-table .kb-back use{fill:' + b.cross + '}';
+  var t = TRIMS[XP.equipped('trim', 'rummy') || ''];
+  /* the ring joins the felt's stock depth shadows instead of replacing
+     them — losing the inner darkening would flatten the whole table */
+  if (t) css += '#app #scr-party .rm-table{border-color:' + t.e +
+    ';box-shadow:inset 0 0 0 1px ' + t.r +
+    ',inset 0 2px 0 rgba(255,255,255,.07),inset 0 -18px 34px rgba(0,0,0,.42)}';
+  sheet().textContent = css;
+}
+
+var STOCK_FELT = 'radial-gradient(120% 85% at 50% 8%,#28437A 0%,#1C2E52 45%,#12203B 100%)';
+
+function feltPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
+      Math.round(s * .7) + 'px;border-radius:10px;border:1px solid rgba(0,0,0,.55);' +
+      'box-sizing:border-box;background:radial-gradient(120% 85% at 50% 8%,' +
+      t.a + ' 0%,' + t.b + ' 45%,' + t.c + ' 100%)"></span>';
+    return el;
+  };
+}
+
+/* the back as CSS: the lattice as a repeating 45-degree gradient, the
+   cross as a rotated square outline — a stand-in, but never blank */
+function backPv(t){
+  return function(size){
+    var s = size || 62, h = Math.round(s * .8), w = Math.round(h * .72);
+    var c = Math.round(w * .34), m = -Math.round(c / 2);
+    var el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="position:relative;display:block;width:' + w + 'px;height:' +
+      h + 'px;border-radius:5px;background:repeating-linear-gradient(45deg,' +
+      t.base + ' 0 3.5px,' + t.line + ' 3.5px 5.5px);' +
+      'box-shadow:inset 0 0 0 2px ' + t.edge + ',0 1px 3px rgba(0,0,0,.5)">' +
+      '<span style="position:absolute;left:50%;top:50%;width:' + c + 'px;height:' + c + 'px;' +
+      'margin:' + m + 'px 0 0 ' + m + 'px;border:2px solid ' + t.cross + ';' +
+      'box-sizing:border-box;transform:rotate(45deg)"></span></span>';
+    return el;
+  };
+}
+
+function trimPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
+      Math.round(s * .7) + 'px;border-radius:10px;box-sizing:border-box;' +
+      'border:2px solid ' + t.e + ';box-shadow:inset 0 0 0 2px ' + t.r + ';' +
+      'background:' + STOCK_FELT + '"></span>';
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP || !document.body){
+    if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500);
+    return;
+  }
+  var KIT = XP.forGame('rummy');
+  KIT.register([
+    { slot:'felt', id:'rummy.felt.kazin', level:3,  name:'Feltru tal-Każin',
+      blurb:'Green baize. The runs come no easier, they just look at home.', preview:feltPv(FELTS['rummy.felt.kazin']) },
+    { slot:'felt', id:'rummy.felt.bordo', level:9,  name:'Bordò tal-Ħadd',
+      blurb:'Sunday burgundy. Same arguments, better lighting.', preview:feltPv(FELTS['rummy.felt.bordo']) },
+    { slot:'felt', id:'rummy.felt.roza',  level:16, name:'Għabex Roża',
+      blurb:'Rose fading into plum. The set you need is still missing, beautifully.', preview:feltPv(FELTS['rummy.felt.roza']) },
+    { slot:'felt', id:'rummy.felt.lejl',  level:31, name:'Sema bla Qamar',
+      blurb:'Moonless ink. Melds arrive like boats with their lights off.', preview:feltPv(FELTS['rummy.felt.lejl']) },
+
+    { slot:'back', id:'rummy.back.bahar', level:0,  name:'Baħar Miftuħ',
+      blurb:'Open-sea blue. Every face-down card is a fish you have not caught.', preview:backPv(BACKS['rummy.back.bahar']) },
+    { slot:'back', id:'rummy.back.kazin', level:5,  name:'Aħdar tal-Każin',
+      blurb:'Club green, gold cross. The committee voted four to three.', preview:backPv(BACKS['rummy.back.kazin']) },
+    { slot:'back', id:'rummy.back.linka', level:12, name:'Iswed u Fidda',
+      blurb:'Black lattice, silver cross. Notarial seriousness for a card nobody can see.', preview:backPv(BACKS['rummy.back.linka']) },
+    { slot:'back', id:'rummy.back.roza',  level:25, name:'Ward u Nbid',
+      blurb:'Rose on burgundy. Romantic, right up until somebody takes your joker.', preview:backPv(BACKS['rummy.back.roza']) },
+    { slot:'back', id:'rummy.back.deheb', level:42, name:'Deheb u Abjad',
+      blurb:'Gold and white. The deck is dressed better than anyone holding it.', preview:backPv(BACKS['rummy.back.deheb']) },
+
+    { slot:'trim', id:'rummy.trim.deheb', level:20, name:'Xifer Indurat',
+      blurb:'A gilt edge on the table, purely to intimidate.', preview:trimPv(TRIMS['rummy.trim.deheb']) },
+    { slot:'trim', id:'rummy.trim.fidda', level:36, name:'Xifer tal-Fidda',
+      blurb:'A silver rim. The quiet kind of showing off.', preview:trimPv(TRIMS['rummy.trim.fidda']) },
+
+    /* ── MALTESE SUMMER ── same shelves, one shared tag */
+    { slot:'felt', id:'rummy.felt.comino', level:5,  set:'summer', name:'Laguna tal-Comino',
+      blurb:'A turquoise no photograph has ever got right. Your discards are visible from the boat.', preview:feltPv(FELTS['rummy.felt.comino']) },
+    { slot:'back', id:'rummy.back.gelat',  level:10, set:'summer', name:'Ġelat tal-Frawla',
+      blurb:'Strawberry and cream, already going down the side of the cone. Deal faster.', preview:backPv(BACKS['rummy.back.gelat']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

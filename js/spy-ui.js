@@ -1759,3 +1759,126 @@ function injectCSS(){
 }
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   L-ISPJUN — THE KIT SHELF (purely cosmetic, always)
+   Night skies for the stage and rings for the hold button, declared
+   through KARTI_XP.register() and applied as a couple of CSS rules
+   scoped under #app #scr-party — one specificity step above the
+   game's own #scr-party sheet, so they win without touching a single
+   rule of play. The .held state is deliberately left alone via
+   :not(.held): the gold flare when a spy is actually peeking is
+   game feedback, not decoration. The sky's moon (where a theme has
+   one) is an extra background-image layer on the stage itself — no
+   pseudo-elements, no extra nodes, nothing for a finger to hit.
+   The style node is re-appended on every change so it always lands
+   after the game's own sheet. Unequip and the stage goes back to
+   its stock bare felt.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+var SKIES = {
+  'spy.sky.lejl': { bg:
+    'radial-gradient(120% 90% at 50% 0%,#141C38 0%,#0A0F22 55%,#05070F 100%)' },
+  'spy.sky.port': { bg:
+    'linear-gradient(180deg,#0D2226 0%,#081418 55%,#04090C 100%)' },
+  'spy.sky.festa': { bg:
+    'radial-gradient(120% 55% at 50% 100%,rgba(255,168,66,.12),transparent 60%),' +
+    'linear-gradient(180deg,#271A46 0%,#170F2C 55%,#0D081A 100%)' },
+  'spy.sky.qamar': { bg:
+    'radial-gradient(circle 34px at 78% 15%,rgba(226,233,248,.16) 0 55%,' +
+      'rgba(226,233,248,.05) 72%,transparent 100%),' +
+    'linear-gradient(180deg,#242A38 0%,#141826 55%,#0A0C14 100%)' },
+  /* MALTESE SUMMER. August at midnight: the stone is still giving
+     back the day, so the heat sits low in the frame as a warm haze
+     rather than a light. Every solid stop is kept below #3a3355 in
+     luminance (the palest is #342433 at .0223 against a .0392 cap)
+     and the haze composites to .0109 over the floor, so the clock,
+     the pass name and the role text keep the contrast they had. */
+  'spy.sky.sajf': { bg:
+    'radial-gradient(120% 60% at 50% 100%,rgba(255,138,64,.12),transparent 62%),' +
+    'linear-gradient(180deg,#342433 0%,#1D1520 55%,#0E0A10 100%)' }
+};
+var RINGS = {
+  'spy.ring.bahar': { bd:'rgba(122,227,203,.55)',
+    bg:'radial-gradient(circle at 34% 28%,rgba(122,227,203,.14),rgba(122,227,203,.03) 70%)' },
+  'spy.ring.ram':   { bd:'rgba(226,148,122,.55)',
+    bg:'radial-gradient(circle at 34% 28%,rgba(226,148,122,.13),rgba(226,148,122,.03) 70%)' },
+  'spy.ring.deheb': { bd:'rgba(255,197,66,.45)',
+    bg:'radial-gradient(circle at 34% 28%,rgba(255,197,66,.11),rgba(255,197,66,.02) 70%)' }
+};
+
+function sheet(){
+  var st = document.getElementById('spx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'spx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own and its rules win on order as
+     well as on the extra #app of specificity. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '', s = SKIES[XP.equipped('sky', 'spy') || ''];
+  if (s) css += '#app #scr-party .sp-stage{background:' + s.bg + ';border-radius:14px}';
+  var r = RINGS[XP.equipped('ring', 'spy') || ''];
+  if (r) css += '#app #scr-party .sp-hold:not(.held){border-color:' + r.bd +
+                ';background:' + r.bg + '}';
+  sheet().textContent = css;
+}
+
+/* previews: the sky is the sky, the ring is the ring */
+function skyPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
+      'border:1px solid rgba(255,255,255,.14);box-sizing:border-box;' +
+      'background:' + t.bg);
+    return el;
+  };
+}
+function ringPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + Math.floor(s * .8) + 'px;height:' + Math.floor(s * .8) +
+      'px;margin:' + Math.ceil(s * .1) + 'px auto;border-radius:50%;box-sizing:border-box;' +
+      'border:2px solid ' + t.bd + ';background:' + t.bg);
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('spy');
+  KIT.register([
+    { slot:'sky', id:'spy.sky.lejl',  level:4,  name:'Lejl Bla Kwiekeb',
+      blurb:'A sky with nothing to look at, so everyone looks at you.', preview:skyPv(SKIES['spy.sky.lejl']) },
+    { slot:'sky', id:'spy.sky.port',  level:11, name:'Il-Port Jorqod',
+      blurb:'Teal-black harbour water. Whatever it heard, it keeps.', preview:skyPv(SKIES['spy.sky.port']) },
+    { slot:'sky', id:'spy.sky.sajf',  level:12, name:'Lejl ta\' Sajf', set:'summer',
+      blurb:'Midnight in August and still thirty degrees. Nobody is sleeping, so nobody has an alibi.',
+      preview:skyPv(SKIES['spy.sky.sajf']) },
+    { slot:'sky', id:'spy.sky.festa', level:23, name:'Lejl tal-Festa',
+      blurb:'Violet dark with the band club still glowing at the bottom.', preview:skyPv(SKIES['spy.sky.festa']) },
+    { slot:'sky', id:'spy.sky.qamar', level:40, name:'Qamar Kwinta',
+      blurb:'Moonlit slate. The moon saw who peeked and says nothing.', preview:skyPv(SKIES['spy.sky.qamar']) },
+
+    { slot:'ring', id:'spy.ring.bahar', level:7,  name:'Ħġieġ tal-Baħar',
+      blurb:'Sea glass, sanded smooth by a thousand nervous thumbs.', preview:ringPv(RINGS['spy.ring.bahar']) },
+    { slot:'ring', id:'spy.ring.ram',   level:17, name:'Ram u Ward',
+      blurb:'Rose brass, polished like a door knocker with secrets behind it.', preview:ringPv(RINGS['spy.ring.ram']) },
+    { slot:'ring', id:'spy.ring.deheb', level:35, name:'Deheb Antik',
+      blurb:'Old gold. Press it like you inherited it.', preview:ringPv(RINGS['spy.ring.deheb']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

@@ -2973,3 +2973,227 @@ try {
 } catch(e){}
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   TOMBLA — THE KIT SHELF (purely cosmetic, always)
+   Ticket papers, markers and caller's balls, declared through
+   KARTI_XP.register() and applied one scope down from the stock
+   palette: a ticket is a re-declaration of the paper variables on
+   #app #scr-party .tb, a marker overrides the bean variables plus the
+   one hardcoded highlight in the disc's ::before, and a ball redraws
+   the caller's sphere — carefully scoped :not(.none):not(.draw) so
+   the empty socket and the DRAW button keep their own dress. The
+   style node is re-appended on every change so it always lands after
+   injectCSS()'s sheet; an empty shelf is an empty sheet: stock.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+/* ink stays at or past 7:1 on paper — the numbers are the game */
+var TICKETS = {
+  'tombla.ticket.bahar':   { paper:'#DCEBF5', paper2:'#C8DDEC', blank:'#B4CFE2',
+                             ink:'#0E2A44', rule:'#2E6EA0', rule2:'#1D4A70' },
+  'tombla.ticket.ward':    { paper:'#F5DCE3', paper2:'#EBC9D4', blank:'#DFB4C3',
+                             ink:'#3A0F26', rule:'#A83258', rule2:'#7B1F3E' },
+  'tombla.ticket.menta':   { paper:'#DCF0E2', paper2:'#C8E4D1', blank:'#B2D6BE',
+                             ink:'#0D3324', rule:'#1E7A52', rule2:'#135A3A' },
+  'tombla.ticket.lavanja': { paper:'#2E3442', paper2:'#262B38', blank:'#1D222D',
+                             ink:'#F2F5FA', rule:'#8FA2C4', rule2:'#6C7FA0' },
+  /* MALTESE SUMMER. A beach towel is bold stripes on a bleached
+     ground, so the stripes are the ones nothing is ever written on:
+     paper2 (the 2px gutter and the pad around the grid) carries the
+     turquoise, blank (an empty square, never a number) carries the
+     coral, and the header band runs coral over burnt coral. The
+     squares that DO hold numbers stay bleached cream with a petrol
+     ink at 14.4:1 — a towel you can still play tombla on. */
+  'tombla.ticket.xugaman': { paper:'#FFF7E8', paper2:'#0F8C8C', blank:'#E8623C',
+                             ink:'#14282C', rule:'#F07A3C', rule2:'#B8412A' }
+};
+/* hi/bean/bean2 are the disc's radial; tx is the knocked-out number */
+var MARKERS = {
+  'tombla.marker.fazola':  { hi:'#E4573C', bean:'#C1361F', bean2:'#8E2412', tx:'#FFF3DC' },
+  'tombla.marker.zebbuga': { hi:'#8FAE3E', bean:'#5F7A22', bean2:'#3A4C12', tx:'#F4F8E0' },
+  'tombla.marker.hgieg':   { hi:'#6FCDBB', bean:'#23796B', bean2:'#124940', tx:'#EAFBF7' },
+  'tombla.marker.tapp':    { hi:'#5C9FE0', bean:'#2F6BB0', bean2:'#16406E', tx:'#F0F7FF' },
+  'tombla.marker.munita':  { hi:'#FFDD7A', bean:'#D9A62E', bean2:'#97690F', tx:'#3A2A05' },
+  /* MALTESE SUMMER. Lemon ice with the syrup run round the rim: the
+     radial goes pale ice, lemon at 58%, syrup red at the edge. The
+     number sits dead centre, which is lemon, so the ink is a burnt
+     dark that reads 10.7:1 there and still holds 3.3:1 if a glyph's
+     corner ever strays onto the syrup. */
+  'tombla.marker.granita': { hi:'#FFF4B8', bean:'#F0CE3E', bean2:'#D8253C', tx:'#3A1206' }
+};
+/* hi/mid/lo are the ball's radial; ink is the big number on it */
+var DRUMS = {
+  'tombla.drum.zebbug': { hi:'#E8C89A', mid:'#C09058', lo:'#7A5024', ink:'#33200A' },
+  'tombla.drum.ram':    { hi:'#FFE9A8', mid:'#E0B85C', lo:'#9C7420', ink:'#3A2A05' },
+  'tombla.drum.festa':  { hi:'#9A78D8', mid:'#6B46AC', lo:'#392060', ink:'#FFD98A' },
+  /* MALTESE SUMMER. A murtal caught mid-burst: white-gold spark at
+     the top left, the red of the shell through the middle, the night
+     it was fired into at the bottom. Burnt-dark number, 14.9:1 on the
+     spark and still 4.3:1 where the red takes over. */
+  'tombla.drum.nar':    { hi:'#FFF0B4', mid:'#E8452F', lo:'#2E1052', ink:'#3A0C06' }
+};
+
+function sheet(){
+  var st = document.getElementById('tbx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'tbx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than #tb-runtime-css and its rules win. The #app
+     prefix out-specifies the stock #scr-party rules. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '';
+  var t = TICKETS[XP.equipped('ticket', 'tombla') || ''];
+  if (t) css += '#app #scr-party .tb{--paper:' + t.paper + ';--paper2:' + t.paper2 +
+                ';--blank:' + t.blank + ';--ink:' + t.ink +
+                ';--rule:' + t.rule + ';--rule2:' + t.rule2 + '}';
+  var m = MARKERS[XP.equipped('marker', 'tombla') || ''];
+  if (m) css += '#app #scr-party .tb{--bean:' + m.bean + ';--bean2:' + m.bean2 +
+                ';--beanTx:' + m.tx + '}' +
+                /* the stock disc hardcodes its #E4573C highlight, so the
+                   whole gradient is restated — box-shadow, size and the
+                   gog clamp all come from the stock rules untouched */
+                '#app #scr-party .tb .tb-c.on::before{background:radial-gradient(' +
+                'circle at 36% 28%,' + m.hi + ',' + m.bean + ' 58%,' + m.bean2 + ')}';
+  var d = DRUMS[XP.equipped('drum', 'tombla') || ''];
+  if (d) css += /* .none (empty socket) and .draw (the button) keep their
+                   own faces — this rule must never reach them */
+                '#app #scr-party .tb .tb-ball:not(.none):not(.draw){' +
+                'background:radial-gradient(circle at 34% 26%,' + d.hi + ',' +
+                d.mid + ' 52%,' + d.lo + ')}' +
+                '#app #scr-party .tb .tb-ball:not(.none):not(.draw) b{color:' + d.ink + '}';
+  sheet().textContent = css;
+}
+
+/* previews — a ticket is a little grid with real blanks, a marker is
+   the disc with its number knocked out, a drum is the ball itself */
+function ticketPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:grid;grid-template-columns:repeat(3,1fr);gap:2px;box-sizing:border-box;' +
+      'width:' + s + 'px;height:' + s + 'px;padding:3px;border-radius:8px;' +
+      'background:' + t.paper2 + ';border:2px solid ' + t.rule);
+    var nums = ['7', '', '42', '19', '88', '', '3', '61', '90'];
+    var blanks = { 1:1, 5:1 };
+    for (var i = 0; i < 9; i++){
+      var c = document.createElement('span');
+      c.setAttribute('style',
+        'display:flex;align-items:center;justify-content:center;border-radius:2px;' +
+        'background:' + (blanks[i] ? t.blank : t.paper) + ';' +
+        'color:' + t.ink + ';font-weight:900;font-size:7px;line-height:1');
+      if (!blanks[i]) c.textContent = nums[i];
+      el.appendChild(c);
+    }
+    return el;
+  };
+}
+
+function markerPv(m){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    var d = Math.round(s * .74), disc = document.createElement('span');
+    disc.setAttribute('style',
+      'display:flex;align-items:center;justify-content:center;border-radius:50%;' +
+      'width:' + d + 'px;height:' + d + 'px;' +
+      'background:radial-gradient(circle at 36% 28%,' + m.hi + ',' + m.bean +
+      ' 58%,' + m.bean2 + ');' +
+      'box-shadow:inset 0 -3px 7px rgba(0,0,0,.34),inset 0 0 0 2px rgba(255,255,255,.16),' +
+      '0 2px 4px rgba(0,0,0,.3);' +
+      'color:' + m.tx + ';font-weight:900;font-size:' + Math.round(d * .42) + 'px;line-height:1');
+    disc.textContent = '33';
+    el.appendChild(disc);
+    return el;
+  };
+}
+
+function drumPv(d){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    var b = Math.round(s * .8), ball = document.createElement('span');
+    ball.setAttribute('style',
+      'display:flex;align-items:center;justify-content:center;border-radius:50%;' +
+      'width:' + b + 'px;height:' + b + 'px;' +
+      'background:radial-gradient(circle at 34% 26%,' + d.hi + ',' + d.mid +
+      ' 52%,' + d.lo + ');' +
+      'box-shadow:inset 0 -4px 7px rgba(0,0,0,.28),inset 0 0 0 2px rgba(255,255,255,.4),' +
+      '0 3px 8px rgba(0,0,0,.45);' +
+      'color:' + d.ink + ';font-weight:900;font-size:' + Math.round(b * .44) + 'px;line-height:1');
+    ball.textContent = '90';
+    el.appendChild(ball);
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('tombla');
+  KIT.register([
+    { slot:'ticket', id:'tombla.ticket.bahar',   level:2,  name:'Karta tal-Baħar',
+      blurb:'Sea-washed paper. The numbers float; your luck sinks.',
+      preview:ticketPv(TICKETS['tombla.ticket.bahar']) },
+    { slot:'ticket', id:'tombla.ticket.xugaman', level:6,  name:'Xugaman tax-Xatt',
+      set:'summer',
+      blurb:'The towel, laid flat and played on. Shake the sand out first.',
+      preview:ticketPv(TICKETS['tombla.ticket.xugaman']) },
+    { slot:'ticket', id:'tombla.ticket.ward',    level:11, name:'Karta tal-Ward',
+      blurb:'Rose paper, plum ink. The nanna table expects manners.',
+      preview:ticketPv(TICKETS['tombla.ticket.ward']) },
+    { slot:'ticket', id:'tombla.ticket.menta',   level:26, name:'Menta Friska',
+      blurb:'Mint fresh. The only clean sheet you will keep all night.',
+      preview:ticketPv(TICKETS['tombla.ticket.menta']) },
+    { slot:'ticket', id:'tombla.ticket.lavanja', level:44, name:'Lavanja tal-Lejl',
+      blurb:'Slate with chalk-white numbers. School rules: no shouting. Ha.',
+      preview:ticketPv(TICKETS['tombla.ticket.lavanja']) },
+
+    { slot:'marker', id:'tombla.marker.fazola',  level:0,  name:'Il-Fażola',
+      blurb:'The bean your nanna used. Do not eat the counters.',
+      preview:markerPv(MARKERS['tombla.marker.fazola']) },
+    { slot:'marker', id:'tombla.marker.granita', level:2,  name:'Granita tal-Lumi',
+      set:'summer',
+      blurb:'Lemon ice, red syrup on the rim. It is water by the third line.',
+      preview:markerPv(MARKERS['tombla.marker.granita']) },
+    { slot:'marker', id:'tombla.marker.zebbuga', level:5,  name:'Żebbuġa',
+      blurb:'A green olive on every number. The brine is your problem.',
+      preview:markerPv(MARKERS['tombla.marker.zebbuga']) },
+    { slot:'marker', id:'tombla.marker.hgieg',   level:14, name:'Ħġieġ tal-Baħar',
+      blurb:'Sea glass off the rocks. Somebody’s bottle, now your fortune.',
+      preview:markerPv(MARKERS['tombla.marker.hgieg']) },
+    { slot:'marker', id:'tombla.marker.tapp',    level:22, name:'Tapp Blu',
+      blurb:'A bottle cap off the crate. Kinnie not included.',
+      preview:markerPv(MARKERS['tombla.marker.tapp']) },
+    { slot:'marker', id:'tombla.marker.munita',  level:35, name:'Munita tad-Deheb',
+      blurb:'A gold coin on every number. Rich until the ticket loses.',
+      preview:markerPv(MARKERS['tombla.marker.munita']) },
+
+    { slot:'drum',   id:'tombla.drum.zebbug',    level:8,  name:'Injam taż-Żebbuġ',
+      blurb:'Olive-wood numbers, polished by ninety years of thumbs.',
+      preview:drumPv(DRUMS['tombla.drum.zebbug']) },
+    { slot:'drum',   id:'tombla.drum.ram',       level:20, name:'Ram Ileqq',
+      blurb:'Polished brass. The caller can see his face in it, poor man.',
+      preview:drumPv(DRUMS['tombla.drum.ram']) },
+    { slot:'drum',   id:'tombla.drum.nar',       level:22, name:'Blalen tan-Nar',
+      set:'summer',
+      blurb:'Firework colours. Every number sounds louder than it is.',
+      preview:drumPv(DRUMS['tombla.drum.nar']) },
+    { slot:'drum',   id:'tombla.drum.festa',     level:48, name:'Vjola tal-Festa',
+      blurb:'Festa violet with gilded numbers. The band follows every draw.',
+      preview:drumPv(DRUMS['tombla.drum.festa']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

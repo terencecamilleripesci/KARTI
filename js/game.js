@@ -670,6 +670,10 @@ function go(name){
   navSync(name);
   /* the gold dot on the Store tab while the daily spin is waiting */
   try { updateSpinBadge(); } catch (e){}
+  /* a forced navigation (an mp event, a restored session) must never leave
+     the daily-spin prize popup stranded over the wrong screen. The prize is
+     already saved; only the curtain is dismissed. */
+  try { spinPopKill(); } catch (e){}
   closeSheet(); closeModal();
   /* mp.js keeps the who's-online panel alive only while Home is on screen —
      nothing polls or holds a socket once you have navigated away. */
@@ -2567,10 +2571,11 @@ function renderSpinTab(){
 }
 
 /* ── the ceremony ──────────────────────────────────────────────────
-   A reel, 2.4 seconds, honestly stocked (the filler tiles are drawn
-   from the same odds, so the strip does not oversell packs), landing
-   on the prize that is ALREADY yours and saved. Tap to cut it short.
-   Reduced motion goes straight to the result. */
+   A short reel, honestly stocked (the filler tiles are drawn from the
+   same odds, so the strip does not oversell packs), landing on the
+   prize that is ALREADY yours and saved — then the prize popup:
+   rays, the medallion, and a Collect button. Tap the reel to cut it
+   short. Reduced motion goes straight to the popup, still. */
 function runSpin(){
   if (spinBusy) return;
   const st = spinState();
@@ -2579,10 +2584,10 @@ function runSpin(){
   const res = doSpin();
   if (!res){ spinBusy = false; renderSpinTab(); return; }
   updateCoinsPill();
-  if (REDUCED){ spinResult(res); return; }
+  if (REDUCED){ spinPop(res); return; }
   const stage = $('#pack-stage');
   const bar = $('#pack-bar');
-  if (!stage){ spinResult(res); return; }
+  if (!stage){ spinPop(res); return; }
   if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.swipe'); } catch (e){} }
   const LAND = 17, TILES = 22, TW = 88;
   let tiles = '';
@@ -2607,27 +2612,149 @@ function runSpin(){
   const finish = () => {
     if (done) return;
     done = true;
-    spinResult(res);
+    spinPop(res);
   };
+  /* Trimmed from 2.4s: the reel is now the drum-roll, not the show —
+     the popup that follows is the show, and this is seen every day. */
   const anim = track.animate(
     [{ transform:'translate3d(0,0,0)' }, { transform:'translate3d(' + (-dist) + 'px,0,0)' }],
-    { duration:2400, easing:'cubic-bezier(.16,.85,.25,1)', fill:'forwards' });
-  anim.onfinish = () => setTimeout(finish, 350);
+    { duration:1750, easing:'cubic-bezier(.16,.85,.25,1)', fill:'forwards' });
+  anim.onfinish = () => setTimeout(finish, 240);
   /* belt and braces: the prize is already saved, so if the animation is ever
      throttled into never finishing (background tab, odd engine), the result
      still lands on real time */
-  setTimeout(finish, 3400);
+  setTimeout(finish, 2600);
   /* the ratchet: ticks bunching up then dying away with the easing */
   if (window.KARTI_SFX){
     let t = 0;
-    for (let i = 1; i <= 12; i++){
-      t += 40 + i * 26;
+    for (let i = 1; i <= 10; i++){
+      t += 30 + i * 20;
       setTimeout(() => { if (!done){ try { KARTI_SFX.play('rail.tick'); } catch (e){} } }, t);
     }
   }
   stage.onclick = () => { try { anim.finish(); } catch (e){} finish(); };
 }
-function spinResult(res){
+
+/* ── THE PRIZE POPUP ───────────────────────────────────────────────
+   The reveal proper: a popup OVER the store, a sunburst of rays
+   slow-turning behind the prize, and a Collect button — the tap that
+   makes it a reward rather than a notification. The prize is granted
+   and saved long before this runs; everything here is theatre over a
+   decision already made, and dismissing it any way at all (Collect,
+   the scrim, a forced navigation) loses nothing.
+   Compositor only: the rays are two already-rasterised conic layers
+   rotating on `transform`; everything else moves on transform/opacity.
+   No per-frame JS — the turn is a single infinite CSS animation. */
+let spinPopEl = null;
+function spinPopKill(){
+  if (spinPopEl){
+    try { spinPopEl.remove(); } catch (e){}
+    spinPopEl = null;
+    spinBusy = false;
+  }
+}
+/* Intensity is read off the TABLE, not off the prize id: the rarer
+   the line, the bigger the light. pct ≥20 modest · ≥6 warm · ≥2 epic
+   · below that (the 1% pack) legendary. A new prize line added to
+   SPIN_TABLE gets the right ceremony on its own. */
+function spinTier(prize){
+  const p = (prize && prize.pct) | 0;
+  return p >= 20 ? 0 : p >= 6 ? 1 : p >= 2 ? 2 : 3;
+}
+function spinPop(res){
+  if (current !== 'pack'){ spinBusy = false; return; }  /* prize already saved */
+  spinPopKill();
+  spinBusy = true;
+  const tier = spinTier(res.prize);
+  /* the same colour language as the pack reveal: gold for the everyday,
+     epic purple for the 2-3% lines, legendary gold-white for the 1% */
+  const col = tier === 3 ? (RARITY.leggendarju ? RARITY.leggendarju.c : '#FFB300')
+            : tier === 2 ? (RARITY.epiku ? RARITY.epiku.c : '#9C27B0')
+            : '#FFC542';
+  const isCosm = !!res.cosmetic;
+  const el = document.createElement('div');
+  el.className = 'spop t' + tier + (REDUCED ? ' rm' : '');
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', 'Daily spin prize: ' + res.label);
+  el.style.setProperty('--fxc', col);
+  el.innerHTML =
+    '<div class="spop-scrim"></div>' +
+    '<div class="spop-core">' +
+      '<div class="spop-fx" aria-hidden="true">' +
+        '<div class="spop-halo"></div>' +
+        '<div class="spop-rays r1"></div>' +
+        '<div class="spop-rays r2"></div>' +
+        (tier === 3 ? '<div class="spop-flash"></div>' : '') +
+      '</div>' +
+      '<div class="spop-med" id="spop-med">' +
+        '<p class="srlead">Your daily spin pays</p>' +
+        (isCosm && res.cosmetic.preview
+          ? '<div class="sprev" id="spop-prev"></div>'
+          : '<div class="spop-ic">' + ico(res.prize.ic) + '</div>') +
+        '<div class="spop-what">' + esc(res.label) + '</div>' +
+        (isCosm ? '<p class="tiny">' + esc(res.cosmetic.blurb || '') + '</p>' : '') +
+        (res.levelled ? '<p class="srlvl">' + ico('trophy') + ' LEVEL UP!</p>' : '') +
+        (res.fellBack && res.prize.kind === 'cosmetic'
+          ? '<p class="tiny">You own every shop item — coins instead.</p>' : '') +
+      '</div>' +
+      '<button class="btn primary spop-take" id="spop-take">' +
+        ilb('check', 'Collect') + '</button>' +
+    '</div>';
+  document.body.appendChild(el);
+  spinPopEl = el;
+  if (isCosm && res.cosmetic.preview){
+    try {
+      const pv = res.cosmetic.preview(96);
+      const host = $('#spop-prev', el);
+      if (host && pv) (typeof pv === 'string') ? host.innerHTML = pv : host.appendChild(pv);
+    } catch (e){}
+  }
+  /* the entrance: .in a frame late so the scrim/ray transitions run.
+     Reduced motion lands everything instantly — the CSS under .rm
+     stops the rays turning and the medallion popping. */
+  if (REDUCED) el.classList.add('in');
+  else requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (spinPopEl === el) el.classList.add('in');
+  }));
+  if (window.KARTI_SFX){
+    try {
+      KARTI_SFX.play('ui.reward');
+      if (tier >= 2) setTimeout(() => { try { KARTI_SFX.play('xp.unlock'); } catch (e){} }, 220);
+    } catch (e){}
+  }
+  /* the burst of sparks, timed to land with the medallion's overshoot;
+     particles() is already a no-op under reduced motion */
+  const med = $('#spop-med', el);
+  if (med) setTimeout(() => {
+    if (spinPopEl === el) particles(med, [8, 12, 18, 26][tier], col, tier >= 2 ? 205 : 145);
+  }, 200);
+  let taken = false;
+  const take = () => {
+    if (taken || spinPopEl !== el) return;
+    taken = true;
+    if (window.KARTI_SFX){
+      try {
+        KARTI_SFX.play(res.prize.kind === 'coins' || res.fellBack ? 'ui.coin' : 'ui.note');
+      } catch (e){}
+    }
+    const fin = () => { spinPopKill(); if (current === 'pack' && storeTab === 'spin') spinResult(res, true); };
+    if (REDUCED){ fin(); return; }
+    el.classList.add('out');
+    setTimeout(fin, 230);
+  };
+  const btn = $('#spop-take', el);
+  if (btn){ btn.onclick = take; try { btn.focus({ preventScroll:true }); } catch (e){} }
+  /* the scrim collects too — there is nothing here to cancel; the prize
+     is already yours, so any way out of the popup is Collect */
+  el.addEventListener('click', e => {
+    if (e.target === el || e.target.classList.contains('spop-scrim')) take();
+  });
+}
+/* The screen under the popup once the prize is collected. `quiet`
+   means the popup already did the celebrating (sound, sparks) — this
+   is just the receipt, so a double fanfare never plays. Called bare
+   (no popup path left alive) it still celebrates as it used to. */
+function spinResult(res, quiet){
   spinBusy = false;
   const stage = $('#pack-stage');
   const bar = $('#pack-bar');
@@ -2643,7 +2770,7 @@ function spinResult(res){
   stage.innerHTML =
     '<div class="spinwrap sres">' +
       '<div class="spinres" id="spinres">' +
-        '<p class="srlead">Your daily spin pays</p>' +
+        '<p class="srlead">' + (quiet ? 'Collected' : 'Your daily spin pays') + '</p>' +
         (prevHTML || '<div class="srico">' + ico(res.prize.ic) + '</div>') +
         '<div class="srwhat">' + esc(res.label) + '</div>' +
         (isCosm ? '<p class="tiny">' + esc(res.cosmetic.blurb || '') + '</p>' : '') +
@@ -2661,14 +2788,16 @@ function spinResult(res){
       if (host && pv) (typeof pv === 'string') ? host.innerHTML = pv : host.appendChild(pv);
     } catch (e){}
   }
-  const box = $('#spinres');
-  if (box && !REDUCED) particles(box, isCosm || isPack ? 16 : 8, 'var(--gold)', 150);
-  if (window.KARTI_SFX){
-    try {
-      KARTI_SFX.play('ui.reward');
-      if (res.prize.kind === 'coins' || res.fellBack)
-        setTimeout(() => { try { KARTI_SFX.play('ui.coin'); } catch (e){} }, 260);
-    } catch (e){}
+  if (!quiet){
+    const box = $('#spinres');
+    if (box && !REDUCED) particles(box, isCosm || isPack ? 16 : 8, 'var(--gold)', 150);
+    if (window.KARTI_SFX){
+      try {
+        KARTI_SFX.play('ui.reward');
+        if (res.prize.kind === 'coins' || res.fellBack)
+          setTimeout(() => { try { KARTI_SFX.play('ui.coin'); } catch (e){} }, 260);
+      } catch (e){}
+    }
   }
   updateCoinsPill();
   if (bar){
@@ -2863,7 +2992,68 @@ function storeCSS(){
     '.ctag{display:inline-flex;align-items:center;gap:4px;color:var(--ok);font-weight:800;font-size:12px}' +
     '.ctag .ico{width:14px;height:14px}' +
     '.cbuy{border-color:var(--line2);opacity:.6}' +
-    '.cbuy.can{opacity:1;border-color:var(--gold);color:var(--gold)}';
+    '.cbuy.can{opacity:1;border-color:var(--gold);color:var(--gold)}' +
+
+    /* ── the daily-spin prize popup ─────────────────────────────────
+       Every animated property below is transform or opacity — the ray
+       layers are rasterised once and then only rotated, which is what
+       makes a full-screen sunburst cost nothing on an iPhone. Tier
+       (t0..t3, from SPIN_TABLE scarcity) drives size, speed and
+       brightness through two custom properties and the .in opacities. */
+    '.spop{position:fixed;inset:0;z-index:260;display:flex;align-items:center;justify-content:center;padding:20px}' +
+    '.spop-scrim{position:absolute;inset:0;background:rgba(4,2,10,.85);opacity:0;transition:opacity .3s}' +
+    '.spop.in .spop-scrim{opacity:1}' +
+    '.spop.out .spop-scrim{opacity:0;transition:opacity .2s}' +
+    '.spop-core{position:relative;display:grid;justify-items:center;gap:18px;width:100%;max-width:340px}' +
+    '.spop.out .spop-core{animation:spopOut .2s var(--ease) both}' +
+    '@keyframes spopOut{to{opacity:0;transform:scale(.86)}}' +
+    /* the sunburst, anchored behind the medallion's heart */
+    '.spop.t0{--fxs:.82;--rspd:16s}.spop.t1{--fxs:.95;--rspd:13s}' +
+    '.spop.t2{--fxs:1.08;--rspd:10s}.spop.t3{--fxs:1.22;--rspd:8s}' +
+    '.spop-fx{position:absolute;left:50%;top:100px;width:0;height:0;pointer-events:none;' +
+      'transform:scale(var(--fxs,1))}' +
+    '.spop-rays{position:absolute;left:-175px;top:-175px;width:350px;height:350px;border-radius:50%;' +
+      'opacity:0;transition:opacity .55s;will-change:transform;' +
+      'background:repeating-conic-gradient(from 0deg,var(--fxc,#FFC542) 0 7deg,transparent 7deg 30deg);' +
+      '-webkit-mask:radial-gradient(circle,#000 0 26%,transparent 66%);' +
+      'mask:radial-gradient(circle,#000 0 26%,transparent 66%);' +
+      'animation:spopSpin var(--rspd,14s) linear infinite}' +
+    '.spop-rays.r2{background:repeating-conic-gradient(from 10deg,var(--fxc,#FFC542) 0 3deg,transparent 3deg 21deg);' +
+      'animation-direction:reverse;animation-duration:calc(var(--rspd,14s)*1.6)}' +
+    '@keyframes spopSpin{to{transform:rotate(360deg)}}' +
+    '.spop-halo{position:absolute;left:-150px;top:-150px;width:300px;height:300px;border-radius:50%;' +
+      'opacity:0;transition:opacity .5s;' +
+      'background:radial-gradient(circle,var(--fxc,#FFC542) 0%,transparent 62%);' +
+      'animation:spopBreathe 2.6s ease-in-out infinite}' +
+    '@keyframes spopBreathe{0%,100%{transform:scale(.94)}50%{transform:scale(1.06)}}' +
+    /* how bright each tier burns: 30 coins a warm glow, the 1% pack
+       the room lighting up */
+    '.spop.in .spop-halo{opacity:.2}' +
+    '.spop.in .r1{opacity:.32}' +
+    '.spop.t1.in .r1{opacity:.44}.spop.t1.in .r2{opacity:.24}' +
+    '.spop.t2.in .r1{opacity:.56}.spop.t2.in .r2{opacity:.32}.spop.t2.in .spop-halo{opacity:.3}' +
+    '.spop.t3.in .r1{opacity:.7}.spop.t3.in .r2{opacity:.44}.spop.t3.in .spop-halo{opacity:.4}' +
+    '.spop-flash{position:absolute;left:-50vw;top:-50vh;width:100vw;height:100vh;opacity:0;' +
+      'background:radial-gradient(circle at 50% 50%,#fff 0%,var(--fxc,#FFC542) 30%,transparent 70%)}' +
+    '.spop.in .spop-flash{animation:spopFlash .6s ease-out .05s both}' +
+    '@keyframes spopFlash{0%{opacity:0}12%{opacity:.85}100%{opacity:0}}' +
+    /* the medallion and the confirm */
+    '.spop-med{position:relative;display:grid;gap:8px;justify-items:center;text-align:center;' +
+      'border:1px solid var(--fxc,#FFC542);border-radius:18px;background:rgba(14,9,26,.93);' +
+      'padding:24px 26px;min-width:230px;max-width:100%;box-shadow:0 0 44px rgba(0,0,0,.55);' +
+      'opacity:0;transform:scale(.6)}' +
+    '.spop.in .spop-med{animation:spopPop .46s cubic-bezier(.2,1.45,.35,1) .05s both}' +
+    '@keyframes spopPop{0%{opacity:0;transform:scale(.55)}60%{opacity:1}100%{opacity:1;transform:scale(1)}}' +
+    '.spop-ic .ico{width:54px;height:54px;color:var(--fxc,#FFC542)}' +
+    '.spop-what{font-family:var(--disp);font-weight:900;font-size:26px;color:var(--fxc,#FFC542)}' +
+    '.spop-take{min-width:200px;opacity:0;transform:translate3d(0,14px,0)}' +
+    '.spop.in .spop-take{animation:spopRise .4s var(--ease) .32s both}' +
+    '@keyframes spopRise{to{opacity:1;transform:none}}' +
+    /* reduced motion — the app's .rm flag and the OS class both land
+       here: prize and Collect at once, nothing turning, still lit */
+    '.spop.rm *,body.reduced .spop *{animation:none!important;transition:none!important}' +
+    '.spop.rm .spop-med,body.reduced .spop .spop-med,' +
+    '.spop.rm .spop-take,body.reduced .spop .spop-take{opacity:1;transform:none}';
   document.head.appendChild(st);
 }
 

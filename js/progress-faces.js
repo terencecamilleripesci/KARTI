@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════
    KARTI — progress-faces.js
-   THE SEVENTEEN FACES, and the medallion they sit in.
+   THE TWENTY-SIX FACES, and the medallion they sit in.
 
    Templates, not uploads. A drawn face costs nothing, cannot be
    obscene on a shared leaderboard, and is on-brand in a way a
@@ -52,12 +52,15 @@ function brim(y, x1, x2){
 
 /* ═══════════════════════════════════════════════════════════════════
    THE SET
-   Five free, twelve on the ladder. Every one of them is somebody you
-   have actually met on this island, and the silhouettes are chosen to
-   be told apart at 34px — a headscarf, a flat cap, a peaked cap, a
+   Eight free, eighteen on the ladder. Every one of them is somebody
+   you have actually met on this island, and the silhouettes are chosen
+   to be told apart at 34px — a headscarf, a flat cap, a peaked cap, a
    diamond, three waves, a beard, a sun hat, a shutter, a hull, two
-   ears, eight arms, a plume, a helmet, a top hat, a slipper, a fuse
-   and a wreath. No two of them are the same shape.
+   ears, eight arms, a plume, a helmet, a top hat, a slipper, a fuse,
+   a wreath — and for the women, a front-knotted scarf with hoops, a
+   crown of curlers, a high bun with cat-eyes, scalloped set curls, a
+   side chignon, a veil, a booth grille, a hair sweep with a mic, and
+   a bob over a chain of office. No two of them are the same shape.
    ═══════════════════════════════════════════════════════════════════ */
 var F = {};
 
@@ -211,6 +214,123 @@ F.kampjun =
   '<path d="M11 21.8c-4.6-.5-7.8-4.2-7.8-8.9 0-3.1 1.3-5.7 3.3-7.3l1.6 2c-1.5 1.2-2.5 3.1-2.5 5.3 0 3.5 2.4 6.2 5.9 6.6Z" fill-opacity=".72"/>' +
   '<path d="M13 21.8c4.6-.5 7.8-4.2 7.8-8.9 0-3.1-1.3-5.7-3.3-7.3l-1.6 2c1.5 1.2 2.5 3.1 2.5 5.3 0 3.5-2.4 6.2-5.9 6.6Z" fill-opacity=".72"/>' +
   '<path d="M10.6 3.2h2.8v4.4h4.4v2.8h-4.4v7.2h-2.8v-7.2H6.2V7.6h4.4Z"/>';
+
+/* ── TAS-SUQ — the scarf knots at the FRONT, and the hoops ── */
+F.suq =
+  BUST + HEAD +
+  /* nanna's scarf ties under the chin; this one is a working wrap,
+     knotted on top of the forehead with the two ends standing up.
+     The hoops break the head's outline on both sides, which is what
+     carries the face at 34px. */
+  '<path d="M12 2.9c4.2 0 7 2.7 7 6.6v.9H5v-.9c0-3.9 2.8-6.6 7-6.6Z"/>' +
+  '<path d="M11.6 3.8 9 1Q8.4.3 9.2.3l3.2 1.3Z"/>' +
+  '<path d="M12.4 3.8 15 1q.6-.7-.2-.7l-3.2 1.3Z"/>' +
+  '<path fill-rule="evenodd" d="M3.7 15a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0Z' +
+    hole(5.6, 15, 1) +
+    'M16.5 15a1.9 1.9 0 1 0 3.8 0a1.9 1.9 0 1 0-3.8 0Z' + hole(18.4, 15, 1) + '"/>' +
+  '<circle cx="9.7" cy="12" r=".9" fill-opacity=".42"/><circle cx="14.3" cy="12" r=".9" fill-opacity=".42"/>';
+
+/* ── IL-PARRUKKIERA — three curlers across the crown, a battlement ── */
+F.parrukkiera =
+  BUST + HEAD +
+  '<rect x="4.9" y="1.8" width="4" height="4.6" rx="1.7"/>' +
+  '<rect x="10" y="1" width="4" height="4.6" rx="1.7"/>' +
+  '<rect x="15.1" y="1.8" width="4" height="4.6" rx="1.7"/>' +
+  '<circle cx="6.9" cy="4.1" r=".8" fill-opacity=".42"/>' +
+  '<circle cx="12" cy="3.3" r=".8" fill-opacity=".42"/>' +
+  '<circle cx="17.1" cy="4.1" r=".8" fill-opacity=".42"/>' +
+  '<path d="M5.6 7.2c1.5.9 3.9 1.4 6.4 1.4s4.9-.5 6.4-1.4v1.9H5.6Z" fill-opacity=".42"/>' +
+  '<circle cx="9.6" cy="11.4" r=".9" fill-opacity=".42"/><circle cx="14.4" cy="11.4" r=".9" fill-opacity=".42"/>';
+
+/* ── TAL-ĦANUT — the high bun and the cat-eye glasses ── */
+F.talhanut =
+  BUST + HEAD +
+  '<circle cx="12" cy="3" r="2.6"/>' +
+  '<path d="M12 3.6c3.6 0 6 2.4 6.2 6l-2.1-.5c-.3-2.2-1.8-3.5-4.1-3.5S8.2 6.9 7.9 9.1l-2.1.5c.2-3.6 2.6-6 6.2-6Z"/>' +
+  /* the lenses sweep UP at the outer corner — that wing is the whole
+     difference between these and nanna's rounds */
+  '<path fill-rule="evenodd" d="M5.2 9.6 11.2 11v2.6H6.9c-1 0-1.6-.6-1.8-1.6Z' +
+    hole(8.5, 11.9, 1.15) +
+    'M18.8 9.6 12.8 11v2.6h4.3c1 0 1.6-.6 1.8-1.6Z' + hole(15.5, 11.9, 1.15) +
+    'M11.2 11.2h1.6v1h-1.6Z"/>';
+
+/* ── IŻ-ŻIJA — set curls all round, and one eyebrow already up ── */
+F.zija =
+  BUST + HEAD +
+  '<path d="M5.3 9.6c0-4.1 2.9-6.6 6.7-6.6s6.7 2.5 6.7 6.6v1.1H5.3Z"/>' +
+  /* seven curls scallop the outline the way a fresh set does — the
+     silhouette is a cog, and no other face has one */
+  '<circle cx="5.3" cy="9.6" r="1.9"/><circle cx="6.1" cy="6.2" r="1.9"/>' +
+  '<circle cx="8.6" cy="3.9" r="1.9"/><circle cx="12" cy="3.1" r="1.9"/>' +
+  '<circle cx="15.4" cy="3.9" r="1.9"/><circle cx="17.9" cy="6.2" r="1.9"/>' +
+  '<circle cx="18.7" cy="9.6" r="1.9"/>' +
+  '<path d="M7.9 9.7h2.9v1H7.9Z"/>' +
+  '<path d="M13.2 8.9c.6-1 1.8-1.5 3-1.2l-.25 1.05c-.9-.2-1.7.1-2.2.8Z"/>' +
+  '<circle cx="9.4" cy="11.6" r=".9" fill-opacity=".42"/><circle cx="14.6" cy="11.6" r=".9" fill-opacity=".42"/>';
+
+/* ── IS-SURMASTRA — the chignon, and the glasses you were sent to ── */
+F.surmastra =
+  BUST + HEAD +
+  '<path d="M12 3.1c4 0 6.7 2.7 6.7 6.6l-.1 1.6-2-.6.1-1c0-2.9-1.9-4.8-4.7-4.8S7.3 6.8 7.3 9.7l.1 1-2 .6-.1-1.6c0-3.9 2.7-6.6 6.7-6.6Z"/>' +
+  /* the chignon is a SOLID knot — a first draft gave it a swirl dot
+     and at 34px the dot became a hole and the bun became a wheel */
+  '<circle cx="19.3" cy="14" r="2.7"/>' +
+  /* narrow rectangles, not rounds: a slit to be looked over, which is
+     how she has always used them */
+  '<path fill-rule="evenodd" d="M6.3 10.5h4.6v2.8H6.3ZM7.1 11.25h3v1.3h-3Z' +
+    'M13.1 10.5h4.6v2.8h-4.6ZM13.9 11.25h3v1.3h-3Z' +
+    'M10.9 11.2h2.2v.9h-2.2Z"/>';
+
+/* ── L-GĦARUSA — the veil IS the silhouette ── */
+F.gharusa =
+  /* no BUST: the veil falls past where the bust would be, edge to
+     edge, and the medallion crops it — a pale triangle of tulle with
+     a face in it, which nothing else in the set resembles */
+  '<path d="M12 2.2c5.3 0 8.9 3.8 9.7 9.5.4 3.4.5 7.5.5 12.3H1.8c0-4.8.1-8.9.5-12.3C3.1 6 6.7 2.2 12 2.2Z" fill-opacity=".42"/>' +
+  '<path d="M4.9 8.6C3.8 11.8 3.4 16.7 3.4 24h1.9c0-6.9.4-11.5 1.3-14.5Z" fill-opacity=".72"/>' +
+  '<path d="M19.1 8.6c1.1 3.2 1.5 8.1 1.5 15.4h-1.9c0-6.9-.4-11.5-1.3-14.5Z" fill-opacity=".72"/>' +
+  HEAD +
+  '<path d="M8.5 4.9 9.7 1.8l1.1 2L12 1.2l1.2 2.6 1.1-2 1.2 3.1Z"/>' +
+  '<circle cx="9.6" cy="10.8" r=".9" fill-opacity=".42"/><circle cx="14.4" cy="10.8" r=".9" fill-opacity=".42"/>' +
+  '<path d="M10.4 13.6c.5.5 1.1.75 1.6.75s1.1-.25 1.6-.75l.7.8c-.6.7-1.4 1.05-2.3 1.05s-1.7-.35-2.3-1.05Z" fill-opacity=".42"/>';
+
+/* ── TAL-LOTTU — the face is behind the grille, where it has
+       always been ── */
+F.lottu =
+  BUST + HEAD +
+  '<path d="M12 3.2c3.9 0 6.5 2.4 6.8 6l-2.1-.7c-.4-2-2.1-3.2-4.7-3.2S7.7 6.5 7.3 8.5l-2.1.7c.3-3.6 2.9-6 6.8-6Z"/>' +
+  '<circle cx="12" cy="2.5" r="1.4"/>' +
+  '<circle cx="9.6" cy="10.6" r=".9" fill-opacity=".42"/><circle cx="14.4" cy="10.6" r=".9" fill-opacity=".42"/>' +
+  /* the booth window: a rail and five bars over the lower face, in
+     the recessed tone — she is not hidden, she is FILED */
+  '<path d="M4.9 12.3h14.2v1.1H4.9Zm1.1 1.1h1.3V24H6Zm3.2 0h1.3V24H9.2Zm3.2 0h1.3V24h-1.3Zm3.2 0h1.3V24h-1.3Zm3.2 0h1.3V24h-1.3Z" fill-opacity=".42"/>';
+
+/* ── IL-KANTANTA — the hair goes one way, the voice goes every way ── */
+F.kantanta =
+  BUST + HEAD +
+  /* one big sweep over the crown and down her left, past the jaw —
+     asymmetry is the read: every other head in the set is level */
+  '<path d="M10.9 2.7c5-.9 8.9 2 9.5 7 .3 2.9-.3 5.5-1.8 7.6l-2-1.3c1.2-1.7 1.7-3.7 1.4-5.9-.4-3.2-2.7-5.1-5.9-4.8-2.6.2-4.3 1.7-4.9 4.2l-2.2-.5c.7-3.5 3-5.8 5.9-6.3Z"/>' +
+  '<circle cx="9.2" cy="10.9" r=".9" fill-opacity=".42"/><circle cx="13.8" cy="10.9" r=".9" fill-opacity=".42"/>' +
+  '<circle cx="11.2" cy="14.4" r="1.25" fill-opacity=".42"/>' +
+  /* the mic points AT HER — ball up by the jaw, handle running down
+     into the corner. The first draft put the handle on the far side
+     and the whole thing read as a magnifying glass at 34px. */
+  '<circle cx="5.4" cy="18.6" r="2.9"/>' +
+  '<path d="M3.4 20.7 6.3 19.6 5.5 24H2.4Z"/>' +
+  '<path d="M2.7 17.6c.6-1.1 1.7-1.8 3-1.8l.1 1.1c-1 0-1.8.5-2.2 1.3Z" fill-opacity=".42"/>';
+
+/* ── IS-SINDKU — the bob, the chain, the nine votes ── */
+F.sindku =
+  BUST + HEAD +
+  '<path d="M12 2.8c4.4 0 7.3 2.9 7.3 7.3 0 2.5-.5 4.7-1.4 6.4l-2.2-.7c.5-1.4.8-3.1.8-5 0-.7-.1-1.4-.2-2-1.1.9-2.6 1.4-4.3 1.4s-3.2-.5-4.3-1.4c-.1.6-.2 1.3-.2 2 0 1.9.3 3.6.8 5l-2.2.7c-.9-1.7-1.4-3.9-1.4-6.4 0-4.4 2.9-7.3 7.3-7.3Z"/>' +
+  '<circle cx="9.7" cy="11.4" r=".9" fill-opacity=".42"/><circle cx="14.3" cy="11.4" r=".9" fill-opacity=".42"/>' +
+  /* the chain of office: a recessed band across the bust and four
+     discs at full value riding it — regalia survives 34px where
+     ornament does not, because it is COUNTABLE */
+  '<path d="M5.2 18.2c1.8 1.6 4.1 2.4 6.8 2.4s5-.8 6.8-2.4l.9 1.1c-2 1.8-4.6 2.7-7.7 2.7s-5.7-.9-7.7-2.7Z" fill-opacity=".42"/>' +
+  '<circle cx="6.9" cy="19.6" r="1.3"/><circle cx="10.3" cy="20.9" r="1.3"/>' +
+  '<circle cx="13.7" cy="20.9" r="1.3"/><circle cx="17.1" cy="19.6" r="1.3"/>';
 
 /* ═══════════════════════════════════════════════════════════════════
    THE SPRITE AND THE FRAME

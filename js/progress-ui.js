@@ -1212,9 +1212,145 @@ function centreTab(el){
 var SLOT_WORD = {
   board:'The board', pieces:'The pieces', felt:'The table', back:'The card back',
   avatar:'Your face', table:'The table', tokens:'The tokens', deck:'The deck',
-  cards:'The cards', dice:'The dice', frame:'The frame', trim:'The trim'
+  cards:'The cards', dice:'The dice', frame:'The frame', trim:'The table edge',
+  stones:'The stones', ticket:'The kartella', marker:'The counter',
+  drum:'The caller\'s ball', sea:'The sea', fleet:'The fleet',
+  ring:'The aim ring', burst:'The shell burst', sky:'The night sky',
+  curtain:'The curtain', card:'The card', backdrop:'The backdrop',
+  pattern:'The pattern'
 };
 function slotWord(s){ return SLOT_WORD[s] || (s.charAt(0).toUpperCase() + s.slice(1)); }
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE BACKDROP — AN APP-WIDE SLOT, NOT A GAME'S
+
+   The shell palette is nine custom properties on :root. A backdrop is
+   a COHERENT re-tint of that palette — bg, both panels, both hairlines,
+   and (only where the stock lilac greys would fail on the new panels)
+   the dim text pair. Registered through the SAME register() as the
+   borders, slot 'backdrop', game 'karti', so it turns up on the YOU
+   shelf with no special machinery; equipping persists in the registry
+   like everything else, and this module only has to paint.
+
+   Every palette below has been measured, not eyeballed: txt >= 7:1 on
+   bg and panel, dim and dim2 >= 4.5:1 on panel, gold >= 3:1 on panel.
+   'none' IS the stock shell — equipping it (or nothing) removes every
+   override, so the app can never be stranded off its own colours.
+   ═══════════════════════════════════════════════════════════════════ */
+var BACKDROPS = [
+  { id:'none',   name:'Il-Lejl', lvl:0,
+    blurb:'The purple dark the app was born in.',
+    c:{ bg:'#0E0B14', panel:'#1B1430', panel2:'#241A3E',
+        line:'rgba(255,255,255,.10)', line2:'rgba(255,255,255,.18)' } },
+  { id:'roza',   name:'Rose tal-Lejl', lvl:0,
+    blurb:'Somebody asked for pink. This is pink with the lights off.',
+    c:{ bg:'#1A0B14', panel:'#2E1524', panel2:'#3C1B2F',
+        line:'rgba(255,255,255,.11)', line2:'rgba(255,255,255,.20)',
+        dim:'#C2A2B8', dim2:'#AC8CA2' } },
+  { id:'kazin',  name:'Aħdar tal-Każin', lvl:5,
+    blurb:'The green of the każin after the last table folds.',
+    c:{ bg:'#0A130E', panel:'#14261B', panel2:'#1B3324',
+        line:'rgba(255,255,255,.10)', line2:'rgba(255,255,255,.18)',
+        dim:'#9FBCA9', dim2:'#84A18F' } },
+  /* MALTESE SUMMER, and the second pink on this ladder — which is
+     the whole difficulty. 'roza' is a cool mauve (h324, s37) with
+     the lights off; 'festa' is a blood red (h348, s45). Sunburn is
+     neither: it is hotter and angrier than both, pushed round to
+     h355 at s67 and two stops lighter, so the three read as three
+     things and not as one colour printed three times. Measured, not
+     eyeballed, like every palette above it. */
+  { id:'harqa',  name:'Ħruq tax-Xemx', lvl:10, set:'summer',
+    blurb:'Sunburn. You said you did not need the cream.',
+    c:{ bg:'#2C070D', panel:'#4E1016', panel2:'#5F141C',
+        line:'rgba(255,255,255,.12)', line2:'rgba(255,255,255,.20)',
+        dim:'#E8ABA6', dim2:'#CE908C' } },
+  { id:'bahar',  name:'Baħar bil-Lejl', lvl:12,
+    blurb:'The sea at night, flat as a kartella.',
+    c:{ bg:'#081019', panel:'#122233', panel2:'#182E44',
+        line:'rgba(255,255,255,.10)', line2:'rgba(255,255,255,.18)',
+        dim:'#9DB4CC', dim2:'#8099B4' } },
+  { id:'franka', name:'Ġebla tal-Franka', lvl:20,
+    blurb:'Limestone at dusk, before the streetlights win.',
+    c:{ bg:'#171208', panel:'#2A2214', panel2:'#3A2F1D',
+        line:'rgba(255,255,255,.10)', line2:'rgba(255,255,255,.18)',
+        txt:'#F6EFDF', dim:'#C3B291', dim2:'#AC9B7B' } },
+  { id:'festa',  name:'Lejl tal-Festa', lvl:28,
+    blurb:'Festa red, after the last murtal has gone up.',
+    c:{ bg:'#160709', panel:'#2A1015', panel2:'#38161D',
+        line:'rgba(255,255,255,.10)', line2:'rgba(255,255,255,.18)',
+        dim:'#C7A2A6', dim2:'#B0898E' } },
+  { id:'iswed',  name:'Iswed Karbonju', lvl:37,
+    blurb:'Black on black. The phone disappears in the dark.',
+    c:{ bg:'#050507', panel:'#121216', panel2:'#1A1A20',
+        line:'rgba(255,255,255,.14)', line2:'rgba(255,255,255,.22)',
+        dim2:'#8A7EAB' } },
+  { id:'deheb',  name:'Nofsillejl Deheb', lvl:45,
+    blurb:'Midnight with gold dust worked into the corners.',
+    c:{ bg:'#100C04', panel:'#201A0C', panel2:'#2C2412',
+        line:'rgba(255,255,255,.10)', line2:'rgba(255,255,255,.18)',
+        dim:'#BFAE86', dim2:'#A6956F' } }
+];
+var BACKDROP_BY = {};
+(function(){ for (var i = 0; i < BACKDROPS.length; i++)
+  BACKDROP_BY['backdrop.' + BACKDROPS[i].id] = BACKDROPS[i]; })();
+
+function backdropDefs(){
+  return XP.defsFor('karti').filter(function(d){ return d.slot === 'backdrop'; });
+}
+
+/* the preview is the palette doing its actual job: the bg with two
+   panel bars sitting on it and one gold point — never a blank swatch */
+function backdropPreviewHTML(t, size){
+  var s = size || 58;
+  return '<span style="display:block;position:relative;overflow:hidden;' +
+    'width:' + s + 'px;height:' + s + 'px;border-radius:12px;' +
+    'background:' + t.c.bg + ';border:1px solid ' + (t.c.line2 || 'rgba(255,255,255,.18)') + '">' +
+    '<i style="position:absolute;left:14%;top:22%;width:72%;height:20%;' +
+      'border-radius:4px;background:' + t.c.panel + '"></i>' +
+    '<i style="position:absolute;left:14%;top:52%;width:52%;height:20%;' +
+      'border-radius:4px;background:' + t.c.panel2 + '"></i>' +
+    '<i style="position:absolute;right:14%;bottom:16%;width:6px;height:6px;' +
+      'border-radius:50%;background:var(--gold,#FFC542)"></i>' +
+    '</span>';
+}
+
+function registerBackdrops(){
+  return XP.register(BACKDROPS.map(function(t){
+    return {
+      id: 'backdrop.' + t.id,
+      game: 'karti',
+      slot: 'backdrop',
+      name: t.name,
+      blurb: t.blurb,
+      /* a palette may belong to a named collection that runs across
+         games; the stock eight belong to none, so this is '' for them */
+      set: t.set || '',
+      level: t.lvl || 0,
+      sort: t.id === 'none' ? -1 : (t.lvl || 0),
+      preview: (function(theme){
+        return function(size){ return backdropPreviewHTML(theme, size); };
+      })(t)
+    };
+  }));
+}
+
+/* SETTING THE SHELL'S COLOURS. Inline properties on the root element
+   beat the :root block in index.html by specificity, and removing them
+   hands the stock values straight back — so 'none' (and nothing at
+   all) is not a ninth palette, it is the absence of the other eight. */
+var BACKDROP_VARS = { bg:'--bg', panel:'--panel', panel2:'--panel2',
+                      line:'--line', line2:'--line2',
+                      txt:'--txt', dim:'--dim', dim2:'--dim2' };
+function applyBackdrop(){
+  var id = '';
+  try { id = XP.equipped('backdrop', 'karti') || ''; } catch (e){}
+  var t = (id && id !== 'backdrop.none') ? BACKDROP_BY[id] : null;
+  var st = document.documentElement.style;
+  for (var k in BACKDROP_VARS){
+    if (t && t.c[k]) st.setProperty(BACKDROP_VARS[k], t.c[k]);
+    else st.removeProperty(BACKDROP_VARS[k]);
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    YOU — A SHELF OF SLOTS, NOT ONE LONG LIST
@@ -1237,7 +1373,9 @@ var SLOTS = [
   { id:'border', name:'Your border',
     hint:'The ring around it. This is the one everyone else sees.' },
   { id:'badge',  name:'Your level box',
-    hint:'The number in the bottom of the ring. Yours, not the room\'s.' }
+    hint:'The number in the bottom of the ring. Yours, not the room\'s.' },
+  { id:'backdrop', name:'The backdrop',
+    hint:'The colour behind everything. Games keep their own tables.' }
 ];
 
 /* WHAT IS WORN IN A SLOT, including when nothing has ever been chosen.
@@ -1245,10 +1383,14 @@ var SLOTS = [
    and no tile in either list shows as On — the wardrobe reads as though
    the player is wearing something that is not in it. Every ladder has a
    zero item that IS the default, so an empty slot resolves to that one. */
-var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold' };
+var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold', backdrop:'backdrop.none' };
 function wornId(slot){
   var id = '';
-  try { id = (slot === 'badge') ? XP.badgeDef() : XP.borderDef(); } catch (e){}
+  try {
+    id = (slot === 'badge')    ? XP.badgeDef()
+       : (slot === 'backdrop') ? XP.equipped('backdrop', 'karti')
+       :                         XP.borderDef();
+  } catch (e){}
   return id || SLOT_DEFAULT[slot] || '';
 }
 
@@ -1265,7 +1407,9 @@ function slotCount(id){
     /* a photograph is a face you own, so it counts as one when it exists */
     return { own:n + (XP.hasPhoto() ? 1 : 0), all:list.length + 1 };
   }
-  list = (id === 'badge') ? XP.badges() : XP.borders();
+  list = (id === 'badge') ? XP.badges()
+       : (id === 'backdrop') ? backdropDefs()
+       : XP.borders();
   for (i = 0; i < list.length; i++) if (XP.owns(list[i].id)) n++;
   return { own:n, all:list.length };
 }
@@ -1282,6 +1426,10 @@ function slotWorn(id){
     d = XP.def(wornId('badge'));
     return d ? d.name : 'Klassika';
   }
+  if (id === 'backdrop'){
+    d = XP.def(wornId('backdrop'));
+    return d ? d.name : 'Il-Lejl';
+  }
   d = XP.def(wornId('border'));
   return d ? d.name : 'No border';
 }
@@ -1295,13 +1443,17 @@ function paintYou(host){
         var c = slotCount(s.id);
         return '<button type="button" class="kx-slotrow" data-slot="' + esc(s.id) + '">' +
           '<span class="kx-pv">' +
-            avatarHTML(myName(), {
-              size:56,
-              /* each row previews the thing it is about: the face row
-                 drops the ring, the other two keep it — and every row
-                 carries the level, because the box row IS the level. */
-              lv: (s.id === 'face') ? 0 : Math.max(1, XP.level()),
-              noBorder: s.id === 'face' }) +
+            /* each row previews the thing it is about: the face row
+               drops the ring, the other avatar rows keep it — and every
+               one carries the level, because the box row IS the level.
+               The backdrop is not worn on a face at all, so its row
+               shows the worn palette itself doing its job. */
+            (s.id === 'backdrop'
+              ? backdropPreviewHTML(BACKDROP_BY[wornId('backdrop')] || BACKDROPS[0], 56)
+              : avatarHTML(myName(), {
+                  size:56,
+                  lv: (s.id === 'face') ? 0 : Math.max(1, XP.level()),
+                  noBorder: s.id === 'face' })) +
           '</span>' +
           '<span class="kx-nm"><b>' + esc(s.name) + '</b>' +
             '<i>' + esc(slotWorn(s.id)) + '</i>' +
@@ -1359,6 +1511,13 @@ function paintYou(host){
       '<p class="kx-slot">The level box</p>' +
       XP.badges().map(function(d){
         return itemHTML(d, wornId('badge') === d.id); }).join('');
+    wireItems(host);
+    drawPreviews(host, 'karti');
+  } else if (SC.slot === 'backdrop'){
+    host.innerHTML = back +
+      '<p class="kx-slot">The backdrop</p>' +
+      backdropDefs().map(function(d){
+        return itemHTML(d, wornId('backdrop') === d.id); }).join('');
     wireItems(host);
     drawPreviews(host, 'karti');
   } else {
@@ -1683,6 +1842,12 @@ function paintPicker(){
 injectCSS();
 if (FACES) FACES.ready();
 
+/* The backdrops go on the shelf the moment this module loads, and the
+   equipped one is painted onto :root BEFORE any interaction — so a
+   reload comes back in the chosen colours, not in stock-then-a-flash. */
+registerBackdrops();
+applyBackdrop();
+
 if (document.readyState === 'loading')
   document.addEventListener('DOMContentLoaded', watchAvatars);
 else watchAvatars();
@@ -1693,7 +1858,10 @@ else watchAvatars();
    a full-screen rebuild for a 32px face, and it also fired on every
    register() batch a late-loading game sent. The stamp in paintOne()
    makes this a no-op for events that change nothing. */
-try { XP.onEquip(function(){ queueRepaint(); }); } catch (e){}
+/* the same event also re-applies the shell palette — cheap enough to
+   run on every equip rather than filter for 'karti.backdrop', and it
+   makes unequip (fall back to stock) free */
+try { XP.onEquip(function(){ queueRepaint(); applyBackdrop(); }); } catch (e){}
 
 /* Android back: while the level-up card is holding, a back press should
    put it away, not walk out of the screen underneath it. */

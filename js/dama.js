@@ -435,6 +435,7 @@ function paint(){
           { id:'dm-new',    label:'New',    icon:'play' } ]
   });
   G.ctx = ctx;
+  ctx.root.classList.add('dm');          /* scope hook for the kit shelf (cosmetic only) */
   const board = ctx.board;
   board.innerHTML = '';
   G.cells = [];
@@ -1312,5 +1313,136 @@ try {
     };
   }
 } catch(e){}
+
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   DAMA — THE KIT SHELF (purely cosmetic, always)
+   Boards and stone sets, declared through KARTI_XP.register() and
+   applied as CSS scoped to the dama wrap (.dm). party.js reads
+   --lite/--dark for the squares, and the stones are plain CSS
+   circles, so a theme here is only a re-declaration of colours one
+   scope down — not one rule, take or chain is touched, and
+   unequipping simply falls back to the stock board. The style node
+   is re-appended on every change so it always lands after the
+   game's own sheet. */
+(function(){
+'use strict';
+
+var BOARDS = {
+  'dama.board.tapit': { l:'#E8E3CC', d:'#41684C', f:'#102418' },
+  'dama.board.gewza': { l:'#E9CFA0', d:'#69411F', f:'#291505' },
+  'dama.board.moll':  { l:'#DCE8F1', d:'#31618A', f:'#0F2740' },
+  'dama.board.festa': { l:'#F4E6C6', d:'#4C2D75', f:'#FFC642' },
+  /* MALTESE SUMMER */
+  'dama.board.ghajn': { l:'#EDA97A', d:'#1F9BB0', f:'#8A3A18' }
+};
+var STONES = {
+  'dama.stones.zebbug': { w:['#F7EAC2','#D8BC7E','#9C7B45'], b:['#4A4A30','#33301E','#1A180E'], cw:'#5C4A14', cb:'#D8D2A0' },
+  'dama.stones.hgieg':  { w:['#EDFAF2','#B8E0CC','#7FB59A'], b:['#4A90C2','#235E8C','#0F3350'], cw:'#1E5E4A', cb:'#BFE4F5' },
+  'dama.stones.kwarz':  { w:['#FBEAEF','#EFC3D0','#C98FA4'], b:['#7C4066','#55254A','#2E1030'], cw:'#7A3A52', cb:'#F2CFE4' },
+  'dama.stones.hadid':  { w:['#F7E4A8','#D2A748','#8F6A1E'], b:['#9AA0A8','#5C636C','#2C3138'], cw:'#5C4408', cb:'#E8ECF2' },
+  'dama.stones.faham':  { w:['#F4FFC8','#C6F23E','#7FA818'], b:['#4A4E52','#2A2D30','#131416'], cw:'#3E5A00', cb:'#D8F566' },
+  'dama.stones.qamar':  { w:['#F4F4FC','#CBCBE4','#9494B8'], b:['#3A3E68','#1E2144','#0A0B1E'], cw:'#3C3C6E', cb:'#9A8CFF' },
+  /* MALTESE SUMMER */
+  'dama.stones.lampuki':{ w:['#FFF0A8','#5AD3A2','#12798C'], b:['#68787A','#3C4B4E','#1A2529'], cw:'#0B3E46', cb:'#FFD46A' }
+};
+
+function sheet(){
+  var st = document.getElementById('dmx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'dmx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own and its equal-specificity rules
+     win. The #app prefix out-specifies party.js's #scr-party rules. */
+  document.head.appendChild(st);
+  return st;
+}
+
+/* the stock stone shadows, restated verbatim so the depth survives */
+var SHW = 'inset 0 -3px 5px rgba(0,0,0,.28),0 2px 4px rgba(0,0,0,.45),0 0 0 2px rgba(58,34,16,.55)';
+var SHB = 'inset 0 -3px 5px rgba(0,0,0,.42),0 2px 4px rgba(0,0,0,.5),0 0 0 2px rgba(42,7,0,.5)';
+
+function grad(c){ return 'radial-gradient(circle at 34% 28%,' + c[0] + ',' + c[1] + ' ' + c[3] + ',' + c[2] + ')'; }
+function gw(t){ return grad([t.w[0], t.w[1], t.w[2], '58%']); }
+function gb(t){ return grad([t.b[0], t.b[1], t.b[2], '55%']); }
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '', b = BOARDS[XP.equipped('board', 'dama') || ''];
+  if (b) css += '#app #scr-party .dm{--lite:' + b.l + ';--dark:' + b.d + '}' +
+                '#app #scr-party .pt-wrap.dm .pt-board{border-color:' + b.f + '}';
+  var s = STONES[XP.equipped('stones', 'dama') || ''];
+  if (s) css += '#app #scr-party .dm .pt-stone.w{background:' + gw(s) + ';box-shadow:' + SHW + '}' +
+                '#app #scr-party .dm .pt-stone.b{background:' + gb(s) + ';box-shadow:' + SHB + '}' +
+                '#app #scr-party .dm .pt-stone.w .pt-pcs{fill:' + s.cw + '}' +
+                '#app #scr-party .dm .pt-stone.b .pt-pcs{fill:' + s.cb + '}';
+  sheet().textContent = css;
+}
+
+/* the preview is the thing doing its job: four ranks of real squares */
+function boardPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:8px;' +
+      'border:3px solid ' + t.f + ';box-sizing:border-box;' +
+      'background:conic-gradient(' + t.d + ' 90deg,' + t.l + ' 0 180deg,' +
+      t.d + ' 0 270deg,' + t.l + ' 0);background-size:50% 50%');
+    return el;
+  };
+}
+
+/* two stones side by side, wearing the set's actual gradients */
+function stonePv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'gap:3px;width:' + s + 'px;height:' + s + 'px');
+    function one(bg, ring){
+      var d = Math.floor(s * .38);
+      return '<span style="width:' + d + 'px;height:' + d + 'px;border-radius:50%;' +
+             'background:' + bg + ';box-shadow:0 0 0 2px ' + ring + '"></span>';
+    }
+    el.innerHTML = one(gw(t), 'rgba(58,34,16,.55)') + one(gb(t), 'rgba(42,7,0,.5)');
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('dama');
+  KIT.register([
+    { slot:'board', id:'dama.board.tapit', level:3,  name:'Tapit tal-Boċċi',
+      blurb:'The green cloth off the boċċi pitch, argued over nightly.', preview:boardPv(BOARDS['dama.board.tapit']) },
+    { slot:'board', id:'dama.board.gewza', level:8,  name:'Ġewża tan-Nannu',
+      blurb:'The nannu’s walnut table. Do not put a glass on it.', preview:boardPv(BOARDS['dama.board.gewza']) },
+    { slot:'board', id:'dama.board.moll',  level:19, name:'Il-Moll',
+      blurb:'Quay water and painted hulls. Mind the gap.', preview:boardPv(BOARDS['dama.board.moll']) },
+    { slot:'board', id:'dama.board.festa', level:28, name:'Festa Vjola',
+      blurb:'Purple velvet in a gilded rim. Somewhere a march is starting.', preview:boardPv(BOARDS['dama.board.festa']) },
+    { slot:'board', id:'dama.board.ghajn', level:15, name:'Għajn Tuffieħa', set:'summer',
+      blurb:'Red sand and shallow water. Two hundred steps down, two thousand back up.', preview:boardPv(BOARDS['dama.board.ghajn']) },
+
+    { slot:'stones', id:'dama.stones.zebbug', level:0,  name:'Żebbuġ',
+      blurb:'Olive wood against black olives. Somebody will try to eat one.', preview:stonePv(STONES['dama.stones.zebbug']) },
+    { slot:'stones', id:'dama.stones.hgieg',  level:5,  name:'Ħġieġ tal-Baħar',
+      blurb:'Sea glass against channel blue, smoothed by forty winters.', preview:stonePv(STONES['dama.stones.hgieg']) },
+    { slot:'stones', id:'dama.stones.kwarz',  level:12, name:'Kwarz u Għanbaqar',
+      blurb:'Rose quartz against plum, off the shelf nobody is allowed to touch.', preview:stonePv(STONES['dama.stones.kwarz']) },
+    { slot:'stones', id:'dama.stones.hadid',  level:21, name:'Ram u Ħadid',
+      blurb:'Brass against iron, straight off the dockyard bench.', preview:stonePv(STONES['dama.stones.hadid']) },
+    { slot:'stones', id:'dama.stones.faham',  level:33, name:'Lumi u Faħam',
+      blurb:'Electric lime against charcoal. Visible from Sicily.', preview:stonePv(STONES['dama.stones.faham']) },
+    { slot:'stones', id:'dama.stones.qamar',  level:44, name:'Qamar u Lejl',
+      blurb:'Moonstone against midnight. The last game before somebody yawns first.', preview:stonePv(STONES['dama.stones.qamar']) },
+    { slot:'stones', id:'dama.stones.lampuki',level:7,  name:'Lampuki', set:'summer',
+      blurb:'Straight off the boat and still flashing gold. By Sunday it is a pie.', preview:stonePv(STONES['dama.stones.lampuki']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
 
 })();

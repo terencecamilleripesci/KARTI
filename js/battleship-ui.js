@@ -2323,3 +2323,195 @@ try {
 } catch(e){}
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   GĦARRAQHOM — THE KIT SHELF (purely cosmetic, always)
+   Seas, fleets, aim rings and hit bursts, declared through
+   KARTI_XP.register() and applied one id deeper than the game's own
+   sheet (#app #scr-party .bs-wrap). Because that prefix out-specifies
+   every stock rule, the state classes the game paints with — .ship,
+   .hit, .sunk, .drag — are EXCLUDED with :not() wherever a theme rule
+   could otherwise sit on top of them. The style node is re-appended
+   on every change so it always lands after the game's own sheet, and
+   an unequipped slot writes nothing — stock look, untouched.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+/* sea: the open-water cell gradient, its coordinate ink, and the miss
+   splash tinted to match. States keep their own paint via :not(). */
+var SEAS = {
+  'gharraq.sea.mediterran': { g:['#14497A','#0E355C'], t:'#7FB2E8', m:'#BFDCF6' },
+  'gharraq.sea.sebh':       { g:['#1E6B63','#144A46'], t:'#8FD6C9', m:'#CFF2E8' },
+  'gharraq.sea.maltemp':    { g:['#3A4656','#262E3B'], t:'#9AA9BC', m:'#C6D2E0' },
+  'gharraq.sea.inbid':      { g:['#4E1D30','#2E0F1C'], t:'#D19AAE', m:'#EFC5D2' },
+  /* MALTESE SUMMER — the only bright water on the shelf, so the
+     coordinate ink flips to near-black and the splash to foam white
+     rather than the pale blues the night seas use. */
+  'gharraq.sea.nofsinhar':  { g:['#6FD0EE','#2FA3D2'], t:'#04202F', m:'#FFFFFF' }
+};
+/* fleet: hull + the two shadow tones. The warm ink outline #150C22
+   stays stock always, and drag/sunk hulls keep their own colours. */
+var FLEETS = {
+  'gharraq.fleet.hadid': { h:'#9AA4AE', dt:'#3C4650', lt:'#C9D1D8' },
+  'gharraq.fleet.luzzu': { h:'#F2E3C2', dt:'#7A5A24', lt:'#E8C572' }
+};
+/* ring: the two aim rings, full and half */
+var RINGS = {
+  'gharraq.ring.hgiega': { a:'#7FE8C4', b:'rgba(127,232,196,.45)' },
+  'gharraq.ring.warda':  { a:'#FF9FBE', b:'rgba(255,159,190,.45)' },
+  'gharraq.ring.abjad':  { a:'#FFFFFF', b:'rgba(255,255,255,.5)' }
+};
+/* burst: the scorched cell under it, the burst itself, the glow.
+   Sunk cells keep their darker char (:not(.sunk)) and their dimmed
+   ::after, which only ever touched opacity. */
+var BURSTS = {
+  'gharraq.burst.fjamma': { bg:['#7A2E12','#571507'], r:['#FFC46A','#F0562E','#8C1E0C'],
+                            gl:'0 0 8px rgba(240,86,46,.8)' },
+  'gharraq.burst.blu':    { bg:['#1E2A6E','#101745'], r:['#BDE6FF','#4C7DF0','#1B2C8C'],
+                            gl:'0 0 8px rgba(92,140,255,.85)' },
+  'gharraq.burst.deheb':  { bg:['#6E4A08','#3A2503'], r:['#FFFFFF','#FFDF8A','#B87A10'],
+                            gl:'0 0 10px rgba(255,225,130,.95),0 0 20px rgba(255,197,66,.55)' },
+  /* MALTESE SUMMER */
+  'gharraq.burst.nar':    { bg:['#2B1350','#140724'], r:['#FFF7DC','#FF7A2E','#C41E5A'],
+                            gl:'0 0 10px rgba(255,122,46,.9),0 0 20px rgba(196,30,90,.55)' }
+};
+
+function sheet(){
+  var st = document.getElementById('bsx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'bsx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own; the #app prefix out-specifies
+     the game's #scr-party rules besides. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var P = '#app #scr-party .bs-wrap ', css = '';
+  var s = SEAS[XP.equipped('sea', 'gharraq') || ''];
+  if (s) css += P + '.bs-c:not(.ship):not(.hit):not(.sunk){background:linear-gradient(180deg,' +
+      s.g[0] + ',' + s.g[1] + ');color:' + s.t + '}' +
+    P + '.bs-c.miss::after{background:' + s.m + '}';
+  var f = FLEETS[XP.equipped('fleet', 'gharraq') || ''];
+  if (f) css += P + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:' + f.h + '}' +
+    P + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:' + f.dt + '}' +
+    P + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:' + f.lt + '}';
+  var r = RINGS[XP.equipped('ring', 'gharraq') || ''];
+  if (r) css += P + '.bs-c.aim{box-shadow:inset 0 0 0 3px ' + r.a + '}' +
+    P + '.bs-c.aim2{box-shadow:inset 0 0 0 3px ' + r.b + '}';
+  var u = BURSTS[XP.equipped('burst', 'gharraq') || ''];
+  if (u) css += P + '.bs-c.hit:not(.sunk){background:linear-gradient(180deg,' +
+      u.bg[0] + ',' + u.bg[1] + ')}' +
+    P + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
+      u.r[0] + ',' + u.r[1] + ' 60%,' + u.r[2] + ');box-shadow:' + u.gl + '}';
+  sheet().textContent = css;
+}
+
+/* previews: the sea is a cell with a 2x2 grid and one splash; a fleet
+   is one border-radius hull with the ink outline; a ring is the ring
+   set into stock water; a burst is the exact burst on scorched red. */
+function seaPv(t){
+  return function(size){
+    var s = size || 62, dr = Math.max(3, Math.round(s * .09)),
+        el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
+      'box-sizing:border-box;border:2px solid rgba(0,0,0,.5);' +
+      'background-image:' +
+      'radial-gradient(circle ' + dr + 'px at 74% 26%,' + t.m + ',' + t.m + ' 70%,transparent 100%),' +
+      'linear-gradient(0deg,transparent 49%,rgba(255,255,255,.14) 49%,' +
+        'rgba(255,255,255,.14) 51%,transparent 51%),' +
+      'linear-gradient(90deg,transparent 49%,rgba(255,255,255,.14) 49%,' +
+        'rgba(255,255,255,.14) 51%,transparent 51%),' +
+      'linear-gradient(180deg,' + t.g[0] + ',' + t.g[1] + ')');
+    return el;
+  };
+}
+function fleetPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span'),
+        hull = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    hull.setAttribute('style',
+      'display:block;width:' + Math.round(s * .72) + 'px;height:' + Math.round(s * .32) + 'px;' +
+      'border-radius:50% 50% 46% 46% / 88% 88% 46% 46%;' +
+      'background:linear-gradient(180deg,' + t.lt + ' 0 26%,' + t.h + ' 26% 68%,' +
+        t.dt + ' 68% 100%);' +
+      'box-shadow:0 0 0 2px #150C22');
+    el.appendChild(hull);
+    return el;
+  };
+}
+function ringPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
+      'box-sizing:border-box;background:linear-gradient(180deg,#173A63,#122E50);' +
+      'box-shadow:inset 0 0 0 3px ' + t.a);
+    return el;
+  };
+}
+function burstPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span'),
+        dot = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px;border-radius:10px;box-sizing:border-box;' +
+      'background:linear-gradient(180deg,' + t.bg[0] + ',' + t.bg[1] + ')');
+    dot.setAttribute('style',
+      'display:block;width:' + Math.round(s * .5) + 'px;height:' + Math.round(s * .5) + 'px;' +
+      'border-radius:50%;background:radial-gradient(circle at 35% 30%,' +
+      t.r[0] + ',' + t.r[1] + ' 60%,' + t.r[2] + ');box-shadow:' + t.gl);
+    el.appendChild(dot);
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('gharraq');
+  KIT.register([
+    { slot:'sea', id:'gharraq.sea.mediterran', level:2,  name:'Baħar Mediterran',
+      blurb:'The same sea, a shade prouder of itself.', preview:seaPv(SEAS['gharraq.sea.mediterran']) },
+    { slot:'sea', id:'gharraq.sea.sebh',       level:10, name:'Baħar tas-Sebħ',
+      blurb:'Dawn water. Perfectly calm until somebody opens fire.', preview:seaPv(SEAS['gharraq.sea.sebh']) },
+    { slot:'sea', id:'gharraq.sea.maltemp',    level:21, name:'Maltemp Griż',
+      blurb:'Storm slate. The forecast said stay in port. You did not.', preview:seaPv(SEAS['gharraq.sea.maltemp']) },
+    { slot:'sea', id:'gharraq.sea.inbid',      level:39, name:'Baħar tal-Inbid',
+      blurb:'Wine-dark, like the poet said. He also lost a fleet.', preview:seaPv(SEAS['gharraq.sea.inbid']) },
+    { slot:'sea', id:'gharraq.sea.nofsinhar',  level:6,  name:'Baħar f’Nofsinhar', set:'summer',
+      blurb:'Noon glare on flat water. Nobody out here is wearing enough sunscreen.', preview:seaPv(SEAS['gharraq.sea.nofsinhar']) },
+
+    { slot:'fleet', id:'gharraq.fleet.hadid', level:13, name:'Ħadid tal-Baħar',
+      blurb:'Grey iron and honest rivets. Sinks with dignity.', preview:fleetPv(FLEETS['gharraq.fleet.hadid']) },
+    { slot:'fleet', id:'gharraq.fleet.luzzu', level:30, name:'Luzzu tal-Prim',
+      blurb:'Cream and brass, eyes painted on. They saw you coming.', preview:fleetPv(FLEETS['gharraq.fleet.luzzu']) },
+
+    { slot:'ring', id:'gharraq.ring.hgiega', level:5,  name:'Ħġieġa Ħadra',
+      blurb:'Sea-glass sights. Gentle right up until the bang.', preview:ringPv(RINGS['gharraq.ring.hgiega']) },
+    { slot:'ring', id:'gharraq.ring.warda',  level:16, name:'Warda tal-Mira',
+      blurb:'A rose on the crosshair. Romantic. Still fatal.', preview:ringPv(RINGS['gharraq.ring.warda']) },
+    { slot:'ring', id:'gharraq.ring.abjad',  level:34, name:'Abjad Jaħraq',
+      blurb:'White-hot. The ring arrives before the shell does.', preview:ringPv(RINGS['gharraq.ring.abjad']) },
+
+    { slot:'burst', id:'gharraq.burst.fjamma', level:8,  name:'Fjamma Ħamra',
+      blurb:'Standard-issue fire. It gets the job done.', preview:burstPv(BURSTS['gharraq.burst.fjamma']) },
+    { slot:'burst', id:'gharraq.burst.blu',    level:25, name:'Fjamma Blu',
+      blurb:'Burns hotter and judges you quietly.', preview:burstPv(BURSTS['gharraq.burst.blu']) },
+    { slot:'burst', id:'gharraq.burst.deheb',  level:50, name:'Deheb u Dawl',
+      blurb:'Level fifty. The sea itself applauds, briefly.', preview:burstPv(BURSTS['gharraq.burst.deheb']) },
+    { slot:'burst', id:'gharraq.burst.nar',    level:20, name:'Nar tal-Festa', set:'summer',
+      blurb:'It goes up over the harbour and every dog in the village disagrees.', preview:burstPv(BURSTS['gharraq.burst.nar']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

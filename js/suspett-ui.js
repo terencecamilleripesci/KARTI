@@ -2072,3 +2072,122 @@ try {
   }
 } catch (e){}
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   SUSPETT — THE KIT SHELF (purely cosmetic, always)
+   Role-card finishes and pass-the-phone curtains, declared through
+   KARTI_XP.register() and applied as a handful of CSS rules under
+   #app #scr-party — one specificity step above the game's own
+   #scr-party sheet, so they win without touching a rule of play.
+   Only backgrounds and border colours move: the team colour strips
+   (.side.rahal / .klikka / .newtral) and the gold h3 are never
+   restyled, and every curtain stays a solid hex with the veil at
+   .97+ alpha, because those two exist to HIDE things — a theme that
+   leaked a role would not be cosmetic. The style node is re-appended
+   on every change so it always lands after the game's own sheet;
+   unequip and everything falls back to stock.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+var CARDS = {
+  'suspett.card.lejl':  { a:'#2E2054', b:'#151028', bd:'#9A7BFF' },
+  'suspett.card.inbid': { a:'#3A1420', b:'#160A10', bd:'#C87B4A' },
+  'suspett.card.qiegh': { a:'#123236', b:'#08141A', bd:'#3DBCA8' },
+  'suspett.card.fidda': { a:'#23242C', b:'#0B0B10', bd:'#C9CCD8' },
+  /* MALTESE SUMMER. Festa crimson under a strung-bulb amber rim. The
+     card carries light text, so the palest stop (#42162C) is held
+     below #4a3a5a in luminance — .0191 against a .0522 cap — leaving
+     the role name at 13.5:1 and the gold h3 untouched at 9.6:1. */
+  'suspett.card.festa': { a:'#42162C', b:'#170811', bd:'#FF9E3D' }
+};
+/* c = curtain (MUST stay a solid hex — it hides who holds the phone)
+   v = veil    (MUST stay >= .97 alpha — it hides the role beneath) */
+var CURTAINS = {
+  'suspett.curtain.dlam':     { c:'#050408', v:'rgba(4,3,7,.985)' },
+  'suspett.curtain.brungiel': { c:'#150A18', v:'rgba(19,9,22,.975)' },
+  'suspett.curtain.port':     { c:'#06121A', v:'rgba(5,15,21,.975)' }
+};
+
+function sheet(){
+  var st = document.getElementById('sux-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'sux-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own and its rules win on order as
+     well as on the extra #app of specificity. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '', c = CARDS[XP.equipped('card', 'suspett') || ''];
+  /* role cards live in the wrap AND inside the secret veil sheet —
+     both hosts, or the most private card of all would stay stock */
+  if (c) css += '#app #scr-party .su-wrap .su-card,#app #scr-party .su-veil .su-card{' +
+                'background:linear-gradient(160deg,' + c.a + ',' + c.b + ');' +
+                'border-color:' + c.bd + '}';
+  var k = CURTAINS[XP.equipped('curtain', 'suspett') || ''];
+  if (k) css += '#app #scr-party .su-curtain{background:' + k.c + '}' +
+                '#app #scr-party .su-veil{background:' + k.v + '}';
+  sheet().textContent = css;
+}
+
+/* previews: a little role card, and a curtain with a gold name-bar */
+function cardPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + Math.floor(s * .72) + 'px;' +
+      'margin:' + Math.floor(s * .14) + 'px auto;border-radius:8px;box-sizing:border-box;' +
+      'border:2px solid ' + t.bd + ';' +
+      'background:linear-gradient(160deg,' + t.a + ',' + t.b + ')');
+    return el;
+  };
+}
+function curtainPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px;border-radius:10px;box-sizing:border-box;' +
+      'border:1px solid rgba(255,255,255,.12);background:' + t.c);
+    var bar = document.createElement('span');
+    bar.setAttribute('style',
+      'display:block;width:' + Math.floor(s * .55) + 'px;height:4px;border-radius:2px;' +
+      'background:#FFC542;opacity:.9');
+    el.appendChild(bar);
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('suspett');
+  KIT.register([
+    { slot:'card', id:'suspett.card.lejl',  level:3,  name:'Vjola tal-Lejl',
+      blurb:'Deep violet with a lilac edge. Innocent-looking, which proves nothing.', preview:cardPv(CARDS['suspett.card.lejl']) },
+    { slot:'card', id:'suspett.card.inbid', level:10, name:'Inbid Qadim',
+      blurb:'Wine dark with a brass rim. Somebody spilled and never confessed.', preview:cardPv(CARDS['suspett.card.inbid']) },
+    { slot:'card', id:'suspett.card.festa', level:17, name:'Lejl tal-Festa', set:'summer',
+      blurb:'The square on the last night. Sixteen suspects and a band loud enough to cover any of it.', preview:cardPv(CARDS['suspett.card.festa']) },
+    { slot:'card', id:'suspett.card.qiegh', level:26, name:'Qiegħ il-Baħar',
+      blurb:'Deep-sea teal. Where the village keeps the bodies of old arguments.', preview:cardPv(CARDS['suspett.card.qiegh']) },
+    { slot:'card', id:'suspett.card.fidda', level:42, name:'Iswed u Fidda',
+      blurb:'Black on silver, like a funeral invitation you are proud of.', preview:cardPv(CARDS['suspett.card.fidda']) },
+
+    { slot:'curtain', id:'suspett.curtain.dlam',     level:6,  name:'Dlam Ċappa',
+      blurb:'Blackout black. Even the lamppost is off tonight.', preview:curtainPv(CURTAINS['suspett.curtain.dlam']) },
+    { slot:'curtain', id:'suspett.curtain.brungiel', level:19, name:'Brunġiel Fond',
+      blurb:'Deep aubergine. Technically a vegetable, spiritually a mood.', preview:curtainPv(CURTAINS['suspett.curtain.brungiel']) },
+    { slot:'curtain', id:'suspett.curtain.port',     level:36, name:'Port f’Nofsillejl',
+      blurb:'Midnight harbour. The water knows who did it and charges nothing.', preview:curtainPv(CURTAINS['suspett.curtain.port']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

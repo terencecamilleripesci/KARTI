@@ -2155,3 +2155,142 @@ try {
 } catch(e){}
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   CHESS — THE KIT SHELF (purely cosmetic, always)
+   Boards and piece sets, declared through KARTI_XP.register() and
+   applied as CSS custom properties scoped to the chess wrap (.ch).
+   party.js already reads --lite/--dark for the squares and
+   --pcw/--pcb/--rimw/--rimb for the pieces, so a theme here is
+   nothing but a re-declaration of those variables one scope down —
+   not one rule, deal or move is touched, and unequipping simply
+   falls back to the stock board. The style node is re-appended on
+   every change so it always lands after the game's own sheet.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+var BOARDS = {
+  'chess.board.kazin':  { l:'#E9E4CF', d:'#3F6B4F', f:'#12281A' },
+  'chess.board.gewz':   { l:'#E7CFA3', d:'#6B4326', f:'#2A1608' },
+  'chess.board.franka': { l:'#F2E5C4', d:'#B5905A', f:'#4A3416' },
+  'chess.board.port':   { l:'#D9E6F0', d:'#2E5E86', f:'#0E2438' },
+  'chess.board.roza':   { l:'#F6DCE4', d:'#8A3A5E', f:'#38101F' },
+  'chess.board.festa':  { l:'#F5E7C8', d:'#4A2C72', f:'#FFC542' },
+  'chess.board.lejl':   { l:'#9AA2B8', d:'#262C40', f:'#07080F' },
+  /* MALTESE SUMMER */
+  'chess.board.xemx':   { l:'#FFF9E4', d:'#F0A81E', f:'#8A5406' }
+};
+var PIECES = {
+  'chess.pieces.fuhhar':  { w:'#F6D9B5', rw:'#7A4018', b:'#B0492B', rb:'#FFD9A8' },
+  'chess.pieces.ram':     { w:'#ECECF2', rw:'#3A3F55', b:'#C98A3E', rb:'#FFE9C0' },
+  'chess.pieces.ghawdex': { w:'#D8EEE4', rw:'#1E5E4A', b:'#23557A', rb:'#A8D8F0' },
+  'chess.pieces.karnival':{ w:'#FFD9E8', rw:'#8A2A55', b:'#279A8A', rb:'#C8F5EE' },
+  'chess.pieces.indurat': { w:'#FFE9B0', rw:'#6B4A00', b:'#241134', rb:'#FFC542' },
+  'chess.pieces.lejla':   { w:'#E8E4F5', rw:'#241134', b:'#120B20', rb:'#8A5CFF' },
+  /* MALTESE SUMMER */
+  'chess.pieces.granita': { w:'#FCFBDA', rw:'#A8880C', b:'#D0203F', rb:'#FFDFE6' }
+};
+
+function sheet(){
+  var st = document.getElementById('chx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'chx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own and its equal-specificity rules
+     win. The #app prefix out-specifies party.js's #scr-party rules. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '', b = BOARDS[XP.equipped('board', 'chess') || ''];
+  if (b) css += '#app #scr-party .ch{--lite:' + b.l + ';--dark:' + b.d + '}' +
+                '#app #scr-party .pt-wrap.ch .pt-board{border-color:' + b.f + '}';
+  var p = PIECES[XP.equipped('pieces', 'chess') || ''];
+  if (p) css += '#app #scr-party .ch{--pcw:' + p.w + ';--rimw:' + p.rw +
+                ';--pcb:' + p.b + ';--rimb:' + p.rb + '}';
+  sheet().textContent = css;
+}
+
+/* the preview is the thing doing its job: four ranks of real squares */
+function boardPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:8px;' +
+      'border:3px solid ' + t.f + ';box-sizing:border-box;' +
+      'background:conic-gradient(' + t.d + ' 90deg,' + t.l + ' 0 180deg,' +
+      t.d + ' 0 270deg,' + t.l + ' 0);background-size:50% 50%');
+    return el;
+  };
+}
+
+/* a real knight and a real king off party.js's own sprite, wearing the
+   set's fills — the sprite is injected by the party kit, so make sure
+   it exists before asking for it. Falls back to two turned pawns drawn
+   as discs if the sprite is somehow absent. */
+function piecePv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'gap:2px;width:' + s + 'px;height:' + s + 'px');
+    try { if (window.KARTI_PARTY && KARTI_PARTY.ui && KARTI_PARTY.ui.css) KARTI_PARTY.ui.css(); } catch (e){}
+    function one(fill, rim){
+      if (document.getElementById('pt-sprite'))
+        return '<svg viewBox="0 0 24 24" aria-hidden="true" style="width:' + Math.floor(s * .46) +
+               'px;height:' + Math.floor(s * .46) + 'px;fill:' + fill + ';stroke:' + rim +
+               ';paint-order:stroke fill;stroke-width:1.1;stroke-linejoin:round">' +
+               '<use href="#pt-p-n"></use></svg>';
+      return '<span style="width:' + Math.floor(s * .34) + 'px;height:' + Math.floor(s * .34) +
+             'px;border-radius:50%;background:' + fill + ';box-shadow:0 0 0 2px ' + rim + '"></span>';
+    }
+    el.innerHTML = one(t.w, t.rw) + one(t.b, t.rb);
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('chess');
+  KIT.register([
+    { slot:'board', id:'chess.board.kazin',  level:0,  name:'Tal-Każin',
+      blurb:'The baize off the club table, cigarette burns steamed out.', preview:boardPv(BOARDS['chess.board.kazin']) },
+    { slot:'board', id:'chess.board.gewz',   level:2,  name:'Ġewż',
+      blurb:'Walnut, waxed by forty years of winning arguments.', preview:boardPv(BOARDS['chess.board.gewz']) },
+    { slot:'board', id:'chess.board.franka', level:6,  name:'Franka',
+      blurb:'Cut from the same limestone as every wall you have ever leaned on.', preview:boardPv(BOARDS['chess.board.franka']) },
+    { slot:'board', id:'chess.board.port',   level:11, name:'Il-Port',
+      blurb:'Harbour water and morning haze. The ferry is late.', preview:boardPv(BOARDS['chess.board.port']) },
+    { slot:'board', id:'chess.board.roza',   level:17, name:'Oleandra',
+      blurb:'Oleander pink and wine. The prettiest thing you will lose on.', preview:boardPv(BOARDS['chess.board.roza']) },
+    { slot:'board', id:'chess.board.festa',  level:26, name:'Lejl tal-Festa',
+      blurb:'Velvet purple with a gilded rim. The band is tuning up.', preview:boardPv(BOARDS['chess.board.festa']) },
+    { slot:'board', id:'chess.board.lejl',   level:34, name:'Nofsillejl',
+      blurb:'Slate on slate. For people who finish games after 2am.', preview:boardPv(BOARDS['chess.board.lejl']) },
+    { slot:'board', id:'chess.board.xemx',   level:5,  name:'Xemx tat-Tmienja', set:'summer',
+      blurb:'Eight in the morning and everything is already white and gold. Sit on the other side.', preview:boardPv(BOARDS['chess.board.xemx']) },
+
+    { slot:'pieces', id:'chess.pieces.fuhhar',  level:4,  name:'Fuħħar',
+      blurb:'Terracotta out of a Rabat kiln, still warm.', preview:piecePv(PIECES['chess.pieces.fuhhar']) },
+    { slot:'pieces', id:'chess.pieces.ram',     level:9,  name:'Fidda u Ram',
+      blurb:'Silver against brass. The good drawer, the one that sticks.', preview:piecePv(PIECES['chess.pieces.ram']) },
+    { slot:'pieces', id:'chess.pieces.ghawdex', level:14, name:'Ta’ Għawdex',
+      blurb:'Sea glass and deep channel blue, straight off the ferry rail.', preview:piecePv(PIECES['chess.pieces.ghawdex']) },
+    { slot:'pieces', id:'chess.pieces.karnival',level:22, name:'Karnival',
+      blurb:'Rose against lagoon. Nadur would approve and never admit it.', preview:piecePv(PIECES['chess.pieces.karnival']) },
+    { slot:'pieces', id:'chess.pieces.indurat', level:30, name:'Indurat',
+      blurb:'Gilded like the titular statue. Handle with cotton gloves.', preview:piecePv(PIECES['chess.pieces.indurat']) },
+    { slot:'pieces', id:'chess.pieces.lejla',   level:40, name:'Tal-Lejla',
+      blurb:'Moonstone and a violet so deep it is nearly a rumour.', preview:piecePv(PIECES['chess.pieces.lejla']) },
+    { slot:'pieces', id:'chess.pieces.granita', level:11, name:'Granita tal-Lumi', set:'summer',
+      blurb:'Lemon ice against crushed red syrup. Play fast, it is already melting.', preview:piecePv(PIECES['chess.pieces.granita']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

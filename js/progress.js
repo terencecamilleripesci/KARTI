@@ -62,11 +62,19 @@ if (window.KARTI_XP) return;
    1. THE ECONOMY
    Every number in this section is argued for in docs/PROGRESSION.md.
    The short version: about ten XP for an average game, about eight
-   games for the first level, about nine hundred for level 20, and a
-   cap at 25 that is meant to take a year.
+   games for the first level, about nine hundred for level 20 — and a
+   ladder that now runs to 50. The first 25 are untouched (nobody's
+   level moved when the ceiling did); past 25 the climb goes LINEAR,
+   not quadratic, because the quadratic's own slope at 24 (~120 XP a
+   level of growth) would have made 26-50 a seven-year wall. Linear at
+   +95 keeps "the next one is a bit more than the last one" true and
+   keeps a level landing every few party nights deep into the ladder.
+   The top half is aspirational on purpose — he asked for XP kept low
+   so people grind — but every level on it pays, and the games hang
+   cosmetics off the whole run so no stretch is empty.
    ═══════════════════════════════════════════════════════════════════ */
 
-var MAX_LEVEL = 25;
+var MAX_LEVEL = 50;
 
 /* WEIGHT = roughly how long the game takes, in units of "a short hand
    of cards". It is the only per-game number, and it drives three
@@ -117,20 +125,30 @@ var TAPER = [ [8, 1], [16, 0.6], [Infinity, 0.35] ];
 var FIRST_WIN = 1.5;
 
 /* THE CURVE. need(L) is the XP to get from level L to level L+1.
-     L1 → 110  ·  L5 → 232  ·  L10 → 478  ·  L20 → 1286
-   Quadratic, not exponential: the top is a long climb but it is not a
-   wall you can see from level three, and it is the same shape all the
-   way up, so "the next one is a bit more than the last one" is true
-   everywhere and a player is never ambushed.
+     L1 → 110  ·  L5 → 232  ·  L10 → 478  ·  L20 → 1286  ·  L25 → 1848
+     L30 → 2323  ·  L40 → 3273  ·  L49 → 4128
+   Quadratic to 25, LINEAR after. Quadratic, not exponential, for the
+   first half: the top is a long climb but it is not a wall you can see
+   from level three. Past 25 the quadratic's own growth (~120 more XP
+   per level, and rising) would have turned the new half of the ladder
+   into a wall nobody climbs, so the second half keeps the quadratic's
+   exit slope frozen: every level is 95 XP dearer than the last, which
+   is a whisker LESS than the step from 24 to 25 was. "The next one is
+   a bit more than the last one" stays true at every rung and the deep
+   ladder stays reachable by somebody who simply keeps playing.
    The 110 is measured, not guessed: a real mixed player earns about
    13-14 XP a game (see docs/PROGRESSION.md), so the first level is
    about eight games, which is the number he was promised. */
+var TURN_LEVEL = 25;               /* where quadratic hands over        */
+var TURN_NEED = 110 + 22 * 24 + Math.round(2.1 * 24 * 24);   /* 1848   */
+var LINEAR_STEP = 95;
 function need(L){
   L = L | 0;
   if (L < 1) L = 1;
   if (L >= MAX_LEVEL) return Infinity;
   var d = L - 1;
-  return 110 + 22 * d + Math.round(2.1 * d * d);
+  if (L < TURN_LEVEL) return 110 + 22 * d + Math.round(2.1 * d * d);
+  return TURN_NEED + LINEAR_STEP * (L - TURN_LEVEL);
 }
 
 /* Cumulative XP at the START of each level, built once. */
@@ -316,6 +334,16 @@ function register(defs){
         sort: (typeof d.sort === 'number' && isFinite(d.sort)) ? d.sort : 0,
         preview: (typeof d.preview === 'function') ? d.preview : null,
         accent: typeof d.accent === 'string' ? d.accent : '',
+        /* THE COLLECTION. A cosmetic can belong to a named set that
+           runs ACROSS games — the summer collection is one board, one
+           felt, one dice set and a dozen more, and the only thing that
+           makes them a collection rather than fifteen unrelated items
+           is this string. It is deliberately a free-form tag and not
+           an enum: a set is a curatorial idea, not a schema, and the
+           shop groups by whatever it finds rather than by a list this
+           file would have to be edited to extend. */
+        set: (typeof d.set === 'string' && /^[a-z][a-z0-9-]{0,23}$/i.test(d.set))
+               ? d.set.toLowerCase() : '',
         /* EARNED, not levelled. A def with an `earn` is not on the
            ladder at all — no amount of XP produces it, you have to go
            and do the thing. That is what "exclusive" actually means,
@@ -428,6 +456,55 @@ function owns(id){
   }
   if (d.level <= 1) return true;
   return level() >= d.level;
+}
+
+/* ── grant(id) — THE ONLY WAY TO BE GIVEN SOMETHING ────────────────
+   A cosmetic can arrive three ways: the ladder pays it out, an `earn`
+   test passes, or somebody is GIVEN it — which today means the shop in
+   js/game.js sold it. That third way had no door, so the shop was
+   reaching through _state() and writing own[id] by hand: a test hook
+   doing production work, and a permanent coupling to the private shape
+   of this object. The next rename of `own` would have broken paid
+   purchases silently. So here is the door.
+
+   THREE THINGS IT WILL NOT DO, and they are the whole point:
+
+   1. IT WILL NOT GRANT AN EARNED ITEM. Tempesta, the ten-in-a-row
+      border and the Story ring mean exactly one thing — that somebody
+      went and did the thing. An item that can be bought is not that
+      item any more. The shop already refuses to stock them; this
+      refuses to hand them over even if it forgets, because the
+      guarantee belongs to the ladder, not to the till.
+   2. IT WILL NOT INVENT AN ID. An unknown id writes a key nobody will
+      ever read and the buyer gets nothing for their coins.
+   3. IT WILL NOT ANNOUNCE. A level-up fires unlockCbs and the reward
+      screen throws the whole ceremony — light, a sound, "something new
+      on the shelf". That ceremony is the PAYOFF FOR PLAYING, and
+      spending coins has its own feedback at the till. Firing it here
+      would let anybody buy the feeling of levelling up, which is
+      exactly the feeling this file exists to protect. So a purchase
+      fires equipCbs only: the wardrobe repaints and the counts move,
+      and nothing pretends you earned it.
+
+   Idempotent by construction: already owned, or free to begin with,
+   comes back {ok:true, already:true} — never an error, and never a
+   second write, so a double-tapped buy button cannot double-charge. */
+function grant(id){
+  var d = DEFS[String(id == null ? '' : id)];
+  if (!d) return { ok:false, why:'unknown' };
+  if (d.earn) return { ok:false, why:'earned', how:d.earn.how };
+  var p = root();
+  if (p.own[d.id]) return { ok:true, already:true, id:d.id, def:d };
+  /* free from the first minute — there is nothing to give */
+  if (d.level <= 1) return { ok:true, already:true, free:true, id:d.id, def:d };
+  p.own[d.id] = 1;
+  commit();
+  /* the pointer to it lives in the save, so push it the way a photo
+     change does rather than waiting for the next scheduled sync — a
+     thing you paid for must not vanish on the other phone */
+  syncNow();
+  fire(equipCbs, { granted:true, id:d.id, slot:d.key, game:d.game, def:d });
+  return { ok:true, id:d.id, def:d };
 }
 
 /* The earned ones have to be CHECKED, or a player who does the thing
@@ -728,7 +805,7 @@ function show(res, opts){
    The wording is the game's: Maltese, funny, and never crude.
    ═══════════════════════════════════════════════════════════════════ */
 var FACES = [
-  /* ── the five you start with ── */
+  /* ── the eight you start with ── */
   { id:'nanna',  name:'In-Nanna',        lvl:0, ax:'#FFC542',
     blurb:'"Eat. You are too thin." You are not. You will eat anyway.' },
   { id:'kazin',  name:'Tal-Każin',       lvl:0, ax:'#E8452C',
@@ -739,6 +816,12 @@ var FACES = [
     blurb:'Warm, flaky, and better company than most of this table.' },
   { id:'bahar',  name:'Il-Baħar',        lvl:0, ax:'#4FA9E8',
     blurb:'Blue, patient, and full of jellyfish by August.' },
+  { id:'suq',    name:'Tas-Suq',         lvl:0, ax:'#FF9E2C',
+    blurb:'"Fresh this morning." It was fresh yesterday morning. Buy it anyway.' },
+  { id:'parrukkiera', name:'Il-Parrukkiera', lvl:0, ax:'#FF8FA0',
+    blurb:'The wash is optional. The news is not.' },
+  { id:'talhanut', name:'Tal-Ħanut',     lvl:0, ax:'#3DDC84',
+    blurb:'Sells bread, milk, and everything she knows about you.' },
 
   /* ── the ladder ── */
   { id:'sajjied',name:'Is-Sajjied',      lvl:2,  ax:'#A9C6D8',
@@ -751,20 +834,32 @@ var FACES = [
     blurb:'The eye watches you. It has always watched you.' },
   { id:'kelb',   name:'Il-Kelb tal-Bejt',lvl:6,  ax:'#C99A5B',
     blurb:'Barks all night. The neighbours called twice. Still barking.' },
+  { id:'zija',   name:'Iż-Żija',         lvl:7,  ax:'#FF7A5C',
+    blurb:'"And when is YOUR wedding?" Wrong answer. All answers are wrong.' },
   { id:'qarnita',name:'Il-Qarnita',      lvl:8,  ax:'#FF5468',
     blurb:'Eight arms, eight problems, one very small rock pool.' },
   { id:'bandist',name:'Il-Bandist',      lvl:10, ax:'#FFC542',
     blurb:'In tune by the third street. Mostly.' },
   { id:'kuntrat',name:'Il-Kuntrattur',   lvl:12, ax:'#D8C79B',
     blurb:'Started in March. It is November. "Next week, sur."' },
+  { id:'surmastra', name:'Is-Surmastra', lvl:13, ax:'#4FA9E8',
+    blurb:'Retired twenty years. You will still stand up straighter.' },
   { id:'ministru',name:'Il-Ministru',    lvl:14, ax:'#B7A8E0',
     blurb:'Promises everything, delivers nothing, somehow still winning.' },
   { id:'papocc', name:'Il-Papoċċ',       lvl:17, ax:'#FF8FA0',
     blurb:'Accurate from ten metres. Never misses. You will apologise.' },
+  { id:'gharusa',name:'L-Għarusa',       lvl:18, ax:'#F2E4C4',
+    blurb:'Two hundred guests, one seating plan, zero mercy.' },
   { id:'petard', name:'Il-Petardist',    lvl:20, ax:'#FF9E2C',
     blurb:'Louder than the band. Deafer than the band.' },
   { id:'kampjun',name:'Il-Kampjun',      lvl:25, ax:'#FFE9B0',
-    blurb:'Twenty-five levels. Somebody has been extremely busy.' }
+    blurb:'Twenty-five levels. Somebody has been extremely busy.' },
+  { id:'lottu',  name:'Tal-Lottu',       lvl:27, ax:'#8A5CFF',
+    blurb:'Same numbers since 1998. She fills in the slip without asking.' },
+  { id:'kantanta', name:'Il-Kantanta',   lvl:35, ax:'#FFC542',
+    blurb:'Nobody asked. She is on the second verse already.' },
+  { id:'sindku', name:'Is-Sindku',       lvl:42, ax:'#FFD979',
+    blurb:'Won by nine votes. Remembers all nine names.' }
 ];
 var FACE_BY = {};
 for (var fi = 0; fi < FACES.length; fi++) FACE_BY[FACES[fi].id] = FACES[fi];
@@ -1565,9 +1660,27 @@ window.KARTI_XP = {
   games: gamesWithKit,
   nextUnlock: nextUnlock,
   unlocksAt: unlocksAt,
+  /* the collections. defsInSet('summer') is every item in the summer
+     set across every game; sets() is every set name that exists, in
+     first-registration order, so a shop can build its shelves without
+     being told what the shelves are. */
+  defsInSet: function(name){
+    name = String(name || '').toLowerCase();
+    return defsAll().filter(function(d){ return d.set === name; });
+  },
+  sets: function(){
+    var seen = {}, out = [], list = defsAll(), i;
+    for (i = 0; i < list.length; i++)
+      if (list[i].set && !seen[list[i].set]){ seen[list[i].set] = 1; out.push(list[i].set); }
+    return out;
+  },
 
   /* wearing it */
   owns: owns,
+  /* being GIVEN it — the shop's door. grant(id) -> {ok, already, why}.
+     Refuses an unknown id and refuses anything with an `earn`; never
+     fires the level-up ceremony. See the note over the function. */
+  grant: grant,
   equip: equip,
   equipped: equipped,
   equippedDef: equipDef,

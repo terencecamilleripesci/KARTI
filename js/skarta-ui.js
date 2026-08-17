@@ -2096,3 +2096,192 @@ if (String(location.search).indexOf('pttest') >= 0){
 }
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   SKARTA — THE KIT SHELF (purely cosmetic, always)
+   Felts, card backs and a table-edge trim, declared through
+   KARTI_XP.register() and applied as plain colour overrides scoped
+   under #app #scr-party .sk-wrap. Not one rule of play is touched:
+   the felt keeps its exact 3-stop radial shape, the back keeps its
+   gradient angle, tile and caption — only the colours change.
+   Unequipping empties the sheet and the stock look is simply what is
+   underneath. The felt and back rules carry :not(.sk-art) because an
+   #app-prefixed rule out-specifies the .sk-art image skin, and the
+   painted table must keep winning once the art has decoded. The
+   style node is re-appended on every change so it always lands after
+   the game's own sheet.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+/* a/b/c are the three stops of the stock radial, restated in a mood */
+var FELTS = {
+  'skarta.felt.xatt':  { a:'#1E4750', b:'#0F2830', c:'#091A20' },
+  'skarta.felt.kazin': { a:'#2E5A3A', b:'#16321F', c:'#0C1F12' },
+  'skarta.felt.imbid': { a:'#5A2430', b:'#331018', c:'#1E0A0F' },
+  'skarta.felt.roza':  { a:'#8A4A5E', b:'#52283E', c:'#2E1426' },
+  'skarta.felt.vjola': { a:'#3A2A5E', b:'#1E1436', c:'#100A20' },
+  /* ── MALTESE SUMMER ── the one felt on this shelf that is not a dark
+     room: noon light in the middle, the water only getting deeper
+     towards the edges. Same three stops, read the other way up. */
+  'skarta.felt.nofsinhar': { a:'#BCE6F2', b:'#4FA8CC', c:'#1B6A94' }
+};
+/* g1/g2 the back gradient, ring the tile inset, cap the glyph+caption.
+   A back may also carry `bg`, a whole background of its own for the
+   moods two flat stops cannot say — g2 stays either way, because the
+   draw pile's faked stack is painted from it. */
+var BACKS = {
+  'skarta.back.bahar':   { g1:'#2A5A8A', g2:'#0E2238', ring:'rgba(168,216,240,.55)', cap:'#A8D8F0' },
+  'skarta.back.kazin':   { g1:'#2E6B42', g2:'#0F2A18', ring:'rgba(255,217,138,.55)', cap:'#FFD98A' },
+  'skarta.back.skur':    { g1:'#33384A', g2:'#0E1018', ring:'rgba(214,222,236,.5)',  cap:'#D6DEEC' },
+  'skarta.back.roza':    { g1:'#A34D6E', g2:'#2E0F1E', ring:'rgba(255,230,238,.6)',  cap:'#FFE6EE' },
+  'skarta.back.indurat': { g1:'#7A5A18', g2:'#241A06', ring:'rgba(255,236,180,.7)',  cap:'#FFECB4' },
+  /* ── MALTESE SUMMER ── towelling: four bands, no gradient at all */
+  'skarta.back.xugaman': { g1:'#E8452C', g2:'#1B5F7A', ring:'rgba(255,255,255,.78)', cap:'#FFF6E4',
+    bg:'repeating-linear-gradient(150deg,#E8452C 0 10px,#F5E7C8 10px 17px,' +
+       '#1B5F7A 17px 27px,#F2BE3D 27px 34px)' }
+};
+
+/* the stock back is a two-stop diagonal; a mood carrying `bg` paints
+   itself instead. Everything downstream — tile ring, caption, the
+   deck's faked stack — is untouched either way. */
+function backBg(t){
+  return t.bg || ('linear-gradient(150deg,' + t.g1 + ',' + t.g2 + ')');
+}
+/* e the felt border, r a 1px inset ring just inside it */
+var TRIMS = {
+  'skarta.trim.deheb': { e:'rgba(255,197,66,.5)',  r:'rgba(255,197,66,.28)' },
+  'skarta.trim.fidda': { e:'rgba(214,222,236,.5)', r:'rgba(214,222,236,.22)' },
+  'skarta.trim.ram':   { e:'rgba(232,140,120,.55)', r:'rgba(232,140,120,.25)' }
+};
+
+function sheet(){
+  var st = document.getElementById('skx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'skx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than sk-runtime-css and equal rules would win — and
+     the #app prefix out-specifies them anyway. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var css = '';
+  var f = FELTS[XP.equipped('felt', 'skarta') || ''];
+  if (f) css += '#app #scr-party .sk-wrap:not(.sk-art) .sk-felt{background:radial-gradient(' +
+    '120% 90% at 50% 30%,' + f.a + ' 0%,' + f.b + ' 72%,' + f.c + ' 100%)}';
+  var b = BACKS[XP.equipped('back', 'skarta') || ''];
+  if (b) css +=
+    '#app #scr-party .sk-wrap:not(.sk-art) .sk-card.back{' +
+      'background:' + backBg(b) + '}' +
+    '#app #scr-party .sk-wrap:not(.sk-art) .sk-card.back .sk-tile{' +
+      'background:rgba(255,255,255,.06);box-shadow:inset 0 0 0 2px ' + b.ring + '}' +
+    '#app #scr-party .sk-wrap:not(.sk-art) .sk-card.back .sk-mid .sk-g{fill:' + b.cap + '}' +
+    '#app #scr-party .sk-wrap:not(.sk-art) .sk-card.back .sk-cap{color:' + b.cap + '}' +
+    /* the draw pile fakes two more backs in its box-shadow with the
+       stock purple's dark end — those two have to wear the theme too */
+    '#app #scr-party .sk-wrap:not(.sk-art) .sk-deck .sk-card{' +
+      'box-shadow:0 4px 14px rgba(0,0,0,.5),' +
+      '4px -4px 0 -1px ' + b.g2 + ',4px -4px 0 0 rgba(255,255,255,.14),' +
+      '8px -8px 0 -1px ' + b.g2 + ',8px -8px 0 0 rgba(255,255,255,.10)}';
+  var t = TRIMS[XP.equipped('trim', 'skarta') || ''];
+  if (t) css += '#app #scr-party .sk-wrap .sk-felt{border-color:' + t.e +
+    ';box-shadow:inset 0 0 0 1px ' + t.r + '}';
+  sheet().textContent = css;
+}
+
+/* ── previews: the felt as a swatch of the real gradient, the back as
+   a little card wearing the real tile, the trim as the edge itself ── */
+var STOCK_FELT = 'radial-gradient(120% 90% at 50% 30%,#20323A 0%,#101A20 72%,#0B1216 100%)';
+
+function feltPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
+      Math.round(s * .7) + 'px;border-radius:10px;border:1px solid rgba(0,0,0,.55);' +
+      'box-sizing:border-box;background:radial-gradient(120% 90% at 50% 30%,' +
+      t.a + ' 0%,' + t.b + ' 72%,' + t.c + ' 100%)"></span>';
+    return el;
+  };
+}
+
+function backPv(t){
+  return function(size){
+    var s = size || 62, h = Math.round(s * .8), w = Math.round(h * .68);
+    var el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="position:relative;display:block;width:' + w + 'px;height:' +
+      h + 'px;border-radius:6px;background:' + backBg(t) + ';' +
+      'box-shadow:0 1px 3px rgba(0,0,0,.5)">' +
+      '<span style="position:absolute;left:12%;right:12%;top:18%;bottom:18%;border-radius:5px;' +
+      'transform:rotate(-9deg);background:rgba(255,255,255,.07);' +
+      'box-shadow:inset 0 0 0 2px ' + t.ring + '"></span></span>';
+    return el;
+  };
+}
+
+function trimPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
+      Math.round(s * .7) + 'px;border-radius:10px;box-sizing:border-box;' +
+      'border:2px solid ' + t.e + ';box-shadow:inset 0 0 0 2px ' + t.r + ';' +
+      'background:' + STOCK_FELT + '"></span>';
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('skarta');
+  KIT.register([
+    { slot:'felt', id:'skarta.felt.xatt',  level:0,  name:'Xatt il-Belt',
+      blurb:'Harbour-water teal. Mind the spray on your cards.', preview:feltPv(FELTS['skarta.felt.xatt']) },
+    { slot:'felt', id:'skarta.felt.kazin', level:4,  name:'Tal-Każin',
+      blurb:'Proper green baize, so nobody can say you play on a kitchen table.', preview:feltPv(FELTS['skarta.felt.kazin']) },
+    { slot:'felt', id:'skarta.felt.imbid', level:10, name:'Imbid tad-Dar',
+      blurb:'House-wine red. Spills are absorbed discreetly.', preview:feltPv(FELTS['skarta.felt.imbid']) },
+    { slot:'felt', id:'skarta.felt.roza',  level:18, name:'Sema tal-Għabex',
+      blurb:'Rose over the rooftops at knocking-off time. Somebody still owes a draw-two.', preview:feltPv(FELTS['skarta.felt.roza']) },
+    { slot:'felt', id:'skarta.felt.vjola', level:29, name:'Vjola Fonda',
+      blurb:'Violet so deep even the kaxxa looks nervous.', preview:feltPv(FELTS['skarta.felt.vjola']) },
+
+    { slot:'back', id:'skarta.back.bahar',   level:2,  name:'Fond il-Baħar',
+      blurb:'Deep-sea blue. What is under it stays under it.', preview:backPv(BACKS['skarta.back.bahar']) },
+    { slot:'back', id:'skarta.back.kazin',   level:7,  name:'Aħdar u Deheb',
+      blurb:'Club green with a gold rim. Committee approved, eventually.', preview:backPv(BACKS['skarta.back.kazin']) },
+    { slot:'back', id:'skarta.back.skur',    level:13, name:'Linka u Fidda',
+      blurb:'Ink and silver. Reads as serious even when your hand is not.', preview:backPv(BACKS['skarta.back.skur']) },
+    { slot:'back', id:'skarta.back.roza',    level:24, name:'Warda tal-Lejl',
+      blurb:'A rose against dark plum. Pretty enough that they forget to count your cards.', preview:backPv(BACKS['skarta.back.roza']) },
+    { slot:'back', id:'skarta.back.indurat', level:38, name:'Deheb Antik',
+      blurb:'Old gold. Handled like an heirloom, dealt like a threat.', preview:backPv(BACKS['skarta.back.indurat']) },
+
+    { slot:'trim', id:'skarta.trim.deheb', level:15, name:'Xifer tad-Deheb',
+      blurb:'A quiet gold line around the felt. The table dressed for the festa.', preview:trimPv(TRIMS['skarta.trim.deheb']) },
+    { slot:'trim', id:'skarta.trim.fidda', level:27, name:'Xifer tal-Fidda',
+      blurb:'Silver edge. The good cutlery of table edges.', preview:trimPv(TRIMS['skarta.trim.fidda']) },
+    { slot:'trim', id:'skarta.trim.ram',   level:46, name:'Ram Aħmar',
+      blurb:'A copper ring, polished by forty years of elbows.', preview:trimPv(TRIMS['skarta.trim.ram']) },
+
+    /* ── MALTESE SUMMER ── the collection tag is the only thing making
+       these a set rather than two more moods; the shop shelves itself. */
+    { slot:'felt', id:'skarta.felt.nofsinhar', level:8, set:'summer', name:'Baħar f’Nofsinhar',
+      blurb:'The sea at eight in the morning, already white with light. Squint and discard anyway.', preview:feltPv(FELTS['skarta.felt.nofsinhar']) },
+    { slot:'back', id:'skarta.back.xugaman',   level:3, set:'summer', name:'Xugaman tax-Xatt',
+      blurb:'Stripes loud enough to find from the water. The sand is included and permanent.', preview:backPv(BACKS['skarta.back.xugaman']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();

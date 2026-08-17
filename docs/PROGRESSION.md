@@ -3,7 +3,7 @@
 XP from every game, a level that pays out, a face for every player, and one
 registry the eleven games hang their customisation on.
 
-**Files:** `js/progress-faces.js` (the seventeen faces) → `js/progress.js`
+**Files:** `js/progress-faces.js` (the twenty-six faces) → `js/progress.js`
 (the engine and the whole API) → `js/progress-ui.js` (the reward screen, the
 customisation screen, the face picker). Load them in that order.
 
@@ -35,9 +35,11 @@ window.KARTI_XP = {
   register(defs) -> n,                     // a game declares its cosmetics
   forGame(id)   -> bound facade            // ← what a game should actually use
   defs(), defsFor(game), def(id), games(), nextUnlock(game), unlocksAt(level),
+  defsInSet(name), sets(),                 // the collections, e.g. 'summer'
 
   owns(id), equip(slot, id), equipped(slot, game), equippedDef(slot, game),
   unequip(slot, game),
+  grant(id) -> {ok, already, why},         // ← the ONLY way to be GIVEN one
 
   onLevel(cb), onUnlock(cb), onEquip(cb), onAward(cb),   // each returns an off()
 
@@ -70,9 +72,36 @@ window.KARTI_XP = {
   sort:   0,                    // optional, orders within a slot
   earn:   { how:'Win ten in a row', test(){…} },   // optional: EARNED, not levelled
   accent: '#FFD6E2',            // optional
+  set:    'summer',             // optional: a COLLECTION that runs across games
   preview(size) { return el; }  // an Element or an HTML string, ~size×size
 }
 ```
+
+### grant(id) — being GIVEN one
+
+Three ways to come by a cosmetic: the ladder pays it out, an `earn` test
+passes, or somebody is **given** it (today: the shop sold it). That third way
+is `grant(id)`, and it is the only supported one — writing `own[id]` through
+`_state()` is a test hook doing production work and will break on the next
+rename.
+
+It refuses three things on purpose:
+
+| refuses | why |
+|---|---|
+| an unknown id | the buyer pays and gets nothing |
+| anything with an `earn` | Tempesta, Ten In A Row and the Story ring mean *you went and did the thing*. An item that can be bought is not that item. |
+| to announce | `grant` fires `onEquip` only, never `onUnlock` — the level-up ceremony is the payoff for **playing**, and buying it would let anyone purchase that feeling. |
+
+Idempotent: already owned, or free from the start, returns `{ok:true,
+already:true}` — so a double-tapped buy button cannot double-charge.
+
+### Collections
+
+`set:'summer'` groups items **across** games into one named collection;
+`defsInSet('summer')` returns them and `sets()` lists every set that exists,
+so a shop builds its shelves from what it finds rather than from a hard-coded
+list. A set is curatorial, not schema — it deliberately is not an enum.
 
 `preview()` is the whole point of the registry: the inventory draws a pink
 chess board without knowing what a chess board is. It must not throw and must
@@ -143,27 +172,39 @@ best thing you can do.
 
 ### The curve
 
-`need(L) = 110 + 22(L−1) + round(2.1(L−1)²)`, capped at **level 25**.
+Quadratic to 25, **linear after**, capped at **level 50**.
 
-| to reach | XP | games (measured, 400–2000-game simulations) |
+```
+L < 25    need(L) = 110 + 22(L−1) + round(2.1(L−1)²)
+L ≥ 25    need(L) = 1848 + 95 × (L − 25)
+```
+
+The first 25 levels are **unchanged** — nobody's level moved when the ceiling
+did. Past 25 the quadratic's own growth (~120 XP more per level, and rising)
+would have made 26–50 a wall nobody climbs, so the top half freezes the slope
+at **+95 a level** — a whisker *less* than the step from 24 to 25 was. "The next
+one is a bit more than the last one" stays true at every rung.
+
+| to reach | XP | games at ≈13.5 XP |
 |---|---|---|
-| 2 | 110 | **6 – 10** |
-| 3 | 242 | 15 – 22 |
-| 5 | 596 | 40 – 47 |
-| 10 | 2 175 | 131 – 167 |
-| 15 | 5 388 | 348 – 396 |
-| 20 | 10 559 | 697 – 786 |
-| 25 | 18 275 | ≈ **1 380** |
+| 2 | 110 | **≈ 9** |
+| 5 | 601 | ≈ 45 |
+| 10 | 2 211 | ≈ 164 |
+| 20 | 10 282 | ≈ 762 |
+| 25 | 17 793 | ≈ 1 320 |
+| 30 | 27 983 | ≈ 2 070 |
+| 40 | 55 488 | ≈ 4 110 |
+| 50 | 92 493 | ≈ 6 850 |
 
-- **About eight games for the first level**, which is the number he was promised.
-- **A casual week** — five games a day for seven days, 35 games — lands on
-  **level 4** (occasionally 3), having taken about 750 coins and a pack on the way.
-- **The deepest unlock, level 25, is ~1 380 games.** It is meant to take a year.
+- **About eight to nine games for the first level**, the number he was promised.
+- **Level 25 is still ~1 320 games** — the old ceiling, still about a year.
+- **Levels 26–50 are the long game**, and every one of them pays and drops
+  cosmetics. XP is deliberately kept low so there is always something to grind.
 
 ### What a level pays
 
 `coins = 100 + 50 × L`, plus a pack every 3rd level and two every 5th. Over the
-whole ladder: **18 600 coins** (≈124 packs at 150 each) and 17 free packs, on
+whole ladder to 50: **68 600 coins** and 33 free packs, on
 top of whatever cosmetics the games have declared at those levels. Coins and
 packs go into `S.coins` / `S.packs` — the same purse the pack shop spends from.
 

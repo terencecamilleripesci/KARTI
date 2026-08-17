@@ -4245,3 +4245,181 @@ try {
 } catch(e){}
 
 })();
+
+/* ═══════════════════════════════════════════════════════════════════
+   IL-KIRI — THE KIT SHELF (purely cosmetic, always)
+   Boards, table felts and dice, declared through KARTI_XP.register()
+   and applied as a handful of CSS overrides scoped one id deeper
+   (#app #scr-kiri) than the game's own sheet, so equal rules lose and
+   nothing about play is touched. The style node is re-appended on
+   every change so it always lands after the game's own sheet, and an
+   unequipped slot writes nothing at all — stock look, untouched.
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+/* board: the 5-stop 158deg rim gradient + its border, and the 3-stop
+   tile face family to match. Never the ::after group tint. */
+var BOARDS = {
+  'kiri.board.franka': { bg:['#E9DBB8','#DECBA0','#C9B183','#AE9260','#8F7343'],
+                         bd:'rgba(92,64,22,.38)',    cell:['#6E5A38','#5A4829','#4B3B20'] },
+  'kiri.board.port':   { bg:['#3A5A7E','#2C4767','#20364F','#16263A','#0D1826'],
+                         bd:'rgba(140,190,235,.28)', cell:['#24405E','#182E46','#112336'] },
+  'kiri.board.inbid':  { bg:['#7E3548','#66293A','#4C1D2C','#35131F','#200A13'],
+                         bd:'rgba(255,178,150,.26)', cell:['#4E2130','#381622','#2A0F19'] },
+  'kiri.board.nzul':   { bg:['#B57785','#9A5E72','#74445C','#4E2C43','#2E1830'],
+                         bd:'rgba(255,210,220,.30)', cell:['#6B3E52','#50293D','#3B1C2E'] },
+  /* MALTESE SUMMER */
+  'kiri.board.lapsi':  { bg:['#FBF6E6','#E4F0EA','#A9DED6','#4FADB4','#1C6F82'],
+                         bd:'rgba(255,255,255,.40)', cell:['#2F8290','#206672','#154C58'] }
+};
+/* table: only the scrim over artkit's felt (darkest stop kept >= .6
+   alpha so the ring still wins the contrast fight) + the inset ring */
+var TABLES = {
+  'kiri.table.qiegh': { a:'rgba(4,20,34,.38)',  b:'rgba(2,10,20,.75)',  ring:'rgba(120,190,235,.30)' },
+  'kiri.table.inbid': { a:'rgba(46,6,18,.40)',  b:'rgba(24,2,9,.72)',   ring:'rgba(255,150,160,.30)' },
+  'kiri.table.vjola': { a:'rgba(28,12,48,.42)', b:'rgba(13,5,26,.74)',  ring:'rgba(170,130,255,.32)' },
+  'kiri.table.ambra': { a:'rgba(52,30,4,.38)',  b:'rgba(26,14,2,.72)',  ring:'rgba(255,197,66,.38)' }
+};
+/* dice: face gradient + pip gradient. idle/roll only touch opacity
+   and animation, so the base face is safe to restate. */
+var DICE = {
+  'kiri.dice.avorju':  { f:['#FFFCF2','#F1E7D1','#D9CBAE'], p:['#4A3B2A','#160E06'] },
+  'kiri.dice.ghadam':  { f:['#FBF6EC','#EFE5D4','#DCCDB4'], p:['#8A2439','#3A0716'] },
+  'kiri.dice.zebbug':  { f:['#8A7342','#6E5930','#514021'], p:['#F5EAD0','#C9B98F'] },
+  'kiri.dice.bahar':   { f:['#CFEDE4','#A9D9CC','#7FBFB0'], p:['#1E3A5C','#0A1626'] },
+  'kiri.dice.indurat': { f:['#3A3038','#241C26','#120C16'], p:['#FFE9A8','#C89020'] },
+  /* MALTESE SUMMER */
+  'kiri.dice.granita': { f:['#FFFFFF','#E2F2FA','#B8D9EA'], p:['#FF7A9C','#B8102F'] }
+};
+
+function sheet(){
+  var st = document.getElementById('krx-kit-css');
+  if (!st){ st = document.createElement('style'); st.id = 'krx-kit-css'; }
+  /* appendChild MOVES an existing node to the end, so this sheet is
+     always later than the game's own; the #app prefix out-specifies
+     the game's #scr-kiri rules besides. */
+  document.head.appendChild(st);
+  return st;
+}
+
+function apply(){
+  var XP = window.KARTI_XP;
+  if (!XP) return;
+  var P = '#app #scr-kiri ', css = '';
+  var b = BOARDS[XP.equipped('board', 'kiri') || ''];
+  if (b) css += P + '.kr-board{background:linear-gradient(158deg,' +
+      b.bg[0] + ' 0%,' + b.bg[1] + ' 16%,' + b.bg[2] + ' 44%,' +
+      b.bg[3] + ' 74%,' + b.bg[4] + ' 100%);border-color:' + b.bd + '}' +
+    P + '.kr-cell{background:linear-gradient(180deg,' +
+      b.cell[0] + ' 0%,' + b.cell[1] + ' 55%,' + b.cell[2] + ' 100%)}';
+  var t = TABLES[XP.equipped('table', 'kiri') || ''];
+  if (t) css += P + '.kr-mid{box-shadow:inset 0 0 0 1px ' + t.ring +
+      ',inset 0 2px 10px rgba(0,0,0,.55),inset 0 -16px 30px rgba(0,0,0,.45)}' +
+    P + '.kr-mid::before{background:radial-gradient(120% 90% at 50% 0%,' +
+      t.a + ',' + t.b + ' 80%)}';
+  var d = DICE[XP.equipped('dice', 'kiri') || ''];
+  if (d) css += P + '.kr-die{background:linear-gradient(158deg,' +
+      d.f[0] + ' 0%,' + d.f[1] + ' 52%,' + d.f[2] + ' 100%)}' +
+    P + '.kr-die i.on{background:radial-gradient(circle at 34% 30%,' +
+      d.p[0] + ',' + d.p[1] + ' 70%)}';
+  sheet().textContent = css;
+}
+
+/* previews: the board is the rim gradient with the grid suggested by
+   two hairlines; the table is the scrim washed over a felt green; a
+   die is one face with three pips painted as background circles. */
+function boardPv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
+      'box-sizing:border-box;border:2px solid ' + t.bd + ';' +
+      'background-image:' +
+      'linear-gradient(0deg,transparent 48.5%,rgba(255,255,255,.22) 48.5%,' +
+        'rgba(255,255,255,.22) 51.5%,transparent 51.5%),' +
+      'linear-gradient(90deg,transparent 48.5%,rgba(255,255,255,.22) 48.5%,' +
+        'rgba(255,255,255,.22) 51.5%,transparent 51.5%),' +
+      'linear-gradient(158deg,' + t.bg[0] + ' 0%,' + t.bg[1] + ' 16%,' +
+        t.bg[2] + ' 44%,' + t.bg[3] + ' 74%,' + t.bg[4] + ' 100%)');
+    return el;
+  };
+}
+function tablePv(t){
+  return function(size){
+    var s = size || 62, el = document.createElement('span');
+    el.setAttribute('style',
+      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
+      'box-sizing:border-box;' +
+      'background:radial-gradient(120% 90% at 50% 0%,' + t.a + ',' + t.b + ' 80%),' +
+        'linear-gradient(180deg,#2E6B45,#1C4A2E);' +
+      'box-shadow:inset 0 0 0 2px ' + t.ring);
+    return el;
+  };
+}
+function dicePv(t){
+  return function(size){
+    var s = size || 62, ds = Math.max(26, Math.round(s * .55)),
+        pr = Math.max(2, Math.round(ds * .11)),
+        el = document.createElement('span'), die = document.createElement('span');
+    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
+      'width:' + s + 'px;height:' + s + 'px');
+    function pip(x, y){
+      return 'radial-gradient(circle ' + pr + 'px at ' + x + '% ' + y + '%,' +
+        t.p[0] + ',' + t.p[1] + ' 72%,transparent 100%)';
+    }
+    die.setAttribute('style',
+      'display:block;width:' + ds + 'px;height:' + ds + 'px;' +
+      'border-radius:' + Math.round(ds * .26) + 'px;' +
+      'background-image:' + pip(26, 26) + ',' + pip(50, 50) + ',' + pip(74, 74) + ',' +
+      'linear-gradient(158deg,' + t.f[0] + ' 0%,' + t.f[1] + ' 52%,' + t.f[2] + ' 100%);' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 2px 4px rgba(0,0,0,.45)');
+    el.appendChild(die);
+    return el;
+  };
+}
+
+function boot(tries){
+  var XP = window.KARTI_XP;
+  if (!XP){ if (tries < 40) setTimeout(function(){ boot(tries + 1); }, 500); return; }
+  var KIT = XP.forGame('kiri');
+  KIT.register([
+    { slot:'board', id:'kiri.board.franka', level:3,  name:'Franka fix-Xemx',
+      blurb:'Limestone at noon. The rent is due and so is the glare.', preview:boardPv(BOARDS['kiri.board.franka']) },
+    { slot:'board', id:'kiri.board.port',   level:12, name:'Il-Port Billejl',
+      blurb:'Harbour water after dark. Somebody still owes mooring fees.', preview:boardPv(BOARDS['kiri.board.port']) },
+    { slot:'board', id:'kiri.board.inbid',  level:28, name:'Inbid Aħmar',
+      blurb:'Spilled at the signing. The lease held; the tablecloth did not.', preview:boardPv(BOARDS['kiri.board.inbid']) },
+    { slot:'board', id:'kiri.board.nzul',   level:46, name:'Nżul ix-Xemx',
+      blurb:'Rose dusk over the bastions. Prices only go up from here.', preview:boardPv(BOARDS['kiri.board.nzul']) },
+    { slot:'board', id:'kiri.board.lapsi',  level:9,  name:'Għar Lapsi', set:'summer',
+      blurb:'White rock, turquoise water, and somebody’s cousin already parked in your spot.', preview:boardPv(BOARDS['kiri.board.lapsi']) },
+
+    { slot:'table', id:'kiri.table.qiegh', level:6,  name:'Qiegħ il-Baħar',
+      blurb:'The middle is open water now. Mind where you drop the deposit.', preview:tablePv(TABLES['kiri.table.qiegh']) },
+    { slot:'table', id:'kiri.table.inbid', level:15, name:'Tapit tal-Inbid',
+      blurb:'The felt drank a whole bottle and is not sorry.', preview:tablePv(TABLES['kiri.table.inbid']) },
+    { slot:'table', id:'kiri.table.vjola', level:24, name:'Vjola tal-Lejl',
+      blurb:'Festa lights off, velvet on. Roll quietly.', preview:tablePv(TABLES['kiri.table.vjola']) },
+    { slot:'table', id:'kiri.table.ambra', level:38, name:'Ambra Sħuna',
+      blurb:'Lamplight amber. Every debt looks warmer in it.', preview:tablePv(TABLES['kiri.table.ambra']) },
+
+    { slot:'dice', id:'kiri.dice.avorju',  level:0,  name:'Avorju Klassiku',
+      blurb:'The pair the notary keeps in his drawer for serious matters.', preview:dicePv(DICE['kiri.dice.avorju']) },
+    { slot:'dice', id:'kiri.dice.ghadam',  level:9,  name:'Għadam u Nbid',
+      blurb:'Bone white with wine pips. Both older than your lease.', preview:dicePv(DICE['kiri.dice.ghadam']) },
+    { slot:'dice', id:'kiri.dice.zebbug',  level:18, name:'Injam taż-Żebbuġ',
+      blurb:'Olive wood. Survived three droughts; will survive your throws.', preview:dicePv(DICE['kiri.dice.zebbug']) },
+    { slot:'dice', id:'kiri.dice.bahar',   level:31, name:'Ħġieġ tal-Baħar',
+      blurb:'Sea glass, smoothed by tides and disappointed landlords.', preview:dicePv(DICE['kiri.dice.bahar']) },
+    { slot:'dice', id:'kiri.dice.indurat', level:49, name:'Iswed Indurat',
+      blurb:'Black and gold. Rolled once by a marquis, allegedly.', preview:dicePv(DICE['kiri.dice.indurat']) },
+    { slot:'dice', id:'kiri.dice.granita', level:4,  name:'Granita', set:'summer',
+      blurb:'Crushed ice with syrup pips. Roll before the pair turns into a drink.', preview:dicePv(DICE['kiri.dice.granita']) }
+  ]);
+  KIT.onChange(apply);
+  apply();
+}
+boot(0);
+
+})();
