@@ -1322,6 +1322,24 @@ function settingsSheet(){
           'The Tombla caller’s voice stays English — that is how it was recorded.') + '</p>' +
     '</div>' +
 
+    /* HOW FAR AWAY THE SERVER IS. Not decoration and not a brag: it is
+       the one number that decides whether a real-time game is possible
+       on this connection, and it can only be answered from a real phone
+       on a real network — never from the Pi, which measures itself.
+       Measured over the live socket, so it includes everything a move
+       goes through. The relay's own share of it is under a millisecond. */
+    '<p class="setgrp">' + (PREFS.lang === 'mt' ? 'Konnessjoni' : 'Connection') + '</p>' +
+    '<div class="setlist">' +
+      '<button class="setrow" id="st-ping">' +
+        '<span class="sl"><b>' + (PREFS.lang === 'mt' ? 'Ħeffa lejn is-server'
+                                                      : 'Speed to the server') + '</b>' +
+        '<small id="st-ping-note">' + (PREFS.lang === 'mt'
+          ? 'Agħfas biex tkejjel. Trid tkun onlajn.'
+          : 'Tap to measure. You need to be online.') + '</small></span>' +
+        '<span class="setval" id="st-ping-val">—</span>' +
+      '</button>' +
+    '</div>' +
+
     '<p class="setgrp">Game</p>' +
     '<div class="setlist">' +
       '<button class="setrow" id="st-motion" role="switch" aria-checked="' + (on ? 'true' : 'false') + '">' +
@@ -1420,6 +1438,46 @@ function settingsSheet(){
     }
   };
 
+  /* THE MEASUREMENT. Deliberately a burst rather than one shot: a single
+     sample on a busy wifi is a coin toss, and the median of eight is a
+     number worth acting on. The verdict is the point — a millisecond
+     figure means nothing to most people, but "fast enough for a
+     real-time game" is a decision. Thresholds are about what a player
+     can feel: under ~60ms a tap feels instant, under ~120ms it feels
+     connected, past that a twitch game needs prediction to stay honest. */
+  $('#st-ping').onclick = () => {
+    const mt = PREFS.lang === 'mt';
+    const val = $('#st-ping-val'), note = $('#st-ping-note');
+    if (!val || !window.KARTI_MP || !KARTI_MP.measure) return;
+    const st = KARTI_MP.MP && KARTI_MP.MP.ws;
+    if (!st || st.readyState !== 1){
+      val.textContent = '—';
+      note.textContent = mt ? 'Mhux imqabbad mas-server bħalissa.'
+                            : 'Not connected to the server right now.';
+      return;
+    }
+    val.textContent = '…';
+    note.textContent = mt ? 'Qed inkejjel…' : 'Measuring…';
+    KARTI_MP.measure(8, (r) => {
+      if (!r || !r.n){
+        val.textContent = '—';
+        note.textContent = mt ? 'Ma wasal xejn lura.' : 'Nothing came back.';
+        return;
+      }
+      val.textContent = r.med + ' ms';
+      const verdict = r.med < 60
+        ? (mt ? 'Mgħaġġel — biżżejjed għal logħob ħaj (real-time).'
+              : 'Fast — quick enough for real-time games.')
+        : r.med < 120
+          ? (mt ? 'Tajjeb għal logħob bid-dawra. Real-time ikun tqil.'
+                : 'Fine for turn-based games. Real-time would be a stretch.')
+          : (mt ? 'Bil-mod — id-dawriet tajbin, real-time le.'
+                : 'Slow — turn-based is fine, real-time is not.');
+      note.textContent = verdict + ' (' + (mt ? 'l-aħjar ' : 'best ') + r.best +
+        ', ' + (mt ? 'l-agħar ' : 'worst ') + r.worst + ', ' + r.n +
+        (mt ? ' kejliet)' : ' samples)');
+    });
+  };
   $('#st-motion').onclick = () => {
     setPref('motion', !REDUCED);
     settingsSheet();
@@ -1503,6 +1561,10 @@ function injectAccountCSS(){
       'border:1px solid var(--line,rgba(255,255,255,.12));color:inherit;font:inherit;' +
       'cursor:pointer}' +
     '.sheet .setrow .sl{flex:1 1 auto;min-width:0}' +
+    /* the measured number, right-aligned against the switches above it so
+       the column reads straight down however the row is labelled */
+    '.sheet .setrow .setval{flex:0 0 auto;font-size:13px;font-weight:900;' +
+      'letter-spacing:.4px;color:var(--gold,#F5C542);font-variant-numeric:tabular-nums}' +
     '.sheet .setrow b{display:block;font-size:13.5px;font-weight:700}' +
     '.sheet .setrow small{display:block;margin-top:2px;font-size:11.5px;line-height:1.4;' +
       'color:var(--dim)}' +

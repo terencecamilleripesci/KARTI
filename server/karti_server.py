@@ -1903,6 +1903,12 @@ class RoomBook:
                 return [(conn, {"t": "error", "why": E_NOTABLE})]
             if not conn.botsets.take():
                 return [(conn, {"t": "error", "why": E_SLOW})]
+            # The wire check upstream bounds the seat against MAX_SEATS, not
+            # against THIS room's size, so a 5-chair room could still be handed
+            # seat 12 and index off the end of room.seats. IndexError there
+            # killed the host's own socket.
+            if not (0 <= seat_i < room.size):
+                return [(conn, {"t": "error", "why": E_BADSEAT})]
             if not on:
                 if room.botseats.pop(seat_i, None) is None:
                     return [(conn, {"t": "error", "why": E_BADSEAT})]
@@ -2104,8 +2110,16 @@ class RoomBook:
                 seats.add(i)
             seats.add(conn.slot)                 # the sender's own receipt
             room.touched = time.monotonic()
-            targets = [room.seats[i].conn for i in sorted(seats)
-                       if room.seats[i].conn is not None]
+            # room.seats[i] is None for an empty chair, for a machine chair,
+            # and for a chair whose player let the 60s reconnect grace lapse —
+            # so the SEAT has to be tested before .conn is read off it. Reading
+            # it first raised AttributeError and killed the sender's own
+            # socket, and honest clients walked straight into it: suspett's
+            # pjazza channel names every seat the engine knows about, machines
+            # included, so at a table with one AI chair the first person to
+            # speak was disconnected, every time, in a game made of talking.
+            targets = [s.conn for s in (room.seats[i] for i in sorted(seats))
+                       if s is not None and s.conn is not None]
         return [(c, text) for c in targets]
 
     def relay(self, conn, payload, claimed_code, for_seat=None):
@@ -8446,6 +8460,68 @@ def selftest():
             check("invite push", False, repr(e))
         finally:
             PUSH.test_hook = None
+
+        # ═══════════ table talk ═══════════
+        # Chat had NO check here at all, which is how a crash in it survived:
+        # a line addressed to a chair that is empty or a machine dereferenced
+        # None and killed the sender's own socket. suspett names every seat
+        # the engine knows about, machines included, so the first person to
+        # speak at a table with one AI chair was disconnected — in a game made
+        # of talking. These checks exist so that cannot come back quietly.
+        print("")
+        print(" TABLE TALK")
+        try:
+            t_a = cli(origin=PAGES_ORIGIN)
+            t_b = cli(origin=PAGES_ORIGIN)
+            t_a.send_json({"t": "create", "game": "suspett", "seats": 5})
+            t_code = (t_a.recv_json(2.0) or {}).get("code")
+            t_b.send_json({"t": "join", "code": t_code})
+            t_b.recv_json(2.0); drain(t_a)
+            t_a.send_json({"t": "bot", "seat": 2, "level": 2, "name": "MAKNA"})
+            drain(t_a); drain(t_b)
+
+            # the empty chair (3 and 4 are nobody at all)
+            t_a.send_json({"t": "chat", "ch": "pjazza", "x": "hello", "to": [4]})
+            m = t_a.recv_json(1.5)
+            check("a line naming an EMPTY chair still reaches the sender, "
+                  "and does not kill the socket",
+                  (m or {}).get("t") == "chat" and (m or {}).get("x") == "hello", m)
+
+            # the machine chair — the case that fired in real play
+            t_a.send_json({"t": "chat", "ch": "pjazza", "x": "oi", "to": [2]})
+            m = t_a.recv_json(1.5)
+            check("a line naming a MACHINE chair does not disconnect the "
+                  "speaker (suspett with an AI seat)",
+                  (m or {}).get("t") == "chat" and (m or {}).get("x") == "oi", m)
+
+            # the whole roster at once, the way suspett actually addresses it
+            t_a.send_json({"t": "chat", "ch": "pjazza", "x": "all",
+                           "to": [0, 1, 2, 3, 4]})
+            got_a = t_a.recv_json(1.5)
+            got_b = t_b.recv_json(1.5)
+            check("a line to EVERY seat reaches the live ones and skips the "
+                  "rest", (got_a or {}).get("x") == "all"
+                  and (got_b or {}).get("x") == "all", (got_a, got_b))
+
+            # still alive afterwards
+            t_a.send_json({"t": "chat", "ch": "pjazza", "x": "again", "to": [1]})
+            m = t_a.recv_json(1.5)
+            check("the speaker's socket survives all of that",
+                  (m or {}).get("x") == "again", m)
+
+            # a seat inside MAX_SEATS but past THIS room's size
+            t_a.send_json({"t": "bot", "seat": 12, "level": 2, "name": "OFF"})
+            m = t_a.recv_json(1.5)
+            check("a machine past the end of a five-chair room is refused, "
+                  "not an IndexError that drops the host",
+                  (m or {}).get("t") == "error", m)
+            t_a.send_json({"t": "chat", "ch": "pjazza", "x": "alive", "to": [1]})
+            m = t_a.recv_json(1.5)
+            check("the host is still connected after that refusal",
+                  (m or {}).get("x") == "alive", m)
+            bye(t_a); bye(t_b)
+        except Exception as e:
+            check("table talk", False, repr(e))
 
         # ═══════════ housekeeping ═══════════
         print("")

@@ -591,6 +591,7 @@ const MP = {
   myDeckId:null, myName:'', peerName:'', peerList:null, peerKey:null,
   state:'idle', note:'', tries:0,
   retryTimer:null, openTimer:null, pingTimer:null, lastPong:0,
+  pingAt:0, rtts:[],
   transport:null, seed:0,
   /* room-list era: did we ask for a private room, did we actually GET one, when
      did it open (for the "waiting 34s" line), and the 1s clock that paints it */
@@ -1485,6 +1486,53 @@ function onSocketClosed(){
   else if (MP.state !== 'unreachable' && MP.state !== 'stopped') setState('idle');
 }
 
+/* ── how far away is the server, really ──────────────────────────────
+   The keep-alive already goes out and comes back; nothing was timing it.
+   We stamp the moment we send and subtract on the pong, which measures
+   the whole path a MOVE takes — phone, wifi or mobile, out through the
+   funnel, the relay's own work, and back. That last part is under a
+   millisecond, so what this really reads is the network, which is the
+   only part we cannot fix from here. Kept as a small ring so one bad
+   sample on a crowded wifi cannot masquerade as the truth: the median
+   is the number worth believing, and n tells you how much to. */
+const RTT_KEEP = 20;
+function noteSent(){ MP.pingAt = (typeof performance !== 'undefined' && performance.now)
+                                  ? performance.now() : Date.now(); }
+function noteRtt(){
+  if (!MP.pingAt) return;
+  const now = (typeof performance !== 'undefined' && performance.now)
+                ? performance.now() : Date.now();
+  const ms = Math.round(now - MP.pingAt);
+  MP.pingAt = 0;
+  /* a sleeping phone resumes and reports a gap of minutes; that is the
+     screen having been off, not the network, so it is not a sample */
+  if (ms < 0 || ms > 10000) return;
+  MP.rtts.push(ms);
+  if (MP.rtts.length > RTT_KEEP) MP.rtts.shift();
+}
+function pingStats(){
+  const a = MP.rtts.slice().sort((x, y) => x - y);
+  if (!a.length) return { n:0, last:null, med:null, best:null, worst:null };
+  return { n:a.length, last:MP.rtts[MP.rtts.length - 1],
+           med:a[a.length >> 1], best:a[0], worst:a[a.length - 1] };
+}
+/* A burst, for when somebody is actually looking at the number. The
+   keep-alive is every 20s, which is right for a keep-alive and useless
+   for a reading you want now. */
+function measure(n, cb){
+  n = Math.max(1, Math.min(12, n | 0 || 8));
+  let sent = 0;
+  const t = setInterval(() => {
+    if (!MP.ws || MP.ws.readyState !== 1 || sent >= n){
+      clearInterval(t);
+      if (sent >= n && cb) setTimeout(() => cb(pingStats()), 400);
+      else if (cb) cb(pingStats());
+      return;
+    }
+    sent++; noteSent(); send({ t:'ping' });
+  }, 250);
+}
+
 function startPing(){
   stopPing();
   MP.pingTimer = setInterval(() => {
@@ -1493,6 +1541,7 @@ function startPing(){
       try { MP.ws.close(); } catch (e){}     /* triggers the reconnect path */
       return;
     }
+    noteSent();
     send({ t:'ping' });
   }, PING_EVERY);
 }
@@ -1567,6 +1616,7 @@ function onServer(m){
   switch (m.t){
     case 'pong':
       MP.lastPong = Date.now();
+      noteRtt();
       return;
 
     case 'named':                      /* the relay took our display name */
@@ -4258,6 +4308,8 @@ window.KARTI_MP = {
   mpScreen, mpLeave, checksum, applyRemote, beginOnline, onPeer, onServer, chooser,
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
+  /* how far away the server is, measured rather than guessed */
+  pingStats, measure,
   /* the three-games era */
   GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, openFor, pickWaiting,
   beginBoard, boardRemote, hostStartBoard, myColour, backToRooms, openByGame,
