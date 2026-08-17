@@ -252,40 +252,8 @@ var duelGuard = {
   }
 };
 
-/* A party board game with its frame on screen (party.js's ui.frame, used
-   by chess and dama, plus anything else that adopts it). Skipped when the
-   game is online — #pt-net is only ever shown by a networked game, and
-   chess and dama already route their own back arrow through askLeave()
-   in that case, so guarding here as well would ask twice. */
-function partyFrame(){
-  var s = activeScreen();
-  if (!s || s.id !== 'scr-party') return null;
-  var wrap = s.querySelector('.pt-wrap');
-  if (!wrap || !visible(wrap)) return null;
-  if (wrap.querySelector('.pt-over')) return null;       /* game already over */
-  var net = wrap.querySelector('#pt-net');
-  if (net && visible(net)) return null;                  /* online: its own ask */
-  return wrap;
-}
-var partyGuard = {
-  id: 'party-frame',
-  when: function(){ return !!partyFrame(); },
-  head: 'Leave the game?',
-  why: 'This game is still going. Step out now and the board is gone.',
-  yes: 'Leave it',
-  /* backControl(), not '#pt-back'. Skarta builds its own bar inside the same
-     .pt-wrap and calls its button #sk-back; klabb calls its #kb-back. Asking
-     for the id would have found nothing there, so the visible button would
-     have gone unguarded while the gesture was guarded — the exact
-     disagreement this is here to avoid. The aria-label is what they share. */
-  control: function(){ var w = partyFrame(); return w && backControl(w); },
-  leave: function(){
-    var w = partyFrame(); if (!w) return;
-    var b = backControl(w);
-    if (b) click(b);
-    else if (window.KARTI_PARTY && KARTI_PARTY.hub) KARTI_PARTY.hub();
-  }
-};
+
+
 
 function activeGuard(){
   for (var i = 0; i < guards.length; i++){
@@ -476,7 +444,29 @@ function boot(){
      sentinel even after a reload restored a mid-stack entry */
   try { history.replaceState({ knav: 0 }, ''); } catch (e) {}
   armed = false; want = false; inflight = 0;
-  guards.push(duelGuard, partyGuard);
+  /* THE PARTY GUARD IS GONE, and this is why rather than an oversight.
+     It asked "Leave the game? Step out now and the board is gone" on the
+     back arrow of every party game. That was true when it was written.
+     It is not true now: chess, dama, SKARTA, tombla, IL-KIRI, the four
+     klabb games, RUMMY, GIN, GĦARRAQHOM, L-ISPJUN and SUSPETT every one
+     autosave and offer to carry on — they were given that this morning.
+
+     So the question was asking about a loss that cannot happen, on the
+     one control people press most, and it had become pure friction: the
+     owner's word for it was "annoying". A confirm that is always wrong
+     also teaches people to dismiss confirms without reading, which is
+     what makes the ones that matter stop working.
+
+     THE DUEL GUARD STAYS, because the card duel is the one thing here
+     that genuinely does not survive being left — that was looked at and
+     deliberately not fixed, the rewards being win-gated so nothing
+     EARNED is ever lost. Walking out of a duel really does forfeit it,
+     so it really is worth asking.
+
+     Online is unaffected either way: chess, dama and gin route their own
+     back arrow through an ask when a room is live, because there the
+     cost is other people's time, not your board. */
+  guards.push(duelGuard);
   window.addEventListener('popstate', onPop);
   wireGuardIntercept();
   wireExit();
