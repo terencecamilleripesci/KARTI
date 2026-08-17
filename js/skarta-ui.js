@@ -254,6 +254,36 @@ function injectCSS() {
     '#scr-party .sk-felt::after{content:"";position:absolute;inset:-30%;pointer-events:none;' +
       'background:radial-gradient(closest-side,var(--sk-now,transparent) 0%,transparent 68%);' +
       'opacity:.30;transition:background .3s}' +
+    /* ── THE RULES DOCK ───────────────────────────────────────────
+       Scoped under .sk-wrap so it cannot reach another game's menu —
+       the lesson tombla taught today, where one unscoped rule cost
+       chess its turn strip for a whole session. */
+    '#scr-party .sk-wrap .sk-dock{flex:0 0 auto;margin:0 0 24px;border-radius:15px;' +
+      'overflow:hidden;border:1px solid var(--line2);' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02))}' +
+    '#scr-party .sk-wrap .sk-grip{display:flex;align-items:center;gap:10px;width:100%;' +
+      'min-height:48px;padding:8px 14px;border:0;background:none;color:var(--dim);' +
+      'text-align:left;cursor:pointer;font:900 11px/1.3 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase}' +
+    '#scr-party .sk-wrap .sk-grip .ico{width:17px;height:17px;flex:0 0 auto}' +
+    '#scr-party .sk-wrap .sk-grip .cv{margin-left:auto;width:17px;height:17px;flex:0 0 auto;' +
+      'transition:transform .2s var(--ease)}' +
+    '#scr-party .sk-wrap .sk-dock.open{border-color:rgba(255,197,66,.4)}' +
+    '#scr-party .sk-wrap .sk-dock.open .sk-grip{color:var(--gold)}' +
+    '#scr-party .sk-wrap .sk-dock.open .cv{transform:rotate(180deg)}' +
+    '#scr-party .sk-wrap .sk-dockbody{max-height:min(38vh,300px);overflow-y:auto;' +
+      'padding:0 14px 10px}' +
+    '#scr-party .sk-wrap .sk-dockbody[hidden]{display:none}' +
+    '#scr-party .sk-wrap .sk-dockbody>div{animation:skDockUp .22s var(--ease)}' +
+    '#scr-party .sk-wrap .sk-dockbody h3{display:none}' +   /* the grip already says it */
+    '@keyframes skDockUp{from{transform:translateY(12px);opacity:0}to{transform:none;opacity:1}}' +
+    /* motion is a flourish; the fold must still work without it */
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .sk-wrap .sk-dockbody>div{animation:none}' +
+      '#scr-party .sk-wrap .sk-grip .cv{transition:none}}' +
+    '.reduced #scr-party .sk-wrap .sk-dockbody>div{animation:none}' +
+    '.reduced #scr-party .sk-wrap .sk-grip .cv{transition:none}' +
+
     '#scr-party .sk-slot{position:relative;z-index:1;display:flex;flex-direction:column;' +
       'align-items:center;gap:5px}' +
     '#scr-party .sk-pile{position:relative;display:grid}' +
@@ -796,10 +826,25 @@ function menu() {
         ? '<button class="btn ghost" id="sk-online" style="margin:14px 0 0">' +
             ilb('users', 'Play online — everyone on their own phone') + '</button>'
         : '') +
-      '<button class="btn ghost" id="sk-rules" style="margin:9px 0 0">' +
-        ilb('book', 'The house rules') + '</button>' +
-      '<button class="btn primary" id="sk-go" style="margin:9px 0 24px">' +
+      '<button class="btn primary" id="sk-go" style="margin:9px 0 10px">' +
         ilb('play', 'Deal') + '</button>' +
+      /* THE RULES SIT UNDER THE DOOR, FOLDED. They were a modal that
+         covered the whole screen — fine when this was the only menu with
+         rules, wrong now that eleven other games fold theirs at the foot.
+         In the flow, not over it: open or shut, it can never cover a
+         thing. Shut by default, because the menu should be clean and the
+         rules are for the one evening somebody asks. */
+      '<div class="sk-dock" id="sk-dock">' +
+        '<button type="button" class="sk-grip" id="sk-grip" aria-expanded="false" ' +
+          'aria-controls="sk-dockbody" aria-label="Open the house rules">' +
+          ico('book') + '<span>The house rules</span>' +
+          '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+            '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+            'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+        '</button>' +
+        '<div class="sk-dockbody" id="sk-dockbody" hidden><div>' +
+          rulesBody(false) + '</div></div>' +
+      '</div>' +
     '</div></div>';
 
   const sync = () => {
@@ -860,7 +905,20 @@ function menu() {
     persist();
     window.KARTI_MP.openFor('skarta');
   };
-  el.querySelector('#sk-rules').onclick = () => rulesSheet(el.querySelector('.sk-wrap'), null);
+  /* the dock remembers whether you left it open — a UI preference, in a
+     UI-only key, never in the game save. Same pattern as the other games. */
+  const dock  = el.querySelector('#sk-dock');
+  const grip  = el.querySelector('#sk-grip');
+  const dbody = el.querySelector('#sk-dockbody');
+  const setDock = open => {
+    dock.classList.toggle('open', open);
+    dbody.hidden = !open;
+    grip.setAttribute('aria-expanded', open ? 'true' : 'false');
+    grip.setAttribute('aria-label', open ? 'Close the house rules' : 'Open the house rules');
+    try { localStorage.setItem('karti_skarta_ui_v1.rules', open ? '1' : '0'); } catch(e){}
+  };
+  grip.onclick = () => setDock(dbody.hidden);
+  try { if (localStorage.getItem('karti_skarta_ui_v1.rules') === '1') setDock(true); } catch(e){}
   el.querySelector('#sk-go').onclick = () => {
     ST.pref = { seats, level, kinds: kinds.slice(), sort: ST.pref.sort }; persist();
     start(ST.pref);
@@ -1473,7 +1531,11 @@ function chargeSheet(suitK, then) {
    Read straight off the engine's RULES block, so the sheet cannot drift
    away from what the code actually does.
    ═══════════════════════════════════════════════════════════════════ */
-function rulesSheet(root, ctx) {
+/* THE RULES, ONCE. The in-game sheet and the menu's dock both draw from
+   here — SKARTA was the screen every other game's menu was copied from,
+   and it ended up the only one still opening its rules in a modal. Two
+   copies of the same rules is how they start disagreeing. */
+function rulesBody(withDone) {
   const R = E.RULES;
   const rule = (g, name, body, note) =>
     '<div class="sk-rule">' + glyph(g) + '<b>' + name + '</b><i>' + body + '</i>' +
@@ -1513,7 +1575,14 @@ function rulesSheet(root, ctx) {
       'you, and turns itself off the moment you rearrange one yourself.') +
     rule('sk-s-bahar', 'RUNNING DRY',
       'Deck finished? Everything but the top card is shuffled and dealt from again.') +
-    '<button class="btn primary" id="sk-x" style="margin-top:14px;width:100%">Right, got it</button>';
+    (withDone
+      ? '<button class="btn primary" id="sk-x" style="margin-top:14px;width:100%">Right, got it</button>'
+      : '');
+  return html;
+}
+
+function rulesSheet(root, ctx) {
+  const html = rulesBody(true);
 
   if (G && ctx) { sheet(html, (s, close) => { s.querySelector('#sk-x').onclick = close; }); return; }
   /* on the setup screen there is no G yet, so put it up by hand */
