@@ -433,6 +433,12 @@ class L:
     BYTE_RATE = 96 * 1024.0     # sustained bytes/second per connection
     BYTE_BURST = 256 * 1024.0
 
+    # A PRIVATE DEAL. Big enough for a 52-card deck plus a marker or two,
+    # and for a role pool at the widest table; small enough that a room
+    # cannot be used to fan a large payload out to sixteen sockets.
+    MAX_DEAL_ITEMS = 64         # size of the pool the relay will hand out
+    MAX_DEAL_EACH = 8           # items any one seat may be dealt
+
     MAX_CREATES = 5             # rooms one connection may ever create
     MAX_BAD_JOINS = 20          # wrong room codes before the socket is cut
     MAX_ERRORS = 30             # protocol errors before the socket is cut
@@ -544,6 +550,7 @@ E_TOOFEW = "Not enough players for that game yet."
 E_STARTED = "That table has already started."
 E_NOTABLE = "That is a two-player room, not a table."
 E_NOTREADY = "Somebody at the table is not ready yet."
+E_DEAL_SHORT = "Not enough to deal to everybody at this table."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
@@ -734,6 +741,47 @@ def v_intlist(v, maxn, lo, hi):
     if not isinstance(v, list) or len(v) > maxn:
         raise Reject("intlist")
     return [v_int(x, lo, hi) for x in v]
+
+
+def v_deal(d):
+    """A PRIVATE DEAL, described without the relay knowing the game.
+
+    The room asks for a pool of items to be handed out; the relay shuffles
+    with its OWN entropy and tells each seat only what that seat holds.
+    That is the whole point: the seed in `began` is broadcast, so anything
+    derived from it is derivable by everybody, and a role or a hole card
+    derived from it is a secret only by politeness. This is the wire
+    keeping the secret instead.
+
+    An item is a scalar, or {"v": scalar, "g": group} — seats holding the
+    same group learn each other's seat numbers and nothing else, which is
+    how a klikka finds its own without learning the village.
+
+    The relay never inspects `v`. It does not know a role from a card.
+    """
+    if not isinstance(d, dict):
+        raise Reject("deal")
+    items = d.get("items")
+    if not isinstance(items, list) or not (1 <= len(items) <= L.MAX_DEAL_ITEMS):
+        raise Reject("deal items")
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            v, g = it.get("v"), it.get("g")
+            if g is not None:
+                if not isinstance(g, str) or not (1 <= len(g) <= 16):
+                    raise Reject("deal group")
+        else:
+            v, g = it, None
+        if isinstance(v, bool) or not isinstance(v, (int, str)):
+            raise Reject("deal value")
+        if isinstance(v, int) and not (-1 << 30) <= v <= (1 << 30):
+            raise Reject("deal value")
+        if isinstance(v, str) and len(v) > 24:
+            raise Reject("deal value")
+        out.append({"v": v, "g": g})
+    each = v_int(d.get("each", 1), 1, L.MAX_DEAL_EACH)
+    return {"items": out, "each": each}
 
 
 def v_act_args(kind, a):
@@ -1143,7 +1191,7 @@ class Room:
 
     __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
                  "private", "game", "size", "variant", "started", "bots", "fan",
-                 "botseats", "readying")
+                 "botseats", "readying", "dealt")
 
     def __init__(self, code, private=False, game=DEFAULT_GAME, size=2, variant=None):
         self.code = code
@@ -1183,6 +1231,11 @@ class Room:
         # made ready. That is the whole design: an AI seat cannot block a start
         # because there is nothing there to block with.
         self.botseats = {}
+        # What the relay privately dealt each seat at the start, kept so a
+        # rejoin can be answered from the room rather than from a client.
+        # It never leaves this dict except addressed to the seat that owns
+        # it — see start(). Cleared with the room.
+        self.dealt = {}
         # Has anybody in this room ever used the ready protocol? Set the first
         # time a seat says so and never cleared.
         #
@@ -1928,7 +1981,7 @@ class RoomBook:
             targets = room.live_conns()
         return [(c, roster) for c in targets]
 
-    def start(self, conn, bots):
+    def start(self, conn, bots, deal=None):
         """The HOST says the table is ready. Two things happen and nothing
         else: the room stops taking people, and everyone is handed the same
         random number to build the game from.
@@ -1995,6 +2048,56 @@ class RoomBook:
                      "filled": sorted([i for i, s in enumerate(room.seats)
                                        if s is not None] + list(room.bots))}
             room.push(room.mask_all(), json.dumps(began, separators=(",", ":")))
+            # ── THE PRIVATE DEAL ──────────────────────────────────────
+            # Shuffled with the relay's own entropy, NEVER with the seed
+            # in `began`: that one is broadcast, and a secret derived
+            # from a broadcast number is not a secret. Each seat is
+            # pushed its own share under its own bit, so the per-seat
+            # replay buffer hands it back on a rejoin without ever
+            # showing it to anybody else. Machine seats are dealt to the
+            # host, because the host is the one running them — that is a
+            # real limit and it is written down rather than pretended
+            # away: a table with machines keeps no secrets FROM THE HOST.
+            private = []
+            if deal is not None:
+                filled = sorted([i for i, s in enumerate(room.seats)
+                                 if s is not None] + list(room.bots))
+                need = len(filled) * deal["each"]
+                if need > len(deal["items"]):
+                    room.started = False
+                    return [(conn, {"t": "error", "why": E_DEAL_SHORT})]
+                pool = list(deal["items"])
+                secrets.SystemRandom().shuffle(pool)
+                hands = {}
+                for n, i in enumerate(filled):
+                    hands[i] = pool[n * deal["each"]:(n + 1) * deal["each"]]
+                # who shares a group with whom — seats only, never values
+                mates = {}
+                for i, hand in hands.items():
+                    gs = {c["g"] for c in hand if c["g"] is not None}
+                    if not gs:
+                        continue
+                    mates[i] = sorted({j for j, other in hands.items()
+                                       if j != i and gs & {c["g"] for c in other
+                                                           if c["g"] is not None}})
+                room.dealt = hands
+                for i in filled:
+                    body = {"t": "mine", "seat": i,
+                            "d": [c["v"] for c in hands[i]]}
+                    if mates.get(i):
+                        body["mates"] = mates[i]
+                    # a machine's hand belongs to whoever plays it
+                    to = 0 if room.seats[i] is None else i
+                    body["bot"] = room.seats[i] is None
+                    text = json.dumps(body, separators=(",", ":"))
+                    # push() only BUFFERS, under the receiving seat's bit, so
+                    # a rejoin replays it and nobody else's; the live delivery
+                    # is the returned list, so it has to be said twice — once
+                    # for the future, once for now.
+                    room.push(1 << to, text)
+                    seat_obj = room.seats[to]
+                    if seat_obj is not None and seat_obj.conn is not None:
+                        private.append((seat_obj.conn, text))
             targets = room.live_conns()
             roster = room.roster()
             # WHO ACTUALLY SAT DOWN TOGETHER. Taken from the live room under
@@ -2006,6 +2109,9 @@ class RoomBook:
         remember_table(table)
         out = [(c, began) for c in targets]
         out += [(c, roster) for c in targets]
+        # the private hands go LAST and one-to-one: everybody has the table
+        # before anybody has a secret, and no secret is in the shared list
+        out += private
         return out
 
     def rejoin(self, conn, code, token, since):
@@ -3234,7 +3340,11 @@ def handle_ws_message(conn, raw):
         dispatch(ROOMS.create(conn, msg.get("private") is True, game, seats, variant))
 
     elif kind == "start":
-        dispatch(ROOMS.start(conn, msg.get("bots")))
+        # The deal is validated HERE, out at the wire, like every other
+        # shape — the room is handed something already known to be safe.
+        d = msg.get("deal")
+        dispatch(ROOMS.start(conn, msg.get("bots"),
+                             v_deal(d) if d is not None else None))
 
     elif kind == "ready":
         dispatch(ROOMS.ready(conn, msg.get("on")))
@@ -8460,6 +8570,122 @@ def selftest():
             check("invite push", False, repr(e))
         finally:
             PUSH.test_hook = None
+
+        # ═══════════ the private deal ═══════════
+        # The point of the whole mechanism is that a secret is kept BY THE
+        # WIRE and not by a client politely not looking. So the checks that
+        # matter are the negative ones: what a seat must never be sent.
+        print("")
+        print(" PRIVATE DEAL")
+        try:
+            p_a = cli(origin=PAGES_ORIGIN)
+            p_b = cli(origin=PAGES_ORIGIN)
+            p_c = cli(origin=PAGES_ORIGIN)
+            p_a.send_json({"t": "create", "game": "suspett", "seats": 5})
+            p_code = (p_a.recv_json(2.0) or {}).get("code")
+            for c in (p_b, p_c):
+                c.send_json({"t": "join", "code": p_code}); c.recv_json(2.0)
+            drain(p_a)
+            for c in (p_a, p_b, p_c):
+                c.send_json({"t": "ready", "on": True})
+            drain(p_a); drain(p_b); drain(p_c)
+            p_a.send_json({"t": "bot", "seat": 3, "level": 1, "name": "M1"})
+            p_a.send_json({"t": "bot", "seat": 4, "level": 1, "name": "M2"})
+            drain(p_a); drain(p_b); drain(p_c)
+            items = [{"v": "klikka", "g": "k"}, {"v": "klikka", "g": "k"},
+                     {"v": "rahli"}, {"v": "rahli"}, {"v": "tabib"}]
+            p_a.send_json({"t": "start", "deal": {"items": items, "each": 1}})
+
+            def collect(c, n=8, secs=1.2):
+                got = []
+                for _ in range(n):
+                    m = c.recv_json(secs)
+                    if m is None:
+                        break
+                    got.append(m)
+                return got
+
+            ga, gb, gc = collect(p_a), collect(p_b), collect(p_c)
+            mine_a = [m for m in ga if m.get("t") == "mine"]
+            mine_b = [m for m in gb if m.get("t") == "mine"]
+            mine_c = [m for m in gc if m.get("t") == "mine"]
+            check("every human seat is dealt its own hand",
+                  len(mine_b) == 1 and len(mine_c) == 1
+                  and any(not m.get("bot") for m in mine_a),
+                  (len(mine_a), len(mine_b), len(mine_c)))
+            check("a seat is only ever told about ITSELF",
+                  all(m.get("seat") == 1 for m in mine_b)
+                  and all(m.get("seat") == 2 for m in mine_c),
+                  ([m.get("seat") for m in mine_b], [m.get("seat") for m in mine_c]))
+            # THE ONE THAT MATTERS: nobody sees anybody else's cards
+            check("no seat receives another seat's hand",
+                  len(mine_b) == 1 and len(mine_c) == 1,
+                  "b=%d c=%d" % (len(mine_b), len(mine_c)))
+            check("the machines' hands go to the host, who plays them",
+                  len([m for m in mine_a if m.get("bot")]) == 2,
+                  [m.get("seat") for m in mine_a])
+            check("the host is NOT sent a human seat's hand",
+                  not any((not m.get("bot")) and m.get("seat") != 0 for m in mine_a),
+                  [(m.get("seat"), m.get("bot")) for m in mine_a])
+            # the pool is handed out whole, once each
+            dealt = sorted([d for m in (mine_a + mine_b + mine_c) for d in m["d"]])
+            check("every item is dealt exactly once",
+                  dealt == sorted([i["v"] for i in items]), dealt)
+            # group mates find each other, and learn nothing else
+            withmates = [m for m in (mine_a + mine_b + mine_c) if m.get("mates")]
+            check("seats sharing a group are told each other's SEATS only",
+                  all(isinstance(m["mates"], list)
+                      and all(isinstance(x, int) for x in m["mates"])
+                      for m in withmates) and len(withmates) == 2,
+                  [(m.get("seat"), m.get("mates")) for m in withmates])
+            check("a seat outside the group is told no mates",
+                  all(not m.get("mates") for m in (mine_a + mine_b + mine_c)
+                      if "klikka" not in m["d"]), True)
+            bye(p_a); bye(p_b); bye(p_c)
+        except Exception as e:
+            check("private deal", False, repr(e))
+
+        try:
+            # a pool too small for the table is refused, and the table is
+            # NOT left half-started
+            q_a = cli(origin=PAGES_ORIGIN)
+            q_b = cli(origin=PAGES_ORIGIN)
+            q_a.send_json({"t": "create", "game": "suspett", "seats": 5})
+            q_code = (q_a.recv_json(2.0) or {}).get("code")
+            q_b.send_json({"t": "join", "code": q_code}); q_b.recv_json(2.0)
+            drain(q_a)
+            for c in (q_a, q_b):
+                c.send_json({"t": "ready", "on": True})
+            drain(q_a); drain(q_b)
+            q_a.send_json({"t": "bot", "seat": 2, "level": 1, "name": "M"})
+            q_a.send_json({"t": "bot", "seat": 3, "level": 1, "name": "M"})
+            q_a.send_json({"t": "bot", "seat": 4, "level": 1, "name": "M"})
+            drain(q_a); drain(q_b)
+            q_a.send_json({"t": "start", "deal": {"items": [{"v": 1}, {"v": 2}],
+                                                  "each": 1}})
+            m = None
+            for _ in range(6):
+                m = q_a.recv_json(1.0)
+                if m is None or m.get("t") == "error":
+                    break
+            check("a pool too small for the table is refused",
+                  (m or {}).get("t") == "error", m)
+            # and the table can still be started properly afterwards
+            q_a.send_json({"t": "start", "deal": {"items": [{"v": i} for i in range(5)],
+                                                  "each": 1}})
+            began = None
+            for _ in range(8):
+                x = q_a.recv_json(1.0)
+                if x is None:
+                    break
+                if x.get("t") == "began":
+                    began = x
+                    break
+            check("and the table is not left half-started by the refusal",
+                  began is not None, began)
+            bye(q_a); bye(q_b)
+        except Exception as e:
+            check("short pool", False, repr(e))
 
         # ═══════════ table talk ═══════════
         # Chat had NO check here at all, which is how a crash in it survived:
