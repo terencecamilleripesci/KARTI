@@ -531,6 +531,10 @@ function injectCSS(){
       'padding:1px 5px 1px 2px;border-radius:999px;background:rgba(0,0,0,.4);' +
       'border:1px solid rgba(255,197,66,.35)}' +
     '#scr-party .pk-opp .mk{position:absolute;top:-5px;right:-4px}' +
+    /* the button/blind chip sits over the top-right corner, so a marked
+       seat's NAME is given the room back — otherwise the chip lands on
+       the last letter and "NORMAL 1" reads as "NORMAL" */
+    '#scr-party .pk-opp.mkd .n{padding-right:13px}' +
     '#scr-party .pk-opp .tag{font:900 8px/1.3 var(--disp);letter-spacing:.09em;' +
       'text-transform:uppercase;color:rgba(255,255,255,.5)}' +
     '#scr-party .pk-opp.win .tag{color:var(--pk-gold)}' +
@@ -558,8 +562,10 @@ function injectCSS(){
       'letter-spacing:.17em;color:rgba(255,255,255,.2);pointer-events:none}' +
 
     /* ── the showdown board: every seat that showed, with its hand ── */
-    '#scr-party .pk-show{flex:0 0 auto;width:100%;max-height:34%;overflow-y:auto;' +
-      'display:flex;flex-direction:column;gap:3px;padding:2px 2px;' +
+    /* it takes the SAME slack the middle had, so the felt never opens a
+       hole under the result at the one moment everybody is reading it */
+    '#scr-party .pk-show{flex:1 1 auto;min-height:0;width:100%;overflow-y:auto;' +
+      'display:flex;flex-direction:column;justify-content:center;gap:3px;padding:4px 2px;' +
       '-webkit-overflow-scrolling:touch}' +
     '#scr-party .pk-sr{display:flex;align-items:center;gap:7px;padding:3px 8px;' +
       'border-radius:9px;background:rgba(0,0,0,.26)}' +
@@ -1072,7 +1078,8 @@ function render(){
               : p.allin ? T('ALL IN', 'KOLLOX')
               : (wonNow[i] ? '+' + wonNow[i] : '');
     return '<div class="pk-opp' + (t === i ? ' on' : '') + (p.folded ? ' fold' : '') +
-        (p.out ? ' out' : '') + (wonNow[i] ? ' win' : '') + '" data-seat="' + i + '">' +
+        (p.out ? ' out' : '') + (wonNow[i] ? ' win' : '') + (mark ? ' mkd' : '') +
+        '" data-seat="' + i + '">' +
       (mark ? '<span class="mk">' + mark + '</span>' : '') +
       '<span class="n">' + esc(p.name) + '</span>' +
       cards +
