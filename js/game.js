@@ -2382,16 +2382,16 @@ function storeBuyables(){
 function cosmOwned(id){
   try { return !!(window.KARTI_XP && KARTI_XP.owns(id)); } catch (e){ return false; }
 }
-/* The grant. KARTI_XP has no public grant call, but owns() reads
-   p.own[id] ahead of the level gate, and _state() hands back the live
-   prog object that lives INSIDE S — so writing the flag and calling
-   our own save() persists and syncs it exactly like everything else. */
+/* The grant goes through KARTI_XP.grant(), which owns the rules: it
+   refuses ids it does not know, and refuses anything carrying an earn
+   test — so Tempesta and the other earned items can never be bought at
+   any price. It commits and syncs itself; save() here keeps the coin
+   balance, which lives in S, in the same write. */
 function grantCosmetic(id){
   try {
-    if (!window.KARTI_XP || !KARTI_XP._state) return false;
-    const p = KARTI_XP._state();
-    if (!p || typeof p.own !== 'object') return false;
-    p.own[id] = 1;
+    if (!window.KARTI_XP || !KARTI_XP.grant) return false;
+    const r = KARTI_XP.grant(id);
+    if (!r || !r.ok) return false;
     save();
     return true;
   } catch (e){ return false; }
