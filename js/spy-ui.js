@@ -75,6 +75,7 @@ const GID = 'spy';
 const TITLE = 'L-ISPJUN';
 const SAVE_KEY = 'karti_spy_v1';
 const MINS = [5, 8, 10];
+const MIN_NOTE = { 5: 'Fast and vicious.', 8: 'The printed classic.', 10: 'Room for a big table.' };
 const EARLY_MAX = 2;
 
 /* ═══ 1 · STATE ════════════════════════════════════════════════════ */
@@ -108,6 +109,22 @@ function loadSave(){
   } catch(e){ return null; }
 }
 function clearSave(){ try { localStorage.removeItem(SAVE_KEY); } catch(e){} }
+
+/* UI-only state (never game state): is the rules fold open on the menu */
+const UI_KEY = 'karti_spy_ui_v1';
+function uiPref(){
+  try { return JSON.parse(localStorage.getItem(UI_KEY) || '{}') || {}; } catch(e){ return {}; }
+}
+function uiSet(k, v){
+  try { const j = uiPref(); j[k] = v; localStorage.setItem(UI_KEY, JSON.stringify(j)); } catch(e){}
+}
+/* the same two doors cardview.js honours */
+function reducedMo(){
+  try {
+    if (document.body && document.body.classList.contains('reduced')) return true;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch(e){ return false; }
+}
 
 document.addEventListener('visibilitychange', () => { if (document.hidden){ save(); wipeSecret(); } });
 window.addEventListener('pagehide', () => { save(); });
@@ -230,8 +247,14 @@ function menu(){
   const M = window.KARTI_MP;
   const mpKnows = !!(M && M.openFor && M.GAME_KEYS && M.GAME_KEYS.indexOf(GID) >= 0);
 
-  el.innerHTML = bar(TITLE, '18+') +
+  const rulesOpen = !!uiPref().rules;
+
+  el.innerHTML = '<div class="pt-wrap sp-menu">' + bar(TITLE, '18+') +
     '<div class="scroll">' +
+      /* the identity piece: four talkers with the word, one hat with nothing */
+      '<div class="sp-hero" aria-hidden="true">' +
+        '<svg class="sp-heroart" viewBox="0 0 240 100" width="240" height="100" focusable="false">' +
+        '<use href="#sp-hero"></use></svg></div>' +
       '<p class="blurb">Everybody gets the same secret word. <b>The spy gets nothing</b> ' +
       'and has to bluff through the questions without knowing what anyone is on about. ' +
       'Catch the spy before the clock runs out — or, if the word is yours to hide, survive.</p>' +
@@ -274,19 +297,30 @@ function menu(){
       '<div class="tiny pt-lbl">The clock</div>' +
       '<div class="pt-opts three" id="sp-mins">' +
         MINS.map(m => '<button class="pt-opt mid" data-v="' + m + '">' + myIco('sp-timer') +
-          '<b>' + m + ' min</b></button>').join('') +
+          '<b>' + m + ' min</b><i>' + MIN_NOTE[m] + '</i></button>').join('') +
       '</div>' +
-
-      '<details class="sp-rules"><summary>' + ico('book') + ' How a round works</summary>' + rulesPanel() + '</details>' +
 
       (mpKnows
         ? '<div class="pt-opts" style="margin-top:14px"><button class="pt-opt" id="sp-online">' +
             ico('users') + '<b>Play online instead</b><i>Everybody on their own phone, through a KARTI room.</i></button></div>'
         : '<p class="sp-note dim">Online rooms for L-ISPJUN switch on with the next server update — ' +
            'pass-the-phone works right now, no internet needed.</p>') +
+
+      /* THE RULES, AT THE BOTTOM, SLIDING. Closed by default, remembered in a
+         UI-only key, and always the last thing in the scroll — never a modal,
+         never over anything a player must read. */
+      '<section class="sp-fold">' +
+        '<button class="sp-foldtg' + (rulesOpen ? ' open' : '') + '" id="sp-foldtg" ' +
+          'aria-expanded="' + (rulesOpen ? 'true' : 'false') + '" aria-controls="sp-foldbody">' +
+          ico('book') + '<span>How a round works</span>' +
+          '<svg class="sp-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+        '</button>' +
+        '<div class="sp-foldbody" id="sp-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
+          rulesPanel() + '</div>' +
+      '</section>' +
       '<div style="height:8px"></div>' +
     '</div>' +
-    '<div class="pt-startbar"><button class="btn primary" id="sp-start"></button></div>';
+    '<div class="pt-startbar"><button class="btn primary" id="sp-start"></button></div></div>';
 
   const themesEl = el.querySelector('#sp-themes');
   const paintThemes = () => {
@@ -374,6 +408,26 @@ function menu(){
     sfx('ui.toggle', { gain:0.4 });
     paintThemes(); syncStart();
   };
+
+  /* the rules fold: real button, real aria, state survives a reload */
+  { const tg = el.querySelector('#sp-foldtg');
+    const body = el.querySelector('#sp-foldbody');
+    tg.onclick = () => {
+      const open = body.hidden;
+      body.hidden = !open;
+      tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+      tg.classList.toggle('open', open);
+      uiSet('rules', open ? 1 : 0);
+      sfx(open ? 'ui.sheet' : 'ui.back', { gain: 0.5 });
+      if (open){
+        if (!reducedMo()){
+          body.classList.add('anim');
+          body.addEventListener('animationend', () => body.classList.remove('anim'), { once: true });
+        }
+        body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' });
+      }
+    };
+  }
   el.querySelector('#pt-back').onclick = () => { leaveGame(); P.hub(); };
   { const r = el.querySelector('#sp-resume');
     if (r) r.onclick = () => resumeSaved(saved); }
@@ -1405,7 +1459,60 @@ const SPRITE =
     '<path d="M2.4 14.6h19.2v2H2.4z"/>' +
     '<path d="M11 2.2h2v3.4h-2z"/>' +
     '<path d="M4.2 5.3l1.4-1.4 2.4 2.4-1.4 1.4z"/>' +
-    '<path d="M19.8 5.3l-1.4-1.4-2.4 2.4 1.4 1.4z"/></symbol>';
+    '<path d="M19.8 5.3l-1.4-1.4-2.4 2.4 1.4 1.4z"/></symbol>' +
+  /* ── THE IDENTITY PIECE ─────────────────────────────────────────────
+     Five people mid-interrogation. Four hold the same word — the teal
+     bar in the paper bubble. The fourth figure has the hat, the dark
+     glasses, a tilt to the whole posture, and a bubble with NOTHING in
+     it: somebody here does not know. Filled silhouettes, warm ink
+     outline (paint-order:stroke fill via .sp-heroart), two shadow
+     tones — the spy stands in the darker one. */
+  '<symbol id="sp-hero" viewBox="0 0 240 100">' +
+    /* floor shadows: villagers in the light one, the spy in the deep one */
+    '<ellipse cx="26" cy="92.5" rx="17" ry="3.4" fill="#0A0714" opacity=".32"/>' +
+    '<ellipse cx="74" cy="92.5" rx="17" ry="3.4" fill="#0A0714" opacity=".32"/>' +
+    '<ellipse cx="122" cy="92.5" rx="17" ry="3.4" fill="#0A0714" opacity=".32"/>' +
+    '<ellipse cx="218" cy="92.5" rx="17" ry="3.4" fill="#0A0714" opacity=".32"/>' +
+    '<ellipse cx="170" cy="93" rx="19.5" ry="3.9" fill="#0A0714" opacity=".52"/>' +
+    /* four who know the word */
+    '<g stroke="#120C1E" stroke-width="2">' +
+      '<path d="M12 92v-13q0-10 14-10q14 0 14 10v13z" fill="#3A2E5C"/>' +
+      '<circle cx="26" cy="59.5" r="9.5" fill="#3A2E5C"/>' +
+      '<rect x="9" y="26" width="34" height="20" rx="7" fill="#F4EFFF"/>' +
+      '<path d="M21 45.5l4.5 7 6-7z" fill="#F4EFFF" stroke-width="1.6"/>' +
+      '<path d="M60 92v-13q0-10 14-10q14 0 14 10v13z" fill="#3A2E5C"/>' +
+      '<circle cx="74" cy="59.5" r="9.5" fill="#3A2E5C"/>' +
+      '<rect x="57" y="22" width="34" height="20" rx="7" fill="#F4EFFF"/>' +
+      '<path d="M69 41.5l4.5 7 6-7z" fill="#F4EFFF" stroke-width="1.6"/>' +
+      '<path d="M108 92v-13q0-10 14-10q14 0 14 10v13z" fill="#3A2E5C"/>' +
+      '<circle cx="122" cy="59.5" r="9.5" fill="#3A2E5C"/>' +
+      '<rect x="105" y="26" width="34" height="20" rx="7" fill="#F4EFFF"/>' +
+      '<path d="M117 45.5l4.5 7 6-7z" fill="#F4EFFF" stroke-width="1.6"/>' +
+      '<path d="M204 92v-13q0-10 14-10q14 0 14 10v13z" fill="#3A2E5C"/>' +
+      '<circle cx="218" cy="59.5" r="9.5" fill="#3A2E5C"/>' +
+      '<rect x="201" y="23" width="34" height="20" rx="7" fill="#F4EFFF"/>' +
+      '<path d="M213 42.5l4.5 7 6-7z" fill="#F4EFFF" stroke-width="1.6"/>' +
+    '</g>' +
+    /* the same word in every bubble */
+    '<rect x="16" y="33.2" width="20" height="5.6" rx="2.8" fill="#4FC8B8"/>' +
+    '<rect x="66" y="29.2" width="16" height="5.6" rx="2.8" fill="#4FC8B8"/>' +
+    '<rect x="112" y="33.2" width="20" height="5.6" rx="2.8" fill="#4FC8B8"/>' +
+    '<rect x="209" y="30.2" width="18" height="5.6" rx="2.8" fill="#4FC8B8"/>' +
+    /* the one who does not */
+    '<g transform="rotate(-5 170 78)">' +
+      '<g stroke="#120C1E" stroke-width="2">' +
+        '<path d="M156 92v-13q0-10 14-10q14 0 14 10v13z" fill="#241A3E"/>' +
+        '<circle cx="170" cy="59.5" r="9.5" fill="#241A3E"/>' +
+      '</g>' +
+      '<path d="M164 51.5l2.6-9h6.8l2.6 9z" fill="#120C1E"/>' +
+      '<rect x="154.5" y="50.5" width="31" height="5" rx="2.5" fill="#120C1E"/>' +
+      '<rect x="161" y="59" width="18" height="4.4" rx="2.2" fill="#0A0714" ' +
+        'stroke="#4A3C6E" stroke-width="1"/>' +
+      '<rect x="153" y="23" width="34" height="20" rx="7" fill="rgba(255,84,104,.07)" ' +
+        'stroke="#FF5468" stroke-width="2" stroke-dasharray="4 3"/>' +
+      '<path d="M165 42.5l4.5 7 6-7" fill="none" stroke="#FF5468" stroke-width="2" ' +
+        'stroke-dasharray="4 3"/>' +
+    '</g></symbol>';
 
 function injectSprite(){
   if (document.getElementById('sp-sprite')) return;
@@ -1456,12 +1563,47 @@ function injectCSS(){
     '#scr-party .sp-note.center{text-align:center;display:block;margin-top:12px}' +
     '#scr-party .pt-opts.three{grid-template-columns:repeat(3,minmax(0,1fr))}' +
     '#scr-party .pt-opt.mid{grid-template-columns:24px 1fr;min-height:48px}' +
-    '#scr-party .sp-rules{margin-top:16px;border:1px solid var(--line);border-radius:13px;' +
-      'background:rgba(255,255,255,.03);padding:0 13px}' +
-    '#scr-party .sp-rules summary{display:flex;align-items:center;gap:8px;min-height:46px;' +
+    /* ── the setup sheet in L-ISPJUN's own coat: interrogation teal.
+       Everything scoped to .sp-menu so not one tint reaches another
+       game — SUSPETT next door is a village at night, not this. ── */
+    '#scr-party .sp-menu .sp-hero{display:flex;justify-content:center;padding:8px 0 2px;' +
+      'margin:2px 0 10px;border-radius:16px;' +
+      'background:radial-gradient(92% 100% at 50% 0,rgba(79,200,184,.14),rgba(79,200,184,0) 74%)}' +
+    '#scr-party .sp-menu .sp-heroart{width:min(330px,92%);height:auto;aspect-ratio:240/100;' +
+      'display:block;paint-order:stroke fill}' +
+    '#scr-party .sp-menu .tiny.pt-lbl{color:#79C9BD}' +
+    '#scr-party .sp-menu .pt-opt.on{background:rgba(79,200,184,.12);' +
+      'border-color:rgba(79,200,184,.55)}' +
+    '#scr-party .sp-menu .pt-opt.on>.ico{color:#4FC8B8}' +
+    '#scr-party .sp-menu .sp-theme.on:not(.adult){background:rgba(79,200,184,.12);' +
+      'border-color:rgba(79,200,184,.5)}' +
+    '#scr-party .sp-menu .sp-theme.on:not(.adult) .ico{color:#4FC8B8}' +
+    '#scr-party .sp-menu .sp-chip{background:rgba(79,200,184,.12);' +
+      'border-color:rgba(79,200,184,.4)}' +
+    /* the clock choices stack their icon, number and one-liner */
+    '#scr-party .sp-menu #sp-mins .pt-opt{grid-template-columns:1fr;justify-items:center;' +
+      'row-gap:3px;text-align:center;padding:10px 6px}' +
+    '#scr-party .sp-menu #sp-mins .pt-opt>.ico{grid-row:auto}' +
+    /* ── the rules fold at the bottom: a real button, sliding open ── */
+    '#scr-party .sp-fold{margin:16px 0 0;border:1px solid rgba(79,200,184,.32);' +
+      'border-radius:14px;background:rgba(79,200,184,.05);overflow:hidden}' +
+    '#scr-party .sp-foldtg{display:flex;align-items:center;gap:9px;width:100%;min-height:48px;' +
+      'padding:6px 13px;border:0;background:none;cursor:pointer;color:#4FC8B8;' +
       'font:900 11.5px/1 var(--disp);letter-spacing:.09em;text-transform:uppercase;' +
-      'color:var(--gold);cursor:pointer;list-style:none}' +
-    '#scr-party .sp-rules summary::-webkit-details-marker{display:none}' +
+      'text-align:left}' +
+    '#scr-party .sp-foldtg .ico{width:17px;height:17px;flex:0 0 auto}' +
+    '#scr-party .sp-foldtg span{flex:1 1 auto}' +
+    '#scr-party .sp-foldcv{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;' +
+      'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;' +
+      'transition:transform .2s var(--ease)}' +
+    '#scr-party .sp-foldtg.open .sp-foldcv{transform:rotate(180deg)}' +
+    '#scr-party .sp-foldbody{padding:0 13px}' +
+    '#scr-party .sp-foldbody.anim{animation:spFoldIn .26s var(--ease) both}' +
+    '@keyframes spFoldIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .sp-foldbody.anim{animation:none}' +
+      '#scr-party .sp-foldcv{transition:none}}' +
+    'body.reduced #scr-party .sp-foldbody.anim{animation:none}' +
+    'body.reduced #scr-party .sp-foldcv{transition:none}' +
     '#scr-party .sp-rulesbody{padding:2px 0 12px}' +
     '#scr-party .sp-rulesbody p{font-size:12px;line-height:1.65;color:var(--dim);' +
       'margin:0 0 9px;text-transform:none;letter-spacing:0}' +

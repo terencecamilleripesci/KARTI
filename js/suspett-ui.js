@@ -62,6 +62,71 @@ function injectSprite(){
     '<path fill="currentColor" d="M12 5C7 5 3.2 8.1 1.5 12 3.2 15.9 7 19 12 19s8.8-3.1 ' +
     '10.5-7C20.8 8.1 17 5 12 5zm0 11.5A4.5 4.5 0 1 1 12 7.5a4.5 4.5 0 0 1 0 9z"/>' +
     '<circle fill="currentColor" cx="12" cy="12" r="2.2"/>' +
+    '</symbol>' +
+    /* ── THE IDENTITY PIECE ──────────────────────────────────────────
+       Il-każin at night. Shuttered windows dark, festa lights off-duty
+       along the parapet, and ONE window lit — the closed timber
+       gallarija, oxblood red like every village has — with somebody
+       standing in the light. Below in the street, somebody else is
+       watching them. Filled silhouettes, warm ink outline
+       (paint-order via .su-heroart), two shadow tones. */
+    '<symbol id="su-hero" viewBox="0 0 240 110">' +
+      /* sky: moon and a few stars over the pjazza */
+      '<path d="M212 8a14.5 14.5 0 1 0 9.5 25.5A11.6 11.6 0 0 1 212 8z" ' +
+        'fill="#E7DCBA" opacity=".95"/>' +
+      '<circle cx="30" cy="14" r="1.3" fill="#CBBFA0" opacity=".8"/>' +
+      '<circle cx="58" cy="24" r="1.1" fill="#CBBFA0" opacity=".65"/>' +
+      '<circle cx="184" cy="12" r="1.2" fill="#CBBFA0" opacity=".75"/>' +
+      '<path d="M96 10l1.2 3 3 1.2-3 1.2-1.2 3-1.2-3-3-1.2 3-1.2z" ' +
+        'fill="#CBBFA0" opacity=".7"/>' +
+      /* the street shadows: the building throws the soft one, the door
+         and the watcher stand in the deep one */
+      '<rect x="20" y="96" width="140" height="4.5" fill="#0A0714" opacity=".3"/>' +
+      '<ellipse cx="49" cy="97.5" rx="18" ry="3.2" fill="#0A0714" opacity=".48"/>' +
+      '<ellipse cx="196" cy="97.5" rx="14.5" ry="3.2" fill="#0A0714" opacity=".48"/>' +
+      /* il-każin */
+      '<g stroke="#120C1E" stroke-width="2.4">' +
+        '<rect x="20" y="30" width="140" height="66" fill="#2A2142"/>' +
+        '<rect x="15" y="24" width="150" height="8" rx="2" fill="#362B55"/>' +
+      '</g>' +
+      /* festa lights along the parapet, unlit but for two */
+      '<circle cx="40" cy="36.5" r="1.6" fill="#4A3C6E"/>' +
+      '<circle cx="60" cy="38" r="1.6" fill="#FFB05C" opacity=".9"/>' +
+      '<circle cx="80" cy="36.5" r="1.6" fill="#4A3C6E"/>' +
+      '<circle cx="100" cy="38" r="1.6" fill="#4A3C6E"/>' +
+      '<circle cx="120" cy="36.5" r="1.6" fill="#FFB05C" opacity=".55"/>' +
+      /* two shuttered windows, dark, slats drawn shut */
+      '<g stroke="#0D0918" stroke-width="1.6">' +
+        '<rect x="32" y="44" width="20" height="24" fill="#171128"/>' +
+        '<path d="M33 50h18M33 56h18M33 62h18"/>' +
+        '<rect x="64" y="44" width="20" height="24" fill="#171128"/>' +
+        '<path d="M65 50h18M65 56h18M65 62h18"/>' +
+      '</g>' +
+      /* the door, shut, and the nameless sign over it */
+      '<rect x="34" y="72" width="30" height="7" rx="1.5" fill="#3A2E5C" ' +
+        'stroke="#120C1E" stroke-width="1.6"/>' +
+      '<path d="M38 96v-9a11 11 0 0 1 22 0v9z" fill="#171128" ' +
+        'stroke="#0D0918" stroke-width="2"/>' +
+      /* the lit gallarija: glow first, then the timber box */
+      '<circle cx="128" cy="58" r="27" fill="#FFB05C" opacity=".13"/>' +
+      '<g stroke="#120C1E" stroke-width="2.4">' +
+        '<rect x="106" y="44" width="48" height="34" rx="3" fill="#8E3B2E"/>' +
+        '<rect x="102" y="39" width="56" height="7" rx="2" fill="#5E241C"/>' +
+      '</g>' +
+      '<rect x="113" y="82" width="6" height="6" fill="#5E241C"/>' +
+      '<rect x="141" y="82" width="6" height="6" fill="#5E241C"/>' +
+      '<rect x="112" y="50" width="22" height="24" rx="2" fill="#FFB05C"/>' +
+      '<path d="M141 50v24M146 50v24" stroke="#5E241C" stroke-width="1.8"/>' +
+      /* in the window: somebody who thinks nobody is looking */
+      '<circle cx="123" cy="59" r="4.6" fill="#2A1220"/>' +
+      '<path d="M116 74v-5q0-5.5 7-5.5q7 0 7 5.5v5z" fill="#2A1220"/>' +
+      /* in the street: somebody looking */
+      '<circle cx="196" cy="73" r="7" fill="#120C1E" ' +
+        'stroke="rgba(231,220,186,.3)" stroke-width="1.6"/>' +
+      '<path d="M187 96v-11q0-8.5 9-8.5q9 0 9 8.5v11z" fill="#120C1E" ' +
+        'stroke="rgba(231,220,186,.3)" stroke-width="1.6"/>' +
+      /* the street itself */
+      '<path d="M8 96.5h224" stroke="#0D0918" stroke-width="2.4"/>' +
     '</symbol></svg>';
   document.body.appendChild(d);
 }
@@ -78,6 +143,22 @@ try {
   }
 } catch (e){}
 function persist(){ try { localStorage.setItem(STORE, JSON.stringify(ST)); return true; } catch (e){ return false; } }
+
+/* UI-only state (never game state): is the rules fold open on the menu */
+const UI_KEY = 'karti_suspett_ui_v1';
+function uiPref(){
+  try { return JSON.parse(localStorage.getItem(UI_KEY) || '{}') || {}; } catch (e){ return {}; }
+}
+function uiSet(k, v){
+  try { const j = uiPref(); j[k] = v; localStorage.setItem(UI_KEY, JSON.stringify(j)); } catch (e){}
+}
+/* the same two reduced-motion doors cardview.js honours */
+function reducedMo(){
+  try {
+    if (document.body && document.body.classList.contains('reduced')) return true;
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch (e){ return false; }
+}
 
 /* ═══════════════ runtime ═══════════════ */
 let U = null;      /* the open game: see openPNP / onlineStart */
@@ -247,6 +328,45 @@ function injectCSS(){
   '#scr-party .su-net-banner{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;' +
     'overflow:hidden}' +
   '#scr-party .su-net-banner.full{display:block;-webkit-line-clamp:unset}' +
+  /* ── the setup sheet in SUSPETT's own coat: a village at night.
+     Violet dark, lantern amber where something is lit. Scoped to
+     .su-menu so none of it reaches the game screen or anybody
+     else's menu. ── */
+  '#scr-party .su-menu{font-family:var(--disp,system-ui)}' +
+  '#scr-party .su-menu .su-set{flex:1 1 auto;min-height:0}' +
+  '#scr-party .su-menu .su-hero{display:block;flex:0 0 auto;margin:2px 0 0;' +
+    'border-radius:16px;border:1px solid rgba(169,139,255,.28);overflow:hidden;' +
+    'background:linear-gradient(180deg,#251C45 0%,#191231 62%,#120C22 100%)}' +
+  '#scr-party .su-menu .su-heroart{width:min(340px,96%);height:auto;aspect-ratio:240/110;' +
+    'display:block;margin:0 auto;paint-order:stroke fill}' +
+  '#scr-party .su-menu .blurb{margin:0}' +
+  '#scr-party .su-menu .su-set h4{color:#A98BFF}' +
+  '#scr-party .su-menu .su-opt.on{border-color:#A98BFF;background:rgba(138,92,255,.15)}' +
+  '#scr-party .su-menu .su-stepn{color:#C9B4FF}' +
+  '#scr-party .su-menu .su-tgt.on{background:rgba(138,92,255,.22);border-color:#A98BFF}' +
+  /* ── the rules fold at the bottom: a real button, sliding open ── */
+  '#scr-party .su-fold{flex:0 0 auto;margin:2px 0 14px;border:1px solid rgba(169,139,255,.3);' +
+    'border-radius:14px;background:rgba(138,92,255,.06);overflow:hidden}' +
+  '#scr-party .su-foldtg{display:flex;align-items:center;gap:9px;width:100%;min-height:48px;' +
+    'padding:6px 13px;border:0;background:none;cursor:pointer;color:#C9B4FF;' +
+    'font-family:inherit;font-weight:900;font-size:12px;letter-spacing:1px;' +
+    'text-transform:uppercase;text-align:left}' +
+  '#scr-party .su-foldtg span{flex:1 1 auto}' +
+  '#scr-party .su-foldbook{width:17px;height:17px;flex:0 0 auto}' +
+  '#scr-party .su-foldcv{width:16px;height:16px;flex:0 0 auto;fill:none;stroke:currentColor;' +
+    'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;' +
+    'transition:transform .2s var(--ease,ease)}' +
+  '#scr-party .su-foldtg.open .su-foldcv{transform:rotate(180deg)}' +
+  '#scr-party .su-foldbody{padding:0 13px 12px;font-size:12.5px;line-height:1.6;' +
+    'color:var(--dim,#A093C4)}' +
+  '#scr-party .su-foldbody p{margin:6px 0 0}' +
+  '#scr-party .su-foldbody b{color:var(--txt,#F4EFFF)}' +
+  '#scr-party .su-foldbody.anim{animation:suFoldIn .26s var(--ease,ease) both}' +
+  '@keyframes suFoldIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}' +
+  '@media (prefers-reduced-motion:reduce){#scr-party .su-foldbody.anim{animation:none}' +
+    '#scr-party .su-foldcv{transition:none}}' +
+  'body.reduced #scr-party .su-foldbody.anim{animation:none}' +
+  'body.reduced #scr-party .su-foldcv{transition:none}' +
   /* short screens: the roster and log give way, the chat keeps its room */
   '@media (max-height:700px){' +
     '#scr-party .su-seats{max-height:74px;overflow-y:auto}' +
@@ -405,6 +525,7 @@ function menu(){
   let reveal = pf.reveal !== false;
   let dayT  = [180, 240, 300, 420].indexOf(pf.dayT) >= 0 ? pf.dayT : 240;
   let showPool = false;
+  let rulesOpen = !!uiPref().rules;
   function modePool(id){
     const m = S.MODES.find(x => x.id === id);
     return (m ? m.pool : S.POOL_DEFAULT).slice();
@@ -420,11 +541,22 @@ function menu(){
     const roster = S.rosterFromPool(seats, pool);
     const bal = S.rosterBalance(roster);
     const valid = S.validateRoster(roster, seats);
+    /* a redraw must not throw the host back to the top of the sheet */
+    const oldSet = el.querySelector('.su-set');
+    const keepScroll = oldSet ? oldSet.scrollTop : 0;
     el.innerHTML =
+      '<div class="pt-wrap su-menu">' +
       '<div class="tbar"><button class="iconbtn" id="su-back" aria-label="Back">' +
       '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15 18l-6-6 6-6-1.4-1.4L6.2 12l7.4 7.4z"/></svg>' +
       '</button><h2>SUSPETT</h2></div>' +
       '<div class="su-set">' +
+      /* the identity piece: one lit gallarija, one watcher in the street */
+      '<div class="su-hero" aria-hidden="true">' +
+        '<svg class="su-heroart" viewBox="0 0 240 110" width="240" height="110" focusable="false">' +
+        '<use href="#su-hero"></use></svg></div>' +
+      '<p class="blurb">Raħal wieħed, klikka moħbija ġo fih. Bil-lejl il-klikka taqtel ' +
+        'bil-moħbi; binhar il-pjazza tiddiskuti, tivvota, u tgħallaq lil xi ħadd — ' +
+        'idealment lill-ħati.</p>' +
       (saved ? '<button class="su-opt on" id="su-resume"><b>Kompli l-logħba ta’ qabel</b>' +
                '<i>Hemm waħda nofsha lesta fuq dan it-telefon.</i></button>' : '') +
       '<h4>KIF SE TILAGĦBU</h4><div class="su-opts">' +
@@ -479,9 +611,28 @@ function menu(){
       '<i>Kemm iddum id-diskussjoni ta’ binhar qabel il-vot.</i></button></div>' +
       '<button class="su-btn gold" id="su-go" style="padding:14px">' +
       (mode === 'net' ? 'SIB KAMRA ONLINE' : 'QASSAM IR-RWOLI') + '</button>' +
-      '<button class="su-btn" id="su-rules">X’jagħmel xiex? Ir-regoli u r-rwoli</button>' +
-      '</div>';
+      /* THE RULES, AT THE BOTTOM, SLIDING — the engine's own teaching
+         panel (buildTeachHTML, the same generator the lobby's rules
+         door renders), regenerated with the pool the host just left
+         on. Never a modal; closed by default; remembered. */
+      '<section class="su-fold">' +
+        '<button class="su-foldtg' + (rulesOpen ? ' open' : '') + '" id="su-foldtg" ' +
+          'aria-expanded="' + (rulesOpen ? 'true' : 'false') + '" aria-controls="su-foldbody">' +
+          '<svg class="su-foldbook" viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path fill="currentColor" d="M4 3.5h7a2 2 0 0 1 1 .3 2 2 0 0 1 1-.3h7v15h-7' +
+            'a1.4 1.4 0 0 0-1 .5 1.4 1.4 0 0 0-1-.5H4zm7.9 2.1a.6.6 0 0 0-.6-.5H5.6v11.8' +
+            'h5.7a2.7 2.7 0 0 1 .6.1zm1.6 11.4a2.7 2.7 0 0 1 .6-.1h5.3V5.1h-5.3a.6.6 0 0 0' +
+            '-.6.5z"/></svg>' +
+          '<span>X’jagħmel xiex? Ir-regoli u r-rwoli</span>' +
+          '<svg class="su-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+        '</button>' +
+        '<div class="su-foldbody" id="su-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
+          buildTeachHTML(pool) + '</div>' +
+      '</section>' +
+      '</div></div>';
 
+    const newSet = el.querySelector('.su-set');
+    if (newSet && keepScroll) newSet.scrollTop = keepScroll;
     el.querySelector('#su-back').onclick = () => { savePrefs(); P.open(); };
     const rs = el.querySelector('#su-resume');
     if (rs) rs.onclick = resumeSaved;
@@ -507,7 +658,26 @@ function menu(){
       const steps = [180, 240, 300, 420];
       dayT = steps[(steps.indexOf(dayT) + 1) % steps.length]; draw();
     };
-    el.querySelector('#su-rules').onclick = () => rulesSheet(pool);
+    /* the rules fold: toggled in place, no redraw, so the sheet's
+       scroll position and the panel's slide both behave */
+    { const tg = el.querySelector('#su-foldtg');
+      const body = el.querySelector('#su-foldbody');
+      tg.onclick = () => {
+        rulesOpen = body.hidden;
+        body.hidden = !rulesOpen;
+        tg.setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
+        tg.classList.toggle('open', rulesOpen);
+        uiSet('rules', rulesOpen ? 1 : 0);
+        sfx(rulesOpen ? 'ui.sheet' : 'ui.back');
+        if (rulesOpen){
+          if (!reducedMo()){
+            body.classList.add('anim');
+            body.addEventListener('animationend', () => body.classList.remove('anim'), { once: true });
+          }
+          body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' });
+        }
+      };
+    }
     el.querySelector('#su-go').onclick = () => {
       savePrefs();
       if (mode === 'net'){
@@ -571,16 +741,8 @@ function buildTeachHTML(pool){
       rest.map(roleLineHTML).join('');
   return h;
 }
-function rulesSheet(pool){
-  showSecret(host => {
-    const d = document.createElement('div');
-    d.className = 'su-card';
-    d.style.maxHeight = '68vh';
-    d.style.overflowY = 'auto';
-    d.innerHTML = '<h3>X’JAGĦMEL XIEX</h3>' + buildTeachHTML(pool || prefPool());
-    host.appendChild(d);
-  }, { closeLabel: 'Għalaqt' });
-}
+/* (the old modal rulesSheet is gone: the menu's fold and the lobby's
+   rules door both render buildTeachHTML directly, one generator) */
 
 /* ═══════════════ SHARED GAME SCREEN ═══════════════ */
 function board(){
