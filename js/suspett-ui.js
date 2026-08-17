@@ -50,6 +50,301 @@ const esc = s => String(s == null ? '' : s)
 function sfx(id){ try { if (window.KARTI_SFX && KARTI_SFX.play) KARTI_SFX.play(id); } catch (e){} }
 function toast(m){ try { if (K.toast) K.toast(m); } catch (e){} }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ENGLISH — via js/lang.js (KARTI_LANG). Two rules hold everywhere:
+
+   1. UI-authored text is written as a PAIR at its call site:
+      T('English line', 'Il-linja bil-Malti'). The Maltese is the
+      game's voice, not a translation of the English — both are
+      originals. ROLE NAMES ARE NAMES (In-Nanna, Tar-Ronda, il-pjazza,
+      il-planka): they stay Maltese in both languages, the way SKARTA
+      and IL-KIRI keep theirs. We translate what a role DOES, never
+      what it is called.
+
+   2. ENGINE-authored text (js/suspett.js writes its log lines and
+      refusals into game state at move time, and state is shared and
+      audited — it cannot be language-switched at the source) is
+      translated at DISPLAY time by gameText(): an exact-match /
+      anchored-pattern table over the engine's finite set of
+      templates. A line that matches nothing is shown as the engine
+      wrote it — Maltese — which is an honest fallback, never a key.
+   ═══════════════════════════════════════════════════════════════════ */
+const T = (en, mt) => window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en;
+const isMT = () => !!(window.KARTI_LANG && KARTI_LANG.mt());
+
+/* what each role DOES, in English — the names stay theirs.
+   Keyed by role id; a role missing here shows its Maltese. */
+const WHAT_EN = {
+  rahli: 'Minds his own business. Your only weapon is your vote and your ' +
+    'talk in the pjazza. Be careful who you believe.',
+  nanna: 'From the gallarija she sees EVERYTHING. Each night pick a person ' +
+    'and by morning you will know whether they are CLEAN or SUSPECT. ' +
+    'Careful: Il-Kap reads clean to you, and Il-Pittur can paint somebody.',
+  tabib: 'Each night pick a person and shield them from that night’s ' +
+    'killing. You may protect yourself, but never the same person two ' +
+    'nights running.',
+  barman: 'Each night pick a person and pour them free drink until they ' +
+    'fall over. That person does NOTHING that night — no killing, no ' +
+    'protecting, no watching.',
+  kaccatur: 'You sleep with the shotgun under the bed. If they get you — ' +
+    'by night or by vote — you fire one last shot and take somebody with ' +
+    'you. Nobody survives that shot.',
+  talkarti: 'Everybody laughs at you, and everybody comes to you in ' +
+    'secret. Each night you open the cards and talk to the dead in ' +
+    'writing — they know you only as "Tal-Karti", never by name. What ' +
+    'they tell you could save the village; if they work out who you are, ' +
+    'you are finished.',
+  ghassies: 'Your job is to prowl at night. Pick a person and by morning ' +
+    'you will know WHO WENT to their house that night. Not why they ' +
+    'went — but whoever visited tonight’s corpse has a lot to explain.',
+  kappillan: 'Everybody confesses to you, and you hear plenty. Each night ' +
+    'pick TWO, and by morning you will know whether they are on the same ' +
+    'side or not. Not which side — but two who do not match are threads ' +
+    'worth pulling.',
+  sindku: 'Once per game, by day, you may reveal yourself in front of ' +
+    'everyone: from then on your vote counts DOUBLE. But a revealed ' +
+    'mayor is everybody’s target — pick your moment.',
+  tarronda: 'The police are far away and you are done waiting. At night ' +
+    'you walk the streets with a shotgun under your coat: TWO shots for ' +
+    'the whole game. Mind who you spend them on — kill a villager and ' +
+    'the guilt eats you, and you die the following night.',
+  talbieb: 'Each night pick a person and stand guard at their door. If ' +
+    'somebody comes to kill them — or poison them — the blow lands on ' +
+    'YOU instead. Work of honour, and of blood.',
+  surgent: 'Each night lock one person in the għassa cell: that person ' +
+    'does NOTHING that night, but nobody can touch them either — in the ' +
+    'cell they sleep safe. Not the same person two nights running.',
+  xummiemu: 'Long nose, light feet. Each night follow a person and by ' +
+    'morning you will know WHOSE HOUSE they went to that night. Where ' +
+    'people go at night says a lot about them.',
+  haffier: 'You dig the graves, and the corpses talk to you. Each night ' +
+    'examine one dead body and by morning you will know WHAT WEAPON made ' +
+    'it — a klikka blow, a knife, a shotgun, poison… How people die ' +
+    'tells you who killed them.',
+  xewka: 'You do nothing at night — but whoever lays a hand on you ' +
+    'regrets it. If somebody comes for you in the night, one of them is ' +
+    'pricked by the thorn and dies too. You can still die — just never ' +
+    'alone.',
+  kap: 'The brains of the other każin’s klikka. Each night the klikka ' +
+    'agrees on one victim. In-Nanna and Il-Kappillan read you as CLEAN — ' +
+    'your face stays respectable to the end.',
+  klikka: 'A member of the other każin’s klikka. You know who your ' +
+    'people are; each night you agree on one victim in the klikka chat. ' +
+    'By day act like a decent man — and vote against somebody else.',
+  pittur: 'With the klikka, but your craft is not blood: each night you ' +
+    '"paint" a person, and that night In-Nanna and Il-Kappillan read ' +
+    'them as SUSPECT. Let the village hang somebody who did not deserve it.',
+  velenu: 'With the klikka, but your craft works slowly: each night you ' +
+    'drip the poison into somebody’s glass. They do not die there and ' +
+    'then — they die the FOLLOWING night, unless It-Tabib finds them in ' +
+    'time. The victim knows… and starts begging in front of everyone.',
+  sarima: 'With the klikka. Each night pick a person and tie the gag ' +
+    'over their mouth: tomorrow in the pjazza that person does NOT speak ' +
+    'and does not write — votes only. Silence whoever knows too much.',
+  mignun: 'You WANT them to put you on the planka. If the pjazza votes ' +
+    'you out, YOU ALONE win, right there. Make yourself suspicious — ' +
+    'but not too suspicious.',
+  kuntrabandist: 'You are with nobody — you are with the money. You win ' +
+    'with whoever wins, as long as you are still breathing. Twice a game ' +
+    'you can hide all night where nobody can touch you.',
+  biccier: 'You have the knife and you have the plan: an empty village. ' +
+    'Each night you kill too — alone, against everyone, until nobody is ' +
+    'left to vote you out.',
+  vendetta: 'One person in this village cast you a long shadow — your ' +
+    'MIRA, and you know who. You win if the pjazza votes them out, ' +
+    'whatever the ending. If they die in the night first, you are left ' +
+    'with nothing — and you become Il-Miġnun, because all you have left ' +
+    'is the joke.'
+};
+function roleWhat(id, mtWhat){
+  return (!isMT() && WHAT_EN[id]) ? WHAT_EN[id] : mtWhat;
+}
+
+/* the two host modes — names are descriptions here, so they translate */
+const MODE_EN = {
+  bilanc: { name: 'Balanced',
+    note: 'The pot proved by simulation — tap it and play.' },
+  borma: { name: 'The Big Pot',
+    note: 'The whole catalogue in the pot: poison, gag, thorn, jail ' +
+      'cell… Anything can turn up. A different kind of evening.' }
+};
+const modeName = m => (!isMT() && MODE_EN[m.id]) ? MODE_EN[m.id].name : m.name;
+const modeNote = m => (!isMT() && MODE_EN[m.id]) ? MODE_EN[m.id].note : m.note;
+
+/* the engine's HOW panel, matched entry for entry (index-keyed; an
+   engine entry with no English shows its Maltese) */
+const HOW_EN = {
+  basics: [
+    'At NIGHT nobody speaks out loud — everything in writing, in ' +
+      'secret. By day the pjazza opens and everybody argues.',
+    'The DEAD never speak again — not out loud and not in the pjazza. ' +
+      'They write only to the other dead.',
+    'On the FIRST NIGHT nobody dies: watch, listen, start guessing.',
+    'The village wins when the killers are gone; the klikka wins when ' +
+      'they are the majority. Some play for nobody but themselves.'
+  ],
+  night: [
+    { n: 'The drink and the cell', t: 'Tal-Bar gets somebody blind drunk ' +
+      'and Is-Surġent locks another in the għassa: neither does ANYTHING ' +
+      'that night — though the one in the cell at least sleeps safe.' },
+    { n: 'Hiding and guarding', t: 'Il-Kuntrabandist hides, It-Tabib ' +
+      'picks somebody to protect, and Tal-Bieb stands guard at another ' +
+      'man’s door — and takes the blow himself.' },
+    { n: 'The brush and the gag', t: 'Il-Pittur paints somebody guilty ' +
+      'for the night, and Is-Sarima ties a mouth shut for tomorrow.' },
+    { n: 'The blood', t: 'All the killers strike AT THE SAME TIME: the ' +
+      'klikka one victim, Il-Biċċier his own, Tar-Ronda his shot, ' +
+      'Tal-Velenu pours (the victim dies the following night unless ' +
+      'It-Tabib finds them). Whoever is protected or hidden survives — ' +
+      'which is why It-Tabib sometimes "saves nobody": he saved them ' +
+      'in secret.' },
+    { n: 'The eyes', t: 'In-Nanna, il-Kappillan, l-Għassies, ' +
+      'ix-Xummiemu and il-Ħaffier see the night AS IT TRULY HAPPENED — ' +
+      'but only if they lived to the morning and nobody locked them up.' },
+    { n: 'The dead man’s shotgun', t: 'A Kaċċatur who dies fires his ' +
+      'last shot before the sun comes up. Nobody survives that shot.' }
+  ],
+  day: [
+    'Everybody votes an ACCUSATION (changeable until the day closes).',
+    'The most accused — if the accusations carry real weight — climbs ' +
+      'the planka and defends himself. Even gagged: on the planka you ' +
+      'always speak.',
+    'Then the VERDICT: guilty or not. Guilty by majority and the person ' +
+      'is out — and their role is revealed, if that rule is on.',
+    'A revealed Sindku counts double. Whoever woke up gagged votes ' +
+      'only, today.'
+  ]
+};
+
+/* ── gameText(): engine-authored Maltese, translated at DISPLAY time.
+   Exact strings first, then anchored patterns; recursion handles the
+   " Kien X." reveal suffix. NEVER fed back into the engine. ── */
+const GT_EXACT = {
+  /* dawns and days */
+  'Sebaħ. Xi ħadd kien attakkat il-lejla — u xi ħadd salvah. Ħadd ma miet.':
+    'Dawn came. Somebody was attacked in the night — and somebody saved them. Nobody died.',
+  'Sebaħ, u ħadd ma miet. Lejl kwiet.': 'Dawn came, and nobody died. A quiet night.',
+  'Il-pjazza miftuħa. Min hu s-suspettuż?': 'The pjazza is open. Who looks guilty?',
+  'Ħadd ma ġie akkużat bis-serjetà. Ir-raħal jorqod.':
+    'Nobody was seriously accused. The village goes to sleep.',
+  'Il-pjazza ma qablitx — ħadd fuq il-planka. Ir-raħal jorqod.':
+    'The pjazza could not agree — nobody on the planka. The village goes to sleep.',
+  'Il-pjazza tiddeċiedi: ħati jew le?': 'The pjazza decides: guilty or not?',
+  'Il-Miġnun DAK LI RIED — dik ir-rebħa tiegħu, u intom ilkoll għamiltuha bl-idejn. Il-lejla ħadd mhu se joqtol — ir-raħal baqa’ skantat. Il-logħba tkompli mingħajru.':
+    'Il-Miġnun got EXACTLY what he wanted — that is his win, and you all handed it to him. Nobody will kill tonight — the village is too stunned. The game goes on without him.',
+  /* endings */
+  'Ir-raħal meħlus. Il-klikka spiċċat, u l-festa ssir xorta.':
+    'The village is free. The klikka is finished, and the festa happens anyway.',
+  'Il-klikka ħadet ir-raħal f’idejha. Il-każin l-ieħor rebaħ kollox.':
+    'The klikka took the village. The other każin won the lot.',
+  'Baqa’ biss il-Biċċier u s-skiet. Rebaħ hu.':
+    'Only Il-Biċċier and the silence are left. He won.',
+  'Ir-raħal battal. Ħadd ma rebaħ xejn.': 'The village is empty. Nobody won anything.',
+  /* the engine's refusals (act) */
+  'Il-logħba spiċċat.': 'The game is over.',
+  'Mhux il-lejl.': 'It is not night.',
+  'Il-mejtin ma jagħmlu xejn.': 'The dead do nothing.',
+  'Dan ir-rwol jorqod bil-lejl.': 'This role sleeps at night.',
+  'M’għandekx aktar moħbi.': 'You have no hides left.',
+  'Il-kuxjenza ma tħallikx toħroġ illejla.': 'The guilt will not let you out tonight.',
+  'M’għandekx aktar tiri.': 'You have no cartridges left.',
+  'Dik il-persuna mhix fil-logħba.': 'That person is not in the game.',
+  'Il-Ħaffier jeżamina l-MEJTIN biss.': 'Il-Ħaffier examines the DEAD only.',
+  'Mhux l-istess persuna żewġt iljieli.': 'Not the same person two nights running.',
+  'Mhux l-istess ċella żewġt iljieli.': 'Not the same cell guest two nights running.',
+  'Il-Kuntrabandist jistaħba hu biss.': 'Il-Kuntrabandist hides only himself.',
+  'Il-velenu l-ieħor għadu jaħdem — stenna.': 'The last vial is still working — wait.',
+  'Mhux lil sħabek stess.': 'Not your own people.',
+  'Le, mhux lilek innifsek.': 'No — not yourself.',
+  'Il-Kappillan iqabbel TNEJN.': 'Il-Kappillan compares TWO.',
+  'It-tieni persuna mhix fil-logħba.': 'The second person is not in the game.',
+  'Tnejn differenti.': 'Two different people.',
+  'Int taf min int.': 'You already know who you are.',
+  'Ħadd ma jispara issa.': 'Nobody fires now.',
+  'Mhux is-senter tiegħek.': 'Not your shotgun.',
+  'Is-Sindku jikxef ruħu binhar biss.': 'Is-Sindku reveals himself by day only.',
+  'Il-mejtin ma jixxejrux.': 'The dead do not wave.',
+  'Int m’intix is-Sindku.': 'You are not Is-Sindku.',
+  'Diġà kxift ruħek.': 'You already revealed yourself.',
+  'Mhux ħin il-vot.': 'It is not voting time.',
+  'Il-mejtin ma jivvutawx.': 'The dead do not vote.',
+  'Dik il-persuna mhix hemm.': 'That person is not there.',
+  'Kontra tiegħek innifsek le.': 'Not against yourself.',
+  'Mhux binhar.': 'It is not daytime.',
+  'Ħadd mhu jiddefendi ruħu.': 'Nobody is defending themselves.',
+  'Mhux ħin il-verdett.': 'It is not verdict time.',
+  'L-akkużat ma jivvutax fuqu nnifsu.': 'The accused does not vote on himself.',
+  'Mossa mhux magħrufa.': 'Unknown move.',
+  /* validateRoster, the fixed ones */
+  'M’hemm ħadd li joqtol — logħba bla lejl mhix logħba.':
+    'Nobody in this pot kills — a game with no night is no game.',
+  'Wisq qattiela: iridu jkunu inqas minn nofs ir-raħal.':
+    'Too many killers: they must be fewer than half the village.',
+  /* channel notes (engine channels()) */
+  'Iddefendi ruħek.': 'Defend yourself.',
+  'Il-planka għand l-akkużat.': 'The planka belongs to the accused.',
+  'Is-sarima f’ħalqek — illum tivvota biss.': 'The gag is on you — today you vote only.',
+  'Bil-lejl il-pjazza magħluqa.': 'The pjazza is closed at night.',
+  'Sħabek biss jaqraw dan.': 'Only your people read this.',
+  'Il-klikka titkellem bil-lejl.': 'The klikka talks at night.',
+  'Il-ħajjin ma jaraw XEJN minn hawn.': 'The living see NOTHING from here.'
+};
+const GT_RX = [
+  [/^Lejl (\d+)\. Ir-raħal jorqod…$/, m => 'Night ' + m[1] + '. The village sleeps…'],
+  [/^(.+\.) Kien (.+)\.$/, (m, g) => { const b = g(m[1]); return b === m[1] ? null : b + ' They were ' + m[2] + '.'; }],
+  [/^(.+) spara l-aħħar tir tiegħu u ħa lil (.+) miegħu\.$/,
+    m => m[1] + ' fired his last shot and took ' + m[2] + ' with him.'],
+  [/^(.+) spara fl-ajru\.$/, m => m[1] + ' fired into the air.'],
+  [/^(.+) dam wisq — it-tir mar fl-ajru\.$/, m => m[1] + ' took too long — the shot went into the air.'],
+  [/^(.+) kixef ruħu: HUWA S-SINDKU\. Il-vot tiegħu jgħodd doppju minn issa\.$/,
+    m => m[1] + ' revealed himself: HE IS IS-SINDKU. His vote counts double from now on.'],
+  [/^Sebaħ, u sabu lil (.+) mejjet\.$/, m => 'Dawn came, and they found ' + m[1] + ' dead.'],
+  [/^(.+) qam bis-sarima marbuta ma’ ħalqu — illum jivvota BISS: la kliem u lanqas kitba fil-pjazza\.$/,
+    m => m[1] + ' woke with the gag tied over his mouth — today he votes ONLY: no talking and no writing in the pjazza.'],
+  [/^(.+) fuq il-planka\. Ħa jiddefendi ruħu\.$/, m => m[1] + ' is on the planka. Let him defend himself.'],
+  [/^Ħati \((\d+)-(\d+)\)\. (.+) barra mir-raħal\.$/,
+    m => 'Guilty (' + m[1] + '-' + m[2] + '). ' + m[3] + ' is out of the village.'],
+  [/^Mhux ħati \((\d+)-(\d+)\)\. (.+) jinżel mill-planka\.$/,
+    m => 'Not guilty (' + m[1] + '-' + m[2] + '). ' + m[3] + ' steps down from the planka.'],
+  [/^Il-mejtin jarawk bħala "(.+)", qatt b’ismek\.$/,
+    m => 'The dead see you as "' + m[1] + '", never by name.'],
+  [/^Ir-roster irid ikun eżatt daqs il-plejers \((\d+)\)\.$/,
+    m => 'The roster must be exactly the size of the table (' + m[1] + ').'],
+  [/^Rwol mhux magħruf: (.+)$/, m => 'Unknown role: ' + m[1]],
+  [/^Wieħed biss jista’ jkun (.+)\.$/, m => 'Only one can be ' + m[1] + '.']
+];
+function gameText(txt){
+  if (isMT() || txt == null) return txt;
+  const s = String(txt);
+  if (GT_EXACT[s]) return GT_EXACT[s];
+  for (const [rx, fn] of GT_RX){
+    const m = s.match(rx);
+    if (m){ const r = fn(m, gameText); if (r != null) return r; }
+  }
+  return s;   /* unknown line: the engine's Maltese, honestly */
+}
+/* chat tab names come off the engine by id — a place is still a place,
+   but "the dead" must be readable */
+const CHAN_EN = { 'Il-Pjazza': 'The Pjazza', 'Il-Klikka': 'The Klikka',
+                  'Il-Mejtin': 'The Dead', 'Is-Seduta': 'The Séance' };
+const chanName = c => (!isMT() && CHAN_EN[c.name]) ? CHAN_EN[c.name] : c.name;
+
+/* language flipped: repaint whatever of ours is up — the menu redraws
+   whole, a live table re-renders. Concealed sheets and the curtain are
+   left alone (they are transient and wipe themselves anyway). */
+if (window.KARTI_LANG && KARTI_LANG.onChange){
+  KARTI_LANG.onChange(() => {
+    try {
+      if (U && U.ctx){
+        if (!secretOpen && !U.ctx.rootEl.querySelector('.su-curtain')) render();
+      } else {
+        const el = screenRoot();
+        if (el && el.querySelector('.su-menu')) menu();
+      }
+    } catch (e){}
+  });
+}
+
 /* ── the tile's mark: an eye over a card, ours ────────────────────── */
 function injectSprite(){
   if (document.getElementById('su-sprite')) return;
@@ -394,13 +689,15 @@ function showSecret(render, opts){
   row.style.cssText = 'display:flex;gap:8px;width:min(330px,88%)';
   const closeB = document.createElement('button');
   closeB.className = 'su-btn gold';
-  closeB.textContent = (opts && opts.closeLabel) || 'Aħbi u agħlaq';
+  closeB.textContent = (opts && opts.closeLabel) || T('Hide and close', 'Aħbi u agħlaq');
   closeB.onclick = () => { hideSecret(); if (opts && opts.onClose) opts.onClose(); };
   row.appendChild(closeB);
   v.appendChild(row);
   const hint = document.createElement('div');
   hint.className = 'hint';
-  hint.textContent = 'Din il-karta tinħeba waħedha jekk titlaq mill-app. Xejn minnha ma jibqa’ fuq l-iskrin.';
+  hint.textContent = T(
+    'This card hides itself if you leave the app. Nothing of it stays on the screen.',
+    'Din il-karta tinħeba waħedha jekk titlaq mill-app. Xejn minnha ma jibqa’ fuq l-iskrin.');
   v.appendChild(hint);
   root.appendChild(v);
   secretOpen = v;
@@ -419,38 +716,46 @@ function roleCardInto(host, G, seat){
   if (!v) return;
   const card = document.createElement('div');
   card.className = 'su-card';
-  const sideWord = v.role.side === 'rahal' ? 'MAR-RAĦAL' :
-                   v.role.side === 'klikka' ? 'MAL-KLIKKA' : 'GĦALIK WAĦDEK';
+  const sideWord = v.role.side === 'rahal' ? T('WITH THE VILLAGE', 'MAR-RAĦAL') :
+                   v.role.side === 'klikka' ? T('WITH THE KLIKKA', 'MAL-KLIKKA') :
+                   T('FOR YOURSELF ALONE', 'GĦALIK WAĦDEK');
   let inner =
     '<div class="side ' + v.role.side + '">' + sideWord + '</div>' +
     '<h3>' + esc(v.role.name) + '</h3>' +
-    '<p>' + esc(v.role.what) + '</p>';
+    '<p>' + esc(roleWhat(v.role.id, v.role.what)) + '</p>';
   if (v.converted)
-    inner += '<div class="news">Il-mira tiegħek mietet bil-lejl — issa int il-Miġnun.</div>';
+    inner += '<div class="news">' + T('Your mira died in the night — you are il-Miġnun now.',
+      'Il-mira tiegħek mietet bil-lejl — issa int il-Miġnun.') + '</div>';
   if (v.mates.length)
-    inner += '<div class="mate">Sħabek: ' + v.mates.map(m => esc(m.name) + ' (' + esc(m.role) + ')').join(', ') + '</div>';
+    inner += '<div class="mate">' + T('Your people: ', 'Sħabek: ') +
+      v.mates.map(m => esc(m.name) + ' (' + esc(m.role) + ')').join(', ') + '</div>';
   if (v.mira)
-    inner += '<div class="news">Il-MIRA tiegħek: ' + esc(v.mira.name) + '. Ġibha fuq il-planka.</div>';
+    inner += '<div class="news">' + T('Your MIRA: ', 'Il-MIRA tiegħek: ') + esc(v.mira.name) +
+      T('. Get them onto the planka.', '. Ġibha fuq il-planka.') + '</div>';
   if (v.role.id === 'kuntrabandist')
-    inner += '<div class="news">Moħbi li fadal: ' + v.hideLeft + '</div>';
+    inner += '<div class="news">' + T('Hides left: ', 'Moħbi li fadal: ') + v.hideLeft + '</div>';
   if (v.role.id === 'tarronda'){
-    inner += '<div class="news">Tiri li fadal: ' + v.rondaShots + '</div>';
+    inner += '<div class="news">' + T('Cartridges left: ', 'Tiri li fadal: ') + v.rondaShots + '</div>';
     if (v.rondaGuilt)
-      inner += '<div class="news">Qtilt wieħed tar-raħal. Il-kuxjenza qed ' +
-               'tikolk — dan hu l-aħħar jum tiegħek.</div>';
+      inner += '<div class="news">' + T('You shot a villager. The guilt is eating you ' +
+        'alive — this is your last day.',
+        'Qtilt wieħed tar-raħal. Il-kuxjenza qed tikolk — dan hu l-aħħar jum tiegħek.') + '</div>';
   }
   if (v.poisoned)
-    inner += '<div class="news">INT AVVELENAT! Jekk it-Tabib ma jsibekx ' +
-             'il-lejla d-dieħla, tmut ma’ sbiħ il-jum. Għajjat għalih.</div>';
+    inner += '<div class="news">' + T('YOU ARE POISONED! If it-Tabib does not find you ' +
+      'tonight, you die at dawn. Shout for him.',
+      'INT AVVELENAT! Jekk it-Tabib ma jsibekx il-lejla d-dieħla, tmut ma’ sbiħ il-jum. ' +
+      'Għajjat għalih.') + '</div>';
   if (v.muted)
-    inner += '<div class="news">Is-sarima f’ħalqek: illum tivvota biss — ' +
-             'la titkellem u lanqas tikteb fil-pjazza.</div>';
+    inner += '<div class="news">' + T('The gag is over your mouth: today you vote only — ' +
+      'no speaking and no writing in the pjazza.',
+      'Is-sarima f’ħalqek: illum tivvota biss — la titkellem u lanqas tikteb fil-pjazza.') + '</div>';
   if (v.news)
     for (const nw of v.news) inner += '<div class="news">' + esc(newsLine(nw)) + '</div>';
   card.innerHTML = inner;
   host.appendChild(card);
 }
-/* the weapons, as il-Ħaffier names them */
+/* the weapons, as il-Ħaffier names them — both tongues */
 const WEAPON_MT = {
   klikka:   'daqqa tal-klikka',
   biccier:  'is-sikkina tal-Biċċier',
@@ -462,28 +767,49 @@ const WEAPON_MT = {
   vote:     'il-planka tal-pjazza',
   night:    'daqqa fil-lejl (qabel żmienek)'
 };
+const WEAPON_EN = {
+  klikka:   'a klikka blow',
+  biccier:  'the Biċċier’s knife',
+  ronda:    'a shotgun blast in the night',
+  shot:     'a Kaċċatur’s last shot',
+  velenu:   'the poison',
+  xewka:    'the thorn',
+  kuxjenza: 'the guilt — death from within',
+  vote:     'the pjazza’s planka',
+  night:    'a blow in the night (before your time)'
+};
 function newsLine(nw){
+  const N = T('Night ', 'Lejl ') + nw.night + ': ';
   if (nw.kind === 'nanna')
-    return 'Lejl ' + nw.night + ': ' + nw.name + ' ' + (nw.clean ? 'NADIF/A.' : 'SUSPETTUŻ/A.');
+    return N + nw.name + ' ' + (nw.clean ? T('is CLEAN.', 'NADIF/A.') : T('is SUSPECT.', 'SUSPETTUŻ/A.'));
   if (nw.kind === 'kappillan')
-    return 'Lejl ' + nw.night + ': ' + nw.name + ' u ' + nw.name2 + ' ' +
-           (nw.same ? 'fuq L-ISTESS naħa.' : 'fuq naħat DIFFERENTI.');
+    return N + nw.name + T(' and ', ' u ') + nw.name2 + ' ' +
+           (nw.same ? T('are on the SAME side.', 'fuq L-ISTESS naħa.')
+                    : T('are on DIFFERENT sides.', 'fuq naħat DIFFERENTI.'));
   if (nw.kind === 'ghassies')
-    return 'Lejl ' + nw.night + ': għand ' + nw.name + ' ' +
-           (nw.who.length ? 'mar: ' + nw.who.map(w => w.name).join(', ') + '.' : 'ma mar ĦADD.');
+    return isMT()
+      ? N + 'għand ' + nw.name + ' ' +
+        (nw.who.length ? 'mar: ' + nw.who.map(w => w.name).join(', ') + '.' : 'ma mar ĦADD.')
+      : N + (nw.who.length
+          ? 'to ' + nw.name + '’s house went: ' + nw.who.map(w => w.name).join(', ') + '.'
+          : 'NOBODY went to ' + nw.name + '’s house.');
   if (nw.kind === 'xummiemu')
-    return 'Lejl ' + nw.night + ': ' + nw.name + ' ' +
-           (nw.who.length ? 'mar għand: ' + nw.who.map(w => w.name).join(', ') + '.'
-                          : 'baqa’ d-dar il-lejl kollu.');
+    return N + nw.name + ' ' +
+           (nw.who.length ? T('went to: ', 'mar għand: ') + nw.who.map(w => w.name).join(', ') + '.'
+                          : T('stayed home all night.', 'baqa’ d-dar il-lejl kollu.'));
   if (nw.kind === 'haffier')
-    return 'Lejl ' + nw.night + ': ' + nw.name + ' inqatel bi: ' +
-           (WEAPON_MT[nw.weapon] || 'arma li ma tagħrafhiex') + '.';
+    return N + nw.name + T(' was killed by: ', ' inqatel bi: ') +
+           (isMT() ? (WEAPON_MT[nw.weapon] || 'arma li ma tagħrafhiex')
+                   : (WEAPON_EN[nw.weapon] || 'a weapon you do not recognise')) + '.';
   if (nw.kind === 'velenat')
-    return 'Lejl ' + nw.night + ': tħossok ĦAŻIN — xi ħadd avvelenak. It-Tabib biss isalvak.';
+    return N + T('you feel WRONG — somebody poisoned you. Only it-Tabib can save you.',
+                 'tħossok ĦAŻIN — xi ħadd avvelenak. It-Tabib biss isalvak.');
   if (nw.kind === 'kurat')
-    return 'Lejl ' + nw.night + ': it-Tabib sabek fil-ħin. Il-velenu ħareġ.';
+    return N + T('it-Tabib found you in time. The poison is out.',
+                 'it-Tabib sabek fil-ħin. Il-velenu ħareġ.');
   if (nw.kind === 'ronda')
-    return 'Lejl ' + nw.night + ': it-tir tiegħek laqat wieħed tar-raħal. Il-lejl li ġej il-kuxjenza tiġbrok.';
+    return N + T('your shot hit a villager. Tomorrow night the guilt collects you.',
+                 'it-tir tiegħek laqat wieħed tar-raħal. Il-lejl li ġej il-kuxjenza tiġbrok.');
   return '';
 }
 
@@ -495,15 +821,20 @@ function refBar(speak, why){
     'd="M4 4h16v12H8l-4 4V4zm2.3 2.3l11.4 7.4-1.1 1.7L5.2 8l1.1-1.7z"/></svg>';
   return '<div class="su-ref ' + (speak ? 'speak' : 'silent') + '" id="su-ref" role="status">' +
     (speak ? glyphSpeak : glyphSil) +
-    '<span>' + (speak ? 'TISTA’ TITKELLEM' : 'SKIET — IKTEB BISS') + '</span>' +
+    '<span>' + (speak ? T('YOU MAY SPEAK', 'TISTA’ TITKELLEM')
+                      : T('SILENCE — TYPE ONLY', 'SKIET — IKTEB BISS')) + '</span>' +
     '<i>' + esc(why || '') + '</i></div>';
 }
 function refWhy(v){
-  if (!v.alive) return 'Int mejjet. Skiet sal-aħħar.';
-  if (v.phase === 'night' || v.phase === 'shot') return 'Bil-lejl ħadd ma jitkellem.';
-  if (v.phase === 'defence') return v.seat === v.accused ? 'Il-planka tiegħek.' : 'Ħalli lill-akkużat jitkellem.';
-  if (v.muted) return 'Is-sarima f’ħalqek — illum tivvota biss.';
-  return 'Il-pjazza miftuħa.';
+  if (!v.alive) return T('You are dead. Silence to the end.', 'Int mejjet. Skiet sal-aħħar.');
+  if (v.phase === 'night' || v.phase === 'shot')
+    return T('At night nobody speaks.', 'Bil-lejl ħadd ma jitkellem.');
+  if (v.phase === 'defence')
+    return v.seat === v.accused ? T('The planka is yours.', 'Il-planka tiegħek.')
+                                : T('Let the accused speak.', 'Ħalli lill-akkużat jitkellem.');
+  if (v.muted) return T('The gag is on you — today you vote only.',
+                        'Is-sarima f’ħalqek — illum tivvota biss.');
+  return T('The pjazza is open.', 'Il-pjazza miftuħa.');
 }
 
 /* ═══════════════ THE SETUP SHEET ═══════════════ */
@@ -554,38 +885,53 @@ function menu(){
       '<div class="su-hero" aria-hidden="true">' +
         '<svg class="su-heroart" viewBox="0 0 240 110" width="240" height="110" focusable="false">' +
         '<use href="#su-hero"></use></svg></div>' +
-      '<p class="blurb">Raħal wieħed, klikka moħbija ġo fih. Bil-lejl il-klikka taqtel ' +
+      '<p class="blurb">' + T(
+        'One village, a hidden klikka inside it. By night the klikka kills in ' +
+        'secret; by day the pjazza argues, votes, and hangs somebody — ideally ' +
+        'the guilty one.',
+        'Raħal wieħed, klikka moħbija ġo fih. Bil-lejl il-klikka taqtel ' +
         'bil-moħbi; binhar il-pjazza tiddiskuti, tivvota, u tgħallaq lil xi ħadd — ' +
-        'idealment lill-ħati.</p>' +
-      (saved ? '<button class="su-opt on" id="su-resume"><b>Kompli l-logħba ta’ qabel</b>' +
-               '<i>Hemm waħda nofsha lesta fuq dan it-telefon.</i></button>' : '') +
-      '<h4>KIF SE TILAGĦBU</h4><div class="su-opts">' +
-      '<button class="su-opt' + (mode === 'net' ? ' on' : '') + '" data-m="net"><b>Kulħadd fuq il-mowbajl tiegħu</b>' +
-      '<i>Online mir-relay — il-chat hu l-logħba. L-aqwa mod, sa sittax.</i></button>' +
-      '<button class="su-opt' + (mode === 'pnp' ? ' on' : '') + '" data-m="pnp"><b>Telefon wieħed idur mal-mejda</b>' +
-      '<i>Bil-purtiera bejn kull tidwira. Bla chat — titkellmu intom.</i></button></div>' +
+        'idealment lill-ħati.') + '</p>' +
+      (saved ? '<button class="su-opt on" id="su-resume"><b>' +
+               T('Continue the last game', 'Kompli l-logħba ta’ qabel') + '</b>' +
+               '<i>' + T('There is a half-finished one on this phone.',
+                         'Hemm waħda nofsha lesta fuq dan it-telefon.') + '</i></button>' : '') +
+      '<h4>' + T('HOW YOU’LL PLAY', 'KIF SE TILAGĦBU') + '</h4><div class="su-opts">' +
+      '<button class="su-opt' + (mode === 'net' ? ' on' : '') + '" data-m="net"><b>' +
+      T('Everyone on their own phone', 'Kulħadd fuq il-mowbajl tiegħu') + '</b>' +
+      '<i>' + T('Online through the relay — the chat is the game. The best way, up to sixteen.',
+                'Online mir-relay — il-chat hu l-logħba. L-aqwa mod, sa sittax.') + '</i></button>' +
+      '<button class="su-opt' + (mode === 'pnp' ? ' on' : '') + '" data-m="pnp"><b>' +
+      T('One phone around the table', 'Telefon wieħed idur mal-mejda') + '</b>' +
+      '<i>' + T('With the curtain between every turn. No chat — you do the talking.',
+                'Bil-purtiera bejn kull tidwira. Bla chat — titkellmu intom.') + '</i></button></div>' +
       (mode === 'pnp' ?
-        '<h4>KEMM INTOM</h4><div class="su-step">' +
+        '<h4>' + T('HOW MANY OF YOU', 'KEMM INTOM') + '</h4><div class="su-step">' +
         '<button class="su-stepb" id="su-less">-</button><span class="su-stepn">' + seats + '</span>' +
         '<button class="su-stepb" id="su-more">+</button></div>' +
-        '<h4>MIN INTOM</h4><div class="su-names" id="su-names">' +
+        '<h4>' + T('WHO YOU ARE', 'MIN INTOM') + '</h4><div class="su-names" id="su-names">' +
         Array.from({ length: seats }, (_, i) =>
-          '<input class="su-name" maxlength="14" data-i="' + i + '" placeholder="Plejer ' + (i + 1) + '"' +
+          '<input class="su-name" maxlength="14" data-i="' + i + '" placeholder="' +
+          T('Player ', 'Plejer ') + (i + 1) + '"' +
           ' value="' + esc(names[i] || '') + '">').join('') + '</div>'
         : '') +
-      '<h4>IR-RWOLI FIL-BORMA <span style="opacity:.6">(' +
-        (mode === 'pnp' ? seats : 'skont il-kamra') + ' siġġu)</span></h4>' +
+      '<h4>' + T('THE ROLES IN THE POT', 'IR-RWOLI FIL-BORMA') + ' <span style="opacity:.6">(' +
+        (mode === 'pnp' ? seats + T(' seats', ' siġġu')
+                        : T('sized by the room', 'skont il-kamra')) + ')</span></h4>' +
       /* THE TWO MODES — starting points, both editable afterwards */
       '<div class="su-opts">' + S.MODES.map(m => {
         const on = samePool(pool, m.pool);
         return '<button class="su-opt' + (on ? ' on' : '') + '" data-pm="' + m.id + '">' +
-          '<b>' + esc(m.name) + '</b><i>' + esc(m.note) + '</i></button>';
+          '<b>' + esc(modeName(m)) + '</b><i>' + esc(modeNote(m)) + '</i></button>';
       }).join('') +
       (S.MODES.some(m => samePool(pool, m.pool)) ? '' :
-        '<div class="su-bal">Borma tiegħek — bdilt ir-rwoli b’idejk. ' +
-        'Agħfas mod biex terġa’ lura.</div>') + '</div>' +
-      '<button class="su-opt" id="su-poolbtn"><b>' + (showPool ? 'Aħbi l-lista' : 'Biddel ir-rwoli') + '</b>' +
-      '<i>Neħħi u żid rwoli fuq il-mod li għażilt — il-logħba tinbena minn dak li tħalli.</i></button>' +
+        '<div class="su-bal">' + T('Your own pot — you changed the roles by hand. ' +
+        'Tap a mode to go back.',
+        'Borma tiegħek — bdilt ir-rwoli b’idejk. Agħfas mod biex terġa’ lura.') + '</div>') + '</div>' +
+      '<button class="su-opt" id="su-poolbtn"><b>' +
+      (showPool ? T('Hide the list', 'Aħbi l-lista') : T('Change the roles', 'Biddel ir-rwoli')) + '</b>' +
+      '<i>' + T('Remove and add roles on top of the mode you picked — the game is built from what you leave on.',
+                'Neħħi u żid rwoli fuq il-mod li għażilt — il-logħba tinbena minn dak li tħalli.') + '</i></button>' +
       (showPool ? '<div class="su-pool" id="su-pool">' +
         S.POOL_ALL.map(id => {
           const R = S.ROLES[id];
@@ -594,23 +940,36 @@ function menu(){
           const far = mode === 'pnp' && min > seats;
           return '<button class="su-role' + (inPool ? '' : ' off') + (far ? ' far' : '') + '" data-r="' + id + '">' +
             '<span class="dot ' + R.side + '"></span><span style="min-width:0"><b>' + esc(R.name) + '</b>' +
-            '<i>' + (inPool ? (far ? 'jidħol minn ' + min + ' ’il fuq' : 'fil-borma') : 'BARRA') + '</i></span></button>';
+            '<i>' + (inPool
+              ? (far ? T('joins from ' + min + ' up', 'jidħol minn ' + min + ' ’il fuq')
+                     : T('in the pot', 'fil-borma'))
+              : T('OUT', 'BARRA')) + '</i></span></button>';
         }).join('') + '</div>' : '') +
       '<div class="su-bal">' + (mode === 'pnp'
-        ? 'B’dawn: <span class="k">' + bal.killers + ' qattiela</span> kontra <span class="v">' +
-          bal.village + ' tar-raħal</span>' + (bal.neutral ? ' u <span class="n">' + bal.neutral +
-          ' għal rashom</span>' : '') + '.' +
-          (valid.ok ? '' : ' <span class="k">' + esc(valid.why) + '</span>')
-        : 'Il-bilanċ jinħadem mill-kamra skont kemm tidħlu. Bl-għaxra: eżempju <span class="k">2 qattiela</span>, ' +
-          '<span class="v">7 tar-raħal</span>, <span class="n">1 għal rasu</span>.') + '</div>' +
-      '<h4>REGOLI TAL-LEJLA</h4><div class="su-opts">' +
-      '<button class="su-opt' + (reveal ? ' on' : '') + '" id="su-rev"><b>Il-mejtin jikxfu r-rwol</b>' +
-      '<i>' + (reveal ? 'IVA — kull katavru jgħid x’kien. Eħfef u aktar daħq.'
-                      : 'LE — il-katavri jibqgħu mistoqsija. Itqal sew.') + '</i></button>' +
-      '<button class="su-opt" id="su-dayt"><b>Ħin il-pjazza: ' + (dayT / 60) + ' min</b>' +
-      '<i>Kemm iddum id-diskussjoni ta’ binhar qabel il-vot.</i></button></div>' +
+        ? T('With these: ', 'B’dawn: ') + '<span class="k">' + bal.killers +
+          T(' killers', ' qattiela') + '</span>' + T(' against ', ' kontra ') + '<span class="v">' +
+          bal.village + T(' villagers', ' tar-raħal') + '</span>' + (bal.neutral ? T(' and ', ' u ') +
+          '<span class="n">' + bal.neutral + T(' out for themselves', ' għal rashom') + '</span>' : '') + '.' +
+          (valid.ok ? '' : ' <span class="k">' + esc(gameText(valid.why)) + '</span>')
+        : T('The room works out the balance from how many join. With ten: say ',
+            'Il-bilanċ jinħadem mill-kamra skont kemm tidħlu. Bl-għaxra: eżempju ') +
+          '<span class="k">' + T('2 killers', '2 qattiela') + '</span>, ' +
+          '<span class="v">' + T('7 villagers', '7 tar-raħal') + '</span>, ' +
+          '<span class="n">' + T('1 out for himself', '1 għal rasu') + '</span>.') + '</div>' +
+      '<h4>' + T('TONIGHT’S RULES', 'REGOLI TAL-LEJLA') + '</h4><div class="su-opts">' +
+      '<button class="su-opt' + (reveal ? ' on' : '') + '" id="su-rev"><b>' +
+      T('The dead reveal their role', 'Il-mejtin jikxfu r-rwol') + '</b>' +
+      '<i>' + (reveal ? T('YES — every corpse says what it was. Easier, and funnier.',
+                          'IVA — kull katavru jgħid x’kien. Eħfef u aktar daħq.')
+                      : T('NO — the corpses stay a question. Much heavier.',
+                          'LE — il-katavri jibqgħu mistoqsija. Itqal sew.')) + '</i></button>' +
+      '<button class="su-opt" id="su-dayt"><b>' + T('Pjazza time: ', 'Ħin il-pjazza: ') +
+      (dayT / 60) + ' min</b>' +
+      '<i>' + T('How long the daytime argument runs before the vote.',
+                'Kemm iddum id-diskussjoni ta’ binhar qabel il-vot.') + '</i></button></div>' +
       '<button class="su-btn gold" id="su-go" style="padding:14px">' +
-      (mode === 'net' ? 'SIB KAMRA ONLINE' : 'QASSAM IR-RWOLI') + '</button>' +
+      (mode === 'net' ? T('FIND A ROOM ONLINE', 'SIB KAMRA ONLINE')
+                      : T('DEAL THE ROLES', 'QASSAM IR-RWOLI')) + '</button>' +
       /* THE RULES, AT THE BOTTOM, SLIDING — the engine's own teaching
          panel (buildTeachHTML, the same generator the lobby's rules
          door renders), regenerated with the pool the host just left
@@ -623,7 +982,8 @@ function menu(){
             'a1.4 1.4 0 0 0-1 .5 1.4 1.4 0 0 0-1-.5H4zm7.9 2.1a.6.6 0 0 0-.6-.5H5.6v11.8' +
             'h5.7a2.7 2.7 0 0 1 .6.1zm1.6 11.4a2.7 2.7 0 0 1 .6-.1h5.3V5.1h-5.3a.6.6 0 0 0' +
             '-.6.5z"/></svg>' +
-          '<span>X’jagħmel xiex? Ir-regoli u r-rwoli</span>' +
+          '<span>' + T('What does what? The rules and the roles',
+                       'X’jagħmel xiex? Ir-regoli u r-rwoli') + '</span>' +
           '<svg class="su-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
         '</button>' +
         '<div class="su-foldbody" id="su-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
@@ -682,14 +1042,14 @@ function menu(){
       savePrefs();
       if (mode === 'net'){
         if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('suspett');
-        else toast('L-online mhux fuq dan il-build.');
+        else toast(T('Online is not on this build.', 'L-online mhux fuq dan il-build.'));
         return;
       }
       const list = Array.from({ length: seats }, (_, i) =>
-        (names[i] || '').trim() || ('Plejer ' + (i + 1)));
+        (names[i] || '').trim() || (T('Player ', 'Plejer ') + (i + 1)));
       const roster2 = S.rosterFromPool(seats, pool);
       const chk = S.validateRoster(roster2, seats);
-      if (!chk.ok){ toast(chk.why); return; }
+      if (!chk.ok){ toast(gameText(chk.why)); return; }
       openPNP(list, roster2);
     };
   }
@@ -714,8 +1074,9 @@ function roleLineHTML(id){
   const col = R.side === 'rahal' ? '#3DDC84' : R.side === 'klikka' ? '#FF7A6B' : '#C9B4FF';
   const min = S.MIN_TABLE[id] || 0;
   return '<p style="margin:7px 0 0"><b style="color:' + col + '">' + esc(R.name) + '</b>' +
-    (min > 5 ? ' <span style="opacity:.55;font-size:10px">(minn ' + min + ' ’il fuq)</span>' : '') +
-    ' — ' + esc(R.what) + '</p>';
+    (min > 5 ? ' <span style="opacity:.55;font-size:10px">' +
+      T('(from ' + min + ' up)', '(minn ' + min + ' ’il fuq)') + '</span>' : '') +
+    ' — ' + esc(roleWhat(id, R.what)) + '</p>';
 }
 function prefPool(){
   const pf = ST.pref;
@@ -725,19 +1086,32 @@ function buildTeachHTML(pool){
   pool = (Array.isArray(pool) && pool.length ? pool : S.POOL_DEFAULT)
     .filter(id => S.ROLES[id]);
   const H = S.HOW;
-  let h = '<p><b>SUSPETT</b> — raħal wieħed, klikka waħda moħbija ġo fih, u ' +
-    Object.keys(S.ROLES).length + '-il rwol fil-katalgu. Aqra hawn sakemm ' +
-    'timtela l-kamra — ħadd ma jitlef postu.</p>';
-  h += H.basics.map(b => '<p>• ' + esc(b) + '</p>').join('');
-  h += '<p style="margin-top:10px"><b>X’JIĠRI BIL-LEJL, BL-ORDNI:</b></p>' +
-    H.night.map((s, i) => '<p>' + (i + 1) + '. <b>' + esc(s.n) + '</b> — ' + esc(s.t) + '</p>').join('');
-  h += '<p style="margin-top:10px"><b>X’JIĠRI BINHAR:</b></p>' +
-    H.day.map(d => '<p>• ' + esc(d) + '</p>').join('');
-  h += '<p style="margin-top:12px"><b>IR-RWOLI FIL-BORMA TAL-LEJLA:</b></p>' +
+  /* the engine's Maltese teaching text, matched entry for entry by
+     HOW_EN — an entry the English table does not know shows Maltese */
+  const en = !isMT();
+  const basics = H.basics.map((b, i) => (en && HOW_EN.basics[i]) || b);
+  const nightS = H.night.map((s, i) => (en && HOW_EN.night[i]) || s);
+  const dayS   = H.day.map((d, i) => (en && HOW_EN.day[i]) || d);
+  let h = '<p><b>SUSPETT</b>' + T(
+    ' — one village, one hidden klikka inside it, and ' +
+      Object.keys(S.ROLES).length + ' roles in the catalogue. Read here while ' +
+      'the room fills — nobody loses their seat.',
+    ' — raħal wieħed, klikka waħda moħbija ġo fih, u ' +
+      Object.keys(S.ROLES).length + '-il rwol fil-katalgu. Aqra hawn sakemm ' +
+      'timtela l-kamra — ħadd ma jitlef postu.') + '</p>';
+  h += basics.map(b => '<p>• ' + esc(b) + '</p>').join('');
+  h += '<p style="margin-top:10px"><b>' +
+    T('WHAT HAPPENS AT NIGHT, IN ORDER:', 'X’JIĠRI BIL-LEJL, BL-ORDNI:') + '</b></p>' +
+    nightS.map((s, i) => '<p>' + (i + 1) + '. <b>' + esc(s.n) + '</b> — ' + esc(s.t) + '</p>').join('');
+  h += '<p style="margin-top:10px"><b>' + T('WHAT HAPPENS BY DAY:', 'X’JIĠRI BINHAR:') + '</b></p>' +
+    dayS.map(d => '<p>• ' + esc(d) + '</p>').join('');
+  h += '<p style="margin-top:12px"><b>' +
+    T('THE ROLES IN TONIGHT’S POT:', 'IR-RWOLI FIL-BORMA TAL-LEJLA:') + '</b></p>' +
     ['klikka', 'rahli'].concat(pool).map(roleLineHTML).join('');
   const rest = S.POOL_ALL.filter(id => pool.indexOf(id) < 0);
   if (rest.length)
-    h += '<p style="margin-top:12px"><b>IL-BQIJA TAL-KATALGU (barra mil-lejla):</b></p>' +
+    h += '<p style="margin-top:12px"><b>' +
+      T('THE REST OF THE CATALOGUE (not in tonight):', 'IL-BQIJA TAL-KATALGU (barra mil-lejla):') + '</b></p>' +
       rest.map(roleLineHTML).join('');
   return h;
 }
@@ -760,17 +1134,19 @@ function confirmQuit(){
   showSecret(host => {
     const d = document.createElement('div');
     d.className = 'su-card';
-    d.innerHTML = '<h3>Titlaq?</h3><p>' + (U && U.mode === 'pnp'
-      ? 'Il-logħba tibqa’ merfugħa fuq dan it-telefon — tkompluha meta tridu.'
-      : 'Jekk titlaq mill-kamra, is-siġġu tiegħek jibqa’ vojt sa ma tirritorna.') + '</p>';
+    d.innerHTML = '<h3>' + T('Leaving?', 'Titlaq?') + '</h3><p>' + (U && U.mode === 'pnp'
+      ? T('The game stays put on this phone — carry on whenever you like.',
+          'Il-logħba tibqa’ merfugħa fuq dan it-telefon — tkompluha meta tridu.')
+      : T('If you leave the room, your seat stays empty until you come back.',
+          'Jekk titlaq mill-kamra, is-siġġu tiegħek jibqa’ vojt sa ma tirritorna.')) + '</p>';
     host.appendChild(d);
     const b = document.createElement('button');
     b.className = 'su-btn red';
     b.style.width = 'min(330px,88%)';
-    b.textContent = 'Iva, itlaq';
+    b.textContent = T('Yes, leave', 'Iva, itlaq');
     b.onclick = () => { hideSecret(); leaveGame(); };
     host.appendChild(b);
-  }, { closeLabel: 'Le, nibqa’' });
+  }, { closeLabel: T('No, I’ll stay', 'Le, nibqa’') });
 }
 function leaveGame(){
   stash();
@@ -790,11 +1166,11 @@ function closeGame(){
 
 /* ═══════════════ RENDER ═══════════════ */
 function phaseName(G){
-  return G.phase === 'night' ? 'LEJL ' + G.night :
-         G.phase === 'shot' ? 'IS-SENTER' :
-         G.phase === 'day' ? 'IL-PJAZZA — JUM ' + G.night :
-         G.phase === 'defence' ? 'ID-DIFIŻA' :
-         G.phase === 'verdict' ? 'IL-VERDETT' : 'SPIĊĊAT';
+  return G.phase === 'night' ? T('NIGHT ', 'LEJL ') + G.night :
+         G.phase === 'shot' ? T('THE SHOTGUN', 'IS-SENTER') :
+         G.phase === 'day' ? T('THE PJAZZA — DAY ', 'IL-PJAZZA — JUM ') + G.night :
+         G.phase === 'defence' ? T('THE DEFENCE', 'ID-DIFIŻA') :
+         G.phase === 'verdict' ? T('THE VERDICT', 'IL-VERDETT') : T('OVER', 'SPIĊĊAT');
 }
 function render(){
   if (!U || !U.ctx) return;
@@ -819,15 +1195,16 @@ function seatsHTML(G, mySeat){
       '<b>' + esc(pub.name) + '</b>' +
       (tally[p.seat] ? '<span class="vt">' + tally[p.seat] + '</span>' : '') +
       '<i>' + (pub.alive
-        ? (pub.mayor ? 'SINDKU' : (G.muted === p.seat ? 'SARIMA' : ''))
-        : (pub.role ? esc(pub.role) : 'MEJTA')) + '</i>' +
+        ? (pub.mayor ? 'SINDKU' : (G.muted === p.seat ? T('GAGGED', 'SARIMA') : ''))
+        : (pub.role ? esc(pub.role) : T('DEAD', 'MEJTA'))) + '</i>' +
       '</div>';
   }).join('') + '</div>';
 }
 function logHTML(G, n){
   const rows = G.log.slice(-(n || 6));
   return '<div class="su-log" id="su-log">' + rows.map(r =>
-    '<p' + (/mejjet|barra mir|spara/i.test(r.txt) ? ' class="hot"' : '') + '>' + esc(r.txt) + '</p>').join('') + '</div>';
+    '<p' + (/mejjet|barra mir|spara/i.test(r.txt) ? ' class="hot"' : '') + '>' +
+    esc(gameText(r.txt)) + '</p>').join('') + '</div>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -854,7 +1231,8 @@ function resumeSaved(){
   const sv = ST.save;
   if (!sv || !sv.snap) return;
   const G = S.load(sv.snap);
-  if (!G || G.over){ clearSlot(); toast('Dik il-logħba kienet spiċċat.'); return; }
+  if (!G || G.over){ clearSlot(); toast(T('That game had already finished.',
+    'Dik il-logħba kienet spiċċat.')); return; }
   closeGame(); injectCSS();
   U = { mode:'pnp', G, names: sv.names || G.P.map(p => p.name), ctx:null,
         dealt: G.P.map(p => p.seat), voteTurn:null, verdictQ:[] };
@@ -867,16 +1245,17 @@ function curtain(name, note, go){
   const old = root.querySelector('.su-curtain');
   if (old) old.remove();
   U.ctx.wrap.innerHTML =
-    refBar(false, 'Il-purtiera — ħadd ma jgħid xejn.') +
+    refBar(false, T('The curtain — nobody says a word.', 'Il-purtiera — ħadd ma jgħid xejn.')) +
     '<div class="su-phase night"><span>' + esc(phaseName(U.G)) + '</span></div>';
   const c = document.createElement('div');
   c.className = 'su-curtain';
-  c.innerHTML = '<h2>GĦADDI T-TELEFON LIL</h2><div class="who">' + esc(name) + '</div>' +
+  c.innerHTML = '<h2>' + T('PASS THE PHONE TO', 'GĦADDI T-TELEFON LIL') + '</h2>' +
+    '<div class="who">' + esc(name) + '</div>' +
     '<p style="color:var(--dim);font-size:12.5px;max-width:280px">' + esc(note || '') + '</p>';
   const b = document.createElement('button');
   b.className = 'su-btn gold';
   b.style.cssText = 'width:min(300px,80%);padding:15px';
-  b.textContent = 'JIEN ' + name.toUpperCase();
+  b.textContent = T('I AM ', 'JIEN ') + name.toUpperCase();
   b.onclick = () => { c.remove(); go(); };
   c.appendChild(b);
   U.ctx.rootEl.appendChild(c);
@@ -888,10 +1267,11 @@ function pnpDeal(i){
   const G = U.G;
   if (i >= G.P.length){ stash(); pnpFlow(); return; }
   const p = G.P[i];
-  curtain(p.name, 'Ħa tara r-rwol tiegħek. Ara li ħadd ma jittawwal.', () => {
+  curtain(p.name, T('You are about to see your role. Make sure nobody peeks.',
+                    'Ħa tara r-rwol tiegħek. Ara li ħadd ma jittawwal.'), () => {
     showSecret(host => {
       roleCardInto(host, G, i);
-    }, { closeLabel: 'Rajtu — aħbih', onClose: () => pnpDeal(i + 1) });
+    }, { closeLabel: T('Seen it — hide it', 'Rajtu — aħbih'), onClose: () => pnpDeal(i + 1) });
   });
 }
 
@@ -904,12 +1284,14 @@ function pnpFlow(){
     const pending = S.actorsTonight(G).filter(s => G.acts[s] === undefined);
     if (!pending.length){ S.act(G, { t:'nightEnd' }); pnpFlow(); return; }
     const s = pending[0];
-    curtain(G.P[s].name, 'Imissek taġixxi bil-lejl. Kollox bil-moħbi.', () => pnpNight(s));
+    curtain(G.P[s].name, T('Your night action. All of it in secret.',
+                           'Imissek taġixxi bil-lejl. Kollox bil-moħbi.'), () => pnpNight(s));
     return;
   }
   if (G.phase === 'shot'){
     const s = G.shotQueue[0];
-    curtain(G.P[s].name, 'Is-senter f’idejk. L-aħħar tir.', () => pnpShot(s));
+    curtain(G.P[s].name, T('The shotgun is in your hands. One last shot.',
+                           'Is-senter f’idejk. L-aħħar tir.'), () => pnpShot(s));
     return;
   }
   render();
@@ -950,8 +1332,8 @@ function pnpNight(seat){
     roleCardInto(host, G, seat);
     const title = document.createElement('div');
     title.style.cssText = 'font-weight:900;font-size:13px;color:var(--dim)';
-    title.textContent = v.role.two ? 'Agħżel TNEJN:' :
-      v.role.id === 'haffier' ? 'Agħżel katavru:' : 'Agħżel:';
+    title.textContent = v.role.two ? T('Pick TWO:', 'Agħżel TNEJN:') :
+      v.role.id === 'haffier' ? T('Pick a corpse:', 'Agħżel katavru:') : T('Pick:', 'Agħżel:');
     host.appendChild(title);
     let first = -1;
     const opts = nightOpts(G, v, seat);
@@ -962,10 +1344,10 @@ function pnpNight(seat){
       const mv = { t:'night', seat: seat, target: v.role.two ? first : s };
       if (v.role.two) mv.target2 = s;
       const r = S.act(G, mv);
-      if (!r.ok){ toast(r.why); return; }
+      if (!r.ok){ toast(gameText(r.why)); return; }
       sfx('ui.tap'); hideSecret(); pnpFlow();
     });
-  }, { closeLabel: 'Orqod (tagħmel xejn)', onClose: () => {
+  }, { closeLabel: T('Sleep (do nothing)', 'Orqod (tagħmel xejn)'), onClose: () => {
     if (G.acts[seat] === undefined && G.phase === 'night') S.act(G, { t:'night', seat: seat, target: -1, target2: -1 });
     pnpFlow();
   } });
@@ -975,13 +1357,15 @@ function pnpShot(seat){
   showSecret(host => {
     const d = document.createElement('div');
     d.className = 'su-card';
-    d.innerHTML = '<h3>Il-Kaċċatur</h3><p>Qatluk — imma s-senter għadu mimli. Ħu lil xi ħadd miegħek, jew spara fl-ajru.</p>';
+    d.innerHTML = '<h3>Il-Kaċċatur</h3><p>' + T(
+      'They got you — but the shotgun is still loaded. Take somebody with you, or fire into the air.',
+      'Qatluk — imma s-senter għadu mimli. Ħu lil xi ħadd miegħek, jew spara fl-ajru.') + '</p>';
     host.appendChild(d);
     targetGridInto(host, G, S.alive(G).map(p => p.seat), s => {
       S.act(G, { t:'shot', seat: seat, target: s });
       hideSecret(); pnpFlow();
     });
-  }, { closeLabel: 'Spara fl-ajru', onClose: () => {
+  }, { closeLabel: T('Fire into the air', 'Spara fl-ajru'), onClose: () => {
     if (G.phase === 'shot' && G.shotQueue[0] === seat) S.act(G, { t:'shot', seat: seat, target: -1 });
     pnpFlow();
   } });
@@ -995,20 +1379,24 @@ function renderPNPShared(){
   const deadNow = G.P.filter(p => !p.alive).map(p => p.name);
   let html =
     refBar(!silent && !G.over,
-      silent ? 'Bil-lejl ħadd ma jitkellem.' :
-      deadNow.length ? 'Il-mejtin (' + deadNow.join(', ') + ') MA jitkellmux.' : 'Il-pjazza miftuħa.') +
+      silent ? T('At night nobody speaks.', 'Bil-lejl ħadd ma jitkellem.') :
+      deadNow.length ? T('The dead (' + deadNow.join(', ') + ') do NOT speak.',
+                         'Il-mejtin (' + deadNow.join(', ') + ') MA jitkellmux.')
+                     : T('The pjazza is open.', 'Il-pjazza miftuħa.')) +
     '<div class="su-phase' + (silent ? ' night' : '') + '"><span>' + esc(phaseName(G)) + '</span>' +
     '<span class="clk" id="su-clk"></span></div>' +
     seatsHTML(G, -1) + '<div class="su-mid">' + logHTML(G, 8) + '</div>';
 
   if (G.phase === 'day'){
     html += '<div class="su-bar">' +
-      '<button class="su-btn gold" id="su-votebtn">IVVOTA</button>' +
-      '<button class="su-btn" id="su-endday">Agħlaq il-jum</button></div>';
+      '<button class="su-btn gold" id="su-votebtn">' + T('VOTE', 'IVVOTA') + '</button>' +
+      '<button class="su-btn" id="su-endday">' + T('Close the day', 'Agħlaq il-jum') + '</button></div>';
   } else if (G.phase === 'defence'){
-    html += '<div class="su-bar"><button class="su-btn gold" id="su-endef">Spiċċat id-difiża</button></div>';
+    html += '<div class="su-bar"><button class="su-btn gold" id="su-endef">' +
+      T('Defence over', 'Spiċċat id-difiża') + '</button></div>';
   } else if (G.phase === 'verdict'){
-    html += '<div class="su-bar"><button class="su-btn gold" id="su-verd">IL-VOT SIGRIET</button></div>';
+    html += '<div class="su-bar"><button class="su-btn gold" id="su-verd">' +
+      T('THE SECRET VOTE', 'IL-VOT SIGRIET') + '</button></div>';
   }
   w.innerHTML = html;
   const vb = w.querySelector('#su-votebtn');
@@ -1027,35 +1415,37 @@ function pnpVote(){
   showSecret(host => {
     const d = document.createElement('div');
     d.className = 'su-card';
-    d.innerHTML = '<h3>Min qed jivvota?</h3><p>Il-vot tal-pjazza hu FIL-BERAĦ — bħal ma tipponta b’sebgħek.</p>';
+    d.innerHTML = '<h3>' + T('Who is voting?', 'Min qed jivvota?') + '</h3><p>' +
+      T('The pjazza vote is IN THE OPEN — like pointing a finger.',
+        'Il-vot tal-pjazza hu FIL-BERAĦ — bħal ma tipponta b’sebgħek.') + '</p>';
     host.appendChild(d);
     targetGridInto(host, G, S.alive(G).map(p => p.seat), voter => {
       hideSecret();
       showSecret(h2 => {
         const dd = document.createElement('div');
         dd.className = 'su-card';
-        dd.innerHTML = '<h3>' + esc(G.P[voter].name) + ' jakkuża lil…</h3>';
+        dd.innerHTML = '<h3>' + esc(G.P[voter].name) + T(' accuses…', ' jakkuża lil…') + '</h3>';
         h2.appendChild(dd);
         const sindku = G.P[voter].role === 'sindku' && G.mayor !== voter;
         targetGridInto(h2, G, S.alive(G).map(p => p.seat).filter(s => s !== voter), t => {
           const r = S.act(G, { t:'vote', seat: voter, target: t });
-          if (!r.ok){ toast(r.why); return; }
+          if (!r.ok){ toast(gameText(r.why)); return; }
           hideSecret(); afterMove();
         });
         if (sindku){
           const rb = document.createElement('button');
           rb.className = 'su-btn';
           rb.style.width = 'min(330px,88%)';
-          rb.textContent = 'JIEN IS-SINDKU (ikxef ruħek)';
+          rb.textContent = T('I AM IS-SINDKU (reveal yourself)', 'JIEN IS-SINDKU (ikxef ruħek)');
           rb.onclick = () => { S.act(G, { t:'reveal', seat: voter }); hideSecret(); afterMove(); };
           h2.appendChild(rb);
         }
-      }, { closeLabel: 'Astjeni', onClose: () => {
+      }, { closeLabel: T('Abstain', 'Astjeni'), onClose: () => {
         if (G.phase === 'day') S.act(G, { t:'vote', seat: voter, target: -1 });
         afterMove();
       } });
     });
-  }, { closeLabel: 'Agħlaq' });
+  }, { closeLabel: T('Close', 'Agħlaq') });
 }
 /* the verdict is a SECRET ballot: each voter behind the curtain */
 function pnpVerdict(){
@@ -1064,15 +1454,19 @@ function pnpVerdict(){
                   .map(a => a.seat);
   if (!voters.length){ S.act(G, { t:'verdictEnd' }); afterMove(); return; }
   const s = voters[0];
-  curtain(G.P[s].name, 'Vot sigriet fuq ' + G.P[G.accused].name + ': ħati jew le?', () => {
+  curtain(G.P[s].name, T('Secret vote on ' + G.P[G.accused].name + ': guilty or not?',
+                         'Vot sigriet fuq ' + G.P[G.accused].name + ': ħati jew le?'), () => {
     showSecret(host => {
       const d = document.createElement('div');
       d.className = 'su-card';
-      d.innerHTML = '<h3>' + esc(G.P[G.accused].name) + '</h3><p>Ħati… jew le? Ħadd ma jara x’għażilt.</p>';
+      d.innerHTML = '<h3>' + esc(G.P[G.accused].name) + '</h3><p>' +
+        T('Guilty… or not? Nobody sees what you chose.',
+          'Ħati… jew le? Ħadd ma jara x’għażilt.') + '</p>';
       host.appendChild(d);
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;gap:8px;width:min(330px,88%)';
-      [['ĦATI', true, 'red'], ['MHUX ĦATI', false, 'gold']].forEach(([lbl, val, cls]) => {
+      [[T('GUILTY', 'ĦATI'), true, 'red'],
+       [T('NOT GUILTY', 'MHUX ĦATI'), false, 'gold']].forEach(([lbl, val, cls]) => {
         const b = document.createElement('button');
         b.className = 'su-btn ' + cls;
         b.textContent = lbl;
@@ -1084,7 +1478,7 @@ function pnpVerdict(){
         row.appendChild(b);
       });
       host.appendChild(row);
-    }, { closeLabel: 'Astjeni', onClose: () => {
+    }, { closeLabel: T('Abstain', 'Astjeni'), onClose: () => {
       if (G.phase === 'verdict' && G.verdict[s] === undefined){
         S.act(G, { t:'verdict', seat: s, guilty: false });
       }
@@ -1138,7 +1532,7 @@ function netAct(mv){
   const G = U.G;
   const wasAlive = myAlive();
   const r = S.act(G, mv);
-  if (!r.ok){ toast(r.why); return false; }
+  if (!r.ok){ toast(gameText(r.why)); return false; }
   announce(toNet(mv), { src:'local' });
   afterNetApply(wasAlive);
   return true;
@@ -1206,7 +1600,8 @@ function onlineStop(why){
   const root = U.ctx && U.ctx.rootEl;
   closeGame();
   if (root){
-    showResultRaw(root, 'draw', 'Waqfet', why || 'Il-kamra waqfet.', () => menu());
+    showResultRaw(root, 'draw', T('Stopped', 'Waqfet'),
+      why || T('The room stopped.', 'Il-kamra waqfet.'), () => menu());
   }
 }
 
@@ -1246,15 +1641,19 @@ function deathNotice(){
   sfx('board.mate');
   const d = document.createElement('div');
   d.className = 'su-death';
-  d.innerHTML = '<h2>INT MEJJET</h2>' +
-    '<p><b>Ma tistax titkellem aktar mal-kamra.</b> La b’leħnek, la ċċaqlaq xufftejk, ' +
-    'u lanqas tonfoħ. Il-vot tiegħek spiċċa.</p>' +
-    '<p class="may">Li FADALLEK: taqra kollox, u tikteb lill-mejtin l-oħra fil-kanal ' +
-    'IL-MEJTIN. Il-ħajjin ma jarawx dak li tikteb.</p>';
+  d.innerHTML = '<h2>' + T('YOU ARE DEAD', 'INT MEJJET') + '</h2>' +
+    '<p>' + T('<b>You can no longer speak to the room.</b> Not with your voice, not ' +
+    'mouthing the words, not even a sigh. Your vote is finished.',
+    '<b>Ma tistax titkellem aktar mal-kamra.</b> La b’leħnek, la ċċaqlaq xufftejk, ' +
+    'u lanqas tonfoħ. Il-vot tiegħek spiċċa.') + '</p>' +
+    '<p class="may">' + T('What you HAVE left: you read everything, and you write to ' +
+    'the other dead in the THE DEAD channel. The living see nothing of what you write.',
+    'Li FADALLEK: taqra kollox, u tikteb lill-mejtin l-oħra fil-kanal ' +
+    'IL-MEJTIN. Il-ħajjin ma jarawx dak li tikteb.') + '</p>';
   const b = document.createElement('button');
   b.className = 'su-btn red';
   b.style.cssText = 'width:min(300px,84%);padding:15px';
-  b.textContent = 'FHIMT — SKIET';
+  b.textContent = T('UNDERSTOOD — SILENCE', 'FHIMT — SKIET');
   b.onclick = () => { d.remove(); render(); };
   d.appendChild(b);
   U.ctx.rootEl.appendChild(d);
@@ -1292,8 +1691,10 @@ function chatSend(text){
   text = String(text || '').trim().slice(0, 240);
   if (!text) return;
   const ch = U.chat.active;
-  if (!S.chanWrite(U.G, U.seat, ch)){ toast('Dan il-kanal magħluq għalik bħalissa.'); return; }
-  if (U.chat.cap === false){ toast('Ir-relay għad m’għandux chat — ara l-avviż.'); return; }
+  if (!S.chanWrite(U.G, U.seat, ch)){
+    toast(T('This channel is closed to you right now.', 'Dan il-kanal magħluq għalik bħalissa.')); return; }
+  if (U.chat.cap === false){
+    toast(T('The relay has no chat yet — see the notice.', 'Ir-relay għad m’għandux chat — ara l-avviż.')); return; }
   const to = S.chanReaders(U.G, ch).filter(s => s !== U.seat);
   const MP = window.KARTI_MP && KARTI_MP.MP;
   if (MP && MP.ws && MP.ws.readyState === 1){
@@ -1323,15 +1724,26 @@ function chatPush(ch, seat, text, me){
 /* who a chat line is signed as — the seance writes as her ROLE */
 function chatLabel(ch, seat){
   const p = U.G.P[seat];
-  if (!p) return 'Siġġu ' + (seat + 1);
+  if (!p) return T('Seat ', 'Siġġu ') + (seat + 1);
   if (ch === 'mejtin' && p.alive) return 'Tal-Karti';
   return p.name;
 }
+/* the quick-tap lines: what actually gets SENT is the label on the
+   button, so each phone speaks the sender's language — that is honest,
+   it is a chat between humans */
 function cannedFor(ch, phase){
-  if (ch === 'klikka') return ['Lil min illejla?', 'Iva, naqbel', 'Le, mhux dak', 'Oqogħdu attenti għalija'];
-  if (ch === 'mejtin') return ['Min qatilkom?', 'X’rajtu qabel mittu?', 'Tafu xi ħaġa fuq il-klikka?'];
-  if (phase === 'verdict') return ['ĦATI', 'MHUX ĦATI', 'Mhux konvint'];
-  return ['Jien nadif', 'Fejn kont ilbieraħ?', 'Dan qed jigdeb', 'Għandi prova — staqsuni', 'Ivvutaw miegħi'];
+  if (ch === 'klikka') return [
+    T('Who, tonight?', 'Lil min illejla?'), T('Yes, agreed', 'Iva, naqbel'),
+    T('No, not him', 'Le, mhux dak'), T('Watch out for me', 'Oqogħdu attenti għalija')];
+  if (ch === 'mejtin') return [
+    T('Who killed you?', 'Min qatilkom?'),
+    T('What did you see before you died?', 'X’rajtu qabel mittu?'),
+    T('Know anything about the klikka?', 'Tafu xi ħaġa fuq il-klikka?')];
+  if (phase === 'verdict') return [
+    T('GUILTY', 'ĦATI'), T('NOT GUILTY', 'MHUX ĦATI'), T('Not convinced', 'Mhux konvint')];
+  return [T('I’m clean', 'Jien nadif'), T('Where were you last night?', 'Fejn kont ilbieraħ?'),
+    T('He’s lying', 'Dan qed jigdeb'), T('I have proof — ask me', 'Għandi prova — staqsuni'),
+    T('Vote with me', 'Ivvutaw miegħi')];
 }
 
 function renderNet(){
@@ -1350,49 +1762,61 @@ function renderNet(){
     '<div class="su-phase' + (v.phase === 'night' || v.phase === 'shot' ? ' night' : '') + '">' +
     '<span>' + esc(phaseName(G)) + '</span><span class="clk" id="su-clk"></span></div>';
   if (U.chat.cap === false)
-    html += '<div class="su-net-banner">Dan ir-relay għad ma jafx bil-chat privata — il-kanali ' +
+    html += '<div class="su-net-banner">' + T(
+      'This relay does not know private chat yet — the channels are off. The game still ' +
+      'runs (actions go through), but update the server so the klikka and the dead have ' +
+      'somewhere to write.',
+      'Dan ir-relay għad ma jafx bil-chat privata — il-kanali ' +
       'mitfija. Il-logħba xorta timxi (l-azzjonijiet jgħaddu), imma aġġornaw is-server biex ' +
-      'il-klikka u l-mejtin ikollhom fejn jiktbu.</div>';
+      'il-klikka u l-mejtin ikollhom fejn jiktbu.') + '</div>';
   html += seatsHTML(G, U.seat) +
     '<div class="su-mid">' + logHTML(G, 5) +
     '<div class="su-tabs">' + chans.map(c =>
       '<button class="su-tab ' + c.cls + (c.id === active.id ? ' on' : '') + '" data-ch="' + c.id + '">' +
-      esc(c.name) + (U.chat.unread[c.id] ? '<span class="n">' + U.chat.unread[c.id] + '</span>' : '') +
+      esc(chanName(c)) + (U.chat.unread[c.id] ? '<span class="n">' + U.chat.unread[c.id] + '</span>' : '') +
       '</button>').join('') + '</div>' +
     '<div class="su-chat ' + active.cls + '" id="su-chatbox">' +
     (msgs.length ? msgs.map(m2 =>
       '<div class="su-msg ' + active.cls + '"><b>' + esc(chatLabel(active.id, m2.s)) + ':</b> ' +
       esc(m2.x) + '</div>').join('')
-      : '<div class="su-msg sys">' + esc(active.note || 'Xejn għadu ma ntqal hawn.') + '</div>') +
+      : '<div class="su-msg sys">' + esc(gameText(active.note) ||
+          T('Nothing has been said here yet.', 'Xejn għadu ma ntqal hawn.')) + '</div>') +
     '</div>' +
     '<div class="su-canned">' + cannedFor(active.id, v.phase).map((c, i) =>
       '<button class="su-can" data-c="' + i + '">' + esc(c) + '</button>').join('') + '</div>' +
     '<div class="su-inrow">' +
     '<input class="su-in ' + active.cls + '" id="su-in" maxlength="240" autocomplete="off" ' +
-      'placeholder="' + (active.write ? 'Ikteb lil ' + esc(active.name) + String.fromCharCode(8230) : 'Taqra biss hawn bħalissa') + '"' +
+      'placeholder="' + (active.write
+        ? T('Write to ', 'Ikteb lil ') + esc(chanName(active)) + String.fromCharCode(8230)
+        : T('Read-only for you right now', 'Taqra biss hawn bħalissa')) + '"' +
       (active.write && U.chat.cap !== false ? '' : ' disabled') + '>' +
-    '<button class="su-send" id="su-send"' + (active.write && U.chat.cap !== false ? '' : ' disabled') + '>IBGĦAT</button>' +
+    '<button class="su-send" id="su-send"' + (active.write && U.chat.cap !== false ? '' : ' disabled') + '>' +
+    T('SEND', 'IBGĦAT') + '</button>' +
     '</div></div>';
 
   /* action bar per phase — the night action opens a CONCEALED sheet */
   if (!G.over){
     if (v.alive){
       if (v.phase === 'night' && v.canAct && !v.acted)
-        html += '<div class="su-bar"><button class="su-btn gold" id="su-act">AZZJONI TAL-LEJL (bil-moħbi)</button>' +
-                '<button class="su-btn" id="su-role">Ir-rwol</button></div>';
+        html += '<div class="su-bar"><button class="su-btn gold" id="su-act">' +
+                T('NIGHT ACTION (in secret)', 'AZZJONI TAL-LEJL (bil-moħbi)') + '</button>' +
+                '<button class="su-btn" id="su-role">' + T('Your role', 'Ir-rwol') + '</button></div>';
       else if (v.phase === 'day')
-        html += '<div class="su-bar"><button class="su-btn gold" id="su-vote">IVVOTA' +
+        html += '<div class="su-bar"><button class="su-btn gold" id="su-vote">' + T('VOTE', 'IVVOTA') +
           (G.votes[U.seat] !== undefined && G.votes[U.seat] >= 0 ? ': ' + esc(G.P[G.votes[U.seat]].name) : '') +
-          '</button><button class="su-btn" id="su-role">Ir-rwol</button></div>';
+          '</button><button class="su-btn" id="su-role">' + T('Your role', 'Ir-rwol') + '</button></div>';
       else if (v.phase === 'verdict' && U.seat !== v.accused && G.verdict[U.seat] === undefined)
-        html += '<div class="su-bar"><button class="su-btn red" id="su-hati">ĦATI</button>' +
-                '<button class="su-btn gold" id="su-le">MHUX ĦATI</button></div>';
+        html += '<div class="su-bar"><button class="su-btn red" id="su-hati">' + T('GUILTY', 'ĦATI') + '</button>' +
+                '<button class="su-btn gold" id="su-le">' + T('NOT GUILTY', 'MHUX ĦATI') + '</button></div>';
       else if (v.mustShoot)
-        html += '<div class="su-bar"><button class="su-btn red" id="su-shoot">IS-SENTER</button></div>';
+        html += '<div class="su-bar"><button class="su-btn red" id="su-shoot">' +
+                T('THE SHOTGUN', 'IS-SENTER') + '</button></div>';
       else
-        html += '<div class="su-bar"><button class="su-btn" id="su-role">Ir-rwol tiegħek (bil-moħbi)</button></div>';
+        html += '<div class="su-bar"><button class="su-btn" id="su-role">' +
+                T('Your role (in secret)', 'Ir-rwol tiegħek (bil-moħbi)') + '</button></div>';
     } else {
-      html += '<div class="su-bar"><button class="su-btn" id="su-role">X’kont? (bil-moħbi)</button></div>';
+      html += '<div class="su-bar"><button class="su-btn" id="su-role">' +
+              T('What were you? (in secret)', 'X’kont? (bil-moħbi)') + '</button></div>';
     }
   }
   w.innerHTML = html;
@@ -1425,12 +1849,15 @@ function renderNet(){
   if (sh) sh.onclick = () => showSecret(h => {
     const d = document.createElement('div');
     d.className = 'su-card';
-    d.innerHTML = '<h3>L-aħħar tir</h3><p>Ħu lil xi ħadd miegħek, jew spara fl-ajru.</p>';
+    d.innerHTML = '<h3>' + T('The last shot', 'L-aħħar tir') + '</h3><p>' +
+      T('Take somebody with you, or fire into the air.',
+        'Ħu lil xi ħadd miegħek, jew spara fl-ajru.') + '</p>';
     h.appendChild(d);
     targetGridInto(h, G, S.alive(G).map(p => p.seat), s => {
       hideSecret(); netAct({ t:'shot', seat: U.seat, target: s });
     });
-  }, { closeLabel: 'Spara fl-ajru', onClose: () => netAct({ t:'shot', seat: U.seat, target: -1 }) });
+  }, { closeLabel: T('Fire into the air', 'Spara fl-ajru'),
+       onClose: () => netAct({ t:'shot', seat: U.seat, target: -1 }) });
   tickClock();
 }
 function netNightSheet(v){
@@ -1441,8 +1868,8 @@ function netNightSheet(v){
     const opts = nightOpts(G, v, U.seat);
     const t2 = document.createElement('div');
     t2.style.cssText = 'font-weight:900;font-size:13px;color:var(--dim)';
-    t2.textContent = v.role.two ? 'Agħżel TNEJN:' :
-      v.role.id === 'haffier' ? 'Agħżel katavru:' : 'Agħżel:';
+    t2.textContent = v.role.two ? T('Pick TWO:', 'Agħżel TNEJN:') :
+      v.role.id === 'haffier' ? T('Pick a corpse:', 'Agħżel katavru:') : T('Pick:', 'Agħżel:');
     host.appendChild(t2);
     targetGridInto(host, G, opts, (s, btn) => {
       if (v.role.two && first < 0){ first = s; btn.classList.add('on'); return; }
@@ -1451,7 +1878,7 @@ function netNightSheet(v){
       hideSecret();
       netAct(mv);
     });
-  }, { closeLabel: 'Orqod (xejn illejla)', onClose: () => {
+  }, { closeLabel: T('Sleep (nothing tonight)', 'Orqod (xejn illejla)'), onClose: () => {
     if (U.G.acts[U.seat] === undefined && U.G.phase === 'night')
       netAct({ t:'night', seat: U.seat, target: -1, target2: -1 });
   } });
@@ -1461,7 +1888,9 @@ function netVoteSheet(v){
   showSecret(host => {
     const d = document.createElement('div');
     d.className = 'su-card';
-    d.innerHTML = '<h3>Akkuża</h3><p>Il-vot tal-pjazza jidher fuq l-iskrin ta’ kulħadd. Tista’ tibdlu sakemm jagħlaq il-jum.</p>';
+    d.innerHTML = '<h3>' + T('Accuse', 'Akkuża') + '</h3><p>' +
+      T('The pjazza vote shows on every screen. You can change it until the day closes.',
+        'Il-vot tal-pjazza jidher fuq l-iskrin ta’ kulħadd. Tista’ tibdlu sakemm jagħlaq il-jum.') + '</p>';
     host.appendChild(d);
     targetGridInto(host, G, S.alive(G).map(p => p.seat).filter(s => s !== U.seat), s => {
       hideSecret(); netAct({ t:'vote', seat: U.seat, target: s });
@@ -1470,11 +1899,11 @@ function netVoteSheet(v){
       const rb = document.createElement('button');
       rb.className = 'su-btn';
       rb.style.width = 'min(330px,88%)';
-      rb.textContent = 'IKXEF RUĦEK BĦALA SINDKU';
+      rb.textContent = T('REVEAL YOURSELF AS SINDKU', 'IKXEF RUĦEK BĦALA SINDKU');
       rb.onclick = () => { hideSecret(); netAct({ t:'reveal', seat: U.seat }); };
       host.appendChild(rb);
     }
-  }, { closeLabel: 'Astjeni', onClose: () => {
+  }, { closeLabel: T('Abstain', 'Astjeni'), onClose: () => {
     if (U.G.phase === 'day') netAct({ t:'vote', seat: U.seat, target: -1 });
   } });
 }
@@ -1494,10 +1923,11 @@ function showResult(){
   }
   sfx(iWon ? 'trick.win' : 'call.bell');
   showResultRaw(U.ctx.rootEl, G.winner,
-    G.winner === 'rahal' ? 'Rebaħ ir-raħal' :
-    G.winner === 'klikka' ? 'Rebħet il-klikka' :
-    G.winner === 'biccier' ? 'Rebaħ il-Biċċier' : 'Ħadd ma rebaħ',
-    (G.log[G.log.length - 1] || {}).txt + (winners ? ' Rebbieħa: ' + winners + '.' : ''),
+    G.winner === 'rahal' ? T('The village won', 'Rebaħ ir-raħal') :
+    G.winner === 'klikka' ? T('The klikka won', 'Rebħet il-klikka') :
+    G.winner === 'biccier' ? T('Il-Biċċier won', 'Rebaħ il-Biċċier') : T('Nobody won', 'Ħadd ma rebaħ'),
+    gameText((G.log[G.log.length - 1] || {}).txt) +
+      (winners ? T(' Winners: ', ' Rebbieħa: ') + winners + '.' : ''),
     () => { const net = U && U.net; closeGame(); if (net && net.onLeave) net.onLeave(); else menu(); },
     G);
 }
@@ -1509,14 +1939,14 @@ function showResultRaw(root, tone, head, why, back, G){
   if (G){
     roles = '<div style="max-height:34vh;overflow-y:auto;font-size:12.5px;line-height:1.7">' +
       G.P.map(p => '<div>' + esc(p.name) + ' — <b style="color:var(--gold)">' +
-        esc(S.ROLES[p.role].name) + '</b>' + (p.alive ? '' : ' (mejjet)') + '</div>').join('') + '</div>';
+        esc(S.ROLES[p.role].name) + '</b>' + (p.alive ? '' : T(' (dead)', ' (mejjet)')) + '</div>').join('') + '</div>';
   }
   d.innerHTML = '<h2 style="color:' + (tone === 'rahal' ? '#3DDC84' : tone === 'klikka' ? '#FF7A6B' : '#C9B4FF') +
     '">' + esc(head) + '</h2><p>' + esc(why || '') + '</p>' + roles;
   const b = document.createElement('button');
   b.className = 'su-btn gold';
   b.style.cssText = 'width:min(300px,84%);padding:14px';
-  b.textContent = 'Lura';
+  b.textContent = T('Back', 'Lura');
   b.onclick = () => { d.remove(); back(); };
   d.appendChild(b);
   root.appendChild(d);
@@ -1531,12 +1961,14 @@ const LOBBY = {
   autoReady: s => (s && s.kind === 'cpu') ? Object.assign({}, s, { ready:true }) : s,
   canStart(list){
     const n = (list || []).length;
-    if (n < 5) return { ok:false, why:'Suspett irid mill-inqas ħamsa.' };
-    if (n > 16) return { ok:false, why:'Sittax hu l-limitu tal-pjazza.' };
+    if (n < 5) return { ok:false, why: T('Suspett needs at least five.', 'Suspett irid mill-inqas ħamsa.') };
+    if (n > 16) return { ok:false, why: T('Sixteen is the pjazza’s limit.', 'Sittax hu l-limitu tal-pjazza.') };
     const humans = (list || []).filter(x => x && x.kind !== 'cpu').length;
-    if (humans < 3) return { ok:false, why:'Tliet bnedmin veri mill-inqas — il-magni ma jigdbux.' };
+    if (humans < 3) return { ok:false, why: T('At least three real humans — machines cannot lie.',
+      'Tliet bnedmin veri mill-inqas — il-magni ma jigdbux.') };
     const not = (list || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
-    if (not) return { ok:false, why: not + (not > 1 ? ' għadhom' : ' għadu') + ' mhux lest.' };
+    if (not) return { ok:false, why: not + (isMT() ? (not > 1 ? ' għadhom' : ' għadu') + ' mhux lest.'
+                                                  : (not > 1 ? ' are not ready yet.' : ' is not ready yet.')) };
     return { ok:true, why:'' };
   },
   /* the lobby's fold-open rules door: the full teaching panel, tonight's
@@ -1563,7 +1995,8 @@ const LOBBY = {
                  { v:300, label:'5 min' }, { v:420, label:'7 min' }] }
     ]
   },
-  blurb:'Min qed jigdeb? Raħal wieħed, klikka moħbija, u l-chat hu l-logħba.',
+  get blurb(){ return T('Who is lying? One village, a hidden klikka, and the chat is the game.',
+    'Min qed jigdeb? Raħal wieħed, klikka moħbija, u l-chat hu l-logħba.'); },
   myName(){
     try {
       const n = K && K.displayName && K.displayName();
@@ -1609,9 +2042,13 @@ P.register({
   id:'suspett', order:65, kind:'other', name:'SUSPETT', mt:'Is-Suspett',
   sprite:'su-mark', status:'live',
   get tag(){
-    return 'One village, one hidden klikka, and everybody typing so the person beside you ' +
-      'hears nothing. Five to sixteen. ' + Object.keys(S.ROLES).length + ' roles in the pot.' +
-      (ST.save ? ' There is a village mid-argument on this phone.' : '');
+    return T(
+      'One village, one hidden klikka, and everybody typing so the person beside you ' +
+        'hears nothing. Five to sixteen. ' + Object.keys(S.ROLES).length + ' roles in the pot.' +
+        (ST.save ? ' There is a village mid-argument on this phone.' : ''),
+      'Raħal wieħed, klikka waħda moħbija, u kulħadd itektek biex min hu ħdejk ma ' +
+        'jisma’ xejn. Minn ħamsa sa sittax. ' + Object.keys(S.ROLES).length + '-il rwol fil-borma.' +
+        (ST.save ? ' Hemm raħal f’nofs argument fuq dan it-telefon.' : ''));
   },
   open: menu,
   seats: { min: 5, max: 16 },

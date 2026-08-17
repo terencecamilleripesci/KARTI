@@ -1289,6 +1289,28 @@ function settingsSheet(){
         '<span class="sub">send the link to a friend</span></button>' +
     '</div>' +
 
+    /* THE LANGUAGE. One choice, two buttons, labelled in itself so it
+       can be found from either side of it. Default English — the
+       app's chrome is English today and that is the least surprising
+       first meeting; SUSPETT and whatever else has adopted js/lang.js
+       repaint on the spot, no reload. The Tombla line is honesty: the
+       97 spoken calls are ENGLISH recordings and a Maltese setting
+       must not pretend otherwise. */
+    '<p class="setgrp">Language · Lingwa</p>' +
+    '<div class="opts">' +
+      '<div style="display:flex;gap:8px" role="radiogroup" aria-label="Language">' +
+        '<button class="btn' + (PREFS.lang === 'mt' ? ' ghost' : '') + '" id="st-lang-en" ' +
+          'style="flex:1" role="radio" aria-checked="' + (PREFS.lang !== 'mt') + '">English</button>' +
+        '<button class="btn' + (PREFS.lang === 'mt' ? '' : ' ghost') + '" id="st-lang-mt" ' +
+          'style="flex:1" role="radio" aria-checked="' + (PREFS.lang === 'mt') + '">Malti</button>' +
+      '</div>' +
+      '<p class="fineprint" style="margin:6px 2px 0">' + (PREFS.lang === 'mt'
+        ? 'SUSPETT diġà jitkellem bit-tnejn; il-bqija tal-menus ġejjin bil-mod. ' +
+          'Il-vuċi tat-Tombla tibqa’ bl-Ingliż — hekk kienet irrekordjata.'
+        : 'SUSPETT speaks both already; the rest of the menus are being converted. ' +
+          'The Tombla caller’s voice stays English — that is how it was recorded.') + '</p>' +
+    '</div>' +
+
     '<p class="setgrp">Game</p>' +
     '<div class="setlist">' +
       '<button class="setrow" id="st-motion" role="switch" aria-checked="' + (on ? 'true' : 'false') + '">' +
@@ -1336,6 +1358,18 @@ function settingsSheet(){
       n.querySelector('.sw').classList.toggle('on', v);
       try { window.KARTI_MP && KARTI_MP.refreshInbox && KARTI_MP.refreshInbox(); } catch (e){}
     }; }
+  { const pickLang = v => () => {
+      if ((PREFS.lang === 'mt' ? 'mt' : 'en') === v) return;
+      setPref('lang', v);
+      /* lang.js re-reads the pref and repaints every subscriber —
+         written through setPref above so PREFS cannot go stale */
+      try { if (window.KARTI_LANG) KARTI_LANG.refresh(); } catch (e){}
+      settingsSheet();
+      toast(v === 'mt' ? 'Il-logħba bil-Malti.' : 'The game speaks English.');
+    };
+    const le = $('#st-lang-en'), lm = $('#st-lang-mt');
+    if (le) le.onclick = pickLang('en');
+    if (lm) lm.onclick = pickLang('mt'); }
   { const p = $('#st-push');
     if (p) p.onclick = pushToggleTap; }
   if (window.KARTI_SFX) { try { KARTI_SFX.bindSettings(); } catch (e){} }

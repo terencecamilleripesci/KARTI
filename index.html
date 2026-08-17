@@ -1628,7 +1628,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 113;
+var KARTI_BUILD = 114;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1652,7 +1652,10 @@ window.swVersion = function(){
 /* Sequential loader: card sets are optional and may not all exist yet.
    A missing set must never stop the game booting. nav.js loads last. */
 (function(){
-  var files = ['js/artkit.js','js/cards.js','js/set2.js','js/set3.js',
+  var files = [/* lang.js FIRST: the English/Malti switch. Needs nothing,
+                  and everything after it may call KARTI_LANG.t at paint. */
+               'js/lang.js',
+               'js/artkit.js','js/cards.js','js/set2.js','js/set3.js',
                /* The identity stack loads BEFORE game.js, on purpose:
                   game.js boots — and paints Home — the instant it executes,
                   and the pill on that very first frame is drawn by KARTI_XP,
