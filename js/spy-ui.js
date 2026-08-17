@@ -292,10 +292,10 @@ function menu(){
   const paintThemes = () => {
     themesEl.innerHTML = WRD.themes.map(t =>
       '<button class="sp-theme' + (cfg.themes.indexOf(t.id) >= 0 ? ' on' : '') +
-        (t.id === 'night' ? ' adult' : '') + '" data-t="' + esc(t.id) + '">' +
+        (t.id === 'night' || t.id === 'morning' ? ' adult' : '') + '" data-t="' + esc(t.id) + '">' +
         myIco(t.ico) +
         '<b>' + esc(themeName(t, cfg.lang)) + '</b>' +
-        '<i>' + t.words.length + ' words' + (t.id === 'night' ? ' · 18+' : '') + '</i>' +
+        '<i>' + t.words.length + ' words' + (t.id === 'night' || t.id === 'morning' ? ' · 18+' : '') + '</i>' +
       '</button>').join('');
     themesEl.querySelectorAll('.sp-theme').forEach(b => b.onclick = () => {
       const id = b.dataset.t;
@@ -1398,7 +1398,14 @@ const SPRITE =
     '<path fill-rule="evenodd" d="M12.6 2.4h7.4a1.6 1.6 0 0 1 1.6 1.6v7.4a2 2 0 0 1-.6 1.4l-8.8 8.8a2 2 0 0 1-2.8 0l-6-6a2 2 0 0 1 0-2.8l8.8-8.8a2 2 0 0 1 1.4-.6zm4.4 6a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z"/></symbol>' +
   '<symbol id="sp-moon" viewBox="0 0 24 24">' +
     '<path d="M14.4 2.2A10 10 0 1 0 21.8 15 8 8 0 0 1 14.4 2.2z"/>' +
-    '<path d="M17.6 3.4l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></symbol>';
+    '<path d="M17.6 3.4l.7 1.9 1.9.7-1.9.7-.7 1.9-.7-1.9-1.9-.7 1.9-.7z"/></symbol>' +
+  /* the sun coming up on the morning after */
+  '<symbol id="sp-sun" viewBox="0 0 24 24">' +
+    '<path d="M12 7.6a5.2 5.2 0 0 1 5.2 5.2H6.8A5.2 5.2 0 0 1 12 7.6z"/>' +
+    '<path d="M2.4 14.6h19.2v2H2.4z"/>' +
+    '<path d="M11 2.2h2v3.4h-2z"/>' +
+    '<path d="M4.2 5.3l1.4-1.4 2.4 2.4-1.4 1.4z"/>' +
+    '<path d="M19.8 5.3l-1.4-1.4-2.4 2.4 1.4 1.4z"/></symbol>';
 
 function injectSprite(){
   if (document.getElementById('sp-sprite')) return;

@@ -244,7 +244,30 @@ th('objects', 'Oġġetti', 'Objects', 'sp-box', [
   ['id-dadi', 'the dice'],
   ['iċ-ċurkett', 'the ring'],
   ['il-kalendarju', 'the calendar'],
-  ['ir-ritratt tat-tieġ', 'the wedding photo']
+  ['ir-ritratt tat-tieġ', 'the wedding photo'],
+  /* the drawer nobody opens in company — appended, never reordered,
+     so the saved bag's ids stay true. 18+ app, and a filthy object
+     hiding among the kettles is funnier than a shelf of them. */
+  ['il-manetti bil-fer roża', 'the fluffy pink handcuffs'],
+  ['il-vibratur fil-kexxun tal-kalzetti', 'the vibrator in the sock drawer'],
+  ['il-lubrikant', 'the lube'],
+  ['it-tanga leopard print', 'the leopard-print thong'],
+  ['il-lingerie tal-Valentine\'s', 'the Valentine\'s lingerie'],
+  ['ir-rivista ta\' taħt is-sodda', 'the magazine under the mattress'],
+  ['il-browser history', 'the browser history'],
+  ['il-pillola blu', 'the little blue pill'],
+  ['it-test tat-tqala', 'the pregnancy test'],
+  ['il-kondom skadut fil-kartiera', 'the expired condom in the wallet'],
+  ['iż-żejt tal-massaġġi', 'the massage oil'],
+  ['il-mera fuq is-saqaf', 'the mirror on the bedroom ceiling'],
+  ['is-sodda li tiżżaqżaq', 'the squeaky bed'],
+  ['il-bott tal-whipped cream', 'the can of whipped cream'],
+  ['il-blindfold tal-ħarir', 'the silk blindfold'],
+  ['l-underwear li jittiekel', 'the edible underwear'],
+  ['il-kostum tal-French maid', 'the French maid costume'],
+  ['il-fake tan fuq il-liżar', 'the fake tan all over the sheets'],
+  ['l-ittri tal-eks fil-kaxxa taż-żraben', 'the ex\'s letters in a shoebox'],
+  ['il-pole tal-fitness fis-salott', 'the "fitness" pole in the living room']
 ]),
 
 /* ── MALTA — the one only this island would write ────────────────── */
@@ -755,7 +778,70 @@ th('night', 'Wara Nofsillejl', 'After Midnight', 'sp-moon', [
   ['il-messaġġ fis-sakra', 'the drunk text'],
   ['il-body shot', 'the body shot'],
   ['il-lap dance', 'the lap dance'],
-  ['it-truth or dare', 'truth or dare']
+  ['it-truth or dare', 'truth or dare'],
+  /* appended — the ids above are in saved bags and must not move */
+  ['il-pre-drinks', 'the pre-drinks'],
+  ['il-boat party ta\' Kemmuna', 'the Comino boat party'],
+  ['il-Jägerbomb', 'the Jägerbomb'],
+  ['ix-shot tas-sambuca bin-nar', 'the flaming sambuca shot'],
+  ['iċ-chaser tal-Kinnie', 'the Kinnie chaser'],
+  ['il-pub crawl', 'the pub crawl'],
+  ['iż-żfin fuq il-mejda', 'dancing on the table'],
+  ['il-bewsa ma\' barrani', 'the kiss with a total stranger'],
+  ['in-numru miktub fuq l-id', 'the phone number written on a hand'],
+  ['il-ħabib li jibki fis-sakra', 'the friend who cries when drunk'],
+  ['il-ħabiba l-ġdida tat-tojlit', 'the new best friend from the club toilets'],
+  ['il-mixja ħafja bil-heels f\'idejk', 'the barefoot walk, heels in hand'],
+  ['it-tattoo tas-sakra', 'the drunk tattoo'],
+  ['il-karta li ma għaddietx il-bar', 'the card declined at the bar'],
+  ['it-tmintax-il missed call tal-mamà', 'the eighteen missed calls from mum'],
+  ['l-għawma għarwien f\'nofs ta\' lejl', 'the midnight skinny dip'],
+  ['il-lock-in fil-bar tar-raħal', 'the village bar lock-in'],
+  ['l-open bar tat-tieġ', 'the wedding open bar'],
+  ['il-karozza li raqdet Paceville', 'the car that slept in Paceville'],
+  ['il-bachelor\'s f\'Amsterdam', 'the Amsterdam stag trip'],
+  ['l-istripper tal-hen', 'the hen party stripper'],
+  ['l-istrip poker', 'the strip poker'],
+  ['in-Never Have I Ever', 'the game of Never Have I Ever'],
+  ['l-ispin the bottle', 'the spin the bottle'],
+  ['il-friends with benefits', 'the friends with benefits'],
+  ['il-booty call', 'the booty call'],
+  ['is-sexting', 'the sexting'],
+  ['is-safe word', 'the safe word'],
+  ['il-quickie', 'the quickie'],
+  ['id-designated driver', 'the designated driver']
+]),
+
+/* ── THE MORNING AFTER — the reckoning ──────────────────────────────
+   Wara Nofsillejl is the night; this is the bill. A separate seam on
+   purpose: the questions are different ("how do you feel", "who do
+   you call", "what does it cost") and every entry is a situation the
+   spy has to bluff through, not a body part. 18+, same as night. */
+th('morning', 'L-Għada Filgħodu', 'The Morning After', 'sp-sun', [
+  ['il-hangxiety', 'the hangxiety'],
+  ['il-memorja vojta tal-bieraħ', 'the blank where last night should be'],
+  ['l-iscroll tal-biża\' fil-messaġġi', 'the terrified scroll through sent messages'],
+  ['in-numru salvat bħala "???"', 'the contact saved as "???"'],
+  ['il-pastizzi tal-fejqan', 'the recovery pastizzi'],
+  ['iż-żarbuna li għebet', 'the shoe that never came home'],
+  ['il-flixkun ilma ħdejn is-sodda', 'the bedside pint of water'],
+  ['is-sodda ta\' ħaddieħor', 'somebody else\'s bed'],
+  ['in-notifika tal-bank tat-tmienja', 'the 8 a.m. bank notification'],
+  ['ir-Revolut request ta\' sħabek', 'the Revolut request from the lads'],
+  ['il-hoodie li mhux tiegħek', 'the hoodie that is not yours'],
+  ['il-quddiesa tal-Ħadd bil-hangover', 'Sunday mass on a hangover'],
+  ['ir-ritratti mhux mistennija fil-gallery', 'the surprise photos in the gallery'],
+  ['l-istory li trid titħassar malajr', 'the story that must come down before work'],
+  ['l-apoloġija fil-group chat', 'the apology to the group chat'],
+  ['il-vuċi mitlufa mill-karaoke', 'the voice lost to the karaoke'],
+  ['it-tbenġila misterjuża', 'the mystery bruise'],
+  ['it-timbru tal-klabb li ma jitlaqx', 'the club stamp that will not wash off'],
+  ['il-glitter li jibqa\' ġimgħa', 'the glitter that stays a week'],
+  ['is-sebħ fuq Paceville', 'sunrise over Paceville'],
+  ['il-wegħda li qatt mhu se terġa\' tixrob', 'the solemn vow never to drink again'],
+  ['in-nofs kebab fuq il-komodina', 'the half kebab on the nightstand'],
+  ['il-morning after pill', 'the morning-after pill'],
+  ['il-lift ta\' filgħodu mingħand il-papà', 'the silent lift home from dad']
 ]);
 
 let total = 0;
