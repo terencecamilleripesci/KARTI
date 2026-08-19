@@ -285,6 +285,17 @@ function newGame(o) {
          on one card at once, and a single slot silently let the second one
          wipe the first one's window. */
       callUntil: 0,
+      /* PENALTY CARDS OWED BUT NOT YET DRAWN. A catch is the ONLY move a seat
+         can make out of turn, so online it can arrive interleaved with the
+         turn-player's move in either order on the two phones. If catchOut()
+         drew from the shared stock right then, the two phones would draw the
+         penalty at different points in the stock and diverge. So a catch does
+         NOT draw: it only bumps this counter (which commutes with any
+         concurrent play — neither reads what the other writes). The owed
+         cards are drawn deterministically at a FIXED point identical on every
+         phone: the caught player's OWN next turn, the instant they act. See
+         collectOwed() and §9. */
+      owe: 0,
     })),
     deck: [], discard: [],
     suit: null,           /* the suit IN FORCE — a wild changes it */
@@ -463,6 +474,7 @@ function playUid(S, pid, uid, opts) {
   opts = opts || {};
   if (S.over) return { ok: false, err: 'over' };
   if (S.turn !== pid) return { ok: false, err: 'not-your-turn' };
+  collectOwed(S, pid);          /* pay any deferred catch penalty first (§9) */
   if (S.pending && S.pending.type !== 'drawn') return { ok: false, err: 'answer-first' };
   const p = player(S, pid);
   const idx = handIndex(S, pid, uid);
@@ -582,12 +594,35 @@ function take(S, pid, n) {
   return got;
 }
 
+/* THE DEFERRED PENALTY, PAID AT A FIXED POINT ON EVERY PHONE.
+   A catch only bumps players[target].owe (see catchOut / §9). The cards are
+   actually drawn HERE, at the start of the owing player's own next action —
+   a point that is identical on every phone regardless of the order in which
+   an out-of-turn catch and the turn-player's move were interleaved, because
+   by the time this seat acts both of those moves have long since landed on
+   both phones. Drawing here (rather than inside advance(), the moment the
+   turn lands on them) is deliberate: advance() can fire DURING the very play
+   a catch races against, which would put the draw back inside the racing
+   window and re-introduce the desync. The owing seat acting is strictly
+   after that window on both phones. Idempotent-safe: it clears owe as it
+   pays, so a second call in the same turn draws nothing. */
+function collectOwed(S, pid) {
+  const p = player(S, pid);
+  if (!p || !p.owe) return 0;
+  const n = p.owe;
+  p.owe = 0;
+  const got = take(S, pid, n);
+  if (got) { emit('draw', { seat: pid, owed: true }); say(S, p.name + ' — takes the ' + n + ' owed.'); }
+  return got;
+}
+
 /* Eat the chain that is pointed at you. Drawing it ends your turn — that
    is true of a Kunjata and of a Kaxxa alike, which is why the only thing
    separating +4 from +7 is the singe on the person who lit it. */
 function takeChain(S, pid) {
   if (S.over) return { ok: false, err: 'over' };
   if (S.turn !== pid) return { ok: false, err: 'not-your-turn' };
+  collectOwed(S, pid);          /* pay any deferred catch penalty first (§9) */
   if (!chainLive(S)) return { ok: false, err: 'no-chain' };
   const n = S.chain.n;
   take(S, pid, n);
@@ -606,6 +641,7 @@ function takeChain(S, pid) {
 function drawOne(S, pid) {
   if (S.over) return { ok: false, err: 'over' };
   if (S.turn !== pid) return { ok: false, err: 'not-your-turn' };
+  collectOwed(S, pid);          /* pay any deferred catch penalty first (§9) */
   if (chainLive(S)) return { ok: false, err: 'chain-first' };
   if (S.pending) return { ok: false, err: 'answer-first' };
   const p = player(S, pid);
@@ -634,6 +670,7 @@ function drawOne(S, pid) {
 function pass(S, pid) {
   if (!S.pending || S.pending.type !== 'drawn' || S.pending.pid !== pid)
     return { ok: false, err: 'nothing-to-pass' };
+  collectOwed(S, pid);          /* pay any deferred catch penalty first (§9) */
   S.pending = null;
   S.moveNo++;
   say(S, player(S, pid).name + ' — keeps it, says nothing.');
@@ -672,16 +709,57 @@ function openCalls(S) {
    plies. It is still short, still bounded, and it is the same for everyone. */
 function callPlies(S) { return S.players.length >= 7 ? 2 : 1; }
 
+/* ── TWO PREDICATES, AND WHY THERE HAVE TO BE TWO ──────────────────
+   canCatch is the TIGHT, table-timed window: on one card, quiet, and the
+   clock (moveNo) has not yet passed the boundary. It is what the UI shows a
+   CAUGHT button for and what the AI decides on — so the felt behaves exactly
+   as it always did: the button appears the instant you are open and vanishes
+   when your window closes, offline and on.
+
+   catchable is the LOOSE, order-independent window that ACTUALLY accepts the
+   move. It drops the moveNo clock-check, because a catch is the one move made
+   OUT OF TURN and therefore reaches the two phones interleaved with the
+   turn-player's move in EITHER order. The turn move bumps moveNo, so a
+   moveNo-boundary decides "was this catch legal" DIFFERENTLY depending on
+   which side of the concurrent ply it lands — the exact race that dropped the
+   match. catchable depends only on the target's OWN state (one card, quiet,
+   window still open) — none of which the turn-player's move writes — so
+   {catch,play} and {play,catch} accept-or-refuse the catch identically and
+   converge. callUntil is cleared only by the target's own next action (see
+   take/playUid) or by a catch landing, never by another seat's move (see
+   expireCall), which is what keeps this stable across the reorder. */
 function canCatch(S, targetPid) {
   const t = S.players[targetPid];
+  /* Never OFFER a catch against the seat whose turn it now is: their live
+     turn is about to resolve the call one way or the other, and a catch that
+     races their OWN move is the one pairing that cannot be made to converge
+     across a relay (both moves write the same seat's hand/window). Gating it
+     out here means no phone ever puts that pairing on the wire; the catches
+     that do go out all target a non-turn seat, which catchOut()/catchable()
+     apply order-independently. */
   return !!(t && !t.said && t.hand.length === 1 && t.callUntil &&
-            S.moveNo <= t.callUntil && !S.over);
+            targetPid !== S.turn && S.moveNo <= t.callUntil && !S.over);
 }
 
+function catchable(S, targetPid) {
+  const t = S.players[targetPid];
+  return !!(t && !t.said && t.hand.length === 1 && t.callUntil && !S.over);
+}
+
+/* A catch is the ONE move a seat may make OUT OF TURN, so online it can reach
+   the two phones interleaved with the turn-player's move in opposite orders.
+   It must therefore NOT touch the shared stock here — drawing the penalty now
+   would draw it at a different point in the stock on each phone and desync the
+   match. Instead it only bumps the target's `owe` counter (which commutes with
+   any concurrent move: neither reads the other's write) and shuts the window.
+   The owed cards are drawn later, at the target's own next turn, by
+   collectOwed() — a fixed point identical on every phone. The player-visible
+   effect is unchanged except the two cards land a beat later, at their turn.
+   Acceptance uses catchable() (loose), not canCatch() (tight): see above. */
 function catchOut(S, byPid, targetPid) {
   if (byPid === targetPid) return { ok: false, err: 'catch-yourself' };
-  if (!canCatch(S, targetPid)) return { ok: false, err: 'nothing-to-catch' };
-  take(S, targetPid, RULES.PENALTY);
+  if (!catchable(S, targetPid)) return { ok: false, err: 'nothing-to-catch' };
+  S.players[targetPid].owe += RULES.PENALTY;
   S.players[targetPid].callUntil = 0;
   emit('caught', { by: byPid, seat: targetPid });
   say(S, player(S, byPid).name + ': "' + RULES.CATCH + '" — ' + player(S, targetPid).name +
@@ -689,15 +767,26 @@ function catchOut(S, byPid, targetPid) {
   return { ok: true, drew: RULES.PENALTY };
 }
 
-/* the window has passed with nobody noticing: they got away with it */
+/* The tight window has passed with nobody at the felt shouting: cosmetically
+   they "got away with it," said ONCE, on the ply that crosses the boundary.
+
+   IT DELIBERATELY DOES NOT ZERO callUntil. That used to close the window here,
+   but zeroing it as a side effect of ANOTHER seat's move is precisely what let
+   an out-of-turn catch converge differently depending on relay order: on one
+   phone the concurrent play had already wiped callUntil (catch refused), on the
+   other it had not (catch accepted). callUntil is now cleared only by the
+   target's OWN next action or by a catch actually landing — events that are
+   identical on every phone — so a catch that was legal when the human tapped is
+   honoured whichever side of the racing ply it is applied on. The tight felt
+   timing is unchanged: canCatch() still reads the moveNo boundary, so the UI
+   button and the AI stop offering the catch exactly when they always did. */
 function expireCall(S) {
   for (const p of S.players) {
-    if (p.callUntil && S.moveNo > p.callUntil) {
-      if (p.hand.length === 1 && !p.said) {
-        emit('missed', { seat: p.id });
-        say(S, p.name + ' got away with it — nobody was paying attention.');
-      }
-      p.callUntil = 0;
+    /* fire the flavour exactly on the boundary-crossing ply, once */
+    if (p.callUntil && S.moveNo === p.callUntil + 1 &&
+        p.hand.length === 1 && !p.said) {
+      emit('missed', { seat: p.id });
+      say(S, p.name + ' got away with it — nobody was paying attention.');
     }
   }
 }
@@ -1027,6 +1116,9 @@ function load(snap) {
   S.v = 2;
   S.moves = S.moves || [];
   S.log = S.log || [];
+  /* older snapshots predate the deferred-penalty counter; default it so a
+     catch after a reconnect does not `undefined += 2` into a NaN. */
+  for (const p of S.players) if (typeof p.owe !== 'number') p.owe = 0;
   return S;
 }
 
