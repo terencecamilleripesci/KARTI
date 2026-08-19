@@ -127,10 +127,14 @@ function rollDie(seed, counter){
 
 /* ═══════════════════════════════════════════════════════════════════
    THE MAP — L-ARĊIPELAGU. Six regions, 27 territories. Coordinates are
-   in a 1000×720 viewBox; `poly` is the SVG polygon (flat [x,y,…]) and
-   `c` is the centroid where the army badge sits. `adj` is symmetric and
-   the whole graph is connected (proven by mapCheck()). Region ids and
-   their full-ownership bonus live in REGIONS.
+   in a PORTRAIT 660×1160 viewBox (the map is drawn tall so it fills a
+   phone in one glance — no pan needed); `poly` is the SVG polygon (flat
+   [x,y,…]) and `c` is the centroid where the army badge sits. The cells
+   are a proper Voronoi tiling: they never overlap, they tile the box, and
+   every centroid sits inside its own cell (so a tap is pixel-exact and the
+   badge always lands on the right land). `adj` is symmetric and the whole
+   graph is connected (proven by mapCheck()). Region ids and their
+   full-ownership bonus live in REGIONS.
 
    The six regions, west→east, form a stylised Mediterranean archipelago:
      GRIZBAR  (the western reach)      bonus 3
@@ -151,49 +155,51 @@ const REGIONS = [
 const regionOf = id => REGIONS.find(r => r.id === id) || REGIONS[0];
 
 /* Each territory: id, region, name{en,mt}, c:[cx,cy] centroid, poly:[…].
-   The polygons are hand-laid rectangles/hexes that tile the viewBox
-   without overlap so a tap is pixel-exact; the identity is decorative,
-   the topology is the truth. Adjacency is declared once per edge in
-   ADJ_PAIRS and symmetrised at load. */
+   The polygons are a Voronoi tiling of the 660×1160 portrait viewBox —
+   generated, then verified to (a) never overlap, (b) tile the whole box
+   with no gaps, and (c) hold their own centroid inside the cell so the tap
+   target and the army badge always sit on the right land. The identity is
+   decorative, the topology (ADJ_PAIRS below) is the truth; a handful of
+   engine edges are "sea routes" whose cells needn't visually touch. */
 const TERRITORIES = [
   /* ── GRIŻBAR REACH (west) — 5 territories ── */
-  { id:'gr1', region:'grizbar', name:{ en:'Marsalforn',  mt:'Marsalforn'  }, c:[80,120],  poly:[30,60, 150,55, 165,150, 60,175, 25,120] },
-  { id:'gr2', region:'grizbar', name:{ en:'Żebbuġ Head',  mt:'Ras iż-Żebbuġ' }, c:[95,255],  poly:[60,175, 165,150, 178,270, 90,330, 35,250] },
-  { id:'gr3', region:'grizbar', name:{ en:'Wied il-Mielaħ', mt:'Wied il-Mielaħ' }, c:[210,110], poly:[150,55, 300,50, 320,150, 178,175, 165,150] },
-  { id:'gr4', region:'grizbar', name:{ en:'Dwejra',      mt:'Id-Dwejra'   }, c:[230,255], poly:[178,175, 320,150, 335,300, 200,340, 178,270] },
-  { id:'gr5', region:'grizbar', name:{ en:'Ċittadella',  mt:'Iċ-Ċittadella' }, c:[120,430], poly:[35,250, 90,330, 200,340, 190,470, 60,460, 40,360] },
+  { id:'gr1', region:'grizbar', name:{ en:'Marsalforn', mt:'Marsalforn' }, c:[99,86], poly:[221,44,128,184,8,174,8,8,219,8] },
+  { id:'gr2', region:'grizbar', name:{ en:'Żebbuġ Head', mt:'Ras iż-Żebbuġ' }, c:[83,276], poly:[144,368,8,374,8,174,128,184,181,259] },
+  { id:'gr3', region:'grizbar', name:{ en:'Wied il-Mielaħ', mt:'Wied il-Mielaħ' }, c:[230,170], poly:[328,167,306,245,181,259,128,184,221,44] },
+  { id:'gr4', region:'grizbar', name:{ en:'Dwejra', mt:'Id-Dwejra' }, c:[92,464], poly:[186,417,170,547,156,560,8,554,8,374,144,368] },
+  { id:'gr5', region:'grizbar', name:{ en:'Ċittadella', mt:'Iċ-Ċittadella' }, c:[86,651], poly:[145,746,8,742,8,554,156,560,174,708] },
 
   /* ── THE HEARTLAND (centre) — 5 territories ── */
-  { id:'qb1', region:'qalb', name:{ en:'Rabat',      mt:'Ir-Rabat'    }, c:[420,150], poly:[300,50, 480,60, 500,180, 335,200, 320,150] },
-  { id:'qb2', region:'qalb', name:{ en:'Mdina',      mt:'L-Imdina'    }, c:[410,300], poly:[335,200, 500,180, 520,340, 350,370, 335,300] },
-  { id:'qb3', region:'qalb', name:{ en:'Attard',     mt:'Ħ’Attard'    }, c:[560,240], poly:[500,180, 640,175, 655,320, 520,340, 500,260] },
-  { id:'qb4', region:'qalb', name:{ en:'Ħamrun',     mt:'Il-Ħamrun'   }, c:[560,400], poly:[520,340, 655,320, 665,460, 500,485, 490,410] },
-  { id:'qb5', region:'qalb', name:{ en:'Qormi',      mt:'Ħal Qormi'   }, c:[400,450], poly:[350,370, 520,340, 490,410, 500,485, 360,510, 335,420] },
+  { id:'qb1', region:'qalb', name:{ en:'Rabat', mt:'Ir-Rabat' }, c:[248,332], poly:[352,312,320,402,186,417,144,368,181,259,306,245] },
+  { id:'qb2', region:'qalb', name:{ en:'Mdina', mt:'L-Imdina' }, c:[248,631], poly:[351,656,321,703,174,708,156,560,170,547,318,566] },
+  { id:'qb3', region:'qalb', name:{ en:'Attard', mt:'Ħ’Attard' }, c:[264,484], poly:[367,480,318,566,170,547,186,417,320,402] },
+  { id:'qb4', region:'qalb', name:{ en:'Ħamrun', mt:'Il-Ħamrun' }, c:[249,780], poly:[348,812,291,872,177,842,145,746,174,708,321,703] },
+  { id:'qb5', region:'qalb', name:{ en:'Qormi', mt:'Ħal Qormi' }, c:[212,933], poly:[172,1020,103,944,177,842,291,872,308,987] },
 
   /* ── XLOKK SHORE (south-east) — 4 territories ── */
-  { id:'xl1', region:'xlokk', name:{ en:'Żejtun',     mt:'Iż-Żejtun'   }, c:[620,570], poly:[500,485, 665,460, 700,600, 540,640, 470,560] },
-  { id:'xl2', region:'xlokk', name:{ en:'Marsaxlokk', mt:'Marsaxlokk'  }, c:[790,600], poly:[665,460, 830,470, 850,620, 700,650, 700,600] },
-  { id:'xl3', region:'xlokk', name:{ en:'Birżebbuġa', mt:'Birżebbuġa'  }, c:[790,470], poly:[665,460, 660,340, 800,330, 830,470] },
-  { id:'xl4', region:'xlokk', name:{ en:'Delimara',   mt:'Delimara'    }, c:[560,610], poly:[360,510, 500,485, 470,560, 540,640, 400,650, 350,560] },
+  { id:'xl1', region:'xlokk', name:{ en:'Żejtun', mt:'Iż-Żejtun' }, c:[411,1069], poly:[324,1000,464,978,495,1011,487,1152,333,1152] },
+  { id:'xl2', region:'xlokk', name:{ en:'Marsaxlokk', mt:'Marsaxlokk' }, c:[573,1079], poly:[495,1011,652,997,652,1152,487,1152] },
+  { id:'xl3', region:'xlokk', name:{ en:'Birżebbuġa', mt:'Birżebbuġa' }, c:[385,907], poly:[474,838,482,849,464,978,324,1000,308,987,291,872,348,812] },
+  { id:'xl4', region:'xlokk', name:{ en:'Delimara', mt:'Delimara' }, c:[248,1079], poly:[172,1020,308,987,324,1000,333,1152,149,1152] },
 
   /* ── TRAMUNTANA ISLES (north) — 4 territories ── */
-  { id:'tr1', region:'tramuntana', name:{ en:'Mellieħa',  mt:'Il-Mellieħa'  }, c:[500,470], poly:[480,60, 620,70, 640,175, 500,180] },
-  { id:'tr2', region:'tramuntana', name:{ en:'Ċirkewwa',  mt:'Iċ-Ċirkewwa'  }, c:[560,80],  poly:[620,70, 760,80, 775,190, 640,175] },
-  { id:'tr3', region:'tramuntana', name:{ en:'St Paul’s',  mt:'San Pawl'     }, c:[700,120], poly:[640,175, 775,190, 800,330, 660,340, 655,320, 640,175] },
-  { id:'tr4', region:'tramuntana', name:{ en:'Baħar iċ-Ċ.', mt:'Baħar iċ-Ċ.' }, c:[860,150], poly:[760,80, 900,95, 920,250, 800,330, 775,190] },
+  { id:'tr1', region:'tramuntana', name:{ en:'Mellieħa', mt:'Il-Mellieħa' }, c:[409,223], poly:[474,304,352,312,306,245,328,167,447,119,510,190] },
+  { id:'tr2', region:'tramuntana', name:{ en:'Ċirkewwa', mt:'Iċ-Ċirkewwa' }, c:[555,93], poly:[510,190,447,119,459,8,652,8,652,176] },
+  { id:'tr3', region:'tramuntana', name:{ en:'St Paul’s', mt:'San Pawl' }, c:[419,392], poly:[472,483,367,480,320,402,352,312,474,304,520,366] },
+  { id:'tr4', region:'tramuntana', name:{ en:'Baħar iċ-Ċ.', mt:'Baħar iċ-Ċ.' }, c:[574,275], poly:[520,366,474,304,510,190,652,176,652,367] },
 
   /* ── LVANT CAPE (east) — 5 territories ── */
-  { id:'lv1', region:'lvant', name:{ en:'Valletta',   mt:'Il-Belt'     }, c:[720,410], poly:[800,330, 920,250, 940,400, 830,470, 660,340] },
-  { id:'lv2', region:'lvant', name:{ en:'Sliema',     mt:'Tas-Sliema'  }, c:[900,330], poly:[920,250, 970,290, 965,430, 940,400] },
-  { id:'lv3', region:'lvant', name:{ en:'Cospicua',   mt:'Bormla'      }, c:[905,540], poly:[830,470, 940,400, 965,430, 955,610, 850,620] },
-  { id:'lv4', region:'lvant', name:{ en:'Kalkara',    mt:'Il-Kalkara'  }, c:[960,500], poly:[940,400, 985,440, 980,600, 955,610, 965,430] },
-  { id:'lv5', region:'lvant', name:{ en:'Fort St E.',  mt:'Sant’Iermu'  }, c:[930,650], poly:[850,620, 955,610, 980,600, 960,690, 840,690, 830,650] },
+  { id:'lv1', region:'lvant', name:{ en:'Valletta', mt:'Il-Belt' }, c:[415,568], poly:[475,653,351,656,318,566,367,480,472,483,513,540] },
+  { id:'lv2', region:'lvant', name:{ en:'Sliema', mt:'Tas-Sliema' }, c:[573,455], poly:[513,540,472,483,520,366,652,367,652,540] },
+  { id:'lv3', region:'lvant', name:{ en:'Cospicua', mt:'Bormla' }, c:[417,738], poly:[513,705,474,838,348,812,321,703,351,656,475,653] },
+  { id:'lv4', region:'lvant', name:{ en:'Kalkara', mt:'Il-Kalkara' }, c:[572,623], poly:[513,705,475,653,513,540,652,540,652,703] },
+  { id:'lv5', region:'lvant', name:{ en:'Fort St E.', mt:'Sant’Iermu' }, c:[560,931], poly:[495,1011,464,978,482,849,652,866,652,997] },
 
   /* ── SCATTERED ISLES (far corners, sea-linked) — 4 territories ── */
-  { id:'gz1', region:'gzejjer', name:{ en:'Kemmuna',   mt:'Kemmuna'     }, c:[300,430], poly:[200,340, 335,300, 350,370, 335,420, 340,470, 200,470, 190,470] },
-  { id:'gz2', region:'gzejjer', name:{ en:'Filfla',    mt:'Filfla'      }, c:[270,590], poly:[190,470, 340,470, 350,560, 400,650, 250,680, 150,600, 170,500] },
-  { id:'gz3', region:'gzejjer', name:{ en:'Fungus Rk',  mt:'Il-Ġebla'   }, c:[520,80],  poly:[300,50, 480,60, 480,60, 460,20, 320,25] },
-  { id:'gz4', region:'gzejjer', name:{ en:'St Julian’s', mt:'San Ġiljan' }, c:[880,470], poly:[830,470, 850,620, 700,650, 700,600, 830,470] }
+  { id:'gz1', region:'gzejjer', name:{ en:'Kemmuna', mt:'Kemmuna' }, c:[80,839], poly:[103,944,8,944,8,742,145,746,177,842] },
+  { id:'gz2', region:'gzejjer', name:{ en:'Filfla', mt:'Filfla' }, c:[81,1052], poly:[8,944,103,944,172,1020,149,1152,8,1152] },
+  { id:'gz3', region:'gzejjer', name:{ en:'Fungus Rk', mt:'Il-Ġebla' }, c:[348,70], poly:[447,119,328,167,221,44,219,8,459,8] },
+  { id:'gz4', region:'gzejjer', name:{ en:'St Julian’s', mt:'San Ġiljan' }, c:[573,784], poly:[482,849,474,838,513,705,652,703,652,866] }
 ];
 const T_INDEX = (function(){ const m = {}; TERRITORIES.forEach((t,i)=>{ m[t.id]=i; }); return m; })();
 const N_TERR = TERRITORIES.length;
@@ -281,6 +287,9 @@ function mapCheck(){
    PHASES
    ═══════════════════════════════════════════════════════════════════ */
 const PH_REINFORCE = 0, PH_ATTACK = 1, PH_FORTIFY = 2;
+/* the two OPENING phases (real-Risk setup), before normal play. Numbered
+   above the play phases so they never collide with a PHASES[] index. */
+const PH_CLAIM = 3, PH_DEPLOY = 4;
 const PHASES = ['reinforce','attack','fortify'];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -312,56 +321,97 @@ const levelOf = l => LEVELS.find(L => L.k === (l | 0)) || LEVELS[1];
    ═══════════════════════════════════════════════════════════════════ */
 const DEFAULT_TURN_CAP = 40;
 
-/* deal the map: shuffle territories deterministically off the seed and
-   hand them round the table one at a time; every dealt territory starts
-   with ONE army; then scatter the remaining starting armies. Starting
-   armies per player scale so 2p and 6p both start dense enough to fight.
-   All deterministic in the seed → identical on every client. */
+/* ── THE OPENING (real-Risk SETUP): the map starts EMPTY and the players
+   PICK it, exactly like the tabletop.
+
+   ARMY BUDGET (scaled by player count, classic-style — fewer players get
+   more armies each so 2p and 6p both open dense enough to fight):
+        2p 40 · 3p 35 · 4p 30 · 5p 25 · 6p 20  armies per player.
+   These armies are spent in TWO setup steps and then normal play begins:
+
+     1 CLAIM   with EVERY territory neutral, seats take turns (seat order)
+               tapping one EMPTY territory to claim it, placing 1 army as
+               they do (that army comes out of their budget). This continues
+               round the table until no neutral territory is left. With 27
+               territories the claims do not divide evenly, so some seats
+               claim one more than others — the classic "odd map" opening.
+
+     2 DEPLOY  each seat still has (budget − territoriesClaimed) armies left.
+               Seats take turns placing ONE of those armies at a time on any
+               territory they already OWN, until everyone's setup armies are
+               spent (seats that finish early are skipped).
+
+   Only then does REINFORCE → ATTACK → FORTIFY begin, seat 0 to move.
+
+   Every step is a relayed, gated move (claim / deploy) that replays from the
+   log — no shared PRNG, fully deterministic, identical on every client. */
 function startingArmies(seats){
-  /* classic-style: fewer players → more armies each. */
-  const table = { 2:40, 3:35, 4:30, 5:25, 6:22 };
+  const table = { 2:40, 3:35, 4:30, 5:25, 6:20 };
   return table[seats] || 30;
 }
 
-function deal(st){
+/* set up the EMPTY board and open the CLAIM phase. Nothing is owned; each
+   seat carries its full army budget in setupLeft; seat 0 claims first. */
+function beginSetup(st){
   const seats = st.seats;
-  /* deterministic Fisher-Yates over territory indices using the seed */
-  const order = [];
-  for (let i = 0; i < N_TERR; i++) order.push(i);
-  let ctr = 1;
-  for (let i = order.length - 1; i > 0; i--){
-    const r = rollBig(st.seed, ctr++) % (i + 1);
-    const tmp = order[i]; order[i] = order[r]; order[r] = tmp;
-  }
-  /* hand round the table */
-  for (let k = 0; k < order.length; k++){
-    const t = order[k];
-    st.owner[t] = k % seats;
-    st.army[t] = 1;
-  }
-  /* scatter the remaining armies: each player has startingArmies - (their
-     territory count) left to place; drop them deterministically onto that
-     player's own territories, round-robin, so the opening is balanced. */
+  for (let t = 0; t < N_TERR; t++){ st.owner[t] = UNOWNED; st.army[t] = 0; }
   const per = startingArmies(seats);
-  for (let s = 0; s < seats; s++){
-    const mine = [];
-    for (let t = 0; t < N_TERR; t++) if (st.owner[t] === s) mine.push(t);
-    let left = per - mine.length;
-    if (left < 0) left = 0;
-    let idx = 0;
-    while (left > 0){
-      /* deterministic pick weighted to spread evenly (round robin with a
-         hashed jitter so it is not always the same cell first) */
-      const pick = mine[(idx + (rollBig(st.seed, ctr++) % mine.length)) % mine.length];
-      st.army[pick]++;
-      idx++; left--;
+  st.setupLeft = new Array(seats).fill(per);
+  st.phase = PH_CLAIM;
+  st.turn = 0;
+  st.rollCtr = 1;
+}
+
+/* how many neutral (unowned) territories remain */
+function neutralCount(st){ let n = 0; for (let t = 0; t < N_TERR; t++) if (st.owner[t] === UNOWNED) n++; return n; }
+/* total setup armies still to be placed across all seats */
+function setupArmiesLeft(st){ let n = 0; if (st.setupLeft) for (let s = 0; s < st.seats; s++) n += st.setupLeft[s]; return n; }
+/* is the game still in its opening (claim or deploy)? */
+function inSetup(st){ return st.phase === PH_CLAIM || st.phase === PH_DEPLOY; }
+
+/* advance the setup turn: from `seat`, hand to the next seat that still has
+   a legal setup action; flip claim→deploy when the map fills; end setup when
+   all budgets are spent. */
+function advanceSetup(st){
+  if (st.phase === PH_CLAIM){
+    if (neutralCount(st) === 0){
+      /* map is full — move to DEPLOY (or straight to play if nobody has
+         armies left, which cannot happen with these budgets but is safe). */
+      st.phase = PH_DEPLOY;
     }
   }
-  /* the roll counter continues AFTER the deal so combat dice never reuse a
-     deal draw; store where the deal ended. */
-  st.rollCtr = ctr;
+  if (st.phase === PH_CLAIM){
+    /* next seat in order that still has budget to claim (all do until the
+       map fills). Everyone alive has budget ≥1 during claim. */
+    for (let i = 1; i <= st.seats; i++){
+      const s = (st.turn + i) % st.seats;
+      if (st.setupLeft[s] > 0){ st.turn = s; return; }
+    }
+    /* no one has budget — jump to deploy/end */
+    st.phase = PH_DEPLOY;
+  }
+  if (st.phase === PH_DEPLOY){
+    if (setupArmiesLeft(st) === 0){ endSetup(st); return; }
+    for (let i = 1; i <= st.seats; i++){
+      const s = (st.turn + i) % st.seats;
+      if (st.setupLeft[s] > 0){ st.turn = s; return; }
+    }
+    /* current seat is the only one with armies left — keep it */
+    if (st.setupLeft[st.turn] > 0) return;
+    endSetup(st);
+  }
 }
-/* a full 32-bit deterministic draw (deal shuffle uses this, not rollDie) */
+
+/* close the opening and start normal play: seat 0, reinforce. */
+function endSetup(st){
+  st.phase = PH_REINFORCE;
+  st.turn = 0;
+  st.round = 1;
+  st.turnsThisRound = 0;
+  st.setupLeft = null;
+  st.reinf = reinforcementsFor(st, st.turn);
+}
+/* a full 32-bit deterministic draw */
 function rollBig(seed, counter){
   let x = mix32(((seed >>> 0) ^ Math.imul((counter >>> 0), 0x85ebca77)) >>> 0);
   return x >>> 0;
@@ -377,7 +427,8 @@ function newGame(opts, seed){
     owner: new Array(N_TERR).fill(UNOWNED),
     army:  new Array(N_TERR).fill(0),
     turn: 0,                       /* seat to move                          */
-    phase: PH_REINFORCE,
+    phase: PH_CLAIM,               /* the opening starts in the CLAIM phase */
+    setupLeft: null,               /* per-seat setup armies left (opening)  */
     reinf: 0,                      /* reinforcements left to place this turn */
     fortified: false,              /* fortify spent this turn?              */
     lvl: Math.max(1, Math.min(3, opts.lvl | 0 || 2)),
@@ -397,8 +448,7 @@ function newGame(opts, seed){
     lastBattle: null,
     last: null                     /* { t, … } the most recent applied move */
   };
-  deal(st);
-  st.reinf = reinforcementsFor(st, st.turn);
+  beginSetup(st);                  /* EMPTY board → the CLAIM phase opens   */
   return st;
 }
 
@@ -524,6 +574,25 @@ function check(st, mv, seat){
   if (!mv || st.done) return false;
   if (seat !== st.turn) return false;
   const t = mv.t;
+  /* ── THE OPENING: only claim (CLAIM phase) / deploy (DEPLOY phase) ── */
+  if (st.phase === PH_CLAIM){
+    if (t !== 'claim') return false;
+    const to = mv.to | 0;
+    if (to < 0 || to >= N_TERR) return false;
+    if (st.owner[to] !== UNOWNED) return false;          /* must be empty     */
+    if (!st.setupLeft || st.setupLeft[seat] < 1) return false;
+    return true;
+  }
+  if (st.phase === PH_DEPLOY){
+    if (t !== 'deploy') return false;
+    const to = mv.to | 0;
+    if (to < 0 || to >= N_TERR) return false;
+    if (st.owner[to] !== seat) return false;             /* must be your land */
+    if (!st.setupLeft || st.setupLeft[seat] < 1) return false;
+    return true;
+  }
+  /* claim/deploy are never legal once normal play has begun */
+  if (t === 'claim' || t === 'deploy') return false;
   /* while a capture-advance is pending, ONLY an advance is legal */
   if (st._pending){
     if (t !== 'advance') return false;
@@ -580,6 +649,25 @@ function apply(st, mv){
   if (st.done) return;
   const seat = st.turn;
   const t = mv.t;
+
+  if (t === 'claim'){
+    const to = mv.to | 0;
+    st.owner[to] = seat;
+    st.army[to] = 1;
+    st.setupLeft[seat] -= 1;
+    st.last = { t:'claim', to, seat };
+    advanceSetup(st);
+    return;
+  }
+
+  if (t === 'deploy'){
+    const to = mv.to | 0;
+    st.army[to] += 1;
+    st.setupLeft[seat] -= 1;
+    st.last = { t:'deploy', to, seat };
+    advanceSetup(st);
+    return;
+  }
 
   if (t === 'place'){
     const to = mv.to | 0, n = mv.n | 0;
@@ -778,6 +866,8 @@ function note(st){
     if (st.done.capped) return { en: 'The turn limit was reached.', mt: 'Intlaħaq il-limitu tad-dawriet.' };
     return { en: 'The map is conquered.', mt: 'Il-mappa ġiet mirbuħa.' };
   }
+  if (st.phase === PH_CLAIM)     return { en: 'Claim a territory.', mt: 'Ħu territorju.' };
+  if (st.phase === PH_DEPLOY)    return { en: 'Place your armies.', mt: 'Poġġi l-armati tiegħek.' };
   if (st.phase === PH_REINFORCE) return { en: 'Place your armies.', mt: 'Poġġi l-armati tiegħek.' };
   if (st.phase === PH_ATTACK)    return { en: 'Attack, or move on.', mt: 'Attakka, jew kompli.' };
   return { en: 'Move armies, or end your turn.', mt: 'Ċaqlaq l-armati, jew temmu d-dawra.' };
@@ -880,9 +970,86 @@ function regionOpportunity(st, seat){
   return null;
 }
 
+/* ── OPENING STRATEGY (deterministic, no shared PRNG) ────────────────────
+   CLAIM: score every empty territory and take the best. The machine grabs
+   toward COMPLETING regions and building a solid block:
+     · a big pull toward regions it is already invested in (finish the bonus);
+     · prefer smaller regions (easier to complete outright);
+     · prefer cells adjacent to land it already owns (a connected front);
+     · a mild pull to deny a region a rival is close to completing;
+     · a per-seat STATE HASH breaks exact ties — pure, reproducible, and not
+       a shared PRNG a human could read ahead.
+   All three levels use this same sensible opening (the sharpness differences
+   are in the war, not the deal); it never stalls (there is always an empty
+   cell while in CLAIM). */
+function thinkClaim(st, seat, lvl){
+  let best = -1, bestScore = -Infinity;
+  for (let t = 0; t < N_TERR; t++){
+    if (st.owner[t] !== UNOWNED) continue;
+    const rid = TERRITORIES[t].region;
+    const mem = REGION_MEMBERS[rid];
+    let mine = 0, rivalMax = 0, neutral = 0;
+    const rivalCnt = new Array(st.seats).fill(0);
+    for (const m of mem){
+      const o = st.owner[m];
+      if (o === seat) mine++;
+      else if (o === UNOWNED) neutral++;
+      else { rivalCnt[o]++; if (rivalCnt[o] > rivalMax) rivalMax = rivalCnt[o]; }
+    }
+    let score = 0;
+    /* finish what we started: the more of this region we hold, the better,
+       and small regions (2–3 cells) are worth chasing to completion. */
+    score += mine * 30;
+    score += (6 - mem.length) * 6;                 /* smaller region = easier */
+    /* a connected front: reward adjacency to our own land */
+    let adjMine = 0, adjRival = 0;
+    for (const v of adjOf(t)){
+      if (st.owner[v] === seat) adjMine++;
+      else if (st.owner[v] !== UNOWNED) adjRival++;
+    }
+    score += adjMine * 10;
+    /* deny a rival that is close to owning this region */
+    score += rivalMax * 8;
+    /* don't wade into a cell hemmed by rivals with no own support */
+    score -= (adjMine === 0 ? adjRival * 3 : 0);
+    /* deterministic tie-break: per-seat hash of the state + the cell */
+    score += (hash32([st.seed, seat, t, st.round, mine, neutral].concat(st.owner)) % 100) / 100;
+    if (score > bestScore){ bestScore = score; best = t; }
+  }
+  if (best < 0){
+    /* safety: no scored pick (shouldn't happen while empties exist) — take
+       the first empty so the AI never stalls. */
+    for (let t = 0; t < N_TERR; t++) if (st.owner[t] === UNOWNED){ best = t; break; }
+  }
+  return best >= 0 ? { t:'claim', to: best } : null;
+}
+
+/* DEPLOY: drop the setup army where it matters most — reinforce the most
+   threatened frontier (border pressure minus own strength), preferring a
+   cell that helps hold a region we own. Deterministic tie-break by hash. */
+function thinkDeploy(st, seat, lvl){
+  let best = -1, bestScore = -Infinity;
+  for (let t = 0; t < N_TERR; t++){
+    if (st.owner[t] !== seat) continue;
+    let score = 0;
+    if (isFrontier(st, seat, t)) score += 20 + borderPressure(st, seat, t) - st.army[t] * 2;
+    else score -= st.army[t];                       /* interior: only if no front */
+    /* keep whole regions strong */
+    if (ownsRegion(st, seat, TERRITORIES[t].region)) score += 4;
+    score += (hash32([st.seed, seat, t, st.setupLeft ? st.setupLeft[seat] : 0].concat(st.army)) % 100) / 100;
+    if (score > bestScore){ bestScore = score; best = t; }
+  }
+  if (best < 0){ for (let t = 0; t < N_TERR; t++) if (st.owner[t] === seat){ best = t; break; } }
+  return best >= 0 ? { t:'deploy', to: best } : null;
+}
+
 function think(st, seat, lvl){
   if (st.done || seat !== st.turn) return null;
   lvl = Math.max(1, Math.min(3, lvl || st.lvl || 2));
+
+  /* ── THE OPENING ── the machine picks and deploys too. */
+  if (st.phase === PH_CLAIM)  return thinkClaim(st, seat, lvl);
+  if (st.phase === PH_DEPLOY) return thinkDeploy(st, seat, lvl);
 
   /* a pending capture-advance is answered first, always. */
   if (st._pending){
@@ -1163,8 +1330,8 @@ function reachableOwn(st, seat, from){
    the roller.
    ═══════════════════════════════════════════════════════════════════ */
 const WIRE_FIELDS = ['k','a','b','n'];   /* k=type code, a/b=cells, n=count */
-const T_CODE = { place:1, attack:2, advance:3, fortify:4, endphase:5, endturn:6 };
-const CODE_T = { 1:'place', 2:'attack', 3:'advance', 4:'fortify', 5:'endphase', 6:'endturn' };
+const T_CODE = { place:1, attack:2, advance:3, fortify:4, endphase:5, endturn:6, claim:7, deploy:8 };
+const CODE_T = { 1:'place', 2:'attack', 3:'advance', 4:'fortify', 5:'endphase', 6:'endturn', 7:'claim', 8:'deploy' };
 function encWire(mv){
   if (!mv || !T_CODE[mv.t]) return null;
   const w = { k: T_CODE[mv.t] };
@@ -1172,6 +1339,7 @@ function encWire(mv){
   else if (mv.t === 'attack'){ w.a = mv.from | 0; w.b = mv.to | 0; }
   else if (mv.t === 'advance'){ w.n = mv.n | 0; }
   else if (mv.t === 'fortify'){ w.a = mv.from | 0; w.b = mv.to | 0; w.n = mv.n | 0; }
+  else if (mv.t === 'claim' || mv.t === 'deploy'){ w.a = mv.to | 0; }
   return w;
 }
 function decWire(w){
@@ -1182,6 +1350,8 @@ function decWire(w){
   if (t === 'attack')  return { t, from: w.a | 0, to: w.b | 0 };
   if (t === 'advance') return { t, n: w.n | 0 };
   if (t === 'fortify') return { t, from: w.a | 0, to: w.b | 0, n: w.n | 0 };
+  if (t === 'claim')   return { t, to: w.a | 0 };
+  if (t === 'deploy')  return { t, to: w.a | 0 };
   if (t === 'endphase')return { t };
   if (t === 'endturn') return { t };
   return null;
@@ -1194,7 +1364,7 @@ root.KARTI_KONKWISTA = root.KARTI_KONKWISTA || {};
 root.KARTI_KONKWISTA.engine = {
   /* constants */
   MIN_SEATS, MAX_SEATS, UNOWNED, N_TERR, DEFAULT_TURN_CAP,
-  PH_REINFORCE, PH_ATTACK, PH_FORTIFY, PHASES,
+  PH_REINFORCE, PH_ATTACK, PH_FORTIFY, PH_CLAIM, PH_DEPLOY, PHASES,
   COLOURS, colourOf, LEVELS, levelOf,
   /* map */
   TERRITORIES, REGIONS, REGION_MEMBERS, ADJ, mapCheck,
@@ -1202,9 +1372,10 @@ root.KARTI_KONKWISTA.engine = {
   /* rng */
   newSeed, rollDie, mix32, hash32,
   /* lifecycle */
-  newGame, deal,
+  newGame, beginSetup,
   /* reading */
   turn, phase, over, note, pendingAdvance,
+  inSetup, neutralCount, setupArmiesLeft, startingArmies,
   territoriesOf, countTerr, countArmies, ownsRegion, regionsOwned,
   reinforcementsFor, attackSources, attackTargets, canAttack, canFortify,
   fortifyReachable, maxAtkDice, maxDefDice, isFrontier, borderPressure,

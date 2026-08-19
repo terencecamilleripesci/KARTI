@@ -444,7 +444,7 @@ function buildBoard(){
       '<div class="kq-mapbox" id="kq-mapbox">' +
         '<img class="kq-mapbg" id="kq-mapbg" alt="" aria-hidden="true" src="art/ui/konkwista-bg.png" ' +
           'onerror="this.style.display=\'none\'">' +
-        '<svg class="kq-svg" id="kq-svg" viewBox="0 0 1000 720" preserveAspectRatio="xMidYMid meet" ' +
+        '<svg class="kq-svg" id="kq-svg" viewBox="0 0 660 1160" preserveAspectRatio="xMidYMid meet" ' +
           'role="img" aria-label="' + esc(T('The conquest map','Il-mappa tal-konkwista')) + '"></svg>' +
       '</div>' +
       '<div class="kq-rules" id="kq-rulespanel" aria-hidden="true">' +
@@ -547,11 +547,16 @@ function paintMap(){
     el.classList.toggle('sel', i === M.sel || i === M.fsel);
     el.classList.toggle('legal', legalSet.from.has(i));
     el.classList.toggle('target', legalSet.to.has(i));
-    /* badge */
+    /* badge — hidden on UNOWNED land (during the CLAIM opening it is empty) */
     if (bg){
       const c = bg.querySelector('circle'), tx = bg.querySelector('text');
-      if (c) c.setAttribute('fill', o >= 0 ? col.lo : '#223');
-      if (tx) tx.textContent = st.army[i];
+      if (o < 0){
+        bg.setAttribute('display', 'none');
+      } else {
+        bg.removeAttribute('display');
+        if (c) c.setAttribute('fill', col.lo);
+        if (tx) tx.textContent = st.army[i];
+      }
     }
   }
 }
@@ -563,7 +568,13 @@ function computeLegalSet(){
   if (E.over(st)) return { from, to };
   const seat = E.turn(st);
   if (!isLocal(seat) || M.busy || st._pending) return { from, to };
-  if (st.phase === E.PH_REINFORCE){
+  if (st.phase === E.PH_CLAIM){
+    /* every EMPTY territory is claimable */
+    for (let i = 0; i < E.N_TERR; i++) if (st.owner[i] === E.UNOWNED) from.add(i);
+  } else if (st.phase === E.PH_DEPLOY){
+    /* every OWN territory can take a setup army */
+    for (let i = 0; i < E.N_TERR; i++) if (st.owner[i] === seat) from.add(i);
+  } else if (st.phase === E.PH_REINFORCE){
     /* every own territory can take reinforcements */
     for (let i = 0; i < E.N_TERR; i++) if (st.owner[i] === seat) from.add(i);
   } else if (st.phase === E.PH_ATTACK){
@@ -619,7 +630,25 @@ function paintBanner(){
   const whoName = mine ? T('Your turn', 'Imissek') : esc(seatName(seat)) + ' ' + T('is moving', 'qed jilgħab');
   let phaseTxt, hint, showCount = false, showStep = false, actLabel = '', actGhost = false, actDisabled = false;
 
-  if (st.phase === E.PH_REINFORCE){
+  if (st.phase === E.PH_CLAIM){
+    phaseTxt = T('Claim a territory', 'Ħu territorju');
+    showCount = true;                                 /* armies left to place */
+    if (mine){
+      hint = T('Tap an empty land to claim it', 'Ikklikkja art vojta biex teħodha');
+    } else {
+      hint = T('claiming land…', 'qed jieħu l-art…');
+    }
+    actLabel = '';
+  } else if (st.phase === E.PH_DEPLOY){
+    phaseTxt = T('Place your armies', 'Poġġi l-armati');
+    showCount = true;
+    if (mine){
+      hint = T('Tap your land to place an army', 'Ikklikkja artek biex tpoġġi armata');
+    } else {
+      hint = T('placing armies…', 'qed iqiegħed armati…');
+    }
+    actLabel = '';
+  } else if (st.phase === E.PH_REINFORCE){
     phaseTxt = T('Reinforce', 'Rinforza');
     if (mine){
       hint = T('Tap your land to place armies', 'Ikklikkja artek biex tqiegħed armati');
@@ -653,7 +682,11 @@ function paintBanner(){
   UI.bhint.textContent = hint;
 
   UI.bcount.hidden = !showCount;
-  if (showCount) UI.bcount.textContent = st.reinf;
+  if (showCount){
+    UI.bcount.textContent = (st.phase === E.PH_CLAIM || st.phase === E.PH_DEPLOY)
+      ? (st.setupLeft ? st.setupLeft[seat] : 0)
+      : st.reinf;
+  }
   UI.step.hidden = !showStep;
   if (showStep){ clampPlace(); UI.placen.textContent = M.place; }
 
@@ -687,6 +720,23 @@ function onTerr(i){
   const st = M.st, seat = E.turn(st);
   if (!isLocal(seat) || st._pending) return;
   if (rulesOpen){ setRules(false); return; }
+
+  if (st.phase === E.PH_CLAIM){
+    if (st.owner[i] !== E.UNOWNED){ cue('move.illegal', { gain:0.6 }); return; }
+    doMove(seat, { t:'claim', to:i }, 'local');
+    cue('piece.place', { gain:0.75 }, true);
+    dropInBadge(i);
+    afterLocal();
+    return;
+  }
+  if (st.phase === E.PH_DEPLOY){
+    if (st.owner[i] !== seat){ cue('move.illegal', { gain:0.6 }); return; }
+    doMove(seat, { t:'deploy', to:i }, 'local');
+    cue('piece.place', { gain:0.7 }, true);
+    dropInBadge(i);
+    afterLocal();
+    return;
+  }
 
   if (st.phase === E.PH_REINFORCE){
     if (st.owner[i] !== seat){ cue('move.illegal', { gain:0.6 }); return; }
@@ -1044,7 +1094,7 @@ function runAiStep(){
   /* non-attack moves apply instantly */
   const res = doMove(seat, mv, 'local');
   if (!res.ok){ paintAll(); return; }
-  if (mv.t === 'place') dropInBadge(mv.to);
+  if (mv.t === 'place' || mv.t === 'claim' || mv.t === 'deploy') dropInBadge(mv.to);
   paintAll();
   continueAi();
 }
@@ -1054,7 +1104,8 @@ function continueAi(){
   if (E.over(M.st)){ finish(); return; }
   const seat = E.turn(M.st);
   if (isLocal(seat) || ownerOf(seat) === 'net'){ return; }
-  const delay = reduced() ? 12 : (M.st.phase === E.PH_REINFORCE ? 140 : 200);
+  const setupPh = (M.st.phase === E.PH_CLAIM || M.st.phase === E.PH_DEPLOY);
+  const delay = reduced() ? 12 : (setupPh ? 130 : (M.st.phase === E.PH_REINFORCE ? 140 : 200));
   M.timer = setTimeout(runAiStep, delay);
 }
 
@@ -1146,8 +1197,8 @@ function maybeTip(){
   if (seenTip || !UI || !UI.mapbox) return;
   const t = document.createElement('div');
   t.className = 'kq-tip';
-  t.innerHTML = '<span>' + T('<b>Reinforce</b> your land, <b>attack</b> a neighbour, then <b>fortify</b>. Take a whole region for a bonus!',
-    '<b>Rinforza</b> artek, <b>attakka</b> ġar, imbagħad <b>fortifika</b>. Ħu reġjun sħiħ għal bonus!') +
+  t.innerHTML = '<span>' + T('First, <b>claim</b> the empty islands one by one, then <b>place</b> your armies. Then: reinforce, <b>attack</b>, fortify — take a whole region for a bonus!',
+    'L-ewwel, <b>ħu</b> l-gżejjer vojta waħda waħda, imbagħad <b>poġġi</b> l-armati. Imbagħad: rinforza, <b>attakka</b>, fortifika — ħu reġjun sħiħ għal bonus!') +
     '</span><button id="kq-tipx">' + esc(T('Got it','Fhimt')) + '</button>';
   UI.mapbox.appendChild(t);
   t.querySelector('#kq-tipx').onclick = () => {
@@ -1161,8 +1212,12 @@ function maybeTip(){
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
   return [
-    T('The islands are dealt out between you all. On your turn you take <b>three steps</b>.',
-      'Il-gżejjer jitqassmu bejnietkom. F’dawra tiegħek tagħmel <b>tliet passi</b>.'),
+    T('<b>The opening</b> — the map starts <b>empty</b>. Taking turns, everyone <b>claims</b> one island at a ' +
+      'time (an army lands on each) until none are left, then <b>places</b> the rest of their armies on their own land.',
+      '<b>Il-bidu</b> — il-mappa tibda <b>vojta</b>. Kull wieħed imissu, <b>jieħu</b> gżira waħda kull darba ' +
+      '(armata tinżel fuq kull waħda) sa ma ma jibqax, imbagħad <b>ipoġġi</b> l-bqija tal-armati fuq artu.'),
+    T('Then play begins. On your turn you take <b>three steps</b>.',
+      'Imbagħad tibda l-logħba. F’dawra tiegħek tagħmel <b>tliet passi</b>.'),
     T('<b>1 · Reinforce</b> — you get fresh armies (more for more land, plus a bonus for every whole ' +
       'region you hold). Tap your land to drop them in.',
       '<b>1 · Rinforza</b> — tirċievi armati ġodda (aktar għal aktar art, u bonus għal kull reġjun sħiħ). ' +
@@ -1490,7 +1545,7 @@ function onlineRemote(seat, move){
   const res = doMove(seat, dec, 'net');
   if (!res.ok) return { ok:false, why: res.err || 'that move did not fit the rules' };
   if (dec.t === 'advance' && M.st.lastBattle && M.st.lastBattle.captured) sweepCapture(M.st.lastBattle.to, seat, () => {});
-  if (dec.t === 'place') dropInBadge(dec.to);
+  if (dec.t === 'place' || dec.t === 'claim' || dec.t === 'deploy') dropInBadge(dec.to);
   paintAll();
   if (E.over(M.st)) finish();
   return { ok:true };
