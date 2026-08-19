@@ -446,6 +446,22 @@ function num(v){ return (typeof v === 'number' && isFinite(v)) ? Math.floor(v) :
 function list(v){ return (Array.isArray(v) && v.length) ? v : null; }
 function fn(v){ return (typeof v === 'function') ? v : null; }
 
+/* ── THE TABLE SIZE THE HOST PICKED ───────────────────────────────────
+   How many chairs to put out when opening a room of `k`. The host may have
+   set one on the setup screen (MP.wantCap); if not, the game's own sensible
+   default is used. Either way it is CLAMPED into the game's real range so a
+   stale pick from a bigger game can never open an out-of-range table — the
+   relay clamps too, but clamping here keeps the number the host SEES honest.
+   A two-seat game has no choice to make and always returns 2. */
+function wantCapFor(k){
+  const LB = gameLobby(k);
+  const min = LB.minSeats, max = LB.maxSeats;
+  if (max <= min) return min;
+  const picked = num(MP.wantCap);
+  const n = (picked && picked >= min) ? picked : LB.defaultSeats;
+  return Math.max(min, Math.min(max, n));
+}
+
 /* ── THE MODE PICKER, SHARED ──────────────────────────────────────────
    The variant was bound write-once when the room was opened; the host had to
    leave and re-open to change one word, throwing everyone out. These three
@@ -824,6 +840,12 @@ const MP = {
   roster:null,          /* the last {t:'table'} — the whole truth on who  */
   iAmReady:false,       /* my own bit, echoed back by the roster          */
   wantSeats:0,          /* chairs we asked for when we opened it          */
+  /* THE TABLE SIZE THE HOST PICKED, before opening. 0 means "not chosen,
+     use the game's own default". Clamped into [minSeats,maxSeats] the
+     moment it is read (see wantCapFor). It is the seat count sent as
+     `create.seats`, so the host owns the table size from the setup screen —
+     the lobby, not the game, decides how many chairs go out. */
+  wantCap:0,
   variant:null,         /* which flavour, where a game has flavours       */
   showRules:false,      /* the rules panel, folded open IN PLACE          */
   panel:null,           /* which inline drawer is open: 'ai' | 'ask' | null */
@@ -1254,6 +1276,45 @@ function injectCSS(){
     '#scr-mp .mp-thd{margin:16px 2px 8px;font:700 10px/1 var(--disp);letter-spacing:.16em;' +
       'text-transform:uppercase;color:#8478A8}' +
 
+    /* the seat stepper — setup screen and the host's lobby control */
+    '#scr-mp .mp-setrow{display:flex;align-items:center;gap:12px;margin:14px 0 4px;' +
+      'padding:11px 13px;border-radius:15px;background:rgba(255,255,255,.045);' +
+      'border:1px solid rgba(255,255,255,.10)}' +
+    '#scr-mp .mp-setlbl{flex:1;min-width:0}' +
+    '#scr-mp .mp-setlbl b{display:flex;align-items:center;gap:7px;font:800 13px/1.1 var(--disp);' +
+      'letter-spacing:.02em;color:#F2ECFF}' +
+    '#scr-mp .mp-setlbl b .ico{width:16px;height:16px;color:#C6AEFF}' +
+    '#scr-mp .mp-setlbl i{display:block;margin-top:5px;font-style:normal;font-size:11px;' +
+      'line-height:1.45;color:#9C8FC0}' +
+    '#scr-mp .mp-seats{flex:0 0 auto;display:flex;align-items:center;gap:8px}' +
+    '#scr-mp .mp-seatb{flex:0 0 auto;width:40px;height:40px;border-radius:12px;cursor:pointer;' +
+      'display:grid;place-items:center;border:1px solid rgba(138,92,255,.40);' +
+      'background:rgba(138,92,255,.16);color:#D9C9FF;font:900 22px/1 var(--disp)}' +
+    '#scr-mp .mp-seatb .ico{width:18px;height:18px}' +
+    '#scr-mp .mp-seatsym{font:900 24px/1 var(--disp);margin-top:-2px}' +
+    '#scr-mp .mp-seatb:active{transform:scale(.94)}' +
+    '#scr-mp .mp-seatb[disabled]{opacity:.32;cursor:default}' +
+    '#scr-mp .mp-seatn{flex:0 0 auto;min-width:52px;text-align:center;line-height:1}' +
+    '#scr-mp .mp-seatn b{display:block;font:900 22px/1 var(--disp);color:#FFC542}' +
+    '#scr-mp .mp-seatn i{display:block;margin-top:3px;font-style:normal;font-size:9px;' +
+      'letter-spacing:.06em;color:#9C8FC0;white-space:nowrap}' +
+
+    /* the customise affordance — host AND each player, while they wait */
+    '#scr-mp .mp-cust{display:flex;align-items:center;gap:11px;width:100%;text-align:left;' +
+      'min-height:54px;padding:9px 13px;margin:8px 0 2px;border-radius:15px;cursor:pointer;' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.12),rgba(255,197,66,.03));' +
+      'border:1px solid rgba(255,197,66,.34);color:#F6EEDA}' +
+    '#scr-mp .mp-cust:active{transform:scale(.99)}' +
+    '#scr-mp .mp-cust .mp-custico{flex:0 0 auto;width:34px;height:34px;border-radius:11px;' +
+      'display:grid;place-items:center;background:rgba(255,197,66,.20);color:#FFDE93}' +
+    '#scr-mp .mp-cust .mp-custico .ico{width:19px;height:19px}' +
+    '#scr-mp .mp-cust span{flex:1;min-width:0}' +
+    '#scr-mp .mp-cust b{display:block;font:800 13.5px/1.15 var(--disp);letter-spacing:.02em}' +
+    '#scr-mp .mp-cust i{display:block;margin-top:3px;font-style:normal;font-size:11px;' +
+      'line-height:1.4;color:#C9B893}' +
+    '#scr-mp .mp-cust em{flex:0 0 auto;color:#FFDE93}' +
+    '#scr-mp .mp-cust em .ico{width:16px;height:16px}' +
+
     /* the chairs */
     '#scr-mp .mp-chairs{display:flex;flex-direction:column;gap:7px}' +
     '#scr-mp .mp-chair{display:flex;align-items:center;gap:10px;min-height:56px;' +
@@ -1267,11 +1328,18 @@ function injectCSS(){
       'rgba(138,92,255,.04));border-color:rgba(138,92,255,.36)}' +
     '#scr-mp .mp-chair.me{box-shadow:inset 3px 0 0 #FFC542}' +
     '#scr-mp .mp-chair.away{opacity:.6}' +
-    '#scr-mp .mp-cn{flex:0 0 auto;width:28px;height:28px;border-radius:9px;display:grid;' +
-      'place-items:center;font:700 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
-      'color:#A093C4;background:rgba(0,0,0,.28);border:1px solid rgba(255,255,255,.10)}' +
-    '#scr-mp .mp-chair.ready .mp-cn{color:#8FE7B6;border-color:rgba(61,220,132,.34)}' +
-    '#scr-mp .mp-chair.bot .mp-cn{color:#C6AEFF;border-color:rgba(138,92,255,.38)}' +
+    /* the seat plate — a real avatar with the chair number as a small badge */
+    '#scr-mp .mp-cav{flex:0 0 auto;position:relative;width:38px;height:38px;line-height:0}' +
+    '#scr-mp .mp-cav>[data-kx-av],#scr-mp .mp-cav .kx-av-fallback{display:block;border-radius:11px}' +
+    '#scr-mp .mp-cbot{display:grid;place-items:center;width:38px;height:38px;border-radius:11px;' +
+      'background:rgba(138,92,255,.16);border:1px solid rgba(138,92,255,.34);color:#C6AEFF}' +
+    '#scr-mp .mp-cbot .ico{width:20px;height:20px}' +
+    '#scr-mp .mp-cn{position:absolute;right:-4px;bottom:-4px;min-width:16px;height:16px;' +
+      'padding:0 3px;border-radius:8px;display:grid;place-items:center;' +
+      'font:800 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#F2ECFF;' +
+      'background:#2A1E48;border:1px solid rgba(255,255,255,.16);box-shadow:0 1px 3px rgba(0,0,0,.5)}' +
+    '#scr-mp .mp-chair.ready .mp-cn{color:#8FE7B6;border-color:rgba(61,220,132,.40)}' +
+    '#scr-mp .mp-chair.away .mp-cav{opacity:.55;filter:grayscale(.4)}' +
     '#scr-mp .mp-cw{flex:1;min-width:0}' +
     '#scr-mp .mp-cw b{display:block;font-size:13.5px;font-weight:800;line-height:1.25;' +
       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
@@ -1420,6 +1488,61 @@ function injectCSS(){
   document.head.appendChild(st);
 }
 
+/* ── THE SEAT STEPPER, SHARED ──────────────────────────────────────────
+   One control, used in two places: the setup screen (host picks the size
+   before opening) and — for the host — the waiting lobby. It reads the game's
+   real [min,max] range and never lets the number out of it. `floor` is the
+   lowest it may go RIGHT NOW: on setup that is the game's minimum; in a live
+   lobby it is however many chairs are already spoken for, so the host can never
+   shrink the table under the people already in it. */
+function seatStepperHTML(k, cur, floor, o){
+  o = o || {};
+  const LB = gameLobby(k);
+  const min = Math.max(LB.minSeats, floor || LB.minSeats);
+  const max = LB.maxSeats;
+  const n = Math.max(min, Math.min(max, cur));
+  const decOff = n <= min, incOff = n >= max;
+  return '<div class="mp-seats" role="group" aria-label="Table size">' +
+    '<button class="mp-seatb" data-seatdelta="-1"' + (decOff ? ' disabled aria-disabled="true"' : '') +
+      ' aria-label="Fewer chairs"><span class="mp-seatsym">&minus;</span></button>' +
+    '<span class="mp-seatn"><b>' + n + '</b><i>' +
+      (o.caption || ('seat' + (n === 1 ? '' : 's') + ' · up to ' + max)) + '</i></span>' +
+    '<button class="mp-seatb" data-seatdelta="1"' + (incOff ? ' disabled aria-disabled="true"' : '') +
+      ' aria-label="More chairs">' + ico('plus') + '</button>' +
+  '</div>';
+}
+
+/* the setup-screen block: a labelled seat stepper, only where there is a
+   genuine choice (a two-seat game shows nothing). */
+function seatSetupHTML(k){
+  if (!gamePlayable(k)) return '';
+  const LB = gameLobby(k);
+  if (LB.maxSeats <= LB.minSeats) return '';
+  const cur = wantCapFor(k);
+  return '<div class="mp-setrow">' +
+    '<div class="mp-setlbl">' + ico('users') + ' <b>Table size</b>' +
+      '<i>How many chairs go out. You can start the moment enough are ready — ' +
+      'empty chairs never hold it up.</i></div>' +
+    seatStepperHTML(k, cur, LB.minSeats,
+      { caption:'chairs · ' + LB.minSeats + ' to ' + LB.maxSeats }) +
+  '</div>';
+}
+
+/* wire the setup stepper: each tap adjusts MP.wantCap and repaints the setup
+   screen so the number, the button label and the open button all follow. */
+function wireSeatSetup(k){
+  const LB = gameLobby(k);
+  $$('#scr-mp .mp-setrow [data-seatdelta]').forEach(b => b.onclick = () => {
+    const d = Number(b.dataset.seatdelta) || 0;
+    const cur = wantCapFor(k);
+    const next = Math.max(LB.minSeats, Math.min(LB.maxSeats, cur + d));
+    if (next === cur) return;
+    MP.wantCap = next;
+    sfx(d > 0 ? 'ui.toggle' : 'ui.untoggle');
+    mpScreen();
+  });
+}
+
 /* ── the lobby screen ──────────────────────────────────────────────── */
 function mpScreen(){
   injectCSS();
@@ -1460,6 +1583,11 @@ function mpScreen(){
             '</button>';
         }).join('') +
       '</div>' +
+      /* THE TABLE SIZE, PICKED BEFORE OPENING. A game that seats a real range
+         gets a stepper here so the host chooses how big the table is — the
+         lobby, not the game, owns the seat count. A two-seat game shows nothing,
+         because there is no choice to make. */
+      seatSetupHTML(want) +
       '<button class="btn primary" id="mp-open" style="margin-top:10px">' + ico('plus') +
         ' Open a ' + esc(gameMeta(want).name.toLowerCase()) + ' room</button>' +
       '<p class="mp-more">One tap. Everyone online sees it straight away, labelled ' +
@@ -1511,10 +1639,16 @@ function mpScreen(){
       if (!gamePlayable(g)) return;
       MP.wantGame = g;
       MP.filter = g;
+      /* a fresh game gets its own default table size — a stale pick from a
+         bigger game must never carry across and open an odd-sized room */
+      MP.wantCap = 0;
       rememberGame(g);
       mpScreen();
     };
   });
+
+  /* the setup seat stepper (host picks the table size before opening) */
+  wireSeatSetup(want);
 
   if ($('#mp-deck')){
     const opts = deckPicker($('#mp-deck'), MP.myDeckId || deckOptions()[0].id, o => {
@@ -1642,18 +1776,23 @@ function openSocket(intent){
        out loud in `created` for anything else. */
     if (intent === 'create'){
       /* HOW MANY CHAIRS. The seat count is the primary piece of room data, not
-         an afterthought: "This is a oarty not duo". We ask for the game's own
-         maximum so the room reads as a table filling up — "1 of 8" — rather
-         than a duel that somebody might sit out. Nobody is ever obliged to
-         fill it; the host starts the moment there are enough.
+         an afterthought: "This is a oarty not duo". The HOST owns it — the
+         setup screen's seat stepper writes MP.wantCap, and wantCapFor() clamps
+         it into this game's real [min,max] range. With no pick it falls back to
+         the game's own sensible default, so a fresh rummy room opens as "1 of 4"
+         (growable to 12) rather than a wall of eleven empty chairs. The room is
+         still a table filling up — "1 of N" — and nobody is ever obliged to
+         fill it; the host starts the moment enough are ready.
          An older relay ignores `seats` and answers without it, which is how
-         `created` spots one and says so. */
+         `created` spots one and says so; the relay clamps the number to the
+         same range, so a value out of range fails loudly there, never silently. */
       const LB = gameLobby(MP.wantGame || 'cards');
-      MP.wantSeats = LB.maxSeats;
+      const want = wantCapFor(MP.wantGame || 'cards');
+      MP.wantSeats = want;
       MP.variant = MP.variant || null;
       const msg = { t:'create', private: !!MP.wantPrivate,
                     game: MP.wantGame || 'cards' };
-      if (LB.maxSeats > 2) msg.seats = LB.maxSeats;
+      if (want > 2) msg.seats = want;
       if (MP.variant) msg.variant = MP.variant;
       send(msg);
     }
@@ -2562,6 +2701,24 @@ function tableLobby(){
       chairRows(seats, free, iAmHost, LB) +
     '</div>' +
 
+    /* ── THE TABLE SIZE, the host's to change while waiting ──
+       Only shown to the host, and only where the game seats a real range. The
+       floor is however many chairs are already spoken for, so a host can never
+       shrink the table under the people in it. On a relay that carries the
+       `resize` message the change propagates to everyone; on an older one it is
+       ignored and the roster simply keeps the size it had — no lie either way. */
+    (iAmHost && !MP.roster.local && LB.maxSeats > LB.minSeats
+      ? '<div class="mp-setrow" id="mp-seatrow">' +
+          '<div class="mp-setlbl">' + ico('users') + ' <b>' +
+            esc(T('Table size', 'Daqs tal-mejda')) + '</b>' +
+            '<i>' + esc(T('Add or drop open chairs. Empty ones never hold the start up.',
+                          'Żid jew naqqas siġġijiet. Dawk vojta qatt ma jżommu l-bidu.')) +
+          '</i></div>' +
+          seatStepperHTML(MP.game, MP.size, Math.max(LB.minSeats, taken),
+            { caption:taken + ' seated · up to ' + LB.maxSeats }) +
+        '</div>'
+      : '') +
+
     /* ── the two drawers, both of which open IN PLACE ── */
     (MP.panel === 'ai'  ? aiDrawer(LB) : '') +
     (MP.panel === 'ask' ? askDrawer() : '') +
@@ -2582,6 +2739,26 @@ function tableLobby(){
             ? esc((seats[0] ? seats[0].name : 'The host') + ' can start whenever they like.')
             : esc(verdict.why)) + '</p>') +
     '</div>' +
+
+    /* ── CUSTOMISE, while you wait ──
+       Host AND each player can open this game's cosmetics and change their own
+       look without leaving the room. It is per-player and purely cosmetic — it
+       touches nothing about the room, the seating or anybody's ready bit — so
+       it is offered to everyone, not just the host. Shown only where a
+       customisation surface exists on this phone (see lobbyCustomiseScope). */
+    (customiseScope() !== null
+      ? '<button class="mp-cust" id="mp-custbtn" data-custlobby="1">' +
+          '<span class="mp-custico">' + ico('star') + '</span>' +
+          '<span><b>' + esc(T('Customise your look', 'Ippersonalizza')) + '</b>' +
+          '<i>' + esc(customiseScope() === 'you'
+                ? T('Your face and frame — change it while you wait.',
+                    'Wiċċek u l-kunturn — ibdilhom waqt li tistenna.')
+                : T('This game’s felts, backs and trims — yours to pick, nobody is dropped.',
+                    'Il-ħwejjeġ ta’ din il-logħba — agħżel, ħadd ma jitneħħa.')) +
+          '</i></span>' +
+          '<em>' + ico('arrow-right') + '</em>' +
+        '</button>'
+      : '') +
 
     /* ── who is actually about — in the open, above the drawer ── */
     '<div id="mp-around"></div>' +
@@ -2663,6 +2840,19 @@ function tableLobby(){
     MP.panel = null;
     tableLobby();
   });
+  /* the host's seat stepper — grow or shrink the open table while waiting */
+  $$('#mp-seatrow [data-seatdelta]').forEach(b => b.onclick = () => {
+    const d = Number(b.dataset.seatdelta) || 0;
+    const LBn = gameLobby(MP.game);
+    const floor = Math.max(LBn.minSeats, rosterSeats().length);
+    const next = Math.max(floor, Math.min(LBn.maxSeats, MP.size + d));
+    if (next === MP.size) return;
+    sfx(d > 0 ? 'ui.toggle' : 'ui.untoggle');
+    resizeTable(next);
+  });
+  /* CUSTOMISE — open this game's cosmetics, come straight back to the lobby */
+  const cb = $('#mp-custbtn');
+  if (cb) cb.onclick = () => { sfx('ui.sheet'); openLobbyCustomise(); };
   $('#mp-askbtn').onclick = () => {
     MP.panel = MP.panel === 'ask' ? null : 'ask';
     if (MP.panel === 'ask') whoAsk(true);
@@ -2720,6 +2910,104 @@ function tableLobby(){
   paintState();
 }
 
+/* ── THE HOST GROWS OR SHRINKS THE OPEN TABLE ──────────────────────────
+   The relay is the authority on the room's size, exactly as it is on the game
+   and the mode: this sends a `resize` and waits for the roster to come back
+   carrying the new count, so every phone follows the change in one repaint and
+   two hosts can never disagree. A relay that does not know `resize` ignores it
+   (the same way it ignores `private` on an older build), and the size simply
+   stays as it was — nothing here lies about a change the server did not make.
+   The optimistic local bump keeps the button responsive; the next roster is the
+   answer, and onRoster()'s `m.seats` overwrites it whichever way the relay went.
+   >>> RELAY: a `resize` handler is the one server change this needs. It mirrors
+   set_game's resize block — clamp `n` into seat_range(game,variant), never below
+   room.taken(), never past a bot seat, then re-broadcast room.roster(). Until it
+   ships, the host picks the final size on the SETUP screen (create.seats), which
+   the relay already honours; this control then only ever GROWS toward that max. */
+function resizeTable(n){
+  const LB = gameLobby(MP.game);
+  const floor = Math.max(LB.minSeats, rosterSeats().length);
+  n = Math.max(floor, Math.min(LB.maxSeats, n | 0));
+  if (n === MP.size) return;
+  send({ t:'resize', seats: n });
+  /* optimistic, and only ever wider: growing shows the new empty chairs at once;
+     a shrink waits for the relay so we never hide a chair somebody is sitting in
+     on a relay that refused the change. */
+  if (n > MP.size){ MP.size = n; tableLobby(); }
+}
+
+/* WHICH CUSTOMISATION SURFACE THIS LOBBY CAN OPEN, or null if none is on the
+   phone. A game that registered its own cosmetics (felts, card backs, trims)
+   opens scoped to itself; otherwise the general wardrobe — your face and frame,
+   which every player always has — is offered instead. Never throws. */
+function customiseScope(){
+  try {
+    const XP = window.KARTI_XP;
+    if (!XP || typeof XP.open !== 'function') return null;
+    if (typeof XP.games === 'function'){
+      const gs = XP.games() || [];
+      if (gs.indexOf(MP.game) >= 0) return MP.game;   /* this game's own kit */
+    }
+    /* the wardrobe (faces/borders) is always there for a signed-in profile */
+    return 'you';
+  } catch (e){ return null; }
+}
+
+/* OPEN THE COSMETICS SURFACE, AND COME BACK TO THE LOBBY.
+   Per-player and purely cosmetic: it never leaves the room, never touches the
+   ready bit, and returns to this exact lobby rather than home. The return is
+   threaded through KARTI_XP.open's second argument (a small additive hook in
+   js/progress-ui.js): {back:fn} makes its Back button and the Android hardware
+   back run `fn` instead of going home. If the running build's progress-ui does
+   not carry the hook, we fall back to re-opening the lobby ourselves the moment
+   the customise screen closes — so it is back-safe on every build. */
+function openLobbyCustomise(){
+  const scope = customiseScope();
+  if (scope === null) return;
+  const backToLobby = () => {
+    /* still in the room? repaint the lobby. If the room went away while we were
+       out (rare), the online screen is the honest place to land. */
+    if (MP.code && (MP.joined || MP.host)) mpBackToLobby();
+    else mpScreen();
+  };
+  try {
+    const XP = window.KARTI_XP;
+    /* preferred path: the additive hook. Older progress-ui ignores the 2nd arg
+       and its Back goes home — caught by the visibility fallback below. */
+    XP.open(scope, { back: backToLobby, from:'mp' });
+  } catch (e){ backToLobby(); return; }
+  armCustomiseReturn(backToLobby);
+}
+
+/* Belt and braces for an older progress-ui whose Back button routes home: watch
+   for the customise screen closing and, if we are not already back on the lobby,
+   bring it back. One-shot; it disarms itself the instant it fires or the screen
+   is gone. */
+function armCustomiseReturn(backToLobby){
+  let tries = 0;
+  const tick = () => {
+    tries++;
+    const kx = document.getElementById('scr-kx');
+    const kxOn = kx && kx.classList.contains('on');
+    const mpOn = (() => { const s = $('#scr-mp'); return s && s.classList.contains('on'); })();
+    if (kxOn){ if (tries < 600) setTimeout(tick, 120); return; }   /* still customising */
+    /* customise closed. If the app did not land us back on the lobby, do it. */
+    if (!mpOn) backToLobby();
+  };
+  setTimeout(tick, 250);
+}
+
+/* Re-enter the lobby for the room we are already in, without re-opening a
+   socket. K.go('mp') makes the Online screen the visible one AND paints it
+   (its mpScreen() call is idempotent); lobby() then paints the table we are
+   seated at over the room list. If the app shell is missing K.go we still paint
+   the screen directly so nothing is left blank. */
+function mpBackToLobby(){
+  try { if (window.KARTI && KARTI.go) KARTI.go('mp'); else mpScreen(); }
+  catch (e){ mpScreen(); }
+  lobby();
+}
+
 /* the one line under the header. It is the difference between a room that is
    filling up and a room that is empty, so it never says "waiting". */
 function tableLine(taken, free, iAmHost){
@@ -2750,6 +3038,28 @@ function safeRules(LB){
 }
 
 /* ── the chairs ─────────────────────────────────────────────────── */
+/* ONE PLAYER, DRAWN THE ONE WAY. The whole app draws a person through
+   KARTI_XP.avatarHTML — the leaderboard, the profile sheet, the winner screen —
+   so a seat plate uses the same call and cannot disagree with them. My own seat
+   passes {me:true} so it wears my real face and frame; another seat is drawn
+   from its name (the roster does not carry a stranger's avatar id), which is
+   stable and coloured per-name. A machine seat gets a plain medallion. If the
+   progress kit is not on this phone the call returns an initial medallion of its
+   own, so this never has to check. */
+function seatAvatar(s, me){
+  try {
+    const XP = window.KARTI_XP;
+    if (XP && typeof XP.avatarHTML === 'function' && s.kind !== 'cpu'){
+      return XP.avatarHTML(s.name || 'Player',
+        { size:38, me:!!me, noBorder:false, label:(s.name || 'Player') });
+    }
+  } catch (e){}
+  /* machine (or no kit): a quiet medallion with the game's die/piece mark */
+  return '<span class="mp-cbot" aria-hidden="true">' +
+    (s.kind === 'cpu' ? ico('diff-' + Math.max(1, Math.min(3, s.level || 2))) : ico('users')) +
+    '</span>';
+}
+
 function chairRows(seats, free, iAmHost, LB){
   /* PEOPLE FIRST, FURNITURE AFTER.
      Drawing every empty chair as its own row was the first thing that went
@@ -2768,7 +3078,8 @@ function chairRows(seats, free, iAmHost, LB){
       ? (LB.levels.find(x => x.level === s.level) || { name:'Machine' }).name : '';
     h += '<div class="mp-chair' + (s.ready ? ' ready' : '') + (me ? ' me' : '') +
           (s.kind === 'cpu' ? ' bot' : '') + (s.here ? '' : ' away') + '">' +
-      '<span class="mp-cn">' + (i + 1) + '</span>' +
+      '<span class="mp-cav">' + seatAvatar(s, me) +
+        '<span class="mp-cn">' + (i + 1) + '</span></span>' +
       '<span class="mp-cw"><b>' + esc(s.name) + (me ? ' <em>you</em>' : '') +
         (i === 0 ? ' <em>host</em>' : '') + '</b>' +
       '<i>' + (s.kind === 'cpu'

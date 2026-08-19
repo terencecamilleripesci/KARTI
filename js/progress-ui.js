@@ -1028,7 +1028,7 @@ function close(){
    keeps a MutationObserver as the safety net: the moment anything else
    switches a screen on we stand down instead of floating over it.
    ═══════════════════════════════════════════════════════════════════ */
-var SC = { el:null, live:false, watching:false, tab:'you', slot:'', from:'home' };
+var SC = { el:null, live:false, watching:false, tab:'you', slot:'', from:'home', back:null };
 
 /* EVERY game gets a tab, not only the ones that have put something on
    the shelf — "intory meed to be every game tab". A game with nothing
@@ -1079,11 +1079,20 @@ function standDown(){ SC.live = false; if (SC.el) SC.el.classList.remove('on'); 
 
 function closeScreen(){
   standDown();
+  /* if a caller asked to be returned to its own screen, honour that ONCE and
+     clear it, so the next plain open() goes home as before. */
+  var back = SC.back; SC.back = null;
+  if (back){ try { back(); return; } catch (e){} }
   try { if (window.KARTI && KARTI.go) KARTI.go('home'); } catch (e){}
 }
 
-function openScreen(tab){
+function openScreen(tab, opts){
   injectCSS();
+  /* ADDITIVE RETURN HOOK. A caller (the online lobby) may pass {back:fn} so the
+     Back button — and the Android hardware back — returns to ITS screen instead
+     of home. Absent, closeScreen() goes home exactly as it always did. */
+  SC.back = (opts && typeof opts.back === 'function') ? opts.back : null;
+  if (opts && opts.from) SC.from = opts.from;
   var el = screenEl();
   var app = document.getElementById('app');
   if (app) for (var i = 0; i < app.children.length; i++){
@@ -1878,7 +1887,7 @@ XP._ui({
   reward: reward,
   avatarHTML: avatarHTML,
   repaintAvatars: repaintAvatars,
-  open: function(tab){ return openScreen(tab); },
+  open: function(tab, opts){ return openScreen(tab, opts); },
   pickAvatar: function(o){ return openPicker(o); }
 });
 XP._uiLoaded = true;

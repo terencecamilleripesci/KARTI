@@ -2254,8 +2254,12 @@ document.addEventListener('click', function(ev){
   else open(what || '');
 });
 
-function open(tab){
-  if (UI && typeof UI.open === 'function') return UI.open(tab);
+function open(tab, opts){
+  /* `opts` is optional and additive: {back:fn} lets a caller (the online lobby)
+     be returned to its own screen instead of home when the customise screen
+     closes. An older UI that ignores the 2nd arg simply routes Back home, which
+     the caller guards against on its side. */
+  if (UI && typeof UI.open === 'function') return UI.open(tab, opts);
   try { if (window.KARTI && KARTI.toast) KARTI.toast('The customisation screen did not load. Try reopening the app.'); } catch (e){}
 }
 function pickAvatar(opts){
