@@ -1810,7 +1810,18 @@ function onlineStart(cfg){
     name: s.name, kind: s.kind === 'cpu' ? 'cpu' : 'human',
     level: s.level, own: s.own || (s.kind === 'cpu' ? 'ai' : 'net')
   }));
-  const st = E.newMatch({ mode: null, seats: defs, seed: cfg.seed >>> 0 });
+  /* THE MODE COMES FROM THE LOBBY'S RULES PICKER. The shared lobby folds the
+     room's chosen variant onto cfg.opts.mode (mp.js: opts.mode = m.variant);
+     that variant is 'karti' or 'klassika', the two nets LOBBY.variants
+     publishes. Passing it straight into newMatch lands the online battle in
+     phase 'place' — the ship-placement step — instead of phase 'mode'. A
+     MISSING mode (an older relay, or a room that never picked one) is still
+     honoured: newMatch then opens in phase 'mode' and the in-game host
+     mode-pick (paintModePick) answers it, exactly as before — nothing about
+     that path is removed. */
+  const netMode = (cfg.opts && (cfg.opts.mode === 'klassika' || cfg.opts.mode === 'karti'))
+    ? cfg.opts.mode : null;
+  const st = E.newMatch({ mode: netMode, seats: defs, seed: cfg.seed >>> 0 });
   G = { st, mode:'online', mySeat: cfg.you | 0, net: cfg.net || null,
         stage:'place', view:'them', target: -1, aim: null,
         q: [], busy: false, dead: false };
@@ -1887,6 +1898,32 @@ const LOBBY = {
   maxSeats: E.MAX_SEATS,
   levels: LEVELS.map(l => ({ level: l.k, name: l.name, note: l.note })),
   defaultLevel: 2,
+  /* THE HOST-CHANGEABLE MODE, as the shared lobby's Rules picker wants it
+     (mp.js: lobbyVariants → currentVariant → applyVariant → {t:'setvariant'}).
+     GĦARRAQHOM's flavour is the mode — the fun KARTI shot-card game or the
+     plain Klassika one-shell-a-turn game — and now it is picked in the online
+     lobby before the fleets go down, not with the in-game host tap. Each
+     entry's `net` is the relay's word for the mode, which is exactly what
+     newMatch takes, so applyVariant hands it back untouched. */
+  variants: [
+    { net:'karti',    label:{ en:'KARTI mode', mt:'Mod KARTI' } },
+    { net:'klassika', label:{ en:'Klassika',   mt:'Klassika' } }
+  ],
+  /* the room is the authority: prefer the relay's word (MP.variant), and when
+     no room has spoken yet default to karti — the same default the offline
+     start and setupAI use, so the Rules button opens on the fun mode. */
+  currentVariant(){
+    try {
+      const v = window.KARTI_MP && window.KARTI_MP.MP && window.KARTI_MP.MP.variant;
+      if (v === 'klassika' || v === 'karti') return v;
+    } catch(e){}
+    return 'karti';
+  },
+  /* a picked mode → the wire word. mp.js re-broadcasts it as the room's
+     variant, which onlineStart then reads back onto newMatch's `mode`. */
+  applyVariant(net){
+    return { variant: net === 'klassika' ? 'klassika' : 'karti' };
+  },
   isReady: seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
   canStart(seatList){

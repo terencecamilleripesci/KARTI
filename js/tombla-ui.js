@@ -2826,7 +2826,17 @@ function finish(){
 function onlineStart(cfg){
   /* cfg: {opts, seed, seats:[{name,own}], you, host, net} */
   cfg = cfg || {};
-  T.startMatch(cfg.opts || {}, cfg.seed);
+  /* THE HOST'S MODE, TRANSLATED BEFORE THE DEAL.
+     js/mp.js hands the room's chosen variant straight through as
+     opts.mode — but that is the ROOM'S word ('klassika' / 'kazin'), and
+     js/tombla.js's optsOf() only knows the engine's ('ladder' / 'hall')
+     and folds anything it does not recognise into klassika. So a każin
+     room would deal one kartella. Turn the net word into the engine's
+     here, once, before startMatch touches optsOf. A cfg with no mode, or
+     one already in the engine's own words, is left exactly as it was. */
+  const opts = Object.assign({}, cfg.opts || {});
+  if (typeof opts.mode === 'string') opts.mode = netToMode(opts.mode);
+  T.startMatch(opts, cfg.seed);
   const st = T.state();
   (cfg.seats || []).forEach((s, i) => {
     if (!st.seats[i]) return;
@@ -2886,6 +2896,33 @@ P.online.tombla = {
    constant in js/tombla.js or a name in the setup sheet above; all
    that was missing was saying so out loud.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── THE MODE, AS THE LOBBY'S WORD ────────────────────────────────
+   js/tombla.js knows two modes and spells them 'ladder' (klassika, one
+   kartella) and 'hall' (tal-każin, the full ġog). The shared room list
+   wants a NET word per flavour and hands the host's pick straight back
+   as the game's `mode` — so the net word a każin publishes must be one
+   optsOf() will not silently fold into the wrong game. optsOf() reads
+   'hall' as hall and EVERYTHING ELSE as ladder, which is exactly the
+   trap: a net word of 'kazin' would deal klassika. So the two words the
+   room speaks are kept SEPARATE from the two the engine deals, and the
+   pair of one-line maps below is the only bridge between them. The room
+   says 'klassika' / 'kazin' on the wire (and gets them straight back
+   from applyVariant, which is what mp.js stores as MP.variant); the
+   engine is only ever handed 'ladder' / 'hall', because onlineStart
+   translates the net word before it can reach optsOf(). */
+const NET_TO_MODE = { klassika:'ladder', kazin:'hall' };
+const MODE_TO_NET = { ladder:'klassika', hall:'kazin' };
+const netToMode = net => NET_TO_MODE[net] || (net === 'hall' || net === 'ladder' ? net : 'hall');
+const modeToNet = mode => MODE_TO_NET[mode] || (mode === 'kazin' || mode === 'klassika' ? mode : 'kazin');
+
+/* the mode the host has settled the online room on, as a NET word. It
+   starts on the table's own default (tal-każin, T.DEFAULTS.mode) and is
+   moved only by applyVariant() below — the host tapping the shared Rules
+   button. currentVariant() is the fallback the room reads before anybody
+   has touched it; once the host picks, mp.js's own MP.variant is the
+   authority and this is left as the record of the last local choice. */
+let roomVariant = modeToNet(T.DEFAULTS.mode);
+
 const LOBBY = {
   id:'tombla',
   name:'TOMBLA',
@@ -2928,6 +2965,31 @@ const LOBBY = {
   rulesHTML: rulesPanel,
   blurb:'A ġog of six kartelli, ninety numbers, and you mark every one yourself. ' +
         'Up to sixteen of you at once, and nobody ever waits for a turn.',
+
+  /* THE HOST-CHANGEABLE MODE, ON THE SHARED RULES BUTTON.
+     Publishing this list is all it takes for js/mp.js to grow the Rules
+     button in the room and let the host swap KLASSIKA for TAL-KAŻIN in
+     place — the każin/klassika choice the setup sheet makes offline,
+     made online without a settings wall. The net words are the room's
+     ('klassika' / 'kazin'); the engine only ever sees 'ladder' / 'hall',
+     because onlineStart translates them (see netToMode). The order is
+     tal-każin first because it is the table's default and the game Malta
+     actually plays. */
+  variants: [
+    { net:'klassika', label:{ en:'Klassika',  mt:'Klassika'  } },
+    { net:'kazin',    label:{ en:'Tal-każin', mt:'Tal-każin' } }
+  ],
+  /* which flavour the room is on, as the room's word. mp.js prefers its
+     own MP.variant once the host has picked; this is the fallback before
+     anybody has, and it is the table's default (tal-każin). */
+  currentVariant(){ return roomVariant; },
+  /* the host picked one. Remember it and hand the SAME net word back —
+     mp.js stores that as MP.variant and puts it on the wire, and
+     onlineStart turns it into the engine's real mode at deal time. */
+  applyVariant(net){
+    if (net === 'klassika' || net === 'kazin') roomVariant = net;
+    return { variant: roomVariant };
+  },
 
   /* the offline twin of the room, for anything that wants to open a
      tombla from a seat list rather than from the setup sheet */

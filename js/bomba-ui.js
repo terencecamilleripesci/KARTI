@@ -440,6 +440,11 @@ const TICK_MS = 1000 / E.SIM_HZ;                 /* 62.5 at 16Hz */
 const LEAD_MS = 2400;
 
 function mapDef(id){ return E.MAPS[id] || E.MAPS.arena; }
+/* how many seats a map can spawn — the ceiling the lobby clamps chairs to
+   when this map is the room's chosen variant (Duell spawns two). */
+function mapSpawnCount(id){
+  try { return E.parseMap(mapDef(id)).spawns.length; } catch(e){ return E.MAX_SEATS; }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    START A MATCH
@@ -1989,6 +1994,42 @@ R.lobby = {
   maxSeats: E.MAX_SEATS,
   levels: LEVELS,
   defaultLevel: 2,
+  /* THE HOST-CHANGEABLE MAP, as the shared lobby's Rules picker wants it:
+     one variant per shipped map. The `net` word IS the engine's map id, so
+     the relay's deterministic variant broadcast names the exact same
+     validated map on every phone — the choice cannot fork the lockstep.
+     Each variant carries the seat range that map's spawn count allows, so
+     the lobby re-clamps chairs when a smaller arena is chosen (Duell seats
+     two). Labels are ours (the engine authors no player strings). */
+  get variants(){
+    return MAP_ORDER.map(id => {
+      const w = MAPWORDS[id]();
+      const spawns = mapSpawnCount(id);
+      const seats = [];
+      for (let n = E.MIN_SEATS; n <= Math.min(E.MAX_SEATS, spawns); n++) seats.push(n);
+      return { net:id, label:{ en:w.n, mt:w.n }, seats };
+    });
+  },
+  /* which map this room is on, as the relay's word. The room (MP.variant)
+     is the authority; offline this falls back to the saved pick, then arena
+     — and mp.js only calls this when MP.variant is unset. */
+  currentVariant(){
+    try {
+      const v = window.KARTI_MP && window.KARTI_MP.MP && window.KARTI_MP.MP.variant;
+      if (v && E.MAPS[v]) return v;
+    } catch(e){}
+    const p = (pref().map);
+    return (p && E.MAPS[p]) ? p : 'arena';
+  },
+  /* the host picked a map. Validate it to a real shipped map, remember it as
+     the pick the next online start will build, and hand the relay the word.
+     Seat re-clamping is the lobby's job off each variant's `seats` range
+     above; here we only settle WHICH map. */
+  applyVariant(net){
+    const map = (net && E.MAPS[net]) ? net : 'arena';
+    pref({ map });
+    return { variant: map };
+  },
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,

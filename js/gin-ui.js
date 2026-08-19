@@ -2872,6 +2872,22 @@ window.KARTI_GIN.lobby = {
     'a hand counts minus. First to +300 takes the match.</p>',
   blurb: 'Match 45. Open the table.',
   myName,
+  /* THE HOST'S ONE DIAL — the shared lobby's Rules button. Gin's
+     host-changeable rule is the HAND SIZE: ten cards or thirteen. Each
+     variant carries the relay's word and a bilingual label; the host
+     picks, mp.js sends {t:'setvariant'}, the relay re-broadcasts, and
+     every seat repaints. applyVariant writes ST.pref.hand so the online
+     start()'s `hand: ST.pref.hand === 13 ? 13 : 10` reaches the deal. */
+  variants: [
+    { net: 'g10', label: { en: 'Gin · ten cards',      mt: 'Gin · għaxra'  } },
+    { net: 'g13', label: { en: 'Gin · thirteen cards', mt: 'Gin · tlettax' } }
+  ],
+  currentVariant: () => (ST.pref.hand === 13 ? 'g13' : 'g10'),
+  applyVariant: net => {
+    ST.pref.hand = (net === 'g13') ? 13 : 10;
+    persist();
+    return { variant: (net === 'g13') ? 'g13' : 'g10' };
+  },
   start: () => { newGame({ lvl: ST.pref.lvl || 2, target: ST.pref.target || 300,
                           hand: ST.pref.hand === 13 ? 13 : 10 }); return true; },
   wire: { fields: ['i', 'j', 'k'] },

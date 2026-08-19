@@ -385,6 +385,14 @@ GAME_VARIANTS = {
     # as rummy carries its hand size: '21' (blackjack, vs the dealer) and '31'
     # (Scat / Tletin-u-Wieħed). A room names which before anybody sits down.
     "cards2131": ("21", "31"),
+    # Modes the HOST can switch from the online lobby's Rules button. The relay
+    # only whitelists the words; each game reads its own meaning off the
+    # broadcast. Seat ranges that differ per mode go in GAME_VARIANT_SEATS.
+    "gin":     ("g10", "g13"),                 # ten- vs thirteen-card gin
+    "tombla":  ("klassika", "kazin"),          # ladder vs full-ġog tal-każin
+    "gharraq": ("karti", "klassika"),          # KARTI mode vs classic battleship
+    "suspett": ("bilanc", "borma"),            # balanced pot vs the big role pool
+    "bomba":   ("arena", "labirint", "kurituri", "gzira", "duell"),  # the 5 maps
 }
 # The client calls the bluffing game "cheat" — that id is baked into its own
 # storage key and into the stats registry, so it is not free to rename. The
@@ -418,6 +426,14 @@ GAME_VARIANT_SEATS = {
     # human and takes a small table; 31 is a room game, 3..9, like its engine.
     ("cards2131", "21"):   (1, 6, 2),
     ("cards2131", "31"):   (3, 9, 4),
+    # Bomberman maps seat different counts — the four open maps take up to four,
+    # the duel map is exactly two. (gin/tombla/gharraq/suspett modes all seat
+    # the same range as their game, so they fall back to GAME_SEATS.)
+    ("bomba", "arena"):    (2, 4, 4),
+    ("bomba", "labirint"): (2, 4, 4),
+    ("bomba", "kurituri"): (2, 4, 4),
+    ("bomba", "gzira"):    (2, 4, 4),
+    ("bomba", "duell"):    (2, 2, 2),
 }
 
 

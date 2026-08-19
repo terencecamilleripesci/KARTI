@@ -1984,6 +1984,49 @@ const LOBBY = {
                  { v:300, label:'5 min' }, { v:420, label:'7 min' }] }
     ]
   },
+  /* ── THE SHARED LOBBY'S RULES PICKER ──────────────────────────────
+     KARTI's online lobby shows a host-only "Rules" button when a game
+     publishes `variants`; mp.js reads them via lobbyVariants(k). We
+     expose the host role-pool MODE (the same `mode` in settings above)
+     as the variant enum, so the host can switch balanced ↔ big-pot
+     from the lobby without leaving the chair.
+       net    = the engine mode id (S.MODES), which is exactly what
+                cfg.opts.mode carries into onlineStart.
+       label  = bilingual; English from MODE_EN, Maltese the engine's.
+     The room's other settings (reveal, day-timer, pool editor) do NOT
+     fit a single enum, so they are NOT exposed here — they keep their
+     defaults online, and can ride the opaque `rules` blob later. */
+  variants: S.MODES.map(m => ({
+    net: m.id,
+    label: { en: (MODE_EN[m.id] && MODE_EN[m.id].name) || m.name, mt: m.name }
+  })),
+  currentVariant(){
+    /* the current mode lives on the settings field's default — the same
+       object the room broadcasts and onlineStart reads as cfg.opts.mode.
+       Fall back to the persisted setup pref, then the balanced default. */
+    let md = null;
+    try {
+      const f = LOBBY.settings.fields.find(x => x.id === 'mode');
+      md = f && f.def;
+    } catch(e){}
+    if (md !== 'bilanc' && md !== 'borma') md = ST.pref && ST.pref.mode;
+    return (md === 'borma') ? 'borma' : 'bilanc';
+  },
+  applyVariant(net){
+    const variant = (net === 'borma') ? 'borma' : 'bilanc';
+    /* set the mode IN LOBBY.settings, where the online start reads it from
+       (cfg.opts.mode): update the field default so a room broadcasting its
+       settings carries the new pot, and persist it in the karti_suspett_v1
+       store (unchanged shape) so it survives a reload. Returning {variant}
+       is what mp.js puts on the wire as the room's variant word, which
+       becomes opts.mode on every phone's onlineStart. */
+    try {
+      const f = LOBBY.settings.fields.find(x => x.id === 'mode');
+      if (f) f.def = variant;
+    } catch(e){}
+    try { ST.pref.mode = variant; persist(); } catch(e){}
+    return { variant };
+  },
   get blurb(){ return T('Who is lying? One village, a hidden klikka, and the chat is the game.',
     'Min qed jigdeb? Raħal wieħed, klikka moħbija, u l-chat hu l-logħba.'); },
   myName(){
