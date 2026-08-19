@@ -273,6 +273,11 @@ let M = null;
 let UI = null;
 let FAST = false;
 
+/* the outbound move feed — how a local move reaches the wire online. Empty
+   and untouched offline (nothing subscribes), so offline is byte-identical. */
+const moveSubs = [];
+function fire(list, a){ for (const f of list.slice()){ try { f(a); } catch(e){} } }
+
 function newSeed(){ return (Math.random() * 0xFFFFFFFF) >>> 0; }
 
 function E(){ return M ? engFor(M.mode) : BJ.engine; }
@@ -334,6 +339,7 @@ function doMove(seat, move, src){
   e.apply(M.st, rec);
   moveSound(seat, move);
   autosave();
+  fire(moveSubs, { seat, move: clone(move), index: idx, src: src || 'local' });
   return { ok:true, index:idx };
 }
 
@@ -1578,13 +1584,220 @@ function rulesForPreview(mode, o){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   ONLINE — with the deal kept secret by the wire
+   ───────────────────────────────────────────────────────────────────
+   The relay deals each seat its own cards PRIVATELY (mp.js's planDeal →
+   the {t:'mine'} push); the shared seed is never trusted with a hidden
+   card. Only 31 (Tletin / Scat) has a cross-player secret — each player's
+   three cards — so only 31 asks for a private deal. 21 is one player
+   against the DEALER; no seat holds a card another seat must not see, so
+   it runs off the shared seed like a board game (the dealer's hole card
+   is hidden LOCALLY, on each client, and never leaves it).
+
+   The DRAW PILE and the UP-CARD in 31 are public — the stock is drawn one
+   at a time into a face-up discard — so they ride the shared seed, exactly
+   as skarta's stock does. Only the three cards in each hand are secret, and
+   only they come down the private channel. Free lives only; coins stay
+   behind COINS_MODE_READY. */
+let NET = null;
+
+/* the pool the lobby asks the relay to deal. 31 → three cards a seat, off
+   the 52 ids; the relay hands each seat its three, privately. 21 has no
+   hidden per-seat card, so it returns null and mp.js sends no deal (the
+   start is byte-identical to a board game). */
+function planDeal(opts){
+  const variant = (opts && (opts.variant === '31' || opts.mode === '31')) ? '31' : '21';
+  if (variant !== '31') return null;
+  const items = [];
+  for (let i = 0; i < 52; i++) items.push(i);
+  return { items, each: 3 };
+}
+
+/* the PUBLIC part of a 31 deal — the up-card and the stock — off the shared
+   broadcast seed, so every phone lands on the same draw pile without a card
+   crossing the wire. */
+function tableFromSeed(opts, seed){
+  try {
+    const st = TL.engine.deal(Object.assign({}, opts, { deal:'seed' }), seed >>> 0);
+    const up = (st.discard && st.discard.length) ? st.discard[0] : null;
+    return { up, stock: Array.isArray(st.stock) ? st.stock.slice() : [] };
+  } catch(e){ return { up:null, stock:[] }; }
+}
+
+function onlineStart(cfg){
+  cfg = cfg || {};
+  const chairs = (cfg.seats || []).filter(Boolean);
+  const n = chairs.length;
+  const mode = (cfg.opts && (cfg.opts.mode === '31' || cfg.opts.variant === '31')) ? '31' : '21';
+
+  const toGame = {}, toRoom = [];
+  chairs.forEach((s, g) => {
+    const room = (typeof s.seat === 'number') ? s.seat : g;
+    toGame[room] = g; toRoom[g] = room;
+  });
+  const meG = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
+  const iAmHost = (cfg.you === (cfg.host | 0));
+  const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
+
+  stopThinking();
+  if (M){ try { leave(); } catch(e){} }
+
+  let opts, m;
+  if (mode === '31'){
+    const seats = Math.max(TL.engine.MIN_SEATS, Math.min(TL.engine.MAX_SEATS, n || 4));
+    const tbl = tableFromSeed({ seats, humans: seats, lvl, mode:'free', lives:3 },
+                              cfg.seed >>> 0);
+    opts = { seats, humans: seats, lvl, mode:'free', lives:3, deal:'private',
+             given: { hands: {}, up: tbl.up, stock: tbl.stock } };
+    m = startMatch('31', opts, cfg.seed >>> 0);
+    M.online = { mode:'31', toGame, toRoom, meG, seed: cfg.seed >>> 0,
+                 table: tbl };
+  } else {
+    /* 21 — one hidden hand against the dealer, no cross-player secret. Off
+       the shared seed, exactly like a board game. */
+    opts = { seats:1, humans:1, lvl:2, mode:'free', decks:6, deal:'seed' };
+    m = startMatch('21', opts, cfg.seed >>> 0);
+    M.online = { mode:'21', toGame, toRoom, meG, seed: cfg.seed >>> 0 };
+  }
+  if (!m) throw new Error('CARDS2131 would not deal ' + n + ' seats (' + mode + ')');
+  M.meta = M.st.seats.map((s, g) => {
+    const c = chairs[g];
+    return {
+      name: c ? String(c.name || ('Player ' + (g + 1))).slice(0, 14) : s.name,
+      own:  g === meG ? 'me' : (c && c.kind === 'cpu' ? 'ai' : (c ? 'net' : s.own)),
+      lvl:  (c && c.level) || lvl
+    };
+  });
+  applyMeta();
+
+  NET = Object.assign({}, cfg.net, { host: iAmHost, toGame, toRoom, me: meG });
+  M.net = NET;
+  M.finished = false;
+  injectCSS();
+  P.show();
+  openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
+  render();
+  cue('game.start', { gain: 0.9 }, true);
+  return snapshot();
+}
+
+/* the private hand — THIS seat's three cards, pushed by the relay. Only 31
+   asks for one; 21 never gets here. Re-deal with our own cards injected
+   (opponents stay null → face down) off the same public up-card and stock. */
+function onlinePrivate(d){
+  if (!M || M.dead || !M.online || M.online.mode !== '31') return;
+  if (!Array.isArray(d) || d.length < 3) return;
+  const me = M.online.meG;
+  const hands = {};
+  hands[me] = [d[0] | 0, d[1] | 0, d[2] | 0];
+  const tbl = M.online.table || { up:null, stock:[] };
+  const opts = Object.assign({}, M.opts, {
+    deal:'private',
+    given: { hands, up: tbl.up, stock: (tbl.stock || []).slice() }
+  });
+  M.opts = opts;
+  M.log = [];
+  M.st = buildState('31', M.opts, M.seed, M.log);
+  applyMeta();
+  render();
+  cue('card.deal', { gain: 0.7 }, true);
+}
+
+function onlineRemote(seat, wire){
+  if (!M || M.dead || !NET) return null;
+  const e = E();
+  const g = NET.toGame[seat];
+  if (g === undefined) return { ok:false, why:'a move from a chair not at this table' };
+  const mv = e.decWire(wire);
+  if (!mv) return { ok:false, why:'a move this table does not know how to make' };
+  if (mv.t === 'quit'){ doQuit(g); render(); return null; }
+  let guard = 0;
+  while (e.turn(M.st) === -1 && guard++ < 12){
+    const opts = e.legal(M.st, -1);
+    if (!opts.length) break;
+    if (!doMove(-1, opts[0], 'auto').ok) break;
+  }
+  mv.seat = g;
+  const r = doMove(g, mv, 'net');
+  if (!r.ok){
+    const who = (M.st.seats[g] ? M.st.seats[g].name : 'that chair');
+    return { ok:false, why: String(r.err || 'refused') + ' from ' + who };
+  }
+  render();
+  return null;
+}
+
+function doQuit(g){
+  if (!M || M.dead) return;
+  const s = M.st.seats[g];
+  if (!s || s.out || s.gone) return;
+  s.gone = true;                     /* the round-end tally reads gone */
+}
+
+function onlineNote(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); }
+function onlineStop(why, tone){
+  if (!M || M.dead || !M.ctx) return;
+  const ctx = M.ctx;
+  stopThinking();
+  M.finished = true;
+  P.ui.setNet(ctx, '', '');
+  P.ui.result(ctx, {
+    tone: tone === 'cheat' ? 'lose' : 'draw',
+    head: tone === 'cheat' ? T('No deal', 'L-ebda qsim') : T('Cut off', 'Maqtugħ'),
+    why: why || T('The table stopped.', 'Il-mejda waqfet.'),
+    quip: T('Nothing was counted. Nobody loses a life over a dropped line.',
+            'Xejn ma ġie magħdud. Ħadd ma jitlef ħajja fuq linja maqtugħa.'),
+    buttons: [{ label: T('Back to the rooms', 'Lura lejn il-kmamar'), icon:'back', cls:'primary',
+                go: () => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); } }]
+  });
+}
+
+const NET_HOOKS = {
+  live:   () => !!(M && !M.dead && !E().over(M.st)),
+  phase:  () => !M ? 'idle' : (E().over(M.st) ? 'over' : 'play'),
+  seed:   () => (M ? M.seed : null),
+  gameId: () => (M ? 'cards2131' : null),
+  turn:   () => (M && NET) ? (NET.toRoom[E().turn(M.st)] != null ? NET.toRoom[E().turn(M.st)] : -1) : -1,
+  over:   () => (M ? E().over(M.st) : null),
+  moveCount: () => (M ? M.log.length : 0),
+  onMove: fn => {
+    const f = info => {
+      if (!M || M.dead || !NET || !info) return;
+      if (info.src === 'net' || info.src === 'auto') return;
+      const w = E().encWire(info.move);
+      if (!w) return;
+      const room = NET.toRoom[info.seat];
+      fn(w, { seat: (room == null ? info.seat : room), src: info.src });
+    };
+    moveSubs.push(f);
+    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
+  },
+  private: (d /*, mates */) => onlinePrivate(d),
+  apply: (seat, wire) => onlineRemote(seat, wire),
+  seatGone: seat => {
+    if (!M || M.dead || !NET) return;
+    const g = NET.toGame[seat];
+    if (g === undefined) return;
+    doQuit(g); render();
+  }
+};
+
+P.online = P.online || {};
+P.online.cards2131 = {
+  start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
+  planDeal,
+  live: () => NET_HOOKS.live(),
+  hooks: NET_HOOKS
+};
+
+/* ═══════════════════════════════════════════════════════════════════
    THE LOBBY CONTRACT — what js/mp.js reads before a card exists.
 
-   Published so the day the relay can deal privately this game is a
-   first-class citizen of the room list. It carries the MODE as a
-   VARIANT, exactly like rummy carries the hand size — '21' and '31'.
-   canStart() REFUSES until the relay can deal each seat its own cards,
-   in words, rather than leaving the door ajar.
+   Online is OPEN now. It carries the MODE as a VARIANT, exactly like
+   rummy carries the hand size — '21' and '31'. 31 is dealt privately
+   (each seat its own three cards); 21 is one hand against the dealer and
+   runs off the shared seed. canStart() lets a free table go; coins stay
+   behind COINS_MODE_READY.
    ═══════════════════════════════════════════════════════════════════ */
 const ONLINE_WHY = T(
   'Online is not open yet. Every phone at a table is dealt from one shared number, so every ' +
@@ -1625,7 +1838,53 @@ const LOBBY = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  /* ONLINE IS OPEN (free lives / chips). 31 is dealt privately; 21 is one
+     hand against the dealer. The seat range depends on which mode the room
+     is in — 21 seats 1..6, 31 seats 3..9. The unready are named. */
+  canStart(seatList){
+    const list = (seatList || []).filter(Boolean);
+    const n = list.length;
+    const variant = LOBBY.currentVariant();
+    /* NOT OPEN ONLINE YET. Two different reasons, both real:
+       - 21 (SECURITY): blackjack runs off the shared seed, so the dealer's
+         hole card AND the whole shoe are derivable by every phone — you'd
+         know when to hit. It needs per-draw private dealing first.
+       - 31: the FIRST round is dealt privately and is genuinely secret
+         (proven), but 31 is played over several rounds for lives, and round
+         2 has no fresh private deal yet — it needs a private deal PER ROUND.
+       The plumbing and the first-deal secrecy are in and proven; this is the
+       completing step. Play against the machine (and 31 pass-the-phone) now. */
+    if (variant === '21')
+      return { ok:false, why: T(
+        '21 plays against the machine for now — online would let the table read the ' +
+        'dealer’s hidden card. Per-hand private dealing is next.',
+        'It-21 tilgħabu kontra l-magna għalissa — onlajn kulħadd jara l-karta moħbija ' +
+        'tal-bank. It-tqassim privat kull id ġej.') };
+    if (variant === '31')
+      return { ok:false, why: T(
+        '31 online is nearly there — each round needs its own secret deal, coming next. ' +
+        'Play on one phone or against the machine for now.',
+        'It-31 onlajn kważi lest — kull rawnd irid it-tqassim sigriet tiegħu, ġej. ' +
+        'Ilgħab fuq telefon wieħed jew kontra l-magna għalissa.') };
+    const lo = variant === '31' ? TL.engine.MIN_SEATS : 1;
+    const hi = variant === '31' ? TL.engine.MAX_SEATS : 6;
+    if (n < lo)
+      return { ok:false, why: variant === '31'
+        ? T('31 needs three at the table.', 'It-31 irid tlieta fuq il-mejda.')
+        : T('Somebody has to sit down first.', 'Xi ħadd irid jinżel bilqiegħda l-ewwel.') };
+    if (n > hi)
+      return { ok:false, why: T('That is more than this game seats.',
+                                'Dak aktar minn kemm iddaħħal din il-logħba.') };
+    const un = list.filter(x => x && x.kind !== 'cpu' && !x.ready);
+    if (un.length)
+      return { ok:false,
+               why:(un.length <= 2
+                     ? un.map(s => s.name || 'Somebody').join(' and ') + ' ' +
+                       (un.length > 1 ? 'have' : 'has')
+                     : un.length + ' people have') +
+                   ' not tapped ready yet. The empty chairs never hold a deal up.' };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () =>
     '<p>' + T('One tile, two games. <b>21</b> is blackjack: beat the dealer without busting, and ' +
       'a natural pays 3:2. <b>31</b> is Scat: the best hand in one suit, knock when you are safe, ' +
@@ -1633,23 +1892,20 @@ const LOBBY = {
       'Tessera waħda, żewġ logħob. <b>21</b> huwa blackjack: għaddi lill-bank mingħajr ma tinħaraq, ' +
       'u blackjack iħallas 3:2. <b>31</b> huwa l-Iskatt: l-aqwa id f’kulur wieħed, ħabbat meta ' +
       'tkun fis-sod, tkunx l-inqas — tliet ħajjiet.') + '</p>' +
-    '<p>' + esc(ONLINE_WHY) + '</p>',
+    '<p>' + T('Online deals 31 each seat its own three cards in secret; 21 is you against the ' +
+      'dealer. Free lives and chips only.',
+      'Onlajn iqassam fil-31 lil kull siġġu t-tliet karti tiegħu bil-moħbi; il-21 int kontra ' +
+      'l-bank. Ħajjiet u ċipep b’xejn biss.') + '</p>',
   blurb: T('21 and 31 — blackjack against the dealer, or Scat for your lives. One tile, two games.',
            '21 u 31 — blackjack kontra l-bank, jew l-Iskatt għall-ħajjiet tiegħek. Tessera, żewġ logħob.'),
-  /* start() would hand a relay-built seat list to newGame once online is
-     wired; today it opens the offline game in the room's mode so the
-     contract is honest rather than throwing. */
+  /* the shared lobby starts the game through P.online.cards2131.start
+     (net.start). This delegates there so a caller reaching the lobby's own
+     start still deals a private table rather than an offline one. */
   start(seatsList, opts){
-    const mode = (opts && (opts.mode === '31' || opts.variant === '31')) ? '31' : '21';
-    if (mode === '31'){
-      const list = (seatsList || []).filter(Boolean);
-      const n = Math.max(TL.engine.MIN_SEATS, Math.min(TL.engine.MAX_SEATS, list.length || 4));
-      const lvl = (list.map(s => s && s.level).find(v => v)) || 2;
-      return newGame('31', { seats:n, humans:1, lvl, mode:'free', lives:3,
-                             seed: opts && opts.seed });
-    }
-    return newGame('21', { seats:1, humans:1, lvl:2, mode:'free', decks:6,
-                           seed: opts && opts.seed });
+    return onlineStart({ seats: seatsList,
+                         opts: { mode: (opts && (opts.mode || opts.variant)) },
+                         seed: opts && opts.seed, you: 0, host: 0,
+                         net: (opts && opts.net) || {} });
   },
   myName(){
     try {

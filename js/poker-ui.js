@@ -1759,19 +1759,27 @@ function menu(){
         '</button>' +
       '</div>' +
 
-      /* WHY THERE IS NO ONLINE BUTTON — said in one short line, not left
-         as a missing button. The full reasoning is the lobby's ONLINE_WHY. */
-      '<p class="pk-warn">' +
-        esc(T('Online poker is not open yet: every phone at a table shares one deal, so it ' +
-              'cannot hide a hand. For now it is you against the machine.',
-              'Poker onlajn għadu magħluq: kull telefon f’mejda jaqsam l-istess qsim, mela ma ' +
-              'jistax jaħbi id. Għalissa hu int kontra l-magna.')) +
-      '</p>' +
+      /* ONLINE IS OPEN — the relay now deals each seat its own two hole cards
+         privately, so no phone can read another's hand (see planDeal / the
+         private hook below). Free chips only; coins stay behind
+         COINS_MODE_READY. */
+      '<div class="pk-modes">' +
+        '<button class="pk-way" id="pk-m-online">' +
+          '<span class="pk-wi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg></span>' +
+          '<span class="pk-wt"><b>' + esc(T('Play online', 'Ilgħab onlajn')) + '</b>' +
+            '<i>' + esc(T('A real table, cards dealt in secret. Free chips.',
+                          'Mejda vera, il-karti mqassma bil-moħbi. Ċipep b’xejn.')) + '</i></span>' +
+          MENU_CHEV +
+        '</button>' +
+      '</div>' +
       '<div style="height:16px"></div>' +
     '</div></div>';
 
   el.querySelector('#pk-back').onclick = () => { cue('ui.back', { gain:0.7 }); P.hub(); };
   el.querySelector('#pk-m-ai').onclick = () => { cue('ui.tap', { gain:0.6 }); setupSheet(); };
+  const on = el.querySelector('#pk-m-online');
+  if (on) on.onclick = () => { cue('ui.tap', { gain:0.6 }); goOnline(); };
   el.querySelector('#pk-m-rules').onclick = () => toggleMenuRules(el, true);
   const rs = el.querySelector('#pk-res');
   if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
@@ -2001,26 +2009,245 @@ function ensureRelang(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   ONLINE — REAL TABLES, WITH THE DEAL KEPT SECRET BY THE WIRE
+   ───────────────────────────────────────────────────────────────────
+   The relay deals each seat its own two hole cards PRIVATELY (js/mp.js's
+   planDeal → the relay's {t:'mine'} push): the shared seed is never
+   trusted with a hole card. This file's job is to (1) tell the lobby what
+   pool to have dealt (planDeal) and (2) take this seat's own cards when
+   they arrive and feed the engine's DEALERS.private (the `private` hook),
+   so the felt shows only our two cards and every opponent's stays face
+   down. Free chips only — coins are still behind COINS_MODE_READY, which
+   also owns per-street board delivery and the showdown reveal.
+
+   THE COMMUNITY CARDS are public by nature — they get turned face up for
+   everyone — so they ride the shared seed, exactly as skarta's stock does.
+   Only the hole cards are secret, and only they come down the private
+   channel. Deriving the run from the seed keeps every phone's board
+   identical without a card crossing the wire.
+
+   The shape mirrors js/rummy-ui.js: local moves go out through the onMove
+   feed, remote moves come in through apply(), the table's own beats
+   (turning a card, paying a pot) are replayed locally off the same seed. */
+let NET = null;
+
+/* what the shared lobby asks the relay to deal: a POOL and how many go to
+   each seat. The pool is the 52 card ids; the relay hands each seat TWO of
+   them, privately. The seed is not needed here — the community (public)
+   comes off the broadcast seed later; only the holes are dealt privately. */
+function planDeal(opts){
+  const seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, (opts && opts.seats | 0) || 2));
+  void seats;                         /* the relay knows the seat count itself */
+  const items = [];
+  for (let i = 0; i < 52; i++) items.push(i);
+  return { items, each: 2 };          /* two hole cards a seat */
+}
+
+/* the community cards for THIS hand, off the shared broadcast seed. They
+   are public, so deriving them from the seed is honest: every phone lands
+   on the same five without a card crossing the wire. */
+function communityFromSeed(opts, seed){
+  try {
+    const st = E.deal(Object.assign({}, opts, { deal:'seed' }), seed >>> 0);
+    return Array.isArray(st.run) ? st.run.slice(0, 5) : [];
+  } catch(e){ return []; }
+}
+
+function onlineStart(cfg){
+  cfg = cfg || {};
+  const chairs = (cfg.seats || []).filter(Boolean);
+  const n = chairs.length;
+  if (n < E.MIN_SEATS || n > E.MAX_SEATS)
+    throw new Error('POKER: seats ' + E.MIN_SEATS + ' to ' + E.MAX_SEATS + ', not ' + n);
+
+  /* room seat → game seat (poker deals to 0..n-1 in order) */
+  const toGame = {}, toRoom = [];
+  chairs.forEach((s, g) => {
+    const room = (typeof s.seat === 'number') ? s.seat : g;
+    toGame[room] = g; toRoom[g] = room;
+  });
+  const meG = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
+  const iAmHost = (cfg.you === (cfg.host | 0));
+  const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
+  const H = houseOf(pref().house);
+
+  stopThinking();
+  if (M){ try { leave(); } catch(e){} }
+
+  /* Build the match in PRIVATE mode from the off. No holes are known yet —
+     they arrive on the private hook — so every seat starts face down,
+     which is exactly right: this client knows nobody's cards until the
+     relay tells it its own. The community is the seed's, and public. */
+  const opts = { seats: n, humans: n, lvl, mode: 'free', deal: 'private',
+                 stack: H.bb * H.bbs, sb: H.sb, bb: H.bb,
+                 given: { holes: {}, run: communityFromSeed(
+                          { seats: n, sb: H.sb, bb: H.bb, stack: H.bb * H.bbs },
+                          cfg.seed >>> 0) } };
+  const m = startMatch(opts, cfg.seed >>> 0);
+  if (!m) throw new Error('POKER would not deal ' + n + ' seats');
+  M.online = { toGame, toRoom, meG, seed: cfg.seed >>> 0, run: opts.given.run };
+  M.meta = chairs.map((s, g) => ({
+    name: String(s.name || ('Player ' + (g + 1))).slice(0, 14),
+    own:  g === meG ? 'me' : (s.kind === 'cpu' ? 'ai' : 'net'),
+    lvl:  s.level || lvl
+  }));
+  applyMeta();
+
+  NET = Object.assign({}, cfg.net, { host: iAmHost, toGame, toRoom, me: meG });
+  M.net = NET;
+  M.finished = false;
+  injectCSS();
+  P.show();
+  openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
+  render();
+  cue('game.start', { gain: 0.9 }, true);
+  return snapshot();
+}
+
+/* THE PRIVATE HAND. The relay pushed THIS seat, and only this seat, its
+   own two hole cards (mp.js routes {t:'mine'} here). Re-deal the match with
+   them injected under our game seat — opponents stay null (face down) — and
+   repaint. This is the ONLY place this client learns a hole card, and it is
+   its own. Never re-broadcast; the relay already kept the secret. */
+function onlinePrivate(d){
+  if (!M || M.dead || !M.online) return;
+  if (!Array.isArray(d) || d.length < 2) return;
+  const me = M.online.meG;
+  const holes = {};
+  holes[me] = [d[0] | 0, d[1] | 0];
+  const opts = Object.assign({}, M.opts, {
+    deal: 'private',
+    given: { holes, run: (M.online.run || []).slice() }
+  });
+  M.opts = opts;
+  M.log = [];                        /* a fresh hand from the private deal */
+  M.st = buildState(M.opts, M.seed, M.log);
+  applyMeta();
+  M.recorded = M.st.book.length;
+  render();
+  cue('card.deal', { gain: 0.7 }, true);
+}
+
+function onlineRemote(seat, wire){
+  if (!M || M.dead || !NET) return null;
+  const g = NET.toGame[seat];
+  if (g === undefined) return { ok:false, why:'a move from a chair not at this table' };
+  const mv = E.decWire(wire);
+  if (!mv) return { ok:false, why:'a move this table does not know how to make' };
+  if (mv.t === 'quit'){ doQuit(g); render(); return null; }
+  /* flush the table's own beats first — the wire outruns a timer */
+  let guard = 0;
+  while (E.turn(M.st) === -1 && guard++ < 12){
+    const opts = E.legal(M.st, -1);
+    if (!opts.length) break;
+    if (!doMove(-1, opts[0], 'auto').ok) break;
+  }
+  mv.seat = g;
+  const r = doMove(g, mv, 'net');
+  if (!r.ok){
+    const who = (M.st.seats[g] ? M.st.seats[g].name : 'that chair');
+    return { ok:false, why: String(r.err || 'refused') + ' from ' + who };
+  }
+  render();
+  return null;
+}
+
+/* a seat walking out: fold it and pass the turn. Reuses the engine's own
+   fold, which is the honest way to remove a live hand mid-street. */
+function doQuit(g){
+  if (!M || M.dead || E.over(M.st)) return;
+  const s = M.st.seats[g];
+  if (!s || s.out || s.folded) return;
+  if (E.turn(M.st) === g){
+    const fold = (E.legal(M.st, g) || []).find(x => x.t === 'fold');
+    if (fold){ fold.seat = g; doMove(g, fold, 'net'); }
+  } else { s.gone = true; }
+}
+
+function onlineNote(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); }
+function onlineStop(why, tone){
+  if (!M || M.dead || !M.ctx) return;
+  const ctx = M.ctx;
+  stopThinking();
+  M.finished = true;
+  P.ui.setNet(ctx, '', '');
+  P.ui.result(ctx, {
+    tone: tone === 'cheat' ? 'lose' : 'draw',
+    head: tone === 'cheat' ? T('No deal', 'L-ebda qsim') : T('Cut off', 'Maqtugħ'),
+    why: why || T('The table stopped.', 'Il-mejda waqfet.'),
+    quip: T('Nothing was counted. Nobody loses a hand over a dropped line.',
+            'Xejn ma ġie magħdud. Ħadd ma jitlef id fuq linja maqtugħa.'),
+    buttons: [{ label: T('Back to the rooms', 'Lura lejn il-kmamar'), icon:'back', cls:'primary',
+                go: () => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); } }]
+  });
+}
+
+const NET_HOOKS = {
+  live:   () => !!(M && !M.dead && !E.over(M.st)),
+  phase:  () => !M ? 'idle' : (E.over(M.st) ? 'over' : 'play'),
+  seed:   () => (M ? M.seed : null),
+  gameId: () => (M ? 'poker' : null),
+  turn:   () => (M && NET) ? (NET.toRoom[E.turn(M.st)] != null ? NET.toRoom[E.turn(M.st)] : -1) : -1,
+  over:   () => (M ? E.over(M.st) : null),
+  moveCount: () => (M ? M.log.length : 0),
+  /* local moves go out; remote and table beats never echo back onto the wire.
+     A local move fires through moveSubs (see doMove); this forwards only the
+     ones a person here made, encoded, stamped with the ROOM seat. */
+  onMove: fn => {
+    const f = info => {
+      if (!M || M.dead || !NET || !info) return;
+      if (info.src === 'net' || info.src === 'auto') return;   /* not ours to send */
+      const w = E.encWire(info.move);
+      if (!w) return;                                          /* table beats: null */
+      const room = NET.toRoom[info.seat];
+      fn(w, { seat: (room == null ? info.seat : room), src: info.src });
+    };
+    moveSubs.push(f);
+    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
+  },
+  /* the relay's per-seat private deal for this table */
+  private: (d /*, mates */) => onlinePrivate(d),
+  apply: (seat, wire) => onlineRemote(seat, wire),
+  seatGone: seat => {
+    if (!M || M.dead || !NET) return;
+    const g = NET.toGame[seat];
+    if (g === undefined) return;
+    doQuit(g); render();
+  }
+};
+
+P.online = P.online || {};
+P.online.poker = {
+  start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
+  planDeal,
+  live: () => NET_HOOKS.live(),
+  hooks: NET_HOOKS
+};
+
+/* the online door — through the shared lobby's openFor(), exactly as
+   rummy/skarta/gin do: take the poker table waiting longest, or open a
+   fresh one, and keep "a private room" one tap away. */
+function goOnline(){
+  const MPX = window.KARTI_MP;
+  if (!MPX || !MPX.MP){
+    if (K && K.toast) K.toast('⚠ ' + T('Online is not available.', 'Onlajn mhux disponibbli.'));
+    return;
+  }
+  try { MPX.mpLeave && MPX.mpLeave(); } catch(e){}
+  if (MPX.openFor){ MPX.openFor('poker'); return; }
+  MPX.MP.wantGame = 'poker';
+  try { K && K.go && K.go('mp'); } catch(e){}
+  try { MPX.mpScreen && MPX.mpScreen(); } catch(e){}
+  try { MPX.start && MPX.start('create', null, null, false, 'poker'); } catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    THE LOBBY CONTRACT — what js/mp.js reads before a card exists.
 
-   It is published so poker is a first-class citizen of the room list
-   the day the relay can deal privately, and canStart() REFUSES until
-   then, in words, rather than leaving the door ajar. The wire codec it
-   points at is written and tested in js/poker.js; nothing is missing
-   here except the one thing that is not ours to write.
-
-   Deliberately NOT taught to KARTI_MP.GAMES (the way js/rummy-ui.js
-   teaches 'rummy'): a game in that list is a game the lobby will offer
-   to open a room for, and offering a room that cannot honestly be
-   played is worse than not offering one.
+   Online is OPEN now: the relay deals each seat its own two cards
+   privately, so canStart() lets a free-chip table go. Coins stay shut
+   behind COINS_MODE_READY (per-street board delivery + showdown reveal).
    ═══════════════════════════════════════════════════════════════════ */
-const ONLINE_WHY = T(
-  'Online poker needs the server to deal each seat its own two cards. Today every phone at ' +
-  'a table gets one shared number and deals from it, so every phone could work out ' +
-  'everybody’s hand. Until that changes, poker is you against the machine.',
-  'Poker onlajn jeħtieġ li s-server iqassam lil kull siġġu ż-żewġ karti tiegħu. Illum kull ' +
-  'telefon f’mejda jieħu numru wieħed maqsum u jqassam minnu, mela kull telefon jista’ joħroġ ' +
-  'l-id ta’ kulħadd. Sakemm dan jinbidel, il-poker hu int kontra l-magna.');
 
 R.lobby = {
   id:'poker',
@@ -2033,7 +2260,45 @@ R.lobby = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  /* ONLINE IS OPEN (free chips). The deal is private now, so a table can go
+     as soon as everybody is ready. The unready are named, exactly as rummy
+     does it, so the host knows who to shout at rather than reading the seat
+     count as the blocker. Coins remain shut behind COINS_MODE_READY. */
+  canStart(seatList){
+    const list = (seatList || []).filter(Boolean);
+    const n = list.length;
+    /* NOT OPEN ONLINE YET. The relay deals privately ONCE, at start — so the
+       first hand is genuinely secret (proven), but a poker table is many
+       hands and hand 2 would come back face-down. It needs a fresh private
+       deal PER HAND (the same relay work coins mode needs). The plumbing and
+       the first-deal secrecy are in and proven; this is the completing step.
+       Play against the machine until then. */
+    return { ok:false, why: T(
+      'Poker online is nearly there — each hand needs its own secret deal, coming next. ' +
+      'Play against the machine for now.',
+      'Il-poker onlajn kważi lest — kull id trid it-tqassim sigriet tagħha, ġej. ' +
+      'Ilgħab kontra l-magna għalissa.') };
+    if (n < E.MIN_SEATS)
+      return { ok:false, why: T('Poker needs two at the table.',
+                                'Il-poker irid tnejn fuq il-mejda.') };
+    if (n > E.MAX_SEATS)
+      return { ok:false, why: T('Eight is the table.', 'Tmienja hija l-mejda.') };
+    const un = list.filter(x => x && x.kind !== 'cpu' && !x.ready);
+    if (un.length)
+      return { ok:false,
+               why:(un.length <= 2
+                     ? un.map(s => s.name || 'Somebody').join(' and ') + ' ' +
+                       (un.length > 1 ? 'have' : 'has')
+                     : un.length + ' people have') +
+                   ' not tapped ready yet. The empty chairs never hold a deal up.' };
+    return { ok:true, why:'' };
+  },
+  /* the shared lobby steers poker with no variant; there is only one game.
+     start() delegates to the online runner so a caller that reaches the
+     lobby's start (rather than net.start) still deals a private table. */
+  start(seatsList, opts){ return onlineStart({
+    seats: seatsList, seed: opts && opts.seed, you: 0, host: 0,
+    net: (opts && opts.net) || {} }); },
   rulesHTML: () =>
     '<p>' + T('Two cards each, five in the middle, four rounds of betting — PREFLOP, FLOP, ' +
       'TURN, RIVER. Best five out of seven takes the pot; identical hands split it.',
@@ -2043,7 +2308,9 @@ R.lobby = {
       'pots when somebody is all in for less than the rest.',
       'Minn tnejn sa tmienja. Blinds, buttuna li timxi kull id, u potts tal-ġenb kif suppost ' +
       'meta xi ħadd imur kollox għal inqas mill-oħrajn.') + '</p>' +
-    '<p>' + esc(ONLINE_WHY) + '</p>',
+    '<p>' + T('Online deals each seat its own two cards in secret — free chips only.',
+              'Onlajn iqassam lil kull siġġu ż-żewġ karti tiegħu bil-moħbi — ċipep b’xejn biss.') +
+    '</p>',
   blurb: T('Two cards, five in the middle, and whoever is left standing takes it.',
            'Żewġ karti, ħamsa fin-nofs, u min jibqa’ wieqaf jieħu kollox.'),
   myName(){

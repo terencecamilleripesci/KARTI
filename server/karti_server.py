@@ -284,7 +284,7 @@ DEFAULT_GAME = "cards"
 DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
-          "spy", "suspett", "kanun", "bomba", "briks")
+          "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -349,11 +349,19 @@ GAME_SEATS = {
     "suspett": (5, 16, 9),
     # The new games with no hidden information — safe to run online off the
     # shared seed like the board games, because there is no secret a phone
-    # could read out of it. The hidden-hand card games (21/31, poker) are NOT
-    # here on purpose: they need the private per-seat deal first.
+    # could read out of it.
     "kanun":  (2, 2, 2),      # Castle Wars — a duel
     "bomba":  (2, 8, 4),      # Bomberman — an arena
     "briks":  (2, 2, 2),      # Bricks 1v1 — a duel
+    # THE HIDDEN-HAND CARD GAMES. Now online because the relay deals each seat
+    # its own cards privately (v_deal / the {t:'mine'} push): the shared seed
+    # is never trusted with a hole card. Ranges read out of the games' own code:
+    #   poker   js/poker.js MIN_SEATS..MAX_SEATS = 2..8
+    #   cards2131 the 21/31 tile spans two modes as a VARIANT (see below). 21
+    #           seats one player against the dealer; 31 (js/tletin.js) seats
+    #           3..9. The game range is the union 1..9; the variant narrows it.
+    "poker":     (2, 8, 4),
+    "cards2131": (1, 9, 4),
 }
 
 # Only these three predate the ready lobby and begin as soon as their second
@@ -371,6 +379,10 @@ GAME_VARIANTS = {
     # different hand sizes off the same seed, so a room has to say which it is
     # before anybody sits down, exactly as a klabb room names its flavour.
     "rummy": ("classic", "ghaxra"),
+    # The 21/31 tile is one game with two modes carried as a VARIANT, exactly
+    # as rummy carries its hand size: '21' (blackjack, vs the dealer) and '31'
+    # (Scat / Tletin-u-Wieħed). A room names which before anybody sits down.
+    "cards2131": ("21", "31"),
 }
 # The client calls the bluffing game "cheat" — that id is baked into its own
 # storage key and into the stats registry, so it is not free to rename. The
@@ -399,6 +411,11 @@ GAME_VARIANT_SEATS = {
     # deal() enforces it against the actual deal, where it can be checked.
     ("rummy", "classic"):  (2, 12, 4),
     ("rummy", "ghaxra"):   (2, 12, 4),
+    # The two modes of the 21/31 tile seat different ranges. 21 is one player
+    # against the dealer (the dealer is not a seat), so it opens from a single
+    # human and takes a small table; 31 is a room game, 3..9, like its engine.
+    ("cards2131", "21"):   (1, 6, 2),
+    ("cards2131", "31"):   (3, 9, 4),
 }
 
 
@@ -6288,11 +6305,11 @@ def selftest():
                       '{"t":"join","code":["' + "A" * 100 + '"]}',
                       '{"t":"rejoin","code":"AAAAA","token":123}',
                       # a room can only ever be a room of a game that exists
-                      '{"t":"create","game":"poker"}',
+                      '{"t":"create","game":"nogame"}',
                       '{"t":"create","game":"CARDS"}',
                       '{"t":"create","game":5}',
                       '{"t":"create","game":["chess"]}',
-                      '{"t":"joinid","id":"whatever","game":"poker"}']
+                      '{"t":"joinid","id":"whatever","game":"nogame"}']
             bad = []
             for p in probes:
                 atk.send_text(p)
@@ -9297,6 +9314,125 @@ def selftest():
             bye(q_a); bye(q_b)
         except Exception as e:
             check("short pool", False, repr(e))
+
+        # ═══════════ the private deal for the REAL card games ═══════════
+        # The generic mechanism above is exercised through suspett's roles; here
+        # it is proved end to end for the two hidden-hand card games the client
+        # actually opens rooms for — poker (2 hole cards) and the 21/31 tile in
+        # its 31 mode (3 cards). The card ids are the pool the client's planDeal
+        # sends (0..51); the headline is the NEGATIVE one: no seat is ever sent
+        # another seat's cards.
+        print("")
+        print(" PRIVATE DEAL — poker & cards2131")
+
+        def _grab(c, n=10, secs=1.2):
+            got = []
+            for _ in range(n):
+                m = c.recv_json(secs)
+                if m is None:
+                    break
+                got.append(m)
+            return got
+
+        def _mine_deal(game, variant, seats, each):
+            """Open a 2-seat room of `game`, start with a full-deck private deal,
+            and return (mine_a, mine_b, all_a, all_b): each seat's own {t:'mine'}
+            and EVERY message it received. The pool is the 52 card ids."""
+            a = cli(origin=PAGES_ORIGIN)
+            b = cli(origin=PAGES_ORIGIN)
+            crt = {"t": "create", "game": game, "seats": seats}
+            if variant is not None:
+                crt["variant"] = variant
+            a.send_json(crt)
+            got = a.recv_json(2.0) or {}
+            code = got.get("code")
+            b.send_json({"t": "join", "code": code}); b.recv_json(2.0)
+            drain(a)
+            for c in (a, b):
+                c.send_json({"t": "ready", "on": True})
+            drain(a); drain(b)
+            a.send_json({"t": "start",
+                         "deal": {"items": [{"v": i} for i in range(52)],
+                                  "each": each}})
+            ga, gb = _grab(a), _grab(b)
+            mine_a = [m for m in ga if m.get("t") == "mine"]
+            mine_b = [m for m in gb if m.get("t") == "mine"]
+            bye(a); bye(b)
+            return mine_a, mine_b, ga, gb, code
+
+        # ── poker: a room opens, and two seats each get their own 2 holes ──
+        try:
+            ma, mb, ga, gb, pcode = _mine_deal("poker", None, 2, 2)
+            check("a poker room opens and starts a private deal",
+                  bool(pcode) and len(ma) == 1 and len(mb) == 1,
+                  (pcode, len(ma), len(mb)))
+            hole_a = ma[0]["d"] if ma else []
+            hole_b = mb[0]["d"] if mb else []
+            check("each poker seat is dealt exactly its own TWO hole cards",
+                  len(hole_a) == 2 and len(hole_b) == 2
+                  and ma[0].get("seat") == 0 and mb[0].get("seat") == 1,
+                  (hole_a, hole_b))
+            check("the two poker hands never share a card",
+                  not (set(hole_a) & set(hole_b)),
+                  (hole_a, hole_b))
+            # THE ONE THAT MATTERS: B's cards appear NOWHERE in anything A saw.
+            seen_by_a = [d for m in ga for d in (m.get("d") or [])]
+            seen_by_b = [d for m in gb for d in (m.get("d") or [])]
+            check("SECRECY — no card of seat B is present in any message seat A received",
+                  not (set(hole_b) & set(seen_by_a)),
+                  {"B_holes": hole_b, "A_saw": sorted(set(seen_by_a))})
+            check("SECRECY — no card of seat A is present in any message seat B received",
+                  not (set(hole_a) & set(seen_by_b)),
+                  {"A_holes": hole_a, "B_saw": sorted(set(seen_by_b))})
+        except Exception as e:
+            check("poker private deal", False, repr(e))
+
+        # ── cards2131 (31 mode): three cards each, same secrecy ──
+        try:
+            ma, mb, ga, gb, ccode = _mine_deal("cards2131", "31", 3, 3)
+            # a 3-seat 31 room needs a third occupant to start; seat the 2 humans
+            # plus a bot so `filled` is 3. Re-do with a machine.
+            a = cli(origin=PAGES_ORIGIN)
+            b = cli(origin=PAGES_ORIGIN)
+            a.send_json({"t": "create", "game": "cards2131",
+                         "variant": "31", "seats": 3})
+            got = a.recv_json(2.0) or {}
+            ccode = got.get("code")
+            b.send_json({"t": "join", "code": ccode}); b.recv_json(2.0)
+            drain(a)
+            for c in (a, b):
+                c.send_json({"t": "ready", "on": True})
+            drain(a); drain(b)
+            a.send_json({"t": "bot", "seat": 2, "level": 1, "name": "M"})
+            drain(a); drain(b)
+            a.send_json({"t": "start",
+                         "deal": {"items": [{"v": i} for i in range(52)],
+                                  "each": 3}})
+            ga, gb = _grab(a), _grab(b)
+            mine_a = [m for m in ga if m.get("t") == "mine"]
+            mine_b = [m for m in gb if m.get("t") == "mine"]
+            hole_a = [m["d"] for m in mine_a if not m.get("bot")]
+            hole_a = hole_a[0] if hole_a else []
+            hole_b = mine_b[0]["d"] if mine_b else []
+            check("a cards2131 (31) room opens with the mode as a variant",
+                  bool(ccode)
+                  and got.get("variant") == "31"
+                  and len(mine_b) == 1,
+                  (ccode, got.get("variant"), len(mine_b)))
+            check("each 31 seat is dealt exactly its own THREE cards",
+                  len(hole_a) == 3 and len(hole_b) == 3,
+                  (hole_a, hole_b))
+            seen_by_a = [d for m in ga for d in (m.get("d") or []) if not m.get("bot")]
+            seen_by_b = [d for m in gb for d in (m.get("d") or [])]
+            check("SECRECY (31) — seat B's three cards are in nothing seat A received",
+                  not (set(hole_b) & set(seen_by_a)),
+                  {"B": hole_b, "A_saw": sorted(set(seen_by_a))})
+            check("SECRECY (31) — seat A's three cards are in nothing seat B received",
+                  not (set(hole_a) & set(seen_by_b)),
+                  {"A": hole_a, "B_saw": sorted(set(seen_by_b))})
+            bye(a); bye(b)
+        except Exception as e:
+            check("cards2131 private deal", False, repr(e))
 
         # ═══════════ table talk ═══════════
         # Chat had NO check here at all, which is how a crash in it survived:

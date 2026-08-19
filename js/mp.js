@@ -151,7 +151,15 @@ const GAMES = [
   { k:'bomba', name:'Il-Bomba',  short:'BOMBA', icon:'dice',
     blurb:'Drop bombs. Last one standing.' },
   { k:'briks', name:'Il-Ħajt',   short:'ĦAJT',  icon:'dice',
-    blurb:'Break their wall before they break yours.' }
+    blurb:'Break their wall before they break yours.' },
+  /* THE HIDDEN-HAND CARD GAMES. Online now that the relay deals each seat
+     its own cards privately (see the private per-seat deal above): no phone
+     ever receives another seat's hole cards. Free chips / lives only — coins
+     stay behind COINS_MODE_READY in their own files. */
+  { k:'poker', name:'Il-Poker',  short:'POKER', icon:'cards',
+    blurb:'Two cards each, five in the middle, four rounds of bluffing.' },
+  { k:'cards2131', name:'21 u 31', short:'21·31', icon:'cards',
+    blurb:'Blackjack against the dealer, or Scat for your lives.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -205,7 +213,11 @@ const LOBBY_GLOBAL = {
   /* the new games with no hidden information — online off the shared seed is
      honest for these (nothing to read out of the deal). The hidden-hand card
      games are deliberately absent until the private per-seat deal is wired. */
-  kanun:'KARTI_KANUN', bomba:'KARTI_BOMBA', briks:'KARTI_BRIKS'
+  kanun:'KARTI_KANUN', bomba:'KARTI_BOMBA', briks:'KARTI_BRIKS',
+  /* the hidden-hand card games. Their contracts are published on
+     KARTI_POKER.lobby and KARTI_BLACKJACK.lobby (the 21/31 tile), and the
+     private per-seat deal keeps every hole card off the shared wire. */
+  poker:'KARTI_POKER', cards2131:'KARTI_BLACKJACK'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -219,7 +231,11 @@ const SEATS_FALLBACK = {
   gharraq:[2, 6, 4], rummy:[2, 12, 4], gin:[2, 2, 2],
   /* L-ISPJUN wants a ROOM, not a duel — three is the fewest that can hide a
      liar, and sixteen is what the relay already seats for tombla. */
-  spy:[3, 16, 6], suspett:[5, 16, 9]
+  spy:[3, 16, 6], suspett:[5, 16, 9],
+  /* the hidden-hand card games. Poker seats 2..8; the 21/31 tile spans both
+     modes (21 from 1, 31 from 3) up to 9. Their own lobby contracts are the
+     authority — these mirror the relay so a wrong size fails loudly there. */
+  poker:[2, 8, 4], cards2131:[1, 9, 4]
 };
 
 /* A machine has to be called something before it can sit down. Only used when
@@ -772,7 +788,9 @@ const MP = {
   aiSeat:-1,            /* the empty chair the machine picker is aimed at */
   began:null,           /* the relay's {t:'began'} — seed, bots, levels    */
   askBack:null,         /* somebody to invite the moment we have a room     */
-  unMove:null           /* unsubscribe from the game's own move feed        */
+  unMove:null,          /* unsubscribe from the game's own move feed        */
+  privateHook:null,     /* the running game's {t:'mine'} sink, if it has one */
+  pendingMine:null      /* a private hand that outran the start, buffered   */
 };
 
 /* The original card duel, chess and dama still pair and begin immediately.
@@ -1759,6 +1777,44 @@ function sendFor(seat, d){
   send({ t:'relay', d, for: seat });
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   STARTING A ROOM — AND THE PRIVATE PER-SEAT DEAL
+   ───────────────────────────────────────────────────────────────────
+   Every game the shared lobby can seat starts the same way: the host
+   taps start and the relay begins the room off ONE broadcast seed. A
+   secret derived from that seed is a secret only by politeness, which
+   is fine for a shuffled stock nobody reads ahead (rummy, skarta) and
+   FATAL for a hidden hand (poker's hole cards, 31's three).
+
+   So a hidden-hand game publishes planDeal(opts) on its online contract.
+   It returns { items, each } — a POOL of opaque values and how many go
+   to each seat — and the relay shuffles that pool with its OWN entropy
+   and pushes each seat, PRIVATELY, only the items that seat holds
+   ({t:'mine'}). The relay never learns a hole card from a role; the
+   client that receives {t:'mine'} treats `d` as its own hand and never
+   puts it on the shared wire. A game with no planDeal sends no deal and
+   the start is byte-identical to before (board games, skarta, rummy…).
+
+   planDeal is opt-in and additive: an older relay that ignores `deal`,
+   and a game that publishes none, both behave exactly as they did. */
+function startDeal(){
+  const api = partyAPI();
+  if (!api || typeof api.planDeal !== 'function') return null;
+  let d = null;
+  try {
+    d = api.planDeal({ seats: MP.size, variant: MP.variant, rules: MP.rules });
+  } catch (e){ d = null; }
+  if (!d || !Array.isArray(d.items) || !d.items.length) return null;
+  const each = Math.max(1, d.each | 0 || 1);
+  return { items: d.items, each };
+}
+function sendStart(){
+  const deal = startDeal();
+  const msg = { t:'start' };
+  if (deal) msg.deal = deal;             /* opt-in; omitted for board games */
+  send(msg);
+}
+
 /* Whichever socket this device has open — the room one if we are in a room,
    otherwise the who's-online beacon. Invites are answered over either. */
 function sendAny(o){
@@ -1804,6 +1860,7 @@ function mpLeave(){
   MP.size = 2; MP.mySeat = 0; MP.roster = null; MP.iAmReady = false;
   MP.began = null; MP.panel = null; MP.aiSeat = -1; MP.showRules = false;
   MP.wantSeats = 0; MP.variant = null; MP.rules = null; MP.askBack = null;
+  MP.privateHook = null; MP.pendingMine = null;
   if (MP.unMove){ try { MP.unMove(); } catch (e){} MP.unMove = null; }
   if (MP.state !== 'unreachable') setState('idle');
 }
@@ -1993,6 +2050,17 @@ function onServer(m){
 
     case 'began':
       onBegan(m);
+      return;
+
+    /* ── the private per-seat deal ──
+       The relay pushed THIS seat, and only this seat, the items it holds.
+       It is addressed to us by seat, delivered on our own replay bit, and
+       must be treated as our own hand and NEVER re-broadcast. Route it to
+       the running game's private hook so it can feed its engine's
+       DEALERS.private. An older relay never sends this; a game that
+       published no private hook simply drops it. */
+    case 'mine':
+      onMine(m);
       return;
 
     /* ── who is around ── */
@@ -2489,7 +2557,7 @@ function tableLobby(){
     send({ t:'ready', on: !MP.iAmReady });
   };
   const st = $('#mp-start');
-  if (st) st.onclick = () => { sfx('game.start'); send({ t:'start' }); };
+  if (st) st.onclick = () => { sfx('game.start'); sendStart(); };
   const mb = $('#mp-modebtn');
   if (mb) mb.onclick = () => {
     MP.panel = MP.panel === 'mode' ? null : 'mode';
@@ -2998,6 +3066,14 @@ function onBegan(m){
      the whole of the outbound path — there is no second place in this file
      that sends a move, so there is no second place that can send one twice. */
   const hooks = LB.net.hooks || (LB.net.hooks = null);
+  /* the private-deal inbox for THIS running game. A hidden-hand game
+     publishes hooks.private(d, mates); it is fed the seat's own cards the
+     moment they arrive (or straight away, if the relay's {t:'mine'} beat
+     this start into the queue). Games with no private deal leave it null
+     and the {t:'mine'} handler is a harmless no-op. */
+  MP.privateHook = (hooks && typeof hooks.private === 'function')
+    ? (d, mates) => { try { hooks.private(d, mates); } catch (e){} }
+    : null;
   if (hooks && typeof hooks.onMove === 'function'){
     if (MP.unMove){ try { MP.unMove(); } catch (e){} }
     MP.unMove = hooks.onMove((mv, info) => {
@@ -3065,10 +3141,31 @@ function onBegan(m){
     }
     sfx('game.start');
     setState('live', null);
+    /* the game is live now: hand it any private deal the relay pushed
+       ahead of this start (it should arrive after `began`, but a buffered
+       one is fed the instant the table can take it). */
+    if (MP.privateHook && MP.pendingMine){
+      const q = MP.pendingMine; MP.pendingMine = null;
+      MP.privateHook(q.d, q.mates);
+    }
   } catch (e){
     MP.live = false; MP.boardLive = false;
+    MP.privateHook = null; MP.pendingMine = null;
     setState('unreachable', 'That game would not start from the lobby. Nothing was lost.');
   }
+}
+
+/* THE PRIVATE HAND ARRIVES. Addressed to this seat only by the relay, on
+   this seat's own replay bit. Treat `d` as our own cards and NEVER put it
+   on the shared wire — the game's private hook feeds it straight to its
+   engine's DEALERS.private, where opponents' hands stay null. If the
+   table is not live yet (this outran the start), buffer it; onBegan flushes
+   it the moment the game can take it. */
+function onMine(m){
+  if (!m || typeof m.seat !== 'number' || !Array.isArray(m.d)) return;
+  const mates = Array.isArray(m.mates) ? m.mates.slice() : null;
+  if (MP.live && MP.privateHook){ MP.privateHook(m.d, mates); return; }
+  MP.pendingMine = { d: m.d.slice(), mates };
 }
 
 /* a move from another chair. The engine is the referee, not the relay — the

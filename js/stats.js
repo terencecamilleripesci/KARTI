@@ -1085,11 +1085,10 @@ function stateLine(){
     return '<p class="sx-state bad"><span class="sx-dot"></span>' +
            '<span class="sx-txt">' + esc(BOARD.why || 'Cannot reach the board right now.') + '</span>' +
            '<button type="button" id="sx-retry">Retry</button></p>';
-  if (BOARD.state === 'live')
-    return '<p class="sx-state live"><span class="sx-dot"></span>' +
-           '<span class="sx-txt">Live from the Pi' +
-           (session() ? ' — your results are on it' : ' — log in to get on it') + '</span>' +
-           '<button type="button" id="sx-retry">Refresh</button></p>';
+  /* When the board is up there is deliberately NO banner — a green
+     "Live from the Pi" line on every tab was noise. Loading and error
+     states still speak (you need to know when the board can't be
+     reached), but a working board just shows the ranking. */
   return '';
 }
 
