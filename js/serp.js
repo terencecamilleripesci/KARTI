@@ -99,11 +99,42 @@ const MAX_SEATS = 8;
    FIXED-POINT WORLD
    FP fractional bits: 1 world-unit = (1<<FP) fu (fixed sub-units).
    The world is a square WORLD_U units on a side; it WRAPS at the edges.
-   ═══════════════════════════════════════════════════════════════════ */
+
+   ── A SCALABLE WORLD, STILL FULLY DETERMINISTIC ────────────────────
+   WORLD_U/WORLD are no longer frozen constants: the arena grows with the
+   snake count so a full table of long snakes has room to move (snake.io
+   reads badly in a cramped world). worldFor(n) is a PURE function of the
+   seated count, so it is part of the match tuple exactly like the seed —
+   every phone that builds `deal(opts, seed)` with the same `seats` builds
+   the identical world, in lockstep, with nothing on the wire. deal() sets
+   these module lets ONCE, before any tick runs; the geometry helpers
+   (wrapDelta / angWrapFu / dist2 / segDist2) and pellet() all read the
+   live value, so a bigger world wraps, tiles food and measures distance at
+   the new size with no other change. The export object exposes WORLD /
+   WORLD_U as getters so the screen always paints the current match's size
+   (bounds, minimap, hero caps). */
 const FP    = 8;                 /* 256 sub-units per world unit         */
 const ONE   = 1 << FP;
-const WORLD_U = 200;             /* world side, in units                 */
-const WORLD = WORLD_U << FP;     /* world side, in fu                    */
+const WORLD_MIN_U = 200;         /* the floor: a 2–3 snake arena         */
+let WORLD_U = WORLD_MIN_U;       /* world side, in units (per match)     */
+let WORLD   = WORLD_U << FP;     /* world side, in fu   (per match)      */
+
+/* the arena side, in units, for a seated count. Grows with the table so
+   more/longer snakes still have room; capped so it never gets so vast that
+   snakes never meet. PURE — the same n gives the same size on every phone. */
+function worldFor(n){
+  n = Math.max(MIN_SEATS, Math.min(MAX_SEATS, n | 0 || 2));
+  /* 200 at 2 snakes, +38 units per extra snake → 428 at a full 8-snake
+     table. A long snake is ~a hundred body-ticks ≈ 200 units of trail, so
+     even the big arena stays a place where paths cross. */
+  return WORLD_MIN_U + Math.max(0, n - 2) * 38;
+}
+/* set the live world size for the match about to be dealt. Called once by
+   deal(), before any geometry or tick — this is what keeps it deterministic. */
+function setWorld(n){
+  WORLD_U = worldFor(n);
+  WORLD   = WORLD_U << FP;
+}
 
 /* THE ANGLE TABLE. ANG steps make a full turn; TCOS/TSIN are cos/sin
    scaled by (1<<TRIG). Built ONCE, here, at load — this Math.cos/sin is
@@ -149,8 +180,16 @@ const SPEEDS = [
 function spdFu(sp){ return Math.max(1, Math.round(sp.spd * ONE)); }
 const speedOf = id => SPEEDS.find(s => s.id === id) || SPEEDS[1];
 
-const TURN        = 8;                 /* ang-steps/tick (~11.25°/tick)   */
-const BOOST_TURN  = 6;                 /* a little less nimble at sprint  */
+/* TURN is the whole "feel" of the steering. It was 8 (~11.25°/tick → a 90°
+   turn took 8 ticks / 440ms, which read as floaty and laggy). Raised to 12
+   (~16.9°/tick → a 90° turn is 6 ticks / ~330ms) so the head chases the
+   thumb noticeably faster. It is still a CAP, not a snap: a 180° reversal
+   takes ANG/2 / TURN = ~11 ticks, and NECK_GRACE body-ticks at the head are
+   exempt from the self-kill test, so the tighter arc still cannot curl back
+   onto your own neck in one move. Determinism-critical (it changes the hash
+   on purpose vs the old build) — re-proved by the 1000× replay. */
+const TURN        = 12;                /* ang-steps/tick (~16.9°/tick)    */
+const BOOST_TURN  = 9;                 /* a little less nimble at sprint  */
 const BODY_R0     = Math.round(1.55 * ONE);
 const HEAD_R      = Math.round(1.35 * ONE);
 /* SNAKE.IO RAMP: everyone is BORN TINY and grows by eating, exactly like
@@ -162,8 +201,21 @@ const HEAD_R      = Math.round(1.35 * ONE);
 const SEG_START   = 5;                 /* body ticks at birth — a SMALL snake */
 const GROW_TICKS  = 4;                 /* body ticks each pellet adds         */
 const MIN_TICKS   = 4;                 /* never shorter than this (< start)   */
-const NECK_GRACE  = 4;                 /* body ticks near the head that
-                                          cannot self-kill (a normal arc) */
+const NECK_GRACE  = 5;                 /* body ticks near the head that
+                                          cannot self-kill. One more than the
+                                          old 4 to keep the tighter TURN=12
+                                          arc from ever clipping its own neck. */
+
+/* ── LIVES ──────────────────────────────────────────────────────────
+   Each snake starts with LIVES_DEFAULT lives. Ramming a body costs ONE
+   life and RESPAWNS the snake small at a deterministically-chosen empty
+   spot; at zero it is OUT (eliminated). The count is DERIVED, never a wire
+   flag: a snake's remaining lives = LIVES − (accepted deaths so far), read
+   off its own die-event history exactly the way growth is read off the eat
+   list — so a late `die` message rewinds and re-counts to the same answer
+   on every phone. LIVES travels in opts (part of the match tuple). */
+const LIVES_DEFAULT = 3;
+const LIVES_MAX     = 5;
 
 /* BOOST: a bounded multiplier, applied by the owner, deterministic.
    Every BOOST_DROP ticks of boosting sheds one body-tick and drops a
@@ -177,8 +229,15 @@ function bodyR(bodyTicks){
   return BODY_R0 + Math.max(0, extra);
 }
 
-/* how many pellets float on the map at once, and how big the world feels */
-function foodFor(n){ return 60 + n * 14; }
+/* how many pellets float on the map at once. Scales with the ARENA AREA so
+   a bigger (more-snakes) world does not read as empty: the base density is
+   the old 200×200 feel, multiplied by how much bigger this match's world is.
+   Pure in (n → worldFor(n)), so it is identical on every phone. */
+function foodFor(n){
+  const base = 60 + n * 14;
+  const areaMul = (worldFor(n) * worldFor(n)) / (WORLD_MIN_U * WORLD_MIN_U);
+  return Math.round(base * areaMul);
+}
 
 /* pellet index ranges. Field pellets are indices [0 .. issued]; drop
    pellets (from deaths) live in a HIGH range so their seeded positions
@@ -210,13 +269,27 @@ function hash32(a, b, c){
 }
 
 /* PELLET NUMBER i, on every phone, forever. Field pellets tile the world
-   uniformly; DROP pellets (index >= DROP_BASE) are seeded from the death
-   that spawned them so their positions agree everywhere without a wire.
-   Returns fu coordinates. A pellet's "worth" is 1 length unit; drops are
-   worth a touch more so eating a corpse pays. */
+   uniformly; DROP pellets (index >= DROP_BASE) DRIP ALONG THE DEAD SNAKE —
+   they cluster around WHERE IT FELL, not at a random point across the map, so
+   killing or outliving a snake leaves a satisfying pile to eat right there
+   (real snake.io). The death's head position is recorded per drop-block in
+   st.dropOrigin at scatter time (a pure function of the deterministic death),
+   and the pellet is placed in a small seeded scatter around it — so every
+   phone still agrees with no wire. A block with no recorded origin (e.g. a
+   stale index) falls back to the old uniform hash so nothing ever breaks.
+   Returns fu coordinates. Drops are worth a touch more so eating a corpse pays. */
 function pellet(st, i){
   i = i | 0;
   if (i >= DROP_BASE){
+    const block = ((i - DROP_BASE) / 64) | 0;
+    const org = st.dropOrigin && st.dropOrigin[block];
+    if (org){
+      /* a seeded offset within ~a body-length of the fall, per pellet */
+      const spread = ((WORLD_U * 0.06) | 0) << FP;    /* cluster radius, fu   */
+      const ox = (hash32(st.seed >>> 0, i * 2 + 1, 0xD30F) % (spread * 2)) - spread;
+      const oy = (hash32(st.seed >>> 0, i * 2 + 2, 0xD31F) % (spread * 2)) - spread;
+      return { x: angWrapFu(org.x + ox), y: angWrapFu(org.y + oy), i, drop:1 };
+    }
     const h = hash32(st.seed >>> 0, i * 2 + 1, 0xD30F);
     const j = hash32(st.seed >>> 0, i * 2 + 2, 0xD31F);
     return { x: h % WORLD, y: j % WORLD, i, drop:1 };
@@ -233,6 +306,22 @@ function pellet(st, i){
    seat's angle around the ring is rotated by the seed so the same four
    friends do not open in the same spots every round.
    ═══════════════════════════════════════════════════════════════════ */
+/* build a fresh SMALL snake body around a head at (hx,hy) facing `dir`. Used
+   by both the opening and a respawn, so a reborn snake is exactly a newborn:
+   SEG_START ticks of straight tail behind the head. */
+function freshBody(st, hx, hy, dir){
+  const back = angWrap(dir + ANG / 2);
+  const path = [];
+  const spd = spdFu(speedOf(st.speed));
+  for (let k = 0; k < SEG_START; k++){
+    path.push({
+      x: angWrapFu(hx + ((TCOS[back] * spd) >> TRIG) * k),
+      y: angWrapFu(hy + ((TSIN[back] * spd) >> TRIG) * k)
+    });
+  }
+  return path;
+}
+
 function bornAt(st, seat){
   const n = st.n;
   const rot = hash32(st.seed >>> 0, 0x51, 0x11) % ANG;
@@ -244,19 +333,59 @@ function bornAt(st, seat){
   /* face along the ring (tangential), which keeps a snake from driving
      straight at the centre pile-up on tick one */
   const dir = angWrap(a + ANG / 4);
-  /* the body trails BEHIND the head: a straight tail pointing backward */
-  const back = angWrap(dir + ANG / 2);
-  const path = [];
-  const spd = spdFu(speedOf(st.speed));
-  for (let k = 0; k < SEG_START; k++){
-    path.push({
-      x: angWrapFu(hx + ((TCOS[back] * spd) >> TRIG) * k),
-      y: angWrapFu(hy + ((TSIN[back] * spd) >> TRIG) * k)
-    });
-  }
-  return { hx, hy, dir, path };
+  return { hx, hy, dir, path: freshBody(st, hx, hy, dir) };
 }
 function angWrapFu(v){ v = v % WORLD; if (v < 0) v += WORLD; return v | 0; }
+
+/* ── a deterministic SAFE respawn spot ──────────────────────────────
+   A snake that has a life left comes back small. Where it comes back is a
+   PURE function of (seed, seat, dieTick, respawnCount) — no wire, no clock,
+   no Math.random — so every phone re-derives the identical point. We probe a
+   handful of seeded candidate points and keep the FIRST that is clear of
+   every living body; if none is (a packed arena), the least-bad candidate is
+   used. "Clear" is squared-distance only, so it stays integer/deterministic. */
+function respawnAt(st, sn){
+  const key = (sn.seat + 1) * 977 + (sn.dieAt | 0) * 131 + (sn.deaths | 0);
+  let bestX = WORLD / 2, bestY = WORLD / 2, bestDir = 0, bestClear = -1;
+  const want = ((WORLD_U * 0.14) | 0) << FP;          /* wanted clearance    */
+  const wantSq = want * want;
+  for (let c = 0; c < 12; c++){
+    const h = hash32(st.seed >>> 0, key, c * 2 + 1);
+    const j = hash32(st.seed >>> 0, key, c * 2 + 2);
+    const hx = h % WORLD, hy = j % WORLD;
+    /* nearest living body point, squared */
+    let near = 1e18;
+    for (let s = 0; s < st.snakes.length; s++){
+      const o = st.snakes[s];
+      if (!o.alive || o.seat === sn.seat) continue;
+      const p = o.path;
+      for (let i = 0; i < p.length; i += 2){
+        const d2 = dist2(hx, hy, p[i].x, p[i].y);
+        if (d2 < near) near = d2;
+      }
+    }
+    if (near > bestClear){
+      bestClear = near; bestX = hx; bestY = hy;
+      bestDir = (hash32(st.seed >>> 0, key, c * 2 + 99) % ANG);
+    }
+    if (near >= wantSq) break;                        /* good enough, take it */
+  }
+  return { hx: bestX, hy: bestY, dir: bestDir };
+}
+
+/* respawn a snake in place: small again, lives-1 already counted by the die
+   fold. Called deterministically from stepOne when a non-final death lands. */
+function doRespawn(st, sn){
+  const r = respawnAt(st, sn);
+  sn.hx = r.hx; sn.hy = r.hy;
+  sn.ang = r.dir; sn.aim = r.dir;
+  sn.boost = 0;
+  sn.bodyTicks = SEG_START;
+  sn.grow = 0;
+  sn.path = freshBody(st, r.hx, r.hy, r.dir);
+  sn.alive = true;
+  sn.dieAt = null; sn.dieWhy = null;
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    deal(opts, seed) -> st
@@ -268,6 +397,15 @@ function deal(opts, seed){
   const n = Math.max(MIN_SEATS, Math.min(MAX_SEATS, opts.seats | 0 || 2));
   const sp = speedOf(opts.speed);
 
+  /* SIZE THE WORLD FIRST — a pure function of the seated count, set before
+     any geometry runs, so the whole match (opening ring, food tiling, wrap)
+     is built at the identical size on every phone. Part of the match tuple. */
+  setWorld(n);
+
+  /* LIVES for this match: default 3, clamped, carried in opts (match tuple). */
+  const lives = Math.max(1, Math.min(LIVES_MAX,
+                  (opts.lives == null ? LIVES_DEFAULT : opts.lives | 0) || LIVES_DEFAULT));
+
   const st = {
     v: 2,
     seed: seed >>> 0,
@@ -277,6 +415,7 @@ function deal(opts, seed){
     speed: sp.id,
     spd: spdFu(sp),
     lvl: Math.max(1, Math.min(3, opts.lvl | 0 || 2)),
+    lives,                /* lives every snake starts with (match config)   */
     food: foodFor(n),
     snakes: [],
     claims: [],          /* every "I ate #k" heard, sorted (t,seat,i)    */
@@ -303,6 +442,9 @@ function deal(opts, seed){
       bodyTicks: SEG_START,     /* target body length in ticks            */
       grow: 0,                  /* pending growth, in ticks               */
       score: 0,                 /* pellets eaten                          */
+      lives: st.lives,          /* remaining lives — DERIVED, kept in sync */
+      deaths: 0,                /* accepted deaths so far (=> lives spent) */
+      out: false,               /* eliminated: 0 lives left                */
       tick: 0,
       evs: [],                  /* {t,k,...} — its own history, sorted    */
       eats: [],                 /* accepted eat ticks, from settle()      */
@@ -325,7 +467,8 @@ function snapshot(sn, atTick){
     hx: sn.hx, hy: sn.hy,
     path: sn.path.map(p => ({ x:p.x, y:p.y })),
     bodyTicks: sn.bodyTicks, grow: sn.grow,
-    alive: sn.alive, dieAt: sn.dieAt, dieWhy: sn.dieWhy
+    alive: sn.alive, dieAt: sn.dieAt, dieWhy: sn.dieWhy,
+    lives: sn.lives, deaths: sn.deaths, out: sn.out
   };
   sn.snapAt = atTick;
 }
@@ -336,6 +479,7 @@ function restore(sn){
   sn.path = s.path.map(p => ({ x:p.x, y:p.y }));
   sn.bodyTicks = s.bodyTicks; sn.grow = s.grow;
   sn.alive = s.alive; sn.dieAt = s.dieAt; sn.dieWhy = s.dieWhy;
+  sn.lives = s.lives; sn.deaths = s.deaths; sn.out = s.out;
   sn.tick = sn.snapAt;
 }
 
@@ -421,12 +565,40 @@ function stepOne(st, sn, t, world){
   const cap2 = Math.max(MIN_TICKS, sn.bodyTicks) + 1;
   while (sn.path.length > cap2) sn.path.pop();
 
-  /* the death stamped at this tick. The OWNER put it there; everyone
-     else is only replaying what it was told. */
+  /* the death stamped at this tick. The OWNER put it there; everyone else is
+     only replaying what it was told. LIVES: a death spends one. `deaths` is
+     recomputed from the whole event list up to t (a rewind must re-count, not
+     accumulate), so lives = st.lives − deaths is exact on every phone. With a
+     life still in hand the snake RESPAWNS SMALL, right now, at a seeded safe
+     spot; at zero it is OUT — dead for good. Respawn position is a pure
+     function of (seed, seat, dieTick, deaths) so nobody sends it. */
+  /* find a die stamped at EXACTLY this tick (there is at most one — plan()
+     dedupes (tick,kind)). We do NOT recount the whole list: sn.deaths is a
+     PERSISTENT counter that survives horizon pruning (the snapshot carries it
+     and restore() puts it back), and each forward pass applies each die tick
+     exactly once. Recounting from sn.evs would be wrong the moment an old die
+     event is pruned past the horizon — the count would silently reset. */
+  let dieWhy = null;
   for (let i = 0; i < sn.evs.length; i++){
     const e = sn.evs[i];
     if (e.t > t) break;
-    if (e.t === t && e.k === 'die'){ sn.alive = false; sn.dieAt = t; sn.dieWhy = e.n | 0; }
+    if (e.t === t && e.k === 'die'){ dieWhy = e.n | 0; break; }
+  }
+  if (dieWhy !== null){
+    sn.deaths = (sn.deaths | 0) + 1;                 /* incremental, prune-safe */
+    sn.lives  = Math.max(0, st.lives - sn.deaths);
+    sn.dieAt = t; sn.dieWhy = dieWhy;
+    /* DRIP FOOD: the body scatters into pellets, keyed on (seat, dieTick,
+       deaths) so every phone spawns the identical set with no wire. Done here,
+       from the PRE-respawn length, so the amount matches the snake that just
+       fell — killing/outliving a long snake is a real feeding opportunity. */
+    scatterDrops(st, sn, sn.bodyTicks, sn.deaths);
+    if (sn.lives > 0){
+      /* a life in hand: come back tiny at a seeded clear spot */
+      doRespawn(st, sn);
+    } else {
+      sn.out = true; sn.alive = false;
+    }
   }
   if (world) world.dirty = true;
 }
@@ -599,15 +771,32 @@ function settle(st){
 }
 
 /* when a snake dies its body scatters DROP pellets — a pure function of
-   (seat, dieTick) so every phone spawns the identical set with no wire.
-   Registered in st.drops0 (the master list) and st.drops (still live). */
-function scatterDrops(st, sn){
-  if (sn.dieAt == null) return;
-  const key = (sn.seat + 1) * 131 + sn.dieAt;
-  const count = Math.max(3, Math.min(24, (sn.bodyTicks / 4) | 0));
+   (seat, dieTick, deaths) so every phone spawns the identical set with no
+   wire. `len` is the PRE-respawn length so the drip matches the fallen snake;
+   `deaths` keeps each of a snake's several deaths on its own key. Registered
+   in st.drops0 (the master list) and st.drops (still live). The amount is
+   generous — roughly one pellet per ~2.5 body-ticks, capped — so outliving or
+   killing a big snake leaves a satisfying pile to eat. Called ENGINE-INTERNAL
+   from stepOne when a death lands, so it is derived from the die fold and can
+   never be double-counted by a rewind (the idx-dedupe guarantees it). */
+function scatterDrops(st, sn, len, deaths){
+  const dieAt = sn.dieAt;
+  if (dieAt == null) return;
+  const count = Math.max(4, Math.min(48, ((len | 0) * 2 / 5) | 0));
+  /* The drop OFFSET (idx − DROP_BASE) must fit the 16-bit (n,c) wire pair, so
+     each death gets a seeded 64-slot BLOCK inside [0..65535]. The block is a
+     hash of (seed, seat, dieTick, deaths) → 0..1023, times 64. Two deaths that
+     land on the same block share positions — harmless and still deterministic
+     — but with 1024 blocks over a 150s round that is vanishingly rare. */
+  const block = hash32(st.seed >>> 0, (sn.seat + 1) * 131 + dieAt, deaths | 0) & 1023;
   if (!st.drops0) st.drops0 = [];
+  /* record WHERE the snake fell so pellet() drips this block's drops around it
+     (deterministic: the head position at a deterministic death is itself
+     deterministic). Idempotent under a rewind — the same block, same origin. */
+  if (!st.dropOrigin) st.dropOrigin = {};
+  st.dropOrigin[block] = { x: sn.hx, y: sn.hy };
   for (let k = 0; k < count; k++){
-    const idx = DROP_BASE + key * 32 + k;
+    const idx = DROP_BASE + block * 64 + k;            /* ≤ 1023·64+47 < 65536 */
     if (st.drops0.indexOf(idx) < 0){ st.drops0.push(idx); st.drops.push(idx); }
   }
 }
@@ -720,9 +909,16 @@ function bot(st, sn, t, lvl){
     if (v > bestV){ bestV = v; bestA = a; }
   }
 
-  /* CUT-OFF (level 3, sometimes 2): if an opponent head is near and
-     roughly ahead, steer to arc across its path rather than to food */
-  if (lvl >= 2){
+  /* CUT-OFF — the aggressive move, and the thing that made AI a RUNAWAY:
+     it used to fire at level 3 EVERY decision and at level 2 half the time,
+     so the machines spent the opening lunging at each other, the arena
+     emptied in ~12s, and one or two survivors ballooned on the corpses while
+     a (more cautious) human was long dead. Now it is:
+       · level 3 ONLY (a Ruthless bot still hunts; Normal/Gentle just play);
+       · a THROTTLED chance (~1 in 4 decisions), not every beat;
+       · only when the victim is genuinely CLOSE and only into clear space.
+     A human can out-survive this instead of being cut off on tick one. */
+  if (lvl >= 3){
     let vx = null, vd = 1e18;
     for (let s = 0; s < st.snakes.length; s++){
       const o = st.snakes[s];
@@ -730,8 +926,9 @@ function bot(st, sn, t, lvl){
       const d2 = dist2(sn.hx, sn.hy, o.hx, o.hy);
       if (d2 < vd){ vd = d2; vx = o; }
     }
-    const near = (WORLD_U * 0.10 * ONE) * (WORLD_U * 0.10 * ONE);
-    if (vx && vd < near && (lvl === 3 || (hash32(st.seed, t, sn.seat) & 1))){
+    const near = (WORLD_U * 0.08 * ONE) * (WORLD_U * 0.08 * ONE);
+    const wantsCut = (hash32(st.seed, t, sn.seat + 7) & 3) === 0;   /* ~1/4    */
+    if (vx && vd < near && wantsCut){
       /* aim a little AHEAD of the victim's head */
       const lead = 3;
       const tx = angWrapFu(vx.hx + ((TCOS[vx.ang] * st.spd * lead) >> TRIG));
@@ -770,28 +967,37 @@ function angOf(dx, dy){
 /* ═══════════════════════════════════════════════════════════════════
    THE ROUND
    ═══════════════════════════════════════════════════════════════════ */
+/* on the board right now (may still respawn) */
 const aliveCount = st => st.snakes.reduce((a, s) => a + (s.alive ? 1 : 0), 0);
+/* STILL IN THE MATCH: has a life left. Elimination is `out`, and the round
+   is over when at most one snake is not out. */
+const inCount = st => st.snakes.reduce((a, s) => a + (s.out ? 0 : 1), 0);
 
 function over(st){
   if (st.over) return true;
   if (st.top >= roundTicks(st)) return true;      /* the timer always ends  */
-  return aliveCount(st) <= (st.n > 1 ? 1 : 0);
+  return inCount(st) <= (st.n > 1 ? 1 : 0);
 }
 
-/* Final standings. A snake still alive outranks a dead one; among the
-   dead, later death beats earlier; ties break on length, then score,
-   then seat. At a TIME end, everyone is "alive" so it falls straight to
-   length — the longest wins. Pure, so every phone prints the same board. */
+/* Final standings with LIVES. A snake still IN (not out) outranks an
+   eliminated one; more lives left beats fewer; among the eliminated, later
+   elimination beats earlier; ties break on length, then score, then seat. At
+   a TIME end everyone still in is ranked by lives-then-length, so the last
+   survivors are read correctly. Pure, so every phone prints the same board. */
 function standings(st){
   return st.snakes.map(sn => ({
     seat: sn.seat,
     score: sn.score,
     len: sn.bodyTicks,
-    alive: sn.alive,
-    dieAt: sn.alive ? Infinity : (sn.dieAt == null ? 0 : sn.dieAt),
+    lives: sn.lives,
+    out: sn.out,
+    alive: sn.alive && !sn.out,
+    /* eliminated snakes rank by WHEN they were eliminated (later = better);
+       snakes still in outrank all of them */
+    dieAt: sn.out ? (sn.dieAt == null ? 0 : sn.dieAt) : Infinity,
     why: sn.dieWhy
-  })).sort((a, b) => b.dieAt - a.dieAt || b.len - a.len ||
-                     b.score - a.score || a.seat - b.seat);
+  })).sort((a, b) => b.dieAt - a.dieAt || b.lives - a.lives ||
+                     b.len - a.len || b.score - a.score || a.seat - b.seat);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -847,11 +1053,13 @@ function decWire(w){
 /* ── the agreement line, for a bug report and for the determinism proof.
    Hashes the whole settled world state to a short string. ─────────── */
 function check(st){
-  const parts = ['serp2', st.seed, st.top, st.live.length, st.drops.length];
+  const parts = ['serp3', st.seed, st.worldU, st.lives, st.top,
+                 st.live.length, st.drops.length];
   for (let s = 0; s < st.snakes.length; s++){
     const x = st.snakes[s];
     parts.push(x.seat + ':' + x.hx + ',' + x.hy + ':' + x.ang + ':' +
-               x.bodyTicks + ':' + x.score + ':' + (x.alive ? 'a' : 'd' + x.dieAt));
+               x.bodyTicks + ':' + x.score + ':' + x.lives + ':' +
+               (x.out ? 'o' + x.dieAt : x.alive ? 'a' : 'd' + x.dieAt));
   }
   const s = parts.join('|');
   let h = 2166136261;
@@ -859,19 +1067,25 @@ function check(st){
   return (h >>> 0).toString(36);
 }
 
-root.KARTI_SERP = {
-  engine: {
+const engine = {
     MIN_SEATS, MAX_SEATS, CAUSE, SPEEDS, HORIZON,
-    FP, ONE, WORLD, WORLD_U, ANG, TURN,
+    FP, ONE, ANG, TURN,
     BODY_R0, HEAD_R, SEG_START, GROW_TICKS, DROP_BASE,
+    LIVES_DEFAULT, LIVES_MAX, WORLD_MIN_U, worldFor,
     TCOS, TSIN, WIRE_FIELDS,
     angWrap, angDelta, angOf, wrapDelta, wrapFu: angWrapFu, dist2, segDist2, bodyR,
-    speedOf, foodFor, roundTicks,
+    speedOf, foodFor, roundTicks, inCount,
     deal, plan, simTo, snapshot, restore, advanceHorizon,
     hitTest, pellet, pelletUnder, settle, scatterDrops,
     bot, over, aliveCount, standings, hash32,
     encWire, decWire, check
-  }
 };
+/* WORLD / WORLD_U are per-match (they scale with the seated count), so the
+   screen must always read the CURRENT match's size. Getters keep every
+   E.WORLD / E.WORLD_U reader (bounds, minimap, hero caps) live rather than
+   frozen at load. */
+Object.defineProperty(engine, 'WORLD',   { get(){ return WORLD; },   enumerable:true });
+Object.defineProperty(engine, 'WORLD_U', { get(){ return WORLD_U; }, enumerable:true });
+root.KARTI_SERP = { engine };
 
 })(typeof window !== 'undefined' ? window : globalThis);

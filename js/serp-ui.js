@@ -210,7 +210,10 @@ function injectCSS(){
        inside the viewport at every phone size and orientation */
     '#scr-party .sp-host{display:flex;flex-direction:column;align-items:stretch;' +
       'justify-content:flex-start;gap:6px;min-height:0;height:100%;width:100%;' +
-      'max-width:100%;box-sizing:border-box;overflow:hidden}' +
+      'max-width:100%;box-sizing:border-box;overflow:hidden;' +
+      /* a heart glyph as an SVG mask, so a life pip is one tiny element */
+      "--sp-heart:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' " +
+        "viewBox='0 0 24 24'%3E%3Cpath d='M12 21s-8-5.4-8-11a4.5 4.5 0 0 1 8-2.8A4.5 4.5 0 0 1 20 10c0 5.6-8 11-8 11z'/%3E%3C/svg%3E\")}" +
 
     /* ── the arena: fills the space; the world scrolls inside it ── */
     '#scr-party .sp-arena{position:relative;flex:1 1 auto;min-height:0;border-radius:14px;' +
@@ -263,6 +266,16 @@ function injectCSS(){
     '#scr-party .sp-chip.me{background:rgba(255,197,66,.13);border-color:rgba(255,197,66,.38)}' +
     '#scr-party .sp-chip.out{opacity:.36}' +
     '#scr-party .sp-chip.out b{text-decoration:line-through}' +
+
+    /* ── LIVES pips: a little heart per life, hollow once spent. The rank
+       block gets a dedicated life variant so the local count reads big. ── */
+    '#scr-party .sp-rank-life b{color:#FF6B8A}' +
+    '#scr-party .sp-pips{display:inline-flex;align-items:center;gap:2px;margin:2px 0 0}' +
+    '#scr-party .sp-chip .sp-pips{margin:0 1px 0 0}' +
+    '#scr-party .sp-pip{width:7px;height:7px;flex:0 0 auto;background:#FF6B8A;' +
+      '-webkit-mask:var(--sp-heart) center/contain no-repeat;mask:var(--sp-heart) center/contain no-repeat}' +
+    '#scr-party .sp-pip-x{background:rgba(255,255,255,.22)}' +
+    '#scr-party .sp-chip .sp-pip{width:6px;height:6px}' +
 
     /* a tiny hint strip under the arena naming the controls */
     '#scr-party .sp-hint{flex:0 0 auto;text-align:center;font:900 9px/1.3 var(--disp);' +
@@ -401,17 +414,23 @@ const VIEW_U = 30;
    pellets (5 + 4·20 = 85 ticks ⇒ growth 80), so a mid-length snake is halfway
    out and a long, well-fed snake sits near the ZOOM_MIN floor.
 
-   THE CLAMP, and why it is playable at 390×844:
-     Base VIEW_U is 30 units across the shorter (390px) side. ZOOM_MIN 0.55
-     means the most-zoomed-out view shows 30/0.55 ≈ 55 units across — a much
-     wider window, so a long snake and its neighbours read at a glance —
-     while the body diameter of a max-length snake still paints at several
-     px and pellets stay tappable-sized. Past this the world gets too tiny
+   THE CLAMP, and why it is playable at 390×844, in the NOW-SCALABLE world:
+     Base VIEW_U is 30 units across the shorter (390px) side. The world is no
+     longer a fixed 200 — it grows with the snake count (up to 428 at a full
+     table) — so a long snake needs to zoom out MORE than before to read the
+     late game like slither.io. ZOOM_MIN is deepened to 0.40: the most-zoomed
+     -out view shows 30/0.40 = 75 units across — a wide window that still
+     paints a max-length body at several px and keeps pellets tappable, and in
+     a 428-unit world that is a good ~1/6 of the map on screen at once (in a
+     small 200-unit world it is over a third — the zoom composes with the
+     world size for free, because everything is camera-relative). ZOOM_K is
+     lowered to 65 so a mid-length snake is already easing out, matching the
+     genre's "get big, see more" feel. Past ZOOM_MIN the world gets too tiny
      to steer, so it is the floor and we never shrink further.
    ═══════════════════════════════════════════════════════════════════ */
-const ZOOM_MIN = 0.55;   /* never below 55% of the base scale (playable)  */
-const ZOOM_K   = 90;     /* growth-ticks to half-way zoom (~20 pellets on
-                            the new small-start ramp: 5 + 4·20 ⇒ growth 80)  */
+const ZOOM_MIN = 0.40;   /* never below 40% of the base scale (playable)  */
+const ZOOM_K   = 65;     /* growth-ticks to half-way zoom (~15 pellets on
+                            the small-start ramp: 5 + 4·15 ⇒ growth 60)     */
 const ZOOM_TAU = 260;    /* ease time-constant (ms); glides, never jumps   */
 
 /* the target multiplier for a given body length (ticks). Pure, no state. */
@@ -433,7 +452,7 @@ function currentLen(){
 function startMatch(opts, seed, net){
   stopLoop();
   FX.length = 0;
-  const o = Object.assign({ seats:4, speed:'normal', lvl:2 }, opts || {});
+  const o = Object.assign({ seats:6, speed:'normal', lvl:2, lives:E.LIVES_DEFAULT }, opts || {});
   M = {
     opts: o,
     seed: (seed == null ? newSeed() : seed) >>> 0,
@@ -635,11 +654,17 @@ function doTick(){
     const fromY = (p.length > 1) ? p[1].y : sn.hy;
     const why = E.hitTest(st, sn, fromX, fromY);
     if (why != null){
+      /* the head, WHERE IT FELL, for the death burst — plan() may respawn the
+         snake (a life in hand) and move its head before we get to paint it */
+      const fellX = sn.hx, fellY = sn.hy;
+      /* the engine spends a life, scatters the drip and respawns-or-eliminates
+         inside plan()/stepOne — scatterDrops is engine-internal now, not ours */
       E.plan(st, sn, { t:M.tick, k:'die', n:why });
-      E.scatterDrops(st, sn);
       resettle();
       say(seat, { t:'die', tick:M.tick, why });
-      onDeath(seat, why);
+      onDeath(seat, why, fellX, fellY);
+      /* if a life remained the snake is alive again (small, elsewhere); only
+         a true elimination stops it. Either way this tick is spent. */
       continue;
     }
 
@@ -1057,6 +1082,23 @@ function fxDeath(sn){
   }
   fxPush({ k:'death', life:560, bits, a:col.a, b:col.b });
 }
+/* a death burst centred on WHERE THE SNAKE FELL — with lives the head has
+   usually already respawned elsewhere, so we scatter around (fx,fy) rather
+   than the (now-moved) body path. */
+function fxDeathAt(sn, fx, fy){
+  if (noMotion()) return;
+  if (fx == null || fy == null){ fxDeath(sn); return; }
+  const col = COLS[sn.seat % COLS.length];
+  const bits = [];
+  const N = 16;
+  for (let i = 0; i < N; i++){
+    const a = Math.random() * 6.2832, sp = (0.9 + Math.random() * 2.4) * E.ONE;
+    const jx = (Math.random() - 0.5) * 2 * E.ONE, jy = (Math.random() - 0.5) * 2 * E.ONE;
+    bits.push({ x:fx + jx, y:fy + jy, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp,
+                r:(0.5 + Math.random() * 0.6) });
+  }
+  fxPush({ k:'death', life:560, bits, a:col.a, b:col.b });
+}
 function fxWin(sn){
   if (noMotion() || !sn.path || !sn.path.length) return;
   fxPush({ k:'win', x:sn.hx, y:sn.hy, life:900 });
@@ -1298,6 +1340,16 @@ function setBoost(on){
   if (UI && UI.boostBtn) UI.boostBtn.classList.toggle('on', !!on);
 }
 
+/* a row of life pips — filled hearts for lives left, hollow for spent. Kept
+   tiny and text-free so it reads on a 390px HUD and a compact chip. */
+function pips(lives, total){
+  const full = Math.max(0, lives | 0), all = Math.max(full, total | 0);
+  let s = '';
+  for (let i = 0; i < all; i++)
+    s += '<span class="sp-pip' + (i < full ? '' : ' sp-pip-x') + '"></span>';
+  return '<span class="sp-pips" aria-label="' + full + ' of ' + all + ' lives">' + s + '</span>';
+}
+
 /* ── the HUD. Repainted on a score/life/rank change, NEVER per frame. ── */
 function hud(){
   if (!UI || !UI.hud) return;
@@ -1307,19 +1359,25 @@ function hud(){
   if (myRank < 1) myRank = st.n;
   const me = st.snakes[M.me];
   const myLen = me ? me.bodyTicks : 0;
+  const myLives = me ? (me.lives | 0) : 0;
+  const total = st.lives | 0;
 
   const chips = st.snakes.slice()
-    .sort((a, b) => b.bodyTicks - a.bodyTicks)
+    .sort((a, b) => (a.out === b.out ? b.bodyTicks - a.bodyTicks : (a.out ? 1 : -1)))
     .map(sn => {
       const c = COLS[sn.seat % COLS.length];
       const m = M.meta[sn.seat] || {};
       return '<span class="sp-chip' + (sn.seat === M.me ? ' me' : '') +
-               (sn.alive ? '' : ' out') + '">' +
+               (sn.out ? ' out' : '') + '">' +
         '<span class="d" style="background:' + c.a + '"></span>' +
-        esc(m.name || ('#' + (sn.seat + 1))) + ' <b>' + sn.bodyTicks + '</b></span>';
+        esc(m.name || ('#' + (sn.seat + 1))) +
+        (sn.out ? '' : ' ' + pips(sn.lives, total)) +
+        ' <b>' + sn.bodyTicks + '</b></span>';
     }).join('');
 
   UI.hud.innerHTML =
+    '<span class="sp-rank sp-rank-life"><b>' + myLives + '</b>' + pips(myLives, total) +
+      '<i>' + esc(T('lives', 'ħajjiet')) + '</i></span>' +
     '<span class="sp-rank"><b>#' + myRank + '</b><i>' +
       esc(T('of', 'minn')) + ' ' + st.n + '</i></span>' +
     '<span class="sp-rank"><b>' + myLen + '</b><i>' + esc(T('length', 'tul')) + '</i></span>' +
@@ -1334,22 +1392,36 @@ function paintCountdown(beat){
   UI.cd.textContent = beat === 1 ? T('GO', 'MUR') : String(beat - 1);
 }
 
-/* ── somebody's snake stopped ─────────────────────────────────────── */
-function onDeath(seat, why){
+/* ── somebody's snake stopped ──────────────────────────────────────
+   With LIVES, a death is usually a RESPAWN, not the end: the engine has
+   already spent a life and (if any remained) put the snake back small at a
+   clear spot. So the message depends on whether the snake is OUT. (fellX,
+   fellY) is where the head fell, since a respawned head is already elsewhere. */
+function onDeath(seat, why, fellX, fellY){
   const sn = M.st.snakes[seat];
-  if (sn) fxDeath(sn);
+  if (sn) fxDeathAt(sn, fellX, fellY);
+  const out = !!(sn && sn.out);
+  const lives = sn ? (sn.lives | 0) : 0;
   if (seat === M.me){
     setBoost(0);
-    cue('duel.destroy', { gain:0.8 }, true);
-    if (M.ctx) P.ui.setTurn(M.ctx, {
+    cue('duel.destroy', { gain: out ? 0.8 : 0.55 }, out);
+    if (M.ctx) P.ui.setTurn(M.ctx, out ? {
       cls:'bad',
       who: T('You are out', 'Int barra'),
       note: deathWords(why)
+    } : {
+      cls:'',
+      who: livesWord(lives),
+      note: T('Back in — you are small again.', 'Reġajt dħalt — żgħir mill-ġdid.')
     });
   } else {
     cue('piece.capture', { gain:0.4 });
   }
   hud();
+}
+function livesWord(n){
+  if (n === 1) return T('One life left', 'Ħajja waħda');
+  return T(n + ' lives left', n + ' ħajjiet');
 }
 function deathWords(why){
   const C = E.CAUSE;
@@ -1462,9 +1534,9 @@ function showResult(tbl, won){
     R2.show({
       lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
       reduced: noMotion(),
-      title: won ? T('You are the last one moving', 'Int l-aħħar wieħed miexi')
+      title: won ? T('Last snake standing', 'L-aħħar serp wieqaf')
                  : T('Out', 'Barra'),
-      subtitle: T('Last snake moving takes the round', 'L-aħħar serp miexi jieħu r-round'),
+      subtitle: T('Last snake with a life takes the round', 'L-aħħar serp b’ħajja jieħu r-round'),
       rows: tbl.map((r, i) => {
         const m = M.meta[r.seat] || {};
         return {
@@ -1472,7 +1544,8 @@ function showResult(tbl, won){
           place: i + 1,
           you: r.seat === M.me,
           bot: (m.own === 'ai'),
-          score: r.len,
+          /* the score column shows LIVES-LEFT · length so the ranking reads */
+          score: (r.out ? '✗' : (r.lives | 0) + '♥') + ' · ' + r.len,
           border: REB_BORDER[r.seat % REB_BORDER.length]
         };
       }),
@@ -1487,16 +1560,17 @@ function showResult(tbl, won){
   const rows = tbl.map((r, i) => {
     const c = COLS[r.seat % COLS.length];
     const m = M.meta[r.seat] || {};
-    return '<div class="sp-row' + (i === 0 ? ' win' : '') + '">' +
+    return '<div class="sp-row' + (i === 0 ? ' win' : '') + (r.out ? ' out' : '') + '">' +
       '<span class="p">' + (i + 1) + '</span>' +
       '<span class="d" style="background:' + c.a + '"></span>' +
       '<span class="n">' + esc(m.name || ('#' + (r.seat + 1))) + '</span>' +
-      '<span class="s">' + r.len + '</span></div>';
+      '<span class="s">' + (r.out ? esc(T('out', 'barra'))
+                                  : (r.lives | 0) + '♥') + ' · ' + r.len + '</span></div>';
   }).join('');
 
   P.ui.result(M.ctx, {
     tone: won ? 'win' : 'lose',
-    head: won ? T('You are the last one moving', 'Int l-aħħar wieħed miexi')
+    head: won ? T('Last snake standing', 'L-aħħar serp wieqaf')
               : T('Out', 'Barra'),
     why: '<div class="sp-tally">' + rows + '</div>',
     quip: won ? T('The whole arena, and nobody left to hit.', 'L-arena kollha, u ħadd ma fadal x’taħbat miegħu.')
@@ -1549,7 +1623,8 @@ function openBoard(onBack){
     ]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();      /* the square-board sizer is not ours */
-  M.ctx.badge.textContent = SPEEDWORDS[M.st.speed]().n + ' · ' + M.st.n;
+  M.ctx.badge.textContent = SPEEDWORDS[M.st.speed]().n + ' · ' + M.st.n +
+    ' · ' + T(M.st.lives + ' lives', M.st.lives + ' ħajjiet');
   board();
   M.ctx.btn('sp-rules').onclick = () => setRules(!rulesOpen);
   paintRules();
@@ -1609,11 +1684,14 @@ function onlineRemote(seat, wire){
     return null;
   }
   if (mv.t === 'die'){
+    /* where the head was before plan() (maybe) respawns it small elsewhere.
+       scatterDrops is engine-internal now — plan()/stepOne spends the life,
+       drips the food and respawns-or-eliminates. */
+    const fellX = sn.hx, fellY = sn.hy;
     E.plan(M.st, sn, { t:mv.tick, k:'die', n:mv.why });
-    E.scatterDrops(M.st, sn);
     resettle();
     smoothFrom(sn, was);
-    onDeath(g, mv.why);
+    onDeath(g, mv.why, fellX, fellY);
     return null;
   }
   if (mv.t === 'eat'){
@@ -1672,12 +1750,27 @@ function onlineStart(cfg){
   });
   const meG = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
   const iAmHost = (cfg.you === (cfg.host | 0));
-  const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
+
+  /* THE MATCH TUPLE, off ONE start blob — all deterministic, all agreed:
+       · SEATS  — the chair count mp.js is authoritative about (cfg.seats).
+       · AI lvl — already travels PER SEAT (s.level), forwarded by mp.js today.
+       · SPEED  — the room variant, forwarded as cfg.opts.mode today.
+       · LIVES  — the one multi-number opt mp.js does not forward yet. It rides
+                  cfg.opts.lives IF the relay's opaque `rules` blob is wired
+                  into onBegan's start-opts (a one-line mp.js change, reported
+                  in the hand-off — it must be merged with the misteru whisper
+                  additions, not clobbered). Until then every client falls back
+                  to the SAME LIVES_DEFAULT (3), so online stays in lockstep
+                  regardless: nobody re-derives a different number. */
+  const O = (cfg.opts && typeof cfg.opts === 'object') ? cfg.opts : {};
+  const lvl = (O.lvl | 0) || (chairs.map(s => s && s.level).find(v => v)) || 2;
+  const lives = (O.lives == null ? E.LIVES_DEFAULT
+                 : Math.max(1, Math.min(E.LIVES_MAX, O.lives | 0))) || E.LIVES_DEFAULT;
+  const speed = O.speed || O.mode || 'normal';
 
   leave();
   injectCSS();
-  startMatch({ seats:n, lvl, speed:(cfg.opts && cfg.opts.mode) || 'normal' },
-             cfg.seed >>> 0, null);
+  startMatch({ seats:n, lvl, speed, lives }, cfg.seed >>> 0, null);
   M.net = Object.assign({}, cfg.net, { host:iAmHost, toGame, toRoom });
   M.me = meG;
   M.mine = [meG];
@@ -1800,7 +1893,7 @@ function menu(){
   stopLoop(); M = null; UI = null;
   const el = P.ui.screenEl();
   const p = pref();
-  const seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 5));
+  const seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 6));
 
   el.innerHTML =
     '<div class="pt-wrap sp-menu">' +
@@ -1875,11 +1968,15 @@ function aiSetup(){
   P.show();
   const el = P.ui.screenEl();
   const p = pref();
-  let seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 5));
+  let seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 6));
   let lvl   = p.lvl || 2;
   let speed = E.speedOf(p.speed).id;
+  let lives = Math.max(1, Math.min(E.LIVES_MAX, p.lives || E.LIVES_DEFAULT));
 
   function paint(){
+    /* the arena grows with the snake count — show the size the chosen
+       count will actually build, so the host sees the world scale */
+    const wu = E.worldFor(seats);
     el.innerHTML =
       '<div class="pt-wrap sp-menu">' +
       '<div class="tbar">' +
@@ -1889,7 +1986,7 @@ function aiSetup(){
       '</div>' +
       '<div class="scroll">' +
         '<div class="sp-hero" id="sp-hero" aria-hidden="true">' +
-          '<span class="sp-hero-cap">' + E.WORLD_U + '&times;' + E.WORLD_U + '</span>' +
+          '<span class="sp-hero-cap">' + wu + '&times;' + wu + '</span>' +
         '</div>' +
 
         '<div class="tiny pt-lbl">' + esc(T('How many snakes', 'Kemm-il serp')) + '</div>' +
@@ -1901,8 +1998,21 @@ function aiSetup(){
             ' aria-label="' + esc(T('More snakes', 'Aktar sriep')) + '">+</button>' +
         '</div>' +
         '<p class="blurb" style="margin:6px 2px 12px">' +
-          esc(T('You, and the rest are the machine, all sharing one big arena.',
-                'Int, u l-bqija huma l-magna, kollha f’arena kbira waħda.')) +
+          esc(T('You, and the rest are the machine. More snakes → a bigger arena.',
+                'Int, u l-bqija huma l-magna. Aktar sriep → arena akbar.')) +
+        '</p>' +
+
+        '<div class="tiny pt-lbl">' + esc(T('Lives each', 'Ħajjiet kull wieħed')) + '</div>' +
+        '<div class="sp-step">' +
+          '<button class="sp-rnd" id="sp-l-dn"' + (lives <= 1 ? ' disabled' : '') +
+            ' aria-label="' + esc(T('Fewer lives', 'Inqas ħajjiet')) + '">&minus;</button>' +
+          '<span class="v">' + lives + '<i>' + esc(T('lives', 'ħajjiet')) + '</i></span>' +
+          '<button class="sp-rnd" id="sp-l-up"' + (lives >= E.LIVES_MAX ? ' disabled' : '') +
+            ' aria-label="' + esc(T('More lives', 'Aktar ħajjiet')) + '">+</button>' +
+        '</div>' +
+        '<p class="blurb" style="margin:6px 2px 12px">' +
+          esc(T('Die and you respawn small — until your lives run out. Last snake with a life wins.',
+                'Tmut u terġa’ tibda żgħir — sakemm jispiċċaw il-ħajjiet. L-aħħar serp b’ħajja jirbaħ.')) +
         '</p>' +
 
         '<div class="tiny pt-lbl">' + esc(T('How fast', 'Kemm mgħaġġel')) + '</div>' +
@@ -1937,12 +2047,15 @@ function aiSetup(){
 
     el.querySelector('#sp-back').onclick = () => { cue('ui.back', { gain:0.7 }); menu(); };
     el.querySelector('#sp-go').onclick = () => {
-      pref({ seats, lvl, speed });
-      newGame({ seats, lvl, speed });
+      pref({ seats, lvl, speed, lives });
+      newGame({ seats, lvl, speed, lives });
     };
     const dn = el.querySelector('#sp-s-dn'), up = el.querySelector('#sp-s-up');
     if (dn) dn.onclick = () => { if (seats > E.MIN_SEATS){ seats--; paint(); } };
     if (up) up.onclick = () => { if (seats < E.MAX_SEATS){ seats++; paint(); } };
+    const ldn = el.querySelector('#sp-l-dn'), lup = el.querySelector('#sp-l-up');
+    if (ldn) ldn.onclick = () => { if (lives > 1){ lives--; paint(); } };
+    if (lup) lup.onclick = () => { if (lives < E.LIVES_MAX){ lives++; paint(); } };
     el.querySelector('#sp-speed').addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('[data-sp]');
       if (!b) return; speed = b.getAttribute('data-sp'); paint();
