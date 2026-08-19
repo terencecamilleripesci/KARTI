@@ -225,24 +225,17 @@ function wireHold(btn, getRole, onFirstRelease){
 }
 
 /* ═══ 3 · SETUP (the tile's front door) ════════════════════════════ */
+/* SCREEN ONE — the front door. Hero, the two ways to play (online first,
+   then pass-the-phone), and the rules folded at the bottom. No settings
+   here: the roster, the language, the word-packs, the spy-count and the
+   clock all live one tap deeper, in setupSheet(), reached by PASS THE
+   PHONE. This matches ludu/kanun/bomba: a clean chooser, then a setup. */
 function menu(){
   leaveGame(); G = null; OL = null;
   const el = scr();
   sfx('party.open');
-  const pf = P.pref(GID);
   const saved = loadSave();
   const hasRound = !!(saved && saved.round && saved.round.phase !== 'verdict');
-
-  /* working copy of the setup answers */
-  const cfg = {
-    themes: Array.isArray(pf.themes) && pf.themes.length ? pf.themes.slice() : WRD.themes.map(t => t.id),
-    lang: pf.lang === 'en' ? 'en' : 'mt',
-    spies: [0, 1, 2, 3].indexOf(pf.spies | 0) >= 0 ? (pf.spies | 0) : 0,
-    mins: MINS.indexOf(pf.mins | 0) >= 0 ? (pf.mins | 0) : 8
-  };
-  cfg.themes = cfg.themes.filter(id => WRD.theme(id));
-  if (!cfg.themes.length) cfg.themes = WRD.themes.map(t => t.id);
-  let roster = (Array.isArray(pf.roster) ? pf.roster : []).slice(0, 16);
 
   const M = window.KARTI_MP;
   const mpKnows = !!(M && M.openFor && M.GAME_KEYS && M.GAME_KEYS.indexOf(GID) >= 0);
@@ -265,6 +258,105 @@ function menu(){
             '<i>Round ' + esc(String(saved.round.no)) + ' — ' + esc(saved.players.join(', ')) + '</i>' +
           '</button></div>'
         : '') +
+
+      /* THE TWO WAYS TO PLAY — big buttons, online first when the relay
+         knows the word, then pass-the-phone (which opens the setup). There
+         is NO play-with-AI: L-ISPJUN has no machine opponent, by design. */
+      '<div class="pt-opts sp-ways">' +
+        (mpKnows
+          ? '<button class="pt-opt primary" id="sp-online">' +
+              ico('users') + '<b>Play online</b>' +
+              '<i>Everybody on their own phone, through a KARTI room.</i></button>'
+          : '') +
+        '<button class="pt-opt' + (mpKnows ? '' : ' primary') + '" id="sp-pass">' +
+          myIco('sp-hand') + '<b>Pass the phone</b>' +
+          '<i>One phone round the table. Set up the room, then deal each player their word.</i></button>' +
+      '</div>' +
+
+      (mpKnows ? '' :
+        '<p class="sp-note dim">Online rooms for L-ISPJUN switch on with the next server update — ' +
+        'pass-the-phone works right now, no internet needed.</p>') +
+
+      /* THE RULES, AT THE BOTTOM, SLIDING. Closed by default, remembered in a
+         UI-only key, and always the last thing in the scroll — never a modal,
+         never over anything a player must read. */
+      '<section class="sp-fold">' +
+        '<button class="sp-foldtg' + (rulesOpen ? ' open' : '') + '" id="sp-foldtg" ' +
+          'aria-expanded="' + (rulesOpen ? 'true' : 'false') + '" aria-controls="sp-foldbody">' +
+          ico('book') + '<span>How a round works</span>' +
+          '<svg class="sp-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+        '</button>' +
+        '<div class="sp-foldbody" id="sp-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
+          rulesPanel() + '</div>' +
+      '</section>' +
+      '<div style="height:8px"></div>' +
+    '</div></div>';
+
+  /* the rules fold: real button, real aria, state survives a reload */
+  { const tg = el.querySelector('#sp-foldtg');
+    const body = el.querySelector('#sp-foldbody');
+    tg.onclick = () => {
+      const open = body.hidden;
+      body.hidden = !open;
+      tg.setAttribute('aria-expanded', open ? 'true' : 'false');
+      tg.classList.toggle('open', open);
+      uiSet('rules', open ? 1 : 0);
+      sfx(open ? 'ui.sheet' : 'ui.back', { gain: 0.5 });
+      if (open){
+        if (!reducedMo()){
+          body.classList.add('anim');
+          body.addEventListener('animationend', () => body.classList.remove('anim'), { once: true });
+        }
+        body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' });
+      }
+    };
+  }
+  el.querySelector('#pt-back').onclick = () => { leaveGame(); P.hub(); };
+  { const r = el.querySelector('#sp-resume');
+    if (r) r.onclick = () => resumeSaved(saved); }
+  { const o = el.querySelector('#sp-online');
+    if (o) o.onclick = () => {
+      /* seed the host sheet from the last-used answers, exactly as before */
+      const pf = P.pref(GID);
+      const themes = (Array.isArray(pf.themes) && pf.themes.length
+        ? pf.themes.filter(id => WRD.theme(id)) : WRD.themes.map(t => t.id));
+      P.pref(GID, {
+        themes: themes.length ? themes : WRD.themes.map(t => t.id),
+        lang: pf.lang === 'en' ? 'en' : 'mt',
+        spies: [0, 1, 2, 3].indexOf(pf.spies | 0) >= 0 ? (pf.spies | 0) : 0,
+        mins: MINS.indexOf(pf.mins | 0) >= 0 ? (pf.mins | 0) : 8,
+        roster: (Array.isArray(pf.roster) ? pf.roster : [])
+      });
+      sfx('ui.tap');
+      M.openFor(GID);
+    }; }
+  el.querySelector('#sp-pass').onclick = () => { sfx('ui.tap'); setupSheet(); };
+}
+
+/* SCREEN TWO — the pass-the-phone setup, reached only after PASS THE
+   PHONE. This is the block that used to be the whole menu: the roster,
+   the language, the word-packs, the spy-count and the clock, and the
+   Start button. The pickers and #sp-start SHARE ONE DOM SCOPE and query
+   each other, so they must stay together — they are one unit here, never
+   split across screens. Back goes to the chooser, no popup. */
+function setupSheet(){
+  leaveGame(); G = null; OL = null;
+  const el = scr();
+  const pf = P.pref(GID);
+
+  /* working copy of the setup answers */
+  const cfg = {
+    themes: Array.isArray(pf.themes) && pf.themes.length ? pf.themes.slice() : WRD.themes.map(t => t.id),
+    lang: pf.lang === 'en' ? 'en' : 'mt',
+    spies: [0, 1, 2, 3].indexOf(pf.spies | 0) >= 0 ? (pf.spies | 0) : 0,
+    mins: MINS.indexOf(pf.mins | 0) >= 0 ? (pf.mins | 0) : 8
+  };
+  cfg.themes = cfg.themes.filter(id => WRD.theme(id));
+  if (!cfg.themes.length) cfg.themes = WRD.themes.map(t => t.id);
+  let roster = (Array.isArray(pf.roster) ? pf.roster : []).slice(0, 16);
+
+  el.innerHTML = '<div class="pt-wrap sp-menu sp-setup">' + bar(TITLE, '18+') +
+    '<div class="scroll">' +
 
       '<div class="tiny pt-lbl">Who is in the room (3–16)</div>' +
       '<div class="sp-chips" id="sp-roster" aria-label="Players"></div>' +
@@ -299,28 +391,12 @@ function menu(){
         MINS.map(m => '<button class="pt-opt mid" data-v="' + m + '">' + myIco('sp-timer') +
           '<b>' + m + ' min</b><i>' + MIN_NOTE[m] + '</i></button>').join('') +
       '</div>' +
-
-      (mpKnows
-        ? '<div class="pt-opts" style="margin-top:14px"><button class="pt-opt" id="sp-online">' +
-            ico('users') + '<b>Play online instead</b><i>Everybody on their own phone, through a KARTI room.</i></button></div>'
-        : '<p class="sp-note dim">Online rooms for L-ISPJUN switch on with the next server update — ' +
-           'pass-the-phone works right now, no internet needed.</p>') +
-
-      /* THE RULES, AT THE BOTTOM, SLIDING. Closed by default, remembered in a
-         UI-only key, and always the last thing in the scroll — never a modal,
-         never over anything a player must read. */
-      '<section class="sp-fold">' +
-        '<button class="sp-foldtg' + (rulesOpen ? ' open' : '') + '" id="sp-foldtg" ' +
-          'aria-expanded="' + (rulesOpen ? 'true' : 'false') + '" aria-controls="sp-foldbody">' +
-          ico('book') + '<span>How a round works</span>' +
-          '<svg class="sp-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
-        '</button>' +
-        '<div class="sp-foldbody" id="sp-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
-          rulesPanel() + '</div>' +
-      '</section>' +
       '<div style="height:8px"></div>' +
     '</div>' +
     '<div class="pt-startbar"><button class="btn primary" id="sp-start"></button></div></div>';
+
+  /* back to the chooser — no popup; nothing here is a live round */
+  el.querySelector('#pt-back').onclick = () => { sfx('ui.back'); menu(); };
 
   const themesEl = el.querySelector('#sp-themes');
   const paintThemes = () => {
@@ -408,34 +484,6 @@ function menu(){
     sfx('ui.toggle', { gain:0.4 });
     paintThemes(); syncStart();
   };
-
-  /* the rules fold: real button, real aria, state survives a reload */
-  { const tg = el.querySelector('#sp-foldtg');
-    const body = el.querySelector('#sp-foldbody');
-    tg.onclick = () => {
-      const open = body.hidden;
-      body.hidden = !open;
-      tg.setAttribute('aria-expanded', open ? 'true' : 'false');
-      tg.classList.toggle('open', open);
-      uiSet('rules', open ? 1 : 0);
-      sfx(open ? 'ui.sheet' : 'ui.back', { gain: 0.5 });
-      if (open){
-        if (!reducedMo()){
-          body.classList.add('anim');
-          body.addEventListener('animationend', () => body.classList.remove('anim'), { once: true });
-        }
-        body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' });
-      }
-    };
-  }
-  el.querySelector('#pt-back').onclick = () => { leaveGame(); P.hub(); };
-  { const r = el.querySelector('#sp-resume');
-    if (r) r.onclick = () => resumeSaved(saved); }
-  { const o = el.querySelector('#sp-online');
-    if (o) o.onclick = () => {
-      P.pref(GID, { themes:cfg.themes, lang:cfg.lang, spies:cfg.spies, mins:cfg.mins, roster });
-      M.openFor(GID);
-    }; }
 
   el.querySelector('#sp-start').onclick = () => {
     if (roster.length < 3) return;
@@ -1572,6 +1620,14 @@ function injectCSS(){
     '#scr-party .sp-menu .sp-heroart{width:min(330px,92%);height:auto;aspect-ratio:240/100;' +
       'display:block;paint-order:stroke fill}' +
     '#scr-party .sp-menu .tiny.pt-lbl{color:#79C9BD}' +
+    /* the two ways to play read big; the primary way is tinted teal so the
+       eye lands on it first, exactly the shelf's clean-chooser pattern */
+    '#scr-party .sp-menu .sp-ways{gap:10px;margin:4px 0 2px}' +
+    '#scr-party .sp-menu .sp-ways .pt-opt{min-height:60px}' +
+    '#scr-party .sp-menu .sp-ways .pt-opt.primary{background:rgba(79,200,184,.14);' +
+      'border-color:rgba(79,200,184,.55)}' +
+    '#scr-party .sp-menu .sp-ways .pt-opt.primary>.ico{color:#4FC8B8}' +
+    '#scr-party .sp-menu .sp-ways .pt-opt.primary>b{color:#7FE0D2}' +
     '#scr-party .sp-menu .pt-opt.on{background:rgba(79,200,184,.12);' +
       'border-color:rgba(79,200,184,.55)}' +
     '#scr-party .sp-menu .pt-opt.on>.ico{color:#4FC8B8}' +

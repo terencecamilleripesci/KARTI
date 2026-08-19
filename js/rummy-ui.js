@@ -1559,7 +1559,140 @@ function setRules(open){
    rules FOLDED SHUT by default: creating a game is short, and the
    rules are one tap away.
    ═══════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   THE ENTRY SCREEN — MINIMAL, the clean new-game pattern (see js/ludu-ui,
+   js/bomba-ui menu()). The hero, one blurb, and the big few choices in
+   order: PLAY ONLINE (primary, top — only when the shared lobby can
+   actually open a rummy room), PLAY WITH AI, and How to play (the
+   existing folded .kb-rules slide). NOTHING ELSE here — no seats, no
+   packs, no jokers, no felt, no machine level. Those live one tap deeper
+   in aiSetup(). Online has no settings on this screen either: the
+   hand-size variant is chosen in the LOBBY via the host Rules button.
+   No pass-the-phone (rummy is a hidden hand). Back goes BACK, no popup.
+   ═══════════════════════════════════════════════════════════════════ */
 function setupSheet(){
+  injectCSS();
+  P.show();
+  stopThinking(); stopVote(); M = null; UI = null;
+  const el = P.ui.screenEl();
+  const p = pref();
+  const mode = E.modeOf(p.mode);
+
+  const MPX = window.KARTI_MP;
+  /* Can the shared lobby actually open a rummy room on this build?
+     Feature-detected, not assumed. */
+  let onlineReady = false;
+  try { onlineReady = !!(MPX && MPX.gameLobby && MPX.gameLobby('rummy').id === 'rummy'); } catch(e){}
+
+  /* THE IDENTITY PIECE: the winning shape, dealt from the real pack.
+     A run of hearts and a set of kings — 4+3 — with the second set in
+     when the remembered flavour is GĦAXRA. Decoration only: spans,
+     aria-hidden, nothing tappable. */
+  const hw = mode === 'ghaxra' ? 34 : 44;
+  const hc = f => '<span class="kb-card" style="width:' + hw + 'px;height:' +
+    Math.round(hw * 1.4) + 'px">' + DECK.cardFace(f) + '</span>';
+  const mkc = DECK.mk;
+  const hero =
+    '<div class="rm-hero" aria-hidden="true">' +
+      '<span class="rm-hero-g run' + (mode === 'ghaxra' ? ' tight' : '') + '">' +
+        [mkc(1, 4), mkc(1, 5), mkc(1, 6), mkc(1, 7)].map(hc).join('') + '</span>' +
+      '<i class="rm-hero-plus">+</i>' +
+      '<span class="rm-hero-g set' + (mode === 'ghaxra' ? ' tight' : '') + '">' +
+        [mkc(0, 13), mkc(1, 13), mkc(3, 13)].map(hc).join('') + '</span>' +
+      (mode === 'ghaxra'
+        ? '<i class="rm-hero-plus">+</i>' +
+          '<span class="rm-hero-g set2 tight">' +
+          [mkc(2, 9), mkc(3, 9), mkc(0, 9)].map(hc).join('') + '</span>'
+        : '') +
+      '<span class="rm-hero-cap">' + esc(E.shapeName(mode)) + '</span>' +
+    '</div>';
+
+  el.innerHTML =
+    '<div class="pt-wrap rm-menu">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="rm-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>RUMMY</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      hero +
+      '<p class="blurb">Draw one, throw one, and the moment your whole hand is melds ' +
+      'you call <b>RUMMY</b> and you have won. Nothing to count — the shout takes it.</p>' +
+      /* a half-played table comes FIRST, gold, the skarta way — the
+         likeliest tap on a return visit should be the top one */
+      (ST.save
+        ? '<button class="btn primary" id="rm-res" style="margin:2px 0 12px">' +
+          'Carry on the saved table</button>'
+        : '') +
+
+      /* ── the modes, big and few, in order ── */
+      '<div class="rm-modes" style="display:grid;gap:9px;margin-top:4px">' +
+        (onlineReady
+          ? '<button class="btn primary" id="rm-online">' + ico('users') + ' ' +
+            'Play online</button>'
+          : '') +
+        '<button class="btn' + (onlineReady ? ' ghost' : ' primary') + '" id="rm-ai">' +
+          ico('cards') + ' Play with the machine</button>' +
+        '<button class="btn ghost" id="rm-rulesbtn">' + ico('book') + ' How to play</button>' +
+      '</div>' +
+
+      (ST.rec.w + ST.rec.l
+        ? '<p class="pt-ledger" style="margin-top:14px">At this table so far: <b>' +
+          ST.rec.w + '</b> won, <b>' + ST.rec.l + '</b> lost.</p>'
+        : '') +
+
+      /* ── the rules, FOLDED. The existing slide — a header that opens
+         the list on demand and remembers itself in the UI-only key.
+         Closed by default: the entry screen's job is to choose HOW. ── */
+      '<div class="kb-rules" style="margin:16px 2px 20px;padding:2px 14px;border-radius:14px;' +
+        'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
+        '<button type="button" class="rm-fold-h" id="rm-srules-h" aria-controls="rm-srules-b"' +
+          ' aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
+          '<span><b>The rules, as this table plays them</b>' +
+          '<i id="rm-srules-i">' + esc(modeName(mode)) + ' — ' +
+            (setupOpen ? 'tap to fold them away.' : 'tap to read them.') + '</i></span>' +
+          '<em aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg></em>' +
+        '</button>' +
+        '<div class="rm-fold-b' + (setupOpen ? ' open' : '') + '" id="rm-srules-b">' +
+          '<div class="rm-fold-i"><ul style="margin:6px 0 12px;padding:0">' +
+            rulesFor(mode).map(r => '<li style="font-size:12px;line-height:1.65;' +
+              'color:var(--dim);margin:0 0 6px 16px">' + r + '</li>').join('') +
+          '</ul></div></div>' +
+      '</div>' +
+    '</div></div>';
+
+  el.querySelector('#rm-back').onclick = () => P.hub();
+  el.querySelector('#rm-ai').onclick = () => { cue('ui.tap', { gain: 0.6 }, true); aiSetup(); };
+  const rs = el.querySelector('#rm-res');
+  if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
+  const on = el.querySelector('#rm-online');
+  if (on) on.onclick = () => { cue('ui.tap', { gain: 0.6 }, true); openOnline(); };
+
+  /* the fold toggles WITHOUT repainting, so the slide actually slides */
+  const sh = el.querySelector('#rm-srules-h');
+  if (sh) sh.onclick = () => {
+    setSetupOpen(!setupOpen);
+    sh.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
+    const b = el.querySelector('#rm-srules-b');
+    if (b) b.classList.toggle('open', setupOpen);
+    const hint = el.querySelector('#rm-srules-i');
+    if (hint) hint.textContent = modeName(mode) + ' — ' +
+      (setupOpen ? 'tap to fold them away.' : 'tap to read them.');
+    cue(setupOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 }, true);
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PLAY WITH AI — the ONE settings step, one tap deeper (see js/ludu-ui
+   offlineSetup, js/bomba-ui setupAI). Everything that used to be the
+   entry wall lives here now: hand size, seats, the enforced pack rule,
+   jokers, the felt, the machine level — with sensible defaults already
+   chosen so Deal is always right there. The rules stay folded at the
+   bottom. Back returns to the minimal entry, no popup. This step never
+   feeds the online wire — the variant path (openOnline / R.lobby) is
+   untouched.
+   ═══════════════════════════════════════════════════════════════════ */
+function aiSetup(){
   injectCSS();
   P.show();
   stopThinking(); stopVote(); M = null; UI = null;
@@ -1579,53 +1712,15 @@ function setupSheet(){
        minimum and one more */
     const deckOpts = [];
     for (let d = rule.min; d <= rule.max; d++) deckOpts.push(d);
-    const MPX = window.KARTI_MP;
-    /* Can the shared lobby actually open a rummy room on this build?
-       Feature-detected, not assumed. */
-    let onlineReady = false;
-    try { onlineReady = !!(MPX && MPX.gameLobby && MPX.gameLobby('rummy').id === 'rummy'); } catch(e){}
-
-    /* THE IDENTITY PIECE: the winning shape, dealt from the real pack.
-       A run of hearts and a set of kings — 4+3 — and picking GĦAXRA
-       above deals the second set in, so the hero always shows exactly
-       the hand the Deal button below will ask for. Decoration only:
-       spans, aria-hidden, nothing tappable. */
-    const hw = mode === 'ghaxra' ? 34 : 44;
-    const hc = f => '<span class="kb-card" style="width:' + hw + 'px;height:' +
-      Math.round(hw * 1.4) + 'px">' + DECK.cardFace(f) + '</span>';
-    const mkc = DECK.mk;
-    const hero =
-      '<div class="rm-hero" aria-hidden="true">' +
-        '<span class="rm-hero-g run' + (mode === 'ghaxra' ? ' tight' : '') + '">' +
-          [mkc(1, 4), mkc(1, 5), mkc(1, 6), mkc(1, 7)].map(hc).join('') + '</span>' +
-        '<i class="rm-hero-plus">+</i>' +
-        '<span class="rm-hero-g set' + (mode === 'ghaxra' ? ' tight' : '') + '">' +
-          [mkc(0, 13), mkc(1, 13), mkc(3, 13)].map(hc).join('') + '</span>' +
-        (mode === 'ghaxra'
-          ? '<i class="rm-hero-plus">+</i>' +
-            '<span class="rm-hero-g set2 tight">' +
-            [mkc(2, 9), mkc(3, 9), mkc(0, 9)].map(hc).join('') + '</span>'
-          : '') +
-        '<span class="rm-hero-cap">' + esc(E.shapeName(mode)) + '</span>' +
-      '</div>';
 
     el.innerHTML =
       '<div class="pt-wrap rm-menu">' +
       '<div class="tbar">' +
         '<button class="iconbtn" id="rm-back" aria-label="Back">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-        '<h2>RUMMY</h2>' +
+        '<h2>Play with the machine</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        hero +
-        '<p class="blurb">Draw one, throw one, and the moment your whole hand is melds ' +
-        'you call <b>RUMMY</b> and you have won. Nothing to count — the shout takes it.</p>' +
-        /* a half-played table comes FIRST, gold, the skarta way — the
-           likeliest tap on a return visit should be the top one */
-        (ST.save
-          ? '<button class="btn primary" id="rm-res" style="margin:2px 0 10px">' +
-            'Carry on the saved table</button>'
-          : '') +
 
         '<div class="tiny pt-lbl">How many cards in the hand</div>' +
         '<div class="pt-opts two" id="rm-mode">' +
@@ -1693,20 +1788,9 @@ function setupSheet(){
         '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
           '<button class="btn primary" id="rm-go">Deal — you vs ' + (seats - 1) +
             ' machine' + (seats - 1 === 1 ? '' : 's') + '</button>' +
-          (window.KARTI_MP
-            ? (onlineReady
-                ? '<button class="btn ghost" id="rm-online">Open an online RUMMY room</button>'
-                : '<p class="pt-warn" style="margin:0">Online rooms for RUMMY need the lobby and ' +
-                  'the relay to learn its name first — the wiring on this build is ready and ' +
-                  'waiting for those two lines.</p>')
-            : '') +
         '</div>' +
 
-        /* ── the rules, FOLDED. Game creation used to end in an eleven-
-           line wall printed every single time; now it is a header that
-           slides the list open on demand, remembers itself in the
-           UI-only key, and swaps its text when the hand size above
-           changes. Closed by default: the sheet's job is dealing. ── */
+        /* ── the rules, FOLDED — the same slide as the entry screen ── */
         '<div class="kb-rules" style="margin:16px 2px 20px;padding:2px 14px;border-radius:14px;' +
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
           '<button type="button" class="rm-fold-h" id="rm-srules-h" aria-controls="rm-srules-b"' +
@@ -1724,7 +1808,7 @@ function setupSheet(){
         '</div>' +
       '</div></div>';
 
-    el.querySelector('#rm-back').onclick = () => P.hub();
+    el.querySelector('#rm-back').onclick = () => { cue('ui.back', { gain: 0.7 }, true); setupSheet(); };
     /* changing the hand size or the jokers can change what the pack
        rule allows, so the chosen count is dropped back to "let the
        rule decide" rather than left pointing at a number that is no
@@ -1746,13 +1830,6 @@ function setupSheet(){
     el.querySelector('#rm-go').onclick = () => {
       pref({ seats, decks, jokers, lvl, mode, adv });
       newGame({ seats, decks, jokers, humans: 1, lvl, mode });
-    };
-    const rs = el.querySelector('#rm-res');
-    if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
-    const on = el.querySelector('#rm-online');
-    if (on) on.onclick = () => {
-      pref({ seats, decks, jokers, lvl, mode });
-      openOnline();
     };
     /* the fold toggles WITHOUT repainting, so the slide actually
        slides; a mode change above repaints and rulesFor(mode) brings

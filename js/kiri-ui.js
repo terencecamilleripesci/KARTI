@@ -893,6 +893,30 @@ function injectCSS(){
   '#scr-kiri .kr-menuscroll{display:flex;flex-direction:column}' +
   '#scr-kiri .kr-menuscroll>*{flex:0 0 auto}' +
   '#scr-kiri .kr-menuscroll .kr-ruleslide{margin-top:auto}' +
+
+  /* ── THE THREE WAYS IN — big, stacked, one job each ── */
+  '#scr-kiri .kr-modes{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}' +
+  '#scr-kiri .kr-mode{display:flex;align-items:center;gap:11px;text-align:left;width:100%;' +
+    'min-height:62px;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.14);' +
+    'background:rgba(255,255,255,.05);color:var(--txt,#F4EFFF);cursor:pointer;' +
+    'transition:transform .08s ease,background .15s ease,border-color .15s ease}' +
+  '#scr-kiri .kr-mode:active{transform:translateY(1px)}' +
+  '#scr-kiri .kr-mode.primary{background:linear-gradient(180deg,#8A5CFF,#6a3fd8);border-color:#A98BFF;color:#fff}' +
+  '#scr-kiri .kr-mode .mi{flex:0 0 auto;width:38px;height:38px;border-radius:11px;display:grid;' +
+    'place-items:center;background:rgba(0,0,0,.22);border:1px solid rgba(255,255,255,.14)}' +
+  '#scr-kiri .kr-mode.primary .mi{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.28)}' +
+  '#scr-kiri .kr-mode .mi svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;' +
+    'stroke-linecap:round;stroke-linejoin:round}' +
+  '#scr-kiri .kr-mode .mt{flex:1;min-width:0}' +
+  '#scr-kiri .kr-mode .mt b{display:block;font-family:var(--disp);font-size:14.5px;font-weight:900;' +
+    'letter-spacing:.02em;line-height:1.1}' +
+  '#scr-kiri .kr-mode .mt i{display:block;font-style:normal;font-size:11px;font-weight:600;line-height:1.35;' +
+    'margin-top:3px;color:#C9BEE6}' +
+  '#scr-kiri .kr-mode.primary .mt i{color:rgba(255,255,255,.82)}' +
+  '#scr-kiri .kr-mode .chev{flex:0 0 auto;color:#8578AC}' +
+  '#scr-kiri .kr-mode.primary .chev{color:rgba(255,255,255,.7)}' +
+  '#scr-kiri .kr-mode .chev svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.4;' +
+    'stroke-linecap:round;stroke-linejoin:round}' +
   '#scr-kiri .kr-ruleslide{border-radius:12px;border:1px solid rgba(255,255,255,.12);' +
     'background:rgba(255,255,255,.04);overflow:hidden;margin-bottom:6px}' +
   '#scr-kiri .kr-ruleslide .kr-row{margin-bottom:0;border:0;background:none;min-height:52px}' +
@@ -1224,6 +1248,15 @@ function heroHTML(){
   '</div>';
 }
 
+/* ── the three mode-button icons, drawn not glyphed ── */
+const KR_ICO_GLOBE = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/>' +
+  '<path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>';
+const KR_ICO_BOT = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="8" width="14" height="10" rx="2"/>' +
+  '<path d="M12 8V4M9 13h.01M15 13h.01M2 12v3M22 12v3"/></svg>';
+const KR_ICO_PHONE = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2.5"/>' +
+  '<path d="M11 18h2"/></svg>';
+const KR_ICO_CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
 function menu(){
   stopLoop();
   G = null;
@@ -1263,8 +1296,33 @@ function menu(){
               '<button class="kr-btn bad" id="kr-bin" style="flex:0 0 40%">Bin it<small>and be rid of it</small></button>' +
             '</div>' +
           '</div>'
-        : '<button class="kr-btn buy" id="kr-new" style="width:100%;margin-bottom:8px">Start a game' +
-          '<small>who is playing, then the money goes out</small></button>') +
+        : '') +
+      /* ── THE THREE WAYS IN ─────────────────────────────────────────
+         One tap each, nothing to fill in first. ONLINE hands off to the
+         shared lobby (mp.js) with its relay seed; WITH AI deals straight
+         in on defaults; PASS THE PHONE opens the seat setup so the people
+         round the table can be named. The old settings wall (round limit,
+         clock, per-machine difficulty) lives on that second step now. */
+      '<div class="kr-modes">' +
+        '<button class="kr-mode primary" id="kr-m-online">' +
+          '<span class="mi">' + KR_ICO_GLOBE + '</span>' +
+          '<span class="mt"><b>Play online</b>' +
+            '<i>Real people, one board, every phone dealt the same.</i></span>' +
+          '<span class="chev">' + KR_ICO_CHEV + '</span>' +
+        '</button>' +
+        '<button class="kr-mode" id="kr-m-ai">' +
+          '<span class="mi">' + KR_ICO_BOT + '</span>' +
+          '<span class="mt"><b>Play with the machine</b>' +
+            '<i>You and two of them, dealt right now.</i></span>' +
+          '<span class="chev">' + KR_ICO_CHEV + '</span>' +
+        '</button>' +
+        '<button class="kr-mode" id="kr-m-hot">' +
+          '<span class="mi">' + KR_ICO_PHONE + '</span>' +
+          '<span class="mt"><b>Pass the phone</b>' +
+            '<i>Everybody round one phone. Sort the seats, then deal.</i></span>' +
+          '<span class="chev">' + KR_ICO_CHEV + '</span>' +
+        '</button>' +
+      '</div>' +
       (rec.w + rec.l
         ? '<p class="kr-ledger">At this table so far: <b>' + rec.w + '</b> won, <b>' +
           rec.l + '</b> lost.</p>' : '') +
@@ -1285,7 +1343,14 @@ function menu(){
     '</div>';
   artWash(el.querySelector('#kr-heroart'), 'kiri-hero', 0.22);
   el.querySelector('#kr-home').onclick = close;
-  el.querySelector('#kr-new').onclick = setup;
+  /* THE THREE WAYS IN — each does exactly one thing, no form first. */
+  el.querySelector('#kr-m-online').onclick = () => { cue('ui.tap', { gain:0.6 }); goOnline(); };
+  el.querySelector('#kr-m-ai').onclick     = () => { cue('ui.tap', { gain:0.6 }); startAI(); };
+  el.querySelector('#kr-m-hot').onclick    = () => { cue('ui.tap', { gain:0.6 }); setup('hot'); };
+  /* the saved-game "Start a new one" bins the old board and drops back to
+     the same three ways in — it is not a fourth path of its own */
+  const nw = el.querySelector('#kr-new');
+  if (nw) nw.onclick = () => { K.clearSave(); menu(); };
   el.querySelector('#kr-rules').onclick = () => {
     rulesDown = !rulesDown;
     try { localStorage.setItem(UI_KEY + '.rules', rulesDown ? '1' : '0'); } catch(e){}
@@ -1478,15 +1543,53 @@ function rulesPanel(){
 }
 
 let cfg = null;
-function defaultSeats(){
+/* mode: 'ai' fills the extra chairs with the machine (you + two of them);
+   'hot' fills them with people on this phone. Seat one is always you. */
+function defaultSeats(mode){
+  const hot = mode === 'hot';
   const out = [{ name: myName(), kind:'human', level:2 }];
   for (let i = 1; i < K.MAX_SEATS; i++)
-    out.push({ name: K.SEATS[i].en, kind: i < 3 ? 'cpu' : 'off', level: 2 });
+    out.push({
+      name: K.SEATS[i].en,
+      kind: i < 3 ? (hot ? 'human' : 'cpu') : 'off',
+      level: 2,
+    });
   return out;
 }
 
-function setup(){
-  if (!cfg) cfg = { seats: defaultSeats(), roundLimit: 30, clock: 90, showRules: false };
+/* PLAY WITH THE MACHINE — no settings step. You and two machines on the
+   house defaults, dealt straight in. No seed is forced, so js/kiri.js
+   deals a fresh random board (an online table is the only one that pins
+   the seed — see onlineStart). */
+function startAI(){
+  turnClock = 90;
+  startGame(defaultSeats('ai').filter(s => s.kind !== 'off')
+    .map(s => ({ name:s.name, kind:s.kind, level:s.level })),
+    { roundLimit: 30, clock: 90 });
+}
+
+/* PLAY ONLINE — hand off to the shared lobby (js/mp.js). IL-KIRI is a
+   live online game there (registered in mp.js's GAMES), so this opens the
+   real room list; the lobby calls back into onlineStart() with the relay
+   seed every phone shares. If mp.js is somehow absent, fall back to the
+   seat setup rather than a dead end. */
+function goOnline(){
+  if (window.KARTI_MP && KARTI_MP.openFor){
+    try { KARTI_MP.openFor('kiri'); return; } catch(e){}
+  }
+  setup('hot');
+}
+
+/* PASS THE PHONE (and "Start a new one") — the seat setup, where the
+   people round the table get named and the round limit / clock / machine
+   difficulty are chosen. This is the SECOND step, off the primary path. */
+function setup(mode){
+  if (!cfg) cfg = { seats: defaultSeats(mode), roundLimit: 30, clock: 90, showRules: false };
+  else if (mode === 'hot'){
+    /* coming in fresh from PASS THE PHONE: default the spare chairs to
+       people, not machines, without wiping a table already being edited */
+    cfg.seats = defaultSeats('hot');
+  }
   /* the profile may have changed since the last game on this phone */
   cfg.seats[0].name = myName();
   cfg.seats[0].kind = 'human';

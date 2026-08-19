@@ -1548,9 +1548,14 @@ P.online.serp = {
 };
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE MENU — the themed sheet, with the rules FOLDED SHUT at the
-   bottom. Poker's rule: the sheet's job is starting a game, and the
-   rules are one tap away underneath it, not a wall in front of it.
+   THE ENTRY SCREEN — MINIMAL, the shape ludu/kanun/bomba use. Screen
+   one is a hero, a blurb, ONE big mode button (PLAY WITH AI — SERP's
+   online is intentionally dark, see the lobby note below, so there is no
+   dead PLAY ONLINE button here) and a HOW TO PLAY that slides the rules
+   up over the menu. Nothing else. Every picker — how many snakes, how
+   fast, how hard the machine is — lives on the SECOND step (aiSetup),
+   reached only after PLAY WITH AI, behind sensible defaults so a player
+   can just start. Presentation only: newGame still gets {seats,speed,lvl}.
    ═══════════════════════════════════════════════════════════════════ */
 function heroCanvas(){
   /* the identity piece: a snake drawn with the real renderer's geometry
@@ -1588,35 +1593,104 @@ function menu(){
   stopLoop(); M = null; UI = null;
   const el = P.ui.screenEl();
   const p = pref();
+  const seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 4));
+
+  el.innerHTML =
+    '<div class="pt-wrap sp-menu">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="sp-back" aria-label="' + esc(T('Back', 'Lura')) + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>SERP</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      '<div class="sp-hero" id="sp-hero" aria-hidden="true">' +
+        '<span class="sp-hero-cap">' + E.gridFor(seats) + '&times;' + E.gridFor(seats) + '</span>' +
+      '</div>' +
+      '<p class="blurb">' +
+        T('You are always moving. Eat, get longer, and be the last one still going. ' +
+          'Two to eight snakes in one walled arena.',
+          'Int dejjem miexi. Kul, itwal, u kun l-aħħar wieħed li għadu sejjer. ' +
+          'Minn żewġ sa tmien sriep f’arena waħda bil-ħitan.') +
+      '</p>' +
+      (ST.best ? '<p class="blurb" style="color:var(--gold,#FFC542)">' +
+        esc(T('Your best: ', 'L-aħjar tiegħek: ') + ST.best) + '</p>' : '') +
+
+      /* ── the modes, big and few. SERP online is deliberately dark, so
+         there is exactly one: PLAY WITH AI, then HOW TO PLAY. ── */
+      '<div class="sp-modes" style="display:grid;gap:9px;margin-top:6px">' +
+        '<button class="btn primary" id="sp-ai">' + ico('dice') + ' ' +
+          esc(T('Play with the machine', 'Ilgħab mal-magna')) + '</button>' +
+        '<button class="btn ghost" id="sp-rulesbtn">' + ico('book') + ' ' +
+          esc(T('How to play', 'Kif tilgħab')) + '</button>' +
+      '</div>' +
+
+      (ST.rec.w + ST.rec.l
+        ? '<p class="pt-ledger" style="margin-top:14px">' +
+          T('Rounds so far: <b>' + ST.rec.w + '</b> won, <b>' + ST.rec.l + '</b> lost.',
+            'Rounds s’issa: <b>' + ST.rec.w + '</b> rebħin, <b>' + ST.rec.l + '</b> mitlufin.') +
+          '</p>'
+        : '') +
+    '</div>' +
+
+    /* ── the rules: a clean slide-up sheet over the menu, tap to open.
+       Reuses SERP's own .sp-rules chrome so the menu matches the arena. ── */
+    '<div class="sp-rules" id="sp-menurules" aria-hidden="true">' +
+      '<div class="sp-rules-h"><h4>SERP — ' + esc(T('the rules', 'ir-regoli')) + '</h4>' +
+        '<button class="sp-rules-x" id="sp-menurules-x" aria-label="' +
+          esc(T('Close', 'Agħlaq')) + '">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+        '</button></div>' +
+      '<div class="sp-rules-b"><ul style="margin:0;padding:0">' +
+        rulesFor().map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
+    '</div>' +
+    '</div>';
+
+  const hero = el.querySelector('#sp-hero');
+  if (hero) hero.insertBefore(heroCanvas(), hero.firstChild);
+
+  /* BACK GOES BACK — straight to the hub, no confirm popup */
+  el.querySelector('#sp-back').onclick = () => { cue('ui.back', { gain:0.7 }); P.hub(); };
+  el.querySelector('#sp-ai').onclick = () => aiSetup();
+
+  /* the rules slide-up */
+  const rules = el.querySelector('#sp-menurules');
+  const openRules = o => {
+    rules.classList.toggle('open', o);
+    rules.setAttribute('aria-hidden', o ? 'false' : 'true');
+    cue(o ? 'ui.sheet' : 'ui.back', { gain:0.8 });
+  };
+  el.querySelector('#sp-rulesbtn').onclick = () => openRules(!rules.classList.contains('open'));
+  el.querySelector('#sp-menurules-x').onclick = () => openRules(false);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE OPTIONS STEP — the ONE small step after PLAY WITH AI. Sensible
+   defaults so a player can just start: how many snakes, how fast, how
+   sharp the machine is, then a big START. Not a settings wall on screen
+   one. Presentation only — it hands newGame the same {seats,speed,lvl}
+   the old menu did, so gameplay is unchanged.
+   ═══════════════════════════════════════════════════════════════════ */
+function aiSetup(){
+  injectCSS();
+  P.show();
+  const el = P.ui.screenEl();
+  const p = pref();
   let seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 4));
   let lvl   = p.lvl || 2;
   let speed = E.speedOf(p.speed).id;
 
   function paint(){
-    const lw = levelWords(lvl);
-    const sw = SPEEDWORDS[speed]();
     el.innerHTML =
       '<div class="pt-wrap sp-menu">' +
       '<div class="tbar">' +
         '<button class="iconbtn" id="sp-back" aria-label="' + esc(T('Back', 'Lura')) + '">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-        '<h2>SERP</h2>' +
+        '<h2>' + esc(T('Play the machine', 'Ilgħab mal-magna')) + '</h2>' +
       '</div>' +
       '<div class="scroll">' +
         '<div class="sp-hero" id="sp-hero" aria-hidden="true">' +
           '<span class="sp-hero-cap">' + E.gridFor(seats) + '&times;' + E.gridFor(seats) + '</span>' +
         '</div>' +
-        '<p class="blurb">' +
-          T('You are always moving. Eat, get longer, and be the last one still going. ' +
-            'Two to eight snakes in one walled arena.',
-            'Int dejjem miexi. Kul, itwal, u kun l-aħħar wieħed li għadu sejjer. ' +
-            'Minn żewġ sa tmien sriep f’arena waħda bil-ħitan.') +
-        '</p>' +
-        (ST.best ? '<p class="blurb" style="color:var(--gold,#FFC542)">' +
-          esc(T('Your best: ', 'L-aħjar tiegħek: ') + ST.best) + '</p>' : '') +
-
-        '<button class="btn primary" id="sp-go" style="margin:2px 0 14px">' +
-          esc(T('Start', 'Ibda')) + '</button>' +
 
         '<div class="tiny pt-lbl">' + esc(T('How many snakes', 'Kemm-il serp')) + '</div>' +
         '<div class="sp-step">' +
@@ -1627,8 +1701,8 @@ function menu(){
             ' aria-label="' + esc(T('More snakes', 'Aktar sriep')) + '">+</button>' +
         '</div>' +
         '<p class="blurb" style="margin:6px 2px 12px">' +
-          esc(T('You, and the rest are the machine. Online, the empty chairs fill with people.',
-                'Int, u l-bqija huma l-magna. Onlajn, is-siġġijiet vojta jimtlew bin-nies.')) +
+          esc(T('You, and the rest are the machine.',
+                'Int, u l-bqija huma l-magna.')) +
         '</p>' +
 
         '<div class="tiny pt-lbl">' + esc(T('How fast', 'Kemm mgħaġġel')) + '</div>' +
@@ -1649,22 +1723,11 @@ function menu(){
           }).join('') +
         '</div>' +
 
-        /* ── THE RULES, FOLDED, AT THE BOTTOM. Closed by default. ── */
-        '<div class="kb-rules" style="margin:16px 2px 20px;padding:2px 14px;border-radius:14px;' +
-            'background:rgba(255,255,255,.035)">' +
-          '<button type="button" class="sp-fold-h" id="sp-srules-h" aria-controls="sp-srules-b"' +
-            ' aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
-            '<span><b>' + esc(T('The rules, as this arena plays them',
-                                'Ir-regoli, kif tilgħabhom din l-arena')) + '</b></span>' +
-            '<i id="sp-srules-i">' + esc(setupOpen ? T('Hide', 'Aħbi') : T('Read', 'Aqra')) + '</i>' +
+        '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
+          '<button class="btn primary" id="sp-go">' +
+            esc(T('Play — you vs ' + (seats - 1) + ' machine' + (seats - 1 === 1 ? '' : 's'),
+                  'Ilgħab — int kontra ' + (seats - 1) + ' magn' + (seats - 1 === 1 ? 'a' : 'i'))) +
           '</button>' +
-          '<div class="sp-fold-b' + (setupOpen ? ' open' : '') + '" id="sp-srules-b">' +
-            '<div class="sp-fold-i"><div class="sp-fold-c">' +
-              '<ul style="margin:0;padding:0 0 12px">' +
-                rulesFor().map(r => '<li>' + r + '</li>').join('') +
-              '</ul>' +
-            '</div></div>' +
-          '</div>' +
         '</div>' +
         '<div style="height:12px"></div>' +
       '</div></div>';
@@ -1672,7 +1735,8 @@ function menu(){
     const hero = el.querySelector('#sp-hero');
     if (hero) hero.insertBefore(heroCanvas(), hero.firstChild);
 
-    el.querySelector('#sp-back').onclick = () => { cue('ui.back', { gain:0.7 }); P.hub(); };
+    /* BACK goes to the entry screen, never a popup */
+    el.querySelector('#sp-back').onclick = () => { cue('ui.back', { gain:0.7 }); menu(); };
     el.querySelector('#sp-go').onclick = () => {
       pref({ seats, lvl, speed });
       newGame({ seats, lvl, speed });
@@ -1688,17 +1752,6 @@ function menu(){
       const b = e.target.closest && e.target.closest('[data-lvl]');
       if (!b) return; lvl = +b.getAttribute('data-lvl'); paint();
     });
-    const sh = el.querySelector('#sp-srules-h');
-    if (sh) sh.onclick = () => {
-      setSetupOpen(!setupOpen);
-      const bb = el.querySelector('#sp-srules-b');
-      const hint = el.querySelector('#sp-srules-i');
-      if (bb) bb.classList.toggle('open', setupOpen);
-      if (hint) hint.textContent = setupOpen ? T('Hide', 'Aħbi') : T('Read', 'Aqra');
-      sh.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
-      cue('ui.sheet', { gain:0.55 });
-    };
-    void { lw, sw };
   }
   paint();
 }
@@ -1709,7 +1762,11 @@ try {
   if (window.KARTI_LANG) KARTI_LANG.onChange(() => {
     try {
       const el = P.ui.screenEl();
-      if (el && el.querySelector('.sp-menu')) menu();
+      /* re-render whichever step is up — the options step owns #sp-go,
+         the entry screen owns #sp-ai — so a language change never kicks
+         the player back a step */
+      if (el && el.querySelector('#sp-go')) aiSetup();
+      else if (el && el.querySelector('.sp-menu')) menu();
       else if (UI && rulesOpen) paintRules();
       if (UI) hud();
     } catch(e){}

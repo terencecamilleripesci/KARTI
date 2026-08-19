@@ -430,6 +430,34 @@ function injectCSS() {
     '#scr-party .sk-hand button.no{opacity:.42}' +
     '#scr-party .sk-hand button{touch-action:pan-x}' +
 
+    /* ── the entry screen: three big choices, nothing else ──────────────
+       The house UX standard the newer games (ludu/kanun/bomba) set: screen
+       one is HOW you want to play, not a wall of settings. The chairs, the
+       who-is-a-machine grid and the difficulty all moved one tap deeper into
+       setup(), reached only once a mode is picked. */
+    '#scr-party .sk-modes{display:flex;flex-direction:column;gap:10px;margin:4px 0 8px}' +
+    '#scr-party .sk-mode{-webkit-appearance:none;appearance:none;border:0;text-align:left;' +
+      'display:flex;align-items:center;gap:12px;padding:15px 15px;border-radius:16px;color:var(--txt);' +
+      'background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px var(--line);cursor:pointer;' +
+      'touch-action:manipulation}' +
+    '#scr-party .sk-mode:active{transform:translateY(1px)}' +
+    '#scr-party .sk-mode .sk-mi{width:40px;height:40px;flex:0 0 auto;border-radius:12px;' +
+      'display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.07);' +
+      'color:var(--dim)}' +
+    '#scr-party .sk-mode .sk-mi .ico{width:23px;height:23px}' +
+    '#scr-party .sk-mode .sk-mt{flex:1;min-width:0}' +
+    '#scr-party .sk-mode .sk-mt b{display:block;font-family:var(--disp);font-weight:900;' +
+      'font-size:15px;line-height:1.1;letter-spacing:.02em}' +
+    '#scr-party .sk-mode .sk-mt i{display:block;font-style:normal;font-size:11px;line-height:1.3;' +
+      'color:var(--dim);margin-top:3px}' +
+    '#scr-party .sk-mode .sk-mchev{flex:0 0 auto;opacity:.5;color:var(--dim)}' +
+    '#scr-party .sk-mode .sk-mchev svg{width:18px;height:18px;fill:none;stroke:currentColor;' +
+      'stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .sk-mode.primary{background:linear-gradient(120deg,rgba(255,197,66,.2),' +
+      'rgba(232,69,44,.12));box-shadow:inset 0 0 0 1px rgba(255,197,66,.5)}' +
+    '#scr-party .sk-mode.primary .sk-mi{background:rgba(255,197,66,.22);color:var(--gold)}' +
+    '#scr-party .sk-mode.primary .sk-mt b{color:var(--gold)}' +
+
     /* ── the chairs on the setup sheet ────────────────────────────────── */
     /* a stepper, not a row of buttons: 2/3/4 does not become 2..10 */
     '#scr-party .sk-step{display:flex;align-items:center;gap:10px}' +
@@ -730,34 +758,59 @@ window.addEventListener('pagehide', () => stash());
    side", which is the wrong set of questions for a four-hander. So
    SKARTA asks its own three.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE RULES DOCK, wired the same way on the entry screen and on the setup
+   step. It reads the same UI-only key both games remember, so the fold's
+   state carries between the two steps and never lands in the game save. */
+function wireDock(el) {
+  const dock  = el.querySelector('#sk-dock');
+  const grip  = el.querySelector('#sk-grip');
+  const dbody = el.querySelector('#sk-dockbody');
+  if (!dock || !grip || !dbody) return;
+  const setDock = open => {
+    dock.classList.toggle('open', open);
+    dbody.hidden = !open;
+    grip.setAttribute('aria-expanded', open ? 'true' : 'false');
+    grip.setAttribute('aria-label', open ? 'Close the house rules' : 'Open the house rules');
+    try { localStorage.setItem('karti_skarta_ui_v1.rules', open ? '1' : '0'); } catch(e){}
+  };
+  grip.onclick = () => setDock(dbody.hidden);
+  try { if (localStorage.getItem('karti_skarta_ui_v1.rules') === '1') setDock(true); } catch(e){}
+}
+
+/* the sliding rules fold, in the flow at the foot of a screen — never a
+   modal over it. The same markup on both steps, so it looks identical. */
+function dockHTML() {
+  return '<div class="sk-dock" id="sk-dock">' +
+    '<button type="button" class="sk-grip" id="sk-grip" aria-expanded="false" ' +
+      'aria-controls="sk-dockbody" aria-label="Open the house rules">' +
+      ico('book') + '<span>How to play</span>' +
+      '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+        '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+        'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+    '</button>' +
+    '<div class="sk-dockbody" id="sk-dockbody" hidden><div>' +
+      rulesBody(false) + '</div></div>' +
+  '</div>';
+}
+
+const CHEV_MODE = '<span class="sk-mchev"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<path d="M9 6l6 6-6 6"/></svg></span>';
+
+/* ── THE ENTRY SCREEN — the house UX standard the newer games set ──────
+   Screen one is HOW you want to play, not a wall of settings. Three big
+   choices and the rules a tap away underneath; chairs, who-is-a-machine
+   and difficulty all live one step deeper in setup(), reached only once a
+   mode is chosen. All three modes are real: PLAY ONLINE walks to the
+   shared lobby (the KARTI_MP.openFor door that was a buried ghost button),
+   PLAY WITH AI and PASS THE PHONE both go to setup() with the right
+   default kinds already chosen, so Deal is always right there. */
 function menu() {
   injectCSS();
   P.show();
   teardown();
   detectArt(() => {});
   const el = P.ui.screenEl();
-  const p = ST.pref;
-  const MAXS = E.RULES.MAX_SEATS, MINS = E.RULES.MIN_SEATS;
-  let seats = Math.min(MAXS, Math.max(MINS, p.seats | 0 || 3));
-  let level = [1, 2, 3].indexOf(p.level | 0) >= 0 ? (p.level | 0) : 3;
-
-  /* WHO IS IN EACH CHAIR.
-     It used to be two number pickers — "how many at the table" and "how many
-     of them are in the room" — and you had to do the subtraction yourself to
-     work out how many machines you had just agreed to. So now every chair is
-     a switch you can see and tap. Nobody has to be a machine; a table of ten
-     people passing one phone is as reachable as playing alone against nine.
-     Chair one is you and does not toggle, because somebody has to be holding
-     the phone.
-
-     THE PICKER HAS TO STAY SMALL AT TEN. Three fixed 2/3/4 buttons do not
-     scale and ten chair cards in a row would be 44px each, so: a stepper for
-     the count, and the chairs themselves in a wrapping grid of small chips
-     with two bulk switches, because nobody is tapping nine chairs one at a
-     time to play alone. At ten chairs the whole block is two rows. */
-  let kinds = Array.isArray(p.kinds) ? p.kinds.slice(0, MAXS) : ['you'];
-  while (kinds.length < MAXS) kinds.push('ai');
-  kinds[0] = 'you';
+  const canOnline = !!(window.KARTI_MP && window.KARTI_MP.openFor);
 
   el.innerHTML =
     '<div class="pt-wrap sk-wrap">' +
@@ -778,9 +831,82 @@ function menu() {
       'the rest of the table empties theirs. Down to your last card you shout ' +
       '<b>LAST ONE</b> — and if you forget, somebody will notice.</p>' +
       (ST.save && ST.save.snap
-        ? '<button class="btn primary" id="sk-carry" style="margin:2px 0 10px">' +
+        ? '<button class="btn primary" id="sk-carry" style="margin:2px 0 12px">' +
             ilb('play', 'Carry on with the saved table') + '</button>'
         : '') +
+      '<div class="sk-modes">' +
+        (canOnline
+          ? '<button class="sk-mode primary" id="sk-m-online">' +
+              '<span class="sk-mi">' + ico('users') + '</span>' +
+              '<span class="sk-mt"><b>PLAY ONLINE</b>' +
+                '<i>Everyone on their own phone.</i></span>' + CHEV_MODE +
+            '</button>'
+          : '') +
+        '<button class="sk-mode' + (canOnline ? '' : ' primary') + '" id="sk-m-ai">' +
+          '<span class="sk-mi">' + ico('coach') + '</span>' +
+          '<span class="sk-mt"><b>PLAY WITH AI</b>' +
+            '<i>You against the machine.</i></span>' + CHEV_MODE +
+        '</button>' +
+        '<button class="sk-mode" id="sk-m-pass">' +
+          '<span class="sk-mi">' + ico('cards') + '</span>' +
+          '<span class="sk-mt"><b>PASS THE PHONE</b>' +
+            '<i>Two or more of you, one phone.</i></span>' + CHEV_MODE +
+        '</button>' +
+      '</div>' +
+      (ST.rec.w + ST.rec.l
+        ? '<p class="pt-ledger">At this table so far: <b>' + ST.rec.w + '</b> won, <b>' +
+          ST.rec.l + '</b> lost.</p>' : '') +
+      dockHTML() +
+    '</div></div>';
+
+  el.querySelector('#sk-back').onclick = () => { teardown(); P.hub(); };
+  { const cb = el.querySelector('#sk-carry');
+    if (cb) cb.onclick = () => { if (!resumeSaved()) menu(); }; }
+  const on = el.querySelector('#sk-m-online');
+  /* PLAY ONLINE — the transport half (KARTI_PARTY.online.skarta) has always
+     worked; this is simply the door to it. The lobby takes it from here. */
+  if (on) on.onclick = () => window.KARTI_MP.openFor('skarta');
+  el.querySelector('#sk-m-ai').onclick   = () => setup('ai');
+  el.querySelector('#sk-m-pass').onclick = () => setup('pass');
+  wireDock(el);
+}
+
+/* ── THE SETUP STEP — one tap deeper, the deliberate path ──────────────
+   Reached only after a mode is picked. `mode` decides the default seating:
+   AI seats you against machines, PASS THE PHONE seats a table of people on
+   one phone — but every chair is still a switch you can flip, and the count
+   is a stepper, exactly as before. Difficulty only shows when a machine is
+   actually at the table. Deal fills the same ST.pref the lobby contract
+   reads — kinds[] (you/ai) + seats + level, first kind always 'you'. */
+function setup(mode) {
+  injectCSS();
+  P.show();
+  teardown();
+  detectArt(() => {});
+  const el = P.ui.screenEl();
+  const p = ST.pref;
+  const MAXS = E.RULES.MAX_SEATS, MINS = E.RULES.MIN_SEATS;
+  let seats = Math.min(MAXS, Math.max(MINS, p.seats | 0 || 3));
+  let level = [1, 2, 3].indexOf(p.level | 0) >= 0 ? (p.level | 0) : 3;
+
+  /* WHO IS IN EACH CHAIR. Chair one is you and never toggles — somebody has
+     to be holding the phone. The mode seeds the rest: AI fills them with
+     machines, PASS THE PHONE fills them with people. From there every chair
+     is a tap, so a mixed table (some people, some machines) is still one tap
+     away from either mode. */
+  let kinds = ['you'];
+  for (let i = 1; i < MAXS; i++) kinds.push(mode === 'pass' ? 'you' : 'ai');
+
+  el.innerHTML =
+    '<div class="pt-wrap sk-wrap">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="sk-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>' + (mode === 'pass' ? 'PASS THE PHONE' : 'PLAY WITH AI') + '</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      '<button class="btn primary" id="sk-go" style="margin:6px 0 14px">' +
+        ilb('play', 'Deal') + '</button>' +
       '<div class="tiny pt-lbl">How many chairs</div>' +
       '<div class="sk-step">' +
         '<button class="sk-stepb" id="sk-less" aria-label="Fewer chairs">&minus;</button>' +
@@ -803,48 +929,7 @@ function menu() {
             '<b>' + l.n + '</b><i>' + esc(l.note) + '</i></button>').join('') +
         '</div>' +
       '</div>' +
-      (ST.rec.w + ST.rec.l
-        ? '<p class="pt-ledger">At this table so far: <b>' + ST.rec.w + '</b> won, <b>' +
-          ST.rec.l + '</b> lost.</p>' : '') +
-      /* ONLINE HAS ALWAYS WORKED AND WAS NEVER OFFERED.
-         KARTI_PARTY.online.skarta — the transport half — has been in this
-         file the whole time, so a SKARTA table could be played over the
-         relay; but the only door to it was the multiplayer lobby, and
-         nobody looks for SKARTA there. They come to the SKARTA screen and
-         find a chair picker and a Deal button, which is a game that looks
-         offline-only because it never says otherwise.
-
-         It sits ABOVE Deal rather than beside it: the chairs above are the
-         answer to "who is at this table", and online is a different answer
-         to that same question, not a different way of pressing Deal.
-
-         The machines still come with you. Any chair left on `machine` is
-         played by the relay-seeded engine at an online table exactly as it
-         is offline — which is what makes a table of three people and five
-         machines reachable, and it is the normal case at a party. */
-      (window.KARTI_MP && window.KARTI_MP.openFor
-        ? '<button class="btn ghost" id="sk-online" style="margin:14px 0 0">' +
-            ilb('users', 'Play online — everyone on their own phone') + '</button>'
-        : '') +
-      '<button class="btn primary" id="sk-go" style="margin:9px 0 10px">' +
-        ilb('play', 'Deal') + '</button>' +
-      /* THE RULES SIT UNDER THE DOOR, FOLDED. They were a modal that
-         covered the whole screen — fine when this was the only menu with
-         rules, wrong now that eleven other games fold theirs at the foot.
-         In the flow, not over it: open or shut, it can never cover a
-         thing. Shut by default, because the menu should be clean and the
-         rules are for the one evening somebody asks. */
-      '<div class="sk-dock" id="sk-dock">' +
-        '<button type="button" class="sk-grip" id="sk-grip" aria-expanded="false" ' +
-          'aria-controls="sk-dockbody" aria-label="Open the house rules">' +
-          ico('book') + '<span>The house rules</span>' +
-          '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-            '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
-            'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-        '</button>' +
-        '<div class="sk-dockbody" id="sk-dockbody" hidden><div>' +
-          rulesBody(false) + '</div></div>' +
-      '</div>' +
+      dockHTML() +
     '</div></div>';
 
   const sync = () => {
@@ -889,36 +974,9 @@ function menu() {
     b.onclick = () => { level = +b.dataset.v; sync(); });
   sync();
 
-  el.querySelector('#sk-back').onclick = () => { teardown(); P.hub(); };
-  { const cb = el.querySelector('#sk-carry');
-    if (cb) cb.onclick = () => { if (!resumeSaved()) menu(); }; }
-  const on = el.querySelector('#sk-online');
-  if (on) on.onclick = () => {
-    /* Remember the chairs first, in this file's own idiom — the Deal
-       handler two lines below does exactly this. Walking to the lobby must
-       not lose the table the player has just set up.
-
-       The first version of this called pref() and sfx(), neither of which
-       exists in this file. It parsed perfectly and would have thrown on
-       the first tap: the failure `node --check` cannot see. */
-    ST.pref = { seats, level, kinds: kinds.slice(), sort: ST.pref.sort };
-    persist();
-    window.KARTI_MP.openFor('skarta');
-  };
-  /* the dock remembers whether you left it open — a UI preference, in a
-     UI-only key, never in the game save. Same pattern as the other games. */
-  const dock  = el.querySelector('#sk-dock');
-  const grip  = el.querySelector('#sk-grip');
-  const dbody = el.querySelector('#sk-dockbody');
-  const setDock = open => {
-    dock.classList.toggle('open', open);
-    dbody.hidden = !open;
-    grip.setAttribute('aria-expanded', open ? 'true' : 'false');
-    grip.setAttribute('aria-label', open ? 'Close the house rules' : 'Open the house rules');
-    try { localStorage.setItem('karti_skarta_ui_v1.rules', open ? '1' : '0'); } catch(e){}
-  };
-  grip.onclick = () => setDock(dbody.hidden);
-  try { if (localStorage.getItem('karti_skarta_ui_v1.rules') === '1') setDock(true); } catch(e){}
+  /* Back returns to the entry screen, never a confirmation popup. */
+  el.querySelector('#sk-back').onclick = () => menu();
+  wireDock(el);
   el.querySelector('#sk-go').onclick = () => {
     ST.pref = { seats, level, kinds: kinds.slice(), sort: ST.pref.sort }; persist();
     start(ST.pref);

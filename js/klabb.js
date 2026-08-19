@@ -1799,6 +1799,15 @@ function heroHTML(def){
   return '<div class="kbm-hero">' + (draw ? draw() : '') + '</div>';
 }
 
+/* THE ENTRY SCREEN — MINIMAL, ONE PER GAME.
+   The tile you tapped IS the game, so this screen is not "which game" —
+   it is HOW you want to play it, and nothing else. Three big choices in
+   order: PLAY ONLINE (primary), PLAY WITH THE MACHINE, PASS THE PHONE,
+   with the rules a clean slide-out under them. No seats/level wall here:
+   those are one tiny step behind the AI/pass-phone choice (offlineSetup
+   below), because the count that makes sense depends on which of the two
+   you picked. Ludu's setupSheet() is the reference and this matches it,
+   minus the "which game" — the shelf already answered that. */
 function setupSheet(def){
   /* The stylesheet, BEFORE the first paint. The shelf tile calls this
      function directly — not open(id) — so on a fresh boot this was the
@@ -1810,27 +1819,129 @@ function setupSheet(def){
   P.show();
   stopThinking(); M = null; UI = null;
   const el = P.ui.screenEl();
+  const rec = recOf(def.id);
+  const online = !!window.KARTI_MP;
+
+  el.innerHTML =
+    '<div class="pt-wrap kbm kbm-th-' + def.id + '">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="kb-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>' + esc(def.name) + '</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      heroHTML(def) +
+      '<p class="blurb">' + def.blurb + '</p>' +
+      (savedSlot(def.id)
+        ? '<button class="btn primary" id="kb-res" style="margin:2px 0 12px">' +
+            'Carry on the saved hand</button>' : '') +
+
+      /* ── the modes, big and few, in order ── */
+      '<div class="kb-modelist" style="display:grid;gap:9px;margin-top:4px">' +
+        (online
+          ? '<button class="btn primary" id="kb-online">' + ico('users') + ' Play online</button>'
+          : '') +
+        '<button class="btn' + (online ? ' ghost' : ' primary') + '" id="kb-ai">' +
+          ico('cards') + ' Play with the machine</button>' +
+        '<button class="btn ghost" id="kb-pnp">' + ico('users') + ' Pass the phone</button>' +
+        '<button class="btn ghost" id="kb-rulesbtn">' + ico('book') + ' How to play</button>' +
+      '</div>' +
+
+      (rec.w + rec.l + rec.d
+        ? '<p class="pt-ledger" style="margin-top:14px">At this table so far: <b>' + rec.w +
+          '</b> won, <b>' + rec.l + '</b> lost' + (rec.d ? ', <b>' + rec.d + '</b> drawn' : '') + '.</p>'
+        : '') +
+
+      /* THE RULES, AT THE BOTTOM, SLIDING. In the flow, after the last
+         button — so open they cover nothing and closed they cost one row.
+         Closed by default; the choice is remembered in the UI key, never
+         with a save. The exact block and handler the old sheet used. */
+      '<div class="kbm-rules' + (rulesOpen ? ' open' : '') + '" id="kb-ruleswrap">' +
+        '<button class="kbm-rbtn" id="kb-rulebtn" type="button" aria-controls="kb-rulebody"' +
+          ' aria-expanded="' + (rulesOpen ? 'true' : 'false') + '">' +
+          '<span><b>The rules, as we play them</b>' +
+          '<i>' + def.rules.length + ' lines &mdash; they slide out here, over nothing</i></span>' +
+          '<svg class="kbm-chev" viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path d="M6 9l6 6 6-6"/></svg>' +
+        '</button>' +
+        '<div class="kbm-rbody" id="kb-rulebody"' + (rulesOpen ? '' : ' hidden') + '><ul>' +
+          def.rules.map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
+      '</div>' +
+    '</div></div>';
+
+  /* BACK GOES BACK — straight to the shelf, no confirm popup */
+  el.querySelector('#kb-back').onclick = () => P.hub();
+
+  el.querySelector('#kb-ai').onclick  = () => offlineSetup(def, 'ai');
+  el.querySelector('#kb-pnp').onclick = () => offlineSetup(def, 'pnp');
+
+  const r = el.querySelector('#kb-res');
+  if (r) r.onclick = () => {
+    const s = savedSlot(def.id);
+    if (!s) return;
+    newGame(def.id, s.opts, s);
+  };
+
+  /* ONLINE, AND IT OPENS THE RIGHT KIND OF ROOM. openOnline(def.id) is
+     the ONLY path that seeds MP.variant with this game's flavour — the
+     relay labels a klabb room bixkla/briscola/sette/gidba and js/mp.js's
+     shared lobby has no variant picker of its own, so the flavour is put
+     there from the one screen that knows it. Kept wired verbatim. */
+  const on = el.querySelector('#kb-online');
+  if (on) on.onclick = () => openOnline(def.id);
+
+  /* the rules slide-out — the old sheet's toggle, now driven by BOTH the
+     "How to play" mode button (the way in, like Ludu's) and the panel's
+     own header row. Same animation, same UI-key persistence as before. */
+  function toggleRules(force){
+    setRulesOpen(force != null ? !!force : !rulesOpen);
+    const wrap = el.querySelector('#kb-ruleswrap');
+    wrap.classList.toggle('open', rulesOpen);
+    wrap.classList.add('kbm-anim');          /* animate real toggles only */
+    el.querySelector('#kb-rulebody').hidden = !rulesOpen;
+    el.querySelector('#kb-rulebtn').setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
+    if (rulesOpen){
+      try { wrap.scrollIntoView({ block:'nearest', behavior: noMotion() ? 'auto' : 'smooth' }); }
+      catch(e){}
+    }
+  }
+  el.querySelector('#kb-rulebtn').onclick = () => toggleRules();
+  el.querySelector('#kb-rulesbtn').onclick = () => toggleRules(!rulesOpen);
+}
+
+/* THE ONE SMALL STEP after picking the machine or pass-the-phone. Table
+   size (only when the game deals more than one) and, for AI, how sharp
+   the machine is; for pass-the-phone, how many of the seats are people
+   on this device. Sensible defaults, one big Deal. Not a settings wall.
+   Online never comes here — openOnline() takes that path.
+
+   The engines read opts.seats/humans/lvl exactly as before: humans:1
+   with the rest 'ai' is a machine game; humans:seats makes every other
+   seat a 'hot' human on this phone (the pass-the-phone veil). */
+function offlineSetup(def, mode){
+  injectCSS();
+  P.show();
+  const el = P.ui.screenEl();
   const p = pref(def.id);
   let seats = p.seats || def.seats[0];
   if (def.seats.indexOf(seats) < 0) seats = def.seats[0];
-  let humans = Math.min(p.humans || 1, seats);
   let lvl = p.lvl || 2;
+  let humans = mode === 'pnp'
+    ? Math.max(2, Math.min(seats, p.humans || 2))
+    : 1;
 
   function paint(){
-    const rec = recOf(def.id);
+    if (mode === 'pnp') humans = Math.max(2, Math.min(seats, humans));
+    else humans = 1;
     el.innerHTML =
       '<div class="pt-wrap kbm kbm-th-' + def.id + '">' +
       '<div class="tbar">' +
         '<button class="iconbtn" id="kb-back" aria-label="Back">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-        '<h2>' + esc(def.name) + '</h2>' +
+        '<h2>' + esc(mode === 'pnp' ? 'Pass the phone' : 'Play the machine') + '</h2>' +
       '</div>' +
       '<div class="scroll">' +
         heroHTML(def) +
-        '<p class="blurb">' + def.blurb + '</p>' +
-        (savedSlot(def.id)
-          ? '<button class="btn primary" id="kb-res" style="margin:2px 0 10px">' +
-              'Carry on the saved hand</button>' : '') +
         (def.seats.length > 1
           ? '<div class="tiny pt-lbl">How many at the table</div>' +
             '<div class="pt-opts">' + def.seats.map(n =>
@@ -1838,70 +1949,32 @@ function setupSheet(def){
                 ico('users') + '<b>' + n + ' players</b><i>' + esc(def.seatNote[n] || '') + '</i>' +
               '</button>').join('') + '</div>'
           : '') +
-        '<div class="tiny pt-lbl">Who is holding cards</div>' +
-        '<div class="pt-opts">' +
-          Array.from({ length: seats }, (_, i) => i + 1).map(n =>
-            '<button class="pt-opt' + (n === humans ? ' on' : '') + '" data-h="' + n + '">' +
-              ico('users') +
-              '<b>' + (n === 1 ? 'Just me' : n + ' of us on this phone') + '</b>' +
-              '<i>' + (n === seats ? 'No machine at all.'
-                     : (seats - n) + ' seat' + (seats - n === 1 ? '' : 's') +
-                       ' played by the app.') + '</i>' +
-            '</button>').join('') +
-        '</div>' +
-        (humans < seats
-          ? '<div class="tiny pt-lbl">How sharp is the machine</div>' +
+        (mode === 'pnp'
+          ? '<div class="tiny pt-lbl">How many of us on this phone</div>' +
+            '<div class="pt-opts">' +
+              Array.from({ length: seats - 1 }, (_, i) => i + 2).map(n =>
+                '<button class="pt-opt' + (n === humans ? ' on' : '') + '" data-h="' + n + '">' +
+                  ico('users') +
+                  '<b>' + n + ' of us on this phone</b>' +
+                  '<i>' + (n === seats ? 'No machine at all.'
+                         : (seats - n) + ' seat' + (seats - n === 1 ? '' : 's') +
+                           ' played by the app.') + '</i>' +
+                '</button>').join('') +
+            '</div>'
+          : '<div class="tiny pt-lbl">How sharp is the machine</div>' +
             '<div class="pt-opts">' + LEVELS.map(o =>
               '<button class="pt-opt' + (o.k === lvl ? ' on' : '') + '" data-lvl="' + o.k + '">' +
-                ico(o.i) + '<b>' + o.n + '</b><i>' + o.d + '</i></button>').join('') + '</div>'
-          : '') +
-        (rec.w + rec.l + rec.d
-          ? '<p class="pt-ledger">At this table so far: <b>' + rec.w + '</b> won, <b>' +
-            rec.l + '</b> lost' + (rec.d ? ', <b>' + rec.d + '</b> drawn' : '') + '.</p>'
-          : '') +
-        '<div class="pt-acts" style="margin-top:16px;display:grid;gap:9px">' +
-          '<button class="btn primary" id="kb-go">Deal</button>' +
-          /* ONLINE, AND IT OPENS THE RIGHT KIND OF ROOM.
-             The relay labels a klabb room with its FLAVOUR, and which
-             flavour you want is the question this screen has just
-             answered — so it is answered once, here, rather than asked
-             again in the room list. js/mp.js's shared lobby has no
-             variant picker of its own yet; until it grows one this is
-             the only place that knows a room should be a Briscola room
-             rather than a Gidba one. */
-          (window.KARTI_MP
-            ? '<button class="btn ghost" id="kb-online">Open an online ' +
-              esc(def.name) + ' room</button>' : '') +
-        '</div>' +
-        /* THE RULES, AT THE BOTTOM, SLIDING. In the flow, after the
-           last button — so open they cover nothing and closed they cost
-           one row. Closed by default; the choice is remembered in the
-           UI key, never with a save. */
-        '<div class="kbm-rules' + (rulesOpen ? ' open' : '') + '" id="kb-ruleswrap">' +
-          '<button class="kbm-rbtn" id="kb-rulebtn" type="button" aria-controls="kb-rulebody"' +
-            ' aria-expanded="' + (rulesOpen ? 'true' : 'false') + '">' +
-            '<span><b>The rules, as we play them</b>' +
-            '<i>' + def.rules.length + ' lines &mdash; they slide out here, over nothing</i></span>' +
-            '<svg class="kbm-chev" viewBox="0 0 24 24" aria-hidden="true">' +
-              '<path d="M6 9l6 6 6-6"/></svg>' +
+                ico(o.i) + '<b>' + o.n + '</b><i>' + o.d + '</i></button>').join('') + '</div>') +
+        '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
+          '<button class="btn primary" id="kb-go">' +
+            (mode === 'pnp' ? 'Start'
+              : 'Play — you vs ' + (seats - 1) + ' machine' + (seats - 1 === 1 ? '' : 's')) +
           '</button>' +
-          '<div class="kbm-rbody" id="kb-rulebody"' + (rulesOpen ? '' : ' hidden') + '><ul>' +
-            def.rules.map(r => '<li>' + r + '</li>').join('') + '</ul></div>' +
         '</div>' +
       '</div></div>';
-    el.querySelector('#kb-back').onclick = () => P.hub();
-    el.querySelector('#kb-rulebtn').onclick = () => {
-      setRulesOpen(!rulesOpen);
-      const wrap = el.querySelector('#kb-ruleswrap');
-      wrap.classList.toggle('open', rulesOpen);
-      wrap.classList.add('kbm-anim');          /* animate real toggles only */
-      el.querySelector('#kb-rulebody').hidden = !rulesOpen;
-      el.querySelector('#kb-rulebtn').setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
-      if (rulesOpen){
-        try { wrap.scrollIntoView({ block:'nearest', behavior: noMotion() ? 'auto' : 'smooth' }); }
-        catch(e){}
-      }
-    };
+
+    /* BACK goes to the entry screen, not the shelf — no popup */
+    el.querySelector('#kb-back').onclick = () => setupSheet(def);
     el.querySelectorAll('[data-seats]').forEach(b => b.onclick = () => {
       seats = +b.dataset.seats; humans = Math.min(humans, seats); paint();
     });
@@ -1910,17 +1983,6 @@ function setupSheet(def){
     el.querySelector('#kb-go').onclick = () => {
       pref(def.id, { seats, humans, lvl });
       newGame(def.id, { seats, humans, lvl });
-    };
-    const r = el.querySelector('#kb-res');
-    if (r) r.onclick = () => {
-      const s = savedSlot(def.id);
-      if (!s) return;
-      newGame(def.id, s.opts, s);
-    };
-    const on = el.querySelector('#kb-online');
-    if (on) on.onclick = () => {
-      pref(def.id, { seats, humans, lvl });
-      openOnline(def.id);
     };
   }
   paint();

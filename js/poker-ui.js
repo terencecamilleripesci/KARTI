@@ -805,6 +805,37 @@ function injectCSS(){
       '#scr-party .pk-fold-i .pk-fold-c{transition:none}}' +
     'body.reduced #scr-party .pk-fold-b,body.reduced #scr-party .pk-fold-i .pk-fold-c' +
       '{transition:none}' +
+
+    /* ── THE ENTRY MODE BUTTONS — big, few, one clear primary. The same
+       clean shape as il-bomba/kanun's menu, felt-green primary. ── */
+    /* NOTE: the class is .pk-way, NOT .pk-mode — the felt already owns
+       .pk-mode (the absolute FREE/COINS badge, line ~561), so reusing it
+       here pinned these buttons to the bottom-right. Distinct name. */
+    '#scr-party .pk-modes{display:flex;flex-direction:column;gap:9px;margin:2px 0 6px}' +
+    '#scr-party .pk-way{display:flex;align-items:center;gap:12px;width:100%;text-align:left;' +
+      'padding:14px 12px;border-radius:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;' +
+      'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:var(--txt)}' +
+    '#scr-party .pk-way.primary{background:linear-gradient(180deg,#1E9A62,var(--pk-felt,#12603E));' +
+      'border-color:rgba(255,255,255,.22);box-shadow:0 3px 0 -1px rgba(0,0,0,.4),' +
+      'inset 0 1px 0 rgba(255,255,255,.14)}' +
+    '#scr-party .pk-way:not([disabled]):active{transform:translateY(1px)}' +
+    '#scr-party .pk-wi{flex:0 0 auto;width:36px;height:36px;border-radius:10px;display:grid;' +
+      'place-items:center;background:rgba(0,0,0,.22)}' +
+    '#scr-party .pk-way.primary .pk-wi{background:rgba(0,0,0,.20)}' +
+    '#scr-party .pk-wi svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;' +
+      'stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .pk-wt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}' +
+    '#scr-party .pk-wt b{font:900 14px/1.15 var(--disp);letter-spacing:.02em}' +
+    '#scr-party .pk-wt i{font-style:normal;font-size:11px;line-height:1.35;color:var(--dim)}' +
+    '#scr-party .pk-way.primary .pk-wt i{color:rgba(255,255,255,.82)}' +
+    '#scr-party .pk-wchev{flex:0 0 auto;width:22px;height:22px;display:grid;place-items:center;' +
+      'color:var(--dim)}' +
+    '#scr-party .pk-way.primary .pk-wchev{color:rgba(255,255,255,.8)}' +
+    '#scr-party .pk-wchev svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2.4;' +
+      'stroke-linecap:round;stroke-linejoin:round}' +
+    /* the menu rules sheet: the in-felt panel, floated fixed over the menu */
+    '#scr-party .pk-menu-rules{position:fixed;left:10px;right:10px;top:56px}' +
+
     '@media (max-height:520px){#scr-party .pk-menu .pk-hero{padding:12px 8px 13px}}';
   document.head.appendChild(st);
 }
@@ -1387,7 +1418,7 @@ function newGame(opts, snap){
   if (COINS_MODE_READY && !snap && M.st.mode === 'coins'){
     coinMove(-(M.opts.stack | 0));
   }
-  openBoard(() => setupSheet());
+  openBoard(() => menu());
   render();
   cue('game.start', { gain: 0.9 }, true);
   cueIn(280, () => {
@@ -1602,6 +1633,158 @@ const HOUSES = [
 ];
 const houseOf = id => HOUSES.find(h => h.id === id) || HOUSES[1];
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE ENTRY SCREEN — MINIMAL BY DESIGN
+   The first thing a player sees is not the settings wall: it is the
+   hero, a short line, and the ONE choice this game can honestly offer —
+   PLAY WITH AI — plus a How-to-play that slides the rules up. Seats,
+   stakes and difficulty live one tap deeper, on the AI setup (below),
+   with defaults already chosen so PLAY WITH AI is the fast path.
+
+   NO PLAY-ONLINE BUTTON. Online poker is intentionally not enabled
+   (every phone would share one seed and could read every hand), so
+   rather than a dead button somebody re-adds next month, a short line
+   says why and the game is honestly you-against-the-machine. NO
+   pass-the-phone either: poker is a hidden hand.
+   ═══════════════════════════════════════════════════════════════════ */
+let menuRulesOpen = false;
+const MENU_CHEV =
+  '<span class="pk-wchev"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M9 6l6 6-6 6"/></svg></span>';
+
+function menuRulesSheet(el){
+  /* a sliding rules sheet for the menu — the same clean slide-up as the
+     in-felt panel (reuses .pk-rules), floated fixed over the menu. */
+  let sheet = el.querySelector('#pk-menu-rules');
+  if (!sheet){
+    sheet = document.createElement('div');
+    sheet.className = 'pk-rules pk-menu-rules';
+    sheet.id = 'pk-menu-rules';
+    sheet.setAttribute('aria-hidden', 'true');
+    sheet.innerHTML =
+      '<div class="pk-rules-h"><h4>POKER — ' + esc(T('the rules', 'ir-regoli')) + '</h4>' +
+        '<button class="pk-rules-x" id="pk-menu-rules-x" aria-label="' +
+          esc(T('Put the rules away', 'Warrab ir-regoli')) + '">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+        '</button></div>' +
+      '<div class="pk-rules-b">' +
+        '<ul>' + rulesFor(null).map(r => '<li>' + r + '</li>').join('') + '</ul>' +
+        '<div class="pk-tallyh">' + esc(T('What beats what', 'X’jirbaħ lil xiex')) + '</div>' +
+        ladderHTML() +
+      '</div>';
+    el.appendChild(sheet);
+    sheet.querySelector('#pk-menu-rules-x').addEventListener('click', () => toggleMenuRules(el, false));
+  }
+  return sheet;
+}
+function toggleMenuRules(el, open){
+  const sheet = menuRulesSheet(el);
+  menuRulesOpen = (open == null) ? !menuRulesOpen : !!open;
+  sheet.classList.toggle('open', menuRulesOpen);
+  sheet.setAttribute('aria-hidden', menuRulesOpen ? 'false' : 'true');
+  try { sheet.style.maxHeight = Math.max(180, Math.floor(window.innerHeight * 0.66)) + 'px'; } catch(e){}
+  cue(menuRulesOpen ? 'ui.sheet' : 'ui.back', { gain:0.6 }, true);
+}
+
+function menu(){
+  injectCSS();
+  P.show();
+  stopThinking(); M = null; UI = null;
+  menuRulesOpen = false;
+  const el = P.ui.screenEl();
+
+  /* THE IDENTITY PIECE: two cards face down with a stack of chips
+     leaning on them, and the five in the middle behind. Decoration
+     only — spans, aria-hidden, nothing tappable. The default house's
+     blinds sit in the corner cap, same as the old sheet. */
+  const H = houseOf(pref().house);
+  const mkc = DECK.mk;
+  const hero =
+    '<div class="pk-hero" aria-hidden="true">' +
+      '<span class="pk-hero-in">' +
+        '<span class="pk-hero-b">' +
+          [mkc(0, 1), mkc(1, 13), mkc(0, 12), mkc(2, 7), mkc(3, 2)].map(f =>
+            '<span class="kb-card" style="width:26px;height:36px">' +
+            DECK.cardFace(f) + '</span>').join('') +
+        '</span>' +
+        '<span style="display:flex;align-items:flex-end">' +
+          '<span class="pk-hero-h">' +
+            '<span class="kb-card" style="width:40px;height:56px">' + DECK.cardBack() + '</span>' +
+            '<span class="kb-card" style="width:40px;height:56px">' + DECK.cardBack() + '</span>' +
+          '</span>' +
+          '<span class="pk-hero-st">' + chip('') + chip('') + chip('') + '</span>' +
+        '</span>' +
+      '</span>' +
+      '<span class="pk-hero-cap">' + H.sb + '/' + H.bb + '</span>' +
+    '</div>';
+
+  el.innerHTML =
+    '<div class="pt-wrap pk-menu">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pk-back" aria-label="' + esc(T('Back', 'Lura')) + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>POKER</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      hero +
+      '<p class="blurb">' +
+        T('Two cards of your own, five in the middle, and four rounds of finding out who ' +
+          'is telling the truth. Best five out of seven takes the pot.',
+          'Żewġ karti tiegħek, ħamsa fin-nofs, u erba’ rawnds biex tara min qed jgħid ' +
+          'il-verità. L-aqwa ħamsa minn seba’ jieħu l-pott.') +
+      '</p>' +
+
+      /* a half-played table comes FIRST, gold, the skarta way */
+      (ST.save
+        ? '<button class="btn primary" id="pk-res" style="margin:2px 0 10px">' +
+          esc(T('Carry on the saved table', 'Kompli l-mejda mħażna')) + '</button>'
+        : '') +
+
+      '<div class="pk-modes">' +
+        '<button class="pk-way primary" id="pk-m-ai">' +
+          '<span class="pk-wi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 8V4M9 4h6"/>' +
+            '<circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/></svg></span>' +
+          '<span class="pk-wt"><b>' + esc(T('Play with AI', 'Ilgħab kontra l-magna')) + '</b>' +
+            '<i>' + esc(T('You against the machine. Straight in.',
+                          'Int kontra l-magna. Dritt.')) + '</i></span>' +
+          MENU_CHEV +
+        '</button>' +
+        '<button class="pk-way" id="pk-m-rules">' +
+          '<span class="pk-wi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path d="M4 5h9a3 3 0 0 1 3 3v11a2 2 0 0 0-2-2H4zM20 5h-9a3 3 0 0 0-3 3"/></svg></span>' +
+          '<span class="pk-wt"><b>' + esc(T('How to play', 'Kif tilgħab')) + '</b>' +
+            '<i>' + esc(T('The rules, in a minute.', 'Ir-regoli, f’minuta.')) + '</i></span>' +
+          MENU_CHEV +
+        '</button>' +
+      '</div>' +
+
+      /* WHY THERE IS NO ONLINE BUTTON — said in one short line, not left
+         as a missing button. The full reasoning is the lobby's ONLINE_WHY. */
+      '<p class="pk-warn">' +
+        esc(T('Online poker is not open yet: every phone at a table shares one deal, so it ' +
+              'cannot hide a hand. For now it is you against the machine.',
+              'Poker onlajn għadu magħluq: kull telefon f’mejda jaqsam l-istess qsim, mela ma ' +
+              'jistax jaħbi id. Għalissa hu int kontra l-magna.')) +
+      '</p>' +
+      '<div style="height:16px"></div>' +
+    '</div></div>';
+
+  el.querySelector('#pk-back').onclick = () => { cue('ui.back', { gain:0.7 }); P.hub(); };
+  el.querySelector('#pk-m-ai').onclick = () => { cue('ui.tap', { gain:0.6 }); setupSheet(); };
+  el.querySelector('#pk-m-rules').onclick = () => toggleMenuRules(el, true);
+  const rs = el.querySelector('#pk-res');
+  if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
+
+  /* a tap outside the rules sheet puts it away */
+  el.addEventListener('pointerdown', e => {
+    if (!menuRulesOpen) return;
+    const sheet = el.querySelector('#pk-menu-rules');
+    if (sheet && !sheet.contains(e.target)) toggleMenuRules(el, false);
+  }, true);
+  ensureRelang();
+}
+
 function setupSheet(){
   injectCSS();
   P.show();
@@ -1651,21 +1834,10 @@ function setupSheet(){
       '<div class="tbar">' +
         '<button class="iconbtn" id="pk-back" aria-label="' + esc(T('Back', 'Lura')) + '">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-        '<h2>POKER</h2>' +
+        '<h2>' + esc(T('Play with AI', 'Kontra l-magna')) + '</h2>' +
       '</div>' +
       '<div class="scroll">' +
         hero +
-        '<p class="blurb">' +
-          T('Two cards of your own, five in the middle, and four rounds of finding out who ' +
-            'is telling the truth. Best five out of seven takes the pot.',
-            'Żewġ karti tiegħek, ħamsa fin-nofs, u erba’ rawnds biex tara min qed jgħid ' +
-            'il-verità. L-aqwa ħamsa minn seba’ jieħu l-pott.') +
-        '</p>' +
-        /* a half-played table comes FIRST, gold, the skarta way */
-        (ST.save
-          ? '<button class="btn primary" id="pk-res" style="margin:2px 0 10px">' +
-            esc(T('Carry on the saved table', 'Kompli l-mejda mħażna')) + '</button>'
-          : '') +
 
         '<div class="tiny pt-lbl">' + esc(T('What is on the table', 'X’hemm fuq il-mejda')) + '</div>' +
         '<div class="pt-opts' + (COINS_MODE_READY ? ' two' : '') + '" id="pk-mode">' +
@@ -1739,19 +1911,6 @@ function setupSheet(){
             esc(T('Deal — you vs ' + (seats - 1) + ' machine' + (seats - 1 === 1 ? '' : 's'),
                   'Qassam — int kontra ' + (seats - 1) + ' magn' + (seats - 1 === 1 ? 'a' : 'i'))) +
           '</button>' +
-          /* NO ONLINE DOOR, and the reason is said out loud rather than
-             left as a missing button somebody re-adds next month. */
-          '<p class="pk-warn" style="margin:0">' +
-            esc(T('Online poker is not open. Every phone at an online table is dealt from one ' +
-                  'shared number, which means every phone could work out everybody’s cards — ' +
-                  'fine for a stock nobody can read, useless for a hand you are hiding. It ' +
-                  'opens when the server can deal each seat its own two cards.',
-                  'Poker onlajn għadu magħluq. F’mejda onlajn kull telefon jitqassam minn ' +
-                  'numru wieħed maqsum, jiġifieri kull telefon jista’ joħroġ il-karti ta’ ' +
-                  'kulħadd — tajjeb għal mazz li ħadd ma jista’ jaqra, bla siwi għal id li ' +
-                  'qed taħbi. Jinfetaħ meta s-server ikun jista’ jqassam lil kull siġġu ' +
-                  'iż-żewġ karti tiegħu.')) +
-          '</p>' +
         '</div>' +
 
         /* ── the rules, FOLDED. Closed by default: the sheet's job is
@@ -1783,7 +1942,7 @@ function setupSheet(){
         '</div>' +
       '</div></div>';
 
-    el.querySelector('#pk-back').onclick = () => P.hub();
+    el.querySelector('#pk-back').onclick = () => { cue('ui.back', { gain:0.7 }); menu(); };
     el.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => {
       mode = b.dataset.mode === 'coins' ? 'coins' : 'free'; paint(); });
     el.querySelector('#pk-s-dn').onclick = () => {
@@ -1806,8 +1965,6 @@ function setupSheet(){
       newGame({ seats, humans:1, lvl, mode,
                 stack: HH.bb * HH.bbs, sb: HH.sb, bb: HH.bb, deal:'seed' });
     };
-    const rs = el.querySelector('#pk-res');
-    if (rs) rs.onclick = () => { if (ST.save) newGame(null, ST.save); };
     /* the fold toggles WITHOUT repainting, so the slide actually slides */
     const sh = el.querySelector('#pk-srules-h');
     if (sh) sh.onclick = () => {
@@ -1823,17 +1980,24 @@ function setupSheet(){
     };
   }
   paint();
+  ensureRelang();
+}
 
-  /* the sheet repaints itself when the language switch is thrown — only
-     if it is still what is on screen, and only what we own */
-  if (window.KARTI_LANG && KARTI_LANG.onChange && !setupSheet._sub){
-    setupSheet._sub = KARTI_LANG.onChange(() => {
-      try {
-        if (!M && el.isConnected && el.querySelector('#pk-go')) paint();
-        else if (M && UI) { render(); paintRules(); }
-      } catch(e){}
-    });
-  }
+/* the screens repaint themselves when the language switch is thrown —
+   only what we own, and only what is actually on screen. Registered once;
+   it dispatches to whichever of our screens is showing (entry menu, the
+   AI setup, or a live felt). */
+function ensureRelang(){
+  if (!window.KARTI_LANG || !KARTI_LANG.onChange || ensureRelang._sub) return;
+  ensureRelang._sub = KARTI_LANG.onChange(() => {
+    try {
+      if (M && UI){ render(); paintRules(); return; }
+      const el = P.ui.screenEl();
+      if (!el || !el.isConnected) return;
+      if (el.querySelector('#pk-go')) setupSheet();
+      else if (el.querySelector('.pk-modes')) menu();
+    } catch(e){}
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1912,13 +2076,13 @@ const TILE = {
            (ST.save ? ' ' + T('There is a table of this half-played.',
                               'Hemm mejda minn din nofsha milgħuba.') : '');
   },
-  open: () => setupSheet(),
+  open: () => menu(),
   seats: { min:E.MIN_SEATS, max:E.MAX_SEATS },
   levels: levels(),
   rulesHTML: () => R.lobby.rulesHTML()
 };
 R.shelfTile = TILE;
-R.open = () => setupSheet();
+R.open = () => menu();
 R.close = () => { leave(); P.hub(); };
 P.register(TILE);
 
@@ -1940,7 +2104,9 @@ try {
         newGame(null, { v:SAVE_V, gid:'poker', opts, seed, log:[] }); return true; },
       fast: on => { FAST = !!on; },
       doMove, rollbackTo, undoPoint, snapshot,
-      render, setup: setupSheet,
+      render, setup: setupSheet, menu, toggleMenuRules: o => {
+        try { toggleMenuRules(P.ui.screenEl(), o); } catch(e){} },
+      menuRulesOpen: () => menuRulesOpen,
       betPanel: () => (UI ? UI.bet : null),
       setBet, clampRaise,
       raiseTo: v => { if (M) M.tmp.raiseTo = clampRaise(v); paintBetPanel(); },

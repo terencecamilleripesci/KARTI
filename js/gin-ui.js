@@ -715,7 +715,62 @@ function injectCSS() {
     '@media (prefers-reduced-motion:reduce){#scr-party .gn-fold-b,#scr-party .gn-fold-i ul,' +
       '#scr-party .gn-fold-h em svg{transition:none}}' +
     'body.reduced #scr-party .gn-fold-b,body.reduced #scr-party .gn-fold-i ul,' +
-    'body.reduced #scr-party .gn-fold-h em svg{transition:none}';
+    'body.reduced #scr-party .gn-fold-h em svg{transition:none}' +
+
+    /* ── THE ENTRY MODE PICKER — screen one. Big, few, clean (bomba's
+       shape, restated in this game's green scope). ── */
+    '#scr-party .gn-menu .gn-modes{display:flex;flex-direction:column;gap:11px;margin:6px 0 8px}' +
+    '#scr-party .gn-menu .gn-mode{-webkit-appearance:none;appearance:none;border:0;text-align:left;' +
+      'width:100%;display:flex;align-items:center;gap:13px;padding:16px 16px;border-radius:16px;' +
+      'background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);' +
+      'color:#fff;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .gn-menu .gn-mode .gn-mi{flex:0 0 auto;width:40px;height:40px;display:flex;' +
+      'align-items:center;justify-content:center;border-radius:12px;' +
+      'background:rgba(255,255,255,.07)}' +
+    '#scr-party .gn-menu .gn-mode .gn-mi svg{width:24px;height:24px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .gn-menu .gn-mode .gn-mt{display:flex;flex-direction:column;gap:2px;min-width:0}' +
+    '#scr-party .gn-menu .gn-mode .gn-mt b{font:900 15px/1.1 var(--disp);letter-spacing:.04em}' +
+    '#scr-party .gn-menu .gn-mode .gn-mt i{font:600 11.5px/1.35 var(--body);color:var(--dim);' +
+      'font-style:normal}' +
+    '#scr-party .gn-menu .gn-mode.primary{background:linear-gradient(180deg,rgba(255,197,66,.2),' +
+      'rgba(255,197,66,.06));box-shadow:inset 0 0 0 1px rgba(255,197,66,.42),' +
+      '0 8px 20px rgba(255,197,66,.14)}' +
+    '#scr-party .gn-menu .gn-mode.primary .gn-mi{background:rgba(255,197,66,.2);color:var(--gold,#FFC542)}' +
+    '#scr-party .gn-menu .gn-mode.primary .gn-mt b{color:var(--gold,#FFC542)}' +
+    '#scr-party .gn-menu .gn-mode:active{transform:translateY(1px)}' +
+    '#scr-party .gn-menu .gn-mchev{margin-left:auto;flex:0 0 auto;color:var(--dim2)}' +
+    '#scr-party .gn-menu .gn-mchev svg{width:18px;height:18px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}' +
+
+    /* ── the menu rules sheet — the same slide-down panel, reused for
+       screen one. Fixed to the screen so it slides over the modes. ── */
+    '#scr-party .gn-msheet{position:fixed;top:0;left:0;right:0;z-index:40;max-height:70%;' +
+      'display:flex;flex-direction:column;background:rgba(12,18,14,.97);' +
+      'border-bottom:1px solid rgba(255,255,255,.12);border-radius:0 0 16px 16px;' +
+      'box-shadow:0 14px 34px rgba(0,0,0,.6);transform:translateY(-102%);opacity:0;' +
+      'visibility:hidden;pointer-events:none;' +
+      'transition:transform .3s var(--ease),opacity .3s var(--ease),visibility 0s .3s}' +
+    '#scr-party .gn-msheet.open{transform:none;opacity:1;visibility:visible;pointer-events:auto;' +
+      'transition:transform .3s var(--ease),opacity .3s var(--ease),visibility 0s 0s}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .gn-msheet{transition:none}}' +
+    'body.reduced #scr-party .gn-msheet{transition:none}' +
+    '#scr-party .gn-msheet-h{flex:0 0 auto;display:flex;align-items:center;' +
+      'justify-content:space-between;gap:8px;padding:12px 14px 6px}' +
+    '#scr-party .gn-msheet-h h4{margin:0;font:900 12px/1 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--gold,#FFC542)}' +
+    '#scr-party .gn-msheet-x{width:44px;height:44px;margin:-6px 0;border:0;background:none;' +
+      'color:var(--dim);display:flex;align-items:center;justify-content:center;cursor:pointer}' +
+    '#scr-party .gn-msheet-x svg{width:16px;height:16px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.2;stroke-linecap:round}' +
+    '#scr-party .gn-msheet-b{min-height:0;overflow-y:auto;padding:2px 14px 16px;' +
+      '-webkit-overflow-scrolling:touch}' +
+    '#scr-party .gn-msheet-b ul{margin:0;padding:0}' +
+    '#scr-party .gn-msheet-b li{font-size:12px;line-height:1.6;color:var(--dim);' +
+      'list-style:none;margin:0 0 7px;padding:0 0 0 13px;position:relative}' +
+    '#scr-party .gn-msheet-b li:before{content:"";position:absolute;left:0;top:7px;width:5px;' +
+      'height:5px;border-radius:2px;background:var(--gold,#FFC542);opacity:.75}' +
+    '#scr-party .gn-msheet-b b{color:#fff}';
   document.head.appendChild(st);
 }
 
@@ -2281,7 +2336,63 @@ function setupSheet(prevOpts) {
     (hand === 13 ? 'Thirteen' : 'Ten') + ' cards, first to ' + target + ' — tap to ' +
     (setupOpen ? 'fold them away.' : 'read them.');
 
-  function paint() {
+  /* ── the hero, shared by both screens — the 45 laid face up. Decoration
+     only (aria-hidden). Card indices are klabb's suit*13+(rank-1):
+     0 = A of spades, 13 = A of hearts, 26 = A of diamonds. ── */
+  const heroHTML =
+    '<div class="gn-hero" aria-hidden="true">' +
+      '<span class="gn-hero-m">' +
+        '<span class="gn-mcard">' + faceHTML(0) + '</span>' +
+        '<span class="gn-mcard">' + faceHTML(13) + '</span>' +
+        '<span class="gn-mcard">' + faceHTML(26) + '</span>' +
+      '</span>' +
+      '<i class="gn-hero-eq">=</i>' +
+      '<b class="gn-hero-tag">45</b>' +
+      '<span class="gn-hero-open">The table is open</span>' +
+      '<span class="gn-hero-cap">IL-45</span>' +
+    '</div>';
+
+  const CHEV = '<span class="gn-mchev"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<path d="M9 6l6 6-6 6"/></svg></span>';
+
+  /* ═══════════════════════════════════════════════════════════════
+     SCREEN ONE — the entry. Hero, one line, and the big choices:
+     PLAY ONLINE, PLAY WITH AI, HOW TO PLAY. No settings here — the
+     hand/level/target wall lives on screen two, after PLAY WITH AI,
+     so starting a game is one tap. The rules read as a sliding sheet,
+     bomba's shape, restated in this game's scope.
+     ═══════════════════════════════════════════════════════════════ */
+  let msheetOpen = false;
+  function menuRulesSheet() {
+    let sheet = el.querySelector('#gn-msheet');
+    if (!sheet) {
+      sheet = document.createElement('div');
+      sheet.className = 'gn-msheet';
+      sheet.id = 'gn-msheet';
+      sheet.setAttribute('aria-hidden', 'true');
+      sheet.innerHTML =
+        '<div class="gn-msheet-h"><h4>GIN RUMMY — the rules</h4>' +
+          '<button class="gn-msheet-x" id="gn-msheet-x" aria-label="Put the rules away">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+          '</button></div>' +
+        '<div class="gn-msheet-b"><ul>' +
+          rulesFor(10, 300).map(r => '<li>' + r + '</li>').join('') + '</ul></div>';
+      el.appendChild(sheet);
+      sheet.querySelector('#gn-msheet-x').onclick = () => toggleMenuRules(false);
+    }
+    return sheet;
+  }
+  function toggleMenuRules(open) {
+    const sheet = menuRulesSheet();
+    msheetOpen = (open == null) ? !msheetOpen : !!open;
+    sheet.classList.toggle('open', msheetOpen);
+    sheet.setAttribute('aria-hidden', msheetOpen ? 'false' : 'true');
+    try { sheet.style.maxHeight = Math.max(160, Math.floor(window.innerHeight * 0.7)) + 'px'; } catch (e) {}
+    cue(msheetOpen ? 'ui.sheet' : 'ui.back', { gain: 0.7 });
+  }
+
+  function paintMenu() {
+    msheetOpen = false;
     el.innerHTML =
       '<div class="pt-wrap gn-menu">' +
       '<div class="tbar">' +
@@ -2290,47 +2401,93 @@ function setupSheet(prevOpts) {
         '<h2>GIN RUMMY</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        /* THE IDENTITY PIECE: the 45, laid face up. Three aces off the
-           real pack — 15 each, 45 on the nose, the cheapest sentence in
-           the rules made visible — priced with the gold seal and
-           answered by the OPEN chip. Decoration only: aria-hidden,
-           nothing tappable. Card indices are klabb's suit*13+(rank-1):
-           0 = A of spades, 13 = A of hearts, 26 = A of diamonds. */
-        '<div class="gn-hero" aria-hidden="true">' +
-          '<span class="gn-hero-m">' +
-            '<span class="gn-mcard">' + faceHTML(0) + '</span>' +
-            '<span class="gn-mcard">' + faceHTML(13) + '</span>' +
-            '<span class="gn-mcard">' + faceHTML(26) + '</span>' +
-          '</span>' +
-          '<i class="gn-hero-eq">=</i>' +
-          '<b class="gn-hero-tag">45</b>' +
-          '<span class="gn-hero-open">The table is open</span>' +
-          '<span class="gn-hero-cap">IL-45</span>' +
-        '</div>' +
+        heroHTML +
         '<p class="blurb">The house game: match <b>45 points of melds</b> and put them down ' +
-        '<b>face up</b> — that opens you, and the hand carries on. Open players lay onto ' +
-        '<b>anybody’s</b> melds and the points go to them; first hand played empty takes ' +
-        '<b>+' + E.OUT_BONUS + '</b>. Whatever stays in a hand counts <b>against</b> it.</p>' +
+        '<b>face up</b> — that opens you, and the hand carries on. First hand played empty takes ' +
+        '<b>+' + E.OUT_BONUS + '</b>; whatever stays in a hand counts <b>against</b> it.</p>' +
         (oldSaveDropped
           ? '<p class="pt-warn">Your half-played match was under the old rules, where putting ' +
             'your cards down ended the hand. The game has grown — going down now <b>opens</b> you, ' +
             'the table is live, and there is a bonus for going out — so that save was retired ' +
             'rather than counted wrongly.</p>'
           : '') +
-        /* a half-played match comes FIRST, gold, the skarta way — on a
-           return visit the likeliest tap should be the top one */
+        /* a half-played match comes FIRST, gold — on a return visit the
+           likeliest tap should be the top one */
         (ST.save
-          ? '<button class="btn primary" id="gn-res" style="margin:2px 0 10px">' +
+          ? '<button class="btn primary" id="gn-res" style="margin:2px 0 12px">' +
             'Carry on the saved match</button>'
           : '') +
+        '<div class="gn-modes">' +
+          (online
+            ? '<button class="gn-mode primary" id="gn-m-online">' +
+                '<span class="gn-mi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+                  '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>' +
+                '</svg></span>' +
+                '<span class="gn-mt"><b>Play online</b>' +
+                  '<i>Open a gin room, or take one that is waiting. The player who opens sets the hand size.</i></span>' +
+                CHEV +
+              '</button>'
+            : '') +
+          '<button class="gn-mode' + (online ? '' : ' primary') + '" id="gn-m-ai">' +
+            '<span class="gn-mi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+              '<rect x="5" y="8" width="14" height="11" rx="2"/><path d="M12 8V4M9 4h6"/>' +
+              '<circle cx="9.5" cy="13" r="1"/><circle cx="14.5" cy="13" r="1"/></svg></span>' +
+            '<span class="gn-mt"><b>Play with AI</b>' +
+              '<i>You against the machine. Pick the hand, the level and the target.</i></span>' +
+            CHEV +
+          '</button>' +
+          '<button class="gn-mode" id="gn-m-rules">' +
+            '<span class="gn-mi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+              '<path d="M4 5h9a3 3 0 0 1 3 3v11a2 2 0 0 0-2-2H4zM20 5h-9a3 3 0 0 0-3 3"/></svg></span>' +
+            '<span class="gn-mt"><b>How to play</b>' +
+              '<i>The rules, in a minute.</i></span>' +
+            CHEV +
+          '</button>' +
+        '</div>' +
         (online
-          ? '<div class="pt-opts" style="margin-bottom:10px">' +
-              '<button class="pt-opt" id="gn-online">' + ico('users') +
-              '<b>Somebody online</b><i>Open a gin room, or take one that is waiting. ' +
-              'The player who opens the room sets the hand size.</i></button>' +
-            '</div>'
-          : '<p class="pt-warn">Online gin needs the KARTI server to learn the word "gin" — ' +
-            'until then it is you against the machine here.</p>') +
+          ? ''
+          : '<p class="pt-warn" style="margin-top:2px">Online gin needs the KARTI server to learn the ' +
+            'word "gin" — until then it is you against the machine here.</p>') +
+        '<div style="height:16px"></div>' +
+      '</div></div>';
+
+    el.querySelector('#gn-back').onclick = () => P.hub();
+    el.querySelector('#gn-m-ai').onclick = () => paintSetup();
+    el.querySelector('#gn-m-rules').onclick = () => toggleMenuRules(true);
+    const on = el.querySelector('#gn-m-online');
+    if (on) on.onclick = () => { try { MPX.openFor('gin'); } catch (e) {} };
+    const r = el.querySelector('#gn-res');
+    if (r) r.onclick = () => {
+      const s = ST.save;
+      if (!s) return;
+      startMatch(s.opts, s.seed, s.log);
+      M.arr = Array.isArray(s.arr) ? s.arr.slice() : [];
+      openBoard();
+    };
+    /* a tap outside the rules sheet puts it away */
+    el.addEventListener('pointerdown', e => {
+      if (!msheetOpen) return;
+      const sheet = el.querySelector('#gn-msheet');
+      if (sheet && !sheet.contains(e.target)) toggleMenuRules(false);
+    }, true);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     SCREEN TWO — the AI setup. Reached only from PLAY WITH AI. The
+     hand/level/target/hints wall, Deal, and the folded rules — with
+     the defaults already chosen from ST.pref so Deal is right there.
+     Back here returns to screen one, no popup.
+     ═══════════════════════════════════════════════════════════════ */
+  function paintSetup() {
+    el.innerHTML =
+      '<div class="pt-wrap gn-menu">' +
+      '<div class="tbar">' +
+        '<button class="iconbtn" id="gn-back" aria-label="Back">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+        '<h2>PLAY WITH AI</h2>' +
+      '</div>' +
+      '<div class="scroll">' +
+        '<button class="btn primary" id="gn-go" style="margin:6px 0 14px">Deal</button>' +
         '<div class="tiny pt-lbl">The hand</div>' +
         '<div class="pt-opts" id="gn-hand-opt">' +
           [[10, 'Ten cards', 'The house game as it comes.'],
@@ -2358,13 +2515,9 @@ function setupSheet(prevOpts) {
           'Off, the game expects you to look — and it <b>refuses</b> a throw the table would have taken ' +
           'either way.</i></button>' +
         '</div>' +
-        '<div class="pt-acts" style="margin-top:18px;display:grid;gap:9px">' +
-          '<button class="btn primary" id="gn-go">Deal</button>' +
-        '</div>' +
         /* ── the rules, FOLDED, at the bottom — rummy's slide, this
-           game's words. Closed by default (the sheet's job is dealing),
-           remembered in the UI-only key, and the text follows the hand
-           size and target chosen above. ── */
+           game's words. Closed by default, remembered in the UI-only
+           key, and the text follows the hand size and target above. ── */
         '<div class="kb-rules" style="margin:16px 2px 20px;padding:2px 14px;border-radius:14px;' +
           'background:rgba(255,255,255,.04);border:1px solid var(--line)">' +
           '<button type="button" class="gn-fold-h" id="gn-srules-h" aria-controls="gn-srules-b"' +
@@ -2380,29 +2533,16 @@ function setupSheet(prevOpts) {
             '</ul></div></div>' +
         '</div>' +
       '</div></div>';
-    el.querySelector('#gn-back').onclick = () => P.hub();
-    el.querySelectorAll('[data-hand]').forEach(b => b.onclick = () => { hand = +b.dataset.hand; paint(); });
-    el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
-    el.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => { target = +b.dataset.tgt; paint(); });
+    el.querySelector('#gn-back').onclick = () => paintMenu();
+    el.querySelectorAll('[data-hand]').forEach(b => b.onclick = () => { hand = +b.dataset.hand; paintSetup(); });
+    el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paintSetup(); });
+    el.querySelectorAll('[data-tgt]').forEach(b => b.onclick = () => { target = +b.dataset.tgt; paintSetup(); });
     el.querySelectorAll('[data-hints]').forEach(b => b.onclick = () => {
-      ST.pref.hints = !ST.pref.hints; persist(); paint();
+      ST.pref.hints = !ST.pref.hints; persist(); paintSetup();
     });
     el.querySelector('#gn-go').onclick = () => {
       ST.pref.lvl = lvl; ST.pref.target = target; ST.pref.hand = hand; persist();
       newGame({ lvl, target, hand });
-    };
-    const r = el.querySelector('#gn-res');
-    if (r) r.onclick = () => {
-      const s = ST.save;
-      if (!s) return;
-      startMatch(s.opts, s.seed, s.log);
-      M.arr = Array.isArray(s.arr) ? s.arr.slice() : [];
-      openBoard();
-    };
-    const on = el.querySelector('#gn-online');
-    if (on) on.onclick = () => {
-      ST.pref.lvl = lvl; ST.pref.target = target; ST.pref.hand = hand; persist();
-      try { MPX.openFor('gin'); } catch (e) {}
     };
     /* the fold toggles WITHOUT repainting, so the slide actually
        slides; changing the hand or target above repaints and brings
@@ -2418,7 +2558,8 @@ function setupSheet(prevOpts) {
       cue(setupOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 });
     };
   }
-  paint();
+
+  paintMenu();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2746,6 +2887,7 @@ try {
       st: () => (M ? M.st : null),
       arr: () => (M ? M.arr.slice() : null),
       open: o => { setupSheet(); newGame(o || { lvl: 2, target: 300 }); },
+      menu: () => setupSheet(),
       resume: () => { const s = ST.save; if (!s) return false;
         startMatch(s.opts, s.seed, s.log); M.arr = (s.arr || []).slice(); openBoard(); return true; },
       store: () => ST,

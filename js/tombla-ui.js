@@ -1445,6 +1445,27 @@ function rulesPanel(){
       'turn, which is why this table seats sixteen.</p>';
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   1 · THE ENTRY — one clean screen, the way ludu/kanun/bomba open.
+   Hero, one line, and the two honest ways to play as big buttons:
+   PLAY ONLINE (primary, when the relay knows the word) and PLAY WITH
+   AI, with HOW TO PLAY sliding the same rules dock up from the foot.
+   There is NO settings wall here any more — mode, caller, chairs,
+   speed, level and the accessibility toggles all moved one tap deeper
+   into setupAI(), so starting a game is a single choice. A saved board
+   still gets first billing so it is never buried under a fresh start.
+
+   Online carries no mode — no variants are published, so the lobby has
+   no field for one and must not grow one here. The każin/klassika choice
+   is a LOCAL, second-step decision (setupAI); online opens the shared
+   room list, which deals whatever the room's contract deals.
+
+   ── THERE IS NO PASS-THE-PHONE TOMBLA ────────────────────────────
+   Everybody marks at the SAME MOMENT on their own sheet, so there is no
+   turn to hand over. A hot-seat tombla would mean passing the phone
+   ninety times while the room waits. Two honest ways only, and this is
+   why the entry is two buttons, not three.
+   ═══════════════════════════════════════════════════════════════════ */
 function menu(){
   injectCSS();
   leave();
@@ -1466,33 +1487,114 @@ function menu(){
   const canOnline = !!(M && M.openFor && M.GAME_KEYS &&
                        M.GAME_KEYS.indexOf('tombla') >= 0 && P.online && P.online.tombla);
   const relayDown = !!(canOnline && M.PR && M.PR.tried && M.PR.err);
-  /* ── THERE IS NO PASS-THE-PHONE TOMBLA ───────────────────────────
-     "Tombla will not go pass the phone, it can't be played like that,
-     impossible." He is right, and it is not a weak option, it is an
-     impossible one: everybody marks at the SAME MOMENT on their own
-     sheet, so there is no turn to hand over. A hot-seat tombla means
-     passing the phone after every single number, ninety times, while
-     five people wait. Every other game in KARTI has a turn and can do
-     it; this one cannot, and the option is gone rather than greyed
-     out. Two honest ways to play: everybody on their own phone, or
-     you against the machine. */
-  let play  = (p.play === 'ai' || p.play === 'online')
-                ? p.play : (canOnline ? 'online' : 'ai');
-  if (play === 'online' && (!canOnline || relayDown)) play = 'ai';
-  /* ── TAL-KAŻIN IS WHAT "TOMBLA" MEANS HERE, SO IT IS WHAT OPENS ────
-     Klassika used to be the default on the argument that five rungs are
-     a friendlier first game. Three things beat that argument:
-       · "Maltese always get the full 6 for a play." A ġog of six is what
-         is sold at the door of every każin on the island, and it is the
-         game Cap. 438 is describing when it says "tombla".
-       · the pacing measurement came out the other way — six cartelli and
-         two rungs is the better-paced game, because every ball is yours
-         and the room never goes idle.
-       · the friendliness argument was really an argument about the SETUP
-         SHEET not saying what you were about to be handed. That is fixed
-         above, with a picture, so it is no longer paying for a default.
-     A player who has chosen klassika before still gets klassika: the
-     saved preference is read first and only an absent one lands here. */
+
+  el.innerHTML =
+    '<div class="pt-wrap tbm">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>Tombla</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      heroHTML() +
+      '<p class="blurb">Ninety numbers in a bag, and everybody marks their own sheet at ' +
+        'once — nobody waits for a turn. Play a room of people, or take on the phone.</p>' +
+
+      (saved ? '<button class="btn primary" id="tb-resume" style="margin:2px 0 12px">' +
+        ilb('play', 'Carry on — call ' +
+          ((saved.log || []).filter(m => m.t === 'call').length) + ' of 90') + '</button>' : '') +
+
+      '<div class="pt-opts" id="tb-modes" style="margin:6px 0 8px">' +
+        (canOnline
+          ? '<button class="pt-opt on" data-v="online">' + ico('users') +
+            '<b>Play online</b><i>Up to sixteen, everybody marking at once.</i></button>'
+          : '') +
+        '<button class="pt-opt" data-v="ai">' + ico('coach') +
+          '<b>Play with AI</b><i>You and the phone. The rest of the table is the machine.</i></button>' +
+        '<button class="pt-opt" data-v="rules">' + ico('book') +
+          '<b>How to play</b><i>The rules, and why there are two games.</i></button>' +
+      '</div>' +
+      (relayDown
+        ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right now. ' +
+          '<b>If Tailscale is on, turn it off.</b> Everything else here works with no internet.</p>'
+        : '') +
+
+      (rec.w + rec.l + rec.d
+        ? '<p class="pt-ledger">Tombla so far: <b>' + rec.w + '</b> won, <b>' + rec.d +
+          '</b> with a prize, <b>' + rec.l + '</b> with nothing.</p>'
+        : '') +
+      '<div style="height:8px"></div>' +
+    '</div>' +
+    /* the rules live at the foot, folded — the same tbm-dock the setup
+       used. "How to play" slides it up; open or shut it never covers a
+       button. */
+    '<div class="tbm-dock" id="tb-dock">' +
+      '<button type="button" class="tbm-grip" id="tb-grip" aria-expanded="false" ' +
+        'aria-controls="tb-dockbody" aria-label="Open the rules">' + ico('book') +
+        '<span>The rules, and why there are two</span>' +
+        '<svg class="cv" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+          '<path d="M6 14.6l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+          'stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+      '</button>' +
+      '<div class="tbm-body" id="tb-dockbody" hidden><div>' + rulesPanel() + '</div></div>' +
+    '</div>' +
+    '</div>';
+
+  /* the dock: slide open on tap, remember the state in the UI-only key */
+  const dock = el.querySelector('#tb-dock');
+  const grip = el.querySelector('#tb-grip');
+  const dbody = el.querySelector('#tb-dockbody');
+  const setDock = (isOpen, quiet) => {
+    dock.classList.toggle('open', isOpen);
+    dbody.hidden = !isOpen;
+    grip.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    grip.setAttribute('aria-label', isOpen ? 'Close the rules' : 'Open the rules');
+    if (!quiet) sfx(isOpen ? 'ui.sheet' : 'ui.back');
+    try { localStorage.setItem(UI_KEY + '.rules', isOpen ? '1' : '0'); } catch(e){}
+  };
+  grip.onclick = () => setDock(dbody.hidden);
+  let was = false;
+  try { was = localStorage.getItem(UI_KEY + '.rules') === '1'; } catch(e){}
+  if (was) setDock(true, true);
+
+  el.querySelector('#pt-back').onclick = () => P.hub();
+  const rz = el.querySelector('#tb-resume');
+  if (rz) rz.onclick = () => {
+    const snap = T.savedSlot();
+    if (!snap || !T.hooks.load(snap)) { menu(); return; }
+    board();
+    if (T.state().phase === 'play') T.runClock();
+  };
+
+  el.querySelectorAll('#tb-modes .pt-opt').forEach(b2 => b2.onclick = () => {
+    sfx('ui.tap');
+    const v = b2.dataset.v;
+    if (v === 'rules'){ setDock(true); return; }
+    if (v === 'online'){
+      T.pref({ play:'online' });
+      if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('tombla');
+      return;
+    }
+    setupAI();               /* v === 'ai' */
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   1b · THE AI SETUP — one tap deeper, the second step.
+   Everything that used to be the wall lives here now: which game (and so
+   how much paper it deals you), who reads the numbers out, how many
+   chairs, the read speed, how sharp the machine is, and the two
+   accessibility toggles. Sensible defaults from T.DEFAULTS are chosen up
+   front so Start is always right there. The rules stay folded at the
+   foot in the same dock as the entry.
+   ═══════════════════════════════════════════════════════════════════ */
+function setupAI(){
+  injectCSS();
+  P.ui.sprite();
+  P.show();
+  const el = P.ui.screenEl();
+  const p = T.pref();
+
   let rules = p.mode === 'ladder' ? 'ladder' : 'hall';
   let who   = p.caller === 'auto' ? 'auto' : 'manual';
   let seats = Math.max(2, Math.min(T.MAX_SEATS, p.seats || T.DEFAULTS.seats));
@@ -1504,33 +1606,13 @@ function menu(){
   el.innerHTML =
     '<div class="pt-wrap tbm">' +
     '<div class="tbar">' +
-      '<button class="iconbtn" id="pt-back" aria-label="Back to party games">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-      '<h2>Tombla</h2>' +
+      '<h2>Play with AI</h2>' +
     '</div>' +
     '<div class="scroll">' +
-      heroHTML() +
-      '<p class="blurb">Ninety numbers in a bag. <b>Klassika</b> deals you one kartella and ' +
-        'five prizes; <b>tal-każin</b> deals the whole <b>ġog</b> of six, the way a band club ' +
-        'does. You mark your own, and nobody checks a thing until somebody shouts.</p>' +
 
-      (saved ? '<button class="btn primary" id="tb-resume" style="margin:2px 0 10px">' +
-        ilb('play', 'Carry on — call ' +
-          ((saved.log || []).filter(m => m.t === 'call').length) + ' of 90') + '</button>' : '') +
-
-      '<div class="tiny pt-lbl">Who is playing</div>' +
-      '<div class="pt-opts" id="tb-play">' +
-        (canOnline
-          ? '<button class="pt-opt" data-v="online">' + ico('users') +
-            '<b>People online</b><i>Up to sixteen, everybody marking at once.</i></button>'
-          : '') +
-        '<button class="pt-opt" data-v="ai">' + ico('coach') +
-          '<b>You and the phone</b><i>The rest of the table is the machine.</i></button>' +
-      '</div>' +
-      (relayDown
-        ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right now. ' +
-          '<b>If Tailscale is on, turn it off.</b> Everything else here works with no internet.</p>'
-        : '') +
+      '<button class="btn primary" id="tb-start" style="margin:6px 0 14px"></button>' +
 
       '<div class="tiny pt-lbl">The game — and how much paper it deals you</div>' +
       /* THE MODE CARRIES THE SHEET, so the sheet is the headline. See
@@ -1560,15 +1642,9 @@ function menu(){
       setRow('tb-auto', 'Mark for me', 'Accessibility. The phone marks everything. It is not the game.',
              [{ v:0, l:'Off' }, { v:1, l:'On' }], auto ? 1 : 0) +
 
-      (rec.w + rec.l + rec.d
-        ? '<p class="pt-ledger">Tombla so far: <b>' + rec.w + '</b> won, <b>' + rec.d +
-          '</b> with a prize, <b>' + rec.l + '</b> with nothing.</p>'
-        : '') +
-
-      '<button class="btn primary" id="tb-start" style="margin:14px 0 24px"></button>' +
+      '<button class="btn primary" id="tb-start2" style="margin:14px 0 24px"></button>' +
     '</div>' +
-    /* the rules live at the foot, folded. In the flow, not over it: open
-       or shut, the dock can never cover a setting or the Start button. */
+    /* the rules live at the foot, folded — same dock as the entry. */
     '<div class="tbm-dock" id="tb-dock">' +
       '<button type="button" class="tbm-grip" id="tb-grip" aria-expanded="false" ' +
         'aria-controls="tb-dockbody" aria-label="Open the rules">' + ico('book') +
@@ -1581,11 +1657,10 @@ function menu(){
     '</div>' +
     '</div>';
 
-  const seg = (id, get, set) => el.querySelectorAll('#' + id + ' .tb-sq').forEach(b2 => {
+  const seg = (id, set) => el.querySelectorAll('#' + id + ' .tb-sq').forEach(b2 => {
     b2.onclick = () => { sfx('ui.tap'); set(b2.dataset.v); sync(); };
   });
   const sync = () => {
-    el.querySelectorAll('#tb-play .pt-opt').forEach(b2 => b2.classList.toggle('on', b2.dataset.v === play));
     const mark = (id, v) => el.querySelectorAll('#' + id + ' .tb-sq').forEach(b2 =>
       b2.classList.toggle('on', b2.dataset.v === String(v)));
     mark('tb-rules', rules); mark('tb-who', who);
@@ -1599,32 +1674,25 @@ function menu(){
     for (let i = 0; i < seats; i++) ch += '<i class="' + (i ? 'on' : 'me') + '"></i>';
     el.querySelector('#tb-chairview').innerHTML = ch;
     el.querySelector('#tb-speedrow').hidden = (who !== 'auto');
-    el.querySelector('#tb-lvlrow').hidden = (play === 'online');
     el.querySelector('#tb-lvl').previousElementSibling &&
       (el.querySelector('#tb-lvlrow .lab i').textContent = LEVELS[level - 1] ? LEVELS[level - 1].note : '');
-    const b2 = el.querySelector('#tb-start');
-    b2.innerHTML = ilb(play === 'online' ? 'users' : 'play',
-                       play === 'online' ? 'Find a room' : 'Deal the ġogs');
+    const lbl = ilb('play', 'Deal the ġogs');
+    el.querySelector('#tb-start').innerHTML = lbl;
+    el.querySelector('#tb-start2').innerHTML = lbl;
   };
 
-  el.querySelectorAll('#tb-play .pt-opt').forEach(b2 => b2.onclick = () => {
-    sfx('ui.tap'); play = b2.dataset.v;
-    /* in one room a PERSON calls; from different houses the phone has
-       to. Follow the choice unless the player has overridden it. */
-    if (play === 'online' && p.caller == null) who = 'auto';
-    sync();
-  });
-  seg('tb-rules', 0, v => { rules = v; });
-  seg('tb-who',   0, v => { who = v; });
-  seg('tb-speed', 0, v => { speed = +v; });
-  seg('tb-lvl',   0, v => { level = +v; });
-  seg('tb-hints', 0, v => { hints = v === '1'; });
-  seg('tb-auto',  0, v => { auto  = v === '1'; });
+  seg('tb-rules', v => { rules = v; });
+  seg('tb-who',   v => { who = v; });
+  seg('tb-speed', v => { speed = +v; });
+  seg('tb-lvl',   v => { level = +v; });
+  seg('tb-hints', v => { hints = v === '1'; });
+  seg('tb-auto',  v => { auto  = v === '1'; });
   el.querySelectorAll('#tb-seats button').forEach(b2 => b2.onclick = () => {
     seats = Math.max(2, Math.min(T.MAX_SEATS, seats + (+b2.dataset.d)));
     sfx('ui.note', { rate: 0.9 + seats / 20 });
     sync();
   });
+
   /* the dock: slide open on tap, remember the state in the UI-only key */
   { const dock = el.querySelector('#tb-dock');
     const grip = el.querySelector('#tb-grip');
@@ -1644,22 +1712,15 @@ function menu(){
   }
   sync();
 
-  el.querySelector('#pt-back').onclick = () => P.hub();
-  const rz = el.querySelector('#tb-resume');
-  if (rz) rz.onclick = () => {
-    const snap = T.savedSlot();
-    if (!snap || !T.hooks.load(snap)) { menu(); return; }
-    T.pref({ hints, auto });
-    board();
-    if (T.state().phase === 'play') T.runClock();
-  };
-  el.querySelector('#tb-start').onclick = () => {
-    T.pref({ play, mode:rules, caller:who, seats, level, speed, auto, hints });
-    if (play === 'online'){ if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('tombla'); return; }
+  el.querySelector('#pt-back').onclick = () => menu();
+  const start = () => {
+    T.pref({ play:'ai', mode:rules, caller:who, seats, level, speed, auto, hints });
     /* no `cards` — optsOf() takes it off the mode, and it is the only
        thing in the app allowed to decide it */
     newGame({ mode:rules, caller:who, seats, level, speed, auto });
   };
+  el.querySelector('#tb-start').onclick = start;
+  el.querySelector('#tb-start2').onclick = start;
 }
 
 /* ═══════════════════════════════════════════════════════════════════

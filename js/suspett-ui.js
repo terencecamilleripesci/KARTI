@@ -639,6 +639,16 @@ function injectCSS(){
   '#scr-party .su-menu .su-opt.on{border-color:#A98BFF;background:rgba(138,92,255,.15)}' +
   '#scr-party .su-menu .su-stepn{color:#C9B4FF}' +
   '#scr-party .su-menu .su-tgt.on{background:rgba(138,92,255,.22);border-color:#A98BFF}' +
+  /* ── the clean entry: three big mode buttons, primary lit ── */
+  '#scr-party .su-menu .su-mode{position:relative;padding-right:38px}' +
+  '#scr-party .su-menu .su-mode .su-chev{position:absolute;right:12px;top:50%;' +
+    'transform:translateY(-50%);width:18px;height:18px;fill:none;stroke:currentColor;' +
+    'stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;opacity:.6}' +
+  '#scr-party .su-menu .su-mode.primary{border-color:#A98BFF;' +
+    'background:linear-gradient(180deg,rgba(138,92,255,.24),rgba(138,92,255,.12))}' +
+  '#scr-party .su-menu .su-mode .su-mi{flex:0 0 auto;width:26px;height:26px;fill:none;' +
+    'stroke:#C9B4FF;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}' +
+  '#scr-party .su-menu .su-mode.primary .su-mi{stroke:#E4D7FF}' +
   /* ── the rules fold at the bottom: a real button, sliding open ── */
   '#scr-party .su-fold{flex:0 0 auto;margin:2px 0 14px;border:1px solid rgba(169,139,255,.3);' +
     'border-radius:14px;background:rgba(138,92,255,.06);overflow:hidden}' +
@@ -837,214 +847,198 @@ function refWhy(v){
   return T('The pjazza is open.', 'Il-pjazza miftuħa.');
 }
 
-/* ═══════════════ THE SETUP SHEET ═══════════════ */
+/* ═══════════════ THE ENTRY SCREEN ═══════════════
+   Minimal, matching the clean new-game pattern the other games use:
+   hero + blurb + two big mode buttons (PLAY ONLINE primary, PASS THE
+   PHONE) + a "How to play" button that opens the existing sliding
+   .su-fold rules. Nothing else on screen one. The pot / pool / reveal /
+   day-timer settings are OFF this screen: online reads them from the
+   host LOBBY.settings; pass-the-phone carries sensible defaults and gets
+   its tiny seat picker on a SECOND step (setupPNP). */
 function menu(){
   injectCSS(); injectSprite();
   closeGame();
   const el = screenRoot();
   if (!el) return;
   P.show();                    /* the party screen, without the hub painting over us */
-  const pf = ST.pref;
-  let mode  = pf.mode === 'pnp' ? 'pnp' : 'net';
-  let seats = Math.min(16, Math.max(5, pf.seats | 0 || 7));
-  let pmode = pf.pmode === 'borma' ? 'borma' : 'bilanc';
-  /* poolV 2 marks a pool saved AGAINST THE NEW CATALOGUE — an older
-     saved pool predates the new roles and is reset to its mode */
-  let pool  = (Array.isArray(pf.pool) && pf.poolV === 2)
-    ? pf.pool.slice() : modePool(pmode);
-  let names = Array.isArray(pf.names) ? pf.names.slice() : [];
-  let reveal = pf.reveal !== false;
-  let dayT  = [180, 240, 300, 420].indexOf(pf.dayT) >= 0 ? pf.dayT : 240;
-  let showPool = false;
+  const saved = ST.save && ST.save.snap;
   let rulesOpen = !!uiPref().rules;
+
+  const globe =
+    '<svg class="su-mi" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>';
+  const table =
+    '<svg class="su-mi" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<rect x="4" y="7" width="16" height="11" rx="2"/><path d="M8 7V5h8v2M9 18v2M15 18v2"/></svg>';
+  const chev = '<svg class="su-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+
+  el.innerHTML =
+    '<div class="pt-wrap su-menu">' +
+    '<div class="tbar"><button class="iconbtn" id="su-back" aria-label="Back">' +
+    '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15 18l-6-6 6-6-1.4-1.4L6.2 12l7.4 7.4z"/></svg>' +
+    '</button><h2>SUSPETT</h2></div>' +
+    '<div class="su-set">' +
+    /* the identity piece: one lit gallarija, one watcher in the street */
+    '<div class="su-hero" aria-hidden="true">' +
+      '<svg class="su-heroart" viewBox="0 0 240 110" width="240" height="110" focusable="false">' +
+      '<use href="#su-hero"></use></svg></div>' +
+    '<p class="blurb">' + T(
+      'One village, a hidden klikka inside it. By night the klikka kills in ' +
+      'secret; by day the pjazza argues, votes, and hangs somebody — ideally ' +
+      'the guilty one.',
+      'Raħal wieħed, klikka moħbija ġo fih. Bil-lejl il-klikka taqtel ' +
+      'bil-moħbi; binhar il-pjazza tiddiskuti, tivvota, u tgħallaq lil xi ħadd — ' +
+      'idealment lill-ħati.') + '</p>' +
+    (saved ? '<button class="su-opt on" id="su-resume"><b>' +
+             T('Continue the last game', 'Kompli l-logħba ta’ qabel') + '</b>' +
+             '<i>' + T('There is a half-finished one on this phone.',
+                       'Hemm waħda nofsha lesta fuq dan it-telefon.') + '</i></button>' : '') +
+    '<div class="su-opts" style="margin-top:2px">' +
+    '<button class="su-opt su-mode primary" id="su-online">' + globe +
+      '<span style="min-width:0"><b>' + T('Play online', 'Ilgħab onlajn') + '</b>' +
+      '<i>' + T('Everyone on their own phone — the chat is the game. Up to sixteen.',
+                'Kulħadd fuq il-mowbajl tiegħu — il-chat hu l-logħba. Sa sittax.') + '</i></span>' +
+      chev + '</button>' +
+    '<button class="su-opt su-mode" id="su-pnp">' + table +
+      '<span style="min-width:0"><b>' + T('Pass the phone', 'Għaddi t-telefon') + '</b>' +
+      '<i>' + T('One phone round the table, with the curtain between turns. Three or more.',
+                'Telefon wieħed idur mal-mejda, bil-purtiera bejn id-dawriet. Tlieta jew aktar.') + '</i></span>' +
+      chev + '</button>' +
+    '<button class="su-opt su-mode" id="su-howto">' +
+      '<svg class="su-mi" viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M4 5h9a3 3 0 0 1 3 3v11a2 2 0 0 0-2-2H4zM20 5h-9a3 3 0 0 0-3 3"/></svg>' +
+      '<span style="min-width:0"><b>' + T('How to play', 'Kif tilgħab') + '</b>' +
+      '<i>' + T('The rules and the roles, in a minute.', 'Ir-regoli u r-rwoli, f’minuta.') + '</i></span>' +
+      chev + '</button></div>' +
+    /* THE RULES, AT THE BOTTOM, SLIDING — the engine's own teaching
+       panel (buildTeachHTML, the same generator the lobby's rules door
+       renders). Never a modal; closed by default; remembered. */
+    '<section class="su-fold">' +
+      '<button class="su-foldtg' + (rulesOpen ? ' open' : '') + '" id="su-foldtg" ' +
+        'aria-expanded="' + (rulesOpen ? 'true' : 'false') + '" aria-controls="su-foldbody">' +
+        '<svg class="su-foldbook" viewBox="0 0 24 24" aria-hidden="true">' +
+          '<path fill="currentColor" d="M4 3.5h7a2 2 0 0 1 1 .3 2 2 0 0 1 1-.3h7v15h-7' +
+          'a1.4 1.4 0 0 0-1 .5 1.4 1.4 0 0 0-1-.5H4zm7.9 2.1a.6.6 0 0 0-.6-.5H5.6v11.8' +
+          'h5.7a2.7 2.7 0 0 1 .6.1zm1.6 11.4a2.7 2.7 0 0 1 .6-.1h5.3V5.1h-5.3a.6.6 0 0 0' +
+          '-.6.5z"/></svg>' +
+        '<span>' + T('What does what? The rules and the roles',
+                     'X’jagħmel xiex? Ir-regoli u r-rwoli') + '</span>' +
+        '<svg class="su-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
+      '</button>' +
+      '<div class="su-foldbody" id="su-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
+        buildTeachHTML(prefPool()) + '</div>' +
+    '</section>' +
+    '</div></div>';
+
+  el.querySelector('#su-back').onclick = () => { P.open(); };
+  const rs = el.querySelector('#su-resume');
+  if (rs) rs.onclick = resumeSaved;
+
+  el.querySelector('#su-online').onclick = () => {
+    sfx('ui.tap');
+    /* online carries its settings in the host's LOBBY.settings, not this
+       menu — don't disturb them; just open the room */
+    if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('suspett');
+    else toast(T('Online is not on this build.', 'L-online mhux fuq dan il-build.'));
+  };
+  el.querySelector('#su-pnp').onclick = () => { sfx('ui.tap'); setupPNP(); };
+
+  /* the rules fold: toggled in place, no redraw */
+  { const tg = el.querySelector('#su-foldtg');
+    const body = el.querySelector('#su-foldbody');
+    const toggle = () => {
+      rulesOpen = body.hidden;
+      body.hidden = !rulesOpen;
+      tg.setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
+      tg.classList.toggle('open', rulesOpen);
+      uiSet('rules', rulesOpen ? 1 : 0);
+      sfx(rulesOpen ? 'ui.sheet' : 'ui.back');
+      if (rulesOpen){
+        if (!reducedMo()){
+          body.classList.add('anim');
+          body.addEventListener('animationend', () => body.classList.remove('anim'), { once: true });
+        }
+        body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' });
+      }
+    };
+    tg.onclick = toggle;
+    /* "How to play" is a shortcut to the same fold: open it and slide it in */
+    el.querySelector('#su-howto').onclick = () => { if (!rulesOpen) toggle(); else
+      body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' }); };
+  }
+}
+
+/* ═══════════════ PASS THE PHONE — the second step ═══════════════
+   Reached only after the player chooses "Pass the phone". A tiny inline
+   seat count and the names, with sensible defaults for everything the
+   entry screen no longer shows (pot mode / pool / reveal / day-timer).
+   Start is gated by validateRoster, exactly as before. */
+function setupPNP(){
+  injectCSS(); injectSprite();
+  const el = screenRoot();
+  if (!el) return;
+  P.show();
+  const pf = ST.pref;
+  let seats = Math.min(16, Math.max(5, pf.seats | 0 || 7));
+  const pmode = pf.pmode === 'borma' ? 'borma' : 'bilanc';
+  /* the pot: the saved custom pool if it's against the current
+     catalogue, otherwise the mode's default — a sensible default, never
+     asked for on screen */
   function modePool(id){
     const m = S.MODES.find(x => x.id === id);
     return (m ? m.pool : S.POOL_DEFAULT).slice();
   }
-  function samePool(a, b){
-    if (a.length !== b.length) return false;
-    const s2 = b.slice().sort();
-    return a.slice().sort().every((x, i) => x === s2[i]);
+  const pool = (Array.isArray(pf.pool) && pf.poolV === 2) ? pf.pool.slice() : modePool(pmode);
+  const reveal = pf.reveal !== false;                                   /* default: dead reveal */
+  const dayT = [180, 240, 300, 420].indexOf(pf.dayT) >= 0 ? pf.dayT : 240; /* default: 4 min */
+  let names = Array.isArray(pf.names) ? pf.names.slice() : [];
+
+  function savePrefs(){
+    ST.pref = Object.assign({}, ST.pref,
+      { mode:'pnp', seats, pmode, pool, poolV: 2, names, reveal, dayT });
+    persist();
   }
 
   function draw(){
-    const saved = ST.save && ST.save.snap;
     const roster = S.rosterFromPool(seats, pool);
     const bal = S.rosterBalance(roster);
     const valid = S.validateRoster(roster, seats);
-    /* a redraw must not throw the host back to the top of the sheet */
     const oldSet = el.querySelector('.su-set');
     const keepScroll = oldSet ? oldSet.scrollTop : 0;
     el.innerHTML =
       '<div class="pt-wrap su-menu">' +
       '<div class="tbar"><button class="iconbtn" id="su-back" aria-label="Back">' +
       '<svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M15 18l-6-6 6-6-1.4-1.4L6.2 12l7.4 7.4z"/></svg>' +
-      '</button><h2>SUSPETT</h2></div>' +
+      '</button><h2>' + T('Pass the phone', 'Għaddi t-telefon') + '</h2></div>' +
       '<div class="su-set">' +
-      /* the identity piece: one lit gallarija, one watcher in the street */
-      '<div class="su-hero" aria-hidden="true">' +
-        '<svg class="su-heroart" viewBox="0 0 240 110" width="240" height="110" focusable="false">' +
-        '<use href="#su-hero"></use></svg></div>' +
-      '<p class="blurb">' + T(
-        'One village, a hidden klikka inside it. By night the klikka kills in ' +
-        'secret; by day the pjazza argues, votes, and hangs somebody — ideally ' +
-        'the guilty one.',
-        'Raħal wieħed, klikka moħbija ġo fih. Bil-lejl il-klikka taqtel ' +
-        'bil-moħbi; binhar il-pjazza tiddiskuti, tivvota, u tgħallaq lil xi ħadd — ' +
-        'idealment lill-ħati.') + '</p>' +
-      (saved ? '<button class="su-opt on" id="su-resume"><b>' +
-               T('Continue the last game', 'Kompli l-logħba ta’ qabel') + '</b>' +
-               '<i>' + T('There is a half-finished one on this phone.',
-                         'Hemm waħda nofsha lesta fuq dan it-telefon.') + '</i></button>' : '') +
-      '<h4>' + T('HOW YOU’LL PLAY', 'KIF SE TILAGĦBU') + '</h4><div class="su-opts">' +
-      '<button class="su-opt' + (mode === 'net' ? ' on' : '') + '" data-m="net"><b>' +
-      T('Everyone on their own phone', 'Kulħadd fuq il-mowbajl tiegħu') + '</b>' +
-      '<i>' + T('Online through the relay — the chat is the game. The best way, up to sixteen.',
-                'Online mir-relay — il-chat hu l-logħba. L-aqwa mod, sa sittax.') + '</i></button>' +
-      '<button class="su-opt' + (mode === 'pnp' ? ' on' : '') + '" data-m="pnp"><b>' +
-      T('One phone around the table', 'Telefon wieħed idur mal-mejda') + '</b>' +
-      '<i>' + T('With the curtain between every turn. No chat — you do the talking.',
-                'Bil-purtiera bejn kull tidwira. Bla chat — titkellmu intom.') + '</i></button></div>' +
-      (mode === 'pnp' ?
-        '<h4>' + T('HOW MANY OF YOU', 'KEMM INTOM') + '</h4><div class="su-step">' +
-        '<button class="su-stepb" id="su-less">-</button><span class="su-stepn">' + seats + '</span>' +
-        '<button class="su-stepb" id="su-more">+</button></div>' +
-        '<h4>' + T('WHO YOU ARE', 'MIN INTOM') + '</h4><div class="su-names" id="su-names">' +
-        Array.from({ length: seats }, (_, i) =>
-          '<input class="su-name" maxlength="14" data-i="' + i + '" placeholder="' +
-          T('Player ', 'Plejer ') + (i + 1) + '"' +
-          ' value="' + esc(names[i] || '') + '">').join('') + '</div>'
-        : '') +
-      '<h4>' + T('THE ROLES IN THE POT', 'IR-RWOLI FIL-BORMA') + ' <span style="opacity:.6">(' +
-        (mode === 'pnp' ? seats + T(' seats', ' siġġu')
-                        : T('sized by the room', 'skont il-kamra')) + ')</span></h4>' +
-      /* THE TWO MODES — starting points, both editable afterwards */
-      '<div class="su-opts">' + S.MODES.map(m => {
-        const on = samePool(pool, m.pool);
-        return '<button class="su-opt' + (on ? ' on' : '') + '" data-pm="' + m.id + '">' +
-          '<b>' + esc(modeName(m)) + '</b><i>' + esc(modeNote(m)) + '</i></button>';
-      }).join('') +
-      (S.MODES.some(m => samePool(pool, m.pool)) ? '' :
-        '<div class="su-bal">' + T('Your own pot — you changed the roles by hand. ' +
-        'Tap a mode to go back.',
-        'Borma tiegħek — bdilt ir-rwoli b’idejk. Agħfas mod biex terġa’ lura.') + '</div>') + '</div>' +
-      '<button class="su-opt" id="su-poolbtn"><b>' +
-      (showPool ? T('Hide the list', 'Aħbi l-lista') : T('Change the roles', 'Biddel ir-rwoli')) + '</b>' +
-      '<i>' + T('Remove and add roles on top of the mode you picked — the game is built from what you leave on.',
-                'Neħħi u żid rwoli fuq il-mod li għażilt — il-logħba tinbena minn dak li tħalli.') + '</i></button>' +
-      (showPool ? '<div class="su-pool" id="su-pool">' +
-        S.POOL_ALL.map(id => {
-          const R = S.ROLES[id];
-          const inPool = pool.indexOf(id) >= 0;
-          const min = S.MIN_TABLE[id] || 0;
-          const far = mode === 'pnp' && min > seats;
-          return '<button class="su-role' + (inPool ? '' : ' off') + (far ? ' far' : '') + '" data-r="' + id + '">' +
-            '<span class="dot ' + R.side + '"></span><span style="min-width:0"><b>' + esc(R.name) + '</b>' +
-            '<i>' + (inPool
-              ? (far ? T('joins from ' + min + ' up', 'jidħol minn ' + min + ' ’il fuq')
-                     : T('in the pot', 'fil-borma'))
-              : T('OUT', 'BARRA')) + '</i></span></button>';
-        }).join('') + '</div>' : '') +
-      '<div class="su-bal">' + (mode === 'pnp'
-        ? T('With these: ', 'B’dawn: ') + '<span class="k">' + bal.killers +
-          T(' killers', ' qattiela') + '</span>' + T(' against ', ' kontra ') + '<span class="v">' +
-          bal.village + T(' villagers', ' tar-raħal') + '</span>' + (bal.neutral ? T(' and ', ' u ') +
-          '<span class="n">' + bal.neutral + T(' out for themselves', ' għal rashom') + '</span>' : '') + '.' +
-          (valid.ok ? '' : ' <span class="k">' + esc(gameText(valid.why)) + '</span>')
-        : T('The room works out the balance from how many join. With ten: say ',
-            'Il-bilanċ jinħadem mill-kamra skont kemm tidħlu. Bl-għaxra: eżempju ') +
-          '<span class="k">' + T('2 killers', '2 qattiela') + '</span>, ' +
-          '<span class="v">' + T('7 villagers', '7 tar-raħal') + '</span>, ' +
-          '<span class="n">' + T('1 out for himself', '1 għal rasu') + '</span>.') + '</div>' +
-      '<h4>' + T('TONIGHT’S RULES', 'REGOLI TAL-LEJLA') + '</h4><div class="su-opts">' +
-      '<button class="su-opt' + (reveal ? ' on' : '') + '" id="su-rev"><b>' +
-      T('The dead reveal their role', 'Il-mejtin jikxfu r-rwol') + '</b>' +
-      '<i>' + (reveal ? T('YES — every corpse says what it was. Easier, and funnier.',
-                          'IVA — kull katavru jgħid x’kien. Eħfef u aktar daħq.')
-                      : T('NO — the corpses stay a question. Much heavier.',
-                          'LE — il-katavri jibqgħu mistoqsija. Itqal sew.')) + '</i></button>' +
-      '<button class="su-opt" id="su-dayt"><b>' + T('Pjazza time: ', 'Ħin il-pjazza: ') +
-      (dayT / 60) + ' min</b>' +
-      '<i>' + T('How long the daytime argument runs before the vote.',
-                'Kemm iddum id-diskussjoni ta’ binhar qabel il-vot.') + '</i></button></div>' +
-      '<button class="su-btn gold" id="su-go" style="padding:14px">' +
-      (mode === 'net' ? T('FIND A ROOM ONLINE', 'SIB KAMRA ONLINE')
-                      : T('DEAL THE ROLES', 'QASSAM IR-RWOLI')) + '</button>' +
-      /* THE RULES, AT THE BOTTOM, SLIDING — the engine's own teaching
-         panel (buildTeachHTML, the same generator the lobby's rules
-         door renders), regenerated with the pool the host just left
-         on. Never a modal; closed by default; remembered. */
-      '<section class="su-fold">' +
-        '<button class="su-foldtg' + (rulesOpen ? ' open' : '') + '" id="su-foldtg" ' +
-          'aria-expanded="' + (rulesOpen ? 'true' : 'false') + '" aria-controls="su-foldbody">' +
-          '<svg class="su-foldbook" viewBox="0 0 24 24" aria-hidden="true">' +
-            '<path fill="currentColor" d="M4 3.5h7a2 2 0 0 1 1 .3 2 2 0 0 1 1-.3h7v15h-7' +
-            'a1.4 1.4 0 0 0-1 .5 1.4 1.4 0 0 0-1-.5H4zm7.9 2.1a.6.6 0 0 0-.6-.5H5.6v11.8' +
-            'h5.7a2.7 2.7 0 0 1 .6.1zm1.6 11.4a2.7 2.7 0 0 1 .6-.1h5.3V5.1h-5.3a.6.6 0 0 0' +
-            '-.6.5z"/></svg>' +
-          '<span>' + T('What does what? The rules and the roles',
-                       'X’jagħmel xiex? Ir-regoli u r-rwoli') + '</span>' +
-          '<svg class="su-foldcv" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>' +
-        '</button>' +
-        '<div class="su-foldbody" id="su-foldbody"' + (rulesOpen ? '' : ' hidden') + '>' +
-          buildTeachHTML(pool) + '</div>' +
-      '</section>' +
+      '<button class="su-btn gold" id="su-go" style="padding:14px;margin:2px 0 4px">' +
+      T('DEAL THE ROLES', 'QASSAM IR-RWOLI') + '</button>' +
+      (valid.ok ? '' : '<div class="su-bal" style="margin-top:8px"><span class="k">' +
+        esc(gameText(valid.why)) + '</span></div>') +
+      '<h4>' + T('HOW MANY OF YOU', 'KEMM INTOM') + '</h4><div class="su-step">' +
+      '<button class="su-stepb" id="su-less">-</button><span class="su-stepn">' + seats + '</span>' +
+      '<button class="su-stepb" id="su-more">+</button></div>' +
+      '<h4>' + T('WHO YOU ARE', 'MIN INTOM') + '</h4><div class="su-names" id="su-names">' +
+      Array.from({ length: seats }, (_, i) =>
+        '<input class="su-name" maxlength="14" data-i="' + i + '" placeholder="' +
+        T('Player ', 'Plejer ') + (i + 1) + '"' +
+        ' value="' + esc(names[i] || '') + '">').join('') + '</div>' +
+      '<div class="su-bal" style="margin-top:10px">' + T('With these: ', 'B’dawn: ') +
+        '<span class="k">' + bal.killers + T(' killers', ' qattiela') + '</span>' +
+        T(' against ', ' kontra ') + '<span class="v">' + bal.village + T(' villagers', ' tar-raħal') +
+        '</span>' + (bal.neutral ? T(' and ', ' u ') + '<span class="n">' + bal.neutral +
+        T(' out for themselves', ' għal rashom') + '</span>' : '') + '.</div>' +
       '</div></div>';
 
     const newSet = el.querySelector('.su-set');
     if (newSet && keepScroll) newSet.scrollTop = keepScroll;
-    el.querySelector('#su-back').onclick = () => { savePrefs(); P.open(); };
-    const rs = el.querySelector('#su-resume');
-    if (rs) rs.onclick = resumeSaved;
-    el.querySelectorAll('.su-opt[data-m]').forEach(b => b.onclick = () => { mode = b.dataset.m; draw(); });
-    el.querySelectorAll('.su-opt[data-pm]').forEach(b => b.onclick = () => {
-      pmode = b.dataset.pm; pool = modePool(pmode); sfx('ui.toggle'); draw();
-    });
-    if (mode === 'pnp'){
-      el.querySelector('#su-less').onclick = () => { if (seats > 5){ seats--; draw(); } };
-      el.querySelector('#su-more').onclick = () => { if (seats < 16){ seats++; draw(); } };
-      el.querySelectorAll('.su-name').forEach(inp =>
-        inp.oninput = () => { names[+inp.dataset.i] = inp.value; });
-    }
-    el.querySelector('#su-poolbtn').onclick = () => { showPool = !showPool; draw(); };
-    el.querySelectorAll('.su-role').forEach(b => b.onclick = () => {
-      const id = b.dataset.r;
-      const at = pool.indexOf(id);
-      if (at >= 0) pool.splice(at, 1); else pool.push(id);
-      sfx('ui.toggle'); draw();
-    });
-    el.querySelector('#su-rev').onclick = () => { reveal = !reveal; draw(); };
-    el.querySelector('#su-dayt').onclick = () => {
-      const steps = [180, 240, 300, 420];
-      dayT = steps[(steps.indexOf(dayT) + 1) % steps.length]; draw();
-    };
-    /* the rules fold: toggled in place, no redraw, so the sheet's
-       scroll position and the panel's slide both behave */
-    { const tg = el.querySelector('#su-foldtg');
-      const body = el.querySelector('#su-foldbody');
-      tg.onclick = () => {
-        rulesOpen = body.hidden;
-        body.hidden = !rulesOpen;
-        tg.setAttribute('aria-expanded', rulesOpen ? 'true' : 'false');
-        tg.classList.toggle('open', rulesOpen);
-        uiSet('rules', rulesOpen ? 1 : 0);
-        sfx(rulesOpen ? 'ui.sheet' : 'ui.back');
-        if (rulesOpen){
-          if (!reducedMo()){
-            body.classList.add('anim');
-            body.addEventListener('animationend', () => body.classList.remove('anim'), { once: true });
-          }
-          body.scrollIntoView({ block: 'nearest', behavior: reducedMo() ? 'auto' : 'smooth' });
-        }
-      };
-    }
+    el.querySelector('#su-back').onclick = () => { savePrefs(); menu(); };
+    el.querySelector('#su-less').onclick = () => { if (seats > 5){ seats--; sfx('ui.toggle'); draw(); } };
+    el.querySelector('#su-more').onclick = () => { if (seats < 16){ seats++; sfx('ui.toggle'); draw(); } };
+    el.querySelectorAll('.su-name').forEach(inp =>
+      inp.oninput = () => { names[+inp.dataset.i] = inp.value; });
     el.querySelector('#su-go').onclick = () => {
       savePrefs();
-      if (mode === 'net'){
-        if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('suspett');
-        else toast(T('Online is not on this build.', 'L-online mhux fuq dan il-build.'));
-        return;
-      }
       const list = Array.from({ length: seats }, (_, i) =>
         (names[i] || '').trim() || (T('Player ', 'Plejer ') + (i + 1)));
       const roster2 = S.rosterFromPool(seats, pool);
@@ -1052,11 +1046,6 @@ function menu(){
       if (!chk.ok){ toast(gameText(chk.why)); return; }
       openPNP(list, roster2);
     };
-  }
-  function savePrefs(){
-    ST.pref = Object.assign({}, ST.pref,
-      { mode, seats, pmode, pool, poolV: 2, names, reveal, dayT });
-    persist();
   }
   draw();
 }

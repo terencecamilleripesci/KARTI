@@ -569,20 +569,28 @@ function screenRoot(){
   return el;
 }
 
-/* ── 4a · the setup sheet ─────────────────────────────────────────── */
+/* ── 4a · the entry screen — MINIMAL, the house shape ─────────────────
+   Screen one is the hero, one line of blurb, and the few big doors
+   every party game opens with: PLAY ONLINE (primary), PLAY WITH AI, and
+   HOW TO PLAY (a sliding fold, not a wall). The settings — which game,
+   how hard, how many machines — do NOT belong here; they wait one tap
+   deeper on the AI setup (setupAI), reached only after a human has said
+   they want the machine. A saved battle, if there is one, is offered
+   back above the doors with its bin beside it, because a battle you
+   cannot get rid of is a trap.
+   ─────────────────────────────────────────────────────────────────────
+   NO pass-the-phone (every grid here is hidden). NO variant picker on
+   the online lobby (the online lobby's start() defaults the game). ── */
+const BS_CHEV = '<span class="bs-mchev"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<path d="M9 6l6 6-6 6"/></svg></span>';
+
 function menu(){
   P.show();
   const el = screenRoot();
-  const pref = P.pref(GID);
   const sv = loadSave();
-  let mode = pref.gmode === 'klassika' ? 'klassika' : 'karti';
-  let who = pref.mode === 'ai' ? 'ai' : 'online';
   const M = window.KARTI_MP;
   const canOnline = !!(M && M.openFor);
   const relayDown = !!(M && M.PR && M.PR.tried && M.PR.err);
-  if (who === 'online' && (!canOnline || relayDown)) who = 'ai';
-  let level = String(pref.level || 2);
-  let foes = String(pref.foes || 1);
   const r = P.recOf(GID);
   /* the fold header's one line says what is inside while it is shut */
   const foldHint = () => setupOpen
@@ -615,59 +623,47 @@ function menu(){
         '<span class="bs-hcap">IL-FLOTTA</span>' +
       '</div>' +
       '<p class="blurb">Five boats each, hidden on your own sea. Take turns shelling ' +
-      'each other’s grid until one fleet is still floating. In <b>KARTI TAL-KANUN</b> ' +
-      'every turn starts with a shot card drawn in front of the whole table — the card ' +
-      'decides how you fire, and everybody sees what you drew. No lying at this table.</p>' +
-      /* A STARTED BATTLE MUST BE BINNABLE. "Make sure u can remove the
-         battle that is started" — a saved game you cannot get rid of
-         without clearing site data is a trap, and this shelf has sprung
-         it before. The bin sits beside the door it belongs to, so there
-         is no hunting for it, and it asks first. */
-      (sv ? '<div class="bs-resume" style="margin-bottom:2px">' +
+      'each other’s grid until one fleet is still floating.</p>' +
+      /* A STARTED BATTLE MUST BE BINNABLE. A saved game you cannot get
+         rid of without clearing site data is a trap. The bin sits beside
+         the door it belongs to, and it asks first. */
+      (sv ? '<div class="bs-resume" style="margin:2px 0 12px">' +
               '<button class="pt-opt" id="bs-resume">' + ico('play') +
               '<b>Carry on with the saved battle</b><i>' +
               'You vs the phone — ' + savedLine(sv) + '</i></button>' +
               '<button class="bs-bin" id="bs-bin" aria-label="Throw the saved battle away">' +
                 ico('close') + '<span>Bin it</span></button>' +
             '</div>' : '') +
-      '<div class="tiny pt-lbl">The game</div>' +
-      '<div class="pt-opts two" id="bs-gmode">' +
-        '<button class="pt-opt" data-v="karti">' + ico('cards') +
-          '<b>Karti tal-Kanun</b><i>Draw a shot card every turn. The fun one.</i></button>' +
-        '<button class="pt-opt" data-v="klassika">' + ico('shield') +
-          '<b>Klassika</b><i>One shell a turn, nerves of steel.</i></button>' +
-      '</div>' +
-      /* TWO WAYS IN, AND NO THIRD. There is no pass-the-phone here: every
-         grid in this game is hidden, so handing the phone round walks the
-         next player past the last player's fleet. See the note on G. */
-      '<div class="tiny pt-lbl">Who is playing</div>' +
-      '<div class="pt-opts two" id="bs-who">' +
-        (canOnline ? '<button class="pt-opt" data-v="online">' + ico('users') +
-          '<b>The table, online</b><i>Two to six phones, everyone on their own sea.</i></button>' : '') +
-        '<button class="pt-opt" data-v="ai">' + ico('coach') +
-          '<b>You vs the phone</b><i>It has sunk better sailors than you.</i></button>' +
+
+      /* ── THE DOORS. Few, big, the first one lit. ── */
+      '<div class="bs-modes">' +
+        '<button type="button" class="bs-mode primary" id="bs-m-online"' +
+          (canOnline ? '' : ' disabled') + '>' +
+          '<span class="bs-mi">' + ico('users') + '</span>' +
+          '<span class="bs-mt"><b>Play online</b>' +
+            '<i>Two to six phones, everyone on their own sea.</i></span>' +
+          BS_CHEV +
+        '</button>' +
+        '<button type="button" class="bs-mode" id="bs-m-ai">' +
+          '<span class="bs-mi">' + ico('coach') + '</span>' +
+          '<span class="bs-mt"><b>Play with AI</b>' +
+            '<i>You against the phone. It has sunk better sailors than you.</i></span>' +
+          BS_CHEV +
+        '</button>' +
+        '<button type="button" class="bs-mode" id="bs-m-rules">' +
+          '<span class="bs-mi">' + ico('book') + '</span>' +
+          '<span class="bs-mt"><b>How to play</b>' +
+            '<i>The rules, in a minute.</i></span>' +
+          BS_CHEV +
+        '</button>' +
       '</div>' +
       (relayDown ? '<p class="pt-warn">The KARTI server cannot be reached from this phone right now. ' +
-        '<b>If Tailscale is on, turn it off.</b> Against the phone works with no internet at all.</p>' : '') +
-      '<div id="bs-aibits">' +
-        '<div class="tiny pt-lbl">How hard</div>' +
-        '<div class="pt-opts" id="bs-lvl">' +
-          LEVELS.map(l => '<button class="pt-opt" data-v="' + l.k + '">' + ico(l.icon) +
-            '<b>' + esc(l.name) + '</b><i>' + esc(l.note) + '</i></button>').join('') +
-        '</div>' +
-        '<div class="tiny pt-lbl">How many machines against you</div>' +
-        '<div class="pt-opts two" id="bs-foes">' +
-          '<button class="pt-opt" data-v="1">' + ico('coach') + '<b>One</b><i>A duel.</i></button>' +
-          '<button class="pt-opt" data-v="2">' + ico('users') + '<b>Two</b><i>A brawl.</i></button>' +
-          '<button class="pt-opt" data-v="3">' + ico('users') + '<b>Three</b><i>A whole harbour.</i></button>' +
-          '<button class="pt-opt" data-v="5">' + ico('users') + '<b>Five</b><i>Everybody against you.</i></button>' +
-        '</div>' +
-      '</div>' +
+        '<b>If Tailscale is on, turn it off.</b> Play with AI works with no internet at all.</p>' : '') +
       (r.w + r.l + r.d ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' +
         r.l + '</b> lost.</p>' : '') +
-      /* ── the rules, FOLDED, at the bottom — the same slide rummy and
-         gin keep on their sheets. Closed by default, remembered in the
-         UI-only key, never a modal: the sheet under it stays live. ── */
+
+      /* ── the rules, FOLDED — the same slide rummy and gin keep. Closed
+         by default, remembered in the UI-only key, never a modal. ── */
       '<div class="bs-foldbox">' +
         '<button type="button" class="bs-fold-h" id="bs-srules-h" aria-controls="bs-srules-b"' +
           ' aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
@@ -679,27 +675,23 @@ function menu(){
           '<div class="bs-fold-i"><div class="bs-fold-p">' + rulesPanel() + '</div></div>' +
         '</div>' +
       '</div>' +
-      '<div style="height:8px"></div>' +
+      '<div style="height:12px"></div>' +
     '</div>' +
-    '<div class="pt-startbar"><button class="btn primary" id="bs-start"></button></div>' +
     '</div>';
 
-  const sync = () => {
-    el.querySelectorAll('#bs-gmode .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === mode));
-    el.querySelectorAll('#bs-who .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === who));
-    el.querySelectorAll('#bs-lvl .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === level));
-    el.querySelectorAll('#bs-foes .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === foes));
-    el.querySelector('#bs-aibits').hidden = (who !== 'ai');
-    const s = el.querySelector('#bs-start');
-    s.innerHTML = window.ILB ? window.ILB(who === 'online' ? 'users' : 'play',
-      who === 'online' ? 'Find a table' : 'Start') : 'Start';
-  };
-  el.querySelectorAll('#bs-gmode .pt-opt').forEach(b => b.onclick = () => { mode = b.dataset.v; sync(); });
-  el.querySelectorAll('#bs-who .pt-opt').forEach(b => b.onclick = () => { who = b.dataset.v; sync(); });
-  el.querySelectorAll('#bs-lvl .pt-opt').forEach(b => b.onclick = () => { level = b.dataset.v; sync(); });
-  el.querySelectorAll('#bs-foes .pt-opt').forEach(b => b.onclick = () => { foes = b.dataset.v; sync(); });
-  sync();
   el.querySelector('#pt-back').onclick = () => { P.hub(); };
+
+  el.querySelector('#bs-m-ai').onclick = () => { sfx('ui.tap', { gain:0.6 }); setupAI(); };
+  const on = el.querySelector('#bs-m-online');
+  if (on) on.onclick = () => {
+    if (on.hasAttribute('disabled')) return;
+    sfx('ui.tap', { gain:0.6 });
+    /* the online lobby's own start() picks the game (defaults to karti),
+       so nothing about the variant needs answering here. */
+    P.pref(GID, { mode:'online' });
+    if (M && M.openFor) M.openFor(GID);
+  };
+
   const rs = el.querySelector('#bs-resume');
   if (rs) rs.onclick = () => restoreSaved();
   const bin = el.querySelector('#bs-bin');
@@ -712,30 +704,103 @@ function menu(){
           'Nothing else about GĦARRAQHOM is touched — just this one battle.',
       yes:'Yes, bin it', no:'No, keep it',
       go: () => {
-        binSave();                         /* ONLY the battle slot. Not the
-                                              difficulty, not the record, not
-                                              anything else on this shelf. */
+        binSave();                         /* ONLY the battle slot. */
         sfx('ui.back');
         if (K && K.toast) K.toast('The battle is gone. The sea is clear.');
         menu();                            /* …and back to a CLEAN sheet */
       }
     });
   };
-  el.querySelector('#bs-start').onclick = () => {
-    P.pref(GID, { gmode: mode, mode: who, level: +level, foes: +foes });
-    if (who === 'online'){ if (M && M.openFor) M.openFor(GID); return; }
-    newLocal({ gmode: mode, who, level: +level, foes: +foes });
-  };
-  /* the fold toggles in place — no repaint, so the slide actually slides */
-  const sh = el.querySelector('#bs-srules-h');
-  if (sh) sh.onclick = () => {
-    setSetupOpen(!setupOpen);
-    sh.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
+
+  /* the fold toggles in place — no repaint, so the slide actually slides.
+     "How to play" opens the same fold. */
+  const toggleRules = force => {
+    const wantOpen = (force == null) ? !setupOpen : !!force;
+    setSetupOpen(wantOpen);
+    const sh = el.querySelector('#bs-srules-h');
+    if (sh) sh.setAttribute('aria-expanded', wantOpen ? 'true' : 'false');
     const b = el.querySelector('#bs-srules-b');
-    if (b) b.classList.toggle('open', setupOpen);
+    if (b) b.classList.toggle('open', wantOpen);
     const hint = el.querySelector('#bs-srules-i');
     if (hint) hint.textContent = foldHint();
-    sfx(setupOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 });
+    sfx(wantOpen ? 'ui.sheet' : 'ui.back', { gain: 0.8 });
+  };
+  const sh = el.querySelector('#bs-srules-h');
+  if (sh) sh.onclick = () => toggleRules();
+  const mr = el.querySelector('#bs-m-rules');
+  if (mr) mr.onclick = () => {
+    toggleRules(true);
+    const box = el.querySelector('#bs-srules-h');
+    if (box && box.scrollIntoView) try { box.scrollIntoView({ behavior:'smooth', block:'nearest' }); } catch(e){}
+  };
+}
+
+/* ── 4a-ii · the AI setup — one tap deeper, the settings that used to be
+   the whole entry wall. Which game (karti/klassika), how hard, how many
+   machines — every one defaulted so Start is always right there. The
+   game mode is defaulted here BEFORE it reaches newLocal, because a
+   battle started with no mode lands the engine in phase 'mode' with
+   nothing to drive it; screen one never asks the question, so this step
+   MUST answer it. ── */
+function setupAI(){
+  P.show();
+  const el = screenRoot();
+  const pref = P.pref(GID);
+  let mode  = pref.gmode === 'klassika' ? 'klassika' : 'karti';   /* DEFAULT */
+  let level = String(pref.level || 2);
+  let foes  = String(pref.foes || 1);
+
+  el.innerHTML =
+    '<div class="pt-wrap bs-menu bs-setup">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="pt-back" aria-label="Back">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>Play with AI</h2>' +
+    '</div>' +
+    '<div class="scroll">' +
+      '<div class="tiny pt-lbl">The game</div>' +
+      '<div class="pt-opts two" id="bs-gmode">' +
+        '<button class="pt-opt" data-v="karti">' + ico('cards') +
+          '<b>Karti tal-Kanun</b><i>Draw a shot card every turn. The fun one.</i></button>' +
+        '<button class="pt-opt" data-v="klassika">' + ico('shield') +
+          '<b>Klassika</b><i>One shell a turn, nerves of steel.</i></button>' +
+      '</div>' +
+      '<div class="tiny pt-lbl">How hard</div>' +
+      '<div class="pt-opts" id="bs-lvl">' +
+        LEVELS.map(l => '<button class="pt-opt" data-v="' + l.k + '">' + ico(l.icon) +
+          '<b>' + esc(l.name) + '</b><i>' + esc(l.note) + '</i></button>').join('') +
+      '</div>' +
+      '<div class="tiny pt-lbl">How many machines against you</div>' +
+      '<div class="pt-opts two" id="bs-foes">' +
+        '<button class="pt-opt" data-v="1">' + ico('coach') + '<b>One</b><i>A duel.</i></button>' +
+        '<button class="pt-opt" data-v="2">' + ico('users') + '<b>Two</b><i>A brawl.</i></button>' +
+        '<button class="pt-opt" data-v="3">' + ico('users') + '<b>Three</b><i>A whole harbour.</i></button>' +
+        '<button class="pt-opt" data-v="5">' + ico('users') + '<b>Five</b><i>Everybody against you.</i></button>' +
+      '</div>' +
+      '<div style="height:8px"></div>' +
+    '</div>' +
+    '<div class="pt-startbar"><button class="btn primary" id="bs-start"></button></div>' +
+    '</div>';
+
+  const sync = () => {
+    el.querySelectorAll('#bs-gmode .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === mode));
+    el.querySelectorAll('#bs-lvl .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === level));
+    el.querySelectorAll('#bs-foes .pt-opt').forEach(b => b.classList.toggle('on', b.dataset.v === foes));
+    const s = el.querySelector('#bs-start');
+    s.innerHTML = window.ILB ? window.ILB('play', 'Start') : 'Start';
+  };
+  el.querySelectorAll('#bs-gmode .pt-opt').forEach(b => b.onclick = () => { mode = b.dataset.v; sfx('ui.tap', { gain:0.5 }); sync(); });
+  el.querySelectorAll('#bs-lvl .pt-opt').forEach(b => b.onclick = () => { level = b.dataset.v; sfx('ui.tap', { gain:0.5 }); sync(); });
+  el.querySelectorAll('#bs-foes .pt-opt').forEach(b => b.onclick = () => { foes = b.dataset.v; sfx('ui.tap', { gain:0.5 }); sync(); });
+  sync();
+
+  el.querySelector('#pt-back').onclick = () => { sfx('ui.back'); menu(); };
+  el.querySelector('#bs-start').onclick = () => {
+    /* mode is ALWAYS one of 'karti'/'klassika' here — never absent — so
+       newLocal → E.newMatch gets a real mode and the engine goes to
+       phase 'place', not phase 'mode'. */
+    P.pref(GID, { gmode: mode, mode:'ai', level: +level, foes: +foes });
+    newLocal({ gmode: mode, who:'ai', level: +level, foes: +foes });
   };
 }
 
@@ -2271,6 +2336,34 @@ function injectCSS(){
     '#scr-party .bs-menu .bs-hcap{position:absolute;right:11px;bottom:7px;' +
       'font:900 9.5px/1 var(--disp);letter-spacing:.18em;color:rgba(255,255,255,.25)}' +
     '@media (max-height:520px){#scr-party .bs-menu .bs-hero{height:96px}}' +
+
+    /* ── THE ENTRY MODE PICKER — screen one. Big, few, clean, the same
+       shape the other party games open with (kanun/bomba): a stack of
+       full-width buttons, the first one lit. The settings wall (game,
+       difficulty, how many) lives one tap deeper on the AI setup. ── */
+    '#scr-party .bs-menu .bs-modes{display:flex;flex-direction:column;gap:11px;margin:6px 0 8px}' +
+    '#scr-party .bs-menu .bs-mode{-webkit-appearance:none;appearance:none;border:0;text-align:left;' +
+      'display:flex;align-items:center;gap:13px;padding:16px 16px;border-radius:16px;' +
+      'background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);' +
+      'color:var(--txt);cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .bs-menu .bs-mode .bs-mi{flex:0 0 auto;width:40px;height:40px;display:flex;' +
+      'align-items:center;justify-content:center;border-radius:12px;' +
+      'background:rgba(143,198,242,.12);color:#8FC6F2}' +
+    '#scr-party .bs-menu .bs-mode .bs-mi .ico{width:24px;height:24px}' +
+    '#scr-party .bs-menu .bs-mode .bs-mt{display:flex;flex-direction:column;gap:2px;min-width:0}' +
+    '#scr-party .bs-menu .bs-mode .bs-mt b{font:900 15px/1.1 var(--disp);letter-spacing:.03em}' +
+    '#scr-party .bs-menu .bs-mode .bs-mt i{font:600 11.5px/1.35 var(--body);color:var(--dim);' +
+      'font-style:normal}' +
+    '#scr-party .bs-menu .bs-mode.primary{background:linear-gradient(180deg,rgba(255,197,66,.2),' +
+      'rgba(255,197,66,.06));box-shadow:inset 0 0 0 1px rgba(255,197,66,.42),' +
+      '0 8px 20px rgba(255,197,66,.14)}' +
+    '#scr-party .bs-menu .bs-mode.primary .bs-mi{background:rgba(255,197,66,.2);color:var(--gold,#FFC542)}' +
+    '#scr-party .bs-menu .bs-mode.primary .bs-mt b{color:var(--gold,#FFC542)}' +
+    '#scr-party .bs-menu .bs-mode:active{transform:translateY(1px)}' +
+    '#scr-party .bs-menu .bs-mode .bs-mchev{margin-left:auto;flex:0 0 auto;color:var(--dim);opacity:.6}' +
+    '#scr-party .bs-menu .bs-mode .bs-mchev svg{width:18px;height:18px;stroke:currentColor;fill:none;' +
+      'stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .bs-menu .bs-mode[disabled]{opacity:.5}' +
 
     /* ── the rules FOLD on the setup sheet — rummy's slide, restated
        under this scope. grid-rows 0fr→1fr for the height, transform +
