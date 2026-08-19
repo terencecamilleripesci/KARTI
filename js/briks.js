@@ -857,6 +857,19 @@ function resolveBall(st, ball){
   let [vx, vy] = velOf(ball.di, ball.sp);
   let px = ball.x, py = ball.y;
   let rem = TFP;                                    /* sub-ticks left       */
+  /* ONE BREAKTHROUGH PER BALL PER TICK. The contract in this file (see the
+     heavy-ball note below and the back-edge comment) is that a single pass
+     behind the paddle scores AT MOST ONCE, then the ball flies back for a
+     fair rally. But resolveBall iterates up to MAX_ITER swept contacts in a
+     tick, and at full speed a ball can (a) cross the huge inflated back-edge
+     half-plane on two consecutive iterations, or (b) break the LAST armour
+     brick and then reach the freshly-opened back edge in the same tick —
+     either way scoreHit fired twice and the score raced up 2x ("the wall
+     auto-goes"). This latch makes every scoring route below idempotent for
+     the tick: the FIRST breakthrough (a back-row break OR a back-edge bounce)
+     scores; any further ones this tick only bounce. Pure per-ball local
+     state, no Math, no float — bit-identical on both phones. */
+  let scored = false;
 
   for (let iter = 0; iter < MAX_ITER; iter++){
     /* the move for the whole remaining fraction */
@@ -954,8 +967,9 @@ function resolveBall(st, ball){
           if (w.cells[k] <= 0){
             events.push({ id: 'ev.broke', side: h.meta.side, r: h.meta.r, c: h.meta.c, smash: smash ? 1 : 0 });
             maybeDrop(st, h.meta.side, h.meta.r, h.meta.c);
-            /* a hit on the back row scores for the ATTACKER (other team) */
-            if (backRow) scoreHit(st, h.meta.side);
+            /* a hit on the back row scores for the ATTACKER (other team), but
+               only the FIRST breakthrough this ball makes this tick (latch). */
+            if (backRow && !scored){ scoreHit(st, h.meta.side); scored = true; }
           } else {
             events.push({ id: 'ev.brick', side: h.meta.side, r: h.meta.r, c: h.meta.c });
           }
@@ -968,11 +982,16 @@ function resolveBall(st, ball){
         }
       } else if (h.kind === 'wall'){
         if (h.meta.axis === 'x') flipX = true; else flipY = true;
-        /* a back-edge hit scores for the attacker, but only ONCE per contact
-           and only when the wall in front is actually open (so a ball can
-           never reach it while bricks stand — but guard anyway). */
-        if (h.meta.backSide !== undefined && wallLive(st, h.meta.backSide) === 0){
+        /* a back-edge hit scores for the attacker, but only the FIRST
+           breakthrough this ball makes this tick (the once-per-tick latch —
+           a fast ball can otherwise re-cross the inflated back-edge half-plane
+           on a second sweep iteration and score twice), and only when the wall
+           in front is actually open (so a ball can never reach it while bricks
+           stand — but guard anyway). */
+        if (h.meta.backSide !== undefined && !scored &&
+            wallLive(st, h.meta.backSide) === 0){
           scoreHit(st, h.meta.backSide);
+          scored = true;
         }
       } else if (h.kind === 'shield'){
         const w = st.walls[h.meta.side];
