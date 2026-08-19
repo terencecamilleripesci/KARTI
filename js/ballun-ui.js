@@ -1179,7 +1179,18 @@ R.lobby = {
   applyVariant(net){ const mode = net === 'timed' ? 'timed' : 'lives'; pref({ mode }); return { variant: mode }; },
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  canStart(seatList){
+    if (!(window.KARTI_PARTY && window.KARTI_PARTY.online && window.KARTI_PARTY.online.ballun))
+      return { ok:false, why: ONLINE_WHY };
+    const n = (seatList || []).length;
+    if (n < 2) return { ok:false, why: T('Il-Ballun needs at least two.', 'Il-Ballun irid mill-inqas tnejn.') };
+    if (n > 4) return { ok:false, why: T('Up to four can play.', 'Sa erbgħa jistgħu jilagħbu.') };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready) return { ok:false, why: unready + (unready > 1
+        ? T(' people are not ready yet.', ' persuni għadhom mhux lesti.')
+        : T(' person is not ready yet.', ' persuna għadha mhux lesta.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () =>
     '<p>' + T('Two to four players, one to each edge of a square arena. Slide your paddle along ' +
       'your edge, guard your goal, and knock the ball into everyone else’s.',

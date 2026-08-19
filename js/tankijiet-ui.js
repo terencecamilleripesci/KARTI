@@ -1333,7 +1333,18 @@ R.lobby = {
   applyVariant(net){ const mode = (E.MODES.indexOf(net) >= 0) ? net : 'ffa'; pref({ mode }); return { variant: mode }; },
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  canStart(seatList){
+    if (!(window.KARTI_PARTY && window.KARTI_PARTY.online && window.KARTI_PARTY.online.tankijiet))
+      return { ok:false, why: ONLINE_WHY };
+    const n = (seatList || []).length;
+    if (n < E.MIN_SEATS) return { ok:false, why: T('Tankijiet needs at least four.', 'It-Tankijiet iridu mill-inqas erbgħa.') };
+    if (n > E.MAX_SEATS) return { ok:false, why: T('Up to eight can play.', 'Sa tmienja jistgħu jilagħbu.') };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready) return { ok:false, why: unready + (unready > 1
+        ? T(' people are not ready yet.', ' persuni għadhom mhux lesti.')
+        : T(' person is not ready yet.', ' persuna għadha mhux lesta.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () =>
     '<p>'+T('Four to eight tanks in one walled arena, all at once. Drive, aim a turret, and fire; shells bank off walls to reach a tank behind cover.',
             'Minn erbgħa sa tmien tankijiet f’arena waħda bil-ħitan, kollha f’daqqa. Suq, immira turret, u spara; il-balal jaqbżu mal-ħitan biex jilħqu tank wara kenn.')+'</p>' +

@@ -2154,7 +2154,18 @@ R.lobby = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  canStart(seatList){
+    if (!(window.KARTI_PARTY && window.KARTI_PARTY.online && window.KARTI_PARTY.online.briks))
+      return { ok:false, why: ONLINE_WHY };
+    const n = (seatList || []).length;
+    if (n < 2) return { ok:false, why: T('Il-Ħajt needs two.', 'IL-ĦAJT irid tnejn.') };
+    if (n > 2) return { ok:false, why: T('Only two can play.', 'Tnejn biss jistgħu jilagħbu.') };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready) return { ok:false, why: unready + (unready > 1
+        ? T(' people are not ready yet.', ' persuni għadhom mhux lesti.')
+        : T(' person is not ready yet.', ' persuna għadha mhux lesta.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () => '<ul>' + rulesFor().map(r => '<li>' + r + '</li>').join('') + '</ul>' +
                    '<p>' + esc(ONLINE_WHY) + '</p>',
   blurb: T('Defend your wall, break theirs. The ball never stops and the aim is in the bounce.',

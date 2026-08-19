@@ -2953,7 +2953,18 @@ R.lobby = {
     return { variant: VARIANTS[k] ? k : 'malta', rules: null };
   },
 
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  canStart(seatList){
+    if (!(window.KARTI_PARTY && window.KARTI_PARTY.online && window.KARTI_PARTY.online.kanun))
+      return { ok:false, why: ONLINE_WHY };
+    const n = (seatList || []).length;
+    if (n < 2) return { ok:false, why: T('Il-Kanun needs two castles.', 'Il-Kanun irid żewġ kastelli.') };
+    if (n > 2) return { ok:false, why: T('Only two can play.', 'Tnejn biss jistgħu jilagħbu.') };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready) return { ok:false, why: unready + (unready > 1
+        ? T(' people are not ready yet.', ' persuni għadhom mhux lesti.')
+        : T(' person is not ready yet.', ' persuna għadha mhux lesta.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () =>
     '<p>' + T('Two castles across a moat. Take turns throwing comically Maltese ordnance, and ' +
       'between throws spend what you earn on bigger weapons and better cover.',

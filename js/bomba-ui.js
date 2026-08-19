@@ -2377,7 +2377,18 @@ R.lobby = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  canStart(seatList){
+    if (!(window.KARTI_PARTY && window.KARTI_PARTY.online && window.KARTI_PARTY.online.bomba))
+      return { ok:false, why: ONLINE_WHY };
+    const n = (seatList || []).length;
+    if (n < E.MIN_SEATS) return { ok:false, why: T('Bomberman needs at least two.', 'Bomberman irid mill-inqas tnejn.') };
+    if (n > E.MAX_SEATS) return { ok:false, why: T('Up to eight can play.', 'Sa tmienja jistgħu jilagħbu.') };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready) return { ok:false, why: unready + (unready > 1
+        ? T(' people are not ready yet.', ' persuni għadhom mhux lesti.')
+        : T(' person is not ready yet.', ' persuna għadha mhux lesta.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () =>
     '<p>' + T('Two to eight players in one walled arena, all at once. Drop bombs, blow the ' +
       'blocks, grab the power-ups, and be the last one standing.',
