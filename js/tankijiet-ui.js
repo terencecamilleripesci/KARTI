@@ -8,23 +8,29 @@
    shared winner screen (js/rebbieh.js). It authors every player-visible
    string (the engine authors none — lang.js rule).
 
-   ── CONTROL SCHEME: TWIN-STICK (justified) ────────────────────────────────
+   ── CONTROL SCHEME: AIM AND FIRE ARE SEPARATE ─────────────────────────────
    Left thumb = DRIVE stick (bottom-left): push it and the hull turns toward
    the push and rolls; distance from centre is throttle, so a gentle nudge
-   creeps and a full push charges. Right thumb = AIM+FIRE stick (bottom-
-   right): push it to swing the turret that way, and it FIRES while held (the
-   cooldown paces the shots). Both sticks live in the bottom corners, OUTSIDE
-   the arena, so a thumb never covers the action on a 390-wide phone — the
-   single most important touch rule for a shooter. A tap on a stick with no
-   drag still registers (aim-stick tap = a single shot; drive-stick tap =
-   nothing). Keyboard is wired too (WASD/arrows drive, J/K or ,/. rotate the
-   turret, Space fires) for the desk and the test harness.
+   creeps and a full push charges. Right thumb = an AIM stick + a dedicated
+   FIRE button (bottom-right cluster):
+     · The AIM stick ONLY points the turret — push/hold it to swing the turret
+       to that angle. It NEVER fires, so you can line up a bank at leisure.
+     · The FIRE button is the ONLY thing that shoots: TAP it for one shot in
+       the current aim direction (the engine cooldown paces it), or HOLD it to
+       keep firing at that same rate. The two never fight — separate DOM
+       elements, each with its own pointer capture.
+   This split is the fix for "it's hard to aim and shoot at once, and the
+   shots kill you": before, the aim stick fired the instant you nudged it, so
+   you could not adjust aim without loosing a shell. Now aiming is silent and
+   only the button fires. Everything lives OUTSIDE the arena (the control bar
+   below), so a thumb never covers the action on a 390-wide phone, and none of
+   it collides with the drag-to-peek (a drag on the arena canvas). Keyboard is
+   wired too (WASD/arrows drive, J/L or ,/. rotate the turret, Space/K fires).
 
-   Why twin-stick over auto-aim: tanks are about BANKING a shell off a wall
-   to reach cover — that is a deliberate aim, not "shoot the nearest", so a
-   manual turret is the whole game. Twin-stick keeps both hands busy without
-   ever occluding the arena, which move-drag+tap-to-fire cannot promise (the
-   tap lands ON the field).
+   Why a manual turret + button over auto-aim: tanks are about BANKING a shell
+   off a wall to reach cover — a deliberate aim, not "shoot the nearest" — so a
+   manual turret is the whole game, and a separate trigger is what lets you aim
+   that bank without wasting shells.
 
    ── THE LOCKSTEP CLOCK ────────────────────────────────────────────────────
    One rAF loop paces the fixed tick off wall-time and COMMITS a tick only
@@ -162,10 +168,26 @@ function injectCSS(){
   .tk-stick .tk-nub{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;
     background:radial-gradient(120% 120% at 50% 35%,#e9eef6,#aab3c2);box-shadow:0 3px 10px rgba(0,0,0,.5);
     transition:transform .04s linear}
-  .tk-stick.aim .tk-nub{background:radial-gradient(120% 120% at 50% 35%,#ffd0d6,#ff7a88)}
+  .tk-stick.aim .tk-nub{background:radial-gradient(120% 120% at 50% 35%,#cfe0ff,#7aa8ff)}
   .tk-stick .tk-lbl{position:absolute;left:0;right:0;bottom:8px;text-align:center;font:700 10px/1 system-ui,sans-serif;
     color:rgba(255,255,255,.5);letter-spacing:.08em}
   .tk-stick.reduced .tk-nub{transition:none}
+  /* the RIGHT cluster: AIM stick (lower) + a dedicated FIRE button (upper),
+     both reachable by the right thumb, never overlapping, each with its own
+     pointer capture so they can't trigger each other or the drive stick. */
+  .tk-right{position:relative;flex:0 0 auto;display:flex;align-items:flex-end;gap:10px}
+  .tk-fire{position:relative;flex:0 0 auto;width:76px;height:76px;margin-bottom:10px;border-radius:50%;
+    background:radial-gradient(120% 120% at 50% 35%,#ff8290,#e03146);
+    border:1px solid rgba(255,255,255,.14);color:#fff;cursor:pointer;touch-action:none;
+    box-shadow:0 4px 14px rgba(224,49,70,.4),inset 0 2px 6px rgba(255,255,255,.25);
+    display:flex;align-items:center;justify-content:center;font:800 13px/1 system-ui,sans-serif;
+    letter-spacing:.06em;transition:transform .06s ease,box-shadow .06s ease;-webkit-user-select:none;user-select:none}
+  .tk-fire:active,.tk-fire.on{transform:scale(.92);box-shadow:0 2px 8px rgba(224,49,70,.5),inset 0 2px 10px rgba(0,0,0,.3)}
+  .tk-fire.cool{opacity:.55}
+  .tk-fire svg{width:26px;height:26px;fill:#fff;pointer-events:none}
+  .tk-fire .tk-firelbl{position:absolute;left:0;right:0;bottom:9px;text-align:center;
+    font:800 9px/1 system-ui,sans-serif;letter-spacing:.1em;color:rgba(255,255,255,.85);pointer-events:none}
+  .tk-fire.reduced{transition:none}
   .tk-rules{position:absolute;left:0;right:0;bottom:0;transform:translateY(102%);transition:transform .28s cubic-bezier(.22,1,.36,1);
     background:#131923;border-top:1px solid rgba(255,255,255,.08);border-radius:16px 16px 0 0;padding:14px 16px 20px;
     z-index:40;max-height:74%;overflow:auto;box-shadow:0 -10px 30px rgba(0,0,0,.4)}
@@ -189,8 +211,9 @@ function injectCSS(){
   .tk-opt b{display:block;font:700 14px/1.2 system-ui}
   .tk-opt i{display:block;font:500 11px/1.3 system-ui;font-style:normal;color:#9aa4b2;margin-top:3px}
   .tk-lbl{font:700 11px/1.2 system-ui;letter-spacing:.06em;text-transform:uppercase;color:#8b95a3;margin:12px 2px 4px}
-  @media (max-width:360px){ .tk-stick{width:112px;height:112px} .tk-stick .tk-nub{width:48px;height:48px;margin:-24px 0 0 -24px} }
-  @media (orientation:landscape) and (max-height:520px){ .tk-ctrl{min-height:120px} .tk-stick{width:108px;height:108px} }
+  @media (max-width:360px){ .tk-stick{width:112px;height:112px} .tk-stick .tk-nub{width:48px;height:48px;margin:-24px 0 0 -24px}
+    .tk-fire{width:66px;height:66px} .tk-right{gap:7px} }
+  @media (orientation:landscape) and (max-height:520px){ .tk-ctrl{min-height:120px} .tk-stick{width:108px;height:108px} .tk-fire{width:64px;height:64px} }
   `;
   const el = document.createElement('style'); el.id = 'tk-style'; el.textContent = css;
   document.head.appendChild(el);
@@ -242,8 +265,8 @@ function roundRect(g,x,y,w,h,r){
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
   return [
-    T('Drive with the left thumb, aim and fire with the right. Both sticks sit off the arena so your thumbs never cover the fight.',
-      'Suq bis-saba’ l-kbir tax-xellug, immira u spara bil-lemin. Iż-żewġ stikek jinsabu barra l-arena biex is-swaba’ qatt ma jgħattu l-ġlieda.'),
+    T('Drive with the left thumb. Aim the turret with the right stick — it only points, it never fires. Tap the FIRE button to shoot where you are aiming (hold it to keep firing). Everything sits off the arena so your thumbs never cover the fight.',
+      'Suq bis-saba’ l-kbir tax-xellug. Immira t-turret bl-istick tal-lemin — jimmira biss, qatt ma jispara. Agħfas il-buttuna SPARA biex tispara fejn qed timmira (żommha biex tibqa’ tispara). Kollox jinsab barra l-arena biex is-swaba’ qatt ma jgħattu l-ġlieda.'),
     T('Shells travel and BANK off walls up to twice — line up a bounce to hit a tank behind cover.',
       'Il-balal jivvjaġġaw u jaqbżu mal-ħitan sa darbtejn — allinja bounce biex tolqot tank wara kenn.'),
     T('One clean hit kills. Grab power-ups by driving over them: multi-shot, rapid fire, a shield, a speed boost, and a bouncing/piercing shell.',
@@ -394,10 +417,10 @@ function startMatch(o, seed, net){
     lastSent: {},
     me: 0, mine: [], meta: [],
     net: net || null,
-    drive: { on:false, dx:0, dy:0 },     /* left stick vector (screen px)     */
-    aim:   { on:false, dx:0, dy:0, fire:false },  /* right stick             */
+    drive: { on:false, dx:0, dy:0 },     /* left DRIVE stick vector (screen px)*/
+    aim:   { on:false, dx:0, dy:0 },     /* right AIM stick — angle only      */
     key:   { turn:0, throttle:0, aimTurn:0, fire:false },
-    heldTurn:0, heldThrottle:0, heldAim:0, wantFire:false,
+    heldTurn:0, heldThrottle:0, heldAim:0, wantFire:false, autoFire:false,
     prev: null,              /* last tick's snapshot for interpolation        */
     dead:false, raf:0, t0:0, ledSaid:-1, finished:false,
     stall:0, lead:LEAD_MS,
@@ -554,11 +577,18 @@ function commitByte(tick, seat, byte){
   say(seat, tick, byte);
 }
 
-/* turn the two thumbs (or keys) into an engine input for this tank.
-   Drive stick: its angle picks a target hull heading; we emit a turn
-   toward it and throttle by whether the stick is pushed. Aim stick:
-   its angle picks a target turret heading; turn toward it and fire while
-   pushed. This keeps the WIRE as the engine's tiny per-tick byte. */
+/* turn the two thumbs, the FIRE button (or keys) into an engine input for
+   this tank. The engine takes AIM (turret turn) and FIRE as SEPARATE inputs,
+   and this samples them from SEPARATE controls so a player can line up the
+   turret without ever loosing a shell:
+     · DRIVE stick — its angle picks a target hull heading; turn toward it and
+       throttle while pushed.
+     · AIM stick — its angle picks a target turret heading; turn toward it and
+       NEVER fires. Pushing/holding it only swings the turret.
+     · FIRE button — the ONLY thing that fires. A tap arms M.wantFire (one
+       shot, engine cooldown paces it); holding it arms M.autoFire (optional
+       hold-to-repeat, still gated by the same cooldown). Neither touches aim.
+   This keeps the WIRE as the engine's tiny per-tick byte. */
 function sampleLocal(tk){
   let turn = 0, throttle = 0, aim = 0, fire = false;
   /* DRIVE */
@@ -571,19 +601,16 @@ function sampleLocal(tk){
     }
   } else if (M.key.throttle){ throttle = M.key.throttle; turn = M.key.turn; }
   else if (M.key.turn){ turn = M.key.turn; }
-  /* AIM + FIRE */
+  /* AIM — turret angle ONLY, never fires */
   if (M.aim.on && (M.aim.dx || M.aim.dy)){
     const mag = Math.abs(M.aim.dx) + Math.abs(M.aim.dy);
     if (mag > 6){
       const want = E.dirIndexFromDelta(M.aim.dx, M.aim.dy);
       aim = shortTurnScreen(tk.turret, want);
-      fire = true;
-    } else if (M.aim.fire){ fire = true; }
-  } else {
-    if (M.key.aimTurn) aim = M.key.aimTurn;
-    if (M.key.fire) fire = true;
-  }
-  if (M.wantFire){ fire = true; }      /* a discrete tap-fire */
+    }
+  } else if (M.key.aimTurn){ aim = M.key.aimTurn; }
+  /* FIRE — the dedicated button (tap or optional hold), or the keyboard fire */
+  if (M.wantFire || M.autoFire || M.key.fire) fire = true;
   return { turn, throttle, aim, fire };
 }
 /* short turn on the engine circle where screen +y is engine +y (both down) */
@@ -885,6 +912,13 @@ function draw(frac){
   g.restore();                 /* end world→view scroll transform */
   /* minimap only helps when the arena is bigger than the view (it scrolls) */
   if ((UI.worldW || UI.w) > UI.w + 1 || (UI.worldH || UI.h) > UI.h + 1) drawMinimap(g, frac, cam);
+
+  /* FIRE button cooldown hint (cosmetic): dim it while our tank is reloading */
+  if (UI.fireBtn){
+    const me = localTank(st);
+    const cooling = !!(me && me.alive && me.cool > 0);
+    if (cooling !== UI._fireCool){ UI._fireCool = cooling; UI.fireBtn.classList.toggle('cool', cooling); }
+  }
 }
 
 /* a small corner minimap so a scrolling player keeps the whole fight in
@@ -1002,8 +1036,13 @@ function board(){
     '<div class="tk-ctrl" id="tk-ctrl">' +
       '<div class="tk-stick drive'+(noMotion()?' reduced':'')+'" id="tk-drive" role="group" aria-label="'+esc(T('Drive','Suq'))+'">' +
         '<span class="tk-nub"></span><span class="tk-lbl">'+esc(T('DRIVE','SUQ'))+'</span></div>' +
-      '<div class="tk-stick aim'+(noMotion()?' reduced':'')+'" id="tk-aim" role="group" aria-label="'+esc(T('Aim and fire','Immira u spara'))+'">' +
-        '<span class="tk-nub"></span><span class="tk-lbl">'+esc(T('AIM','IMMIRA'))+'</span></div>' +
+      '<div class="tk-right">' +
+        '<button type="button" class="tk-fire'+(noMotion()?' reduced':'')+'" id="tk-fire" aria-label="'+esc(T('Fire','Spara'))+'">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c1.6 2.4 3 4.3 3 7a3 3 0 0 1-6 0c0-.6.1-1.1.3-1.6C7.5 8.7 6 10.9 6 13.5 6 17.6 8.7 20 12 20s6-2.4 6-6.5C18 8.6 15 5.2 12 2z"/></svg>' +
+          '<span class="tk-firelbl">'+esc(T('FIRE','SPARA'))+'</span></button>' +
+        '<div class="tk-stick aim'+(noMotion()?' reduced':'')+'" id="tk-aim" role="group" aria-label="'+esc(T('Aim','Immira'))+'">' +
+          '<span class="tk-nub"></span><span class="tk-lbl">'+esc(T('AIM','IMMIRA'))+'</span></div>' +
+      '</div>' +
     '</div>' +
     '<div class="tk-rules" id="tk-rulespanel" aria-hidden="true">' +
       '<div class="tk-rules-h"><h4>TANKIJIET — '+esc(T('the rules','ir-regoli'))+'</h4>' +
@@ -1018,6 +1057,7 @@ function board(){
     host: ctx.host, hud: ctx.host.querySelector('#tk-hud'),
     ctrl: ctx.host.querySelector('#tk-ctrl'),
     drive: ctx.host.querySelector('#tk-drive'), aim: ctx.host.querySelector('#tk-aim'),
+    fireBtn: ctx.host.querySelector('#tk-fire'),
     cd: ctx.host.querySelector('#tk-cd'), rules: ctx.host.querySelector('#tk-rulespanel'),
     cell:16, w:240, h:180, dpr:1, bg:null, dirtyBg:true
   };
@@ -1035,11 +1075,14 @@ function board(){
   requestAnimationFrame(() => { if (UI) fitCanvas(); });
 }
 
-/* ── twin-stick touch + keyboard. Each stick tracks a pointer id so two
-   thumbs work independently; the nub follows the finger (clamped). ── */
+/* ── DRIVE + AIM sticks, dedicated FIRE button, keyboard. Each control tracks
+   its own pointer id so two thumbs work independently and NONE can trigger
+   another; the stick nubs follow the finger (clamped). ── */
 function wireControls(){
   const R0 = 52;   /* nub travel radius in px */
-  function bindStick(elm, obj, isAim){
+  /* a pure ANGLE stick — sets obj.on/dx/dy only. It NEVER fires (that is the
+     FIRE button's job), so aiming and shooting are fully separated. */
+  function bindStick(elm, obj){
     let pid = null, cx = 0, cy = 0;
     const nub = elm.querySelector('.tk-nub');
     const setNub = (dx, dy) => { if (!noMotion()) nub.style.transform = 'translate('+dx+'px,'+dy+'px)'; };
@@ -1048,13 +1091,12 @@ function wireControls(){
       pid = e.pointerId; try { elm.setPointerCapture(pid); } catch(_){}
       const r = elm.getBoundingClientRect(); cx = r.left + r.width/2; cy = r.top + r.height/2;
       obj.on = true; move(e);
-      if (isAim){ obj.fire = true; }   /* a tap on the aim stick = fire */
       e.preventDefault();
     });
     elm.addEventListener('pointermove', e => { if (e.pointerId !== pid) return; move(e); e.preventDefault(); });
     const end = e => {
       if (e.pointerId !== pid) return;
-      pid = null; obj.on = false; obj.dx = 0; obj.dy = 0; obj.fire = false;
+      pid = null; obj.on = false; obj.dx = 0; obj.dy = 0;
       setNub(0,0);
     };
     elm.addEventListener('pointerup', end);
@@ -1067,8 +1109,40 @@ function wireControls(){
       setNub(dx, dy);
     }
   }
-  bindStick(UI.drive, M.drive, false);
-  bindStick(UI.aim, M.aim, true);
+  bindStick(UI.drive, M.drive);
+  bindStick(UI.aim, M.aim);
+
+  /* ── FIRE button — the ONLY control that shoots. A press arms a single
+     tap-shot (M.wantFire, cleared once it reaches a tick) AND holds M.autoFire
+     so keeping it down repeats at the engine's cooldown rate. Its own pointer
+     id + capture mean it can't be confused with the aim stick or drive stick,
+     and it lives in the control bar (not the arena) so it never fights the
+     drag-to-peek. Cosmetic: it dims while the tank is on cooldown. */
+  if (UI.fireBtn){
+    let fpid = null;
+    const press = e => {
+      if (fpid !== null) return;
+      fpid = e.pointerId; try { UI.fireBtn.setPointerCapture(fpid); } catch(_){}
+      M.wantFire = true; M.autoFire = true;
+      UI.fireBtn.classList.add('on');
+      cue('ui.tap', { gain:.5 });
+      e.preventDefault();
+    };
+    const release = e => {
+      if (e.pointerId !== fpid) return;
+      fpid = null; M.autoFire = false;
+      UI.fireBtn.classList.remove('on');
+      e.preventDefault();
+    };
+    UI.fireBtn.addEventListener('pointerdown', press);
+    UI.fireBtn.addEventListener('pointerup', release);
+    UI.fireBtn.addEventListener('pointercancel', release);
+    /* keep a native click as a keyboard/AT fallback (Enter/Space on the button)
+       so the button is operable without a pointer; it arms one shot. */
+    UI.fireBtn.addEventListener('click', e => {
+      if (e.detail === 0){ M.wantFire = true; }   /* detail 0 = keyboard-activated */
+    });
+  }
 
   /* ── DRAG-TO-PEEK ─────────────────────────────────────────────────────
      A drag on the ARENA canvas pans the camera to scout the map; release
@@ -1474,9 +1548,11 @@ try {
       tick: n => { let g = 0; for (let i = 0; i < (n|0); i++){ if (!advance()){ if (g++ > 20) break; i--; } } return M.committed; },
       tickOnce: () => { advance(); return M.committed; },
       setDrive: (dx,dy) => { M.drive.on = !!(dx||dy); M.drive.dx = dx; M.drive.dy = dy; },
-      setAim: (dx,dy,fire) => { M.aim.on = !!(dx||dy); M.aim.dx = dx; M.aim.dy = dy; M.aim.fire = !!fire; },
+      setAim: (dx,dy) => { M.aim.on = !!(dx||dy); M.aim.dx = dx; M.aim.dy = dy; },
       key: k => { M.key = Object.assign(M.key, k); },
-      fire: () => { M.wantFire = true; M.key.fire = true; },
+      fire: () => { M.wantFire = true; },                 /* one tap-shot        */
+      holdFire: on => { M.autoFire = !!on; if (on) M.wantFire = true; },
+      fireBtn: () => UI && UI.fireBtn,
       remote: (seat, wire) => onlineRemote(seat, wire),
       hooks: NET_HOOKS, lobby: R.lobby, tile: TILE,
       draw, fitCanvas, hud, board, openBoard, finish,
