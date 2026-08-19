@@ -592,8 +592,45 @@ function push(opts) {
       }
       if (r.status === 401) { expired(); return { err: TEXT.reLogin }; }
       if (r.status === 409) {
-        /* Someone else got there first. NOTHING has been written on the
-           server and nothing is touched here. Show the player both. */
+        /* Someone else got there first — the server rejected our version. NOTHING
+           has been written on the server and nothing is touched here.
+
+           A pure VERSION RACE (the two saves are the SAME content, only the
+           version numbers moved) must NOT ask the player anything: there is
+           nothing to choose and nothing to lose. Converge on the server's
+           version silently. This is the exact "identical device/cloud yet a
+           popup appeared" bug. */
+        var srv = (typeof r.d.save === 'string') ? r.d.save : null;
+        if (srv !== null && mark(blob) === mark(srv)) {
+          ST.sess.ver = r.d.ver || (ST.sess.ver || 0);
+          ST.sess.at = r.d.at || Math.floor(Date.now() / 1000);
+          ST.sess.mark = mark(blob);
+          ST.conflict = null;
+          saveSess();
+          if (!opts.silent) setPhase('idle', TEXT.synced); else fire();
+          return { ok: true, ver: ST.sess.ver, action: 'converge' };
+        }
+        /* An ORDINARY divergence: route it through the SAFE AUTO-MERGE, never
+           the popup. The union keeps everything from both sides and is pushed
+           back so the cloud converges too — matching this file's stated design
+           ("no popup on an ordinary divergence").
+
+           The one exception is a push that autoMerge itself triggered (its own
+           union-push raced and 409'd again): re-merging would loop. In that case
+           leave it pushPending — the next sync converges — rather than recurse or
+           prompt. Only a genuinely unparseable save reaches raiseConflict, from
+           inside autoMerge's !m.ok fallback. */
+        if (srv !== null && !opts.fromMerge) {
+          return autoMerge(r.d.ver || 0, srv, r.d.at || 0, blob, { silent: opts.silent });
+        }
+        if (opts.fromMerge) {
+          /* merge-push raced again: don't recurse, don't prompt. The local union
+             is already saved and backed up; the next sync will converge. */
+          if (!opts.silent) fire();
+          return { ok: true, action: 'merge', pushPending: true };
+        }
+        /* no server save came back at all (should not happen for a 409): last
+           resort, keep the old safety net. */
         return raiseConflict(r.d.ver || 0, r.d.save, r.d.at || 0, blob);
       }
       if (!opts.silent) setPhase('error', wireError(r));
@@ -752,6 +789,21 @@ function mergeSaves(deviceBlob, cloudBlob) {
    Only a save that will not parse falls through to the old ask-the-player path. */
 function autoMerge(serverVer, serverSave, serverAt, deviceBlob, opts) {
   opts = opts || {};
+
+  /* Nothing to merge if the two saves are the SAME content — only the version
+     numbers moved (a pure version race). Converge on the server's version
+     silently: no merge, no push cycle, and certainly no popup. */
+  if (typeof serverSave === 'string' && deviceBlob != null &&
+      mark(deviceBlob) === mark(serverSave)) {
+    ST.sess.ver = serverVer || (ST.sess.ver || 0);
+    ST.sess.at = serverAt || Math.floor(Date.now() / 1000);
+    ST.sess.mark = mark(deviceBlob);
+    ST.conflict = null;
+    saveSess();
+    if (!opts.silent) setPhase('idle', TEXT.synced); else fire();
+    return Promise.resolve({ ok: true, action: 'converge' });
+  }
+
   var m = mergeSaves(deviceBlob, serverSave);
   if (!m.ok) {
     /* genuinely unmergeable (a corrupt/unparseable save): keep the old safety
@@ -787,14 +839,20 @@ function autoMerge(serverVer, serverSave, serverAt, deviceBlob, opts) {
   adapter.reload();
 
   /* Push the union to the cloud so both sides converge. Version-checked against
-     what the server just showed us, exactly like the normal push: if someone
-     raced us the server 409s and we simply merge again next round — still no
-     loss, because a merge of a merge keeps everything. */
-  return push({ base: serverVer || 0, silent: true }).then(function (p) {
-    if (p && p.ok) { setPhase("idle", mergedText()); return { ok: true, action: 'merge' }; }
-    /* the local union is saved and backed up either way; the cloud will catch
-       up on the next sync. Do not surface an error for a normal race. */
+     what the server just showed us, exactly like the normal push. fromMerge:true
+     bounds the loop: if someone raced us and this push 409s, push() will NOT
+     re-enter autoMerge (that would loop forever) — it leaves it pushPending and
+     the next ordinary sync converges. Still no loss: the local union is saved
+     and both pre-merge copies are backed up. */
+  return push({ base: serverVer || 0, silent: true, fromMerge: true }).then(function (p) {
+    /* Whatever the push did, the local union is saved and both pre-merge copies
+       are backed up — nothing can be lost. A clean push means the cloud now
+       holds the union too; a raced push (fromMerge 409) comes back pushPending
+       and the next ordinary sync converges. Neither is an error, neither pops a
+       dialog. Carry pushPending through so callers/tests can see the cloud has
+       not caught up yet. */
     setPhase("idle", mergedText());
+    if (p && p.ok && !p.pushPending) return { ok: true, action: 'merge' };
     return { ok: true, action: 'merge', pushPending: true };
   });
 }
@@ -819,6 +877,36 @@ function syncNow(opts) {
     var seenMark = ST.sess.mark || '';
     var serverMoved = (r.ver || 0) !== seenVer;
     var localMoved = hereMark !== seenMark;
+
+    /* 0. RE-EVALUATE any conflict left pending from before (the app was showing
+          "…waiting for you to choose which game to keep"). The old code raised a
+          popup and, if the player closed it or chose "decide later", ST.conflict
+          stayed set and the status line kept nagging — even when the two sides
+          were actually identical or cleanly mergeable. Resolve it here with the
+          fresh server copy, silently, so the nag clears on its own:
+            • content-identical  -> converge on the server's version;
+            • both parseable      -> auto-merge (union, nothing lost);
+          Only a genuinely unparseable save is left as a conflict (safety net,
+          via autoMerge's !m.ok fallback). */
+    if ((ST.conflict || ST.phase === 'conflict') && typeof r.save === 'string' &&
+        here != null) {
+      if (mark(here) === mark(r.save)) {
+        ST.sess.ver = r.ver || (ST.sess.ver || 0);
+        ST.sess.at = r.at || Math.floor(Date.now() / 1000);
+        ST.sess.mark = mark(here);
+        ST.conflict = null;
+        saveSess();
+        setPhase('idle', TEXT.synced);
+        return { ok: true, action: 'converge' };
+      }
+      return autoMerge(r.ver || 0, r.save, r.at || 0, here, opts);
+    }
+    /* A stale conflict flag with nothing fresh to compare against (server gave
+       no save): stop nagging — drop the flag and fall through to the normal
+       decision, which is safe on its own. */
+    if (ST.conflict && typeof r.save !== 'string') {
+      ST.conflict = null;
+    }
 
     /* 1. nobody moved */
     if (!serverMoved && !localMoved) {

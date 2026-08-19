@@ -501,6 +501,7 @@ function startMatch(opts, seed, net){
     anim: null,                 /* the shell flight in progress          */
     cam: null,                  /* the camera (initCam on mount)         */
     fx: null,                   /* the destruction particle system       */
+    reveals: [],                /* FOG: persistent cleared patches (render) */
     theme: THEMES[themeKey],
     variant: V,
     raf: 0, busy:false, dead:false, finished:false,
@@ -544,15 +545,61 @@ function fitCanvas(){
   UI.baseOy = (h - worldH * sc) / 2;
   UI.g2.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (M && !M.cam) initCam();
+  /* the aim frame is DERIVED from the field size (frameWhole reads
+     UI.cw/ch/baseSc), so a resize changes it. When the camera is idle
+     — not following a shell, not mid-throw — re-fit it to the new frame
+     so the enemy castle stays framed after a rotate/resize. */
+  else if (M && M.cam && !M.anim && !M.cam.follow){
+    const f = frameWhole();
+    M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom;
+    snapCam();
+  }
   UI.dirty = true;
   draw();
 }
 
-/* the framing that shows BOTH castles and the moat between them, a
-   little above the ground. This is the resting shot: zoom just enough
-   to fill the field with the interesting band, not the empty sky. */
+/* the framing that shows BOTH castles and the moat between them. This
+   is the RESTING / AIMING shot, and the whole point of it is that the
+   player can SEE THE ENEMY they are shooting at without panning: it
+   auto-fits the band from the left castle's back wall to the right
+   castle's back wall (with a margin for the launch hand and the wind),
+   and vertically from a little sky — room for the arc — down to just
+   under the waterline where a shot lands. Then it zooms so that band
+   FILLS the field instead of floating tiny in a sea of empty sky and
+   water (the old fixed zoom:1.0 showed the whole 200×100 world, which
+   left the two castles small and far apart and hard to aim between).
+
+   The zoom is DERIVED from the field size, not a magic constant, so it
+   reads the same whether the field is tall or short. Clamped so it can
+   never zoom so far in that one castle leaves the frame, nor so far out
+   that the band rattles around in dead space. Draw-only: nothing here
+   feeds the simulation. */
+const FRAME_MARGIN_X = 10;   /* cells of breathing room past each castle */
+const FRAME_TOP_Y    = 40;   /* highest cell kept in view (sky for the arc) */
+const FRAME_BOT_Y    = 84;   /* lowest cell kept in view (just under water) */
 function frameWhole(){
-  return { x: E.W / 2, y: (E.GROUND_Y - 12), zoom: 1.0 };
+  /* the world band both castles + the moat live in */
+  const bx0 = E.L_X0 - FRAME_MARGIN_X;
+  const bx1 = E.R_X1 + FRAME_MARGIN_X;
+  const cx = (bx0 + bx1) / 2;
+  const cy = (FRAME_TOP_Y + FRAME_BOT_Y) / 2;
+  /* with no field measured yet (pre-mount), fall back to a sane wide
+     frame that still shows the whole board */
+  if (!UI || !UI.cw || !UI.ch || !UI.baseSc){
+    return { x: cx, y: cy, zoom: 1.0 };
+  }
+  const bandW = bx1 - bx0;                 /* cells across the band  */
+  const bandH = FRAME_BOT_Y - FRAME_TOP_Y; /* cells down the band    */
+  /* the zoom (a multiple of baseSc) that just fits the band in each
+     axis; take the SMALLER so BOTH castles are guaranteed in view */
+  const zx = (UI.cw / UI.baseSc) / bandW;
+  const zy = (UI.ch / UI.baseSc) / bandH;
+  let zoom = Math.min(zx, zy);
+  /* clamps: never below the whole-world fit (zoom 1.0 shows all 200
+     wide), and never so tight that a castle edge slips off — cap so at
+     least the full band-width stays framed with a hair to spare. */
+  zoom = clampN(zoom, 1.0, 2.4);
+  return { x: cx, y: cy, zoom };
 }
 function initCam(){
   const f = frameWhole();
@@ -749,6 +796,16 @@ function draw(){
         thrown off a blast, coloured by the material they came from ── */
   if (M.fx) drawDebris(g, cell);
 
+  /* ── FOG OF WAR: the enemy half is drawn under a moody drifting haze
+        so the player sees a DIM SILHOUETTE of the enemy castle but not
+        its exact damage/crew. Shots you land on the enemy side punch
+        PERSISTENT crisp holes in the fog (M.reveals) — scouting is how
+        you learn their true state. Purely a per-viewer RENDER overlay:
+        the engine keeps full state; this never touches the sim. It sits
+        UNDER the aim arc / reticle / shell / FX below, so lining up a
+        shot stays fully possible through the fog. ── */
+  drawFog(g, cell, th, v);
+
   /* ── THE AIM: the sling band, the wind-bent predicted arc, a clear
         landing marker. This is the whole "see where you're shooting". ── */
   if (M.drag && M.preview){
@@ -823,6 +880,259 @@ function draw(){
     g.fillStyle = 'rgba(255,240,210,' + (M.fx.flash * 0.5).toFixed(3) + ')';
     g.fillRect(0, 0, w, h);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   FOG OF WAR — a per-LOCAL-viewer render overlay. It hides the OPPONENT
+   of whoever is aiming on this phone; it never reads or writes the sim,
+   so determinism/economy/online stay byte-identical (the engine keeps
+   full state — this only decides what THIS screen paints).
+
+   HOW IT LOOKS
+     · the local player's OWN half is CLEAR; the enemy half sits under a
+       moody, drifting haze consistent with the dusk/night themes.
+     · the fog is TRANSLUCENT, so the enemy castle still reads as a DIM
+       SILHOUETTE through it (you can aim at it) — but the murk hides the
+       exact damage cracks, crew health bars and terrain detail, so you
+       can't just read their condition at a glance.
+     · NIGHT map → heavier fog. Reduced motion → a STATIC haze (no drift)
+       that still reveals on impact.
+
+   HOW THE REVEALS WORK (shots reveal, and STAY revealed)
+     · when a shell LANDS on/near the enemy side, addReveal() records a
+       PERSISTENT circular patch (M.reveals) around the impact. Scouting
+       shots are rewarded: that patch reads CRISP for the rest of the
+       match. At most a very slow, partial regrowth (down to a clarity
+       floor) — it never closes back up. Multiple impacts accumulate as
+       multiple cleared patches, progressively opening the enemy side.
+     · the reveal is derived purely from the boom/splash impact points
+       the UI already reads from rep.ev — read-only, no sim change.
+
+   HOW THE HOLES ARE PUNCHED
+     · the fog is composited on an OFFSCREEN canvas, then each reveal is
+       erased from it with a soft-edged destination-out gradient, then
+       the whole layer is drawn over the enemy half. Erasing offscreen
+       means the holes cut the FOG only — never the terrain beneath it.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* the vertical line down the middle of the moat that splits "mine" from
+   "theirs". Derived from the engine's castle spans, never a magic const. */
+function fogMidX(){ return (E.L_X1 + E.R_X0) / 2; }
+
+/* which seat's OPPONENT does this phone's fog hide? Prefer the seat that
+   is AIMING right now if it's a local human turn (so pass-the-phone flips
+   the fog to the active player each turn); otherwise fall back to the
+   seat this phone drives. Solo → 0 (AI's side fogged). Online → M.me
+   (opponent fogged). This resolves the local side the SAME way the rest
+   of the file does (M.me / M.mine / turnOf). */
+function localSide(){
+  if (!M) return 0;
+  const turn = E.turnOf(M.st);
+  if (turn >= 0 && M.mine && M.mine.indexOf(turn) >= 0 &&
+      M.meta && M.meta[turn] && M.meta[turn].own === 'me'){
+    return turn;
+  }
+  return M.me | 0;
+}
+
+/* reveal tuning */
+const FOG_REVEAL_MIN_R = 9;    /* cells: smallest crisp patch a hit opens  */
+const FOG_REVEAL_SCALE = 2.1;  /* impact radius → reveal radius            */
+const FOG_REVEAL_MAX_R = 30;   /* cap so one huge blast doesn't clear all  */
+const FOG_MERGE_D      = 6;    /* cells: fold a new hit into a near patch   */
+const FOG_REGROW_START = 9000; /* ms before a patch starts its slow fade    */
+const FOG_REGROW_SPAN  = 22000;/* ms over which it eases to the floor       */
+const FOG_CLARITY_FLOOR= 0.72; /* a scouted patch never dims below this     */
+
+/* record a PERSISTENT reveal at a world impact — but only if it landed on
+   the FOGGED (enemy) side, since the local half is already clear. Nearby
+   hits merge so a barrage doesn't grow the list without bound. */
+function addReveal(x, y, r){
+  if (!M) return;
+  if (!M.reveals) M.reveals = [];
+  const side = localSide();
+  const mid = fogMidX();
+  /* enemy side is right of mid when we're seat 0, left of mid for seat 1 */
+  const onEnemy = side === 0 ? (x > mid) : (x < mid);
+  if (!onEnemy) return;
+  const rad = clampN((r || 4) * FOG_REVEAL_SCALE, FOG_REVEAL_MIN_R, FOG_REVEAL_MAX_R);
+  for (const p of M.reveals){
+    const dx = p.x - x, dy = p.y - y;
+    if (dx * dx + dy * dy <= FOG_MERGE_D * FOG_MERGE_D){
+      /* fold in: keep the widest, freshen it so it re-crisps */
+      p.x = (p.x + x) / 2; p.y = (p.y + y) / 2;
+      p.r = Math.max(p.r, rad); p.born = nowMs();
+      return;
+    }
+  }
+  if (M.reveals.length > 64) M.reveals.shift();  /* hard safety cap */
+  M.reveals.push({ x, y, r: rad, born: nowMs() });
+}
+
+/* open reveals directly from a shot report's impact points — used on the
+   reduced-motion / instant path where there is no flight to walk. Mirrors
+   the boom/splash/stick classing playFlight uses. */
+function revealFromReport(rep){
+  if (!rep || !rep.ev) return;
+  for (const e of rep.ev){
+    if (e.t === 'boom') addReveal(e.x, e.y, e.r || 4);
+    else if (e.t === 'splash' || e.t === 'overboard') addReveal(e.x, E.WATER_Y, 3.5);
+    else if (e.t === 'stick') addReveal(e.x, e.y, 2.5);
+  }
+}
+
+/* a patch's clarity: 1 fresh, easing to a floor after a long time, but it
+   never fully closes — scouting stays rewarded. Static (full) under
+   reduced motion so a still screen still reads its cleared patches. */
+function revealClarity(p){
+  if (noMotion()) return 1;
+  const age = nowMs() - (p.born || 0);
+  if (age <= FOG_REGROW_START) return 1;
+  const t = Math.min(1, (age - FOG_REGROW_START) / FOG_REGROW_SPAN);
+  return 1 - (1 - FOG_CLARITY_FLOOR) * t;
+}
+
+/* the per-theme fog weight. Night is the heaviest; the bright Malta noon
+   the lightest. Kept translucent so the enemy castle silhouette shows. */
+function fogWeight(th){
+  const k = th && th.key;
+  if (k === 'night')  return 0.80;
+  if (k === 'dusk')   return 0.60;
+  if (k === 'quarry') return 0.58;
+  return 0.52;                       /* malta */
+}
+/* the fog's tint, pulled toward the theme's night sky so it sits in place */
+function fogTint(th){
+  const k = th && th.key;
+  if (k === 'night')  return [16, 26, 44];
+  if (k === 'dusk')   return [40, 28, 52];
+  if (k === 'quarry') return [70, 76, 80];
+  return [26, 44, 60];               /* malta */
+}
+
+/* the offscreen layer the fog is composited on (so reveals cut the fog,
+   not the terrain). Sized to the device-pixel canvas; rebuilt on resize. */
+function fogLayer(){
+  if (!UI) return null;
+  const w = UI.cv ? UI.cv.width : 0, h = UI.cv ? UI.cv.height : 0;
+  if (!w || !h) return null;
+  let L = UI._fog;
+  if (!L){ L = UI._fog = { cv:null, g:null }; }
+  if (!L.cv){
+    try { L.cv = document.createElement('canvas'); } catch(e){ return null; }
+    L.g = L.cv.getContext('2d');
+  }
+  if (L.cv.width !== w || L.cv.height !== h){ L.cv.width = w; L.cv.height = h; }
+  return L;
+}
+
+function drawFog(g, cell, th, v){
+  if (!M || !UI || !UI.cw || !UI.ch) return;
+  const side = localSide();
+  const mid = fogMidX();
+  const w = UI.cw, h = UI.ch;
+  /* the enemy half in SCREEN space (css px), clipped to the field edge. */
+  const midX = sx(mid);
+  let fx0, fx1;
+  if (side === 0){ fx0 = midX; fx1 = w; }   /* enemy is to the right */
+  else           { fx0 = 0;    fx1 = midX; }/* enemy is to the left  */
+  fx0 = clampN(fx0, 0, w); fx1 = clampN(fx1, 0, w);
+  if (fx1 - fx0 < 1) return;                 /* enemy half off-screen */
+
+  const L = fogLayer();
+  if (!L){ drawFogSimple(g, th, fx0, fx1, w, h); return; }
+  const dpr = UI.dpr || 1;
+  const fg = L.g;
+  fg.setTransform(dpr, 0, 0, dpr, 0, 0);
+  fg.clearRect(0, 0, w, h);
+
+  /* ── build the haze on the offscreen layer ── */
+  const tint = fogTint(th);
+  const base = fogWeight(th);
+  const rgb = tint[0] + ',' + tint[1] + ',' + tint[2];
+  /* a soft vertical wash: a touch heavier near the water (murk sits low) */
+  const grad = fg.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0,   'rgba(' + rgb + ',' + (base * 0.82).toFixed(3) + ')');
+  grad.addColorStop(0.55,'rgba(' + rgb + ',' + (base).toFixed(3) + ')');
+  grad.addColorStop(1,   'rgba(' + rgb + ',' + Math.min(0.95, base * 1.18).toFixed(3) + ')');
+  fg.fillStyle = grad;
+  fg.fillRect(fx0, 0, fx1 - fx0, h);
+
+  /* ── drifting cloud blobs for body & motion (static under reduced
+        motion). Deterministic-free decoration; never touches the sim. ── */
+  const still = noMotion();
+  const t = still ? 0 : nowMs() / 1000;
+  const spanW = fx1 - fx0;
+  const blob = Math.max(60, cell * 26);
+  fg.globalCompositeOperation = 'source-over';
+  for (let i = 0; i < 6; i++){
+    const ph = i * 1.7;
+    const drift = still ? 0 : Math.sin(t * 0.25 + ph) * blob * 0.5;
+    const bob   = still ? 0 : Math.cos(t * 0.19 + ph * 1.3) * blob * 0.22;
+    const bx = fx0 + (spanW * ((i * 0.37 + 0.12) % 1)) + drift;
+    const by = h * (0.20 + 0.62 * ((i * 0.29 + 0.1) % 1)) + bob;
+    const br = blob * (1.1 + (i % 3) * 0.35);
+    const gl = fg.createRadialGradient(bx, by, 0, bx, by, br);
+    const a = base * (0.30 + (i % 2) * 0.10);
+    gl.addColorStop(0, 'rgba(' + rgb + ',' + a.toFixed(3) + ')');
+    gl.addColorStop(1, 'rgba(' + rgb + ',0)');
+    fg.fillStyle = gl;
+    fg.beginPath(); fg.arc(bx, by, br, 0, 6.2832); fg.fill();
+  }
+
+  /* ── punch the PERSISTENT reveal holes: soft destination-out gradients
+        so a scouted patch reads crisp, with a feathered edge that eases
+        back into the haze. Clarity controls how fully it's cleared. ── */
+  if (M.reveals && M.reveals.length){
+    fg.globalCompositeOperation = 'destination-out';
+    for (const p of M.reveals){
+      const cx = sx(p.x), cy = sy(p.y);
+      const rr = Math.max(6, p.r * cell);
+      const clar = revealClarity(p);
+      const gl = fg.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      /* fully erase the core, feather the rim; clarity scales the erase */
+      gl.addColorStop(0,    'rgba(0,0,0,' + clar.toFixed(3) + ')');
+      gl.addColorStop(0.62, 'rgba(0,0,0,' + (clar * 0.9).toFixed(3) + ')');
+      gl.addColorStop(1,    'rgba(0,0,0,0)');
+      fg.fillStyle = gl;
+      fg.beginPath(); fg.arc(cx, cy, rr, 0, 6.2832); fg.fill();
+    }
+    fg.globalCompositeOperation = 'source-over';
+  }
+
+  /* ── composite the finished fog layer over the field. The layer is in
+        device pixels; draw it back at CSS size with the identity map. ── */
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(L.cv, 0, 0);
+  g.restore();
+}
+
+/* a no-offscreen fallback (older canvas): a flat translucent wash over the
+   enemy half with the reveals as lighter cut-outs. Still reveals on hit. */
+function drawFogSimple(g, th, fx0, fx1, w, h){
+  const tint = fogTint(th), base = fogWeight(th);
+  g.save();
+  g.beginPath(); g.rect(fx0, 0, fx1 - fx0, h); g.clip();
+  g.fillStyle = 'rgba(' + tint[0] + ',' + tint[1] + ',' + tint[2] + ',' + base.toFixed(3) + ')';
+  g.fillRect(fx0, 0, fx1 - fx0, h);
+  if (M.reveals){
+    for (const p of M.reveals){
+      const cx = sx(p.x), cy = sy(p.y), rr = Math.max(6, p.r * cellPx());
+      const clar = revealClarity(p);
+      const gl = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      gl.addColorStop(0, 'rgba(' + tint[0] + ',' + tint[1] + ',' + tint[2] + ',0)');
+      gl.addColorStop(1, 'rgba(' + tint[0] + ',' + tint[1] + ',' + tint[2] + ',' + (base * clar).toFixed(3) + ')');
+      /* draw the map through the hole by lightening the wash there */
+      g.globalCompositeOperation = 'destination-out';
+      const gl2 = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
+      gl2.addColorStop(0, 'rgba(0,0,0,' + clar.toFixed(3) + ')');
+      gl2.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = gl2; g.beginPath(); g.arc(cx, cy, rr, 0, 6.2832); g.fill();
+      g.globalCompositeOperation = 'source-over';
+    }
+  }
+  g.restore();
 }
 
 /* ── the parallax skyline: a repeating jagged silhouette + a couple of
@@ -1333,6 +1643,9 @@ function playFlight(rep, done){
   if (noMotion() || !pts || pts.length < 4){
     /* land it now: play the impact sound and repaint (no particles) */
     boomSounds(rep, true);
+    /* FOG: no flight to walk, so open the persistent reveals straight
+       from the report's impact points (reduced motion still reveals). */
+    revealFromReport(rep);
     /* still frame the action so the result is legible */
     if (M.cam){ const f = frameWhole(); M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; snapCam(); }
     draw(); hud();
@@ -1396,6 +1709,9 @@ function playFlight(rep, done){
         if (!b.fired && (a.i + 2 >= pts.length || near(a.pos, b.x, b.y, 4))){
           b.fired = true;
           const power = Math.min(1.6, b.r / 6);
+          /* FOG: this shot LANDED — punch a persistent reveal at the
+             impact if it's on the fogged enemy side (addReveal filters). */
+          addReveal(b.x, b.water ? E.WATER_Y : b.y, b.r);
           if (b.water){
             spawnImpact(b.x, E.WATER_Y, b.r, 0.5, { water:true });
             cue('sea.splash', { gain:0.5 }, true);
@@ -1581,9 +1897,22 @@ function tip(html, ms){
   if (ms) tipTimer = setTimeout(() => { if (UI && UI.tip) UI.tip.classList.remove('on'); }, ms);
 }
 
+/* point the camera at the both-castles aiming frame. Used whenever a
+   turn hands to a player who now has to AIM — the enemy castle must be
+   in view before the first finger touch, with no panning. */
+function frameForAim(snap){
+  if (!M || !M.cam) return;
+  const f = frameWhole();
+  M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; M.cam.follow = false;
+  if (snap) snapCam();
+}
 function setTurn(who){
   if (!M || !M.ctx) return;
   if (who === 'you'){
+    /* frame BOTH castles so the enemy target is visible before aiming.
+       Only snap if the camera is idle (no shell flight easing) so we
+       never yank it out from under an in-progress follow. */
+    if (M.cam && !M.anim) frameForAim(true);
     P.ui.setTurn(M.ctx, { cls:'good', who:T('Your throw', 'It-tefgħa tiegħek'),
       note:T('Pull back from your castle and let go.', 'Iġbed lura mill-kastell tiegħek u itilqu.') });
     tip(esc(T('Pull back to aim. Further back is harder.', 'Iġbed lura biex timmira. Aktar lura, aktar b\'saħħtu.')), 2600);
@@ -1970,7 +2299,11 @@ function newGame(opts){
   P.show();
   const o = Object.assign({}, opts || {});
   startMatch(o, null, null);
-  M.me = 0; M.mine = [0];
+  /* solo: this phone drives seat 0 (you) AND is authoritative over the
+     machine on seat 1 — so seat 1 goes in M.mine, otherwise afterThrow()
+     mistakes the AI's turn for a remote human's and waits forever
+     (the machine never fires). See afterThrow(). */
+  M.me = 0; M.mine = [0, 1];
   M.meta = [
     { name:T('You', 'Int'), own:'me', lvl:o.lvl || 2 },
     { name: levelWords(o.lvl || 2).n, own:'ai', lvl:o.lvl || 2, strat: o.strat || 'BAL' }
@@ -1997,12 +2330,12 @@ function resumeGame(){
   stopAnim(); stopFx();
   M = {
     opts:o, seed: st.seed, st,
-    net:null, me:0, mine:[0], meta:[
+    net:null, me:0, mine:[0, 1], meta:[
       { name:T('You', 'Int'), own:'me', lvl:o.lvl || 2 },
       { name: levelWords(o.lvl || 2).n, own:'ai', lvl:o.lvl || 2, strat:o.strat || 'BAL' }
     ],
     ctx:null, cv:null, g2:null, sel:0, drag:null, preview:null, anim:null,
-    cam:null, fx:null, theme:THEMES[VARIANTS[V].theme], variant:V,
+    cam:null, fx:null, reveals:[], theme:THEMES[VARIANTS[V].theme], variant:V,
     raf:0, busy:false, dead:false, finished:false, shopOpen:false, aiPending:0
   };
   openBoard(() => menu());
@@ -2679,7 +3012,33 @@ try {
       hooks: NET_HOOKS,
       lobby: R.lobby, tile: TILE, variants: VARIANTS, aiSetup,
       store: () => ST,
-      canvas: () => (UI ? UI.cv : null)
+      canvas: () => (UI ? UI.cv : null),
+      /* ── FOG test hooks ── */
+      fog: {
+        side: () => localSide(),
+        midX: () => fogMidX(),
+        reveals: () => (M ? (M.reveals || []) : []),
+        add: (x, y, r) => addReveal(x, y, r),
+        fromReport: rep => revealFromReport(rep),
+        clarity: p => revealClarity(p),
+        /* fog-layer alpha (0..255) at a CSS-px point, read from the
+           offscreen fog canvas the last draw() composited. 0 = clear. */
+        alphaAt: (px, py) => {
+          const L = UI && UI._fog;
+          if (!L || !L.cv || !L.g) return 0;
+          const dpr = UI.dpr || 1;
+          try {
+            const d = L.g.getImageData(Math.round(px * dpr), Math.round(py * dpr), 1, 1).data;
+            return d[3];
+          } catch(e){ return -1; }
+        },
+        /* CSS-px screen coords of a world cell, for the harness */
+        screenOf: (wxc, wyc) => [sx(wxc), sy(wyc)]
+      },
+      /* aim-framing hooks (prior-fix regression): frame both castles and
+         read the resulting whole-frame the resting/aim view uses. */
+      frameForAim: snap => frameForAim(snap),
+      frameWhole: () => frameWhole()
     };
   }
 } catch(e){}
