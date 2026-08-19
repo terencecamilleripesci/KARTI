@@ -220,6 +220,16 @@ function injectCSS(){
       'pointer-events:none;' +   /* never eat an aim drag that ends low on the field */
       'transition:opacity .12s var(--ease);z-index:5}' +
     '#scr-party .kn-power.on{opacity:1}' +
+
+    /* the return-to-base button — hidden until you pan away to scout */
+    '#scr-party .kn-home{position:absolute;right:8px;bottom:8px;z-index:6;' +
+      '-webkit-appearance:none;appearance:none;border:0;display:none;align-items:center;gap:6px;' +
+      'padding:8px 12px;border-radius:999px;background:rgba(10,14,22,.82);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,197,66,.5),0 4px 14px rgba(0,0,0,.4);' +
+      'color:#fff;font:900 11px/1 var(--disp);letter-spacing:.04em;touch-action:manipulation}' +
+    '#scr-party .kn-home.on{display:flex}' +
+    '#scr-party .kn-home svg{width:16px;height:16px;stroke:var(--gold,#FFC542);fill:none;' +
+      'stroke-width:2;stroke-linecap:round;stroke-linejoin:round}' +
     '#scr-party .kn-power i{display:block;height:100%;width:0;border-radius:999px;' +
       'background:linear-gradient(90deg,#3BE08A,#FFC542 60%,#FF6B4D)}' +
 
@@ -550,10 +560,13 @@ function fitCanvas(){
      UI.cw/ch/baseSc), so a resize changes it. When the camera is idle
      — not following a shell, not mid-throw — re-fit it to the new frame
      so the enemy castle stays framed after a rotate/resize. */
-  else if (M && M.cam && !M.anim && !M.cam.follow){
+  else if (M && M.cam && !M.anim && !M.cam.follow && !M.cam.userPan && !M.pan){
+    /* don't yank a camera the player is actively scouting with (userPan) */
     const f = frameWhole();
     M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom;
     snapCam();
+  } else if (M && M.cam && M.cam.userPan){
+    clampCam(M.cam);   /* just keep the scouted view on-world after resize */
   }
   UI.dirty = true;
   draw();
@@ -829,6 +842,11 @@ function draw(){
         shot stays fully possible through the fog. ── */
   drawFog(g, cell, th, v);
 
+  /* ── LAST-SHOT GRID + HIT MARKER: a subtle coordinate grid and a pin at
+        the last shell's landing point, drawn ON TOP of the fog so they are
+        always visible. Persists until the next shot updates it. ── */
+  drawLastShot(g, cell);
+
   /* ── THE AIM: the sling band, the wind-bent predicted arc, a clear
         landing marker. This is the whole "see where you're shooting". ── */
   if (M.drag && M.preview){
@@ -1004,6 +1022,34 @@ function revealFromReport(rep){
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   LAST-SHOT GRID + MARKER — after every shell lands, remember WHERE it
+   landed. A subtle coordinate grid and a persistent crosshair/pin at that
+   point are drawn ON TOP of the fog so the player can always see exactly
+   where their last shot hit and adjust. It updates on the next shot.
+   Read-only: the landing point comes from the shot report the UI already
+   reads (the last boom, or the shell's rest / a splash), never the sim.
+   ═══════════════════════════════════════════════════════════════════ */
+function recordLastShot(rep, focus){
+  if (!M) return;
+  let x = null, y = null, water = false;
+  /* prefer the passed focus (the follow path's last boom); else derive the
+     landing from the report's events, mirroring the reveal classing. */
+  if (focus && focus.x != null){ x = focus.x; y = focus.y; }
+  else if (rep && rep.ev){
+    for (const e of rep.ev){
+      if (e.t === 'boom'){ x = e.x; y = e.y; water = false; }
+      else if (e.t === 'splash' || e.t === 'overboard'){ x = e.x; y = E.WATER_Y; water = true; }
+      else if (e.t === 'stick' && x == null){ x = e.x; y = e.y; }
+    }
+  }
+  if (x == null) return;
+  /* the shooter, for the marker's tint (whose shot was this) */
+  const seat = (rep && rep.seat != null) ? rep.seat
+             : (rep && rep.ev && (rep.ev.find(e => e.t === 'throw') || {}).seat);
+  M.lastShot = { x, y, water, seat: (seat == null ? M.me : seat), born: nowMs() };
+}
+
 /* a patch's clarity: 1 fresh, easing to a floor after a long time, but it
    never fully closes — scouting stays rewarded. Static (full) under
    reduced motion so a still screen still reads its cleared patches. */
@@ -1015,22 +1061,34 @@ function revealClarity(p){
   return 1 - (1 - FOG_CLARITY_FLOOR) * t;
 }
 
-/* the per-theme fog weight. Night is the heaviest; the bright Malta noon
-   the lightest. Kept translucent so the enemy castle silhouette shows. */
+/* the per-theme fog weight — how densely the CLOUD conceals the enemy side.
+   The fog is FOG OF WAR: it HIDES where the enemy base + crew are so the
+   player must SCOUT (pan) and SHOOT to clear patches and FIND them. The old
+   look was a flat BLACK wall (dark tint, no body) — disorienting, "can't
+   see anything". The fix is APPEARANCE, not concealment: the cloud is now a
+   soft, LIGHT, DRIFTING atmosphere (fogTint below is pale, not black) built
+   from layered blobs so it reads as pretty cloud you can pan around — but it
+   still CONCEALS the base/crew until a shell reveals a patch. Reveals
+   (M.reveals) punch persistent holes that expose the true terrain/castle/
+   crew beneath. Night is the densest cloud; noon the thinnest. */
+const FOG_ALPHA_MAX = 0.98;
 function fogWeight(th){
   const k = th && th.key;
-  if (k === 'night')  return 0.80;
-  if (k === 'dusk')   return 0.60;
-  if (k === 'quarry') return 0.58;
-  return 0.52;                       /* malta */
+  if (k === 'night')  return 0.90;
+  if (k === 'dusk')   return 0.84;
+  if (k === 'quarry') return 0.82;
+  return 0.80;                       /* malta */
 }
-/* the fog's tint, pulled toward the theme's night sky so it sits in place */
+/* the fog's tint — PALE, atmospheric CLOUD, never a black void. Each theme
+   gets a soft, light cloud colour with just a hint of its palette so the
+   cloud sits in the scene (a cool blue-grey by day, a dim slate by night)
+   while still reading as CLOUD you can pan around rather than a black wall. */
 function fogTint(th){
   const k = th && th.key;
-  if (k === 'night')  return [16, 26, 44];
-  if (k === 'dusk')   return [40, 28, 52];
-  if (k === 'quarry') return [70, 76, 80];
-  return [26, 44, 60];               /* malta */
+  if (k === 'night')  return [96, 112, 140];
+  if (k === 'dusk')   return [150, 122, 150];
+  if (k === 'quarry') return [176, 182, 188];
+  return [176, 196, 214];            /* malta */
 }
 
 /* the offscreen layer the fog is composited on (so reveals cut the fog,
@@ -1069,36 +1127,48 @@ function drawFog(g, cell, th, v){
   fg.setTransform(dpr, 0, 0, dpr, 0, 0);
   fg.clearRect(0, 0, w, h);
 
-  /* ── build the haze on the offscreen layer ── */
+  /* ── build the CLOUD on the offscreen layer. The concealment comes from a
+        near-solid wash of the pale cloud tint (it hides the enemy base/crew);
+        the CLOUD LOOK comes from soft, brighter drifting blobs painted over
+        it, plus a slightly thinner top so a little sky shows above the cloud
+        bank. It reads as pretty atmosphere you pan around, not a black wall. ── */
   const tint = fogTint(th);
   const base = fogWeight(th);
   const rgb = tint[0] + ',' + tint[1] + ',' + tint[2];
-  /* a soft vertical wash: a touch heavier near the water (murk sits low) */
+  /* a lighter cloud colour for the puff highlights (pull the tint up) */
+  const hi = [ Math.min(255, tint[0] + 46), Math.min(255, tint[1] + 44), Math.min(255, tint[2] + 40) ];
+  const hiRgb = hi[0] + ',' + hi[1] + ',' + hi[2];
+  /* the concealing wash: thinner up top (sky peeks over the bank), full body
+     down where the base hides. Every stop clamped under FOG_ALPHA_MAX. */
   const grad = fg.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0,   'rgba(' + rgb + ',' + (base * 0.82).toFixed(3) + ')');
-  grad.addColorStop(0.55,'rgba(' + rgb + ',' + (base).toFixed(3) + ')');
-  grad.addColorStop(1,   'rgba(' + rgb + ',' + Math.min(0.95, base * 1.18).toFixed(3) + ')');
+  grad.addColorStop(0,   'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base * 0.62).toFixed(3) + ')');
+  grad.addColorStop(0.28,'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base * 0.92).toFixed(3) + ')');
+  grad.addColorStop(0.6, 'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base).toFixed(3) + ')');
+  grad.addColorStop(1,   'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base).toFixed(3) + ')');
   fg.fillStyle = grad;
   fg.fillRect(fx0, 0, fx1 - fx0, h);
 
-  /* ── drifting cloud blobs for body & motion (static under reduced
-        motion). Deterministic-free decoration; never touches the sim. ── */
+  /* ── drifting cloud puffs: brighter soft blobs that give the wash a
+        billowing, cloud-like body and motion (static under reduced motion).
+        Deterministic-free decoration; never touches the sim. ── */
   const still = noMotion();
   const t = still ? 0 : nowMs() / 1000;
   const spanW = fx1 - fx0;
   const blob = Math.max(60, cell * 26);
   fg.globalCompositeOperation = 'source-over';
-  for (let i = 0; i < 6; i++){
+  for (let i = 0; i < 9; i++){
     const ph = i * 1.7;
-    const drift = still ? 0 : Math.sin(t * 0.25 + ph) * blob * 0.5;
-    const bob   = still ? 0 : Math.cos(t * 0.19 + ph * 1.3) * blob * 0.22;
-    const bx = fx0 + (spanW * ((i * 0.37 + 0.12) % 1)) + drift;
-    const by = h * (0.20 + 0.62 * ((i * 0.29 + 0.1) % 1)) + bob;
-    const br = blob * (1.1 + (i % 3) * 0.35);
+    const drift = still ? 0 : Math.sin(t * 0.18 + ph) * blob * 0.6;
+    const bob   = still ? 0 : Math.cos(t * 0.13 + ph * 1.3) * blob * 0.28;
+    const bx = fx0 + (spanW * ((i * 0.31 + 0.08) % 1)) + drift;
+    const by = h * (0.14 + 0.66 * ((i * 0.23 + 0.1) % 1)) + bob;
+    const br = blob * (1.2 + (i % 3) * 0.45);
     const gl = fg.createRadialGradient(bx, by, 0, bx, by, br);
-    const a = base * (0.30 + (i % 2) * 0.10);
-    gl.addColorStop(0, 'rgba(' + rgb + ',' + a.toFixed(3) + ')');
-    gl.addColorStop(1, 'rgba(' + rgb + ',0)');
+    /* bright, soft-edged puffs — light so they read as cloud highlights */
+    const a = Math.min(0.5, 0.26 + (i % 3) * 0.07);
+    gl.addColorStop(0,   'rgba(' + hiRgb + ',' + a.toFixed(3) + ')');
+    gl.addColorStop(0.5, 'rgba(' + hiRgb + ',' + (a * 0.5).toFixed(3) + ')');
+    gl.addColorStop(1,   'rgba(' + hiRgb + ',0)');
     fg.fillStyle = gl;
     fg.beginPath(); fg.arc(bx, by, br, 0, 6.2832); fg.fill();
   }
@@ -1155,6 +1225,78 @@ function drawFogSimple(g, th, fx0, fx1, w, h){
       g.globalCompositeOperation = 'source-over';
     }
   }
+  g.restore();
+}
+
+/* ── the last-shot grid + hit marker. The grid is a light coordinate
+     lattice over the whole battlefield (drawn only where in view); the
+     marker is a crosshair/pin at the last landing point, with a small
+     distance label so the player can read and adjust their aim. ── */
+const GRID_STEP = 20;   /* cells between grid lines (10 columns × 5 rows)   */
+function drawLastShot(g, cell){
+  if (!M || !M.lastShot) return;
+  const w = UI.cw, h = UI.ch;
+  /* ── the coordinate grid: faint lines on 20-cell spacing, only the ones
+        that fall inside the viewport are stroked. ── */
+  g.save();
+  g.strokeStyle = 'rgba(255,255,255,.14)';
+  g.lineWidth = 1;
+  g.beginPath();
+  for (let gx = 0; gx <= E.W; gx += GRID_STEP){
+    const X = sx(gx);
+    if (X < -2 || X > w + 2) continue;
+    g.moveTo(X, 0); g.lineTo(X, h);
+  }
+  for (let gy = 0; gy <= E.H; gy += GRID_STEP){
+    const Y = sy(gy);
+    if (Y < -2 || Y > h + 2) continue;
+    g.moveTo(0, Y); g.lineTo(w, Y);
+  }
+  g.stroke();
+  g.restore();
+
+  /* ── the marker: a crosshair ring + pin at the landing point, tinted to
+        the shooter, with a distance-from-your-hand label. ── */
+  const ls = M.lastShot;
+  const mx = sx(ls.x), my = sy(ls.y);
+  const col = ls.water ? '120,190,255' : (ls.seat === M.me ? '95,200,255' : '255,107,77');
+  const r = Math.max(6, cell * 1.6);
+  g.save();
+  /* a soft halo so it reads over both clear and fogged ground */
+  const halo = g.createRadialGradient(mx, my, 0, mx, my, r * 2.2);
+  halo.addColorStop(0, 'rgba(' + col + ',.35)');
+  halo.addColorStop(1, 'rgba(' + col + ',0)');
+  g.fillStyle = halo;
+  g.beginPath(); g.arc(mx, my, r * 2.2, 0, 6.2832); g.fill();
+  /* the crosshair ring */
+  g.strokeStyle = 'rgba(' + col + ',.95)';
+  g.lineWidth = Math.max(1.4, cell * 0.3);
+  g.beginPath(); g.arc(mx, my, r, 0, 6.2832); g.stroke();
+  g.beginPath();
+  g.moveTo(mx - r * 1.6, my); g.lineTo(mx - r * 0.5, my);
+  g.moveTo(mx + r * 0.5, my); g.lineTo(mx + r * 1.6, my);
+  g.moveTo(mx, my - r * 1.6); g.lineTo(mx, my - r * 0.5);
+  g.moveTo(mx, my + r * 0.5); g.lineTo(mx, my + r * 1.6);
+  g.stroke();
+  /* the centre dot */
+  g.fillStyle = 'rgba(' + col + ',.95)';
+  g.beginPath(); g.arc(mx, my, Math.max(1.5, cell * 0.42), 0, 6.2832); g.fill();
+  /* a small "LAST" label above the pin, with the range from your hand */
+  const hand = handOf(M.me);
+  let label = T('LAST', 'L-AĦĦAR');
+  if (hand){
+    const d = Math.round(Math.hypot(ls.x - hand.x, ls.y - hand.y));
+    label += '  ' + d;
+  }
+  const fs = Math.max(9, Math.min(13, cell * 2.2));
+  g.font = '900 ' + fs + 'px var(--disp,sans-serif)';
+  g.textAlign = 'center'; g.textBaseline = 'bottom';
+  const ly = my - r * 1.9;
+  const tw = g.measureText(label).width;
+  g.fillStyle = 'rgba(10,14,22,.78)';
+  roundRect(g, mx - tw / 2 - 5, ly - fs - 4, tw + 10, fs + 6, 5); g.fill();
+  g.fillStyle = 'rgba(' + col + ',1)';
+  g.fillText(label, mx, ly - 1);
   g.restore();
 }
 
@@ -1537,6 +1679,136 @@ function handOf(seat){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   PAN vs AIM — the touch is hit-tested against the SLINGSHOT region
+   FIRST. A press on/near your own launch hand (or your own castle) is an
+   AIM drag (the slingshot pull, unchanged). A press anywhere else on the
+   open map is a PAN drag: it scrolls the camera around the battlefield to
+   SCOUT for the enemy base through the cloudy fog, clamped to the world.
+   The two never fight because the hit-test decides up front, and a
+   "return to base" button (or auto-return on aim / on pan release) snaps
+   the view back to your slingshot so the player is never trapped away.
+   ═══════════════════════════════════════════════════════════════════ */
+/* radius (in css px) around the launch hand that counts as "the sling".
+   Generous so the aim gesture is easy to grab, but small enough that the
+   rest of the field is free to pan. */
+const SLING_HIT_PX = 78;
+/* is this screen point on/near the LOCAL player's slingshot (their launch
+   hand or own castle body)? Only true when it's actually the player's turn
+   to aim — otherwise every press pans (scout freely between throws). */
+function onSlingshot(px, py){
+  if (!M || !M.st) return false;
+  if (!canAct()) return false;
+  const seat = M.me;
+  const hand = handOf(seat);
+  if (!hand) return false;
+  const hx = sx(hand.x), hy = sy(hand.y);
+  const dx = px - hx, dy = py - hy;
+  if (dx * dx + dy * dy <= SLING_HIT_PX * SLING_HIT_PX) return true;
+  /* also treat a press over the player's OWN castle BODY as aim (a thumb on
+     the wall behind the crew still pulls the sling) — but ONLY down at the
+     castle itself, not the open sky above it, so high sky always PANS for
+     scouting. Restrict the fallback to at/below a little over the crew. */
+  const cx0 = seat === 0 ? E.L_X0 : E.R_X0;
+  const cx1 = seat === 0 ? E.L_X1 : E.R_X1;
+  const wcx = wx(px), wcy = wy(py);
+  const overCastleX = wcx >= cx0 - 4 && wcx <= cx1 + 4;
+  const atCastleY   = wcy >= E.GROUND_Y - E.T.CH_H - 8;   /* crew height + a hair */
+  return overCastleX && atCastleY;
+}
+
+/* ── PAN GESTURE: move the camera by the finger's world-space delta, drop
+   the eased-follow targets onto the live position so tickCam doesn't fight
+   it, and keep momentum on release. Clamped to the battlefield by clampCam.
+   A user pan sets M.cam.userPan so the turn machinery won't yank the view
+   back until the player asks (return-to-base) or aims. ── */
+function beginPan(px, py){
+  const c = M && M.cam; if (!c) return;
+  stopPanMomentum();
+  c.follow = false; c.userPan = true;
+  M.pan = { sx0:px, sy0:py, wx0:wx(px), wy0:wy(py),
+            lx:px, ly:py, vx:0, vy:0, lt:nowMs() };
+  /* pin the eased targets to the current position so tickCam is a no-op
+     while the finger drives the camera directly. */
+  c.tx = c.x; c.ty = c.y; c.tzoom = c.zoom;
+}
+function movePan(px, py){
+  const c = M && M.cam; if (!c || !M.pan) return;
+  /* world point under the finger at grab time should stay under the finger:
+     translate the camera by the difference. */
+  const s = camScale();
+  c.x = M.pan.wx0 - (px - UI.cw / 2) / s;
+  c.y = M.pan.wy0 - (py - UI.ch / 2) / s;
+  clampCam(c);
+  c.tx = c.x; c.ty = c.y;
+  /* track velocity (world units/ms) for release momentum */
+  const now = nowMs(); const dt = Math.max(1, now - M.pan.lt);
+  M.pan.vx = ((px - M.pan.lx) / s) / dt;
+  M.pan.vy = ((py - M.pan.ly) / s) / dt;
+  M.pan.lx = px; M.pan.ly = py; M.pan.lt = now;
+  draw();
+}
+function endPan(){
+  const c = M && M.cam; if (!c || !M.pan) { M.pan = null; return; }
+  const vx = M.pan.vx, vy = M.pan.vy;
+  M.pan = null;
+  if (noMotion()){ draw(); return; }
+  /* glide: decay the velocity and keep dropping the target on the camera so
+     the momentum coasts to a clamped stop. */
+  const s0 = camScale();
+  let gx = -vx, gy = -vy;   /* world delta per ms, opposite finger travel */
+  const start = nowMs();
+  const glide = () => {
+    const c2 = M && M.cam; if (!c2 || M.dead || M.pan || M.anim) { M._panRaf = 0; return; }
+    const now = nowMs();
+    const dt = 16;
+    c2.x += gx * dt; c2.y += gy * dt;
+    clampCam(c2); c2.tx = c2.x; c2.ty = c2.y;
+    gx *= 0.90; gy *= 0.90;
+    draw();
+    if ((Math.abs(gx) + Math.abs(gy)) * s0 > 0.02 && now - start < 900){
+      M._panRaf = requestAnimationFrame(glide);
+    } else { M._panRaf = 0; }
+  };
+  M._panRaf = requestAnimationFrame(glide);
+}
+function stopPanMomentum(){ if (M && M._panRaf){ cancelAnimationFrame(M._panRaf); M._panRaf = 0; } }
+
+/* snap the camera back to the AIM view of the LOCAL player's own base —
+   the "return to base" affordance. Clears the user-pan latch so the turn
+   machinery frames normally again. */
+function returnToBase(){
+  const c = M && M.cam; if (!c) return;
+  stopPanMomentum();
+  c.userPan = false; c.follow = false;
+  const f = frameWhole();
+  c.tx = f.x; c.ty = f.y; c.tzoom = f.zoom;
+  if (noMotion()){ snapCam(); draw(); }
+  else easeCamToTarget();
+  refreshReturnBtn();
+}
+/* a tiny rAF that eases the camera to its target when nothing else is
+   animating (pan release / return-to-base), then stops. */
+function easeCamToTarget(){
+  if (M && M._easeRaf) return;
+  const tick = () => {
+    if (!M || M.dead || !M.cam || M.anim || M.pan){ if (M) M._easeRaf = 0; return; }
+    const moving = tickCam(0.016);
+    draw();
+    if (moving){ M._easeRaf = requestAnimationFrame(tick); }
+    else { M._easeRaf = 0; }
+  };
+  M._easeRaf = requestAnimationFrame(tick);
+}
+/* show the return-to-base button only when the player has panned away from
+   their aim view (so it isn't clutter when already home). */
+function refreshReturnBtn(){
+  if (!UI || !UI.returnBtn) return;
+  const c = M && M.cam;
+  const away = !!(c && c.userPan);
+  UI.returnBtn.classList.toggle('on', away);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    AIMING — a drag. pointerdown anywhere on the field begins the pull;
    the drag vector from the hand is the shot, SLINGSHOT style: you pull
    BACK and the shell flies the opposite way, so dragging down-left
@@ -1698,6 +1970,9 @@ function playFlight(rep, done){
     /* FOG: no flight to walk, so open the persistent reveals straight
        from the report's impact points (reduced motion still reveals). */
     revealFromReport(rep);
+    /* LAST-SHOT MARKER: record where this shot landed (last boom, or the
+       shell's rest) so the grid + pin persist until the next shot. */
+    recordLastShot(rep, null);
     /* still frame the action so the result is legible */
     if (M.cam){ const f = frameWhole(); M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; snapCam(); }
     draw(); hud();
@@ -1787,6 +2062,8 @@ function playFlight(rep, done){
            the shell's rest), pull back a little to show the damage */
         const focus = booms.length ? booms[booms.length - 1] : { x:a.pos[0], y:a.pos[1] };
         if (M.cam){ M.cam.tx = focus.x; M.cam.ty = focus.y; M.cam.tzoom = 2.2; }
+        /* LAST-SHOT MARKER: pin the grid + crosshair on this landing point. */
+        recordLastShot(rep, focus);
       }
     } else {
       /* impact settling: hold on the blast, then ease back to frame both
@@ -1844,8 +2121,9 @@ function boomSounds(rep, instant){
 }
 function stopAnim(){
   if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
+  if (M){ stopPanMomentum(); if (M._easeRaf){ cancelAnimationFrame(M._easeRaf); M._easeRaf = 0; } }
   if (M) M.anim = null;
-  if (M && M.cam) M.cam.follow = false;
+  if (M && M.cam){ M.cam.follow = false; M.cam.userPan = false; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1956,7 +2234,9 @@ function frameForAim(snap){
   if (!M || !M.cam) return;
   const f = frameWhole();
   M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; M.cam.follow = false;
+  M.cam.userPan = false;               /* a fresh aim turn homes the view  */
   if (snap) snapCam();
+  refreshReturnBtn();
 }
 function setTurn(who){
   if (!M || !M.ctx) return;
@@ -2090,6 +2370,13 @@ function board(){
         '<div class="kn-purse p1" id="kn-purse1"></div>' +
         '<div class="kn-tip" id="kn-tip"></div>' +
       '</div>' +
+      /* the "return to base" affordance — appears when you have panned away
+         to scout, taps to snap the aim view back onto your slingshot */
+      '<button class="kn-home" id="kn-home" type="button" aria-label="' +
+        esc(T('Back to your castle', 'Lura lejn il-kastell tiegħek')) + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+          '<path d="M4 11l8-6 8 6M6 10v9h12v-9"/></svg>' +
+        '<span>' + esc(T('My base', 'Il-bażi')) + '</span></button>' +
       '<div class="kn-power" id="kn-power"><i id="kn-power-fill"></i></div>' +
       /* the rules panel over the field */
       '<div class="kn-rules" id="kn-rulespanel" aria-hidden="true">' +
@@ -2126,6 +2413,7 @@ function board(){
     tip: ctx.host.querySelector('#kn-tip'),
     power: ctx.host.querySelector('#kn-power'),
     powerFill: ctx.host.querySelector('#kn-power-fill'),
+    returnBtn: ctx.host.querySelector('#kn-home'),
     weps: ctx.host.querySelector('#kn-weps'),
     rules: ctx.host.querySelector('#kn-rulespanel'),
     shop: ctx.host.querySelector('#kn-shop'),
@@ -2144,6 +2432,7 @@ function board(){
     weps();
     cue('move.select', { gain:0.4 });
   });
+  if (UI.returnBtn) UI.returnBtn.addEventListener('click', () => { returnToBase(); cue('move.select', { gain:0.4 }); });
   ctx.host.querySelector('#kn-store').onclick = () => openShop();
   ctx.host.querySelector('#kn-shop-done').onclick = () => closeShop();
   UI.shopBody.addEventListener('click', e => {
@@ -2176,26 +2465,44 @@ function board(){
 
 function wireField(){
   const f = UI.field;
-  let aiming = false;
+  let mode = null;   /* 'aim' | 'pan' | null — decided on pointerdown */
   f.addEventListener('pointerdown', e => {
     if (rulesOpen || M.shopOpen) return;
-    if (!canAct()) return;
     e.preventDefault();
-    aiming = true;
-    try { f.setPointerCapture(e.pointerId); } catch(_){}
-    beginAim(e.clientX - rectLeft(), e.clientY - rectTop());
+    const px = e.clientX - rectLeft(), py = e.clientY - rectTop();
+    /* HIT-TEST THE SLINGSHOT FIRST: a press on/near your own launch hand
+       (during your turn) AIMS; everything else on the open map PANS to
+       scout. This is what keeps the two gestures from ever fighting. */
+    if (onSlingshot(px, py)){
+      mode = 'aim';
+      /* starting an aim drag on the sling auto-returns focus to your base */
+      if (M.cam && M.cam.userPan) returnToBase();
+      try { f.setPointerCapture(e.pointerId); } catch(_){}
+      beginAim(px, py);
+    } else {
+      mode = 'pan';
+      try { f.setPointerCapture(e.pointerId); } catch(_){}
+      beginPan(px, py);
+    }
   });
   f.addEventListener('pointermove', e => {
-    if (!aiming) return;
-    moveAim(e.clientX - rectLeft(), e.clientY - rectTop());
+    if (!mode) return;
+    const px = e.clientX - rectLeft(), py = e.clientY - rectTop();
+    if (mode === 'aim') moveAim(px, py);
+    else movePan(px, py);
   });
   const up = e => {
-    if (!aiming) return;
-    aiming = false;
-    endAim();
+    if (!mode) return;
+    const m = mode; mode = null;
+    if (m === 'aim') endAim();
+    else { endPan(); refreshReturnBtn(); }
   };
   f.addEventListener('pointerup', up);
-  f.addEventListener('pointercancel', () => { aiming = false; M.drag = null; M.preview = null; if (UI.power) UI.power.classList.remove('on'); draw(); });
+  f.addEventListener('pointercancel', () => {
+    if (mode === 'pan'){ mode = null; endPan(); refreshReturnBtn(); return; }
+    mode = null; M.drag = null; M.preview = null;
+    if (UI.power) UI.power.classList.remove('on'); draw();
+  });
 
   /* keyboard, for the desk and the harness: arrows nudge, space fires
      a straight-ahead ranging shot at half power */
@@ -2423,6 +2730,7 @@ function openBoard(onBack){
 
 function leave(){
   stopAnim(); stopFx();
+  if (M){ stopPanMomentum(); if (M._easeRaf){ cancelAnimationFrame(M._easeRaf); M._easeRaf = 0; } M.pan = null; }
   if (M && M.aiPending){ clearTimeout(M.aiPending); M.aiPending = 0; }
   if (UI){
     if (UI.stopFit) { try { UI.stopFit(); } catch(e){} }
@@ -3096,7 +3404,17 @@ try {
           } catch(e){ return -1; }
         },
         /* CSS-px screen coords of a world cell, for the harness */
-        screenOf: (wxc, wyc) => [sx(wxc), sy(wyc)]
+        screenOf: (wxc, wyc) => [sx(wxc), sy(wyc)],
+        /* the FINAL composited RGB on the main canvas at a CSS-px point —
+           used to prove the fog reads as a PALE cloud (light), not black. */
+        rgbAt: (px, py) => {
+          if (!UI || !UI.g2) return null;
+          const dpr = UI.dpr || 1;
+          try {
+            const d = UI.g2.getImageData(Math.round(px * dpr), Math.round(py * dpr), 1, 1).data;
+            return [d[0], d[1], d[2]];
+          } catch(e){ return null; }
+        }
       },
       /* aim-framing hooks (prior-fix regression): frame both castles and
          read the resulting whole-frame the resting/aim view uses. */
@@ -3109,7 +3427,20 @@ try {
       maxPullPx: () => maxPullPx(),
       handOf: seat => handOf(seat == null ? (M ? M.me : 0) : seat),
       screenOf: (wxc, wyc) => [sx(wxc), sy(wyc)],
-      snapCam: () => snapCam()
+      snapCam: () => snapCam(),
+      /* ── PAN / SCOUT hooks (this fix) ── */
+      onSlingshot: (px, py) => onSlingshot(px, py),
+      beginPan: (px, py) => beginPan(px, py),
+      movePan: (px, py) => movePan(px, py),
+      endPan: () => { endPan(); refreshReturnBtn(); },
+      returnToBase: () => returnToBase(),
+      fogAlphaMax: () => FOG_ALPHA_MAX,
+      fogWeight: () => fogWeight(M ? M.theme : THEMES.malta),
+      /* ── LAST-SHOT grid/marker hooks (this fix) ── */
+      lastShot: () => (M ? M.lastShot || null : null),
+      recordLastShot: (rep, focus) => recordLastShot(rep, focus),
+      drawLastShot: () => { if (UI && UI.g2) drawLastShot(UI.g2, cellPx()); },
+      wx: px => wx(px), wy: py => wy(py)
     };
   }
 } catch(e){}
