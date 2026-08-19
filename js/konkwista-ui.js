@@ -381,6 +381,54 @@ function injectCSS(){
     '#scr-party .kq-note{font-size:11.5px;line-height:1.6;margin:8px 2px 0;padding:9px 11px;border-radius:12px;' +
       'text-transform:none;letter-spacing:0;color:#cfe2f0;background:rgba(60,140,220,.10);border:1px solid rgba(60,140,220,.3)}' +
 
+    /* ── the cards button (in the banner) + card sheet ── */
+    '#scr-party .kq-cards{flex:0 0 auto;position:relative;border:0;cursor:pointer;' +
+      'font:900 11px/1 var(--disp);letter-spacing:.03em;padding:8px 10px;border-radius:11px;' +
+      'color:#1a1205;background:linear-gradient(180deg,#EFE3C4,#CBB884);' +
+      'box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);' +
+      '-webkit-tap-highlight-color:transparent;display:flex;align-items:center;gap:5px;white-space:nowrap}' +
+    '#scr-party .kq-cards:active{transform:translateY(1px)}' +
+    '#scr-party .kq-cards.trade{background:linear-gradient(180deg,#FFDD7A,#E9A81F);animation:kq-cardpulse 1.4s ease-in-out infinite}' +
+    '#scr-party .kq-cards.must{background:linear-gradient(180deg,#ff9d6b,#e8552a);color:#fff}' +
+    '@keyframes kq-cardpulse{0%,100%{box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5)}50%{box-shadow:0 0 0 3px rgba(255,197,66,.5),0 2px 0 rgba(0,0,0,.35)}}' +
+    'body.reduced #scr-party .kq-cards.trade{animation:none}' +
+
+    /* the card SHEET (slides up from the bottom of the map) */
+    '#scr-party .kq-sheet{position:absolute;inset:0;z-index:40;display:flex;align-items:flex-end;' +
+      'justify-content:center;background:rgba(0,0,0,.5)}' +
+    '#scr-party .kq-sheet-in{width:100%;max-width:460px;margin:0 6px 8px;max-height:86%;overflow-y:auto;' +
+      '-webkit-overflow-scrolling:touch;padding:14px 13px 13px;border-radius:16px;' +
+      'background:linear-gradient(180deg,#123452,#0a1c30);border:1px solid rgba(255,255,255,.16);' +
+      'box-shadow:0 -8px 30px rgba(0,0,0,.55)}' +
+    '#scr-party .kq-sheet-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}' +
+    '#scr-party .kq-sheet-h h4{margin:0;font:900 12px/1 var(--disp);letter-spacing:.08em;text-transform:uppercase;color:var(--kq-gold)}' +
+    '#scr-party .kq-sheet-x{width:36px;height:36px;margin:-8px -6px -8px 0;border:0;background:none;color:#fff;' +
+      'cursor:pointer;display:grid;place-items:center;font:900 18px/1 var(--disp);-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .kq-hand{display:flex;flex-wrap:wrap;gap:7px;margin:2px 0 4px}' +
+    '#scr-party .kq-card{flex:0 0 auto;width:70px;height:92px;border-radius:10px;position:relative;cursor:pointer;' +
+      'background:linear-gradient(160deg,#fbf4e2,#e3d3a8);box-shadow:0 2px 6px rgba(0,0,0,.45);' +
+      'border:2px solid transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;' +
+      '-webkit-tap-highlight-color:transparent;overflow:hidden}' +
+    '#scr-party .kq-card.sel{border-color:var(--kq-gold);box-shadow:0 0 0 2px var(--kq-gold),0 2px 6px rgba(0,0,0,.45)}' +
+    '#scr-party .kq-card .sym{font-size:26px;line-height:1}' +
+    '#scr-party .kq-card .nm{font:800 8px/1.1 var(--body);color:#3a2c12;text-align:center;padding:0 3px;max-width:100%}' +
+    '#scr-party .kq-card .wild{font:900 9px/1 var(--disp);letter-spacing:.1em;color:#8a4bd0;text-transform:uppercase}' +
+    '#scr-party .kq-card .dot{position:absolute;top:5px;left:5px;width:9px;height:9px;border-radius:50%;box-shadow:inset 0 1px 0 rgba(255,255,255,.4)}' +
+    '#scr-party .kq-trade-row{display:flex;gap:8px;align-items:center;margin-top:8px}' +
+    '#scr-party .kq-trade-row .kq-act{flex:1}' +
+    '#scr-party .kq-hint2{font:600 11px/1.4 var(--body);color:rgba(255,255,255,.72);margin:4px 0 2px}' +
+
+    /* the continent-bonus legend */
+    '#scr-party .kq-conts{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:4px}' +
+    '#scr-party .kq-cont{display:flex;align-items:center;gap:6px;padding:5px 7px;border-radius:9px;' +
+      'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08)}' +
+    '#scr-party .kq-cont.mine{background:rgba(255,197,66,.16);border-color:rgba(255,197,66,.55)}' +
+    '#scr-party .kq-cont .cs{width:12px;height:12px;flex:0 0 auto;border-radius:3px}' +
+    '#scr-party .kq-cont .cnm{flex:1;min-width:0;font:800 10px/1.1 var(--disp);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-party .kq-cont .cbn{flex:0 0 auto;font:900 11px/1 var(--disp);color:var(--kq-gold)}' +
+    '#scr-party .kq-cont.mine .cbn{color:#7CF29B}' +
+    '#scr-party .kq-cont .ck{flex:0 0 auto;font:700 8px/1 var(--body);color:rgba(255,255,255,.5)}' +
+
     /* ── landscape ── */
     '@media (max-height:520px){' +
       '#scr-party .kq-wrap{padding:4px}' +
@@ -438,6 +486,7 @@ function buildBoard(){
           '<span class="kq-n" id="kq-placen">1</span>' +
           '<button id="kq-plus" aria-label="' + esc(T('More','Aktar')) + '">+</button>' +
         '</span>' +
+        '<button class="kq-cards" id="kq-cards" hidden aria-label="' + esc(T('Your cards','Il-karti tiegħek')) + '"></button>' +
         '<button class="kq-act" id="kq-act"></button>' +
       '</div>' +
       '<div class="kq-seats" id="kq-seats"></div>' +
@@ -464,6 +513,7 @@ function buildBoard(){
     bcount: root.querySelector('#kq-bcount'),
     step:   root.querySelector('#kq-step'),
     placen: root.querySelector('#kq-placen'),
+    cards:  root.querySelector('#kq-cards'),
     act:    root.querySelector('#kq-act'),
     seats:  root.querySelector('#kq-seats'),
     mapbox: root.querySelector('#kq-mapbox'),
@@ -481,6 +531,7 @@ function buildBoard(){
   }, true);
 
   UI.act.onclick = onAct;
+  UI.cards.onclick = () => openCardSheet();
   root.querySelector('#kq-minus').onclick = () => bumpPlace(-1);
   root.querySelector('#kq-plus').onclick  = () => bumpPlace(1);
 
@@ -610,7 +661,8 @@ function paintSeats(){
     html += '<div class="kq-chip' + on + dead + '">' +
       '<span class="sw" style="background:radial-gradient(circle at 35% 30%,' + col.hi + ',' + col.hex + ' 60%,' + col.lo + ')"></span>' +
       '<span class="cn"><b>' + esc(seatName(i)) + '</b>' +
-        '<i>' + E.countTerr(st, i) + '⬢ · ' + E.countArmies(st, i) + '⚔</i></span>' +
+        '<i>' + E.countTerr(st, i) + '⬢ · ' + E.countArmies(st, i) + '⚔' +
+          (E.handOf(st, i).length ? ' · ' + E.handOf(st, i).length + '🃏' : '') + '</i></span>' +
     '</div>';
   }
   UI.seats.innerHTML = html;
@@ -630,7 +682,16 @@ function paintBanner(){
   const whoName = mine ? T('Your turn', 'Imissek') : esc(seatName(seat)) + ' ' + T('is moving', 'qed jilgħab');
   let phaseTxt, hint, showCount = false, showStep = false, actLabel = '', actGhost = false, actDisabled = false;
 
-  if (st.phase === E.PH_CLAIM){
+  if (st.phase === E.PH_CLAIM && st.setupMode === 'random'){
+    phaseTxt = T('Random deal', 'Tqassim aleatorju');
+    if (mine){
+      hint = T('Deal the whole world at once', 'Aqsam id-dinja kollha f’daqqa');
+      actLabel = T('Deal', 'Qassam'); actGhost = false;
+    } else {
+      hint = T('dealing the world…', 'qed jaqsam id-dinja…');
+      actLabel = '';
+    }
+  } else if (st.phase === E.PH_CLAIM){
     phaseTxt = T('Claim a territory', 'Ħu territorju');
     showCount = true;                                 /* armies left to place */
     if (mine){
@@ -651,9 +712,13 @@ function paintBanner(){
   } else if (st.phase === E.PH_REINFORCE){
     phaseTxt = T('Reinforce', 'Rinforza');
     if (mine){
-      hint = T('Tap your land to place armies', 'Ikklikkja artek biex tqiegħed armati');
-      showCount = true; showStep = true;
-      actLabel = T('Done', 'Lest'); actGhost = false; actDisabled = st.reinf > 0;
+      if (st.mustTrade){
+        hint = T('You hold too many cards — trade a set first', 'Għandek wisq karti — biddel sett l-ewwel');
+      } else {
+        hint = T('Tap your land to place armies', 'Ikklikkja artek biex tqiegħed armati');
+      }
+      showCount = true; showStep = !st.mustTrade;
+      actLabel = T('Done', 'Lest'); actGhost = false; actDisabled = st.reinf > 0 || st.mustTrade;
     } else {
       hint = T('placing armies…', 'qed iqiegħed armati…');
       actLabel = '';
@@ -698,6 +763,23 @@ function paintBanner(){
   } else {
     UI.act.hidden = true;
   }
+
+  paintCardsBtn(seat, mine);
+}
+
+/* the little cards button in the banner: shows the local seat's hand size,
+   glows gold when a set can be traded in reinforce, and turns red when the
+   player MUST trade (5+ cards). */
+function paintCardsBtn(seat, mine){
+  if (!UI || !UI.cards) return;
+  const st = M.st;
+  const hand = E.handOf(st, seat);
+  const canTrade = mine && st.phase === E.PH_REINFORCE && E.hasTradeSet(st, seat);
+  if (!mine || !hand.length){ UI.cards.hidden = true; return; }
+  UI.cards.hidden = false;
+  UI.cards.classList.toggle('must', !!st.mustTrade);
+  UI.cards.classList.toggle('trade', canTrade && !st.mustTrade);
+  UI.cards.textContent = '🃏 ' + hand.length + (canTrade ? ' ⇄' : '');
 }
 
 function clampPlace(){
@@ -795,8 +877,13 @@ function onAct(){
   const st = M.st, seat = E.turn(st);
   if (!isLocal(seat) || E.over(st) || st._pending) return;
 
+  if (st.phase === E.PH_CLAIM && st.setupMode === 'random'){
+    doMove(seat, { t:'deal' }, 'local');
+    cue('game.start', { gain:0.85 }, true);
+    afterLocal(); return;
+  }
   if (st.phase === E.PH_REINFORCE){
-    if (st.reinf > 0) return;                 /* button is disabled anyway */
+    if (st.reinf > 0 || st.mustTrade) return;  /* button is disabled anyway */
     doMove(seat, { t:'endphase' }, 'local'); afterLocal(); return;
   }
   if (st.phase === E.PH_ATTACK){
@@ -806,6 +893,142 @@ function onAct(){
   /* fortify: End turn */
   M.fsel = -1;
   doMove(seat, { t:'endturn' }, 'local'); afterLocal();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   CARDS — the hand sheet + trade. A card shows a symbol (infantry /
+   cavalry / artillery, or WILD), the territory it names (with the current
+   owner's colour dot), and — during reinforce — a Trade action that shows
+   the next escalating bonus. The continent-bonus legend lives here too, so
+   the "take a continent → more units" reward is always visible.
+   ═══════════════════════════════════════════════════════════════════ */
+const SYM_GLYPH = ['🛡️', '🐎', '🎯'];   /* infantry, cavalry, artillery */
+function symGlyph(sym){ return sym < 0 ? '★' : (SYM_GLYPH[sym] || '?'); }
+function symName(sym){
+  if (sym < 0) return T('Wild', 'Selvaġġ');
+  return [T('Infantry','Infanterija'), T('Cavalry','Kavallerija'), T('Artillery','Artillerija')][sym] || '';
+}
+let cardSel = [];      /* the 0..3 selected card ids in the open sheet */
+
+function openCardSheet(){
+  if (!M || M.dead || !UI || !UI.mapbox) return;
+  const st = M.st, seat = E.turn(st);
+  const meSeat = firstLocalSeat();
+  const viewSeat = (isLocal(seat)) ? seat : (meSeat >= 0 ? meSeat : seat);
+  cardSel = [];
+  const ov = document.createElement('div');
+  ov.className = 'kq-sheet';
+  ov.id = 'kq-cardsheet';
+  UI.mapbox.appendChild(ov);
+  const rebuild = () => paintCardSheet(ov, viewSeat);
+  rebuild();
+  ov._rebuild = rebuild;
+  ov.addEventListener('pointerdown', e => { if (e.target === ov){ ov.remove(); cue('ui.back', { gain:0.6 }); } });
+  cue('ui.sheet', { gain:0.8 });
+}
+
+function paintCardSheet(ov, viewSeat){
+  const st = M.st;
+  const turnSeat = E.turn(st);
+  const isMyReinforce = viewSeat === turnSeat && isLocal(turnSeat) && st.phase === E.PH_REINFORCE && !st._pending && !M.busy && !E.over(st);
+  const hand = E.handOf(st, viewSeat);
+  /* validate current selection is still a set */
+  const selValid = cardSel.length === 3 && E.isCardSet(cardSel[0], cardSel[1], cardSel[2]);
+  const nextVal = E.nextTradeValue(st);
+
+  let cardsHtml = '';
+  if (!hand.length){
+    cardsHtml = '<div class="kq-hint2">' + esc(T('You hold no cards yet. Capture at least one land in a turn to earn one.',
+      'Għad m’għandek ebda karta. Aqbad mill-inqas art f’dawra biex taqla’ waħda.')) + '</div>';
+  } else {
+    cardsHtml = '<div class="kq-hand">';
+    hand.forEach(cid => {
+      const card = E.CARDS[cid];
+      const sel = cardSel.indexOf(cid) >= 0 ? ' sel' : '';
+      let inner;
+      if (card.terr < 0){
+        inner = '<span class="sym">★</span><span class="wild">' + esc(T('Wild','Selvaġġ')) + '</span>';
+      } else {
+        const o = st.owner[card.terr];
+        const dot = o >= 0 ? colourOf(o).hex : '#3b4a5a';
+        inner = '<span class="dot" style="background:' + dot + '"></span>' +
+          '<span class="sym">' + symGlyph(card.sym) + '</span>' +
+          '<span class="nm">' + esc(TE(E.TERRITORIES[card.terr].name)) + '</span>';
+      }
+      cardsHtml += '<button class="kq-card' + sel + '" data-cid="' + cid + '">' + inner + '</button>';
+    });
+    cardsHtml += '</div>';
+  }
+
+  /* trade row (only in the player's own reinforce) */
+  let tradeHtml = '';
+  if (isMyReinforce && hand.length >= 3){
+    const auto = E.findSet(hand);
+    tradeHtml =
+      '<div class="kq-hint2">' + esc(st.mustTrade
+        ? T('You hold 5+ cards — you must trade a set before placing.', 'Għandek 5+ karti — trid tibdel sett qabel tqiegħed.')
+        : T('Pick three (a matched set) to trade for armies.', 'Agħżel tlieta (sett) biex tibdilhom għal armati.')) + '</div>' +
+      '<div class="kq-trade-row">' +
+        '<button class="kq-act ghost" id="kq-autoset"' + (auto ? '' : ' disabled') + '>' +
+          esc(T('Pick a set', 'Agħżel sett')) + '</button>' +
+        '<button class="kq-act" id="kq-dotrade"' + (selValid ? '' : ' disabled') + '>' +
+          esc(T('Trade for', 'Ibdel għal')) + ' +' + nextVal + '</button>' +
+      '</div>';
+  } else if (hand.length >= 3){
+    tradeHtml = '<div class="kq-hint2">' + esc(T('Trade a set of three during your Reinforce step.',
+      'Ibdel sett ta’ tlieta waqt ir-Rinforz tiegħek.')) + '</div>';
+  }
+
+  /* continent-bonus legend */
+  let contHtml = '<div class="kq-hint2" style="margin-top:9px">' + esc(T('Continent bonuses — own every land of one for extra armies each turn:',
+    'Bonus tal-kontinenti — żomm il-kontinent kollu għal armati żejda kull dawra:')) + '</div><div class="kq-conts">';
+  E.CONTINENTS.forEach(c => {
+    const mineWhole = E.ownsRegion(st, viewSeat, c.id);
+    const mem = E.REGION_MEMBERS[c.id];
+    let held = 0; mem.forEach(t => { if (st.owner[t] === viewSeat) held++; });
+    contHtml += '<div class="kq-cont' + (mineWhole ? ' mine' : '') + '">' +
+      '<span class="cs" style="background:' + c.hex + '"></span>' +
+      '<span class="cnm">' + esc(TE(c.name)) + '</span>' +
+      '<span class="ck">' + held + '/' + mem.length + '</span>' +
+      '<span class="cbn">+' + c.bonus + (mineWhole ? ' ✓' : '') + '</span></div>';
+  });
+  contHtml += '</div>';
+
+  ov.innerHTML =
+    '<div class="kq-sheet-in">' +
+      '<div class="kq-sheet-h"><h4>' + esc(T('Cards & continents', 'Karti u kontinenti')) + '</h4>' +
+        '<button class="kq-sheet-x" id="kq-sheet-x" aria-label="' + esc(T('Close','Agħlaq')) + '">✕</button></div>' +
+      cardsHtml + tradeHtml + contHtml +
+    '</div>';
+
+  ov.querySelector('#kq-sheet-x').onclick = () => { ov.remove(); cue('ui.back', { gain:0.6 }); };
+  ov.querySelectorAll('.kq-card').forEach(b => {
+    b.onclick = () => {
+      if (!isMyReinforce) return;
+      const cid = +b.dataset.cid;
+      const i = cardSel.indexOf(cid);
+      if (i >= 0) cardSel.splice(i, 1);
+      else { if (cardSel.length >= 3) cardSel.shift(); cardSel.push(cid); }
+      cue('ui.tap', { gain:0.6 });
+      paintCardSheet(ov, viewSeat);
+    };
+  });
+  const auto = ov.querySelector('#kq-autoset');
+  if (auto) auto.onclick = () => { const set = E.findSet(hand); if (set){ cardSel = set.slice(); cue('move.select', { gain:0.7 }); paintCardSheet(ov, viewSeat); } };
+  const go = ov.querySelector('#kq-dotrade');
+  if (go) go.onclick = () => {
+    if (cardSel.length !== 3 || !E.isCardSet(cardSel[0], cardSel[1], cardSel[2])) return;
+    const seat = E.turn(st);
+    const res = doMove(seat, { t:'trade', x:cardSel[0], y:cardSel[1], z:cardSel[2] }, 'local');
+    if (res.ok){
+      cue('piece.place', { gain:0.85 }, true);
+      cardSel = [];
+      paintAll();
+      /* if still must trade (rare), rebuild; else close the sheet */
+      if (M.st.mustTrade){ paintCardSheet(ov, viewSeat); }
+      else { ov.remove(); }
+    }
+  };
 }
 
 /* a small pop on a badge when armies drop in */
@@ -1197,8 +1420,8 @@ function maybeTip(){
   if (seenTip || !UI || !UI.mapbox) return;
   const t = document.createElement('div');
   t.className = 'kq-tip';
-  t.innerHTML = '<span>' + T('First, <b>claim</b> the empty islands one by one, then <b>place</b> your armies. Then: reinforce, <b>attack</b>, fortify — take a whole region for a bonus!',
-    'L-ewwel, <b>ħu</b> l-gżejjer vojta waħda waħda, imbagħad <b>poġġi</b> l-armati. Imbagħad: rinforza, <b>attakka</b>, fortifika — ħu reġjun sħiħ għal bonus!') +
+  t.innerHTML = '<span>' + T('Share out the world, then reinforce, <b>attack</b>, fortify. Take a whole <b>continent</b> for a bonus, and <b>trade cards</b> for armies — tap 🃏 to see your hand!',
+    'Qassam id-dinja, imbagħad rinforza, <b>attakka</b>, fortifika. Ħu <b>kontinent</b> sħiħ għal bonus, u <b>ibdel il-karti</b> għal armati — ikklikkja 🃏 biex tara l-karti!') +
     '</span><button id="kq-tipx">' + esc(T('Got it','Fhimt')) + '</button>';
   UI.mapbox.appendChild(t);
   t.querySelector('#kq-tipx').onclick = () => {
@@ -1212,24 +1435,30 @@ function maybeTip(){
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
   return [
-    T('<b>The opening</b> — the map starts <b>empty</b>. Taking turns, everyone <b>claims</b> one island at a ' +
-      'time (an army lands on each) until none are left, then <b>places</b> the rest of their armies on their own land.',
-      '<b>Il-bidu</b> — il-mappa tibda <b>vojta</b>. Kull wieħed imissu, <b>jieħu</b> gżira waħda kull darba ' +
-      '(armata tinżel fuq kull waħda) sa ma ma jibqax, imbagħad <b>ipoġġi</b> l-bqija tal-armati fuq artu.'),
+    T('<b>The world</b> — forty territories in six <b>continents</b>. The opening is your host’s choice: ' +
+      '<b>Claim</b> the lands in turn (an army on each), or a <b>Random deal</b> that shares the whole world ' +
+      'out for you. Either way you then spread your remaining setup armies over your own land.',
+      '<b>Id-dinja</b> — erbgħin territorju f’sitt <b>kontinenti</b>. Il-bidu jagħżlu min jospita: <b>Ħu</b> ' +
+      'l-artijiet bir-rota (armata fuq kull waħda), jew <b>Tqassim aleatorju</b> li jqassam id-dinja kollha. ' +
+      'Imbagħad ixxerred il-bqija tal-armati fuq artek.'),
     T('Then play begins. On your turn you take <b>three steps</b>.',
       'Imbagħad tibda l-logħba. F’dawra tiegħek tagħmel <b>tliet passi</b>.'),
-    T('<b>1 · Reinforce</b> — you get fresh armies (more for more land, plus a bonus for every whole ' +
-      'region you hold). Tap your land to drop them in.',
-      '<b>1 · Rinforza</b> — tirċievi armati ġodda (aktar għal aktar art, u bonus għal kull reġjun sħiħ). ' +
-      'Ikklikkja artek biex tqiegħedhom.'),
+    T('<b>1 · Reinforce</b> — armies = one per three lands (at least three) <b>plus every whole continent’s ' +
+      'bonus</b> (Aurora 5, Meridia 5, others 2–3). You may also <b>trade a set of three cards</b> for a growing ' +
+      'pile of armies (4, 6, 8, 10, 12, 15, then +5 each).',
+      '<b>1 · Rinforza</b> — armati = waħda għal kull tliet artijiet (mill-inqas tlieta) <b>flimkien mal-bonus ' +
+      'ta’ kull kontinent sħiħ</b>. Tista’ wkoll <b>tibdel sett ta’ tliet karti</b> għal armati (4, 6, 8, 10, 12, 15, imbagħad +5).'),
     T('<b>2 · Attack</b> — tap one of your lands, then a bordering enemy. Both roll dice; the higher wins, ' +
-      'ties go to the defender. Empty a land and it is <b>yours</b>.',
+      'ties go to the defender. Empty a land and it is <b>yours</b>. Capture at least one land in a turn and ' +
+      'you <b>earn a card</b> at its end.',
       '<b>2 · Attakka</b> — ikklikkja waħda minn artek, imbagħad għadu maġenbek. It-tnejn jarmu dadi; l-ogħla ' +
-      'jirbaħ, l-indaqs għad-difensur. Battal art u ssir <b>tiegħek</b>.'),
+      'jirbaħ, l-indaqs għad-difensur. Battal art u ssir <b>tiegħek</b>. Aqbad art f’dawra u <b>taqla’ karta</b>.'),
     T('<b>3 · Fortify</b> — move armies once between two of your connected lands, then end your turn.',
       '<b>3 · Fortifika</b> — ċaqlaq l-armati darba bejn żewġ artijiet tiegħek konnessi, imbagħad temm id-dawra.'),
-    T('Lose all your land and you are <b>out</b>. The <b>last one standing</b> wins the whole map.',
-      'Itlef artek kollha u toħroġ <b>barra</b>. L-<b>aħħar wieħed</b> jirbaħ il-mappa kollha.')
+    T('Take a rival’s last land and you <b>seize their cards</b>. Hold five or more and you <b>must trade</b>. ' +
+      'Own the <b>whole world</b> — every territory — to win.',
+      'Ħu l-aħħar art ta’ rivali u <b>taħtaf il-karti tiegħu</b>. Żomm ħamsa jew aktar u <b>trid tibdel</b>. ' +
+      'Aħkem id-<b>dinja kollha</b> biex tirbaħ.')
   ];
 }
 function paintRules(){
@@ -1291,10 +1520,10 @@ function setupSheet(){
       '<div class="kq-hero" aria-hidden="true">' + heroSVG() +
         '<span class="kq-hero-cap">' + E.N_TERR + ' &middot; ' + E.REGIONS.length + '</span></div>' +
       '<p class="blurb">' +
-        T('Claim the islands, roll the dice, take the whole sea. Reinforce, attack, fortify — hold a ' +
-          'region for a bonus and be the last banner standing.',
-          'Ħu l-gżejjer, armi d-dadi, aħkem il-baħar kollu. Rinforza, attakka, fortifika — żomm reġjun ' +
-          'għal bonus u kun l-aħħar bandiera weqfa.') +
+        T('Share out the world, roll the dice, conquer every land. Reinforce, attack, fortify — hold a ' +
+          'whole continent for a bonus, trade cards for armies, and be the last banner standing.',
+          'Qassam id-dinja, armi d-dadi, aħkem kull art. Rinforza, attakka, fortifika — żomm kontinent ' +
+          'sħiħ għal bonus, ibdel il-karti għal armati, u kun l-aħħar bandiera weqfa.') +
       '</p>' +
 
       (ST.save
@@ -1368,6 +1597,7 @@ function settingsStep(mode){
   let humans = mode === 'pnp' ? Math.max(2, Math.min(seats, p.humans || 2)) : 1;
   let lvl = p.lvl || 2;
   let cap = p.turnCap || E.DEFAULT_TURN_CAP;
+  let setup = (p.setup === 'random') ? 'random' : 'claim';
 
   function paint(){
     if (mode === 'pnp') humans = Math.max(2, Math.min(seats, humans));
@@ -1404,6 +1634,14 @@ function settingsStep(mode){
             '</div>'
           : '') +
 
+        '<div class="tiny pt-lbl" style="margin-top:12px">' + esc(T('How the world is shared out', 'Kif titqassam id-dinja')) + '</div>' +
+        '<div class="pt-opts two" id="kq-setup" style="grid-template-columns:repeat(2,1fr)">' +
+          '<button class="pt-opt' + (setup === 'claim' ? ' on' : '') + '" data-setup="claim">' +
+            '<b>' + esc(T('Claim','Ħu')) + '</b><i>' + esc(T('pick lands in turn','agħżel bir-rota')) + '</i></button>' +
+          '<button class="pt-opt' + (setup === 'random' ? ' on' : '') + '" data-setup="random">' +
+            '<b>' + esc(T('Random deal','Tqassim aleatorju')) + '</b><i>' + esc(T('dealt out for you','jitqassmu għalik')) + '</i></button>' +
+        '</div>' +
+
         '<div class="tiny pt-lbl" style="margin-top:12px">' + esc(T('Safety turn limit', 'Limitu ta’ sigurtà')) + '</div>' +
         '<div class="pt-opts two" id="kq-cap" style="grid-template-columns:repeat(3,1fr)">' +
           [20,40,80].map(n =>
@@ -1421,9 +1659,10 @@ function settingsStep(mode){
     el.querySelectorAll('[data-humans]').forEach(b => b.onclick = () => { humans = +b.dataset.humans; cue('ui.tap',{gain:0.8},true); paint(); });
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; cue('ui.tap',{gain:0.8},true); paint(); });
     el.querySelectorAll('[data-cap]').forEach(b => b.onclick = () => { cap = +b.dataset.cap; cue('ui.tap',{gain:0.8},true); paint(); });
+    el.querySelectorAll('[data-setup]').forEach(b => b.onclick = () => { setup = b.dataset.setup; cue('ui.tap',{gain:0.8},true); paint(); });
     el.querySelector('#kq-go').onclick = () => {
-      pref({ seats, humans, lvl, turnCap:cap });
-      newGame({ seats, humans:(mode==='pnp'?humans:1), lvl, turnCap:cap });
+      pref({ seats, humans, lvl, turnCap:cap, setup });
+      newGame({ seats, humans:(mode==='pnp'?humans:1), lvl, turnCap:cap, setup });
     };
   }
   paint();
@@ -1602,16 +1841,16 @@ const LOBBY = {
     return { ok:true, why:'' };
   },
   rulesHTML: () =>
-    '<p>' + T('Two to six players share an archipelago. Each turn: reinforce, attack a neighbour with the ' +
-      'dice, then fortify. Hold a whole region for a reinforcement bonus.',
-      'Minn tnejn sa sitta jaqsmu arċipelagu. Kull dawra: rinforza, attakka ġar bid-dadi, imbagħad fortifika. ' +
-      'Żomm reġjun sħiħ għal bonus.') + '</p>' +
+    '<p>' + T('Two to six players carve up a world of forty lands in six continents. Each turn: reinforce, ' +
+      'attack a neighbour with the dice, then fortify. Hold a whole continent for a bonus, and trade sets of cards for armies.',
+      'Minn tnejn sa sitta jaqsmu dinja ta’ erbgħin art f’sitt kontinenti. Kull dawra: rinforza, attakka ġar bid-dadi, imbagħad fortifika. ' +
+      'Żomm kontinent sħiħ għal bonus, u ibdel settijiet ta’ karti għal armati.') + '</p>' +
     '<p>' + T('Lose all your land and you are out; the last banner standing wins. Perfect information and ' +
       'shared dice make online as honest as across a table.',
       'Itlef artek kollha u toħroġ; l-aħħar bandiera tirbaħ. Informazzjoni sħiħa u dadi maqsuma jagħmlu ' +
       'l-onlajn onest daqs wiċċ imb wiċċ.') + '</p>',
-  blurb: T('Claim islands, roll the dice, take the whole sea.',
-           'Ħu l-gżejjer, armi d-dadi, aħkem il-baħar.'),
+  blurb: T('Share out the world, roll the dice, conquer every land.',
+           'Qassam id-dinja, armi d-dadi, aħkem kull art.'),
   start(seats, opts){
     return newGame(Object.assign({ seats: Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, (seats||[]).length || 3)),
                                    humans:2, lvl:(pref().lvl || 2) }, opts || {}));
@@ -1629,10 +1868,10 @@ const TILE = {
   id:'konkwista', order:29, kind:'board', cat:'board',
   name:'Konkwista', mt:'Konkwista', icon:'map', status:'live',
   get tag(){
-    return T('Claim the islands, roll the dice, take the whole sea. A conquest of the Mediterranean for ' +
-             'two to six — reinforce, attack, fortify, and hold a region for a bonus.',
-             'Ħu l-gżejjer, armi d-dadi, aħkem il-baħar. Konkwista tal-Mediterran għal tnejn sa sitta — ' +
-             'rinforza, attakka, fortifika, u żomm reġjun għal bonus.') +
+    return T('Share out the world, roll the dice, conquer every land. A world conquest for ' +
+             'two to six — reinforce, attack, fortify, trade cards, and hold a continent for a bonus.',
+             'Qassam id-dinja, armi d-dadi, aħkem kull art. Konkwista tad-dinja għal tnejn sa sitta — ' +
+             'rinforza, attakka, fortifika, ibdel karti, u żomm kontinent għal bonus.') +
            (ST.save ? ' ' + T('There is a campaign half-played.', 'Hemm kampanja nofsha milgħuba.') : '');
   },
   open: () => setupSheet(),
