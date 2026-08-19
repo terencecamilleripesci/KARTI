@@ -1111,6 +1111,47 @@ body.reduced .pack.charge{animation:none!important}
 body.reduced .slot.windup .lift{animation:none!important}
 body.reduced .fan::before{animation:none!important;opacity:.12}
 body.reduced .hint{animation:none!important;opacity:.8}
+
+/* ── PARTY BUTTON, drawn to the eye ────────────────────────────────────
+   The party hub sits last in the Home scroll, so it is easy to miss. A
+   slow gold breath — a warm glow that swells and eases, with a faint
+   lift — makes it the one thing on the page that moves, without shouting.
+   Scoped entirely to #btn-party so nothing else is touched. The button
+   keeps a soft gold rim at rest so it never looks broken when the motion
+   is off. position:relative + the ::before sheen ride on top of the
+   ghost background; overflow:hidden keeps the sweep inside the pill. */
+#btn-party{position:relative;overflow:hidden;
+  border-color:rgba(255,197,66,.38);
+  animation:partyBreath 3.2s var(--ease,ease-in-out) infinite}
+#btn-party>*{position:relative;z-index:1}
+#btn-party::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(115deg,transparent 30%,rgba(255,222,147,.22) 48%,
+    rgba(255,222,147,.28) 52%,transparent 70%);
+  transform:translateX(-120%);
+  animation:partySheen 3.2s var(--ease,ease-in-out) infinite}
+#btn-party .ico{color:var(--gold)}
+@keyframes partyBreath{
+  0%,100%{box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 0 0 0 rgba(255,197,66,0);
+    border-color:rgba(255,197,66,.34);transform:translateZ(0)}
+  50%{box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 0 26px 3px rgba(255,197,66,.42);
+    border-color:rgba(255,197,66,.72);transform:translate3d(0,-2px,0)}
+}
+@keyframes partySheen{
+  0%,62%,100%{transform:translateX(-120%)}
+  84%{transform:translateX(120%)}
+}
+/* MOTION-GATED: honour the OS setting AND the app's own reduced class. The
+   button falls back to a calm, steady gold rim — visible, but still. */
+@media (prefers-reduced-motion:reduce){
+  #btn-party,#btn-party::before{animation:none!important}
+  #btn-party::before{display:none}
+  #btn-party{border-color:rgba(255,197,66,.5);
+    box-shadow:0 0 16px 1px rgba(255,197,66,.24)}
+}
+body.reduced #btn-party,body.reduced #btn-party::before{animation:none!important}
+body.reduced #btn-party::before{display:none}
+body.reduced #btn-party{border-color:rgba(255,197,66,.5);
+  box-shadow:0 0 16px 1px rgba(255,197,66,.24)}
 </style>
 </head>
 <body>
@@ -1628,7 +1669,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 159;
+var KARTI_BUILD = 160;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

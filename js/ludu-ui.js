@@ -501,36 +501,124 @@ function pxOf(lay, a, r){
 }
 
 /* the authentic geometry, memoised per (P, H). Returns, in board px:
-     ring[i]  = {x,y} for every ring square i
-     col[k]   = [{x,y}...] home-column cells for seat k (mouth→finish)
+     ring[i]  = {x,y,th} for every ring square i (th = cell rotation, rad)
+     col[k]   = [{x,y,th}...] home-column cells for seat k (mouth→finish)
      home[k]  = {x,y} the seat's spot in the centre finish
-     yard[k]  = {cx,cy,size,slots:[{x,y}...]} the corner home yard
+     yard[k]  = {cx,cy,size,theta,slots:[{x,y}...]} the corner home yard
      arm[k]   = {ux,uy,vx,vy,theta} arm unit vectors, for arrows etc.
      cell     = the ring-square radius; tok = the token radius
-   Pure trig from the topology numbers, so it agrees with the rules. */
+   For P=4 this is the CANONICAL 15×15 Ludo grid (a solved layout, cells
+   NEVER overlap). For P=6/8 it is a clean rosette of P arms scaled to the
+   disc so nothing overflows. Both agree with the engine's rules because
+   every ring/col cell is placed by the engine's ring index. */
 const GEOM = {};
 function geom(lay){
-  const P = lay.P, L = lay.L, H = lay.H, R = lay.R;
-  const key = P + '|' + H;
+  const P = lay.P;
+  const key = P + '|' + lay.H;
   if (GEOM[key]) return GEOM[key];
+  const out = (P === 4) ? geomGrid(lay) : geomRosette(lay);
+  GEOM[key] = out;
+  return out;
+}
 
-  /* ── WORK IN GRID UNITS OF ONE "GAP", THEN AUTO-SCALE TO THE DISC ──
-     A gap is the centre-to-centre spacing of two neighbouring cells.
-     Everything below is expressed in gaps; the whole thing is scaled so
-     the widest point (a corner yard) touches the fit radius. This is why
-     the same code fits a 4-, 6- and 8-arm board with no overflow. */
-  const lane   = 0.5;                        /* half a gap, the rail offset  */
-  const rIn    = (P <= 4 ? 1.4 : P <= 6 ? 2.0 : 2.7);  /* mouth radius, gaps  */
-  const rOut   = rIn + (L - 1);              /* outermost rail row, gaps      */
-  const yardOut = 1.35, ySizeU = 1.7;        /* yard offset & size, gaps      */
-  const maxU   = yardOut + rOut + ySizeU * 0.5 * 1.42; /* widest point, gaps  */
-  const gap    = ((VB / 2) - 3) / maxU;      /* px per gap                    */
-  const cell   = gap * 0.46;                 /* the drawn cell radius (px)    */
+/* ── THE CANONICAL 15×15 CROSS (P=4) ────────────────────────────────
+   The classic board is a 15×15 grid: four 6×6 corner yards, a 3-wide
+   white cross of track through the middle, four 5-cell coloured home
+   columns down the middle lane of each arm, and a 3×3 four-colour finish
+   at the centre. The 52 track cells are laid out ONCE, in engine ring
+   order (ring index i → RING_PATH[i]), so bd.sq(seat,p) indexes straight
+   into it; the home column of seat k → HOME_LANES[k] (mouth→centre); the
+   yard of seat k → a 6×6 corner square with a 2×2 of parked slots. Cells
+   are axis-aligned unit squares on the grid and so cannot overlap. */
+const GRID_N = 15;
+/* ring path: 52 cells (row,col) clockwise, engine ring index 0 = seat 0's
+   start = (6,1). Four arms of 13 = the engine's four sectors. */
+const RING_PATH = [
+  [6,1],[6,2],[6,3],[6,4],[6,5],[5,6],[4,6],[3,6],[2,6],[1,6],[0,6],[0,7],[0,8],
+  [1,8],[2,8],[3,8],[4,8],[5,8],[6,9],[6,10],[6,11],[6,12],[6,13],[6,14],[7,14],[8,14],
+  [8,13],[8,12],[8,11],[8,10],[8,9],[9,8],[10,8],[11,8],[12,8],[13,8],[14,8],[14,7],[14,6],
+  [13,6],[12,6],[11,6],[10,6],[9,6],[8,5],[8,4],[8,3],[8,2],[8,1],[8,0],[7,0],[6,0]
+];
+/* seat k's home column, mouth (path pos R) → deepest (path pos R+H-2). */
+const HOME_LANES = [
+  [[7,1],[7,2],[7,3],[7,4],[7,5]],          /* seat 0 — top-left  */
+  [[1,7],[2,7],[3,7],[4,7],[5,7]],          /* seat 1 — top-right */
+  [[7,13],[7,12],[7,11],[7,10],[7,9]],      /* seat 2 — bottom-right */
+  [[13,7],[12,7],[11,7],[10,7],[9,7]]       /* seat 3 — bottom-left  */
+];
+/* the 6×6 yard corner of each seat: [rowStart,colStart] of the 6×6 block. */
+const YARD_BLOCK = [ [0,0], [0,9], [9,9], [9,0] ];
+/* which way each arm points from centre (for the arrows / cell rotation) */
+const ARM_DIR = [
+  { ux:-1, uy: 0 }, /* seat 0 track flows out along -x then up   */
+  { ux: 0, uy:-1 },
+  { ux: 1, uy: 0 },
+  { ux: 0, uy: 1 }
+];
+function geomGrid(lay){
+  const R = lay.R, H = lay.H;
+  const pad = 3;                                   /* px inset inside viewBox   */
+  const gap = (VB - pad * 2) / GRID_N;             /* one grid cell, px         */
+  const cell = gap * 0.46;                         /* drawn half-size of a cell */
+  const at = (r, c) => ({ x: pad + (c + 0.5) * gap, y: pad + (r + 0.5) * gap, th: 0 });
 
-  /* ARMS carry the home columns & yards (angle k/P); CHANNELS carry the
-     track wedge between two arms (angle (k+0.5)/P). Placing a sector's
-     out AND in rails in the SAME channel makes the U-turn at the tip a
-     tight, continuous corner — a real Ludo track, not a rosette. */
+  const ring = new Array(R);
+  for (let i = 0; i < R; i++) ring[i] = at(RING_PATH[i][0], RING_PATH[i][1]);
+
+  const col = [], home = [];
+  for (let k = 0; k < 4; k++){
+    col.push(HOME_LANES[k].map(([r, c]) => at(r, c)));
+    /* the seat's spot in the 3×3 centre — nudged toward its own arm */
+    const d = ARM_DIR[k];
+    home.push({ x: C + d.ux * gap * 0.9, y: C + d.uy * gap * 0.9, th: 0 });
+  }
+
+  /* yards: 6×6 corner blocks, 2×2 parked slots inside the white inner box */
+  const yard = [];
+  for (let k = 0; k < 4; k++){
+    const [r0, c0] = YARD_BLOCK[k];
+    const cx = pad + (c0 + 3) * gap, cy = pad + (r0 + 3) * gap;
+    const s = gap * 1.35;                           /* slot offset from centre  */
+    const slots = [
+      { x: cx - s, y: cy - s }, { x: cx + s, y: cy - s },
+      { x: cx - s, y: cy + s }, { x: cx + s, y: cy + s }
+    ];
+    yard.push({ cx, cy, size: gap * 6, block: [r0, c0], theta: 0, slots, gap });
+  }
+
+  /* arm unit vectors (kept for the arrow direction on the start cells) */
+  const arm = ARM_DIR.map(d => ({ ux: d.ux, uy: d.uy, vx: -d.uy, vy: d.ux, theta: 0 }));
+
+  return { P: 4, L: lay.L, H, R, grid: true, gap, cell, tok: cell * 0.82,
+           ring, col, home, yard, arm, finishR: gap * 1.5,
+           center: { x: C, y: C, half: gap * 1.5 } };
+}
+
+/* ── THE ROSETTE (P=6 hexagon, P=8 octagon) ─────────────────────────
+   No square grid exists for 6/8 arms, so the board is P identical arms
+   radiating from the centre at angle k/P. Every dimension is expressed
+   in "gaps" and the whole thing is scaled so the widest point (a corner
+   yard) just touches the fit radius — that is why it never overflows the
+   disc regardless of P. Each arm is a 3-lane corridor; a sector's out and
+   in rails share the CHANNEL between two arms so the tip is a tight
+   U-turn, not a splayed rosette. */
+function geomRosette(lay){
+  const P = lay.P, L = lay.L, H = lay.H, R = lay.R;
+  const lane   = 0.62;                        /* rail offset — wide enough that
+                                                 the two rails clear each other */
+  /* rIn is pushed well out so the home column (always 5 cells) has real
+     radial room on the arm axis; the whole board is auto-scaled to the
+     disc afterwards, so a larger rIn just means smaller px per gap. */
+  const rIn    = (P <= 6 ? 4.6 : 5.2);
+  const rOut   = rIn + (L - 1);
+  const corner = rOut + 0.8;                  /* tip cell radius — clear of the
+                                                 last rail cells */
+  const yardOut = 1.6, ySizeU = 1.9;
+  /* the widest point is a corner yard's far corner; fit it to the disc */
+  const maxU   = yardOut + corner + ySizeU * 0.5 * 1.42;
+  const gap    = ((VB / 2) - 3) / maxU;
+  const cell   = gap * 0.40;
+
   const dir = th => ({ theta: th, ux: Math.sin(th), uy: -Math.cos(th),
                        vx: Math.cos(th),  vy: Math.sin(th) });
   const arm = [], chan = [];
@@ -539,34 +627,51 @@ function geom(lay){
     chan.push(dir(((k + 0.5) / P) * 2 * Math.PI));
   }
   const atArm  = (k, r, l) => ({ x: C + arm[k].ux * r * gap + arm[k].vx * l * gap,
-                                 y: C + arm[k].uy * r * gap + arm[k].vy * l * gap });
+                                 y: C + arm[k].uy * r * gap + arm[k].vy * l * gap,
+                                 th: arm[k].theta });
   const atChan = (k, r, l) => ({ x: C + chan[k].ux * r * gap + chan[k].vx * l * gap,
-                                 y: C + chan[k].uy * r * gap + chan[k].vy * l * gap });
+                                 y: C + chan[k].uy * r * gap + chan[k].vy * l * gap,
+                                 th: chan[k].theta });
 
   const ring = new Array(R);
   for (let i = 0; i < R; i++){
     const rc = lay.ring[i], k = rc.sector;
-    if (rc.role === 'out')       ring[i] = atChan(k, rIn + rc.jj, -lane);
-    else if (rc.role === 'corner') ring[i] = atChan(k, rOut + 0.5, 0);
-    else                         ring[i] = atChan(k, rIn + ((L - 1) - rc.jj), +lane);
+    if (rc.role === 'out')         ring[i] = atChan(k, rIn + rc.jj, -lane);
+    else if (rc.role === 'corner') ring[i] = atChan(k, corner, 0);
+    else                           ring[i] = atChan(k, rIn + ((L - 1) - rc.jj), +lane);
   }
 
-  /* home columns: seat k's lane runs up the CENTRE of arm k, from the
-     mouth (just inside the rails) to just short of the finish. */
+  /* home column: H-1 cells down the arm axis, evenly spread across the
+     radial span between the finish disc and the mouth. The lane cells are
+     drawn no larger than their spacing (lhs) so they never overlap even
+     when the arm is short (P=6/8 pack 5 cells into a 4/3-cell rail). */
   const col = [], home = [];
-  const mouth = rIn - 0.1, finishR = 0.7;
+  const finishR = 0.55;
+  /* the lane lives on the arm AXIS, between the innermost ring row (rIn)
+     and the finish disc — never out to the rails, so it cannot touch a
+     ring cell. Cells are sized to their spacing so 5 of them fit even in
+     the short P=6/8 arms without overlapping. */
+  /* innermost lane cell must clear both the finish disc AND the neighbour
+     arm's lane. Two arms subtend 2π/P; at radius r their axes are
+     2·r·sin(π/P) apart, so keep the closest lane cell at a radius where
+     that spacing exceeds a cell, i.e. r ≥ innerGap. */
+  const innerGap = 1.0 / (2 * Math.sin(Math.PI / P));      /* min radius, gaps */
+  const outR = rIn - 0.3;
+  const inR  = Math.max(finishR * 1.9 + 0.5, innerGap + 0.3);
+  const lspace = (H - 1) > 1 ? (outR - inR) / ((H - 1) - 1) : 1;
+  const lhs = Math.min(cell, Math.abs(lspace) * gap * 0.44);
   for (let k = 0; k < P; k++){
-    const cells = [], span = mouth - finishR;
-    for (let c = 0; c < H - 1; c++)
-      cells.push(atArm(k, mouth - (span * (c + 0.5)) / (H - 1), 0));
+    const cells = [];
+    for (let c = 0; c < H - 1; c++){
+      const pt = atArm(k, outR - lspace * c, 0);
+      cells.push({ ...pt, hs: lhs });
+    }
     col.push(cells);
-    home.push(atArm(k, finishR * 0.42, 0));   /* the seat's wedge of the star */
+    home.push(atArm(k, finishR * 0.5, 0));
   }
 
-  /* the yards: a big square at each arm's outer base, four parked tokens
-     in a 2x2 ring inside it. Sits OUTSIDE the rails, in the corner. */
   const yard = [];
-  const yardR = rOut + yardOut;
+  const yardR = corner + yardOut;
   for (let k = 0; k < P; k++){
     const c = atArm(k, yardR, 0), a = arm[k], s = ySizeU * 0.28;
     const slots = [
@@ -576,10 +681,8 @@ function geom(lay){
     yard.push({ cx: c.x, cy: c.y, size: ySizeU * gap, theta: a.theta, slots });
   }
 
-  const out = { P, L, H, R, cell, tok: cell * 0.86, gap, ring, col, home, yard, arm,
-                finishR: finishR * gap, rIn, rOut, lane };
-  GEOM[key] = out;
-  return out;
+  return { P, L, H, R, grid: false, gap, cell, tok: cell * 0.86,
+           ring, col, home, yard, arm, finishR: finishR * gap, rIn, rOut, lane };
 }
 
 /* the ring square / token radii — now taken from the authentic geometry */
@@ -753,6 +856,195 @@ function sqCell(cx, cy, hs, th){
   return 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L') + 'Z';
 }
 
+/* an axis-aligned grid square centred at (cx,cy), half-size hs, corner r */
+function gridCell(cx, cy, hs, r){
+  const x = cx - hs, y = cy - hs, w = hs * 2, rr = r || 0;
+  return '<rect x="' + x.toFixed(2) + '" y="' + y.toFixed(2) + '" width="' + w.toFixed(2) +
+    '" height="' + w.toFixed(2) + '" rx="' + rr.toFixed(2) + '" ry="' + rr.toFixed(2) + '"';
+}
+
+/* ── THE CLASSIC 15×15 CROSS BOARD (P=4) ──────────────────────────── */
+function boardBodyGrid(st, lay, g, hs){
+  const cr = g.cell, gap = g.gap;
+  let s = '';
+  /* a soft rounded plate behind the whole board */
+  s += '<rect x="1.5" y="1.5" width="' + (VB - 3) + '" height="' + (VB - 3) +
+    '" rx="10" ry="10" fill="#fbfbf7" stroke="rgba(0,0,0,.28)" stroke-width="1"/>';
+
+  /* the white CROSS (track background) — horizontal + vertical 3-wide bands */
+  const band = () => 'fill="#fff" stroke="rgba(0,0,0,.10)" stroke-width="0.4"';
+  const px = (r, c) => ({ x: 3 + c * gap, y: 3 + r * gap });
+  const hBand = px(6, 0), vBand = px(0, 6);
+  s += '<rect x="' + hBand.x.toFixed(2) + '" y="' + hBand.y.toFixed(2) + '" width="' +
+    (gap * 15).toFixed(2) + '" height="' + (gap * 3).toFixed(2) + '" ' + band() + '/>';
+  s += '<rect x="' + vBand.x.toFixed(2) + '" y="' + vBand.y.toFixed(2) + '" width="' +
+    (gap * 3).toFixed(2) + '" height="' + (gap * 15).toFixed(2) + '" ' + band() + '/>';
+
+  /* the four 6×6 corner YARDS: a bold colour block with a white inner box */
+  g.yard.forEach((y, k) => {
+    const hx = hexOf(colourFor(st, k));
+    const [r0, c0] = y.block;
+    const bx = 3 + c0 * gap, by = 3 + r0 * gap, bw = gap * 6;
+    s += '<rect x="' + bx.toFixed(2) + '" y="' + by.toFixed(2) + '" width="' + bw.toFixed(2) +
+      '" height="' + bw.toFixed(2) + '" rx="7" ry="7" fill="' + esc(hx) +
+      '" stroke="rgba(0,0,0,.22)" stroke-width="0.8"/>';
+    /* white inner box holding the 2×2 parked slots */
+    const ins = gap * 0.9, iw = bw - ins * 2;
+    s += '<rect x="' + (bx + ins).toFixed(2) + '" y="' + (by + ins).toFixed(2) + '" width="' +
+      iw.toFixed(2) + '" height="' + iw.toFixed(2) + '" rx="6" ry="6" fill="#fbfbf7" ' +
+      'stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
+    /* the four parked-slot wells */
+    y.slots.forEach(sl => {
+      s += '<circle cx="' + sl.x.toFixed(2) + '" cy="' + sl.y.toFixed(2) + '" r="' +
+        (gap * 0.42).toFixed(2) + '" fill="none" stroke="' + esc(hx) +
+        '" stroke-opacity="0.55" stroke-width="1.1"/>';
+    });
+  });
+
+  /* the coloured HOME COLUMNS (each seat's 5-cell lane to the centre) */
+  g.col.forEach((cells, k) => {
+    const hx = hexOf(colourFor(st, k));
+    cells.forEach(cc => {
+      s += gridCell(cc.x, cc.y, hs, cr * 0.14) + ' fill="' + esc(hx) +
+        '" stroke="rgba(0,0,0,.18)" stroke-width="0.4"/>';
+    });
+  });
+
+  /* the centre 3×3 FINISH: four coloured triangles meeting at the middle */
+  const c3 = gap * 1.5;                       /* half the 3×3 block, px */
+  const cx = C, cy = C;
+  const corners = [
+    { x: cx - c3, y: cy - c3 }, { x: cx + c3, y: cy - c3 },
+    { x: cx + c3, y: cy + c3 }, { x: cx - c3, y: cy + c3 }
+  ];
+  /* the box behind the triangles */
+  s += '<rect x="' + (cx - c3).toFixed(2) + '" y="' + (cy - c3).toFixed(2) + '" width="' +
+    (c3 * 2).toFixed(2) + '" height="' + (c3 * 2).toFixed(2) +
+    '" fill="#fff" stroke="rgba(0,0,0,.14)" stroke-width="0.5"/>';
+  /* seat 0 (top-left) → top triangle, 1 → right, 2 → bottom, 3 → left, so
+     each colour's triangle points at that seat's home column mouth */
+  const triFor = [
+    [corners[0], corners[1]],   /* seat 0: top edge  */
+    [corners[1], corners[2]],   /* seat 1: right edge (top-right home) */
+    [corners[2], corners[3]],   /* seat 2: bottom edge */
+    [corners[3], corners[0]]    /* seat 3: left edge */
+  ];
+  /* map triangle edge → the seat whose HOME MOUTH sits on that edge:
+     seat0 home lane is row7 cols1-5 → enters centre from the LEFT edge;
+     seat1 col7 rows1-5 → from the TOP; seat2 row7 cols9-13 → RIGHT;
+     seat3 col7 rows9-13 → BOTTOM. */
+  const edgeOfSeat = { 0: [corners[3], corners[0]], 1: [corners[0], corners[1]],
+                       2: [corners[1], corners[2]], 3: [corners[2], corners[3]] };
+  for (let k = 0; k < 4; k++){
+    const hx = hexOf(colourFor(st, k));
+    const [a, b] = edgeOfSeat[k];
+    s += '<path d="M' + cx.toFixed(2) + ' ' + cy.toFixed(2) + 'L' + a.x.toFixed(2) + ' ' +
+      a.y.toFixed(2) + 'L' + b.x.toFixed(2) + ' ' + b.y.toFixed(2) + 'Z" fill="' + esc(hx) +
+      '" stroke="rgba(0,0,0,.18)" stroke-width="0.5" stroke-linejoin="round"/>';
+  }
+
+  /* the travel RING cells: white squares, coloured starts, star safes */
+  lay.ring.forEach((rc, i) => {
+    const p = g.ring[i];
+    if (rc.entryOf != null){
+      const hx = hexOf(colourFor(st, rc.entryOf));
+      s += gridCell(p.x, p.y, hs, cr * 0.14) + ' fill="' + esc(hx) +
+        '" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
+    } else {
+      s += gridCell(p.x, p.y, hs, cr * 0.14) + ' fill="#fff" ' +
+        (rc.safe ? 'stroke="rgba(0,0,0,.28)" stroke-width="0.7"' :
+                   'stroke="rgba(0,0,0,.12)" stroke-width="0.4"') + '/>';
+    }
+    if (rc.safe && rc.entryOf == null){
+      s += '<path d="' + starPath(p.x, p.y, cr * 0.6) +
+        '" fill="rgba(80,80,90,.42)" stroke="rgba(0,0,0,.18)" stroke-width="0.3"/>';
+    }
+    if (rc.entryOf != null){
+      /* an outward arrow in the direction of travel */
+      const a = g.arm[rc.entryOf];
+      const tip = { x: p.x + a.ux * cr * 0.55, y: p.y + a.uy * cr * 0.55 };
+      const b1 = { x: p.x - a.ux * cr * 0.2 + a.vx * cr * 0.38,
+                   y: p.y - a.uy * cr * 0.2 + a.vy * cr * 0.38 };
+      const b2 = { x: p.x - a.ux * cr * 0.2 - a.vx * cr * 0.38,
+                   y: p.y - a.uy * cr * 0.2 - a.vy * cr * 0.38 };
+      s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
+        b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
+        b2.y.toFixed(1) + 'Z" fill="rgba(255,255,255,.9)" stroke="rgba(0,0,0,.25)" stroke-width="0.3"/>';
+    }
+  });
+  return s;
+}
+
+/* ── THE ROSETTE BODY (P=6 hexagon, P=8 octagon) ──────────────────── */
+function boardBodyRosette(st, lay, g, hs){
+  const cr = g.cell;
+  let s = '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
+
+  /* coloured HOME YARDS at each arm base (rotated squares) */
+  g.yard.forEach((y, k) => {
+    const hx = hexOf(colourFor(st, k));
+    const half = y.size / 2;
+    s += '<path class="lu-yard" d="' + sqCell(y.cx, y.cy, half, y.theta) + '" ' +
+      'fill="' + esc(hx) + '" fill-opacity="0.22" stroke="' + esc(hx) +
+      '" stroke-opacity="0.9" stroke-width="1.3" stroke-linejoin="round"/>' +
+      '<path d="' + sqCell(y.cx, y.cy, half * 0.6, y.theta) + '" fill="none" ' +
+      'stroke="' + esc(hx) + '" stroke-opacity="0.4" stroke-width="0.8"/>';
+  });
+
+  /* coloured HOME COLUMNS */
+  g.col.forEach((cells, k) => {
+    const hx = hexOf(colourFor(st, k));
+    cells.forEach(cc => {
+      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, (cc.hs || hs), cc.th) +
+        '" fill="' + esc(hx) + '" fill-opacity="0.5" stroke="' + esc(hx) +
+        '" stroke-opacity="0.6"/>';
+    });
+  });
+
+  /* centre FINISH: a P-way coloured star of wedges */
+  const fr = g.finishR * 1.9;
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + fr.toFixed(1) +
+    '" fill="rgba(0,0,0,.30)" stroke="rgba(255,255,255,.18)" stroke-width="0.7"/>';
+  for (let k = 0; k < g.P; k++){
+    const hx = hexOf(colourFor(st, k));
+    const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
+    const a1 = g.arm[k].theta - Math.PI / 2 + Math.PI / g.P;
+    const p0 = { x: C + fr * Math.cos(a0), y: C + fr * Math.sin(a0) };
+    const p1 = { x: C + fr * Math.cos(a1), y: C + fr * Math.sin(a1) };
+    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(1) + ' ' +
+      p0.y.toFixed(1) + 'L' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'Z" ' +
+      'fill="' + esc(hx) + '" fill-opacity="0.72"/>';
+  }
+
+  /* travel RING */
+  lay.ring.forEach((rc, i) => {
+    const p = g.ring[i];
+    let extra = '', cls = 'lu-cell' + (rc.safe ? ' safe' : '');
+    if (rc.entryOf != null){
+      const hx = hexOf(colourFor(st, rc.entryOf));
+      extra = ' fill="' + esc(hx) + '" fill-opacity="0.6" stroke="' + esc(hx) +
+        '" stroke-opacity="0.9" stroke-width="0.8"';
+    }
+    s += '<path class="' + cls + '" d="' + sqCell(p.x, p.y, hs, p.th) + '"' + extra + '/>';
+    if (rc.safe && rc.entryOf == null){
+      s += '<path d="' + starPath(p.x, p.y, cr * 0.62) +
+        '" fill="rgba(255,255,255,.62)" stroke="rgba(0,0,0,.25)" stroke-width="0.3"/>';
+    }
+    if (rc.entryOf != null){
+      const a = g.arm[rc.entryOf];
+      const tip = { x: p.x + a.ux * cr * 0.5, y: p.y + a.uy * cr * 0.5 };
+      const b1 = { x: p.x - a.ux * cr * 0.18 + a.vx * cr * 0.34,
+                   y: p.y - a.uy * cr * 0.18 + a.vy * cr * 0.34 };
+      const b2 = { x: p.x - a.ux * cr * 0.18 - a.vx * cr * 0.34,
+                   y: p.y - a.uy * cr * 0.18 - a.vy * cr * 0.34 };
+      s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
+        b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
+        b2.y.toFixed(1) + 'Z" fill="rgba(255,255,255,.85)"/>';
+    }
+  });
+  return s;
+}
+
 function paintBoard(){
   const st = M.st, lay = layoutFor(st), g = geom(lay);
   const cr = g.cell, tr = g.tok;
@@ -771,74 +1063,8 @@ function paintBoard(){
       '<radialGradient id="lu-discg" cx="50%" cy="38%" r="72%">' +
         '<stop offset="0" stop-color="#2E2153"/><stop offset="60%" stop-color="#241A3E"/>' +
         '<stop offset="100%" stop-color="#150F28"/></radialGradient>' +
-    '</defs>' +
-    '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
-
-  /* ── the coloured HOME YARDS at each arm base ── */
-  g.yard.forEach((y, k) => {
-    const hx = hexOf(colourFor(st, k));
-    const half = y.size / 2;
-    s += '<path class="lu-yard" d="' + sqCell(y.cx, y.cy, half, y.theta) + '" ' +
-      'fill="' + esc(hx) + '" fill-opacity="0.20" stroke="' + esc(hx) +
-      '" stroke-opacity="0.85" stroke-width="1.3" stroke-linejoin="round"/>' +
-      '<path d="' + sqCell(y.cx, y.cy, half * 0.62, y.theta) + '" fill="none" ' +
-      'stroke="' + esc(hx) + '" stroke-opacity="0.35" stroke-width="0.8"/>';
-  });
-
-  /* ── the coloured HOME COLUMNS (each seat's lane to the centre) ── */
-  g.col.forEach((cells, k) => {
-    const hx = hexOf(colourFor(st, k));
-    cells.forEach(cc => {
-      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, hs, g.arm[k].theta) +
-        '" fill="' + esc(hx) + '" fill-opacity="0.42" stroke="' + esc(hx) +
-        '" stroke-opacity="0.55"/>';
-    });
-  });
-
-  /* ── the centre FINISH: a P-way coloured star of wedges ── */
-  const fr = g.finishR * 1.9;
-  s += '<circle cx="' + C + '" cy="' + C + '" r="' + fr.toFixed(1) +
-    '" fill="rgba(0,0,0,.30)" stroke="rgba(255,255,255,.18)" stroke-width="0.7"/>';
-  for (let k = 0; k < g.P; k++){
-    const hx = hexOf(colourFor(st, k));
-    const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
-    const a1 = g.arm[k].theta - Math.PI / 2 + Math.PI / g.P;
-    const p0 = { x: C + fr * Math.cos(a0), y: C + fr * Math.sin(a0) };
-    const p1 = { x: C + fr * Math.cos(a1), y: C + fr * Math.sin(a1) };
-    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(1) + ' ' +
-      p0.y.toFixed(1) + 'L' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'Z" ' +
-      'fill="' + esc(hx) + '" fill-opacity="0.72"/>';
-  }
-
-  /* ── the travel RING, square cells; entries tinted, stars starred ── */
-  lay.ring.forEach((rc, i) => {
-    const p = g.ring[i];
-    const th = g.arm[(rc.role === 'in' ? (rc.sector + 1) % g.P : rc.sector)].theta;
-    let extra = '', cls = 'lu-cell' + (rc.safe ? ' safe' : '');
-    if (rc.entryOf != null){
-      const hx = hexOf(colourFor(st, rc.entryOf));
-      extra = ' fill="' + esc(hx) + '" fill-opacity="0.55" stroke="' + esc(hx) +
-        '" stroke-opacity="0.9" stroke-width="0.8"';
-    }
-    s += '<path class="' + cls + '" d="' + sqCell(p.x, p.y, hs, th) + '"' + extra + '/>';
-    if (rc.safe && rc.entryOf == null){
-      /* a real star mark for the neutral safe squares */
-      s += '<path d="' + starPath(p.x, p.y, cr * 0.62) +
-        '" fill="rgba(255,255,255,.62)" stroke="rgba(0,0,0,.25)" stroke-width="0.3"/>';
-    }
-    if (rc.entryOf != null){
-      /* a small outward arrow on each start square, direction of travel */
-      const a = g.arm[rc.entryOf];
-      const tip = { x: p.x + a.ux * cr * 0.5, y: p.y + a.uy * cr * 0.5 };
-      const b1 = { x: p.x - a.ux * cr * 0.18 + a.vx * cr * 0.34,
-                   y: p.y - a.uy * cr * 0.18 + a.vy * cr * 0.34 };
-      const b2 = { x: p.x - a.ux * cr * 0.18 - a.vx * cr * 0.34,
-                   y: p.y - a.uy * cr * 0.18 - a.vy * cr * 0.34 };
-      s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
-        b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
-        b2.y.toFixed(1) + 'Z" fill="rgba(255,255,255,.85)"/>';
-    }
-  });
+    '</defs>';
+  s += g.grid ? boardBodyGrid(st, lay, g, hs) : boardBodyRosette(st, lay, g, hs);
 
   /* the tokens, grouped by square so stacks fan out a touch */
   const toks = E.tokens(st);
