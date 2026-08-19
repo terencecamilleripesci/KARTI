@@ -438,7 +438,17 @@ function startMatch(o, seed, net){
        and on release the normal ease pulls it back to centre on the tank.
        peek.moved gates a tap from disturbing the view. Never touches the sim. */
     camX:0, camY:0, camReady:false, camLastX:0, camLastY:0, camT:0,
-    peek:{ on:false, pid:null, sx:0, sy:0, baseX:0, baseY:0, x:0, y:0, moved:false }
+    peek:{ on:false, pid:null, sx:0, sy:0, baseX:0, baseY:0, x:0, y:0, moved:false },
+    /* ── EYE CANDY — render-only, motion-gated ─────────────────────────────
+       All cosmetic. NOTHING here is read by the engine or fed into a tick, so
+       the lockstep hash is untouched (grep the engine for these fields: none).
+       fxSeen dedups the engine's deterministic fx list so a muzzle/boom/spark
+       spawns its particle burst exactly once; parts is the live particle pool;
+       treads is a ring buffer of track marks stamped as tanks roll; smokeAt
+       paces low-health/engine puffs; rngS is a render-only PRNG seed so bursts
+       look varied without ever calling into (or reseeding) the sim. */
+    parts:[], treads:[], fxSeen:Object.create(null), fxSeenTick:-1,
+    treadAt:Object.create(null), rngS:0x9e3779b1, aimWant:null
   };
   M.st = E.newMatch({ map:md, mode:o.mode, seats, humans: net ? undefined : 1, lvl:o.lvl }, M.seed);
   M.prev = snapshot(M.st);
@@ -549,7 +559,9 @@ function advance(){
   M.stall = 0;
 
   const bytes = M.buf[N].bytes.slice();
-  const before = { alive: st.tanks.map(t => t.alive), cover: st.cover.slice(), fx: st.fx.length };
+  const meTk = st.tanks[M.me];
+  const before = { alive: st.tanks.map(t => t.alive), cover: st.cover.slice(), fx: st.fx.length,
+                   mx: meTk ? meTk.x : null, my: meTk ? meTk.y : null };
   M.prev = snapshot(st);
   E.step(st, bytes);
   M.committed = N;
@@ -596,7 +608,7 @@ function sampleLocal(tk){
     const mag = Math.abs(M.drive.dx) + Math.abs(M.drive.dy);
     if (mag > 8){
       const want = E.dirIndexFromDelta(M.drive.dx, M.drive.dy);   /* screen +y = down = engine +y */
-      turn = shortTurnScreen(tk.hdg, want);
+      turn = shortTurnScreen(tk.hdg, want, HULL_RATE);   /* deadzone so a settled hull stops zigzagging */
       throttle = 1;
     }
   } else if (M.key.throttle){ throttle = M.key.throttle; turn = M.key.turn; }
@@ -606,19 +618,36 @@ function sampleLocal(tk){
     const mag = Math.abs(M.aim.dx) + Math.abs(M.aim.dy);
     if (mag > 6){
       const want = E.dirIndexFromDelta(M.aim.dx, M.aim.dy);
-      aim = shortTurnScreen(tk.turret, want);
+      aim = shortTurnScreen(tk.turret, want, TURRET_RATE);   /* deadzone so a settled turret stops zigzagging */
+      M.aimWant = want;   /* remember the raw aim target for the on-screen pointer */
     }
   } else if (M.key.aimTurn){ aim = M.key.aimTurn; }
   /* FIRE — the dedicated button (tap or optional hold), or the keyboard fire */
   if (M.wantFire || M.autoFire || M.key.fire) fire = true;
   return { turn, throttle, aim, fire };
 }
-/* short turn on the engine circle where screen +y is engine +y (both down) */
-function shortTurnScreen(cur, want){
+/* short turn on the engine circle where screen +y is engine +y (both down).
+   ── THE ZIGZAG FIX ────────────────────────────────────────────────────
+   The old version returned 0 ONLY when d === 0 exactly. But the engine turns
+   the hull/turret in fixed steps of TURN_RATE (6) / TURRET_RATE (9) per tick,
+   so it almost never lands exactly on the target index — instead it overshoots
+   the target by up to a step and this function flips its sign every tick,
+   telling the engine to turn +6, −6, +6, −6 … forever. That ±6-step wobble
+   (about ±8°) every 50 ms IS the visible "zigzag" while driving, and no render
+   interpolation can hide it because the underlying sim heading is oscillating.
+   The fix: a DEADZONE — once the current angle is within `rate` steps of the
+   target it is "close enough", return 0, and the engine holds a steady heading.
+   Result: the hull/turret rolls smoothly to the pushed direction and settles,
+   no zigzag. Pure UI (only the emitted input byte changes); the engine and its
+   lockstep hash are untouched. */
+function shortTurnScreen(cur, want, rate){
   let d = (want - cur) & E.HDG_MASK;
-  if (d === 0) return 0;
-  return d < 128 ? 1 : -1;
+  const signed = d < 128 ? d : d - 256;      /* shortest signed offset      */
+  if (Math.abs(signed) <= (rate || 0)) return 0;   /* inside the deadzone   */
+  return signed > 0 ? 1 : -1;
 }
+const HULL_RATE = 6;     /* mirrors engine TURN_RATE — the drive deadzone   */
+const TURRET_RATE = 9;   /* mirrors engine TURRET_RATE — the aim deadzone   */
 
 /* react to what a tick changed — sounds + HUD, on CHANGE only */
 function afterStep(before){
@@ -628,14 +657,48 @@ function afterStep(before){
     if (before.alive[i] && !st.tanks[i].alive){ someDied = true; if (i === M.me) iDied = true; }
   }
   for (let i = 0; i < st.cover.length; i++){ if (before.cover[i] && !st.cover[i]){ coverBroke = true; break; } }
-  /* a fresh muzzle or boom this tick? read the fx list tail */
-  for (const f of st.fx){ if (f.born === st.tick - 1){ if (f.kind === 'muzzle') shellSpawn = true; if (f.kind === 'pick') pick = true; } }
+  /* scan THIS tick's fresh fx for the events worth a sound. The engine emits
+     a deterministic fx list; we translate the fresh entries into the closest
+     EXISTING sfx id (js/sfx.js — no new ids). See the SFX MAP note below. */
+  let boom = false, shieldAbsorb = false;
+  for (const f of st.fx){
+    if (f.born !== st.tick - 1) continue;
+    if (f.kind === 'muzzle') shellSpawn = true;         /* a shot left a barrel */
+    else if (f.kind === 'pick') pick = true;            /* a power-up taken     */
+    else if (f.kind === 'boom') boom = true;            /* a shell exploded     */
+    else if (f.kind === 'shield') shieldAbsorb = true;  /* a hit soaked by shield*/
+  }
+  /* ── THE SFX MAP (existing ids only) ────────────────────────────────────
+       FIRE a shell        → 'duel.attack'   (a launch/attack cue)
+       shell EXPLODES/impact→ 'duel.boss'    (a heavy boom; the impact/kill blast)
+       cover shattered     → 'duel.hit'      (a sharp hit)
+       took a hit (shield) → 'board.check'   (a warning "you were struck" ping)
+       power-up pickup     → 'ui.reward'     (a bright reward)
+       a KILL (someone died)→ 'duel.destroy' (mine) / 'piece.capture' (a foe)
+       match start         → 'game.start'   ·  win/lose → 'game.win'/'game.lose'
+       (all already registered in js/sfx.js; nothing new is introduced.) */
   if (shellSpawn) cue('duel.attack', { gain:.4 });
+  /* the explosion BLAST on any shell boom (impact/kill). A 'big' cue so it is
+     not swallowed by the rate-limit even when the louder kill cue fires the
+     same tick — the two layer into one satisfying detonation. */
+  if (boom) cue('duel.boss', { gain:.5 }, true);
   if (coverBroke) cue('duel.hit', { gain:.35 });
+  if (shieldAbsorb) cue('board.check', { gain:.5 });
   if (pick) cue('ui.reward', { gain:.6 });
   if (someDied){
     cue(iDied ? 'duel.destroy' : 'piece.capture', { gain: iDied ? .85 : .4 }, iDied);
     hud();
+  }
+  /* subtle ENGINE/MOVE tick — a faint tread sound while OUR tank rolls, paced
+     hard (every ~10 ticks ≈ 0.5s, one cell) so it reads as a rumble not a
+     stutter. 'piece.slide' is the closest existing id (a moving-piece slide);
+     the cue() gate rate-limits it further. Skipped when reduced-motion. */
+  if (!noMotion()){
+    const me = st.tanks[M.me];
+    const mp = before.mx != null && me;
+    if (me && me.alive && mp && (Math.abs(me.x - before.mx) + Math.abs(me.y - before.my) > 4)){
+      if (st.tick % 10 === 0) cue('piece.slide', { gain:.18 });
+    }
   }
   M.wantFire = false;    /* a tap-fire is spent once it reaches a tick */
   if (!M.finished && E.over(st)) finish();
@@ -823,6 +886,215 @@ function updateCamera(frac, dtMs){
   return { x: Math.round(M.camX), y: Math.round(M.camY) };
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   EYE CANDY — a render-only particle layer. Every function below draws
+   or spawns COSMETIC particles; none reads back into the sim, and the one
+   PRNG (rrand) advances a render-local seed on M, never st.rs. Grep the
+   engine (js/tankijiet.js) for parts/treads/rrand: zero hits — proof the
+   sim never sees any of this. Reduced-motion strips the whole layer.
+   ═══════════════════════════════════════════════════════════════════ */
+function rrand(){ /* xorshift on a render-only seed — NEVER touches the sim */
+  let x = M.rngS | 0;
+  x ^= x << 13; x ^= x >>> 17; x ^= x << 5; M.rngS = x | 0;
+  return ((x >>> 0) / 4294967296);
+}
+function rr(a, b){ return a + (b - a) * rrand(); }
+/* push a particle. kind drives its look; life in ms. All world-px coords. */
+function spawnPart(kind, x, y, opts){
+  if (noMotion()) return;
+  opts = opts || {};
+  M.parts.push({
+    kind, x, y,
+    vx: opts.vx || 0, vy: opts.vy || 0,
+    life: opts.life || 400, born: nowMs(),
+    r: opts.r || 3, col: opts.col || '#FFE08A',
+    rot: opts.rot || 0, drag: opts.drag == null ? 0.9 : opts.drag,
+    grav: opts.grav || 0
+  });
+  if (M.parts.length > 260) M.parts.splice(0, M.parts.length - 260);
+}
+/* a radial burst of n particles (explosion / kill / sparks) */
+function burst(x, y, n, spread, col, life, r){
+  if (noMotion()) return;
+  for (let i = 0; i < n; i++){
+    const a = rr(0, 6.2832), sp = rr(spread*0.35, spread);
+    spawnPart('spark', x, y, {
+      vx: Math.cos(a)*sp, vy: Math.sin(a)*sp,
+      life: life * rr(0.6, 1), r: r * rr(0.5, 1.1),
+      col, drag: 0.86, grav: rr(0.02, 0.08)
+    });
+  }
+}
+/* ── translate the engine's deterministic fx list into cosmetic bursts.
+   The engine already emits {kind,x,y,born} for muzzle/boom/spark/crack/
+   pick/shield/spawn (all deterministic). We fire the matching JUICY burst
+   ONCE per fx (deduped by identity) — a pure render reaction to sim state,
+   nothing flows back. */
+function reactFx(cell, SUB){
+  if (noMotion()) return;
+  const st = M.st;
+  if (M.fxSeenTick !== st.tick){ M.fxSeen = Object.create(null); M.fxSeenTick = st.tick; }
+  const px = v => (v / SUB) * cell;
+  for (let i = 0; i < st.fx.length; i++){
+    const f = st.fx[i];
+    if (f.born !== st.tick - 1) continue;          /* only this tick's fresh fx */
+    const key = f.kind + '@' + i + '#' + f.born;
+    if (M.fxSeen[key]) continue; M.fxSeen[key] = 1;
+    const x = px(f.x), y = px(f.y);
+    if (f.kind === 'muzzle'){
+      /* muzzle FLASH + a smoke puff + a couple of ejected sparks */
+      spawnPart('flash', x, y, { life: 90, r: cell*0.5, col:'#FFF3C4' });
+      burst(x, y, 5, cell*0.22, '#FFD98A', 300, cell*0.08);
+      spawnPart('smoke', x, y, { vx:rr(-.2,.2), vy:rr(-.4,-.1), life:520, r:cell*0.16, col:'rgba(200,205,215,.5)', drag:0.94 });
+    } else if (f.kind === 'boom'){
+      /* EXPLOSION burst — a hot core ring plus a shrapnel spray + smoke */
+      spawnPart('flash', x, y, { life: 130, r: cell*0.9, col:'#FFE08A' });
+      burst(x, y, 16, cell*0.55, '#FF9B4A', 620, cell*0.11);
+      burst(x, y, 8, cell*0.3, '#FFE08A', 480, cell*0.09);
+      for (let k=0;k<4;k++) spawnPart('smoke', x, y, { vx:rr(-.3,.3), vy:rr(-.5,-.1), life:820, r:cell*0.24, col:'rgba(90,96,108,.5)', drag:0.95 });
+    } else if (f.kind === 'spark'){
+      burst(x, y, 6, cell*0.4, '#FFF3C4', 320, cell*0.07);   /* wall bank sparks */
+    } else if (f.kind === 'crack'){
+      burst(x, y, 7, cell*0.35, '#C8A06A', 360, cell*0.08);  /* cover splinters  */
+    } else if (f.kind === 'pick'){
+      /* power-up shine: an expanding ring + a little upward sparkle */
+      spawnPart('ring', x, y, { life: 420, r: cell*0.2, col:'#FFE08A' });
+      burst(x, y, 6, cell*0.28, '#FFE08A', 460, cell*0.07);
+    }
+  }
+}
+/* ── TREAD MARKS — stamp a fading track pair under a rolling tank. Ring-
+   buffered and time-limited; purely a floor decal, never sim state. */
+function stampTreads(cell, SUB, frac){
+  if (noMotion()) return;
+  const st = M.st, now = nowMs();
+  for (const tk of st.tanks){
+    if (!tk.alive) continue;
+    const p = M.prev && M.prev.tanks[tk.seat];
+    const moving = p && (Math.abs(tk.x - p.x) + Math.abs(tk.y - p.y) > 2);
+    if (!moving) continue;
+    const last = M.treadAt[tk.seat] || 0;
+    if (now - last < 55) continue;                 /* pace the stamps */
+    M.treadAt[tk.seat] = now;
+    const ix = p ? p.x + (tk.x - p.x)*frac : tk.x;
+    const iy = p ? p.y + (tk.y - p.y)*frac : tk.y;
+    const x = (ix / SUB) * cell, y = (iy / SUB) * cell;
+    const a = (tk.hdg / E.HDG) * Math.PI * 2;
+    const perpX = -Math.sin(a), perpY = Math.cos(a), off = cell*0.28;
+    M.treads.push({ x: x + perpX*off, y: y + perpY*off, a, born: now });
+    M.treads.push({ x: x - perpX*off, y: y - perpY*off, a, born: now });
+    /* engine exhaust: a faint puff off the tail while rolling (more with a
+       SPEED power-up), so a moving hull reads as under power. Cosmetic. */
+    if (rrand() < (tk.pu && tk.pu.speed > 0 ? 0.7 : 0.3)){
+      const tailX = x - Math.cos(a)*cell*0.5, tailY = y - Math.sin(a)*cell*0.5;
+      spawnPart('smoke', tailX, tailY, {
+        vx: -Math.cos(a)*rr(.1,.3), vy: -Math.sin(a)*rr(.1,.3),
+        life: 460, r: cell*0.1, col:'rgba(150,156,168,.4)', drag:0.93
+      });
+    }
+  }
+  if (M.treads.length > 220) M.treads.splice(0, M.treads.length - 220);
+}
+/* draw the tread decals (world space, under everything). 1.6s fade. */
+function drawTreads(g, cell){
+  const now = nowMs(), LIFE = 1600;
+  for (const t of M.treads){
+    const age = now - t.born; if (age >= LIFE) continue;
+    g.save(); g.globalAlpha = 0.22 * (1 - age/LIFE);
+    g.translate(t.x, t.y); g.rotate(t.a);
+    g.fillStyle = '#000';
+    g.fillRect(-cell*0.16, -cell*0.05, cell*0.32, cell*0.1);
+    g.restore();
+  }
+  g.globalAlpha = 1;
+  /* prune dead treads occasionally so the array cannot grow unbounded */
+  if (M.treads.length && now - M.treads[0].born >= LIFE) M.treads = M.treads.filter(t => now - t.born < LIFE);
+}
+/* step + draw the live particle pool (world space). Frame-rate independent
+   via real dt. Purely cosmetic. */
+function drawParts(g, dtMs){
+  if (!M.parts.length) return;
+  const now = nowMs(), dt = Math.max(0, Math.min(64, dtMs || 16.7)), k = dt/16.7;
+  const kept = [];
+  for (const pt of M.parts){
+    const age = now - pt.born; if (age >= pt.life) continue;
+    const t = age / pt.life;
+    pt.x += pt.vx * k; pt.y += pt.vy * k;
+    pt.vx *= Math.pow(pt.drag, k); pt.vy = pt.vy * Math.pow(pt.drag, k) + pt.grav * k;
+    const al = 1 - t;
+    g.globalAlpha = al;
+    if (pt.kind === 'flash'){
+      g.globalAlpha = al * 0.9;
+      g.fillStyle = pt.col; g.beginPath(); g.arc(pt.x, pt.y, pt.r*(0.6+0.6*t), 0, 6.2832); g.fill();
+    } else if (pt.kind === 'smoke'){
+      g.globalAlpha = al * 0.5;
+      g.fillStyle = pt.col; g.beginPath(); g.arc(pt.x, pt.y, pt.r*(1+1.4*t), 0, 6.2832); g.fill();
+    } else if (pt.kind === 'ring'){
+      g.globalAlpha = al * 0.8; g.strokeStyle = pt.col; g.lineWidth = 2;
+      g.beginPath(); g.arc(pt.x, pt.y, pt.r*(1+2.4*t), 0, 6.2832); g.stroke();
+    } else { /* spark */
+      g.fillStyle = pt.col; g.beginPath(); g.arc(pt.x, pt.y, Math.max(0.6, pt.r*(1-t)), 0, 6.2832); g.fill();
+    }
+    kept.push(pt);
+  }
+  g.globalAlpha = 1;
+  M.parts = kept;
+}
+/* ── THE AIM POINTER — a dashed line from the local tank's barrel out along
+   its CURRENT (interpolated) turret heading, tipped with a reticle at the
+   aim target. It is glued to the turret, which now tracks the AIM stick, so
+   it visibly follows wherever you aim. Drawn on top, in the player's colour.
+   The line stops at the first wall along the turret ray so it reads as the
+   real shot path (bank not shown — deliberately simple). Pure render. */
+function drawAimPointer(g, cell, SUB, frac){
+  const st = M.st, tk = localTank(st);
+  if (!tk || !tk.alive) return;
+  const p = M.prev && M.prev.tanks[tk.seat];
+  const ix = p ? p.x + (tk.x - p.x)*frac : tk.x;
+  const iy = p ? p.y + (tk.y - p.y)*frac : tk.y;
+  const turF = p ? lerpAngle(p.turret, tk.turret, frac) : tk.turret;   /* interpolated angle */
+  const ang = (turF / E.HDG) * Math.PI * 2;
+  const ux = Math.cos(ang), uy = Math.sin(ang);
+  const bx = (ix / SUB) * cell, by = (iy / SUB) * cell;
+  const barrel = cell * 0.62;                          /* start past the barrel */
+  const sx = bx + ux*barrel, sy = by + uy*barrel;
+  /* ray-march in cell steps until a wall/oob or a max range, so the line
+     ends where a straight shot would first strike (reads as the aim path) */
+  const mp = st.map, maxLen = cell * 7;
+  let len = barrel;
+  const stepPx = cell * 0.25;
+  while (len < maxLen){
+    const wx = bx + ux*(len + stepPx), wy = by + uy*(len + stepPx);
+    const c = ((wx / cell) | 0), r = ((wy / cell) | 0);
+    if (c < 0 || r < 0 || c >= mp.cols || r >= mp.rows) break;
+    if (mp.wall[r*mp.cols + c]) break;
+    len += stepPx;
+  }
+  const ex = bx + ux*len, ey = by + uy*len;
+  const col = (st.mode === 'teams') ? TEAMCOL[tk.team] : COLS[tk.seat % COLS.length];
+  g.save();
+  /* dashed aim line */
+  g.globalAlpha = 0.8; g.strokeStyle = col.a; g.lineWidth = Math.max(1.5, cell*0.06);
+  g.lineCap = 'round';
+  if (g.setLineDash) g.setLineDash([cell*0.22, cell*0.2]);
+  g.lineDashOffset = -(nowMs()*0.02 % 1000);          /* crawl so it reads live */
+  g.beginPath(); g.moveTo(sx, sy); g.lineTo(ex, ey); g.stroke();
+  if (g.setLineDash) g.setLineDash([]);
+  /* reticle at the target: a ring + tick marks */
+  g.globalAlpha = 0.95; g.lineWidth = Math.max(1.5, cell*0.05);
+  const rad = cell*0.28;
+  g.beginPath(); g.arc(ex, ey, rad, 0, 6.2832); g.stroke();
+  g.beginPath();
+  for (let i = 0; i < 4; i++){
+    const ta = i * Math.PI/2;
+    g.moveTo(ex + Math.cos(ta)*rad*0.55, ey + Math.sin(ta)*rad*0.55);
+    g.lineTo(ex + Math.cos(ta)*rad*1.15, ey + Math.sin(ta)*rad*1.15);
+  }
+  g.stroke();
+  g.fillStyle = col.a; g.beginPath(); g.arc(ex, ey, cell*0.05, 0, 6.2832); g.fill();
+  g.restore();
+}
+
 function draw(frac){
   if (!UI || !UI.g2 || !M) return;
   if (UI.dirtyBg) paintBg();
@@ -837,6 +1109,13 @@ function draw(frac){
   g.drawImage(UI.bg, 0, 0, UI.worldW || UI.w, UI.worldH || UI.h);
 
   const px = v => (v / SUB) * cell;
+
+  /* EYE CANDY (render-only): stamp fresh tread marks, translate this tick's
+     deterministic fx into juicy bursts, then lay the tread decals under the
+     scene. All motion-gated (noMotion() no-ops inside each). */
+  stampTreads(cell, SUB, frac);
+  reactFx(cell, SUB);
+  drawTreads(g, cell);
 
   /* destructible cover (live grid) — crates of sandbags */
   for (let r=0;r<st.map.rows;r++) for (let c=0;c<st.map.cols;c++){
@@ -908,6 +1187,14 @@ function draw(frac){
       g.globalAlpha = 1;
     }
   }
+
+  /* EYE CANDY, on top of the tanks but under the HUD: live particle pool
+     (muzzle flash, tracer sparks, explosion shrapnel, smoke, pickup shine)
+     then the AIM POINTER — a dashed line + reticle glued to the local
+     turret so the shot direction is always unmistakable and follows the
+     AIM stick. Both are pure render (see the EYE CANDY header). */
+  drawParts(g, dtMs);
+  drawAimPointer(g, cell, SUB, frac);
 
   g.restore();                 /* end world→view scroll transform */
   /* minimap only helps when the arena is bigger than the view (it scrolls) */
