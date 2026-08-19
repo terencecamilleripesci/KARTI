@@ -687,6 +687,13 @@ function fitCanvas(){
   const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   const pxW = Math.round(w*dpr), pxH = Math.round(h*dpr);
   if (UI.cv.width !== pxW || UI.cv.height !== pxH){ UI.cv.width = pxW; UI.cv.height = pxH; }
+  /* CRITICAL for real devices: the canvas backing store is w*dpr x h*dpr, but
+     its CSS DISPLAY size must be pinned to w x h. Without this, on a dpr 2-3
+     phone the canvas lays out at its backing-store size (2-3x too big), spills
+     out of the w x h arena box, and you only ever see a zoomed top-left corner
+     — the tank drives out of view and it looks like the camera never follows.
+     A dpr=1 headless test cannot reproduce it. */
+  UI.cv.style.width = w + 'px'; UI.cv.style.height = h + 'px';
   UI.dpr = dpr; UI.g2.setTransform(dpr,0,0,dpr,0,0);
   UI.dirtyBg = true;
   M.camReady = false;   /* re-frame after any resize/zoom change */
