@@ -2462,6 +2462,28 @@ function cosmNext(game){
   try { return window.KARTI_XP && KARTI_XP.nextUnlock ? KARTI_XP.nextUnlock(game) : null; }
   catch (e){ return null; }
 }
+/* ── the exclusive grind set, per game ──────────────────────────────
+   Read straight off KARTI_XP: the set's meta (name/slots/accent/how),
+   its pieces (for the animated showcase), whether it is earned, and the
+   live grind progress {won, need, pct} that drives the "Win 40 · 23/40"
+   bar. Never throws — a build with no XP module simply shows nothing. */
+function exclMeta(game){
+  try { return window.KARTI_XP && KARTI_XP.exclusive ? KARTI_XP.exclusive(game) : null; }
+  catch (e){ return null; }
+}
+function exclDefs(game){
+  try { return window.KARTI_XP && KARTI_XP.exclusiveDefs ? KARTI_XP.exclusiveDefs(game) : []; }
+  catch (e){ return []; }
+}
+function exclProg(game){
+  try { return window.KARTI_XP && KARTI_XP.exclusiveProgress ? KARTI_XP.exclusiveProgress(game) : null; }
+  catch (e){ return null; }
+}
+function exclEarned(game){
+  try { return !!(window.KARTI_XP && KARTI_XP.exclusiveEarned && KARTI_XP.exclusiveEarned(game)); }
+  catch (e){ return false; }
+}
+
 /* The grant goes through KARTI_XP.grant(), which owns the rules: it
    refuses ids it does not know, and refuses anything carrying an earn
    test — so Tempesta and the other earned items can never be bought at
@@ -2951,15 +2973,50 @@ function renderCosmTab(){
     const lv = (() => { try { return window.KARTI_XP ? KARTI_XP.level() : 1; } catch (e){ return 1; } })();
     let allPrev = items.concat(ladder);
     let html = '<div class="spinwrap cosmwrap">' +
-      '<p class="cosmintro tiny">Every game has its own look to unlock — ship colours, ' +
-      'snake skins, tank camo, boards, card backs and more. Buy a few with coins, ' +
-      'or just keep playing: every one is also free at the level shown.</p>';
+      '<p class="cosmintro tiny">Every game has its own look — ship colours, snake skins, ' +
+      'tank camo, boards, card backs and more to buy with coins. And above each shelf sits ' +
+      'one <b>exclusive animated set</b> nobody can buy: you grind it out, win by win.</p>';
     games.forEach(g => {
       const grp = byGame[g];
       const nx = cosmNext(g);
       html += '<p class="cosmgame">' + esc(gameLabel(g)) +
         (nx ? '<span class="cosmnext">next: ' + esc(nx.name) + ' · lvl ' + nx.level + '</span>' : '') +
-        '</p><div class="cosmgrid">';
+        '</p>';
+      /* ── the ASPIRATIONAL EXCLUSIVE — one animated, earn-only set per
+         game, shown above the buyable basics as the thing to grind for.
+         A locked showcase with a live "Win 40 · 23/40" bar; once earned,
+         it offers Wear. Never a price — it is not for sale at any coin. */
+      const xm = exclMeta(g);
+      if (xm){
+        const xd = exclDefs(g);
+        const got = exclEarned(g);
+        const pg = exclProg(g) || { won:0, need:0, pct:0 };
+        const pctW = Math.round(pg.pct * 100);
+        html += '<div class="xset' + (got ? ' xgot' : '') + '" data-xgame="' + esc(g) + '" ' +
+            'style="--xa:' + esc(xm.accent) + '">' +
+          '<div class="xshow">' +
+            xd.map(d => '<span class="xprev" data-xid="' + esc(d.id) + '"></span>').join('') +
+          '</div>' +
+          '<div class="xbody">' +
+            '<div class="xtop"><span class="xtag">' + ico(got ? 'check' : 'trophy') +
+              (got ? 'Earned' : 'Exclusive') + '</span>' +
+              '<b class="xname">' + esc(xm.name) + '</b></div>' +
+            (xm.blurb ? '<div class="xblurb">' + esc(xm.blurb) + '</div>' : '') +
+            '<div class="xslots tiny">' + esc(xm.slots.join(' · ')) + '</div>' +
+            (got
+              ? '<div class="xrow"><span class="xdone">' + ico('check') +
+                  ' The whole set is yours</span>' +
+                '<button class="btn ghost sm xwear" data-xgame="' + esc(g) +
+                  '">Wear the set</button></div>'
+              : '<div class="xgrind">' +
+                  '<div class="xhow">' + ico('trophy') + esc(xm.how) + '</div>' +
+                  '<div class="xbar"><span class="xfill" style="width:' + pctW + '%"></span></div>' +
+                  '<div class="xnum tiny">' + pg.won + ' / ' + pg.need + ' wins</div>' +
+                '</div>') +
+          '</div>' +
+        '</div>';
+      }
+      html += '<div class="cosmgrid">';
       grp.buy.forEach(d => {
         const owned = cosmOwned(d.id);
         const price = cosmPrice(d);
@@ -2996,9 +3053,9 @@ function renderCosmTab(){
       });
       html += '</div>';
     });
-    html += '<p class="spinnote">Higher-level looks are not for sale at any price — ' +
-      'you level for those. Every border, badge, weekly-champion ring and earned ' +
-      'exclusive lives in the wardrobe, never the till.</p></div>';
+    html += '<p class="spinnote">The animated exclusive sets are never for sale at any price — ' +
+      'you win them, game by game. Higher-level basics unlock by levelling. Every border, ' +
+      'badge and weekly-champion ring lives in the wardrobe, never the till.</p></div>';
     stage.innerHTML = html;
     /* previews after the HTML lands — def.preview returns an element */
     $$('.citem', stage).forEach(el => {
@@ -3009,6 +3066,27 @@ function renderCosmTab(){
         const host = $('.cprev', el);
         if (host && pv) (typeof pv === 'string') ? host.innerHTML = pv : host.appendChild(pv);
       } catch (e){}
+    });
+    /* the exclusive showcases: mount each piece's animated preview, and
+       wire "Wear the set" to equip every owned piece of that set. */
+    $$('.xprev', stage).forEach(el => {
+      let d = null;
+      try { d = window.KARTI_XP && KARTI_XP.def ? KARTI_XP.def(el.dataset.xid) : null; } catch (e){}
+      if (!d || !d.preview) return;
+      try {
+        const pv = d.preview(64);
+        if (pv) (typeof pv === 'string') ? el.innerHTML = pv : el.appendChild(pv);
+      } catch (e){}
+    });
+    $$('.xwear', stage).forEach(b => {
+      b.onclick = () => {
+        const g = b.dataset.xgame;
+        let n = 0;
+        try {
+          exclDefs(g).forEach(d => { const r = KARTI_XP.equip('', d.id); if (r && r.ok) n++; });
+        } catch (e){}
+        toast(n ? 'The set is on.' : '⚠ Could not equip the set.');
+      };
     });
     $$('.cbuy', stage).forEach(b => { b.onclick = () => cosmBuyTap(b.dataset.id); });
     $$('.cwear', stage).forEach(b => {
@@ -3138,6 +3216,52 @@ function storeCSS(){
     '.citem.clock.islk .cprev{filter:saturate(.7) brightness(.82)}' +
     '.clocktag{display:inline-flex;align-items:center;gap:4px;color:var(--gold);font-weight:800}' +
     '.clocktag .ico{width:13px;height:13px}' +
+
+    /* ── the EXCLUSIVE showcase — one animated, earn-only set per game.
+       A framed, glowing panel above each shelf: the animated pieces on
+       the left, the prestige name + grind bar on the right. The glow and
+       the accent are the set's own colour (--xa). Everything animated is
+       inside the piece previews themselves (injected by progress.js), so
+       this only frames them. */
+    '.xset{position:relative;display:flex;gap:12px;align-items:center;margin:2px 0 10px;' +
+      'padding:12px;border:1px solid color-mix(in srgb,var(--xa,#FFC542) 45%,var(--line));' +
+      'border-radius:16px;background:' +
+        'radial-gradient(140% 120% at 12% 0%,color-mix(in srgb,var(--xa,#FFC542) 14%,transparent),transparent 60%),' +
+        'var(--panel);' +
+      'box-shadow:0 0 22px color-mix(in srgb,var(--xa,#FFC542) 16%,transparent),inset 0 1px 0 rgba(255,255,255,.06)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+      '.xset{border-color:rgba(255,197,66,.45);background:var(--panel);box-shadow:0 0 22px rgba(255,197,66,.16)}}' +
+    '.xshow{display:flex;gap:6px;flex:0 0 auto;flex-wrap:wrap;max-width:150px}' +
+    '.xprev{display:inline-grid;place-items:center;width:64px;height:64px}' +
+    '.xprev>*{border-radius:22%}' +
+    '.xbody{flex:1;min-width:0;display:grid;gap:5px}' +
+    '.xtop{display:flex;align-items:center;gap:8px;flex-wrap:wrap}' +
+    '.xtag{display:inline-flex;align-items:center;gap:4px;font-family:var(--disp);font-weight:900;' +
+      'font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;padding:3px 7px;border-radius:999px;' +
+      'color:var(--xa,#FFC542);border:1px solid color-mix(in srgb,var(--xa,#FFC542) 55%,transparent);' +
+      'background:color-mix(in srgb,var(--xa,#FFC542) 12%,transparent)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+      '.xtag{color:var(--gold);border-color:rgba(255,197,66,.55);background:rgba(255,197,66,.12)}}' +
+    '.xtag .ico{width:11px;height:11px}' +
+    '.xname{font-family:var(--disp);font-weight:900;font-size:15px;color:var(--txt)}' +
+    '.xblurb{font-size:11.5px;color:var(--dim);line-height:1.35}' +
+    '.xslots{color:var(--dim2);text-transform:capitalize;letter-spacing:.04em}' +
+    /* the grind bar */
+    '.xgrind{display:grid;gap:5px;margin-top:2px}' +
+    '.xhow{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--gold)}' +
+    '.xhow .ico{width:13px;height:13px}' +
+    '.xbar{position:relative;height:8px;border-radius:999px;overflow:hidden;' +
+      'background:rgba(255,255,255,.07);border:1px solid var(--line)}' +
+    '.xfill{position:absolute;inset:0;right:auto;border-radius:999px;' +
+      'background:linear-gradient(90deg,color-mix(in srgb,var(--xa,#FFC542) 60%,#fff),var(--xa,#FFC542));' +
+      'box-shadow:0 0 10px color-mix(in srgb,var(--xa,#FFC542) 60%,transparent);transition:width .5s var(--ease)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+      '.xfill{background:linear-gradient(90deg,#FFE9B0,var(--gold));box-shadow:0 0 10px rgba(255,197,66,.6)}}' +
+    '.xnum{color:var(--dim);text-align:right}' +
+    '.xrow{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}' +
+    '.xdone{display:inline-flex;align-items:center;gap:5px;color:var(--ok);font-weight:800;font-size:12px}' +
+    '.xdone .ico{width:14px;height:14px}' +
+    '.xset.xgot{border-color:color-mix(in srgb,var(--ok,#3DDC84) 50%,var(--line))}' +
 
     /* ── the daily-spin prize popup ─────────────────────────────────
        Every animated property below is transform or opacity — the ray

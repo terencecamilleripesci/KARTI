@@ -1886,6 +1886,342 @@ function registerCatalogue(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   9b². THE EXCLUSIVE GRIND SETS — one animated prestige set per game
+   ───────────────────────────────────────────────────────────────────
+   THE MODEL, in the user's words: every game gets ONE premium, ANIMATED
+   set that a player GRINDS to earn — aspirational, hard, prestige — and
+   the plain per-game cosmetics above (§9b and the games' own files) are
+   the BUYABLE basics beside it. Two reasons to open the store: spend
+   coins on a basic now, or grind for the set nobody can buy.
+
+   WHAT AN EXCLUSIVE SET IS
+     · A MATCHING set that spans a game's real cosmetic slots — for serp,
+       an animated snake skin + pellet + arena floor that all share one
+       look; for the tank arena, a matching tank + trail + floor; and so
+       on. Every piece carries the same `set` tag so the wardrobe and the
+       store group them as one thing, and a distinct prestige NAME per
+       game (Serp tal-Ħajt → "Il-Ħolma tal-Fidda", etc.).
+     · EARN-ONLY. Each piece carries an `earn` marker, so:
+         – grant() REFUSES it at any price (see the earn guard) — a set
+           you can buy is not exclusive;
+         – the ladder never pays it (its `level` is meaningless, kept 0);
+         – it becomes owned the moment the milestone is hit, caught by
+           sweepEarned() after every award, or on the next owns() read.
+     · ANIMATED. Each piece's preview is self-contained: a base art layer
+       (art/cosm/<game>-exclusive-<slot>.png, drawn placeholder if the
+       png is absent) under a CSS HOLO SHIMMER — the same cheap
+       compositor technique as the champion borders (§9c) and the faces
+       file: one injected keyframe, transform/opacity only, no per-frame
+       JS. No render hook in progress-ui.js is needed — previewInto()
+       mounts the returned element exactly as it does the ranked ring.
+
+   THE GRIND (documented, per game). The milestone is WINS in that one
+   game, read from the DURABLE record book (KARTI_STATS.stats(game).won),
+   NOT prog.n{game} — prog.n is the per-DAY play counter and resets at
+   midnight, so it can never be a milestone. Wins survive across phones
+   (the record book syncs to the Pi) and across days, which is exactly
+   what a prestige grind needs. The threshold scales with the game's
+   WEIGHT: a long game (kiri, a card duel) asks for fewer wins than a
+   quick one (serp, tombla), so every set is roughly the same evening of
+   real play. exclusiveProgress(game) returns {won, need, done, pct} so
+   the store can draw a live "Win 40 · 23/40" bar.
+
+   ID SCHEME (all new, all unique):
+     <game>.<slot>.excl        e.g. serp.skin.excl, serp.pellet.excl
+   `.excl` is a reserved leaf nobody else uses, so these cannot collide
+   with any basic (which use real names: serp.skin.klassiku, …). Proven
+   in the collision check in the test hooks.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* WINS to earn a set, from the game's weight. Quick games cost more
+   wins, long games fewer — weight×BASE, floored and ceilinged so no set
+   is trivial and none is a wall. serp/tombla (weight 5–5.5) land near
+   40; a card duel (9) near 22; kiri (10) near 20. */
+var EXCL_WIN_BASE = 220;         /* wins ≈ EXCL_WIN_BASE / weight       */
+var EXCL_WIN_MIN = 15, EXCL_WIN_MAX = 45;
+function exclNeed(game){
+  var w = weight(game);
+  var n = Math.round(EXCL_WIN_BASE / w);
+  return Math.max(EXCL_WIN_MIN, Math.min(EXCL_WIN_MAX, n));
+}
+/* durable per-game wins from the record book. Never throws — a build
+   with no stats file simply reads 0, so the set stays locked rather
+   than crashing, which is the safe way to be wrong. */
+function gameWins(game){
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.stats){
+      var s = KARTI_STATS.stats(game);
+      return s && typeof s.won === 'number' ? (s.won | 0) : 0;
+    }
+  } catch (e){}
+  return 0;
+}
+function exclDone(game){ return gameWins(game) >= exclNeed(game); }
+function exclProgress(game){
+  game = String(game || '').toLowerCase();
+  var need = exclNeed(game), won = gameWins(game);
+  return { game:game, won:won, need:need, done:won >= need,
+           pct: need ? Math.max(0, Math.min(1, won / need)) : 1 };
+}
+
+/* THE ANIMATION — one injected stylesheet, shared by every exclusive
+   preview. A holo SHEEN sweeps diagonally across the art; a soft glow
+   breathes behind it. Both are pure transform/opacity, rasterised once
+   and only moved, so a shelf of a dozen of these costs a phone nothing.
+   Honours reduced-motion the same way the champion ring does. */
+var EXCL_CSS_DONE = false;
+function injectExclCSS(){
+  if (EXCL_CSS_DONE) return;
+  EXCL_CSS_DONE = true;
+  try {
+    if (!document.head || document.getElementById('kx-excl-css')) return;
+    var st = document.createElement('style');
+    st.id = 'kx-excl-css';
+    st.textContent =
+      '.kx-excl{position:relative;display:inline-block;border-radius:22%;overflow:hidden;' +
+        'background:#120C20;box-shadow:inset 0 0 0 1px rgba(255,255,255,.10),' +
+        '0 0 0 1px rgba(0,0,0,.5),0 6px 18px rgba(0,0,0,.4)}' +
+      '.kx-excl>img,.kx-excl>canvas{position:absolute;inset:0;width:100%;height:100%;' +
+        'object-fit:cover;display:block}' +
+      /* the breathing accent glow, behind the sheen */
+      '.kx-excl::after{content:"";position:absolute;inset:0;pointer-events:none;' +
+        'background:radial-gradient(120% 90% at 28% 18%,' +
+          'color-mix(in srgb,var(--xa,#FFC542) 42%,transparent),transparent 70%);' +
+        'mix-blend-mode:screen;animation:kxExclGlow 3.4s ease-in-out infinite}' +
+      '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+        '.kx-excl::after{background:radial-gradient(120% 90% at 28% 18%,rgba(255,197,66,.4),transparent 70%)}}' +
+      /* the diagonal holo sheen sweeping across */
+      '.kx-excl::before{content:"";position:absolute;top:-60%;bottom:-60%;left:-40%;width:38%;' +
+        'pointer-events:none;transform:rotate(18deg);' +
+        'background:linear-gradient(90deg,transparent,rgba(255,255,255,.10) 30%,' +
+          'rgba(255,255,255,.55) 50%,rgba(255,255,255,.10) 70%,transparent);' +
+        'mix-blend-mode:screen;animation:kxExclSheen 3.1s ease-in-out infinite}' +
+      /* a thin prestige rim */
+      '.kx-excl>b.kx-excl-rim{position:absolute;inset:0;z-index:3;border-radius:22%;' +
+        'pointer-events:none;box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--xa,#FFC542) 70%,#fff)}' +
+      '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+        '.kx-excl>b.kx-excl-rim{box-shadow:inset 0 0 0 1.5px rgba(255,220,140,.85)}}' +
+      '@keyframes kxExclSheen{0%{left:-40%;opacity:0}18%{opacity:1}50%{left:105%;opacity:1}' +
+        '60%,100%{left:105%;opacity:0}}' +
+      '@keyframes kxExclGlow{0%,100%{opacity:.5}50%{opacity:.95}}' +
+      '@media (prefers-reduced-motion:reduce){' +
+        '.kx-excl::before{animation:none;left:60%;opacity:.5}' +
+        '.kx-excl::after{animation:none;opacity:.7}}' +
+      '.reduced .kx-excl::before{animation:none;left:60%;opacity:.5}' +
+      '.reduced .kx-excl::after{animation:none;opacity:.7}';
+    document.head.appendChild(st);
+  } catch (e){}
+}
+
+/* the drawn PLACEHOLDER — a tinted, faceted gem panel used until the
+   real art/cosm png lands, so the set works (and animates) before the
+   coordinator drops the images in. Pure canvas, one gradient + a couple
+   of facets keyed off the set's accent and the slot, so the three
+   pieces of a set look related but not identical. */
+function exclPlaceholder(accent, slot, sz){
+  var c = document.createElement('canvas');
+  c.width = c.height = sz;
+  var g = c.getContext('2d');
+  if (!g) return c;
+  var grd = g.createLinearGradient(0, 0, sz, sz);
+  grd.addColorStop(0, accent);
+  grd.addColorStop(0.55, '#241A3E');
+  grd.addColorStop(1, '#0C0818');
+  g.fillStyle = grd; g.fillRect(0, 0, sz, sz);
+  /* a slot-keyed facet so skin/pellet/floor read differently */
+  var h = 0; for (var i = 0; i < slot.length; i++) h = (h * 31 + slot.charCodeAt(i)) & 255;
+  g.save();
+  g.translate(sz / 2, sz / 2);
+  g.rotate((h / 255) * Math.PI);
+  g.globalAlpha = 0.28;
+  g.fillStyle = accent;
+  g.beginPath();
+  var r = sz * (0.22 + (h % 5) * 0.03);
+  for (var k = 0; k < 6; k++){
+    var a = (k / 6) * Math.PI * 2;
+    g[k ? 'lineTo' : 'moveTo'](Math.cos(a) * r, Math.sin(a) * r);
+  }
+  g.closePath(); g.fill();
+  g.restore();
+  return c;
+}
+
+/* the animated preview for one exclusive piece. Tries the real art; if
+   the png is missing or fails to load, the drawn placeholder is already
+   underneath, so nothing ever shows a broken image. The sheen and glow
+   run OVER whichever base wins. */
+function exclPreview(game, slot, accent){
+  return function(size){
+    injectExclCSS();
+    var sz = size || 62;
+    var el = document.createElement('span');
+    el.className = 'kx-excl';
+    el.style.cssText = 'width:' + sz + 'px;height:' + sz + 'px;--xa:' + accent;
+    /* the placeholder goes down first and stays as the fallback */
+    var ph = exclPlaceholder(accent, slot, Math.max(48, sz));
+    el.appendChild(ph);
+    /* the real art, mounted over the placeholder only once it loads */
+    try {
+      var img = new Image();
+      img.alt = '';
+      img.decoding = 'async';
+      img.onload = function(){ try { ph.style.display = 'none'; } catch (e){} };
+      img.onerror = function(){ try { img.remove(); } catch (e){} };
+      img.src = 'art/cosm/' + game + '-exclusive-' + slot + '.png';
+      el.appendChild(img);
+    } catch (e){}
+    var rim = document.createElement('b');
+    rim.className = 'kx-excl-rim';
+    el.appendChild(rim);
+    return el;
+  };
+}
+
+/* THE CATALOGUE OF SETS. One row per game: the prestige NAME, the SLOTS
+   the set spans (matching the game's real cosmetic slots), the ACCENT
+   its art and animation are tinted with, and a one-line blurb. The grind
+   is derived (exclNeed) so it is documented in one place and cannot
+   drift. `karti` is excluded on purpose — borders/badges/faces are their
+   own prestige track. */
+var EXCLUSIVES = {
+  chess:     { accent:'#8A5CFF', slots:['board','pieces'],
+    name:{en:'The Obsidian Court',mt:'Il-Qorti tal-Ossidjana'},
+    blurb:{en:'Living obsidian and molten gold. Every piece breathes.',mt:'Ossidjana ħajja u deheb imdewweb. Kull biċċa tieħu n-nifs.'} },
+  dama:      { accent:'#3DDC84', slots:['board','stones'],
+    name:{en:'Emerald Reign',mt:'Ir-Renju taż-Żmerald'},
+    blurb:{en:'Emerald stones on a board that will not stop glowing.',mt:'Bċejjeċ taż-żmerald fuq bord li ma jiqafx jiddi.'} },
+  serp:      { accent:'#5AF0C8', slots:['skin','pellet','floor'],
+    name:{en:'The Silver Dream',mt:'Il-Ħolma tal-Fidda'},
+    blurb:{en:'A snake of running mercury, feeding on light.',mt:'Serp tal-merkurju miexi, jiekol id-dawl.'} },
+  gharraq:   { accent:'#4FA9E8', slots:['fleet','sea','ring'],
+    name:{en:'The Ghost Armada',mt:'L-Armata tal-Fantażmi'},
+    blurb:{en:'A spectral fleet on a sea that remembers every wreck.',mt:'Flotta spettrali fuq baħar li jiftakar kull għarqa.'} },
+  kiri:      { accent:'#FFC542', slots:['board','dice','table'],
+    name:{en:'The Golden Feast',mt:'Il-Festa tad-Deheb'},
+    blurb:{en:'Gold leaf and candlelight. The longest game, the richest table.',mt:'Deheb u dawl tax-xemgħa. L-itwal logħba, l-aktar mejda għanja.'} },
+  tombla:    { accent:'#FF3EA5', slots:['ticket','marker'],
+    name:{en:'Festa Grand Prize',mt:'Il-Premju tal-Festa'},
+    blurb:{en:'Fireworks on your ticket, gold on every marker.',mt:'Murtali fuq il-biljett tiegħek, deheb fuq kull markatur.'} },
+  skarta:    { accent:'#FF6A2C', slots:['felt','back'],
+    name:{en:'The Burning Hand',mt:'L-Id li Taqbad'},
+    blurb:{en:'A felt of live coals, cards that smoulder as you throw.',mt:'Feltru ta’ ġamar ħaj, karti li jdaħħnu hekk kif tarmi.'} },
+  gin:       { accent:'#E0115F', slots:['felt','back'],
+    name:{en:'The Ruby Parlour',mt:'Is-Salott tar-Rubini'},
+    blurb:{en:'Ruby felt and jewelled backs. Gin has never looked richer.',mt:'Feltru tar-rubini u dahar imżejjen. Il-Gin qatt ma deher isbaħ.'} },
+  poker:     { accent:'#FFD979', slots:['felt','back'],
+    name:{en:'The High Roller',mt:'Il-Logħob il-Kbir'},
+    blurb:{en:'Casino gold, velvet, and a back nobody can read.',mt:'Deheb tal-każinò, bellus, u dahar li ħadd ma jaqra.'} },
+  rummy:     { accent:'#3FB8E8', slots:['felt','back'],
+    name:{en:'The Sapphire Run',mt:'Il-Ġirja taż-Żaffir'},
+    blurb:{en:'Deep sapphire felt, cards that catch the light on the meld.',mt:'Feltru taż-żaffir fond, karti li jaqbdu d-dawl fuq is-sett.'} },
+  spy:       { accent:'#39FF14', slots:['sky','ring'],
+    name:{en:'Night Vision',mt:'Viżjoni tal-Lejl'},
+    blurb:{en:'A phosphor-green sky, a ring that scans and never blinks.',mt:'Sema aħdar fosfru, ċirku li jiskennja u qatt ma jgħammex.'} },
+  suspett:   { accent:'#B026FF', slots:['card','curtain'],
+    name:{en:'The Final Reveal',mt:'Il-Kxif tal-Aħħar'},
+    blurb:{en:'Velvet purple, a card that turns like a spotlight finding you.',mt:'Vjola tal-bellus, karta li ddur bħal riflettur li jsibek.'} },
+  bixkla:    { accent:'#3DDC84', slots:['felt','back'],
+    name:{en:'The Buskett Crown',mt:'Il-Kuruna tal-Buskett'},
+    blurb:{en:'Forest green and gold thread. The club table, gilded.',mt:'Aħdar tal-foresta u ħajt tad-deheb. Il-mejda tal-każin, indurata.'} },
+  briscola:  { accent:'#123A5A', slots:['felt','back'],
+    name:{en:'The Harbour Lord',mt:'Sid il-Port'},
+    blurb:{en:'Deep-harbour navy and a luzzu prow lit at dusk.',mt:'Navy tal-port fond u pruwa ta’ luzzu mixgħula f’għabex.'} },
+  sette:     { accent:'#B07E12', slots:['felt','back'],
+    name:{en:'Burnished Seven',mt:'Is-Sebgħa Maħruqa'},
+    blurb:{en:'Hammered gold felt. Seven and a half, and all of it shines.',mt:'Feltru tad-deheb imħabbat. Sebgħa u nofs, u kollu jiddi.'} },
+  cheat:     { accent:'#B026FF', slots:['felt','back'],
+    name:{en:'The Perfect Lie',mt:'Il-Gidba Perfetta'},
+    blurb:{en:'A mask of violet silk, a back that never gives you away.',mt:'Maskra ta’ ħarir vjola, dahar li qatt ma jikxfek.'} },
+  ludu:      { accent:'#FFD979', slots:['tokens','dice','board'],
+    name:{en:'The Golden Route',mt:'It-Triq tad-Deheb'},
+    blurb:{en:'Gilded pawns, gold dice, a board paved in light.',mt:'Bċejjeċ indurati, dadi tad-deheb, bord miksi bid-dawl.'} },
+  erbgha:    { accent:'#FF3EA5', slots:['discs','board'],
+    name:{en:'Neon Drop',mt:'Il-Waqgħa Neon'},
+    blurb:{en:'Discs that fall like fireworks and land still glowing.',mt:'Diski li jaqgħu bħal murtali u jinżlu għadhom jiddu.'} },
+  tankijiet: { accent:'#FF6A2C', slots:['tank','trail','floor'],
+    name:{en:'The Molten Legion',mt:'Il-Leġjun Imdewweb'},
+    blurb:{en:'A tank cast in living fire, tracers that hang like embers.',mt:'Tank iffurmat min-nar ħaj, traċċanti li jibqgħu mdendlin bħal ġamar.'} },
+  bomba:     { accent:'#FF9E2C', slots:['char','bomb','arena'],
+    name:{en:'The Blast King',mt:'Is-Sultan tal-Isplużjoni'},
+    blurb:{en:'A golden bomber, a bomb that pulses, an arena on fire.',mt:'Bomber tad-deheb, bomba li tħabbat, arena taqbad.'} },
+  briks:     { accent:'#8A5CFF', slots:['paddle','ball','bricks'],
+    name:{en:'The Arcade Ghost',mt:'Il-Fantażma tal-Arcade'},
+    blurb:{en:'Violet neon paddle, a ball of light, walls of pure glow.',mt:'Paletta vjola neon, ballun tad-dawl, ħitan ta’ dawl pur.'} },
+  kodici:    { accent:'#00E5FF', slots:['pegs'],
+    name:{en:'The Cipher Vault',mt:'Il-Kaxxaforti taċ-Ċifra'},
+    blurb:{en:'Pegs of pure neon that glow the moment you crack it.',mt:'Pinnijiet ta’ neon pur li jiddu hekk kif tkisser il-kodiċi.'} },
+  minhu:     { accent:'#FFC542', slots:['frame'],
+    name:{en:'The Gilt Gallery',mt:'Il-Gallerija Indurata'},
+    blurb:{en:'A gallery of gold frames under one moving spotlight.',mt:'Gallerija ta’ kwadri tad-deheb taħt riflettur wieħed miexi.'} },
+  cards2131: { accent:'#5A1420', slots:['felt','back'],
+    name:{en:'The Velvet Bust',mt:'Il-Bust tal-Bellus'},
+    blurb:{en:'Old-wine velvet, a back that watches your third card.',mt:'Bellus tal-inbid qadim, dahar li jħares lejn it-tielet karta tiegħek.'} }
+};
+
+/* register every set. Each piece is earn-only (grant refuses it), level
+   0 (never on the ladder), tagged with the shared set id, and previewed
+   with the animated art/placeholder. The earn test is the WINS
+   milestone, non-live so "once earned, always yours" — a set won at 40
+   wins is not taken away by a losing streak. */
+function exclSetId(game){ return 'excl-' + game; }
+function exclEarnHow(game){
+  var need = exclNeed(game), gm = gameMeta(game);
+  return 'Win ' + need + ' games of ' + gm.name;
+}
+function registerExclusives(){
+  var rows = [], g;
+  for (g in EXCLUSIVES){
+    if (!Object.prototype.hasOwnProperty.call(EXCLUSIVES, g)) continue;
+    var meta = EXCLUSIVES[g], slots = meta.slots, si;
+    for (si = 0; si < slots.length; si++){
+      rows.push((function(game, slot, meta){
+        return {
+          id: game + '.' + slot + '.excl',
+          game: game,
+          slot: slot,
+          name: meta.name,
+          blurb: meta.blurb,
+          level: 0,                 /* never on the ladder */
+          sort: 900,                /* below every basic, above nothing */
+          accent: meta.accent,
+          set: exclSetId(game),
+          earn: {
+            how: exclEarnHow(game),
+            /* NOT live — once the milestone is hit it is written down and
+               kept, the way a ten-in-a-row border is kept */
+            test: (function(game){ return function(){ return exclDone(game); }; })(game)
+          },
+          preview: exclPreview(game, slot, meta.accent)
+        };
+      })(g, slots[si], meta));
+    }
+  }
+  return register(rows);
+}
+
+/* the public reads the store draws its showcase from: the set for a
+   game (its pieces), whether it is earned, and the live grind progress. */
+function exclusiveDefs(game){
+  game = String(game || '').toLowerCase();
+  var id = exclSetId(game);
+  return defsAll().filter(function(d){ return d.set === id; });
+}
+function exclusiveEarned(game){ return exclDone(String(game || '').toLowerCase()); }
+function exclusiveGames(){
+  var out = [], g;
+  for (g in EXCLUSIVES) if (Object.prototype.hasOwnProperty.call(EXCLUSIVES, g)) out.push(g);
+  return out;
+}
+function exclusiveMeta(game){
+  game = String(game || '').toLowerCase();
+  var m = EXCLUSIVES[game];
+  if (!m) return null;
+  return { game:game, name:pickLang(m.name), blurb:pickLang(m.blurb),
+           accent:m.accent, slots:m.slots.slice(), set:exclSetId(game),
+           how:exclEarnHow(game) };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    9c. THE WEEKLY BORDERS — 1st / 2nd / 3rd, one set per game
    ───────────────────────────────────────────────────────────────────
    Every Sunday at midnight a server job (wired separately) reads each
@@ -2170,6 +2506,10 @@ registerBadges();
 /* the weekly ranked borders — defined here so they exist the moment the
    app boots, whether or not the games have loaded yet */
 registerRankBorders();
+/* the animated exclusive grind sets — one earn-only prestige set per
+   game, registered here so they exist at boot and are swept the first
+   time a milestone is hit. Additive and idempotent by id. */
+registerExclusives();
 /* the per-game customisation catalogue. It calls XP.forGame, so it runs
    after window.KARTI_XP is published (see the deferred call at the very
    bottom of the file). A game that registers its own richer kit later
@@ -2215,7 +2555,13 @@ var rankT = setInterval(function(){
   var sig = '';
   try { sig += (window.KARTI_STATS && KARTI_STATS.GAMES ? KARTI_STATS.GAMES.length : 0); } catch (e){}
   try { sig += '|' + (window.KARTI_PARTY && KARTI_PARTY.games ? KARTI_PARTY.games().length : 0); } catch (e){}
-  if (sig !== lastRankSig){ lastRankSig = sig; try { registerRankBorders(); } catch (e){} }
+  if (sig !== lastRankSig){ lastRankSig = sig;
+    try { registerRankBorders(); } catch (e){}
+    /* the exclusive sets' earn-how strings quote the real game name
+       (gameMeta), which only reads right once the stats/party shelf has
+       landed — re-register (idempotent by id) so "Win 40 games of
+       Is-Serp" replaces "Win 40 games of serp". */
+    try { registerExclusives(); } catch (e){} }
   if (++rankTries > 60) clearInterval(rankT);
 }, 1000);
 
@@ -2392,6 +2738,17 @@ window.KARTI_XP = {
   rankGames: rankGames,      /* every game a weekly board runs for       */
   champBorders: function(){ return defsFor('karti').filter(function(d){ return d.slot === 'champ'; }); },
 
+  /* ── THE EXCLUSIVE GRIND SETS — one animated set per game ────────────
+     Earn-only (grant refuses them), unlocked by WINS in that game read
+     from the record book. The store draws its aspirational showcase from
+     these four calls. See §9b². */
+  exclusiveGames: exclusiveGames,       /* every game that has a set      */
+  exclusive: exclusiveMeta,             /* exclusive(game) -> {name,slots,accent,how,set} */
+  exclusiveDefs: exclusiveDefs,         /* exclusiveDefs(game) -> the pieces */
+  exclusiveEarned: exclusiveEarned,     /* exclusiveEarned(game) -> bool   */
+  exclusiveProgress: exclProgress,      /* {won,need,done,pct} for the bar */
+  exclusiveNeed: exclNeed,              /* exclNeed(game) -> wins required */
+
   /* the economy, readable — the inventory quotes it and so does
      docs/PROGRESSION.md's generator */
   ECON: {
@@ -2431,7 +2788,8 @@ window.KARTI_XP = {
     try { if (b.close) b.close(); } catch(e){} return r; }); },
   _registerBorders: registerBorders,
   _registerCatalogue: registerCatalogue,
-  _registerRankBorders: registerRankBorders
+  _registerRankBorders: registerRankBorders,
+  _registerExclusives: registerExclusives
 };
 
 /* the per-game catalogue registers THROUGH window.KARTI_XP.forGame, so
