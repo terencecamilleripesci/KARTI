@@ -118,6 +118,9 @@ function noMotion(){
    loud one; the reverse is what makes a game tiring.
    ═══════════════════════════════════════════════════════════════════ */
 let cueAt = 0;
+let eatSfxAt = 0;   /* the eat 'coin' blip gets its own longer throttle so a fast
+                       stream of pellets is an occasional soft cue, not a machine-
+                       gun rattle — players found the constant coin sound annoying. */
 function cue(id, opts, big){
   const S = window.KARTI_SFX;
   if (!S) return;
@@ -679,7 +682,12 @@ function doTick(){
         sn.saidScore = sn.score;
         const kit = KIT.skin(sn.seat);
         fxEat(sn.hx, sn.hy, seat === M.me ? '#FFC542' : kit.a);
-        if (seat === M.me) cue('ui.coin', { gain:0.42 });
+        if (seat === M.me){
+          /* throttle the eat blip to ~4/sec and soften it, so grabbing a run of
+             pellets is a gentle cue rather than a rattling stream of coins. */
+          const _n = Date.now();
+          if (_n - eatSfxAt > 240){ eatSfxAt = _n; cue('ui.coin', { gain:0.26 }); }
+        }
       }
       hud();
     }
