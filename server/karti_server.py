@@ -284,7 +284,7 @@ DEFAULT_GAME = "cards"
 DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
-          "spy", "suspett")
+          "spy", "suspett", "kanun", "bomba", "briks")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -347,6 +347,13 @@ GAME_SEATS = {
     # sixteen is what this relay already seats for tombla.
     "spy":     (3, 16, 6),
     "suspett": (5, 16, 9),
+    # The new games with no hidden information — safe to run online off the
+    # shared seed like the board games, because there is no secret a phone
+    # could read out of it. The hidden-hand card games (21/31, poker) are NOT
+    # here on purpose: they need the private per-seat deal first.
+    "kanun":  (2, 2, 2),      # Castle Wars — a duel
+    "bomba":  (2, 8, 4),      # Bomberman — an arena
+    "briks":  (2, 2, 2),      # Bricks 1v1 — a duel
 }
 
 # Only these three predate the ready lobby and begin as soon as their second

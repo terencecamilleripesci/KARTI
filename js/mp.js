@@ -143,7 +143,15 @@ const GAMES = [
   { k:'kiri',   name:'Il-Kiri',  short:'KIRI',   icon:'coin',
     blurb:'Rent, deeds, and a ruined friendship.' },
   { k:'klabb',  name:'Card club', short:'KLABB', icon:'cards',
-    blurb:'Bixkla, Briscola, Sette, Il-Gidba.' }
+    blurb:'Bixkla, Briscola, Sette, Il-Gidba.' },
+  /* the new games the relay now seats. No hidden information, so online off
+     the shared seed is honest. Their own files publish the lobby contract. */
+  { k:'kanun', name:'Il-Kanun',  short:'KANUN', icon:'dice',
+    blurb:'Two castles, one slingshot.' },
+  { k:'bomba', name:'Il-Bomba',  short:'BOMBA', icon:'dice',
+    blurb:'Drop bombs. Last one standing.' },
+  { k:'briks', name:'Il-Ħajt',   short:'ĦAJT',  icon:'dice',
+    blurb:'Break their wall before they break yours.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -193,7 +201,11 @@ const LOBBY_GLOBAL = {
   /* L-ISPETT publishes a full window.KARTI_SUSPETT.lobby (real canStart/start),
      but was missing here, so gameGlobal('suspett') returned null and the shared
      lobby ran it on SEATS_FALLBACK instead of its own contract. */
-  suspett:'KARTI_SUSPETT'
+  suspett:'KARTI_SUSPETT',
+  /* the new games with no hidden information — online off the shared seed is
+     honest for these (nothing to read out of the deal). The hidden-hand card
+     games are deliberately absent until the private per-seat deal is wired. */
+  kanun:'KARTI_KANUN', bomba:'KARTI_BOMBA', briks:'KARTI_BRIKS'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
