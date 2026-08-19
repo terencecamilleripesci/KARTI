@@ -21,12 +21,19 @@
    THE WORLD MAP  (see MAP below — the single source of truth)
      FORTY TERRITORIES grouped into SIX CONTINENTS, each continent worth
      a reinforcement BONUS if you own ALL of it (Aurora 5 · Solmar 3 ·
-     Vantia 3 · Kessia 3 · Norlund 2 · Meridia 5). Every territory is an
-     SVG polygon (a Voronoi cell in a 660×1160 portrait viewBox) with a
-     centroid for its army badge. The ADJACENCY is the set of shared
-     Voronoi edges (land borders) — the graph is proven CONNECTED and
-     every edge SYMMETRIC by the harness (mapCheck()); the CONTINENT graph
-     is connected too, so every continent is reachable.
+     Vantia 3 · Kessia 3 · Norlund 2 · Meridia 5). This is a classic
+     RISK-style board: the six continents are SEPARATE LANDMASSES laid out
+     across a 660×1160 portrait viewBox with SEA between them — Aurora NW,
+     Solmar NE, Vantia W-mid, Norlund E-mid, Kessia SW, Meridia S/SE — each
+     a distinct organic silhouette (its bounding box does not overlap any
+     other continent's). Every territory is an SVG polygon with a centroid
+     for its army badge. WITHIN a continent, territories share land borders;
+     the continents are joined by a handful of SEA ROUTES (SEA_ROUTES, drawn
+     as dashed sea lanes over the water) — each sea route IS a real
+     adjacency edge. The whole ADJACENCY graph is proven CONNECTED and every
+     edge SYMMETRIC by the harness (mapCheck()); each continent is internally
+     connected and the CONTINENT graph is connected too, so every continent
+     is reachable.
 
    THE TURN  (three signposted phases, standard conquest)
      1 REINFORCE  you receive armies = max(3, floor(T/3)) + Σ continent
@@ -138,12 +145,15 @@ function rollBig(seed, counter){
 /* ═══════════════════════════════════════════════════════════════════
    THE WORLD MAP. Six CONTINENTS, forty TERRITORIES. Coordinates are in a
    PORTRAIT 660×1160 viewBox (drawn tall to fill a phone in one glance);
-   `poly` is the territory's SVG polygon (a Voronoi cell, flat [x,y,…]) and
-   `c` is the centroid where the army badge sits. The cells are a proper
-   Voronoi tiling: they never overlap, they tile the whole box, and every
-   centroid sits inside its own cell (a tap is pixel-exact, the badge lands
-   on the right land). `ADJ_PAIRS` is the shared-edge adjacency; it is
-   symmetrised below and the whole graph is CONNECTED (proven by mapCheck()).
+   `poly` is the territory's SVG polygon (flat [x,y,…]) and `c` is the
+   centroid where the army badge sits. The territories of each continent form
+   ONE separate landmass (a tight organic cluster) with SEA (empty viewBox)
+   around it, so the six continents read as six distinct shapes at a glance;
+   every centroid sits inside its own polygon (a tap is pixel-exact, the badge
+   lands on the right land) and no two badges collide. `ADJ_PAIRS` is the
+   land-border adjacency WITHIN each continent, plus `SEA_ROUTES` the few
+   inter-continent bridges; both are symmetrised below and the whole graph is
+   CONNECTED with each continent internally connected (proven by mapCheck()).
    Each continent's full-ownership bonus lives in CONTINENTS.
    ═══════════════════════════════════════════════════════════════════ */
 const CONTINENTS = [
@@ -157,80 +167,83 @@ const CONTINENTS = [
 
 const TERRITORIES = [
   /* aurora */
-  { id:'au1', cont:'aurora', name:{ en:'Aldgate', mt:'Aldgate' }, c:[45,83], poly:[0,0,92,0,93,156,0,174] },
-  { id:'au2', cont:'aurora', name:{ en:'Brindle', mt:'Brindle' }, c:[170,78], poly:[92,0,257,0,256,125,120,181,93,156] },
-  { id:'au3', cont:'aurora', name:{ en:'Corvane', mt:'Corvane' }, c:[328,82], poly:[257,0,372,0,422,149,280,163,256,125] },
+  { id:'au1', cont:'aurora', name:{ en:'Aldgate', mt:'Aldgate' }, c:[85,122], poly:[63,44,129,42,129,192,29,190,24,97,61,86] },
+  { id:'au2', cont:'aurora', name:{ en:'Brindle', mt:'Brindle' }, c:[179,109], poly:[129,42,249,45,242,96,207,95,212,187,129,192] },
+  { id:'au3', cont:'aurora', name:{ en:'Corvane', mt:'Corvane' }, c:[261,116], poly:[249,45,317,48,314,142,282,144,275,192,212,187,207,95,242,96] },
   /* solmar */
-  { id:'so1', cont:'solmar', name:{ en:'Sunreach', mt:'Sunreach' }, c:[460,70], poly:[372,0,521,0,530,137,431,156,422,149] },
-  { id:'so2', cont:'solmar', name:{ en:'Thornwick', mt:'Thornwick' }, c:[594,76], poly:[521,0,660,0,660,156,556,157,530,137] },
+  { id:'so1', cont:'solmar', name:{ en:'Sunreach', mt:'Sunreach' }, c:[452,119], poly:[428,60,497,56,498,167,394,175,395,94,432,92] },
+  { id:'so2', cont:'solmar', name:{ en:'Thornwick', mt:'Thornwick' }, c:[562,110], poly:[497,56,598,60,605,101,638,98,632,134,605,138,605,174,534,169,536,130,502,129] },
   /* aurora */
-  { id:'au4', cont:'aurora', name:{ en:'Draymoor', mt:'Draymoor' }, c:[62,236], poly:[0,314,0,174,93,156,120,181,133,292] },
-  { id:'au5', cont:'aurora', name:{ en:'Eastfell', mt:'Eastfell' }, c:[205,216], poly:[133,292,120,181,256,125,280,163,282,249,254,283,135,293] },
-  { id:'au6', cont:'aurora', name:{ en:'Farholt', mt:'Farholt' }, c:[355,207], poly:[282,249,280,163,422,149,431,156,411,268,409,270] },
+  { id:'au4', cont:'aurora', name:{ en:'Draymoor', mt:'Draymoor' }, c:[62,259], poly:[29,190,95,192,99,328,26,328] },
+  { id:'au5', cont:'aurora', name:{ en:'Eastfell', mt:'Eastfell' }, c:[157,265], poly:[129,192,212,187,208,325,99,328,100,232,132,234] },
+  { id:'au6', cont:'aurora', name:{ en:'Farholt', mt:'Farholt' }, c:[255,259], poly:[212,187,275,192,281,280,310,280,311,333,246,332,238,282,213,278] },
   /* solmar */
-  { id:'so3', cont:'solmar', name:{ en:'Ambergate', mt:'Ambergate' }, c:[485,214], poly:[411,268,431,156,530,137,556,157,528,294] },
-  { id:'so4', cont:'solmar', name:{ en:'Willowmere', mt:'Willowmere' }, c:[602,240], poly:[660,156,660,327,535,306,528,294,556,157] },
+  { id:'so3', cont:'solmar', name:{ en:'Ambergate', mt:'Ambergate' }, c:[430,228], poly:[394,175,462,174,464,287,399,284] },
+  { id:'so4', cont:'solmar', name:{ en:'Willowmere', mt:'Willowmere' }, c:[556,228], poly:[498,167,638,167,633,283,567,281,569,251,533,245,537,280,464,287,467,208,504,209] },
   /* aurora */
-  { id:'au7', cont:'aurora', name:{ en:'Grimsby', mt:'Grimsby' }, c:[75,377], poly:[0,437,0,314,133,292,135,293,150,435,126,459] },
-  { id:'au8', cont:'aurora', name:{ en:'Holloway', mt:'Holloway' }, c:[213,366], poly:[150,435,135,293,254,283,300,405,269,445] },
-  { id:'au9', cont:'aurora', name:{ en:'Ironvale', mt:'Ironvale' }, c:[334,324], poly:[300,405,254,283,282,249,409,270,386,400] },
+  { id:'au7', cont:'aurora', name:{ en:'Grimsby', mt:'Grimsby' }, c:[74,402], poly:[60,336,129,326,132,375,98,373,104,468,26,475,24,377,60,377] },
+  { id:'au8', cont:'aurora', name:{ en:'Holloway', mt:'Holloway' }, c:[166,396], poly:[129,326,246,332,246,376,208,379,207,474,169,476,175,431,130,428,139,476,104,468,98,373,132,375] },
+  { id:'au9', cont:'aurora', name:{ en:'Ironvale', mt:'Ironvale' }, c:[261,409], poly:[246,332,311,333,315,373,285,378,274,427,322,425,312,469,207,474,208,379,246,376] },
   /* solmar */
-  { id:'so5', cont:'solmar', name:{ en:'Highmark', mt:'Highmark' }, c:[456,354], poly:[386,400,409,270,411,268,528,294,535,306,493,427,474,445,446,442] },
-  { id:'so6', cont:'solmar', name:{ en:'Oakhurst', mt:'Oakhurst' }, c:[584,374], poly:[660,327,660,429,493,427,535,306] },
+  { id:'so5', cont:'solmar', name:{ en:'Highmark', mt:'Highmark' }, c:[427,334], poly:[399,284,464,287,462,356,432,362,430,400,394,397] },
+  { id:'so6', cont:'solmar', name:{ en:'Oakhurst', mt:'Oakhurst' }, c:[550,338], poly:[496,282,633,283,634,362,600,363,602,397,565,397,568,362,538,364,532,400,461,393,469,321,500,322] },
   /* vantia */
-  { id:'va1', cont:'vantia', name:{ en:'Ravensford', mt:'Ravensford' }, c:[61,526], poly:[0,614,0,437,126,459,130,591] },
-  { id:'va2', cont:'vantia', name:{ en:'Blackmoor', mt:'Blackmoor' }, c:[203,522], poly:[130,591,126,459,150,435,269,445,290,576,263,597,155,606] },
-  { id:'va3', cont:'vantia', name:{ en:'Duskwater', mt:'Duskwater' }, c:[344,480], poly:[290,576,269,445,300,405,386,400,446,442,342,582] },
+  { id:'va1', cont:'vantia', name:{ en:'Ravensford', mt:'Ravensford' }, c:[75,544], poly:[28,496,122,499,116,596,28,596] },
+  { id:'va2', cont:'vantia', name:{ en:'Blackmoor', mt:'Blackmoor' }, c:[213,544], poly:[122,499,208,495,208,524,256,522,249,492,294,496,300,596,163,589,167,555,123,558] },
+  { id:'va3', cont:'vantia', name:{ en:'Duskwater', mt:'Duskwater' }, c:[70,636], poly:[28,596,116,596,122,664,75,656,69,691,33,692] },
   /* norlund */
-  { id:'no1', cont:'norlund', name:{ en:'Capewind', mt:'Capewind' }, c:[434,538], poly:[342,582,446,442,474,445,517,532,408,630] },
-  { id:'no2', cont:'norlund', name:{ en:'Seacrag', mt:'Seacrag' }, c:[582,493], poly:[660,429,660,580,589,572,517,532,474,445,493,427] },
+  { id:'no1', cont:'norlund', name:{ en:'Capewind', mt:'Capewind' }, c:[462,506], poly:[440,440,523,434,520,534,486,529,478,573,404,575,406,478,439,478] },
+  { id:'no2', cont:'norlund', name:{ en:'Seacrag', mt:'Seacrag' }, c:[567,506], poly:[523,434,593,438,597,478,632,478,638,524,595,529,595,575,524,577] },
   /* vantia */
-  { id:'va4', cont:'vantia', name:{ en:'Emberfall', mt:'Emberfall' }, c:[77,679], poly:[0,763,0,614,130,591,155,606,151,739,130,754] },
-  { id:'va5', cont:'vantia', name:{ en:'Redhollow', mt:'Redhollow' }, c:[217,683], poly:[151,739,155,606,263,597,284,757,271,776] },
-  { id:'va6', cont:'vantia', name:{ en:'Ashcombe', mt:'Ashcombe' }, c:[338,664], poly:[284,757,263,597,290,576,342,582,408,630,430,685,413,717] },
+  { id:'va4', cont:'vantia', name:{ en:'Emberfall', mt:'Emberfall' }, c:[206,646], poly:[116,596,209,591,204,621,258,629,251,588,300,596,302,692,119,695] },
+  { id:'va5', cont:'vantia', name:{ en:'Redhollow', mt:'Redhollow' }, c:[75,742], poly:[33,692,119,695,116,788,28,791] },
+  { id:'va6', cont:'vantia', name:{ en:'Ashcombe', mt:'Ashcombe' }, c:[217,742], poly:[119,695,161,690,165,725,206,731,212,688,302,692,298,791,159,794,162,761,116,755] },
   /* norlund */
-  { id:'no3', cont:'norlund', name:{ en:'Farstrand', mt:'Farstrand' }, c:[493,613], poly:[430,685,408,630,517,532,589,572,483,688] },
-  { id:'no4', cont:'norlund', name:{ en:'Tidepoint', mt:'Tidepoint' }, c:[592,667], poly:[660,580,660,744,576,751,483,688,589,572] },
+  { id:'no3', cont:'norlund', name:{ en:'Farstrand', mt:'Farstrand' }, c:[439,637], poly:[404,575,478,573,486,674,448,673,438,716,402,715] },
+  { id:'no4', cont:'norlund', name:{ en:'Tidepoint', mt:'Tidepoint' }, c:[564,650], poly:[524,577,638,574,638,717,480,718,476,626,524,625] },
   /* kessia */
-  { id:'ke1', cont:'kessia', name:{ en:'Frostmere', mt:'Frostmere' }, c:[78,820], poly:[0,840,0,763,130,754,149,896,133,906] },
-  { id:'ke2', cont:'kessia', name:{ en:'Icebrook', mt:'Icebrook' }, c:[200,820], poly:[149,896,130,754,151,739,271,776,277,829,244,889] },
+  { id:'ke1', cont:'kessia', name:{ en:'Frostmere', mt:'Frostmere' }, c:[73,861], poly:[29,806,124,806,121,919,24,913] },
+  { id:'ke2', cont:'kessia', name:{ en:'Icebrook', mt:'Icebrook' }, c:[219,861], poly:[171,807,264,811,264,842,308,848,301,915,264,918,258,878,209,883,213,910,163,918,163,875,122,878,125,848,169,838] },
   /* meridia */
-  { id:'me1', cont:'meridia', name:{ en:'Marrowvale', mt:'Marrowvale' }, c:[360,792], poly:[277,829,271,776,284,757,413,717,441,829,410,859] },
-  { id:'me2', cont:'meridia', name:{ en:'Sablewood', mt:'Sablewood' }, c:[483,758], poly:[441,829,413,717,430,685,483,688,576,751,497,835] },
-  { id:'me3', cont:'meridia', name:{ en:'Dunmere', mt:'Dunmere' }, c:[592,829], poly:[660,744,660,888,550,912,497,835,576,751] },
+  { id:'me1', cont:'meridia', name:{ en:'Marrowvale', mt:'Marrowvale' }, c:[389,823], poly:[365,768,441,760,447,845,406,847,411,878,332,888,334,805,375,801] },
+  { id:'me2', cont:'meridia', name:{ en:'Sablewood', mt:'Sablewood' }, c:[485,823], poly:[441,760,558,760,558,808,527,797,525,880,411,878,406,847,447,845] },
+  { id:'me3', cont:'meridia', name:{ en:'Dunmere', mt:'Dunmere' }, c:[581,823], poly:[558,760,637,766,632,837,601,840,603,882,525,880,527,797,558,808] },
   /* kessia */
-  { id:'ke3', cont:'kessia', name:{ en:'Winterhold', mt:'Winterhold' }, c:[54,930], poly:[0,1002,0,840,133,906,107,987] },
-  { id:'ke4', cont:'kessia', name:{ en:'Glacier', mt:'Glacier' }, c:[198,970], poly:[151,1053,107,987,133,906,149,896,244,889,300,1002,285,1020] },
+  { id:'ke3', cont:'kessia', name:{ en:'Winterhold', mt:'Winterhold' }, c:[73,967], poly:[24,913,121,919,121,1019,25,1022] },
+  { id:'ke4', cont:'kessia', name:{ en:'Glacier', mt:'Glacier' }, c:[210,963], poly:[121,919,213,910,212,949,257,946,264,918,301,915,305,980,256,987,257,1015,162,1019,168,987,116,987] },
   /* meridia */
-  { id:'me4', cont:'meridia', name:{ en:'Sunfallow', mt:'Sunfallow' }, c:[334,918], poly:[300,1002,244,889,277,829,410,859,405,1001] },
-  { id:'me5', cont:'meridia', name:{ en:'Greenmarsh', mt:'Greenmarsh' }, c:[468,920], poly:[405,1001,410,859,441,829,497,835,550,912,504,1000,415,1007] },
-  { id:'me6', cont:'meridia', name:{ en:'Reedwash', mt:'Reedwash' }, c:[597,974], poly:[660,888,660,1059,532,1024,504,1000,550,912] },
+  { id:'me4', cont:'meridia', name:{ en:'Sunfallow', mt:'Sunfallow' }, c:[383,945], poly:[332,888,411,878,413,962,450,970,446,1008,370,1001,373,968,330,968] },
+  { id:'me5', cont:'meridia', name:{ en:'Greenmarsh', mt:'Greenmarsh' }, c:[485,950], poly:[443,889,525,880,518,962,564,963,556,1011,446,1008,450,970,413,962,413,923,441,926] },
+  { id:'me6', cont:'meridia', name:{ en:'Reedwash', mt:'Reedwash' }, c:[600,945], poly:[567,886,638,889,639,1009,556,1011] },
   /* kessia */
-  { id:'ke5', cont:'kessia', name:{ en:'Hoarfrost', mt:'Hoarfrost' }, c:[69,1077], poly:[124,1160,0,1160,0,1002,107,987,151,1053] },
-  { id:'ke6', cont:'kessia', name:{ en:'Palefen', mt:'Palefen' }, c:[215,1100], poly:[285,1160,124,1160,151,1053,285,1020] },
+  { id:'ke5', cont:'kessia', name:{ en:'Hoarfrost', mt:'Hoarfrost' }, c:[68,1080], poly:[25,1022,74,1026,68,1060,121,1054,120,1126,30,1128] },
+  { id:'ke6', cont:'kessia', name:{ en:'Palefen', mt:'Palefen' }, c:[215,1069], poly:[121,1019,209,1023,208,1057,258,1050,257,1015,302,1019,308,1122,262,1126,258,1089,218,1091,218,1122,164,1123,167,1085,123,1093] },
   /* meridia */
-  { id:'me7', cont:'meridia', name:{ en:'Loamfield', mt:'Loamfield' }, c:[352,1082], poly:[420,1160,285,1160,285,1020,300,1002,405,1001,415,1007] },
-  { id:'me8', cont:'meridia', name:{ en:'Bramble', mt:'Bramble' }, c:[472,1081], poly:[522,1160,420,1160,415,1007,504,1000,532,1024] },
-  { id:'me9', cont:'meridia', name:{ en:'Southgale', mt:'Southgale' }, c:[590,1101], poly:[660,1059,660,1160,522,1160,532,1024] },
+  { id:'me7', cont:'meridia', name:{ en:'Loamfield', mt:'Loamfield' }, c:[374,1059], poly:[330,1007,411,1000,413,1127,367,1125,366,1092,331,1088] },
+  { id:'me8', cont:'meridia', name:{ en:'Bramble', mt:'Bramble' }, c:[461,1062], poly:[411,1000,518,1011,519,1083,491,1090,485,1130,413,1127] },
+  { id:'me9', cont:'meridia', name:{ en:'Southgale', mt:'Southgale' }, c:[581,1073], poly:[556,1011,639,1009,633,1046,599,1051,602,1087,640,1092,638,1122,529,1126,518,1043,561,1045] },
 ];
 
 const ADJ_PAIRS = [
-  ['au1','au2'],['au1','au4'],['au2','au3'],['au2','au4'],['au2','au5'],['au3','so1'],
-  ['au3','au5'],['au3','au6'],['so1','so2'],['so1','au6'],['so1','so3'],['so2','so3'],
-  ['so2','so4'],['au4','au5'],['au4','au7'],['au5','au6'],['au5','au7'],['au5','au8'],
-  ['au5','au9'],['au6','so3'],['au6','au9'],['au6','so5'],['so3','so4'],['so3','so5'],
-  ['so4','so5'],['so4','so6'],['au7','au8'],['au7','va1'],['au7','va2'],['au8','au9'],
-  ['au8','va2'],['au8','va3'],['au9','so5'],['au9','va3'],['so5','so6'],['so5','va3'],
-  ['so5','no1'],['so5','no2'],['so6','no2'],['va1','va2'],['va1','va4'],['va2','va3'],
-  ['va2','va4'],['va2','va5'],['va2','va6'],['va3','no1'],['va3','va6'],['no1','no2'],
-  ['no1','va6'],['no1','no3'],['no2','no3'],['no2','no4'],['va4','va5'],['va4','ke1'],
-  ['va4','ke2'],['va5','va6'],['va5','ke2'],['va5','me1'],['va6','no3'],['va6','me1'],
-  ['va6','me2'],['no3','no4'],['no3','me2'],['no4','me2'],['no4','me3'],['ke1','ke2'],
-  ['ke1','ke3'],['ke1','ke4'],['ke2','me1'],['ke2','ke4'],['ke2','me4'],['me1','me2'],
-  ['me1','me4'],['me1','me5'],['me2','me3'],['me2','me5'],['me3','me5'],['me3','me6'],
-  ['ke3','ke4'],['ke3','ke5'],['ke4','me4'],['ke4','ke5'],['ke4','ke6'],['ke4','me7'],
-  ['me4','me5'],['me4','me7'],['me5','me6'],['me5','me7'],['me5','me8'],['me6','me8'],
+  ['au1','au2'],['au1','au4'],['au2','au3'],['au2','au5'],['au3','so1'],['au3','au6'],
+  ['so1','so2'],['so1','so3'],['so2','so4'],['au4','au5'],['au4','au7'],['au5','au6'],
+  ['au5','au7'],['au5','au8'],['au6','au9'],['au6','so5'],['so3','so4'],['so3','so5'],
+  ['so4','so6'],['au7','au8'],['au7','va1'],['au8','au9'],['au9','va3'],['so5','so6'],
+  ['so5','no1'],['so6','no2'],['va1','va2'],['va1','va3'],['va2','va4'],['va3','no1'],
+  ['va3','va4'],['va3','va5'],['no1','no2'],['no1','no3'],['no2','no4'],['va4','va6'],
+  ['va4','ke1'],['va5','va6'],['va6','me1'],['no3','no4'],['no3','me2'],['no4','me3'],
+  ['ke1','ke2'],['ke1','ke3'],['ke2','me1'],['ke2','ke4'],['me1','me2'],['me1','me4'],
+  ['me2','me3'],['me2','me5'],['me3','me6'],['ke3','ke4'],['ke3','ke5'],['ke4','me4'],
+  ['ke4','ke6'],['me4','me5'],['me4','me7'],['me4','me8'],['me5','me6'],['me5','me8'],
   ['me6','me9'],['ke5','ke6'],['ke6','me7'],['me7','me8'],['me8','me9'],
+];
+
+/* SEA_ROUTES: the inter-continent bridges (drawn as dashed sea lanes). */
+const SEA_ROUTES = [
+  ['au3','so1'],['au6','so5'],['au7','va1'],['au9','va3'],
+  ['so5','no1'],['so6','no2'],['va3','no1'],['va4','ke1'],
+  ['va6','me1'],['no4','me3'],['no3','me2'],['ke2','me1'],
+  ['ke4','me4'],['ke6','me7'],
 ];
 
 /* REGIONS is an alias for CONTINENTS (kept so the UI + harness can read
@@ -260,6 +273,21 @@ const ADJ = (function(){
 })();
 const adjOf = i => ADJ[i] || [];
 const areAdjacent = (i, j) => adjOf(i).indexOf(j) >= 0;
+
+/* SEA_ROUTES as index pairs (the inter-continent links the UI draws as dashed
+   sea lanes over the water). Every sea route is also a real adjacency edge. */
+const SEA_ROUTE_IDX = (function(){
+  const out = [];
+  for (const p of SEA_ROUTES){
+    const u = terrIndex(p[0]), v = terrIndex(p[1]);
+    if (u >= 0 && v >= 0 && u !== v) out.push([u, v]);
+  }
+  return out;
+})();
+const isSeaRoute = (i, j) => {
+  for (const [u, v] of SEA_ROUTE_IDX) if ((u === i && v === j) || (u === j && v === i)) return true;
+  return false;
+};
 
 /* continent → member territory indices */
 const REGION_MEMBERS = (function(){
@@ -1299,6 +1327,7 @@ root.KARTI_KONKWISTA.engine = {
   COLOURS, colourOf, LEVELS, levelOf,
   /* map */
   TERRITORIES, REGIONS, CONTINENTS, REGION_MEMBERS, CONTINENT_MEMBERS, ADJ, mapCheck,
+  SEA_ROUTES, SEA_ROUTE_IDX, isSeaRoute,
   terrIndex, terrById, adjOf, areAdjacent, regionOf, continentOf,
   /* cards */
   CARDS, CARD_SYMBOLS, DECK_SIZE, N_WILD, deckOrder, cardAtDraw, tradeValue,

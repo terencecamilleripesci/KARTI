@@ -71,6 +71,46 @@ const colourOf = seat => E.colourOf(seat);
 const seatColName = seat => TE(colourOf(seat).name);
 
 /* ═══════════════════════════════════════════════════════════════════
+   CONTINENT COLOURS — the LAND is filled by its CONTINENT so the six
+   landmasses read as six colour families at a glance. Each territory takes
+   a slightly different SHADE of its continent's colour (a deterministic
+   ripple) so neighbouring lands within a continent are still tellable apart,
+   while clearly sharing one family. Ownership is drawn on TOP as a seat-colour
+   ring + a seat-tinted troop badge — so "which continent" (fill) and "who owns
+   it" (ring/badge) never fight.
+   ═══════════════════════════════════════════════════════════════════ */
+function hexToRgb(h){ h = h.replace('#',''); if (h.length===3) h = h.split('').map(c=>c+c).join(''); return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)]; }
+function rgbToHex(r,g,b){ const f=v=>('0'+Math.max(0,Math.min(255,Math.round(v))).toString(16)).slice(-2); return '#'+f(r)+f(g)+f(b); }
+function mix(a,b,t){ return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function shade(hex, amt){ const c = hexToRgb(hex); const tgt = amt<0 ? [12,20,32] : [255,255,255]; return rgbToHex(...mix(c, tgt, Math.abs(amt))); }
+/* the CONTINENT descriptor for a territory index: base colour + a per-terr
+   land shade + an unowned (dim) shade, all cached. */
+const CONT_INFO = (function(){
+  const info = {};       /* contId -> { hex, land:[perTerr shade], dim } */
+  E.CONTINENTS.forEach(c => { info[c.id] = { hex:c.hex, name:c.name, bonus:c.bonus }; });
+  return info;
+})();
+const contHex = cid => (CONT_INFO[cid] ? CONT_INFO[cid].hex : '#6a7a8a');
+/* the fill for territory i given its owner: continent colour, brighter when
+   owned (a live land), duller/greyer when unowned (open sea-frontier land). */
+const TERR_SHADE = (function(){
+  const arr = new Array(E.N_TERR);
+  for (let i = 0; i < E.N_TERR; i++){
+    const cid = E.TERRITORIES[i].cont;
+    const base = contHex(cid);
+    /* deterministic small ripple ±: index within continent */
+    const mem = E.REGION_MEMBERS[cid];
+    const k = mem.indexOf(i);
+    const step = ((k % 3) - 1);          /* -1, 0, +1 */
+    arr[i] = {
+      owned:   shade(base, step === 0 ? 0.02 : (step * 0.11)),   /* lively family shade */
+      unowned: rgbToHex(...mix(hexToRgb(base), [70,86,104], 0.62)) /* muted, greyed */
+    };
+  }
+  return arr;
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
    OUR CORNER OF localStorage — save, prefs, record.
    ═══════════════════════════════════════════════════════════════════ */
 const STORE  = 'karti_konkwista_v1';
@@ -313,16 +353,36 @@ function injectCSS(){
     '#scr-party .kq-mapbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5;pointer-events:none}' +
     '#scr-party .kq-svg{position:relative;display:block;width:100%;height:100%;' +
       'touch-action:manipulation;-webkit-tap-highlight-color:transparent}' +
-    '#scr-party .kq-terr{stroke:#0a1622;stroke-width:2;cursor:pointer;transition:filter .12s,opacity .12s}' +
-    '#scr-party .kq-terr.legal{filter:drop-shadow(0 0 5px rgba(255,255,255,.9))}' +
+    /* THE LAND. Fill = the CONTINENT colour (set per-cell), so continent
+       membership reads at a glance. The OWNER is a separate seat-colour RING
+       (the .kq-ring overlay) + the troop badge tint — so "which continent" and
+       "who owns it" are both legible without fighting each other. */
+    '#scr-party .kq-terr{stroke:#0a1622;stroke-width:1.5;cursor:pointer;transition:filter .12s,opacity .12s}' +
+    '#scr-party .kq-terr.legal{filter:drop-shadow(0 0 5px rgba(255,255,255,.92))}' +
     '#scr-party .kq-terr.target{stroke:#fff;stroke-width:3}' +
-    '#scr-party .kq-terr.sel{stroke:var(--kq-gold);stroke-width:4;filter:drop-shadow(0 0 7px rgba(255,197,66,.95))}' +
-    '#scr-party .kq-terr.dim{opacity:.86}' +
-    '#scr-party .kq-badge circle{stroke:rgba(0,0,0,.5);stroke-width:1.5}' +
-    '#scr-party .kq-badge text{font:900 15px/1 var(--disp);fill:#fff;text-anchor:middle;' +
+    '#scr-party .kq-terr.sel{stroke:var(--kq-gold);stroke-width:3.5;filter:drop-shadow(0 0 7px rgba(255,197,66,.95))}' +
+    '#scr-party .kq-terr.dim{opacity:.9}' +
+    /* the seat-colour owner ring: a stroke-only path over the land */
+    '#scr-party .kq-ring{fill:none;stroke-width:3.5;pointer-events:none;stroke-linejoin:round;' +
+      'transition:opacity .12s}' +
+    '#scr-party .kq-badge circle{stroke:rgba(0,0,0,.55);stroke-width:2}' +
+    '#scr-party .kq-badge text{font:900 14px/1 var(--disp);fill:#fff;text-anchor:middle;' +
+      'dominant-baseline:central;paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:3px}' +
+    /* subtle per-territory name (small, on the land) */
+    '#scr-party .kq-tname{font:800 8px/1 var(--body);fill:rgba(255,255,255,.42);text-anchor:middle;' +
+      'pointer-events:none;letter-spacing:.02em}' +
+    /* the SEA-ROUTE lanes between continents */
+    '#scr-party .kq-lane{stroke:rgba(160,205,235,.55);stroke-width:2.4;stroke-dasharray:2 9;' +
+      'stroke-linecap:round;fill:none;pointer-events:none}' +
+    '#scr-party .kq-lanedot{fill:rgba(190,220,245,.7);pointer-events:none}' +
+    /* the CONTINENT label plaque: NAME + BONUS on/near the landmass */
+    '#scr-party .kq-clabel{pointer-events:none}' +
+    '#scr-party .kq-clabel rect{rx:7}' +
+    '#scr-party .kq-clabel .cl-nm{font:900 12px/1 var(--disp);letter-spacing:.06em;' +
+      'text-transform:uppercase;text-anchor:middle;dominant-baseline:central;' +
+      'paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3px}' +
+    '#scr-party .kq-clabel .cl-bn{font:900 12px/1 var(--disp);fill:#fff;text-anchor:middle;' +
       'dominant-baseline:central;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3px}' +
-    '#scr-party .kq-regcap{font:900 8.5px/1 var(--disp);fill:rgba(255,255,255,.5);text-anchor:middle;' +
-      'letter-spacing:.12em;text-transform:uppercase;pointer-events:none}' +
 
     /* ── first-run tip toast over the map ── */
     '#scr-party .kq-tip{position:absolute;left:8px;right:8px;bottom:8px;z-index:20;' +
@@ -519,7 +579,7 @@ function buildBoard(){
     mapbox: root.querySelector('#kq-mapbox'),
     svg:    root.querySelector('#kq-svg'),
     rules:  root.querySelector('#kq-rulespanel'),
-    terrEls: {}, badgeEls: {}
+    terrEls: {}, badgeEls: {}, ringEls: {}, labelEls: {}
   };
   buildSVG();
 
@@ -540,37 +600,92 @@ function buildBoard(){
   maybeTip();
 }
 
-/* build the vector map: one <path> per territory + a badge group each. */
+/* where a continent's NAME+BONUS plaque sits: the widest gap near the top of
+   its landmass, clear of badges. We take the continent bbox and drop the label
+   at the horizontal centre, a little below the top edge. */
+function contLabelAnchor(cid){
+  const mem = E.REGION_MEMBERS[cid];
+  let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;
+  mem.forEach(i => { const p = E.TERRITORIES[i].poly;
+    for (let k=0;k<p.length;k+=2){ x0=Math.min(x0,p[k]); x1=Math.max(x1,p[k]); y0=Math.min(y0,p[k+1]); y1=Math.max(y1,p[k+1]); } });
+  return { x:(x0+x1)/2, y:y0 - 12, x0, y0, x1, y1 };
+}
+
+/* build the vector map: sea-route lanes, one polygon per territory (continent
+   fill), a seat-colour owner ring, an army badge, and the continent plaques. */
 function buildSVG(){
   const svg = UI.svg;
+  const T = E.TERRITORIES;
   let s = '';
-  /* region captions (subtle) */
-  E.REGIONS.forEach(r => {
-    const mem = E.REGION_MEMBERS[r.id];
-    let cx = 0, cy = 0;
-    mem.forEach(t => { cx += E.TERRITORIES[t].c[0]; cy += E.TERRITORIES[t].c[1]; });
-    cx /= mem.length; cy /= mem.length;
-    s += '<text class="kq-regcap" x="' + cx.toFixed(0) + '" y="' + (cy - 44).toFixed(0) + '">' +
-      esc(TE(r.name)) + '</text>';
+
+  /* 1 · SEA-ROUTE lanes UNDER the land (dashed lanes over the water). */
+  (E.SEA_ROUTE_IDX || []).forEach(pair => {
+    const a = T[pair[0]].c, b = T[pair[1]].c;
+    s += '<line class="kq-lane" x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '"></line>' +
+      '<circle class="kq-lanedot" cx="' + ((a[0]+b[0])/2).toFixed(0) + '" cy="' + ((a[1]+b[1])/2).toFixed(0) + '" r="3"></circle>';
   });
-  /* territories */
-  E.TERRITORIES.forEach((t, i) => {
+
+  /* 2 · the LAND — one polygon per territory, filled by its continent shade. */
+  T.forEach((t, i) => {
     const pts = t.poly.reduce((a, v, k) => a + (k % 2 ? ',' : (k ? ' ' : '')) + v, '');
-    s += '<polygon class="kq-terr" data-t="' + i + '" points="' + pts + '"></polygon>';
+    s += '<polygon class="kq-terr" data-t="' + i + '" points="' + pts + '" ' +
+      'fill="' + TERR_SHADE[i].unowned + '"></polygon>';
   });
-  /* badges (drawn over the polygons) */
-  E.TERRITORIES.forEach((t, i) => {
+
+  /* 3 · the OWNER RINGS — a stroke-only polygon on top, seat-coloured. */
+  T.forEach((t, i) => {
+    const pts = t.poly.reduce((a, v, k) => a + (k % 2 ? ',' : (k ? ' ' : '')) + v, '');
+    s += '<polygon class="kq-ring" data-r="' + i + '" points="' + pts + '" display="none"></polygon>';
+  });
+
+  /* 4 · a subtle territory name on the land (helps read the board). */
+  T.forEach((t, i) => {
+    s += '<text class="kq-tname" data-n="' + i + '" x="' + t.c[0] + '" y="' + (t.c[1] + 20) + '">' +
+      esc(TE(t.name)) + '</text>';
+  });
+
+  /* 5 · badges (drawn over the polygons). */
+  T.forEach((t, i) => {
     s += '<g class="kq-badge" data-b="' + i + '">' +
-      '<circle cx="' + t.c[0] + '" cy="' + t.c[1] + '" r="13"></circle>' +
+      '<circle cx="' + t.c[0] + '" cy="' + t.c[1] + '" r="12.5"></circle>' +
       '<text x="' + t.c[0] + '" y="' + (t.c[1] + 1) + '">1</text></g>';
   });
+
+  /* 6 · the CONTINENT plaques — NAME + BONUS on/near each landmass. */
+  E.CONTINENTS.forEach(c => {
+    const a = contLabelAnchor(c.id);
+    const nm = TE(c.name).toUpperCase();
+    const chW = 8.0;                                   /* rough glyph width */
+    const bnW = 30;
+    const w = Math.max(64, nm.length * chW + bnW + 24);
+    const h = 22;
+    let lx = a.x, ly = Math.max(14, a.y);
+    lx = Math.max(w/2 + 4, Math.min(660 - w/2 - 4, lx));
+    ly = Math.max(h/2 + 4, Math.min(1160 - h/2 - 4, ly));
+    const nmX = lx - bnW/2 + 2;
+    const bnX = lx + (w/2) - bnW/2 - 2;
+    s += '<g class="kq-clabel" data-cl="' + c.id + '">' +
+      '<rect x="' + (lx - w/2).toFixed(1) + '" y="' + (ly - h/2).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + h + '" ' +
+        'rx="7" fill="rgba(8,18,30,.72)" stroke="' + c.hex + '" stroke-width="1.5"></rect>' +
+      '<text class="cl-nm" x="' + nmX.toFixed(1) + '" y="' + (ly).toFixed(1) + '" fill="' + shade(c.hex, 0.42) + '">' + esc(nm) + '</text>' +
+      '<rect x="' + (bnX - bnW/2 + 3).toFixed(1) + '" y="' + (ly - 9).toFixed(1) + '" width="' + (bnW-6) + '" height="18" rx="5" ' +
+        'fill="' + c.hex + '"></rect>' +
+      '<text class="cl-bn" x="' + bnX.toFixed(1) + '" y="' + (ly).toFixed(1) + '">+' + c.bonus + '</text>' +
+    '</g>';
+  });
+
   svg.innerHTML = s;
+
   /* cache + wire taps */
-  E.TERRITORIES.forEach((t, i) => {
+  T.forEach((t, i) => {
     const el = svg.querySelector('.kq-terr[data-t="' + i + '"]');
+    const rg = svg.querySelector('.kq-ring[data-r="' + i + '"]');
     const bg = svg.querySelector('.kq-badge[data-b="' + i + '"]');
+    const nm = svg.querySelector('.kq-tname[data-n="' + i + '"]');
     UI.terrEls[i] = el;
+    UI.ringEls[i] = rg;
     UI.badgeEls[i] = bg;
+    UI.labelEls[i] = nm;
     if (el) el.addEventListener('pointerdown', ev => { ev.preventDefault(); onTerr(i); });
   });
 }
@@ -587,25 +702,32 @@ function paintAll(){
 
 function paintMap(){
   const st = M.st;
-  const seat = E.turn(st);
   const legalSet = computeLegalSet();
   for (let i = 0; i < E.N_TERR; i++){
-    const el = UI.terrEls[i], bg = UI.badgeEls[i];
+    const el = UI.terrEls[i], bg = UI.badgeEls[i], rg = UI.ringEls[i];
     if (!el) continue;
     const o = st.owner[i];
-    const col = o >= 0 ? colourOf(o) : { hex:'#3b4a5a', hi:'#556', lo:'#223' };
-    el.setAttribute('fill', col.hex);
+    /* FILL = the CONTINENT colour: lively when owned, muted when open land. */
+    const shd = TERR_SHADE[i];
+    el.setAttribute('fill', o >= 0 ? shd.owned : shd.unowned);
     el.classList.toggle('sel', i === M.sel || i === M.fsel);
     el.classList.toggle('legal', legalSet.from.has(i));
     el.classList.toggle('target', legalSet.to.has(i));
-    /* badge — hidden on UNOWNED land (during the CLAIM opening it is empty) */
+    /* OWNER RING = the seat colour, drawn on top; hidden on open land. */
+    if (rg){
+      if (o < 0){ rg.setAttribute('display', 'none'); }
+      else { rg.removeAttribute('display'); rg.setAttribute('stroke', colourOf(o).hex); }
+    }
+    /* badge — the troop count in the OWNER's seat colour so ownership reads
+       even where the ring is thin. Hidden on UNOWNED land (the CLAIM opening). */
     if (bg){
       const c = bg.querySelector('circle'), tx = bg.querySelector('text');
       if (o < 0){
         bg.setAttribute('display', 'none');
       } else {
         bg.removeAttribute('display');
-        if (c) c.setAttribute('fill', col.lo);
+        const col = colourOf(o);
+        if (c){ c.setAttribute('fill', col.hex); c.setAttribute('stroke', col.lo); }
         if (tx) tx.textContent = st.army[i];
       }
     }
@@ -1038,7 +1160,7 @@ function dropInBadge(i){
   if (!bg) return;
   const c = bg.querySelector('circle');
   if (!c) return;
-  const r0 = 13;
+  const r0 = 12.5;
   let t0 = performance.now();
   function f(now){
     const k = Math.min(1, (now - t0) / 220);
@@ -1892,7 +2014,11 @@ if (/[?&]konkwistatest\b/.test(location.search || '')){
     setupSheet, settingsStep, newGame, onTerr, onAct, launchAttack, paintAll,
     get M(){ return M; }, get UI(){ return UI; },
     engine: E, LOBBY, hooks, online: P.online.konkwista, leave,
-    computeLegalSet, reduced
+    computeLegalSet, reduced,
+    /* drive the local seat through the REAL move gate (what a thumb triggers),
+       then run the same post-move pipeline the UI runs. */
+    doMove: (seat, move) => { const r = doMove(seat, move, 'local'); afterLocal(); return r; },
+    afterLocal, finish
   };
 }
 
