@@ -512,14 +512,37 @@ function setupRound(st){
   serve(st, -1);
 }
 
-/* serve ONE ball from centre toward a legal diagonal.  `avoidEdge` (a pid
-   or −1) biases away from re-serving straight at the edge that just
-   conceded, so play resumes fairly.  Reads st.rs — the only randomness. */
+/* the four diagonal-run centres, indexed by quadrant q = which quarter of the
+   arena the ball is launched INTO:  0 = down-right, 1 = down-left, 2 = up-left,
+   3 = up-right (y grows downward).  Each centre is a legal, off-BOTH-axes
+   direction; snap() keeps the ±K_MAX fan inside its run, so a serve can NEVER
+   emit an axis-parallel (stuck-rally) or near-zero direction. */
+const SERVE_CENTRE = [8, 24, 40, 56];
+
+/* serve ONE ball from centre toward a legal diagonal.  `avoidEdge` (a pid or
+   −1) biases the launch AWAY from re-serving straight at the edge that just
+   conceded, so play resumes fairly.  Reads st.rs — the only randomness.
+   GUARANTEE: every served ball leaves centre at full serve speed on a valid
+   anti-axis-safe diagonal, so it always makes real progress on BOTH axes and
+   can never be parked in the middle. */
 function serve(st, avoidEdge){
-  const q = trunc(rnd(st) * 4) & 3;            /* one of four diagonal runs  */
-  const centre = [8, 24, 40, 56][q];           /* diagonal centre index      */
+  let q = trunc(rnd(st) * 4) & 3;              /* one of four diagonal runs  */
+  /* bias away from firing back into the goal that just conceded: if the picked
+     quadrant heads toward that edge, rotate to the opposite quadrant. Purely
+     integer + deterministic (no new randomness), so every client agrees. */
+  if (avoidEdge >= 0 && avoidEdge < N_EDGES){
+    const cen = SERVE_CENTRE[q];
+    const towardConceder =
+      EDGE_AXIS[avoidEdge] === 'x'
+        ? (EDGE_OUT[avoidEdge] > 0 ? DIR_Y[cen] > 0 : DIR_Y[cen] < 0)
+        : (EDGE_OUT[avoidEdge] > 0 ? DIR_X[cen] > 0 : DIR_X[cen] < 0);
+    if (towardConceder) q = (q + 2) & 3;       /* fire into the opposite quad */
+  }
+  const centre = SERVE_CENTRE[q];              /* diagonal centre index      */
   const k = (trunc(rnd(st) * (2 * K_MAX + 1))) - K_MAX;
-  const di = snap((centre + k + 64) & 63);
+  const di = snap((centre + k + 64) & 63);     /* always a legal diagonal    */
+  /* SP_START is well above SP_MIN and every allowed di has |DIR_X|,|DIR_Y| >=
+     DIAG_MIN, so velOf(di, SP_START) is non-zero on BOTH axes by construction. */
   st.balls.push({ id: st.nextBall++, x: W >> 1, y: H >> 1, di, sp: SP_START, last: -1 });
   st.ev.push({ id: 'ev.serve' });
 }
@@ -681,6 +704,7 @@ function resolveBall(st, ball){
      speed, so it is reversible and drift-free) */
   if (st.slowT > 0){ vx = trunc(vx * SLOW_NUM / SLOW_DEN); vy = trunc(vy * SLOW_NUM / SLOW_DEN); }
   let px = ball.x, py = ball.y;
+  const startX = ball.x, startY = ball.y;      /* for the anti-park floor      */
   let rem = TFP;
 
   for (let iter = 0; iter < MAX_ITER; iter++){
@@ -811,6 +835,31 @@ function resolveBall(st, ball){
   ball.x = px; ball.y = py;
   depenetrate(st, ball);
   containBall(st, ball, events);
+
+  /* THE ANTI-PARK FLOOR.  The swept resolver is exact and, in every reachable
+     state, always advances the ball; but a pathological wedge (a ball caught
+     resolving at sub-tick t=0 against two surfaces until MAX_ITER is spent)
+     could otherwise leave a live ball at ZERO net displacement for the tick —
+     i.e. parked in place.  Guarantee forward progress: if a still-live ball did
+     not move this tick, its speed is floored to SP_MIN and it is nudged one
+     guaranteed step along its (always-valid, off-both-axes) direction, then
+     re-contained.  Deterministic integer math, identical on every client; it
+     is a NO-OP in all reachable rallies, so the lockstep hash is unchanged
+     there and a ball can never be stuck in the middle. */
+  if (ball.dead === undefined && ball.x === startX && ball.y === startY){
+    if (ball.sp < SP_MIN) ball.sp = SP_MIN;
+    ball.di = snap(ball.di);
+    let [nx, ny] = velOf(ball.di, ball.sp);
+    if (st.slowT > 0){ nx = trunc(nx * SLOW_NUM / SLOW_DEN); ny = trunc(ny * SLOW_NUM / SLOW_DEN); }
+    /* velOf on any allowed di at >= SP_MIN is non-zero on both axes, but floor
+       the step to at least one subunit per axis as a belt-and-braces guard. */
+    if (nx === 0) nx = DIR_X[ball.di] > 0 ? 1 : -1;
+    if (ny === 0) ny = DIR_Y[ball.di] > 0 ? 1 : -1;
+    ball.x += nx; ball.y += ny;
+    st.stalls++;                               /* count it for the test proof */
+    depenetrate(st, ball);
+    containBall(st, ball, events);
+  }
   return events;
 }
 
@@ -1012,8 +1061,12 @@ function applyPowerUp(st, pad, kind){
   } else if (kind === PU.MULTI){
     if (st.balls.length < MAX_BALLS){
       const src = st.balls.length ? st.balls[0] : { x: W>>1, y: H>>1, di: 8, sp: SP_START };
-      st.balls.push({ id: st.nextBall++, x: src.x, y: src.y,
-                      di: snap(mirX(src.di)), sp: src.sp, last: -1 });
+      /* the split ball mirrors the source across x — snap() keeps it inside the
+         allowed diagonal set (never an axis), and the speed is floored to
+         SP_MIN, so the extra ball always has non-zero motion on both axes. */
+      const di = snap(mirX(src.di));
+      const sp = clamp(src.sp | 0, SP_MIN, SP_HARD) || SP_START;
+      st.balls.push({ id: st.nextBall++, x: src.x, y: src.y, di, sp, last: -1 });
       st.ev.push({ id: 'ev.multi' });
     }
   }
