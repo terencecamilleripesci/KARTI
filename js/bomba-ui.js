@@ -334,6 +334,25 @@ function injectCSS(){
       'inset 0 -8px 16px rgba(0,0,0,.5)}' +
     '#scr-party .bm-bomb.empty .bm-bomb-cd{opacity:1;background:rgba(10,7,16,.4)}' +
     '#scr-party .bm-bomb.empty .bm-bomb-l{color:rgba(255,120,120,.75)}' +
+    /* ── REMOTE / DETONATE STATE ────────────────────────────────────────
+       When the player holds REMOTE and has live (held) bombs, the button is a
+       DETONATE: a hot red gradient, an amber "DETONATE" label, and a soft pulse
+       so it plainly reads as "press to blow them all". It over-rides the empty/
+       cooling washes (a remote detonation ignores the placement cooldown), so
+       the player is never told "wait" when a detonation is available. */
+    '#scr-party .bm-bomb.detonate{background:radial-gradient(120% 120% at 40% 34%,' +
+      '#6A1420 0%,#3A0A12 70%,#22060A 100%);color:#fff;' +
+      'box-shadow:0 8px 22px rgba(255,74,60,.35),inset 0 0 0 2px rgba(255,74,60,.7),' +
+      'inset 0 -8px 16px rgba(0,0,0,.5)}' +
+    '#scr-party .bm-bomb.detonate .bm-bomb-cd{opacity:0}' +
+    '#scr-party .bm-bomb.detonate .bm-bomb-l{color:#FF6B5A}' +
+    '#scr-party .bm-bomb.detonate:not(.rm){animation:bm-det 1s var(--ease) infinite}' +
+    '@keyframes bm-det{0%,100%{box-shadow:0 8px 22px rgba(255,74,60,.35),' +
+      'inset 0 0 0 2px rgba(255,74,60,.7),inset 0 -8px 16px rgba(0,0,0,.5)}' +
+      '50%{box-shadow:0 8px 26px rgba(255,74,60,.6),' +
+      'inset 0 0 0 3px rgba(255,120,90,.95),inset 0 -8px 16px rgba(0,0,0,.5)}}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .bm-bomb.detonate{animation:none}}' +
+    'body.reduced #scr-party .bm-bomb.detonate{animation:none}' +
     /* reduced motion: no animated sweep — a flat wash while not-ready */
     '#scr-party .bm-bomb.rm.cooling .bm-bomb-cd{background:rgba(10,7,16,.5)}' +
     '@media (prefers-reduced-motion:reduce){#scr-party .bm-bomb.cooling .bm-bomb-cd{' +
@@ -1345,6 +1364,21 @@ function dropBomb(){
   if (!M || M.dead || M.finished) return;
   const pl = M.st.players[M.me];
   if (!pl || !pl.alive) return;
+
+  /* REMOTE DETONATE. When the player holds REMOTE and has laid every bomb it
+     can (live >= bombs, live > 0), the button is a DETONATE, not a place: the
+     same drop byte, but the engine reads it as "tip off everything I own"
+     (bomba.js step 3). This MUST NOT be gated by the placement cooldown — a
+     remote detonation is always allowed, which is the whole point of the
+     power-up and the fix to "REMOTE can't detonate". Below capacity a remote
+     press falls through and PLACES another held bomb (so you bank a cluster,
+     then detonate the lot). */
+  if (pl.remote && pl.live >= pl.bombs && pl.live > 0){
+    M.want.drop = true;
+    flashBomb();
+    return;
+  }
+
   /* a tap while the placement cooldown is running (or with no bombs spare)
      cannot place — give a subtle "not yet" nudge instead of a false flash,
      and do NOT set the drop flag (the engine would ignore it anyway, but
@@ -1399,15 +1433,33 @@ function paintBombBtn(){
   const st = M && M.st;
   const pl = st && st.players[M.me];
   if (!pl || !pl.alive || M.finished){
-    b.classList.remove('cooling', 'empty');
+    b.classList.remove('cooling', 'empty', 'detonate');
     b.style.removeProperty('--cd');
+    setBombLabel(false);
     if (b.disabled) b.disabled = false;
     return;
   }
+  b.classList.toggle('rm', noMotion());
+
+  /* REMOTE: holding remote with a FULL bank of held bombs (live >= bombs) turns
+     the button into a DETONATE. It takes precedence over cooling/empty — a
+     remote detonation is never gated by the placement cooldown, so the player
+     sees "press to blow them all", not a "wait" or "out" wash. Below capacity
+     the button is a normal PLACE (you are still laying the cluster). */
+  const detonate = pl.remote && pl.live >= pl.bombs && pl.live > 0;
+  if (detonate){
+    b.classList.add('detonate');
+    b.classList.remove('cooling', 'empty');
+    b.style.removeProperty('--cd');
+    setBombLabel(true);
+    return;
+  }
+  b.classList.remove('detonate');
+  setBombLabel(false);
+
   const CD = (E.PLACE_CD | 0) || 6;
   const cooling = pl.pcd > 0;
   const empty = !cooling && pl.live >= pl.bombs;   /* capacity used, not cooling */
-  b.classList.toggle('rm', noMotion());
   if (cooling){
     /* fraction of the cooldown already elapsed: 0 just after a drop,
        approaching 1 as it clears — the sweep shrinks toward gone. */
@@ -1420,6 +1472,23 @@ function paintBombBtn(){
     b.style.removeProperty('--cd');
     b.classList.toggle('empty', empty);
   }
+}
+
+/* swap the bomb button's label between BOMB and DETONATE (remote mode). Keeps
+   the aria-label in sync so a screen reader also knows the verb changed. Only
+   touches the DOM when it actually changes, so it is cheap to call every frame. */
+function setBombLabel(det){
+  if (!UI || !UI.bomb) return;
+  const want = det ? 'det' : 'bomb';
+  if (UI.bombMode === want) return;
+  UI.bombMode = want;
+  const l = UI.bomb.querySelector('.bm-bomb-l');
+  if (l) l.textContent = det ? T('DETONATE', 'FAQQA’') : T('BOMB', 'BOMBA');
+  try {
+    UI.bomb.setAttribute('aria-label', det
+      ? T('Detonate your bombs', 'Faqqa’ l-bombi tiegħek')
+      : T('Drop a bomb', 'Waddab bomba'));
+  } catch(e){}
 }
 
 function wireControls(){
@@ -1555,6 +1624,10 @@ function rulesFor(){
       'Il-power-ups, bl-ittra tagħhom: <b>B</b> bomba, <b>R</b> firxa, <b>S</b> ħeffa, ' +
       '<b>K</b> daqqa, <b>D</b> remote, <b>P</b> nifed, <b>H</b> tarka, <b>M</b> mega. ' +
       'Għaddi minn fuqu biex taqbdu — tidher tikketta ta’ x’ġibt.'),
+    T('With <b>remote</b>, your bombs do not go off on their own — they wait. The bomb button ' +
+      'turns into <b>DETONATE</b>: press it to blow them all at once, whenever you choose.',
+      'Bir-<b>remote</b>, il-bombi tiegħek ma jisplodux waħedhom — jistennew. Il-buttuna ssir ' +
+      '<b>FAQQA’</b>: agħfasha biex tfaqqagħhom kollha f’daqqa, meta trid int.'),
     T('<b>Last player standing wins.</b> If a round drags, <b>sudden death</b> walls the arena ' +
       'in, ring by ring, until it ends.',
       '<b>L-aħħar wieħed jirbaħ.</b> Jekk ir-round jittawwal, <b>mewt f’daqqa</b> ddawwar ' +

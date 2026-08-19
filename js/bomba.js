@@ -182,6 +182,15 @@ const BOMB_FUSE   = 48;        /* ticks from drop to detonation (3.0s) —  */
    PLACEMENT only: REMOTE detonation, kick, pierce and mega are unaffected. */
 const PLACE_CD    = 6;         /* ticks a player must wait between drops   */
 const BLAST_LIFE  = 9;         /* ticks a blast cell stays lethal (~0.56s)*/
+/* SHIELD grace: when a ward saves a player, a blast cell stays lethal for
+   BLAST_LIFE ticks — so without a grace window a stationary shielded player
+   would just be killed by the SAME lingering blast on the very next tick, and
+   the ward would "eat one tick" instead of "survive one blast". So a save
+   grants a brief invulnerability (pl.inv ticks) that lets the player walk off
+   the blast. It is set to BLAST_LIFE so one ward genuinely survives one whole
+   blast instance; it counts down every tick, is a plain integer, and is folded
+   into hashState — a deterministic sim rule, never a clock. */
+const SHIELD_GRACE = BLAST_LIFE;
 const START_BOMBS = 1;
 const START_RANGE = 1;
 const MAX_RANGE   = 9;
@@ -604,6 +613,10 @@ function newMatch(opts, seed){
       remote: false,      /* hold bombs; a drop-press with none to place detonates all */
       pierce: false,      /* blast passes through blocks; kicked bombs roll through */
       shield: 0,          /* one-hit wards banked (0 or more)                        */
+      inv: 0,             /* invulnerability ticks left after a shield save (grace   */
+                          /* so a stationary player can walk off the lingering blast */
+                          /* rather than be killed by it the very next tick). Integer,*/
+                          /* ticked down each step, folded into hashState.           */
       mega: 0,            /* MEGA bombs banked; the next drop spends one             */
       diedTick: -1,
       /* AI memory: last input we synthesised, for prediction/repeat */
@@ -761,6 +774,9 @@ function step(st, frame){
     players[i].lastIn = byte;
     ins[i] = decodeInput(byte);
     if (players[i].pcd > 0) players[i].pcd--;
+    /* shield-save invulnerability grace counts down here too — same monotone
+       integer treatment as pcd, once per player per tick, folded into the hash. */
+    if (players[i].inv > 0) players[i].inv--;
   }
 
   /* 2. move */
@@ -780,8 +796,15 @@ function step(st, frame){
     const pl = players[i];
     if (!pl.alive || !ins[i].drop) continue;
 
-    /* REMOTE detonation: pressing drop with your bombs held (remote on) and
-       nothing left to place tips off everything you own, at once. */
+    /* REMOTE. A REMOTE player's bombs are HELD (their fuse is frozen — see
+       step 5 — so they never auto-explode); you BANK them, then set them all
+       off on command. A drop-press is a DETONATE when you have bombs live and
+       NONE left to place (live >= bombs, live > 0): it tips off every bomb you
+       own at once. Below capacity a drop-press instead PLACES another held bomb
+       (so you can lay a whole cluster, then detonate the lot). Detonation is
+       NOT gated by the placement cooldown (which gates PLACEMENT only) — a
+       remote player must always be able to fire on command. Deterministic: a
+       pure test on integer sim state, folded into hashState via bomb.held. */
     if (pl.remote && pl.live >= pl.bombs && pl.live > 0){
       for (const b of st.bombs) if (b.seat === pl.seat) remoteFire.push(b);
       continue;
@@ -803,7 +826,12 @@ function step(st, frame){
       range: Math.min(MAX_RANGE + MEGA_BONUS, pl.range + (useMega ? MEGA_BONUS : 0)),
       moving: NO_DIR,
       /* a bomb remembers its owner's pierce so its blast eats a line */
-      pierce: pl.pierce || useMega
+      pierce: pl.pierce || useMega,
+      /* HELD: a bomb dropped while its owner holds REMOTE waits — its fuse is
+         frozen and only a remote-press (above) sets it off. A MEGA bomb is a
+         spend-now burst and is NEVER held, even with remote, so its shorter
+         fuse still fires on its own — remote + mega = a timed mega, by design. */
+      held: (pl.remote && !useMega)
     });
     pl.live++;
     pl.pcd = PLACE_CD;    /* start the placement cooldown (deterministic) */
@@ -812,14 +840,19 @@ function step(st, frame){
   /* 4. advance kicked bombs one step, ascending cell index (T6) */
   moveBombs(st);
 
-  /* 5. fuses */
+  /* 5. fuses. A HELD bomb (dropped under REMOTE) does not count down and never
+     becomes due on its own — it waits for its owner's detonate press. Every
+     other bomb ticks and detonates when its fuse runs out, exactly as before. */
   const due = [];
   for (const b of st.bombs){
+    if (b.held) continue;                 /* remote-held: fuse frozen */
     b.fuse--;
     if (b.fuse <= 0) due.push(b);
   }
-  /* remote-fired bombs join the due set this tick (dedup by identity) */
-  for (const b of remoteFire) if (b.fuse > 0 && due.indexOf(b) < 0) due.push(b);
+  /* remote-fired bombs join the due set this tick (dedup by identity). A remote
+     press clears `held` so the bomb is a normal detonation from here (it also
+     chains normally into any neighbour, held or not, via detonate()). */
+  for (const b of remoteFire){ b.held = false; if (due.indexOf(b) < 0) due.push(b); }
 
   /* 6. detonate to a fixed point (chains T1/T2) */
   if (due.length) detonate(st, due);
@@ -833,13 +866,18 @@ function step(st, frame){
   st.blasts = keep;
 
   /* 8. deaths (T3). SHIELD: a banked ward eats the killing blast and is
-     spent; the player lives THIS tick. Deterministic — checked in seat
-     order, one ward per lethal tick. (A player standing in blast on the
-     tick AFTER, with no ward left, dies as normal.) */
+     spent; the player lives, AND is granted SHIELD_GRACE ticks of
+     invulnerability so it can walk off the lingering blast (a blast cell is
+     lethal for BLAST_LIFE ticks — without the grace the same blast would kill
+     the stationary player next tick and the ward would only ever buy one tick).
+     While inv > 0 a player is immune to blasts and burns no ward — so one ward
+     genuinely survives one whole blast. Deterministic — checked in seat order,
+     inv/shield are plain integers folded into hashState. */
   for (const pl of players){
     if (!pl.alive) continue;
     if (burningAt(st, pl.col, pl.row)){
-      if (pl.shield > 0){ pl.shield--; continue; }
+      if (pl.inv > 0) continue;                       /* still under a ward's grace */
+      if (pl.shield > 0){ pl.shield--; pl.inv = SHIELD_GRACE; continue; }
       pl.alive = false; pl.diedTick = st.tick;
     }
   }
@@ -1238,7 +1276,13 @@ function spiralOrder(mp){
 function bombOnsets(st){
   const mp = st.map;
   const bs = st.bombs;
-  const onset = bs.map(b => b.fuse);
+  /* a HELD (remote) bomb never fires on its own, so its self-onset is
+     Infinity — the danger map must not paint it as "about to blow", or an AI
+     would flee its own held bomb forever and the telegraph would lie. It can
+     still be pulled EARLIER by a chain: the fixed point below lowers it to the
+     onset of any (non-held) bomb whose cross reaches it, so a held bomb that
+     WILL be set off by a nearby real blast is modelled correctly. */
+  const onset = bs.map(b => b.held ? Infinity : b.fuse);
   /* precompute each bomb's cross cells (blocked by pillar, stop after a
      block) so chain detection is a cell membership test */
   const cross = bs.map(b => {
@@ -1595,10 +1639,10 @@ function hashState(st){
     acc.push(p.seat, p.col, p.row, p.ox, p.oy, p.alive ? 1 : 0,
              p.bombs, p.live, p.range, p.speed, p.kick ? 1 : 0, p.dir, p.moving,
              p.buf, p.remote ? 1 : 0, p.pierce ? 1 : 0, p.shield | 0, p.mega | 0,
-             p.pcd | 0);
+             p.pcd | 0, p.inv | 0);
   /* bombs and blasts in cell order so array order cannot leak in */
   const bs = st.bombs.slice().sort((a, b) => (a.row * st.map.cols + a.col) - (b.row * st.map.cols + b.col));
-  for (const b of bs) acc.push(1000 + b.col, b.row, b.seat, b.fuse, b.range, b.moving, b.pierce ? 1 : 0);
+  for (const b of bs) acc.push(1000 + b.col, b.row, b.seat, b.fuse, b.range, b.moving, b.pierce ? 1 : 0, b.held ? 1 : 0);
   const bl = st.blasts.slice().sort((a, b) => (a.row * st.map.cols + a.col) - (b.row * st.map.cols + b.col));
   for (const x of bl) acc.push(2000 + x.col, x.row, x.life);
   const N = st.map.cols * st.map.rows;
