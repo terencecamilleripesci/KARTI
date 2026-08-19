@@ -295,8 +295,11 @@ function injectCSS(){
     '#scr-party .lu-wrap{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;' +
       'gap:5px;padding:6px 6px 7px;position:relative}' +
 
-    /* ── the rail of seats across the top ── */
-    '#scr-party .lu-seats{flex:0 0 auto;display:flex;gap:5px;overflow-x:auto;overflow-y:hidden;' +
+    /* ── the rail of seats across the top. width:100%+min-width:0 pins it
+       to the board width so 6/8 chips scroll INSIDE the strip and never
+       push the screen wider (no horizontal page overflow). ── */
+    '#scr-party .lu-seats{flex:0 0 auto;width:100%;min-width:0;max-width:100%;' +
+      'box-sizing:border-box;display:flex;gap:5px;overflow-x:auto;overflow-y:hidden;' +
       'padding:2px 2px 3px;-webkit-overflow-scrolling:touch;scrollbar-width:none}' +
     '#scr-party .lu-seats::-webkit-scrollbar{display:none}' +
     '#scr-party .lu-seat{flex:0 0 auto;position:relative;display:flex;align-items:center;gap:6px;' +
@@ -326,9 +329,10 @@ function injectCSS(){
       '-webkit-tap-highlight-color:transparent;' +
       'filter:drop-shadow(0 10px 26px rgba(0,0,0,.5))}' +
     '#scr-party .lu-disc{fill:url(#lu-discg);stroke:rgba(0,0,0,.5);stroke-width:.5}' +
-    '#scr-party .lu-cell{fill:rgba(255,255,255,.05);stroke:rgba(255,255,255,.11);stroke-width:.28}' +
-    '#scr-party .lu-cell.safe{fill:rgba(255,255,255,.14);stroke:rgba(255,255,255,.30)}' +
-    '#scr-party .lu-home{stroke:rgba(0,0,0,.35);stroke-width:.3}' +
+    '#scr-party .lu-cell{fill:rgba(255,255,255,.11);stroke:rgba(255,255,255,.22);stroke-width:.4}' +
+    '#scr-party .lu-cell.safe{fill:rgba(255,255,255,.2);stroke:rgba(255,255,255,.4)}' +
+    '#scr-party .lu-home{stroke-width:.5}' +
+    '#scr-party .lu-yard{stroke-linejoin:round}' +
     '#scr-party .lu-well{opacity:.9}' +
     '#scr-party .lu-goal{stroke:rgba(255,255,255,.5);stroke-width:.4}' +
     /* a legal destination pulses a gold ring — compositor transform only */
@@ -460,26 +464,127 @@ function injectCSS(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE BOARD — drawn from the engine's layout(). layout(n) returns polar
-   coords (a in turns, r in 0..1) and an xy(a,r) helper; we map that into
-   an SVG viewBox centred on 0,0 with radius 100. Nothing about the
-   geometry is invented here — it is the engine's own numbers, so the
-   picture cannot disagree with the rules.
+   THE BOARD — an AUTHENTIC Ludo layout, built from the engine's ring
+   topology (layout().ring carries sector / role / jj for every square,
+   and the seats carry entry / turnoff / colour). The engine's polar
+   a/r is a rosette; the header says a UI that wants the REAL board may
+   ignore a/r and rebuild the picture from sector+role+jj — which is
+   exactly what geom() does here, so the drawing is a genuine Ludo
+   board (a cross at P=4, a hexagon at P=6, an octagon at P=8) while the
+   RULES stay the engine's and cannot disagree.
+
+   ── HOW AN ARM IS BUILT ────────────────────────────────────────────
+   The board is P identical ARMS radiating from the centre, one per
+   seat, at angle θ_k = k/P of a full turn (0 = straight up, clockwise).
+   Each arm is a three-lane corridor:
+       · LEADING rail  (+side)  — seat k enters here and climbs OUTWARD
+       · HOME column   (centre) — seat k's coloured lane to the finish
+       · TRAILING rail (-side)  — the previous sector comes back INWARD
+   A ring square's screen slot is read straight off the engine sector:
+       out  cell  (sector k, jj) → arm k, LEADING  rail, ring row jj
+       corner     (sector k)     → the tip square between arm k & k+1
+       in   cell  (sector k, jj) → arm k+1, TRAILING rail, row L-1-jj
+   so seat k+1's entry (start of sector k+1, a leading-rail inner cell)
+   and its turnoff (end of sector k, a trailing-rail inner cell) FLANK
+   arm k+1's home-column mouth exactly as on a real board. A big
+   coloured YARD square sits at each arm's outer base holding the four
+   parked tokens; the centre is the P-way coloured finish.
    ═══════════════════════════════════════════════════════════════════ */
 const VB = 240, C = VB / 2, RAD = 112;   /* viewBox, centre, board radius */
 function layoutFor(st){
   return E.layout(st.n, st.homeLen, st.safeMode);
 }
-/* an engine polar point → svg px */
+/* an engine polar point → svg px (kept for the hero badge fallback) */
 function pxOf(lay, a, r){
   const p = lay.xy(a, r);
   return { x: C + p.x * RAD, y: C + p.y * RAD };
 }
 
-/* the ring square path — a small rounded rect, oriented is not needed at
-   phone size; a disc reads cleaner and never seams */
-function cellR(lay){ return Math.max(4.4, 7.2 - lay.P * 0.28); }
-function tokR(lay){ return cellR(lay) * 0.86; }
+/* the authentic geometry, memoised per (P, H). Returns, in board px:
+     ring[i]  = {x,y} for every ring square i
+     col[k]   = [{x,y}...] home-column cells for seat k (mouth→finish)
+     home[k]  = {x,y} the seat's spot in the centre finish
+     yard[k]  = {cx,cy,size,slots:[{x,y}...]} the corner home yard
+     arm[k]   = {ux,uy,vx,vy,theta} arm unit vectors, for arrows etc.
+     cell     = the ring-square radius; tok = the token radius
+   Pure trig from the topology numbers, so it agrees with the rules. */
+const GEOM = {};
+function geom(lay){
+  const P = lay.P, L = lay.L, H = lay.H, R = lay.R;
+  const key = P + '|' + H;
+  if (GEOM[key]) return GEOM[key];
+
+  /* ── WORK IN GRID UNITS OF ONE "GAP", THEN AUTO-SCALE TO THE DISC ──
+     A gap is the centre-to-centre spacing of two neighbouring cells.
+     Everything below is expressed in gaps; the whole thing is scaled so
+     the widest point (a corner yard) touches the fit radius. This is why
+     the same code fits a 4-, 6- and 8-arm board with no overflow. */
+  const lane   = 0.5;                        /* half a gap, the rail offset  */
+  const rIn    = (P <= 4 ? 1.4 : P <= 6 ? 2.0 : 2.7);  /* mouth radius, gaps  */
+  const rOut   = rIn + (L - 1);              /* outermost rail row, gaps      */
+  const yardOut = 1.35, ySizeU = 1.7;        /* yard offset & size, gaps      */
+  const maxU   = yardOut + rOut + ySizeU * 0.5 * 1.42; /* widest point, gaps  */
+  const gap    = ((VB / 2) - 3) / maxU;      /* px per gap                    */
+  const cell   = gap * 0.46;                 /* the drawn cell radius (px)    */
+
+  /* ARMS carry the home columns & yards (angle k/P); CHANNELS carry the
+     track wedge between two arms (angle (k+0.5)/P). Placing a sector's
+     out AND in rails in the SAME channel makes the U-turn at the tip a
+     tight, continuous corner — a real Ludo track, not a rosette. */
+  const dir = th => ({ theta: th, ux: Math.sin(th), uy: -Math.cos(th),
+                       vx: Math.cos(th),  vy: Math.sin(th) });
+  const arm = [], chan = [];
+  for (let k = 0; k < P; k++){
+    arm.push(dir((k / P) * 2 * Math.PI));
+    chan.push(dir(((k + 0.5) / P) * 2 * Math.PI));
+  }
+  const atArm  = (k, r, l) => ({ x: C + arm[k].ux * r * gap + arm[k].vx * l * gap,
+                                 y: C + arm[k].uy * r * gap + arm[k].vy * l * gap });
+  const atChan = (k, r, l) => ({ x: C + chan[k].ux * r * gap + chan[k].vx * l * gap,
+                                 y: C + chan[k].uy * r * gap + chan[k].vy * l * gap });
+
+  const ring = new Array(R);
+  for (let i = 0; i < R; i++){
+    const rc = lay.ring[i], k = rc.sector;
+    if (rc.role === 'out')       ring[i] = atChan(k, rIn + rc.jj, -lane);
+    else if (rc.role === 'corner') ring[i] = atChan(k, rOut + 0.5, 0);
+    else                         ring[i] = atChan(k, rIn + ((L - 1) - rc.jj), +lane);
+  }
+
+  /* home columns: seat k's lane runs up the CENTRE of arm k, from the
+     mouth (just inside the rails) to just short of the finish. */
+  const col = [], home = [];
+  const mouth = rIn - 0.1, finishR = 0.7;
+  for (let k = 0; k < P; k++){
+    const cells = [], span = mouth - finishR;
+    for (let c = 0; c < H - 1; c++)
+      cells.push(atArm(k, mouth - (span * (c + 0.5)) / (H - 1), 0));
+    col.push(cells);
+    home.push(atArm(k, finishR * 0.42, 0));   /* the seat's wedge of the star */
+  }
+
+  /* the yards: a big square at each arm's outer base, four parked tokens
+     in a 2x2 ring inside it. Sits OUTSIDE the rails, in the corner. */
+  const yard = [];
+  const yardR = rOut + yardOut;
+  for (let k = 0; k < P; k++){
+    const c = atArm(k, yardR, 0), a = arm[k], s = ySizeU * 0.28;
+    const slots = [
+      atArm(k, yardR - s, -s), atArm(k, yardR - s, +s),
+      atArm(k, yardR + s, -s), atArm(k, yardR + s, +s)
+    ];
+    yard.push({ cx: c.x, cy: c.y, size: ySizeU * gap, theta: a.theta, slots });
+  }
+
+  const out = { P, L, H, R, cell, tok: cell * 0.86, gap, ring, col, home, yard, arm,
+                finishR: finishR * gap, rIn, rOut, lane };
+  GEOM[key] = out;
+  return out;
+}
+
+/* the ring square / token radii — now taken from the authentic geometry */
+function cellR(lay){ return geom(lay).cell; }
+function tokR(lay){ return geom(lay).tok; }
 
 /* one die face, pips lit */
 function dieFace(n){
@@ -628,16 +733,37 @@ function paintSeats(){
   }).join('');
 }
 
+/* a five-point star path centred at (cx,cy), outer radius ro */
+function starPath(cx, cy, ro){
+  const ri = ro * 0.42;
+  let d = '';
+  for (let i = 0; i < 10; i++){
+    const r = i % 2 ? ri : ro;
+    const a = -Math.PI / 2 + i * Math.PI / 5;
+    d += (i ? 'L' : 'M') + (cx + r * Math.cos(a)).toFixed(1) + ' ' + (cy + r * Math.sin(a)).toFixed(1);
+  }
+  return d + 'Z';
+}
+/* a rounded-square path centred at (cx,cy), half-size hs, rotation th (rad) */
+function sqCell(cx, cy, hs, th){
+  const co = Math.cos(th || 0), si = Math.sin(th || 0);
+  const pts = [[-hs,-hs],[hs,-hs],[hs,hs],[-hs,hs]].map(([x,y]) =>
+    [cx + x * co - y * si, cy + x * si + y * co]);
+  /* a crisp rotated square — reads as a Ludo board cell */
+  return 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L') + 'Z';
+}
+
 function paintBoard(){
-  const st = M.st, lay = layoutFor(st);
-  const cr = cellR(lay), tr = tokR(lay);
+  const st = M.st, lay = layoutFor(st), g = geom(lay);
+  const cr = g.cell, tr = g.tok;
   const pend = E.pending(st);
   const myTurn = !E.over(st) && isLocal(E.turn(st));
   const canMove = myTurn && pend.phase === 'move';
   const legalToks = {};   /* seat:tok -> destination px, for hints */
   if (canMove) pend.moves.forEach(m => { legalToks[E.turn(st) + ':' + m.k] = m; });
+  const hs = cr * 0.94;               /* half-size of a ring/home cell   */
 
-  /* the disc */
+  /* the board disc */
   let s = '<svg class="lu-svg" id="lu-svg" viewBox="0 0 ' + VB + ' ' + VB + '" ' +
     'xmlns="http://www.w3.org/2000/svg" aria-label="' +
     esc(T('The Ludo board', 'It-tabellun tal-Ludu')) + '">' +
@@ -648,40 +774,69 @@ function paintBoard(){
     '</defs>' +
     '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
 
-  /* the seat wells + goal triangles at the rim, in seat colour */
-  lay.seats.forEach(se => {
-    const hx = hexOf(se.colour);
-    const yard = pxOf(lay, se.axis, 0.995);
-    s += '<circle class="lu-well" cx="' + yard.x.toFixed(1) + '" cy="' + yard.y.toFixed(1) +
-      '" r="' + (cr * 2.1).toFixed(1) + '" fill="' + esc(hx) + '" fill-opacity="0.16" ' +
-      'stroke="' + esc(hx) + '" stroke-opacity="0.5" stroke-width="0.7"/>';
-    /* the home goal near the centre */
-    const g = pxOf(lay, se.axis, 0.06);
-    s += '<circle class="lu-goal" cx="' + g.x.toFixed(1) + '" cy="' + g.y.toFixed(1) +
-      '" r="' + (cr * 0.9).toFixed(1) + '" fill="' + esc(hx) + '" fill-opacity="0.5"/>';
-    /* the home column path, tinted */
-    se.col.forEach(cc => {
-      const p = pxOf(lay, cc.a, cc.r);
-      s += '<circle class="lu-home" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) +
-        '" r="' + (cr * 0.72).toFixed(1) + '" fill="' + esc(hx) + '" fill-opacity="0.22"/>';
+  /* ── the coloured HOME YARDS at each arm base ── */
+  g.yard.forEach((y, k) => {
+    const hx = hexOf(colourFor(st, k));
+    const half = y.size / 2;
+    s += '<path class="lu-yard" d="' + sqCell(y.cx, y.cy, half, y.theta) + '" ' +
+      'fill="' + esc(hx) + '" fill-opacity="0.20" stroke="' + esc(hx) +
+      '" stroke-opacity="0.85" stroke-width="1.3" stroke-linejoin="round"/>' +
+      '<path d="' + sqCell(y.cx, y.cy, half * 0.62, y.theta) + '" fill="none" ' +
+      'stroke="' + esc(hx) + '" stroke-opacity="0.35" stroke-width="0.8"/>';
+  });
+
+  /* ── the coloured HOME COLUMNS (each seat's lane to the centre) ── */
+  g.col.forEach((cells, k) => {
+    const hx = hexOf(colourFor(st, k));
+    cells.forEach(cc => {
+      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, hs, g.arm[k].theta) +
+        '" fill="' + esc(hx) + '" fill-opacity="0.42" stroke="' + esc(hx) +
+        '" stroke-opacity="0.55"/>';
     });
   });
 
-  /* the travel ring */
-  lay.ring.forEach(rc => {
-    const p = pxOf(lay, rc.a, rc.r);
-    let cls = 'lu-cell' + (rc.safe ? ' safe' : '');
-    let extra = '';
+  /* ── the centre FINISH: a P-way coloured star of wedges ── */
+  const fr = g.finishR * 1.9;
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + fr.toFixed(1) +
+    '" fill="rgba(0,0,0,.30)" stroke="rgba(255,255,255,.18)" stroke-width="0.7"/>';
+  for (let k = 0; k < g.P; k++){
+    const hx = hexOf(colourFor(st, k));
+    const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
+    const a1 = g.arm[k].theta - Math.PI / 2 + Math.PI / g.P;
+    const p0 = { x: C + fr * Math.cos(a0), y: C + fr * Math.sin(a0) };
+    const p1 = { x: C + fr * Math.cos(a1), y: C + fr * Math.sin(a1) };
+    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(1) + ' ' +
+      p0.y.toFixed(1) + 'L' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'Z" ' +
+      'fill="' + esc(hx) + '" fill-opacity="0.72"/>';
+  }
+
+  /* ── the travel RING, square cells; entries tinted, stars starred ── */
+  lay.ring.forEach((rc, i) => {
+    const p = g.ring[i];
+    const th = g.arm[(rc.role === 'in' ? (rc.sector + 1) % g.P : rc.sector)].theta;
+    let extra = '', cls = 'lu-cell' + (rc.safe ? ' safe' : '');
     if (rc.entryOf != null){
       const hx = hexOf(colourFor(st, rc.entryOf));
-      extra = ' fill="' + esc(hx) + '" fill-opacity="0.28"';
+      extra = ' fill="' + esc(hx) + '" fill-opacity="0.55" stroke="' + esc(hx) +
+        '" stroke-opacity="0.9" stroke-width="0.8"';
     }
-    s += '<circle class="' + cls + '" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) +
-      '" r="' + cr.toFixed(1) + '"' + extra + '/>';
+    s += '<path class="' + cls + '" d="' + sqCell(p.x, p.y, hs, th) + '"' + extra + '/>';
     if (rc.safe && rc.entryOf == null){
-      /* a small star mark for the neutral safe squares */
-      s += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' +
-        (cr * 0.28).toFixed(1) + '" fill="rgba(255,255,255,.55)"/>';
+      /* a real star mark for the neutral safe squares */
+      s += '<path d="' + starPath(p.x, p.y, cr * 0.62) +
+        '" fill="rgba(255,255,255,.62)" stroke="rgba(0,0,0,.25)" stroke-width="0.3"/>';
+    }
+    if (rc.entryOf != null){
+      /* a small outward arrow on each start square, direction of travel */
+      const a = g.arm[rc.entryOf];
+      const tip = { x: p.x + a.ux * cr * 0.5, y: p.y + a.uy * cr * 0.5 };
+      const b1 = { x: p.x - a.ux * cr * 0.18 + a.vx * cr * 0.34,
+                   y: p.y - a.uy * cr * 0.18 + a.vy * cr * 0.34 };
+      const b2 = { x: p.x - a.ux * cr * 0.18 - a.vx * cr * 0.34,
+                   y: p.y - a.uy * cr * 0.18 - a.vy * cr * 0.34 };
+      s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
+        b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
+        b2.y.toFixed(1) + 'Z" fill="rgba(255,255,255,.85)"/>';
     }
   });
 
@@ -691,22 +846,15 @@ function paintBoard(){
   const stackAt = {};
   const posOf = tk => {
     if (tk.where === 'yard'){
-      const ySeat = lay.seats[tk.seat];
-      const slot = ySeat.yard[tk.tok % ySeat.yard.length];
-      return pxOf(lay, slot.a, slot.r);
+      const y = g.yard[tk.seat];
+      return y.slots[tk.tok % y.slots.length];
     }
-    if (tk.where === 'home'){
-      const g = lay.seats[tk.seat].home;
-      return pxOf(lay, g.a, 0.06);
-    }
+    if (tk.where === 'home') return g.home[tk.seat];
     if (tk.where === 'col'){
-      const col = lay.seats[tk.seat].col;
-      const cc = col[Math.min(tk.col, col.length - 1)];
-      return pxOf(lay, cc.a, cc.r);
+      const col = g.col[tk.seat];
+      return col[Math.min(tk.col, col.length - 1)];
     }
-    /* ring */
-    const rc = lay.ring[tk.ring];
-    return pxOf(lay, rc.a, rc.r);
+    return g.ring[tk.ring];   /* ring */
   };
 
   toks.forEach(tk => {
@@ -754,19 +902,16 @@ function colourFor(st, seat){
 }
 
 /* where a legal move lands, in board px — mirror the engine's tokens()
-   mapping for the destination position `to` */
+   mapping for the destination position `to`, on the authentic geometry */
 function destPx(st, lay, seat, m){
-  const bd = E.bdOf(st), R = lay.R, HOME = lay.HOME;
+  const bd = E.bdOf(st), g = geom(lay), R = lay.R, HOME = lay.HOME;
   const to = m.to;
-  if (to === HOME){ const g = lay.seats[seat].home; return pxOf(lay, g.a, 0.06); }
+  if (to === HOME) return g.home[seat];
   if (to > R - 1){
-    const col = lay.seats[seat].col;
-    const cc = col[Math.min(to - R, col.length - 1)];
-    return pxOf(lay, cc.a, cc.r);
+    const col = g.col[seat];
+    return col[Math.min(to - R, col.length - 1)];
   }
-  const ri = bd.sq(seat, to);
-  const rc = lay.ring[ri];
-  return pxOf(lay, rc.a, rc.r);
+  return g.ring[bd.sq(seat, to)];
 }
 
 function onBoardTap(e){
@@ -1046,10 +1191,15 @@ function setRules(open){
    ═══════════════════════════════════════════════════════════════════ */
 const SIZES = (E.SIZES && E.SIZES.length) ? E.SIZES : [4, 6, 8];
 
-/* the rosette badge, drawn from a layout at the chosen size */
+/* the board badge for the setup sheet — the AUTHENTIC layout in
+   miniature (a cross at 4, a hexagon at 6, an octagon at 8), so the
+   preview is the real board the player is about to get. Colours use
+   the default seat order (no live state on the setup sheet). */
 function heroSVG(n){
   const lay = E.layout(n, E.HOME_LEN, 'stars');
-  const cr = cellR(lay);
+  const g = geom(lay);
+  const cr = g.cell, hs = cr * 0.94;
+  const hx = k => hexOf((COLOURS[k % COLOURS.length] || {}).id);
   let s = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" xmlns="http://www.w3.org/2000/svg" ' +
     'aria-hidden="true">' +
     '<defs><radialGradient id="lu-herog" cx="50%" cy="35%" r="72%">' +
@@ -1057,19 +1207,34 @@ function heroSVG(n){
     '</radialGradient></defs>' +
     '<circle cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '" fill="url(#lu-herog)" ' +
     'stroke="rgba(0,0,0,.5)" stroke-width="0.6"/>';
-  lay.seats.forEach(se => {
-    const hx = hexOf(se.colour);
-    const y = pxOf(lay, se.axis, 0.99);
-    s += '<circle cx="' + y.x.toFixed(1) + '" cy="' + y.y.toFixed(1) + '" r="' +
-      (cr * 2).toFixed(1) + '" fill="' + esc(hx) + '" fill-opacity="0.7"/>';
-    const g = pxOf(lay, se.axis, 0.05);
-    s += '<circle cx="' + g.x.toFixed(1) + '" cy="' + g.y.toFixed(1) + '" r="' +
-      (cr).toFixed(1) + '" fill="' + esc(hx) + '"/>';
+  /* yards */
+  g.yard.forEach((y, k) => {
+    s += '<path d="' + sqCell(y.cx, y.cy, y.size / 2, y.theta) + '" fill="' + esc(hx(k)) +
+      '" fill-opacity="0.55" stroke="' + esc(hx(k)) + '" stroke-width="1.1"/>';
   });
-  lay.ring.forEach(rc => {
-    const p = pxOf(lay, rc.a, rc.r);
-    s += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' +
-      (cr * 0.7).toFixed(1) + '" fill="rgba(255,255,255,' + (rc.safe ? '.4' : '.14') + ')"/>';
+  /* home columns */
+  g.col.forEach((cells, k) => cells.forEach(cc => {
+    s += '<path d="' + sqCell(cc.x, cc.y, hs, g.arm[k].theta) + '" fill="' + esc(hx(k)) +
+      '" fill-opacity="0.5"/>';
+  }));
+  /* centre finish */
+  const fr = g.finishR * 1.9;
+  for (let k = 0; k < g.P; k++){
+    const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
+    const a1 = g.arm[k].theta - Math.PI / 2 + Math.PI / g.P;
+    s += '<path d="M' + C + ' ' + C + 'L' + (C + fr * Math.cos(a0)).toFixed(1) + ' ' +
+      (C + fr * Math.sin(a0)).toFixed(1) + 'L' + (C + fr * Math.cos(a1)).toFixed(1) + ' ' +
+      (C + fr * Math.sin(a1)).toFixed(1) + 'Z" fill="' + esc(hx(k)) + '" fill-opacity="0.8"/>';
+  }
+  /* ring */
+  lay.ring.forEach((rc, i) => {
+    const p = g.ring[i];
+    const th = g.arm[(rc.role === 'in' ? (rc.sector + 1) % g.P : rc.sector)].theta;
+    const fill = rc.entryOf != null ? esc(hx(rc.entryOf)) : 'rgba(255,255,255,.16)';
+    const op = rc.entryOf != null ? '0.75' : (rc.safe ? '0.5' : '0.32');
+    s += '<path d="' + sqCell(p.x, p.y, hs, th) + '" fill="' + fill + '" fill-opacity="' + op + '"/>';
+    if (rc.safe && rc.entryOf == null)
+      s += '<path d="' + starPath(p.x, p.y, cr * 0.55) + '" fill="rgba(255,255,255,.6)"/>';
   });
   return s + '</svg>';
 }
@@ -1498,7 +1663,8 @@ try { P.register(TILE); } catch(e){}
 if (/[?&]ludutest\b/.test(location.search || '')){
   window.__LUDU_TEST = {
     setupSheet, newGame, doMove, render, get M(){ return M; }, get UI(){ return UI; },
-    engine: E, LOBBY, hooks, online: P.online.ludu, leave
+    engine: E, LOBBY, hooks, online: P.online.ludu, leave,
+    geom, layoutFor
   };
 }
 
