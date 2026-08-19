@@ -95,6 +95,23 @@ const K = window.KARTI;
 if (!K) return;
 const $ = K.$, $$ = K.$$, esc = K.esc;
 const ico = n => (window.ICO ? window.ICO(n) : '');
+/* ── keep the lobby where the finger left it ────────────────────────
+   Every interaction in the lobby (pick a game, toggle ready, change a
+   seat, open a drawer) repaints by replacing innerHTML — of #mp-body,
+   or of #scr-mp which contains it. Replacing the scroller's content
+   resets its scrollTop to 0, so the list snapped back to the top on
+   every tap. keepScroll() reads #mp-body's scrollTop before a repaint
+   and puts it back after, so the view stays where the user was. It
+   is deliberately null-safe on both sides: no #mp-body (a different
+   screen), no restore; and it never scrolls PAST the new content. */
+function keepScroll(paint){
+  const before = $('#mp-body');
+  const y = before ? before.scrollTop : 0;
+  paint();
+  if (!y) return;
+  const after = $('#mp-body');
+  if (after) after.scrollTop = Math.min(y, after.scrollHeight - after.clientHeight);
+}
 /* The sound kit is somebody else's file and may not be on the phone at all.
    Never a hard dependency, never a thrown error, never an audio file added
    from here — js/sfx.js owns audio/ and this only ever asks it to play. */
@@ -1659,7 +1676,7 @@ function mpScreen(){
          bigger game must never carry across and open an odd-sized room */
       MP.wantCap = 0;
       rememberGame(g);
-      mpScreen();
+      keepScroll(mpScreen);
     };
   });
 
@@ -1668,7 +1685,7 @@ function mpScreen(){
 
   if ($('#mp-deck')){
     const opts = deckPicker($('#mp-deck'), MP.myDeckId || deckOptions()[0].id, o => {
-      MP.myDeckId = o.id; mpScreen();
+      MP.myDeckId = o.id; keepScroll(mpScreen);
     });
     if (!MP.myDeckId) MP.myDeckId = opts[0].id;
   } else if (!MP.myDeckId){
@@ -1680,9 +1697,9 @@ function mpScreen(){
     const v = (urlIn.value || '').trim();
     MP.url = v || defaultURL();
     rememberRelay(v && v !== RELAY_URL ? v : '');
-    mpScreen();
+    keepScroll(mpScreen);
   };
-  $('#mp-reset').onclick = () => { rememberRelay(''); MP.url = RELAY_URL; mpScreen(); };
+  $('#mp-reset').onclick = () => { rememberRelay(''); MP.url = RELAY_URL; keepScroll(mpScreen); };
   $('#mp-test').onclick = testServer;
 
   $('#mp-open').onclick     = () => start('create', null, null, false, MP.wantGame);
@@ -2626,6 +2643,11 @@ function tableCanStart(){
 function tableLobby(){
   const body = $('#mp-body');
   if (!body) return;
+  /* Where the finger left the list, so a repaint — a ready toggle, a seat
+     change, a drawer opening, or a roster the relay pushed — does not snap
+     the view back to the top. Read before the innerHTML swap below wipes it;
+     restored at the foot of this paint. */
+  const keepY = body.scrollTop;
   const LB = gameLobby(MP.game);
   if (!MP.roster) MP.roster = ownRoster();
   const seats = rosterSeats();
@@ -2924,6 +2946,10 @@ function tableLobby(){
          : taken + ' at the table, ' + free.length +
            (free.length === 1 ? ' chair free.' : ' chairs free.'));
   paintState();
+
+  /* put the view back where it was — clamped so a now-shorter list never
+     leaves the scroller parked past its own end. */
+  if (keepY) body.scrollTop = Math.min(keepY, body.scrollHeight - body.clientHeight);
 }
 
 /* ── THE HOST GROWS OR SHRINKS THE OPEN TABLE ──────────────────────────
