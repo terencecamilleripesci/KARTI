@@ -521,6 +521,13 @@ class L:
     # cannot be used to fan a large payload out to sixteen sockets.
     MAX_DEAL_ITEMS = 64         # size of the pool the relay will hand out
     MAX_DEAL_EACH = 8           # items any one seat may be dealt
+    # AN AUTHORITATIVE, SEAT-ADDRESSED DEAL. Some games (Il-Misteru) do not
+    # want the relay to shuffle a pool: the deal is already fixed by the host's
+    # planDeal and each seat gets a DIFFERENT opaque object — and one seat (the
+    # judge/host) gets an extra field nobody else may see (the solution). The
+    # relay carries these blobs exactly as it carries `rules`: never read, only
+    # size-capped and addressed to the right bit. One blob per seat.
+    MAX_DEAL_MINE_BYTES = 2048  # bytes, one seat's addressed private payload
 
     # AN OPAQUE RULES BLOB. The relay already carries `variant` blindly and
     # echoes it in the roster; `rules` is the same idea grown one size up — a
@@ -874,9 +881,41 @@ def v_deal(d):
     how a klikka finds its own without learning the village.
 
     The relay never inspects `v`. It does not know a role from a card.
+
+    AUTHORITATIVE, SEAT-ADDRESSED FORM. If `d` carries a "mine" map instead of
+    a pool, the deal is NOT shuffled: the host has already fixed it, and each
+    seat's own opaque payload is addressed straight to that seat's bit. This is
+    what a game needs when the seats get DIFFERENT payloads that only the host
+    knows how to pair (Il-Misteru: every seat a hand, and seat 0 additionally
+    the solution). The relay treats each payload exactly like `rules` — a small
+    JSON blob it stores and forwards without ever reading a field of it — so the
+    solution rides to the host and to nobody else because the host put it in
+    that seat's blob and no other. `mine` keys are seat-index strings ("0".."N").
     """
     if not isinstance(d, dict):
         raise Reject("deal")
+    mine = d.get("mine")
+    if mine is not None:
+        if not isinstance(mine, dict) or not (1 <= len(mine) <= L.MAX_SEATS):
+            raise Reject("deal mine")
+        addressed = {}
+        for k, payload in mine.items():
+            try:
+                seat = int(k)
+            except (TypeError, ValueError):
+                raise Reject("deal mine seat")
+            if not (0 <= seat < L.MAX_SEATS):
+                raise Reject("deal mine seat")
+            # never read a field of the payload — only prove it is a small
+            # JSON object the relay can store and hand back on a rejoin.
+            try:
+                blob = json.dumps(payload, separators=(",", ":"))
+            except (TypeError, ValueError):
+                raise Reject("deal mine payload")
+            if len(blob.encode("utf-8")) > L.MAX_DEAL_MINE_BYTES:
+                raise Reject("deal mine big")
+            addressed[seat] = payload
+        return {"mine": addressed}
     items = d.get("items")
     if not isinstance(items, list) or not (1 <= len(items) <= L.MAX_DEAL_ITEMS):
         raise Reject("deal items")
@@ -2323,7 +2362,35 @@ class RoomBook:
             # real limit and it is written down rather than pretended
             # away: a table with machines keeps no secrets FROM THE HOST.
             private = []
-            if deal is not None:
+            if deal is not None and "mine" in deal:
+                # AUTHORITATIVE, SEAT-ADDRESSED DEAL. The host fixed every seat's
+                # payload in planDeal; the relay does not shuffle and does not
+                # read a field of any payload. It just addresses each blob to its
+                # seat's bit — so seat 0's blob (which alone carries the solution)
+                # reaches the host and nobody else, exactly as a pool hand does.
+                filled = sorted([i for i, s in enumerate(room.seats)
+                                 if s is not None] + list(room.bots))
+                addressed = deal["mine"]
+                # every seated chair must have been addressed, or somebody would
+                # sit down holding nothing. Machine seats are addressed too and
+                # their blob goes to the host, who runs them.
+                if any(i not in addressed for i in filled):
+                    room.started = False
+                    return [(conn, {"t": "error", "why": E_DEAL_SHORT})]
+                room.dealt = {i: addressed[i] for i in filled}
+                for i in filled:
+                    # the payload rides verbatim under `d`; the client's onMine
+                    # treats an object `d` as this game's private inbox.
+                    body = {"t": "mine", "seat": i, "d": addressed[i]}
+                    # a machine's blob belongs to whoever plays it (the host)
+                    to = 0 if room.seats[i] is None else i
+                    body["bot"] = room.seats[i] is None
+                    text = json.dumps(body, separators=(",", ":"))
+                    room.push(1 << to, text)
+                    seat_obj = room.seats[to]
+                    if seat_obj is not None and seat_obj.conn is not None:
+                        private.append((seat_obj.conn, text))
+            elif deal is not None:
                 filled = sorted([i for i, s in enumerate(room.seats)
                                  if s is not None] + list(room.bots))
                 need = len(filled) * deal["each"]

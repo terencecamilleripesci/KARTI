@@ -813,12 +813,17 @@ function openPicker(kind){
   };
 }
 
-/* a local suggestion → engine resolves the refuter + shown card */
+/* a local suggestion.
+     OFFLINE: the engine resolves the refuter + shown card here.
+     ONLINE : the move is NOT self-applied (a local engine can't referee it).
+       · non-host → whisper a compact request to the host on 'ms-req'; wait
+         for the host's authoritative echo (the board updates on the echo).
+       · host     → referee it directly (resolve, apply, broadcast, whisper). */
 function doSuggest(seat, sel){
+  cue('card.throw', { gain:0.8 }, true);
+  if (M.online){ sendMoveOnline('sug', seat, sel); return; }
   const res = doMove(seat, { t:'suggest', s:sel.s, w:sel.w, l:sel.l }, 'local');
   if (!res.ok){ cue('ui.error'); return; }
-  cue('card.throw', { gain:0.8 }, true);
-  relayIfOnline(res.rec);
   const rec = res.rec;
   /* if a card was shown TO ME, flip-reveal it and auto-mark the notebook */
   if (rec.by >= 0 && rec.card && rec.seat === seat){
@@ -829,12 +834,28 @@ function doSuggest(seat, sel){
 }
 function doAccuse(seat, sel){
   cue('duel.boss', { gain:0.9 }, true);
+  if (M.online){ sendMoveOnline('acc', seat, sel); return; }
   const res = doMove(seat, { t:'accuse', s:sel.s, w:sel.w, l:sel.l }, 'local');
   if (!res.ok){ cue('ui.error'); return; }
-  relayIfOnline(res.rec);
   render();
   if (E.over(M.st)) { finish(); return; }
   afterMove();
+}
+/* ONLINE dispatch for a locally-chosen suggest/accuse. A non-host sends the
+   host a private request; the host (already knowing every hand + solution)
+   referees it as if it arrived as a request from its own seat. Neither path
+   advances the local engine speculatively — the board updates only when the
+   host's authoritative move arrives (over the net for non-hosts, in-place for
+   the host inside hostReferee). */
+function sendMoveOnline(kind, seat, sel){
+  if (amHost()){
+    hostReferee(seat, { kind, s:sel.s, w:sel.w, l:sel.l });
+    return;
+  }
+  const str = encReq(kind, sel);
+  const to = hostRoomSeat();
+  if (str != null && to != null && NET && NET.whisper){ NET.whisper(to, str, WHISPER_REQ); }
+  render();   /* reflect "waiting for the host" — the dock disables off-turn */
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -984,11 +1005,20 @@ function aiTurn(seat){
   const lvl = M.st.seats[seat].lvl || 2;
   let mv = E.think(M.st, seat, lvl);
   if (!mv || !E.check(M.st, mv, seat)) mv = { t:'pass' };
+  /* ONLINE the host drives the bots and is the sole referee: route a bot's
+     suggest/accuse through hostReferee (resolves refutation/judgement from
+     M.refDeal + the solution and broadcasts it with sg). pass/quit have no
+     refutation to resolve and go out on the plain move channel. */
+  if (M.online && amHost() && (mv.t === 'suggest' || mv.t === 'accuse')){
+    if (mv.t === 'suggest') cue('card.throw', { gain:0.6 });
+    else cue('duel.boss', { gain:0.8 }, true);
+    hostReferee(seat, { kind: mv.t === 'suggest' ? 'sug' : 'acc', s:mv.s, w:mv.w, l:mv.l });
+    return;
+  }
   const res = doMove(seat, mv, 'auto');
   if (!res.ok){ doMove(seat, { t:'pass' }, 'auto'); }
   if (mv.t === 'suggest') cue('card.throw', { gain:0.6 });
   else if (mv.t === 'accuse') cue('duel.boss', { gain:0.8 }, true);
-  relayIfOnline(res && res.rec);
   render();
   if (E.over(M.st)){ finish(); return; }
   afterMove();
@@ -1091,8 +1121,50 @@ function leave(){
 let NET = null;
 function relayIfOnline(rec){ /* the onMove hook forwards; nothing to do inline */ void rec; }
 
-/* what the shared lobby asks the relay to deal privately. */
-function planDeal(opts){ return E.planDeal(opts); }
+/* WHAT THE SHARED LOBBY ASKS THE RELAY TO DEAL PRIVATELY.
+
+   IL-MISTERU's deal is AUTHORITATIVE, not a shuffled pool: the host's engine
+   fixes the whole deal here (solution + every hand) and each seat must get a
+   DIFFERENT payload — plus the host (judge seat 0) alone gets the solution.
+   So instead of the pool shape ({items,each}) we return the addressed shape
+   ({mine:{seat:payload}}). The relay carries each payload as an opaque blob
+   and pushes it to that seat's bit ONLY (see the deal note in karti_server).
+
+   · every seat i          → { hand:[cards], caseId }         (its own cards)
+   · the judge (seat 0)    → { hand:[cards], caseId, solution, all:[hands] }
+
+   The solution — and the WHOLE deal (`all`) — is written into seat 0's blob and
+   NO other, so the wire hands it to the host and to nobody else. The host is
+   already the one that computed this deal, and it is the JUDGE: it holds the
+   solution anyway, and it needs every hand to referee refutations (resolve who
+   must show a card, and whisper WHICH card only to the suggester — see the
+   refutation flow). caseId rides in every blob so each phone builds the SAME
+   case authoritatively — the host picks it, the deal carries it, and no case id
+   ever has to be whitelisted on the relay as a variant. */
+function planDeal(opts){
+  opts = opts || {};
+  const rules = opts.rules || {};
+  const caseId = Math.max(1, Math.min(E.CASES.length,
+    (rules.caseId | 0) || (opts.variant | 0) || pref().caseId || 1));
+  /* A FRESH deal seed, NOT the room's broadcast seed. The room seed is in
+     `began` and known to every phone; a solution derived from it would be a
+     secret only by politeness. This seed never leaves the host — the deal it
+     produces is delivered per-seat by the wire, so no other phone can rebuild
+     it even though they all share the room seed. */
+  const plan = E.planDeal({ players: opts.seats, caseId, seed: newSeed() });
+  const n = plan.players;
+  const mine = {};
+  for (let i = 0; i < n; i++){
+    const g = E.givenForSeat(plan, i, i === plan.judge);
+    const payload = { hand: (g.hand && g.hand[i]) || [], caseId: plan.caseId };
+    if (g.solution){                                 /* seat 0 (judge) only */
+      payload.solution = g.solution;
+      payload.all = plan.hands.map(h => (h || []).slice());   /* referee copy */
+    }
+    mine[i] = payload;
+  }
+  return { mine };
+}
 
 function onlineStart(cfg){
   cfg = cfg || {};
@@ -1129,9 +1201,12 @@ function onlineStart(cfg){
 }
 
 /* THE PRIVATE DEAL. The relay pushed THIS seat its own hand (and, to the
-   judge, the solution) via {t:'mine'} → hooks.private(d). We inject it and
-   rebuild. d shape we REQUIRE (see the note below): an object
-   { hand:[cards], solution?:{s,w,l} } for our seat only. */
+   judge, the solution AND the whole deal to referee with) via {t:'mine'} →
+   hooks.private(d). We inject it and rebuild. d shape we REQUIRE: an object
+   { hand:[cards], caseId, solution?:{s,w,l}, all?:[hands] } for our seat only.
+   `solution`/`all` ride ONLY in the host's blob. The caseId rides in every
+   blob so every phone rebuilds the SAME case the host dealt, without any case
+   id being whitelisted on the relay. */
 function onlinePrivate(d){
   if (!M || M.dead || !M.online) return;
   const me = M.online.meG;
@@ -1139,7 +1214,17 @@ function onlinePrivate(d){
   const given = { hand:{}, solution:null };
   if (payload && Array.isArray(payload.hand)) given.hand[me] = payload.hand.filter(E.validCard);
   if (payload && payload.solution) given.solution = payload.solution;
-  M.opts = Object.assign({}, M.opts, { deal:'private', given });
+  const caseId = (payload && (payload.caseId | 0)) || (M.opts && M.opts.caseId) || 1;
+  /* THE HOST IS THE REFEREE. Its blob (and no other) carries the whole deal.
+     We keep it OUT of the engine state — the engine's public state must stay
+     identical on every phone — and hold it aside on M.refDeal so the host can
+     resolve refutations (who holds a suggested card, and which) authoritatively
+     without any hand crossing the wire. Non-hosts never receive `all`, so this
+     branch never runs for them and M.refDeal stays null. */
+  M.refDeal = (payload && Array.isArray(payload.all) && me === M.online.judge)
+    ? payload.all.map(h => Array.isArray(h) ? h.slice() : [])
+    : null;
+  M.opts = Object.assign({}, M.opts, { deal:'private', caseId, given });
   M.log = [];
   M.st = buildState(M.opts, M.seed, M.log);
   M.st.seats.forEach((s, g) => {
@@ -1150,22 +1235,161 @@ function onlinePrivate(d){
   cue('card.deal', { gain:0.8 }, true);
 }
 
-/* a move from another chair, gated by the engine. A suggestion arriving
-   from a remote seat may need OUR refutation stamped (if we are the next
-   holder) — but the engine resolves refuters from known hands; online we
-   only know our own, so the AUTHORITATIVE resolution is done by the seat
-   that actually holds a card (it stamps by/card before relaying). We accept
-   the stamped fields. An accusation arriving unjudged is judged by us only
-   if WE are the judge (we hold the solution). */
+/* ═══════════════════════════════════════════════════════════════════
+   THE HOST-REFEREED MOVE PROTOCOL — the only cheat-proof online design,
+   because only the host (judge seat 0) knows every hand (M.refDeal) and
+   the solution (M.st.solution).
+
+   A player's local suggestion/accusation must NOT be self-applied to the
+   shared engine online — a non-host can't resolve who refutes (it only
+   knows its own hand) nor judge an accusation. Instead:
+
+     · non-host  → whispers a compact request to the host on channel
+                   'ms-req' ("sug|s|w|l" or "acc|s|w|l", using the within-
+                   case index of each card). It does NOT advance its own
+                   engine; it waits for the host's authoritative echo.
+     · host      → resolves it authoritatively (hostReferee) from M.refDeal
+                   (+ st.solution for accusations), applies it to its own
+                   engine attributed to the SUGGESTER's seat, and BROADCASTS
+                   the fully-stamped move on the move channel so every client
+                   applies the SAME move. The public broadcast carries `sg`
+                   (true suggester room seat) and, for a suggestion, cd=255
+                   (HIDDEN) — the shown card never rides the public wire.
+                   The host ALSO whispers the shown card to the suggester
+                   ONLY, on channel 'ms-show'.
+   ═══════════════════════════════════════════════════════════════════ */
+const WHISPER_REQ = 'ms-req';     /* non-host → host: a suggestion/accusation request */
+const WHISPER_SHOW = 'ms-show';   /* host → suggester: the card shown, privately */
+
+function amHost(){ return !!(NET && NET.host); }
+function hostRoomSeat(){ return (M && M.online) ? (M.online.toRoom[M.online.judge]) : 0; }
+
+/* the within-case index of a card, for the compact request/whisper strings */
+function catIdx(card){ return E.catIndexInCase(M.st.caseId, card); }
+function cardFromIdx(cat, i){ return E.cardFromCase(M.st.caseId, cat, i | 0); }
+
+/* pack/parse the tiny request the non-host whispers to the host. The relay's
+   chat channel carries a short string; keep it human-legible and index-based
+   so it survives the chat filter and rebuilds to the exact cards. */
+function encReq(kind, sel){
+  const si = catIdx(sel.s), wi = catIdx(sel.w), li = catIdx(sel.l);
+  if (si < 0 || wi < 0 || li < 0) return null;
+  return kind + '|' + si + '|' + wi + '|' + li;
+}
+function parseReq(str){
+  const p = String(str || '').split('|');
+  if (p.length !== 4) return null;
+  const kind = p[0];
+  if (kind !== 'sug' && kind !== 'acc') return null;
+  const s = cardFromIdx('s', +p[1]), w = cardFromIdx('w', +p[2]), l = cardFromIdx('l', +p[3]);
+  if (!s || !w || !l) return null;
+  return { kind, s, w, l };
+}
+
+/* THE REFEREE. Runs on the host ONLY. Given the suggester's GAME seat and a
+   {s,w,l}, resolve who must refute (and which card) from M.refDeal — the
+   clockwise-first holder from the suggester, card picked in category order
+   s,w,l exactly as the engine's apply() does — or judge an accusation from
+   st.solution. Then apply it locally, broadcast it with sg=suggester room
+   seat and cd hidden, and whisper the shown card to the suggester only. */
+function refDealHandOf(seat){ return (M.refDeal && Array.isArray(M.refDeal[seat])) ? M.refDeal[seat] : []; }
+function hostResolveRefuter(suggesterG, sug){
+  /* clockwise from the suggester, first OTHER seat holding any suggested card */
+  const n = M.st.n;
+  for (let k = 1; k < n; k++){
+    const i = (suggesterG + k) % n;
+    if (i === suggesterG) continue;
+    const hand = refDealHandOf(i);
+    const choices = E.refuteChoices(hand, sug);
+    if (choices.length > 0){
+      /* deterministic pick: category order s,w,l (same as engine apply) */
+      const order = [sug.s, sug.w, sug.l];
+      const card = order.find(c => choices.indexOf(c) >= 0) || choices[0] || null;
+      return { by:i, card: card || null };
+    }
+  }
+  return { by:-1, card:null };
+}
+
+/* build the resolved engine move, apply it (attributed to the suggester),
+   broadcast it publicly, and (for a shown suggestion) whisper the card. */
+function hostReferee(suggesterG, req){
+  if (!M || M.dead || !amHost()) return;
+  if (E.over(M.st)) return;
+  if (E.turn(M.st) !== suggesterG) return;   /* referee in turn order only */
+  const suggesterRoom = M.online.toRoom[suggesterG];
+
+  if (req.kind === 'sug'){
+    const sug = { s:req.s, w:req.w, l:req.l };
+    const { by, card } = hostResolveRefuter(suggesterG, sug);
+    /* apply to the HOST engine, fully stamped, attributed to the suggester */
+    const mv = { t:'suggest', s:sug.s, w:sug.w, l:sug.l, by, card: card || null };
+    const res = doMove(suggesterG, mv, 'referee');
+    if (!res.ok) return;
+    /* BROADCAST the resolved move — public wire: by present, cd HIDDEN (255),
+       sg = the true suggester's ROOM seat (the relay stamps the sender as the
+       host, so sg is how every client recovers who really suggested). */
+    hostBroadcast({ t:'suggest', s:sug.s, w:sug.w, l:sug.l, by, card:null }, suggesterRoom);
+    if (by >= 0 && card){
+      if (suggesterG === M.online.meG){
+        /* the host IS the suggester: reveal locally (no self-whisper — the
+           relay would only echo it back and race the reveal). */
+        showRevealTo(card, by, () => { autoMark(card, 'cross'); render(); afterMove(); });
+        return;
+      }
+      /* whisper the shown card to the (remote) suggester ONLY */
+      if (suggesterRoom != null && NET.whisper) NET.whisper(suggesterRoom, card, WHISPER_SHOW);
+    }
+    render(); if (E.over(M.st)){ finish(); return; } afterMove();
+    return;
+  }
+
+  if (req.kind === 'acc'){
+    const acc = { s:req.s, w:req.w, l:req.l };
+    let right = 0;
+    if (M.st.solution){
+      right = (acc.s === M.st.solution.s && acc.w === M.st.solution.w && acc.l === M.st.solution.l) ? 1 : 0;
+    }
+    const mv = { t:'accuse', s:acc.s, w:acc.w, l:acc.l, right };
+    const res = doMove(suggesterG, mv, 'referee');
+    if (!res.ok) return;
+    hostBroadcast({ t:'accuse', s:acc.s, w:acc.w, l:acc.l, right }, suggesterRoom);
+    render();
+    if (E.over(M.st)){ finish(); return; }
+    afterMove();
+    return;
+  }
+}
+
+/* put a fully-resolved move on the public move channel with the suggester's
+   ROOM seat stamped as `sg`. Encodes via the engine, adds sg (and, for a
+   suggestion, forces cd hidden), and hands the wire to net.move. */
+function hostBroadcast(mv, suggesterRoom){
+  if (!NET || !NET.move) return;
+  const w = E.encWire(mv, M.st.caseId);
+  if (!w) return;
+  if (w.t === 'sug') w.cd = 255;                 /* the shown card never rides the public wire */
+  if (suggesterRoom != null) w.sg = suggesterRoom | 0;
+  NET.move('move', w);
+}
+
+/* a move from another chair. ONLINE all shared moves are host-refereed and
+   travel over this channel, stamped by the relay as coming from the HOST —
+   so we recover the TRUE actor from w.sg (falling back to the relayed seat
+   when sg is absent, e.g. a quit). Because the move is fully resolved and
+   attributed, every client's public state stays byte-identical. */
 function onlineRemote(seat, wire){
   if (!M || M.dead || !NET) return null;
-  const g = NET.toGame[seat];
+  /* recover the true actor: for a host-refereed suggest/accuse the wire
+     carries `sg` (the suggester's room seat); otherwise use the relayed seat. */
+  const room = (wire && wire.sg !== undefined && wire.sg !== 255) ? (wire.sg | 0) : seat;
+  const g = NET.toGame[room];
   if (g === undefined) return { ok:false, why:'a move from a chair not at this table' };
   const mv = E.decWire(wire, M.st.caseId);
   if (!mv) return { ok:false, why:'a move this table does not know' };
-  if (mv.t === 'accuse' && mv.right === undefined && M.online.judge === M.online.meG && M.st.solution){
-    mv.right = (mv.s === M.st.solution.s && mv.w === M.st.solution.w && mv.l === M.st.solution.l) ? 1 : 0;
-  }
+  /* the host already stamped by/card (suggest) and right (accuse); a non-host
+     applies exactly what arrived. cd was hidden on the public wire, so mv.card
+     is absent here — the shown card reaches the suggester only via 'ms-show'. */
   mv.seat = g;
   const r = doMove(g, mv, 'net');
   if (!r.ok) return { ok:false, why:String(r.err || 'refused') };
@@ -1173,6 +1397,40 @@ function onlineRemote(seat, wire){
   if (E.over(M.st)){ finish(); return null; }
   afterMove();
   return null;
+}
+
+/* INBOUND PRIVATE WORDS (relay's addressed chat). Room seats throughout.
+     'ms-req'   I am the host: a non-host's suggestion/accusation request —
+                referee it authoritatively.
+     'ms-show'  I am the suggester: the card the host says was shown to me —
+                flip-reveal it and auto-mark, so only I learn WHICH card. */
+function onlineWhisper(fromRoomSeat, x, ch){
+  if (!M || M.dead || !M.online) return;
+  if (ch === WHISPER_REQ){
+    if (!amHost()) return;                        /* only the host referees */
+    const fromG = NET.toGame[fromRoomSeat];
+    if (fromG === undefined) return;
+    const req = parseReq(x);
+    if (!req) return;
+    hostReferee(fromG, req);
+    return;
+  }
+  if (ch === WHISPER_SHOW){
+    /* the card shown to me. Ignore my own echo of a card I already revealed. */
+    if (M.reveal) return;
+    const card = String(x || '');
+    if (!E.validCard(card)) return;
+    /* find who showed it: the most recent suggestion I made where the host set
+       by>=0. autoMark/showRevealTo key off my last suggestion in the log. */
+    const view = viewSeat();
+    const rec = M.log.slice().reverse().find(r => r.t === 'suggest' && r.seat === view && r.by >= 0);
+    const by = rec ? rec.by : -1;
+    if (by < 0) return;
+    /* mark it directly: the public log hid the shown card (card:null on the
+       broadcast), so autoMark's card-match would miss — set both marks here. */
+    showRevealTo(card, by, () => { setMark(card, by, 'tick'); setMark(card, 'sol', 'cross'); render(); afterMove(); });
+    return;
+  }
 }
 
 function onlineNote(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); }
@@ -1202,15 +1460,31 @@ const NET_HOOKS = {
     const f = info => {
       if (!M || M.dead || !NET || !info) return;
       if (info.src === 'net') return;
-      const w = E.encWire(info.rec || info.move, M.st.caseId);
+      /* HOST-REFEREED suggest/accuse moves are broadcast explicitly by
+         hostBroadcast (with sg + cd hidden). Do NOT let the generic auto-send
+         re-broadcast them — that would double-send and leak the shown card. */
+      if (info.src === 'referee') return;
+      /* Online, the host is the sole broadcaster. A non-host never puts a move
+         on the shared channel: its suggestions/accusations go to the host as a
+         private 'ms-req' request, and it applies only the host's echo. */
+      if (!amHost()) return;
+      const rec = info.rec || info.move;
+      /* the host still auto-sends pass/quit (no refutation to referee). Stamp
+         sg so every client recovers the true actor (the relay stamps the
+         broadcast as coming from the host's seat, not the actor's). */
+      if (rec && rec.t !== 'pass' && rec.t !== 'quit') return;
+      const w = E.encWire(rec, M.st.caseId);
       if (!w) return;
       const room = NET.toRoom[info.seat];
-      fn(w, { seat: (room == null ? info.seat : room), src: info.src });
+      if (room != null) w.sg = room | 0;
+      const send = { seat: (room == null ? info.seat : room), src: info.src };
+      fn(w, send);
     };
     moveSubs.push(f);
     return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
   },
   private: (d) => onlinePrivate(d),
+  whisper: (from, x, ch) => onlineWhisper(from, x, ch),
   apply: (seat, wire) => onlineRemote(seat, wire),
   seatGone: seat => {
     if (!M || M.dead || !NET) return;
@@ -1232,8 +1506,11 @@ P.online.misteru = {
    Online is a 2..6 seat table. It is OPEN only once the relay deals each
    phone its own hand privately AND the host the solution (see the note).
    ═══════════════════════════════════════════════════════════════════ */
-const ONLINE_READY = false;   /* flip to true once the private-deal plumbing
-                                 below is added to the relay (server). */
+const ONLINE_READY = true;    /* the private-deal plumbing below is wired: the
+                                 relay carries the authoritative addressed deal
+                                 ({t:'start',deal:{mine:{…}}}) and pushes each
+                                 seat only its own hand — and the host alone the
+                                 solution. See planDeal() above. */
 function myName(){
   try { const nm = K.displayName && K.displayName();
     if (nm && String(nm).trim() && String(nm).trim().toLowerCase() !== 'guest') return String(nm).trim().slice(0, 14);
@@ -1248,12 +1525,15 @@ const LOBBY = {
   maxSeats: E.MAX_SEATS,
   levels: levels().map(L => ({ level:L.level, name:L.name, note:TE(L.note) })),
   defaultLevel: 2,
-  /* cases exposed as variants so the room can pick one; each variant's
-     `net` is the caseId. */
-  variants: E.CASES.map(c => ({ net:c.id, label:{ en:'#' + c.id + ' ' + c.title.en, mt:'#' + c.id + ' ' + c.title.mt } })),
-  currentVariant(){ return pref().caseId || 1; },
-  applyVariant(net){ const id = Math.max(1, Math.min(E.CASES.length, net | 0 || 1)); pref({ caseId:id });
-    return { variant:id, rules:{ caseId:id } }; },
+  /* THE CASE IS START-DATA, NOT A RELAY VARIANT. There are 50 cases; exposing
+     them as lobby variants would make the host's pick cross the wire as a
+     `setvariant` the relay would have to whitelist (50 ids) or reject. Instead
+     the host's chosen case (pref().caseId, set from the setup sheet) is baked
+     into the authoritative deal by planDeal and carried per-seat in the private
+     blob (see planDeal / onlinePrivate). So no case id is ever a relay variant
+     and every phone still agrees on the case — it reads it from its own deal.
+     No `variants` here means the lobby shows no mode button for the case. */
+  currentVariant(){ return null; },
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
   canStart(seatList){
@@ -1283,7 +1563,14 @@ const LOBBY = {
       'Fuq id-dawra tiegħek, issuġġerixxi suspettat + arma + post; id-detective li jmiss li għandu waħda jrid jurihielek privatament. Immarka l-ktejjeb, imbagħad akkuża meta tkun ċert.') + '</p>',
   blurb: T('Suggest, deduce, accuse. Be first to name the killer.', 'Issuġġerixxi, iddeduċi, akkuża. Kun l-ewwel li ssemmi l-qattiel.'),
   myName,
-  wire: { fields: E.WIRE_FIELDS },
+  /* THE WIRE — the engine's fields PLUS `sg`, the true suggester's ROOM seat.
+     The host is the sole referee: a player's suggestion/accusation is resolved
+     by the host and BROADCAST on the move channel, but the relay stamps that
+     broadcast as coming from the HOST's seat — so the resolved move must carry
+     `sg` to name the seat it was actually made for. mp.js's toWire REFUSES any
+     field not in this list, so `sg` MUST be declared here (a room seat 0..5,
+     fits a byte). See onMove/onlineRemote below. */
+  wire: { fields: E.WIRE_FIELDS.concat(['sg']) },
   takeback: false
 };
 R.lobby = LOBBY;
@@ -1318,7 +1605,8 @@ if (/[?&]misterutest\b/.test(location.search || '')){
     setupSheet, offlineSetup, offlineStartFlow, startMatch, doMove, render,
     openPicker, doSuggest, doAccuse, openNotebook, setMark, getMark, autoMark,
     caseIntro, showRevealTo, finish, solutionReveal, podium, handover,
-    onlineStart, onlinePrivate, onlineRemote, buildState,
+    onlineStart, onlinePrivate, onlineRemote, onlineWhisper, buildState,
+    hostReferee, sendMoveOnline, encReq, parseReq, hostResolveRefuter, hostBroadcast,
     get M(){ return M; }, get UI(){ return UI; },
     engine: E, LOBBY, hooks: NET_HOOKS, online: P.online.misteru, leave, viewSeat, afterMove
   };

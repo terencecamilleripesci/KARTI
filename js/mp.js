@@ -832,7 +832,8 @@ const MP = {
   askBack:null,         /* somebody to invite the moment we have a room     */
   unMove:null,          /* unsubscribe from the game's own move feed        */
   privateHook:null,     /* the running game's {t:'mine'} sink, if it has one */
-  pendingMine:null      /* a private hand that outran the start, buffered   */
+  pendingMine:null,     /* a private hand that outran the start, buffered   */
+  whisperHook:null      /* the running game's private-word sink (chat), if any */
 };
 
 /* The original card duel, chess and dama still pair and begin immediately.
@@ -1846,7 +1847,16 @@ function startDeal(){
   try {
     d = api.planDeal({ seats: MP.size, variant: MP.variant, rules: MP.rules });
   } catch (e){ d = null; }
-  if (!d || !Array.isArray(d.items) || !d.items.length) return null;
+  if (!d) return null;
+  /* AUTHORITATIVE, SEAT-ADDRESSED DEAL. A game whose seats get DIFFERENT
+     payloads that only the host can pair — and where one seat (the judge)
+     gets a secret nobody else may see (Il-Misteru's solution) — returns
+     { mine:{ seat:payload } } instead of a pool. The relay does not shuffle
+     it; it addresses each opaque blob to its seat's bit. Passed straight
+     through: this file never reads a payload, exactly as with a pool item. */
+  if (d.mine && typeof d.mine === 'object') return { mine: d.mine };
+  /* THE POOL SHAPE. { items, each } — a pool the relay shuffles and slices. */
+  if (!Array.isArray(d.items) || !d.items.length) return null;
   const each = Math.max(1, d.each | 0 || 1);
   return { items: d.items, each };
 }
@@ -1902,7 +1912,7 @@ function mpLeave(){
   MP.size = 2; MP.mySeat = 0; MP.roster = null; MP.iAmReady = false;
   MP.began = null; MP.panel = null; MP.aiSeat = -1; MP.showRules = false;
   MP.wantSeats = 0; MP.variant = null; MP.rules = null; MP.askBack = null;
-  MP.privateHook = null; MP.pendingMine = null;
+  MP.privateHook = null; MP.pendingMine = null; MP.whisperHook = null;
   if (MP.unMove){ try { MP.unMove(); } catch (e){} MP.unMove = null; }
   if (MP.state !== 'unreachable') setState('idle');
 }
@@ -2103,6 +2113,19 @@ function onServer(m){
        published no private hook simply drops it. */
     case 'mine':
       onMine(m);
+      return;
+
+    /* ── a private word addressed to this seat (relay's `chat` channel) ──
+       Never buffered, never broadcast: the relay carried it to this seat and
+       nobody else. Hand it to the running game's whisper hook (IL-MISTERU's
+       refuter→suggester card reveal). Our own echo (m.s === our seat) is the
+       delivery receipt — a game that does not want to hear itself can ignore
+       it, but we still deliver it so the receipt is not silently swallowed. */
+    case 'chat':
+      if (MP.live && MP.whisperHook && typeof m.s === 'number'){
+        MP.whisperHook(m.s, typeof m.x === 'string' ? m.x : '',
+                       typeof m.ch === 'string' ? m.ch : '');
+      }
       return;
 
     /* ── who is around ── */
@@ -3096,6 +3119,16 @@ function onBegan(m){
     send: d => relay(Object.assign({ k:'bact', game:MP.game }, d || {})),
     move: (kind, a) => relay({ k:'bact', game:MP.game, kind: kind || 'move', m: a || {} }),
     bail: why => { relay({ k:'bail', why: String(why || 'stopped') }); tableStop(why); },
+    /* A PRIVATE WORD TO ONE SEAT — carried by the relay's addressed `chat`
+       channel, which fans out to ONLY the seat named and is never buffered or
+       broadcast (the wire keeps the secret, exactly as the private deal does).
+       IL-MISTERU uses this so a refuter can show its card to the SUGGESTER and
+       nobody else: the rest of the table learns THAT a card was shown (over the
+       public move), never WHICH. `to` is a room seat; `ch` is a short channel
+       tag; `x` is a short string the game reads however it likes. */
+    whisper: (to, x, ch) => send({ t:'chat', to:[to | 0],
+                                   ch: String(ch || 'g').slice(0, 12),
+                                   x: String(x == null ? '' : x).slice(0, 240) }),
     onLeave: backToRooms,
     seat: MP.mySeat,
     seats: MP.size,
@@ -3115,6 +3148,13 @@ function onBegan(m){
      and the {t:'mine'} handler is a harmless no-op. */
   MP.privateHook = (hooks && typeof hooks.private === 'function')
     ? (d, mates) => { try { hooks.private(d, mates); } catch (e){} }
+    : null;
+  /* the private-word inbox for THIS running game (relay's addressed `chat`).
+     A game that publishes hooks.whisper(fromSeat, x, ch) is handed each private
+     line addressed to this seat — IL-MISTERU's refuter→suggester card reveal.
+     A game without one drops the line. Room seats throughout, like every hook. */
+  MP.whisperHook = (hooks && typeof hooks.whisper === 'function')
+    ? (from, x, ch) => { try { hooks.whisper(from, x, ch); } catch (e){} }
     : null;
   if (hooks && typeof hooks.onMove === 'function'){
     if (MP.unMove){ try { MP.unMove(); } catch (e){} }
@@ -3192,7 +3232,7 @@ function onBegan(m){
     }
   } catch (e){
     MP.live = false; MP.boardLive = false;
-    MP.privateHook = null; MP.pendingMine = null;
+    MP.privateHook = null; MP.pendingMine = null; MP.whisperHook = null;
     setState('unreachable', 'That game would not start from the lobby. Nothing was lost.');
   }
 }
@@ -3204,10 +3244,19 @@ function onBegan(m){
    table is not live yet (this outran the start), buffer it; onBegan flushes
    it the moment the game can take it. */
 function onMine(m){
-  if (!m || typeof m.seat !== 'number' || !Array.isArray(m.d)) return;
+  /* `d` is this seat's own private inbox. TWO shapes are in the wild and both
+     are the game's own choice: a POOL hand — an array of opaque items (poker's
+     hole cards, a role, a secret character) — or, for an AUTHORITATIVE addressed
+     deal, an OBJECT the game reads however it likes (Il-Misteru's { hand, caseId,
+     solution? }). Either way this file never looks inside it; it just hands it
+     to the running game's private hook. A non-array, non-object `d` is refused. */
+  if (!m || typeof m.seat !== 'number') return;
+  const isObj = m.d && typeof m.d === 'object';
+  if (!isObj) return;                         /* neither an array nor an object */
+  const d = Array.isArray(m.d) ? m.d.slice() : m.d;
   const mates = Array.isArray(m.mates) ? m.mates.slice() : null;
-  if (MP.live && MP.privateHook){ MP.privateHook(m.d, mates); return; }
-  MP.pendingMine = { d: m.d.slice(), mates };
+  if (MP.live && MP.privateHook){ MP.privateHook(d, mates); return; }
+  MP.pendingMine = { d, mates };
 }
 
 /* a move from another chair. The engine is the referee, not the relay — the
