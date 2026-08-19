@@ -149,6 +149,7 @@ function injectCSS(){
   .tk-hud .tk-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
   .tk-hud .tk-time{margin-left:2px;opacity:.85;font-variant-numeric:tabular-nums}
   .tk-arena{position:relative;align-self:center;border-radius:12px;overflow:hidden;
+    touch-action:none;cursor:grab;
     box-shadow:0 8px 30px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.05);background:#0B0E14}
   .tk-arena canvas{display:block}
   .tk-over{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
@@ -407,8 +408,14 @@ function startMatch(o, seed, net){
        untouched. camX/camY = world-pixel offset of the view's top-left;
        camReady flags the first snap so the opening frame is not eased from
        the origin. camLast keeps the last good target so a dead/spectating
-       local tank holds the view on the action instead of jumping home. */
-    camX:0, camY:0, camReady:false, camLastX:0, camLastY:0, camT:0
+       local tank holds the view on the action instead of jumping home.
+
+       PEEK (render-only): a DRAG on the arena canvas pans the view to scout
+       the map; while peek.on the camera holds the panned spot (no follow),
+       and on release the normal ease pulls it back to centre on the tank.
+       peek.moved gates a tap from disturbing the view. Never touches the sim. */
+    camX:0, camY:0, camReady:false, camLastX:0, camLastY:0, camT:0,
+    peek:{ on:false, pid:null, sx:0, sy:0, baseX:0, baseY:0, x:0, y:0, moved:false }
   };
   M.st = E.newMatch({ map:md, mode:o.mode, seats, humans: net ? undefined : 1, lvl:o.lvl }, M.seed);
   M.prev = snapshot(M.st);
@@ -641,11 +648,13 @@ function onlineRemote(seat, wire){
    that the world OVERFLOWS the available box on both axes (with a small
    margin), clamped to a legibility range, so the follow is always real.
    Pure render/layout — nothing the sim sees. */
-const CAM_MIN_CELL = 30;   /* px per cell we aim for so tanks stay legible   */
-const CAM_MAX_CELL = 64;   /* zoom cap; high enough to force scroll on a
-                              short arena in a tall phone box                */
-const CAM_OVERFLOW = 1.18; /* world must exceed the view by this factor so
-                              there is real scroll room on each axis         */
+const CAM_MIN_CELL = 20;   /* px per cell floor so tanks stay legible        */
+const CAM_MAX_CELL = 44;   /* zoom cap; keeps a wide view of the arena       */
+const CAM_VIEW_FRAC = 0.70;/* target: show ~70% of the arena across the more
+                              constrained axis (zoomed OUT, wide view)       */
+const CAM_OVERFLOW = 1.03; /* world need only just exceed the view so BOTH
+                              axes still scroll and the tank stays centred —
+                              small margin keeps the widest possible view     */
 function fitCanvas(){
   if (!UI || !UI.cv || !UI.arena) return;
   const mp = M.st.map, host = UI.host;
@@ -655,12 +664,17 @@ function fitCanvas(){
   const availH = Math.max(160, host.clientHeight - ctrlH - hudH - 18);
   /* the available box we want to fill */
   const boxW = Math.floor(availW), boxH = Math.floor(availH);
-  /* cell that would make the world just OVERFLOW the box on each axis, so
-     the camera has room to scroll and centre the tank. Take the larger of
-     the two so BOTH axes overflow, not just the wider one. */
-  const cellForW = (boxW * CAM_OVERFLOW) / mp.cols;
-  const cellForH = (boxH * CAM_OVERFLOW) / mp.rows;
-  let cell = Math.max(cellForW, cellForH, CAM_MIN_CELL);
+  /* ZOOM OUT: pick the cell so the view shows ~CAM_VIEW_FRAC of the arena on
+     each axis — take the smaller of the two frac-cells so the WIDER share is
+     visible (more of the world on screen). */
+  const cellFracW = boxW / (mp.cols * CAM_VIEW_FRAC);
+  const cellFracH = boxH / (mp.rows * CAM_VIEW_FRAC);
+  let cell = Math.min(cellFracW, cellFracH);
+  /* but never zoom out so far the world stops overflowing the box — the
+     camera needs real scroll room on BOTH axes to keep the tank centred.
+     Floor the cell at the overflow point of the more constrained axis. */
+  const overflowFloor = Math.max(boxW / mp.cols, boxH / mp.rows) * CAM_OVERFLOW;
+  cell = Math.max(cell, overflowFloor, CAM_MIN_CELL);
   cell = Math.min(cell, CAM_MAX_CELL);
   cell = Math.max(8, Math.floor(cell));
   const worldW = cell * mp.cols, worldH = cell * mp.rows;
@@ -734,10 +748,8 @@ function updateCamera(frac, dtMs){
     const ix = p ? p.x + (tk.x - p.x)*frac : tk.x;
     const iy = p ? p.y + (tk.y - p.y)*frac : tk.y;
     tx = (ix / SUB) * cell; ty = (iy / SUB) * cell;
-    /* a gentle look-ahead in the DRIVE direction reads nicely when scrolling */
-    const la = cell * 1.1;
-    tx += (E.dirX(tk.hdg) / E.DIR_U) * la;
-    ty += (E.dirY(tk.hdg) / E.DIR_U) * la;
+    /* camera sits ON the tank — no look-ahead offset, so the tank stays at
+       the centre of the viewport and the world scrolls under it. */
     M.camLastX = tx; M.camLastY = ty;
   } else if (tk && (tk.x != null)){
     tx = (tk.x / SUB) * cell; ty = (tk.y / SUB) * cell;
@@ -747,6 +759,17 @@ function updateCamera(frac, dtMs){
     tx = (tk.spawnCol + 0.5) * cell; ty = (tk.spawnRow + 0.5) * cell;
   } else {
     tx = worldW / 2; ty = worldH / 2;
+  }
+  /* PEEK: while the player is dragging the arena, the camera goal is the
+     panned spot (NOT the tank), clamped to the arena. It snaps to the drag
+     so the world tracks the finger 1:1. On release peek.on clears and the
+     ease below pulls the view back to centre on the tank. */
+  const pk = M.peek;
+  if (pk && pk.on && pk.moved){
+    const px = Math.max(0, Math.min(maxX, pk.x));
+    const py = Math.max(0, Math.min(maxY, pk.y));
+    M.camX = px; M.camY = py; M.camReady = true;
+    return { x: Math.round(M.camX), y: Math.round(M.camY) };
   }
   /* desired top-left so the target sits in the centre of the view */
   let goalX = tx - UI.w / 2, goalY = ty - UI.h / 2;
@@ -1039,6 +1062,42 @@ function wireControls(){
   }
   bindStick(UI.drive, M.drive, false);
   bindStick(UI.aim, M.aim, true);
+
+  /* ── DRAG-TO-PEEK ─────────────────────────────────────────────────────
+     A drag on the ARENA canvas pans the camera to scout the map; release
+     eases it back to centre on the tank. The two thumbsticks live in the
+     control bar BELOW the arena (separate DOM elements with their own
+     pointer capture), so a pointer that lands on the arena can never reach a
+     stick — no gesture collision. A tap under PEEK_DEAD px does nothing, so
+     it never disturbs aim/drive. Pure render: peek.* only, sim untouched. */
+  const PEEK_DEAD = 6;   /* px of travel before a drag counts as a peek */
+  function bindPeek(elm){
+    elm.addEventListener('pointerdown', e => {
+      const pk = M && M.peek; if (!pk || pk.on) return;
+      pk.on = true; pk.pid = e.pointerId; pk.moved = false;
+      pk.sx = e.clientX; pk.sy = e.clientY;
+      pk.baseX = M.camX; pk.baseY = M.camY;
+      pk.x = M.camX; pk.y = M.camY;
+      try { elm.setPointerCapture(e.pointerId); } catch(_){}
+      e.preventDefault();
+    });
+    elm.addEventListener('pointermove', e => {
+      const pk = M && M.peek; if (!pk || !pk.on || e.pointerId !== pk.pid) return;
+      const dx = e.clientX - pk.sx, dy = e.clientY - pk.sy;
+      if (!pk.moved && Math.hypot(dx, dy) < PEEK_DEAD) return;  /* tap, not a peek */
+      pk.moved = true;
+      /* drag the world with the finger: move finger right → reveal left */
+      pk.x = pk.baseX - dx; pk.y = pk.baseY - dy;
+      e.preventDefault();
+    });
+    const endPeek = e => {
+      const pk = M && M.peek; if (!pk || e.pointerId !== pk.pid) return;
+      pk.on = false; pk.pid = null; pk.moved = false;   /* ease back to the tank */
+    };
+    elm.addEventListener('pointerup', endPeek);
+    elm.addEventListener('pointercancel', endPeek);
+  }
+  if (UI.arena) bindPeek(UI.arena);
 
   /* keyboard for the desk + tests */
   UI.keys = e => {
