@@ -392,6 +392,15 @@ const VIEW_U = 30;
    ZOOM_MIN as you get long. K sets the half-way point — at growth = K the
    snake has zoomed HALF of the way from 1.0 to the floor.
 
+   RE-BASELINED for the SNAKE.IO ramp: snakes now START SMALL (SEG_START ≈ 5)
+   and grow ~GROW_TICKS per pellet, so `growth` measures body-ticks earned by
+   eating from that tiny baseline. A BRAND-NEW small snake has growth 0 → the
+   ZOOMED-IN baseline (z = 1.0, a close comfortable view of a little starter
+   snake). As it eats it lengthens and the camera eases OUT smoothly toward
+   the floor. ZOOM_K is tuned to this new scale: growth reaches K around ~20
+   pellets (5 + 4·20 = 85 ticks ⇒ growth 80), so a mid-length snake is halfway
+   out and a long, well-fed snake sits near the ZOOM_MIN floor.
+
    THE CLAMP, and why it is playable at 390×844:
      Base VIEW_U is 30 units across the shorter (390px) side. ZOOM_MIN 0.55
      means the most-zoomed-out view shows 30/0.55 ≈ 55 units across — a much
@@ -401,7 +410,8 @@ const VIEW_U = 30;
      to steer, so it is the floor and we never shrink further.
    ═══════════════════════════════════════════════════════════════════ */
 const ZOOM_MIN = 0.55;   /* never below 55% of the base scale (playable)  */
-const ZOOM_K   = 120;    /* growth-ticks to reach the half-way zoom        */
+const ZOOM_K   = 90;     /* growth-ticks to half-way zoom (~20 pellets on
+                            the new small-start ramp: 5 + 4·20 ⇒ growth 80)  */
 const ZOOM_TAU = 260;    /* ease time-constant (ms); glides, never jumps   */
 
 /* the target multiplier for a given body length (ticks). Pure, no state. */

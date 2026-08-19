@@ -142,6 +142,93 @@ function logoFor(id){
   return '';
 }
 
+/* ── THE WHOLE ISLAND, GROUPED ──────────────────────────────────────
+   KARTI now ships ~28 games and a flat horizontal chip strip can only
+   ever show four or five of them at once, so the rest are invisible.
+   This is the one list that names EVERY game the box can play and puts
+   it in a shelf a person actually thinks in — the KARTI TCG, then card
+   games, board & strategy, arena, party. The quick chips above the board
+   stay a short, curated row for speed; the "All games" button opens this,
+   laid out as a grid of cards so every single game is one tap away and
+   nothing is hidden off the edge of a strip.
+
+   `nm`/`mt` are the game's real English/Maltese name (pulled from the
+   games' own files); the id is the same id the board filters by and the
+   logo atlas already maps, so tapping a card is identical to tapping a
+   chip. A game with no dedicated logo png still shows — its drawn emblem
+   (icon on an accent) is the guaranteed base under every card, exactly as
+   the chips do, so this grid can never show a broken image. */
+var CAT_ACCENT = {
+  karti:'#8A5CFF', card:'#FFC542', board:'#3DDC84', arena:'#E8452C', party:'#4FA9E8'
+};
+var CATALOG = [
+  { key:'karti', en:'KARTI', mt:'KARTI', icon:'cards', games:[
+    { id:'cards-story', nm:'KARTI Story',  mt:'KARTI Story',  icon:'map',   accent:'#8A5CFF' },
+    { id:'cards-mp',    nm:'KARTI Online', mt:'KARTI Online', icon:'users', accent:'#FFC542' },
+    { id:'cards-solo',  nm:'KARTI Duel',   mt:'KARTI Duel',   icon:'cards', accent:'#E8452C' }
+  ]},
+  { key:'card', en:'Card games', mt:'Logħob tal-karti', icon:'cards', games:[
+    { id:'skarta',    nm:'SKARTA',        mt:'SKARTA',        icon:'discard', accent:'#FF5468' },
+    { id:'bixkla',    nm:'Bixkla',        mt:'Bixkla',        icon:'cards',   accent:'#8A5CFF' },
+    { id:'briscola',  nm:'Briscola',      mt:'Briscola',      icon:'cards',   accent:'#3DDC84' },
+    { id:'sette',     nm:'Sette e Mezzo', mt:'Sette e Mezzo', icon:'coin',    accent:'#E8452C' },
+    { id:'cheat',     nm:'Il-Gidba',      mt:'Il-Gidba',      icon:'discard', accent:'#FF5468' },
+    { id:'rummy',     nm:'Rummy',         mt:'Rummy',         icon:'cards',   accent:'#3DDC84' },
+    { id:'gin',       nm:'Gin Rummy',     mt:'Gin Rummy',     icon:'deck',    accent:'#D8C79B' },
+    { id:'cards2131', nm:'21 & 31',       mt:'21 & 31',       icon:'coin',    accent:'#FFC542' },
+    { id:'poker',     nm:'Poker',         mt:'Il-Poker',      icon:'coin',    accent:'#3DDC84' }
+  ]},
+  { key:'board', en:'Board & strategy', mt:'Bord u strateġija', icon:'knight', games:[
+    { id:'chess',     nm:'Chess',         mt:'Ċess',          icon:'knight',  accent:'#D8C79B' },
+    { id:'dama',      nm:'Dama',          mt:'Dama',          icon:'draught', accent:'#3DDC84' },
+    { id:'kanun',     nm:'Il-Kanun',      mt:'Il-Kanun',      icon:'deck',    accent:'#FFB300' },
+    { id:'briks',     nm:'Il-Ħajt',       mt:'Il-Ħajt',       icon:'deck',    accent:'#E8452C' },
+    { id:'kodici',    nm:'Il-Kodiċi',     mt:'Il-Kodiċi',     icon:'deck',    accent:'#4FA9E8' },
+    { id:'konkwista', nm:'Konkwista',     mt:'Konkwista',     icon:'deck',    accent:'#8A5CFF' },
+    { id:'erbgha',    nm:'Four in a Row', mt:'Erbgħa f\'Ringiela', icon:'coin', accent:'#FFC542' },
+    { id:'ludu',      nm:'Ludu',          mt:'Ludu',          icon:'coin',    accent:'#FF5468' },
+    { id:'serp',      nm:'Is-Serp',       mt:'Is-Serp',       icon:'deck',    accent:'#3DDC84' }
+  ]},
+  { key:'arena', en:'Arena', mt:'Arena', icon:'bomb', games:[
+    { id:'bomba',     nm:'Il-Bomba',      mt:'Il-Bomba',      icon:'bomb',    accent:'#E8452C' },
+    { id:'tankijiet', nm:'It-Tankijiet',  mt:'It-Tankijiet',  icon:'bomb',    accent:'#4FA9E8' },
+    { id:'gharraq',   nm:'Għarraqhom!',   mt:'Għarraqhom!',   icon:'bomb',    accent:'#4FA9E8' }
+  ]},
+  { key:'party', en:'Party', mt:'Party', icon:'users', games:[
+    { id:'kiri',      nm:'IL-KIRI',       mt:'IL-KIRI',       icon:'house',   accent:'#FFC542' },
+    { id:'tombla',    nm:'Tombla',        mt:'Tombla',        icon:'coin',    accent:'#FFB300' },
+    { id:'minhu',     nm:'Min Hu?',       mt:'Min Hu?',       icon:'users',   accent:'#3DDC84' },
+    { id:'suspett',   nm:'SUSPETT',       mt:'SUSPETT',       icon:'deck',    accent:'#FF5468' },
+    { id:'spy',       nm:'L-Ispjun',      mt:'L-Ispjun',      icon:'users',   accent:'#8A5CFF' }
+  ]}
+];
+
+/* every id the catalog carries, mapped to its catalog def, so a card and
+   a chip agree on name/accent/icon even for ids that never joined GAMES */
+var CAT_BY_ID = {};
+(function(){
+  for (var c = 0; c < CATALOG.length; c++)
+    for (var g = 0; g < CATALOG[c].games.length; g++){
+      var e = CATALOG[c].games[g];
+      e.cat = CATALOG[c].key;
+      CAT_BY_ID[e.id] = e;
+    }
+})();
+
+/* A display def for any id, preferring the shelf, then the catalog, then
+   the generic pretty-name fallback — so the board, the grid and the player
+   card all name and colour a game the same way. */
+function richDef(id){
+  if (BY_ID[id]) return BY_ID[id];
+  var c = CAT_BY_ID[id];
+  if (c){
+    return { id:id, name:c.nm, sub:'', logo:logoFor(id) || 'emblem',
+             icon:c.icon, mono:(c.nm.replace(/[^A-Za-z0-9]/g,'').slice(0,2).toUpperCase() || '??'),
+             accent:c.accent, sig:'streak' };
+  }
+  return defOf(id);
+}
+
 /* An id nobody registered still gets counted and still gets a row. A
    sixth game landing next week must not lose a player's results just
    because this file had not heard of it yet. */
@@ -690,6 +777,12 @@ function injectIcons(){
   add('i-person',
     '<circle cx="12" cy="8" r="3.4"></circle>' +
     '<path d="M5.5 20a6.5 6.5 0 0 1 13 0"></path>');
+  /* four tiles, for "all games" — the grid affordance */
+  add('i-grid',
+    '<rect x="4" y="4" width="7" height="7" rx="1.4"></rect>' +
+    '<rect x="13" y="4" width="7" height="7" rx="1.4"></rect>' +
+    '<rect x="4" y="13" width="7" height="7" rx="1.4"></rect>' +
+    '<rect x="13" y="13" width="7" height="7" rx="1.4"></rect>');
   /* Four game marks. These are the emblems until the real ones come off the
      GPU — and on a phone with no art pack they are the emblems forever — so
      they are drawn as the thing itself rather than borrowed from elsewhere in
@@ -912,12 +1005,24 @@ function injectCSS(){
     '#scr-stats .sx-pcol.p1{order:2;z-index:3}' +
     '#scr-stats .sx-pcol.p2{order:1;z-index:2}' +
     '#scr-stats .sx-pcol.p3{order:3;z-index:1}' +
-    /* the framed avatar ring — gold/silver/bronze */
+    /* the framed avatar ring — gold/silver/bronze.
+       NOT overflow:hidden on the pav itself: the rank medal and the YOU tag
+       are pinned to its corners at negative offsets, so clipping them here is
+       how they ended up shoved to the centre. The ROUND clip belongs to the
+       avatar layer (.sx-face), which is the only child that must be a circle. */
     '#scr-stats .sx-pav{position:relative;border-radius:50%;display:grid;place-items:center;' +
-      'flex:0 0 auto;overflow:hidden;background:var(--panel2);' +
-      'box-shadow:0 4px 14px rgba(0,0,0,.45)}' +
-    '#scr-stats .sx-pav .kx-av,#scr-stats .sx-pav img,#scr-stats .sx-pav>span,' +
-      '#scr-stats .sx-pav .sx-face-real>*{' +
+      'flex:0 0 auto;background:var(--panel2);box-shadow:0 4px 14px rgba(0,0,0,.45)}' +
+    /* the AVATAR layer fills the frame and is the thing that is a circle —
+       the medal/you-tag are corner badges and MUST NOT be caught by this,
+       or the blanket 100%/round rule blows the medal up into an opaque ball
+       that hides the face and the photo (the podium-blank-ball bug). */
+    /* overflow stays VISIBLE so the top-left weekly-champion marker (pinned
+       at -4px inside .sx-face) is not clipped; the circle is cut on each
+       inner layer (photo, drawn face, fallback) by border-radius instead. */
+    '#scr-stats .sx-pav>.sx-face{position:absolute;inset:0;width:100%;height:100%;' +
+      'border-radius:50%}' +
+    '#scr-stats .sx-pav .sx-face .kx-av,#scr-stats .sx-pav .sx-face img,' +
+      '#scr-stats .sx-pav .sx-face .sx-face-real,#scr-stats .sx-pav .sx-face .sx-face-real>*{' +
       'width:100%!important;height:100%!important;border-radius:50%!important}' +
     '#scr-stats .sx-pav .sx-fallback{border-radius:50%!important}' +
     '#scr-stats .sx-pcol.p1 .sx-pav{width:78px;height:78px;box-shadow:0 0 0 3px #FFD979,' +
@@ -1021,7 +1126,10 @@ function injectCSS(){
       'background:linear-gradient(90deg,transparent,var(--line2),transparent)}' +
     '#scr-stats .sx-gap span{font-size:14px;letter-spacing:.35em;line-height:1}' +
     '#scr-stats .sx-lbl{flex:0 0 auto;margin:9px 4px 1px;font-size:9.5px;letter-spacing:.14em;' +
-      'text-transform:uppercase;font-weight:700;color:var(--dim2)}' +
+      'text-transform:uppercase;font-weight:700;color:var(--dim2);display:flex;align-items:center;gap:7px}' +
+    '#scr-stats .sx-lbl .sx-cnt{font-size:9px;font-weight:900;color:var(--gold);' +
+      'background:rgba(255,197,66,.12);border:1px solid rgba(255,197,66,.28);border-radius:99px;' +
+      'padding:1px 7px;font-variant-numeric:tabular-nums;letter-spacing:.06em}' +
 
     /* ── entrance: rows and podium columns slide up, compositor only.
        Applied only under .sx-anim, which is set only when motion is on. ── */
@@ -1050,6 +1158,127 @@ function injectCSS(){
 
     '#scr-stats .sx-foot{flex:0 0 auto;margin:8px 2px 0;font-size:10.5px;line-height:1.55;' +
       'color:var(--dim2);text-align:center}' +
+
+    /* ── the "All games" chip: a chip in the strip, but it opens a sheet ── */
+    '#scr-stats .sx-allchip{border-style:dashed}' +
+    '#scr-stats .sx-allchip .sx-chico .ico{width:15px;height:15px;font-size:15px}' +
+
+    /* ── the overlay sheets (all-games grid AND player card) ──
+       Absolutely positioned inside #scr-stats, not fixed, so nothing here
+       can ever parent .tabbar and no transform lands on an ancestor of it.
+       A scrim dims the board; the sheet slides up from the bottom and its
+       own body is the only thing that scrolls. */
+    '#scr-stats .sx-scrim{position:absolute;inset:0;z-index:30;display:flex;' +
+      'flex-direction:column;justify-content:flex-end;' +
+      'background:rgba(6,4,16,.62);opacity:0;transition:opacity .18s var(--ease)}' +
+    '#scr-stats .sx-scrim.in{opacity:1}' +
+    '#scr-stats .sx-sheet{background:var(--bg,#120C24);border:1px solid var(--line2);' +
+      'border-bottom:0;border-radius:20px 20px 0 0;max-height:88%;display:flex;' +
+      'flex-direction:column;box-shadow:0 -12px 40px rgba(0,0,0,.5);' +
+      'transform:translateY(14px);transition:transform .2s var(--ease)}' +
+    '#scr-stats .sx-scrim.in .sx-sheet{transform:none}' +
+    '.reduced #scr-stats .sx-scrim,.reduced #scr-stats .sx-sheet{transition:none}' +
+    '#scr-stats .sx-shead{flex:0 0 auto;display:flex;align-items:center;gap:10px;' +
+      'padding:13px 14px 10px;border-bottom:1px solid var(--line)}' +
+    '#scr-stats .sx-shead::before{content:"";position:absolute;left:50%;top:6px;width:38px;' +
+      'height:4px;margin-left:-19px;border-radius:99px;background:var(--line2)}' +
+    '#scr-stats .sx-shead{position:relative}' +
+    '#scr-stats .sx-shead h3{flex:1;font-family:var(--disp);font-weight:900;font-size:14px;' +
+      'letter-spacing:.05em;text-transform:uppercase}' +
+    '#scr-stats .sx-shx{flex:0 0 auto;width:34px;height:34px;border-radius:10px;display:grid;' +
+      'place-items:center;background:var(--panel);border:1px solid var(--line);color:var(--dim)}' +
+    '#scr-stats .sx-shx svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;' +
+      'stroke-linecap:round}' +
+    '#scr-stats .sx-sbody{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;' +
+      '-webkit-overflow-scrolling:touch;padding:12px 14px 18px;scrollbar-width:thin}' +
+    '#scr-stats .sx-sbody::-webkit-scrollbar{width:5px}' +
+    '#scr-stats .sx-sbody::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px}' +
+    '#scr-stats .sx-gfoot{margin:12px 2px 0;font-size:10.5px;line-height:1.5;color:var(--dim2);' +
+      'text-align:center}' +
+
+    /* ── the grouped grid of game cards ── */
+    '#scr-stats .sx-ggroup{margin-bottom:14px}' +
+    '#scr-stats .sx-ghead{display:flex;align-items:center;gap:8px;margin:2px 2px 9px;' +
+      'font-family:var(--disp);font-weight:900;font-size:10.5px;letter-spacing:.13em;' +
+      'text-transform:uppercase;color:var(--dim)}' +
+    '#scr-stats .sx-ghico{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;' +
+      'flex:0 0 auto;color:var(--ax);background:color-mix(in srgb,var(--ax) 18%,transparent)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+      '#scr-stats .sx-ghico{background:rgba(255,255,255,.06)}}' +
+    '#scr-stats .sx-ghico .ico{width:14px;height:14px;font-size:14px}' +
+    '#scr-stats .sx-ghead span:not(.sx-ghico){min-width:0;overflow:hidden;text-overflow:ellipsis;' +
+      'white-space:nowrap}' +
+    '#scr-stats .sx-ghead i{margin-left:auto;flex:0 0 auto;font-style:normal;font-size:9.5px;' +
+      'font-weight:800;color:var(--dim2);background:rgba(255,255,255,.05);border-radius:99px;' +
+      'padding:2px 8px;font-variant-numeric:tabular-nums}' +
+    '#scr-stats .sx-ggrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}' +
+    '#scr-stats .sx-gcard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:11px 6px;' +
+      'border-radius:14px;background:var(--panel);border:1px solid var(--line);' +
+      'transition:transform .12s var(--ease),border-color .15s var(--ease),background .15s var(--ease)}' +
+    '#scr-stats .sx-gcard:active{transform:scale(.95)}' +
+    '#scr-stats .sx-gcard.on{border-color:var(--gold);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.12),var(--panel) 70%);' +
+      'box-shadow:0 0 0 1px rgba(255,197,66,.28)}' +
+    '#scr-stats .sx-gclogo{position:relative;width:46px;height:46px;border-radius:13px;overflow:hidden;' +
+      'display:grid;place-items:center;flex:0 0 auto;' +
+      'background:linear-gradient(160deg,color-mix(in srgb,var(--ax) 30%,#150F26),#150F26 74%);' +
+      'border:1px solid color-mix(in srgb,var(--ax) 34%,transparent)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+      '#scr-stats .sx-gclogo{background:var(--panel2);border-color:var(--line2)}}' +
+    '#scr-stats .sx-gcico{position:absolute;inset:0;display:grid;place-items:center;color:var(--ax)}' +
+    '#scr-stats .sx-gcico .ico{width:24px;height:24px;font-size:24px}' +
+    '#scr-stats .sx-gcname{font-family:var(--disp);font-weight:800;font-size:10.5px;line-height:1.25;' +
+      'text-align:center;letter-spacing:.02em;color:var(--txt);max-width:100%;' +
+      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}' +
+
+    /* ── the player card ── */
+    '#scr-stats .sx-phead{display:flex;align-items:center;gap:12px;margin:2px 0 12px}' +
+    '#scr-stats .sx-pcav{position:relative;flex:0 0 auto;width:76px;height:76px;border-radius:50%;' +
+      'overflow:hidden;background:var(--panel2);box-shadow:inset 0 0 0 1px var(--line),' +
+      '0 4px 14px rgba(0,0,0,.4)}' +
+    '#scr-stats .sx-pcav.p1{box-shadow:0 0 0 3px #FFD979,0 4px 16px rgba(0,0,0,.45)}' +
+    '#scr-stats .sx-pcav.p2{box-shadow:0 0 0 3px #D8DDE8,0 4px 16px rgba(0,0,0,.45)}' +
+    '#scr-stats .sx-pcav.p3{box-shadow:0 0 0 3px #E0955A,0 4px 16px rgba(0,0,0,.45)}' +
+    '#scr-stats .sx-pcav .kx-av,#scr-stats .sx-pcav img,#scr-stats .sx-pcav>span,' +
+      '#scr-stats .sx-pcav .sx-face-real>*{width:100%!important;height:100%!important;' +
+      'border-radius:50%!important}' +
+    '#scr-stats .sx-pcav .sx-fallback{border-radius:50%!important}' +
+    '#scr-stats .sx-pident{flex:1 1 auto;min-width:0}' +
+    '#scr-stats .sx-pident h4{display:flex;align-items:center;gap:7px;font-family:var(--disp);' +
+      'font-weight:900;font-size:17px;letter-spacing:.02em;overflow:hidden;text-overflow:ellipsis;' +
+      'white-space:nowrap}' +
+    '#scr-stats .sx-pident h4 .sx-mine{flex:0 0 auto}' +
+    '#scr-stats .sx-pmeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}' +
+    '#scr-stats .sx-pbadge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;' +
+      'border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--line);' +
+      'font-size:10px;letter-spacing:.05em;font-weight:800;color:var(--dim);' +
+      'font-variant-numeric:tabular-nums}' +
+    '#scr-stats .sx-pbadge .ico{font-size:1.1em;color:var(--dim2)}' +
+    '#scr-stats .sx-pbadge.gold{color:#241800;background:linear-gradient(180deg,#FFE39A,var(--gold));' +
+      'border-color:#FFE9B0}' +
+    '#scr-stats .sx-pbadge.gold .ico{color:#7a4d00}' +
+    '#scr-stats .sx-phead .sx-ring{flex:0 0 auto;margin-left:2px}' +
+    '#scr-stats .sx-pglbl,#scr-stats .sx-pgheadlbl{margin:14px 2px 8px;font-size:9.5px;' +
+      'letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--dim2)}' +
+    '#scr-stats .sx-pglist{display:flex;flex-direction:column;gap:7px}' +
+    '#scr-stats .sx-pgrow{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;' +
+      'column-gap:10px;padding:8px 10px 8px 8px;border-radius:12px;background:var(--panel);' +
+      'border:1px solid var(--line)}' +
+    '#scr-stats .sx-pgtile{width:40px!important;height:40px!important;border-radius:11px!important}' +
+    '#scr-stats .sx-pgnm{min-width:0}' +
+    '#scr-stats .sx-pgnm b{display:block;font-family:var(--disp);font-weight:900;font-size:11.5px;' +
+      'letter-spacing:.04em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;' +
+      'white-space:nowrap}' +
+    '#scr-stats .sx-pgnm i{display:block;font-style:normal;margin-top:2px;font-size:10px;color:var(--dim2);' +
+      'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    /* tappable board rows: a subtle press + cursor so it reads as openable */
+    '#scr-stats .sx-lrow[data-pi],#scr-stats .sx-pcol[data-pi]{cursor:pointer}' +
+    '#scr-stats .sx-lrow[data-pi]:active{transform:scale(.99)}' +
+    '#scr-stats .sx-lrow[data-pi]{transition:transform .1s var(--ease)}' +
+
+    /* two columns of game cards on a narrow (360) phone keeps names legible */
+    '@media (max-width:365px){' +
+      '#scr-stats .sx-ggrid{grid-template-columns:repeat(2,minmax(0,1fr))}}' +
 
     /* short phones (his is 894 tall, but an installed icon can be shorter
        still) — give the list its room back by shrinking the head */
@@ -1130,7 +1359,7 @@ function show(){
   watch();
 }
 
-function standDown(){ live = false; if (scr) scr.classList.remove('on'); }
+function standDown(){ live = false; closeGrid(); closeCard(); if (scr) scr.classList.remove('on'); }
 
 function close(){
   standDown();
@@ -1159,6 +1388,10 @@ function openLeaderboard(from){
 /* ── the frame both views live in ── */
 function render(){
   if (!live || !scr) return;
+  /* a full re-render replaces the screen's innerHTML, which would orphan an
+     open overlay's DOM while leaving its nav layer registered — close them
+     cleanly first so back/outside-tap can never point at a dead node */
+  closeGrid(); closeCard();
   bind(activeKey());
   var el = screenEl();
   el.innerHTML =
@@ -1496,8 +1729,25 @@ function logoChip(c){
          '</button>';
 }
 
+/* The short, curated row of quick chips above the board — Overall plus a
+   handful of headline games for fast access. Everything else (all ~28) is
+   one tap away behind the "All games" card. If the currently-selected game
+   is NOT one of these headliners, it is spliced in so the active filter is
+   always visible in the strip (a filter you cannot see reads as "off"). */
+var QUICK_IDS = ['cards-mp', 'chess', 'dama', 'skarta', 'kiri'];
+function quickChips(){
+  var out = [{ id:'all', name:T('Overall', 'Total') }];
+  var ids = QUICK_IDS.slice();
+  if (FILTER !== 'all' && ids.indexOf(FILTER) < 0) ids.unshift(FILTER);
+  for (var i = 0; i < ids.length; i++){
+    var d = richDef(ids[i]);
+    out.push({ id:ids[i], name:d.name });
+  }
+  return out;
+}
+
 function boardHTML(){
-  var chips = [{ id:'all', name:T('Overall', 'Total') }].concat(shelf());
+  var chips = quickChips();
   /* ALL-TIME | WEEKLY. The weekly board is the one the Sunday champion
      awards are cut from, so it says so under itself when it is the one on. */
   var period =
@@ -1511,8 +1761,248 @@ function boardHTML(){
   return period +
          '<div class="sx-filter" id="sx-filter">' +
            chips.map(logoChip).join('') +
+           allGamesChip() +
          '</div>' +
          '<div id="sx-board" class="sx-list"></div>';
+}
+
+/* The "All games" chip — the affordance that opens the organized grid of
+   every game in the box. Drawn like the other chips (a grid icon on gold)
+   so it sits in the same row, but it is not a filter: it opens a sheet. */
+function allGamesChip(){
+  return '<button type="button" class="sx-chip sx-allchip" id="sx-allgames" ' +
+         'aria-haspopup="dialog" aria-label="' + esc(T('All games', 'Il-logħob kollu')) + '">' +
+           '<span class="sx-chlogo"><span class="sx-chico" style="--ax:var(--gold)">' +
+             ico('grid') + '</span></span>' +
+           '<span class="sx-chtx">' + T('All games', 'Il-logħob kollu') + '</span>' +
+         '</button>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE ALL-GAMES GRID — every game, grouped, one tap away
+   A sheet inside #scr-stats (never a floating overlay over another
+   screen, so the MutationObserver rule still holds), scrolling a grid of
+   cards. Each card is the game's LOGO over its drawn emblem + its name,
+   grouped by the same shelves the catalog declares. Tapping a card sets
+   the board filter and closes the sheet. Registered with KARTI_NAV as a
+   layer so the Android back button dismisses it instead of leaving the
+   leaderboard, and closes on an outside tap too.
+   ═══════════════════════════════════════════════════════════════════ */
+var gridEl = null;
+
+function gameCard(g){
+  var stem = logoFor(g.id);
+  var known = stem ? artOK[stem] : false;
+  var on = FILTER === g.id;
+  var base = '<span class="sx-gcico" style="--ax:' + esc(g.accent) + '">' + ico(g.icon) + '</span>';
+  var img = (!stem || known === false) ? '' :
+    '<img class="sx-chart" alt="" aria-hidden="true" decoding="async" loading="lazy"' +
+    ' data-stem="' + esc(stem) + '" src="art/ui/' + esc(stem) + '.png">';
+  return '<button type="button" class="sx-gcard' + (on ? ' on' : '') + '" data-g="' + esc(g.id) + '" ' +
+         'aria-pressed="' + on + '">' +
+           '<span class="sx-gclogo" style="--ax:' + esc(g.accent) + '">' + base + img + '</span>' +
+           '<span class="sx-gcname">' + esc(T(g.nm, g.mt)) + '</span>' +
+         '</button>';
+}
+
+function gridHTML(){
+  var groups = CATALOG.map(function(cat){
+    var cards = cat.games.map(gameCard).join('');
+    return '<div class="sx-ggroup">' +
+             '<div class="sx-ghead" style="--ax:' + esc(CAT_ACCENT[cat.key] || 'var(--gold)') + '">' +
+               '<span class="sx-ghico">' + ico(cat.icon) + '</span>' +
+               '<span>' + esc(T(cat.en, cat.mt)) + '</span>' +
+               '<i>' + cat.games.length + '</i>' +
+             '</div>' +
+             '<div class="sx-ggrid">' + cards + '</div>' +
+           '</div>';
+  }).join('');
+  return '<div class="sx-sheet" role="dialog" aria-modal="true" aria-label="' +
+           esc(T('All games', 'Il-logħob kollu')) + '">' +
+           '<div class="sx-shead">' +
+             '<h3>' + T('All games', 'Il-logħob kollu') + '</h3>' +
+             '<button type="button" class="sx-shx" id="sx-grid-x" aria-label="' +
+               esc(T('Close', 'Agħlaq')) + '">' +
+               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+             '</button>' +
+           '</div>' +
+           '<div class="sx-sbody">' + groups +
+             '<p class="sx-gfoot">' + T('Overall ranks every game together.',
+               'It-total jgħodd il-logħob kollu flimkien.') + '</p>' +
+           '</div>' +
+         '</div>';
+}
+
+function openGrid(){
+  closeGrid();
+  var host = screenEl();
+  var wrap = document.createElement('div');
+  wrap.className = 'sx-scrim';
+  wrap.innerHTML = gridHTML();
+  host.appendChild(wrap);
+  gridEl = wrap;
+  wireArt(wrap);
+  /* outside tap (on the scrim, not the sheet) dismisses */
+  wrap.addEventListener('click', function(ev){ if (ev.target === wrap) closeGrid(); });
+  $('#sx-grid-x', wrap).onclick = closeGrid;
+  $$('.sx-gcard', wrap).forEach(function(b){
+    b.onclick = function(){
+      var g = b.getAttribute('data-g');
+      closeGrid();
+      if (g && g !== FILTER){
+        FILTER = g;
+        /* re-render the board frame so the quick strip shows the new pick */
+        if (live && VIEW === 'board'){ render(); loadBoard(); }
+      }
+    };
+  });
+  try { if (window.KARTI_NAV && KARTI_NAV.layer)
+    KARTI_NAV.layer({ id:'sx-grid', isOpen:gridOpen, close:closeGrid }); } catch (e){}
+  requestAnimationFrame(function(){ if (gridEl) gridEl.classList.add('in'); });
+}
+function gridOpen(){ return !!(gridEl && gridEl.isConnected); }
+function closeGrid(){
+  try { if (window.KARTI_NAV && KARTI_NAV.unlayer) KARTI_NAV.unlayer('sx-grid'); } catch (e){}
+  if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
+  gridEl = null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE PLAYER CARD — tap a name, see that player
+   A sheet inside #scr-stats showing one player big: their avatar (the
+   viewer's own real face+photo via the same me:true / repaintAvatars
+   path, a published look for everybody else), name, rank, overall record
+   with a win-rate ring, their weekly-champion marker if the data carries
+   one, and — organised — a per-game breakdown IF the board row brought
+   one down (it does not yet; see the report). Registered as a KARTI_NAV
+   layer so Android back dismisses the card and stays on the leaderboard,
+   and closes on an outside tap too.
+   ═══════════════════════════════════════════════════════════════════ */
+var cardEl = null;
+/* the rows the current board painted, kept so a tap can find the row it
+   belongs to without threading the object through the DOM */
+var cardRows = [];
+
+/* Per-game breakdown, IF the row carries one. Tolerant of a couple of
+   shapes so it lights up the day the relay wires it:
+     row.games  — { <id>:{p,w,l,d,bs,...}, ... }  (the push payload shape)
+     row.g      — same, alternate spelling
+   Returns HTML of grouped per-game rows, or '' when there is nothing —
+   in which case the card honestly shows only the overall record. */
+function perGameHTML(row){
+  var g = row && (row.games || row.g);
+  if (!g || typeof g !== 'object') return '';
+  var ids = [];
+  for (var k in g) if (Object.prototype.hasOwnProperty.call(g, k)){
+    var e = g[k];
+    if (e && ((e.p | 0) || (e.w | 0) || (e.l | 0) || (e.d | 0))) ids.push(k);
+  }
+  if (!ids.length) return '';
+  ids.sort(function(a, b){ return ((g[b].p | 0) - (g[a].p | 0)); });
+  var rows = ids.map(function(id){
+    var e = g[id], def = richDef(id);
+    var p = e.p | 0, w = e.w | 0, l = e.l | 0, d = e.d | 0;
+    if (!p) p = w + l + d;
+    var rate = p ? pct(w, p) + '%' : '—';
+    return '<div class="sx-pgrow">' +
+             tile(def, 'sx-pgtile') +
+             '<span class="sx-pgnm"><b>' + esc(def.name) + '</b>' +
+               '<i>' + rate + T(' won · ', ' rebħa · ') + p + T(' played', ' logħbiet') + '</i></span>' +
+             '<span class="sx-wld">' +
+               '<span class="w">' + w + '<em>W</em></span>' +
+               '<span class="l">' + l + '<em>L</em></span>' +
+               '<span>' + d + '<em>D</em></span>' +
+             '</span>' +
+           '</div>';
+  }).join('');
+  return '<div class="sx-pglbl">' + T('Per game', 'Kull logħba') + '</div>' +
+         '<div class="sx-pglist">' + rows + '</div>';
+}
+
+function cardHTML(row, rank){
+  var name = (row && row.name) || '?';
+  var w = row.w | 0, l = row.l | 0, d = row.d | 0;
+  var played = w + l + d;
+  var rate = pct(w, played);
+  var mine = !!row.you;
+  /* rank badge / weekly-champion line */
+  var rankTxt = rank ? ('#' + rank) : (row.rank ? '#' + row.rank : '');
+  var champ = championOf(row);
+  var pg = perGameHTML(row);
+  var bw = played ? (w / played) * 100 : 0;
+  var bd = played ? (d / played) * 100 : 0;
+  var bl = played ? (l / played) * 100 : 0;
+  var ring = '<span class="sx-ring" style="--v:' + rate + '" role="img" aria-label="' +
+    T('Win rate ', 'Rata ta\' rebħ ') + rate + '%">' +
+      '<span class="sx-ring-in"><b>' + rate + '<em>%</em></b>' +
+        '<i>' + T('won', 'rebħa') + '</i></span></span>';
+  return '<div class="sx-sheet sx-pcardsheet" role="dialog" aria-modal="true" aria-label="' +
+           esc(name) + '">' +
+           '<div class="sx-shead">' +
+             '<h3>' + T('Player', 'Plejer') + '</h3>' +
+             '<button type="button" class="sx-shx" id="sx-card-x" aria-label="' +
+               esc(T('Close', 'Agħlaq')) + '">' +
+               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
+             '</button>' +
+           '</div>' +
+           '<div class="sx-sbody">' +
+             '<div class="sx-phead">' +
+               '<span class="sx-pcav' + (rank === 1 ? ' p1' : rank === 2 ? ' p2' : rank === 3 ? ' p3' : '') + '">' +
+                 faceHTML(row, 88, { me:mine }) +
+               '</span>' +
+               '<div class="sx-pident">' +
+                 '<h4>' + esc(name) + (mine ? '<span class="sx-mine">' + T('You', 'Int') + '</span>' : '') + '</h4>' +
+                 '<div class="sx-pmeta">' +
+                   (rankTxt ? '<span class="sx-pbadge">' + ico('podium') + rankTxt + '</span>' : '') +
+                   (champ ? '<span class="sx-pbadge gold">' + ico('trophy') +
+                     T('Weekly champ', 'Champ tal-ġimgħa') + '</span>' : '') +
+                 '</div>' +
+               '</div>' +
+               ring +
+             '</div>' +
+             '<div class="sx-score">' +
+               '<div class="sx-cell w"><b>' + w + '</b><i>' + T('Won', 'Rebħa') + '</i></div>' +
+               '<div class="sx-cell l"><b>' + l + '</b><i>' + T('Lost', 'Telfa') + '</i></div>' +
+               '<div class="sx-cell d"><b>' + d + '</b><i>' + T('Drawn', 'Draw') + '</i></div>' +
+             '</div>' +
+             '<div class="sx-bar" role="img" aria-label="' + w + T(' won, ', ' rebħa, ') + l +
+               T(' lost, ', ' telfa, ') + d + T(' drawn', ' draw') + '">' +
+               '<i class="bw" style="width:' + bw.toFixed(2) + '%"></i>' +
+               '<i class="bd" style="width:' + bd.toFixed(2) + '%"></i>' +
+               '<i class="bl" style="width:' + bl.toFixed(2) + '%"></i>' +
+             '</div>' +
+             '<div class="sx-rate"><span>' + played + T(' played', ' logħbiet') + '</span>' +
+               '<span>' + T('Win rate ', 'Rata ') + '<b>' + rate + '%</b></span>' +
+               ((row.bs | 0) > 1 ? '<span>' + T('Best run ', 'L-aħjar ') + '<b>' + (row.bs | 0) + '</b></span>' : '<span></span>') +
+             '</div>' +
+             (pg || '<p class="sx-gfoot">' + T('Overall record across every game. A per-game breakdown shows here once the board sends it.',
+               'Ir-rekord total fil-logħob kollu. It-tqassim skont il-logħba jidher hawn meta l-klassifika tibgħatu.') + '</p>') +
+           '</div>' +
+         '</div>';
+}
+
+function openCard(row, rank){
+  if (!row) return;
+  closeCard();
+  var host = screenEl();
+  var wrap = document.createElement('div');
+  wrap.className = 'sx-scrim';
+  wrap.innerHTML = cardHTML(row, rank);
+  host.appendChild(wrap);
+  cardEl = wrap;
+  wireArt(wrap);
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(wrap); } catch (e){}
+  wrap.addEventListener('click', function(ev){ if (ev.target === wrap) closeCard(); });
+  $('#sx-card-x', wrap).onclick = closeCard;
+  try { if (window.KARTI_NAV && KARTI_NAV.layer)
+    KARTI_NAV.layer({ id:'sx-pcard', isOpen:cardOpen, close:closeCard }); } catch (e){}
+  requestAnimationFrame(function(){ if (cardEl) cardEl.classList.add('in'); });
+}
+function cardOpen(){ return !!(cardEl && cardEl.isConnected); }
+function closeCard(){
+  try { if (window.KARTI_NAV && KARTI_NAV.unlayer) KARTI_NAV.unlayer('sx-pcard'); } catch (e){}
+  if (cardEl && cardEl.parentNode) cardEl.parentNode.removeChild(cardEl);
+  cardEl = null;
 }
 
 /* The filter strip is wider than the phone, so the chip that is switched on
@@ -1552,6 +2042,8 @@ function wireBoard(el){
       loadBoard();
     };
   });
+  var ag = $('#sx-allgames', el);
+  if (ag) ag.onclick = openGrid;
   showChip(el);
   paintBoard();
 }
@@ -1577,14 +2069,17 @@ function stateLine(){
    the one you picked; somebody else's is derived from their name so the same
    person is the same face to everyone looking, until a relay build echoes
    their own `av` back, which avatarFor() prefers the moment it does. */
-function lrow(r, rank, me){
+function lrow(r, rank, me, idx){
   var cls = 'sx-lrow' + (rank <= 3 ? ' p' + rank : '') + (me ? ' me' : '');
   var played = (r.w | 0) + (r.l | 0) + (r.d | 0);
   var sig = played
     ? pct(r.w | 0, played) + T('% won', '% rebħa') +
       ((r.bs | 0) > 1 ? ' · ' + T('best run ', 'l-aħjar sensiela ') + (r.bs | 0) : '')
     : T('no games yet', 'l-ebda logħba');
-  return '<div class="' + cls + '">' +
+  var tap = (idx == null) ? '' :
+    ' data-pi="' + idx + '" data-rk="' + rank + '" role="button" tabindex="0"' +
+    ' aria-label="' + esc((r.name || '?') + T(', open player card', ', iftaħ il-karta tal-plejer')) + '"';
+  return '<div class="' + cls + '"' + tap + '>' +
            '<span class="sx-rank">' + rank + '</span>' +
            '<span class="sx-lav">' + faceHTML(r, 38) + '</span>' +
            '<span class="sx-who">' +
@@ -1608,7 +2103,9 @@ function podium(top){
     var rank = i + 1;
     var played = (r.w | 0) + (r.l | 0) + (r.d | 0);
     var score = played ? pct(r.w | 0, played) + '%' : '—';
-    return '<div class="sx-pcol p' + rank + '">' +
+    return '<div class="sx-pcol p' + rank + '" data-pi="' + i + '" data-rk="' + rank +
+             '" role="button" tabindex="0" aria-label="' +
+             esc((r.name || '?') + T(', open player card', ', iftaħ il-karta tal-plejer')) + '">' +
              (rank === 1 ? crownSVG() : '') +
              '<span class="sx-pav">' + faceHTML(r, rank === 1 ? 78 : 60) +
                (r.you ? '<span class="sx-you-tag">' + T('YOU', 'INT') + '</span>' : '') +
@@ -1688,20 +2185,29 @@ function paintBoard(){
         rows[i].you = !!mine && rows[i].u === mine;
         shown[rows[i].u] = 1;
       }
+      /* the flat index space the player card taps into: one entry per row in
+         board order, so both the podium and the numbered ladder tap the same
+         person by index */
+      cardRows = rows.slice();
       var top = rows.slice(0, 3);
-      var rest = rows.slice(3);
+
+      /* THE FULL NUMBERED RANKING — 1..N, always shown when anybody is on the
+         board. The podium above is a flourish over the top three; this is the
+         list the user reads, and it lists EVERYONE (the top three included, so
+         a board of one, two or three players is a readable "1st, 2nd, 3rd"
+         and never a blank space under three medals). Rows 1-3 keep their
+         medal-tint; the viewer's row is highlighted wherever it lands. */
       var out = [];
-      if (rest.length){
-        for (i = 0; i < rest.length; i++){
-          r = rest[i];
-          out.push(lrow(r, i + 4, !!r.you));
-        }
+      for (i = 0; i < rows.length; i++){
+        r = rows[i];
+        out.push(lrow(r, i + 1, !!r.you, i));
       }
       /* your own row, pinned below the ranking if you fell outside what
          came down — a leaderboard you are not visible on is no use to you */
       if (mine && BOARD.you && BOARD.you.rank && !shown[mine]){
         out.push('<div class="sx-gap" aria-hidden="true"><span>···</span></div>');
-        out.push(lrow(BOARD.you, BOARD.you.rank, true));
+        out.push(lrow(BOARD.you, BOARD.you.rank, true, cardRows.length));
+        cardRows.push(BOARD.you);
       }
       /* WEEKLY is the board the Sunday champion awards are cut from, so
          when it is on it says whose week it is and that its top three are
@@ -1715,14 +2221,21 @@ function paintBoard(){
               esc(gname) + T(' take this week\'s champion borders.', ' jieħdu l-bordi taċ-champion ta\' din il-ġimgħa.') +
               '</span></p>';
       }
-      body = cap + podium(top) + (out.length ? '<div class="sx-lbl">' +
-        (BOARD.period === 'week' ? T('This week\'s ladder', 'Is-sellum ta\' din il-ġimgħa')
-                                 : T('The ladder', 'Is-sellum')) + '</div>' + out.join('') : '');
+      var ladLbl = '<div class="sx-lbl">' +
+        (BOARD.period === 'week' ? T('This week\'s ranking', 'Il-klassifika ta\' din il-ġimgħa')
+                                 : T('Full ranking', 'Il-klassifika sħiħa')) +
+        '<span class="sx-cnt">' + rows.length + '</span></div>';
+      /* podium only when there are at least 3 to lift onto it; below three
+         the numbered list alone reads better than a lonely medal or two */
+      var pod = rows.length >= 3 ? podium(top) : '';
+      body = cap + pod + ladLbl + out.join('');
     }
   } else if (BOARD.state === 'loading'){
     body = '';
+    cardRows = [];
   } else {
     body = localFallback();
+    cardRows = [];
   }
   host.innerHTML = stateLine() + body;
   /* This repaint happens long after render() finished — the answer only
@@ -1735,6 +2248,19 @@ function paintBoard(){
   try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(host); } catch (e){}
   var rt = $('#sx-retry', host);
   if (rt) rt.onclick = loadBoard;
+  /* tap a podium column or a ladder row to open that player's card */
+  function tapCard(node){
+    var pi = parseInt(node.getAttribute('data-pi'), 10);
+    var rk = parseInt(node.getAttribute('data-rk'), 10);
+    if (isNaN(pi) || !cardRows[pi]) return;
+    openCard(cardRows[pi], isNaN(rk) ? 0 : rk);
+  }
+  $$('.sx-pcol[data-pi],.sx-lrow[data-pi]', host).forEach(function(node){
+    node.addEventListener('click', function(){ tapCard(node); });
+    node.addEventListener('keydown', function(ev){
+      if (ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); tapCard(node); }
+    });
+  });
   entrance();
 }
 

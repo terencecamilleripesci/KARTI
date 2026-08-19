@@ -153,10 +153,16 @@ const TURN        = 8;                 /* ang-steps/tick (~11.25°/tick)   */
 const BOOST_TURN  = 6;                 /* a little less nimble at sprint  */
 const BODY_R0     = Math.round(1.55 * ONE);
 const HEAD_R      = Math.round(1.35 * ONE);
-const SEG_START   = 34;                /* body ticks at birth             */
-const GROW_TICKS  = 7;                 /* body ticks per pellet           */
-const MIN_TICKS   = 20;                /* never shorter than this         */
-const NECK_GRACE  = 10;                /* body ticks near the head that
+/* SNAKE.IO RAMP: everyone is BORN TINY and grows by eating, exactly like
+   slither.io / snake.io. SEG_START is a short starter snake (a few body
+   ticks), and each pellet adds GROW_TICKS so length ACCUMULATES over the
+   match — a fed player becomes a long snake, a fresh/respawned one is small
+   again. These are the deterministic SIM baseline (they change the hash on
+   purpose vs the old long-start build, but stay self-consistent). */
+const SEG_START   = 5;                 /* body ticks at birth — a SMALL snake */
+const GROW_TICKS  = 4;                 /* body ticks each pellet adds         */
+const MIN_TICKS   = 4;                 /* never shorter than this (< start)   */
+const NECK_GRACE  = 4;                 /* body ticks near the head that
                                           cannot self-kill (a normal arc) */
 
 /* BOOST: a bounded multiplier, applied by the owner, deterministic.
