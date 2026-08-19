@@ -2349,8 +2349,25 @@ const LOBBY = {
   get variants(){
     return GAMES.map(g => ({
       id: g.id, net: NET_VARIANT[g.id] || g.id, name: g.name, mt: g.mt || '',
+      /* bilingual label the shared lobby's Rules picker reads directly, so it
+         never has to know a briscola from a sette to name one. */
+      label: { en: g.name, mt: g.mt || g.name },
       seats: variantSeats(g.id)
     }));
+  },
+
+  /* WHICH FLAVOUR THIS ROOM IS PLAYING, as the relay's word. Read live off
+     MP.variant so the room stays the authority; the picker highlights it. */
+  currentVariant(){ return NET_VARIANT[roomVariant()] || roomVariant() || null; },
+
+  /* Turn a picked flavour (the relay's word) into the {variant, rules} the
+     shared lobby puts on the wire. klabb steers entirely on `variant`; the
+     opaque `rules` half is left empty, but the shape exists so a game whose
+     presets are richer than one enum round-trips through the same door. */
+  applyVariant(net){
+    const v = OUR_VARIANT[String(net || '').toLowerCase()];
+    if (!v) return null;
+    return { variant: NET_VARIANT[v] || v, rules: null };
   },
 
   levels: LEVELS.map(L => ({ level:L.k, name:L.n, note:L.d })),

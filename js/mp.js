@@ -189,7 +189,11 @@ function gamePlayable(k){
 /* where a game hangs its contract, if it has one */
 const LOBBY_GLOBAL = {
   kiri:'KARTI_KIRI', skarta:'KARTI_SKARTA', tombla:'KARTI_TOMBLA', klabb:'KARTI_KLABB',
-  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY', gin:'KARTI_GIN', spy:'KARTI_SPY'
+  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY', gin:'KARTI_GIN', spy:'KARTI_SPY',
+  /* L-ISPETT publishes a full window.KARTI_SUSPETT.lobby (real canStart/start),
+     but was missing here, so gameGlobal('suspett') returned null and the shared
+     lobby ran it on SEATS_FALLBACK instead of its own contract. */
+  suspett:'KARTI_SUSPETT'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -349,6 +353,14 @@ function gameLobby(k){
     /* how this game's own move object folds onto the relay's five bounded
        fields. See toWire/fromWire — a game that publishes one wins. */
     wire: (pub && pub.wire) || null,
+    /* THE MODE PICKER'S CONTRACT — the host-only Rules button in the lobby.
+       A game may publish `variants` (a list, or a getter returning one, of
+       {net,label:{en,mt}}), plus currentVariant() and applyVariant(net) →
+       {variant,rules}. Read LIVE off the published object rather than frozen
+       here, because klabb's list is a getter over engine files that register
+       AFTER this contract is first built and cached. A game that published
+       none of this shows no Rules button, which is correct — see lobbyVariants. */
+    _pub: pub,
     /* Can a room of this be OPENED at all? A lobby with no way to send a move
        is a room nobody can play in, so it is not offered — but it is named. */
     online: !!(net && net.start && net.remote),
@@ -363,6 +375,77 @@ function gameLobby(k){
 function num(v){ return (typeof v === 'number' && isFinite(v)) ? Math.floor(v) : null; }
 function list(v){ return (Array.isArray(v) && v.length) ? v : null; }
 function fn(v){ return (typeof v === 'function') ? v : null; }
+
+/* ── THE MODE PICKER, SHARED ──────────────────────────────────────────
+   The variant was bound write-once when the room was opened; the host had to
+   leave and re-open to change one word, throwing everyone out. These three
+   read a game's published presets so the lobby can offer a host-only Rules
+   button that changes the mode IN PLACE. A game that published no variants
+   returns an empty list and shows no button — that is correct, not a bug. */
+
+/* [{net, label:{en,mt}}] for game k, read LIVE off its published contract
+   (klabb's is a getter over engine files registered after boot). Never throws;
+   a malformed entry is skipped rather than allowed to break the lobby. */
+function lobbyVariants(k){
+  const LB = gameLobby(k);
+  const pub = LB && LB._pub;
+  let raw = pub && pub.variants;
+  try { if (typeof raw === 'function') raw = raw.call(pub); } catch(e){ raw = null; }
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (const v of raw){
+    if (!v) continue;
+    const net = String(v.net || v.id || '').trim();
+    if (!net) continue;
+    const lab = v.label || {};
+    const en = String(lab.en || v.name || net).slice(0, 40);
+    const mt = String(lab.mt || v.mt || en).slice(0, 40);
+    out.push({ net, label:{ en, mt } });
+  }
+  return out;
+}
+
+/* which variant this room is on, as the relay's word. The room is the
+   authority: prefer MP.variant, fall back to the game's own currentVariant(). */
+function lobbyCurrentVariant(k){
+  if (MP.variant) return MP.variant;
+  const pub = gameLobby(k)._pub;
+  try {
+    if (pub && typeof pub.currentVariant === 'function') return pub.currentVariant() || null;
+  } catch(e){}
+  return null;
+}
+
+/* a picked variant (relay word) → {variant, rules} to put on the wire. The
+   game may fold richer presets onto `rules`; the default carries just the
+   variant, which is all klabb and rummy need today. */
+function lobbyApplyVariant(k, net){
+  const pub = gameLobby(k)._pub;
+  try {
+    if (pub && typeof pub.applyVariant === 'function'){
+      const r = pub.applyVariant(net);
+      if (r && typeof r === 'object' && typeof r.variant === 'string')
+        return { variant: r.variant, rules: (r.rules && typeof r.rules === 'object') ? r.rules : null };
+    }
+  } catch(e){}
+  return { variant: String(net), rules: null };
+}
+
+/* the one language switch, the shared way (see js/lang.js). Whichever side is
+   missing falls back to the other, never a bare key. */
+function T(en, mt){
+  try { if (window.KARTI_LANG) return window.KARTI_LANG.t(en, mt); } catch(e){}
+  return en;
+}
+function isMT(){
+  try { return !!(window.KARTI_LANG && window.KARTI_LANG.mt()); } catch(e){ return false; }
+}
+
+/* the label to show for a variant, in the phone's language */
+function variantLabel(v){
+  if (!v || !v.label) return '';
+  return (isMT() ? v.label.mt : v.label.en) || v.label.en || v.label.mt || v.net;
+}
 
 /* WHAT EACH GAME STILL OWES THE LOBBY.
    Not decoration: this is the list to hand to whoever owns that game's file.
@@ -1657,7 +1740,7 @@ function mpLeave(){
   /* the table, put away with the room it belonged to */
   MP.size = 2; MP.mySeat = 0; MP.roster = null; MP.iAmReady = false;
   MP.began = null; MP.panel = null; MP.aiSeat = -1; MP.showRules = false;
-  MP.wantSeats = 0; MP.variant = null; MP.askBack = null;
+  MP.wantSeats = 0; MP.variant = null; MP.rules = null; MP.askBack = null;
   if (MP.unMove){ try { MP.unMove(); } catch (e){} MP.unMove = null; }
   if (MP.state !== 'unreachable') setState('idle');
 }
@@ -2077,6 +2160,16 @@ function onRoster(m){
   if (!m || !Array.isArray(m.who)) return;
   MP.roster = m;
   if (typeof m.seats === 'number' && m.seats >= 2) MP.size = m.seats | 0;
+  /* THE ROSTER IS THE ROOM'S AUTHORITY ON ITS MODE TOO. The host can change
+     the variant from the lobby (setvariant), and the relay re-broadcasts the
+     same roster carrying the new `variant`/`rules`. Adopt them so every phone
+     — host and not — follows the change: roomVariant() consumers read MP.variant
+     live (see js/klabb.js), and the seat count above already came from the same
+     message, so a mode that narrowed the table cannot leave MP.size stale. A
+     roster with no variant field (an older relay) leaves ours untouched. */
+  if (typeof m.variant === 'string') MP.variant = m.variant;
+  else if (m.variant === null && 'variant' in m) MP.variant = null;
+  if ('rules' in m) MP.rules = (m.rules && typeof m.rules === 'object') ? m.rules : null;
   const mine = m.who[MP.mySeat];
   MP.iAmReady = !!(mine && mine.ready);
   if (MP.live || MP.boardLive) return;    /* the board is up; nothing to repaint */
@@ -2160,6 +2253,12 @@ function tableLobby(){
   const taken = seats.length;
   const iAmHost = MP.mySeat === 0;
   const verdict = tableCanStart();
+  /* the game's mode presets, if it has more than one. The Rules button is
+     host-only and only shown when there is a genuine choice to make. */
+  const variants = lobbyVariants(MP.game);
+  const curVar = lobbyCurrentVariant(MP.game);
+  const hasModes = variants.length > 1;
+  const curLabel = (variants.find(v => v.net === curVar) || null);
   const free = [];
   for (let i = 0; i < MP.size; i++)
     if (!seats.some(s => s.seat === i)) free.push(i);
@@ -2184,6 +2283,29 @@ function tableLobby(){
       '</i></span><em class="' + (MP.showRules ? 'up' : '') + '">' + ico('arrow-right') +
       '</em></button>' +
     (MP.showRules ? '<div class="mp-rules">' + safeRules(LB) + '</div>' : '') +
+
+    /* ── THE MODE, if this game has more than one ──
+       The host gets a Rules button that changes the room's mode in place —
+       nobody is kicked, the roster just repaints for everyone. A non-host sees
+       the current mode as read-only text. A game with one mode shows neither. */
+    (hasModes
+      ? (iAmHost
+          ? '<button class="mp-fold" id="mp-modebtn" aria-expanded="' +
+              (MP.panel === 'mode' ? 'true' : 'false') + '">' +
+              ico('cards') + '<span>' + esc(T('Rules', 'Regoli')) +
+              '<i>' + esc(curLabel
+                    ? T('now: ', 'issa: ') + variantLabel(curLabel)
+                    : T('choose the mode', 'agħżel il-mod')) +
+              '</i></span><em class="' + (MP.panel === 'mode' ? 'up' : '') + '">' +
+              ico('arrow-right') + '</em></button>' +
+            (MP.panel === 'mode' ? modeDrawer(variants, curVar) : '')
+          : '<p class="mp-tsub" id="mp-modero">' +
+              esc(T('Mode', 'Mod')) + ': <b>' +
+              esc(curLabel ? variantLabel(curLabel) :
+                  T('the host chooses', 'jagħżel il-host')) + '</b>. ' +
+              esc(T('Only the host can change it.', 'Il-host biss jista’ jibdlu.')) +
+            '</p>')
+      : '') +
 
     /* ── the chairs ── */
     '<div class="mp-thd">THE TABLE</div>' +
@@ -2252,6 +2374,26 @@ function tableLobby(){
   };
   const st = $('#mp-start');
   if (st) st.onclick = () => { sfx('game.start'); send({ t:'start' }); };
+  const mb = $('#mp-modebtn');
+  if (mb) mb.onclick = () => {
+    MP.panel = MP.panel === 'mode' ? null : 'mode';
+    sfx(MP.panel === 'mode' ? 'ui.sheet' : 'ui.back');
+    tableLobby();
+  };
+  const mx = $('#mp-modex');
+  if (mx) mx.onclick = () => { MP.panel = null; sfx('ui.back'); tableLobby(); };
+  $$('#mp-mode [data-mode]').forEach(b => b.onclick = () => {
+    const net = b.dataset.mode;
+    /* optimistic only in SOUND. The relay's roster is the answer: it comes
+       back carrying the new variant and repaints this lobby for everyone. */
+    sfx('ui.toggle');
+    const w = lobbyApplyVariant(MP.game, net);
+    const msg = { t:'setvariant', variant: w.variant };
+    if (w.rules) msg.rules = w.rules;
+    send(msg);
+    MP.panel = null;
+    tableLobby();
+  });
   $('#mp-askbtn').onclick = () => {
     MP.panel = MP.panel === 'ask' ? null : 'ask';
     if (MP.panel === 'ask') whoAsk(true);
@@ -2399,6 +2541,29 @@ function aiDrawer(LB){
         ico('diff-' + Math.max(1, Math.min(3, L.level))) +
         '<span><b>' + esc(L.name) + '</b>' +
         (L.note ? '<i>' + esc(L.note) + '</i>' : '') + '</span></button>').join('') +
+    '</div>';
+}
+
+/* ── the mode picker drawer (host only) ─────────────────────────────
+   One tap per mode. The pick goes to the relay as a `setvariant` message; the
+   roster that comes back repaints the lobby for everyone, exactly like the
+   ready and machine flows. Nobody is removed. */
+function modeDrawer(variants, curVar){
+  return '<div class="mp-drawer" id="mp-mode">' +
+    '<div class="mp-dhd"><b>' + esc(T('The mode', 'Il-mod')) + '</b>' +
+      '<button class="mp-dx" id="mp-modex" aria-label="' + esc(T('Close', 'Agħlaq')) + '">' +
+        ico('close') + '</button></div>' +
+    '<p class="mp-dp">' + esc(T(
+      'Everyone at the table plays the same mode. Change it and their lobby just repaints — nobody is dropped.',
+      'Kulħadd fuq il-mejda jilgħab l-istess mod. Ibdlu u l-lobby tagħhom jerġa’ jinżebagħ — ħadd ma jitneħħa.')) +
+    '</p>' +
+    variants.map(v =>
+      '<button class="mp-lv' + (v.net === curVar ? ' on' : '') +
+        '" data-mode="' + esc(v.net) + '">' +
+        ico('cards') +
+        '<span><b>' + esc(variantLabel(v)) + '</b>' +
+        (v.net === curVar ? '<i>' + esc(T('playing now', 'qed jintlagħab issa')) + '</i>' : '') +
+        '</span></button>').join('') +
     '</div>';
 }
 

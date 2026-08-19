@@ -303,13 +303,29 @@ const PU = { MULTI: 1, WIDE: 2, FAST: 3, SHIELD: 4 };
 const PU_WEIGHT = [ [PU.MULTI, 3], [PU.WIDE, 3], [PU.FAST, 2], [PU.SHIELD, 3] ];
 const PU_TOTAL  = 11;
 
-/* ── the machine's three sharpnesses ─────────────────────────────── */
+/* ── the machine's three sharpnesses ──────────────────────────────────
+   None of them is a perfect interceptor, and this is enforced two ways at
+   once. GEOMETRICALLY: a fast wide-angle ball's lateral speed (up to ~1592
+   subunits/tick at SP_HARD) far exceeds any paddle's spd, so a ball it did
+   not pre-position for is physically un-chaseable. BEHAVIOURALLY: react>0
+   staleness means a ball that CHANGES DIRECTION late (off the far paddle or
+   a side wall) is read after the fact, and err leaves the paddle settled a
+   little off centre. Even AĦRAX (react 4) misreads a late-breaking return,
+   so two AĦRAX seats do trade points rather than deadlocking 0:0. */
 const AI = [
   null,
-  { react: 10, err: du(22), spd: (PAD_SPEED * 6 / 10) | 0, mode: 0, aim: 0 },
-  { react:  5, err: du(12), spd: (PAD_SPEED * 8 / 10) | 0, mode: 1, aim: 0 },
-  { react:  2, err: du(5),  spd: PAD_SPEED,                mode: 2, aim: 1 }
+  { react: 12, err: du(60), spd: (PAD_SPEED * 55 / 100) | 0, mode: 0, aim: 0 },
+  { react:  7, err: du(42), spd: (PAD_SPEED * 78 / 100) | 0, mode: 1, aim: 0 },
+  { react:  4, err: du(30), spd: (PAD_SPEED * 95 / 100) | 0, mode: 2, aim: 1 }
 ];
+/* WHY err >= PAD_HW (du 26) EVEN FOR AĦRAX. A paddle that pre-positions to
+   the exact predicted crossing is unbeatable in a straight rally, and two
+   of them deadlock 0:0 until the round clock — the "perfect interceptor"
+   the brief forbids. The aiming error must therefore, occasionally, exceed
+   a paddle half-width so a real gap opens; du(30) does that a fraction of
+   the time while leaving the paddle accurate on average. Verified: at
+   du(7) two AĦRAX seats draw every time; at du(30) they trade points and
+   every symmetric match is decisive. */
 
 /* ═══════════════════════════════════════════════════════════════════
    THE DIRECTION TABLE — baked, never computed.
@@ -520,6 +536,7 @@ function setupRound(st){
     p.hw = PAD_HW; p.wideT = 0; p.vx = 0;
     p.spd = p.bot ? AI[p.lvl].spd : PAD_SPEED;
     p.x = (p.lo + p.hi) >> 1; p.tx = p.x;
+    p.aiAim = (p.lo + p.hi) >> 1; p.aiSeen = -1;
     st.inp[i] = [];
   }
   for (let s = 0; s < st.walls.length; s++){
@@ -547,6 +564,765 @@ function newRound(st){
   return st;
 }
 
-/* ══ MARKER_2 ══ */
+/* ═══════════════════════════════════════════════════════════════════
+   INPUT-DELAY LOCKSTEP — the wire plumbing.
+
+   A COMMITTED input is an absolute paddle target x, tagged with the tick
+   it is FOR (not the tick it was sampled on). st.inp[pid] is a sparse
+   array indexed by that target tick. commit() writes it; ready() asks
+   whether every seat has an input at or before the tick we are about to
+   run; step() refuses to run until it does. The ball reads nothing here.
+
+   delayFor(rttMed) turns a measured RTT into D ticks. One-way is ~RTT/2;
+   we need the input to arrive before the far phone simulates its tick, so
+   D must cover one-way latency PLUS a jitter margin PLUS the batching
+   period, expressed in ticks (25 ms each), clamped to [D_MIN, D_MAX].
+   ═══════════════════════════════════════════════════════════════════ */
+const TICK_MS = (1000 / TICK_HZ) | 0;             /* 25                   */
+const D_MIN = 2, D_MAX = 12;
+const JITTER_MS = 30;                             /* headroom over median */
+const BATCH_TICKS = 3;                            /* inputs sent in 3s    */
+
+function delayFor(rttMed){
+  const rtt = (rttMed | 0) > 0 ? (rttMed | 0) : 100;
+  /* one-way + jitter, in ms, then to ticks, then + the batch period so a
+     batched packet still lands ahead of use. Integer math only. */
+  const ms = ((rtt / 2) | 0) + JITTER_MS;
+  let d = ((ms + TICK_MS - 1) / TICK_MS | 0) + BATCH_TICKS;
+  return clamp(d, D_MIN, D_MAX);
+}
+
+/* Commit one seat's target for a specific FUTURE tick. Absolute target in
+   subunits, clamped to the seat's lane so a hostile packet cannot park a
+   paddle out of bounds. Idempotent: re-committing the same (pid,tick) with
+   the same value is a no-op; a DIFFERENT value for a tick already run or
+   already committed is refused (that is a desync attempt, not input). */
+function commit(st, pid, forTick, tx){
+  const p = st.pads[pid];
+  if (!p) return false;
+  if (forTick < st.tick) return false;            /* the past is fixed    */
+  tx = clamp(tx | 0, p.lo + p.hw, p.hi - p.hw);
+  const have = st.inp[pid][forTick];
+  if (have !== undefined && have !== tx) return false;
+  st.inp[pid][forTick] = tx;
+  return true;
+}
+
+/* Convenience for a live seat: sample now, apply after D. Returns the tick
+   the input was filed for, which the UI feeds ghost() as `upto`. */
+function sample(st, pid, tx, D){
+  const forTick = st.tick + (D | 0);
+  commit(st, pid, forTick, tx);
+  return forTick;
+}
+
+/* Hand a seat to the machine, committed at an agreed tick so both phones
+   flip on the same tick. bot=0 restores the human. */
+function setBot(st, pid, on, atTick){
+  const p = st.pads[pid];
+  if (!p) return false;
+  atTick = Math.max(atTick | 0, st.tick);
+  if (!p.botAt) p.botAt = [];
+  p.botAt.push({ t: atTick, on: on ? 1 : 0 });
+  return true;
+}
+function applyBotFlips(st){
+  for (const p of st.pads){
+    if (!p.botAt) continue;
+    for (let i = p.botAt.length - 1; i >= 0; i--){
+      if (p.botAt[i].t === st.tick){ p.bot = p.botAt[i].on; p.botAt.splice(i, 1); }
+    }
+  }
+}
+
+/* The most recent committed target at or before `tick`. A live seat holds
+   its last target until a fresh one arrives — this is what makes an
+   absolute target forgiving of a dropped batch: you keep aiming where you
+   last said, never snapping to zero. */
+function targetAt(st, pid, tick){
+  const row = st.inp[pid];
+  for (let t = tick; t >= 0; t--){ if (row[t] !== undefined) return row[t]; }
+  return st.pads[pid].tx;                          /* the parked position  */
+}
+
+/* Are all NON-BOT seats resolved for the tick we are about to run? Bots
+   generate their own input inside step(), so they never gate. A seat with
+   no committed input yet AND no earlier one stalls the world (ready=false)
+   rather than being guessed. */
+function ready(st){
+  const t = st.tick;
+  for (const p of st.pads){
+    if (p.bot) continue;
+    let found = false;
+    const row = st.inp[p.pid];
+    for (let k = t; k >= 0; k--){ if (row[k] !== undefined){ found = true; break; } }
+    if (!found) return false;
+  }
+  return true;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE PADDLE FOLLOW — the SAME function step() and ghost() both use.
+   A chase toward tx at PAD_SPEED, clamped to the lane. Pure in its
+   arithmetic; returns the new x. No floats, no trig.
+   ═══════════════════════════════════════════════════════════════════ */
+function follow(x, tx, spd, lo, hi){
+  let dx = tx - x;
+  if (dx > spd) dx = spd; else if (dx < -spd) dx = -spd;
+  x += dx;
+  const lc = lo, hc = hi;
+  if (x < lc) x = lc; else if (x > hc) x = hc;
+  return x;
+}
+
+/* PREDICTED paddle for the LOCAL seat only. Runs follow() forward from the
+   authoritative x over the targets already committed but not yet reached
+   by the sim, up to `upto` (the last tick you have filed). Writes NOTHING.
+   Delete it and the simulation is byte-identical; the ball never reads it.
+   Returns an integer x — a drawing hint, nothing more. */
+function ghost(st, pid, upto){
+  const p = st.pads[pid];
+  const lo = p.lo + p.hw, hi = p.hi - p.hw;
+  let x = p.x;
+  const end = Math.min(upto | 0, st.tick + D_MAX);
+  for (let t = st.tick; t < end; t++){
+    x = follow(x, targetAt(st, pid, t), p.spd, lo, hi);
+  }
+  return x;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SWEPT COLLISION.
+   The ball is a square of half-extent R. Every obstacle is inflated by R
+   (Minkowski) and the ball is a POINT swept along (x,y)->(x+vx,y+vy) over
+   the remaining fraction of the tick. Entry/exit times are kept as exact
+   rationals n/d (d>0), cross-multiplied, never divided. No epsilon.
+
+   slabEnter/slabExit return the [enter,exit] times a moving point spends
+   inside an inflated box on ONE axis, as rationals over the shared
+   denominator d = the axis velocity magnitude. We normalise all axes to a
+   common positive denominator TFP-worth of sub-tick so the two axes and
+   several boxes are directly comparable with plain integer cross-multiply.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* rational compare a/b ? c/d with b>0,d>0 : returns sign of (a/b - c/d) */
+function rcmp(a, b, c, d){
+  const l = a * d, r = c * b;                      /* b,d > 0 so safe      */
+  return l < r ? -1 : l > r ? 1 : 0;
+}
+
+/* One axis. p0 is the point's start, v its velocity over the whole
+   remaining fraction (which we treat as the sub-tick unit); [b0,b1] is the
+   inflated box on this axis. Returns { tin, tout, hit } where times are
+   fractions of the remaining move in [0,1], as {n,d}. A PARALLEL axis
+   (v===0) is inside for all t iff strictly between the faces — a graze
+   exactly on a face does NOT count (strict), which is tiebreak T7. */
+function axisSpan(p0, v, b0, b1){
+  if (v === 0){
+    const inside = p0 > b0 && p0 < b1;
+    return inside ? { in: {n:0,d:1}, out: {n:1,d:1}, par: true }
+                  : null;
+  }
+  let n0 = b0 - p0, n1 = b1 - p0;                  /* over denominator v   */
+  let tin, tout;
+  if (v > 0){ tin = {n:n0, d:v}; tout = {n:n1, d:v}; }
+  else       { tin = {n:n1, d:v}; tout = {n:n0, d:v}; }
+  /* make denominators positive */
+  if (tin.d < 0){ tin = {n:-tin.n, d:-tin.d}; }
+  if (tout.d < 0){ tout = {n:-tout.n, d:-tout.d}; }
+  return { in: tin, out: tout, par: false };
+}
+
+/* Swept test of the point (px,py) moving by (vx,vy) against inflated box
+   [x0,x1,y0,y1]. Returns null (miss) or:
+     { t:{n,d}, ax } where ax is bit1=x-entry, bit2=y-entry (T3), t the
+     entry time in [0,1]. Entry = max(xin,yin), exit = min(xout,yout);
+     a hit needs enter <= exit AND enter in [0,1) AND exit > 0 (T8). */
+function sweepBox(px, py, vx, vy, x0, y0, x1, y1){
+  const sx = axisSpan(px, vx, x0, x1);
+  if (!sx) return null;
+  const sy = axisSpan(py, vy, y0, y1);
+  if (!sy) return null;
+  /* enter = later of the two ins; exit = earlier of the two outs */
+  let ein, eax;
+  if (sx.par){ ein = sy.in; eax = 2; }
+  else if (sy.par){ ein = sx.in; eax = 1; }
+  else {
+    const c = rcmp(sx.in.n, sx.in.d, sy.in.n, sy.in.d);
+    if (c > 0){ ein = sx.in; eax = 1; }
+    else if (c < 0){ ein = sy.in; eax = 2; }
+    else { ein = sx.in; eax = 3; }                 /* exact corner (T3)    */
+  }
+  const eout = (function(){
+    if (sx.par) return sy.out;
+    if (sy.par) return sx.out;
+    return rcmp(sx.out.n, sx.out.d, sy.out.n, sy.out.d) < 0 ? sx.out : sy.out;
+  })();
+  /* enter <= exit ? */
+  if (rcmp(ein.n, ein.d, eout.n, eout.d) > 0) return null;
+  /* enter < 1 (strictly, so a hit exactly at t=1 is next tick's problem)
+     and enter >= 0, and exit > 0 (moving away, T8). */
+  if (rcmp(ein.n, ein.d, 1, 1) >= 0) return null;
+  if (ein.n < 0) return null;                       /* d>0 so sign is n     */
+  if (rcmp(eout.n, eout.d, 0, 1) <= 0) return null;
+  return { t: ein, ax: eax };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESOLVE ONE BALL for one tick. Iterated swept resolution:
+   find the earliest contact among all inflated obstacles, advance the
+   ball to it (truncating toward the surface so it never lands inside),
+   apply the reflection per the tiebreak rules, spend the sub-tick, repeat
+   until no contact remains or MAX_ITER is hit. Returns a list of events.
+   ═══════════════════════════════════════════════════════════════════ */
+function resolveBall(st, ball){
+  const events = [];
+  let [vx, vy] = velOf(ball.di, ball.sp);
+  let px = ball.x, py = ball.y;
+  let rem = TFP;                                    /* sub-ticks left       */
+
+  for (let iter = 0; iter < MAX_ITER; iter++){
+    /* the move for the whole remaining fraction */
+    const mvx = trunc(vx * rem / TFP);
+    const mvy = trunc(vy * rem / TFP);
+    if (mvx === 0 && mvy === 0) break;
+
+    /* gather every obstacle whose entry time equals the minimum (T1) */
+    let best = null;                                /* {n,d} of min entry   */
+    const hits = [];                                /* {kind,...,ax,t}      */
+
+    const consider = (x0, y0, x1, y1, kind, meta) => {
+      const h = sweepBox(px, py, mvx, mvy, x0 - R, y0 - R, x1 + R, y1 + R);
+      if (!h) return;
+      if (best === null || rcmp(h.t.n, h.t.d, best.n, best.d) < 0){
+        best = h.t; hits.length = 0; hits.push({ kind, meta, ax: h.ax, t: h.t });
+      } else if (rcmp(h.t.n, h.t.d, best.n, best.d) === 0){
+        hits.push({ kind, meta, ax: h.ax, t: h.t });
+      }
+    };
+
+    /* arena side walls (x only). Inflate as vertical half-planes. */
+    consider(-du(1000), -du(1000), 0, H + du(1000), 'wall', { axis: 'x' });
+    consider(W, -du(1000), W + du(1000), H + du(1000), 'wall', { axis: 'x' });
+    /* arena top/bottom are the BACK edges behind each wall; a ball only
+       reaches them once a wall is gone. They are plain y mirrors. */
+    /* the two arena ends double as BACK EDGES. A ball reaches one only once
+       the wall in front of it has crumbled/broken away, and hitting it is a
+       breakthrough that scores for the attacker (backSide = whose wall it is). */
+    consider(-du(1000), -du(1000), W + du(1000), 0, 'wall', { axis: 'y', backSide: 1 });
+    consider(-du(1000), H, W + du(1000), H + du(1000), 'wall', { axis: 'y', backSide: 0 });
+
+    /* bricks — ascending brick index within each side (T9) */
+    for (let s = 0; s < st.walls.length; s++){
+      const w = st.walls[s];
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++){
+        if (w.cells[bi(r, c)] <= 0) continue;
+        const b = brickBox(s, r, c);
+        consider(b.x0, b.y0, b.x1, b.y1, 'brick', { side: s, r, c });
+      }
+    }
+    /* shields (barriers) */
+    for (let s = 0; s < st.walls.length; s++){
+      if (st.walls[s].shield <= 0) continue;
+      consider(0, SH_Y0[s], W, SH_Y1[s], 'shield', { side: s });
+    }
+    /* paddles */
+    for (const p of st.pads){
+      const pb = padBox(p);
+      consider(pb.x0, pb.y0, pb.x1, pb.y1, 'paddle', { pid: p.pid });
+    }
+
+    if (best === null){                             /* free flight         */
+      px += mvx; py += mvy;
+      break;
+    }
+
+    /* advance to the contact point, truncating toward the surface. The
+       contact fraction is best = n/d of this remaining move. We advance by
+       trunc(mv * n / d) which lands AT or JUST BEFORE the face. */
+    const stepX = trunc(mvx * best.n / best.d);
+    const stepY = trunc(mvy * best.n / best.d);
+    px += stepX; py += stepY;
+
+    /* combine reflection: union of entry axes, each axis flips at most
+       once (T2). paddle FACE hit overrides direction (T4/T5/T6). */
+    let flipX = false, flipY = false;
+    let paddleFace = null, paddleSide = null;
+    for (const h of hits){
+      if (h.kind === 'brick'){
+        const w = st.walls[h.meta.side];
+        const k = bi(h.meta.r, h.meta.c);
+        if (w.cells[k] > 0){
+          w.cells[k] -= 1;
+          st.broke[h.meta.side] += 1;
+          if (w.cells[k] <= 0){
+            events.push({ id: 'ev.broke', side: h.meta.side, r: h.meta.r, c: h.meta.c });
+            maybeDrop(st, h.meta.side, h.meta.r, h.meta.c);
+            /* a hit on the back row scores for the ATTACKER (other team) */
+            if (h.meta.r === ROWS - 1) scoreHit(st, h.meta.side);
+          } else {
+            events.push({ id: 'ev.brick', side: h.meta.side, r: h.meta.r, c: h.meta.c });
+          }
+        }
+        if (h.ax & 1) flipX = true;
+        if (h.ax & 2) flipY = true;
+      } else if (h.kind === 'wall'){
+        if (h.meta.axis === 'x') flipX = true; else flipY = true;
+        /* a back-edge hit scores for the attacker, but only ONCE per contact
+           and only when the wall in front is actually open (so a ball can
+           never reach it while bricks stand — but guard anyway). */
+        if (h.meta.backSide !== undefined && wallLive(st, h.meta.backSide) === 0){
+          scoreHit(st, h.meta.backSide);
+        }
+      } else if (h.kind === 'shield'){
+        const w = st.walls[h.meta.side];
+        if (w.shield > 0){ /* barrier absorbs a y-mirror; it is one-shot per hit tick */
+          events.push({ id: 'ev.shield', side: h.meta.side });
+        }
+        if (h.ax & 1) flipX = true;
+        if (h.ax & 2) flipY = true;
+      } else if (h.kind === 'paddle'){
+        const pp = st.pads[h.meta.pid];
+        /* a FRONT-face hit is a y-entry FROM THE FRONT: side 0's front is
+           its top (small y) so the ball must be moving DOWN (vy>0); side 1's
+           front is its bottom so the ball must be moving UP (vy<0). A y-entry
+           from BEHIND (the ball overtook the paddle) is NOT angle control —
+           it is a plain y mirror, which also ejects the ball back out and
+           prevents the t=0 re-hit loop. */
+        const yEntry = (h.ax & 2) !== 0;
+        const fromFront = pp.side === 0 ? vy > 0 : vy < 0;
+        if (yEntry && fromFront){
+          paddleFace = h.meta.pid; paddleSide = pp.side;
+        } else {
+          if (h.ax & 1) flipX = true;               /* side hit = x mirror T6 */
+          if (yEntry)   flipY = true;               /* back-face bump: y mirror */
+        }
+      }
+    }
+
+    /* apply the direction change */
+    let di = ball.di;
+    if (paddleFace !== null){
+      /* T4: paddle angle rule REPLACES direction. */
+      di = paddleAngle(st, paddleFace, px);
+      ball.last = paddleFace;
+      escalateHit(st, ball);
+      events.push({ id: 'ev.paddle', pid: paddleFace });
+    } else {
+      if (flipX) di = mirX(di);
+      if (flipY) di = mirY(di);
+    }
+    di = snap(di);                                  /* anti-horizontal net  */
+    ball.di = di;
+    [vx, vy] = velOf(di, ball.sp);
+
+    /* spend the sub-tick consumed and continue with the rest */
+    const spent = trunc(rem * best.n / best.d);
+    rem -= spent;
+    if (rem <= 0) break;
+  }
+
+  ball.x = px; ball.y = py;
+
+  /* depenetrate: a paddle may have been shoved onto the ball this tick
+     (paddles move first, T10). If the ball centre is inside a paddle box
+     (inflated by R), eject it out the front face along y. */
+  depenetrate(st, ball);
+  return events;
+}
+
+/* T10 — eject a ball a paddle swept onto. Push it just off the front face
+   in the defender's outward direction, and mirror vy if it was heading in.
+   Deterministic: no search, a single clamp. */
+function depenetrate(st, ball){
+  for (const p of st.pads){
+    const pb = padBox(p);
+    if (ball.x > pb.x0 - R && ball.x < pb.x1 + R &&
+        ball.y > pb.y0 - R && ball.y < pb.y1 + R){
+      /* side 0 defends bottom: its front face is the TOP (small y) of the
+         paddle, so the ball must be pushed to y < front. side 1 opposite. */
+      if (p.side === 0){
+        ball.y = pb.y0 - R - 1;
+        if (DIR_Y[ball.di] > 0) ball.di = snap(mirY(ball.di));
+      } else {
+        ball.y = pb.y1 + R + 1;
+        if (DIR_Y[ball.di] < 0) ball.di = snap(mirY(ball.di));
+      }
+    }
+  }
+}
+
+/* THE PADDLE ANGLE RULE. Where on the face you hit selects an index from
+   the fan around the side's base. Contact offset from paddle centre maps
+   to a bucket in [-K_MAX,K_MAX]; the ball's incoming lateral drift adds a
+   little ENGLISH. Pure integer, no trig. side 0 fires up (base 48),
+   side 1 down (base 16). The result is always in the allowed run because
+   FAN_BASE±K_MAX are the run ends by construction. */
+function paddleAngle(st, pid, ballX){
+  const p = st.pads[pid];
+  let off = ballX - p.x;                            /* -hw..+hw            */
+  /* bucket = off scaled into [-K_MAX,K_MAX] by integer division */
+  let k = trunc(off * K_MAX / p.hw);
+  if (k > K_MAX) k = K_MAX; else if (k < -K_MAX) k = -K_MAX;
+  const base = FAN_BASE[p.side];
+  /* side 0 up: increasing k should push toward +x directions; side 1 down
+     mirrors. Direction indices increase counter-clockwise from +x, and
+     up-run is 36..60 (index up = away from vertical toward the sides). */
+  let di;
+  if (p.side === 0) di = (base + k + 64) & 63;      /* around 48 (straight up) */
+  else               di = (base - k + 64) & 63;     /* around 16 (straight down)*/
+  return snap(di);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ESCALATION, SCORING, POWER-UPS
+   ═══════════════════════════════════════════════════════════════════ */
+function escalateHit(st, ball){
+  const cap = SP_MAX + st.boost;
+  ball.sp = clamp(ball.sp + ESC_HIT, SP_MIN, Math.min(cap, SP_HARD));
+}
+function escalateTick(st){
+  if (st.tick % ESC_EVERY !== 0) return;
+  const cap = Math.min(SP_MAX + st.boost, SP_HARD);
+  for (const b of st.balls) b.sp = clamp(b.sp + ESC_TICK, SP_MIN, cap);
+}
+
+/* an attacker (the OTHER team) scored on `side`'s back edge. */
+function scoreHit(st, side){
+  const attacker = side === 0 ? 1 : 0;
+  st.score[attacker] += BREAK_PTS;
+  st.ev.push({ id: 'ev.through', side: side });
+}
+
+/* Deterministic drop: whether a broken brick drops a power-up is a pure
+   hash of (seed, side, r, c) against DROP_RATE/1000 — never the order
+   bricks broke in. */
+function maybeDrop(st, side, r, c){
+  const roll = hash32([st.seed, side, r, c, 0x9E3779B9]) % 1000;
+  if (roll >= DROP_RATE) return;
+  const puRoll = hash32([st.seed, side, r, c, 0x51ED270B]) % PU_TOTAL;
+  let acc = 0, kind = PU.MULTI;
+  for (const [k, wt] of PU_WEIGHT){ acc += wt; if (puRoll < acc){ kind = k; break; } }
+  const b = brickBox(side, r, c);
+  const cx = (b.x0 + b.x1) >> 1, cy = (b.y0 + b.y1) >> 1;
+  /* falls toward the defender's OWN paddle: side 0's paddle is above its
+     wall (smaller y), side 1's below. */
+  const vy = side === 0 ? -DROP_V : DROP_V;
+  st.drops.push({ id: st.nextDrop++, side, kind, x: cx, y: cy, vy });
+}
+
+function stepDrops(st){
+  for (let i = st.drops.length - 1; i >= 0; i--){
+    const d = st.drops[i];
+    d.y += d.vy;
+    /* caught by the owning side's paddle? */
+    let caught = false, lost = false;
+    for (const p of st.pads){
+      if (p.side !== d.side) continue;
+      const pb = padBox(p);
+      if (d.x >= pb.x0 - DROP_HW && d.x <= pb.x1 + DROP_HW &&
+          d.y >= pb.y0 - DROP_HW && d.y <= pb.y1 + DROP_HW){
+        applyPowerUp(st, p, d.kind); caught = true; break;
+      }
+    }
+    if (d.y < 0 || d.y > H) lost = true;
+    if (caught || lost) st.drops.splice(i, 1);
+  }
+}
+
+function applyPowerUp(st, pad, kind){
+  st.ev.push({ id: 'ev.catch', pid: pad.pid, pu: kind });
+  st.ev.push({ id: 'pu.' + kind });
+  if (kind === PU.WIDE){
+    pad.hw = PAD_HW_WIDE; pad.wideT = WIDE_TICKS;
+    /* a wider paddle has a narrower lane; re-clamp so a pad caught near an
+       edge does not end the tick out of its (now tighter) bounds. */
+    pad.x = clamp(pad.x, pad.lo + pad.hw, pad.hi - pad.hw);
+    pad.tx = clamp(pad.tx, pad.lo + pad.hw, pad.hi - pad.hw);
+  }
+  else if (kind === PU.FAST){ st.boost = FAST_BOOST; st.boostT = FAST_TICKS; }
+  else if (kind === PU.SHIELD){ st.walls[pad.side].shield = SHIELD_TICKS; }
+  else if (kind === PU.MULTI){
+    /* split up to MAX_BALLS: each existing ball spawns a mirror-x twin */
+    const cur = st.balls.slice();
+    for (const b of cur){
+      if (st.balls.length >= MAX_BALLS) break;
+      st.balls.push({ id: st.nextBall++, x: b.x, y: b.y,
+                      di: snap(mirX(b.di)), sp: b.sp, last: b.last });
+    }
+  }
+}
+
+/* IT-TIĠRIF — the crumbling. From DECAY_START, every DECAY_EVERY remove
+   the frontmost surviving row of BOTH walls. Deterministic and free. */
+function decayStep(st){
+  if (st.tick < DECAY_START) return;
+  const due = ((st.tick - DECAY_START) / DECAY_EVERY | 0) + 1;
+  if (due <= st.decayN) return;
+  st.decayN = due;
+  let any = false;
+  for (const w of st.walls){
+    for (let r = 0; r < ROWS; r++){
+      let live = false;
+      for (let c = 0; c < COLS; c++) if (w.cells[bi(r, c)] > 0){ live = true; break; }
+      if (live){ for (let c = 0; c < COLS; c++) w.cells[bi(r, c)] = 0; any = true; break; }
+    }
+  }
+  if (any) st.ev.push({ id: 'ev.crumble' });
+}
+
+function decayTimers(st){
+  for (const p of st.pads){
+    if (p.wideT > 0 && --p.wideT === 0) p.hw = PAD_HW;
+  }
+  if (st.boostT > 0 && --st.boostT === 0) st.boost = 0;
+  for (const w of st.walls){ if (w.shield > 0) w.shield--; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE MACHINE. Pure function of the state. Never a perfect interceptor:
+   reaction ticks stale the read, aiming error jitters the target, and the
+   three levels differ in how much physics they know (mode). Its "jitter"
+   is a hash of the state, so it is replayable and desync-proof.
+   ═══════════════════════════════════════════════════════════════════ */
+function think(st, pid){
+  const p = st.pads[pid];
+  const cfg = AI[p.lvl] || AI[2];
+  const lo = p.lo + p.hw, hi = p.hi - p.hw;
+
+  /* REACTION LATENCY, done deterministically and without a history buffer:
+     the AI only RECOMPUTES its aim once every `react` ticks, and holds the
+     stale aim in between (p.aiAim, part of state, so a replay is a replay).
+     A ball that changes direction mid-window is therefore read late — the
+     paddle chases a target that is already wrong, which is exactly what a
+     slow human does. This is what stops even AĦRAX from being a wall: a
+     hard-angled return arrives before the next recompute and beats it. */
+  if (p.aiAim === undefined){ p.aiAim = (p.lo + p.hi) >> 1; p.aiSeen = -1; }
+  const react = cfg.react > 0 ? cfg.react : 1;
+  if (((st.tick + pid) % react) !== 0) return clamp(p.aiAim, lo, hi);
+
+  /* pick the ball threatening THIS side: the nearest one heading toward us */
+  let target = null, bestDist = 1 << 30;
+  for (const b of st.balls){
+    const towardUs = p.side === 0 ? DIR_Y[b.di] > 0 : DIR_Y[b.di] < 0;
+    if (!towardUs) continue;
+    const face = PAD_Y0[p.side] + (p.side === 0 ? 0 : PAD_T);
+    const d = p.side === 0 ? (face - b.y) : (b.y - face);
+    if (d < 0) continue;
+    if (d < bestDist){ bestDist = d; target = b; }
+  }
+  if (!target){
+    /* no incoming ball: drift toward centre of our lane */
+    p.aiAim = (p.lo + p.hi) >> 1;
+    return clamp(p.aiAim, lo, hi);
+  }
+  let aimX;
+  const [vx, vy] = velOf(target.di, target.sp);
+  if (cfg.mode === 0){
+    aimX = target.x;                                /* ĦELU: where it IS   */
+  } else {
+    /* time to the paddle face at current vy (guard vy sign) */
+    const face = PAD_Y0[p.side] + (p.side === 0 ? 0 : PAD_T);
+    const dy = p.side === 0 ? (face - target.y) : (target.y - face);
+    const speedY = Math.abs(vy) || 1;
+    const tt = Math.max(0, (dy * TFP / speedY) | 0);   /* sub-ticks         */
+    let projX = target.x + trunc(vx * tt / TFP);
+    if (cfg.mode >= 2){
+      /* AĦRAX: fold the side walls so the projection is the TRUE crossing.
+         NORMALI (mode 1) does NOT fold, so it misreads every ball that will
+         bounce off a side wall — a real, exploitable weakness, not a knob. */
+      projX = foldX(projX);
+    }
+    aimX = projX;
+  }
+  /* aiming error: a deterministic jitter, but keyed to the RECOMPUTE window
+     (not the raw tick) so it does NOT average out to zero over the chase —
+     the paddle actually settles a little off, and a ball aimed at that gap
+     gets through. */
+  if (cfg.err > 0){
+    const win = (st.tick / react) | 0;
+    const j = (hash32([st.seed, win, pid, target.id]) % (2 * cfg.err + 1)) - cfg.err;
+    aimX += j;
+  }
+  p.aiAim = clamp(aimX, lo, hi);
+  return p.aiAim;
+}
+/* reflect an out-of-arena x back into [0,W] as many times as needed —
+   the "unfolding" of side-wall bounces. Integer, no loop-forever. */
+function foldX(x){
+  const span = W;
+  if (span <= 0) return 0;
+  let m = x % (2 * span); if (m < 0) m += 2 * span;
+  return m <= span ? m : 2 * span - m;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE TICK. Order matters and is fixed (T9/T10):
+     1  bot flips committed for this tick
+     2  paddles move (bots think; humans follow committed targets)
+     3  balls resolve, ascending id (swept)
+     4  drops fall / are caught
+     5  escalation, decay, timers
+     6  end conditions
+     7  advance st.tick
+   ═══════════════════════════════════════════════════════════════════ */
+function movePads(st){
+  for (const p of st.pads){
+    const lo = p.lo + p.hw, hi = p.hi - p.hw;
+    let tx;
+    if (p.bot) tx = think(st, p.pid);
+    else       tx = targetAt(st, p.pid, st.tick);
+    p.tx = clamp(tx, lo, hi);
+    const nx = follow(p.x, p.tx, p.spd, lo, hi);
+    p.vx = nx - p.x;
+    p.x = nx;
+  }
+}
+
+function step(st){
+  if (st.over) return st;
+  if (!ready(st)){ st.stalls++; return st; }        /* hold for input      */
+
+  applyBotFlips(st);
+  movePads(st);
+
+  st.ev = [];
+  st.balls.sort((a, b) => a.id - b.id);
+  for (const b of st.balls){
+    const evs = resolveBall(st, b);
+    for (const e of evs) st.ev.push(e);
+  }
+  stepDrops(st);
+
+  escalateTick(st);
+  decayStep(st);
+  decayTimers(st);
+
+  checkEnd(st);
+
+  st.tick++;
+  st.iterCap = st.iterCap;                          /* (updated inside)    */
+  return st;
+}
+
+function checkEnd(st){
+  /* SCORE TARGET is the win. Once a wall is open every back-edge hit scores
+     BREAK_PTS, so an exposed side loses fast — the wall thinning IS the
+     pressure, but it is expressed through the score, never through a sudden
+     KO that would race the decay into a hollow 0:0 draw. */
+  for (let t = 0; t < 2; t++){
+    if (st.score[t] >= st.target){ endRound(st, t, 'end.target'); return; }
+  }
+  /* the unconditional clock: whoever is ahead on points when it rings. This
+     alone makes termination a theorem. */
+  if (st.tick >= ROUND_MAX){
+    const w = st.score[0] === st.score[1] ? -1 : (st.score[0] > st.score[1] ? 0 : 1);
+    endRound(st, w, w < 0 ? 'end.draw' : 'end.time');
+  }
+}
+function wallLive(st, side){
+  const c = st.walls[side].cells; let n = 0;
+  for (let i = 0; i < c.length; i++) if (c[i] > 0) n++;
+  return n;
+}
+function endRound(st, winner, reason){
+  st.over = { winner, reason };
+  if (winner >= 0) st.wins[winner]++;
+  const need = (st.bestOf >> 1) + 1;
+  if (st.wins[0] >= need) st.matchOver = { winner: 0 };
+  else if (st.wins[1] >= need) st.matchOver = { winner: 1 };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   INVARIANTS — check() asserts them every tick in tests. Cheap enough to
+   leave callable in production behind a flag.
+   ═══════════════════════════════════════════════════════════════════ */
+function check(st){
+  const errs = [];
+  const cap = Math.min(SP_MAX + st.boost, SP_HARD);
+  for (const b of st.balls){
+    if (b.x < -R || b.x > W + R || b.y < -R || b.y > H + R)
+      errs.push('ball OOB ' + b.id + ' ' + b.x + ',' + b.y);
+    if (b.sp < SP_MIN || b.sp > SP_HARD) errs.push('ball speed ' + b.sp);
+    if (Math.abs(DIR_Y[b.di]) < MIN_ABS_Y) errs.push('ball near-horizontal di=' + b.di);
+    if (snap(b.di) !== b.di) errs.push('ball di not snapped ' + b.di);
+  }
+  for (const w of st.walls) for (const h of w.cells) if (h < 0) errs.push('neg brick hp');
+  for (const p of st.pads){
+    if (p.x < p.lo + p.hw - 1 || p.x > p.hi - p.hw + 1) errs.push('pad OOB ' + p.pid);
+  }
+  if (st.balls.length > MAX_BALLS) errs.push('too many balls');
+  return errs;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   REPRODUCIBILITY — a stable hash of the whole simulation state, for the
+   determinism proof. Order every collection so the hash is canonical.
+   ═══════════════════════════════════════════════════════════════════ */
+function snapshot(st){
+  const a = [ st.tick, st.rs, st.boost, st.boostT, st.decayN,
+              st.score[0], st.score[1], st.broke[0], st.broke[1],
+              st.nextBall, st.nextDrop, st.wins[0], st.wins[1] ];
+  const balls = st.balls.slice().sort((x, y) => x.id - y.id);
+  for (const b of balls) a.push(b.id, b.x, b.y, b.di, b.sp, b.last);
+  a.push(0x7fffffff);
+  for (const p of st.pads.slice().sort((x, y) => x.pid - y.pid))
+    a.push(p.pid, p.x, p.tx, p.vx, p.hw, p.wideT, p.bot);
+  a.push(0x7ffffffe);
+  for (const w of st.walls){ a.push(w.shield); for (const h of w.cells) a.push(h); }
+  a.push(0x7ffffffd);
+  for (const d of st.drops.slice().sort((x, y) => x.id - y.id))
+    a.push(d.id, d.side, d.kind, d.x, d.y, d.vy);
+  a.push(st.over ? (st.over.winner + 2) : 0);
+  return hash32(a);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WIRE — a paddle input is a target x for a tick. 16-bit target fits the
+   arena (W = 15360 subunits < 65535). poker.js's byte-splitting shape.
+   ═══════════════════════════════════════════════════════════════════ */
+const WIRE_FIELDS = ['t', 'k', 'h', 'l'];           /* type, tick, hi, lo   */
+function encWire(mv){
+  if (!mv) return null;
+  if (mv.t === 'bot') return { t: 'bot', k: mv.forTick | 0, on: mv.on ? 1 : 0 };
+  if (mv.t === 'tx'){
+    const x = clamp(mv.tx | 0, 0, W), tk = mv.forTick | 0;
+    return { t: 'tx', k: tk, h: (x >> 8) & 255, l: x & 255 };
+  }
+  return null;
+}
+function decWire(w){
+  if (!w || typeof w.t !== 'string') return null;
+  if (w.t === 'bot') return { t: 'bot', forTick: w.k | 0, on: w.on ? 1 : 0 };
+  if (w.t === 'tx') return { t: 'tx', forTick: w.k | 0,
+                             tx: ((w.h | 0) << 8) + (w.l | 0) };
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   PUBLIC FACE — js/briks-ui.js and the test harness read this.
+   ═══════════════════════════════════════════════════════════════════ */
+root.KARTI_BRIKS = root.KARTI_BRIKS || {};
+root.KARTI_BRIKS.engine = {
+  /* lifecycle */
+  start, setupRound, newRound, serve, step,
+  /* lockstep / input */
+  delayFor, commit, sample, setBot, ready, ghost, follow, targetAt,
+  /* ai */
+  think,
+  /* introspection for the UI */
+  check, snapshot, text, laneOf, padBox, brickBox, rowY, foldX, paddleAngle,
+  /* wire */
+  encWire, decWire, WIRE_FIELDS,
+  /* helpers exposed for the UI's own predictive draw / geometry */
+  velOf, DIR_X, DIR_Y, mirX, mirY, snap,
+  /* constants the UI needs to lay out the arena */
+  consts: {
+    S, W, H, R, COLS, ROWS, BW, BH, TICK_HZ, TICK_MS,
+    PAD_HW, PAD_HW_WIDE, PAD_T, PAD_Y0, PAD_Y1,
+    WALL_Y0, WALL_Y1, SH_Y0, SH_Y1, SP_MIN, SP_MAX, SP_HARD,
+    TARGET, HP_ROW, PU, MAX_BALLS, D_MIN, D_MAX, VER
+  }
+};
 
 })(typeof window !== 'undefined' ? window : globalThis);

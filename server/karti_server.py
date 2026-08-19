@@ -444,6 +444,15 @@ class L:
     MAX_DEAL_ITEMS = 64         # size of the pool the relay will hand out
     MAX_DEAL_EACH = 8           # items any one seat may be dealt
 
+    # AN OPAQUE RULES BLOB. The relay already carries `variant` blindly and
+    # echoes it in the roster; `rules` is the same idea grown one size up — a
+    # small object a game hangs its own presets on (a future role pool, a stake)
+    # that the relay stores and re-broadcasts WITHOUT ever looking inside. It is
+    # size-capped exactly because it is never inspected: an un-read blob must
+    # not be a way to fan a large payload out to a table. Today's two games
+    # (klabb, rummy) still steer on `variant` and leave this empty.
+    MAX_RULES_BYTES = 512       # serialised size of room.rules, once encoded
+
     MAX_CREATES = 5             # rooms one connection may ever create
     MAX_BAD_JOINS = 20          # wrong room codes before the socket is cut
     MAX_ERRORS = 30             # protocol errors before the socket is cut
@@ -556,6 +565,8 @@ E_STARTED = "That table has already started."
 E_NOTABLE = "That is a two-player room, not a table."
 E_NOTREADY = "Somebody at the table is not ready yet."
 E_DEAL_SHORT = "Not enough to deal to everybody at this table."
+E_VARIANT = "That is not a mode this game can play."
+E_VARIANT_SEATS = "Too many are already seated for that mode. Nobody was removed."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
@@ -739,6 +750,26 @@ def v_variant(game, v):
     allowed = GAME_VARIANTS.get(game)
     if not allowed or v not in allowed:
         raise Reject("variant")
+    return v
+
+
+def v_rules(v):
+    """The OPAQUE rules blob. The relay never reads a field of it — it only
+    checks it is a small JSON object it can store and echo back. `None` means
+    "the game said nothing", which is every game today; a dict is carried as-is
+    once it is known to serialise inside the cap. Anything else is refused so a
+    non-object can never reach the roster where clients expect either a dict or
+    nothing."""
+    if v is None:
+        return None
+    if not isinstance(v, dict):
+        raise Reject("rules")
+    try:
+        blob = json.dumps(v, separators=(",", ":"))
+    except (TypeError, ValueError):
+        raise Reject("rules")
+    if len(blob.encode("utf-8")) > L.MAX_RULES_BYTES:
+        raise Reject("rules big")
     return v
 
 
@@ -1195,16 +1226,21 @@ class Room:
     host is playing as bots. That is the whole of it."""
 
     __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
-                 "private", "game", "size", "variant", "started", "bots", "fan",
-                 "botseats", "readying", "dealt")
+                 "private", "game", "size", "variant", "rules", "started", "bots",
+                 "fan", "botseats", "readying", "dealt")
 
-    def __init__(self, code, private=False, game=DEFAULT_GAME, size=2, variant=None):
+    def __init__(self, code, private=False, game=DEFAULT_GAME, size=2,
+                 variant=None, rules=None):
         self.code = code
-        # What is being played in here. Fixed when the room opens and never
-        # changed: everyone is told it when they are seated, and a payload
-        # for anything else is refused rather than relayed.
+        # What is being played in here. The GAME is fixed when the room opens
+        # and never changed. The VARIANT and the opaque RULES blob may be
+        # re-chosen by the host from the lobby BEFORE the table starts — see
+        # RoomBook.set_variant — but never once it has: everyone at a started
+        # table already built their board from the flavour they were told.
         self.game = game if game in GAME_IDS else DEFAULT_GAME
         self.variant = variant
+        # The opaque presets blob. Stored and echoed, never read. See v_rules.
+        self.rules = rules
         lo, hi, _ = seat_range(self.game, self.variant)
         self.size = max(lo, min(hi, min(L.MAX_SEATS, int(size or 2))))
         self.seats = [None] * self.size     # Seat or None, index == seat number
@@ -1354,7 +1390,7 @@ class Room:
         lo, _, _ = seat_range(self.game, self.variant)
         return {"t": "table", "code": self.code, "game": self.game,
                 "seats": self.size, "started": self.started,
-                "variant": self.variant,
+                "variant": self.variant, "rules": self.rules,
                 # how full, how full it has to be, and who is still not ready.
                 # All three so the client can say WHY start is unavailable
                 # without having to re-derive it from `who`.
@@ -1744,6 +1780,15 @@ class RoomBook:
             return None                     # someone else holds that seat now
         return room
 
+    def game_of(self, conn):
+        """The GAME ID of the room this connection is seated in, or None. Used
+        at the wire to validate a variant against the right game before it ever
+        reaches the room — the game itself is immutable, so reading it here and
+        acting on it below cannot race into the wrong game."""
+        with self._lock:
+            room = self._room_of(conn)
+            return room.game if room is not None else None
+
     def _detach(self, conn, permanent):
         """Take conn off its chair. Returns ([(other_conn, seat_left)], room) —
         a LIST, because a table has more than one other person at it."""
@@ -1974,6 +2019,65 @@ class RoomBook:
                     return [(conn, {"t": "error", "why": E_FULL_ROOM})]
                 else:
                     room.botseats[seat_i] = {"lv": level, "n": name}
+            room.touched = time.monotonic()
+            self._epoch += 1
+            roster = room.roster()
+            targets = room.live_conns()
+        return [(c, roster) for c in targets]
+
+    def set_variant(self, conn, variant, rules):
+        """The host changes the room's MODE from inside the lobby — WITHOUT
+        kicking anyone.
+
+        The variant was bound write-once at create and could only be changed by
+        leaving and re-opening, which threw everybody out of the room to change
+        one word. This is the door that changes it in place: the host picks a
+        new flavour, the relay re-labels the room and re-broadcasts the same
+        roster it sends on any other lobby change, and every phone simply
+        repaints with the new mode. Nobody is removed and no token changes.
+
+        The one thing it will NOT do is shrink a table out from under the
+        people in it: if the new mode's seat range cannot hold the players and
+        machines already seated, it is refused and the old mode is kept. A
+        started table is refused outright — everyone there has already built
+        their board from the flavour they were told.
+
+        `variant` is validated strictly against the game (v_variant); `rules`
+        is the opaque presets blob, stored and echoed but never read."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if conn.slot != 0:
+                return [(conn, {"t": "error", "why": E_NOTHOST})]
+            if room.started:
+                return [(conn, {"t": "error", "why": E_STARTED})]
+            # The new range this mode allows. If it cannot seat everybody who
+            # is already spoken for — people PLUS machines — refuse and change
+            # nothing: a room half-changed is worse than one not changed.
+            lo, hi, _ = seat_range(room.game, variant)
+            spoken_for = room.taken()
+            if spoken_for > hi:
+                return [(conn, {"t": "error", "why": E_VARIANT_SEATS})]
+            # Also refuse if a machine is sitting in a chair that the narrower
+            # table no longer has — it would be seated off the end otherwise.
+            if any(i >= hi for i in room.botseats):
+                return [(conn, {"t": "error", "why": E_VARIANT_SEATS})]
+            # Keep the table roughly the size it was, clamped into the new
+            # range, and never smaller than the chairs already spoken for.
+            new_size = max(lo, min(hi, room.size))
+            new_size = max(new_size, spoken_for, 2)
+            new_size = min(new_size, L.MAX_SEATS)
+            if new_size != room.size:
+                if new_size > room.size:
+                    room.seats.extend([None] * (new_size - room.size))
+                else:
+                    # only trailing empty chairs are ever dropped: the checks
+                    # above guarantee no occupant or machine sits at >= new_size
+                    room.seats = room.seats[:new_size]
+                room.size = new_size
+            room.variant = variant
+            room.rules = rules
             room.touched = time.monotonic()
             self._epoch += 1
             roster = room.roster()
@@ -3364,6 +3468,27 @@ def handle_ws_message(conn, raw):
             conn.error(E_SHAPE)
             return
         dispatch(ROOMS.set_bot(conn, seat_i, level, name, msg.get("on") is not False))
+
+    elif kind == "setvariant":
+        # The host re-chooses the room's MODE from the lobby, without kicking
+        # anybody. The variant is validated exactly as `create` validates it,
+        # against the room's OWN game; the optional `rules` blob is the opaque
+        # presets object the relay carries but never reads. Everything unsafe
+        # is caught out here at the wire, so the room is handed values already
+        # known to be good.
+        game = ROOMS.game_of(conn)              # which game this room is playing
+        if game is None:
+            # Not in a room: let set_variant answer with the right error rather
+            # than guess a game to validate a variant against out here.
+            dispatch(ROOMS.set_variant(conn, None, None))
+        else:
+            try:
+                variant = v_variant(game, msg.get("variant"))
+                rules = v_rules(msg.get("rules"))
+            except Reject:
+                conn.error(E_VARIANT)
+            else:
+                dispatch(ROOMS.set_variant(conn, variant, rules))
 
     elif kind == "who":
         dispatch(ws_who(conn))
@@ -7719,6 +7844,221 @@ def selftest():
             bye(d)
         except Exception as e:
             check("no machines in a duel", False, repr(e))
+
+        # ═══════════ the host changes the MODE from the lobby ═══════════
+        print("")
+        print(" SET VARIANT  (host changes the mode in the lobby, kicking no one)")
+
+        def latest_table(c, tries=8, timeout=0.6):
+            """The freshest {t:'table'} roster this socket has to hand, draining
+            any older ones behind it. None if none arrived."""
+            r = None
+            for _ in range(tries):
+                m = c.recv_json(timeout)
+                if m is None:
+                    break
+                if (m or {}).get("t") == "table":
+                    r = m
+            return r
+
+        def drain(c, timeout=0.25):
+            """Swallow everything already queued on this socket, so the next
+            read sees only the answer to the message we are about to send."""
+            while c.recv_json(timeout) is not None:
+                pass
+
+        def sv_send(c, msg, timeout=0.4, window=2.0):
+            """Drain, send, then collect the answer for a bounded window.
+            Returns (error_msg_or_None, last_table_or_None). setvariant answers
+            EITHER with one error (refused, to the host only) OR with a roster
+            broadcast (accepted) — never both — so this classifies cleanly."""
+            drain(c)
+            c.send_json(msg)
+            err = last = None
+            end = time.monotonic() + window
+            while time.monotonic() < end:
+                m = c.recv_json(timeout)
+                if m is None:
+                    if err is not None or last is not None:
+                        break
+                    continue
+                if (m or {}).get("t") == "error":
+                    err = m
+                    break
+                if (m or {}).get("t") == "table":
+                    last = m
+            return err, last
+
+        sv_a = sv_b = sv_c = None
+        try:
+            # A klabb room opened for BIXKLA (partnership, 2 or 4). Three people
+            # sit down. Everyone is at BIXKLA to begin with.
+            sv_a = cli(origin=PAGES_ORIGIN)
+            sv_a.send_json({"t": "name", "n": "HOST"})
+            sv_a.recv_json(2.0)
+            sv_a.send_json({"t": "create", "game": "klabb",
+                            "variant": "bixkla", "seats": 4})
+            made = sv_a.recv_json(2.0)
+            tok_a = (made or {}).get("token")
+            code = (made or {}).get("code")
+            ok = (made or {}).get("variant") == "bixkla"
+            check("a klabb room opens on the variant its host asked for",
+                  ok and code, made)
+
+            sv_b = cli(origin=PAGES_ORIGIN)
+            sv_b.send_json({"t": "name", "n": "TWO"})
+            sv_b.recv_json(2.0)
+            sv_b.send_json({"t": "join", "code": code})
+            jb = sv_b.recv_json(2.0)
+            tok_b = (jb or {}).get("token")
+
+            sv_c = cli(origin=PAGES_ORIGIN)
+            sv_c.send_json({"t": "name", "n": "THREE"})
+            sv_c.recv_json(2.0)
+            sv_c.send_json({"t": "join", "code": code})
+            jc = sv_c.recv_json(2.0)
+            tok_c = (jc or {}).get("token")
+
+            # everyone's freshest roster before the change; keep the host's so
+            # the seats it shows can be compared after.
+            before = {}
+            for c in (sv_a, sv_b, sv_c):
+                r = latest_table(c)
+                if c is sv_a and r is not None:
+                    before = r
+            # tokens are a seat's private handle and must NOT move under anyone
+            seats_before = sorted(w["i"] for w in (before.get("who") or []) if w)
+        except Exception as e:
+            check("setvariant fixture (klabb bixkla, three seated)", False, repr(e))
+            before = {}
+            tok_a = tok_b = tok_c = None
+            seats_before = []
+
+        # A NON-HOST cannot change the mode.
+        try:
+            err, _ = sv_send(sv_b, {"t": "setvariant", "variant": "gidba"})
+            check("a non-host asking to change the mode is refused",
+                  (err or {}).get("why") == E_NOTHOST, err)
+        except Exception as e:
+            check("non-host setvariant refused", False, repr(e))
+
+        # THE HOST changes BIXKLA -> GIDBA (3..4 seats, holds the three here),
+        # and every seated player's roster now says GIDBA. Nobody is dropped.
+        rosters_after = {}
+        try:
+            for c in (sv_a, sv_b, sv_c):
+                drain(c)
+            sv_a.send_json({"t": "setvariant", "variant": "gidba"})
+            time.sleep(0.3)
+            for label, c in (("HOST", sv_a), ("TWO", sv_b), ("THREE", sv_c)):
+                rosters_after[label] = latest_table(c)
+            ra = rosters_after.get("HOST") or {}
+            everyone = all((rosters_after.get(k) or {}).get("variant") == "gidba"
+                           for k in ("HOST", "TWO", "THREE"))
+            # NOBODY DROPPED: same three seats, same occupancy, unchanged size
+            seats_after = sorted(w["i"] for w in (ra.get("who") or []) if w)
+            same_seats = seats_after == seats_before and ra.get("taken") == 3
+            check("host changes the mode and every seated player sees the new "
+                  "variant, nobody dropped",
+                  everyone and same_seats, rosters_after)
+        except Exception as e:
+            check("host setvariant re-broadcasts to all", False, repr(e))
+
+        # THE SAME TOKENS: a seat's private handle is untouched by the mode
+        # change. THREE's socket drops; a fresh socket rejoins with the SAME
+        # token it was handed before the change and lands back in seat 2 —
+        # proof the seat was re-labelled, not re-seated under a new token.
+        try:
+            bye(sv_c)
+            sv_c = None
+            time.sleep(0.2)
+            rej = cli(origin=PAGES_ORIGIN)
+            rej.send_json({"t": "rejoin", "code": code,
+                           "token": tok_c, "since": 0})
+            rj = None
+            for _ in range(6):
+                m = rej.recv_json(1.0)
+                if (m or {}).get("t") in ("rejoined", "error"):
+                    rj = m
+                    break
+            ok = ((rj or {}).get("t") == "rejoined" and rj.get("seat") == 2
+                  and rj.get("variant") == "gidba")
+            check("every seat keeps its token across a mode change (nobody was "
+                  "re-seated)", ok, rj)
+            sv_c = rej
+            for c in (sv_a, sv_b, sv_c):
+                latest_table(c)
+        except Exception as e:
+            check("tokens survive a mode change", False, repr(e))
+
+        # A VARIANT NOBODY HAS is refused, and the room keeps the one it had.
+        try:
+            err, roster = sv_send(sv_a, {"t": "setvariant", "variant": "poker"})
+            check("a made-up mode is refused and the room keeps its own",
+                  (err or {}).get("why") == E_VARIANT and roster is None, err)
+        except Exception as e:
+            check("unknown variant refused, old kept", False, repr(e))
+
+        # A MODE WHOSE TABLE CANNOT HOLD THE PEOPLE ALREADY SEATED is refused,
+        # and the old mode is retained — the room is never left half-changed.
+        # Real klabb variants all seat up to four, so a narrower ceiling cannot
+        # arise from the shipped data; a throwaway test variant supplies one.
+        try:
+            GAME_VARIANTS["klabb"] = GAME_VARIANTS["klabb"] + ("tiny",)
+            GAME_VARIANT_SEATS[("klabb", "tiny")] = (2, 2, 2)   # holds two, not three
+            err, roster = sv_send(sv_a, {"t": "setvariant", "variant": "tiny"})
+            # the refusal must be the seat one, and no roster went out at all
+            ok = (err or {}).get("why") == E_VARIANT_SEATS and roster is None
+            # the room is still GIDBA with all three still in it
+            kept = latest_table(sv_a, tries=2, timeout=0.3)
+            ok = ok and (kept is None or (kept.get("variant") == "gidba" and
+                                          kept.get("taken") == 3))
+            check("a mode too small for the seated players is refused and the "
+                  "old one retained", ok, "%r kept=%r" % (err, kept))
+        finally:
+            GAME_VARIANT_SEATS.pop(("klabb", "tiny"), None)
+            GAME_VARIANTS["klabb"] = tuple(
+                v for v in GAME_VARIANTS["klabb"] if v != "tiny")
+
+        # THE OPAQUE RULES BLOB round-trips: stored and echoed, never read.
+        try:
+            err, roster = sv_send(sv_a, {"t": "setvariant", "variant": "gidba",
+                                         "rules": {"stake": 5, "wild": True}})
+            check("an opaque rules blob is carried and echoed back untouched",
+                  err is None and (roster or {}).get("rules") == {"stake": 5, "wild": True},
+                  "%r %r" % (err, roster))
+        except Exception as e:
+            check("rules blob round-trips", False, repr(e))
+
+        # AN OVERSIZED RULES BLOB is refused (an un-read blob must not fan out).
+        try:
+            err, roster = sv_send(sv_a, {"t": "setvariant", "variant": "gidba",
+                                   "rules": {"x": "y" * (L.MAX_RULES_BYTES + 100)}})
+            check("an oversized rules blob is refused",
+                  (err or {}).get("why") == E_VARIANT and roster is None, err)
+        except Exception as e:
+            check("oversized rules refused", False, repr(e))
+
+        # A STARTED table refuses a mode change — everyone has built their board.
+        try:
+            for c in (sv_a, sv_b, sv_c):
+                c.send_json({"t": "ready", "on": True})
+            time.sleep(0.3)
+            for c in (sv_a, sv_b, sv_c):
+                drain(c)
+            sv_a.send_json({"t": "start"})
+            time.sleep(0.3)
+            for c in (sv_a, sv_b, sv_c):
+                drain(c)
+            err, _ = sv_send(sv_a, {"t": "setvariant", "variant": "bixkla"})
+            check("the mode cannot be changed once the table has started",
+                  (err or {}).get("why") == E_STARTED, err)
+        except Exception as e:
+            check("setvariant refused after start", False, repr(e))
+        finally:
+            for c in (sv_a, sv_b, sv_c):
+                if c is not None:
+                    bye(c)
 
         # ═══════════ who is around ═══════════
         print("")

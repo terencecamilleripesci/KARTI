@@ -2070,6 +2070,30 @@ R.lobby = {
   maxSeats: 12,
   levels: levels(),
   defaultLevel: 2,
+
+  /* THE TWO HAND SIZES, as the shared lobby's Rules picker wants them: the
+     relay's word for each, a bilingual label, and the seat range each plays.
+     Both rummy variants seat 2..12; the variant only changes the hand. */
+  variants: [
+    { net:'classic', label:{ en:'Rummy · seven cards', mt:'Rummy · sebat karti' },
+      seats:[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] },
+    { net:'ghaxra',  label:{ en:'GĦAXRA · ten cards',  mt:'GĦAXRA · għaxar karti' },
+      seats:[2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] }
+  ],
+  /* which hand this room is dealing, as the relay's word, read live off the
+     room so it stays the authority. */
+  currentVariant(){
+    try {
+      const v = window.KARTI_MP && window.KARTI_MP.MP && window.KARTI_MP.MP.variant;
+      return E.modeOf(v);
+    } catch(e){ return 'classic'; }
+  },
+  /* a picked hand size → the {variant, rules} the shared lobby puts on the
+     wire. Rummy steers on `variant`; `rules` stays empty but round-trips. */
+  applyVariant(net){
+    const v = E.modeOf(net);
+    return { variant: v, rules: null };
+  },
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,

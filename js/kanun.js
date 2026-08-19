@@ -2003,7 +2003,11 @@ function shopFor(st, seat, strat, lvl){
   const round = Math.ceil((st.turnNo + 1) / 2);
   if (strat === 'HOARD' && round < 5 && s.coins < 900) return out;
 
-  const off = strat === 'OFF' ? 1 : strat === 'DEF' ? 0
+  /* off = the weight this personality puts on buying things to THROW.
+     DEF is a turtle, not a pacifist: it still buys a little offence
+     (0.2) so a "defence-leaning" bot is not left fighting the whole
+     match with the free balloon — which, tested, simply loses. */
+  const off = strat === 'OFF' ? 1 : strat === 'DEF' ? 0.2
             : strat === 'RUSH' ? 0.8 : strat === 'HOARD' ? 0.8 : 0.5;
 
   for (let guard = 0; guard < 6; guard++){
