@@ -1299,7 +1299,7 @@ R.lobby = LOBBY;
    ═══════════════════════════════════════════════════════════════════ */
 const TILE = {
   id:'erbgha', order:27, kind:'board', cat:'board',
-  name:'Four in a Row', mt:'Erbgħa f’Ringiela', icon:'dice', status:'live',
+  name:'Four in a Row', mt:'Erbgħa f’Ringiela', icon:'drop', status:'live',
   get tag(){
     return T('Drop your discs and line up four — across, up or diagonally. No dice, no luck, ' +
              'just you and one board you can both see.',

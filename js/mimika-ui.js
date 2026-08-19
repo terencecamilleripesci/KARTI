@@ -1279,4 +1279,9 @@ function injectCSS(){
   document.head.appendChild(st);
 }
 
+/* Inject the sprite at LOAD, not only when the screen opens: the party
+   menu draws the MIN HU / MIMIKA tile — which references #mk-hand — before
+   anyone opens the game (before scr() ever runs), so the tile was blank. */
+try { injectSprite(); } catch (e) {}
+
 })();

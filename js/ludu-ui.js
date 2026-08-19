@@ -1474,7 +1474,7 @@ R.lobby = LOBBY;
    ═══════════════════════════════════════════════════════════════════ */
 const TILE = {
   id:'ludu', order:26, kind:'board', cat:'board',
-  name:'LUDU', mt:'Il-Ludu', icon:'dice', status:'live',
+  name:'LUDU', mt:'Il-Ludu', icon:'flag', status:'live',
   get tag(){
     return T('Four tokens each, one lap of the board, and no mercy on a lone piece. Four, six ' +
              'or eight can play.',
