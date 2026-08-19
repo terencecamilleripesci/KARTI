@@ -215,16 +215,23 @@ const COLS = [
    classic four plus the four scale-up finds. `fill` marks glyphs meant to
    be filled rather than stroked. */
 const PU = E.PU;
+/* Each kind carries: a colour `c`, an SVG glyph `g` (24-box, `fill` if the
+   path is filled not stroked), a one-letter fallback `t` stamped small on the
+   tile so it reads even at a phone's smallest cell, and a short bilingual
+   collect-label {en,mt} floated over the player on pickup. The glyphs are
+   deliberately distinct silhouettes so the eight types tell apart on sight. */
 const PU_INFO = {
-  [PU.BOMB]:  { c:'#FF6B8A', g:'M12 4v16M4 12h16' },                          /* +bomb  (plus)   */
-  [PU.RANGE]: { c:'#FF9A4D', g:'M12 3v18M12 3l-4 4M12 3l4 4M12 21l-4-4M12 21l4-4' }, /* +range (arrows) */
-  [PU.SPEED]: { c:'#5FC8FF', g:'M13 3L5 13h5l-1 8 8-10h-5z', fill:true },     /* +speed (bolt)   */
-  [PU.KICK]:  { c:'#3BE08A', g:'M4 12h11M15 12l-4-4M15 12l-4 4M18 6v12' },    /* kick   (foot)   */
-  [PU.REMOTE]:{ c:'#FFC542', g:'M12 3v5M8 8h8v11H8zM10 12h4M10 15h4', },      /* remote (detonator) */
-  [PU.PIERCE]:{ c:'#C08BFF', g:'M3 12h18M15 8l4 4-4 4M9 8L5 12l4 4' },        /* pierce (arrows out) */
-  [PU.SHIELD]:{ c:'#7BE8E0', g:'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z' },  /* shield          */
-  [PU.MEGA]:  { c:'#FF4A3C', g:'M12 3a6 6 0 1 0 4 10l3 3 2-2-3-3A6 6 0 0 0 12 3z', fill:true } /* mega (big bomb) */
+  [PU.BOMB]:  { c:'#FF6B8A', t:'B', en:'+BOMB',   mt:'+BOMBA', g:'M12 4v16M4 12h16' },                          /* +bomb  (plus)   */
+  [PU.RANGE]: { c:'#FF9A4D', t:'R', en:'RANGE UP',mt:'FIRx1',  g:'M12 3v18M12 3l-4 4M12 3l4 4M12 21l-4-4M12 21l4-4' }, /* +range (arrows) */
+  [PU.SPEED]: { c:'#5FC8FF', t:'S', en:'SPEED!',  mt:'ĦEFFA!', g:'M13 3L5 13h5l-1 8 8-10h-5z', fill:true },     /* +speed (bolt)   */
+  [PU.KICK]:  { c:'#3BE08A', t:'K', en:'KICK',    mt:'DAQQA',  g:'M4 12h11M15 12l-4-4M15 12l-4 4M18 6v12' },    /* kick   (foot)   */
+  [PU.REMOTE]:{ c:'#FFC542', t:'D', en:'REMOTE',  mt:'REMOTE', g:'M12 3v5M8 8h8v11H8zM10 12h4M10 15h4', },      /* remote (detonator) */
+  [PU.PIERCE]:{ c:'#C08BFF', t:'P', en:'PIERCE',  mt:'NIFED',  g:'M3 12h18M15 8l4 4-4 4M9 8L5 12l4 4' },        /* pierce (arrows out) */
+  [PU.SHIELD]:{ c:'#7BE8E0', t:'H', en:'SHIELD',  mt:'TARKA',  g:'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z' },  /* shield          */
+  [PU.MEGA]:  { c:'#FF4A3C', t:'M', en:'MEGA',    mt:'MEGA',   g:'M12 3a6 6 0 1 0 4 10l3 3 2-2-3-3A6 6 0 0 0 12 3z', fill:true } /* mega (big bomb) */
 };
+/* the short collect-label text for a kind, honouring the app's language. */
+function puLabel(kind){ const i = PU_INFO[kind]; return i ? T(i.en, i.mt) : ''; }
 
 /* ═══════════════════════════════════════════════════════════════════
    THE STYLESHEET — injected once, scoped to #scr-party .bm-*
@@ -302,6 +309,42 @@ function injectCSS(){
     '#scr-party .bm-bomb.on{transform:scale(.94);box-shadow:0 4px 12px rgba(0,0,0,.5),' +
       'inset 0 0 0 2px rgba(255,197,66,.8),inset 0 -6px 14px rgba(0,0,0,.5)}' +
     '#scr-party .bm-bomb[disabled]{opacity:.42;filter:grayscale(.5)}' +
+    /* ── PLACE-COOLDOWN VISUAL ──────────────────────────────────────
+       The bomb button reads the engine's per-player pcd every frame and
+       shows how close the next drop is:
+         · COOLING DOWN — a grey wash whose radial SWEEP (conic gradient,
+           --cd = progress 0..1 toward ready) wipes away as the cooldown
+           recovers, so the player literally watches the next bomb fill in.
+           The button dims and the icon greys while it is not ready.
+         · NO BOMBS LEFT (capacity used, .empty) — a distinct steady dim +
+           amber ring, no sweep: "you're out", not "wait a moment".
+         · READY — clean, full colour.
+       Reduced motion (.rm) drops the animated sweep for a plain two-state
+       dim/ready wash; a tap during cooldown adds a brief .nope nudge cue. */
+    '#scr-party .bm-bomb .bm-bomb-cd{position:absolute;inset:0;border-radius:50%;' +
+      'pointer-events:none;opacity:0;transition:opacity .12s linear}' +
+    '#scr-party .bm-bomb.cooling{color:rgba(233,228,245,.5)}' +
+    '#scr-party .bm-bomb.cooling .bm-bomb-cd{opacity:1;' +
+      'background:conic-gradient(from -90deg,rgba(10,7,16,.02) 0turn,' +
+      'rgba(10,7,16,.62) calc(var(--cd,0) * 1turn),rgba(10,7,16,.62) 1turn)}' +
+    '#scr-party .bm-bomb.cooling{box-shadow:0 6px 16px rgba(0,0,0,.5),' +
+      'inset 0 0 0 2px rgba(255,197,66,.18),inset 0 -8px 16px rgba(0,0,0,.5)}' +
+    '#scr-party .bm-bomb.empty{color:rgba(233,228,245,.45);' +
+      'box-shadow:0 6px 16px rgba(0,0,0,.5),inset 0 0 0 2px rgba(255,120,120,.42),' +
+      'inset 0 -8px 16px rgba(0,0,0,.5)}' +
+    '#scr-party .bm-bomb.empty .bm-bomb-cd{opacity:1;background:rgba(10,7,16,.4)}' +
+    '#scr-party .bm-bomb.empty .bm-bomb-l{color:rgba(255,120,120,.75)}' +
+    /* reduced motion: no animated sweep — a flat wash while not-ready */
+    '#scr-party .bm-bomb.rm.cooling .bm-bomb-cd{background:rgba(10,7,16,.5)}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .bm-bomb.cooling .bm-bomb-cd{' +
+      'background:rgba(10,7,16,.5)}#scr-party .bm-bomb .bm-bomb-cd{transition:none}}' +
+    'body.reduced #scr-party .bm-bomb.cooling .bm-bomb-cd{background:rgba(10,7,16,.5)}' +
+    /* a subtle "not yet" nudge when tapped mid-cooldown */
+    '#scr-party .bm-bomb.nope{animation:bm-nope .22s var(--ease)}' +
+    '@keyframes bm-nope{0%{transform:none}35%{transform:translateX(-3px)}' +
+      '70%{transform:translateX(3px)}100%{transform:none}}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .bm-bomb.nope{animation:none}}' +
+    'body.reduced #scr-party .bm-bomb.nope{animation:none}' +
     '@media (max-height:680px){#scr-party .bm-pad{grid-template-rows:repeat(3,40px)}' +
       '#scr-party .bm-bomb{width:84px;height:84px}#scr-party .bm-bomb svg{width:46px;height:46px}}' +
     '@media (max-height:560px){#scr-party .bm-pad{grid-template-columns:repeat(3,46px);' +
@@ -511,7 +554,11 @@ function startMatch(opts, seed, net){
     fps: { n:0, at:0, val:0 },
     stall: 0,                     /* ticks we have waited for a missing input */
     lead: LEAD_MS,
-    ledSaid: -1
+    ledSaid: -1,
+    /* floating "collect" labels: {seat,text,col,c,born} spawned when a
+       player picks a power-up up, drawn rising+fading over them. Draw-only,
+       never read by the sim. */
+    labels: []
   };
   M.st = E.newMatch({ map: md, seats, humans: net ? undefined : 1, lvl: o.lvl }, M.seed);
   return M;
@@ -763,6 +810,18 @@ function afterStep(before){
   /* a power-up we could see was taken */
   for (let i = 0; i < st.item.length; i++) if (before.item[i] && !st.item[i]){ pick = true; break; }
 
+  /* float a "collect" label over anyone who grabbed a power-up THIS tick.
+     The engine leaves a read-only breadcrumb (pl.gotItem/gotTick); we name
+     it. Reduced motion is honoured in the draw (a static chip, no rise). */
+  for (const pl of st.players){
+    if (pl.gotItem && pl.gotTick === M.committed){
+      const txt = puLabel(pl.gotItem);
+      if (txt) M.labels.push({ seat: pl.seat, kind: pl.gotItem, text: txt,
+                               col: pl.col, row: pl.row, born: nowMs() });
+      if (M.labels.length > 24) M.labels.shift();   /* bound the list */
+    }
+  }
+
   if (blast) cue('duel.attack', { gain:0.5 });
   if (pick && !iDied) cue('ui.coin', { gain:0.5 });
   if (died){
@@ -897,6 +956,53 @@ function draw(f){
       drawPlayer(g, pl, f, cell, now);
     }
   }
+
+  /* ── floating "collect" labels, on top of everyone ── */
+  drawLabels(g, cell, now);
+
+  /* ── the bomb button's cooldown/capacity visual (draw-only) ── */
+  paintBombBtn();
+}
+
+/* the rising/fading "SPEED!"/"+BOMB" text over a player who just grabbed a
+   power-up. Draw-only: it reads M.labels, which afterStep filled from the
+   engine's read-only pl.gotItem breadcrumb. Reduced motion: a STATIC chip
+   (no rise, no fade ramp) held for its life then dropped — no animation. */
+const LABEL_LIFE = 950;      /* ms a collect label lives */
+function drawLabels(g, cell, now){
+  if (!M || !M.labels || !M.labels.length) return;
+  const still = noMotion();
+  const kept = [];
+  for (const L of M.labels){
+    const age = now - L.born;
+    if (age >= LABEL_LIFE) continue;                 /* expired: drop it */
+    kept.push(L);
+    const t = age / LABEL_LIFE;                       /* 0..1 */
+    const info = PU_INFO[L.kind] || { c:'#fff' };
+    /* anchor over the player's cell centre; rise up to ~0.7 cell over life */
+    const cx = (L.col + 0.5) * cell;
+    const baseY = (L.row + 0.5) * cell - cell * 0.55;
+    const cy = still ? baseY : baseY - t * cell * 0.7;
+    /* alpha: pop in fast, hold, fade out at the end (static = full then cut) */
+    const alpha = still ? 1 : (t < 0.15 ? t / 0.15 : (t > 0.7 ? (1 - (t - 0.7) / 0.3) : 1));
+    const fs = Math.max(11, Math.round(cell * 0.42));
+    g.save();
+    g.globalAlpha = Math.max(0, Math.min(1, alpha));
+    g.font = '800 ' + fs + 'px system-ui,-apple-system,sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const tw = g.measureText(L.text).width;
+    const padX = fs * 0.5, padY = fs * 0.28;
+    const bw = tw + padX * 2, bh = fs + padY * 2;
+    /* dark chip so the label reads over any tile */
+    g.fillStyle = 'rgba(12,14,20,.82)';
+    roundRect(g, cx - bw / 2, cy - bh / 2, bw, bh, bh * 0.32); g.fill();
+    g.lineWidth = Math.max(1, cell * 0.03); g.strokeStyle = info.c;
+    roundRect(g, cx - bw / 2, cy - bh / 2, bw, bh, bh * 0.32); g.stroke();
+    g.fillStyle = info.c;
+    g.fillText(L.text, cx, cy + fs * 0.04);
+    g.restore();
+  }
+  M.labels = kept;
 }
 
 function drawBlock(g, x, y, cell){
@@ -931,6 +1037,20 @@ function drawPowerup(g, x, y, cell, kind, now){
   const p = new Path2D(info.g);
   if (info.fill) g.fill(p); else g.stroke(p);
   g.restore();
+  /* a tiny letter badge in the corner — the glyph reads at a glance, the
+     letter is the safety net when the cell is smallest on a phone. Drawn in
+     the ring colour on a dark chip so it stays legible over any tile. */
+  if (info.t && cell >= 16){
+    const bx = x + cell * 0.80, by = y + cell * 0.80, br = cell * 0.17;
+    g.beginPath(); g.arc(bx, by, br, 0, 6.2832);
+    g.fillStyle = 'rgba(0,0,0,.62)'; g.fill();
+    g.lineWidth = Math.max(1, cell * 0.02); g.strokeStyle = info.c; g.stroke();
+    g.fillStyle = info.c;
+    g.font = '700 ' + Math.round(cell * 0.22) + 'px system-ui,sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(info.t, bx, by + cell * 0.01);
+    g.textAlign = 'start'; g.textBaseline = 'alphabetic';
+  }
 }
 
 /* which cells are covered by a SPECIFIC set of bombs' blast cross (owner
@@ -1162,6 +1282,7 @@ function board(){
         '<button class="bm-d" data-dir="1" aria-label="' + esc(T('Down', 'Isfel')) + '">' + arrowSVG(2) + '</button>' +
       '</div>' +
       '<button class="bm-bomb" id="bm-bomb" aria-label="' + esc(T('Drop a bomb', 'Waddab bomba')) + '">' +
+        '<span class="bm-bomb-cd" id="bm-bomb-cd" aria-hidden="true"></span>' +
         bombGlyph + '<span class="bm-bomb-l">' + esc(T('BOMB', 'BOMBA')) + '</span></button>' +
     '</div>';
 
@@ -1224,8 +1345,30 @@ function dropBomb(){
   if (!M || M.dead || M.finished) return;
   const pl = M.st.players[M.me];
   if (!pl || !pl.alive) return;
+  /* a tap while the placement cooldown is running (or with no bombs spare)
+     cannot place — give a subtle "not yet" nudge instead of a false flash,
+     and do NOT set the drop flag (the engine would ignore it anyway, but
+     swallowing it here keeps a mashed button from queueing a stale drop
+     onto the instant the cooldown clears). No error spam. */
+  if (pl.pcd > 0 || pl.live >= pl.bombs){
+    nudgeBomb();
+    return;
+  }
   M.want.drop = true;
   flashBomb();
+}
+
+/* the "not yet" cue: a brief shake on the button, motion-gated. No sound
+   beyond the existing gate, and only if a soft id is a good fit — we keep
+   it silent to avoid spamming on a mashed button. */
+function nudgeBomb(){
+  if (!UI || !UI.bomb || noMotion()) return;
+  const b = UI.bomb;
+  b.classList.remove('nope');
+  /* force reflow so the animation restarts on a rapid re-tap */
+  void b.offsetWidth;
+  b.classList.add('nope');
+  setTimeout(() => { try { b.classList.remove('nope'); } catch(e){} }, 240);
 }
 function flashPad(d){
   if (!UI || !UI.pad || noMotion()) return;
@@ -1237,6 +1380,46 @@ function flashBomb(){
   UI.bomb.classList.add('on');
   setTimeout(() => { try { UI.bomb.classList.remove('on'); } catch(e){} }, 110);
   cue('piece.lift', { gain:0.35 });
+}
+
+/* ── THE BOMB BUTTON'S COOLDOWN VISUAL — draw-only, read-only ────────
+   Reflects the engine's per-player placement cooldown (pl.pcd, ticked by
+   the sim) and capacity (pl.live vs pl.bombs) on the on-screen button, so
+   the player can SEE when the next bomb is ready:
+     · pcd > 0            -> .cooling, with --cd = fraction elapsed so the
+                             conic sweep wipes away as it recovers.
+     · live >= bombs      -> .empty (capacity used up), a distinct state
+                             from cooling: "no bombs left", not "wait".
+     · otherwise          -> ready (no class), full colour.
+   Reads M.st only; never writes it, never steps. Called every draw frame.
+   Reduced motion is handled in CSS (a flat wash instead of the sweep). */
+function paintBombBtn(){
+  if (!UI || !UI.bomb) return;
+  const b = UI.bomb;
+  const st = M && M.st;
+  const pl = st && st.players[M.me];
+  if (!pl || !pl.alive || M.finished){
+    b.classList.remove('cooling', 'empty');
+    b.style.removeProperty('--cd');
+    if (b.disabled) b.disabled = false;
+    return;
+  }
+  const CD = (E.PLACE_CD | 0) || 6;
+  const cooling = pl.pcd > 0;
+  const empty = !cooling && pl.live >= pl.bombs;   /* capacity used, not cooling */
+  b.classList.toggle('rm', noMotion());
+  if (cooling){
+    /* fraction of the cooldown already elapsed: 0 just after a drop,
+       approaching 1 as it clears — the sweep shrinks toward gone. */
+    const done = Math.max(0, Math.min(1, (CD - pl.pcd) / CD));
+    b.style.setProperty('--cd', String(done));
+    b.classList.add('cooling');
+    b.classList.remove('empty');
+  } else {
+    b.classList.remove('cooling');
+    b.style.removeProperty('--cd');
+    b.classList.toggle('empty', empty);
+  }
 }
 
 function wireControls(){
@@ -1366,6 +1549,12 @@ function rulesFor(){
       'more speed, or the ability to <b>kick</b> a bomb.',
       'Faqqa’ blokka biex kultant tikxef <b>power-up</b>: bomba żejda, blast itwal, aktar ' +
       'ħeffa, jew il-ħila li <b>tissuttja</b> bomba.'),
+    T('The power-ups, by their tile letter: <b>B</b> +bomb, <b>R</b> range, <b>S</b> speed, ' +
+      '<b>K</b> kick, <b>D</b> remote, <b>P</b> pierce, <b>H</b> shield, <b>M</b> mega. ' +
+      'Walk over one to grab it — a label names what you got.',
+      'Il-power-ups, bl-ittra tagħhom: <b>B</b> bomba, <b>R</b> firxa, <b>S</b> ħeffa, ' +
+      '<b>K</b> daqqa, <b>D</b> remote, <b>P</b> nifed, <b>H</b> tarka, <b>M</b> mega. ' +
+      'Għaddi minn fuqu biex taqbdu — tidher tikketta ta’ x’ġibt.'),
     T('<b>Last player standing wins.</b> If a round drags, <b>sudden death</b> walls the arena ' +
       'in, ring by ring, until it ends.',
       '<b>L-aħħar wieħed jirbaħ.</b> Jekk ir-round jittawwal, <b>mewt f’daqqa</b> ddawwar ' +
@@ -2290,7 +2479,11 @@ try {
       rules: () => rulesOpen, setRules,
       lobby: R.lobby, tile: TILE,
       store: () => ST,
-      mapPreview
+      mapPreview,
+      /* draw-only introspection for the power-up icon / collect-label tests */
+      PU_INFO, puLabel, drawPowerup, drawLabels,
+      labels: () => (M ? M.labels : []),
+      noMotion
     };
   }
 } catch(e){}

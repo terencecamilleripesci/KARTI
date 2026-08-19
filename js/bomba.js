@@ -166,6 +166,21 @@ const MAX_SPEED   = 108;       /* ~3 ticks per cell cap (fast finish)     */
 const BOMB_FUSE   = 48;        /* ticks from drop to detonation (3.0s) —  */
                                /* longer than the old 2.5s so a slower    */
                                /* player still has time to read and flee. */
+
+/* PLACE COOLDOWN — after a player drops a bomb, they cannot drop another
+   for this many ticks, EVEN if they still have bomb capacity spare. It
+   exists to stop a single frame (or a bounced pointerdown) from emptying a
+   player's whole bomb bank at one cell-worth of the arena, and to stop the
+   AI out-spamming a human. 6 ticks at 16Hz = 0.375s: long enough to defeat
+   an accidental double-tap and a frame-spam burst, short enough that
+   deliberate rapid bombing (dig, step, dig) still feels immediate — a
+   human re-centres and moves in ~6 ticks anyway, so at normal capacity the
+   cooldown is invisible; it only bites when several bombs are spare at once.
+   It is a per-player INTEGER field (pl.pcd), ticked down every step and
+   FOLDED INTO hashState, so it is a genuine deterministic sim rule that
+   both clients agree on — never a wall-clock, never a float. It gates
+   PLACEMENT only: REMOTE detonation, kick, pierce and mega are unaffected. */
+const PLACE_CD    = 6;         /* ticks a player must wait between drops   */
 const BLAST_LIFE  = 9;         /* ticks a blast cell stays lethal (~0.56s)*/
 const START_BOMBS = 1;
 const START_RANGE = 1;
@@ -579,6 +594,10 @@ function newMatch(opts, seed){
       alive: true,
       bombs: START_BOMBS, /* max simultaneous bombs                      */
       live: 0,            /* bombs currently on the field for this player */
+      pcd: 0,             /* place cooldown: ticks until this player may   */
+                          /* drop another bomb (PLACE_CD after each drop). */
+                          /* Integer, folded into hashState; gates PLACE   */
+                          /* only, not remote detonation. See PLACE_CD.    */
       range: START_RANGE,
       speed: BASE_SPEED,
       kick: false,
@@ -592,7 +611,11 @@ function newMatch(opts, seed){
       /* SMOOTHER CONTROLS: a one-tick buffered direction. When a player
          presses a way while still crossing a cell, we remember it and act
          on it the instant they re-centre — no dropped press, crisp turns. */
-      buf: NO_DIR
+      buf: NO_DIR,
+      /* UI-only breadcrumb of the last power-up grabbed (kind + tick). NOT
+         folded into hashState — read by the screen to float a "SPEED!" label;
+         never consulted by any rule, so it cannot fork lockstep. */
+      gotItem: 0, gotTick: -1
     });
     /* a spawn tile and its orthogonal neighbours must be clear of blocks
        so nobody starts entombed (validator guarantees pillars are fine;
@@ -726,12 +749,18 @@ function step(st, frame){
   frame = frame || [];
   const players = st.players;
 
-  /* 1. resolve inputs */
+  /* 1. resolve inputs. Also tick every player's place-cooldown down by one
+     this step (floored at 0). Doing it here — before the drop pass, once per
+     player per tick, for living and dead alike — keeps it a simple monotone
+     integer countdown that is identical on every phone (folded into
+     hashState). A dead player's cooldown is harmless; it just idles at/toward
+     0 and is never read again. */
   const ins = [];
   for (let i = 0; i < players.length; i++){
     let byte = (i < frame.length && frame[i] != null) ? (frame[i] | 0) : predictInput(players[i]);
     players[i].lastIn = byte;
     ins[i] = decodeInput(byte);
+    if (players[i].pcd > 0) players[i].pcd--;
   }
 
   /* 2. move */
@@ -759,6 +788,7 @@ function step(st, frame){
     }
 
     if (pl.ox !== 0 || pl.oy !== 0) continue;         /* only when centred */
+    if (pl.pcd > 0) continue;                         /* still cooling down — drop ignored (PLACE_CD) */
     if (pl.live >= pl.bombs) continue;
     const cell = idx(st.map, pl.col, pl.row);
     if (bombAt(st, pl.col, pl.row)) continue;         /* already a bomb here */
@@ -776,6 +806,7 @@ function step(st, frame){
       pierce: pl.pierce || useMega
     });
     pl.live++;
+    pl.pcd = PLACE_CD;    /* start the placement cooldown (deterministic) */
   }
 
   /* 4. advance kicked bombs one step, ascending cell index (T6) */
@@ -813,12 +844,13 @@ function step(st, frame){
     }
   }
 
-  /* 9. pickups */
-  for (const pl of players){
-    if (!pl.alive || pl.ox !== 0 || pl.oy !== 0) continue;
-    const i = idx(st.map, pl.col, pl.row);
-    if (st.item[i]){ applyItem(pl, st.item[i]); st.item[i] = 0; }
-  }
+  /* 9. pickups. The MOVING case is already handled inside moveActor (an
+     item is grabbed the instant an actor re-centres on its cell, so walking
+     THROUGH a tile collects it — no need to stop). This pass catches the
+     RESTING case: an actor sitting centred on a cell whose item was just
+     revealed under a block this same tick (kick/spawn/sudden-death reveal),
+     which moveActor did not run for. Same helper, so the rule is one place. */
+  for (const pl of players) grabItem(st, pl);
 
   /* 10. sudden death */
   suddenDeath(st);
@@ -939,7 +971,7 @@ function moveActor(st, pl, inp){
       if (step > mag) step = mag;
       pl.ox += d.dc > 0 ? step : -step;
       budget -= step;
-      if (pl.ox === target){ pl.col += d.dc; pl.ox = 0; pl.moving = NO_DIR; }
+      if (pl.ox === target){ pl.col += d.dc; pl.ox = 0; pl.moving = NO_DIR; grabItem(st, pl); }
     } else {
       const target = d.dr * SUB;
       const remaining = target - pl.oy;
@@ -948,13 +980,43 @@ function moveActor(st, pl, inp){
       if (step > mag) step = mag;
       pl.oy += d.dr > 0 ? step : -step;
       budget -= step;
-      if (pl.oy === target){ pl.row += d.dr; pl.oy = 0; pl.moving = NO_DIR; }
+      if (pl.oy === target){ pl.row += d.dr; pl.oy = 0; pl.moving = NO_DIR; grabItem(st, pl); }
     }
     /* if we did not just re-centre, the budget is spent inside this cell;
        loop exits. If we DID re-centre with budget left, loop continues and
        re-chooses a direction (carry-over) for buttery continuous walking. */
     if (pl.moving !== NO_DIR) break;
   }
+}
+
+/* ── forgiving pickup ───────────────────────────────────────────────
+   Collect a revealed item as soon as the actor is CENTRED on its cell.
+   This is called at EVERY re-centre inside moveActor (the instant ox/oy
+   snaps back to 0 on a cell), so simply WALKING THROUGH a power-up tile
+   grabs it — you no longer have to stop dead on it. It is also called in
+   the tick's pickup pass (step 9) for an actor already resting on an item
+   (e.g. an item revealed under a block on the cell it stands on).
+
+   WHY THIS IS STILL EXACT AND DETERMINISTIC, not a fuzzy radius: base
+   movement is < SUB per tick at every legal speed (MAX_SPEED 108 < SUB
+   256), so an actor can never leap over a cell — every cell it passes
+   through has a tick at which ox===oy===0 on that cell, and that is the
+   one integer instant we grab at. No float, no distance threshold, no
+   clock; identical for players and AI, and moves already run in ascending
+   seat order so two actors crossing the same item resolve by seat (the
+   first to be moved this tick takes it). Folded into hashState via
+   st.item, so lockstep cannot fork. Records the grab on the player as
+   pl.gotItem/pl.gotTick so the UI can name what was collected (read-only,
+   not consulted by any rule). */
+function grabItem(st, pl){
+  if (!pl.alive || pl.ox !== 0 || pl.oy !== 0) return;
+  const i = idx(st.map, pl.col, pl.row);
+  const kind = st.item[i];
+  if (!kind) return;
+  applyItem(pl, kind);
+  st.item[i] = 0;
+  pl.gotItem = kind;          /* UI-only breadcrumb: what was just picked up */
+  pl.gotTick = st.tick;       /* the tick it happened (UI reads, sim ignores) */
 }
 
 /* can a player step onto cell (c,r)? Free of pillar, standing block and
@@ -1428,7 +1490,11 @@ function aiInput(st, seat){
   /* 2. ATTACK / DIG. lvl decides ambition. Consider dropping a bomb if:
      an enemy is adjacent (lvl>=2), or a block is adjacent, AND we have a
      bomb spare AND an escape exists. */
-  const wantBomb = pl.live < pl.bombs;
+  /* the AI respects the same placement cooldown the engine enforces: while
+     pl.pcd is counting down a drop input would be ignored anyway, so we do
+     not even consider bombing — the AI spends the cooldown seeking/fleeing
+     instead of emitting a dead drop. Identical rule for human and machine. */
+  const wantBomb = pl.pcd === 0 && pl.live < pl.bombs;
   if (wantBomb){
     let adjEnemy = false, adjBlock = false;
     for (let d = 0; d < 4; d++){
@@ -1528,7 +1594,8 @@ function hashState(st){
   for (const p of st.players)
     acc.push(p.seat, p.col, p.row, p.ox, p.oy, p.alive ? 1 : 0,
              p.bombs, p.live, p.range, p.speed, p.kick ? 1 : 0, p.dir, p.moving,
-             p.buf, p.remote ? 1 : 0, p.pierce ? 1 : 0, p.shield | 0, p.mega | 0);
+             p.buf, p.remote ? 1 : 0, p.pierce ? 1 : 0, p.shield | 0, p.mega | 0,
+             p.pcd | 0);
   /* bombs and blasts in cell order so array order cannot leak in */
   const bs = st.bombs.slice().sort((a, b) => (a.row * st.map.cols + a.col) - (b.row * st.map.cols + b.col));
   for (const b of bs) acc.push(1000 + b.col, b.row, b.seat, b.fuse, b.range, b.moving, b.pierce ? 1 : 0);
@@ -1597,6 +1664,7 @@ root.KARTI_BOMBA = root.KARTI_BOMBA || {};
 root.KARTI_BOMBA.engine = {
   /* tuning constants (UI needs SUB, SIM_HZ for interpolation/pacing) */
   SUB, SIM_HZ, BASE_SPEED, SPEED_STEP, MAX_SPEED, BOMB_FUSE, BLAST_LIFE,
+  PLACE_CD,
   MEGA_BONUS, MEGA_FUSE, MAX_RANGE, MAX_BOMBS, MAX_SHIELD, MAX_MEGA,
   PU, PU_KINDS, DIRS, NO_DIR,
   MIN_SEATS, MAX_SEATS,

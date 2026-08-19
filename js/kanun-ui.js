@@ -217,6 +217,7 @@ function injectCSS(){
     /* the power meter shown while dragging */
     '#scr-party .kn-power{position:absolute;left:10px;bottom:10px;right:10px;height:8px;' +
       'border-radius:999px;background:rgba(255,255,255,.10);overflow:hidden;opacity:0;' +
+      'pointer-events:none;' +   /* never eat an aim drag that ends low on the field */
       'transition:opacity .12s var(--ease);z-index:5}' +
     '#scr-party .kn-power.on{opacity:1}' +
     '#scr-party .kn-power i{display:block;height:100%;width:0;border-radius:999px;' +
@@ -558,51 +559,73 @@ function fitCanvas(){
   draw();
 }
 
-/* the framing that shows BOTH castles and the moat between them. This
-   is the RESTING / AIMING shot, and the whole point of it is that the
-   player can SEE THE ENEMY they are shooting at without panning: it
-   auto-fits the band from the left castle's back wall to the right
-   castle's back wall (with a margin for the launch hand and the wind),
-   and vertically from a little sky — room for the arc — down to just
-   under the waterline where a shot lands. Then it zooms so that band
-   FILLS the field instead of floating tiny in a sea of empty sky and
-   water (the old fixed zoom:1.0 showed the whole 200×100 world, which
-   left the two castles small and far apart and hard to aim between).
+/* ── THE RESTING / AIMING SHOT: your OWN base, zoomed IN ──────────────
+   Now that FOG hides the enemy half, there is nothing to gain by framing
+   BOTH castles — that zoom is so far out that your slingshot is a speck
+   and aiming needs huge off-screen drags. The aim view instead sits
+   CLOSE on the LOCAL player's own castle + the sky above it (room for the
+   arc), so the sling gesture is big and precise. The camera still FOLLOWS
+   the shell into the fog during flight (playFlight), then eases back here.
 
-   The zoom is DERIVED from the field size, not a magic constant, so it
-   reads the same whether the field is tall or short. Clamped so it can
-   never zoom so far in that one castle leaves the frame, nor so far out
-   that the band rattles around in dead space. Draw-only: nothing here
-   feeds the simulation. */
-const FRAME_MARGIN_X = 10;   /* cells of breathing room past each castle */
-const FRAME_TOP_Y    = 40;   /* highest cell kept in view (sky for the arc) */
-const FRAME_BOT_Y    = 84;   /* lowest cell kept in view (just under water) */
-function frameWhole(){
-  /* the world band both castles + the moat live in */
-  const bx0 = E.L_X0 - FRAME_MARGIN_X;
-  const bx1 = E.R_X1 + FRAME_MARGIN_X;
+   frameForBase(seat) frames the band from the back wall of `seat`'s own
+   castle out toward the moat, with a margin, and vertically from high sky
+   (for the arc) down to just under the waterline. The zoom is DERIVED
+   from the field size and clamped so the base fills a large central
+   portion of the viewport without a wall slipping off. Draw-only: nothing
+   here feeds the simulation. */
+const FRAME_TOP_Y    = 34;   /* highest cell kept in view (sky for the arc) */
+const FRAME_BOT_Y    = 82;   /* lowest cell kept in view (just under water) */
+/* the aim view is a fixed-width band centred on the LAUNCH HAND, so the
+   slingshot sits in the MIDDLE of the viewport with room on BOTH sides to
+   pull back (the launch is from the castle's rear, so the pull goes back
+   toward the world edge — the hand must not be jammed against it). The
+   band spans BASE_HALF_W cells each side of the hand; the world edges clamp
+   it but the derived zoom keeps the base large. */
+const BASE_HALF_W = 34;      /* cells of room each side of the launch hand */
+/* the zoom is capped so the base reads big; floored so a very tall field
+   never leaves dead sky flapping around it. */
+const BASE_ZOOM_MIN = 1.9;
+const BASE_ZOOM_MAX = 4.2;
+
+function frameForBase(seat){
+  seat = seat | 0;
+  /* centre horizontally on the launch hand so the pull has room both ways.
+     Fall back to the castle centre if there is no live crew to read. */
+  const hand = (M && M.st) ? handOf(seat) : null;
+  const castleMid = seat === 0 ? (E.L_X0 + E.L_X1) / 2 : (E.R_X0 + E.R_X1) / 2;
+  const hx = hand ? hand.x : castleMid;
+  let bx0 = hx - BASE_HALF_W, bx1 = hx + BASE_HALF_W;
+  /* keep the band on-world, but preserve its WIDTH when it hits an edge so
+     the zoom (and thus the on-screen pull budget) stays stable near a
+     corner castle. */
+  const bandW0 = bx1 - bx0;
+  if (bx0 < 0){ bx0 = 0; bx1 = bandW0; }
+  if (bx1 > E.W){ bx1 = E.W; bx0 = E.W - bandW0; }
   const cx = (bx0 + bx1) / 2;
   const cy = (FRAME_TOP_Y + FRAME_BOT_Y) / 2;
-  /* with no field measured yet (pre-mount), fall back to a sane wide
-     frame that still shows the whole board */
+  /* with no field measured yet (pre-mount), fall back to a sane close zoom */
   if (!UI || !UI.cw || !UI.ch || !UI.baseSc){
-    return { x: cx, y: cy, zoom: 1.0 };
+    return { x: cx, y: cy, zoom: BASE_ZOOM_MIN };
   }
   const bandW = bx1 - bx0;                 /* cells across the band  */
   const bandH = FRAME_BOT_Y - FRAME_TOP_Y; /* cells down the band    */
-  /* the zoom (a multiple of baseSc) that just fits the band in each
-     axis; take the SMALLER so BOTH castles are guaranteed in view */
+  /* the zoom (a multiple of baseSc) that just fits the band in each axis;
+     take the SMALLER so the whole base stays framed, then clamp IN so we
+     are always zoomed close on the base rather than showing the field. */
   const zx = (UI.cw / UI.baseSc) / bandW;
   const zy = (UI.ch / UI.baseSc) / bandH;
   let zoom = Math.min(zx, zy);
-  /* clamps: never below the whole-world fit (zoom 1.0 shows all 200
-     wide), and never so tight that a castle edge slips off — cap so at
-     least the full band-width stays framed with a hair to spare. */
-  zoom = clampN(zoom, 1.0, 2.4);
+  zoom = clampN(zoom, BASE_ZOOM_MIN, BASE_ZOOM_MAX);
   return { x: cx, y: cy, zoom };
 }
+/* the seat whose base the aim camera should rest on: the local human's
+   own seat (canAct() gates aiming to E.turnOf === M.me), resolved the
+   same way localSide() picks the clear half so pass-the-phone / online
+   agree with the fog. */
+function aimSeat(){ return localSide(); }
+function frameWhole(){ return frameForBase(aimSeat()); }
 function initCam(){
-  const f = frameWhole();
+  const f = frameForBase(M ? aimSeat() : 0);
   M.cam = { x:f.x, y:f.y, zoom:f.zoom, tx:f.x, ty:f.y, tzoom:f.zoom,
             hold:0, follow:false };
 }
@@ -1520,24 +1543,53 @@ function handOf(seat){
    throws up-right. dragOf() quantises the finger's float into the two
    signed bytes the engine wants, and preview() draws the exact arc.
    ═══════════════════════════════════════════════════════════════════ */
-const MAXPULL = 46;   /* cells of pull that map to full power (DRAG_MAX) */
+/* ── POWER MAPPING IS IN SCREEN SPACE, NOT WORLD SPACE ───────────────
+   The old mapping measured the pull in WORLD CELLS (MAXPULL=46 cells to
+   full power) and then, at the zoomed-in aim view, 46 cells is a screen
+   distance far bigger than the viewport — so full power meant dragging
+   your thumb clean off the screen and aiming felt impossible. The pull
+   is now measured in SCREEN PIXELS from the hand: a COMFORTABLE on-screen
+   drag of MAXPULL_PX reaches full power, regardless of how far the camera
+   is zoomed in (zoom changes what a pixel is worth in the world, but the
+   power now depends only on how far your thumb actually travels).
+
+   How it stays deterministic: the engine still receives the two signed
+   dx/dy bytes from E.dragOf(). dragOf(fx,fy,maxPull) scales its input by
+   DRAG_MAX/maxPull; feeding it the SCREEN pull (px) with maxPull=the
+   screen span that should mean full power makes a MAXPULL_PX-pixel drag
+   land exactly on DRAG_MAX. The direction is preserved (screen and world
+   axes share orientation), so slingshot semantics are unchanged. */
+const MAXPULL_PX_FRAC = 0.42;  /* full power = this fraction of min(vw,vh) */
+const MAXPULL_PX_MIN  = 120;   /* but never a silly-short comfortable drag */
+const MAXPULL_PX_MAX  = 300;   /* nor longer than a thumb wants to travel  */
+function maxPullPx(){
+  const base = Math.min(UI ? UI.cw : 360, UI ? UI.ch : 640) * MAXPULL_PX_FRAC;
+  return clampN(base, MAXPULL_PX_MIN, MAXPULL_PX_MAX);
+}
 
 function beginAim(px, py){
   if (!canAct()) return;
-  const hand = handOf(M.me);
+  const seat = M.me;
+  const hand = handOf(seat);
   if (!hand) return;
-  M.drag = { hx: hand.x, hy: hand.y, fx: wx(px), fy: wy(py), sx0:px, sy0:py };
+  /* anchor the pull at the HAND's SCREEN position, so the drag distance
+     is read in pixels the thumb actually travels. */
+  M.drag = { seat, hx: hand.x, hy: hand.y,
+             hsx: sx(hand.x), hsy: sy(hand.y),
+             fx: wx(px), fy: wy(py), sx0:px, sy0:py };
   moveAim(px, py);
 }
 function moveAim(px, py){
   if (!M.drag) return;
+  const seat = M.drag.seat;
   const fx = wx(px), fy = wy(py);
   M.drag.fx = fx; M.drag.fy = fy;
-  /* the pull is hand→finger; the shot is its OPPOSITE (slingshot) */
-  const pdx = fx - M.drag.hx, pdy = fy - M.drag.hy;
-  const drag = E.dragOf(-pdx, -pdy, MAXPULL);
+  /* the pull, IN SCREEN PIXELS, from the hand to the finger. The shot is
+     its OPPOSITE (slingshot): pull back, fly forward. */
+  const spdx = px - M.drag.hsx, spdy = py - M.drag.hsy;
+  const drag = E.dragOf(-spdx, -spdy, maxPullPx());
   M.drag.dx = drag.dx; M.drag.dy = drag.dy;
-  const mv = { seat: M.me, w: M.sel, dx: drag.dx, dy: drag.dy };
+  const mv = { seat, w: M.sel, dx: drag.dx, dy: drag.dy };
   M.drag.mv = mv;
   /* power meter + a live power/angle readout so lining up a shot is a
      precise, satisfying thing rather than a guess */
@@ -1546,7 +1598,7 @@ function moveAim(px, py){
   /* angle above horizontal, from the shot vector (dy is up-negative). We
      read it off the two bytes so it matches the launch exactly. Uses the
      engine's own table lerp — decoration, never fed back. */
-  const face = M.me === 0 ? 1 : -1;
+  const face = seat === 0 ? 1 : -1;
   const shotx = drag.dx * face, shoty = drag.dy;
   const ang = Math.round(Math.atan2(-shoty, Math.abs(shotx) || 1) * 180 / Math.PI);
   tip('<b>' + Math.round(pw * 100) + '%</b> · ' + (ang >= 0 ? '+' : '') + ang + '°', 0);
@@ -3038,7 +3090,15 @@ try {
       /* aim-framing hooks (prior-fix regression): frame both castles and
          read the resulting whole-frame the resting/aim view uses. */
       frameForAim: snap => frameForAim(snap),
-      frameWhole: () => frameWhole()
+      frameWhole: () => frameWhole(),
+      /* base-aim framing hooks (this fix): the resting/aim view is your
+         OWN base zoomed in, and the drag→power span is in screen px. */
+      frameForBase: seat => frameForBase(seat == null ? (M ? M.me : 0) : seat),
+      aimSeat: () => aimSeat(),
+      maxPullPx: () => maxPullPx(),
+      handOf: seat => handOf(seat == null ? (M ? M.me : 0) : seat),
+      screenOf: (wxc, wyc) => [sx(wxc), sy(wyc)],
+      snapCam: () => snapCam()
     };
   }
 } catch(e){}

@@ -629,14 +629,23 @@ function onlineRemote(seat, wire){
 /* ═══════════════════════════════════════════════════════════════════
    THE CANVAS — fit on mount/resize only (the one layout read).
    ═══════════════════════════════════════════════════════════════════ */
-/* Choose a cell size so a tank reads clearly, then let the VIEW (canvas)
-   be the available area and the WORLD (full arena) be cell×cols/rows. When
-   the world is larger than the view the camera scrolls to keep the local
-   tank framed; when it is smaller the view just shows all of it, centred.
-   This is what turns "the whole arena is shrunk to fit" (no follow) into a
-   real follow — a pure render/layout choice, nothing the sim sees. */
+/* Choose a cell size so a tank reads clearly AND the world is bigger than the
+   view in BOTH axes, then let the VIEW (canvas) be the available area. The
+   camera scrolls to keep the local tank framed. The one non-obvious bit —
+   and the bug the old code had — is that a "legible" cell is not enough: if
+   the resulting world happens to be shorter than the available height (a 14-
+   row arena at 30px is 420px tall inside a ~600px box), the view clamps to
+   the world on that axis, maxY becomes 0, and the camera CANNOT scroll
+   vertically — so the tank slides from the top of the frame to the bottom
+   and it looks like "the camera doesn't follow". The fix: zoom in enough
+   that the world OVERFLOWS the available box on both axes (with a small
+   margin), clamped to a legibility range, so the follow is always real.
+   Pure render/layout — nothing the sim sees. */
 const CAM_MIN_CELL = 30;   /* px per cell we aim for so tanks stay legible   */
-const CAM_MAX_CELL = 46;   /* don't zoom in so far a small arena over-scrolls */
+const CAM_MAX_CELL = 64;   /* zoom cap; high enough to force scroll on a
+                              short arena in a tall phone box                */
+const CAM_OVERFLOW = 1.18; /* world must exceed the view by this factor so
+                              there is real scroll room on each axis         */
 function fitCanvas(){
   if (!UI || !UI.cv || !UI.arena) return;
   const mp = M.st.map, host = UI.host;
@@ -644,17 +653,21 @@ function fitCanvas(){
   const hudH = UI.hud ? UI.hud.offsetHeight : 22;
   const availW = Math.max(160, host.clientWidth - 8);
   const availH = Math.max(160, host.clientHeight - ctrlH - hudH - 18);
-  /* the cell that would fit the whole arena in the view (the old behaviour) */
-  const fitCell = Math.min(availW / mp.cols, availH / mp.rows);
-  /* aim for a legible cell, but never below what fits (so we never leave a
-     gap around a big arena), and cap so a tiny arena isn't over-zoomed */
-  let cell = Math.max(fitCell, CAM_MIN_CELL);
+  /* the available box we want to fill */
+  const boxW = Math.floor(availW), boxH = Math.floor(availH);
+  /* cell that would make the world just OVERFLOW the box on each axis, so
+     the camera has room to scroll and centre the tank. Take the larger of
+     the two so BOTH axes overflow, not just the wider one. */
+  const cellForW = (boxW * CAM_OVERFLOW) / mp.cols;
+  const cellForH = (boxH * CAM_OVERFLOW) / mp.rows;
+  let cell = Math.max(cellForW, cellForH, CAM_MIN_CELL);
   cell = Math.min(cell, CAM_MAX_CELL);
   cell = Math.max(8, Math.floor(cell));
   const worldW = cell * mp.cols, worldH = cell * mp.rows;
-  /* the visible view = the available box, but never bigger than the world */
-  const w = Math.min(worldW, Math.floor(availW));
-  const h = Math.min(worldH, Math.floor(availH));
+  /* the view = the box, but never larger than the world (else empty margin);
+     when the world overflows the box the view IS the box and the camera
+     scrolls — the common case now on a phone. */
+  const w = Math.min(worldW, boxW), h = Math.min(worldH, boxH);
   UI.cell = cell; UI.w = w; UI.h = h; UI.worldW = worldW; UI.worldH = worldH;
   UI.arena.style.width = w + 'px'; UI.arena.style.height = h + 'px';
   const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
