@@ -1607,10 +1607,10 @@ function rulesFor(){
       'back row is armour, three hits and worth more.',
       '<b>Għaddi l-ballun mir-raketta tagħhom</b> u jiekol il-brikks tagħhom. Ta’ quddiem ' +
       'ratba; ta’ wara armatura, tliet daqqiet u tiswa aktar.'),
-    T('<b>Broken bricks drop help — and YOU catch it</b>, falling toward your own paddle. Whoever ' +
-      'is losing bricks gets the boost. That is the comeback.',
-      '<b>Il-brikks miksura jwaqqgħu għajnuna — u INT taqbadha</b>, nieżla lejn ir-raketta ' +
-      'tiegħek. Min qed jitlef il-brikks jieħu s-spinta. Dik ir-ritorn.'),
+    T('<b>Break a brick and the power-up is YOURS</b> — it falls across to your own paddle to be ' +
+      'caught. The player who does the breaking gets the boost, so keep smashing their wall.',
+      '<b>Kisser brikksa u l-power-up ikun TIEGĦEK</b> — jaqa’ lejn ir-raketta tiegħek biex ' +
+      'taqbdu. Min ikisser jieħu s-spinta, mela ibqa’ kisser il-ħajt tagħhom.'),
     T('<b>Seven power-ups:</b> more balls, a wider paddle, a slow-ball breather, a ' +
       '<b>sticky</b> paddle that catches and lets you aim, a <b>laser</b> that chips their wall, ' +
       'a <b>power ball</b> that smashes straight through bricks, and a one-save barrier.',

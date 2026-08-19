@@ -17,10 +17,13 @@
      point, no lives, no "ball lost" — the pressure comes from the wall
      thinning out, not from a reset.
 
-     Broken bricks drop power-ups, and the DEFENDER catches them (they
-     fall from your own wall toward your own paddle). That is on
-     purpose: the player who is losing bricks gets the help. It is the
-     comeback valve.
+     Broken bricks drop power-ups, and the BREAKER catches them: a drop
+     falls AWAY from the wall it came off, across the field, toward the
+     paddle of whoever broke the brick (the attacker of that wall). Break
+     their wall and the help is yours — the reward goes to the aggressor,
+     not the defender. See maybeDrop()/stepDrops(): the owner seat is
+     own = 1 - side, a pure function of the broken wall, so both phones
+     agree on who catches every drop.
 
    ── THE ONE THING THIS FILE IS ACTUALLY ABOUT: TWO PHONES AGREEING ──
      This is input-delay lockstep, the same model as the bomberman
@@ -328,10 +331,12 @@ const TFP = 4096;                          /* sub-ticks in one tick    */
 const MAX_ITER = 24;                       /* bounces resolved per tick*/
 
 /* ── power-ups ────────────────────────────────────────────────────────
-   SEVEN of them now, all DEFENDER-caught (they fall from your OWN broken
-   wall toward your OWN paddle — the comeback valve). Each is deterministic:
-   whether a brick drops and WHICH power-up it drops is a pure hash of
-   (seed, side, r, c), never the order bricks broke in — see maybeDrop().
+   SEVEN of them now, all BREAKER-caught (they fall from the broken wall
+   ACROSS the field toward the paddle of whoever broke the brick — break
+   their wall, keep the reward). Each is deterministic: whether a brick
+   drops and WHICH power-up it drops is a pure hash of (seed, side, r, c),
+   never the order bricks broke in — see maybeDrop(). The catching seat is
+   own = 1 - side, also a pure function of the broken wall.
 
      MULTI   split every ball once (up to MAX_BALLS). Instant pressure.
      WIDE    your paddle grows for WIDE_TICKS. Defensive, forgiving.
@@ -1122,20 +1127,31 @@ function maybeDrop(st, side, r, c){
   for (const [k, wt] of PU_WEIGHT){ acc += wt; if (puRoll < acc){ kind = k; break; } }
   const b = brickBox(side, r, c);
   const cx = (b.x0 + b.x1) >> 1, cy = (b.y0 + b.y1) >> 1;
-  /* falls toward the defender's OWN paddle: side 0's paddle is above its
-     wall (smaller y), side 1's below. */
-  const vy = side === 0 ? -DROP_V : DROP_V;
-  st.drops.push({ id: st.nextDrop++, side, kind, x: cx, y: cy, vy });
+  /* THE BREAKER GETS THE POWER-UP. A brick on wall `side` is the DEFENDER's
+     wall; it is broken by the ATTACKER, whose paddle sits on the OTHER side
+     (own = 1 - side). The drop therefore falls AWAY from the broken wall,
+     across the field, toward the breaker's own paddle, and is caught by that
+     paddle (see stepDrops). Deterministic: own is a pure function of side, so
+     both clients agree. side 0's paddle is above its wall (smaller y) and
+     side 1's below. side 0's paddle sits at the BOTTOM (large y) and side 1's
+     at the TOP (small y). The drop spawns on the OPPOSITE wall (the one the
+     breaker attacked) and must travel ACROSS the field to the breaker's own
+     paddle, so a drop owned by side 0 falls DOWN (+y, toward the bottom paddle)
+     and one owned by side 1 rises UP (−y, toward the top paddle). */
+  const own = side === 0 ? 1 : 0;
+  const vy = own === 0 ? DROP_V : -DROP_V;
+  st.drops.push({ id: st.nextDrop++, side, own, kind, x: cx, y: cy, vy });
 }
 
 function stepDrops(st){
   for (let i = st.drops.length - 1; i >= 0; i--){
     const d = st.drops[i];
     d.y += d.vy;
-    /* caught by the owning side's paddle? */
+    /* caught by the BREAKER's paddle — the seat that broke the brick (d.own =
+       the attacker of the broken wall), NOT the defender whose wall it was. */
     let caught = false, lost = false;
     for (const p of st.pads){
-      if (p.side !== d.side) continue;
+      if (p.side !== d.own) continue;
       const pb = padBox(p);
       if (d.x >= pb.x0 - DROP_HW && d.x <= pb.x1 + DROP_HW &&
           d.y >= pb.y0 - DROP_HW && d.y <= pb.y1 + DROP_HW){
@@ -1510,7 +1526,7 @@ function snapshot(st){
   for (const w of st.walls){ a.push(w.shield); for (const h of w.cells) a.push(h); }
   a.push(0x7ffffffd);
   for (const d of st.drops.slice().sort((x, y) => x.id - y.id))
-    a.push(d.id, d.side, d.kind, d.x, d.y, d.vy);
+    a.push(d.id, d.side, d.own, d.kind, d.x, d.y, d.vy);
   a.push(0x7ffffffc);
   for (const bo of st.bolts.slice().sort((x, y) => x.id - y.id))
     a.push(bo.id, bo.side, bo.x, bo.y, bo.vy);
