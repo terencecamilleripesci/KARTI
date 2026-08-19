@@ -1628,7 +1628,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 125;
+var KARTI_BUILD = 126;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1670,6 +1670,11 @@ window.swVersion = function(){
                   once those files land. */
                'js/progress-faces.js','js/progress.js','js/progress-ui.js',
                'js/game.js',
+               /* REBBIEH: the shared winner/end-of-game screen (podium,
+                  profile-picture avatars, XP flourish, Play Again → lobby).
+                  Loaded early so every game — the six new ones now, the rest
+                  later — can call KARTI_REBBIEH at match end. Self-contained. */
+               'js/rebbieh.js',
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
                'js/cardview.js','js/tutor.js','js/sync.js',
                'js/party.js','js/chess.js','js/dama.js',
@@ -1715,6 +1720,17 @@ window.swVersion = function(){
                   through KARTI_PARTY and the online id is taught to KARTI_MP
                   the way gin and rummy do it. */
                'js/suspett.js','js/suspett-ui.js',
+               /* ═══ the six new games ═══ engine then screen; each self-
+                  registers through KARTI_PARTY and uses REBBIEH (above) for
+                  its winner screen. Board/real-time games need no deck.
+                  Online for kanun/bomba/briks and the 21/31 tile lights up
+                  once the relay learns their ids; offline plays now. */
+               'js/mimika.js','js/mimika-ui.js',                 /* charades */
+               'js/blackjack.js','js/tletin.js','js/cards2131-ui.js', /* 21 & 31, one tile */
+               'js/kanun.js','js/kanun-ui.js',                   /* Castle Wars */
+               'js/bomba.js','js/bomba-ui.js',                   /* Bomberman */
+               'js/briks.js','js/briks-ui.js',                   /* Bricks 1v1 */
+               'js/ludu.js','js/ludu-ui.js',                     /* Ludo 4/6/8 */
                'js/stats.js',
                'js/sfx.js',
                /* LAST. nav.js is the Android back button, and it works by
