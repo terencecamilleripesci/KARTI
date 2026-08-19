@@ -1525,9 +1525,15 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-pack"></use></svg>
         <span class="tl">Store</span>
       </button>
-      <button class="tab" type="button" id="btn-tutor" data-scr="tutor">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg>
-        <span class="tl">Guide</span>
+      <!-- FRIENDS — the social tab. Replaced the old Guide/tutor tab; the
+           tutorial itself is still reachable from Home. friends.js paints
+           #scr-friends and rides KARTI_MP's relay socket for presence,
+           requests, chat and game invites. The little dot is the
+           incoming-friend-request badge, lit by friends.js. -->
+      <button class="tab" type="button" id="btn-friends" data-scr="friends">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-users"></use></svg>
+        <span class="tl">Friends</span>
+        <i class="tdot" id="fr-badge" role="img" aria-label="you have friend requests" hidden></i>
       </button>
       <!-- BUILD TAG — diagnostic, delete with its CSS + script blocks.
            Filled by buildTag() in the shell script; absolutely positioned, so
@@ -1631,6 +1637,9 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
   <section class="screen" id="scr-mp"></section>
   <section class="screen" id="scr-gacha"></section>
   <section class="screen" id="scr-tutor"></section>
+  <!-- FRIENDS — painted by js/friends.js. Left empty here like the mp/story
+       screens; friends.js fills it on first paint and on every tab visit. -->
+  <section class="screen" id="scr-friends"></section>
 
 </div>
 
@@ -1669,7 +1678,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 167;
+var KARTI_BUILD = 168;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1782,6 +1791,10 @@ window.swVersion = function(){
                'js/konkwista.js','js/konkwista-ui.js',           /* Risk conquest 2–6 */
                'js/misteru.js','js/misteru-ui.js',               /* Clue mystery 2–6 */
                'js/stats.js',
+               /* FRIENDS — the social tab (#scr-friends). After mp.js (it
+                  rides KARTI_MP's relay socket + room-invite machinery) and
+                  after stats.js; before nav.js like every other screen. */
+               'js/friends.js',
                'js/sfx.js',
                /* LAST. nav.js is the Android back button, and it works by
                   observing every other module's screens — so it must boot

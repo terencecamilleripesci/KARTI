@@ -258,6 +258,59 @@ function screenEl(){
   return scr;
 }
 
+/* ── THE SHELF REMEMBERS WHERE YOUR FINGER LEFT IT ──────────────────
+   Every screen this file paints — the hub, the room behind the door,
+   a setup sheet, a board — is built by REPLACING screenEl().innerHTML.
+   That throws the old scroller away, so coming back out of a game
+   rebuilt the shelf from scratch and dropped you at the top. With
+   twenty-five tiles on it that is a real cost: the games near the
+   bottom took a scroll every single time.
+
+   So each scrolling screen gets a key, and its scroller is tracked:
+   a passive listener writes the live position into SHELFY as you
+   move, and the next paint of that same screen puts it back. Reading
+   the position from a listener rather than capturing it "on the way
+   out" is deliberate — there is no single way out. You can leave by
+   the game's own back arrow, by the Android back gesture (js/nav.js
+   clicks the same control), by a result card, or by another screen
+   switching itself on and tripping standDown(). A listener has
+   already recorded the answer before any of them happen.
+
+   Restoring is clamped to the new content (a shorter list must not be
+   scrolled past its end) and repeated across a couple of frames,
+   because tile artwork resolves asynchronously and the first frame
+   can measure a scrollHeight that is still growing. `restoring`
+   keeps those programmatic scrolls from being mistaken for a finger
+   and overwriting the very number we are putting back. */
+const SHELFY = Object.create(null);
+let restoring = false;
+
+function trackScroll(key, node){
+  if (!node) return;
+  node.addEventListener('scroll', () => {
+    if (!restoring) SHELFY[key] = node.scrollTop;
+  }, { passive:true });
+
+  const want = SHELFY[key] || 0;
+  if (!want) return;
+  restoring = true;
+  const put = () => {
+    const max = node.scrollHeight - node.clientHeight;
+    /* max <= 0 means the screen is not laid out yet (or is off screen);
+       write the raw value and let a later pass clamp it honestly. */
+    node.scrollTop = max > 0 ? Math.min(want, max) : want;
+  };
+  put();
+  if (typeof requestAnimationFrame === 'function'){
+    requestAnimationFrame(() => { put(); requestAnimationFrame(put); });
+  }
+  setTimeout(() => { put(); restoring = false; }, 240);
+}
+
+/* leaving the shelf for Home is the one honest "I am done here": the
+   next time Party Games is opened it should start at the top. */
+function forgetScroll(){ for (const k in SHELFY) delete SHELFY[k]; }
+
 function watch(){
   if (watching || typeof MutationObserver !== 'function') return;
   const app = document.getElementById('app');
@@ -303,6 +356,7 @@ function standDown(){
 
 function close(){
   standDown();
+  forgetScroll();
   if (K.go) K.go('home');
 }
 
@@ -365,6 +419,9 @@ function hub(){
   });
 
   el.querySelector('#pt-home').onclick = close;
+  /* LAST, after every tile is in the grid: the scroller has to have its
+     full height before a remembered position can be clamped against it. */
+  trackScroll('hub', el.querySelector('.scroll'));
 }
 
 function sortedGames(){
@@ -450,6 +507,9 @@ function deckRoom(){
   const grid = el.querySelector('#pt-dgrid');
   sortedGames().forEach(g => { if (shelfOf(g) === 'deck') tileInto(grid, g); });
   el.querySelector('#pt-dback').onclick = hub;
+  /* the room behind the door is a shelf too, and holds six card games:
+     it gets its own memory rather than sharing the hub's. */
+  trackScroll('deck', el.querySelector('.scroll'));
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1226,6 +1286,32 @@ document.addEventListener('click', e => {
   open();
 });
 
+/* ── THE DOOR TO THE SHARED ONLINE LOBBY ───────────────────────────
+   The lobby is js/mp.js's, and the way in has always been
+   KARTI_MP.openFor(game). But a game screen only ever holds
+   `P = window.KARTI_PARTY`, so several of them were written against
+   P.openLobby(game) / P.lobbyFor(game) — a name that was NEVER
+   published here. `if (P.openLobby)` was therefore always false, and
+   every one of those "Play online" buttons fell straight through to
+   its own last-resort branch: a toast saying online was not open on
+   the server yet, or a dead screen saying to open the lobby from the
+   party shelf. IL-KODIĊI is seated on the relay, registered in
+   KARTI_MP.GAMES, and its canStart() has no gate — the game was ready
+   the whole time and the button simply never reached the lobby.
+
+   Publishing the name the game screens already ask for fixes them all
+   at once, and keeps the knowledge of WHERE the lobby lives in one
+   place instead of copied into every game file. Returns false rather
+   than throwing if js/mp.js is not on the phone, so a caller that
+   checks can still fall back to its own offer. */
+function openLobby(game){
+  const MP = window.KARTI_MP;
+  if (!MP || !MP.openFor || !game) return false;
+  /* openFor() does its own honest degrade for a game that has not
+     shipped its online half, so there is nothing to second-guess here. */
+  try { MP.openFor(game); return true; } catch(e){ return false; }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    PUBLIC FACE
    js/chess.js and js/dama.js load after this file and call register().
@@ -1247,6 +1333,10 @@ window.KARTI_PARTY = {
      needs that to drop an online board straight onto the screen. */
   show, standDown,
   isLive: () => live,
+  /* the way into js/mp.js's shared online lobby, under the two names the
+     game screens on this shelf were already written against. See the
+     block above openLobby() for what was broken. */
+  openLobby, lobbyFor: openLobby,
   /* the shared kit the two games are built out of */
   ui: { screenEl, frame, setTurn, setNet, result, confirm, setup, fit, pieceSVG,
         sprite: injectSprite, css: injectCSS, ico, esc, takeback },

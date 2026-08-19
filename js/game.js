@@ -643,7 +643,7 @@ function cardViewModal(card){
 }
 
 /* ───────────────────────── router ───────────────────────── */
-const SCREENS = ['auth','home','pack','coll','deck','duel','story','pnp','mp','gacha','tutor'];
+const SCREENS = ['auth','home','pack','coll','deck','duel','story','pnp','mp','gacha','tutor','friends'];
 let current = 'auth';
 /* Home's bottom nav marks whichever of its four destinations you are on.
    Nothing is marked while you are on Home itself — Home is not one of the four.
@@ -1228,12 +1228,27 @@ function pushClearShown(){
    lobby over a live board would be worse than the notification. */
 function pushOpenFrom(url){
   try {
+    /* a FRIEND's game-invite push carries '#friends' — land on the Friends
+       tab, where the pending invite is waiting to be tapped. On iOS this
+       notification tap is the ONLY way to open the installed PWA. */
+    if (/#friends\b/.test(url || '')){
+      if (window.KARTI_FRIENDS && KARTI_FRIENDS.open) KARTI_FRIENDS.open();
+      else if (ACTIVE) go('friends');
+      return;
+    }
     if (!/#mp\b/.test(url || '')) return;
     if (ACTIVE && current !== 'mp') go('mp');
   } catch (e){}
 }
 function pushBootWire(){
   pushClearShown();
+  if (location.hash === '#friends'){
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e){}
+    setTimeout(() => { try {
+      if (window.KARTI_FRIENDS && KARTI_FRIENDS.open) KARTI_FRIENDS.open();
+      else if (ACTIVE) go('friends');
+    } catch (e){} }, 250);
+  }
   if (location.hash === '#mp'){
     try { history.replaceState(null, '', location.pathname + location.search); } catch (e){}
     setTimeout(() => { try { if (ACTIVE && current !== 'mp') go('mp'); } catch (e){} }, 250);
@@ -5553,10 +5568,13 @@ function wireStatic(){
   $('#btn-packs').onclick = () => go('pack');
   $('#btn-coll').onclick  = () => go('coll');
   $('#btn-deck').onclick  = () => { dbDeck = null; go('deck'); };
-  const tb = $('#btn-tutor');
-  if (tb) tb.onclick = () => {
-    if (window.KARTI_TUTOR && KARTI_TUTOR.open) KARTI_TUTOR.open();
-    else toast('The tutorial did not load. Try reopening the app.');
+  /* The Guide tab became the FRIENDS tab. The tutorial still exists and is
+     opened from Home; friends.js owns #btn-friends / #scr-friends. This wiring
+     is a safe fallback in case friends.js has not booted yet. */
+  const fb = $('#btn-friends');
+  if (fb && !fb.onclick) fb.onclick = () => {
+    if (window.KARTI_FRIENDS && KARTI_FRIENDS.open) KARTI_FRIENDS.open();
+    else go('friends');
   };
   $('#pack-back').onclick = () => go('home');
   $('#coll-back').onclick = () => go('home');

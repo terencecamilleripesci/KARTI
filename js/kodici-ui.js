@@ -1046,10 +1046,21 @@ function resumeGame(){
 let NET = null;
 
 function goOnline(){
-  /* the party frame owns the lobby chrome; we hand it R.lobby. If the
-     host has no online entry yet, fall back to a friendly notice. */
-  if (P.openLobby) { P.openLobby('kodici'); return; }
-  if (P.lobby && P.lobby.open) { P.lobby.open('kodici'); return; }
+  /* THE LOBBY IS js/mp.js's, AND ITS DOOR IS openFor(). This used to ask
+     for P.openLobby / P.lobby.open — names KARTI_PARTY had never
+     published — so both tests were false and every tap landed on the
+     "open it from the party shelf" notice below. That read as "IL-KODIĊI
+     has no online mode", when in fact the relay seats 2-2-2 for 'kodici',
+     KARTI_MP.GAMES carries it, LOBBY_GLOBAL maps it to KARTI_KODICI and
+     R.lobby.canStart() has no gate at all. Nothing was missing but this
+     one call — the same one erbgha / minhu / aqleb / kaxxi already make.
+     P.openLobby is kept as the second try because js/party.js now
+     publishes it (returning false when mp.js is not on the phone), and
+     the notice below stays as the last resort for a build without a
+     lobby at all. */
+  const MP = window.KARTI_MP;
+  if (MP && MP.openFor) { MP.openFor('kodici'); return; }
+  if (P.openLobby && P.openLobby('kodici') !== false) return;
   /* graceful fallback */
   const el = P.ui.screenEl();
   el.innerHTML = '<div class="pt-wrap kd-menu"><div class="tbar">'+

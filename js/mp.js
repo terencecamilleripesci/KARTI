@@ -888,7 +888,8 @@ const MP = {
   unMove:null,          /* unsubscribe from the game's own move feed        */
   privateHook:null,     /* the running game's {t:'mine'} sink, if it has one */
   pendingMine:null,     /* a private hand that outran the start, buffered   */
-  whisperHook:null      /* the running game's private-word sink (chat), if any */
+  whisperHook:null,     /* the running game's private-word sink (chat), if any */
+  friendHook:null       /* the FRIENDS module's sink for {t:'friend'} social msgs */
 };
 
 /* The original card duel, chess and dama still pair and begin immediately.
@@ -2325,6 +2326,12 @@ function onServer(m){
     case 'knockgone':
       WHO.knocks = WHO.knocks.filter(x => x.id !== (m && m.id));
       paintSocial();
+      return;
+
+    /* FRIENDS social message arriving on the ROOM socket (e.g. an activity
+       change while you sit in a lobby). Same single hand-off as the beacon. */
+    case 'friend':
+      if (typeof MP.friendHook === 'function'){ try { MP.friendHook(m); } catch (e){} }
       return;
 
     case 'relay':
@@ -4459,6 +4466,14 @@ function presenceBeaconOpen(){
       paintSocial();
       return;
     }
+    /* ── FRIENDS: every social message (requests, list, DM, activity, invite
+       delivery) rides this one namespaced type, so it needs exactly one line
+       here and one in onServer(). It is handed straight to the friends module
+       and touches nothing else on this socket. ── */
+    if (m.t === 'friend'){
+      if (typeof MP.friendHook === 'function'){ try { MP.friendHook(m); } catch (e){} }
+      return;
+    }
     if (m.t === 'error'){
       /* An older relay does not know "who" and says "Bad message."; a newer one
          says "Sign in first" when there is no account. Either way the list is
@@ -5263,6 +5278,13 @@ window.KARTI_MP = {
   joinRoom, joinWaiting, lobby,
   /* invitations */
   INBOX, inboxAdd, inboxDrop, inboxLive, sessionToken, canInvite,
+  /* FRIENDS: send a social message on whichever socket is live (room or the
+     home-screen beacon), same as sendAny() uses internally. Additive export. */
+  friendSend: (o) => sendAny(o),
+  /* FRIENDS: a read-only copy of "recently played with" (display names only,
+     never account keys — the relay never sends keys). Used for the one-tap
+     "add a recent opponent" list. Additive export. */
+  recent: () => Array.isArray(WHO.recent) ? WHO.recent.slice() : [],
   sendInvite, acceptInvite, declineInvite, paintInvites, invitePanel, inviteCards,
   /* ── the shared lobby: one screen, every party game feeds it ── */
   gameLobby, lobbyReport, tableLobby, rosterSeats, tableCanStart, onRoster, onBegan,

@@ -614,6 +614,23 @@ class L:
     KNOCKS_TO = 12              # knocks one account may be holding
     KNOCKS_TOTAL = 4000         # knocks on the whole server
 
+    # ── FRIENDS: a mutual social graph on top of the accounts store ───────
+    # Everything a friend can do (DM, see activity, invite) is gated on a
+    # MUTUAL, ACCEPTED friendship, mirroring the knock/invite machinery above.
+    # A friend request is the same shape as a knock: it survives disconnect,
+    # is capped per-recipient and server-wide, and delivering it never says
+    # whether the target account exists.
+    FRIEND_RATE = 1.0 / 10.0    # friend-request / accept sends per second (burst below)
+    FRIEND_BURST = 6.0
+    FRIEND_MSG_RATE = 2.0       # direct messages per second, sustained
+    FRIEND_MSG_BURST = 12.0
+    FRIENDS_MAX = 200           # friends one account may hold
+    FRIEND_REQS_TO = 40         # pending incoming requests one account may hold
+    FRIEND_REQS_TOTAL = 8000    # pending requests across the whole server
+    FRIEND_MSGS_KEEP = 60       # DMs kept per ordered pair (a short scrollback)
+    FRIEND_MSG_LEN = 240        # characters of a DM that survive
+    FRIEND_CODE_LEN = 6         # characters in a friend code (base32 of the key)
+
     ROOM_IDLE = 30 * 60.0       # seconds of silence before a room is binned
     GRACE = 60.0                # seconds a dropped seat is held for a rejoin
     REPLAY_MSGS = 96            # per room: buffered messages for a rejoin
@@ -1270,6 +1287,10 @@ class Conn:
         self.listening = False      # has asked at least once, so wants a stir
         self.readies = Bucket(L.READY_RATE, L.READY_BURST)
         self.botsets = Bucket(L.BOT_RATE, L.BOT_BURST)
+        # ── FRIENDS: one bucket for the graph-changing actions (request /
+        # accept / remove) and a looser one for chat, mirroring `invites`. ──
+        self.friends = Bucket(L.FRIEND_RATE, L.FRIEND_BURST)
+        self.fmsgs = Bucket(L.FRIEND_MSG_RATE, L.FRIEND_MSG_BURST)
 
     def _raw(self, data):
         with self.send_lock:
@@ -3329,6 +3350,21 @@ def push_on_invite(to_key, from_name, game):
                     P.TTL_INVITE)
 
 
+def push_on_friend_invite(to_key, from_name, game):
+    """A FRIEND's game invite, delivered as a web push. This is the ONLY way an
+    installed standalone PWA can be opened on iOS (a plain link always lands in
+    Safari) — the notification tap does it, and Android focuses/opens the same
+    in-scope window. The url is in the manifest scope so tapping opens the app
+    on the Friends surface, where the pending invite is waiting to be joined.
+    Called on the same no-live-socket branch as the knock, so somebody actively
+    looking at the app gets the live in-app invite instead."""
+    push_to_account(to_key,
+                    {"t": "invite", "title": "KARTI",
+                     "body": "%s invited you to %s." % (from_name, _push_game_label(game)),
+                     "tag": "karti-invite", "url": "./#friends"},
+                    P.TTL_INVITE)
+
+
 def push_after_relay(conn, payload, nt):
     """After a relayed payload: did somebody's turn just start while their
     phone is closed? Never raises — a push must never break a game."""
@@ -3420,6 +3456,15 @@ def ws_auth(conn, session):
     # the room it was sent from, so it is delivered as its own thing and can
     # never be mistaken for a seat that is still there to be taken.
     out += knocks_for_conn(conn)
+    # ── FRIENDS: on sign-in, nudge this account's online friends so their
+    # lists light up "online". The friend SNAPSHOT is NOT pushed here — the
+    # client asks for it explicitly with {"t":"friendhello"} the moment its
+    # Friends surface mounts, which keeps the auth reply byte-for-byte what
+    # every existing client (and the selftest) already expects. The nudge only
+    # ever reaches OTHER accounts' sockets, never this one, so it disturbs
+    # nothing this socket is about to read. ──
+    if ACCOUNTS is not None:
+        out += friends_presence_ping(conn.acct)
     return out
 
 
@@ -3635,6 +3680,291 @@ def ws_decline(conn, iid):
     return [(conn, {"t": "invitegone", "id": iid if isinstance(iid, str) else ""})]
 
 
+# ── FRIENDS, over the socket ─────────────────────────────────────────────────
+#
+# A mutual social graph. Every reply the client cares about rides the ONE type
+# {"t":"friend", "k":...} so the client needs a single dispatch case. Every
+# handler mirrors the invite/knock pattern: account-gated, rate-limited, and
+# it delivers to a target account's LIVE sockets (via ROOMS.conns_for) while
+# also persisting to the accounts DB so nothing is lost across a disconnect.
+#
+# THE SAFETY RULE, enforced in one place (friend_gate): only a MUTUAL, accepted
+# friendship lets one account DM / see-activity / invite another. A request
+# always needs acceptance; nothing but name/avatar/online/current-game ever
+# leaves the relay about a friend.
+
+def _friend_off():
+    return ACCOUNTS is None
+
+def _friends_notify(key, note):
+    """Send `note` to every live socket of account `key`. -> a dispatch list."""
+    return [(c, note) for c in ROOMS.conns_for(key)]
+
+def friend_presence_rows(owner_key):
+    """The owner's friends, each annotated with online state + current game.
+    Only online AND visible friends carry a state; everybody else is 'off'.
+    This is the ONLY place a friend's activity is exposed, and only to the
+    account that owns the friendship."""
+    try:
+        friends = ACCOUNTS.friends_of(owner_key)
+    except Exception:
+        friends = []
+    states = ROOMS.account_states([f["k"] for f in friends])
+    rows = []
+    for f in friends:
+        e = {"k": f["k"], "n": f["n"]}
+        pv = karti_avatar.version(f["k"])
+        if pv:
+            e["pv"] = pv
+        st = states.get(f["k"])
+        if st is not None:
+            e["s"], e["g"] = st[0], st[1]
+            if st[2]:
+                e["id"] = st[2]
+        else:
+            e["s"] = "off"
+        rows.append(e)
+    return rows
+
+def friend_state(conn, extra=None):
+    """The whole snapshot the client keeps: your code, your friends (with
+    presence), and your pending requests both ways. `extra` merges in a `k`."""
+    body = {"t": "friend", "k": "list",
+            "code": ACCOUNTS.friend_code(conn.acct),
+            "friends": friend_presence_rows(conn.acct)}
+    try:
+        body["incoming"] = ACCOUNTS.friend_reqs_in(conn.acct)
+        body["outgoing"] = ACCOUNTS.friend_reqs_out(conn.acct)
+    except Exception:
+        body["incoming"] = []
+        body["outgoing"] = []
+    if extra:
+        body.update(extra)
+    return body
+
+def ws_friend_hello(conn):
+    """First contact: hand back the code + friends + requests, exactly the same
+    payload as a list, tagged k:'hello' so the client can tell it apart."""
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    b = friend_state(conn)
+    b["k"] = "hello"
+    return [(conn, b)]
+
+def ws_friend_list(conn):
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if not conn.whos.take():
+        return [(conn, {"t": "error", "why": E_SLOW})]
+    return [(conn, friend_state(conn))]
+
+def ws_friend_add(conn, code, name):
+    """Send a friend request, addressed EITHER by friend code OR by display
+    name (recent opponents are named, not coded). Silent about whether the
+    target exists, like ws_invite. If the target has ALREADY requested us, this
+    is really an accept and both become friends at once."""
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    # resolve the target -> (key, name)
+    target = None
+    if isinstance(code, str) and code.strip():
+        try:
+            target = ACCOUNTS.by_friend_code(code)
+        except Exception:
+            target = None
+    elif isinstance(name, str) and name.strip():
+        try:
+            _nm, key = v_username(name)
+            nm = ACCOUNTS.find(key)
+            target = (key, nm) if nm is not None else None
+        except Reject:
+            return [(conn, {"t": "friend", "k": "err", "why": E_SHAPE})]
+    if not conn.friends.take():
+        return [(conn, {"t": "friend", "k": "err", "why": E_SLOW})]
+    # From here on the answer is deliberately uniform whether or not the target
+    # is a real account, so presence cannot be probed by guessing codes.
+    if target is None or target[0] == conn.acct:
+        return [(conn, {"t": "friend", "k": "added", "n": ""})]
+    tkey, tname = target
+    out = []
+    try:
+        if ACCOUNTS.are_friends(conn.acct, tkey):
+            return [(conn, {"t": "friend", "k": "added", "n": tname})]
+        # they already asked us? then this closes the loop into a friendship.
+        if ACCOUNTS.friend_req_mutual(conn.acct, tkey):
+            # drop their pending request to us, bind both ways
+            for r in ACCOUNTS.friend_reqs_in(conn.acct):
+                if r["k"] == tkey:
+                    ACCOUNTS.friend_req_drop(conn.acct, r["id"])
+            ACCOUNTS._bind_friends(conn.acct, conn.aname, tkey, tname, time.time())
+            for c in ROOMS.conns_for(tkey):
+                out.append((c, friend_state_for(c, {"k": "accepted", "n": conn.aname})))
+            out.append((conn, friend_state(conn, {"k": "accepted", "n": tname})))
+            return out
+        rid = ACCOUNTS.friend_req_add(tkey, conn.acct, conn.aname)
+        if rid is not None:
+            note = {"t": "friend", "k": "req", "id": rid,
+                    "from": conn.acct, "n": conn.aname or conn.acct}
+            for c in ROOMS.conns_for(tkey):
+                out.append((c, note))
+    except Exception:
+        LOG("friend-add-failed")
+    out.append((conn, friend_state(conn, {"k": "added", "n": tname})))
+    return out
+
+def friend_state_for(conn, extra=None):
+    """Same as friend_state but for an ARBITRARY connection (the recipient of an
+    accept), guarding against a socket whose account went away."""
+    if conn.acct is None:
+        return {"t": "friend", "k": (extra or {}).get("k", "list")}
+    return friend_state(conn, extra)
+
+def ws_friend_accept(conn, rid):
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if not conn.friends.take():
+        return [(conn, {"t": "friend", "k": "err", "why": E_SLOW})]
+    try:
+        got = ACCOUNTS.accept_friend(conn.acct, conn.aname,
+                                     rid if isinstance(rid, str) else "")
+    except Exception:
+        got = None
+    if got is None:
+        return [(conn, friend_state(conn, {"k": "err", "why": E_NOINVITE}))]
+    from_key, from_name = got
+    out = [(conn, friend_state(conn, {"k": "accepted", "n": from_name}))]
+    for c in ROOMS.conns_for(from_key):
+        out.append((c, friend_state_for(c, {"k": "accepted", "n": conn.aname})))
+    return out
+
+def ws_friend_decline(conn, rid):
+    """Quiet, like declining an invite: the requester is never told."""
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if isinstance(rid, str):
+        try:
+            ACCOUNTS.friend_req_drop(conn.acct, rid)
+        except Exception:
+            pass
+    return [(conn, friend_state(conn, {"k": "list"}))]
+
+def ws_friend_remove(conn, key):
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if isinstance(key, str) and key:
+        try:
+            ACCOUNTS.unfriend(conn.acct, key)
+        except Exception:
+            pass
+        out = [(conn, friend_state(conn, {"k": "removed"}))]
+        # tell the ex-friend's live sockets to refresh their own list
+        for c in ROOMS.conns_for(key):
+            out.append((c, friend_state_for(c, {"k": "list"})))
+        return out
+    return [(conn, friend_state(conn, {"k": "list"}))]
+
+def ws_friend_msg(conn, to, x):
+    """A direct message. ONLY between accepted friends. Delivered to the
+    friend's live sockets and persisted to both scrollbacks so an offline
+    friend reads it later. The sender gets no echo — the client shows its own
+    message optimistically."""
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if not isinstance(to, str) or not to:
+        return [(conn, {"t": "friend", "k": "err", "why": E_SHAPE})]
+    if not isinstance(x, str):
+        return [(conn, {"t": "friend", "k": "err", "why": E_SHAPE})]
+    x = NAME_BAD.sub("", x)[:L.FRIEND_MSG_LEN].strip()
+    if not x:
+        return []
+    if not conn.fmsgs.take():
+        return [(conn, {"t": "friend", "k": "err", "why": E_SLOW})]
+    # THE GATE: strangers cannot DM. Only a mutual friendship passes.
+    try:
+        if not ACCOUNTS.are_friends(conn.acct, to):
+            return [(conn, {"t": "friend", "k": "err", "why": E_NOAUTH})]
+    except Exception:
+        return [(conn, {"t": "friend", "k": "err", "why": E_NOAUTH})]
+    now = time.time()
+    try:
+        ACCOUNTS.dm_store(conn.acct, conn.aname, to, ACCOUNTS.find(to) or to, x, now)
+    except Exception:
+        LOG("friend-dm-store-failed")
+    note = {"t": "friend", "k": "dm", "from": conn.acct,
+            "n": conn.aname or conn.acct, "x": x, "t2": now}
+    # `t2` carries the timestamp; `t` is reserved for the message TYPE. The
+    # client reads m.t2 (falls back to now) for ordering.
+    return _friends_notify(to, note)
+
+def ws_friend_hist(conn, other):
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if not isinstance(other, str) or not other:
+        return [(conn, {"t": "friend", "k": "err", "why": E_SHAPE})]
+    try:
+        if not ACCOUNTS.are_friends(conn.acct, other):
+            return [(conn, {"t": "friend", "k": "err", "why": E_NOAUTH})]
+        msgs = ACCOUNTS.dm_history(conn.acct, other)
+    except Exception:
+        msgs = []
+    return [(conn, {"t": "friend", "k": "hist", "with": other, "msgs": msgs})]
+
+def ws_friend_invite(conn, to):
+    """Invite a FRIEND to the room this player has open. Reuses the exact invite
+    machinery (INVITES.add + knock fallback + push), but gated on friendship and
+    addressed by account key rather than username."""
+    if conn.acct is None or _friend_off():
+        return [(conn, {"t": "error", "why": E_NOAUTH})]
+    if not isinstance(to, str) or not to:
+        return [(conn, {"t": "friend", "k": "err", "why": E_SHAPE})]
+    try:
+        if not ACCOUNTS.are_friends(conn.acct, to):
+            return [(conn, {"t": "friend", "k": "err", "why": E_NOAUTH})]
+    except Exception:
+        return [(conn, {"t": "friend", "k": "err", "why": E_NOAUTH})]
+    mine = ROOMS.my_open_room(conn)
+    if mine is None:
+        return [(conn, {"t": "friend", "k": "err", "why": E_NOROOMYET})]
+    code, game = mine
+    if not conn.invites.take():
+        return [(conn, {"t": "friend", "k": "err", "why": E_SLOW})]
+    out = []
+    iid = INVITES.add(to, conn.aname or "SOMEBODY", game, code, conn.acct)
+    here = ROOMS.conns_for(to)
+    if iid is not None:
+        note = {"t": "invite", "id": iid, "from": conn.aname or "SOMEBODY",
+                "game": game, "left": int(L.INVITE_TTL)}
+        for c in here:
+            out.append((c, note))
+    if not here:
+        try:
+            ACCOUNTS.knock(to, conn.acct, conn.aname or "SOMEBODY", game)
+        except Exception:
+            LOG("friend-invite-knock-failed")
+        try:
+            push_on_friend_invite(to, conn.aname or "SOMEBODY", game)
+        except Exception:
+            LOG("friend-invite-push-error")
+    out.append((conn, {"t": "friend", "k": "invited", "to": to, "game": game}))
+    return out
+
+def friends_presence_ping(key):
+    """Tell everyone who is friends with `key` that their activity may have
+    changed, so their clients re-poll. Cheap: a one-field nudge, only to a
+    friend's LIVE sockets. Returns a dispatch list. Called when `key` signs in
+    or drops off, mirroring how `stir` coalesces presence."""
+    if ACCOUNTS is None or not key:
+        return []
+    out = []
+    try:
+        for f in ACCOUNTS.friends_of(key):
+            for c in ROOMS.conns_for(f["k"]):
+                out.append((c, {"t": "friend", "k": "presence"}))
+    except Exception:
+        pass
+    return out
+
+
 # ── message pump ─────────────────────────────────────────────────────────────
 
 def handle_ws_message(conn, raw):
@@ -3826,6 +4156,35 @@ def handle_ws_message(conn, raw):
 
     elif kind == "declineinvite":
         dispatch(ws_decline(conn, msg.get("id")))
+
+    # ── FRIENDS ── all social messages ride these branches; every reply the
+    # client cares about goes back as {"t":"friend","k":...}.
+    elif kind == "friendhello":
+        dispatch(ws_friend_hello(conn))
+
+    elif kind == "friendlist":
+        dispatch(ws_friend_list(conn))
+
+    elif kind == "friendadd":
+        dispatch(ws_friend_add(conn, msg.get("code"), msg.get("name")))
+
+    elif kind == "friendaccept":
+        dispatch(ws_friend_accept(conn, msg.get("id")))
+
+    elif kind == "frienddecline":
+        dispatch(ws_friend_decline(conn, msg.get("id")))
+
+    elif kind == "friendremove":
+        dispatch(ws_friend_remove(conn, msg.get("k")))
+
+    elif kind == "friendmsg":
+        dispatch(ws_friend_msg(conn, msg.get("to"), msg.get("x")))
+
+    elif kind == "friendhist":
+        dispatch(ws_friend_hist(conn, msg.get("with")))
+
+    elif kind == "friendinvite":
+        dispatch(ws_friend_invite(conn, msg.get("to")))
 
     elif kind == "leave":
         dispatch(ROOMS.leave(conn))
@@ -4191,6 +4550,46 @@ CREATE TABLE IF NOT EXISTS knocks (
     at     REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS knocks_uname ON knocks(uname, at DESC);
+
+/* FRIENDS — a mutual social graph, one row per ORDERED pair exactly like
+   `played`. A friendship is only real once BOTH rows exist (they are written
+   together on accept), so a single row is never trusted on its own. `name` is
+   cached so an offline friend still draws. */
+CREATE TABLE IF NOT EXISTS friends (
+    uname  TEXT NOT NULL,
+    other  TEXT NOT NULL,
+    name   TEXT NOT NULL,
+    since  REAL NOT NULL,
+    PRIMARY KEY (uname, other)
+);
+CREATE INDEX IF NOT EXISTS friends_uname ON friends(uname, since DESC);
+
+/* FRIEND REQUESTS — pending, needing acceptance, surviving disconnect. The
+   knock table's twin: capped per recipient and server-wide, one per ordered
+   sender→recipient pair. `fromk` is the requester's key, `name` their display
+   name (cached for offline rendering). */
+CREATE TABLE IF NOT EXISTS friend_reqs (
+    id     TEXT PRIMARY KEY,
+    uname  TEXT NOT NULL,        /* the RECIPIENT */
+    fromk  TEXT NOT NULL,        /* the REQUESTER */
+    name   TEXT NOT NULL,        /* requester display name */
+    at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS friend_reqs_uname ON friend_reqs(uname, at DESC);
+CREATE INDEX IF NOT EXISTS friend_reqs_fromk ON friend_reqs(fromk, at DESC);
+
+/* DIRECT MESSAGES — a short persisted scrollback per ordered pair so a note
+   left for an offline friend ("wanna play?") is waiting when they open the
+   app. Trimmed to FRIEND_MSGS_KEEP most-recent per pair. `mine` is 1 when the
+   OWNER of the `uname` row sent it, so each side reads its own view. */
+CREATE TABLE IF NOT EXISTS friend_msgs (
+    uname  TEXT NOT NULL,        /* whose scrollback this row belongs to */
+    other  TEXT NOT NULL,        /* the friend on the far end */
+    mine   INTEGER NOT NULL,     /* 1 = uname sent it, 0 = other sent it */
+    x      TEXT NOT NULL,
+    at     REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS friend_msgs_pair ON friend_msgs(uname, other, at);
 """
 
 
@@ -4479,6 +4878,210 @@ class Accounts:
                 "SELECT fromk,name,game FROM knocks WHERE uname=? AND id=?",
                 (key, kid)).fetchone()
         return (row[0], row[1], row[2]) if row else None
+
+    # -- friends -----------------------------------------------------------
+    #
+    # A mutual social graph. Every method wraps `with self.lock:` + commit,
+    # like the rest of this class. The FRIEND CODE is a stable, deterministic
+    # function of the account key (the lowercased username), so any client can
+    # be handed its own code without a lookup, and a code can be resolved back
+    # to the one account it belongs to by a small scan (there are at most
+    # A.MAX_ACCOUNTS rows). It carries no secret: it only ADDRESSES a friend
+    # request, which still has to be accepted.
+
+    @staticmethod
+    def friend_code(key):
+        """key -> stable friend code. base32(sha256("kf1:"+key)), first N chars,
+        upper-case, no padding. Same on the client if it ever wants to derive
+        its own — but the server is the source of truth."""
+        if not key:
+            return ""
+        digest = hashlib.sha256(("kf1:" + key).encode("utf-8", "replace")).digest()
+        code = base64.b32encode(digest).decode("ascii").rstrip("=").upper()
+        # drop the two most-confusable glyphs, then take the first N
+        code = code.replace("0", "").replace("1", "").replace("O", "").replace("I", "")
+        return code[:L.FRIEND_CODE_LEN]
+
+    def by_friend_code(self, code):
+        """code -> (key, name) for the one account whose code matches, or None.
+        A scan of the accounts table (bounded by A.MAX_ACCOUNTS). Case- and
+        glyph-normalised the same way friend_code() produces it."""
+        if not isinstance(code, str):
+            return None
+        want = code.strip().upper().replace("0", "").replace("1", "") \
+                   .replace("O", "").replace("I", "")[:L.FRIEND_CODE_LEN]
+        if len(want) < 3:
+            return None
+        with self.lock:
+            rows = self.db.execute("SELECT uname,name FROM accounts").fetchall()
+        for uname, name in rows:
+            if self.friend_code(uname) == want:
+                return uname, name
+        return None
+
+    def are_friends(self, key, other):
+        with self.lock:
+            row = self.db.execute(
+                "SELECT 1 FROM friends WHERE uname=? AND other=?",
+                (key, other)).fetchone()
+        return row is not None
+
+    def friends_of(self, key):
+        """-> [{"k","n","since"}] most recent first. `k` is the friend's account
+        key; it leaves this process ONLY to the account that owns the friendship,
+        which is exactly who is allowed to DM/invite them."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT other,name,since FROM friends WHERE uname=? ORDER BY since DESC",
+                (key,)).fetchall()
+        return [{"k": r[0], "n": r[1], "since": float(r[2])} for r in rows]
+
+    def friend_count(self, key):
+        with self.lock:
+            return int(self.db.execute(
+                "SELECT COUNT(*) FROM friends WHERE uname=?", (key,)).fetchone()[0])
+
+    def _bind_friends(self, a_key, a_name, b_key, b_name, now):
+        """Write BOTH ordered rows in one transaction. Caller holds no lock."""
+        with self.lock:
+            self.db.execute(
+                "INSERT OR IGNORE INTO friends(uname,other,name,since) VALUES(?,?,?,?)",
+                (a_key, b_key, b_name or b_key, now))
+            self.db.execute(
+                "INSERT OR IGNORE INTO friends(uname,other,name,since) VALUES(?,?,?,?)",
+                (b_key, a_key, a_name or a_key, now))
+            self.db.commit()
+
+    def unfriend(self, key, other):
+        """Remove BOTH directions. Either party can end it."""
+        with self.lock:
+            self.db.execute("DELETE FROM friends WHERE uname=? AND other=?", (key, other))
+            self.db.execute("DELETE FROM friends WHERE uname=? AND other=?", (other, key))
+            self.db.commit()
+
+    # -- friend requests (the knock's twin) --------------------------------
+
+    def friend_req_add(self, to_key, from_key, from_name, now=None):
+        """Leave a pending request. -> request id, or None if it could not be
+        stored (caller must not let the difference show). One request per
+        ordered sender→recipient pair; a repeat moves to the top."""
+        if not to_key or not from_key or to_key == from_key:
+            return None
+        now = time.time() if now is None else now
+        with self.lock:
+            # already friends? then there is nothing to request.
+            if self.db.execute("SELECT 1 FROM friends WHERE uname=? AND other=?",
+                               (to_key, from_key)).fetchone():
+                return None
+            total = self.db.execute("SELECT COUNT(*) FROM friend_reqs").fetchone()[0]
+            if total >= L.FRIEND_REQS_TOTAL:
+                return None
+            held = self.db.execute("SELECT COUNT(*) FROM friend_reqs WHERE uname=?",
+                                  (to_key,)).fetchone()[0]
+            if held >= L.FRIEND_REQS_TO:
+                return None
+            # collapse a duplicate from the same sender
+            self.db.execute("DELETE FROM friend_reqs WHERE uname=? AND fromk=?",
+                            (to_key, from_key))
+            rid = secrets.token_urlsafe(9)
+            self.db.execute(
+                "INSERT INTO friend_reqs(id,uname,fromk,name,at) VALUES(?,?,?,?,?)",
+                (rid, to_key, from_key, from_name or from_key, now))
+            self.db.commit()
+        return rid
+
+    def friend_req_mutual(self, a_key, b_key):
+        """Is there ALREADY a pending request from a_key to b_key? If so, B
+        requesting A is really an ACCEPT. -> True/False."""
+        with self.lock:
+            row = self.db.execute(
+                "SELECT 1 FROM friend_reqs WHERE uname=? AND fromk=?",
+                (b_key, a_key)).fetchone()
+        return row is not None
+
+    def friend_reqs_in(self, key):
+        """-> [{"id","k","n"}] pending requests addressed TO this account."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT id,fromk,name FROM friend_reqs WHERE uname=? ORDER BY at DESC LIMIT ?",
+                (key, L.FRIEND_REQS_TO)).fetchall()
+        return [{"id": r[0], "k": r[1], "n": r[2]} for r in rows]
+
+    def friend_reqs_out(self, key):
+        """-> [{"k","n"}] requests this account has SENT and are still pending.
+        `n` is looked up live from the target account."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT uname FROM friend_reqs WHERE fromk=? ORDER BY at DESC LIMIT ?",
+                (key, L.FRIEND_REQS_TO * 2)).fetchall()
+            out = []
+            for (target,) in rows:
+                nm = self.db.execute("SELECT name FROM accounts WHERE uname=?",
+                                     (target,)).fetchone()
+                out.append({"k": target, "n": nm[0] if nm else target})
+        return out
+
+    def friend_req_take(self, key, rid):
+        """Claim an incoming request this account really holds. -> (from_key,
+        from_name) or None. A guessed id belonging to somebody else is None."""
+        if not isinstance(rid, str) or not (0 < len(rid) <= 32):
+            return None
+        with self.lock:
+            row = self.db.execute(
+                "SELECT fromk,name FROM friend_reqs WHERE uname=? AND id=?",
+                (key, rid)).fetchone()
+            if row is None:
+                return None
+            self.db.execute("DELETE FROM friend_reqs WHERE uname=? AND id=?", (key, rid))
+            self.db.commit()
+        return row[0], row[1]
+
+    def friend_req_drop(self, key, rid):
+        with self.lock:
+            self.db.execute("DELETE FROM friend_reqs WHERE uname=? AND id=?", (key, rid))
+            self.db.commit()
+
+    def accept_friend(self, key, key_name, rid):
+        """The whole accept, atomically: pull the request, bind both friend
+        rows. -> (from_key, from_name) on success, None on a bad id."""
+        taken = self.friend_req_take(key, rid)
+        if taken is None:
+            return None
+        from_key, from_name = taken
+        self._bind_friends(key, key_name, from_key, from_name, time.time())
+        return from_key, from_name
+
+    # -- direct messages ---------------------------------------------------
+
+    def dm_store(self, sender_key, sender_name, target_key, target_name, x, now=None):
+        """Persist a message into BOTH scrollbacks (sender's, as mine=1; the
+        target's, as mine=0). Trims each pair to FRIEND_MSGS_KEEP. Caller has
+        already checked the two are friends."""
+        now = time.time() if now is None else now
+        x = (x or "")[:L.FRIEND_MSG_LEN]
+        with self.lock:
+            self.db.execute(
+                "INSERT INTO friend_msgs(uname,other,mine,x,at) VALUES(?,?,1,?,?)",
+                (sender_key, target_key, x, now))
+            self.db.execute(
+                "INSERT INTO friend_msgs(uname,other,mine,x,at) VALUES(?,?,0,?,?)",
+                (target_key, sender_key, x, now))
+            for owner, friend in ((sender_key, target_key), (target_key, sender_key)):
+                self.db.execute(
+                    "DELETE FROM friend_msgs WHERE uname=? AND other=? AND rowid NOT IN ("
+                    "  SELECT rowid FROM friend_msgs WHERE uname=? AND other=?"
+                    "  ORDER BY at DESC, rowid DESC LIMIT ?)",
+                    (owner, friend, owner, friend, L.FRIEND_MSGS_KEEP))
+            self.db.commit()
+
+    def dm_history(self, key, other):
+        """-> [{"me","x","t"}] oldest-first, for this account's view of the pair."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT mine,x,at FROM friend_msgs WHERE uname=? AND other=?"
+                " ORDER BY at ASC, rowid ASC LIMIT ?",
+                (key, other, L.FRIEND_MSGS_KEEP)).fetchall()
+        return [{"me": bool(r[0]), "x": r[1], "t": float(r[2])} for r in rows]
 
     # -- saves -------------------------------------------------------------
 
@@ -5194,8 +5797,18 @@ class KartiHandler(BaseHTTPRequestHandler):
             ws_pump(conn, self.rfile)
         finally:
             conn.alive = False
+            gone_acct = conn.acct        # still set here; used to nudge friends
             dispatch(ROOMS.drop(conn))
             ROOMS.unregister(conn)
+            # ── FRIENDS: after this socket is out of the registry, tell this
+            # account's friends to re-poll — they may now show it "offline".
+            # Only fires if the account has no OTHER live socket left. ──
+            if gone_acct is not None and ACCOUNTS is not None:
+                try:
+                    if not ROOMS.conns_for(gone_acct):
+                        dispatch(friends_presence_ping(gone_acct))
+                except Exception:
+                    pass
             LOG("ws-close", cid=conn.cid)
 
 
