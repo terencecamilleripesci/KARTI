@@ -686,6 +686,19 @@ def _selftest() -> int:
     check("you is absent when unknown", st.board("chess", "zz")["you"] is None)
     check("unknown game is an empty board", st.board("nosuchgame")["rows"] == [])
 
+    # A player with only losses (zero wins) must still be on the board and must
+    # still find their own row. Ranking is by wins first, so they sit at the
+    # bottom -- but "bottom" is a place ON the board, not "not on it". This is
+    # exactly the account-not-showing case: her results were losses.
+    st.put("ll", "OnlyLosses", clean_games({"chess": {"p": 4, "w": 0, "l": 4, "d": 0}}))
+    b = st.board("chess")
+    onboard = [r for r in b["rows"] if r["u"] == "ll"]
+    check("a losses-only player is on the board", len(onboard) == 1 and onboard[0]["l"] == 4, onboard)
+    b = st.board("chess", "ll")
+    check("a losses-only player finds their own row",
+          b["you"] and b["you"]["u"] == "ll" and b["you"]["l"] == 4 and b["you"]["rank"], b["you"])
+    st.forget("ll")
+
     # a push replaces, it does not accumulate
     st.put("aa", "Toni", clean_games({"chess": {"p": 1, "w": 1, "l": 0, "d": 0, "bs": 1}}))
     row = [r for r in st.board("chess")["rows"] if r["u"] == "aa"][0]

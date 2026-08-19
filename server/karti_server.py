@@ -284,7 +284,8 @@ DEFAULT_GAME = "cards"
 DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
-          "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131")
+          "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
+          "ludu")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -362,6 +363,7 @@ GAME_SEATS = {
     #           3..9. The game range is the union 1..9; the variant narrows it.
     "poker":     (2, 8, 4),
     "cards2131": (1, 9, 4),
+    "ludu":      (2, 8, 4),   # Ludo — no hidden hands; only the dice are seeded
 }
 
 # Only these three predate the ready lobby and begin as soon as their second

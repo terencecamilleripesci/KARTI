@@ -1549,7 +1549,21 @@ function duelOver(ev){
        so a two-turn deck-out cannot pay like a twenty-turn game even
        when nobody passed a clock */
     var ms = Math.max(1, (D.turnCount | 0)) * 14000;
-    award(game, res, { ms: ms });
+    /* Report the duel through the record book, not straight into award():
+       the card duel was the one game that paid XP here but never landed in
+       js/stats.js, so a duel win or loss never showed on the profile and the
+       account never went up on the leaderboard. record() forwards a COUNTED
+       result back through _fromStats -> award(), so the XP is paid exactly
+       as before and paid only once. If the record book is not loaded we still
+       award directly, so a stripped build never loses the XP. */
+    var booked = false;
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record){
+        KARTI_STATS.record(game, { result: res, ms: ms });
+        booked = true;
+      }
+    } catch (e){}
+    if (!booked) award(game, res, { ms: ms });
   } catch (e){}
 }
 

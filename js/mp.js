@@ -159,7 +159,9 @@ const GAMES = [
   { k:'poker', name:'Il-Poker',  short:'POKER', icon:'cards',
     blurb:'Two cards each, five in the middle, four rounds of bluffing.' },
   { k:'cards2131', name:'21 u 31', short:'21·31', icon:'cards',
-    blurb:'Blackjack against the dealer, or Scat for your lives.' }
+    blurb:'Blackjack against the dealer, or Scat for your lives.' },
+  { k:'ludu',  name:'Ludu',      short:'LUDU',  icon:'dice',
+    blurb:'Four tokens, one lap, no mercy.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -217,7 +219,10 @@ const LOBBY_GLOBAL = {
   /* the hidden-hand card games. Their contracts are published on
      KARTI_POKER.lobby and KARTI_BLACKJACK.lobby (the 21/31 tile), and the
      private per-seat deal keeps every hole card off the shared wire. */
-  poker:'KARTI_POKER', cards2131:'KARTI_BLACKJACK'
+  poker:'KARTI_POKER', cards2131:'KARTI_BLACKJACK',
+  /* Ludo — no hidden hands; online is honest off the shared seed (only the
+     dice are seeded, which the game documents). */
+  ludu:'KARTI_LUDU'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].

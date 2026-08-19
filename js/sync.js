@@ -154,6 +154,13 @@ var TEXT = {
   synced:    'Everything is up to date.',
   pushed:    'Saved to the cloud.',
   pulled:    'Loaded from the cloud.',
+  /* Shown after a normal both-sides-moved sync: the two games were joined, so
+     nothing was lost and there is nothing to decide. Resolved bilingually at
+     display time by mergedText() below (EN / Malti). */
+  mergedEn:  'This device and the cloud were joined — nothing was lost. ' +
+             'Everything is up to date.',
+  mergedMt:  'Dan l-apparat u l-cloud ingħaqdu — ma ntilef xejn. ' +
+             'Kollox aġġornat.',
   conflict:  'This device and the cloud have both moved on since they last spoke. ' +
              'Nothing has been overwritten. Pick the one you want to keep — ' +
              'the other one is kept and can be put back.',
@@ -594,9 +601,207 @@ function push(opts) {
     });
 }
 
+/* ═══════════════════════════ SAFE AUTOMATIC MERGE ═══════════════════════════
+   The rule this file will not break is "never lose a collection". The old code
+   kept it by ASKING the player whenever both sides had moved — and a player who
+   answered lost the other side's progress (a backup was kept, but they read the
+   popup as loss and were confused by it). This does better: it MERGES, so
+   NOTHING is dropped, and no popup is shown on an ordinary divergence.
+
+   The invariant is simple and total: after mergeSaves(device, cloud) the result
+   has, for every field, AT LEAST what either side had. A bigger number is a
+   more-advanced game, so numbers take the MAX. A map of owned things (cards,
+   cosmetics, cleared bosses, pity counters, per-game play counts) UNIONs its
+   keys and recurses, so a card on only one phone survives and a card on both
+   keeps the higher count. A list that is a SET of owned things (deck names the
+   player owns, cosmetics seen) unions its members. A list that is an ORDERED
+   CHOICE (a deck's contents, the list of decks) is a preference, not progress,
+   so the device's is kept if it has one, else the cloud's — and it is never
+   shortened. Strings and booleans are preferences; the device's is kept. When a
+   field's kind is genuinely unknown, it is treated as PROGRESS and merged — the
+   only mistake this function is allowed to make is keeping too much.
+
+   Read js/game.js DEFAULT_STATE and js/progress.js blank() for the shape:
+     TOP LEVEL   owned{id:count}·dust·coins·packs  → count/number = MAX/UNION
+                 pity{leg,epic,packs}·rec{w,l}·spin{n,t,…}·story{cleared{}}
+                 starters[]                         → set of owned keys = UNION
+                 decks[]·activeDeck·side·packSet·diff → CHOICE / preference
+                 prog{…}                            → nested progress, recurse
+     prog        xp·pv·seenAv (numbers = MAX) · own{id:1}·n{game:count}·
+                 fw{game:1}·last{game:ms} (maps = UNION+recurse) · seen[] (set) ·
+                 eq{slot:id}·av·usePic·day (equip/avatar/daily = preference)
+   The generic rules below cover every one of those without naming them, so a
+   field js/game.js adds next week is merged safely with no change here. */
+
+/* The merge success line, in the phone's chosen language, resolved fresh each
+   time so a language switch after load is honoured. */
+function mergedText() {
+  try {
+    if (window.KARTI_LANG && KARTI_LANG.mt && KARTI_LANG.mt()) return TEXT.mergedMt;
+  } catch (e) {}
+  return TEXT.mergedEn;
+}
+
+function isPlainObj(x) {
+  return x !== null && typeof x === 'object' && !Array.isArray(x);
+}
+
+/* Is this array a SET of owned things (union its members) rather than an
+   ordered CHOICE the player made (keep one whole)? A set is short-ish and made
+   only of primitives — starters ['knights','pirates'], prog.seen ['tag1',…].
+   A deck list or the decks[] array holds objects or is an ordered hand the
+   player arranged; those are kept whole (and never shortened). */
+function looksLikeSet(arr) {
+  if (!arr.length) return true;
+  for (var i = 0; i < arr.length; i++) {
+    var t = typeof arr[i];
+    if (t === 'object' && arr[i] !== null) return false;   /* objects => choice */
+  }
+  return true;
+}
+
+function unionArray(a, b) {
+  var out = [], seen = {}, i, k;
+  for (i = 0; i < a.length; i++) { k = typeof a[i] + ':' + a[i];
+    if (!seen[k]) { seen[k] = 1; out.push(a[i]); } }
+  for (i = 0; i < b.length; i++) { k = typeof b[i] + ':' + b[i];
+    if (!seen[k]) { seen[k] = 1; out.push(b[i]); } }
+  return out;
+}
+
+/* Deep-merge one value from the device (`d`) with the same value from the cloud
+   (`c`). NEVER returns something "smaller" than either input on a progress
+   field. Symmetric on every progress field: numbers→max, maps→union, sets→
+   union — so mergeSaves(a,b) and mergeSaves(b,a) agree on all progress. */
+function mergeValue(d, c) {
+  /* one side missing → take the side that has anything */
+  if (d === undefined || d === null) return c === undefined ? d : c;
+  if (c === undefined || c === null) return d;
+
+  /* numbers → the bigger number is the more-advanced game */
+  if (typeof d === 'number' && typeof c === 'number') {
+    return (isFinite(d) ? d : 0) >= (isFinite(c) ? c : 0)
+      ? (isFinite(d) ? d : (isFinite(c) ? c : 0))
+      : c;
+  }
+
+  /* maps → union the keys, recurse where both have one. device's cards AND the
+     cloud's cards both survive; a key in both takes the higher count. */
+  if (isPlainObj(d) && isPlainObj(c)) {
+    var out = {}, k;
+    for (k in d) if (Object.prototype.hasOwnProperty.call(d, k)) out[k] = d[k];
+    for (k in c) if (Object.prototype.hasOwnProperty.call(c, k)) {
+      out[k] = Object.prototype.hasOwnProperty.call(out, k)
+        ? mergeValue(out[k], c[k]) : c[k];
+    }
+    return out;
+  }
+
+  /* arrays: a set of owned things → union (drop nothing); an ordered choice →
+     keep the device's, but never the shorter one, so no member is lost. */
+  if (Array.isArray(d) && Array.isArray(c)) {
+    if (looksLikeSet(d) && looksLikeSet(c)) return unionArray(d, c);
+    if (!d.length) return c;
+    if (!c.length) return d;
+    return d.length >= c.length ? d : c;
+  }
+
+  /* mismatched kinds (number vs object, string vs array, …): this is not a
+     clean numeric/map merge, so do not risk dropping progress — if one side is
+     a container (object/array) prefer it, else keep the device's value. */
+  if (isPlainObj(d) || Array.isArray(d)) return d;
+  if (isPlainObj(c) || Array.isArray(c)) return c;
+
+  /* strings / booleans → preferences. Keep the device's. Losing a preference is
+     harmless; a progress field never reaches here (numbers/maps caught above). */
+  return d;
+}
+
+/* Merge two whole saves (parsed objects). Deep-union of the two, biased so that
+   NO owned key and NO counter can go backwards. Pure and side-effect free. */
+function mergeObjects(dev, cloud) {
+  dev = isPlainObj(dev) ? dev : {};
+  cloud = isPlainObj(cloud) ? cloud : {};
+  var out = {}, k;
+  for (k in dev) if (Object.prototype.hasOwnProperty.call(dev, k)) out[k] = dev[k];
+  for (k in cloud) if (Object.prototype.hasOwnProperty.call(cloud, k)) {
+    out[k] = Object.prototype.hasOwnProperty.call(out, k)
+      ? mergeValue(out[k], cloud[k]) : cloud[k];
+  }
+  return out;
+}
+
+/* The blob-in, blob-out form the sync path uses. Parses both, merges, and
+   returns { ok, blob } — or { ok:false } if EITHER side will not parse to an
+   object, which is the one genuinely-unmergeable case that still falls back to
+   raiseConflict(). It never throws. */
+function mergeSaves(deviceBlob, cloudBlob) {
+  var d, c;
+  try { d = JSON.parse(deviceBlob); } catch (e) { return { ok: false, reason: 'device-parse' }; }
+  try { c = JSON.parse(cloudBlob); } catch (e) { return { ok: false, reason: 'cloud-parse' }; }
+  if (!isPlainObj(d) || !isPlainObj(c)) return { ok: false, reason: 'not-object' };
+  var merged = mergeObjects(d, c);
+  try { return { ok: true, blob: JSON.stringify(merged), obj: merged }; }
+  catch (e) { return { ok: false, reason: 'stringify' }; }
+}
+
+/* Case 4 of syncNow: both the device and the cloud have progressed since they
+   last agreed. Merge them so nothing is lost, back BOTH pre-merge copies up so
+   the merge is always recoverable, write the union locally, and push it so the
+   cloud converges on the same union. No popup — a normal divergence is silent.
+   Only a save that will not parse falls through to the old ask-the-player path. */
+function autoMerge(serverVer, serverSave, serverAt, deviceBlob, opts) {
+  opts = opts || {};
+  var m = mergeSaves(deviceBlob, serverSave);
+  if (!m.ok) {
+    /* genuinely unmergeable (a corrupt/unparseable save): keep the old safety
+       net rather than guess. This is the ONLY case that still shows the popup. */
+    return raiseConflict(serverVer, serverSave, serverAt, deviceBlob, opts);
+  }
+
+  /* Back up BOTH pre-merge copies before anything is overwritten, so a bad
+     merge is always recoverable from the panel (device copy) and the cloud's
+     own pre-merge blob is kept too. */
+  var nowSec = Math.floor(Date.now() / 1000);
+  if (deviceBlob != null) {
+    lsWrite(backupKey(ST.local), { save: deviceBlob, at: nowSec,
+      why: 'this device’s game before an automatic merge' });
+  }
+  if (typeof serverSave === 'string') {
+    lsWrite(backupKey(ST.local) + '_cloud', { save: serverSave, at: serverAt || nowSec,
+      why: 'the cloud copy before an automatic merge' });
+  }
+
+  /* Write the union locally so this device gains what the cloud had. */
+  var wrote = adapter.writeRaw(ST.local, m.blob);
+  if (!wrote) {
+    /* cannot persist the merge here — never mind, nothing was lost; leave both
+       copies where they are and report it rather than dropping progress. */
+    setPhase('error', 'This browser will not let the game save, so the merged ' +
+                      'game was not stored. Nothing was lost — your cards are safe.');
+    return Promise.resolve({ err: 'no-storage' });
+  }
+  ST.sess.mark = mark(m.blob);
+  ST.conflict = null;
+  saveSess();
+  adapter.reload();
+
+  /* Push the union to the cloud so both sides converge. Version-checked against
+     what the server just showed us, exactly like the normal push: if someone
+     raced us the server 409s and we simply merge again next round — still no
+     loss, because a merge of a merge keeps everything. */
+  return push({ base: serverVer || 0, silent: true }).then(function (p) {
+    if (p && p.ok) { setPhase("idle", mergedText()); return { ok: true, action: 'merge' }; }
+    /* the local union is saved and backed up either way; the cloud will catch
+       up on the next sync. Do not surface an error for a normal race. */
+    setPhase("idle", mergedText());
+    return { ok: true, action: 'merge', pushPending: true };
+  });
+}
+
 /* ─────────────────────────── the decision ───────────────────────────
    syncNow is the only thing that ever decides anything, and it has exactly
-   three outcomes: nothing to do, a safe one-way copy, or ASK THE PLAYER. */
+   three outcomes: nothing to do, a safe one-way copy, or a SAFE AUTO-MERGE. */
 function syncNow(opts) {
   opts = opts || {};
   if (!ST.local) return Promise.resolve({ err: 'not-attached' });
@@ -638,10 +843,13 @@ function syncNow(opts) {
     }
 
     /* 4. both moved, or the cloud has something and we have never agreed with
-          this account before. This is the one that loses collections if you
-          get clever. So: do not get clever. Ask. */
+          this account before. The old code ASKED here and the answer lost the
+          other side's progress. Now: MERGE. The union keeps every card, every
+          cosmetic, every coin/XP/counter from BOTH sides, backs both pre-merge
+          copies up, and pushes the union so the cloud converges too. No popup.
+          Only a save that will not parse falls back to raiseConflict inside. */
     if (typeof r.save === 'string') {
-      return raiseConflict(r.ver || 0, r.save, r.at || 0, here, opts);
+      return autoMerge(r.ver || 0, r.save, r.at || 0, here, opts);
     }
 
     /* the cloud has nothing at all yet */
@@ -891,8 +1099,9 @@ function repaintPanel() {
           'under the name you pick, so you can log in on another phone and find it ' +
           'there. The password never leaves this phone in readable form.'
         : 'Log in and this device will be brought in line with your cloud game. ' +
-          'If the two have both changed, you will be asked which to keep — ' +
-          'nothing is overwritten behind your back.') + '</p>';
+          'If the two have both changed, they are joined together automatically — ' +
+          'every card, coin and bit of progress from both is kept, so you never ' +
+          'lose a thing.') + '</p>';
     if (ST.local === '__guest__')
       body += '<p style="' + CSS.note + '">' + esc(TEXT.guest) + '</p>';
     body += '<label style="' + CSS.lab + '" for="ks-u">Username</label>' +
@@ -1067,7 +1276,9 @@ var KARTI_SYNC = {
   /* used by the headless verification harness */
   _summarise: summarise,
   _credential: credential,
-  _mark: mark
+  _mark: mark,
+  _mergeSaves: mergeSaves,       /* blob-in, blob-out: { ok, blob, obj } */
+  _mergeObjects: mergeObjects    /* parsed-object form, pure */
 };
 window.KARTI_SYNC = KARTI_SYNC;
 
