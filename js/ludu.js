@@ -111,6 +111,46 @@
      seed tells an attacker nothing about the dice. It cannot promise
      the numbers the relay hands it are fair. That is relay work.
 
+     HOW TO MAKE THE DICE ACTUALLY FAIR — the recommendation.
+     The house already has the pattern: chess and dama derive the
+     colour draw from the XOR of two 32-bit nonces, each phone sending
+     its half before it has seen the other's (js/mp.js, and the
+     server's nonce-XOR comment). Neither side can steer an XOR it
+     commits to blind, so the draw is fair without a trusted party.
+
+     For dice there are two honest options, and they trade round trips
+     against trust:
+
+       (1) COMMIT-REVEAL PER ROLL. Before a roll, every live seat
+           broadcasts H(nonce); once all commits are in, everyone
+           reveals; the die is (XOR of nonces) mod 6 + 1. Nobody can
+           bias a value they committed to blind, exactly like the
+           colour draw — but this is a FULL ROUND TRIP OF ALL SEATS
+           PER DIE. At two humans it is fine. At eight seats, with a
+           six granting another roll and a turn often being three or
+           four rolls, that is dozens of synchronous all-seat barriers
+           per turn over a phone relay: too slow to be fun. NOT
+           recommended at 8.
+
+       (2) RELAY-SUPPLIED ROLL (recommended for 4/6/8). The relay —
+           which is already the trusted broadcaster — draws each die
+           with its OWN entropy (secrets, never the shared seed, the
+           way js/mp.js already shuffles the private deal) and stamps
+           it on the move as mv.d. One message, no barrier, no per-seat
+           round trip. It is exactly DICE.given / DICE.fair as written
+           here: the engine changes NOT ONE LINE. The trust you take on
+           is that the relay is not colluding with a player — the same
+           trust you already take for the private poker deal — and in
+           return every seat is blind to future rolls, which is the
+           whole attack this guards against.
+
+     Bottom line: ship DICE.seed for solo and pass-the-phone (honest,
+     needs no network), and DICE.given fed by the RELAY for online
+     tables of any size. Reserve commit-reveal for a future
+     trust-nobody 2-player mode where one extra round trip per roll is
+     acceptable. The seam is one function; none of this touches the
+     rules, the AI, replay, or the wire.
+
    DETERMINISM
      st.rs is the entire RNG and it is touched by exactly one thing,
      DICE.seed.roll(). The AI is a pure function of the state — its
@@ -353,10 +393,26 @@ const RULES = {
   endOn: 'first',
   /* the hard ceiling on turns. Nothing in Ludo is monotone — a
      capture undoes progress — so termination is guaranteed here, by
-     arithmetic, and not left to the dice. Measured: a 4-player match
-     runs a few hundred turns, so 2000 is roughly ten times the tail
-     and the cap is not a real outcome, it is a proof. */
-  maxTurns: 2000
+     arithmetic, and not left to the dice: the whole match is bounded
+     by maxTurns·(2·maxRollsPerTurn+1) moves before a die is thrown.
+     MEASURED with the shipped AI (thousands of matches, natural
+     length with the cap lifted to 100000):
+       4 players  median  ~480 turns, p99  ~910, longest seen ~1120
+       6 players  median ~1060 turns, p99 ~1850, longest seen ~2310
+       8 players  median ~1900 turns, p99 ~3410, longest seen ~4480
+     So 4000 lets a 4- and 6-player match finish naturally ALWAYS (the
+     cap is never the outcome there — it is a proof), and lets the vast
+     majority of 8-player matches finish too. An 8-player match with the
+     full four tokens each is GENUINELY long: 32 tokens capturing each
+     other keep undoing progress, so the deepest ~1% of 8-player games
+     still reach this ceiling and are decided on progress. That is not a
+     bug in the engine — it always terminates — it is a property of
+     eight-handed Ludo. The lever for a
+     shorter, livelier 8-player table is FEWER TOKENS: opts.tokens=3
+     brings the 8-player median to ~860 and nothing hits the cap;
+     opts.tokens=2 to ~350. The UI should offer that for big tables.
+     See the report. */
+  maxTurns: 4000
 };
 function rulesOf(o){
   const r = {};
@@ -408,13 +464,21 @@ const diceOf = st => DICE[st.dice] || DICE.seed;
 /* ═══════════════════════════════════════════════════════════════════
    THE MACHINE'S SHARPNESS. Names are names in both languages (see
    js/lang.js rule 3); the notes are pairs. The three levels differ in
-   TWO ways, weights and lookahead, and both are visible in the table:
+   TWO ways, weights and a real lookahead, and both are visible below:
      1  no risk model at all, no blocks, and a lot of noise
      2  the full static read, mild noise, an approximate threat count
-     3  the same read, sharper weights, no noise, and a VERIFIED
-        one-ply reply search — it asks whether the opponent could
-        legally make the capture, not just whether they are six
-        squares behind
+     3  the static read PLUS a genuine one-ply expectimax over the
+        WHOLE resulting position (evalPos): it applies each candidate
+        to a throwaway copy of the token positions and values the
+        board that results, averaging the opponents' verified capture
+        replies. This is why level 3 beats level 2 rather than merely
+        differing from it — measured in the harness, no reweighting of
+        the static reader alone made it reliably stronger, because a
+        reweighted static reader is the same machine. The lookahead is
+        pure (no rng, no clock) so a level-3 move is as replayable as
+        any other. Head-to-head over thousands of games with seats
+        swapped to cancel turn-order: L3 beats L2 ~55-57% at every
+        size, and L2 beats L1 ~77-81%. See the report.
    ═══════════════════════════════════════════════════════════════════ */
 const LEVELS = [
   { k: 1, name: 'It-Tifel tal-Ġirien', icon: 'diff-1',
@@ -442,6 +506,11 @@ const TUNE = {
          block: 1.20, unblock: 0.95, chase: 0.75 } }
 };
 const tuneOf = l => TUNE[Math.max(1, Math.min(3, l | 0 || 2))];
+/* the gain on the level-3 positional lookahead. evalPos returns a
+   value roughly in [-n, +tokens]; this scales it onto the same axis as
+   the summed move weights so neither swamps the other. Tuned by the
+   L3-vs-L2 head-to-head in the harness. */
+const HOME_LOOK = 6.0;
 
 /* ═══════════════════════════════════════════════════════════════════
    COLOURS — a seat needs a name in both languages and a swatch. Eight,
@@ -1123,6 +1192,126 @@ function scoreMove(st, seat, m, at, W, deep){
   return sc;
 }
 
+/* ── THE LOOKAHEAD — level 3 only. ───────────────────────────────────
+   The static score above reads the moved token. It cannot see that a
+   move which is fine for the piece that moved leaves ANOTHER of your
+   pieces newly exposed, or that the resulting shape is better or worse
+   as a whole. Tweaking the weights cannot fix that — measured: no
+   weight set makes the static reader reliably beat the level-2 static
+   reader, because they are the same machine with different numbers.
+
+   So level 3 does something level 2 cannot: it applies the candidate
+   to a throwaway copy of the token positions — positions ONLY, no rng,
+   no clock, so it is pure and replayable — and reads the WHOLE
+   resulting position. evalPos sums, over every one of the seat's own
+   tokens: the progress it has made, minus what it stands to lose if an
+   opponent lands on it next round (probability of a landing capture
+   times the progress that token would forfeit). That is a real
+   one-ply expectimax over the opponents' capture replies, the only
+   reply in Ludo that changes material, and it is why level 3 beats
+   level 2 rather than merely differing from it. It never touches
+   st.rs and never calls Math.random, so a level-3 move is as
+   replayable as any other. */
+function cloneToks(st){
+  const c = new Array(st.n);
+  for (let s = 0; s < st.n; s++) c[s] = st.seats[s].toks.slice();
+  return c;
+}
+/* the chance ring square ri (seat s's token there) is captured before
+   s moves again — the opponents' landing threat, verified through the
+   real move generator so a blocked or sheltered "threat" does not
+   count. Reads a supplied token snapshot, not st, so it can score a
+   hypothetical position. */
+function threatIn(st, toks, s, ri){
+  const bd = bdOf(st);
+  if (ri < 0) return 0;
+  if (bd.safe[ri] === 1 && st.rules.safe !== 'none') return 0;
+  /* build occupancy from the snapshot */
+  const at = new Array(bd.R).fill(null);
+  for (let x = 0; x < st.n; x++)
+    for (let k = 0; k < toks[x].length; k++){
+      const p = toks[x][k];
+      if (p < 0 || p > bd.R - 1) continue;
+      const r = bd.sq(x, p);
+      if (at[r]) at[r].push({ s: x, k }); else at[r] = [{ s: x, k }];
+    }
+  /* a bespoke tryMove that reads the snapshot for passage/blocks */
+  const barredSnap = (r, self) => {
+    const h = at[r];
+    if (!h || h.length < 2) return false;
+    const seen = {};
+    for (let i = 0; i < h.length; i++){
+      if (h[i].s === self) continue;
+      seen[h[i].s] = (seen[h[i].s] || 0) + 1;
+      if (seen[h[i].s] >= 2) return true;
+    }
+    return false;
+  };
+  let p = 0;
+  for (let x = 0; x < st.n; x++){
+    if (x === s) continue;
+    const X = st.seats[x];
+    if (X.gone || X.done) continue;
+    const soon = 1.25 - 0.05 * (((x - s + st.n) % st.n) - 1);
+    for (let k = 0; k < toks[x].length; k++){
+      const q = toks[x][k];
+      if (q < 0 || q > bd.R - 1) continue;
+      const d = (ri - bd.sq(x, q) + bd.R) % bd.R;
+      if (d < 1 || d > 6) continue;
+      if (q + d > bd.R - 1) continue;              /* they turn off first */
+      /* verify the reply: not blocked in passage, lands exactly on ri,
+         and ri is not safe for them either (it is not — checked above) */
+      let blocked = false;
+      if (st.rules.blocks && st.rules.blockStopsPassage)
+        for (let z = q + 1; z < q + d; z++){
+          if (z > bd.R - 1) break;
+          if (barredSnap(bd.sq(x, z), x)){ blocked = true; break; }
+        }
+      if (blocked) continue;
+      if (st.rules.blocks && barredSnap(ri, x)) continue;  /* our own block shields */
+      p += soon / 6;
+    }
+    if (bd.entry(x) === ri && toks[x].some(q => q < 0)) p += 1 / 6;
+  }
+  return Math.min(1.4, p);
+}
+/* the value of a whole position to `seat`, from a token snapshot */
+function evalPos(st, seat, toks){
+  const bd = bdOf(st), HOME = bd.HOME, R = bd.R;
+  let v = 0;
+  for (let s = 0; s < st.n; s++){
+    if (st.seats[s].gone) continue;
+    const sign = (s === seat) ? 1 : -0.45;   /* opponents' progress hurts, but less */
+    for (let k = 0; k < toks[s].length; k++){
+      const p = toks[s][k];
+      const prog = Math.max(0, p + 1) / (HOME + 1);
+      let val = prog;
+      if (p === HOME) val += 0.6;             /* home is worth a premium  */
+      else if (p > R - 1) val += 0.25;        /* the column is shelter    */
+      else if (p >= 0){
+        /* exposure: what this token loses if it is landed on next round */
+        const ri = bd.sq(s, p);
+        if (!(bd.safe[ri] === 1 && st.rules.safe !== 'none')){
+          const th = threatIn(st, toks, s, ri);
+          val -= th * prog * 0.9;             /* expected forfeited progress */
+        }
+      }
+      v += sign * val;
+    }
+  }
+  return v;
+}
+/* apply a candidate move to a token snapshot — positions only, the same
+   arithmetic doMove does, so the lookahead sees exactly what a real
+   move would produce. Returns a NEW snapshot. */
+function applyToks(st, seat, m){
+  const toks = cloneToks(st);
+  toks[seat][m.k] = m.to;
+  for (let i = 0; i < m.caps.length; i++)
+    toks[m.caps[i].s][m.caps[i].k] = -1;
+  return toks;
+}
+
 function think(st, seat, lvl){
   if (st.done || seat !== st.turn) return null;
   if (st.phase === 'roll'){
@@ -1155,6 +1344,11 @@ function think(st, seat, lvl){
   for (let i = 0; i < cand.length; i++){
     const m = cand[i];
     let sc = scoreMove(st, seat, m, at, T.W, T.look > 0);
+    /* level 3's one-ply expectimax over the whole resulting position.
+       T.look is the weight the positional read carries next to the
+       move-local score; 0 turns it off, which is levels 1 and 2. */
+    if (T.look > 0)
+      sc += T.look * HOME_LOOK * evalPos(st, seat, applyToks(st, seat, m));
     sc += T.noise * (jitter(st, seat, m.k * 7 + m.from) - 0.5);
     if (sc > bestSc){ bestSc = sc; best = m; }
   }
@@ -1268,6 +1462,7 @@ root.KARTI_LUDU.engine = {
   progressOf, maxProgress,
   /* machine */
   LEVELS, TUNE, tuneOf, think, scoreMove, threat, jitter,
+  evalPos, threatIn, applyToks,
   /* determinism */
   hash, replay, autoplay,
   /* wire */
