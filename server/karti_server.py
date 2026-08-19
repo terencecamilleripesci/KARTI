@@ -567,6 +567,8 @@ E_NOTREADY = "Somebody at the table is not ready yet."
 E_DEAL_SHORT = "Not enough to deal to everybody at this table."
 E_VARIANT = "That is not a mode this game can play."
 E_VARIANT_SEATS = "Too many are already seated for that mode. Nobody was removed."
+E_BADGAME = "That is not a game this table can switch to."
+E_GAME_SEATS = "Too many are already seated for that game. Nobody was removed."
 
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
@@ -2084,6 +2086,87 @@ class RoomBook:
             targets = room.live_conns()
         return [(c, roster) for c in targets]
 
+    def set_game(self, conn, newgame):
+        """The host changes WHICH GAME the room is playing, from the lobby —
+        WITHOUT kicking anyone.
+
+        This is the bigger sibling of set_variant. The variant re-labels a room
+        inside one game; this swaps the game itself. It is the same promise:
+        every phone repaints for the new game, nobody is removed, no token
+        moves. Because the game is more fundamental than the mode, three things
+        are reset together — the game, the variant (back to that game's default,
+        which is None), and the opaque rules blob (cleared) — so a stale klabb
+        variant can never ride along onto a skarta table.
+
+        The refusals mirror set_variant's, plus two the variant could not hit:
+
+          · a STARTED table is refused outright — everyone has built a board.
+          · a game whose seat range cannot hold the people PLUS machines already
+            seated is refused and the old game kept; a room half-changed is
+            worse than one not changed.
+          · a switch INTO a legacy instant-duel game (cards/chess/dama) is
+            refused. Those three do not use the ready lobby at all — is_table()
+            would flip to false under the very people sitting in a lobby that
+            only a table has — so this door only ever moves between table games.
+            (A duel room never had a Game button to send this from, so this
+            guards a message forged by hand, not a real UI path.)
+
+        `newgame` is validated at the wire against GAME_IDS before it arrives."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if conn.slot != 0:
+                return [(conn, {"t": "error", "why": E_NOTHOST})]
+            if room.started:
+                return [(conn, {"t": "error", "why": E_STARTED})]
+            if newgame not in GAME_IDS:
+                return [(conn, {"t": "error", "why": E_BADGAME})]
+            # Never turn a table into a legacy instant-duel game: it would leave
+            # everyone seated in a lobby the new game does not use. The room
+            # itself is always a table here (only a table shows the Game button),
+            # so the switch is between table games or it does not happen.
+            if newgame in INSTANT_DUEL_GAMES or room.game in INSTANT_DUEL_GAMES:
+                return [(conn, {"t": "error", "why": E_BADGAME})]
+            if newgame == room.game:
+                # a no-op switch: still re-broadcast so a double-tap is harmless,
+                # but change nothing about the seating.
+                roster = room.roster()
+                return [(c, roster) for c in room.live_conns()]
+            # The new game's DEFAULT variant is None — a game chooses its flavour
+            # afresh, it does not inherit the old game's. Seat the range that the
+            # new game with no variant allows, and refuse if it cannot hold the
+            # people plus machines already spoken for.
+            lo, hi, _ = seat_range(newgame, None)
+            spoken_for = room.taken()
+            if spoken_for > hi:
+                return [(conn, {"t": "error", "why": E_GAME_SEATS})]
+            # A machine sitting past the narrower table's last chair would be
+            # seated off the end — refuse rather than drop it.
+            if any(i >= hi for i in room.botseats):
+                return [(conn, {"t": "error", "why": E_GAME_SEATS})]
+            # Keep the table roughly the size it was, clamped into the new range,
+            # and never smaller than the chairs already spoken for.
+            new_size = max(lo, min(hi, room.size))
+            new_size = max(new_size, spoken_for, 2)
+            new_size = min(new_size, L.MAX_SEATS)
+            if new_size != room.size:
+                if new_size > room.size:
+                    room.seats.extend([None] * (new_size - room.size))
+                else:
+                    # only trailing empty chairs are ever dropped: the checks
+                    # above guarantee no occupant or machine sits at >= new_size
+                    room.seats = room.seats[:new_size]
+                room.size = new_size
+            room.game = newgame
+            room.variant = None
+            room.rules = None
+            room.touched = time.monotonic()
+            self._epoch += 1
+            roster = room.roster()
+            targets = room.live_conns()
+        return [(c, roster) for c in targets]
+
     def start(self, conn, bots, deal=None):
         """The HOST says the table is ready. Two things happen and nothing
         else: the room stops taking people, and everyone is handed the same
@@ -3489,6 +3572,21 @@ def handle_ws_message(conn, raw):
                 conn.error(E_VARIANT)
             else:
                 dispatch(ROOMS.set_variant(conn, variant, rules))
+
+    elif kind == "setgame":
+        # The host re-chooses WHICH GAME the room is playing, without kicking
+        # anybody — the bigger sibling of setvariant. The game id is validated
+        # here at the wire against the full list; set_game applies the seat-fit
+        # and host/started/table guards. An unknown or absent id is refused with
+        # the same E_BADGAME the room would answer, so nothing malformed reaches
+        # the room. `variant` and `rules` are NOT read here — the new game gets
+        # its own default (None) inside set_game.
+        try:
+            newgame = v_game(msg.get("game"))       # strict: must be a real id
+        except Reject:
+            conn.error(E_BADGAME)
+        else:
+            dispatch(ROOMS.set_game(conn, newgame))
 
     elif kind == "who":
         dispatch(ws_who(conn))
@@ -8057,6 +8155,165 @@ def selftest():
             check("setvariant refused after start", False, repr(e))
         finally:
             for c in (sv_a, sv_b, sv_c):
+                if c is not None:
+                    bye(c)
+
+        # ═══════════ the host changes the WHOLE GAME from the lobby ═══════════
+        print("")
+        print(" SET GAME  (host changes which game the table plays, kicking no one)")
+
+        sg_a = sg_b = sg_c = None
+        try:
+            # A KLABB table (2..8) opened with three friends in it. Everyone is
+            # at klabb to begin with. This is the bigger sibling of setvariant:
+            # the change swaps the GAME, not just the mode.
+            sg_a = cli(origin=PAGES_ORIGIN)
+            sg_a.send_json({"t": "name", "n": "HOST"})
+            sg_a.recv_json(2.0)
+            sg_a.send_json({"t": "create", "game": "klabb", "seats": 6})
+            made = sg_a.recv_json(2.0)
+            tok_a = (made or {}).get("token")
+            code = (made or {}).get("code")
+            check("a klabb table opens for the set-game test",
+                  (made or {}).get("game") == "klabb" and code, made)
+
+            sg_b = cli(origin=PAGES_ORIGIN)
+            sg_b.send_json({"t": "name", "n": "TWO"})
+            sg_b.recv_json(2.0)
+            sg_b.send_json({"t": "join", "code": code})
+            jb = sg_b.recv_json(2.0)
+            tok_b = (jb or {}).get("token")
+
+            sg_c = cli(origin=PAGES_ORIGIN)
+            sg_c.send_json({"t": "name", "n": "THREE"})
+            sg_c.recv_json(2.0)
+            sg_c.send_json({"t": "join", "code": code})
+            jc = sg_c.recv_json(2.0)
+            tok_c = (jc or {}).get("token")
+
+            before = {}
+            for c in (sg_a, sg_b, sg_c):
+                r = latest_table(c)
+                if c is sg_a and r is not None:
+                    before = r
+            seats_before = sorted(w["i"] for w in (before.get("who") or []) if w)
+        except Exception as e:
+            check("setgame fixture (klabb, three seated)", False, repr(e))
+            before = {}
+            tok_a = tok_b = tok_c = None
+            seats_before = []
+
+        # A NON-HOST cannot change the game.
+        try:
+            err, _ = sv_send(sg_b, {"t": "setgame", "game": "skarta"})
+            check("a non-host asking to change the game is refused",
+                  (err or {}).get("why") == E_NOTHOST, err)
+        except Exception as e:
+            check("non-host setgame refused", False, repr(e))
+
+        # AN UNKNOWN GAME ID is refused, and the room keeps the game it had.
+        try:
+            err, roster = sv_send(sg_a, {"t": "setgame", "game": "pinball"})
+            check("a made-up game id is refused and the room keeps its own",
+                  (err or {}).get("why") == E_BADGAME and roster is None, err)
+        except Exception as e:
+            check("unknown game id refused", False, repr(e))
+
+        # A LEGACY INSTANT-DUEL game (cards/chess/dama) is refused: it does not
+        # use the ready lobby, so the table cannot become one under its players.
+        try:
+            err, roster = sv_send(sg_a, {"t": "setgame", "game": "chess"})
+            check("switching a table to a legacy duel game is refused",
+                  (err or {}).get("why") == E_BADGAME and roster is None, err)
+        except Exception as e:
+            check("duel-game switch refused", False, repr(e))
+
+        # THE HOST switches KLABB -> SKARTA (2..10, holds the three here). Every
+        # seated player's roster now says skarta, the variant is reset to the new
+        # game's default (None), and nobody is dropped.
+        rosters_after = {}
+        try:
+            for c in (sg_a, sg_b, sg_c):
+                drain(c)
+            sg_a.send_json({"t": "setgame", "game": "skarta"})
+            time.sleep(0.3)
+            for label, c in (("HOST", sg_a), ("TWO", sg_b), ("THREE", sg_c)):
+                rosters_after[label] = latest_table(c)
+            ra = rosters_after.get("HOST") or {}
+            everyone = all((rosters_after.get(k) or {}).get("game") == "skarta"
+                           for k in ("HOST", "TWO", "THREE"))
+            seats_after = sorted(w["i"] for w in (ra.get("who") or []) if w)
+            same_seats = seats_after == seats_before and ra.get("taken") == 3
+            reset_variant = ra.get("variant") is None
+            check("host changes the game and every seated player sees the new "
+                  "game, variant reset, nobody dropped",
+                  everyone and same_seats and reset_variant, rosters_after)
+        except Exception as e:
+            check("host setgame re-broadcasts to all", False, repr(e))
+
+        # THE SAME TOKENS: a seat's private handle is untouched by a game change.
+        # THREE's socket drops; a fresh socket rejoins with the SAME token and
+        # lands back in seat 2 of the NEW game — proof the seat was re-labelled,
+        # not re-seated.
+        try:
+            bye(sg_c)
+            sg_c = None
+            time.sleep(0.2)
+            rej = cli(origin=PAGES_ORIGIN)
+            rej.send_json({"t": "rejoin", "code": code,
+                           "token": tok_c, "since": 0})
+            rj = None
+            for _ in range(6):
+                m = rej.recv_json(1.0)
+                if (m or {}).get("t") in ("rejoined", "error"):
+                    rj = m
+                    break
+            ok = ((rj or {}).get("t") == "rejoined" and rj.get("seat") == 2
+                  and rj.get("game") == "skarta")
+            check("every seat keeps its token across a game change (nobody was "
+                  "re-seated)", ok, rj)
+            sg_c = rej
+            for c in (sg_a, sg_b, sg_c):
+                latest_table(c)
+        except Exception as e:
+            check("tokens survive a game change", False, repr(e))
+
+        # A GAME WHOSE TABLE CANNOT HOLD THE THREE ALREADY SEATED is refused, and
+        # the old game is retained — the room is never left half-changed. No
+        # shipped table game seats fewer than four, so a throwaway narrowing of a
+        # real game's range supplies the too-small ceiling, exactly as the
+        # setvariant seat test does.
+        try:
+            saved_gharraq = GAME_SEATS["gharraq"]
+            GAME_SEATS["gharraq"] = (2, 2, 2)       # holds two, not three
+            err, roster = sv_send(sg_a, {"t": "setgame", "game": "gharraq"})
+            ok = (err or {}).get("why") == E_GAME_SEATS and roster is None
+            kept = latest_table(sg_a, tries=2, timeout=0.3)
+            ok = ok and (kept is None or (kept.get("game") == "skarta" and
+                                          kept.get("taken") == 3))
+            check("a game too small for the seated players is refused and the "
+                  "old one retained", ok, "%r kept=%r" % (err, kept))
+        finally:
+            GAME_SEATS["gharraq"] = saved_gharraq
+
+        # A STARTED table refuses a game change — everyone has built their board.
+        try:
+            for c in (sg_a, sg_b, sg_c):
+                c.send_json({"t": "ready", "on": True})
+            time.sleep(0.3)
+            for c in (sg_a, sg_b, sg_c):
+                drain(c)
+            sg_a.send_json({"t": "start"})
+            time.sleep(0.3)
+            for c in (sg_a, sg_b, sg_c):
+                drain(c)
+            err, _ = sv_send(sg_a, {"t": "setgame", "game": "kiri"})
+            check("the game cannot be changed once the table has started",
+                  (err or {}).get("why") == E_STARTED, err)
+        except Exception as e:
+            check("setgame refused after start", False, repr(e))
+        finally:
+            for c in (sg_a, sg_b, sg_c):
                 if c is not None:
                     bye(c)
 

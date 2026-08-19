@@ -431,6 +431,57 @@ function lobbyApplyVariant(k, net){
   return { variant: String(net), rules: null };
 }
 
+/* ── THE GAME PICKER, SHARED (host only) ──────────────────────────────
+   The bigger sibling of the mode picker above. The mode picker changes the
+   FLAVOUR of one game in place; this changes WHICH GAME the whole table is
+   playing, again without kicking anyone. It goes to the relay as a `setgame`
+   message; the roster that comes back carries the new `game`, and onRoster()
+   repaints every seated player into the new game's lobby.
+
+   Which games to offer is READ FROM THE REGISTRY, not hardcoded: the online
+   party games that publish a real lobby contract — that is, the keys of
+   LOBBY_GLOBAL whose gameLobby() is not `bare` and can actually carry a move
+   (online). Legacy instant-duel games (cards/chess/dama) are never offered:
+   they do not use the ready lobby, so switching a table into one would leave
+   everyone seated in a lobby the game does not use — the relay refuses it too. */
+
+/* the games this table could switch to, each already told whether the CURRENT
+   GROUP can seat it. `taken` is how many chairs are spoken for right now
+   (people plus machines). A game whose maximum is below `taken` comes back
+   `fits:false` with a short reason, so the picker can show it DISABLED rather
+   than silently hide it. Never throws; a game that resolves to nothing is
+   skipped. Sorted by minimum seats so the smaller tables read first. */
+function lobbyGames(taken){
+  const n = (typeof taken === 'number' && taken > 0) ? (taken | 0) : 1;
+  const out = [];
+  for (const k of Object.keys(LOBBY_GLOBAL)){
+    /* never offer a legacy duel — it does not use this lobby at all */
+    if (k === 'cards' || k === 'chess' || k === 'dama') continue;
+    let LB;
+    try { LB = gameLobby(k); } catch(e){ continue; }
+    /* a game that published no real contract, or that cannot carry a move on
+       this build, is not a game a table can switch INTO — skip it. The current
+       game is always offered so the picker shows what is playing now. */
+    if (k !== MP.game && (LB.bare || !LB.online)) continue;
+    const max = LB.maxSeats, min = LB.minSeats;
+    const fits = n <= max;
+    /* the disabled reason, in the phone's language. Both bounds are named so a
+       host who has too FEW for a game and one who has too MANY read the truth,
+       not a bare "unavailable". */
+    let reason = '';
+    if (!fits){
+      reason = (min === max)
+        ? T('needs exactly ' + max + ' players', 'trid eżatt ' + max + ' plejers')
+        : T('at most ' + max + ' players', 'l-aktar ' + max + ' plejers');
+    }
+    out.push({ id:k, name:LB.name, short:LB.short || LB.name,
+               min, max, fits, reason, current:k === MP.game });
+  }
+  out.sort((a, b) => (a.min - b.min) || (a.max - b.max) ||
+                     a.name.localeCompare(b.name));
+  return out;
+}
+
 /* the one language switch, the shared way (see js/lang.js). Whichever side is
    missing falls back to the other, never a bare key. */
 function T(en, mt){
@@ -2168,6 +2219,25 @@ function lobby(){
 function onRoster(m){
   if (!m || !Array.isArray(m.who)) return;
   MP.roster = m;
+  /* THE ROSTER IS THE ROOM'S AUTHORITY ON WHICH GAME IT IS, TOO. The host can
+     change the whole game from the lobby (setgame), and the relay re-broadcasts
+     this same roster carrying the new `game`. Adopt it FIRST — before the seat
+     count and variant below — so a single repaint transitions every seated
+     player in place: their screen becomes the new game's lobby without leaving
+     the room. tableLobby() re-resolves gameLobby(MP.game) on every paint, so
+     the contract, the chairs, the rules panel and the mode picker all follow.
+     A roster with no game field (an older relay) leaves ours untouched. */
+  if (typeof m.game === 'string'){
+    const g = cleanGame(m.game);
+    if (g !== MP.game){
+      MP.game = g;
+      MP.filter = g;
+      /* a fresh game gets its own mode; do not carry a stale one across the
+         switch. The relay has already reset its side to the game's default. */
+      MP.variant = null; MP.rules = null;
+      MP.panel = null;                 /* close any open drawer from the old game */
+    }
+  }
   if (typeof m.seats === 'number' && m.seats >= 2) MP.size = m.seats | 0;
   /* THE ROSTER IS THE ROOM'S AUTHORITY ON ITS MODE TOO. The host can change
      the variant from the lobby (setvariant), and the relay re-broadcasts the
@@ -2268,6 +2338,12 @@ function tableLobby(){
   const curVar = lobbyCurrentVariant(MP.game);
   const hasModes = variants.length > 1;
   const curLabel = (variants.find(v => v.net === curVar) || null);
+  /* the games this table could switch to, host-only. More than one means there
+     is a genuine choice; each entry already knows whether the current group
+     can seat it. A duel room (cards/chess/dama) uses the legacy screen and
+     never reaches here, so this is always a table with a real Game button. */
+  const games = lobbyGames(taken);
+  const hasGames = games.length > 1;
   const free = [];
   for (let i = 0; i < MP.size; i++)
     if (!seats.some(s => s.seat === i)) free.push(i);
@@ -2313,6 +2389,25 @@ function tableLobby(){
               esc(curLabel ? variantLabel(curLabel) :
                   T('the host chooses', 'jagħżel il-host')) + '</b>. ' +
               esc(T('Only the host can change it.', 'Il-host biss jista’ jibdlu.')) +
+            '</p>')
+      : '') +
+
+    /* ── THE GAME, changed in place ──
+       The host gets a Game button beside Rules that swaps WHICH GAME the table
+       is playing — nobody is kicked, every phone repaints into the new game's
+       lobby. A non-host sees the current game name as read-only text. */
+    (hasGames
+      ? (iAmHost
+          ? '<button class="mp-fold" id="mp-gamebtn" aria-expanded="' +
+              (MP.panel === 'game' ? 'true' : 'false') + '">' +
+              gameIcon(MP.game) + '<span>' + esc(T('Game', 'Logħba')) +
+              '<i>' + esc(T('now: ', 'issa: ') + LB.name) +
+              '</i></span><em class="' + (MP.panel === 'game' ? 'up' : '') + '">' +
+              ico('arrow-right') + '</em></button>' +
+            (MP.panel === 'game' ? gameDrawer(games) : '')
+          : '<p class="mp-tsub" id="mp-gamero">' +
+              esc(T('Game', 'Logħba')) + ': <b>' + esc(LB.name) + '</b>. ' +
+              esc(T('Only the host can change it.', 'Il-host biss jista’ jibdilha.')) +
             '</p>')
       : '') +
 
@@ -2400,6 +2495,26 @@ function tableLobby(){
     const msg = { t:'setvariant', variant: w.variant };
     if (w.rules) msg.rules = w.rules;
     send(msg);
+    MP.panel = null;
+    tableLobby();
+  });
+  const gb = $('#mp-gamebtn');
+  if (gb) gb.onclick = () => {
+    MP.panel = MP.panel === 'game' ? null : 'game';
+    sfx(MP.panel === 'game' ? 'ui.sheet' : 'ui.back');
+    tableLobby();
+  };
+  const gx = $('#mp-gamex');
+  if (gx) gx.onclick = () => { MP.panel = null; sfx('ui.back'); tableLobby(); };
+  $$('#mp-game [data-game]').forEach(b => b.onclick = () => {
+    const g = b.dataset.game;
+    /* a game the current group cannot seat is drawn disabled and carries no
+       data-game; this only fires for a seatable one. The current game is a
+       no-op the relay answers harmlessly. Optimistic only in SOUND: the relay's
+       roster is the answer — it comes back carrying the new `game` and
+       onRoster() repaints every phone into that game's lobby. */
+    sfx('ui.toggle');
+    send({ t:'setgame', game: g });
     MP.panel = null;
     tableLobby();
   });
@@ -2573,6 +2688,40 @@ function modeDrawer(variants, curVar){
         '<span><b>' + esc(variantLabel(v)) + '</b>' +
         (v.net === curVar ? '<i>' + esc(T('playing now', 'qed jintlagħab issa')) + '</i>' : '') +
         '</span></button>').join('') +
+    '</div>';
+}
+
+/* ── the game picker drawer (host only) ─────────────────────────────
+   The bigger sibling of modeDrawer: one tap per GAME. A game the current group
+   cannot seat is drawn DISABLED with a short reason, never hidden, so the host
+   can see why it is out. The pick goes to the relay as a `setgame` message; the
+   roster that comes back carries the new game and onRoster() repaints every
+   phone into it. Nobody is removed. */
+function gameDrawer(games){
+  return '<div class="mp-drawer" id="mp-game">' +
+    '<div class="mp-dhd"><b>' + esc(T('The game', 'Il-logħba')) + '</b>' +
+      '<button class="mp-dx" id="mp-gamex" aria-label="' + esc(T('Close', 'Agħlaq')) + '">' +
+        ico('close') + '</button></div>' +
+    '<p class="mp-dp">' + esc(T(
+      'Everyone at the table plays the same game. Change it and their lobby just repaints — nobody is dropped. A game too small for who is already seated is greyed out.',
+      'Kulħadd fuq il-mejda jilgħab l-istess logħba. Ibdilha u l-lobby tagħhom jerġa’ jinżebagħ — ħadd ma jitneħħa. Logħba żgħira wisq għal min diġà bilqiegħda tibqa’ mitfija.')) +
+    '</p>' +
+    games.map(g => {
+      const on = g.current ? ' on' : '';
+      const dis = g.fits ? '' : ' disabled';
+      const attr = (g.fits && !g.current) ? ' data-game="' + esc(g.id) + '"' : '';
+      return '<button class="mp-lv' + on + dis + '"' + attr +
+        (g.fits ? '' : ' disabled aria-disabled="true"') + '>' +
+        gameIcon(g.id) +
+        '<span><b>' + esc(g.name) + '</b>' +
+        (g.current ? '<i>' + esc(T('playing now', 'qed tintlagħab issa')) + '</i>'
+         : !g.fits ? '<i>' + esc(g.reason) + '</i>'
+         : '<i>' + esc(g.min === g.max
+                 ? T(g.max + ' players', g.max + ' plejers')
+                 : T(g.min + '–' + g.max + ' players', g.min + '–' + g.max + ' plejers')) +
+           '</i>') +
+        '</span></button>';
+    }).join('') +
     '</div>';
 }
 
