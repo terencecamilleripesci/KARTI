@@ -349,6 +349,11 @@ GAME_SEATS = {
     "suspett": (5, 16, 9),
 }
 
+# Only these three predate the ready lobby and begin as soon as their second
+# player arrives. Newer games use the lobby protocol even when, like Gin, their
+# rules allow exactly two seats.
+INSTANT_DUEL_GAMES = frozenset(("cards", "chess", "dama"))
+
 # Which flavour of a game a room is playing, where that is a real choice. Kept
 # here rather than in the game so the relay can publish it in the room list
 # without ever having to know what "briscola" means.
@@ -1214,9 +1219,8 @@ class Room:
         # A private room is never named in /presence and cannot be entered with a
         # join handle. The only way in is the room code, which only its opener has.
         self.private = bool(private)
-        # A two-seat room starts the moment it fills, exactly as it always did.
-        # A bigger table starts when the HOST says so, because players trickle
-        # in and only the host knows whether they are still waiting for anyone.
+        # Only a legacy instant duel starts when its second player arrives.
+        # Ready-lobby games wait for the host even when they have two seats.
         self.started = False
         self.bots = set()                   # seats the host is playing for
         self.fan = Bucket(L.FAN_RATE, L.FAN_BURST)
@@ -1318,12 +1322,8 @@ class Room:
         return self.mask_of(range(self.size))
 
     def is_table(self):
-        """More than two chairs. THE WIRE OF A DUEL DOES NOT CHANGE: a two-seat
-        room sends exactly the bytes it sent before tables existed — no roster,
-        no seat numbers, no sender stamp. Everything new here is additive and
-        only ever goes to a room that actually has a table in it, so the client
-        already on everybody's phone cannot be affected by any of it."""
-        return self.size > 2
+        """Uses the ready lobby rather than the legacy instant-duel wire."""
+        return self.game not in INSTANT_DUEL_GAMES
 
     def roster(self):
         """What everyone at the table is allowed to know about it. Names only —
@@ -1872,7 +1872,7 @@ class RoomBook:
             # A DUEL still starts the instant it fills, exactly as it always
             # has. A table waits for the host, because people trickle in.
             duel = []
-            if room.size == 2 and room.full():
+            if not room.is_table() and room.full():
                 room.started = True
                 # A DUEL that has just filled is two people who are now playing
                 # each other, so it goes in the "recently played with" list on
@@ -1951,8 +1951,7 @@ class RoomBook:
             if room.started:
                 return [(conn, {"t": "error", "why": E_STARTED})]
             if not room.is_table():
-                # a two-chair room is a duel: the other chair is a person or
-                # the room is not a room. Machines belong to the offline game.
+                # Legacy instant duels keep machines in their offline game.
                 return [(conn, {"t": "error", "why": E_NOTABLE})]
             if not conn.botsets.take():
                 return [(conn, {"t": "error", "why": E_SLOW})]
@@ -7531,6 +7530,14 @@ def selftest():
         # ═══════════ the shared lobby ═══════════
         print("")
         print(" THE LOBBY  (ready, machines, and a start that says why not)")
+
+        try:
+            gin_probe = Room("ABCDE", game="gin", size=2)
+            duel_probe = Room("FGHJK", game="cards", size=2)
+            check("two-seat Gin uses the ready lobby while Card Duel stays instant",
+                  gin_probe.is_table() and not duel_probe.is_table())
+        except Exception as e:
+            check("two-seat Gin ready-lobby classification", False, repr(e))
 
         lb_a = lb_b = lb_c = None
         try:

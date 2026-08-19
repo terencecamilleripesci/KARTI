@@ -189,7 +189,7 @@ function gamePlayable(k){
 /* where a game hangs its contract, if it has one */
 const LOBBY_GLOBAL = {
   kiri:'KARTI_KIRI', skarta:'KARTI_SKARTA', tombla:'KARTI_TOMBLA', klabb:'KARTI_KLABB',
-  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY', spy:'KARTI_SPY'
+  gharraq:'KARTI_GHARRAQ', rummy:'KARTI_RUMMY', gin:'KARTI_GIN', spy:'KARTI_SPY'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -243,8 +243,10 @@ function gameLobby(k){
      which cannot change; re-read the liveness, which can. */
   if (LOBBY_CACHE[k]){
     const c = LOBBY_CACHE[k];
-    c.online = !!(window.KARTI_PARTY && window.KARTI_PARTY.online &&
-                  window.KARTI_PARTY.online[k]);
+    const liveNet = window.KARTI_PARTY && window.KARTI_PARTY.online &&
+                    window.KARTI_PARTY.online[k];
+    c.net = liveNet || null;
+    c.online = !!(liveNet && liveNet.start && liveNet.remote);
     return c;
   }
 
@@ -611,10 +613,8 @@ const MP = {
   autoOpen:null,
 
   /* ── THE TABLE ────────────────────────────────────────────────────
-     Everything below is only ever set for a room with more than two
-     chairs in it. A duel never touches any of it and the relay never
-     sends any of it to one, so the two-player path is byte for byte
-     what it always was. */
+     Every newer game uses this, including two-seat Gin. Only the original
+     card duel, chess and dama keep the instant-pair path. */
   size:2,               /* chairs the ROOM has, straight from the relay   */
   mySeat:0,             /* which one is mine, straight from the relay     */
   roster:null,          /* the last {t:'table'} — the whole truth on who  */
@@ -628,6 +628,13 @@ const MP = {
   askBack:null,         /* somebody to invite the moment we have a room     */
   unMove:null           /* unsubscribe from the game's own move feed        */
 };
+
+/* The original card duel, chess and dama still pair and begin immediately.
+   Every newer game uses the shared ready lobby, even when its rules happen to
+   allow exactly two seats (Gin). Seat count alone cannot tell those apart. */
+function usesTableLobby(){
+  return MP.size > 2 || (MP.game !== 'cards' && MP.game !== 'chess' && MP.game !== 'dama');
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    WHO IS AROUND — the social half
@@ -1741,7 +1748,7 @@ function onServer(m){
          complained about, removed. */
       if (MP.askBack){ sendInvite(MP.askBack); MP.askBack = null; }
       lobby();
-      if (MP.size > 2) return;      /* the table paints its own status line */
+      if (usesTableLobby()) return; /* the table paints its own status line */
       setState('waiting', MP.private
         ? 'Private ' + gameMeta(MP.game).name.toLowerCase() +
           ' room open — nobody can see it but you.'
@@ -1766,7 +1773,7 @@ function onServer(m){
       /* A TABLE DOES NOT DEAL THE MOMENT YOU SIT DOWN. You are in the room,
          you can see who else is, and the host starts it when everybody is
          ready. Only a duel still goes straight into the hello. */
-      if (MP.size > 2){
+      if (usesTableLobby()){
         MP.peerHere = false;
         lobby();
         return;
@@ -1792,7 +1799,7 @@ function onServer(m){
          follows it is what the lobby actually draws from, and the host is the
          only thing that starts a game. A DUEL is untouched — same two lines it
          has always run. */
-      if (MP.size > 2){
+      if (usesTableLobby()){
         if (m.state === 'joined' || m.state === 'rejoined') K.toast('Somebody sat down.');
         else if (m.state === 'left'){
           if (MP.live) tableSeatGone(m.seat, 'left');
@@ -1957,10 +1964,9 @@ function lobby(){
   if (!body || !MP.code) return;
   stopWaitClock();
 
-  /* MORE THAN TWO CHAIRS IS A DIFFERENT ROOM, not a bigger one. Everything
-     below this line is the duel's waiting screen and is untouched by any of
-     it — a two-seat room draws exactly what it always drew. */
-  if (MP.size > 2){ tableLobby(); return; }
+  /* A ready-lobby game is a different room, not merely a bigger one. The
+     original card duel, chess and dama keep their old paired waiting screen. */
+  if (usesTableLobby()){ tableLobby(); return; }
 
   if (MP.peerHere){
     body.innerHTML =
@@ -2910,7 +2916,7 @@ function onWho(m){
      drawer every time the relay nudged — the party being busy made the
      drawer unusable, which is exactly backwards. */
   paintRoomAround();
-  if (MP.panel === 'ask' && MP.size > 2) paintAskPeople();
+  if (MP.panel === 'ask' && usesTableLobby()) paintAskPeople();
 }
 
 /* an invitation that was left while the app was shut. It is not a room — the
@@ -2991,7 +2997,7 @@ function onPeer(d, from){
      label itself as somebody else. At a table it is the only thing that says
      whose move this is, so a payload that arrives without one is dropped
      rather than guessed at. */
-  if (MP.size > 2){
+  if (usesTableLobby()){
     if (d.k === 'bail'){ tableStop(d.why || 'Somebody stopped the game.'); return; }
     if (typeof from !== 'number'){ return; }
     tableRemote(from, d);

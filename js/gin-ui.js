@@ -2480,24 +2480,47 @@ const HOUSE_WAIT = 2500;
 const HELLO = 'house45s';                        /* s for the SWEEP game */
 
 function onlineStart(o) {
-  const seed = netSeed();
-  const mySeat = o.colour === 'w' ? 0 : 1;
-  const names = mySeat === 0 ? [o.me, o.foe] : [o.foe, o.me];
+  o = o || {};
+  const sharedLobby = Array.isArray(o.seats) && o.net;
+  const seed = sharedLobby ? ((o.seed >>> 0) || 1) : netSeed();
+  let mySeat, names, host, net;
+  if (sharedLobby) {
+    const chairs = o.seats.filter(Boolean);
+    if (chairs.length !== 2) throw new Error('GIN: exactly two seats are required');
+    const hostAtZero = (seed & 1) === 0;
+    const roomToGame = roomSeat => roomSeat === (o.host | 0)
+      ? (hostAtZero ? 0 : 1) : (hostAtZero ? 1 : 0);
+    mySeat = roomToGame(o.you | 0);
+    names = ['', ''];
+    chairs.forEach((s, i) => {
+      const roomSeat = typeof s.seat === 'number' ? s.seat : i;
+      names[roomToGame(roomSeat)] = s.name || ('Player ' + (i + 1));
+    });
+    host = (o.you | 0) === (o.host | 0);
+    const roomNet = o.net;
+    net = Object.assign({}, roomNet, {
+      send: (kind, m, ck) => roomNet.send({ kind, m: m || null, ck: ck || null })
+    });
+  } else {
+    mySeat = o.colour === 'w' ? 0 : 1;
+    names = mySeat === 0 ? [o.me, o.foe] : [o.foe, o.me];
+    host = iAmRoomHost();
+    net = o;
+  }
   const owns = mySeat === 0 ? ['me', 'net'] : ['net', 'me'];
-  const host = iAmRoomHost();
   const myHand = ST.pref.hand === 13 ? 13 : 10;
   const hand = host ? myHand : 10;
   startMatch({ lvl: 2, target: 300, names, owns, dealer: 1, hand }, seed);
   M.mySeat = mySeat;
-  M.net = o;
+  M.net = net;
   M.house = { settled: host, host, want: hand, tries: 0 };
   M.arr = (ST.netArr && ST.netArr.seed === seed && Array.isArray(ST.netArr.arr))
     ? ST.netArr.arr.slice() : [];
   openBoard();
-  P.ui.setNet(M.ctx, o.note || '', '');
+  P.ui.setNet(M.ctx, net.note || '', '');
 
   /* the hello — both phones, always (rule 1) */
-  try { o.send('move', { a: HELLO, i: host ? hand : 0 }, null); } catch (e) {}
+  try { net.send('move', { a: HELLO, i: host ? hand : 0 }, null); } catch (e) {}
   if (!host) houseClock();
 }
 
@@ -2692,8 +2715,7 @@ P.register({
   if (MPX.SEATS_FALLBACK) MPX.SEATS_FALLBACK.gin = [2, 2, 2];
 })();
 
-/* the lobby contract, published for completeness (the 2-seat board
-   path never reads it, but lobbyReport() deserves an honest answer) */
+/* the lobby contract used by the shared two-seat ready room */
 window.KARTI_GIN.lobby = {
   id: 'gin', name: 'Gin Rummy', mt: 'Il-Ġin',
   minSeats: 2, maxSeats: 2, defaultLevel: 2,

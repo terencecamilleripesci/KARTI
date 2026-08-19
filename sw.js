@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v123';
+const CACHE = 'karti-v124';
 const CORE = [
   './',
   './index.html',
@@ -44,6 +44,8 @@ const CORE = [
   './js/gin-ui.js',
   './js/poker.js',
   './js/poker-ui.js',
+  './js/serp.js',
+  './js/serp-ui.js',
   './js/battleship.js',
   './js/battleship-ui.js',
   './js/klabb-briscola.js',

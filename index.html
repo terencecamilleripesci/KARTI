@@ -1628,7 +1628,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 123;
+var KARTI_BUILD = 124;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1687,6 +1687,14 @@ window.swVersion = function(){
                   the injectable deal), poker-ui.js the table. After
                   klabb.js — same reason, same deck. */
                'js/poker.js','js/poker-ui.js',
+               /* SERP: serp.js is the pure engine (the tick model, the
+                  pellet court, the machine), serp-ui.js the arena — the
+                  app's first canvas renderer and its first game on a
+                  frame clock instead of on turns. After party.js: the
+                  tile registers through KARTI_PARTY like every other
+                  party game. It needs no deck, so it is not tied to
+                  klabb.js the way the four card tables above are. */
+               'js/serp.js','js/serp-ui.js',
                'js/tombla.js','js/tombla-ui.js',
                /* the spoken tombla calls. tombla-ui.js injects this itself if
                   the tag is missing, but that injection is a second request
