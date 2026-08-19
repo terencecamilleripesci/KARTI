@@ -230,6 +230,26 @@ function injectCSS(){
     '#scr-party .kn-home.on{display:flex}' +
     '#scr-party .kn-home svg{width:16px;height:16px;stroke:var(--gold,#FFC542);fill:none;' +
       'stroke-width:2;stroke-linecap:round;stroke-linejoin:round}' +
+
+    /* the SHOOT / LOOK mode toggle — an explicit, always-visible button so
+       the player always knows what a drag will do. Top-left of the field. */
+    '#scr-party .kn-mode-t{position:absolute;left:8px;top:8px;z-index:6;' +
+      '-webkit-appearance:none;appearance:none;border:0;display:flex;align-items:center;gap:7px;' +
+      'padding:7px 12px;border-radius:999px;background:rgba(10,14,22,.82);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.14),0 4px 14px rgba(0,0,0,.4);' +
+      'color:#fff;font:900 11px/1 var(--disp);letter-spacing:.06em;text-transform:uppercase;' +
+      'touch-action:manipulation}' +
+    '#scr-party .kn-mode-t svg{width:16px;height:16px;stroke:currentColor;fill:none;' +
+      'stroke-width:2;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .kn-mode-t .dot{width:7px;height:7px;border-radius:999px;background:currentColor;' +
+      'box-shadow:0 0 6px currentColor}' +
+    '#scr-party .kn-mode-t.shoot{color:#FF9A5A;' +
+      'box-shadow:inset 0 0 0 1px rgba(255,154,90,.6),0 4px 14px rgba(0,0,0,.4)}' +
+    '#scr-party .kn-mode-t.look{color:#5FC8FF;' +
+      'box-shadow:inset 0 0 0 1px rgba(95,200,255,.6),0 4px 14px rgba(0,0,0,.4)}' +
+    '#scr-party .kn-mode-t b{color:#fff}' +
+    '#scr-party .kn-mode-t .sub{font:800 8.5px/1 var(--disp);letter-spacing:.08em;' +
+      'color:var(--dim);text-transform:none}' +
     '#scr-party .kn-power i{display:block;height:100%;width:0;border-radius:999px;' +
       'background:linear-gradient(90deg,#3BE08A,#FFC542 60%,#FF6B4D)}' +
 
@@ -1079,16 +1099,20 @@ function fogWeight(th){
   if (k === 'quarry') return 0.82;
   return 0.80;                       /* malta */
 }
-/* the fog's tint — PALE, atmospheric CLOUD, never a black void. Each theme
-   gets a soft, light cloud colour with just a hint of its palette so the
-   cloud sits in the scene (a cool blue-grey by day, a dim slate by night)
-   while still reading as CLOUD you can pan around rather than a black wall. */
+/* the fog's tint — a MUTED, DESATURATED, MEDIUM-DARK atmospheric haze
+   (soft dark-grey / blue-grey smoke, a dusk mist), NOT a pale/white cloud
+   and NOT a pure-black void. These were pale/near-white before (malta was
+   [176,196,214], luma ~193 — blinding); they are now dropped a long way
+   into a comfortable MID-DARK band (composited luma ~55-90) so the enemy
+   half reads as a moody, easy-on-the-eyes murk you can pan around for a
+   whole match. Night is the darkest/moodiest; day maps a soft grey mist.
+   Each keeps a faint hint of its palette so the haze sits in the scene. */
 function fogTint(th){
   const k = th && th.key;
-  if (k === 'night')  return [96, 112, 140];
-  if (k === 'dusk')   return [150, 122, 150];
-  if (k === 'quarry') return [176, 182, 188];
-  return [176, 196, 214];            /* malta */
+  if (k === 'night')  return [40, 48, 62];    /* moody blue-slate, darkest  */
+  if (k === 'dusk')   return [66, 56, 70];     /* dim mauve-grey dusk mist   */
+  if (k === 'quarry') return [72, 74, 78];     /* dusty grey stone haze      */
+  return [58, 72, 86];                          /* malta: soft blue-grey mist */
 }
 
 /* the offscreen layer the fog is composited on (so reveals cut the fog,
@@ -1135,8 +1159,10 @@ function drawFog(g, cell, th, v){
   const tint = fogTint(th);
   const base = fogWeight(th);
   const rgb = tint[0] + ',' + tint[1] + ',' + tint[2];
-  /* a lighter cloud colour for the puff highlights (pull the tint up) */
-  const hi = [ Math.min(255, tint[0] + 46), Math.min(255, tint[1] + 44), Math.min(255, tint[2] + 40) ];
+  /* a slightly lighter tone for the puff highlights — kept SMALL so the
+     haze stays muted and mid-dark (the old +40..46 lift is what pushed the
+     cloud toward pale; a +22..26 lift gives body without brightening it). */
+  const hi = [ Math.min(255, tint[0] + 26), Math.min(255, tint[1] + 24), Math.min(255, tint[2] + 22) ];
   const hiRgb = hi[0] + ',' + hi[1] + ',' + hi[2];
   /* the concealing wash: thinner up top (sky peeks over the bank), full body
      down where the base hides. Every stop clamped under FOG_ALPHA_MAX. */
@@ -1164,8 +1190,9 @@ function drawFog(g, cell, th, v){
     const by = h * (0.14 + 0.66 * ((i * 0.23 + 0.1) % 1)) + bob;
     const br = blob * (1.2 + (i % 3) * 0.45);
     const gl = fg.createRadialGradient(bx, by, 0, bx, by, br);
-    /* bright, soft-edged puffs — light so they read as cloud highlights */
-    const a = Math.min(0.5, 0.26 + (i % 3) * 0.07);
+    /* soft-edged puffs — kept faint so the haze reads as moody atmosphere
+       and the average luminance stays comfortably mid-dark (not pale) */
+    const a = Math.min(0.34, 0.16 + (i % 3) * 0.05);
     gl.addColorStop(0,   'rgba(' + hiRgb + ',' + a.toFixed(3) + ')');
     gl.addColorStop(0.5, 'rgba(' + hiRgb + ',' + (a * 0.5).toFixed(3) + ')');
     gl.addColorStop(1,   'rgba(' + hiRgb + ',0)');
@@ -1233,7 +1260,46 @@ function drawFogSimple(g, th, fx0, fx1, w, h){
      marker is a crosshair/pin at the last landing point, with a small
      distance label so the player can read and adjust their aim. ── */
 const GRID_STEP = 20;   /* cells between grid lines (10 columns × 5 rows)   */
+
+/* ── THE PERSISTENT AIM LINE — the arc the LAST shell actually flew, left
+     HANGING IN THE AIR after the shot resolves so the player can see the
+     path their shot took and adjust the next one. It stays until the next
+     shot replaces M.lastArc. Drawn ON TOP of the fog (called from
+     drawLastShot). Read-only: the points are the engine's own track. ── */
+function drawLastArc(g, cell){
+  const arc = M.lastArc, pts = arc.pts;
+  const col = (arc.seat === M.me) ? '95,200,255' : '255,180,90';
+  g.save();
+  /* a soft dark under-stroke so the line reads over both clear ground and
+     the muted fog, then the tinted arc on top, then dashes for a "trace" */
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  g.strokeStyle = 'rgba(0,0,0,.45)';
+  g.lineWidth = Math.max(2, cell * 0.5);
+  g.beginPath();
+  g.moveTo(sx(pts[0]), sy(pts[1]));
+  for (let i = 2; i < pts.length; i += 2) g.lineTo(sx(pts[i]), sy(pts[i + 1]));
+  g.stroke();
+  g.strokeStyle = 'rgba(' + col + ',.9)';
+  g.lineWidth = Math.max(1.4, cell * 0.3);
+  g.setLineDash([Math.max(3, cell * 1.1), Math.max(3, cell * 0.9)]);
+  g.beginPath();
+  g.moveTo(sx(pts[0]), sy(pts[1]));
+  for (let i = 2; i < pts.length; i += 2) g.lineTo(sx(pts[i]), sy(pts[i + 1]));
+  g.stroke();
+  g.setLineDash([]);
+  /* a small launch pip at the hand end so the origin of the shot is clear */
+  g.fillStyle = 'rgba(' + col + ',.95)';
+  g.beginPath(); g.arc(sx(pts[0]), sy(pts[1]), Math.max(1.6, cell * 0.42), 0, 6.2832); g.fill();
+  g.restore();
+}
+
 function drawLastShot(g, cell){
+  /* the persistent aim ARC hangs in the air on its own (it may be present
+     before a marker exists on odd paths); draw it first so a marker/pin
+     lands on top of it. */
+  if (M && M.lastArc && M.lastArc.pts && M.lastArc.pts.length >= 4){
+    drawLastArc(g, cell);
+  }
   if (!M || !M.lastShot) return;
   const w = UI.cw, h = UI.ch;
   /* ── the coordinate grid: faint lines on 20-cell spacing, only the ones
@@ -1799,6 +1865,45 @@ function easeCamToTarget(){
   };
   M._easeRaf = requestAnimationFrame(tick);
 }
+/* ── THE SHOOT / LOOK MODE TOGGLE ─────────────────────────────────────
+   An EXPLICIT button, always on screen, that decides what a drag on the
+   field does — replacing the old implicit drag-region hit-test:
+     · SHOOT (aim mode): a drag on the field pulls the slingshot and FIRES.
+     · LOOK  (scout mode): a drag PANS the camera to find the enemy base.
+   Tapping it switches mode; the button shows the CURRENT mode clearly. */
+function renderModeBtn(){
+  if (!UI || !UI.modeBtn || !M) return;
+  const look = M.mode === 'look';
+  UI.modeBtn.classList.toggle('shoot', !look);
+  UI.modeBtn.classList.toggle('look', look);
+  const glyph = look
+    ? '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>'
+    : '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg>';
+  const word = look ? T('LOOK', 'ĦARES') : T('SHOOT', 'SPARA');
+  const sub  = look ? T('drag pans', 'iġbed biex tħares') : T('drag aims', 'iġbed biex timmira');
+  UI.modeBtn.innerHTML =
+    '<span class="dot"></span>' + glyph +
+    '<span><b>' + esc(word) + '</b> <span class="sub">' + esc(sub) + '</span></span>';
+  UI.modeBtn.setAttribute('aria-label',
+    look ? T('Look mode: a drag pans the map. Tap to switch to shoot.',
+             'Mod ħars: iġbed biex tħares. Agħfas biex tispara.')
+         : T('Shoot mode: a drag aims and fires. Tap to switch to look.',
+             'Mod spara: iġbed biex timmira. Agħfas biex tħares.'));
+}
+function toggleMode(){
+  if (!M) return;
+  M.mode = (M.mode === 'look') ? 'shoot' : 'look';
+  /* leaving LOOK for SHOOT snaps the aim view back to your own base so the
+     slingshot is under the thumb; entering LOOK just lets you drag to pan. */
+  if (M.mode === 'shoot' && M.cam && M.cam.userPan) returnToBase();
+  /* cancel any in-progress gesture that no longer matches the mode */
+  if (M.drag){ M.drag = null; M.preview = null;
+    if (UI && UI.power){ UI.power.classList.remove('on'); UI.powerFill.style.width = '0%'; }
+    if (UI && UI.tip) UI.tip.classList.remove('on'); }
+  renderModeBtn();
+  draw();
+}
+
 /* show the return-to-base button only when the player has panned away from
    their aim view (so it isn't clutter when already home). */
 function refreshReturnBtn(){
@@ -1931,6 +2036,13 @@ function fireShot(mv, src){
      before apply() resolves it, so the debris matches what breaks */
   const rep = E.apply(M.st, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
   if (!rep){ M.busy = false; return; }
+  /* PERSISTENT AIM LINE: remember the actual trajectory this shot flew so
+     the arc HANGS IN THE AIR after firing (drawn in drawLastShot, on top of
+     the fog) until the next shot replaces it — the player sees the path
+     their shell took / where they aimed and can adjust. Read-only: the pts
+     are the engine's own primary-track points, never fed back to the sim. */
+  const arcPts = firstTrackPts(rep);
+  if (arcPts) M.lastArc = { pts: arcPts, seat, born: nowMs() };
   /* tell the wire — AFTER it has been applied here, never before */
   if (src === 'me') say(seat, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
   saveGame();
@@ -2370,6 +2482,9 @@ function board(){
         '<div class="kn-purse p1" id="kn-purse1"></div>' +
         '<div class="kn-tip" id="kn-tip"></div>' +
       '</div>' +
+      /* the SHOOT / LOOK toggle — tap to switch what a drag does: SHOOT
+         (aim + fire the slingshot) or LOOK (pan the camera to scout) */
+      '<button class="kn-mode-t" id="kn-mode-t" type="button"></button>' +
       /* the "return to base" affordance — appears when you have panned away
          to scout, taps to snap the aim view back onto your slingshot */
       '<button class="kn-home" id="kn-home" type="button" aria-label="' +
@@ -2414,6 +2529,7 @@ function board(){
     power: ctx.host.querySelector('#kn-power'),
     powerFill: ctx.host.querySelector('#kn-power-fill'),
     returnBtn: ctx.host.querySelector('#kn-home'),
+    modeBtn: ctx.host.querySelector('#kn-mode-t'),
     weps: ctx.host.querySelector('#kn-weps'),
     rules: ctx.host.querySelector('#kn-rulespanel'),
     shop: ctx.host.querySelector('#kn-shop'),
@@ -2433,6 +2549,9 @@ function board(){
     cue('move.select', { gain:0.4 });
   });
   if (UI.returnBtn) UI.returnBtn.addEventListener('click', () => { returnToBase(); cue('move.select', { gain:0.4 }); });
+  if (M.mode == null) M.mode = 'shoot';
+  if (UI.modeBtn) UI.modeBtn.addEventListener('click', () => { toggleMode(); cue('move.select', { gain:0.4 }); });
+  renderModeBtn();
   ctx.host.querySelector('#kn-store').onclick = () => openShop();
   ctx.host.querySelector('#kn-shop-done').onclick = () => closeShop();
   UI.shopBody.addEventListener('click', e => {
@@ -2470,12 +2589,15 @@ function wireField(){
     if (rulesOpen || M.shopOpen) return;
     e.preventDefault();
     const px = e.clientX - rectLeft(), py = e.clientY - rectTop();
-    /* HIT-TEST THE SLINGSHOT FIRST: a press on/near your own launch hand
-       (during your turn) AIMS; everything else on the open map PANS to
-       scout. This is what keeps the two gestures from ever fighting. */
-    if (onSlingshot(px, py)){
+    /* THE EXPLICIT SHOOT / LOOK BUTTON decides the gesture, so the player
+       always knows what a drag will do (no implicit drag-region hit-test):
+         · SHOOT mode + your turn → a drag AIMS + fires the slingshot;
+         · LOOK mode (or not your turn) → a drag PANS the camera to scout.
+       In SHOOT mode we auto-home the view onto your base so the sling is
+       under the thumb. */
+    const wantAim = (M.mode !== 'look') && canAct();
+    if (wantAim){
       mode = 'aim';
-      /* starting an aim drag on the sling auto-returns focus to your base */
       if (M.cam && M.cam.userPan) returnToBase();
       try { f.setPointerCapture(e.pointerId); } catch(_){}
       beginAim(px, py);
