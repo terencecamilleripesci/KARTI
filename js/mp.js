@@ -169,7 +169,17 @@ const GAMES = [
   { k:'minhu',  name:'Min Hu?',    short:'MIN HU', icon:'dice',
     blurb:'Ask, eliminate, guess their face.' },
   { k:'kodici', name:'Il-Kodiċi',  short:'KODIĊI', icon:'dice',
-    blurb:'Two secret codes. Crack theirs first.' }
+    blurb:'Two secret codes. Crack theirs first.' },
+  /* the arena games (real-time, no hidden info) and Reversi (perfect info).
+     Online is honest off the shared seed / lockstep. */
+  { k:'tankijiet', name:'It-Tankijiet', short:'TANKS', icon:'flag',
+    blurb:'Drive, aim, fire. Four to eight tanks, last one rolls.' },
+  { k:'ballun', name:'Il-Ballun',  short:'BALLUN', icon:'play',
+    blurb:'Guard your goal. Bounce the ball into theirs.' },
+  { k:'aqleb', name:'Aqleb',       short:'AQLEB', icon:'drop',
+    blurb:'Trap a line, flip it. Two to four players.' },
+  { k:'kaxxi', name:'Puntini u Kaxxi', short:'KAXXI', icon:'map',
+    blurb:'Draw lines, close boxes. Two to four players.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -235,7 +245,10 @@ const LOBBY_GLOBAL = {
   serp:'KARTI_SERP',
   /* Connect 4 (no hidden state) + the two secret-code/character duels
      (secret delivered by the private per-seat deal). */
-  erbgha:'KARTI_ERBGHA', minhu:'KARTI_MINHU', kodici:'KARTI_KODICI'
+  erbgha:'KARTI_ERBGHA', minhu:'KARTI_MINHU', kodici:'KARTI_KODICI',
+  /* the arena games + Reversi — real-time lockstep / perfect-info, honest online */
+  tankijiet:'KARTI_TANKIJIET', ballun:'KARTI_BALLUN', aqleb:'KARTI_AQLEB',
+  kaxxi:'KARTI_KAXXI'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -253,7 +266,9 @@ const SEATS_FALLBACK = {
   /* the hidden-hand card games. Poker seats 2..8; the 21/31 tile spans both
      modes (21 from 1, 31 from 3) up to 9. Their own lobby contracts are the
      authority — these mirror the relay so a wrong size fails loudly there. */
-  poker:[2, 8, 4], cards2131:[1, 9, 4]
+  poker:[2, 8, 4], cards2131:[1, 9, 4],
+  /* the arena games + Reversi. tankijiet is a 4–8 brawl; ballun and aqleb seat 2–4. */
+  tankijiet:[4, 8, 4], ballun:[2, 4, 4], aqleb:[2, 4, 2], kaxxi:[2, 4, 2]
 };
 
 /* A machine has to be called something before it can sit down. Only used when

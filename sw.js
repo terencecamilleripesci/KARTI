@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v134';
+const CACHE = 'karti-v135';
 const CORE = [
   './',
   './index.html',
@@ -66,6 +66,14 @@ const CORE = [
   './js/minhu-ui.js',
   './js/kodici.js',
   './js/kodici-ui.js',
+  './js/tankijiet.js',
+  './js/tankijiet-ui.js',
+  './js/ballun.js',
+  './js/ballun-ui.js',
+  './js/aqleb.js',
+  './js/aqleb-ui.js',
+  './js/kaxxi.js',
+  './js/kaxxi-ui.js',
   './art/minhu/ganni.png',
   './art/minhu/marija.png',
   './art/minhu/cetta.png',
@@ -90,6 +98,24 @@ const CORE = [
   './art/minhu/zeppi.png',
   './art/minhu/liza.png',
   './art/minhu/benny.png',
+  './art/minhu/lolli.png',
+  './art/minhu/natali.png',
+  './art/minhu/katrin.png',
+  './art/minhu/indri.png',
+  './art/minhu/melita.png',
+  './art/minhu/karmnu.png',
+  './art/minhu/polina.png',
+  './art/minhu/silvju.png',
+  './art/ui/logo-erbgha.png',
+  './art/ui/logo-ludu.png',
+  './art/ui/logo-minhu.png',
+  './art/ui/logo-kodici.png',
+  './art/ui/logo-kanun.png',
+  './art/ui/logo-bomba.png',
+  './art/ui/logo-briks.png',
+  './art/ui/logo-cards2131.png',
+  './art/ui/logo-serp.png',
+  './art/ui/logo-tankijiet.png',
   './js/battleship.js',
   './js/battleship-ui.js',
   './js/klabb-briscola.js',

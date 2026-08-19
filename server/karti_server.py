@@ -285,7 +285,8 @@ DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
-          "ludu", "serp", "erbgha", "minhu", "kodici")
+          "ludu", "serp", "erbgha", "minhu", "kodici",
+          "tankijiet", "ballun", "aqleb", "kaxxi")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -368,6 +369,12 @@ GAME_SEATS = {
     "erbgha":    (2, 2, 2),   # Connect 4 — a duel, no hidden state
     "minhu":     (2, 2, 2),   # Guess Who? — secret character, private-dealt
     "kodici":    (2, 2, 2),   # Mastermind — secret code, private-dealt
+    # The arena games (real-time lockstep, no hidden info) and Reversi (perfect
+    # information). Ranges read out of the games' own MIN_SEATS/MAX_SEATS.
+    "tankijiet": (4, 8, 4),   # Tank arena — a 4–8 brawl
+    "ballun":    (2, 4, 4),   # Arena ball — 2–4 edges
+    "aqleb":     (2, 4, 2),   # Reversi — 2–4, perfect information
+    "kaxxi":     (2, 4, 2),   # Dots & Boxes — 2–4, perfect information
 }
 
 # Only these three predate the ready lobby and begin as soon as their second
@@ -396,7 +403,19 @@ GAME_VARIANTS = {
     "tombla":  ("klassika", "kazin"),          # ladder vs full-ġog tal-każin
     "gharraq": ("karti", "klassika"),          # KARTI mode vs classic battleship
     "suspett": ("bilanc", "borma"),            # balanced pot vs the big role pool
-    "bomba":   ("arena", "labirint", "kurituri", "gzira", "duell"),  # the 5 maps
+    "bomba":   ("duell", "arena", "labirint", "kurituri", "gzira",
+                "salib", "gzejjer", "katakombi", "kurituri_kbir"),  # the 9 maps
+    # Castle Wars battlefields (host-picked from the lobby Rules button). All
+    # seat two — the variant only dresses/balances the duel, so no per-variant
+    # seat entry is needed (they fall back to GAME_SEATS["kanun"]).
+    "kanun":   ("malta", "dusk", "quarry", "night"),
+    # Tank arena modes. teams wants even seats; the client skips odd counts, the
+    # relay range stays the game's 4..8 for all three (GAME_SEATS fallback).
+    "tankijiet": ("ffa", "teams", "last"),
+    # Arena ball: last-standing vs 2-minute-most-goals. Both seat the game's 2..4.
+    "ballun":  ("lives", "timed"),
+    # Dots & Boxes board sizes (host-picked); all seat the game's 2..4.
+    "kaxxi":   ("s", "m", "l"),
 }
 # The client calls the bluffing game "cheat" — that id is baked into its own
 # storage key and into the stats registry, so it is not free to rename. The
@@ -430,14 +449,20 @@ GAME_VARIANT_SEATS = {
     # human and takes a small table; 31 is a room game, 3..9, like its engine.
     ("cards2131", "21"):   (1, 6, 2),
     ("cards2131", "31"):   (3, 9, 4),
-    # Bomberman maps seat different counts — the four open maps take up to four,
-    # the duel map is exactly two. (gin/tombla/gharraq/suspett modes all seat
-    # the same range as their game, so they fall back to GAME_SEATS.)
-    ("bomba", "arena"):    (2, 4, 4),
-    ("bomba", "labirint"): (2, 4, 4),
-    ("bomba", "kurituri"): (2, 4, 4),
-    ("bomba", "gzira"):    (2, 4, 4),
-    ("bomba", "duell"):    (2, 2, 2),
+    # Bomberman maps seat different counts — the duel map is exactly two, the
+    # medium maps take up to four, and the three LARGE maps open to eight (a
+    # table over four auto-picks a large arena on the client). (gin/tombla/
+    # gharraq/suspett modes all seat the same range as their game, so they
+    # fall back to GAME_SEATS.)
+    ("bomba", "duell"):         (2, 2, 2),
+    ("bomba", "arena"):         (2, 4, 4),
+    ("bomba", "labirint"):      (2, 4, 4),
+    ("bomba", "kurituri"):      (2, 4, 4),
+    ("bomba", "gzira"):         (2, 4, 4),
+    ("bomba", "salib"):         (2, 4, 4),
+    ("bomba", "gzejjer"):       (2, 8, 6),
+    ("bomba", "katakombi"):     (2, 8, 6),
+    ("bomba", "kurituri_kbir"): (2, 8, 6),
 }
 
 

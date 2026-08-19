@@ -2444,6 +2444,24 @@ function storeBuyables(){
 function cosmOwned(id){
   try { return !!(window.KARTI_XP && KARTI_XP.owns(id)); } catch (e){ return false; }
 }
+/* The game cosmetics that are NOT for sale because they unlock higher up
+   the ladder (above the store's level ceiling). Shown greyed beside the
+   buyables so the store reads as "keep playing and there is more" rather
+   than as a fixed shelf — the whole point of the ask. Earned exclusives
+   and the karti identity items stay out; those are their own screens. */
+function storeLadder(){
+  try {
+    if (!window.KARTI_XP || !KARTI_XP.defs) return [];
+    return KARTI_XP.defs().filter(d =>
+      d.game !== 'karti' && !d.earn && d.level > COSM_LEVEL_MAX);
+  } catch (e){ return []; }
+}
+/* the next customisation THIS player will unlock by levelling, per game —
+   the one-line carrot at the top of each game's shelf */
+function cosmNext(game){
+  try { return window.KARTI_XP && KARTI_XP.nextUnlock ? KARTI_XP.nextUnlock(game) : null; }
+  catch (e){ return null; }
+}
 /* The grant goes through KARTI_XP.grant(), which owns the rules: it
    refuses ids it does not know, and refuses anything carrying an earn
    test — so Tempesta and the other earned items can never be bought at
@@ -2478,7 +2496,18 @@ function gameLabel(id){
     for (let i = 0; i < shelf.length; i++) if (shelf[i].id === id) return shelf[i].name;
   } catch (e){}
   const NICE = { 'cards-solo':'The Card Duel', 'cards-story':'Story Mode',
-                 'cards-mp':'Multiplayer Duel', 'kiri':'IL-KIRI', 'tombla':'Tombla' };
+                 'cards-mp':'Multiplayer Duel', 'kiri':'IL-KIRI', 'tombla':'Tombla',
+                 /* the games whose cosmetics were added later and are not on the
+                    record-book shelf gameLabel reads first — a nice name here
+                    keeps the store's per-game headings from reading as bare ids */
+                 'gharraq':'Għarraqhom!', 'serp':'Is-Serp', 'ludu':'Ludu',
+                 'erbgha':'Four in a Row', 'tankijiet':'It-Tankijiet',
+                 'bomba':'Il-Bomba', 'briks':'Il-Ħajt', 'kodici':'Il-Kodiċi',
+                 'minhu':'Min Hu?', 'cards2131':'21 & 31',
+                 'gin':'Gin Rummy', 'poker':'Poker', 'rummy':'Rummy',
+                 'spy':'Is-Spija', 'suspett':'Is-Suspett', 'kanun':'Il-Kanun',
+                 'bixkla':'Bixkla', 'briscola':'Briscola', 'sette':'Sette e Mezzo',
+                 'cheat':'Il-Gidba' };
   return NICE[id] || (id.charAt(0).toUpperCase() + id.slice(1));
 }
 
@@ -2891,21 +2920,47 @@ function renderCosmTab(){
   const bar = $('#pack-bar');
   if (!stage || !bar) return;
   const items = storeBuyables();
-  if (!items.length){
+  const ladder = storeLadder();
+  if (!items.length && !ladder.length){
     stage.innerHTML =
       '<div class="spinwrap"><div class="cosmempty">' +
         '<div class="srico">' + ico('rar-epiku') + '</div>' +
         '<h3>The shelves are being stocked</h3>' +
-        '<p class="tiny">Boards, card backs, felts and more from every game land here ' +
-        'to buy with coins. Your level rewards already live in the wardrobe.</p>' +
+        '<p class="tiny">Boards, card backs, felts, ship colours, snake skins and more ' +
+        'from every game land here to buy with coins. Your level rewards already live ' +
+        'in the wardrobe.</p>' +
       '</div></div>';
   } else {
+    /* one shelf per game, in the record book's own order, holding BOTH the
+       buyables and the higher-level ones — so a shelf reads top to bottom
+       as "what you can have now, and what playing on unlocks next". */
+    const games = [];
     const byGame = {};
-    items.forEach(d => { (byGame[d.game] || (byGame[d.game] = [])).push(d); });
-    let html = '<div class="spinwrap cosmwrap">';
-    Object.keys(byGame).forEach(g => {
-      html += '<p class="cosmgame">' + esc(gameLabel(g)) + '</p><div class="cosmgrid">';
-      byGame[g].forEach(d => {
+    const push = d => {
+      if (!byGame[d.game]){ byGame[d.game] = { buy:[], lock:[] }; games.push(d.game); }
+    };
+    items.forEach(d => { push(d); byGame[d.game].buy.push(d); });
+    ladder.forEach(d => { push(d); byGame[d.game].lock.push(d); });
+    /* stable, pleasant order: record-book games first, the rest after */
+    let shelf = [];
+    try { shelf = ((window.KARTI_STATS && KARTI_STATS.GAMES) || []).map(g => g.id); } catch (e){}
+    games.sort((a, b) => {
+      const ia = shelf.indexOf(a), ib = shelf.indexOf(b);
+      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+    });
+    const lv = (() => { try { return window.KARTI_XP ? KARTI_XP.level() : 1; } catch (e){ return 1; } })();
+    let allPrev = items.concat(ladder);
+    let html = '<div class="spinwrap cosmwrap">' +
+      '<p class="cosmintro tiny">Every game has its own look to unlock — ship colours, ' +
+      'snake skins, tank camo, boards, card backs and more. Buy a few with coins, ' +
+      'or just keep playing: every one is also free at the level shown.</p>';
+    games.forEach(g => {
+      const grp = byGame[g];
+      const nx = cosmNext(g);
+      html += '<p class="cosmgame">' + esc(gameLabel(g)) +
+        (nx ? '<span class="cosmnext">next: ' + esc(nx.name) + ' · lvl ' + nx.level + '</span>' : '') +
+        '</p><div class="cosmgrid">';
+      grp.buy.forEach(d => {
         const owned = cosmOwned(d.id);
         const price = cosmPrice(d);
         html +=
@@ -2922,14 +2977,32 @@ function renderCosmTab(){
                 ilb('coin', (cosmConfirm === d.id ? 'Sure? ' : '') + price) + '</button>') +
           '</div>';
       });
+      /* the higher-level ones: previewed, but locked behind the ladder —
+         the "keep playing" carrot, and owned already if the player is
+         high enough (levelled past it), in which case it offers Wear. */
+      grp.lock.forEach(d => {
+        const owned = cosmOwned(d.id);
+        html +=
+          '<div class="citem clock' + (owned ? '' : ' islk') + '" data-cid="' + esc(d.id) + '">' +
+            '<div class="cprev"></div>' +
+            '<div class="cname">' + esc(d.name) + '</div>' +
+            (d.blurb ? '<div class="cblurb">' + esc(d.blurb) + '</div>' : '') +
+            (owned
+              ? '<div class="crow"><span class="ctag">' + ico('check') + ' Yours</span>' +
+                '<button class="btn ghost sm cwear" data-id="' + esc(d.id) + '">Wear</button></div>'
+              : '<div class="clocktag tiny">' + ico('star') + ' Level ' + d.level +
+                (lv < d.level ? ' · ' + (d.level - lv) + ' to go' : '') + '</div>') +
+          '</div>';
+      });
       html += '</div>';
     });
-    html += '<p class="spinnote">Everything above level 12 — and every border, badge and ' +
-      'earned exclusive — is not for sale at any price. You level for those.</p></div>';
+    html += '<p class="spinnote">Higher-level looks are not for sale at any price — ' +
+      'you level for those. Every border, badge, weekly-champion ring and earned ' +
+      'exclusive lives in the wardrobe, never the till.</p></div>';
     stage.innerHTML = html;
     /* previews after the HTML lands — def.preview returns an element */
     $$('.citem', stage).forEach(el => {
-      const d = items.find(x => x.id === el.dataset.cid);
+      const d = allPrev.find(x => x.id === el.dataset.cid);
       if (!d || !d.preview) return;
       try {
         const pv = d.preview(72);
@@ -3055,6 +3128,16 @@ function storeCSS(){
     '.ctag .ico{width:14px;height:14px}' +
     '.cbuy{border-color:var(--line2);opacity:.6}' +
     '.cbuy.can{opacity:1;border-color:var(--gold);color:var(--gold)}' +
+    /* the lead-in line and the per-game "next unlock" carrot */
+    '.cosmintro{margin:2px 0 6px;color:var(--dim)}' +
+    '.cosmgame{display:flex;align-items:baseline;justify-content:space-between;gap:8px}' +
+    '.cosmnext{font-size:10px;font-weight:700;color:var(--gold);text-transform:none;letter-spacing:.02em;opacity:.9}' +
+    /* the higher-level ones: previewed but locked, so the shelf reads as
+       "there is more if you keep playing" — dimmed, with a level tag */
+    '.citem.clock.islk{opacity:.62}' +
+    '.citem.clock.islk .cprev{filter:saturate(.7) brightness(.82)}' +
+    '.clocktag{display:inline-flex;align-items:center;gap:4px;color:var(--gold);font-weight:800}' +
+    '.clocktag .ico{width:13px;height:13px}' +
 
     /* ── the daily-spin prize popup ─────────────────────────────────
        Every animated property below is transform or opacity — the ray

@@ -22,20 +22,33 @@
      which is the whole game. So the secret is NOT hard-wired. It is one
      injectable source with two implementations and one interface —
      make(st) -> secrets[] where secrets[i] is seat i's character index
-     (0..23) or null ("this client was not told that seat's character"):
+     (0..N-1) or null ("this client was not told that seat's character"):
 
-       SECRETS.seed     derives both secrets from st.rs. This is what
-                        OFFLINE / PASS-THE-PHONE uses, and it is honest
-                        there because one device holds both secrets and
-                        shows each only to the player looking. It is also
-                        why this source must NEVER back an online table:
-                        the opponent's phone could read it off the seed.
-       SECRETS.private  takes the character index delivered PER SEAT by
-                        the relay (st.given.secret[seatIndex]) and leaves
-                        any seat it was not told about null. For ONLINE:
-                        the relay hands each seat its own secret index and
-                        nobody else's, so this client holds only its own.
-                        This is poker's DEALERS.private, one card wide.
+       SECRETS.seed     derives both secrets from st.rs. A pure random
+                        deal, used only for the "surprise me" fallback on
+                        the pick screen (and legacy saves). Honest offline
+                        because one device holds both secrets and shows
+                        each only to the player looking. NEVER back an
+                        online table with it: the opponent's phone could
+                        read it off the seed.
+       SECRETS.private  takes the character index delivered PER SEAT
+                        (st.given.secret[seatIndex]) and leaves any seat it
+                        was not told about null. This is the seam BOTH the
+                        player-pick and the online table run through:
+
+                          · PICK-YOUR-OWN (offline / pass-the-phone): the
+                            two players choose their faces on the handover
+                            pick screen; this device holds BOTH picks in
+                            given.secret={0:x,1:y} and shows each only to
+                            the player looking. Player-chosen, not dealt.
+                          · ONLINE: each seat picks LOCALLY and the relay
+                            pushes only that seat's own index to its own
+                            phone (given.secret={mySeat:x}); the opponent's
+                            pick is never in any message this client sees,
+                            so given.secret has just our seat and the
+                            opponent stays null forever. The pick replaces
+                            the deal, but the secrecy is identical: one seat
+                            wide, poker's DEALERS.private.
 
      Everything downstream — the question mechanic, elimination, the win
      check, the AI, the wire — is identical between the two. The seam is
@@ -202,9 +215,24 @@ const ROSTER = [
   { id:'nina',    name:{ en:'Nina',    mt:'Nina'    }, a:{ hair:'brown', length:'short', facial:'none',      glasses:'no',  hat:'no',  eyes:'green', earring:'yes', skin:'olive', feature:'freckles' } },
   { id:'żeppi',   name:{ en:'Żeppi',   mt:'Żeppi'   }, a:{ hair:'white', length:'short', facial:'moustache', glasses:'no',  hat:'yes', eyes:'blue',  earring:'no',  skin:'light', feature:'none' } },
   { id:'liza',    name:{ en:'Liza',    mt:'Liza'    }, a:{ hair:'red',   length:'long',  facial:'none',      glasses:'no',  hat:'no',  eyes:'brown', earring:'yes', skin:'olive', feature:'mole' } },
-  { id:'benny',   name:{ en:'Benny',   mt:'Benny'   }, a:{ hair:'brown', length:'short', facial:'moustache', glasses:'no',  hat:'no',  eyes:'blue',  earring:'no',  skin:'dark',  feature:'none' } }
+  { id:'benny',   name:{ en:'Benny',   mt:'Benny'   }, a:{ hair:'brown', length:'short', facial:'moustache', glasses:'no',  hat:'no',  eyes:'blue',  earring:'no',  skin:'dark',  feature:'none' } },
+  /* ── the extra dozen (roster grown 24 → 36). Same hand-balanced schema;
+     fieldSplit() over every question still cuts the 36 into two non-empty
+     parts with the minority ≥ 4 (no giveaway), verified by the harness. */
+  { id:'lolli',   name:{ en:'Lolli',   mt:'Lolli'   }, a:{ hair:'black', length:'long',  facial:'none',      glasses:'yes', hat:'no',  eyes:'green', earring:'yes', skin:'olive', feature:'rosy' } },
+  { id:'ċensu',   name:{ en:'Ċensu',   mt:'Ċensu'   }, a:{ hair:'brown', length:'short', facial:'beard',     glasses:'yes', hat:'no',  eyes:'blue',  earring:'no',  skin:'olive', feature:'none' } },
+  { id:'natali',  name:{ en:'Natali',  mt:'Natali'  }, a:{ hair:'red',   length:'short', facial:'moustache', glasses:'no',  hat:'yes', eyes:'brown', earring:'no',  skin:'light', feature:'none' } },
+  { id:'katrin',  name:{ en:'Katrin',  mt:'Katrin'  }, a:{ hair:'blond', length:'long',  facial:'none',      glasses:'no',  hat:'yes', eyes:'green', earring:'yes', skin:'light', feature:'freckles' } },
+  { id:'ġużeppi', name:{ en:'Ġużeppi', mt:'Ġużeppi' }, a:{ hair:'white', length:'short', facial:'beard',     glasses:'no',  hat:'no',  eyes:'green', earring:'no',  skin:'olive', feature:'none' } },
+  { id:'rożanna', name:{ en:'Rożanna', mt:'Rożanna' }, a:{ hair:'black', length:'long',  facial:'none',      glasses:'no',  hat:'no',  eyes:'blue',  earring:'yes', skin:'light', feature:'mole' } },
+  { id:'indri',   name:{ en:'Indri',   mt:'Indri'   }, a:{ hair:'bald',  length:'none',  facial:'beard',     glasses:'yes', hat:'no',  eyes:'blue',  earring:'no',  skin:'olive', feature:'none' } },
+  { id:'melita',  name:{ en:'Melita',  mt:'Melita'  }, a:{ hair:'brown', length:'long',  facial:'none',      glasses:'yes', hat:'no',  eyes:'brown', earring:'no',  skin:'dark',  feature:'rosy' } },
+  { id:'karmnu',  name:{ en:'Karmnu',  mt:'Karmnu'  }, a:{ hair:'bald',  length:'none',  facial:'moustache', glasses:'no',  hat:'yes', eyes:'green', earring:'no',  skin:'dark',  feature:'none' } },
+  { id:'żaren',   name:{ en:'Żaren',   mt:'Żaren'   }, a:{ hair:'brown', length:'short', facial:'beard',     glasses:'no',  hat:'no',  eyes:'green', earring:'no',  skin:'light', feature:'freckles' } },
+  { id:'polina',  name:{ en:'Polina',  mt:'Polina'  }, a:{ hair:'red',   length:'long',  facial:'none',      glasses:'yes', hat:'yes', eyes:'brown', earring:'yes', skin:'olive', feature:'none' } },
+  { id:'silvju',  name:{ en:'Silvju',  mt:'Silvju'  }, a:{ hair:'blond', length:'short', facial:'moustache', glasses:'no',  hat:'no',  eyes:'blue',  earring:'no',  skin:'dark',  feature:'none' } }
 ];
-const N = ROSTER.length;                          /* 24 */
+const N = ROSTER.length;                          /* 36 */
 const idOf   = i => (ROSTER[i] ? ROSTER[i].id : null);
 const indexOfId = id => ROSTER.findIndex(c => c.id === id);
 const attrOf = i => (ROSTER[i] ? ROSTER[i].a : null);
@@ -242,9 +270,10 @@ function answer(secret, q){
    NOTHING ELSE in this file may pick a secret.
    ═══════════════════════════════════════════════════════════════════ */
 const SECRETS = {
-  /* (a) FROM THE SEED — offline / pass-the-phone. One device holds both,
-     so it is honest to derive both from st.rs; each is shown only to the
-     player looking. NEVER back an online table with this. */
+  /* (a) FROM THE SEED — the "surprise me" random fallback on the pick
+     screen (and legacy saves). One device holds both, so it is honest to
+     derive both from st.rs; each is shown only to the player looking.
+     NEVER back an online table with this. */
   seed: {
     id:'seed',
     make(st){
@@ -355,7 +384,24 @@ function standingList(st, seat){
 
 /* ═══════════════════════════════════════════════════════════════════
    MOVES
-     { t:'ask',   key, val }        ask a yes/no question this turn
+     { t:'ask',   key, val }        ask a STRUCTURED yes/no question this
+                                    turn — a (key,value) attribute pair.
+                                    The opponent's phone answers truthfully
+                                    and the bit is recorded + VERIFIABLE.
+     { t:'talk',  a }               the IN-THE-ROOM turn. The asker said a
+                                    question OUT LOUD (no attribute), the
+                                    opponent just taps YES/NO and that bit
+                                    `a` is the move. It passes the turn like
+                                    an ask, but carries no (key,val), so it
+                                    is NOT in st.asked and NOT verifiable —
+                                    there is nothing structured to check it
+                                    against. The asker flips faces by hand
+                                    (the free `flip` move). Trust model: the
+                                    answerer answers honestly, same friendly
+                                    trust as every other move; a spoken
+                                    question simply cannot be audited, so
+                                    talk mode is for tables who can see each
+                                    other. Remote play should use `ask`.
      { t:'flip',  c, down }         flip face c down(true)/up(false) on
                                     YOUR OWN board — bookkeeping, does not
                                     end the turn, not turn-gated by whose
@@ -363,15 +409,17 @@ function standingList(st, seat){
      { t:'guess', c }               name character c as the opponent's
      { t:'quit' }                   walk out (forfeit)
 
-   A turn is: ask (→ opponent answers, turn passes) OR guess (→ resolves
-   the game). flip is free bookkeeping either player may do to their own
-   board at any time; it is logged so a replay reproduces the exact board.
+   A turn is: ask OR talk (→ opponent answers, turn passes) OR guess (→
+   resolves the game). flip is free bookkeeping either player may do to
+   their own board at any time; it is logged so a replay reproduces the
+   exact board.
    ═══════════════════════════════════════════════════════════════════ */
 function legal(st, seat){
   if (st.done) return [];
   const out = [];
   if (seat === st.turn){
     QUESTIONS.forEach(q => out.push({ t:'ask', key:q.key, val:q.val }));
+    out.push({ t:'talk', a:1 }); out.push({ t:'talk', a:0 });   /* IRL yes/no */
     for (let c = 0; c < N; c++) out.push({ t:'guess', c });
   }
   /* flips are always legal on your own standing/flipped faces */
@@ -392,6 +440,9 @@ function check(st, mv, seat){
   if (seat !== st.turn) return false;
   if (mv.t === 'ask'){
     return QUESTIONS.some(q => q.key === mv.key && q.val === mv.val);
+  }
+  if (mv.t === 'talk'){
+    return mv.a === 0 || mv.a === 1;              /* a free-form yes/no bit */
   }
   if (mv.t === 'guess'){
     const c = mv.c | 0;
@@ -438,6 +489,19 @@ function apply(st, mv){
     st.asked.push({ seat, key:mv.key, val:mv.val, a });
     st.log2.push({ seat, t:'ask', key:mv.key, val:mv.val, a });
     st.lastAsk = { seat, key:mv.key, val:mv.val, a };
+    st.turn = opp(seat);
+    return;
+  }
+  if (mv.t === 'talk'){
+    /* the IRL turn: the answer bit `a` is the OPPONENT's honest yes/no to a
+       spoken question. No (key,val), so it is NOT recorded in st.asked and
+       cannot be verified — see the move header. Still logged for replay so
+       the turn sequence is reproduced exactly. */
+    const a = (mv.a === 1) ? 1 : 0;
+    mv.a = a;
+    st.log2.push({ seat, t:'talk', a });
+    st.lastTalk = { seat, a };
+    st.lastAsk = null;
     st.turn = opp(seat);
     return;
   }
@@ -651,6 +715,9 @@ function note(st){
              stamped by the ANSWERING phone before it echoes; the asker's
              own send carries a: 255 ("not answered yet") which decWire
              maps to undefined so apply() computes/awaits it.
+     talk  → { t:'talk',  a:0|1 }   the IRL turn: no attribute, just the
+             opponent's honest yes/no bit (a:255 = not answered yet). The
+             asker flips faces by hand. Not verifiable (nothing structured).
      guess → { t:'guess', c:charIndex, r:0|1|255 }  r stamped by the
              opponent's phone (it judges against its own secret).
      flip  → { t:'flip',  c, d:0|1 }
@@ -680,6 +747,13 @@ function encWire(mv){
     if (!byteOK(k) || !byteOK(v)) return null;
     return { t:'ask', k, v, a };
   }
+  if (mv.t === 'talk'){
+    /* the IRL turn — a free-form yes/no with no attribute. Only the answer
+       bit travels; the ANSWERER (the opponent) taps it, the asker's phone
+       receives it and passes the turn. a:255 = not answered yet. */
+    const a = (mv.a === 0 || mv.a === 1) ? mv.a : 255;
+    return { t:'talk', a };
+  }
   if (mv.t === 'guess'){
     const c = mv.c | 0;
     if (!byteOK(c)) return null;
@@ -696,6 +770,11 @@ function decWire(w){
     const key = keyAt(w.k | 0), val = valAt(key, w.v | 0);
     if (!key || val == null) return null;
     const mv = { t:'ask', key, val };
+    if ((w.a | 0) === 0 || (w.a | 0) === 1) mv.a = (w.a | 0);
+    return mv;
+  }
+  if (w.t === 'talk'){
+    const mv = { t:'talk' };
     if ((w.a | 0) === 0 || (w.a | 0) === 1) mv.a = (w.a | 0);
     return mv;
   }
@@ -720,6 +799,36 @@ function planDeal(opts){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   PICK-YOUR-OWN helpers. The pick screen collects a character index per
+   seat and hands the engine a `given.secret` map through SECRETS.private
+   — the exact same seam online uses. pickedOpts() builds the offline opts
+   (both picks on this device, private mode); pickedOnlineGiven() builds
+   the single-seat map a client holds online (only its own pick). Neither
+   the engine nor any message ever needs SECRETS.seed for a chosen game.
+   ═══════════════════════════════════════════════════════════════════ */
+function validChar(i){ return typeof i === 'number' && i >= 0 && i < N; }
+/* offline: both seats picked on THIS device → private opts holding both.
+   picks is {0:charIndex, 1:charIndex}. */
+function pickedOpts(base, picks){
+  const secret = {};
+  if (validChar(picks && picks[0])) secret[0] = picks[0];
+  if (validChar(picks && picks[1])) secret[1] = picks[1];
+  return Object.assign({}, base, { deal:'private', given:{ secret } });
+}
+/* online: a single seat's own pick → the one-wide map this client holds. */
+function pickedOnlineGiven(seat, charIndex){
+  const secret = {};
+  if (validChar(charIndex)) secret[seat | 0] = charIndex;
+  return { secret };
+}
+/* a deterministic-from-seed random character, for the "surprise me" button
+   when a player would rather not choose. Pure over a scratch state. */
+function randomChar(seed){
+  const st = { rs: (seed | 0) || newSeed() };
+  return Math.floor(rnd(st) * N) % N;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    PUBLIC FACE — js/minhu-ui.js and the test harness read this.
    ═══════════════════════════════════════════════════════════════════ */
 root.KARTI_MINHU = root.KARTI_MINHU || {};
@@ -729,8 +838,8 @@ root.KARTI_MINHU.engine = {
   ROSTER, N, SCHEMA, SCHEMA_BY, QUESTIONS,
   idOf, indexOfId, attrOf, valLabel, attrLabel,
   matches, answer, fieldSplit: q => { let y = 0; for (let i = 0; i < N; i++) if (matches(i, q)) y++; return y; },
-  /* the secret seam */
-  SECRETS, sourceOf, planDeal,
+  /* the secret seam + the pick-your-own helpers */
+  SECRETS, sourceOf, planDeal, pickedOpts, pickedOnlineGiven, randomChar, validChar,
   /* the table */
   SEATS, MIN_SEATS, MAX_SEATS, deal, legal, check, apply, turn, over, opp,
   standing, standingList, answerFor, verify, botFlips,

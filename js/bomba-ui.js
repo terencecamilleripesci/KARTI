@@ -175,16 +175,27 @@ function levelWords(k){
   return { n:T('Normal', 'Normali'), i:T('Plays properly.', 'Jilgħab sew.') };
 }
 
-/* the five shipped maps, named. The id is the engine's; the words are
-   ours (bilingual — the engine authors no player strings). */
+/* the shipped maps, named. The id is the engine's; the words are ours
+   (bilingual — the engine authors no player strings). Small/medium seat
+   2–4; the three LARGE arenas seat up to 8 (the "more than 4 = bigger
+   map" set). The engine's MAP_IDS is the source of order; MAPWORDS just
+   dresses each id. A map with no words falls back to its id. */
 const MAPWORDS = {
-  arena:    () => ({ n:T('Arena', 'Arena'),        i:T('Open, four corners. The friendly one.', 'Miftuħa, erba’ kantunieri. Il-ħabiba.') }),
+  duell:    () => ({ n:T('Duell', 'Duell'),        i:T('Small, mirrored. Two only.', 'Żgħira, mera. Tnejn biss.') }),
+  arena:    () => ({ n:T('Arena', 'Arena'),        i:T('Open four corners, brick-packed.', 'Erba’ kantunieri miftuħa, mimlija blokok.') }),
   labirint: () => ({ n:T('Labirint', 'Labirint'),  i:T('Dense blocks, tight lanes.', 'Blokok fitti, mogħdijiet dojoq.') }),
   kurituri: () => ({ n:T('Kurituri', 'Kurituri'),  i:T('Long corridors, pillar walls.', 'Kurituri twal, ħitan bil-pilastri.') }),
   gzira:    () => ({ n:T('Gżira', 'Gżira'),        i:T('Lopsided on purpose. No two corners fair.', 'Storta apposta. L-ebda żewġ kantunieri ġusti.') }),
-  duell:    () => ({ n:T('Duell', 'Duell'),        i:T('Small, mirrored. Two only.', 'Żgħira, mera. Tnejn biss.') })
+  salib:    () => ({ n:T('Salib', 'Salib'),        i:T('A pillar cross quarters the arena.', 'Salib ta’ pilastri jaqsam l-arena f’erbgħa.') }),
+  gzejjer:  () => ({ n:T('Gżejjer', 'Gżejjer'),    i:T('Big open arena. Five to eight.', 'Arena kbira miftuħa. Ħamsa sa tmienja.') }),
+  katakombi:() => ({ n:T('Katakombi', 'Katakombi'),i:T('Big maze, lots to dig. Up to eight.', 'Labirint kbir, ħafna x’tħaffer. Sa tmienja.') }),
+  kurituri_kbir: () => ({ n:T('Kurituri l-Kbar', 'Kurituri l-Kbar'), i:T('Grand corridors for eight.', 'Kurituri kbar għal tmienja.') })
 };
-const MAP_ORDER = ['arena', 'labirint', 'kurituri', 'gzira', 'duell'];
+const MAP_ORDER = (E.MAP_IDS && E.MAP_IDS.slice()) ||
+  ['duell', 'arena', 'labirint', 'kurituri', 'gzira', 'salib', 'gzejjer', 'katakombi', 'kurituri_kbir'];
+/* how big a map is, for the picker badge: S/M small-medium (2–4), L large (5–8) */
+function mapSize(id){ try { return E.MAPS[id] && E.MAPS[id].size || 'M'; } catch(e){ return 'M'; } }
+function mapWords(id){ return MAPWORDS[id] ? MAPWORDS[id]() : { n:id, i:'' }; }
 
 /* ── the eight players, by colour. Seat order, fixed, so the player you
    are is the same colour on every phone at the table. Two tones per
@@ -200,13 +211,19 @@ const COLS = [
   { a:'#E8E2D0', b:'#7A7260', n:() => T('Bone',   'Għadma')  }
 ];
 
-/* the four power-ups, by kind, for the HUD and the drawn pickup icon */
+/* the power-ups, by kind, for the HUD and the drawn pickup icon. The
+   classic four plus the four scale-up finds. `fill` marks glyphs meant to
+   be filled rather than stroked. */
 const PU = E.PU;
 const PU_INFO = {
   [PU.BOMB]:  { c:'#FF6B8A', g:'M12 4v16M4 12h16' },                          /* +bomb  (plus)   */
   [PU.RANGE]: { c:'#FF9A4D', g:'M12 3v18M12 3l-4 4M12 3l4 4M12 21l-4-4M12 21l4-4' }, /* +range (arrows) */
-  [PU.SPEED]: { c:'#5FC8FF', g:'M13 3L5 13h5l-1 8 8-10h-5z' },                /* +speed (bolt)   */
-  [PU.KICK]:  { c:'#3BE08A', g:'M4 12h11M15 12l-4-4M15 12l-4 4M18 6v12' }     /* kick   (foot)   */
+  [PU.SPEED]: { c:'#5FC8FF', g:'M13 3L5 13h5l-1 8 8-10h-5z', fill:true },     /* +speed (bolt)   */
+  [PU.KICK]:  { c:'#3BE08A', g:'M4 12h11M15 12l-4-4M15 12l-4 4M18 6v12' },    /* kick   (foot)   */
+  [PU.REMOTE]:{ c:'#FFC542', g:'M12 3v5M8 8h8v11H8zM10 12h4M10 15h4', },      /* remote (detonator) */
+  [PU.PIERCE]:{ c:'#C08BFF', g:'M3 12h18M15 8l4 4-4 4M9 8L5 12l4 4' },        /* pierce (arrows out) */
+  [PU.SHIELD]:{ c:'#7BE8E0', g:'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z' },  /* shield          */
+  [PU.MEGA]:  { c:'#FF4A3C', g:'M12 3a6 6 0 1 0 4 10l3 3 2-2-3-3A6 6 0 0 0 12 3z', fill:true } /* mega (big bomb) */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -243,6 +260,8 @@ function injectCSS(){
       'font:900 10px/1 var(--disp);letter-spacing:.05em;color:var(--dim)}' +
     '#scr-party .bm-chip .d{width:9px;height:9px;border-radius:3px;flex:0 0 auto}' +
     '#scr-party .bm-chip b{color:#fff;font-size:11px}' +
+    '#scr-party .bm-chip em{font-style:normal;color:var(--gold,#FFC542);font-size:9px;' +
+      'letter-spacing:.08em;margin-left:1px}' +
     '#scr-party .bm-chip.me{background:rgba(255,197,66,.13);border-color:rgba(255,197,66,.38)}' +
     '#scr-party .bm-chip.out{opacity:.38}' +
     '#scr-party .bm-chip.out b{text-decoration:line-through}' +
@@ -339,7 +358,11 @@ function injectCSS(){
       'box-shadow:inset 0 0 0 1px rgba(255,197,66,.5)}' +
     '#scr-party .bm-map canvas{display:block;width:80px;height:80px;border-radius:9px;' +
       'background:#0B0E14}' +
-    '#scr-party .bm-map b{font:900 11px/1 var(--disp);letter-spacing:.05em;color:#fff}' +
+    '#scr-party .bm-map b{font:900 11px/1 var(--disp);letter-spacing:.05em;color:#fff;' +
+      'display:flex;align-items:center;justify-content:space-between;gap:4px}' +
+    '#scr-party .bm-map-cap{font:900 8px/1 var(--disp);letter-spacing:.06em;' +
+      'color:var(--gold,#FFC542);background:rgba(255,197,66,.14);border-radius:6px;' +
+      'padding:2px 4px;flex:0 0 auto}' +
     '#scr-party .bm-map i{font:700 9px/1.3 var(--body);color:var(--dim2);font-style:normal;' +
       'display:block;min-height:22px}' +
 
@@ -453,10 +476,18 @@ function mapSpawnCount(id){
 function startMatch(opts, seed, net){
   stopLoop();
   const o = Object.assign({ map:'arena', seats:4, lvl:2 }, opts || {});
+  /* THE "MORE THAN 4 => BIGGER MAP" RULE, applied at the one chokepoint so
+     every entry (solo, online lobby start, replay) obeys it: if the chosen
+     map cannot seat everyone, grow to a large arena that can. Deterministic
+     (E.mapForSeats), so the host's phone and the guests' all resolve the
+     identical map for the identical seat count — the lockstep cannot fork
+     on a map choice. */
+  const wantSeats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, o.seats | 0 || 4));
+  o.map = (E.mapForSeats ? E.mapForSeats(o.map, wantSeats) : o.map);
   const md = mapDef(o.map);
   const parsed = E.parseMap(md);
   const seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS,
-    Math.min(o.seats | 0 || 4, parsed.spawns.length)));
+    Math.min(wantSeats, parsed.spawns.length)));
 
   M = {
     opts: o,
@@ -890,7 +921,7 @@ function drawPowerup(g, x, y, cell, kind, now){
   g.strokeStyle = info.c; g.fillStyle = info.c;
   g.lineWidth = 2.6 / k; g.lineCap = 'round'; g.lineJoin = 'round';
   const p = new Path2D(info.g);
-  if (kind === PU.SPEED) g.fill(p); else g.stroke(p);
+  if (info.fill) g.fill(p); else g.stroke(p);
   g.restore();
 }
 
@@ -1201,7 +1232,20 @@ function hud(){
   UI.hud.innerHTML = st.players.map(pl => {
     const c = COLS[pl.seat % COLS.length];
     const m = M.meta[pl.seat] || {};
-    const kit = pl.alive ? ('<b>' + pl.bombs + '</b>·' + pl.range) : '';
+    /* the kit read: bombs·range, then a compact run of the toys a player
+       has collected so the power-up chase is legible at a glance.
+       K kick, R remote, P pierce, S×n shields, M×n mega charges. */
+    let toys = '';
+    if (pl.alive){
+      if (pl.kick)   toys += 'K';
+      if (pl.remote) toys += 'R';
+      if (pl.pierce) toys += 'P';
+      if (pl.shield) toys += 'S' + (pl.shield > 1 ? pl.shield : '');
+      if (pl.mega)   toys += 'M' + (pl.mega > 1 ? pl.mega : '');
+    }
+    const kit = pl.alive
+      ? ('<b>' + pl.bombs + '</b>·' + pl.range + (toys ? ' <em>' + esc(toys) + '</em>' : ''))
+      : '';
     return '<span class="bm-chip' + (pl.seat === M.me ? ' me' : '') +
              (pl.alive ? '' : ' out') + '">' +
       '<span class="d" style="background:' + c.a + '"></span>' +
@@ -1414,7 +1458,7 @@ function openBoard(onBack){
   });
   /* the frame's square-board sizer is not ours — the arena is not square */
   if (M.ctx.stopFit) M.ctx.stopFit();
-  const mw = MAPWORDS[M.opts.map] ? MAPWORDS[M.opts.map]().n : M.opts.map;
+  const mw = mapWords(M.opts.map).n;
   M.ctx.badge.textContent = mw + ' · ' + M.st.players.length;
   board();
   M.ctx.btn('bm-rules').onclick = () => setRules(!rulesOpen);
@@ -1809,11 +1853,18 @@ function setupAI(){
   let seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, p.seats || 4));
   let lvl   = p.lvl || 2;
 
-  /* clamp the seat count to the map's spawn count so the picker can never
-     ask for more players than the map seats */
-  function maxSeatsFor(id){ return E.parseMap(mapDef(id)).spawns.length; }
+  /* how many seats a map can spawn */
+  function maxSeatsFor(id){ return E.mapSeats ? E.mapSeats(id) : E.parseMap(mapDef(id)).spawns.length; }
+  /* THE "MORE THAN 4 => BIGGER MAP" RULE, from the engine. When the player
+     raises the seat count past the current map's ceiling, we upgrade to a
+     large arena that seats everyone (deterministic, same helper the online
+     lobby uses). Picking a specific map that fits keeps it. */
+  function fitMap(id, n){ return E.mapForSeats ? E.mapForSeats(id, n) : id; }
 
   function paint(){
+    /* if the seat count outgrew the chosen map, grow the map to fit */
+    const fitted = fitMap(map, seats);
+    if (fitted !== map) map = fitted;
     const mx = maxSeatsFor(map);
     if (seats > mx) seats = mx;
     el.innerHTML =
@@ -1831,10 +1882,14 @@ function setupAI(){
         '<div class="tiny pt-lbl">' + esc(T('The arena', 'L-arena')) + '</div>' +
         '<div class="bm-maps" id="bm-maps">' +
           MAP_ORDER.map(id => {
-            const w = MAPWORDS[id]();
+            const w = mapWords(id);
+            const cap = maxSeatsFor(id);
+            const badge = mapSize(id) === 'L'
+              ? T('5–8', '5–8') : (cap === 2 ? T('2', '2') : T('2–4', '2–4'));
             return '<button class="bm-map' + (map === id ? ' on' : '') + '" data-map="' + id + '">' +
               '<span class="bm-map-pv" data-pv="' + id + '"></span>' +
-              '<b>' + esc(w.n) + '</b><i>' + esc(w.i) + '</i></button>';
+              '<b>' + esc(w.n) + ' <span class="bm-map-cap">' + esc(badge) + '</span></b>' +
+              '<i>' + esc(w.i) + '</i></button>';
           }).join('') +
         '</div>' +
 
@@ -1843,9 +1898,16 @@ function setupAI(){
           '<button class="bm-rnd" id="bm-s-dn"' + (seats <= E.MIN_SEATS ? ' disabled' : '') +
             ' aria-label="' + esc(T('Fewer', 'Inqas')) + '">&minus;</button>' +
           '<span class="v">' + seats + '<i>' + esc(T('players', 'plejers')) + '</i></span>' +
-          '<button class="bm-rnd" id="bm-s-up"' + (seats >= mx ? ' disabled' : '') +
+          '<button class="bm-rnd" id="bm-s-up"' + (seats >= E.MAX_SEATS ? ' disabled' : '') +
             ' aria-label="' + esc(T('More', 'Aktar')) + '">+</button>' +
         '</div>' +
+        '<p class="blurb" style="margin:4px 2px 8px;font-size:11px">' +
+          esc(seats > 4
+            ? T('More than four — a bigger arena is picked for you.',
+                'Aktar minn erbgħa — tintgħażel arena akbar għalik.')
+            : T('Two to four fits the small and medium arenas.',
+                'Tnejn sa erbgħa jidħlu fl-areni żgħar u medji.')) +
+        '</p>' +
         '<p class="blurb" style="margin:6px 2px 12px">' +
           esc(T('You, and the rest are the machine. Online, the empty chairs fill with people.',
                 'Int, u l-bqija huma l-magna. Onlajn, is-siġġijiet vojta jimtlew bin-nies.')) +
@@ -1904,11 +1966,15 @@ function setupAI(){
     el.querySelector('#bm-maps').addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('[data-map]');
       if (!b) return; map = b.getAttribute('data-map');
+      /* choosing a map re-clamps the seat count to what it can hold */
+      const mx2 = maxSeatsFor(map); if (seats > mx2) seats = mx2;
       cue('ui.tap', { gain:0.5 }); paint();
     });
     const dn = el.querySelector('#bm-s-dn'), up = el.querySelector('#bm-s-up');
     if (dn) dn.onclick = () => { if (seats > E.MIN_SEATS){ seats--; paint(); } };
-    if (up) up.onclick = () => { if (seats < maxSeatsFor(map)){ seats++; paint(); } };
+    /* raising the seat count past the map's cap grows the map (fitMap in
+       paint), all the way to eight players on a large arena */
+    if (up) up.onclick = () => { if (seats < E.MAX_SEATS){ seats++; paint(); } };
     el.querySelector('#bm-lvl').addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('[data-lvl]');
       if (!b) return; lvl = +b.getAttribute('data-lvl'); paint();
@@ -2003,11 +2069,13 @@ R.lobby = {
      two). Labels are ours (the engine authors no player strings). */
   get variants(){
     return MAP_ORDER.map(id => {
-      const w = MAPWORDS[id]();
+      const w = mapWords(id);
       const spawns = mapSpawnCount(id);
       const seats = [];
       for (let n = E.MIN_SEATS; n <= Math.min(E.MAX_SEATS, spawns); n++) seats.push(n);
-      return { net:id, label:{ en:w.n, mt:w.n }, seats };
+      /* label carries the size so the host sees which arenas open to 5–8 */
+      const tag = mapSize(id) === 'L' ? ' (5–8)' : (spawns === 2 ? ' (2)' : '');
+      return { net:id, label:{ en:w.n + tag, mt:w.n + tag }, seats };
     });
   },
   /* which map this room is on, as the relay's word. The room (MP.variant)
@@ -2102,7 +2170,7 @@ try {
       /* start a match this test drives by hand: no rAF, no countdown, and
          with the input delay forced to 0 so a byte pressed for a tick lands
          on THAT tick — the harness wants to see a move move immediately. */
-      manual: (opts, seed) => {
+      manual: (opts, seed, withBoard) => {
         injectCSS(); P.show();
         startMatch(opts || { map:'arena', seats:2, lvl:2 }, seed, null);
         M.me = E.meSeat(M.st); M.mine = []; M.meta = [];
@@ -2113,6 +2181,9 @@ try {
           M.meta.push({ name:'#' + (s + 1) });
         }
         M.lead = 0; M.D = 0;
+        /* optionally build the real board DOM (no rAF loop) so a UI test can
+           render and drive it by hand — this is the manual path plus a screen. */
+        if (withBoard){ openBoard(() => menu()); }
         return M;
       },
       /* drive N ticks by hand, off the clock, honouring held input + drops */

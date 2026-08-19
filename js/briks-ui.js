@@ -189,12 +189,16 @@ const TEAM = [
   { a:'#FFC542', b:'#8A5A0E', wall:'#E0932F', name:() => T('You', 'Int') },   /* down / you   */
   { a:'#5FC8FF', b:'#164C6E', wall:'#3E8FC4', name:() => T('Them', 'Huma') }  /* up / them    */
 ];
-/* the four power-ups, one glyph and colour each — drawn, never an image */
+/* the seven power-ups, one glyph and colour each — drawn, never an image.
+   Ids match the engine's PU map (1..7) so this is a plain index lookup. */
 const PU_ART = {
-  1: { c:'#FF6B8A', k:'multi'  },   /* MULTI  */
-  2: { c:'#3BE08A', k:'wide'   },   /* WIDE   */
-  3: { c:'#FF9A4D', k:'fast'   },   /* FAST   */
-  4: { c:'#C08BFF', k:'shield' }    /* SHIELD */
+  1: { c:'#FF6B8A', k:'multi',  n:() => T('Multi-ball','Aktar blalen') },   /* MULTI  */
+  2: { c:'#3BE08A', k:'wide',   n:() => T('Wider','Usa\'') },               /* WIDE   */
+  3: { c:'#57D6FF', k:'slow',   n:() => T('Slow','Bil-mod') },              /* SLOW   */
+  4: { c:'#FFD54D', k:'sticky', n:() => T('Sticky','Taqbad') },             /* STICKY */
+  5: { c:'#FF5A5A', k:'laser',  n:() => T('Laser','Lejżer') },              /* LASER  */
+  6: { c:'#FF8A3D', k:'power',  n:() => T('Power ball','Ballun qawwi') },   /* POWER  */
+  7: { c:'#C08BFF', k:'shield', n:() => T('Barrier','Ħarsien') }            /* SHIELD */
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -401,6 +405,41 @@ function injectDefs(){
 let M = null;
 let UI = null;
 const moveSubs = [];
+
+/* ── JUICE: particles + ball trails, purely cosmetic and OUTSIDE the sim.
+   Spawned from engine EVENTS (which are deterministic) but the particle
+   motion uses Math.random / time freely — it never touches state, never
+   feeds back into a tick, and is skipped entirely under reduced motion. ── */
+let PARTS = [];                      /* {x,y,vx,vy,born,life,c,r} in arena u */
+const PART_MAX = 220;
+function spawnBurst(x, y, colour, n, spread, big){
+  if (noMotion()) return;
+  const now = nowMs();
+  for (let i = 0; i < n; i++){
+    const a = Math.random() * 6.2832;
+    const sp = (0.3 + Math.random()) * spread;
+    PARTS.push({ x, y,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      born: now, life: (big ? 520 : 360) + Math.random() * 220,
+      c: colour, r: C.S * (big ? 1.5 : 1.0) * (0.6 + Math.random() * 0.7) });
+  }
+  if (PARTS.length > PART_MAX) PARTS.splice(0, PARTS.length - PART_MAX);
+}
+function drawParticles(g, now){
+  if (noMotion()){ PARTS.length = 0; return; }
+  for (let i = PARTS.length - 1; i >= 0; i--){
+    const p = PARTS[i];
+    const age = now - p.born;
+    if (age >= p.life){ PARTS.splice(i, 1); continue; }
+    const t = age / p.life;
+    const x = p.x + p.vx * age * 0.06;
+    const y = p.y + p.vy * age * 0.06 + 0.0009 * age * age;   /* a little gravity */
+    g.globalAlpha = (1 - t) * 0.9;
+    g.fillStyle = p.c;
+    g.beginPath(); g.arc(x, y, p.r * (1 - t * 0.5), 0, 6.2832); g.fill();
+  }
+  g.globalAlpha = 1;
+}
 function fire(list, a){ for (const f of list.slice()){ try { f(a); } catch(e){} } }
 
 function newSeed(){ return (Math.random() * 0x7FFFFFFF) | 0; }
@@ -428,8 +467,11 @@ function startMatch(opts, seed, net){
     t0: 0, tick: 0,
     thumbX: null,             /* last committed absolute target (subunits)*/
     ghostX: null,             /* the predicted local paddle x, for draw   */
+    renderX: null,            /* render-eased own paddle x (60fps, smooth)*/
     lastForTick: 0,           /* last tick we filed a target for          */
     prev: null,               /* snapshot of ball positions last tick     */
+    prevPad: null,            /* snapshot of paddle x last tick (opponent)*/
+    lastFrameMs: 0,           /* wall time of the last draw, for easing   */
     raf: 0, dead: false, finished: false,
     fps: { n:0, at:0, val:0 },
     lead: LEAD_MS, ledSaid: -1,
@@ -461,6 +503,15 @@ function seedInputs(){
 function snapBalls(){
   const m = {};
   for (const b of M.st.balls) m[b.id] = { x:b.x, y:b.y };
+  return m;
+}
+/* the previous-tick paddle x per pid, so the OPPONENT paddle interpolates
+   the same way the ball does (its authoritative x steps at 40Hz; drawing
+   lerp(prev,now,frac) shows a smooth 60fps slab). YOUR paddle does not use
+   this — it is drawn from the render-eased ghost, which is even smoother. */
+function snapPads(){
+  const m = {};
+  for (const p of M.st.pads) m[p.pid] = p.x;
   return m;
 }
 
@@ -590,6 +641,7 @@ function doTick(){
 
   /* 3 — the authoritative step. */
   M.prev = snapBalls();
+  M.prevPad = snapPads();
   const before = st.balls.length;
   E.step(st);
   M.tick = st.tick;
@@ -605,31 +657,76 @@ function doTick(){
 
 /* map engine event ids to sound. Existing sfx ids only. */
 function reactEvents(evs, ballsBefore){
-  let paddle = false, crack = false, smash = false, through = false, pu = false, crumble = false;
+  let paddle = false, crack = false, smash = false, through = false, pu = false,
+      crumble = false, laser = false, sticky = false;
   for (const e of evs){
     if (!e || !e.id) continue;
     switch (e.id){
-      case 'ev.paddle': case 'ev.edge': paddle = true; break;
-      case 'ev.brick':  crack = true; break;
-      case 'ev.broke':  smash = true; break;
+      case 'ev.paddle': case 'ev.edge':
+        paddle = true;
+        /* a small spark off the struck paddle */
+        if (e.pid != null && M.st.pads[e.pid]){
+          const p = M.st.pads[e.pid];
+          const fy = p.side === 0 ? C.PAD_Y0[0] : C.PAD_Y1[1];
+          spawnBurst(p.x, fy, TEAM[e.pid === M.me ? 0 : 1].a, 5, 34, false);
+        }
+        break;
+      case 'ev.brick':
+        crack = true;
+        if (e.side != null) brickBurst(e, 5, false);
+        break;
+      case 'ev.broke':
+        smash = true;
+        brickBurst(e, e.smash ? 16 : 10, !!e.smash);
+        break;
       case 'ev.through':
         through = true;
-        /* whose wall was broken through? side === defender. */
         flash(sideIsMine(e.side)
           ? T('They broke through!', 'Qasmu n-naħa tiegħek!')
           : T('Through!', 'Għadda!'));
         break;
-      case 'ev.catch': pu = true; break;
+      case 'ev.catch':
+        pu = true;
+        pickupJuice(e.pid, e.pu);
+        break;
+      case 'ev.catch2': sticky = true; break;
+      case 'ev.laser':  laser = true; break;
       case 'ev.shield': paddle = true; break;
       case 'ev.crumble': crumble = true; break;
     }
   }
   if (paddle && !smash) cue('duel.hit', { gain:0.4 });
+  if (sticky)  cue('piece.place', { gain:0.5 });
+  if (laser)   cue('sea.sonar', { gain:0.3 });
   if (crack)   cue('dama.jump', { gain:0.4 });
   if (smash)   cue('sea.sink', { gain:0.6 }, true);
   if (through) cue('sea.horn', { gain:0.7 }, true);
   if (pu)      cue('ui.reward', { gain:0.55 }, true);
   if (crumble) cue('ui.sheet', { gain:0.5 });
+}
+
+/* a coloured burst at a brick's centre. */
+function brickBurst(e, n, big){
+  try {
+    const bb = E.brickBox(e.side, e.r, e.c);
+    const cx = (bb.x0 + bb.x1) / 2, cy = (bb.y0 + bb.y1) / 2;
+    const mine = (e.side === M.me);
+    spawnBurst(cx, cy, mine ? TEAM[0].a : TEAM[1].a, n, big ? 70 : 44, big);
+    if (big) spawnBurst(cx, cy, '#fff', 6, 60, true);
+  } catch(err){}
+}
+/* a bright pickup pop at the paddle that caught a power-up + a banner. */
+function pickupJuice(pid, kind){
+  const art = PU_ART[kind] || PU_ART[1];
+  try {
+    if (pid != null && M.st.pads[pid]){
+      const p = M.st.pads[pid];
+      const fy = p.side === 0 ? C.PAD_Y0[0] : C.PAD_Y1[1];
+      spawnBurst(p.x, fy, art.c, 18, 66, true);
+    }
+  } catch(err){}
+  /* only announce MY own pickups on the flash line, so it stays useful */
+  if (pid === M.me && art.n) flash(art.n());
 }
 
 /* the score rail is DOM and repainted on CHANGE only. */
@@ -708,9 +805,12 @@ function draw(f){
   drawCourt(g);
   drawWalls(g, st);
   drawShields(g, st);
-  drawDrops(g, st);
+  drawBolts(g, st, f);
+  drawDrops(g, st, now);
+  drawTrails(g, st, f, now);
   drawBalls(g, st, f, now);
-  drawPaddles(g, st);
+  drawPaddles(g, st, f, now);
+  drawParticles(g, now);
 }
 
 /* the floor: a faint centre line and a soft vignette, painted every
@@ -790,15 +890,35 @@ function drawShields(g, st){
   }
 }
 
-/* falling power-ups, each a coloured chit with a drawn glyph. */
-function drawDrops(g, st){
+/* falling power-ups, each a coloured chit with a drawn glyph and a GLINT so
+   a drop is unmistakable as it falls (a soft halo + a sweeping highlight). */
+function drawDrops(g, st, now){
   for (const d of st.drops){
     const art = PU_ART[d.kind] || PU_ART[1];
-    const r = C.S * 3.2;
+    const r = C.S * 3.4;
+    if (!noMotion()){
+      /* telegraph halo — pulses so the eye catches it dropping */
+      const pulse = 0.5 + 0.5 * Math.sin(now / 120 + d.id);
+      g.globalAlpha = 0.25 + 0.25 * pulse;
+      g.fillStyle = art.c;
+      g.beginPath(); g.arc(d.x, d.y, r * 1.9, 0, 6.2832); g.fill();
+      g.globalAlpha = 1;
+    }
     g.fillStyle = art.c;
     g.beginPath(); g.arc(d.x, d.y, r, 0, 6.2832); g.fill();
-    g.fillStyle = 'rgba(0,0,0,.30)';
-    puGlyph(g, art.k, d.x, d.y, r * 0.62);
+    /* a bright rim so it reads as a coin/chit */
+    g.strokeStyle = 'rgba(255,255,255,.55)';
+    g.lineWidth = C.S * 0.5;
+    g.beginPath(); g.arc(d.x, d.y, r, 0, 6.2832); g.stroke();
+    /* a sweeping glint highlight */
+    if (!noMotion()){
+      g.globalAlpha = 0.5;
+      g.fillStyle = 'rgba(255,255,255,.85)';
+      g.beginPath(); g.arc(d.x - r * 0.34, d.y - r * 0.34, r * 0.28, 0, 6.2832); g.fill();
+      g.globalAlpha = 1;
+    }
+    g.fillStyle = 'rgba(0,0,0,.34)';
+    puGlyph(g, art.k, d.x, d.y, r * 0.6);
   }
 }
 /* a tiny vector glyph per power-up — no image, no emoji. */
@@ -811,13 +931,41 @@ function puGlyph(g, kind, cx, cy, r){
     g.beginPath(); g.arc(cx - r * 0.5, cy, r * 0.42, 0, 6.2832); g.fill();
     g.beginPath(); g.arc(cx + r * 0.5, cy, r * 0.42, 0, 6.2832); g.fill();
   } else if (kind === 'wide'){
-    g.fillRect(cx - r, cy - r * 0.28, r * 2, r * 0.56);
-  } else if (kind === 'fast'){
+    /* a bar with arrow-heads pointing out */
+    g.fillRect(cx - r * 0.7, cy - r * 0.22, r * 1.4, r * 0.44);
+    g.beginPath();
+    g.moveTo(cx - r, cy); g.lineTo(cx - r * 0.6, cy - r * 0.4); g.lineTo(cx - r * 0.6, cy + r * 0.4);
+    g.closePath(); g.fill();
+    g.beginPath();
+    g.moveTo(cx + r, cy); g.lineTo(cx + r * 0.6, cy - r * 0.4); g.lineTo(cx + r * 0.6, cy + r * 0.4);
+    g.closePath(); g.fill();
+  } else if (kind === 'slow'){
+    /* a snail-ish spiral: a clock at rest — draw a ring + a short hand */
+    g.beginPath(); g.arc(cx, cy, r * 0.7, 0, 6.2832); g.stroke();
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx, cy - r * 0.5); g.stroke();
+    g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + r * 0.4, cy); g.stroke();
+  } else if (kind === 'sticky'){
+    /* a paddle with a ball glued on top */
+    g.fillRect(cx - r * 0.8, cy + r * 0.3, r * 1.6, r * 0.4);
+    g.beginPath(); g.arc(cx, cy - r * 0.15, r * 0.42, 0, 6.2832); g.fill();
+  } else if (kind === 'laser'){
+    /* a lightning bolt */
     g.beginPath();
     g.moveTo(cx + r * 0.2, cy - r); g.lineTo(cx - r * 0.5, cy + r * 0.1);
     g.lineTo(cx + r * 0.1, cy + r * 0.1); g.lineTo(cx - r * 0.2, cy + r);
     g.lineTo(cx + r * 0.55, cy - r * 0.1); g.lineTo(cx - r * 0.05, cy - r * 0.1);
     g.closePath(); g.fill();
+  } else if (kind === 'power'){
+    /* a solid star-ish burst = a heavy ball */
+    g.beginPath(); g.arc(cx, cy, r * 0.55, 0, 6.2832); g.fill();
+    for (let i = 0; i < 8; i++){
+      const a = i * 0.7854;
+      g.beginPath();
+      g.moveTo(cx, cy);
+      g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      g.lineTo(cx + Math.cos(a + 0.35) * r * 0.5, cy + Math.sin(a + 0.35) * r * 0.5);
+      g.closePath(); g.fill();
+    }
   } else { /* shield */
     g.beginPath();
     g.moveTo(cx, cy - r); g.lineTo(cx + r * 0.8, cy - r * 0.4);
@@ -828,6 +976,30 @@ function puGlyph(g, kind, cx, cy, r){
   g.restore();
 }
 
+/* the ball TRAIL: a few fading discs strung from the previous tick position
+   toward the interpolated now, so a fast ball leaves a streak. Cheap, motion-
+   gated, and reads velocity at a glance. Heavy (power) balls trail hot. */
+function drawTrails(g, st, f, now){
+  if (noMotion()) return;
+  for (const b of st.balls){
+    if (b.stuck) continue;
+    const p = M.prev && M.prev[b.id];
+    if (!p) continue;
+    const bx = p.x + (b.x - p.x) * f, by = p.y + (b.y - p.y) * f;
+    const heavy = b.heavy > 0;
+    const col = heavy ? '#FF8A3D' : '#8FD8FF';
+    const NS = 5;
+    for (let i = 1; i <= NS; i++){
+      const t = i / (NS + 1);
+      const tx = bx + (p.x - bx) * t, ty = by + (p.y - by) * t;
+      g.globalAlpha = (1 - t) * (heavy ? 0.34 : 0.22);
+      g.fillStyle = col;
+      g.beginPath(); g.arc(tx, ty, C.R * (1 - t * 0.5), 0, 6.2832); g.fill();
+    }
+  }
+  g.globalAlpha = 1;
+}
+
 /* the balls, interpolated. A ball's authoritative position moved from
    M.prev[id] to now; drawing lerp(prev, now, f) removes the 40Hz step
    and shows a 60fps ball on any phone. New balls (no prev) draw at now. */
@@ -835,26 +1007,28 @@ function drawBalls(g, st, f, now){
   for (const b of st.balls){
     let bx = b.x, by = b.y;
     const p = M.prev && M.prev[b.id];
-    if (p && f < 1){
+    if (p && f < 1 && !b.stuck){
       bx = p.x + (b.x - p.x) * f;
       by = p.y + (b.y - p.y) * f;
     }
     const r = C.R;
+    const heavy = b.heavy > 0;
     /* speed tint: faster balls run hotter, so the escalation is legible */
     const hot = Math.min(1, Math.max(0, (b.sp - C.SP_MIN) / (C.SP_MAX - C.SP_MIN)));
-    g.fillStyle = '#fff';
     if (!noMotion()){
-      g.globalAlpha = 0.16 + 0.2 * hot;
-      g.beginPath(); g.arc(bx, by, r * 1.9, 0, 6.2832);
-      g.fillStyle = hot > 0.5 ? '#FF9A4D' : '#5FC8FF';
+      /* a HEAVY power-ball wears a fat molten halo so it is unmistakable */
+      g.globalAlpha = heavy ? (0.34 + 0.12 * (0.5 + 0.5 * Math.sin(now / 90)))
+                            : (0.16 + 0.2 * hot);
+      g.beginPath(); g.arc(bx, by, r * (heavy ? 2.4 : 1.9), 0, 6.2832);
+      g.fillStyle = heavy ? '#FF8A3D' : (hot > 0.5 ? '#FF9A4D' : '#5FC8FF');
       g.fill();
       g.globalAlpha = 1;
     }
-    g.fillStyle = '#fff';
+    g.fillStyle = heavy ? '#FFE0B0' : '#fff';
     g.beginPath(); g.arc(bx, by, r, 0, 6.2832); g.fill();
-    /* a warm core when it is really moving */
-    if (hot > 0.4){
-      g.fillStyle = '#FFD873';
+    /* a warm core when it is really moving or heavy */
+    if (heavy || hot > 0.4){
+      g.fillStyle = heavy ? '#FF6A1F' : '#FFD873';
       g.beginPath(); g.arc(bx, by, r * 0.5, 0, 6.2832); g.fill();
     }
   }
@@ -865,31 +1039,114 @@ function drawBalls(g, st, f, now){
    x. A subtle angle gauge on your paddle makes the rebound legible: the
    face is drawn with a faint centre notch so you can see where "straight
    up" is versus the angled ends. */
-function drawPaddles(g, st){
+/* THE PADDLES — the smoothness fix lives here.
+
+   YOUR paddle: the engine's authoritative x steps at 40Hz and the ghost
+   predicts where committed inputs will carry it. But the ghost itself steps
+   40Hz, so drawing it raw still stutters. So we RENDER-EASE: M.renderX chases
+   the ghost target every frame by a large fraction of the remaining gap
+   (frame-rate independent, exponential). Because PAD_SPEED is now 22 du/tick
+   the ghost is already almost ON the thumb, and the ease removes the 40Hz
+   staircase — the slab glides under your thumb with no perceptible lag and no
+   stutter. It is DRAW ONLY: the ball never reads renderX; ghost() and the
+   authoritative sim are untouched, so determinism is intact.
+
+   THE OPPONENT paddle: no prediction is possible (their input arrives late),
+   so it INTERPOLATES between its previous and current authoritative x by the
+   tick fraction, exactly like the ball — a smooth 60fps slab. */
+function easePaddle(target, now){
+  if (M.renderX == null){ M.renderX = target; M.lastFrameMs = now; return target; }
+  let dt = now - (M.lastFrameMs || now);
+  M.lastFrameMs = now;
+  if (dt < 0) dt = 0; if (dt > 64) dt = 64;
+  /* exponential ease: ~92% of the gap closed in 16ms, frame-rate independent.
+     k per ms tuned so a 60fps frame lands the paddle essentially on target. */
+  const k = 1 - Math.pow(0.0009, dt / 16);
+  M.renderX = target + (M.renderX - target) * (1 - k);
+  return M.renderX;
+}
+function drawPaddles(g, st, f, now){
   for (const p of st.pads){
     const mine = (p.pid === M.me);
     const tc = TEAM[mine ? 0 : 1];
-    let x = p.x;
-    if (mine && M.ghostX != null) x = M.ghostX;   /* predicted, draw only */
+    let x;
+    if (mine){
+      const tgt = (M.ghostX != null) ? M.ghostX : p.x;
+      x = noMotion() ? tgt : easePaddle(tgt, now);
+    } else {
+      /* interpolate the opponent between last and current authoritative x */
+      const prev = M.prevPad && M.prevPad[p.pid];
+      x = (prev != null && f < 1 && !noMotion()) ? (prev + (p.x - prev) * f) : p.x;
+    }
     const pb = { x0: x - p.hw, x1: x + p.hw, y0: C.PAD_Y0[p.side], y1: C.PAD_Y1[p.side] };
     const w = pb.x1 - pb.x0, h = pb.y1 - pb.y0;
+    const cy = (pb.y0 + pb.y1) / 2;
+
+    /* power-up state glow behind the slab so ACTIVE effects are legible:
+       WIDE = the slab simply grew; STICKY = a soft aura + a tacky lip;
+       LASER = a hot underglow and charge pips. */
+    const sticky = p.stickyT > 0, laser = p.laser > 0;
+    if (!noMotion() && (sticky || laser)){
+      const pulse = 0.5 + 0.5 * Math.sin(now / 150);
+      g.globalAlpha = 0.18 + 0.16 * pulse;
+      g.fillStyle = sticky ? '#FFD54D' : '#FF5A5A';
+      rrect(g, pb.x0 - C.S, pb.y0 - C.S, w + C.S * 2, h + C.S * 2, C.S * 1.8);
+      g.fill();
+      g.globalAlpha = 1;
+    }
+
     /* the slab */
-    g.fillStyle = mine ? tc.a : tc.a;
+    g.fillStyle = tc.a;
     rrect(g, pb.x0, pb.y0, w, h, C.S * 1.2);
     g.fill();
-    g.fillStyle = mine ? tc.b : tc.b;
+    g.fillStyle = tc.b;
     g.globalAlpha = 0.5;
     rrect(g, pb.x0, pb.y0 + h * 0.5, w, h * 0.5, C.S * 1.2);
     g.fill();
     g.globalAlpha = 1;
-    /* the angle notch — the centre is a flat return, the ends fan out.
-       A darker centre pip and two lighter end pips read that at a glance. */
-    const cy = (pb.y0 + pb.y1) / 2;
+
+    /* a sticky "lip" on the front face so catch is obvious */
+    if (sticky){
+      const fy = p.side === 0 ? pb.y0 : pb.y1;
+      g.strokeStyle = '#FFD54D';
+      g.lineWidth = C.S * 0.9;
+      g.beginPath(); g.moveTo(pb.x0 + C.S, fy); g.lineTo(pb.x1 - C.S, fy); g.stroke();
+    }
+
+    /* the angle notch — the centre is a flat return, the ends fan out. */
     g.fillStyle = 'rgba(0,0,0,.35)';
     g.beginPath(); g.arc(x, cy, C.S * 0.7, 0, 6.2832); g.fill();
     g.fillStyle = 'rgba(255,255,255,.35)';
     g.beginPath(); g.arc(pb.x0 + w * 0.16, cy, C.S * 0.5, 0, 6.2832); g.fill();
     g.beginPath(); g.arc(pb.x1 - w * 0.16, cy, C.S * 0.5, 0, 6.2832); g.fill();
+
+    /* laser charge pips along the front edge */
+    if (laser){
+      g.fillStyle = '#FF5A5A';
+      const fy = p.side === 0 ? pb.y0 + C.S * 1.2 : pb.y1 - C.S * 1.2;
+      for (let i = 0; i < p.laser && i < 6; i++){
+        g.beginPath(); g.arc(pb.x0 + w * (0.2 + 0.6 * (i / 5)), fy, C.S * 0.35, 0, 6.2832); g.fill();
+      }
+    }
+  }
+}
+
+/* the laser bolts: a hot little dart travelling toward the enemy wall,
+   interpolated by the tick fraction so they streak smoothly. */
+function drawBolts(g, st, f){
+  if (!st.bolts) return;
+  for (const bo of st.bolts){
+    const y = bo.y - (noMotion() ? 0 : bo.vy * (1 - Math.max(0, Math.min(1, f))));
+    g.fillStyle = '#FF5A5A';
+    g.globalAlpha = 0.85;
+    rrect(g, bo.x - C.LASER_HW, y - C.S * 2, C.LASER_HW * 2, C.S * 4, C.LASER_HW);
+    g.fill();
+    if (!noMotion()){
+      g.globalAlpha = 0.3;
+      g.fillStyle = '#FFB0B0';
+      g.beginPath(); g.arc(bo.x, y, C.S * 1.6, 0, 6.2832); g.fill();
+    }
+    g.globalAlpha = 1;
   }
 }
 
@@ -1123,6 +1380,12 @@ function rulesFor(){
       'is losing bricks gets the boost. That is the comeback.',
       '<b>Il-brikks miksura jwaqqgħu għajnuna — u INT taqbadha</b>, nieżla lejn ir-raketta ' +
       'tiegħek. Min qed jitlef il-brikks jieħu s-spinta. Dik ir-ritorn.'),
+    T('<b>Seven power-ups:</b> more balls, a wider paddle, a slow-ball breather, a ' +
+      '<b>sticky</b> paddle that catches and lets you aim, a <b>laser</b> that chips their wall, ' +
+      'a <b>power ball</b> that smashes straight through bricks, and a one-save barrier.',
+      '<b>Seba’ power-ups:</b> aktar blalen, raketta usa’, ballun bil-mod, raketta li ' +
+      '<b>taqbad</b> u tħallik timmira, <b>lejżer</b> li jkisser il-ħajt tagħhom, ' +
+      '<b>ballun qawwi</b> li jgħaddi dritt mill-brikks, u ħarsien li jsalvak darba.'),
     T('<b>After a minute the walls start to crumble</b> on their own, a row at a time from the ' +
       'front. First to the target score wins.',
       '<b>Wara minuta l-ħitan jibdew jiġġarrfu</b> waħedhom, ringiela kull darba minn quddiem. ' +

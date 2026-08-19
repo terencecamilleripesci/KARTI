@@ -268,15 +268,42 @@ const SH_Y1   = [ WALL_Y0[0],            WALL_Y1[1] + SHIELD_T ];
 
 const PAD_HW      = du(26);                /* half width, normal       */
 const PAD_HW_WIDE = du(40);
-const PAD_SPEED   = du(12);                /* per tick; 20 ticks a sweep*/
+/* PADDLE FOLLOW SPEED, RAISED FOR A DIRECT THUMB.
+   Was 12 du/tick — a full 240-du sweep took 20 ticks (half a second), which
+   the eye reads as a paddle "catching up" to the thumb: a chase with weight.
+   The user asked for buttery-direct, so the human paddle now follows at 22
+   du/tick (a full sweep in ~11 ticks, ~275 ms), fast enough that at any
+   humanly-reachable drag speed the authoritative paddle sits ON the thumb
+   within a tick or two and the ghost prediction has almost nothing to lead.
+   The MACHINE keeps the OLD 12 du/tick feel: AI[].spd is a fraction of
+   PAD_SPEED, so raising this would have made the bots superhuman — instead
+   the AI fractions below are re-based on AI_SPEED (=12) so the machine is
+   exactly as chaseable as before while YOUR paddle got quicker. */
+const PAD_SPEED   = du(22);                /* human follow: ~11 ticks a sweep */
+const AI_SPEED    = du(12);                /* machine follow: unchanged feel  */
 
-const SP_MIN   = du(5);                    /* 320  = 200 du/s          */
-const SP_START = du(5.25) | 0;             /* 336                      */
-const SP_MAX   = du(17.5) | 0;             /* 1120 = 700 du/s          */
-const SP_HARD  = du(25) | 0;               /* ceiling incl. FAST boost */
-const ESC_HIT  = 10;                       /* per paddle hit           */
-const ESC_TICK = 3;                        /* per ESC_EVERY ticks      */
+/* SPEED, RE-TUNED FOR A RALLY YOU CAN READ.
+   The old base was 5.25 du/tick (210 du/s) and every paddle hit added 10 —
+   a rally hit ludicrous speed in four returns and a new player never got a
+   second touch. The new curve starts SLOW and readable and ramps GENTLY:
+
+     base   4.0 du/tick  = 160 du/s  — a beginner can track and return it
+     per-hit +5           was +10    — the rally warms rather than detonates
+     per-20-ticks +2      was +3     — the passive floor rises slowly
+     SP_MAX 17.5 du/tick  unchanged  — the ceiling a long rally reaches
+
+   Termination is untouched: sp is monotone non-decreasing (ESC_HIT and
+   ESC_TICK are both > 0 and only ever added), |vy| >= sp*392/1024 still
+   bounds the crossing time, and the three round brakes (escalation, decay,
+   ROUND_MAX) are all intact — see checkEnd() and the header proof. */
+const SP_MIN   = du(3.5) | 0;             /* 224  = 140 du/s (floor)  */
+const SP_START = du(4.0) | 0;             /* 256  = 160 du/s (serve)  */
+const SP_MAX   = du(17.5) | 0;            /* 1120 = 700 du/s          */
+const SP_HARD  = du(25) | 0;              /* ceiling incl. FAST boost */
+const ESC_HIT  = 5;                       /* per paddle hit           */
+const ESC_TICK = 2;                       /* per ESC_EVERY ticks      */
 const ESC_EVERY = 20;
+const SP_HEAVY = du(2) | 0;               /* the POWER-BALL's extra bite */
 
 const MAX_BALLS = 6;
 const HP_ROW  = [1, 1, 2, 3];              /* row 0 is the FRONT row   */
@@ -285,10 +312,12 @@ const BREAK_PTS = 2;                       /* a hit on their back edge */
 
 const DROP_HW    = du(3);
 const DROP_V     = du(4);
-const DROP_RATE  = 220;                    /* per 1000 bricks broken   */
-const WIDE_TICKS = 480;
-const FAST_TICKS = 400;
-const FAST_BOOST = du(2.5) | 0;
+const DROP_RATE  = 300;                    /* per 1000 bricks broken (was 220) */
+const WIDE_TICKS = 560;
+const SLOW_TICKS = 420;                    /* how long a slow-ball lasts */
+const STICKY_TICKS = 560;                  /* how long the paddle catches */
+const LASER_SHOTS = 6;                     /* charges the laser grants   */
+const POWER_TICKS = 300;                   /* how long a ball stays heavy */
 const SHIELD_TICKS = 900;
 
 const DECAY_START = TICK_HZ * 60;
@@ -298,10 +327,44 @@ const ROUND_MAX   = TICK_HZ * 300;
 const TFP = 4096;                          /* sub-ticks in one tick    */
 const MAX_ITER = 24;                       /* bounces resolved per tick*/
 
-/* ── power-ups ───────────────────────────────────────────────────── */
-const PU = { MULTI: 1, WIDE: 2, FAST: 3, SHIELD: 4 };
-const PU_WEIGHT = [ [PU.MULTI, 3], [PU.WIDE, 3], [PU.FAST, 2], [PU.SHIELD, 3] ];
-const PU_TOTAL  = 11;
+/* ── power-ups ────────────────────────────────────────────────────────
+   SEVEN of them now, all DEFENDER-caught (they fall from your OWN broken
+   wall toward your OWN paddle — the comeback valve). Each is deterministic:
+   whether a brick drops and WHICH power-up it drops is a pure hash of
+   (seed, side, r, c), never the order bricks broke in — see maybeDrop().
+
+     MULTI   split every ball once (up to MAX_BALLS). Instant pressure.
+     WIDE    your paddle grows for WIDE_TICKS. Defensive, forgiving.
+     SLOW    every ball drops toward SP_MIN and the escalation floor eases
+             for SLOW_TICKS. The "catch your breath" pick — the opposite of
+             the old FAST, which sped the ball UP and punished the catcher.
+     STICKY  your paddle CATCHES the ball for STICKY_TICKS: it holds on the
+             face and re-launches up the paddle normal on your next move.
+             Aim at leisure. (FAST is gone — a defender-caught speed-up hurt
+             the very player it dropped for; STICKY is the fun version.)
+     LASER   your paddle gets LASER_SHOTS bolts: it auto-fires a bolt every
+             few ticks straight into the enemy wall, chipping bricks. Offence.
+     POWER   the ball you next return becomes a HEAVY power-ball: heavier
+             (SP_HEAVY faster) and it SMASHES THROUGH bricks for POWER_TICKS
+             instead of bouncing off them — but it still bounces off paddles
+             and walls (no tunnelling: it is resolved by the SAME swept code,
+             it just does not flip on a brick). A wall-wrecker.
+     SHIELD  a one-save barrier rises across your wall gap for SHIELD_TICKS.
+
+   The ids are stable and contiguous 1..7 so the UI art table is a plain
+   array lookup. The DROP WEIGHTS below are balanced so no single pick
+   dominates and the two strong offensive picks (MULTI, POWER) are a touch
+   rarer than the defensive ones. */
+const PU = { MULTI: 1, WIDE: 2, SLOW: 3, STICKY: 4, LASER: 5, POWER: 6, SHIELD: 7 };
+const PU_WEIGHT = [
+  [PU.MULTI, 3], [PU.WIDE, 4], [PU.SLOW, 3], [PU.STICKY, 3],
+  [PU.LASER, 3], [PU.POWER, 2], [PU.SHIELD, 3]
+];
+const PU_TOTAL  = 21;                       /* sum of the weights above  */
+
+const LASER_EVERY = 5;                      /* ticks between auto-bolts   */
+const LASER_V     = du(9);                  /* bolt speed toward the wall */
+const LASER_HW    = du(1);                  /* bolt half-width            */
 
 /* ── the machine's three sharpnesses ──────────────────────────────────
    None of them is a perfect interceptor, and this is enforced two ways at
@@ -314,9 +377,9 @@ const PU_TOTAL  = 11;
    so two AĦRAX seats do trade points rather than deadlocking 0:0. */
 const AI = [
   null,
-  { react: 12, err: du(60), spd: (PAD_SPEED * 55 / 100) | 0, mode: 0, aim: 0 },
-  { react:  7, err: du(42), spd: (PAD_SPEED * 78 / 100) | 0, mode: 1, aim: 0 },
-  { react:  4, err: du(30), spd: (PAD_SPEED * 95 / 100) | 0, mode: 2, aim: 1 }
+  { react: 12, err: du(60), spd: (AI_SPEED * 55 / 100) | 0, mode: 0, aim: 0 },
+  { react:  7, err: du(42), spd: (AI_SPEED * 78 / 100) | 0, mode: 1, aim: 0 },
+  { react:  4, err: du(30), spd: (AI_SPEED * 95 / 100) | 0, mode: 2, aim: 1 }
 ];
 /* WHY err >= PAD_HW (du 26) EVEN FOR AĦRAX. A paddle that pre-positions to
    the exact predicted crossing is unbeatable in a straight rally, and two
@@ -440,12 +503,17 @@ const TEXT = {
   'ev.through':  { en: 'Through!',           mt: 'Għadda!' },
   'ev.shield':   { en: 'Barrier held',       mt: 'Il-ħarsien żamm' },
   'ev.catch':    { en: 'Caught it',          mt: 'Qabadha' },
+  'ev.catch2':   { en: 'Stuck!',             mt: 'Weħlet!' },
+  'ev.laser':    { en: 'Laser',              mt: 'Lejżer' },
   'ev.crumble':  { en: 'The walls crumble',  mt: 'Il-ħitan qed jiġġarrfu' },
   'ev.serve':    { en: 'Ball in play',       mt: 'Il-ballun fil-logħob' },
   'pu.1':        { en: 'Multi-ball',         mt: 'Aktar blalen' },
   'pu.2':        { en: 'Wider paddle',       mt: 'Raketta usa\'' },
-  'pu.3':        { en: 'Ball speeds up',     mt: 'Il-ballun jgħaġġel' },
-  'pu.4':        { en: 'Barrier up',         mt: 'Ħarsien imtella\'' },
+  'pu.3':        { en: 'Slow ball',          mt: 'Ballun bil-mod' },
+  'pu.4':        { en: 'Sticky paddle',      mt: 'Raketta li taqbad' },
+  'pu.5':        { en: 'Laser',              mt: 'Lejżer' },
+  'pu.6':        { en: 'Power ball',         mt: 'Ballun qawwi' },
+  'pu.7':        { en: 'Barrier up',         mt: 'Ħarsien imtella\'' },
   'end.target':  { en: 'Broke through',      mt: 'Qasam in-naħa l-oħra' },
   'end.time':    { en: 'Time',               mt: 'Ħin' },
   'end.draw':    { en: 'Level',              mt: 'Indaqs' },
@@ -494,12 +562,12 @@ function start(opts){
     wins: [0, 0],
     roundNo: 0,
     tick: 0,
-    boost: 0, boostT: 0,
+    boost: 0, boostT: 0, slowT: 0,
     decayN: 0,
     score: [0, 0],
     broke: [0, 0],
-    pads: [], walls: [], balls: [], drops: [],
-    nextBall: 0, nextDrop: 0,
+    pads: [], walls: [], balls: [], drops: [], bolts: [],
+    nextBall: 0, nextDrop: 0, nextBolt: 0,
     inp: [], ev: [], over: null, matchOver: null,
     stalls: 0, iterCap: 0
   };
@@ -512,6 +580,8 @@ function start(opts){
       lo: 0, hi: W,
       x: W >> 1, tx: W >> 1, vx: 0,
       hw: PAD_HW, wideT: 0,
+      stickyT: 0,                 /* ticks the catch power-up is active   */
+      laser: 0, laserCd: 0,       /* laser charges left / cooldown ticks  */
       spd: PAD_SPEED,
       bot: bots[i] | 0, lvl: clamp(lvls[i] | 0 || 2, 1, 3)
     });
@@ -525,15 +595,16 @@ function start(opts){
 /* build (or rebuild) the walls, park the paddles, put one ball up. */
 function setupRound(st){
   st.tick = 0;
-  st.boost = 0; st.boostT = 0; st.decayN = 0;
+  st.boost = 0; st.boostT = 0; st.slowT = 0; st.decayN = 0;
   st.score = [0, 0]; st.broke = [0, 0];
-  st.balls = []; st.drops = [];
-  st.nextBall = 0; st.nextDrop = 0;
+  st.balls = []; st.drops = []; st.bolts = [];
+  st.nextBall = 0; st.nextDrop = 0; st.nextBolt = 0;
   st.ev = []; st.over = null;
   st.stalls = 0; st.iterCap = 0;
   for (let i = 0; i < st.pads.length; i++){
     const p = st.pads[i];
     p.hw = PAD_HW; p.wideT = 0; p.vx = 0;
+    p.stickyT = 0; p.laser = 0; p.laserCd = 0;
     p.spd = p.bot ? AI[p.lvl].spd : PAD_SPEED;
     p.x = (p.lo + p.hi) >> 1; p.tx = p.x;
     p.aiAim = (p.lo + p.hi) >> 1; p.aiSeen = -1;
@@ -554,7 +625,8 @@ function serve(st){
   const down = rnd(st) < 0.5 ? 1 : 0;                /* 1 = toward side 0 */
   const k = (trunc(rnd(st) * (2 * K_MAX + 1)) % (2 * K_MAX + 1)) - K_MAX;
   const di = snap((FAN_BASE[down ? 1 : 0] + (down ? -k : k) + 64) & 63);
-  st.balls.push({ id: st.nextBall++, x: W >> 1, y: H >> 1, di: di, sp: SP_START, last: -1 });
+  st.balls.push({ id: st.nextBall++, x: W >> 1, y: H >> 1, di: di, sp: SP_START,
+                  last: -1, heavy: 0, stuck: 0, stuckPid: -1, stuckOff: 0 });
   st.ev.push({ id: 'ev.serve' });
 }
 
@@ -852,11 +924,17 @@ function resolveBall(st, ball){
       if (h.kind === 'brick'){
         const w = st.walls[h.meta.side];
         const k = bi(h.meta.r, h.meta.c);
+        /* a POWER-BALL smashes clean through: it takes the WHOLE brick out in
+           one contact (not one hp) and does NOT reflect off it. It still
+           bounces off paddles and walls, so it can never tunnel out of the
+           arena — only bricks stop stopping it. */
+        const smash = ball.heavy > 0;
         if (w.cells[k] > 0){
-          w.cells[k] -= 1;
+          const before = w.cells[k];
+          w.cells[k] = smash ? 0 : (w.cells[k] - 1);
           st.broke[h.meta.side] += 1;
           if (w.cells[k] <= 0){
-            events.push({ id: 'ev.broke', side: h.meta.side, r: h.meta.r, c: h.meta.c });
+            events.push({ id: 'ev.broke', side: h.meta.side, r: h.meta.r, c: h.meta.c, smash: smash ? 1 : 0 });
             maybeDrop(st, h.meta.side, h.meta.r, h.meta.c);
             /* a hit on the back row scores for the ATTACKER (other team) */
             if (h.meta.r === ROWS - 1) scoreHit(st, h.meta.side);
@@ -864,8 +942,11 @@ function resolveBall(st, ball){
             events.push({ id: 'ev.brick', side: h.meta.side, r: h.meta.r, c: h.meta.c });
           }
         }
-        if (h.ax & 1) flipX = true;
-        if (h.ax & 2) flipY = true;
+        /* smash = no reflection off the brick (plough straight on) */
+        if (!smash){
+          if (h.ax & 1) flipX = true;
+          if (h.ax & 2) flipY = true;
+        }
       } else if (h.kind === 'wall'){
         if (h.meta.axis === 'x') flipX = true; else flipY = true;
         /* a back-edge hit scores for the attacker, but only ONCE per contact
@@ -903,6 +984,23 @@ function resolveBall(st, ball){
     /* apply the direction change */
     let di = ball.di;
     if (paddleFace !== null){
+      const pp = st.pads[paddleFace];
+      /* STICKY: the paddle CATCHES the ball on its face instead of returning
+         it. We record the catch offset (where on the face) so the re-launch
+         later reproduces exactly the angle that offset would have given —
+         deterministic, no float. The ball then rides the paddle until the
+         owner moves (see releaseStuck / movePads). */
+      if (pp.stickyT > 0 && ball.stuck === 0){
+        ball.stuck = 1; ball.stuckPid = paddleFace;
+        ball.stuckOff = clamp(px - pp.x, -pp.hw, pp.hw);
+        ball.last = paddleFace;
+        /* park the ball on the front face and stop it dead this tick. px/py
+           carry to the ball write below; depenetrate() skips a stuck ball. */
+        py = pp.side === 0 ? PAD_Y0[0] - R : PAD_Y1[1] + R;
+        events.push({ id: 'ev.catch2', pid: paddleFace });
+        rem = 0;
+        break;
+      }
       /* T4: paddle angle rule REPLACES direction. */
       di = paddleAngle(st, paddleFace, px);
       ball.last = paddleFace;
@@ -935,6 +1033,7 @@ function resolveBall(st, ball){
    in the defender's outward direction, and mirror vy if it was heading in.
    Deterministic: no search, a single clamp. */
 function depenetrate(st, ball){
+  if (ball.stuck) return;                    /* a caught ball rides its paddle */
   for (const p of st.pads){
     const pb = padBox(p);
     if (ball.x > pb.x0 - R && ball.x < pb.x1 + R &&
@@ -983,6 +1082,10 @@ function escalateHit(st, ball){
 }
 function escalateTick(st){
   if (st.tick % ESC_EVERY !== 0) return;
+  /* while a SLOW power-up is active the passive floor does NOT rise, so the
+     breather actually lasts; it resumes when slowT expires. Monotone-safe:
+     we simply skip the add, never subtract, so termination is unaffected. */
+  if (st.slowT > 0) return;
   const cap = Math.min(SP_MAX + st.boost, SP_HARD);
   for (const b of st.balls) b.sp = clamp(b.sp + ESC_TICK, SP_MIN, cap);
 }
@@ -1030,6 +1133,11 @@ function stepDrops(st){
   }
 }
 
+function newBall(st, x, y, di, sp, last){
+  return { id: st.nextBall++, x, y, di, sp, last,
+           heavy: 0, stuck: 0, stuckPid: -1, stuckOff: 0 };
+}
+
 function applyPowerUp(st, pad, kind){
   st.ev.push({ id: 'ev.catch', pid: pad.pid, pu: kind });
   st.ev.push({ id: 'pu.' + kind });
@@ -1040,16 +1148,112 @@ function applyPowerUp(st, pad, kind){
     pad.x = clamp(pad.x, pad.lo + pad.hw, pad.hi - pad.hw);
     pad.tx = clamp(pad.tx, pad.lo + pad.hw, pad.hi - pad.hw);
   }
-  else if (kind === PU.FAST){ st.boost = FAST_BOOST; st.boostT = FAST_TICKS; }
+  else if (kind === PU.SLOW){
+    /* pull every ball back toward the floor and hold the escalation floor
+       down for a while, so the catcher gets a breather. Never below SP_MIN. */
+    st.slowT = SLOW_TICKS;
+    for (const b of st.balls) b.sp = clamp(SP_MIN + ((b.sp - SP_MIN) >> 1), SP_MIN, SP_MAX);
+  }
+  else if (kind === PU.STICKY){ pad.stickyT = STICKY_TICKS; }
+  else if (kind === PU.LASER){ pad.laser = LASER_SHOTS; pad.laserCd = 0; }
   else if (kind === PU.SHIELD){ st.walls[pad.side].shield = SHIELD_TICKS; }
+  else if (kind === PU.POWER){
+    /* the ball this defender will next RETURN becomes heavy. Mark the ball
+       currently heading at this pad (or, if none, all of them briefly) so
+       the effect is immediate and legible. Heavy = smashes bricks. */
+    let marked = 0;
+    for (const b of st.balls){
+      const toward = pad.side === 0 ? DIR_Y[b.di] > 0 : DIR_Y[b.di] < 0;
+      if (toward){ b.heavy = POWER_TICKS; b.sp = clamp(b.sp + SP_HEAVY, SP_MIN, SP_HARD); marked++; }
+    }
+    if (!marked) for (const b of st.balls){ b.heavy = POWER_TICKS; b.sp = clamp(b.sp + SP_HEAVY, SP_MIN, SP_HARD); }
+  }
   else if (kind === PU.MULTI){
     /* split up to MAX_BALLS: each existing ball spawns a mirror-x twin */
     const cur = st.balls.slice();
     for (const b of cur){
       if (st.balls.length >= MAX_BALLS) break;
-      st.balls.push({ id: st.nextBall++, x: b.x, y: b.y,
-                      di: snap(mirX(b.di)), sp: b.sp, last: b.last });
+      st.balls.push(newBall(st, b.x, b.y, snap(mirX(b.di)), b.sp, b.last));
+      const tw = st.balls[st.balls.length - 1];
+      tw.heavy = b.heavy;              /* a twin of a power-ball is one too   */
     }
+  }
+}
+
+/* A CAUGHT ball rides its owner's paddle. It launches the instant the owner
+   MOVES the paddle (paddle vx != 0 this tick) — a deliberate flick — or when
+   the sticky timer runs out. Launch angle is the paddleAngle of the recorded
+   catch offset, so "catch, slide, release" is a precise aim, all integer. */
+function rideStuck(st, ball){
+  const p = st.pads[ball.stuckPid];
+  if (!p || p.stickyT <= 0){ launchStuck(st, ball, p); return; }
+  /* track the paddle face */
+  ball.x = clamp(p.x + ball.stuckOff, p.lo, p.hi);
+  ball.y = p.side === 0 ? PAD_Y0[0] - R : PAD_Y1[1] + R;
+  /* a flick releases it: the owner moved the paddle this tick */
+  if (p.vx !== 0) launchStuck(st, ball, p);
+}
+function launchStuck(st, ball, p){
+  ball.stuck = 0;
+  if (!p){ ball.stuckPid = -1; return; }
+  const di = paddleAngle2(st, p, ball.x, ball.stuckOff);
+  ball.di = di; ball.stuckPid = -1;
+  ball.last = p.pid;
+  escalateHit(st, ball);
+  st.ev.push({ id: 'ev.paddle', pid: p.pid });
+}
+/* the angle of a catch, from the stored offset — same rule as paddleAngle. */
+function paddleAngle2(st, p, ballX, off){
+  let k = trunc(off * K_MAX / p.hw);
+  if (k > K_MAX) k = K_MAX; else if (k < -K_MAX) k = -K_MAX;
+  const base = FAN_BASE[p.side];
+  let di = p.side === 0 ? (base + k + 64) & 63 : (base - k + 64) & 63;
+  return snap(di);
+}
+
+/* LASER: a paddle with charges auto-fires a bolt toward the enemy wall every
+   LASER_EVERY ticks. Bolts are deterministic sprites that travel straight and
+   chip one hp off the first live brick they cross. They never touch the ball
+   (they are their own object) so determinism/tunnelling of the ball is
+   untouched — a bolt is a simple point stepped and range-tested each tick. */
+function fireLasers(st){
+  for (const p of st.pads){
+    if (p.laser <= 0){ p.laserCd = 0; continue; }
+    if (p.laserCd > 0){ p.laserCd--; continue; }
+    p.laser--; p.laserCd = LASER_EVERY;
+    /* toward the ENEMY wall: side 0 shoots up (−y), side 1 down (+y) */
+    const vy = p.side === 0 ? -LASER_V : LASER_V;
+    const y0 = p.side === 0 ? PAD_Y0[0] : PAD_Y1[1];
+    st.bolts.push({ id: st.nextBolt++, side: p.side, x: p.x, y: y0, vy });
+    st.ev.push({ id: 'ev.laser', pid: p.pid });
+  }
+}
+function stepBolts(st){
+  for (let i = st.bolts.length - 1; i >= 0; i--){
+    const bo = st.bolts[i];
+    bo.y += bo.vy;
+    let done = (bo.y < 0 || bo.y > H);
+    /* the enemy wall is the OTHER side. chip the first live brick it is in. */
+    const enemy = bo.side === 0 ? 1 : 0;
+    if (!done){
+      const w = st.walls[enemy];
+      for (let r = 0; r < ROWS && !done; r++) for (let c = 0; c < COLS; c++){
+        const k = bi(r, c);
+        if (w.cells[k] <= 0) continue;
+        const bb = brickBox(enemy, r, c);
+        if (bo.x >= bb.x0 - LASER_HW && bo.x <= bb.x1 + LASER_HW &&
+            bo.y >= bb.y0 && bo.y <= bb.y1){
+          w.cells[k] -= 1; st.broke[enemy] += 1;
+          if (w.cells[k] <= 0){
+            st.ev.push({ id: 'ev.broke', side: enemy, r, c });
+            maybeDrop(st, enemy, r, c);
+            if (r === ROWS - 1) scoreHit(st, enemy);
+          } else st.ev.push({ id: 'ev.brick', side: enemy, r, c });
+          done = true; break;
+        }
+      }
+    }
+    if (done) st.bolts.splice(i, 1);
   }
 }
 
@@ -1073,9 +1277,16 @@ function decayStep(st){
 
 function decayTimers(st){
   for (const p of st.pads){
-    if (p.wideT > 0 && --p.wideT === 0) p.hw = PAD_HW;
+    if (p.wideT > 0 && --p.wideT === 0){
+      p.hw = PAD_HW;
+      p.x = clamp(p.x, p.lo + p.hw, p.hi - p.hw);
+      p.tx = clamp(p.tx, p.lo + p.hw, p.hi - p.hw);
+    }
+    if (p.stickyT > 0) p.stickyT--;
   }
   if (st.boostT > 0 && --st.boostT === 0) st.boost = 0;
+  if (st.slowT > 0) st.slowT--;
+  for (const b of st.balls){ if (b.heavy > 0) b.heavy--; }
   for (const w of st.walls){ if (w.shield > 0) w.shield--; }
 }
 
@@ -1189,10 +1400,14 @@ function step(st){
   st.ev = [];
   st.balls.sort((a, b) => a.id - b.id);
   for (const b of st.balls){
+    /* a CAUGHT ball rides its paddle and does not sweep until it releases */
+    if (b.stuck){ rideStuck(st, b); continue; }
     const evs = resolveBall(st, b);
     for (const e of evs) st.ev.push(e);
   }
   stepDrops(st);
+  stepBolts(st);
+  fireLasers(st);
 
   escalateTick(st);
   decayStep(st);
@@ -1260,19 +1475,23 @@ function check(st){
    determinism proof. Order every collection so the hash is canonical.
    ═══════════════════════════════════════════════════════════════════ */
 function snapshot(st){
-  const a = [ st.tick, st.rs, st.boost, st.boostT, st.decayN,
+  const a = [ st.tick, st.rs, st.boost, st.boostT, st.slowT, st.decayN,
               st.score[0], st.score[1], st.broke[0], st.broke[1],
-              st.nextBall, st.nextDrop, st.wins[0], st.wins[1] ];
+              st.nextBall, st.nextDrop, st.nextBolt, st.wins[0], st.wins[1] ];
   const balls = st.balls.slice().sort((x, y) => x.id - y.id);
-  for (const b of balls) a.push(b.id, b.x, b.y, b.di, b.sp, b.last);
+  for (const b of balls)
+    a.push(b.id, b.x, b.y, b.di, b.sp, b.last, b.heavy, b.stuck, b.stuckPid, b.stuckOff);
   a.push(0x7fffffff);
   for (const p of st.pads.slice().sort((x, y) => x.pid - y.pid))
-    a.push(p.pid, p.x, p.tx, p.vx, p.hw, p.wideT, p.bot);
+    a.push(p.pid, p.x, p.tx, p.vx, p.hw, p.wideT, p.stickyT, p.laser, p.laserCd, p.bot);
   a.push(0x7ffffffe);
   for (const w of st.walls){ a.push(w.shield); for (const h of w.cells) a.push(h); }
   a.push(0x7ffffffd);
   for (const d of st.drops.slice().sort((x, y) => x.id - y.id))
     a.push(d.id, d.side, d.kind, d.x, d.y, d.vy);
+  a.push(0x7ffffffc);
+  for (const bo of st.bolts.slice().sort((x, y) => x.id - y.id))
+    a.push(bo.id, bo.side, bo.x, bo.y, bo.vy);
   a.push(st.over ? (st.over.winner + 2) : 0);
   return hash32(a);
 }
@@ -1321,7 +1540,7 @@ root.KARTI_BRIKS.engine = {
     S, W, H, R, COLS, ROWS, BW, BH, TICK_HZ, TICK_MS,
     PAD_HW, PAD_HW_WIDE, PAD_T, PAD_Y0, PAD_Y1,
     WALL_Y0, WALL_Y1, SH_Y0, SH_Y1, SP_MIN, SP_MAX, SP_HARD,
-    TARGET, HP_ROW, PU, MAX_BALLS, D_MIN, D_MAX, VER
+    TARGET, HP_ROW, PU, PU_WEIGHT, MAX_BALLS, LASER_HW, D_MIN, D_MAX, VER
   }
 };
 

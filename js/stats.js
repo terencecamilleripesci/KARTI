@@ -88,6 +88,60 @@ var GAMES = [
 var BY_ID = {};
 for (var gi = 0; gi < GAMES.length; gi++) BY_ID[GAMES[gi].id] = GAMES[gi];
 
+/* ── THE LOGO ATLAS ──────────────────────────────────────────────────
+   Every game the board can be filtered by, mapped to the picture that
+   says what it is at a glance. The files that actually exist under
+   art/ui/ are: logo-{bomba,briks,cards2131,chess,dama,erbgha,kanun,
+   kiri,kodici,ludu,minhu,serp,skarta,tankijiet,party}.png plus emblem.png.
+   A game with no logo of its own falls back to the drawn emblem in the
+   chip (its two-letter mono + icon), so the strip is never a broken
+   image and never a bare word with nothing beside it. The 'all' tab is
+   the trophy/podium mark, drawn, because "Overall" is not one game.
+   Several board ids differ from the file stem (suspett -> serp art,
+   cards-* share the KARTI emblem), so this is the one place they meet. */
+var TABLOGO = {
+  'all':         '',            /* drawn podium icon, see logoChip */
+  'cards-story': 'emblem',
+  'cards-mp':    'emblem',
+  'cards-solo':  'emblem',
+  'chess':       'logo-chess',
+  'dama':        'logo-dama',
+  'skarta':      'logo-skarta',
+  'kiri':        'logo-kiri',
+  'serp':        'logo-serp',
+  'suspett':     'logo-serp',   /* the snake-eye emblem doubles for the whodunit */
+  'kanun':       'logo-kanun',
+  'bomba':       'logo-bomba',
+  'briks':       'logo-briks',
+  'ludu':        'logo-ludu',
+  'erbgha':      'logo-erbgha',
+  'minhu':       'logo-minhu',
+  'kodici':      'logo-kodici',
+  'cards2131':   'logo-cards2131',
+  'tankijiet':   'logo-tankijiet',
+  /* these have no dedicated file yet — the shared party emblem reads as
+     "a card/party game" and is a real picture, not a broken one */
+  'bixkla':      'logo-party',
+  'briscola':    'logo-party',
+  'sette':       'logo-party',
+  'cheat':       'logo-party',
+  'rummy':       'logo-party',
+  'gin':         'logo-party',
+  'poker':       'logo-party',
+  'tombla':      'logo-party',
+  'gharraq':     'logo-party',
+  'spy':         'logo-party'
+};
+/* The stem to show in a filter chip for game `id`: the atlas first, then
+   the shelf def's own `logo`, then '' (drawn fallback). '' never 404s
+   because there is no <img> for it. */
+function logoFor(id){
+  if (Object.prototype.hasOwnProperty.call(TABLOGO, id)) return TABLOGO[id];
+  var d = BY_ID[id];
+  if (d && d.logo && d.logo !== 'emblem' && /^logo-/.test(d.logo)) return d.logo;
+  return '';
+}
+
 /* An id nobody registered still gets counted and still gets a row. A
    sixth game landing next week must not lose a player's results just
    because this file had not heard of it yet. */
@@ -433,7 +487,10 @@ function tile(def, cls){
 /* Wire the load/error handlers after the HTML is in the DOM. onload/onerror
    attributes would be inline handlers; this keeps the markup free of them. */
 function wireArt(root){
-  $$('.sx-art', root).forEach(function(im){
+  /* .sx-art = the trophy tiles and the coin face; .sx-chart = the filter
+     chip logos. Both obey the same rule: reveal on a real load, remove on
+     error so the drawn thing beneath is what shows. */
+  $$('.sx-art, .sx-chart', root).forEach(function(im){
     var stem = im.getAttribute('data-stem');
     if (im.complete && im.naturalWidth > 0){ artOK[stem] = true; im.classList.add('ok'); return; }
     im.addEventListener('load', function(){
@@ -456,11 +513,21 @@ function coin(initial){
      book is one of the five places a player is supposed to appear. The
      minted coin below is still the fallback and is still perfectly
      presentable on its own, which is why it was not deleted. */
+  var shared = '';
   try {
     if (window.KARTI_XP && KARTI_XP.avatarHTML)
-      return KARTI_XP.avatarHTML(playerName(), { size:62 });
-  } catch (e){}
+      shared = KARTI_XP.avatarHTML(playerName(), { size:62 }) || '';
+  } catch (e){ shared = ''; }
+  if (shared){
+    /* still floored by the guaranteed tile, so a missing sprite or a
+       photo that never lands can never leave the head blank */
+    return '<span class="sx-coin sx-coinav">' +
+             initialsTile(playerName(), 62) +
+             '<span class="sx-face-real" style="position:absolute;inset:0">' + shared + '</span>' +
+           '</span>';
+  }
   return '<span class="sx-coin">' +
+           initialsTile(playerName(), 62) +
            '<img class="sx-art sx-coinface" alt="" aria-hidden="true" decoding="async"' +
              ' data-stem="coin-face" src="art/ui/coin-face.png">' +
            '<span class="sx-coinrim" aria-hidden="true"></span>' +
@@ -483,20 +550,91 @@ function crownSVG(){
     '<circle cx="20" cy="4" r="2.5" fill="url(#sxCrownG)"/></svg>';
 }
 
-/* A player's face for a leaderboard row, in whatever size the row wants. Uses
-   the shared avatar renderer (js/progress.js) — real photo, drawn face, or a
-   coloured initials tile — and never emits a broken image. */
-function faceHTML(row, size){
+/* THE INITIALS, AND A COLOUR THAT IS ALWAYS THE SAME FOR A NAME.
+   Up to two letters: first letter of the first word, first of the last
+   word, so "Karti Story" reads KS and "Guzi" reads G. A stable hash of
+   the name picks a hue, so the same person is always the same tile to
+   everybody looking, everywhere. This is the floor under every avatar in
+   the file — it is drawn with nothing but the name, synchronously, so it
+   is on screen on the first frame whether or not a photo, a drawn face,
+   the shared renderer, or the sprite ever arrive. */
+function initialsOf(name){
+  var clean = String(name == null ? '' : name).replace(/[^\p{L}\p{N} ]/gu, ' ').trim();
+  if (!clean) return '?';
+  var parts = clean.split(/\s+/);
+  var a = parts[0].charAt(0);
+  var b = parts.length > 1 ? parts[parts.length - 1].charAt(0) : '';
+  return (a + b).toUpperCase() || '?';
+}
+function hueOf(name){
+  var s = String(name == null ? '' : name).toLowerCase(), h = 5381, i;
+  for (i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) & 0xffffffff;
+  return Math.abs(h) % 360;
+}
+/* the guaranteed, synchronous, never-blank tile. Its own inline colours
+   so it does not depend on a stylesheet being present either. */
+function initialsTile(name, size){
+  var hue = hueOf(name);
+  var ch = initialsOf(name);
+  var fs = Math.max(9, Math.round(size * (ch.length > 1 ? 0.36 : 0.44)));
+  return '<span class="sx-fallback" aria-hidden="true" style="position:absolute;inset:0;' +
+         'display:grid;place-items:center;font-family:var(--disp,inherit);font-weight:900;' +
+         'font-size:' + fs + 'px;line-height:1;letter-spacing:.02em;color:#fff;' +
+         'text-shadow:0 1px 2px rgba(0,0,0,.45);' +
+         'background:linear-gradient(155deg,hsl(' + hue + ' 62% 46%),hsl(' + ((hue + 34) % 360) +
+         ' 58% 26%))">' + esc(ch) + '</span>';
+}
+
+/* A WEEKLY-CHAMPION MARKER, IF THE DATA CARRIES ONE.
+   The board may tag a row as the current weekly #1 of a game. The awarding
+   lives elsewhere (the relay / progress.js); this only DISPLAYS whatever
+   marker arrives. Tolerant of several shapes so it lights up the day the
+   field lands whichever way it is spelled:
+       row.champ      — a game id string, e.g. "chess"       (preferred)
+       row.champion   — same, alternate spelling
+       row.crown      — a game id, or `true`/1 for a generic crown
+   A recognised game id shows that game's emblem inside a gold roundel; an
+   unrecognised value or a bare truthy still shows a generic crown, so a
+   marker is never silently dropped. Returns '' when there is nothing. */
+function championOf(row){
+  if (!row) return '';
+  var v = row.champ != null ? row.champ : (row.champion != null ? row.champion : row.crown);
+  if (v == null || v === false || v === 0 || v === '') return '';
+  var gid = (typeof v === 'string') ? v.toLowerCase() : '';
+  var def = gid && BY_ID[gid] ? BY_ID[gid] : (gid ? defOf(gid) : null);
+  var inner = def
+    ? '<span class="sx-chmk-ico" style="color:' + esc(def.accent) + '">' + ico(def.icon) + '</span>'
+    : crownSVG();
+  var label = def ? T('Weekly champion of ' + def.name, 'Champjin tal-ġimgħa ta\' ' + def.name)
+                  : T('Weekly champion', 'Champjin tal-ġimgħa');
+  return '<span class="sx-chmk" role="img" aria-label="' + esc(label) + '">' + inner + '</span>';
+}
+
+/* A player's face for a leaderboard row, in whatever size the row wants.
+   TWO LAYERS, ALWAYS. A guaranteed initials tile is drawn first and never
+   removed; the shared avatar renderer (js/progress.js — real photo, drawn
+   face, or its own initials medallion) is layered on top and shown only
+   when it actually produces something. If that renderer, its sprite, or a
+   photograph never arrive, the tile beneath is what shows — so an avatar
+   in this file can NEVER be an empty circle, with or without a session,
+   with or without the network. A champion marker, if the data carries one,
+   is pinned on top. */
+function faceHTML(row, size, opts){
+  opts = opts || {};
+  var name = (row && row.name) || '?';
+  var shared = '';
   try {
     if (window.KARTI_XP && KARTI_XP.avatarHTML)
-      return KARTI_XP.avatarHTML(row.name || '?', { size:size, hint:row.av,
-        border:row.bd, who:row.u, pv:row.pv });
-  } catch (e){}
-  var ch = String(row.name || '?').replace(/[^\p{L}\p{N}]/gu, '').charAt(0).toUpperCase() || '?';
-  return '<span style="width:100%;height:100%;display:grid;place-items:center;' +
-         'background:linear-gradient(160deg,#2A2050,#150F26);color:var(--gold);' +
-         'font-family:var(--disp);font-weight:900;font-size:' + Math.round(size * 0.42) +
-         'px">' + esc(ch) + '</span>';
+      shared = KARTI_XP.avatarHTML(name, { size:size, hint:row && row.av,
+        border:row && row.bd, who:row && row.u, pv:row && row.pv }) || '';
+  } catch (e){ shared = ''; }
+  var mark = opts.noChamp ? '' : championOf(row);
+  return '<span class="sx-face" style="position:relative;display:block;width:100%;height:100%">' +
+           initialsTile(name, size) +
+           (shared ? '<span class="sx-face-real" style="position:absolute;inset:0">' +
+                     shared + '</span>' : '') +
+           mark +
+         '</span>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -604,6 +742,12 @@ function injectCSS(){
       'opacity:0;transition:opacity .25s var(--ease)}' +
     '#scr-stats .sx-coinface.ok{opacity:1}' +
     '#scr-stats .sx-coinface.ok~.sx-coinrim{display:none}' +
+    '#scr-stats .sx-coin .sx-coinch{z-index:2}' +
+    '#scr-stats .sx-coinav{background:none}' +
+    '#scr-stats .sx-coinav .kx-av,#scr-stats .sx-coinav .sx-face-real>*,' +
+      '#scr-stats .sx-coinav img,#scr-stats .sx-coinav>span{' +
+      'width:100%!important;height:100%!important;border-radius:50%!important}' +
+    '#scr-stats .sx-coinav .sx-fallback{border-radius:50%!important}' +
 
     /* ── W / L / D, and the bar under them ── */
     '#scr-stats .sx-score{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;flex:0 0 auto}' +
@@ -699,11 +843,27 @@ function injectCSS(){
     '#scr-stats .sx-art.ok{opacity:1}' +
 
     /* ── leaderboard ── */
+    /* ALL-TIME | WEEKLY — a pill segmented control, same language as the
+       two-tab switch at the top but scoped to the ranking period */
+    '#scr-stats .sx-period{display:flex;gap:4px;background:var(--panel);border:1px solid var(--line);' +
+      'border-radius:11px;padding:3px;margin:0 0 9px;flex:0 0 auto}' +
+    '#scr-stats .sx-period button{flex:1;min-height:34px;border-radius:8px;font-family:var(--disp);' +
+      'font-weight:900;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);' +
+      'display:flex;align-items:center;justify-content:center;gap:6px;' +
+      'transition:background .15s var(--ease),color .15s var(--ease)}' +
+    '#scr-stats .sx-period button .ico{font-size:1.2em}' +
+    '#scr-stats .sx-period button[aria-pressed="true"]{background:var(--gold);color:#241800}' +
+    '#scr-stats .sx-week{display:flex;align-items:flex-start;gap:8px;margin:0 2px 9px;padding:8px 11px;' +
+      'border-radius:11px;font-size:11px;line-height:1.45;color:var(--dim);flex:0 0 auto;' +
+      'background:rgba(255,197,66,.08);border:1px solid rgba(255,197,66,.22)}' +
+    '#scr-stats .sx-week .sx-dot{margin-top:3px;background:var(--gold);' +
+      'box-shadow:0 0 0 3px rgba(255,197,66,.18)}' +
     '#scr-stats .sx-filter{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;' +
       'margin:0 -12px 9px;padding:1px 12px 5px;scrollbar-width:none}' +
     '#scr-stats .sx-filter::-webkit-scrollbar{display:none}' +
-    '#scr-stats .sx-filter button{flex:0 0 auto;min-height:36px;padding:0 14px;border-radius:99px;' +
+    '#scr-stats .sx-filter button{flex:0 0 auto;min-height:38px;padding:4px 13px 4px 5px;border-radius:99px;' +
       'background:var(--panel);border:1px solid var(--line);color:var(--dim);white-space:nowrap;' +
+      'display:flex;align-items:center;gap:7px;' +
       'font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;' +
       'transition:transform .12s var(--ease),background .15s var(--ease),color .15s var(--ease),' +
       'border-color .15s var(--ease),box-shadow .15s var(--ease)}' +
@@ -711,6 +871,20 @@ function injectCSS(){
     '#scr-stats .sx-filter button[aria-pressed="true"]{color:#241800;border-color:#FFE9B0;' +
       'background:linear-gradient(180deg,#FFE39A,var(--gold));' +
       'box-shadow:0 3px 12px rgba(255,197,66,.32)}' +
+    /* the little emblem inside each chip: a drawn base (icon on accent),
+       the photograph faded in over it once it truly loads */
+    '#scr-stats .sx-chlogo{position:relative;flex:0 0 auto;width:26px;height:26px;border-radius:50%;' +
+      'overflow:hidden;display:grid;place-items:center;background:rgba(0,0,0,.28);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.10)}' +
+    '#scr-stats .sx-chico{position:absolute;inset:0;display:grid;place-items:center;color:var(--ax)}' +
+    '#scr-stats .sx-chico .ico{width:17px;height:17px;font-size:17px}' +
+    '#scr-stats .sx-chart{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;' +
+      'opacity:0;transition:opacity .25s var(--ease)}' +
+    '#scr-stats .sx-chart.ok{opacity:1}' +
+    '#scr-stats .sx-filter button[aria-pressed="true"] .sx-chlogo{' +
+      'box-shadow:inset 0 0 0 1px rgba(0,0,0,.25),0 0 0 1px rgba(255,255,255,.35)}' +
+    '#scr-stats .sx-chtx{white-space:nowrap}' +
+    '.reduced #scr-stats .sx-chart{transition:none}' +
 
     /* ── the podium: top three, lifted onto risers, matching the winner screen ── */
     '#scr-stats .sx-podium{position:relative;flex:0 0 auto;display:flex;justify-content:center;' +
@@ -724,8 +898,10 @@ function injectCSS(){
     '#scr-stats .sx-pav{position:relative;border-radius:50%;display:grid;place-items:center;' +
       'flex:0 0 auto;overflow:hidden;background:var(--panel2);' +
       'box-shadow:0 4px 14px rgba(0,0,0,.45)}' +
-    '#scr-stats .sx-pav .kx-av,#scr-stats .sx-pav img,#scr-stats .sx-pav>span{' +
+    '#scr-stats .sx-pav .kx-av,#scr-stats .sx-pav img,#scr-stats .sx-pav>span,' +
+      '#scr-stats .sx-pav .sx-face-real>*{' +
       'width:100%!important;height:100%!important;border-radius:50%!important}' +
+    '#scr-stats .sx-pav .sx-fallback{border-radius:50%!important}' +
     '#scr-stats .sx-pcol.p1 .sx-pav{width:78px;height:78px;box-shadow:0 0 0 3px #FFD979,' +
       '0 0 22px rgba(255,197,66,.4),0 5px 16px rgba(0,0,0,.5)}' +
     '#scr-stats .sx-pcol.p2 .sx-pav{width:60px;height:60px;box-shadow:0 0 0 2.5px #D8DDE8,' +
@@ -742,6 +918,20 @@ function injectCSS(){
     /* the crown over first, drawn SVG */
     '#scr-stats .sx-crown{position:absolute;left:50%;top:-19px;width:40px;height:26px;' +
       'margin-left:-20px;z-index:5;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}' +
+    /* the weekly-champion marker — a small gold roundel with the game's
+       emblem (or a crown) on the top-left of the avatar */
+    '#scr-stats .sx-chmk{position:absolute;left:-4px;top:-4px;z-index:5;width:22px;height:22px;' +
+      'border-radius:50%;display:grid;place-items:center;border:2px solid var(--bg);' +
+      'background:linear-gradient(180deg,#FFE9B0,var(--gold));' +
+      'box-shadow:0 2px 6px rgba(0,0,0,.45)}' +
+    '#scr-stats .sx-chmk .sx-crown{position:static;margin:0;width:16px;height:12px;left:auto;top:auto}' +
+    '#scr-stats .sx-chmk-ico{display:grid;place-items:center}' +
+    '#scr-stats .sx-chmk-ico .ico{width:13px;height:13px;font-size:13px}' +
+    '#scr-stats .sx-lav .sx-chmk{width:17px;height:17px;left:-5px;top:-5px}' +
+    '#scr-stats .sx-lav .sx-chmk .sx-crown{width:12px;height:9px}' +
+    '#scr-stats .sx-lav .sx-chmk-ico .ico{width:10px;height:10px;font-size:10px}' +
+    /* the two-layer face never lets the tile beneath bleed past the frame */
+    '#scr-stats .sx-face,#scr-stats .sx-face-real{overflow:visible}' +
     '#scr-stats .sx-you-tag{position:absolute;left:-6px;bottom:-4px;z-index:6;font-family:var(--disp);' +
       'font-weight:900;font-size:8px;letter-spacing:.1em;color:#241800;background:var(--gold);' +
       'border-radius:99px;padding:1px 5px;border:2px solid var(--bg)}' +
@@ -791,8 +981,10 @@ function injectCSS(){
     /* the framed avatar in a ranked row */
     '#scr-stats .sx-lav{position:relative;width:38px;height:38px;border-radius:11px;flex:0 0 auto;' +
       'overflow:hidden;background:var(--panel2);box-shadow:inset 0 0 0 1px var(--line)}' +
-    '#scr-stats .sx-lav .kx-av,#scr-stats .sx-lav img,#scr-stats .sx-lav>span{' +
+    '#scr-stats .sx-lav .kx-av,#scr-stats .sx-lav img,#scr-stats .sx-lav>span,' +
+      '#scr-stats .sx-lav .sx-face-real>*{' +
       'width:100%!important;height:100%!important;border-radius:11px!important}' +
+    '#scr-stats .sx-lav .sx-fallback{border-radius:11px!important}' +
     '#scr-stats .sx-lrow.p1 .sx-lav{box-shadow:0 0 0 2px #FFD979}' +
     '#scr-stats .sx-lrow.p2 .sx-lav{box-shadow:0 0 0 2px #D8DDE8}' +
     '#scr-stats .sx-lrow.p3 .sx-lav{box-shadow:0 0 0 2px #E0955A}' +
@@ -1068,8 +1260,21 @@ function profileHTML(){
    forever or throwing.
    ═══════════════════════════════════════════════════════════════════ */
 var NET_MS = 9000;
-var BOARD = { state:'idle', rows:null, you:null, at:0, why:'', game:'' };
+var BOARD = { state:'idle', rows:null, you:null, at:0, why:'', game:'', period:'all' };
 var FILTER = 'all';
+var PERIOD = 'all';        /* all = all-time | week = this week (resets Sun 00:00) */
+
+/* The start of the current KARTI week: the most recent Sunday at local
+   00:00. The weekly board — and the Sunday champion awards it drives —
+   reset here. Sent to the server so it ranks the same window this client
+   labels, and used to filter a `weekly` slice locally if the server sends
+   one keyed by day. */
+function weekStart(){
+  var d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - d.getDay());   /* getDay(): 0 = Sunday */
+  return d.getTime();
+}
 
 function baseURL(){
   var u = '';
@@ -1176,25 +1381,55 @@ function pushNow(force){
   }, function(){ pushing = false; return { ok:false }; });
 }
 
+/* Pull the ranking the server sends for the period we asked for.
+   TOLERANT OF THREE SHAPES, so this lights up whichever way the relay
+   ends up wiring the weekly board:
+     1. the server honoured `period` and just returned the right `rows`
+        / `you` for it (the clean end state) — used as-is;
+     2. the server returned an all-time board but ALSO a `weekly` object,
+        e.g. { rows:[…], you:{…} } (or a bare array of rows) keyed for
+        this week — for period 'week' we prefer that;
+     3. the server knows nothing of weeks — we fall back to the all-time
+        `rows`, and the toggle still switches labels/awards copy so the
+        feature is visibly present the day the server catches up.
+   Returns { rows, you } or null. */
+function sliceFor(d, period){
+  if (!d) return null;
+  if (period === 'week'){
+    var wk = d.weekly || d.week || null;
+    if (Array.isArray(wk)) return { rows:wk, you:d.weeklyYou || d.you || null };
+    if (wk && Array.isArray(wk.rows)) return { rows:wk.rows, you:wk.you || d.you || null };
+    /* server didn't split it out — fall through to whatever `rows` is */
+  }
+  if (Array.isArray(d.rows)) return { rows:d.rows, you:d.you || null };
+  return null;
+}
+
 /* ── pulling the board down ── */
 function loadBoard(){
   var s = session();
-  BOARD.state = 'loading'; BOARD.why = ''; BOARD.game = FILTER;
+  BOARD.state = 'loading'; BOARD.why = ''; BOARD.game = FILTER; BOARD.period = PERIOD;
   paintBoard();
-  var body = { game: FILTER };
+  /* period + since: the server ranks the same window this client labels.
+     A server that ignores them returns the all-time board, which sliceFor
+     still makes sense of, so an old relay is not a broken screen. */
+  var body = { game: FILTER, period: PERIOD };
+  if (PERIOD === 'week') body.since = weekStart();
   if (s) body.tok = s.tok;
   /* push first when we can, so the board you are about to read already
      includes the game you just finished. A failed push must not stop the
      read — the board is still worth showing. */
   var first = s ? pushNow(true).catch(function(){ return null; }) : Promise.resolve(null);
+  var askedPeriod = PERIOD;
   first.then(function(){
     return post('board', body, NET_MS);
   }).then(function(r){
-    if (BOARD.game !== FILTER) return;               /* the player moved on */
-    if (r.ok && r.d && Array.isArray(r.d.rows)){
+    if (BOARD.game !== FILTER || BOARD.period !== askedPeriod) return;   /* the player moved on */
+    var sl = r.ok ? sliceFor(r.d, askedPeriod) : null;
+    if (sl){
       BOARD.state = 'live';
-      BOARD.rows = r.d.rows;
-      BOARD.you = r.d.you || null;
+      BOARD.rows = sl.rows;
+      BOARD.you = sl.you;
       BOARD.at = Date.now();
     } else {
       BOARD.state = 'down';
@@ -1210,13 +1445,47 @@ function loadBoard(){
   });
 }
 
+/* One filter chip. A LOGO where the game has one — the picture reads
+   before the word does — with the game's own text as the accessible
+   label AND as the graceful fallback the instant the image 404s. The
+   drawn emblem (the game's icon on its accent, or the podium mark for
+   the 'all' tab) sits UNDER the photograph exactly as the trophy tiles
+   do, so a chip is a finished thing before any png has loaded and there
+   is no path here that can show a broken-image glyph. */
+function logoChip(c){
+  var stem = logoFor(c.id);
+  var def  = c.id === 'all' ? null : defOf(c.id);
+  var known = stem ? artOK[stem] : false;
+  /* the drawn base: for 'all' the podium mark on gold; for a game its own
+     icon on its accent — always visible, never blank */
+  var base = c.id === 'all'
+    ? '<span class="sx-chico" style="--ax:var(--gold)">' + ico('podium') + '</span>'
+    : '<span class="sx-chico" style="--ax:' + esc(def.accent) + '">' + ico(def.icon) + '</span>';
+  var img = (!stem || known === false) ? '' :
+    '<img class="sx-chart" alt="" aria-hidden="true" decoding="async" loading="lazy"' +
+    ' data-stem="' + esc(stem) + '" src="art/ui/' + esc(stem) + '.png">';
+  return '<button type="button" class="sx-chip" data-g="' + esc(c.id) + '" aria-pressed="' +
+         (FILTER === c.id) + '" aria-label="' + esc(c.name) + '">' +
+           '<span class="sx-chlogo">' + base + img + '</span>' +
+           '<span class="sx-chtx">' + esc(c.name) + '</span>' +
+         '</button>';
+}
+
 function boardHTML(){
   var chips = [{ id:'all', name:T('Overall', 'Total') }].concat(shelf());
-  return '<div class="sx-filter" id="sx-filter">' +
-           chips.map(function(c){
-             return '<button type="button" data-g="' + esc(c.id) + '" aria-pressed="' +
-                    (FILTER === c.id) + '">' + esc(c.name) + '</button>';
-           }).join('') +
+  /* ALL-TIME | WEEKLY. The weekly board is the one the Sunday champion
+     awards are cut from, so it says so under itself when it is the one on. */
+  var period =
+    '<div class="sx-period" id="sx-period" role="group" aria-label="' +
+       T('Ranking period', 'Perjodu tal-klassifika') + '">' +
+      '<button type="button" data-p="all" aria-pressed="' + (PERIOD === 'all') + '">' +
+        ico('podium') + T('All-time', 'Kull żmien') + '</button>' +
+      '<button type="button" data-p="week" aria-pressed="' + (PERIOD === 'week') + '">' +
+        ico('bolt') + T('This week', 'Din il-ġimgħa') + '</button>' +
+    '</div>';
+  return period +
+         '<div class="sx-filter" id="sx-filter">' +
+           chips.map(logoChip).join('') +
          '</div>' +
          '<div id="sx-board" class="sx-list"></div>';
 }
@@ -1244,6 +1513,17 @@ function wireBoard(el){
         o.setAttribute('aria-pressed', String(o.getAttribute('data-g') === FILTER));
       });
       showChip(el);
+      loadBoard();
+    };
+  });
+  $$('#sx-period button', el).forEach(function(b){
+    b.onclick = function(){
+      var p = b.getAttribute('data-p');
+      if (p === PERIOD) return;
+      PERIOD = p;
+      $$('#sx-period button', el).forEach(function(o){
+        o.setAttribute('aria-pressed', String(o.getAttribute('data-p') === PERIOD));
+      });
       loadBoard();
     };
   });
@@ -1398,8 +1678,21 @@ function paintBoard(){
         out.push('<div class="sx-gap" aria-hidden="true"><span>···</span></div>');
         out.push(lrow(BOARD.you, BOARD.you.rank, true));
       }
-      body = podium(top) + (out.length ? '<div class="sx-lbl">' +
-        T('The ladder', 'Is-sellum') + '</div>' + out.join('') : '');
+      /* WEEKLY is the board the Sunday champion awards are cut from, so
+         when it is on it says whose week it is and that its top three are
+         the ones who take the tiered borders. All-time is just the ranking. */
+      var cap = '';
+      if (BOARD.period === 'week'){
+        var gname = FILTER === 'all' ? T('every game', 'kull logħba')
+                                     : (defOf(FILTER).name);
+        cap = '<p class="sx-week"><span class="sx-dot"></span><span>' +
+              T('This week · resets Sunday. The top three of ', 'Din il-ġimgħa · tibda mill-ġdid il-Ħadd. L-ewwel tlieta ta\' ') +
+              esc(gname) + T(' take this week\'s champion borders.', ' jieħdu l-bordi taċ-champion ta\' din il-ġimgħa.') +
+              '</span></p>';
+      }
+      body = cap + podium(top) + (out.length ? '<div class="sx-lbl">' +
+        (BOARD.period === 'week' ? T('This week\'s ladder', 'Is-sellum ta\' din il-ġimgħa')
+                                 : T('The ladder', 'Is-sellum')) + '</div>' + out.join('') : '');
     }
   } else if (BOARD.state === 'loading'){
     body = '';

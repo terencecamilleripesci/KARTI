@@ -308,16 +308,7 @@ function injectCSS(){
       'height:5px;border-radius:2px;background:var(--gold,#FFC542);opacity:.75}' +
     '#scr-party .kn-rules-b b{color:#fff}' +
 
-    /* ── the menu, poker/serp chrome ── */
-    '#scr-party .kn-menu .kn-hero{position:relative;display:flex;align-items:flex-end;' +
-      'justify-content:center;height:132px;margin:2px 0 12px;border-radius:16px;overflow:hidden;' +
-      'background:radial-gradient(130% 100% at 50% 12%,#2A4763 0%,#14293D 55%,#080F17 100%);' +
-      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.06),inset 0 -16px 30px rgba(0,0,0,.45)}' +
-    '#scr-party .kn-menu .kn-hero canvas{display:block}' +
-    '#scr-party .kn-menu .kn-hero-cap{position:absolute;right:10px;top:8px;' +
-      'font:900 10px/1 var(--disp);letter-spacing:.12em;color:rgba(255,255,255,.42)}' +
-    '@media (max-height:560px){#scr-party .kn-menu .kn-hero{height:96px}}' +
-
+    /* ── the menu, poker/serp chrome (hero styled in the AAA block below) ── */
     /* the fold at the bottom of the menu — serp's kn-fold */
     '#scr-party .kn-fold-h{width:100%;display:flex;align-items:center;justify-content:space-between;' +
       'gap:8px;padding:12px 2px;border:0;background:none;color:#fff;text-align:left}' +
@@ -385,7 +376,48 @@ function injectCSS(){
     '#scr-party .kn-mrules-b b{color:#fff}' +
     '#scr-party .kn-scrim{position:fixed;inset:0;z-index:39;background:rgba(0,0,0,.5);opacity:0;' +
       'pointer-events:none;transition:opacity .3s var(--ease)}' +
-    '#scr-party .kn-scrim.on{opacity:1;pointer-events:auto}';
+    '#scr-party .kn-scrim.on{opacity:1;pointer-events:auto}' +
+
+    /* ── the AAA menu hero: a full-bleed dramatic scene, a big title
+       lockup over it, and a gold rule. The generated art image, if it
+       ever drops in as a background, composes UNDER the canvas scene. ── */
+    '#scr-party .kn-menu .kn-hero{position:relative;display:block;height:210px;' +
+      'margin:2px 0 16px;border-radius:20px;overflow:hidden;' +
+      'background:radial-gradient(120% 120% at 50% 0%,#2A4763 0%,#122536 52%,#070D15 100%);' +
+      'box-shadow:0 18px 40px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.07),' +
+      'inset 0 -30px 60px rgba(0,0,0,.5)}' +
+    '#scr-party .kn-menu .kn-hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block}' +
+    '#scr-party .kn-menu .kn-hero-art{position:absolute;inset:0;background-size:cover;' +
+      'background-position:center;opacity:0}' +   /* set to 1 by JS if art present */
+    '#scr-party .kn-menu .kn-hero-lock{position:absolute;left:16px;right:16px;bottom:14px;z-index:2}' +
+    '#scr-party .kn-menu .kn-hero-cap{display:inline-block;font:900 9px/1 var(--disp);' +
+      'letter-spacing:.28em;text-transform:uppercase;color:var(--gold,#FFC542);' +
+      'padding:3px 8px;border-radius:999px;background:rgba(0,0,0,.4);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,197,66,.35);margin-bottom:6px}' +
+    '#scr-party .kn-menu .kn-hero-title{margin:0;font:900 40px/0.9 var(--disp);letter-spacing:.01em;' +
+      'color:#fff;text-shadow:0 3px 0 rgba(0,0,0,.4),0 10px 24px rgba(0,0,0,.5)}' +
+    '#scr-party .kn-menu .kn-hero-sub{margin:5px 0 0;font:800 12px/1.3 var(--disp);' +
+      'color:rgba(255,255,255,.72)}' +
+    '@media (max-height:620px){#scr-party .kn-menu .kn-hero{height:158px}' +
+      '#scr-party .kn-menu .kn-hero-title{font-size:32px}}' +
+
+    /* ── the battlefield picker cards in AI setup ── */
+    '#scr-party .kn-maps{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 2px}' +
+    '#scr-party .kn-map{-webkit-appearance:none;appearance:none;border:0;text-align:left;' +
+      'display:flex;flex-direction:column;gap:6px;padding:8px;border-radius:14px;color:#fff;' +
+      'background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);' +
+      'touch-action:manipulation}' +
+    '#scr-party .kn-map.on{background:rgba(255,197,66,.14);' +
+      'box-shadow:inset 0 0 0 1.5px rgba(255,197,66,.6)}' +
+    '#scr-party .kn-map-thumb{display:block;border-radius:9px;overflow:hidden;line-height:0;' +
+      'box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)}' +
+    '#scr-party .kn-map-thumb canvas{width:100%;height:auto;display:block}' +
+    '#scr-party .kn-map-tx b{display:block;font:900 12px/1.1 var(--disp);color:#fff}' +
+    '#scr-party .kn-map-tx i{display:block;font:800 9.5px/1.3 var(--disp);font-style:normal;' +
+      'color:var(--dim);margin-top:2px}' +
+
+    /* the aim readout sits centred in the tip while dragging; already styled */
+    '';
   document.head.appendChild(st);
 }
 
@@ -437,13 +469,25 @@ const nowMs = () => (typeof performance !== 'undefined' && performance.now)
                       ? performance.now() : Date.now();
 
 function startMatch(opts, seed, net){
-  stopAnim();
+  stopAnim(); stopFx();
   const o = Object.assign({ lvl:2, first:0, strat:'BAL' }, opts || {});
+  const V = VARIANTS[o.variant] ? o.variant : 'malta';
+  const preset = VARIANTS[V];
   const seedN = (seed == null ? E.newSeed() : seed) >>> 0;
-  const st = E.newMatch(seedN, {
+  /* the variant feeds the engine ONLY through opts (part of the match
+     tuple, so both phones build the same world): the starting purse and
+     the allowed weapon set. Everything else the variant changes is the
+     UI's theme, which never touches the sim. */
+  const engOpts = {
     lvl: [ o.lvl0 != null ? o.lvl0 : 0, o.lvl1 != null ? o.lvl1 : o.lvl ],
     first: o.first | 0
-  });
+  };
+  if (o.purse != null) engOpts.purse = o.purse | 0;
+  else if (preset.purse != null) engOpts.purse = preset.purse;
+  if (o.own) engOpts.own = o.own;
+  else if (preset.own) engOpts.own = [ preset.own.slice(), preset.own.slice() ];
+  const st = E.newMatch(seedN, engOpts);
+  const themeKey = preset.theme;
   M = {
     opts: o, seed: seedN, st,
     net: net || null,
@@ -455,6 +499,10 @@ function startMatch(opts, seed, net){
     drag: null,                 /* {x,y,dx,dy,mv} while aiming           */
     preview: null,              /* the previewed track pts               */
     anim: null,                 /* the shell flight in progress          */
+    cam: null,                  /* the camera (initCam on mount)         */
+    fx: null,                   /* the destruction particle system       */
+    theme: THEMES[themeKey],
+    variant: V,
     raf: 0, busy:false, dead:false, finished:false,
     shopOpen:false, aiPending:0
   };
@@ -462,10 +510,22 @@ function startMatch(opts, seed, net){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE CANVAS — fitCanvas() is the ONLY layout read, on mount/resize.
-   The world is 200x100; it is letter-boxed into the field so the whole
-   battlefield is always visible and the mapping world→screen is one
-   scale and one offset, computed once here.
+   THE CANVAS + THE CAMERA — fitCanvas() is the ONLY layout read, on
+   mount/resize. It computes the BASE FIT: the scale and offset that
+   letter-box the whole 200x100 world into the field. On top of that
+   base sits a CAMERA (M.cam) that pans and zooms in world space, so
+   the view can be tighter than the whole board and can FOLLOW A SHELL.
+
+   ── WHY THIS IS COMPOSITOR-CHEAP ──────────────────────────────────
+   The camera is not a CSS transform on the canvas element and never
+   touches layout: `fitCanvas()` reads clientWidth/Height ONCE per
+   mount/resize, caches sc/ox/oy, and nothing after that reads the DOM.
+   Panning/zooming is pure arithmetic inside sx()/sy() — a multiply and
+   an add per point — recomputed each animation frame we were going to
+   paint anyway. No reflow, no getBoundingClientRect in the hot path,
+   no layout thrash: the canvas bitmap is the same size every frame and
+   only its *contents* move. The eased follow is a critically-damped
+   lerp (see tickCam), which is frame-rate tolerant and never overshoots.
    ═══════════════════════════════════════════════════════════════════ */
 function fitCanvas(){
   if (!UI || !UI.cv || !UI.field) return;
@@ -476,23 +536,80 @@ function fitCanvas(){
   if (UI.cv.width !== px || UI.cv.height !== py){ UI.cv.width = px; UI.cv.height = py; }
   UI.dpr = dpr; UI.cw = w; UI.ch = h;
 
-  /* fit the whole world, keeping aspect. A little headroom at the top
-     for the highest lob; the ground sits near the bottom. */
+  /* the base fit: the whole world, keeping aspect. */
   const worldW = E.W, worldH = E.H;
   const sc = Math.min(w / worldW, h / worldH);
-  UI.sc = sc;
-  UI.ox = (w - worldW * sc) / 2;
-  UI.oy = (h - worldH * sc) / 2;
+  UI.baseSc = sc;
+  UI.baseOx = (w - worldW * sc) / 2;
+  UI.baseOy = (h - worldH * sc) / 2;
   UI.g2.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (M && !M.cam) initCam();
   UI.dirty = true;
   draw();
 }
-/* world (cell) → screen (css px) */
-function sx(x){ return UI.ox + x * UI.sc; }
-function sy(y){ return UI.oy + y * UI.sc; }
-/* screen → world, for the drag */
-function wx(px){ return (px - UI.ox) / UI.sc; }
-function wy(py){ return (py - UI.oy) / UI.sc; }
+
+/* the framing that shows BOTH castles and the moat between them, a
+   little above the ground. This is the resting shot: zoom just enough
+   to fill the field with the interesting band, not the empty sky. */
+function frameWhole(){
+  return { x: E.W / 2, y: (E.GROUND_Y - 12), zoom: 1.0 };
+}
+function initCam(){
+  const f = frameWhole();
+  M.cam = { x:f.x, y:f.y, zoom:f.zoom, tx:f.x, ty:f.y, tzoom:f.zoom,
+            hold:0, follow:false };
+}
+
+/* clamp the camera so it never shows beyond the world's edges by more
+   than a little sky, whatever the zoom. */
+function camScale(){ return UI.baseSc * (M && M.cam ? M.cam.zoom : 1); }
+function clampCam(c){
+  if (!UI) return;
+  const s = UI.baseSc * c.zoom;
+  const halfW = (UI.cw / 2) / s, halfH = (UI.ch / 2) / s;
+  const minX = halfW - 6, maxX = E.W - halfW + 6;
+  const minY = halfH - 40, maxY = E.H - halfH + 6;
+  c.x = (minX > maxX) ? E.W / 2 : clampN(c.x, minX, maxX);
+  c.y = (minY > maxY) ? (E.GROUND_Y - 12) : clampN(c.y, minY, maxY);
+}
+function clampN(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
+
+/* the eased follow: move a fraction of the remaining gap each frame,
+   frame-rate compensated so it feels the same at 30 and 60fps. Returns
+   whether it is still meaningfully moving. */
+function tickCam(dt){
+  const c = M && M.cam; if (!c || !UI) return false;
+  const k = 1 - Math.pow(0.0016, Math.min(0.05, dt) );  /* ~critically damped */
+  const nx = c.x + (c.tx - c.x) * k;
+  const ny = c.y + (c.ty - c.y) * k;
+  const nz = c.zoom + (c.tzoom - c.zoom) * k;
+  const moved = Math.abs(nx - c.x) + Math.abs(ny - c.y) + Math.abs(nz - c.zoom) * 40;
+  c.x = nx; c.y = ny; c.zoom = nz;
+  clampCam(c);
+  return moved > 0.01;
+}
+/* jump the camera to its target instantly (reduced motion / setup) */
+function snapCam(){ const c = M && M.cam; if (!c) return; c.x=c.tx; c.y=c.ty; c.zoom=c.tzoom; clampCam(c); }
+
+/* world (cell) → screen (css px), through the camera. When no match is
+   live (menu hero uses its own canvas) this is never called. */
+function sx(x){
+  const c = M && M.cam ? M.cam : null; const s = camScale();
+  const cx = c ? c.x : E.W / 2;
+  return UI.cw / 2 + (x - cx) * s + (UI.camShX || 0);
+}
+function sy(y){
+  const c = M && M.cam ? M.cam : null; const s = camScale();
+  const cy = c ? c.y : E.H / 2;
+  return UI.ch / 2 + (y - cy) * s + (UI.camShY || 0);
+}
+/* screen → world, for the drag (inverse of the above, shake excluded) */
+function wx(px){ const c = M && M.cam ? M.cam : null; const s = camScale();
+  return (c ? c.x : E.W / 2) + (px - UI.cw / 2) / s; }
+function wy(py){ const c = M && M.cam ? M.cam : null; const s = camScale();
+  return (c ? c.y : E.H / 2) + (py - UI.ch / 2) / s; }
+/* the world scale a caller needs where it used UI.sc before */
+function cellPx(){ return camScale(); }
 
 /* ═══════════════════════════════════════════════════════════════════
    DRAW — the whole battlefield, painted from the engine's view. The
@@ -501,38 +618,58 @@ function wy(py){ return (py - UI.oy) / UI.sc; }
    in a column is one rectangle.
    ═══════════════════════════════════════════════════════════════════ */
 function draw(){
-  if (!UI || !UI.g2 || !M) return;
+  if (!UI || !UI.g2 || !M || !M.cam) return;
   const g = UI.g2, w = UI.cw, h = UI.ch, st = M.st;
   const v = E.view(st);
+  const cell = cellPx();
+  const th = M.theme || THEMES.malta;
 
-  /* sky + sea */
+  /* ── sky: a themed vertical wash, and a soft sun/haze glow ── */
   const sky = g.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, '#183042'); sky.addColorStop(1, '#0A1420');
+  sky.addColorStop(0, th.sky0); sky.addColorStop(0.62, th.sky1); sky.addColorStop(1, th.sky2);
   g.fillStyle = sky; g.fillRect(0, 0, w, h);
+  if (th.glow){
+    const gx = sx(th.glowX != null ? th.glowX : E.W * 0.5), gy = sy(-20);
+    const gr = Math.max(60, cell * 90);
+    const gl = g.createRadialGradient(gx, gy, 0, gx, gy, gr);
+    gl.addColorStop(0, th.glow); gl.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = gl; g.fillRect(0, 0, w, h);
+  }
 
-  /* the moat */
+  /* ── the far skyline: a parallax silhouette that reads as a place,
+        drawn behind the castles at a fraction of the pan. Pure canvas,
+        no image. ── */
+  drawSkyline(g, th, v);
+
+  /* ── the moat: a lit surface line and a darkening depth ── */
   const wyTop = sy(v.waterY);
-  const sea = g.createLinearGradient(0, wyTop, 0, sy(E.H));
-  sea.addColorStop(0, 'rgba(60,150,190,.55)'); sea.addColorStop(1, 'rgba(20,70,110,.85)');
-  g.fillStyle = sea;
-  g.fillRect(sx(0), wyTop, E.W * UI.sc, sy(E.H) - wyTop);
-  /* a couple of still highlight lines so it reads as water, not a slab */
+  const wBot = sy(E.H);
+  const seaL = sx(0), seaR = sx(E.W), seaW = seaR - seaL;
+  const sea = g.createLinearGradient(0, wyTop, 0, wBot);
+  sea.addColorStop(0, th.sea0); sea.addColorStop(1, th.sea1);
+  g.fillStyle = sea; g.fillRect(seaL, wyTop, seaW, wBot - wyTop);
+  /* the bright meniscus at the waterline */
+  g.fillStyle = 'rgba(255,255,255,.16)'; g.fillRect(seaL, wyTop, seaW, Math.max(1, cell * 0.4));
   if (!noMotion()){
-    g.strokeStyle = 'rgba(255,255,255,.10)'; g.lineWidth = 1;
+    g.strokeStyle = 'rgba(255,255,255,.09)'; g.lineWidth = 1;
     const t = nowMs() / 900;
     for (let i = 0; i < 3; i++){
-      const yy = wyTop + (i + 1) * (sy(E.H) - wyTop) / 4;
+      const yy = wyTop + (i + 1) * (wBot - wyTop) / 4;
       g.beginPath();
-      g.moveTo(sx(0), yy + Math.sin(t + i) * 1.2);
-      g.lineTo(sx(E.W), yy + Math.sin(t + i + 2) * 1.2);
+      g.moveTo(seaL, yy + Math.sin(t + i) * 1.4);
+      g.lineTo(seaR, yy + Math.sin(t + i + 2) * 1.4);
       g.stroke();
     }
   }
 
-  /* the terrain: per-column span merge */
-  const mat = v.mat, hp = v.hp, cell = UI.sc;
+  /* ── the terrain: per-column span merge, two-tone faces, damage
+        cracks that deepen as a cell loses hp so a battered wall LOOKS
+        battered before it falls. Only columns in view are walked. ── */
+  const mat = v.mat, hp = v.hp;
   const px = Math.max(1, Math.ceil(cell) + 0.5);
-  for (let x = 0; x < E.W; x++){
+  const x0v = Math.max(0, Math.floor(wx(0)) - 1);
+  const x1v = Math.min(E.W - 1, Math.ceil(wx(w)) + 1);
+  for (let x = x0v; x <= x1v; x++){
     let y = 0;
     const bx = sx(x);
     while (y < E.H){
@@ -543,18 +680,28 @@ function draw(){
       const c = MATCOL[m];
       if (c){
         const top = sy(y), bot = sy(y2);
-        /* a two-tone column: lit left, shaded right, so faces read */
         g.fillStyle = c.a;
         g.fillRect(bx, top, px, bot - top);
         g.fillStyle = c.b;
         g.fillRect(bx + px * 0.55, top, px * 0.45, bot - top);
-        /* damage darkening on the topmost cell of a span (cheap, telling) */
+        /* a top edge highlight so a wall's crown catches the light */
+        g.fillStyle = 'rgba(255,255,255,.10)';
+        g.fillRect(bx, top, px, Math.max(1, cell * 0.18));
+        /* damage: darken + a hairline crack on the topmost cell */
         const full = E.MAT[m] ? E.MAT[m].hp : 0;
         if (full > 0 && full < 60000){
           const dmg = 1 - Math.max(0, Math.min(1, hp[y * E.W + x] / full));
-          if (dmg > 0.15){
-            g.fillStyle = 'rgba(0,0,0,' + (dmg * 0.45).toFixed(2) + ')';
+          if (dmg > 0.12){
+            g.fillStyle = 'rgba(0,0,0,' + (dmg * 0.5).toFixed(2) + ')';
             g.fillRect(bx, sy(y), px, cell);
+            if (dmg > 0.4 && cell > 1.5){
+              g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = Math.max(0.6, cell * 0.12);
+              g.beginPath();
+              g.moveTo(bx + px * 0.3, sy(y));
+              g.lineTo(bx + px * 0.55, sy(y) + cell * 0.55);
+              g.lineTo(bx + px * 0.4, sy(y) + cell);
+              g.stroke();
+            }
           }
         }
       }
@@ -562,7 +709,12 @@ function draw(){
     }
   }
 
-  /* the crew, each side its colour, health as a little bar over the head */
+  /* ── a little pennant on each castle tower top, so the two sides
+        read instantly and it feels like a keep, not a bar chart ── */
+  drawBanner(g, v.span[0], SIDECOL[0], false, cell);
+  drawBanner(g, v.span[1], SIDECOL[1], true, cell);
+
+  /* ── the crew ── */
   for (const sd of v.sides){
     const col = SIDECOL[sd.seat];
     for (const c of sd.crew){
@@ -570,20 +722,19 @@ function draw(){
       const cx = sx(c.x), cyFeet = sy(c.y);
       const bw = E.T.CH_W * cell, bh = E.T.CH_H * cell;
       const bx0 = cx - bw / 2, by0 = cyFeet - bh;
-      if (!c.alive){
-        g.globalAlpha = 0.4;
+      if (!c.alive) g.globalAlpha = 0.4;
+      /* a soft ground shadow */
+      if (c.alive){
+        g.fillStyle = 'rgba(0,0,0,.28)';
+        g.beginPath(); g.ellipse(cx, cyFeet, bw * 0.7, bh * 0.12, 0, 0, 6.2832); g.fill();
       }
-      /* body */
       g.fillStyle = col.b;
       roundRect(g, bx0, by0, bw, bh, Math.min(bw, bh) * 0.28); g.fill();
       g.fillStyle = col.a;
       roundRect(g, bx0, by0, bw, bh * 0.55, Math.min(bw, bh) * 0.28); g.fill();
-      /* head */
       g.fillStyle = '#F2D9B0';
-      g.beginPath();
-      g.arc(cx, by0 - bh * 0.06, bw * 0.42, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(cx, by0 - bh * 0.06, bw * 0.42, 0, 6.2832); g.fill();
       g.globalAlpha = 1;
-      /* health bar for the living */
       if (c.alive && cell > 1.2){
         const hw = bw * 1.2, hx = cx - hw / 2, hy = by0 - bh * 0.5;
         g.fillStyle = 'rgba(0,0,0,.5)'; g.fillRect(hx, hy, hw, 3);
@@ -594,65 +745,144 @@ function draw(){
     }
   }
 
-  /* the aim: a taut band from the thrower's hand to the finger, plus
-     the previewed arc. This is the whole read of "where will it go". */
+  /* ── DEBRIS (behind the shell, in front of terrain): tumbling chunks
+        thrown off a blast, coloured by the material they came from ── */
+  if (M.fx) drawDebris(g, cell);
+
+  /* ── THE AIM: the sling band, the wind-bent predicted arc, a clear
+        landing marker. This is the whole "see where you're shooting". ── */
   if (M.drag && M.preview){
     const p = M.drag;
-    /* the sling band */
-    g.strokeStyle = 'rgba(255,197,66,.9)';
-    g.lineWidth = Math.max(1.5, cell * 0.4);
-    g.lineCap = 'round';
-    g.beginPath();
-    g.moveTo(sx(p.hx), sy(p.hy));
-    g.lineTo(sx(p.fx), sy(p.fy));
-    g.stroke();
-    /* the predicted arc, dotted */
+    g.strokeStyle = 'rgba(255,197,66,.92)';
+    g.lineWidth = Math.max(1.6, cell * 0.42); g.lineCap = 'round';
+    g.beginPath(); g.moveTo(sx(p.hx), sy(p.hy)); g.lineTo(sx(p.fx), sy(p.fy)); g.stroke();
+    /* a small arrow head at the hand pointing the way the shot leaves */
     const pts = M.preview;
-    g.strokeStyle = 'rgba(255,255,255,.55)';
-    g.setLineDash([3, 5]);
-    g.lineWidth = 1.6;
-    g.beginPath();
-    for (let i = 0; i < pts.length; i += 2){
-      const X = sx(pts[i]), Y = sy(pts[i + 1]);
-      if (i === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
+    /* the dotted trajectory, fading toward the end so the eye reads
+       direction and the landing marker owns the destination */
+    g.setLineDash([Math.max(2, cell * 0.7), Math.max(3, cell * 1.1)]);
+    g.lineWidth = Math.max(1.4, cell * 0.28);
+    for (let i = 2; i < pts.length; i += 2){
+      const f = i / pts.length;
+      g.strokeStyle = 'rgba(255,255,255,' + (0.7 - f * 0.4).toFixed(2) + ')';
+      g.beginPath();
+      g.moveTo(sx(pts[i - 2]), sy(pts[i - 1]));
+      g.lineTo(sx(pts[i]), sy(pts[i + 1]));
+      g.stroke();
     }
-    g.stroke();
     g.setLineDash([]);
-    /* a target dot at the predicted end */
     if (pts.length >= 2){
       const ex = pts[pts.length - 2], ey = pts[pts.length - 1];
+      const mr = Math.max(4, cell * 1.4);
+      /* a target reticle at the predicted landing */
+      g.strokeStyle = 'rgba(255,107,77,.95)'; g.lineWidth = Math.max(1.4, cell * 0.28);
+      g.beginPath(); g.arc(sx(ex), sy(ey), mr, 0, 6.2832); g.stroke();
+      g.beginPath();
+      g.moveTo(sx(ex) - mr * 1.5, sy(ey)); g.lineTo(sx(ex) + mr * 1.5, sy(ey));
+      g.moveTo(sx(ex), sy(ey) - mr * 1.5); g.lineTo(sx(ex), sy(ey) + mr * 1.5);
+      g.stroke();
       g.fillStyle = 'rgba(255,107,77,.9)';
-      g.beginPath(); g.arc(sx(ex), sy(ey), Math.max(2.5, cell * 0.8), 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(sx(ex), sy(ey), Math.max(1.5, cell * 0.4), 0, 6.2832); g.fill();
     }
   }
 
-  /* the shell in flight, plus its trail */
+  /* ── shockwave rings + particles + the shell, in blast order ── */
+  if (M.fx) drawRings(g, cell);
+
   if (M.anim){
     const a = M.anim, pt = a.pos;
     if (a.trail.length){
-      g.strokeStyle = 'rgba(255,220,150,.45)'; g.lineWidth = Math.max(1.2, cell * 0.5);
-      g.beginPath();
-      for (let i = 0; i < a.trail.length; i += 2){
-        const X = sx(a.trail[i]), Y = sy(a.trail[i + 1]);
-        if (i === 0) g.moveTo(X, Y); else g.lineTo(X, Y);
+      /* a glowing tapered trail */
+      for (let i = 2; i < a.trail.length; i += 2){
+        const f = i / a.trail.length;
+        g.strokeStyle = 'rgba(255,214,140,' + (0.08 + f * 0.4).toFixed(2) + ')';
+        g.lineWidth = Math.max(1, cell * 0.3 + f * cell * 0.5);
+        g.lineCap = 'round';
+        g.beginPath();
+        g.moveTo(sx(a.trail[i - 2]), sy(a.trail[i - 1]));
+        g.lineTo(sx(a.trail[i]), sy(a.trail[i + 1]));
+        g.stroke();
       }
-      g.stroke();
     }
     if (pt){
+      const R = Math.max(2.5, cell * 1.0);
+      const gl = g.createRadialGradient(sx(pt[0]), sy(pt[1]), 0, sx(pt[0]), sy(pt[1]), R * 3);
+      gl.addColorStop(0, 'rgba(255,220,150,.5)'); gl.addColorStop(1, 'rgba(255,220,150,0)');
+      g.fillStyle = gl; g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), R * 3, 0, 6.2832); g.fill();
       g.fillStyle = '#FFE08A';
-      g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), Math.max(2.5, cell * 0.9), 0, 6.2832); g.fill();
-      g.fillStyle = 'rgba(255,255,255,.7)';
-      g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), Math.max(1, cell * 0.4), 0, 6.2832); g.fill();
-    }
-    /* the boom flashes */
-    for (const b of a.booms){
-      const age = (nowMs() - b.at) / 320;
-      if (age > 1) continue;
-      const rr = b.r * cell * (0.4 + age * 1.1);
-      g.fillStyle = 'rgba(255,150,60,' + (0.55 * (1 - age)).toFixed(2) + ')';
-      g.beginPath(); g.arc(sx(b.x), sy(b.y), rr, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), R, 0, 6.2832); g.fill();
+      g.fillStyle = '#fff';
+      g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), R * 0.4, 0, 6.2832); g.fill();
     }
   }
+
+  if (M.fx) drawParticles(g, cell);
+
+  /* ── the muzzle flash + full-screen impact flash, on top of all ── */
+  if (M.fx && M.fx.flash > 0.001){
+    g.fillStyle = 'rgba(255,240,210,' + (M.fx.flash * 0.5).toFixed(3) + ')';
+    g.fillRect(0, 0, w, h);
+  }
+}
+
+/* ── the parallax skyline: a repeating jagged silhouette + a couple of
+     landmarks, offset by a fraction of the camera so distant things
+     drift slower than the battlefield. Deterministic-free (decoration
+     only), so it never touches the sim. ── */
+function drawSkyline(g, th, v){
+  const cam = M.cam; const cell = cellPx();
+  const horizon = sy(E.GROUND_Y - 2);
+  /* parallax: shift by a fraction of how far the camera has panned from
+     centre. A pure screen offset — cheap. */
+  const par = (cam.x - E.W / 2) * cellPx() * -0.35;
+  g.save();
+  g.translate(par, 0);
+  g.fillStyle = th.hill;
+  const baseY = horizon;
+  const spanL = sx(-40), spanR = sx(E.W + 40);
+  const step = Math.max(14, cell * 6);
+  g.beginPath(); g.moveTo(spanL, baseY);
+  let seed = 1337;
+  for (let X = spanL; X <= spanR; X += step){
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    const hgt = (seed % 1000) / 1000 * cell * 10 + cell * 4;
+    g.lineTo(X, baseY - hgt);
+    g.lineTo(X + step / 2, baseY - hgt * 0.7);
+  }
+  g.lineTo(spanR, baseY); g.closePath(); g.fill();
+  /* a single landmark: a dome or a chimney, themed */
+  if (th.landmark === 'dome'){
+    const lx = sx(E.W * 0.5), ly = baseY - cell * 12;
+    g.fillStyle = th.hill2 || th.hill;
+    g.beginPath(); g.arc(lx, ly, cell * 5, Math.PI, 0); g.fill();
+    g.fillRect(lx - cell * 5, ly, cell * 10, cell * 12);
+  } else if (th.landmark === 'crane'){
+    const lx = sx(E.W * 0.32), ly = baseY;
+    g.strokeStyle = th.hill2 || th.hill; g.lineWidth = Math.max(1.5, cell * 0.4);
+    g.beginPath(); g.moveTo(lx, ly); g.lineTo(lx, ly - cell * 22);
+    g.lineTo(lx + cell * 14, ly - cell * 20); g.stroke();
+  }
+  g.restore();
+}
+
+function drawBanner(g, span, col, flip, cell){
+  /* find the tower top: highest solid cell in the tower slot column */
+  const st = M.st; const seat = col === SIDECOL[1] ? 1 : 0;
+  let topY = E.GROUND_Y, tx = flip ? span.x1 - 14 : span.x0 + 14;
+  for (let y = 0; y < E.GROUND_Y; y++){
+    if (E.solidAt(st, tx, y)){ topY = y; break; }
+  }
+  const bx = sx(tx + 0.5), by = sy(topY);
+  if (by < -20 || by > UI.ch + 20) return;
+  g.strokeStyle = 'rgba(20,16,10,.7)'; g.lineWidth = Math.max(1, cell * 0.22);
+  g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, by - cell * 4); g.stroke();
+  g.fillStyle = col.flag;
+  const fw = cell * 3.4 * (flip ? -1 : 1);
+  g.beginPath();
+  g.moveTo(bx, by - cell * 4);
+  g.lineTo(bx + fw, by - cell * 3.3);
+  g.lineTo(bx, by - cell * 2.6);
+  g.closePath(); g.fill();
 }
 
 function roundRect(g, x, y, w, h, r){
@@ -664,6 +894,301 @@ function roundRect(g, x, y, w, h, r){
   g.arcTo(x, y + h, x, y, r);
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE BATTLEFIELD THEMES — each map variant paints a different place.
+   These are DECORATION ONLY: sky/sea colours, a far skyline, a landmark.
+   They NEVER touch the engine's world (which is (seed,opts)), so two
+   phones on the same theme paint the same picture and the SIM is
+   untouched. Terrain-shape variety comes from the seed the engine
+   builds from; the theme dresses the frame around it.
+   ═══════════════════════════════════════════════════════════════════ */
+const THEMES = {
+  malta: { key:'malta',
+    name:{ en:'Grand Harbour', mt:'Il-Port il-Kbir' },
+    sky0:'#2C5A7C', sky1:'#183042', sky2:'#0A1420',
+    sea0:'rgba(60,150,190,.55)', sea1:'rgba(20,70,110,.9)',
+    hill:'#12222F', hill2:'#1B3346', landmark:'dome',
+    glow:'rgba(255,196,120,.28)', glowX:E.W*0.5 },
+  dusk: { key:'dusk',
+    name:{ en:'Festa Dusk', mt:'Għabex tal-Festa' },
+    sky0:'#B8546A', sky1:'#5A3355', sky2:'#1C1730',
+    sea0:'rgba(150,90,140,.5)', sea1:'rgba(40,30,70,.92)',
+    hill:'#241830', hill2:'#3A2447', landmark:'dome',
+    glow:'rgba(255,150,90,.4)', glowX:E.W*0.72 },
+  quarry: { key:'quarry',
+    name:{ en:'The Quarry', mt:'Il-Barriera' },
+    sky0:'#8C9AA0', sky1:'#5E676C', sky2:'#2A2E30',
+    sea0:'rgba(120,140,150,.4)', sea1:'rgba(45,55,60,.9)',
+    hill:'#3A3E40', hill2:'#4E5457', landmark:'crane',
+    glow:'rgba(255,255,240,.14)', glowX:E.W*0.4 },
+  night: { key:'night',
+    name:{ en:'Siege by Night', mt:'Assedju bil-Lejl' },
+    sky0:'#122038', sky1:'#0B1526', sky2:'#05080F',
+    sea0:'rgba(40,80,130,.45)', sea1:'rgba(10,25,50,.94)',
+    hill:'#0A1020', hill2:'#141F38', landmark:'dome',
+    glow:'rgba(150,190,255,.16)', glowX:E.W*0.6 }
+};
+const THEME_LIST = ['malta', 'dusk', 'quarry', 'night'];
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE BATTLEFIELDS (map variants) — a distinct place AND a distinct
+   set of rules for each, surfaced in the AI setup and, online, through
+   the lobby's variants/currentVariant/applyVariant contract (following
+   klabb and cards2131). Each is:
+     · a THEME (sky/sea/skyline — decoration, never the sim)
+     · a starting PURSE (engine opt — part of the match tuple)
+     · a weapon SET (engine opt `own` — likewise)
+   The terrain SHAPE still varies by seed; the variant dresses and
+   balances the fight around it without a single engine change, so the
+   determinism, economy and online guarantees are untouched.
+
+   `own` is a per-weapon starting ammo array over E.WEAPONS. -1/ammo is
+   normalised by the engine's normLoadout (tier-0 is always unlimited).
+   ═══════════════════════════════════════════════════════════════════ */
+function loadout(spec){
+  /* spec: 'all' | 'starter' | array of ammo. Returns an ammo array. */
+  if (Array.isArray(spec)) return spec.slice();
+  return E.WEAPONS.map(w => {
+    if (spec === 'starter') return w.tier === 0 ? w.ammo : 0;
+    if (spec === 'heavy')   return w.tier >= 3 ? Math.max(2, w.ammo) : (w.tier === 0 ? w.ammo : 0);
+    return w.ammo;   /* 'all' */
+  });
+}
+const VARIANTS = {
+  malta: { key:'malta', theme:'malta', purse:260, own:null,
+    name:{ en:'Grand Harbour', mt:'Il-Port il-Kbir' },
+    note:{ en:'The classic duel. Standard purse, full armoury.',
+           mt:'Id-duell klassiku. Purse standard, armerija sħiħa.' } },
+  dusk: { key:'dusk', theme:'dusk', purse:420, own:null,
+    name:{ en:'Festa Dusk', mt:'Għabex tal-Festa' },
+    note:{ en:'Deep pockets. Buy big early and go loud.',
+           mt:'But mimli. Ixtri kbir kmieni u agħmel ħoss.' } },
+  quarry: { key:'quarry', theme:'quarry', purse:180, own:loadout('starter'),
+    name:{ en:'The Quarry', mt:'Il-Barriera' },
+    note:{ en:'Lean start. Earn your armoury the hard way.',
+           mt:'Bidu fqir. Aqla’ l-armerija bit-tbatija.' } },
+  night: { key:'night', theme:'night', purse:300, own:loadout('heavy'),
+    name:{ en:'Siege by Night', mt:'Assedju bil-Lejl' },
+    note:{ en:'Heavy ordnance only. Nothing subtle survives the dark.',
+           mt:'Armi tqal biss. Xejn fin ma jgħix fid-dlam.' } }
+};
+const VARIANT_LIST = ['malta', 'dusk', 'quarry', 'night'];
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE DESTRUCTION FX — the juice. When a shell lands the engine has
+   ALREADY resolved the world (apply() returns the report with the boom
+   points, the cover it broke, the crew it hurt, what went overboard).
+   None of the following is simulation: it is a short-lived particle
+   system that DRESSES the reported impact — chunks that fly off, dirt
+   and smoke, sparks, a shockwave ring, a screen flash and a camera
+   shake scaled to the blast. It runs on its own rAF, hard-caps every
+   pool, and is entirely skipped under reduced motion (the world still
+   updates instantly — the game is fully playable without a single
+   particle). Math.random here is fine: it never feeds the engine.
+   ═══════════════════════════════════════════════════════════════════ */
+const FX_CAP = { debris:90, particles:150, rings:8 };
+function initFx(){
+  return { debris:[], particles:[], rings:[], shake:0, shakeMax:0, flash:0,
+           raf:0, last:0, running:false };
+}
+function rr(a, b){ return a + Math.random() * (b - a); }
+
+/* spawn the whole impact bundle for one boom. `power` scales everything;
+   `matCol` tints the chunks to what actually broke there. */
+function spawnImpact(wx, wy, radius, power, opts){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  const big = radius >= 7;
+  opts = opts || {};
+  /* the shockwave ring */
+  if (fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x:wx, y:wy, r0:radius * 0.35, r1:radius * (1.6 + power * 0.5),
+                    born:nowMs(), life:big ? 460 : 340,
+                    col: opts.water ? '180,220,255' : '255,170,80' });
+  /* the flash */
+  fx.flash = Math.min(1, fx.flash + (big ? 0.75 : 0.4));
+  /* the camera shake, scaled and clamped */
+  const s = Math.min(4.2, radius * 0.35 + power * 1.2);
+  fx.shake = Math.max(fx.shake, s); fx.shakeMax = Math.max(fx.shakeMax, s);
+  /* chunks: tumbling squares that arc out and settle. Count scales with
+     the blast but is hard-capped. */
+  const nChunks = Math.min(FX_CAP.debris - fx.debris.length,
+                           Math.round(radius * 1.6 + power * 4));
+  const cols = opts.cols && opts.cols.length ? opts.cols : ['#8a6a3a', '#6b5330', '#5a4726'];
+  for (let i = 0; i < nChunks; i++){
+    const ang = rr(-Math.PI, 0) - (Math.random() < 0.5 ? 0 : Math.PI); /* mostly up/out */
+    const sp = rr(0.6, 2.4) * (0.8 + power * 0.4);
+    fx.debris.push({
+      x:wx, y:wy,
+      vx:Math.cos(ang) * sp * rr(0.6, 1.4),
+      vy:-Math.abs(Math.sin(ang)) * sp * rr(1.0, 1.8) - rr(0.4, 1.2),
+      sz:rr(0.7, 2.1), rot:rr(0, 6.28), vr:rr(-0.4, 0.4),
+      col:cols[(Math.random() * cols.length) | 0], life:1, born:nowMs(), settle:0
+    });
+  }
+  /* dirt/smoke puffs + sparks */
+  const nP = Math.min(FX_CAP.particles - fx.particles.length,
+                      Math.round(radius * 2.2 + power * 6));
+  for (let i = 0; i < nP; i++){
+    const spark = !opts.water && Math.random() < 0.35;
+    const ang = rr(0, 6.283);
+    const sp = rr(0.3, spark ? 3.0 : 1.4) * (0.7 + power * 0.3);
+    fx.particles.push({
+      x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.2, 1.0),
+      r:spark ? rr(0.3, 0.7) : rr(0.9, 2.6), born:nowMs(),
+      life:spark ? rr(180, 340) : rr(420, 820),
+      kind: opts.water ? 'water' : spark ? 'spark' : 'smoke'
+    });
+  }
+  startFx();
+}
+
+/* launch a person-sized puff when a crew member is knocked flying, so a
+   direct hit reads as a body being thrown, not a number changing */
+function spawnKnock(wx, wy, col){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  const n = Math.min(FX_CAP.particles - fx.particles.length, 10);
+  for (let i = 0; i < n; i++){
+    const ang = rr(-Math.PI, 0);
+    const sp = rr(0.6, 1.8);
+    fx.particles.push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
+      r:rr(0.8, 1.8), born:nowMs(), life:rr(300, 560), kind:'dust' });
+  }
+  startFx();
+}
+
+function startFx(){
+  const fx = M && M.fx; if (!fx || fx.running) return;
+  fx.running = true; fx.last = nowMs();
+  const loop = () => {
+    if (!M || M.dead || !M.fx){ return; }
+    const now = nowMs(); const dt = Math.min(0.05, (now - M.fx.last) / 1000); M.fx.last = now;
+    const alive = stepFx(dt);
+    /* the camera shake decays here and is written to UI as a screen
+       offset — it is applied in sx/sy via UI.camShX/Y, so it costs
+       nothing but two adds per drawn point. */
+    const sh = M.fx.shake;
+    if (sh > 0.02){
+      UI.camShX = (Math.random() * 2 - 1) * sh * cellPx();
+      UI.camShY = (Math.random() * 2 - 1) * sh * cellPx();
+    } else { UI.camShX = 0; UI.camShY = 0; }
+    draw();
+    if (alive || M.anim){ M.fx.raf = requestAnimationFrame(loop); }
+    else { M.fx.running = false; M.fx.raf = 0; UI.camShX = 0; UI.camShY = 0; draw(); }
+  };
+  fx.raf = requestAnimationFrame(loop);
+}
+
+function stepFx(dt){
+  const fx = M.fx; if (!fx) return false;
+  const G = 0.06, f = dt * 60;   /* frame-normalised gravity for the puffs */
+  const wy = E.WATER_Y;
+  /* debris physics: gravity, a bounce off the ground/water surface, then
+     settle. Cheap Euler; capped lifetime. */
+  for (let i = fx.debris.length - 1; i >= 0; i--){
+    const d = fx.debris[i];
+    if (d.settle){ if (nowMs() - d.settleAt > 900) fx.debris.splice(i, 1); continue; }
+    d.vy += G * f; d.x += d.vx * f; d.y += d.vy * f; d.rot += d.vr * f;
+    /* the ground under this column */
+    const gy = groundScreenY(d.x);
+    if (d.y >= gy){
+      if (gy >= wy - 0.5){ fx.debris.splice(i, 1); continue; } /* into the moat */
+      d.y = gy; d.vy *= -0.34; d.vx *= 0.55; d.vr *= 0.5;
+      if (Math.abs(d.vy) < 0.25){ d.settle = 1; d.settleAt = nowMs(); }
+    }
+    if (d.y > E.H + 4) fx.debris.splice(i, 1);
+  }
+  /* particles */
+  for (let i = fx.particles.length - 1; i >= 0; i--){
+    const p = fx.particles[i];
+    const age = nowMs() - p.born;
+    if (age > p.life){ fx.particles.splice(i, 1); continue; }
+    if (p.kind === 'smoke' || p.kind === 'dust'){ p.vy -= 0.006 * f; p.vx *= 0.98; p.r += 0.03 * f; }
+    else { p.vy += G * f; }
+    p.x += p.vx * f; p.y += p.vy * f;
+  }
+  /* rings just age out (drawn by drawRings) */
+  const now = nowMs();
+  for (let i = fx.rings.length - 1; i >= 0; i--){
+    if (now - fx.rings[i].born > fx.rings[i].life) fx.rings.splice(i, 1);
+  }
+  /* shake + flash decay */
+  fx.shake *= Math.pow(0.001, dt); if (fx.shake < 0.02) fx.shake = 0;
+  fx.flash *= Math.pow(0.02, dt); if (fx.flash < 0.001) fx.flash = 0;
+  return fx.debris.length + fx.particles.length + fx.rings.length > 0 || fx.shake > 0 || fx.flash > 0;
+}
+
+/* the SCREEN y of the first solid ground in a world column — for debris
+   to land on. Read off the engine's live grid (post-throw), so chunks
+   settle on the real, cratered surface. */
+function groundScreenY(wxCell){
+  const cx = Math.floor(wxCell);
+  const st = M.st;
+  for (let y = Math.max(0, Math.floor(E.GROUND_Y - 20)); y < E.H; y++){
+    if (E.solidAt(st, cx, y)) return y;
+  }
+  return E.WATER_Y;
+}
+
+function drawDebris(g, cell){
+  const fx = M.fx; if (!fx || !fx.debris.length) return;
+  for (const d of fx.debris){
+    const X = sx(d.x), Y = sy(d.y), s = Math.max(1, d.sz * cell);
+    g.save(); g.translate(X, Y); g.rotate(d.rot);
+    g.fillStyle = d.col;
+    g.fillRect(-s / 2, -s / 2, s, s);
+    g.fillStyle = 'rgba(0,0,0,.25)';
+    g.fillRect(0, -s / 2, s / 2, s);
+    g.restore();
+  }
+}
+function drawRings(g, cell){
+  const fx = M.fx; if (!fx || !fx.rings.length) return;
+  const now = nowMs();
+  for (const rg of fx.rings){
+    const t = (now - rg.born) / rg.life; if (t > 1) continue;
+    const r = (rg.r0 + (rg.r1 - rg.r0) * t) * cell;
+    g.strokeStyle = 'rgba(' + rg.col + ',' + (0.7 * (1 - t)).toFixed(2) + ')';
+    g.lineWidth = Math.max(1.5, cell * (1 - t) * 1.2);
+    g.beginPath(); g.arc(sx(rg.x), sy(rg.y), r, 0, 6.2832); g.stroke();
+    /* a hot inner flash early in the life */
+    if (t < 0.4){
+      const fr = r * 0.5;
+      const gl = g.createRadialGradient(sx(rg.x), sy(rg.y), 0, sx(rg.x), sy(rg.y), fr);
+      gl.addColorStop(0, 'rgba(' + rg.col + ',' + (0.6 * (1 - t / 0.4)).toFixed(2) + ')');
+      gl.addColorStop(1, 'rgba(' + rg.col + ',0)');
+      g.fillStyle = gl; g.beginPath(); g.arc(sx(rg.x), sy(rg.y), fr, 0, 6.2832); g.fill();
+    }
+  }
+}
+function drawParticles(g, cell){
+  const fx = M.fx; if (!fx || !fx.particles.length) return;
+  const now = nowMs();
+  for (const p of fx.particles){
+    const t = (now - p.born) / p.life; if (t > 1) continue;
+    const X = sx(p.x), Y = sy(p.y), r = Math.max(0.6, p.r * cell);
+    if (p.kind === 'spark'){
+      g.fillStyle = 'rgba(255,' + (180 + ((1 - t) * 60) | 0) + ',80,' + (1 - t).toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+    } else if (p.kind === 'water'){
+      g.fillStyle = 'rgba(190,225,255,' + (0.7 * (1 - t)).toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+    } else {
+      const a = (p.kind === 'smoke' ? 0.4 : 0.5) * (1 - t);
+      g.fillStyle = (p.kind === 'dust') ? 'rgba(150,130,100,' + a.toFixed(2) + ')'
+                                        : 'rgba(70,64,58,' + a.toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+    }
+  }
+}
+function stopFx(){
+  if (M && M.fx){ if (M.fx.raf) cancelAnimationFrame(M.fx.raf); M.fx.running = false; M.fx.raf = 0; }
+  if (UI){ UI.camShX = 0; UI.camShY = 0; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -704,9 +1229,17 @@ function moveAim(px, py){
   M.drag.dx = drag.dx; M.drag.dy = drag.dy;
   const mv = { seat: M.me, w: M.sel, dx: drag.dx, dy: drag.dy };
   M.drag.mv = mv;
-  /* power meter */
+  /* power meter + a live power/angle readout so lining up a shot is a
+     precise, satisfying thing rather than a guess */
   const pw = Math.min(1, Math.sqrt(drag.dx * drag.dx + drag.dy * drag.dy) / E.T.DRAG_MAX);
   if (UI.power){ UI.power.classList.add('on'); UI.powerFill.style.width = (pw * 100) + '%'; }
+  /* angle above horizontal, from the shot vector (dy is up-negative). We
+     read it off the two bytes so it matches the launch exactly. Uses the
+     engine's own table lerp — decoration, never fed back. */
+  const face = M.me === 0 ? 1 : -1;
+  const shotx = drag.dx * face, shoty = drag.dy;
+  const ang = Math.round(Math.atan2(-shoty, Math.abs(shotx) || 1) * 180 / Math.PI);
+  tip('<b>' + Math.round(pw * 100) + '%</b> · ' + (ang >= 0 ? '+' : '') + ang + '°', 0);
   /* the preview arc — only when the pull is worth a shot */
   const chk = E.legal(M.st, mv);
   if (chk.ok){
@@ -722,6 +1255,7 @@ function endAim(){
   const mv = M.drag.mv;
   M.drag = null; M.preview = null;
   if (UI.power){ UI.power.classList.remove('on'); UI.powerFill.style.width = '0%'; }
+  if (UI.tip) UI.tip.classList.remove('on');
   draw();
   if (!mv){ return; }
   const chk = E.legal(M.st, mv);
@@ -759,12 +1293,20 @@ function fireShot(mv, src){
   if (M.busy) return;
   M.busy = true;
   const seat = mv.seat;
+  /* material colours at the impacts, sampled from the LIVE world just
+     before apply() resolves it, so the debris matches what breaks */
   const rep = E.apply(M.st, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
   if (!rep){ M.busy = false; return; }
   /* tell the wire — AFTER it has been applied here, never before */
   if (src === 'me') say(seat, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
   saveGame();
   cue('duel.attack', { gain:0.75 }, true);
+  /* the muzzle flash + a kick of the camera at the hand */
+  const thr = rep.ev.find(e => e.t === 'throw');
+  if (thr){
+    if (!noMotion() && M.fx == null) M.fx = initFx();
+    if (M.fx){ M.fx.flash = Math.min(1, M.fx.flash + 0.5); startFx(); }
+  }
 
   playFlight(rep, () => {
     M.busy = false;
@@ -772,74 +1314,135 @@ function fireShot(mv, src){
   });
 }
 
-/* walk the primary track's points at a steady pace, firing boom/skip
-   sounds off the report's events as the shell passes their position. */
+/* a small material palette for the debris of a blast, picked from the
+   THEME so it always sits right on the map, plus a warm dirt base */
+function debrisCols(){
+  const th = M.theme || THEMES.malta;
+  return ['#9a7648', '#7a5c34', th.hill2 || '#5a4726', '#8a6a3a'];
+}
+
+/* ── THE FLIGHT: walk the shell along the engine's own path, FOLLOW IT
+   with the camera, fire the sounds and — the point of all this — SPAWN
+   THE DESTRUCTION at each impact the report describes. Reduced motion
+   skips straight to the settled world. ── */
 function playFlight(rep, done){
   stopAnim();
   const track = (rep.tracks || []).find(t => t.id === 0) || (rep.tracks || [])[0];
-  const kids = (rep.tracks || []).filter(t => t !== track && t.pts && t.pts.length >= 2);
   const pts = track && track.pts ? track.pts : null;
 
   if (noMotion() || !pts || pts.length < 4){
-    /* land it now: play the impact sound and repaint */
+    /* land it now: play the impact sound and repaint (no particles) */
     boomSounds(rep, true);
+    /* still frame the action so the result is legible */
+    if (M.cam){ const f = frameWhole(); M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; snapCam(); }
     draw(); hud();
     if (done) done();
     return;
   }
 
-  /* precompute the boom points so we can flash them on arrival */
+  /* the boom points (impacts, sticks, splashes) with their radius */
   const booms = [];
   for (const e of rep.ev){
-    if (e.t === 'boom' || e.t === 'stick' || e.t === 'splash')
-      booms.push({ x:e.x, y:e.y, r:(e.r || 4), fired:false, at:0 });
+    if (e.t === 'boom') booms.push({ x:e.x, y:e.y, r:(e.r || 4), water:false, fired:false });
+    else if (e.t === 'splash' || e.t === 'overboard') booms.push({ x:e.x, y:e.y, r:3.5, water:true, fired:false });
+    else if (e.t === 'stick') booms.push({ x:e.x, y:e.y, r:2.5, water:false, fired:false, small:true });
   }
+  /* the thumps (direct hits) → a knock puff at the person */
+  const thumps = rep.ev.filter(e => e.t === 'thump' || e.t === 'thud');
 
   const a = M.anim = {
-    pts, i:0, kids, kidIdx: kids.map(() => 0),
-    trail:[], pos:null, booms:[], start:nowMs(), lastBounceAt:0,
-    events: rep.ev.slice(), evi:0
+    pts, i:0, trail:[], pos:null, start:nowMs(),
+    zoomedIn:false
   };
-  /* ~2.4 world cells per frame at 60fps, capped so long shots do not
-     crawl and short ones do not blink past */
+  /* zoom the camera in a touch and follow the shell */
+  if (M.cam){ M.cam.follow = true; M.cam.hold = 0; }
+
   const SPEED = 3.0;
   let carried = 0;
+  let landed = false, landAt = 0;
 
   const step = () => {
     if (!M || M.dead){ return; }
     a.raf = M.raf = requestAnimationFrame(step);
-    carried += SPEED;
-    let advanced = 0;
-    while (carried >= 1 && a.i + 2 < pts.length){
-      a.i += 2; carried -= 1; advanced++;
-      a.trail.push(pts[a.i], pts[a.i + 1]);
-      if (a.trail.length > 40) a.trail.splice(0, a.trail.length - 40);
-    }
-    a.pos = [pts[a.i], pts[a.i + 1]];
+    if (!landed){
+      carried += SPEED;
+      while (carried >= 1 && a.i + 2 < pts.length){
+        a.i += 2; carried -= 1;
+        a.trail.push(pts[a.i], pts[a.i + 1]);
+        if (a.trail.length > 44) a.trail.splice(0, a.trail.length - 44);
+      }
+      a.pos = [pts[a.i], pts[a.i + 1]];
 
-    /* fire a bounce click when we pass one, rate-limited by cue() */
-    const now = nowMs();
-    for (const e of rep.ev){
-      if (e._done) continue;
-      if (e.t === 'bounce' && near(a.pos, e.x, e.y, 3)){
-        e._done = true; cue('piece.slide', { gain:0.3 });
-      } else if (e.t === 'skip' && near(a.pos, e.x, e.y, 3)){
-        e._done = true; cue('sea.splash', { gain:0.35 });
+      /* CAMERA FOLLOW: aim the camera at the shell, zoomed in so the
+         action fills the field. The eased tickCam does the smoothing. */
+      if (M.cam){
+        M.cam.tx = a.pos[0]; M.cam.ty = a.pos[1]; M.cam.tzoom = 1.9;
+      }
+
+      const now = nowMs();
+      for (const e of rep.ev){
+        if (e._done) continue;
+        if (e.t === 'bounce' && near(a.pos, e.x, e.y, 3)){
+          e._done = true; cue('piece.slide', { gain:0.3 });
+          spawnSparks(e.x, e.y);
+        } else if (e.t === 'skip' && near(a.pos, e.x, e.y, 3)){
+          e._done = true; cue('sea.splash', { gain:0.35 });
+          spawnImpact(e.x, E.WATER_Y, 3, 0.4, { water:true });
+        }
+      }
+      /* fire the impact FX when the shell reaches (or the path ends at)
+         a boom point */
+      for (const b of booms){
+        if (!b.fired && (a.i + 2 >= pts.length || near(a.pos, b.x, b.y, 4))){
+          b.fired = true;
+          const power = Math.min(1.6, b.r / 6);
+          if (b.water){
+            spawnImpact(b.x, E.WATER_Y, b.r, 0.5, { water:true });
+            cue('sea.splash', { gain:0.5 }, true);
+          } else {
+            spawnImpact(b.x, b.y, b.r, power, { cols:debrisCols() });
+            cue(b.r >= 7 ? 'duel.boss' : 'duel.hit', { gain:0.65 }, b.r >= 7);
+          }
+        }
+      }
+      for (const tp of thumps){
+        if (!tp._done && near(a.pos, tp.x, tp.y, 4)){
+          tp._done = true;
+          spawnKnock(tp.x, tp.y);
+          cue('duel.hit', { gain:0.55 });
+        }
+      }
+
+      if (a.i + 2 >= pts.length){
+        landed = true; landAt = now;
+        /* the moment of impact: point the camera at the last boom (or
+           the shell's rest), pull back a little to show the damage */
+        const focus = booms.length ? booms[booms.length - 1] : { x:a.pos[0], y:a.pos[1] };
+        if (M.cam){ M.cam.tx = focus.x; M.cam.ty = focus.y; M.cam.tzoom = 2.2; }
+      }
+    } else {
+      /* impact settling: hold on the blast, then ease back to frame both
+         castles so the player reads what changed */
+      const held = nowMs() - landAt;
+      if (M.cam && held > 620 && !a.easedBack){
+        a.easedBack = true;
+        const f = frameWhole();
+        M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; M.cam.follow = false;
       }
     }
-    /* flash booms whose point we have reached */
-    for (const b of booms){
-      if (!b.fired && (a.i + 2 >= pts.length || near(a.pos, b.x, b.y, 4))){
-        b.fired = true; b.at = now; a.booms.push({ x:b.x, y:b.y, r:b.r, at:now });
-        cue(b.r >= 7 ? 'duel.boss' : 'duel.hit', { gain:0.6 }, b.r >= 7);
-      }
-    }
 
+    /* advance the camera + repaint */
+    if (M.cam) tickCam(0.016);
     draw();
-    if (a.i + 2 >= pts.length){
-      /* let the last boom flash breathe, then settle */
-      const anyLive = a.booms.some(b => now - b.at < 300);
-      if (!advanced && !anyLive){
+
+    /* done when landed, camera has essentially arrived at the wide frame,
+       and the FX have mostly burned down (or a safety timeout) */
+    if (landed){
+      const held = nowMs() - landAt;
+      const camDone = !M.cam || (Math.abs(M.cam.zoom - frameWhole().zoom) < 0.06 &&
+                       Math.abs(M.cam.x - frameWhole().x) < 2);
+      const fxQuiet = !M.fx || (M.fx.debris.length + M.fx.rings.length < 6);
+      if (held > 1200 && (camDone && fxQuiet || held > 2600)){
         stopAnim();
         boomSounds(rep, false);
         draw(); hud();
@@ -848,6 +1451,17 @@ function playFlight(rep, done){
     }
   };
   a.raf = M.raf = requestAnimationFrame(step);
+}
+function spawnSparks(x, y){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const n = Math.min(FX_CAP.particles - M.fx.particles.length, 5);
+  for (let i = 0; i < n; i++){
+    const ang = rr(-Math.PI, 0), sp = rr(0.5, 1.8);
+    M.fx.particles.push({ x, y, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
+      r:rr(0.3, 0.6), born:nowMs(), life:rr(140, 260), kind:'spark' });
+  }
+  startFx();
 }
 function near(p, x, y, r){ if (!p) return false; const dx = p[0]-x, dy = p[1]-y; return dx*dx+dy*dy <= r*r; }
 function boomSounds(rep, instant){
@@ -863,6 +1477,7 @@ function boomSounds(rep, instant){
 function stopAnim(){
   if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
   if (M) M.anim = null;
+  if (M && M.cam) M.cam.follow = false;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1378,7 +1993,8 @@ function resumeGame(){
   try { st = E.restore(ST.save.snap); } catch(e){}
   if (!st){ ST.save = null; persist(); menu(); return; }
   const o = ST.save.opts || { lvl:2, strat:'BAL' };
-  stopAnim();
+  const V = VARIANTS[o.variant] ? o.variant : 'malta';
+  stopAnim(); stopFx();
   M = {
     opts:o, seed: st.seed, st,
     net:null, me:0, mine:[0], meta:[
@@ -1386,6 +2002,7 @@ function resumeGame(){
       { name: levelWords(o.lvl || 2).n, own:'ai', lvl:o.lvl || 2, strat:o.strat || 'BAL' }
     ],
     ctx:null, cv:null, g2:null, sel:0, drag:null, preview:null, anim:null,
+    cam:null, fx:null, theme:THEMES[VARIANTS[V].theme], variant:V,
     raf:0, busy:false, dead:false, finished:false, shopOpen:false, aiPending:0
   };
   openBoard(() => menu());
@@ -1420,7 +2037,7 @@ function openBoard(onBack){
 }
 
 function leave(){
-  stopAnim();
+  stopAnim(); stopFx();
   if (M && M.aiPending){ clearTimeout(M.aiPending); M.aiPending = 0; }
   if (UI){
     if (UI.stopFit) { try { UI.stopFit(); } catch(e){} }
@@ -1503,9 +2120,15 @@ function onlineStart(cfg){
   const iAmHost = (cfg.you === (cfg.host | 0));
   const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
 
+  /* the room's variant word decides the battlefield for BOTH phones. It
+     rides in on cfg.variant (the relay's word), and because a variant is
+     only theme + purse + weapon-set, all of which go into the match tuple
+     the same way on every phone, both build the identical world. */
+  const variant = VARIANTS[String(cfg.variant || '').toLowerCase()] ? String(cfg.variant).toLowerCase() : 'malta';
+
   leave();
   injectCSS();
-  startMatch({ lvl, first:0 }, cfg.seed >>> 0, null);
+  startMatch({ lvl, first:0, variant }, cfg.seed >>> 0, null);
   M.net = Object.assign({}, cfg.net, { host:iAmHost, toGame, toRoom });
   M.me = meG;
   M.mine = [meG];
@@ -1569,44 +2192,86 @@ P.online.kanun = {
    THE MENU
    ═══════════════════════════════════════════════════════════════════ */
 function heroCanvas(){
-  /* two little castles and a shell arc, drawn once. Decoration only. */
+  /* a dramatic full-bleed scene: moody dusk sky, a far skyline, two
+     castles across the harbour, a glowing shell arcing over with a
+     tapered trail, and a bright impact burst on the far keep. Rendered
+     once to an internal buffer and scaled to fill the hero box (the
+     CSS pins it to inset:0). Decoration only — no engine, no image. */
+  const w = 400, h = 220, dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const cv = document.createElement('canvas');
-  const w = 260, h = 118, dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
-  cv.style.width = w + 'px'; cv.style.height = h + 'px';
   const g = cv.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const th = THEMES.dusk;
+  /* sky */
+  const sky = g.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, th.sky0); sky.addColorStop(0.55, th.sky1); sky.addColorStop(1, th.sky2);
+  g.fillStyle = sky; g.fillRect(0, 0, w, h);
+  /* a low sun glow */
+  const gl = g.createRadialGradient(w * 0.72, h * 0.2, 0, w * 0.72, h * 0.2, w * 0.5);
+  gl.addColorStop(0, 'rgba(255,150,90,.45)'); gl.addColorStop(1, 'rgba(255,150,90,0)');
+  g.fillStyle = gl; g.fillRect(0, 0, w, h);
+  const horizon = h - 44;
+  /* far skyline silhouette */
+  g.fillStyle = th.hill;
+  g.beginPath(); g.moveTo(0, horizon);
+  let s = 7;
+  for (let x = 0; x <= w; x += 26){ s = (s * 1103515245 + 12345) & 0x7fffffff;
+    const hh = (s % 100) / 100 * 30 + 8; g.lineTo(x, horizon - hh); g.lineTo(x + 13, horizon - hh * 0.6); }
+  g.lineTo(w, horizon); g.closePath(); g.fill();
+  /* a dome landmark */
+  g.fillStyle = th.hill2; g.beginPath(); g.arc(w * 0.5, horizon - 30, 20, Math.PI, 0); g.fill();
+  g.fillRect(w * 0.5 - 20, horizon - 30, 40, 30);
   /* sea */
-  g.fillStyle = 'rgba(40,110,150,.5)'; g.fillRect(0, h - 26, w, 26);
-  /* left castle (blue) */
-  drawCastle(g, 18, h - 26, SIDECOL[0], false);
-  /* right castle (red) */
-  drawCastle(g, w - 62, h - 26, SIDECOL[1], true);
+  const sea = g.createLinearGradient(0, horizon, 0, h);
+  sea.addColorStop(0, th.sea0); sea.addColorStop(1, th.sea1);
+  g.fillStyle = sea; g.fillRect(0, horizon, w, h - horizon);
+  g.fillStyle = 'rgba(255,255,255,.14)'; g.fillRect(0, horizon, w, 2);
+  /* castles */
+  drawCastle(g, 26, horizon, SIDECOL[0], false, 1.5);
+  drawCastle(g, w - 92, horizon, SIDECOL[1], true, 1.5);
   /* the rock */
-  g.fillStyle = '#5c554b';
-  g.beginPath(); g.moveTo(w/2 - 8, h - 26); g.lineTo(w/2, h - 44); g.lineTo(w/2 + 8, h - 26); g.closePath(); g.fill();
-  /* an arc */
-  g.strokeStyle = 'rgba(255,255,255,.5)'; g.setLineDash([3, 4]); g.lineWidth = 1.6;
-  g.beginPath();
-  for (let i = 0; i <= 24; i++){
-    const t = i / 24, x = 44 + t * (w - 108), y = (h - 40) - Math.sin(t * Math.PI) * 62;
-    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y);
-  }
-  g.stroke(); g.setLineDash([]);
-  g.fillStyle = '#FFE08A';
-  g.beginPath(); g.arc(w/2, h - 40 - 62, 3.2, 0, 6.2832); g.fill();
+  g.fillStyle = '#4a4238';
+  g.beginPath(); g.moveTo(w/2 - 12, horizon); g.lineTo(w/2, horizon - 24); g.lineTo(w/2 + 12, horizon); g.closePath(); g.fill();
+  /* the arcing shot: a tapered glowing trail */
+  const arc = [];
+  for (let i = 0; i <= 40; i++){ const t = i / 40;
+    arc.push(64 + t * (w - 168), (horizon - 26) - Math.sin(t * Math.PI) * 118); }
+  for (let i = 2; i < arc.length; i += 2){ const f = i / arc.length;
+    g.strokeStyle = 'rgba(255,214,140,' + (0.08 + f * 0.5).toFixed(2) + ')';
+    g.lineWidth = 1 + f * 3; g.lineCap = 'round';
+    g.beginPath(); g.moveTo(arc[i - 2], arc[i - 1]); g.lineTo(arc[i], arc[i + 1]); g.stroke(); }
+  /* the shell near the far end, glowing */
+  const sxp = arc[arc.length - 8], syp = arc[arc.length - 7];
+  const sgl = g.createRadialGradient(sxp, syp, 0, sxp, syp, 16);
+  sgl.addColorStop(0, 'rgba(255,230,160,.9)'); sgl.addColorStop(1, 'rgba(255,230,160,0)');
+  g.fillStyle = sgl; g.beginPath(); g.arc(sxp, syp, 16, 0, 6.2832); g.fill();
+  g.fillStyle = '#FFE8A0'; g.beginPath(); g.arc(sxp, syp, 4, 0, 6.2832); g.fill();
+  /* an impact burst on the far keep */
+  const ix = w - 70, iy = horizon - 30;
+  const bgl = g.createRadialGradient(ix, iy, 0, ix, iy, 30);
+  bgl.addColorStop(0, 'rgba(255,180,90,.85)'); bgl.addColorStop(0.5, 'rgba(255,120,60,.5)'); bgl.addColorStop(1, 'rgba(255,120,60,0)');
+  g.fillStyle = bgl; g.beginPath(); g.arc(ix, iy, 30, 0, 6.2832); g.fill();
+  for (let i = 0; i < 10; i++){ const a = i / 10 * 6.283, r = 10 + (i % 3) * 8;
+    g.fillStyle = 'rgba(255,200,120,.8)';
+    g.fillRect(ix + Math.cos(a) * r, iy + Math.sin(a) * r - 4, 3, 3); }
+  /* a soft vignette so the title lockup reads */
+  const vg = g.createLinearGradient(0, h * 0.4, 0, h);
+  vg.addColorStop(0, 'rgba(7,13,21,0)'); vg.addColorStop(1, 'rgba(7,13,21,.78)');
+  g.fillStyle = vg; g.fillRect(0, 0, w, h);
   return cv;
 }
-function drawCastle(g, x, gy, col, flip){
+function drawCastle(g, x, gy, col, flip, sc){
+  sc = sc || 1;
   g.fillStyle = col.b;
-  g.fillRect(x, gy - 30, 44, 30);
+  g.fillRect(x, gy - 30 * sc, 44 * sc, 30 * sc);
   g.fillStyle = col.a;
-  for (let i = 0; i < 4; i++) g.fillRect(x + i * 11, gy - 36, 7, 8);
-  /* a tower */
-  const tx = flip ? x + 34 : x + 2;
-  g.fillStyle = col.b; g.fillRect(tx, gy - 46, 10, 46);
+  for (let i = 0; i < 4; i++) g.fillRect(x + i * 11 * sc, gy - 36 * sc, 7 * sc, 8 * sc);
+  const tx = flip ? x + 34 * sc : x + 2 * sc;
+  g.fillStyle = col.b; g.fillRect(tx, gy - 46 * sc, 10 * sc, 46 * sc);
   g.fillStyle = col.flag;
-  g.beginPath(); g.moveTo(tx + 10, gy - 46); g.lineTo(tx + 22, gy - 42); g.lineTo(tx + 10, gy - 38); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(tx + 10 * sc, gy - 46 * sc); g.lineTo(tx + 22 * sc, gy - 42 * sc);
+  g.lineTo(tx + 10 * sc, gy - 38 * sc); g.closePath(); g.fill();
 }
 
 /* ── the ENTRY screen: a few big choices, nothing else. Pick HOW to
@@ -1636,7 +2301,13 @@ function menu(){
     '</div>' +
     '<div class="scroll">' +
       '<div class="kn-hero" id="kn-hero" aria-hidden="true">' +
-        '<span class="kn-hero-cap">' + esc(T('CASTLE WARS', 'GWERER TAL-KASTELLI')) + '</span>' +
+        '<div class="kn-hero-art" id="kn-hero-art"></div>' +
+        '<div class="kn-hero-lock">' +
+          '<span class="kn-hero-cap">' + esc(T('CASTLE WARS', 'GWERER TAL-KASTELLI')) + '</span>' +
+          '<h1 class="kn-hero-title">IL-KANUN</h1>' +
+          '<p class="kn-hero-sub">' + esc(T('Two castles, a moat, and a slingshot.',
+            'Żewġ kastelli, foss, u żbandola.')) + '</p>' +
+        '</div>' +
       '</div>' +
 
       (hasSave ? '<button class="btn primary" id="kn-resume" style="margin:2px 0 12px">' +
@@ -1737,6 +2408,7 @@ function aiSetup(){
   const el = P.ui.screenEl();
   const p = pref();
   let lvl = p.lvl || 2;
+  let variant = VARIANTS[p.variant] ? p.variant : 'malta';
 
   function paint(){
     el.innerHTML =
@@ -1747,7 +2419,17 @@ function aiSetup(){
         '<h2>' + esc(T('Play with AI', 'Ilgħab mal-magna')) + '</h2>' +
       '</div>' +
       '<div class="scroll">' +
-        '<div class="tiny pt-lbl" style="margin-top:6px">' + esc(T('How hard the machine is', 'Kemm hi iebsa l-magna')) + '</div>' +
+        '<div class="tiny pt-lbl" style="margin-top:6px">' + esc(T('The battlefield', 'Il-kamp tal-battalja')) + '</div>' +
+        '<div class="kn-maps" id="kn-maps">' +
+          VARIANT_LIST.map(k => {
+            const V = VARIANTS[k];
+            return '<button class="kn-map' + (variant === k ? ' on' : '') + '" data-map="' + k + '">' +
+              '<span class="kn-map-thumb" data-thumb="' + k + '"></span>' +
+              '<span class="kn-map-tx"><b>' + esc(TP(V.name)) + '</b>' +
+                '<i>' + esc(TP(V.note)) + '</i></span></button>';
+          }).join('') +
+        '</div>' +
+        '<div class="tiny pt-lbl" style="margin-top:14px">' + esc(T('How hard the machine is', 'Kemm hi iebsa l-magna')) + '</div>' +
         '<div class="pt-opts" id="kn-lvl">' +
           [1,2,3,4].map(L => {
             const w = levelWords(L);
@@ -1762,18 +2444,54 @@ function aiSetup(){
                 'Titfa\' l-ewwel. Ibdel l-armi u ixtri kenn mill-ħanut bejn id-dawriet.')) +
         '</p>' +
       '</div></div>';
+    /* paint the little map thumbnails */
+    el.querySelectorAll('[data-thumb]').forEach(sp => {
+      sp.appendChild(mapThumb(sp.getAttribute('data-thumb')));
+    });
     el.querySelector('#kn-sb').onclick = () => { cue('ui.back', { gain:0.65 }); menu(); };
+    el.querySelector('#kn-maps').addEventListener('click', e => {
+      const b = e.target.closest && e.target.closest('[data-map]');
+      if (!b) return; variant = b.getAttribute('data-map'); cue('move.select', { gain:0.4 }); paint();
+    });
     el.querySelector('#kn-lvl').addEventListener('click', e => {
       const b = e.target.closest && e.target.closest('[data-lvl]');
       if (!b) return; lvl = +b.getAttribute('data-lvl'); paint();
     });
     el.querySelector('#kn-start').onclick = () => {
-      pref({ lvl, first:0 });
+      pref({ lvl, first:0, variant });
       ST.save = null; persist();
-      newGame({ lvl, first:0, strat:'BAL' });
+      newGame({ lvl, first:0, strat:'BAL', variant });
     };
   }
   paint();
+}
+
+/* a small themed thumbnail for a battlefield card: sky wash, sea, two
+   castles, a shot arc — the theme's palette in miniature. */
+function mapThumb(key){
+  const th = THEMES[VARIANTS[key] ? VARIANTS[key].theme : 'malta'] || THEMES.malta;
+  const w = 76, h = 52, dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+  const cv = document.createElement('canvas');
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const sky = g.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, th.sky0); sky.addColorStop(0.6, th.sky1); sky.addColorStop(1, th.sky2);
+  g.fillStyle = sky; g.fillRect(0, 0, w, h);
+  g.fillStyle = th.hill; g.beginPath(); g.moveTo(0, h - 16);
+  g.lineTo(14, h - 24); g.lineTo(30, h - 18); g.lineTo(50, h - 26); g.lineTo(w, h - 18);
+  g.lineTo(w, h); g.lineTo(0, h); g.closePath(); g.fill();
+  g.fillStyle = th.sea1; g.fillRect(0, h - 10, w, 10);
+  g.fillStyle = SIDECOL[0].b; g.fillRect(8, h - 22, 12, 12);
+  g.fillStyle = SIDECOL[0].a; g.fillRect(8, h - 22, 12, 4);
+  g.fillStyle = SIDECOL[1].b; g.fillRect(w - 20, h - 22, 12, 12);
+  g.fillStyle = SIDECOL[1].a; g.fillRect(w - 20, h - 22, 12, 4);
+  g.strokeStyle = 'rgba(255,255,255,.55)'; g.setLineDash([2, 3]); g.lineWidth = 1.2;
+  g.beginPath();
+  for (let i = 0; i <= 16; i++){ const t = i / 16, x = 16 + t * (w - 32), y = (h - 18) - Math.sin(t * Math.PI) * 22;
+    if (i === 0) g.moveTo(x, y); else g.lineTo(x, y); }
+  g.stroke(); g.setLineDash([]);
+  return cv;
 }
 
 /* repaint on a language change, only what we own and only if on screen */
@@ -1829,6 +2547,27 @@ R.lobby = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
+
+  /* ── THE BATTLEFIELDS, for the shared lobby's Rules picker. Same shape
+     klabb and cards2131 publish: the relay's word, a bilingual label,
+     and the seats each plays (always 2 here). The host picks a map; the
+     relay carries the word; applyVariant turns it into what rides on the
+     wire; onlineStart reads cfg.variant and both phones build it. ── */
+  variants: VARIANT_LIST.map(k => ({
+    id: k, net: k, name: VARIANTS[k].name.en, mt: VARIANTS[k].name.mt,
+    label: VARIANTS[k].name, note: VARIANTS[k].note, seats: [2] })),
+  currentVariant(){
+    try {
+      const v = window.KARTI_MP && window.KARTI_MP.MP && window.KARTI_MP.MP.variant;
+      const k = String(v || '').toLowerCase();
+      return VARIANTS[k] ? k : 'malta';
+    } catch(e){ return 'malta'; }
+  },
+  applyVariant(net){
+    const k = String(net || '').toLowerCase();
+    return { variant: VARIANTS[k] ? k : 'malta', rules: null };
+  },
+
   canStart(){ return { ok:false, why: ONLINE_WHY }; },
   rulesHTML: () =>
     '<p>' + T('Two castles across a moat. Take turns throwing comically Maltese ordnance, and ' +
@@ -1852,7 +2591,8 @@ R.lobby = {
   },
   start: (seatList, o) => newGame({
     lvl: ((seatList || []).map(s => s && s.level).find(v => v)) || 2,
-    first: 0, strat:'BAL'
+    first: 0, strat:'BAL',
+    variant: (o && o.variant) || R.lobby.currentVariant()
   }),
   wire: { fields: E.WIRE_FIELDS },
   takeback: false
@@ -1914,6 +2654,18 @@ try {
         hud(); weps(); draw();
         return rep;
       },
+      /* fire a shot through the REAL animated path (camera-follow + FX) */
+      fire: (mv, src) => fireShot(Object.assign({ seat:M.me }, mv), src || 'me'),
+      /* spawn destruction directly, for a synchronous FX assertion */
+      spawnImpact: (x, y, r, p, o) => spawnImpact(x, y, r, p, o),
+      /* advance the FX physics n steps of dt, headless (no rAF) */
+      tickFx: (n, dt) => { for (let i = 0; i < (n||1); i++) stepFx(dt||0.016); },
+      /* advance the camera one eased step toward its target */
+      tickCam: dt => tickCam(dt||0.016),
+      fx: () => (M ? M.fx : null),
+      cam: () => (M ? M.cam : null),
+      setVariant: k => { if (M) { M.variant = k; M.theme = THEMES[VARIANTS[k]?VARIANTS[k].theme:'malta']; draw(); } },
+      themeKey: () => (M && M.theme ? M.theme.key : null),
       preview: mv => E.preview(M.st, Object.assign({ seat:M.me }, mv)),
       buy: it => { const r = E.apply(M.st, { seat:M.me, t:'buy', it }); paintShop && (M.shopOpen ? paintShop() : 0); hud(); weps(); return r; },
       aiTurn: seat => E.aiTurn(M.st, seat == null ? 1 : seat, M.opts.lvl || 2, 'BAL'),
@@ -1925,7 +2677,7 @@ try {
       rules: () => rulesOpen, setRules,
       remote: (seat, wire) => onlineRemote(seat, wire),
       hooks: NET_HOOKS,
-      lobby: R.lobby, tile: TILE,
+      lobby: R.lobby, tile: TILE, variants: VARIANTS, aiSetup,
       store: () => ST,
       canvas: () => (UI ? UI.cv : null)
     };

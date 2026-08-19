@@ -141,12 +141,20 @@ const SIM_HZ   = 16;           /* simulation ticks per second (62.5ms)     */
    benefit at these speeds. 16 is the knee. */
 
 /* base movement speed in fixed units/tick. One cell = SUB = 256 units.
-   BASE 64 => 4 ticks/cell => 4 cells/sec at 16Hz. Each SPEED power-up
-   adds SPEED_STEP. Kept integral divisors of SUB so a player lands
-   EXACTLY on cell centres (no float drift, ever). */
-const BASE_SPEED  = 64;        /* 256/64 = 4 ticks per cell               */
-const SPEED_STEP  = 16;        /* +16 => still divides 256 at 80/... no.  */
-const MAX_SPEED   = 128;       /* 256/128 = 2 ticks per cell cap          */
+   BASE 48 => 256/48 = 5.33 => the snap-to-centre clamp lands EXACTLY on a
+   cell every 6 ticks (~2.7 cells/sec at 16Hz). This is the SLOWER, more
+   forgiving base the brief asked for: the old BASE 64 was 4 ticks/cell,
+   4 cells/sec — a scramble; 48 is 33% calmer, so a new player can read the
+   arena and dodge, yet it stays in the "clean escape budget" band the AI's
+   flee model was tuned for (a swept comparison showed 48 keeps AI self-
+   kills LOWER than the old 64, while 40/44/52 made the AI misjudge escapes
+   — 48 is the knee). Each SPEED power-up adds SPEED_STEP, ramping back UP
+   toward a fast late-round, so the calm start still powers up. The snap-at-
+   centre clamp in moveActor keeps every landing exactly on a cell centre
+   regardless of speed, so grid logic stays integer with no float drift. */
+const BASE_SPEED  = 48;        /* 6 ticks per cell (calm)                 */
+const SPEED_STEP  = 12;        /* each SPEED power-up: +12 fixed units    */
+const MAX_SPEED   = 108;       /* ~3 ticks per cell cap (fast finish)     */
 
 /* NOTE on divisor cleanliness: 256 / speed must be an integer so a
    player snaps to centre. Legal speeds are therefore 64,128 only among
@@ -155,16 +163,33 @@ const MAX_SPEED   = 128;       /* 256/128 = 2 ticks per cell cap          */
    centre exactly, so alignment is exact regardless of speed. That keeps
    grid logic integer and centre-aligned while allowing fine speed. */
 
-const BOMB_FUSE   = 40;        /* ticks from drop to detonation (2.5s)    */
-const BLAST_LIFE  = 8;         /* ticks a blast cell stays lethal (0.5s)  */
+const BOMB_FUSE   = 48;        /* ticks from drop to detonation (3.0s) —  */
+                               /* longer than the old 2.5s so a slower    */
+                               /* player still has time to read and flee. */
+const BLAST_LIFE  = 9;         /* ticks a blast cell stays lethal (~0.56s)*/
 const START_BOMBS = 1;
 const START_RANGE = 1;
-const MAX_RANGE   = 8;
+const MAX_RANGE   = 9;
 const MAX_BOMBS   = 8;
 
-/* power-up kinds */
-const PU = { BOMB:1, RANGE:2, SPEED:3, KICK:4 };
-const PU_KINDS = [PU.BOMB, PU.RANGE, PU.SPEED, PU.KICK];
+/* power-up kinds. The classic four (BOMB, RANGE, SPEED, KICK) plus four
+   that earn their place and give a round a real scale-up feel:
+     REMOTE  — hold your bombs; a second tap detonates them ALL now.
+     PIERCE  — your blast passes THROUGH blocks, destroying a whole line up
+               to your full range instead of stopping at the first one.
+     SHIELD  — a one-hit ward: the next blast that would kill you is eaten
+               and the shield is spent. Survive one mistake.
+     MEGA    — the next bomb you drop is a MEGA: +2 range over your normal
+               and it detonates on a shorter fuse. Consumed on drop, so it
+               is a burst of power you spend, not a permanent stat.
+   Every one is a deterministic integer flag on the player or bomb — no
+   floats, no clock, folded into hashState — so they never fork lockstep. */
+const PU = { BOMB:1, RANGE:2, SPEED:3, KICK:4, REMOTE:5, PIERCE:6, SHIELD:7, MEGA:8 };
+const PU_KINDS = [PU.BOMB, PU.RANGE, PU.SPEED, PU.KICK, PU.REMOTE, PU.PIERCE, PU.SHIELD, PU.MEGA];
+
+/* a MEGA bomb: +2 range over the player's normal, shorter fuse. */
+const MEGA_BONUS  = 2;
+const MEGA_FUSE   = 32;
 
 /* directions: index-stable order used everywhere (up,down,left,right).
    dc/dr are column/row deltas. */
@@ -215,74 +240,173 @@ function hash32(list){
    A trailing `~sym` marker declares expected symmetry (see validator).
    ═══════════════════════════════════════════════════════════════════ */
 const MAPS = {
-  /* OPEN — few blocks, lots of room. Classic 4-corner. */
+  /* ══ SMALL / MEDIUM — 2 to 4 players ══════════════════════════════ */
+
+  /* DUEL — small, 2-player, mirror. The tightest arena. */
+  duell: {
+    id: 'duell', sym: 'mirrorH', seats: 2, size: 'S',
+    grid:
+      '1.*.*.2\n' +
+      '.#*#*#.\n' +
+      '*.*.*.*\n' +
+      '.#*#*#.\n' +
+      '*.*.*.*\n' +
+      '.#*#*#.\n' +
+      '..*.*..'
+  },
+  /* OPEN — classic four-corner, now bigger (11x11) and brick-dense so
+     there is plenty to blast through before players meet. */
   arena: {
-    id: 'arena', sym: 'rot4',
+    id: 'arena', sym: 'rot4', seats: 4, size: 'M',
     grid:
-      '1.......2\n' +
-      '.#.#.#.#.\n' +
-      '..*...*..\n' +
-      '.#*#.#*#.\n' +
-      '....*....\n' +
-      '.#*#.#*#.\n' +
-      '..*...*..\n' +
-      '.#.#.#.#.\n' +
-      '4.......3'
+      '1.*...*...2\n' +
+      '.#*#*#*#*#.\n' +
+      '*****.*****\n' +
+      '*#.#*#*#.#*\n' +
+      '*.*.*.*.*.*\n' +
+      '.#*#*.*#*#.\n' +
+      '*.*.*.*.*.*\n' +
+      '*#.#*#*#.#*\n' +
+      '*****.*****\n' +
+      '.#*#*#*#*#.\n' +
+      '4.*...*...3'
   },
-  /* MAZE — dense blocks, tight lanes. */
+  /* MAZE — dense blocks, tight lanes. Blast-through country. */
   labirint: {
-    id: 'labirint', sym: 'rot4',
+    id: 'labirint', sym: 'rot4', seats: 4, size: 'M',
     grid:
-      '1.*...*.2\n' +
+      '1.*.*.*.2\n' +
       '.#*#*#*#.\n' +
       '*.*.*.*.*\n' +
-      '*#.#*#.#*\n' +
-      '..*.#.*..\n' +
-      '*#.#*#.#*\n' +
+      '*#*#*#*#*\n' +
+      '*.*.#.*.*\n' +
+      '*#*#*#*#*\n' +
       '*.*.*.*.*\n' +
       '.#*#*#*#.\n' +
-      '4.*...*.3'
+      '4.*.*.*.3'
   },
-  /* CORRIDORS — long horizontal lanes divided by pillar walls. */
+  /* CORRIDORS — long horizontal lanes divided by pillar walls, packed
+     with blocks so a lane is a dig, not a sprint. */
   kurituri: {
-    id: 'kurituri', sym: 'mirrorH',
+    id: 'kurituri', sym: 'mirrorH', seats: 4, size: 'M',
     grid:
-      '1...*...*...2\n' +
+      '1..*.*.*.*..2\n' +
       '#.#.#.#.#.#.#\n' +
-      '..*...*...*..\n' +
+      '*.*.*.*.*.*.*\n' +
       '#.#.#.#.#.#.#\n' +
-      '..*...*...*..\n' +
+      '*.*.*.*.*.*.*\n' +
       '#.#.#.#.#.#.#\n' +
-      '4...*...*...3'
+      '4..*.*.*.*..3'
   },
   /* ASYMMETRIC — deliberately NOT fair; a proving ground for the
      validator's "sym:none" path and for maps that just want variety. */
   gzira: {
-    id: 'gzira', sym: 'none',
+    id: 'gzira', sym: 'none', seats: 4, size: 'M',
     grid:
-      '1..*..*....\n' +
+      '1**.*.*....\n' +
       '.####.#.##.\n' +
-      '.*..*.*..*.\n' +
+      '.*.**.*.**.\n' +
       '.#.##.#.#..\n' +
-      '..*...*..*2\n' +
+      '**.*.**.**2\n' +
       '.##.#.##.#.\n' +
-      '3*..*..*..*\n' +
+      '3*.**.**..*\n' +
       '.#.#.####..\n' +
-      '....*...*.4'
+      '..*.**..*.4'
   },
-  /* DUEL — small, 2-player, mirror. */
-  duell: {
-    id: 'duell', sym: 'mirrorH',
+  /* CROSS — a pillar cross quarters the arena; four corners, medium.
+     rot4-symmetric (90° about centre), brick-dense with clear pockets. */
+  salib: {
+    id: 'salib', sym: 'rot4', seats: 4, size: 'M',
     grid:
-      '1.*.*.2\n' +
-      '.#*#*#.\n' +
-      '..*.*..\n' +
-      '.#*#*#.\n' +
-      '..*.*..\n' +
-      '.#*#*#.\n' +
-      '..*.*..'
+      '1.*****.2\n' +
+      '.**#*#**.\n' +
+      '*********\n' +
+      '*#*#*#*#*\n' +
+      '****#****\n' +
+      '*#*#*#*#*\n' +
+      '*********\n' +
+      '.**#*#**.\n' +
+      '4.*****.3'
+  },
+
+  /* ══ LARGE — 5 to 8 players. Bigger cells, more spawns, still fair. ══ */
+
+  /* BIG ARENA — 15x13 open, eight edge spawns. The "more than 4" default. */
+  gzejjer: {
+    id: 'gzejjer', sym: 'mirrorH', seats: 8, size: 'L',
+    grid:
+      '1..*.*.5.*.*..2\n' +
+      '.#*#*#*#*#*#*#.\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '*#*#*#*#*#*#*#*\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '7#*#*#*.*#*#*#8\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '*#*#*#*#*#*#*#*\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '.#*#*#*#*#*#*#.\n' +
+      '4..*.*.6.*.*..3'
+  },
+  /* BIG MAZE — 15x13 dense labyrinth, eight spawns, lots to break. */
+  katakombi: {
+    id: 'katakombi', sym: 'mirrorH', seats: 8, size: 'L',
+    grid:
+      '1.*.*.5.*.*.*.2\n' +
+      '.#*#*#*#*#*#*#.\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '*#.#*#*#*#*#.#*\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '7*#*#*.*.*#*#*8\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '*#.#*#*#*#*#.#*\n' +
+      '*.*.*.*.*.*.*.*\n' +
+      '.#*#*#*#*#*#*#.\n' +
+      '4.*.*.6.*.*.*.3'
+  },
+  /* GRAND CORRIDORS — 19x11 long lanes for eight, pillar rows between. */
+  kurituri_kbir: {
+    id: 'kurituri_kbir', sym: 'mirrorH', seats: 8, size: 'L',
+    grid:
+      '1..*.*.*.5.*.*.*..2\n' +
+      '#.#.#.#.#.#.#.#.#.#\n' +
+      '*.*.*.*.*.*.*.*.*.*\n' +
+      '7.*.*.*.*.*.*.*.*.8\n' +
+      '*.*.*.*.*.*.*.*.*.*\n' +
+      '#.#.#.#.#.#.#.#.#.#\n' +
+      '*.*.*.*.*.*.*.*.*.*\n' +
+      '*.*.*.*.*.*.*.*.*.*\n' +
+      '*.*.*.*.*.*.*.*.*.*\n' +
+      '#.#.#.#.#.#.#.#.#.#\n' +
+      '4..*.*.*.6.*.*.*..3'
   }
 };
+
+/* the shipped map ids in menu order: small first, then medium, then the
+   three large arenas for 5–8. The UI reads this so the picker and the
+   online variant list stay in sync with the engine. */
+const MAP_IDS = ['duell', 'arena', 'labirint', 'kurituri', 'gzira', 'salib',
+                 'gzejjer', 'katakombi', 'kurituri_kbir'];
+/* which maps are LARGE (5–8 players). Everything else caps at its spawn
+   count (2 for duell, 4 for the rest). */
+const LARGE_MAPS = ['gzejjer', 'katakombi', 'kurituri_kbir'];
+
+/* how many seats a map can spawn (its declared spawn digit count). */
+function mapSeats(id){
+  const m = MAPS[id]; if (!m) return MAX_SEATS;
+  try { return parseMap(m).spawns.length; } catch(e){ return MAX_SEATS; }
+}
+
+/* pick a fair map for a seat count, keeping the CURRENTLY chosen map if it
+   already fits. More than 4 players demands a LARGE arena, so if the chosen
+   map cannot seat everyone we upgrade to the first large map that can. This
+   is the "if MORE THAN 4 players use a BIGGER map" rule, made deterministic
+   and reachable from both the solo picker and the online lobby. */
+function mapForSeats(id, seats){
+  seats = Math.max(MIN_SEATS, Math.min(MAX_SEATS, seats | 0 || MIN_SEATS));
+  if (MAPS[id] && mapSeats(id) >= seats) return id;
+  for (const big of LARGE_MAPS) if (mapSeats(big) >= seats) return big;
+  return LARGE_MAPS[0];
+}
 
 /* parse a map string to structured form. Cells are indexed r*cols+c. */
 function parseMap(m){
@@ -458,9 +582,17 @@ function newMatch(opts, seed){
       range: START_RANGE,
       speed: BASE_SPEED,
       kick: false,
+      remote: false,      /* hold bombs; a drop-press with none to place detonates all */
+      pierce: false,      /* blast passes through blocks; kicked bombs roll through */
+      shield: 0,          /* one-hit wards banked (0 or more)                        */
+      mega: 0,            /* MEGA bombs banked; the next drop spends one             */
       diedTick: -1,
       /* AI memory: last input we synthesised, for prediction/repeat */
-      lastIn: 0
+      lastIn: 0,
+      /* SMOOTHER CONTROLS: a one-tick buffered direction. When a player
+         presses a way while still crossing a cell, we remember it and act
+         on it the instant they re-centre — no dropped press, crisp turns. */
+      buf: NO_DIR
     });
     /* a spawn tile and its orthogonal neighbours must be clear of blocks
        so nobody starts entombed (validator guarantees pillars are fine;
@@ -490,11 +622,25 @@ function clearSpawnPocket(st, c, r){
 function seedItems(st){
   const mp = st.map;
   const N = mp.cols * mp.rows;
-  /* weighted bag: BOMB and RANGE common, SPEED and KICK rarer */
-  const bag = [PU.BOMB, PU.BOMB, PU.BOMB, PU.RANGE, PU.RANGE, PU.RANGE, PU.SPEED, PU.SPEED, PU.KICK, PU.KICK];
+  /* weighted bag. The staples (BOMB, RANGE, SPEED) are common so a round
+     ramps steadily; KICK/REMOTE/PIERCE are the toys; SHIELD and MEGA are
+     the rare, exciting finds. ~48% of blocks carry SOMETHING, so a dense
+     map showers a digging player with progression — the "powering up"
+     feel the brief asked for — while the staples keep it from being a
+     lottery. Deterministic: driven only by st.rs. */
+  const bag = [
+    PU.BOMB,  PU.BOMB,  PU.BOMB,  PU.BOMB,
+    PU.RANGE, PU.RANGE, PU.RANGE, PU.RANGE,
+    PU.SPEED, PU.SPEED, PU.SPEED,
+    PU.KICK,  PU.KICK,
+    PU.REMOTE,
+    PU.PIERCE,
+    PU.SHIELD,
+    PU.MEGA
+  ];
   for (let i = 0; i < N; i++){
     if (!st.block[i]) continue;
-    if (rnd(st) < 0.40){
+    if (rnd(st) < 0.48){
       st.hidden[i] = bag[rndInt(st, bag.length)];
     }
   }
@@ -595,18 +741,40 @@ function step(st, frame){
     moveActor(st, pl, ins[i]);
   }
 
-  /* 3. drop bombs (seat order, cell contest T5) */
+  /* 3. drop bombs (seat order, cell contest T5). REMOTE: a drop-press when
+     the player has bombs LIVE and none left to place instead detonates all
+     their live bombs NOW (added to `due` below). Otherwise a drop places a
+     bomb — a MEGA one if the player has any banked (spends one). */
   const wantDrop = {};      /* cell -> seat that claimed it */
+  const remoteFire = [];    /* bombs a remote-press set off this tick        */
   for (let i = 0; i < players.length; i++){
     const pl = players[i];
     if (!pl.alive || !ins[i].drop) continue;
+
+    /* REMOTE detonation: pressing drop with your bombs held (remote on) and
+       nothing left to place tips off everything you own, at once. */
+    if (pl.remote && pl.live >= pl.bombs && pl.live > 0){
+      for (const b of st.bombs) if (b.seat === pl.seat) remoteFire.push(b);
+      continue;
+    }
+
     if (pl.ox !== 0 || pl.oy !== 0) continue;         /* only when centred */
     if (pl.live >= pl.bombs) continue;
     const cell = idx(st.map, pl.col, pl.row);
     if (bombAt(st, pl.col, pl.row)) continue;         /* already a bomb here */
     if (wantDrop[cell] !== undefined) continue;       /* lower seat already won (T5) */
     wantDrop[cell] = pl.seat;
-    st.bombs.push({ col: pl.col, row: pl.row, seat: pl.seat, fuse: BOMB_FUSE, range: pl.range, moving: NO_DIR });
+    /* a MEGA drop: +MEGA_BONUS range, shorter fuse, pierces; spends a bank. */
+    const useMega = pl.mega > 0;
+    if (useMega) pl.mega--;
+    st.bombs.push({
+      col: pl.col, row: pl.row, seat: pl.seat,
+      fuse: useMega ? MEGA_FUSE : BOMB_FUSE,
+      range: Math.min(MAX_RANGE + MEGA_BONUS, pl.range + (useMega ? MEGA_BONUS : 0)),
+      moving: NO_DIR,
+      /* a bomb remembers its owner's pierce so its blast eats a line */
+      pierce: pl.pierce || useMega
+    });
     pl.live++;
   }
 
@@ -619,6 +787,8 @@ function step(st, frame){
     b.fuse--;
     if (b.fuse <= 0) due.push(b);
   }
+  /* remote-fired bombs join the due set this tick (dedup by identity) */
+  for (const b of remoteFire) if (b.fuse > 0 && due.indexOf(b) < 0) due.push(b);
 
   /* 6. detonate to a fixed point (chains T1/T2) */
   if (due.length) detonate(st, due);
@@ -631,10 +801,14 @@ function step(st, frame){
   }
   st.blasts = keep;
 
-  /* 8. deaths (T3) */
+  /* 8. deaths (T3). SHIELD: a banked ward eats the killing blast and is
+     spent; the player lives THIS tick. Deterministic — checked in seat
+     order, one ward per lethal tick. (A player standing in blast on the
+     tick AFTER, with no ward left, dies as normal.) */
   for (const pl of players){
     if (!pl.alive) continue;
     if (burningAt(st, pl.col, pl.row)){
+      if (pl.shield > 0){ pl.shield--; continue; }
       pl.alive = false; pl.diedTick = st.tick;
     }
   }
@@ -659,54 +833,99 @@ function step(st, frame){
   return st;
 }
 
-/* ── movement ──────────────────────────────────────────────────────
+/* ── movement — SMOOTHER CONTROLS (audited) ────────────────────────
    Sub-cell fixed point. A player centred on a cell (ox=oy=0) may start
    walking in a direction if the target cell is passable. Once walking,
    they accumulate `speed` units toward the target; on reaching SUB they
    snap onto the new cell (exactly, integer) and re-centre. A player is
    only ever between the cell they left and the one they entered.
 
-   We CLAMP the step so a player lands exactly on the centre even if
-   speed does not divide SUB — this keeps everything centre-aligned and
-   integer without floats or trig. */
+   THE OLD FEEL, AND WHY IT WASN'T SMOOTH:
+     · the old code moved AT MOST one cell-crossing per tick and, on the
+       tick it landed a centre, set moving=NO_DIR and did NO more work —
+       so a held direction lost the speed left over that tick and RE-
+       STARTED next tick. At a fast speed that is a visible hitch at every
+       cell boundary: walk, micro-stall, walk. Buttery it was not.
+     · a direction pressed a hair before re-centring was simply dropped —
+       the tick sampled NO_DIR (or the old direction) and you "missed" the
+       turn, having to press again. That is the "not smooth to move" the
+       brief reports.
+
+   THE FIX (still integer, centre-aligned, deterministic — no trig):
+     1. CARRY-OVER. We move in a small loop: consume the player's whole
+        `speed` budget this tick, crossing a centre and CONTINUING in the
+        chosen direction with the leftover if it is still held/buffered
+        and passable. Continuous holding now walks continuously — no per-
+        cell stall — while every landing is still EXACTLY a centre.
+     2. BUFFERED TURN. A direction that arrives mid-cell is remembered in
+        pl.buf and applied THE INSTANT we re-centre — the press is never
+        dropped, so cornering is crisp: aim at the corner, tap the turn a
+        little early, and you slide around it instead of stopping dead.
+     3. A pad press IS a direction with no recognition lag: at a centre we
+        act on `dir` immediately; the loop keeps momentum after. */
 function moveActor(st, pl, inp){
   const dir = inp.dir;
-  /* if not mid-cell, we can pick a new direction */
-  if (pl.ox === 0 && pl.oy === 0){
-    if (dir === NO_DIR){ pl.moving = NO_DIR; return; }
-    pl.dir = dir;
-    const d = DIRS[dir];
-    const nc = pl.col + d.dc, nr = pl.row + d.dr;
-    if (!passable(st, nc, nr, pl)){
-      /* blocked: try to kick a bomb if one sits there and we have kick */
-      if (pl.kick && bombAt(st, nc, nr)){
-        const b = bombAt(st, nc, nr);
-        if (canBombMove(st, nc + d.dc, nr + d.dr)) b.moving = dir;
+
+  /* Remember a fresh press as the buffered intent. At a centre we act on
+     it now; mid-cell we hold it for the coming re-centre (crisp turns). */
+  if (dir !== NO_DIR) pl.buf = dir;
+
+  /* the direction we WANT to commit at the next centre: the live press if
+     there is one, else whatever we buffered earlier (so an early turn is
+     honoured), else keep coasting the way we were going. */
+  let budget = pl.speed;
+  let guard = 0;                          /* loop bound: cannot exceed a few cells/tick */
+
+  while (budget > 0 && guard++ < 8){
+    if (pl.ox === 0 && pl.oy === 0){
+      /* at a centre: choose a direction. Priority: a live press, then the
+         buffered intent, then NO_DIR (stop). Held movement re-enters here
+         with dir still set, so it just keeps walking. */
+      let want = (dir !== NO_DIR) ? dir : pl.buf;
+      if (want === NO_DIR){ pl.moving = NO_DIR; return; }
+      pl.dir = want;
+      const d = DIRS[want];
+      const nc = pl.col + d.dc, nr = pl.row + d.dr;
+      if (!passable(st, nc, nr, pl)){
+        /* blocked: kick a bomb ahead if we can, then stop. Clear the buffer
+           so we do not keep re-trying a wall every tick. */
+        if (pl.kick && bombAt(st, nc, nr)){
+          const b = bombAt(st, nc, nr);
+          if (canBombMove(st, nc + d.dc, nr + d.dr)) b.moving = want;
+        }
+        pl.moving = NO_DIR;
+        if (pl.buf === want) pl.buf = NO_DIR;
+        return;
       }
-      pl.moving = NO_DIR;
-      return;
+      pl.moving = want;
     }
-    pl.moving = dir;
-  }
-  if (pl.moving === NO_DIR) return;
-  const d = DIRS[pl.moving];
-  /* which axis is moving, and how far to the target centre */
-  let step = pl.speed;
-  if (d.dc !== 0){
-    /* moving horizontally: ox goes from 0 toward ±SUB */
-    let target = d.dc * SUB;
-    let remaining = target - pl.ox;
-    if (d.dc > 0 && step > remaining) step = remaining;
-    if (d.dc < 0 && -step < remaining) step = -remaining;   /* clamp */
-    pl.ox += d.dc > 0 ? step : -step;
-    if (pl.ox === target){ pl.col += d.dc; pl.ox = 0; pl.moving = NO_DIR; }
-  } else {
-    let target = d.dr * SUB;
-    let remaining = target - pl.oy;
-    if (d.dr > 0 && step > remaining) step = remaining;
-    if (d.dr < 0 && -step < remaining) step = -remaining;
-    pl.oy += d.dr > 0 ? step : -step;
-    if (pl.oy === target){ pl.row += d.dr; pl.oy = 0; pl.moving = NO_DIR; }
+
+    /* advance along the committed axis by as much of the budget as fits to
+       the target centre; clamp so we land EXACTLY on the centre. */
+    const d = DIRS[pl.moving];
+    if (d.dc !== 0){
+      const target = d.dc * SUB;
+      const remaining = target - pl.ox;         /* signed, toward target   */
+      let step = budget;
+      const mag = d.dc > 0 ? remaining : -remaining;   /* positive distance left */
+      if (step > mag) step = mag;
+      pl.ox += d.dc > 0 ? step : -step;
+      budget -= step;
+      if (pl.ox === target){ pl.col += d.dc; pl.ox = 0; pl.moving = NO_DIR; }
+    } else {
+      const target = d.dr * SUB;
+      const remaining = target - pl.oy;
+      let step = budget;
+      const mag = d.dr > 0 ? remaining : -remaining;
+      if (step > mag) step = mag;
+      pl.oy += d.dr > 0 ? step : -step;
+      budget -= step;
+      if (pl.oy === target){ pl.row += d.dr; pl.oy = 0; pl.moving = NO_DIR; }
+    }
+    /* if we did not just re-centre, the budget is spent inside this cell;
+       loop exits. If we DID re-centre with budget left, loop continues and
+       re-chooses a direction (carry-over) for buttery continuous walking. */
+    if (pl.moving !== NO_DIR) break;
   }
 }
 
@@ -778,18 +997,20 @@ function detonate(st, due){
     exploded[key] = true;
     /* centre */
     addBurn(st, burning, b.col, b.row);
-    /* four arms, blocked by pillar, stopped after one block */
+    /* four arms, blocked by pillar. A normal arm eats ONE block and stops;
+       a PIERCE arm destroys the block and keeps going to full range. */
     for (let dd = 0; dd < 4; dd++){
       const d = DIRS[dd];
       for (let k = 1; k <= b.range; k++){
         const c = b.col + d.dc * k, r = b.row + d.dr * k;
         if (!inBounds(mp, c, r)) break;
         const i = idx(mp, c, r);
-        if (mp.pillar[i]) break;                 /* pillar stops the arm  */
+        if (mp.pillar[i]) break;                 /* pillar always stops it */
         addBurn(st, burning, c, r);
-        if (st.block[i]){                         /* eat ONE block, stop  */
+        if (st.block[i]){                         /* a destructible block   */
           destroyBlock(st, i);
-          break;
+          if (!b.pierce) break;                   /* normal: stop after one */
+          continue;                               /* pierce: burn through   */
         }
         /* chain: a bomb sitting on this cell joins the detonation */
         const nb = bombByCell[r * mp.cols + c];
@@ -827,11 +1048,17 @@ function destroyBlock(st, i){
   if (st.hidden[i]){ st.item[i] = st.hidden[i]; st.hidden[i] = 0; }
 }
 
+const MAX_SHIELD = 3;      /* how many wards a player may bank */
+const MAX_MEGA   = 5;      /* how many mega charges a player may bank */
 function applyItem(pl, kind){
   if (kind === PU.BOMB && pl.bombs < MAX_BOMBS) pl.bombs++;
   else if (kind === PU.RANGE && pl.range < MAX_RANGE) pl.range++;
   else if (kind === PU.SPEED && pl.speed < MAX_SPEED) pl.speed = Math.min(MAX_SPEED, pl.speed + SPEED_STEP);
   else if (kind === PU.KICK) pl.kick = true;
+  else if (kind === PU.REMOTE) pl.remote = true;
+  else if (kind === PU.PIERCE) pl.pierce = true;
+  else if (kind === PU.SHIELD && pl.shield < MAX_SHIELD) pl.shield++;
+  else if (kind === PU.MEGA && pl.mega < MAX_MEGA) pl.mega++;
 }
 
 /* ── sudden death: ring-by-ring indestructible collapse ────────────
@@ -934,7 +1161,7 @@ function bombOnsets(st){
         const i = idx(mp, c, r);
         if (mp.pillar[i]) break;
         cells.push(i);
-        if (st.block[i]) break;
+        if (st.block[i] && !b.pierce) break;   /* pierce burns through blocks */
       }
     }
     return cells;
@@ -1272,10 +1499,11 @@ function hashState(st){
   const acc = [st.tick, st.winner === null ? 999 : st.winner, st.done ? 1 : 0, st.rs];
   for (const p of st.players)
     acc.push(p.seat, p.col, p.row, p.ox, p.oy, p.alive ? 1 : 0,
-             p.bombs, p.live, p.range, p.speed, p.kick ? 1 : 0, p.dir, p.moving);
+             p.bombs, p.live, p.range, p.speed, p.kick ? 1 : 0, p.dir, p.moving,
+             p.buf, p.remote ? 1 : 0, p.pierce ? 1 : 0, p.shield | 0, p.mega | 0);
   /* bombs and blasts in cell order so array order cannot leak in */
   const bs = st.bombs.slice().sort((a, b) => (a.row * st.map.cols + a.col) - (b.row * st.map.cols + b.col));
-  for (const b of bs) acc.push(1000 + b.col, b.row, b.seat, b.fuse, b.range, b.moving);
+  for (const b of bs) acc.push(1000 + b.col, b.row, b.seat, b.fuse, b.range, b.moving, b.pierce ? 1 : 0);
   const bl = st.blasts.slice().sort((a, b) => (a.row * st.map.cols + a.col) - (b.row * st.map.cols + b.col));
   for (const x of bl) acc.push(2000 + x.col, x.row, x.life);
   const N = st.map.cols * st.map.rows;
@@ -1340,11 +1568,12 @@ function over(st){
 root.KARTI_BOMBA = root.KARTI_BOMBA || {};
 root.KARTI_BOMBA.engine = {
   /* tuning constants (UI needs SUB, SIM_HZ for interpolation/pacing) */
-  SUB, SIM_HZ, BASE_SPEED, MAX_SPEED, BOMB_FUSE, BLAST_LIFE,
-  MAX_RANGE, MAX_BOMBS, PU, PU_KINDS, DIRS, NO_DIR,
+  SUB, SIM_HZ, BASE_SPEED, SPEED_STEP, MAX_SPEED, BOMB_FUSE, BLAST_LIFE,
+  MEGA_BONUS, MEGA_FUSE, MAX_RANGE, MAX_BOMBS, MAX_SHIELD, MAX_MEGA,
+  PU, PU_KINDS, DIRS, NO_DIR,
   MIN_SEATS, MAX_SEATS,
   /* maps + validation */
-  MAPS, parseMap, validateMap, idx, inBounds,
+  MAPS, MAP_IDS, LARGE_MAPS, mapSeats, mapForSeats, parseMap, validateMap, idx, inBounds,
   /* match lifecycle */
   newMatch, step, over, meSeat,
   /* network model */

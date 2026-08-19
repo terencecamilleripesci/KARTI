@@ -198,7 +198,7 @@ function blank(){
      leaderboard, a lobby roster or the seat opposite. The bytes live
      on the Pi; this is only the pointer, and it costs one integer. */
   return { v:1, xp:0, av:'', pv:0, usePic:0,
-           eq:{}, own:{}, day:'', n:{}, fw:{}, last:{}, seen:[], seenAv:0 };
+           eq:{}, own:{}, rank:{}, day:'', n:{}, fw:{}, last:{}, seen:[], seenAv:0 };
 }
 
 var FB = null;                   /* the standalone fallback slot       */
@@ -223,6 +223,12 @@ function norm(p){
   p.usePic = p.usePic ? 1 : 0;
   if (!p.eq || typeof p.eq !== 'object') p.eq = {};
   if (!p.own || typeof p.own !== 'object') p.own = {};
+  /* the weekly-placement ledger: { <game>: 1|2|3 }. A hand-edited or
+     out-of-range value must never make a border earn-test throw, so it
+     is squeezed to a valid place or dropped. */
+  if (!p.rank || typeof p.rank !== 'object') p.rank = {};
+  else { for (var rk in p.rank){ var rv = p.rank[rk] | 0;
+    if (rv < 1 || rv > 3) delete p.rank[rk]; else p.rank[rk] = rv; } }
   if (!p.n || typeof p.n !== 'object') p.n = {};
   if (!p.fw || typeof p.fw !== 'object') p.fw = {};
   if (!p.last || typeof p.last !== 'object') p.last = {};
@@ -312,6 +318,25 @@ var SLOT_RE = /^[a-z][a-z0-9-]{0,23}$/i;
  * Never throws — a game must not be able to take the app down by
  * declaring a bad cosmetic. A bad def is dropped and counted.
  */
+/* A name or a blurb may arrive as a plain string OR as {en, mt}. The
+   registry has always kept name/blurb as a STRING — js/progress-ui.js
+   and the store read def.name straight out — so a bilingual pair is
+   resolved to the live language HERE, on the way in, and the raw pair
+   is kept beside it (def.nameI18n / def.blurbI18n) so a language switch
+   can re-resolve without the game re-registering. A string stays a
+   string, so every cosmetic already registered is untouched. */
+function pickLang(v){
+  if (v && typeof v === 'object'){
+    try {
+      if (window.KARTI_LANG && typeof KARTI_LANG.t === 'function')
+        return String(KARTI_LANG.t(v.en, v.mt) || v.en || v.mt || '');
+    } catch (e){}
+    return String(v.en || v.mt || '');
+  }
+  return String(v == null ? '' : v);
+}
+function isI18n(v){ return v && typeof v === 'object' && ('en' in v || 'mt' in v); }
+
 function register(defs){
   if (!defs) return 0;
   if (!Array.isArray(defs)) defs = [defs];
@@ -328,8 +353,12 @@ function register(defs){
       if (lvl > MAX_LEVEL) lvl = MAX_LEVEL;
       var def = {
         id: id, game: game, slot: slot.toLowerCase(),
-        name: String(d.name || id),
-        blurb: String(d.blurb || ''),
+        name: pickLang(d.name) || id,
+        blurb: pickLang(d.blurb),
+        /* the raw pair, kept only when it IS a pair, so a re-resolve on
+           a language change can happen without the game reloading */
+        nameI18n: isI18n(d.name) ? d.name : null,
+        blurbI18n: isI18n(d.blurb) ? d.blurb : null,
         level: lvl,
         sort: (typeof d.sort === 'number' && isFinite(d.sort)) ? d.sort : 0,
         preview: (typeof d.preview === 'function') ? d.preview : null,
@@ -363,6 +392,21 @@ function register(defs){
   }
   if (n) fire(equipCbs, { registered:n });
   return n;
+}
+
+/* Re-resolve every bilingual name/blurb into the newly-chosen language.
+   Only the defs that were registered WITH a pair are touched; a
+   plain-string cosmetic has no pair and is skipped. Fires equipCbs so
+   an open wardrobe/store repaints with the new words. */
+function relang(){
+  var i, d, changed = 0;
+  for (i = 0; i < ORDER.length; i++){
+    d = DEFS[ORDER[i]];
+    if (!d) continue;
+    if (d.nameI18n){ d.name = pickLang(d.nameI18n) || d.id; changed++; }
+    if (d.blurbI18n){ d.blurb = pickLang(d.blurbI18n); changed++; }
+  }
+  if (changed) fire(equipCbs, { relang:true });
 }
 
 function defsAll(){
@@ -1568,6 +1612,548 @@ function duelOver(ev){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   9b. THE CUSTOMISATION CATALOGUE — every game, lots to unlock
+   ───────────────────────────────────────────────────────────────────
+   Each of the eleven games in this section gets one or more customisable
+   SLOTS with several options each, spread across the whole level ladder
+   so levelling always has something coming and the store always has
+   something on the shelf. Registered through the SAME register() every
+   game already uses, so these land in the wardrobe and the store with
+   no special case anywhere.
+
+   WHY IT LIVES HERE. Some games (chess, dama, battleship, serp, the
+   klabb card games, tombla, kiri, gin/poker/rummy, spy, suspett)
+   register their own kit from their own file and DRAW it themselves.
+   Others (ludu, the tank arena, bricks, mastermind, guess-who, connect
+   four, bomberman, 21 & 31) had no cosmetic shelf at all. This block is
+   ADDITIVE: it fills the empty shelves and thickens the thin ones, and
+   every id here is namespaced game.slot.name and proven unique against
+   what the games register (see the collision check in the test hooks).
+
+   THE PREVIEW IS SELF-CONTAINED. A cosmetic drawn by its own game file
+   has that file's preview closure; these do not, so each swatch is a
+   plain DOM node drawn from the def's own colours — enough to choose by
+   in the wardrobe and the store. The game file still owns the REAL
+   in-game rendering: until a game reads the equipped id and paints it,
+   a new skin is a swatch you can own and wear but do not yet SEE in
+   play. Which game files need that wiring is listed in the hand-off.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* a rounded swatch showing one, two or three colours — the generic
+   preview for a colour/skin cosmetic that has no game art of its own */
+function swatchPv(cols, opts){
+  return function(size){
+    var sz = size || 62, o = opts || {};
+    var el = document.createElement('span');
+    var c = Array.isArray(cols) ? cols : [cols];
+    var bg = c.length === 1 ? c[0]
+           : 'linear-gradient(135deg,' + c.join(',') + ')';
+    el.style.cssText =
+      'display:inline-block;width:' + sz + 'px;height:' + sz + 'px;' +
+      'border-radius:' + Math.round(sz * 0.24) + 'px;background:' + bg + ';' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.22),' +
+      'inset 0 ' + Math.round(-sz * 0.16) + 'px ' + Math.round(sz * 0.22) + 'px ' +
+      Math.round(-sz * 0.14) + 'px rgba(0,0,0,.6);' +
+      'border:1px solid rgba(0,0,0,.35)';
+    if (o.dot){
+      var d = document.createElement('span');
+      d.style.cssText =
+        'position:relative;display:block;left:50%;top:50%;width:' + Math.round(sz * 0.3) +
+        'px;height:' + Math.round(sz * 0.3) + 'px;transform:translate(-50%,-50%);' +
+        'border-radius:999px;background:' + o.dot + ';box-shadow:0 0 ' +
+        Math.round(sz * 0.14) + 'px ' + o.dot;
+      el.appendChild(d);
+    }
+    if (o.ring){
+      el.style.boxShadow += ',inset 0 0 0 ' + Math.max(2, Math.round(sz * 0.09)) +
+        'px ' + o.ring;
+    }
+    return el;
+  };
+}
+/* a swatch striped with a second colour — themes/camo/felt patterns */
+function stripePv(a, b){
+  return function(size){
+    var sz = size || 62;
+    var el = document.createElement('span');
+    el.style.cssText =
+      'display:inline-block;width:' + sz + 'px;height:' + sz + 'px;' +
+      'border-radius:' + Math.round(sz * 0.24) + 'px;' +
+      'background:repeating-linear-gradient(45deg,' + a + ' 0 ' +
+      Math.round(sz * 0.14) + 'px,' + b + ' ' + Math.round(sz * 0.14) + 'px ' +
+      Math.round(sz * 0.28) + 'px);' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.18);border:1px solid rgba(0,0,0,.35)';
+    return el;
+  };
+}
+
+/* i() — one row of the catalogue. Bilingual name/blurb, and the slot,
+   game, level and preview passed straight through to register(). The
+   game is bound by the caller (forGame), so a row is just the cosmetic. */
+function ci(slot, id, level, name, blurb, preview, set){
+  var d = { slot:slot, id:id, level:level, name:name, blurb:blurb, preview:preview };
+  if (set) d.set = set;
+  return d;
+}
+
+/* THE CATALOGUE, game by game. Every id is game.slot.name and every one
+   is new. Slots are chosen to sit ALONGSIDE what a game already draws,
+   never to collide with it: where a game already owns a slot (battleship
+   'fleet', serp 'skin') the new ids extend that same slot; where a game
+   drew nothing, a fresh slot is introduced.
+
+   Kept deliberately generous — the whole point is that levelling and
+   the store both feel like there is always more. */
+function registerCatalogue(){
+  var XP = window.KARTI_XP; if (!XP || !XP.forGame) return 0;
+  var n = 0;
+  function KIT(game, rows){ n += XP.forGame(game).register(rows); }
+
+  /* ── BATTLESHIP (gharraq) — more fleet COLOURS beside the two it ships,
+        plus SEA themes. 'fleet' and 'sea' are its own slots. ── */
+  KIT('gharraq', [
+    ci('fleet','gharraq.fleet.qanpiena', 3,  {en:'Bell Grey',mt:'Griż tal-Qanpiena'},
+       {en:'Navy grey, freshly painted. It will not stay that way.',mt:'Griż tal-baħar, għadu miżbugħ. Mhux se jibqa’ hekk.'}, swatchPv(['#8CA0AE','#3E4E5A'])),
+    ci('fleet','gharraq.fleet.hamra',    7,  {en:'Redoubt Red',mt:'Aħmar tal-Forti'},
+       {en:'War-paint red. Seen from a mile off, which is the idea.',mt:'Aħmar tal-gwerra. Jidher minn mil bogħod — dik l-idea.'}, swatchPv(['#E8452C','#7A1508'])),
+    ci('fleet','gharraq.fleet.hadra',    12, {en:'Camo Green',mt:'Aħdar Mgħawweġ'},
+       {en:'Dazzle green. Hard to hit, easy to lose in the dark.',mt:'Aħdar li jqarraq. Diffiċli tolqot, faċli titlef fid-dlam.'}, stripePv('#2F6B3E','#173821')),
+    ci('fleet','gharraq.fleet.deheb',    24, {en:'Admiral Gold',mt:'Deheb tal-Ammiral'},
+       {en:'Brass and cream. The flagship, and it knows it.',mt:'Bronż u krema. Il-vapur ewlieni, u jaf.'}, swatchPv(['#FFD979','#B07E12'])),
+    ci('fleet','gharraq.fleet.iswed',    33, {en:'Corsair Black',mt:'Iswed tal-Kursar'},
+       {en:'Pitch black hull. It arrives before the horizon says so.',mt:'Buq iswed daqs il-pitch. Jasal qabel ma jgħid ix-xefaq.'}, swatchPv(['#2A2E38','#0B0D12'])),
+    ci('sea','gharraq.sea.tramunt',      9,  {en:'Northerly',mt:'Tramuntana'},
+       {en:'Cold slate under a north wind. Everyone is already wet.',mt:'Irħam kiesaħ taħt ir-riħ tat-tramuntana. Kulħadd diġà mxarrab.'}, swatchPv(['#5B7A8C','#22333E'])),
+    ci('sea','gharraq.sea.firefly',      44, {en:'Bioluminescence',mt:'Dawl tal-Baħar'},
+       {en:'The water glows where the wake breaks. Beautiful, and it gives you away.',mt:'L-ilma jiddi fejn tinkiser ix-xita. Sabiħ, u jikxfek.'}, swatchPv(['#0E2E44','#04121C'],{dot:'#5AF0C8'}))
+  ]);
+
+  /* ── SERP — more SNAKE skins, PELLET skins (a new slot), ARENA floors.
+        'skin' and 'floor' are its own; 'pellet' is new. ── */
+  KIT('serp', [
+    ci('skin','serp.skin.qroll',   6,  {en:'Qroll',mt:'Qroll'},
+       {en:'Coral pink and cream. Prettier than anything else in the arena.',mt:'Roża tal-qroll u krema. Isbaħ minn kollox fl-arena.'}, swatchPv(['#FF8FA0','#B0455C'],{ring:'#FFE1E6'})),
+    ci('skin','serp.skin.harrub',  14, {en:'Carob',mt:'Ħarrub'},
+       {en:'Dark carob brown. Sweet on the outside, all business inside.',mt:'Kannella skur tal-ħarrub. Ħelu minn barra, serju minn ġewwa.'}, swatchPv(['#5A3A1C','#2A1A0C'],{ring:'#C99A5B'})),
+    ci('skin','serp.skin.rham',    29, {en:'Marble',mt:'Irħam'},
+       {en:'Veined grey stone. It moves like it should not be able to.',mt:'Ġebla griża b’vini. Jimxi bħallikieku m’għandux ikun jista’.'}, swatchPv(['#EFE6CE','#8A8272'])),
+    ci('pellet','serp.pellet.harruba', 5, {en:'Carob Pod',mt:'Ħarruba'},
+       {en:'A little pod instead of a dot. Islanders will understand.',mt:'Ħarruba żgħira minflok tikka. In-nies tal-gżira jifhmu.'}, swatchPv(['#6B4A22'],{dot:'#C99A5B'})),
+    ci('pellet','serp.pellet.lampuka', 17, {en:'Lampuki',mt:'Lampuki'},
+       {en:'Gold and quick. Catch it before September ends.',mt:'Deheb u mgħaġġel. Aqbdu qabel jispiċċa Settembru.'}, swatchPv(['#0E2E44'],{dot:'#FFD24D'})),
+    ci('pellet','serp.pellet.nar',     31, {en:'Ember',mt:'Ġamra'},
+       {en:'It glows and it hurts to look at. Eat it anyway.',mt:'Tiddi u tweġġa’ tħares lejha. Kulha xorta.'}, swatchPv(['#1A0B06'],{dot:'#FF6A2C'})),
+    ci('floor','serp.floor.pjazza',    21, {en:'The Square',mt:'Il-Pjazza'},
+       {en:'Chequered stone, swept for the festa. Do not run on it.',mt:'Ġebla kkwadrata, miknusa għall-festa. Tiġrix fuqha.'}, stripePv('#D8C79B','#8A7A52'))
+  ]);
+
+  /* ── LUDU — TOKEN skins, DICE skins, BOARD themes. All new slots. ── */
+  KIT('ludu', [
+    ci('tokens','ludu.tokens.gilepp',  2,  {en:'Gulepp Set',mt:'Sett Ġulepp'},
+       {en:'Boiled-sweet colours. Four flavours, one winner.',mt:'Kuluri tal-ħelu misjur. Erba’ togħmiet, rebbieħ wieħed.'}, swatchPv(['#F04B3C','#3FB8E8','#3DDC84','#FFC542'])),
+    ci('tokens','ludu.tokens.gebel',   9,  {en:'Stone Pawns',mt:'Bċejjeċ tal-Ġebel'},
+       {en:'Carved limestone counters. Heavier than they look.',mt:'Bċejjeċ tal-ġebla mnaqqxa. Itqal milli jidhru.'}, swatchPv(['#EFE6CE','#8A8272'])),
+    ci('tokens','ludu.tokens.deheb',   26, {en:'Gilded Pawns',mt:'Bċejjeċ Indurati'},
+       {en:'Gold-leafed and unbearably smug about the home stretch.',mt:'Miksija bid-deheb u kburin wisq bl-aħħar dritta.'}, swatchPv(['#FFD979','#B07E12'])),
+    ci('dice','ludu.dice.ghadam',      4,  {en:'Bone Dice',mt:'Dadi tal-Għadam'},
+       {en:'Cream bone with black pips. The way the old men rolled them.',mt:'Għadam krema b’tikek suwed. Kif kienu jitfgħuhom l-anzjani.'}, swatchPv(['#F2E4C4','#C9B892'])),
+    ci('dice','ludu.dice.lhar',        13, {en:'Night Dice',mt:'Dadi tal-Lejl'},
+       {en:'Ink black, gold pips. They land loud.',mt:'Iswed daqs il-linka, tikek tad-deheb. Jinżlu b’ħoss.'}, swatchPv(['#1A1526','#0A0812'],{dot:'#FFC542'})),
+    ci('board','ludu.board.kazin',     6,  {en:'Club Board',mt:'Bord tal-Każin'},
+       {en:'Worn felt on a folding table. Where every ludu grudge began.',mt:'Feltru mikul fuq mejda tintwa. Fejn beda kull glied tal-ludu.'}, swatchPv(['#123527','#060F0C'])),
+    ci('board','ludu.board.festa',     20, {en:'Festa Board',mt:'Bord tal-Festa'},
+       {en:'Red, gold and far too loud, like the last night of the feast.',mt:'Aħmar, deheb u għajjat, bħall-aħħar lejl tal-festa.'}, swatchPv(['#E8452C','#FFD979']))
+  ]);
+
+  /* ── CONNECT FOUR (erbgha) — DISC colours (a full palette), BOARD
+        themes. Both new slots. ── */
+  KIT('erbgha', [
+    ci('discs','erbgha.discs.klassika',  2,  {en:'Classic Red & Yellow',mt:'Aħmar u Isfar'},
+       {en:'The colours the game was born in. Nobody argues with these.',mt:'Il-kuluri li twieled fihom il-logħob. Ħadd ma jargumenta.'}, swatchPv(['#F0384B','#FFC542'])),
+    ci('discs','erbgha.discs.bahar',     8,  {en:'Sea & Sun',mt:'Baħar u Xemx'},
+       {en:'Channel blue against a proper Maltese orange.',mt:'Blu tal-fliegu kontra oranġjo Malti tajjeb.'}, swatchPv(['#3FB8E8','#FF9E2C'])),
+    ci('discs','erbgha.discs.festa',     18, {en:'Festa Discs',mt:'Diski tal-Festa'},
+       {en:'Magenta and gold. They drop like fireworks land.',mt:'Manġenta u deheb. Jaqgħu bħal murtali.'}, swatchPv(['#FF3EA5','#FFD24D'])),
+    ci('discs','erbgha.discs.rham',      34, {en:'Marble & Ink',mt:'Irħam u Linka'},
+       {en:'White stone against black. Chess energy in a children’s game.',mt:'Ġebla bajda kontra iswed. Enerġija taċ-ċess f’logħba tat-tfal.'}, swatchPv(['#EFE6CE','#1A1526'])),
+    ci('board','erbgha.board.injam',     5,  {en:'Wooden Frame',mt:'Qafas tal-Injam'},
+       {en:'Honest pine, the toy-shop original. Smells of Christmas.',mt:'Prinjol onest, l-oriġinal tal-ħanut tal-ġugarelli. Riħa tal-Milied.'}, swatchPv(['#C99A5B','#7A5628'])),
+    ci('board','erbgha.board.lejl',      16, {en:'Midnight Frame',mt:'Qafas tal-Lejl'},
+       {en:'Deep violet with a neon rim. One more game, then bed.',mt:'Vjola fond b’dawra neon. Logħba oħra, imbagħad l-imħadda.'}, swatchPv(['#2A2350','#8A5CFF']))
+  ]);
+
+  /* ── TANK ARENA (tankijiet) — TANK colours/camo, SHELL trails, ARENA
+        floors. All new slots. ── */
+  KIT('tankijiet', [
+    ci('tank','tankijiet.tank.mielah',  3,  {en:'Desert Tan',mt:'Ramli'},
+       {en:'Sand and dust. Blends in until it fires.',mt:'Ramel u trab. Jinħeba sakemm jispara.'}, swatchPv(['#D8C79B','#A88C5C'])),
+    ci('tank','tankijiet.tank.hadra',   9,  {en:'Jungle Camo',mt:'Kamuflaġġ Aħdar'},
+       {en:'Two greens and a promise you will not see it coming.',mt:'Żewġ aħdarijiet u wegħda li mhux se tarah ġej.'}, stripePv('#3B5E2A','#1E3315')),
+    ci('tank','tankijiet.tank.hamra',   19, {en:'Redline',mt:'Aħmar Sħun'},
+       {en:'Racing red. Fast, loud, first to get shot at.',mt:'Aħmar tat-tlielaq. Mgħaġġel, jgħajjat, l-ewwel wieħed li jisparawlu.'}, swatchPv(['#E8452C','#7A1508'])),
+    ci('tank','tankijiet.tank.iswed',   36, {en:'Night Ops',mt:'Operazzjoni tal-Lejl'},
+       {en:'Matte black, no shine. You hear it before you see it.',mt:'Iswed matt, ebda leqqa. Tismgħu qabel tarah.'}, swatchPv(['#2A2E38','#0B0D12'])),
+    ci('trail','tankijiet.trail.duhhan', 6,  {en:'Smoke',mt:'Duħħan'},
+       {en:'A grey plume off the barrel. Purely for show.',mt:'Pil griż mill-kanna. Biss għall-wiri.'}, swatchPv(['#3A3F48'],{dot:'rgba(200,205,215,.8)'})),
+    ci('trail','tankijiet.trail.nar',    22, {en:'Tracer Fire',mt:'Nar Traċċanti'},
+       {en:'Orange streaks that hang in the air a moment too long.',mt:'Strixxi oranġjo li jibqgħu fl-arja mument itwal.'}, swatchPv(['#1A0B06'],{dot:'#FF6A2C'})),
+    ci('floor','tankijiet.floor.barriera', 12, {en:'The Quarry',mt:'Il-Barriera'},
+       {en:'Cut stone and rubble. Cover where you can find it.',mt:'Ġebla maqtugħa u tifrik. Kenn fejn issibu.'}, stripePv('#8A7A52','#4A4030'))
+  ]);
+
+  /* ── BOMBERMAN (bomba) — CHARACTER colours, BOMB skins, ARENA themes.
+        All new slots. ── */
+  KIT('bomba', [
+    ci('char','bomba.char.ahmar',   2,  {en:'Red Runner',mt:'Ġirja Ħamra'},
+       {en:'Classic red. Runs into its own blast about once a game.',mt:'Aħmar klassiku. Jiġri fl-isplużjoni tiegħu darba kull logħba.'}, swatchPv(['#F04B3C','#B01625'])),
+    ci('char','bomba.char.blu',     7,  {en:'Blue Bomber',mt:'Bomber Blu'},
+       {en:'Cool blue, cooler head. Usually.',mt:'Blu kalm, ras aktar kalma. Ġeneralment.'}, swatchPv(['#3FB8E8','#1B6E96'])),
+    ci('char','bomba.char.ahdar',   15, {en:'Green Menace',mt:'Theddida Ħadra'},
+       {en:'Lime green and up to no good.',mt:'Aħdar tal-ġir u ma jrid xejn tajjeb.'}, swatchPv(['#3DDC84','#178A4C'])),
+    ci('char','bomba.char.deheb',   30, {en:'Golden Bomber',mt:'Bomber tad-Deheb'},
+       {en:'Gold-plated. Explosions look expensive on it.',mt:'Miksi bid-deheb. L-isplużjonijiet jidhru għaljin fuqu.'}, swatchPv(['#FFD979','#B07E12'])),
+    ci('bomb','bomba.bomb.klassika', 4,  {en:'Black Ball',mt:'Blalen Suwed'},
+       {en:'The round black bomb with the fizzing fuse. Perfect already.',mt:'Il-bomba tonda sewda bil-fitil jaħraq. Diġà perfetta.'}, swatchPv(['#1A1A1E','#000'],{dot:'#FF6A2C'})),
+    ci('bomb','bomba.bomb.qarabaghli', 13, {en:'Marrow Bomb',mt:'Bomba Qargħa'},
+       {en:'A vegetable that should not be this dangerous.',mt:'Ħaxixa li m’għandhiex tkun daqshekk perikoluża.'}, swatchPv(['#3B5E2A','#1E3315'],{dot:'#FFD24D'})),
+    ci('arena','bomba.arena.suq',    9,  {en:'Market Stalls',mt:'Il-Monti'},
+       {en:'Crates and awnings. Plenty to blow up, plenty to hide behind.',mt:'Kaxxi u tined. Ħafna x’tfaqqa’, ħafna fejn tinħeba.'}, stripePv('#C97A12','#7A4A08')),
+    ci('arena','bomba.arena.festa',  25, {en:'Festa Square',mt:'Pjazza tal-Festa'},
+       {en:'Bunting and fireworks. Nobody will notice one more bang.',mt:'Bnadar u murtali. Ħadd mhu se jinnota tisbita oħra.'}, swatchPv(['#E8452C','#FFD979']))
+  ]);
+
+  /* ── BRICKS (briks) — PADDLE skins, BALL skins/trails, BRICK themes.
+        All new slots. ── */
+  KIT('briks', [
+    ci('paddle','briks.paddle.hadid',  2,  {en:'Steel Paddle',mt:'Paletta tal-Azzar'},
+       {en:'Brushed metal. Does the job without a word.',mt:'Metall miġbud. Jagħmel xogħlu mingħajr kelma.'}, swatchPv(['#B8C0C8','#5A626A'])),
+    ci('paddle','briks.paddle.injam',  8,  {en:'Wood Paddle',mt:'Paletta tal-Injam'},
+       {en:'Warm pine, like the ping-pong bat in the garage.',mt:'Prinjol sħun, bħall-paletta tal-ping-pong fil-garaxx.'}, swatchPv(['#C99A5B','#7A5628'])),
+    ci('paddle','briks.paddle.neon',   20, {en:'Neon Paddle',mt:'Paletta Neon'},
+       {en:'Violet glow. The only light in the arcade at closing time.',mt:'Dawl vjola. L-uniku dawl fl-arcade fil-ħin tal-għeluq.'}, swatchPv(['#8A5CFF','#4A2F9A'],{ring:'#C9A6FF'})),
+    ci('ball','briks.ball.ġebla',      5,  {en:'Stone Ball',mt:'Blata'},
+       {en:'A little limestone marble. It has demolished bigger walls.',mt:'Boċċa żgħira tal-ġebla. Ġarrfet ħitan akbar.'}, swatchPv(['#EFE6CE','#8A8272'])),
+    ci('ball','briks.ball.nar',        16, {en:'Fireball',mt:'Ballun tan-Nar'},
+       {en:'It leaves a trail. The bricks do not enjoy this one.',mt:'Iħalli traċċa. Il-briks ma jgawdux b’din.'}, swatchPv(['#FF6A2C','#C93A08'],{dot:'#FFE08A'})),
+    ci('bricks','briks.bricks.gebel',  6,  {en:'Stone Wall',mt:'Ħajt tal-Ġebel'},
+       {en:'A proper rubble wall. Every island has ten kilometres of it.',mt:'Ħajt tas-sejjieħ tajjeb. Kull gżira għandha għaxar kilometri minnu.'}, stripePv('#C9B892','#8A7A52')),
+    ci('bricks','briks.bricks.hlewwa', 24, {en:'Sweet Shop',mt:'Ħanut tal-Ħelu'},
+       {en:'Boiled-sweet bricks in every colour. A shame to break them.',mt:'Briks tal-ħelu misjur f’kull kulur. Ħasra tkissirhom.'}, swatchPv(['#FF8FA0','#8A5CFF','#3DDC84']))
+  ]);
+
+  /* ── MASTERMIND (kodici) — PEG colour SETS/themes. New slot 'pegs'. ── */
+  KIT('kodici', [
+    ci('pegs','kodici.pegs.klassika', 2,  {en:'Classic Pegs',mt:'Pinnijiet Klassiċi'},
+       {en:'The six bright colours everyone learned it with.',mt:'Is-sitt kuluri jgħajtu li tgħallem bihom kulħadd.'}, swatchPv(['#F04B3C','#3FB8E8','#3DDC84','#FFC542'])),
+    ci('pegs','kodici.pegs.pastell',  9,  {en:'Pastel Pegs',mt:'Pinnijiet Pastell'},
+       {en:'Soft chalk colours. Kinder on the eyes, no kinder on you.',mt:'Kuluri tal-ġibs artab. Aktar ħlejjin fuq l-għajnejn, mhux fuqek.'}, swatchPv(['#FFB3BA','#BFE7FA','#B8E6C1','#FFE6A8'])),
+    ci('pegs','kodici.pegs.gawhar',   17, {en:'Gemstones',mt:'Ħaġar Prezzjuż'},
+       {en:'Ruby, sapphire, emerald, topaz. Cracking a rich man’s safe.',mt:'Rubini, żaffir, żmerald, topazju. Tiftaħ kaxxaforti ta’ sinjur.'}, swatchPv(['#E0115F','#0F52BA','#50C878','#FFC87C'])),
+    ci('pegs','kodici.pegs.lejl',     28, {en:'Neon Night',mt:'Lejl Neon'},
+       {en:'Glowing pegs on black. The code hides better in the dark.',mt:'Pinnijiet jiddu fuq l-iswed. Il-kodiċi jinħeba aħjar fid-dlam.'}, swatchPv(['#FF3EA5','#00E5FF','#39FF14','#B026FF']))
+  ]);
+
+  /* ── GUESS WHO (minhu) — BOARD/FRAME themes. New slot 'frame'. ── */
+  KIT('minhu', [
+    ci('frame','minhu.frame.injam',  2,  {en:'Wooden Frame',mt:'Qafas tal-Injam'},
+       {en:'The toy-shop original. Little doors that flip with a snap.',mt:'L-oriġinal tal-ħanut. Bibien żgħar li jaqilbu bi tektika.'}, swatchPv(['#C99A5B','#7A5628'])),
+    ci('frame','minhu.frame.kazin',  10, {en:'Club Wall',mt:'Ħajt tal-Każin'},
+       {en:'Framed photos on a green wall. Everyone here knows everyone.',mt:'Ritratti nkwadrati fuq ħajt aħdar. Hawn kulħadd jaf lil kulħadd.'}, swatchPv(['#123527','#060F0C'],{ring:'#C99A5B'})),
+    ci('frame','minhu.frame.deheb',  23, {en:'Gilt Frames',mt:'Kwadri Indurati'},
+       {en:'Gold picture frames, like a rich aunt’s hallway.',mt:'Kwadri tad-deheb, bħal kuritur ta’ zija sinjura.'}, swatchPv(['#FFD979','#B07E12'])),
+    ci('frame','minhu.frame.lejl',   32, {en:'Interrogation',mt:'Interrogazzjoni'},
+       {en:'One lamp, a dark room. Somebody in here is lying.',mt:'Lampa waħda, kamra mudlama. Xi ħadd hawn qed jigdeb.'}, swatchPv(['#2A2350','#0A0812'],{dot:'#FFC542'}))
+  ]);
+
+  /* ── 21 & 31 (cards2131) — FELT and CARD-BACK, the two it never had.
+        Both new slots, matching the other card games' slot names. ── */
+  KIT('cards2131', [
+    ci('felt','cards2131.felt.inbid',  3,  {en:'Old Wine',mt:'Inbid Qadim'},
+       {en:'Deep crimson felt. Bets look older and wiser on it.',mt:'Feltru aħmar fond. L-imħatri jidhru aktar għaqlin fuqu.'}, swatchPv(['#5A1420','#2A0810'])),
+    ci('felt','cards2131.felt.port',   11, {en:'Grand Harbour',mt:'Il-Port il-Kbir'},
+       {en:'Harbour blue. Somewhere under it is somebody’s losing hand.',mt:'Blu tal-port. X’imkien taħtu hemm id ta’ xi ħadd li tilef.'}, swatchPv(['#123A5A','#08202E'])),
+    ci('felt','cards2131.felt.franka', 26, {en:'Limestone',mt:'Ġebla Franka'},
+       {en:'Stone felt. Every game on it counts as heritage.',mt:'Feltru tal-ġebla. Kull logħba fuqu tgħodd bħala wirt.'}, swatchPv(['#D8C79B','#8A7A52'])),
+    ci('back','cards2131.back.salib',  6,  {en:'Gilded Cross',mt:'Salib Indurat'},
+       {en:'A festa-statue cross on the back. Insured accordingly.',mt:'Salib ta’ statwa tal-festa fuq wara. Assigurat kif suppost.'}, swatchPv(['#7A1508','#FFD979'],{dot:'#FFE08A'})),
+    ci('back','cards2131.back.baħar',  15, {en:'Deep Water',mt:'Baħar Fond'},
+       {en:'Navy back. What is dropped here is not coming back.',mt:'Dahar navy. Dak li jaqa’ hawn ma jerġax lura.'}, swatchPv(['#0F2A4A','#04121C'])),
+    ci('back','cards2131.back.roża',   34, {en:'Rose Luzzu',mt:'Luzzu Roża'},
+       {en:'Luzzu-hull pink. The painted eye saw your third card.',mt:'Roża tal-buq tal-luzzu. L-għajn miżbugħa rat it-tielet karta tiegħek.'}, swatchPv(['#FF8FA0','#B0455C']))
+  ]);
+
+  return n;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   9c. THE WEEKLY BORDERS — 1st / 2nd / 3rd, one set per game
+   ───────────────────────────────────────────────────────────────────
+   Every Sunday at midnight a server job (wired separately) reads each
+   game's WEEKLY leaderboard and awards the top three players a tiered,
+   animated border that says both WHICH PLACE and WHICH GAME:
+
+     · rank1 — GOLD, a crown motif — "Champion of <game>"
+     · rank2 — SILVER               — "2nd in <game>"
+     · rank3 — BRONZE               — "3rd in <game>"
+
+   ID SCHEME (documented for the server):
+     border.rank1.<game>   e.g. border.rank1.ludu, border.rank1.serp
+     border.rank2.<game>
+     border.rank3.<game>
+   <game> is a record-book id from KARTI_STATS.GAMES (chess, dama,
+   skarta, kiri, serp, gharraq, tombla, ludu, erbgha, tankijiet, briks,
+   kodici, minhu, bomba, cards2131, bixkla, briscola, sette, cheat,
+   gin, poker, rummy, spy, suspett, kanun, cards-solo/story/mp).
+
+   EARN-ONLY. Each carries an `earn` marker with a live test that reads a
+   local award ledger (root().rank), so:
+     · grant() REFUSES them at any price (see the earn guard) — they can
+       never be bought;
+     · the ladder never pays them out (no level);
+     · they appear owned only after grantRank(game, place) has written
+       the ledger, which is the server job's single call.
+
+   GRANT API (what the Sunday-midnight job drives):
+     KARTI_XP.grantRank(game, place)   place = 1 | 2 | 3
+         records that THIS player placed `place` in `game` this week and
+         gives them border.rank<place>.<game>. Returns {ok, id}.
+     KARTI_XP.champions()              -> [{game, place, id}], the ranked
+         borders this player owns, best place first — for the profile
+         title and the leaderboard flair.
+     KARTI_XP.isChampion(game)         -> place (1|2|3) or 0
+     KARTI_XP.champTitle()             -> {game, place, id} of the single
+         best placement to show as the profile title's logo, or null.
+     KARTI_XP.clearRank(game)          -> drop a placement (a new week
+         resets the previous week's holders; the server calls this too).
+
+   THE ANIMATION. Each border is a self-contained preview: a real
+   medallion-sized ring drawn from injected CSS, tinted with the game's
+   accent, with a slow metal SWEEP (gold/silver/bronze) that is pure
+   compositor transform — the same cheap technique as Kampjun Gold and
+   Tempesta in js/progress-faces.js. A crown/2/3 pip marks the place.
+   Because these are their own slot ('champ', game 'karti'), they cannot
+   collide with any game's cosmetic slot.
+   ═══════════════════════════════════════════════════════════════════ */
+
+var RANK_META = {
+  1: { key:'rank1', word:{en:'Champion',mt:'Kampjun'}, ord:{en:'1st',mt:'L-1'},
+       metal:['#FFF7DC','#FFD979','#B07E12'], pip:'♛' },
+  2: { key:'rank2', word:{en:'Runner-up',mt:'It-Tieni'}, ord:{en:'2nd',mt:'It-2'},
+       metal:['#FFFFFF','#D7DEE6','#8894A0'], pip:'2' },
+  3: { key:'rank3', word:{en:'Third',mt:'It-Tielet'}, ord:{en:'3rd',mt:'It-3'},
+       metal:['#F6D6B0','#D08A4E','#8A4E22'], pip:'3' }
+};
+
+/* the accent + display name for a game, so a ranked border can carry its
+   colour and its label. Two sources, because no single one lists every
+   game: KARTI_STATS.GAMES has the record-book games with accents, and
+   KARTI_PARTY.games() has the party-shelf tiles (ludu, the tank arena,
+   bricks, mastermind, guess-who, connect four, bomberman, 21 & 31 — the
+   games the stats shelf leaves out). The record book wins on accent
+   (it publishes one); the party shelf fills in a name for the rest.
+   Falls back to the id, which is never pretty but is never blank. */
+var NICE_GAME = {
+  'cards-solo':'KARTI Duel', 'cards-story':'KARTI Story', 'cards-mp':'KARTI Online',
+  ludu:'Ludu', erbgha:'Four in a Row', tankijiet:'It-Tankijiet', bomba:'Il-Bomba',
+  briks:'Il-Ħajt', kodici:'Il-Kodiċi', minhu:'Min Hu?', cards2131:'21 & 31',
+  gharraq:'Għarraqhom!', serp:'Is-Serp', suspett:'Is-Suspett', spy:'Is-Spija',
+  kanun:'Il-Kanun', gin:'Gin Rummy', poker:'Poker', rummy:'Rummy'
+};
+function gameMeta(game){
+  var name = '', accent = '';
+  try {
+    var shelf = (window.KARTI_STATS && KARTI_STATS.GAMES) || [], i;
+    for (i = 0; i < shelf.length; i++)
+      if (shelf[i].id === game){ name = shelf[i].name || ''; accent = shelf[i].accent || ''; break; }
+  } catch (e){}
+  if (!name){
+    try {
+      var tiles = (window.KARTI_PARTY && KARTI_PARTY.games) ? KARTI_PARTY.games() : [], j;
+      for (j = 0; j < tiles.length; j++)
+        if (tiles[j] && tiles[j].id === game){ name = tiles[j].name || tiles[j].mt || ''; break; }
+    } catch (e){}
+  }
+  if (!name) name = NICE_GAME[game] || game;
+  return { name:name, accent: accent || '#FFC542' };
+}
+
+/* the full list of games the weekly boards run for. It has to cover
+   EVERY game a player can top, which is NOT just the record-book shelf:
+   several games (ludu, erbgha, the tank arena, bricks, mastermind,
+   guess-who, bomberman, 21 & 31) are not on KARTI_STATS.GAMES but are
+   very much played and have their own customisation shelf here, and the
+   user asked for a champion of each of them by name. So this is the
+   UNION of the record-book shelf, every game that has registered a
+   cosmetic, and a hard floor list — deduped, shelf order first. Missing
+   any game would mean its weekly #1 could never be awarded a border. */
+var RANK_FLOOR = ['chess','dama','skarta','kiri','serp','gharraq','tombla',
+  'ludu','erbgha','tankijiet','briks','kodici','minhu','bomba','cards2131',
+  'bixkla','briscola','sette','cheat','gin','poker','rummy','spy','suspett','kanun',
+  'cards-solo','cards-story','cards-mp'];
+function rankGames(){
+  var out = [], seen = {}, i;
+  function add(g){ g = String(g || '').toLowerCase();
+    if (g && g !== 'karti' && !seen[g]){ seen[g] = 1; out.push(g); } }
+  try {
+    var shelf = (window.KARTI_STATS && KARTI_STATS.GAMES) || [];
+    for (i = 0; i < shelf.length; i++) add(shelf[i].id);
+  } catch (e){}
+  /* every game that has declared a cosmetic — catches the played games
+     that the record-book shelf leaves out */
+  try {
+    var list = defsAll();
+    for (i = 0; i < list.length; i++) if (list[i].game !== 'karti') add(list[i].game);
+  } catch (e){}
+  for (i = 0; i < RANK_FLOOR.length; i++) add(RANK_FLOOR[i]);
+  return out;
+}
+
+function rankId(game, place){ return 'border.' + RANK_META[place].key + '.' + game; }
+
+/* the local ledger of THIS player's weekly placements, in the save so it
+   follows an account across phones. root().rank = { <game>: place }. */
+function rankLedger(){
+  var p = root();
+  if (!p.rank || typeof p.rank !== 'object') p.rank = {};
+  return p.rank;
+}
+
+/* the animated preview for one ranked border. A medallion-sized ring
+   with a rotating metal sweep and the game's accent showing through,
+   plus the place pip. Injects its CSS once. */
+var CHAMP_CSS_DONE = false;
+function injectChampCSS(){
+  if (CHAMP_CSS_DONE) return;
+  CHAMP_CSS_DONE = true;
+  try {
+    if (!document.head || document.getElementById('kx-champ-css')) return;
+    var st = document.createElement('style');
+    st.id = 'kx-champ-css';
+    st.textContent =
+      '.kx-champ{position:relative;display:inline-grid;place-items:center;' +
+        'border-radius:24%;overflow:hidden;background:#140E24;' +
+        'box-shadow:inset 0 1px 0 rgba(255,255,255,.14)}' +
+      '.kx-champ::before{content:"";position:absolute;inset:-45%;' +
+        'background:conic-gradient(from 0turn,var(--m3) 0turn,var(--m2) .1turn,' +
+          'var(--m1) .16turn,#FFFFFF .19turn,var(--m1) .22turn,var(--m2) .3turn,' +
+          'var(--m3) .42turn,var(--m3) 1turn);' +
+        'animation:kxChampSweep 4.6s linear infinite}' +
+      '.kx-champ::after{content:"";position:absolute;inset:16%;border-radius:22%;' +
+        'background:radial-gradient(120% 120% at 30% 22%,' +
+          'color-mix(in srgb,var(--ga) 40%,#140E24),#120C20 78%);' +
+        'box-shadow:inset 0 0 0 1px rgba(0,0,0,.4)}' +
+      '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+        '.kx-champ::after{background:radial-gradient(120% 120% at 30% 22%,#241A3E,#120C20 78%)}}' +
+      '.kx-champ>b{position:relative;z-index:2;font-family:var(--disp,inherit);' +
+        'font-weight:900;color:#2A1B0C;line-height:1;' +
+        'text-shadow:0 1px 0 rgba(255,255,255,.35)}' +
+      '@keyframes kxChampSweep{from{transform:rotate(0turn)}to{transform:rotate(1turn)}}' +
+      '@media (prefers-reduced-motion:reduce){' +
+        '.kx-champ::before{animation:none;transform:rotate(-.12turn)}}' +
+      '.reduced .kx-champ::before{animation:none;transform:rotate(-.12turn)}';
+    document.head.appendChild(st);
+  } catch (e){}
+}
+function champPreview(game, place){
+  return function(size){
+    injectChampCSS();
+    var sz = size || 62, m = RANK_META[place], gm = gameMeta(game);
+    var el = document.createElement('span');
+    el.className = 'kx-champ';
+    el.style.cssText =
+      'width:' + sz + 'px;height:' + sz + 'px;' +
+      '--m1:' + m.metal[0] + ';--m2:' + m.metal[1] + ';--m3:' + m.metal[2] + ';' +
+      '--ga:' + gm.accent;
+    var b = document.createElement('b');
+    b.textContent = m.pip;
+    b.style.fontSize = Math.round(sz * 0.34) + 'px';
+    el.appendChild(b);
+    return el;
+  };
+}
+
+/* register all three tiers for every game. Earn-only: the test reads the
+   local ledger, so a border shows as owned only once grantRank has
+   written it. No level — never on the ladder, never for sale. */
+function registerRankBorders(){
+  var games = rankGames(), rows = [], gi, place;
+  for (gi = 0; gi < games.length; gi++){
+    var game = games[gi], gm = gameMeta(game);
+    for (place = 1; place <= 3; place++){
+      var m = RANK_META[place];
+      rows.push((function(game, place, m, gm){
+        return {
+          id: rankId(game, place),
+          game: 'karti',
+          slot: 'champ',
+          name: { en: m.ord.en + ' · ' + gm.name, mt: m.ord.mt + ' · ' + gm.name },
+          blurb: { en: (place === 1 ? 'Champion of ' : (place === 2 ? '2nd in ' : '3rd in ')) +
+                       gm.name + ' this week. Awarded, never bought.',
+                   mt: m.ord.mt + ' f’' + gm.name + ' din il-ġimgħa. Mogħti, qatt mixtri.' },
+          level: 0,
+          sort: 200 + place,          /* below everything on the ladder */
+          accent: gm.accent,
+          earn: {
+            how: (place === 1 ? 'Finish 1st on this game’s weekly board'
+                : place === 2 ? 'Finish 2nd on this game’s weekly board'
+                : 'Finish 3rd on this game’s weekly board'),
+            live: true,               /* read the ledger every time */
+            test: (function(game, place){
+              return function(){ return (rankLedger()[game] | 0) === place; };
+            })(game, place)
+          },
+          preview: champPreview(game, place)
+        };
+      })(game, place, m, gm));
+    }
+  }
+  return register(rows);
+}
+
+/* ── the grant API the weekly server job drives ──────────────────── */
+function grantRank(game, place){
+  game = String(game || '').toLowerCase();
+  place = place | 0;
+  if (!game || place < 1 || place > 3) return { ok:false, why:'bad-args' };
+  var led = rankLedger();
+  led[game] = place;
+  commit();
+  syncNow();
+  var id = rankId(game, place);
+  /* the border is live-earn, so it is already owned the moment the
+     ledger says so — repaint faces and announce the new ring */
+  repaintAvatars();
+  fire(equipCbs, { granted:true, rank:true, id:id, game:game, place:place });
+  try { fire(unlockCbs, { earned:true, rank:true, unlocked:[DEFS[id]].filter(Boolean) }); } catch (e){}
+  return { ok:true, id:id, game:game, place:place };
+}
+function clearRank(game){
+  game = String(game || '').toLowerCase();
+  var led = rankLedger();
+  if (led[game]){ delete led[game]; commit(); syncNow(); repaintAvatars();
+    fire(equipCbs, { rank:true, cleared:true, game:game }); }
+  return { ok:true };
+}
+function champions(){
+  var led = rankLedger(), out = [], g;
+  for (g in led) if (Object.prototype.hasOwnProperty.call(led, g)){
+    var pl = led[g] | 0;
+    if (pl >= 1 && pl <= 3) out.push({ game:g, place:pl, id:rankId(g, pl) });
+  }
+  out.sort(function(a, b){ return a.place - b.place; });   /* best place first */
+  return out;
+}
+function isChampion(game){
+  game = String(game || '').toLowerCase();
+  var pl = rankLedger()[game] | 0;
+  return (pl >= 1 && pl <= 3) ? pl : 0;
+}
+function champTitle(){
+  var c = champions();
+  return c.length ? c[0] : null;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    10. BOOT
    ═══════════════════════════════════════════════════════════════════ */
 var UI = null;                   /* filled by js/progress-ui.js        */
@@ -1581,6 +2167,21 @@ var UI = null;                   /* filled by js/progress-ui.js        */
    that takes 20s to fetch party.js must not quietly lose party XP. */
 registerBorders();
 registerBadges();
+/* the weekly ranked borders — defined here so they exist the moment the
+   app boots, whether or not the games have loaded yet */
+registerRankBorders();
+/* the per-game customisation catalogue. It calls XP.forGame, so it runs
+   after window.KARTI_XP is published (see the deferred call at the very
+   bottom of the file). A game that registers its own richer kit later
+   simply adds to the same shelves. */
+
+/* re-resolve bilingual names/blurbs when the language switches, so the
+   wardrobe and the store follow js/lang.js's rule without any game
+   re-registering. Guarded: a missing lang module just leaves English. */
+try {
+  if (window.KARTI_LANG && typeof KARTI_LANG.onChange === 'function')
+    KARTI_LANG.onChange(function(){ relang(); });
+} catch (e){}
 
 function wireAll(){
   var ok = 0;
@@ -1597,6 +2198,27 @@ function allWired(){
   } catch (e){ return false; }
 }
 wireAll();
+/* js/stats.js and the game files load AFTER this one, so at boot the
+   record-book shelf and the games' own cosmetics are not here yet. The
+   rank borders were registered off the RANK_FLOOR list so they all
+   already EXIST; this re-registers them once the shelf has landed so
+   their labels and accents pick up the real game names/colours. register()
+   is idempotent by id, so this only updates the name/accent — it never
+   doubles a shelf and never disturbs an owned item. Stops the moment the
+   shelf is visible or after a minute. */
+var rankTries = 0, lastRankSig = '';
+var rankT = setInterval(function(){
+  /* a cheap signature of what the two name sources currently expose; when
+     it changes (stats.js lands, then the party tiles register), re-run so
+     the champion-border labels/accents track the real names. Idempotent
+     by id, so a re-run only updates name/accent. */
+  var sig = '';
+  try { sig += (window.KARTI_STATS && KARTI_STATS.GAMES ? KARTI_STATS.GAMES.length : 0); } catch (e){}
+  try { sig += '|' + (window.KARTI_PARTY && KARTI_PARTY.games ? KARTI_PARTY.games().length : 0); } catch (e){}
+  if (sig !== lastRankSig){ lastRankSig = sig; try { registerRankBorders(); } catch (e){} }
+  if (++rankTries > 60) clearInterval(rankT);
+}, 1000);
+
 var tries = 0;
 var wireT = setInterval(function(){
   wireAll();
@@ -1753,6 +2375,19 @@ window.KARTI_XP = {
   badge: function(){ return bareBadge(equipped('badge', 'karti')); },
   badgeDef: function(){ return equipped('badge', 'karti') || ''; },
 
+  /* ── THE WEEKLY BORDERS — 1st / 2nd / 3rd per game ──────────────────
+     Awarded, never bought. grantRank is the ONE call the Sunday-midnight
+     server job makes for each of a game's top three; the rest are reads
+     for the profile title and the leaderboard flair. See §9c. */
+  grantRank: grantRank,      /* grantRank(game, place) place=1|2|3      */
+  clearRank: clearRank,      /* clearRank(game) — drop last week's hold */
+  champions: champions,      /* [{game,place,id}] this player owns      */
+  isChampion: isChampion,    /* isChampion(game) -> place(1|2|3) or 0   */
+  champTitle: champTitle,    /* best single placement, for the title    */
+  rankId: rankId,            /* rankId(game, place) -> the cosmetic id   */
+  rankGames: rankGames,      /* every game a weekly board runs for       */
+  champBorders: function(){ return defsFor('karti').filter(function(d){ return d.slot === 'champ'; }); },
+
   /* the economy, readable — the inventory quotes it and so does
      docs/PROGRESSION.md's generator */
   ECON: {
@@ -1790,7 +2425,15 @@ window.KARTI_XP = {
   _decode: function(f){ return decode(f).then(function(b){
     var r = { w:b.width||b.naturalWidth, h:b.height||b.naturalHeight };
     try { if (b.close) b.close(); } catch(e){} return r; }); },
-  _registerBorders: registerBorders
+  _registerBorders: registerBorders,
+  _registerCatalogue: registerCatalogue,
+  _registerRankBorders: registerRankBorders
 };
+
+/* the per-game catalogue registers THROUGH window.KARTI_XP.forGame, so
+   it has to run after the API above is published. It is additive and
+   idempotent (register() replaces by id), so it is safe to run once
+   here and again if a test calls _registerCatalogue(). */
+try { registerCatalogue(); } catch (e){}
 
 })();

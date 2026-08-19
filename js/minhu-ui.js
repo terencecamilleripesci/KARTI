@@ -9,7 +9,7 @@
    WHAT THIS FILE IS
      · the minimal entry menu (PLAY ONLINE / PLAY WITH AI / PASS THE
        PHONE + a sliding "How to play"), ludu/kanun style;
-     · the board: 24 character faces in a grid, each FLIPPABLE — a tap
+     · the board: 36 character faces in a scrolling grid, each FLIPPABLE — a tap
        flips a face down (eliminated) with a compositor-only 3D flip;
      · YOUR secret character shown to you at the top, never the
        opponent's (secrecy: the opponent's face id never enters the DOM);
@@ -483,7 +483,54 @@ function injectCSS(){
     '#scr-party .mh-hero .mh-hface{position:relative;aspect-ratio:5/6;border-radius:8px;overflow:hidden;' +
       'border:1px solid rgba(255,255,255,.12)}' +
     '#scr-party .mh-hero .mh-hface.dn{filter:grayscale(1) brightness(.4)}' +
-    '#scr-party .mh-menu .pt-lbl{color:#8fdcbe}';
+    '#scr-party .mh-menu .pt-lbl{color:#8fdcbe}' +
+
+    /* ── the PICK screen — choose your own secret face ── */
+    '#scr-party .mh-pick{flex:1;min-height:0;display:flex;flex-direction:column;gap:8px;padding:6px}' +
+    '#scr-party .mh-pick-h{flex:0 0 auto;text-align:center;padding:2px 4px}' +
+    '#scr-party .mh-pick-h b{display:block;font:900 15px/1.15 var(--disp);color:var(--txt)}' +
+    '#scr-party .mh-pick-h i{font-style:normal;font:700 11px/1.4 var(--body);color:var(--dim)}' +
+    '#scr-party .mh-pickbox{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;' +
+      '-webkit-overflow-scrolling:touch;padding:1px}' +
+    '#scr-party .mh-pgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}' +
+    '#scr-party .mh-ptile{position:relative;aspect-ratio:5/6;border-radius:9px;cursor:pointer;padding:0;' +
+      'background:none;border:1.5px solid rgba(255,255,255,.14);overflow:hidden;' +
+      '-webkit-tap-highlight-color:transparent;box-shadow:0 2px 6px rgba(0,0,0,.4)}' +
+    '#scr-party .mh-ptile.sel{border-color:var(--mh-gold);box-shadow:0 0 0 2px var(--mh-gold)}' +
+    '#scr-party .mh-ptile .mh-nm{position:absolute;left:0;right:0;bottom:0;padding:2px 2px 2.5px;' +
+      'font:900 8px/1.1 var(--disp);text-align:center;color:#fff;text-transform:uppercase;' +
+      'background:linear-gradient(0deg,rgba(0,0,0,.82),rgba(0,0,0,0));white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-party .mh-pickdock{flex:0 0 auto;display:flex;gap:8px;padding:2px}' +
+
+    /* ── the HANDOVER curtain (pass-the-phone, keeps a pick hidden) ── */
+    '#scr-party .mh-hand{position:absolute;inset:0;z-index:40;display:flex;flex-direction:column;' +
+      'align-items:center;justify-content:center;gap:16px;text-align:center;padding:24px;' +
+      'background:radial-gradient(120% 120% at 50% 30%,#1c4a39,var(--mh-felt) 60%,var(--mh-felt2))}' +
+    '#scr-party .mh-hand b{font:900 22px/1.15 var(--disp);color:var(--mh-gold)}' +
+    '#scr-party .mh-hand p{max-width:280px;font:600 13px/1.5 var(--body);color:rgba(255,255,255,.82)}' +
+    '#scr-party .mh-hand .btn{min-width:180px}' +
+
+    /* ── TALK MODE: the free-form yes/no answer prompt ── */
+    '#scr-party .mh-yn{display:flex;gap:10px;padding:12px 4px 4px}' +
+    '#scr-party .mh-yn button{flex:1;min-height:62px;border-radius:14px;font:900 18px/1 var(--disp);' +
+      'letter-spacing:.06em;text-transform:uppercase;cursor:pointer;-webkit-tap-highlight-color:transparent;' +
+      'display:flex;align-items:center;justify-content:center}' +
+    '#scr-party .mh-yn .yes{color:#06301a;background:linear-gradient(180deg,#7ce8a6,#39c877);border:1px solid #a7f3c6}' +
+    '#scr-party .mh-yn .no{color:#3a0d08;background:linear-gradient(180deg,#ff9b8c,#f0644f);border:1px solid #ffb9ad}' +
+    '#scr-party .mh-yn button:active{transform:translateY(2px)}' +
+    '#scr-party .mh-talkhint{font:600 12px/1.5 var(--body);color:var(--dim);text-align:center;padding:6px 10px 2px}' +
+    /* the ask/talk toggle in the dock area */
+    '#scr-party .mh-modeseg{flex:0 0 auto;display:flex;gap:0;margin:0 2px 2px;border-radius:11px;overflow:hidden;' +
+      'border:1px solid rgba(255,255,255,.16)}' +
+    '#scr-party .mh-modeseg button{flex:1;min-height:34px;border:0;background:rgba(255,255,255,.05);' +
+      'color:var(--dim);font:900 10px/1 var(--disp);letter-spacing:.08em;text-transform:uppercase;cursor:pointer;' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .mh-modeseg button.on{background:rgba(255,197,66,.16);color:var(--mh-gold)}' +
+
+    /* keep 36 faces tidy on the smallest phones */
+    '@media (max-height:670px){#scr-party .mh-grid,#scr-party .mh-pgrid{gap:4px}' +
+      '#scr-party .mh-nm{font-size:7px}}';
   document.head.appendChild(st);
 }
 
@@ -548,14 +595,15 @@ function buildBoard(){
     sheet:  root.querySelector('#mh-sheet'),
     sheetT: root.querySelector('#mh-sheet-t'),
     sheetB: root.querySelector('#mh-sheet-b'),
-    sheetMode: null, armed: false
+    sheetMode: null, armed: false,
+    qmode: (pref().qmode === 'talk') ? 'talk' : 'buttons'   /* BUTTONS or TALK */
   };
   root.querySelector('#mh-sheet-x').addEventListener('click', () => closeSheet());
   buildGrid();
   render();
 }
 
-/* the 24 tiles, built once; render() only toggles classes and the header */
+/* the 36 tiles, built once; render() only toggles classes and the header */
 function buildGrid(){
   const view = viewSeat();
   UI.grid.innerHTML = E.ROSTER.map((c, i) =>
@@ -652,9 +700,22 @@ function paintGrid(view){
 
 function paintDock(view){
   const st = M.st;
-  const mine = !E.over(st) && E.turn(st) === view && !M.answering;
+  const mine = !E.over(st) && E.turn(st) === view && !M.answering && !M.talkPending;
   if (E.over(st)){
     UI.dock.innerHTML = '<button class="mh-btn guess" disabled>' + esc(T('Game over', 'Spiċċat')) + '</button>';
+    return;
+  }
+  /* TALK mode, mid-turn: the opponent has answered; the asker is flipping
+     faces by hand. Show the answer reminder + a Done bar that ends the turn. */
+  if (M.talkPending){
+    const a = M.talkPending.a;
+    UI.dock.innerHTML =
+      '<div class="mh-modeseg" aria-hidden="true"><button class="on" disabled>' +
+        esc(T('Answer:', 'Tweġiba:')) + ' ' + esc(a ? T('YES', 'IVA') : T('NO', 'LE')) +
+        ' · ' + esc(T('flip your faces, then Done', 'aqleb il-wċuħ, imbagħad Lest')) + '</button></div>' +
+      '<button class="mh-btn ask" id="mh-talkdone">' + esc(T('Done', 'Lest')) + '</button>';
+    const dn = UI.dock.querySelector('#mh-talkdone');
+    if (dn) dn.onclick = () => finishTalk();
     return;
   }
   if (UI.armed){
@@ -665,14 +726,49 @@ function paintDock(view){
     return;
   }
   const askDis = mine ? '' : ' disabled';
-  UI.dock.innerHTML =
-    '<button class="mh-btn ask" id="mh-ask"' + askDis + '>' + ico('help') + ' ' +
-      esc(T('Ask a question', 'Staqsi')) + '</button>' +
-    '<button class="mh-btn guess" id="mh-guess"' + askDis + '>' + ico('users') + ' ' +
-      esc(T('Guess', 'Aqta’')) + '</button>';
+  const talk = UI.qmode === 'talk';
+  /* the BUTTONS / TALK toggle: only for a HUMAN opponent (the AI cannot
+     hear you). Structured buttons work remotely; TALK is for the same room
+     (ask out loud, the opponent taps yes/no, you flip faces by hand). */
+  const seg = talkAvailable()
+    ? '<div class="mh-modeseg" id="mh-modeseg" role="group" aria-label="' +
+        esc(T('Question mode', 'Mod tal-mistoqsija')) + '">' +
+        '<button data-m="buttons"' + (!talk ? ' class="on"' : '') + ' aria-pressed="' + (!talk) + '">' +
+          esc(T('Buttons', 'Buttuni')) + '</button>' +
+        '<button data-m="talk"' + (talk ? ' class="on"' : '') + ' aria-pressed="' + talk + '">' +
+          esc(T('Talk (out loud)', 'Bil-fomm')) + '</button>' +
+      '</div>'
+    : '';
+  const askBtn = talk
+    ? '<button class="mh-btn ask" id="mh-ask"' + askDis + '>' + ico('help') + ' ' +
+        esc(T('Ask out loud', 'Staqsi bil-fomm')) + '</button>'
+    : '<button class="mh-btn ask" id="mh-ask"' + askDis + '>' + ico('help') + ' ' +
+        esc(T('Ask a question', 'Staqsi')) + '</button>';
+  UI.dock.innerHTML = seg +
+    '<div style="display:flex;gap:8px">' +
+      askBtn +
+      '<button class="mh-btn guess" id="mh-guess"' + askDis + '>' + ico('users') + ' ' +
+        esc(T('Guess', 'Aqta’')) + '</button>' +
+    '</div>';
+  const sg = UI.dock.querySelector('#mh-modeseg');
+  if (sg) sg.querySelectorAll('button').forEach(b => b.onclick = () => {
+    UI.qmode = b.getAttribute('data-m');
+    pref({ qmode: UI.qmode });
+    cue('ui.toggle', { gain:0.5 });
+    render();
+  });
   const ab = UI.dock.querySelector('#mh-ask'), gb = UI.dock.querySelector('#mh-guess');
-  if (ab && !ab.disabled) ab.onclick = () => openSheet('ask');
+  if (ab && !ab.disabled) ab.onclick = () => talk ? openTalk() : openSheet('ask');
   if (gb && !gb.disabled) gb.onclick = () => armGuess();
+}
+
+/* talk mode is offered only when the OPPONENT is a person (they can hear
+   the spoken question): pass-the-phone or online, never vs the machine. */
+function talkAvailable(){
+  if (!M) return false;
+  const other = M.st.seats.find((s, i) => i !== viewSeat());
+  const anyAI = M.st.seats.some(s => s.own === 'ai');
+  return !anyAI && !!other;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -749,6 +845,72 @@ function askQuestion(key, val){
   const rec = M.log[M.log.length - 1];
   const a = (rec && (rec.a === 0 || rec.a === 1)) ? rec.a : (M.st.lastAsk ? M.st.lastAsk.a : 0);
   showAnswer(seat, key, val, a);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TALK MODE — the IN-THE-ROOM turn. The asker (whose turn it is) tapped
+   "Ask out loud"; they say the question aloud, and the OPPONENT, who is
+   right there, taps YES or NO. That honest bit is the {t:'talk',a} move —
+   no attribute, so nothing auto-flips and NOTHING is verifiable (there is
+   no structured claim to audit). The asker then flips faces BY HAND by
+   tapping tiles. Online, the fully-answered talk move travels so the other
+   phone advances its turn; this is why talk is for players in one room.
+
+   TRUST MODEL: identical friendly trust to every KARTI hidden-role game —
+   the answerer answers honestly. A spoken question cannot be machine-
+   checked, so verify() simply skips talk turns; use Buttons for remote,
+   audit-able play.
+   ═══════════════════════════════════════════════════════════════════ */
+function openTalk(){
+  const seat = viewSeat();
+  if (E.turn(M.st) !== seat) return;
+  UI.sheetMode = 'talk';
+  UI.sheetT.textContent = T('Say it out loud', 'Għidha bil-fomm');
+  UI.sheetB.innerHTML =
+    '<div class="mh-ans">' +
+      '<div class="q">' + esc(T('Ask your opponent a yes/no question out loud. They tap the honest answer.',
+                                 'Staqsi lill-avversarju mistoqsija iva/le bil-fomm. Huma jagħfsu t-tweġiba vera.')) + '</div>' +
+    '</div>' +
+    '<div class="mh-talkhint">' + esc(T('The opponent answers:', 'L-avversarju jwieġeb:')) + '</div>' +
+    '<div class="mh-yn">' +
+      '<button class="yes" id="mh-yn-yes">' + esc(T('YES', 'IVA')) + '</button>' +
+      '<button class="no" id="mh-yn-no">' + esc(T('NO', 'LE')) + '</button>' +
+    '</div>' +
+    '<div class="mh-talkhint">' + esc(T('Then flip the faces that no longer fit yourself, by tapping them.',
+                                        'Imbagħad aqleb int stess il-wċuħ li ma jibqgħux jaqblu, billi tagħfashom.')) + '</div>';
+  UI.sheet.classList.add('open');
+  UI.sheet.setAttribute('aria-hidden', 'false');
+  cue('ui.sheet', { gain:0.8 });
+  const yes = UI.sheetB.querySelector('#mh-yn-yes');
+  const no  = UI.sheetB.querySelector('#mh-yn-no');
+  if (yes) yes.onclick = () => talkAnswered(seat, 1);
+  if (no)  no.onclick  = () => talkAnswered(seat, 0);
+}
+/* the opponent tapped YES/NO. Keep the ASKER on their turn (view stays on
+   the asker's board) so they can flip the faces that no longer fit by hand;
+   a Done button then emits the {t:'talk',a} move, which is what passes the
+   turn. This ordering is what makes manual flipping work — offline the view
+   would otherwise switch away the instant the turn passed. */
+function talkAnswered(seat, a){
+  if (!M || E.over(M.st)) return;
+  if (E.turn(M.st) !== seat){ closeSheet(); return; }
+  M.talkPending = { seat, a: a ? 1 : 0 };
+  cue('ui.note', { gain:0.7 }, true);
+  /* close the sheet so the BOARD is tappable — the asker now flips the
+     faces that no longer fit by hand. The dock shows a Done bar (paintDock
+     reads M.talkPending) that commits the turn. */
+  closeSheet();
+  render();
+}
+/* commit the talk turn — emits the move that passes the turn. */
+function finishTalk(){
+  const p = M && M.talkPending;
+  if (!p){ closeSheet(); return; }
+  M.talkPending = null;
+  const res = doMove(p.seat, { t:'talk', a: p.a }, 'local');
+  if (!res.ok){ cue('move.illegal', { gain:0.7 }); return; }
+  closeSheet();
+  render();
 }
 
 /* the answer reveal — a beat, then the sheet offers to auto-flip the
@@ -917,14 +1079,18 @@ function leave(){
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
   return [
-    T('You and your opponent each get one <b>secret character</b> from the 24 on the board. ' +
-      'Yours is shown to you at the top; theirs is hidden.',
-      'Int u l-avversarju kull wieħed jieħu <b>karattru sigriet</b> mill-24 fuq it-tabellun. ' +
-      'Tiegħek jidher fuq nett; tagħhom moħbi.'),
+    T('At the start you each <b>choose your own secret character</b> from the board — the ' +
+      'opponent never sees your pick. (Prefer chance? Tap "Surprise me".)',
+      'Fil-bidu kull wieħed <b>jagħżel il-karattru sigriet tiegħu</b> mit-tabellun — l-avversarju ' +
+      'qatt ma jara l-għażla tiegħek. (Trid ix-xorti? Agħfas "Aħsibli int".)'),
+    T('Your character is shown to you at the top; theirs is hidden.',
+      'Il-karattru tiegħek jidher fuq nett; tagħhom moħbi.'),
     T('On your turn, <b>ask a yes/no question</b> about their character — "do they have a ' +
-      'beard?", "is the hair red?". The answer is truthful.',
+      'beard?", "is the hair red?". The answer is truthful. With a person opposite you can ' +
+      'switch to <b>Talk</b>: ask out loud, they tap YES or NO, and you flip the faces yourself.',
       'Meta jmissek, <b>staqsi mistoqsija iva/le</b> fuq il-karattru tagħhom — "għandu daqna?", ' +
-      '"ix-xagħar aħmar?". It-tweġiba hija vera.'),
+      '"ix-xagħar aħmar?". It-tweġiba hija vera. Ma’ persuna maġenbek tista’ taqleb għal <b>Bil-fomm</b>: ' +
+      'staqsi bil-fomm, huma jagħfsu IVA jew LE, u int taqleb il-wċuħ waħdek.'),
     T('Faces that <b>do not fit</b> the answer flip down, so what is left is who they could be.',
       'Il-wċuħ li <b>ma jaqblux</b> mat-tweġiba jinqalbu, u dak li jibqa’ huma min jistgħu jkunu.'),
     T('When you are sure, tap <b>Guess</b> and pick a face. Guess right and you <b>win</b>; ' +
@@ -1077,7 +1243,9 @@ function offlineSetup(mode){
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
     el.querySelector('#mh-go').onclick = () => {
       pref({ lvl });
-      newGame({ humans: mode === 'pnp' ? 2 : 1, lvl, deal:'seed' });
+      /* both players now CHOOSE their own face (not dealt). The pick flow
+         handles pass-the-phone handovers and the AI self-picking. */
+      offlinePickFlow(mode === 'pnp' ? 'pnp' : 'ai', lvl);
     };
   }
   paint();
@@ -1088,6 +1256,129 @@ function canGoOnline(){
     const MP = window.KARTI_MP;
     return !!(MP && MP.openFor && P.online && P.online.minhu);
   } catch(e){ return false; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE PICK SCREEN — CHOOSE YOUR OWN SECRET FACE (not dealt).
+   A grid of all faces; tap one to choose, or "Surprise me" for a random.
+   Used by every mode:
+     · pass-the-phone: a handover curtain, then P1 picks (hidden), a second
+       handover, then P2 picks (hidden) — neither sees the other's choice.
+     · vs-AI: the human picks; the AI picks its OWN face with randomChar()
+       (its choice never shown), then the board opens.
+     · online: THIS seat picks LOCALLY and self-injects its own secret; the
+       pick NEVER crosses the wire, so the opponent's client cannot hold it.
+   onDone(charIndex) receives the chosen index.
+   ═══════════════════════════════════════════════════════════════════ */
+function pickGridHTML(sel){
+  return E.ROSTER.map((c, i) =>
+    '<button class="mh-ptile' + (sel === i ? ' sel' : '') + '" data-c="' + i + '" ' +
+      'aria-label="' + esc(nameOf(i)) + '">' +
+      faceHTML(i) + '<span class="mh-nm">' + esc(nameOf(i)) + '</span>' +
+    '</button>').join('');
+}
+
+/* render the pick UI into `el`. who: a {en,mt} label for whose pick it is. */
+function pickScreen(el, who, onDone, onBack){
+  injectCSS();
+  let sel = -1;
+  el.innerHTML =
+    '<div class="pt-wrap mh-menu" style="height:100%">' +
+    '<div class="tbar">' +
+      '<button class="iconbtn" id="mh-pback" aria-label="' + esc(T('Back', 'Lura')) + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+      '<h2>' + esc(T('Pick your face', 'Agħżel wiċċek')) + '</h2>' +
+    '</div>' +
+    '<div class="mh-pick">' +
+      '<div class="mh-pick-h"><b>' + esc(who ? TE(who) : T('Choose your secret character', 'Agħżel il-karattru sigriet tiegħek')) + '</b>' +
+        '<i>' + esc(T('Tap a face to make it yours. The opponent never sees it.',
+                      'Agħfas wiċċ biex tagħmlu tiegħek. L-avversarju qatt ma jarah.')) + '</i></div>' +
+      '<div class="mh-pickbox"><div class="mh-pgrid" id="mh-pgrid">' + pickGridHTML(-1) + '</div></div>' +
+      '<div class="mh-pickdock">' +
+        '<button class="mh-btn guess" id="mh-prand">' + ico('dice') + ' ' +
+          esc(T('Surprise me', 'Aħsibli int')) + '</button>' +
+        '<button class="mh-btn ask" id="mh-pgo" disabled>' +
+          esc(T('This is me', 'Dan jien')) + '</button>' +
+      '</div>' +
+    '</div></div>';
+
+  const grid = el.querySelector('#mh-pgrid');
+  const goBtn = el.querySelector('#mh-pgo');
+  function paintSel(){
+    grid.querySelectorAll('.mh-ptile').forEach(t =>
+      t.classList.toggle('sel', (t.getAttribute('data-c') | 0) === sel && sel >= 0));
+    goBtn.disabled = !(sel >= 0);
+  }
+  grid.addEventListener('click', e => {
+    const b = e.target && e.target.closest && e.target.closest('.mh-ptile');
+    if (!b) return;
+    sel = b.getAttribute('data-c') | 0;
+    cue('ui.tap', { gain:0.6 });
+    paintSel();
+  });
+  el.querySelector('#mh-prand').onclick = () => {
+    sel = E.randomChar(newSeed());
+    cue('ui.toggle', { gain:0.7 });
+    paintSel();
+    /* scroll the chosen one into view so the player sees who they got */
+    const t = grid.querySelector('.mh-ptile.sel');
+    if (t && t.scrollIntoView) try { t.scrollIntoView({ block:'center' }); } catch(e){}
+  };
+  goBtn.onclick = () => { if (sel >= 0){ cue('card.deal', { gain:0.7 }); onDone(sel); } };
+  const pb = el.querySelector('#mh-pback');
+  if (pb) pb.onclick = () => { cue('ui.back'); if (onBack) onBack(); };
+}
+
+/* a full-screen handover curtain — pass-the-phone secrecy between picks. */
+function handover(el, who, onReady){
+  injectCSS();
+  el.innerHTML =
+    '<div class="pt-wrap mh-menu" style="height:100%;position:relative">' +
+      '<div class="mh-hand">' +
+        '<b>' + esc(TE(who)) + '</b>' +
+        '<p>' + esc(T('Pass the phone to this player. When only you can see the screen, tap below to pick your secret face — keep it hidden from the other one.',
+                      'Għaddi t-telefon lil dan il-plejer. Meta int biss tara l-iskrin, agħfas hawn taħt biex tagħżel il-wiċċ sigriet tiegħek — żommu moħbi mill-ieħor.')) + '</p>' +
+        '<button class="btn primary" id="mh-handgo">' + esc(T('I\'m ready — pick', 'Lest — agħżel')) + '</button>' +
+      '</div>' +
+    '</div>';
+  el.querySelector('#mh-handgo').onclick = () => { cue('ui.tap'); onReady(); };
+}
+
+/* the OFFLINE pick flow: pass-the-phone (two picks with handovers) or
+   vs-AI (one human pick, AI self-picks). Ends by starting the match. */
+function offlinePickFlow(mode, lvl){
+  injectCSS();
+  P.show();
+  const el = P.ui.screenEl();
+  if (mode === 'ai'){
+    pickScreen(el, { en:'Choose your secret character', mt:'Agħżel il-karattru sigriet tiegħek' },
+      human => {
+        const aiPick = E.randomChar(newSeed());               /* the AI picks its OWN, hidden */
+        const base = { humans:1, lvl };
+        newGame(E.pickedOpts(base, { 0:human, 1:aiPick }));
+      },
+      () => offlineSetup('ai'));
+    return;
+  }
+  /* pass-the-phone: P1 handover → P1 picks → P2 handover → P2 picks → start */
+  const picks = {};
+  const P1 = { en:'Player 1', mt:'Plejer 1' }, P2 = { en:'Player 2', mt:'Plejer 2' };
+  handover(el, { en:'Player 1 — get ready', mt:'Plejer 1 — lesti' }, () => {
+    pickScreen(el, { en:'Player 1, choose your face', mt:'Plejer 1, agħżel wiċċek' },
+      p1 => {
+        picks[0] = p1;
+        handover(el, { en:'Player 2 — get ready', mt:'Plejer 2 — lesti' }, () => {
+          pickScreen(el, { en:'Player 2, choose your face', mt:'Plejer 2, agħżel wiċċek' },
+            p2 => {
+              picks[1] = p2;
+              newGame(E.pickedOpts({ humans:2, lvl }, { 0:picks[0], 1:picks[1] }));
+            },
+            () => offlineSetup('pnp'));
+        });
+      },
+      () => offlineSetup('pnp'));
+  });
+  void P1; void P2;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1152,11 +1443,31 @@ function onlineStart(cfg){
   NET = Object.assign({}, cfg.net, { host: iAmHost, toGame, toRoom, me: meG });
   M.net = NET;
   M.finished = false;
+  M.pickedOwn = false;      /* becomes true once THIS seat has chosen locally */
   injectCSS();
   P.show();
-  openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
-  render();
-  cue('game.start', { gain:0.9 }, true);
+
+  /* ONLINE PICK-YOUR-OWN. This seat chooses its own secret LOCALLY and we
+     inject it right here on this device — the pick NEVER crosses the wire,
+     so the opponent's client can never hold it (stronger than a relay deal,
+     which we no longer need). The opponent picks on their own phone in
+     parallel. If the relay still pushes a per-seat secret (legacy), the
+     private hook honours it only until this seat has picked. */
+  const el = P.ui.screenEl();
+  pickScreen(el, { en:'Choose your secret character', mt:'Agħżel il-karattru sigriet tiegħek' },
+    mine => {
+      M.pickedOwn = true;
+      const secret = {}; secret[meG] = mine;
+      M.opts = Object.assign({}, M.opts, { deal:'private', given:{ secret } });
+      M.log = [];
+      M.st = buildState(M.opts, M.seed, M.log);
+      applyMeta();
+      M.recorded = false;
+      openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
+      render();
+      cue('game.start', { gain:0.9 }, true);
+    },
+    () => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   return snapshot();
 }
 
@@ -1166,6 +1477,7 @@ function onlineStart(cfg){
    This is the ONLY place this client learns a secret, and it is its own. */
 function onlinePrivate(d){
   if (!M || M.dead || !M.online) return;
+  if (M.pickedOwn) return;            /* this seat already CHOSE its own face locally */
   const val = Array.isArray(d) ? (d[0] | 0) : (d | 0);
   if (!(val >= 0 && val < E.N)) return;
   const me = M.online.meG;
@@ -1324,10 +1636,10 @@ const LOBBY = {
                          net: (opts && opts.net) || {} });
   },
   rulesHTML: () =>
-    '<p>' + T('Two players, each with a secret character out of 24. Ask yes/no questions about ' +
-      'the other one\'s face and flip down whoever no longer fits.',
-      'Żewġ plejers, kull wieħed b’karattru sigriet minn 24. Staqsi mistoqsijiet iva/le fuq il-wiċċ ' +
-      'tal-ieħor u aqleb lil min ma jibqax jaqbel.') + '</p>' +
+    '<p>' + T('Two players, each choosing a secret character from the board. Ask yes/no questions ' +
+      'about the other one\'s face and flip down whoever no longer fits.',
+      'Żewġ plejers, kull wieħed jagħżel karattru sigriet mit-tabellun. Staqsi mistoqsijiet iva/le fuq ' +
+      'il-wiċċ tal-ieħor u aqleb lil min ma jibqax jaqbel.') + '</p>' +
     '<p>' + T('Guess right and you win; guess wrong and you lose. First correct guess takes it.',
       'Aqta’ sew u tirbaħ; aqta’ ħażin u titlef. L-ewwel qatgħa tajba tirbaħ.') + '</p>',
   blurb: T('A secret face each. Ask, eliminate, and guess who they are first.',
@@ -1375,6 +1687,8 @@ if (/[?&]minhutest\b/.test(location.search || '')){
   window.__MINHU_TEST = {
     setupSheet, offlineSetup, newGame, doMove, render, buildGrid,
     askQuestion, armGuess, submitGuess, openSheet, closeSheet,
+    pickScreen, offlinePickFlow, handover, openTalk, talkAnswered, finishTalk,
+    onlineStart, onlinePrivate, onlineRemote,
     get M(){ return M; }, get UI(){ return UI; },
     engine: E, LOBBY, hooks: NET_HOOKS, online: P.online.minhu, leave, viewSeat
   };

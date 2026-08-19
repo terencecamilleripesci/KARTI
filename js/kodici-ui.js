@@ -185,53 +185,96 @@ function injectCSS(){
 #scr-party .kd-limv{min-width:96px;text-align:center;font:900 22px/1 var(--disp,inherit)}
 #scr-party .kd-limv i{display:block;font-style:normal;font-size:11px;color:var(--dim,#9d95b0);margin-top:3px}
 
-/* ── the board ── */
-#scr-party .kd-board{display:flex;flex-direction:column;gap:12px;padding:6px 2px 4px}
-#scr-party .kd-status{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--dim,#9d95b0)}
-#scr-party .kd-status .kd-who{font:800 13px/1 var(--disp,inherit);color:var(--txt,#EDE7F6)}
-#scr-party .kd-status .kd-tag{padding:3px 9px;border-radius:999px;background:rgba(255,197,66,.14);color:var(--gold,#FFC542);font-weight:800;font-size:11px}
+/* ── the board — a column that fills the host; only the history scrolls,
+      the compose dock stays pinned under the thumb ── */
+#scr-party .kd-board{display:flex;flex-direction:column;gap:10px;padding:4px 2px 2px;
+  height:100%;min-height:0;box-sizing:border-box}
+#scr-party .kd-status{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:12px;color:var(--dim,#9d95b0);flex:0 0 auto;padding:0 2px}
+#scr-party .kd-status .kd-who{font:800 13.5px/1.1 var(--disp,inherit);color:var(--txt,#EDE7F6)}
+#scr-party .kd-status .kd-tag{padding:3px 10px;border-radius:999px;background:rgba(255,197,66,.14);
+  color:var(--gold,#FFC542);font-weight:800;font-size:10.5px;letter-spacing:.08em}
+#scr-party .kd-hint{flex:0 0 auto;font-size:11.5px;line-height:1.45;color:var(--dim,#9d95b0);
+  margin:0;padding:0 2px}
 
-#scr-party .kd-history{display:flex;flex-direction:column;gap:7px;max-height:44vh;overflow:auto;padding:2px 2px 4px;
-  -webkit-overflow-scrolling:touch}
-#scr-party .kd-rowline{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:12px;
-  background:rgba(255,255,255,.028);border:1px solid var(--line,rgba(255,255,255,.06))}
-#scr-party .kd-rowline .kd-no{flex:0 0 20px;font:800 12px/1 var(--disp,inherit);color:var(--dim,#9d95b0);text-align:center}
-#scr-party .kd-pegs{display:flex;gap:6px;flex:1 1 auto}
-#scr-party .kd-fbgrid{flex:0 0 auto;display:grid;grid-gap:3px;grid-template-columns:1fr 1fr;align-content:center}
-#scr-party .kd-fbp{width:9px;height:9px;border-radius:50%;background:transparent;border:1px solid rgba(255,255,255,.18)}
-#scr-party .kd-fbp.exact{background:#111;border-color:#000;box-shadow:0 0 0 1px rgba(255,255,255,.25)}
-#scr-party .kd-fbp.near{background:#f4f1ff;border-color:#cfc7e6}
-#scr-party .kd-rowline.reveal{animation:kdReveal .34s var(--ease,ease)}
-@keyframes kdReveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-#scr-party .kd-fbp.pop{animation:kdPop .3s var(--ease,ease) both}
-@keyframes kdPop{0%{transform:scale(0)}60%{transform:scale(1.35)}100%{transform:scale(1)}}
+#scr-party .kd-history{display:flex;flex-direction:column;gap:6px;flex:1 1 auto;min-height:48px;
+  overflow-y:auto;overflow-x:hidden;padding:2px 2px 6px;-webkit-overflow-scrolling:touch;
+  mask-image:linear-gradient(180deg,transparent 0,#000 10px);}
+#scr-party .kd-rowline{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:13px;
+  background:rgba(255,255,255,.03);border:1px solid var(--line,rgba(255,255,255,.06));
+  will-change:transform,opacity}
+#scr-party .kd-rowline .kd-no{flex:0 0 18px;font:800 11px/1 var(--disp,inherit);color:var(--dim,#9d95b0);
+  text-align:center;opacity:.75}
+#scr-party .kd-pegs{display:flex;gap:6px;flex:1 1 auto;min-width:0}
+#scr-party .kd-fbgrid{flex:0 0 auto;display:grid;grid-gap:3px;grid-template-columns:1fr 1fr;
+  align-content:center;padding:3px;border-radius:8px;background:rgba(0,0,0,.18)}
+#scr-party .kd-fbp{width:9px;height:9px;border-radius:50%;background:transparent;
+  border:1px solid rgba(255,255,255,.16)}
+#scr-party .kd-fbp.exact{background:#0d0d12;border-color:#000;box-shadow:0 0 0 1px rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.5)}
+#scr-party .kd-fbp.near{background:#f4f1ff;border-color:#cfc7e6;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+
+/* newest row slides+fades in */
+#scr-party .kd-rowline.reveal{animation:kdReveal .40s var(--ease,cubic-bezier(.22,.9,.28,1)) both}
+@keyframes kdReveal{from{opacity:0;transform:translateY(10px) scale(.98)}to{opacity:1;transform:none}}
+/* the winning row glows and pulses before the winner screen */
+#scr-party .kd-rowline.win{animation:kdWinPulse 1.1s var(--ease,ease) 1;
+  border-color:rgba(255,197,66,.6);background:rgba(255,197,66,.08)}
+@keyframes kdWinPulse{0%{box-shadow:0 0 0 0 rgba(255,197,66,0)}
+  30%{box-shadow:0 0 0 3px rgba(255,197,66,.35),0 0 22px rgba(255,197,66,.5);transform:scale(1.02)}
+  100%{box-shadow:0 0 0 0 rgba(255,197,66,0);transform:none}}
+/* feedback pegs flip/pop in, staggered (exacts first) */
+#scr-party .kd-fbp.pop{animation:kdFbPop .34s var(--ease,cubic-bezier(.34,1.56,.64,1)) both}
+@keyframes kdFbPop{0%{transform:scale(0) rotate(-90deg);opacity:0}
+  55%{transform:scale(1.4) rotate(8deg);opacity:1}100%{transform:scale(1) rotate(0);opacity:1}}
+/* invalid submit shake, applied to the whole compose dock */
+#scr-party .kd-compose.shake{animation:kdShake .42s cubic-bezier(.36,.07,.19,.97) both}
+@keyframes kdShake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(3px)}
+  30%,50%,70%{transform:translateX(-6px)}40%,60%{transform:translateX(6px)}}
 
 /* a peg */
 #scr-party .kd-peg{position:relative;width:34px;height:34px;border-radius:50%;flex:0 0 auto;
   display:flex;align-items:center;justify-content:center;font:900 13px/1 var(--disp,inherit);color:#0E0B14;
   box-shadow:inset 0 -3px 6px rgba(0,0,0,.32),0 2px 6px rgba(0,0,0,.4);user-select:none}
-#scr-party .kd-peg.empty{background:rgba(255,255,255,.04)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);color:transparent}
-#scr-party .kd-peg .kd-shape{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:.9}
+#scr-party .kd-peg.empty{background:rgba(255,255,255,.04)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);color:transparent}
+#scr-party .kd-peg .kd-shape{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:.92}
 #scr-party .kd-peg .kd-shape svg{width:16px;height:16px}
-#scr-party .kd-peg .kd-lt{position:relative;z-index:2}
-#scr-party .kd-peg.sm{width:26px;height:26px;font-size:11px}
+#scr-party .kd-peg .kd-lt{position:relative;z-index:2;text-shadow:0 1px 1px rgba(0,0,0,.25)}
+#scr-party .kd-peg.sm{width:27px;height:27px;font-size:11px}
 #scr-party .kd-peg.sm .kd-shape svg{width:12px;height:12px}
+/* a peg dropping into a compose slot */
+#scr-party .kd-peg.drop{animation:kdDrop .34s var(--ease,cubic-bezier(.34,1.56,.64,1)) both}
+@keyframes kdDrop{0%{transform:translateY(-16px) scale(.5);opacity:0}
+  60%{transform:translateY(2px) scale(1.14);opacity:1}100%{transform:translateY(0) scale(1);opacity:1}}
 
-/* the compose row + palette */
-#scr-party .kd-compose{display:flex;flex-direction:column;gap:12px;padding:10px 4px 2px;
-  border-top:1px solid var(--line,rgba(255,255,255,.08))}
-#scr-party .kd-slotrow{display:flex;gap:9px;justify-content:center}
-#scr-party .kd-slot{width:44px;height:44px;border-radius:50%;border:2px dashed rgba(255,255,255,.18);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.12s}
-#scr-party .kd-slot.on{border-style:solid;border-color:var(--gold,#FFC542)}
-#scr-party .kd-slot .kd-peg{width:38px;height:38px}
-#scr-party .kd-palette{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
-#scr-party .kd-swatch{width:40px;height:40px;border-radius:12px;cursor:pointer;position:relative;
+/* the compose row + palette — a pinned dock */
+#scr-party .kd-compose{display:flex;flex-direction:column;gap:11px;padding:12px 4px calc(env(safe-area-inset-bottom,0px) + 4px);
+  flex:0 0 auto;border-top:1px solid var(--line,rgba(255,255,255,.08));
+  background:linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.015))}
+#scr-party .kd-slotrow{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+#scr-party .kd-slot{width:46px;height:46px;border-radius:50%;border:2px dashed rgba(255,255,255,.16);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:border-color .16s var(--ease,ease),transform .12s var(--ease,ease),box-shadow .16s;
+  background:rgba(255,255,255,.02)}
+#scr-party .kd-slot:active{transform:scale(.94)}
+#scr-party .kd-slot.on{border-style:solid;border-color:var(--gold,#FFC542);
+  box-shadow:0 0 0 3px rgba(255,197,66,.14)}
+/* the active (next-to-fill) slot breathes so it's obvious where a tap lands */
+#scr-party .kd-slot.on.pulse{animation:kdSlotPulse 1.7s ease-in-out infinite}
+@keyframes kdSlotPulse{0%,100%{box-shadow:0 0 0 3px rgba(255,197,66,.1)}
+  50%{box-shadow:0 0 0 5px rgba(255,197,66,.28)}}
+#scr-party .kd-slot .kd-peg{width:40px;height:40px}
+#scr-party .kd-palette{display:flex;gap:9px;flex-wrap:wrap;justify-content:center;max-width:340px;margin:0 auto}
+#scr-party .kd-swatch{width:42px;height:42px;border-radius:13px;cursor:pointer;position:relative;
   display:flex;align-items:center;justify-content:center;font:900 14px/1 var(--disp,inherit);color:#0E0B14;
-  box-shadow:inset 0 -3px 6px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.35);transition:transform .1s}
-#scr-party .kd-swatch:active{transform:scale(.9)}
+  box-shadow:inset 0 -3px 6px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.35);
+  transition:transform .1s var(--ease,ease),box-shadow .1s;-webkit-tap-highlight-color:transparent}
+#scr-party .kd-swatch:active{transform:scale(.86);box-shadow:inset 0 -1px 3px rgba(0,0,0,.4),0 1px 3px rgba(0,0,0,.4)}
+#scr-party .kd-swatch.tap{animation:kdSwatchTap .22s var(--ease,ease)}
+@keyframes kdSwatchTap{0%{transform:scale(.86)}55%{transform:scale(1.12)}100%{transform:scale(1)}}
+#scr-party .kd-swatch .kd-shape{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:.9}
 #scr-party .kd-swatch .kd-shape svg{width:16px;height:16px}
-#scr-party .kd-acts{display:flex;gap:9px;margin-top:2px}
+#scr-party .kd-swatch .kd-lt{position:relative;z-index:2;text-shadow:0 1px 1px rgba(0,0,0,.25)}
+#scr-party .kd-acts{display:flex;gap:10px;margin-top:1px}
 #scr-party .kd-acts .btn{flex:1 1 auto}
 
 /* handover veil (klabb pattern — FULLY OPAQUE) */
@@ -246,10 +289,17 @@ function injectCSS(){
 #scr-party .kd-veil .btn{min-width:220px}
 
 @media (prefers-reduced-motion:reduce){
-  #scr-party .kd-rowline.reveal,#scr-party .kd-fbp.pop{animation:none}
+  #scr-party .kd-rowline.reveal,#scr-party .kd-rowline.win,#scr-party .kd-fbp.pop,
+  #scr-party .kd-peg.drop,#scr-party .kd-slot.on.pulse,#scr-party .kd-swatch.tap,
+  #scr-party .kd-compose.shake{animation:none!important}
+  #scr-party .kd-history{mask-image:none}
   #scr-party .kd-sheet{transition:none}
 }
-body.reduced #scr-party .kd-rowline.reveal,body.reduced #scr-party .kd-fbp.pop{animation:none}
+body.reduced #scr-party .kd-rowline.reveal,body.reduced #scr-party .kd-rowline.win,
+body.reduced #scr-party .kd-fbp.pop,body.reduced #scr-party .kd-peg.drop,
+body.reduced #scr-party .kd-slot.on.pulse,body.reduced #scr-party .kd-swatch.tap,
+body.reduced #scr-party .kd-compose.shake{animation:none!important}
+body.reduced #scr-party .kd-history{mask-image:none}
 body.reduced #scr-party .kd-sheet{transition:none}
 `;
   document.head.appendChild(st);
@@ -292,9 +342,9 @@ function pegHTML(c, cls){
     + `<span class="kd-shape">${shapeSVG(p.shape)}</span>`
     + `<span class="kd-lt">${esc(p.glyph)}</span></div>`;
 }
-function swatchHTML(c){
+function swatchHTML(c, cls){
   const p = PEGS[c];
-  return `<button class="kd-swatch" data-c="${c}" style="background:${p.hex}" aria-label="${esc(T(p.name,p.mt))}">`
+  return `<button class="kd-swatch ${cls||''}" data-c="${c}" style="background:${p.hex}" aria-label="${esc(T(p.name,p.mt))}">`
     + `<span class="kd-shape">${shapeSVG(p.shape)}</span><span class="kd-lt">${esc(p.glyph)}</span></button>`;
 }
 
@@ -540,8 +590,9 @@ function renderSet(host){
   wrap.innerHTML =
     '<div class="kd-status"><span class="kd-who">'+esc(who)+'</span>'+
       '<span class="kd-tag">'+esc(T('SECRET','SIGRIET'))+'</span></div>'+
-    '<p style="font-size:12px;color:var(--dim,#9d95b0);margin:2px 0 4px">'+
-      esc(T('Tap a colour, then it drops into the next slot. This row stays hidden.','Agħżel kulur biex jimla l-ispazju li jmiss. Din ir-ringiela tibqa\' moħbija.'))+'</p>'+
+    '<p class="kd-hint">'+
+      esc(T('Tap a colour — it drops into the glowing slot. This row stays hidden.','Agħżel kulur — jaqa\' fl-ispazju li jixgħel. Din ir-ringiela tibqa\' moħbija.'))+'</p>'+
+    '<div class="kd-history" style="flex:1 1 auto"></div>'+
     composeHTML(M.draft, true, done);
   host.appendChild(wrap);
   wireCompose(host, /*isSecret*/true, done);
@@ -593,7 +644,26 @@ function renderPlay(host){
   if (mine && !M.st.over) wireCompose(host, false, ensureDraft().every(x=>x>=0));
   setBadge();
 
-  if (M.st.over) finishScreen();
+  if (M.st.over){
+    /* let the winning row celebrate (pulse/glow) before the rebbieh screen.
+       Only a FRESH crack — the last row all-exact with a pending reveal — is
+       worth the wait; a replayed/resumed over-state jumps straight to it. */
+    const list = M.st.guesses[E.target(viewer)];
+    const last = list && list[list.length-1];
+    const freshCrack = last && last.fb.exact === M.opts.slots
+                       && M._reveal === (list.length-1) && !noMotion();
+    if (freshCrack && !M._celebrating){
+      M._celebrating = true;
+      const mk = M;
+      setTimeout(() => {
+        if (M !== mk || M.dead) return;
+        M._celebrating = false;
+        finishScreen();
+      }, 950);
+    } else if (!M._celebrating){
+      finishScreen();
+    }
+  }
 }
 function ensureDraft(){
   if (!M.draft || M.draft.length !== M.opts.slots) M.draft = new Array(M.opts.slots).fill(-1);
@@ -613,34 +683,56 @@ function historyHTML(viewer){
     return '<div style="text-align:center;color:var(--dim,#9d95b0);font-size:12px;padding:14px 0">'+
       esc(T('No guesses yet. Break their code.','Għadha ebda taħbita.'))+'</div>';
   }
+  const anim = !noMotion();
   return list.map((rec,i)=>{
     const isLast = i === list.length-1;
+    const isReveal = anim && isLast && M._reveal===i;
+    const cracked = rec.fb.exact === M.opts.slots;
+    const isWin = anim && isLast && cracked;      /* winning row celebrates */
     const pegs = rec.g.map(c=>pegHTML(c,'sm')).join('');
-    const fb = fbGridHTML(rec.fb, M.opts.slots, isLast && M._reveal===i);
-    return `<div class="kd-rowline ${isLast&&M._reveal===i?'reveal':''}">`+
+    const fb = fbGridHTML(rec.fb, M.opts.slots, isReveal);
+    const cls = 'kd-rowline' + (isReveal?' reveal':'') + (isWin?' win':'');
+    return `<div class="${cls}">`+
       `<span class="kd-no">${i+1}</span>`+
       `<span class="kd-pegs">${pegs}</span>`+
       `${fb}</div>`;
   }).join('');
 }
+/* feedback pegs. When `pop`, they flip in staggered: black exacts first,
+   then white nears, so the earned feedback reveals in a tasteful sequence.
+   The reveal is a one-shot, so M._reveal is left for the row to consume. */
 function fbGridHTML(fb, slots, pop){
   const dots = [];
   for (let i=0;i<fb.exact;i++) dots.push('exact');
   for (let i=0;i<fb.near;i++)  dots.push('near');
   while (dots.length < slots) dots.push('');
+  /* stagger only the filled pegs, in exact→near order, ~90ms apart, after a
+     small lead-in so the row settles before its verdict lands. */
+  let step = 0;
   return '<div class="kd-fbgrid" aria-label="'+fb.exact+' exact, '+fb.near+' near">'+
-    dots.map((d,i)=>`<div class="kd-fbp ${d} ${pop&&d?'pop':''}" style="${pop&&d?('animation-delay:'+(i*60)+'ms'):''}"></div>`).join('')+
+    dots.map(d=>{
+      const on = pop && d;
+      const delay = on ? (120 + (step++)*90) : 0;
+      return `<div class="kd-fbp ${d} ${on?'pop':''}"${on?(' style="animation-delay:'+delay+'ms"'):''}></div>`;
+    }).join('')+
     '</div>';
 }
 
 /* the compose row: N slots + palette + submit. isSecret gates the label. */
 function composeHTML(draft, isSecret, ready){
   const o = M.opts;
-  const slots = draft.map((c,i)=>
-    `<div class="kd-slot ${draft.indexOf(-1)===i?'on':''}" data-slot="${i}">${c>=0?pegHTML(c):''}</div>`).join('');
+  const active = draft.indexOf(-1);            /* next slot to fill, or -1 = full */
+  const anim = !noMotion();
+  const slots = draft.map((c,i)=>{
+    const on = active===i;
+    const pulse = (on && anim) ? ' pulse' : '';
+    const drop = (anim && M._dropSlot===i && c>=0) ? 'drop' : '';
+    return `<div class="kd-slot ${on?'on':''}${pulse}" data-slot="${i}">${c>=0?pegHTML(c,drop):''}</div>`;
+  }).join('');
   const pal = [];
-  for (let c=0;c<o.colours;c++) pal.push(swatchHTML(c));
+  for (let c=0;c<o.colours;c++) pal.push(swatchHTML(c, anim && M._tapC===c ? 'tap' : ''));
   const submit = isSecret ? T('Lock in code','Aqfel il-kodiċi') : T('Guess','Aqta\'');
+  M._dropSlot = -1; M._tapC = -1;              /* consume one-shot markers */
   return '<div class="kd-compose">'+
     '<div class="kd-slotrow">'+slots+'</div>'+
     '<div class="kd-palette">'+pal.join('')+'</div>'+
@@ -654,8 +746,10 @@ function wireCompose(host, isSecret, ready){
     sw.onclick = () => {
       const c = +sw.dataset.c;
       const i = M.draft.indexOf(-1);
-      if (i < 0){ /* full — replace last */ M.draft[M.draft.length-1] = c; }
-      else M.draft[i] = c;
+      const at = (i < 0) ? M.draft.length-1 : i;   /* full → replace last */
+      M.draft[at] = c;
+      M._dropSlot = at;                             /* pop this peg in */
+      M._tapC = c;                                  /* press-feedback this swatch */
       cue('piece.place',{gain:.5});
       render();
     };
@@ -667,10 +761,22 @@ function wireCompose(host, isSecret, ready){
   if (clr) clr.onclick = () => { M.draft = new Array(M.opts.slots).fill(-1); cue('ui.back',{gain:.35}); render(); };
   const sub = host.querySelector('#kd-submit');
   if (sub) sub.onclick = () => {
-    if (M.draft.some(x=>x<0)){ cue('move.illegal',{gain:.6}); return; }
+    if (M.draft.some(x=>x<0)){ cue('move.illegal',{gain:.6}); shakeCompose(host); return; }
     if (isSecret) submitSecret(M.draft.slice());
     else submitGuess(M.draft.slice());
   };
+}
+/* a gentle shake on a rejected submit (reduced-motion: silent no-op) */
+function shakeCompose(host){
+  if (noMotion()) return;
+  const c = host && host.querySelector('.kd-compose');
+  if (!c) return;
+  c.classList.remove('shake');
+  /* reflow so the animation can retrigger */
+  void c.offsetWidth;
+  c.classList.add('shake');
+  const done = () => { c.classList.remove('shake'); c.removeEventListener('animationend', done); };
+  c.addEventListener('animationend', done);
 }
 
 /* ── SET: lock a secret in ── */
