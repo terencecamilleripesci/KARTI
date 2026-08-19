@@ -342,19 +342,41 @@ function injectCSS(){
     '@keyframes lu-pulse{0%,100%{transform:scale(.86);opacity:.55}50%{transform:scale(1.08);opacity:1}}' +
 
     /* ── the tokens ── */
-    '#scr-party .lu-tok{cursor:pointer;transform-box:fill-box;transform-origin:center;' +
+    '#scr-party .lu-tok{transform-box:fill-box;transform-origin:center;' +
       'transition:transform .28s var(--ease,cubic-bezier(.22,.9,.28,1))}' +
     '#scr-party .lu-tok .body{stroke:rgba(0,0,0,.55);stroke-width:.5}' +
     '#scr-party .lu-tok .gloss{fill:rgba(255,255,255,.5)}' +
-    '#scr-party .lu-tok.pick .body{stroke:#fff;stroke-width:1.1}' +
+    /* the generous invisible hit target — the pointer surface. touch-action
+       none so the first touch fires without a scroll/zoom race. */
+    '#scr-party .lu-tok .hit{cursor:pointer;pointer-events:auto;' +
+      'touch-action:none;-webkit-tap-highlight-color:transparent}' +
+    /* a movable piece: white rim, a soft coloured glow, and a gentle bob
+       so "what can I move" reads before you even look for the die */
+    '#scr-party .lu-tok.pick{cursor:pointer}' +
+    '#scr-party .lu-tok.pick .body{stroke:#fff;stroke-width:1.3}' +
+    '#scr-party .lu-tok .glow{opacity:0}' +
+    '#scr-party .lu-tok.pick .glow{opacity:.5;filter:blur(1.4px)}' +
+    '#scr-party.lu-anim .lu-tok.pick .glow{animation:lu-glow 1.1s ease-in-out infinite}' +
+    '@keyframes lu-glow{0%,100%{opacity:.32}50%{opacity:.62}}' +
     '#scr-party .lu-tok.pick{animation:lu-bob 1s ease-in-out infinite}' +
-    '@keyframes lu-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.3px)}}' +
+    '@keyframes lu-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.4px)}}' +
+    /* a NON-movable piece dims back when it is my move so the movable ones
+       are the only bright things on the board */
+    '#scr-party .lu-tok.dim{opacity:.5}' +
+    /* instant press feedback on the FIRST touch — no wait for the move */
+    '#scr-party .lu-tok.press{animation:none!important}' +
+    '#scr-party .lu-tok.press .body{transform:scale(.86);transform-box:fill-box;' +
+      'transform-origin:center;transition:transform .08s ease}' +
+    /* the lifted token in flight — a shadow so it reads as picked up */
+    '#scr-party .lu-fly{transform-box:view-box;pointer-events:none;' +
+      'filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}' +
     '#scr-party.lu-still .lu-tok.pick{animation:none}' +
     '#scr-party.lu-still .lu-tok{transition:none}' +
     'body.reduced #scr-party .lu-tok,body.reduced #scr-party.lu-anim .lu-hint,' +
-      'body.reduced #scr-party .lu-tok.pick{animation:none!important;transition:none!important}' +
+      'body.reduced #scr-party .lu-tok.pick,body.reduced #scr-party .lu-tok.pick .glow{' +
+      'animation:none!important;transition:none!important}' +
     '@media (prefers-reduced-motion:reduce){#scr-party .lu-tok,#scr-party.lu-anim .lu-hint,' +
-      '#scr-party .lu-tok.pick{animation:none!important;transition:none!important}}' +
+      '#scr-party .lu-tok.pick,#scr-party .lu-tok.pick .glow{animation:none!important;transition:none!important}}' +
 
     /* ── the die + the roll button, sat below the board ── */
     '#scr-party .lu-say{flex:0 0 auto;font:700 11.5px/1.4 var(--body);text-align:center;' +
@@ -594,38 +616,55 @@ function geomGrid(lay){
            center: { x: C, y: C, half: gap * 1.5 } };
 }
 
-/* ── THE ROSETTE (P=6 hexagon, P=8 octagon) ─────────────────────────
-   No square grid exists for 6/8 arms, so the board is P identical arms
-   radiating from the centre at angle k/P. Every dimension is expressed
-   in "gaps" and the whole thing is scaled so the widest point (a corner
-   yard) just touches the fit radius — that is why it never overflows the
-   disc regardless of P. Each arm is a 3-lane corridor; a sector's out and
-   in rails share the CHANNEL between two arms so the tip is a tight
-   U-turn, not a splayed rosette. */
+/* ── THE HEXAGON (P=6) / OCTAGON (P=8) — a PROPER Ludo board ─────────
+   Built exactly like the 4-player cross, only with P arms instead of 4.
+   Each arm is a straight, tight 3-wide GRID-STRIP radiating from the
+   centre at angle θ_m = m·(2π/P):
+
+        col −1        col 0          col +1
+      ┌────────┬────────────────┬────────┐   ← the arm as a rectangle,
+      │ in-rail│  HOME  column  │ out-rail│     rotated to θ_m; cells are
+      │  cells │  (H−1 coloured)│  cells │     unit squares on a local
+      └────────┴────────────────┴────────┘     grid so they CANNOT overlap.
+
+   The three columns are exactly ONE cell apart (spacing `step`) so the
+   arm reads as a solid corridor, not scattered dots. The engine's ring
+   index maps in one line:
+       · out-rail of sector k  → visual arm k, +side, radial row = jj
+       · in-rail  of sector k  → visual arm k+1, −side, row = (L−1−jj)
+       · corner   of sector k  → the U-turn tip in the CHANNEL between
+                                  arm k and arm k+1, one step beyond the
+                                  outer rail row.
+   so arm m is flanked by its own out-rail (+side) and sector (m−1)'s
+   in-rail (−side), the two ends of the lap meeting at its mouth — the
+   authentic Ludo picture. A coloured YARD sits at each arm's outer base
+   and a P-way star finish sits at the centre. Everything is expressed in
+   "steps" and the whole board is scaled so its widest point just fits the
+   disc, so it never clips at any P. */
 function geomRosette(lay){
   const P = lay.P, L = lay.L, H = lay.H, R = lay.R;
-  const lane   = 0.62;                        /* rail offset — wide enough that
-                                                 the two rails clear each other */
-  /* rIn is pushed well out so the home column (always 5 cells) has real
-     radial room on the arm axis; the whole board is auto-scaled to the
-     disc afterwards, so a larger rIn just means smaller px per gap. */
-  const rIn    = (P <= 6 ? 4.6 : 5.2);
-  const rOut   = rIn + (L - 1);
-  const corner = rOut + 0.8;                  /* tip cell radius — clear of the
-                                                 last rail cells */
-  const yardOut = 1.6, ySizeU = 1.9;
-  /* the widest point is a corner yard's far corner; fit it to the disc */
-  const maxU   = yardOut + corner + ySizeU * 0.5 * 1.42;
-  const gap    = ((VB / 2) - 3) / maxU;
-  const cell   = gap * 0.40;
+  const step   = 1.0;                          /* one grid cell, in units   */
+  const lane   = step;                         /* rails sit ±1 cell off axis */
+  /* radial rows: the mouth (innermost track row) out to the tip.
+     rMouth is pushed out enough that the H−1 home cells + the finish
+     disc fit between it and the centre without crowding. */
+  const rMouth = Math.max(H, 4) + 0.2;         /* innermost rail row radius */
+  const rTip   = rMouth + (L - 1) * step;      /* outermost rail row        */
+  const rCorner= rTip + step;                  /* U-turn tip, one step out  */
+  const yardOut = 1.7, ySizeU = 2.2;           /* yard offset + size, units */
+  /* the widest point of the board is a corner yard's far corner; fit it */
+  const maxU   = rCorner + yardOut + ySizeU * 0.5 * 1.42;
+  const gap    = ((VB / 2) - 3) / maxU;        /* px per unit                */
+  const cell   = gap * 0.44;                   /* drawn half-size of a cell  */
 
   const dir = th => ({ theta: th, ux: Math.sin(th), uy: -Math.cos(th),
                        vx: Math.cos(th),  vy: Math.sin(th) });
   const arm = [], chan = [];
   for (let k = 0; k < P; k++){
-    arm.push(dir((k / P) * 2 * Math.PI));
-    chan.push(dir(((k + 0.5) / P) * 2 * Math.PI));
+    arm.push(dir((k / P) * 2 * Math.PI));                 /* arm axis        */
+    chan.push(dir(((k + 0.5) / P) * 2 * Math.PI));        /* channel between */
   }
+  /* a point on visual arm k: radius r out, lateral l sideways (grid px) */
   const atArm  = (k, r, l) => ({ x: C + arm[k].ux * r * gap + arm[k].vx * l * gap,
                                  y: C + arm[k].uy * r * gap + arm[k].vy * l * gap,
                                  th: arm[k].theta });
@@ -633,45 +672,45 @@ function geomRosette(lay){
                                  y: C + chan[k].uy * r * gap + chan[k].vy * l * gap,
                                  th: chan[k].theta });
 
+  /* place every ring cell into its arm's strip, tight to the home column */
   const ring = new Array(R);
   for (let i = 0; i < R; i++){
     const rc = lay.ring[i], k = rc.sector;
-    if (rc.role === 'out')         ring[i] = atChan(k, rIn + rc.jj, -lane);
-    else if (rc.role === 'corner') ring[i] = atChan(k, corner, 0);
-    else                           ring[i] = atChan(k, rIn + ((L - 1) - rc.jj), +lane);
+    if (rc.role === 'out'){
+      /* arm k, out-rail (+lane), climbing outward as jj grows */
+      ring[i] = atArm(k, rMouth + rc.jj * step, +lane);
+    } else if (rc.role === 'corner'){
+      /* the U-turn tip, in the channel just past the outer rail row */
+      ring[i] = atChan(k, rCorner, 0);
+    } else {
+      /* arm k+1, in-rail (−lane); jj=0 sits at the tip, jj=L−1 at mouth */
+      const km = (k + 1) % P;
+      ring[i] = atArm(km, rMouth + ((L - 1) - rc.jj) * step, -lane);
+    }
   }
 
-  /* home column: H-1 cells down the arm axis, evenly spread across the
-     radial span between the finish disc and the mouth. The lane cells are
-     drawn no larger than their spacing (lhs) so they never overlap even
-     when the arm is short (P=6/8 pack 5 cells into a 4/3-cell rail). */
+  /* home column: H−1 coloured cells down the arm axis from the mouth
+     toward the centre, sized to their own spacing so they never overlap
+     even on the short P=8 arms. */
   const col = [], home = [];
-  const finishR = 0.55;
-  /* the lane lives on the arm AXIS, between the innermost ring row (rIn)
-     and the finish disc — never out to the rails, so it cannot touch a
-     ring cell. Cells are sized to their spacing so 5 of them fit even in
-     the short P=6/8 arms without overlapping. */
-  /* innermost lane cell must clear both the finish disc AND the neighbour
-     arm's lane. Two arms subtend 2π/P; at radius r their axes are
-     2·r·sin(π/P) apart, so keep the closest lane cell at a radius where
-     that spacing exceeds a cell, i.e. r ≥ innerGap. */
-  const innerGap = 1.0 / (2 * Math.sin(Math.PI / P));      /* min radius, gaps */
-  const outR = rIn - 0.3;
-  const inR  = Math.max(finishR * 1.9 + 0.5, innerGap + 0.3);
-  const lspace = (H - 1) > 1 ? (outR - inR) / ((H - 1) - 1) : 1;
-  const lhs = Math.min(cell, Math.abs(lspace) * gap * 0.44);
+  const finishU = 1.05;                         /* finish-disc radius, units  */
+  const colOut = rMouth - step;                 /* first home cell (below mouth) */
+  const colIn  = finishU + 0.75;                /* last home cell (above finish) */
+  const cspace = (H - 1) > 1 ? (colOut - colIn) / ((H - 1) - 1) : 1;
+  const chs    = Math.min(cell, Math.abs(cspace) * gap * 0.46);
   for (let k = 0; k < P; k++){
     const cells = [];
     for (let c = 0; c < H - 1; c++){
-      const pt = atArm(k, outR - lspace * c, 0);
-      cells.push({ ...pt, hs: lhs });
+      const pt = atArm(k, colOut - cspace * c, 0);
+      cells.push({ ...pt, hs: chs });
     }
     col.push(cells);
-    home.push(atArm(k, finishR * 0.5, 0));
+    home.push(atArm(k, finishU * 0.45, 0));
   }
 
+  /* the coloured yard block at each arm's outer base */
   const yard = [];
-  const yardR = corner + yardOut;
+  const yardR = rCorner + yardOut;
   for (let k = 0; k < P; k++){
     const c = atArm(k, yardR, 0), a = arm[k], s = ySizeU * 0.28;
     const slots = [
@@ -681,8 +720,9 @@ function geomRosette(lay){
     yard.push({ cx: c.x, cy: c.y, size: ySizeU * gap, theta: a.theta, slots });
   }
 
-  return { P, L, H, R, grid: false, gap, cell, tok: cell * 0.86,
-           ring, col, home, yard, arm, finishR: finishR * gap, rIn, rOut, lane };
+  return { P, L, H, R, grid: false, gap, cell, tok: cell * 0.82,
+           ring, col, home, yard, arm, chan,
+           finishR: finishU * gap, rMouth, rTip, rCorner, step };
 }
 
 /* the ring square / token radii — now taken from the authentic geometry */
@@ -813,7 +853,35 @@ function render(){
   document.getElementById('scr-party') &&
     document.getElementById('scr-party').classList.toggle('lu-still', still);
   maybeThink();
+  maybeAutoMove();
   if (E.over(st)) finish();
+}
+
+/* ONE-TAP relief — when it is the local seat's move and there is exactly
+   ONE legal move, the player should not have to hunt for the only piece
+   that can go. After a short beat (long enough to SEE it light up) the
+   engine plays it, sliding like any tap. Runs at most once per state. */
+function maybeAutoMove(){
+  if (!M || M.dead || M.timer || sliding) return;
+  const st = M.st;
+  if (E.over(st)) return;
+  const seat = E.turn(st);
+  if (!isLocal(seat)) return;
+  const pend = E.pending(st);
+  if (pend.phase !== 'move' || (pend.moves || []).length !== 1) return;
+  const k = pend.moves[0].k;
+  const tag = M.log.length + ':' + k;
+  if (M._auto === tag) return;                 /* already fired for this state */
+  M._auto = tag;
+  M.timer = setTimeout(() => {
+    M.timer = 0;
+    if (!M || M.dead || sliding) return;
+    if (E.over(M.st)) return;
+    if (E.turn(M.st) !== seat) return;
+    const p2 = E.pending(M.st);
+    if (p2.phase !== 'move' || (p2.moves || []).length !== 1 || p2.moves[0].k !== k) return;
+    tapMove(seat, k, null);
+  }, reduced() ? 120 : 560);
 }
 
 function paintSeats(){
@@ -975,36 +1043,84 @@ function boardBodyGrid(st, lay, g, hs){
   return s;
 }
 
-/* ── THE ROSETTE BODY (P=6 hexagon, P=8 octagon) ──────────────────── */
+/* ── THE HEXAGON / OCTAGON BODY (P=6 / P=8) — drawn as real Ludo ─────
+   Each arm is a solid white corridor (a rounded rect covering its 3
+   columns from the finish out to the tip), the coloured track cells
+   tiled inside it, the coloured home column up the middle, a coloured
+   yard at the base and a P-way star finish at the centre. Cells are
+   sized to their one-cell spacing so they tile with a hairline gap and
+   cannot overlap. */
 function boardBodyRosette(st, lay, g, hs){
   const cr = g.cell;
+  const gap = g.gap, half = gap * g.step * 0.46;   /* tiled cell half-size */
   let s = '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
 
-  /* coloured HOME YARDS at each arm base (rotated squares) */
+  /* ── the WHITE CORRIDOR under each arm: a rounded rect spanning the
+     3 track columns from the finish out to the U-turn tip. Rotated to
+     the arm so the whole strip reads as one continuous lane. ── */
+  const armLen = (g.rCorner + 0.5) * gap;          /* base→tip length, px  */
+  const armW   = 3.0 * gap;                        /* 3 columns wide, px   */
+  for (let k = 0; k < g.P; k++){
+    const a = g.arm[k];
+    /* rect centre sits halfway up the arm on its axis */
+    const midR = armLen / 2;
+    const cx = C + a.ux * midR, cy = C + a.uy * midR;
+    const th = a.theta;
+    /* a rounded rect: build corners in local (along,across) then rotate */
+    const hlAlong = armLen / 2, hlAcross = armW / 2;
+    const corners = [[-hlAcross,-hlAlong],[hlAcross,-hlAlong],[hlAcross,hlAlong],[-hlAcross,hlAlong]]
+      .map(([x,y]) => [cx + x*Math.cos(th) - y*Math.sin(th), cy + x*Math.sin(th) + y*Math.cos(th)]);
+    s += '<path d="M' + corners.map(p => p[0].toFixed(1)+' '+p[1].toFixed(1)).join('L') +
+      'Z" fill="#f7f5ef" stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
+  }
+
+  /* ── the U-TURN CAPS: a white rounded bridge in each channel joining
+     arm k's out-rail tip → the corner cell → arm k+1's in-rail tip, so
+     the track wraps continuously round the arm tips instead of leaving a
+     floating square between the arms. ── */
+  for (let k = 0; k < g.P; k++){
+    const km = (k + 1) % g.P;
+    const aOut = g.arm[k], aIn = g.arm[km], ch = g.chan[k];
+    const p1 = { x: C + aOut.ux * g.rTip * gap + aOut.vx * gap,     /* out tip (+lane) */
+                 y: C + aOut.uy * g.rTip * gap + aOut.vy * gap };
+    const p3 = { x: C + aIn.ux * g.rTip * gap - aIn.vx * gap,       /* in tip (−lane)  */
+                 y: C + aIn.uy * g.rTip * gap - aIn.vy * gap };
+    const p2 = { x: C + ch.ux * g.rCorner * gap, y: C + ch.uy * g.rCorner * gap };
+    s += '<path d="M' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'L' +
+      p2.x.toFixed(1) + ' ' + p2.y.toFixed(1) + 'L' + p3.x.toFixed(1) + ' ' + p3.y.toFixed(1) +
+      '" fill="none" stroke="#f7f5ef" stroke-width="' + (gap * 1.02).toFixed(1) +
+      '" stroke-linecap="round" stroke-linejoin="round"/>';
+  }
+
+  /* coloured HOME YARDS at each arm base (rotated squares, solid block +
+     white inner box + parked-slot wells — the same read as the cross) */
   g.yard.forEach((y, k) => {
     const hx = hexOf(colourFor(st, k));
-    const half = y.size / 2;
-    s += '<path class="lu-yard" d="' + sqCell(y.cx, y.cy, half, y.theta) + '" ' +
-      'fill="' + esc(hx) + '" fill-opacity="0.22" stroke="' + esc(hx) +
-      '" stroke-opacity="0.9" stroke-width="1.3" stroke-linejoin="round"/>' +
-      '<path d="' + sqCell(y.cx, y.cy, half * 0.6, y.theta) + '" fill="none" ' +
-      'stroke="' + esc(hx) + '" stroke-opacity="0.4" stroke-width="0.8"/>';
+    const hlf = y.size / 2;
+    s += '<path class="lu-yard" d="' + sqCell(y.cx, y.cy, hlf, y.theta) + '" ' +
+      'fill="' + esc(hx) + '" stroke="rgba(0,0,0,.22)" stroke-width="0.8" stroke-linejoin="round"/>' +
+      '<path d="' + sqCell(y.cx, y.cy, hlf * 0.66, y.theta) + '" fill="#f7f5ef" ' +
+      'stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
+    y.slots.forEach(sl => {
+      s += '<circle cx="' + sl.x.toFixed(1) + '" cy="' + sl.y.toFixed(1) + '" r="' +
+        (hlf * 0.24).toFixed(1) + '" fill="none" stroke="' + esc(hx) +
+        '" stroke-opacity="0.55" stroke-width="1.1"/>';
+    });
   });
 
-  /* coloured HOME COLUMNS */
+  /* coloured HOME COLUMNS up the middle of each arm */
   g.col.forEach((cells, k) => {
     const hx = hexOf(colourFor(st, k));
     cells.forEach(cc => {
       s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, (cc.hs || hs), cc.th) +
-        '" fill="' + esc(hx) + '" fill-opacity="0.5" stroke="' + esc(hx) +
-        '" stroke-opacity="0.6"/>';
+        '" fill="' + esc(hx) + '" stroke="rgba(0,0,0,.18)" stroke-width="0.4"/>';
     });
   });
 
   /* centre FINISH: a P-way coloured star of wedges */
-  const fr = g.finishR * 1.9;
+  const fr = g.finishR * 1.85;
   s += '<circle cx="' + C + '" cy="' + C + '" r="' + fr.toFixed(1) +
-    '" fill="rgba(0,0,0,.30)" stroke="rgba(255,255,255,.18)" stroke-width="0.7"/>';
+    '" fill="#f7f5ef" stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
   for (let k = 0; k < g.P; k++){
     const hx = hexOf(colourFor(st, k));
     const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
@@ -1013,33 +1129,35 @@ function boardBodyRosette(st, lay, g, hs){
     const p1 = { x: C + fr * Math.cos(a1), y: C + fr * Math.sin(a1) };
     s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(1) + ' ' +
       p0.y.toFixed(1) + 'L' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'Z" ' +
-      'fill="' + esc(hx) + '" fill-opacity="0.72"/>';
+      'fill="' + esc(hx) + '" fill-opacity="0.9" stroke="rgba(0,0,0,.12)" stroke-width="0.3"/>';
   }
 
-  /* travel RING */
+  /* travel RING — white track cells, coloured starts, star safes */
   lay.ring.forEach((rc, i) => {
     const p = g.ring[i];
-    let extra = '', cls = 'lu-cell' + (rc.safe ? ' safe' : '');
     if (rc.entryOf != null){
       const hx = hexOf(colourFor(st, rc.entryOf));
-      extra = ' fill="' + esc(hx) + '" fill-opacity="0.6" stroke="' + esc(hx) +
-        '" stroke-opacity="0.9" stroke-width="0.8"';
+      s += '<path d="' + sqCell(p.x, p.y, half, p.th) + '" fill="' + esc(hx) +
+        '" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
+    } else {
+      s += '<path d="' + sqCell(p.x, p.y, half, p.th) + '" fill="#fff" ' +
+        (rc.safe ? 'stroke="rgba(0,0,0,.28)" stroke-width="0.7"' :
+                   'stroke="rgba(0,0,0,.12)" stroke-width="0.4"') + '/>';
     }
-    s += '<path class="' + cls + '" d="' + sqCell(p.x, p.y, hs, p.th) + '"' + extra + '/>';
     if (rc.safe && rc.entryOf == null){
-      s += '<path d="' + starPath(p.x, p.y, cr * 0.62) +
-        '" fill="rgba(255,255,255,.62)" stroke="rgba(0,0,0,.25)" stroke-width="0.3"/>';
+      s += '<path d="' + starPath(p.x, p.y, half * 0.62) +
+        '" fill="rgba(80,80,90,.42)" stroke="rgba(0,0,0,.18)" stroke-width="0.3"/>';
     }
     if (rc.entryOf != null){
       const a = g.arm[rc.entryOf];
-      const tip = { x: p.x + a.ux * cr * 0.5, y: p.y + a.uy * cr * 0.5 };
-      const b1 = { x: p.x - a.ux * cr * 0.18 + a.vx * cr * 0.34,
-                   y: p.y - a.uy * cr * 0.18 + a.vy * cr * 0.34 };
-      const b2 = { x: p.x - a.ux * cr * 0.18 - a.vx * cr * 0.34,
-                   y: p.y - a.uy * cr * 0.18 - a.vy * cr * 0.34 };
+      const tip = { x: p.x + a.ux * half * 0.5, y: p.y + a.uy * half * 0.5 };
+      const b1 = { x: p.x - a.ux * half * 0.18 + a.vx * half * 0.34,
+                   y: p.y - a.uy * half * 0.18 + a.vy * half * 0.34 };
+      const b2 = { x: p.x - a.ux * half * 0.18 - a.vx * half * 0.34,
+                   y: p.y - a.uy * half * 0.18 - a.vy * half * 0.34 };
       s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
         b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
-        b2.y.toFixed(1) + 'Z" fill="rgba(255,255,255,.85)"/>';
+        b2.y.toFixed(1) + 'Z" fill="rgba(60,60,70,.85)"/>';
     }
   });
   return s;
@@ -1083,6 +1201,22 @@ function paintBoard(){
     return g.ring[tk.ring];   /* ring */
   };
 
+  /* a full-cell, thumb-sized invisible tap surface sits UNDER every
+     movable token so the finger never has to find the small disc. It is
+     centred on the token (stack offset included) and sized to a whole
+     board cell so on the 15×15 grid it is ~cell-wide and on the rosette
+     it is a generous square around the piece. Reported below as HIT_U in
+     viewBox units; at a 360px board that is HIT_U × 1.5 CSS px. */
+  const HIT_U = (g.grid ? g.gap * 1.15 : g.gap * g.step * 1.55);
+  UI._hitU = HIT_U; if (M) M._hitU = HIT_U;
+  /* when it is my turn to move, DIM everything so the movable pieces are
+     the only bright things on the board — "what can I move" at a glance */
+  const dimRest = canMove && pend.moves.length > 0;
+
+  /* the hint rings are drawn in one pass ABOVE the tokens so the gold
+     destination never hides behind a stacked disc */
+  let hints = '';
+
   toks.forEach(tk => {
     const base = posOf(tk);
     const key = Math.round(base.x) + ',' + Math.round(base.y);
@@ -1092,32 +1226,51 @@ function paintBoard(){
     const hx = hexOf(tk.colour);
     const legal = legalToks[tk.seat + ':' + tk.tok];
     const pick = !!legal;
-    s += '<g class="lu-tok' + (pick ? ' pick' : '') + '"' +
+    const dim = dimRest && !pick ? ' dim' : '';
+    const cls = 'lu-tok' + (pick ? ' pick' : '') + dim;
+    s += '<g class="' + cls + '"' +
       (pick ? ' data-tok="' + tk.tok + '" role="button" tabindex="0" aria-label="' +
         esc(T('Move this token', 'Ċaqlaq din il-biċċa')) + '"' : ' aria-hidden="true"') +
-      '>' +
-      '<circle class="body" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' +
+      ' data-seat="' + tk.seat + '" data-cx="' + cx.toFixed(1) + '" data-cy="' + cy.toFixed(1) + '">';
+    /* a soft glow halo behind a movable piece — reads before you look */
+    if (pick){
+      s += '<circle class="glow" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
+        '" r="' + (tr * 1.42).toFixed(1) + '" fill="' + esc(hx) + '"/>';
+    }
+    s += '<circle class="body" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' +
         tr.toFixed(1) + '" fill="' + esc(hx) + '"/>' +
       '<circle class="gloss" cx="' + (cx - tr * 0.28).toFixed(1) + '" cy="' +
         (cy - tr * 0.32).toFixed(1) + '" r="' + (tr * 0.28).toFixed(1) + '" fill-opacity="0.55"/>';
+    /* the generous invisible hit target, LAST so it is the topmost thing
+       inside the group and catches the pointer wherever the thumb lands */
+    if (pick){
+      s += '<rect class="hit" x="' + (cx - HIT_U / 2).toFixed(1) + '" y="' +
+        (cy - HIT_U / 2).toFixed(1) + '" width="' + HIT_U.toFixed(1) + '" height="' +
+        HIT_U.toFixed(1) + '" rx="3" ry="3" fill="transparent"/>';
+    }
+    s += '</g>';
     /* a legal move gets a gold destination ring drawn at the target cell */
     if (legal){
       const dest = destPx(st, lay, tk.seat, legal);
-      if (dest) s += '<circle class="lu-hint" cx="' + dest.x.toFixed(1) + '" cy="' +
+      if (dest) hints += '<circle class="lu-hint" cx="' + dest.x.toFixed(1) + '" cy="' +
         dest.y.toFixed(1) + '" r="' + (cr + 1.5).toFixed(1) + '"/>';
     }
-    s += '</g>';
   });
+  s += hints;
 
   s += '</svg>';
   UI.boardbox.innerHTML = s;
   UI.svg = UI.boardbox.querySelector('#lu-svg');
   sizeBoard();
 
-  /* one delegated tap handler for the tokens */
+  /* ONE pointer handler — pointerdown so the tap registers on the FIRST
+     touch with no 300ms click delay and no dead zone. A press state is
+     added instantly, then the move animates. click/keydown stay as an
+     accessible fallback but are guarded so a pointer tap never double-fires. */
+  UI.svg.addEventListener('pointerdown', onBoardPress);
   UI.svg.addEventListener('click', onBoardTap);
   UI.svg.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' '){ onBoardTap(e); }
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); onBoardTap(e); }
   });
 }
 
@@ -1127,29 +1280,138 @@ function colourFor(st, seat){
   return s ? s.colour : (COLOURS[seat % COLOURS.length] || {}).id;
 }
 
-/* where a legal move lands, in board px — mirror the engine's tokens()
-   mapping for the destination position `to`, on the authentic geometry */
-function destPx(st, lay, seat, m){
+/* where a seat's OWN path position `p` (0..HOME) sits in board px — the
+   single source both destPx and the slide read, so a token in flight
+   passes through exactly the cells the board draws. */
+function pathPx(st, lay, seat, p){
   const bd = E.bdOf(st), g = geom(lay), R = lay.R, HOME = lay.HOME;
-  const to = m.to;
-  if (to === HOME) return g.home[seat];
-  if (to > R - 1){
+  if (p === HOME) return g.home[seat];
+  if (p > R - 1){
     const col = g.col[seat];
-    return col[Math.min(to - R, col.length - 1)];
+    return col[Math.min(p - R, col.length - 1)];
   }
-  return g.ring[bd.sq(seat, to)];
+  if (p < 0){                                  /* still in the yard */
+    const y = g.yard[seat];
+    return y.slots[0];
+  }
+  return g.ring[bd.sq(seat, p)];
+}
+/* where a legal move lands, in board px */
+function destPx(st, lay, seat, m){
+  return pathPx(st, lay, seat, m.to);
 }
 
+/* THE PRESS — pointerdown. Registers the tap on first touch, shows an
+   instant press state, and (unless reduced motion) slides the piece
+   cell-by-cell before the state actually changes. Guarded so the click
+   that follows a pointer tap does not fire the move twice. */
+let pressGuard = 0;
+function onBoardPress(e){
+  if (!M || M.dead) return;
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  const g = e.target && e.target.closest && e.target.closest('.lu-tok[data-tok]');
+  if (!g){ return; }                           /* empty / non-movable → nothing */
+  e.preventDefault();
+  pressGuard = Date.now();                      /* swallow the synthetic click */
+  g.classList.add('press');
+  const seat = E.turn(M.st);
+  const k = g.getAttribute('data-tok') | 0;
+  tapMove(seat, k, g);
+}
+/* the click path stays for keyboard/AT and non-pointer taps only */
 function onBoardTap(e){
   if (!M || M.dead) return;
+  if (Date.now() - pressGuard < 700) return;    /* pointer already handled it */
   const g = e.target && e.target.closest && e.target.closest('.lu-tok[data-tok]');
   if (!g) return;
   const seat = E.turn(M.st);
-  if (!isLocal(seat)) return;
   const k = g.getAttribute('data-tok') | 0;
+  tapMove(seat, k, g);
+}
+
+/* the shared move gate for a thumb: verify it is the local seat's move,
+   grab the flight path BEFORE the engine advances, apply, then slide the
+   piece to where the engine put it. */
+let sliding = false;
+function tapMove(seat, k, gEl){
+  if (sliding) return;                          /* one move at a time */
+  if (!isLocal(seat)) return;
+  const st = M.st, lay = layoutFor(st);
+  const pend = E.pending(st);
+  const legal = (pend.moves || []).find(m => m.k === k);
+  const from = st.seats[seat] ? st.seats[seat].toks[k] : undefined;
   const res = doMove(seat, { t:'move', k }, 'local');
-  if (!res.ok){ cue('move.illegal', { gain:0.7 }); return; }
-  render();
+  if (!res.ok){ if (gEl) gEl.classList.remove('press'); cue('ui.error', { gain:0.5 }); return; }
+  /* the engine has advanced; animate the piece we just moved along its
+     own path from `from` to `legal.to`, then paint the true board */
+  if (legal && from != null && !reduced() && !stillMode()){
+    slidePiece(seat, k, from, legal.to, lay);
+  } else {
+    render();
+  }
+}
+function stillMode(){
+  const scr = document.getElementById('scr-party');
+  return !!(scr && scr.classList.contains('lu-still'));
+}
+
+/* slide a lifted clone of the moved piece cell-by-cell to its landing,
+   compositor-only (transform), then hand back to a clean render(). This
+   is render-only: the engine state is already final. */
+function slidePiece(seat, k, from, to, lay){
+  const st = M.st;
+  /* the cells the piece visits, in its own path order (skip the yard-exit
+     jump: a token entering from the yard just lands, no ring crawl) */
+  const cells = [];
+  if (from < 0){
+    cells.push(pathPx(st, lay, seat, to));
+  } else {
+    for (let p = from; p <= to; p++) cells.push(pathPx(st, lay, seat, p));
+  }
+  if (cells.length < 2){ render(); return; }
+
+  /* build a lifted token that flies over the static board; the real
+     moved token is hidden underneath until we land */
+  const svg = UI && UI.svg;
+  if (!svg){ render(); return; }
+  const g = geom(lay), tr = g.tok, hx = hexOf(colourFor(st, seat));
+  /* hide the source token (still drawn at `from` in the pre-move DOM) and
+     dull the gold hints so only the flying piece reads during the slide */
+  const srcEl = svg.querySelector('.lu-tok[data-tok="' + k + '"][data-seat="' + seat + '"]');
+  if (srcEl) srcEl.style.visibility = 'hidden';
+  svg.querySelectorAll('.lu-hint').forEach(h => { h.style.opacity = '0.18'; });
+  const NS = 'http://www.w3.org/2000/svg';
+  const fly = document.createElementNS(NS, 'g');
+  fly.setAttribute('class', 'lu-fly');
+  const p0 = cells[0];
+  fly.innerHTML =
+    '<circle cx="' + p0.x.toFixed(1) + '" cy="' + p0.y.toFixed(1) + '" r="' +
+      (tr * 1.15).toFixed(1) + '" fill="' + esc(hx) + '" stroke="#fff" stroke-width="1.1"/>' +
+    '<circle cx="' + (p0.x - tr * 0.28).toFixed(1) + '" cy="' + (p0.y - tr * 0.32).toFixed(1) +
+      '" r="' + (tr * 0.28).toFixed(1) + '" fill="#fff" fill-opacity="0.55"/>';
+  svg.appendChild(fly);
+
+  sliding = true;
+  let i = 1;
+  const per = Math.max(70, Math.min(150, 620 / (cells.length - 1)));  /* ms per step */
+  const step = () => {
+    if (!M || M.dead || !fly.isConnected){ sliding = false; return; }
+    const c = cells[i], b = cells[i - 1];
+    fly.style.transition = 'transform ' + per + 'ms cubic-bezier(.34,.9,.4,1)';
+    fly.style.transform = 'translate(' + (c.x - p0.x).toFixed(1) + 'px,' + (c.y - p0.y).toFixed(1) + 'px)';
+    if (i < cells.length - 1) cue('piece.slide', { gain: 0.35 });
+    i++;
+    if (i < cells.length){ setTimeout(step, per); }
+    else {
+      setTimeout(() => {
+        sliding = false;
+        try { fly.remove(); } catch(e){}
+        if (M && !M.dead) render();
+      }, per + 40);
+    }
+  };
+  /* kick after a frame so the initial transform paints before the first move */
+  requestAnimationFrame(() => requestAnimationFrame(step));
 }
 
 function paintDock(){
