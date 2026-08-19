@@ -285,7 +285,7 @@ DUELS = ("cards", "chess", "dama")          # exactly two. The NARROW case.
 BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
-          "ludu", "serp")
+          "ludu", "serp", "erbgha", "minhu", "kodici")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -365,6 +365,9 @@ GAME_SEATS = {
     "cards2131": (1, 9, 4),
     "ludu":      (2, 8, 4),   # Ludo — no hidden hands; only the dice are seeded
     "serp":      (2, 8, 4),   # Snake — real-time; no hidden info
+    "erbgha":    (2, 2, 2),   # Connect 4 — a duel, no hidden state
+    "minhu":     (2, 2, 2),   # Guess Who? — secret character, private-dealt
+    "kodici":    (2, 2, 2),   # Mastermind — secret code, private-dealt
 }
 
 # Only these three predate the ready lobby and begin as soon as their second

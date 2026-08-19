@@ -163,7 +163,13 @@ const GAMES = [
   { k:'ludu',  name:'Ludu',      short:'LUDU',  icon:'dice',
     blurb:'Four tokens, one lap, no mercy.' },
   { k:'serp',  name:'Is-Serp',    short:'SERP',  icon:'dice',
-    blurb:'Grow, don\'t crash, eat the rest.' }
+    blurb:'Grow, don\'t crash, eat the rest.' },
+  { k:'erbgha', name:'Erbgħa',    short:'ERBGĦA', icon:'dice',
+    blurb:'Drop discs, line up four.' },
+  { k:'minhu',  name:'Min Hu?',    short:'MIN HU', icon:'dice',
+    blurb:'Ask, eliminate, guess their face.' },
+  { k:'kodici', name:'Il-Kodiċi',  short:'KODIĊI', icon:'dice',
+    blurb:'Two secret codes. Crack theirs first.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -226,7 +232,10 @@ const LOBBY_GLOBAL = {
      dice are seeded, which the game documents). */
   ludu:'KARTI_LUDU',
   /* Snake — real-time, no hidden info; online is honest. */
-  serp:'KARTI_SERP'
+  serp:'KARTI_SERP',
+  /* Connect 4 (no hidden state) + the two secret-code/character duels
+     (secret delivered by the private per-seat deal). */
+  erbgha:'KARTI_ERBGHA', minhu:'KARTI_MINHU', kodici:'KARTI_KODICI'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].

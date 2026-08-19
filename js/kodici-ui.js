@@ -1,0 +1,1104 @@
+/* ═══════════════════════════════════════════════════════════════════
+   KARTI — kodici-ui.js                 the screen for IL-KAĊĊA TAL-KODIĊI
+   A 1v1 code-breaker (Mastermind). ONLINE / vs-AI / PASS-THE-PHONE.
+   Engine is js/kodici.js (window.KARTI_KODICI.engine); this file is the
+   ludu/kanun runner shape: a match is (opts, seed, log), state is a
+   deal() plus a replay of the log, and everything renders from state.
+
+   Identity is CSS/SVG only — NO image files (art is added later).
+   ═══════════════════════════════════════════════════════════════════ */
+(function(){
+'use strict';
+
+const K = window.KARTI;
+const P = window.KARTI_PARTY;
+const R = window.KARTI_KODICI;
+if (!K || !P || !R || !R.engine) return;
+
+const E = R.engine;
+const esc = (K && K.esc) || (s => String(s == null ? '' : s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  .replace(/"/g,'&quot;').replace(/'/g,'&#39;'));
+
+/* the one language switch (js/lang.js) */
+const T = (en, mt) => window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en;
+
+/* ── colour identity: hue + a distinct SHAPE + a letter, so a peg is
+   never colour-alone (colour-blind safe). 10 colours max. ──────────── */
+const PEGS = [
+  { hex:'#E8443B', name:'Red',    mt:'Aħmar',   glyph:'A', shape:'circle'   },
+  { hex:'#2E86FF', name:'Blue',   mt:'Blu',     glyph:'B', shape:'square'   },
+  { hex:'#22B15E', name:'Green',  mt:'Aħdar',   glyph:'Ħ', shape:'triangle' },
+  { hex:'#FFC542', name:'Gold',   mt:'Deheb',   glyph:'D', shape:'diamond'  },
+  { hex:'#9B5DE5', name:'Purple', mt:'Vjola',   glyph:'V', shape:'hexagon'  },
+  { hex:'#FF8A3D', name:'Orange', mt:'Oranġjo', glyph:'O', shape:'pentagon' },
+  { hex:'#17C4C4', name:'Teal',   mt:'Teal',    glyph:'T', shape:'droplet'  },
+  { hex:'#EC5FA0', name:'Pink',   mt:'Roża',    glyph:'R', shape:'heart'    },
+  { hex:'#B5C21E', name:'Lime',   mt:'Lajm',    glyph:'L', shape:'star'     },
+  { hex:'#8A93A6', name:'Slate',  mt:'Griż',    glyph:'G', shape:'star8'    }
+];
+
+/* ── autosave (the ludu/kanun store shape) ─────────────────────────── */
+const STORE = 'karti_kodici_v1';
+let ST = { v:1, pref:{}, rec:{ w:0, l:0, d:0 }, save:null };
+try {
+  const j = JSON.parse(localStorage.getItem(STORE) || 'null');
+  if (j && typeof j === 'object'){
+    ST.pref = (j.pref && typeof j.pref === 'object') ? j.pref : {};
+    ST.rec  = (j.rec  && typeof j.rec  === 'object') ? j.rec  : ST.rec;
+    ST.save = j.save || null;
+  }
+} catch(e){}
+let persistPending = 0;
+function persist(){
+  if (persistPending) return;
+  persistPending = setTimeout(() => {
+    persistPending = 0;
+    try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){}
+  }, 0);
+}
+function persistNow(){
+  if (persistPending){ clearTimeout(persistPending); persistPending = 0; }
+  try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){}
+}
+document.addEventListener('visibilitychange', () => { if (document.hidden) persistNow(); });
+window.addEventListener('pagehide', persistNow);
+function pref(patch){ if (patch){ Object.assign(ST.pref, patch); persist(); } return ST.pref; }
+
+/* ── sfx gate (existing ids only) ──────────────────────────────────── */
+let cueAt = 0;
+function cue(id, opts, big){
+  const S = window.KARTI_SFX;
+  if (!S) return;
+  const now = Date.now();
+  if (!big && now - cueAt < 50) return;
+  cueAt = Math.max(cueAt, now);
+  try { S.play(id, opts); } catch(e){}
+}
+function noMotion(){
+  try {
+    if (window.KARTI && KARTI.REDUCED) return true;
+    if (document.body && document.body.classList.contains('reduced')) return true;
+    return !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch(e){ return false; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE RUNNER STATE
+   M = {
+     opts,             // {slots, colours, limit, lvl, deal, humans, mode}
+     seed,
+     log:[ {seat,g} ], // move log (guesses only)
+     secrets:[c|null,c|null],  // the secrets THIS client legally holds
+     st,               // engine state, rebuilt from opts+seed+secrets+log
+     mode: 'ai'|'pass'|'online',
+     you,              // which seat is "you" (local single-player view)
+     ctx,              // P.ui.frame ctx (in-game) — null on menus
+     phase:'setA'|'setB'|'play'|'over',
+     draft:[],         // the guess/secret being composed
+     veil,             // pass-phone handover: seat to hand to, or 0
+     shown,            // last seat shown (pass-phone)
+     net,              // online plumbing or null
+     dead
+   }
+   ═══════════════════════════════════════════════════════════════════ */
+let M = null;
+
+/* ── board / level option tables ───────────────────────────────────── */
+const BOARD_OPTS = [
+  { id:'classic', slots:4, colours:6, name:()=>T('Classic','Klassiku'),  note:()=>T('4 slots · 6 colours','4 spazji · 6 kuluri') },
+  { id:'hard',    slots:4, colours:8, name:()=>T('Hard','Iebes'),        note:()=>T('4 slots · 8 colours','4 spazji · 8 kuluri') },
+  { id:'expert',  slots:5, colours:8, name:()=>T('Expert','Espert'),     note:()=>T('5 slots · 8 colours','5 spazji · 8 kuluri') }
+];
+const LEVELS = [
+  { lvl:0, name:()=>T('Gentle','Ħelu'),   note:()=>T('Guesses loosely','Jaqta\' bl-addoċċ') },
+  { lvl:1, name:()=>T('Sharp','Jaqta\''),  note:()=>T('Splits the field','Jifred il-qasam') },
+  { lvl:2, name:()=>T('Ruthless','Bla ħniena'), note:()=>T('Knuth solver','Solver ta\' Knuth') }
+];
+
+/* ═══════════════════════════════════════════════════════════════════
+   CSS — injected once, scoped to #scr-party, prefix .kd-*
+   ═══════════════════════════════════════════════════════════════════ */
+function injectCSS(){
+  if (document.getElementById('kodici-runtime-css')) return;
+  const st = document.createElement('style');
+  st.id = 'kodici-runtime-css';
+  st.textContent = `
+#scr-party .kd-menu .scroll{padding-bottom:calc(env(safe-area-inset-bottom,0px) + 20px)}
+#scr-party .kd-hero{position:relative;height:132px;border-radius:16px;margin:6px 0 16px;
+  overflow:hidden;background:radial-gradient(120% 140% at 50% -20%,#241a3a,#0E0B14);
+  border:1px solid var(--line,rgba(255,255,255,.08));display:flex;align-items:center;justify-content:center}
+#scr-party .kd-hero .kd-hrow{display:flex;gap:9px}
+#scr-party .kd-hero .kd-hp{width:34px;height:34px;border-radius:50%;box-shadow:inset 0 -3px 6px rgba(0,0,0,.35),0 3px 8px rgba(0,0,0,.4);
+  display:flex;align-items:center;justify-content:center;font:900 14px/1 var(--disp,inherit);color:#0E0B14}
+#scr-party .kd-hero .kd-fb{position:absolute;right:14px;top:14px;display:grid;grid-template-columns:1fr 1fr;gap:5px}
+#scr-party .kd-hero .kd-fbp{width:10px;height:10px;border-radius:50%}
+@media (max-height:560px){#scr-party .kd-hero{height:92px}#scr-party .kd-hero .kd-hp{width:26px;height:26px}}
+
+#scr-party .kd-modes{display:flex;flex-direction:column;gap:10px;margin-top:4px}
+#scr-party .kd-mode{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  padding:14px 14px;border-radius:14px;border:1px solid var(--line,rgba(255,255,255,.09));
+  background:rgba(255,255,255,.03);color:var(--txt,#EDE7F6);cursor:pointer;transition:transform .12s var(--ease,ease),background .12s}
+#scr-party .kd-mode:hover{background:rgba(255,255,255,.06)}
+#scr-party .kd-mode:active{transform:scale(.985)}
+#scr-party .kd-mode.primary{border-color:rgba(255,197,66,.55);background:linear-gradient(180deg,rgba(255,197,66,.14),rgba(255,197,66,.04))}
+#scr-party .kd-mode .mi{flex:0 0 34px;height:34px;display:flex;align-items:center;justify-content:center;color:var(--gold,#FFC542)}
+#scr-party .kd-mode .mi svg{width:26px;height:26px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#scr-party .kd-mode .mt{flex:1 1 auto;display:flex;flex-direction:column;gap:2px;min-width:0}
+#scr-party .kd-mode .mt b{font:800 15px/1.1 var(--disp,inherit)}
+#scr-party .kd-mode .mt i{font-style:normal;font-size:12px;color:var(--dim,#9d95b0)}
+#scr-party .kd-mode .chev{flex:0 0 auto;color:var(--dim,#9d95b0)}
+#scr-party .kd-mode .chev svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* sliding rules sheet */
+#scr-party .kd-scrim{position:fixed;inset:0;background:rgba(6,4,12,.55);opacity:0;pointer-events:none;
+  transition:opacity .22s var(--ease,ease);z-index:40}
+#scr-party .kd-scrim.on{opacity:1;pointer-events:auto}
+#scr-party .kd-sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;max-height:82vh;overflow:auto;
+  background:linear-gradient(180deg,#191129,#120c1e);border-top-left-radius:20px;border-top-right-radius:20px;
+  border-top:1px solid var(--line,rgba(255,255,255,.1));box-shadow:0 -18px 50px rgba(0,0,0,.5);
+  transform:translateY(101%);transition:transform .28s var(--ease,cubic-bezier(.22,.9,.28,1));
+  padding:16px 18px calc(env(safe-area-inset-bottom,0px) + 22px)}
+#scr-party .kd-sheet.open{transform:none}
+#scr-party .kd-sheet h3{margin:2px 0 6px;font:900 16px/1.2 var(--disp,inherit);color:var(--gold,#FFC542);
+  letter-spacing:.04em;text-transform:uppercase}
+#scr-party .kd-sheet ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:9px}
+#scr-party .kd-sheet li{font-size:13px;line-height:1.55;color:var(--txt,#EDE7F6)}
+#scr-party .kd-sheet .kd-x{position:absolute;top:12px;right:14px}
+#scr-party .kd-sheet .kd-legend{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap}
+#scr-party .kd-sheet .kd-legend span{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dim,#9d95b0)}
+#scr-party .kd-sheet .kd-lg{width:14px;height:14px;border-radius:50%;border:1px solid rgba(255,255,255,.3)}
+
+/* options step */
+#scr-party .kd-opts{display:flex;flex-direction:column;gap:16px;margin-top:8px}
+#scr-party .kd-lbl{font:800 11px/1 var(--disp,inherit);letter-spacing:.12em;text-transform:uppercase;color:var(--dim,#9d95b0);margin-bottom:8px}
+#scr-party .kd-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+#scr-party .kd-opt{padding:11px 8px;border-radius:12px;border:1px solid var(--line,rgba(255,255,255,.09));
+  background:rgba(255,255,255,.03);color:var(--txt,#EDE7F6);cursor:pointer;text-align:center;transition:.12s}
+#scr-party .kd-opt.on{border-color:var(--gold,#FFC542);background:rgba(255,197,66,.12)}
+#scr-party .kd-opt b{display:block;font:800 13px/1.1 var(--disp,inherit)}
+#scr-party .kd-opt i{font-style:normal;font-size:10.5px;color:var(--dim,#9d95b0)}
+#scr-party .kd-limrow{display:flex;align-items:center;justify-content:center;gap:14px}
+#scr-party .kd-rnd{width:40px;height:40px;border-radius:50%;border:1px solid var(--line,rgba(255,255,255,.14));
+  background:rgba(255,255,255,.05);color:var(--txt,#EDE7F6);font-size:22px;line-height:1;cursor:pointer}
+#scr-party .kd-rnd:disabled{opacity:.35}
+#scr-party .kd-limv{min-width:96px;text-align:center;font:900 22px/1 var(--disp,inherit)}
+#scr-party .kd-limv i{display:block;font-style:normal;font-size:11px;color:var(--dim,#9d95b0);margin-top:3px}
+
+/* ── the board ── */
+#scr-party .kd-board{display:flex;flex-direction:column;gap:12px;padding:6px 2px 4px}
+#scr-party .kd-status{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--dim,#9d95b0)}
+#scr-party .kd-status .kd-who{font:800 13px/1 var(--disp,inherit);color:var(--txt,#EDE7F6)}
+#scr-party .kd-status .kd-tag{padding:3px 9px;border-radius:999px;background:rgba(255,197,66,.14);color:var(--gold,#FFC542);font-weight:800;font-size:11px}
+
+#scr-party .kd-history{display:flex;flex-direction:column;gap:7px;max-height:44vh;overflow:auto;padding:2px 2px 4px;
+  -webkit-overflow-scrolling:touch}
+#scr-party .kd-rowline{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:12px;
+  background:rgba(255,255,255,.028);border:1px solid var(--line,rgba(255,255,255,.06))}
+#scr-party .kd-rowline .kd-no{flex:0 0 20px;font:800 12px/1 var(--disp,inherit);color:var(--dim,#9d95b0);text-align:center}
+#scr-party .kd-pegs{display:flex;gap:6px;flex:1 1 auto}
+#scr-party .kd-fbgrid{flex:0 0 auto;display:grid;grid-gap:3px;grid-template-columns:1fr 1fr;align-content:center}
+#scr-party .kd-fbp{width:9px;height:9px;border-radius:50%;background:transparent;border:1px solid rgba(255,255,255,.18)}
+#scr-party .kd-fbp.exact{background:#111;border-color:#000;box-shadow:0 0 0 1px rgba(255,255,255,.25)}
+#scr-party .kd-fbp.near{background:#f4f1ff;border-color:#cfc7e6}
+#scr-party .kd-rowline.reveal{animation:kdReveal .34s var(--ease,ease)}
+@keyframes kdReveal{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+#scr-party .kd-fbp.pop{animation:kdPop .3s var(--ease,ease) both}
+@keyframes kdPop{0%{transform:scale(0)}60%{transform:scale(1.35)}100%{transform:scale(1)}}
+
+/* a peg */
+#scr-party .kd-peg{position:relative;width:34px;height:34px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;font:900 13px/1 var(--disp,inherit);color:#0E0B14;
+  box-shadow:inset 0 -3px 6px rgba(0,0,0,.32),0 2px 6px rgba(0,0,0,.4);user-select:none}
+#scr-party .kd-peg.empty{background:rgba(255,255,255,.04)!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.14);color:transparent}
+#scr-party .kd-peg .kd-shape{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;opacity:.9}
+#scr-party .kd-peg .kd-shape svg{width:16px;height:16px}
+#scr-party .kd-peg .kd-lt{position:relative;z-index:2}
+#scr-party .kd-peg.sm{width:26px;height:26px;font-size:11px}
+#scr-party .kd-peg.sm .kd-shape svg{width:12px;height:12px}
+
+/* the compose row + palette */
+#scr-party .kd-compose{display:flex;flex-direction:column;gap:12px;padding:10px 4px 2px;
+  border-top:1px solid var(--line,rgba(255,255,255,.08))}
+#scr-party .kd-slotrow{display:flex;gap:9px;justify-content:center}
+#scr-party .kd-slot{width:44px;height:44px;border-radius:50%;border:2px dashed rgba(255,255,255,.18);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.12s}
+#scr-party .kd-slot.on{border-style:solid;border-color:var(--gold,#FFC542)}
+#scr-party .kd-slot .kd-peg{width:38px;height:38px}
+#scr-party .kd-palette{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+#scr-party .kd-swatch{width:40px;height:40px;border-radius:12px;cursor:pointer;position:relative;
+  display:flex;align-items:center;justify-content:center;font:900 14px/1 var(--disp,inherit);color:#0E0B14;
+  box-shadow:inset 0 -3px 6px rgba(0,0,0,.3),0 2px 6px rgba(0,0,0,.35);transition:transform .1s}
+#scr-party .kd-swatch:active{transform:scale(.9)}
+#scr-party .kd-swatch .kd-shape svg{width:16px;height:16px}
+#scr-party .kd-acts{display:flex;gap:9px;margin-top:2px}
+#scr-party .kd-acts .btn{flex:1 1 auto}
+
+/* handover veil (klabb pattern — FULLY OPAQUE) */
+#scr-party .kd-veil{position:absolute;inset:0;z-index:24;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:16px;padding:26px;text-align:center;
+  background:linear-gradient(180deg,#0A0712,#150D24)}
+#scr-party .kd-veil .kd-eye{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:rgba(255,197,66,.12);color:var(--gold,#FFC542)}
+#scr-party .kd-veil .kd-eye svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:2}
+#scr-party .kd-veil h4{font:900 16px/1.3 var(--disp,inherit);letter-spacing:.05em;text-transform:uppercase;color:var(--gold,#FFC542);margin:0}
+#scr-party .kd-veil p{font-size:12.5px;line-height:1.6;color:var(--dim,#9d95b0);margin:0;max-width:290px}
+#scr-party .kd-veil .btn{min-width:220px}
+
+@media (prefers-reduced-motion:reduce){
+  #scr-party .kd-rowline.reveal,#scr-party .kd-fbp.pop{animation:none}
+  #scr-party .kd-sheet{transition:none}
+}
+body.reduced #scr-party .kd-rowline.reveal,body.reduced #scr-party .kd-fbp.pop{animation:none}
+body.reduced #scr-party .kd-sheet{transition:none}
+`;
+  document.head.appendChild(st);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SVG bits
+   ═══════════════════════════════════════════════════════════════════ */
+const ICO = {
+  globe:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></svg>',
+  bot:'<svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="10" rx="2"/><path d="M12 8V4M9 13h.01M15 13h.01M2 12v3M22 12v3"/></svg>',
+  phone:'<svg viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 19h4"/></svg>',
+  book:'<svg viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/><path d="M4 19a2 2 0 0 1 2-2h12"/></svg>',
+  chev:'<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  eye:'<svg viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  back:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>'
+};
+/* the little shape drawn behind a peg's letter (colour-blind aid) */
+function shapeSVG(shape){
+  const s = 'fill="rgba(0,0,0,.28)" stroke="rgba(0,0,0,.35)" stroke-width="1"';
+  switch(shape){
+    case 'square':   return `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ${s}/></svg>`;
+    case 'triangle': return `<svg viewBox="0 0 24 24"><path d="M12 3l9 17H3z" ${s}/></svg>`;
+    case 'diamond':  return `<svg viewBox="0 0 24 24"><path d="M12 2l9 10-9 10-9-10z" ${s}/></svg>`;
+    case 'hexagon':  return `<svg viewBox="0 0 24 24"><path d="M7 3h10l5 9-5 9H7L2 12z" ${s}/></svg>`;
+    case 'pentagon': return `<svg viewBox="0 0 24 24"><path d="M12 2l9 7-3.5 11h-11L3 9z" ${s}/></svg>`;
+    case 'droplet':  return `<svg viewBox="0 0 24 24"><path d="M12 2c4 6 6 9 6 12a6 6 0 0 1-12 0c0-3 2-6 6-12z" ${s}/></svg>`;
+    case 'heart':    return `<svg viewBox="0 0 24 24"><path d="M12 21C5 15 3 11 3 8a4.5 4.5 0 0 1 9-1 4.5 4.5 0 0 1 9 1c0 3-2 7-9 13z" ${s}/></svg>`;
+    case 'star':     return `<svg viewBox="0 0 24 24"><path d="M12 2l3 6 7 1-5 5 1 7-6-3-6 3 1-7-5-5 7-1z" ${s}/></svg>`;
+    case 'star8':    return `<svg viewBox="0 0 24 24"><path d="M12 2l2 6 6-2-2 6 6 2-6 2 2 6-6-2-2 6-2-6-6 2 2-6-6-2 6-2-2-6 6 2z" ${s}/></svg>`;
+    default:         return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" ${s}/></svg>`;
+  }
+}
+/* a peg element html for colour index c (or -1 = empty) */
+function pegHTML(c, cls){
+  cls = cls || '';
+  if (c == null || c < 0) return `<div class="kd-peg empty ${cls}"></div>`;
+  const p = PEGS[c];
+  return `<div class="kd-peg ${cls}" style="background:${p.hex}" role="img" aria-label="${esc(T(p.name,p.mt))}">`
+    + `<span class="kd-shape">${shapeSVG(p.shape)}</span>`
+    + `<span class="kd-lt">${esc(p.glyph)}</span></div>`;
+}
+function swatchHTML(c){
+  const p = PEGS[c];
+  return `<button class="kd-swatch" data-c="${c}" style="background:${p.hex}" aria-label="${esc(T(p.name,p.mt))}">`
+    + `<span class="kd-shape">${shapeSVG(p.shape)}</span><span class="kd-lt">${esc(p.glyph)}</span></button>`;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE MENU (screen one — minimal)
+   ═══════════════════════════════════════════════════════════════════ */
+function menu(){
+  injectCSS();
+  P.show();
+  M = null;
+  const el = P.ui.screenEl();
+  const hasSave = !!(ST.save && ST.save.log);
+  el.innerHTML =
+    '<div class="pt-wrap kd-menu">' +
+      '<div class="tbar">' +
+        '<button class="iconbtn" id="kd-back" aria-label="'+esc(T('Back','Lura'))+'">'+ICO.back+'</button>' +
+        '<h2>IL-KAĊĊA TAL-KODIĊI</h2>' +
+      '</div>' +
+      '<div class="scroll">' +
+        '<div class="kd-hero" aria-hidden="true">'+heroHTML()+'</div>' +
+        (hasSave ? '<button class="btn primary" id="kd-resume" style="width:100%;margin-bottom:12px">'+
+          esc(T('Carry on the last hunt','Kompli l-aħħar kaċċa'))+'</button>' : '') +
+        '<div class="kd-modes">' +
+          modeBtn('online','primary', ICO.globe, T('Play online','Ilgħab onlajn'), T('Two phones, two secret codes.','Żewġ telefowns, żewġ kodiċi.')) +
+          modeBtn('ai','', ICO.bot, T('Play with AI','Ilgħab mal-magna'), T('The code-hunter, three strengths.','Il-kaċċatur tal-kodiċi.')) +
+          modeBtn('pass','', ICO.phone, T('Pass the phone','Għaddi t-telefown'), T('One phone, take turns.','Telefown wieħed, imiss.')) +
+          modeBtn('rules','', ICO.book, T('How to play','Kif tilgħab'), T('Exact hits and near misses.','Eżatti u qrib.')) +
+        '</div>' +
+      '</div>' +
+      rulesSheetHTML() +
+    '</div>';
+
+  el.querySelector('#kd-back').onclick = () => { cue('ui.back',{gain:.7}); P.hub(); };
+  const r = el.querySelector('#kd-resume'); if (r) r.onclick = () => { cue('ui.tap',{gain:.6}); resumeGame(); };
+  el.querySelector('#kd-m-online').onclick = () => { cue('ui.tap',{gain:.6}); goOnline(); };
+  el.querySelector('#kd-m-ai').onclick     = () => { cue('ui.tap',{gain:.6}); setupStep('ai'); };
+  el.querySelector('#kd-m-pass').onclick   = () => { cue('ui.tap',{gain:.6}); setupStep('pass'); };
+
+  const sheet = el.querySelector('#kd-sheet'), scrim = el.querySelector('#kd-scrim');
+  const openR  = () => { cue('ui.sheet',{gain:.55}); sheet.classList.add('open'); scrim.classList.add('on'); sheet.setAttribute('aria-hidden','false'); };
+  const closeR = () => { cue('ui.back',{gain:.4}); sheet.classList.remove('open'); scrim.classList.remove('on'); sheet.setAttribute('aria-hidden','true'); };
+  el.querySelector('#kd-m-rules').onclick = openR;
+  el.querySelector('#kd-sheet-x').onclick = closeR;
+  scrim.onclick = closeR;
+}
+function modeBtn(id, cls, ico, title, sub){
+  return `<button class="kd-mode ${cls}" id="kd-m-${id}">`+
+    `<span class="mi">${ico}</span>`+
+    `<span class="mt"><b>${esc(title)}</b><i>${esc(sub)}</i></span>`+
+    `<span class="chev">${ICO.chev}</span></button>`;
+}
+function heroHTML(){
+  const cols = [0,3,2,1];
+  const row = '<div class="kd-hrow">'+cols.map(c=>{
+    const p = PEGS[c];
+    return `<div class="kd-hp" style="background:${p.hex}"><span>${esc(p.glyph)}</span></div>`;
+  }).join('')+'</div>';
+  const fb = '<div class="kd-fb">'+
+    ['#111','#111','#f4f1ff','transparent'].map(c=>`<div class="kd-fbp" style="background:${c};${c==='transparent'?'border:1px solid rgba(255,255,255,.2)':''}"></div>`).join('')+
+    '</div>';
+  return row + fb;
+}
+function rulesSheetHTML(){
+  const li = [
+    T('Each player sets a SECRET code — a row of coloured pegs.','Kull plejer jistabbilixxi kodiċi SIGRIET — ringiela pinnijiet ikkuluriti.'),
+    T('Take turns guessing the OTHER player\'s code.','Imisskom taqtgħu l-kodiċi ta\' xulxin.'),
+    T('After each guess you get feedback pegs:','Wara kull taħbita tirċievi pinnijiet ta\' feedback:'),
+    T('■ black = right colour, RIGHT slot (exact).','■ iswed = kulur tajjeb, spazju TAJJEB (eżatt).'),
+    T('□ white = right colour, WRONG slot (near).','□ abjad = kulur tajjeb, spazju ĦAŻIN (qrib).'),
+    T('Feedback pegs are unordered — they never say which slot.','Il-pinnijiet mhumiex ordnati — qatt ma jgħidu liema spazju.'),
+    T('First to crack the opponent\'s code wins.','L-ewwel li jaqta\' l-kodiċi jirbaħ.'),
+    T('Colours repeat, so a code can use one colour twice.','Il-kuluri jistgħu jirrepetu.')
+  ];
+  const legend = '<div class="kd-legend">'+
+    '<span><i class="kd-lg" style="background:#111"></i>'+esc(T('exact','eżatt'))+'</span>'+
+    '<span><i class="kd-lg" style="background:#f4f1ff"></i>'+esc(T('near','qrib'))+'</span>'+
+    '</div>';
+  return '<div class="kd-scrim" id="kd-scrim"></div>'+
+    '<div class="kd-sheet" id="kd-sheet" role="dialog" aria-modal="true" aria-hidden="true" style="position:relative">'+
+      '<button class="iconbtn kd-x" id="kd-sheet-x" aria-label="'+esc(T('Close','Agħlaq'))+'">✕</button>'+
+      '<h3>'+esc(T('How to play','Kif tilgħab'))+'</h3>'+
+      '<ul>'+li.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>'+legend+
+    '</div>';
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   OPTIONS STEP (second screen — N/K, difficulty, guess limit)
+   ═══════════════════════════════════════════════════════════════════ */
+function setupStep(mode){
+  injectCSS();
+  const el = P.ui.screenEl();
+  const cfg = Object.assign({ board:'classic', lvl:2, limit:10 }, pref().cfg || {});
+  const back = () => { cue('ui.back',{gain:.6}); menu(); };
+
+  function render(){
+    el.innerHTML =
+      '<div class="pt-wrap kd-menu">' +
+        '<div class="tbar">' +
+          '<button class="iconbtn" id="kd-back">'+ICO.back+'</button>' +
+          '<h2>'+esc(mode==='ai'?T('Play with AI','Mal-magna'):T('Pass the phone','Għaddi t-telefown'))+'</h2>' +
+        '</div>' +
+        '<div class="scroll"><div class="kd-opts">' +
+          '<div><div class="kd-lbl">'+esc(T('Board','Bord'))+'</div><div class="kd-grid" id="kd-board">'+
+            BOARD_OPTS.map(b=>`<button class="kd-opt ${b.id===cfg.board?'on':''}" data-b="${b.id}"><b>${esc(b.name())}</b><i>${esc(b.note())}</i></button>`).join('')+
+          '</div></div>' +
+          (mode==='ai' ? '<div><div class="kd-lbl">'+esc(T('AI strength','Saħħa'))+'</div><div class="kd-grid" id="kd-lvl">'+
+            LEVELS.map(l=>`<button class="kd-opt ${l.lvl===cfg.lvl?'on':''}" data-l="${l.lvl}"><b>${esc(l.name())}</b><i>${esc(l.note())}</i></button>`).join('')+
+          '</div></div>' : '') +
+          '<div><div class="kd-lbl">'+esc(T('Guess limit','Limitu'))+'</div><div class="kd-limrow">'+
+            '<button class="kd-rnd" id="kd-lim-dn">−</button>'+
+            '<div class="kd-limv" id="kd-limv"></div>'+
+            '<button class="kd-rnd" id="kd-lim-up">+</button>'+
+          '</div></div>' +
+          '<button class="btn primary" id="kd-start" style="width:100%;margin-top:6px">'+esc(T('Start','Ibda'))+'</button>' +
+        '</div></div>' +
+      '</div>';
+    paintLimit();
+    el.querySelector('#kd-back').onclick = back;
+    el.querySelectorAll('#kd-board .kd-opt').forEach(b=>b.onclick=()=>{ cue('move.select',{gain:.5}); cfg.board=b.dataset.b; render(); });
+    const lv = el.querySelector('#kd-lvl'); if (lv) lv.querySelectorAll('.kd-opt').forEach(b=>b.onclick=()=>{ cue('move.select',{gain:.5}); cfg.lvl=+b.dataset.l; render(); });
+    el.querySelector('#kd-lim-dn').onclick = ()=>{ cfg.limit = clampLimit(cfg.limit-1); cue('ui.tap',{gain:.4}); paintLimit(); };
+    el.querySelector('#kd-lim-up').onclick = ()=>{ cfg.limit = clampLimit(cfg.limit+1); cue('ui.tap',{gain:.4}); paintLimit(); };
+    el.querySelector('#kd-start').onclick = ()=>{ cue('game.start',{gain:.8},true); pref({cfg}); startLocal(mode, cfg); };
+  }
+  function clampLimit(v){ if (v < 0) return 0; if (v > 20) return 20; return v; }
+  function paintLimit(){
+    const v = el.querySelector('#kd-limv'); if (!v) return;
+    v.innerHTML = (cfg.limit===0)
+      ? '∞<i>'+esc(T('unlimited','bla limitu'))+'</i>'
+      : cfg.limit+'<i>'+esc(T('guesses each','taħbitiet'))+'</i>';
+    const dn=el.querySelector('#kd-lim-dn'), up=el.querySelector('#kd-lim-up');
+    if(dn)dn.disabled=(cfg.limit<=0); if(up)up.disabled=(cfg.limit>=20);
+  }
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   START A LOCAL MATCH (vs AI or pass-the-phone)
+   ═══════════════════════════════════════════════════════════════════ */
+function boardOpts(cfg){
+  const b = BOARD_OPTS.find(x=>x.id===cfg.board) || BOARD_OPTS[0];
+  return { slots:b.slots, colours:b.colours, limit:cfg.limit|0, lvl:cfg.lvl|0 };
+}
+function startLocal(mode, cfg){
+  injectCSS();
+  const o = boardOpts(cfg);
+  const seed = E.newSeed();
+  M = {
+    opts: Object.assign({}, o, { deal:'seed', mode }),
+    seed, log:[], secrets:[null,null],
+    mode, you:0, ctx:null, phase:'setA', draft:[], veil:0, shown:-1, net:null, dead:false
+  };
+  /* build the engine state as a PRIVATE-deal shell — we fill secrets by
+     hand from the humans (pass-phone) or human+AI so the seed never
+     silently reveals the human's own code to nobody's benefit; but for a
+     purely local device the seed deal is equally private, so we use it
+     for the AI's secret and let the human set their own. */
+  M.st = E.newMatch(Object.assign({}, o, { deal:'private' }), seed);
+
+  if (mode === 'ai'){
+    /* you are seat 0. The AI (seat 1) holds a random secret. You set yours. */
+    const aiCode = E.aiSecret(M.st);
+    M.secrets[1] = aiCode.slice();
+    E.setSecret(M.st, 1, aiCode);
+    M.phase = 'setA';                    /* you set your code first */
+  } else {
+    /* pass-the-phone: both humans set a code, behind the veil. seat 0 first. */
+    M.phase = 'setA';
+  }
+  openBoard(() => (mode==='ai'?setupStep('ai'):setupStep('pass')));
+  saveGame();
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE BOARD FRAME
+   ═══════════════════════════════════════════════════════════════════ */
+function openBoard(onBack){
+  M.ctx = P.ui.frame({
+    title: 'IL-KODIĊI',
+    onBack: () => { cue('ui.back',{gain:.7}); leave(); onBack(); },
+    leave: () => leave(),
+    buttons: []
+  });
+}
+function leave(){
+  if (M){ M.dead = true; }
+  persistNow();
+}
+
+/* who is the local viewer's active seat right now?
+   - ai:    always seat 0 (you); AI is seat 1
+   - pass:  the seat whose turn it is (both are "hot" humans)
+   - online: M.you (fixed) */
+function activeSeat(){
+  if (!M) return 0;
+  if (M.mode === 'online') return M.you;
+  if (M.mode === 'ai') return 0;
+  return E.turn(M.st);   /* pass */
+}
+function isHotHuman(seat){
+  if (M.mode === 'ai') return seat === 0;
+  if (M.mode === 'pass') return true;
+  return seat === M.you;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   RENDER — the whole board from state. Handles the SET phase (compose
+   your secret), the PLAY phase (guess + history + feedback), the veil,
+   and drives the AI.
+   ═══════════════════════════════════════════════════════════════════ */
+function render(){
+  if (!M || M.dead || !M.ctx) return;
+  const host = M.ctx.host;
+  host.innerHTML = '';
+
+  /* ── PASS-THE-PHONE VEIL ── */
+  if (M.mode === 'pass' && M.veil){
+    host.insertAdjacentHTML('beforeend', veilHTML(M.veil));
+    const b = host.querySelector('#kd-veil-go');
+    if (b) b.onclick = () => { cue('duel.turn',{gain:.85},true); M.shown = M.veil; M.veil = 0; render(); };
+    return;
+  }
+
+  const inSet = (M.phase === 'setA' || M.phase === 'setB');
+  if (inSet){ renderSet(host); return; }
+  renderPlay(host);
+  maybeAI();
+}
+
+/* ── the SET phase: compose your secret code ── */
+function renderSet(host){
+  const seat = settingSeat();
+  const o = M.opts;
+  if (!M.draft.length) M.draft = new Array(o.slots).fill(-1);
+  const done = M.draft.every(x => x >= 0);
+
+  const who = (M.mode==='ai') ? T('Set YOUR secret code','Stabbilixxi l-kodiċi tiegħek')
+            : T('Player','Plejer')+' '+(seat+1)+' — '+T('set your code','stabbilixxi l-kodiċi');
+
+  const wrap = document.createElement('div');
+  wrap.className = 'kd-board';
+  wrap.innerHTML =
+    '<div class="kd-status"><span class="kd-who">'+esc(who)+'</span>'+
+      '<span class="kd-tag">'+esc(T('SECRET','SIGRIET'))+'</span></div>'+
+    '<p style="font-size:12px;color:var(--dim,#9d95b0);margin:2px 0 4px">'+
+      esc(T('Tap a colour, then it drops into the next slot. This row stays hidden.','Agħżel kulur biex jimla l-ispazju li jmiss. Din ir-ringiela tibqa\' moħbija.'))+'</p>'+
+    composeHTML(M.draft, true, done);
+  host.appendChild(wrap);
+  wireCompose(host, /*isSecret*/true, done);
+  setBadge();
+}
+function settingSeat(){
+  /* setA = seat 0, setB = seat 1 */
+  return M.phase === 'setB' ? 1 : 0;
+}
+
+/* the VIEWER seat: whose code-cracking board we're looking at right now.
+   The board ALWAYS shows the viewer's OWN guesses at the opponent's code,
+   so a player's progress never vanishes on the opponent's turn.
+     ai     -> always you (seat 0)
+     online -> always you (M.you)
+     pass   -> whoever's turn it is (they only ever see their own board,
+               and the veil hides everything between turns) */
+function viewerSeat(){
+  if (M.mode === 'pass') return E.turn(M.st);
+  if (M.mode === 'online') return M.you;
+  return 0;
+}
+/* ── the PLAY phase ── */
+function renderPlay(host){
+  const o = M.opts;
+  const viewer = viewerSeat();
+  const tgt = E.target(viewer);
+  const myGuesses = M.st.guesses[tgt];         /* MY guesses at the opponent */
+  const used = myGuesses.length;
+  const limTxt = o.limit ? (used + ' / ' + o.limit) : (used + '');
+
+  const turnSeat = E.turn(M.st);
+  const mine = (turnSeat === viewer);
+
+  const wrap = document.createElement('div');
+  wrap.className = 'kd-board';
+  wrap.innerHTML =
+    '<div class="kd-status">'+
+      '<span class="kd-who">'+esc(mine? T('Your turn','Imissek') : T('Their turn…','Imisshom…'))+'</span>'+
+      '<span>'+esc(T('cracking','taqta\'')+' '+seatName(tgt)+' · '+limTxt)+'</span>'+
+    '</div>'+
+    '<div class="kd-history" id="kd-hist">'+historyHTML(viewer)+'</div>'+
+    ((mine && !M.st.over) ? composeHTML(ensureDraft(), false, ensureDraft().every(x=>x>=0)) : waitHTML(mine));
+  host.appendChild(wrap);
+
+  /* scroll history to bottom */
+  const h = host.querySelector('#kd-hist'); if (h) h.scrollTop = h.scrollHeight;
+
+  if (mine && !M.st.over) wireCompose(host, false, ensureDraft().every(x=>x>=0));
+  setBadge();
+
+  if (M.st.over) finishScreen();
+}
+function ensureDraft(){
+  if (!M.draft || M.draft.length !== M.opts.slots) M.draft = new Array(M.opts.slots).fill(-1);
+  return M.draft;
+}
+function waitHTML(mine){
+  return '<div class="kd-compose" style="align-items:center;justify-content:center;min-height:70px;color:var(--dim,#9d95b0);font-size:13px">'+
+    esc(mine?'':T('Waiting for the other player…','Nistennew lill-plejer l-ieħor…'))+'</div>';
+}
+
+/* the viewer's own guesses at the opponent's code, newest last, each with
+   its feedback pegs. */
+function historyHTML(viewer){
+  const tgt = E.target(viewer);
+  const list = M.st.guesses[tgt];
+  if (!list.length){
+    return '<div style="text-align:center;color:var(--dim,#9d95b0);font-size:12px;padding:14px 0">'+
+      esc(T('No guesses yet. Break their code.','Għadha ebda taħbita.'))+'</div>';
+  }
+  return list.map((rec,i)=>{
+    const isLast = i === list.length-1;
+    const pegs = rec.g.map(c=>pegHTML(c,'sm')).join('');
+    const fb = fbGridHTML(rec.fb, M.opts.slots, isLast && M._reveal===i);
+    return `<div class="kd-rowline ${isLast&&M._reveal===i?'reveal':''}">`+
+      `<span class="kd-no">${i+1}</span>`+
+      `<span class="kd-pegs">${pegs}</span>`+
+      `${fb}</div>`;
+  }).join('');
+}
+function fbGridHTML(fb, slots, pop){
+  const dots = [];
+  for (let i=0;i<fb.exact;i++) dots.push('exact');
+  for (let i=0;i<fb.near;i++)  dots.push('near');
+  while (dots.length < slots) dots.push('');
+  return '<div class="kd-fbgrid" aria-label="'+fb.exact+' exact, '+fb.near+' near">'+
+    dots.map((d,i)=>`<div class="kd-fbp ${d} ${pop&&d?'pop':''}" style="${pop&&d?('animation-delay:'+(i*60)+'ms'):''}"></div>`).join('')+
+    '</div>';
+}
+
+/* the compose row: N slots + palette + submit. isSecret gates the label. */
+function composeHTML(draft, isSecret, ready){
+  const o = M.opts;
+  const slots = draft.map((c,i)=>
+    `<div class="kd-slot ${draft.indexOf(-1)===i?'on':''}" data-slot="${i}">${c>=0?pegHTML(c):''}</div>`).join('');
+  const pal = [];
+  for (let c=0;c<o.colours;c++) pal.push(swatchHTML(c));
+  const submit = isSecret ? T('Lock in code','Aqfel il-kodiċi') : T('Guess','Aqta\'');
+  return '<div class="kd-compose">'+
+    '<div class="kd-slotrow">'+slots+'</div>'+
+    '<div class="kd-palette">'+pal.join('')+'</div>'+
+    '<div class="kd-acts">'+
+      '<button class="btn ghost" id="kd-clear">'+esc(T('Clear','Ħassar'))+'</button>'+
+      '<button class="btn primary" id="kd-submit" '+(ready?'':'disabled')+'>'+esc(submit)+'</button>'+
+    '</div></div>';
+}
+function wireCompose(host, isSecret, ready){
+  host.querySelectorAll('.kd-swatch').forEach(sw=>{
+    sw.onclick = () => {
+      const c = +sw.dataset.c;
+      const i = M.draft.indexOf(-1);
+      if (i < 0){ /* full — replace last */ M.draft[M.draft.length-1] = c; }
+      else M.draft[i] = c;
+      cue('piece.place',{gain:.5});
+      render();
+    };
+  });
+  host.querySelectorAll('.kd-slot').forEach(sl=>{
+    sl.onclick = () => { M.draft[+sl.dataset.slot] = -1; cue('ui.tap',{gain:.35}); render(); };
+  });
+  const clr = host.querySelector('#kd-clear');
+  if (clr) clr.onclick = () => { M.draft = new Array(M.opts.slots).fill(-1); cue('ui.back',{gain:.35}); render(); };
+  const sub = host.querySelector('#kd-submit');
+  if (sub) sub.onclick = () => {
+    if (M.draft.some(x=>x<0)){ cue('move.illegal',{gain:.6}); return; }
+    if (isSecret) submitSecret(M.draft.slice());
+    else submitGuess(M.draft.slice());
+  };
+}
+
+/* ── SET: lock a secret in ── */
+function submitSecret(code){
+  const seat = settingSeat();
+  cue('ui.reward',{gain:.6},true);
+  E.setSecret(M.st, seat, code);
+  M.secrets[seat] = code.slice();
+  M.draft = [];
+
+  if (M.mode === 'ai'){
+    /* only seat 0 (you) sets; AI secret already placed → straight to play */
+    M.phase = 'play';
+    saveGame(); render(); return;
+  }
+  /* pass-the-phone: seat 0 done → hand to seat 1 to set; then play */
+  if (M.phase === 'setA'){
+    M.phase = 'setB';
+    M.veil = 1;                 /* veil before player 2 sets */
+    M.shown = -1;
+    saveGame(); render(); return;
+  }
+  /* setB done → play, veil to seat 0 (whose turn it is) */
+  M.phase = 'play';
+  M.veil = E.turn(M.st);
+  M.shown = -1;
+  saveGame(); render();
+}
+
+/* ── PLAY: submit a guess ── */
+function submitGuess(g){
+  const seat = E.turn(M.st);
+  if (!E.legalGuess(M.st, seat, g)){ cue('move.illegal',{gain:.6}); return; }
+
+  if (M.mode === 'online'){
+    /* online: send to relay; the OWNER computes feedback and echoes it
+       back. We do NOT hold the opponent's secret, so we cannot score it
+       locally. The move is applied on confirmation via onlineRemote/echo. */
+    sendOnlineGuess(seat, g);
+    M.draft = [];
+    return;
+  }
+
+  const tgt = E.target(seat);
+  const rec = E.guessAt(M.st, seat, g);      /* local: engine scores from the secret it holds */
+  if (!rec){ cue('move.illegal',{gain:.6}); return; }
+  M.log.push({ seat, g:g.slice() });
+  M.draft = [];
+  M._reveal = M.st.guesses[tgt].length - 1;  /* animate the newest row */
+  cue(rec.fb.exact===M.opts.slots ? 'ui.reward' : 'ui.note', {gain:.7}, true);
+  saveGame();
+
+  if (M.st.over){ render(); return; }
+
+  /* pass-the-phone: raise the veil for the next human */
+  if (M.mode === 'pass'){
+    M.veil = E.turn(M.st);
+    M.shown = -1;
+  }
+  render();
+}
+
+/* ── the AI takes its turn (vs-AI mode, when it is seat 1's move) ── */
+let aiTimer = 0;
+function maybeAI(){
+  if (!M || M.dead || M.mode !== 'ai' || M.st.over) return;
+  if (M.phase !== 'play') return;
+  if (E.turn(M.st) !== 1) return;
+  clearTimeout(aiTimer);
+  const delay = noMotion() ? 60 : 620;
+  const mk = M;
+  aiTimer = setTimeout(() => {
+    if (M !== mk || M.dead || M.st.over || E.turn(M.st) !== 1) return;
+    const g = E.aiGuess(M.st, 1, M.opts.lvl);
+    const tgt = E.target(1);
+    const rec = E.guessAt(M.st, 1, g);
+    if (rec){
+      M.log.push({ seat:1, g:g.slice() });
+      M._reveal = M.st.guesses[tgt].length - 1;
+      cue(rec.fb.exact===M.opts.slots ? 'game.lose' : 'ui.note', {gain:.6}, true);
+      saveGame();
+    }
+    render();
+  }, delay);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   VEIL (pass-the-phone handover)
+   ═══════════════════════════════════════════════════════════════════ */
+function veilHTML(seat){
+  const nm = seatName(seat);
+  const what = (M.phase==='setB' || M.phase==='setA')
+    ? T('set your secret code','tistabbilixxi l-kodiċi tiegħek')
+    : T('take your guess','taqta\' l-kodiċi');
+  return '<div class="kd-veil" id="kd-veil">'+
+    '<div class="kd-eye">'+ICO.eye+'</div>'+
+    '<h4>'+esc(nm+' — '+T('your turn','imissek'))+'</h4>'+
+    '<p>'+esc(T('Everyone else, look away. Pass the phone, then tap to '+ '', 'Kulħadd iħares \'l hemm. Għaddi t-telefown, imbagħad agħfas biex ')+what+'.')+'</p>'+
+    '<button class="btn primary" id="kd-veil-go">'+esc(T('I am ','Jien ')+nm)+'</button>'+
+    '</div>';
+}
+function seatName(seat){
+  if (M.mode === 'ai') return seat===0 ? T('You','Int') : T('The machine','Il-magna');
+  if (M.mode === 'online') return seat===M.you ? T('You','Int') : T('Opponent','Avversarju');
+  return T('Player','Plejer')+' '+(seat+1);
+}
+function setBadge(){
+  if (!M || !M.ctx || !M.ctx.badge) return;
+  let txt;
+  if (M.phase==='setA'||M.phase==='setB') txt = T('Set the code','Kodiċi');
+  else if (M.st.over) txt = T('Over','Spiċċa');
+  else txt = T('Turn','Imiss')+' · '+seatName(E.turn(M.st));
+  try { M.ctx.badge.textContent = txt; } catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   WINNER — rebbieh, with a P.ui.result fallback
+   ═══════════════════════════════════════════════════════════════════ */
+let finished = false;
+function finishScreen(){
+  if (finished) return; finished = true;
+  const w = M.st.winner;
+  const you = (M.mode==='ai') ? 0 : (M.mode==='online' ? M.you : E.turn(M.st));
+  /* record vs-AI results only */
+  if (M.mode === 'ai'){
+    if (w === 0){ ST.rec.w++; } else if (w === 1){ ST.rec.l++; } else { ST.rec.d++; }
+    persist();
+  }
+  const rows = standings(w);
+  const REB = window.KARTI_REBBIEH;
+  const draw = (w === 'draw');
+  const youWon = (w === you);
+  const doAgain = () => { finished=false; if (M && M.net) { leave(); menu(); } else { const m=M.mode, cfg=pref().cfg||{}; leave(); m==='ai'?setupStep('ai'):(m==='pass'?setupStep('pass'):menu()); } };
+  const doLeave = () => { finished=false; leave(); menu(); };
+
+  const title = draw ? T('Dead heat','Ndaqs')
+    : (M.mode==='pass' ? (seatName(w)+' '+T('cracks it','jirbaħ'))
+      : youWon ? T('Code cracked!','Qtajt il-kodiċi!') : T('Out-hunted','Inqbadt'));
+
+  if (REB && REB.show){
+    REB.show({
+      lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
+      reduced: noMotion(),
+      title,
+      subtitle: draw ? T('Both ran out of guesses','It-tnejn spiċċaw') : T('Final standings','Klassifika finali'),
+      rows,
+      sound: id => cue(id,{gain:.8},true),
+      playAgainLabel: T('Again',"Erġa'"),
+      onPlayAgain: doAgain,
+      onLeave: doLeave
+    });
+  } else {
+    P.ui.result(M.ctx, {
+      tone: draw?'draw':(youWon?'win':'lose'),
+      head: title,
+      why: '',
+      buttons: [
+        { label:T('Again',"Erġa'"), icon:'refresh', cls:'primary', go: doAgain },
+        { label:T('Back','Lura'), icon:'back', cls:'ghost', go: doLeave }
+      ]
+    });
+  }
+  ST.save = null; persist();     /* a finished match is not resumed */
+}
+function standings(w){
+  const s0 = M.st.guesses[1].length, s1 = M.st.guesses[0].length;   /* guesses each MADE */
+  const you = (M.mode==='ai') ? 0 : (M.mode==='online'?M.you:0);
+  function row(seat){
+    const won = (w===seat);
+    return {
+      name: seatName(seat),
+      score: (seat===0? s0 : s1) + ' ' + T('guesses','taħbitiet'),
+      place: (w==='draw') ? 1 : (won?1:2),
+      you: (M.mode!=='pass' && seat===you),
+      bot: (M.mode==='ai' && seat===1),
+      avatar: (seat===you && K.avatar) ? K.avatar() : null
+    };
+  }
+  return [row(0), row(1)];
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   AUTOSAVE / RESUME
+   ═══════════════════════════════════════════════════════════════════ */
+function saveGame(){
+  if (!M || M.net || (M.st && M.st.over)) return;
+  try {
+    ST.save = {
+      opts: M.opts, seed: M.seed, mode: M.mode,
+      secrets: M.secrets, log: M.log.slice(),
+      phase: M.phase
+    };
+    persist();
+  } catch(e){}
+}
+function resumeGame(){
+  const s = ST.save;
+  if (!s || !s.log){ menu(); return; }
+  injectCSS();
+  M = {
+    opts: s.opts, seed: s.seed, log: s.log.slice(),
+    secrets: [ s.secrets && s.secrets[0], s.secrets && s.secrets[1] ],
+    st: null, mode: s.mode || 'ai', you:0, ctx:null,
+    phase: s.phase || 'play', draft:[], veil:0, shown:-1, net:null, dead:false
+  };
+  /* rebuild engine state deterministically from opts+seed+secrets+log */
+  M.st = E.replay(Object.assign({}, s.opts, { deal:'private' }), s.seed, M.secrets, s.log);
+  if (M.st.over) M.phase = 'over';
+  finished = false;
+  openBoard(() => menu());
+  render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ONLINE — lobby + relay hooks (2 seats, turn-based, private secret)
+   ═══════════════════════════════════════════════════════════════════ */
+let NET = null;
+
+function goOnline(){
+  /* the party frame owns the lobby chrome; we hand it R.lobby. If the
+     host has no online entry yet, fall back to a friendly notice. */
+  if (P.openLobby) { P.openLobby('kodici'); return; }
+  if (P.lobby && P.lobby.open) { P.lobby.open('kodici'); return; }
+  /* graceful fallback */
+  const el = P.ui.screenEl();
+  el.innerHTML = '<div class="pt-wrap kd-menu"><div class="tbar">'+
+    '<button class="iconbtn" id="kd-back">'+ICO.back+'</button><h2>'+esc(T('Play online','Onlajn'))+'</h2></div>'+
+    '<div class="scroll"><p class="blurb" style="padding:22px 6px">'+
+    esc(T('Online is wired to the KARTI lobby. Open it from the party shelf to seat two phones.','L-onlajn imqabbad mal-lobby ta\' KARTI.'))+
+    '</p></div></div>';
+  el.querySelector('#kd-back').onclick = () => { cue('ui.back',{gain:.6}); menu(); };
+}
+
+/* planDeal(opts) → the pool the relay deals privately: one fresh secret
+   per seat (the relay posts each seat ITS OWN via hooks.private). Shape
+   mirrors poker's { items, each } — but a code is a per-seat SLATE, so
+   we hand the relay a per-seat item list it can split. Here `each` is the
+   slot count and `items` a flat pool of colour ids the relay draws from
+   per seat; simplest correct shape: return a full plan the relay can
+   deal by handing each seat a random code. We return the code space size
+   so the relay can pick. */
+function planDeal(opts){
+  const b = E.boardOf(opts || {});
+  /* the relay deals each seat ONE secret code of `b.slots` colours from
+     [0, b.colours). We express that as items = colour ids available, each
+     = slots. The relay's private deal hands each seat `each` colour picks
+     (with repeats) — i.e. a random code — and nobody else sees it. */
+  const items = [];
+  for (let c=0;c<b.colours;c++) items.push(c);
+  return { items, each: b.slots, repeats:true, kind:'code' };
+}
+
+/* the relay just seated us and is about to run the match. */
+function onlineStart(cfg){
+  injectCSS();
+  cfg = cfg || {};
+  const seats = cfg.seats || [];
+  const you = (cfg.you != null) ? cfg.you : 0;
+  const o = boardOpts(pref().cfg || { board:'classic', limit:10, lvl:2 });
+  NET = {
+    toGame: cfg.toGame || {0:0,1:1},
+    toRoom: cfg.toRoom || {0:0,1:1},
+    meG: (cfg.meG != null) ? cfg.meG : you,
+    net: cfg.net || {}
+  };
+  M = {
+    opts: Object.assign({}, o, { deal:'private', mode:'online' }),
+    seed: (cfg.seed|0) || E.newSeed(),
+    log:[], secrets:[null,null],
+    st: E.newMatch(Object.assign({}, o, { deal:'private' }), (cfg.seed|0)||0),
+    mode:'online', you: NET.meG, ctx:null, phase:'set', draft:[], veil:0, shown:-1,
+    net: cfg.net || {}, dead:false
+  };
+  finished = false;
+  openBoard(() => { onlineStop('left'); menu(); });
+  /* online SET: you compose your secret; it is sent to the relay as YOUR
+     private slate, never broadcast to the opponent. Until it arrives back
+     confirmed, we sit in the set phase. */
+  M.phase = 'setA';                       /* you set your own code */
+  render();
+  return NET;
+}
+/* the relay delivered THIS seat its own secret (private deal). We store it
+   ONLY under our own seat — the opponent's secret never reaches us. */
+function onlinePrivate(d){
+  if (!M || M.dead || !M.online && M.mode!=='online') return;
+  /* d is this seat's own code (array of colour ids). */
+  if (!Array.isArray(d)) return;
+  const me = M.you;
+  E.setSecret(M.st, me, d.slice());
+  M.secrets[me] = d.slice();
+  render();
+}
+/* opponent's move arrived from the relay. For a guess AT MY code, I (the
+   owner) compute the feedback locally and echo it; for a guess I made,
+   the owner's echo carries the feedback. mp.js routes both here. */
+function onlineRemote(seat, wire){
+  if (!M || M.dead) return null;
+  const g = (NET && NET.toGame && NET.toGame[seat] != null) ? NET.toGame[seat] : seat;
+  const mv = E.decWire(wire);
+  if (!mv) return { ok:false, why:'unknown move' };
+  if (mv.t === 'quit'){ onlineStop('left'); return null; }
+
+  /* a guess made by game-seat g at seat (1-g)'s code */
+  const tgt = E.target(g);
+  if (g === M.you){
+    /* my own guess coming back with the owner-supplied feedback in wire.fb */
+    const fb = wire.fb || null;
+    const rec = E.guessAt(M.st, g, mv.g, fb);
+    if (rec){ M.log.push({seat:g, g:mv.g.slice()}); M._reveal = M.st.guesses[tgt].length-1; cue('ui.note',{gain:.6},true); }
+  } else {
+    /* opponent guessing at MY code — I own the secret, I score it and the
+       feedback goes back over the wire (relay echoes my note). */
+    const rec = E.guessAt(M.st, g, mv.g);   /* engine scores from my secret */
+    if (rec){
+      M.log.push({seat:g, g:mv.g.slice()});
+      M._reveal = M.st.guesses[tgt].length-1;
+      cue('mp.turn',{gain:.5});
+      /* tell the relay the feedback so the guesser's client can render it */
+      if (M.net && M.net.note){ try { M.net.note({ t:'fb', seat, fb:rec.fb }); } catch(e){} }
+    }
+  }
+  render();
+  return null;
+}
+function sendOnlineGuess(seat, g){
+  const w = E.encWire({ t:'guess', g });
+  if (!w) { cue('move.illegal',{gain:.6}); return; }
+  if (M.net && M.net.send){ try { M.net.send(w); } catch(e){} }
+  /* optimistic: engine will apply on echo (onlineRemote) so both clients
+     converge on the owner's authoritative feedback. */
+}
+function onlineNote(note){
+  /* the relay's side-channel: a feedback echo for a guess I made. */
+  if (!M || M.dead || !note) return;
+  if (note.t === 'fb'){ M._reveal = null; render(); }
+}
+function onlineStop(why, tone){
+  if (!M || M.dead) return;
+  M.dead = true;
+  try { P.ui.result(M.ctx, {
+    tone:'draw', head:T('Cut off','Maqtugħ'),
+    why:T('The line dropped. Nothing counted.','Waqgħet il-linja.'),
+    buttons:[{ label:T('Back','Lura'), icon:'back', cls:'ghost', go:()=>menu() }]
+  }); } catch(e){ menu(); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE LOBBY object + party registration (2 seats, turn-based)
+   ═══════════════════════════════════════════════════════════════════ */
+function levels(){ return LEVELS.map(l => ({ level:l.lvl, name:l.name(), note:l.note() })); }
+
+R.lobby = {
+  id:'kodici', name:'Il-Kodiċi', mt:'Il-Kodiċi',
+  minSeats: 2, maxSeats: 2,
+  levels: levels(), defaultLevel: 2,
+  isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
+  autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
+  canStart(seatList){
+    const list = (seatList || []).filter(Boolean);
+    const n = list.length;
+    if (n < 2) return { ok:false, why: T('The hunt needs two.','Il-kaċċa trid tnejn.') };
+    if (n > 2) return { ok:false, why: T('Two is the table.','Tnejn hija l-mejda.') };
+    const un = list.filter(x => x && x.kind !== 'cpu' && !x.ready);
+    if (un.length) return { ok:false, why: (un.map(s=>s.name||T('Somebody','Xi ħadd')).join(' & '))+' '+T('not ready yet.','għadhom mhux lesti.') };
+    return { ok:true, why:'' };
+  },
+  start(seatsList, opts){
+    return onlineStart({ seats:seatsList, seed: opts && opts.seed, you:0, host:0, net:(opts&&opts.net)||{} });
+  },
+  rulesHTML: () => {
+    const li = [
+      T('Each player hides a secret colour code.','Kull plejer jaħbi kodiċi.'),
+      T('Take turns guessing the other\'s code.','Imisskom taqtgħu l-kodiċi.'),
+      T('Black peg = right colour & slot; white = right colour, wrong slot.','Iswed = kulur u spazju tajjeb; abjad = kulur tajjeb, spazju ħażin.'),
+      T('First to crack the code wins.','L-ewwel li jaqta\' jirbaħ.')
+    ];
+    return '<ul style="margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px">'+
+      li.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul>';
+  },
+  blurb: T('Two secret codes, two phones. Crack theirs first.','Żewġ kodiċi sigrieti. Aqta\' tagħhom l-ewwel.'),
+  myName(){ let n=''; try { n = (K.displayName && K.displayName()) || (K.avatar && K.name) || ''; } catch(e){} return String(n||T('You','Int')).slice(0,14); },
+  wire: { fields: E.WIRE_FIELDS },
+  takeback: false
+};
+
+/* NET hooks for mp.js */
+const NET_HOOKS = {
+  live:   () => !!(M && !M.dead && M.mode==='online' && !M.st.over),
+  phase:  () => !M ? 'idle' : (M.st.over ? 'over' : 'play'),
+  seed:   () => (M ? M.seed : null),
+  gameId: () => (M ? 'kodici' : null),
+  turn:   () => (M && NET) ? (NET.toRoom[E.turn(M.st)] != null ? NET.toRoom[E.turn(M.st)] : -1) : -1,
+  over:   () => (M ? M.st.over : null),
+  moveCount: () => (M ? M.log.length : 0),
+  onMove: () => (()=>{}),                 /* sends go through sendOnlineGuess directly */
+  private: (d /*, mates */) => onlinePrivate(d),
+  apply: (seat, wire) => onlineRemote(seat, wire),
+  seatGone: () => { onlineStop('left'); }
+};
+
+P.online = P.online || {};
+P.online.kodici = {
+  start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
+  planDeal,
+  live: () => NET_HOOKS.live(),
+  hooks: NET_HOOKS
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SHELF TILE + registration
+   ═══════════════════════════════════════════════════════════════════ */
+const TILE = {
+  id:'kodici', order:31, kind:'board', name:'IL-KODIĊI', mt:'Il-Kodiċi',
+  status:'live',
+  get tag(){ return T('Crack the secret colour code.','Aqta\' l-kodiċi sigriet.'); },
+  open: () => menu(),
+  seats: { min:2, max:2 },
+  levels: levels(),
+  rulesHTML: () => R.lobby.rulesHTML()
+};
+R.shelfTile = TILE;
+R.open = () => menu();
+R.close = () => { leave(); P.hub(); };
+R.ui = { open: menu, leave, injectCSS,
+  /* read-only test hook: the current runner (never used by the game
+     itself). Lets a headless harness prove secrecy and drive a crack. */
+  _debug: () => M };
+try { P.register(TILE); } catch(e){}
+
+})();
