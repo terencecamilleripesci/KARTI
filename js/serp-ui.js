@@ -433,6 +433,7 @@ const LEAD_MS = 2400;
 
 function startMatch(opts, seed, net){
   stopLoop();
+  FX.length = 0;                            /* no flourishes leak across rounds */
   const o = Object.assign({ seats:4, speed:'normal', lvl:2 }, opts || {});
   M = {
     opts: o,
@@ -663,6 +664,8 @@ function doTick(){
       say(seat, { t:'eat', tick:M.tick, idx });
       if (sn.score > (sn.saidScore | 0)){
         sn.saidScore = sn.score;
+        const kit = KIT.skin(sn.seat);
+        fxEat(sn.cells[0].x + 0.5, sn.cells[0].y + 0.5, seat === M.me ? '#FFC542' : kit.a);
         if (seat === M.me) cue('ui.coin', { gain:0.42 });
       }
       hud();
@@ -835,6 +838,9 @@ function draw(f){
       drawSnake(g, sn, f, cell, now);
     }
   }
+
+  /* ── the flourishes, on top of everything, additive and cheap ── */
+  fxDraw(g, cell, now);
 }
 
 function drawSnake(g, sn, f, cell, now){
@@ -917,6 +923,104 @@ function roundRect(g, x, y, w, h, r){
   g.arcTo(x, y + h, x, y, r);
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE FLOURISHES — eat pop, death crunch, round-win ring
+   ───────────────────────────────────────────────────────────────────
+   Everything here is drawn on the SAME canvas as the snakes, into the
+   same single compositor layer, with no DOM and no per-frame layout —
+   so a burst of sparks costs a handful of arcs, never a reflow. Each
+   effect is a small object with a birth time; draw() ages them by wall
+   clock and drops them when spent, so the frame loop stays fixed-tick
+   and the effects are purely cosmetic on top. Reduced motion adds none
+   of them and the game plays exactly the same without a single one.
+
+   Coordinates are in CELLS (grid space), turned into pixels at paint
+   time by fxDraw — so a resize that changes the cell size never leaves
+   an effect stranded at an old scale. */
+const FX = [];
+const FX_CAP = 120;                       /* a hard ceiling: never unbounded */
+function fxPush(o){ if (noMotion()) return; if (FX.length >= FX_CAP) FX.shift(); o.t0 = nowMs(); FX.push(o); }
+
+/* an EAT POP: a quick gold ring plus a few sparks flung outward. Fired
+   at the cell a head just cleared a pellet off. */
+function fxEat(cx, cy, tint){
+  if (noMotion()) return;
+  const sparks = [];
+  const N = 7;
+  for (let i = 0; i < N; i++){
+    const a = (i / N) * 6.2832 + Math.random() * 0.7;
+    const sp = 1.4 + Math.random() * 1.6;
+    sparks.push({ x:cx, y:cy, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp });
+  }
+  fxPush({ k:'eat', x:cx, y:cy, life:360, sparks, tint: tint || '#FFC542' });
+}
+
+/* a DEATH CRUNCH: the snake's segments burst apart, thrown from the head
+   outward, fading fast. A short, loud punctuation to a quiet game. */
+function fxDeath(sn){
+  if (noMotion() || !sn.cells || !sn.cells.length) return;
+  const col = COLS[sn.seat % COLS.length];
+  const bits = [];
+  const step = Math.max(1, Math.floor(sn.cells.length / 14));
+  for (let i = 0; i < sn.cells.length; i += step){
+    const c = sn.cells[i];
+    const a = Math.random() * 6.2832, sp = 1.0 + Math.random() * 2.2;
+    bits.push({ x:c.x + 0.5, y:c.y + 0.5, vx:Math.cos(a) * sp, vy:Math.sin(a) * sp,
+                r:0.28 + Math.random() * 0.14 });
+  }
+  fxPush({ k:'death', life:520, bits, a:col.a, b:col.b });
+}
+
+/* a ROUND-WIN FLOURISH: three gold rings that expand from the winner's
+   head, in the half-second before the result sheet slides up. */
+function fxWin(sn){
+  if (noMotion() || !sn.cells || !sn.cells.length) return;
+  const h = sn.cells[0];
+  fxPush({ k:'win', x:h.x + 0.5, y:h.y + 0.5, life:900 });
+}
+
+/* draw and age the effects. `cell` turns grid space into pixels. */
+function fxDraw(g, cell, now){
+  if (!FX.length) return;
+  for (let i = FX.length - 1; i >= 0; i--){
+    const e = FX[i];
+    const age = now - e.t0;
+    const p = age / e.life;                 /* 0..1 progress */
+    if (p >= 1){ FX.splice(i, 1); continue; }
+    const s = age / 1000;                   /* seconds, for velocity */
+    if (e.k === 'eat'){
+      const rr = cell * (0.32 + p * 0.9);
+      g.globalAlpha = (1 - p) * 0.7;
+      g.strokeStyle = e.tint; g.lineWidth = Math.max(1, cell * 0.09 * (1 - p));
+      g.beginPath(); g.arc(e.x * cell, e.y * cell, rr, 0, 6.2832); g.stroke();
+      g.fillStyle = e.tint; g.globalAlpha = (1 - p);
+      for (let k = 0; k < e.sparks.length; k++){
+        const sp = e.sparks[k];
+        const px = (sp.x + sp.vx * s * 6) * cell, py = (sp.y + sp.vy * s * 6) * cell;
+        g.beginPath(); g.arc(px, py, Math.max(0.6, cell * 0.10 * (1 - p)), 0, 6.2832); g.fill();
+      }
+    } else if (e.k === 'death'){
+      g.globalAlpha = (1 - p);
+      for (let k = 0; k < e.bits.length; k++){
+        const bt = e.bits[k];
+        const px = (bt.x + bt.vx * s * 5) * cell, py = (bt.y + bt.vy * s * 5) * cell;
+        g.fillStyle = (k & 1) ? e.a : e.b;
+        const rr = cell * bt.r * (1 - p * 0.5);
+        roundRect(g, px - rr, py - rr, rr * 2, rr * 2, rr * 0.5); g.fill();
+      }
+    } else if (e.k === 'win'){
+      for (let ring = 0; ring < 3; ring++){
+        const rp = Math.max(0, p - ring * 0.16);
+        if (rp <= 0 || rp >= 1) continue;
+        g.globalAlpha = (1 - rp) * 0.5;
+        g.strokeStyle = '#FFC542'; g.lineWidth = Math.max(1, cell * 0.12 * (1 - rp));
+        g.beginPath(); g.arc(e.x * cell, e.y * cell, cell * (0.4 + rp * 3.2), 0, 6.2832); g.stroke();
+      }
+    }
+  }
+  g.globalAlpha = 1;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1157,6 +1261,8 @@ function paintCountdown(beat){
 
 /* ── somebody's snake stopped ─────────────────────────────────────── */
 function onDeath(seat, why){
+  const sn = M.st.snakes[seat];
+  if (sn) fxDeath(sn);                     /* the crunch — segments scatter */
   if (seat === M.me){
     cue('duel.destroy', { gain:0.8 }, true);
     if (M.ctx) P.ui.setTurn(M.ctx, {
@@ -1260,12 +1366,61 @@ function finish(){
     } catch(e){}
   }
 
+  /* the winner's head throws three gold rings in the half-second before
+     the result sheet — the flourish, drawn on the same canvas */
+  if (tbl.length){
+    const champ = M.st.snakes[tbl[0].seat];
+    if (champ) fxWin(champ);
+  }
+
   cue(won ? 'game.win' : 'game.lose', { gain:0.9 }, true);
   setTimeout(() => { if (M && !M.dead) showResult(tbl, won); }, 620);
 }
 
+/* the seat colours, in ir-rebbieħ's own palette vocabulary, so the podium
+   frames each snake in the colour it wore in the arena */
+const REB_BORDER = ['jade', 'ruby', 'ice', 'gold', 'neon', 'fire', 'ice', 'silver'];
+
 function showResult(tbl, won){
   if (!M || !M.ctx) return;
+  const solo = !M.net;
+  const again = () => { if (M.net) rematchAsk(); else newGame(M.opts); };
+  const back  = () => { const nx = M.net; leave();
+                        if (nx && nx.onLeave) nx.onLeave(); else menu(); };
+
+  /* IR-REBBIEĦ — the shared podium winner screen (bomba/briks use the same).
+     Rows are the final standings; the seat colour rides in as `border` and
+     the machine's chairs are flagged so it can mark them. Avatars are null:
+     the app's avatar art is its own span system, so rebbieh draws the
+     handsome initials tile. */
+  const R2 = window.KARTI_REBBIEH;
+  if (R2 && R2.show){
+    R2.show({
+      lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+      reduced: noMotion(),
+      title: won ? T('You are the last one moving', 'Int l-aħħar wieħed miexi')
+                 : T('Out', 'Barra'),
+      subtitle: T('Last snake moving takes the round', 'L-aħħar serp miexi jieħu r-round'),
+      rows: tbl.map((r, i) => {
+        const m = M.meta[r.seat] || {};
+        return {
+          name: m.name || ('#' + (r.seat + 1)),
+          place: i + 1,
+          you: r.seat === M.me,
+          bot: (m.own === 'ai'),
+          score: r.score,
+          border: REB_BORDER[r.seat % REB_BORDER.length]
+        };
+      }),
+      sound: id => cue(id, { gain:0.6 }),
+      playAgainLabel: M.net ? T('Back to the room', 'Lura għall-kamra') : T('Play again', 'Erġa’ lgħab'),
+      onPlayAgain: again,
+      onLeave: back
+    });
+    return;
+  }
+
+  /* fallback: the board's own tally card, if ir-rebbieħ is not present */
   const rows = tbl.map((r, i) => {
     const c = COLS[r.seat % COLS.length];
     const m = M.meta[r.seat] || {};
@@ -1284,13 +1439,11 @@ function showResult(tbl, won){
     quip: won ? T('Nothing left to hit but the walls.', 'Ma fadal xejn x’taħbat miegħu ħlief il-ħitan.')
               : T('The wall was always going to be there.', 'Il-ħajt dejjem kien se jkun hemm.'),
     buttons: [
-      { label: T('Again', 'Erġa'), icon:'refresh', cls:'primary',
-        go: () => { if (M.net) rematchAsk(); else newGame(M.opts); } },
-      { label: T('Back', 'Lura'), icon:'back', cls:'ghost',
-        go: () => { const nx = M.net; leave();
-                    if (nx && nx.onLeave) nx.onLeave(); else menu(); } }
+      { label: T('Again', 'Erġa'), icon:'refresh', cls:'primary', go: again },
+      { label: T('Back', 'Lura'), icon:'back', cls:'ghost', go: back }
     ]
   });
+  void solo;
 }
 
 function rematchAsk(){
@@ -1415,8 +1568,15 @@ function onlineRemote(seat, wire){
     M.st.claims.push({ i:mv.idx, s:g, t:mv.tick });
     E.plan(M.st, sn, { t:mv.tick, k:'eat', n:mv.idx });
     const mineWas = M.st.snakes[M.me] ? M.st.snakes[M.me].score : 0;
+    const wasScore = sn.score;
     resettle();
     smoothFrom(sn, was);
+    /* a remote snake's eat pops in its own colour, but only if the court
+       actually awarded it the pellet (its score really went up) */
+    if (sn.score > wasScore && sn.cells && sn.cells[0]){
+      const kit = KIT.skin(sn.seat);
+      fxEat(sn.cells[0].x + 0.5, sn.cells[0].y + 0.5, kit.a);
+    }
     const mineNow = M.st.snakes[M.me] ? M.st.snakes[M.me].score : 0;
     if (mineNow < mineWas){
       /* we lost a pellet we thought we had. Say so — silently taking
@@ -1549,14 +1709,40 @@ P.online.serp = {
 
 /* ═══════════════════════════════════════════════════════════════════
    THE ENTRY SCREEN — MINIMAL, the shape ludu/kanun/bomba use. Screen
-   one is a hero, a blurb, ONE big mode button (PLAY WITH AI — SERP's
-   online is intentionally dark, see the lobby note below, so there is no
-   dead PLAY ONLINE button here) and a HOW TO PLAY that slides the rules
-   up over the menu. Nothing else. Every picker — how many snakes, how
-   fast, how hard the machine is — lives on the SECOND step (aiSetup),
-   reached only after PLAY WITH AI, behind sensible defaults so a player
-   can just start. Presentation only: newGame still gets {seats,speed,lvl}.
+   one is a hero, a blurb, PLAY ONLINE on top (emphasised) then PLAY WITH
+   AI, and a HOW TO PLAY that slides the rules up over the menu. Nothing
+   else — no pass-the-phone (SERP is real-time simultaneous) and no
+   settings wall (snakes/speed/difficulty live on the SECOND step). Every
+   picker lives on aiSetup, reached after PLAY WITH AI, behind sensible
+   defaults so a player can just start. PLAY ONLINE routes into the shared
+   party lobby (bomba/briks' openOnline pattern): if the relay knows the
+   word it opens a room; if not, an honest toast and a drop into the AI
+   step, so the tap is never a dead end. Presentation only: newGame still
+   gets {seats,speed,lvl}.
    ═══════════════════════════════════════════════════════════════════ */
+
+/* PLAY ONLINE — route into the shared party lobby if the app offers one
+   (the relay opens a real serp room once it knows the word); otherwise
+   say the honest status through a toast and drop into the AI step so the
+   tap is never a dead end. This is bomba/briks' openOnline, verbatim in
+   shape — the online engine, wire and controller are already live on
+   P.online.serp and the R.lobby contract above. */
+function goOnline(){
+  try {
+    if (P.lobbyFor){ P.lobbyFor('serp'); return; }
+    if (P.openLobby){ P.openLobby('serp'); return; }
+    if (window.KARTI_MP && KARTI_MP.GAMES && KARTI_MP.GAMES.some &&
+        KARTI_MP.GAMES.some(g => (g && g.k) === 'serp')){
+      if (KARTI_MP.openRoom){ KARTI_MP.openRoom('serp'); return; }
+    }
+  } catch(e){}
+  try { K.toast(T('Online rooms for SERP are not open on the server yet — playing the machine.',
+                  'Il-kmamar onlajn għal SERP għadhom mhux miftuħa fuq is-server — ' +
+                  'nilagħbu mal-magna.')); } catch(e){}
+  cue('ui.denied', { gain:0.6 });
+  aiSetup();
+}
+
 function heroCanvas(){
   /* the identity piece: a snake drawn with the real renderer's geometry
      so the menu and the arena are unmistakably the same game.
@@ -1615,10 +1801,12 @@ function menu(){
       (ST.best ? '<p class="blurb" style="color:var(--gold,#FFC542)">' +
         esc(T('Your best: ', 'L-aħjar tiegħek: ') + ST.best) + '</p>' : '') +
 
-      /* ── the modes, big and few. SERP online is deliberately dark, so
-         there is exactly one: PLAY WITH AI, then HOW TO PLAY. ── */
+      /* ── the modes, big and few: PLAY ONLINE on top and emphasised,
+         PLAY WITH AI below, then HOW TO PLAY. ── */
       '<div class="sp-modes" style="display:grid;gap:9px;margin-top:6px">' +
-        '<button class="btn primary" id="sp-ai">' + ico('dice') + ' ' +
+        '<button class="btn primary" id="sp-online">' + ico('globe') + ' ' +
+          esc(T('Play online', 'Ilgħab onlajn')) + '</button>' +
+        '<button class="btn ghost" id="sp-ai">' + ico('dice') + ' ' +
           esc(T('Play with the machine', 'Ilgħab mal-magna')) + '</button>' +
         '<button class="btn ghost" id="sp-rulesbtn">' + ico('book') + ' ' +
           esc(T('How to play', 'Kif tilgħab')) + '</button>' +
@@ -1650,6 +1838,7 @@ function menu(){
 
   /* BACK GOES BACK — straight to the hub, no confirm popup */
   el.querySelector('#sp-back').onclick = () => { cue('ui.back', { gain:0.7 }); P.hub(); };
+  el.querySelector('#sp-online').onclick = () => { cue('ui.tap', { gain:0.7 }); goOnline(); };
   el.querySelector('#sp-ai').onclick = () => aiSetup();
 
   /* the rules slide-up */
@@ -1806,21 +1995,33 @@ try {
        the budget with room to spare, and that is not luck: it is the
        reason the design broadcasts events and not state.
 
-   So this contract is published — SERP is a first-class citizen of the
-   room list the day the word is known — and canStart() REFUSES until
-   then, in words. It is deliberately NOT taught to KARTI_MP.GAMES the
-   way js/rummy-ui.js teaches 'rummy': a game in that list is a game
-   the lobby offers to open a room for, and offering a room the relay
-   will reject is worse than not offering one. js/poker-ui.js took the
-   identical decision for the identical reason.
+   So this contract is published in FULL — SERP is a first-class citizen
+   of the room list — and canStart() now returns ok for a ready table.
+   The ONE remaining thing, and it is not ours to change, is that the
+   relay must know the word "serp" before it will open a room at all:
+
+     ── THE INTEGRATION (four lines, mirroring kanun/bomba/briks) ──
+       1. server/karti_server.py  TABLES += ("serp",)
+       2. server/karti_server.py  GAME_SEATS['serp'] = (2, 8)   # min..max
+       3. js/mp.js  GAMES += { k:'serp', name:'Is-Serp', short:'SERP',
+                               icon:'dice', blurb:'...' }
+       4. js/mp.js  LOBBY_GLOBAL.serp = 'KARTI_SERP'
+     (SEATS_FALLBACK is optional — R.lobby publishes minSeats/maxSeats, so
+      the shared lobby reads them from the contract, not the fallback.)
+
+   The day those land, PLAY ONLINE below opens a real room and canStart()
+   lets it go. Until then P.lobbyFor('serp') / openLobby fall through to
+   an honest toast and the AI step — the tap is never a dead end.
    ═══════════════════════════════════════════════════════════════════ */
 const ONLINE_WHY = T(
-  'Online SERP is written and ready on this phone, but the KARTI server does not know the ' +
-  'word "serp" yet, so it will not open a room for it. Nothing here is missing — one line ' +
-  'on the server is. Until then, SERP is you against the machine.',
-  'SERP onlajn hu miktub u lest fuq dan it-telefon, imma s-server tal-KARTI għadu ma jafx ' +
-  'il-kelma "serp", mela mhux se jiftaħ kamra għaliha. Xejn hawn ma jonqos — linja waħda ' +
-  'fuq is-server tonqos. Sa dakinhar, SERP hu int kontra l-magna.');
+  'Online SERP is written, wired and tested on this phone — real-time prediction, a jitter ' +
+  'buffer and a refereeless pellet court. It needs the KARTI server to know the word "serp" ' +
+  'so it can open a room; four lines add it, alongside bomba and briks. Until then, SERP is ' +
+  'you against the machine.',
+  'SERP onlajn hu miktub, imqabbad u ttestjat fuq dan it-telefon — bi tbassir ħaj, jitter ' +
+  'buffer u qorti tal-ballun bla referi. Irid biss li s-server tal-KARTI jkun jaf il-kelma ' +
+  '"serp" biex jiftaħ kamra; erba’ linji jżiduha, ħdejn bomba u briks. Sa dakinhar, SERP hu ' +
+  'int kontra l-magna.');
 
 R.lobby = {
   id:'serp',
@@ -1833,7 +2034,24 @@ R.lobby = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why: ONLINE_WHY }; },
+  /* ONLINE IS ON. A ready table starts. The only questions the lobby is
+     authoritative about are how many are round the arena and whether the
+     people (never the machine) have said ready — the same shape ludu and
+     battleship publish. The relay must know the word "serp" for a room to
+     open at all (see THE INTEGRATION note below); once it does, this ok is
+     what lets the room go. */
+  canStart(seatList){
+    const n = (seatList || []).length;
+    if (n < E.MIN_SEATS) return { ok:false, why: T('You need at least two snakes in the arena.',
+                                                   'Trid mill-inqas żewġ sriep fl-arena.') };
+    if (n > E.MAX_SEATS) return { ok:false, why: T('Eight snakes is all one arena holds.',
+                                                   'Tmien sriep huma daqs kemm iżżomm arena.') };
+    const unready = (seatList || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (unready) return { ok:false, why: unready + (unready > 1
+        ? T(' players are not ready yet.', ' plejers għadhom mhux lesti.')
+        : T(' player is not ready yet.', ' plejer għadu mhux lest.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () =>
     '<p>' + T('Two to eight snakes in one walled arena, all moving at once. Eat the gold to ' +
       'score and grow. Hit a wall, your own tail or anybody else and you are out.',

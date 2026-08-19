@@ -161,7 +161,9 @@ const GAMES = [
   { k:'cards2131', name:'21 u 31', short:'21·31', icon:'cards',
     blurb:'Blackjack against the dealer, or Scat for your lives.' },
   { k:'ludu',  name:'Ludu',      short:'LUDU',  icon:'dice',
-    blurb:'Four tokens, one lap, no mercy.' }
+    blurb:'Four tokens, one lap, no mercy.' },
+  { k:'serp',  name:'Is-Serp',    short:'SERP',  icon:'dice',
+    blurb:'Grow, don\'t crash, eat the rest.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -222,7 +224,9 @@ const LOBBY_GLOBAL = {
   poker:'KARTI_POKER', cards2131:'KARTI_BLACKJACK',
   /* Ludo — no hidden hands; online is honest off the shared seed (only the
      dice are seeded, which the game documents). */
-  ludu:'KARTI_LUDU'
+  ludu:'KARTI_LUDU',
+  /* Snake — real-time, no hidden info; online is honest. */
+  serp:'KARTI_SERP'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].

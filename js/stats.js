@@ -356,6 +356,15 @@ function esc(s){
     return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
   });
 }
+/* The house language idiom. Every player-visible string in this file goes
+   through T(en, mt) so the record book speaks whichever language the rest of
+   KARTI is in. No hard dependency on lang.js — English is the fallback. */
+function T(en, mt){
+  try {
+    if (window.KARTI_LANG && typeof KARTI_LANG.t === 'function') return KARTI_LANG.t(en, mt);
+  } catch (e){}
+  return en;
+}
 function ico(n, label){
   if (window.ICO) return window.ICO(n, label);
   return '';
@@ -368,14 +377,14 @@ function pct(w, p){ return p ? Math.round((w / p) * 100) : 0; }
 function when(ms){
   if (!ms) return '';
   var s = Math.floor((Date.now() - ms) / 1000);
-  if (s < 90) return 'just now';
-  if (s < 3600) return Math.floor(s / 60) + ' min ago';
-  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  if (s < 90) return T('just now', 'issa');
+  if (s < 3600) return Math.floor(s / 60) + T(' min ago', ' min ilu');
+  if (s < 86400) return Math.floor(s / 3600) + T('h ago', 's ilu');
   var d = Math.floor(s / 86400);
-  if (d === 1) return 'yesterday';
-  if (d < 30) return d + ' days ago';
+  if (d === 1) return T('yesterday', 'ilbieraħ');
+  if (d < 30) return d + T(' days ago', ' ijiem ilu');
   var mo = Math.floor(d / 30);
-  return mo < 12 ? mo + ' months ago' : Math.floor(d / 365) + 'y ago';
+  return mo < 12 ? mo + T(' months ago', ' xhur ilu') : Math.floor(d / 365) + T('y ago', ' snin ilu');
 }
 
 /* The one line under each game's name. Different games brag about
@@ -383,15 +392,15 @@ function when(ms){
    this turns it into English. Nothing is invented: if the number was
    never set the row says so plainly instead of printing a zero. */
 function signature(def, e){
-  if (!e || !e.p) return 'Not played yet';
+  if (!e || !e.p) return T('Not played yet', 'Għadu ma ntlagħabx');
   var bits = [];
-  if (def.sig === 'moves' && e.bm) bits.push('Quickest win in ' + e.bm + ' moves');
-  else if (def.sig === 'score' && e.sc) bits.push('Best score ' + e.sc.toLocaleString('en-GB'));
-  else if (def.sig === 'money' && e.sc) bits.push('Richest game EUR ' + e.sc.toLocaleString('en-GB'));
-  if (!bits.length && e.bs > 1) bits.push('Best run ' + e.bs + ' in a row');
-  if (!bits.length && e.bt) bits.push('Fastest win ' + Math.round(e.bt / 1000) + 's');
-  if (!bits.length) bits.push(e.p === 1 ? 'One game played' : e.p + ' games played');
-  if (e.cs > 1) bits.push('on ' + e.cs + ' now');
+  if (def.sig === 'moves' && e.bm) bits.push(T('Quickest win in ' + e.bm + ' moves', 'L-eħfef rebħa f\'' + e.bm + ' mossi'));
+  else if (def.sig === 'score' && e.sc) bits.push(T('Best score ', 'L-aħjar punteġġ ') + e.sc.toLocaleString('en-GB'));
+  else if (def.sig === 'money' && e.sc) bits.push(T('Richest game EUR ', 'L-agħna logħba EUR ') + e.sc.toLocaleString('en-GB'));
+  if (!bits.length && e.bs > 1) bits.push(T('Best run ' + e.bs + ' in a row', 'L-aħjar sensiela ' + e.bs));
+  if (!bits.length && e.bt) bits.push(T('Fastest win ' + Math.round(e.bt / 1000) + 's', 'L-eħfef rebħa ' + Math.round(e.bt / 1000) + 's'));
+  if (!bits.length) bits.push(e.p === 1 ? T('One game played', 'Logħba waħda') : T(e.p + ' games played', e.p + ' logħbiet'));
+  if (e.cs > 1) bits.push(T('on ' + e.cs + ' now', 'fuq ' + e.cs + ' issa'));
   else if (e.at) bits.push(when(e.at));
   return bits.join(' · ');
 }
@@ -457,6 +466,37 @@ function coin(initial){
            '<span class="sx-coinrim" aria-hidden="true"></span>' +
            '<span class="sx-coinch">' + esc(initial) + '</span>' +
          '</span>';
+}
+
+/* A five-point crown, drawn once for the leaderboard's first place — the
+   same visual language as the winner screen (js/rebbieh.js). No image, no
+   emoji, just a gold-gradient SVG. */
+function crownSVG(){
+  return '<svg class="sx-crown" viewBox="0 0 40 26" aria-hidden="true">' +
+    '<defs><linearGradient id="sxCrownG" x1="0" y1="0" x2="0" y2="1">' +
+    '<stop offset="0" stop-color="#FFF3CF"/><stop offset=".5" stop-color="#FFC542"/>' +
+    '<stop offset="1" stop-color="#C77A00"/></linearGradient></defs>' +
+    '<path d="M2 9 L10 15 L20 4 L30 15 L38 9 L34.5 24 L5.5 24 Z" ' +
+    'fill="url(#sxCrownG)" stroke="#7a4d00" stroke-width="1" stroke-linejoin="round"/>' +
+    '<circle cx="2" cy="9" r="2.3" fill="url(#sxCrownG)"/>' +
+    '<circle cx="38" cy="9" r="2.3" fill="url(#sxCrownG)"/>' +
+    '<circle cx="20" cy="4" r="2.5" fill="url(#sxCrownG)"/></svg>';
+}
+
+/* A player's face for a leaderboard row, in whatever size the row wants. Uses
+   the shared avatar renderer (js/progress.js) — real photo, drawn face, or a
+   coloured initials tile — and never emits a broken image. */
+function faceHTML(row, size){
+  try {
+    if (window.KARTI_XP && KARTI_XP.avatarHTML)
+      return KARTI_XP.avatarHTML(row.name || '?', { size:size, hint:row.av,
+        border:row.bd, who:row.u, pv:row.pv });
+  } catch (e){}
+  var ch = String(row.name || '?').replace(/[^\p{L}\p{N}]/gu, '').charAt(0).toUpperCase() || '?';
+  return '<span style="width:100%;height:100%;display:grid;place-items:center;' +
+         'background:linear-gradient(160deg,#2A2050,#150F26);color:var(--gold);' +
+         'font-family:var(--disp);font-weight:900;font-size:' + Math.round(size * 0.42) +
+         'px">' + esc(ch) + '</span>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -541,7 +581,7 @@ function injectCSS(){
     '#scr-stats .sx-head{display:flex;align-items:center;gap:13px;padding:13px;border-radius:16px;' +
       'background:linear-gradient(150deg,rgba(138,92,255,.20),rgba(27,20,48,.92) 62%);' +
       'border:1px solid var(--line2);flex:0 0 auto;margin-bottom:9px}' +
-    '#scr-stats .sx-idn{min-width:0;flex:1}' +
+    '#scr-stats .sx-idn{min-width:0;flex:1 1 auto;display:flex;flex-direction:column;align-items:flex-start}' +
     '#scr-stats .sx-idn h3{font-size:17px;letter-spacing:.04em;text-transform:uppercase;' +
       'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
     '#scr-stats .sx-idn .sx-sub{display:flex;align-items:center;gap:5px;margin-top:4px;' +
@@ -586,6 +626,27 @@ function injectCSS(){
       'font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;font-weight:700;' +
       'color:var(--dim2);margin:0 2px 10px}' +
     '#scr-stats .sx-rate b{color:var(--gold);font-weight:900}' +
+
+    /* ── the win-rate ring: the hero number of the profile head ── */
+    '#scr-stats .sx-badges{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap;max-width:100%}' +
+    '#scr-stats .sx-ring{margin-left:2px}' +
+    '#scr-stats .sx-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;' +
+      'border-radius:99px;background:rgba(255,255,255,.05);border:1px solid var(--line);' +
+      'font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;font-weight:700;color:var(--dim)}' +
+    '#scr-stats .sx-badge b{color:var(--txt);font-weight:900;font-variant-numeric:tabular-nums}' +
+    '#scr-stats .sx-badge .ico{font-size:1.15em;color:var(--gold)}' +
+    '#scr-stats .sx-ring{position:relative;flex:0 0 auto;width:62px;height:62px;border-radius:50%;' +
+      'display:grid;place-items:center;' +
+      'background:conic-gradient(var(--gold) calc(var(--v,0)*1%),rgba(255,255,255,.08) 0)}' +
+    '@supports not (background:conic-gradient(red 10%,blue 0)){' +
+      '#scr-stats .sx-ring{background:rgba(255,197,66,.14);border:2px solid var(--gold)}}' +
+    '#scr-stats .sx-ring-in{position:absolute;inset:5px;border-radius:50%;background:var(--panel);' +
+      'display:grid;place-items:center;text-align:center;line-height:1}' +
+    '#scr-stats .sx-ring-in b{font-family:var(--disp);font-weight:900;font-size:19px;color:var(--gold);' +
+      'font-variant-numeric:tabular-nums}' +
+    '#scr-stats .sx-ring-in b em{font-style:normal;font-size:11px;margin-left:1px}' +
+    '#scr-stats .sx-ring-in i{display:block;font-style:normal;margin-top:1px;font-size:8px;' +
+      'letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--dim2)}' +
 
     /* ── the list ── */
     '#scr-stats .sx-list{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;' +
@@ -641,12 +702,62 @@ function injectCSS(){
     '#scr-stats .sx-filter{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;flex:0 0 auto;' +
       'margin:0 -12px 9px;padding:1px 12px 5px;scrollbar-width:none}' +
     '#scr-stats .sx-filter::-webkit-scrollbar{display:none}' +
-    '#scr-stats .sx-filter button{flex:0 0 auto;min-height:34px;padding:0 12px;border-radius:99px;' +
+    '#scr-stats .sx-filter button{flex:0 0 auto;min-height:36px;padding:0 14px;border-radius:99px;' +
       'background:var(--panel);border:1px solid var(--line);color:var(--dim);white-space:nowrap;' +
-      'font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;' +
-      'transition:.15s var(--ease)}' +
-    '#scr-stats .sx-filter button[aria-pressed="true"]{background:var(--gold);color:#241800;' +
-      'border-color:#FFE9B0}' +
+      'font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;' +
+      'transition:transform .12s var(--ease),background .15s var(--ease),color .15s var(--ease),' +
+      'border-color .15s var(--ease),box-shadow .15s var(--ease)}' +
+    '#scr-stats .sx-filter button:active{transform:scale(.94)}' +
+    '#scr-stats .sx-filter button[aria-pressed="true"]{color:#241800;border-color:#FFE9B0;' +
+      'background:linear-gradient(180deg,#FFE39A,var(--gold));' +
+      'box-shadow:0 3px 12px rgba(255,197,66,.32)}' +
+
+    /* ── the podium: top three, lifted onto risers, matching the winner screen ── */
+    '#scr-stats .sx-podium{position:relative;flex:0 0 auto;display:flex;justify-content:center;' +
+      'align-items:flex-end;gap:8px;margin:2px 0 11px;padding-top:22px}' +
+    '#scr-stats .sx-pcol{position:relative;display:flex;flex-direction:column;align-items:center;' +
+      'flex:0 1 33%;min-width:0;justify-content:flex-end}' +
+    '#scr-stats .sx-pcol.p1{order:2;z-index:3}' +
+    '#scr-stats .sx-pcol.p2{order:1;z-index:2}' +
+    '#scr-stats .sx-pcol.p3{order:3;z-index:1}' +
+    /* the framed avatar ring — gold/silver/bronze */
+    '#scr-stats .sx-pav{position:relative;border-radius:50%;display:grid;place-items:center;' +
+      'flex:0 0 auto;overflow:hidden;background:var(--panel2);' +
+      'box-shadow:0 4px 14px rgba(0,0,0,.45)}' +
+    '#scr-stats .sx-pav .kx-av,#scr-stats .sx-pav img,#scr-stats .sx-pav>span{' +
+      'width:100%!important;height:100%!important;border-radius:50%!important}' +
+    '#scr-stats .sx-pcol.p1 .sx-pav{width:78px;height:78px;box-shadow:0 0 0 3px #FFD979,' +
+      '0 0 22px rgba(255,197,66,.4),0 5px 16px rgba(0,0,0,.5)}' +
+    '#scr-stats .sx-pcol.p2 .sx-pav{width:60px;height:60px;box-shadow:0 0 0 2.5px #D8DDE8,' +
+      '0 4px 12px rgba(0,0,0,.45)}' +
+    '#scr-stats .sx-pcol.p3 .sx-pav{width:60px;height:60px;box-shadow:0 0 0 2.5px #E0955A,' +
+      '0 4px 12px rgba(0,0,0,.45)}' +
+    /* the ranked medal badge on the avatar */
+    '#scr-stats .sx-medal{position:absolute;right:-3px;bottom:-3px;width:24px;height:24px;' +
+      'border-radius:50%;display:grid;place-items:center;font-family:var(--disp);font-weight:900;' +
+      'font-size:12px;color:#241800;z-index:4;border:2px solid var(--bg);' +
+      'font-variant-numeric:tabular-nums;background:linear-gradient(180deg,#FFDE8B,var(--gold))}' +
+    '#scr-stats .sx-pcol.p2 .sx-medal{background:linear-gradient(180deg,#EFEFF6,#B9B9C8)}' +
+    '#scr-stats .sx-pcol.p3 .sx-medal{background:linear-gradient(180deg,#E7A87A,#B87333)}' +
+    /* the crown over first, drawn SVG */
+    '#scr-stats .sx-crown{position:absolute;left:50%;top:-19px;width:40px;height:26px;' +
+      'margin-left:-20px;z-index:5;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))}' +
+    '#scr-stats .sx-you-tag{position:absolute;left:-6px;bottom:-4px;z-index:6;font-family:var(--disp);' +
+      'font-weight:900;font-size:8px;letter-spacing:.1em;color:#241800;background:var(--gold);' +
+      'border-radius:99px;padding:1px 5px;border:2px solid var(--bg)}' +
+    '#scr-stats .sx-pname{margin-top:7px;font-family:var(--disp);font-weight:800;font-size:11.5px;' +
+      'max-width:100%;text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+      'line-height:1.15;padding:0 2px}' +
+    '#scr-stats .sx-pcol.p1 .sx-pname{font-size:13px;color:var(--gold)}' +
+    '#scr-stats .sx-pscore{margin-top:1px;font-family:var(--disp);font-weight:900;font-size:11px;' +
+      'color:var(--dim);font-variant-numeric:tabular-nums}' +
+    '#scr-stats .sx-pcol.p1 .sx-pscore{color:#FFE39A}' +
+    '#scr-stats .sx-riser{margin-top:7px;width:82%;border-radius:8px 8px 0 0;border:1px solid var(--line);' +
+      'border-bottom:0;background:linear-gradient(180deg,var(--panel2),var(--panel))}' +
+    '#scr-stats .sx-pcol.p1 .sx-riser{height:26px;border-color:rgba(255,197,66,.4);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.26),rgba(255,197,66,.04))}' +
+    '#scr-stats .sx-pcol.p2 .sx-riser{height:17px}' +
+    '#scr-stats .sx-pcol.p3 .sx-riser{height:11px}' +
 
     '#scr-stats .sx-state{display:flex;align-items:center;gap:9px;margin:0 0 9px;padding:9px 12px;' +
       'border-radius:12px;font-size:12.5px;line-height:1.45;flex:0 0 auto;' +
@@ -665,30 +776,60 @@ function injectCSS(){
       'font-size:10.5px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;' +
       'font-family:var(--disp)}' +
 
-    '#scr-stats .sx-lrow{display:grid;grid-template-columns:34px minmax(0,1fr) auto;align-items:center;' +
-      'column-gap:10px;padding:9px 11px;border-radius:14px;background:var(--panel);' +
-      'border:1px solid var(--line);flex:0 0 auto}' +
-    '#scr-stats .sx-lrow.me{border-color:var(--gold);background:rgba(255,197,66,.09)}' +
-    '#scr-stats .sx-rank{font-family:var(--disp);font-weight:900;font-size:16px;text-align:center;' +
+    '#scr-stats .sx-lrow{display:grid;grid-template-columns:26px 38px minmax(0,1fr) auto;' +
+      'align-items:center;column-gap:9px;padding:8px 11px 8px 9px;border-radius:14px;' +
+      'background:var(--panel);border:1px solid var(--line);flex:0 0 auto}' +
+    '#scr-stats .sx-lrow.me{border-color:var(--gold);' +
+      'background:linear-gradient(100deg,rgba(255,197,66,.13),var(--panel) 70%);' +
+      'box-shadow:0 0 0 1px rgba(255,197,66,.25),0 4px 14px rgba(255,197,66,.12)}' +
+    '#scr-stats .sx-rank{font-family:var(--disp);font-weight:900;font-size:15px;text-align:center;' +
       'color:var(--dim2);font-variant-numeric:tabular-nums}' +
+    '#scr-stats .sx-rank .ico{font-size:1.05em}' +
     '#scr-stats .sx-lrow.p1 .sx-rank{color:#FFD979}' +
     '#scr-stats .sx-lrow.p2 .sx-rank{color:#D8DDE8}' +
     '#scr-stats .sx-lrow.p3 .sx-rank{color:#E0955A}' +
-    '#scr-stats .sx-lrow.p1{border-color:rgba(255,197,66,.45);' +
-      'background:linear-gradient(100deg,rgba(255,197,66,.14),var(--panel) 62%)}' +
-    '#scr-stats .sx-lrow.p2{border-color:rgba(216,221,232,.28)}' +
-    '#scr-stats .sx-lrow.p3{border-color:rgba(224,149,90,.28)}' +
-    '#scr-stats .sx-who{min-width:0;display:flex;align-items:center;gap:7px}' +
-    '#scr-stats .sx-who b{font-family:var(--disp);font-weight:900;font-size:12.5px;letter-spacing:.05em;' +
+    /* the framed avatar in a ranked row */
+    '#scr-stats .sx-lav{position:relative;width:38px;height:38px;border-radius:11px;flex:0 0 auto;' +
+      'overflow:hidden;background:var(--panel2);box-shadow:inset 0 0 0 1px var(--line)}' +
+    '#scr-stats .sx-lav .kx-av,#scr-stats .sx-lav img,#scr-stats .sx-lav>span{' +
+      'width:100%!important;height:100%!important;border-radius:11px!important}' +
+    '#scr-stats .sx-lrow.p1 .sx-lav{box-shadow:0 0 0 2px #FFD979}' +
+    '#scr-stats .sx-lrow.p2 .sx-lav{box-shadow:0 0 0 2px #D8DDE8}' +
+    '#scr-stats .sx-lrow.p3 .sx-lav{box-shadow:0 0 0 2px #E0955A}' +
+    '#scr-stats .sx-who{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:2px}' +
+    '#scr-stats .sx-who .sx-whorow{display:flex;align-items:center;gap:6px;min-width:0}' +
+    '#scr-stats .sx-who b{font-family:var(--disp);font-weight:900;font-size:12.5px;letter-spacing:.04em;' +
       'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}' +
-    '#scr-stats .sx-who .ico{flex:0 0 auto;color:var(--gold);font-size:1.15em}' +
+    '#scr-stats .sx-who .sx-sig{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;' +
+      'font-weight:700;color:var(--dim2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
     '#scr-stats .sx-mine{flex:0 0 auto;font-size:8.5px;letter-spacing:.12em;font-weight:900;' +
       'text-transform:uppercase;color:#241800;background:var(--gold);border-radius:5px;padding:2px 5px}' +
 
-    '#scr-stats .sx-gap{text-align:center;color:var(--dim2);font-size:15px;letter-spacing:.4em;' +
-      'line-height:1;padding:2px 0;flex:0 0 auto}' +
+    '#scr-stats .sx-gap{display:flex;align-items:center;gap:8px;color:var(--dim2);' +
+      'padding:3px 6px;flex:0 0 auto}' +
+    '#scr-stats .sx-gap::before,#scr-stats .sx-gap::after{content:"";flex:1;height:1px;' +
+      'background:linear-gradient(90deg,transparent,var(--line2),transparent)}' +
+    '#scr-stats .sx-gap span{font-size:14px;letter-spacing:.35em;line-height:1}' +
     '#scr-stats .sx-lbl{flex:0 0 auto;margin:9px 4px 1px;font-size:9.5px;letter-spacing:.14em;' +
       'text-transform:uppercase;font-weight:700;color:var(--dim2)}' +
+
+    /* ── entrance: rows and podium columns slide up, compositor only.
+       Applied only under .sx-anim, which is set only when motion is on. ── */
+    '#scr-stats .sx-pcol,#scr-stats .sx-lrow{opacity:1;transform:none}' +
+    '#scr-stats.sx-anim .sx-pcol{opacity:0;transform:translateY(20px)}' +
+    '#scr-stats.sx-anim .sx-lrow{opacity:0;transform:translateY(12px)}' +
+    '#scr-stats.sx-anim.sx-go .sx-pcol{opacity:1;transform:none;' +
+      'transition:opacity .34s var(--ease),transform .42s var(--ease)}' +
+    '#scr-stats.sx-anim.sx-go .sx-pcol.p1{transition-delay:.08s}' +
+    '#scr-stats.sx-anim.sx-go .sx-pcol.p2{transition-delay:0s}' +
+    '#scr-stats.sx-anim.sx-go .sx-pcol.p3{transition-delay:.14s}' +
+    '#scr-stats.sx-anim.sx-go .sx-lrow{opacity:1;transform:none;' +
+      'transition:opacity .3s var(--ease),transform .34s var(--ease)}' +
+    '#scr-stats.sx-anim.sx-go .sx-lrow:nth-child(2){transition-delay:.04s}' +
+    '#scr-stats.sx-anim.sx-go .sx-lrow:nth-child(3){transition-delay:.08s}' +
+    '#scr-stats.sx-anim.sx-go .sx-lrow:nth-child(4){transition-delay:.12s}' +
+    '#scr-stats.sx-anim.sx-go .sx-lrow:nth-child(5){transition-delay:.16s}' +
+    '#scr-stats.sx-anim.sx-go .sx-lrow:nth-child(n+6){transition-delay:.2s}' +
 
     '#scr-stats .sx-empty{margin:auto;padding:26px 18px;text-align:center;color:var(--dim);' +
       'font-size:12.5px;line-height:1.65}' +
@@ -708,8 +849,21 @@ function injectCSS(){
       '#scr-stats .sx-cell b{font-size:20px}' +
       '#scr-stats .sx-head{padding:10px}}' +
 
+    /* short phones: shrink the podium too so the list keeps its room */
+    '@media (max-height:760px){' +
+      '#scr-stats .sx-podium{padding-top:18px;margin-bottom:8px}' +
+      '#scr-stats .sx-pcol.p1 .sx-pav{width:64px;height:64px}' +
+      '#scr-stats .sx-pcol.p2 .sx-pav,#scr-stats .sx-pcol.p3 .sx-pav{width:52px;height:52px}}' +
+
+    /* reduced motion: everything sits at its final state, nothing transitions */
     '.reduced #scr-stats .sx-art,.reduced #scr-stats .sx-coinface{transition:none}' +
-    '.reduced #scr-stats .sx-state.wait .sx-dot{animation:none}';
+    '.reduced #scr-stats .sx-state.wait .sx-dot{animation:none}' +
+    '.reduced #scr-stats .sx-pcol,.reduced #scr-stats .sx-lrow{opacity:1!important;' +
+      'transform:none!important;transition:none!important}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-stats .sx-pcol,#scr-stats .sx-lrow{opacity:1!important;transform:none!important;' +
+      'transition:none!important}' +
+      '#scr-stats .sx-state.wait .sx-dot{animation:none}}';
   document.head.appendChild(st);
 }
 
@@ -801,16 +955,16 @@ function render(){
     '<div class="tbar">' +
       '<button class="iconbtn" id="sx-back" aria-label="Back">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-      '<h2>' + (VIEW === 'board' ? 'Leaderboard' : 'Record Book') + '</h2>' +
+      '<h2>' + (VIEW === 'board' ? T('Leaderboard', 'Klassifika') : T('Record Book', 'Ktieb tar-Rekords')) + '</h2>' +
     '</div>' +
     /* Plain toggle buttons, not role="tab". Tabs owe the screen reader a
        tabpanel to point at and there is not one here — the whole screen
        changes — so aria-pressed is the honest word for what these do. */
     '<div class="sx-seg">' +
       '<button type="button" id="sx-tab-p" aria-pressed="' + (VIEW === 'profile') + '">' +
-        ico('person') + 'My record</button>' +
+        ico('person') + T('My record', 'Ir-rekord tiegħi') + '</button>' +
       '<button type="button" id="sx-tab-b" aria-pressed="' + (VIEW === 'board') + '">' +
-        ico('podium') + 'Everybody</button>' +
+        ico('podium') + T('Everybody', 'Kulħadd') + '</button>' +
     '</div>' +
     (VIEW === 'board' ? boardHTML() : profileHTML());
 
@@ -850,37 +1004,57 @@ function profileHTML(){
   var initial = (name.replace(/[^\p{L}\p{N}]/gu, '') || name || '?').charAt(0).toUpperCase() || '?';
   var s = session();
   var where = s && s.name
-    ? 'Signed in as ' + s.name
-    : (WHO === GUEST ? 'Playing as a guest on this phone' : 'On this phone only');
+    ? T('Signed in as ', 'Illoggjat bħala ') + s.name
+    : (WHO === GUEST ? T('Playing as a guest on this phone', 'Qed tilgħab bħala mistieden fuq dan it-telefon')
+                     : T('On this phone only', 'Fuq dan it-telefon biss'));
 
   var bw = t.played ? (t.won / t.played) * 100 : 0;
   var bd = t.played ? (t.drawn / t.played) * 100 : 0;
   var bl = t.played ? (t.lost / t.played) * 100 : 0;
+  var rate = pct(t.won, t.played);
 
   var list = shelf().map(function(def){ return gameRow(def, DATA.g[def.id]); }).join('');
+
+  /* the win-rate ring — a conic gradient swept to the win %, drawn in CSS.
+     It is the one number the whole cabinet is about, so it is the hero. */
+  var ring = '<span class="sx-ring" style="--v:' + rate + '" role="img" aria-label="' +
+    T('Win rate ', 'Rata ta\' rebħ ') + rate + '%">' +
+      '<span class="sx-ring-in"><b>' + rate + '<em>%</em></b>' +
+        '<i>' + T('won', 'rebħa') + '</i></span></span>';
 
   return '<div class="sx-head">' +
            coin(initial) +
            '<span class="sx-idn"><h3>' + esc(name) + '</h3>' +
              '<span class="sx-sub">' + ico(s && s.name ? 'cloud' : 'person') +
-               '<span>' + esc(where) + '</span></span></span>' +
+               '<span>' + esc(where) + '</span></span>' +
+             '<span class="sx-badges">' +
+               '<span class="sx-badge">' + ico('bolt') +
+                 '<b>' + t.bestStreak + '</b> ' + T('run', 'sensiela') + '</span>' +
+               '<span class="sx-badge">' + ico('cards') +
+                 '<b>' + t.games + '</b> ' + T('games', 'logħob') + '</span>' +
+             '</span>' +
+           '</span>' +
+           ring +
          '</div>' +
          '<div class="sx-score">' +
-           '<div class="sx-cell w"><b>' + t.won + '</b><i>Won</i></div>' +
-           '<div class="sx-cell l"><b>' + t.lost + '</b><i>Lost</i></div>' +
-           '<div class="sx-cell d"><b>' + t.drawn + '</b><i>Drawn</i></div>' +
+           '<div class="sx-cell w"><b>' + t.won + '</b><i>' + T('Won', 'Rebħa') + '</i></div>' +
+           '<div class="sx-cell l"><b>' + t.lost + '</b><i>' + T('Lost', 'Telfa') + '</i></div>' +
+           '<div class="sx-cell d"><b>' + t.drawn + '</b><i>' + T('Drawn', 'Draw') + '</i></div>' +
          '</div>' +
-         '<div class="sx-bar" role="img" aria-label="' + t.won + ' won, ' + t.lost +
-           ' lost, ' + t.drawn + ' drawn">' +
+         '<div class="sx-bar" role="img" aria-label="' + t.won + T(' won, ', ' rebħa, ') + t.lost +
+           T(' lost, ', ' telfa, ') + t.drawn + T(' drawn', ' draw') + '">' +
            '<i class="bw" style="width:' + bw.toFixed(2) + '%"></i>' +
            '<i class="bd" style="width:' + bd.toFixed(2) + '%"></i>' +
            '<i class="bl" style="width:' + bl.toFixed(2) + '%"></i>' +
          '</div>' +
-         '<div class="sx-rate"><span>' + t.played + ' played</span>' +
-           '<span>Win rate <b>' + pct(t.won, t.played) + '%</b></span>' +
-           '<span>Best run <b>' + t.bestStreak + '</b></span></div>' +
+         '<div class="sx-rate"><span>' + t.played + T(' played', ' logħbiet') + '</span>' +
+           '<span>' + T('Win rate ', 'Rata ') + '<b>' + rate + '%</b></span>' +
+           '<span>' + T('Best run ', 'L-aħjar ') + '<b>' + t.bestStreak + '</b></span></div>' +
+         '<div class="sx-lbl">' + T('Trophy cabinet', 'Il-kabinett tat-trofej') + '</div>' +
          '<div class="sx-list">' + list + '</div>' +
-         '<p class="sx-foot">Kept on this phone, for this player. Nothing here is guessed.</p>';
+         '<p class="sx-foot">' +
+           T('Kept on this phone, for this player. Nothing here is guessed.',
+             'Miżmum fuq dan it-telefon, għal dan il-plejer. Xejn hawn m\'hu maħsub.') + '</p>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1025,19 +1199,19 @@ function loadBoard(){
     } else {
       BOARD.state = 'down';
       BOARD.why = r.offline || !r.status
-        ? 'Cannot reach the board from here.'
-        : (r.why || 'The board is not answering.');
+        ? T('Cannot reach the board from here.', 'Ma nistax nilħaq il-klassifika minn hawn.')
+        : (r.why || T('The board is not answering.', 'Il-klassifika mhux twieġeb.'));
     }
     paintBoard();
   }).catch(function(){
     BOARD.state = 'down';
-    BOARD.why = 'Cannot reach the board from here.';
+    BOARD.why = T('Cannot reach the board from here.', 'Ma nistax nilħaq il-klassifika minn hawn.');
     paintBoard();
   });
 }
 
 function boardHTML(){
-  var chips = [{ id:'all', name:'Overall' }].concat(shelf());
+  var chips = [{ id:'all', name:T('Overall', 'Total') }].concat(shelf());
   return '<div class="sx-filter" id="sx-filter">' +
            chips.map(function(c){
              return '<button type="button" data-g="' + esc(c.id) + '" aria-pressed="' +
@@ -1080,11 +1254,11 @@ function wireBoard(el){
 function stateLine(){
   if (BOARD.state === 'loading')
     return '<p class="sx-state wait"><span class="sx-dot"></span>' +
-           '<span class="sx-txt">Asking the Pi who is winning…</span></p>';
+           '<span class="sx-txt">' + T('Asking the Pi who is winning…', 'Nistaqsi lill-Pi min qed jirbaħ…') + '</span></p>';
   if (BOARD.state === 'down')
     return '<p class="sx-state bad"><span class="sx-dot"></span>' +
-           '<span class="sx-txt">' + esc(BOARD.why || 'Cannot reach the board right now.') + '</span>' +
-           '<button type="button" id="sx-retry">Retry</button></p>';
+           '<span class="sx-txt">' + esc(BOARD.why || T('Cannot reach the board right now.', 'Ma nistax nilħaq il-klassifika bħalissa.')) + '</span>' +
+           '<button type="button" id="sx-retry">' + T('Retry', 'Erġa\'') + '</button></p>';
   /* When the board is up there is deliberately NO banner — a green
      "Live from the Pi" line on every tab was noise. Loading and error
      states still speak (you need to know when the board can't be
@@ -1092,27 +1266,55 @@ function stateLine(){
   return '';
 }
 
+/* One ranked row, places 4 and below (the top three are lifted onto the
+   podium above the list). A framed face, the rank, the name with its win
+   rate under it, and the W/L/D. Everybody on the board has a face: yours is
+   the one you picked; somebody else's is derived from their name so the same
+   person is the same face to everyone looking, until a relay build echoes
+   their own `av` back, which avatarFor() prefers the moment it does. */
 function lrow(r, rank, me){
   var cls = 'sx-lrow' + (rank <= 3 ? ' p' + rank : '') + (me ? ' me' : '');
+  var played = (r.w | 0) + (r.l | 0) + (r.d | 0);
+  var sig = played
+    ? pct(r.w | 0, played) + T('% won', '% rebħa') +
+      ((r.bs | 0) > 1 ? ' · ' + T('best run ', 'l-aħjar sensiela ') + (r.bs | 0) : '')
+    : T('no games yet', 'l-ebda logħba');
   return '<div class="' + cls + '">' +
            '<span class="sx-rank">' + rank + '</span>' +
-           '<span class="sx-who">' + (rank === 1 ? ico('trophy') : '') +
-             /* everybody on the board has a face. Yours is the one you
-                picked; somebody else's is derived from their name, so
-                the same person is the same face to everyone looking —
-                until a relay build echoes their own `av` back, which
-                avatarFor() will prefer the moment it does. */
-             (window.KARTI_XP && KARTI_XP.avatarHTML
-               ? KARTI_XP.avatarHTML(r.name || '?', { size:26, hint:r.av,
-                   border:r.bd, who:r.u, pv:r.pv }) : '') +
-             '<b>' + esc(r.name || '?') + '</b>' +
-             (me ? '<span class="sx-mine">You</span>' : '') + '</span>' +
+           '<span class="sx-lav">' + faceHTML(r, 38) + '</span>' +
+           '<span class="sx-who">' +
+             '<span class="sx-whorow"><b>' + esc(r.name || '?') + '</b>' +
+               (me ? '<span class="sx-mine">' + T('You', 'Int') + '</span>' : '') + '</span>' +
+             '<span class="sx-sig">' + esc(sig) + '</span>' +
+           '</span>' +
            '<span class="sx-wld">' +
              '<span class="w">' + (r.w | 0) + '<em>W</em></span>' +
              '<span class="l">' + (r.l | 0) + '<em>L</em></span>' +
              '<span>' + (r.d | 0) + '<em>D</em></span>' +
            '</span>' +
          '</div>';
+}
+
+/* The podium: the top three, lifted onto gold/silver/bronze risers with
+   framed faces and a crown on first — the record book's echo of the winner
+   screen. Rendered in DOM order 1,2,3; CSS `order` lays them centre/left/right. */
+function podium(top){
+  var cols = top.map(function(r, i){
+    var rank = i + 1;
+    var played = (r.w | 0) + (r.l | 0) + (r.d | 0);
+    var score = played ? pct(r.w | 0, played) + '%' : '—';
+    return '<div class="sx-pcol p' + rank + '">' +
+             (rank === 1 ? crownSVG() : '') +
+             '<span class="sx-pav">' + faceHTML(r, rank === 1 ? 78 : 60) +
+               (r.you ? '<span class="sx-you-tag">' + T('YOU', 'INT') + '</span>' : '') +
+               '<span class="sx-medal">' + rank + '</span>' +
+             '</span>' +
+             '<span class="sx-pname">' + esc(r.name || '?') + '</span>' +
+             '<span class="sx-pscore">' + esc(score) + T(' won', ' rebħa') + '</span>' +
+             '<span class="sx-riser" aria-hidden="true"></span>' +
+           '</div>';
+  }).join('');
+  return '<div class="sx-podium">' + cols + '</div>';
 }
 
 /* When the board cannot be had, show the thing that IS true: your own record
@@ -1132,10 +1334,15 @@ function localFallback(){
     t = { won:e.w, lost:e.l, drawn:e.d, played:e.p };
     rows = e.p ? [gameRow(def, e)] : [];
   }
+  var meRate = t.played ? pct(t.won, t.played) + T('% won', '% rebħa') : T('no games yet', 'l-ebda logħba');
   return '<div class="sx-lrow me">' +
            '<span class="sx-rank">' + ico('person') + '</span>' +
-           '<span class="sx-who"><b>' + esc(playerName()) + '</b>' +
-             '<span class="sx-mine">You</span></span>' +
+           '<span class="sx-lav">' + faceHTML({ name:playerName() }, 38) + '</span>' +
+           '<span class="sx-who">' +
+             '<span class="sx-whorow"><b>' + esc(playerName()) + '</b>' +
+               '<span class="sx-mine">' + T('You', 'Int') + '</span></span>' +
+             '<span class="sx-sig">' + esc(meRate) + '</span>' +
+           '</span>' +
            '<span class="sx-wld">' +
              '<span class="w">' + t.won + '<em>W</em></span>' +
              '<span class="l">' + t.lost + '<em>L</em></span>' +
@@ -1144,13 +1351,15 @@ function localFallback(){
          '</div>' +
          (rows.length
            ? '<p class="sx-lbl">' + (session()
-               ? 'Waiting to go up on the board'
-               : 'On this phone — an account puts it on the board') + '</p>' +
+               ? T('Waiting to go up on the board', 'Qed jistenna biex jitla\' fuq il-klassifika')
+               : T('On this phone — an account puts it on the board', 'Fuq dan it-telefon — kont ipoġġih fuq il-klassifika')) + '</p>' +
              rows.join('')
            : '<div class="sx-empty">' + ico('podium') +
-             '<b>Nothing to show yet</b>' +
-             'Play something and win it. Your record is kept on the phone ' +
-             'either way, and goes up the moment the Pi answers again.</div>');
+             '<b>' + T('Nothing to show yet', 'Xejn x\'nuri s\'issa') + '</b>' +
+             T('Play something and win it. Your record is kept on the phone ' +
+               'either way, and goes up the moment the Pi answers again.',
+               'Ilgħab xi ħaġa u irbaħha. Ir-rekord tiegħek jinżamm fuq it-telefon ' +
+               'xorta, u jitla\' hekk kif il-Pi jerġa\' jwieġeb.') + '</div>');
 }
 
 function paintBoard(){
@@ -1161,22 +1370,36 @@ function paintBoard(){
     var rows = BOARD.rows || [];
     if (!rows.length){
       body = '<div class="sx-empty">' + ico('podium') +
-             '<b>Nobody on the board yet</b>' +
-             'Play a game and win it, and this is where your name goes. ' +
-             'You need an account for the board to know who you are.</div>';
+             '<b>' + T('Nobody on the board yet', 'Ħadd fuq il-klassifika s\'issa') + '</b>' +
+             T('Play a game and win it, and this is where your name goes. ' +
+               'You need an account for the board to know who you are.',
+               'Ilgħab logħba u irbaħha, u hawn imur ismek. ' +
+               'Trid kont biex il-klassifika tkun taf min int.') + '</div>';
     } else {
       var mine = (BOARD.you && BOARD.you.u) || '';
-      var shown = {}, out = [];
-      for (var i = 0; i < rows.length; i++){
-        var r = rows[i];
-        shown[r.u] = 1;
-        out.push(lrow(r, i + 1, !!mine && r.u === mine));
+      var shown = {}, i, r;
+      /* mark who is you, so the podium and the rows can both flag it */
+      for (i = 0; i < rows.length; i++){
+        rows[i].you = !!mine && rows[i].u === mine;
+        shown[rows[i].u] = 1;
       }
+      var top = rows.slice(0, 3);
+      var rest = rows.slice(3);
+      var out = [];
+      if (rest.length){
+        for (i = 0; i < rest.length; i++){
+          r = rest[i];
+          out.push(lrow(r, i + 4, !!r.you));
+        }
+      }
+      /* your own row, pinned below the ranking if you fell outside what
+         came down — a leaderboard you are not visible on is no use to you */
       if (mine && BOARD.you && BOARD.you.rank && !shown[mine]){
-        out.push('<div class="sx-gap" aria-hidden="true">···</div>');
+        out.push('<div class="sx-gap" aria-hidden="true"><span>···</span></div>');
         out.push(lrow(BOARD.you, BOARD.you.rank, true));
       }
-      body = out.join('');
+      body = podium(top) + (out.length ? '<div class="sx-lbl">' +
+        T('The ladder', 'Is-sellum') + '</div>' + out.join('') : '');
     }
   } else if (BOARD.state === 'loading'){
     body = '';
@@ -1189,8 +1412,30 @@ function paintBoard(){
      too, or they sit at opacity 0 forever waiting for a load event nobody is
      listening for. */
   wireArt(host);
+  /* the real-photo avatars are lazy: progress.js swaps the initials tile for
+     the fetched face once it lands, so ask it to look over what we just drew */
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(host); } catch (e){}
   var rt = $('#sx-retry', host);
   if (rt) rt.onclick = loadBoard;
+  entrance();
+}
+
+/* The entrance flourish: the podium columns and the first rows slide up once,
+   compositor-only (transform/opacity). Off entirely under reduced motion —
+   the class is never added, so everything is already at its final state. */
+function entrance(){
+  if (!scr) return;
+  var reduced = false;
+  try {
+    reduced = (document.body && document.body.classList.contains('reduced')) ||
+      (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e){}
+  scr.classList.remove('sx-anim', 'sx-go');
+  if (reduced) return;
+  scr.classList.add('sx-anim');
+  requestAnimationFrame(function(){
+    if (scr) requestAnimationFrame(function(){ if (scr) scr.classList.add('sx-go'); });
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
