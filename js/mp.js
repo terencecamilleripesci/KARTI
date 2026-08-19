@@ -1883,7 +1883,16 @@ function onServer(m){
          only thing that starts a game. A DUEL is untouched — same two lines it
          has always run. */
       if (usesTableLobby()){
-        if (m.state === 'joined' || m.state === 'rejoined') K.toast('Somebody sat down.');
+        /* 'joined' is a NEW chair filling; 'rejoined' is a HELD chair coming
+           back. The two must not share a line: a rejoin has to CLEAR the
+           "lost signal — holding their chair" warning that tableSeatGone put
+           up, or the note sits on everyone else's screen forever while the
+           player is back and playing. That missing clear was the whole bug. */
+        if (m.state === 'joined') K.toast('Somebody sat down.');
+        else if (m.state === 'rejoined'){
+          if (MP.live) tableSeatBack(m.seat);
+          else K.toast('Somebody sat down.');
+        }
         else if (m.state === 'left'){
           if (MP.live) tableSeatGone(m.seat, 'left');
           else tableChairFreed(m.seat);
@@ -2748,6 +2757,23 @@ function tableSeatGone(seat, how){
      back, and folding somebody over a lift ride is not this file's call. */
   if (how !== 'dropped' && net && net.hooks && typeof net.hooks.seatGone === 'function'){
     try { net.hooks.seatGone(seat); } catch (e){}
+  }
+}
+
+/* The inverse of a 'dropped' tableSeatGone: a held chair reconnected. Clears
+   the "lost signal — holding their chair" warning the drop put up (net.note
+   with no 'warn' level is the all-clear), says they are back, and gives the
+   game an opt-in hook so a game that seated the ghost out can seat them back
+   in. Without this, a rejoin left every OTHER phone stuck showing the player
+   as still connecting even though they were back — a purely visual stall. */
+function tableSeatBack(seat){
+  const LB = gameLobby(MP.game);
+  const net = LB.net;
+  const name = (MP.roster && MP.roster.who[seat] && MP.roster.who[seat].n) || 'Somebody';
+  if (net && net.note) net.note(name + ' is back.', '');
+  K.toast(name + ' is back.');
+  if (net && net.hooks && typeof net.hooks.seatBack === 'function'){
+    try { net.hooks.seatBack(seat); } catch (e){}
   }
 }
 
