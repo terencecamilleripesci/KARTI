@@ -376,6 +376,50 @@ const LEAD_MS = 2400;
    7x the screen — a big scrolling arena. */
 const VIEW_U = 30;
 
+/* ═══════════════════════════════════════════════════════════════════
+   DYNAMIC CAMERA ZOOM — slither.io / snake.io's own trick, and PURELY a
+   render transform: it scales `UI.ppu` at paint time and NEVER touches the
+   sim. The engine hashes nothing this reads or writes.
+
+   As YOUR snake grows longer it is harder to keep the whole animal on a
+   phone, so the camera eases OUT (fewer pixels per world-unit → more world
+   on screen). Dead/respawned and short again, it eases back IN.
+
+   THE MAP, length -> zoom multiplier on the base ppu:
+     growth = max(0, bodyTicks - SEG_START)         (0 at birth)
+     zoom   = ZOOM_MIN + (1 - ZOOM_MIN) * K/(K + growth)
+   A hyperbola: full base scale (1.0) at the starting length, easing toward
+   ZOOM_MIN as you get long. K sets the half-way point — at growth = K the
+   snake has zoomed HALF of the way from 1.0 to the floor.
+
+   THE CLAMP, and why it is playable at 390×844:
+     Base VIEW_U is 30 units across the shorter (390px) side. ZOOM_MIN 0.55
+     means the most-zoomed-out view shows 30/0.55 ≈ 55 units across — a much
+     wider window, so a long snake and its neighbours read at a glance —
+     while the body diameter of a max-length snake still paints at several
+     px and pellets stay tappable-sized. Past this the world gets too tiny
+     to steer, so it is the floor and we never shrink further.
+   ═══════════════════════════════════════════════════════════════════ */
+const ZOOM_MIN = 0.55;   /* never below 55% of the base scale (playable)  */
+const ZOOM_K   = 120;    /* growth-ticks to reach the half-way zoom        */
+const ZOOM_TAU = 260;    /* ease time-constant (ms); glides, never jumps   */
+
+/* the target multiplier for a given body length (ticks). Pure, no state. */
+function zoomFor(bodyTicks){
+  const growth = Math.max(0, (bodyTicks | 0) - E.SEG_START);
+  const z = ZOOM_MIN + (1 - ZOOM_MIN) * (ZOOM_K / (ZOOM_K + growth));
+  return z < ZOOM_MIN ? ZOOM_MIN : (z > 1 ? 1 : z);
+}
+
+/* the LOCAL snake's current length, in body-ticks — a read, never a write.
+   Falls back to the starting length before the world exists. */
+function currentLen(){
+  try {
+    const me = M && M.st && M.st.snakes[M.me];
+    return me ? (me.bodyTicks | 0) : E.SEG_START;
+  } catch(e){ return E.SEG_START; }
+}
+
 function startMatch(opts, seed, net){
   stopLoop();
   FX.length = 0;
@@ -667,8 +711,12 @@ function fitCanvas(){
   if (!aw || !ah) return;
   UI.vw = aw; UI.vh = ah;
   /* pixels per world-unit: fit VIEW_U units across the SHORTER side, so a
-     portrait phone and a landscape one both see a sensible slice */
-  UI.ppu = Math.min(aw, ah) / VIEW_U;
+     portrait phone and a landscape one both see a sensible slice. This is
+     the BASE scale; the dynamic zoom multiplies it into UI.ppu (below), so
+     the whole renderer reads one number and the follow framing is unchanged. */
+  UI.ppuBase = Math.min(aw, ah) / VIEW_U;
+  if (UI.zoom == null) UI.zoom = zoomFor(currentLen());
+  UI.ppu = UI.ppuBase * UI.zoom;
 
   const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   const px = Math.round(aw * dpr), py = Math.round(ah * dpr);
@@ -704,8 +752,25 @@ function toScreen(wx, wy){
 function draw(f){
   if (!UI || !UI.g2 || !UI.vw) return;
   const st = M.st, g = UI.g2, now = nowMs();
-  decaySmooth(Math.max(0, Math.min(64, now - (UI.lastAt || now))));
+  const dtMs = Math.max(0, Math.min(64, now - (UI.lastAt || now)));
+  decaySmooth(dtMs);
   UI.lastAt = now;
+
+  /* ── DYNAMIC ZOOM — ease the applied scale toward the length's target,
+     frame-rate-independent, then fold it into UI.ppu. This is the ONLY
+     writer of UI.zoom/UI.ppu in the loop; everything camera-relative
+     (toScreen, grid, bounds, minimap, body/pellet sizing) reads UI.ppu, so
+     the zoom composes with the head-follow about screen centre for free.
+     Reduced motion snaps to the target (no glide), like the camera above. */
+  if (UI.ppuBase){
+    const zTarget = zoomFor(currentLen());
+    if (UI.zoom == null || noMotion()) UI.zoom = zTarget;
+    else {
+      const kz = 1 - Math.exp(-dtMs / ZOOM_TAU);
+      UI.zoom += (zTarget - UI.zoom) * kz;
+    }
+    UI.ppu = UI.ppuBase * UI.zoom;
+  }
 
   /* the camera eases toward the local head so a rewind never yanks it */
   const me = st.snakes[M.me];
@@ -1123,7 +1188,7 @@ function board(){
     boostBtn: ctx.host.querySelector('#sp-boost'),
     cd:  ctx.host.querySelector('#sp-cd'),
     rules: ctx.host.querySelector('#sp-rulespanel'),
-    vw:0, vh:0, ppu:12, dpr:1, lastAt:0,
+    vw:0, vh:0, ppu:12, ppuBase:12, zoom:null, dpr:1, lastAt:0,
     stick: null
   };
   M.cv = cv; M.g2 = UI.g2;
@@ -2052,7 +2117,14 @@ try {
       lobby: R.lobby, tile: TILE,
       store: () => ST,
       kit: KIT,
-      toScreen: (x, y) => toScreen(x, y)
+      toScreen: (x, y) => toScreen(x, y),
+      /* zoom test surface: the pure length→scale map, the live eased
+         multiplier and the effective pixels-per-unit the camera paints at */
+      zoomFor, currentLen,
+      zoom: () => (UI ? UI.zoom : null),
+      ppu: () => (UI ? UI.ppu : null),
+      ppuBase: () => (UI ? UI.ppuBase : null),
+      ZOOM_MIN, ZOOM_K
     };
   }
 } catch(e){}

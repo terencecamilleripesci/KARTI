@@ -927,22 +927,36 @@ function resolveBall(st, ball){
         /* a POWER-BALL smashes clean through: it takes the WHOLE brick out in
            one contact (not one hp) and does NOT reflect off it. It still
            bounces off paddles and walls, so it can never tunnel out of the
-           arena — only bricks stop stopping it. */
-        const smash = ball.heavy > 0;
+           arena — only bricks stop stopping it.
+
+           THE BACK ROW IS EXEMPT FROM THE SMASH (the fix for the "wall with
+           the ball destroys you automatically" bug). Row ROWS-1 is the armour
+           row that guards the goal, and it is the ONLY row whose break scores.
+           If the heavy ball ploughed through it too, a single breakthrough
+           behind the paddle drained a point PER back-row brick in one
+           uninterrupted pass — the ball never bounced, so the defender had no
+           chance to return it and lost a fistful of points with zero
+           counterplay. Making the back row REFLECT the heavy ball (and take
+           normal 1-hp damage) restores the contract the non-heavy ball already
+           honours: one breakthrough = at most one scoring bounce, then the ball
+           flies back toward the paddle for a fair rally. The front rows still
+           get ploughed, so the wall-wrecker keeps its satisfying smash. */
+        const backRow = (h.meta.r === ROWS - 1);
+        const smash = ball.heavy > 0 && !backRow;
         if (w.cells[k] > 0){
-          const before = w.cells[k];
           w.cells[k] = smash ? 0 : (w.cells[k] - 1);
           st.broke[h.meta.side] += 1;
           if (w.cells[k] <= 0){
             events.push({ id: 'ev.broke', side: h.meta.side, r: h.meta.r, c: h.meta.c, smash: smash ? 1 : 0 });
             maybeDrop(st, h.meta.side, h.meta.r, h.meta.c);
             /* a hit on the back row scores for the ATTACKER (other team) */
-            if (h.meta.r === ROWS - 1) scoreHit(st, h.meta.side);
+            if (backRow) scoreHit(st, h.meta.side);
           } else {
             events.push({ id: 'ev.brick', side: h.meta.side, r: h.meta.r, c: h.meta.c });
           }
         }
-        /* smash = no reflection off the brick (plough straight on) */
+        /* smash = no reflection off the brick (plough straight on). The back
+           row is never smashed, so a heavy ball always bounces off it. */
         if (!smash){
           if (h.ax & 1) flipX = true;
           if (h.ax & 2) flipY = true;
@@ -1187,8 +1201,16 @@ function applyPowerUp(st, pad, kind){
 function rideStuck(st, ball){
   const p = st.pads[ball.stuckPid];
   if (!p || p.stickyT <= 0){ launchStuck(st, ball, p); return; }
-  /* track the paddle face */
-  ball.x = clamp(p.x + ball.stuckOff, p.lo, p.hi);
+  /* track the paddle face. CLAMP TO [R, W-R], NOT [p.lo, p.hi] (=[0,W]) — the
+     side-wall escape fix. A paddle sitting at the edge of its lane with a ball
+     caught at its far corner (stuckOff = ±hw) would otherwise park the ball at
+     x≈0, i.e. INSIDE the left/right wall's Minkowski box (the wall is inflated
+     by R for the swept test). When it then launched, the ball started already
+     penetrating the wall, so the sweep's entry time was < 0 and the collision
+     was skipped — the ball tunnelled clean out the side. Keeping the ball
+     centre at least R from each wall means it can never be launched from inside
+     one; the sweep always catches the bounce. Pure integer clamp, deterministic. */
+  ball.x = clamp(p.x + ball.stuckOff, R, W - R);
   ball.y = p.side === 0 ? PAD_Y0[0] - R : PAD_Y1[1] + R;
   /* a flick releases it: the owner moved the paddle this tick */
   if (p.vx !== 0) launchStuck(st, ball, p);

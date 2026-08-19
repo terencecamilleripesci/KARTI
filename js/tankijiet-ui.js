@@ -400,7 +400,15 @@ function startMatch(o, seed, net){
     prev: null,              /* last tick's snapshot for interpolation        */
     dead:false, raf:0, t0:0, ledSaid:-1, finished:false,
     stall:0, lead:LEAD_MS,
-    fps:{ n:0, at:0, val:0 }
+    fps:{ n:0, at:0, val:0 },
+    /* ── CAMERA (pure render) ──────────────────────────────────────────
+       Eased world→screen scroll that keeps the LOCAL player framed. Lives
+       only in the renderer; it never feeds a tick, so the lockstep hash is
+       untouched. camX/camY = world-pixel offset of the view's top-left;
+       camReady flags the first snap so the opening frame is not eased from
+       the origin. camLast keeps the last good target so a dead/spectating
+       local tank holds the view on the action instead of jumping home. */
+    camX:0, camY:0, camReady:false, camLastX:0, camLastY:0, camT:0
   };
   M.st = E.newMatch({ map:md, mode:o.mode, seats, humans: net ? undefined : 1, lvl:o.lvl }, M.seed);
   M.prev = snapshot(M.st);
@@ -621,6 +629,14 @@ function onlineRemote(seat, wire){
 /* ═══════════════════════════════════════════════════════════════════
    THE CANVAS — fit on mount/resize only (the one layout read).
    ═══════════════════════════════════════════════════════════════════ */
+/* Choose a cell size so a tank reads clearly, then let the VIEW (canvas)
+   be the available area and the WORLD (full arena) be cell×cols/rows. When
+   the world is larger than the view the camera scrolls to keep the local
+   tank framed; when it is smaller the view just shows all of it, centred.
+   This is what turns "the whole arena is shrunk to fit" (no follow) into a
+   real follow — a pure render/layout choice, nothing the sim sees. */
+const CAM_MIN_CELL = 30;   /* px per cell we aim for so tanks stay legible   */
+const CAM_MAX_CELL = 46;   /* don't zoom in so far a small arena over-scrolls */
 function fitCanvas(){
   if (!UI || !UI.cv || !UI.arena) return;
   const mp = M.st.map, host = UI.host;
@@ -628,15 +644,25 @@ function fitCanvas(){
   const hudH = UI.hud ? UI.hud.offsetHeight : 22;
   const availW = Math.max(160, host.clientWidth - 8);
   const availH = Math.max(160, host.clientHeight - ctrlH - hudH - 18);
-  const cell = Math.max(8, Math.floor(Math.min(availW / mp.cols, availH / mp.rows)));
-  const w = cell * mp.cols, h = cell * mp.rows;
-  UI.cell = cell; UI.w = w; UI.h = h;
+  /* the cell that would fit the whole arena in the view (the old behaviour) */
+  const fitCell = Math.min(availW / mp.cols, availH / mp.rows);
+  /* aim for a legible cell, but never below what fits (so we never leave a
+     gap around a big arena), and cap so a tiny arena isn't over-zoomed */
+  let cell = Math.max(fitCell, CAM_MIN_CELL);
+  cell = Math.min(cell, CAM_MAX_CELL);
+  cell = Math.max(8, Math.floor(cell));
+  const worldW = cell * mp.cols, worldH = cell * mp.rows;
+  /* the visible view = the available box, but never bigger than the world */
+  const w = Math.min(worldW, Math.floor(availW));
+  const h = Math.min(worldH, Math.floor(availH));
+  UI.cell = cell; UI.w = w; UI.h = h; UI.worldW = worldW; UI.worldH = worldH;
   UI.arena.style.width = w + 'px'; UI.arena.style.height = h + 'px';
   const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
   const pxW = Math.round(w*dpr), pxH = Math.round(h*dpr);
   if (UI.cv.width !== pxW || UI.cv.height !== pxH){ UI.cv.width = pxW; UI.cv.height = pxH; }
   UI.dpr = dpr; UI.g2.setTransform(dpr,0,0,dpr,0,0);
   UI.dirtyBg = true;
+  M.camReady = false;   /* re-frame after any resize/zoom change */
 }
 
 /* the static background (walls + floor) — painted to an offscreen buffer
@@ -645,15 +671,18 @@ function paintBg(){
   const mp = M.st.map, cell = UI.cell;
   if (!UI.bg){ UI.bg = document.createElement('canvas'); }
   const dpr = UI.dpr;
-  UI.bg.width = Math.round(UI.w*dpr); UI.bg.height = Math.round(UI.h*dpr);
+  /* the background is the WHOLE arena (world-sized); the camera blits the
+     slice under the view each frame, so it is painted once per resize. */
+  const W = UI.worldW || UI.w, H = UI.worldH || UI.h;
+  UI.bg.width = Math.round(W*dpr); UI.bg.height = Math.round(H*dpr);
   const g = UI.bg.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
-  const grd = g.createRadialGradient(UI.w/2, UI.h*0.36, 0, UI.w/2, UI.h/2, UI.w*0.75);
+  const grd = g.createRadialGradient(W/2, H*0.36, 0, W/2, H/2, W*0.75);
   grd.addColorStop(0,'#141B27'); grd.addColorStop(1,'#0A0E15');
-  g.fillStyle = grd; g.fillRect(0,0,UI.w,UI.h);
+  g.fillStyle = grd; g.fillRect(0,0,W,H);
   /* subtle floor grid */
   g.strokeStyle = 'rgba(255,255,255,.03)'; g.lineWidth = 1;
-  for (let c=1;c<mp.cols;c++){ g.beginPath(); g.moveTo(c*cell+.5,0); g.lineTo(c*cell+.5,UI.h); g.stroke(); }
-  for (let r=1;r<mp.rows;r++){ g.beginPath(); g.moveTo(0,r*cell+.5); g.lineTo(UI.w,r*cell+.5); g.stroke(); }
+  for (let c=1;c<mp.cols;c++){ g.beginPath(); g.moveTo(c*cell+.5,0); g.lineTo(c*cell+.5,H); g.stroke(); }
+  for (let r=1;r<mp.rows;r++){ g.beginPath(); g.moveTo(0,r*cell+.5); g.lineTo(W,r*cell+.5); g.stroke(); }
   /* solid walls: a raised steel block */
   for (let r=0;r<mp.rows;r++) for (let c=0;c<mp.cols;c++){
     if (!mp.wall[r*mp.cols+c]) continue;
@@ -667,13 +696,75 @@ function paintBg(){
 /* ═══════════════════════════════════════════════════════════════════
    DRAW — interpolate sub-positions by frac in [0,1] for smooth 60fps.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── THE CAMERA (render-only) ──────────────────────────────────────────
+   Resolve the LOCAL player's tank (M.me — the human seat in vs-AI, the
+   turn's instance in pass-the-phone/hot seat, this client's own seat
+   online) and ease the view so that tank stays framed. If our tank is
+   dead/spectating we hold on its last live position (or spawn), never the
+   origin. Returns the view's top-left in world px; clamped to arena. This
+   is called from draw() only and mutates M.cam* only — the sim never reads
+   it, so the lockstep hash is unaffected. */
+function localTank(st){
+  const me = (M && typeof M.me === 'number') ? M.me : 0;
+  return st.tanks[me] || st.tanks[0] || null;
+}
+function updateCamera(frac, dtMs){
+  const st = M.st, cell = UI.cell, SUB = E.SUB;
+  const worldW = UI.worldW || UI.w, worldH = UI.worldH || UI.h;
+  const maxX = Math.max(0, worldW - UI.w), maxY = Math.max(0, worldH - UI.h);
+  const tk = localTank(st);
+  /* target the local tank's interpolated centre; fall back to its last
+     known spot, then its spawn cell, then arena centre. */
+  let tx, ty;
+  if (tk && tk.alive){
+    const p = M.prev && M.prev.tanks[tk.seat];
+    const ix = p ? p.x + (tk.x - p.x)*frac : tk.x;
+    const iy = p ? p.y + (tk.y - p.y)*frac : tk.y;
+    tx = (ix / SUB) * cell; ty = (iy / SUB) * cell;
+    /* a gentle look-ahead in the DRIVE direction reads nicely when scrolling */
+    const la = cell * 1.1;
+    tx += (E.dirX(tk.hdg) / E.DIR_U) * la;
+    ty += (E.dirY(tk.hdg) / E.DIR_U) * la;
+    M.camLastX = tx; M.camLastY = ty;
+  } else if (tk && (tk.x != null)){
+    tx = (tk.x / SUB) * cell; ty = (tk.y / SUB) * cell;
+  } else if (M.camLastX || M.camLastY){
+    tx = M.camLastX; ty = M.camLastY;
+  } else if (tk){
+    tx = (tk.spawnCol + 0.5) * cell; ty = (tk.spawnRow + 0.5) * cell;
+  } else {
+    tx = worldW / 2; ty = worldH / 2;
+  }
+  /* desired top-left so the target sits in the centre of the view */
+  let goalX = tx - UI.w / 2, goalY = ty - UI.h / 2;
+  goalX = Math.max(0, Math.min(maxX, goalX));
+  goalY = Math.max(0, Math.min(maxY, goalY));
+  if (!M.camReady || noMotion()){
+    M.camX = goalX; M.camY = goalY; M.camReady = true;
+  } else {
+    /* frame-rate-independent ease: k per 16.7ms frame, scaled by real dt */
+    const per = 0.16;                     /* fraction closed per 60fps frame */
+    const dt = Math.max(0, Math.min(100, dtMs || 16.7));
+    const a = 1 - Math.pow(1 - per, dt / 16.7);
+    M.camX += (goalX - M.camX) * a;
+    M.camY += (goalY - M.camY) * a;
+  }
+  /* snap sub-pixel to avoid shimmer on the static background */
+  return { x: Math.round(M.camX), y: Math.round(M.camY) };
+}
+
 function draw(frac){
   if (!UI || !UI.g2 || !M) return;
   if (UI.dirtyBg) paintBg();
   const g = UI.g2, st = M.st, cell = UI.cell, SUB = E.SUB;
   const pv = M.prev || snapshot(st);
+  const now = nowMs();
+  const dtMs = M.camT ? (now - M.camT) : 16.7; M.camT = now;
+  const cam = updateCamera(frac, dtMs);
   g.clearRect(0,0,UI.w,UI.h);
-  g.drawImage(UI.bg, 0, 0, UI.w, UI.h);
+  g.save();
+  g.translate(-cam.x, -cam.y);   /* world→view scroll; all draws are world px */
+  g.drawImage(UI.bg, 0, 0, UI.worldW || UI.w, UI.worldH || UI.h);
 
   const px = v => (v / SUB) * cell;
 
@@ -747,6 +838,46 @@ function draw(frac){
       g.globalAlpha = 1;
     }
   }
+
+  g.restore();                 /* end world→view scroll transform */
+  /* minimap only helps when the arena is bigger than the view (it scrolls) */
+  if ((UI.worldW || UI.w) > UI.w + 1 || (UI.worldH || UI.h) > UI.h + 1) drawMinimap(g, frac, cam);
+}
+
+/* a small corner minimap so a scrolling player keeps the whole fight in
+   sight. Drawn in VIEW space (after restore), so it never scrolls. Purely
+   cosmetic — reads live sim state, feeds nothing back. */
+function drawMinimap(g, frac, cam){
+  const st = M.st, mp = st.map;
+  const pad = 6;
+  const maxW = 78, maxH = 66;
+  const s = Math.min(maxW / mp.cols, maxH / mp.rows);
+  const mw = mp.cols * s, mh = mp.rows * s;
+  const ox = UI.w - mw - pad, oy = pad;
+  g.save();
+  g.globalAlpha = 0.82;
+  g.fillStyle = '#0A0E15'; roundRect(g, ox-2, oy-2, mw+4, mh+4, 4); g.fill();
+  g.globalAlpha = 0.9;
+  g.fillStyle = 'rgba(70,84,112,.55)';
+  for (let r=0;r<mp.rows;r++) for (let c=0;c<mp.cols;c++){
+    if (mp.wall[r*mp.cols+c]) g.fillRect(ox + c*s, oy + r*s, Math.ceil(s), Math.ceil(s));
+  }
+  /* the current view rectangle */
+  const cell = UI.cell, SUB = E.SUB;
+  const vx = ox + (cam.x / cell) * s, vy = oy + (cam.y / cell) * s;
+  const vw = (UI.w / cell) * s, vh = (UI.h / cell) * s;
+  g.globalAlpha = 0.9; g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = 1;
+  g.strokeRect(vx + .5, vy + .5, Math.max(1, vw - 1), Math.max(1, vh - 1));
+  /* tanks as dots; the local one white-ringed */
+  const teams = st.mode === 'teams';
+  for (const tk of st.tanks){
+    if (!tk.alive) continue;
+    const dx = ox + (tk.x / SUB) * s, dy = oy + (tk.y / SUB) * s;
+    const col = teams ? TEAMCOL[tk.team] : COLS[tk.seat % COLS.length];
+    g.fillStyle = col.a; g.beginPath(); g.arc(dx, dy, tk.seat === M.me ? 2.4 : 1.8, 0, 6.2832); g.fill();
+    if (tk.seat === M.me){ g.strokeStyle = '#fff'; g.lineWidth = 1; g.beginPath(); g.arc(dx, dy, 3.4, 0, 6.2832); g.stroke(); }
+  }
+  g.globalAlpha = 1; g.restore();
 }
 function puGlyph(k){ return k===1?'⁙':k===2?'»':k===3?'◈':k===4?'▸':'⟳'; }
 function lerpAngle(a, b, f){

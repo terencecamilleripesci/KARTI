@@ -866,22 +866,50 @@ function step(st, frame){
 function moveActor(st, pl, inp){
   const dir = inp.dir;
 
-  /* Remember a fresh press as the buffered intent. At a centre we act on
-     it now; mid-cell we hold it for the coming re-centre (crisp turns). */
-  if (dir !== NO_DIR) pl.buf = dir;
+  /* Remember a fresh press as a ONE-SHOT buffered TURN — but only when it is
+     genuinely a turn we cannot act on yet: the actor is mid-cell (ox|oy != 0)
+     AND the pressed direction differs from the one already being walked. That
+     is the sole case a press must wait for the next centre; we stash it, honour
+     it there once, then consume it (crisp cornering).
 
-  /* the direction we WANT to commit at the next centre: the live press if
-     there is one, else whatever we buffered earlier (so an early turn is
-     honoured), else keep coasting the way we were going. */
+     Two things this deliberately does NOT buffer, and why it kills the
+     "latch"/auto-move:
+       · a press EQUAL to the current motion — there is nothing to turn to, so
+         a held button (Right while walking Right) leaves NO buffer behind. On
+         release you therefore stop exactly on the next centre, with no coasted
+         extra cell.
+       · a press made AT a centre — it is acted on directly below, never stashed.
+
+     Only a LIVE held direction sustains continuous walking; a released stick
+     (dir==NO_DIR) leaves no pending intent, so movement halts cleanly, aligned
+     to a cell centre. (Determinism unchanged: buf stays pure integer state
+     folded into hashState — the change is purely which presses become a
+     one-shot turn.) */
+  if (dir !== NO_DIR && (pl.ox !== 0 || pl.oy !== 0) && dir !== pl.moving) pl.buf = dir;
+
   let budget = pl.speed;
   let guard = 0;                          /* loop bound: cannot exceed a few cells/tick */
 
   while (budget > 0 && guard++ < 8){
     if (pl.ox === 0 && pl.oy === 0){
-      /* at a centre: choose a direction. Priority: a live press, then the
-         buffered intent, then NO_DIR (stop). Held movement re-enters here
-         with dir still set, so it just keeps walking. */
-      let want = (dir !== NO_DIR) ? dir : pl.buf;
+      /* at a centre: choose a direction. Priority: a LIVE press (sustains
+         continuous walking — the loop re-enters here every carry-over with
+         dir still set), then a ONE-SHOT buffered turn (an early press we
+         consume exactly once), else NO_DIR (stop, cleanly, on this centre).
+         A live press supersedes and refreshes the buffer; a consumed buffer
+         is cleared so it can never auto-drive a released stick. */
+      let want;
+      if (dir !== NO_DIR){
+        want = dir;                        /* held: keep walking */
+      } else if (pl.buf !== NO_DIR){
+        want = pl.buf;                     /* buffered early turn: spend once */
+      } else {
+        want = NO_DIR;                     /* released: stop, aligned to centre */
+      }
+      /* reaching a centre CONSUMES any buffered intent unconditionally: a
+         held press acts on `dir` and clears the stash, so no buffer can
+         survive to the release centre and cause a one-cell overshoot. */
+      pl.buf = NO_DIR;
       if (want === NO_DIR){ pl.moving = NO_DIR; return; }
       pl.dir = want;
       const d = DIRS[want];

@@ -516,7 +516,12 @@ function coin(initial){
   var shared = '';
   try {
     if (window.KARTI_XP && KARTI_XP.avatarHTML)
-      shared = KARTI_XP.avatarHTML(playerName(), { size:62 }) || '';
+      /* me:true is what makes describe() resolve the VIEWER'S OWN chosen
+         face and their stored data: photo — the exact call the profile
+         screen makes (progress-ui.js). Without it describe() treats the
+         viewer as a stranger with a default face and no photo, and the
+         head showed the initials tile instead of the face he picked. */
+      shared = KARTI_XP.avatarHTML(playerName(), { size:62, me:true }) || '';
   } catch (e){ shared = ''; }
   if (shared){
     /* still floored by the guaranteed tile, so a missing sprite or a
@@ -622,11 +627,24 @@ function championOf(row){
 function faceHTML(row, size, opts){
   opts = opts || {};
   var name = (row && row.name) || '?';
+  /* IS THIS THE VIEWER? A row flagged `you` (paintBoard sets it when the
+     row's user id matches the session), or an explicit opts.me, is the
+     person looking at the screen — so it must render EXACTLY like the
+     profile: describe(me:true) resolves their own chosen face and their
+     stored data: photo. A stranger's row instead carries the look the
+     relay published beside their name (hint/border/who+pv), no photo
+     request unless a version came down. Getting this right is what makes
+     the board avatar match the profile the user asked for. */
+  var mine = opts.me === true || !!(row && row.you);
   var shared = '';
   try {
-    if (window.KARTI_XP && KARTI_XP.avatarHTML)
-      shared = KARTI_XP.avatarHTML(name, { size:size, hint:row && row.av,
-        border:row && row.bd, who:row && row.u, pv:row && row.pv }) || '';
+    if (window.KARTI_XP && KARTI_XP.avatarHTML){
+      var o = mine
+        ? { size:size, me:true }
+        : { size:size, hint:row && row.av, border:row && row.bd,
+            who:row && row.u, pv:row && row.pv };
+      shared = KARTI_XP.avatarHTML(name, o) || '';
+    }
   } catch (e){ shared = ''; }
   var mark = opts.noChamp ? '' : championOf(row);
   return '<span class="sx-face" style="position:relative;display:block;width:100%;height:100%">' +
@@ -1161,6 +1179,13 @@ function render(){
     (VIEW === 'board' ? boardHTML() : profileHTML());
 
   wireArt(el);
+  /* mount the real faces/photos over the guaranteed tiles. avatarHTML only
+     writes a data-kx-pic URL; the shared mounter (repaintAvatars -> wirePics
+     inside progress-ui.js) is what turns that into an <img>. The viewer's own
+     is a data: URL that mounts instantly with no network, which is why his
+     face on the profile coin now matches the profile screen. Called on the
+     board host too (paintBoard), but the profile coin is drawn here. */
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(el); } catch (e){}
   $('#sx-back', el).onclick = close;
   $('#sx-tab-p', el).onclick = function(){ if (VIEW !== 'profile'){ VIEW = 'profile'; render(); } };
   $('#sx-tab-b', el).onclick = function(){ if (VIEW !== 'board'){ VIEW = 'board'; render(); loadBoard(); } };
@@ -1617,7 +1642,7 @@ function localFallback(){
   var meRate = t.played ? pct(t.won, t.played) + T('% won', '% rebħa') : T('no games yet', 'l-ebda logħba');
   return '<div class="sx-lrow me">' +
            '<span class="sx-rank">' + ico('person') + '</span>' +
-           '<span class="sx-lav">' + faceHTML({ name:playerName() }, 38) + '</span>' +
+           '<span class="sx-lav">' + faceHTML({ name:playerName() }, 38, { me:true }) + '</span>' +
            '<span class="sx-who">' +
              '<span class="sx-whorow"><b>' + esc(playerName()) + '</b>' +
                '<span class="sx-mine">' + T('You', 'Int') + '</span></span>' +

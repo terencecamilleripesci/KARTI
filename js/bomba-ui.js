@@ -875,6 +875,14 @@ function draw(f){
     drawPowerup(g, c * cell, r * cell + bob, cell, kind, now);
   }
 
+  /* ── DANGER TELEGRAPH — the tiles every live bomb's blast will hit, so a
+     player (above all, the one who just dropped a bomb) can see where NOT to
+     stand and get out. Painted UNDER the bombs/blasts so they read on top.
+     Purely a render overlay: the tiles come from the engine's read-only
+     dangerMap (blast cross derived from bomb range/walls/pierce/chains); it
+     changes NOTHING in the sim. ── */
+  if (st.bombs.length) drawDanger(g, st, cell, now);
+
   /* ── bombs, with a shrinking fuse ── */
   for (const b of st.bombs) drawBomb(g, b, cell, now);
 
@@ -923,6 +931,85 @@ function drawPowerup(g, x, y, cell, kind, now){
   const p = new Path2D(info.g);
   if (info.fill) g.fill(p); else g.stroke(p);
   g.restore();
+}
+
+/* which cells are covered by a SPECIFIC set of bombs' blast cross (owner
+   emphasis). Read-only mirror of the engine's cross rule: stop at a pillar,
+   stop after a standing block unless the bomb pierces. Uses ONLY engine
+   state — never mutates it. */
+function crossCells(st, bombs){
+  const mp = st.map, out = {};
+  for (const b of bombs){
+    out[b.row * mp.cols + b.col] = 1;
+    for (let dd = 0; dd < 4; dd++){
+      const d = E.DIRS[dd];
+      for (let k = 1; k <= b.range; k++){
+        const c = b.col + d.dc * k, r = b.row + d.dr * k;
+        if (!E.inBounds(mp, c, r)) break;
+        const i = E.idx(mp, c, r);
+        if (mp.pillar[i]) break;
+        out[i] = 1;
+        if (st.block[i] && !b.pierce) break;
+      }
+    }
+  }
+  return out;
+}
+
+/* THE DANGER TELEGRAPH. For every cell a live bomb will burn, tint the tile
+   — fainter when the blast is far off, intensifying (and reddening) as the
+   fuse nears detonation, so the escape route is obvious. The player's OWN
+   bombs' cross is emphasised. Reduced motion: a flat, still tint (no pulse),
+   equally legible. Derived from E.dangerMap (ticks-until-lethal per cell) so
+   walls, blocks, pierce and CHAIN reactions are all honoured for free. */
+function drawDanger(g, st, cell, now){
+  const mp = st.map;
+  const danger = E.dangerMap(st);           /* cell -> earliest lethal tick (Infinity=safe) */
+  /* cells inside one of MY live bombs' crosses, for a stronger read */
+  const mine = M ? crossCells(st, st.bombs.filter(b => b.seat === M.me)) : {};
+  const still = noMotion();
+  /* a slow shared pulse so all telegraph tiles breathe together (motion on) */
+  const pulse = still ? 1 : (0.72 + 0.28 * (0.5 + 0.5 * Math.sin(now / 260)));
+  const horizon = E.BOMB_FUSE;              /* normalise "how soon" over a full fuse */
+  const line = Math.max(1, cell * 0.045);
+
+  for (let i = 0; i < danger.length; i++){
+    const t = danger[i];
+    if (!isFinite(t)) continue;             /* safe cell */
+    if (burnCellNow(st, i)) continue;       /* already a live blast draws itself */
+    const c = i % mp.cols, r = (i / mp.cols) | 0;
+    const x = c * cell, y = r * cell;
+    /* 0 = detonating imminently (max heat), 1 = a whole fuse away (faint) */
+    const soon = Math.max(0, Math.min(1, t / horizon));
+    const heat = 1 - soon;                  /* 0 far .. 1 imminent */
+    const own = !!mine[i];
+    /* base alpha: readable but never a solid block; own bombs a touch bolder */
+    let a = (0.10 + 0.30 * heat) * (own ? 1.15 : 1) * (still ? 1 : pulse);
+    if (a > 0.5) a = 0.5;
+    /* colour shifts amber -> hot red as the fuse runs down */
+    const rr = 255;
+    const gg = Math.round(180 - 150 * heat);
+    const bb = Math.round(70  - 60  * heat);
+    g.fillStyle = 'rgba(' + rr + ',' + gg + ',' + bb + ',' + a.toFixed(3) + ')';
+    const pad = cell * 0.10;
+    roundRect(g, x + pad, y + pad, cell - pad * 2, cell - pad * 2, cell * 0.16);
+    g.fill();
+    /* an outline on OWN-bomb danger tiles so "your" blast is unmistakable */
+    if (own){
+      g.lineWidth = line;
+      g.strokeStyle = 'rgba(255,' + gg + ',' + bb + ',' + Math.min(0.7, a + 0.2).toFixed(3) + ')';
+      roundRect(g, x + pad, y + pad, cell - pad * 2, cell - pad * 2, cell * 0.16);
+      g.stroke();
+    }
+  }
+}
+
+/* is cell index i covered by a live blast right now? (so the telegraph does
+   not double-paint a tile the real explosion already owns) */
+function burnCellNow(st, i){
+  const c = i % st.map.cols, r = (i / st.map.cols) | 0;
+  for (const bl of st.blasts) if (bl.col === c && bl.row === r) return true;
+  return false;
 }
 
 function drawBomb(g, b, cell, now){

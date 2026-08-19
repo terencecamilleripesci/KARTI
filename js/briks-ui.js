@@ -255,7 +255,12 @@ function injectCSS(){
     '#scr-party .bk-strip .bk-knob{position:absolute;top:8px;bottom:8px;width:52px;' +
       'border-radius:9px;background:linear-gradient(180deg,#FFD873,#C88A18);' +
       'box-shadow:0 2px 8px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.5);' +
-      'transform:translateX(-50%);left:50%;will-change:left}' +
+      'transform:translateX(-50%);left:50%;will-change:left;' +
+      'transition:box-shadow .12s ease,filter .12s ease}' +
+    '#scr-party .bk-strip.pressed .bk-knob{filter:brightness(1.12);' +
+      'box-shadow:0 0 0 2px rgba(255,233,176,.55),0 3px 14px rgba(255,197,66,.5),' +
+      'inset 0 1px 0 rgba(255,255,255,.6)}' +
+    'body.reduced #scr-party .bk-strip .bk-knob{transition:none}' +
     '#scr-party .bk-strip .bk-hint{position:absolute;inset:0;display:flex;align-items:center;' +
       'justify-content:center;font:900 10px/1 var(--disp);letter-spacing:.1em;' +
       'text-transform:uppercase;color:rgba(255,255,255,.34);pointer-events:none}' +
@@ -480,6 +485,9 @@ function startMatch(opts, seed, net){
   M.st = E.start({ seed: sd, target: C.TARGET, bestOf: 1,
                    bots: (o.bots || [0, 1]).slice(),
                    aiLvl: [o.lvl || 2, o.lvl || 2] });
+  /* reset all draw-only juice so a fresh match starts clean */
+  PARTS = []; BOUNCE = {}; PAD_SQUASH = [0, 0]; SERVE_T = 0;
+  LAST_VSIGN = {}; PRESS = { on:false, x:0, t0:0 };
   return M;
 }
 
@@ -648,6 +656,7 @@ function doTick(){
 
   /* 4 — events → sound + score. The engine writes ids, we own the noise. */
   reactEvents(st.ev || [], before);
+  detectWallBounce();
   syncScore();
 
   /* 5 — end? */
@@ -658,26 +667,30 @@ function doTick(){
 /* map engine event ids to sound. Existing sfx ids only. */
 function reactEvents(evs, ballsBefore){
   let paddle = false, crack = false, smash = false, through = false, pu = false,
-      crumble = false, laser = false, sticky = false;
+      crumble = false, laser = false, sticky = false, serve = false;
   for (const e of evs){
     if (!e || !e.id) continue;
     switch (e.id){
       case 'ev.paddle': case 'ev.edge':
         paddle = true;
-        /* a small spark off the struck paddle */
+        /* a small spark off the struck paddle + a SQUASH on the struck slab and
+           a BOUNCE FLASH on the ball nearest that face — pure draw state. */
         if (e.pid != null && M.st.pads[e.pid]){
           const p = M.st.pads[e.pid];
           const fy = p.side === 0 ? C.PAD_Y0[0] : C.PAD_Y1[1];
-          spawnBurst(p.x, fy, TEAM[e.pid === M.me ? 0 : 1].a, 5, 34, false);
+          spawnBurst(p.x, fy, TEAM[e.pid === M.me ? 0 : 1].a, 6, 36, false);
+          punchPaddle(e.pid);
+          flashNearestBall(p.x, fy);
         }
         break;
       case 'ev.brick':
         crack = true;
-        if (e.side != null) brickBurst(e, 5, false);
+        if (e.side != null){ brickBurst(e, 5, false); flashBrickBall(e); }
         break;
       case 'ev.broke':
         smash = true;
         brickBurst(e, e.smash ? 16 : 10, !!e.smash);
+        flashBrickBall(e);
         break;
       case 'ev.through':
         through = true;
@@ -693,8 +706,10 @@ function reactEvents(evs, ballsBefore){
       case 'ev.laser':  laser = true; break;
       case 'ev.shield': paddle = true; break;
       case 'ev.crumble': crumble = true; break;
+      case 'ev.serve':  serve = true; serveFlourish(); break;
     }
   }
+  if (serve)   cue('sea.whistle', { gain:0.6 }, true);   /* "ball in play" whistle */
   if (paddle && !smash) cue('duel.hit', { gain:0.4 });
   if (sticky)  cue('piece.place', { gain:0.5 });
   if (laser)   cue('sea.sonar', { gain:0.3 });
@@ -703,6 +718,85 @@ function reactEvents(evs, ballsBefore){
   if (through) cue('sea.horn', { gain:0.7 }, true);
   if (pu)      cue('ui.reward', { gain:0.55 }, true);
   if (crumble) cue('ui.sheet', { gain:0.5 });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BALL / PADDLE JUICE STATE — all DRAW-ONLY, keyed by wall-clock time.
+   None of it is ever read by the engine or fed back into a tick; it is
+   spawned from deterministic engine EVENTS but its own motion/decay uses
+   time freely, and it is skipped whole under reduced motion. The ball's
+   authoritative path is byte-identical with or without any of this.
+   ═══════════════════════════════════════════════════════════════════ */
+/* per-ball bounce pulse: {t0, dirx, diry} — a squash-and-stretch + flash
+   whose axis is the surface normal the ball just bounced off. */
+let BOUNCE = {};                     /* ballId -> {t0, nx, ny, big} */
+let PAD_SQUASH = [0, 0];             /* pid -> wall-clock ms of last punch */
+let SERVE_T = 0;                     /* wall-clock ms of the last serve      */
+let PRESS = { on:false, x:0, t0:0 }; /* the finger-press glow on the strip   */
+const BOUNCE_MS = 200, SQUASH_MS = 150, SERVE_MS = 620;
+
+function bounceBall(id, nx, ny, big){
+  if (noMotion()) return;
+  BOUNCE[id] = { t0: nowMs(), nx, ny, big: !!big };
+}
+/* flash the ball closest to a paddle face (a paddle return). */
+function flashNearestBall(fx, fy){
+  if (noMotion() || !M.st) return;
+  let best = null, bd = 1e18;
+  for (const b of M.st.balls){
+    const dx = b.x - fx, dy = b.y - fy, d = dx*dx + dy*dy;
+    if (d < bd){ bd = d; best = b; }
+  }
+  if (best){
+    /* normal points away from the face along y (the paddle bounce axis) */
+    bounceBall(best.id, 0, 1, true);
+  }
+}
+/* flash the ball nearest a struck brick (the bounce off a brick). */
+function flashBrickBall(e){
+  if (noMotion() || !M.st) return;
+  let cx, cy;
+  try { const bb = E.brickBox(e.side, e.r, e.c); cx = (bb.x0 + bb.x1) / 2; cy = (bb.y0 + bb.y1) / 2; }
+  catch(err){ return; }
+  let best = null, bd = 1e18;
+  for (const b of M.st.balls){
+    const dx = b.x - cx, dy = b.y - cy, d = dx*dx + dy*dy;
+    if (d < bd){ bd = d; best = b; }
+  }
+  if (best){
+    const dx = best.x - cx, dy = best.y - cy;
+    const ax = Math.abs(dx) >= Math.abs(dy);
+    bounceBall(best.id, ax ? 1 : 0, ax ? 0 : 1, false);
+  }
+}
+function punchPaddle(pid){ if (!noMotion()) PAD_SQUASH[pid] = nowMs(); }
+function serveFlourish(){ if (!noMotion()) SERVE_T = nowMs(); }
+
+/* WALL-BOUNCE detection — the engine emits no event for a side/back wall
+   bounce, so we read it off the ball's own authoritative velocity: a sign
+   flip in vx is a side wall (or a brick side); a downward→upward vy flip at
+   the field edge is a back wall. DRAW/AUDIO ONLY — it inspects state, never
+   writes it. We remember each ball's last velocity sign between ticks. */
+let LAST_VSIGN = {};
+function detectWallBounce(){
+  if (!M || !M.st) return;
+  let sideBounce = false;
+  const cur = {};
+  for (const b of M.st.balls){
+    if (b.stuck){ cur[b.id] = LAST_VSIGN[b.id] || {sx:0}; continue; }
+    let vx = 0;
+    try { const v = E.velOf(b.di, b.sp); vx = v[0]; } catch(e){}
+    const sx = vx > 0 ? 1 : vx < 0 ? -1 : 0;
+    const prev = LAST_VSIGN[b.id];
+    /* a horizontal reversal while the ball is near a side wall = a wall tick */
+    if (prev && prev.sx !== 0 && sx !== 0 && prev.sx !== sx){
+      const nearWall = b.x < C.W * 0.16 || b.x > C.W * 0.84;
+      if (nearWall){ sideBounce = true; bounceBall(b.id, 1, 0, false); }
+    }
+    cur[b.id] = { sx };
+  }
+  LAST_VSIGN = cur;
+  if (sideBounce) cue('piece.slide', { gain:0.3 });
 }
 
 /* a coloured burst at a brick's centre. */
@@ -811,6 +905,21 @@ function draw(f){
   drawBalls(g, st, f, now);
   drawPaddles(g, st, f, now);
   drawParticles(g, now);
+  syncKnob();
+}
+
+/* keep the strip knob under the paddle, so the strip is a live tactile map
+   of where your slab is (not a dead decoration). A single style write per
+   frame, only when the fraction actually changed. Draw-only. */
+function syncKnob(){
+  if (!UI || !UI.knob) return;
+  const p = M.st.pads[M.me]; if (!p) return;
+  const drawX = (M.ghostX != null) ? M.ghostX : p.x;
+  const { lo, hi } = laneRange();
+  let fr = (drawX - lo) / Math.max(1, hi - lo);
+  fr = Math.max(0, Math.min(1, M.down === 0 ? fr : (1 - fr)));
+  const pct = (fr * 100).toFixed(1) + '%';
+  if (UI._knobPct !== pct){ UI._knobPct = pct; UI.knob.style.left = pct; }
 }
 
 /* the floor: a faint centre line and a soft vignette, painted every
@@ -1004,6 +1113,7 @@ function drawTrails(g, st, f, now){
    M.prev[id] to now; drawing lerp(prev, now, f) removes the 40Hz step
    and shows a 60fps ball on any phone. New balls (no prev) draw at now. */
 function drawBalls(g, st, f, now){
+  const reduced = noMotion();
   for (const b of st.balls){
     let bx = b.x, by = b.y;
     const p = M.prev && M.prev[b.id];
@@ -1015,7 +1125,40 @@ function drawBalls(g, st, f, now){
     const heavy = b.heavy > 0;
     /* speed tint: faster balls run hotter, so the escalation is legible */
     const hot = Math.min(1, Math.max(0, (b.sp - C.SP_MIN) / (C.SP_MAX - C.SP_MIN)));
-    if (!noMotion()){
+
+    /* ── the SUBTLE SHADOW: an offset dark ellipse under the ball, so it
+       reads as sitting above the court. Draw-only, motion-gated. ── */
+    if (!reduced){
+      g.globalAlpha = 0.22;
+      g.fillStyle = '#000';
+      g.beginPath();
+      g.ellipse(bx + r * 0.5, by + r * 0.7, r * 1.05, r * 0.7, 0, 0, 6.2832);
+      g.fill();
+      g.globalAlpha = 1;
+    }
+
+    /* ── the SQUASH-AND-STRETCH on a fresh bounce. Compress along the
+       surface normal and stretch across it, easing back to a circle over
+       BOUNCE_MS. A flash rides the same envelope. Draw-only. ── */
+    let sqx = 1, sqy = 1, flash = 0, ang = 0;
+    if (!reduced){
+      const bo = BOUNCE[b.id];
+      if (bo){
+        const age = now - bo.t0;
+        if (age >= BOUNCE_MS){ delete BOUNCE[b.id]; }
+        else {
+          const k = 1 - age / BOUNCE_MS;              /* 1→0 */
+          const amp = (bo.big ? 0.42 : 0.28) * k * k;  /* ease-out */
+          /* normal (nx,ny): squash along it, stretch across it */
+          ang = Math.atan2(bo.ny, bo.nx);
+          sqy = 1 - amp;                               /* along normal (local y) */
+          sqx = 1 + amp * 0.8;                         /* across normal (local x) */
+          flash = k;
+        }
+      }
+    }
+
+    if (!reduced){
       /* a HEAVY power-ball wears a fat molten halo so it is unmistakable */
       g.globalAlpha = heavy ? (0.34 + 0.12 * (0.5 + 0.5 * Math.sin(now / 90)))
                             : (0.16 + 0.2 * hot);
@@ -1024,12 +1167,40 @@ function drawBalls(g, st, f, now){
       g.fill();
       g.globalAlpha = 1;
     }
+
+    /* draw the ball body in a squash-rotated frame */
+    g.save();
+    g.translate(bx, by);
+    if (!reduced && (sqx !== 1 || sqy !== 1)){ g.rotate(ang); g.scale(sqx, sqy); g.rotate(-ang); }
     g.fillStyle = heavy ? '#FFE0B0' : '#fff';
-    g.beginPath(); g.arc(bx, by, r, 0, 6.2832); g.fill();
+    g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill();
     /* a warm core when it is really moving or heavy */
     if (heavy || hot > 0.4){
       g.fillStyle = heavy ? '#FF6A1F' : '#FFD873';
-      g.beginPath(); g.arc(bx, by, r * 0.5, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(0, 0, r * 0.5, 0, 6.2832); g.fill();
+    }
+    /* the bounce FLASH: a bright rim that fades over the squash envelope */
+    if (flash > 0){
+      g.globalAlpha = 0.6 * flash;
+      g.fillStyle = '#fff';
+      g.beginPath(); g.arc(0, 0, r * (1 + 0.5 * flash), 0, 6.2832); g.fill();
+      g.globalAlpha = 1;
+    }
+    g.restore();
+  }
+
+  /* ── the SERVE FLOURISH: an expanding bright ring from arena centre when
+     a fresh ball is put into play, so a serve reads as a launch. ── */
+  if (!reduced && SERVE_T){
+    const age = now - SERVE_T;
+    if (age >= SERVE_MS){ SERVE_T = 0; }
+    else {
+      const k = age / SERVE_MS;
+      g.globalAlpha = (1 - k) * 0.7;
+      g.strokeStyle = '#FFD873';
+      g.lineWidth = C.S * (2.4 * (1 - k) + 0.4);
+      g.beginPath(); g.arc(C.W / 2, C.H / 2, C.S * (2 + 26 * k), 0, 6.2832); g.stroke();
+      g.globalAlpha = 1;
     }
   }
 }
@@ -1078,9 +1249,52 @@ function drawPaddles(g, st, f, now){
       const prev = M.prevPad && M.prevPad[p.pid];
       x = (prev != null && f < 1 && !noMotion()) ? (prev + (p.x - prev) * f) : p.x;
     }
-    const pb = { x0: x - p.hw, x1: x + p.hw, y0: C.PAD_Y0[p.side], y1: C.PAD_Y1[p.side] };
+    /* a SQUASH when this slab just returned a ball: briefly flatten (thinner
+       across the face) and widen, easing back over SQUASH_MS. Draw-only. */
+    let sqW = 1, sqH = 1;
+    if (!noMotion() && PAD_SQUASH[p.pid]){
+      const age = now - PAD_SQUASH[p.pid];
+      if (age >= SQUASH_MS){ PAD_SQUASH[p.pid] = 0; }
+      else { const k = 1 - age / SQUASH_MS; const a = 0.28 * k * k; sqW = 1 + a; sqH = 1 - a; }
+    }
+    const chw = p.hw * sqW;
+    const chh = ((C.PAD_Y1[p.side] - C.PAD_Y0[p.side]) * sqH);
+    /* the slab keeps its FRONT face anchored so the squash reads as a recoil */
+    const fyBase = p.side === 0 ? C.PAD_Y0[0] : C.PAD_Y1[1];
+    const y0s = p.side === 0 ? fyBase : (fyBase - chh);
+    const pb = { x0: x - chw, x1: x + chw, y0: y0s, y1: y0s + chh };
     const w = pb.x1 - pb.x0, h = pb.y1 - pb.y0;
     const cy = (pb.y0 + pb.y1) / 2;
+
+    /* ── THE THUMB PRESS GLOW: while YOU are touching the strip, a warm
+       radial glow sits under your paddle and follows it, so the slab reads
+       as pressed by your finger. Draw-only; it never touches the sim, and
+       the thumb itself stays down on the strip (never over the ball). ── */
+    if (mine && !noMotion() && PRESS.on){
+      const age = now - PRESS.t0;
+      const settle = Math.min(1, age / 120);          /* a quick swell-in */
+      const pulse = 0.5 + 0.5 * Math.sin(now / 220);
+      const gy = (pb.y0 + pb.y1) / 2;
+      const rad = C.S * (9 + 2 * pulse) * settle;
+      let grd = null;
+      try {
+        grd = g.createRadialGradient(x, gy, C.S * 1.5, x, gy, rad);
+        grd.addColorStop(0, 'rgba(255,216,115,0.42)');
+        grd.addColorStop(0.6, 'rgba(255,197,66,0.16)');
+        grd.addColorStop(1, 'rgba(255,197,66,0)');
+      } catch(e){}
+      if (grd){
+        g.fillStyle = grd;
+        g.beginPath(); g.arc(x, gy, rad, 0, 6.2832); g.fill();
+      }
+      /* a bright ring hugging the slab for a crisp "under-thumb" read */
+      g.globalAlpha = 0.5 + 0.3 * pulse;
+      g.strokeStyle = '#FFE9B0';
+      g.lineWidth = C.S * 0.5;
+      rrect(g, pb.x0 - C.S * 0.5, pb.y0 - C.S * 0.5, w + C.S, h + C.S, C.S * 1.6);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
 
     /* power-up state glow behind the slab so ACTIVE effects are legible:
        WIDE = the slab simply grew; STICKY = a soft aura + a tacky lip;
@@ -1267,16 +1481,31 @@ function aimAt(tx){
   if (UI && UI.strip) UI.strip.classList.add('touched');
 }
 
+/* ── the finger-press glow state (draw-only). PRESS.on gates the under-thumb
+   glow on your paddle; the strip also gets a 'pressed' class for a CSS squeeze
+   on the knob. clientX is only used to add a class — the paddle glow rides the
+   paddle's own x so it never drifts off the slab. ── */
+function pressOn(){
+  PRESS.on = true; PRESS.t0 = nowMs();
+  if (UI && UI.strip) UI.strip.classList.add('pressed');
+}
+function pressMove(){ if (PRESS.on) { /* keep the swell going; nothing to store */ } }
+function pressOff(){
+  PRESS.on = false;
+  if (UI && UI.strip) UI.strip.classList.remove('pressed');
+}
+
 function wireControls(){
   let on = false, pid = -1;
   const down = e => {
     on = true; pid = e.pointerId;
     try { UI.strip.setPointerCapture(pid); } catch(err){}
     e.preventDefault();
+    pressOn(e.clientX);
     aimFromClientX(e.clientX);
   };
-  const move = e => { if (!on || e.pointerId !== pid) return; e.preventDefault(); aimFromClientX(e.clientX); };
-  const up = e => { on = false; try { UI.strip.releasePointerCapture(pid); } catch(err){} };
+  const move = e => { if (!on || e.pointerId !== pid) return; e.preventDefault(); pressMove(e.clientX); aimFromClientX(e.clientX); };
+  const up = e => { on = false; pressOff(); try { UI.strip.releasePointerCapture(pid); } catch(err){} };
   UI.strip.addEventListener('pointerdown', down);
   UI.strip.addEventListener('pointermove', move);
   UI.strip.addEventListener('pointerup', up);
@@ -1289,14 +1518,16 @@ function wireControls(){
     if (rulesOpen) return;
     const rect = UI.court.getBoundingClientRect();
     if (e.clientY - rect.top < rect.height * 0.66) return;   /* upper field: ignore */
-    aimFromClientX2(e.clientX);
+    pressOn(e.clientX); aimFromClientX2(e.clientX);
   });
   UI.court.addEventListener('pointermove', e => {
     if (rulesOpen || e.buttons === 0) return;
     const rect = UI.court.getBoundingClientRect();
     if (e.clientY - rect.top < rect.height * 0.66) return;
-    aimFromClientX2(e.clientX);
+    pressMove(e.clientX); aimFromClientX2(e.clientX);
   });
+  UI.court.addEventListener('pointerup', pressOff);
+  UI.court.addEventListener('pointercancel', pressOff);
 
   /* a keyboard, for the desk and for the test harness. Arrow keys nudge
      the paddle; the strip's slider role makes them announce. */
@@ -1502,15 +1733,22 @@ function finish(){
   cue(won ? 'game.win' : (draw ? 'board.draw' : 'game.lose'), { gain:0.9 }, true);
   const opts = M.opts;
   const net = M.net;
-  setTimeout(() => { showResult(st, won, draw, opts, net); }, 560);
+  const me = M.me;                 /* CAPTURE NOW — M may be null by the timeout */
+  setTimeout(() => { showResult(st, won, draw, opts, net, me); }, 560);
 }
 
-function showResult(st, won, draw, opts, net){
+function showResult(st, won, draw, opts, net, me){
+  /* the result fires 560ms after the round ends. If the player tapped BACK
+     (or started a new game) in that window, M is gone and they have already
+     moved on — do NOT dereference a null M.me and do NOT paint a result over
+     whatever screen they navigated to. me was captured at finish() time. */
+  if (!M) return;
+  if (me == null) me = M.me;
   const RB = window.KARTI_REBBIEH;
-  const you = { name: T('You', 'Int'), score: st.score[M.me], you:true,
+  const you = { name: T('You', 'Int'), score: st.score[me], you:true,
                 border:'gold', place: (won || draw) ? 1 : 2 };
   const them = { name: levelWords(opts.lvl || 2).n, bot:true,
-                 score: st.score[M.me === 0 ? 1 : 0], border:'ice',
+                 score: st.score[me === 0 ? 1 : 0], border:'ice',
                  place: (won || draw) ? 2 : 1 };
   const rows = (you.place <= them.place) ? [you, them] : [them, you];
 
