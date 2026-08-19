@@ -263,6 +263,7 @@ var KEY = 'karti_stats_v1';
 var GUEST = '__guest__';
 var REPEAT_MS = 4000;      /* identical unlabelled result inside this = the same match */
 var SEEN_MAX = 240;        /* match ids remembered for the id-based guard */
+var HIST_MAX = 120;        /* recent-match entries kept for the RECENT feed */
 
 var BLANK = function(){
   return { p:0, w:0, l:0, d:0, cs:0, bs:0, bm:0, bt:0, sc:0, at:0 };
@@ -332,9 +333,14 @@ function bind(who){
   if (!ALL) loadAll();
   WHO = who || GUEST;
   var slot = ALL.prof[WHO];
-  if (!slot || typeof slot !== 'object') slot = ALL.prof[WHO] = { g:{}, seen:[], at:0 };
+  if (!slot || typeof slot !== 'object') slot = ALL.prof[WHO] = { g:{}, seen:[], h:[], at:0 };
   if (!slot.g || typeof slot.g !== 'object') slot.g = {};
   if (!Array.isArray(slot.seen)) slot.seen = [];
+  /* h[] — the RECENT GAMES feed. Every COUNTED result appends one small
+     entry here, newest last, capped. It is the one place this file keeps a
+     per-MATCH record (the counters in g[] are aggregates and cannot answer
+     "what happened last"), so the Recent tab has something true to show. */
+  if (!Array.isArray(slot.h)) slot.h = [];
   DATA = slot;
   return DATA;
 }
@@ -444,6 +450,15 @@ function record(game, opts){
     if (score > e.sc) e.sc = score;
     e.at = now;
 
+    /* THE RECENT FEED. One entry per counted match, newest last, capped at
+       HIST_MAX. Only fields this file actually has: the game id, the result,
+       the moves/score/ms the caller passed (0 when it did not), and when.
+       Opponent names are NOT in record()'s payload, so they cannot be stored
+       here honestly — see the report. */
+    if (!Array.isArray(DATA.h)) DATA.h = [];
+    DATA.h.push({ g:id, r:res, m:moves, sc:score, ms:ms, t:now });
+    if (DATA.h.length > HIST_MAX) DATA.h.splice(0, DATA.h.length - HIST_MAX);
+
     var stored = persist();
     render();          /* free: only paints if our screen is actually up */
     queuePush();
@@ -485,7 +500,7 @@ function totals(){
 
 function reset(){
   bind(activeKey());
-  DATA.g = {}; DATA.seen = []; recent.length = 0;
+  DATA.g = {}; DATA.seen = []; DATA.h = []; recent.length = 0;
   persist(); render();
 }
 
@@ -825,6 +840,57 @@ function injectCSS(){
       'display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s var(--ease)}' +
     '#scr-stats .sx-seg button .ico{font-size:1.25em}' +
     '#scr-stats .sx-seg button[aria-pressed="true"]{background:var(--gold);color:#241800}' +
+    /* the three-tab variant: labels are short, so let them ellipsis rather
+       than wrap or overflow on 360px. min-width:0 lets the flex child shrink. */
+    '#scr-stats .sx-seg3 button{min-width:0;font-size:10.5px;letter-spacing:.05em;gap:5px;padding:0 4px}' +
+    '#scr-stats .sx-seg3 button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}' +
+    '#scr-stats .sx-seg3 button .ico{flex:0 0 auto}' +
+
+    /* ── the three leaderboard panels — one shows, the others are hidden.
+       Each panel is a full flex column (only its inner list scrolls), so a
+       tab switch is a display flip with no re-render and no scroll jump. ── */
+    '#scr-stats .sx-panes{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}' +
+    '#scr-stats .sx-panel{flex:1 1 auto;min-height:0;display:none;flex-direction:column}' +
+    '#scr-stats .sx-panel.on{display:flex}' +
+    '#scr-stats .sx-panel[hidden]{display:none}' +
+
+    /* ── the ALL GAMES tab: grid <-> one game\'s board, both in one scroller ── */
+    '#scr-stats .sx-gwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}' +
+    '#scr-stats .sx-gview{flex:1 1 auto;min-height:0;display:none;flex-direction:column;' +
+      'overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin;' +
+      'padding-bottom:6px}' +
+    '#scr-stats .sx-gview.on{display:flex}' +
+    '#scr-stats .sx-gview[hidden]{display:none}' +
+    '#scr-stats .sx-gview::-webkit-scrollbar{width:5px}' +
+    '#scr-stats .sx-gview::-webkit-scrollbar-thumb{background:var(--line2);border-radius:6px}' +
+    /* the per-game board sub-view holds its own list, which is the scroller */
+    '#scr-stats .sx-gboard{overflow:visible}' +
+    '#scr-stats .sx-gboard .sx-list{flex:1 1 auto;min-height:0}' +
+    '#scr-stats .sx-gbhead{display:flex;align-items:center;gap:9px;margin:0 0 9px;flex:0 0 auto}' +
+    '#scr-stats .sx-gback{flex:0 0 auto;display:flex;align-items:center;gap:5px;min-height:34px;' +
+      'padding:0 11px 0 7px;border-radius:9px;background:var(--panel);border:1px solid var(--line);' +
+      'color:var(--dim);font-family:var(--disp);font-weight:900;font-size:10px;letter-spacing:.07em;' +
+      'text-transform:uppercase}' +
+    '#scr-stats .sx-gback svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;' +
+      'stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}' +
+    '#scr-stats .sx-gbtitle{min-width:0;font-family:var(--disp);font-weight:900;font-size:13px;' +
+      'letter-spacing:.03em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+
+    /* ── the RECENT GAMES feed ── */
+    '#scr-stats .sx-rrow{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;' +
+      'column-gap:11px;padding:9px 11px 9px 9px;border-radius:14px;background:var(--panel);' +
+      'border:1px solid var(--line);flex:0 0 auto}' +
+    '#scr-stats .sx-rnm{min-width:0}' +
+    '#scr-stats .sx-rnm b{display:block;font-family:var(--disp);font-weight:900;font-size:12.5px;' +
+      'letter-spacing:.05em;text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '#scr-stats .sx-rnm i{display:block;font-style:normal;margin-top:3px;font-size:11px;color:var(--dim);' +
+      'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+    '#scr-stats .sx-rres{flex:0 0 auto;font-family:var(--disp);font-weight:900;font-size:10.5px;' +
+      'letter-spacing:.08em;text-transform:uppercase;padding:5px 10px;border-radius:8px;' +
+      'background:rgba(255,255,255,.05);color:var(--dim2)}' +
+    '#scr-stats .sx-rres.w{color:var(--ok);background:rgba(61,220,132,.14)}' +
+    '#scr-stats .sx-rres.l{color:var(--bad);background:rgba(255,84,104,.14)}' +
+    '#scr-stats .sx-rres.d{color:var(--dim);background:rgba(255,255,255,.06)}' +
 
     /* ── the head: coin, name, and the three numbers ── */
     '#scr-stats .sx-head{display:flex;align-items:center;gap:13px;padding:13px;border-radius:16px;' +
@@ -1315,7 +1381,16 @@ function injectCSS(){
    a screen on we step aside instead of floating over the top of it.
    ═══════════════════════════════════════════════════════════════════ */
 var scr = null, live = false, watching = false;
-var VIEW = 'profile';      /* profile | board */
+var VIEW = 'profile';      /* profile (the record book) | board (the leaderboard) */
+/* THE THREE LEADERBOARD TABS. The board screen is one of three panels now:
+     overall  — the combined ranking across everything (podium + numbered
+                ladder + the all-time/weekly toggle). The default.
+     games    — the per-game browse: the grid of every game, tap one to see
+                that game's board.
+     recent   — a feed of the most recent match results.
+   Switching is a class flip on already-rendered panels (no re-render, no
+   scroll jump), so it is instant and keeps every avatar/logo already mounted. */
+var TAB = 'overall';
 
 function screenEl(){
   if (scr && scr.isConnected) return scr;
@@ -1385,6 +1460,54 @@ function openLeaderboard(from){
   loadBoard();
 }
 
+/* THE THREE TABS, declared once so the segmented control and the switch
+   logic agree. Each is a title + an icon from the set. */
+var TABS = [
+  { id:'overall', en:'Overall',  mt:'Total',   icon:'podium' },
+  { id:'games',   en:'All games',mt:'Logħob',  icon:'grid'   },
+  { id:'recent',  en:'Recent',   mt:'Reċenti', icon:'bolt'   }
+];
+
+/* Switch board tab WITHOUT a re-render — a class flip on panels that are
+   already in the DOM. Instant, keeps every avatar/logo mounted, no scroll
+   jump. The overall tab is the only one that talks to the Pi, so its board
+   is (re)loaded lazily the first time it is shown and whenever a filter or
+   period changes; the other two are static local content. */
+function setTab(id, el){
+  if (!TABS.some(function(t){ return t.id === id; })) return;
+  TAB = id;
+  el = el || scr;
+  if (!el) return;
+  $$('.sx-tab', el).forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === TAB));
+  });
+  $$('.sx-panel', el).forEach(function(p){
+    var on = p.getAttribute('data-panel') === TAB;
+    p.classList.toggle('on', on);
+    p.hidden = !on;
+  });
+  if (TAB === 'overall'){
+    /* Overall is the combined ranking: force FILTER back to 'all' and paint
+       into #sx-board (not a lingering per-game board host). Reload only if
+       the last board painted was not already the all-games one. */
+    boardHost = null;
+    if (FILTER !== 'all'){ FILTER = 'all'; boardNeedsLoad = true; }
+    if (boardNeedsLoad || BOARD.game !== 'all'){ boardNeedsLoad = false; loadBoard(); }
+    else paintBoard();
+  } else if (TAB === 'games'){
+    /* if a single game's board is open, keep painting into it */
+    if (GTAB === 'board' && FILTER !== 'all'){
+      boardHost = $('#sx-gboard', el) || null;
+      if (BOARD.game !== FILTER) loadBoard(); else paintBoard();
+    } else {
+      boardHost = null;
+    }
+  } else if (TAB === 'recent'){
+    paintRecent(el);
+  }
+}
+var boardNeedsLoad = true;
+
 /* ── the frame both views live in ── */
 function render(){
   if (!live || !scr) return;
@@ -1394,35 +1517,68 @@ function render(){
   closeGrid(); closeCard();
   bind(activeKey());
   var el = screenEl();
+
+  if (VIEW === 'board'){
+    /* the three-tab leaderboard */
+    var seg = '<div class="sx-seg sx-seg3" role="tablist" aria-label="' +
+      esc(T('Leaderboard sections', 'Sezzjonijiet tal-klassifika')) + '">' +
+      TABS.map(function(t){
+        return '<button type="button" class="sx-tab" data-t="' + t.id + '" ' +
+          'aria-pressed="' + (TAB === t.id) + '">' +
+          ico(t.icon) + '<span>' + esc(T(t.en, t.mt)) + '</span></button>';
+      }).join('') + '</div>';
+
+    el.innerHTML =
+      '<div class="tbar">' +
+        '<button class="iconbtn" id="sx-back" aria-label="Back">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
+        '<h2>' + T('Leaderboard', 'Klassifika') + '</h2>' +
+      '</div>' +
+      seg +
+      '<div class="sx-panes">' +
+        '<div class="sx-panel' + (TAB === 'overall' ? ' on' : '') + '" data-panel="overall"' +
+          (TAB === 'overall' ? '' : ' hidden') + '>' + overallHTML() + '</div>' +
+        '<div class="sx-panel' + (TAB === 'games' ? ' on' : '') + '" data-panel="games"' +
+          (TAB === 'games' ? '' : ' hidden') + '>' + gamesHTML() + '</div>' +
+        '<div class="sx-panel' + (TAB === 'recent' ? ' on' : '') + '" data-panel="recent"' +
+          (TAB === 'recent' ? '' : ' hidden') + '>' + recentHTML() + '</div>' +
+      '</div>';
+
+    wireArt(el);
+    try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(el); } catch (e){}
+    $('#sx-back', el).onclick = close;
+    $$('.sx-tab', el).forEach(function(b){
+      b.onclick = function(){ var id = b.getAttribute('data-t'); if (id !== TAB) setTab(id, el); };
+    });
+    wireBoard(el);      /* overall's period/filter/allgames handlers */
+    wireGames(el);      /* the grid + per-game board sub-view */
+    if (TAB === 'recent') paintRecent(el);
+    return;
+  }
+
+  /* VIEW === 'profile' — the personal record book, reachable via
+     openProfile()/data-karti-stats and the "record book" affordances.
+     Its own toggle jumps to the leaderboard, which is where the three tabs
+     live. */
   el.innerHTML =
     '<div class="tbar">' +
       '<button class="iconbtn" id="sx-back" aria-label="Back">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-      '<h2>' + (VIEW === 'board' ? T('Leaderboard', 'Klassifika') : T('Record Book', 'Ktieb tar-Rekords')) + '</h2>' +
+      '<h2>' + T('Record Book', 'Ktieb tar-Rekords') + '</h2>' +
     '</div>' +
-    /* Plain toggle buttons, not role="tab". Tabs owe the screen reader a
-       tabpanel to point at and there is not one here — the whole screen
-       changes — so aria-pressed is the honest word for what these do. */
     '<div class="sx-seg">' +
-      '<button type="button" id="sx-tab-p" aria-pressed="' + (VIEW === 'profile') + '">' +
+      '<button type="button" id="sx-tab-p" aria-pressed="true">' +
         ico('person') + T('My record', 'Ir-rekord tiegħi') + '</button>' +
-      '<button type="button" id="sx-tab-b" aria-pressed="' + (VIEW === 'board') + '">' +
-        ico('podium') + T('Everybody', 'Kulħadd') + '</button>' +
+      '<button type="button" id="sx-tab-b" aria-pressed="false">' +
+        ico('podium') + T('Leaderboard', 'Klassifika') + '</button>' +
     '</div>' +
-    (VIEW === 'board' ? boardHTML() : profileHTML());
+    profileHTML();
 
   wireArt(el);
-  /* mount the real faces/photos over the guaranteed tiles. avatarHTML only
-     writes a data-kx-pic URL; the shared mounter (repaintAvatars -> wirePics
-     inside progress-ui.js) is what turns that into an <img>. The viewer's own
-     is a data: URL that mounts instantly with no network, which is why his
-     face on the profile coin now matches the profile screen. Called on the
-     board host too (paintBoard), but the profile coin is drawn here. */
   try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(el); } catch (e){}
   $('#sx-back', el).onclick = close;
-  $('#sx-tab-p', el).onclick = function(){ if (VIEW !== 'profile'){ VIEW = 'profile'; render(); } };
-  $('#sx-tab-b', el).onclick = function(){ if (VIEW !== 'board'){ VIEW = 'board'; render(); loadBoard(); } };
-  if (VIEW === 'board') wireBoard(el);
+  $('#sx-tab-p', el).onclick = function(){ /* already here */ };
+  $('#sx-tab-b', el).onclick = function(){ VIEW = 'board'; boardNeedsLoad = true; render(); };
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1521,6 +1677,9 @@ var NET_MS = 9000;
 var BOARD = { state:'idle', rows:null, you:null, at:0, why:'', game:'', period:'all' };
 var FILTER = 'all';
 var PERIOD = 'all';        /* all = all-time | week = this week (resets Sun 00:00) */
+/* where paintBoard writes. null = the OVERALL tab's #sx-board; when a single
+   game's board is open in the ALL GAMES tab it points at #sx-gboard instead. */
+var boardHost = null;
 
 /* The start of the current KARTI week: the most recent Sunday at local
    00:00. The weekly board — and the Sunday champion awards it drives —
@@ -1703,92 +1862,195 @@ function loadBoard(){
   });
 }
 
-/* One filter chip. A LOGO where the game has one — the picture reads
-   before the word does — with the game's own text as the accessible
-   label AND as the graceful fallback the instant the image 404s. The
-   drawn emblem (the game's icon on its accent, or the podium mark for
-   the 'all' tab) sits UNDER the photograph exactly as the trophy tiles
-   do, so a chip is a finished thing before any png has loaded and there
-   is no path here that can show a broken-image glyph. */
-function logoChip(c){
-  var stem = logoFor(c.id);
-  var def  = c.id === 'all' ? null : defOf(c.id);
-  var known = stem ? artOK[stem] : false;
-  /* the drawn base: for 'all' the podium mark on gold; for a game its own
-     icon on its accent — always visible, never blank */
-  var base = c.id === 'all'
-    ? '<span class="sx-chico" style="--ax:var(--gold)">' + ico('podium') + '</span>'
-    : '<span class="sx-chico" style="--ax:' + esc(def.accent) + '">' + ico(def.icon) + '</span>';
-  var img = (!stem || known === false) ? '' :
-    '<img class="sx-chart" alt="" aria-hidden="true" decoding="async" loading="lazy"' +
-    ' data-stem="' + esc(stem) + '" src="art/ui/' + esc(stem) + '.png">';
-  return '<button type="button" class="sx-chip" data-g="' + esc(c.id) + '" aria-pressed="' +
-         (FILTER === c.id) + '" aria-label="' + esc(c.name) + '">' +
-           '<span class="sx-chlogo">' + base + img + '</span>' +
-           '<span class="sx-chtx">' + esc(c.name) + '</span>' +
-         '</button>';
-}
-
-/* The short, curated row of quick chips above the board — Overall plus a
-   handful of headline games for fast access. Everything else (all ~28) is
-   one tap away behind the "All games" card. If the currently-selected game
-   is NOT one of these headliners, it is spliced in so the active filter is
-   always visible in the strip (a filter you cannot see reads as "off"). */
-var QUICK_IDS = ['cards-mp', 'chess', 'dama', 'skarta', 'kiri'];
-function quickChips(){
-  var out = [{ id:'all', name:T('Overall', 'Total') }];
-  var ids = QUICK_IDS.slice();
-  if (FILTER !== 'all' && ids.indexOf(FILTER) < 0) ids.unshift(FILTER);
-  for (var i = 0; i < ids.length; i++){
-    var d = richDef(ids[i]);
-    out.push({ id:ids[i], name:d.name });
-  }
-  return out;
-}
-
-function boardHTML(){
-  var chips = quickChips();
-  /* ALL-TIME | WEEKLY. The weekly board is the one the Sunday champion
-     awards are cut from, so it says so under itself when it is the one on. */
-  var period =
-    '<div class="sx-period" id="sx-period" role="group" aria-label="' +
+/* The ALL-TIME | WEEKLY period toggle, used by both the OVERALL tab and the
+   per-game board in the ALL GAMES tab. */
+function periodHTML(){
+  return '<div class="sx-period" role="group" aria-label="' +
        T('Ranking period', 'Perjodu tal-klassifika') + '">' +
       '<button type="button" data-p="all" aria-pressed="' + (PERIOD === 'all') + '">' +
         ico('podium') + T('All-time', 'Kull żmien') + '</button>' +
       '<button type="button" data-p="week" aria-pressed="' + (PERIOD === 'week') + '">' +
         ico('bolt') + T('This week', 'Din il-ġimgħa') + '</button>' +
     '</div>';
-  return period +
-         '<div class="sx-filter" id="sx-filter">' +
-           chips.map(logoChip).join('') +
-           allGamesChip() +
-         '</div>' +
-         '<div id="sx-board" class="sx-list"></div>';
 }
 
-/* The "All games" chip — the affordance that opens the organized grid of
-   every game in the box. Drawn like the other chips (a grid icon on gold)
-   so it sits in the same row, but it is not a filter: it opens a sheet. */
-function allGamesChip(){
-  return '<button type="button" class="sx-chip sx-allchip" id="sx-allgames" ' +
-         'aria-haspopup="dialog" aria-label="' + esc(T('All games', 'Il-logħob kollu')) + '">' +
-           '<span class="sx-chlogo"><span class="sx-chico" style="--ax:var(--gold)">' +
-             ico('grid') + '</span></span>' +
-           '<span class="sx-chtx">' + T('All games', 'Il-logħob kollu') + '</span>' +
-         '</button>';
+/* ── TAB 1: OVERALL — the combined ranking across every game ──
+   The all-time/weekly toggle, then the podium + numbered ladder for
+   FILTER='all'. No per-game filter chips here: browsing a single game's
+   board is the ALL GAMES tab's job, and "Overall" is by definition the
+   sum of everything. */
+function overallHTML(){
+  return periodHTML() + '<div id="sx-board" class="sx-list"></div>';
+}
+
+/* ── TAB 2: ALL GAMES — the per-game browse ──
+   The organised grid of every game (the same catalog shelves the sheet used
+   to show), inline. Tapping a card slides to that game's own board, with a
+   back arrow to the grid and the same all-time/weekly toggle. The grid and
+   the per-game board live in one scroller and swap with a class flip, so no
+   re-render and no scroll jump. `GTAB` says which of the two is showing. */
+var GTAB = 'grid';         /* grid | board (a single game's board) */
+
+function gridGroupsHTML(){
+  return CATALOG.map(function(cat){
+    var cards = cat.games.map(gameCard).join('');
+    return '<div class="sx-ggroup">' +
+             '<div class="sx-ghead" style="--ax:' + esc(CAT_ACCENT[cat.key] || 'var(--gold)') + '">' +
+               '<span class="sx-ghico">' + ico(cat.icon) + '</span>' +
+               '<span>' + esc(T(cat.en, cat.mt)) + '</span>' +
+               '<i>' + cat.games.length + '</i>' +
+             '</div>' +
+             '<div class="sx-ggrid">' + cards + '</div>' +
+           '</div>';
+  }).join('');
+}
+
+function gamesHTML(){
+  var def = FILTER !== 'all' ? richDef(FILTER) : null;
+  var gridShown = GTAB === 'grid' || !def;
+  return '<div class="sx-gwrap">' +
+           /* the grid of every game */
+           '<div class="sx-gview' + (gridShown ? ' on' : '') + '" id="sx-gview-grid"' +
+             (gridShown ? '' : ' hidden') + '>' +
+             gridGroupsHTML() +
+             '<p class="sx-gfoot">' + T('Tap a game for its own leaderboard. Overall ranks every game together.',
+               'Agħfas logħba għall-klassifika tagħha. It-total jgħodd il-logħob kollu flimkien.') + '</p>' +
+           '</div>' +
+           /* one game's board */
+           '<div class="sx-gview sx-gboard' + (!gridShown ? ' on' : '') + '" id="sx-gview-board"' +
+             (!gridShown ? '' : ' hidden') + '>' +
+             '<div class="sx-gbhead">' +
+               '<button type="button" class="sx-gback" id="sx-gback" aria-label="' +
+                 esc(T('All games', 'Il-logħob kollu')) + '">' +
+                 '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>' +
+                 '<span>' + T('All games', 'Il-logħob kollu') + '</span>' +
+               '</button>' +
+               '<span class="sx-gbtitle">' + (def ? esc(def.name) : '') + '</span>' +
+             '</div>' +
+             periodHTML() +
+             '<div id="sx-gboard" class="sx-list"></div>' +
+           '</div>' +
+         '</div>';
+}
+
+/* Show a single game's board inside the ALL GAMES tab. Sets the filter and
+   flips to the board sub-view without a full re-render, then loads. */
+function openGameBoard(id, el){
+  el = el || scr;
+  if (!el) return;
+  FILTER = id;
+  GTAB = 'board';
+  /* the board id in the games tab is #sx-gboard; loadBoard paints #sx-board
+     (overall). Point the painter at the right host by giving the games board
+     the same id while it is the active one is fragile — instead loadBoard
+     always paints #sx-board, so mirror: give the visible board host the id. */
+  var def = richDef(id);
+  var grid = $('#sx-gview-grid', el), bd = $('#sx-gview-board', el);
+  if (grid){ grid.classList.remove('on'); grid.hidden = true; }
+  if (bd){ bd.classList.add('on'); bd.hidden = false; }
+  var title = $('.sx-gbtitle', el); if (title) title.textContent = def.name;
+  /* reflect the period toggle in this sub-view */
+  $$('#sx-gview-board .sx-period button', el).forEach(function(o){
+    o.setAttribute('aria-pressed', String(o.getAttribute('data-p') === PERIOD));
+  });
+  boardHost = $('#sx-gboard', el) || null;
+  loadBoard();
+}
+function backToGrid(el){
+  el = el || scr;
+  if (!el) return;
+  GTAB = 'grid';
+  var grid = $('#sx-gview-grid', el), bd = $('#sx-gview-board', el);
+  if (bd){ bd.classList.remove('on'); bd.hidden = true; }
+  if (grid){ grid.classList.add('on'); grid.hidden = false; }
+  boardHost = null;
+}
+
+/* wire the ALL GAMES tab: grid cards + the back arrow. The per-game board's
+   own period toggle is wired by wireBoard (it matches .sx-period button). */
+function wireGames(el){
+  $$('#sx-gview-grid .sx-gcard', el).forEach(function(b){
+    b.onclick = function(){ openGameBoard(b.getAttribute('data-g'), el); };
+  });
+  var gb = $('#sx-gback', el);
+  if (gb) gb.onclick = function(){ backToGrid(el); };
+}
+
+/* ── TAB 3: RECENT GAMES — a feed of the player's own recent results ──
+   Built from DATA.h[], the per-match log record() keeps (see the report for
+   the fields a richer, opponent-aware feed would want). Newest first: each
+   row is the game (logo + name), the result (win/loss/draw), and when. */
+function recentHTML(){
+  return '<div id="sx-recent" class="sx-list"></div>';
+}
+
+var RES_TXT = {
+  w: { en:'Win',  mt:'Rebħa', cls:'w' },
+  l: { en:'Loss', mt:'Telfa', cls:'l' },
+  d: { en:'Draw', mt:'Draw',  cls:'d' }
+};
+
+function recentRow(h){
+  var def = richDef(h.g);
+  var r = RES_TXT[h.r] || RES_TXT.d;
+  /* the one true extra detail this match carried, if any */
+  var extra = '';
+  if (h.r === 'w' && h.m) extra = T('in ' + h.m + ' moves', 'f\'' + h.m + ' mossi');
+  else if (h.sc) extra = T('score ', 'punteġġ ') + h.sc.toLocaleString('en-GB');
+  else if (h.r === 'w' && h.ms) extra = Math.round(h.ms / 1000) + T('s', 's');
+  var meta = when(h.t) + (extra ? ' · ' + extra : '');
+  return '<div class="sx-rrow">' +
+           tile(def, 'sx-pgtile') +
+           '<span class="sx-rnm"><b>' + esc(def.name) + '</b>' +
+             '<i>' + esc(meta) + '</i></span>' +
+           '<span class="sx-rres ' + r.cls + '">' + T(r.en, r.mt) + '</span>' +
+         '</div>';
+}
+
+function paintRecent(el){
+  el = el || scr;
+  var host = el && $('#sx-recent', el);
+  if (!host) return;
+  bind(activeKey());
+  var h = Array.isArray(DATA.h) ? DATA.h : [];
+  if (!h.length){
+    host.innerHTML = '<div class="sx-empty">' + ico('bolt') +
+      '<b>' + T('No games yet', 'L-ebda logħba s\'issa') + '</b>' +
+      T('Play a game and finish it, and your last results appear here — ' +
+        'newest first — kept on this phone.',
+        'Ilgħab logħba u temmha, u l-aħħar riżultati tiegħek jidhru hawn — ' +
+        'l-aktar reċenti l-ewwel — miżmuma fuq dan it-telefon.') + '</div>';
+    return;
+  }
+  /* newest first: h[] is appended in play order, so read it back-to-front */
+  var out = [];
+  for (var i = h.length - 1; i >= 0; i--) out.push(recentRow(h[i]));
+  host.innerHTML =
+    '<div class="sx-lbl">' + T('Your recent results', 'Ir-riżultati reċenti tiegħek') +
+      '<span class="sx-cnt">' + h.length + '</span></div>' +
+    out.join('') +
+    '<p class="sx-foot">' +
+      T('Your own matches, kept on this phone. Opponents and scores from other players are not stored here.',
+        'Il-logħbiet tiegħek, miżmuma fuq dan it-telefon. L-avversarji u l-punteġġi ta\' plejers oħra mhumiex maħżuna hawn.') +
+    '</p>';
+  wireArt(host);
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(host); } catch (e){}
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   THE ALL-GAMES GRID — every game, grouped, one tap away
-   A sheet inside #scr-stats (never a floating overlay over another
-   screen, so the MutationObserver rule still holds), scrolling a grid of
-   cards. Each card is the game's LOGO over its drawn emblem + its name,
-   grouped by the same shelves the catalog declares. Tapping a card sets
-   the board filter and closes the sheet. Registered with KARTI_NAV as a
-   layer so the Android back button dismisses it instead of leaving the
-   leaderboard, and closes on an outside tap too.
+   THE ALL-GAMES GRID — every game, grouped, one card
+   Each card is the game's LOGO over its drawn emblem + its name, grouped
+   by the catalog shelves. It lives INLINE in the ALL GAMES tab now (see
+   gridGroupsHTML / gamesHTML), not a bottom sheet — tapping a card opens
+   that game's own board in the same tab. gridEl/closeGrid are kept as a
+   harmless safety net (standDown/render call closeGrid defensively).
    ═══════════════════════════════════════════════════════════════════ */
 var gridEl = null;
+function closeGrid(){
+  try { if (window.KARTI_NAV && KARTI_NAV.unlayer) KARTI_NAV.unlayer('sx-grid'); } catch (e){}
+  if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
+  gridEl = null;
+}
 
 function gameCard(g){
   var stem = logoFor(g.id);
@@ -1803,68 +2065,6 @@ function gameCard(g){
            '<span class="sx-gclogo" style="--ax:' + esc(g.accent) + '">' + base + img + '</span>' +
            '<span class="sx-gcname">' + esc(T(g.nm, g.mt)) + '</span>' +
          '</button>';
-}
-
-function gridHTML(){
-  var groups = CATALOG.map(function(cat){
-    var cards = cat.games.map(gameCard).join('');
-    return '<div class="sx-ggroup">' +
-             '<div class="sx-ghead" style="--ax:' + esc(CAT_ACCENT[cat.key] || 'var(--gold)') + '">' +
-               '<span class="sx-ghico">' + ico(cat.icon) + '</span>' +
-               '<span>' + esc(T(cat.en, cat.mt)) + '</span>' +
-               '<i>' + cat.games.length + '</i>' +
-             '</div>' +
-             '<div class="sx-ggrid">' + cards + '</div>' +
-           '</div>';
-  }).join('');
-  return '<div class="sx-sheet" role="dialog" aria-modal="true" aria-label="' +
-           esc(T('All games', 'Il-logħob kollu')) + '">' +
-           '<div class="sx-shead">' +
-             '<h3>' + T('All games', 'Il-logħob kollu') + '</h3>' +
-             '<button type="button" class="sx-shx" id="sx-grid-x" aria-label="' +
-               esc(T('Close', 'Agħlaq')) + '">' +
-               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>' +
-             '</button>' +
-           '</div>' +
-           '<div class="sx-sbody">' + groups +
-             '<p class="sx-gfoot">' + T('Overall ranks every game together.',
-               'It-total jgħodd il-logħob kollu flimkien.') + '</p>' +
-           '</div>' +
-         '</div>';
-}
-
-function openGrid(){
-  closeGrid();
-  var host = screenEl();
-  var wrap = document.createElement('div');
-  wrap.className = 'sx-scrim';
-  wrap.innerHTML = gridHTML();
-  host.appendChild(wrap);
-  gridEl = wrap;
-  wireArt(wrap);
-  /* outside tap (on the scrim, not the sheet) dismisses */
-  wrap.addEventListener('click', function(ev){ if (ev.target === wrap) closeGrid(); });
-  $('#sx-grid-x', wrap).onclick = closeGrid;
-  $$('.sx-gcard', wrap).forEach(function(b){
-    b.onclick = function(){
-      var g = b.getAttribute('data-g');
-      closeGrid();
-      if (g && g !== FILTER){
-        FILTER = g;
-        /* re-render the board frame so the quick strip shows the new pick */
-        if (live && VIEW === 'board'){ render(); loadBoard(); }
-      }
-    };
-  });
-  try { if (window.KARTI_NAV && KARTI_NAV.layer)
-    KARTI_NAV.layer({ id:'sx-grid', isOpen:gridOpen, close:closeGrid }); } catch (e){}
-  requestAnimationFrame(function(){ if (gridEl) gridEl.classList.add('in'); });
-}
-function gridOpen(){ return !!(gridEl && gridEl.isConnected); }
-function closeGrid(){
-  try { if (window.KARTI_NAV && KARTI_NAV.unlayer) KARTI_NAV.unlayer('sx-grid'); } catch (e){}
-  if (gridEl && gridEl.parentNode) gridEl.parentNode.removeChild(gridEl);
-  gridEl = null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2005,46 +2205,25 @@ function closeCard(){
   cardEl = null;
 }
 
-/* The filter strip is wider than the phone, so the chip that is switched on
-   can easily be off the right-hand edge — which reads as "no filter is on"
-   and is the one thing a filter must never do. Centre it instead. Set
-   directly on scrollLeft rather than scrollIntoView(): that would be free to
-   scroll an ancestor as well, and the ancestor here is the app shell. */
-function showChip(el){
-  var strip = $('#sx-filter', el);
-  if (!strip) return;
-  var on = $('button[aria-pressed="true"]', strip);
-  if (!on) return;
-  strip.scrollLeft = Math.max(0, on.offsetLeft - (strip.clientWidth - on.offsetWidth) / 2);
-}
+/* No horizontal filter strip on the board anymore (per-game browsing is the
+   ALL GAMES tab), so this is a no-op kept only because setTab() calls it. */
+function showChip(){}
 
 function wireBoard(el){
-  $$('#sx-filter button', el).forEach(function(b){
-    b.onclick = function(){
-      var g = b.getAttribute('data-g');
-      if (g === FILTER) return;
-      FILTER = g;
-      $$('#sx-filter button', el).forEach(function(o){
-        o.setAttribute('aria-pressed', String(o.getAttribute('data-g') === FILTER));
-      });
-      showChip(el);
-      loadBoard();
-    };
-  });
-  $$('#sx-period button', el).forEach(function(b){
+  /* every all-time/weekly toggle on the screen (OVERALL has one, the ALL
+     GAMES per-game board has its own) — they share PERIOD, so a change on
+     either updates both and reloads whichever board is currently painted. */
+  $$('.sx-period button', el).forEach(function(b){
     b.onclick = function(){
       var p = b.getAttribute('data-p');
       if (p === PERIOD) return;
       PERIOD = p;
-      $$('#sx-period button', el).forEach(function(o){
+      $$('.sx-period button', el).forEach(function(o){
         o.setAttribute('aria-pressed', String(o.getAttribute('data-p') === PERIOD));
       });
       loadBoard();
     };
   });
-  var ag = $('#sx-allgames', el);
-  if (ag) ag.onclick = openGrid;
-  showChip(el);
   paintBoard();
 }
 
@@ -2165,7 +2344,12 @@ function localFallback(){
 }
 
 function paintBoard(){
-  var host = scr && $('#sx-board', scr);
+  /* boardHost is the ALL GAMES per-game board when one is open; otherwise
+     the OVERALL tab's #sx-board. Fall back to #sx-board if the pointer went
+     stale (e.g. a re-render dropped the games board). */
+  var host = (boardHost && boardHost.isConnected)
+    ? boardHost
+    : (scr && $('#sx-board', scr));
   if (!host) return;
   var body;
   if (BOARD.state === 'live'){
