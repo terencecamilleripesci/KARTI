@@ -785,8 +785,21 @@ function disarmGuess(){ UI.armed = false; }
 function submitGuess(seat, c){
   if (!M || E.over(M.st)) return;
   /* online: this client may not hold the opponent's secret, so it cannot
-     judge — send the guess and let the opponent's phone stamp right. But
-     locally (offline / our own AI game) the engine judges directly. */
+     judge — DEFER. Send the guess unjudged (right stays the 255 sentinel);
+     the opponent's phone judges it against its own secret, applies, and echoes
+     the verdict back, which onlineRemote() then applies here. Applying locally
+     with an unknown verdict (the old bug) made every guess resolve to "wrong"
+     and instantly lost the guesser the game. Locally (offline / vs-AI) the
+     engine holds the secret and judges directly. */
+  if (M.net && typeof M.st.secret[E.opp(seat)] !== 'number'){
+    if (M.pending) return;
+    M.pending = { t:'guess', seat, c };
+    netEcho({ t:'guess', c });
+    disarmGuess();
+    setNetWaiting(T('Waiting for the verdict…', 'Nistennew il-verdett…'));
+    render();
+    return;
+  }
   const mv = { t:'guess', c };
   const res = doMove(seat, mv, 'local');
   if (!res.ok){ cue('move.illegal', { gain:0.7 }); render(); return; }
@@ -834,10 +847,31 @@ function questionPickerHTML(){
   }).join('');
 }
 
-/* ask a question: submit the move, then reveal the answer with a beat */
+/* ask a question: submit the move, then reveal the answer with a beat.
+
+   ONLINE the answer is not ours to compute — only the OPPONENT'S phone holds
+   the secret being asked about. So online we do NOT apply locally with a
+   made-up answer (that was the bug: E.apply stamped a=0 for the asker, the
+   move went out already answered, and the opponent never corrected it — every
+   answer came back "NO"). Instead we SEND the ask unanswered and sit on a
+   deferred move; the opponent stamps the truth, applies, and echoes it back,
+   and onlineRemote() then applies it here and reveals the real answer. */
 function askQuestion(key, val){
   const seat = viewSeat();
   if (E.turn(M.st) !== seat){ closeSheet(); return; }
+
+  if (M.net && typeof M.st.secret[E.opp(seat)] !== 'number'){
+    /* online asker — defer. Send the ask with the answer UNSTAMPED (encWire
+       maps an absent a to the 255 "not answered yet" sentinel). */
+    if (M.pending) return;                       /* one question in flight */
+    M.pending = { t:'ask', seat, key, val };
+    netEcho({ t:'ask', key, val });
+    closeSheet();
+    setNetWaiting(T('Waiting for their answer…', 'Nistennew it-tweġiba tagħhom…'));
+    render();
+    return;
+  }
+
   const mv = { t:'ask', key, val };
   const res = doMove(seat, mv, 'local');
   if (!res.ok){ cue('move.illegal', { gain:0.7 }); return; }
@@ -846,6 +880,7 @@ function askQuestion(key, val){
   const a = (rec && (rec.a === 0 || rec.a === 1)) ? rec.a : (M.st.lastAsk ? M.st.lastAsk.a : 0);
   showAnswer(seat, key, val, a);
 }
+function setNetWaiting(text){ if (M && M.ctx) { try { P.ui.setNet(M.ctx, text || '', 'wait'); } catch(e){} } }
 
 /* ═══════════════════════════════════════════════════════════════════
    TALK MODE — the IN-THE-ROOM turn. The asker (whose turn it is) tapped
@@ -1407,6 +1442,27 @@ function newGame(opts, snap){
    phone and echoed with the answer bit stamped; the shape mirrors poker.
    ═══════════════════════════════════════════════════════════════════ */
 let NET = null;
+let NET_SEND = null;         /* mp.js's raw move sink, captured in onMove */
+
+/* send a move on the wire (not via doMove's onMove feed). Used both to send a
+   deferred ask/guess and to ECHO an answered ask / judged guess back to the
+   asker — the defender is the only phone that can compute the answer, and the
+   asker is sitting on a deferred move waiting for exactly this.
+
+   It is ALWAYS stamped with OUR OWN seat: mp.js's onMove sink drops any move
+   whose seat is not ours unless that seat is a machine the host runs, so an
+   echo stamped as the asker's seat would never leave. The relay re-stamps the
+   sender's true seat regardless, and the receiver recognises its own move by
+   CONTENT (a matching pending ask, or a guess carrying a verdict), not by
+   seat — so the stamp does not need to lie. */
+function netEcho(mv){
+  if (!NET_SEND || !M || !M.online) return;
+  const w = E.encWire(mv);
+  if (!w) return;
+  const mine = M.online.meG;
+  const room = (NET && NET.toRoom && NET.toRoom[mine] != null) ? NET.toRoom[mine] : mine;
+  NET_SEND(w, { seat: room, src:'echo' });
+}
 
 function planDeal(opts){ return E.planDeal(opts); }
 
@@ -1443,6 +1499,7 @@ function onlineStart(cfg){
   NET = Object.assign({}, cfg.net, { host: iAmHost, toGame, toRoom, me: meG });
   M.net = NET;
   M.finished = false;
+  M.pending = null;         /* an ask/guess sent online, awaiting the answer echo */
   M.pickedOwn = false;      /* becomes true once THIS seat has chosen locally */
   injectCSS();
   P.show();
@@ -1505,26 +1562,68 @@ function onlineRemote(seat, wire){
   const mv = E.decWire(wire);
   if (!mv) return { ok:false, why:'a move this table does not know' };
   if (mv.t === 'quit'){ doQuit(g); render(); return null; }
+  const mySeat = M.online.meG;
+
+  /* ── (1) THE DEFENDER stamps the truth. An ask/guess arriving UNANSWERED
+     is about OUR secret (only we can compute it). Stamp it from our own
+     secret, apply, then ECHO the stamped move back so the asker — who is
+     sitting on a deferred move — learns the real answer/verdict. The asker
+     recognises its own move coming home by CONTENT (a matching pending ask/
+     guess), not by seat, so the echo rides out under our own seat. */
   if (mv.t === 'ask' && mv.a === undefined){
-    /* the opponent asked us; answer truthfully from OUR secret (the seat
-       being asked about is us — opp(g) === our seat). */
-    const mySeat = M.online.meG;
     if (E.opp(g) === mySeat && typeof M.st.secret[mySeat] === 'number'){
       mv.a = E.answer(M.st.secret[mySeat], { key:mv.key, val:mv.val });
+      mv.seat = g;
+      const r = doMove(g, mv, 'net');
+      if (!r.ok) return { ok:false, why:String(r.err || 'refused') };
+      netEcho({ t:'ask', key:mv.key, val:mv.val, a:mv.a });
+      render();
+      return null;
     }
   }
   if (mv.t === 'guess' && mv.right === undefined){
-    /* the opponent guessed OUR character; we judge against our secret */
-    const mySeat = M.online.meG;
     if (E.opp(g) === mySeat && typeof M.st.secret[mySeat] === 'number'){
       mv.right = (mv.c === M.st.secret[mySeat]) ? 1 : 0;
+      mv.seat = g;
+      const r = doMove(g, mv, 'net');
+      if (!r.ok) return { ok:false, why:String(r.err || 'refused') };
+      netEcho({ t:'guess', c:mv.c, right:mv.right });
+      render();
+      return null;
     }
   }
+
+  /* ── (2) THE ASKER receives its own move, now answered/judged by the
+     opponent. The relay stamps the echo with the DEFENDER's seat (it stamps
+     its own, never the client's), so we recognise it by our own pending
+     move rather than by seat: it is the same kind, now carrying a real
+     answer/verdict. Apply it as OURS and reveal the real answer. */
+  if (M.pending &&
+      ((mv.t === 'ask'   && M.pending.t === 'ask'   && (mv.a === 0 || mv.a === 1) &&
+        mv.key === M.pending.key && mv.val === M.pending.val) ||
+       (mv.t === 'guess' && M.pending.t === 'guess' && (mv.right === 0 || mv.right === 1) &&
+        mv.c === M.pending.c))){
+    const pend = M.pending; M.pending = null;
+    setNetWaiting('');
+    /* src:'net' so applying our own returned move does NOT re-broadcast it
+       (that would loop); the sound sub still fires. */
+    if (mv.t === 'ask'){
+      const res = doMove(mySeat, { t:'ask', key:mv.key, val:mv.val, a:mv.a }, 'net');
+      if (res.ok) showAnswer(mySeat, mv.key, mv.val, mv.a);
+      else render();
+    } else {
+      doMove(mySeat, { t:'guess', c:mv.c, right:mv.right }, 'net');
+      render();
+    }
+    void pend;
+    return null;
+  }
+
+  /* ── (3) anything else already carries its answer (e.g. a legacy fully
+     stamped move): apply as the sender's move. */
   mv.seat = g;
   const r = doMove(g, mv, 'net');
   if (!r.ok) return { ok:false, why:String(r.err || 'refused') };
-  /* if it was an ask we just answered, the answer must go back on the wire
-     — mp.js re-broadcasts the stamped move via the onMove feed below. */
   render();
   return null;
 }
@@ -1563,6 +1662,11 @@ const NET_HOOKS = {
      it is a private view change, so flips are NOT forwarded (src 'local'
      flips from tile taps stay on this device). Only ask/guess/quit travel. */
   onMove: fn => {
+    /* keep the raw sink so onlineRemote can ECHO a stamped answer/judgement
+       back to the asker — mp.js's onMove path ignores src:'net' (rightly, so
+       relayed moves do not loop), so the echo cannot ride it and is sent here
+       explicitly by netEcho(). */
+    NET_SEND = fn;
     const f = info => {
       if (!M || M.dead || !NET || !info) return;
       if (info.src === 'net' || info.src === 'auto') return;
@@ -1573,7 +1677,8 @@ const NET_HOOKS = {
       fn(w, { seat: (room == null ? info.seat : room), src: info.src });
     };
     moveSubs.push(f);
-    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
+    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1);
+                   if (NET_SEND === fn) NET_SEND = null; };
   },
   private: (d /*, mates */) => onlinePrivate(d),
   apply: (seat, wire) => onlineRemote(seat, wire),

@@ -711,7 +711,7 @@ function note(st){
 /* ═══════════════════════════════════════════════════════════════════
    THE WIRE — a move as flat byte fields, for js/mp.js's generic codec.
    Every field is 0..255. The moves that travel:
-     ask   → { t:'ask',   k:keyIndex, v:valIndex, a:0|1 }   the answer is
+     ask   → { t:'ask',   k:keyIndex, q:valIndex, a:0|1 }   the answer is
              stamped by the ANSWERING phone before it echoes; the asker's
              own send carries a: 255 ("not answered yet") which decWire
              maps to undefined so apply() computes/awaits it.
@@ -730,7 +730,11 @@ function valIndex(k, v){ const a = SCHEMA_BY[k]; return a ? a.values.findIndex(x
 function keyAt(i){ return KEYS[i] || null; }
 function valAt(k, i){ const a = SCHEMA_BY[k]; return (a && a.values[i]) ? a.values[i].v : null; }
 const byteOK = v => v >= 0 && v <= 255;
-const WIRE_FIELDS = ['k', 'v', 'a', 'c', 'r', 'd'];
+/* NB: NOT 'v'. js/mp.js's generic wire codec reserves the field name `v` for a
+   BOOLEAN flag (tombla's ready bit) and coerces it with `!!` on the way back —
+   which silently turned our value-INDEX (a small integer) into 0/1 and mangled
+   every question on the wire. The attribute-value index rides on `q` instead. */
+const WIRE_FIELDS = ['k', 'q', 'a', 'c', 'r', 'd'];
 
 function encWire(mv){
   if (!mv) return null;
@@ -741,11 +745,11 @@ function encWire(mv){
     return { t:'flip', c, d: mv.down ? 1 : 0 };
   }
   if (mv.t === 'ask'){
-    const k = keyIndex(mv.key), v = valIndex(mv.key, mv.val);
-    if (k < 0 || v < 0) return null;
+    const k = keyIndex(mv.key), q = valIndex(mv.key, mv.val);
+    if (k < 0 || q < 0) return null;
     const a = (mv.a === 0 || mv.a === 1) ? mv.a : 255;
-    if (!byteOK(k) || !byteOK(v)) return null;
-    return { t:'ask', k, v, a };
+    if (!byteOK(k) || !byteOK(q)) return null;
+    return { t:'ask', k, q, a };
   }
   if (mv.t === 'talk'){
     /* the IRL turn — a free-form yes/no with no attribute. Only the answer
@@ -767,7 +771,7 @@ function decWire(w){
   if (w.t === 'quit') return { t:'quit' };
   if (w.t === 'flip') return { t:'flip', c:(w.c | 0), down: (w.d | 0) === 1 };
   if (w.t === 'ask'){
-    const key = keyAt(w.k | 0), val = valAt(key, w.v | 0);
+    const key = keyAt(w.k | 0), val = valAt(key, w.q | 0);
     if (!key || val == null) return null;
     const mv = { t:'ask', key, val };
     if ((w.a | 0) === 0 || (w.a | 0) === 1) mv.a = (w.a | 0);

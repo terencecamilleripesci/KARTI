@@ -579,10 +579,28 @@ function render(){
 function renderSet(host){
   const seat = settingSeat();
   const o = M.opts;
+
+  /* online: once I have locked my code I sit waiting for the opponent to lock
+     theirs — do NOT show the compose grid again (that let a seat re-set, and
+     showed the pass-the-phone "Player 2" prompt to a lone online player). */
+  if (M.mode === 'online' && M.iSet){
+    const wrap = document.createElement('div');
+    wrap.className = 'kd-board';
+    wrap.innerHTML =
+      '<div class="kd-status"><span class="kd-who">'+esc(T('Code locked','Kodiċi stabbilit'))+'</span>'+
+        '<span class="kd-tag">'+esc(T('SECRET','SIGRIET'))+'</span></div>'+
+      '<div class="kd-history" style="flex:1 1 auto;display:flex;align-items:center;justify-content:center;color:var(--dim,#9d95b0);font-size:13px">'+
+        esc(T('Waiting for the other player to set their code…','Nistennew lill-plejer l-ieħor jistabbilixxi l-kodiċi…'))+'</div>';
+    host.appendChild(wrap);
+    setBadge();
+    return;
+  }
+
   if (!M.draft.length) M.draft = new Array(o.slots).fill(-1);
   const done = M.draft.every(x => x >= 0);
 
-  const who = (M.mode==='ai') ? T('Set YOUR secret code','Stabbilixxi l-kodiċi tiegħek')
+  const who = (M.mode==='ai' || M.mode==='online')
+            ? T('Set YOUR secret code','Stabbilixxi l-kodiċi tiegħek')
             : T('Player','Plejer')+' '+(seat+1)+' — '+T('set your code','stabbilixxi l-kodiċi');
 
   const wrap = document.createElement('div');
@@ -599,6 +617,10 @@ function renderSet(host){
   setBadge();
 }
 function settingSeat(){
+  /* online: each phone only ever sets its OWN code — the setting seat is us,
+     never the pass-the-phone setA=0 / setB=1 alternation (that would have a
+     seat-1 player set seat 0's secret). */
+  if (M.mode === 'online') return M.you;
   /* setA = seat 0, setB = seat 1 */
   return M.phase === 'setB' ? 1 : 0;
 }
@@ -787,6 +809,16 @@ function submitSecret(code){
   M.secrets[seat] = code.slice();
   M.draft = [];
 
+  if (M.mode === 'online'){
+    /* online: I have locked MY OWN code (it never leaves this device). Tell the
+       opponent I am ready with a code-less {t:'set'} signal; when BOTH sides
+       are ready both leave the SET phase together. Until then, wait. */
+    M.iSet = true;
+    netEcho({ t:'set' });
+    maybeStartOnline();
+    saveGame(); render(); return;
+  }
+
   if (M.mode === 'ai'){
     /* only seat 0 (you) sets; AI secret already placed → straight to play */
     M.phase = 'play';
@@ -806,6 +838,20 @@ function submitSecret(code){
   saveGame(); render();
 }
 
+/* online: both codemakers have said {t:'set'} → leave the SET phase together.
+   The engine's own st.phase only flips to 'play' when it holds BOTH secrets,
+   which online it never does (the opponent's stays private), so we advance the
+   phase explicitly here on both phones. */
+function maybeStartOnline(){
+  if (!M || M.mode !== 'online') return;
+  if (M.iSet && M.oppSet && M.phase !== 'play'){
+    M.phase = 'play';
+    M.st.phase = 'play';                 /* let legalGuess/guessAt run online */
+    M.veil = 0; M.shown = -1;
+    render();
+  }
+}
+
 /* ── PLAY: submit a guess ── */
 function submitGuess(g){
   const seat = E.turn(M.st);
@@ -814,9 +860,13 @@ function submitGuess(g){
   if (M.mode === 'online'){
     /* online: send to relay; the OWNER computes feedback and echoes it
        back. We do NOT hold the opponent's secret, so we cannot score it
-       locally. The move is applied on confirmation via onlineRemote/echo. */
+       locally. The move is applied on confirmation via onlineRemote/echo.
+       A pending guard stops a second guess before the verdict lands. */
+    if (M.pending) return;
+    M.pending = true;
     sendOnlineGuess(seat, g);
     M.draft = [];
+    render();
     return;
   }
 
@@ -1010,30 +1060,31 @@ function goOnline(){
   el.querySelector('#kd-back').onclick = () => { cue('ui.back',{gain:.6}); menu(); };
 }
 
-/* planDeal(opts) → the pool the relay deals privately: one fresh secret
-   per seat (the relay posts each seat ITS OWN via hooks.private). Shape
-   mirrors poker's { items, each } — but a code is a per-seat SLATE, so
-   we hand the relay a per-seat item list it can split. Here `each` is the
-   slot count and `items` a flat pool of colour ids the relay draws from
-   per seat; simplest correct shape: return a full plan the relay can
-   deal by handing each seat a random code. We return the code space size
-   so the relay can pick. */
-function planDeal(opts){
-  const b = E.boardOf(opts || {});
-  /* the relay deals each seat ONE secret code of `b.slots` colours from
-     [0, b.colours). We express that as items = colour ids available, each
-     = slots. The relay's private deal hands each seat `each` colour picks
-     (with repeats) — i.e. a random code — and nobody else sees it. */
-  const items = [];
-  for (let c=0;c<b.colours;c++) items.push(c);
-  return { items, each: b.slots, repeats:true, kind:'code' };
+let NET_SEND = null;    /* mp.js's raw move sink, captured in onMove */
+
+/* send a move on the wire through mp.js's own onMove path (which applies its
+   generic toWire codec, so this is the exact shape a normal move takes). Used
+   for guesses, the {t:'set'} ready signal, and the owner's feedback echo. */
+function netEcho(mv){
+  if (!NET_SEND || !NET) return;
+  const w = E.encWire(mv);
+  if (!w) return;
+  const room = (NET.toRoom && NET.toRoom[M.you] != null) ? NET.toRoom[M.you] : M.you;
+  NET_SEND(w, { seat: room, src:'echo' });
 }
+
+/* KODIĊI keeps NO relay deal: each player composes their OWN code on their OWN
+   phone and it never crosses the wire (pick-your-own — the strongest possible
+   secrecy, same as MIN HU?). Only guesses and the owner-computed feedback
+   travel. So there is no planDeal — mp.js sends a deal-less start, and the
+   relay never has a secret to leak. (The old planDeal returned a pool of
+   `colours` items with `each = slots`; the relay needs seats*slots ≤ items,
+   which classic 4×6 fails — 2*4 > 6 — so the start was REFUSED outright.) */
 
 /* the relay just seated us and is about to run the match. */
 function onlineStart(cfg){
   injectCSS();
   cfg = cfg || {};
-  const seats = cfg.seats || [];
   const you = (cfg.you != null) ? cfg.you : 0;
   const o = boardOpts(pref().cfg || { board:'classic', limit:10, lvl:2 });
   NET = {
@@ -1048,31 +1099,28 @@ function onlineStart(cfg){
     log:[], secrets:[null,null],
     st: E.newMatch(Object.assign({}, o, { deal:'private' }), (cfg.seed|0)||0),
     mode:'online', you: NET.meG, ctx:null, phase:'set', draft:[], veil:0, shown:-1,
-    net: cfg.net || {}, dead:false
+    net: cfg.net || {}, dead:false,
+    iSet:false, oppSet:false,               /* the two codemaker-ready bits */
+    pending:false                           /* a guess is out, awaiting the verdict */
   };
   finished = false;
   openBoard(() => { onlineStop('left'); menu(); });
-  /* online SET: you compose your secret; it is sent to the relay as YOUR
-     private slate, never broadcast to the opponent. Until it arrives back
-     confirmed, we sit in the set phase. */
-  M.phase = 'setA';                       /* you set your own code */
+  /* online SET: you compose YOUR OWN secret on this device. It is never sent —
+     you only announce {t:'set'} when it is locked, and play begins once both
+     phones have announced. */
+  M.phase = 'setA';
   render();
   return NET;
 }
-/* the relay delivered THIS seat its own secret (private deal). We store it
-   ONLY under our own seat — the opponent's secret never reaches us. */
-function onlinePrivate(d){
-  if (!M || M.dead || !M.online && M.mode!=='online') return;
-  /* d is this seat's own code (array of colour ids). */
-  if (!Array.isArray(d)) return;
-  const me = M.you;
-  E.setSecret(M.st, me, d.slice());
-  M.secrets[me] = d.slice();
-  render();
-}
-/* opponent's move arrived from the relay. For a guess AT MY code, I (the
-   owner) compute the feedback locally and echo it; for a guess I made,
-   the owner's echo carries the feedback. mp.js routes both here. */
+/* No relay deal is used online (pick-your-own), so this hook is a no-op kept
+   only for compatibility with a relay that still pushes a per-seat deal — we
+   deliberately IGNORE it so the player's own choice always wins. */
+function onlinePrivate(/* d */){ /* intentionally ignored: codes are chosen locally */ }
+
+/* a move arrived from the relay (mp.js already ran fromWire, so `wire` is the
+   partial move object). Three kinds travel: {t:'set'} (opponent locked their
+   code), a guess AT my code (I own the secret → I score it and echo the
+   feedback back), and my OWN guess coming home carrying the owner's feedback. */
 function onlineRemote(seat, wire){
   if (!M || M.dead) return null;
   const g = (NET && NET.toGame && NET.toGame[seat] != null) ? NET.toGame[seat] : seat;
@@ -1080,40 +1128,58 @@ function onlineRemote(seat, wire){
   if (!mv) return { ok:false, why:'unknown move' };
   if (mv.t === 'quit'){ onlineStop('left'); return null; }
 
-  /* a guess made by game-seat g at seat (1-g)'s code */
-  const tgt = E.target(g);
-  if (g === M.you){
-    /* my own guess coming back with the owner-supplied feedback in wire.fb */
-    const fb = wire.fb || null;
-    const rec = E.guessAt(M.st, g, mv.g, fb);
-    if (rec){ M.log.push({seat:g, g:mv.g.slice()}); M._reveal = M.st.guesses[tgt].length-1; cue('ui.note',{gain:.6},true); }
-  } else {
-    /* opponent guessing at MY code — I own the secret, I score it and the
-       feedback goes back over the wire (relay echoes my note). */
-    const rec = E.guessAt(M.st, g, mv.g);   /* engine scores from my secret */
+  if (mv.t === 'set'){
+    /* the opponent has locked their code. Play begins once we both have. */
+    M.oppSet = true;
+    maybeStartOnline();
+    render();
+    return null;
+  }
+
+  if (mv.t !== 'guess') return null;
+  /* WHO does this guess belong to? The relay stamps the echo with the
+     DEFENDER's seat, not the original guesser's, so we cannot tell by seat.
+     The discriminator is the FEEDBACK: a guess that arrives WITH fb is the
+     owner's verdict on MY OWN guess coming home; a guess WITHOUT fb is the
+     opponent guessing at MY code (which I must score and echo). */
+  if (mv.fb){
+    /* my own guess, now judged by the owner. I hold no opponent secret, so I
+       apply with the supplied fb. `M.you` is the guesser (me). */
+    const me = M.you;
+    const tgt = E.target(me);
+    const rec = E.guessAt(M.st, me, mv.g, mv.fb);
     if (rec){
-      M.log.push({seat:g, g:mv.g.slice()});
+      M.log.push({ seat:me, g:mv.g.slice(), fb:rec.fb });
+      M._reveal = M.st.guesses[tgt].length-1;
+      cue(rec.fb.exact===M.opts.slots ? 'ui.reward' : 'ui.note', {gain:.7}, true);
+    }
+    M.pending = false;                     /* the verdict is in; free to guess again */
+  } else {
+    /* the opponent guessed at MY code — I own the secret, so I score it from my
+       own secret and ECHO the guess back WITH the feedback so their phone can
+       render it. My secret itself never leaves this device. The opponent's
+       game seat is the OTHER seat from mine. */
+    const opp = E.target(M.you);
+    const tgt = E.target(opp);
+    const rec = E.guessAt(M.st, opp, mv.g);     /* engine scores from my secret */
+    if (rec){
+      M.log.push({ seat:opp, g:mv.g.slice(), fb:rec.fb });
       M._reveal = M.st.guesses[tgt].length-1;
       cue('mp.turn',{gain:.5});
-      /* tell the relay the feedback so the guesser's client can render it */
-      if (M.net && M.net.note){ try { M.net.note({ t:'fb', seat, fb:rec.fb }); } catch(e){} }
+      netEcho({ t:'guess', g:mv.g.slice(), fb:rec.fb });
     }
   }
   render();
   return null;
 }
 function sendOnlineGuess(seat, g){
-  const w = E.encWire({ t:'guess', g });
-  if (!w) { cue('move.illegal',{gain:.6}); return; }
-  if (M.net && M.net.send){ try { M.net.send(w); } catch(e){} }
-  /* optimistic: engine will apply on echo (onlineRemote) so both clients
-     converge on the owner's authoritative feedback. */
+  /* send the guess UNSCORED (no fb) — the owner will score it and echo it back
+     with the verdict, which onlineRemote() then applies here. We do NOT apply
+     locally: applying with no fb would fail (guessAt needs a fb online), and a
+     wrong optimistic fb would desync the two phones. */
+  netEcho({ t:'guess', g:g.slice() });
 }
-function onlineNote(note){
-  /* the relay's side-channel: a feedback echo for a guess I made. */
-  if (!M || M.dead || !note) return;
-  if (note.t === 'fb'){ M._reveal = null; render(); }
-}
+function onlineNote(/* note */){ /* no side-channel: feedback rides on the guess echo */ }
 function onlineStop(why, tone){
   if (!M || M.dead) return;
   M.dead = true;
@@ -1172,7 +1238,12 @@ const NET_HOOKS = {
   turn:   () => (M && NET) ? (NET.toRoom[E.turn(M.st)] != null ? NET.toRoom[E.turn(M.st)] : -1) : -1,
   over:   () => (M ? M.st.over : null),
   moveCount: () => (M ? M.log.length : 0),
-  onMove: () => (()=>{}),                 /* sends go through sendOnlineGuess directly */
+  /* capture mp.js's raw move sink so netEcho() can send guesses, the {t:'set'}
+     ready signal, and the owner's feedback echo through the SAME toWire path a
+     normal move uses. We do not forward moves automatically (guesses go out via
+     sendOnlineGuess / feedback via netEcho), so the subscriber callback `f` is
+     a no-op — we only need the sink `fn`. */
+  onMove: fn => { NET_SEND = fn; return () => { if (NET_SEND === fn) NET_SEND = null; }; },
   private: (d /*, mates */) => onlinePrivate(d),
   apply: (seat, wire) => onlineRemote(seat, wire),
   seatGone: () => { onlineStop('left'); }
@@ -1181,7 +1252,7 @@ const NET_HOOKS = {
 P.online = P.online || {};
 P.online.kodici = {
   start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
-  planDeal,
+  /* no planDeal: KODIĊI is pick-your-own — no secret ever crosses the wire */
   live: () => NET_HOOKS.live(),
   hooks: NET_HOOKS
 };

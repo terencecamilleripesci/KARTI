@@ -543,9 +543,18 @@ function aiSecret(st){ const gen = { rs: st.rs ^ 0x9E3779B9 }; return randCode(g
    THE WIRE — a guess as flat byte fields for js/mp.js's codec. N bytes
    g0..g5 (unused slots absent), each 0..K-1 and refused if out of range.
    ═══════════════════════════════════════════════════════════════════ */
-const WIRE_FIELDS = ['g0', 'g1', 'g2', 'g3', 'g4', 'g5'];
+/* g0..g5 = the guess colours. fx/fn = the feedback the CODE OWNER computes and
+   echoes back on the guess (exact/near) — online the guesser cannot score its
+   own guess (it does not hold the target secret), so the owner's verdict has to
+   travel WITH the move; there is no side channel (mp.js's generic table wire
+   carries only these declared fields). `set` is the codemaker-ready signal: a
+   guess-less move that says "my code is locked", so both phones leave the SET
+   phase together without either secret ever crossing the wire. */
+const WIRE_FIELDS = ['g0', 'g1', 'g2', 'g3', 'g4', 'g5', 'fx', 'fn'];
 function encWire(mv){
-  if (!mv || mv.t !== 'guess' || !Array.isArray(mv.g)) return null;
+  if (!mv) return null;
+  if (mv.t === 'set') return { t: 'set' };
+  if (mv.t !== 'guess' || !Array.isArray(mv.g)) return null;
   const g = mv.g;
   if (g.length < 1 || g.length > 6) return null;
   const w = { t: 'guess' };
@@ -554,17 +563,28 @@ function encWire(mv){
     if (v < 0 || v > 255) return null;
     w['g' + i] = v;
   }
+  /* the owner's feedback rides along on the echo (0..slots, so always a byte) */
+  if (mv.fb && typeof mv.fb === 'object'){
+    w.fx = mv.fb.exact | 0;
+    w.fn = mv.fb.near | 0;
+  }
   return w;
 }
 function decWire(w){
-  if (!w || w.t !== 'guess') return null;
+  if (!w) return null;
+  if (w.t === 'set') return { t: 'set' };
+  if (w.t !== 'guess') return null;
   const g = [];
   for (let i = 0; i < 6; i++){
     if (w['g' + i] === undefined) break;
     g.push(w['g' + i] | 0);
   }
   if (!g.length) return null;
-  return { t: 'guess', g };
+  const mv = { t: 'guess', g };
+  if (w.fx !== undefined && w.fn !== undefined){
+    mv.fb = { exact: w.fx | 0, near: w.fn | 0 };
+  }
+  return mv;
 }
 
 /* ── one documented random seed pick for a brand-new local match ────── */
