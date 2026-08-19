@@ -146,11 +146,11 @@ const GAMES = [
     blurb:'Bixkla, Briscola, Sette, Il-Gidba.' },
   /* the new games the relay now seats. No hidden information, so online off
      the shared seed is honest. Their own files publish the lobby contract. */
-  { k:'kanun', name:'Il-Kanun',  short:'KANUN', icon:'dice',
+  { k:'kanun', name:'Il-Kanun',  short:'KANUN', icon:'play',
     blurb:'Two castles, one slingshot.' },
-  { k:'bomba', name:'Il-Bomba',  short:'BOMBA', icon:'dice',
+  { k:'bomba', name:'Il-Bomba',  short:'BOMBA', icon:'play',
     blurb:'Drop bombs. Last one standing.' },
-  { k:'briks', name:'Il-Ħajt',   short:'ĦAJT',  icon:'dice',
+  { k:'briks', name:'Il-Ħajt',   short:'ĦAJT',  icon:'play',
     blurb:'Break their wall before they break yours.' },
   /* THE HIDDEN-HAND CARD GAMES. Online now that the relay deals each seat
      its own cards privately (see the private per-seat deal above): no phone
@@ -160,15 +160,15 @@ const GAMES = [
     blurb:'Two cards each, five in the middle, four rounds of bluffing.' },
   { k:'cards2131', name:'21 u 31', short:'21·31', icon:'cards',
     blurb:'Blackjack against the dealer, or Scat for your lives.' },
-  { k:'ludu',  name:'Ludu',      short:'LUDU',  icon:'dice',
+  { k:'ludu',  name:'Ludu',      short:'LUDU',  icon:'play',
     blurb:'Four tokens, one lap, no mercy.' },
-  { k:'serp',  name:'Is-Serp',    short:'SERP',  icon:'dice',
+  { k:'serp',  name:'Is-Serp',    short:'SERP',  icon:'play',
     blurb:'Grow, don\'t crash, eat the rest.' },
-  { k:'erbgha', name:'Erbgħa',    short:'ERBGĦA', icon:'dice',
+  { k:'erbgha', name:'Erbgħa',    short:'ERBGĦA', icon:'play',
     blurb:'Drop discs, line up four.' },
-  { k:'minhu',  name:'Min Hu?',    short:'MIN HU', icon:'dice',
+  { k:'minhu',  name:'Min Hu?',    short:'MIN HU', icon:'play',
     blurb:'Ask, eliminate, guess their face.' },
-  { k:'kodici', name:'Il-Kodiċi',  short:'KODIĊI', icon:'dice',
+  { k:'kodici', name:'Il-Kodiċi',  short:'KODIĊI', icon:'play',
     blurb:'Two secret codes. Crack theirs first.' },
   /* the arena games (real-time, no hidden info) and Reversi (perfect info).
      Online is honest off the shared seed / lockstep. */
@@ -597,15 +597,31 @@ function lobbyReport(){
 /* the mark for a game. chess and dama borrow the piece sprite party.js
    injects; if party.js is not loaded yet we fall back to a plain icon
    rather than draw a hole. */
+/* games that ship a real logo png (art/ui/logo-<k>.png) — the picker shows it
+   over a valid glyph base, so a game is never a blank chip. */
+const LOGO_GAMES = ('chess dama kiri skarta erbgha ludu minhu kodici kanun bomba ' +
+                    'briks cards2131 serp tankijiet konkwista').split(' ');
 function gameIcon(k){
   const g = gameMeta(k);
   const P = window.KARTI_PARTY;
+  let base;
   if (g.sym && P && P.ui && P.ui.sprite){
     try { P.ui.sprite(); } catch (e){}
-    return '<svg class="mp-gsym" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    base = '<svg class="mp-gsym" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
            '<use href="#' + g.sym + '"></use></svg>';
+  } else {
+    base = ico(g.icon || 'deck');
   }
-  return ico(g.icon || 'deck');
+  /* overlay the game's real logo when it has one; the img covers the glyph on
+     load and removes itself on a 404, so the glyph is always the safe fallback. */
+  if (LOGO_GAMES.indexOf(k) >= 0){
+    return '<span class="mp-glogo" style="position:relative;display:inline-flex;' +
+           'align-items:center;justify-content:center">' + base +
+           '<img src="./art/ui/logo-' + k + '.png" alt="" style="position:absolute;' +
+           'inset:0;width:100%;height:100%;object-fit:contain" ' +
+           'onerror="this.remove()"></span>';
+  }
+  return base;
 }
 function rand32(){
   try {
