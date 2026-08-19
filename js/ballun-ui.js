@@ -150,6 +150,8 @@ function injectCSS(){
     '#scr-party .bl-hero{position:relative;height:150px;border-radius:16px;overflow:hidden;',
     '  margin:2px 0 12px;background:radial-gradient(120% 120% at 50% 0%,#241A3E,#0E0B14)}',
     '#scr-party .bl-hero canvas{position:absolute;inset:0;width:100%;height:100%}',
+    '#scr-party .bl-hero-logo{position:absolute;inset:0;margin:auto;max-width:74%;max-height:78%;',
+    '  object-fit:contain;z-index:1;pointer-events:none;filter:drop-shadow(0 4px 14px rgba(0,0,0,.55))}',
     '#scr-party .bl-hero-cap{position:absolute;left:12px;bottom:10px;z-index:2;',
     '  font:900 15px/1 var(--disp,"Exo 2",sans-serif);letter-spacing:.14em;color:#fff;',
     '  text-shadow:0 2px 8px rgba(0,0,0,.6)}',
@@ -244,7 +246,18 @@ function menu(){
     '</div></div>';
 
   const hero = el.querySelector('#bl-hero');
-  if (hero){ const c = heroCanvas(); if (c) hero.insertBefore(c, hero.firstChild); }
+  if (hero){
+    const c = heroCanvas(); if (c) hero.insertBefore(c, hero.firstChild);
+    /* if a generated logo exists it sits over the live arena canvas; it hides
+       itself on load error so a missing file leaves the arena hero intact. */
+    const logo = document.createElement('img');
+    logo.src = 'art/ui/logo-ballun.png';
+    logo.alt = 'IL-BALLUN';
+    logo.className = 'bl-hero-logo';
+    logo.onerror = () => { try { logo.remove(); } catch(e){} };
+    logo.onload = () => { const cap = hero.querySelector('.bl-hero-cap'); if (cap) cap.style.display = 'none'; };
+    hero.appendChild(logo);
+  }
 
   el.querySelector('#bl-back').onclick = () => { cue('ui.back',{gain:.6}); P.hub(); };
   el.querySelector('#bl-m-ai').onclick = () => { cue('ui.tap',{gain:.6}); setupAI(); };
@@ -291,8 +304,8 @@ function rulesInner(){
       'Int it-tarf t’isfel. Iġbed max-xifer t’isfel biex iċċaqlaq ir-raketta u timblokka l-ballun.')) + '</li>' +
     '<li>' + esc(T('Where the ball hits your paddle changes its bounce — hit with the edge to cut it toward a rival’s goal.',
       'Fejn jolqot il-ballun fir-raketta jbiddel kif jaqbeż — olqtu bit-tarf biex tibagħtu lejn il-lasti ta’ ħaddieħor.')) + '</li>' +
-    '<li>' + esc(T('A ball past your paddle into your goal costs you a life. Lose all five and your edge seals shut.',
-      'Ballun li jgħaddi r-raketta u jidħol fil-lasti tiegħek jiswielek ħajja. Itlef il-ħamsa u t-tarf tiegħek jingħalaq.')) + '</li>' +
+    '<li>' + esc(T('You start on 12 points. A ball past your paddle into your goal costs one. Reach zero and your edge seals shut — the scorer serves the next ball.',
+      'Tibda b’12-il punt. Ballun li jgħaddi r-raketta u jidħol fil-lasti jiswielek wieħed. Asal fix-xejn u t-tarf tiegħek jingħalaq — min jiskorja jservja l-ballun li jmiss.')) + '</li>' +
     '<li>' + esc(T('The ball speeds up and more balls join over time, so a round always ends. Last edge standing wins.',
       'Il-ballun jgħaġġel u jiżdiedu iktar blalen maż-żmien, mela r-round dejjem jispiċċa. Rebbieħ min jibqa’ l-aħħar.')) + '</li>' +
     '<li>' + esc(T('Grab a floating power-up: a wider paddle, a slow ball, an extra ball, or a one-goal shield.',
@@ -421,7 +434,32 @@ function beginMatch(st, seed, opts, net, me, mine){
 
   openBoard(() => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else menu(); });
   M.D = measureD();
+  seedInputs();                 /* THE SERVE FIX — prime the opening D ticks   */
   startLoop();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE WARMUP SEED — the fix for "the ball never starts".
+   A committed input is filed for tick N+D, so at round start the human seat
+   has input for tick D but NONE for ticks 0..D−1. ready() therefore stays
+   false, step() early-returns every tick, and the world (and the served ball)
+   never advances past tick 0 — the ball sits parked at centre forever. This is
+   the exact reason the ball "never started".
+   Fill every LIVE human seat's parked centre target for ticks 0..D+1 so the
+   opening ticks are ready() and the served ball launches immediately. The
+   parked target is deterministic (the paddle's centre), identical on every
+   phone, so it is a desync-safe "hold still at the start" input — the same
+   warmup briks/bomba use. Bots gate nothing (they think() internally), so we
+   skip them. Idempotent: re-committing the same (pid,tick,value) is a no-op.
+   ═══════════════════════════════════════════════════════════════════ */
+function seedInputs(){
+  if (!M || !M.st) return;
+  const D = M.D | 0;
+  for (const p of M.st.pads){
+    if (p.bot || !E.alive(p)) continue;
+    const parked = p.pos;
+    for (let t = 0; t <= D + 1; t++) E.commit(M.st, p.pid, t, parked);
+  }
 }
 
 function openBoard(onBack){
@@ -696,12 +734,15 @@ function hud(){
     if (!p.inPlay) continue;
     const s = SEAT[p.edge];
     const dead = !E.alive(p);
-    const hearts = st.mode === 'timed'
-      ? (p.goals + '') : ('♥'.repeat(p.lives) || '–');
+    /* compact score: a number, not a row of 12 hearts. Timed shows goals
+       conceded; lives shows remaining points with a single heart glyph. */
+    const score = st.mode === 'timed'
+      ? (p.goals + '')
+      : (dead ? T('OUT','BARRA') : (p.lives + '♥'));
     html += '<span class="bl-chip' + (i===M.me?' me':'') + (dead?' out':'') + '">' +
       '<span class="d" style="background:linear-gradient(135deg,' + s.a + ',' + s.b + ')"></span>' +
       '<span>' + esc(M.seatMeta[i].name) + '</span>' +
-      '<b class="bl-hearts">' + hearts + '</b></span>';
+      '<b class="bl-hearts">' + esc(score) + '</b></span>';
   }
   html += '</div>';
   M.ctx.turn.innerHTML = html;
@@ -745,6 +786,11 @@ function draw(frac){
   lastDraw = now;
   if (!noMotion()) stepFx(dt);
 
+  /* backdrop behind the arena (fills the shake margin so no dark gap shows) */
+  const bg = g.createLinearGradient(0, 0, 0, side);
+  bg.addColorStop(0, '#0B0814'); bg.addColorStop(1, '#070510');
+  g.fillStyle = bg; g.fillRect(-40, -40, side + 80, side + 80);
+
   g.save();
   /* screen shake on a goal */
   if (M.shake > 0 && !noMotion()){
@@ -752,13 +798,11 @@ function draw(frac){
     g.translate((rand01()*2-1)*s, (rand01()*2-1)*s);
   }
 
-  /* floor */
-  const grad = g.createLinearGradient(0, 0, 0, side);
-  grad.addColorStop(0, '#161029'); grad.addColorStop(1, '#0C0918');
-  g.fillStyle = grad; g.fillRect(-20, -20, side+40, side+40);
-
+  drawArenaFloor(g, side);
   drawGrid(g, side);
-  drawWalls(g);
+  drawGoalMouths(g);          /* recessed coloured goal slots in each wall     */
+  drawWalls(g);               /* the glowing jambs / sealed walls              */
+  drawCentre(g, side);        /* the centre medallion                          */
   drawGoalFlash(g);
   drawDrops(g);
   drawPaddles(g, frac);
@@ -767,23 +811,93 @@ function draw(frac){
 
   g.restore();
   /* vignette on top, unshaken */
-  const vg = g.createRadialGradient(side/2, side/2, side*0.3, side/2, side/2, side*0.72);
-  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.5)');
+  const vg = g.createRadialGradient(side/2, side/2, side*0.28, side/2, side/2, side*0.74);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
   g.fillStyle = vg; g.fillRect(0, 0, side, side);
 }
 /* a cheap deterministic-ish jitter for the shake — cosmetic only, never sim */
 let rseed = 12345;
 function rand01(){ rseed = (Math.imul(rseed, 1103515245) + 12345) & 0x7fffffff; return rseed / 0x7fffffff; }
 
+/* the arena FLOOR — an inset rounded playfield with a soft radial glow, so the
+   play area reads as a distinct premium board rather than a flat rectangle.
+   The inset matches the wall margin so the walls sit on the floor's rim. */
+function drawArenaFloor(g, side){
+  const m = sx(C.WALL_M) * 0.55;              /* inset toward the walls        */
+  const r = 18 * UI.dpr;
+  g.save();
+  roundRect(g, m, m, side - 2*m, side - 2*m, r);
+  const fl = g.createRadialGradient(side/2, side/2, side*0.06, side/2, side/2, side*0.72);
+  fl.addColorStop(0, '#221A3C'); fl.addColorStop(0.6, '#14102A'); fl.addColorStop(1, '#0C0918');
+  g.fillStyle = fl; g.fill();
+  /* a faint inner ring rim-light */
+  g.lineWidth = 1.5 * UI.dpr; g.strokeStyle = 'rgba(255,255,255,.05)'; g.stroke();
+  g.restore();
+  /* clip subsequent floor decoration to the playfield */
+}
 function drawGrid(g, side){
-  g.strokeStyle = 'rgba(255,197,66,.06)'; g.lineWidth = 1;
-  const n = 10;
+  const m = sx(C.WALL_M) * 0.55, r = 18 * UI.dpr;
+  g.save();
+  roundRect(g, m, m, side - 2*m, side - 2*m, r); g.clip();
+  g.strokeStyle = 'rgba(255,197,66,.055)'; g.lineWidth = 1;
+  const n = 12;
   g.beginPath();
   for (let i = 1; i < n; i++){
     const p = Math.round(side * i / n) + 0.5;
     g.moveTo(p, 0); g.lineTo(p, side); g.moveTo(0, p); g.lineTo(side, p);
   }
   g.stroke();
+  g.restore();
+}
+/* the GOAL MOUTHS — the open span of each edge, drawn as a recessed slot that
+   glows in the defending player's colour, so all four goals are clearly marked
+   and colour-coded. A sealed (knocked-out) edge shows no mouth. */
+function drawGoalMouths(g){
+  const st = M.st;
+  for (let e = 0; e < 4; e++){
+    const p = st.pads[e];
+    if (!E.alive(p)) continue;                /* sealed edge: no mouth         */
+    const s = SEAT[e];
+    const b = E.goalBox(e);
+    const axisX = C.EDGE_AXIS[e] === 'x';
+    /* widen the thin goal-line box into a visible recessed slot toward the rim */
+    const depth = sx(C.PAD_GAP + C.PAD_T);
+    let x0, y0, x1, y1;
+    if (axisX){
+      x0 = sx(b.x0); x1 = sx(b.x1);
+      if (C.EDGE_OUT[e] > 0){ y0 = sx(b.y0); y1 = y0 + depth; } else { y1 = sx(b.y1); y0 = y1 - depth; }
+    } else {
+      y0 = sx(b.y0); y1 = sx(b.y1);
+      if (C.EDGE_OUT[e] > 0){ x0 = sx(b.x0); x1 = x0 + depth; } else { x1 = sx(b.x1); x0 = x1 - depth; }
+    }
+    g.save();
+    /* the recessed dark slot */
+    g.fillStyle = 'rgba(0,0,0,.45)';
+    roundRect(g, Math.min(x0,x1), Math.min(y0,y1), Math.abs(x1-x0), Math.abs(y1-y0), 4*UI.dpr);
+    g.fill();
+    /* a coloured energy line across the mouth (the goal plane) */
+    g.strokeStyle = s.a; g.lineWidth = 2.5 * UI.dpr;
+    g.shadowColor = s.glow; g.shadowBlur = 12 * UI.dpr;
+    g.globalAlpha = 0.9;
+    g.beginPath();
+    if (axisX){ const gy = sx(C.GOAL_COORD[e]); g.moveTo(sx(b.x0), gy); g.lineTo(sx(b.x1), gy); }
+    else       { const gx = sx(C.GOAL_COORD[e]); g.moveTo(gx, sx(b.y0)); g.lineTo(gx, sx(b.y1)); }
+    g.stroke();
+    g.restore();
+  }
+}
+/* the CENTRE medallion — a subtle focal ring where balls are served, giving the
+   arena a spawn-point read like a real arena game. */
+function drawCentre(g, side){
+  const cx = side/2, cy = side/2, r = side * 0.09;
+  g.save();
+  g.globalAlpha = 0.5;
+  g.strokeStyle = 'rgba(255,197,66,.22)'; g.lineWidth = 1.5 * UI.dpr;
+  circle(g, cx, cy, r); g.stroke();
+  circle(g, cx, cy, r * 0.5); g.stroke();
+  g.globalAlpha = 0.35; g.fillStyle = 'rgba(255,197,66,.10)';
+  circle(g, cx, cy, r * 0.16); g.fill();
+  g.restore();
 }
 function drawWalls(g){
   const st = M.st;
@@ -792,14 +906,26 @@ function drawWalls(g){
     /* jambs (or the whole edge if sealed) glow in the seat colour */
     const jambs = sealed ? [wholeEdgeBox(e)] : E.jambBoxes(e);
     for (const b of jambs){
-      g.fillStyle = sealed ? 'rgba(120,110,150,.5)'
-        : 'linear' /* placeholder */;
-      const grad = g.createLinearGradient(sx(b.x0), sx(b.y0), sx(b.x1), sx(b.y1));
-      grad.addColorStop(0, s.a); grad.addColorStop(1, s.b);
-      g.fillStyle = sealed ? '#2A2340' : grad;
-      roundRect(g, sx(b.x0), sx(b.y0), sx(b.x1)-sx(b.x0), sx(b.y1)-sx(b.y0), 3*UI.dpr);
-      g.fill();
-      if (!sealed){ g.shadowColor = s.glow; g.shadowBlur = 8*UI.dpr; g.fill(); g.shadowBlur = 0; }
+      const x = sx(b.x0), y = sx(b.y0), w = sx(b.x1)-sx(b.x0), h = sx(b.y1)-sx(b.y0);
+      g.save();
+      if (sealed){
+        /* a plain grey slab with a subtle bevel — clearly "out of play" */
+        const gr = g.createLinearGradient(x, y, x + (w||1), y + (h||1));
+        gr.addColorStop(0, '#3A3352'); gr.addColorStop(1, '#241E38');
+        g.fillStyle = gr;
+        roundRect(g, x, y, w, h, 3*UI.dpr); g.fill();
+        g.strokeStyle = 'rgba(255,255,255,.05)'; g.lineWidth = 1; g.stroke();
+      } else {
+        const grad = g.createLinearGradient(x, y, x + (w||1), y + (h||1));
+        grad.addColorStop(0, s.a); grad.addColorStop(1, s.b);
+        g.fillStyle = grad;
+        g.shadowColor = s.glow; g.shadowBlur = 10*UI.dpr;
+        roundRect(g, x, y, w, h, 3*UI.dpr); g.fill();
+        /* a bright top highlight for a moulded, premium edge */
+        g.shadowBlur = 0; g.globalAlpha = 0.4; g.fillStyle = 'rgba(255,255,255,.5)';
+        roundRect(g, x, y, w, Math.max(2, h*0.28) || 2, 2*UI.dpr); g.fill();
+      }
+      g.restore();
     }
   }
 }
@@ -856,13 +982,21 @@ function drawPaddles(g, frac){
       pos = p.pos + Math.round((clampToLane(p, p.pos + p.vpos) - p.pos) * frac);
     }
     const box = boxForPos(p, pos);
+    const bx = sx(box.x0), by = sx(box.y0), bw = sx(box.x1)-sx(box.x0), bh = sx(box.y1)-sx(box.y0);
     g.save();
-    const grad = g.createLinearGradient(sx(box.x0), sx(box.y0), sx(box.x1), sx(box.y1));
+    const grad = g.createLinearGradient(bx, by, bx, by + bh);
     grad.addColorStop(0, s.a); grad.addColorStop(1, s.b);
     g.fillStyle = grad;
-    g.shadowColor = s.glow; g.shadowBlur = 12 * UI.dpr;
-    roundRect(g, sx(box.x0), sx(box.y0), sx(box.x1)-sx(box.x0), sx(box.y1)-sx(box.y0), 5*UI.dpr);
+    g.shadowColor = s.glow; g.shadowBlur = 14 * UI.dpr;
+    roundRect(g, bx, by, bw, bh, 6*UI.dpr);
     g.fill();
+    /* glossy top highlight along the paddle for a moulded saucer look */
+    g.shadowBlur = 0; g.globalAlpha = 0.55; g.fillStyle = 'rgba(255,255,255,.65)';
+    const isX = C.EDGE_AXIS[p.edge] === 'x';
+    if (isX) roundRect(g, bx+2, by+2, bw-4, Math.max(2, bh*0.32), 3*UI.dpr);
+    else     roundRect(g, bx+2, by+2, Math.max(2, bw*0.32), bh-4, 3*UI.dpr);
+    g.fill();
+    g.globalAlpha = 1;
     if (p.shield > 0){
       g.shadowBlur = 0; g.strokeStyle = 'rgba(183,155,255,.9)'; g.lineWidth = 2*UI.dpr;
       roundRect(g, sx(box.x0)-3, sx(box.y0)-3, sx(box.x1)-sx(box.x0)+6, sx(box.y1)-sx(box.y0)+6, 6*UI.dpr);

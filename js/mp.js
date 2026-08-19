@@ -617,7 +617,7 @@ function lobbyReport(){
 /* games that ship a real logo png (art/ui/logo-<k>.png) — the picker shows it
    over a valid glyph base, so a game is never a blank chip. */
 const LOGO_GAMES = ('chess dama kiri skarta erbgha ludu minhu kodici kanun bomba ' +
-                    'briks cards2131 serp tankijiet konkwista').split(' ');
+                    'briks cards2131 serp tankijiet konkwista ballun').split(' ');
 function gameIcon(k){
   const g = gameMeta(k);
   const P = window.KARTI_PARTY;

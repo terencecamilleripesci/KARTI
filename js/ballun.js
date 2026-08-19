@@ -220,7 +220,11 @@ const ESC_HIT  = 11;
 const ESC_TICK = 3;
 const ESC_EVERY = 20;
 
-const START_LIVES = 3;
+/* the Ballistix score: each player starts on START_LIVES points and LOSES one
+   each time a ball is scored INTO their goal; at 0 they are OUT and their edge
+   seals. 12 is in the 10–15 band the design calls for — long enough to feel
+   like a real match, short enough that escalation always resolves it. */
+const START_LIVES = 12;
 const MAX_BALLS   = 5;
 
 /* multi-ball escalation timing — starts sooner and adds faster than briks'
@@ -519,14 +523,48 @@ function setupRound(st){
    emit an axis-parallel (stuck-rally) or near-zero direction. */
 const SERVE_CENTRE = [8, 24, 40, 56];
 
-/* serve ONE ball from centre toward a legal diagonal.  `avoidEdge` (a pid or
-   −1) biases the launch AWAY from re-serving straight at the edge that just
-   conceded, so play resumes fairly.  Reads st.rs — the only randomness.
-   GUARANTEE: every served ball leaves centre at full serve speed on a valid
+/* the two quadrants that fire AWAY from an edge's own goal wall (i.e. into
+   open play, never straight back into the goal that just conceded).  Indexed
+   by edge; each pair is the two SERVE_CENTRE quadrants whose direction points
+   into the arena from that edge. */
+const AWAY_QUADS = [
+  [2, 3],   /* BOTTOM (defends large y): fire UP   -> up-left(2), up-right(3) */
+  [0, 1],   /* TOP    (defends small y): fire DOWN -> down-right(0), down-left(1) */
+  [0, 3],   /* LEFT   (defends small x): fire RIGHT-> down-right(0), up-right(3) */
+  [1, 2]    /* RIGHT  (defends large x): fire LEFT -> down-left(1), up-left(2)  */
+];
+
+/* the point just in front of a paddle, on the arena side, where a serve from
+   that player's side originates. */
+function serveOrigin(st, pid){
+  const p = st.pads[pid];
+  const c = PAD_COORD[p.edge] - EDGE_OUT[p.edge] * (PAD_T);   /* a touch inside */
+  if (EDGE_AXIS[p.edge] === 'x') return { x: clamp(p.pos, MOUTH_M + R, W - MOUTH_M - R), y: c };
+  return { x: c, y: clamp(p.pos, MOUTH_M + R, H - MOUTH_M - R) };
+}
+
+/* serve ONE ball toward a legal diagonal.  `avoidEdge` (a pid or −1) biases the
+   launch AWAY from re-serving straight at the edge that just conceded.
+   `serverPid` (a pid or −1): if a valid live seat, the ball is SERVED FROM that
+   player's side (their paddle position), fired into open play; otherwise it is
+   served from the arena CENTRE (round start / multi-ball spawn).  Reads st.rs —
+   the only randomness, so every client serves the identical ball.
+   GUARANTEE: every served ball leaves at full serve speed on a valid
    anti-axis-safe diagonal, so it always makes real progress on BOTH axes and
    can never be parked in the middle. */
-function serve(st, avoidEdge){
-  let q = trunc(rnd(st) * 4) & 3;              /* one of four diagonal runs  */
+function serve(st, avoidEdge, serverPid){
+  serverPid = (serverPid === undefined) ? -1 : serverPid;
+  const fromSeat = serverPid >= 0 && serverPid < N_EDGES && alive(st.pads[serverPid]);
+
+  let q;
+  if (fromSeat){
+    /* fire AWAY from the server's OWN goal wall (into open play), picking one
+       of that edge's two open quadrants by a seeded roll. */
+    const opts = AWAY_QUADS[st.pads[serverPid].edge];
+    q = opts[trunc(rnd(st) * opts.length) % opts.length];
+  } else {
+    q = trunc(rnd(st) * 4) & 3;                /* one of four diagonal runs  */
+  }
   /* bias away from firing back into the goal that just conceded: if the picked
      quadrant heads toward that edge, rotate to the opposite quadrant. Purely
      integer + deterministic (no new randomness), so every client agrees. */
@@ -543,8 +581,35 @@ function serve(st, avoidEdge){
   const di = snap((centre + k + 64) & 63);     /* always a legal diagonal    */
   /* SP_START is well above SP_MIN and every allowed di has |DIR_X|,|DIR_Y| >=
      DIAG_MIN, so velOf(di, SP_START) is non-zero on BOTH axes by construction. */
-  st.balls.push({ id: st.nextBall++, x: W >> 1, y: H >> 1, di, sp: SP_START, last: -1 });
+  let ox = W >> 1, oy = H >> 1;
+  if (fromSeat){ const o = serveOrigin(st, serverPid); ox = o.x; oy = o.y; }
+  /* `last` is seeded to the server so a serve directly into a goal still
+     credits a scorer; a fresh centre serve has no owner (-1). */
+  st.balls.push({ id: st.nextBall++, x: ox, y: oy, di, sp: SP_START,
+                  last: fromSeat ? serverPid : -1 });
   st.ev.push({ id: 'ev.serve' });
+}
+
+/* PICK THE SERVER for a post-goal re-serve.  The rule the user asked for:
+   the ball comes from a seeded-RANDOM live player's side, and the player who
+   SCORED (deflected the ball into the goal) shoots again.  We reconcile the two
+   deterministically:
+     · the SCORER is `conceded.last` — the pid that last touched the ball before
+       it crossed a goal line.  If that seat is still live, the SCORER SERVES
+       (they "shoot again"), exactly as asked.
+     · if there is no valid scorer (the ball went in untouched, or the scorer is
+       now out), fall back to a SEEDED-RANDOM live player — `rnd(st)` over the
+       live seats — so a server always exists and every client agrees.
+   Returns a pid, or −1 if no live seat can serve (round is ending anyway). */
+function pickServer(st, conceded){
+  const scorer = conceded ? conceded.last : -1;
+  if (scorer >= 0 && scorer < N_EDGES && alive(st.pads[scorer]) &&
+      scorer !== conceded.dead) return scorer;   /* the scorer shoots again   */
+  /* seeded-random live player */
+  const live = [];
+  for (const p of st.pads) if (alive(p)) live.push(p.pid);
+  if (!live.length) return -1;
+  return live[trunc(rnd(st) * live.length) % live.length];
 }
 
 function newRound(st){ setupRound(st); return st; }
@@ -1197,12 +1262,21 @@ function step(st){
     for (const e of evs) st.ev.push(e);
     if (b.dead !== undefined) scored.push(b);
   }
-  /* apply goals, remove the scored balls, re-serve one from centre so the
-     ball count never falls below one. */
+  /* apply goals, remove the scored balls, then RE-SERVE per Ballistix: the
+     scorer (who deflected it in) shoots again, from a seeded-random live side
+     if there is no valid scorer. We re-serve exactly one ball per conceded
+     goal so the arena stays populated, capped at MAX_BALLS, and always keep at
+     least one ball in play. */
   if (scored.length){
     for (const b of scored){ scoreGoal(st, b.dead); }
     st.balls = st.balls.filter(b => b.dead === undefined);
-    if (st.balls.length === 0) serve(st, scored[0].dead);
+    /* re-serve in id order for determinism; pickServer reads st.rs each time. */
+    for (const b of scored){
+      if (st.balls.length >= MAX_BALLS) break;
+      const server = pickServer(st, b);
+      serve(st, b.dead, server);
+    }
+    if (st.balls.length === 0) serve(st, scored[0].dead, pickServer(st, scored[0]));
   }
 
   stepDrops(st);

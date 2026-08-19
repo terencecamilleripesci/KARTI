@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v164';
+const CACHE = 'karti-v165';
 const CORE = [
   './',
   './index.html',
@@ -122,6 +122,7 @@ const CORE = [
   './art/ui/logo-cards2131.png',
   './art/ui/logo-serp.png',
   './art/ui/logo-tankijiet.png',
+  './art/ui/logo-ballun.png',
   './art/misteru/surmast.png',
   './art/misteru/kappillan.png',
   './art/misteru/sinjura.png',
