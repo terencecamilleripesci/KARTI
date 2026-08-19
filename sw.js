@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v135';
+const CACHE = 'karti-v136';
 const CORE = [
   './',
   './index.html',
@@ -74,6 +74,12 @@ const CORE = [
   './js/aqleb-ui.js',
   './js/kaxxi.js',
   './js/kaxxi-ui.js',
+  './js/konkwista.js',
+  './js/konkwista-ui.js',
+  './js/misteru.js',
+  './js/misteru-ui.js',
+  './art/ui/logo-konkwista.png',
+  './art/ui/konkwista-bg.png',
   './art/minhu/ganni.png',
   './art/minhu/marija.png',
   './art/minhu/cetta.png',
@@ -116,6 +122,22 @@ const CORE = [
   './art/ui/logo-cards2131.png',
   './art/ui/logo-serp.png',
   './art/ui/logo-tankijiet.png',
+  './art/misteru/surmast.png',
+  './art/misteru/kappillan.png',
+  './art/misteru/sinjura.png',
+  './art/misteru/baruni.png',
+  './art/misteru/caqquf.png',
+  './art/misteru/tabib.png',
+  './art/misteru/kaptan.png',
+  './art/misteru/kuntessa.png',
+  './art/misteru/avukat.png',
+  './art/misteru/zeffiena.png',
+  './art/misteru/gardinar.png',
+  './art/misteru/sajjied.png',
+  './art/misteru/professur.png',
+  './art/misteru/kok.png',
+  './art/misteru/segretarja.png',
+  './art/misteru/kummissarju.png',
   './js/battleship.js',
   './js/battleship-ui.js',
   './js/klabb-briscola.js',

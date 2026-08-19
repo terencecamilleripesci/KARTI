@@ -286,7 +286,8 @@ BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
           "ludu", "serp", "erbgha", "minhu", "kodici",
-          "tankijiet", "ballun", "aqleb", "kaxxi")
+          "tankijiet", "ballun", "aqleb", "kaxxi",
+          "konkwista", "misteru")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -375,6 +376,12 @@ GAME_SEATS = {
     "ballun":    (2, 4, 4),   # Arena ball — 2–4 edges
     "aqleb":     (2, 4, 2),   # Reversi — 2–4, perfect information
     "kaxxi":     (2, 4, 2),   # Dots & Boxes — 2–4, perfect information
+    # The two flagship turn-based games, 2–6 seats. Konkwista is perfect-info
+    # with seeded dice (online honest now); Il-Misteru is deduction whose online
+    # half stays gated in its own lobby until the private solution/hand deal is
+    # wired — the relay may seat it, the client refuses to start online.
+    "konkwista": (2, 6, 3),   # Risk-style conquest
+    "misteru":   (2, 6, 3),   # Clue-style deduction, 50 cases
 }
 
 # Only these three predate the ready lobby and begin as soon as their second

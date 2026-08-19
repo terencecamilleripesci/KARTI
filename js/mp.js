@@ -179,7 +179,12 @@ const GAMES = [
   { k:'aqleb', name:'Aqleb',       short:'AQLEB', icon:'drop',
     blurb:'Trap a line, flip it. Two to four players.' },
   { k:'kaxxi', name:'Puntini u Kaxxi', short:'KAXXI', icon:'map',
-    blurb:'Draw lines, close boxes. Two to four players.' }
+    blurb:'Draw lines, close boxes. Two to four players.' },
+  /* the two flagship turn-based games — conquest and deduction, 2–6 seats */
+  { k:'konkwista', name:'Konkwista', short:'KONKWISTA', icon:'map',
+    blurb:'Claim islands, roll the dice, take the whole sea.' },
+  { k:'misteru', name:'Il-Misteru', short:'MISTERU', icon:'search',
+    blurb:'Suggest, deduce, name the killer. Fifty cases.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -248,7 +253,10 @@ const LOBBY_GLOBAL = {
   erbgha:'KARTI_ERBGHA', minhu:'KARTI_MINHU', kodici:'KARTI_KODICI',
   /* the arena games + Reversi — real-time lockstep / perfect-info, honest online */
   tankijiet:'KARTI_TANKIJIET', ballun:'KARTI_BALLUN', aqleb:'KARTI_AQLEB',
-  kaxxi:'KARTI_KAXXI'
+  kaxxi:'KARTI_KAXXI',
+  /* conquest (perfect info, seeded dice) + deduction (online gated until the
+     private per-seat solution/hand deal is wired; offline plays now) */
+  konkwista:'KARTI_KONKWISTA', misteru:'KARTI_MISTERU'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
@@ -268,7 +276,8 @@ const SEATS_FALLBACK = {
      authority — these mirror the relay so a wrong size fails loudly there. */
   poker:[2, 8, 4], cards2131:[1, 9, 4],
   /* the arena games + Reversi. tankijiet is a 4–8 brawl; ballun and aqleb seat 2–4. */
-  tankijiet:[4, 8, 4], ballun:[2, 4, 4], aqleb:[2, 4, 2], kaxxi:[2, 4, 2]
+  tankijiet:[4, 8, 4], ballun:[2, 4, 4], aqleb:[2, 4, 2], kaxxi:[2, 4, 2],
+  konkwista:[2, 6, 3], misteru:[2, 6, 3]
 };
 
 /* A machine has to be called something before it can sit down. Only used when
