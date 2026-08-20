@@ -249,6 +249,37 @@ const SLOW_TICKS = 360;
 const SLOW_NUM = 6, SLOW_DEN = 10;         /* ×0.6 on the ball speeds       */
 const SHIELD_HITS = 1;                     /* saves one goal                */
 
+/* ── POST-GOAL SERVE DELAY + SMOOTH ENTRY ──────────────────────────────
+   A goal no longer re-serves instantly.  Every serve becomes a PENDING
+   SERVE held in st.serves for a deterministic count of ticks, drawn by the
+   UI as a pulsing marker + an ARROW at the origin pointing the exact launch
+   direction, THEN the ball enters play.  The ball also EASES in: for its
+   first BALL_EASE ticks its move is scaled up from ENTER_NUM/ENTER_DEN to
+   full, so it accelerates out of the origin instead of teleporting to full
+   speed.  All tick counts are fixed integers → identical on every client. */
+const SERVE_DELAY  = 30;                    /* ticks a post-goal serve waits (0.75 s @40Hz) */
+const SERVE_DELAY0 = 20;                    /* round-start / multi-ball wait (0.5 s)        */
+const BALL_EASE    = 8;                     /* ticks the entering ball accelerates          */
+const ENTER_NUM = 4, ENTER_DEN = 10;        /* ball starts at ×0.4 speed, ramps to ×1.0     */
+
+/* ── BASH / PUSH ability (the Crash-Bash "push") ───────────────────────
+   A committed per-seat input (rides the SAME lockstep as the paddle target:
+   a bash for tick N is applied by everyone at N+D).  On bash the paddle
+   LUNGES forward BASH_LUNGE subunits toward the arena for BASH_LUNGE_T ticks
+   (its collision box reaches out, so a ball just in front is caught), and any
+   ball inside BASH_RANGE in FRONT of the paddle face and within BASH_HALF of
+   the paddle span is POWER-HIT: its speed jumps by BASH_BOOST (clamped to the
+   engine ceiling) and its direction is set to the paddle's own outward fan,
+   deflected away from the paddle.  A bash off cooldown always consumes the
+   cooldown (a whiff still costs it).  Deterministic integer math throughout. */
+const BASH_CD      = 60;                    /* cooldown ticks (~1.5 s @40Hz)                */
+const BASH_LUNGE   = du(10);                /* forward reach of the lunge (subunits)        */
+const BASH_LUNGE_T = 6;                     /* ticks the lunge is extended                  */
+const BASH_RANGE   = du(22);               /* how far in front a ball is catchable         */
+const BASH_HALF    = du(30);               /* lateral half-span the bash covers            */
+const BASH_BOOST   = du(6) | 0;            /* speed added to a bashed ball                 */
+const BASH_AI_CD   = 60;                    /* AI shares the same cooldown                   */
+
 const TFP = 4096;                          /* sub-ticks in one tick         */
 const MAX_ITER = 24;                       /* bounces resolved per tick     */
 
@@ -377,6 +408,8 @@ const TEXT = {
   'ev.multi':   { en: 'Another ball!', mt: 'Ballun ieħor!' },
   'ev.out':     { en: 'Knocked out',   mt: 'Barra' },
   'ev.catch':   { en: 'Grabbed it',    mt: 'Qabadha' },
+  'ev.bash':    { en: 'Bash!',         mt: 'Daqqa!' },
+  'ev.bashwhiff':{ en: 'Whiff',        mt: 'Fl-arja' },
   'pu.1':       { en: 'Wider paddle',  mt: 'Raketta usa\'' },
   'pu.2':       { en: 'Slow ball',     mt: 'Ballun bil-mod' },
   'pu.3':       { en: 'Multi-ball',    mt: 'Aktar blalen' },
@@ -403,12 +436,30 @@ function laneRange(edge){
   const hi = EDGE_AXIS[edge] === 'x' ? LANE_HI_X : LANE_HI_Y;
   return { lo: LANE_LO, hi };
 }
-/* the paddle's axis-aligned box.  `pos` is its slide coordinate (centre). */
+/* the current forward LUNGE reach of a paddle, in subunits.  Zero unless a
+   bash is in progress; peaks the tick the bash lands and retracts linearly over
+   BASH_LUNGE_T ticks.  Pure integer, in the snapshot via p.lungeT. */
+function lungeReach(p){
+  if (!p.lungeT || p.lungeT <= 0) return 0;
+  return trunc(BASH_LUNGE * p.lungeT / BASH_LUNGE_T);
+}
+/* the paddle's axis-aligned box.  `pos` is its slide coordinate (centre).  A
+   lunging paddle's FRONT face (toward the arena) reaches out by lungeReach(p),
+   so a bash physically extends the paddle into the play area as a swept
+   obstacle — a ball just in front is caught by the ordinary paddle collision. */
 function padBox(p){
   const c = PAD_COORD[p.edge], t = PAD_T >> 1;
-  if (EDGE_AXIS[p.edge] === 'x')
-    return { x0: p.pos - p.hw, x1: p.pos + p.hw, y0: c - t, y1: c + t };
-  return { x0: c - t, x1: c + t, y0: p.pos - p.hw, y1: p.pos + p.hw };
+  const reach = lungeReach(p);
+  /* front is toward the arena = opposite the outward (goal-wall) normal */
+  const front = -EDGE_OUT[p.edge] * reach;
+  if (EDGE_AXIS[p.edge] === 'x'){
+    const y0 = EDGE_OUT[p.edge] > 0 ? c - t + Math.min(0, front) : c - t;
+    const y1 = EDGE_OUT[p.edge] > 0 ? c + t : c + t + Math.max(0, front);
+    return { x0: p.pos - p.hw, x1: p.pos + p.hw, y0, y1 };
+  }
+  const x0 = EDGE_OUT[p.edge] > 0 ? c - t + Math.min(0, front) : c - t;
+  const x1 = EDGE_OUT[p.edge] > 0 ? c + t : c + t + Math.max(0, front);
+  return { x0, x1, y0: p.pos - p.hw, y1: p.pos + p.hw };
 }
 /* the two solid jambs of an edge: the corner blocks either side of the
    mouth.  Returned as [box0, box1].  These ARE swept obstacles. */
@@ -461,7 +512,8 @@ function start(opts){
     balls: [], drops: [],
     nextBall: 0, nextDrop: 0,
     ballAddN: 0, puN: 0,
-    inp: [],
+    inp: [], binp: [],
+    serves: [],                            /* pending serves (telegraph + arrow) */
     ev: [], over: null,
     stalls: 0, iterCap: 0,
     sealEmpty: !!opts.sealEmpty
@@ -484,11 +536,13 @@ function start(opts){
       lives: inPlay ? START_LIVES : 0,       /* 0 lives = sealed wall        */
       inPlay,
       shield: 0,
+      bashCd: 0, lungeT: 0,                  /* bash cooldown + lunge timer  */
       bot: isBot, lvl: clamp(lvls[s] | 0 || 2, 1, 3),
       aiAim: (lo + hi) >> 1, aiSeen: -1,
       goals: 0                               /* goals conceded (for tiebreak)*/
     });
     st.inp.push([]);
+    st.binp.push([]);
   }
   setupRound(st);
   return st;
@@ -497,7 +551,7 @@ function start(opts){
 function setupRound(st){
   st.tick = 0;
   st.boost = 0; st.boostT = 0; st.slowT = 0;
-  st.balls = []; st.drops = [];
+  st.balls = []; st.drops = []; st.serves = [];
   st.nextBall = 0; st.nextDrop = 0;
   st.ballAddN = 0; st.puN = 0;
   st.ev = []; st.over = null;
@@ -506,12 +560,14 @@ function setupRound(st){
     const { lo, hi } = laneRange(p.edge);
     p.lo = lo; p.hi = hi;
     p.hw = PAD_HW; p.wideT = 0; p.vpos = 0; p.shield = 0;
+    p.bashCd = 0; p.lungeT = 0;
     p.lives = p.inPlay ? START_LIVES : 0;
     p.goals = 0;
     p.pos = (lo + hi) >> 1; p.tpos = p.pos;
     p.spd = p.bot ? AI[p.lvl].spd : PAD_SPEED;
     p.aiAim = (lo + hi) >> 1; p.aiSeen = -1;
     st.inp[p.pid] = [];
+    st.binp[p.pid] = [];
   }
   serve(st, -1);
 }
@@ -552,7 +608,7 @@ function serveOrigin(st, pid){
    GUARANTEE: every served ball leaves at full serve speed on a valid
    anti-axis-safe diagonal, so it always makes real progress on BOTH axes and
    can never be parked in the middle. */
-function serve(st, avoidEdge, serverPid){
+function serve(st, avoidEdge, serverPid, delay){
   serverPid = (serverPid === undefined) ? -1 : serverPid;
   const fromSeat = serverPid >= 0 && serverPid < N_EDGES && alive(st.pads[serverPid]);
 
@@ -583,11 +639,36 @@ function serve(st, avoidEdge, serverPid){
      DIAG_MIN, so velOf(di, SP_START) is non-zero on BOTH axes by construction. */
   let ox = W >> 1, oy = H >> 1;
   if (fromSeat){ const o = serveOrigin(st, serverPid); ox = o.x; oy = o.y; }
+  /* the unit-ish direction of the launch, baked from the table, for the arrow
+     the UI draws over the telegraph.  These are hashed too, so every client
+     agrees on where the arrow points. */
+  const dirX = DIR_X[di], dirY = DIR_Y[di];
+  const dl = (delay === undefined)
+    ? (avoidEdge >= 0 ? SERVE_DELAY : SERVE_DELAY0)   /* post-goal waits longer */
+    : (delay | 0);
   /* `last` is seeded to the server so a serve directly into a goal still
      credits a scorer; a fresh centre serve has no owner (-1). */
-  st.balls.push({ id: st.nextBall++, x: ox, y: oy, di, sp: SP_START,
-                  last: fromSeat ? serverPid : -1 });
+  st.serves.push({ originX: ox, originY: oy, dirX, dirY, di, sp: SP_START,
+                   last: fromSeat ? serverPid : -1, ticksLeft: dl < 0 ? 0 : dl });
   st.ev.push({ id: 'ev.serve' });
+}
+/* actually put a pending serve's ball into play — it enters with an EASE
+   countdown so it accelerates out of the origin instead of teleporting to
+   full speed.  Pure integer, deterministic. */
+function spawnServe(st, s){
+  st.balls.push({ id: st.nextBall++, x: s.originX, y: s.originY,
+                  di: s.di, sp: s.sp, last: s.last, ease: BALL_EASE });
+}
+/* tick down every pending serve; spawn the ones whose telegraph has run out.
+   Order is by insertion (deterministic) and index-stable via a rebuild. */
+function stepServes(st){
+  if (!st.serves.length) return;
+  const keep = [];
+  for (const s of st.serves){
+    if (s.ticksLeft > 0){ s.ticksLeft--; keep.push(s); }
+    else { if (st.balls.length < MAX_BALLS) spawnServe(st, s); /* else drop it */ }
+  }
+  st.serves = keep;
 }
 
 /* PICK THE SERVER for a post-goal re-serve.  The rule the user asked for:
@@ -650,6 +731,30 @@ function sample(st, pid, tpos, D){
   const forTick = st.tick + (D | 0);
   commit(st, pid, forTick, tpos);
   return forTick;
+}
+/* THE BASH INPUT — rides the SAME lockstep as the paddle target.  A bash for
+   tick N is committed here and applied by EVERYONE at N (the UI commits it for
+   the current tick + D exactly like the paddle target), so online and offline
+   are identical and the ball never reads a local/immediate bash.  st.binp[pid]
+   is sparse by tick and holds a 1 at every tick that seat requested a bash.
+   Committing is a no-op if a bash is already filed for that (pid,tick). */
+function commitBash(st, pid, forTick){
+  const p = st.pads[pid];
+  if (!p) return false;
+  if (forTick < st.tick) return false;
+  st.binp[pid][forTick] = 1;
+  return true;
+}
+function sampleBash(st, pid, D){
+  const forTick = st.tick + (D | 0);
+  commitBash(st, pid, forTick);
+  return forTick;
+}
+/* did seat `pid` commit a bash FOR exactly tick `tick`? (bashes do not persist
+   like a target — a bash is a single-tick edge, not a held state). */
+function bashAt(st, pid, tick){
+  const row = st.binp[pid];
+  return row && row[tick] === 1;
 }
 function setBot(st, pid, on, atTick){
   const p = st.pads[pid];
@@ -762,12 +867,26 @@ function sweepBox(px, py, vx, vy, x0, y0, x1, y1){
    is recorded (not reflected) and applied by the caller so the ball is
    removed and re-served deterministically.
    ═══════════════════════════════════════════════════════════════════ */
+/* the ball's effective per-tick velocity for a direction, applying the SLOW
+   power-up AND the serve EASE ramp (both scale the MOVE only, never the stored
+   speed, so they are reversible and drift-free).  A ball with ease>0 leaves the
+   origin at ENTER_NUM/ENTER_DEN of full and ramps linearly to full over
+   BALL_EASE ticks, so it accelerates into play. */
+function ballVel(st, ball, di){
+  let [vx, vy] = velOf(di, ball.sp);
+  if (st.slowT > 0){ vx = trunc(vx * SLOW_NUM / SLOW_DEN); vy = trunc(vy * SLOW_NUM / SLOW_DEN); }
+  if (ball.ease > 0){
+    /* ease counts down BALL_EASE..1; `grown` counts up 1..BALL_EASE so the
+       scale climbs ENTER_NUM/ENTER_DEN → 1 over the ramp (integer, no float). */
+    const grown = (BALL_EASE - ball.ease) + 1;           /* 1..BALL_EASE       */
+    const sc = ENTER_NUM + trunc((ENTER_DEN - ENTER_NUM) * grown / BALL_EASE);
+    vx = trunc(vx * sc / ENTER_DEN); vy = trunc(vy * sc / ENTER_DEN);
+  }
+  return [vx, vy];
+}
 function resolveBall(st, ball){
   const events = [];
-  let [vx, vy] = velOf(ball.di, ball.sp);
-  /* apply the SLOW power-up as a scale on the move only (never on stored
-     speed, so it is reversible and drift-free) */
-  if (st.slowT > 0){ vx = trunc(vx * SLOW_NUM / SLOW_DEN); vy = trunc(vy * SLOW_NUM / SLOW_DEN); }
+  let [vx, vy] = ballVel(st, ball, ball.di);
   let px = ball.x, py = ball.y;
   const startX = ball.x, startY = ball.y;      /* for the anti-park floor      */
   let rem = TFP;
@@ -838,8 +957,7 @@ function resolveBall(st, ball){
         events.push({ id: 'ev.shield', edge: goalEdge });
         if (EDGE_AXIS[goalEdge] === 'x') ball.di = snap(mirY(ball.di));
         else                             ball.di = snap(mirX(ball.di));
-        [vx, vy] = velOf(ball.di, ball.sp);
-        if (st.slowT > 0){ vx = trunc(vx * SLOW_NUM / SLOW_DEN); vy = trunc(vy * SLOW_NUM / SLOW_DEN); }
+        [vx, vy] = ballVel(st, ball, ball.di);
         const spent = trunc(rem * best.n / best.d);
         rem -= spent; if (rem <= 0) break; else continue;
       }
@@ -889,8 +1007,7 @@ function resolveBall(st, ball){
     }
     di = snap(di);
     ball.di = di;
-    [vx, vy] = velOf(di, ball.sp);
-    if (st.slowT > 0){ vx = trunc(vx * SLOW_NUM / SLOW_DEN); vy = trunc(vy * SLOW_NUM / SLOW_DEN); }
+    [vx, vy] = ballVel(st, ball, di);
 
     const spent = trunc(rem * best.n / best.d);
     rem -= spent;
@@ -1038,6 +1155,65 @@ function paddleAngle(st, pid, bx, by){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   THE BASH — a committed per-seat push, applied AFTER paddles move and
+   BEFORE the balls resolve so the lunge box is a live obstacle this tick.
+   Runs for every seat in pid order (deterministic).  A live, off-cooldown
+   seat that requested a bash for THIS tick lunges and power-hits; the bash
+   always consumes the cooldown even on a whiff.
+   ═══════════════════════════════════════════════════════════════════ */
+/* does the machine want to bash this tick?  Deterministic rule: off cooldown,
+   and a ball heading toward this edge is within BASH_RANGE in front and within
+   BASH_HALF laterally.  Pure function of the state → replays bit-identical. */
+function aiWantsBash(st, p){
+  if (p.bashCd > 0) return false;
+  const c = PAD_COORD[p.edge], axisX = EDGE_AXIS[p.edge] === 'x';
+  for (const b of st.balls){
+    const along = axisX ? b.x : b.y;
+    const into  = axisX ? b.y : b.x;
+    if (Math.abs(along - p.pos) > BASH_HALF + p.hw) continue;
+    /* distance in front of the face, on the arena side */
+    const front = EDGE_OUT[p.edge] > 0 ? (c - into) : (into - c);
+    if (front < 0 || front > BASH_RANGE) continue;
+    /* only bash a ball actually coming AT us (else let it fly past) */
+    const toward = axisX
+      ? (EDGE_OUT[p.edge] > 0 ? DIR_Y[b.di] > 0 : DIR_Y[b.di] < 0)
+      : (EDGE_OUT[p.edge] > 0 ? DIR_X[b.di] > 0 : DIR_X[b.di] < 0);
+    if (toward) return true;
+  }
+  return false;
+}
+/* apply one seat's bash if it fired one this tick and is off cooldown. */
+function bashPad(st, p){
+  const fire = p.bot ? aiWantsBash(st, p) : bashAt(st, p.pid, st.tick);
+  if (!fire || p.bashCd > 0) return;
+  p.bashCd = p.bot ? BASH_AI_CD : BASH_CD;
+  p.lungeT = BASH_LUNGE_T;
+  const c = PAD_COORD[p.edge], axisX = EDGE_AXIS[p.edge] === 'x';
+  const cap = Math.min(SP_MAX + st.boost, SP_HARD);
+  let hitAny = false;
+  for (const b of st.balls){
+    if (b.dead !== undefined) continue;
+    const along = axisX ? b.x : b.y;
+    const into  = axisX ? b.y : b.x;
+    if (Math.abs(along - p.pos) > BASH_HALF + p.hw) continue;
+    const front = EDGE_OUT[p.edge] > 0 ? (c - into) : (into - c);
+    if (front < -R || front > BASH_RANGE) continue;      /* not in front / range */
+    /* POWER-HIT: boost speed (clamped to the ceiling) and re-aim OUTWARD via
+       the paddle's own fan, so the ball is knocked away from the paddle toward
+       open play — never back through the paddle. */
+    b.sp = clamp(b.sp + BASH_BOOST, SP_MIN, cap);
+    b.di = paddleAngle(st, p.pid, b.x, b.y);
+    b.last = p.pid;                          /* credit the basher for a re-serve  */
+    b.ease = 0;                              /* a bashed ball flies at full speed */
+    hitAny = true;
+  }
+  st.ev.push({ id: hitAny ? 'ev.bash' : 'ev.bashwhiff', pid: p.pid });
+}
+function bashPads(st){
+  for (const p of st.pads){ if (alive(p)) bashPad(st, p); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    ESCALATION, SCORING, POWER-UPS
    ═══════════════════════════════════════════════════════════════════ */
 function escalateHit(st, ball){
@@ -1143,7 +1319,7 @@ function maybeAddBall(st){
   const due = ((st.tick - BALL_ADD_START) / BALL_ADD_EVERY | 0) + 1;
   if (due <= st.ballAddN) return;
   st.ballAddN = due;
-  if (st.balls.length >= MAX_BALLS) return;
+  if (st.balls.length + st.serves.length >= MAX_BALLS) return;
   serve(st, -1);
   st.ev.push({ id: 'ev.multi' });
 }
@@ -1155,6 +1331,8 @@ function decayTimers(st){
       p.pos = clamp(p.pos, p.lo + p.hw, p.hi - p.hw);
       p.tpos = clamp(p.tpos, p.lo + p.hw, p.hi - p.hw);
     }
+    if (p.bashCd > 0) p.bashCd--;            /* bash cooldown counts down         */
+    if (p.lungeT > 0) p.lungeT--;            /* the lunge retracts                */
   }
   if (st.boostT > 0 && --st.boostT === 0) st.boost = 0;
   if (st.slowT > 0) st.slowT--;
@@ -1255,12 +1433,14 @@ function step(st){
   movePads(st);
 
   st.ev = [];
+  bashPads(st);              /* commit bashes: lunge the paddle + power-hit balls */
   st.balls.sort((a, b) => a.id - b.id);
   const scored = [];
   for (const b of st.balls){
     const evs = resolveBall(st, b);
     for (const e of evs) st.ev.push(e);
     if (b.dead !== undefined) scored.push(b);
+    else if (b.ease > 0) b.ease--;         /* ramp: this ball just moved a tick */
   }
   /* apply goals, remove the scored balls, then RE-SERVE per Ballistix: the
      scorer (who deflected it in) shoots again, from a seeded-random live side
@@ -1270,15 +1450,22 @@ function step(st){
   if (scored.length){
     for (const b of scored){ scoreGoal(st, b.dead); }
     st.balls = st.balls.filter(b => b.dead === undefined);
-    /* re-serve in id order for determinism; pickServer reads st.rs each time. */
+    /* re-serve in id order for determinism; pickServer reads st.rs each time.
+       Each re-serve is now a DELAYED, telegraphed PENDING SERVE (SERVE_DELAY
+       ticks) so the ball does not snap back to centre instantly — the player
+       sees the arrow and where it comes from before it enters. The cap counts
+       live balls PLUS already-pending serves so we never over-queue. */
     for (const b of scored){
-      if (st.balls.length >= MAX_BALLS) break;
+      if (st.balls.length + st.serves.length >= MAX_BALLS) break;
       const server = pickServer(st, b);
-      serve(st, b.dead, server);
+      serve(st, b.dead, server);           /* SERVE_DELAY (post-goal) telegraph  */
     }
-    if (st.balls.length === 0) serve(st, scored[0].dead, pickServer(st, scored[0]));
+    /* keep at least one ball IN FLIGHT OR ON THE WAY */
+    if (st.balls.length === 0 && st.serves.length === 0)
+      serve(st, scored[0].dead, pickServer(st, scored[0]));
   }
 
+  stepServes(st);            /* spawn any telegraphed serve whose timer ran out  */
   stepDrops(st);
   escalateTick(st);
   maybeAddBall(st);
@@ -1357,13 +1544,22 @@ function snapshot(st){
   const a = [ st.tick, st.rs, st.boost, st.boostT, st.slowT,
               st.ballAddN, st.puN, st.nextBall, st.nextDrop ];
   const balls = st.balls.slice().sort((x, y) => x.id - y.id);
-  for (const b of balls) a.push(b.id, b.x, b.y, b.di, b.sp, b.last);
+  /* b.ease is part of the sim (it scales the move), so it must be hashed */
+  for (const b of balls) a.push(b.id, b.x, b.y, b.di, b.sp, b.last, b.ease | 0);
   a.push(0x7fffffff);
+  /* p.bashCd and p.lungeT are sim state (cooldown gates the bash, lunge grows
+     the collision box), so they are hashed — a desync in either is detectable. */
   for (const p of st.pads.slice().sort((x, y) => x.pid - y.pid))
-    a.push(p.pid, p.pos, p.tpos, p.vpos, p.hw, p.wideT, p.lives, p.goals, p.shield, p.bot);
+    a.push(p.pid, p.pos, p.tpos, p.vpos, p.hw, p.wideT, p.lives, p.goals, p.shield, p.bot,
+           p.bashCd | 0, p.lungeT | 0);
   a.push(0x7ffffffe);
   for (const d of st.drops.slice().sort((x, y) => x.id - y.id))
     a.push(d.id, d.kind, d.x, d.y, d.vx, d.vy);
+  /* PENDING SERVES — the telegraph is engine state (its timer counts down in
+     the sim and the spawn is deterministic), so hash it for desync detection. */
+  a.push(0x7ffffffd);
+  for (const s of st.serves)
+    a.push(s.originX, s.originY, s.dirX, s.dirY, s.di, s.sp, s.last, s.ticksLeft);
   a.push(st.over ? (st.over.winner + 2) : 0);
   return hash32(a);
 }
@@ -1381,6 +1577,9 @@ function encWire(mv){
     const x = clamp(mv.tpos | 0, 0, Math.max(W, H)), tk = mv.forTick | 0;
     return { t: 'tx', k: tk, h: (x >> 8) & 255, l: x & 255 };
   }
+  /* the BASH: a single-bit input for a tick, tagged with the tick it is FOR —
+     the same commit/apply-at-N shape as a target move. */
+  if (mv.t === 'bx') return { t: 'bx', k: mv.forTick | 0 };
   return null;
 }
 function decWire(w){
@@ -1388,6 +1587,7 @@ function decWire(w){
   if (w.t === 'bot') return { t: 'bot', forTick: w.k | 0, on: w.on ? 1 : 0 };
   if (w.t === 'tx') return { t: 'tx', forTick: w.k | 0,
                              tpos: ((w.h | 0) << 8) + (w.l | 0) };
+  if (w.t === 'bx') return { t: 'bx', forTick: w.k | 0 };
   return null;
 }
 
@@ -1400,11 +1600,12 @@ root.KARTI_BALLUN.engine = {
   start, setupRound, newRound, serve, step,
   /* lockstep / input */
   delayFor, delayTicks, commit, sample, setBot, ready, ghost, follow, targetAt,
+  commitBash, sampleBash, bashAt,
   /* ai */
   think, aiTarget,
   /* introspection for the UI */
   check, snapshot, text, padBox, jambBoxes, goalBox, laneRange, paddleAngle,
-  livingEdges, alive,
+  livingEdges, alive, lungeReach,
   /* wire */
   encWire, decWire, WIRE_FIELDS,
   /* helpers for the UI's predictive draw / geometry */
@@ -1415,7 +1616,8 @@ root.KARTI_BALLUN.engine = {
     GOAL_COORD, PAD_COORD, MOUTH_M, PAD_HW, PAD_HW_WIDE, PAD_T, PAD_GAP,
     WALL_M, LANE_LO, LANE_HI_X, LANE_HI_Y,
     SP_MIN, SP_START, SP_MAX, SP_HARD, START_LIVES, MAX_BALLS,
-    PU, D_MIN, D_MAX, VER, SEAT_ORDER
+    PU, D_MIN, D_MAX, VER, SEAT_ORDER,
+    SERVE_DELAY, SERVE_DELAY0, BALL_EASE, BASH_CD, BASH_RANGE, BASH_HALF, BASH_LUNGE
   },
   /* seat range for the lobby */
   MIN_SEATS: 2, MAX_SEATS: 4
