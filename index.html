@@ -1361,14 +1361,21 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
   try{ var im=new Image(); im.onload=function(){ if(art){ art.style.backgroundImage="url('art/ui/loading-bg.png')"; art.style.opacity=".92"; } }; im.src="art/ui/loading-bg.png"; }catch(e){}
   var tips=['SHUFFLING THE DECK…','DEALING A ROUGH HAND…','LIGHTING THE FESTA…','WARMING UP THE VILLAGE…'], ti=0;
   var pct=6, t=setInterval(function(){ pct+=Math.max(1,(90-pct)*0.09); if(pct>92)pct=92; if(bar)bar.style.width=pct.toFixed(0)+'%'; if(tip&&Math.random()<0.18){ ti=(ti+1)%tips.length; tip.textContent=tips[ti]; } },170);
-  var gone=false;
-  function fin(){ if(gone)return; gone=true; clearInterval(t); if(bar)bar.style.width='100%';
-    if(tip)tip.textContent='READY'; sp.style.opacity='0'; setTimeout(function(){ try{sp.remove();}catch(e){} },560); }
+  var gone=false, t0=Date.now();
+  /* MINIMUM SHOWTIME. Boot got fast enough (parallel module fetch, warm cache) that the
+     splash was gone before the deal even finished — a title card nobody sees. Hold it long
+     enough for the sequence to land: cards fan out by ~.95s, the logo pops and takes its
+     first shine at ~1.1s. 1900ms covers that and still feels instant, not a wait. */
+  var MIN_MS = 1900;
+  function drop(){ if(gone)return; gone=true; clearInterval(t); if(bar)bar.style.width='100%';
+    if(tip)tip.textContent='READY';
+    setTimeout(function(){ sp.style.opacity='0'; setTimeout(function(){ try{sp.remove();}catch(e){} },620); },170); }
+  function fin(){ if(gone)return; var left=MIN_MS-(Date.now()-t0); if(left>0){ setTimeout(drop,left); return; } drop(); }
   /* HOLD until the WHOLE game is loaded — every module registered (KARTI_LOADED /
      karti:loaded), NOT just when Home paints — so a game can never be tapped before
      its module has landed. This is the one screen that must not lie about being ready. */
   if(window.KARTI_LOADED) fin(); else addEventListener('karti:loaded', fin, {once:true});
-  setTimeout(fin, 20000);   /* safety only: never strand the app forever behind the splash */
+  setTimeout(drop, 20000);   /* safety only: never strand the app forever behind the splash */
 })();
 </script>
 
