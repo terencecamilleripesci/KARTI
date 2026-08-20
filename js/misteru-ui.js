@@ -788,10 +788,15 @@ function openPicker(kind){
     rowFor('s', T('Suspect', 'Suspettat')) +
     rowFor('w', T('Weapon', 'Arma')) +
     rowFor('l', T('Place', 'Post')) +
-    '<button class="btn primary" id="ms-pickgo" style="width:100%;margin-top:10px" disabled>' +
-      esc(kind === 'accuse' ? T('Accuse', 'Akkuża') : T('Suggest', 'Issuġġerixxi')) + '</button>' +
     (kind === 'accuse'
-      ? '<p class="pt-ledger" style="margin-top:8px">' + esc(T('Warning: a wrong accusation puts you out of the game.', 'Twissija: akkuża ħażina toħroġk mil-logħba.')) + '</p>' : '');
+      ? '<p class="pt-ledger" style="margin:8px 0 0">' + esc(T('Warning: a wrong accusation puts you out of the game.', 'Twissija: akkuża ħażina toħroġk mil-logħba.')) + '</p>' : '') +
+    /* pinned footer: the confirm button stays visible at the bottom of the
+       sheet even before you scroll past the cards (else it hid below the fold
+       and a suggestion looked like it "did nothing"). */
+    '<div style="position:sticky;bottom:0;left:0;right:0;background:#201a2b;padding:10px 0 4px;margin-top:8px;box-shadow:0 -12px 16px -6px rgba(0,0,0,.6)">' +
+      '<button class="btn primary" id="ms-pickgo" style="width:100%" disabled>' +
+        esc(kind === 'accuse' ? T('Accuse', 'Akkuża') : T('Suggest', 'Issuġġerixxi')) + '</button>' +
+    '</div>';
   openSheet(kind === 'accuse' ? T('Make your accusation', 'Agħmel l-akkuża tiegħek') : T('Make a suggestion', 'Agħmel suġġeriment'));
 
   const go = UI.sheetB.querySelector('#ms-pickgo');
