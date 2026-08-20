@@ -277,7 +277,7 @@ const BASH_LUNGE   = du(10);                /* forward reach of the lunge (subun
 const BASH_LUNGE_T = 6;                     /* ticks the lunge is extended                  */
 const BASH_RANGE   = du(22);               /* how far in front a ball is catchable         */
 const BASH_HALF    = du(30);               /* lateral half-span the bash covers            */
-const BASH_BOOST   = du(6) | 0;            /* speed added to a bashed ball                 */
+const BASH_BOOST   = du(3) | 0;            /* speed added to a bashed ball (a firm nudge, not a rocket) */
 const BASH_AI_CD   = 60;                    /* AI shares the same cooldown                   */
 
 const TFP = 4096;                          /* sub-ticks in one tick         */
@@ -1284,7 +1284,9 @@ function bashPad(st, p){
   p.bashCd = p.bot ? BASH_AI_CD : BASH_CD;
   p.lungeT = BASH_LUNGE_T;
   const c = PAD_COORD[p.edge], axisX = EDGE_AXIS[p.edge] === 'x';
-  const cap = Math.min(SP_MAX + st.boost, SP_HARD);
+  /* a bash tops out at the NORMAL max speed, not the hard rally ceiling — a
+     bashed ball was flying WAY too fast when it could reach SP_HARD. */
+  const cap = SP_MAX;
   let hitAny = false;
   for (const b of st.balls){
     if (b.dead !== undefined) continue;
