@@ -682,11 +682,25 @@ function injectCSS(){
      lynched one. Everything below is scoped to #scr-party so it can
      never reach another game's screen.
      ═══════════════════════════════════════════════════════════════ */
-  '#scr-party .su-town{flex:0 0 auto;position:relative;display:grid;gap:4px 2px;' +
-    'grid-template-columns:repeat(auto-fill,minmax(60px,1fr));padding:6px 2px 4px;' +
-    'border-radius:14px;background:linear-gradient(180deg,rgba(255,197,66,.07),rgba(0,0,0,.22));' +
-    'border:1px solid rgba(255,255,255,.09);overflow:hidden}' +
-  '#scr-party .su-town.night{background:linear-gradient(180deg,rgba(78,52,160,.26),rgba(6,4,16,.45))}' +
+  /* THE PJAZZA — the village square is a real painted backdrop; the players
+     stand in the open lower half. Day/night swap the same-vantage art so it
+     cross-fades. A bottom gradient keeps names/heads legible over the stone. */
+  '#scr-party .su-town{flex:0 0 auto;position:relative;display:grid;gap:8px 2px;' +
+    'grid-template-columns:repeat(auto-fill,minmax(58px,1fr));padding:84px 6px 14px;' +
+    'min-height:252px;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);' +
+    'background-image:linear-gradient(180deg,rgba(10,7,16,0) 26%,rgba(10,7,16,.34) 56%,rgba(10,7,16,.72) 100%),url("./art/suspett/pjazza-day.png");' +
+    'background-size:cover,cover;background-position:center top,center top;' +
+    'box-shadow:inset 0 0 60px rgba(0,0,0,.5);transition:background-image .6s ease}' +
+  '#scr-party .su-town.night{' +
+    'background-image:linear-gradient(180deg,rgba(6,4,16,.16) 18%,rgba(6,4,16,.5) 54%,rgba(6,4,16,.82) 100%),url("./art/suspett/pjazza-night.png")}' +
+  /* gentle idle life — the living villagers sway; staggered so they are not in lockstep */
+  '@keyframes suIdle{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2.5px) rotate(.7deg)}}' +
+  '#scr-party .su-vil:not(.dead):not(.hanging):not(.slain) .fig{animation:suIdle 3.4s ease-in-out infinite}' +
+  '#scr-party .su-vil:nth-child(2n):not(.dead) .fig{animation-duration:4s;animation-delay:-1.3s}' +
+  '#scr-party .su-vil:nth-child(3n):not(.dead) .fig{animation-duration:4.5s;animation-delay:-.6s}' +
+  '#scr-party .su-vil:nth-child(4n):not(.dead) .fig{animation-duration:3s;animation-delay:-2s}' +
+  '#scr-party .su-vil .nm{text-shadow:0 1px 3px rgba(0,0,0,.9)}' +
+  '#scr-party .su-vil .rl{text-shadow:0 1px 3px rgba(0,0,0,.9)}' +
   '#scr-party .su-town::after{content:"";position:absolute;left:0;right:0;bottom:0;height:9px;' +
     'background:rgba(0,0,0,.28);pointer-events:none}' +
   '#scr-party .su-vil{position:relative;display:flex;flex-direction:column;align-items:center;' +
@@ -1376,13 +1390,22 @@ function avatarInto(name, mine, size){
       return KARTI_XP.avatarHTML(name, { size: size || 34, me: !!mine,
         who: mine ? undefined : 'seat', noPic: !mine });
   } catch (e){}
-  /* no XP module (or offline): a plain initial disc, so the town still
-     reads as faces */
+  /* no XP module (or offline): show a painted VILLAGE FACE (art/suspett/faces),
+     chosen deterministically by name so a player keeps the same face all game.
+     The initial letter sits behind the image, so if the art is ever missing it
+     shows through as a clean fallback. Generic faces = no role leak. */
   const ch = esc(String(name || '?').trim().charAt(0).toUpperCase() || '?');
-  return '<span class="su-avfb" style="width:' + (size || 34) + 'px;height:' + (size || 34) +
-    'px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+  let hsh = 0; const nm = String(name || '');
+  for (let i = 0; i < nm.length; i++) hsh = (hsh * 31 + nm.charCodeAt(i)) >>> 0;
+  const fn = 'face-' + String((hsh % 16) + 1).padStart(2, '0');
+  const sz = size || 34;
+  return '<span class="su-avfb" style="position:relative;width:' + sz + 'px;height:' + sz +
+    'px;border-radius:50%;display:flex;align-items:center;justify-content:center;overflow:hidden;' +
     'background:linear-gradient(160deg,#4B3B78,#2A2142);color:#F4EFFF;font-weight:900;' +
-    'font-size:' + Math.round((size || 34) * 0.42) + 'px;border:1px solid rgba(0,0,0,.4)">' + ch + '</span>';
+    'font-size:' + Math.round(sz * 0.42) + 'px;border:1px solid rgba(0,0,0,.4)">' + ch +
+    '<img src="art/suspett/faces/' + fn + '.png" alt="" loading="lazy" ' +
+      'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" ' +
+      'onerror="this.style.display=\'none\'"></span>';
 }
 /* who died since the last paint, and how — returns a map seat->'hang'|'slain' */
 function deathAnims(G){

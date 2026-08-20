@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v177';
+const CACHE = 'karti-v178';
 const CORE = [
   './',
   './index.html',
@@ -155,6 +155,24 @@ const CORE = [
   './art/suspett/kuntrabandist.png',
   './art/suspett/biccier.png',
   './art/suspett/vendetta.png',
+  './art/suspett/pjazza-day.png',
+  './art/suspett/pjazza-night.png',
+  './art/suspett/faces/face-01.png',
+  './art/suspett/faces/face-02.png',
+  './art/suspett/faces/face-03.png',
+  './art/suspett/faces/face-04.png',
+  './art/suspett/faces/face-05.png',
+  './art/suspett/faces/face-06.png',
+  './art/suspett/faces/face-07.png',
+  './art/suspett/faces/face-08.png',
+  './art/suspett/faces/face-09.png',
+  './art/suspett/faces/face-10.png',
+  './art/suspett/faces/face-11.png',
+  './art/suspett/faces/face-12.png',
+  './art/suspett/faces/face-13.png',
+  './art/suspett/faces/face-14.png',
+  './art/suspett/faces/face-15.png',
+  './art/suspett/faces/face-16.png',
   './art/misteru/avukat.png',
   './art/misteru/zeffiena.png',
   './art/misteru/gardinar.png',
