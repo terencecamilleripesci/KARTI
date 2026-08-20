@@ -1256,6 +1256,39 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
 </head>
 <body>
 
+<!-- ═══ LOADING SPLASH ═══ Shown instantly (inline, no CSS/JS wait). A KARTI-red/gold
+     festa backdrop (art/ui/loading-bg.png with a gradient fallback so it looks right even
+     before the art lands), the logo, a creeping progress bar, and a warm glow. It fades out
+     the moment Home is ready (window.KARTI) or everything has loaded (karti:loaded). -->
+<div id="kl-splash" aria-hidden="true" style="position:fixed;inset:0;z-index:99998;display:flex;align-items:center;justify-content:center;background:#0B0710;overflow:hidden;transition:opacity .55s ease">
+  <div style="position:absolute;inset:0;background:radial-gradient(120% 85% at 50% 6%,rgba(230,57,80,.20),transparent 42%),radial-gradient(90% 55% at 50% 104%,rgba(255,197,66,.16),transparent 52%),#0B0710"></div>
+  <div id="kl-art" style="position:absolute;inset:0;background:center/cover no-repeat;opacity:0;transition:opacity .9s ease"></div>
+  <div style="position:absolute;inset:0;background:radial-gradient(58% 42% at 50% 46%,rgba(11,7,16,.15),rgba(11,7,16,.9))"></div>
+  <div style="position:relative;text-align:center;padding:0 24px">
+    <div style="font:900 64px/1 'Cormorant Garamond',Georgia,serif;letter-spacing:2px;color:#FFC542;text-shadow:0 0 34px rgba(255,197,66,.45),0 8px 22px rgba(0,0,0,.6);animation:klPulse 2.6s ease-in-out infinite">KAR<span style="color:#E63950">TI</span></div>
+    <div style="margin-top:9px;font:700 11px/1 system-ui,sans-serif;letter-spacing:4px;text-transform:uppercase;color:#B7A897">Malta&rsquo;s rudest card duel</div>
+    <div style="margin:28px auto 0;width:214px;height:5px;border-radius:99px;background:rgba(255,255,255,.10);overflow:hidden">
+      <i id="kl-bar" style="display:block;height:100%;width:6%;border-radius:99px;background:linear-gradient(90deg,#C8102E,#FFC542);box-shadow:0 0 12px rgba(255,197,66,.65);transition:width .4s ease"></i>
+    </div>
+    <div id="kl-tip" style="margin-top:13px;font:600 10.5px system-ui;letter-spacing:2px;color:#8A7F72">SHUFFLING THE DECK&hellip;</div>
+  </div>
+</div>
+<style>@keyframes klPulse{0%,100%{transform:scale(1);opacity:.94}50%{transform:scale(1.04);opacity:1}}</style>
+<script>
+(function(){
+  var sp=document.getElementById('kl-splash'), bar=document.getElementById('kl-bar'), art=document.getElementById('kl-art'), tip=document.getElementById('kl-tip');
+  if(!sp) return;
+  try{ var im=new Image(); im.onload=function(){ if(art){ art.style.backgroundImage="url('art/ui/loading-bg.png')"; art.style.opacity=".92"; } }; im.src="art/ui/loading-bg.png"; }catch(e){}
+  var tips=['SHUFFLING THE DECK…','DEALING A ROUGH HAND…','LIGHTING THE FESTA…','WARMING UP THE VILLAGE…'], ti=0;
+  var pct=6, t=setInterval(function(){ pct+=Math.max(1,(90-pct)*0.09); if(pct>92)pct=92; if(bar)bar.style.width=pct.toFixed(0)+'%'; if(tip&&Math.random()<0.18){ ti=(ti+1)%tips.length; tip.textContent=tips[ti]; } },170);
+  var gone=false;
+  function fin(){ if(gone)return; gone=true; clearInterval(t); clearInterval(poll); if(bar)bar.style.width='100%'; sp.style.opacity='0'; setTimeout(function(){ try{sp.remove();}catch(e){} },560); }
+  var poll=setInterval(function(){ if(window.KARTI) fin(); },120);   /* Home is up -> drop the splash fast */
+  if(window.KARTI_LOADED||window.KARTI) fin(); else addEventListener('karti:loaded', fin, {once:true});
+  setTimeout(fin, 12000);   /* never strand behind the splash */
+})();
+</script>
+
 <!-- ═══ ICON SPRITE ═══
      Inlined once, verbatim, from icons/sprite.svg (that file is the source of
      truth — keep the two identical). Inline rather than fetched so the icons
@@ -1799,7 +1832,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 194;
+var KARTI_BUILD = 195;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1922,21 +1955,29 @@ window.swVersion = function(){
                   after all of them are registered, or its first look at the
                   app finds no #scr-party, no #scr-kiri and no #scr-stats. */
                'js/nav.js'];
-  (function next(i){
-    if (i >= files.length){
-      /* EVERY module has now loaded and registered. This flag + event is the
-         readiness signal the party hub gates game entry on: tapping a party
-         tile before its module (and everything it leans on) has landed used to
-         open a half-wired game. party.js waits on this instead. */
+  /* FAST BOOT — append EVERY script at once with async=false. The browser then
+     downloads them in PARALLEL but still runs them in source order (the spec for
+     ordered dynamic scripts), so every dependency still holds while the network
+     does all the fetches concurrently instead of one-at-a-time. That is the whole
+     speed win: boot was gated on a serial chain of round-trips; now it is gated on
+     the single slowest file. A missing optional file (404) just fires onerror and
+     counts as done, so it can never stop the game booting.
+     KARTI_LOADED + karti:loaded is the readiness signal party.js gates entry on. */
+  (function loadAll(){
+    var n = files.length, done = 0;
+    function finish(){
       window.KARTI_LOADED = true;
       try { dispatchEvent(new Event('karti:loaded')); } catch (e){}
-      return;
     }
-    var s = document.createElement('script');
-    s.src = files[i]; s.async = false;
-    s.onload = s.onerror = function(){ next(i + 1); };
-    document.head.appendChild(s);
-  })(0);
+    if (!n){ finish(); return; }
+    function tick(){ if (++done >= n) finish(); }
+    for (var i = 0; i < n; i++){
+      var s = document.createElement('script');
+      s.src = files[i]; s.async = false;    /* ordered execution, parallel fetch */
+      s.onload = s.onerror = tick;
+      document.head.appendChild(s);
+    }
+  })();
 
   /* ── THE ESCAPE HATCH ──────────────────────────────────────────────────
      A service worker that caches this hard can strand the app: if an update
