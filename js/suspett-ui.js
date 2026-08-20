@@ -685,10 +685,9 @@ function injectCSS(){
   /* THE PJAZZA — the village square is a real painted backdrop; the players
      stand in the open lower half. Day/night swap the same-vantage art so it
      cross-fades. A bottom gradient keeps names/heads legible over the stone. */
-  '#scr-party .su-town{flex:0 0 auto;position:relative;display:grid;gap:8px 2px;' +
-    'grid-template-columns:repeat(auto-fill,minmax(58px,1fr));padding:84px 6px 14px;' +
-    'min-height:252px;border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);' +
-    'background-image:linear-gradient(180deg,rgba(10,7,16,0) 26%,rgba(10,7,16,.34) 56%,rgba(10,7,16,.72) 100%),url("./art/suspett/pjazza-day.png");' +
+  '#scr-party .su-town{flex:0 0 auto;position:relative;width:100%;height:min(98vw,394px);' +
+    'border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);' +
+    'background-image:linear-gradient(180deg,rgba(10,7,16,0) 26%,rgba(10,7,16,.32) 58%,rgba(10,7,16,.7) 100%),url("./art/suspett/pjazza-day.png");' +
     'background-size:cover,cover;background-position:center top,center top;' +
     'box-shadow:inset 0 0 60px rgba(0,0,0,.5);transition:background-image .6s ease}' +
   '#scr-party .su-town.night{' +
@@ -703,9 +702,28 @@ function injectCSS(){
   '#scr-party .su-vil .rl{text-shadow:0 1px 3px rgba(0,0,0,.9)}' +
   '#scr-party .su-town::after{content:"";position:absolute;left:0;right:0;bottom:0;height:9px;' +
     'background:rgba(0,0,0,.28);pointer-events:none}' +
-  '#scr-party .su-vil{position:relative;display:flex;flex-direction:column;align-items:center;' +
-    'gap:1px;padding:2px 1px 5px;min-width:0;background:none;border:0;color:inherit;' +
-    'font-family:inherit;cursor:pointer}' +
+  '#scr-party .su-vil{position:absolute;transform:translate(-50%,-60%);display:flex;flex-direction:column;' +
+    'align-items:center;gap:1px;width:58px;background:none;border:0;color:inherit;' +
+    'font-family:inherit;cursor:pointer;z-index:2}' +
+  '#scr-party .su-vil.tomiddle{opacity:0;pointer-events:none}' +   /* moved to the centre gallows */
+  /* ── the CENTRE gallows (il-planka) in the middle of the ring ── */
+  '#scr-party .su-hangmid{position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);' +
+    'width:72px;height:104px;z-index:3;pointer-events:none;filter:drop-shadow(0 6px 8px rgba(0,0,0,.6))}' +
+  '#scr-party .su-hangmid i{position:absolute;background:#5A3E22;border-radius:2px;display:block}' +
+  '#scr-party .su-hangmid .beam{left:6px;top:0;width:60px;height:6px}' +
+  '#scr-party .su-hangmid .post{left:6px;top:0;width:6px;height:100px}' +
+  '#scr-party .su-hangmid .rope{left:58px;top:5px;width:2px;height:30px;background:#D8C9A0}' +
+  '#scr-party .su-hangmid .rope.idle{height:16px;opacity:.55}' +
+  '#scr-party .su-hangmid .victim{position:absolute;left:37px;top:30px;transform-origin:22px -25px;' +
+    'animation:suSwingBig 2.6s ease-in-out infinite;filter:grayscale(.3) brightness(.85)}' +
+  '#scr-party .su-hangmid .victim .su-avfb,#scr-party .su-hangmid .victim img{border:1px solid rgba(0,0,0,.5)}' +
+  '#scr-party .su-hangmid .lbl{position:absolute;left:50%;top:104%;transform:translateX(-50%);' +
+    'white-space:nowrap;font-size:10.5px;font-weight:800;color:#FF9C90;text-shadow:0 1px 3px #000}' +
+  '@keyframes suSwingBig{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}' +
+  '#scr-party .su-hangmid.swing .victim{animation:suDropSwing 2.9s ease-out both}' +
+  '@keyframes suDropSwing{0%{transform:translateY(-30px) rotate(0);opacity:0}' +
+    '14%{opacity:1}22%{transform:translateY(0) rotate(-11deg)}' +
+    '42%{transform:rotate(9deg)}60%{transform:rotate(-6deg)}78%{transform:rotate(4deg)}100%{transform:rotate(-2deg)}}' +
   '#scr-party .su-vil .fig{position:relative;width:46px;height:52px;display:flex;' +
     'flex-direction:column;align-items:center;justify-content:flex-end}' +
   '#scr-party .su-vil .head{position:relative;z-index:2;line-height:0}' +
@@ -1432,14 +1450,23 @@ function townHTML(G, mySeat){
     }
   const anims = deathAnims(G);
   const medium = G.P.some(p => p.alive && S.ROLES[p.role].seance);   /* public: only that a séance exists */
-  const cells = G.P.map(p => {
+  const n = G.P.length;
+  /* who is being hanged THIS paint — they go to the CENTRE gallows, not their ring spot */
+  let hangSeat = -1;
+  for (const p of G.P) if (anims[p.seat] === 'hang') hangSeat = p.seat;
+  const cells = G.P.map((p, i) => {
     const pub = S.publicSeat(G, p.seat);
     const mine = p.seat === mySeat;
-    const klk = false;   /* side is SECRET — never leaked into the town class */
     const anim = anims[p.seat];
+    /* place each seat evenly around an ellipse in the open lower square, seat 0
+       at the top and going clockwise — the village stands in a RING around the
+       central gallows. Pure display trig (not the sim), so cos/sin are fine. */
+    const ang = (-90 + i * (360 / n)) * Math.PI / 180;
+    const x = (50 + 37 * Math.cos(ang)).toFixed(1);
+    const y = (61 + 27 * Math.sin(ang)).toFixed(1);
     let cls = 'su-vil' + (pub.alive ? '' : ' dead') + (mine ? ' me' : '') +
-      (klk ? ' klk' : '') + (G.accused === p.seat ? ' acc' : '') +
-      (anim === 'hang' ? ' hanging' : anim === 'slain' ? ' slain' : '');
+      (G.accused === p.seat ? ' acc' : '') +
+      (anim === 'slain' ? ' slain' : '') + (p.seat === hangSeat ? ' tomiddle' : '');
     /* the marks the whole pjazza may see */
     const marks = [];
     if (pub.alive){
@@ -1449,16 +1476,13 @@ function townHTML(G, mySeat){
     } else {
       marks.push('<span class="mute" title="Ma jistax jitkellem">✕</span>');
     }
-    const gallows = anim === 'hang'
-      ? '<span class="gallows"><i class="beam"></i><i class="post"></i>' +
-        '<i class="rope"></i><i class="noose"></i></span>' : '';
     const slash = anim === 'slain' ? '<span class="slash"></span>' : '';
     const roleWord = (!pub.alive && pub.role) ? '<span class="rl">' + esc(pub.role) + '</span>'
                    : (pub.alive && pub.mayor) ? '<span class="rl" style="color:var(--gold,#FFC542)">Is-Sindku</span>'
                    : '';
-    return '<button class="' + cls + '" data-seat="' + p.seat + '" ' +
+    return '<button class="' + cls + '" data-seat="' + p.seat + '" style="left:' + x + '%;top:' + y + '%" ' +
       (mine ? 'aria-current="true" ' : '') + 'aria-label="' + esc(pub.name) + '">' +
-      '<span class="fig">' + gallows + slash +
+      '<span class="fig">' + slash +
         (pub.alive ? '' : '<span class="tomb"><b></b></span><span class="ghost">👻</span>') +
         '<span class="body"></span>' +
         /* a DEAD player whose role is public shows their character portrait
@@ -1475,7 +1499,21 @@ function townHTML(G, mySeat){
       '<span class="nm">' + esc(pub.name) + '</span>' + roleWord +
       '</button>';
   }).join('');
-  return '<div class="su-town' + (silent ? ' night' : '') + '" id="su-town">' + cells + '</div>';
+  /* THE CENTRE OF THE SQUARE — il-planka. A standing gallows always waits in
+     the middle; when the pjazza hangs somebody they swing from it while the
+     whole ring of villagers watches. */
+  let stage;
+  if (hangSeat >= 0){
+    const hp = S.publicSeat(G, hangSeat);
+    stage = '<div class="su-hangmid swing" aria-hidden="true">' +
+      '<i class="beam"></i><i class="post"></i><i class="rope"></i>' +
+      '<span class="victim">' + avatarInto(hp.name, false, 42) + '</span>' +
+      '<span class="lbl">' + esc(hp.name) + '</span></div>';
+  } else {
+    stage = '<div class="su-hangmid" aria-hidden="true">' +
+      '<i class="beam"></i><i class="post"></i><i class="rope idle"></i></div>';
+  }
+  return '<div class="su-town' + (silent ? ' night' : '') + '" id="su-town">' + stage + cells + '</div>';
 }
 
 /* the SPEAK MARKERS strip: who may open their mouth right now, said in
