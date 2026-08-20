@@ -2,8 +2,26 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v196';
-const CORE = [
+const CACHE = 'karti-v201';
+/* ── THE SHELL, NOT THE GAME ─────────────────────────────────────────────────
+   This list used to be 205 entries / ~24 MB — every game module and every
+   per-game portrait — so a first install (and EVERY version bump) re-fetched
+   the whole catalogue before the app was usable. Now the install precaches
+   only what is needed to boot and paint Home:
+
+     · the document, manifest, css, fonts, PWA icons
+     · the loader's FIRST WAVE of js (index.html loads these before Home
+       paints: lang → sets → progress → game.js → the hub modules)
+     · the UI dressing detectArt() probes at boot (petard.jpg is the sentinel
+       that decides whether the art pack exists AT ALL — it must answer
+       offline) plus the home backdrop/hero/spin-wheel.
+
+   Everything else — the per-game engines/UIs of games not yet opened, the
+   MINHU/SUSPETT/MISTERU portraits, tile logos, big backdrops — is cached ON
+   FIRST USE by the fetch handler below, and carried across version bumps by
+   the migration step in `activate`, so nothing a device already had is ever
+   re-downloaded or lost. */
+const SHELL = [
   './',
   './index.html',
   './manifest.json',
@@ -11,14 +29,17 @@ const CORE = [
   './css/cardview.css',
   './fonts/exo2-700-latin.woff2',
   './fonts/exo2-700-latin-ext.woff2',
+  /* wave 1 of the loader in index.html — keep the two lists in step */
+  './js/lang.js',
   './js/artkit.js',
   './js/cards.js',
   './js/set2.js',
   './js/set3.js',
-  './js/game.js',
   './js/progress-faces.js',
   './js/progress.js',
   './js/progress-ui.js',
+  './js/game.js',
+  './js/rebbieh.js',
   './js/ai.js',
   './js/gacha.js',
   './js/story.js',
@@ -27,175 +48,6 @@ const CORE = [
   './js/tutor.js',
   './js/sync.js',
   './js/party.js',
-  './js/chess.js',
-  './js/dama.js',
-  './js/skarta.js',
-  './js/skarta-ui.js',
-  './js/lang.js',
-  './js/klabb.js',
-  './js/spy-words.js',
-  './js/spy.js',
-  './js/spy-ui.js',
-  './js/suspett.js',
-  './js/suspett-ui.js',
-  './js/rummy.js',
-  './js/rummy-ui.js',
-  './js/gin.js',
-  './js/gin-ui.js',
-  './js/poker.js',
-  './js/poker-ui.js',
-  './js/serp.js',
-  './js/serp-ui.js',
-  './js/rebbieh.js',
-  './js/mimika.js',
-  './js/mimika-ui.js',
-  './js/blackjack.js',
-  './js/tletin.js',
-  './js/cards2131-ui.js',
-  './js/kanun.js',
-  './js/kanun-ui.js',
-  './js/bomba.js',
-  './js/bomba-ui.js',
-  './js/briks.js',
-  './js/briks-ui.js',
-  './js/ludu.js',
-  './js/ludu-ui.js',
-  './js/erbgha.js',
-  './js/erbgha-ui.js',
-  './js/minhu.js',
-  './js/minhu-ui.js',
-  './js/kodici.js',
-  './js/kodici-ui.js',
-  './js/tankijiet.js',
-  './js/tankijiet-ui.js',
-  './js/ballun.js',
-  './js/ballun-ui.js',
-  './js/aqleb.js',
-  './js/aqleb-ui.js',
-  './js/kaxxi.js',
-  './js/kaxxi-ui.js',
-  './js/konkwista.js',
-  './js/konkwista-ui.js',
-  './js/misteru.js',
-  './js/misteru-ui.js',
-  './art/ui/logo-konkwista.png',
-  './art/ui/konkwista-bg.png',
-  './art/minhu/ganni.png',
-  './art/minhu/marija.png',
-  './art/minhu/cetta.png',
-  './art/minhu/wigi.png',
-  './art/minhu/pawlu.png',
-  './art/minhu/rita.png',
-  './art/minhu/kelinu.png',
-  './art/minhu/lorna.png',
-  './art/minhu/gorg.png',
-  './art/minhu/doris.png',
-  './art/minhu/salvu.png',
-  './art/minhu/josette.png',
-  './art/minhu/tumas.png',
-  './art/minhu/grezz.png',
-  './art/minhu/nardu.png',
-  './art/minhu/karm.png',
-  './art/minhu/angla.png',
-  './art/minhu/sam.png',
-  './art/minhu/rozi.png',
-  './art/minhu/toni.png',
-  './art/minhu/nina.png',
-  './art/minhu/zeppi.png',
-  './art/minhu/liza.png',
-  './art/minhu/benny.png',
-  './art/minhu/lolli.png',
-  './art/minhu/natali.png',
-  './art/minhu/katrin.png',
-  './art/minhu/indri.png',
-  './art/minhu/melita.png',
-  './art/minhu/karmnu.png',
-  './art/minhu/polina.png',
-  './art/minhu/silvju.png',
-  './art/ui/logo-erbgha.png',
-  './art/ui/logo-ludu.png',
-  './art/ui/logo-minhu.png',
-  './art/ui/logo-kodici.png',
-  './art/ui/logo-kanun.png',
-  './art/ui/logo-bomba.png',
-  './art/ui/logo-briks.png',
-  './art/ui/logo-cards2131.png',
-  './art/ui/logo-serp.png',
-  './art/ui/logo-tankijiet.png',
-  './art/ui/logo-ballun.png',
-  './art/misteru/surmast.png',
-  './art/misteru/kappillan.png',
-  './art/misteru/sinjura.png',
-  './art/misteru/baruni.png',
-  './art/misteru/caqquf.png',
-  './art/misteru/tabib.png',
-  './art/misteru/kaptan.png',
-  './art/misteru/kuntessa.png',
-  './art/suspett/rahli.png',
-  './art/suspett/nanna.png',
-  './art/suspett/tabib.png',
-  './art/suspett/barman.png',
-  './art/suspett/kaccatur.png',
-  './art/suspett/talkarti.png',
-  './art/suspett/ghassies.png',
-  './art/suspett/kappillan.png',
-  './art/suspett/sindku.png',
-  './art/suspett/tarronda.png',
-  './art/suspett/talbieb.png',
-  './art/suspett/surgent.png',
-  './art/suspett/xummiemu.png',
-  './art/suspett/haffier.png',
-  './art/suspett/xewka.png',
-  './art/suspett/kap.png',
-  './art/suspett/klikka.png',
-  './art/suspett/pittur.png',
-  './art/suspett/velenu.png',
-  './art/suspett/sarima.png',
-  './art/suspett/mignun.png',
-  './art/suspett/kuntrabandist.png',
-  './art/suspett/biccier.png',
-  './art/suspett/vendetta.png',
-  './art/suspett/map-day.png',
-  './art/suspett/map-night.png',
-  './art/suspett/faces/face-01.png',
-  './art/suspett/faces/face-02.png',
-  './art/suspett/faces/face-03.png',
-  './art/suspett/faces/face-04.png',
-  './art/suspett/faces/face-05.png',
-  './art/suspett/faces/face-06.png',
-  './art/suspett/faces/face-07.png',
-  './art/suspett/faces/face-08.png',
-  './art/suspett/faces/face-09.png',
-  './art/suspett/faces/face-10.png',
-  './art/suspett/faces/face-11.png',
-  './art/suspett/faces/face-12.png',
-  './art/suspett/faces/face-13.png',
-  './art/suspett/faces/face-14.png',
-  './art/suspett/faces/face-15.png',
-  './art/suspett/faces/face-16.png',
-  './art/misteru/avukat.png',
-  './art/misteru/zeffiena.png',
-  './art/misteru/gardinar.png',
-  './art/misteru/sajjied.png',
-  './art/misteru/professur.png',
-  './art/misteru/kok.png',
-  './art/misteru/segretarja.png',
-  './art/misteru/kummissarju.png',
-  './js/battleship.js',
-  './js/battleship-ui.js',
-  './js/klabb-briscola.js',
-  './js/klabb-sette.js',
-  './js/klabb-cheat.js',
-  './js/tombla.js',
-  './js/tombla-ui.js',
-  './js/tombla-caller.js',
-  './js/kiri.js',
-  './js/kiri-ai.js',
-  './js/kiri-ui.js',
-  './js/friends.js',
-  './js/stats.js',
-  './js/sfx.js',
-  './js/nav.js',
   /* The 38 mp3s under ./audio/ are deliberately NOT precached. They are 416 KB,
      the game is designed to be perfect without a single one of them, and a
      precache list that 404s fails the whole install — which is how a cache bump
@@ -208,7 +60,7 @@ const CORE = [
      decide whether the art pack exists at all. None of these were cached, and
      every cache bump wiped the runtime copies, so an installed app launched on
      a flaky connection came up with NO artwork: shell from the precache, art
-     probes dead. ~1.2 MB total, precached once, and the install below carries
+     probes dead. ~2 MB total, precached once, and the install below carries
      the previous version's copies forward if the network drops mid-install. */
   './art/petard.jpg',
   './art/ui/home-bg.jpg',
@@ -253,7 +105,7 @@ self.addEventListener('install', event => {
     const cache = await caches.open(CACHE);
     /* the old caches still exist here — activate has not pruned them yet */
     const oldKeys = (await caches.keys()).filter(k => k !== CACHE);
-    await Promise.all(CORE.map(async url => {
+    await Promise.all(SHELL.map(async url => {
       /* network first so a deploy really refreshes the file…
          cache:'no-cache' is NOT optional. GitHub Pages serves everything with
          max-age=600, and a plain cache.add() honours the HTTP cache — so a
@@ -279,11 +131,39 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    /* ── MIGRATE, THEN PRUNE ──────────────────────────────────────────────
+       The old caches still exist here. Everything the device already holds
+       that the new SHELL did not just re-fetch — runtime-cached game modules,
+       portraits, backdrops, audio — is copied forward into the new bucket
+       before the old ones are deleted. Without this, shrinking the precache
+       would mean every version bump wiped the per-game art off the phone
+       (the exact bug that once made the whole catalogue get precached).
+       Freshness is not weakened: every fetch below is network-first, so a
+       carried-forward copy is replaced by the server's the next time it is
+       requested online. Entries already in the new cache (the fresh SHELL)
+       are never overwritten by old copies. */
+    try {
+      const fresh = await caches.open(CACHE);
+      const have = new Set((await fresh.keys()).map(r => r.url));
+      const oldKeys = (await caches.keys()).filter(k => k !== CACHE);
+      for (const k of oldKeys){
+        try {
+          const old = await caches.open(k);
+          for (const req of await old.keys()){
+            if (have.has(req.url)) continue;
+            try {
+              const hit = await old.match(req);
+              if (hit){ await fresh.put(req, hit); have.add(req.url); }
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
+    } catch (e) {}
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', event => {

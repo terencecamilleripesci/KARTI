@@ -1400,15 +1400,25 @@ function isAdmin(){
    account (case/spacing/punctuation-insensitive), never remembered, so it
    follows the account and never sticks to a shared device. */
 var BETA_OWNERS = { shanikwanne:'betagold', rudeness:'betasilver' };
+function betaNorm(s){ return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+/* Match on the ACCOUNT KEY *or* the DISPLAY NAME. The two are not always the
+   same string (an account registered as one thing can show another), and the
+   gift silently never appeared when they differed — so try both. */
 function betaKey(){
-  try { return String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
-  catch (e){ return ''; }
+  try {
+    var a = betaNorm(accountKey());
+    if (a && BETA_OWNERS[a]) return a;
+    var d = '';
+    try { if (window.KARTI && KARTI.displayName) d = betaNorm(KARTI.displayName()); } catch (e){}
+    if (d && BETA_OWNERS[d]) return d;
+    return a;
+  } catch (e){ return ''; }
 }
 function betaOwns(which){
   try {
     var k = betaKey();
     return !!(k && session() && BETA_OWNERS[k] === which);
-  } catch (e){ return which === which ? false : false; }
+  } catch (e){ return false; }
 }
 /* Turn the gift frame ON by default the FIRST time a beta tester signs in — so
    they actually see it — then never touch it again, so they are free to switch

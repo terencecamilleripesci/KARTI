@@ -63,6 +63,20 @@
      before the home screen even renders — and the copy lands in the HTTP cache
      as a second safety net beside the service-worker precache. -->
 <link rel="preload" as="image" href="art/ui/home-bg.jpg" fetchpriority="high">
+<!-- The three heaviest first-wave scripts (game.js and mp.js are ~280 KB each,
+     progress.js ~140 KB). The loader that requests them sits at the END of this
+     ~150 KB document, so without a hint their downloads start only after the
+     whole page has parsed. Preloading from the head starts them immediately;
+     the loader's own script tags then reuse the same in-flight fetches.
+     Everything else in wave 1 is small enough not to need a hint. -->
+<link rel="preload" as="script" href="js/game.js">
+<link rel="preload" as="script" href="js/mp.js">
+<link rel="preload" as="script" href="js/progress.js">
+<!-- The splash backdrop is the actual first paint (the inline splash script
+     swaps it in the moment it decodes) — start it alongside the scripts rather
+     than when that script runs. Default (low) image priority on purpose: it
+     must not outrank the boot js. -->
+<link rel="preload" as="image" href="art/ui/loading-bg.png">
 <!-- The display face is SELF-HOSTED, and it is Exo 2 rather than Orbitron, for
      two reasons that are really one.
      1. A Google Fonts stylesheet is a third-party request, so an offline PWA
@@ -1922,7 +1936,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 196;
+var KARTI_BUILD = 201;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1971,7 +1985,17 @@ window.swVersion = function(){
                'js/rebbieh.js',
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
                'js/cardview.js','js/tutor.js','js/sync.js',
-               'js/party.js','js/chess.js','js/dama.js',
+               'js/party.js'];
+  /* ── WAVE 2 — everything Home does NOT need to paint and be interactive ──
+     The per-game engines and screens. Same files, same relative order, same
+     dependency chain as before (klabb before the card tables, party/mp before
+     the tiles that register through them, nav.js dead last) — but appended
+     only AFTER wave 1 has fully executed and Home has had a frame to paint,
+     so the first-paint fetches are never queued behind forty game UIs.
+     KARTI_LOADED / karti:loaded still fires only when THIS list has also
+     landed — party.js gates game entry on it, so no game is openable before
+     its module is in. Keep `files` in step with the SHELL list in sw.js. */
+  var defer = ['js/chess.js','js/dama.js',
                'js/battleship.js','js/battleship-ui.js',
                'js/skarta.js','js/skarta-ui.js',
                'js/klabb.js','js/klabb-briscola.js','js/klabb-sette.js','js/klabb-cheat.js',
@@ -2045,28 +2069,41 @@ window.swVersion = function(){
                   after all of them are registered, or its first look at the
                   app finds no #scr-party, no #scr-kiri and no #scr-stats. */
                'js/nav.js'];
-  /* FAST BOOT — append EVERY script at once with async=false. The browser then
-     downloads them in PARALLEL but still runs them in source order (the spec for
-     ordered dynamic scripts), so every dependency still holds while the network
-     does all the fetches concurrently instead of one-at-a-time. That is the whole
-     speed win: boot was gated on a serial chain of round-trips; now it is gated on
-     the single slowest file. A missing optional file (404) just fires onerror and
-     counts as done, so it can never stop the game booting.
-     KARTI_LOADED + karti:loaded is the readiness signal party.js gates entry on. */
+  /* FAST BOOT, IN TWO WAVES — each wave is appended all at once with
+     async=false: the browser downloads a wave in PARALLEL but still runs it in
+     source order (the spec for ordered dynamic scripts), so every dependency
+     holds while the network does the fetches concurrently. A missing optional
+     file (404) just fires onerror and counts as done, so it can never stop the
+     game booting.
+     Wave 1 is the shell — Home paints the moment game.js executes. Wave 2 (the
+     game modules) is only appended after wave 1 has fully executed (a classic
+     script's load event fires AFTER it runs) plus one frame, so Home's paint is
+     never contending with forty game UIs for the pipe. Cross-wave order is
+     therefore also guaranteed: nothing in `defer` can run before all of `files`.
+     KARTI_LOADED + karti:loaded — the readiness signal party.js gates entry
+     on — fires only when BOTH waves are done. */
   (function loadAll(){
-    var n = files.length, done = 0;
+    function loadWave(list, then){
+      var n = list.length, done = 0;
+      if (!n){ then(); return; }
+      function tick(){ if (++done >= n) then(); }
+      for (var i = 0; i < n; i++){
+        var s = document.createElement('script');
+        s.src = list[i]; s.async = false;   /* ordered execution, parallel fetch */
+        s.onload = s.onerror = tick;
+        document.head.appendChild(s);
+      }
+    }
     function finish(){
       window.KARTI_LOADED = true;
       try { dispatchEvent(new Event('karti:loaded')); } catch (e){}
     }
-    if (!n){ finish(); return; }
-    function tick(){ if (++done >= n) finish(); }
-    for (var i = 0; i < n; i++){
-      var s = document.createElement('script');
-      s.src = files[i]; s.async = false;    /* ordered execution, parallel fetch */
-      s.onload = s.onerror = tick;
-      document.head.appendChild(s);
-    }
+    loadWave(files, function(){
+      /* wave 1 has run — let the first Home frame land, then bring in the games */
+      var go = function(){ loadWave(defer, finish); };
+      if (window.requestAnimationFrame) requestAnimationFrame(function(){ setTimeout(go, 0); });
+      else setTimeout(go, 0);
+    });
   })();
 
   /* ── THE ESCAPE HATCH ──────────────────────────────────────────────────

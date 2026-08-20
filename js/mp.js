@@ -77,6 +77,13 @@ const PING_EVERY    = 20000;    /* keep-alive, ms */
 const PONG_DEADLINE = 55000;    /* no pong for this long -> assume dead */
 const OPEN_TIMEOUT  = 9000;     /* socket must open within this, ms */
 const RETRY_WAITS   = [400, 900, 1800, 3500, 6000, 8000, 8000, 8000];  /* ~37s */
+/* The relay holds a dropped chair for ~60 s (its reconnect GRACE) before the
+   sweeper frees it. Inside this window a fresh tap on the SAME room goes back
+   in through 'rejoin' with the held seat's token — reclaiming our own chair —
+   instead of joining as a new player next to our own ghost. Slightly past the
+   relay's 60 s on purpose: a reclaim the relay refuses falls straight back to
+   an ordinary join (see onServerError), so guessing long costs nothing. */
+const SEAT_RECLAIM_MS = 70000;
 
 /* who's-online panel on the home screen, AND the room list on the Online screen —
    ONE poller feeds both. There is deliberately no second timer anywhere. */
@@ -211,6 +218,33 @@ function gamePlayable(k){
   if (k === 'cards') return true;
   const P = window.KARTI_PARTY;
   return !!(P && P.online && P.online[k] && P.online[k].start && P.online[k].remote);
+}
+/* DELIBERATELY GATED — playable transport, but the game's OWN contract refuses
+   to start online even for a full table of ready people (today: poker and the
+   21·31 tile, until the relay deals a fresh private hand PER ROUND rather than
+   once at start). A room of such a game is a table whose Start button can never
+   light — a dead room — so the picker must say the game's own reason instead of
+   opening one. Probed live off the published canStart, never a hardcoded list:
+   the moment a game's file lifts its gate, every door here follows by itself.
+   Returns the game's display-ready reason TEXT, or null when it can start. */
+function gameGated(k){
+  k = cleanGame(k);
+  /* the instant duels predate the ready lobby and have no canStart to probe */
+  if (k === 'cards' || k === 'chess' || k === 'dama') return null;
+  if (!gamePlayable(k)) return null;      /* absent is a different, older message */
+  let LB;
+  try { LB = gameLobby(k); } catch (e){ return null; }
+  if (!LB || LB.bare) return null;        /* no contract published -> nothing to probe */
+  try {
+    const seats = [];
+    for (let i = 0; i < LB.defaultSeats; i++)
+      seats.push({ seat:i, name:'P' + (i + 1), kind:'human', ready:true, level:0 });
+    const v = LB.canStart(seats);
+    if (v && v.ok === false)
+      return String(v.why || T('Not open online yet.', 'Għadha mhux onlajn.'));
+  } catch (e){ /* a throwing probe never blocks a game — the lobby's own
+                  tableCanStart says the truth once a room exists */ }
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -567,7 +601,7 @@ function lobbyGames(taken){
        game is always offered so the picker shows what is playing now. */
     if (k !== MP.game && (LB.bare || !LB.online)) continue;
     const max = LB.maxSeats, min = LB.minSeats;
-    const fits = n <= max;
+    let fits = n <= max;
     /* the disabled reason, in the phone's language. Both bounds are named so a
        host who has too FEW for a game and one who has too MANY read the truth,
        not a bare "unavailable". */
@@ -576,6 +610,14 @@ function lobbyGames(taken){
       reason = (min === max)
         ? T('needs exactly ' + max + ' players', 'trid eżatt ' + max + ' plejers')
         : T('at most ' + max + ' players', 'l-aktar ' + max + ' plejers');
+    }
+    /* a game whose own contract still refuses to start online (gameGated —
+       poker / 21·31 today) is drawn DISABLED with a short reason, never
+       hidden: switching a live table into it would park everyone at a Start
+       button that can never light. The current game stays offered as-is. */
+    if (fits && k !== MP.game && gameGated(k)){
+      fits = false;
+      reason = T('not open online yet', 'mhux onlajn għalissa');
     }
     out.push({ id:k, name:LB.name, short:LB.short || LB.name,
                min, max, fits, reason, current:k === MP.game });
@@ -864,6 +906,25 @@ const MP = {
      seat: if that seat has gone, open a room of the same game rather than
      showing a menu the player has already answered */
   autoOpen:null,
+  /* THE CHAIR THE RELAY IS STILL HOLDING FOR US. Written whenever the relay
+     seats us ({code, token, id, at}); `at` is refreshed when the socket dies,
+     which is the moment the relay's reconnect grace starts. It outlives the
+     socket ON PURPOSE: a player who was dropped and taps the same room again
+     within the grace goes back into THIS chair (rejoin + token) instead of
+     taking a second one next to their own ghost — or bouncing off "room full",
+     off a chair that is actually theirs. Cleared the moment a 'leave' is
+     actually SENT (a chair given up on purpose is not held) and when the
+     relay says the seat is gone. */
+  heldSeat:null,
+  /* the join we will fall back to if a seat reclaim is refused: {intent, code,
+     id, priv, game}. Consumed by onServerError; cleared on 'rejoined'. */
+  reclaim:null,
+  /* a join/joinid is in flight — the double-tap guard in start() holds the
+     door only while this (or a real seat) is true */
+  awaitJoin:false,
+  /* when the keep-alive timer last actually ran — a gap of several beats means
+     the phone was asleep/backgrounded, not that the network went quiet */
+  lastTick:0,
 
   /* ── THE TABLE ────────────────────────────────────────────────────
      Every newer game uses this, including two-seat Gin. Only the original
@@ -1171,6 +1232,10 @@ function injectCSS(){
     '#scr-mp .mp-gi .ico{width:24px;height:24px}' +
     '#scr-mp .mp-gsym{width:24px;height:24px;display:block;fill:currentColor;stroke:none}' +
     '#scr-mp .mp-g[disabled]{opacity:.45}' +
+    /* gated (here, but its own file says online is not open yet): tappable so
+       the reason can be read, drawn quieter than a live game */
+    '#scr-mp .mp-g.gated{opacity:.62}' +
+    '#scr-mp .mp-g.gated i{color:#E8B84C}' +
 
     /* ── filter chips over the list ── */
     '#scr-mp .mp-filt{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 9px}' +
@@ -1585,6 +1650,11 @@ function mpScreen(){
   /* the picked game has to survive js/party.js not being on the phone */
   if (!gamePlayable(MP.wantGame)) MP.wantGame = 'cards';
   const want = MP.wantGame;
+  /* a picked game whose own contract still refuses to start online (poker /
+     21·31 — see gameGated). The tile stays tappable so the player can READ the
+     game's own reason below, but the Open button is disabled: a room of it
+     would be a table whose Start can never light. */
+  const wantGate = want === 'cards' ? null : gameGated(want);
 
   $('#scr-mp').innerHTML =
     '<div class="tbar">' +
@@ -1609,11 +1679,18 @@ function mpScreen(){
       '<div class="mp-pick" id="mp-pick">' +
         GAMES.map(g => {
           const off = !gamePlayable(g.k);
-          return '<button class="mp-g" data-g="' + esc(g.k) + '" ' +
+          /* gated ≠ absent: the game is on the phone and its file says, in its
+             own words, why online is not open yet. The tile stays tappable so
+             that reason can be read in full under the picker. */
+          const gate = off ? null : gameGated(g.k);
+          return '<button class="mp-g' + (gate ? ' gated' : '') + '" data-g="' + esc(g.k) + '" ' +
             'aria-pressed="' + (g.k === want ? 'true' : 'false') + '"' +
             (off ? ' disabled aria-disabled="true"' : '') + '>' +
             '<span class="mp-gi">' + gameIcon(g.k) + '</span>' +
-            '<b>' + esc(g.name) + '</b><i>' + esc(off ? 'Not on this phone' : g.blurb) + '</i>' +
+            '<b>' + esc(g.name) + '</b><i>' +
+            esc(off ? 'Not on this phone'
+                    : gate ? T('Machine only for now — tap for why', 'Kontra l-magna għalissa')
+                    : g.blurb) + '</i>' +
             '</button>';
         }).join('') +
       '</div>' +
@@ -1621,11 +1698,19 @@ function mpScreen(){
          gets a stepper here so the host chooses how big the table is — the
          lobby, not the game, owns the seat count. A two-seat game shows nothing,
          because there is no choice to make. */
-      seatSetupHTML(want) +
-      '<button class="btn primary" id="mp-open" style="margin-top:10px">' + ico('plus') +
-        ' Open a ' + esc(gameMeta(want).name.toLowerCase()) + ' room</button>' +
-      '<p class="mp-more">One tap. Everyone online sees it straight away, labelled ' +
-        esc(gameMeta(want).short) + '.</p>' +
+      (wantGate ? '' : seatSetupHTML(want)) +
+      /* a gated game says its own reason where the Open button would be — the
+         words are the GAME's published canStart text, not ours */
+      (wantGate
+        ? '<div class="mp-box" style="margin-top:10px">' + gameIcon(want) + ' <b>' +
+            esc(gameMeta(want).name) + '</b> — ' + esc(wantGate) + '</div>' +
+          '<button class="btn primary" id="mp-open" disabled aria-disabled="true" ' +
+            'style="margin-top:10px">' +
+            esc(T('Not open online yet', 'Għadha mhux onlajn')) + '</button>'
+        : '<button class="btn primary" id="mp-open" style="margin-top:10px">' + ico('plus') +
+          ' Open a ' + esc(gameMeta(want).name.toLowerCase()) + ' room</button>' +
+          '<p class="mp-more">One tap. Everyone online sees it straight away, labelled ' +
+          esc(gameMeta(want).short) + '.</p>') +
       (want === 'cards'
         ? '<div class="tiny" style="margin:18px 0 7px">Your deck</div>' +
           '<div class="deckpick" id="mp-deck"></div>'
@@ -1753,6 +1838,68 @@ function start(intent, code, id, priv, game){
     setState('unreachable', 'A https page cannot open a plain ws:// connection. Use wss://.');
     return;
   }
+  /* NEVER OPEN A DEAD ROOM. A gated game (see gameGated — its own contract
+     refuses to start online) can be reached from more doors than the picker:
+     a game file's own "play online" button, a stale stored pick, an old
+     bookmark of state. Whatever the door, the answer is the same and it is
+     the GAME's own words — a room of it would be a table whose Start button
+     can never light. */
+  if (intent === 'create'){
+    const gGate = gameGated(cleanGame(game));
+    if (gGate){
+      setState('unreachable', gameMeta(cleanGame(game)).name + ' — ' + gGate);
+      K.toast(gGate);
+      return;
+    }
+  }
+  /* ONE TAP, ONE CHAIR. The room rows repaint on every poll and nothing
+     disables them, so a second tap on the same room used to open a SECOND
+     socket to it: the relay saw the first die with no 'leave', held that
+     chair for its reconnect grace, and the joiner came back in as a NEW
+     player next to their own ghost — or bounced off "room full", off their
+     own held chair. Same target, socket still connecting or already seated:
+     there is nothing to do. */
+  if (MP.ws && (MP.ws.readyState === 0 || MP.ws.readyState === 1) &&
+      (MP.joined || MP.awaitJoin) &&
+      ((intent === 'joinid' && id && MP.joinId === id) ||
+       (intent === 'join' && code && MP.code === code)))
+    return;
+  /* WALKING OUT IS NOT DROPPING OUT. Every path that re-enters here while a
+     seat is held — tapping another room, opening a room of your own, taking
+     up an invitation — used to close the old socket cold. To the relay a cold
+     close is a lost signal, so it HELD the old chair for a minute of
+     reconnect grace: a ghost at that table, keeping its start hostage. Say
+     'leave' on the way out and the chair is given up the moment we go. */
+  if (MP.joined && MP.ws && MP.ws.readyState === 1){
+    try { MP.ws.send(JSON.stringify({ t:'leave' })); } catch (e){}
+    MP.heldSeat = null;            /* given up for good — nothing to reclaim */
+  }
+  /* RECLAIM YOUR OWN CHAIR, NEVER SIT NEXT TO YOUR OWN GHOST. If the room
+     being joined is one we were just dropped from, go back in through
+     'rejoin' with the held seat's own token: the relay puts us back in THAT
+     chair (freeing the ghost) instead of seating us twice or refusing a
+     "full" room. If the relay says no — chair swept, room gone — the
+     onServerError fallback runs the ordinary join below instead. */
+  const held = MP.heldSeat;
+  if (held && held.token && held.code &&
+      (Date.now() - held.at) < SEAT_RECLAIM_MS &&
+      ((intent === 'joinid' && id && held.id === id) ||
+       (intent === 'join' && code && held.code === code))){
+    hardClose();
+    presenceBeaconClose();
+    MP.reclaim = { intent: intent, code: code, id: id, priv: !!priv,
+                   game: game || null };
+    MP.code = held.code; MP.token = held.token;
+    MP.joinId = intent === 'joinid' ? (id || null) : null;
+    MP.inviteId = null; MP.autoOpen = null;
+    MP.wantPrivate = false; MP.private = false;
+    MP.openedAt = 0; MP.tries = 0;
+    MP.joined = true;              /* we hold a chair; the retry ladder applies */
+    MP.joinHint = (intent === 'joinid' && game) ? cleanGame(game) : null;
+    MP.myNonce = null; MP.peerNonce = null;
+    openSocket('rejoin');
+    return;
+  }
   hardClose();
   presenceBeaconClose();          /* one socket per device, never two */
   MP.code = intent === 'join' ? code : null;
@@ -1771,6 +1918,10 @@ function start(intent, code, id, priv, game){
   MP.joinHint = intent === 'joinid' ? (game ? cleanGame(game) : null) : null;
   MP.game = intent === 'create' ? MP.wantGame : (MP.joinHint || 'cards');
   MP.myNonce = null; MP.peerNonce = null;
+  /* a join is now IN FLIGHT for this target: the double-tap guard above holds
+     the door only while this is true (or while we are genuinely seated), so a
+     join the relay refused can always be retried by hand */
+  MP.awaitJoin = intent === 'join' || intent === 'joinid';
   openSocket(intent);
 }
 
@@ -1855,6 +2006,10 @@ function openSocket(intent){
 
 function onSocketClosed(){
   if (MP.stopping) return;
+  MP.awaitJoin = false;
+  /* the relay's hold on our chair starts roughly now — restart the local
+     clock the seat-reclaim window (see start()) is measured against */
+  if (MP.heldSeat) MP.heldSeat.at = Date.now();
   /* Mid-duel (or mid-lobby with a seat we can claim) we try to get back in. */
   if (MP.token && MP.code && (MP.live || MP.joined)){
     if (MP.tries < RETRY_WAITS.length){
@@ -1966,9 +2121,28 @@ function measure(n, cb){
 
 function startPing(){
   stopPing();
+  MP.lastTick = Date.now();
   MP.pingTimer = setInterval(() => {
+    const now = Date.now();
+    const frozen = now - MP.lastTick > PING_EVERY * 2;
+    MP.lastTick = now;
     if (!MP.ws || MP.ws.readyState !== 1) return;
-    if (Date.now() - MP.lastPong > PONG_DEADLINE){
+    /* WAKING UP IS NOT TIMING OUT. On a backgrounded phone (iOS especially)
+       these timers freeze; the first tick after the screen comes back used to
+       see a lastPong minutes old and close a socket that was often perfectly
+       alive — the client kicking ITSELF, and the relay then holding its chair
+       as a ghost. A tick that arrives late by beats was a sleeping phone, not
+       a silent server: reset the deadline clock and ASK (ping) instead of
+       judging on silence we slept through. If the socket really is dead, the
+       ping goes nowhere and the very next tick closes it — the reconnect
+       ladder then reclaims the same seat by token, exactly as before. */
+    if (frozen){
+      MP.lastPong = now;
+      noteSent();
+      send({ t:'ping' });
+      return;
+    }
+    if (now - MP.lastPong > PONG_DEADLINE){
       try { MP.ws.close(); } catch (e){}     /* triggers the reconnect path */
       return;
     }
@@ -2074,11 +2248,21 @@ function hardClose(){
   MP.stopping = false;
 }
 function mpLeave(){
-  if (MP.ws && MP.ws.readyState === 1){ try { MP.ws.send(JSON.stringify({ t:'leave' })); } catch (e){} }
+  if (MP.ws && MP.ws.readyState === 1){
+    try { MP.ws.send(JSON.stringify({ t:'leave' })); } catch (e){}
+    /* the 'leave' actually went out: the chair is given up, not held */
+    MP.heldSeat = null;
+  }
+  /* No live socket to say 'leave' on? Then the relay never heard us go and is
+     holding the chair for its reconnect grace. MP.heldSeat is deliberately
+     KEPT: tapping the same room again inside that minute reclaims our own
+     chair (see start()) instead of bouncing off "room full" — off a chair
+     that is actually ours. */
   hardClose();
   stopWaitClock();
   MP.code = null; MP.token = null; MP.live = false; MP.joined = false;
   MP.joinId = null; MP.nameProbe = false; MP.autoOpen = null;
+  MP.awaitJoin = false; MP.reclaim = null;
   MP.wantPrivate = false; MP.private = false; MP.openedAt = 0;
   MP.peerHere = false; MP.peerList = null; MP.lastSeq = 0; MP.tries = 0;
   /* the table, put away with the room it belonged to */
@@ -2134,6 +2318,9 @@ function onServer(m){
     case 'created':
       MP.host = true; MP.code = m.code; MP.token = m.token || null;
       MP.joined = true; MP.lastSeq = m.seq || 0; MP.tries = 0;
+      MP.reclaim = null;
+      MP.heldSeat = MP.token
+        ? { code: MP.code, token: MP.token, id: null, at: Date.now() } : null;
       MP.private = m.private === true;      /* what we actually got, not what we asked */
       MP.openedAt = Date.now();
       /* A relay that understands games echoes one. One that does not cannot
@@ -2187,6 +2374,11 @@ function onServer(m){
     case 'joined':
       MP.host = false; MP.code = m.code; MP.token = m.token || null;
       MP.joined = true; MP.lastSeq = m.seq || 0; MP.tries = 0;
+      MP.reclaim = null; MP.awaitJoin = false;
+      /* remember the chair by BOTH handles a re-tap could arrive with: the
+         room-list id we tapped (joinid) and the room code itself (join) */
+      MP.heldSeat = MP.token
+        ? { code: MP.code, token: MP.token, id: MP.joinId, at: Date.now() } : null;
       MP.peerHere = true;
       /* the room says what it is; the list we tapped is only a fallback for a
          relay too old to answer */
@@ -2216,6 +2408,21 @@ function onServer(m){
       MP.host = !!m.host; MP.tries = 0; MP.joined = true;
       MP.peerHere = !!m.peer;
       if (typeof m.game === 'string') MP.game = cleanGame(m.game);
+      /* THE RELAY SAYS WHICH CHAIR IS OURS AND HOW BIG THE TABLE IS. Adopt
+         them: a seat RECLAIM (rejoining a room after a bounce, from a fresh
+         tap on its row) arrives with this session's own idea of the table
+         still at its defaults, and drawing chair 1 of 2 for seat 5 of 8 is
+         how a reclaimed lobby lies. An older relay sends neither field and
+         nothing changes. */
+      if (typeof m.seats === 'number' && m.seats >= 2) MP.size = m.seats | 0;
+      if (typeof m.seat === 'number') MP.mySeat = m.seat | 0;
+      if (typeof m.variant === 'string') MP.variant = m.variant;
+      MP.reclaim = null;                       /* the chair is ours again */
+      if (MP.heldSeat) MP.heldSeat.at = Date.now();
+      /* back at a TABLE that has not begun: repaint the lobby now; the roster
+         the relay sends right behind this message repaints it again with the
+         full truth. Mid-game and the duel path are exactly as they were. */
+      if (!MP.live && !MP.boardLive && usesTableLobby()) lobby();
       /* the missed relays arrive immediately after this message */
       setState(MP.live ? 'live' : (m.peer ? 'ready' : 'waiting'),
                MP.live ? 'Back in. Carrying on where you left off.' : null);
@@ -2341,6 +2548,7 @@ function onServer(m){
 
     case 'closed':
       MP.token = null;
+      MP.heldSeat = null; MP.reclaim = null;   /* that chair is gone for good */
       if (MP.live) endMatch(m.why || 'The server closed the room.');
       else setState('stopped', m.why || 'The server closed the room.');
       return;
@@ -2351,6 +2559,19 @@ function onServer(m){
   }
 }
 function onServerError(why){
+  MP.awaitJoin = false;            /* whatever was in flight, this answered it */
+  /* A REFUSED SEAT RECLAIM IS NOT AN ERROR THE PLAYER SEES. We tried to take
+     back a chair we thought the relay was still holding ('rejoin' with the
+     old seat token, see start()). The relay saying no — the chair was swept,
+     the room is gone, the token is no longer ours — only means the ordinary
+     way in is the right way now, so take it, silently. */
+  if (MP.reclaim && (/not yours/i.test(why) || /No room with that code/i.test(why))){
+    const r = MP.reclaim;
+    MP.reclaim = null; MP.heldSeat = null;
+    MP.token = null; MP.code = null; MP.joined = false; MP.tries = 0;
+    start(r.intent, r.code, r.id, r.priv, r.game);
+    return;
+  }
   /* The relay only ever sends fixed strings, so they are safe to show. */
   if (MP.nameProbe){
     MP.nameProbe = false;
@@ -2397,7 +2618,7 @@ function onServerError(why){
     return;
   }
   if (/No room with that code/i.test(why)){
-    MP.token = null; MP.code = null; MP.joined = false;
+    MP.token = null; MP.code = null; MP.joined = false; MP.heldSeat = null;
     setState('unreachable', 'No room with that code. Check it and try again.');
   } else if (/two players/i.test(why)){
     /* The relay says this for a full DUEL and for any room whose game has
@@ -2411,7 +2632,7 @@ function onServerError(why){
   } else if (/busy/i.test(why)){
     setState('unreachable', 'The server is busy right now. Try again in a minute.');
   } else if (/not yours/i.test(why)){
-    MP.token = null;
+    MP.token = null; MP.heldSeat = null;
     if (MP.live) endMatch('The server would not give your seat back.');
     else setState('unreachable', 'That room seat is no longer yours.');
   } else {
@@ -2633,10 +2854,27 @@ function rosterSeats(){
    floor underneath it. */
 function tableCanStart(){
   const LB = gameLobby(MP.game);
-  const seats = rosterSeats();
+  const all = rosterSeats();
+  /* A GHOST CHAIR MUST NOT HOLD THE START. A seat whose person has lost
+     signal ('here' false) is kept for them by the relay's reconnect grace —
+     but a chair with no live socket in it cannot tap Ready, so counting it
+     as "somebody who is not ready yet" waits on a thing that cannot happen,
+     and the host's Start goes dead for the whole table. The relay's own
+     start gate already skips exactly these seats (its unready() counts only
+     live sockets), so the honest gate here is the PRESENT people: absent
+     chairs are not ready AND not blocking. The relay frees a chair whose
+     minute of grace runs out, and the roster it pushes repaints this. */
+  const seats = all.filter(s => s.here);
+  const away = all.length - seats.length;
+  const awayNote = away
+    ? ' (' + away + (away > 1 ? ' chairs are' : ' chair is') +
+      ' held through a lost signal — they do not hold the start up, and a ' +
+      'chair that stays silent frees itself in about a minute)'
+    : '';
   if (seats.length < 2)
     return { ok:false, why:'A game needs somebody to play it with. Ask a friend' +
-                           (LB.levels.length ? ', or put a machine in a chair.' : '.') };
+                           (LB.levels.length ? ', or put a machine in a chair.' : '.') +
+                           awayNote };
   let verdict;
   try { verdict = LB.canStart(seats); }
   catch (e){ verdict = null; }
@@ -2648,6 +2886,8 @@ function tableCanStart(){
                                        ' not ready yet.' }
                     : { ok:true, why:'' };
   }
+  if (!verdict.ok && away)
+    verdict = { ok:false, why: String(verdict.why || '') + awayNote };
   return verdict;
 }
 
@@ -5137,6 +5377,19 @@ function openFor(game){
       'else here works.');
     return;
   }
+  /* A GAME THAT IS HERE BUT GATED (gameGated — its own contract refuses to
+     start online; poker / 21·31 today). Land on the Online screen with THAT
+     game picked, so its own reason is on the screen where the Open button
+     would be — and neither join nor open a room whose Start can never light. */
+  const gGate = g === 'cards' ? null : gameGated(g);
+  if (gGate){
+    MP.wantGame = g;
+    window.KHOOK = null;
+    K.go('mp');
+    mpScreen();
+    setState('unreachable', gameMeta(g).name + ' — ' + gGate);
+    return;
+  }
   MP.wantGame = gamePlayable(g) ? g : 'cards';
   MP.filter = MP.wantGame;
   rememberGame(MP.wantGame);
@@ -5278,7 +5531,7 @@ window.KARTI_MP = {
   /* how far away the server is, measured rather than guessed */
   pingStats, measure, measureHTTP, healthURL,
   /* the three-games era */
-  GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, openFor, pickWaiting,
+  GAMES, GAME_KEYS, gameMeta, cleanGame, gamePlayable, gameGated, openFor, pickWaiting,
   beginBoard, boardRemote, hostStartBoard, myColour, backToRooms, openByGame,
   /* who's-online panel + the room list (one poller, two paints) */
   PR, onScreen, presenceMount, presenceUnmount, presencePoll, presencePaint,
