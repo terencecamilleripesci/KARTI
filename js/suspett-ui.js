@@ -878,6 +878,11 @@ function roleCardInto(host, G, seat){
                    v.role.side === 'klikka' ? T('WITH THE KLIKKA', 'MAL-KLIKKA') :
                    T('FOR YOURSELF ALONE', 'GĦALIK WAĦDEK');
   let inner =
+    '<div class="su-roleart ' + v.role.side + '" style="text-align:center;margin:0 0 10px">' +
+      '<img src="art/suspett/' + esc(v.role.id) + '.png" alt="" loading="eager" ' +
+        'onerror="this.style.display=\'none\'" ' +
+        'style="width:124px;height:124px;border-radius:16px;object-fit:cover;' +
+        'border:1px solid rgba(255,255,255,.16);box-shadow:0 8px 24px rgba(0,0,0,.55)"></div>' +
     '<div class="side ' + v.role.side + '">' + sideWord + '</div>' +
     '<h3>' + esc(v.role.name) + '</h3>' +
     '<p>' + esc(roleWhat(v.role.id, v.role.what)) + '</p>';
@@ -1210,10 +1215,14 @@ function roleLineHTML(id){
   if (!R) return '';
   const col = R.side === 'rahal' ? '#3DDC84' : R.side === 'klikka' ? '#FF7A6B' : '#C9B4FF';
   const min = S.MIN_TABLE[id] || 0;
-  return '<p style="margin:7px 0 0"><b style="color:' + col + '">' + esc(R.name) + '</b>' +
+  return '<p style="margin:7px 0 0;display:flex;gap:8px;align-items:flex-start">' +
+    '<img src="art/suspett/' + esc(id) + '.png" alt="" loading="lazy" ' +
+      'onerror="this.style.display=\'none\'" style="width:34px;height:34px;border-radius:8px;' +
+      'object-fit:cover;flex:0 0 auto;border:1px solid rgba(255,255,255,.12)">' +
+    '<span><b style="color:' + col + '">' + esc(R.name) + '</b>' +
     (min > 5 ? ' <span style="opacity:.55;font-size:10px">' +
       T('(from ' + min + ' up)', '(minn ' + min + ' ’il fuq)') + '</span>' : '') +
-    ' — ' + esc(roleWhat(id, R.what)) + '</p>';
+    ' — ' + esc(roleWhat(id, R.what)) + '</span></p>';
 }
 function prefPool(){
   const pf = ST.pref;
@@ -1429,7 +1438,14 @@ function townHTML(G, mySeat){
       '<span class="fig">' + gallows + slash +
         (pub.alive ? '' : '<span class="tomb"><b></b></span><span class="ghost">👻</span>') +
         '<span class="body"></span>' +
-        '<span class="head">' + avatarInto(pub.name, mine, 34) + '</span>' +
+        /* a DEAD player whose role is public shows their character portrait
+           (Town-of-Salem style). p.role is only emitted when pub.role is
+           already revealed — never for a living player, so no side leak. */
+        '<span class="head">' + ((!pub.alive && pub.role)
+          ? '<img class="su-rolemini" src="art/suspett/' + esc(p.role) + '.png" alt="" ' +
+            'onerror="this.style.display=\'none\'" style="width:34px;height:34px;border-radius:8px;' +
+            'object-fit:cover;display:block;border:1px solid rgba(255,255,255,.15)">'
+          : avatarInto(pub.name, mine, 34)) + '</span>' +
         (tally[p.seat] ? '<span class="vt">' + tally[p.seat] + '</span>' : '') +
         (marks.length ? '<span class="mk">' + marks.join('') + '</span>' : '') +
       '</span>' +
