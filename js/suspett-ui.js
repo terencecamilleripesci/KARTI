@@ -672,14 +672,162 @@ function injectCSS(){
     '#scr-party .su-foldcv{transition:none}}' +
   'body.reduced #scr-party .su-foldbody.anim{animation:none}' +
   'body.reduced #scr-party .su-foldcv{transition:none}' +
+  /* ═══════════════════════════════════════════════════════════════
+     THE TOWN — a row of villagers with FACES.
+     Each seat is a little character: the player's own avatar (the
+     app's data-kx-av span, so it is their real profile picture /
+     equipped face) sitting on a body, standing in the pjazza. Alive
+     characters are lit; the dead stay in the row, greyed, with a
+     headstone and a ghost. The gallows drops out of the sky over the
+     lynched one. Everything below is scoped to #scr-party so it can
+     never reach another game's screen.
+     ═══════════════════════════════════════════════════════════════ */
+  '#scr-party .su-town{flex:0 0 auto;position:relative;display:grid;gap:4px 2px;' +
+    'grid-template-columns:repeat(auto-fill,minmax(60px,1fr));padding:6px 2px 4px;' +
+    'border-radius:14px;background:linear-gradient(180deg,rgba(255,197,66,.07),rgba(0,0,0,.22));' +
+    'border:1px solid rgba(255,255,255,.09);overflow:hidden}' +
+  '#scr-party .su-town.night{background:linear-gradient(180deg,rgba(78,52,160,.26),rgba(6,4,16,.45))}' +
+  '#scr-party .su-town::after{content:"";position:absolute;left:0;right:0;bottom:0;height:9px;' +
+    'background:rgba(0,0,0,.28);pointer-events:none}' +
+  '#scr-party .su-vil{position:relative;display:flex;flex-direction:column;align-items:center;' +
+    'gap:1px;padding:2px 1px 5px;min-width:0;background:none;border:0;color:inherit;' +
+    'font-family:inherit;cursor:pointer}' +
+  '#scr-party .su-vil .fig{position:relative;width:46px;height:52px;display:flex;' +
+    'flex-direction:column;align-items:center;justify-content:flex-end}' +
+  '#scr-party .su-vil .head{position:relative;z-index:2;line-height:0}' +
+  '#scr-party .su-vil .head [data-kx-av]{display:block}' +
+  /* the body: a simple cloaked villager under the head */
+  '#scr-party .su-vil .body{position:absolute;bottom:2px;width:30px;height:20px;z-index:1;' +
+    'border-radius:14px 14px 5px 5px;background:linear-gradient(180deg,#4B3B78,#2A2142);' +
+    'border:1px solid rgba(0,0,0,.45)}' +
+  '#scr-party .su-vil.klk .body{background:linear-gradient(180deg,#7A2C2C,#3A1414)}' +
+  '#scr-party .su-vil.me .body{background:linear-gradient(180deg,#8A6A22,#4A3510)}' +
+  '#scr-party .su-vil .nm{max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+    'font-size:10px;font-weight:800;letter-spacing:.2px}' +
+  '#scr-party .su-vil .rl{font-size:8.5px;font-weight:800;letter-spacing:.3px;opacity:.85;' +
+    'max-width:62px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '#scr-party .su-vil.me .nm{color:var(--gold,#FFC542)}' +
+  '#scr-party .su-vil.acc{background:rgba(255,84,104,.16);border-radius:10px;' +
+    'box-shadow:inset 0 0 0 1px #FF5468}' +
+  '#scr-party .su-vil.picked{background:rgba(255,197,66,.18);border-radius:10px;' +
+    'box-shadow:inset 0 0 0 2px var(--gold,#FFC542)}' +
+  /* the tally pip over a head */
+  '#scr-party .su-vil .vt{position:absolute;top:-1px;right:2px;z-index:4;min-width:15px;height:15px;' +
+    'border-radius:8px;background:var(--gold,#FFC542);color:#241A00;font-size:9.5px;font-weight:900;' +
+    'display:flex;align-items:center;justify-content:center;padding:0 3px}' +
+  /* the little markers under a head: who may speak, who is gagged, the mayor */
+  '#scr-party .su-vil .mk{position:absolute;bottom:-2px;left:50%;transform:translateX(-50%);z-index:4;' +
+    'display:flex;gap:2px}' +
+  '#scr-party .su-vil .mk span{width:13px;height:13px;border-radius:50%;display:flex;' +
+    'align-items:center;justify-content:center;font-size:8px;font-weight:900;line-height:1;' +
+    'border:1px solid rgba(0,0,0,.5)}' +
+  '#scr-party .su-vil .mk .talk{background:#3DDC84;color:#062C17}' +
+  '#scr-party .su-vil .mk .mute{background:#2A2142;color:#FF9C90}' +
+  '#scr-party .su-vil .mk .gag{background:#B3362B;color:#fff}' +
+  '#scr-party .su-vil .mk .may{background:var(--gold,#FFC542);color:#241A00}' +
+  '#scr-party .su-vil .mk .med{background:#8A5CFF;color:#fff}' +
+  /* the dead: greyed, a headstone behind, a ghost drifting */
+  '#scr-party .su-vil.dead .head,#scr-party .su-vil.dead .body{filter:grayscale(1) brightness(.5)}' +
+  '#scr-party .su-vil.dead .nm{opacity:.5;text-decoration:line-through}' +
+  '#scr-party .su-vil .tomb{position:absolute;bottom:0;z-index:0;width:26px;height:30px;' +
+    'border-radius:13px 13px 2px 2px;background:#5A5566;border:1px solid #2A2530}' +
+  '#scr-party .su-vil .tomb b{position:absolute;left:50%;top:6px;transform:translateX(-50%);' +
+    'width:3px;height:13px;background:#37323f;box-shadow:-5px 4px 0 0 #37323f,5px 4px 0 0 #37323f}' +
+  '#scr-party .su-vil .ghost{position:absolute;top:-4px;z-index:3;font-size:13px;opacity:.5;' +
+    'animation:suGhost 3.2s ease-in-out infinite}' +
+  '@keyframes suGhost{0%,100%{transform:translateY(0);opacity:.32}50%{transform:translateY(-5px);opacity:.6}}' +
+  /* ── THE HANGING. A beam swings in, the rope drops, the villager
+     falls through and swings. Pure transform/opacity so it is cheap,
+     and every bit of it is skipped under reduced motion. ── */
+  '#scr-party .su-vil .gallows{position:absolute;left:50%;top:-30px;z-index:5;' +
+    'transform:translateX(-50%);width:40px;height:46px;pointer-events:none}' +
+  '#scr-party .su-vil .gallows i{position:absolute;background:#6B4A2A;border-radius:1px;display:block}' +
+  '#scr-party .su-vil .gallows .beam{left:4px;top:0;width:32px;height:4px}' +
+  '#scr-party .su-vil .gallows .post{left:4px;top:0;width:4px;height:30px}' +
+  '#scr-party .su-vil .gallows .rope{left:24px;top:3px;width:2px;height:0;background:#D8C9A0;' +
+    'animation:suRope .45s .25s ease-out forwards}' +
+  '#scr-party .su-vil .gallows .noose{left:20px;top:3px;width:10px;height:10px;background:none;' +
+    'border:2px solid #D8C9A0;border-radius:50%;opacity:0;animation:suNoose .3s .6s ease-out forwards}' +
+  '@keyframes suRope{to{height:19px}}' +
+  '@keyframes suNoose{to{opacity:1;transform:translateY(17px)}}' +
+  '#scr-party .su-vil.hanging .gallows{animation:suDrop .35s ease-out both}' +
+  '@keyframes suDrop{from{transform:translateX(-50%) translateY(-34px)}to{transform:translateX(-50%) translateY(0)}}' +
+  '#scr-party .su-vil.hanging .fig{animation:suHang 2.1s ease-in-out both;transform-origin:50% -14px}' +
+  '@keyframes suHang{0%,42%{transform:translateY(0) rotate(0)}' +
+    '52%{transform:translateY(9px) rotate(0)}' +
+    '62%{transform:translateY(9px) rotate(11deg)}74%{transform:translateY(9px) rotate(-9deg)}' +
+    '86%{transform:translateY(9px) rotate(5deg)}100%{transform:translateY(9px) rotate(0);opacity:.55}}' +
+  /* the night kill: a red slash and a slump */
+  '#scr-party .su-vil.slain .fig{animation:suSlain 1.5s ease-in both}' +
+  '@keyframes suSlain{0%{transform:none}18%{transform:translateX(-3px) rotate(-6deg)}' +
+    '32%{transform:translateX(3px) rotate(6deg)}100%{transform:translateY(10px) rotate(74deg);opacity:.55}}' +
+  '#scr-party .su-vil .slash{position:absolute;inset:-4px;z-index:6;pointer-events:none;' +
+    'background:linear-gradient(115deg,transparent 44%,#FF3B3B 47%,#FFD2D2 50%,#FF3B3B 53%,transparent 56%);' +
+    'opacity:0;animation:suSlash .6s ease-out forwards}' +
+  '@keyframes suSlash{0%{opacity:0;transform:scale(.4) rotate(-18deg)}' +
+    '35%{opacity:1}100%{opacity:0;transform:scale(1.5) rotate(6deg)}}' +
+  /* ── THE PHASE CURTAIN: night falls / day breaks across the table ── */
+  '#scr-party .su-fall{position:absolute;inset:0;z-index:55;pointer-events:none;display:flex;' +
+    'align-items:center;justify-content:center;flex-direction:column;gap:6px;' +
+    'font-weight:900;letter-spacing:3px;font-size:19px;text-align:center;' +
+    'animation:suFall 1.5s ease-in-out both}' +
+  '#scr-party .su-fall.night{background:radial-gradient(circle at 50% 30%,rgba(88,58,180,.92),rgba(4,3,12,.97));color:#C9B4FF}' +
+  '#scr-party .su-fall.day{background:radial-gradient(circle at 50% 30%,rgba(255,197,66,.9),rgba(60,32,8,.95));color:#2A1B00}' +
+  '#scr-party .su-fall small{display:block;font-size:11px;letter-spacing:1px;opacity:.85;font-weight:700}' +
+  '@keyframes suFall{0%{opacity:0}18%{opacity:1}72%{opacity:1}100%{opacity:0}}' +
+  /* ── THE BIG CLOCK. The day has to feel like it is running out. ── */
+  '#scr-party .su-clockbar{flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:7px 11px;' +
+    'border-radius:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}' +
+  '#scr-party .su-clockbar.night{background:rgba(138,92,255,.15);border-color:rgba(169,139,255,.4)}' +
+  '#scr-party .su-clockbar .ph{font-size:12.5px;font-weight:900;letter-spacing:.6px;min-width:0;' +
+    'overflow:hidden;text-overflow:ellipsis;white-space:nowrap}' +
+  '#scr-party .su-clockbar .big{margin-left:auto;font-size:22px;font-weight:900;' +
+    'font-variant-numeric:tabular-nums;color:var(--gold,#FFC542);line-height:1}' +
+  '#scr-party .su-clockbar .big.low{color:#FF5468;animation:suPulse 1s steps(2) infinite}' +
+  '@keyframes suPulse{50%{opacity:.35}}' +
+  '#scr-party .su-clockwrap{flex:0 0 auto;height:4px;border-radius:3px;background:rgba(0,0,0,.4);overflow:hidden}' +
+  '#scr-party .su-clockwrap i{display:block;height:100%;background:var(--gold,#FFC542);' +
+    'transition:width .9s linear}' +
+  '#scr-party .su-clockwrap i.low{background:#FF5468}' +
+  /* ── SPEAK MARKERS: who may open their mouth, and to whom ── */
+  '#scr-party .su-speak{flex:0 0 auto;display:flex;gap:5px;flex-wrap:wrap;font-size:10.5px;font-weight:800}' +
+  '#scr-party .su-speak b{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:999px;' +
+    'border:1px solid;line-height:1.35}' +
+  '#scr-party .su-speak b.on{color:#3DDC84;border-color:#3DDC84;background:rgba(61,220,132,.12)}' +
+  '#scr-party .su-speak b.off{color:#FF9C90;border-color:#FF7A6B;background:rgba(232,69,44,.12);' +
+    'border-style:dashed}' +
+  '#scr-party .su-speak b.gh{color:#C9B4FF;border-color:#8A5CFF;background:rgba(138,92,255,.14)}' +
+  /* the dead-chat banner over the input */
+  '#scr-party .su-deadnote{flex:0 0 auto;padding:6px 10px;border-radius:10px;font-size:11px;' +
+    'font-weight:800;line-height:1.4;background:rgba(138,92,255,.16);border:1px dashed #8A5CFF;color:#C9B4FF}' +
+  '#scr-party .su-msg.mine b{color:#3DDC84}' +
+  /* the vote tally strip */
+  '#scr-party .su-tally{flex:0 0 auto;display:flex;gap:4px;overflow-x:auto;padding-bottom:2px}' +
+  '#scr-party .su-tally span{flex:0 0 auto;padding:3px 8px;border-radius:999px;font-size:10.5px;' +
+    'font-weight:800;background:rgba(255,197,66,.16);border:1px solid rgba(255,197,66,.4);' +
+    'color:var(--gold,#FFC542)}' +
+  '@media (prefers-reduced-motion:reduce){' +
+    '#scr-party .su-fall,#scr-party .su-vil .ghost,#scr-party .su-vil.hanging .fig,' +
+    '#scr-party .su-vil.hanging .gallows,#scr-party .su-vil.slain .fig,' +
+    '#scr-party .su-vil .slash,#scr-party .su-vil .gallows .rope,' +
+    '#scr-party .su-vil .gallows .noose,#scr-party .su-clockbar .big.low{animation-duration:.01s}}' +
+  'body.reduced #scr-party .su-fall,body.reduced #scr-party .su-vil .ghost,' +
+    'body.reduced #scr-party .su-vil.hanging .fig,body.reduced #scr-party .su-vil.slain .fig,' +
+    'body.reduced #scr-party .su-vil .slash{animation-duration:.01s}' +
   /* short screens: the roster and log give way, the chat keeps its room */
   '@media (max-height:700px){' +
     '#scr-party .su-seats{max-height:74px;overflow-y:auto}' +
+    '#scr-party .su-town{max-height:132px;overflow-y:auto}' +
     '#scr-party .su-log{max-height:56px}' +
     '#scr-party .su-canned{display:none}}' +
+  /* narrow phones: four villagers to a row, never a horizontal scrollbar */
+  '@media (max-width:400px){' +
+    '#scr-party .su-town{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}' +
+    '#scr-party .su-vil .fig{width:42px}}' +
   /* landscape: chat beside roster */
   '@media (orientation:landscape) and (max-height:520px){' +
     '#scr-party .su-seats{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));max-height:70px;overflow-y:auto}' +
+    '#scr-party .su-town{max-height:96px;overflow-y:auto}' +
     '#scr-party .su-log{max-height:16%}}';
   document.head.appendChild(st);
 }
@@ -1197,6 +1345,162 @@ function logHTML(G, n){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   THE TOWN — every seat a little character with the player's own face.
+   The head is the app's avatar (KARTI_XP.avatarHTML, me:true for our
+   own chair so it uses OUR real photo/face); everyone else rides the
+   declarative span the avatar observer paints. On top of the head go
+   the public marks the whole pjazza is allowed to see — the vote pip,
+   the mayor's badge, the gag, the "may speak / cannot speak" dot — and
+   NOTHING private: a hidden role is never drawn here, only a REVEALED
+   corpse's role (publicSeat authority). The dead stay in the row,
+   greyed, with a headstone and a drifting ghost.
+
+   Death and lynch animations are triggered by DIFFING against the last
+   paint (U.seen): a seat that was alive and is now dead gets `.hanging`
+   if the pjazza voted it out (diedOn 'vote…') or `.slain` for a night
+   kill. The class is applied to the fresh node for one render only, so
+   the animation plays exactly once and then the seat settles into the
+   plain dead look. Everything is skipped under reduced motion by CSS. */
+function avatarInto(name, mine, size){
+  try {
+    if (window.KARTI_XP && KARTI_XP.avatarHTML)
+      return KARTI_XP.avatarHTML(name, { size: size || 34, me: !!mine,
+        who: mine ? undefined : 'seat', noPic: !mine });
+  } catch (e){}
+  /* no XP module (or offline): a plain initial disc, so the town still
+     reads as faces */
+  const ch = esc(String(name || '?').trim().charAt(0).toUpperCase() || '?');
+  return '<span class="su-avfb" style="width:' + (size || 34) + 'px;height:' + (size || 34) +
+    'px;border-radius:50%;display:flex;align-items:center;justify-content:center;' +
+    'background:linear-gradient(160deg,#4B3B78,#2A2142);color:#F4EFFF;font-weight:900;' +
+    'font-size:' + Math.round((size || 34) * 0.42) + 'px;border:1px solid rgba(0,0,0,.4)">' + ch + '</span>';
+}
+/* who died since the last paint, and how — returns a map seat->'hang'|'slain' */
+function deathAnims(G){
+  if (!U) return {};
+  const prev = U.seen || {};
+  const now = {};
+  const anims = {};
+  for (const p of G.P){
+    now[p.seat] = p.alive ? 1 : 0;
+    if (prev[p.seat] === 1 && !p.alive){
+      anims[p.seat] = /^vote /.test(p.diedOn || '') ? 'hang' : 'slain';
+    }
+  }
+  U.seen = now;
+  return anims;
+}
+function townHTML(G, mySeat){
+  const silent = G.phase === 'night' || G.phase === 'shot';
+  const tally = {};
+  if (G.phase === 'day')
+    for (const k in G.votes){
+      const t = G.votes[k];
+      if (t >= 0) tally[t] = (tally[t] || 0) + (G.mayor === +k ? 2 : 1);
+    }
+  const anims = deathAnims(G);
+  const medium = G.P.some(p => p.alive && S.ROLES[p.role].seance);   /* public: only that a séance exists */
+  const cells = G.P.map(p => {
+    const pub = S.publicSeat(G, p.seat);
+    const mine = p.seat === mySeat;
+    const klk = false;   /* side is SECRET — never leaked into the town class */
+    const anim = anims[p.seat];
+    let cls = 'su-vil' + (pub.alive ? '' : ' dead') + (mine ? ' me' : '') +
+      (klk ? ' klk' : '') + (G.accused === p.seat ? ' acc' : '') +
+      (anim === 'hang' ? ' hanging' : anim === 'slain' ? ' slain' : '');
+    /* the marks the whole pjazza may see */
+    const marks = [];
+    if (pub.alive){
+      if (G.muted === p.seat) marks.push('<span class="gag" title="Sarima">✕</span>');
+      else if (!silent) marks.push('<span class="talk" title="Jista’ jitkellem">●</span>');
+      if (pub.mayor) marks.push('<span class="may" title="Sindku">★</span>');
+    } else {
+      marks.push('<span class="mute" title="Ma jistax jitkellem">✕</span>');
+    }
+    const gallows = anim === 'hang'
+      ? '<span class="gallows"><i class="beam"></i><i class="post"></i>' +
+        '<i class="rope"></i><i class="noose"></i></span>' : '';
+    const slash = anim === 'slain' ? '<span class="slash"></span>' : '';
+    const roleWord = (!pub.alive && pub.role) ? '<span class="rl">' + esc(pub.role) + '</span>'
+                   : (pub.alive && pub.mayor) ? '<span class="rl" style="color:var(--gold,#FFC542)">Is-Sindku</span>'
+                   : '';
+    return '<button class="' + cls + '" data-seat="' + p.seat + '" ' +
+      (mine ? 'aria-current="true" ' : '') + 'aria-label="' + esc(pub.name) + '">' +
+      '<span class="fig">' + gallows + slash +
+        (pub.alive ? '' : '<span class="tomb"><b></b></span><span class="ghost">👻</span>') +
+        '<span class="body"></span>' +
+        '<span class="head">' + avatarInto(pub.name, mine, 34) + '</span>' +
+        (tally[p.seat] ? '<span class="vt">' + tally[p.seat] + '</span>' : '') +
+        (marks.length ? '<span class="mk">' + marks.join('') + '</span>' : '') +
+      '</span>' +
+      '<span class="nm">' + esc(pub.name) + '</span>' + roleWord +
+      '</button>';
+  }).join('');
+  return '<div class="su-town' + (silent ? ' night' : '') + '" id="su-town">' + cells + '</div>';
+}
+
+/* the SPEAK MARKERS strip: who may open their mouth right now, said in
+   words and shape and colour, from the engine's own speak/channel
+   authority (never a guess). The living who may talk, the silenced
+   (dead + gagged), and — when a séance is alive at night — the note
+   that the dead have a voice tonight. */
+function speakStripHTML(G, mySeat){
+  const silent = G.phase === 'night' || G.phase === 'shot';
+  const liv = G.P.filter(p => p.alive);
+  const canTalk = silent ? [] : liv.filter(p => S.view(G, p.seat).speak);
+  const gagged = silent ? [] : liv.filter(p => G.muted === p.seat);
+  const dead = G.P.filter(p => !p.alive);
+  const medium = liv.find(p => S.ROLES[p.role].seance);
+  const nm = arr => arr.map(p => esc(p.name)).join(', ');
+  const chips = [];
+  if (silent){
+    chips.push('<b class="off">' + T('Night — nobody speaks aloud', 'Lejl — ħadd ma jitkellem') + '</b>');
+  } else {
+    if (canTalk.length)
+      chips.push('<b class="on">🗣 ' + T('Speaking: ', 'Jitkellmu: ') + nm(canTalk) + '</b>');
+    if (gagged.length)
+      chips.push('<b class="off">✕ ' + T('Gagged: ', 'Bis-sarima: ') + nm(gagged) + '</b>');
+  }
+  if (dead.length)
+    chips.push('<b class="off">✕ ' + T('Dead (cannot speak): ', 'Mejtin (ma jitkellmux): ') + nm(dead) + '</b>');
+  if (medium && (silent || dead.length))
+    chips.push('<b class="gh">🔮 ' + T('Tal-Karti can speak to the dead',
+      'Tal-Karti tista’ tkellem lill-mejtin') + '</b>');
+  return chips.length ? '<div class="su-speak" id="su-speak">' + chips.join('') + '</div>' : '';
+}
+
+/* the big day/night countdown clock (online). The phase name, the
+   mm:ss (turning red and pulsing under fifteen seconds), and a bar
+   draining across the top. Reads the same U.deadline the tick honours. */
+function clockBarHTML(G){
+  const silent = G.phase === 'night' || G.phase === 'shot';
+  return '<div class="su-clockbar' + (silent ? ' night' : '') + '" id="su-clockbar">' +
+    '<span class="ph">' + esc(phaseName(G)) + '</span>' +
+    '<span class="big" id="su-clkbig">--:--</span></div>' +
+    '<div class="su-clockwrap"><i id="su-clkbar" style="width:100%"></i></div>';
+}
+/* fire the night-falls / day-breaks curtain once, when the phase turns */
+function phaseCurtain(G){
+  if (!U || !U.ctx) return;
+  const kind = (G.phase === 'night') ? 'night' : (G.phase === 'day') ? 'day' : '';
+  if (!kind) { U.lastCurtain = G.phase; return; }
+  if (U.lastCurtain === G.phase) return;
+  const firstEver = U.lastCurtain === undefined;
+  U.lastCurtain = G.phase;
+  if (firstEver && G.night <= 1 && G.phase === 'night') return;   /* no curtain on the opening night */
+  if (reducedMo()) return;
+  const f = document.createElement('div');
+  f.className = 'su-fall ' + kind;
+  f.innerHTML = '<div>' + (kind === 'night'
+    ? T('NIGHT FALLS', 'JAQA’ L-LEJL') : T('DAY BREAKS', 'JISBAH')) + '</div>' +
+    '<small>' + (kind === 'night'
+      ? T('The klikka moves in the dark', 'Il-klikka tiċċaqlaq fid-dlam')
+      : T('The pjazza opens', 'Il-pjazza tiftaħ')) + '</small>';
+  U.ctx.rootEl.appendChild(f);
+  setTimeout(() => { try { f.remove(); } catch (e){} }, 1600);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    PASS-THE-PHONE
    One phone, sixteen suspects. Private things happen behind the
    CURTAIN: a full black screen naming who may pick the phone up;
@@ -1374,7 +1678,8 @@ function renderPNPShared(){
                      : T('The pjazza is open.', 'Il-pjazza miftuħa.')) +
     '<div class="su-phase' + (silent ? ' night' : '') + '"><span>' + esc(phaseName(G)) + '</span>' +
     '<span class="clk" id="su-clk"></span></div>' +
-    seatsHTML(G, -1) + '<div class="su-mid">' + logHTML(G, 8) + '</div>';
+    townHTML(G, -1) + speakStripHTML(G, -1) +
+    '<div class="su-mid">' + logHTML(G, 8) + '</div>';
 
   if (G.phase === 'day'){
     html += '<div class="su-bar">' +
@@ -1396,6 +1701,8 @@ function renderPNPShared(){
   if (ef) ef.onclick = () => { S.act(U.G, { t:'defEnd' }); afterMove(); };
   const ve = w.querySelector('#su-verd');
   if (ve) ve.onclick = () => pnpVerdict();
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(w); } catch (e){}
+  phaseCurtain(G);
 }
 /* open voting: voter taps their name, then a target — public, like
    pointing across the pjazza */
@@ -1501,16 +1808,31 @@ function announce(mv, info){
    tombla fallback fields ['s','v','k','n','c','i','p','to']. Every
    key we use MUST come from that list or toWire() refuses the move
    and stops the table: target rides `i`, the second target rides `c`
-   (NOT `j`), the verdict rides `v`. */
+   (NOT `j`), the verdict rides `v`.
+
+   AND THE ACTION NAME MUST BE ALL-LOWERCASE. The relay's toWire()
+   lower-cases every `t` before it goes on the wire (String(t).
+   toLowerCase()), so the engine's camelCase phase closers —
+   nightEnd/dayEnd/defEnd/verdictEnd/shotEnd — arrive on the peer as
+   "nightend"/"dayend"/… which act()'s switch does not know, and a
+   rejected move stops the whole table as a suspected desync. So the
+   wire carries a lower-case TOKEN and we translate it back to the
+   engine's real move name on the way in. The engine keeps its
+   camelCase names untouched (pass-the-phone still uses them). */
+const NET_ACT_OUT = { nightEnd:'nend', dayEnd:'dend', defEnd:'fend',
+                      verdictEnd:'vend', shotEnd:'sxend' };
+const NET_ACT_IN  = { nend:'nightEnd', dend:'dayEnd', fend:'defEnd',
+                      vend:'verdictEnd', sxend:'shotEnd' };
 function toNet(mv){
-  const w = { t: mv.t };
+  const w = { t: NET_ACT_OUT[mv.t] || mv.t };
   if (typeof mv.target === 'number' && mv.target >= 0) w.i = mv.target;
   if (typeof mv.target2 === 'number' && mv.target2 >= 0) w.c = mv.target2;
   if (mv.guilty !== undefined) w.v = !!mv.guilty;
   return w;
 }
 function fromNet(seat, d){
-  const mv = { t: d.t, seat: seat };
+  const raw = String(d.t || '');
+  const mv = { t: NET_ACT_IN[raw] || raw, seat: seat };
   mv.target = (typeof d.i === 'number') ? d.i : -1;
   mv.target2 = (typeof d.c === 'number') ? d.c : -1;
   if (d.v !== undefined) mv.guilty = !!d.v;
@@ -1611,8 +1933,15 @@ function syncPhaseClock(first){
 }
 function tickClock(){
   if (!U || U.mode !== 'net' || U.G.over) return;
+  const total = phaseSeconds(U.G) || 1;
   const left = Math.max(0, Math.round((U.deadline - Date.now()) / 1000));
-  const clk = U.ctx.rootEl.querySelector('#su-clk');
+  const low = left <= 15;
+  const big = U.ctx.rootEl.querySelector('#su-clkbig');
+  if (big){ big.textContent = fmtClock(left); big.classList.toggle('low', low); }
+  const bar = U.ctx.rootEl.querySelector('#su-clkbar');
+  if (bar){ bar.style.width = Math.max(0, Math.min(100, (left / total) * 100)) + '%';
+            bar.classList.toggle('low', low); }
+  const clk = U.ctx.rootEl.querySelector('#su-clk');   /* legacy plate, if present */
   if (clk) clk.textContent = fmtClock(left);
   if (left <= 0 && U.host){
     const G = U.G;
@@ -1748,8 +2077,7 @@ function renderNet(){
 
   let html =
     refBar(v.speak, refWhy(v)) +
-    '<div class="su-phase' + (v.phase === 'night' || v.phase === 'shot' ? ' night' : '') + '">' +
-    '<span>' + esc(phaseName(G)) + '</span><span class="clk" id="su-clk"></span></div>';
+    clockBarHTML(G);
   if (U.chat.cap === false)
     html += '<div class="su-net-banner">' + T(
       'This relay does not know private chat yet — the channels are off. The game still ' +
@@ -1758,16 +2086,23 @@ function renderNet(){
       'Dan ir-relay għad ma jafx bil-chat privata — il-kanali ' +
       'mitfija. Il-logħba xorta timxi (l-azzjonijiet jgħaddu), imma aġġornaw is-server biex ' +
       'il-klikka u l-mejtin ikollhom fejn jiktbu.') + '</div>';
-  html += seatsHTML(G, U.seat) +
-    '<div class="su-mid">' + logHTML(G, 5) +
+  html += townHTML(G, U.seat) + speakStripHTML(G, U.seat) +
+    '<div class="su-mid">' + logHTML(G, 4) +
+    (active.id === 'mejtin'
+      ? '<div class="su-deadnote">' + (v.alive
+          ? T('THE SÉANCE — you write to the dead as “Tal-Karti”, never by name. The living see nothing of this.',
+              'IS-SEDUTA — tikteb lill-mejtin bħala “Tal-Karti”, qatt b’ismek. Il-ħajjin ma jaraw xejn minn hawn.')
+          : T('THE DEAD — hidden from the living. Only the dead (and a séance) read this.',
+              'IL-MEJTIN — moħbi mill-ħajjin. Il-mejtin biss (u seduta) jaqraw dan.')) + '</div>'
+      : '') +
     '<div class="su-tabs">' + chans.map(c =>
       '<button class="su-tab ' + c.cls + (c.id === active.id ? ' on' : '') + '" data-ch="' + c.id + '">' +
       esc(chanName(c)) + (U.chat.unread[c.id] ? '<span class="n">' + U.chat.unread[c.id] + '</span>' : '') +
       '</button>').join('') + '</div>' +
     '<div class="su-chat ' + active.cls + '" id="su-chatbox">' +
     (msgs.length ? msgs.map(m2 =>
-      '<div class="su-msg ' + active.cls + '"><b>' + esc(chatLabel(active.id, m2.s)) + ':</b> ' +
-      esc(m2.x) + '</div>').join('')
+      '<div class="su-msg ' + active.cls + (m2.me ? ' mine' : '') + '"><b>' +
+      esc(chatLabel(active.id, m2.s)) + ':</b> ' + esc(m2.x) + '</div>').join('')
       : '<div class="su-msg sys">' + esc(gameText(active.note) ||
           T('Nothing has been said here yet.', 'Xejn għadu ma ntqal hawn.')) + '</div>') +
     '</div>' +
@@ -1847,6 +2182,8 @@ function renderNet(){
     });
   }, { closeLabel: T('Fire into the air', 'Spara fl-ajru'),
        onClose: () => netAct({ t:'shot', seat: U.seat, target: -1 }) });
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(w); } catch (e){}
+  phaseCurtain(G);
   tickClock();
 }
 function netNightSheet(v){
