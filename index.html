@@ -1282,10 +1282,13 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
   var tips=['SHUFFLING THE DECK…','DEALING A ROUGH HAND…','LIGHTING THE FESTA…','WARMING UP THE VILLAGE…'], ti=0;
   var pct=6, t=setInterval(function(){ pct+=Math.max(1,(90-pct)*0.09); if(pct>92)pct=92; if(bar)bar.style.width=pct.toFixed(0)+'%'; if(tip&&Math.random()<0.18){ ti=(ti+1)%tips.length; tip.textContent=tips[ti]; } },170);
   var gone=false;
-  function fin(){ if(gone)return; gone=true; clearInterval(t); clearInterval(poll); if(bar)bar.style.width='100%'; sp.style.opacity='0'; setTimeout(function(){ try{sp.remove();}catch(e){} },560); }
-  var poll=setInterval(function(){ if(window.KARTI) fin(); },120);   /* Home is up -> drop the splash fast */
-  if(window.KARTI_LOADED||window.KARTI) fin(); else addEventListener('karti:loaded', fin, {once:true});
-  setTimeout(fin, 12000);   /* never strand behind the splash */
+  function fin(){ if(gone)return; gone=true; clearInterval(t); if(bar)bar.style.width='100%';
+    if(tip)tip.textContent='READY'; sp.style.opacity='0'; setTimeout(function(){ try{sp.remove();}catch(e){} },560); }
+  /* HOLD until the WHOLE game is loaded — every module registered (KARTI_LOADED /
+     karti:loaded), NOT just when Home paints — so a game can never be tapped before
+     its module has landed. This is the one screen that must not lie about being ready. */
+  if(window.KARTI_LOADED) fin(); else addEventListener('karti:loaded', fin, {once:true});
+  setTimeout(fin, 20000);   /* safety only: never strand the app forever behind the splash */
 })();
 </script>
 
@@ -1832,7 +1835,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 195;
+var KARTI_BUILD = 196;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
