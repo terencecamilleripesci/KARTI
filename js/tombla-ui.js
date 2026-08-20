@@ -2847,6 +2847,15 @@ function onlineStart(cfg){
   /* the ball starts with whoever the room says is calling, and falls
      back to the chair. Relayed after this as a {t:'caller'} move. */
   st.caller = (typeof cfg.caller === 'number' && st.seats[cfg.caller]) ? cfg.caller : st.host;
+  /* ONLINE, THE SHARED LOBBY *IS* THE LOBBY. mp.js has already filled the
+     seats, taken everyone's ready, and the host's Start button is THIS call.
+     The engine's fresh seats read un-ready, so a relayed {t:'start'} would be
+     refused ("somebody is not ready") and the table would hang in tombla's own
+     lobby forever — the "online won't start" bug. Every phone runs onlineStart
+     with the same cfg+seed, so mark the seats ready and deal straight into play
+     deterministically here instead of waiting on a start move that never lands. */
+  st.seats.forEach(s => { if (s) s.ready = true; });
+  if (st.phase === 'lobby') st.phase = 'play';
   board();
   U.net = cfg.net || null;
   T.hooks.attachNet(cfg.net || null);
