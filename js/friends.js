@@ -447,7 +447,7 @@
     var un = ST.unread[f.k] | 0;
     return '<div class="fr-row fr-friend s-' + st.cls + '" data-fk="' + esc(f.k) + '" data-fn="' + esc(f.n) + '" ' +
       'role="button" tabindex="0" aria-label="Open ' + esc(f.n) + '’s profile">' +
-      '<div class="fr-avwrap">' + avatar(f.n, 44, f.pv) + '<i class="fr-dot ' + st.cls + '"></i></div>' +
+      '<div class="fr-avwrap">' + avatar(f.n, 44, f.pv, f.k) + '<i class="fr-dot ' + st.cls + '"></i></div>' +
       '<div class="fr-who"><span class="fr-name">' + esc(f.n) + '</span>' +
         '<span class="fr-sub">' + esc(st.word) + '</span></div>' +
       '<button class="fr-chatbtn" data-chat="' + esc(f.k) + '" type="button" aria-label="Chat with ' + esc(f.n) + '">' +
@@ -489,9 +489,13 @@
      the relay-published photo version) and mounts the actual profile photo the
      moment it decodes — no photo, no request, drawn face as the always-there
      fallback. `pv` is the friend's avatar version the relay sends per row. */
-  function avatar(name, size, pv){
+  function avatar(name, size, pv, who){
+    /* who = the friend's ACCOUNT KEY (f.k). The photo URL is built from the key,
+       NOT the display name, so without it a friend's photograph never loads —
+       which is exactly why friends showed no picture. pv is their photo version. */
     var av = '<span class="fr-av" data-kx-av="' + esc(name || '') + '"' +
       ' data-kx-size="' + (size || 40) + '"' +
+      (who ? ' data-kx-who="' + esc(who) + '"' : '') +
       (pv ? ' data-kx-pv="' + (pv | 0) + '"' : '') + '></span>';
     return av;
   }
@@ -546,7 +550,7 @@
       '</div>' +
       '<div class="scroll fr-scroll">' +
         '<div class="fr-profcard s-' + st.cls + '">' +
-          '<div class="fr-profav">' + avatar(f.n, 96, f.pv) + '<i class="fr-dot big ' + st.cls + '"></i></div>' +
+          '<div class="fr-profav">' + avatar(f.n, 96, f.pv, f.k) + '<i class="fr-dot big ' + st.cls + '"></i></div>' +
           '<h3 class="fr-profname">' + esc(f.n) + '</h3>' +
           '<div class="fr-profstatus"><i class="fr-dot ' + st.cls + '"></i>' + esc(st.word) + '</div>' +
           statCards +
