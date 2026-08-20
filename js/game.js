@@ -908,12 +908,25 @@ function renderHome(){
   try { window.KARTI_XP && KARTI_XP.paint && KARTI_XP.paint(chip); } catch (e){}
 
   const d = activeDeck();
+  /* THE WALLET, top-right, opposite the profile. Coins and dust ONLY — compact
+     icon+value chips, no word labels (the icons carry it). The cards count is a
+     tappable door to the Collection now (below), and the W–L record was removed
+     from Home entirely: it lives in the stats screen, not on the front door. */
   $('#wallet').innerHTML =
-    '<span class="pill">' + ico('coin') + '<span class="mono">' + S.coins + '</span> <small>coins</small></span>' +
-    '<span class="pill">' + ico('dust') + '<span class="mono">' + S.dust + '</span> <small>dust</small></span>' +
-    '<span class="pill">' + ico('cards') + '<span class="mono">' + uniqueOwned() + '/' + CARDS.length + '</span> <small>cards</small></span>' +
-    '<span class="pill">' + ico('trophy') + '<span class="mono">' + S.rec.w + '–' + S.rec.l + '</span> <small>W–L</small></span>' +
-    (S.packs ? '<span class="pill">' + ico('pack') + '<span class="mono">' + S.packs + '</span> <small>packs</small></span>' : '');
+    '<span class="pill coins">' + ico('coin') + '<span class="mono">' + S.coins + '</span></span>' +
+    '<span class="pill dust">' + ico('dust') + '<span class="mono">' + S.dust + '</span></span>';
+
+  /* THE CARDS CHIP — the "N/total cards" indicator, now the way into the
+     Collection (the destination the old Collection tab opened). */
+  const cc = $('#cards-count');
+  if (cc) cc.textContent = uniqueOwned() + '/' + CARDS.length;
+  const ccChip = $('#cards-chip');
+  if (ccChip) ccChip.onclick = () => go('coll');
+
+  /* THE DAILY SPIN — home entry to the app's existing daily reward. Ready vs
+     claimed comes straight off spinState(); tapping opens the Store's Daily
+     Spin tab either way (claimed shows the countdown there). */
+  renderDailySpinBtn();
 
   renderDeckPicker();
   const legal = d && deckIsLegal(d.list);
@@ -2605,6 +2618,46 @@ function updateCoinsPill(){
   const el = $('#pack-coins');
   if (el) el.innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
 }
+/* ── HOME DAILY-SPIN BUTTON ─────────────────────────────────────────────
+   Paints the home reward button in one of two states from the live spin
+   gate, and wires the tap to the app's EXISTING daily spin (the Store's
+   "spin" tab). No second source of truth: everything comes off spinState().
+     READY   → glowing, "SPIN", subtitle "Spin the wheel — free today"
+     CLAIMED → dimmed, countdown, subtitle "Come back in Xh Ym"
+   The wheel art (art/ui/spin-wheel.png) is swapped in by detectArt() once it
+   has actually decoded; absent, the drawn star stays — graceful fallback. */
+function renderDailySpinBtn(){
+  const btn = $('#btn-dailyspin');
+  if (!btn) return;
+  const st = spinState();
+  const sub = $('#ds-sub', btn) || btn.querySelector('.ds-sub');
+  const cta = $('#ds-cta', btn) || btn.querySelector('.ds-cta');
+  if (st.ok){
+    btn.classList.add('ready'); btn.classList.remove('claimed');
+    btn.setAttribute('aria-label', 'Daily reward is ready — spin the wheel');
+    if (sub) sub.textContent = 'Spin the wheel — free today';
+    if (cta) cta.textContent = 'SPIN';
+  } else {
+    btn.classList.remove('ready'); btn.classList.add('claimed');
+    const wait = st.why === 'clock'
+      ? 'Come back later'
+      : 'Come back in ' + spinCountdownText(st.next);
+    btn.setAttribute('aria-label', 'Daily reward claimed — ' + wait);
+    if (sub) sub.textContent = st.why === 'clock'
+      ? 'Claimed — the clock jumped back' : 'Claimed today — ' + wait.toLowerCase();
+    if (cta) cta.textContent = st.why === 'clock' ? 'LATER'
+      : spinCountdownText(st.next);
+  }
+  btn.onclick = openDailySpin;
+}
+/* Open the app's existing Daily Spin. It lives as a tab on the Store screen,
+   so select that tab first, then route — ready OR claimed, the same door
+   (claimed shows the countdown and the odds there). */
+function openDailySpin(){
+  storeTab = 'spin';
+  go('pack');
+}
+
 /* The gold dot on Home's Store tab (and the tab strip) while the free
    spin is waiting. Pure decoration on markup game.js does not own, so
    it adds and removes only its own element. */
@@ -5566,7 +5619,8 @@ function wireStatic(){
   /* No #btn-duel any more — Story Mode and Multiplayer are the only ways into a
      duel. startDuel() itself stays: story.js, mp.js and the debug surface call it. */
   $('#btn-packs').onclick = () => go('pack');
-  $('#btn-coll').onclick  = () => go('coll');
+  /* Collection is no longer a tab — the cards chip on Home opens it (wired in
+     renderHome). The #coll screen still exists and #coll-back returns home. */
   $('#btn-deck').onclick  = () => { dbDeck = null; go('deck'); };
   /* The Guide tab became the FRIENDS tab. The tutorial still exists and is
      opened from Home; friends.js owns #btn-friends / #scr-friends. This wiring
@@ -5632,6 +5686,27 @@ function detectArt(){
     ART.ui[v.replace('--art-', '')] = ui[v];
     document.documentElement.classList.add('art' + v.replace('--art', ''));
   }));
+  /* HOME HERO — the front-door backdrop. Optional art dropped by the
+     coordinator; if it never loads, html.has-hero is never added and the home
+     keeps its existing --art-home (home-bg.jpg → designed gradient). */
+  probe('home-hero', 'art/ui/home-hero.png', () => {
+    const abs = new URL('art/ui/home-hero.png', location.href).href;
+    document.documentElement.style.setProperty('--home-hero', 'url("' + abs + '")');
+    document.documentElement.classList.add('has-hero');
+  });
+  /* SPIN WHEEL — the medallion art on the home daily-spin button. Swapped in
+     only once it has decoded, over the drawn star, so a missing file is a
+     clean fallback rather than a broken image. Re-inserted on every detectArt
+     re-arm is fine: the button is idempotent about a child <img>. */
+  probe('spin-wheel', 'art/ui/spin-wheel.png', () => {
+    const abs = new URL('art/ui/spin-wheel.png', location.href).href;
+    const holder = document.querySelector('#btn-dailyspin .ds-art');
+    if (holder && !holder.querySelector('img')){
+      const im = new Image();
+      im.src = abs; im.alt = '';
+      holder.appendChild(im);
+    }
+  });
 }
 /* A probe that ran out of retries comes back the moment the network does, or
    when the app returns to the foreground — iOS standalone freezes timers in the

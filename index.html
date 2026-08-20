@@ -421,7 +421,12 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    Multiplayer land in the optical centre. Everything that could grow is sized
    against BOTH the width and the height (min(Nvw, Nvh)) so a short phone
    shrinks the type instead of pushing the nav off the bottom. */
-.homehead{flex:0 0 auto;display:flex;justify-content:flex-end;align-items:center;min-height:44px}
+/* TOP BAR — profile on one edge, currency chips on the other, balanced.
+   space-between puts "who you are" and "what you have" on opposite sides. */
+.homehead{flex:0 0 auto;display:flex;justify-content:space-between;align-items:center;
+  gap:10px;min-height:48px}
+/* the profile chip must not eat the whole bar and starve the wallet */
+.homehead .pchip{max-width:none;flex:0 1 auto;min-width:0}
 .homemid{
   flex:1 1 auto;min-height:0;display:flex;flex-direction:column;
   /* Tightened: 2vh of gap between five blocks on a tall phone left the menu
@@ -443,8 +448,105 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .brand{flex:0 0 auto}
 .homemid>.menu{flex:0 0 auto}
 #scr-home .logo{font-size:clamp(34px,min(13vw,8vh),64px)}
-#scr-home .wallet{margin:0;flex:0 0 auto}
+/* the wallet lives in the top bar now: right-aligned, one row, never wraps */
+#scr-home .wallet{margin:0;flex:0 0 auto;justify-content:flex-end;flex-wrap:nowrap;gap:8px}
 #scr-home .menu{margin:0;flex:0 0 auto}
+
+/* ── CURRENCY CHIPS — compact, premium, icon + value only ──────────────
+   No word labels: a coin icon and a dust icon carry the meaning, the way
+   real games do it. A subtle inner sheen and a coloured icon make each chip
+   read as a token rather than a label. Tabular figures so the numbers never
+   jitter the layout as they change. */
+#scr-home .wallet .pill{
+  gap:5px;padding:6px 11px 6px 8px;border-radius:99px;
+  background:linear-gradient(180deg,rgba(38,28,60,.92),rgba(22,15,38,.94));
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 2px 8px rgba(0,0,0,.35);
+  font-size:13px;letter-spacing:.01em}
+#scr-home .wallet .pill .ico{font-size:1.32em}
+#scr-home .wallet .pill.coins .ico{color:#FFD24A}
+#scr-home .wallet .pill.dust .ico{color:#8FD3FF}
+#scr-home .wallet .pill small{display:none}   /* icon says it; no word needed */
+
+/* ── CARDS CHIP — the collection door ──────────────────────────────────
+   The "54/200 cards" indicator, now a tappable route to the Collection. A
+   chevron marks it as a destination; a gold hairline lifts it off the art. */
+.cardschip{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;
+  align-self:center;min-height:40px;padding:7px 12px 7px 13px;border-radius:99px;
+  background:linear-gradient(180deg,rgba(40,29,64,.88),rgba(22,15,38,.92));
+  border:1px solid rgba(255,197,66,.34);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 4px 14px rgba(0,0,0,.34);
+  color:#F4EFFF;font-family:var(--disp);font-weight:800;font-size:13px;letter-spacing:.02em;
+  transition:transform .12s var(--ease),border-color .16s,box-shadow .16s}
+.cardschip .ico{font-size:18px;color:var(--gold)}
+.cardschip .cc-txt small{font-family:var(--body);font-weight:600;color:var(--dim);
+  font-size:10.5px;letter-spacing:.05em;margin-left:2px}
+.cardschip .cc-go{width:16px;height:16px;stroke:var(--gold);fill:none;stroke-width:2.4;
+  stroke-linecap:round;stroke-linejoin:round;opacity:.85;margin-left:1px}
+.cardschip:active{transform:scale(.97);border-color:rgba(255,197,66,.6)}
+
+/* ── DAILY SPIN — the free daily reward button ─────────────────────────
+   A wide festival ticket: the wheel on the left, the copy in the middle, a
+   gold CTA capsule on the right. READY glows; CLAIMED dims and swaps the CTA
+   for a countdown. The single primary action on the lower home band. */
+.dailyspin{display:flex;align-items:center;gap:12px;width:100%;margin-top:9px;
+  min-height:62px;padding:9px 12px 9px 10px;border-radius:16px;text-align:left;
+  background:
+    radial-gradient(120% 160% at 14% 50%,rgba(255,197,66,.22),transparent 58%),
+    linear-gradient(180deg,rgba(58,35,92,.92),rgba(30,18,52,.95));
+  border:1px solid rgba(255,197,66,.5);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 24px -8px rgba(255,180,40,.5);
+  transition:transform .12s var(--ease),box-shadow .2s,opacity .2s,border-color .2s;
+  position:relative;overflow:hidden}
+.dailyspin:active{transform:translateY(1px) scale(.995)}
+/* the wheel medallion */
+.dailyspin .ds-art{flex:0 0 auto;width:44px;height:44px;border-radius:50%;position:relative;
+  display:grid;place-items:center;
+  background:radial-gradient(circle at 50% 38%,#FFE9A8,#FFC542 46%,#B96C00);
+  box-shadow:0 0 0 2px rgba(255,233,168,.55),0 6px 14px -4px rgba(255,180,40,.75);
+  overflow:hidden}
+.dailyspin .ds-art .ds-star{width:26px;height:26px;color:#5B2E00}
+.dailyspin .ds-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.dailyspin .ds-txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dailyspin .ds-title{font-family:var(--disp);font-weight:900;font-size:15px;letter-spacing:.03em;
+  color:#FFF3CF;line-height:1.05}
+.dailyspin .ds-sub{font-family:var(--body);font-weight:600;font-size:10.5px;letter-spacing:.03em;
+  color:#E7D8FF;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dailyspin .ds-cta{flex:0 0 auto;align-self:center;font-family:var(--disp);font-weight:900;
+  font-size:13px;letter-spacing:.08em;color:#241800;padding:8px 15px;border-radius:99px;
+  background:linear-gradient(180deg,#FFDE8B,var(--gold));border:1px solid #FFE9B0;
+  box-shadow:0 3px 0 -1px #B96C00,0 5px 14px -4px rgba(255,197,66,.9);white-space:nowrap}
+/* READY: a slow breathing glow so the eye is drawn to the free reward */
+.dailyspin.ready{animation:dsGlow 2.4s ease-in-out infinite}
+@keyframes dsGlow{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 22px -10px rgba(255,180,40,.45)}
+  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 10px 30px -6px rgba(255,180,40,.85)}}
+/* CLAIMED: the reward is spent for the day — calm it right down and turn the
+   CTA into a plain countdown pill, so it reads as "done, come back later". */
+.dailyspin.claimed{border-color:rgba(255,255,255,.14);
+  background:linear-gradient(180deg,rgba(34,24,52,.9),rgba(22,15,38,.94));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 4px 14px rgba(0,0,0,.35)}
+.dailyspin.claimed .ds-art{filter:saturate(.4) brightness(.85);
+  box-shadow:0 0 0 2px rgba(255,255,255,.12)}
+.dailyspin.claimed .ds-title{color:#EDE6FF}
+.dailyspin.claimed .ds-cta{background:rgba(255,255,255,.08);color:#CDBEF0;
+  border-color:rgba(255,255,255,.16);box-shadow:none;font-size:11.5px;letter-spacing:.03em}
+body.reduced .dailyspin.ready{animation:none}
+
+/* ── HOME HERO BACKDROP ────────────────────────────────────────────────
+   When art/ui/home-hero.png is present, detectArt() in js/game.js proves it
+   loaded and adds html.has-hero. That swaps the home backdrop to the hero art
+   with a scrim on top so the centre stays calm and the buttons read. If the
+   file is absent the class is never added and #scr-home keeps its existing
+   --art-home (home-bg.jpg → designed gradient) — graceful fallback, no hole.
+   This overrides css/extra.css because this <style> block loads after it. */
+html.has-hero #scr-home{
+  background-image:
+    linear-gradient(180deg,rgba(10,7,20,.42) 0%,rgba(10,7,20,.16) 26%,rgba(10,7,20,.30) 60%,rgba(8,5,16,.82) 100%),
+    var(--home-hero,none),
+    var(--art-home);
+  background-size:cover,cover,cover;
+  background-position:center top,center top,center top;
+  background-repeat:no-repeat,no-repeat,no-repeat}
 .fineprint{flex:0 0 auto;text-align:center;margin:clamp(5px,1.2vh,12px) 0 0;
   font-size:10.5px;line-height:1.5;color:var(--dim2)}
 
@@ -541,13 +643,21 @@ html.short-webview .tabbar{ padding-bottom:8px }
    Touch targets stay at 40px; nothing is hidden. */
 @media (max-height:700px){
   .homemid{gap:8px}
-  #scr-home .btn.pick{min-height:64px;font-size:15.5px}
+  #scr-home .btn.pick{min-height:58px;font-size:15px}
   #scr-home .btn.pick .sub{font-size:9px}
   .fineprint{font-size:9.5px}
   #scr-home .tagline{font-size:9.5px;letter-spacing:.2em}
-  #scr-home .wallet{gap:5px}
-  #scr-home .wallet .pill{font-size:10.5px;padding:4px 8px;gap:4px}
-  #scr-home .wallet .pill small{font-size:9px;letter-spacing:.02em}
+  #scr-home .wallet{gap:6px}
+  #scr-home .wallet .pill{font-size:12px;padding:5px 9px 5px 7px;gap:4px}
+  /* the cards chip and daily-spin shrink a touch so the whole column still
+     fits with no scroll on a 360x640 phone */
+  .cardschip{min-height:36px;padding:6px 11px;font-size:12px}
+  .dailyspin{min-height:56px;margin-top:7px;padding:8px 11px 8px 9px;gap:10px}
+  .dailyspin .ds-art{width:40px;height:40px}
+  .dailyspin .ds-art .ds-star{width:23px;height:23px}
+  .dailyspin .ds-title{font-size:14px}
+  .dailyspin .ds-sub{font-size:10px}
+  .dailyspin .ds-cta{padding:7px 13px;font-size:12px}
   /* the tab bar is already one row; just tighten it — 48px still clears the
      44px minimum target, and no label is dropped */
   .tabbar{margin-top:7px;gap:1px}
@@ -555,6 +665,17 @@ html.short-webview .tabbar{ padding-bottom:8px }
   .tab .ico{font-size:19px}
   #scr-home .onlinebox{padding:7px 9px 6px;gap:6px}
   #scr-home .on-list{max-height:clamp(58px,17vh,120px)}
+  /* Cap the WHOLE online box on a short phone so its content (including the
+     server-unreachable explanation, which is the tallest state) scrolls INSIDE
+     the box rather than pushing the daily-spin off the bottom. Keeps the home
+     column fitting with no page scroll even in the worst online state. */
+  #scr-home .onlinebox{max-height:clamp(74px,13vh,120px);overflow-y:auto;scrollbar-width:none}
+  #scr-home .onlinebox::-webkit-scrollbar{display:none}
+  /* trim the vertical rhythm on the shortest phones so the whole column —
+     logo, cards chip, the two play buttons, party, online, daily-spin — fits
+     above the tab bar with no page scroll. */
+  .homemid{gap:6px}
+  #scr-home .menu{gap:8px}
 }
 .logo{font-family:var(--disp);font-weight:900;font-size:clamp(42px,13vw,64px);line-height:.9;
   letter-spacing:.06em;text-align:center;
@@ -1463,8 +1584,13 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
        bands — a thin profile bar, a centred middle that owns all the slack,
        and the secondary nav pinned to the bottom above the home bar. -->
   <section class="screen home" id="scr-home">
+    <!-- TOP BAR: profile on the LEFT, currency (coins + dust) on the RIGHT — the
+         two are balanced against each other so the eye reads "who you are" on one
+         side and "what you have" on the other. The cards indicator is NOT here: it
+         is a tappable chip below the wallet that routes to the Collection. -->
     <div class="homehead">
       <button class="pchip" id="profile-chip" aria-label="Profile options"></button>
+      <div class="wallet" id="wallet" aria-label="Your currency"></div>
     </div>
 
     <div class="homemid">
@@ -1472,7 +1598,14 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
         <h1 class="logo">KARTI</h1>
         <p class="tagline">Malta's rudest card duel</p>
       </div>
-      <div class="wallet" id="wallet"></div>
+      <!-- The cards chip: the "54/200 cards" indicator, now a DOOR to the
+           Collection (what the old Collection tab opened). Tappable, with a
+           chevron so it reads as a destination, not a stat. -->
+      <button class="cardschip" id="cards-chip" type="button" aria-label="Open your collection">
+        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg>
+        <span class="cc-txt"><b class="mono" id="cards-count">0/0</b> <small>cards</small></span>
+        <svg class="cc-go" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
       <!-- Two ways in, and only two. The deck picker used to sit here; it lives on
            the Decks screen now so Home is nothing but Story and Multiplayer. -->
       <div class="menu">
@@ -1489,11 +1622,28 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
       <!-- Party games. Deliberately the last thing in the scroll column: Home is
            meant to scroll a little, both so this is a discovery and so the page
            behaves like a normal document on iOS. -->
-      <div class="menu" style="margin-top:14px">
+      <div class="menu" style="margin-top:2px">
         <button class="btn ghost pick" id="btn-party"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
           aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Party Games</span></span
           ><span class="sub">Nine games — play them online or on this phone</span></button>
       </div>
+
+      <!-- DAILY SPIN — the free daily reward, on the home screen and outside the
+           tabs. It opens the app's existing Daily Spin (Store → Daily Spin tab).
+           Two states: READY (glowing, "Spin!") and CLAIMED (dimmed, shows the
+           countdown to the next spin). Filled by renderHome() in js/game.js;
+           the wheel art (art/ui/spin-wheel.png) is swapped in only once it has
+           actually decoded, so a missing file falls back to the drawn star. -->
+      <button class="dailyspin" id="btn-dailyspin" type="button" aria-label="Daily reward — spin the wheel">
+        <span class="ds-art" aria-hidden="true">
+          <svg class="ds-star" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-star"></use></svg>
+        </span>
+        <span class="ds-txt">
+          <b class="ds-title">Daily Reward</b>
+          <small class="ds-sub" id="ds-sub">Spin the wheel — free today</small>
+        </span>
+        <span class="ds-cta" id="ds-cta">SPIN</span>
+      </button>
     </div>
 
     <!-- The 18+ small print used to sit under the buttons as bottom filler. It is
@@ -1509,13 +1659,10 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
          Quick duel is deliberately NOT here — a duel starts from Story Mode or
          Multiplayer. -->
     <nav class="tabbar" id="home-nav" aria-label="Main sections">
-      <button class="tab" type="button" id="btn-coll" data-scr="coll">
-        <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-cards"></use></svg>
-        <span class="tl">Collection</span>
-      </button>
-      <!-- The deck-legality warning used to hang off a "Quick duel" button that is
-           gone now (you duel through Story Mode or Multiplayer). It belongs here
-           anyway: an illegal deck is fixed in the deck builder. -->
+      <!-- Collection is NOT a tab any more: the cards chip above the menu is the
+           way in, so the bar is three even columns (Inventory · Store · Friends).
+           The deck-legality warning belongs on Inventory anyway — an illegal deck
+           is fixed in the deck builder. -->
       <button class="tab" type="button" id="btn-deck" data-scr="deck">
         <svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-deck"></use></svg>
         <span class="tl">Inventory</span>
@@ -1678,7 +1825,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 172;
+var KARTI_BUILD = 173;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -1802,7 +1949,15 @@ window.swVersion = function(){
                   app finds no #scr-party, no #scr-kiri and no #scr-stats. */
                'js/nav.js'];
   (function next(i){
-    if (i >= files.length) return;
+    if (i >= files.length){
+      /* EVERY module has now loaded and registered. This flag + event is the
+         readiness signal the party hub gates game entry on: tapping a party
+         tile before its module (and everything it leans on) has landed used to
+         open a half-wired game. party.js waits on this instead. */
+      window.KARTI_LOADED = true;
+      try { dispatchEvent(new Event('karti:loaded')); } catch (e){}
+      return;
+    }
     var s = document.createElement('script');
     s.src = files[i]; s.async = false;
     s.onload = s.onerror = function(){ next(i + 1); };

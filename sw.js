@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v172';
+const CACHE = 'karti-v173';
 const CORE = [
   './',
   './index.html',
@@ -170,6 +170,8 @@ const CORE = [
      the previous version's copies forward if the network drops mid-install. */
   './art/petard.jpg',
   './art/ui/home-bg.jpg',
+  './art/ui/home-hero.png',
+  './art/ui/spin-wheel.png',
   './art/ui/board.jpg',
   './art/ui/cardback.jpg',
   './art/ui/zone-monster.png',

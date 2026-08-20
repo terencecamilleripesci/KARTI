@@ -450,10 +450,82 @@ function tileInto(grid, g){
               (played ? '<span class="pt-rec">' + r.w + 'W ' + r.l + 'L ' + r.d + 'D</span>' : '')) +
     '</span>';
   if (soon) b.setAttribute('aria-disabled', 'true');
-  else b.onclick = () => { if (g.open) g.open(); };
+  else b.onclick = () => openWhenReady(g, b);
   grid.appendChild(b);
   logoInto(b.querySelector('[data-logo]'), g);
   return b;
+}
+
+/* ── THE LOAD GUARD ─────────────────────────────────────────────────
+   The modules stream in AFTER boot (the loader in index.html walks its
+   `files` array one script at a time). A game's tile appears the moment its
+   own file registers — but a game may still lean on a later module (its
+   REBBIEH end-screen, KARTI_MP for online, a shared deck), and the app is
+   not fully wired until the loader has finished. Tapping a tile in that
+   window opened a half-loaded game — the bug the owner hit going "too fast
+   to party games".
+
+   So a tile NEVER opens a half-loaded game. If everything has landed
+   (window.KARTI_LOADED, set by the loader) and the game reports itself ready
+   (its own optional `ready()`), it opens instantly. Otherwise the tile shows
+   a brief "Loading…" and opens the instant the `karti:loaded` event fires —
+   no dead tap, no broken screen, and the wait is usually a blink. */
+function gameReady(g){
+  if (!g || !g.open) return false;                 /* no door at all */
+  if (!window.KARTI_LOADED) return false;          /* modules still streaming */
+  /* a game may add its own readiness check (e.g. its UI global is present);
+     forgiving — a thrown or missing predicate counts as "the flag is enough". */
+  if (typeof g.ready === 'function'){ try { return !!g.ready(); } catch (e){ return true; } }
+  return true;
+}
+let readyWaiters = 0;
+function openWhenReady(g, tileEl){
+  if (!g || !g.open) return;
+  if (gameReady(g)){ g.open(); return; }
+  /* not ready yet — show a loading state on the tapped tile and open the
+     instant the app finishes loading. Guarded against double-taps and against
+     the hub being torn down while we wait. */
+  let restore = null;
+  if (tileEl){
+    const pill = tileEl.querySelector('.pt-pill');
+    if (pill && !tileEl.dataset.loading){
+      tileEl.dataset.loading = '1';
+      const was = pill.innerHTML;
+      pill.innerHTML = '<span class="pt-spin" aria-hidden="true"></span> Loading…';
+      pill.classList.add('loading');
+      restore = () => { pill.innerHTML = was; pill.classList.remove('loading');
+        delete tileEl.dataset.loading; };
+    } else if (tileEl.dataset.loading){
+      return;                                       /* already waiting on this tile */
+    }
+  }
+  readyWaiters++;
+  const start = Date.now();
+  const fire = () => {
+    if (gameReady(g)){
+      if (restore) restore();
+      /* only open if the player is still looking at the shelf — a wait that
+         outlives the screen must not yank them back into a game. */
+      if (live && !currentGame) g.open();
+      return true;
+    }
+    return false;
+  };
+  const onLoaded = () => { cleanup(); fire(); };
+  let poll = 0;
+  const cleanup = () => {
+    removeEventListener('karti:loaded', onLoaded);
+    if (poll) clearInterval(poll);
+    readyWaiters = Math.max(0, readyWaiters - 1);
+  };
+  addEventListener('karti:loaded', onLoaded, { once:true });
+  /* belt and braces: the event is a single shot fired once by the loader, so a
+     tap that lands the same tick it fires still resolves via this poll. Also
+     covers a game whose own ready() flips true slightly after KARTI_LOADED. */
+  poll = setInterval(() => {
+    if (fire()){ cleanup(); return; }
+    if (Date.now() - start > 20000){ cleanup(); if (restore) restore(); } /* never wait forever */
+  }, 120);
 }
 
 /* ── the PLAYING CARDS tile ────────────────────────────────────────
@@ -1095,6 +1167,14 @@ function injectCSS(){
       'border:1px solid rgba(61,220,132,.38)}' +
     '#scr-party .pt-pill.soon{background:rgba(255,255,255,.05);color:var(--dim2);' +
       'border:1px solid var(--line)}' +
+    /* the load-guard state: a game tapped before the app finished loading */
+    '#scr-party .pt-pill.loading{background:rgba(255,197,66,.16);color:var(--gold);' +
+      'border:1px solid rgba(255,197,66,.42)}' +
+    '#scr-party .pt-spin{width:9px;height:9px;border-radius:50%;' +
+      'border:1.6px solid rgba(255,197,66,.35);border-top-color:var(--gold);' +
+      'display:inline-block;animation:ptSpin .7s linear infinite}' +
+    '@keyframes ptSpin{to{transform:rotate(360deg)}}' +
+    'body.reduced #scr-party .pt-spin{animation:none}' +
     '#scr-party .pt-rec{font:700 9.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
       'letter-spacing:.06em;color:var(--dim2)}' +
     '#scr-party .pt-startbar{flex:0 0 auto;padding:10px calc(var(--sar) + 14px) calc(var(--sab) + 14px) calc(var(--sal) + 14px);background:linear-gradient(180deg,rgba(14,11,20,0) 0%,rgba(14,11,20,.92) 38%,rgba(14,11,20,.98) 100%)}' +
