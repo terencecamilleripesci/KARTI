@@ -8,29 +8,36 @@
    shared winner screen (js/rebbieh.js). It authors every player-visible
    string (the engine authors none — lang.js rule).
 
-   ── CONTROL SCHEME: AIM AND FIRE ARE SEPARATE ─────────────────────────────
-   Left thumb = DRIVE stick (bottom-left): push it and the hull turns toward
-   the push and rolls; distance from centre is throttle, so a gentle nudge
-   creeps and a full push charges. Right thumb = an AIM stick + a dedicated
-   FIRE button (bottom-right cluster):
-     · The AIM stick ONLY points the turret — push/hold it to swing the turret
-       to that angle. It NEVER fires, so you can line up a bank at leisure.
-     · The FIRE button is the ONLY thing that shoots: TAP it for one shot in
-       the current aim direction (the engine cooldown paces it), or HOLD it to
-       keep firing at that same rate. The two never fight — separate DOM
-       elements, each with its own pointer capture.
-   This split is the fix for "it's hard to aim and shoot at once, and the
-   shots kill you": before, the aim stick fired the instant you nudged it, so
-   you could not adjust aim without loosing a shell. Now aiming is silent and
-   only the button fires. Everything lives OUTSIDE the arena (the control bar
-   below), so a thumb never covers the action on a 390-wide phone, and none of
-   it collides with the drag-to-peek (a drag on the arena canvas). Keyboard is
-   wired too (WASD/arrows drive, J/L or ,/. rotate the turret, Space/K fires).
+   ── CONTROL SCHEME: FOLLOW CAMERA · TOUCH-TO-AIM · FIRE BUTTON ─────────────
+   The camera FOLLOWS your own tank — it centres on it and zooms in so the tank
+   and its surroundings read clearly on a phone, and the arena scrolls under it.
+   (Pure render; the sim never sees the camera — see THE CAMERA below.)
+
+   Left thumb = DRIVE stick (bottom-left): push it and the hull turns toward the
+   push and rolls; a gentle nudge creeps, a full push charges. There is no AIM
+   stick any more — the whole ARENA is the aim:
+     · TOUCH / DRAG anywhere on the arena and the turret swings to point from
+       your tank toward that world point. Under the hood the touch position is
+       converted to a WORLD point (screenToWorld) and its angle becomes the
+       target turret heading; that target then rides the EXACT SAME per-tick
+       input byte the old aim stick used (aim = turn the turret one step toward
+       the target, committed at tick N, applied at N+D on every phone). The aim
+       is NEVER applied locally/instantly — it is only an input SOURCE change.
+     · The FIRE button (bottom-right) is the ONLY thing that shoots on a phone:
+       TAP for one shot in the aimed direction (the engine cooldown paces it),
+       HOLD to keep firing. Aiming with your thumb never fires — that was the
+       prior complaint. (A quick TAP on the arena also fires once in the aimed
+       direction as a convenience; a HELD drag only aims.)
+   Everything sits OUTSIDE or ON the arena cleanly: the drive stick + fire
+   button live in the control bar below, the aim is the arena itself, each with
+   its own pointer capture so the drive thumb and the aim thumb work at the same
+   time (multitouch). Keyboard is still wired for the desk/tests (WASD/arrows
+   drive, J/L or ,/. rotate the turret, Space/K fires).
 
    Why a manual turret + button over auto-aim: tanks are about BANKING a shell
    off a wall to reach cover — a deliberate aim, not "shoot the nearest" — so a
    manual turret is the whole game, and a separate trigger is what lets you aim
-   that bank without wasting shells.
+   that bank without wasting shells. Touch-to-aim just makes pointing it clean.
 
    ── THE LOCKSTEP CLOCK ────────────────────────────────────────────────────
    One rAF loop paces the fixed tick off wall-time and COMMITS a tick only
@@ -155,7 +162,7 @@ function injectCSS(){
   .tk-hud .tk-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
   .tk-hud .tk-time{margin-left:2px;opacity:.85;font-variant-numeric:tabular-nums}
   .tk-arena{position:relative;align-self:center;border-radius:12px;overflow:hidden;
-    touch-action:none;cursor:grab;
+    touch-action:none;cursor:crosshair;
     box-shadow:0 8px 30px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.05);background:#0B0E14}
   .tk-arena canvas{display:block}
   .tk-over{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none}
@@ -176,6 +183,9 @@ function injectCSS(){
      both reachable by the right thumb, never overlapping, each with its own
      pointer capture so they can't trigger each other or the drive stick. */
   .tk-right{position:relative;flex:0 0 auto;display:flex;align-items:flex-end;gap:10px}
+  .tk-aimhint{flex:1 1 auto;align-self:center;text-align:center;pointer-events:none;
+    font:700 10px/1.3 system-ui,sans-serif;letter-spacing:.08em;color:rgba(255,255,255,.32)}
+  @media (max-width:360px){ .tk-aimhint{font-size:9px} }
   .tk-fire{position:relative;flex:0 0 auto;width:76px;height:76px;margin-bottom:10px;border-radius:50%;
     background:radial-gradient(120% 120% at 50% 35%,#ff8290,#e03146);
     border:1px solid rgba(255,255,255,.14);color:#fff;cursor:pointer;touch-action:none;
@@ -418,7 +428,12 @@ function startMatch(o, seed, net){
     me: 0, mine: [], meta: [],
     net: net || null,
     drive: { on:false, dx:0, dy:0 },     /* left DRIVE stick vector (screen px)*/
-    aim:   { on:false, dx:0, dy:0 },     /* right AIM stick — angle only      */
+    /* TOUCH-TO-AIM — a touch/drag on the ARENA sets a WORLD target point; the
+       turret is turned toward it through the normal input byte (never applied
+       locally). on = a finger is aiming; wx/wy = the target world sub-position;
+       pid = the pointer that owns the aim; sx/sy + moved gate a tap-fire vs an
+       aim-drag; downT is used only to time a quick tap. */
+    aimTouch: { on:false, pid:null, wx:0, wy:0, sx:0, sy:0, moved:false, downT:0 },
     key:   { turn:0, throttle:0, aimTurn:0, fire:false },
     heldTurn:0, heldThrottle:0, heldAim:0, wantFire:false, autoFire:false,
     prev: null,              /* last tick's snapshot for interpolation        */
@@ -432,13 +447,9 @@ function startMatch(o, seed, net){
        camReady flags the first snap so the opening frame is not eased from
        the origin. camLast keeps the last good target so a dead/spectating
        local tank holds the view on the action instead of jumping home.
-
-       PEEK (render-only): a DRAG on the arena canvas pans the view to scout
-       the map; while peek.on the camera holds the panned spot (no follow),
-       and on release the normal ease pulls it back to centre on the tank.
-       peek.moved gates a tap from disturbing the view. Never touches the sim. */
-    camX:0, camY:0, camReady:false, camLastX:0, camLastY:0, camT:0,
-    peek:{ on:false, pid:null, sx:0, sy:0, baseX:0, baseY:0, x:0, y:0, moved:false },
+       The camera always FOLLOWS the local tank now (the follow replaces the
+       old drag-to-peek — the arena drag is the AIM). Never touches the sim. */
+    camX:0, camY:0, camReady:false, camLastX:0, camLastY:0, camT:0, _cam:null,
     /* ── EYE CANDY — render-only, motion-gated ─────────────────────────────
        All cosmetic. NOTHING here is read by the engine or fed into a tick, so
        the lockstep hash is untouched (grep the engine for these fields: none).
@@ -589,17 +600,21 @@ function commitByte(tick, seat, byte){
   say(seat, tick, byte);
 }
 
-/* turn the two thumbs, the FIRE button (or keys) into an engine input for
-   this tank. The engine takes AIM (turret turn) and FIRE as SEPARATE inputs,
-   and this samples them from SEPARATE controls so a player can line up the
-   turret without ever loosing a shell:
+/* turn the DRIVE thumb, the ARENA touch (aim), the FIRE button (or keys) into
+   an engine input for this tank. The engine takes AIM (turret turn) and FIRE as
+   SEPARATE inputs, and this samples them from SEPARATE sources so a player can
+   line up the turret without ever loosing a shell:
      · DRIVE stick — its angle picks a target hull heading; turn toward it and
        throttle while pushed.
-     · AIM stick — its angle picks a target turret heading; turn toward it and
-       NEVER fires. Pushing/holding it only swings the turret.
-     · FIRE button — the ONLY thing that fires. A tap arms M.wantFire (one
-       shot, engine cooldown paces it); holding it arms M.autoFire (optional
-       hold-to-repeat, still gated by the same cooldown). Neither touches aim.
+     · ARENA touch (aim) — a touch/drag on the arena stores a WORLD target point
+       (M.aimTouch.wx/wy, from screenToWorld). Here we compute the heading FROM
+       THE TANK toward that point and turn the turret ONE STEP toward it — the
+       SAME `aim ∈ {-1,0,+1}` byte the old aim stick produced, committed at tick
+       N and applied at N+D on every phone. The turret is NEVER swung locally;
+       only the input SOURCE changed. It never fires.
+     · FIRE button — the ONLY hold-to-fire. A tap arms M.wantFire (one shot,
+       engine cooldown paces it); holding it arms M.autoFire (hold-to-repeat,
+       same cooldown). A quick TAP on the arena also arms one M.wantFire.
    This keeps the WIRE as the engine's tiny per-tick byte. */
 function sampleLocal(tk){
   let turn = 0, throttle = 0, aim = 0, fire = false;
@@ -613,13 +628,13 @@ function sampleLocal(tk){
     }
   } else if (M.key.throttle){ throttle = M.key.throttle; turn = M.key.turn; }
   else if (M.key.turn){ turn = M.key.turn; }
-  /* AIM — turret angle ONLY, never fires */
-  if (M.aim.on && (M.aim.dx || M.aim.dy)){
-    const mag = Math.abs(M.aim.dx) + Math.abs(M.aim.dy);
-    if (mag > 6){
-      const want = E.dirIndexFromDelta(M.aim.dx, M.aim.dy);
+  /* AIM — from the arena touch's world target; turret angle ONLY, never fires */
+  if (M.aimTouch.on){
+    const dx = M.aimTouch.wx - tk.x, dy = M.aimTouch.wy - tk.y;
+    if ((dx*dx + dy*dy) > 64){                 /* ignore a touch on the hull */
+      const want = E.dirIndexFromDelta(dx, dy);
       aim = shortTurnScreen(tk.turret, want, TURRET_RATE);   /* deadzone so a settled turret stops zigzagging */
-      M.aimWant = want;   /* remember the raw aim target for the on-screen pointer */
+      M.aimWant = want;   /* remember the target for the on-screen pointer */
     }
   } else if (M.key.aimTurn){ aim = M.key.aimTurn; }
   /* FIRE — the dedicated button (tap or optional hold), or the keyboard fire */
@@ -726,25 +741,31 @@ function onlineRemote(seat, wire){
 /* ═══════════════════════════════════════════════════════════════════
    THE CANVAS — fit on mount/resize only (the one layout read).
    ═══════════════════════════════════════════════════════════════════ */
-/* Choose a cell size so a tank reads clearly AND the world is bigger than the
-   view in BOTH axes, then let the VIEW (canvas) be the available area. The
-   camera scrolls to keep the local tank framed. The one non-obvious bit —
-   and the bug the old code had — is that a "legible" cell is not enough: if
-   the resulting world happens to be shorter than the available height (a 14-
-   row arena at 30px is 420px tall inside a ~600px box), the view clamps to
-   the world on that axis, maxY becomes 0, and the camera CANNOT scroll
-   vertically — so the tank slides from the top of the frame to the bottom
-   and it looks like "the camera doesn't follow". The fix: zoom in enough
-   that the world OVERFLOWS the available box on both axes (with a small
-   margin), clamped to a legibility range, so the follow is always real.
+/* FOLLOW-CAMERA ZOOM. The owner's complaint was "it doesn't follow / a tiny
+   dot": the old code zoomed OUT to show most of the arena, so the local tank
+   was small and the whole board sat still. We now ZOOM IN — pick a cell size
+   so the viewport shows a small, fixed span of cells (CAM_SPAN_CELLS across the
+   narrower axis) and the tank draws PROMINENTLY, then the camera scrolls to
+   keep that tank centred while the walls slide past. A few invariants keep the
+   follow honest and legible:
+     · cell is chosen so ~CAM_SPAN_CELLS of the world fit across the view — a
+       readable zoom that still shows enough arena to line up / bank a shot.
+     · cell is floored at CAM_MIN_CELL (legibility) and, crucially, floored so
+       the world OVERFLOWS the box on BOTH axes (overflowFloor) — if the world
+       were shorter than the view on an axis, maxY/maxX would be 0 and the
+       camera could not scroll that axis (the classic "doesn't follow" bug).
+       Zooming IN makes overflow the normal case, so the follow is always real.
+     · cell is capped at CAM_MAX_CELL so a tiny arena still shows some context.
    Pure render/layout — nothing the sim sees. */
-const CAM_MIN_CELL = 20;   /* px per cell floor so tanks stay legible        */
-const CAM_MAX_CELL = 44;   /* zoom cap; keeps a wide view of the arena       */
-const CAM_VIEW_FRAC = 0.70;/* target: show ~70% of the arena across the more
-                              constrained axis (zoomed OUT, wide view)       */
-const CAM_OVERFLOW = 1.03; /* world need only just exceed the view so BOTH
-                              axes still scroll and the tank stays centred —
-                              small margin keeps the widest possible view     */
+const CAM_MIN_CELL   = 30;  /* px/cell floor: tank (~0.84 cell) stays legible  */
+const CAM_MAX_CELL   = 60;  /* zoom cap on a small arena                       */
+const CAM_SPAN_CELLS = 10;  /* cells to show across the NARROWER view axis —
+                               the zoom level: fewer = closer, tank bigger.
+                               10 keeps the tank prominent (~cell*0.84 ≈ a third
+                               of the short axis) while still showing enough
+                               arena around it to line up and bank a shot.      */
+const CAM_OVERFLOW = 1.06; /* world must exceed the view on both axes so BOTH
+                              axes scroll and the tank stays centred            */
 function fitCanvas(){
   if (!UI || !UI.cv || !UI.arena) return;
   const mp = M.st.map, host = UI.host;
@@ -754,15 +775,14 @@ function fitCanvas(){
   const availH = Math.max(160, host.clientHeight - ctrlH - hudH - 18);
   /* the available box we want to fill */
   const boxW = Math.floor(availW), boxH = Math.floor(availH);
-  /* ZOOM OUT: pick the cell so the view shows ~CAM_VIEW_FRAC of the arena on
-     each axis — take the smaller of the two frac-cells so the WIDER share is
-     visible (more of the world on screen). */
-  const cellFracW = boxW / (mp.cols * CAM_VIEW_FRAC);
-  const cellFracH = boxH / (mp.rows * CAM_VIEW_FRAC);
-  let cell = Math.min(cellFracW, cellFracH);
-  /* but never zoom out so far the world stops overflowing the box — the
-     camera needs real scroll room on BOTH axes to keep the tank centred.
-     Floor the cell at the overflow point of the more constrained axis. */
+  /* ZOOM IN: size the cell so CAM_SPAN_CELLS cells fill the SHORTER view axis
+     — the tank ends up large and centred, the arena scrolls around it. Using
+     the shorter axis means the span is guaranteed to fit; the longer axis then
+     simply shows a few more cells. */
+  const shortBox = Math.min(boxW, boxH);
+  let cell = shortBox / CAM_SPAN_CELLS;
+  /* never zoom out so far the world stops overflowing the box — the camera
+     needs real scroll room on BOTH axes to keep the tank centred. */
   const overflowFloor = Math.max(boxW / mp.cols, boxH / mp.rows) * CAM_OVERFLOW;
   cell = Math.max(cell, overflowFloor, CAM_MIN_CELL);
   cell = Math.min(cell, CAM_MAX_CELL);
@@ -857,17 +877,6 @@ function updateCamera(frac, dtMs){
   } else {
     tx = worldW / 2; ty = worldH / 2;
   }
-  /* PEEK: while the player is dragging the arena, the camera goal is the
-     panned spot (NOT the tank), clamped to the arena. It snaps to the drag
-     so the world tracks the finger 1:1. On release peek.on clears and the
-     ease below pulls the view back to centre on the tank. */
-  const pk = M.peek;
-  if (pk && pk.on && pk.moved){
-    const px = Math.max(0, Math.min(maxX, pk.x));
-    const py = Math.max(0, Math.min(maxY, pk.y));
-    M.camX = px; M.camY = py; M.camReady = true;
-    return { x: Math.round(M.camX), y: Math.round(M.camY) };
-  }
   /* desired top-left so the target sits in the centre of the view */
   let goalX = tx - UI.w / 2, goalY = ty - UI.h / 2;
   goalX = Math.max(0, Math.min(maxX, goalX));
@@ -884,6 +893,37 @@ function updateCamera(frac, dtMs){
   }
   /* snap sub-pixel to avoid shimmer on the static background */
   return { x: Math.round(M.camX), y: Math.round(M.camY) };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   worldToScreen / screenToWorld — the single, clean camera projection.
+   ───────────────────────────────────────────────────────────────────
+   The camera is a pure render transform: the canvas is drawn with
+   setTransform(dpr,…) (so all draw ops are in CSS pixels) and then
+   translated by -(camX,camY), where cam is the view's top-left in WORLD
+   pixels and a world pixel = (sub / SUB) * cell. So:
+       screenCSS = worldPx - cam              worldPx = (sub/SUB)*cell
+   worldToScreen maps a SIM sub-position to a CSS pixel INSIDE the canvas.
+   screenToWorld inverts it: a CSS pixel inside the canvas → a sim sub-
+   position. dpr never enters the math because the ctx transform already
+   folds it in — the canvas CSS box is pinned to w×h (see fitCanvas), so a
+   pointer's clientX/clientY minus the canvas rect is a CSS pixel in the
+   same space the draw ops use. This is the ONLY place aim reads geometry,
+   and it feeds the input pipeline (not the sim) — see sampleLocal. */
+function worldToScreen(subX, subY){
+  const cell = UI.cell, SUB = E.SUB;
+  const cam = M._cam || { x: M.camX, y: M.camY };
+  return { x: (subX / SUB) * cell - cam.x, y: (subY / SUB) * cell - cam.y };
+}
+function screenToWorld(cssX, cssY){
+  const cell = UI.cell, SUB = E.SUB;
+  const cam = M._cam || { x: M.camX, y: M.camY };
+  return { x: ((cssX + cam.x) / cell) * SUB, y: ((cssY + cam.y) / cell) * SUB };
+}
+/* a client (viewport) coordinate → a CSS pixel inside the canvas → world sub */
+function clientToWorld(clientX, clientY){
+  const r = UI.cv.getBoundingClientRect();
+  return screenToWorld(clientX - r.left, clientY - r.top);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1103,6 +1143,8 @@ function draw(frac){
   const now = nowMs();
   const dtMs = M.camT ? (now - M.camT) : 16.7; M.camT = now;
   const cam = updateCamera(frac, dtMs);
+  M._cam = cam;   /* the exact camera this frame drew with — worldToScreen/
+                     screenToWorld read it so touch-aim maps pixel-accurately */
   g.clearRect(0,0,UI.w,UI.h);
   g.save();
   g.translate(-cam.x, -cam.y);   /* world→view scroll; all draws are world px */
@@ -1323,12 +1365,11 @@ function board(){
     '<div class="tk-ctrl" id="tk-ctrl">' +
       '<div class="tk-stick drive'+(noMotion()?' reduced':'')+'" id="tk-drive" role="group" aria-label="'+esc(T('Drive','Suq'))+'">' +
         '<span class="tk-nub"></span><span class="tk-lbl">'+esc(T('DRIVE','SUQ'))+'</span></div>' +
+      '<div class="tk-aimhint">'+esc(T('TOUCH THE ARENA TO AIM','MISS L-ARENA BIEX TIMMIRA'))+'</div>' +
       '<div class="tk-right">' +
         '<button type="button" class="tk-fire'+(noMotion()?' reduced':'')+'" id="tk-fire" aria-label="'+esc(T('Fire','Spara'))+'">' +
           '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c1.6 2.4 3 4.3 3 7a3 3 0 0 1-6 0c0-.6.1-1.1.3-1.6C7.5 8.7 6 10.9 6 13.5 6 17.6 8.7 20 12 20s6-2.4 6-6.5C18 8.6 15 5.2 12 2z"/></svg>' +
           '<span class="tk-firelbl">'+esc(T('FIRE','SPARA'))+'</span></button>' +
-        '<div class="tk-stick aim'+(noMotion()?' reduced':'')+'" id="tk-aim" role="group" aria-label="'+esc(T('Aim','Immira'))+'">' +
-          '<span class="tk-nub"></span><span class="tk-lbl">'+esc(T('AIM','IMMIRA'))+'</span></div>' +
       '</div>' +
     '</div>' +
     '<div class="tk-rules" id="tk-rulespanel" aria-hidden="true">' +
@@ -1343,7 +1384,7 @@ function board(){
     ctx, arena, cv, g2: cv.getContext('2d', { alpha:false }),
     host: ctx.host, hud: ctx.host.querySelector('#tk-hud'),
     ctrl: ctx.host.querySelector('#tk-ctrl'),
-    drive: ctx.host.querySelector('#tk-drive'), aim: ctx.host.querySelector('#tk-aim'),
+    drive: ctx.host.querySelector('#tk-drive'),
     fireBtn: ctx.host.querySelector('#tk-fire'),
     cd: ctx.host.querySelector('#tk-cd'), rules: ctx.host.querySelector('#tk-rulespanel'),
     cell:16, w:240, h:180, dpr:1, bg:null, dirtyBg:true
@@ -1397,14 +1438,13 @@ function wireControls(){
     }
   }
   bindStick(UI.drive, M.drive);
-  bindStick(UI.aim, M.aim);
 
-  /* ── FIRE button — the ONLY control that shoots. A press arms a single
+  /* ── FIRE button — the ONLY hold-to-fire control. A press arms a single
      tap-shot (M.wantFire, cleared once it reaches a tick) AND holds M.autoFire
      so keeping it down repeats at the engine's cooldown rate. Its own pointer
-     id + capture mean it can't be confused with the aim stick or drive stick,
-     and it lives in the control bar (not the arena) so it never fights the
-     drag-to-peek. Cosmetic: it dims while the tank is on cooldown. */
+     id + capture mean it can't be confused with the drive stick or the arena
+     aim touch, and it lives in the control bar (not the arena) so aiming with a
+     thumb on the arena never fires. Cosmetic: it dims while on cooldown. */
   if (UI.fireBtn){
     let fpid = null;
     const press = e => {
@@ -1431,41 +1471,49 @@ function wireControls(){
     });
   }
 
-  /* ── DRAG-TO-PEEK ─────────────────────────────────────────────────────
-     A drag on the ARENA canvas pans the camera to scout the map; release
-     eases it back to centre on the tank. The two thumbsticks live in the
-     control bar BELOW the arena (separate DOM elements with their own
-     pointer capture), so a pointer that lands on the arena can never reach a
-     stick — no gesture collision. A tap under PEEK_DEAD px does nothing, so
-     it never disturbs aim/drive. Pure render: peek.* only, sim untouched. */
-  const PEEK_DEAD = 6;   /* px of travel before a drag counts as a peek */
-  function bindPeek(elm){
+  /* ── TOUCH-TO-AIM (the arena is the aim) ───────────────────────────────
+     A touch/drag anywhere on the ARENA points the turret from the local tank
+     toward that WORLD point. The touch position is converted with
+     screenToWorld and stored as M.aimTouch.wx/wy; sampleLocal turns the turret
+     ONE step per tick toward it through the normal input byte (never applied
+     locally, so the lockstep is untouched). The arena owns its OWN pointer id
+     and captures it, and the drive stick / fire button own theirs, so the
+     drive thumb and the aim thumb work at the same time (multitouch) and none
+     can trigger another. A quick TAP (little travel, short time) also arms one
+     shot in the aimed direction; a HELD drag only aims. Pure input source. */
+  const TAP_MOVE = 10;    /* px of travel under which a release counts a tap  */
+  const TAP_MS   = 260;   /* ms under which a release counts a tap            */
+  function setAimFromClient(clientX, clientY){
+    const w = clientToWorld(clientX, clientY);
+    M.aimTouch.wx = w.x; M.aimTouch.wy = w.y;
+  }
+  function bindAim(elm){
     elm.addEventListener('pointerdown', e => {
-      const pk = M && M.peek; if (!pk || pk.on) return;
-      pk.on = true; pk.pid = e.pointerId; pk.moved = false;
-      pk.sx = e.clientX; pk.sy = e.clientY;
-      pk.baseX = M.camX; pk.baseY = M.camY;
-      pk.x = M.camX; pk.y = M.camY;
+      const a = M && M.aimTouch; if (!a || a.on) return;
+      a.on = true; a.pid = e.pointerId; a.moved = false;
+      a.sx = e.clientX; a.sy = e.clientY; a.downT = nowMs();
+      setAimFromClient(e.clientX, e.clientY);
       try { elm.setPointerCapture(e.pointerId); } catch(_){}
       e.preventDefault();
     });
     elm.addEventListener('pointermove', e => {
-      const pk = M && M.peek; if (!pk || !pk.on || e.pointerId !== pk.pid) return;
-      const dx = e.clientX - pk.sx, dy = e.clientY - pk.sy;
-      if (!pk.moved && Math.hypot(dx, dy) < PEEK_DEAD) return;  /* tap, not a peek */
-      pk.moved = true;
-      /* drag the world with the finger: move finger right → reveal left */
-      pk.x = pk.baseX - dx; pk.y = pk.baseY - dy;
+      const a = M && M.aimTouch; if (!a || !a.on || e.pointerId !== a.pid) return;
+      if (!a.moved && Math.hypot(e.clientX - a.sx, e.clientY - a.sy) >= TAP_MOVE) a.moved = true;
+      setAimFromClient(e.clientX, e.clientY);
       e.preventDefault();
     });
-    const endPeek = e => {
-      const pk = M && M.peek; if (!pk || e.pointerId !== pk.pid) return;
-      pk.on = false; pk.pid = null; pk.moved = false;   /* ease back to the tank */
+    const endAim = e => {
+      const a = M && M.aimTouch; if (!a || e.pointerId !== a.pid) return;
+      /* a quick tap (barely moved, brief) fires one shot in the aimed
+         direction — a convenience; a held drag only aimed. The turret keeps
+         its last aim (a.on clears, but the turret does not spring back). */
+      if (!a.moved && (nowMs() - a.downT) < TAP_MS){ M.wantFire = true; }
+      a.on = false; a.pid = null; a.moved = false;
     };
-    elm.addEventListener('pointerup', endPeek);
-    elm.addEventListener('pointercancel', endPeek);
+    elm.addEventListener('pointerup', endAim);
+    elm.addEventListener('pointercancel', endAim);
   }
-  if (UI.arena) bindPeek(UI.arena);
+  if (UI.arena) bindAim(UI.arena);
 
   /* keyboard for the desk + tests */
   UI.keys = e => {
@@ -1835,7 +1883,25 @@ try {
       tick: n => { let g = 0; for (let i = 0; i < (n|0); i++){ if (!advance()){ if (g++ > 20) break; i--; } } return M.committed; },
       tickOnce: () => { advance(); return M.committed; },
       setDrive: (dx,dy) => { M.drive.on = !!(dx||dy); M.drive.dx = dx; M.drive.dy = dy; },
-      setAim: (dx,dy) => { M.aim.on = !!(dx||dy); M.aim.dx = dx; M.aim.dy = dy; },
+      /* aim at a WORLD sub-position (the input source the arena touch feeds).
+         Pass null to clear the aim. Mirrors a finger held on that world point. */
+      setAim: (wx,wy) => {
+        if (wx == null){ M.aimTouch.on = false; return; }
+        M.aimTouch.on = true; M.aimTouch.pid = -1; M.aimTouch.moved = true;
+        M.aimTouch.wx = wx; M.aimTouch.wy = wy;
+      },
+      /* aim toward a CLIENT (viewport) pixel — exactly what a real touch does,
+         through screenToWorld; used by the viewport proof to verify the turret
+         points at a tapped screen point. */
+      aimAtClient: (cx,cy) => {
+        const w = clientToWorld(cx, cy);
+        M.aimTouch.on = true; M.aimTouch.pid = -1; M.aimTouch.moved = true;
+        M.aimTouch.wx = w.x; M.aimTouch.wy = w.y;
+        return w;
+      },
+      clientToWorld: (cx,cy) => clientToWorld(cx,cy),
+      worldToScreen: (sx,sy) => worldToScreen(sx,sy),
+      cam: () => (M ? { x:M.camX, y:M.camY, cell:UI&&UI.cell, w:UI&&UI.w, h:UI&&UI.h } : null),
       key: k => { M.key = Object.assign(M.key, k); },
       fire: () => { M.wantFire = true; },                 /* one tap-shot        */
       holdFire: on => { M.autoFire = !!on; if (on) M.wantFire = true; },
