@@ -146,22 +146,6 @@ function injectCSS(){
     '  font:900 64px/1 var(--disp,"Exo 2",sans-serif);color:#fff;pointer-events:none;',
     '  text-shadow:0 3px 18px rgba(0,0,0,.6);opacity:0;transition:opacity .2s}',
     '#scr-party .bl-cd.on{opacity:1}#scr-party .bl-cd.go{font-size:38px;color:var(--gold,#FFC542)}',
-    /* ── the BASH button — thumb-reachable, over the bottom-right of the arena.
-         A radial conic-gradient shows the cooldown draining; disabled while it
-         recharges. ── */
-    '#scr-party .bl-bash{position:absolute;right:14px;bottom:14px;width:66px;height:66px;',
-    '  border-radius:50%;z-index:3;display:grid;place-items:center;-webkit-tap-highlight-color:transparent;',
-    '  border:2px solid rgba(255,197,66,.6);color:#241800;touch-action:none;',
-    '  background:radial-gradient(120% 120% at 50% 30%,#FFE39A,var(--gold,#FFC542));',
-    '  box-shadow:0 6px 18px rgba(255,197,66,.35),0 0 0 1px rgba(0,0,0,.25) inset;',
-    '  font:900 13px/1 var(--disp,"Exo 2",sans-serif);letter-spacing:.06em;transition:transform .08s}',
-    '#scr-party .bl-bash:active{transform:scale(.92)}',
-    '#scr-party .bl-bash .bl-bash-cool{position:absolute;inset:-2px;border-radius:50%;pointer-events:none}',
-    '#scr-party .bl-bash.cool{border-color:rgba(255,255,255,.18);color:rgba(255,255,255,.55);',
-    '  background:radial-gradient(120% 120% at 50% 30%,#2A2440,#171227);box-shadow:0 4px 12px rgba(0,0,0,.4)}',
-    '#scr-party .bl-bash svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:2.4;',
-    '  stroke-linecap:round;stroke-linejoin:round;position:relative;z-index:1}',
-    '#scr-party .bl-bash b{position:relative;z-index:1;font-size:11px;margin-top:1px}',
     /* ── menu ── */
     '#scr-party .bl-hero{position:relative;height:150px;border-radius:16px;overflow:hidden;',
     '  margin:2px 0 12px;background:radial-gradient(120% 120% at 50% 0%,#241A3E,#0E0B14)}',
@@ -320,14 +304,14 @@ function rulesInner(){
       'Int it-tarf t’isfel. Iġbed max-xifer t’isfel biex iċċaqlaq ir-raketta u timblokka l-ballun.')) + '</li>' +
     '<li>' + esc(T('Where the ball hits your paddle changes its bounce — hit with the edge to cut it toward a rival’s goal.',
       'Fejn jolqot il-ballun fir-raketta jbiddel kif jaqbeż — olqtu bit-tarf biex tibagħtu lejn il-lasti ta’ ħaddieħor.')) + '</li>' +
-    '<li>' + esc(T('You start on 12 points. A ball past your paddle into your goal costs one. Reach zero and your edge seals shut — the scorer serves the next ball.',
-      'Tibda b’12-il punt. Ballun li jgħaddi r-raketta u jidħol fil-lasti jiswielek wieħed. Asal fix-xejn u t-tarf tiegħek jingħalaq — min jiskorja jservja l-ballun li jmiss.')) + '</li>' +
+    '<li>' + esc(T('You start on 15 points. A ball past your paddle into your goal costs one. Reach zero and your edge seals shut — the scorer serves the next ball.',
+      'Tibda b’15-il punt. Ballun li jgħaddi r-raketta u jidħol fil-lasti jiswielek wieħed. Asal fix-xejn u t-tarf tiegħek jingħalaq — min jiskorja jservja l-ballun li jmiss.')) + '</li>' +
     '<li>' + esc(T('The ball speeds up and more balls join over time, so a round always ends. Last edge standing wins.',
       'Il-ballun jgħaġġel u jiżdiedu iktar blalen maż-żmien, mela r-round dejjem jispiċċa. Rebbieħ min jibqa’ l-aħħar.')) + '</li>' +
     '<li>' + esc(T('Grab a floating power-up: a wider paddle, a slow ball, an extra ball, or a one-goal shield.',
       'Aqbad power-up: raketta usa’, ballun bil-mod, ballun żejjed, jew tarka għal gol wieħed.')) + '</li>' +
-    '<li>' + esc(T('Tap BASH to lunge and power-hit a ball in front of you — it flies off fast. It needs a moment to recharge.',
-      'Agħfas BASH biex timbotta u tolqot bis-saħħa ballun quddiemek — jitlaq b’veloċità. Irid ftit biex jerġa’ jimla.')) + '</li>' +
+    '<li>' + esc(T('Double-tap the arena to BASH — lunge and power-hit a ball in front of you so it flies off fast. It needs a moment to recharge.',
+      'Agħti tektika doppja fuq l-arena biex tagħmel BASH — timbotta u tolqot bis-saħħa ballun quddiemek biex jitlaq b’veloċità. Irid ftit biex jerġa’ jimla.')) + '</li>' +
     '</ul>';
 }
 function onlineInner(){
@@ -439,12 +423,14 @@ function beginMatch(st, seed, opts, net, me, mine){
     t0: 0, lead: 900, raf: 0,
     heldTarget: null,          /* the thumb's current lane target, or null   */
     bashPending: false,        /* a queued BASH not yet committed to a tick  */
+    lastTapAt: 0, lastTapX: 0, lastTapY: 0,  /* double-tap BASH detection      */
     dead: false, finished: false,
     ledSaid: -1,
     fx: [], shake: 0, flash: [0,0,0,0],
     goalArrows: [],            /* {edge, dx, dy, life} — outward feedback     */
+    cornerFlash: [],           /* {x, y, life} — ev.cornerHit bursts          */
     fps: { n:0, at:0, val:0 },
-    ctx: null, seatMeta: null, bashBtn: null
+    ctx: null, seatMeta: null
   };
   M.seatMeta = st.pads.map((p, i) => ({
     name: i === me ? T('You','Int') : (p.inPlay ? (levelWords(opts.lvl||2).n) : T('Wall','Ħajt')),
@@ -497,22 +483,14 @@ function openBoard(onBack){
     ' · ' + M.st.pads.filter(p => p.inPlay).length;
 
   /* the arena canvas lives in the square board slot; fit() sizes #pt-board.
-     The BASH button floats over the bottom-right, within thumb reach of the
-     drag control. */
+     There is NO bash button — a DOUBLE-TAP on the arena triggers the bash. */
   ctx.board.innerHTML = '<div class="bl-arena"><canvas id="bl-cv"></canvas>' +
     '<div class="bl-cd" id="bl-cd"></div>' +
-    '<button class="bl-bash" id="bl-bash" aria-label="' + esc(T('Bash','Daqqa')) + '">' +
-      '<span class="bl-bash-cool" id="bl-bash-cool"></span>' +
-      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 2L4 14h6l-1 8 9-12h-6z"/></svg>' +
-    '</button>' +
     '</div>';
   const cv = ctx.board.querySelector('#bl-cv');
   UI = {
     host: ctx.board, cv, g: cv.getContext('2d', { alpha:false }),
     cd: ctx.board.querySelector('#bl-cd'),
-    bash: ctx.board.querySelector('#bl-bash'),
-    bashCool: ctx.board.querySelector('#bl-bash-cool'),
-    bashState: -1,
     px: 0, pad: 0, dpr: 1
   };
   fitCanvas();
@@ -524,7 +502,6 @@ function openBoard(onBack){
     window.addEventListener('resize', UI.onR);
   }
   bindControl(cv);
-  bindBash();
 
   const nb = ctx.btn('bl-new');
   if (nb) nb.onclick = () => { cue('ui.tap',{gain:.5}); const o = M.opts; leave(); startAI(o); };
@@ -532,8 +509,8 @@ function openBoard(onBack){
   if (rb) rb.onclick = () => showRulesToast();
 
   P.ui.setTurn(ctx, { cls:'', who: T('Get ready','Ħejji ruħek'),
-    note: T('Drag the bottom to move. Tap BASH to shove the ball.',
-            'Iġbed t’isfel biex tiċċaqlaq. Agħfas BASH biex timbotta l-ballun.') });
+    note: T('Drag the bottom to move. Double-tap to shove the ball.',
+            'Iġbed t’isfel biex tiċċaqlaq. Tektika doppja biex timbotta l-ballun.') });
   hud();
 }
 
@@ -573,8 +550,21 @@ function sx(x){ return Math.round(x * UI.scale); }
    your thumb's X to your paddle's lane target.  We commit the target for
    tick N+D inside the loop; here we only record the thumb position.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE CONTROL — a SINGLE drag moves the paddle; a DOUBLE-TAP bashes.
+   · A drag is any pointer stream that MOVES the thumb: every move sets the lane
+     target (the committed-input target lands the paddle under the thumb).
+   · A tap is a pointerdown+up that barely moved and lasted a moment; two taps
+     within DTAP_MS and DTAP_PX of each other = a BASH.  The bash is QUEUED
+     (M.bashPending) and committed for tick N+D through the EXACT same lockstep
+     pipeline the old button used (E.commitBash / the `bx` wire) — never applied
+     locally.  A drag never registers as a tap (it moved too far), so moving the
+     paddle can't mis-fire a bash.  Cross-platform via Pointer Events. */
+const DTAP_MS = 300;           /* two taps within this window = a double-tap    */
+const DTAP_PX = 28;            /* ...and within this many CSS px of each other   */
+const TAP_MOVE_PX = 12;        /* a touch that moved less than this counts as a tap */
+const TAP_MAX_MS = 260;        /* ...and was shorter than this                    */
 function bindControl(cv){
-  let on = false;
+  let on = false, downX = 0, downY = 0, downT = 0, moved = 0;
   const toLane = ev => {
     const r = cv.getBoundingClientRect();
     const p = M.st.pads[M.me];
@@ -592,56 +582,45 @@ function bindControl(cv){
     return target;
   };
   const set = ev => { const t = toLane(ev); if (t != null) M.heldTarget = t; };
-  cv.addEventListener('pointerdown', ev => { on = true; try { cv.setPointerCapture(ev.pointerId); } catch(e){} set(ev); ev.preventDefault(); });
-  cv.addEventListener('pointermove', ev => { if (on) set(ev); });
-  cv.addEventListener('pointerup',   () => { on = false; });
-  cv.addEventListener('pointercancel',() => { on = false; });
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   THE BASH BUTTON — a tap QUEUES a bash (M.bashPending). advance() commits
-   it for tick N+D through the SAME lockstep pipeline as the paddle target,
-   so it is never applied locally/immediately. The button shows the cooldown
-   as a draining conic ring and disables while it recharges.
-   ═══════════════════════════════════════════════════════════════════ */
-function bindBash(){
-  const b = UI && UI.bash;
-  if (!b) return;
-  const fire = ev => {
-    ev.preventDefault();
-    const p = M.st.pads[M.me];
-    if (!p || !E.alive(p)) return;
-    if (p.bashCd > 0) return;                 /* on cooldown — ignore the tap */
-    M.bashPending = true;
-    cue('duel.hit', { gain:.6 });
-  };
-  b.addEventListener('pointerdown', fire);
-}
-/* refresh the button's cooldown ring + disabled look. Called each frame; a
-   cheap conic-gradient update only when the state actually changes. */
-function updateBashBtn(){
-  if (!UI || !UI.bash) return;
-  const p = M.st && M.st.pads[M.me];
-  const alive = p && E.alive(p);
-  const cd = alive ? (p.bashCd | 0) : 0;
-  const total = C.BASH_CD || 60;
-  const cooling = cd > 0;
-  /* quantise so we do not touch the DOM every single frame */
-  const frac = cooling ? Math.round((1 - cd / total) * 20) : 20;
-  const key = (alive ? 1 : 0) * 100 + (cooling ? 1 : 0) * 40 + frac;
-  if (key === UI.bashState) return;
-  UI.bashState = key;
-  UI.bash.style.display = alive ? 'grid' : 'none';
-  UI.bash.classList.toggle('cool', cooling);
-  if (UI.bashCool){
-    if (cooling){
-      const deg = Math.round((1 - cd / total) * 360);
-      UI.bashCool.style.background =
-        'conic-gradient(rgba(255,197,66,.85) ' + deg + 'deg, rgba(255,255,255,.06) ' + deg + 'deg)';
+  cv.addEventListener('pointerdown', ev => {
+    on = true; downX = ev.clientX; downY = ev.clientY; downT = nowMs(); moved = 0;
+    try { cv.setPointerCapture(ev.pointerId); } catch(e){}
+    set(ev); ev.preventDefault();
+  });
+  cv.addEventListener('pointermove', ev => {
+    if (!on) return;
+    moved = Math.max(moved, Math.abs(ev.clientX - downX) + Math.abs(ev.clientY - downY));
+    set(ev);
+  });
+  cv.addEventListener('pointerup', ev => {
+    on = false;
+    /* was this a TAP (small move, short)? then test it against the previous tap */
+    const dt = nowMs() - downT;
+    if (moved <= TAP_MOVE_PX && dt <= TAP_MAX_MS && M){
+      const gap = nowMs() - (M.lastTapAt || 0);
+      const near = Math.abs(ev.clientX - (M.lastTapX || 0)) + Math.abs(ev.clientY - (M.lastTapY || 0));
+      if (M.lastTapAt && gap <= DTAP_MS && near <= DTAP_PX){
+        queueBash();                 /* DOUBLE-TAP → bash */
+        M.lastTapAt = 0;             /* consume so a triple-tap isn't two bashes */
+      } else {
+        M.lastTapAt = nowMs(); M.lastTapX = ev.clientX; M.lastTapY = ev.clientY;
+      }
     } else {
-      UI.bashCool.style.background = 'transparent';
+      M.lastTapAt = 0;               /* a drag clears any pending first-tap */
     }
-  }
+  });
+  cv.addEventListener('pointercancel',() => { on = false; if (M) M.lastTapAt = 0; });
+}
+/* QUEUE a bash from a double-tap — rides the SAME committed-input pipeline as
+   the paddle target (filed for tick N+D in advance(), broadcast on the `bx`
+   wire), so online + offline apply it identically and never locally.  Only
+   filed when off cooldown so a spammed double-tap does not waste itself. */
+function queueBash(){
+  const p = M.st && M.st.pads[M.me];
+  if (!p || !E.alive(p)) return;
+  if (p.bashCd > 0){ return; }                 /* on cooldown — ignore */
+  M.bashPending = true;
+  cue('duel.hit', { gain:.6 });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -784,6 +763,7 @@ function afterStep(before){
     else if (e.id === 'ev.serve'){ /* silent — the telegraph shows it */ }
     else if (e.id === 'ev.bash'){ burst(padCentre(e.pid), SEAT[st.pads[e.pid].edge], 14); cue('duel.destroy',{gain:.5}); }
     else if (e.id === 'ev.bashwhiff'){ cue('duel.hit',{gain:.35}); }
+    else if (e.id === 'ev.cornerHit'){ cornerFlash(e.corner); }
   }
   /* did anyone just get knocked out? */
   for (let i = 0; i < st.pads.length; i++){
@@ -810,43 +790,60 @@ function goalFx(edge){
   const dy = axisX ? C.EDGE_OUT[edge] : 0;
   M.goalArrows.push({ edge, dx, dy, life: 1 });
 }
-/* THE SERVE TELEGRAPH — for every PENDING SERVE in engine state, a pulsing
-   ring at the origin plus an ARROW pointing the exact launch direction the ball
-   will travel, so players see the incoming ball and from where before it enters.
-   Reads st.serves (identical on every client) and draws nothing into the sim. */
+/* THE CORNER TELEGRAPH — for every PENDING SERVE in engine state, the CORNER it
+   emerges from "lights up": a growing, pulsing glow that intensifies as the
+   spawn nears, so players see WHICH corner the ball is about to come out of.
+   NO direction arrow (by design — nothing points at/near the ball).  Reads
+   st.serves (identical on every client) and draws nothing into the sim. */
 function drawServeTelegraph(g, now){
   const st = M.st;
   if (!st.serves || !st.serves.length) return;
   const pulse = 0.5 + 0.5 * Math.sin(now / 140);        /* cosmetic pulse       */
   for (const s of st.serves){
     const ox = sx(s.originX), oy = sx(s.originY);
-    /* unit-ish direction from the baked table magnitude (1024) */
-    const mag = 1024;
-    const ux = s.dirX / mag, uy = s.dirY / mag;
     /* colour: the server's seat if it has one, else neutral gold */
     const col = (s.last >= 0 && SEAT[st.pads[s.last] ? st.pads[s.last].edge : 0])
       ? SEAT[st.pads[s.last].edge].a : '#FFC542';
+    /* how imminent is the spawn? tighter, brighter glow as ticksLeft -> 0 */
+    const total = (s.ticksLeft > 24) ? s.ticksLeft : 24;
+    const near = 1 - Math.max(0, Math.min(1, s.ticksLeft / total));
     g.save();
-    /* the pulsing spawn ring */
-    const rr = (8 + pulse * 6) * UI.dpr;
-    g.globalAlpha = 0.35 + 0.4 * pulse;
-    g.strokeStyle = col; g.lineWidth = 2.5 * UI.dpr;
-    g.shadowColor = col; g.shadowBlur = 12 * UI.dpr;
+    /* a soft radial CORNER GLOW — the corner "lighting up" */
+    const gr = (18 + near * 16 + pulse * 6) * UI.dpr;
+    const rad = g.createRadialGradient(ox, oy, 0, ox, oy, gr);
+    rad.addColorStop(0, col);
+    rad.addColorStop(0.35, col);
+    rad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalAlpha = 0.22 + 0.30 * pulse + 0.20 * near;
+    g.fillStyle = rad;
+    circle(g, ox, oy, gr); g.fill();
+    /* the pulsing spawn ring on top of the glow */
+    const rr = (9 + pulse * 6 + near * 4) * UI.dpr;
+    g.globalAlpha = 0.40 + 0.45 * pulse;
+    g.strokeStyle = col; g.lineWidth = (2.5 + near * 1.5) * UI.dpr;
+    g.shadowColor = col; g.shadowBlur = (12 + near * 12) * UI.dpr;
     circle(g, ox, oy, rr); g.stroke();
-    g.globalAlpha = 0.9; g.fillStyle = '#fff';
+    /* the bright spawn seed */
+    g.globalAlpha = 0.85; g.fillStyle = '#fff';
     circle(g, ox, oy, sx(C.R) * 0.7); g.fill();
-    /* the direction ARROW */
-    const len = (34 + pulse * 8) * UI.dpr;
-    const tipX = ox + ux * len, tipY = oy + uy * len;
-    const startX = ox + ux * (rr + 4), startY = oy + uy * (rr + 4);
-    g.globalAlpha = 0.55 + 0.4 * pulse;
-    g.lineWidth = 4 * UI.dpr; g.lineCap = 'round'; g.lineJoin = 'round';
-    g.beginPath(); g.moveTo(startX, startY); g.lineTo(tipX, tipY); g.stroke();
-    const px = -uy, py = ux, hb = 8 * UI.dpr, hl = 12 * UI.dpr;
-    g.beginPath();
-    g.moveTo(tipX, tipY); g.lineTo(tipX - ux*hl + px*hb, tipY - uy*hl + py*hb);
-    g.moveTo(tipX, tipY); g.lineTo(tipX - ux*hl - px*hb, tipY - uy*hl - py*hb);
-    g.stroke();
+    g.restore();
+  }
+}
+/* the CORNER-HIT flashes — a brief bright burst at a corner the ball just
+   struck (ev.cornerHit).  Cosmetic, seat-neutral gold, fades over its life. */
+function drawCornerFlashes(g){
+  if (!M.cornerFlash) return;
+  for (const f of M.cornerFlash){
+    const t = Math.max(0, Math.min(1, f.life));
+    const ox = sx(f.x), oy = sx(f.y);
+    const rr = (16 + (1 - t) * 22) * UI.dpr;
+    g.save();
+    g.globalAlpha = t * 0.8;
+    const rad = g.createRadialGradient(ox, oy, 0, ox, oy, rr);
+    rad.addColorStop(0, '#FFF3C8'); rad.addColorStop(0.4, '#FFC542');
+    rad.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = rad;
+    circle(g, ox, oy, rr); g.fill();
     g.restore();
   }
 }
@@ -891,6 +888,26 @@ function hitPoint(pid){ return padCentre(pid); }
 function mouthCentre(edge){
   const g = C.GOAL_COORD[edge];
   return C.EDGE_AXIS[edge] === 'x' ? { x:C.W>>1, y:g } : { x:g, y:C.H>>1 };
+}
+/* the four inset corner spawn points, in subunits — mirrors the engine's
+   CORNERS (inset by MOUTH_M).  Indexed by corner 0=TL,1=TR,2=BR,3=BL. */
+function cornerPoint(c){
+  const m = C.MOUTH_M;
+  switch (c & 3){
+    case 0:  return { x: m,       y: m };        /* top-left     */
+    case 1:  return { x: C.W - m, y: m };        /* top-right    */
+    case 2:  return { x: C.W - m, y: C.H - m };  /* bottom-right */
+    default: return { x: m,       y: C.H - m };  /* bottom-left  */
+  }
+}
+/* a ball struck corner `c` — push a brief cosmetic flash there. Driven purely
+   off the engine's ev.cornerHit; writes nothing into the sim. */
+function cornerFlash(c){
+  if (!M) return;
+  const pt = cornerPoint(c);
+  M.cornerFlash.push({ x: pt.x, y: pt.y, life: 1 });
+  if (M.cornerFlash.length > 8) M.cornerFlash.shift();
+  cue('dice.roll', { gain:.35 });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -946,6 +963,10 @@ function stepFx(dt){
     M.goalArrows[i].life -= dt * 1.3;
     if (M.goalArrows[i].life <= 0) M.goalArrows.splice(i, 1);
   }
+  for (let i = M.cornerFlash.length - 1; i >= 0; i--){
+    M.cornerFlash[i].life -= dt * 2.0;
+    if (M.cornerFlash[i].life <= 0) M.cornerFlash.splice(i, 1);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -981,7 +1002,8 @@ function draw(frac){
   drawGoalFlash(g);
   drawGoalArrows(g);          /* outward arrows where a ball just left         */
   drawDrops(g);
-  drawServeTelegraph(g, now); /* pulsing marker + ARROW for an incoming serve  */
+  drawCornerFlashes(g);       /* bursts where a ball just struck a corner      */
+  drawServeTelegraph(g, now); /* corner "lighting up" glow for an incoming serve */
   drawPaddles(g, frac);
   drawBalls(g, frac);
   drawParticles(g);
@@ -991,8 +1013,6 @@ function draw(frac){
   const vg = g.createRadialGradient(side/2, side/2, side*0.28, side/2, side/2, side*0.74);
   vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.55)');
   g.fillStyle = vg; g.fillRect(0, 0, side, side);
-
-  updateBashBtn();
 }
 /* a cheap deterministic-ish jitter for the shake — cosmetic only, never sim */
 let rseed = 12345;

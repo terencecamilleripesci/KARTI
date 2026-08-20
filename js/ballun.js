@@ -222,9 +222,9 @@ const ESC_EVERY = 20;
 
 /* the Ballistix score: each player starts on START_LIVES points and LOSES one
    each time a ball is scored INTO their goal; at 0 they are OUT and their edge
-   seals. 12 is in the 10–15 band the design calls for — long enough to feel
-   like a real match, short enough that escalation always resolves it. */
-const START_LIVES = 12;
+   seals. 15 matches the original Crash Bash "Crashball" starting score — last
+   standing wins, and escalation (faster + more balls) always resolves it. */
+const START_LIVES = 15;
 const MAX_BALLS   = 5;
 
 /* multi-ball escalation timing — starts sooner and adds faster than briks'
@@ -514,6 +514,7 @@ function start(opts){
     ballAddN: 0, puN: 0,
     inp: [], binp: [],
     serves: [],                            /* pending serves (telegraph + arrow) */
+    cornerCd: [0, 0, 0, 0],                /* per-corner debounce after a strike-trigger */
     ev: [], over: null,
     stalls: 0, iterCap: 0,
     sealEmpty: !!opts.sealEmpty
@@ -552,6 +553,7 @@ function setupRound(st){
   st.tick = 0;
   st.boost = 0; st.boostT = 0; st.slowT = 0;
   st.balls = []; st.drops = []; st.serves = [];
+  st.cornerCd = [0, 0, 0, 0];
   st.nextBall = 0; st.nextDrop = 0;
   st.ballAddN = 0; st.puN = 0;
   st.ev = []; st.over = null;
@@ -590,13 +592,80 @@ const AWAY_QUADS = [
   [1, 2]    /* RIGHT  (defends large x): fire LEFT -> down-left(1), up-left(2)  */
 ];
 
-/* the point just in front of a paddle, on the arena side, where a serve from
-   that player's side originates. */
-function serveOrigin(st, pid){
-  const p = st.pads[pid];
-  const c = PAD_COORD[p.edge] - EDGE_OUT[p.edge] * (PAD_T);   /* a touch inside */
-  if (EDGE_AXIS[p.edge] === 'x') return { x: clamp(p.pos, MOUTH_M + R, W - MOUTH_M - R), y: c };
-  return { x: c, y: clamp(p.pos, MOUTH_M + R, H - MOUTH_M - R) };
+/* ── CRASH-BASH "BALLISTIX" CORNER SPAWNER ──────────────────────────────
+   Balls emerge from the CORNERS, not the centre.  A quadrant q maps to the
+   corner OPPOSITE the fire direction, so the ball literally comes OUT of a
+   corner heading INWARD along its diagonal:
+
+     q0 down-right(+x,+y) -> TOP-LEFT     corner (0,0)
+     q1 down-left (-x,+y) -> TOP-RIGHT    corner (W,0)
+     q2 up-left   (-x,-y) -> BOTTOM-RIGHT corner (W,H)
+     q3 up-right  (+x,-y) -> BOTTOM-LEFT  corner (0,H)
+
+   Each corner is inset by CORNER_INSET along BOTH axes from the true corner so
+   the ball (radius R) starts clear of the corner jamb and travels its diagonal
+   into open play.  CORNER_INSET = MOUTH_M puts the origin just inside the jamb
+   corner; a serve then eases out of it exactly like a centre serve did.
+   CORNERS is indexed by quadrant q (== the corner index), so CORNERS[q] is the
+   spawn point for a serve chosen to fire into quadrant q.  Pure integers, in
+   the hash via the pending-serve origin — no float, no trig. */
+const CORNER_INSET = MOUTH_M;
+const CORNERS = [
+  { x: CORNER_INSET,     y: CORNER_INSET     },  /* 0 TOP-LEFT     (fires down-right q0) */
+  { x: W - CORNER_INSET, y: CORNER_INSET     },  /* 1 TOP-RIGHT    (fires down-left  q1) */
+  { x: W - CORNER_INSET, y: H - CORNER_INSET },  /* 2 BOTTOM-RIGHT (fires up-left    q2) */
+  { x: CORNER_INSET,     y: H - CORNER_INSET }   /* 3 BOTTOM-LEFT  (fires up-right   q3) */
+];
+/* the corner a ball is IN when it strikes near it — detected by proximity in
+   resolveBall.  A strike triggers a NEW telegraphed serve FROM that same corner
+   (its inward diagonal), one per corner at a time, debounced by a per-corner
+   cooldown so a single bounce cannot enqueue a swarm. */
+const CORNER_ZONE   = MOUTH_M;                 /* strike radius (per axis) of a corner */
+const CORNER_SPAWN_DELAY = 24;                 /* telegraph delay for a corner-triggered serve */
+const CORNER_CD     = 40;                       /* per-corner debounce after a trigger  */
+
+/* which corner (0..3) a point is within CORNER_ZONE of on BOTH axes, or -1.
+   Pure integer box test around each inset corner — no distance, no sqrt. */
+function cornerAt(x, y){
+  for (let c = 0; c < 4; c++){
+    const cc = CORNERS[c];
+    if (Math.abs(x - cc.x) <= CORNER_ZONE && Math.abs(y - cc.y) <= CORNER_ZONE) return c;
+  }
+  return -1;
+}
+/* a ball struck corner `c` this tick: enqueue ANOTHER telegraphed serve FROM
+   that corner (its inward diagonal, seeded ±K fan) after CORNER_SPAWN_DELAY
+   ticks, IF room remains (live balls + pending serves < MAX_BALLS) AND no serve
+   is already pending FROM that corner AND that corner is off its debounce
+   cooldown.  Emits ev.cornerHit for the UI flash.  Deterministic: reads st.rs
+   only through serve(), sets a hashed cooldown, and the "already pending"
+   guard makes a repeat bounce a no-op.  The struck ball keeps bouncing
+   normally — this trigger is ADDITIONAL. */
+function triggerCornerSpawn(st, c){
+  if (c < 0 || c > 3) return;
+  if (st.cornerCd[c] > 0) return;                 /* debounced                    */
+  st.ev.push({ id: 'ev.cornerHit', corner: c });  /* UI flash regardless          */
+  st.cornerCd[c] = CORNER_CD;
+  if (st.balls.length + st.serves.length >= MAX_BALLS) return;   /* respect the cap */
+  for (const s of st.serves) if (s.corner === c) return;         /* one per corner  */
+  /* serve() picks the quadrant by its own seeded roll; force the corner's own
+     inward quadrant by biasing avoidEdge to nothing and passing the corner's
+     serverPid as -1, then override the origin to this corner.  Simplest + fully
+     deterministic: call serve with a fixed inward direction for THIS corner. */
+  serveFromCorner(st, c);
+}
+/* serve a fresh ball straight out of corner `c` along its inward diagonal, ±K
+   seeded fan, after CORNER_SPAWN_DELAY ticks.  Mirrors serve() but pins the
+   quadrant to the corner so the ball always heads into open play from it. */
+function serveFromCorner(st, c){
+  const q = c & 3;                                /* corner c fires quadrant q    */
+  const centre = SERVE_CENTRE[q];
+  const k = (trunc(rnd(st) * (2 * K_MAX + 1))) - K_MAX;
+  const di = snap((centre + k + 64) & 63);
+  const ox = CORNERS[c].x, oy = CORNERS[c].y;
+  st.serves.push({ originX: ox, originY: oy, dirX: DIR_X[di], dirY: DIR_Y[di],
+                   di, sp: SP_START, corner: c, last: -1, ticksLeft: CORNER_SPAWN_DELAY });
+  st.ev.push({ id: 'ev.serve' });
 }
 
 /* serve ONE ball toward a legal diagonal.  `avoidEdge` (a pid or −1) biases the
@@ -637,19 +706,22 @@ function serve(st, avoidEdge, serverPid, delay){
   const di = snap((centre + k + 64) & 63);     /* always a legal diagonal    */
   /* SP_START is well above SP_MIN and every allowed di has |DIR_X|,|DIR_Y| >=
      DIAG_MIN, so velOf(di, SP_START) is non-zero on BOTH axes by construction. */
-  let ox = W >> 1, oy = H >> 1;
-  if (fromSeat){ const o = serveOrigin(st, serverPid); ox = o.x; oy = o.y; }
-  /* the unit-ish direction of the launch, baked from the table, for the arrow
-     the UI draws over the telegraph.  These are hashed too, so every client
-     agrees on where the arrow points. */
+  /* BALLISTIX: the ball emerges from the CORNER opposite the fire direction
+     (== quadrant q), heading INWARD along its diagonal.  This replaces the old
+     centre origin; the seat-served / round-start / multi-ball paths all now come
+     out of a corner.  CORNERS[q] is inset by CORNER_INSET so the ball starts
+     clear of the jamb.  The chosen corner is carried on the pending serve so the
+     UI lights THAT corner and the debounce keys off it. */
+  const corner = q & 3;
+  let ox = CORNERS[corner].x, oy = CORNERS[corner].y;
   const dirX = DIR_X[di], dirY = DIR_Y[di];
   const dl = (delay === undefined)
     ? (avoidEdge >= 0 ? SERVE_DELAY : SERVE_DELAY0)   /* post-goal waits longer */
     : (delay | 0);
   /* `last` is seeded to the server so a serve directly into a goal still
-     credits a scorer; a fresh centre serve has no owner (-1). */
+     credits a scorer; a fresh corner serve has no owner (-1). */
   st.serves.push({ originX: ox, originY: oy, dirX, dirY, di, sp: SP_START,
-                   last: fromSeat ? serverPid : -1, ticksLeft: dl < 0 ? 0 : dl });
+                   corner, last: fromSeat ? serverPid : -1, ticksLeft: dl < 0 ? 0 : dl });
   st.ev.push({ id: 'ev.serve' });
 }
 /* actually put a pending serve's ball into play — it enters with an EASE
@@ -890,6 +962,7 @@ function resolveBall(st, ball){
   let px = ball.x, py = ball.y;
   const startX = ball.x, startY = ball.y;      /* for the anti-park floor      */
   let rem = TFP;
+  let cornerStruck = -1;                        /* corner hit this tick, or -1  */
 
   for (let iter = 0; iter < MAX_ITER; iter++){
     const mvx = trunc(vx * rem / TFP);
@@ -975,6 +1048,11 @@ function resolveBall(st, ball){
         if (h.ax & 1) flipX = true;
         if (h.ax & 2) flipY = true;
         events.push({ id: 'ev.wall', edge: h.meta.edge });
+        /* BALLISTIX: a jamb/wall hit inside a corner zone is a CORNER STRIKE —
+           record the corner (the trigger fires ONCE after the tick resolves, so
+           one bounce cannot enqueue a swarm). px,py is the contact point. */
+        const cc = cornerAt(px, py);
+        if (cc >= 0) cornerStruck = cc;
       } else if (h.kind === 'paddle'){
         const pp = st.pads[h.meta.pid];
         /* a FRONT-face hit is an entry on the paddle's NORMAL axis, coming
@@ -1041,6 +1119,23 @@ function resolveBall(st, ball){
     st.stalls++;                               /* count it for the test proof */
     depenetrate(st, ball);
     containBall(st, ball, events);
+  }
+
+  /* BALLISTIX CORNER TRIGGER — fire ONCE per tick per ball if it struck a corner
+     (a swept jamb hit inside a corner zone), OR if a wall event fired this tick
+     and the ball came to rest inside a corner zone (the containBall reflection
+     path).  The ball is still alive here (a goal returned earlier), so a corner
+     strike never coincides with a score.  Deterministic + debounced inside
+     triggerCornerSpawn; a no-op when the corner is on cooldown or the arena is
+     already full. */
+  if (ball.dead === undefined){
+    let c = cornerStruck;
+    if (c < 0){
+      let wall = false;
+      for (const e of events) if (e.id === 'ev.wall'){ wall = true; break; }
+      if (wall) c = cornerAt(ball.x, ball.y);
+    }
+    if (c >= 0) triggerCornerSpawn(st, c);
   }
   return events;
 }
@@ -1336,6 +1431,8 @@ function decayTimers(st){
   }
   if (st.boostT > 0 && --st.boostT === 0) st.boost = 0;
   if (st.slowT > 0) st.slowT--;
+  /* corner-strike debounce cooldowns count down (deterministic, hashed) */
+  for (let c = 0; c < 4; c++) if (st.cornerCd[c] > 0) st.cornerCd[c]--;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1559,7 +1656,11 @@ function snapshot(st){
      the sim and the spawn is deterministic), so hash it for desync detection. */
   a.push(0x7ffffffd);
   for (const s of st.serves)
-    a.push(s.originX, s.originY, s.dirX, s.dirY, s.di, s.sp, s.last, s.ticksLeft);
+    a.push(s.originX, s.originY, s.dirX, s.dirY, s.di, s.sp, s.last, s.ticksLeft, s.corner | 0);
+  /* BALLISTIX corner-strike debounce cooldowns are sim state (they gate the next
+     corner-triggered spawn), so hash them — a desync in any is detectable. */
+  a.push(0x7ffffffc);
+  for (let c = 0; c < 4; c++) a.push(st.cornerCd[c] | 0);
   a.push(st.over ? (st.over.winner + 2) : 0);
   return hash32(a);
 }
