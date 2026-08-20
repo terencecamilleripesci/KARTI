@@ -586,6 +586,7 @@ function unlocksAt(L){
    5. EQUIPPING
    ═══════════════════════════════════════════════════════════════════ */
 function equipped(slot, game){
+  if (slot === 'border') applyBetaGrant();   /* default a beta tester's gift on, once */
   var k = keyOf(slot, game);
   if (!k) return null;
   var id = root().eq[k];
@@ -1399,11 +1400,33 @@ function isAdmin(){
    account (case/spacing/punctuation-insensitive), never remembered, so it
    follows the account and never sticks to a shared device. */
 var BETA_OWNERS = { shanikwanne:'betagold', rudeness:'betasilver' };
+function betaKey(){
+  try { return String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  catch (e){ return ''; }
+}
 function betaOwns(which){
   try {
-    var k = String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    var k = betaKey();
     return !!(k && session() && BETA_OWNERS[k] === which);
-  } catch (e){ return false; }
+  } catch (e){ return which === which ? false : false; }
+}
+/* Turn the gift frame ON by default the FIRST time a beta tester signs in — so
+   they actually see it — then never touch it again, so they are free to switch
+   to anything else (that choice sticks). Ownership is the live earn test; this
+   only equips it once. Runs cheaply on every border read (guarded per-account). */
+function applyBetaGrant(){
+  try {
+    var k = betaKey();
+    if (!k || !session() || !BETA_OWNERS[k]) return;
+    var p = root();
+    if (p.betaOn === k) return;                 /* already defaulted for this account */
+    p.betaOn = k;
+    var slot = keyOf('border', 'karti');
+    var cur = slot ? p.eq[slot] : null;
+    if (slot && (!cur || cur === 'border.none' || cur === 'border.hairline'))
+      p.eq[slot] = 'border.' + BETA_OWNERS[k];  /* default it on, only if nothing chosen */
+    commit();
+  } catch (e){}
 }
 var EARN_TEST = { streak: function(){ return bestStreakAnywhere() >= 10; },
                   story:  storyDone,

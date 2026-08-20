@@ -661,10 +661,13 @@ function injectCSS(){
       '#7A560E 0turn,#FFC542 .05turn,#FFF6CE .09turn,#FFFFFF .12turn,#FFF6CE .15turn,' +
       '#FFC542 .19turn,#7A560E .3turn,#B8860B .5turn,#FFE9A8 .55turn,#FFFFFF .59turn,' +
       '#FFE9A8 .63turn,#B8860B .72turn,#7A560E .82turn,#7A560E 1turn);overflow:hidden}' +
-    '.kx-r-betasilver{--kx-fb:#DCE3EF;--kx-pat:conic-gradient(from 0turn,' +
-      '#5C6472 0turn,#C6CEDA .05turn,#F4F8FF .09turn,#FFFFFF .12turn,#F4F8FF .15turn,' +
-      '#C6CEDA .19turn,#5C6472 .3turn,#8A93A3 .5turn,#E9EEF6 .55turn,#FFFFFF .59turn,' +
-      '#E9EEF6 .63turn,#8A93A3 .72turn,#5C6472 .82turn,#5C6472 1turn);overflow:hidden}' +
+    /* DIAMOND silver — a bright white-platinum band shot through with prismatic
+       refraction glints (pink -> cyan -> violet), the way light splits through a
+       cut stone. Glam, feminine, and unmistakably not the gold. */
+    '.kx-r-betasilver{--kx-fb:#EAF0FA;--kx-pat:conic-gradient(from 0turn,' +
+      '#4E5666 0turn,#B9C6DE .035turn,#FFDCEC .06turn,#FFFFFF .095turn,#D7F5FF .125turn,#C3D2EC .165turn,' +
+      '#4E5666 .27turn,#8A93A3 .44turn,#F0DCFF .485turn,#FFFFFF .525turn,#DCFBFF .565turn,#98A6BE .64turn,' +
+      '#4E5666 .76turn,#FFE9F3 .8turn,#FFFFFF .835turn,#CFE0FF .865turn,#4E5666 .92turn,#4E5666 1turn);overflow:hidden}' +
     '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
       '.kx-r-betagold,.kx-r-betasilver{background-image:none}' +
       '.kx-r-betagold::before,.kx-r-betasilver::before{content:"";position:absolute;inset:-45%;' +
