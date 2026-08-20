@@ -975,6 +975,33 @@ function endByCap(st){
   const live = liveSeats(st);
   if (live.length === 0){ st.done = { winner:-1, reason:'nobody' }; return; }
   let best = live[0], bestKey = null;
+  /* ONLINE (deal:'private') THE RANKING MUST USE PUBLIC FACTS ONLY.
+     notebookFor(seat) reads THIS client's private view — its own hand, and
+     (on the host) the exact shown cards — which is different on every phone,
+     so ranking with it made each phone crown a different cap winner (each
+     phone scored ITSELF highest: it is the only seat whose hand it can see).
+     Proven by the two-client lockstep harness. Instead rank by what every
+     phone witnessed identically: how many cards were SHOWN to a seat (its
+     suggestions that somebody refuted — one card of intel each, and `by` is
+     on the public wire), tie-broken by suggestions made, then seat order. */
+  if (st.deal === 'private'){
+    const shownTo = [], sugBy = [];
+    for (let i = 0; i < st.n; i++){ shownTo.push(0); sugBy.push(0); }
+    (st.log2 || []).forEach(rec => {
+      if (rec.t !== 'suggest') return;
+      if (rec.seat >= 0 && rec.seat < st.n){
+        sugBy[rec.seat]++;
+        if (rec.by >= 0) shownTo[rec.seat]++;
+      }
+    });
+    live.forEach(seat => {
+      const key = [shownTo[seat], sugBy[seat], -seat];
+      if (bestKey === null || cmpKey(key, bestKey) > 0){ bestKey = key; best = seat; }
+    });
+    st.done = { winner: best, reason:'cap' };
+    return;
+  }
+  /* OFFLINE (one device holds every hand): the richer deduction ranking. */
   live.forEach(seat => {
     const nb = notebookFor(st, seat);
     const solved = nb.solvedCats;              /* 0..3 categories pinned */

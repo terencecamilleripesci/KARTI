@@ -791,7 +791,11 @@ function maybeThink(){
   if (E.over(st)) return;
   const seat = E.turn(st);
   if (ownerOf(seat) !== 'ai') return;
-  if (M.net && !M.net.iAmHost) return;    /* online: only the host drives bots (rare here) */
+  /* online: ONLY the host thinks for a bot chair and relays the column —
+     mp.js's net is { seat, host, … } (there is no iAmHost field; checking
+     one meant NOBODY drove the bot and the table hung at its turn). The
+     non-host phones apply the relayed move like any other remote drop. */
+  if (M.net && M.net.seat !== M.net.host) return;
   const delay = reduced() ? 60 : 420;
   M.timer = setTimeout(() => {
     M.timer = 0;
@@ -1192,7 +1196,11 @@ function onlineStart(cfg){
   cfg = cfg || {};
   injectCSS();
   P.show();
-  startMatch({ lvl: 2 }, cfg.seed);
+  /* NEVER fall back to a per-client random seed online (startMatch would if
+     seed were null): every phone must hold the SAME rs, since the host's bot
+     tie-break reads it. mp.js always sends a number, but a missing seed must
+     degrade to the same value (0) on every phone, not a different one each. */
+  startMatch({ lvl: 2 }, (cfg.seed == null ? 0 : cfg.seed) >>> 0);
   /* two seats from the room; the local seat is cfg.you */
   const seats = cfg.seats || [];
   M.meta = [0, 1].map(i => {

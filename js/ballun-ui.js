@@ -460,7 +460,15 @@ function beginMatch(st, seed, opts, net, me, mine){
    ═══════════════════════════════════════════════════════════════════ */
 function seedInputs(){
   if (!M || !M.st) return;
-  const D = M.D | 0;
+  /* ONLINE THE HORIZON IS FIXED, NOT M.D (the briks lesson, verbatim).
+     M.D is measured from THIS phone's RTT, so two phones prefill different
+     windows — and then a real input filed for a tick inside the LONGER
+     window was refused on one phone (already prefilled with the parked
+     centre, and commit() refuses a conflicting value) but accepted on the
+     other: a desync in the first half-second. D_MAX is the same constant
+     on every phone, so the refusal window is identical everywhere.
+     Offline the local D is fine (there is nobody to disagree with). */
+  const D = (M.net ? C.D_MAX : M.D) | 0;
   for (const p of M.st.pads){
     if (p.bot || !E.alive(p)) continue;
     const parked = p.pos;
@@ -1399,7 +1407,10 @@ function onlineStart(cfg){
   const meG = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
   const iAmHost = (cfg.you === (cfg.host | 0));
   const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
-  const mode = (cfg.opts && cfg.opts.mode) || pref().mode || 'lives';
+  /* the MODE must be the relay's word or a CONSTANT — never this phone's
+     localStorage pref. pref() differs per phone, so falling back to it could
+     start 'timed' here and 'lives' there: two different games from one seed. */
+  const mode = (cfg.opts && cfg.opts.mode) === 'timed' ? 'timed' : 'lives';
 
   const bots = [0,0,0,0], aiLvl = [lvl,lvl,lvl,lvl];
   chairs.forEach((s, g) => { bots[g] = (s.kind === 'cpu') ? 1 : 0; });
@@ -1441,9 +1452,32 @@ const NET_HOOKS = {
     if (!M || M.dead || !M.net) return;
     const g = M.net.toGame[seat];
     if (g === undefined || !M.st.pads[g]) return;
-    /* hand the departed seat to the machine at the next tick so both phones
-       flip together; deterministic from there. */
-    E.setBot(M.st, g, 1, M.committed + M.D + 1);
+    /* WHO TAKES THE SEAT OVER, AND WHEN — the desync trap. Each phone hears
+       the departure at its OWN local tick, and mp.js will not relay a 'bot'
+       move for a seat that was not a cpu chair at start, so there is NO wire
+       on which the remaining phones can agree a flip tick. Flipping at a
+       local tick (the old code: M.committed + M.D + 1) made every remaining
+       phone hand the seat to think() at a DIFFERENT tick — paddles diverge,
+       the ball follows, the arena desyncs.
+       The deterministic rule, computable identically on every phone from
+       what it already knows:
+       · while ANOTHER human phone is still in the room, DO NOT flip. The
+         departed paddle simply parks — targetAt() holds its last committed
+         target forever, which is the same value in every phone's input
+         table. Parked is deterministic; think() at a disagreed tick is not.
+       · once I am the LAST human in the room there is nobody left to
+         disagree with, so the seat may go to the machine at my local tick
+         (pure solo from here on). */
+    M.gone = M.gone || {};
+    M.gone[g] = 1;
+    let humans = 0;
+    for (let i = 0; i < M.st.pads.length; i++){
+      const meta = M.seatMeta && M.seatMeta[i];
+      if (!meta || !meta.seated || meta.own === 'ai') continue;
+      if (M.gone[i]) continue;
+      humans++;                      /* me, plus every net seat still here */
+    }
+    if (humans <= 1) E.setBot(M.st, g, 1, M.committed + M.D + 1);
     try { K.toast((M.seatMeta[g] && M.seatMeta[g].name || T('A player','Plejer')) + ' — ' + T('gone.','telaq.')); } catch(e){}
   }
 };

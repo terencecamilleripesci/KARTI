@@ -496,14 +496,24 @@ function commitPlace(seat, r, c, src){
   const flips = E.flipsFor(st, r, c, seat);
   M.hover = null;
 
+  /* APPLY FIRST, ANIMATE AFTER. The engine move lands synchronously so
+     the shared sim can never lag behind the wire: when the apply waited
+     for the flip cascade to finish, a second net move arriving mid-
+     animation (a relay burst, or rAF frozen in a background tab) found
+     the previous move still unapplied, failed the turn check, and mp.js
+     stopped the table "out of step". The cascade below is purely
+     cosmetic — it draws from its own captured {from} colours while
+     drawStatic() skips the cells it owns — and the log/broadcast now
+     leave this phone the instant the move is real. */
+  const res = doMove(seat, { t:'place', r, c }, src);
+  if (!res.ok) return;
+
   if (reduced() || !UI || !UI.geom){
-    doMove(seat, { t:'place', r, c }, src);
     drawStatic();
     afterMove();
     return;
   }
   animatePlace(seat, r, c, flips, () => {
-    doMove(seat, { t:'place', r, c }, src);
     drawStatic();
     afterMove();
   });
@@ -1242,7 +1252,19 @@ function myName(){
    note()/stop() are the two things the transport may say.
    ═══════════════════════════════════════════════════════════════════ */
 const hooks = {
-  onMove(fn){ moveSubs.push(fn); return () => { const i = moveSubs.indexOf(fn); if (i >= 0) moveSubs.splice(i, 1); }; },
+  /* js/mp.js subscribes with (move, { seat, src }) — the shape skarta/
+     tankijiet hand it — while our own feed fires ONE {seat, move, index,
+     src} event. Adapt here: without this, mp.js received the whole event
+     object as the move, toWire() found no `t` on it, and the table was
+     stopped with "a move would not fit on the wire" on the FIRST local
+     placement (and net-echoed moves were never filtered either). Game
+     seats and room seats are the same numbers for aqleb (onlineStart
+     seats the table straight off cfg.seats), so no toRoom mapping. */
+  onMove(fn){
+    const f = ev => { if (ev) fn(ev.move, { seat: ev.seat, src: ev.src }); };
+    moveSubs.push(f);
+    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
+  },
   phase(){ return M ? 'play' : 'idle'; },
   apply(seat, move){ if (!M) return { ok:false, why:'no aqleb' }; return onlineRemote(seat, move); },
   attachNet(net){ if (M){ M.net = net || null; maybeThink(); } },
@@ -1257,7 +1279,10 @@ function onlineStart(cfg){
   injectCSS();
   P.show();
   const seats = (cfg.seats && cfg.seats.length) || (cfg.opts && cfg.opts.seats) || 2;
-  startMatch({ seats: Math.max(2, Math.min(4, seats)), lvl: 2 }, cfg.seed);
+  /* ALWAYS the relay's shared seed, coerced (>>>0 maps a missing seed to 0
+     on every phone alike) — never startMatch's per-client newSeed()
+     fallback, so every phone's match record is identical. */
+  startMatch({ seats: Math.max(2, Math.min(4, seats)), lvl: 2 }, cfg.seed >>> 0);
   const list = cfg.seats || [];
   M.meta = [];
   for (let i = 0; i < seatCount(); i++){

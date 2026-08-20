@@ -1231,9 +1231,18 @@ function onlinePrivate(d){
     : null;
   M.opts = Object.assign({}, M.opts, { deal:'private', caseId, given });
   M.log = [];
+  /* KEEP THE ROSTER. buildState re-deals the table and deal() (humans:0)
+     stamps EVERY seat own:'ai' — so without carrying the roster across the
+     rebuild, every remote HUMAN got reclassified as a bot, and the host's
+     afterMove() would then play their turns for them with aiTurn() while
+     their real requests bounced off the turn guard. Carry the seat roster
+     onlineStart built (own/name/lvl, from the lobby chairs) across. */
+  const roster = M.st.seats.map(s => ({ own:s.own, name:s.name, lvl:s.lvl }));
   M.st = buildState(M.opts, M.seed, M.log);
   M.st.seats.forEach((s, g) => {
-    s.own = g === me ? 'me' : (s.own === 'ai' ? 'ai' : 'net');
+    const prev = roster[g];
+    if (prev){ s.own = prev.own; s.name = prev.name; s.lvl = prev.lvl; }
+    if (g === me) s.own = 'me';
   });
   M.recorded = false;
   render(); afterMove();

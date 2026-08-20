@@ -172,6 +172,8 @@ function startMatch(opts, seed, log){
     anim: null, raf: 0,
     recorded: false,
     net: null, meta: null,
+    netq: [],                  /* wire moves held IN ORDER while an earlier
+                                  one still animates (see onlineRemote)      */
     hover: null,               /* the edge {dir,r,c} under the thumb    */
     press: null,               /* the edge being pressed                */
     flash: null,               /* "extra turn!" flash timer             */
@@ -874,6 +876,9 @@ function afterMove(){
   if (last && last.captured && last.captured.length && last.seat === cur && isLocal(cur)){
     flashExtra();
   }
+  /* a wire move held behind the one that just applied goes next, before the
+     machine is allowed to think off a stale turn */
+  flushNetQ();
   maybeThink();
 }
 
@@ -1310,8 +1315,16 @@ function onlineStart(cfg){
   const seatsList = cfg.seats || [];
   const nSeats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS,
     (seatsList.length || cfg.count || 2)));
-  const sizeId = (sizes().find(s => s.id === cfg.variant) ? cfg.variant : 'm');
-  startMatch({ seats: nSeats, sizeId, lvl: 2 }, cfg.seed);
+  /* the host's board-size variant rides in cfg.opts.mode (mp.js puts the
+     relay's broadcast m.variant there); cfg.variant is kept for any direct
+     caller. Both come off the ONE shared broadcast, so every phone lands on
+     the same board. */
+  const varId = cfg.variant || (cfg.opts && cfg.opts.mode) || '';
+  const sizeId = (sizes().find(s => s.id === varId) ? varId : 'm');
+  /* NEVER fall back to startMatch's per-client newSeed() online: a missing
+     seed must degrade to the SAME value (0) on every phone, never a different
+     one each — the host's bot tie-break reads st.rs off this seed. */
+  startMatch({ seats: nSeats, sizeId, lvl: 2 }, (cfg.seed == null ? 0 : cfg.seed) >>> 0);
   M.meta = [];
   for (let i = 0; i < nSeats; i++){
     const s = seatsList[i] || {};
@@ -1319,10 +1332,17 @@ function onlineStart(cfg){
     M.meta.push({ own, name: s.name || seatColName(i), lvl: s.level || 2 });
   }
   applyMeta();
-  M.net = cfg.net || null;
+  /* stamp iAmHost onto the net handle: maybeThink() only lets THE HOST drive
+     the machine chairs online (its moves are relayed; everyone else applies
+     them off the wire). mp.js's raw net has host/seat but no iAmHost, so
+     without this stamp NO phone drove the bots and a bot's turn hung forever. */
+  const net = Object.assign({}, cfg.net || {}, {
+    iAmHost: (cfg.you | 0) === (cfg.host | 0)
+  });
+  M.net = net;
   M.finished = false;
   openBoard(() => { const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); });
-  hooks.attachNet(cfg.net || null);
+  hooks.attachNet(net);
   afterMove();
   return snapshot();
 }
@@ -1330,15 +1350,40 @@ function onlineRemote(seat, move){
   if (!M) return { ok:false, why:'no kaxxi on the table' };
   if (E.over(M.st)) return { ok:false, why:'the game is over' };
   const dec = E.decWire ? (E.decWire(move) || move) : move;
-  if (M.anim){
-    const res = doMove(seat, dec, 'net');
-    if (!res.ok) return { ok:false, why: res.err || 'that move did not fit the rules' };
-    drawStatic(); afterMove();
+  /* ORDER IS THE GAME. A wire move that lands while an earlier one is still
+     animating (and so NOT YET APPLIED) must WAIT BEHIND it, not jump it:
+     kaxxi's extra-turn rule means two moves from the same seat can BOTH pass
+     check() before either is applied, so applying the newcomer straight away
+     replayed them B-then-A here while every other phone had A-then-B — and
+     the deferred A then failed and was dropped. Queue in arrival order; the
+     queue drains one per applied move in afterMove(). */
+  if (M.anim || (M.netq && M.netq.length)){
+    M.netq.push({ seat, mv:{ t:'edge', dir:dec.dir | 0, r:dec.r | 0, c:dec.c | 0 } });
     return { ok:true };
   }
   if (!E.check(M.st, dec, seat)) return { ok:false, why:'that move did not fit the rules' };
   commitEdge(seat, { dir:dec.dir, r:dec.r, c:dec.c }, 'net');
   return { ok:true };
+}
+/* drain the held wire moves, IN ORDER, one commit at a time. A queued move
+   that no longer fits means the tables have already split — stop loudly (the
+   same posture mp.js takes on a bad live move) rather than drop it silently
+   and drift. */
+function flushNetQ(){
+  if (!M || M.dead || M.anim || !M.netq || !M.netq.length) return;
+  if (E.over(M.st)){ M.netq.length = 0; return; }
+  const q = M.netq.shift();
+  if (!E.check(M.st, q.mv, q.seat)){
+    M.netq.length = 0;
+    if (M.net && typeof M.net.bail === 'function'){
+      try { M.net.bail('A move did not fit the rules here.'); } catch(e){}
+    } else {
+      onlineStop(T('A move did not fit the rules on this phone.',
+                   'Mossa ma qablitx mar-regoli fuq dan it-telefon.'), 'cheat');
+    }
+    return;
+  }
+  commitEdge(q.seat, { dir:q.mv.dir, r:q.mv.r, c:q.mv.c }, 'net');
 }
 function onlineNote(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); }
 function onlineStop(why, tone){

@@ -338,37 +338,40 @@ function bornAt(st, seat){
 function angWrapFu(v){ v = v % WORLD; if (v < 0) v += WORLD; return v | 0; }
 
 /* ── a deterministic SAFE respawn spot ──────────────────────────────
-   A snake that has a life left comes back small. Where it comes back is a
-   PURE function of (seed, seat, dieTick, respawnCount) — no wire, no clock,
-   no Math.random — so every phone re-derives the identical point. We probe a
-   handful of seeded candidate points and keep the FIRST that is clear of
-   every living body; if none is (a packed arena), the least-bad candidate is
-   used. "Clear" is squared-distance only, so it stays integer/deterministic. */
+   A snake that has a life left comes back small. Where it comes back MUST be
+   a PURE function of (seed, seat, dieTick, deaths) — no wire, no clock, no
+   Math.random — because every phone re-derives it locally when it replays
+   the die event, and a rewind (a late message, or advanceHorizon's walk)
+   re-derives it AGAIN later.
+
+   THE OLD BUG, so it is never re-made: this used to probe seeded candidates
+   and keep the first one "clear of every living body" — but "every living
+   body" is st.snakes[*].path AT WHATEVER TICK THIS PHONE HAS SIMULATED EACH
+   SNAKE TO. Remote snakes run behind a per-client jitter buffer, so every
+   phone (and every rewind on the SAME phone) saw different bodies, picked a
+   different candidate, and the respawned head diverged — the classic
+   "starts fine then breaks" desync, proved by the staggered-client harness.
+
+   Now the choice reads NOTHING live: probe the same seeded candidates and
+   take the one FARTHEST (squared, toroidal) from where the snake fell. The
+   fall point (sn.hx/hy at the die tick) is a pure function of the snake's
+   own event history, so every phone — at any replay time — lands on the
+   identical spot. Far-from-the-fall is also decent play: you died where the
+   bodies are, so you come back away from the pile (and away from your own
+   fresh drop pellets). Integer/squared only, fully deterministic. */
 function respawnAt(st, sn){
   const key = (sn.seat + 1) * 977 + (sn.dieAt | 0) * 131 + (sn.deaths | 0);
-  let bestX = WORLD / 2, bestY = WORLD / 2, bestDir = 0, bestClear = -1;
-  const want = ((WORLD_U * 0.14) | 0) << FP;          /* wanted clearance    */
-  const wantSq = want * want;
+  let bestX = WORLD / 2, bestY = WORLD / 2, bestDir = 0, bestFar = -1;
   for (let c = 0; c < 12; c++){
     const h = hash32(st.seed >>> 0, key, c * 2 + 1);
     const j = hash32(st.seed >>> 0, key, c * 2 + 2);
     const hx = h % WORLD, hy = j % WORLD;
-    /* nearest living body point, squared */
-    let near = 1e18;
-    for (let s = 0; s < st.snakes.length; s++){
-      const o = st.snakes[s];
-      if (!o.alive || o.seat === sn.seat) continue;
-      const p = o.path;
-      for (let i = 0; i < p.length; i += 2){
-        const d2 = dist2(hx, hy, p[i].x, p[i].y);
-        if (d2 < near) near = d2;
-      }
-    }
-    if (near > bestClear){
-      bestClear = near; bestX = hx; bestY = hy;
+    /* squared toroidal distance from the fall point — pure per-snake data */
+    const far = dist2(hx, hy, sn.hx, sn.hy);
+    if (far > bestFar){
+      bestFar = far; bestX = hx; bestY = hy;
       bestDir = (hash32(st.seed >>> 0, key, c * 2 + 99) % ANG);
     }
-    if (near >= wantSq) break;                        /* good enough, take it */
   }
   return { hx: bestX, hy: bestY, dir: bestDir };
 }

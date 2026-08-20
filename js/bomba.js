@@ -1702,6 +1702,32 @@ function over(st){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   WIRE — one lockstep input on the relay, byte-safe.
+   The generic codec (js/mp.js toWire + server/karti_server.py
+   v_board_move) carries ONLY fields named in the lobby's published
+   wire.fields, and REFUSES any value over 255. The raw {tick, byte}
+   therefore cannot ride as {k:tick} — the tick passes 255 sixteen
+   seconds in and the whole table is stopped ("could not be sent").
+   So the tick is split into three bytes (24 bits ≈ 291 hours at 16Hz,
+   far beyond any match) and the input byte rides as-is. briks.js's
+   byte-splitting shape, published on the lobby as wire.fields so the
+   codec carries exactly these fields and nothing else.
+     {t:'in', b:input byte, l:tick&255, h:(tick>>8)&255, g:(tick>>16)&255} */
+const WIRE_FIELDS = ['b', 'l', 'h', 'g'];
+function encWire(mv){
+  if (!mv || mv.t !== 'in') return null;
+  const tk = mv.tick | 0, by = mv.byte | 0;
+  if (tk < 0 || tk > 0xFFFFFF || by < 0 || by > 255) return null;
+  return { t:'in', b: by, l: tk & 255, h: (tk >> 8) & 255, g: (tk >> 16) & 255 };
+}
+function decWire(w){
+  if (!w || w.t !== 'in') return null;
+  return { t:'in',
+           tick: (((w.g | 0) & 255) << 16) | (((w.h | 0) & 255) << 8) | ((w.l | 0) & 255),
+           byte: (w.b | 0) & 255 };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    PUBLIC FACE — js/bomba-ui.js and the test harness both read this.
    ═══════════════════════════════════════════════════════════════════ */
 root.KARTI_BOMBA = root.KARTI_BOMBA || {};
@@ -1718,6 +1744,7 @@ root.KARTI_BOMBA.engine = {
   newMatch, step, over, meSeat,
   /* network model */
   delayTicks, encodeInput, decodeInput, predictInput, aiInput, aiFrame,
+  WIRE_FIELDS, encWire, decWire,
   /* introspection for UI + tests */
   bombAt, burningAt, dangerMap, hashState, invariants,
   /* seed pick for a fresh local match (the one Math.random) */

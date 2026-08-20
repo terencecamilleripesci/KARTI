@@ -1501,6 +1501,13 @@ function onlineStart(cfg){
   M.finished = false;
   M.pending = null;         /* an ask/guess sent online, awaiting the answer echo */
   M.pickedOwn = false;      /* becomes true once THIS seat has chosen locally */
+  /* moves that arrive while THIS seat is still on the pick screen. They must
+     NOT be applied yet: an unanswered ask/guess about our secret cannot be
+     judged before we have one (applying it would fabricate a NO on this phone
+     only), and the pick callback rebuilds the state with an empty log, which
+     would silently erase anything applied early — both of which split the
+     tables. Buffered here, replayed in order the moment the pick lands. */
+  M.preQueue = [];
   injectCSS();
   P.show();
 
@@ -1523,6 +1530,12 @@ function onlineStart(cfg){
       openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
       render();
       cue('game.start', { gain:0.9 }, true);
+      /* drain the moves that arrived while we were choosing — in order,
+         through the same gate they would have taken (the defender path now
+         holds our secret, so an early ask/guess is answered truthfully and
+         echoed to the asker, who is still waiting on it). */
+      const q = M.preQueue || []; M.preQueue = null;
+      q.forEach(x => { try { onlineRemote(x.seat, x.wire); } catch(e){} });
     },
     () => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   return snapshot();
@@ -1561,6 +1574,12 @@ function onlineRemote(seat, wire){
   if (g === undefined) return { ok:false, why:'a move from a chair not at this table' };
   const mv = E.decWire(wire);
   if (!mv) return { ok:false, why:'a move this table does not know' };
+  /* still on the pick screen? buffer EVERYTHING (see onlineStart): nothing
+     may touch the state before our secret exists, or the tables drift. */
+  if (M.online && !M.pickedOwn && M.preQueue){
+    M.preQueue.push({ seat, wire });
+    return null;
+  }
   if (mv.t === 'quit'){ doQuit(g); render(); return null; }
   const mySeat = M.online.meG;
 
@@ -1620,7 +1639,14 @@ function onlineRemote(seat, wire){
   }
 
   /* ── (3) anything else already carries its answer (e.g. a legacy fully
-     stamped move): apply as the sender's move. */
+     stamped move): apply as the sender's move. An ask/guess still UNANSWERED
+     here is a move nobody on this phone can judge — applying it would let
+     the engine fabricate a NO / a wrong-guess on this phone only, the silent
+     desync. Refuse loudly instead (mp.js stops the table rather than drift). */
+  if ((mv.t === 'ask' && mv.a === undefined) ||
+      (mv.t === 'guess' && mv.right === undefined)){
+    return { ok:false, why:'a question arrived with no answer and nobody here can judge it' };
+  }
   mv.seat = g;
   const r = doMove(g, mv, 'net');
   if (!r.ok) return { ok:false, why:String(r.err || 'refused') };
@@ -1686,6 +1712,12 @@ const NET_HOOKS = {
     if (!M || M.dead || !NET) return;
     const g = NET.toGame[seat];
     if (g === undefined) return;
+    /* mid-pick, a departure is buffered like any move: applying it now would
+       be erased by the pick's state rebuild and the tables would disagree. */
+    if (M.online && !M.pickedOwn && M.preQueue){
+      M.preQueue.push({ seat, wire:{ t:'quit' } });
+      return;
+    }
     doQuit(g); render();
   }
 };

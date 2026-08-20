@@ -425,6 +425,10 @@ function startMatch(o, seed, net){
     buf: {},                 /* tick -> {bytes:[], have:{}, n} */
     committed: -1,
     lastSent: {},
+    gone: {},                /* seats the relay has FREED (seatGone) — the only
+                                seats advance() may PREDICT; a live seat's byte
+                                is merely in flight and must be WAITED for
+                                (bomba-ui's corrected lockstep rule).          */
     me: 0, mine: [], meta: [],
     net: net || null,
     drive: { on:false, dx:0, dy:0 },     /* left DRIVE stick vector (screen px)*/
@@ -510,11 +514,20 @@ function putInput(tick, seat, byte){
    THE CLOCK — one rAF loop; commit a tick only when its frame is whole.
    ═══════════════════════════════════════════════════════════════════ */
 const MAX_CATCHUP = 6;
-const STALL_CAP = 8;
+/* (STALL_CAP is gone: predicting a LIVE seat after a stall cap was itself a
+   desync — see the lockstep rule inside advance().) */
 function stopLoop(){ if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; } }
 function startLoop(){
   if (!M || M.raf) return;
   M.D = measureD();
+  /* PRIME THE PIPELINE, online: ship an explicit stand-still byte for our
+     seat for ticks 0..D-1. commitLocal() only ever commits N+D, so these
+     first D ticks would otherwise never leave this phone — and a peer that
+     (correctly, see advance) WAITS for every live seat's byte would block
+     on tick 0 forever. D differs per phone (measured from its own RTT), so
+     a peer cannot infer these ticks; they ride the wire like every other
+     byte. Idempotent via putInput's have-guard. (bomba-ui's pattern.)     */
+  if (M.net) for (let pt = 0; pt < M.D; pt++) commitByte(pt, M.me, 0);
   M.t0 = nowMs() + M.lead;
   const stepFn = t => { if (!M || M.dead) return; M.raf = requestAnimationFrame(stepFn); frame(t); };
   M.raf = requestAnimationFrame(stepFn);
@@ -563,9 +576,23 @@ function advance(){
     } else need.push(i);
   }
   if (need.length){
-    M.stall++;
-    if (M.stall < STALL_CAP) return false;
-    for (const i of need) putInput(N, i, E.predictInput(st.tanks[i]));
+    /* THE LOCKSTEP RULE (bomba-ui's corrected form): we may only PREDICT a
+       seat whose chair the relay has FREED (seatGone) — its bytes will never
+       arrive, so every phone predicts it identically from the same applied
+       history. A LIVE seat's byte is merely IN FLIGHT on an ordered, reliable
+       transport: it WILL arrive, and stepping past it on a guess forks this
+       phone from the one that sent the real byte the moment the guess is
+       wrong — the old STALL_CAP did exactly that after ~8 frames (~130ms),
+       which any wifi jitter spike exceeds. So for live seats we WAIT; the
+       room runs at the pace of its slowest link, in step, which is the whole
+       contract of lockstep. (Every phone ships a byte for EVERY tick from 0
+       — see startLoop's priming + commitLocal — so waiting cannot deadlock.) */
+    let waiting = 0;
+    for (const i of need){
+      if (M.gone[i]) putInput(N, i, E.predictInput(st.tanks[i]));
+      else waiting++;
+    }
+    if (waiting){ M.stall++; return false; }
   }
   M.stall = 0;
 
@@ -1665,6 +1692,15 @@ function showResult(res){
 /* ═══════════════════════════════════════════════════════════════════
    ONLINE — start a lockstep room, apply peer bytes. Wired like bomba.
    ═══════════════════════════════════════════════════════════════════ */
+/* the room named no map: every phone derives the SAME one from the SHARED
+   room seed among the maps with enough distinct spawn points for n tanks.
+   Pure integer arithmetic on shared inputs — cannot fork. */
+function onlineMapPick(seed, n){
+  const fit = E.MAP_ORDER.filter(id => mapSpawnCount(id) >= n);
+  const pool = fit.length ? fit : ['klassiku'];
+  return pool[(seed >>> 0) % pool.length];
+}
+
 function onlineStart(cfg){
   cfg = cfg || {};
   const chairs = (cfg.seats || []).filter(Boolean);
@@ -1675,8 +1711,16 @@ function onlineStart(cfg){
   const meG = (toGame[cfg.you] !== undefined) ? toGame[cfg.you] : 0;
   const iAmHost = (cfg.you === (cfg.host | 0));
   const lvl = (chairs.map(s => s && s.level).find(v => v)) || 2;
-  const mode = (cfg.opts && cfg.opts.mode) || pref().mode || 'ffa';
-  const map = (cfg.opts && cfg.opts.map) || (cfg.variant && E.MAPS[cfg.variant] ? cfg.variant : null) || pref().map || 'klassiku';
+  /* MODE + MAP must be identical on every phone or the worlds fork at tick 0.
+     The ONLY shared sources here are cfg (the relay's broadcast: opts.mode
+     carries the room variant, seed is the room seed) — NEVER pref(), which is
+     this device's localStorage and differs phone to phone. When the room
+     names no map, derive one from the SHARED seed (same arithmetic on every
+     phone) among maps with enough spawn points for n tanks. */
+  const mode = (cfg.opts && E.MODES.indexOf(cfg.opts.mode) >= 0) ? cfg.opts.mode : 'ffa';
+  const map = (cfg.opts && cfg.opts.map && E.MAPS[cfg.opts.map]) ? cfg.opts.map
+            : (cfg.variant && E.MAPS[cfg.variant]) ? cfg.variant
+            : onlineMapPick(cfg.seed >>> 0, n);
 
   leave(); injectCSS();
   startMatch({ seats:n, lvl, mode, map }, cfg.seed >>> 0, {});
@@ -1688,7 +1732,18 @@ function onlineStart(cfg){
     const tk = M.st.tanks[g];
     tk.own = g === meG ? 'me' : (s.kind === 'cpu' ? 'ai' : 'net');
     tk.lvl = s.level || lvl;
-    if (tk.own === 'ai' && iAmHost) M.mine.push(g);
+    /* the machine's seats are computed on EVERY phone, locally, at their
+       own tick: aiInput is a pure function of the lockstep state (it never
+       touches st.rs — see the engine's CRITICAL DETERMINISM NOTE), so every
+       phone in the same state derives the IDENTICAL byte — nothing needs
+       broadcasting and nothing can fork. (The old host-only ownership was
+       a real desync: the host computed AI bytes but never shipped them —
+       say() only runs for the human seat — so guests waited, stalled, and
+       then predicted while the host's machines actually played. This is
+       the exact bug bomba-ui documents and fixed the same way.)
+       onlineRemote drops any incoming byte for an owned seat, so a phone
+       that DID broadcast one could not fork us either. */
+    if (tk.own === 'ai') M.mine.push(g);
   });
   P.show();
   openBoard(() => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
@@ -1721,6 +1776,11 @@ const NET_HOOKS = {
     if (!M || M.dead || !M.net) return;
     const g = M.net.toGame[seat];
     if (g === undefined || !M.st.tanks[g]) return;
+    /* FREE the chair: from the first tick its byte is missing, every phone
+       predicts it identically (repeat last steer, fire stripped) instead of
+       waiting forever. No phone can have advanced past that tick without
+       the same real bytes, so the predicted stream is identical everywhere. */
+    M.gone[g] = 1;
     const m = M.meta[g];
     try { K.toast((m && m.name ? m.name : T('A player','Plejer')) + ' — ' + T('gone.','telaq.')); } catch(e){}
   }

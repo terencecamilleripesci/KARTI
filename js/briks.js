@@ -573,7 +573,7 @@ function start(opts){
     broke: [0, 0],
     pads: [], walls: [], balls: [], drops: [], bolts: [],
     nextBall: 0, nextDrop: 0, nextBolt: 0,
-    inp: [], ev: [], over: null, matchOver: null,
+    inp: [], inpMax: [], ev: [], over: null, matchOver: null,
     stalls: 0, iterCap: 0
   };
   /* 1v1. The shape is the general one: (team, side, lo, hi). Two pads
@@ -591,6 +591,7 @@ function start(opts){
       bot: bots[i] | 0, lvl: clamp(lvls[i] | 0 || 2, 1, 3)
     });
     st.inp.push([]);
+    st.inpMax.push(-1);
   }
   for (let s = 0; s < 2; s++) st.walls.push({ side: s, cells: [], max: [], shield: 0 });
   setupRound(st);
@@ -614,6 +615,8 @@ function setupRound(st){
     p.x = (p.lo + p.hi) >> 1; p.tx = p.x;
     p.aiAim = (p.lo + p.hi) >> 1; p.aiSeen = -1;
     st.inp[i] = [];
+    if (!st.inpMax) st.inpMax = [];
+    st.inpMax[i] = -1;
   }
   for (let s = 0; s < st.walls.length; s++){
     const w = st.walls[s];
@@ -678,10 +681,22 @@ function commit(st, pid, forTick, tx){
   const p = st.pads[pid];
   if (!p) return false;
   if (forTick < st.tick) return false;            /* the past is fixed    */
-  tx = clamp(tx | 0, p.lo + p.hw, p.hi - p.hw);
+  /* Clamp to the STATIC lane only, never by p.hw. hw is time-varying
+     (the WIDE power-up), and a committed input must be the same number
+     on every phone — but the local phone commits at sample time and the
+     far phone at arrival time, so an hw-dependent clamp stored DIFFERENT
+     values for the same wire input whenever WIDE expired in between:
+     the input stream itself diverged. movePads() re-clamps p.tx with the
+     live hw on the tick it is used, identically on every phone. */
+  tx = clamp(tx | 0, p.lo, p.hi);
   const have = st.inp[pid][forTick];
   if (have !== undefined && have !== tx) return false;
   st.inp[pid][forTick] = tx;
+  /* the seat's INPUT HORIZON: the highest tick this seat has an input
+     committed FOR. ready() gates on it — see there for why. */
+  if (!st.inpMax) st.inpMax = [];
+  if (forTick > (st.inpMax[pid] | 0) || st.inpMax[pid] === undefined)
+    st.inpMax[pid] = forTick;
   return true;
 }
 
@@ -723,17 +738,37 @@ function targetAt(st, pid, tick){
 }
 
 /* Are all NON-BOT seats resolved for the tick we are about to run? Bots
-   generate their own input inside step(), so they never gate. A seat with
-   no committed input yet AND no earlier one stalls the world (ready=false)
-   rather than being guessed. */
+   generate their own input inside step(), so they never gate.
+
+   THE GATE IS THE INPUT HORIZON, NOT "ANY INPUT AT OR BEFORE t". A live
+   seat files one absolute target per tick, monotonically (forTick =
+   its tick + D), over an ORDERED wire. Gating on inpMax[pid] >= t means:
+   we do not run tick t until we have seen an input committed FOR a tick
+   at or past t — at which point, by ordering, every input this seat will
+   EVER have for ticks <= t has already arrived, and targetAt(t)'s
+   hold-last is the same number on every phone.
+
+   The old gate ("some input exists at k <= t") let a phone whose clock
+   ran ahead simulate tick t with hold-last while the other phone's REAL
+   input for t was still in flight; when it arrived, commit() refused it
+   as the fixed past and the two simulations had permanently diverged —
+   the classic "starts, then breaks". Now the fast phone STALLS (a hitch,
+   never a desync), exactly what the header promises.
+
+   A seat with a pending hand-to-the-machine flip (setBot on) stops
+   gating: its human's stream has ended, the flip tick is agreed, and
+   hold-last carries the seat to the flip. */
 function ready(st){
   const t = st.tick;
   for (const p of st.pads){
     if (p.bot) continue;
-    let found = false;
-    const row = st.inp[p.pid];
-    for (let k = t; k >= 0; k--){ if (row[k] !== undefined){ found = true; break; } }
-    if (!found) return false;
+    if (p.botAt && p.botAt.length){
+      let pending = false;
+      for (const f of p.botAt) if (f.on){ pending = true; break; }
+      if (pending) continue;
+    }
+    const mx = (st.inpMax && st.inpMax[p.pid] !== undefined) ? st.inpMax[p.pid] : -1;
+    if (mx < t) return false;
   }
   return true;
 }

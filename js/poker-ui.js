@@ -1330,6 +1330,12 @@ function step(){
   }
   if (t < 0 || isLocal(t)) return;
   if (ownerOf(t) === 'net') return;
+  /* ONLINE: the HOST alone decides a machine seat's move and relays it
+     (rummy's iDrive rule). Without this gate every client runs think()
+     for the same seat AND broadcasts it — every peer then receives
+     duplicate copies that arrive after the turn moved on, get refused,
+     and read as a cheating seat. One brain, one wire message. */
+  if (M.net && !M.net.host) return;
   M.timer = setTimeout(() => {
     M.timer = 0;
     if (!M || M.dead) return;
@@ -2152,16 +2158,26 @@ function onlineRemote(seat, wire){
   return null;
 }
 
-/* a seat walking out: fold it and pass the turn. Reuses the engine's own
-   fold, which is the honest way to remove a live hand mid-street. */
+/* a seat walking out: the engine's own QUIT move, THROUGH THE LOG.
+   The engine made quit commutative on purpose (it folds the live hand,
+   marks the chair gone so no future hand deals it, and touches no card
+   and no RNG), so every client lands on the same table whichever order
+   the quit arrives in relative to other moves. The old shape here —
+   fold if it happened to be their turn locally, else poke s.gone
+   directly — was asymmetric (turn differs by local timing) and the
+   direct poke never entered the log, so any rebuild lost it. doMove()
+   cannot carry it (quit ignores turn order by design), so it is pushed
+   and applied here exactly the way buildState() will replay it. */
 function doQuit(g){
   if (!M || M.dead || E.over(M.st)) return;
-  const s = M.st.seats[g];
-  if (!s || s.out || s.folded) return;
-  if (E.turn(M.st) === g){
-    const fold = (E.legal(M.st, g) || []).find(x => x.t === 'fold');
-    if (fold){ fold.seat = g; doMove(g, fold, 'net'); }
-  } else { s.gone = true; }
+  const mv = { t: 'quit', seat: g };
+  if (!E.check(M.st, mv, g)) return;               /* already gone: idempotent */
+  const idx = M.log.length;
+  M.log.push(mv);
+  E.apply(M.st, mv);
+  autosave();
+  fire(moveSubs, { seat: g, move: clone(mv), index: idx, src: 'net' });
+  fire(stateSubs, { reason: 'move', index: idx });
 }
 
 function onlineNote(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); }

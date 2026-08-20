@@ -587,7 +587,8 @@ function startMatch(opts, seed, net){
     theme: THEMES[themeKey],
     variant: V,
     raf: 0, busy:false, dead:false, finished:false,
-    shopOpen:false, aiPending:0
+    shopOpen:false, aiPending:0,
+    fireQ: []                   /* moves that arrived while a flight played */
   };
   return M;
 }
@@ -2575,7 +2576,15 @@ function canAct(){
    settled world.
    ═══════════════════════════════════════════════════════════════════ */
 function fireShot(mv, src){
-  if (M.busy) return;
+  if (M.busy){
+    /* A THROW MUST NEVER BE DROPPED. A remote (or queued AI) move can land
+       while our own flight is still animating; the sender has ALREADY
+       applied it to their engine, so swallowing it here forks the match —
+       the exact "starts, then breaks" desync. Queue it; the flight's done
+       callback drains the queue in arrival order. */
+    (M.fireQ || (M.fireQ = [])).push({ mv, src });
+    return;
+  }
   M.busy = true;
   const seat = mv.seat;
   /* material colours at the impacts, sampled from the LIVE world just
@@ -2593,8 +2602,12 @@ function fireShot(mv, src){
   const arcPts = firstTrackPts(rep);
   if (!M.lastArc) M.lastArc = [null, null];
   if (arcPts) M.lastArc[seat] = { pts: arcPts, seat, born: nowMs() };
-  /* tell the wire — AFTER it has been applied here, never before */
-  if (src === 'me') say(seat, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
+  /* tell the wire — AFTER it has been applied here, never before.
+     'ai' goes out too: a CPU chair is host-decided-and-RELAYED (its buys
+     already were, at aiPlay); without this the other phone never sees the
+     machine's throw and the match forks. mp.js stamps it as the bot's
+     chair (began.bots) and drops only src:'net' echoes. */
+  if (src === 'me' || src === 'ai') say(seat, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
   saveGame();
   cue('duel.attack', { gain:0.75 }, true);
   /* the muzzle flash + a kick of the camera at the hand */
@@ -2607,6 +2620,13 @@ function fireShot(mv, src){
   playFlight(rep, () => {
     M.busy = false;
     afterThrow(rep);
+    /* drain anything that arrived mid-flight, in arrival order — each
+       queued move goes through this same function, so it is applied,
+       relayed (if ours) and animated exactly as if it had come in idle */
+    if (M && !M.dead && !M.busy && !M.st.done && M.fireQ && M.fireQ.length){
+      const q = M.fireQ.shift();
+      fireShot(q.mv, q.src);
+    }
   });
 }
 
@@ -3530,8 +3550,9 @@ function onlineRemote(seat, wire){
     if (M.st.done){ finish(); }
     return null;
   }
-  /* a throw — apply and animate, then hand back to the turn machinery */
-  if (M.busy) { /* rare: still animating our own. Queue by applying after */ }
+  /* a throw — apply and animate, then hand back to the turn machinery.
+     If we are still animating our own, fireShot QUEUES it (it must never
+     be dropped: the sender's engine has already applied it). */
   const chk = E.legal(M.st, { seat:g, w:mv.w, dx:mv.dx, dy:mv.dy });
   if (!chk.ok) return { ok:false, why:'a refused throw (' + (chk.why ? chk.why.en : '?') + ')' };
   fireShot({ seat:g, w:mv.w, dx:mv.dx, dy:mv.dy }, 'net');

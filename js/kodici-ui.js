@@ -1097,7 +1097,26 @@ function onlineStart(cfg){
   injectCSS();
   cfg = cfg || {};
   const you = (cfg.you != null) ? cfg.you : 0;
-  const o = boardOpts(pref().cfg || { board:'classic', limit:10, lvl:2 });
+  /* THE ONLINE CONFIG MUST BE SHARED — this used to read pref().cfg, this
+     phone's LAST OFFLINE SETUP from localStorage. Two phones whose last
+     local games differed then built DIFFERENT boards (4×6 vs 5×8, limit 10
+     vs ∞): a 5-slot guess is illegal on a 4-slot board, so the receiving
+     phone silently refused it, never echoed feedback, and the match hung /
+     drifted apart. Online now reads ONLY what the relay broadcast to BOTH
+     phones (cfg.opts — a variant word if one is ever whitelisted for
+     kodici), else the same fixed classic board on every phone. A local
+     preference never shapes an online match. */
+  const shared = (cfg.opts && typeof cfg.opts === 'object') ? cfg.opts : {};
+  const bid = BOARD_OPTS.some(b => b.id === shared.mode)  ? shared.mode
+            : BOARD_OPTS.some(b => b.id === shared.board) ? shared.board
+            : 'classic';
+  const lim = (typeof shared.limit === 'number' && shared.limit >= 0)
+            ? (shared.limit | 0) : 10;
+  const o = boardOpts({ board: bid, limit: lim, lvl: 2 });
+  /* the relay's shared seed, NEVER a per-client E.newSeed() fallback (that
+     was konkwista's desync), and the SAME value into M.seed and M.st so the
+     hooks report the seed the engine actually holds. */
+  const seed = cfg.seed | 0;
   NET = {
     toGame: cfg.toGame || {0:0,1:1},
     toRoom: cfg.toRoom || {0:0,1:1},
@@ -1106,9 +1125,9 @@ function onlineStart(cfg){
   };
   M = {
     opts: Object.assign({}, o, { deal:'private', mode:'online' }),
-    seed: (cfg.seed|0) || E.newSeed(),
+    seed,
     log:[], secrets:[null,null],
-    st: E.newMatch(Object.assign({}, o, { deal:'private' }), (cfg.seed|0)||0),
+    st: E.newMatch(Object.assign({}, o, { deal:'private' }), seed),
     mode:'online', you: NET.meG, ctx:null, phase:'set', draft:[], veil:0, shown:-1,
     net: cfg.net || {}, dead:false,
     iSet:false, oppSet:false,               /* the two codemaker-ready bits */

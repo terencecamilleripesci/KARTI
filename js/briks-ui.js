@@ -499,10 +499,18 @@ function startMatch(opts, seed, net){
    it is the same "hold still at the start" input on both sides. */
 function seedInputs(){
   if (!M || !M.st) return;
+  /* ONLINE THE HORIZON IS FIXED, NOT M.D. M.D is measured from THIS
+     phone's RTT, so two phones prefill different windows — and then a
+     real input filed for a tick inside the LONGER window was refused on
+     one phone (already prefilled) but accepted on the other: a desync in
+     the first half-second. D_MAX is the same constant on every phone, so
+     the refusal window is identical everywhere. Offline the local D is
+     fine (there is nobody to disagree with). */
+  const horizon = (M.net ? C.D_MAX : M.D) + 1;
   for (const p of M.st.pads){
     if (p.bot) continue;
     const parked = p.x;
-    for (let t = 0; t <= M.D + 1; t++) E.commit(M.st, p.pid, t, parked);
+    for (let t = 0; t <= horizon; t++) E.commit(M.st, p.pid, t, parked);
   }
 }
 
@@ -634,10 +642,15 @@ function doTick(){
      (absolute targets are forgiving of a dropped batch — engine header).
      sample() clamps to the lane and returns the tick it filed for. */
   const tx = (M.thumbX == null) ? st.pads[M.me].x : M.thumbX;
-  const forTick = E.sample(st, M.me, tx, M.D);
+  const forTick = st.tick + M.D;
+  const committed = E.commit(st, M.me, forTick, tx);
   M.lastForTick = forTick;
-  if (M.net){
-    /* travel it. mp.js carries the same {seat,move} shape serp uses. */
+  if (M.net && committed){
+    /* travel it — but ONLY an input the local sim actually took. A commit
+       the engine refused (a tick already filed, e.g. inside the warmup
+       prefill) must not reach the other phone, or it applies there what
+       was rejected here and the two sims split. mp.js carries the same
+       {seat,move} shape serp uses. */
     say(M.me, { t:'tx', forTick: forTick, tx: tx });
   }
 

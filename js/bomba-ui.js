@@ -571,7 +571,12 @@ function startMatch(opts, seed, net){
     t0: 0,                        /* nowMs() of tick 0                       */
     raf: 0, dead: false, finished: false,
     fps: { n:0, at:0, val:0 },
-    stall: 0,                     /* ticks we have waited for a missing input */
+    stall: 0,                     /* frames we have waited for a missing input */
+    gone: {},                     /* game seats whose chair the relay freed:
+                                     no more bytes will ever arrive, so these
+                                     are the ONLY seats we may predict for —
+                                     every phone predicts them identically
+                                     from the same applied history. */
     lead: LEAD_MS,
     ledSaid: -1,
     /* floating "collect" labels: {seat,text,col,c,born} spawned when a
@@ -648,6 +653,14 @@ function stopLoop(){
 function startLoop(){
   if (!M || M.raf) return;
   M.D = measureD();
+  /* PRIME THE PIPELINE, online: ship an explicit stand-still byte for our
+     seat for ticks 0..D-1. commitLocal() only ever commits N+D, so these
+     first D ticks would otherwise never leave this phone — and a peer that
+     (correctly, see advance) WAITS for every live seat's byte would block
+     on tick 0 forever. D differs per phone (it is measured from each
+     phone's own RTT), so a peer cannot infer these ticks; they must ride
+     the wire like every other byte. Idempotent via commitByte's guard. */
+  if (M.net) for (let pt = 0; pt < M.D; pt++) commitByte(pt, M.me, 0);
   M.t0 = nowMs() + M.lead;
   const step = t => {
     if (!M || M.dead) return;
@@ -726,7 +739,11 @@ function meter(now){
        function on every phone.
    Returns true if it stepped, false if it is blocking on a peer.
    ═══════════════════════════════════════════════════════════════════ */
-const STALL_CAP = 8;      /* ticks we will genuinely wait before predicting */
+/* NOTE: there is deliberately NO stall cap for LIVE seats any more — see
+   advance(). Predicting a live seat's in-flight byte after a fixed wait was
+   a genuine desync (the sender stepped on the real byte, we stepped on a
+   guess, and nothing ever reconciled). M.stall now only counts frames for
+   the HUD; the wait itself lasts until the byte lands or the chair is freed. */
 
 function advance(){
   const st = M.st;
@@ -758,10 +775,23 @@ function advance(){
   }
 
   if (need.length){
-    /* wait a little for the real bytes; then predict so we never freeze */
-    M.stall++;
-    if (M.stall < STALL_CAP) return false;
-    for (const i of need) putInput(N, i, E.predictInput(st.players[i]));
+    /* THE LOCKSTEP RULE, corrected: we may only predict a seat whose chair
+       the relay has FREED (seatGone) — its bytes will never arrive, so every
+       phone predicts it identically from the same applied history. A LIVE
+       seat's byte is merely IN FLIGHT (the transport is ordered and
+       reliable): it WILL arrive, and stepping past it on a guess forks this
+       phone from the one that sent the real byte the moment the guess is
+       wrong — the old STALL_CAP did exactly that after ~8 frames (~133ms),
+       which any wifi jitter spike exceeds. So for live seats we WAIT: the
+       room runs at the pace of its slowest link, in step, which is the whole
+       contract of lockstep. (Every phone ships a byte for EVERY tick from 0
+       — see startLoop's priming + commitLocal — so waiting cannot deadlock.) */
+    let waiting = 0;
+    for (const i of need){
+      if (M.gone[i]) putInput(N, i, E.predictInput(st.players[i]));
+      else waiting++;
+    }
+    if (waiting){ M.stall++; return false; }
   }
   M.stall = 0;
 
@@ -801,8 +831,13 @@ function commitLocal(tick){
   commitByte(tick, me, byte);
 }
 
-/* commit one of our bytes AND ship it, once */
+/* commit one of our bytes AND ship it, ONCE — the guard matters now that a
+   blocked advance() retries every frame: without it the same (tick, byte)
+   would be re-shipped 60×/s for as long as we wait on a slow peer. */
 function commitByte(tick, seat, byte){
+  if (tick <= M.committed) return;
+  const s = slot(tick);
+  if (s.have[seat]) return;              /* already committed + shipped */
   putInput(tick, seat, byte);
   M.lastSent[seat] = byte;
   say(seat, tick, byte);
@@ -1848,10 +1883,13 @@ function leave(){
    ═══════════════════════════════════════════════════════════════════ */
 function say(seat, tick, byte){
   if (!M || !M.net) return;
-  /* only ship a seat we are authoritative for, and only when it CHANGED
-     from the byte we last shipped for it — a held key is implied by
-     silence + predictInput on the far side, which keeps the stream tiny */
-  fire(moveSubs, { seat, move: { t:'in', k:tick, b:byte | 0 }, src:'local' });
+  /* the engine's byte-safe wire shape: every field 0..255, because the
+     generic codec (mp.js toWire / the relay) refuses any value over 255 —
+     a raw {k:tick} dies the moment the tick passes 255. encWire splits
+     the tick into three bytes; decWire on the far side reassembles it. */
+  const w = E.encWire({ t:'in', tick: tick | 0, byte: byte | 0 });
+  if (!w) return;
+  fire(moveSubs, { seat, move: w, src:'local' });
 }
 
 /* a message from another chair: an input byte for a NET seat at a tick.
@@ -1862,9 +1900,12 @@ function onlineRemote(seat, wire){
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
   if (g === undefined || !M.st.players[g]) return null;
   if (M.mine.indexOf(g) >= 0) return null;           /* our own, echoed back */
-  const mv = wire;
-  if (!mv || mv.t !== 'in') return null;
-  putInput(mv.k | 0, g, mv.b | 0);
+  if (M.gone && M.gone[g]) return null;              /* a freed chair: every
+       phone predicts this seat from its last APPLIED byte — a zombie packet
+       reaching only some phones must not fork the stream, so none apply it */
+  const mv = E.decWire(wire);
+  if (!mv) return null;
+  putInput(mv.tick, g, mv.byte);
   return null;
 }
 
@@ -1919,11 +1960,16 @@ function onlineStart(cfg){
     const pl = M.st.players[g];
     pl.own = g === meG ? 'me' : (s.kind === 'cpu' ? 'ai' : 'net');
     pl.lvl = s.level || lvl;
-    /* the machine's seats belong to the HOST and to exactly one phone —
-       they are deterministic, but only one owner may broadcast them, or
-       two hosts would each commit a (possibly different) AI byte for the
-       same tick. */
-    if (pl.own === 'ai' && iAmHost) M.mine.push(g);
+    /* the machine's seats are computed on EVERY phone, locally, at their
+       own tick: aiInput is a pure function of the lockstep state, so every
+       phone in the same state derives the IDENTICAL byte — nothing needs
+       broadcasting and nothing can fork. (The old host-only ownership was
+       the desync: the host computed AI bytes but never shipped them —
+       say() only runs for the human seat — so guests waited, stalled, and
+       then predicted 0 forever while the host's machines actually played.)
+       onlineRemote drops any stray incoming byte for an owned seat, so a
+       phone that DID broadcast one could not fork us either. */
+    if (pl.own === 'ai') M.mine.push(g);
   });
 
   P.show();
@@ -1960,6 +2006,10 @@ const NET_HOOKS = {
     if (!M || M.dead || !M.net) return;
     const g = M.net.toGame[seat];
     if (g === undefined || !M.st.players[g]) return;
+    /* the chair is freed for good: from here this seat is PREDICTED (repeat
+       last applied byte) on every phone identically, and any straggler
+       packet for it is dropped (onlineRemote) so it cannot fork anyone. */
+    M.gone[g] = 1;
     const m = M.meta[g];
     try { K.toast((m && m.name ? m.name : T('A player', 'Plejer')) + ' — ' +
                   T('gone.', 'telaq.')); } catch(e){}
@@ -2411,6 +2461,12 @@ R.lobby = {
   maxSeats: E.MAX_SEATS,
   levels: LEVELS,
   defaultLevel: 2,
+  /* THE WIRE CONTRACT — without this, mp.js's codec falls back to tombla's
+     field list, which does not know our fields: toWire() would refuse the
+     very first input byte and tableStop the whole room ("could not be
+     sent"). The engine's shape keeps every value 0..255 (the codec's and
+     the relay's hard cap) by splitting the tick into three bytes. */
+  wire: { fields: E.WIRE_FIELDS },
   /* THE HOST-CHANGEABLE MAP, as the shared lobby's Rules picker wants it:
      one variant per shipped map. The `net` word IS the engine's map id, so
      the relay's deterministic variant broadcast names the exact same

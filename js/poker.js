@@ -514,9 +514,12 @@ function legal(st, seat){
 function check(st, mv, seat){
   if (!mv || st.done) return false;
   /* QUIT never waits for a turn: a player walks out whenever they walk
-     out. Deliberately commutative — it touches no card, no pot and
-     never the RNG, so a quit racing somebody's turn lands on the same
-     state whichever order the two arrive in. */
+     out. It touches no card, no pot and never the RNG, and it is
+     idempotent — but it is NOT freely commutative with a betting move
+     (a quit that ends the hand makes a racing call illegal), so online
+     it must ride the relay's ORDERED stream and be applied at the same
+     log position on every client, which is what the relay's single
+     socket stream and poker-ui's logged doQuit() give it. */
   if (mv.t === 'quit')
     return seat >= 0 && seat < st.n && !!st.seats[seat] && !st.seats[seat].gone;
   if (turn(st) !== seat) return false;

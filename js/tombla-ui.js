@@ -2836,7 +2836,23 @@ function onlineStart(cfg){
      one already in the engine's own words, is left exactly as it was. */
   const opts = Object.assign({}, cfg.opts || {});
   if (typeof opts.mode === 'string') opts.mode = netToMode(opts.mode);
-  T.startMatch(opts, cfg.seed);
+  /* ── AUTO-MARK NEVER PLAYS ONLINE ─────────────────────────────────
+     apply()'s auto-mark branch marks only the seats THIS phone owns
+     ('me'/'hot') — per-client accessibility, correct offline. Online,
+     the same {t:'call'} would then mutate a DIFFERENT seat's marks on
+     every phone and the room drifts apart on the first number. mp.js
+     never sends `auto`, but a cfg that ever carried it would desync
+     sixteen phones at once, so it is forced off here, once, where the
+     room's opts become the engine's. */
+  opts.auto = false;
+  /* ── THE SHARED SEED, ALWAYS ──────────────────────────────────────
+     startMatch() falls back to newSeed() — Math.random, PER PHONE —
+     when its seed is null. Offline that is the right deal; online it
+     is sixteen different games wearing the same room. The relay's
+     seed is the only seed, so coerce whatever arrived to one shared
+     uint32 (absent/garbage → 0, the SAME 0 on every phone) and the
+     per-client fallback can never fire from here. */
+  T.startMatch(opts, cfg.seed >>> 0);
   const st = T.state();
   (cfg.seats || []).forEach((s, i) => {
     if (!st.seats[i]) return;

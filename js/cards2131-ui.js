@@ -1064,6 +1064,13 @@ function step(){
   }
   if (t < 0 || isLocal(t)) return;
   if (ownerOf(t) === 'net') return;
+  /* ONLINE: only the HOST drives the machine seats (konkwista-ui's rule,
+     js/konkwista-ui.js's step). Without this every client would think()
+     the same bot move, apply it locally AND broadcast it, and the relay
+     would serialize both copies — each phone lands the duplicate at a
+     different log index and the lockstep breaks. The host's bot move
+     reaches everyone else as an ordinary 'net' move via onlineRemote. */
+  if (M.net && !M.net.host) return;
   M.timer = setTimeout(() => {
     M.timer = 0;
     if (!M || M.dead) return;
