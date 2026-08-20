@@ -556,6 +556,11 @@ function create(o){
     v: 1, seed: seed, rndN: 0, bots: bots,
     opt: {
       revealRoles: o.revealRoles !== false,      /* default ON — see header */
+      /* dayChat ON (default): the pjazza argues in the in-app chat (remote play).
+         OFF: the day is spoken OUT LOUD in the room — the pjazza text chat is
+         closed. This NEVER touches the secret klikka night chat or the dead
+         chat, which stay in-app so nobody has to break the room's silence. */
+      dayChat: o.dayChat !== false,
       dayTimer:  clampInt(o.dayTimer, 60, 900, 240),
       nightTimer: clampInt(o.nightTimer, 30, 300, 90)
     },
@@ -1336,18 +1341,22 @@ function channels(G, seat){
   const R = ROLES[p.role];
   const night = G.phase === 'night' || G.phase === 'shot';
   const out = [];
+  const dayChatOn = G.opt ? G.opt.dayChat !== false : true;   /* host rule: day argued in-app vs out loud */
   out.push({
     id:'pjazza', name:'Il-Pjazza', cls:'day',
     read: true,
-    /* the same rule as view().speak: the gagged write nothing by day,
-       but the planka unties the sarima */
-    write: p.alive && !G.over &&
+    /* the same rule as view().speak: the gagged write nothing by day, but the
+       planka unties the sarima. When dayChat is OFF the whole day is spoken out
+       loud, so the pjazza text chat is closed (read-only) for everyone. */
+    write: dayChatOn && p.alive && !G.over &&
            ((G.phase === 'defence' && seat === G.accused) ||
             ((G.phase === 'day' || G.phase === 'verdict') && G.muted !== seat)),
-    note: G.phase === 'defence'
-      ? (seat === G.accused ? 'Iddefendi ruħek.' : 'Il-planka għand l-akkużat.')
-      : (G.muted === seat && !night ? 'Is-sarima f’ħalqek — illum tivvota biss.'
-         : (night ? 'Bil-lejl il-pjazza magħluqa.' : ''))
+    note: !dayChatOn
+      ? 'Il-pjazza titkellem bil-fomm — bla chat.'
+      : (G.phase === 'defence'
+        ? (seat === G.accused ? 'Iddefendi ruħek.' : 'Il-planka għand l-akkużat.')
+        : (G.muted === seat && !night ? 'Is-sarima f’ħalqek — illum tivvota biss.'
+           : (night ? 'Bil-lejl il-pjazza magħluqa.' : '')))
   });
   if (R.side === 'klikka' && p.alive){
     out.push({

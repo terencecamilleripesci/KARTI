@@ -1595,7 +1595,8 @@ function openPNP(names, roster){
   const seed = (Math.random() * 0xFFFFFFFF) >>> 0;
   const G = S.create({
     players: names, roster: roster, seed: seed,
-    revealRoles: ST.pref.reveal !== false, dayTimer: ST.pref.dayT || 240
+    revealRoles: ST.pref.reveal !== false, dayTimer: ST.pref.dayT || 240,
+    dayChat: false   /* pass-the-phone is one device in the room — the day is spoken out loud */
   });
   U = { mode:'pnp', G, names, ctx:null, dealt:[], voteTurn:null, verdictQ:[] };
   board();
@@ -1950,11 +1951,16 @@ function onlineStart(cfg){
      matches LOBBY.settings below; a room that sends nothing gets the
      balanced defaults. */
   const op = cfg.opts || {};
-  const md = S.MODES.find(m => m.id === op.mode);
+  const rawMode = op.mode || '';
+  const hushed = /_hushed$/.test(rawMode);                 /* the day is spoken out loud */
+  const md = S.MODES.find(m => m.id === rawMode.replace('_hushed', ''));
   const G = S.create({
     players: names, seed: (cfg.seed >>> 0) || 1, bots: bots,
     pool: md ? md.pool : null,
     revealRoles: op.reveal !== false,
+    /* host rule: day argued in-app (default) vs spoken out loud. Explicit
+       opts.dayChat wins; otherwise the '_hushed' variant suffix decides. */
+    dayChat: (op.dayChat !== undefined) ? (op.dayChat !== false) : !hushed,
     dayTimer: [180, 240, 300, 420].indexOf(op.dayT) >= 0 ? op.dayT : 240
   });
   U = { mode:'net', G, names, seat: cfg.you | 0, host: (cfg.host | 0) === (cfg.you | 0) || cfg.you === 0,
@@ -2398,6 +2404,7 @@ const LOBBY = {
       { id:'mode', type:'choice', label:'Il-borma tar-rwoli', def:'bilanc',
         options: S.MODES.map(m => ({ v: m.id, label: m.name, note: m.note })) },
       { id:'reveal', type:'bool', label:'Il-mejtin jikxfu r-rwol', def:true },
+      { id:'dayChat', type:'bool', label:'Chat bi nhar (jekk le, titkellmu bil-fomm)', def:true },
       { id:'dayT', type:'choice', label:'Ħin il-pjazza', def:240,
         options:[{ v:180, label:'3 min' }, { v:240, label:'4 min' },
                  { v:300, label:'5 min' }, { v:420, label:'7 min' }] }
@@ -2415,24 +2422,35 @@ const LOBBY = {
      The room's other settings (reveal, day-timer, pool editor) do NOT
      fit a single enum, so they are NOT exposed here — they keep their
      defaults online, and can ride the opaque `rules` blob later. */
-  variants: S.MODES.map(m => ({
-    net: m.id,
-    label: { en: (MODE_EN[m.id] && MODE_EN[m.id].name) || m.name, mt: m.name }
-  })),
+  /* the host picks role-pool × day-talk as one enum (the lobby carries a single
+     variant word). '<mode>' = day argued in the app; '<mode>_hushed' = the day is
+     spoken OUT LOUD (no day chat). The secret night klikka chat + dead chat are
+     never affected. onlineStart parses the '_hushed' suffix. */
+  variants: S.MODES.reduce((acc, m) => {
+    const base = (MODE_EN[m.id] && MODE_EN[m.id].name) || m.name;
+    acc.push({ net: m.id, label: { en: base + ' · in-app chat', mt: m.name + ' · chat' } });
+    acc.push({ net: m.id + '_hushed', label: { en: base + ' · talk out loud', mt: m.name + ' · bil-fomm' } });
+    return acc;
+  }, []),
   currentVariant(){
     /* the current mode lives on the settings field's default — the same
        object the room broadcasts and onlineStart reads as cfg.opts.mode.
        Fall back to the persisted setup pref, then the balanced default. */
-    let md = null;
+    let md = null, dc = true;
     try {
       const f = LOBBY.settings.fields.find(x => x.id === 'mode');
       md = f && f.def;
+      const g = LOBBY.settings.fields.find(x => x.id === 'dayChat');
+      if (g && g.def === false) dc = false;
     } catch(e){}
     if (md !== 'bilanc' && md !== 'borma') md = ST.pref && ST.pref.mode;
-    return (md === 'borma') ? 'borma' : 'bilanc';
+    if (ST.pref && ST.pref.dayChat === false) dc = false;
+    return ((md === 'borma') ? 'borma' : 'bilanc') + (dc ? '' : '_hushed');
   },
   applyVariant(net){
-    const variant = (net === 'borma') ? 'borma' : 'bilanc';
+    const hushed = /_hushed$/.test(net || '');
+    const base = String(net || '').replace('_hushed', '');
+    const variant = (base === 'borma') ? 'borma' : 'bilanc';
     /* set the mode IN LOBBY.settings, where the online start reads it from
        (cfg.opts.mode): update the field default so a room broadcasting its
        settings carries the new pot, and persist it in the karti_suspett_v1
@@ -2442,9 +2460,11 @@ const LOBBY = {
     try {
       const f = LOBBY.settings.fields.find(x => x.id === 'mode');
       if (f) f.def = variant;
+      const g = LOBBY.settings.fields.find(x => x.id === 'dayChat');
+      if (g) g.def = !hushed;
     } catch(e){}
-    try { ST.pref.mode = variant; persist(); } catch(e){}
-    return { variant };
+    try { ST.pref.mode = variant; ST.pref.dayChat = !hushed; persist(); } catch(e){}
+    return { variant: variant + (hushed ? '_hushed' : '') };
   },
   get blurb(){ return T('Who is lying? One village, a hidden klikka, and the chat is the game.',
     'Min qed jigdeb? Raħal wieħed, klikka moħbija, u l-chat hu l-logħba.'); },
