@@ -806,6 +806,16 @@ function injectCSS(){
   '#scr-party .su-fall.night{background:radial-gradient(circle at 50% 30%,rgba(88,58,180,.92),rgba(4,3,12,.97));color:#C9B4FF}' +
   '#scr-party .su-fall.day{background:radial-gradient(circle at 50% 30%,rgba(255,197,66,.9),rgba(60,32,8,.95));color:#2A1B00}' +
   '#scr-party .su-fall small{display:block;font-size:11px;letter-spacing:1px;opacity:.85;font-weight:700}' +
+  /* the dawn obituary — night victims with portrait + revealed role */
+  '#scr-party .su-obit{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px 0 2px;letter-spacing:0}' +
+  '#scr-party .su-obit.quiet{font-size:13px;font-weight:800;letter-spacing:.5px;opacity:.92}' +
+  '#scr-party .su-obit .ob{display:flex;flex-direction:column;align-items:center;gap:3px}' +
+  '#scr-party .su-obit .ob .pic{width:54px;height:54px;border-radius:12px;overflow:hidden;display:flex;' +
+    'align-items:center;justify-content:center;background:rgba(0,0,0,.22);border:2px solid rgba(0,0,0,.35);' +
+    'box-shadow:0 5px 12px rgba(0,0,0,.45)}' +
+  '#scr-party .su-obit .ob .pic img{width:100%;height:100%;object-fit:cover;filter:grayscale(.35) brightness(.92)}' +
+  '#scr-party .su-obit .ob b{font-size:12.5px;font-weight:900}' +
+  '#scr-party .su-obit .ob i{font-size:10px;font-style:normal;opacity:.85;font-weight:800}' +
   '@keyframes suFall{0%{opacity:0}18%{opacity:1}72%{opacity:1}100%{opacity:0}}' +
   /* ── THE BIG CLOCK. The day has to feel like it is running out. ── */
   '#scr-party .su-clockbar{flex:0 0 auto;display:flex;align-items:center;gap:9px;padding:7px 11px;' +
@@ -839,27 +849,26 @@ function injectCSS(){
     'font-weight:800;background:rgba(255,197,66,.16);border:1px solid rgba(255,197,66,.4);' +
     'color:var(--gold,#FFC542)}' +
   '@media (prefers-reduced-motion:reduce){' +
-    '#scr-party .su-fall,#scr-party .su-vil .ghost,#scr-party .su-vil.hanging .fig,' +
-    '#scr-party .su-vil.hanging .gallows,#scr-party .su-vil.slain .fig,' +
-    '#scr-party .su-vil .slash,#scr-party .su-vil .gallows .rope,' +
-    '#scr-party .su-vil .gallows .noose,#scr-party .su-clockbar .big.low{animation-duration:.01s}}' +
+    '#scr-party .su-fall,#scr-party .su-vil .ghost,#scr-party .su-vil .fig,' +
+    '#scr-party .su-vil.slain .fig,#scr-party .su-hangmid .victim,' +
+    '#scr-party .su-vil .slash,#scr-party .su-clockbar .big.low{animation-duration:.01s}}' +
   'body.reduced #scr-party .su-fall,body.reduced #scr-party .su-vil .ghost,' +
-    'body.reduced #scr-party .su-vil.hanging .fig,body.reduced #scr-party .su-vil.slain .fig,' +
-    'body.reduced #scr-party .su-vil .slash{animation-duration:.01s}' +
-  /* short screens: the roster and log give way, the chat keeps its room */
-  '@media (max-height:700px){' +
+    'body.reduced #scr-party .su-vil .fig,body.reduced #scr-party .su-vil.slain .fig,' +
+    'body.reduced #scr-party .su-hangmid .victim,body.reduced #scr-party .su-vil .slash{animation-duration:.01s}' +
+  /* short screens: the roster and log give way, the chat keeps its room. The
+     map keeps its shape (it is a positioned ring now, not a scrollable grid) —
+     just cap its height a little so the chat still has room. */
+  '@media (max-height:760px){' +
     '#scr-party .su-seats{max-height:74px;overflow-y:auto}' +
-    '#scr-party .su-town{max-height:132px;overflow-y:auto}' +
+    '#scr-party .su-town{height:min(88vw,330px)}' +
     '#scr-party .su-log{max-height:56px}' +
     '#scr-party .su-canned{display:none}}' +
-  /* narrow phones: four villagers to a row, never a horizontal scrollbar */
-  '@media (max-width:400px){' +
-    '#scr-party .su-town{grid-template-columns:repeat(auto-fill,minmax(56px,1fr))}' +
-    '#scr-party .su-vil .fig{width:42px}}' +
-  /* landscape: chat beside roster */
+  '@media (max-height:640px){' +
+    '#scr-party .su-town{height:min(74vw,270px)}}' +
+  /* landscape: shrink the map so chat sits beside it */
   '@media (orientation:landscape) and (max-height:520px){' +
-    '#scr-party .su-seats{grid-template-columns:repeat(auto-fill,minmax(84px,1fr));max-height:70px;overflow-y:auto}' +
-    '#scr-party .su-town{max-height:96px;overflow-y:auto}' +
+    '#scr-party .su-seats{max-height:70px;overflow-y:auto}' +
+    '#scr-party .su-town{height:min(46vh,230px)}' +
     '#scr-party .su-log{max-height:16%}}';
   document.head.appendChild(st);
 }
@@ -1571,15 +1580,38 @@ function phaseCurtain(G){
   U.lastCurtain = G.phase;
   if (firstEver && G.night <= 1 && G.phase === 'night') return;   /* no curtain on the opening night */
   if (reducedMo()) return;
+  /* THE OBITUARY: at dawn, name the night's victims with their portrait (and
+     revealed role, if the room reveals roles). Mourn each only once. Lynch
+     (vote) deaths are shown live on the gallows, so they are excluded here. */
+  let obit = '', dur = 1600;
+  if (kind === 'day'){
+    U.mourned = U.mourned || {};
+    const fresh = G.P.filter(p => !p.alive && !/^vote/.test(p.diedOn || '') && !U.mourned[p.seat]);
+    fresh.forEach(p => { U.mourned[p.seat] = 1; });
+    const reveal = !!(G.opt && G.opt.revealRoles);
+    if (fresh.length){
+      dur = 2600;
+      obit = '<div class="su-obit">' + fresh.map(p =>
+        '<div class="ob"><span class="pic">' +
+          (reveal
+            ? '<img src="art/suspett/' + esc(p.role) + '.png" alt="" onerror="this.style.display=\'none\'">'
+            : avatarInto(p.name, false, 48)) +
+        '</span><b>' + esc(p.name) + '</b><i>' +
+          (reveal ? esc(S.ROLES[p.role] ? S.ROLES[p.role].name : '?') : T('found dead', 'sabuh mejjet')) +
+        '</i></div>').join('') + '</div>';
+    } else {
+      obit = '<div class="su-obit quiet">' + T('A quiet night — nobody died.', 'Lejl kwiet — ħadd ma miet.') + '</div>';
+    }
+  }
   const f = document.createElement('div');
   f.className = 'su-fall ' + kind;
   f.innerHTML = '<div>' + (kind === 'night'
-    ? T('NIGHT FALLS', 'JAQA’ L-LEJL') : T('DAY BREAKS', 'JISBAH')) + '</div>' +
+    ? T('NIGHT FALLS', 'JAQA’ L-LEJL') : T('DAY BREAKS', 'JISBAH')) + '</div>' + obit +
     '<small>' + (kind === 'night'
       ? T('The klikka moves in the dark', 'Il-klikka tiċċaqlaq fid-dlam')
       : T('The pjazza opens', 'Il-pjazza tiftaħ')) + '</small>';
   U.ctx.rootEl.appendChild(f);
-  setTimeout(() => { try { f.remove(); } catch (e){} }, 1600);
+  setTimeout(() => { try { f.remove(); } catch (e){} }, dur);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
