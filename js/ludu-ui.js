@@ -481,7 +481,26 @@ function injectCSS(){
     'body.reduced #scr-party .lu-fold-b{transition:none}' +
     '#scr-party .lu-note{font-size:11.5px;line-height:1.6;margin:8px 2px 0;padding:9px 11px;' +
       'border-radius:12px;text-transform:none;letter-spacing:0;color:#CFC2F0;' +
-      'background:rgba(138,92,255,.10);border:1px solid rgba(138,92,255,.3)}';
+      'background:rgba(138,92,255,.10);border:1px solid rgba(138,92,255,.3)}' +
+
+    /* ── TEAMS toggle on the setup sheet ── */
+    '#scr-party .lu-teams{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px}' +
+    '#scr-party .lu-tbtn{min-height:44px;padding:8px 10px;border-radius:12px;cursor:pointer;' +
+      'font:800 11.5px/1.25 var(--disp);letter-spacing:.02em;color:var(--txt);' +
+      'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .lu-tbtn.on{color:#241800;background:linear-gradient(180deg,#FFD979,var(--lu-gold));' +
+      'border-color:#FFE9B0}' +
+    '#scr-party .lu-tsize{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}' +
+    '#scr-party .lu-tszb{min-height:40px;padding:6px 16px;border-radius:11px;cursor:pointer;' +
+      'font:900 13px/1 var(--disp);letter-spacing:.04em;color:var(--txt);' +
+      'background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .lu-tszb.on{color:#241800;background:linear-gradient(180deg,#FFD979,var(--lu-gold));' +
+      'border-color:#FFE9B0}' +
+    /* the partner tie on a seat chip in-game */
+    '#scr-party .lu-seat .tm{font:900 7.5px/1.1 var(--disp);letter-spacing:.06em;' +
+      'padding:1px 4px;border-radius:6px;color:#0E0B14;white-space:nowrap}';
   document.head.appendChild(st);
 }
 
@@ -538,7 +557,7 @@ function geom(lay){
   const P = lay.P;
   const key = P + '|' + lay.H;
   if (GEOM[key]) return GEOM[key];
-  const out = (P === 4) ? geomGrid(lay) : geomRosette(lay);
+  const out = (P === 4) ? geomGrid(lay) : geomWedge(lay);
   GEOM[key] = out;
   return out;
 }
@@ -616,113 +635,162 @@ function geomGrid(lay){
            center: { x: C, y: C, half: gap * 1.5 } };
 }
 
-/* ── THE HEXAGON (P=6) / OCTAGON (P=8) — a PROPER Ludo board ─────────
-   Built exactly like the 4-player cross, only with P arms instead of 4.
-   Each arm is a straight, tight 3-wide GRID-STRIP radiating from the
-   centre at angle θ_m = m·(2π/P):
+/* ── THE HEXAGON (P=6) / OCTAGON (P=8) — THE REAL COMMERCIAL BOARD ───
+   A shop-bought six- or eight-player Ludo board is NOT four thin arms
+   with more arms bolted on. It is a POLYGON TILED BY WEDGES: a hexagon
+   cut into six equal triangles (an octagon into eight), one per player,
+   each triangle filled in that player's colour, packed edge to edge
+   with no gaps at all. That is what this builds.
 
-        col −1        col 0          col +1
-      ┌────────┬────────────────┬────────┐   ← the arm as a rectangle,
-      │ in-rail│  HOME  column  │ out-rail│     rotated to θ_m; cells are
-      │  cells │  (H−1 coloured)│  cells │     unit squares on a local
-      └────────┴────────────────┴────────┘     grid so they CANNOT overlap.
+   ONE WEDGE, in its own local frame (u = straight out along the wedge's
+   axis, s = sideways along the polygon edge, both in "pitch" units):
 
-   The three columns are exactly ONE cell apart (spacing `step`) so the
-   arm reads as a solid corridor, not scattered dots. The engine's ring
-   index maps in one line:
-       · out-rail of sector k  → visual arm k, +side, radial row = jj
-       · in-rail  of sector k  → visual arm k+1, −side, row = (L−1−jj)
-       · corner   of sector k  → the U-turn tip in the CHANNEL between
-                                  arm k and arm k+1, one step beyond the
-                                  outer rail row.
-   so arm m is flanked by its own out-rail (+side) and sector (m−1)'s
-   in-rail (−side), the two ends of the lap meeting at its mouth — the
-   authentic Ludo picture. A coloured YARD sits at each arm's outer base
-   and a P-way star finish sits at the centre. Everything is expressed in
-   "steps" and the whole board is scaled so its widest point just fits the
-   disc, so it never clips at any P. */
-function geomRosette(lay){
+              W(k-1) ─────── polygon edge k ─────── W(k)      ← the rim
+                 \   ▫ ▫ ▫ ▫  │  ▫ ▫ ▫ ▫   /                  ← TRACK ROW
+                  \   in-rail  │  out-rail /                     2L cells
+                   \          ███              /                ← HOME COLUMN
+                    \      ▪ ███ ▪           /                    H-1 cells
+                     \   (yard plate,      /                    ← 4 TOKEN
+                      \   4 token dots)  /                         SLOTS
+                       \       ███      /
+                        \      ███     /
+                         \____________/
+                              HUB                               ← the finish
+
+   · WEDGE k is the triangle (centre, W(k-1), W(k)) where W(j) is the
+     polygon vertex at angle θ_j + π/P. So wedge k is centred on the
+     axis θ_k = k·(2π/P) and its OUTER edge is polygon edge k, whose
+     midpoint sits on that axis. The P wedges tile the polygon exactly:
+     they share edges, they cover it, they overlap nowhere.
+   · THE TRACK is a row of cells along each polygon edge, just inside
+     the rim, 2L of them, laid symmetrically about the edge midpoint,
+     plus ONE turn cell at each polygon vertex. P·(2L+1) = P·A = R, the
+     engine's ring exactly: 54 at P=6, 56 at P=8.
+   · THE ENGINE'S RING INDEX maps in three lines and cannot drift:
+         out cell (sector k, jj)  → edge k, at +(jj+0.5) pitches from
+                                    the midpoint — the OUT-RAIL, the
+                                    half of the row leaving the mouth
+         corner   (sector k)      → the turn cell at polygon vertex W(k)
+         in cell  (sector k, jj)  → edge k+1, at −(L−jj−0.5) pitches —
+                                    the IN-RAIL, the half of the row
+                                    arriving at the next mouth
+     so seat k's ENTRY lands at +0.5 pitch and seat k's TURNOFF at
+     −0.5 pitch on the SAME edge: the two flank the midpoint of wedge
+     k's own outer edge, which is exactly where its HOME COLUMN starts.
+     Out-rail on one side of the mouth, in-rail on the other, precisely
+     as on the real board.
+   · THE HOME COLUMN runs from that mouth straight down the wedge's
+     axis, inward, H−1 coloured cells, and ends at the HUB — the central
+     P-sided finish where all the wedges meet.
+   · THE YARD is a cream plate across the middle of the wedge with four
+     slot wells, two either side of the home column, holding the four
+     parked tokens.
+
+   NOTHING OVERLAPS, and that is arithmetic rather than luck. The whole
+   board is derived from ONE number, `pitch`:
+       half band edge  = (L + 0.65)·pitch     → 1.15 pitch clear between
+                                                 the last rail cell and
+                                                 the turn cell
+       cell half-size  = 0.42·pitch           → 0.84 pitch of square in
+                                                 a 1.00 pitch slot
+       column mouth    = one pitch inside the band, same rotation
+       column spacing  = ≥ 1.0 pitch by construction
+   and `pitch` itself is solved so the polygon's circumradius lands
+   exactly on RMAX, so the board fills the square and never clips.        */
+function geomWedge(lay){
   const P = lay.P, L = lay.L, H = lay.H, R = lay.R;
-  const step   = 1.0;                          /* one grid cell, in units   */
-  const lane   = step;                         /* rails sit ±1 cell off axis */
-  /* radial rows: the mouth (innermost track row) out to the tip.
-     rMouth is pushed out enough that the H−1 home cells + the finish
-     disc fit between it and the centre without crowding. */
-  const rMouth = Math.max(H, 4) + 0.2;         /* innermost rail row radius */
-  const rTip   = rMouth + (L - 1) * step;      /* outermost rail row        */
-  const rCorner= rTip + step;                  /* U-turn tip, one step out  */
-  const yardOut = 1.7, ySizeU = 2.2;           /* yard offset + size, units */
-  /* the widest point of the board is a corner yard's far corner; fit it */
-  const maxU   = rCorner + yardOut + ySizeU * 0.5 * 1.42;
-  const gap    = ((VB / 2) - 3) / maxU;        /* px per unit                */
-  const cell   = gap * 0.44;                   /* drawn half-size of a cell  */
+  const half = Math.PI / P;                     /* half a wedge, radians  */
+  const SIN = Math.sin(half), COS = Math.cos(half), TAN = Math.tan(half);
 
-  const dir = th => ({ theta: th, ux: Math.sin(th), uy: -Math.cos(th),
-                       vx: Math.cos(th),  vy: Math.sin(th) });
-  const arm = [], chan = [];
+  const RMAX = 114;                             /* the board's outer radius */
+  const PAD  = 1.25;                            /* rim outside the band, pitches */
+  const SPAN = L + 0.65;                        /* half a band edge, pitches */
+  /* Rpoly = pitch·(SPAN/sin + PAD) — solve it for pitch */
+  const pitch = RMAX / (SPAN / SIN + PAD);
+  const rBand = SPAN * pitch / TAN;             /* band INRADIUS (edge mids) */
+  const Rband = rBand / COS;                    /* band circumradius (turns) */
+  const Rpoly = Rband + PAD * pitch;            /* the polygon              */
+  const rPoly = Rpoly * COS;                    /* polygon inradius         */
+  const cell  = pitch * 0.42;                   /* drawn HALF-size of a cell */
+  const hub   = pitch * 2.1;                    /* the central finish        */
+
+  /* per-wedge frame: u = outward along the axis, t = along the edge */
+  const F = [];
   for (let k = 0; k < P; k++){
-    arm.push(dir((k / P) * 2 * Math.PI));                 /* arm axis        */
-    chan.push(dir(((k + 0.5) / P) * 2 * Math.PI));        /* channel between */
+    const th = (k / P) * 2 * Math.PI;
+    F.push({ theta: th,
+             ux: Math.sin(th), uy: -Math.cos(th),
+             tx: Math.cos(th), ty:  Math.sin(th) });
   }
-  /* a point on visual arm k: radius r out, lateral l sideways (grid px) */
-  const atArm  = (k, r, l) => ({ x: C + arm[k].ux * r * gap + arm[k].vx * l * gap,
-                                 y: C + arm[k].uy * r * gap + arm[k].vy * l * gap,
-                                 th: arm[k].theta });
-  const atChan = (k, r, l) => ({ x: C + chan[k].ux * r * gap + chan[k].vx * l * gap,
-                                 y: C + chan[k].uy * r * gap + chan[k].vy * l * gap,
-                                 th: chan[k].theta });
+  const pt = (k, r, s) => ({ x: C + F[k].ux * r + F[k].tx * s,
+                             y: C + F[k].uy * r + F[k].ty * s,
+                             th: F[k].theta });
 
-  /* place every ring cell into its arm's strip, tight to the home column */
+  /* the polygon vertices. polyV[j] sits between wedge j and wedge j+1,
+     so wedge k is the triangle (centre, polyV[k-1], polyV[k]). */
+  const polyV = [], bandV = [];
+  for (let k = 0; k < P; k++){
+    polyV.push(pt(k, rPoly, rPoly * TAN));
+    bandV.push(pt(k, rBand, rBand * TAN));
+  }
+
+  /* ── THE RING — one row of cells per polygon edge, one turn cell per
+     polygon vertex, straight off the engine's ring index ── */
   const ring = new Array(R);
   for (let i = 0; i < R; i++){
     const rc = lay.ring[i], k = rc.sector;
     if (rc.role === 'out'){
-      /* arm k, out-rail (+lane), climbing outward as jj grows */
-      ring[i] = atArm(k, rMouth + rc.jj * step, +lane);
+      ring[i] = pt(k, rBand, (rc.jj + 0.5) * pitch);
     } else if (rc.role === 'corner'){
-      /* the U-turn tip, in the channel just past the outer rail row */
-      ring[i] = atChan(k, rCorner, 0);
+      ring[i] = { x: bandV[k].x, y: bandV[k].y, th: F[k].theta + half };
     } else {
-      /* arm k+1, in-rail (−lane); jj=0 sits at the tip, jj=L−1 at mouth */
       const km = (k + 1) % P;
-      ring[i] = atArm(km, rMouth + ((L - 1) - rc.jj) * step, -lane);
+      ring[i] = pt(km, rBand, -((L - rc.jj - 0.5) * pitch));
     }
   }
 
-  /* home column: H−1 coloured cells down the arm axis from the mouth
-     toward the centre, sized to their own spacing so they never overlap
-     even on the short P=8 arms. */
+  /* ── THE HOME COLUMN — down the wedge axis, mouth → hub ── */
+  const rCol0 = rBand - pitch;                  /* the mouth               */
+  const rColN = hub + pitch * 0.85;             /* the last cell           */
+  const nCol  = Math.max(1, H - 1);
+  const cspace = nCol > 1 ? (rCol0 - rColN) / (nCol - 1) : 0;
   const col = [], home = [];
-  const finishU = 1.05;                         /* finish-disc radius, units  */
-  const colOut = rMouth - step;                 /* first home cell (below mouth) */
-  const colIn  = finishU + 0.75;                /* last home cell (above finish) */
-  const cspace = (H - 1) > 1 ? (colOut - colIn) / ((H - 1) - 1) : 1;
-  const chs    = Math.min(cell, Math.abs(cspace) * gap * 0.46);
   for (let k = 0; k < P; k++){
     const cells = [];
-    for (let c = 0; c < H - 1; c++){
-      const pt = atArm(k, colOut - cspace * c, 0);
-      cells.push({ ...pt, hs: chs });
-    }
+    for (let c = 0; c < nCol; c++) cells.push(pt(k, rCol0 - cspace * c, 0));
     col.push(cells);
-    home.push(atArm(k, finishU * 0.45, 0));
+    home.push(pt(k, hub * 0.62, 0));
   }
 
-  /* the coloured yard block at each arm's outer base */
+  /* ── THE YARD — a plate across the wedge, four slots either side of
+     the column. Laterals are a fraction of the room the wedge actually
+     has at that radius (r·tan), so the slots sit inside the triangle at
+     every P and never touch the home column. ── */
   const yard = [];
-  const yardR = rCorner + yardOut;
+  const yOut = rCol0 - pitch * 0.45, yIn = hub + pitch * 0.55;
+  const yD = yOut - yIn;
+  const r1 = yIn + yD * 0.30, r2 = yIn + yD * 0.72;
   for (let k = 0; k < P; k++){
-    const c = atArm(k, yardR, 0), a = arm[k], s = ySizeU * 0.28;
-    const slots = [
-      atArm(k, yardR - s, -s), atArm(k, yardR - s, +s),
-      atArm(k, yardR + s, -s), atArm(k, yardR + s, +s)
-    ];
-    yard.push({ cx: c.x, cy: c.y, size: ySizeU * gap, theta: a.theta, slots });
+    const o1 = r1 * TAN * 0.62, o2 = r2 * TAN * 0.62;
+    const w1 = yIn * TAN * 0.80, w2 = yOut * TAN * 0.80;
+    yard.push({
+      cx: pt(k, (yIn + yOut) / 2, 0).x, cy: pt(k, (yIn + yOut) / 2, 0).y,
+      size: yD, theta: F[k].theta,
+      plate: [pt(k, yIn, -w1), pt(k, yOut, -w2), pt(k, yOut, w2), pt(k, yIn, w1)],
+      slots: [pt(k, r2, -o2), pt(k, r2, o2), pt(k, r1, -o1), pt(k, r1, o1)]
+    });
   }
 
-  return { P, L, H, R, grid: false, gap, cell, tok: cell * 0.82,
-           ring, col, home, yard, arm, chan,
-           finishR: finishU * gap, rMouth, rTip, rCorner, step };
+  /* the arrow on an entry cell points the way the lap runs — along the
+     edge (+t); v is the outward normal, for the arrowhead's spread */
+  const arm = F.map(f => ({ ux: f.tx, uy: f.ty, vx: f.ux, vy: f.uy, theta: f.theta }));
+
+  return { P, L, H, R, grid: false, wedge: true,
+           gap: pitch, step: 1, pitch, cell, tok: cell * 0.82,
+           ring, col, home, yard, arm, F,
+           polyV, bandV, half, SIN, COS, TAN,
+           Rpoly, rPoly, rBand, Rband, hub, finishR: hub,
+           rCol0, rColN, cspace, yIn, yOut };
 }
 
 /* the ring square / token radii — now taken from the authentic geometry */
@@ -884,6 +952,16 @@ function maybeAutoMove(){
   }, reduced() ? 120 : 560);
 }
 
+/* the team badge for a seat chip: a short letter (A/B/C/D) on the colour of
+   the team's FIRST seat, so partners read as the same badge at a glance */
+const TEAM_LETTERS = ['A', 'B', 'C', 'D'];
+function teamBadge(st, team){
+  if (!st.teams || team < 0) return '';
+  const first = st.teams.indexOf(team);
+  const hx = first >= 0 ? hexOf(colourFor(st, first)) : '#888';
+  const lab = T('Team', 'Tim') + ' ' + (TEAM_LETTERS[team] || (team + 1));
+  return '<span class="tm" style="background:' + esc(hx) + '">' + esc(lab) + '</span>';
+}
 function paintSeats(){
   const st = M.st, tally = E.tally(st), turn = E.turn(st);
   UI.seats.innerHTML = tally.map(s => {
@@ -893,10 +971,11 @@ function paintSeats(){
     const nm = isLocal(s.seat) ? T('You', 'Int')
              : s.own === 'ai' ? levelName(s.lvl)
              : s.name;
+    const badge = (st.teams && s.team >= 0) ? teamBadge(st, s.team) : '';
     return '<div class="lu-seat' + on + out + done + '">' +
       '<span class="sw" style="background:' + esc(hexOf(s.colour)) + '"></span>' +
       '<span class="col">' +
-        '<span class="n">' + esc(nm) + '</span>' +
+        '<span class="n">' + esc(nm) + (badge ? ' ' + badge : '') + '</span>' +
         '<span class="h">' + s.home + '/' + st.tokens + ' ' + esc(T('home', 'id-dar')) + '</span>' +
       '</span>' +
       (s.rank ? '<span class="rk">' + s.rank + '</span>' : '') +
@@ -1043,121 +1122,148 @@ function boardBodyGrid(st, lay, g, hs){
   return s;
 }
 
-/* ── THE HEXAGON / OCTAGON BODY (P=6 / P=8) — drawn as real Ludo ─────
-   Each arm is a solid white corridor (a rounded rect covering its 3
-   columns from the finish out to the tip), the coloured track cells
-   tiled inside it, the coloured home column up the middle, a coloured
-   yard at the base and a P-way star finish at the centre. Cells are
-   sized to their one-cell spacing so they tile with a hairline gap and
-   cannot overlap. */
-function boardBodyRosette(st, lay, g, hs){
-  const cr = g.cell;
-  const gap = g.gap, half = gap * g.step * 0.46;   /* tiled cell half-size */
-  let s = '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
+/* ── THE HEXAGON / OCTAGON BODY (P=6 / P=8) ──────────────────────────
+   Painted in the order a real board is printed: the polygon, then the P
+   coloured WEDGES tiling it edge to edge, then the dark corner blocks
+   (the octagon's, as on the shop board), then the cream TRACK BAND
+   round the rim with the cells tiled into it, then each wedge's YARD
+   PLATE and four slot wells, then the coloured HOME COLUMNS running
+   from each edge's midpoint down to the middle, and last the P-sided
+   HUB where every column finishes. */
+/* the sheen laid over every wedge — one gradient, so P flat colours read
+   as a printed board rather than as a pie chart */
+const WSHEEN =
+  '<radialGradient id="lu-wsheen" cx="50%" cy="50%" r="62%">' +
+    '<stop offset="0" stop-color="#000" stop-opacity="0.26"/>' +
+    '<stop offset="55%" stop-color="#000" stop-opacity="0.06"/>' +
+    '<stop offset="100%" stop-color="#fff" stop-opacity="0.14"/></radialGradient>';
+function polyPathAt(g, inr){
+  const P = g.P, out = [];
+  for (let k = 0; k < P; k++){
+    const th = (k / P) * 2 * Math.PI + g.half, r = inr / g.COS;
+    out.push([C + r * Math.sin(th), C - r * Math.cos(th)]);
+  }
+  return 'M' + out.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join('L') + 'Z';
+}
+function ptsPath(list){
+  return 'M' + list.map(p => p.x.toFixed(2) + ' ' + p.y.toFixed(2)).join('L') + 'Z';
+}
+function boardBodyWedge(st, lay, g){
+  const P = g.P, pitch = g.pitch, hs = g.cell;
+  const V = g.polyV;
+  let s = '';
 
-  /* ── the WHITE CORRIDOR under each arm: a rounded rect spanning the
-     3 track columns from the finish out to the U-turn tip. Rotated to
-     the arm so the whole strip reads as one continuous lane. ── */
-  const armLen = (g.rCorner + 0.5) * gap;          /* base→tip length, px  */
-  const armW   = 3.0 * gap;                        /* 3 columns wide, px   */
-  for (let k = 0; k < g.P; k++){
-    const a = g.arm[k];
-    /* rect centre sits halfway up the arm on its axis */
-    const midR = armLen / 2;
-    const cx = C + a.ux * midR, cy = C + a.uy * midR;
-    const th = a.theta;
-    /* a rounded rect: build corners in local (along,across) then rotate */
-    const hlAlong = armLen / 2, hlAcross = armW / 2;
-    const corners = [[-hlAcross,-hlAlong],[hlAcross,-hlAlong],[hlAcross,hlAlong],[-hlAcross,hlAlong]]
-      .map(([x,y]) => [cx + x*Math.cos(th) - y*Math.sin(th), cy + x*Math.sin(th) + y*Math.cos(th)]);
-    s += '<path d="M' + corners.map(p => p[0].toFixed(1)+' '+p[1].toFixed(1)).join('L') +
-      'Z" fill="#f7f5ef" stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
+  /* the board plate — the polygon itself, on a soft dark disc */
+  s += '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
+  s += '<path d="' + ptsPath(V) + '" fill="#1b1330" stroke="rgba(0,0,0,.55)" ' +
+       'stroke-width="1.6" stroke-linejoin="round"/>';
+
+  /* ── THE WEDGES. Wedge k = (centre, V[k-1], V[k]) in seat k's colour.
+     They share edges and cover the polygon: no gaps, no overlaps. ── */
+  for (let k = 0; k < P; k++){
+    const hx = hexOf(colourFor(st, k));
+    const a = V[(k - 1 + P) % P], b = V[k];
+    s += '<path class="lu-wedge" data-wedge="' + k + '" d="M' + C + ' ' + C + 'L' +
+      a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' + b.x.toFixed(2) + ' ' + b.y.toFixed(2) +
+      'Z" fill="' + esc(hx) + '" stroke="rgba(0,0,0,.30)" stroke-width="0.7" ' +
+      'stroke-linejoin="round"/>';
+    /* a soft sheen down the outer half so eight flat colours do not read
+       like a pie chart */
+    s += '<path d="M' + C + ' ' + C + 'L' + a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' +
+      b.x.toFixed(2) + ' ' + b.y.toFixed(2) + 'Z" fill="url(#lu-wsheen)" ' +
+      'pointer-events="none"/>';
   }
 
-  /* ── the U-TURN CAPS: a white rounded bridge in each channel joining
-     arm k's out-rail tip → the corner cell → arm k+1's in-rail tip, so
-     the track wraps continuously round the arm tips instead of leaving a
-     floating square between the arms. ── */
-  for (let k = 0; k < g.P; k++){
-    const km = (k + 1) % g.P;
-    const aOut = g.arm[k], aIn = g.arm[km], ch = g.chan[k];
-    const p1 = { x: C + aOut.ux * g.rTip * gap + aOut.vx * gap,     /* out tip (+lane) */
-                 y: C + aOut.uy * g.rTip * gap + aOut.vy * gap };
-    const p3 = { x: C + aIn.ux * g.rTip * gap - aIn.vx * gap,       /* in tip (−lane)  */
-                 y: C + aIn.uy * g.rTip * gap - aIn.vy * gap };
-    const p2 = { x: C + ch.ux * g.rCorner * gap, y: C + ch.uy * g.rCorner * gap };
-    s += '<path d="M' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'L' +
-      p2.x.toFixed(1) + ' ' + p2.y.toFixed(1) + 'L' + p3.x.toFixed(1) + ' ' + p3.y.toFixed(1) +
-      '" fill="none" stroke="#f7f5ef" stroke-width="' + (gap * 1.02).toFixed(1) +
-      '" stroke-linecap="round" stroke-linejoin="round"/>';
+  /* ── THE CORNER BLOCKS — the dark blocks the eight-player board wears
+     at the octagon's corners. Drawn at every vertex; on the hexagon they
+     read as the printed corner joints of the rim. ── */
+  const cq = pitch * (P >= 8 ? 2.05 : 1.55);
+  for (let j = 0; j < P; j++){
+    const w = V[j];
+    const midA = { x: C + g.F[j].ux * g.rPoly, y: C + g.F[j].uy * g.rPoly };
+    const nx = (j + 1) % P;
+    const midB = { x: C + g.F[nx].ux * g.rPoly, y: C + g.F[nx].uy * g.rPoly };
+    const along = (from, to, d) => {
+      const dx = to.x - from.x, dy = to.y - from.y, m = Math.hypot(dx, dy) || 1;
+      return { x: from.x + dx / m * d, y: from.y + dy / m * d };
+    };
+    s += '<path d="' + ptsPath([w, along(w, midA, cq), along(w, midB, cq)]) +
+      '" fill="#171126" fill-opacity="' + (P >= 8 ? '0.92' : '0.55') +
+      '" stroke="rgba(0,0,0,.4)" stroke-width="0.5" stroke-linejoin="round"/>';
   }
 
-  /* coloured HOME YARDS at each arm base (rotated squares, solid block +
-     white inner box + parked-slot wells — the same read as the cross) */
+  /* ── THE TRACK BAND — a cream ring just inside the rim, the row of
+     cells tiled into it. Even-odd of two concentric polygons. ── */
+  const bh = pitch * 1.05;
+  s += '<path d="' + polyPathAt(g, g.rBand + bh) + polyPathAt(g, g.rBand - bh) +
+    '" fill-rule="evenodd" fill="#f7f5ef" stroke="rgba(0,0,0,.20)" stroke-width="0.6"/>';
+
+  /* ── THE YARD PLATES + the four parked slots ── */
   g.yard.forEach((y, k) => {
     const hx = hexOf(colourFor(st, k));
-    const hlf = y.size / 2;
-    s += '<path class="lu-yard" d="' + sqCell(y.cx, y.cy, hlf, y.theta) + '" ' +
-      'fill="' + esc(hx) + '" stroke="rgba(0,0,0,.22)" stroke-width="0.8" stroke-linejoin="round"/>' +
-      '<path d="' + sqCell(y.cx, y.cy, hlf * 0.66, y.theta) + '" fill="#f7f5ef" ' +
-      'stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
+    s += '<path class="lu-yard" d="' + ptsPath(y.plate) + '" fill="#f7f5ef" ' +
+      'stroke="' + esc(hx) + '" stroke-opacity="0.8" stroke-width="1.4" ' +
+      'stroke-linejoin="round"/>';
     y.slots.forEach(sl => {
-      s += '<circle cx="' + sl.x.toFixed(1) + '" cy="' + sl.y.toFixed(1) + '" r="' +
-        (hlf * 0.24).toFixed(1) + '" fill="none" stroke="' + esc(hx) +
-        '" stroke-opacity="0.55" stroke-width="1.1"/>';
+      s += '<circle class="lu-well" cx="' + sl.x.toFixed(2) + '" cy="' + sl.y.toFixed(2) +
+        '" r="' + (g.tok * 1.28).toFixed(2) + '" fill="' + esc(hx) + '" fill-opacity="0.20" ' +
+        'stroke="' + esc(hx) + '" stroke-opacity="0.75" stroke-width="1.1"/>';
     });
   });
 
-  /* coloured HOME COLUMNS up the middle of each arm */
+  /* ── THE HOME COLUMNS — mouth (at the edge midpoint) down to the hub ── */
   g.col.forEach((cells, k) => {
     const hx = hexOf(colourFor(st, k));
+    /* a thin coloured spine so the five cells read as ONE lane */
+    const a = cells[0], b = cells[cells.length - 1];
+    s += '<path d="M' + a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' + b.x.toFixed(2) +
+      ' ' + b.y.toFixed(2) + '" stroke="' + esc(hx) + '" stroke-opacity="0.55" ' +
+      'stroke-width="' + (hs * 2.1).toFixed(2) + '" stroke-linecap="round" fill="none"/>';
     cells.forEach(cc => {
-      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, (cc.hs || hs), cc.th) +
-        '" fill="' + esc(hx) + '" stroke="rgba(0,0,0,.18)" stroke-width="0.4"/>';
+      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, hs, cc.th) + '" fill="' +
+        esc(hx) + '" stroke="rgba(255,255,255,.75)" stroke-width="0.6"/>';
     });
   });
 
-  /* centre FINISH: a P-way coloured star of wedges */
-  const fr = g.finishR * 1.85;
-  s += '<circle cx="' + C + '" cy="' + C + '" r="' + fr.toFixed(1) +
-    '" fill="#f7f5ef" stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
-  for (let k = 0; k < g.P; k++){
+  /* ── THE HUB — the P-sided finish every column runs into ── */
+  s += '<path d="' + polyPathAt(g, g.hub * g.COS) + '" fill="#f7f5ef" ' +
+    'stroke="rgba(0,0,0,.25)" stroke-width="0.8" stroke-linejoin="round"/>';
+  for (let k = 0; k < P; k++){
     const hx = hexOf(colourFor(st, k));
-    const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
-    const a1 = g.arm[k].theta - Math.PI / 2 + Math.PI / g.P;
-    const p0 = { x: C + fr * Math.cos(a0), y: C + fr * Math.sin(a0) };
-    const p1 = { x: C + fr * Math.cos(a1), y: C + fr * Math.sin(a1) };
-    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(1) + ' ' +
-      p0.y.toFixed(1) + 'L' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + 'Z" ' +
-      'fill="' + esc(hx) + '" fill-opacity="0.9" stroke="rgba(0,0,0,.12)" stroke-width="0.3"/>';
+    const th = (k / P) * 2 * Math.PI, r = g.hub;
+    const p0 = { x: C + r * Math.sin(th - g.half), y: C - r * Math.cos(th - g.half) };
+    const p1 = { x: C + r * Math.sin(th + g.half), y: C - r * Math.cos(th + g.half) };
+    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(2) + ' ' +
+      p0.y.toFixed(2) + 'L' + p1.x.toFixed(2) + ' ' + p1.y.toFixed(2) + 'Z" fill="' +
+      esc(hx) + '" fill-opacity="0.92"/>';
   }
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (g.hub * 0.20).toFixed(2) +
+    '" fill="#f7f5ef" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
 
-  /* travel RING — white track cells, coloured starts, star safes */
+  /* ── THE RING CELLS — white squares in the band, the entries in the
+     owner's colour with an arrow the way the lap runs, stars on safes ── */
   lay.ring.forEach((rc, i) => {
     const p = g.ring[i];
     if (rc.entryOf != null){
       const hx = hexOf(colourFor(st, rc.entryOf));
-      s += '<path d="' + sqCell(p.x, p.y, half, p.th) + '" fill="' + esc(hx) +
-        '" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
-    } else {
-      s += '<path d="' + sqCell(p.x, p.y, half, p.th) + '" fill="#fff" ' +
-        (rc.safe ? 'stroke="rgba(0,0,0,.28)" stroke-width="0.7"' :
-                   'stroke="rgba(0,0,0,.12)" stroke-width="0.4"') + '/>';
-    }
-    if (rc.safe && rc.entryOf == null){
-      s += '<path d="' + starPath(p.x, p.y, half * 0.62) +
-        '" fill="rgba(80,80,90,.42)" stroke="rgba(0,0,0,.18)" stroke-width="0.3"/>';
-    }
-    if (rc.entryOf != null){
+      s += '<path class="lu-cellc" d="' + sqCell(p.x, p.y, hs, p.th) + '" fill="' + esc(hx) +
+        '" stroke="rgba(0,0,0,.28)" stroke-width="0.5"/>';
       const a = g.arm[rc.entryOf];
-      const tip = { x: p.x + a.ux * half * 0.5, y: p.y + a.uy * half * 0.5 };
-      const b1 = { x: p.x - a.ux * half * 0.18 + a.vx * half * 0.34,
-                   y: p.y - a.uy * half * 0.18 + a.vy * half * 0.34 };
-      const b2 = { x: p.x - a.ux * half * 0.18 - a.vx * half * 0.34,
-                   y: p.y - a.uy * half * 0.18 - a.vy * half * 0.34 };
-      s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
-        b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
-        b2.y.toFixed(1) + 'Z" fill="rgba(60,60,70,.85)"/>';
+      const tip = { x: p.x + a.ux * hs * 0.60, y: p.y + a.uy * hs * 0.60 };
+      const b1  = { x: p.x - a.ux * hs * 0.22 + a.vx * hs * 0.42,
+                    y: p.y - a.uy * hs * 0.22 + a.vy * hs * 0.42 };
+      const b2  = { x: p.x - a.ux * hs * 0.22 - a.vx * hs * 0.42,
+                    y: p.y - a.uy * hs * 0.22 - a.vy * hs * 0.42 };
+      s += '<path d="M' + tip.x.toFixed(2) + ' ' + tip.y.toFixed(2) + 'L' +
+        b1.x.toFixed(2) + ' ' + b1.y.toFixed(2) + 'L' + b2.x.toFixed(2) + ' ' +
+        b2.y.toFixed(2) + 'Z" fill="rgba(255,255,255,.92)"/>';
+    } else {
+      s += '<path class="lu-cellw" d="' + sqCell(p.x, p.y, hs, p.th) + '" fill="#fff" ' +
+        (rc.safe ? 'stroke="rgba(0,0,0,.32)" stroke-width="0.8"'
+                 : 'stroke="rgba(0,0,0,.14)" stroke-width="0.45"') + '/>';
+      if (rc.safe)
+        s += '<path d="' + starPath(p.x, p.y, hs * 0.66) +
+          '" fill="rgba(70,70,84,.5)" stroke="rgba(0,0,0,.18)" stroke-width="0.3"/>';
     }
   });
   return s;
@@ -1181,8 +1287,9 @@ function paintBoard(){
       '<radialGradient id="lu-discg" cx="50%" cy="38%" r="72%">' +
         '<stop offset="0" stop-color="#2E2153"/><stop offset="60%" stop-color="#241A3E"/>' +
         '<stop offset="100%" stop-color="#150F28"/></radialGradient>' +
+      WSHEEN +
     '</defs>';
-  s += g.grid ? boardBodyGrid(st, lay, g, hs) : boardBodyRosette(st, lay, g, hs);
+  s += g.grid ? boardBodyGrid(st, lay, g, hs) : boardBodyWedge(st, lay, g);
 
   /* the tokens, grouped by square so stacks fan out a touch */
   const toks = E.tokens(st);
@@ -1555,36 +1662,64 @@ function finish(){
   const ov = E.over(st);
   const me = E.meSeat(st);
   const tally = E.tally(st);
-  /* record the table result offline (win = local seat first) */
+  /* record the table result offline. In teams mode a win is your TEAM
+     winning, which over().tone already resolves relative to the local
+     seat; otherwise it is the local seat coming first. */
+  const localWon = ov && (st.teams ? ov.tone === 'win' : ov.winner === me);
   if (!M.net && !M.recorded){
     M.recorded = true;
-    if (ov && ov.winner === me) ST.rec.w++; else ST.rec.l++;
+    if (localWon) ST.rec.w++; else ST.rec.l++;
     persist();
   }
   saveSlot(null);
 
-  const order = (ov && ov.ranks && ov.ranks.length) ? ov.ranks
-    : tally.slice().sort((a,b) => (a.rank||99) - (b.rank||99)).map(t => t.seat);
-  const rows = order.map((seat, i) => {
-    const s = st.seats[seat];
-    const isMe = isLocal(seat);
-    return {
-      name: isMe ? T('You', 'Int')
-        : s.own === 'ai' ? levelName(s.lvl) + ' ' + (seat + 1)
-        : s.name,
-      place: i + 1,
-      you: isMe,
-      bot: s.own === 'ai',
-      score: colourName(s.colour),
-      border: s.colour                    /* the seat colour frames the avatar */
-    };
-  });
+  /* TEAMS: the winner screen ranks TEAMS, one row per team in placing
+     order, each row naming its two-or-more partners and flagged if the
+     local seat is on it. Non-teams: one row per seat as before. */
+  let rows;
+  if (st.teams && ov && ov.teamRanks && ov.teamRanks.length){
+    rows = ov.teamRanks.map((team, i) => {
+      const members = (ov.teamSeats && ov.teamSeats[i]) || E.teamSeats(st, team);
+      const mine = members.some(sq => isLocal(sq));
+      const first = members[0];
+      const names = members.map(sq => {
+        const s = st.seats[sq];
+        return isLocal(sq) ? T('You', 'Int')
+          : s.own === 'ai' ? levelName(s.lvl) + ' ' + (sq + 1) : s.name;
+      });
+      return {
+        name: (T('Team', 'Tim') + ' ' + (TEAM_LETTERS[team] || (team + 1))),
+        place: i + 1,
+        you: mine,
+        bot: members.every(sq => st.seats[sq].own === 'ai'),
+        score: names.join(' + '),
+        border: st.seats[first].colour
+      };
+    });
+  } else {
+    const order = (ov && ov.ranks && ov.ranks.length) ? ov.ranks
+      : tally.slice().sort((a,b) => (a.rank||99) - (b.rank||99)).map(t => t.seat);
+    rows = order.map((seat, i) => {
+      const s = st.seats[seat];
+      const isMe = isLocal(seat);
+      return {
+        name: isMe ? T('You', 'Int')
+          : s.own === 'ai' ? levelName(s.lvl) + ' ' + (seat + 1)
+          : s.name,
+        place: i + 1,
+        you: isMe,
+        bot: s.own === 'ai',
+        score: colourName(s.colour),
+        border: s.colour                    /* the seat colour frames the avatar */
+      };
+    });
+  }
 
   const show = window.KARTI_REBBIEH && window.KARTI_REBBIEH.show;
   if (!show){
     /* rebbieh not on the page — fall back to the party result card */
     P.ui.result(M.ctx, {
-      tone: (ov && ov.winner === me) ? 'win' : 'lose',
+      tone: localWon ? 'win' : 'lose',
       head: TE(ov ? ov.head : E.t('won')),
       why:  TE(ov ? ov.why : null),
       quip: TE(ov ? ov.quip : null),
@@ -1599,9 +1734,12 @@ function finish(){
   }
   const net = M.net;
   show({
-    title: (ov && ov.tone === 'win') ? T('You are home', 'Wasalt id-dar')
-                                     : TE(ov ? ov.head : E.t('won')),
-    subtitle: T('Final standings', 'Klassifika finali'),
+    title: (ov && ov.tone === 'win')
+             ? (st.teams ? T('Your team is home', 'It-tim tiegħek wasal id-dar')
+                         : T('You are home', 'Wasalt id-dar'))
+             : TE(ov ? ov.head : E.t('won')),
+    subtitle: st.teams ? T('Team standings', 'Klassifika tat-timijiet')
+                       : T('Final standings', 'Klassifika finali'),
     rows,
     reduced: reduced(),
     lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
@@ -1839,9 +1977,24 @@ function offlineSetup(mode){
   let humans = mode === 'pnp'
     ? Math.max(2, Math.min(seats, p.humans || 2))
     : 1;
+  /* TEAMS. Off by default. teamSize picks the grouping for counts that
+     offer more than one (6 → 2 or 3, 8 → 2 or 4); at 4 there is only 2v2.
+     The choice is part of the match tuple deal() reads (opts.teams,
+     opts.teamSize), so every phone that deals it sits at the same board. */
+  let teamsOn  = !!p.teams;
+  let teamSize = p.teamSize | 0 || 2;
+  const teamOpts  = () => (E.TEAM_SIZES && E.TEAM_SIZES[seats]) || [];
+  const teamAllowed = () => teamOpts().length > 0;
+  /* keep teamSize legal for the current seat count */
+  const fixTeamSize = () => {
+    const opt = teamOpts();
+    if (!opt.length){ teamsOn = false; return; }
+    if (opt.indexOf(teamSize) < 0) teamSize = opt[0];
+  };
 
   function paint(){
     if (mode === 'pnp') humans = Math.max(2, Math.min(seats, humans));
+    fixTeamSize();
     el.innerHTML =
       '<div class="pt-wrap lu-menu">' +
       '<div class="tbar">' +
@@ -1864,6 +2017,31 @@ function offlineSetup(mode){
             (SIZES.indexOf(seats) >= SIZES.length - 1 ? ' disabled' : '') +
             ' aria-label="' + esc(T('More players', 'Aktar plejers')) + '">+</button>' +
         '</div>' +
+
+        /* ── TEAMS — a toggle, and (where the count offers more than one)
+           the grouping. Partners sit opposite; a whole team must get home
+           to win. Off by default. ── */
+        (teamAllowed()
+          ? '<div class="tiny pt-lbl">' + esc(T('Teams', 'Timijiet')) + '</div>' +
+            '<div class="lu-teams" id="lu-teams">' +
+              '<button class="lu-tbtn' + (teamsOn ? '' : ' on') + '" id="lu-tno">' +
+                esc(T('Every player for themselves', 'Kull wieħed għalih')) + '</button>' +
+              '<button class="lu-tbtn' + (teamsOn ? ' on' : '') + '" id="lu-tyes">' +
+                esc(T('Play in teams', 'Ilgħabu f’timijiet')) + '</button>' +
+            '</div>' +
+            (teamsOn && teamOpts().length > 1
+              ? '<div class="lu-tsize" id="lu-tsize">' + teamOpts().map(sz => {
+                  const G = seats / sz;
+                  const label = G + ' × ' + sz;   /* e.g. 3 × 2, 2 × 4 */
+                  return '<button class="lu-tszb' + (sz === teamSize ? ' on' : '') +
+                    '" data-tsz="' + sz + '">' + esc(label) + '</button>';
+                }).join('') + '</div>'
+              : '') +
+            (teamsOn
+              ? '<p class="lu-note lu-tnote" style="margin-top:8px">' +
+                esc(teamsBlurb(seats, teamSize)) + '</p>'
+              : '')
+          : '') +
 
         (mode === 'pnp'
           ? '<div class="tiny pt-lbl">' + esc(T('How many of them are people',
@@ -1920,12 +2098,38 @@ function offlineSetup(mode){
     if (hdn) hdn.onclick = () => { if (humans > 2){ humans--; cue('ui.tap', { gain:0.8 }, true); paint(); } };
     if (hup) hup.onclick = () => { if (humans < seats){ humans++; cue('ui.tap', { gain:0.8 }, true); paint(); } };
     el.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { lvl = +b.dataset.lvl; paint(); });
+    const tno = el.querySelector('#lu-tno'), tyes = el.querySelector('#lu-tyes');
+    if (tno)  tno.onclick  = () => { if (teamsOn){ teamsOn = false; cue('ui.tap', { gain:0.8 }, true); paint(); } };
+    if (tyes) tyes.onclick = () => { if (!teamsOn){ teamsOn = true; fixTeamSize(); cue('ui.tap', { gain:0.8 }, true); paint(); } };
+    el.querySelectorAll('[data-tsz]').forEach(b => b.onclick = () => {
+      teamSize = +b.dataset.tsz; cue('ui.tap', { gain:0.8 }, true); paint();
+    });
     el.querySelector('#lu-go').onclick = () => {
-      pref({ seats, lvl, humans: mode === 'pnp' ? humans : 1 });
-      newGame({ seats, humans: mode === 'pnp' ? humans : 1, lvl, dice:'seed' });
+      fixTeamSize();
+      const useTeams = teamsOn && teamAllowed();
+      pref({ seats, lvl, humans: mode === 'pnp' ? humans : 1,
+             teams: useTeams, teamSize: useTeams ? teamSize : 0 });
+      const o = { seats, humans: mode === 'pnp' ? humans : 1, lvl, dice:'seed' };
+      if (useTeams){ o.teams = true; o.teamSize = teamSize; }
+      newGame(o);
     };
   }
   paint();
+}
+
+/* a one-line description of the partnership for the setup note: how many
+   teams of what size, and — at teamSize 2 — that partners sit opposite. */
+function teamsBlurb(seats, size){
+  const G = seats / size;
+  if (size === 2)
+    return T(G + ' teams of two — partners sit opposite and cannot capture each other. ' +
+             'A whole team must get home to win.',
+             G + ' timijiet ta’ tnejn — is-sħab joqogħdu wieħed biswit l-ieħor u ma jistgħux ' +
+             'jaqbdu lil xulxin. It-tim kollu jrid jasal id-dar biex jirbaħ.');
+  return T(G + ' teams of ' + size + ' — teammates cannot capture each other, and the whole ' +
+           'team must get home to win.',
+           G + ' timijiet ta’ ' + size + ' — is-sħab ma jistgħux jaqbdu lil xulxin, u t-tim ' +
+           'kollu jrid jasal id-dar biex jirbaħ.');
 }
 
 /* is an online door worth showing — mp.js present and ludu known to it */
@@ -2002,12 +2206,21 @@ function onlineStart(cfg){
   cfg = cfg || {};
   injectCSS();
   P.show();
-  /* seats from the room; dice stays 'seed' until the relay stamps it */
-  const opts = Object.assign({}, cfg.opts || {}, {
-    seats: (cfg.seats && cfg.seats.length) || (cfg.opts && cfg.opts.seats) || 4,
+  /* seats from the room; dice stays 'seed' until the relay stamps it.
+     TEAMS is part of the match tuple deal() reads, so it must be identical
+     on every phone — it comes off the room config (cfg.teams / cfg.teamSize,
+     or an opts already carrying them) and never from local prefs, or two
+     clients would deal different partnerships and desync. */
+  const src = cfg.opts || {};
+  const wantTeams = cfg.teams === true || cfg.teams === 'on' ||
+                    src.teams === true || src.teams === 'on';
+  const opts = Object.assign({}, src, {
+    seats: (cfg.seats && cfg.seats.length) || src.seats || 4,
     humans: 0,                 /* ownership is set per-seat below, not by count */
     dice: 'seed'
   });
+  if (wantTeams){ opts.teams = true; opts.teamSize = (cfg.teamSize || src.teamSize | 0) || 2; }
+  else { delete opts.teams; delete opts.teamSize; }
   startMatch(opts, cfg.seed);
   const st = M.st;
   (cfg.seats || []).forEach((s, i) => {

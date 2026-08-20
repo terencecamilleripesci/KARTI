@@ -241,6 +241,77 @@ const SAFE_OFFSETS = L => [0, L + 2];
 
 const SAFE_MODES = ['stars', 'entries', 'none'];
 
+/* ═══════════════════════════════════════════════════════════════════
+   TEAMS — the partnership mode. OFF by default; nothing below changes
+   a single-player-per-seat match, because with teams off teamOf(seat)
+   is the seat itself and sameTeam() is only ever true for one seat
+   against itself. That is deliberate: the teams code is ONE predicate
+   threaded through capture, blocks, the finish and the machine, and
+   with teams off the predicate collapses to the old behaviour exactly.
+
+   THE PAIRINGS — teams[i] = i mod G, where G = seats / teamSize. That
+   deals the seats round the table like cards, so a team's members are
+   spread EVENLY round the board and, at teamSize 2, the two partners
+   sit exactly OPPOSITE each other (seat i and seat i + n/2).
+
+     4 seats, size 2  → 2v2      [0,1,0,1]      partners 0&2, 1&3
+     6 seats, size 2  → 2v2v2    [0,1,2,0,1,2]  partners 0&3, 1&4, 2&5
+     6 seats, size 3  → 3v3      [0,1,0,1,0,1]  0,2,4 vs 1,3,5
+     8 seats, size 2  → 2v2v2v2  [0,1,2,3,...]  partners 0&4, 1&5, ...
+     8 seats, size 4  → 4v4      [0,1,0,1,...]  0,2,4,6 vs 1,3,5,7
+
+   THE TEAM RULES, in full and with the choice made rather than left
+   open — every one of these is checked in the harness:
+     · a partner is NEVER captured. Landing on a partner's token is
+       legal and the two SHARE the square (the same way two of your own
+       share it). It is not blocked and it is not a capture: the pair
+       simply stands together. Chosen over "blocked" because a blocked
+       square would let a partner accidentally jail you, which reads as
+       a bug at the table rather than as a rule.
+     · a partner's two tokens on one square are NOT a block against
+       you: you may land on them and you may pass through them. They
+       are still a block against everybody else.
+     · a block is still two of ONE seat's own tokens. Two different
+       partners standing together do not make a block — otherwise a
+       four-handed team could wall the ring off with mixed pairs.
+     · THE TEAM WINS when EVERY member of the team is home, that is
+       when every seat on the team has all of its tokens home. A seat
+       that walked out counts as settled (it can never come home) but a
+       team needs at least one member actually home to win, so a team
+       that walks out entirely does not win by forfeit.
+     · the winner is a TEAM, and the placings are TEAM placings: the
+       teams that got everybody home, in the order they did it, then
+       the rest on summed progress.
+   ═══════════════════════════════════════════════════════════════════ */
+const TEAM_SIZES = { 4: [2], 6: [2, 3], 8: [2, 4] };
+function teamSizeOf(n, size){
+  const allowed = TEAM_SIZES[n] || [];
+  const s = size | 0;
+  if (allowed.indexOf(s) >= 0) return s;
+  return allowed.length ? allowed[0] : 0;
+}
+function teamsOf(n, size){
+  const s = teamSizeOf(n, size);
+  if (!s || (n % s)) return null;
+  const G = n / s;
+  if (G < 2) return null;
+  const out = new Array(n);
+  for (let i = 0; i < n; i++) out[i] = i % G;
+  return out;
+}
+/* with teams OFF every seat is its own team, so every predicate below
+   reads exactly as it did before the mode existed */
+const teamOf   = (st, seat) => (st.teams ? st.teams[seat] : seat);
+const sameTeam = (st, a, b) => (a === b) || (!!st.teams && st.teams[a] === st.teams[b]);
+/* the seats on a team, in seat order */
+function teamSeats(st, team){
+  const out = [];
+  if (!st.teams) { out.push(team); return out; }
+  for (let i = 0; i < st.n; i++) if (st.teams[i] === team) out.push(i);
+  return out;
+}
+const teamCount = st => (st.teams ? (st.n / st.teamSize) : st.n);
+
 /* the board cache. st carries only the PARAMETERS (n, homeLen, safe
    mode) so a state is plain JSON and travels; the derived board is
    rebuilt on demand and memoised. Never put a typed array in st. */
@@ -561,6 +632,20 @@ const TEXT = {
   end_alone:   { en: 'Everybody else walked out',         mt: 'Kulħadd ieħor telaq' },
   end_cap:     { en: 'The turn limit ran out — decided on progress',
                  mt: 'Il-limitu tad-dawriet spiċċa — deċiż fuq kemm waslu' },
+  end_team:    { en: 'A whole team is home first',
+                 mt: 'Tim sħiħ wasal id-dar l-ewwel' },
+  /* teams */
+  teams:       { en: 'Teams',                             mt: 'Timijiet' },
+  team:        { en: 'Team',                              mt: 'Tim' },
+  partner:     { en: 'Partner',                           mt: 'Sieħeb' },
+  teamfinished:{ en: 'The whole team is home',            mt: 'It-tim kollu wasal id-dar' },
+  teamsafe:    { en: 'Your partner — you stand together', mt: 'Sieħbek — toqogħdu flimkien' },
+  win_head_team: { en: 'Your team is home',               mt: 'It-tim tiegħek wasal id-dar' },
+  lose_head_team:{ en: 'Beaten by the other team',        mt: 'Sabqukom it-tim l-ieħor' },
+  win_quip_team: { en: 'Two of you, one lap, no mercy.',
+                   mt: 'Tnejn minnkom, dawra waħda, ebda ħniena.' },
+  lose_quip_team:{ en: 'They came home together. So does everybody, eventually.',
+                   mt: 'Waslu d-dar flimkien. Kulħadd jasal, illum jew għada.' },
   /* verdicts, read relative to the local seat */
   win_head:    { en: 'You are home',                      mt: 'Wasalt id-dar' },
   lose_head:   { en: 'Beaten home',                       mt: 'Sabquk id-dar' },
@@ -590,10 +675,18 @@ function deal(opts, seed){
   const rules = rulesOf(opts.rules);
   const dice = (opts.dice === 'given' || opts.dice === 'fair') ? 'given' : 'seed';
   const humans = Math.max(0, Math.min(n, opts.humans === undefined ? 1 : opts.humans | 0));
+  /* TEAMS. Part of the match tuple, so every phone that deals the same
+     opts sits at the same partnership. teams=null is the old game. */
+  const wantTeams = !!(opts.teams === true || opts.teams === 'on' ||
+                       (typeof opts.teams === 'number' && opts.teams > 0));
+  const teamSize = wantTeams ? teamSizeOf(n, opts.teamSize) : 0;
+  const teams    = wantTeams ? teamsOf(n, teamSize) : null;
   const st = {
     v: 1,
     n, tokens, homeLen, safeMode: rules.safe,
     rules, dice,
+    /* null, or an array of length n: teams[seat] = team index */
+    teams, teamSize: teams ? teamSize : 0,
     /* the seed is kept so a saved match can be replayed from the log
        alone. It is NOT a secret and never was — see the header. */
     seed0: (seed === undefined || seed === null) ? newSeed() : (seed | 0),
@@ -606,6 +699,7 @@ function deal(opts, seed){
     why: null,
     last: null,
     ranks: [],
+    tranks: [],                 /* team finishing order (teams mode)     */
     done: null
   };
   st.rs = st.seed0 | 0;
@@ -618,6 +712,7 @@ function deal(opts, seed){
       own: ai ? 'ai' : (i === 0 ? 'me' : 'hot'),
       lvl: Math.max(1, Math.min(3, (lvls ? lvls[i] : opts.lvl) | 0 || 2)),
       colour: COLOURS[i % COLOURS.length].id,
+      team: teams ? teams[i] : -1,
       toks: new Array(tokens).fill(-1),
       done: false, gone: false, rank: 0
     });
@@ -661,13 +756,16 @@ function countAt(at, r, s){
   return c;
 }
 /* is ring square r barred to seat s — that is, does anybody ELSE have
-   two or more tokens standing on it */
-function barred(at, r, s){
+   two or more tokens standing on it. `teams` is st.teams or null: a
+   PARTNER's block is not a block against you, so a team can walk
+   through its own wall (and only through its own). */
+function barred(at, r, s, teams){
   const h = at[r];
   if (!h || h.length < 2) return false;
   const seen = {};
   for (let i = 0; i < h.length; i++){
     if (h[i].s === s) continue;
+    if (teams && teams[h[i].s] === teams[s]) continue;
     seen[h[i].s] = (seen[h[i].s] || 0) + 1;
     if (seen[h[i].s] >= 2) return true;
   }
@@ -706,7 +804,7 @@ function tryMove(st, seat, k, d, at){
     if (r.blocks && r.blockStopsPassage){
       for (let q = p + 1; q < to; q++){
         if (q > R - 1) break;
-        if (barred(at, bd.sq(seat, q), seat)) return null;
+        if (barred(at, bd.sq(seat, q), seat, st.teams)) return null;
       }
     }
   }
@@ -717,7 +815,7 @@ function tryMove(st, seat, k, d, at){
     ri = bd.sq(seat, to);
     /* landing on an opponent's block is never legal while blocks are
        on, whatever blockStopsPassage says */
-    if (r.blocks && barred(at, ri, seat)) return null;
+    if (r.blocks && barred(at, ri, seat, st.teams)) return null;
     const here = at[ri];
     if (here && here.length){
       const isSafe = bd.safe[ri] === 1;
@@ -727,7 +825,9 @@ function tryMove(st, seat, k, d, at){
       const mayTake = (!isSafe || (p < 0 && r.entryCaptures)) && r.capture !== 'none';
       for (let i = 0; i < here.length; i++){
         const o = here[i];
-        if (o.s === seat) continue;
+        /* your own — and, in TEAMS, your partner's — tokens simply
+           share the square. A partner is never captured, ever. */
+        if (o.s === seat || (st.teams && st.teams[o.s] === st.teams[seat])) continue;
         if (mayTake){ caps.push(o); continue; }
         /* cannot take, so either shelter together or stay off */
         if (!r.safeShared) return null;
@@ -873,6 +973,7 @@ function doMove(st, mv){
     S.rank = st.ranks.length + 1;
     st.ranks.push(seat);
     st.why = 'finished';
+    if (teamDone(st, seat)) st.why = 'teamfinished';
   }
   if (finishCheck(st)) return st;
 
@@ -918,6 +1019,9 @@ function doQuit(st, mv){
   S.toks = S.toks.map(() => -1);
   st.last = { t: 'quit', seat };
   st.why = 'quit';
+  /* a walkout can COMPLETE a team whose other members were already
+     home, so the team placings have to be re-read here too */
+  teamDone(st, seat);
   if (finishCheck(st)) return st;
   if (st.turn === seat){ st.die = 0; endTurn(st); }
   return st;
@@ -940,6 +1044,38 @@ function endTurn(st){
   st.phase = 'roll';
 }
 
+/* ── TEAMS: has this seat's team got EVERYBODY home? ─────────────────
+   Every member must be settled (all tokens home, or walked out) and at
+   least one member must actually be home — a team that walks out does
+   not win by forfeit. Records the team in st.tranks the first time,
+   which is what makes the team placings deterministic. Returns true
+   the moment the team is complete. With teams off this is never true
+   and st.tranks stays empty, so nothing changes. */
+function teamDone(st, seat){
+  if (!st.teams) return false;
+  const tm = st.teams[seat];
+  if (st.tranks.indexOf(tm) >= 0) return true;
+  let anyHome = false;
+  for (let i = 0; i < st.n; i++){
+    if (st.teams[i] !== tm) continue;
+    const S = st.seats[i];
+    if (S.done) { anyHome = true; continue; }
+    if (S.gone) continue;
+    return false;
+  }
+  if (!anyHome) return false;
+  st.tranks.push(tm);
+  return true;
+}
+/* the team's summed progress, for the placings when a match is decided
+   on progress rather than on a team being home */
+function teamProgress(st, team){
+  let sum = 0;
+  for (let i = 0; i < st.n; i++)
+    if (teamOf(st, i) === team) sum += progressOf(st, i);
+  return sum;
+}
+
 /* how far a seat has got, in steps, for the placings when a match is
    decided on progress rather than on somebody being home */
 function progressOf(st, seat){
@@ -955,6 +1091,20 @@ function finishCheck(st){
   const live = [];
   for (let i = 0; i < st.n; i++)
     if (!st.seats[i].done && !st.seats[i].gone) live.push(i);
+  /* TEAMS: one seat being home is NOT the end — the whole team has to
+     be home. So the 'first' ending waits for a completed TEAM. */
+  if (st.teams){
+    if (st.rules.endOn === 'first' && st.tranks.length >= 1){ finish(st, 'team'); return true; }
+    if (live.length === 0){ finish(st, st.tranks.length ? 'all' : 'alone'); return true; }
+    /* only one team still has anybody live and somebody is home */
+    let liveTeams = {};
+    for (let i = 0; i < live.length; i++) liveTeams[st.teams[live[i]]] = 1;
+    if (Object.keys(liveTeams).length <= 1 && st.tranks.length >= 1){ finish(st, 'all'); return true; }
+    let gone = 0;
+    for (let i = 0; i < st.n; i++) if (st.seats[i].gone) gone++;
+    if (gone === st.n - 1 && st.n > 1){ finish(st, 'alone'); return true; }
+    return false;
+  }
   if (st.rules.endOn === 'first' && st.ranks.length >= 1){ finish(st, 'first'); return true; }
   if (live.length === 0){ finish(st, st.ranks.length ? 'all' : 'alone'); return true; }
   if (live.length === 1 && st.ranks.length >= 1){ finish(st, 'all'); return true; }
@@ -992,6 +1142,43 @@ function finish(st, reason){
     turns: st.turnNo,
     rolls: st.rollNo
   };
+  /* TEAMS: the placings that MATTER are the team placings — the teams
+     that got everybody home in the order they did it, then the rest on
+     summed progress, seat index as the last tie-break so two phones
+     print the same scoreboard. The winner is then the first seat of
+     the winning team, so every old reader still works. */
+  if (st.teams){
+    const G = st.n / st.teamSize;
+    const restT = [];
+    for (let g = 0; g < G; g++) if (st.tranks.indexOf(g) < 0) restT.push(g);
+    restT.sort((a, b) => {
+      const pa = teamProgress(st, a), pb = teamProgress(st, b);
+      if (pa !== pb) return pb - pa;
+      return a - b;
+    });
+    const tranks = st.tranks.concat(restT);
+    st.done.teamRanks = tranks;
+    st.done.team = tranks.length ? tranks[0] : -1;
+    st.done.teamSize = st.teamSize;
+    st.done.teamSeats = tranks.map(g => teamSeats(st, g));
+    /* seat rank follows the team rank, and inside a team the seats that
+       came home first lead */
+    const seatRank = [];
+    tranks.forEach(g => {
+      const mem = teamSeats(st, g).slice().sort((a, b) => {
+        const ra = st.ranks.indexOf(a), rb = st.ranks.indexOf(b);
+        const ka = ra < 0 ? 9999 : ra, kb = rb < 0 ? 9999 : rb;
+        if (ka !== kb) return ka - kb;
+        const pa = progressOf(st, a), pb = progressOf(st, b);
+        if (pa !== pb) return pb - pa;
+        return a - b;
+      });
+      mem.forEach(s => seatRank.push(s));
+    });
+    seatRank.forEach((s, i) => { st.seats[s].rank = i + 1; });
+    st.done.ranks = seatRank;
+    st.done.winner = seatRank.length ? seatRank[0] : -1;
+  }
   st.phase = 'done';
 }
 
@@ -1022,6 +1209,7 @@ function tally(st){
   const bd = bdOf(st);
   return st.seats.map((S, i) => ({
     seat: i, name: S.name, colour: S.colour, own: S.own, lvl: S.lvl,
+    team: st.teams ? st.teams[i] : -1,
     home: S.toks.filter(p => p === bd.HOME).length,
     yard: S.toks.filter(p => p < 0).length,
     onBoard: S.toks.filter(p => p >= 0 && p < bd.HOME).length,
@@ -1052,17 +1240,51 @@ function note(st){
 function over(st){
   if (!st.done) return null;
   const me = meSeat(st);
-  const won = st.done.winner === me;
+  /* TEAMS: you won if YOUR TEAM won, not if you personally came home
+     first — the whole point of the mode */
+  const won = st.teams ? (st.done.team === st.teams[me])
+                       : (st.done.winner === me);
   return {
     tone: won ? 'win' : 'lose',
-    head: won ? t('win_head') : t('lose_head'),
+    head: won ? t(st.teams ? 'win_head_team' : 'win_head')
+              : t(st.teams ? 'lose_head_team' : 'lose_head'),
     why:  t('end_' + st.done.reason),
-    quip: won ? t('win_quip') : t('lose_quip'),
+    quip: won ? t(st.teams ? 'win_quip_team' : 'win_quip')
+              : t(st.teams ? 'lose_quip_team' : 'lose_quip'),
     winner: st.done.winner,
     ranks: st.done.ranks,
+    teams: st.teams || null,
+    team: st.done.team === undefined ? -1 : st.done.team,
+    teamRanks: st.done.teamRanks || null,
+    teamSeats: st.done.teamSeats || null,
     turns: st.done.turns,
     reason: st.done.reason
   };
+}
+/* the team scoreboard, derived: one row per team in placing order when
+   the match is over, in team index order while it runs */
+function teamTally(st){
+  if (!st.teams) return [];
+  const bd = bdOf(st), G = st.n / st.teamSize;
+  const order = (st.done && st.done.teamRanks) ? st.done.teamRanks
+              : Array.from({ length: G }, (_, i) => i);
+  return order.map((g, i) => {
+    const seats = teamSeats(st, g);
+    let home = 0, tot = 0;
+    seats.forEach(s => {
+      home += st.seats[s].toks.filter(p => p === bd.HOME).length;
+      tot  += st.seats[s].toks.length;
+    });
+    return {
+      team: g, seats,
+      colours: seats.map(s => st.seats[s].colour),
+      home, tokens: tot,
+      progress: teamProgress(st, g),
+      pct: teamProgress(st, g) / (maxProgress(st) * seats.length),
+      done: st.tranks.indexOf(g) >= 0,
+      rank: (st.done && st.done.teamRanks) ? i + 1 : 0
+    };
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1112,7 +1334,8 @@ function threat(st, seat, ri, at, deep){
   if (bd.safe[ri] === 1 && st.rules.safe !== 'none') return 0;
   let p = 0;
   for (let s = 0; s < st.n; s++){
-    if (s === seat) continue;
+    /* a PARTNER is never a threat — they cannot capture you */
+    if (s === seat || sameTeam(st, s, seat)) continue;
     const S = st.seats[s];
     if (S.gone || S.done) continue;
     const soon = deep ? (1.25 - 0.05 * (((s - seat + st.n) % st.n) - 1)) : 1;
@@ -1167,7 +1390,8 @@ function scoreMove(st, seat, m, at, W, deep){
     if (W.chase){
       let guns = 0;
       for (let s = 0; s < st.n; s++){
-        if (s === seat) continue;
+        /* sitting behind a PARTNER is not a gun, it is friendly fire */
+        if (s === seat || sameTeam(st, s, seat)) continue;
         const T = st.seats[s].toks;
         for (let k = 0; k < T.length; k++){
           const q = T[k];
@@ -1242,6 +1466,7 @@ function threatIn(st, toks, s, ri){
     const seen = {};
     for (let i = 0; i < h.length; i++){
       if (h[i].s === self) continue;
+      if (st.teams && st.teams[h[i].s] === st.teams[self]) continue;
       seen[h[i].s] = (seen[h[i].s] || 0) + 1;
       if (seen[h[i].s] >= 2) return true;
     }
@@ -1249,7 +1474,7 @@ function threatIn(st, toks, s, ri){
   };
   let p = 0;
   for (let x = 0; x < st.n; x++){
-    if (x === s) continue;
+    if (x === s || sameTeam(st, x, s)) continue;
     const X = st.seats[x];
     if (X.gone || X.done) continue;
     const soon = 1.25 - 0.05 * (((x - s + st.n) % st.n) - 1);
@@ -1281,7 +1506,13 @@ function evalPos(st, seat, toks){
   let v = 0;
   for (let s = 0; s < st.n; s++){
     if (st.seats[s].gone) continue;
-    const sign = (s === seat) ? 1 : -0.45;   /* opponents' progress hurts, but less */
+    /* TEAMS: a PARTNER's progress is the team's progress, so it counts
+       POSITIVE — a shade under your own, so a machine still prefers to
+       move its own piece when the two are otherwise equal, but enough
+       that it will play for the team (shelter a partner's square,
+       finish a partner's runner, take the opponent who is chasing
+       them). Off-teams this is the old -0.45 for everybody. */
+    const sign = (s === seat) ? 1 : (sameTeam(st, s, seat) ? 0.80 : -0.45);
     for (let k = 0; k < toks[s].length; k++){
       const p = toks[s][k];
       const prog = Math.max(0, p + 1) / (HOME + 1);
@@ -1370,7 +1601,11 @@ function hash(st){
     for (let k = 0; k < S.toks.length; k++) l.push(S.toks[k] + 2);
   }
   for (let i = 0; i < st.ranks.length; i++) l.push(st.ranks[i] + 1);
-  if (st.done) l.push(9001, st.done.winner + 1, st.done.turns);
+  l.push(st.teamSize | 0);
+  if (st.teams) for (let i = 0; i < st.teams.length; i++) l.push(st.teams[i] + 1);
+  for (let i = 0; i < (st.tranks || []).length; i++) l.push(st.tranks[i] + 1);
+  if (st.done) l.push(9001, st.done.winner + 1, st.done.turns,
+                      (st.done.team === undefined ? -1 : st.done.team) + 1);
   return ('00000000' + hash32(l).toString(16)).slice(-8);
 }
 
@@ -1454,6 +1689,9 @@ root.KARTI_LUDU.engine = {
   railOf, armOf, ringOfP, board, bdOf, layout,
   /* rules */
   RULES, rulesOf, SAFE_MODES,
+  /* teams */
+  TEAM_SIZES, teamsOf, teamSizeOf, teamOf, sameTeam, teamSeats, teamCount,
+  teamDone, teamProgress, teamTally,
   /* dice */
   DICE, diceOf, newSeed,
   /* match */
