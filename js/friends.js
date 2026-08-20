@@ -54,14 +54,36 @@
 
   var ST = {
     code: '',                     // this account's own friend code (from relay)
-    friends: [],                  // [{k,n,s,g,id,pv}] — key,name,state,game,roomid,avatarVer
+    friends: [],                  // [{k,n,s,g,id,pv,rec}] key,name,state,game,roomid,avatarVer,record
     incoming: [],                 // [{id,n,k}] pending requests TO me
     outgoing: [],                 // [{n,k}]    pending requests FROM me
-    view: 'list',                 // list | add | chat
+    view: 'list',                 // list | add | chat | profile
     chatWith: null,               // {k,n} of the friend a chat is open with
+    profileOf: null,              // {k,n} of the friend whose profile is open
     chats: {},                    // key -> [{me:bool, x, t}]  (session cache)
+    unread: {},                   // key -> count of DMs not yet viewed in a chat
     lastList: 0
   };
+
+  /* ── the notification tally: pending things worth a bubble ──────────────
+     requests (incoming friend requests) + messages (unread DMs) + invites
+     (live game invites in mp.js's INBOX). One total for the tab bubble, and
+     a per-kind breakdown for the in-screen strip. */
+  function inviteCount(){
+    try {
+      var m = MP();
+      if (m && m.inboxLive) return m.inboxLive().length;
+      if (m && m.INBOX && Array.isArray(m.INBOX.list)) return m.INBOX.list.length;
+    } catch (e){}
+    return 0;
+  }
+  function unreadTotal(){
+    var n = 0; for (var k in ST.unread){ n += ST.unread[k] | 0; } return n;
+  }
+  function tally(){
+    return { req: ST.incoming.length, msg: unreadTotal(), inv: inviteCount() };
+  }
+  function tallyTotal(){ var t = tally(); return t.req + t.msg + t.inv; }
 
   /* ── are we signed in? the whole feature needs an account ───────────── */
   function signedIn(){ try { return !!MP().canInvite(); } catch (e){ return false; } }
@@ -146,11 +168,17 @@
     if (k === 'dm'){                          // an incoming direct message
       var key = m.from || (ST.chatWith && ST.chatWith.k);
       if (key){
-        (ST.chats[key] = ST.chats[key] || []).push({ me:false, x: String(m.x || ''), t: m.t || Date.now() });
+        (ST.chats[key] = ST.chats[key] || []).push({ me:false, x: String(m.x || ''), t: m.t2 || m.t || Date.now() });
       }
-      if (live && ST.view === 'chat' && ST.chatWith && ST.chatWith.k === key){
-        renderChat(); scrollChat();
+      var viewing = live && ST.view === 'chat' && ST.chatWith && ST.chatWith.k === key;
+      if (viewing){
+        renderChat(); scrollChat();          // seen right now -> stays read
       } else {
+        /* unread: bump the per-friend counter that feeds the tab bubble and
+           the chat-button badge, and toast a peek. */
+        if (key) ST.unread[key] = (ST.unread[key] | 0) + 1;
+        badge();
+        if (live && ST.view === 'list') render();
         var who = friendName(key) || (m.n || 'A friend');
         toast(who + ': ' + String(m.x || '').slice(0, 40));
       }
@@ -275,8 +303,11 @@
     if (!signedIn()){ el.innerHTML = shell(guestBody()); wireBack(); return; }
     if (ST.view === 'add'){  el.innerHTML = shell(addBody());  wireBack(); wireAdd();  return; }
     if (ST.view === 'chat'){ renderChat(); return; }
+    if (ST.view === 'profile'){ renderProfile(); return; }
     el.innerHTML = shell(listBody());
     wireBack(); wireList();
+    paintFaces();
+    badge();
   }
 
   function shell(body){
@@ -322,6 +353,10 @@
       '</div>' +
       '<p class="fr-codehint">Give this to a friend so they can add you.</p>' +
     '</div>';
+
+    /* THE PENDING-THINGS STRIP — a clear breakdown of what wants attention,
+       each chip jumping to the right place. Mirrors the tab bubble total. */
+    out += breakdownStrip();
 
     /* NOTIFICATIONS — the only way a game invite can open the installed app on
        iPhone is a push notification tap (a plain link always opens Safari), so
@@ -409,15 +444,25 @@
 
   function friendRow(f){
     var st = presenceOf(f);
-    return '<div class="fr-row fr-friend s-' + st.cls + '" data-fk="' + esc(f.k) + '" data-fn="' + esc(f.n) + '">' +
-      '<div class="fr-avwrap">' + avatar(f.n) + '<i class="fr-dot ' + st.cls + '"></i></div>' +
+    var un = ST.unread[f.k] | 0;
+    return '<div class="fr-row fr-friend s-' + st.cls + '" data-fk="' + esc(f.k) + '" data-fn="' + esc(f.n) + '" ' +
+      'role="button" tabindex="0" aria-label="Open ' + esc(f.n) + '’s profile">' +
+      '<div class="fr-avwrap">' + avatar(f.n, 44, f.pv) + '<i class="fr-dot ' + st.cls + '"></i></div>' +
       '<div class="fr-who"><span class="fr-name">' + esc(f.n) + '</span>' +
         '<span class="fr-sub">' + esc(st.word) + '</span></div>' +
       '<button class="fr-chatbtn" data-chat="' + esc(f.k) + '" type="button" aria-label="Chat with ' + esc(f.n) + '">' +
-        '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-book"></use></svg></button>' +
+        '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-book"></use></svg>' +
+        (un ? '<i class="fr-unread" aria-label="' + un + ' unread">' + (un > 9 ? '9+' : un) + '</i>' : '') +
+      '</button>' +
       '<button class="fr-invbtn" data-inv="' + esc(f.k) + '" type="button" aria-label="Invite ' + esc(f.n) + ' to a game">' +
         '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"></use></svg></button>' +
     '</div>';
+  }
+
+  /* the friend behind a key, or a minimal stub so a profile still opens */
+  function friendBy(key){
+    var f = ST.friends.filter(function(x){ return x.k === key; })[0];
+    return f || { k:key, n: (ST.profileOf && ST.profileOf.k === key ? ST.profileOf.n : key), s:'off' };
   }
 
   function presenceOf(f){
@@ -439,9 +484,113 @@
     return id || 'a game';
   }
 
-  function avatar(name){
-    return '<span class="avatar fr-av" data-kx-av="' + esc(name) + '" data-kx-size="40">' +
-      esc(String(name || '?').charAt(0).toUpperCase()) + '</span>';
+  /* THE REAL AVATAR. The same declarative span the leaderboard, roster and
+     seat plates use: KARTI_XP.repaintAvatars() reads data-kx-av (+ data-kx-pv,
+     the relay-published photo version) and mounts the actual profile photo the
+     moment it decodes — no photo, no request, drawn face as the always-there
+     fallback. `pv` is the friend's avatar version the relay sends per row. */
+  function avatar(name, size, pv){
+    var av = '<span class="fr-av" data-kx-av="' + esc(name || '') + '"' +
+      ' data-kx-size="' + (size || 40) + '"' +
+      (pv ? ' data-kx-pv="' + (pv | 0) + '"' : '') + '></span>';
+    return av;
+  }
+  /* mount the photos after any render that drew avatars */
+  function paintFaces(){
+    try { var x = window.KARTI_XP; if (x && x.repaintAvatars) x.repaintAvatars(screenEl()); }
+    catch (e){}
+  }
+
+  /* ── the pending-things breakdown strip ─────────────────────────────── */
+  function breakdownStrip(){
+    var t = tally();
+    if (!t.req && !t.msg && !t.inv) return '';
+    var chips = '';
+    if (t.req) chips += '<button class="fr-chip" data-jump="req" type="button">' +
+      '<b>' + t.req + '</b> ' + (t.req === 1 ? 'request' : 'requests') + '</button>';
+    if (t.msg) chips += '<button class="fr-chip msg" data-jump="msg" type="button">' +
+      '<b>' + t.msg + '</b> ' + (t.msg === 1 ? 'message' : 'messages') + '</button>';
+    if (t.inv) chips += '<button class="fr-chip inv" data-jump="inv" type="button">' +
+      '<b>' + t.inv + '</b> ' + (t.inv === 1 ? 'invite' : 'invites') + '</button>';
+    return '<div class="fr-breakdown" role="group" aria-label="Pending notifications">' + chips + '</div>';
+  }
+
+  /* ── PROFILE VIEW — a clean card for one friend ─────────────────────── */
+  function renderProfile(){
+    var el = screenEl();
+    var f = ST.profileOf ? friendBy(ST.profileOf.k) : null;
+    if (!f){ ST.view = 'list'; render(); return; }
+    var st = presenceOf(f);
+    var rec = f.rec || null;                 // {w,l[,d]} if the relay ever sends it
+    var games = (f.rec && f.rec.p != null) ? f.rec.p
+              : (typeof f.games === 'number' ? f.games : null);
+
+    var statCards = '';
+    if (rec && (rec.w != null || rec.l != null)){
+      statCards =
+        '<div class="fr-stats">' +
+          '<div class="fr-stat"><span class="fr-stat-n">' + (rec.w | 0) + '</span><span class="fr-stat-l">Wins</span></div>' +
+          '<div class="fr-stat"><span class="fr-stat-n">' + (rec.l | 0) + '</span><span class="fr-stat-l">Losses</span></div>' +
+          (games != null ? '<div class="fr-stat"><span class="fr-stat-n">' + (games | 0) + '</span><span class="fr-stat-l">Played</span></div>' : '') +
+        '</div>';
+    } else {
+      statCards = '<p class="fr-nostat">Win record is private for now.</p>';
+    }
+
+    el.innerHTML =
+      '<div class="tbar">' +
+        '<button class="iconbtn" id="fr-back" aria-label="Back to friends">' +
+          '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-back"></use></svg></button>' +
+        '<h2>Profile</h2>' +
+        '<span class="pill mono"></span>' +
+      '</div>' +
+      '<div class="scroll fr-scroll">' +
+        '<div class="fr-profcard s-' + st.cls + '">' +
+          '<div class="fr-profav">' + avatar(f.n, 96, f.pv) + '<i class="fr-dot big ' + st.cls + '"></i></div>' +
+          '<h3 class="fr-profname">' + esc(f.n) + '</h3>' +
+          '<div class="fr-profstatus"><i class="fr-dot ' + st.cls + '"></i>' + esc(st.word) + '</div>' +
+          statCards +
+        '</div>' +
+        '<div class="fr-profactions">' +
+          '<button class="btn primary fr-pa" id="fr-pa-msg" type="button">' +
+            '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-book"></use></svg>Message</button>' +
+          '<button class="btn fr-pa" id="fr-pa-inv" type="button">' +
+            '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-play"></use></svg>Invite to a game</button>' +
+          '<button class="btn ghost fr-pa fr-pa-remove" id="fr-pa-rm" type="button">Unfriend</button>' +
+        '</div>' +
+      '</div>';
+
+    var back = $('#fr-back');
+    if (back) back.onclick = function(){ ST.view = 'list'; ST.profileOf = null; render(); };
+    var msg = $('#fr-pa-msg'); if (msg) msg.onclick = function(){ openChat(f.k); };
+    var inv = $('#fr-pa-inv'); if (inv) inv.onclick = function(){ pickGameFor(f.k); };
+    var rm = $('#fr-pa-rm');   if (rm)  rm.onclick  = function(){ confirmUnfriend(f); };
+    paintFaces();
+  }
+
+  function openProfile(key){
+    var f = friendBy(key);
+    ST.profileOf = { k: f.k, n: f.n };
+    ST.view = 'profile';
+    render();
+    list(true);                              // refresh presence/record for this view
+  }
+
+  function confirmUnfriend(f){
+    var html =
+      '<h3 class="fr-sheet-h">Remove ' + esc(f.n) + '?</h3>' +
+      '<p class="fr-hint" style="text-align:center;margin:0 0 14px">You’ll both drop off each other’s ' +
+        'friends list. You can add them again with their code.</p>' +
+      '<div class="fr-confirm">' +
+        '<button class="btn ghost" id="fr-cf-no" type="button">Cancel</button>' +
+        '<button class="btn hot" id="fr-cf-yes" type="button">Unfriend</button>' +
+      '</div>';
+    var host = openSheet(html);
+    if (!host) { remove(f.k); ST.view = 'list'; ST.profileOf = null; render(); return; }
+    var no = $('#fr-cf-no', host); if (no) no.onclick = closeSheet;
+    var yes = $('#fr-cf-yes', host); if (yes) yes.onclick = function(){
+      closeSheet(); remove(f.k); ST.view = 'list'; ST.profileOf = null; render();
+    };
   }
 
   /* ── ADD screen ─────────────────────────────────────────────────────── */
@@ -527,9 +676,25 @@
 
     $$('[data-chat]').forEach(function(b){ b.onclick = function(e){ e.stopPropagation(); openChat(b.dataset.chat); }; });
     $$('[data-inv]').forEach(function(b){ b.onclick = function(e){ e.stopPropagation(); pickGameFor(b.dataset.inv); }; });
-    /* tapping the row body opens the chat */
+    /* tapping the row body opens that friend's PROFILE (chat/invite live on
+       their own buttons and stop propagation) */
     $$('.fr-friend').forEach(function(row){
-      row.onclick = function(){ openChat(row.dataset.fk); };
+      row.onclick = function(){ openProfile(row.dataset.fk); };
+      row.onkeydown = function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); openProfile(row.dataset.fk); } };
+    });
+
+    /* the pending-things chips jump to their section / surface */
+    $$('.fr-chip').forEach(function(c){
+      c.onclick = function(){
+        var j = c.dataset.jump;
+        if (j === 'req'){ var r = $('.fr-req'); if (r) r.scrollIntoView({ block:'center' }); }
+        else if (j === 'inv'){ try { K().go('mp'); } catch (e){} }
+        else if (j === 'msg'){
+          /* open the chat of the first friend with unread messages */
+          var key = null; for (var kk in ST.unread){ if (ST.unread[kk] > 0){ key = kk; break; } }
+          if (key) openChat(key);
+        }
+      };
     });
   }
 
@@ -563,10 +728,13 @@
   }
 
   function openChat(key){
-    var f = ST.friends.filter(function(x){ return x.k === key; })[0];
+    var f = friendBy(key);
     if (!f) return;
     ST.chatWith = { k: f.k, n: f.n };
     ST.view = 'chat';
+    /* opening the chat marks it READ — clears this friend's unread tally and
+       updates the tab bubble. */
+    if (ST.unread[key]){ ST.unread[key] = 0; badge(); }
     if (!ST.chats[key]) history(key);        // pull persisted history from relay
     renderChat();
   }
@@ -657,12 +825,52 @@
     if (scrim) scrim.classList.remove('on');
   }
 
-  /* ── the incoming-request badge on the tab ──────────────────────────── */
+  /* ── the notification bubble on the Friends tab ─────────────────────────
+     A count bubble showing the TOTAL of pending things: incoming friend
+     requests + unread direct messages + live game invites. It reuses the
+     #fr-badge element already in the tabbar; when there is a count it becomes
+     a numbered bubble, otherwise it hides. Called on every data change. */
   function badge(){
     var dot = document.getElementById('fr-badge');
     if (!dot) return;
-    if (ST.incoming.length) dot.removeAttribute('hidden');
-    else dot.setAttribute('hidden', '');
+    var n = tallyTotal();
+    if (n > 0){
+      dot.textContent = n > 99 ? '99+' : String(n);
+      dot.classList.add('fr-bubble-tab');
+      dot.removeAttribute('hidden');
+      dot.setAttribute('aria-label', n + ' pending: ' +
+        [tally().req + ' requests', tally().msg + ' messages', tally().inv + ' invites'].join(', '));
+    } else {
+      dot.textContent = '';
+      dot.classList.remove('fr-bubble-tab');
+      dot.setAttribute('hidden', '');
+    }
+    /* keep the in-screen breakdown strip live if we are looking at the list */
+    if (live && ST.view === 'list'){
+      var strip = screenEl().querySelector('.fr-breakdown');
+      var host = screenEl().querySelector('.fr-codecard');
+      var fresh = breakdownStrip();
+      if (strip){
+        if (fresh){ strip.outerHTML = fresh; } else { strip.remove(); }
+        rewireChips();
+      } else if (fresh && host && host.parentNode){
+        host.insertAdjacentHTML('afterend', fresh);
+        rewireChips();
+      }
+    }
+  }
+  function rewireChips(){
+    $$('.fr-chip').forEach(function(c){
+      c.onclick = function(){
+        var j = c.dataset.jump;
+        if (j === 'req'){ var r = $('.fr-req'); if (r) r.scrollIntoView({ block:'center' }); }
+        else if (j === 'inv'){ try { K().go('mp'); } catch (e){} }
+        else if (j === 'msg'){
+          var key = null; for (var kk in ST.unread){ if (ST.unread[kk] > 0){ key = kk; break; } }
+          if (key) openChat(key);
+        }
+      };
+    });
   }
 
   /* ── boot-time: keep the badge/list warm even off-screen ────────────── */
@@ -672,6 +880,9 @@
     /* if the relay socket is up (Home/Online/Friends), keep our data fresh so
        the tab badge lights up without needing to open the tab. */
     if (Date.now() - ST.lastList > 20000){ hello(); }
+    /* game invites arrive on mp.js's INBOX (not our hook), so re-tally the
+       bubble every heartbeat to fold live invite count in. */
+    badge();
   }
 
   /* ── CSS (scoped to #scr-friends), injected once ────────────────────── */
@@ -797,7 +1008,54 @@
     '.fr-gametile{min-height:52px;border-radius:12px;border:1px solid var(--line2);background:rgba(255,255,255,.05);' +
       'color:#F4EFFF;font-family:var(--disp);font-weight:800;font-size:12.5px;padding:8px;display:flex;' +
       'align-items:center;justify-content:center;text-align:center}' +
-    '.fr-gametile:active{transform:scale(.96);border-color:var(--gold);background:rgba(255,197,66,.12)}';
+    '.fr-gametile:active{transform:scale(.96);border-color:var(--gold);background:rgba(255,197,66,.12)}' +
+    /* ── the tab notification bubble ── */
+    '#btn-friends{position:relative}' +
+    '#fr-badge.fr-bubble-tab{position:absolute;top:3px;right:22%;min-width:16px;height:16px;padding:0 4px;' +
+      'display:grid;place-items:center;border-radius:99px;background:var(--hot);color:#fff;' +
+      'font-family:var(--disp);font-weight:900;font-size:9.5px;line-height:1;border:1.5px solid var(--bg);' +
+      'box-shadow:0 0 8px rgba(232,69,44,.6)}' +
+    /* ── pending-things breakdown strip ── */
+    '#scr-friends .fr-breakdown{display:flex;gap:7px;flex-wrap:wrap}' +
+    '#scr-friends .fr-chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;letter-spacing:.02em;' +
+      'color:#F4EFFF;background:rgba(255,255,255,.06);border:1px solid var(--line2);border-radius:99px;' +
+      'padding:6px 11px}' +
+    '#scr-friends .fr-chip b{font-family:var(--disp);font-weight:900;color:var(--gold)}' +
+    '#scr-friends .fr-chip.msg b{color:var(--neon)}' +
+    '#scr-friends .fr-chip.inv b{color:var(--ok)}' +
+    '#scr-friends .fr-chip:active{transform:scale(.96);background:rgba(255,255,255,.12)}' +
+    /* ── unread badge on a friend row chat button ── */
+    '#scr-friends .fr-chatbtn{position:relative}' +
+    '#scr-friends .fr-unread{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;padding:0 4px;' +
+      'display:grid;place-items:center;border-radius:99px;background:var(--neon);color:#fff;' +
+      'font-family:var(--disp);font-weight:900;font-size:9px;line-height:1;border:1.5px solid var(--bg)}' +
+    /* ── PROFILE VIEW ── */
+    '#scr-friends .fr-profcard{display:flex;flex-direction:column;align-items:center;text-align:center;' +
+      'gap:8px;padding:20px 16px 18px;border:1px solid var(--line);border-radius:18px;' +
+      'background:radial-gradient(130% 120% at 50% 0%,rgba(138,92,255,.18),rgba(27,20,48,.55))}' +
+    '#scr-friends .fr-profav{position:relative;width:96px;height:96px}' +
+    '#scr-friends .fr-profav .fr-av{width:96px;height:96px;border-radius:26px;overflow:hidden;display:grid;' +
+      'place-items:center}' +
+    '#scr-friends .fr-dot.big{width:20px;height:20px;right:0;bottom:0;border-width:3px}' +
+    '#scr-friends .fr-profname{font-family:var(--disp);font-weight:900;font-size:21px;color:#F4EFFF;margin:2px 0 0;' +
+      'letter-spacing:.02em}' +
+    '#scr-friends .fr-profstatus{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--dim)}' +
+    '#scr-friends .fr-profstatus .fr-dot{position:static;border:0;width:9px;height:9px}' +
+    '#scr-friends .s-playing .fr-profstatus{color:#FFB59E}' +
+    '#scr-friends .s-online .fr-profstatus,#scr-friends .s-waiting .fr-profstatus{color:#9CE9BE}' +
+    '#scr-friends .fr-stats{display:flex;gap:9px;margin-top:10px;width:100%;justify-content:center}' +
+    '#scr-friends .fr-stat{flex:1;max-width:110px;display:flex;flex-direction:column;align-items:center;gap:2px;' +
+      'padding:10px 8px;border-radius:13px;background:rgba(255,255,255,.05);border:1px solid var(--line)}' +
+    '#scr-friends .fr-stat-n{font-family:var(--disp);font-weight:900;font-size:20px;color:var(--gold)}' +
+    '#scr-friends .fr-stat-l{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}' +
+    '#scr-friends .fr-nostat{font-size:11px;color:var(--dim2);margin:10px 0 0}' +
+    '#scr-friends .fr-profactions{display:flex;flex-direction:column;gap:8px;margin-top:14px}' +
+    '#scr-friends .fr-pa{width:100%;display:inline-flex;align-items:center;justify-content:center;gap:7px}' +
+    '#scr-friends .fr-pa .ico{font-size:16px}' +
+    '#scr-friends .fr-pa-remove{color:var(--bad);border-color:rgba(255,84,104,.35)}' +
+    /* confirm sheet */
+    '.fr-confirm{display:flex;gap:9px}' +
+    '.fr-confirm .btn{flex:1}';
     var tag = document.createElement('style');
     tag.id = 'fr-css';
     tag.textContent = css;
