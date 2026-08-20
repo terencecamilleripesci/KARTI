@@ -1869,7 +1869,15 @@ function onlineStart(cfg){
   P.show();
   const roomSeats = cfg.seats || [];
   const nSeats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, roomSeats.length || 3));
-  startMatch({ seats:nSeats, lvl: 2, turnCap: (cfg.turnCap || E.DEFAULT_TURN_CAP) }, cfg.seed);
+  /* DETERMINISM GUARD — online MUST run off the ONE shared relay seed. Never
+     let startMatch fall back to newSeed() (a per-client Math.random), which
+     would give every phone a different board/dice stream and desync the table.
+     The relay broadcasts one numeric seed to all clients; coerce a missing one
+     to 0 (still shared) rather than to a random per-client value. The opening
+     is likewise pinned to the shared 'claim' setup so no client diverges on how
+     the board is dealt. */
+  const sharedSeed = (typeof cfg.seed === 'number') ? (cfg.seed >>> 0) : 0;
+  startMatch({ seats:nSeats, lvl: 2, turnCap: (cfg.turnCap || E.DEFAULT_TURN_CAP), setup: 'claim' }, sharedSeed);
   M.meta = [];
   for (let i = 0; i < nSeats; i++){
     const s = roomSeats[i] || {};
