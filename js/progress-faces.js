@@ -657,10 +657,12 @@ function injectCSS(){
        sparkle layer that twinkles across it, and a coloured halo on the
        medallion. Gold for one tester, silver for the other. ═══ */
     '@keyframes kxTwinkle{0%,100%{opacity:.2;transform:rotate(0)}50%{opacity:1;transform:rotate(8deg)}}' +
+    /* DIAMOND gold — a rich gold band set with prismatic diamond glints
+       (cyan + pink white-fire) so it sparkles like stones set in gold. */
     '.kx-r-betagold{--kx-fb:#FFD23F;--kx-pat:conic-gradient(from 0turn,' +
-      '#7A560E 0turn,#FFC542 .05turn,#FFF6CE .09turn,#FFFFFF .12turn,#FFF6CE .15turn,' +
-      '#FFC542 .19turn,#7A560E .3turn,#B8860B .5turn,#FFE9A8 .55turn,#FFFFFF .59turn,' +
-      '#FFE9A8 .63turn,#B8860B .72turn,#7A560E .82turn,#7A560E 1turn);overflow:hidden}' +
+      '#7A560E 0turn,#FFC542 .045turn,#FFF0D0 .07turn,#FFFFFF .1turn,#DBF6FF .125turn,#FFE9A8 .165turn,' +
+      '#7A560E .27turn,#B8860B .45turn,#FFE1F0 .49turn,#FFFFFF .53turn,#FFF6CE .57turn,#B8860B .66turn,' +
+      '#7A560E .78turn,#FFFAF0 .8turn,#FFFFFF .835turn,#EAFBFF .865turn,#7A560E .93turn,#7A560E 1turn);overflow:hidden}' +
     /* DIAMOND silver — a bright white-platinum band shot through with prismatic
        refraction glints (pink -> cyan -> violet), the way light splits through a
        cut stone. Glam, feminine, and unmistakably not the gold. */
@@ -674,10 +676,12 @@ function injectCSS(){
         'background:var(--kx-pat);animation:kxSweep 2.6s linear infinite}' +
       '.kx-r-betagold::after,.kx-r-betasilver::after{content:"";position:absolute;inset:-1px;' +
         'border-radius:inherit;pointer-events:none;mix-blend-mode:screen;' +
-        'background:radial-gradient(circle at 28% 18%,rgba(255,255,255,.95),transparent 34%),' +
-        'radial-gradient(circle at 78% 74%,rgba(255,255,255,.8),transparent 30%),' +
-        'radial-gradient(circle at 60% 30%,rgba(255,255,255,.7),transparent 22%);' +
-        'animation:kxTwinkle 2.2s ease-in-out infinite}}' +
+        /* four points of DIAMOND FIRE — pure white cores that bleed to cyan and pink */
+        'background:radial-gradient(circle at 26% 16%,rgba(255,255,255,1) 0,rgba(190,240,255,.55) 42%,transparent 55%),' +
+        'radial-gradient(circle at 80% 72%,rgba(255,255,255,.98) 0,rgba(255,208,235,.55) 42%,transparent 52%),' +
+        'radial-gradient(circle at 62% 26%,rgba(255,255,255,.92) 0,transparent 30%),' +
+        'radial-gradient(circle at 20% 66%,rgba(228,255,250,.75) 0,transparent 28%);' +
+        'animation:kxTwinkle 1.8s ease-in-out infinite}}' +
     '@supports selector(:has(*)){' +
       '.kx-av:has(>.kx-r-betagold){filter:' +
         'drop-shadow(0 0 calc(var(--kx-size,38px)*.1) rgba(255,197,66,.95))' +
