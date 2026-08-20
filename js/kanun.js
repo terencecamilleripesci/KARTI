@@ -469,13 +469,173 @@ const DEFS = [
 ];
 const NDEF = DEFS.length, NTIER = 4;
 
-/* where slot `d` sits on seat `seat`, in world columns */
-function slotSpan(seat, d){
+/* ═══════════════════════════════════════════════════════════════════
+   4a. THE PLACEMENT — WHERE YOUR KEEP STANDS AND WHERE YOUR CREW DO
+   The shelf a castle is cut into never moves (that is Malta, and Malta
+   stays), so `ownerOf` is still a pure function of the column and the
+   per-side cover totals are still incremental. What the PLAYER chooses
+   is two things INSIDE their own shelf:
+
+     back      how far back from the moat the three defence slots sit,
+               0..BACK_MAX cells. 0 is where they have always been, so a
+               match given no placement is BIT-IDENTICAL to one built by
+               the version of this file that had no placement at all.
+     crew[3]   the column each of their three stands in, inside the rear
+               courtyard — behind their own parapet, on their own shelf.
+
+   THIS IS PART OF THE MATCH TUPLE. It rides in `opts.place`, so
+   (seed, opts, moves) still rebuilds the match exactly and both phones
+   build the identical world. It is NEVER a move: a layout chosen after
+   the first throw would change the world under a replay.
+
+   Everything here is integer arithmetic and table lookups. No floats,
+   no Math.random, no trig — the same bar as the rest of the file.
+   ═══════════════════════════════════════════════════════════════════ */
+const PLACE = {
+  BACK_MIN: 0,     /* the keep hard against the moat — the old fixed spot */
+  BACK_MAX: 6,     /* ...or up to six cells further back into the shelf   */
+  GAP:      3,     /* cells that must sit between two of your own crew    */
+  EDGE:     1      /* and keep them off the very lip of the shelf         */
+};
+
+/* where slot `d` sits on seat `seat`, in world columns. `back` shifts the
+   whole three-slot stack away from the moat; 0 is the historical spot. */
+function slotSpan(seat, d, back){
   const D = DEFS[d];
-  if (seat === 0){ const f = L_X1 - D.back; return { x0: f, x1: f + D.w - 1 }; }
-  const f = R_X0 + D.back;
+  back = back | 0;
+  if (seat === 0){ const f = L_X1 - D.back - back; return { x0: f, x1: f + D.w - 1 }; }
+  const f = R_X0 + D.back + back;
   return { x0: f - D.w + 1, x1: f };
 }
+/* the same span, read off a live match's chosen layout */
+function backOf(st, seat){ return st.sides[seat].back | 0; }
+function slotSpanIn(st, seat, d){ return slotSpan(seat, d, backOf(st, seat)); }
+
+/* the rear courtyard a side's crew may stand in: from the back of their
+   own shelf up to the cell before their own parapet. Derived from the
+   slot geometry, never a magic number, so moving the keep moves the room
+   the crew have and the two can never disagree. */
+function crewZone(seat, back){
+  const par = slotSpan(seat, 2, back);
+  return seat === 0
+    ? { x0: L_X0 + PLACE.EDGE, x1: par.x0 - 1 }
+    : { x0: par.x1 + 1,        x1: R_X1 - PLACE.EDGE };
+}
+
+/* where the three have always stood, for a side that has not chosen.
+   With back = 0 these are EXACTLY the old makeCrew() columns. */
+function defaultCrewX(seat, back){
+  const out = [];
+  for (let k = 0; k < CH_PER_SIDE; k++){
+    const off = 4 + k * 4;
+    out.push(seat === 0 ? (L_X0 + 2 + off) : (R_X1 - 2 - off));
+  }
+  return tidyCrew(seat, back, out);
+}
+
+/* fold any three columns into a LEGAL three: on the shelf, in the
+   courtyard, GAP apart, and in the seat's own marching order (seat 0
+   counts up the board, seat 1 counts down) so which of them is the
+   thrower — firstUp() — does not silently change with the input order.
+   A pure function of its inputs; the same on every phone. */
+function tidyCrew(seat, back, xs){
+  const z = crewZone(seat, back);
+  const out = [];
+  for (let k = 0; k < CH_PER_SIDE; k++){
+    const v = (xs && xs[k] != null) ? (xs[k] | 0) : 0;
+    out.push(clamp(v, z.x0, z.x1));
+  }
+  if (seat === 0){
+    for (let k = 1; k < CH_PER_SIDE; k++)
+      if (out[k] - out[k - 1] < PLACE.GAP) out[k] = out[k - 1] + PLACE.GAP;
+    const over = out[CH_PER_SIDE - 1] - z.x1;
+    if (over > 0) for (let k = 0; k < CH_PER_SIDE; k++) out[k] -= over;
+  } else {
+    for (let k = 1; k < CH_PER_SIDE; k++)
+      if (out[k - 1] - out[k] < PLACE.GAP) out[k] = out[k - 1] - PLACE.GAP;
+    const over = z.x0 - out[CH_PER_SIDE - 1];
+    if (over > 0) for (let k = 0; k < CH_PER_SIDE; k++) out[k] += over;
+  }
+  for (let k = 0; k < CH_PER_SIDE; k++) out[k] = clamp(out[k], z.x0, z.x1);
+  return out;
+}
+
+const NOPLACE = {
+  back:  { id:'pl.back',  en:'Your keep will not stand there.',
+           mt:'Il-mastru ma joqgħodx hemm.' },
+  count: { id:'pl.count', en:'Three of them. No more, no fewer.',
+           mt:'Tlieta minnhom. La aktar u lanqas inqas.' },
+  zone:  { id:'pl.zone',  en:'They stand in your own courtyard, behind your parapet.',
+           mt:'Joqogħdu fil-bitħa tiegħek, wara l-parapett.' },
+  gap:   { id:'pl.gap',   en:'Too close to the one beside them.',
+           mt:'Wisq viċin ta’ dak ta’ ħdejh.' },
+  order: { id:'pl.order', en:'Line them up from the back of the courtyard forward.',
+           mt:'Irranġahom minn wara l-bitħa ’l quddiem.' }
+};
+
+/* STRICT validation, for the screen to refuse a bad tap with a reason.
+   normPlace() below is the forgiving twin that guarantees the WORLD is
+   never built from an illegal layout however a caller mangles opts. */
+function legalPlace(seat, p){
+  seat = seat | 0;
+  if (!p) return { ok:false, why:NOPLACE.count };
+  const back = p.back | 0;
+  if (back < PLACE.BACK_MIN || back > PLACE.BACK_MAX) return { ok:false, why:NOPLACE.back };
+  const xs = p.crew;
+  if (!xs || xs.length !== CH_PER_SIDE) return { ok:false, why:NOPLACE.count };
+  const z = crewZone(seat, back);
+  for (let k = 0; k < CH_PER_SIDE; k++){
+    const v = xs[k] | 0;
+    if (v !== xs[k]) return { ok:false, why:NOPLACE.zone };
+    if (v < z.x0 || v > z.x1) return { ok:false, why:NOPLACE.zone };
+  }
+  for (let k = 1; k < CH_PER_SIDE; k++){
+    const d = seat === 0 ? (xs[k] - xs[k - 1]) : (xs[k - 1] - xs[k]);
+    if (d <= 0) return { ok:false, why:NOPLACE.order };
+    if (d < PLACE.GAP) return { ok:false, why:NOPLACE.gap };
+  }
+  return { ok:true };
+}
+
+/* one side's layout, forced legal. A missing/rubbish layout collapses to
+   the historical one, which is why an old save replays unchanged. */
+function normPlaceSide(seat, p){
+  const back = clamp((p && p.back != null) ? (p.back | 0) : 0, PLACE.BACK_MIN, PLACE.BACK_MAX);
+  const crew = (p && p.crew && p.crew.length === CH_PER_SIDE)
+    ? tidyCrew(seat, back, p.crew)
+    : defaultCrewX(seat, back);
+  return { back, crew };
+}
+function normPlace(v){
+  return [ normPlaceSide(0, v && v[0]), normPlaceSide(1, v && v[1]) ];
+}
+
+/* THE MACHINE PLACES ITS OWN. A pure hash of (seed, seat) — the same
+   quarantine the AI's throw jitter lives under — so every phone builds
+   the machine's castle in the identical spot without a byte crossing. */
+function aiPlace(seed, seat){
+  seat = seat | 0;
+  const h = hash32([seed | 0, seat, 0x9E37]);
+  const back = PLACE.BACK_MIN + (h % (PLACE.BACK_MAX - PLACE.BACK_MIN + 1));
+  const z = crewZone(seat, back);
+  const slack = Math.max(0, (z.x1 - z.x0) - (CH_PER_SIDE - 1) * PLACE.GAP);
+  const start = (h >>> 9) % (slack + 1);
+  const crew = [];
+  let d = start;
+  for (let k = 0; k < CH_PER_SIDE; k++){
+    if (k) d += PLACE.GAP + (((h >>> (16 + k * 4)) % 3));
+    crew.push(seat === 0 ? (z.x0 + d) : (z.x1 - d));
+  }
+  return { back, crew: tidyCrew(seat, back, crew) };
+}
+
+/* what a live match ended up with — for the screen to draw and for a
+   harness to assert on */
+function placeOf(st, seat){
+  const p = st.opts.place[seat | 0];
+  return { back: p.back, crew: p.crew.slice() };
+}
+
 function slotFull(d, tier){
   return DEFS[d].w * DEFS[d].tiers[tier].h * M_HP[DEFS[d].tiers[tier].mat];
 }
@@ -489,7 +649,7 @@ function rebuildSlot(st, seat, d, frac){
   const s = st.sides[seat];
   const tier = s.tier[d];
   const t = D.tiers[tier];
-  const sp = slotSpan(seat, d);
+  const sp = slotSpanIn(st, seat, d);
   for (let x = sp.x0; x <= sp.x1; x++){
     for (let y = GROUND_Y - t.h + 1; y <= GROUND_Y; y++){
       if (y < 0) continue;
@@ -591,13 +751,14 @@ function makeCrew(st){
   const names = CREW_NAMES;
   for (let seat = 0; seat < 2; seat++){
     const s = st.sides[seat];
-    const x0 = seat === 0 ? L_X0 : R_X0, x1 = seat === 0 ? L_X1 : R_X1;
     s.crew = [];
+    /* WHERE THEY STAND IS THE PLAYER'S CHOICE, normalised into the match
+       tuple by normPlace() at newMatch(). A side that chose nothing gets
+       defaultCrewX(), which at back = 0 is the old fixed formula to the
+       cell — so an old (seed, opts, moves) replays bit-for-bit. */
+    const xs = st.opts.place[seat].crew;
     for (let k = 0; k < CH_PER_SIDE; k++){
-      /* stand them at the BACK of the courtyard, behind the parapet,
-         mirrored so neither seat is closer to the enemy */
-      const off = 4 + k * 4;
-      const x = seat === 0 ? (x0 + 2 + off) : (x1 - 2 - off);
+      const x = xs[k];
       const gy = groundUnder(st, x, GROUND_Y - 40);
       s.crew.push({
         id: seat * 8 + k, seat, k,
@@ -1362,6 +1523,7 @@ function newSeed(){
 function blankSide(seat){
   return {
     seat, crew: [],
+    back: 0,                    /* how far back this side set its keep    */
     coverHp: 0, coverCells: 0, coverHp0: 1,
     ammo: null, cool: null, tier: [0, 0, 0],
     /* THE LEDGER. coins is never read from or written to anything
@@ -1387,7 +1549,11 @@ function newMatch(seed, opts){
       own: opts.own ? [ (opts.own[0] || []).slice(), (opts.own[1] || []).slice() ] : null,
       maxTurns: opts.maxTurns ? (opts.maxTurns | 0) : T.MAX_TURNS,
       purse: opts.purse != null ? (opts.purse | 0) : PAY.purse,
-      first: (opts.first | 0) === 1 ? 1 : 0
+      first: (opts.first | 0) === 1 ? 1 : 0,
+      /* THE TWO LAYOUTS. Part of the tuple, forced legal on the way in,
+         so no caller can build a world the rules would not allow and both
+         phones build the same one from the same opts. */
+      place: normPlace(opts.place)
     },
     g: {
       W, H,
@@ -1404,6 +1570,10 @@ function newMatch(seed, opts){
   st.turn = st.opts.first;
   st.sides[0].tier = [0, 0, 0];
   st.sides[1].tier = [0, 0, 0];
+  /* the keeps take their chosen places BEFORE the world is raised — every
+     slotSpan the builder asks for reads these */
+  st.sides[0].back = st.opts.place[0].back;
+  st.sides[1].back = st.opts.place[1].back;
 
   makeWorld(st);
   makeCrew(st);
@@ -1774,7 +1944,7 @@ function doBuy(st, seat, it){
   } else {
     const one = ONE_SHOTS[S.one];
     if (one.key === 'SAKKITTA'){
-      const sp = slotSpan(seat, 2);
+      const sp = slotSpanIn(st, seat, 2);
       const bx = seat === 0 ? sp.x1 + 2 : sp.x0 - 3;
       for (let ax = 0; ax < 2; ax++)
         for (let ay = 0; ay < 4; ay++)
@@ -2159,7 +2329,11 @@ function snapshot(st){
     v: 1, seed: st.seed,
     opts: { lvl: st.opts.lvl.slice(), maxTurns: st.opts.maxTurns,
             first: st.opts.first, purse: st.opts.purse,
-            own: st.opts.own ? [ st.opts.own[0].slice(), st.opts.own[1].slice() ] : null },
+            own: st.opts.own ? [ st.opts.own[0].slice(), st.opts.own[1].slice() ] : null,
+            /* the layouts go in the save: a match IS its tuple, and the
+               tuple now includes where the two castles stand */
+            place: [ { back: st.opts.place[0].back, crew: st.opts.place[0].crew.slice() },
+                     { back: st.opts.place[1].back, crew: st.opts.place[1].crew.slice() } ] },
     log: st.log.map(m => m.t === 'buy' ? { seat:m.seat, t:'buy', it:m.it }
                        : m.t === 'quit' ? { seat:m.seat, t:'quit' }
                        : { seat:m.seat, w:m.w, dx:m.dx, dy:m.dy })
@@ -2220,7 +2394,10 @@ root.KARTI_KANUN.engine = {
   /* the world */
   W, H, WATER_Y, GROUND_Y, L_X0, L_X1, R_X0, R_X1, ROCK_X0, ROCK_X1, T,
   MAT, AIR, GLASS, WOOD, SAND, BRICK, CONCRETE, STEEL, ROCK, HULL,
-  matAt, hpAt, solidAt, ownerOf, idx, slotSpan, DEFS, NDEF, NTIER,
+  matAt, hpAt, solidAt, ownerOf, idx, slotSpan, slotSpanIn, DEFS, NDEF, NTIER,
+  /* the placement phase: where your keep stands and where your crew do */
+  PLACE, CH_PER_SIDE, crewZone, defaultCrewX, tidyCrew, legalPlace, normPlace,
+  aiPlace, placeOf,
   /* the things you throw, and the shop */
   WEAPONS, NW, weaponOf, LEVELS, SHOP, ONE_SHOTS, PAY, SPEND, SPEND_NAME,
   costOf, canBuy, shopView, earnings, fixCost,

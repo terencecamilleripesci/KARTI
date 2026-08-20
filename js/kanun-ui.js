@@ -253,6 +253,39 @@ function injectCSS(){
     '#scr-party .kn-power i{display:block;height:100%;width:0;border-radius:999px;' +
       'background:linear-gradient(90deg,#3BE08A,#FFC542 60%,#FF6B4D)}' +
 
+    /* ── THE PLACEMENT PHASE: the bar that walks you through laying out
+       your own keep and your own crew, and the privacy curtain that goes
+       up between two players sharing one phone. ── */
+    '#scr-party .kn-setup{position:absolute;left:8px;right:8px;bottom:8px;z-index:7;' +
+      'display:none;flex-direction:column;gap:8px;padding:10px 12px;border-radius:14px;' +
+      'background:rgba(10,14,22,.9);box-shadow:inset 0 0 0 1px rgba(255,197,66,.35),' +
+      '0 8px 22px rgba(0,0,0,.5)}' +
+    '#scr-party .kn-host.kn-placing .kn-setup{display:flex}' +
+    '#scr-party .kn-setup-t b{display:block;font:900 12px/1.2 var(--disp);color:#fff;' +
+      'letter-spacing:.04em}' +
+    '#scr-party .kn-setup-t i{display:block;font:800 10.5px/1.35 var(--disp);font-style:normal;' +
+      'color:var(--dim);margin-top:3px}' +
+    '#scr-party .kn-setup-t em{font-style:normal;color:var(--gold,#FFC542)}' +
+    '#scr-party .kn-setup-a{display:flex;gap:8px}' +
+    '#scr-party .kn-setup-a .btn{flex:1;margin:0}' +
+    /* while the castles are being laid out the fighting chrome is away */
+    '#scr-party .kn-host.kn-placing .kn-weps,' +
+    '#scr-party .kn-host.kn-placing .kn-acts,' +
+    '#scr-party .kn-host.kn-placing .kn-mode-t,' +
+    '#scr-party .kn-host.kn-placing .kn-home,' +
+    '#scr-party .kn-host.kn-placing .kn-power{display:none}' +
+    /* the pass-the-phone curtain: an OPAQUE cover over the whole field, so
+       the next player cannot see what the last one just laid out */
+    '#scr-party .kn-curtain{position:absolute;inset:0;z-index:25;display:none;' +
+      'flex-direction:column;align-items:center;justify-content:center;gap:12px;' +
+      'padding:24px;text-align:center;background:#080C13}' +
+    '#scr-party .kn-curtain.on{display:flex}' +
+    '#scr-party .kn-curtain h4{margin:0;font:900 17px/1.15 var(--disp);color:#fff;' +
+      'letter-spacing:.02em}' +
+    '#scr-party .kn-curtain p{margin:0;max-width:280px;font:800 12px/1.5 var(--disp);color:var(--dim)}' +
+    '#scr-party .kn-curtain .btn{margin-top:4px;min-width:180px}' +
+    '#scr-party .kn-curtain .kn-seatdot{width:16px;height:16px;border-radius:5px}' +
+
     /* the weapon strip — the one you throw, tap to change */
     '#scr-party .kn-weps{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;padding:2px 2px 4px;' +
       '-webkit-overflow-scrolling:touch;scrollbar-width:none}' +
@@ -517,10 +550,15 @@ function startMatch(opts, seed, net){
   else if (preset.purse != null) engOpts.purse = preset.purse;
   if (o.own) engOpts.own = o.own;
   else if (preset.own) engOpts.own = [ preset.own.slice(), preset.own.slice() ];
+  if (o.place) engOpts.place = o.place;
   const st = E.newMatch(seedN, engOpts);
   const themeKey = preset.theme;
   M = {
     opts: o, seed: seedN, st,
+    /* kept so the placement phase can rebuild the SAME match on the SAME
+       seed with a different layout — a match is its tuple, and the layout
+       is part of the tuple, so changing it means rebuilding, not patching */
+    engOpts: engOpts,
     net: net || null,
     me: 0,                      /* the seat this phone drives            */
     mine: [0],                  /* seats this phone is authoritative over */
@@ -532,7 +570,20 @@ function startMatch(opts, seed, net){
     anim: null,                 /* the shell flight in progress          */
     cam: null,                  /* the camera (initCam on mount)         */
     fx: null,                   /* the destruction particle system       */
-    reveals: [],                /* FOG: persistent cleared patches (render) */
+    /* FOG: persistent cleared patches, kept PER SEAT. A reveal is something
+       the SHOOTER learned, so it must never be inherited by the other
+       player on a pass-the-phone handover: one list per seat, and the
+       screen only ever draws the VIEWER's own. */
+    revealsBy: [[], []],
+    /* THE LAST SHOT, PER SEAT. Only the viewer's own arc and marker are
+       ever drawn, so the opponent's trail never hangs on your screen —
+       "your last shot needs to stay, not the enemy's". */
+    lastArc: [null, null],
+    lastShot: [null, null],
+    viewSeat: 0,                /* whose eyes this screen is — the fog's owner */
+    phase: 'play',              /* 'place' while the castles are being laid out */
+    place: null,                /* the in-progress placement (see placeStart)   */
+    hotseat: false,             /* two players, one phone                       */
     theme: THEMES[themeKey],
     variant: V,
     raf: 0, busy:false, dead:false, finished:false,
@@ -540,6 +591,14 @@ function startMatch(opts, seed, net){
   };
   return M;
 }
+
+/* ── WHOSE PHONE THIS IS, RIGHT NOW ───────────────────────────────────
+   Everything the local player drives — aiming, the weapon strip, the
+   store, their own last-shot arc — reads THIS, not M.me. Solo and online
+   it is simply the seat this device holds. Pass-the-phone it is whoever
+   is sitting in front of it, which is what makes the fog flip over to the
+   new player's point of view on a handover. */
+function mySeat(){ return localSide(); }
 
 /* ═══════════════════════════════════════════════════════════════════
    THE CANVAS + THE CAMERA — fitCanvas() is the ONLY layout read, on
@@ -765,6 +824,16 @@ function draw(){
     }
   }
 
+  /* ══ EVERYTHING FROM HERE TO THE MATCHING restore() IS WORLD CONTENT,
+        AND IT IS PAINTED ONLY WHERE THIS VIEWER MAY SEE IT.
+        The clip is the viewer's own half plus the patches their shells
+        have opened. Terrain, damage cracks, the pennants, the crew, their
+        shadows and their health bars are all inside it, so there is
+        nothing of the enemy on the canvas for the fog to fail to cover.
+        See clipVisible(). ══ */
+  g.save();
+  clipVisible(g);
+
   /* ── the terrain: per-column span merge, two-tone faces, damage
         cracks that deepen as a cell loses hp so a battered wall LOOKS
         battered before it falls. Only columns in view are walked. ── */
@@ -814,8 +883,8 @@ function draw(){
 
   /* ── a little pennant on each castle tower top, so the two sides
         read instantly and it feels like a keep, not a bar chart ── */
-  drawBanner(g, v.span[0], SIDECOL[0], false, cell);
-  drawBanner(g, v.span[1], SIDECOL[1], true, cell);
+  drawBanner(g, 0, cell);
+  drawBanner(g, 1, cell);
 
   /* ── the crew ── */
   for (const sd of v.sides){
@@ -849,8 +918,12 @@ function draw(){
   }
 
   /* ── DEBRIS (behind the shell, in front of terrain): tumbling chunks
-        thrown off a blast, coloured by the material they came from ── */
+        thrown off a blast, coloured by the material they came from. Still
+        inside the clip — chunks flying out of a wall you cannot see would
+        draw the wall for you. ── */
   if (M.fx) drawDebris(g, cell);
+
+  g.restore();   /* ══ end of the concealed world content ══ */
 
   /* ── FOG OF WAR: the enemy half is drawn under a moody drifting haze
         so the player sees a DIM SILHOUETTE of the enemy castle but not
@@ -866,6 +939,11 @@ function draw(){
         the last shell's landing point, drawn ON TOP of the fog so they are
         always visible. Persists until the next shot updates it. ── */
   drawLastShot(g, cell);
+
+  /* ── THE PLACEMENT OVERLAY: while the castles are being laid out, the
+        legal ground and the slots you are dragging, on top of the fog so
+        it is never ambiguous where you may put something. ── */
+  drawPlacement(g, cell);
 
   /* ── THE AIM: the sling band, the wind-bent predicted arc, a clear
         landing marker. This is the whole "see where you're shooting". ── */
@@ -988,12 +1066,23 @@ function fogMidX(){ return (E.L_X1 + E.R_X0) / 2; }
    of the file does (M.me / M.mine / turnOf). */
 function localSide(){
   if (!M) return 0;
+  /* M.viewSeat is AUTHORITATIVE and is set at exactly two moments: when a
+     match opens (the seat this device holds) and, pass-the-phone, when the
+     next player taps through the handover curtain. Deriving it from whose
+     turn it is was subtly wrong — apply() flips the turn BEFORE the shell
+     has finished flying, so the fog used to swap sides mid-flight on a
+     two-humans-one-phone table. One field, set deliberately, cannot. */
+  if (M.viewSeat != null) return M.viewSeat | 0;
   const turn = E.turnOf(M.st);
   if (turn >= 0 && M.mine && M.mine.indexOf(turn) >= 0 &&
       M.meta && M.meta[turn] && M.meta[turn].own === 'me'){
     return turn;
   }
   return M.me | 0;
+}
+/* is `seat` a seat the person now holding this phone plays? */
+function ownedHere(seat){
+  return !!(M && M.meta && M.meta[seat] && M.meta[seat].own === 'me');
 }
 
 /* reveal tuning */
@@ -1005,19 +1094,30 @@ const FOG_REGROW_START = 9000; /* ms before a patch starts its slow fade    */
 const FOG_REGROW_SPAN  = 22000;/* ms over which it eases to the floor       */
 const FOG_CLARITY_FLOOR= 0.72; /* a scouted patch never dims below this     */
 
-/* record a PERSISTENT reveal at a world impact — but only if it landed on
-   the FOGGED (enemy) side, since the local half is already clear. Nearby
-   hits merge so a barrage doesn't grow the list without bound. */
-function addReveal(x, y, r){
+/* the reveals THIS screen is looking through */
+function myReveals(){
+  if (!M) return [];
+  if (!M.revealsBy) M.revealsBy = [[], []];
+  return M.revealsBy[localSide()] || [];
+}
+
+/* record a PERSISTENT reveal at a world impact for the SHOOTER — but only
+   if it landed on the side that is fogged FOR THAT SHOOTER, since their own
+   half is already clear to them. The owner is passed in rather than read
+   off whose turn it is, because by the time a shell lands the engine has
+   already handed the turn over. Nearby hits merge so a barrage doesn't grow
+   the list without bound. */
+function addReveal(owner, x, y, r){
   if (!M) return;
-  if (!M.reveals) M.reveals = [];
-  const side = localSide();
+  if (!M.revealsBy) M.revealsBy = [[], []];
+  owner = owner | 0;
+  const list = M.revealsBy[owner] || (M.revealsBy[owner] = []);
   const mid = fogMidX();
-  /* enemy side is right of mid when we're seat 0, left of mid for seat 1 */
-  const onEnemy = side === 0 ? (x > mid) : (x < mid);
+  /* the enemy side is right of mid for seat 0, left of mid for seat 1 */
+  const onEnemy = owner === 0 ? (x > mid) : (x < mid);
   if (!onEnemy) return;
   const rad = clampN((r || 4) * FOG_REVEAL_SCALE, FOG_REVEAL_MIN_R, FOG_REVEAL_MAX_R);
-  for (const p of M.reveals){
+  for (const p of list){
     const dx = p.x - x, dy = p.y - y;
     if (dx * dx + dy * dy <= FOG_MERGE_D * FOG_MERGE_D){
       /* fold in: keep the widest, freshen it so it re-crisps */
@@ -1026,8 +1126,8 @@ function addReveal(x, y, r){
       return;
     }
   }
-  if (M.reveals.length > 64) M.reveals.shift();  /* hard safety cap */
-  M.reveals.push({ x, y, r: rad, born: nowMs() });
+  if (list.length > 64) list.shift();  /* hard safety cap */
+  list.push({ x, y, r: rad, born: nowMs() });
 }
 
 /* open reveals directly from a shot report's impact points — used on the
@@ -1035,10 +1135,11 @@ function addReveal(x, y, r){
    the boom/splash/stick classing playFlight uses. */
 function revealFromReport(rep){
   if (!rep || !rep.ev) return;
+  const owner = rep.seat | 0;
   for (const e of rep.ev){
-    if (e.t === 'boom') addReveal(e.x, e.y, e.r || 4);
-    else if (e.t === 'splash' || e.t === 'overboard') addReveal(e.x, E.WATER_Y, 3.5);
-    else if (e.t === 'stick') addReveal(e.x, e.y, 2.5);
+    if (e.t === 'boom') addReveal(owner, e.x, e.y, e.r || 4);
+    else if (e.t === 'splash' || e.t === 'overboard') addReveal(owner, e.x, E.WATER_Y, 3.5);
+    else if (e.t === 'stick') addReveal(owner, e.x, e.y, 2.5);
   }
 }
 
@@ -1064,11 +1165,18 @@ function recordLastShot(rep, focus){
     }
   }
   if (x == null) return;
-  /* the shooter, for the marker's tint (whose shot was this) */
-  const seat = (rep && rep.seat != null) ? rep.seat
-             : (rep && rep.ev && (rep.ev.find(e => e.t === 'throw') || {}).seat);
-  M.lastShot = { x, y, water, seat: (seat == null ? M.me : seat), born: nowMs() };
+  /* the shooter. The marker is filed under THEIR seat and drawn only when
+     the viewer is that seat, so an opponent's pin never hangs on your
+     screen after their turn resolves. */
+  let seat = (rep && rep.seat != null) ? rep.seat
+           : (rep && rep.ev && (rep.ev.find(e => e.t === 'throw') || {}).seat);
+  if (seat == null) seat = M.me;
+  if (!M.lastShot) M.lastShot = [null, null];
+  M.lastShot[seat | 0] = { x, y, water, seat: seat | 0, born: nowMs() };
 }
+/* the arc / marker THIS screen owns — nobody else's is ever fetched */
+function myLastShot(){ return (M && M.lastShot) ? M.lastShot[mySeat()] : null; }
+function myLastArc(){  return (M && M.lastArc)  ? M.lastArc[mySeat()]  : null; }
 
 /* a patch's clarity: 1 fresh, easing to a floor after a long time, but it
    never fully closes — scouting stays rewarded. Static (full) under
@@ -1081,38 +1189,89 @@ function revealClarity(p){
   return 1 - (1 - FOG_CLARITY_FLOOR) * t;
 }
 
-/* the per-theme fog weight — how densely the CLOUD conceals the enemy side.
-   The fog is FOG OF WAR: it HIDES where the enemy base + crew are so the
-   player must SCOUT (pan) and SHOOT to clear patches and FIND them. The old
-   look was a flat BLACK wall (dark tint, no body) — disorienting, "can't
-   see anything". The fix is APPEARANCE, not concealment: the cloud is now a
-   soft, LIGHT, DRIFTING atmosphere (fogTint below is pale, not black) built
-   from layered blobs so it reads as pretty cloud you can pan around — but it
-   still CONCEALS the base/crew until a shell reveals a patch. Reveals
-   (M.reveals) punch persistent holes that expose the true terrain/castle/
-   crew beneath. Night is the densest cloud; noon the thinnest. */
-const FOG_ALPHA_MAX = 0.98;
+/* ── THE FOG IS NOW OPAQUE, AND THAT IS THE POINT ────────────────────
+   It used to be a TRANSLUCENT wash (weight 0.80-0.90 under an 0.98 cap),
+   which meant a tenth to a fifth of the enemy castle, its crew and its
+   damage cracks came through it. You could read the other side's whole
+   condition at a glance, and the scouting shot — the entire loop — was
+   worth nothing. So:
+
+     · the wash is painted at alpha 1. Nothing gets through it. The
+       "cloud" look is now carried by TONE, not by transparency: a
+       lighter muted tint at the top of the bank easing to the base tint
+       at the bottom, plus the drifting puffs, all at full opacity.
+     · and, belt and braces, the world content on the fogged side is not
+       PAINTED in the first place — see clipVisible(). Even if a future
+       stop slipped below 1, there would be nothing behind it to show.
+
+   The tone stays exactly where it was: a MUTED MID-DARK haze. The tints
+   below are chosen so the composited luma of the fogged half sits in the
+   ~54-73 band the last pass settled on — never a blinding white, never a
+   pure-black void. Night is the moodiest, quarry the dustiest. */
+const FOG_ALPHA_MAX = 1;
 function fogWeight(th){
-  const k = th && th.key;
-  if (k === 'night')  return 0.90;
-  if (k === 'dusk')   return 0.84;
-  if (k === 'quarry') return 0.82;
-  return 0.80;                       /* malta */
+  return 1;                       /* opaque. Concealment is not negotiable. */
 }
 /* the fog's tint — a MUTED, DESATURATED, MEDIUM-DARK atmospheric haze
    (soft dark-grey / blue-grey smoke, a dusk mist), NOT a pale/white cloud
-   and NOT a pure-black void. These were pale/near-white before (malta was
-   [176,196,214], luma ~193 — blinding); they are now dropped a long way
-   into a comfortable MID-DARK band (composited luma ~55-90) so the enemy
-   half reads as a moody, easy-on-the-eyes murk you can pan around for a
-   whole match. Night is the darkest/moodiest; day maps a soft grey mist.
-   Each keeps a faint hint of its palette so the haze sits in the scene. */
+   and NOT a pure-black void. Each keeps a faint hint of its palette so the
+   haze sits in the scene it hangs over. */
 function fogTint(th){
   const k = th && th.key;
-  if (k === 'night')  return [40, 48, 62];    /* moody blue-slate, darkest  */
-  if (k === 'dusk')   return [66, 56, 70];     /* dim mauve-grey dusk mist   */
-  if (k === 'quarry') return [72, 74, 78];     /* dusty grey stone haze      */
-  return [58, 72, 86];                          /* malta: soft blue-grey mist */
+  if (k === 'night')  return [46, 55, 70];     /* moody blue-slate, darkest  */
+  if (k === 'dusk')   return [58, 54, 66];     /* dim mauve-grey dusk mist   */
+  if (k === 'quarry') return [60, 62, 66];     /* dusty grey stone haze      */
+  return [48, 60, 72];                          /* malta: soft blue-grey mist */
+}
+/* how much lighter the TOP of the cloud bank reads than its base. A tone
+   step, not an alpha step — the wash is opaque all the way down. Small,
+   so the whole fogged half stays inside the muted mid-dark band. */
+const FOG_TOP_LIFT = 8;
+/* the drifting puffs are a tone lift too, and deliberately faint */
+const FOG_PUFF_LIFT = [14, 13, 12];
+const FOG_PUFF_ALPHA = 0.18;
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE CONCEALMENT CLIP — the reason nothing of the enemy gets through.
+
+   Painting the world and then dropping a sheet over it only ever hides
+   things as well as the sheet is opaque, and any translucency at all
+   leaks the castle, the crew, the damage cracks and the pennants. So the
+   fogged half is not painted in the first place: every draw call that
+   puts WORLD CONTENT on the canvas — terrain spans, damage cracks, the
+   two pennants, crew bodies, their ground shadows, their health bars —
+   runs inside this clip.
+
+   The clip is the union of:
+     · the LOCAL player's own half of the board, always clear; and
+     · every persistent reveal patch this viewer has opened by landing a
+       shell over there.
+   Built with one rect plus one arc per patch, all wound the same way, so
+   canvas's nonzero fill rule unions them. Screen space, rebuilt each
+   frame from the camera — no layout read, no allocation beyond the path.
+
+   The consequence is the one the game wanted: over there is genuinely
+   unknown, and the ONLY way to learn anything is to put a shell into it.
+   ═══════════════════════════════════════════════════════════════════ */
+function clipVisible(g){
+  if (!M || !UI) return;
+  const side = localSide();
+  const w = UI.cw, h = UI.ch;
+  const midX = sx(fogMidX());
+  const cell = cellPx();
+  g.beginPath();
+  /* the viewer's own half, generously past the frame edge */
+  if (side === 0) g.rect(-8, -8, clampN(midX + 8, 0, w + 16), h + 16);
+  else            g.rect(clampN(midX, 0, w), -8, w - clampN(midX, 0, w) + 8, h + 16);
+  /* every scouted patch, punched back IN */
+  for (const p of myReveals()){
+    const cx = sx(p.x), cy = sy(p.y);
+    const rr = Math.max(6, p.r * cell);
+    if (cx + rr < -8 || cx - rr > w + 8 || cy + rr < -8 || cy - rr > h + 8) continue;
+    g.moveTo(cx + rr, cy);
+    g.arc(cx, cy, rr, 0, 6.2832);
+  }
+  g.clip();
 }
 
 /* the offscreen layer the fog is composited on (so reveals cut the fog,
@@ -1151,26 +1310,31 @@ function drawFog(g, cell, th, v){
   fg.setTransform(dpr, 0, 0, dpr, 0, 0);
   fg.clearRect(0, 0, w, h);
 
-  /* ── build the CLOUD on the offscreen layer. The concealment comes from a
-        near-solid wash of the pale cloud tint (it hides the enemy base/crew);
-        the CLOUD LOOK comes from soft, brighter drifting blobs painted over
-        it, plus a slightly thinner top so a little sky shows above the cloud
-        bank. It reads as pretty atmosphere you pan around, not a black wall. ── */
+  /* ── build the CLOUD on the offscreen layer. The wash is OPAQUE — the
+        concealment is absolute — and the cloud look comes from TONE: a
+        slightly lifted tint at the top of the bank easing down to the base
+        tint, then soft drifting puffs over it. Nothing here is translucent,
+        so nothing behind it can read through. ── */
   const tint = fogTint(th);
   const base = fogWeight(th);
   const rgb = tint[0] + ',' + tint[1] + ',' + tint[2];
-  /* a slightly lighter tone for the puff highlights — kept SMALL so the
-     haze stays muted and mid-dark (the old +40..46 lift is what pushed the
-     cloud toward pale; a +22..26 lift gives body without brightening it). */
-  const hi = [ Math.min(255, tint[0] + 26), Math.min(255, tint[1] + 24), Math.min(255, tint[2] + 22) ];
+  const top = [ Math.min(255, tint[0] + FOG_TOP_LIFT),
+                Math.min(255, tint[1] + FOG_TOP_LIFT),
+                Math.min(255, tint[2] + FOG_TOP_LIFT) ];
+  const topRgb = top[0] + ',' + top[1] + ',' + top[2];
+  /* a faint lift for the puff highlights — small, so the haze stays muted
+     and mid-dark rather than drifting toward pale */
+  const hi = [ Math.min(255, tint[0] + FOG_PUFF_LIFT[0]),
+               Math.min(255, tint[1] + FOG_PUFF_LIFT[1]),
+               Math.min(255, tint[2] + FOG_PUFF_LIFT[2]) ];
   const hiRgb = hi[0] + ',' + hi[1] + ',' + hi[2];
-  /* the concealing wash: thinner up top (sky peeks over the bank), full body
-     down where the base hides. Every stop clamped under FOG_ALPHA_MAX. */
+  /* the concealing wash. EVERY stop is at full alpha; only the colour
+     moves, so the bank has depth without a single see-through pixel. */
+  const a1 = Math.min(FOG_ALPHA_MAX, base).toFixed(3);
   const grad = fg.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0,   'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base * 0.62).toFixed(3) + ')');
-  grad.addColorStop(0.28,'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base * 0.92).toFixed(3) + ')');
-  grad.addColorStop(0.6, 'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base).toFixed(3) + ')');
-  grad.addColorStop(1,   'rgba(' + rgb + ',' + Math.min(FOG_ALPHA_MAX, base).toFixed(3) + ')');
+  grad.addColorStop(0,   'rgba(' + topRgb + ',' + a1 + ')');
+  grad.addColorStop(0.45,'rgba(' + rgb + ',' + a1 + ')');
+  grad.addColorStop(1,   'rgba(' + rgb + ',' + a1 + ')');
   fg.fillStyle = grad;
   fg.fillRect(fx0, 0, fx1 - fx0, h);
 
@@ -1192,7 +1356,7 @@ function drawFog(g, cell, th, v){
     const gl = fg.createRadialGradient(bx, by, 0, bx, by, br);
     /* soft-edged puffs — kept faint so the haze reads as moody atmosphere
        and the average luminance stays comfortably mid-dark (not pale) */
-    const a = Math.min(0.34, 0.16 + (i % 3) * 0.05);
+    const a = Math.min(FOG_PUFF_ALPHA, 0.10 + (i % 3) * 0.04);
     gl.addColorStop(0,   'rgba(' + hiRgb + ',' + a.toFixed(3) + ')');
     gl.addColorStop(0.5, 'rgba(' + hiRgb + ',' + (a * 0.5).toFixed(3) + ')');
     gl.addColorStop(1,   'rgba(' + hiRgb + ',0)');
@@ -1203,16 +1367,24 @@ function drawFog(g, cell, th, v){
   /* ── punch the PERSISTENT reveal holes: soft destination-out gradients
         so a scouted patch reads crisp, with a feathered edge that eases
         back into the haze. Clarity controls how fully it's cleared. ── */
-  if (M.reveals && M.reveals.length){
+  const rev = myReveals();
+  if (rev.length){
     fg.globalCompositeOperation = 'destination-out';
-    for (const p of M.reveals){
+    for (const p of rev){
       const cx = sx(p.x), cy = sy(p.y);
       const rr = Math.max(6, p.r * cell);
       const clar = revealClarity(p);
       const gl = fg.createRadialGradient(cx, cy, 0, cx, cy, rr);
-      /* fully erase the core, feather the rim; clarity scales the erase */
+      /* HOLD the erase at full clarity across most of the patch and feather
+         only the last quarter. A scouting shot has to be WORTH taking: the
+         old gradient started fading at 0.62 of the radius and was barely
+         half cut by 0.8, so the window you paid a turn for showed a smear
+         rather than the castle. Now the core — comfortably wider than the
+         blast that opened it — is genuinely clear, and only the rim eases
+         back into the murk so the hole does not read as a cut-out disc. */
       gl.addColorStop(0,    'rgba(0,0,0,' + clar.toFixed(3) + ')');
-      gl.addColorStop(0.62, 'rgba(0,0,0,' + (clar * 0.9).toFixed(3) + ')');
+      gl.addColorStop(0.74, 'rgba(0,0,0,' + clar.toFixed(3) + ')');
+      gl.addColorStop(0.88, 'rgba(0,0,0,' + (clar * 0.62).toFixed(3) + ')');
       gl.addColorStop(1,    'rgba(0,0,0,0)');
       fg.fillStyle = gl;
       fg.beginPath(); fg.arc(cx, cy, rr, 0, 6.2832); fg.fill();
@@ -1236,8 +1408,8 @@ function drawFogSimple(g, th, fx0, fx1, w, h){
   g.beginPath(); g.rect(fx0, 0, fx1 - fx0, h); g.clip();
   g.fillStyle = 'rgba(' + tint[0] + ',' + tint[1] + ',' + tint[2] + ',' + base.toFixed(3) + ')';
   g.fillRect(fx0, 0, fx1 - fx0, h);
-  if (M.reveals){
-    for (const p of M.reveals){
+  {
+    for (const p of myReveals()){
       const cx = sx(p.x), cy = sy(p.y), rr = Math.max(6, p.r * cellPx());
       const clar = revealClarity(p);
       const gl = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
@@ -1246,8 +1418,9 @@ function drawFogSimple(g, th, fx0, fx1, w, h){
       /* draw the map through the hole by lightening the wash there */
       g.globalCompositeOperation = 'destination-out';
       const gl2 = g.createRadialGradient(cx, cy, 0, cx, cy, rr);
-      gl2.addColorStop(0, 'rgba(0,0,0,' + clar.toFixed(3) + ')');
-      gl2.addColorStop(1, 'rgba(0,0,0,0)');
+      gl2.addColorStop(0,    'rgba(0,0,0,' + clar.toFixed(3) + ')');
+      gl2.addColorStop(0.74, 'rgba(0,0,0,' + clar.toFixed(3) + ')');
+      gl2.addColorStop(1,    'rgba(0,0,0,0)');
       g.fillStyle = gl2; g.beginPath(); g.arc(cx, cy, rr, 0, 6.2832); g.fill();
       g.globalCompositeOperation = 'source-over';
     }
@@ -1266,9 +1439,11 @@ const GRID_STEP = 20;   /* cells between grid lines (10 columns × 5 rows)   */
      path their shot took and adjust the next one. It stays until the next
      shot replaces M.lastArc. Drawn ON TOP of the fog (called from
      drawLastShot). Read-only: the points are the engine's own track. ── */
-function drawLastArc(g, cell){
-  const arc = M.lastArc, pts = arc.pts;
-  const col = (arc.seat === M.me) ? '95,200,255' : '255,180,90';
+function drawLastArc(g, cell, arc){
+  const pts = arc.pts;
+  /* it is always the viewer's own arc — myLastArc() never hands over
+     anybody else's — so it is always the local tint */
+  const col = '95,200,255';
   g.save();
   /* a soft dark under-stroke so the line reads over both clear ground and
      the muted fog, then the tinted arc on top, then dashes for a "trace" */
@@ -1294,13 +1469,18 @@ function drawLastArc(g, cell){
 }
 
 function drawLastShot(g, cell){
+  /* ONLY THE VIEWER'S OWN SHOT. The arc, the grid and the pin are filed
+     per seat and fetched for THIS seat, so the opponent's trail is never
+     left hanging after their turn resolves — their shell still animates
+     in flight as it happens, and then it is gone. Yours stays, which is
+     the one you need in order to adjust. */
+  const arc = myLastArc();
   /* the persistent aim ARC hangs in the air on its own (it may be present
      before a marker exists on odd paths); draw it first so a marker/pin
      lands on top of it. */
-  if (M && M.lastArc && M.lastArc.pts && M.lastArc.pts.length >= 4){
-    drawLastArc(g, cell);
-  }
-  if (!M || !M.lastShot) return;
+  if (arc && arc.pts && arc.pts.length >= 4) drawLastArc(g, cell, arc);
+  const ls = myLastShot();
+  if (!ls) return;
   const w = UI.cw, h = UI.ch;
   /* ── the coordinate grid: faint lines on 20-cell spacing, only the ones
         that fall inside the viewport are stroked. ── */
@@ -1321,11 +1501,10 @@ function drawLastShot(g, cell){
   g.stroke();
   g.restore();
 
-  /* ── the marker: a crosshair ring + pin at the landing point, tinted to
-        the shooter, with a distance-from-your-hand label. ── */
-  const ls = M.lastShot;
+  /* ── the marker: a crosshair ring + pin at YOUR landing point, with a
+        distance-from-your-hand label. ── */
   const mx = sx(ls.x), my = sy(ls.y);
-  const col = ls.water ? '120,190,255' : (ls.seat === M.me ? '95,200,255' : '255,107,77');
+  const col = ls.water ? '120,190,255' : '95,200,255';
   const r = Math.max(6, cell * 1.6);
   g.save();
   /* a soft halo so it reads over both clear and fogged ground */
@@ -1348,7 +1527,7 @@ function drawLastShot(g, cell){
   g.fillStyle = 'rgba(' + col + ',.95)';
   g.beginPath(); g.arc(mx, my, Math.max(1.5, cell * 0.42), 0, 6.2832); g.fill();
   /* a small "LAST" label above the pin, with the range from your hand */
-  const hand = handOf(M.me);
+  const hand = handOf(mySeat());
   let label = T('LAST', 'L-AĦĦAR');
   if (hand){
     const d = Math.round(Math.hypot(ls.x - hand.x, ls.y - hand.y));
@@ -1406,10 +1585,14 @@ function drawSkyline(g, th, v){
   g.restore();
 }
 
-function drawBanner(g, span, col, flip, cell){
-  /* find the tower top: highest solid cell in the tower slot column */
-  const st = M.st; const seat = col === SIDECOL[1] ? 1 : 0;
-  let topY = E.GROUND_Y, tx = flip ? span.x1 - 14 : span.x0 + 14;
+function drawBanner(g, seat, cell){
+  /* find the tower top: highest solid cell in the middle of the TOWER
+     SLOT — read off the seat's own chosen layout, so a keep the player
+     set back carries its pennant back with it instead of leaving the flag
+     planted where the tower used to be */
+  const st = M.st, col = SIDECOL[seat], flip = seat === 1;
+  const sp = E.slotSpanIn(st, seat, 1);
+  let topY = E.GROUND_Y, tx = (sp.x0 + sp.x1) >> 1;
   for (let y = 0; y < E.GROUND_Y; y++){
     if (E.solidAt(st, tx, y)){ topY = y; break; }
   }
@@ -1745,6 +1928,368 @@ function handOf(seat){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   THE PLACEMENT PHASE — YOU PUT YOUR OWN CASTLE AND YOUR OWN CREW DOWN
+
+   Before a shot is thrown, each side lays out its own half:
+
+     STEP 1  THE KEEP.   Drag your wall/tower/parapet stack back and forth
+                         along your own shelf. The engine's `back` is an
+                         integer 0..PLACE.BACK_MAX; the drag maps a finger
+                         travel in world cells straight onto it and clamps.
+     STEP 2  THE CREW.   Tap three columns in your own rear courtyard. Each
+                         tap is validated BEFORE it sticks: on your own
+                         shelf, behind your own parapet, and not on top of
+                         one of your own — an illegal tap is refused with
+                         the engine's own reason and nothing moves.
+
+   WHY IT REBUILDS THE MATCH RATHER THAN EDITING IT
+     A match IS (seed, opts, moves), and the layout lives in opts.place —
+     it is NOT a move, because a layout chosen after a throw would change
+     the world under a replay. So every change re-runs E.newMatch on the
+     SAME seed with the layout so far. That is a whole world rebuild, but
+     it happens only when an integer actually changes (at most a handful
+     of times per drag), it costs a couple of typed-array fills, and it
+     buys the thing that matters: what you are looking at while you place
+     is exactly, bit-for-bit, the world you are about to fight in. There
+     is no second representation that could drift.
+
+   WHAT EACH MODE DOES
+     vs AI            you lay out; the machine's own layout is
+                      E.aiPlace(seed, seat) — a pure hash of the seed, so
+                      it is decided without a coin toss and identically on
+                      any phone that replays the match.
+     pass-the-phone   both lay out, one after the other, with an OPAQUE
+                      curtain between them; the second player's screen has
+                      the first player's half behind the fog, and the fog
+                      no longer leaks (see clipVisible).
+     online           GATED for now — both phones use the default layout,
+                      which is identical on both without a byte crossing.
+                      See ONLINE_PLACE_WHY for what the wire would need.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── ONLINE_PLACE_WHY ────────────────────────────────────────────────
+   Why online does NOT run the placement phase, and what wiring it up
+   would take. onlineStart() never calls placeStart(): both phones build
+   the match with normPlace(undefined) → the historical default layout,
+   which is byte-identical on every device, so the two worlds agree with
+   nothing crossing the wire. That is correct and safe; it just means
+   online players do not get to choose where their keep and crew stand.
+
+   To let them choose, the layout — being part of the match TUPLE, not a
+   move — has to be agreed BEFORE the first throw, the same way (seed,
+   opts) already are. The minimal relay plumbing:
+
+     1. Each client runs placeStart([myGameSeat], ...) locally and, when
+        the player taps Ready, sends its own legal layout for its OWN
+        seat only (never the opponent's) as a new pre-match packet, e.g.
+        { t:'place', seat, back, crew:[...] }. legalPlace() gates it on
+        the sender so a tampered client cannot post an illegal keep.
+     2. Neither client starts the duel until BOTH layouts have arrived.
+        The host is the authority: it collects place[0] and place[1],
+        then broadcasts the assembled opts.place to both so they call
+        E.newMatch(seed, {...opts, place}) with the SAME tuple. (A CPU
+        seat's layout is E.aiPlace(seed, seat), decided locally on the
+        host — no packet — exactly as it is offline.)
+     3. Because the layout is in opts, the existing snapshot()/replay()
+        and the fingerprint tripwire already cover it: two phones that
+        somehow disagreed on a keep would trip fingerprint() on turn one
+        instead of silently drifting.
+
+   The only NEW surface is that one 'place' packet and the host's
+   "wait for both, then broadcast" gate — no change to the engine, which
+   already treats opts.place as authoritative. Until that packet exists
+   in js/mp.js's codec, online stays on the default layout above.
+   ── */
+
+/* the layout a seat is fighting with, or the default if it never chose */
+function placeDefault(seat){
+  const back = 0;
+  return { back, crew: E.defaultCrewX(seat, back) };
+}
+
+/* rebuild the provisional match from the layouts known so far. The seat
+   still choosing sees its own live; the other side is whatever it will
+   actually be, which the fog hides from this viewer anyway. */
+function placeRebuild(){
+  const P0 = M.place;
+  const layout = [null, null];
+  for (let s = 0; s < 2; s++){
+    layout[s] = (s === P0.seat) ? { back: P0.back, crew: placeCrewNow(s) }
+              : (P0.done[s] || P0.foe[s] || placeDefault(s));
+  }
+  M.st = E.newMatch(M.seed, Object.assign({}, M.engOpts, { place: layout }));
+  M.lastArc = [null, null]; M.lastShot = [null, null];
+  M.revealsBy = [[], []];
+}
+
+/* the three columns to build the seat's crew from RIGHT NOW: the ones the
+   player has tapped so far, topped up with the default spots so the world
+   always has three people in it while they are still choosing. Sorted into
+   the seat's own marching order, which is the order legalPlace wants. */
+function placeCrewNow(seat){
+  const P0 = M.place;
+  const picked = P0.crew.slice();
+  if (picked.length < E.CH_PER_SIDE){
+    const fill = E.defaultCrewX(seat, P0.back);
+    for (const f of fill){
+      if (picked.length >= E.CH_PER_SIDE) break;
+      if (picked.every(c => Math.abs(c - f) >= E.PLACE.GAP)) picked.push(f);
+    }
+    while (picked.length < E.CH_PER_SIDE) picked.push(E.crewZone(seat, P0.back).x0);
+  }
+  return placeOrder(seat, picked);
+}
+/* seat 0 lines up from the back of its courtyard forward (ascending
+   columns); seat 1 mirrors it. A pure sort, so both phones agree. */
+function placeOrder(seat, xs){
+  const out = xs.slice(0, E.CH_PER_SIDE);
+  out.sort((a, b) => seat === 0 ? (a - b) : (b - a));
+  return out;
+}
+
+/* would putting one of them at column `c` be legal, given what is already
+   down? Returns the engine's own {en,mt} reason when it would not. */
+function placeCheckCrew(seat, c){
+  const P0 = M.place;
+  const z = E.crewZone(seat, P0.back);
+  if (!(c >= z.x0 && c <= z.x1)){
+    return { ok:false, why:{ en:'Inside your own courtyard, behind your parapet.',
+                             mt:'Ġewwa l-bitħa tiegħek, wara l-parapett.' } };
+  }
+  for (const p of P0.crew){
+    if (Math.abs(p - c) < E.PLACE.GAP){
+      return { ok:false, why:{ en:'Too close to the one already standing there.',
+                               mt:'Wisq viċin ta’ min diġà qiegħed hemm.' } };
+    }
+  }
+  /* and the whole set, once this one joins it, must satisfy the engine */
+  const trial = placeOrder(seat, P0.crew.concat([c]));
+  if (trial.length === E.CH_PER_SIDE){
+    const chk = E.legalPlace(seat, { back:P0.back, crew:trial });
+    if (!chk.ok) return { ok:false, why:chk.why };
+  }
+  return { ok:true };
+}
+
+/* ── opening the phase ─────────────────────────────────────────────── */
+function placeStart(queue, foeLayouts){
+  M.phase = 'place';
+  M.place = { seat:0, step:0, back:0, crew:[],
+              done:[null, null], foe: foeLayouts || [null, null],
+              queue: queue.slice(), drag:null };
+  if (UI && UI.host) UI.host.classList.add('kn-placing');
+  P.ui.setTurn(M.ctx, { cls:'', who:T('Set out your castle', 'Ħejji l-kastell tiegħek'),
+    note:T('Where it stands is up to you.', 'Fejn joqgħod jiddeċiedi int.') });
+  placeNext(false);
+}
+
+function placeNext(needCurtain){
+  const P0 = M.place;
+  if (!P0.queue.length){ placeFinish(); return; }
+  const seat = P0.queue[0];
+  if (needCurtain){ placeCurtain(seat, () => { P0.queue.shift(); placeSeat(seat); }); return; }
+  P0.queue.shift();
+  placeSeat(seat);
+}
+
+function placeSeat(seat){
+  const P0 = M.place;
+  P0.seat = seat; P0.step = 0; P0.back = 0; P0.crew = []; P0.drag = null;
+  /* the screen becomes THIS player's: the fog turns around with it, so
+     what the other one just laid out is behind the murk. */
+  M.viewSeat = seat;
+  placeRebuild();
+  if (M.cam){ const f = frameForBase(seat); M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; snapCam(); }
+  renderSetup(); hud(); draw();
+}
+
+/* the OPAQUE hand-over screen. Nothing of the board is on it. */
+function placeCurtain(seat, go){
+  if (!UI || !UI.curtain){ go(); return; }
+  const col = SIDECOL[seat];
+  const nm = (M.meta[seat] && M.meta[seat].name) || col.n();
+  UI.curtain.innerHTML =
+    '<span class="kn-seatdot" style="background:' + col.a + '"></span>' +
+    '<h4>' + esc(T('Pass the phone to ', 'Għaddi t-telefon lil ') + nm) + '</h4>' +
+    '<p>' + esc(T('Nobody else may see where you put your castle. Tap when it is only you looking.',
+                  'Ħadd ma jista’ jara fejn tqiegħed il-kastell tiegħek. Agħfas meta tkun waħdek tħares.')) +
+    '</p>' +
+    '<button class="btn primary" id="kn-curtain-go">' +
+      esc(T('I have it — set out my castle', 'F’idejja — ħa nħejji l-kastell')) + '</button>';
+  UI.curtain.classList.add('on');
+  const b = UI.curtain.querySelector('#kn-curtain-go');
+  if (b) b.onclick = () => { UI.curtain.classList.remove('on'); cue('ui.tap', { gain:0.6 }); go(); };
+}
+
+/* ── the two steps ─────────────────────────────────────────────────── */
+function placeAdvance(){
+  const P0 = M.place, seat = P0.seat;
+  if (P0.step === 0){
+    P0.step = 1; P0.crew = [];
+    placeRebuild();
+    renderSetup(); draw();
+    cue('move.select', { gain:0.45 });
+    return;
+  }
+  if (P0.crew.length < E.CH_PER_SIDE){
+    tip('<b>' + esc(T('Three of them, all down.', 'It-tlieta, kollha mniżżla.')) + '</b>', 1400);
+    cue('move.illegal', { gain:0.5 });
+    return;
+  }
+  const layout = { back:P0.back, crew: placeOrder(seat, P0.crew) };
+  const chk = E.legalPlace(seat, layout);
+  if (!chk.ok){ tip('<b>' + esc(TP(chk.why)) + '</b>', 1600); cue('move.illegal', { gain:0.5 }); return; }
+  P0.done[seat] = layout;
+  cue('ui.tap', { gain:0.6 });
+  placeNext(M.hotseat && P0.queue.length > 0);
+}
+
+function placeUndo(){
+  const P0 = M.place;
+  if (P0.step === 1 && P0.crew.length){ P0.crew.pop(); placeRebuild(); renderSetup(); draw(); return; }
+  if (P0.step === 1){ P0.step = 0; placeRebuild(); renderSetup(); draw(); return; }
+  P0.back = 0; placeRebuild(); renderSetup(); draw();
+}
+
+/* ── the finger ────────────────────────────────────────────────────── */
+function placeDown(px, py){
+  const P0 = M.place;
+  if (P0.step === 0){
+    P0.drag = { back0:P0.back, wx0:wx(px) };
+    return;
+  }
+  const col = Math.floor(wx(px));
+  const chk = placeCheckCrew(P0.seat, col);
+  if (!chk.ok){
+    tip('<b>' + esc(TP(chk.why)) + '</b>', 1500);
+    cue('move.illegal', { gain:0.5 });
+    return;
+  }
+  if (P0.crew.length >= E.CH_PER_SIDE){
+    tip('<b>' + esc(T('All three are down. Undo to move one.', 'It-tlieta mniżżla. Erġa’ lura biex tmexxi wieħed.')) + '</b>', 1500);
+    cue('move.illegal', { gain:0.5 });
+    return;
+  }
+  P0.crew.push(col);
+  placeRebuild();
+  cue('move.select', { gain:0.5 });
+  renderSetup(); draw();
+}
+function placeMove(px){
+  const P0 = M.place;
+  if (P0.step !== 0 || !P0.drag) return;
+  /* the keep slides AWAY from the moat: for seat 0 the moat is to the
+     right, so dragging left pushes it back; seat 1 mirrors. */
+  const dir = P0.seat === 0 ? -1 : 1;
+  const moved = (wx(px) - P0.drag.wx0) * dir;
+  const back = clampN(Math.round(P0.drag.back0 + moved), E.PLACE.BACK_MIN, E.PLACE.BACK_MAX);
+  if (back === P0.back) return;
+  P0.back = back;
+  placeRebuild();
+  cue('piece.slide', { gain:0.25 });
+  renderSetup(); draw();
+}
+function placeUp(){ if (M.place) M.place.drag = null; }
+
+/* ── the bar under the field ───────────────────────────────────────── */
+function renderSetup(){
+  if (!UI || !UI.setup || !M || M.phase !== 'place') return;
+  const P0 = M.place, seat = P0.seat;
+  const nm = (M.meta[seat] && M.meta[seat].name) || SIDECOL[seat].n();
+  const who = M.hotseat ? (esc(nm) + ' — ') : '';
+  let title, hint, go, canGo;
+  if (P0.step === 0){
+    title = who + T('Where does your keep stand?', 'Fejn joqgħod il-mastru tiegħek?');
+    hint = T('Drag your wall, tower and parapet along your own shelf. ',
+             'Iġbed il-ħajt, it-torri u l-parapett tul l-art tiegħek. ') +
+           '<em>' + T('Set back ', 'Lura ') + P0.back + '/' + E.PLACE.BACK_MAX + '</em>';
+    go = T('Now the crew', 'Issa l-ekwipaġġ'); canGo = true;
+  } else {
+    title = who + T('Where do your three stand?', 'Fejn joqogħdu t-tlieta tiegħek?');
+    hint = T('Tap a spot in your courtyard for each of them. ',
+             'Agħfas post fil-bitħa għal kull wieħed. ') +
+           '<em>' + P0.crew.length + '/' + E.CH_PER_SIDE + '</em>';
+    go = T('Ready — begin', 'Lest — ibda'); canGo = P0.crew.length >= E.CH_PER_SIDE;
+  }
+  UI.setup.innerHTML =
+    '<div class="kn-setup-t"><b>' + esc(title) + '</b><i>' + hint + '</i></div>' +
+    '<div class="kn-setup-a">' +
+      '<button class="btn ghost sm" id="kn-setup-undo">' + esc(T('Undo', 'Lura')) + '</button>' +
+      '<button class="btn primary sm" id="kn-setup-go"' + (canGo ? '' : ' disabled') + '>' +
+        esc(go) + '</button>' +
+    '</div>';
+  const u = UI.setup.querySelector('#kn-setup-undo');
+  const g = UI.setup.querySelector('#kn-setup-go');
+  if (u) u.onclick = () => { placeUndo(); cue('ui.back', { gain:0.5 }); };
+  if (g) g.onclick = () => placeAdvance();
+}
+
+/* ── closing the phase and starting the duel ───────────────────────── */
+function placeFinish(){
+  const P0 = M.place;
+  const layout = [ P0.done[0] || P0.foe[0] || placeDefault(0),
+                   P0.done[1] || P0.foe[1] || placeDefault(1) ];
+  M.engOpts = Object.assign({}, M.engOpts, { place: layout });
+  M.st = E.newMatch(M.seed, M.engOpts);
+  M.phase = 'play'; M.place = null;
+  M.lastArc = [null, null]; M.lastShot = [null, null]; M.revealsBy = [[], []];
+  if (UI && UI.host) UI.host.classList.remove('kn-placing');
+  if (UI && UI.curtain) UI.curtain.classList.remove('on');
+  /* the first player at the phone is the one whose turn it is (hot-seat)
+     or simply the seat this device holds */
+  const first = E.turnOf(M.st);
+  M.viewSeat = (M.hotseat && first >= 0 && ownedHere(first)) ? first : (M.me | 0);
+  if (M.cam){ const f = frameForBase(mySeat()); M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom; snapCam(); }
+  saveGame();
+  hud(); weps(); renderModeBtn(); draw();
+  cue('game.start', { gain:0.85 }, true);
+  if (first < 0){ finish(); return; }
+  if (M.mine.indexOf(first) >= 0 && M.meta[first] && M.meta[first].own === 'ai') scheduleAI(first);
+  else if (ownedHere(first)) setTurn('you');
+  else setTurn('them');
+}
+
+/* ── the placement overlay on the canvas: the courtyard you may use and
+     a pip on each of your three, so the legal ground is never a guess ── */
+function drawPlacement(g, cell){
+  if (!M || M.phase !== 'place' || !M.place) return;
+  const P0 = M.place, seat = P0.seat;
+  const z = E.crewZone(seat, P0.back);
+  const x0 = sx(z.x0), x1 = sx(z.x1 + 1);
+  const yTop = sy(E.GROUND_Y - E.T.CH_H - 1), yBot = sy(E.GROUND_Y + 1);
+  g.save();
+  /* the legal courtyard, lit up only while the crew are going down */
+  if (P0.step === 1){
+    g.fillStyle = 'rgba(59,224,138,.14)';
+    g.fillRect(x0, yTop, x1 - x0, yBot - yTop);
+    g.strokeStyle = 'rgba(59,224,138,.7)';
+    g.lineWidth = Math.max(1.2, cell * 0.22);
+    g.setLineDash([Math.max(3, cell), Math.max(3, cell)]);
+    g.strokeRect(x0, yTop, x1 - x0, yBot - yTop);
+    g.setLineDash([]);
+    /* a pip under each one already placed */
+    g.fillStyle = 'rgba(59,224,138,.95)';
+    for (const c of P0.crew){
+      g.beginPath();
+      g.arc(sx(c + 0.5), sy(E.GROUND_Y + 1), Math.max(2, cell * 0.6), 0, 6.2832);
+      g.fill();
+    }
+  } else {
+    /* the keep step: outline the three slots so the stack is obvious */
+    g.strokeStyle = 'rgba(255,197,66,.85)';
+    g.lineWidth = Math.max(1.4, cell * 0.26);
+    g.setLineDash([Math.max(3, cell * 1.2), Math.max(3, cell * 0.8)]);
+    for (let d = 0; d < E.NDEF; d++){
+      const sp = E.slotSpan(seat, d, P0.back);
+      const sxa = sx(sp.x0), sxb = sx(sp.x1 + 1);
+      g.strokeRect(sxa, sy(E.GROUND_Y - 16), sxb - sxa, sy(E.GROUND_Y + 1) - sy(E.GROUND_Y - 16));
+    }
+    g.setLineDash([]);
+  }
+  g.restore();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    PAN vs AIM — the touch is hit-tested against the SLINGSHOT region
    FIRST. A press on/near your own launch hand (or your own castle) is an
    AIM drag (the slingshot pull, unchanged). A press anywhere else on the
@@ -1764,7 +2309,7 @@ const SLING_HIT_PX = 78;
 function onSlingshot(px, py){
   if (!M || !M.st) return false;
   if (!canAct()) return false;
-  const seat = M.me;
+  const seat = mySeat();
   const hand = handOf(seat);
   if (!hand) return false;
   const hx = sx(hand.x), hy = sy(hand.y);
@@ -1946,7 +2491,7 @@ function maxPullPx(){
 
 function beginAim(px, py){
   if (!canAct()) return;
-  const seat = M.me;
+  const seat = mySeat();
   const hand = handOf(seat);
   if (!hand) return;
   /* anchor the pull at the HAND's SCREEN position, so the drag distance
@@ -2018,7 +2563,8 @@ function firstTrackPts(rep){
 function canAct(){
   if (!M || M.dead || M.finished || M.busy) return false;
   if (M.st.done) return false;
-  if (E.turnOf(M.st) !== M.me) return false;
+  if (M.phase === 'place') return false;   /* the castles are still being laid out */
+  if (E.turnOf(M.st) !== mySeat()) return false;
   return true;
 }
 
@@ -2038,11 +2584,15 @@ function fireShot(mv, src){
   if (!rep){ M.busy = false; return; }
   /* PERSISTENT AIM LINE: remember the actual trajectory this shot flew so
      the arc HANGS IN THE AIR after firing (drawn in drawLastShot, on top of
-     the fog) until the next shot replaces it — the player sees the path
-     their shell took / where they aimed and can adjust. Read-only: the pts
-     are the engine's own primary-track points, never fed back to the sim. */
+     the fog) until THAT SHOOTER'S next shot replaces it — the player sees
+     the path their own shell took and can adjust. Filed under the SHOOTER's
+     seat: drawLastShot only ever fetches the viewer's own, so an opponent's
+     arc is never left on your screen once their shell has landed, and your
+     own survives their turn intact. Read-only: the pts are the engine's own
+     primary-track points, never fed back to the sim. */
   const arcPts = firstTrackPts(rep);
-  if (arcPts) M.lastArc = { pts: arcPts, seat, born: nowMs() };
+  if (!M.lastArc) M.lastArc = [null, null];
+  if (arcPts) M.lastArc[seat] = { pts: arcPts, seat, born: nowMs() };
   /* tell the wire — AFTER it has been applied here, never before */
   if (src === 'me') say(seat, { seat, w:mv.w, dx:mv.dx, dy:mv.dy });
   saveGame();
@@ -2148,9 +2698,11 @@ function playFlight(rep, done){
         if (!b.fired && (a.i + 2 >= pts.length || near(a.pos, b.x, b.y, 4))){
           b.fired = true;
           const power = Math.min(1.6, b.r / 6);
-          /* FOG: this shot LANDED — punch a persistent reveal at the
-             impact if it's on the fogged enemy side (addReveal filters). */
-          addReveal(b.x, b.water ? E.WATER_Y : b.y, b.r);
+          /* FOG: this shot LANDED — punch a persistent reveal for the
+             SHOOTER at the impact, if it's on the side fogged for them
+             (addReveal filters). The owner is passed explicitly because
+             the engine has already handed the turn on by now. */
+          addReveal(rep.seat, b.x, b.water ? E.WATER_Y : b.y, b.r);
           if (b.water){
             spawnImpact(b.x, E.WATER_Y, b.r, 0.5, { water:true });
             cue('sea.splash', { gain:0.5 }, true);
@@ -2262,11 +2814,41 @@ function afterThrow(rep){
   if (M.mine.indexOf(next) >= 0){
     /* our (or the host's AI) turn */
     if (M.meta[next] && M.meta[next].own === 'ai'){ scheduleAI(next); }
+    /* two players on one phone: put the curtain up before the board is
+       handed over, so the next player does not inherit the last one's
+       view — their scouted patches, their arc, or their clear half */
+    else if (M.hotseat && next !== (M.viewSeat | 0)) handOver(next);
     else setTurn('you');
   } else {
     /* a remote human's turn — wait */
     setTurn('them');
   }
+}
+
+/* ── PASS THE PHONE. The curtain is opaque and covers the whole field;
+   only when the next player taps it does M.viewSeat move, and with it the
+   fog, the reveals and the persistent last-shot arc. ── */
+function handOver(seat){
+  const go = () => {
+    M.viewSeat = seat | 0;
+    if (M.cam) frameForAim(true);
+    hud(); weps(); draw();
+    setTurn('you');
+  };
+  if (!UI || !UI.curtain){ go(); return; }
+  const col = SIDECOL[seat];
+  const nm = (M.meta[seat] && M.meta[seat].name) || col.n();
+  UI.curtain.innerHTML =
+    '<span class="kn-seatdot" style="background:' + col.a + '"></span>' +
+    '<h4>' + esc(T('Pass the phone to ', 'Għaddi t-telefon lil ') + nm) + '</h4>' +
+    '<p>' + esc(T('Their throw. What you scouted stays yours.',
+                  'It-tefgħa tagħhom. Dak li skoprejt jibqa’ tiegħek.')) + '</p>' +
+    '<button class="btn primary" id="kn-hand-go">' +
+      esc(T('Ready — my throw', 'Lest — it-tefgħa tiegħi')) + '</button>';
+  UI.curtain.classList.add('on');
+  P.ui.setTurn(M.ctx, { cls:'', who: esc(nm) + ' ' + T('to throw', 'imiss'), note:'' });
+  const b = UI.curtain.querySelector('#kn-hand-go');
+  if (b) b.onclick = () => { UI.curtain.classList.remove('on'); cue('ui.tap', { gain:0.6 }); go(); };
 }
 
 /* ── the machine takes its turn: it shops (applied to st inside the
@@ -2321,7 +2903,7 @@ function hud(){
     const el = UI['purse' + s];
     if (!el) continue;
     const sd = v.sides[s], col = SIDECOL[s];
-    const mine = (s === M.me);
+    const mine = (s === mySeat());
     el.innerHTML =
       '<span class="c"><span class="d" style="background:' + col.a + '"></span>' +
         '<span class="co">' + sd.coins + '</span></span>' +
@@ -2374,7 +2956,7 @@ function setTurn(who){
 function weps(){
   if (!UI || !UI.weps) return;
   const v = E.view(M.st);
-  const me = v.sides[M.me];
+  const me = v.sides[mySeat()];
   UI.weps.innerHTML = E.WEAPONS.map(w => {
     const ammo = me.ammo[w.id];
     const cool = me.cool[w.id];
@@ -2405,7 +2987,7 @@ function closeShop(){
 }
 function paintShop(){
   if (!UI || !UI.shopBody) return;
-  const seat = M.me;
+  const seat = mySeat();
   const rows = E.shopView(M.st, seat);
   const coins = M.st.sides[seat].coins;
   UI.shopCoins.textContent = coins + ' ' + T('coins', 'muniti');
@@ -2443,7 +3025,7 @@ function paintShop(){
 function defGlyph(r){
   /* a wall / tower / parapet block, coloured by target tier's material */
   const D = E.DEFS[r.d != null ? r.d : 0];
-  const tier = r.kind === 2 ? (E.view(M.st).sides[M.me].tier[r.d]) : (r.to || 0);
+  const tier = r.kind === 2 ? (E.view(M.st).sides[mySeat()].tier[r.d]) : (r.to || 0);
   const mat = D.tiers[Math.max(0, Math.min(3, tier))].mat;
   const c = MATCOL[mat] || { a:'#888', b:'#555' };
   const shape = r.d === 1
@@ -2456,7 +3038,7 @@ function defGlyph(r){
 function shorten(s){ s = String(s || ''); return s.length > 92 ? s.slice(0, 90).replace(/\s+\S*$/, '') + '…' : s; }
 
 function buy(it){
-  const seat = M.me;
+  const seat = mySeat();
   const chk = E.canBuy(M.st, seat, it);
   if (!chk.ok){ tip('<b>' + esc(TP(chk.why)) + '</b>', 1400); cue('move.illegal', { gain:0.5 }); return; }
   const done = E.apply(M.st, { seat, t:'buy', it });
@@ -2493,6 +3075,11 @@ function board(){
           '<path d="M4 11l8-6 8 6M6 10v9h12v-9"/></svg>' +
         '<span>' + esc(T('My base', 'Il-bażi')) + '</span></button>' +
       '<div class="kn-power" id="kn-power"><i id="kn-power-fill"></i></div>' +
+      /* the PLACEMENT bar — only on screen while a castle is being laid out */
+      '<div class="kn-setup" id="kn-setup"></div>' +
+      /* the pass-the-phone curtain — an opaque cover so the next player
+         cannot see what the last one just put down */
+      '<div class="kn-curtain" id="kn-curtain"></div>' +
       /* the rules panel over the field */
       '<div class="kn-rules" id="kn-rulespanel" aria-hidden="true">' +
         '<div class="kn-rules-h"><h4 id="kn-rules-t"></h4>' +
@@ -2530,6 +3117,8 @@ function board(){
     powerFill: ctx.host.querySelector('#kn-power-fill'),
     returnBtn: ctx.host.querySelector('#kn-home'),
     modeBtn: ctx.host.querySelector('#kn-mode-t'),
+    setup: ctx.host.querySelector('#kn-setup'),
+    curtain: ctx.host.querySelector('#kn-curtain'),
     weps: ctx.host.querySelector('#kn-weps'),
     rules: ctx.host.querySelector('#kn-rulespanel'),
     shop: ctx.host.querySelector('#kn-shop'),
@@ -2584,11 +3173,20 @@ function board(){
 
 function wireField(){
   const f = UI.field;
-  let mode = null;   /* 'aim' | 'pan' | null — decided on pointerdown */
+  let mode = null;   /* 'aim' | 'pan' | 'place' | null — decided on pointerdown */
   f.addEventListener('pointerdown', e => {
     if (rulesOpen || M.shopOpen) return;
     e.preventDefault();
     const px = e.clientX - rectLeft(), py = e.clientY - rectTop();
+    /* WHILE THE CASTLES ARE BEING LAID OUT the field does one thing only:
+       it places. No aiming (canAct() is false in this phase) and no
+       panning, so a stray drag can never lose the player their own half. */
+    if (M.phase === 'place'){
+      mode = 'place';
+      try { f.setPointerCapture(e.pointerId); } catch(_){}
+      placeDown(px, py);
+      return;
+    }
     /* THE EXPLICIT SHOOT / LOOK BUTTON decides the gesture, so the player
        always knows what a drag will do (no implicit drag-region hit-test):
          · SHOOT mode + your turn → a drag AIMS + fires the slingshot;
@@ -2610,17 +3208,20 @@ function wireField(){
   f.addEventListener('pointermove', e => {
     if (!mode) return;
     const px = e.clientX - rectLeft(), py = e.clientY - rectTop();
-    if (mode === 'aim') moveAim(px, py);
+    if (mode === 'place') placeMove(px, py);
+    else if (mode === 'aim') moveAim(px, py);
     else movePan(px, py);
   });
   const up = e => {
     if (!mode) return;
     const m = mode; mode = null;
-    if (m === 'aim') endAim();
+    if (m === 'place') placeUp();
+    else if (m === 'aim') endAim();
     else { endPan(); refreshReturnBtn(); }
   };
   f.addEventListener('pointerup', up);
   f.addEventListener('pointercancel', () => {
+    if (mode === 'place'){ mode = null; placeUp(); return; }
     if (mode === 'pan'){ mode = null; endPan(); refreshReturnBtn(); return; }
     mode = null; M.drag = null; M.preview = null;
     if (UI.power) UI.power.classList.remove('on'); draw();
@@ -2632,8 +3233,9 @@ function wireField(){
     if (!canAct()) return;
     if (e.key === ' ' || e.key === 'Enter'){
       e.preventDefault();
-      const face = M.me === 0 ? 1 : -1;
-      fireShot({ seat:M.me, w:M.sel, dx: 70 * face, dy: -70 }, 'me');
+      const seat = mySeat();
+      const face = seat === 0 ? 1 : -1;
+      fireShot({ seat, w:M.sel, dx: 70 * face, dy: -70 }, 'me');
     }
   };
   window.addEventListener('keydown', UI.keys);
@@ -2784,7 +3386,7 @@ function newGame(opts){
      machine on seat 1 — so seat 1 goes in M.mine, otherwise afterThrow()
      mistakes the AI's turn for a remote human's and waits forever
      (the machine never fires). See afterThrow(). */
-  M.me = 0; M.mine = [0, 1];
+  M.me = 0; M.mine = [0, 1]; M.viewSeat = 0;
   M.meta = [
     { name:T('You', 'Int'), own:'me', lvl:o.lvl || 2 },
     { name: levelWords(o.lvl || 2).n, own:'ai', lvl:o.lvl || 2, strat: o.strat || 'BAL' }
@@ -2792,10 +3394,30 @@ function newGame(opts){
   /* pick a sensible starting weapon: the free balloon */
   M.sel = 0;
   openBoard(() => menu());
-  saveGame();
-  /* if the machine throws first, let it */
-  const first = E.turnOf(M.st);
-  if (first === 1){ scheduleAI(1); } else { setTurn('you'); }
+  /* SET OUT THE CASTLES FIRST. You lay out seat 0; the machine's own
+     layout is a pure hash of the seed, so it is decided here without a
+     coin toss and any phone replaying this match builds the identical
+     enemy castle — which is exactly what the fog then hides. */
+  placeStart([0], [null, E.aiPlace(M.seed, 1)]);
+}
+
+/* TWO PLAYERS, ONE PHONE. Both lay out their own castle behind an opaque
+   curtain, then throw in turn — and because the whole screen (fog,
+   reveals, the persistent last-shot arc) is keyed on M.viewSeat, handing
+   the phone over hands the point of view over with it. */
+function newGameHotseat(opts){
+  injectCSS();
+  P.show();
+  const o = Object.assign({}, opts || {});
+  startMatch(o, null, null);
+  M.me = 0; M.mine = [0, 1]; M.viewSeat = 0; M.hotseat = true;
+  M.meta = [
+    { name:T('Blue', 'Blu'), own:'me', lvl:2 },
+    { name:T('Red',  'Aħmar'), own:'me', lvl:2 }
+  ];
+  M.sel = 0;
+  openBoard(() => menu());
+  placeStart([0, 1], [null, null]);
 }
 
 /* resume the autosaved match, if any */
@@ -2808,20 +3430,32 @@ function resumeGame(){
   if (!st){ ST.save = null; persist(); menu(); return; }
   const o = ST.save.opts || { lvl:2, strat:'BAL' };
   const V = VARIANTS[o.variant] ? o.variant : 'malta';
+  const hot = !!o.hotseat;
   stopAnim(); stopFx();
   M = {
     opts:o, seed: st.seed, st,
-    net:null, me:0, mine:[0, 1], meta:[
+    net:null, me:0, mine:[0, 1], meta: hot ? [
+      { name:T('Blue', 'Blu'),  own:'me', lvl:2 },
+      { name:T('Red',  'Aħmar'), own:'me', lvl:2 }
+    ] : [
       { name:T('You', 'Int'), own:'me', lvl:o.lvl || 2 },
       { name: levelWords(o.lvl || 2).n, own:'ai', lvl:o.lvl || 2, strat:o.strat || 'BAL' }
     ],
     ctx:null, cv:null, g2:null, sel:0, drag:null, preview:null, anim:null,
-    cam:null, fx:null, reveals:[], theme:THEMES[VARIANTS[V].theme], variant:V,
+    cam:null, fx:null, revealsBy:[[], []], lastArc:[null, null], lastShot:[null, null],
+    viewSeat:0, phase:'play', place:null, hotseat:hot,
+    engOpts:(ST.save.snap && ST.save.snap.opts) || {},
+    theme:THEMES[VARIANTS[V].theme], variant:V,
     raf:0, busy:false, dead:false, finished:false, shopOpen:false, aiPending:0
   };
   openBoard(() => menu());
   const cur = E.turnOf(M.st);
-  if (cur === 1){ scheduleAI(1); } else if (cur === 0){ setTurn('you'); } else { finish(); }
+  /* a resumed match keeps the layouts it was saved with — they are in the
+     snapshot's opts, so E.restore() already rebuilt the world with them */
+  if (hot && cur >= 0) M.viewSeat = cur;
+  if (cur < 0){ finish(); }
+  else if (!hot && cur === 1){ scheduleAI(1); }
+  else { setTurn('you'); }
 }
 
 function saveGame(){
@@ -2946,6 +3580,7 @@ function onlineStart(cfg){
   startMatch({ lvl, first:0, variant }, cfg.seed >>> 0, null);
   M.net = Object.assign({}, cfg.net, { host:iAmHost, toGame, toRoom });
   M.me = meG;
+  M.viewSeat = meG;
   M.mine = [meG];
   chairs.forEach((s, g) => {
     if (s.kind === 'cpu' && iAmHost) M.mine.push(g);
@@ -3099,6 +3734,8 @@ const ICO_BOT = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="8" w
 const ICO_BOOK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a2 2 0 0 1 2-2h12v16H6a2 2 0 0 0-2 2z"/>' +
   '<path d="M4 19a2 2 0 0 1 2-2h12"/></svg>';
 const ICO_CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+const ICO_PHONE = '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+  '<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M10 18h4"/></svg>';
 
 function menu(){
   injectCSS();
@@ -3141,6 +3778,13 @@ function menu(){
             '<i>' + esc(T('You against the machine.', 'Int kontra l-magna.')) + '</i></span>' +
           '<span class="chev">' + ICO_CHEV + '</span>' +
         '</button>' +
+        '<button class="kn-mode" id="kn-m-hot">' +
+          '<span class="mi">' + ICO_PHONE + '</span>' +
+          '<span class="mt"><b>' + esc(T('Two on one phone', 'Tnejn fuq telefon')) + '</b>' +
+            '<i>' + esc(T('Lay out your castles in turn, then throw.',
+                          'Ħejju l-kastelli tagħkom wieħed wara l-ieħor, imbagħad itfgħu.')) + '</i></span>' +
+          '<span class="chev">' + ICO_CHEV + '</span>' +
+        '</button>' +
         '<button class="kn-mode" id="kn-m-rules">' +
           '<span class="mi">' + ICO_BOOK + '</span>' +
           '<span class="mt"><b>' + esc(T('How to play', 'Kif tilgħabha')) + '</b>' +
@@ -3169,6 +3813,13 @@ function menu(){
 
   el.querySelector('#kn-m-ai').onclick = () => { cue('ui.tap', { gain:0.6 }); aiSetup(); };
   el.querySelector('#kn-m-online').onclick = () => { cue('ui.tap', { gain:0.6 }); goOnline(); };
+  el.querySelector('#kn-m-hot').onclick = () => {
+    cue('ui.tap', { gain:0.6 });
+    const p = pref();
+    ST.save = null; persist();
+    newGameHotseat({ lvl:2, first:0, strat:'BAL', hotseat:true,
+                     variant: VARIANTS[p.variant] ? p.variant : 'malta' });
+  };
 
   const panel = el.querySelector('#kn-mrules');
   const scrim = el.querySelector('#kn-mscrim');
@@ -3510,8 +4161,9 @@ try {
       fog: {
         side: () => localSide(),
         midX: () => fogMidX(),
-        reveals: () => (M ? (M.reveals || []) : []),
-        add: (x, y, r) => addReveal(x, y, r),
+        reveals: () => myReveals(),
+        revealsOf: seat => (M && M.revealsBy) ? (M.revealsBy[seat | 0] || []) : [],
+        add: (x, y, r, owner) => addReveal(owner == null ? mySeat() : owner, x, y, r),
         fromReport: rep => revealFromReport(rep),
         clarity: p => revealClarity(p),
         /* fog-layer alpha (0..255) at a CSS-px point, read from the
@@ -3558,11 +4210,50 @@ try {
       returnToBase: () => returnToBase(),
       fogAlphaMax: () => FOG_ALPHA_MAX,
       fogWeight: () => fogWeight(M ? M.theme : THEMES.malta),
-      /* ── LAST-SHOT grid/marker hooks (this fix) ── */
-      lastShot: () => (M ? M.lastShot || null : null),
+      /* ── LAST-SHOT grid/marker hooks. Per seat now: the screen only ever
+           draws mySeat()'s own, so an opponent's arc cannot hang about. ── */
+      lastShot: () => myLastShot(),
+      lastArc: () => myLastArc(),
+      lastShotOf: seat => (M && M.lastShot) ? M.lastShot[seat | 0] : null,
+      lastArcOf:  seat => (M && M.lastArc)  ? M.lastArc[seat | 0]  : null,
       recordLastShot: (rep, focus) => recordLastShot(rep, focus),
       drawLastShot: () => { if (UI && UI.g2) drawLastShot(UI.g2, cellPx()); },
-      wx: px => wx(px), wy: py => wy(py)
+      wx: px => wx(px), wy: py => wy(py),
+
+      /* ── WHOSE SCREEN THIS IS ── */
+      mySeat: () => mySeat(),
+      viewSeat: () => (M ? M.viewSeat : null),
+      setViewSeat: s => { if (M){ M.viewSeat = s | 0; draw(); } },
+
+      /* ── PLACEMENT PHASE hooks ── */
+      phase: () => (M ? M.phase : null),
+      hotseat: () => !!(M && M.hotseat),
+      newGameHotseat,
+      place: () => (M && M.place) ? {
+        seat:M.place.seat, step:M.place.step, back:M.place.back,
+        crew:M.place.crew.slice(), queue:M.place.queue.slice(),
+        done:M.place.done.map(d => d ? { back:d.back, crew:d.crew.slice() } : null)
+      } : null,
+      placeOf: seat => E.placeOf(M.st, seat == null ? mySeat() : seat),
+      placeDown: (px, py) => placeDown(px, py),
+      placeMove: px => placeMove(px, 0),
+      placeUp: () => placeUp(),
+      placeAdvance: () => placeAdvance(),
+      placeUndo: () => placeUndo(),
+      crewZone: (seat, back) => E.crewZone(seat, back),
+      curtainOn: () => !!(UI && UI.curtain && UI.curtain.classList.contains('on')),
+      curtainTap: () => {
+        const b = UI && UI.curtain && UI.curtain.querySelector('button');
+        if (b) b.click();
+        return !!b;
+      },
+      setupHTML: () => (UI && UI.setup ? UI.setup.innerHTML : ''),
+      setupTap: id => {
+        const b = UI && UI.setup && UI.setup.querySelector('#' + id);
+        if (!b || b.disabled) return false;
+        b.click(); return true;
+      },
+      handOver: seat => handOver(seat)
     };
   }
 } catch(e){}
