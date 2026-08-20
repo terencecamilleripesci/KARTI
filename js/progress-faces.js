@@ -720,10 +720,10 @@ var BORDERS = [
     blurb:'Black, and there is lightning in it. One of these exists.' },
   /* BETA-TESTER FRAMES. Off the ladder, not for sale, worn by account name
      (see betaRing() in js/progress.js). A thank-you in gold and silver, dripping. */
-  { id:'betagold',   name:'Beta — Gold',   lvl:0, earn:'admin', anim:true, solo:true,
-    blurb:'Solid gold, dripping bling. For a beta tester who broke it first.' },
-  { id:'betasilver', name:'Beta — Silver', lvl:0, earn:'admin', anim:true, solo:true,
-    blurb:'Cold silver, all shimmer. For a beta tester who broke it second.' }
+  { id:'betagold',   name:'Beta — Gold',   lvl:0, earn:'betagold',   anim:true, solo:true,
+    blurb:'Solid gold, dripping bling. A thank-you for a beta tester — wear it or don’t.' },
+  { id:'betasilver', name:'Beta — Silver', lvl:0, earn:'betasilver', anim:true, solo:true,
+    blurb:'Cold silver, all shimmer. A thank-you for a beta tester — wear it or don’t.' }
 ];
 var B_BY = {};
 for (var bi = 0; bi < BORDERS.length; bi++) B_BY[BORDERS[bi].id] = BORDERS[bi];

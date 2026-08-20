@@ -1299,7 +1299,7 @@ function describe(name, opts){
        kind of asymmetry that only shows up once somebody tries to preview. */
     return {
       face: o.face || avatar(),
-      border: BETA_RING(accountKey()) || bareBorder(o.border || equipped('border', 'karti')),
+      border: bareBorder(o.border || equipped('border', 'karti')),
       lvb: bareBadge(o.lvb || equipped('badge', 'karti')),
       pic: (o.pv === 0) ? ''
          : (o.pv ? picURL(accountKey(), o.pv)
@@ -1315,7 +1315,7 @@ function describe(name, opts){
      the version number is worth carrying. */
   return {
     face: (o.hint && FACE_BY[o.hint]) ? o.hint : defaultFaceFor(name),
-    border: BETA_RING(o.who || name) || ((o.border && FACES_BORDER(o.border)) ? o.border : ''),
+    border: (o.border && FACES_BORDER(o.border)) ? o.border : '',
     lvb: (o.lvb && FACES_BADGE(o.lvb)) ? o.lvb : '',
     pic: (o.who && o.pv) ? picURL(o.who, o.pv) : '',
     mine: false
@@ -1323,15 +1323,6 @@ function describe(name, opts){
 }
 function FACES_BORDER(id){
   try { return !!(window.KARTI_FACES && KARTI_FACES.border(id)); } catch (e){ return false; }
-}
-/* BETA-TESTER FRAMES, worn by account name. A gift, not for sale and not on the
-   ladder — matched on the account key (case/spacing/punctuation-insensitive) so
-   it follows the tester wherever they sit, on their own phone and on everyone
-   else's lobby. Returns a border id ('betagold'/'betasilver') or '' for nobody. */
-var BETA_FRAMES = { shanikwanne:'betagold', rudeness:'betasilver' };
-function BETA_RING(who){
-  var k = String(who || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  return BETA_FRAMES[k] || '';
 }
 /* A border is registered as the cosmetic id 'border.gold', because
    every cosmetic id in the registry is namespaced. The RING is drawn
@@ -1402,12 +1393,28 @@ function isAdmin(){
   } catch (e){ return false; }
 }
 
+/* BETA-TESTER GIFTS — owned by the tester's ACCOUNT, so it is a real cosmetic
+   they can equip or take off like any other, not a forced frame. shanikwanne
+   owns the gold, rudeness owns the silver. Checked live off the signed-in
+   account (case/spacing/punctuation-insensitive), never remembered, so it
+   follows the account and never sticks to a shared device. */
+var BETA_OWNERS = { shanikwanne:'betagold', rudeness:'betasilver' };
+function betaOwns(which){
+  try {
+    var k = String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    return !!(k && session() && BETA_OWNERS[k] === which);
+  } catch (e){ return false; }
+}
 var EARN_TEST = { streak: function(){ return bestStreakAnywhere() >= 10; },
                   story:  storyDone,
-                  admin:  isAdmin };
+                  admin:  isAdmin,
+                  betagold:   function(){ return betaOwns('betagold'); },
+                  betasilver: function(){ return betaOwns('betasilver'); } };
 var EARN_HOW  = { streak: 'Win ten in a row in any one game',
                   story:  'Clear every boss in Story Mode',
-                  admin:  'Not available. There is one, and it is spoken for.' };
+                  admin:  'Not available. There is one, and it is spoken for.',
+                  betagold:   'A thank-you for a beta tester.',
+                  betasilver: 'A thank-you for a beta tester.' };
 
 function registerBorders(){
   var B = [];
@@ -1424,7 +1431,7 @@ function registerBorders(){
       /* the one-of-one sorts last of all, below even the earned ones */
       sort: b.id === 'none' ? -1 : (b.solo ? 99 : (b.earn ? 90 : (b.lvl || 0))),
       earn: b.earn ? { how: EARN_HOW[b.earn], test: EARN_TEST[b.earn],
-                       live: b.earn === 'admin' } : null,
+                       live: b.earn === 'admin' || b.earn === 'betagold' || b.earn === 'betasilver' } : null,
       /* the preview is the border doing its actual job: a real
          medallion, wearing the player's own face, at the size the
          inventory draws it. Nothing to imagine. */
@@ -1472,7 +1479,7 @@ function registerBadges(){
       level: b.lvl || 0,
       sort: b.solo ? 99 : (b.earn ? 90 : (b.lvl || 0)),
       earn: b.earn ? { how: EARN_HOW[b.earn], test: EARN_TEST[b.earn],
-                       live: b.earn === 'admin' } : null,
+                       live: b.earn === 'admin' || b.earn === 'betagold' || b.earn === 'betasilver' } : null,
       preview: (function(id){
         return function(size){
           var el = document.createElement('span');
