@@ -651,7 +651,42 @@ function injectCSS(){
        falls on everything else in this app — not a disabled one. */
     '@media (prefers-reduced-motion:reduce){' +
       '.kx-r-tempesta::before{animation:none;transform:rotate(-.12turn);opacity:1}}' +
-    '.reduced .kx-r-tempesta::before{animation:none;transform:rotate(-.12turn);opacity:1}';
+    '.reduced .kx-r-tempesta::before{animation:none;transform:rotate(-.12turn);opacity:1}' +
+
+    /* ═══ BETA-TESTER FRAMES — pure bling. A fast bright metal sweep, a
+       sparkle layer that twinkles across it, and a coloured halo on the
+       medallion. Gold for one tester, silver for the other. ═══ */
+    '@keyframes kxTwinkle{0%,100%{opacity:.2;transform:rotate(0)}50%{opacity:1;transform:rotate(8deg)}}' +
+    '.kx-r-betagold{--kx-fb:#FFD23F;--kx-pat:conic-gradient(from 0turn,' +
+      '#7A560E 0turn,#FFC542 .05turn,#FFF6CE .09turn,#FFFFFF .12turn,#FFF6CE .15turn,' +
+      '#FFC542 .19turn,#7A560E .3turn,#B8860B .5turn,#FFE9A8 .55turn,#FFFFFF .59turn,' +
+      '#FFE9A8 .63turn,#B8860B .72turn,#7A560E .82turn,#7A560E 1turn);overflow:hidden}' +
+    '.kx-r-betasilver{--kx-fb:#DCE3EF;--kx-pat:conic-gradient(from 0turn,' +
+      '#5C6472 0turn,#C6CEDA .05turn,#F4F8FF .09turn,#FFFFFF .12turn,#F4F8FF .15turn,' +
+      '#C6CEDA .19turn,#5C6472 .3turn,#8A93A3 .5turn,#E9EEF6 .55turn,#FFFFFF .59turn,' +
+      '#E9EEF6 .63turn,#8A93A3 .72turn,#5C6472 .82turn,#5C6472 1turn);overflow:hidden}' +
+    '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
+      '.kx-r-betagold,.kx-r-betasilver{background-image:none}' +
+      '.kx-r-betagold::before,.kx-r-betasilver::before{content:"";position:absolute;inset:-45%;' +
+        'background:var(--kx-pat);animation:kxSweep 2.6s linear infinite}' +
+      '.kx-r-betagold::after,.kx-r-betasilver::after{content:"";position:absolute;inset:-1px;' +
+        'border-radius:inherit;pointer-events:none;mix-blend-mode:screen;' +
+        'background:radial-gradient(circle at 28% 18%,rgba(255,255,255,.95),transparent 34%),' +
+        'radial-gradient(circle at 78% 74%,rgba(255,255,255,.8),transparent 30%),' +
+        'radial-gradient(circle at 60% 30%,rgba(255,255,255,.7),transparent 22%);' +
+        'animation:kxTwinkle 2.2s ease-in-out infinite}}' +
+    '@supports selector(:has(*)){' +
+      '.kx-av:has(>.kx-r-betagold){filter:' +
+        'drop-shadow(0 0 calc(var(--kx-size,38px)*.1) rgba(255,197,66,.95))' +
+        ' drop-shadow(0 0 calc(var(--kx-size,38px)*.26) rgba(255,170,30,.6))}' +
+      '.kx-av:has(>.kx-r-betasilver){filter:' +
+        'drop-shadow(0 0 calc(var(--kx-size,38px)*.1) rgba(220,227,239,.95))' +
+        ' drop-shadow(0 0 calc(var(--kx-size,38px)*.26) rgba(170,185,205,.6))}}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '.kx-r-betagold::before,.kx-r-betasilver::before{animation:none;transform:rotate(-.12turn)}' +
+      '.kx-r-betagold::after,.kx-r-betasilver::after{animation:none;opacity:.7}}' +
+    '.reduced .kx-r-betagold::before,.reduced .kx-r-betasilver::before{animation:none;transform:rotate(-.12turn)}' +
+    '.reduced .kx-r-betagold::after,.reduced .kx-r-betasilver::after{animation:none;opacity:.7}';
   document.head.appendChild(st);
 }
 
@@ -682,14 +717,20 @@ var BORDERS = [
      app that is honest about not being for sale. It belongs to the man
      whose game it is. See EARN_TEST.admin in js/progress.js. */
   { id:'tempesta', name:'Tempesta',         lvl:0,  earn:'admin', anim:true, solo:true,
-    blurb:'Black, and there is lightning in it. One of these exists.' }
+    blurb:'Black, and there is lightning in it. One of these exists.' },
+  /* BETA-TESTER FRAMES. Off the ladder, not for sale, worn by account name
+     (see betaRing() in js/progress.js). A thank-you in gold and silver, dripping. */
+  { id:'betagold',   name:'Beta — Gold',   lvl:0, earn:'admin', anim:true, solo:true,
+    blurb:'Solid gold, dripping bling. For a beta tester who broke it first.' },
+  { id:'betasilver', name:'Beta — Silver', lvl:0, earn:'admin', anim:true, solo:true,
+    blurb:'Cold silver, all shimmer. For a beta tester who broke it second.' }
 ];
 var B_BY = {};
 for (var bi = 0; bi < BORDERS.length; bi++) B_BY[BORDERS[bi].id] = BORDERS[bi];
 
 /* which borders are painted as a masked band rather than as an inset
    box-shadow — the gradients and the patterns */
-var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1, tempesta:1 };
+var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1, tempesta:1, betagold:1, betasilver:1 };
 
 /* ═══════════════════════════════════════════════════════════════════
    THE LEVEL BOX

@@ -1299,7 +1299,7 @@ function describe(name, opts){
        kind of asymmetry that only shows up once somebody tries to preview. */
     return {
       face: o.face || avatar(),
-      border: bareBorder(o.border || equipped('border', 'karti')),
+      border: BETA_RING(accountKey()) || bareBorder(o.border || equipped('border', 'karti')),
       lvb: bareBadge(o.lvb || equipped('badge', 'karti')),
       pic: (o.pv === 0) ? ''
          : (o.pv ? picURL(accountKey(), o.pv)
@@ -1315,7 +1315,7 @@ function describe(name, opts){
      the version number is worth carrying. */
   return {
     face: (o.hint && FACE_BY[o.hint]) ? o.hint : defaultFaceFor(name),
-    border: (o.border && FACES_BORDER(o.border)) ? o.border : '',
+    border: BETA_RING(o.who || name) || ((o.border && FACES_BORDER(o.border)) ? o.border : ''),
     lvb: (o.lvb && FACES_BADGE(o.lvb)) ? o.lvb : '',
     pic: (o.who && o.pv) ? picURL(o.who, o.pv) : '',
     mine: false
@@ -1323,6 +1323,15 @@ function describe(name, opts){
 }
 function FACES_BORDER(id){
   try { return !!(window.KARTI_FACES && KARTI_FACES.border(id)); } catch (e){ return false; }
+}
+/* BETA-TESTER FRAMES, worn by account name. A gift, not for sale and not on the
+   ladder — matched on the account key (case/spacing/punctuation-insensitive) so
+   it follows the tester wherever they sit, on their own phone and on everyone
+   else's lobby. Returns a border id ('betagold'/'betasilver') or '' for nobody. */
+var BETA_FRAMES = { shanikwanne:'betagold', rudeness:'betasilver' };
+function BETA_RING(who){
+  var k = String(who || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return BETA_FRAMES[k] || '';
 }
 /* A border is registered as the cosmetic id 'border.gold', because
    every cosmetic id in the registry is namespaced. The RING is drawn

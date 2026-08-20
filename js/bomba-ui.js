@@ -2160,10 +2160,12 @@ function menu(){
   el.querySelector('#bm-m-ai').onclick = () => { cue('ui.tap', { gain:0.6 }); setupAI(); };
   el.querySelector('#bm-m-rules').onclick = () => toggleMenuRules(el, true);
   el.querySelector('#bm-m-online').onclick = () => {
-    /* the honest online path: the relay does not know "bomba" yet, so
-       there is no room to open. Say so — with the rules panel styling —
-       and offer the machine, which is fully playable now. */
+    /* the relay knows "bomba" now (it is in the server's TABLES + GAME_SEATS),
+       so open a real room through the shared lobby, the same entry every other
+       online game uses. Fall back to the honest "not available" note only if the
+       lobby is genuinely absent on this build. */
     cue('ui.tap', { gain:0.6 });
+    if (window.KARTI_MP && KARTI_MP.openFor){ try { KARTI_MP.openFor('bomba'); return; } catch (e){} }
     onlineUnavailable(el);
   };
   /* a tap outside the rules sheet puts it away */

@@ -2618,7 +2618,12 @@ function rosterSeats(){
     level: w.lv || 0,
     ready: w.bot ? true : !!w.ready,
     here: w.here !== false,
-    link: w.bot ? 'cpu' : 'net'
+    link: w.bot ? 'cpu' : 'net',
+    /* the relay now carries each seat's account photo: pv = photo version
+       (0/absent = no photo), av = account key the photo URL is built from.
+       This is what lets the lobby draw EVERYONE'S face, not just your own. */
+    pv: w.pv || 0,
+    av: w.av || ''
   }));
 }
 
@@ -3099,8 +3104,12 @@ function seatAvatar(s, me){
   try {
     const XP = window.KARTI_XP;
     if (XP && typeof XP.avatarHTML === 'function' && s.kind !== 'cpu'){
-      return XP.avatarHTML(s.name || 'Player',
-        { size:38, me:!!me, noBorder:false, label:(s.name || 'Player') });
+      const opts = { size:38, me:!!me, noBorder:false, label:(s.name || 'Player') };
+      /* a REMOTE seat now carries the account key + photo version from the
+         relay, so draw their REAL photograph (avatarHTML builds the URL from
+         who+pv), not a name-coloured medallion. My own seat still uses {me}. */
+      if (!me && s.av && s.pv){ opts.who = s.av; opts.pv = s.pv; }
+      return XP.avatarHTML(s.name || 'Player', opts);
     }
   } catch (e){}
   /* machine (or no kit): a quiet medallion with the game's die/piece mark */

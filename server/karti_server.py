@@ -1521,12 +1521,23 @@ class Room:
                 who.append({"i": i, "n": bot["n"], "here": True, "bot": True,
                             "ready": True, "lv": bot["lv"]})
                 continue
-            who.append({"i": i,
-                        "n": (s.conn.pname or "PLAYER") if s.conn is not None else "",
-                        "here": s.conn is not None,
-                        "bot": i in self.bots,
-                        "ready": bool(s.ready),
-                        "lv": 0})
+            seat = {"i": i,
+                    "n": (s.conn.pname or "PLAYER") if s.conn is not None else "",
+                    "here": s.conn is not None,
+                    "bot": i in self.bots,
+                    "ready": bool(s.ready),
+                    "lv": 0}
+            # THE FACE, so the lobby draws everyone's photo, not just your own.
+            # Same source as the presence "who" answer: pv is the account's
+            # avatar-photo version (absent = no photo, draw the picked face) and
+            # `av` is the account key the photo URL /karti/avatar/<av>?v=<pv> is
+            # built from (the pname on show may differ from the account name).
+            if s.conn is not None and s.conn.acct:
+                pv = karti_avatar.version(s.conn.acct)
+                if pv:
+                    seat["pv"] = pv
+                    seat["av"] = s.conn.acct
+            who.append(seat)
         lo, _, _ = seat_range(self.game, self.variant)
         return {"t": "table", "code": self.code, "game": self.game,
                 "seats": self.size, "started": self.started,
