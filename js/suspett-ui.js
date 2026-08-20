@@ -1451,6 +1451,11 @@ function townHTML(G, mySeat){
   const anims = deathAnims(G);
   const medium = G.P.some(p => p.alive && S.ROLES[p.role].seance);   /* public: only that a séance exists */
   const n = G.P.length;
+  /* everything scales with the headcount so a small group is not lost and a big
+     group (up to 16) never overlaps: smaller heads + a wider ring as n grows. */
+  const av = n <= 6 ? 44 : n <= 9 ? 36 : n <= 12 ? 30 : n <= 14 ? 26 : 23;
+  const rx = n <= 7 ? 37 : n <= 11 ? 40 : 43;
+  const ry = n <= 7 ? 35 : n <= 11 ? 39 : 42;
   /* who is being hanged THIS paint — they go to the CENTRE gallows, not their ring spot */
   let hangSeat = -1;
   for (const p of G.P) if (anims[p.seat] === 'hang') hangSeat = p.seat;
@@ -1458,12 +1463,12 @@ function townHTML(G, mySeat){
     const pub = S.publicSeat(G, p.seat);
     const mine = p.seat === mySeat;
     const anim = anims[p.seat];
-    /* place each seat evenly around an ellipse in the open lower square, seat 0
-       at the top and going clockwise — the village stands in a RING around the
-       central gallows. Pure display trig (not the sim), so cos/sin are fine. */
+    /* place each seat evenly around an ellipse, seat 0 at the top going clockwise
+       — the village stands in a RING around the central gallows. Pure display
+       trig (not the sim), so cos/sin are fine. */
     const ang = (-90 + i * (360 / n)) * Math.PI / 180;
-    const x = (50 + 39 * Math.cos(ang)).toFixed(1);
-    const y = (50 + 37 * Math.sin(ang)).toFixed(1);
+    const x = (50 + rx * Math.cos(ang)).toFixed(1);
+    const y = (50 + ry * Math.sin(ang)).toFixed(1);
     let cls = 'su-vil' + (pub.alive ? '' : ' dead') + (mine ? ' me' : '') +
       (G.accused === p.seat ? ' acc' : '') +
       (anim === 'slain' ? ' slain' : '') + (p.seat === hangSeat ? ' tomiddle' : '');
@@ -1480,23 +1485,23 @@ function townHTML(G, mySeat){
     const roleWord = (!pub.alive && pub.role) ? '<span class="rl">' + esc(pub.role) + '</span>'
                    : (pub.alive && pub.mayor) ? '<span class="rl" style="color:var(--gold,#FFC542)">Is-Sindku</span>'
                    : '';
-    return '<button class="' + cls + '" data-seat="' + p.seat + '" style="left:' + x + '%;top:' + y + '%" ' +
+    return '<button class="' + cls + '" data-seat="' + p.seat + '" style="left:' + x + '%;top:' + y + '%;width:' + (av + 20) + 'px" ' +
       (mine ? 'aria-current="true" ' : '') + 'aria-label="' + esc(pub.name) + '">' +
-      '<span class="fig">' + slash +
+      '<span class="fig" style="width:' + (av + 4) + 'px;height:' + (av + 16) + 'px">' + slash +
         (pub.alive ? '' : '<span class="tomb"><b></b></span><span class="ghost">👻</span>') +
-        '<span class="body"></span>' +
+        '<span class="body" style="width:' + Math.round(av * 0.8) + 'px;height:' + Math.round(av * 0.55) + 'px"></span>' +
         /* a DEAD player whose role is public shows their character portrait
            (Town-of-Salem style). p.role is only emitted when pub.role is
            already revealed — never for a living player, so no side leak. */
         '<span class="head">' + ((!pub.alive && pub.role)
           ? '<img class="su-rolemini" src="art/suspett/' + esc(p.role) + '.png" alt="" ' +
-            'onerror="this.style.display=\'none\'" style="width:34px;height:34px;border-radius:8px;' +
+            'onerror="this.style.display=\'none\'" style="width:' + av + 'px;height:' + av + 'px;border-radius:7px;' +
             'object-fit:cover;display:block;border:1px solid rgba(255,255,255,.15)">'
-          : avatarInto(pub.name, mine, 34)) + '</span>' +
+          : avatarInto(pub.name, mine, av)) + '</span>' +
         (tally[p.seat] ? '<span class="vt">' + tally[p.seat] + '</span>' : '') +
         (marks.length ? '<span class="mk">' + marks.join('') + '</span>' : '') +
       '</span>' +
-      '<span class="nm">' + esc(pub.name) + '</span>' + roleWord +
+      '<span class="nm" style="font-size:' + (n > 12 ? 8.5 : n > 9 ? 9.5 : 10) + 'px">' + esc(pub.name) + '</span>' + roleWord +
       '</button>';
   }).join('');
   /* THE CENTRE OF THE SQUARE — il-planka. A standing gallows always waits in
