@@ -2618,37 +2618,32 @@ function updateCoinsPill(){
   const el = $('#pack-coins');
   if (el) el.innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
 }
-/* ── HOME DAILY-SPIN BUTTON ─────────────────────────────────────────────
-   Paints the home reward button in one of two states from the live spin
-   gate, and wires the tap to the app's EXISTING daily spin (the Store's
-   "spin" tab). No second source of truth: everything comes off spinState().
-     READY   → glowing, "SPIN", subtitle "Spin the wheel — free today"
-     CLAIMED → dimmed, countdown, subtitle "Come back in Xh Ym"
-   The wheel art (art/ui/spin-wheel.png) is swapped in by detectArt() once it
-   has actually decoded; absent, the drawn star stays — graceful fallback. */
+/* ── HOME DAILY-SPIN BADGE ───────────────────────────────────────────────
+   A COMPACT badge under the avatar (#spin-slot, top-left), and ONLY when a
+   free spin is waiting. When today's spin is already claimed the badge is not
+   rendered at all — the slot is emptied — which keeps the corner clean and the
+   home column short. Tap opens the app's EXISTING daily spin (the Store's
+   "spin" tab). Everything comes off spinState(); no second source of truth.
+   The wheel art (art/ui/spin-wheel.png) is swapped onto the medallion by
+   detectArt() once it has decoded; absent, the drawn star stays — graceful
+   fallback. */
 function renderDailySpinBtn(){
-  const btn = $('#btn-dailyspin');
-  if (!btn) return;
+  const slot = $('#spin-slot');
+  if (!slot) return;
   const st = spinState();
-  const sub = $('#ds-sub', btn) || btn.querySelector('.ds-sub');
-  const cta = $('#ds-cta', btn) || btn.querySelector('.ds-cta');
-  if (st.ok){
-    btn.classList.add('ready'); btn.classList.remove('claimed');
-    btn.setAttribute('aria-label', 'Daily reward is ready — spin the wheel');
-    if (sub) sub.textContent = 'Spin the wheel — free today';
-    if (cta) cta.textContent = 'SPIN';
-  } else {
-    btn.classList.remove('ready'); btn.classList.add('claimed');
-    const wait = st.why === 'clock'
-      ? 'Come back later'
-      : 'Come back in ' + spinCountdownText(st.next);
-    btn.setAttribute('aria-label', 'Daily reward claimed — ' + wait);
-    if (sub) sub.textContent = st.why === 'clock'
-      ? 'Claimed — the clock jumped back' : 'Claimed today — ' + wait.toLowerCase();
-    if (cta) cta.textContent = st.why === 'clock' ? 'LATER'
-      : spinCountdownText(st.next);
-  }
-  btn.onclick = openDailySpin;
+  if (!st.ok){ slot.innerHTML = ''; return; }   /* claimed / not ready → hidden */
+  slot.innerHTML =
+    '<button class="spinbadge" id="btn-dailyspin" type="button" ' +
+      'aria-label="Daily reward is ready — spin the wheel">' +
+      '<span class="ds-art" aria-hidden="true">' +
+        '<svg class="ds-star" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+          '<use href="#i-star"></use></svg></span>' +
+      '<span class="ds-label">Free spin!</span>' +
+    '</button>';
+  const btn = $('#btn-dailyspin', slot);
+  if (btn) btn.onclick = openDailySpin;
+  /* if the wheel art already loaded this session, put it on straight away */
+  try { applySpinWheelArt(); } catch (e){}
 }
 /* Open the app's existing Daily Spin. It lives as a tab on the Store screen,
    so select that tab first, then route — ready OR claimed, the same door
@@ -5694,19 +5689,27 @@ function detectArt(){
     document.documentElement.style.setProperty('--home-hero', 'url("' + abs + '")');
     document.documentElement.classList.add('has-hero');
   });
-  /* SPIN WHEEL — the medallion art on the home daily-spin button. Swapped in
+  /* SPIN WHEEL — the medallion art on the home daily-spin badge. Swapped in
      only once it has decoded, over the drawn star, so a missing file is a
-     clean fallback rather than a broken image. Re-inserted on every detectArt
-     re-arm is fine: the button is idempotent about a child <img>. */
+     clean fallback rather than a broken image. The resolved URL is remembered
+     (ART.spinWheel) so renderDailySpinBtn() can re-attach it every time it
+     re-creates the badge, without depending on the one-shot probe firing again. */
   probe('spin-wheel', 'art/ui/spin-wheel.png', () => {
-    const abs = new URL('art/ui/spin-wheel.png', location.href).href;
-    const holder = document.querySelector('#btn-dailyspin .ds-art');
-    if (holder && !holder.querySelector('img')){
-      const im = new Image();
-      im.src = abs; im.alt = '';
-      holder.appendChild(im);
-    }
+    ART.spinWheel = new URL('art/ui/spin-wheel.png', location.href).href;
+    applySpinWheelArt();
   });
+}
+/* Put the wheel art onto the badge's medallion if it has loaded and the badge
+   is on screen and does not already have it. Called by the probe on first load
+   and by renderDailySpinBtn() every time the badge is re-created. */
+function applySpinWheelArt(){
+  if (!ART.spinWheel) return;
+  const holder = document.querySelector('#btn-dailyspin .ds-art');
+  if (holder && !holder.querySelector('img')){
+    const im = new Image();
+    im.src = ART.spinWheel; im.alt = '';
+    holder.appendChild(im);
+  }
 }
 /* A probe that ran out of retries comes back the moment the network does, or
    when the app returns to the foreground — iOS standalone freezes timers in the

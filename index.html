@@ -485,52 +485,37 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   stroke-linecap:round;stroke-linejoin:round;opacity:.85;margin-left:1px}
 .cardschip:active{transform:scale(.97);border-color:rgba(255,197,66,.6)}
 
-/* ── DAILY SPIN — the free daily reward button ─────────────────────────
-   A wide festival ticket: the wheel on the left, the copy in the middle, a
-   gold CTA capsule on the right. READY glows; CLAIMED dims and swaps the CTA
-   for a countdown. The single primary action on the lower home band. */
-.dailyspin{display:flex;align-items:center;gap:12px;width:100%;margin-top:9px;
-  min-height:62px;padding:9px 12px 9px 10px;border-radius:16px;text-align:left;
+/* ── DAILY SPIN — a COMPACT badge under the avatar ─────────────────────
+   Not a bar: a small pill that sits directly beneath the profile chip in the
+   top-left, and ONLY when a free spin is waiting. When today's spin is claimed
+   the badge is not rendered at all (renderHome empties #spin-slot), which keeps
+   the corner clean and the home column short. */
+.headleft{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0}
+.spin-slot{display:flex}                 /* empty (0 height) when claimed */
+.spin-slot:empty{display:none}
+.spinbadge{display:inline-flex;align-items:center;gap:7px;
+  padding:5px 12px 5px 5px;border-radius:99px;
   background:
-    radial-gradient(120% 160% at 14% 50%,rgba(255,197,66,.22),transparent 58%),
-    linear-gradient(180deg,rgba(58,35,92,.92),rgba(30,18,52,.95));
-  border:1px solid rgba(255,197,66,.5);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 24px -8px rgba(255,180,40,.5);
-  transition:transform .12s var(--ease),box-shadow .2s,opacity .2s,border-color .2s;
-  position:relative;overflow:hidden}
-.dailyspin:active{transform:translateY(1px) scale(.995)}
-/* the wheel medallion */
-.dailyspin .ds-art{flex:0 0 auto;width:44px;height:44px;border-radius:50%;position:relative;
-  display:grid;place-items:center;
+    radial-gradient(120% 160% at 16% 50%,rgba(255,197,66,.28),transparent 62%),
+    linear-gradient(180deg,rgba(58,35,92,.94),rgba(30,18,52,.96));
+  border:1px solid rgba(255,197,66,.55);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 4px 14px -6px rgba(255,180,40,.7);
+  color:#FFF3CF;font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.04em;
+  white-space:nowrap;transition:transform .12s var(--ease),box-shadow .2s}
+.spinbadge:active{transform:scale(.96)}
+/* the little wheel medallion — the spin-wheel.png art drops in over the star */
+.spinbadge .ds-art{flex:0 0 auto;width:26px;height:26px;border-radius:50%;position:relative;
+  display:grid;place-items:center;overflow:hidden;
   background:radial-gradient(circle at 50% 38%,#FFE9A8,#FFC542 46%,#B96C00);
-  box-shadow:0 0 0 2px rgba(255,233,168,.55),0 6px 14px -4px rgba(255,180,40,.75);
-  overflow:hidden}
-.dailyspin .ds-art .ds-star{width:26px;height:26px;color:#5B2E00}
-.dailyspin .ds-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.dailyspin .ds-txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
-.dailyspin .ds-title{font-family:var(--disp);font-weight:900;font-size:15px;letter-spacing:.03em;
-  color:#FFF3CF;line-height:1.05}
-.dailyspin .ds-sub{font-family:var(--body);font-weight:600;font-size:10.5px;letter-spacing:.03em;
-  color:#E7D8FF;opacity:.9;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dailyspin .ds-cta{flex:0 0 auto;align-self:center;font-family:var(--disp);font-weight:900;
-  font-size:13px;letter-spacing:.08em;color:#241800;padding:8px 15px;border-radius:99px;
-  background:linear-gradient(180deg,#FFDE8B,var(--gold));border:1px solid #FFE9B0;
-  box-shadow:0 3px 0 -1px #B96C00,0 5px 14px -4px rgba(255,197,66,.9);white-space:nowrap}
-/* READY: a slow breathing glow so the eye is drawn to the free reward */
-.dailyspin.ready{animation:dsGlow 2.4s ease-in-out infinite}
-@keyframes dsGlow{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 22px -10px rgba(255,180,40,.45)}
-  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 10px 30px -6px rgba(255,180,40,.85)}}
-/* CLAIMED: the reward is spent for the day — calm it right down and turn the
-   CTA into a plain countdown pill, so it reads as "done, come back later". */
-.dailyspin.claimed{border-color:rgba(255,255,255,.14);
-  background:linear-gradient(180deg,rgba(34,24,52,.9),rgba(22,15,38,.94));
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 4px 14px rgba(0,0,0,.35)}
-.dailyspin.claimed .ds-art{filter:saturate(.4) brightness(.85);
-  box-shadow:0 0 0 2px rgba(255,255,255,.12)}
-.dailyspin.claimed .ds-title{color:#EDE6FF}
-.dailyspin.claimed .ds-cta{background:rgba(255,255,255,.08);color:#CDBEF0;
-  border-color:rgba(255,255,255,.16);box-shadow:none;font-size:11.5px;letter-spacing:.03em}
-body.reduced .dailyspin.ready{animation:none}
+  box-shadow:0 0 0 1.5px rgba(255,233,168,.6),0 3px 8px -3px rgba(255,180,40,.8)}
+.spinbadge .ds-art .ds-star{width:16px;height:16px;color:#5B2E00}
+.spinbadge .ds-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.spinbadge .ds-label{line-height:1}
+/* READY: a slow breathing glow so the free reward catches the eye */
+.spinbadge{animation:spGlow 2.4s ease-in-out infinite}
+@keyframes spGlow{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 3px 10px -6px rgba(255,180,40,.5)}
+  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 5px 16px -5px rgba(255,180,40,.95)}}
+body.reduced .spinbadge{animation:none}
 
 /* ── HOME HERO BACKDROP ────────────────────────────────────────────────
    When art/ui/home-hero.png is present, detectArt() in js/game.js proves it
@@ -642,22 +627,20 @@ html.short-webview .tabbar{ padding-bottom:8px }
    buys back ~115px, which is what makes the whole menu fit with no scrollbar.
    Touch targets stay at 40px; nothing is hidden. */
 @media (max-height:700px){
-  .homemid{gap:8px}
-  #scr-home .btn.pick{min-height:58px;font-size:15px}
+  .homemid{gap:7px}
+  #scr-home .btn.pick{min-height:60px;font-size:15px}
   #scr-home .btn.pick .sub{font-size:9px}
   .fineprint{font-size:9.5px}
   #scr-home .tagline{font-size:9.5px;letter-spacing:.2em}
   #scr-home .wallet{gap:6px}
   #scr-home .wallet .pill{font-size:12px;padding:5px 9px 5px 7px;gap:4px}
-  /* the cards chip and daily-spin shrink a touch so the whole column still
-     fits with no scroll on a 360x640 phone */
+  /* the cards chip shrinks a touch so the whole column still fits with no
+     scroll on a 360x640 phone */
   .cardschip{min-height:36px;padding:6px 11px;font-size:12px}
-  .dailyspin{min-height:56px;margin-top:7px;padding:8px 11px 8px 9px;gap:10px}
-  .dailyspin .ds-art{width:40px;height:40px}
-  .dailyspin .ds-art .ds-star{width:23px;height:23px}
-  .dailyspin .ds-title{font-size:14px}
-  .dailyspin .ds-sub{font-size:10px}
-  .dailyspin .ds-cta{padding:7px 13px;font-size:12px}
+  /* the spin badge under the avatar shrinks too — it shares the fixed top bar */
+  .spinbadge{font-size:11px;padding:4px 10px 4px 4px;gap:6px}
+  .spinbadge .ds-art{width:23px;height:23px}
+  .spinbadge .ds-art .ds-star{width:14px;height:14px}
   /* the tab bar is already one row; just tighten it — 48px still clears the
      44px minimum target, and no label is dropped */
   .tabbar{margin-top:7px;gap:1px}
@@ -667,14 +650,10 @@ html.short-webview .tabbar{ padding-bottom:8px }
   #scr-home .on-list{max-height:clamp(58px,17vh,120px)}
   /* Cap the WHOLE online box on a short phone so its content (including the
      server-unreachable explanation, which is the tallest state) scrolls INSIDE
-     the box rather than pushing the daily-spin off the bottom. Keeps the home
-     column fitting with no page scroll even in the worst online state. */
+     the box rather than pushing content off the bottom. Keeps the home column
+     fitting with no page scroll even in the worst online state. */
   #scr-home .onlinebox{max-height:clamp(74px,13vh,120px);overflow-y:auto;scrollbar-width:none}
   #scr-home .onlinebox::-webkit-scrollbar{display:none}
-  /* trim the vertical rhythm on the shortest phones so the whole column —
-     logo, cards chip, the two play buttons, party, online, daily-spin — fits
-     above the tab bar with no page scroll. */
-  .homemid{gap:6px}
   #scr-home .menu{gap:8px}
 }
 .logo{font-family:var(--disp);font-weight:900;font-size:clamp(42px,13vw,64px);line-height:.9;
@@ -1589,7 +1568,17 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
          side and "what you have" on the other. The cards indicator is NOT here: it
          is a tappable chip below the wallet that routes to the Collection. -->
     <div class="homehead">
-      <button class="pchip" id="profile-chip" aria-label="Profile options"></button>
+      <!-- LEFT: the profile chip, and DIRECTLY UNDER IT the compact daily-spin
+           badge. The badge only exists in the DOM when a free spin is waiting
+           (renderHome adds/removes it) — when today's spin is already claimed it
+           is not rendered at all, which keeps the top-left clean and the home
+           column shorter. -->
+      <div class="headleft">
+        <button class="pchip" id="profile-chip" aria-label="Profile options"></button>
+        <!-- #spin-slot is filled by renderHome(): a small "spin available"
+             pill when ready, emptied when claimed. -->
+        <div id="spin-slot" class="spin-slot"></div>
+      </div>
       <div class="wallet" id="wallet" aria-label="Your currency"></div>
     </div>
 
@@ -1627,23 +1616,8 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
           aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Party Games</span></span
           ><span class="sub">Nine games — play them online or on this phone</span></button>
       </div>
-
-      <!-- DAILY SPIN — the free daily reward, on the home screen and outside the
-           tabs. It opens the app's existing Daily Spin (Store → Daily Spin tab).
-           Two states: READY (glowing, "Spin!") and CLAIMED (dimmed, shows the
-           countdown to the next spin). Filled by renderHome() in js/game.js;
-           the wheel art (art/ui/spin-wheel.png) is swapped in only once it has
-           actually decoded, so a missing file falls back to the drawn star. -->
-      <button class="dailyspin" id="btn-dailyspin" type="button" aria-label="Daily reward — spin the wheel">
-        <span class="ds-art" aria-hidden="true">
-          <svg class="ds-star" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><use href="#i-star"></use></svg>
-        </span>
-        <span class="ds-txt">
-          <b class="ds-title">Daily Reward</b>
-          <small class="ds-sub" id="ds-sub">Spin the wheel — free today</small>
-        </span>
-        <span class="ds-cta" id="ds-cta">SPIN</span>
-      </button>
+      <!-- The daily-spin lives UNDER THE AVATAR now (a compact badge in
+           #spin-slot, top-left), rendered only when a spin is available. -->
     </div>
 
     <!-- The 18+ small print used to sit under the buttons as bottom filler. It is
@@ -1825,7 +1799,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 173;
+var KARTI_BUILD = 174;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
