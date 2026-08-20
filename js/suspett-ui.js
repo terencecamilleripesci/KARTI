@@ -687,11 +687,11 @@ function injectCSS(){
      cross-fades. A bottom gradient keeps names/heads legible over the stone. */
   '#scr-party .su-town{flex:0 0 auto;position:relative;width:100%;height:min(98vw,394px);' +
     'border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);' +
-    'background-image:linear-gradient(180deg,rgba(10,7,16,0) 26%,rgba(10,7,16,.32) 58%,rgba(10,7,16,.7) 100%),url("./art/suspett/pjazza-day.png");' +
-    'background-size:cover,cover;background-position:center top,center top;' +
-    'box-shadow:inset 0 0 60px rgba(0,0,0,.5);transition:background-image .6s ease}' +
+    'background-image:radial-gradient(120% 120% at 50% 46%,rgba(10,7,16,0) 46%,rgba(10,7,16,.5) 100%),url("./art/suspett/map-day.png");' +
+    'background-size:cover,cover;background-position:center,center;' +
+    'box-shadow:inset 0 0 60px rgba(0,0,0,.55);transition:background-image .6s ease}' +
   '#scr-party .su-town.night{' +
-    'background-image:linear-gradient(180deg,rgba(6,4,16,.16) 18%,rgba(6,4,16,.5) 54%,rgba(6,4,16,.82) 100%),url("./art/suspett/pjazza-night.png")}' +
+    'background-image:radial-gradient(120% 120% at 50% 46%,rgba(6,4,16,.12) 44%,rgba(6,4,16,.66) 100%),url("./art/suspett/map-night.png")}' +
   /* gentle idle life — the living villagers sway; staggered so they are not in lockstep */
   '@keyframes suIdle{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2.5px) rotate(.7deg)}}' +
   '#scr-party .su-vil:not(.dead):not(.hanging):not(.slain) .fig{animation:suIdle 3.4s ease-in-out infinite}' +
@@ -707,7 +707,7 @@ function injectCSS(){
     'font-family:inherit;cursor:pointer;z-index:2}' +
   '#scr-party .su-vil.tomiddle{opacity:0;pointer-events:none}' +   /* moved to the centre gallows */
   /* ── the CENTRE gallows (il-planka) in the middle of the ring ── */
-  '#scr-party .su-hangmid{position:absolute;left:50%;top:57%;transform:translate(-50%,-50%);' +
+  '#scr-party .su-hangmid{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);' +
     'width:72px;height:104px;z-index:3;pointer-events:none;filter:drop-shadow(0 6px 8px rgba(0,0,0,.6))}' +
   '#scr-party .su-hangmid i{position:absolute;background:#5A3E22;border-radius:2px;display:block}' +
   '#scr-party .su-hangmid .beam{left:6px;top:0;width:60px;height:6px}' +
@@ -1462,8 +1462,8 @@ function townHTML(G, mySeat){
        at the top and going clockwise — the village stands in a RING around the
        central gallows. Pure display trig (not the sim), so cos/sin are fine. */
     const ang = (-90 + i * (360 / n)) * Math.PI / 180;
-    const x = (50 + 37 * Math.cos(ang)).toFixed(1);
-    const y = (61 + 27 * Math.sin(ang)).toFixed(1);
+    const x = (50 + 39 * Math.cos(ang)).toFixed(1);
+    const y = (50 + 37 * Math.sin(ang)).toFixed(1);
     let cls = 'su-vil' + (pub.alive ? '' : ' dead') + (mine ? ' me' : '') +
       (G.accused === p.seat ? ' acc' : '') +
       (anim === 'slain' ? ' slain' : '') + (p.seat === hangSeat ? ' tomiddle' : '');
