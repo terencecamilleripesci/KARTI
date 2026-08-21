@@ -710,6 +710,12 @@ body.reduced .logo.kx-split .lg-shine{display:none}
 #scr-home .wallet .pill .ico{font-size:1.32em}
 #scr-home .wallet .pill.coins .ico{color:color-mix(in srgb,var(--kx-accent) 88%,#fff)}
 #scr-home .wallet .pill.dust .ico{color:#8FD3FF}
+/* THE PAINTED CURRENCY, in the pill. Slightly oversized and pulled out of the
+   pill's left edge so the coin/chip reads as a real object sitting in it
+   rather than a flat glyph boxed inside. */
+#scr-home .wallet .pill .curpill{width:22px;height:22px;object-fit:contain;display:block;
+  margin:-4px -1px -4px -2px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))}
+.curpill{width:20px;height:20px;object-fit:contain;vertical-align:-4px}
 #scr-home .wallet .pill small{display:none}   /* icon says it; no word needed */
 
 /* ── CARDS CHIP — the collection door ──────────────────────────────────
@@ -2309,7 +2315,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 214;
+var KARTI_BUILD = 215;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

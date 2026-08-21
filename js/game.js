@@ -926,6 +926,17 @@ function curArt(kind, n, cls){
     'src="art/ui/cur-' + k + '-' + curTier(kind, n) + '.png" ' +
     'onerror="this.remove()">';
 }
+/* the small one, for a wallet pill or an inline mention. Always the single
+   hero object — a pile does not read at this size. If the art is missing the
+   old glyph takes its place rather than leaving a hole. */
+function curPill(kind, label){
+  const chips = (kind === 'chips');
+  const fb = (chips ? chipIco(label || '') : ico('coin', label || ''))
+    .replace(/"/g, '&quot;');
+  return '<img class="curpill" src="art/ui/cur-' + (chips ? 'chip' : 'coin') + '-1.png" ' +
+    'alt="' + esc(label || (chips ? 'Chips' : 'Coins')) + '" ' +
+    'onerror="this.outerHTML=&quot;' + fb + '&quot;">';
+}
 /* count el's .mono up/down to `to`. Interruptible: a second call takes
    over from wherever the number visibly is. */
 function animateCount(el, to){
@@ -1045,11 +1056,17 @@ function renderHome(){
      onWallet hook below counts them up with easing and pops the pill
      whenever currency lands, so earning is felt on the front door. */
   wireWallet();
+  /* THE PILLS WEAR THE REAL ART. The painted single chip (KARTI struck on its
+     face) and the Maltese-cross coin, not the old line glyphs — the front door
+     is where the currency is seen most, so it gets the good picture. Tier 1 on
+     purpose: a pile is mush at 22px; the hero object reads instantly. Each
+     <img> falls back to the glyph if the art is missing, so a pill is never
+     blank and never broken. */
   $('#wallet').innerHTML =
     '<span class="pill chips" id="w-chips" title="Chips — earned by playing; stake them, or spend them on loot boxes">' +
-      chipIco('Chips') + '<span class="mono">' + (S.chips | 0) + '</span></span>' +
+      curPill('chips', 'Chips') + '<span class="mono">' + (S.chips | 0) + '</span></span>' +
     '<span class="pill coins" id="w-coins" title="Coins — out of loot boxes; buy cosmetics and packs">' +
-      ico('coin', 'Coins') + '<span class="mono">' + (S.coins | 0) + '</span></span>';
+      curPill('coins', 'Coins') + '<span class="mono">' + (S.coins | 0) + '</span></span>';
 
   /* THE CARDS CHIP — the "N/total cards" indicator, now the way into the
      Collection (the destination the old Collection tab opened). */
