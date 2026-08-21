@@ -3625,10 +3625,38 @@ function gameDrawer(games){
 
 /* ── asking somebody, from inside the room ──────────────────────── */
 /* the drawer's people lists, rebuilt whenever `who` answers */
+/* your actual friends, straight off the Friends tab's own list. They are the
+   people you most want in your room, so they go FIRST — above "usually play
+   with" and above whoever happens to be idle. One tap invites them exactly
+   like any other pill (data-ask -> sendInvite). */
+function askFriendsHTML(){
+  let list = [];
+  try { list = (window.KARTI_FRIENDS && KARTI_FRIENDS._state && KARTI_FRIENDS._state.friends) || []; }
+  catch (e){ list = []; }
+  const seat = new Set(rosterSeats().map(s => String(s.name || '').toLowerCase()));
+  /* somebody already sitting in this room is not somebody to invite to it */
+  const pick = list.filter(f => f && f.n && !seat.has(String(f.n).toLowerCase())).slice(0, 8);
+  let h = '<div class="mp-dsub">YOUR FRIENDS</div>';
+  if (!pick.length){
+    h += '<p class="mp-dp">No friends to ask yet — add one and they are always one tap ' +
+         'from your table.</p>';
+  } else {
+    h += '<div class="mp-pills">' + pick.map(f => {
+      const off = f.s === 'off' || f.s === 'offline';
+      return '<button class="mp-pill' + (off ? ' off' : '') + '" data-ask="' + esc(f.n) + '">' +
+        esc(f.n) + '<i>' + esc(off ? 'offline · they will get it later'
+                                   : (f.g ? 'in a game' : 'online')) + '</i></button>';
+    }).join('') + '</div>';
+  }
+  h += '<button class="btn ghost" id="mp-addfriend" style="margin-top:8px">' + ico('plus') +
+       ' Add a friend</button>';
+  return h;
+}
+
 function askPeopleHTML(){
   const rec = WHO.recent.slice(0, 8);
   const around = WHO.people.filter(p => p.s === 'idle').slice(0, 8);
-  let h = '';
+  let h = askFriendsHTML();
   if (WHO.off){
     h += '<p class="mp-dp">This relay is an older build and cannot say who is around. ' +
          'You can still invite by name.</p>';
@@ -3656,6 +3684,22 @@ function paintAskPeople(){
   if (!host) return;
   host.innerHTML = askPeopleHTML();
   K.$$('[data-ask]', host).forEach(b => b.onclick = () => sendInvite(b.dataset.ask));
+  wireAddFriend(host);
+}
+/* "Add a friend" — hand straight over to the Friends tab, which owns adding
+   (codes, requests, accepting). The room is not left behind: it is still open
+   and still yours to come back to. */
+function wireAddFriend(host){
+  const b = (host || document).querySelector('#mp-addfriend');
+  if (!b) return;
+  b.onclick = () => {
+    sfx('ui.tap', { gain:0.6 });
+    try {
+      if (window.KARTI_FRIENDS && KARTI_FRIENDS.open){ KARTI_FRIENDS.open(); return; }
+    } catch (e){}
+    const t = document.getElementById('btn-friends');
+    if (t) t.click(); else K.toast('Friends is on the bottom bar.');
+  };
 }
 function askDrawer(){
   let h = '<div class="mp-drawer" id="mp-ask">' +
@@ -3688,6 +3732,7 @@ function wireAskDrawer(){
   const x = $('#mp-askx');
   if (x) x.onclick = () => { MP.panel = null; sfx('ui.back'); tableLobby(); };
   $$('[data-ask]').forEach(b => b.onclick = () => { sendInvite(b.dataset.ask); });
+  wireAddFriend(document);
   const go = $('#mp-invgo');
   if (go) go.onclick = () => sendInvite(($('#mp-invname') || {}).value || '');
 }
