@@ -906,6 +906,26 @@ function chipIco(label, cls){
   try { if (window.KARTI_XP && KARTI_XP.chipICO) return KARTI_XP.chipICO(label, cls); } catch (e){}
   return ico('coin', label, cls);          /* degraded, never blank      */
 }
+/* ── THE PILE GROWS WITH THE PRIZE ─────────────────────────────────────
+   One lonely coin under "700 coins" reads as loose change. The reward art
+   comes in four painted tiers and the AMOUNT picks which: a single hero coin
+   for pocket money, an overflowing jackpot mound for a big roll. If the art
+   has not landed the <img> removes itself, so this can never show a broken
+   picture — the number and label still carry the message. */
+const CUR_TIERS = { coins:[0, 50, 200, 600], chips:[0, 40, 150, 400] };
+function curTier(kind, n){
+  const t = CUR_TIERS[kind === 'chips' ? 'chips' : 'coins'];
+  n = Math.max(0, n | 0);
+  let i = 1;
+  for (let k = 0; k < t.length; k++) if (n >= t[k]) i = k + 1;
+  return Math.min(4, Math.max(1, i));
+}
+function curArt(kind, n, cls){
+  const k = (kind === 'chips') ? 'chip' : 'coin';
+  return '<img class="curart' + (cls ? ' ' + cls : '') + '" alt="" aria-hidden="true" ' +
+    'src="art/ui/cur-' + k + '-' + curTier(kind, n) + '.png" ' +
+    'onerror="this.remove()">';
+}
 /* count el's .mono up/down to `to`. Interruptible: a second call takes
    over from wherever the number visibly is. */
 function animateCount(el, to){
@@ -3347,7 +3367,8 @@ function boxPop(res){
         '<p class="srlead">' + esc(res.box.name) + ' pays</p>' +
         (isPack
           ? '<div class="spop-ic">' + ico('pack') + '</div>'
-          : '<div class="spop-ic">' + (res.prize.kind === 'chips' ? chipIco('', 'big') : ico('coin')) + '</div>') +
+          /* the painted pile, sized by what was actually won */
+          : '<div class="spop-ic spop-pile">' + curArt(res.prize.kind, big) + '</div>') +
         '<div class="spop-what">' +
           (big ? '<span class="mono" id="bx-count">' + (REDUCED ? big : 0) + '</span> ' +
                  (res.prize.kind === 'chips' ? 'chips' : 'coins')
@@ -3517,6 +3538,19 @@ function chipsCSS(){
     '.bpop.open .bx-hero .bx-lid{animation:bxLid .3s ease-in both}' +
     '@keyframes bxLid{to{transform:translate3d(0,-40px,0) rotate(-16deg);opacity:0}}' +
     '.bpop .spop-ic .ico.big{width:54px;height:54px}' +
+    /* THE PAINTED PILE. Bigger tiers get a bigger stage — a jackpot mound needs
+       the room to read, a single coin does not. It lands with a small settle so
+       it feels dropped in front of you rather than pasted on. */
+    '.spop-pile{display:flex;align-items:center;justify-content:center;min-height:96px}' +
+    '.spop-pile .curart{width:104px;height:104px;object-fit:contain;' +
+      'filter:drop-shadow(0 8px 14px rgba(0,0,0,.55));animation:curDrop .5s cubic-bezier(.2,1.2,.35,1) both}' +
+    '.spop-pile .curart[src*="-3"]{width:126px;height:126px}' +
+    '.spop-pile .curart[src*="-4"]{width:150px;height:150px;' +
+      'filter:drop-shadow(0 10px 18px rgba(0,0,0,.6)) drop-shadow(0 0 22px rgba(255,197,66,.45))}' +
+    '@keyframes curDrop{from{opacity:0;transform:translate3d(0,-16px,0) scale(.72)}' +
+      'to{opacity:1;transform:none}}' +
+    '@media (prefers-reduced-motion:reduce){.spop-pile .curart{animation:none}}' +
+    '.reduced .spop-pile .curart{animation:none}' +
     '.bx-balline{color:var(--dim);margin:2px 0 0}' +
     /* reduced motion: crate already open, prize already there, nothing moves */
     '.bpop.rm .bx-hero,body.reduced .bpop .bx-hero{display:none}' +
