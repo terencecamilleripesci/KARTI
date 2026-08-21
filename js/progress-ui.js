@@ -926,7 +926,11 @@ function levelUp(R){
      kept as a fallback for an award object cached across the deploy. */
   var lvChips = R.res.chipsLevel || R.res.coins || 0;
   if (lvChips) pay.push('<span class="kx-pill">' +
-    (XP.chipICO ? XP.chipICO() : ico('coin')) + '+' + lvChips + ' chips</span>');
+    /* game.js owns the painted currency art and loads AFTER this file, so reach
+       for it defensively — at render time it is always there, but a boot-time
+       paint must not die on a name that has not been declared yet. */
+    (XP.chipICO ? XP.chipICO()
+      : (typeof coinIco === 'function' ? coinIco() : '')) + '+' + lvChips + ' chips</span>');
   if (R.res.packs) pay.push('<span class="kx-pill">' + ico('pack') + '+' + R.res.packs +
     (R.res.packs === 1 ? ' pack' : ' packs') + '</span>');
 

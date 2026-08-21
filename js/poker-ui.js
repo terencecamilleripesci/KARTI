@@ -1998,7 +1998,7 @@ function setupSheet(){
                   'il-muniti KARTI tiegħek.')) + '</i></button>' +
           (COINS_MODE_READY
             ? '<button class="pt-opt' + (mode === 'coins' ? ' on' : '') + '" data-mode="coins">' +
-              ico('coin') + '<b>' + esc(T('KARTI coins', 'Muniti KARTI')) + '</b><i>' +
+              coinIco() + '<b>' + esc(T('KARTI coins', 'Muniti KARTI')) + '</b><i>' +
               esc(T('Your real balance. The buy-in comes off when you sit down.',
                     'Il-bilanċ veru tiegħek. Il-buy-in jitneħħa meta toqgħod bilqiegħda.')) +
               '</i></button>'

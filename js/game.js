@@ -614,7 +614,7 @@ function cardEl(card, opts){
        duplicate. dupeDust, when non-zero, is what the copy turned into. */
     (opts.isNew ? '<span class="newbadge">New</span>' :
      opts.isDupe ? '<span class="dupebadge">Duplicate' +
-       (opts.dupeDust ? '<i>' + ico('coin') + '+' + opts.dupeDust + '</i>' : '') +
+       (opts.dupeDust ? '<i>' + coinIco() + '+' + opts.dupeDust + '</i>' : '') +
        '</span>' : '');
   if (opts.isNew) d.classList.add('is-new');
   else if (opts.isDupe) d.classList.add('is-dupe');
@@ -902,10 +902,26 @@ function starterPrice(key){
    to an instant, still update under reduced motion.
    The events come from KARTI_XP.onWallet (js/progress.js §7b), the
    single door every currency movement already fires through. */
-function chipIco(label, cls){
-  try { if (window.KARTI_XP && KARTI_XP.chipICO) return KARTI_XP.chipICO(label, cls); } catch (e){}
-  return ico('coin', label, cls);          /* degraded, never blank      */
+/* ── ONE PLACE THAT DECIDES WHAT MONEY LOOKS LIKE ─────────────────────
+   Every mention of chips or coins anywhere in the app — the wallet, the
+   store, the spin, a result line, a price tag — comes through these two.
+   They now serve the PAINTED art (the KARTI chip, the Maltese-cross coin);
+   if it is missing they fall back to the old line glyph, so nothing can end
+   up blank. Changing money's look is a one-line change here, not a hunt
+   through twenty call sites. */
+function glyphCoin(label, cls){ return ico('coin', label, cls); }
+function curInline(kind, label, cls){
+  const chips = (kind === 'chips');
+  const fb = (chips
+      ? (function(){ try { if (window.KARTI_XP && KARTI_XP.chipICO) return KARTI_XP.chipICO(label, cls); } catch (e){} return glyphCoin(label, cls); })()
+      : glyphCoin(label, cls)).replace(/"/g, '&quot;');
+  return '<img class="curpill' + (cls ? ' ' + cls : '') + '" ' +
+    'src="art/ui/cur-' + (chips ? 'chip' : 'coin') + '-1.png" ' +
+    (label ? 'alt="' + esc(label) + '"' : 'alt="" aria-hidden="true"') + ' ' +
+    'onerror="this.outerHTML=&quot;' + fb + '&quot;">';
 }
+function chipIco(label, cls){ return curInline('chips', label, cls); }
+function coinIco(label, cls){ return curInline('coins', label, cls); }
 /* ── THE PILE GROWS WITH THE PRIZE ─────────────────────────────────────
    One lonely coin under "700 coins" reads as loose change. The reward art
    comes in four painted tiers and the AMOUNT picks which: a single hero coin
@@ -929,9 +945,10 @@ function curArt(kind, n, cls){
 /* the small one, for a wallet pill or an inline mention. Always the single
    hero object — a pile does not read at this size. If the art is missing the
    old glyph takes its place rather than leaving a hole. */
-function curPill(kind, label){
+function curPill(kind, label){ return curInline(kind === 'chips' ? 'chips' : 'coins', label); }
+function curPillUNUSED(kind, label){
   const chips = (kind === 'chips');
-  const fb = (chips ? chipIco(label || '') : ico('coin', label || ''))
+  const fb = (chips ? chipIco(label || '') : coinIco(label || ''))
     .replace(/"/g, '&quot;');
   return '<img class="curpill" src="art/ui/cur-' + (chips ? 'chip' : 'coin') + '-1.png" ' +
     'alt="' + esc(label || (chips ? 'Chips' : 'Coins')) + '" ' +
@@ -2393,7 +2410,7 @@ function summaryRow(res, i){
   const tag = res.isNew
     ? '<span class="stag new">' + ico('check') + 'New</span>'
     : '<span class="stag dupe">' +
-        (res.dusted ? ico('coin') + '<span class="dust">+' + res.dusted + '</span>'
+        (res.dusted ? coinIco() + '<span class="dust">+' + res.dusted + '</span>'
                     : 'Dupe') + '</span>';
   b.innerHTML =
     '<span class="rgem">' + ico(RARITY_ICON[res.card.r] || 'rar-komuni') + '</span>' +
@@ -2427,7 +2444,7 @@ function showSummary(results){
           (news ? '<b style="color:var(--ok)">' + news + ' new</b>' : '<b>nothing new</b>') +
           (dupes ? '<b style="color:#B7A9DE">' + dupes + ' duplicate' +
             (dupes > 1 ? 's' : '') + '</b>' : '') +
-          (dust ? '<b style="color:var(--gold)">' + ico('coin', 'coins') + '+' + dust + '</b>' : '') +
+          (dust ? '<b style="color:var(--gold)">' + coinIco('coins') + '+' + dust + '</b>' : '') +
         '</p></div>' +
       '<div class="sumlist" id="sum"></div>' +
     '</div>';
@@ -2811,7 +2828,7 @@ function renderStoreTabs(){
 function updateCoinsPill(live){
   const el = $('#pack-coins');
   if (!el) return;
-  const coins = '<span class="wcoins">' + ico('coin', 'Coins') +
+  const coins = '<span class="wcoins">' + coinIco('Coins') +
                 '<span class="mono">' + (S.coins | 0) + '</span></span>';
   const chips = '<span class="wchips">' + chipIco('Chips') +
                 '<span class="mono">' + (S.chips | 0) + '</span></span>';
@@ -3391,7 +3408,7 @@ function boxPop(res){
                  (res.prize.kind === 'chips' ? 'chips' : 'coins')
                : esc(res.prize.label)) + '</div>' +
         (isPack && res.prize.coins
-          ? '<p class="tiny">' + ico('coin') + ' +' + res.prize.coins + ' coins beside it</p>' : '') +
+          ? '<p class="tiny">' + coinIco() + ' +' + res.prize.coins + ' coins beside it</p>' : '') +
         (res.prize.kind === 'chips'
           ? '<p class="tiny">Chips back — the box refunds most of itself. Roll again?</p>' : '') +
         (tier >= 3 ? '<p class="srlvl">' + ico('trophy') + ' JACKPOT!</p>' : '') +

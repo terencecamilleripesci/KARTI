@@ -4812,7 +4812,7 @@ function mpResult(winner, why){
       '<p class="tiny">' + (won ? 'You beat ' : 'Beaten by ') + esc(K.D ? K.D.p[1].name : 'them') + '</p>' +
       '<p class="muted">' + esc(why) + '</p>' +
       '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
-        '<span class="pill">' + ico('coin') + ' +' + coins + '</span>' +
+        '<span class="pill">' + coinIco() + ' +' + coins + '</span>' +
         '<span class="pill">' + ico('trophy') + ' ' + S.rec.w + '–' + S.rec.l + '</span></div>' +
       '<p class="tiny" style="line-height:1.6">Online duels pay coins only — no packs.</p>' +
       '<div style="display:grid;gap:9px;width:100%;margin-top:4px">' +

@@ -269,7 +269,7 @@ function render(){
         '<span class="meta">' +
           '<span class="tag">' + K.ico(K.ATTR_ICON[b.attr]) + ' ' + at.n + '</span>' +
           '<span class="tag diff">' + diffName(b.diff) + '</span>' +
-          '<span class="tag">' + K.ico('coin', 'Coins') + ' ' + b.reward.coins + ' · ' +
+          '<span class="tag">' + K.coinIco('Coins') + ' ' + b.reward.coins + ' · ' +
             K.ico('pack', 'Packs') + ' ' + b.reward.packs + '</span>' +
           (beatsKey ? '<span class="tag">weak to ' + esc(K.ATTR[beatsKey].n) + '</span>' : '') +
           (won ? '<span class="tag won">' + K.ico('check') + ' beaten</span>' : '') +
@@ -302,7 +302,7 @@ function preview(b, i){
         ' ATK against it' : '') + '.</p>' +
     (beaten ? '<p class="blurb">Already beaten — a rematch pays ' +
         Math.floor(b.reward.coins / 3) + ' coins and no pack.</p>'
-            : '<p class="blurb">First win: <b>' + K.ico('coin', 'Coins') + ' ' + b.reward.coins +
+            : '<p class="blurb">First win: <b>' + K.coinIco('Coins') + ' ' + b.reward.coins +
               '</b> and <b>' + K.ico('pack', 'Packs') + ' ' + b.reward.packs +
               ' pack' + (b.reward.packs > 1 ? 's' : '') + '</b>.</p>') +
     '<div class="opts">' +
@@ -452,7 +452,7 @@ function onResult(winner, why){
     '</div>' +
     '<p class="muted" style="text-align:center;margin:10px 0 0;font-size:12px">' + esc(why) + '</p>' +
     '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:10px">' +
-      '<span class="pill">' + K.ico('coin', 'Coins') + '+' + coins + '</span>' +
+      '<span class="pill">' + K.coinIco('Coins') + '+' + coins + '</span>' +
       (packs ? '<span class="pill">' + K.ico('pack', 'Packs') + '+' + packs + '</span>' : '') +
       (first ? '<span class="pill">' + K.ico('trophy') + 'first win</span>' : '') +
     '</div>' +
