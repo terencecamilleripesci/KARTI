@@ -140,6 +140,25 @@ PROTOCOL  (one JSON object per WebSocket text frame, both directions)
                                                   "names":{"3":".."},"filled":[..]}
                                             HOST ONLY. Refused while a PERSON at
                                             the table has not readied.
+    {"t":"redeal","deal":{...}}             each seat: {"t":"mine","seat":i,..}
+                                            HOST ONLY, STARTED ROOMS ONLY. A
+                                            FRESH private deal MID-GAME — a new
+                                            poker hand, a new blackjack round —
+                                            in exactly the shape "start" carries
+                                            (v_deal: a pool the relay shuffles
+                                            with its own entropy, or a
+                                            seat-addressed "mine" map) under
+                                            exactly the same caps. Each seat is
+                                            sent ONLY its own share, on its own
+                                            replay bit, and the share it
+                                            SUPERSEDES is dropped from the
+                                            replay buffer, so a phone that
+                                            rejoins mid-hand replays its LATEST
+                                            hand and never a stale one on top
+                                            of it. Rate-limited per room
+                                            (REDEAL_RATE/REDEAL_BURST): a
+                                            re-deal is a fan-out, and the
+                                            fan-out is what costs the Pi.
     {"t":"ready","on":true}                 all: {"t":"table",...}
                                             One bit, per person. There is no way
                                             to send it for a machine chair —
@@ -580,6 +599,14 @@ class L:
     BOT_BURST = 12.0
     BOT_NAME = 16               # characters of the name a game gives its machine
 
+    # A FRESH PRIVATE DEAL MID-GAME ({"t":"redeal"}, host only). The honest
+    # cadence is one per poker hand / blackjack round, which is minutes, not
+    # seconds. The bucket is per ROOM and not per connection for the same
+    # reason FAN_RATE is: a re-deal is a fan-out of up to sixteen private
+    # frames, and it is the amplification that costs the Pi, not the tap.
+    REDEAL_BURST = 3.0          # re-deals a host may fire off at once
+    REDEAL_RATE = 1.0 / 5.0     # ...then one every five seconds, sustained
+
     # ── the social layer ─────────────────────────────────────────────────
     # WHO IS AROUND. Deliberately on the SOCKET and not on an HTTP route:
     #   · only a socket that has proved an account with {"t":"auth"} may ask,
@@ -667,6 +694,7 @@ E_STARTED = "That table has already started."
 E_NOTABLE = "That is a two-player room, not a table."
 E_NOTREADY = "Somebody at the table is not ready yet."
 E_DEAL_SHORT = "Not enough to deal to everybody at this table."
+E_NOTYET = "That table has not started yet."
 E_VARIANT = "That is not a mode this game can play."
 E_VARIANT_SEATS = "Too many are already seated for that mode. Nobody was removed."
 E_BADGAME = "That is not a game this table can switch to."
@@ -1367,7 +1395,7 @@ class Room:
 
     __slots__ = ("code", "seats", "seq", "buf", "buf_bytes", "created", "touched",
                  "private", "game", "size", "variant", "rules", "started", "bots",
-                 "fan", "botseats", "readying", "dealt")
+                 "fan", "botseats", "readying", "dealt", "deal_seqs", "redeals")
 
     def __init__(self, code, private=False, game=DEFAULT_GAME, size=2,
                  variant=None, rules=None):
@@ -1411,11 +1439,22 @@ class Room:
         # made ready. That is the whole design: an AI seat cannot block a start
         # because there is nothing there to block with.
         self.botseats = {}
-        # What the relay privately dealt each seat at the start, kept so a
-        # rejoin can be answered from the room rather than from a client.
-        # It never leaves this dict except addressed to the seat that owns
-        # it — see start(). Cleared with the room.
+        # What the relay privately dealt each seat at the start — or at the
+        # LATEST re-deal, which replaces it whole. Kept so a rejoin can be
+        # answered from the room rather than from a client. It never leaves
+        # this dict except addressed to the seat that owns it — see
+        # _deal_out(). Cleared with the room.
         self.dealt = {}
+        # The seq numbers of the CURRENT deal's buffered {t:"mine"} frames,
+        # so a re-deal can drop exactly those from the replay buffer and no
+        # others. Without this, a phone that rejoined mid-hand would be
+        # replayed its OLD hand and then its new one — order saves it today,
+        # but a stale secret sitting in a buffer waiting to be replayed is a
+        # bug even while it happens to lose the race. See forget_dealt().
+        self.deal_seqs = []
+        # A host may deal a fresh hand every round (poker, blackjack), not
+        # every frame. Per room, like fan: the cost is the fan-out.
+        self.redeals = Bucket(L.REDEAL_RATE, L.REDEAL_BURST)
         # Has anybody in this room ever used the ready protocol? Set the first
         # time a seat says so and never cleared.
         #
@@ -1435,6 +1474,27 @@ class Room:
             _, _, old = self.buf.popleft()
             self.buf_bytes -= len(old)
         return self.seq
+
+    def forget_dealt(self):
+        """Drop the CURRENT deal's buffered {t:"mine"} frames from the replay
+        buffer, because a fresh deal is about to supersede them. A seat that
+        rejoins after this replays its LATEST hand and nothing older: a stale
+        hand must never be resurrected into a round it no longer belongs to.
+        Only the seqs recorded by _deal_out() are touched — every other
+        buffered frame (began, moves) replays exactly as before. Seq numbering
+        is untouched: the holes left behind are the same holes the size cap
+        already leaves, and the rejoin filter reads seq > since, not density."""
+        if not self.deal_seqs:
+            return
+        stale = set(self.deal_seqs)
+        self.deal_seqs = []
+        kept = collections.deque()
+        for n, mask, text in self.buf:
+            if n in stale:
+                self.buf_bytes -= len(text)
+            else:
+                kept.append((n, mask, text))
+        self.buf = kept
 
     def occupied(self):
         return sum(1 for s in self.seats if s is not None)
@@ -2402,83 +2462,17 @@ class RoomBook:
                                        if s is not None] + list(room.bots))}
             room.push(room.mask_all(), json.dumps(began, separators=(",", ":")))
             # ── THE PRIVATE DEAL ──────────────────────────────────────
-            # Shuffled with the relay's own entropy, NEVER with the seed
-            # in `began`: that one is broadcast, and a secret derived
-            # from a broadcast number is not a secret. Each seat is
-            # pushed its own share under its own bit, so the per-seat
-            # replay buffer hands it back on a rejoin without ever
-            # showing it to anybody else. Machine seats are dealt to the
-            # host, because the host is the one running them — that is a
-            # real limit and it is written down rather than pretended
-            # away: a table with machines keeps no secrets FROM THE HOST.
+            # Addressed by _deal_out(), the ONE path a private payload
+            # takes to a seat — {"t":"redeal"} rides the very same code,
+            # so there is no second, looser copy to drift.
             private = []
-            if deal is not None and "mine" in deal:
-                # AUTHORITATIVE, SEAT-ADDRESSED DEAL. The host fixed every seat's
-                # payload in planDeal; the relay does not shuffle and does not
-                # read a field of any payload. It just addresses each blob to its
-                # seat's bit — so seat 0's blob (which alone carries the solution)
-                # reaches the host and nobody else, exactly as a pool hand does.
+            if deal is not None:
                 filled = sorted([i for i, s in enumerate(room.seats)
                                  if s is not None] + list(room.bots))
-                addressed = deal["mine"]
-                # every seated chair must have been addressed, or somebody would
-                # sit down holding nothing. Machine seats are addressed too and
-                # their blob goes to the host, who runs them.
-                if any(i not in addressed for i in filled):
+                private = self._deal_out(room, deal, filled)
+                if private is None:
                     room.started = False
                     return [(conn, {"t": "error", "why": E_DEAL_SHORT})]
-                room.dealt = {i: addressed[i] for i in filled}
-                for i in filled:
-                    # the payload rides verbatim under `d`; the client's onMine
-                    # treats an object `d` as this game's private inbox.
-                    body = {"t": "mine", "seat": i, "d": addressed[i]}
-                    # a machine's blob belongs to whoever plays it (the host)
-                    to = 0 if room.seats[i] is None else i
-                    body["bot"] = room.seats[i] is None
-                    text = json.dumps(body, separators=(",", ":"))
-                    room.push(1 << to, text)
-                    seat_obj = room.seats[to]
-                    if seat_obj is not None and seat_obj.conn is not None:
-                        private.append((seat_obj.conn, text))
-            elif deal is not None:
-                filled = sorted([i for i, s in enumerate(room.seats)
-                                 if s is not None] + list(room.bots))
-                need = len(filled) * deal["each"]
-                if need > len(deal["items"]):
-                    room.started = False
-                    return [(conn, {"t": "error", "why": E_DEAL_SHORT})]
-                pool = list(deal["items"])
-                secrets.SystemRandom().shuffle(pool)
-                hands = {}
-                for n, i in enumerate(filled):
-                    hands[i] = pool[n * deal["each"]:(n + 1) * deal["each"]]
-                # who shares a group with whom — seats only, never values
-                mates = {}
-                for i, hand in hands.items():
-                    gs = {c["g"] for c in hand if c["g"] is not None}
-                    if not gs:
-                        continue
-                    mates[i] = sorted({j for j, other in hands.items()
-                                       if j != i and gs & {c["g"] for c in other
-                                                           if c["g"] is not None}})
-                room.dealt = hands
-                for i in filled:
-                    body = {"t": "mine", "seat": i,
-                            "d": [c["v"] for c in hands[i]]}
-                    if mates.get(i):
-                        body["mates"] = mates[i]
-                    # a machine's hand belongs to whoever plays it
-                    to = 0 if room.seats[i] is None else i
-                    body["bot"] = room.seats[i] is None
-                    text = json.dumps(body, separators=(",", ":"))
-                    # push() only BUFFERS, under the receiving seat's bit, so
-                    # a rejoin replays it and nobody else's; the live delivery
-                    # is the returned list, so it has to be said twice — once
-                    # for the future, once for now.
-                    room.push(1 << to, text)
-                    seat_obj = room.seats[to]
-                    if seat_obj is not None and seat_obj.conn is not None:
-                        private.append((seat_obj.conn, text))
             targets = room.live_conns()
             roster = room.roster()
             # WHO ACTUALLY SAT DOWN TOGETHER. Taken from the live room under
@@ -2494,6 +2488,141 @@ class RoomBook:
         # before anybody has a secret, and no secret is in the shared list
         out += private
         return out
+
+    def _deal_out(self, room, deal, filled):
+        """Address ONE validated private deal to the `filled` seats. Caller
+        holds the lock and has already validated `deal` with v_deal — this is
+        the SINGLE path a private payload takes to a seat, ridden by start()
+        and redeal() both, so there is no second, looser copy to drift from
+        the caps and the addressing that make the secrecy real.
+
+        Returns the live one-to-one deliveries [(conn, text), ...], or None
+        when the deal cannot cover the table (the caller answers E_DEAL_SHORT
+        and decides what, if anything, to roll back). Nothing is buffered and
+        nothing is superseded until the deal is known to cover everybody.
+
+        A pool is shuffled with the relay's OWN entropy, NEVER with the seed
+        in `began`: that one is broadcast, and a secret derived from a
+        broadcast number is not a secret. Each seat is pushed its own share
+        under its own bit, so the per-seat replay buffer hands it back on a
+        rejoin without ever showing it to anybody else. Machine seats are
+        dealt to the host, because the host is the one running them — that is
+        a real limit and it is written down rather than pretended away: a
+        table with machines keeps no secrets FROM THE HOST.
+
+        A deal SUPERSEDES the one before it: the previous hand's buffered
+        frames are dropped first (forget_dealt), so a phone that rejoins
+        mid-hand replays its LATEST hand and never a stale one on top of it."""
+        private = []
+        if "mine" in deal:
+            # AUTHORITATIVE, SEAT-ADDRESSED DEAL. The host fixed every seat's
+            # payload in planDeal; the relay does not shuffle and does not
+            # read a field of any payload. It just addresses each blob to its
+            # seat's bit — so seat 0's blob (which alone carries the solution)
+            # reaches the host and nobody else, exactly as a pool hand does.
+            addressed = deal["mine"]
+            # every seated chair must have been addressed, or somebody would
+            # sit down holding nothing. Machine seats are addressed too and
+            # their blob goes to the host, who runs them. Extra keys — a seat
+            # that emptied since the host planned — are simply not dealt.
+            if any(i not in addressed for i in filled):
+                return None
+            room.forget_dealt()
+            room.dealt = {i: addressed[i] for i in filled}
+            for i in filled:
+                # the payload rides verbatim under `d`; the client's onMine
+                # treats an object `d` as this game's private inbox.
+                body = {"t": "mine", "seat": i, "d": addressed[i]}
+                # a machine's blob belongs to whoever plays it (the host)
+                to = 0 if room.seats[i] is None else i
+                body["bot"] = room.seats[i] is None
+                text = json.dumps(body, separators=(",", ":"))
+                room.deal_seqs.append(room.push(1 << to, text))
+                seat_obj = room.seats[to]
+                if seat_obj is not None and seat_obj.conn is not None:
+                    private.append((seat_obj.conn, text))
+            return private
+        need = len(filled) * deal["each"]
+        if need > len(deal["items"]):
+            return None
+        pool = list(deal["items"])
+        secrets.SystemRandom().shuffle(pool)
+        hands = {}
+        for n, i in enumerate(filled):
+            hands[i] = pool[n * deal["each"]:(n + 1) * deal["each"]]
+        # who shares a group with whom — seats only, never values
+        mates = {}
+        for i, hand in hands.items():
+            gs = {c["g"] for c in hand if c["g"] is not None}
+            if not gs:
+                continue
+            mates[i] = sorted({j for j, other in hands.items()
+                               if j != i and gs & {c["g"] for c in other
+                                                   if c["g"] is not None}})
+        room.forget_dealt()
+        room.dealt = hands
+        for i in filled:
+            body = {"t": "mine", "seat": i,
+                    "d": [c["v"] for c in hands[i]]}
+            if mates.get(i):
+                body["mates"] = mates[i]
+            # a machine's hand belongs to whoever plays it
+            to = 0 if room.seats[i] is None else i
+            body["bot"] = room.seats[i] is None
+            text = json.dumps(body, separators=(",", ":"))
+            # push() only BUFFERS, under the receiving seat's bit, so
+            # a rejoin replays it and nobody else's; the live delivery
+            # is the returned list, so it has to be said twice — once
+            # for the future, once for now.
+            room.deal_seqs.append(room.push(1 << to, text))
+            seat_obj = room.seats[to]
+            if seat_obj is not None and seat_obj.conn is not None:
+                private.append((seat_obj.conn, text))
+        return private
+
+    def redeal(self, conn, deal):
+        """The HOST deals a FRESH set of private hands MID-GAME — a new poker
+        hand, a new blackjack round — without stopping the table. This is the
+        one thing the hidden-hand games could not do online: the start deal
+        happens once, and a game whose every round needs fresh secrets had
+        nowhere to get them that another phone could not read.
+
+        Everything about it is start()'s deal on purpose: the same v_deal
+        shape arrives already validated at the wire, the same caps bound it,
+        and the same _deal_out() addresses each seat ONLY its own share under
+        its own replay bit — no broadcast ever carries a hand. What redeal
+        adds is SUPERSESSION (see forget_dealt): a rejoin mid-hand replays
+        the latest hand and never a stale one.
+
+        Host only, started rooms only, rate-limited PER ROOM: one re-deal per
+        round is the honest cadence, and the bucket is on the room because a
+        re-deal is a fan-out, exactly as FAN_RATE reasons. A seat inside its
+        reconnect grace is still dealt — buffered under its own bit — so the
+        hand is waiting when its owner rejoins; a chair that emptied for good
+        is simply not dealt, and an addressed map that misses a chair someone
+        still owns is refused whole rather than dealt around them."""
+        with self._lock:
+            room = self._room_of(conn)
+            if room is None:
+                return [(conn, {"t": "error", "why": E_NOTIN})]
+            if conn.slot != 0:
+                return [(conn, {"t": "error", "why": E_NOTHOST})]
+            if not room.started:
+                return [(conn, {"t": "error", "why": E_NOTYET})]
+            if deal is None:
+                return [(conn, {"t": "error", "why": E_SHAPE})]
+            if not room.redeals.take():
+                return [(conn, {"t": "error", "why": E_FLOOD})]
+            filled = sorted([i for i, s in enumerate(room.seats)
+                             if s is not None] + list(room.bots))
+            if not filled:
+                return [(conn, {"t": "error", "why": E_DEAL_SHORT})]
+            private = self._deal_out(room, deal, filled)
+            if private is None:
+                return [(conn, {"t": "error", "why": E_DEAL_SHORT})]
+            room.touched = time.monotonic()
+        LOG("room-redeal", code=room.code, dealt=len(filled))
+        return private
 
     def rejoin(self, conn, code, token, since):
         """Take back a seat after a dropped socket and replay what was missed."""
@@ -4035,6 +4164,19 @@ def handle_ws_message(conn, raw):
         d = msg.get("deal")
         dispatch(ROOMS.start(conn, msg.get("bots"),
                              v_deal(d) if d is not None else None))
+
+    elif kind == "redeal":
+        # A FRESH private deal for a table that is already playing — what a
+        # hidden-hand game needs once per poker hand / blackjack round. The
+        # deal is validated with the SAME v_deal as "start": one shape, one
+        # set of caps, and no second, looser path for a mid-game payload.
+        d = msg.get("deal")
+        try:
+            vd = v_deal(d) if d is not None else None
+        except Reject:
+            conn.error(E_SHAPE)
+            return
+        dispatch(ROOMS.redeal(conn, vd))
 
     elif kind == "ready":
         dispatch(ROOMS.ready(conn, msg.get("on")))
@@ -10196,6 +10338,164 @@ def selftest():
             bye(a); bye(b)
         except Exception as e:
             check("cards2131 private deal", False, repr(e))
+
+        # ═══════════ the RE-DEAL: a fresh private hand MID-GAME ═══════════
+        # What poker and blackjack could not do online: the start deal happens
+        # once, and a game whose every ROUND needs fresh secrets had nowhere
+        # to get them that another phone could not read. {"t":"redeal"} is that
+        # somewhere. The checks that matter are the same negatives as above —
+        # what a seat must never be sent — plus the replay one: after a
+        # re-deal, a rejoin must be handed the LATEST hand and never a stale
+        # one. The raw frames are read here, not the parsed ones, so "B never
+        # received A's card" is a statement about the wire itself.
+        print("")
+        print(" RE-DEAL MID-GAME  (a new poker hand without stopping the table)")
+
+        def _graw(c, n=10, secs=1.0):
+            got = []
+            for _ in range(n):
+                t = c.recv_text(secs)
+                if t is None:
+                    break
+                got.append(t)
+            return got
+
+        def _mines(raws):
+            out = []
+            for t in raws:
+                try:
+                    m = json.loads(t)
+                except ValueError:
+                    continue
+                if isinstance(m, dict) and m.get("t") == "mine":
+                    out.append(m)
+            return out
+
+        try:
+            r_a = cli(origin=PAGES_ORIGIN)
+            r_b = cli(origin=PAGES_ORIGIN)
+            r_a.send_json({"t": "create", "game": "poker", "seats": 2})
+            r_code = ((r_a.recv_json(2.0)) or {}).get("code")
+            r_b.send_json({"t": "join", "code": r_code})
+            r_tok_b = (r_b.recv_json(2.0) or {}).get("token")
+            drain(r_a)
+            for c in (r_a, r_b):
+                c.send_json({"t": "ready", "on": True})
+            drain(r_a); drain(r_b)
+            r_a.send_json({"t": "start",
+                           "deal": {"items": [{"v": "h1-%d" % i} for i in range(52)],
+                                    "each": 2}})
+            drain(r_a); drain(r_b)
+
+            # a NON-HOST cannot deal the table a new hand
+            r_b.send_json({"t": "redeal",
+                           "deal": {"items": [{"v": i} for i in range(4)],
+                                    "each": 2}})
+            m = r_b.recv_json(1.5)
+            check("a re-deal from anybody but the host is refused",
+                  (m or {}).get("why") == E_NOTHOST, m)
+
+            # HAND TWO. Both seats get fresh holes; the negative is on raw frames.
+            r_a.send_json({"t": "redeal",
+                           "deal": {"items": [{"v": "h2-%d" % i} for i in range(52)],
+                                    "each": 2}})
+            raw_a, raw_b = _graw(r_a), _graw(r_b)
+            ma, mb = _mines(raw_a), _mines(raw_b)
+            check("the host re-deals mid-game and each seat gets ONE fresh hand",
+                  len(ma) == 1 and len(mb) == 1
+                  and ma[0].get("seat") == 0 and mb[0].get("seat") == 1
+                  and len(ma[0].get("d") or []) == 2
+                  and len(mb[0].get("d") or []) == 2,
+                  (ma, mb))
+            hole_a2 = (ma[0].get("d") or []) if ma else []
+            hole_b2 = (mb[0].get("d") or []) if mb else []
+            check("SECRECY — seat B's re-dealt cards are in NO raw frame seat A "
+                  "received",
+                  hole_b2 and not any(('"%s"' % v) in t
+                                      for v in hole_b2 for t in raw_a),
+                  {"B": hole_b2, "A_raw": [t[:60] for t in raw_a]})
+            check("SECRECY — seat A's re-dealt cards are in NO raw frame seat B "
+                  "received",
+                  hole_a2 and not any(('"%s"' % v) in t
+                                      for v in hole_a2 for t in raw_b),
+                  {"A": hole_a2, "B_raw": [t[:60] for t in raw_b]})
+
+            # HAND THREE lands while B's phone is in its reconnect grace, as a
+            # seat-ADDRESSED deal this time (both shapes ride the same path).
+            # B rejoins and must be replayed hand three ONLY: hands one and two
+            # were superseded and their frames must be GONE from the buffer,
+            # not merely out-ordered.
+            bye(r_b)
+            r_a.send_json({"t": "redeal",
+                           "deal": {"mine": {"0": {"h": "HOST3"},
+                                             "1": {"h": "PEER3"}}}})
+            drain(r_a)
+            r_b2 = cli(origin=PAGES_ORIGIN)
+            r_b2.send_json({"t": "rejoin", "code": r_code, "token": r_tok_b,
+                            "since": 0})
+            raw_r = _graw(r_b2)
+            mr = _mines(raw_r)
+            check("a rejoin mid-hand replays the LATEST hand and nothing else",
+                  len(mr) == 1 and (mr[0].get("d") or {}) == {"h": "PEER3"},
+                  [t[:80] for t in raw_r])
+            check("no superseded card and no other seat's blob is in the replay",
+                  raw_r and not any(('"%s"' % v) in t
+                                    for v in (hole_b2 + hole_a2 + ["HOST3"])
+                                    for t in raw_r),
+                  [t[:80] for t in raw_r])
+
+            # THE BUCKET BITES. Two re-deals are already spent; a burst of more
+            # must run into E_FLOOD, and the table must survive it.
+            hit = passed = 0
+            for _ in range(6):
+                r_a.send_json({"t": "redeal",
+                               "deal": {"mine": {"0": {"h": "x"},
+                                                 "1": {"h": "y"}}}})
+                m = None
+                for t in _graw(r_a, n=3, secs=0.8):
+                    try:
+                        m = json.loads(t)
+                    except ValueError:
+                        continue
+                    if m.get("t") == "error":
+                        break
+                if m and m.get("t") == "error" and m.get("why") == E_FLOOD:
+                    hit += 1
+                    break
+                passed += 1
+            check("a host cannot SPAM re-deals: the per-room bucket refuses",
+                  hit == 1 and passed <= int(L.REDEAL_BURST), (hit, passed))
+            drain(r_b2)
+            bye(r_a); bye(r_b2)
+        except Exception as e:
+            check("re-deal mid-game", False, repr(e))
+
+        try:
+            # a room that has NOT started cannot be re-dealt, and an addressed
+            # re-deal that misses a chair somebody owns is refused whole.
+            s_a = cli(origin=PAGES_ORIGIN)
+            s_a.send_json({"t": "create", "game": "poker", "seats": 2})
+            drain(s_a)
+            s_a.send_json({"t": "redeal",
+                           "deal": {"mine": {"0": {"h": "x"}, "1": {"h": "y"}}}})
+            m = s_a.recv_json(1.5)
+            check("a re-deal BEFORE the start is refused",
+                  (m or {}).get("why") == E_NOTYET, m)
+            s_a.send_json({"t": "ready", "on": True})
+            drain(s_a)
+            s_a.send_json({"t": "bot", "seat": 1, "level": 1, "name": "M"})
+            drain(s_a)
+            s_a.send_json({"t": "start",
+                           "deal": {"items": [{"v": i} for i in range(8)],
+                                    "each": 2}})
+            drain(s_a)
+            s_a.send_json({"t": "redeal", "deal": {"mine": {"0": {"h": "x"}}}})
+            m = s_a.recv_json(1.5)
+            check("an addressed re-deal missing a seated chair is refused whole",
+                  (m or {}).get("why") == E_DEAL_SHORT, m)
+            bye(s_a)
+        except Exception as e:
+            check("re-deal refusals", False, repr(e))
 
         # ═══════════ table talk ═══════════
         # Chat had NO check here at all, which is how a crash in it survived:
