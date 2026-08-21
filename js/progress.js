@@ -2509,10 +2509,24 @@ function registerCatalogue(){
    40; a card duel (9) near 22; kiri (10) near 20. */
 var EXCL_WIN_BASE = 220;         /* wins ≈ EXCL_WIN_BASE / weight       */
 var EXCL_WIN_MIN = 15, EXCL_WIN_MAX = 45;
+/* A SECOND SET FOR THE SAME GAME (gharraqroza) is keyed by its own id so
+   its art, previews and equip slots stay independent, but it is not a
+   new game — its `stat` field names the game whose record book pays for
+   it. Everything that reads wins or a game name resolves through here,
+   so a set key with no record book of its own can never read 0 wins and
+   sit unearnable forever. */
+function exclStat(game){
+  var m = EXCLUSIVES[game];
+  return (m && m.stat) || game;
+}
 function exclNeed(game){
-  var w = weight(game);
+  var m = EXCLUSIVES[game];
+  var w = weight(exclStat(game));
   var n = Math.round(EXCL_WIN_BASE / w);
-  return Math.max(EXCL_WIN_MIN, Math.min(EXCL_WIN_MAX, n));
+  n = Math.max(EXCL_WIN_MIN, Math.min(EXCL_WIN_MAX, n));
+  /* an encore set costs a multiple of the first — the grind after the
+     grind, applied after the clamp on purpose so it can exceed the cap */
+  return n * ((m && m.mult) || 1);
 }
 /* durable per-game wins from the record book. Never throws — a build
    with no stats file simply reads 0, so the set stays locked rather
@@ -2526,10 +2540,10 @@ function gameWins(game){
   } catch (e){}
   return 0;
 }
-function exclDone(game){ return gameWins(game) >= exclNeed(game); }
+function exclDone(game){ return gameWins(exclStat(game)) >= exclNeed(game); }
 function exclProgress(game){
   game = String(game || '').toLowerCase();
-  var need = exclNeed(game), won = gameWins(game);
+  var need = exclNeed(game), won = gameWins(exclStat(game));
   return { game:game, won:won, need:need, done:won >= need,
            pct: need ? Math.max(0, Math.min(1, won / need)) : 1 };
 }
@@ -2666,6 +2680,15 @@ var EXCLUSIVES = {
   gharraq:   { accent:'#4FA9E8', slots:['fleet','sea','ring'],
     name:{en:'The Ghost Armada',mt:'L-Armata tal-Fantażmi'},
     blurb:{en:'A spectral fleet on a sea that remembers every wreck.',mt:'Flotta spettrali fuq baħar li jiftakar kull għarqa.'} },
+  /* THE ENCORE SET — a second, longer grind for the same game. Its own
+     key so its art (art/cosm/gharraqroza-exclusive-*.png), previews and
+     equip slots are independent, `stat` points the earn rule at the
+     Għarraqhom record book, `mult` doubles the wins the first set asked
+     for. js/battleship-ui.js reads whichever set is worn and reskins
+     the whole board — sea, fleet, reticle and the firing animation. */
+  gharraqroza: { accent:'#FF9EC4', slots:['fleet','sea','ring'], stat:'gharraq', mult:2,
+    name:{en:'The Rose Flotilla',mt:'Il-Flotta tal-Ward'},
+    blurb:{en:'Pearl hulls, champagne fire, a sea of rosewater. Sink them beautifully.',mt:'Bwieq tal-perla, nar tax-xampanja, baħar tal-ilma ward. Għarraqhom bi stil.'} },
   kiri:      { accent:'#FFC542', slots:['board','dice','table'],
     name:{en:'The Golden Feast',mt:'Il-Festa tad-Deheb'},
     blurb:{en:'Gold leaf and candlelight. The longest game, the richest table.',mt:'Deheb u dawl tax-xemgħa. L-itwal logħba, l-aktar mejda għanja.'} },
@@ -2735,7 +2758,7 @@ var EXCLUSIVES = {
    wins is not taken away by a losing streak. */
 function exclSetId(game){ return 'excl-' + game; }
 function exclEarnHow(game){
-  var need = exclNeed(game), gm = gameMeta(game);
+  var need = exclNeed(game), gm = gameMeta(exclStat(game));
   return 'Win ' + need + ' games of ' + gm.name;
 }
 function registerExclusives(){
@@ -2862,7 +2885,8 @@ var NICE_GAME = {
   'cards-solo':'KARTI Duel', 'cards-story':'KARTI Story', 'cards-mp':'KARTI Online',
   ludu:'Ludu', erbgha:'Four in a Row', tankijiet:'It-Tankijiet', bomba:'Il-Bomba',
   briks:'Il-Ħajt', kodici:'Il-Kodiċi', minhu:'Min Hu?', cards2131:'21 & 31',
-  gharraq:'Għarraqhom!', serp:'Is-Serp', suspett:'Is-Suspett', spy:'Is-Spija',
+  gharraq:'Għarraqhom!', gharraqroza:'Għarraqhom! — Roża',
+  serp:'Is-Serp', suspett:'Is-Suspett', spy:'Is-Spija',
   kanun:'Il-Kanun', gin:'Gin Rummy', poker:'Poker', rummy:'Rummy'
 };
 function gameMeta(game){
@@ -2899,6 +2923,9 @@ var RANK_FLOOR = ['chess','dama','skarta','kiri','serp','gharraq','tombla',
 function rankGames(){
   var out = [], seen = {}, i;
   function add(g){ g = String(g || '').toLowerCase();
+    /* an encore exclusive key (gharraqroza) registers cosmetics but is
+       NOT a game — no leaderboard runs for it, so no border either */
+    if (EXCLUSIVES[g] && EXCLUSIVES[g].stat) return;
     if (g && g !== 'karti' && !seen[g]){ seen[g] = 1; out.push(g); } }
   try {
     var shelf = (window.KARTI_STATS && KARTI_STATS.GAMES) || [];
@@ -3362,6 +3389,10 @@ window.KARTI_XP = {
   exclusiveEarned: exclusiveEarned,     /* exclusiveEarned(game) -> bool   */
   exclusiveProgress: exclProgress,      /* {won,need,done,pct} for the bar */
   exclusiveNeed: exclNeed,              /* exclNeed(game) -> wins required */
+  exclusiveStat: exclStat,              /* exclStat(setKey) -> the real game
+                                           whose record book earns it (an
+                                           encore set like gharraqroza is a
+                                           set key, not a game)            */
 
   /* the economy, readable — the inventory quotes it and so does
      docs/PROGRESSION.md's generator */

@@ -482,11 +482,16 @@ function fxShell(g, c, fromTop, dur, px, heavy){
 }
 function fxHit(g, c, px, big){
   const host = fxHost(g); if (!host) return;
-  fxDrop(host, 'bs-boom' + (big ? ' big' : ''), c, px, '', '<i></i><u></u>', big ? 900 : 700);
+  /* the element outlives the stock animation by a few hundred ms so the
+     EXCLUSIVE SKINS (kit shelf, end of file) can stage a longer show —
+     smoke drifting, glitter falling — on the same spawn. Stock is
+     visually identical: every stock keyframe fills `both` and ends at
+     opacity 0, so the extra time is an invisible, pointer-blind div. */
+  fxDrop(host, 'bs-boom' + (big ? ' big' : ''), c, px, '', '<i></i><u></u>', big ? 1300 : 1100);
 }
 function fxMiss(g, c, px){
   const host = fxHost(g); if (!host) return;
-  fxDrop(host, 'bs-plume', c, px, '', '<u></u><i></i>', 800);
+  fxDrop(host, 'bs-plume', c, px, '', '<u></u><i></i>', 1100);
 }
 function fxOld(g, c, px){
   const host = fxHost(g); if (!host) return;
@@ -2507,6 +2512,323 @@ var BURSTS = {
                             gl:'0 0 10px rgba(255,122,46,.9),0 0 20px rgba(196,30,90,.55)' }
 };
 
+/* ═══ THE EXCLUSIVE SKINS ═════════════════════════════════════════════
+   Two full-board identities, one per earned exclusive set, and the
+   HEADLINE of each is that the firing sequence itself changes:
+
+     · bs-skin-armata — THE GHOST ARMADA (gharraq.*.excl). Spectral
+       cold-fire ordnance: a heavier muzzle flare on the rail, a
+       blue-white tracer with a light trail, and a four-stage impact —
+       flash, shockwave ring, a fire tongue standing up, smoke drifting
+       off. A miss raises a tall water column that falls back with a
+       double ripple and thrown droplets.
+     · bs-skin-roza — THE ROSE FLOTILLA (gharraqroza.*.excl). Glam
+       ordnance: a sparkle-charge on the rail, a glinting star of a
+       shell with a champagne twinkle, a heart-of-pearl burst with a
+       gold halo, crossed glints and a scatter of petals and glitter.
+       A miss is a soft pearlescent splash with a champagne shimmer.
+
+   THE HOOK: skinName() reads the equipped slots through KARTI_XP the
+   same way the basic kit does. Any worn Roża piece wins, then any worn
+   Armada piece; nothing exclusive worn = no class, no CSS — today's
+   look, byte for byte. The class rides on <body> (which exists before
+   #scr-party does and survives every remount) and every rule below is
+   scoped under it, so the whole skin is one classList toggle.
+
+   ALL COSMETIC. The engine, the volley timetable and everything on the
+   wire are untouched: these rules restyle the same .bs-* elements the
+   stock theatre already spawns, animate only transform and opacity,
+   and stage the extras on ::before/::after pseudos stock never uses.
+   The art is layered over gradients (sea), behind box-shadow rings
+   (reticle) — a missing PNG degrades to the tinted look, never to a
+   blank board. Reduced motion (body.reduced or the media query) stops
+   every skin animation and leaves one still, readable mark. */
+var SKIN_CLASSES = ['bs-skin-armata', 'bs-skin-roza'];
+function skinName(XP){
+  var i, S = ['sea', 'fleet', 'ring'];
+  for (i = 0; i < S.length; i++)
+    if (XP.equipped(S[i], 'gharraqroza')) return 'roza';
+  for (i = 0; i < S.length; i++)
+    if (XP.equipped(S[i], 'gharraq') === 'gharraq.' + S[i] + '.excl') return 'armata';
+  return '';
+}
+
+function skinCSS(skin){
+  /* body class first, then the SAME two-id spine the basic kit rules
+     use (#app #scr-party .bs-wrap) — the skin block is both later in
+     this sheet and strictly more specific, so it outranks the game's
+     own sheet and any stray basic cosmetic left equipped. */
+  var B = 'body.bs-skin-' + skin + ' #app #scr-party .bs-wrap ';
+  var c = '';
+  if (skin === 'armata'){
+    var SEA = 'url("art/cosm/gharraq-exclusive-sea.png")';
+    var RING = 'url("art/cosm/gharraq-exclusive-ring.png")';
+    c +=
+      /* ── the board: one continuous spectral sea under glass cells ── */
+      B + '.bs-grid{background:' + SEA + ' center/cover no-repeat,' +
+        'linear-gradient(180deg,#0B2C3E,#061B2A);' +
+        'border-color:rgba(90,190,235,.55);' +
+        'box-shadow:0 8px 22px rgba(0,0,0,.55),0 0 18px rgba(79,169,232,.28)}' +
+      B + '.bs-c:not(.ship):not(.hit):not(.sunk){background:rgba(4,18,28,.22);' +
+        'box-shadow:inset 0 0 0 .5px rgba(140,215,255,.13);color:#8FD4F2}' +
+      B + '.bs-grid.place .bs-c.ship{background:rgba(10,40,58,.55)}' +
+      B + '.bs-c.miss::after{background:#CBEDFF;opacity:.75}' +
+      /* a hit burns COLD on this sea — spectral scorch, ecto ember */
+      B + '.bs-c.hit{background:linear-gradient(180deg,#123A54,#0A2438)}' +
+      B + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
+        '#F2FBFF,#6FC6FF 55%,#1E5E8C);' +
+        'box-shadow:0 0 9px rgba(111,198,255,.9),0 0 18px rgba(79,169,232,.5)}' +
+      B + '.bs-c.sunk{background:#0A1B28}' +
+      /* ── the fleet: pale ghost hulls with an ecto glow ── */
+      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:#DDF2FF;fill-opacity:.92;' +
+        'stroke:#0E2A3C}' +
+      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:#3E7FA6}' +
+      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:#9FD9F2}' +
+      B + '.bs-ship:not(.drag):not(.sunk){filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.55)) ' +
+        'drop-shadow(0 0 6px rgba(120,210,255,.5))}' +
+      B + '.bs-chip .bs-hull{fill:#DDF2FF}' +
+      B + '.bs-chip .bs-hull .dt{fill:#3E7FA6}' +
+      B + '.bs-chip .bs-hull .lt{fill:#9FD9F2}' +
+      /* ── the reticle: the set's ring art, slowly turning, over a
+         box-shadow ring that stands alone if the PNG never lands ── */
+      B + '.bs-c.aim{box-shadow:inset 0 0 0 2px rgba(127,212,255,.85),' +
+        '0 0 10px rgba(127,212,255,.55)}' +
+      B + '.bs-c.aim2{box-shadow:inset 0 0 0 2px rgba(127,212,255,.35)}' +
+      B + '.bs-c.aim::before,' + B + '.bs-c.aim2::before{content:"";position:absolute;' +
+        /* the ring art sits on a black plate — screen-blended, the plate
+           vanishes and only the glowing ring lands on the water */
+        'inset:-14%;background:' + RING + ' center/contain no-repeat;' +
+        'pointer-events:none;mix-blend-mode:screen;' +
+        'animation:bsxASpin 6s linear infinite}' +
+      B + '.bs-c.aim2::before{opacity:.5}' +
+      '@keyframes bsxASpin{to{transform:rotate(360deg)}}' +
+      /* ── FIRING, stage 1: the rail flare — taller, with a hot core ── */
+      B + '.bs-muzz{background:linear-gradient(0deg,rgba(127,212,255,.6),' +
+        'rgba(127,212,255,0));height:18%}' +
+      B + '.bs-muzz.n{background:linear-gradient(180deg,rgba(127,212,255,.55),' +
+        'rgba(127,212,255,0))}' +
+      B + '.bs-muzz::after{content:"";position:absolute;left:8%;right:8%;bottom:0;' +
+        'height:30%;border-radius:50% 50% 0 0/100% 100% 0 0;transform-origin:50% 100%;' +
+        'background:radial-gradient(60% 100% at 50% 100%,#F2FBFF,' +
+        'rgba(127,212,255,.7) 45%,rgba(127,212,255,0) 75%);' +
+        'animation:bsxAMuzz .5s var(--ease) both}' +
+      B + '.bs-muzz.n::after{bottom:auto;top:0;transform-origin:50% 0;' +
+        'border-radius:0 0 50% 50%/0 0 100% 100%;' +
+        'background:radial-gradient(60% 100% at 50% 0,#F2FBFF,' +
+        'rgba(127,212,255,.7) 45%,rgba(127,212,255,0) 75%)}' +
+      '@keyframes bsxAMuzz{0%{transform:scaleY(.1) scaleX(.7);opacity:0}' +
+        '25%{opacity:1;transform:scaleY(1.15) scaleX(1)}60%{transform:scaleY(.8)}' +
+        '100%{transform:scaleY(.3);opacity:0}}' +
+      /* stage 2: the shell — cold white tracer with a light trail */
+      B + '.bs-shell i::before{background:radial-gradient(circle at 35% 30%,' +
+        '#FFFFFF,#9FD9F2 50%,#2E7FB4);' +
+        'box-shadow:0 0 10px rgba(159,217,242,.95),0 0 24px rgba(79,169,232,.55)}' +
+      B + '.bs-shell i::after{content:"";position:absolute;left:50%;top:50%;' +
+        'width:12%;height:300%;margin:-150% 0 0 -6%;border-radius:50%;opacity:.8;' +
+        'background:linear-gradient(180deg,rgba(159,217,242,0),' +
+        'rgba(159,217,242,.55),rgba(159,217,242,0))}' +
+      B + '.bs-shell u{background:rgba(2,10,18,.65)}' +
+      /* stage 3, a HIT: flash → shockwave → fire tongue → smoke */
+      B + '.bs-boom i{inset:-48%;background:radial-gradient(circle,#FFFFFF 0%,' +
+        '#D6F2FF 22%,#5FB8F0 48%,rgba(46,127,180,0) 70%);' +
+        'animation:bsxABoom .5s var(--ease) both}' +
+      '@keyframes bsxABoom{0%{transform:scale(.15);opacity:0}' +
+        '14%{opacity:1;transform:scale(.9)}55%{opacity:.9;transform:scale(1.1)}' +
+        '100%{transform:scale(1.45);opacity:0}}' +
+      B + '.bs-boom u{inset:-8%;border:2.5px solid rgba(190,235,255,.95);' +
+        'box-shadow:0 0 8px rgba(127,212,255,.7),inset 0 0 6px rgba(127,212,255,.5);' +
+        'animation:bsxARing .6s cubic-bezier(.2,.7,.3,1) both}' +
+      '@keyframes bsxARing{0%{transform:scale(.25);opacity:1}' +
+        '60%{opacity:.75}100%{transform:scale(2.9);opacity:0}}' +
+      B + '.bs-boom::before{content:"";position:absolute;left:30%;right:30%;' +
+        'top:-42%;bottom:40%;border-radius:48% 48% 30% 30%;transform-origin:50% 100%;' +
+        'background:linear-gradient(180deg,rgba(240,251,255,.95),' +
+        'rgba(127,205,255,.75) 45%,rgba(127,205,255,0));' +
+        'animation:bsxAFlame .55s cubic-bezier(.2,.6,.35,1) .1s both}' +
+      '@keyframes bsxAFlame{0%{transform:scaleY(0) scaleX(.6);opacity:0}' +
+        '35%{opacity:1;transform:scaleY(1.1) scaleX(.9)}' +
+        '70%{transform:scaleY(.9) scaleX(1.05)}' +
+        '100%{transform:scaleY(.15) scaleX(1.2);opacity:0}}' +
+      B + '.bs-boom::after{content:"";position:absolute;inset:-20%;border-radius:50%;' +
+        'background:radial-gradient(circle at 50% 60%,rgba(30,60,84,.55),' +
+        'rgba(30,60,84,0) 70%);animation:bsxASmoke .75s ease-out .28s both}' +
+      '@keyframes bsxASmoke{0%{transform:translateY(8%) scale(.5);opacity:0}' +
+        '35%{opacity:.55}100%{transform:translateY(-34%) scale(1.7);opacity:0}}' +
+      B + '.bs-boom.big i{inset:-85%;animation-duration:.6s}' +
+      B + '.bs-boom.big u{animation-duration:.8s;animation-name:bsxARingBig}' +
+      '@keyframes bsxARingBig{0%{transform:scale(.25);opacity:1}' +
+        '100%{transform:scale(3.8);opacity:0}}' +
+      B + '.bs-boom.big::before{top:-70%;left:24%;right:24%}' +
+      /* stage 3, a MISS: the column stands, hangs, falls back */
+      B + '.bs-plume i{left:34%;right:34%;top:-88%;bottom:42%;' +
+        'border-radius:44% 44% 26% 26%;transform-origin:50% 100%;' +
+        'background:linear-gradient(180deg,rgba(244,252,255,.95),' +
+        'rgba(150,214,248,.85) 50%,rgba(150,214,248,0));' +
+        'animation:bsxAColumn .8s cubic-bezier(.2,.6,.35,1) both}' +
+      '@keyframes bsxAColumn{0%{transform:scaleY(0) scaleX(.5);opacity:0}' +
+        '30%{opacity:1;transform:scaleY(1.12) scaleX(.85)}' +
+        '55%{transform:scaleY(1) scaleX(.95)}' +
+        '100%{transform:scaleY(.04) scaleX(1.5);opacity:0}}' +
+      B + '.bs-plume::before{content:"";position:absolute;left:50%;top:4%;' +
+        'width:8%;height:8%;margin-left:-4%;border-radius:50%;background:#E8F7FF;' +
+        'box-shadow:-8px -6px 0 rgba(232,247,255,.9),9px -4px 0 rgba(232,247,255,.85),' +
+        '-14px 2px 0 rgba(180,228,255,.7),13px 6px 0 rgba(180,228,255,.75),' +
+        '0 -12px 0 rgba(232,247,255,.8);animation:bsxADrops .7s ease-in .18s both}' +
+      '@keyframes bsxADrops{0%{transform:translateY(0) scale(.4);opacity:0}' +
+        '25%{opacity:1}100%{transform:translateY(90%) scale(1.15);opacity:0}}' +
+      B + '.bs-plume u{border-color:rgba(190,235,255,.85);' +
+        'animation:bsxARipple .8s cubic-bezier(.2,.7,.3,1) both}' +
+      B + '.bs-plume::after{content:"";position:absolute;inset:6%;border-radius:50%;' +
+        'border:1.5px solid rgba(150,214,248,.6);' +
+        'animation:bsxARipple .7s cubic-bezier(.2,.7,.3,1) .22s both}' +
+      '@keyframes bsxARipple{0%{transform:scale(.3);opacity:.9}' +
+        '100%{transform:scale(2.1);opacity:0}}' +
+      B + '.bs-fizz u{border-color:rgba(140,190,220,.5)}' +
+      B + '.bs-foam u{border-color:rgba(214,240,255,.85)}';
+  } else if (skin === 'roza'){
+    var SEA2 = 'url("art/cosm/gharraqroza-exclusive-sea.png")';
+    var RING2 = 'url("art/cosm/gharraqroza-exclusive-ring.png")';
+    c +=
+      /* ── the board: rosewater, pearl light, champagne frame ── */
+      B + '.bs-grid{background:' + SEA2 + ' center/cover no-repeat,' +
+        'linear-gradient(180deg,#F3CFDD,#E2A9C2);' +
+        'border-color:rgba(233,201,143,.8);' +
+        'box-shadow:0 8px 22px rgba(122,33,72,.35),0 0 16px rgba(255,159,190,.35)}' +
+      B + '.bs-c:not(.ship):not(.hit):not(.sunk){background:rgba(255,240,247,.10);' +
+        'box-shadow:inset 0 0 0 .5px rgba(122,33,72,.16);color:#8C2F55}' +
+      B + '.bs-grid.place .bs-c.ship{background:rgba(255,214,232,.45)}' +
+      B + '.bs-c.miss::after{background:#FFFFFF;opacity:.95;' +
+        'box-shadow:0 0 0 1.5px rgba(176,27,94,.5),0 0 6px rgba(255,255,255,.9)}' +
+      B + '.bs-c.hit{background:linear-gradient(180deg,#8C2450,#5C1233)}' +
+      B + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
+        '#FFF6FA,#FF6FA5 55%,#B01B5E);' +
+        'box-shadow:0 0 8px rgba(255,111,165,.9),0 0 16px rgba(233,201,143,.5)}' +
+      B + '.bs-c.sunk{background:#3E0C24}' +
+      /* ── the fleet: pearl-rose hulls, champagne-lit ── */
+      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:#FBEAF1;stroke:#4A1030}' +
+      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:#C25E8C}' +
+      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:#F2C3D8}' +
+      B + '.bs-ship:not(.drag):not(.sunk){filter:drop-shadow(0 1px 1.5px rgba(74,16,48,.5)) ' +
+        'drop-shadow(0 0 5px rgba(255,175,205,.55))}' +
+      B + '.bs-chip .bs-hull{fill:#FBEAF1}' +
+      B + '.bs-chip .bs-hull .dt{fill:#C25E8C}' +
+      B + '.bs-chip .bs-hull .lt{fill:#F2C3D8}' +
+      /* ── the reticle: the glam ring art turning over champagne ── */
+      B + '.bs-c.aim{box-shadow:inset 0 0 0 2px rgba(176,27,94,.75),' +
+        '0 0 10px rgba(233,201,143,.7)}' +
+      B + '.bs-c.aim2{box-shadow:inset 0 0 0 2px rgba(176,27,94,.35)}' +
+      B + '.bs-c.aim::before,' + B + '.bs-c.aim2::before{content:"";position:absolute;' +
+        'inset:-14%;background:' + RING2 + ' center/contain no-repeat;' +
+        'pointer-events:none;filter:drop-shadow(0 0 4px rgba(176,27,94,.6));' +
+        'animation:bsxRSpin 5s linear infinite}' +
+      B + '.bs-c.aim2::before{opacity:.5}' +
+      '@keyframes bsxRSpin{to{transform:rotate(-360deg)}}' +
+      /* ── FIRING, stage 1: the sparkle-charge on the rail ── */
+      B + '.bs-muzz{background:linear-gradient(0deg,rgba(255,159,190,.5),' +
+        'rgba(255,159,190,0))}' +
+      B + '.bs-muzz.n{background:linear-gradient(180deg,rgba(255,159,190,.45),' +
+        'rgba(255,159,190,0))}' +
+      B + '.bs-muzz::after{content:"";position:absolute;left:50%;bottom:14%;' +
+        'width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:#FFF6FA;' +
+        'box-shadow:-34px 4px 0 -1px #F3E2C2,28px -2px 0 -1px #FFD9E8,' +
+        '-14px -6px 0 0 #FFFFFF,44px 6px 0 -2px #E9C98F,12px 2px 0 -1px #FF9FBE,' +
+        '-46px -2px 0 -2px #FFD9E8;animation:bsxRCharge .55s ease-out both}' +
+      '@keyframes bsxRCharge{0%{transform:translateY(10px) scale(.4);opacity:0}' +
+        '35%{opacity:1}100%{transform:translateY(-14px) scale(1.1);opacity:0}}' +
+      B + '.bs-muzz.n::after{bottom:auto;top:14%;animation-name:bsxRChargeN}' +
+      '@keyframes bsxRChargeN{0%{transform:translateY(-10px) scale(.4);opacity:0}' +
+        '35%{opacity:1}100%{transform:translateY(14px) scale(1.1);opacity:0}}' +
+      /* stage 2: the shell — a glinting star with a champagne twinkle */
+      B + '.bs-shell i::before{background:radial-gradient(circle at 40% 35%,' +
+        '#FFFFFF,#FFD9E8 45%,#E9A0BE);' +
+        'box-shadow:0 0 10px rgba(255,217,232,.95),0 0 22px rgba(233,201,143,.6)}' +
+      B + '.bs-shell i::after{content:"";position:absolute;left:50%;top:50%;' +
+        'width:120%;height:120%;' +
+        'background:linear-gradient(0deg,transparent 46%,rgba(255,255,255,.9) 49%,' +
+        'rgba(255,255,255,.9) 51%,transparent 54%),' +
+        'linear-gradient(90deg,transparent 46%,rgba(255,255,255,.85) 49%,' +
+        'rgba(255,255,255,.85) 51%,transparent 54%);' +
+        'animation:bsxRTwinkle .4s linear infinite}' +
+      '@keyframes bsxRTwinkle{0%,100%{transform:translate(-50%,-50%) rotate(0deg) scale(1)}' +
+        '50%{transform:translate(-50%,-50%) rotate(45deg) scale(.7)}}' +
+      B + '.bs-shell u{background:rgba(90,20,50,.4)}' +
+      /* stage 3, a HIT: pearl burst → gold halo → crossed glints →
+         petals and glitter thrown outward */
+      B + '.bs-boom i{inset:-40%;background:radial-gradient(circle,#FFFFFF 0%,' +
+        '#FFE9F2 25%,#FF6FA5 55%,rgba(255,111,165,0) 72%);' +
+        'animation:bsxRBurst .45s var(--ease) both}' +
+      '@keyframes bsxRBurst{0%{transform:scale(.2);opacity:0}' +
+        '18%{opacity:1;transform:scale(1)}100%{transform:scale(1.35);opacity:0}}' +
+      B + '.bs-boom u{inset:-6%;border:2px solid rgba(243,226,194,.95);' +
+        'border-radius:38%;box-shadow:0 0 8px rgba(233,201,143,.75);' +
+        'animation:bsxRHalo .6s cubic-bezier(.2,.7,.3,1) both}' +
+      '@keyframes bsxRHalo{0%{transform:scale(.3) rotate(0deg);opacity:1}' +
+        '100%{transform:scale(2.4) rotate(90deg);opacity:0}}' +
+      B + '.bs-boom::before{content:"";position:absolute;inset:-30%;' +
+        'background:linear-gradient(0deg,transparent 47%,rgba(255,255,255,.95) 49.5%,' +
+        'rgba(255,255,255,.95) 50.5%,transparent 53%),' +
+        'linear-gradient(90deg,transparent 47%,rgba(255,255,255,.95) 49.5%,' +
+        'rgba(255,255,255,.95) 50.5%,transparent 53%);' +
+        'animation:bsxRGlint .5s var(--ease) .05s both}' +
+      '@keyframes bsxRGlint{0%{transform:scale(.2) rotate(-20deg);opacity:0}' +
+        '30%{opacity:1}100%{transform:scale(1.5) rotate(25deg);opacity:0}}' +
+      B + '.bs-boom::after{content:"";position:absolute;left:50%;top:50%;' +
+        'width:9%;height:9%;margin:-4.5% 0 0 -4.5%;' +
+        'border-radius:50% 0 50% 50%;background:#FFD9E8;' +
+        'box-shadow:-11px -9px 0 0 #F3E2C2,12px -7px 0 -1px #FFFFFF,' +
+        '-14px 6px 0 -1px #FF9FBE,13px 10px 0 0 #FFD9E8,2px -14px 0 -1px #E9C98F,' +
+        '-4px 13px 0 0 #FFF0F6,8px 3px 0 -2px #FFFFFF,-8px -2px 0 -2px #F3E2C2;' +
+        'animation:bsxRScatter .8s cubic-bezier(.15,.6,.3,1) .12s both}' +
+      '@keyframes bsxRScatter{0%{transform:scale(.25) rotate(0deg);opacity:0}' +
+        '20%{opacity:1}100%{transform:scale(2.6) rotate(60deg);opacity:0}}' +
+      B + '.bs-boom.big i{inset:-80%;animation-duration:.55s}' +
+      B + '.bs-boom.big u{animation-name:bsxRHaloBig;animation-duration:.8s}' +
+      '@keyframes bsxRHaloBig{0%{transform:scale(.3) rotate(0deg);opacity:1}' +
+        '100%{transform:scale(3.4) rotate(90deg);opacity:0}}' +
+      /* stage 3, a MISS: a soft pearlescent splash, pearls popping.
+         ROSE-EDGED on purpose — pure white vanishes on this pale water */
+      B + '.bs-plume i{left:30%;right:30%;top:-46%;bottom:44%;' +
+        'border-radius:50% 50% 34% 34%;transform-origin:50% 100%;' +
+        'background:linear-gradient(180deg,#FFFFFF,#FFA9C9 55%,rgba(255,133,175,0));' +
+        'box-shadow:0 0 10px rgba(233,71,142,.45);' +
+        'animation:bsxRSplash .6s cubic-bezier(.2,.6,.35,1) both}' +
+      '@keyframes bsxRSplash{0%{transform:scaleY(0) scaleX(.6);opacity:0}' +
+        '35%{opacity:1;transform:scaleY(1.05) scaleX(.9)}' +
+        '70%{opacity:.9}100%{transform:scaleY(.08) scaleX(1.25);opacity:0}}' +
+      B + '.bs-plume u{border-color:rgba(233,71,142,.85);' +
+        'box-shadow:0 0 8px rgba(233,71,142,.5);' +
+        'animation:bsxRPearl .75s cubic-bezier(.2,.7,.3,1) both}' +
+      B + '.bs-plume::after{content:"";position:absolute;inset:10%;border-radius:50%;' +
+        'border:1.5px solid rgba(201,152,74,.9);' +
+        'animation:bsxRPearl .65s cubic-bezier(.2,.7,.3,1) .18s both}' +
+      '@keyframes bsxRPearl{0%{transform:scale(.3);opacity:.95}' +
+        '60%{opacity:.7}100%{transform:scale(1.9);opacity:0}}' +
+      B + '.bs-plume::before{content:"";position:absolute;left:50%;top:0;' +
+        'width:6%;height:6%;margin-left:-3%;border-radius:50%;background:#FFFFFF;' +
+        'box-shadow:0 0 4px rgba(233,71,142,.8),-10px 2px 0 -1px #FF9FBE,' +
+        '9px -3px 0 -1px #E9C98F,-4px -8px 0 0 #FFFFFF;' +
+        'animation:bsxRPop .6s ease-out .1s both}' +
+      '@keyframes bsxRPop{0%{transform:translateY(6px) scale(.3);opacity:0}' +
+        '30%{opacity:1}100%{transform:translateY(-10px) scale(1);opacity:0}}' +
+      B + '.bs-fizz u{border-color:rgba(233,201,143,.5)}' +
+      B + '.bs-foam u{border-color:rgba(255,240,247,.9)}';
+  }
+  if (!c) return '';
+  /* REDUCED MOTION — both doors the game itself honours. The staged
+     extras (pseudos) vanish, the core burst/splash freezes as one
+     still, readable mark; the permanent cell paint tells the story. */
+  var still =
+    B + '.bs-boom i,' + B + '.bs-plume i{animation:none;opacity:.85;transform:none}' +
+    B + '.bs-boom u,' + B + '.bs-plume u{animation:none;opacity:0}' +
+    B + '.bs-boom::before,' + B + '.bs-boom::after,' +
+    B + '.bs-plume::before,' + B + '.bs-plume::after,' +
+    B + '.bs-shell i::after,' + B + '.bs-muzz::after{animation:none;opacity:0}' +
+    B + '.bs-c.aim::before,' + B + '.bs-c.aim2::before{animation:none}';
+  return c +
+    '@media (prefers-reduced-motion:reduce){' + still + '}' +
+    still.split(B).join('body.reduced' + B.slice(4));
+}
+
 function sheet(){
   var st = document.getElementById('bsx-kit-css');
   if (!st){ st = document.createElement('style'); st.id = 'bsx-kit-css'; }
@@ -2537,6 +2859,17 @@ function apply(){
       u.bg[0] + ',' + u.bg[1] + ')}' +
     P + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
       u.r[0] + ',' + u.r[1] + ' 60%,' + u.r[2] + ');box-shadow:' + u.gl + '}';
+  /* THE EXCLUSIVE SKINS — the class is the hook, the CSS the payload.
+     Nothing exclusive worn: no class, no bytes, stock board untouched. */
+  var skin = skinName(XP);
+  try {
+    var body = document.body, si;
+    if (body){
+      for (si = 0; si < SKIN_CLASSES.length; si++) body.classList.remove(SKIN_CLASSES[si]);
+      if (skin) body.classList.add('bs-skin-' + skin);
+    }
+  } catch (e){}
+  if (skin) css += skinCSS(skin);
   sheet().textContent = css;
 }
 
@@ -2639,7 +2972,12 @@ function boot(tries){
     { slot:'burst', id:'gharraq.burst.nar',    level:20, name:'Nar tal-Festa', set:'summer',
       blurb:'It goes up over the harbour and every dog in the village disagrees.', preview:burstPv(BURSTS['gharraq.burst.nar']) }
   ]);
-  KIT.onChange(apply);
+  /* NOT KIT.onChange — that filter only passes 'gharraq' events, and the
+     Rose Flotilla's pieces equip under their own 'gharraqroza' keys.
+     Same door, wider filter. */
+  XP.onEquip(function(ev){
+    if (!ev || ev.game === 'gharraq' || ev.game === 'gharraqroza') apply();
+  });
   apply();
 }
 boot(0);

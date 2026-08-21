@@ -1054,7 +1054,28 @@ function allGames(){
   for (i = 0; i < shelf.length; i++){ out.push(shelf[i].id); seen[shelf[i].id] = 1; }
   if (!seen.tombla){ out.push('tombla'); seen.tombla = 1; }
   var kit = XP.games();
-  for (i = 0; i < kit.length; i++) if (!seen[kit[i]] && kit[i] !== 'karti'){ out.push(kit[i]); seen[kit[i]] = 1; }
+  for (i = 0; i < kit.length; i++){
+    if (seen[kit[i]] || kit[i] === 'karti') continue;
+    /* an ENCORE exclusive set (gharraqroza) registers cosmetics under its
+       own key but is not a game — its pieces are folded into the host
+       game's tab (extraDefs), never a tab of their own */
+    try { if (XP.exclusiveStat && XP.exclusiveStat(kit[i]) !== kit[i]) continue; } catch (e){}
+    out.push(kit[i]); seen[kit[i]] = 1;
+  }
+  return out;
+}
+
+/* the encore sets' pieces, for the host game's tab: every registered set
+   whose exclusiveStat() points at `game` but is not `game` itself */
+function extraDefs(game){
+  var out = [], i;
+  try {
+    if (!XP.exclusiveGames || !XP.exclusiveStat) return out;
+    var xg = XP.exclusiveGames();
+    for (i = 0; i < xg.length; i++)
+      if (xg[i] !== game && XP.exclusiveStat(xg[i]) === game)
+        out = out.concat(XP.defsFor(xg[i]));
+  } catch (e){}
   return out;
 }
 
@@ -1128,7 +1149,7 @@ function ownedCount(game){
     for (i = 0; i < b.length; i++) if (XP.owns(b[i].id)) n++;
     return { own:n, all:list.length + b.length };
   }
-  list = XP.defsFor(game);
+  list = XP.defsFor(game).concat(extraDefs(game));
   for (i = 0; i < list.length; i++) if (XP.owns(list[i].id)) n++;
   return { own:n, all:list.length };
 }
@@ -2045,7 +2066,7 @@ function paintBody(){
 
   if (SC.tab === 'you'){ paintYou(host); return; }
 
-  var list = XP.defsFor(SC.tab);
+  var list = XP.defsFor(SC.tab).concat(extraDefs(SC.tab));
   if (!list.length){
     var d = gameDef(SC.tab);
     host.innerHTML = '<div class="kx-empty">' + ico('star') +
@@ -2062,9 +2083,13 @@ function paintBody(){
   }
 
   host.innerHTML = order.map(function(slot){
-    var eq = XP.equipped(slot, SC.tab);
     return '<p class="kx-slot">' + esc(slotWord(slot)) + '</p>' +
-      bySlot[slot].map(function(d){ return itemHTML(d, eq === d.id); }).join('');
+      /* worn is judged against the DEF's own game, not the tab — an
+         encore piece (gharraqroza.fleet.excl) lives on this tab but is
+         equipped under its own key */
+      bySlot[slot].map(function(d){
+        return itemHTML(d, XP.equipped(d.slot, d.game) === d.id);
+      }).join('');
   }).join('');
 
   drawPreviews(host, SC.tab);
