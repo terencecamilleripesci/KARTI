@@ -943,6 +943,7 @@ const MP = {
   variant:null,         /* which flavour, where a game has flavours       */
   showRules:false,      /* the rules panel, folded open IN PLACE          */
   panel:null,           /* which inline drawer is open: 'ai' | 'ask' | null */
+  lobbyY:0,             /* where the finger left the lobby list — see tableLobby */
   aiSeat:-1,            /* the empty chair the machine picker is aimed at */
   began:null,           /* the relay's {t:'began'} — seed, bots, levels    */
   askBack:null,         /* somebody to invite the moment we have a room     */
@@ -2898,8 +2899,14 @@ function tableLobby(){
   /* Where the finger left the list, so a repaint — a ready toggle, a seat
      change, a drawer opening, or a roster the relay pushed — does not snap
      the view back to the top. Read before the innerHTML swap below wipes it;
-     restored at the foot of this paint. */
-  const keepY = body.scrollTop;
+     restored at the foot of this paint.
+     READ FROM STATE, NOT JUST THE DOM. Reading only body.scrollTop was enough
+     for an in-place repaint, but anything that LEAVES the screen and comes back
+     (Customise is the loud one: it opens the wardrobe and returns) finds the
+     scroller already reset, so keepY was 0 and the list snapped to the top.
+     MP.lobbyY is kept up to date by the passive listener armed at the foot of
+     this paint, so it survives the round trip. */
+  const keepY = body.scrollTop || MP.lobbyY || 0;
   const LB = gameLobby(MP.game);
   if (!MP.roster) MP.roster = ownRoster();
   const seats = rosterSeats();
@@ -3201,7 +3208,41 @@ function tableLobby(){
 
   /* put the view back where it was — clamped so a now-shorter list never
      leaves the scroller parked past its own end. */
-  if (keepY) body.scrollTop = Math.min(keepY, body.scrollHeight - body.clientHeight);
+  if (keepY) body.scrollTop = Math.min(keepY, Math.max(0, body.scrollHeight - body.clientHeight));
+  MP.lobbyY = body.scrollTop;
+  /* Remember every scroll from here on, so leaving the screen and coming back
+     (Customise, the wardrobe, a profile) lands where the finger left it. Armed
+     once per element: innerHTML above replaces the CHILDREN, not #mp-body, so
+     the flag survives a repaint and we never stack listeners. */
+  if (!body.__kxScroll){
+    body.__kxScroll = 1;
+    body.addEventListener('scroll', () => { MP.lobbyY = body.scrollTop; }, { passive:true });
+    /* WHAT THE FINGER JUST TOUCHED. Restoring scrollTop alone is not enough:
+       a drawer (Game, Rules, Machine) makes the list tall, you scroll down
+       inside it, you tap — and the drawer folds away, so the list is suddenly
+       short and the clamp above drags the view hundreds of pixels upward. That
+       is the "it scrolls up" everybody feels. Remembering the control that was
+       tapped lets the paint below bring it back under the thumb instead. */
+    body.addEventListener('click', e => {
+      const t = e.target && e.target.closest && e.target.closest('button');
+      MP.focusId = (t && t.id) ? t.id : '';
+      MP.focusAt = t ? Date.now() : 0;
+    }, true);
+  }
+  /* ...and put it back under the thumb. Only right after a real tap (a roster
+     the relay pushed must never yank the view), and only if it actually moved
+     out of sight. 'nearest' keeps the motion to the minimum that works. */
+  if (MP.focusId && Date.now() - (MP.focusAt || 0) < 900){
+    const el = body.querySelector('#' + MP.focusId);
+    if (el){
+      const r = el.getBoundingClientRect(), br = body.getBoundingClientRect();
+      if (r.top < br.top + 4 || r.bottom > br.bottom - 4){
+        try { el.scrollIntoView({ block:'nearest', behavior:'smooth' }); }
+        catch (e){ el.scrollIntoView(false); }
+      }
+    }
+    MP.focusId = '';
+  }
 }
 
 /* ── THE HOST GROWS OR SHRINKS THE OPEN TABLE ──────────────────────────
