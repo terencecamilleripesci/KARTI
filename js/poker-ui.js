@@ -2407,71 +2407,21 @@ try {
 
 /* ═══════════════════════════════════════════════════════════════════
    POKER — THE KIT SHELF (purely cosmetic, always)
-   Felts, card backs and a table-edge trim through KARTI_XP.register(),
-   scoped under #app #scr-party .pk-table so the menu hero and every
-   other game keep their own clothes. The face-down card is klabb's
-   shared SVG back, whose lattice is a <pattern> — patterns cannot be
-   recoloured from CSS, so a hidden defs-only svg (#pkx-pats) restates
-   the exact stock geometry (10x10, rotate(45), 2.4-wide rails) once
-   per mood, and one attribute-selector rule points the back's fill at
-   it. The edge rect and the cross are presentation attributes, which
-   plain CSS fill/stroke beats. klabb.js itself is never touched.
-   Unequipped = empty sheet = stock. The style node is re-appended on
-   every change so it lands after pk-runtime-css.
+   The table-edge trims only. The felts and card backs that used to be
+   declared here were retired when the ONE shared deck arrived — every
+   card game now wears the same back and felt, registered under game
+   'karti' in js/deck-kit.js, which also migrated anything a player
+   owned or wore from this shelf. The trims stay: an edge is furniture,
+   not the deck. Unequipped = empty sheet = stock. The style node is
+   re-appended on every change so it lands after pk-runtime-css.
    ═══════════════════════════════════════════════════════════════════ */
 (function(){
 'use strict';
 
-/* a/b/c: the three stops of the stock radial, restated in a mood */
-var FELTS = {
-  'poker.felt.kazin':  { a:'#1E7A50', b:'#155238', c:'#08281B' },
-  'poker.felt.borgo':  { a:'#8A3348', b:'#521C2A', c:'#2C0D16' },
-  'poker.felt.tabakk': { a:'#8A6234', b:'#54381C', c:'#2B1B0D' },
-  'poker.felt.lejl':   { a:'#38405C', b:'#1B2130', c:'#0A0D16' },
-  /* ── MALTESE SUMMER ── the water off Għar Lapsi at four in the
-     afternoon. Nobody believes the middle stop, and it is the real one. */
-  'poker.felt.lapsi':  { a:'#6FE3D6', b:'#1B9FB4', c:'#0A5C7C' }
-};
-/* pat: the pattern id suffix; base/line: the lattice; edge: the inner
-   rect's stroke; cross: the Maltese cross */
-var BACKS = {
-  'poker.back.kazin': { pat:'kazin', base:'#134A2E', line:'#1E6B41', edge:'#FFD98A', cross:'#FFD98A' },
-  'poker.back.linka': { pat:'linka', base:'#15171E', line:'#2B303E', edge:'#C9D2E4', cross:'#C9D2E4' },
-  'poker.back.demm':  { pat:'demm',  base:'#6B1421', line:'#9A2634', edge:'#F6C9CE', cross:'#F6C9CE' },
-  'poker.back.ivorju':{ pat:'ivorju',base:'#E8DCC2', line:'#CFBF9C', edge:'#7A5A22', cross:'#7A5A22' },
-  'poker.back.deheb': { pat:'deheb', base:'#7E5A11', line:'#B8891F', edge:'#FFF7E4', cross:'#FFF7E4' },
-  /* ── MALTESE SUMMER ── the kiosk umbrella, faded exactly this much */
-  'poker.back.umbrel':{ pat:'umbrel',base:'#F07A5A', line:'#FFEFD8', edge:'#8E2E1C', cross:'#8E2E1C' }
-};
 var TRIMS = {
   'poker.trim.deheb': { e:'rgba(255,197,66,.5)',  r:'rgba(255,197,66,.26)' },
   'poker.trim.injam': { e:'rgba(150,96,46,.75)',  r:'rgba(90,58,30,.5)' }
 };
-
-/* the hidden pattern shelf — every mood's lattice, defined once, in
-   klabb's exact geometry so only the colours differ */
-function pats(){
-  if (document.getElementById('pkx-pats') || !document.body) return;
-  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.id = 'pkx-pats';
-  svg.setAttribute('width', '0');
-  svg.setAttribute('height', '0');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  svg.setAttribute('style',
-    'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
-  var s = '', k;
-  for (k in BACKS) if (Object.prototype.hasOwnProperty.call(BACKS, k)){
-    var b = BACKS[k];
-    s += '<pattern id="pkx-lat-' + b.pat + '" width="10" height="10" ' +
-         'patternUnits="userSpaceOnUse" patternTransform="rotate(45)">' +
-         '<rect width="10" height="10" fill="' + b.base + '"/>' +
-         '<path d="M0 0H10M0 5H10" stroke="' + b.line + '" stroke-width="2.4"/>' +
-         '</pattern>';
-  }
-  svg.innerHTML = s;
-  document.body.appendChild(svg);
-}
 
 function sheet(){
   var st = document.getElementById('pkx-kit-css');
@@ -2485,16 +2435,7 @@ function sheet(){
 function apply(){
   var XP = window.KARTI_XP;
   if (!XP) return;
-  pats();
   var css = '';
-  var f = FELTS[XP.equipped('felt', 'poker') || ''];
-  if (f) css += '#app #scr-party .pk-table{background:radial-gradient(' +
-    '120% 85% at 50% 34%,' + f.a + ' 0%,' + f.b + ' 46%,' + f.c + ' 100%)}';
-  var b = BACKS[XP.equipped('back', 'poker') || ''];
-  if (b) css +=
-    '#app #scr-party .pk-table .kb-back rect[fill^="url"]{fill:url(#pkx-lat-' + b.pat + ')}' +
-    '#app #scr-party .pk-table .kb-back rect[stroke="#FFD98A"]{stroke:' + b.edge + '}' +
-    '#app #scr-party .pk-table .kb-back use{fill:' + b.cross + '}';
   var t = TRIMS[XP.equipped('trim', 'poker') || ''];
   /* the ring joins the felt's stock depth shadows instead of replacing
      them — losing the inner darkening would flatten the whole table */
@@ -2505,39 +2446,6 @@ function apply(){
 }
 
 var STOCK_FELT = 'radial-gradient(120% 85% at 50% 34%,#1E7A50 0%,#155238 46%,#08281B 100%)';
-
-function feltPv(t){
-  return function(size){
-    var s = size || 62, el = document.createElement('span');
-    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
-      'width:' + s + 'px;height:' + s + 'px');
-    el.innerHTML = '<span style="display:block;width:' + s + 'px;height:' +
-      Math.round(s * .7) + 'px;border-radius:10px;border:1px solid rgba(0,0,0,.55);' +
-      'box-sizing:border-box;background:radial-gradient(120% 85% at 50% 34%,' +
-      t.a + ' 0%,' + t.b + ' 46%,' + t.c + ' 100%)"></span>';
-    return el;
-  };
-}
-
-/* the back as CSS: the lattice as a repeating 45-degree gradient, the
-   cross as a rotated square outline — a stand-in, but never blank */
-function backPv(t){
-  return function(size){
-    var s = size || 62, h = Math.round(s * .8), w = Math.round(h * .72);
-    var c = Math.round(w * .34), m = -Math.round(c / 2);
-    var el = document.createElement('span');
-    el.setAttribute('style', 'display:flex;align-items:center;justify-content:center;' +
-      'width:' + s + 'px;height:' + s + 'px');
-    el.innerHTML = '<span style="position:relative;display:block;width:' + w + 'px;height:' +
-      h + 'px;border-radius:5px;background:repeating-linear-gradient(45deg,' +
-      t.base + ' 0 3.5px,' + t.line + ' 3.5px 5.5px);' +
-      'box-shadow:inset 0 0 0 2px ' + t.edge + ',0 1px 3px rgba(0,0,0,.5)">' +
-      '<span style="position:absolute;left:50%;top:50%;width:' + c + 'px;height:' + c + 'px;' +
-      'margin:' + m + 'px 0 0 ' + m + 'px;border:2px solid ' + t.cross + ';' +
-      'box-sizing:border-box;transform:rotate(45deg)"></span></span>';
-    return el;
-  };
-}
 
 function trimPv(t){
   return function(size){
@@ -2560,36 +2468,10 @@ function boot(tries){
   }
   var KIT = XP.forGame('poker');
   KIT.register([
-    { slot:'felt', id:'poker.felt.kazin', level:0,  name:'Feltru tal-Każin',
-      blurb:'Club green under a bare bulb. Where every bad decision on this island was taken.', preview:feltPv(FELTS['poker.felt.kazin']) },
-    { slot:'felt', id:'poker.felt.borgo', level:8,  name:'Borgo Bordò',
-      blurb:'Deep wine cloth. Losing on it feels almost ceremonial.', preview:feltPv(FELTS['poker.felt.borgo']) },
-    { slot:'felt', id:'poker.felt.tabakk',level:18, name:'Tabakk u Kafè',
-      blurb:'Tobacco brown, coffee rings included at no extra charge.', preview:feltPv(FELTS['poker.felt.tabakk']) },
-    { slot:'felt', id:'poker.felt.lejl',  level:33, name:'Wara Nofsillejl',
-      blurb:'The colour a room goes when nobody has mentioned the time in two hours.', preview:feltPv(FELTS['poker.felt.lejl']) },
-
-    { slot:'back', id:'poker.back.kazin', level:0,  name:'Aħdar tal-Każin',
-      blurb:'Club green, gold cross. The house pack, and the house never explains itself.', preview:backPv(BACKS['poker.back.kazin']) },
-    { slot:'back', id:'poker.back.linka', level:6,  name:'Iswed u Fidda',
-      blurb:'Black lattice, silver cross. Gives away exactly nothing, which is the idea.', preview:backPv(BACKS['poker.back.linka']) },
-    { slot:'back', id:'poker.back.demm',  level:14, name:'Aħmar Skur',
-      blurb:'Dark red. Traditional, and slightly threatening if you look at it too long.', preview:backPv(BACKS['poker.back.demm']) },
-    { slot:'back', id:'poker.back.ivorju',level:27, name:'Ivorju Antik',
-      blurb:'Old ivory and brown. The pack from the drawer nobody is allowed to open.', preview:backPv(BACKS['poker.back.ivorju']) },
-    { slot:'back', id:'poker.back.deheb', level:44, name:'Deheb u Abjad',
-      blurb:'Gold and white. The deck is dressed better than anyone holding it.', preview:backPv(BACKS['poker.back.deheb']) },
-
     { slot:'trim', id:'poker.trim.deheb', level:22, name:'Xifer Indurat',
       blurb:'A gilt rail round the table, purely to intimidate.', preview:trimPv(TRIMS['poker.trim.deheb']) },
     { slot:'trim', id:'poker.trim.injam', level:38, name:'Xifer tal-Injam',
-      blurb:'Worn wood, polished by forearms. Nothing says regular like this edge.', preview:trimPv(TRIMS['poker.trim.injam']) },
-
-    /* ── MALTESE SUMMER ── same shelves, one shared tag */
-    { slot:'felt', id:'poker.felt.lapsi', level:5,  set:'summer', name:'Ilma ta’ Għar Lapsi',
-      blurb:'Turquoise you would not believe from a photograph. Bluffing in swimming shorts.', preview:feltPv(FELTS['poker.felt.lapsi']) },
-    { slot:'back', id:'poker.back.umbrel',level:11, set:'summer', name:'Umbrella tal-Kjosk',
-      blurb:'Faded orange and cream, one rib bent. Holds off the sun, not much else.', preview:backPv(BACKS['poker.back.umbrel']) }
+      blurb:'Worn wood, polished by forearms. Nothing says regular like this edge.', preview:trimPv(TRIMS['poker.trim.injam']) }
   ]);
   KIT.onChange(apply);
   apply();

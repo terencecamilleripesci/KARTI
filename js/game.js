@@ -2462,11 +2462,17 @@ function doSpin(now){
    level 2 → 180 coins (about 1.5 duel wins) up to level 12 → 780. */
 const COSM_LEVEL_MAX = 12;
 function cosmPrice(d){ return 120 + 60 * Math.max(1, (d.level | 0) - 1); }
+/* the ONE shared deck (js/deck-kit.js) lives under 'karti' like the
+   identity items do, but a card back is merchandise, not identity —
+   the per-game backs it replaced were always for sale, so it stays on
+   the shelf while borders/badges/faces/themes stay off it */
+const deckSlot = d => d.game === 'karti' && (d.slot === 'back' || d.slot === 'felt');
 function storeBuyables(){
   try {
     if (!window.KARTI_XP || !KARTI_XP.defs) return [];
     return KARTI_XP.defs().filter(d =>
-      d.game !== 'karti' && !d.earn && d.level >= 2 && d.level <= COSM_LEVEL_MAX);
+      (d.game !== 'karti' || deckSlot(d)) && !d.earn &&
+      d.level >= 2 && d.level <= COSM_LEVEL_MAX);
   } catch (e){ return []; }
 }
 function cosmOwned(id){
@@ -2481,7 +2487,7 @@ function storeLadder(){
   try {
     if (!window.KARTI_XP || !KARTI_XP.defs) return [];
     return KARTI_XP.defs().filter(d =>
-      d.game !== 'karti' && !d.earn && d.level > COSM_LEVEL_MAX);
+      (d.game !== 'karti' || deckSlot(d)) && !d.earn && d.level > COSM_LEVEL_MAX);
   } catch (e){ return []; }
 }
 /* the next customisation THIS player will unlock by levelling, per game —
@@ -2547,6 +2553,8 @@ function gameLabel(id){
   } catch (e){}
   const NICE = { 'cards-solo':'The Card Duel', 'cards-story':'Story Mode',
                  'cards-mp':'Multiplayer Duel', 'kiri':'IL-KIRI', 'tombla':'Tombla',
+                 /* the ONE shared deck — every card game wears it */
+                 'karti':'The Deck — every card game',
                  /* the games whose cosmetics were added later and are not on the
                     record-book shelf gameLabel reads first — a nice name here
                     keeps the store's per-game headings from reading as bare ids */

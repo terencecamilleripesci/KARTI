@@ -2309,7 +2309,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 206;
+var KARTI_BUILD = 207;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2383,6 +2383,12 @@ window.swVersion = function(){
                   the injectable deal), poker-ui.js the table. After
                   klabb.js — same reason, same deck. */
                'js/poker.js','js/poker-ui.js',
+               /* THE ONE DECK: the shared card back + felt for every
+                  card game (game 'karti'), plus the migration off the
+                  retired per-game shelves. After the card tables so
+                  its style sheet lands last on first boot; order is
+                  otherwise free — it waits for KARTI_XP itself. */
+               'js/deck-kit.js',
                /* SERP: serp.js is the pure engine (the tick model, the
                   pellet court, the machine), serp-ui.js the arena — the
                   app's first canvas renderer and its first game on a

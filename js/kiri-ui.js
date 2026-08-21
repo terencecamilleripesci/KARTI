@@ -4376,14 +4376,10 @@ var BOARDS = {
   'kiri.board.lapsi':  { bg:['#FBF6E6','#E4F0EA','#A9DED6','#4FADB4','#1C6F82'],
                          bd:'rgba(255,255,255,.40)', cell:['#2F8290','#206672','#154C58'] }
 };
-/* table: only the scrim over artkit's felt (darkest stop kept >= .6
-   alpha so the ring still wins the contrast fight) + the inset ring */
-var TABLES = {
-  'kiri.table.qiegh': { a:'rgba(4,20,34,.38)',  b:'rgba(2,10,20,.75)',  ring:'rgba(120,190,235,.30)' },
-  'kiri.table.inbid': { a:'rgba(46,6,18,.40)',  b:'rgba(24,2,9,.72)',   ring:'rgba(255,150,160,.30)' },
-  'kiri.table.vjola': { a:'rgba(28,12,48,.42)', b:'rgba(13,5,26,.74)',  ring:'rgba(170,130,255,.32)' },
-  'kiri.table.ambra': { a:'rgba(52,30,4,.38)',  b:'rgba(26,14,2,.72)',  ring:'rgba(255,197,66,.38)' }
-};
+/* the old 'table' slot — the felt scrim over artkit's cloth — was
+   retired when the ONE shared deck arrived: the shared FELT (game
+   'karti', js/deck-kit.js) now tints .kr-mid for every card game at
+   once, and the four kiri.table.* moods were migrated there. */
 /* dice: face gradient + pip gradient. idle/roll only touch opacity
    and animation, so the base face is safe to restate. */
 var DICE = {
@@ -4416,11 +4412,6 @@ function apply(){
       b.bg[3] + ' 74%,' + b.bg[4] + ' 100%);border-color:' + b.bd + '}' +
     P + '.kr-cell{background:linear-gradient(180deg,' +
       b.cell[0] + ' 0%,' + b.cell[1] + ' 55%,' + b.cell[2] + ' 100%)}';
-  var t = TABLES[XP.equipped('table', 'kiri') || ''];
-  if (t) css += P + '.kr-mid{box-shadow:inset 0 0 0 1px ' + t.ring +
-      ',inset 0 2px 10px rgba(0,0,0,.55),inset 0 -16px 30px rgba(0,0,0,.45)}' +
-    P + '.kr-mid::before{background:radial-gradient(120% 90% at 50% 0%,' +
-      t.a + ',' + t.b + ' 80%)}';
   var d = DICE[XP.equipped('dice', 'kiri') || ''];
   if (d) css += P + '.kr-die{background:linear-gradient(158deg,' +
       d.f[0] + ' 0%,' + d.f[1] + ' 52%,' + d.f[2] + ' 100%)}' +
@@ -4430,8 +4421,8 @@ function apply(){
 }
 
 /* previews: the board is the rim gradient with the grid suggested by
-   two hairlines; the table is the scrim washed over a felt green; a
-   die is one face with three pips painted as background circles. */
+   two hairlines; a die is one face with three pips painted as
+   background circles. */
 function boardPv(t){
   return function(size){
     var s = size || 62, el = document.createElement('span');
@@ -4445,18 +4436,6 @@ function boardPv(t){
         'rgba(255,255,255,.22) 51.5%,transparent 51.5%),' +
       'linear-gradient(158deg,' + t.bg[0] + ' 0%,' + t.bg[1] + ' 16%,' +
         t.bg[2] + ' 44%,' + t.bg[3] + ' 74%,' + t.bg[4] + ' 100%)');
-    return el;
-  };
-}
-function tablePv(t){
-  return function(size){
-    var s = size || 62, el = document.createElement('span');
-    el.setAttribute('style',
-      'display:block;width:' + s + 'px;height:' + s + 'px;border-radius:10px;' +
-      'box-sizing:border-box;' +
-      'background:radial-gradient(120% 90% at 50% 0%,' + t.a + ',' + t.b + ' 80%),' +
-        'linear-gradient(180deg,#2E6B45,#1C4A2E);' +
-      'box-shadow:inset 0 0 0 2px ' + t.ring);
     return el;
   };
 }
@@ -4497,15 +4476,6 @@ function boot(tries){
       blurb:'Rose dusk over the bastions. Prices only go up from here.', preview:boardPv(BOARDS['kiri.board.nzul']) },
     { slot:'board', id:'kiri.board.lapsi',  level:9,  name:'Għar Lapsi', set:'summer',
       blurb:'White rock, turquoise water, and somebody’s cousin already parked in your spot.', preview:boardPv(BOARDS['kiri.board.lapsi']) },
-
-    { slot:'table', id:'kiri.table.qiegh', level:6,  name:'Qiegħ il-Baħar',
-      blurb:'The middle is open water now. Mind where you drop the deposit.', preview:tablePv(TABLES['kiri.table.qiegh']) },
-    { slot:'table', id:'kiri.table.inbid', level:15, name:'Tapit tal-Inbid',
-      blurb:'The felt drank a whole bottle and is not sorry.', preview:tablePv(TABLES['kiri.table.inbid']) },
-    { slot:'table', id:'kiri.table.vjola', level:24, name:'Vjola tal-Lejl',
-      blurb:'Festa lights off, velvet on. Roll quietly.', preview:tablePv(TABLES['kiri.table.vjola']) },
-    { slot:'table', id:'kiri.table.ambra', level:38, name:'Ambra Sħuna',
-      blurb:'Lamplight amber. Every debt looks warmer in it.', preview:tablePv(TABLES['kiri.table.ambra']) },
 
     { slot:'dice', id:'kiri.dice.avorju',  level:0,  name:'Avorju Klassiku',
       blurb:'The pair the notary keeps in his drawer for serious matters.', preview:dicePv(DICE['kiri.dice.avorju']) },

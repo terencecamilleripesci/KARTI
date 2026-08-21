@@ -1914,22 +1914,11 @@ function registerCatalogue(){
        {en:'One lamp, a dark room. Somebody in here is lying.',mt:'Lampa waħda, kamra mudlama. Xi ħadd hawn qed jigdeb.'}, swatchPv(['#2A2350','#0A0812'],{dot:'#FFC542'}))
   ]);
 
-  /* ── 21 & 31 (cards2131) — FELT and CARD-BACK, the two it never had.
-        Both new slots, matching the other card games' slot names. ── */
-  KIT('cards2131', [
-    ci('felt','cards2131.felt.inbid',  3,  {en:'Old Wine',mt:'Inbid Qadim'},
-       {en:'Deep crimson felt. Bets look older and wiser on it.',mt:'Feltru aħmar fond. L-imħatri jidhru aktar għaqlin fuqu.'}, swatchPv(['#5A1420','#2A0810'])),
-    ci('felt','cards2131.felt.port',   11, {en:'Grand Harbour',mt:'Il-Port il-Kbir'},
-       {en:'Harbour blue. Somewhere under it is somebody’s losing hand.',mt:'Blu tal-port. X’imkien taħtu hemm id ta’ xi ħadd li tilef.'}, swatchPv(['#123A5A','#08202E'])),
-    ci('felt','cards2131.felt.franka', 26, {en:'Limestone',mt:'Ġebla Franka'},
-       {en:'Stone felt. Every game on it counts as heritage.',mt:'Feltru tal-ġebla. Kull logħba fuqu tgħodd bħala wirt.'}, swatchPv(['#D8C79B','#8A7A52'])),
-    ci('back','cards2131.back.salib',  6,  {en:'Gilded Cross',mt:'Salib Indurat'},
-       {en:'A festa-statue cross on the back. Insured accordingly.',mt:'Salib ta’ statwa tal-festa fuq wara. Assigurat kif suppost.'}, swatchPv(['#7A1508','#FFD979'],{dot:'#FFE08A'})),
-    ci('back','cards2131.back.bahar',  15, {en:'Deep Water',mt:'Baħar Fond'},
-       {en:'Navy back. What is dropped here is not coming back.',mt:'Dahar navy. Dak li jaqa’ hawn ma jerġax lura.'}, swatchPv(['#0F2A4A','#04121C'])),
-    ci('back','cards2131.back.roza',   9, {en:'Rose Luzzu',mt:'Luzzu Roża'},
-       {en:'Luzzu-hull pink. The painted eye saw your third card.',mt:'Roża tal-buq tal-luzzu. L-għajn miżbugħa rat it-tielet karta tiegħek.'}, swatchPv(['#FF8FA0','#B0455C']))
-  ]);
+  /* ── 21 & 31 (cards2131) — RETIRED. The felt and card-back this
+        shelf gave it were wardrobe-only (the table never painted them)
+        and duplicated the other card games' designs — exactly the
+        clutter the ONE shared deck (game 'karti', js/deck-kit.js)
+        replaced. deck-kit.js migrates anything owned or worn here. ── */
 
   return n;
 }

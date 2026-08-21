@@ -1809,6 +1809,14 @@ var SLOTS = [
     hint:'The ring around it. This is the one everyone else sees.' },
   { id:'badge',  name:'Your level box',
     hint:'The number in the bottom of the ring. Yours, not the room\'s.' },
+  /* THE ONE DECK — a single back and a single felt for EVERY card
+     game, because they all use the same playing cards. Registered by
+     js/deck-kit.js under game 'karti', exactly like the theme/scene
+     slots below, so these two rows read generically. */
+  { id:'back',   name:'The playing cards',
+    hint:'One card back for every card game — klabb, poker, rummy, gin, skarta, the lot.' },
+  { id:'felt',   name:'The card table',
+    hint:'One cloth on every card table in the box. IL-KIRI\'s felt follows it too.' },
   { id:'theme',  name:'Your colours',
     hint:'The app\'s accent — gold, rose, violet, sea. Every button follows.' },
   { id:'scene',  name:'The home scene',
@@ -1828,7 +1836,8 @@ var SLOTS = [
    zero item that IS the default, so an empty slot resolves to that one. */
 var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold', backdrop:'backdrop.none',
                      theme:'theme.karti', scene:'scene.none', tabstyle:'tabstyle.hgiega',
-                     tabcolour:'tabcolour.lejl' };
+                     tabcolour:'tabcolour.lejl',
+                     back:'back.klassiku', felt:'felt.klassiku' };
 /* the three kx ladders read generically — any slot that is not one of
    the two avatar specials is simply "what is equipped on karti" */
 function wornId(slot){
@@ -1878,10 +1887,12 @@ function slotWorn(id){
     d = XP.def(wornId('backdrop'));
     return d ? d.name : 'Il-Lejl';
   }
-  if (id === 'theme' || id === 'scene' || id === 'tabstyle' || id === 'tabcolour'){
+  if (id === 'theme' || id === 'scene' || id === 'tabstyle' || id === 'tabcolour' ||
+      id === 'back' || id === 'felt'){
     d = XP.def(wornId(id));
     return d ? d.name : { theme:'KARTI Klassika', scene:'It-Triq',
-                          tabstyle:'Ħġieġa', tabcolour:'Lejl' }[id];
+                          tabstyle:'Ħġieġa', tabcolour:'Lejl',
+                          back:'Il-Klassiku', felt:'Tal-Logħba' }[id];
   }
   d = XP.def(wornId('border'));
   return d ? d.name : 'No border';
@@ -1901,7 +1912,12 @@ function paintYou(host){
                one carries the level, because the box row IS the level.
                The backdrop is not worn on a face at all, so its row
                shows the worn palette itself doing its job. */
-            (s.id === 'backdrop'
+            (s.id === 'back' || s.id === 'felt'
+              /* the deck rows preview the worn item itself: the shelf
+                 registered a preview(), so hand the id to drawPreviews
+                 exactly the way the item lists do */
+              ? '<span data-pv="' + esc(wornId(s.id)) + '"></span>'
+              : s.id === 'backdrop'
               ? backdropPreviewHTML(BACKDROP_BY[wornId('backdrop')] || BACKDROPS[0], 56)
               : s.id === 'theme'
               ? themePreviewHTML(THEME_BY[wornId('theme')] || THEMES[0], 56)
@@ -1934,6 +1950,7 @@ function paintYou(host){
         repaintAvatars(SC.el);
       };
     });
+    drawPreviews(host, 'karti');     /* fills the deck rows' data-pv */
     repaintAvatars(host);
     return;
   }
@@ -1982,7 +1999,8 @@ function paintYou(host){
     wireItems(host);
     drawPreviews(host, 'karti');
   } else if (SC.slot === 'theme' || SC.slot === 'scene' ||
-             SC.slot === 'tabstyle' || SC.slot === 'tabcolour'){
+             SC.slot === 'tabstyle' || SC.slot === 'tabcolour' ||
+             SC.slot === 'back' || SC.slot === 'felt'){
     host.innerHTML = back +
       '<p class="kx-slot">' + esc(slotWord(SC.slot)) + '</p>' +
       kartiSlotDefs(SC.slot).map(function(d){
