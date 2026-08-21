@@ -656,32 +656,37 @@ function injectCSS(){
     /* ═══ BETA-TESTER FRAMES — pure bling. A fast bright metal sweep, a
        sparkle layer that twinkles across it, and a coloured halo on the
        medallion. Gold for one tester, silver for the other. ═══ */
-    '@keyframes kxTwinkle{0%,100%{opacity:.2;transform:rotate(0)}50%{opacity:1;transform:rotate(8deg)}}' +
-    /* DIAMOND gold — a rich gold band set with prismatic diamond glints
-       (cyan + pink white-fire) so it sparkles like stones set in gold. */
-    '.kx-r-betagold{--kx-fb:#FFD23F;--kx-pat:conic-gradient(from 0turn,' +
-      '#7A560E 0turn,#FFC542 .045turn,#FFF0D0 .07turn,#FFFFFF .1turn,#DBF6FF .125turn,#FFE9A8 .165turn,' +
-      '#7A560E .27turn,#B8860B .45turn,#FFE1F0 .49turn,#FFFFFF .53turn,#FFF6CE .57turn,#B8860B .66turn,' +
-      '#7A560E .78turn,#FFFAF0 .8turn,#FFFFFF .835turn,#EAFBFF .865turn,#7A560E .93turn,#7A560E 1turn);overflow:hidden}' +
-    /* DIAMOND silver — a bright white-platinum band shot through with prismatic
-       refraction glints (pink -> cyan -> violet), the way light splits through a
-       cut stone. Glam, feminine, and unmistakably not the gold. */
-    '.kx-r-betasilver{--kx-fb:#EAF0FA;--kx-pat:conic-gradient(from 0turn,' +
-      '#4E5666 0turn,#B9C6DE .035turn,#FFDCEC .06turn,#FFFFFF .095turn,#D7F5FF .125turn,#C3D2EC .165turn,' +
-      '#4E5666 .27turn,#8A93A3 .44turn,#F0DCFF .485turn,#FFFFFF .525turn,#DCFBFF .565turn,#98A6BE .64turn,' +
-      '#4E5666 .76turn,#FFE9F3 .8turn,#FFFFFF .835turn,#CFE0FF .865turn,#4E5666 .92turn,#4E5666 1turn);overflow:hidden}' +
+    /* PAVÉ. The band is not a gradient pretending to sparkle — it is a RING OF
+       THIRTY CUT STONES. One 12° slice of the repeating gradient is one stone:
+       dark setting, a lip of metal, the cool edge of the crown, a white table at
+       the centre, then back out again. Repeat it round and the ring reads as
+       individually set diamonds, which is what "a lot of diamonds" actually
+       looks like. The stones glide slowly; a bright sweep runs over them fast,
+       because a diamond's tell is the light MOVING across it, and the whole
+       thing pulses its fire on its own clock. */
+    '@keyframes kxFire{0%,100%{opacity:.5}42%{opacity:1}68%{opacity:.72}}' +
+    '.kx-r-betagold,.kx-r-betasilver{--kx-bw:max(3px,calc(var(--kx-size,38px) * .1));overflow:hidden}' +
+    '.kx-r-betagold{--kx-fb:#FFD23F;--kx-pat:repeating-conic-gradient(from 0deg,' +
+      '#6B4A0C 0deg 1.2deg,#B8860B 1.2deg 2.6deg,#FFC542 2.6deg 3.6deg,' +
+      '#EAF7FF 3.6deg 4.8deg,#FFFFFF 4.8deg 7.2deg,#FFF2D8 7.2deg 8.4deg,' +
+      '#FFC542 8.4deg 9.4deg,#B8860B 9.4deg 10.8deg,#6B4A0C 10.8deg 12deg)}' +
+    '.kx-r-betasilver{--kx-fb:#EAF0FA;--kx-pat:repeating-conic-gradient(from 0deg,' +
+      '#3F4653 0deg 1.2deg,#8A93A3 1.2deg 2.6deg,#DCE3EF 2.6deg 3.6deg,' +
+      '#FFE6F4 3.6deg 4.8deg,#FFFFFF 4.8deg 7.2deg,#E4FAFF 7.2deg 8.4deg,' +
+      '#DCE3EF 8.4deg 9.4deg,#8A93A3 9.4deg 10.8deg,#3F4653 10.8deg 12deg)}' +
     '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
       '.kx-r-betagold,.kx-r-betasilver{background-image:none}' +
+      /* the stones themselves, turning slowly */
       '.kx-r-betagold::before,.kx-r-betasilver::before{content:"";position:absolute;inset:-45%;' +
-        'background:var(--kx-pat);animation:kxSweep 2.6s linear infinite}' +
-      '.kx-r-betagold::after,.kx-r-betasilver::after{content:"";position:absolute;inset:-1px;' +
-        'border-radius:inherit;pointer-events:none;mix-blend-mode:screen;' +
-        /* four points of DIAMOND FIRE — pure white cores that bleed to cyan and pink */
-        'background:radial-gradient(circle at 26% 16%,rgba(255,255,255,1) 0,rgba(190,240,255,.55) 42%,transparent 55%),' +
-        'radial-gradient(circle at 80% 72%,rgba(255,255,255,.98) 0,rgba(255,208,235,.55) 42%,transparent 52%),' +
-        'radial-gradient(circle at 62% 26%,rgba(255,255,255,.92) 0,transparent 30%),' +
-        'radial-gradient(circle at 20% 66%,rgba(228,255,250,.75) 0,transparent 28%);' +
-        'animation:kxTwinkle 1.8s ease-in-out infinite}}' +
+        'background:var(--kx-pat);animation:kxSweep 9s linear infinite}' +
+      /* the light running over them, fast, plus the fire pulse */
+      '.kx-r-betagold::after,.kx-r-betasilver::after{content:"";position:absolute;inset:-45%;' +
+        'pointer-events:none;mix-blend-mode:screen;' +
+        'background:conic-gradient(from 0turn,transparent 0turn,rgba(255,255,255,.15) .04turn,' +
+        'rgba(255,255,255,.95) .075turn,rgba(214,246,255,.6) .1turn,transparent .16turn,' +
+        'transparent .5turn,rgba(255,255,255,.8) .55turn,rgba(255,226,242,.5) .58turn,' +
+        'transparent .64turn,transparent 1turn);' +
+        'animation:kxSweep 2.1s linear infinite,kxFire 1.7s ease-in-out infinite}}' +
     '@supports selector(:has(*)){' +
       '.kx-av:has(>.kx-r-betagold){filter:' +
         'drop-shadow(0 0 calc(var(--kx-size,38px)*.1) rgba(255,197,66,.95))' +
