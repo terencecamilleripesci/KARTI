@@ -1099,6 +1099,20 @@ function mulberry32(a){
 function storedRelay(){
   try { return localStorage.getItem('karti.relay') || ''; } catch (e){ return ''; }
 }
+/* Is this a developer looking, or a player? The relay address box (and anything
+   else that can break somebody's connection) is only drawn for the former.
+   ?dev=1 turns it on and remembers it; ?dev=0 turns it off again. A relay that
+   is already off the default also counts, so a stranded player can always reach
+   the reset button. */
+function devTools(){
+  try {
+    const q = (location.search || '') + (location.hash || '');
+    if (/[?&#]dev=1\b/.test(q)){ localStorage.setItem('karti_dev', '1'); return true; }
+    if (/[?&#]dev=0\b/.test(q)){ localStorage.removeItem('karti_dev'); return false; }
+    if (localStorage.getItem('karti_dev') === '1') return true;
+  } catch (e){}
+  try { return !!(MP.url && MP.url !== RELAY_URL); } catch (e){ return false; }
+}
 function rememberRelay(u){
   try { u ? localStorage.setItem('karti.relay', u) : localStorage.removeItem('karti.relay'); }
   catch (e){}
@@ -1214,6 +1228,30 @@ function injectCSS(){
     '#scr-mp .mp-codein{text-align:center;letter-spacing:.28em;text-transform:uppercase;' +
       'font:700 22px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace}' +
     '#scr-mp .mp-url{font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}' +
+
+    /* ── THE TOP ROW: two small boxes instead of two full-height sections ──
+       Each carries its own state and opens only when tapped, so a quiet
+       evening costs two tiles of height instead of most of the screen. */
+    '#scr-mp .mp-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 2px}' +
+    '#scr-mp .mp-tile{position:relative;display:flex;align-items:center;gap:8px;' +
+      'min-height:48px;padding:10px 12px;border-radius:14px;cursor:pointer;text-align:left;' +
+      'background:color-mix(in srgb,var(--kx-surface,#1b1526) 88%,transparent);' +
+      'border:1px solid color-mix(in srgb,var(--kx-ink,#fff) 12%,transparent);' +
+      'color:var(--kx-ink,#F4EFFF);transition:border-color .16s,background .16s,transform .12s}' +
+    '#scr-mp .mp-tile:active{transform:translateY(1px)}' +
+    '#scr-mp .mp-tile.on{border-color:var(--kx-accent,#FFC542);' +
+      'background:color-mix(in srgb,var(--kx-accent,#FFC542) 14%,transparent)}' +
+    '#scr-mp .mp-tile b{font-size:12.5px;font-weight:800;letter-spacing:.2px}' +
+    '#scr-mp .mp-tile svg{width:17px;height:17px;flex:0 0 auto;opacity:.9}' +
+    /* the unread-style badge: quiet at zero, lit the moment a room exists */
+    '#scr-mp .mp-bub{margin-left:auto;min-width:22px;height:22px;padding:0 6px;border-radius:999px;' +
+      'display:inline-flex;align-items:center;justify-content:center;font:900 11.5px/1 system-ui;' +
+      'background:color-mix(in srgb,var(--kx-ink,#fff) 14%,transparent);color:var(--kx-dim,#A093C4)}' +
+    '#scr-mp .mp-bub.hot{background:#E63950;color:#fff;' +
+      'box-shadow:0 0 0 3px color-mix(in srgb,#E63950 28%,transparent);animation:mpBub 1.9s ease-in-out infinite}' +
+    '@keyframes mpBub{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}' +
+    '@media (prefers-reduced-motion:reduce){#scr-mp .mp-bub.hot{animation:none}}' +
+    '.reduced #scr-mp .mp-bub.hot{animation:none}' +
 
     /* ── which game (one tap, before you open a room) ── */
     '#scr-mp .mp-pick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;' +
@@ -1664,9 +1702,16 @@ function mpScreen(){
       '<h2>Online</h2>' +
     '</div>' +
     '<div class="scroll" id="mp-body">' +
-      '<p class="blurb">Every room waiting for a player is listed below, and each one ' +
-      'says what it is. <b>Tap one to join</b> — nothing to type, no code to read out. ' +
-      'Nobody about? Pick a game, open a room, and the next person online sees it.</p>' +
+      /* THE POINT OF THIS SCREEN IS TO GET INTO A GAME.
+         It used to open with a paragraph, then WHO IS AROUND (a heading, a
+         second paragraph and a row of faces), then ROOMS OPEN NOW — which on a
+         quiet evening is a big empty panel explaining that it is empty. The six
+         buttons everybody actually came for were below all of it, off-screen.
+         Now: one line, then a ROW of two small boxes that carry their own count
+         and open only when tapped, then the games. Who-is-around is gone from
+         here entirely — people live in the Friends tab; this screen is for
+         picking a game and going. */
+      '<p class="blurb">Pick a game and open a room — whoever is online sees it straight away.</p>' +
       '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
       (insecure
         ? '<div class="mp-box bad"><b>That server address will not work from this page.</b><br>' +
@@ -1674,9 +1719,24 @@ function mpScreen(){
           'Fix the address below or leave it on the default.</div>'
         : '') +
       '<div id="mp-inbox"></div>' +
-      '<div id="mp-social"></div>' +
-      '<div id="mp-rooms"></div>' +
-      '<div class="tiny" style="margin:18px 0 8px">Open a room of your own</div>' +
+      '<div class="mp-row2">' +
+        '<button class="mp-tile" id="mp-roomstog" aria-expanded="false" ' +
+          'aria-controls="mp-rooms">' + ico('users') +
+          '<b>Rooms open</b><span class="mp-bub" id="mp-roomsbub">0</span></button>' +
+        '<button class="mp-tile" id="mp-codetog" aria-expanded="false" ' +
+          'aria-controls="mp-codepane">' + ico('lock') +
+          '<b>Join by code</b></button>' +
+      '</div>' +
+      '<div id="mp-rooms" hidden></div>' +
+      '<div id="mp-codepane" hidden>' +
+        '<div style="display:grid;gap:9px;margin-top:9px">' +
+          '<input class="field mp-codein" id="mp-code2" maxlength="' + CODE_LEN + '" ' +
+            'placeholder="CODE" autocomplete="off" autocapitalize="characters" ' +
+            'spellcheck="false" aria-label="Room code">' +
+          '<button class="btn" id="mp-join2">↪ Join by code</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="tiny" style="margin:14px 0 8px">Open a room of your own</div>' +
       '<div class="mp-pick" id="mp-pick">' +
         GAMES.map(g => {
           const off = !gamePlayable(g.k);
@@ -1736,17 +1796,28 @@ function mpScreen(){
           'letter-spacing:0">A private room is <b>not</b> in anybody\'s list. Only the person ' +
           'you hand the code to can get in.</p>' +
       '</details>' +
-      '<details style="margin:8px 0 26px"><summary class="tiny">Server settings</summary>' +
-        '<div class="tiny" style="margin-top:8px">Relay address</div>' +
-        '<input class="field mp-url" id="mp-url" value="' + esc(MP.url) + '" ' +
-          'aria-label="Relay server address" spellcheck="false">' +
-        '<div style="display:grid;gap:8px;margin-top:8px">' +
-          '<button class="btn ghost" id="mp-test">' + ico('bolt') + ' Test the connection</button>' +
-          '<button class="btn ghost" id="mp-reset">↺ Back to the default address</button>' +
-        '</div>' +
-        '<p class="tiny" style="line-height:1.6;margin-top:8px">Default is the Pi relay. ' +
-        'You only need to touch this if the server has moved.</p>' +
-      '</details>' +
+      /* ── SERVER SETTINGS: NOT FOR PLAYERS ──────────────────────────────
+         A free-text relay address on the player's own multiplayer screen is a
+         production hazard: one stray tap and a player has pointed their app at
+         an address that does not answer, with no idea why online stopped
+         working. It is a developer tool, so it is only rendered for one:
+           · with ?dev=1 (or the karti_dev flag it sets), or
+           · when the address is ALREADY off the default — so somebody who has
+             broken it, or who was moved deliberately, can always get back.
+         Otherwise there is nothing on this screen to break. */
+      (devTools()
+        ? '<details style="margin:8px 0 26px"><summary class="tiny">Server settings</summary>' +
+            '<div class="tiny" style="margin-top:8px">Relay address</div>' +
+            '<input class="field mp-url" id="mp-url" value="' + esc(MP.url) + '" ' +
+              'aria-label="Relay server address" spellcheck="false">' +
+            '<div style="display:grid;gap:8px;margin-top:8px">' +
+              '<button class="btn ghost" id="mp-test">' + ico('bolt') + ' Test the connection</button>' +
+              '<button class="btn ghost" id="mp-reset">↺ Back to the default address</button>' +
+            '</div>' +
+            '<p class="tiny" style="line-height:1.6;margin-top:8px">Developer setting. ' +
+            'The default is the KARTI server.</p>' +
+          '</details>'
+        : '<div style="height:18px"></div>') +
     '</div>';
 
   $('#mp-back').onclick = () => { mpLeave(); K.go('home'); };
@@ -1779,25 +1850,57 @@ function mpScreen(){
     MP.myDeckId = deckOptions()[0].id;
   }
 
+  /* ── the compact top row: two boxes that open only when tapped ── */
+  const tog = (btnId, paneId) => {
+    const btn = $('#' + btnId), pane = $('#' + paneId);
+    if (!btn || !pane) return;
+    btn.onclick = () => {
+      const open = pane.hidden;
+      pane.hidden = !open;
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.classList.toggle('on', open);
+      sfx(open ? 'ui.sheet' : 'ui.back', { gain:0.6 });
+      if (open) paintRooms();          /* fill it the moment it is asked for */
+    };
+  };
+  tog('mp-roomstog', 'mp-rooms');
+  tog('mp-codetog', 'mp-codepane');
+  const j2 = $('#mp-join2'), c2 = $('#mp-code2');
+  if (j2 && c2){
+    c2.oninput = () => { c2.value = cleanCode(c2.value); };
+    j2.onclick = () => {
+      const c = cleanCode(c2.value);
+      if (c.length !== CODE_LEN){ K.toast('A room code is ' + CODE_LEN + ' characters.'); return; }
+      start('join', c);
+    };
+  }
+  roomsBubble();
+
+  /* the relay box is developer-only now (see devTools()); everything below is
+     guarded so a player's screen, which has none of it, cannot throw. */
   const urlIn = $('#mp-url');
-  urlIn.onchange = () => {
+  if (urlIn) urlIn.onchange = () => {
     const v = (urlIn.value || '').trim();
     MP.url = v || defaultURL();
     rememberRelay(v && v !== RELAY_URL ? v : '');
     keepScroll(mpScreen);
   };
-  $('#mp-reset').onclick = () => { rememberRelay(''); MP.url = RELAY_URL; keepScroll(mpScreen); };
-  $('#mp-test').onclick = testServer;
+  const rst = $('#mp-reset');
+  if (rst) rst.onclick = () => { rememberRelay(''); MP.url = RELAY_URL; keepScroll(mpScreen); };
+  const tst = $('#mp-test');
+  if (tst) tst.onclick = testServer;
 
   $('#mp-open').onclick     = () => start('create', null, null, false, MP.wantGame);
   $('#mp-openpriv').onclick = () => start('create', null, null, true,  MP.wantGame);
-  $('#mp-join').onclick = () => {
-    const c = cleanCode($('#mp-code').value);
-    if (c.length !== CODE_LEN){ K.toast('A room code is ' + CODE_LEN + ' characters.'); return; }
-    start('join', c);
-  };
-  const codeIn = $('#mp-code');
-  codeIn.oninput = () => { codeIn.value = cleanCode(codeIn.value); };
+  const joinBtn = $('#mp-join'), codeIn = $('#mp-code');
+  if (joinBtn && codeIn){
+    joinBtn.onclick = () => {
+      const c = cleanCode(codeIn.value);
+      if (c.length !== CODE_LEN){ K.toast('A room code is ' + CODE_LEN + ' characters.'); return; }
+      start('join', c);
+    };
+    codeIn.oninput = () => { codeIn.value = cleanCode(codeIn.value); };
+  }
 
   setState(MP.state === 'idle' ? 'idle' : MP.state, MP.note);
   paintRooms();                 /* whatever the shared poller already knows */
@@ -3779,6 +3882,24 @@ function onBegan(m){
     whisper: (to, x, ch) => send({ t:'chat', to:[to | 0],
                                    ch: String(ch || 'g').slice(0, 12),
                                    x: String(x == null ? '' : x).slice(0, 240) }),
+    /* A FRESH PRIVATE DEAL MID-GAME — {t:'redeal'}, HOST ONLY, for the
+       hidden-hand games that need new secrets every round (a poker hand, a
+       blackjack round). Takes the same two shapes planDeal returns — a
+       { items, each } pool the relay shuffles with its own entropy, or an
+       authoritative { mine:{ seat:payload } } map — and each seat is pushed
+       ONLY its own share as a fresh {t:'mine'} into hooks.private, exactly
+       like the start deal. Nothing here reads a payload; the relay refuses
+       a non-host, an unstarted room, and a spam of re-deals. */
+    redeal: d => {
+      if (MP.mySeat !== 0 || !d) return false;
+      let deal = null;
+      if (d.mine && typeof d.mine === 'object') deal = { mine: d.mine };
+      else if (Array.isArray(d.items) && d.items.length)
+        deal = { items: d.items, each: Math.max(1, d.each | 0 || 1) };
+      if (!deal) return false;
+      send({ t:'redeal', deal });
+      return true;
+    },
     onLeave: backToRooms,
     seat: MP.mySeat,
     seats: MP.size,
@@ -5154,7 +5275,27 @@ function openByGame(d, rooms){
   return out;
 }
 
+/* THE COUNT ON THE BOX. The room list is folded away now, so the number of open
+   rooms has to live where it can be seen without opening anything — a
+   notification bubble on the tile, exactly like an unread badge. It is painted
+   on every poll whether the list is open or shut, so a room appearing while the
+   player is looking at the game grid still announces itself. */
+function roomsBubble(){
+  const bub = $('#mp-roomsbub');
+  if (!bub) return;
+  let n = 0;
+  try {
+    const all = roomsFrom(PR.data);
+    n = !all ? 0
+      : (PR.data && typeof PR.data.open === 'number' ? PR.data.open : all.length);
+  } catch (e){ n = 0; }
+  if (PR.err){ bub.textContent = '—'; bub.classList.remove('hot'); return; }
+  bub.textContent = String(n);
+  bub.classList.toggle('hot', n > 0);      /* lit only when there is something to join */
+}
+
 function paintRooms(){
+  roomsBubble();
   const host = $('#mp-rooms');
   if (!host || !PR.mounted) return;
 
