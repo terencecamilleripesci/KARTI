@@ -658,8 +658,13 @@ function lobbyReport(){
    rather than draw a hole. */
 /* games that ship a real logo png (art/ui/logo-<k>.png) — the picker shows it
    over a valid glyph base, so a game is never a blank chip. */
+/* which games have a painted icon in art/ui/logo-<k>.png. Every game in the
+   picker now has one — the nine that were drawing a bare glyph (card duel,
+   tombla, gharraq, spy, klabb, poker, aqleb, kaxxi, misteru) were commissioned
+   in the same inked-cartoon house style as the rest. */
 const LOGO_GAMES = ('chess dama kiri skarta erbgha ludu minhu kodici kanun bomba ' +
-                    'briks cards2131 serp tankijiet konkwista ballun').split(' ');
+                    'briks cards2131 serp tankijiet konkwista ballun ' +
+                    'cards tombla gharraq spy klabb poker aqleb kaxxi misteru').split(' ');
 function gameIcon(k){
   const g = gameMeta(k);
   const P = window.KARTI_PARTY;
