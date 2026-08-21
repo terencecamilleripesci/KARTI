@@ -260,6 +260,24 @@ function playsBoard(hole, board){
                          source has not been told them yet.
    NOTHING ELSE in this file may deal a card.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE BOARD FOR HAND N — the five community cards, derived from the
+   ROOM's broadcast seed and the hand number. The board is PUBLIC by
+   nature (it gets turned face up for everybody), so deriving it from
+   the broadcast seed is honest — and deriving it deterministically
+   means every phone lands on the same five without a card crossing
+   the wire, and the host can EXCLUDE exactly these five from the
+   private pool it asks the relay to deal, so a hole card can never
+   collide with the board. (A client could read its own state for the
+   river early — free-chips honesty; per-street delivery is the coins
+   workstream, see poker-ui's COINS_MODE_READY.) */
+function boardFor(seed, handNo){
+  const t = { rs: (hash32([seed | 0, handNo | 0, 0x5eed]) | 0) };
+  const cards = [];
+  for (let f = 0; f < 52; f++) cards.push(f);
+  shuffle(t, cards);
+  return cards.slice(0, 5);
+}
+
 const DEALERS = {
   /* (a) THE SHARED SEED — skarta's and rummy's deal, unchanged. Every
      phone shuffles the identical pack out of st.rs, which is why an
@@ -334,6 +352,7 @@ function deal(opts, seed){
     street: 0, board: [], run: [],
     betToMatch: 0, minRaiseTo: 0, lastRaise: 0,
     turn: 0, phase: 'bet',
+    shown: {},                          /* seats that showed this hand */
     book: [],                           /* one row per finished hand   */
     show: null,                         /* the last showdown, for the felt */
     done: null
@@ -443,6 +462,7 @@ function dealHand(st){
   st.board = [];
   st.street = 0;
   st.show = null;
+  st.shown = {};
 
   const b = blinds(st);
   put(st.seats[b.sb], st.sb);
@@ -470,9 +490,23 @@ function roundClosed(st){
 function turn(st){
   if (st.done) return -2;
   if (st.phase === 'handover') return -1;
+  /* THE SHOWDOWN WAIT (private deal only): the table is waiting for the
+     live seats to put their cards face up — see 'show' in check(). No
+     seat "has the turn"; shows arrive in whatever order the wire brings
+     them and commute, exactly like quit. */
+  if (st.phase === 'show') return -1;
   if (st.phase !== 'bet') return -1;
   if (roundClosed(st)) return -1;
   return st.turn;
+}
+
+/* every seat still in the hand has its two cards face up on this
+   client — the one condition a private-deal showdown settles on */
+function showdownReady(st){
+  const live = inHand(st);
+  for (const i of live)
+    if (!st.shown[i] || st.seats[i].hole.length !== 2) return false;
+  return true;
 }
 
 /* WHAT THIS SEAT MAY DO. The amounts a bet may take are a RANGE, not a
@@ -522,6 +556,36 @@ function check(st, mv, seat){
      socket stream and poker-ui's logged doQuit() give it. */
   if (mv.t === 'quit')
     return seat >= 0 && seat < st.n && !!st.seats[seat] && !st.seats[seat].gone;
+  /* SHOW — a private-deal showdown's reveal. Like quit it never waits
+     for a turn: every live seat owes exactly one show, they arrive in
+     wire order and commute (each only ever sets its OWN two cards).
+     The verification is real, not ceremony: a show that names a card
+     this client can already SEE — the board, its own hand, a hand
+     already shown — is a lie, and refusing it here is what turns the
+     lie into a cheat-stop instead of a stolen pot. A seat whose cards
+     this client already knows (its own) must show exactly them. */
+  if (mv.t === 'show'){
+    if (st.deal !== 'private' || st.phase !== 'show') return false;
+    if (!(seat >= 0 && seat < st.n)) return false;
+    const s2 = st.seats[seat];
+    if (!s2 || s2.out || s2.folded || st.shown[seat]) return false;
+    const c = mv.c;
+    if (!Array.isArray(c) || c.length !== 2) return false;
+    const a = c[0] | 0, b = c[1] | 0;
+    if (a < 0 || a > 51 || b < 0 || b > 51 || a === b) return false;
+    for (let i = 0; i < st.board.length; i++)
+      if (st.board[i] === a || st.board[i] === b) return false;
+    for (let i = 0; i < st.n; i++){
+      if (i === seat) continue;
+      const o = st.seats[i];
+      if (o.hole.length === 2 && (o.hole.indexOf(a) >= 0 || o.hole.indexOf(b) >= 0))
+        return false;
+    }
+    if (s2.hole.length === 2 &&
+        !((s2.hole[0] === a && s2.hole[1] === b) ||
+          (s2.hole[0] === b && s2.hole[1] === a))) return false;
+    return true;
+  }
   if (turn(st) !== seat) return false;
   if (seat === -1)
     return (mv.t === 'next' && st.phase === 'handover') ||
@@ -552,9 +616,41 @@ function apply(st, mv){
   if (seat === -1){
     if (mv.t === 'street') street(st);
     else if (mv.t === 'next') nextHand(st);
+    /* GIVEN — the relay's private deal ARRIVING for the current hand
+       (this seat's own two cards, and the derived board). Local-only:
+       it rides the log so a rebuild replays it, and it never travels —
+       encWire() has no shape for it. It only ever FILLS blanks: a seat
+       already holding two cards keeps them, so a stray re-delivery
+       cannot rewrite a hand mid-bet. */
+    else if (mv.t === 'given' && st.deal === 'private' && !st.done){
+      const g = mv.g || {};
+      const prev = st.given || {};
+      const holes = Object.assign({}, prev.holes || {});
+      if (g.holes) for (const k in g.holes) holes[k] = g.holes[k];
+      st.given = {
+        holes,
+        run: (Array.isArray(g.run) && g.run.length ? g.run.slice(0, 5)
+                                                   : (prev.run || []).slice())
+      };
+      const got = DEALERS.private.make(st);
+      st.seats.forEach((s2, i) => {
+        if (s2.out || s2.hole.length === 2) return;
+        const h = got.holes[i];
+        if (Array.isArray(h) && h.length === 2) s2.hole = h.slice();
+      });
+      st.run = got.run.slice();
+      st.board = st.run.slice(0, Math.min(SHOWN[st.street], st.run.length));
+    }
     return;
   }
   const s = st.seats[seat];
+  if (mv.t === 'show'){
+    st.shown[seat] = true;
+    if (s.hole.length !== 2 && Array.isArray(mv.c) && mv.c.length === 2)
+      s.hole = [mv.c[0] | 0, mv.c[1] | 0];
+    if (st.phase === 'show' && showdownReady(st)) settle(st);
+    return;
+  }
   if (mv.t === 'quit'){
     if (s.gone) return;                              /* idempotent */
     s.gone = true;
@@ -569,6 +665,11 @@ function apply(st, mv){
       st.done = { kind: 'table', left: seated(st) };
       st.phase = 'done';
     }
+    /* a walk-out DURING the showdown wait must not deadlock it: with
+       the ghost folded, the seats still standing may now be complete —
+       or alone, in which case the pot is theirs without showing */
+    if (st.phase === 'show' && !st.done &&
+        (inHand(st).length <= 1 || showdownReady(st))) settle(st);
     return;
   }
   if (mv.t === 'fold'){
@@ -629,7 +730,21 @@ function street(st){
   st.lastRaise = st.bb;
   st.minRaiseTo = st.bb;
   const live = inHand(st);
-  if (live.length <= 1 || st.street >= 3){ settle(st); return; }
+  if (live.length <= 1){ settle(st); return; }
+  if (st.street >= 3){
+    /* PRIVATE DEAL: two or more still in after the river means a
+       showdown, and a showdown needs cards this client was never sent.
+       So the table waits in 'show' while every live seat puts its own
+       two face up over the wire (see 'show' in check()); the last show
+       settles. The seed deal — which knows every hand — settles at
+       once, exactly as before. */
+    if (st.deal === 'private' && !showdownReady(st)){
+      st.board = st.run.slice(0, Math.min(5, st.run.length));
+      st.phase = 'show';
+      return;
+    }
+    settle(st); return;
+  }
   st.street++;
   st.board = st.run.slice(0, Math.min(SHOWN[st.street], st.run.length));
   st.turn = nextAble(st, st.button);
@@ -779,6 +894,11 @@ function nextHand(st){
   }
   st.button = nextSeat(st, st.button, (s, i) => live.indexOf(i) >= 0);
   st.handNo++;
+  /* EVERY HAND IS A FRESH SECRET. The private inbox is emptied before
+     the deal, so hand N+1 starts face down everywhere and STAYS face
+     down until the relay's next per-hand deal arrives as a 'given' —
+     hand N's cards can never bleed into hand N+1. */
+  if (st.deal === 'private') st.given = { holes: {}, run: [] };
   dealHand(st);
 }
 
@@ -981,11 +1101,11 @@ function think(st, seat, lvl){
    far side multiplies them back. 65,535 is the ceiling, which is why
    deal() will not build a table whose chips could pass it.
 
-   ONLINE IS NOT OPEN YET and js/poker-ui.js says so at the door: the
-   shared seed makes every hole card readable by every client, which is
-   a cheat vector even for table chips. The codec is written and
-   tested now because it is part of the deal seam's story, not because
-   anything calls it today.
+   ONLINE IS OPEN (free chips): the relay deals each seat its own two
+   cards privately every hand (js/poker-ui.js drives net.redeal), the
+   board rides boardFor(seed, handNo), and the showdown is the 'show'
+   move above — each seat reveals its OWN two on the wire, exactly as
+   at a real table. Coins stay behind poker-ui's COINS_MODE_READY.
    ═══════════════════════════════════════════════════════════════════ */
 const WIRE_FIELDS = ['h', 'l'];
 const byteOK = v => v >= 0 && v <= 255;
@@ -1000,7 +1120,16 @@ function encWire(mv){
     const w = { t: 'bet', h: (a >> 8) & 255, l: a & 255 };
     return (byteOK(w.h) && byteOK(w.l)) ? w : null;
   }
-  return null;                                     /* table beats never travel */
+  /* SHOW — the showdown reveal: this seat's own two cards, face up for
+     the whole table, exactly as at a real one. Card ids are 0..51 so
+     they ride the same two byte fields a bet does. */
+  if (mv.t === 'show'){
+    const c = mv.c || [];
+    const a = c[0] | 0, b = c[1] | 0;
+    if (c.length !== 2 || a < 0 || a > 51 || b < 0 || b > 51) return null;
+    return { t: 'show', h: a, l: b };
+  }
+  return null;             /* table beats — and 'given' — never travel */
 }
 function decWire(w){
   if (!w || typeof w.t !== 'string') return null;
@@ -1009,6 +1138,10 @@ function decWire(w){
   if (w.t === 'bet'){
     if (w.h === undefined && w.l === undefined) return null;
     return { t: 'bet', a: ((w.h | 0) << 8) + (w.l | 0) };
+  }
+  if (w.t === 'show'){
+    if (w.h === undefined || w.l === undefined) return null;
+    return { t: 'show', c: [w.h | 0, w.l | 0] };
   }
   return null;
 }
@@ -1020,7 +1153,7 @@ root.KARTI_POKER = root.KARTI_POKER || {};
 root.KARTI_POKER.engine = {
   suitOf, rankOf, hiOf,
   CAT, CAT_MAX, score, best5, catOf, kicksOf, straightHigh, playsBoard,
-  DEALERS, dealerOf,
+  DEALERS, dealerOf, boardFor, showdownReady,
   MIN_SEATS, MAX_SEATS, MODES, modeOf, STREETS, SHOWN,
   deal, legal, betRange, check, apply, turn, over, note, tally,
   seated, inHand, potOf, chipsOn, pots, blinds, roundClosed, meSeat,

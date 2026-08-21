@@ -46,12 +46,32 @@
                         leaving anything it was not told about as a
                         face-down unknown. For COINS MODE, once the
                         relay can deal privately.
+       DEALERS.lanes    THE ONLINE TABLE. Every round the relay shuffles
+                        one pool with its OWN entropy and deals each seat
+                        a private LANE of cards ({t:'mine'}); a seat's
+                        opening two cards and every hit come off its own
+                        lane, so no client — not even the host — ever
+                        holds another PLAYER's cards. The DEALER's cards
+                        never ride a lane at all: they enter the match as
+                        explicit logged moves — 'up' (the shared up-card),
+                        'peek' (blackjack yes/no; the hole only if yes),
+                        'reveal' (the hole + draws when the dealer plays)
+                        — composed by the HOST from a bank shoe it keeps
+                        (the same documented trust as machine chairs: the
+                        bank's brain runs on the host's phone). Hands are
+                        turned over at the SHOWDOWN by their own owner
+                        ('show'), never sooner. A card this client was
+                        never told is null — a face-down unknown — and
+                        the flow flags a move needs (bust / closed) ride
+                        the move itself (mv.e / mv.f), so every client
+                        agrees on whose turn it is without knowing a
+                        single hidden card.
 
      Everything downstream of make() — the totals, the dealer policy,
-     splits, payouts, the wire — is identical between the two. The seam
-     is one function and it is here. COINS_MODE_READY (in the UI, and
-     the constant re-exported here for the harness) stays false until
-     the relay's private per-seat deal is deployed and wired.
+     splits, payouts, the wire — is identical between the sources. The
+     seam is one function and it is here. COINS mode still waits (see
+     COINS_MODE_READY): lanes prove the secrecy, coins are a separate
+     decision.
 
    CARDS
      Plain klabb face ids, 0..51: c = suit*13 + rank-1, rank 1=A…13=K.
@@ -89,6 +109,12 @@ const isAce = c => (c % 13) === 0;
 function handValue(cards){
   let total = 0, aces = 0;
   for (let i = 0; i < cards.length; i++){
+    /* a null card is a face-down UNKNOWN (lanes: somebody else's card
+       this client was never told). A hand holding one has no honest
+       total — say so rather than count a null as an ace. */
+    if (cards[i] == null)
+      return { total: 0, soft: false, bust: false, blackjack: false,
+               pairRank: 0, unknown: true };
     total += pipOf(cards[i]);
     if (isAce(cards[i])) aces++;
   }
@@ -160,18 +186,51 @@ const DEALERS = {
       const cards = Array.isArray(g.cards) ? g.cards.slice() : [];
       return { cards, i: 0, size: cards.length, partial: true };
     }
+  },
+  /* (c) PER-SEAT LANES — the ONLINE table (see the header). st.given is
+     { me, rounds:{ round:[cards...] } }: `me` is the LOCAL seat and
+     rounds[r] is the lane the relay dealt THIS seat for round r. A draw
+     for any other seat — or past the end of our own lane — is null, a
+     face-down unknown, which is exactly the point: this client cannot
+     value a card it was never sent. The dealer NEVER draws from a lane
+     (its cards arrive as 'up'/'peek'/'reveal' moves). A fresh lane is
+     dealt every round; buildShoe() is re-run per round for this source. */
+  lanes: {
+    id: 'lanes',
+    make(st){
+      const g = st.given || {};
+      const lane = (g.rounds && Array.isArray(g.rounds[st.round])) ? g.rounds[st.round].slice() : [];
+      return { lanes: true, mine: lane, i: 0, size: lane.length, partial: true, cards: [] };
+    }
   }
 };
 const dealerOf = st => DEALERS[st.deal] || DEALERS.seed;
 
-/* draw one card off the shoe, or null if a private shoe is exhausted.
-   THE ONLY PLACE A CARD LEAVES THE SHOE. Every deal, hit, split card
-   and dealer card comes through here, so the count is exact by
-   construction and the tests assert it. */
-function draw(st){
+/* draw one card off the shoe, or null for a card this client may not
+   know. THE ONLY PLACE A CARD LEAVES THE SHOE. Every deal, hit, split
+   card and dealer card comes through here, so the count is exact by
+   construction and the tests assert it. `who` is the seat the card is
+   FOR (or DEALER): the seed and private sources ignore it (one linear
+   shoe, exactly as before), the lanes source pops OUR OWN lane for our
+   seat and answers null — an unknown — for anybody else's. */
+function draw(st, who){
   const sh = st.shoe;
+  if (sh.lanes){
+    const g = st.given || {};
+    if (who !== g.me) return null;               /* not ours to know   */
+    if (sh.i >= sh.mine.length) return null;     /* lane ran dry       */
+    return sh.mine[sh.i++];
+  }
   if (sh.i >= sh.cards.length) return null;      /* private: unknown  */
   return sh.cards[sh.i++];
+}
+/* how many cards are left in OUR OWN lane (lanes only; -1 elsewhere).
+   legal()/check() gate hit/double/split on it for the local seat so a
+   thumb can never ask for a card the relay did not deal us. */
+function laneLeft(st){
+  const sh = st.shoe;
+  if (!sh || !sh.lanes) return -1;
+  return Math.max(0, sh.mine.length - sh.i);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -229,7 +288,8 @@ function deal(opts, seed){
   const stack = Math.max(bet * 4, opts.stack | 0 || bet * 100);
   const st = {
     v: 1, n, mode: modeOf(opts.mode),
-    deal: (opts.deal === 'private') ? 'private' : 'seed',
+    deal: (opts.deal === 'private') ? 'private'
+        : (opts.deal === 'lanes')   ? 'lanes' : 'seed',
     given: opts.given || null,
     decks,
     pen: (typeof opts.pen === 'number') ? Math.max(0.5, Math.min(0.95, opts.pen)) : 0.75,
@@ -319,7 +379,7 @@ function newHand(bet){
    dealer, a second to every player, the dealer's hole card.
    ═══════════════════════════════════════════════════════════════════ */
 function startRound(st){
-  if (st.reshuffle) buildShoe(st);
+  if (st.reshuffle && st.deal !== 'lanes') buildShoe(st);
   const live = seated(st);
   if (live.length < 1){
     st.done = { kind: 'broke' };
@@ -327,11 +387,15 @@ function startRound(st){
     return;
   }
   st.round++;
+  /* LANES: every round is a fresh relay-dealt lane; rebuild the shoe so
+     make() reads rounds[st.round]. (The lane may not have arrived yet —
+     then our own cards are null until the UI rebuilds off the log.) */
+  if (st.deal === 'lanes') buildShoe(st);
   st.show = null;
   st.dealer = { cards: [], hole: true };
 
   st.seats.forEach((s, i) => {
-    s.hands = []; s.active = 0;
+    s.hands = []; s.active = 0; s.shown = false;
     s.insurance = 0; s.tookIns = false; s.insOffered = false;
     if (live.indexOf(i) >= 0){
       const h = newHand(st.bet);
@@ -342,11 +406,24 @@ function startRound(st){
 
   /* first card to each active seat */
   for (let i = 0; i < st.n; i++)
-    if (st.seats[i].hands.length) st.seats[i].hands[0].cards.push(draw(st));
-  st.dealer.cards.push(draw(st));        /* the UP card                  */
+    if (st.seats[i].hands.length) st.seats[i].hands[0].cards.push(draw(st, i));
+
+  if (st.deal === 'lanes'){
+    /* ONLINE: the dealer's cards are NOT drawn here — the up-card
+       arrives as the host's 'up' move (the bank shoe lives with the
+       host, exactly like a machine chair's hand does). Deal the second
+       player card and wait for the bank. */
+    for (let i = 0; i < st.n; i++)
+      if (st.seats[i].hands.length) st.seats[i].hands[0].cards.push(draw(st, i));
+    st.phase = 'up';
+    st.turn = DEALER;
+    return;
+  }
+
+  st.dealer.cards.push(draw(st, DEALER));  /* the UP card                */
   for (let i = 0; i < st.n; i++)
-    if (st.seats[i].hands.length) st.seats[i].hands[0].cards.push(draw(st));
-  st.dealer.cards.push(draw(st));        /* the HOLE card, face down     */
+    if (st.seats[i].hands.length) st.seats[i].hands[0].cards.push(draw(st, i));
+  st.dealer.cards.push(draw(st, DEALER));  /* the HOLE card, face down   */
 
   /* INSURANCE: offered only when the up-card is an ace, before anyone
      plays. If the up-card is a ten-value the dealer PEEKS for blackjack
@@ -370,14 +447,13 @@ function firstUndecidedIns(st){
   return DEALER;
 }
 
-/* once every seat has answered insurance, check the hole card */
-function closeInsurance(st){
-  const hv = handValue(st.dealer.cards);
-  const dealerBJ = hv.blackjack;
-  /* pay or take insurance: it pays 2:1, and it is a SEPARATE bet from
-     the hand. A seat that took insurance and the dealer has blackjack
-     gets 2x its insurance back (its stake + 2x) — net +2x its stake —
-     while it still loses the main bet (unless it too has a natural). */
+/* pay or take insurance: it pays 2:1, and it is a SEPARATE bet from
+   the hand. A seat that took insurance and the dealer has blackjack
+   gets 2x its insurance back (its stake + 2x) — net +2x its stake —
+   while it still loses the main bet (unless it too has a natural).
+   Public arithmetic on public stakes: every client lands on the same
+   stacks whether or not it can see a single card. */
+function settleInsurance(st, dealerBJ){
   st.seats.forEach(s => {
     if (!s.hands.length) return;
     if (s.tookIns){
@@ -389,6 +465,20 @@ function closeInsurance(st){
        forfeited it). Clearing it here keeps the total exact. */
     s.insurance = 0;
   });
+}
+
+/* once every seat has answered insurance, check the hole card */
+function closeInsurance(st){
+  if (st.deal === 'lanes'){
+    /* ONLINE nobody here can read the hole card — only the bank (the
+       host) can. Wait for its 'peek' move; the payout happens there. */
+    st.phase = 'peek';
+    st.turn = DEALER;
+    return;
+  }
+  const hv = handValue(st.dealer.cards);
+  const dealerBJ = hv.blackjack;
+  settleInsurance(st, dealerBJ);
   if (dealerBJ){
     st.dealer.hole = false;
     settle(st);                                    /* round ends now   */
@@ -405,16 +495,44 @@ function closeInsurance(st){
    possible and play begins normally.
    ═══════════════════════════════════════════════════════════════════ */
 function beginPlay(st){
-  const up = st.dealer.cards[0];
-  const upTen = pipOf(up) === 10 && !isAce(up);
-  if (upTen && handValue(st.dealer.cards).blackjack){
-    st.dealer.hole = false;
-    settle(st);
-    return;
+  if (st.deal !== 'lanes'){
+    const up = st.dealer.cards[0];
+    const upTen = pipOf(up) === 10 && !isAce(up);
+    if (upTen && handValue(st.dealer.cards).blackjack){
+      st.dealer.hole = false;
+      settle(st);
+      return;
+    }
   }
+  /* (lanes: a ten-up peek happened as the host's 'peek' move before we
+     got here, so there is nothing to read — just play.) */
   st.phase = 'play';
   st.turn = firstToAct(st);
-  if (st.turn === DEALER) dealerPlay(st);
+  if (st.turn === DEALER) tableBeat(st);
+}
+
+/* every player hand is closed: offline the fixed-policy dealer plays at
+   once; online (lanes) the table WAITS for the host's 'reveal' move,
+   because only the bank shoe knows the cards. */
+function tableBeat(st){
+  if (st.deal === 'lanes'){
+    st.phase = 'dealer';
+    st.turn = DEALER;
+    return;
+  }
+  dealerPlay(st);
+}
+
+/* the showdown order (lanes): the first seat holding a hand it has not
+   yet turned over — and that is still at the table to turn it over.
+   A seat that walked out forfeits face-down (settle treats an unknown
+   hand as a loss, exactly like standing up mid-hand in a pit). */
+function firstToShow(st){
+  for (let i = 0; i < st.n; i++){
+    const s = st.seats[i];
+    if (s.hands.length && !s.shown && !s.gone) return i;
+  }
+  return DEALER;
 }
 
 /* the first seat with a hand still needing a decision */
@@ -432,7 +550,7 @@ function firstToAct(st){
    dealt (a 21, a split ace's one card, a bust). */
 function advance(st){
   st.turn = firstToAct(st);
-  if (st.turn === DEALER && st.phase === 'play') dealerPlay(st);
+  if (st.turn === DEALER && st.phase === 'play') tableBeat(st);
 }
 
 /* the acting hand of the acting seat, or null */
@@ -445,19 +563,50 @@ function actingHand(st){
 /* mark a hand finished if it can no longer act */
 function closeIfDone(h){
   const hv = handValue(h.cards);
+  if (hv.unknown) return;              /* lanes: flags ride the move   */
   if (hv.bust){ h.bust = true; h.done = true; }
   else if (hv.total === 21){ h.done = true; h.stood = true; }
   else if (h.splitAce){ h.done = true; h.stood = true; }
   else if (h.doubled){ h.done = true; }
 }
 
+/* ── the flow flag a lanes move carries (mv.e / mv.f) ─────────────────
+   0 = the hand still acts · 1 = closed (stood / made 21 / one-card
+   split ace) · 2 = BUST. The MOVER computes it off its real cards and
+   stamps the logged move; every client that cannot see the hand reads
+   the flag instead — so bust-ness and turn order agree on every phone
+   while the card values stay secret until the showdown. */
+function endFlag(h){ return h.bust ? 2 : h.done ? 1 : 0; }
+function applyEndFlag(h, e){
+  if (e === 2){ h.bust = true; h.done = true; }
+  else if (e === 1){ h.done = true; h.stood = true; }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    WHAT A SEAT MAY DO. legal() is the enumerated list (what the machine
    chooses between and what a test walks); check() is the one authority.
    ═══════════════════════════════════════════════════════════════════ */
-function canSplit(st, s, h){
+/* a hand this client cannot read (lanes: another seat's cards). The
+   OWNER's client checked the move strictly against real cards before it
+   ever reached the wire; here the structural checks (lengths, stakes)
+   still apply and the card-value checks are waived — this client has
+   nothing to check them against. The showdown turns every card over,
+   so a lie is visible at settle, and settle() recomputes from cards. */
+function unknownHand(h){
+  for (let i = 0; i < h.cards.length; i++) if (h.cards[i] == null) return true;
+  return false;
+}
+/* is `seat` the LOCAL seat on a lanes table (the one whose lane we hold)? */
+function myLane(st, seat){
+  return st.deal === 'lanes' && st.given && seat === st.given.me;
+}
+function canSplit(st, s, h, seat){
   if (h.cards.length !== 2) return false;
   if (s.hands.length >= st.rule.resplit) return false;
+  if (s.stack < h.bet) return false;              /* needs a matching bet */
+  if (st.deal === 'lanes' && unknownHand(h))
+    return true;                                  /* owner checked; see ^ */
+  if (myLane(st, seat) && laneLeft(st) < 2) return false;  /* 1 card each */
   const hv = handValue(h.cards);
   const pair = st.rule.splitAnyTen
     ? (pipOf(h.cards[0]) === pipOf(h.cards[1]))   /* any two tens        */
@@ -466,14 +615,14 @@ function canSplit(st, s, h){
   /* split aces: allowed once; re-splitting them only if the rule says */
   const acePair = isAce(h.cards[0]) && isAce(h.cards[1]);
   if (acePair && h.fromSplit && !st.rule.resplitAces) return false;
-  if (s.stack < h.bet) return false;              /* needs a matching bet */
   return true;
 }
-function canDouble(st, s, h){
+function canDouble(st, s, h, seat){
   if (h.cards.length !== 2) return false;
   if (h.splitAce) return false;                   /* one card only        */
   if (h.fromSplit && !st.rule.das) return false;
   if (s.stack < h.bet) return false;
+  if (myLane(st, seat) && laneLeft(st) < 1) return false;
   return true;
 }
 function canSurrender(st, s, h){
@@ -489,6 +638,10 @@ function legal(st, seat){
   if (st.done) return [];
   if (seat === DEALER){
     if (st.phase === 'settle') return [{ t: 'next' }];
+    /* the lanes table moves ('up'/'peek'/'reveal') are NOT enumerated:
+       only the host can compose them (they carry bank-shoe cards), and
+       legal() must never invite a client to invent one. check() gates
+       them by phase when they arrive. */
     return [];
   }
   if (turn(st) !== seat) return [];
@@ -499,12 +652,16 @@ function legal(st, seat){
        still offer the choice for symmetry */
     return [{ t: 'ins', take: false }, { t: 'ins', take: true }];
   }
+  if (st.phase === 'show')
+    return [{ t: 'show' }];             /* the UI attaches the cards    */
   if (st.phase !== 'play') return [];
   const h = s.hands[s.active];
   if (!h || h.done) return [];
-  const out = [{ t: 'hit' }, { t: 'stand' }];
-  if (canDouble(st, s, h))    out.push({ t: 'double' });
-  if (canSplit(st, s, h))     out.push({ t: 'split' });
+  const out = [];
+  if (!myLane(st, seat) || laneLeft(st) >= 1) out.push({ t: 'hit' });
+  out.push({ t: 'stand' });
+  if (canDouble(st, s, h, seat))    out.push({ t: 'double' });
+  if (canSplit(st, s, h, seat))     out.push({ t: 'split' });
   if (canSurrender(st, s, h)) out.push({ t: 'surrender' });
   return out;
 }
@@ -514,18 +671,41 @@ function check(st, mv, seat){
   if (!mv || st.done) return false;
   if (mv.t === 'quit')
     return seat >= 0 && seat < st.n && !!st.seats[seat] && !st.seats[seat].gone;
-  if (seat === DEALER)
-    return mv.t === 'next' && st.phase === 'settle';
+  if (seat === DEALER){
+    if (mv.t === 'next') return st.phase === 'settle';
+    if (st.deal !== 'lanes') return false;
+    /* the bank's moves (host-composed; the UI proves the SENDER is the
+       host before they ever reach here — see onlineRemote) */
+    if (mv.t === 'up')
+      return st.phase === 'up' && typeof mv.c === 'number' &&
+             mv.c >= 0 && mv.c < 52;
+    if (mv.t === 'peek')
+      return st.phase === 'peek' &&
+             (!mv.bj || (typeof mv.c === 'number' && mv.c >= 0 && mv.c < 52));
+    if (mv.t === 'reveal')
+      return st.phase === 'dealer' && Array.isArray(mv.cards) &&
+             mv.cards.length >= 1 && mv.cards.length <= 16 &&
+             mv.cards.every(c => typeof c === 'number' && c >= 0 && c < 52);
+    return false;
+  }
   if (turn(st) !== seat) return false;
   const s = st.seats[seat];
   if (!s || !s.hands.length) return false;
   if (st.phase === 'insurance') return mv.t === 'ins';
+  if (st.phase === 'show')
+    return mv.t === 'show' && st.deal === 'lanes' &&
+           Array.isArray(mv.hands) && mv.hands.length === s.hands.length &&
+           mv.hands.every((cs, hi) => Array.isArray(cs) &&
+             cs.length === s.hands[hi].cards.length &&
+             cs.every(c => typeof c === 'number' && c >= 0 && c < 52));
   if (st.phase !== 'play') return false;
   const h = s.hands[s.active];
   if (!h || h.done) return false;
-  if (mv.t === 'hit' || mv.t === 'stand') return true;
-  if (mv.t === 'double')    return canDouble(st, s, h);
-  if (mv.t === 'split')     return canSplit(st, s, h);
+  if (mv.t === 'hit')
+    return !myLane(st, seat) || laneLeft(st) >= 1;
+  if (mv.t === 'stand') return true;
+  if (mv.t === 'double')    return canDouble(st, s, h, seat);
+  if (mv.t === 'split')     return canSplit(st, s, h, seat);
   if (mv.t === 'surrender') return canSurrender(st, s, h);
   return false;
 }
@@ -545,7 +725,21 @@ function apply(st, mv){
     if (s.hands.length){
       s.hands.forEach(h => { if (!h.done){ h.done = true; h.surrendered = false; h.stood = true; } });
     }
-    if (st.turn === seat) advance(st);
+    /* hand the beat on, whatever the walker was holding up: an unmade
+       insurance decision, its own turn, or a showdown reveal it can no
+       longer make (its hand forfeits face-down — settle() reads that). */
+    if (st.phase === 'insurance'){
+      s.insOffered = true;
+      if (st.turn === seat){
+        st.turn = firstUndecidedIns(st);
+        if (st.turn === DEALER) closeInsurance(st);
+      }
+    } else if (st.phase === 'show'){
+      if (st.turn === seat){
+        st.turn = firstToShow(st);
+        if (st.turn === DEALER) settle(st);
+      }
+    } else if (st.turn === seat) advance(st);
     if (seated(st).length < 1 && !st.done && st.phase !== 'settle'){
       /* let the current round finish; if nobody can post next round the
          round-end will mark the table done */
@@ -553,7 +747,54 @@ function apply(st, mv){
     return;
   }
   if (seat === DEALER){
-    if (mv.t === 'next') nextRound(st);
+    if (mv.t === 'next'){ nextRound(st); return; }
+    if (st.deal !== 'lanes') return;
+    /* ── THE BANK'S MOVES (lanes) — dealer cards enter the match here,
+       as logged public moves, never off a lane or a seed. ── */
+    if (mv.t === 'up' && st.phase === 'up'){
+      st.dealer.cards = [mv.c | 0];
+      st.dealer.hole = true;
+      st.dealer.upAce = isAce(mv.c | 0);
+      const upTen = pipOf(mv.c | 0) === 10 && !st.dealer.upAce;
+      if (st.dealer.upAce){
+        st.phase = 'insurance';
+        st.turn = firstUndecidedIns(st);
+        if (st.turn === DEALER) closeInsurance(st);   /* -> 'peek'      */
+      } else if (upTen){
+        st.phase = 'peek';                            /* silent peek    */
+        st.turn = DEALER;
+      } else {
+        beginPlay(st);
+      }
+      return;
+    }
+    if (mv.t === 'peek' && st.phase === 'peek'){
+      if (mv.bj){
+        /* dealer blackjack: the hole turns over NOW, insurance pays,
+           and the round goes straight to the showdown so naturals can
+           push and everything settles off real cards. */
+        st.dealer.cards[1] = mv.c | 0;
+        st.dealer.hole = false;
+        settleInsurance(st, true);
+        st.phase = 'show';
+        st.turn = firstToShow(st);
+        if (st.turn === DEALER) settle(st);
+      } else {
+        settleInsurance(st, false);
+        beginPlay(st);
+      }
+      return;
+    }
+    if (mv.t === 'reveal' && st.phase === 'dealer'){
+      /* the hole card + every draw the fixed policy made, in order */
+      const up = st.dealer.cards[0];
+      st.dealer.cards = [up].concat(mv.cards.map(c => c | 0));
+      st.dealer.hole = false;
+      st.phase = 'show';
+      st.turn = firstToShow(st);
+      if (st.turn === DEALER) settle(st);
+      return;
+    }
     return;
   }
   const s = st.seats[seat];
@@ -569,8 +810,24 @@ function apply(st, mv){
     if (nxt === DEALER) closeInsurance(st);
     return;
   }
+  if (mv.t === 'show' && st.phase === 'show'){
+    /* THE SHOWDOWN (lanes): a seat turns its own hand(s) face up. Fill
+       only the cards this client did not know; a card we DID know must
+       be the card we knew (our own hand shows what we hold). */
+    s.hands.forEach((h2, hi) => {
+      const cs = mv.hands[hi] || [];
+      for (let ci = 0; ci < h2.cards.length; ci++)
+        if (h2.cards[ci] == null) h2.cards[ci] = cs[ci] | 0;
+    });
+    s.shown = true;
+    st.turn = firstToShow(st);
+    if (st.turn === DEALER) settle(st);
+    return;
+  }
+
   const h = s.hands[s.active];
   if (!h || h.done) return;
+  const lanes = st.deal === 'lanes';
 
   if (mv.t === 'stand'){
     h.stood = true; h.done = true;
@@ -583,16 +840,28 @@ function apply(st, mv){
     return;
   }
   if (mv.t === 'hit'){
-    h.cards.push(draw(st));
-    closeIfDone(h);
+    const c = draw(st, seat);
+    h.cards.push(c);
+    if (lanes && c == null && mv.e != null) applyEndFlag(h, mv.e | 0);
+    else {
+      closeIfDone(h);
+      if (lanes) mv.e = endFlag(h);      /* stamp the logged move — the
+                                            wire carries it to the seats
+                                            that cannot see the card   */
+    }
     if (h.done) advance(st);
     return;
   }
   if (mv.t === 'double'){
     /* match the bet, take exactly one card, and stand */
     s.stack -= h.bet; h.bet *= 2; h.doubled = true;
-    h.cards.push(draw(st));
+    const c = draw(st, seat);
+    h.cards.push(c);
     h.done = true;
+    if (lanes){
+      if (c == null && mv.e != null){ if ((mv.e | 0) === 2) h.bust = true; }
+      else { mv.e = handValue(h.cards).bust ? 2 : 1; if (mv.e === 2) h.bust = true; }
+    }
     advance(st);
     return;
   }
@@ -605,17 +874,24 @@ function apply(st, mv){
     const nh = newHand(h.bet);
     nh.fromSplit = true; h.fromSplit = true;
     nh.cards.push(moved);
-    const ace = isAce(h.cards[0]);
-    h.cards.push(draw(st));
-    nh.cards.push(draw(st));
-    if (ace){
+    const ace = h.cards[0] != null && isAce(h.cards[0]);
+    h.cards.push(draw(st, seat));
+    nh.cards.push(draw(st, seat));
+    if (lanes && unknownHand(h)){
+      /* somebody else's split: card values stay dark; the flow flags
+         the mover stamped keep every phone on the same turn order */
+      if (mv.e != null) applyEndFlag(h, mv.e | 0);
+      if (mv.f != null) applyEndFlag(nh, mv.f | 0);
+    } else if (ace){
       h.splitAce = true; nh.splitAce = true;
       /* re-split aces produces another pair to act on; otherwise each
          ace-hand is one card and done */
       if (!(st.rule.resplitAces && handValue(h.cards).pairRank === 1)) closeIfDone(h);
       if (!(st.rule.resplitAces && handValue(nh.cards).pairRank === 1)) closeIfDone(nh);
+      if (lanes){ mv.e = endFlag(h); mv.f = endFlag(nh); }
     } else {
       closeIfDone(h); closeIfDone(nh);
+      if (lanes){ mv.e = endFlag(h); mv.f = endFlag(nh); }
     }
     /* insert the new hand right after the current one so splits play
        left-to-right like a real table */
@@ -641,8 +917,8 @@ function dealerPlay(st){
   if (anyLive){
     for (;;){
       const hv = handValue(st.dealer.cards);
-      if (hv.total < 17){ st.dealer.cards.push(draw(st)); continue; }
-      if (hv.total === 17 && hv.soft && st.rule.h17){ st.dealer.cards.push(draw(st)); continue; }
+      if (hv.total < 17){ st.dealer.cards.push(draw(st, DEALER)); continue; }
+      if (hv.total === 17 && hv.soft && st.rule.h17){ st.dealer.cards.push(draw(st, DEALER)); continue; }
       break;
     }
   }
@@ -675,6 +951,12 @@ function settle(st){
       let ret = 0, outc;
       if (h.surrendered){
         ret = h.bet / 2; outc = OUT.SURR;
+      } else if (phv.unknown){
+        /* lanes: a hand that never reached the showdown — its owner
+           walked out mid-round (or busted face-down, which the flag
+           carries). A hand nobody can read cannot beat the bank: it
+           forfeits, exactly as standing up from a pit table does. */
+        ret = 0; outc = OUT.LOSE;
       } else if (phv.bust){
         ret = 0; outc = OUT.LOSE;
       } else if (phv.blackjack && !dealerBJ){
@@ -709,8 +991,9 @@ function settle(st){
     rows: rows.map(r => ({ seat: r.seat, out: r.out, bet: r.bet, ret: r.ret }))
   });
 
-  /* the cut card: if we passed it this round, reshuffle before the next */
-  if (st.shoe.i >= st.cutAt) st.reshuffle = true;
+  /* the cut card: if we passed it this round, reshuffle before the next
+     (lanes re-deal fresh every round; no cut card there) */
+  if (!st.shoe.lanes && st.shoe.i >= st.cutAt) st.reshuffle = true;
 
   st.phase = 'settle';
   st.turn = DEALER;
@@ -734,8 +1017,9 @@ function nextRound(st){
 function turn(st){
   if (st.done) return -2;
   if (st.phase === 'settle') return DEALER;
-  if (st.phase === 'insurance' || st.phase === 'play') return st.turn;
-  return DEALER;
+  if (st.phase === 'insurance' || st.phase === 'play' ||
+      st.phase === 'show') return st.turn;
+  return DEALER;              /* 'up' / 'peek' / 'dealer': the bank's beat */
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -915,17 +1199,92 @@ function basicHardFallback(st, s, h){
    the shared seed makes the dealer's hole card readable by every
    client. The codec is written and tested as part of the seam's story.
    ═══════════════════════════════════════════════════════════════════ */
-const MOVES = ['hit', 'stand', 'double', 'split', 'surrender', 'ins', 'next', 'quit'];
+const MOVES = ['hit', 'stand', 'double', 'split', 'surrender', 'ins', 'next',
+               'quit', 'up', 'peek', 'reveal', 'show'];
+/* the flat fields the codec carries (published on the lobby contract as
+   LOBBY.wire.fields — mp.js's generic codec reads that list). Nineteen
+   fields, deliberately: the relay's bitmask cap is 999999 < 2^20, so a
+   twentieth field could compose a mask the relay refuses. c0..c12 are
+   thirteen card slots — a reveal is the hole + the dealer's draws (a
+   pit-real dealer hand never reaches 14 cards; the host clamps there,
+   see the UI's bank), a show is at most one 8-card lane split in two. */
+const WIRE_CARDS = 13;
+const WIRE_FIELDS = (function(){
+  const f = ['k', 'e', 'f', 'b', 'g', 'c'];
+  for (let i = 0; i < WIRE_CARDS; i++) f.push('c' + i);
+  return f;
+})();
 function encWire(mv){
   if (!mv || MOVES.indexOf(mv.t) < 0) return null;
   const w = { t: mv.t };
   if (mv.t === 'ins') w.k = mv.take ? 1 : 0;
+  if (mv.t === 'hit' || mv.t === 'double'){
+    if (mv.e != null) w.e = mv.e | 0;
+  }
+  if (mv.t === 'split'){
+    if (mv.e != null) w.e = mv.e | 0;
+    if (mv.f != null) w.f = mv.f | 0;
+  }
+  if (mv.t === 'up') w.c = mv.c | 0;
+  if (mv.t === 'peek'){
+    w.b = mv.bj ? 1 : 0;
+    if (mv.bj) w.c = mv.c | 0;
+  }
+  if (mv.t === 'reveal'){
+    const cs = Array.isArray(mv.cards) ? mv.cards : [];
+    if (!cs.length || cs.length > WIRE_CARDS) return null;
+    for (let i = 0; i < cs.length; i++) w['c' + i] = cs[i] | 0;
+  }
+  if (mv.t === 'show'){
+    const hands = Array.isArray(mv.hands) ? mv.hands : [];
+    if (!hands.length || hands.length > 2) return null;
+    const flat = [];
+    for (const cs of hands) for (const c of cs) flat.push(c | 0);
+    if (!flat.length || flat.length > WIRE_CARDS) return null;
+    w.g = hands[0].length;               /* where hand two begins       */
+    for (let i = 0; i < flat.length; i++) w['c' + i] = flat[i];
+  }
   return w;
 }
 function decWire(w){
   if (!w || typeof w.t !== 'string' || MOVES.indexOf(w.t) < 0) return null;
   const mv = { t: w.t };
+  const card = v => { const c = v | 0; return (c >= 0 && c < 52) ? c : null; };
+  const cardsOf = () => {
+    const out = [];
+    for (let i = 0; i < WIRE_CARDS; i++){
+      if (w['c' + i] == null) break;
+      const c = card(w['c' + i]);
+      if (c == null) return null;
+      out.push(c);
+    }
+    return out;
+  };
   if (w.t === 'ins') mv.take = !!w.k;
+  if (w.t === 'hit' || w.t === 'double'){ if (w.e != null) mv.e = w.e | 0; }
+  if (w.t === 'split'){
+    if (w.e != null) mv.e = w.e | 0;
+    if (w.f != null) mv.f = w.f | 0;
+  }
+  if (w.t === 'up'){
+    mv.c = card(w.c);
+    if (mv.c == null) return null;
+  }
+  if (w.t === 'peek'){
+    mv.bj = !!w.b;
+    if (mv.bj){ mv.c = card(w.c); if (mv.c == null) return null; }
+  }
+  if (w.t === 'reveal'){
+    const cs = cardsOf();
+    if (!cs || !cs.length) return null;
+    mv.cards = cs;
+  }
+  if (w.t === 'show'){
+    const cs = cardsOf();
+    if (!cs || !cs.length) return null;
+    const g = Math.max(0, Math.min(cs.length, w.g | 0)) || cs.length;
+    mv.hands = (g < cs.length) ? [cs.slice(0, g), cs.slice(g)] : [cs];
+  }
   return mv;
 }
 
@@ -943,7 +1302,7 @@ root.KARTI_BLACKJACK.engine = {
   /* cards + totals */
   suitOf, rankOf, pipOf, isAce, handValue,
   /* the deal seam */
-  DEALERS, dealerOf, draw,
+  DEALERS, dealerOf, draw, laneLeft,
   /* table constants */
   MIN_SEATS, MAX_SEATS, MODES, modeOf, DEALER, OUT, COINS_MODE_READY,
   /* the common API */
@@ -951,7 +1310,7 @@ root.KARTI_BLACKJACK.engine = {
   /* 21's own read-outs + policy */
   seated, chipsOn, meSeat, dealerPlay,
   basicStrategy, think,
-  encWire, decWire, MOVES
+  encWire, decWire, MOVES, WIRE_FIELDS
 };
 
 })(typeof window !== 'undefined' ? window : globalThis);

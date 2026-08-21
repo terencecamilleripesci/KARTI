@@ -109,13 +109,19 @@ function coinMove(n){
 /* ── our corner of localStorage ──────────────────────────────────── */
 const STORE = 'karti_poker_v1';
 const SAVE_V = 1;
-let ST = { v:1, pref:{}, rec:{ w:0, l:0, d:0 }, save:null };
+let ST = { v:1, pref:{}, rec:{ w:0, l:0, d:0 }, save:null,
+           /* the vs-dealer bankroll: table chips, kept between visits so
+              the grind means something. hands/won feed the badge line. */
+           dealer:{ bank:1000, hands:0, won:0 } };
 try {
   const j = JSON.parse(localStorage.getItem(STORE) || 'null');
   if (j && typeof j === 'object'){
     ST.pref = (j.pref && typeof j.pref === 'object') ? j.pref : {};
     ST.rec  = (j.rec  && typeof j.rec  === 'object') ? j.rec  : ST.rec;
     ST.save = (j.save && j.save.v === SAVE_V) ? j.save : null;
+    if (j.dealer && typeof j.dealer === 'object')
+      ST.dealer = { bank: Math.max(0, j.dealer.bank | 0),
+                    hands: j.dealer.hands | 0, won: j.dealer.won | 0 };
   }
 } catch(e){}
 let persistPending = 0;
@@ -415,6 +421,7 @@ moveSubs.push(ev => {
   const mv = ev.move, mine = ev.seat >= 0 && isLocal(ev.seat);
   const st = M.st;
   switch (mv.t){
+    case 'show':  cue('card.open',  { gain: mine ? 0.8 : 0.6 }); return;
     case 'fold':  cue('card.throw', { gain: mine ? 0.8 : 0.55 }); return;
     case 'check': cue('ui.tap',     { gain: mine ? 0.85 : 0.5 }); return;
     case 'call':  cue('coin.tick',  { gain: mine ? 0.9 : 0.6 }); return;
@@ -464,7 +471,14 @@ function injectCSS(){
   const st = document.createElement('style');
   st.id = 'pk-runtime-css';
   st.textContent =
-    '#scr-party{--pk-felt:#155238;--pk-felt2:#08281B;--pk-gold:var(--gold,#FFC542)}' +
+    /* THE THEMED TOKENS. Gold is the app's --kx-accent (the equipped
+       theme's accent), never a hard-coded hex of our own — so a player
+       who dressed the app dresses this felt with it. The felt greens are
+       the stock cloth; js/deck-kit.js repaints .pk-table whenever a felt
+       is equipped, exactly as on every other card table. */
+    '#scr-party{--pk-felt:#155238;--pk-felt2:#08281B;' +
+      '--pk-gold:var(--kx-accent,var(--gold,#FFC542));' +
+      '--pk-ink:var(--kx-ink,#F4EFFF);--pk-hot:var(--kx-accent-2,#E63950)}' +
 
     /* ── the card faces (klabb's rules, restated — see header) ── */
     '#scr-party .kb-card{position:relative;flex:0 0 auto;padding:0;border:0;background:none;' +
@@ -836,7 +850,100 @@ function injectCSS(){
     /* the menu rules sheet: the in-felt panel, floated fixed over the menu */
     '#scr-party .pk-menu-rules{position:fixed;left:10px;right:10px;top:56px}' +
 
-    '@media (max-height:520px){#scr-party .pk-menu .pk-hero{padding:12px 8px 13px}}';
+    '@media (max-height:520px){#scr-party .pk-menu .pk-hero{padding:12px 8px 13px}}' +
+
+    /* ══════════ THE VS-DEALER TABLE (Casino Hold'em) ══════════
+       One player, the house opposite, and the classic printed layout:
+       the dealer's arc at the top, the five in the middle inside the
+       etched ring, the ANTE and CALL spots printed ON the cloth like a
+       real casino baize, your two cards big at the bottom. Same felt
+       host class (.pk-table) so the equipped deck-kit felt dresses it;
+       every colour rides the themed tokens above. */
+    '#scr-party .pkd-table{gap:6px}' +
+    '#scr-party .pkd-house{flex:0 0 auto;display:flex;flex-direction:column;' +
+      'align-items:center;gap:5px;padding:6px 8px 2px}' +
+    '#scr-party .pkd-plate{display:flex;align-items:center;gap:8px;padding:3px 14px;' +
+      'border-radius:999px;background:rgba(0,0,0,.38);' +
+      'border:1px solid color-mix(in srgb,var(--pk-gold) 40%,transparent)}' +
+    '#scr-party .pkd-plate b{font:900 11px/1 var(--disp);letter-spacing:.16em;' +
+      'color:var(--pk-gold)}' +
+    '#scr-party .pkd-plate i{font:800 8.5px/1 var(--disp);font-style:normal;' +
+      'letter-spacing:.13em;text-transform:uppercase;color:rgba(255,255,255,.5)}' +
+    '#scr-party .pkd-house .h{display:flex;gap:5px;line-height:0}' +
+    '#scr-party .pkd-hstat{min-height:15px;font:800 10.5px/1.4 var(--disp);' +
+      'letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.62)}' +
+    '#scr-party .pkd-hstat.q{color:#7CE8AE}' +
+    '#scr-party .pkd-hstat.nq{color:#8FD8E8}' +
+    /* the middle: ring, board, and the printed bet spots */
+    '#scr-party .pkd-mid{flex:1 1 auto;min-height:150px;position:relative;display:flex;' +
+      'flex-direction:column;align-items:center;justify-content:center;gap:11px;' +
+      'padding:10px 8px;border-radius:14px;overflow:hidden;' +
+      'background:radial-gradient(105% 130% at 50% 40%,rgba(255,255,255,.09) 0%,' +
+      'rgba(255,255,255,0) 62%),rgba(0,0,0,.15);border:1px solid rgba(0,0,0,.35)}' +
+    '#scr-party .pkd-mid::before{content:"";position:absolute;inset:6px;border-radius:10px;' +
+      'border:1px solid rgba(255,255,255,.07);pointer-events:none}' +
+    '#scr-party .pkd-mid .pk-board{position:relative;z-index:1}' +
+    '#scr-party .pkd-spots{position:relative;z-index:1;display:flex;gap:26px;' +
+      'align-items:flex-start}' +
+    '#scr-party .pkd-spot{display:flex;flex-direction:column;align-items:center;gap:3px}' +
+    '#scr-party .pkd-ring{width:52px;height:52px;border-radius:50%;display:grid;' +
+      'place-items:center;border:1.6px dashed color-mix(in srgb,var(--pk-gold) 55%,transparent);' +
+      'background:rgba(0,0,0,.18);box-shadow:inset 0 2px 8px rgba(0,0,0,.35)}' +
+    '#scr-party .pkd-spot.live .pkd-ring{border-style:solid;' +
+      'box-shadow:inset 0 2px 8px rgba(0,0,0,.35),0 0 12px ' +
+      'color-mix(in srgb,var(--pk-gold) 28%,transparent)}' +
+    '#scr-party .pkd-spot.dead{opacity:.45}' +
+    '#scr-party .pkd-ring .pk-chip{width:30px;height:30px}' +
+    '#scr-party .pkd-ring b{font:900 12px/1 var(--disp);color:var(--pk-ink)}' +
+    '#scr-party .pkd-spot i{font:900 8.5px/1.3 var(--disp);font-style:normal;' +
+      'letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.55)}' +
+    '#scr-party .pkd-spot em{font:800 10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;' +
+      'font-style:normal;color:#FFE9B0;min-height:10px}' +
+    /* the verdict, laid over the middle */
+    '#scr-party .pkd-banner{position:absolute;left:8px;right:8px;bottom:8px;z-index:2;' +
+      'display:flex;align-items:center;justify-content:center;gap:9px;padding:8px 12px;' +
+      'border-radius:11px;background:rgba(0,0,0,.55);backdrop-filter:blur(3px);' +
+      'border:1px solid rgba(255,255,255,.14);text-align:center}' +
+    '#scr-party .pkd-banner b{font:900 13px/1.25 var(--disp);letter-spacing:.05em;' +
+      'color:var(--pk-ink)}' +
+    '#scr-party .pkd-banner.win{border-color:color-mix(in srgb,var(--pk-gold) 65%,transparent);' +
+      'background:color-mix(in srgb,var(--pk-gold) 16%,rgba(0,0,0,.6))}' +
+    '#scr-party .pkd-banner.win b{color:var(--pk-gold)}' +
+    '#scr-party .pkd-banner.lose{border-color:color-mix(in srgb,var(--pk-hot) 55%,transparent)}' +
+    '#scr-party .pkd-banner.lose b{color:#F0A9B4}' +
+    '#scr-party .pkd-banner .amt{font:900 16px/1 var(--disp);color:var(--pk-gold);' +
+      'white-space:nowrap}' +
+    '#scr-party .pkd-banner.lose .amt{color:#F0A9B4}' +
+    /* your seat */
+    '#scr-party .pkd-me{flex:0 0 auto;display:flex;align-items:center;' +
+      'justify-content:center;gap:12px;padding:2px 8px 0}' +
+    '#scr-party .pkd-me .h{display:flex;gap:4px;line-height:0}' +
+    '#scr-party .pkd-me .info{display:flex;flex-direction:column;gap:3px;' +
+      'align-items:flex-start}' +
+    '#scr-party .pkd-me .st{font:900 18px/1 var(--disp);color:var(--pk-ink)}' +
+    '#scr-party .pkd-me .st i{display:block;font:700 8.5px/1.4 var(--disp);' +
+      'font-style:normal;letter-spacing:.13em;text-transform:uppercase;' +
+      'color:rgba(255,255,255,.45)}' +
+    '#scr-party .pkd-me .hn{font:700 10.5px/1.3 var(--body);color:#9FE8C0}' +
+    /* the ante stepper, printed small over the buttons */
+    '#scr-party .pkd-ante{display:flex;align-items:center;justify-content:center;gap:8px;' +
+      'padding:2px 0}' +
+    '#scr-party .pkd-ante .pk-rnd{width:40px;height:40px;font-size:18px}' +
+    '#scr-party .pkd-ante .v{font:900 20px/1 var(--disp);color:var(--pk-gold);' +
+      'min-width:74px;text-align:center}' +
+    '#scr-party .pkd-ante .v i{display:block;font:700 8.5px/1.5 var(--disp);' +
+      'font-style:normal;letter-spacing:.13em;color:rgba(255,255,255,.45);' +
+      'text-transform:uppercase}' +
+    /* the paytable, in the rules panel */
+    '#scr-party .pkd-pay{width:100%;margin:2px 0 8px;border-collapse:collapse}' +
+    '#scr-party .pkd-pay td{padding:3px 6px;font-size:11px;color:var(--dim);' +
+      'border-bottom:1px solid rgba(255,255,255,.07)}' +
+    '#scr-party .pkd-pay td.n{text-align:right;font:800 11px/1.4 ui-monospace,' +
+      'SFMono-Regular,Menlo,monospace;color:var(--pk-gold);white-space:nowrap}' +
+    '@media (max-height:520px){' +
+      '#scr-party .pkd-mid{min-height:0;gap:6px}' +
+      '#scr-party .pkd-spots{gap:16px}' +
+      '#scr-party .pkd-ring{width:42px;height:42px}}';
   document.head.appendChild(st);
 }
 
@@ -1246,6 +1353,8 @@ function wonLine(st, me){
 
 function sayLine(st, me, t, mine){
   const s = st.seats[me];
+  if (st.phase === 'show')
+    return esc(T('Showdown — cards going face up…', 'Il-wirja — il-karti qed jinkixfu…'));
   if (st.phase === 'handover')
     return esc(T('Next hand…', 'L-id li jmiss…'));
   if (t === -1) return '…';
@@ -1263,7 +1372,9 @@ function sayLine(st, me, t, mine){
 }
 
 function paintActs(st, me, t, mine, done, showing){
-  if (done || showing || st.phase === 'handover'){ UI.acts.innerHTML = ''; setBet(false); return; }
+  if (done || showing || st.phase === 'handover' || st.phase === 'show'){
+    UI.acts.innerHTML = ''; setBet(false); return;
+  }
   const s = st.seats[me];
   const toCall = Math.max(0, st.betToMatch - s.bet);
   const r = E.betRange(st, me);
@@ -1293,6 +1404,7 @@ function paintTurn(t, done, showing){
   const st = M.st;
   if (done){ P.ui.setTurn(M.ctx, { cls:'', who:done.head, note:'' }); return; }
   const who = showing ? T('Showdown', 'Il-wirja')
+            : st.phase === 'show' ? T('Showdown', 'Il-wirja')
             : st.phase === 'handover' ? T('Next hand…', 'L-id li jmiss…')
             : t === -1 ? T('The table…', 'Il-mejda…')
             : isLocal(t) ? T('Your turn', 'Imissek')
@@ -1313,6 +1425,19 @@ function paintBar(){
 function step(){
   stopThinking();
   const st = M.st;
+  /* THE SHOWDOWN WAIT (online): this seat owes the table its own two
+     cards, once. The beat is short — a reveal is not a decision — and
+     the last show to land settles the pot on every client at once. */
+  if (st.phase === 'show'){
+    const me = mySeat();
+    if (M.net && !st.shown[me] && !st.seats[me].folded && !st.seats[me].out){
+      M.timer = setTimeout(() => {
+        M.timer = 0;
+        if (M && !M.dead) doShow();
+      }, FAST ? 1 : 420);
+    }
+    return;
+  }
   const t = E.turn(st);
   if (t === -1){
     const ms = FAST ? 1
@@ -1756,6 +1881,14 @@ function menu(){
                           'Int kontra l-magna. Dritt.')) + '</i></span>' +
           MENU_CHEV +
         '</button>' +
+        '<button class="pk-way" id="pk-m-dealer">' +
+          '<span class="pk-wi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path d="M3 10l9-6 9 6M5 10v9M19 10v9M9 10v9M15 10v9M3 19h18"/></svg></span>' +
+          '<span class="pk-wt"><b>' + esc(T('Vs the dealer — Il-Bank', 'Kontra l-Bank')) + '</b>' +
+            '<i>' + esc(T('Casino Hold’em. Ante up, beat the house.',
+                          'Casino Hold’em. Poġġi l-ante, egħleb il-bank.')) + '</i></span>' +
+          MENU_CHEV +
+        '</button>' +
         '<button class="pk-way" id="pk-m-rules">' +
           '<span class="pk-wi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
             '<path d="M4 5h9a3 3 0 0 1 3 3v11a2 2 0 0 0-2-2H4zM20 5h-9a3 3 0 0 0-3 3"/></svg></span>' +
@@ -1765,10 +1898,10 @@ function menu(){
         '</button>' +
       '</div>' +
 
-      /* ONLINE IS OPEN — the relay now deals each seat its own two hole cards
-         privately, so no phone can read another's hand (see planDeal / the
-         private hook below). Free chips only; coins stay behind
-         COINS_MODE_READY. */
+      /* ONLINE IS OPEN — the relay deals each seat its own two hole cards
+         privately EVERY HAND (the host's net.redeal → the private hook
+         below), so no phone can read another's hand. Free chips only;
+         coins stay behind COINS_MODE_READY. */
       '<div class="pk-modes">' +
         '<button class="pk-way" id="pk-m-online">' +
           '<span class="pk-wi"><svg viewBox="0 0 24 24" aria-hidden="true">' +
@@ -1784,6 +1917,8 @@ function menu(){
 
   el.querySelector('#pk-back').onclick = () => { cue('ui.back', { gain:0.7 }); P.hub(); };
   el.querySelector('#pk-m-ai').onclick = () => { cue('ui.tap', { gain:0.6 }); setupSheet(); };
+  const dl = el.querySelector('#pk-m-dealer');
+  if (dl) dl.onclick = () => { cue('ui.tap', { gain:0.6 }); dealerGame(); };
   const on = el.querySelector('#pk-m-online');
   if (on) on.onclick = () => { cue('ui.tap', { gain:0.6 }); goOnline(); };
   el.querySelector('#pk-m-rules').onclick = () => toggleMenuRules(el, true);
@@ -2015,49 +2150,112 @@ function ensureRelang(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   ONLINE — REAL TABLES, WITH THE DEAL KEPT SECRET BY THE WIRE
+   ONLINE — REAL TABLES, WITH EVERY HAND'S DEAL KEPT SECRET BY THE WIRE
    ───────────────────────────────────────────────────────────────────
-   The relay deals each seat its own two hole cards PRIVATELY (js/mp.js's
-   planDeal → the relay's {t:'mine'} push): the shared seed is never
-   trusted with a hole card. This file's job is to (1) tell the lobby what
-   pool to have dealt (planDeal) and (2) take this seat's own cards when
-   they arrive and feed the engine's DEALERS.private (the `private` hook),
-   so the felt shows only our two cards and every opponent's stays face
-   down. Free chips only — coins are still behind COINS_MODE_READY, which
-   also owns per-street board delivery and the showdown reveal.
+   Poker deals a FRESH secret every hand, so the start deal is not
+   enough: the HOST asks the relay for a new private deal per hand
+   through net.redeal() ({t:'redeal'} → each seat its own {t:'mine'}).
+   The relay shuffles the pool with its OWN entropy — the host learns
+   nothing about who holds what, and no phone ever holds another
+   player's hole cards. This seat's own two arrive on the private hook
+   and enter the engine as a 'given' (DEALERS.private's inbox).
 
-   THE COMMUNITY CARDS are public by nature — they get turned face up for
-   everyone — so they ride the shared seed, exactly as skarta's stock does.
-   Only the hole cards are secret, and only they come down the private
-   channel. Deriving the run from the seed keeps every phone's board
-   identical without a card crossing the wire.
+   THE COMMUNITY CARDS are public by nature — they get turned face up
+   for everybody — so they ride boardFor(seed, handNo): every phone
+   derives the identical five without a card crossing the wire, and the
+   host EXCLUDES exactly those five from the pool it has dealt, so a
+   hole card can never collide with the board. (A client can read its
+   own run early — free-chips honesty; per-street delivery belongs to
+   the coins workstream, see COINS_MODE_READY.)
 
-   The shape mirrors js/rummy-ui.js: local moves go out through the onMove
-   feed, remote moves come in through apply(), the table's own beats
-   (turning a card, paying a pot) are replayed locally off the same seed. */
+   THE SHOWDOWN is the 'show' move: each live seat reveals its OWN two
+   on the ordered wire, exactly as at a real table, and the engine only
+   settles once every live hand is face up. A show naming a card this
+   client can already see is refused as a cheat (see poker.js check()).
+   A hand won on folds is won WITHOUT showing — half the game.
+
+   The shape mirrors js/rummy-ui.js: local moves go out through the
+   onMove feed, remote moves come in through apply(), the table's own
+   beats (turning a card, paying a pot) replay locally off the log. */
 let NET = null;
 
-/* what the shared lobby asks the relay to deal: a POOL and how many go to
-   each seat. The pool is the 52 card ids; the relay hands each seat TWO of
-   them, privately. The seed is not needed here — the community (public)
-   comes off the broadcast seed later; only the holes are dealt privately. */
-function planDeal(opts){
-  const seats = Math.max(E.MIN_SEATS, Math.min(E.MAX_SEATS, (opts && opts.seats | 0) || 2));
-  void seats;                         /* the relay knows the seat count itself */
+/* what the HOST asks the relay to deal for hand N: the 47 cards that
+   are not this hand's public board, two to each seat. */
+function planHand(seed, handNo){
+  const run = E.boardFor(seed, handNo);
   const items = [];
-  for (let i = 0; i < 52; i++) items.push(i);
-  return { items, each: 2 };          /* two hole cards a seat */
+  for (let c = 0; c < 52; c++) if (run.indexOf(c) < 0) items.push(c);
+  return { items, each: 2 };
 }
 
-/* the community cards for THIS hand, off the shared broadcast seed. They
-   are public, so deriving them from the seed is honest: every phone lands
-   on the same five without a card crossing the wire. */
-function communityFromSeed(opts, seed){
-  try {
-    const st = E.deal(Object.assign({}, opts, { deal:'seed' }), seed >>> 0);
-    return Array.isArray(st.run) ? st.run.slice(0, 5) : [];
-  } catch(e){ return []; }
+/* HOST ONLY: ask the relay for this hand's private deal — paced client-
+   side under the relay's per-room re-deal bucket (burst 3, then one per
+   5s) so a run of instant fold-out hands can never trip E_FLOOD. */
+function netDealHand(){
+  if (!M || M.dead || !M.online || !NET || !NET.host || !NET.redeal) return;
+  if (M.st.done) return;
+  const mo = M.online;
+  const hand = M.st.handNo;
+  const wait = Math.max(0, (mo.nextRedealAt || 0) - Date.now());
+  const go = () => {
+    if (!M || M.dead || M.online !== mo || !NET) return;
+    if (M.st.handNo !== hand || M.st.done) return;
+    mo.nextRedealAt = Date.now() + 5200;
+    NET.redeal(planHand(mo.seed, hand));
+  };
+  if (wait <= 0) go();
+  else setTimeout(go, wait + 30);
 }
+
+/* this seat's own two cards — and the derived board — enter the match
+   as a 'given', the engine's private-deal inbox. It rides the LOG (so a
+   rebuild replays it) and never the wire: encWire has no shape for it,
+   and the onMove feed skips src 'auto' besides. */
+function giveHand(pair){
+  const holes = {};
+  holes[M.online.meG] = pair;
+  const mv = { t: 'given', seat: -1,
+               g: { holes, run: E.boardFor(M.online.seed, M.st.handNo) } };
+  const idx = M.log.length;
+  M.log.push(mv);
+  E.apply(M.st, mv);
+  fire(moveSubs, { seat: -1, move: clone(mv), index: idx, src: 'auto' });
+  fire(stateSubs, { reason: 'move', index: idx });
+  cue('card.deal', { gain: 0.7 }, true);
+  render();
+}
+
+/* our own showdown reveal: log it, apply it, and let the onMove feed
+   carry it to the table (src 'show' — not 'net', not 'auto', so it goes
+   out). Like quit it bypasses doMove: shows do not wait for a turn. */
+function doShow(){
+  if (!M || M.dead || !M.net) return;
+  const st = M.st;
+  const me = mySeat();
+  if (st.phase !== 'show' || st.shown[me]) return;
+  const mv = { t: 'show', c: st.seats[me].hole.slice(), seat: me };
+  if (!E.check(st, mv, me)) return;
+  const idx = M.log.length;
+  M.log.push(mv);
+  E.apply(st, mv);
+  fire(moveSubs, { seat: me, move: clone(mv), index: idx, src: 'show' });
+  fire(stateSubs, { reason: 'move', index: idx });
+  render();
+}
+
+/* the moment a fresh hand turns, two things happen: the HOST deals it
+   (net.redeal), and a hand that arrived EARLY — the host was a beat
+   ahead of our handover timer — lands now. Registered once. */
+moveSubs.push(ev => {
+  if (!M || M.dead || !M.net || !M.online || !ev || !ev.move) return;
+  if (ev.move.t !== 'next') return;
+  if (NET && NET.host) netDealHand();
+  if (M.online.pendingHole && !M.st.done){
+    const pair = M.online.pendingHole;
+    M.online.pendingHole = null;
+    giveHand(pair);
+  }
+});
 
 function onlineStart(cfg){
   cfg = cfg || {};
@@ -2081,17 +2279,16 @@ function onlineStart(cfg){
   if (M){ try { leave(); } catch(e){} }
 
   /* Build the match in PRIVATE mode from the off. No holes are known yet —
-     they arrive on the private hook — so every seat starts face down,
-     which is exactly right: this client knows nobody's cards until the
-     relay tells it its own. The community is the seed's, and public. */
+     they arrive on the private hook, hand by hand — so every seat starts
+     face down, which is exactly right: this client knows nobody's cards
+     until the relay tells it its own. The board is derived and public. */
   const opts = { seats: n, humans: n, lvl, mode: 'free', deal: 'private',
                  stack: H.bb * H.bbs, sb: H.sb, bb: H.bb,
-                 given: { holes: {}, run: communityFromSeed(
-                          { seats: n, sb: H.sb, bb: H.bb, stack: H.bb * H.bbs },
-                          cfg.seed >>> 0) } };
+                 given: { holes: {}, run: E.boardFor(cfg.seed >>> 0, 1) } };
   const m = startMatch(opts, cfg.seed >>> 0);
   if (!m) throw new Error('POKER would not deal ' + n + ' seats');
-  M.online = { toGame, toRoom, meG, seed: cfg.seed >>> 0, run: opts.given.run };
+  M.online = { toGame, toRoom, meG, seed: cfg.seed >>> 0,
+               pendingHole: null, nextRedealAt: 0 };
   M.meta = chairs.map((s, g) => ({
     name: String(s.name || ('Player ' + (g + 1))).slice(0, 14),
     own:  g === meG ? 'me' : (s.kind === 'cpu' ? 'ai' : 'net'),
@@ -2107,31 +2304,30 @@ function onlineStart(cfg){
   openBoard(() => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   render();
   cue('game.start', { gain: 0.9 }, true);
+  /* the HOST deals hand 1 the moment the table stands. Everybody else
+     just waits for their own two to arrive on the private hook. */
+  if (iAmHost) netDealHand();
   return snapshot();
 }
 
 /* THE PRIVATE HAND. The relay pushed THIS seat, and only this seat, its
-   own two hole cards (mp.js routes {t:'mine'} here). Re-deal the match with
-   them injected under our game seat — opponents stay null (face down) — and
-   repaint. This is the ONLY place this client learns a hole card, and it is
-   its own. Never re-broadcast; the relay already kept the secret. */
+   own two hole cards (mp.js routes {t:'mine'} here) — once per HAND now,
+   through the host's net.redeal. This is the ONLY place this client
+   learns a hole card, and it is its own. Never re-broadcast; the relay
+   already kept the secret. A deal that arrives while the last hand is
+   still being paid out is the NEXT hand's — it is held and lands the
+   moment 'next' turns the table (see the moveSubs subscriber above). */
 function onlinePrivate(d){
   if (!M || M.dead || !M.online) return;
   if (!Array.isArray(d) || d.length < 2) return;
+  const pair = [d[0] | 0, d[1] | 0];
+  const st = M.st;
   const me = M.online.meG;
-  const holes = {};
-  holes[me] = [d[0] | 0, d[1] | 0];
-  const opts = Object.assign({}, M.opts, {
-    deal: 'private',
-    given: { holes, run: (M.online.run || []).slice() }
-  });
-  M.opts = opts;
-  M.log = [];                        /* a fresh hand from the private deal */
-  M.st = buildState(M.opts, M.seed, M.log);
-  applyMeta();
-  M.recorded = M.st.book.length;
-  render();
-  cue('card.deal', { gain: 0.7 }, true);
+  if (st.done || st.phase === 'handover' || st.seats[me].hole.length === 2){
+    M.online.pendingHole = pair;     /* latest wins, exactly like the relay */
+    return;
+  }
+  giveHand(pair);
 }
 
 function onlineRemote(seat, wire){
@@ -2147,6 +2343,24 @@ function onlineRemote(seat, wire){
     const opts = E.legal(M.st, -1);
     if (!opts.length) break;
     if (!doMove(-1, opts[0], 'auto').ok) break;
+  }
+  /* a SHOWDOWN REVEAL — like quit it rides outside the turn order (the
+     flush above has just walked us onto the river if we were a beat
+     behind the shower's client). check() is the lie detector: a shown
+     hand naming a card this client can already see stops the table. */
+  if (mv.t === 'show'){
+    mv.seat = g;
+    if (!E.check(M.st, mv, g)){
+      const who = (M.st.seats[g] ? M.st.seats[g].name : 'that chair');
+      return { ok: false, why: 'a shown hand that cannot be true, from ' + who };
+    }
+    const idx = M.log.length;
+    M.log.push(mv);
+    E.apply(M.st, mv);
+    fire(moveSubs, { seat: g, move: clone(mv), index: idx, src: 'net' });
+    fire(stateSubs, { reason: 'move', index: idx });
+    render();
+    return null;
   }
   mv.seat = g;
   const r = doMove(g, mv, 'net');
@@ -2235,7 +2449,10 @@ const NET_HOOKS = {
 P.online = P.online || {};
 P.online.poker = {
   start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
-  planDeal,
+  /* NO planDeal, ON PURPOSE: a start deal cannot know the room seed (it
+     is sent before 'began'), so it cannot exclude hand 1's derived board
+     from the pool. Every hand — the first included — is dealt by the
+     host through net.redeal the moment the table stands. */
   live: () => NET_HOOKS.live(),
   hooks: NET_HOOKS
 };
@@ -2276,29 +2493,31 @@ R.lobby = {
   isReady:   seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu')
     ? Object.assign({}, seat, { ready:true }) : seat,
-  /* ONLINE IS OPEN (free chips). The deal is private now, so a table can go
-     as soon as everybody is ready. The unready are named, exactly as rummy
-     does it, so the host knows who to shout at rather than reading the seat
-     count as the blocker. Coins remain shut behind COINS_MODE_READY. */
+  /* ONLINE IS OPEN (free chips). The relay deals every HAND privately now
+     (net.redeal), so a table can go as soon as everybody is ready. The
+     unready are named, exactly as rummy does it, so the host knows who to
+     shout at rather than reading the seat count as the blocker. Coins
+     remain shut behind COINS_MODE_READY. */
   canStart(seatList){
     const list = (seatList || []).filter(Boolean);
     const n = list.length;
-    /* NOT OPEN ONLINE YET. The relay deals privately ONCE, at start — so the
-       first hand is genuinely secret (proven), but a poker table is many
-       hands and hand 2 would come back face-down. It needs a fresh private
-       deal PER HAND (the same relay work coins mode needs). The plumbing and
-       the first-deal secrecy are in and proven; this is the completing step.
-       Play against the machine until then. */
-    return { ok:false, why: T(
-      'Poker online is nearly there — each hand needs its own secret deal, coming next. ' +
-      'Play against the machine for now.',
-      'Il-poker onlajn kważi lest — kull id trid it-tqassim sigriet tagħha, ġej. ' +
-      'Ilgħab kontra l-magna għalissa.') };
     if (n < E.MIN_SEATS)
       return { ok:false, why: T('Poker needs two at the table.',
                                 'Il-poker irid tnejn fuq il-mejda.') };
     if (n > E.MAX_SEATS)
       return { ok:false, why: T('Eight is the table.', 'Tmienja hija l-mejda.') };
+    /* PEOPLE ONLY. A machine chair's secret cards would have to sit on
+       the host's phone (the host plays them) — and a table where one
+       phone holds another hand's secrets is not poker. Refused honestly
+       rather than pretended secure. */
+    const cpu = list.filter(x => x && x.kind === 'cpu');
+    if (cpu.length)
+      return { ok:false, why: T(
+        'Online poker seats people only — a machine chair’s secret cards ' +
+        'would sit on the host’s phone. Take the machine off, or play it offline.',
+        'Il-poker onlajn ipoġġi nies biss — il-karti sigrieti ta’ siġġu ' +
+        'tal-magna joqogħdu fuq il-mowbajl tal-host. Neħħi l-magna, jew ilgħab ' +
+        'kontriha offlajn.') };
     const un = list.filter(x => x && x.kind !== 'cpu' && !x.ready);
     if (un.length)
       return { ok:false,
@@ -2373,6 +2592,448 @@ P.register(TILE);
 if (document.body) injectDefs();
 else document.addEventListener('DOMContentLoaded', injectDefs);
 
+/* ═══════════════════════════════════════════════════════════════════
+   IL-BANK — THE VS-DEALER TABLE (Casino Hold'em)
+   ───────────────────────────────────────────────────────────────────
+   The owner asked for "a normal table of poker vs dealer", and this is
+   the real casino game of that shape: post the ANTE, see your two and
+   the flop, then CALL (twice the ante) or FOLD; the turn and river
+   come, the house turns its two, and it must QUALIFY — a pair of fours
+   or better — before it is allowed to beat you. Beat it and the ante
+   pays by the ladder (a flush pays double, a straight flush twenty to
+   one); the house missing its own bar pays your ante and hands the
+   call back untouched.
+
+   Solo and OFFLINE by design — that is the point of a dealer game.
+   Table chips only; the bankroll persists in ST.dealer between visits
+   and a broke player is re-staked for free, because this is a card
+   club, not a casino. The evaluator, the hand names and the pack are
+   the SAME ones the ring game uses (js/poker.js's score/best5 and
+   klabb's deck through deck-kit), so a flush here is a flush there.
+   ═══════════════════════════════════════════════════════════════════ */
+const ANTES = [10, 25, 50, 100];
+const RESTAKE = 1000;
+let DL = null;
+
+/* the dealer game's own seeded RNG — the engine's mixer, deliberately,
+   and the ONE Math.random it ever takes is newSeed() at the door,
+   exactly the ring game's pattern. */
+function dlRnd(){
+  DL.rs = (DL.rs + 0x6D2B79F5) | 0;
+  let t = DL.rs;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+function dlDeck(){
+  const a = [];
+  for (let f = 0; f < 52; f++) a.push(f);
+  for (let i = a.length - 1; i > 0; i--){
+    const j = Math.floor(dlRnd() * (i + 1)) % (i + 1);
+    const t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a;
+}
+
+/* the house must QUALIFY: a pair of fours or better. Below that it pays
+   the ante and returns the call — the one rule that makes the game. */
+function dlQualifies(v){
+  const c = E.catOf(v);
+  if (c > E.CAT.PAIR) return true;
+  if (c === E.CAT.PAIR) return E.kicksOf(v)[0] >= 4;
+  return false;
+}
+/* the ante ladder — what the ANTE pays when you beat the house (or it
+   fails to qualify), by YOUR hand. The call always pays even money. */
+function dlAnteMult(v){
+  const c = E.catOf(v);
+  if (c === E.CAT.SFLUSH) return E.kicksOf(v)[0] === 14 ? 100 : 20;
+  if (c === E.CAT.QUADS)  return 10;
+  if (c === E.CAT.BOAT)   return 3;
+  if (c === E.CAT.FLUSH)  return 2;
+  return 1;
+}
+function dlPayRows(){
+  return [
+    [T('Royal flush', 'Sekwenza rjali'), '100:1'],
+    [T('Straight flush', 'Sekwenza tal-istess kulur'), '20:1'],
+    [T('Four of a kind', 'Erbgħa l-istess'), '10:1'],
+    [T('Full house', 'Tlieta u par'), '3:1'],
+    [T('Flush', 'Kulur'), '2:1'],
+    [T('Straight or less', 'Sekwenza jew inqas'), '1:1']
+  ];
+}
+
+function dlPersist(){ persist(); }
+function dlTimer(fn, ms){
+  const d = DL;
+  const id = setTimeout(() => {
+    if (DL !== d || !DL || DL.dead) return;
+    try { fn(); } catch(e){}
+  }, FAST ? 1 : ms);
+  d.timers.push(id);
+  return id;
+}
+function dlStopTimers(){
+  if (!DL) return;
+  DL.timers.forEach(clearTimeout);
+  DL.timers = [];
+}
+
+function dealerGame(seed){
+  injectCSS();
+  P.show();
+  stopThinking(); M = null; UI = null;
+  DL = {
+    rs: ((seed == null ? newSeed() : seed) | 0),
+    ante: Math.max(ANTES[0], ST.dealer.lastAnte | 0 || 25),
+    phase: 'ante',                 /* ante · decide · reveal · done */
+    you: [], house: [], board: [], up: 0, houseUp: false,
+    res: null, timers: [], dead: false, rules: false, ctx: null
+  };
+  DL.ctx = P.ui.frame({
+    /* IL-BANK is the table's NAME and stays itself in both languages */
+    title: 'IL-BANK',
+    onBack: () => { dlLeave(); menu(); },
+    leave: () => dlLeave(),
+    buttons: [
+      { id: 'pkd-pays', label: T('Payouts', 'Il-ħlasijiet'), icon: 'book', cls: 'ghost' }
+    ]
+  });
+  if (DL.ctx.stopFit) DL.ctx.stopFit();
+  DL.ctx.badge.textContent = 'Casino Hold’em';
+  const host = DL.ctx.host;
+  host.classList.add('pk-host');
+  host.innerHTML =
+    '<div class="pk-table pkd-table" id="pkd-root">' +
+      '<div class="pkd-house" id="pkd-house"></div>' +
+      '<div class="pkd-mid" id="pkd-mid"></div>' +
+      '<div class="pk-say" id="pkd-say"></div>' +
+      '<div class="pkd-me" id="pkd-me"></div>' +
+      '<div class="pkd-ante" id="pkd-antebar"></div>' +
+      '<div class="pk-acts" id="pkd-acts"></div>' +
+      '<div class="pk-rules" id="pkd-rules" aria-hidden="true">' +
+        '<div class="pk-rules-h"><h4>IL-BANK — ' + esc(T('the payouts', 'il-ħlasijiet')) + '</h4>' +
+          '<button class="pk-rules-x" id="pkd-rules-x" aria-label="' +
+            esc(T('Put the payouts away', 'Warrab il-ħlasijiet')) + '">' +
+            '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path d="M6 6l12 12M18 6L6 18"/></svg></button></div>' +
+        '<div class="pk-rules-b">' +
+          '<ul style="margin:0;padding:0">' + [
+            T('<b>Post the ante</b> and the house deals: two to you, two to itself face ' +
+              'down, and the flop.',
+              '<b>Poġġi l-ante</b> u l-bank iqassam: tnejn lilek, tnejn lilu wiċċhom ' +
+              '’l isfel, u l-flop.'),
+            T('<b>Call — twice the ante — or fold.</b> Fold and the ante stays on the felt.',
+              '<b>Sejjaħ — id-doppju tal-ante — jew warrab.</b> Twarrab u l-ante jibqa’ ' +
+              'fuq il-mejda.'),
+            T('The turn and river come, and the house shows. It must <b>qualify with a ' +
+              'pair of fours or better</b> — anything less and your ante is paid even ' +
+              'money and the call comes straight back.',
+              'Jiġu t-turn u r-river, u l-bank juri. Irid <b>jikkwalifika b’par ta’ ' +
+              'erbgħat jew aħjar</b> — inqas minn hekk u l-ante titħallas u s-sejħa ' +
+              'tiġi lura kif kienet.'),
+            T('Beat a qualified house and the <b>call pays even money</b> while the ' +
+              '<b>ante pays by the ladder below</b>. A stand-off hands both back.',
+              'Irbaħ lil bank ikkwalifikat u <b>is-sejħa titħallas indaqs</b> filwaqt li ' +
+              '<b>l-ante titħallas skont is-sellum t’hawn taħt</b>. Draw jroddhom ' +
+              'it-tnejn lura.')
+          ].map(r => '<li style="font-size:12px;line-height:1.6;color:var(--dim);' +
+                     'margin:0 0 6px 14px">' + r + '</li>').join('') + '</ul>' +
+          '<div class="pk-tallyh">' + esc(T('The ante ladder', 'Is-sellum tal-ante')) + '</div>' +
+          '<table class="pkd-pay">' + dlPayRows().map(r =>
+            '<tr><td>' + esc(r[0]) + '</td><td class="n">' + r[1] + '</td></tr>').join('') +
+          '</table>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  DL.el = {
+    root:  host.querySelector('#pkd-root'),
+    house: host.querySelector('#pkd-house'),
+    mid:   host.querySelector('#pkd-mid'),
+    say:   host.querySelector('#pkd-say'),
+    me:    host.querySelector('#pkd-me'),
+    ante:  host.querySelector('#pkd-antebar'),
+    acts:  host.querySelector('#pkd-acts'),
+    rules: host.querySelector('#pkd-rules')
+  };
+  host.querySelector('#pkd-rules-x').addEventListener('click', () => dlRules(false));
+  DL.ctx.btn('pkd-pays').onclick = () => dlRules(!DL.rules);
+  DL.el.root.addEventListener('click', e => {
+    if (!DL || DL.dead) return;
+    const t = e.target && e.target.closest && e.target.closest('[data-act]');
+    if (!t || t.disabled) return;
+    e.preventDefault();
+    dlTap(t.getAttribute('data-act'));
+  });
+  dlPaint();
+  cue('game.start', { gain: 0.85 }, true);
+}
+
+function dlLeave(){
+  dlStopTimers();
+  if (DL) DL.dead = true;
+  DL = null;
+  persistNow();
+}
+function dlRules(open){
+  if (!DL) return;
+  DL.rules = !!open;
+  DL.el.rules.classList.toggle('open', DL.rules);
+  DL.el.rules.setAttribute('aria-hidden', DL.rules ? 'false' : 'true');
+  cue(DL.rules ? 'ui.sheet' : 'ui.back', { gain: 0.6 }, true);
+}
+
+function dlTap(a){
+  if (a === 'ante-'){ dlAnteStep(-1); return; }
+  if (a === 'ante+'){ dlAnteStep(1); return; }
+  if (a === 'deal'){ dlDeal(); return; }
+  if (a === 'call'){ dlCall(); return; }
+  if (a === 'dfold'){ dlFold(); return; }
+  if (a === 'dnext'){ dlNext(); return; }
+  if (a === 'restake'){
+    ST.dealer.bank = RESTAKE; dlPersist();
+    cue('money.pay', { gain: 0.9 }, true);
+    if (K.toast) K.toast(T('The club re-stakes you. Table chips — nobody is counting.',
+                           'Il-każin reġa’ tak iċ-ċipep. Tal-mejda — ħadd mhu jgħodd.'));
+    dlPaint(); return;
+  }
+}
+function dlAnteStep(dir){
+  const i = ANTES.indexOf(DL.ante);
+  const j = Math.max(0, Math.min(ANTES.length - 1, (i < 0 ? 1 : i) + dir));
+  if (ANTES[j] === DL.ante) return;
+  DL.ante = ANTES[j];
+  ST.dealer.lastAnte = DL.ante; dlPersist();
+  cue('ui.tap', { gain: 0.7 }, true);
+  dlPaint();
+}
+
+function dlDeal(){
+  if (DL.phase !== 'ante') return;
+  if (ST.dealer.bank < DL.ante * 3) return;      /* the button said re-stake */
+  ST.dealer.bank -= DL.ante; dlPersist();
+  const deck = dlDeck();
+  DL.you   = [deck.pop(), deck.pop()];
+  DL.house = [deck.pop(), deck.pop()];
+  DL.board = [deck.pop(), deck.pop(), deck.pop(), deck.pop(), deck.pop()];
+  DL.up = 0; DL.houseUp = false; DL.res = null;
+  DL.phase = 'deal';
+  cue('card.shuffle', { gain: 0.8 }, true);
+  dlPaint();
+  dlTimer(() => { DL.up = 3; DL.phase = 'decide';
+                  cue('card.deal', { gain: 0.8 }, true); dlPaint(); }, 560);
+}
+
+function dlFold(){
+  if (DL.phase !== 'decide') return;
+  DL.phase = 'done';
+  DL.res = { kind: 'fold', net: -DL.ante };
+  ST.dealer.hands++; dlPersist();
+  cue('card.throw', { gain: 0.8 }, true);
+  dlPaint();
+}
+
+function dlCall(){
+  if (DL.phase !== 'decide') return;
+  if (ST.dealer.bank < DL.ante * 2) return;
+  ST.dealer.bank -= DL.ante * 2; dlPersist();
+  DL.phase = 'reveal';
+  cue('chain.add', { gain: 0.9 }, true);
+  dlPaint();
+  dlTimer(() => { DL.up = 4; cue('card.deal', { gain: 0.75 }, true); dlPaint(); }, 520);
+  dlTimer(() => { DL.up = 5; cue('card.deal', { gain: 0.75 }, true); dlPaint(); }, 1040);
+  dlTimer(() => { DL.houseUp = true; cue('card.open', { gain: 0.9 }, true);
+                  dlResolve(); dlPaint(); }, 1680);
+}
+
+function dlResolve(){
+  const anteS = DL.ante, callS = DL.ante * 2;
+  const you = E.best5(DL.you.concat(DL.board));
+  const hou = E.best5(DL.house.concat(DL.board));
+  const qual = dlQualifies(hou.v);
+  const mult = dlAnteMult(you.v);
+  let back = 0, kind;
+  if (!qual){ back = anteS * (1 + mult) + callS; kind = 'noqual'; }
+  else if (you.v > hou.v){ back = anteS * (1 + mult) + callS * 2; kind = 'win'; }
+  else if (you.v === hou.v){ back = anteS + callS; kind = 'push'; }
+  else { back = 0; kind = 'lose'; }
+  ST.dealer.bank += back;
+  ST.dealer.hands++;
+  const net = back - (anteS + callS);
+  if (net > 0) ST.dealer.won++;
+  dlPersist();
+  DL.res = { kind, net, youV: you.v, houV: hou.v, qual, mult,
+             youBest: you.cards, houBest: hou.cards };
+  DL.phase = 'done';
+  cueIn(140, () => cue(net > 0 ? 'money.pay' : net < 0 ? 'game.lose' : 'ui.toast',
+                       { gain: 0.9 }, true));
+}
+
+function dlNext(){
+  if (DL.phase !== 'done') return;
+  dlStopTimers();
+  DL.phase = 'ante';
+  DL.you = []; DL.house = []; DL.board = []; DL.up = 0;
+  DL.houseUp = false; DL.res = null;
+  cue('card.shuffle', { gain: 0.6 }, true);
+  dlPaint();
+}
+
+function dlBanner(){
+  const r = DL.res;
+  if (!r) return '';
+  const sign = n => (n > 0 ? '+' : '') + n;
+  if (r.kind === 'fold')
+    return '<div class="pkd-banner lose"><b>' +
+      esc(T('Folded — the ante stays on the felt.', 'Warrabt — l-ante baqa’ fuq il-mejda.')) +
+      '</b><span class="amt">' + sign(r.net) + '</span></div>';
+  if (r.kind === 'noqual')
+    return '<div class="pkd-banner win"><b>' +
+      esc(T('The house does not qualify — ante pays, call back.',
+            'Il-bank ma jikkwalifikax — l-ante titħallas, is-sejħa lura.')) +
+      '</b><span class="amt">' + sign(r.net) + '</span></div>';
+  if (r.kind === 'win')
+    return '<div class="pkd-banner win"><b>' +
+      esc(handName(r.youV) + ' — ' + T('you beat the house.', 'għelibt il-bank.')) +
+      (r.mult > 1 ? ' ' + esc(T('Ante pays', 'L-ante tħallas') + ' ' + r.mult + ':1.') : '') +
+      '</b><span class="amt">' + sign(r.net) + '</span></div>';
+  if (r.kind === 'push')
+    return '<div class="pkd-banner"><b>' +
+      esc(T('Stand-off — both stakes back.', 'Draw — iż-żewġ imħatri lura.')) +
+      '</b><span class="amt">' + sign(0) + '</span></div>';
+  return '<div class="pkd-banner lose"><b>' +
+    esc(T('The house takes it', 'Il-bank ħadha') + ' — ' + handName(r.houV) + '.') +
+    '</b><span class="amt">' + sign(r.net) + '</span></div>';
+}
+
+function dlPaint(){
+  if (!DL || DL.dead) return;
+  const ph = DL.phase;
+  const bank = ST.dealer.bank;
+  const short = (DL.el.root.clientHeight || 500) < 430;
+  const cw = short ? 40 : 50;         /* house + your cards               */
+  const bw = short ? 26 : 34;         /* the board                        */
+  const dealt = DL.you.length === 2;
+
+  /* — the house — */
+  const houseCards = dealt
+    ? DL.house.map(c => cardBtn(DL.houseUp ? c : -1,
+        { w: cw, face: DL.houseUp,
+          lit: !!(DL.res && DL.houseUp && DL.res.kind === 'lose' &&
+                  DL.res.houBest && DL.res.houBest.indexOf(c) >= 0) })).join('')
+    : slot(cw) + slot(cw);
+  const hstat = !DL.houseUp ? ''
+    : DL.res && DL.res.qual
+      ? '<span class="pkd-hstat q">' + esc(handName(DL.res.houV)) + ' · ' +
+        esc(T('qualifies', 'jikkwalifika')) + '</span>'
+      : '<span class="pkd-hstat nq">' + esc(T('Does not qualify', 'Ma jikkwalifikax')) +
+        '</span>';
+  DL.el.house.innerHTML =
+    '<div class="pkd-plate"><b>IL-BANK</b><i>' + esc(T('the house', 'il-bank')) +
+      '</i></div>' +
+    '<span class="h">' + houseCards + '</span>' +
+    (hstat || '<span class="pkd-hstat"></span>');
+
+  /* — the middle: board and the printed spots — */
+  const upCards = DL.board.slice(0, DL.up);
+  const anteLive = ph !== 'ante';
+  const callLive = ph === 'reveal' || (ph === 'done' && DL.res && DL.res.kind !== 'fold');
+  DL.el.mid.innerHTML =
+    '<div class="pk-board">' +
+      upCards.map(c => cardBtn(c, { w: bw })).join('') +
+      Array.from({ length: 5 - upCards.length }, () => slot(bw)).join('') +
+    '</div>' +
+    '<div class="pkd-spots">' +
+      '<div class="pkd-spot' + (anteLive ? ' live' : '') + '">' +
+        '<span class="pkd-ring">' + (anteLive ? chip('') : '<b>A</b>') + '</span>' +
+        '<i>ANTE</i><em>' + (anteLive ? DL.ante : '') + '</em></div>' +
+      '<div class="pkd-spot' + (callLive ? ' live' : (ph === 'done' ? ' dead' : '')) + '">' +
+        '<span class="pkd-ring">' + (callLive ? chip('') : '<b>2×</b>') + '</span>' +
+        '<i>CALL</i><em>' + (callLive ? DL.ante * 2 : '') + '</em></div>' +
+    '</div>' +
+    (ph === 'done' ? dlBanner() : '');
+
+  /* — the hint line — */
+  DL.el.say.innerHTML =
+    ph === 'ante' ? esc(T('Set the ante and let the house deal.',
+                          'Poġġi l-ante u ħalli l-bank iqassam.'))
+    : ph === 'deal' ? esc(T('Dealing…', 'Qed iqassam…'))
+    : ph === 'decide' ? '<b>' + esc(T('Call for ' + (DL.ante * 2) + ', or fold.',
+                                      'Sejjaħ għal ' + (DL.ante * 2) + ', jew warrab.')) + '</b>'
+    : ph === 'reveal' ? esc(T('The house shows…', 'Il-bank juri…'))
+    : esc(T('Hand ' + ST.dealer.hands + ' · ' + ST.dealer.won + ' taken off the house.',
+            'Id ' + ST.dealer.hands + ' · ' + ST.dealer.won + ' meħuda mill-bank.'));
+
+  /* — your seat — */
+  const myName = (dealt && DL.up >= 3)
+    ? handName(E.best5(DL.you.concat(DL.board.slice(0, DL.up))).v) : '';
+  DL.el.me.innerHTML =
+    '<span class="h">' +
+      (dealt
+        ? DL.you.map(c => cardBtn(c, {
+            w: short ? 44 : 56,
+            dim: !!(DL.res && DL.res.kind === 'fold'),
+            lit: !!(DL.res && (DL.res.kind === 'win' || DL.res.kind === 'noqual') &&
+                    DL.res.youBest && DL.res.youBest.indexOf(c) >= 0)
+          })).join('')
+        : slot(short ? 44 : 56) + slot(short ? 44 : 56)) +
+    '</span>' +
+    '<span class="info">' +
+      '<span class="st">' + bank + '<i>' + esc(T('your chips', 'iċ-ċipep tiegħek')) +
+        '</i></span>' +
+      (myName ? '<span class="hn">' + esc(myName) + '</span>' : '') +
+    '</span>';
+
+  /* — the ante stepper (only at the door) — */
+  DL.el.ante.innerHTML = ph !== 'ante' ? '' :
+    '<button class="pk-rnd" type="button" data-act="ante-"' +
+      (DL.ante <= ANTES[0] ? ' disabled' : '') + ' aria-label="' +
+      esc(T('Smaller ante', 'Ante iżgħar')) + '">&minus;</button>' +
+    '<span class="v">' + DL.ante + '<i>' + esc(T('the ante', 'l-ante')) + '</i></span>' +
+    '<button class="pk-rnd" type="button" data-act="ante+"' +
+      (DL.ante >= ANTES[ANTES.length - 1] || bank < ANTES[Math.min(ANTES.length - 1,
+        ANTES.indexOf(DL.ante) + 1)] * 3 ? ' disabled' : '') + ' aria-label="' +
+      esc(T('Bigger ante', 'Ante ikbar')) + '">+</button>';
+
+  /* — the buttons — */
+  const broke = bank < DL.ante * 3;
+  DL.el.acts.innerHTML =
+    ph === 'ante'
+      ? (broke && bank < ANTES[0] * 3
+          ? '<button class="pk-act" type="button" data-act="restake">' +
+            esc(T('Re-stake', 'Erġa’ ħu ċ-ċipep')) + ' <small>' + RESTAKE + '</small></button>'
+          : '<button class="pk-act" type="button" data-act="deal"' +
+            (broke ? ' disabled' : '') + '>' +
+            esc(T('Deal', 'Qassam')) + ' <small>' +
+            esc(T('ante', 'ante') + ' ' + DL.ante) + '</small></button>')
+    : ph === 'decide'
+      ? '<button class="pk-act ghost" type="button" data-act="dfold">' +
+          esc(T('Fold', 'Warrab')) + '</button>' +
+        '<button class="pk-act" type="button" data-act="call"' +
+          (bank < DL.ante * 2 ? ' disabled' : '') + '>' +
+          esc(T('Call', 'Sejjaħ')) + ' <small>' + (DL.ante * 2) + '</small></button>'
+    : ph === 'done'
+      ? '<button class="pk-act" type="button" data-act="dnext">' +
+          esc(T('Next hand', 'L-id li jmiss')) + '</button>'
+      : '';
+
+  /* the frame's status pill — the same one every table fills */
+  try {
+    P.ui.setTurn(DL.ctx, {
+      cls: (ph === 'ante' || ph === 'decide') ? 'w' : '',
+      who: ph === 'ante' ? T('Ante up', 'Poġġi l-ante')
+         : ph === 'deal' ? T('The house deals…', 'Il-bank iqassam…')
+         : ph === 'decide' ? T('Your call', 'Is-sejħa tiegħek')
+         : ph === 'reveal' ? T('The house shows…', 'Il-bank juri…')
+         : DL.res && DL.res.net > 0 ? T('You take it', 'Ħadtha int')
+         : DL.res && DL.res.net === 0 && DL.res.kind === 'push' ? T('Stand-off', 'Draw')
+         : T('The house takes it', 'Il-bank ħadha'),
+      note: 'ANTE ' + DL.ante + ' · ' + T('chips', 'ċipep') + ' ' + bank
+    });
+  } catch(e){}
+}
+
 /* ── test hooks — inert unless the page is opened with ?pttest ──── */
 try {
   if (String(location.search).indexOf('pttest') >= 0){
@@ -2398,7 +3059,31 @@ try {
       tally: () => (M ? E.tally(M.st) : null),
       store: () => ST,
       coinsReady: COINS_MODE_READY,
-      handName
+      handName,
+      /* — the vs-dealer table — */
+      dealer: dealerGame, dl: () => DL,
+      dlDeal, dlCall, dlFold, dlNext, dlResolve,
+      /* — a simulated ONLINE table: real onlineStart with a stub net.
+         `sent` collects everything this client would put on the wire;
+         feed the other seats with priv()/remote() exactly as mp.js
+         would. Render-testing only. — */
+      online(names, seed, meSeat_){
+        const sent = [];
+        const stub = {
+          sent,
+          redeal: d => { sent.push({ redeal: d }); return true; },
+          onLeave: () => {}
+        };
+        const chairs = (names || ['HOST', 'GUEST']).map((nm, i) =>
+          ({ seat: i, name: nm, kind: 'human',
+             own: i === (meSeat_ | 0) ? 'me' : 'net', level: 2 }));
+        onlineStart({ seats: chairs, seed: (seed == null ? 7 : seed) >>> 0,
+                      you: meSeat_ | 0, host: 0, net: stub });
+        return stub;
+      },
+      priv: d => onlinePrivate(d),
+      remote: (seat, w) => onlineRemote(seat, w),
+      giveHand, doShow, planHand
     };
   }
 } catch(e){}

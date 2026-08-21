@@ -339,7 +339,9 @@ function doMove(seat, move, src){
   e.apply(M.st, rec);
   moveSound(seat, move);
   autosave();
-  fire(moveSubs, { seat, move: clone(move), index: idx, src: src || 'local' });
+  /* the WIRE copy is the APPLIED record: apply() may stamp flow flags
+     on it (21 lanes: mv.e / mv.f) that the other phones need. */
+  fire(moveSubs, { seat, move: clone(rec), index: idx, src: src || 'local' });
   return { ok:true, index:idx };
 }
 
@@ -384,6 +386,10 @@ function moveSound(seat, mv){
     case 'discard':   cue('card.throw', { gain: mine ? 0.8 : 0.55 }); return;
     case 'knock':     cue('gin.knock',  { gain: mine ? 1 : 0.7 }, true); return;
     case 'next':      cue('card.shuffle', { gain: 0.8 }, true); return;
+    case 'up':        cue('card.deal',  { gain: 0.7 }, true); return;
+    case 'peek':      cue('ui.tap',     { gain: 0.6 }); return;
+    case 'reveal':    cue('card.sweep', { gain: 0.85 }, true); return;
+    case 'show':      cue('card.deal',  { gain: mine ? 0.7 : 0.5 }, true); return;
   }
 }
 
@@ -396,13 +402,49 @@ function moveSound(seat, mv){
    THE IDENTITY: casino baize green with a ring of light over the felt,
    a gold rail, and chips — read as a blackjack table at a glance.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── THE EQUIPPED LOOK — deck-kit's shared felt + card back, read from
+   the same tables deck-kit paints every other card table from. Our
+   .bt-table is not on deck-kit's host list (deck-kit is not ours to
+   edit), so the equipped colours are restated here, scoped to us, and
+   refreshed every time the table opens. Falls back to the casino baize
+   when nothing is equipped. ── */
+function themeCSS(){
+  let css = '';
+  try {
+    const XP = window.KARTI_XP, DKX = window.KARTI_DECK;
+    const f = (XP && DKX && DKX._felts) ? DKX._felts[XP.equipped('felt', 'karti') || ''] : null;
+    if (f && f.a){
+      css +=
+        '#app #scr-party .bt-table{background:' +
+          'radial-gradient(120% 85% at 50% 30%,' + f.a + ' 0%,' + f.b + ' 46%,' + f.c + ' 100%)}' +
+        '#app #scr-party .bt-table{--bt-ring:' + (f.ring || '#FFD98A') + '}';
+    }
+    const b = (XP && DKX && DKX._backs) ? DKX._backs[XP.equipped('back', 'karti') || ''] : null;
+    if (b && !b.stock && b.pat){
+      const sc = '#app #scr-party .bt-table .kb-back ';
+      css += sc + 'rect[fill^="url"]{fill:url(#kdx-pat-' + b.pat + ')}' +
+             sc + 'rect[stroke="#FFD98A"]{stroke:' + b.edge + '}' +
+             sc + 'use{fill:' + b.cross + '}';
+    }
+  } catch(e){}
+  let st = document.getElementById('bt-theme-css');
+  if (!st){
+    st = document.createElement('style');
+    st.id = 'bt-theme-css';
+    document.head.appendChild(st);
+  }
+  st.textContent = css;
+}
+
 function injectCSS(){
   injectDefs();
+  themeCSS();
   if (document.getElementById('bt-runtime-css')) return;
   const st = document.createElement('style');
   st.id = 'bt-runtime-css';
   st.textContent =
-    '#scr-party{--bt-felt:#0F5C3A;--bt-felt2:#062A1B;--bt-gold:var(--gold,#FFC542)}' +
+    '#scr-party{--bt-felt:#0F5C3A;--bt-felt2:#062A1B;' +
+      '--bt-gold:var(--kx-gold,var(--gold,#FFC542))}' +
 
     /* ── card faces (klabb's rules, restated — see header) ── */
     '#scr-party .kb-card{position:relative;flex:0 0 auto;padding:0;border:0;background:none;' +
@@ -502,6 +544,127 @@ function injectCSS(){
       'letter-spacing:.17em;color:rgba(255,255,255,.2);pointer-events:none}' +
     '#scr-party .bt-note{position:absolute;left:10px;bottom:6px;font:900 9.5px/1 var(--disp);' +
       'letter-spacing:.13em;color:rgba(255,255,255,.2);pointer-events:none}' +
+
+    /* ── THE PRINTED FELT (21) — the classic arc, silk-screened under
+       everything: the gold rail, "BLACKJACK PAYS …", the dealer's rule,
+       "INSURANCE PAYS 2 TO 1". Pure SVG print: aria-hidden, no hits. ── */
+    '#scr-party .bt-arc{flex:1 1 auto;min-height:50px;max-height:118px;position:relative;' +
+      'z-index:0;pointer-events:none;display:flex;align-items:center;justify-content:center}' +
+    '#scr-party .bt-arc svg{width:103%;height:100%;display:block}' +
+    '#scr-party .bt-arc .rail{fill:none;stroke:var(--bt-ring,#FFD98A);stroke-width:2.4;opacity:.30}' +
+    '#scr-party .bt-arc .rail2{fill:none;stroke:var(--bt-ring,#FFD98A);stroke-width:1;opacity:.16}' +
+    '#scr-party .bt-arc .t1{font:900 16.5px var(--disp);letter-spacing:.22em;' +
+      'fill:var(--bt-ring,#FFD98A);opacity:.60}' +
+    '#scr-party .bt-arc .t2{font:800 8.4px var(--disp);letter-spacing:.24em;fill:#FFF;opacity:.42}' +
+    '#scr-party .bt-arc .t3{font:800 8.4px var(--disp);letter-spacing:.30em;' +
+      'fill:var(--bt-ring,#FFD98A);opacity:.40}' +
+    '#scr-party .bt-arc .pip{fill:var(--bt-ring,#FFD98A);opacity:.34}' +
+
+    /* ── the seats along the arc (21): every other chair at the table ── */
+    '#scr-party .bt-pods{flex:0 0 auto;position:relative;z-index:1;display:flex;' +
+      'justify-content:center;gap:6px;padding:2px 4px 14px;min-height:0}' +
+    '#scr-party .bt-pod{flex:0 1 88px;min-width:56px;display:flex;flex-direction:column;' +
+      'align-items:center;gap:2px;padding:5px 4px 6px;border-radius:12px;' +
+      'background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.10)}' +
+    '#scr-party .bt-pod.on{background:rgba(255,197,66,.15);border-color:var(--bt-gold);' +
+      'box-shadow:0 0 12px rgba(255,197,66,.22)}' +
+    '#scr-party .bt-pod.out{opacity:.35}' +
+    '#scr-party .bt-pod .n{font:900 8.5px/1.2 var(--disp);letter-spacing:.06em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.72);max-width:82px;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-party .bt-pod.on .n{color:var(--bt-gold)}' +
+    '#scr-party .bt-pod .h{display:flex;gap:2px;line-height:0}' +
+    '#scr-party .bt-pod .h + .h{margin-top:2px}' +
+    '#scr-party .bt-pod .row{display:flex;align-items:center;gap:4px}' +
+    '#scr-party .bt-pod .bt-tot{font-size:10px;padding:2px 6px;min-width:20px}' +
+    '#scr-party .bt-pod .tag{font:900 8px/1.3 var(--disp);letter-spacing:.09em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.55)}' +
+    '#scr-party .bt-pod .tag.bad{color:#F0899A}' +
+    '#scr-party .bt-pod .tag.good{color:#7CE8AE}' +
+    '#scr-party .bt-pod .tag.bj{color:var(--bt-gold)}' +
+    '#scr-party .bt-pod .stk{display:flex;align-items:center;gap:3px;' +
+      'font:700 9px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#FFE9B0}' +
+    '#scr-party .bt-pod .stk .bt-chip{width:13px;height:13px}' +
+
+    /* ── the BET SPOT: the printed ring your chips sit in ── */
+    '#scr-party .bt-spot{position:relative;display:flex;align-items:center;gap:4px;' +
+      'padding:4px 9px;border-radius:999px;border:1.5px solid rgba(255,217,138,.4);' +
+      'box-shadow:inset 0 0 0 3px rgba(0,0,0,.18),inset 0 0 0 4px rgba(255,217,138,.14);' +
+      'font:800 10.5px/1 ui-monospace,SFMono-Regular,Menlo,monospace;color:#FFE9B0}' +
+    '#scr-party .bt-spot .bt-chip{width:17px;height:17px}' +
+    '#scr-party .bt-spot.up{border-color:rgba(124,232,174,.55);color:#B9F3D4}' +
+    '#scr-party .bt-spot.down{border-color:rgba(240,137,154,.5);color:#F5B7C1}' +
+
+    /* ── THE WINNER SCREEN — the round settles on a card that slides up
+       over the felt: who won, what every hand made, the chips that
+       moved, and the one button that deals the next round. ── */
+    '#scr-party .bt-win{position:absolute;left:6px;right:6px;bottom:6px;z-index:24;' +
+      'display:flex;flex-direction:column;border-radius:16px;overflow:hidden;' +
+      'background:linear-gradient(180deg,rgba(9,38,25,.97),rgba(4,20,13,.98));' +
+      'border:1px solid rgba(255,217,138,.28);box-shadow:0 -12px 34px rgba(0,0,0,.6),' +
+      'inset 0 1px 0 rgba(255,255,255,.08);transform:translateY(112%);opacity:0;' +
+      'visibility:hidden;pointer-events:none;max-height:76%;' +
+      'transition:transform .3s var(--ease),opacity .3s var(--ease),visibility 0s .3s}' +
+    '#scr-party .bt-win.open{transform:none;opacity:1;visibility:visible;pointer-events:auto;' +
+      'transition:transform .3s var(--ease),opacity .3s var(--ease)}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .bt-win{transition:none}}' +
+    'body.reduced #scr-party .bt-win{transition:none}' +
+    '#scr-party .bt-win-h{flex:0 0 auto;text-align:center;padding:13px 12px 4px}' +
+    '#scr-party .bt-win-h b{display:block;font:900 19px/1.1 var(--disp);letter-spacing:.06em;' +
+      'text-transform:uppercase}' +
+    '#scr-party .bt-win-h b.win{color:var(--bt-gold)}' +
+    '#scr-party .bt-win-h b.lose{color:#F0899A}' +
+    '#scr-party .bt-win-h b.push{color:#D6D8E4}' +
+    '#scr-party .bt-win-h i{display:block;font-style:normal;font:700 10px/1.5 var(--disp);' +
+      'letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.5);margin-top:3px}' +
+    '#scr-party .bt-win-b{min-height:0;overflow-y:auto;padding:6px 12px 4px;' +
+      '-webkit-overflow-scrolling:touch}' +
+    '#scr-party .bt-win-r{display:flex;align-items:center;gap:8px;padding:6px 4px;' +
+      'border-top:1px solid rgba(255,255,255,.07)}' +
+    '#scr-party .bt-win-r:first-child{border-top:0}' +
+    '#scr-party .bt-win-r .who{flex:1;min-width:0;font:900 11px/1.3 var(--disp);' +
+      'letter-spacing:.04em;color:var(--txt);white-space:nowrap;overflow:hidden;' +
+      'text-overflow:ellipsis;text-transform:uppercase}' +
+    '#scr-party .bt-win-r .who i{display:block;font-style:normal;font:700 9px/1.4 var(--body);' +
+      'color:var(--dim);letter-spacing:0;text-transform:none}' +
+    '#scr-party .bt-win-r .made{flex:0 0 auto;display:flex;gap:4px}' +
+    '#scr-party .bt-win-r .made em{font:900 9px/1 var(--disp);font-style:normal;' +
+      'letter-spacing:.06em;padding:4px 7px;border-radius:999px;background:rgba(0,0,0,.4);' +
+      'border:1px solid rgba(255,255,255,.13);color:#EAEAF2;text-transform:uppercase}' +
+    '#scr-party .bt-win-r .made em.bj{color:var(--bt-gold);border-color:rgba(255,197,66,.5)}' +
+    '#scr-party .bt-win-r .made em.bust{color:#F0899A;border-color:rgba(240,120,140,.42)}' +
+    '#scr-party .bt-win-r .made em.win{color:#7CE8AE;border-color:rgba(110,230,170,.42)}' +
+    '#scr-party .bt-win-r .net{flex:0 0 auto;min-width:44px;text-align:right;' +
+      'font:800 12px/1 ui-monospace,SFMono-Regular,Menlo,monospace}' +
+    '#scr-party .bt-win-r .net.up{color:#7CE8AE}#scr-party .bt-win-r .net.dn{color:#F0899A}' +
+    '#scr-party .bt-win-r .net.zz{color:rgba(255,255,255,.55)}' +
+    '#scr-party .bt-win-d{display:flex;align-items:center;justify-content:center;gap:6px;' +
+      'padding:2px 12px 6px}' +
+    '#scr-party .bt-win-d .kb-card{box-shadow:0 1px 3px rgba(0,0,0,.5)}' +
+    '#scr-party .bt-win-f{flex:0 0 auto;display:flex;gap:8px;align-items:center;' +
+      'padding:8px 12px calc(10px + env(safe-area-inset-bottom,0px));' +
+      'border-top:1px solid rgba(255,255,255,.09)}' +
+    '#scr-party .bt-win-f .bank{flex:1;font:900 9px/1.4 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.55)}' +
+    '#scr-party .bt-win-f .bank b{display:block;font-size:15px;color:#FFF;letter-spacing:0}' +
+    '#scr-party .bt-win-f .bt-act{flex:0 0 auto;min-width:150px}' +
+    '#scr-party .bt-win-f .wait{flex:0 0 auto;font:700 10px/1.5 var(--body);color:var(--dim);' +
+      'text-align:right;max-width:55%}' +
+
+    /* ── the table-rules rows on the setup sheet ── */
+    '#scr-party .bt-opt{display:flex;align-items:center;gap:10px;min-height:48px;padding:4px 2px}' +
+    '#scr-party .bt-opt .lbl{flex:1;min-width:0}' +
+    '#scr-party .bt-opt .lbl b{display:block;font:900 10px/1.4 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--txt)}' +
+    '#scr-party .bt-opt .lbl i{display:block;font-style:normal;font-size:10px;line-height:1.4;' +
+      'color:var(--dim);margin-top:1px}' +
+    '#scr-party .bt-seg{display:flex;gap:5px}' +
+    '#scr-party .bt-seg button{min-width:46px;min-height:40px;padding:0 10px;border-radius:10px;' +
+      'font:900 11px/1 var(--disp);letter-spacing:.04em;color:var(--txt);cursor:pointer;' +
+      'background:rgba(255,255,255,.07);border:1.5px solid rgba(255,255,255,.16);' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .bt-seg button.on{color:#241800;border-color:#FFE9B0;' +
+      'background:linear-gradient(180deg,#FFD979,var(--bt-gold))}' +
 
     /* ── the hint line ── */
     '#scr-party .bt-say{flex:0 0 auto;font:700 11px/1.45 var(--body);color:rgba(255,255,255,.82);' +
@@ -666,11 +829,14 @@ function table(){
   ctx.host.innerHTML =
     '<div class="bt-table" id="bt-table">' +
       '<div class="bt-top" id="bt-top"></div>' +
+      '<div class="bt-arc" id="bt-arc" aria-hidden="true"></div>' +
+      '<div class="bt-pods" id="bt-pods"></div>' +
       '<div class="bt-opps" id="bt-opps"></div>' +
       '<div class="bt-mid" id="bt-mid"></div>' +
       '<div class="bt-say" id="bt-say"></div>' +
       '<div class="bt-me" id="bt-me"></div>' +
       '<div class="bt-acts" id="bt-acts"></div>' +
+      '<div class="bt-win" id="bt-win" aria-hidden="true"></div>' +
       '<div class="bt-rules" id="bt-rulespanel" aria-hidden="true">' +
         '<div class="bt-rules-h"><h4 id="bt-rules-t"></h4>' +
           '<button class="bt-rules-x" id="bt-rules-x" aria-label="' +
@@ -682,12 +848,15 @@ function table(){
   const root = ctx.host.querySelector('#bt-table');
   UI = {
     ctx, root,
+    arc:  root.querySelector('#bt-arc'),
     top:  root.querySelector('#bt-top'),
+    pods: root.querySelector('#bt-pods'),
     opps: root.querySelector('#bt-opps'),
     mid:  root.querySelector('#bt-mid'),
     say:  root.querySelector('#bt-say'),
     me:   root.querySelector('#bt-me'),
     acts: root.querySelector('#bt-acts'),
+    win:  root.querySelector('#bt-win'),
     rules: root.querySelector('#bt-rulespanel')
   };
   root.querySelector('#bt-rules-x').addEventListener('click', () => setRules(false));
@@ -715,6 +884,19 @@ function onTap(t){
   const a = t.getAttribute('data-act');
   if (a === 'rules'){ setRules(!rulesOpen); return; }
   const e = E(), st = M.st, me = mySeat();
+  /* NEXT ROUND is the table's move, not a seat's: the winner screen's
+     button. Offline anybody may deal; online only the bank (the host)
+     — it must push the fresh private lanes first (net.redeal). */
+  if (a === 'next' && M.mode === '21'){
+    if (st.phase !== 'settle') return;
+    if (M.net){
+      if (!M.net.host) return;
+      if (!hostDealsNext()) return;      /* redeal refused: stay put   */
+    }
+    const r = doMove(-1, { t:'next' }, 'table');
+    if (r.ok) render();
+    return;
+  }
   const mine = e.turn(st) === me;
   if (!mine) return;
 
@@ -799,82 +981,256 @@ function render(){
   step();
 }
 
-/* ── 21 ─────────────────────────────────────────────────────────── */
+/* ── 21: THE CASINO TABLE ─────────────────────────────────────────
+   Dealer at the crown, the printed arc silk-screened on the felt, the
+   other chairs in a shallow arc beneath it, your own hand(s) on their
+   bet spots at the base, the thumb controls under that. The winner
+   screen slides over the base when the round settles. ── */
+
+/* the felt print, built once per rules signature (payout + S17/H17) */
+function paintArc21(st){
+  const pay = st.rule.bjPay[0] + ':' + st.rule.bjPay[1];
+  const drawLine = st.rule.h17
+    ? T('DEALER HITS SOFT 17', 'IL-BANK JIĠBED FUQ SOFT 17')
+    : T('DEALER MUST DRAW TO 16 AND STAND ON ALL 17',
+        'IL-BANK JIĠBED SA 16 U JIEQAF FUQ KULL 17');
+  const key = pay + '|' + drawLine + '|' + (window.KARTI_LANG ? KARTI_LANG.lang : '');
+  if (UI.arcKey === key) return;
+  UI.arcKey = key;
+  UI.arc.innerHTML =
+    '<svg viewBox="0 0 360 128" preserveAspectRatio="xMidYMid meet" ' +
+        'aria-hidden="true" focusable="false">' +
+      '<defs>' +
+        '<path id="bt-a1" d="M20 66 Q 180 6 340 66"/>' +
+        '<path id="bt-a2" d="M34 92 Q 180 38 326 92"/>' +
+        '<path id="bt-a3" d="M52 116 Q 180 70 308 116"/>' +
+      '</defs>' +
+      '<path class="rail" d="M6 62 Q 180 -6 354 62"/>' +
+      '<path class="rail2" d="M10 66 Q 180 -1 350 66"/>' +
+      '<text class="t1"><textPath href="#bt-a1" startOffset="50%" text-anchor="middle">' +
+        esc(T('BLACKJACK PAYS ', 'BLACKJACK IĦALLAS ') + pay) + '</textPath></text>' +
+      '<text class="t2"><textPath href="#bt-a2" startOffset="50%" text-anchor="middle">' +
+        esc(drawLine) + '</textPath></text>' +
+      '<text class="t3"><textPath href="#bt-a3" startOffset="50%" text-anchor="middle">' +
+        esc(T('INSURANCE PAYS 2 TO 1', 'L-ASSIGURAZZJONI TĦALLAS 2 MA\' 1')) + '</textPath></text>' +
+      '<path class="pip" d="M30 104l4 5-4 5-4-5z"/><path class="pip" d="M330 104l4 5-4 5-4-5z"/>' +
+    '</svg>';
+}
+
+/* one word for a hand's public state (the pods and the winner rows) */
+function handTag21(st, h, settled){
+  const hv = BJ.engine.handValue(h.cards);
+  if (settled && h.out){
+    const o = bjOutWords(h.out);
+    return { txt: o.txt, cls: o.cls === 'bj' ? 'bj' : o.cls === 'win' ? 'good' : o.cls === 'push' ? '' : 'bad' };
+  }
+  if (h.surrendered) return { txt: T('Surr.', 'Ċeda'), cls: 'bad' };
+  if (h.bust)        return { txt: T('Bust', 'Ħaraq'), cls: 'bad' };
+  if (!hv.unknown && hv.blackjack) return { txt: 'BJ', cls: 'bj' };
+  if (h.done)        return { txt: T('Stand', 'Wieqaf'), cls: '' };
+  return null;
+}
+
 function render21(){
   const e = BJ.engine, st = M.st, me = mySeat();
   const t = e.turn(st);
   const settling = st.phase === 'settle' && st.show;
-  const revealed = st.phase === 'dealer' || settling || st.phase === 'settle' || !st.dealer.hole;
-  const holeDown = st.dealer && st.dealer.hole && !revealed;
+  const holeDown = st.dealer && st.dealer.hole;
   const short = (UI.root.clientHeight || 500) < 430;
-  const cw = short ? 40 : 54;
+  const cw = short ? 38 : 50;
 
   UI.opps.style.display = 'none';
+  UI.mid.style.display = 'none';
+  UI.arc.style.display = '';
+  paintArc21(st);
 
-  /* — the dealer — */
+  /* — the dealer, at the crown of the table — */
   const d = st.dealer || { cards: [] };
-  const dcards = d.cards.map((c, i) =>
+  let dcards = d.cards.map((c, i) =>
     (holeDown && i === 1) ? cardBtn(-1, { face:false, w: cw }) : cardBtn(c, { w: cw })
   ).join('');
-  const dTot = holeDown
-    ? bjTotalHTML(d.cards.slice(0, 1), false)     /* only the up card shows */
+  /* online the hole card exists at the pit before it exists in the
+     state — show its back the moment the up-card is on the felt */
+  if (holeDown && d.cards.length === 1) dcards += cardBtn(-1, { face:false, w: cw });
+  if (!d.cards.length){ dcards = slot(cw) + slot(cw); }
+  const dTot = !d.cards.length ? ''
+    : holeDown ? bjTotalHTML(d.cards.slice(0, 1), false)
     : bjTotalHTML(d.cards, false);
   UI.top.innerHTML =
     '<span class="bt-lbl">' + esc(T('Dealer', 'Il-bank')) + '</span>' +
     '<div class="bt-dealer"><span class="bt-hand">' + dcards + '</span>' + dTot + '</div>';
 
-  /* — the middle: shoe / a message — */
-  const insurance = st.phase === 'insurance' && t === me;
-  UI.mid.className = 'bt-mid';
-  UI.mid.innerHTML =
-    '<div class="bt-piles"><div class="bt-pile">' +
-      cardBtn(-1, { face:false, w: short ? 30 : 40 }) +
-      '<span class="cap">' + esc(T('Shoe', 'Il-mazz')) + '</span>' +
-    '</div></div>' +
-    '<span class="bt-note" aria-hidden="true">' + esc((e.note(st) || '').split('·')[1] || '').trim() + '</span>' +
-    '<span class="bt-mode" aria-hidden="true">' + esc(modeName('21') + ' · ' +
-      (st.mode === 'coins' ? T('COINS', 'MUNITI') : T('FREE', 'ĦIELES'))) + '</span>';
+  /* — the other chairs, along the arc — */
+  const others = [];
+  for (let i = 0; i < st.n; i++) if (i !== me) others.push(i);
+  UI.pods.style.display = others.length ? '' : 'none';
+  if (others.length){
+    const m = others.length;
+    UI.pods.innerHTML = others.map((i, k) => {
+      const s = st.seats[i];
+      const podW = short ? 13 : 16;
+      const tt = (k + 0.5) / m;                       /* the arc dip     */
+      const dip = m > 1 ? Math.round(14 * (1 - Math.pow(2 * tt - 1, 2))) : 10;
+      const acting = (t === i && (st.phase === 'play' || st.phase === 'insurance'));
+      const handRows = s.hands.map(h => {
+        const cs = h.cards.map(c => (c == null)
+          ? cardBtn(-1, { face:false, w: podW })
+          : cardBtn(c, { w: podW, dim: h.bust || h.surrendered })).join('');
+        return '<span class="h">' + cs + '</span>';
+      }).join('');
+      const h0 = s.hands[0];
+      const hv0 = h0 ? BJ.engine.handValue(h0.cards) : null;
+      const tag = h0 ? handTag21(st, h0, settling) : (s.gone
+        ? { txt: T('Left', 'Telaq'), cls: 'bad' } : { txt: T('Sits out', 'Barra'), cls: '' });
+      const tot = (h0 && !hv0.unknown && !s.gone)
+        ? '<span class="bt-tot">' + esc(hv0.blackjack ? 'BJ' : String(hv0.total)) + '</span>'
+        : (h0 ? '<span class="bt-tot">?</span>' : '');
+      return '<div class="bt-pod' + (acting ? ' on' : '') + (s.gone ? ' out' : '') + '"' +
+          ' style="transform:translateY(' + dip + 'px)">' +
+        '<span class="n">' + esc(s.name) + '</span>' +
+        handRows +
+        '<span class="row">' + tot +
+          (tag ? '<span class="tag ' + tag.cls + '">' + esc(tag.txt) + '</span>' : '') + '</span>' +
+        '<span class="stk">' + chip('') + s.stack + '</span>' +
+      '</div>';
+    }).join('');
+  }
 
   /* — the hint — */
+  const insurance = st.phase === 'insurance' && t === me;
   UI.say.innerHTML = say21(st, me, t, insurance);
 
-  /* — your seat: one or more hands — */
+  /* — your seat: one or more hands, each on its own bet spot — */
   const s = st.seats[me];
-  UI.me.innerHTML = s.hands.map((h, hi) => {
+  UI.me.innerHTML = (s.hands.length ? s.hands.map((h, hi) => {
     const acting = t === me && s.active === hi && st.phase === 'play';
-    const cards = h.cards.map(c => cardBtn(c, { w: cw, dim: h.done && (h.bust || h.surrendered) })).join('');
+    const cards = h.cards.map(c => (c == null)
+      ? cardBtn(-1, { face:false, w: cw })
+      : cardBtn(c, { w: cw, dim: h.done && (h.bust || h.surrendered) })).join('');
     const out = (settling && h.out) ? bjOutWords(h.out) : null;
+    const spotCls = out ? (out.cls === 'lose' ? ' down' : out.cls === 'push' ? '' : ' up') : '';
     return '<div class="bt-myhand' + (acting ? ' on' : '') + '">' +
       '<span class="h">' + cards + '</span>' +
       '<span class="meta">' + bjTotalHTML(h.cards, false) +
-        '<span class="bet">' + chip('') + h.bet + '</span></span>' +
+        '<span class="bt-spot' + spotCls + '">' + chip('') + h.bet + '</span></span>' +
       (out ? '<span class="out ' + out.cls + '">' + esc(out.txt) + '</span>' : '') +
     '</div>';
-  }).join('') +
+  }).join('') : '<div class="bt-myhand"><span class="tag">' +
+      esc(T('You sit this round out.', 'Toqgħod barra dan ir-round.')) + '</span></div>') +
     '<div class="bt-purse">' + esc(T('Your chips', 'Iċ-ċipep')) + '<b>' + s.stack + '</b></div>';
 
   /* — the controls — */
   paintActs21(st, me, t, insurance);
+
+  /* — the winner screen — */
+  paintWin21(st, me, settling);
+}
+
+/* the round-result card: who won, what every hand made, the chips that
+   moved — and the one clear way to the next round. */
+function paintWin21(st, me, settling){
+  if (!UI || !UI.win) return;
+  if (!settling){
+    UI.win.classList.remove('open');
+    UI.win.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  const e = BJ.engine;
+  const show = st.show;
+  /* my own net this round decides the headline */
+  let myNet = 0, anyNet = false;
+  show.rows.forEach(r => { if (r.seat === me){ myNet += (r.ret - r.bet); anyNet = true; } });
+  const toneCls = !anyNet ? 'push' : myNet > 0 ? 'win' : myNet < 0 ? 'lose' : 'push';
+  const head = !anyNet ? T('Round over', 'Spiċċa r-round')
+    : myNet > 0 ? T('You win!', 'Rbaħt!')
+    : myNet < 0 ? T('The bank takes it', 'Il-bank jieħu')
+    : T('Push', 'Patta');
+  const dLine = show.dealerBust ? T('Dealer busts', 'Il-bank jinħaraq')
+    : show.dealerBJ ? T('Dealer blackjack', 'Blackjack tal-bank')
+    : T('Dealer', 'Il-bank') + ' ' + show.dealerTotal;
+  const dCards = show.dealer.map(c => cardBtn(c, { w: 26 })).join('');
+
+  /* one row per seat: every hand's word + the seat's net chips */
+  const perSeat = {};
+  show.rows.forEach(r => {
+    if (!perSeat[r.seat]) perSeat[r.seat] = { net: 0, made: [] };
+    perSeat[r.seat].net += (r.ret - r.bet);
+    const w = bjOutWords(r.out);
+    const word = r.out === 'bj' ? 'BJ'
+      : r.bust ? T('Bust', 'Ħaraq')
+      : r.out === 'surr' ? T('Surr.', 'Ċeda')
+      : r.out === 'push' ? String(r.total)
+      : (r.total ? String(r.total) : w.txt);
+    perSeat[r.seat].made.push({
+      word, cls: r.out === 'bj' ? 'bj' : r.bust ? 'bust' : r.out === 'win' ? 'win' : ''
+    });
+  });
+  const order = Object.keys(perSeat).map(Number).sort((a, b) => {
+    if (perSeat[b].net !== perSeat[a].net) return perSeat[b].net - perSeat[a].net;
+    return (a === me ? -1 : b === me ? 1 : a - b);
+  });
+  const rows = order.map(si => {
+    const p = perSeat[si];
+    const net = p.net > 0 ? '+' + p.net : String(p.net);
+    const cls = p.net > 0 ? 'up' : p.net < 0 ? 'dn' : 'zz';
+    return '<div class="bt-win-r">' +
+      '<span class="who">' + esc(si === me ? T('You', 'Int') : st.seats[si].name) + '</span>' +
+      '<span class="made">' + p.made.map(mm =>
+        '<em class="' + mm.cls + '">' + esc(mm.word) + '</em>').join('') + '</span>' +
+      '<span class="net ' + cls + '">' + esc(net) + '</span>' +
+    '</div>';
+  }).join('');
+
+  const online = !!(M.net && M.online);
+  const iAmHost = !online || !!(M.net && M.net.host);
+  const foot = iAmHost
+    ? '<button class="bt-act" data-act="next">' + esc(T('Deal the next round', 'Qassam ir-round li jmiss')) + '</button>'
+    : '<span class="wait">' + esc(T('The bank deals the next round…', 'Il-bank iqassam ir-round li jmiss…')) + '</span>';
+  UI.win.innerHTML =
+    '<div class="bt-win-h"><b class="' + toneCls + '">' + esc(head) + '</b>' +
+      '<i>' + esc(T('Round', 'Round') + ' ' + st.round + ' · ' + dLine) + '</i></div>' +
+    '<div class="bt-win-d">' + dCards +
+      bjTotalHTML(show.dealer, false) + '</div>' +
+    '<div class="bt-win-b">' + rows + '</div>' +
+    '<div class="bt-win-f">' +
+      '<span class="bank">' + esc(T('Your chips', 'Iċ-ċipep')) + '<b>' +
+        st.seats[me].stack + '</b></span>' + foot +
+    '</div>';
+  UI.win.classList.add('open');
+  UI.win.setAttribute('aria-hidden', 'false');
 }
 
 function say21(st, me, t, insurance){
   const done = BJ.engine.over(st);
   if (done) return '';
-  if (st.phase === 'settle') return esc(T('Round over. Deal the next.', 'Spiċċa r-round. Qassam ieħor.'));
+  if (st.phase === 'settle') return esc(T('Round over.', 'Spiċċa r-round.'));
   if (insurance)
     return '<b>' + esc(T('Insurance?', 'Assigurazzjoni?')) + '</b> ' +
       esc(T('The dealer shows an ace. Half your bet, pays 2:1 if the dealer has blackjack.',
             'Il-bank juri ass. Nofs l-imħatra, tħallas 2:1 jekk il-bank ikollu blackjack.'));
+  if (st.phase === 'insurance')
+    return esc(T('Insurance is being offered…', 'Qed tiġi offruta l-assigurazzjoni…'));
+  if (st.phase === 'up') return esc(T('The dealer deals…', 'Il-bank iqassam…'));
+  if (st.phase === 'peek')
+    return esc(T('The dealer peeks at the hole card…', 'Il-bank jittawwal lejn il-karta mgħottija…'));
+  if (st.phase === 'show')
+    return esc(t === me ? T('Showdown — your cards turn over.', 'Showdown — il-karti tiegħek jinqalbu.')
+                        : T('Showdown — hands turn over…', 'Showdown — l-idejn jinqalbu…'));
   if (t === me && st.phase === 'play')
     return '<b>' + esc(T('Your go.', 'Imissek.')) + '</b> ' +
       esc(T('Hit for a card, or stand.', 'Ħu karta, jew ieqaf.'));
   if (t === BJ.engine.DEALER) return esc(T('The dealer plays…', 'Il-bank jilgħab…'));
+  if (t >= 0 && st.seats[t])
+    return esc(st.seats[t].name + ' ' + T('is thinking…', 'qed jaħseb…'));
   return esc(T('Dealing…', 'Qed inqassam…'));
 }
 
 function paintActs21(st, me, t, insurance){
   const e = BJ.engine;
-  if (e.over(st) || st.phase === 'settle' || st.phase === 'dealer'){ UI.acts.innerHTML = ''; return; }
+  if (e.over(st) || st.phase === 'settle' || st.phase === 'dealer' ||
+      st.phase === 'up' || st.phase === 'peek' || st.phase === 'show'){
+    UI.acts.innerHTML = ''; return;
+  }
   if (insurance){
     UI.acts.innerHTML =
       '<button class="bt-act ghost" data-act="ins-no">' + esc(T('No insurance', 'Le')) + '</button>' +
@@ -909,6 +1265,10 @@ function render31(){
 
   UI.top.innerHTML = '';
   UI.opps.style.display = '';
+  UI.mid.style.display = '';
+  if (UI.arc){ UI.arc.style.display = 'none'; }
+  if (UI.pods){ UI.pods.style.display = 'none'; }
+  if (UI.win){ UI.win.classList.remove('open'); UI.win.setAttribute('aria-hidden', 'true'); }
 
   /* — the other seats: face-down hands, lives, and a knock flag. Their
        cards only ever turn over at the showdown. — */
@@ -1048,6 +1408,54 @@ function step(){
   const e = E(), st = M.st;
   const t = e.turn(st);
   const TABLE = -1;
+
+  /* ── 21's own beats ── */
+  if (M.mode === '21'){
+    /* the round SETTLES ON THE WINNER SCREEN — no auto-deal. The next
+       round waits for the button (the host's, online). */
+    if (st.phase === 'settle') return;
+    /* ONLINE (lanes): the bank's beats belong to the HOST — it alone
+       holds the bank shoe, and its 'up'/'peek'/'reveal' moves reach
+       everybody over the wire as ordinary logged moves. */
+    if (M.net && M.online && M.online.mode === '21'){
+      if (st.phase === 'show'){
+        /* the showdown: each seat turns over its OWN hand, automatically,
+           the moment the table looks at it. */
+        if (t === M.online.meG){
+          M.timer = setTimeout(() => {
+            M.timer = 0;
+            if (!M || M.dead) return;
+            const stx = M.st;
+            if (stx.phase !== 'show' || E().turn(stx) !== M.online.meG) return;
+            const mine = stx.seats[M.online.meG].hands;
+            /* NEVER show a hand we cannot see ourselves (our lane has
+               not arrived yet — a rejoin race). The lane's arrival
+               rebuilds and re-renders, and this beat fires again. */
+            if (mine.some(h => h.cards.some(c => c == null))) return;
+            const hands = mine.map(h => h.cards.map(c => c | 0));
+            doMove(M.online.meG, { t:'show', hands }, 'show');
+            render();
+          }, FAST ? 1 : 420);
+        }
+        return;
+      }
+      if (t === TABLE && M.net.host){
+        const beat = bankBeat(st);       /* null when not the bank's turn */
+        if (!beat) return;
+        M.timer = setTimeout(() => {
+          M.timer = 0;
+          if (!M || M.dead) return;
+          const b2 = bankBeat(M.st);
+          if (!b2) return;
+          doMove(TABLE, b2.mv, 'table');
+          render();
+        }, FAST ? 1 : beat.ms);
+        return;
+      }
+      if (t === TABLE) return;           /* not ours: the wire brings it */
+    }
+  }
+
   if (t === TABLE){
     /* a settle/table beat: auto-advance to the next round after a pause
        long enough to read the result. */
@@ -1384,9 +1792,18 @@ function optsFor(mode){
              humans: 1, lvl: p.lvl || 2, mode: 'free',
              lives: Math.max(1, Math.min(9, p.lives || 3)) };
   }
-  return { seats: 1, humans: 1, lvl: p.lvl || 2, mode: 'free',
+  return { seats: Math.max(1, Math.min(4, p.seats21 || 1)),
+           humans: 1, lvl: p.lvl || 2, mode: 'free',
            decks: Math.max(1, Math.min(8, p.decks || 6)),
            h17: p.h17 === true, bjPay: (p.bj65 === true) ? [6, 5] : [3, 2] };
+}
+
+/* one folded line that says what the 21 table is set to */
+function optsWords(o){
+  return o.decks + ' ' + T('decks', 'mazzi') + ' · ' +
+         (o.h17 ? 'H17' : 'S17') + ' · ' +
+         (o.bjPay && o.bjPay[0] === 6 ? '6:5' : '3:2') + ' · ' +
+         o.seats + ' ' + (o.seats === 1 ? T('chair', 'siġġu') : T('chairs', 'siġġijiet'));
 }
 
 function setupSheet(){
@@ -1475,6 +1892,48 @@ function setupSheet(){
             : '') +
         '</div>' +
 
+        /* ── THE TABLE RULES (21): the honest options the engine really
+           plays — the shoe, S17/H17, the payout, the chairs. Folded so
+           starting a game stays short; every choice is remembered. ── */
+        (mode === '21'
+          ? '<div style="margin-top:14px">' +
+            '<button class="bt-fold-h" id="bt-optfold" aria-expanded="' + (setupOpen ? 'true' : 'false') + '">' +
+              '<span><b>' + esc(T('Table rules', 'Regoli tal-mejda')) + '</b>' +
+              '<i>' + esc(optsWords(optsFor('21'))) + '</i></span>' +
+              '<em><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></em>' +
+            '</button>' +
+            '<div class="bt-fold-b' + (setupOpen ? ' open' : '') + '" id="bt-optbody"><div class="bt-fold-i">' +
+              '<div class="bt-opt"><span class="lbl"><b>' + esc(T('Chairs', 'Siġġijiet')) + '</b>' +
+                '<i>' + esc(T('You and the machine players.', 'Int u l-plejers tal-magna.')) + '</i></span>' +
+                '<span class="bt-seg" data-opt="seats21">' + [1, 2, 3, 4].map(v =>
+                  '<button data-v="' + v + '"' + (optsFor('21').seats === v ? ' class="on"' : '') + '>' +
+                  v + '</button>').join('') + '</span></div>' +
+              '<div class="bt-opt"><span class="lbl"><b>' + esc(T('Decks in the shoe', 'Mazzi fil-mazz')) + '</b>' +
+                '<i>' + esc(T('A real pit deals six.', 'Każinò veru jqassam sitta.')) + '</i></span>' +
+                '<span class="bt-seg" data-opt="decks">' + [1, 2, 4, 6, 8].map(v =>
+                  '<button data-v="' + v + '"' + (optsFor('21').decks === v ? ' class="on"' : '') + '>' +
+                  v + '</button>').join('') + '</span></div>' +
+              '<div class="bt-opt"><span class="lbl"><b>' + esc(T('Dealer on soft 17', 'Il-bank fuq soft 17')) + '</b>' +
+                '<i>' + esc(T('H17 hits it — worth about 0.2% to the house.',
+                              'H17 jiġbed — madwar 0.2% favur id-dar.')) + '</i></span>' +
+                '<span class="bt-seg" data-opt="h17">' +
+                  '<button data-v="0"' + (!optsFor('21').h17 ? ' class="on"' : '') + '>S17</button>' +
+                  '<button data-v="1"' + (optsFor('21').h17 ? ' class="on"' : '') + '>H17</button>' +
+                '</span></div>' +
+              '<div class="bt-opt"><span class="lbl"><b>' + esc(T('Blackjack pays', 'Blackjack iħallas')) + '</b>' +
+                '<i>' + esc(T('6:5 is the casino’s thumb on the scale.',
+                              '6:5 huwa s-saba’ tal-każinò fuq il-miżien.')) + '</i></span>' +
+                '<span class="bt-seg" data-opt="bj65">' +
+                  '<button data-v="0"' + (!pref().bj65 ? ' class="on"' : '') + '>3:2</button>' +
+                  '<button data-v="1"' + (pref().bj65 ? ' class="on"' : '') + '>6:5</button>' +
+                '</span></div>' +
+              '<p class="blurb" style="margin:6px 2px 8px;font-size:10.5px;color:var(--dim)">' +
+                esc(T('These set the offline table. Online plays the house standard: six decks, S17, 3:2.',
+                      'Dawn għall-mejda offline. Onlajn jilgħab l-istandard tad-dar: sitt mazzi, S17, 3:2.')) +
+              '</p>' +
+            '</div></div></div>'
+          : '') +
+
         '<button class="btn ghost bt-big" id="bt-rules-open" aria-expanded="false" ' +
           'aria-controls="bt-menu-rules" style="margin-top:12px">' +
           ico('book') + ' ' + esc(T('How to play', 'Kif tilgħab')) + '</button>' +
@@ -1538,6 +1997,28 @@ function setupSheet(){
     const rs = el.querySelector('#bt-res');
     if (rs) rs.onclick = () => { if (ST.save) newGame(null, null, ST.save); };
 
+    /* the table-rules fold (21): each segment writes a pref and repaints */
+    const of = el.querySelector('#bt-optfold');
+    if (of) of.onclick = () => {
+      setSetupOpen(!setupOpen);
+      cue('ui.tap', { gain:0.7 }, true);
+      const bd = el.querySelector('#bt-optbody');
+      if (bd) bd.classList.toggle('open', setupOpen);
+      of.setAttribute('aria-expanded', setupOpen ? 'true' : 'false');
+    };
+    el.querySelectorAll('.bt-seg[data-opt]').forEach(seg => {
+      const key = seg.getAttribute('data-opt');
+      seg.querySelectorAll('button').forEach(b => b.onclick = () => {
+        const v = +b.getAttribute('data-v');
+        cue('ui.tap', { gain:0.8 }, true);
+        if (key === 'seats21') pref({ seats21: v });
+        else if (key === 'decks') pref({ decks: v });
+        else if (key === 'h17') pref({ h17: v === 1 });
+        else if (key === 'bj65') pref({ bj65: v === 1 });
+        paint();
+      });
+    });
+
     /* the rules slide — open/close without repaint so it actually slides */
     const rulesEl = el.querySelector('#bt-menu-rules');
     const openBtn = el.querySelector('#bt-rules-open');
@@ -1593,31 +2074,115 @@ function rulesForPreview(mode, o){
 /* ═══════════════════════════════════════════════════════════════════
    ONLINE — with the deal kept secret by the wire
    ───────────────────────────────────────────────────────────────────
-   The relay deals each seat its own cards PRIVATELY (mp.js's planDeal →
-   the {t:'mine'} push); the shared seed is never trusted with a hidden
-   card. Only 31 (Tletin / Scat) has a cross-player secret — each player's
-   three cards — so only 31 asks for a private deal. 21 is one player
-   against the DEALER; no seat holds a card another seat must not see, so
-   it runs off the shared seed like a board game (the dealer's hole card
-   is hidden LOCALLY, on each client, and never leaves it).
+   21 (blackjack) IS OPEN, on the relay's per-round private deal:
 
-   The DRAW PILE and the UP-CARD in 31 are public — the stock is drawn one
-   at a time into a face-up discard — so they ride the shared seed, exactly
-   as skarta's stock does. Only the three cards in each hand are secret, and
-   only they come down the private channel. Free lives only; coins stay
+   · EVERY ROUND the relay shuffles one 52-card pool with its OWN entropy
+     and deals each seat a private 8-card LANE ({t:'mine'} → redeal for
+     round two on). A seat's opening two cards and every hit come off its
+     own lane — so no client, INCLUDING THE HOST, ever holds another
+     player's cards. Hands turn face-up only at the showdown ('show').
+   · THE BANK (the dealer) has no lane. The host keeps a bank shoe and
+     the dealer's cards enter the match as logged moves: 'up' (shared),
+     'peek' (blackjack yes/no — the hole shows only if yes), 'reveal'
+     (the hole + the fixed policy's draws). The bank's brain running on
+     the host's phone is the SAME documented trust as machine chairs:
+     the host could read its own bank shoe in devtools. No other player
+     can, and no player's hand ever reaches the host.
+   · Each lane item carries the ROUND stamped in its high bits
+     ((round & 3) << 6 | card), so a lane that arrives early, late, or on
+     a mid-hand REJOIN (the relay replays only the LATEST deal) lands on
+     the right round without guessing.
+   · ONLINE HOUSE RULES are fixed so every phone settles identically:
+     S17, 3:2, double-after-split, late surrender, one split (two hands),
+     flat bet 10. The bank shoe is six decks, freshly shuffled per round.
+
+   31 (Tletin / Scat) stays closed online: its first-round private deal
+   works, but its round loop is not wired to the per-round re-deal yet
+   (see canStart's honest reason). Free chips/lives only; coins stay
    behind COINS_MODE_READY. */
 let NET = null;
 
-/* the pool the lobby asks the relay to deal. 31 → three cards a seat, off
-   the 52 ids; the relay hands each seat its three, privately. 21 has no
-   hidden per-seat card, so it returns null and mp.js sends no deal (the
-   start is byte-identical to a board game). */
+/* the ROUND TAG a 21 lane item carries (2 bits are plenty: only
+   adjacent rounds ever need telling apart) */
+const laneItem = (round, card) => ((round & 3) << 6) | (card & 63);
+function lanePool(round){
+  const items = [];
+  for (let c = 0; c < 52; c++) items.push(laneItem(round, c));
+  return { items, each: 8 };
+}
+
+/* the pool the lobby asks the relay to deal at START (round 1).
+   21 → an 8-card lane a seat off a 52-card pool, round-tagged;
+   31 → three cards a seat (its round loop stays offline for now). */
 function planDeal(opts){
   const variant = (opts && (opts.variant === '31' || opts.mode === '31')) ? '31' : '21';
-  if (variant !== '31') return null;
+  if (variant === '21') return lanePool(1);
   const items = [];
   for (let i = 0; i < 52; i++) items.push(i);
   return { items, each: 3 };
+}
+
+/* ── THE BANK SHOE (host only) — six decks, shuffled fresh per round
+   with local entropy (never the broadcast seed). Only the host holds
+   it; its cards reach the table exclusively as 'up'/'peek'/'reveal'
+   moves. ── */
+function bankShoe(){
+  const cards = [];
+  for (let d = 0; d < 6; d++)
+    for (let c = 0; c < 52; c++) cards.push(c);
+  for (let i = cards.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = cards[i]; cards[i] = cards[j]; cards[j] = t;
+  }
+  return { cards, i: 2, up: cards[0], hole: cards[1] };
+}
+/* what the bank owes the table right now (host only): the move + a
+   human pace for it. Null when the beat is not the bank's. */
+function bankBeat(st){
+  const o = M && M.online;
+  if (!o || o.mode !== '21' || !M.net || !M.net.host) return null;
+  if (!o.bank || o.bankRound !== st.round){
+    o.bank = bankShoe();
+    o.bankRound = st.round;
+  }
+  const bank = o.bank;
+  if (st.phase === 'up')
+    return { mv: { t:'up', c: bank.up }, ms: 650 };
+  if (st.phase === 'peek'){
+    const bj = BJ.engine.handValue([bank.up, bank.hole]).blackjack;
+    return { mv: bj ? { t:'peek', bj:true, c: bank.hole } : { t:'peek', bj:false }, ms: 800 };
+  }
+  if (st.phase === 'dealer'){
+    /* the fixed policy, played out of the bank shoe (pure: the same
+       call always composes the same reveal). S17 online. The 14-card
+       clamp is the wire's — a real dealer hand never gets near it. */
+    const cards = [bank.up, bank.hole];
+    let i = 2;
+    const anyLive = st.seats.some(s => s.hands.some(h => !h.bust && !h.surrendered));
+    if (anyLive){
+      for (;;){
+        const hv = BJ.engine.handValue(cards);
+        if (hv.total < 17 && cards.length < 14 && i < bank.cards.length){
+          cards.push(bank.cards[i++]);
+          continue;
+        }
+        break;
+      }
+    }
+    return { mv: { t:'reveal', cards: cards.slice(1) }, ms: 900 };
+  }
+  return null;
+}
+/* the host's NEXT ROUND: push the fresh lanes (redeal) FIRST, then the
+   'next' move rides behind them in the same ordered stream. */
+function hostDealsNext(){
+  if (!M || !M.net || !M.net.host || !M.online || M.online.mode !== '21') return false;
+  const r = (M.st.round + 1);
+  if (typeof M.net.redeal !== 'function') return false;
+  const sent = M.net.redeal(lanePool(r));
+  if (!sent && K && K.toast)
+    K.toast('⚠ ' + T('The deal would not go out. Try again.', 'It-tqassim ma ħariġx. Erġa\' pprova.'));
+  return !!sent;
 }
 
 /* the PUBLIC part of a 31 deal — the up-card and the stock — off the shared
@@ -1660,11 +2225,17 @@ function onlineStart(cfg){
     M.online = { mode:'31', toGame, toRoom, meG, seed: cfg.seed >>> 0,
                  table: tbl };
   } else {
-    /* 21 — one hidden hand against the dealer, no cross-player secret. Off
-       the shared seed, exactly like a board game. */
-    opts = { seats:1, humans:1, lvl:2, mode:'free', decks:6, deal:'seed' };
+    /* 21 — THE LANES TABLE (see the block comment above): every seat's
+       cards ride its own relay-dealt lane; the bank's cards arrive as
+       the host's logged moves. Fixed online house rules so every phone
+       settles identically. */
+    const seats = Math.max(1, Math.min(6, n || 1));
+    opts = { seats, humans: seats, lvl: 2, mode:'free', decks:6, deal:'lanes',
+             resplit: 2, h17: false, bjPay: [3, 2], bet: 10,
+             given: { me: meG, rounds: {} } };
     m = startMatch('21', opts, cfg.seed >>> 0);
-    M.online = { mode:'21', toGame, toRoom, meG, seed: cfg.seed >>> 0 };
+    M.online = { mode:'21', toGame, toRoom, meG, seed: cfg.seed >>> 0,
+                 hostRoom: cfg.host | 0, bank: null, bankRound: 0 };
   }
   if (!m) throw new Error('CARDS2131 would not deal ' + n + ' seats (' + mode + ')');
   M.meta = M.st.seats.map((s, g) => {
@@ -1688,11 +2259,33 @@ function onlineStart(cfg){
   return snapshot();
 }
 
-/* the private hand — THIS seat's three cards, pushed by the relay. Only 31
-   asks for one; 21 never gets here. Re-deal with our own cards injected
-   (opponents stay null → face down) off the same public up-card and stock. */
+/* the private hand — THIS seat's own cards, pushed by the relay and
+   NEVER put back on the shared wire.
+   21: an 8-card round LANE, round-tagged in the item's high bits. Store
+   it under its round and REBUILD the state off the log — a lane that
+   arrives after its round already started (the normal case for round 1,
+   and every rejoin) snaps our own cards into place; everybody else's
+   stay null exactly as before.
+   31: the three cards of its (single) private deal, as before. */
 function onlinePrivate(d){
-  if (!M || M.dead || !M.online || M.online.mode !== '31') return;
+  if (!M || M.dead || !M.online) return;
+  if (M.online.mode === '21'){
+    if (!Array.isArray(d) || !d.length) return;
+    const tag = ((d[0] | 0) >> 6) & 3;
+    const cards = d.map(v => (v | 0) & 63).filter(c => c >= 0 && c < 52);
+    if (!cards.length) return;
+    /* the smallest round >= the round we are in that carries this tag */
+    let r = Math.max(1, M.st.round);
+    for (let k = 0; k < 4 && (r & 3) !== tag; k++) r++;
+    if ((r & 3) !== tag) return;                 /* not a tag we can place */
+    M.opts.given.rounds[r] = cards;
+    M.st = buildState('21', M.opts, M.seed, M.log);
+    applyMeta();
+    render();
+    cue('card.deal', { gain: 0.7 }, true);
+    return;
+  }
+  if (M.online.mode !== '31') return;
   if (!Array.isArray(d) || d.length < 3) return;
   const me = M.online.meG;
   const hands = {};
@@ -1710,6 +2303,9 @@ function onlinePrivate(d){
   cue('card.deal', { gain: 0.7 }, true);
 }
 
+/* the table moves only the BANK may make on a 21 lanes table */
+const BANK_MOVES = { up: 1, peek: 1, reveal: 1, next: 1 };
+
 function onlineRemote(seat, wire){
   if (!M || M.dead || !NET) return null;
   const e = E();
@@ -1717,6 +2313,29 @@ function onlineRemote(seat, wire){
   if (g === undefined) return { ok:false, why:'a move from a chair not at this table' };
   const mv = e.decWire(wire);
   if (!mv) return { ok:false, why:'a move this table does not know how to make' };
+
+  /* ── 21 (lanes): no local fast-forward — every table beat is a real
+     logged move from the host, and only from the host. ── */
+  if (M.online && M.online.mode === '21'){
+    if (mv.t === 'quit'){ doQuit(g); render(); return null; }
+    if (BANK_MOVES[mv.t]){
+      if (seat !== (M.online.hostRoom | 0))
+        return { ok:false, why:'a bank move from a chair that is not the bank' };
+      const r = doMove(-1, mv, 'net');
+      if (!r.ok) return { ok:false, why: String(r.err || 'refused') + ' from the bank' };
+      render();
+      return null;
+    }
+    mv.seat = g;
+    const r = doMove(g, mv, 'net');
+    if (!r.ok){
+      const who = (M.st.seats[g] ? M.st.seats[g].name : 'that chair');
+      return { ok:false, why: String(r.err || 'refused') + ' from ' + who };
+    }
+    render();
+    return null;
+  }
+
   if (mv.t === 'quit'){ doQuit(g); render(); return null; }
   let guard = 0;
   while (e.turn(M.st) === -1 && guard++ < 12){
@@ -1736,6 +2355,19 @@ function onlineRemote(seat, wire){
 
 function doQuit(g){
   if (!M || M.dead) return;
+  if (M.online && M.online.mode === '21'){
+    /* 21 keeps the walk-out IN THE LOG (a 'quit' move the engine already
+       has), because the lanes table REBUILDS state from the log whenever
+       a lane arrives — a flag poked straight into the state would be
+       lost on the very next rebuild. Every client hears the drop at the
+       same point of the ordered stream, so every log agrees. */
+    const s = M.st.seats[g];
+    if (!s || s.gone) return;
+    const rec = { t: 'quit', seat: g };
+    M.log.push(rec);
+    E().apply(M.st, rec);
+    return;
+  }
   const s = M.st.seats[g];
   if (!s || s.out || s.gone) return;
   s.gone = true;                     /* the round-end tally reads gone */
@@ -1773,7 +2405,10 @@ const NET_HOOKS = {
       if (info.src === 'net' || info.src === 'auto') return;
       const w = E().encWire(info.move);
       if (!w) return;
-      const room = NET.toRoom[info.seat];
+      /* a TABLE move (seat -1: the bank's 'up'/'peek'/'reveal'/'next')
+         rides the wire as OUR OWN chair — only the host composes them,
+         and the receivers accept them only from the host's chair. */
+      const room = info.seat < 0 ? NET.toRoom[NET.me] : NET.toRoom[info.seat];
       fn(w, { seat: (room == null ? info.seat : room), src: info.src });
     };
     moveSubs.push(f);
@@ -1806,14 +2441,9 @@ P.online.cards2131 = {
    runs off the shared seed. canStart() lets a free table go; coins stay
    behind COINS_MODE_READY.
    ═══════════════════════════════════════════════════════════════════ */
-const ONLINE_WHY = T(
-  'Online is not open yet. Every phone at a table is dealt from one shared number, so every ' +
-  'phone could read the dealer’s hole card in 21, or everyone’s three cards in 31. It opens ' +
-  'when the server can deal each seat its own cards. Until then it is you against the machine.',
-  'Onlajn għadu magħluq. Kull telefon f’mejda jitqassam minn numru wieħed maqsum, mela kull ' +
-  'telefon jista’ jaqra l-karta mgħottija tal-bank fil-21, jew it-tliet karti ta’ kulħadd ' +
-  'fil-31. Jinfetaħ meta s-server ikun jista’ jqassam lil kull siġġu l-karti tiegħu. Sa dakinhar ' +
-  'huwa int kontra l-magna.');
+/* 21 IS OPEN ONLINE (per-round private lanes — see the ONLINE block).
+   31 keeps its honest refusal below until its round loop rides the
+   per-round re-deal too. */
 
 const LOBBY = {
   id:'cards2131',
@@ -1852,21 +2482,25 @@ const LOBBY = {
     const list = (seatList || []).filter(Boolean);
     const n = list.length;
     const variant = LOBBY.currentVariant();
-    /* NOT OPEN ONLINE YET. Two different reasons, both real:
-       - 21 (SECURITY): blackjack runs off the shared seed, so the dealer's
-         hole card AND the whole shoe are derivable by every phone — you'd
-         know when to hit. It needs per-draw private dealing first.
-       - 31: the FIRST round is dealt privately and is genuinely secret
-         (proven), but 31 is played over several rounds for lives, and round
-         2 has no fresh private deal yet — it needs a private deal PER ROUND.
-       The plumbing and the first-deal secrecy are in and proven; this is the
-       completing step. Play against the machine (and 31 pass-the-phone) now. */
-    if (variant === '21')
+    /* 21 IS OPEN: the relay deals every seat a fresh private lane every
+       round (net.redeal) and the bank's cards arrive as the host's
+       logged moves — no phone can read another player's hand or the
+       hole card. One honest refusal remains: MACHINE CHAIRS. A bot's
+       private lane is delivered to the host, but mp.js's private inbox
+       does not say WHOSE blob a frame is, so the host cannot yet tell
+       its own lane from a bot's. Until that is wired, 21 online seats
+       people only.
+       31 stays closed: its FIRST round is dealt privately and secretly
+       (proven), but its round loop is not wired to the per-round
+       re-deal yet — round two would have no secret deal. */
+    if (variant === '21' && list.some(s => s && s.kind === 'cpu'))
       return { ok:false, why: T(
-        '21 plays against the machine for now — online would let the table read the ' +
-        'dealer’s hidden card. Per-hand private dealing is next.',
-        'It-21 tilgħabu kontra l-magna għalissa — onlajn kulħadd jara l-karta moħbija ' +
-        'tal-bank. It-tqassim privat kull id ġej.') };
+        'No machine chairs at the online 21 table yet — a machine cannot ' +
+        'be dealt a secret hand here. Fill the table with people, or play ' +
+        'the machine offline.',
+        'L-ebda siġġijiet tal-magna fil-mejda tal-21 onlajn għalissa — ' +
+        'magna ma tistax tingħata id sigrieta hawn. Imla l-mejda bin-nies, ' +
+        'jew ilgħab kontra l-magna offline.') };
     if (variant === '31')
       return { ok:false, why: T(
         '31 online is nearly there — each round needs its own secret deal, coming next. ' +
@@ -1892,6 +2526,10 @@ const LOBBY = {
                    ' not tapped ready yet. The empty chairs never hold a deal up.' };
     return { ok:true, why:'' };
   },
+  /* the move codec's field order, published so mp.js's generic wire
+     carries 21's moves (cards ride c0..c12 ONLY in the public 'reveal'
+     and showdown 'show' moves — a hit/double/split never names a card) */
+  wire: { fields: BJ.engine.WIRE_FIELDS },
   rulesHTML: () =>
     '<p>' + T('One tile, two games. <b>21</b> is blackjack: beat the dealer without busting, and ' +
       'a natural pays 3:2. <b>31</b> is Scat: the best hand in one suit, knock when you are safe, ' +
@@ -1899,10 +2537,12 @@ const LOBBY = {
       'Tessera waħda, żewġ logħob. <b>21</b> huwa blackjack: għaddi lill-bank mingħajr ma tinħaraq, ' +
       'u blackjack iħallas 3:2. <b>31</b> huwa l-Iskatt: l-aqwa id f’kulur wieħed, ħabbat meta ' +
       'tkun fis-sod, tkunx l-inqas — tliet ħajjiet.') + '</p>' +
-    '<p>' + T('Online deals 31 each seat its own three cards in secret; 21 is you against the ' +
-      'dealer. Free lives and chips only.',
-      'Onlajn iqassam fil-31 lil kull siġġu t-tliet karti tiegħu bil-moħbi; il-21 int kontra ' +
-      'l-bank. Ħajjiet u ċipep b’xejn biss.') + '</p>',
+    '<p>' + T('Online, 21 deals every seat its own cards in secret, fresh every round — nobody, ' +
+      'not even the host, sees your hand before the showdown. House rules online: six-deck bank, ' +
+      'dealer stands on 17, blackjack pays 3:2. Table chips only.',
+      'Onlajn, il-21 iqassam lil kull siġġu l-karti tiegħu bil-moħbi, friski kull round — ħadd, ' +
+      'lanqas il-host, ma jara idek qabel il-showdown. Regoli tad-dar onlajn: bank ta’ sitt ' +
+      'mazzi, il-bank jieqaf fuq 17, blackjack iħallas 3:2. Ċipep tal-mejda biss.') + '</p>',
   blurb: T('21 and 31 — blackjack against the dealer, or Scat for your lives. One tile, two games.',
            '21 u 31 — blackjack kontra l-bank, jew l-Iskatt għall-ħajjiet tiegħek. Tessera, żewġ logħob.'),
   /* the shared lobby starts the game through P.online.cards2131.start
