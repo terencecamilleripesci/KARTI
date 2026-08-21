@@ -951,6 +951,14 @@ const MP = {
   lobbyY:0,             /* where the finger left the lobby list — see tableLobby */
   aiSeat:-1,            /* the empty chair the machine picker is aimed at */
   began:null,           /* the relay's {t:'began'} — seed, bots, levels    */
+  stakeLive:null,       /* THE POT THIS MATCH IS PLAYING FOR, on this phone:
+                           {ante,humans,pot,id,paid,settled}. Set the moment a
+                           STAKED table begins (the ante goes out right there,
+                           through KARTI_XP.stake with the match id, so a
+                           replayed 'began' can never ante twice); null for a
+                           friendly table, and null again the moment the room
+                           is left. Wallet bookkeeping ONLY — nothing about it
+                           touches the seed, the sim or the wire.             */
   askBack:null,         /* somebody to invite the moment we have a room     */
   unMove:null,          /* unsubscribe from the game's own move feed        */
   privateHook:null,     /* the running game's {t:'mine'} sink, if it has one */
@@ -1563,6 +1571,65 @@ function injectCSS(){
       'filter:none;opacity:1;cursor:default}' +
     '#scr-mp .mp-acts .btn.primary[disabled] .ico{color:#7F73A0;opacity:.7}' +
     '#scr-mp .mp-why.ok{color:#6FD3A2}' +
+
+    /* ═══ THE STAKES — friendly or for chips ═══
+       The host's control wears the lobby's own clothes (a fold button and
+       a drawer); the non-host's is the same button LOCKED — read-only, not
+       dimmed to illegibility, with a lock where the chevron would be. */
+    '#scr-mp .mp-fold.ro{cursor:default;background:rgba(255,255,255,.028)}' +
+    '#scr-mp .mp-fold.ro em{color:#7F73A0}' +
+    '#scr-mp .mp-fold.ro em .ico{transform:none}' +
+    /* the ante ladder — four chunky steps, one gold when chosen */
+    '#scr-mp .mp-antes{display:flex;gap:8px;margin:2px 0 10px}' +
+    '#scr-mp .mp-ante{flex:1;min-height:54px;border-radius:13px;cursor:pointer;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;' +
+      'color:#F4EFFF;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14)}' +
+    '#scr-mp .mp-ante b{font:900 17px/1 ui-monospace,SFMono-Regular,Menlo,monospace}' +
+    '#scr-mp .mp-ante i{font-style:normal;font-size:8.5px;font-weight:800;letter-spacing:.1em;' +
+      'text-transform:uppercase;color:#8478A8}' +
+    '#scr-mp .mp-ante:active{transform:scale(.95)}' +
+    '#scr-mp .mp-ante.on{color:#241800;background:#FFC542;border-color:#FFC542}' +
+    '#scr-mp .mp-ante.on i{color:rgba(36,24,0,.6)}' +
+    '#scr-mp .mp-ante[disabled]{opacity:.38;cursor:default}' +
+    '#scr-mp .mp-stakebal{display:flex;align-items:center;gap:7px;margin-bottom:0}' +
+    '#scr-mp .mp-stakebal .ico{width:15px;height:15px;flex:0 0 auto;color:#FFC542}' +
+    /* the pot banner — gold, with the painted pile sized to the pot */
+    '#scr-mp .mp-pot{display:flex;align-items:center;gap:12px;min-height:58px;' +
+      'margin:14px 0 2px;padding:9px 14px;border-radius:15px;' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.16),rgba(255,197,66,.05));' +
+      'border:1px solid rgba(255,197,66,.42)}' +
+    '#scr-mp .mp-curart{flex:0 0 auto;width:46px;height:46px;object-fit:contain;' +
+      'filter:drop-shadow(0 3px 5px rgba(0,0,0,.5))}' +
+    '#scr-mp .mp-pot b{display:block;font:900 15px/1.15 var(--disp);letter-spacing:.05em;' +
+      'color:#FFDE93}' +
+    '#scr-mp .mp-pot i{display:block;margin-top:3px;font-style:normal;font-size:10px;' +
+      'font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#C9B893}' +
+    /* the refusal — the shortfall named, the free lane offered */
+    '#scr-mp .mp-stakeshort{display:flex;align-items:flex-start;gap:10px;padding:11px 13px;' +
+      'border-radius:14px;background:rgba(220,68,68,.12);border:1px solid rgba(220,68,68,.38)}' +
+    '#scr-mp .mp-stakeshort .ico{flex:0 0 auto;width:18px;height:18px;color:#FF9A8A;margin-top:1px}' +
+    '#scr-mp .mp-stakeshort b{display:block;font-size:12.5px;font-weight:800;line-height:1.4;' +
+      'color:#FFC9BE}' +
+    '#scr-mp .mp-stakeshort i{display:block;margin-top:3px;font-style:normal;font-size:11px;' +
+      'line-height:1.5;color:#DCA9A0}' +
+    '#scr-mp .mp-ready[disabled]{opacity:1;color:#9C8FC0;cursor:default;' +
+      'background:rgba(255,255,255,.03);border-style:dashed}' +
+    /* the pot LANDING on the game's own finish card (#scr-party) */
+    '#scr-party .pt-pot{display:flex;align-items:center;justify-content:center;gap:12px;' +
+      'margin:12px auto 14px;padding:10px 16px;max-width:250px;border-radius:15px;' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.18),rgba(255,197,66,.05));' +
+      'border:1px solid rgba(255,197,66,.45)}' +
+    '#scr-party .pt-pot.lose{background:rgba(0,0,0,.28);border-color:rgba(255,255,255,.16)}' +
+    '#scr-party .pt-pot .mp-curart{flex:0 0 auto;width:52px;height:52px;object-fit:contain;' +
+      'filter:drop-shadow(0 3px 6px rgba(0,0,0,.55))}' +
+    '#scr-party .pt-pot .mp-curart.dim{filter:grayscale(.75) brightness(.75)}' +
+    '#scr-party .pt-pot span{text-align:left}' +
+    '#scr-party .pt-pot b{display:block;font:900 24px/1 var(--disp);letter-spacing:.02em;' +
+      'color:#FFDE93}' +
+    '#scr-party .pt-pot.lose b{color:#C9BBB4;font-size:19px}' +
+    '#scr-party .pt-pot i{display:block;margin-top:4px;font-style:normal;font-size:9px;' +
+      'font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#C9B893}' +
+    '#scr-party .pt-pot.lose i{color:#9A8F88}' +
 
     /* who is around */
     '#scr-mp .mp-person{display:flex;align-items:center;gap:10px;width:100%;text-align:left;' +
@@ -2374,6 +2441,13 @@ function mpLeave(){
   MP.awaitJoin = false; MP.reclaim = null;
   MP.wantPrivate = false; MP.private = false; MP.openedAt = 0;
   MP.peerHere = false; MP.peerList = null; MP.lastSeq = 0; MP.tries = 0;
+  /* the pot record and the play-money stack go with the room. A leave
+     that arrives here with the game still LIVE is a voluntary walk-out
+     (the game's own Leave button routes through backToRooms → here), so
+     it forfeits out loud; every table-level death already refunded via
+     stakeAbort() in tableStop/endMatch before reaching this line. */
+  if (MP.live) stakeForfeit();
+  stakeCleanup();
   /* the table, put away with the room it belonged to */
   MP.size = 2; MP.mySeat = 0; MP.roster = null; MP.iAmReady = false;
   MP.began = null; MP.panel = null; MP.aiSeat = -1; MP.showRules = false;
@@ -2906,6 +2980,16 @@ function onRoster(m){
   const mine = m.who[MP.mySeat];
   MP.iAmReady = !!(mine && mine.ready);
   if (MP.live || MP.boardLive) return;    /* the board is up; nothing to repaint */
+  /* THE TABLE TURNED STAKED UNDER MY READY BIT. A ready said to a friendly
+     table is not consent to an ante this wallet cannot pay — take the bit
+     back, out loud, before the host can start on it. The roster that
+     answers repaints this same screen with the refusal and the shortfall. */
+  const stg = stakeRoom();
+  if (stg.staked && MP.iAmReady && stakeXP() && !KARTI_XP.canStake(stg.ante)){
+    send({ t:'ready', on:false });
+    K.toast(T('The table now plays for ' + stg.ante + ' chips and you are short — your ready was taken back.',
+              'Il-mejda issa tilgħab għal ' + stg.ante + ' ċips u jonqsuk — ir-ready tiegħek tneħħa.'));
+  }
   tableLobby();
 }
 
@@ -3000,6 +3084,293 @@ function tableCanStart(){
   return verdict;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE STAKES — FRIENDLY OR FOR CHIPS, the host's call
+   ───────────────────────────────────────────────────────────────────
+   "Make the host make the game FRIENDLY or STAKE. All party games can
+   bet to enter." The pick travels exactly the way the Rules pick does:
+   inside the relay's OPAQUE `rules` blob, which the server stores and
+   echoes in every roster without ever reading a field of it (its own
+   docstring names "a stake" as the intended cargo). Every phone adopts
+   the roster's rules in onRoster(), so every phone agrees — no new
+   wire message, no game reads the key, nothing about play changes.
+
+   THE MONEY only ever moves through js/progress.js's guarded doors:
+     stake(ante,{id})    each HUMAN seat antes its own wallet when the
+                         relay says 'began' — the id is code:seed, so a
+                         replayed start can never ante twice
+     payout(pot,{id})    the winner's phone pays itself the pot, once
+     refundStake(...)    a draw, or a table that died before a result
+   Machines never ante (they have no wallet) and can never collect:
+   the pot is humans × ante, said out loud in the lobby before anyone
+   readies up. A broke player is refused the READY button — with the
+   shortfall named and the free lane offered — never locked out of the
+   room. Friendly card tables (poker, 21·31) are handed the economy's
+   PLAY-MONEY stack (openTableStack) for the sitting: betting is the
+   game, the wallet is never on the table.
+   ═══════════════════════════════════════════════════════════════════ */
+/* the ante ladder. Small and fixed on purpose — free text is how a fat
+   finger loses a week of chips. 25 ≈ one friendly win (the flutter),
+   50 ≈ a solid win (the default), 100 ≈ an evening's earnings, 250 ≈
+   the daily spin's jackpot — a genuinely dangerous table. All of them
+   are rebuildable from the daily spin (avg ≈ 87/day) inside a day or
+   three, so a lost pot stings without ever stranding anybody. */
+const ANTE_STEPS = [25, 50, 100, 250];
+const ANTE_DEFAULT = 50;
+/* the card tables whose BETTING IS THE GAME — a friendly sitting at one
+   of these opens the economy's play-money stack instead of the wallet */
+const STAKE_CARD_TABLES = ['poker', 'cards2131'];
+
+/* what this room is playing for, read LIVE off the roster's rules blob */
+function stakeRoom(){
+  const s = MP.rules && MP.rules.stake;
+  if (!s || typeof s !== 'object') return { staked:false, ante:0 };
+  const a = Math.floor(Number(s.ante));
+  if (s.mode !== 'chips' || !isFinite(a) || a < 1 || a > 100000)
+    return { staked:false, ante:0 };
+  return { staked:true, ante:a };
+}
+function stakeXP(){ return (window.KARTI_XP && KARTI_XP.stake) ? KARTI_XP : null; }
+function stakeBal(){
+  const XP = stakeXP();
+  try { return XP ? (XP.chips() | 0) : 0; } catch (e){ return 0; }
+}
+/* the human chairs — machines have no wallet, so they are not in the pot */
+function stakeHumans(){
+  return rosterSeats().filter(s => s.kind === 'human').length;
+}
+/* the HOST changes the room's stakes: merged into the same opaque rules
+   blob the variant pick rides in, sent as the same `setvariant` message
+   the Rules drawer already sends. The roster that comes back carries the
+   merged blob and repaints every phone — nobody is kicked, and a game's
+   own preset keys ride alongside untouched. */
+function stakeSend(next){
+  const rules = Object.assign({}, MP.rules || {});
+  if (next && next.staked) rules.stake = { mode:'chips', ante: next.ante | 0 };
+  else delete rules.stake;
+  const msg = { t:'setvariant', variant: MP.variant || null };
+  if (Object.keys(rules).length) msg.rules = rules;
+  send(msg);
+}
+/* the same painted chip pile the reward screens use — art/ui/cur-chip-N,
+   the tier picked by the amount (game.js curArt keeps the same table) */
+function stakeChipArt(n, cls){
+  const t = [0, 40, 150, 400];
+  let i = 1;
+  for (let k = 0; k < t.length; k++) if ((n | 0) >= t[k]) i = k + 1;
+  return '<img class="mp-curart' + (cls ? ' ' + cls : '') + '" alt="" aria-hidden="true" ' +
+    'src="art/ui/cur-chip-' + Math.min(4, Math.max(1, i)) + '.png" onerror="this.remove()">';
+}
+function stakeChipIco(cls){
+  try { if (window.KARTI_XP && KARTI_XP.chipICO) return KARTI_XP.chipICO('', cls); } catch (e){}
+  return ico('star');
+}
+
+/* ── the match itself ─────────────────────────────────────────────
+   ARM at 'began': my own ante leaves my own wallet, under the match id
+   (code:seed) so a buffered or replayed start antes exactly once. If the
+   wallet came up short in the race between READY and START (a box bought
+   in another tab), the seat still plays — marked unpaid, and a win pays
+   the pot MINUS its own missing ante, so the books stay honest. */
+function stakeArm(m){
+  MP.stakeLive = null;
+  const XP = stakeXP();
+  if (!XP) return;
+  const stk = stakeRoom();
+  const id = String(MP.code || 'room') + ':' + ((m && m.seed) >>> 0);
+  if (!stk.staked){
+    /* FRIENDLY CARD TABLE → the play-money stack, never the wallet.
+       Ephemeral, per-sitting, worthless — see progress.js §7c. */
+    if (STAKE_CARD_TABLES.indexOf(MP.game) >= 0){
+      try { XP.openTableStack(MP.game); } catch (e){}
+    }
+    return;
+  }
+  const humans = stakeHumans() || 1;
+  let paid = false;
+  try {
+    const r = XP.stake(stk.ante, { id });
+    /* 'already' = this exact match anted on a previous pass — still paid */
+    paid = !!(r && (r.ok || r.why === 'already'));
+  } catch (e){}
+  MP.stakeLive = {
+    ante: stk.ante, humans, pot: stk.ante * humans,
+    id, paid, settled: false
+  };
+  if (!paid)
+    K.toast(T('Your chips came up short — you play this one un-anted, and a win pays the pot less your share.',
+              'Iċ-ċipep ma laħqux — tilgħab bla ante, u rebħa tħallas il-pot mingħajr sehmek.'));
+}
+/* SETTLE, once, from the result the game itself announced (the tone on
+   its own finish card). Idempotent twice over: the local `settled` flag,
+   and progress.js's id guard under it. Returns what happened so the
+   result card can show the pot landing. */
+function stakeSettle(tone){
+  const L = MP.stakeLive;
+  if (!L || L.settled) return null;
+  L.settled = true;
+  const XP = stakeXP();
+  if (!XP) return null;
+  try {
+    if (tone === 'win'){
+      /* winner takes the pot — less its own ante if that ante never
+         actually left this wallet (the short-race seat above) */
+      const pot = L.paid ? L.pot : Math.max(0, L.pot - L.ante);
+      if (pot > 0) XP.payout(pot, { id: L.id });
+      return { kind:'win', pot, ante:L.ante, humans:L.humans };
+    }
+    if (tone === 'draw'){
+      if (L.paid) XP.refundStake(L.ante, { id: L.id });
+      return { kind:'draw', pot:L.pot, ante:L.ante, humans:L.humans };
+    }
+    /* a loss costs exactly the ante, which already left at 'began' */
+    return { kind:'lose', pot:L.pot, ante:L.ante, humans:L.humans };
+  } catch (e){ return null; }
+}
+/* THE TABLE DIED BEFORE A RESULT — a bail, a desync, a dead connection.
+   Nobody won, so nobody pays: the ante comes home. Idempotent through
+   the same id guard, and a no-op for friendly tables and settled pots. */
+function stakeAbort(){
+  const L = MP.stakeLive;
+  if (!L || L.settled) return;
+  L.settled = true;
+  const XP = stakeXP();
+  if (XP && L.paid){
+    try {
+      XP.refundStake(L.ante, { id: L.id });
+      K.toast(T('No result — your ' + L.ante + '-chip ante came back.',
+                'L-ebda riżultat — l-ante ta’ ' + L.ante + ' ċips reġa’ lura.'));
+    } catch (e){}
+  }
+}
+/* WALKING OUT of a live staked game is a forfeit, not a refund — the
+   ante stays in the pot the others are still playing for. Said out loud
+   at the moment it happens, never discovered later. */
+function stakeForfeit(){
+  const L = MP.stakeLive;
+  if (!L || L.settled) return;
+  L.settled = true;
+  K.toast(T('You left a staked game — your ' + L.ante + '-chip ante stays in the pot.',
+            'Tlaqt minn logħba bl-imħatra — l-ante tiegħek jibqa’ fil-pot.'));
+}
+/* the room is behind us: drop the pot record and put the play-money
+   stack away with it (a fresh sitting deals a fresh stack) */
+function stakeCleanup(){
+  MP.stakeLive = null;
+  try {
+    if (window.KARTI_XP && KARTI_XP.tableStack && KARTI_XP.tableStack(MP.game))
+      KARTI_XP.closeTableStack(MP.game);
+  } catch (e){}
+}
+
+/* ── the pot, landing on the game's own finish card ────────────────
+   Every shared-lobby game already says how it ended through
+   KARTI_PARTY.ui.result(ctx,{tone}) — the same door progress.js pays
+   the play reward through. Wrapped ONCE, additively: the original runs
+   first and draws its card, then the pot is settled off the tone and
+   painted onto that same card. A friendly table, an offline game, a
+   second fire — all no-ops (stakeLive is null or already settled). */
+function stakeWireResult(tries){
+  const P = window.KARTI_PARTY;
+  if (!P || !P.ui || typeof P.ui.result !== 'function'){
+    if ((tries | 0) < 40) setTimeout(() => stakeWireResult((tries | 0) + 1), 500);
+    return;
+  }
+  if (P.ui.result.__kxStake) return;
+  const orig = P.ui.result;
+  const wrapped = function(ctx, o){
+    const r = orig.apply(this, arguments);
+    try { stakeCeremony(ctx, o && o.tone); } catch (e){}
+    return r;
+  };
+  wrapped.__kxStake = 1;
+  P.ui.result = wrapped;
+}
+function stakeCeremony(ctx, tone){
+  if (!MP.stakeLive) return;
+  const res = stakeSettle(tone === 'win' ? 'win' : tone === 'draw' ? 'draw' : 'lose');
+  if (!res) return;
+  const card = ctx && ctx.root && ctx.root.querySelector && ctx.root.querySelector('.pt-card');
+  if (!card) return;
+  const el = document.createElement('div');
+  el.className = 'pt-pot ' + res.kind;
+  el.innerHTML =
+    res.kind === 'win'
+      ? stakeChipArt(res.pot) +
+        '<span><b>+' + res.pot + '</b>' +
+        '<i>' + esc(T('THE POT — ' + res.humans + ' antes of ' + res.ante,
+                      'IL-POT — ' + res.humans + ' anti ta’ ' + res.ante)) + '</i></span>'
+    : res.kind === 'draw'
+      ? stakeChipArt(res.ante) +
+        '<span><b>+' + res.ante + '</b>' +
+        '<i>' + esc(T('A DRAW — EVERY ANTE WENT BACK', 'DRAW — L-ANTI KOLLHA REĠGĦU LURA')) + '</i></span>'
+      : stakeChipArt(res.ante, 'dim') +
+        '<span><b>&minus;' + res.ante + '</b>' +
+        '<i>' + esc(T('YOUR ANTE WENT TO THE WINNER', 'L-ANTE TIEGĦEK MAR GĦAND IR-REBBIEĦ')) + '</i></span>';
+  const acts = card.querySelector('.pt-acts');
+  if (acts) card.insertBefore(el, acts); else card.appendChild(el);
+}
+/* what the running game may read of the stakes — mode and pot, never a
+   verb. A game file that wants to say "playing for a real pot" reads
+   this; nothing here can move a chip. */
+function stakeInfo(){
+  const stk = stakeRoom();
+  const L = MP.stakeLive;
+  return {
+    staked: stk.staked, ante: stk.ante,
+    humans: L ? L.humans : stakeHumans(),
+    pot: L ? L.pot : stk.ante * stakeHumans(),
+    live: !!L, settled: !!(L && L.settled)
+  };
+}
+
+/* ── the host's drawer ─────────────────────────────────────────────
+   Two ways to play, one tap each, and the ante ladder under the second.
+   A step the host's own wallet cannot cover is drawn disabled with the
+   balance named — a host must never set a table they cannot sit at. */
+function stakeDrawer(stk){
+  const bal = stakeBal();
+  const cur = stk.staked ? stk.ante : 0;
+  return '<div class="mp-drawer" id="mp-stake">' +
+    '<div class="mp-dhd"><b>' + esc(T('The stakes', 'L-imħatri')) + '</b>' +
+      '<button class="mp-dx" id="mp-stakex" aria-label="' + esc(T('Close', 'Agħlaq')) + '">' +
+        ico('close') + '</button></div>' +
+    '<p class="mp-dp">' + esc(T(
+      'Friendly is free and still pays a little for playing. For chips, every player antes into a pot and the winner takes it all — machines never ante.',
+      'Bi ħbiberija b’xejn u xorta tħallas ftit. Għaċ-ċips, kull plejer jitfa’ ante f’pot u ir-rebbieħ jieħu kollox — il-magni qatt ma jitfgħu.')) +
+    '</p>' +
+    '<button class="mp-lv' + (!stk.staked ? ' on' : '') + '" data-stakemode="free">' +
+      ico('shield') +
+      '<span><b>' + esc(T('Friendly', 'Bi ħbiberija')) + '</b>' +
+      '<i>' + esc(!stk.staked ? T('playing now — free, nobody risks a chip', 'issa — b’xejn, ħadd ma jirriskja ċippa')
+                              : T('free — nobody risks a chip', 'b’xejn — ħadd ma jirriskja ċippa')) +
+      '</i></span></button>' +
+    '<button class="mp-lv' + (stk.staked ? ' on' : '') + '" data-stakemode="chips">' +
+      stakeChipIco() +
+      '<span><b>' + esc(T('For chips', 'Għaċ-ċips')) + '</b>' +
+      '<i>' + esc(stk.staked ? T('playing now — ' + stk.ante + ' chips a head, winner takes the pot',
+                                 'issa — ' + stk.ante + ' ċips kull wieħed, ir-rebbieħ jieħu l-pot')
+                             : T('everyone antes, the winner takes the pot',
+                                 'kulħadd jitfa’, ir-rebbieħ jieħu l-pot')) +
+      '</i></span></button>' +
+    (stk.staked
+      ? '<div class="mp-dsub">' + esc(T('THE ANTE — EACH PLAYER PUTS IN', 'L-ANTE — KULL PLEJER JITFA’')) + '</div>' +
+        '<div class="mp-antes" role="group" aria-label="' + esc(T('Ante amount', 'Ammont tal-ante')) + '">' +
+        ANTE_STEPS.map(n => {
+          const can = n <= bal;
+          return '<button class="mp-ante' + (n === cur ? ' on' : '') + '"' +
+            (can ? ' data-ante="' + n + '"' : ' disabled aria-disabled="true"') + '>' +
+            '<b>' + n + '</b><i>' + esc(can ? T('chips', 'ċips') : T('short', 'nieqes')) + '</i></button>';
+        }).join('') +
+        '</div>' +
+        '<p class="mp-dp mp-stakebal">' + stakeChipIco('mp-balchip') + ' ' +
+          esc(T('You have ' + bal + ' chips. The ante leaves every wallet when the game starts; no result, and it comes straight back.',
+                'Għandek ' + bal + ' ċips. L-ante joħroġ meta tibda l-logħba; jekk ma jkunx hemm riżultat, jerġa’ lura mill-ewwel.')) +
+        '</p>'
+      : '') +
+    '</div>';
+}
+
 /* ── the screen ─────────────────────────────────────────────────── */
 function tableLobby(){
   const body = $('#mp-body');
@@ -3036,6 +3407,16 @@ function tableLobby(){
   const free = [];
   for (let i = 0; i < MP.size; i++)
     if (!seats.some(s => s.seat === i)) free.push(i);
+  /* THE STAKES — what this table is playing for, and whether I can sit at
+     it. All read live: the roster's rules blob is the authority, exactly
+     as it is for the variant. The control needs the chips economy on the
+     phone; a build without it simply keeps every table friendly. */
+  const stk = stakeRoom();
+  const stakeOn = !!stakeXP();
+  const myChips = stakeOn ? stakeBal() : 0;
+  const shortBy = (stakeOn && stk.staked) ? Math.max(0, stk.ante - myChips) : 0;
+  const potHumans = seats.filter(s => s.kind === 'human').length;
+  const potBots = taken - potHumans;
 
   body.innerHTML =
     '<p class="mp-state" id="mp-stat"><span class="mp-dot"></span><span class="mp-txt"></span></p>' +
@@ -3100,6 +3481,34 @@ function tableLobby(){
             '</p>')
       : '') +
 
+    /* ── THE STAKES — friendly or for chips, the host's call ──
+       The host gets a Stakes button that flips the room between FRIENDLY
+       (free) and FOR CHIPS (everyone antes, winner takes the pot) and picks
+       the ante off a short ladder. A non-host sees the same control drawn
+       LOCKED — disabled, never hidden — so the table's terms are readable
+       from every chair. Rides the same rules blob the Rules pick rides. */
+    (stakeOn
+      ? (iAmHost
+          ? '<button class="mp-fold" id="mp-stakebtn" aria-expanded="' +
+              (MP.panel === 'stake' ? 'true' : 'false') + '">' +
+              stakeChipIco() + '<span>' + esc(T('Stakes', 'Imħatri')) +
+              '<i>' + esc(stk.staked
+                    ? T('for chips: ' + stk.ante + ' a head — winner takes the pot',
+                        'għaċ-ċips: ' + stk.ante + ' kull wieħed — ir-rebbieħ jieħu l-pot')
+                    : T('friendly — free to play', 'bi ħbiberija — b’xejn')) +
+              '</i></span><em class="' + (MP.panel === 'stake' ? 'up' : '') + '">' +
+              ico('arrow-right') + '</em></button>' +
+            (MP.panel === 'stake' ? stakeDrawer(stk) : '')
+          : '<button class="mp-fold ro" id="mp-stakero" disabled aria-disabled="true">' +
+              stakeChipIco() + '<span>' + esc(T('Stakes', 'Imħatri')) +
+              '<i>' + esc(stk.staked
+                    ? T('for chips: ' + stk.ante + ' a head — only the host can change it',
+                        'għaċ-ċips: ' + stk.ante + ' kull wieħed — il-host biss jista’ jibdilhom')
+                    : T('friendly — free · only the host can change it',
+                        'bi ħbiberija — b’xejn · il-host biss jista’ jibdilhom')) +
+              '</i></span><em>' + ico('lock') + '</em></button>')
+      : '') +
+
     /* ── the chairs ── */
     '<div class="mp-thd">THE TABLE</div>' +
     '<div class="mp-chairs" id="mp-chairs">' +
@@ -3128,12 +3537,47 @@ function tableLobby(){
     (MP.panel === 'ai'  ? aiDrawer(LB) : '') +
     (MP.panel === 'ask' ? askDrawer() : '') +
 
+    /* ── THE POT, said before anyone readies up ──
+       A staked table names its price out loud: the pot, the arithmetic it
+       comes from, and — where a wallet is short — exactly how short. */
+    (stakeOn && stk.staked
+      ? '<div class="mp-pot">' + stakeChipArt(stk.ante * potHumans) +
+          '<span><b>' + esc(T('POT: ' + (stk.ante * potHumans) + ' CHIPS',
+                              'POT: ' + (stk.ante * potHumans) + ' ĊIPS')) + '</b>' +
+          '<i>' + esc(potHumans + ' × ' + stk.ante +
+                (potBots ? T(' · machines play free', ' · il-magni jilagħbu b’xejn') : '') +
+                T(' · winner takes it all', ' · ir-rebbieħ jieħu kollox')) +
+          '</i></span></div>'
+      : '') +
+
     /* ── ready, and start ── */
     '<div class="mp-acts">' +
-      '<button class="mp-ready' + (MP.iAmReady ? ' on' : '') + '" id="mp-ready">' +
-        (MP.iAmReady ? ico('check') + ' You are ready' : 'I am ready') +
-        '<i>' + (MP.iAmReady ? 'tap to say you are not' : 'everybody readies, then the host starts') +
-        '</i></button>' +
+      /* CANNOT STAKE WHAT YOU CANNOT AFFORD. A wallet short of the ante is
+         refused the READY button — with the shortfall named and the free
+         lane pointed at — rather than discovering it when the antes go out.
+         Nobody is ever locked out: friendly is always one host-tap away. */
+      (shortBy > 0 && !MP.iAmReady
+        ? '<div class="mp-stakeshort" role="status">' + ico('warn') +
+            '<span><b>' + esc(T('You are ' + shortBy + ' chips short of the ' + stk.ante + '-chip ante.',
+                                'Jonqsok ' + shortBy + ' ċips għall-ante ta’ ' + stk.ante + '.')) + '</b>' +
+            '<i>' + esc(iAmHost
+                  ? T('Drop the ante a step, or make the table friendly — friendly is always free.',
+                      'Niżżel l-ante, jew agħmel il-mejda bi ħbiberija — bi ħbiberija dejjem b’xejn.')
+                  : T('The daily spin tops you up, or ask the host for a friendly game — friendly is always free.',
+                      'Ir-rota ta’ kuljum ittellagħek, jew staqsi lill-host għal logħba bi ħbiberija — dejjem b’xejn.')) +
+            '</i></span></div>' +
+          '<button class="mp-ready" id="mp-ready" disabled aria-disabled="true">' +
+            esc(T('Cannot ante ' + stk.ante, 'Ma tistax titfa’ ' + stk.ante)) +
+            '<i>' + esc(T('you have ' + myChips + ' chips', 'għandek ' + myChips + ' ċips')) + '</i></button>'
+        : '<button class="mp-ready' + (MP.iAmReady ? ' on' : '') + '" id="mp-ready">' +
+            (MP.iAmReady ? ico('check') + ' You are ready' : 'I am ready') +
+            '<i>' + (MP.iAmReady
+                  ? 'tap to say you are not'
+                  : (stk.staked
+                      ? esc(T('the ' + stk.ante + '-chip ante leaves when the game starts',
+                              'l-ante ta’ ' + stk.ante + ' joħroġ meta tibda l-logħba'))
+                      : 'everybody readies, then the host starts')) +
+            '</i></button>') +
       (iAmHost
         ? '<button class="btn primary" id="mp-start"' + (verdict.ok ? '' : ' disabled') + '>' +
             (verdict.ok ? ico('play') + ' Start the game' : 'Not yet') + '</button>' +
@@ -3220,9 +3664,53 @@ function tableLobby(){
     sfx('ui.toggle');
     const w = lobbyApplyVariant(MP.game, net);
     const msg = { t:'setvariant', variant: w.variant };
-    if (w.rules) msg.rules = w.rules;
+    /* the stakes ride the same blob: a mode change must not silently make
+       a staked table friendly, so the stake key is carried across */
+    const rules = Object.assign({}, w.rules || {});
+    const stNow = stakeRoom();
+    if (stNow.staked) rules.stake = { mode:'chips', ante: stNow.ante };
+    if (Object.keys(rules).length) msg.rules = rules;
     send(msg);
     MP.panel = null;
+    tableLobby();
+  });
+  /* THE STAKES — host only; the buttons exist only on the host's paint */
+  const sb = $('#mp-stakebtn');
+  if (sb) sb.onclick = () => {
+    MP.panel = MP.panel === 'stake' ? null : 'stake';
+    sfx(MP.panel === 'stake' ? 'ui.sheet' : 'ui.back');
+    tableLobby();
+  };
+  const sx = $('#mp-stakex');
+  if (sx) sx.onclick = () => { MP.panel = null; sfx('ui.back'); tableLobby(); };
+  $$('#mp-stake [data-stakemode]').forEach(b => b.onclick = () => {
+    const wantChips = b.dataset.stakemode === 'chips';
+    const now = stakeRoom();
+    if (wantChips === now.staked) return;          /* already this way */
+    sfx('ui.toggle');
+    if (!wantChips){ stakeSend({ staked:false }); tableLobby(); return; }
+    /* going staked: open at the default ante, stepped DOWN to what the
+       host's own wallet can cover — a host must be able to sit at the
+       table they set. No affordable step at all refuses out loud. */
+    const bal = stakeBal();
+    let ante = 0;
+    for (let i = ANTE_STEPS.length - 1; i >= 0; i--)
+      if (ANTE_STEPS[i] <= Math.min(ANTE_DEFAULT, bal)) { ante = ANTE_STEPS[i]; break; }
+    if (!ante){
+      K.toast(T('You have ' + bal + ' chips — not enough for the smallest ante (' + ANTE_STEPS[0] +
+                '). The daily spin tops you up; friendly is free.',
+                'Għandek ' + bal + ' ċips — mhux biżżejjed għall-iżgħar ante (' + ANTE_STEPS[0] +
+                '). Ir-rota ta’ kuljum ittellagħek; bi ħbiberija b’xejn.'));
+      return;
+    }
+    stakeSend({ staked:true, ante });
+    tableLobby();
+  });
+  $$('#mp-stake [data-ante]').forEach(b => b.onclick = () => {
+    const n = Number(b.dataset.ante) | 0;
+    if (!n || n === stakeRoom().ante) return;
+    sfx('ui.toggle');
+    stakeSend({ staked:true, ante:n });
     tableLobby();
   });
   const gb = $('#mp-gamebtn');
@@ -3914,6 +4402,12 @@ function onBegan(m){
      machines — that is what the contract is for. */
   const readied = live.map(s => { try { return LB.autoReady(s) || s; } catch (e){ return s; } });
 
+  /* THE ANTES GO OUT — wallet bookkeeping only, on this phone, for this
+     seat, under the match id (code:seed) so a replayed 'began' antes once.
+     A friendly card table is handed its play-money stack here instead.
+     Nothing of this touches the seed, the deal or the wire. */
+  stakeArm(m);
+
   MP.live = true;
   MP.boardLive = true;
   window.KHOOK = null;
@@ -4054,6 +4548,8 @@ function onBegan(m){
   } catch (e){
     MP.live = false; MP.boardLive = false;
     MP.privateHook = null; MP.pendingMine = null; MP.whisperHook = null;
+    /* the table never actually stood — the ante it just took comes back */
+    stakeAbort(); stakeCleanup();
     setState('unreachable', 'That game would not start from the lobby. Nothing was lost.');
   }
 }
@@ -4232,6 +4728,9 @@ function rosterName(i){
 
 function tableStop(why, tone){
   const LB = gameLobby(MP.game);
+  /* the table died before a result: nobody won, so nobody pays — every
+     un-settled ante on this phone comes home (idempotent, id-guarded) */
+  stakeAbort();
   MP.live = false;
   if (LB.net && LB.net.stop){
     try { LB.net.stop(why || 'The game stopped.', tone || ''); return; } catch (e){}
@@ -4595,7 +5094,12 @@ function backToRooms(){
 function boardGone(){
   if (!MP.boardLive) return;
   MP.boardLive = false;
-  if (MP.live){ relay({ k:'bail', why:'They left the game.' }); MP.live = false; }
+  if (MP.live){
+    /* WALKING OUT of a live staked game forfeits the ante — the pot the
+       others are still playing for keeps it. Said now, not found later. */
+    stakeForfeit();
+    relay({ k:'bail', why:'They left the game.' }); MP.live = false;
+  }
   mpLeave();
 }
 
@@ -4762,6 +5266,8 @@ function applyRemote(d){
 /* ── the duel is over, and not because somebody won ────────────────── */
 function endMatch(why, flavour){
   const wasLive = MP.live;
+  /* cut off before a result — same law as tableStop: the ante comes back */
+  stakeAbort();
   MP.live = false;
   K.NET.send = null; K.NET.applying = false;
   K.setRNG(null);
@@ -5755,11 +6261,19 @@ function wire(){
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
 else wire();
 
+/* the pot's landing on the game's own finish card — wrapped once, the
+   moment KARTI_PARTY is on the page (retries while modules load) */
+stakeWireResult(0);
+
 window.KARTI_MP = {
   PNP, MP, pnpScreen, pnpStart, pnpHandover, pnpResume, pnpResult, pnpEnd, seatAt,
   mpScreen, mpLeave, checksum, applyRemote, beginOnline, onPeer, onServer, chooser,
   deckOptions, findDeck, mulberry32, illegalRemote, endMatch, dropOut,
   start, relay, defaultURL, cleanCode, setState,
+  /* THE STAKES — read-only for game UIs (mode/ante/pot), plus the lobby
+     verbs for the harness. All wallet bookkeeping; none of it can touch
+     a seed, a deal or the wire. */
+  stakeInfo, stakeRoom, stakeSettle, stakeAbort, stakeArm,
   /* how far away the server is, measured rather than guessed */
   pingStats, measure, measureHTTP, healthURL,
   /* the three-games era */

@@ -60,6 +60,19 @@ const clone = o => JSON.parse(JSON.stringify(o));
 /* ── the one language switch (js/lang.js) ────────────────────────── */
 const T = (en, mt) => window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en;
 
+/* THE LOBBY'S STAKE, read-only. When the shared lobby started this table
+   FOR CHIPS (js/mp.js: the host's Stakes control), the real pot is named
+   on the badge so nobody mistakes which money is on the table. The verbs
+   all live in mp.js/progress.js: the ante went out at 'began', the pot
+   pays on the result card — this function can only READ. */
+function stakeBadge(){
+  try {
+    const si = window.KARTI_MP && KARTI_MP.stakeInfo && KARTI_MP.stakeInfo();
+    if (si && si.staked && si.live) return T('Pot ' + si.pot, 'Pot ' + si.pot);
+  } catch (e){}
+  return null;
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    COINS_MODE_READY — THE FLAG. READ THIS BEFORE CHANGING IT.
 
@@ -1576,7 +1589,12 @@ function openBoard(onBack){
     ]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = (M.st.mode === 'coins' ? T('Coins', 'Muniti') : T('Free', 'Ħieles')) +
+  /* WHAT THIS TABLE IS PLAYING FOR, on the frame badge. A staked online
+     room (host picked "for chips" in the lobby) names its REAL pot; every
+     other sitting is table chips and says Free. Read-only off js/mp.js —
+     the game's own stacks stay the sim's play money either way, and
+     nothing here can move a wallet chip (mp.js owns every verb). */
+  M.ctx.badge.textContent = (stakeBadge() || (M.st.mode === 'coins' ? T('Coins', 'Muniti') : T('Free', 'Ħieles'))) +
     ' · ' + M.st.sb + '/' + M.st.bb;
   table();
   const u = M.ctx.btn('pk-undo');

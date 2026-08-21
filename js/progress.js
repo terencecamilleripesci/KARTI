@@ -2088,12 +2088,22 @@ function fromStats(game, opts){
    files belong to other people and a wrapper cannot break their
    ledger, because the original runs first and its return value is
    handed straight back. */
+/* IS THIS RESULT FROM A STAKED ONLINE TABLE? Read off the lobby's own
+   pot record (js/mp.js MP.stakeLive — set only while a for-chips match
+   is live on this phone). It flips award()'s existing `ranked` flag so
+   the play trickle pays the serious-lane rate; the POT itself moves
+   separately through stake()/payout() and never through here. */
+function stakedNow(){
+  try { return !!(window.KARTI_MP && KARTI_MP.MP && KARTI_MP.MP.stakeLive); }
+  catch (e){ return false; }
+}
+
 function wrapRecorder(obj, name, tag){
   if (!obj || typeof obj[name] !== 'function' || obj[name].__kx) return false;
   var orig = obj[name];
   var wrapped = function(id, outcome){
     var r = orig.apply(this, arguments);
-    try { award(String(id || '').toLowerCase(), outcome, { via:tag }); } catch (e){}
+    try { award(String(id || '').toLowerCase(), outcome, { via:tag, ranked: stakedNow() }); } catch (e){}
     return r;
   };
   wrapped.__kx = 1;
@@ -2147,7 +2157,8 @@ function wrapPartyUI(){
       try {
         var g = titleToGame(lastFrame.title);
         var tone = o && o.tone;
-        if (g && tone) award(g, tone === 'win' ? 'w' : tone === 'draw' ? 'd' : 'l', { via:'party-ui' });
+        if (g && tone) award(g, tone === 'win' ? 'w' : tone === 'draw' ? 'd' : 'l',
+                             { via:'party-ui', ranked: stakedNow() });
       } catch (e){}
       return r;
     };
