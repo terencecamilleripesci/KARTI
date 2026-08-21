@@ -2337,6 +2337,24 @@ class RoomBook:
                 return [(conn, {"t": "error", "why": E_NOTHOST})]
             if room.started:
                 return [(conn, {"t": "error", "why": E_ALREADY})]
+            # ── NO GHOST EVER ENTERS A STARTED GAME ───────────────────────
+            # A seat whose socket died is held for GRACE seconds so its owner
+            # can reclaim it. That is right in the LOBBY — a signal drops, they
+            # come back, they get their chair. But the moment the host STARTS,
+            # a held chair is a player who is not there: it lands in `filled`,
+            # is dealt in, and a game with no seatGone hook then stalls forever
+            # waiting for a turn that can never be taken. (It also let the
+            # start be measured against a person nobody could see.)
+            #
+            # So at start, every seat with no live socket is RELEASED. The
+            # grace has done its job; from here the chair is simply empty, the
+            # too-few check below counts only people who are actually present,
+            # and a freed chair can even be filled by a machine. Somebody who
+            # reconnects after this lands in the normal "room already started"
+            # path instead of a chair nobody was sitting in.
+            for _g, _s in enumerate(room.seats):
+                if _s is not None and _s.conn is None:
+                    room.seats[_g] = None
             free = [i for i, s in enumerate(room.seats) if s is None]
             want = []
             if bots is not None:
