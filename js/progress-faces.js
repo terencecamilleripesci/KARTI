@@ -664,29 +664,21 @@ function injectCSS(){
        looks like. The stones glide slowly; a bright sweep runs over them fast,
        because a diamond's tell is the light MOVING across it, and the whole
        thing pulses its fire on its own clock. */
-    '@keyframes kxFire{0%,100%{opacity:.5}42%{opacity:1}68%{opacity:.72}}' +
-    '.kx-r-betagold,.kx-r-betasilver{--kx-bw:max(3px,calc(var(--kx-size,38px) * .1));overflow:hidden}' +
-    '.kx-r-betagold{--kx-fb:#FFD23F;--kx-pat:repeating-conic-gradient(from 0deg,' +
-      '#6B4A0C 0deg 1.2deg,#B8860B 1.2deg 2.6deg,#FFC542 2.6deg 3.6deg,' +
-      '#EAF7FF 3.6deg 4.8deg,#FFFFFF 4.8deg 7.2deg,#FFF2D8 7.2deg 8.4deg,' +
-      '#FFC542 8.4deg 9.4deg,#B8860B 9.4deg 10.8deg,#6B4A0C 10.8deg 12deg)}' +
-    '.kx-r-betasilver{--kx-fb:#EAF0FA;--kx-pat:repeating-conic-gradient(from 0deg,' +
-      '#3F4653 0deg 1.2deg,#8A93A3 1.2deg 2.6deg,#DCE3EF 2.6deg 3.6deg,' +
-      '#FFE6F4 3.6deg 4.8deg,#FFFFFF 4.8deg 7.2deg,#E4FAFF 7.2deg 8.4deg,' +
-      '#DCE3EF 8.4deg 9.4deg,#8A93A3 9.4deg 10.8deg,#3F4653 10.8deg 12deg)}' +
-    '@supports ((-webkit-mask-composite:xor) or (mask-composite:exclude)){' +
-      '.kx-r-betagold,.kx-r-betasilver{background-image:none}' +
-      /* the stones themselves, turning slowly */
-      '.kx-r-betagold::before,.kx-r-betasilver::before{content:"";position:absolute;inset:-45%;' +
-        'background:var(--kx-pat);animation:kxSweep 9s linear infinite}' +
-      /* the light running over them, fast, plus the fire pulse */
-      '.kx-r-betagold::after,.kx-r-betasilver::after{content:"";position:absolute;inset:-45%;' +
-        'pointer-events:none;mix-blend-mode:screen;' +
-        'background:conic-gradient(from 0turn,transparent 0turn,rgba(255,255,255,.15) .04turn,' +
-        'rgba(255,255,255,.95) .075turn,rgba(214,246,255,.6) .1turn,transparent .16turn,' +
-        'transparent .5turn,rgba(255,255,255,.8) .55turn,rgba(255,226,242,.5) .58turn,' +
-        'transparent .64turn,transparent 1turn);' +
-        'animation:kxSweep 2.1s linear infinite,kxFire 1.7s ease-in-out infinite}}' +
+    '@keyframes kxFire{0%,100%{opacity:.45}42%{opacity:1}68%{opacity:.7}}' +
+    /* the stones are DRAWN (gemRingSVG), so the ring itself carries no band —
+       it is just the stage the SVG sits on and the light sweeps over. */
+    '.kx-r-betagold,.kx-r-betasilver{background:none;border:0;overflow:visible}' +
+    '.kx-gemsvg{position:absolute;inset:0;width:100%;height:100%;display:block;' +
+      'filter:drop-shadow(0 1px 1px rgba(0,0,0,.55))}' +
+    /* the light running over the stones, plus the fire pulse. Clipped to the
+       ring box so it grazes the pavé rather than washing the whole face. */
+    '.kx-r-betagold::after,.kx-r-betasilver::after{content:"";position:absolute;inset:-30%;' +
+      'pointer-events:none;mix-blend-mode:screen;border-radius:50%;' +
+      'background:conic-gradient(from 0turn,transparent 0turn,rgba(255,255,255,.12) .04turn,' +
+      'rgba(255,255,255,.9) .075turn,rgba(214,246,255,.55) .1turn,transparent .16turn,' +
+      'transparent .5turn,rgba(255,255,255,.75) .55turn,rgba(255,226,242,.45) .58turn,' +
+      'transparent .64turn,transparent 1turn);' +
+      'animation:kxSweep 2.1s linear infinite,kxFire 1.7s ease-in-out infinite}' +
     '@supports selector(:has(*)){' +
       '.kx-av:has(>.kx-r-betagold){filter:' +
         'drop-shadow(0 0 calc(var(--kx-size,38px)*.1) rgba(255,197,66,.95))' +
@@ -787,8 +779,73 @@ var BG_BY = {};
 for (var gi = 0; gi < BADGES.length; gi++) BG_BY[BADGES[gi].id] = BADGES[gi];
 var BG_RE = /^[a-z0-9_-]{1,24}$/;
 var B_RE = /^[a-z]{2,12}$/;
+/* ── THE PAVÉ RING, AS ACTUAL STONES ────────────────────────────────
+   A gradient can fake a sparkle but it cannot fake a SHAPE, and the
+   thing that reads as a diamond is the shape: a kite with a flat table
+   and two crown facets catching the light at different angles. So the
+   beta frames are drawn, not shaded — an SVG that walks the medallion's
+   rounded-square perimeter and sets a cut stone every few units, each
+   one turned to sit square on the band it is set into.
+   The maths is a plain perimeter walk: four straight runs and four
+   quarter arcs, distance in, point + tangent out, so the stones stay
+   evenly spaced around the corners instead of bunching. */
+function gemPoint(d, x0, y0, w, h, r){
+  var sx = w - 2 * r, sy = h - 2 * r, a = Math.PI / 2 * r;
+  var seg = [sx, a, sy, a, sx, a, sy, a], i = 0;
+  while (d >= seg[i]){ d -= seg[i]; i = (i + 1) % 8; }
+  var t = d;
+  switch (i){
+    case 0: return { x:x0 + r + t,      y:y0,          a:0   };
+    case 1: return arcPt(x0 + w - r, y0 + r,     r, -90 + 90 * (t / a));
+    case 2: return { x:x0 + w,          y:y0 + r + t,  a:90  };
+    case 3: return arcPt(x0 + w - r, y0 + h - r, r,   0 + 90 * (t / a));
+    case 4: return { x:x0 + w - r - t,  y:y0 + h,      a:180 };
+    case 5: return arcPt(x0 + r,     y0 + h - r, r,  90 + 90 * (t / a));
+    case 6: return { x:x0,              y:y0 + h - r - t, a:270 };
+    default:return arcPt(x0 + r,     y0 + r,     r, 180 + 90 * (t / a));
+  }
+}
+function arcPt(cx, cy, r, deg){
+  var rad = deg * Math.PI / 180;
+  return { x:cx + r * Math.cos(rad), y:cy + r * Math.sin(rad), a:deg + 90 };
+}
+function gemRingSVG(id){
+  var gold = (id === 'betagold');
+  var band = gold ? '#C99312' : '#93A0B4';
+  var band2 = gold ? '#FFD86B' : '#EDF3FC';
+  var x0 = 8, y0 = 8, w = 84, h = 84, r = 20;
+  var per = 2 * (w - 2 * r) + 2 * (h - 2 * r) + 2 * Math.PI * r;
+  var n = 26, step = per / n, g = '';
+  for (var i = 0; i < n; i++){
+    var p = gemPoint(i * step, x0, y0, w, h, r);
+    g += '<g transform="translate(' + p.x.toFixed(2) + ' ' + p.y.toFixed(2) +
+         ') rotate(' + p.a.toFixed(1) + ')">' +
+         /* the stone: a kite, table up */
+         '<path d="M0,-4 L2.9,0 L0,4 L-2.9,0 Z" fill="url(#kxgem' + (gold ? 'G' : 'S') + ')" ' +
+           'stroke="#fff" stroke-opacity=".9" stroke-width=".45"/>' +
+         /* two crown facets, lit unevenly so it reads as cut */
+         '<path d="M0,-4 L2.9,0 L0,.6 Z" fill="#fff" opacity=".92"/>' +
+         '<path d="M0,-4 L-2.9,0 L0,.6 Z" fill="#fff" opacity=".5"/>' +
+         '</g>';
+  }
+  return '<svg class="kx-gemsvg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">' +
+    '<defs><linearGradient id="kxgem' + (gold ? 'G' : 'S') + '" x1="0" y1="0" x2=".3" y2="1">' +
+      '<stop offset="0" stop-color="#ffffff"/><stop offset=".4" stop-color="#eaf7ff"/>' +
+      '<stop offset=".72" stop-color="#bcdcf5"/><stop offset="1" stop-color="#8fb6d8"/>' +
+    '</linearGradient>' +
+    '<linearGradient id="kxbnd' + (gold ? 'G' : 'S') + '" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop offset="0" stop-color="' + band2 + '"/><stop offset=".5" stop-color="' + band + '"/>' +
+      '<stop offset="1" stop-color="' + band2 + '"/>' +
+    '</linearGradient></defs>' +
+    /* the metal the stones are set into */
+    '<rect x="' + x0 + '" y="' + y0 + '" width="' + w + '" height="' + h + '" rx="' + r + '" ' +
+      'fill="none" stroke="url(#kxbnd' + (gold ? 'G' : 'S') + ')" stroke-width="7.4"/>' +
+    g + '</svg>';
+}
 function ringHTML(id){
   if (!id || id === 'none' || !B_RE.test(id) || !B_BY[id]) return '';
+  if (id === 'betagold' || id === 'betasilver')
+    return '<span class="kx-ring kx-r-' + id + '">' + gemRingSVG(id) + '</span>';
   var pat = B_PAT[id] ? ' pat' : '';
   return '<span class="kx-ring' + pat + ' kx-r-' + id + '"></span>';
 }
