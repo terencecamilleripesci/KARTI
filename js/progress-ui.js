@@ -920,7 +920,13 @@ function levelUp(R){
   sfx(function(S){ S.play('xp.level', { force:true }); });
 
   var pay = [];
-  if (R.res.coins) pay.push('<span class="kx-pill">' + ico('coin') + '+' + R.res.coins + ' coins</span>');
+  /* a level pays CHIPS now — the play currency (see progress.js §7b) —
+     drawn with the one shared chipICO so it can never look different
+     here from the wallet. res.coins is the pre-economy field name,
+     kept as a fallback for an award object cached across the deploy. */
+  var lvChips = R.res.chipsLevel || R.res.coins || 0;
+  if (lvChips) pay.push('<span class="kx-pill">' +
+    (XP.chipICO ? XP.chipICO() : ico('coin')) + '+' + lvChips + ' chips</span>');
   if (R.res.packs) pay.push('<span class="kx-pill">' + ico('pack') + '+' + R.res.packs +
     (R.res.packs === 1 ? ' pack' : ' packs') + '</span>');
 

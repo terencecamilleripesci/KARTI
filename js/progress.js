@@ -164,12 +164,16 @@ function levelFromXp(x){
   return L;
 }
 
-/* WHAT A LEVEL PAYS. Coins every level, packs on the thirds and the
+/* WHAT A LEVEL PAYS. CHIPS every level, packs on the thirds and the
    fifths. Cosmetics are not in here — a game declares those itself,
-   because only chess knows what a chess board looks like. */
+   because only chess knows what a chess board looks like.
+   CHIPS, not coins, since the two-currency economy landed: everything
+   PLAY produces is chips (the stake-and-loot-box currency); coins are
+   the spend currency and come OUT of loot boxes only. A level is play,
+   so a level pays chips. See §7b for the whole loop. */
 function payout(L){
   return {
-    coins: 100 + 50 * L,
+    chips: 100 + 50 * L,
     packs: (L % 5 === 0) ? 2 : (L % 3 === 0 ? 1 : 0)
   };
 }
@@ -774,6 +778,23 @@ function award(game, result, opts){
 
     var xp = Math.max(1, Math.round(base * speed * tap * firstWin));
 
+    /* THE WINNER'S SHARE of that XP — the part you would NOT have been
+       paid for simply sitting at the table. The reward screen and the
+       winner screen want to animate "played" and "won" separately, so
+       it is computed here, once, from the same numbers. A loss's
+       wonBonus is 0 by construction. */
+    var xpFloor = Math.max(1, Math.round(w * RESULT.l * speed * tap));
+    var wonBonus = res === 'w' ? Math.max(0, xp - xpFloor) : 0;
+
+    /* THE CHIPS LEG — every counted game pays chips (see §7b for the
+       economy). Same WEIGHT, same speed factor, same daily taper as
+       the XP, so the anti-farm machinery is shared and cannot drift.
+       NOT multiplied by the first-win bonus — that carrot is XP's.
+       opts.ranked doubles it: a staked/ranked game is the serious
+       lane, and it pays like one (on top of the pot). */
+    var chips = Math.round(w * CHIPS_PAY.result[res] * speed * tap *
+                           (opts.ranked ? CHIPS_PAY.ranked : 1));
+
     var before = levelFromXp(p.xp);
     p.xp += xp;
     var after = levelFromXp(p.xp);
@@ -792,28 +813,31 @@ function award(game, result, opts){
     out.speed = speed;
     out.taper = tap;
     out.firstWin = firstWin > 1;
+    out.wonBonus = wonBonus;
+    out.ranked = !!opts.ranked;
     out.total = p.xp;
 
-    /* the payout. Coins and packs go into the SAME purse the card game
-       already uses — a level does not mint a second currency, it tops
-       up the one that already buys packs. */
-    var coins = 0, packs = 0, L;
+    /* the level payout. CHIPS and packs go into the SAME save the card
+       game already uses — a level does not mint a second currency, it
+       tops up the play purse (see §7b). */
+    var levelChips = 0, packs = 0, L;
     for (L = before + 1; L <= after; L++){
       var pay = payout(L);
-      coins += pay.coins; packs += pay.packs;
+      levelChips += pay.chips; packs += pay.packs;
       out.unlocked = out.unlocked.concat(unlocksAt(L));
     }
-    if (coins || packs){
-      try {
-        if (window.KARTI && KARTI.S){
-          if (coins) KARTI.S.coins = (KARTI.S.coins | 0) + coins;
-          if (packs) KARTI.S.packs = (KARTI.S.packs | 0) + packs;
-        }
-      } catch (e){}
+    var dChips = chips + levelChips;
+    if (dChips || packs){
+      var W = wallet();
+      if (dChips) W.chips = Math.max(0, (W.chips | 0) + dChips);
+      if (packs) W.packs = Math.max(0, (W.packs | 0) + packs);
     }
-    out.coins = coins; out.packs = packs;
+    out.chips = chips;            /* what THIS game paid                */
+    out.chipsLevel = levelChips;  /* what levelling up on it paid       */
+    out.packs = packs;
 
     commit();
+    if (dChips) fire(walletCbs, walletEv(dChips, 0, 'play'));
 
     sweepEarned();
     fire(awardCbs, out);
@@ -836,6 +860,514 @@ function show(res, opts){
   try {
     if (UI && typeof UI.reward === 'function') UI.reward(res, opts || {});
   } catch (e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7b. THE TWO CURRENCIES — CHIPS AND COINS
+   ───────────────────────────────────────────────────────────────────
+   THE LOOP, in one paragraph. CHIPS are the PLAY currency: every game
+   pays them (see the chips leg in award()), the daily spin pays them,
+   ranked play pays them double — and lobbies STAKE them, everyone
+   anteing into a pot the winner takes. COINS are the SPEND currency:
+   they buy cosmetics in the store, and they are NOT earned from play —
+   they come OUT of loot boxes, which are what chips buy in the chips
+   store. So the whole economy is one river: play → chips → boxes →
+   coins → cosmetics, with staking as the fast dangerous channel in
+   the middle. DUST is retired; migrateDust() below folds it in.
+
+   ── THE ONE TUNING TABLE ──────────────────────────────────────────
+   Every award number lives HERE so balance is one edit, not a hunt.
+
+     CHIPS_PAY.result   chips per WEIGHT unit (weights in §1):
+                          w 5 · d 2.5 · l 1.2
+                        → a quick sette win ≈ 25, a chess win ≈ 35,
+                          a kiri win ≈ 50; the matching losses ≈ 6/8/12.
+                        Losing pays a LITTLE (the participation trickle,
+                        same law as XP's "a loss is never zero");
+                        winning pays ~4× that (meaningful, not cruel).
+     CHIPS_PAY.ranked   ×2 on a staked/ranked game — the serious lane
+                        pays like one, ON TOP of the pot itself.
+     Level-ups          payout(L) pays 100+50L CHIPS (play → chips).
+     Daily spin         js/game.js SPIN_TABLE — every line carries at
+                        least 60 chips, average ≈ 87/day: the top-up
+                        that un-breaks a broke player. A broke player
+                        can always play FRIENDLY games free (table
+                        chips below), and earn from them.
+
+   ── WHAT THAT BUYS (the justification) ────────────────────────────
+     Il-Qoffa 120 chips  ≈ 4 friendly wins, or 1½ daily spins
+     Is-Senduq 300 chips ≈ a good evening (8-10 wins) + the daily
+     It-Teżor 750 chips  ≈ a casual week
+     A 180-coin cosmetic ≈ 2 small boxes ≈ ~8 wins
+     A ~480-coin one     ≈ a standard + a small ≈ 2-3 evenings
+   Rewarding from night one, nowhere near maxed in a month.
+
+   ── STORAGE — EXACTLY THE COINS DISCIPLINE ────────────────────────
+   Chips live as a NUMBER at the top level of js/game.js's save object
+   (KARTI.S.chips), right beside S.coins, because that is where coins
+   live: pushed wholesale by js/sync.js, carried across the guest→
+   account upgrade, and auto-merged by mergeSaves() (numbers → MAX)
+   with no sync.js change needed. No parallel store, no second key.
+   The localStorage fallback below exists only so this file can be
+   loaded and tested standalone, same as FB above.
+   ═══════════════════════════════════════════════════════════════════ */
+
+var CHIPS_PAY = {
+  result: { w:5, d:2.5, l:1.2 },   /* chips per WEIGHT unit            */
+  ranked: 2                        /* staked/ranked multiplier         */
+};
+var CHIPS_MAX_TXN = 100000;        /* absurdity ceiling on one movement */
+
+var WKEY = 'karti_wallet_v1';
+var WFB = null;                    /* standalone-test fallback wallet   */
+
+/* The live wallet: KARTI.S itself, with every number squeezed sane on
+   the way out — a half-synced or hand-edited save must not be able to
+   poison arithmetic (the same rule norm() applies to prog). */
+function walletNorm(W){
+  var k, keys = ['chips', 'coins', 'packs', 'dust', 'dustX'];
+  for (k = 0; k < keys.length; k++){
+    var f = keys[k];
+    if (typeof W[f] !== 'number' || !isFinite(W[f]) || W[f] < 0) W[f] = 0;
+    W[f] = Math.floor(W[f]);
+  }
+  return W;
+}
+function wallet(){
+  try { if (window.KARTI && KARTI.S) return walletNorm(KARTI.S); } catch (e){}
+  if (!WFB) WFB = walletNorm(lsGet(WKEY, null) || { chips:0, coins:0, packs:0, dust:0, dustX:0 });
+  return WFB;
+}
+function walletCommit(){
+  try {
+    if (window.KARTI && KARTI.S && typeof KARTI.save === 'function'){ KARTI.save(); return true; }
+  } catch (e){}
+  return lsSet(WKEY, WFB || {});
+}
+
+/* wallet listeners — the home wallet's count-up animation hangs off
+   this, so every movement fires exactly one event with the deltas. */
+var walletCbs = [];
+function onWallet(cb){ return on(walletCbs, cb); }
+function walletEv(dChips, dCoins, reason, extra){
+  var W = wallet();
+  var ev = { chips:W.chips, coins:W.coins, dChips:dChips | 0, dCoins:dCoins | 0,
+             reason:String(reason || '') };
+  if (extra) for (var k in extra) ev[k] = extra[k];
+  return ev;
+}
+
+/* ── the four verbs. None of them can go negative, none of them can
+   move an insane amount, and every refusal says why. ─────────────── */
+function moveOK(n){
+  n = Math.floor(Number(n));
+  if (!isFinite(n) || n <= 0) return 0;
+  if (n > CHIPS_MAX_TXN) return 0;
+  return n;
+}
+function chipsBal(){ return wallet().chips; }
+function coinsBal(){ return wallet().coins; }
+
+function addChips(n, reason){
+  var k = moveOK(n);
+  if (!k) return { ok:false, why:'bad-amount', balance:chipsBal() };
+  var W = wallet();
+  W.chips += k;
+  walletCommit();
+  fire(walletCbs, walletEv(k, 0, reason || 'add'));
+  return { ok:true, added:k, balance:W.chips };
+}
+function spendChips(n, reason){
+  var k = moveOK(n);
+  if (!k) return { ok:false, why:'bad-amount', balance:chipsBal() };
+  var W = wallet();
+  if (W.chips < k) return { ok:false, why:'chips', short:k - W.chips, balance:W.chips };
+  W.chips -= k;
+  walletCommit();
+  fire(walletCbs, walletEv(-k, 0, reason || 'spend'));
+  return { ok:true, spent:k, balance:W.chips };
+}
+function addCoins(n, reason){
+  var k = moveOK(n);
+  if (!k) return { ok:false, why:'bad-amount', balance:coinsBal() };
+  var W = wallet();
+  W.coins += k;
+  walletCommit();
+  fire(walletCbs, walletEv(0, k, reason || 'add'));
+  return { ok:true, added:k, balance:W.coins };
+}
+function spendCoins(n, reason){
+  var k = moveOK(n);
+  if (!k) return { ok:false, why:'bad-amount', balance:coinsBal() };
+  var W = wallet();
+  if (W.coins < k) return { ok:false, why:'coins', short:k - W.coins, balance:W.coins };
+  W.coins -= k;
+  walletCommit();
+  fire(walletCbs, walletEv(0, -k, reason || 'spend'));
+  return { ok:true, spent:k, balance:W.coins };
+}
+
+/* ── STAKING — the guarded pair the lobby work calls ────────────────
+   A staked lobby antes every seat into a pot and the WINNER TAKES THE
+   POT: chips genuinely move between players. This is the door:
+
+     canStake(n)            can this player afford the ante?
+     stake(n, {id})         take the ante out of the wallet. Refuses to
+                            go negative, refuses double-calls carrying
+                            the same id (a lobby should pass its match
+                            id so a reconnect cannot ante twice).
+     payoutChips(n, {id})   pay the pot to the winner. Same id guard,
+                            so a winner screen firing twice pays once.
+     refundStake(n, {id})   a lobby that never started gives the ante
+                            back — spelled differently from a payout so
+                            the ledgers read honestly.
+
+   BROKE PLAYERS ARE NEVER LOCKED OUT: a failed stake() is the signal
+   to offer the FRIENDLY (free) lane, which uses table chips (below)
+   and still pays XP and the friendly chip trickle. The daily spin is
+   the top-up. Nothing in this file gates a game. */
+function econSeen(tag){
+  if (!tag) return false;                 /* no id — caller's discipline */
+  var p = root();
+  tag = 'ec:' + String(tag).slice(0, 44);
+  if (p.seen.indexOf(tag) >= 0) return true;
+  p.seen.push(tag);
+  if (p.seen.length > SEEN_MAX) p.seen.splice(0, p.seen.length - SEEN_MAX);
+  return false;
+}
+function canStake(n){
+  var k = moveOK(n);
+  return !!k && wallet().chips >= k;
+}
+function stake(n, opts){
+  var id = opts && opts.id ? 'stk:' + opts.id : '';
+  if (id && econSeen(id)) return { ok:false, why:'already', balance:chipsBal() };
+  var r = spendChips(n, 'stake');
+  if (!r.ok && id){ /* the ante did not happen — forget the guard tag */
+    var p = root(), i = p.seen.indexOf('ec:' + id.slice(0, 44));
+    if (i >= 0) p.seen.splice(i, 1);
+  }
+  return r;
+}
+function payoutChips(n, opts){
+  var id = opts && opts.id ? 'pot:' + opts.id : '';
+  if (id && econSeen(id)) return { ok:false, why:'already', balance:chipsBal() };
+  return addChips(n, 'payout');
+}
+function refundStake(n, opts){
+  var id = opts && opts.id ? 'rfd:' + opts.id : '';
+  if (id && econSeen(id)) return { ok:false, why:'already', balance:chipsBal() };
+  return addChips(n, 'refund');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7c. TABLE CHIPS — PLAY MONEY. ★ NOT THE WALLET. NEVER THE WALLET. ★
+   ───────────────────────────────────────────────────────────────────
+   Poker and blackjack cannot be played without chips on the table —
+   betting IS the game — but a FRIENDLY game must never drain the real
+   wallet. So a friendly card table calls openTableStack() and is
+   HANDED a fresh stack of play money for that sitting. It is:
+
+     · ephemeral — in memory only, never written to the save, never
+       synced, gone on reload;
+     · per-sitting — reopening the table deals a fresh stack;
+     · worthless — winning a mountain of table chips changes the real
+       balance by exactly zero.
+
+   THE TWO MUST NEVER BE MIXED. A bug that pays a friendly blackjack
+   win into the real wallet would mint unlimited currency and break
+   the whole economy — which is why a table stack is a separate object
+   with separate verbs (bet/win/reset) that has NO REFERENCE to the
+   wallet at all, and why its every object carries {play:true} so a
+   winner screen can tell at a glance which money it is looking at.
+   The real thing a friendly card game pays is awardPlay() — the small
+   chips-and-XP trickle — exactly like every other friendly game.
+
+   Staked card games do NOT use this: they stake() the real ante into
+   the pot and the table plays for the pot. One lobby, one kind of
+   money on the table, never both.
+   ═══════════════════════════════════════════════════════════════════ */
+var TABLE_STACK_DEFAULT = 1000;
+var TABLE = {};                    /* game -> live stack, memory only   */
+function openTableStack(game, n){
+  game = String(game || '').toLowerCase();
+  var size = (typeof n === 'number' && isFinite(n) && n > 0)
+               ? Math.floor(n) : TABLE_STACK_DEFAULT;
+  var st = {
+    game: game,
+    play: true,                    /* ← the flag that says "not money"  */
+    chips: size,
+    size: size,
+    bet: function(k){
+      k = Math.floor(Number(k));
+      if (!isFinite(k) || k <= 0 || k > st.chips) return { ok:false, balance:st.chips };
+      st.chips -= k;
+      return { ok:true, balance:st.chips };
+    },
+    win: function(k){
+      k = Math.floor(Number(k));
+      if (!isFinite(k) || k <= 0) return { ok:false, balance:st.chips };
+      st.chips += k;
+      return { ok:true, balance:st.chips };
+    },
+    broke: function(){ return st.chips <= 0; },
+    reset: function(){ st.chips = st.size; return st.chips; }
+  };
+  TABLE[game] = st;
+  return st;
+}
+function tableStack(game){
+  return TABLE[String(game || '').toLowerCase()] || null;
+}
+function closeTableStack(game){
+  delete TABLE[String(game || '').toLowerCase()];
+  return { ok:true };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7d. awardPlay — THE ONE DOOR the winner-screen work calls
+   ───────────────────────────────────────────────────────────────────
+     KARTI_XP.awardPlay({ game, won, draw, ranked, id, ms, quiet })
+       -> { ok, chips, xp, wonBonus, chipsLevel, levelled, level,
+            balance, counted, why }
+
+   One call per finished match, from any game. It routes through the
+   same award() every existing funnel uses, so:
+     · XP and chips are paid together, deduped together (pass the
+       match id and a reconnect or a double-fired screen pays once);
+     · the daily taper, speed floor and first-win bonus all apply;
+     · ranked:true doubles the chips (the pot is paid separately,
+       through stake()/payoutChips() above).
+   Returns each part separately so a winner screen can animate them:
+     chips      what this game paid the wallet
+     xp         the whole XP payment
+     wonBonus   the slice of that XP that was FOR WINNING — everyone
+                gets the participation trickle; this is the winner's
+                extra on top
+     chipsLevel chips a level-up paid on top, if one landed
+   quiet defaults to TRUE here (the winner screen draws its own
+   ceremony); pass quiet:false to get the stock reward screen.
+   ═══════════════════════════════════════════════════════════════════ */
+function awardPlay(o){
+  o = o || {};
+  var res = o.draw ? 'd' : (o.won ? 'w' : 'l');
+  var r = award(o.game, res, {
+    id: o.id, ms: o.ms,
+    ranked: !!(o.ranked || o.staked),
+    quiet: o.quiet !== false
+  });
+  return {
+    ok: !!r.counted, counted: !!r.counted, why: r.why,
+    game: r.game || String(o.game || '').toLowerCase(), result: res,
+    xp: r.xp | 0,
+    wonBonus: r.wonBonus | 0,
+    chips: r.chips | 0,
+    chipsLevel: r.chipsLevel | 0,
+    packs: r.packs | 0,
+    levelled: !!r.levelled, level: r.level,
+    balance: chipsBal()
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7e. THE LOOT BOXES — the bridge from chips to coins
+   ───────────────────────────────────────────────────────────────────
+   THESE TABLES ARE THE WHOLE TRUTH. The roll walks them, the store
+   prints them, the harness proves them over 10,000 rolls. pct sums to
+   100 per box — checked at boot, loudly.
+
+   THE HONEST NUMBERS (expected value per box, coins-equivalent,
+   chips-back counted at face):
+
+     Il-Qoffa   120 chips → EV ≈ 113 coins + 10 chips  (~0.99/chip)
+     Is-Senduq  300 chips → EV ≈ 320 coins + 26 chips  (~1.13/chip)
+     It-Teżor   750 chips → EV ≈ 897 coins + 65 chips  (~1.28/chip)
+
+   Bigger boxes pay better per chip ON PURPOSE — saving up is rewarded,
+   which is what makes the big box worth wanting rather than just
+   three small ones in a coat. Card packs are valued at the store's
+   own PACK_COST (150 coins) in the EV above.
+
+   `tier` on each line drives the reveal ceremony's intensity (0 the
+   everyday roll … 3 the jackpot), exactly as spinTier does for the
+   daily spin — a new line added here gets the right light on its own.
+   ═══════════════════════════════════════════════════════════════════ */
+var BOXES = [
+  { id:'qoffa', price:120, accent:'#3DDC84', icon:'basket',
+    name:{ en:'Il-Qoffa', mt:'Il-Qoffa' },
+    blurb:{ en:'The market basket. Cheap, cheerful, always something inside.',
+            mt:'Il-qoffa tas-suq. Irħisa, ferrieħa, dejjem hemm xi ħaġa ġo fiha.' },
+    table:[
+      { kind:'coins', n:90,   pct:60, tier:0 },
+      { kind:'coins', n:160,  pct:20, tier:1 },
+      { kind:'chips', n:100,  pct:10, tier:1 },
+      { kind:'pack',  n:1,    pct:6,  tier:2 },
+      { kind:'coins', n:320,  pct:3,  tier:2 },
+      { kind:'coins', n:800,  pct:1,  tier:3 }
+    ] },
+  { id:'senduq', price:300, accent:'#8A5CFF', icon:'chest',
+    name:{ en:'Is-Senduq', mt:'Is-Senduq' },
+    blurb:{ en:'The dowry chest. Heavier, and it knows it.',
+            mt:'Is-senduq tad-dota. Itqal, u jaf.' },
+    table:[
+      { kind:'coins', n:260,  pct:52, tier:0 },
+      { kind:'coins', n:420,  pct:20, tier:1 },
+      { kind:'chips', n:260,  pct:10, tier:1 },
+      { kind:'pack',  n:1, coins:120, pct:10, tier:2 },
+      { kind:'coins', n:700,  pct:6,  tier:2 },
+      { kind:'coins', n:1600, pct:2,  tier:3 }
+    ] },
+  { id:'tezor', price:750, accent:'#FFC542', icon:'treasure',
+    name:{ en:'It-Teżor', mt:'It-Teżor' },
+    blurb:{ en:'The treasure of the knights. Save up. It is worth it.',
+            mt:'It-teżor tal-kavallieri. Faddal. Jiswa.' },
+    table:[
+      { kind:'coins', n:700,  pct:45, tier:0 },
+      { kind:'coins', n:1000, pct:20, tier:1 },
+      { kind:'chips', n:650,  pct:10, tier:1 },
+      { kind:'pack',  n:2, coins:200, pct:12, tier:2 },
+      { kind:'coins', n:1800, pct:9,  tier:2 },
+      { kind:'coins', n:4000, pct:4,  tier:3 }
+    ] }
+];
+/* the boot check — a printed odds table that does not sum to 100 is a
+   lie on a screen, and this file refuses to be quietly wrong about it */
+(function(){
+  for (var i = 0; i < BOXES.length; i++){
+    var s = 0, t = BOXES[i].table;
+    for (var j = 0; j < t.length; j++) s += t[j].pct;
+    if (s !== 100 && typeof console !== 'undefined')
+      console.error('KARTI econ: box "' + BOXES[i].id + '" odds sum to ' + s + ', not 100.');
+  }
+})();
+
+/* the box roll's randomness is its own, for the same reason the daily
+   spin's is: it must never draw from a seeded duel stream */
+function econRand(){
+  try {
+    var u = new Uint32Array(1);
+    crypto.getRandomValues(u);
+    return u[0] / 4294967296;
+  } catch (e){ return Math.random(); }
+}
+function boxById(id){
+  for (var i = 0; i < BOXES.length; i++) if (BOXES[i].id === id) return BOXES[i];
+  return null;
+}
+function prizeLabel(pr){
+  if (!pr) return '';
+  if (pr.kind === 'coins') return pr.n + ' coins';
+  if (pr.kind === 'chips') return pr.n + ' chips back';
+  if (pr.kind === 'pack')
+    return (pr.n === 1 ? 'A card pack' : pr.n + ' card packs') +
+           (pr.coins ? ' + ' + pr.coins + ' coins' : '');
+  return '';
+}
+/* rollBox(id) — the PURE roll, no spend, no grant. Public so the
+   verification harness can prove the distribution over 10k calls
+   without minting anything. */
+function rollBox(id){
+  var b = boxById(id);
+  if (!b) return null;
+  var r = econRand() * 100;
+  for (var i = 0; i < b.table.length; i++){
+    r -= b.table[i].pct;
+    if (r < 0) return b.table[i];
+  }
+  return b.table[0];
+}
+/**
+ * openBox(id) -> { ok, box, prize:{kind,n,coins,tier,label}, balance }
+ * Spends the price, rolls, grants, saves — all before any pixel of the
+ * reveal moves (the same law the pack reveal and the spin live by).
+ * Refuses cleanly when chips are short; can never go negative and can
+ * never grant without having charged.
+ */
+function openBox(id){
+  var b = boxById(id);
+  if (!b) return { ok:false, why:'unknown' };
+  var paid = spendChips(b.price, 'box:' + b.id);
+  if (!paid.ok) return { ok:false, why:paid.why, short:paid.short, price:b.price, balance:paid.balance };
+  var pr = rollBox(id);
+  var W = wallet();
+  var dChips = 0, dCoins = 0, packs = 0;
+  if (pr.kind === 'coins'){ dCoins = pr.n; }
+  else if (pr.kind === 'chips'){ dChips = pr.n; }
+  else if (pr.kind === 'pack'){ packs = pr.n; if (pr.coins) dCoins = pr.coins; }
+  if (dCoins) W.coins += dCoins;
+  if (dChips) W.chips += dChips;
+  if (packs) W.packs += packs;
+  walletCommit();
+  if (dChips || dCoins) fire(walletCbs, walletEv(dChips, dCoins, 'box'));
+  return {
+    ok:true,
+    box:{ id:b.id, price:b.price, accent:b.accent, name:pickLang(b.name) },
+    prize:{ kind:pr.kind, n:pr.n, coins:pr.coins || 0, tier:pr.tier | 0, label:prizeLabel(pr) },
+    balance:{ chips:W.chips, coins:W.coins, packs:W.packs }
+  };
+}
+/* what the store prints — resolved names/blurbs and the odds rows,
+   never the raw table, so the screen cannot edit the truth */
+function boxesInfo(){
+  return BOXES.map(function(b){
+    return {
+      id: b.id, price: b.price, accent: b.accent, icon: b.icon,
+      name: pickLang(b.name), blurb: pickLang(b.blurb),
+      odds: b.table.map(function(pr){
+        return { pct: pr.pct, kind: pr.kind, n: pr.n, coins: pr.coins || 0,
+                 tier: pr.tier | 0, label: prizeLabel(pr) };
+      })
+    };
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   7f. DUST IS RETIRED — the one-time migration
+   ───────────────────────────────────────────────────────────────────
+   Dust was a dead-end ledger: earned from duplicate cards and duel
+   losses, spendable on nothing, shown in the wallet as a promise the
+   app never kept. It converts to COINS at 1:1 — coins, not chips,
+   because dust only ever came OUT of loot (packs), and loot-output is
+   exactly what coins are; converting to chips would mint staking
+   currency from a ledger nobody chose to grind.
+
+   IDEMPOTENT BY LEDGER, NOT BY FLAG. S.dustX records how much dust has
+   EVER been converted. pending = dust - dustX; convert pending, set
+   dustX = dust. Run twice → pending is 0 → nothing happens. And
+   because both fields are numbers, mergeSaves() MAX-merges them: a
+   second phone that syncs in MORE dust than this one had converted
+   reopens exactly the unconverted difference, once. It is re-checked
+   on the profile-switch watcher below, so a cloud pull or a profile
+   change settles within a couple of seconds, silently.
+   ═══════════════════════════════════════════════════════════════════ */
+/* ── THE CHIP ICON — one drawing, everywhere ────────────────────────
+   The wallet's whole job is that nobody ever confuses the two
+   currencies, so the chip is NOT another circle-in-a-circle like the
+   coin: it is a poker chip — rim, inset, and the eight edge ticks.
+   Inline (not a sprite reference) because index.html's sprite belongs
+   to another file; defined HERE, once, so js/game.js's wallet and
+   js/progress-ui.js's reward screen draw the identical chip. */
+function chipICO(label, cls){
+  return '<svg class="ico' + (cls ? ' ' + cls : '') + '" viewBox="0 0 24 24" ' +
+    (label ? 'role="img" aria-label="' + String(label).replace(/[&<>"]/g, '') + '"'
+           : 'aria-hidden="true"') +
+    ' focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+    '<circle cx="12" cy="12" r="9"/>' +
+    '<circle cx="12" cy="12" r="4.4"/>' +
+    '<path d="M12 3v3.2M12 17.8V21M3 12h3.2M17.8 12H21' +
+    'M5.64 5.64l2.26 2.26M16.1 16.1l2.26 2.26M18.36 5.64L16.1 7.9M7.9 16.1l-2.26 2.26"/>' +
+    '</svg>';
+}
+
+function migrateDust(){
+  var W = wallet();
+  var pending = (W.dust | 0) - (W.dustX | 0);
+  if (pending <= 0) return { ok:true, converted:0, already:true, coins:W.coins };
+  W.coins += pending;
+  W.dustX = W.dust;
+  walletCommit();
+  fire(walletCbs, walletEv(0, pending, 'dust'));
+  return { ok:true, converted:pending, coins:W.coins };
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2611,12 +3143,18 @@ var wireT = setInterval(function(){
 
 /* A profile switch has to move the ladder with it. Nothing is cached,
    so the only thing to reset is the in-memory repeat guard and the
-   painted faces. */
+   painted faces. The same tick settles the dust migration (§7f): it
+   is a two-integer no-op once done, and running it here means a cloud
+   pull that raises S.dust, or a profile switch to an unmigrated save,
+   converts within a couple of seconds with no hook to forget. */
 var lastKey = activeKey();
 setInterval(function(){
   var k = activeKey();
   if (k !== lastKey){ lastKey = k; recent.length = 0; repaintAvatars(); }
+  try { migrateDust(); } catch (e){}
 }, 2500);
+/* and once now, for the boot where game.js is already up */
+try { migrateDust(); } catch (e){}
 
 /* ── the way in ───────────────────────────────────────────────────
    index.html and most of js/game.js belong to other people, so any
@@ -2674,6 +3212,44 @@ window.KARTI_XP = {
 
   /* one match, one payment */
   award: award,
+
+  /* ── THE ECONOMY (§7b-§7f) ──────────────────────────────────────
+     CHIPS = play currency (earned everywhere, staked in lobbies).
+     COINS = spend currency (out of loot boxes, into cosmetics).
+     All four verbs refuse to go negative and refuse absurd amounts;
+     spends return {ok:false, why:'chips'|'coins', short} when broke. */
+  chips: chipsBal,                    /* -> the chip balance            */
+  coins: coinsBal,                    /* -> the coin balance            */
+  addChips: addChips,                 /* addChips(n, reason)            */
+  spendChips: spendChips,             /* spendChips(n, reason)          */
+  addCoins: addCoins,
+  spendCoins: spendCoins,
+  onWallet: onWallet,                 /* cb({chips,coins,dChips,dCoins,reason}) */
+  chipICO: chipICO,                   /* the chip icon, inline SVG      */
+
+  /* staking — the lobby pair. Pass {id: matchId} and a double-call
+     cannot ante or pay twice. See §7b. */
+  canStake: canStake,
+  stake: stake,                       /* stake(n, {id})                 */
+  payout: payoutChips,                /* payout(n, {id}) — winner's pot */
+  refundStake: refundStake,           /* refundStake(n, {id})           */
+
+  /* TABLE CHIPS — play money for FRIENDLY poker/blackjack. NOT the
+     wallet, never persisted, never synced. See the warning in §7c. */
+  openTableStack: openTableStack,     /* openTableStack(game, n?) -> stack */
+  tableStack: tableStack,             /* tableStack(game) -> stack|null */
+  closeTableStack: closeTableStack,
+
+  /* THE ONE DOOR for winner screens: chips + XP for a finished match,
+     each part returned separately for the ceremony. See §7d. */
+  awardPlay: awardPlay,
+
+  /* the loot boxes — the chips→coins bridge. See §7e for the odds. */
+  boxes: boxesInfo,                   /* -> [{id,price,name,odds:[…]}]  */
+  openBox: openBox,                   /* openBox(id) -> {ok,prize,balance} */
+
+  /* dust → coins, once, idempotent. See §7f. */
+  migrateDust: migrateDust,
 
   /* a game declares its kit */
   register: register,
@@ -2793,7 +3369,10 @@ window.KARTI_XP = {
     WEIGHT: WEIGHT, RESULT: RESULT, TAPER: TAPER, FIRST_WIN: FIRST_WIN,
     SPEED_FLOOR: SPEED_FLOOR, MAX_LEVEL: MAX_LEVEL,
     need: need, cum: function(L){ return CUM[L] || 0; }, payout: payout,
-    par: par, weight: weight, levelFromXp: levelFromXp
+    par: par, weight: weight, levelFromXp: levelFromXp,
+    /* the chips side of the till, readable for the same reason */
+    CHIPS_PAY: CHIPS_PAY, TABLE_STACK: TABLE_STACK_DEFAULT,
+    BOXES: function(){ return boxesInfo(); }
   },
 
   /* the funnels — called by the four lines added elsewhere */
@@ -2811,6 +3390,8 @@ window.KARTI_XP = {
   /* test hooks only */
   _ui: function(u){ UI = u; },
   _state: function(){ return root(); },
+  _wallet: function(){ return wallet(); },
+  _rollBox: rollBox,               /* pure roll, no spend — odds proof  */
   _reset: function(){
     var p = root(), k;
     for (k in blank()) p[k] = blank()[k];

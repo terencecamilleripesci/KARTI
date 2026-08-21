@@ -440,7 +440,18 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) clou
 
 /* ───────────────────────── save state ───────────────────────── */
 const DEFAULT_STATE = () => ({
-  owned:{}, dust:0, coins:300, packs:1,
+  /* TWO CURRENCIES (the economy lives in js/progress.js §7b):
+       chips — the PLAY currency: earned by playing anything, paid by
+               the daily spin, staked in lobbies, spent on loot boxes.
+               A new player starts with 250: enough to ante a few small
+               staked games or open one small box on night one.
+       coins — the SPEND currency: buys cosmetics and packs; comes OUT
+               of loot boxes, never directly from play.
+     dust is RETIRED. The field stays (an old save carries it, and the
+     sync merge would resurrect it anyway); dustX records how much has
+     been converted to coins by the one-time migration in progress.js.
+     Both are plain numbers so mergeSaves() MAX-merges them safely. */
+  owned:{}, dust:0, dustX:0, chips:250, coins:300, packs:1,
   decks:[], activeDeck:null, starters:[], side:null,
   rec:{ w:0, l:0 },
   /* which of the four sets packs come from, and the pity counters that stop a
@@ -475,12 +486,18 @@ function save(){
 const ownedCount = id => S.owned[id] || 0;
 const uniqueOwned = () => CARDS.filter(c => ownedCount(c.id) > 0).length;
 
+/* A duplicate past the copy cap converts to COINS now, not dust — dust
+   is retired (see DEFAULT_STATE). The rarity's old dust value IS the
+   coin value: dupes come out of packs, packs are loot, and coins are
+   the loot-output currency, so nothing about the numbers had to move.
+   The field is still called `dusted` on the way out because a dozen
+   reveal call-sites read it; it means "coins paid for the dupe". */
 function addCard(id){
   const card = cardById(id);
   if (!card) return { isNew:false, dusted:0 };
   const was = ownedCount(id);
   if (was >= MAX_COPIES){
-    const d = RARITY[card.r].dust; S.dust += d;
+    const d = RARITY[card.r].dust; S.coins += d;
     return { isNew:false, dusted:d };
   }
   S.owned[id] = was + 1;
@@ -597,7 +614,7 @@ function cardEl(card, opts){
        duplicate. dupeDust, when non-zero, is what the copy turned into. */
     (opts.isNew ? '<span class="newbadge">New</span>' :
      opts.isDupe ? '<span class="dupebadge">Duplicate' +
-       (opts.dupeDust ? '<i>' + ico('dust') + '+' + opts.dupeDust + '</i>' : '') +
+       (opts.dupeDust ? '<i>' + ico('coin') + '+' + opts.dupeDust + '</i>' : '') +
        '</span>' : '');
   if (opts.isNew) d.classList.add('is-new');
   else if (opts.isDupe) d.classList.add('is-dupe');
@@ -632,7 +649,7 @@ function cardViewModal(card){
     (effText(card) ? '<p class="effect">' + ico('bolt') + ' ' + esc(effText(card)) + '</p>' : '') +
     '<p class="tiny" style="text-align:center;margin-top:10px">' +
       (owned ? 'You own ' + owned + ' / ' + MAX_COPIES
-             : 'Not in your collection · dust value ' + (RARITY[card.r] ? RARITY[card.r].dust : 0)) + '</p>';
+             : 'Not in your collection · a spare copy pays ' + (RARITY[card.r] ? RARITY[card.r].dust : 0) + ' coins') + '</p>';
   wrap.appendChild(meta);
   const btn = document.createElement('button');
   btn.className = 'btn ghost sm'; btn.style.width = '100%'; btn.textContent = 'Close';
@@ -876,6 +893,96 @@ function starterPrice(key){
   if (window.KARTI_GACHA && KARTI_GACHA.priceOf) return KARTI_GACHA.priceOf(key);
   return 400;
 }
+/* ───────────────────── THE LIVE WALLET ─────────────────────────────
+   Chips and coins on the front door, and they MOVE: when currency
+   lands (a game paid out, a box opened, the daily spun) the counter
+   counts up with an ease-out rather than snapping, the pill pops, and
+   a little "+N" floats off it. All of it is transform/opacity + a
+   number being rewritten — no layout thrash — and all of it collapses
+   to an instant, still update under reduced motion.
+   The events come from KARTI_XP.onWallet (js/progress.js §7b), the
+   single door every currency movement already fires through. */
+function chipIco(label, cls){
+  try { if (window.KARTI_XP && KARTI_XP.chipICO) return KARTI_XP.chipICO(label, cls); } catch (e){}
+  return ico('coin', label, cls);          /* degraded, never blank      */
+}
+/* count el's .mono up/down to `to`. Interruptible: a second call takes
+   over from wherever the number visibly is. */
+function animateCount(el, to){
+  if (!el) return;
+  const m = el.querySelector('.mono') || el;
+  const from = parseInt(String(m.textContent).replace(/[^\d-]/g, ''), 10) || 0;
+  to = to | 0;
+  if (REDUCED || from === to || Math.abs(to - from) > 100000){ m.textContent = to; return; }
+  if (m._cnt) cancelAnimationFrame(m._cnt);
+  const t0 = performance.now(), ms = Math.min(900, 320 + Math.abs(to - from) * 2);
+  const step = now => {
+    const f = Math.min(1, (now - t0) / ms);
+    const e = 1 - Math.pow(1 - f, 3);              /* ease-out cubic     */
+    m.textContent = Math.round(from + (to - from) * e);
+    if (f < 1) m._cnt = requestAnimationFrame(step);
+    else m._cnt = 0;
+  };
+  m._cnt = requestAnimationFrame(step);
+}
+function walletBump(el, delta){
+  if (!el) return;
+  walletFxCSS();
+  el.classList.remove('wbump'); void el.offsetWidth;
+  el.classList.add('wbump');
+  if (REDUCED || !delta) return;
+  const f = document.createElement('i');
+  f.className = 'wfloat' + (delta < 0 ? ' neg' : '');
+  f.textContent = (delta > 0 ? '+' : '') + delta;
+  el.appendChild(f);
+  setTimeout(() => { try { f.remove(); } catch (e){} }, 950);
+}
+let walletWired = false;
+function wireWallet(){
+  if (walletWired || !window.KARTI_XP || !KARTI_XP.onWallet) return;
+  walletWired = true;
+  KARTI_XP.onWallet(ev => {
+    try {
+      const ch = $('#w-chips'), co = $('#w-coins');
+      if (ch){ animateCount(ch, ev.chips); if (ev.dChips) walletBump(ch, ev.dChips); }
+      if (co){ animateCount(co, ev.coins); if (ev.dCoins) walletBump(co, ev.dCoins); }
+      /* the store's header pill follows the same movement */
+      if (current === 'pack') updateCoinsPill(true);
+    } catch (e){}
+  });
+  /* remember the most recent play award so the duel's result card can
+     say what the game ACTUALLY paid (the payment itself happens in
+     progress.js the moment the 'over' event lands — 700ms before the
+     card goes up — this is only the receipt) */
+  if (KARTI_XP.onAward) KARTI_XP.onAward(r => { lastAward = Object.assign({ at: Date.now() }, r); });
+}
+let lastAward = null;
+let walletFxDone = false;
+function walletFxCSS(){
+  if (walletFxDone || $('#kwallet-css')) { walletFxDone = true; return; }
+  walletFxDone = true;
+  const st = document.createElement('style');
+  st.id = 'kwallet-css';
+  st.textContent =
+    /* the chip pill's icon is festa crimson — the coin stays gold — so
+       the two currencies can never be mistaken at a glance */
+    '#scr-home .wallet .pill.chips .ico{color:color-mix(in srgb,var(--kx-accent-2,#E63950) 78%,#fff)}' +
+    '@supports not (color:color-mix(in srgb,red 50%,blue)){' +
+      '#scr-home .wallet .pill.chips .ico{color:#FF7585}}' +
+    '.pill.wbump{animation:kwBump .45s cubic-bezier(.2,1.6,.4,1)}' +
+    '@keyframes kwBump{0%{transform:scale(1)}35%{transform:scale(1.14)}100%{transform:scale(1)}}' +
+    '.pill{position:relative}' +
+    '.wfloat{position:absolute;left:50%;top:-2px;transform:translate(-50%,0);' +
+      'font:800 11px/1 var(--disp,inherit);color:var(--gold,#FFC542);pointer-events:none;' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.7);animation:kwFloat .9s ease-out forwards}' +
+    '.wfloat.neg{color:#FF7585}' +
+    '@keyframes kwFloat{0%{opacity:0;transform:translate(-50%,2px)}18%{opacity:1}' +
+      '100%{opacity:0;transform:translate(-50%,-16px)}}' +
+    '@media (prefers-reduced-motion:reduce){.pill.wbump{animation:none}.wfloat{display:none}}' +
+    '.reduced .pill.wbump{animation:none}.reduced .wfloat{display:none}';
+  document.head.appendChild(st);
+}
+
 function renderHome(){
   /* No deck yet? You do not get a free pick of all seven — you get a roll of
      three (js/gacha.js). Routed from here so a reload cannot dodge it. */
@@ -908,13 +1015,21 @@ function renderHome(){
   try { window.KARTI_XP && KARTI_XP.paint && KARTI_XP.paint(chip); } catch (e){}
 
   const d = activeDeck();
-  /* THE WALLET, top-right, opposite the profile. Coins and dust ONLY — compact
-     icon+value chips, no word labels (the icons carry it). The cards count is a
-     tappable door to the Collection now (below), and the W–L record was removed
-     from Home entirely: it lives in the stats screen, not on the front door. */
+  /* THE WALLET, top-right, opposite the profile. CHIPS and COINS — the
+     two currencies of the economy (js/progress.js §7b), each with its
+     own unmistakable icon: the poker chip (rim, inset, edge ticks, in
+     festa crimson) for the PLAY currency, the gold coin for the SPEND
+     currency. Dust is retired and its pill is gone. Compact icon+value
+     chips, no word labels (the icons carry it — and each pill carries
+     a title for the long-press curious). The values are live: the
+     onWallet hook below counts them up with easing and pops the pill
+     whenever currency lands, so earning is felt on the front door. */
+  wireWallet();
   $('#wallet').innerHTML =
-    '<span class="pill coins">' + ico('coin') + '<span class="mono">' + S.coins + '</span></span>' +
-    '<span class="pill dust">' + ico('dust') + '<span class="mono">' + S.dust + '</span></span>';
+    '<span class="pill chips" id="w-chips" title="Chips — earned by playing; stake them, or spend them on loot boxes">' +
+      chipIco('Chips') + '<span class="mono">' + (S.chips | 0) + '</span></span>' +
+    '<span class="pill coins" id="w-coins" title="Coins — out of loot boxes; buy cosmetics and packs">' +
+      ico('coin', 'Coins') + '<span class="mono">' + (S.coins | 0) + '</span></span>';
 
   /* THE CARDS CHIP — the "N/total cards" indicator, now the way into the
      Collection (the destination the old Collection tab opened). */
@@ -1819,7 +1934,7 @@ function renderPackTab(){
      so leaving mid-reveal used to strand it at 13% opacity for good */
   const sp = $('#pack-sets'); if (sp) sp.classList.remove('hushed');
   const tb0 = $('#store-tabs'); if (tb0) tb0.classList.remove('hushed');
-  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+  updateCoinsPill();
   const set = activeSet();
   const face = set && uiArt('pack', set.art);
   const stage = $('#pack-stage');
@@ -1994,7 +2109,7 @@ async function runPackOpen(){
   setFxColor(stage, RARITY[bestKey] ? RARITY[bestKey].c : '#FFD24A');
 
   packBar('open', 0, results.length);
-  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+  updateCoinsPill();
   const sets = $('#pack-sets'); if (sets) sets.classList.add('hushed');
   const tbs = $('#store-tabs'); if (tbs) tbs.classList.add('hushed');
 
@@ -2241,7 +2356,7 @@ function summaryRow(res, i){
   const tag = res.isNew
     ? '<span class="stag new">' + ico('check') + 'New</span>'
     : '<span class="stag dupe">' +
-        (res.dusted ? ico('dust') + '<span class="dust">+' + res.dusted + '</span>'
+        (res.dusted ? ico('coin') + '<span class="dust">+' + res.dusted + '</span>'
                     : 'Dupe') + '</span>';
   b.innerHTML =
     '<span class="rgem">' + ico(RARITY_ICON[res.card.r] || 'rar-komuni') + '</span>' +
@@ -2249,7 +2364,7 @@ function summaryRow(res, i){
       '<span class="smeta">' + meta + '</span></span>' + tag;
   b.setAttribute('aria-label', res.card.n + ', ' + rar.n + ', ' +
     (res.isNew ? 'new card' :
-     res.dusted ? 'duplicate, turned into ' + res.dusted + ' dust' :
+     res.dusted ? 'duplicate, turned into ' + res.dusted + ' coins' :
      'duplicate, copy ' + res.after + ' of ' + MAX_COPIES) + '. Tap to inspect.');
   b.onclick = () => cardViewModal(res.card);
   return b;
@@ -2275,7 +2390,7 @@ function showSummary(results){
           (news ? '<b style="color:var(--ok)">' + news + ' new</b>' : '<b>nothing new</b>') +
           (dupes ? '<b style="color:#B7A9DE">' + dupes + ' duplicate' +
             (dupes > 1 ? 's' : '') + '</b>' : '') +
-          (dust ? '<b style="color:var(--gold)">' + ico('dust', 'dust') + '+' + dust + '</b>' : '') +
+          (dust ? '<b style="color:var(--gold)">' + ico('coin', 'coins') + '+' + dust + '</b>' : '') +
         '</p></div>' +
       '<div class="sumlist" id="sum"></div>' +
     '</div>';
@@ -2292,7 +2407,7 @@ function showSummary(results){
   $('#p-again').onclick = () => renderPackScreen();
   $('#p-coll').onclick = () => go('coll');
   $('#p-home').onclick = () => go('home');
-  $('#pack-coins').innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+  updateCoinsPill();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2311,6 +2426,7 @@ function showSummary(results){
    ═══════════════════════════════════════════════════════════════════ */
 let storeTab = 'cards';          /* sticky for the session, not saved  */
 let spinBusy = false;
+let boxBusy = false;             /* a loot box mid-reveal              */
 let spinTickT = 0;               /* the countdown repaint timer        */
 
 /* ── the daily gate ────────────────────────────────────────────────
@@ -2361,20 +2477,33 @@ function spinState(now){
    THIS TABLE IS THE WHOLE TRUTH. The roll walks it, the odds screen
    prints it, the reel is stocked from it. pct MUST sum to 100 — the
    boot check below refuses to be quietly wrong about a printed number.
-   Worth: an average spin is ~55 coins-equivalent — about a third of
-   one duel win (120c + a pack), so a daily nudge, not a wage that
-   devalues playing. The 1% pack is his number, as asked. */
+
+   THE DAILY PAYS CHIPS NOW — the play currency (js/progress.js §7b) —
+   because the daily's job in the economy is to be the TOP-UP: the
+   thing that un-breaks a broke player so staked play is never more
+   than a day away (friendly play is free and unlimited regardless).
+   Every line therefore carries at least 60 chips — even the cosmetic
+   and the pack ride on top of a chip payment, so no roll can leave a
+   broke player still broke. Average ≈ 87 chips: about three friendly
+   wins, or most of a small loot box — a real daily nudge that still
+   does not out-earn an evening of actually playing. The 1% pack is
+   his number, as asked. The old dust line is gone with dust. */
 const SPIN_TABLE = [
-  { id:'c30',  kind:'coins', n:30,  pct:41, label:'30 coins',   ic:'coin' },
-  { id:'c60',  kind:'coins', n:60,  pct:24, label:'60 coins',   ic:'coin' },
-  { id:'xp18', kind:'xp',    n:18,  pct:15, label:'+18 XP',     ic:'star' },
-  { id:'c120', kind:'coins', n:120, pct:10, label:'120 coins',  ic:'coin' },
-  { id:'d40',  kind:'dust',  n:40,  pct:6,  label:'40 dust',    ic:'dust' },
-  { id:'cosm', kind:'cosmetic',     pct:3,  label:'Shop item',  ic:'rar-epiku' },
-  { id:'pack', kind:'pack',  n:1,   pct:1,  label:'Card pack',  ic:'pack' },
+  { id:'ch60',  kind:'chips', n:60,  pct:41, label:'60 chips',   ic:'chips' },
+  { id:'ch90',  kind:'chips', n:90,  pct:24, label:'90 chips',   ic:'chips' },
+  { id:'xp18',  kind:'xp',    n:18,  chips:30, pct:15, label:'+18 XP & 60 chips', ic:'star' },
+  { id:'ch150', kind:'chips', n:150, pct:10, label:'150 chips',  ic:'chips' },
+  { id:'ch250', kind:'chips', n:250, pct:6,  label:'250 chips',  ic:'chips' },
+  { id:'cosm',  kind:'cosmetic', chips:60, pct:3, label:'Shop item + 60 chips', ic:'rar-epiku' },
+  { id:'pack',  kind:'pack',  n:1,  chips:60, pct:1, label:'Card pack + 60 chips', ic:'pack' },
 ];
 if (SPIN_TABLE.reduce((a, p) => a + p.pct, 0) !== 100)
   console.error('KARTI store: SPIN_TABLE odds do not sum to 100 — the printed odds are wrong.');
+
+/* a prize icon that might be the chip — 'chips' is not in the sprite
+   (the chip is drawn by progress.js so every surface shares one chip);
+   everything else goes through ico() exactly as before */
+const icoPrize = n => n === 'chips' ? chipIco() : ico(n);
 
 /* The spin's randomness is its own: it must NEVER draw from rnd(),
    because that stream is seeded lockstep during an online duel and a
@@ -2399,18 +2528,32 @@ function spinRoll(){
    Rolled, granted and SAVED before a single pixel of reel moves —
    the same law the pack reveal lives by. Nothing is owed to an
    animation finishing. */
+/* every chip payment goes through the one wallet door in progress.js,
+   so the home wallet counts up and the balance can never go weird; if
+   that module somehow failed to load, pay the save directly — a daily
+   must never pay nothing because a script 404'd */
+function grantChips(n, reason){
+  if (!(n > 0)) return;
+  try {
+    if (window.KARTI_XP && KARTI_XP.addChips){ KARTI_XP.addChips(n, reason); return; }
+  } catch (e){}
+  S.chips = Math.max(0, (S.chips | 0) + n);
+}
 function spinGrant(prize, day){
   const out = { prize:prize, label:prize.label, cosmetic:null, levelled:false };
-  if (prize.kind === 'coins'){ S.coins += prize.n; }
-  else if (prize.kind === 'dust'){ S.dust += prize.n; }
+  /* the guaranteed top-up riding under a cosmetic/pack/xp line */
+  if (prize.chips) grantChips(prize.chips, 'spin');
+  if (prize.kind === 'chips'){ grantChips(prize.n, 'spin'); }
   else if (prize.kind === 'pack'){ S.packs += 1; }
   else if (prize.kind === 'xp'){
-    /* Paid through the ladder's own till so a level-up pays its coins
+    /* Paid through the ladder's own till so a level-up pays its chips
        and packs and fires its listeners exactly as a played game does.
        Deterministic: weight 6 (default) x win 2 x first-of-day 1.5 x
-       taper 1 (nothing else is filed under 'dailyspin' today) = 18.
-       The id makes the award idempotent per calendar day even if the
-       gate were somehow talked around. */
+       taper 1 (nothing else is filed under 'dailyspin' today) = 18 XP
+       — and the award's own chips leg pays 6x5 = 30 chips, which with
+       the 30 riding on the line above makes the promised 60. The id
+       makes the award idempotent per calendar day even if the gate
+       were somehow talked around. */
     let ok = false;
     try {
       if (window.KARTI_XP){
@@ -2419,7 +2562,7 @@ function spinGrant(prize, day){
         out.levelled = !!(r && r.levelled);
       }
     } catch (e){}
-    if (!ok){ S.coins += 60; out.label = '60 coins'; out.fellBack = true; }
+    if (!ok){ grantChips(60, 'spin'); out.label = '90 chips'; out.fellBack = true; }
   }
   else if (prize.kind === 'cosmetic'){
     const pool = storeBuyables().filter(d => !cosmOwned(d.id));
@@ -2428,7 +2571,7 @@ function spinGrant(prize, day){
       grantCosmetic(d.id);
       out.cosmetic = d;
       out.label = d.name;
-    } else { S.coins += 150; out.label = '150 coins'; out.fellBack = true; }
+    } else { grantChips(150, 'spin'); out.label = '210 chips'; out.fellBack = true; }
   }
   return out;
 }
@@ -2577,7 +2720,7 @@ function renderPackScreen(){
   const stage = $('#pack-stage');
   const rl = $('#rlabel'); if (rl) rl.innerHTML = '';
   const sp = $('#pack-sets');
-  if (storeTab === 'spin' || storeTab === 'cosm'){
+  if (storeTab === 'spin' || storeTab === 'cosm' || storeTab === 'chips'){
     /* orphan any pack reveal still in flight — same tokens the pack
        screen itself uses */
     packSeq++; packSkip = false; packBusy = false; packSkipFn = null;
@@ -2585,6 +2728,7 @@ function renderPackScreen(){
     if (stage) stage.classList.add('smode');
     updateCoinsPill();
     if (storeTab === 'spin') renderSpinTab();
+    else if (storeTab === 'chips') renderChipsTab();
     else renderCosmTab();
     return;
   }
@@ -2593,7 +2737,7 @@ function renderPackScreen(){
   renderPackTab();
 }
 function setStoreTab(t){
-  if (spinBusy || packBusy) return;
+  if (spinBusy || packBusy || boxBusy) return;
   if (storeTab === t){ renderPackScreen(); return; }
   storeTab = t;
   if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.tap'); } catch (e){} }
@@ -2614,17 +2758,35 @@ function renderStoreTabs(){
   const one = (id, icon, label, dot) =>
     '<button class="stab' + (storeTab === id ? ' on' : '') + '" data-st="' + id +
     '" role="tab" aria-selected="' + (storeTab === id) + '">' +
-    ico(icon) + '<span>' + label + '</span>' +
+    (icon === 'chips' ? chipIco() : ico(icon)) + '<span>' + label + '</span>' +
     (dot ? '<i class="sdot" aria-label="free spin waiting"></i>' : '') + '</button>';
   tabs.innerHTML =
     one('cards', 'pack', 'Packs', false) +
-    one('spin', 'star', 'Daily Spin', free) +
+    one('chips', 'chips', 'Boxes', false) +
+    one('spin', 'star', 'Daily', free) +
     one('cosm', 'rar-epiku', 'Customise', false);
   $$('.stab', tabs).forEach(b => { b.onclick = () => setStoreTab(b.dataset.st); });
 }
-function updateCoinsPill(){
+/* the store's header pill carries BOTH currencies now — chips first on
+   the chips shelf (they are what that shelf spends), coins first
+   elsewhere. `live` keeps a count-up already running from the wallet
+   hook rather than snapping over it. */
+function updateCoinsPill(live){
   const el = $('#pack-coins');
-  if (el) el.innerHTML = ico('coin', 'Coins') + '<span class="mono">' + S.coins + '</span>';
+  if (!el) return;
+  const coins = '<span class="wcoins">' + ico('coin', 'Coins') +
+                '<span class="mono">' + (S.coins | 0) + '</span></span>';
+  const chips = '<span class="wchips">' + chipIco('Chips') +
+                '<span class="mono">' + (S.chips | 0) + '</span></span>';
+  const html = storeTab === 'chips' ? chips + coins : coins + chips;
+  if (live && el._econ === storeTab){
+    /* same layout already up — just move the numbers, with easing */
+    animateCount(el.querySelector('.wchips'), S.chips | 0);
+    animateCount(el.querySelector('.wcoins'), S.coins | 0);
+    return;
+  }
+  el._econ = storeTab;
+  el.innerHTML = html;
 }
 /* ── HOME DAILY-SPIN BADGE ───────────────────────────────────────────────
    A COMPACT badge under the avatar (#spin-slot, top-left), and ONLY when a
@@ -2706,9 +2868,9 @@ function spinOddsHTML(){
   return '<div class="oddsbox"><p class="oddshead">The odds, exactly:</p>' +
     SPIN_TABLE.map(p =>
       '<div class="oddsrow"><b class="mono">' + p.pct + '%</b>' +
-      '<span class="oi">' + ico(p.ic) + '</span><span>' +
+      '<span class="oi">' + icoPrize(p.ic) + '</span><span>' +
       (p.kind === 'cosmetic'
-        ? 'A customisation item you do not own <small>(all owned? 150 coins instead)</small>'
+        ? 'A customisation item you do not own <small>(all owned? 150 extra chips instead)</small>'
         : esc(p.label)) + '</span></div>').join('') +
     '<p class="oddsfoot">Every spin wins something. These numbers are the ones the ' +
     'spin actually rolls — nothing hidden.</p></div>';
@@ -2779,7 +2941,7 @@ function runSpin(){
     const p = i === LAND ? res.prize : spinRoll();   /* visual only */
     const label = i === LAND ? res.label : p.label;
     tiles += '<div class="stile' + (i === LAND ? ' win' : '') + '">' +
-      ico(p.ic) + '<span>' + esc(p.kind === 'cosmetic' && i !== LAND ? 'Item' : label) + '</span></div>';
+      icoPrize(p.ic) + '<span>' + esc(p.kind === 'cosmetic' && i !== LAND ? 'Item' : label) + '</span></div>';
   }
   stage.innerHTML =
     '<div class="spinwrap">' +
@@ -2874,7 +3036,7 @@ function spinPop(res){
         '<p class="srlead">Your daily spin pays</p>' +
         (isCosm && res.cosmetic.preview
           ? '<div class="sprev" id="spop-prev"></div>'
-          : '<div class="spop-ic">' + ico(res.prize.ic) + '</div>') +
+          : '<div class="spop-ic">' + icoPrize(res.prize.ic) + '</div>') +
         '<div class="spop-what">' + esc(res.label) + '</div>' +
         (isCosm ? '<p class="tiny">' + esc(res.cosmetic.blurb || '') + '</p>' : '') +
         (res.levelled ? '<p class="srlvl">' + ico('trophy') + ' LEVEL UP!</p>' : '') +
@@ -2918,7 +3080,7 @@ function spinPop(res){
     taken = true;
     if (window.KARTI_SFX){
       try {
-        KARTI_SFX.play(res.prize.kind === 'coins' || res.fellBack ? 'ui.coin' : 'ui.note');
+        KARTI_SFX.play(res.prize.kind === 'chips' || res.fellBack ? 'ui.coin' : 'ui.note');
       } catch (e){}
     }
     const fin = () => { spinPopKill(); if (current === 'pack' && storeTab === 'spin') spinResult(res, true); };
@@ -2955,7 +3117,7 @@ function spinResult(res, quiet){
     '<div class="spinwrap sres">' +
       '<div class="spinres" id="spinres">' +
         '<p class="srlead">' + (quiet ? 'Collected' : 'Your daily spin pays') + '</p>' +
-        (prevHTML || '<div class="srico">' + ico(res.prize.ic) + '</div>') +
+        (prevHTML || '<div class="srico">' + icoPrize(res.prize.ic) + '</div>') +
         '<div class="srwhat">' + esc(res.label) + '</div>' +
         (isCosm ? '<p class="tiny">' + esc(res.cosmetic.blurb || '') + '</p>' : '') +
         (res.levelled ? '<p class="srlvl">' + ico('trophy') + ' LEVEL UP!</p>' : '') +
@@ -2978,7 +3140,7 @@ function spinResult(res, quiet){
     if (window.KARTI_SFX){
       try {
         KARTI_SFX.play('ui.reward');
-        if (res.prize.kind === 'coins' || res.fellBack)
+        if (res.prize.kind === 'chips' || res.fellBack)
           setTimeout(() => { try { KARTI_SFX.play('ui.coin'); } catch (e){} }, 260);
       } catch (e){}
     }
@@ -3003,6 +3165,364 @@ function spinResult(res, quiet){
     };
     $('#sr-home').onclick = () => go('home');
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE CHIPS STORE — loot boxes, the chips→coins bridge
+   ───────────────────────────────────────────────────────────────────
+   The shelf where the PLAY currency becomes the SPEND currency. The
+   boxes, their prices and their odds all live in js/progress.js §7e
+   (KARTI_XP.boxes() / openBox()); this screen only draws that truth
+   and throws the ceremony. The odds are printed under every box FROM
+   THE SAME TABLE THE ROLL WALKS, the same honesty rule the daily spin
+   lives by. Buying is two taps (price → "Sure?"), the same guard the
+   cosmetics shelf uses for real currency.
+
+   THE REVEAL is the heart of the loop and is staged like a ritual:
+     1. CHARGE — the box lands centre-stage, starts to tremble, light
+        leaking from the seam, ticks rising. Tap to skip. (~1.1s)
+     2. BURST — the lid blows, a flash on the big tiers, sparks, the
+        sunburst comes up (the spop ray rig, reused — one rasterised
+        conic layer rotating, costs a phone nothing).
+     3. THE PRIZE — the medallion pops with the amount COUNTING UP,
+        rarity-scaled light behind it (t0 warm … t3 the room lighting
+        up, colours straight off the pack rarity language).
+     4. SETTLE — Collect. The wallet counts up as it lands.
+   Reduced motion (OS setting or body.reduced) skips straight to the
+   settled prize: still, readable, nothing turning.
+   ═══════════════════════════════════════════════════════════════════ */
+let boxConfirm = '';             /* two taps to spend chips            */
+let boxConfirmT = 0;
+let boxPopEl = null;
+
+function econBoxes(){
+  try {
+    if (window.KARTI_XP && KARTI_XP.boxes) return KARTI_XP.boxes();
+  } catch (e){}
+  return [];
+}
+/* the drawn crate — pure CSS layers tinted by the tier accent, so the
+   shelf works with no art on disk. Lid, body, hasp, and a glow seam
+   that the charge phase breathes through. */
+function boxArtHTML(accent, big){
+  return '<span class="bxart' + (big ? ' big' : '') + '" style="--bxa:' + esc(accent) + '" aria-hidden="true">' +
+    '<b class="bx-glow"></b><b class="bx-body"></b><b class="bx-lid"></b><b class="bx-hasp"></b>' +
+  '</span>';
+}
+function boxTierColor(tier){
+  return tier >= 3 ? (RARITY.leggendarju ? RARITY.leggendarju.c : '#FFB300')
+       : tier === 2 ? (RARITY.epiku ? RARITY.epiku.c : '#9C27B0')
+       : '#FFC542';
+}
+function boxOddsHTML(b){
+  return '<details class="bxodds"><summary>The odds, exactly</summary>' +
+    '<div class="oddsbox">' +
+      b.odds.map(p =>
+        '<div class="oddsrow"><b class="mono">' + p.pct + '%</b>' +
+        '<span class="oi">' + (p.kind === 'chips' ? chipIco() : ico(p.kind === 'pack' ? 'pack' : 'coin')) +
+        '</span><span>' + esc(p.label) + '</span></div>').join('') +
+      '<p class="oddsfoot">Every box pays something. These are the numbers the roll actually uses.</p>' +
+    '</div></details>';
+}
+function renderChipsTab(){
+  chipsCSS();
+  boxBusy = false;
+  updateCoinsPill();               /* header and hero must never disagree */
+  const stage = $('#pack-stage');
+  const bar = $('#pack-bar');
+  if (!stage || !bar) return;
+  const boxes = econBoxes();
+  if (!boxes.length){
+    stage.innerHTML = '<div class="spinwrap"><div class="cosmempty">' +
+      '<h3>The boxes did not load</h3>' +
+      '<p class="tiny">Reopen the app and this shelf stocks itself.</p></div></div>';
+    bar.innerHTML = '<button class="btn ghost sm" id="bx-home">Back to menu</button>';
+    const bh = $('#bx-home'); if (bh) bh.onclick = () => go('home');
+    return;
+  }
+  const bal = S.chips | 0;
+  stage.innerHTML =
+    '<div class="spinwrap bxwrap">' +
+      '<div class="bxbal" aria-label="Your chips: ' + bal + '">' +
+        '<span class="bxbal-ic">' + chipIco() + '</span>' +
+        '<span class="bxbal-n"><b class="mono" id="bx-bal">' + bal + '</b><i>CHIPS</i></span>' +
+        '<span class="bxbal-how tiny">Earned by playing — any game, every day.<br>' +
+          'The daily spin tops you up free.</span>' +
+      '</div>' +
+      '<p class="bxintro tiny">Boxes turn <b>chips</b> into <b>coins</b> — the currency the ' +
+        'Customise shelf spends. Bigger boxes pay better per chip: saving up is rewarded.</p>' +
+      boxes.map(b => {
+        const can = bal >= b.price;
+        return '<div class="bxcard' + (can ? '' : ' poor') + '" style="--bxa:' + esc(b.accent) + '">' +
+          boxArtHTML(b.accent) +
+          '<div class="bxinfo">' +
+            '<b class="bxname">' + esc(b.name) + '</b>' +
+            '<span class="bxblurb tiny">' + esc(b.blurb) + '</span>' +
+            boxOddsHTML(b) +
+          '</div>' +
+          '<button class="btn sm bxbuy' + (can ? ' can' : '') + '" data-box="' + esc(b.id) +
+            '" data-price="' + b.price + '"' + (can ? '' : ' disabled') +
+            ' aria-label="' + esc(b.name) + ', ' + b.price + ' chips' + (can ? '' : ', you need ' + (b.price - bal) + ' more') + '">' +
+            (can
+              ? '<span class="bl">' + chipIco() + '<span>' +
+                  (boxConfirm === b.id ? 'Sure? ' : '') + b.price + '</span></span>'
+              : '<span class="bl">' + chipIco() + '<span>' + b.price + '</span></span>' +
+                '<small>need ' + (b.price - bal) + ' more</small>') +
+          '</button>' +
+        '</div>';
+      }).join('') +
+      '<p class="spinnote">The odds are printed under every box — the numbers the roll actually ' +
+        'walks, nothing hidden. Chips come from playing, never from a card. Broke? Friendly games ' +
+        'are always free, and tomorrow’s spin refills you.</p>' +
+    '</div>';
+  bar.innerHTML = '<button class="btn ghost sm" id="bx-home">Back to menu</button>';
+  const bh = $('#bx-home'); if (bh) bh.onclick = () => go('home');
+  $$('.bxbuy', stage).forEach(btn => {
+    btn.onclick = () => buyBoxTap(btn.dataset.box);
+  });
+}
+/* two taps for real currency — the same discipline as the cosmetics
+   shelf, with the same 2.6s window to think better of it */
+function buyBoxTap(id){
+  if (boxBusy) return;
+  if (boxConfirm !== id){
+    boxConfirm = id;
+    clearTimeout(boxConfirmT);
+    boxConfirmT = setTimeout(() => { boxConfirm = ''; if (current === 'pack' && storeTab === 'chips') renderChipsTab(); }, 2600);
+    if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.tap'); } catch (e){} }
+    renderChipsTab();
+    return;
+  }
+  boxConfirm = '';
+  clearTimeout(boxConfirmT);
+  let res = null;
+  try { res = KARTI_XP.openBox(id); } catch (e){ res = null; }
+  if (!res || !res.ok){
+    toast(res && res.why === 'chips'
+      ? '⚠ Not enough chips — you need ' + (res.short || '') + ' more. Play a few games, or spin tomorrow.'
+      : '⚠ That box would not open. Try again.');
+    renderChipsTab();
+    return;
+  }
+  /* rolled, granted, SAVED — the reveal owes the player nothing */
+  boxPop(res);
+}
+
+/* ── the reveal ──────────────────────────────────────────────────── */
+function boxPopKill(){
+  if (boxPopEl){
+    try { boxPopEl.remove(); } catch (e){}
+    boxPopEl = null;
+    boxBusy = false;
+  }
+}
+function boxPop(res){
+  chipsCSS();
+  boxPopKill();
+  boxBusy = true;
+  const tier = res.prize.tier | 0;
+  const col = boxTierColor(tier);
+  const el = document.createElement('div');
+  el.className = 'spop bpop t' + tier + (REDUCED ? ' rm in open' : ' chg');
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-label', res.box.name + ' opened: ' + res.prize.label);
+  el.style.setProperty('--fxc', col);
+  const isPack = res.prize.kind === 'pack';
+  const big = res.prize.kind === 'coins' || res.prize.kind === 'chips' ? res.prize.n : 0;
+  el.innerHTML =
+    '<div class="spop-scrim"></div>' +
+    '<div class="spop-core">' +
+      '<div class="spop-fx" aria-hidden="true">' +
+        '<div class="spop-halo"></div>' +
+        '<div class="spop-rays r1"></div>' +
+        '<div class="spop-rays r2"></div>' +
+        (tier === 3 ? '<div class="spop-flash"></div>' : '') +
+      '</div>' +
+      '<div class="bx-hero" id="bx-hero">' +
+        boxArtHTML(res.box.accent, true) +
+        '<b class="bx-heroname">' + esc(res.box.name) + '</b>' +
+        '<p class="tiny">Tap to open</p>' +
+      '</div>' +
+      '<div class="spop-med" id="bx-med">' +
+        '<p class="srlead">' + esc(res.box.name) + ' pays</p>' +
+        (isPack
+          ? '<div class="spop-ic">' + ico('pack') + '</div>'
+          : '<div class="spop-ic">' + (res.prize.kind === 'chips' ? chipIco('', 'big') : ico('coin')) + '</div>') +
+        '<div class="spop-what">' +
+          (big ? '<span class="mono" id="bx-count">' + (REDUCED ? big : 0) + '</span> ' +
+                 (res.prize.kind === 'chips' ? 'chips' : 'coins')
+               : esc(res.prize.label)) + '</div>' +
+        (isPack && res.prize.coins
+          ? '<p class="tiny">' + ico('coin') + ' +' + res.prize.coins + ' coins beside it</p>' : '') +
+        (res.prize.kind === 'chips'
+          ? '<p class="tiny">Chips back — the box refunds most of itself. Roll again?</p>' : '') +
+        (tier >= 3 ? '<p class="srlvl">' + ico('trophy') + ' JACKPOT!</p>' : '') +
+        '<p class="bx-balline tiny">Balance: ' + res.balance.chips + ' chips · ' +
+          res.balance.coins + ' coins</p>' +
+      '</div>' +
+      '<button class="btn primary spop-take" id="bx-take">' + ilb('check', 'Collect') + '</button>' +
+    '</div>';
+  document.body.appendChild(el);
+  boxPopEl = el;
+
+  let opened = REDUCED;
+  const open = () => {
+    if (opened || boxPopEl !== el) return;
+    opened = true;
+    el.classList.remove('chg');
+    el.classList.add('in', 'open');
+    if (window.KARTI_SFX){
+      try {
+        KARTI_SFX.play('ui.reward');
+        if (tier >= 2) setTimeout(() => { try { KARTI_SFX.play('xp.unlock'); } catch (e){} }, 200);
+      } catch (e){}
+    }
+    /* the number counts up as the medallion lands */
+    if (big && !REDUCED){
+      const c = $('#bx-count', el);
+      if (c) setTimeout(() => animateCount(c, big), 180);
+    }
+    const med = $('#bx-med', el);
+    if (med) setTimeout(() => {
+      if (boxPopEl === el) particles(med, [10, 14, 20, 30][tier], col, tier >= 2 ? 215 : 150);
+    }, 200);
+  };
+
+  if (!REDUCED){
+    /* CHARGE: the crate trembles, ticks rise, then it blows. Tap cuts
+       straight to the prize — an animation is never allowed to hold
+       the player's chips hostage. */
+    el.classList.add('in');           /* scrim + hero up */
+    if (window.KARTI_SFX){
+      let t = 0;
+      for (let i = 1; i <= 5; i++){
+        t += 90 + i * 55;
+        setTimeout(() => { if (!opened){ try { KARTI_SFX.play('rail.tick'); } catch (e){} } }, t);
+      }
+    }
+    setTimeout(open, 1150);
+  }
+
+  let taken = false;
+  const take = () => {
+    if (!opened){ open(); return; }
+    if (taken || boxPopEl !== el) return;
+    taken = true;
+    if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.coin'); } catch (e){} }
+    const fin = () => {
+      boxPopKill();
+      if (current === 'pack' && storeTab === 'chips') renderChipsTab();
+      updateCoinsPill();
+    };
+    if (REDUCED){ fin(); return; }
+    el.classList.add('out');
+    setTimeout(fin, 230);
+  };
+  const btn = $('#bx-take', el);
+  if (btn){ btn.onclick = take; try { btn.focus({ preventScroll:true }); } catch (e){} }
+  el.addEventListener('click', e => {
+    if (!opened){ open(); return; }
+    if (e.target === el || e.target.classList.contains('spop-scrim')) take();
+  });
+}
+
+/* the chips shelf's own CSS — injected once, transform/opacity only,
+   still and readable under reduced motion */
+function chipsCSS(){
+  if ($('#kchips-css')) return;
+  const st = document.createElement('style');
+  st.id = 'kchips-css';
+  st.textContent =
+    /* the balance hero */
+    '.bxwrap{gap:12px}' +
+    '.bxbal{display:grid;grid-template-columns:auto auto 1fr;align-items:center;gap:12px;' +
+      'border:1px solid color-mix(in srgb,var(--kx-accent-2,#E63950) 40%,var(--line));border-radius:16px;' +
+      'padding:13px 15px;background:linear-gradient(135deg,rgba(230,57,80,.14),rgba(20,10,26,.5))}' +
+    '@supports not (border-color:color-mix(in srgb,red 50%,blue)){.bxbal{border-color:rgba(230,57,80,.4)}}' +
+    '.bxbal-ic .ico{width:34px;height:34px;color:#FF7585}' +
+    '.bxbal-n{display:grid;line-height:1}' +
+    '.bxbal-n b{font-size:26px;color:var(--txt)}' +
+    '.bxbal-n i{font-style:normal;font-family:var(--disp);font-weight:900;font-size:9px;' +
+      'letter-spacing:.22em;color:#FF7585}' +
+    '.bxbal-how{text-align:right;color:var(--dim);line-height:1.45}' +
+    '.bxintro{margin:0;color:var(--dim);line-height:1.5}' +
+    '.bxintro b{color:var(--txt)}' +
+    /* one box card */
+    '.bxcard{display:grid;grid-template-columns:72px 1fr;grid-template-rows:auto auto;gap:6px 13px;' +
+      'align-items:center;border:1px solid var(--line);border-radius:16px;padding:13px 14px;' +
+      'background:var(--panel)}' +
+    '.bxcard .bxart{grid-row:1/3}' +
+    '.bxcard.poor .bxart{filter:saturate(.5) brightness(.75)}' +
+    '.bxinfo{display:grid;gap:4px;min-width:0}' +
+    '.bxname{font-family:var(--disp);font-weight:900;font-size:15.5px;color:var(--txt)}' +
+    '.bxblurb{color:var(--dim);line-height:1.4}' +
+    '.bxbuy{grid-column:2;justify-self:start;min-height:44px;display:inline-flex;flex-direction:column;' +
+      'align-items:center;gap:1px;padding:7px 18px}' +
+    '.bxbuy .bl .ico{width:14px;height:14px}' +
+    '.bxbuy.can{border-color:var(--bxa,#FFC542);color:var(--txt);' +
+      'background:color-mix(in srgb,var(--bxa,#FFC542) 16%,transparent)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){.bxbuy.can{background:rgba(255,197,66,.14)}}' +
+    '.bxbuy.can:active{transform:scale(.96)}' +
+    '.bxbuy[disabled]{opacity:.55;cursor:default}' +
+    '.bxbuy small{font-size:9.5px;color:var(--dim);letter-spacing:.04em}' +
+    /* the odds fold */
+    '.bxodds summary{list-style:none;cursor:pointer;font-size:11px;color:var(--dim);' +
+      'text-transform:uppercase;letter-spacing:.1em;font-weight:800;min-height:24px;display:flex;align-items:center}' +
+    '.bxodds summary::-webkit-details-marker{display:none}' +
+    '.bxodds summary::after{content:"▾";margin-left:6px;transition:transform .2s}' +
+    '.bxodds[open] summary::after{transform:rotate(180deg)}' +
+    '.bxodds .oddsbox{margin-top:6px}' +
+    /* the drawn crate */
+    '.bxart{position:relative;display:inline-block;width:72px;height:72px}' +
+    '.bxart.big{width:150px;height:150px}' +
+    '.bxart b{position:absolute;display:block;border-radius:9px}' +
+    '.bx-glow{left:8%;top:8%;width:84%;height:84%;border-radius:50%!important;' +
+      'background:radial-gradient(circle,var(--bxa,#FFC542) 0%,transparent 65%);opacity:.35}' +
+    '.bx-body{left:8%;top:34%;width:84%;height:56%;' +
+      'background:linear-gradient(180deg,color-mix(in srgb,var(--bxa,#FFC542) 42%,#241626),#170E1E);' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.18),inset 0 -8px 14px -8px rgba(0,0,0,.7),' +
+        'inset 0 0 0 1px color-mix(in srgb,var(--bxa,#FFC542) 45%,transparent)}' +
+    '.bx-lid{left:4%;top:20%;width:92%;height:20%;' +
+      'background:linear-gradient(180deg,color-mix(in srgb,var(--bxa,#FFC542) 62%,#2A1B2E),' +
+        'color-mix(in srgb,var(--bxa,#FFC542) 30%,#1B1122));' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 2px 5px rgba(0,0,0,.5),' +
+        'inset 0 0 0 1px color-mix(in srgb,var(--bxa,#FFC542) 55%,transparent)}' +
+    '.bx-hasp{left:44%;top:30%;width:12%;height:16%;border-radius:3px;' +
+      'background:linear-gradient(180deg,#FFE9B0,color-mix(in srgb,var(--bxa,#FFC542) 80%,#7A5A10));' +
+      'box-shadow:0 1px 3px rgba(0,0,0,.6)}' +
+    '@supports not (background:color-mix(in srgb,red 50%,blue)){' +
+      '.bx-body{background:linear-gradient(180deg,#5A4230,#170E1E)}' +
+      '.bx-lid{background:linear-gradient(180deg,#8A6A3A,#3A2A20)}}' +
+    /* ── the reveal stages ── */
+    '.bpop .bx-hero{position:relative;display:grid;justify-items:center;gap:10px;text-align:center}' +
+    '.bx-heroname{font-family:var(--disp);font-weight:900;font-size:19px;color:var(--fxc,#FFC542)}' +
+    '.bpop.chg .spop-med,.bpop.chg .spop-take{display:none}' +
+    '.bpop.chg .spop-rays,.bpop.chg .spop-halo{opacity:0!important}' +
+    /* display, not opacity: the flash is a one-shot keyframe that must
+       not burn itself out invisibly during the charge */
+    '.bpop.chg .spop-flash{display:none}' +
+    /* the tremble: escalating, transform-only, and the seam glow breathes */
+    '.bpop.chg .bxart.big{animation:bxShake 1.15s cubic-bezier(.36,.07,.19,.97) both}' +
+    '.bpop.chg .bxart.big .bx-glow{animation:bxSeethe 1.15s ease-in both}' +
+    '@keyframes bxShake{0%,8%{transform:none}10%{transform:translate3d(-1px,0,0) rotate(-1deg)}' +
+      '20%{transform:translate3d(2px,0,0) rotate(1deg)}30%{transform:translate3d(-2px,1px,0) rotate(-2deg)}' +
+      '40%{transform:translate3d(2px,-1px,0) rotate(2deg)}50%{transform:translate3d(-3px,1px,0) rotate(-2deg)}' +
+      '60%{transform:translate3d(3px,-2px,0) rotate(3deg)}70%{transform:translate3d(-4px,2px,0) rotate(-3deg)}' +
+      '80%{transform:translate3d(4px,-2px,0) rotate(3deg)}90%{transform:translate3d(-4px,2px,0) rotate(-4deg)}' +
+      '100%{transform:translate3d(3px,-2px,0) rotate(4deg) scale(1.04)}}' +
+    '@keyframes bxSeethe{0%{opacity:.35;transform:scale(1)}100%{opacity:.9;transform:scale(1.25)}}' +
+    /* the burst: hero blows upward and out, prize rig takes the stage */
+    '.bpop.open .bx-hero{animation:bxBlow .3s ease-in both;pointer-events:none}' +
+    '@keyframes bxBlow{to{opacity:0;transform:translate3d(0,-26px,0) scale(1.18)}}' +
+    '.bpop.open .bx-hero .bx-lid{animation:bxLid .3s ease-in both}' +
+    '@keyframes bxLid{to{transform:translate3d(0,-40px,0) rotate(-16deg);opacity:0}}' +
+    '.bpop .spop-ic .ico.big{width:54px;height:54px}' +
+    '.bx-balline{color:var(--dim);margin:2px 0 0}' +
+    /* reduced motion: crate already open, prize already there, nothing moves */
+    '.bpop.rm .bx-hero,body.reduced .bpop .bx-hero{display:none}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '.bpop .bx-hero{display:none}.bpop .spop-med,.bpop .spop-take{display:grid;opacity:1;transform:none}}';
+  document.head.appendChild(st);
 }
 
 /* ── CUSTOMISE, the shelf ────────────────────────────────────────── */
@@ -3758,7 +4278,7 @@ function renderInventory(){
   const legalCount = S.decks.filter(d => deckIsLegal(d.list)).length;
   /* Three facts, because four does not fit on one line at 390px and a summary
      that wraps to a lonely second row reads worse than a shorter summary.
-     Coins and dust are already on Home's wallet and in the Store. */
+     Chips and coins are already on Home's wallet and in the Store. */
   $('#inv-sum').innerHTML =
     '<span class="chip">' + ico('cards') + ' Cards <b>' + uniqueOwned() + '/' + CARDS.length + '</b></span>' +
     '<span class="chip">' + ico('pile') + ' Copies <b>' + copies + '</b></span>' +
@@ -5563,14 +6083,24 @@ function showResult(winner, why){
      rewards — if the hook handles it, the normal solo payout must not fire. */
   if (window.KHOOK && KHOOK.result && KHOOK.result(winner, why)) return;
   const won = winner === 0;
-  if (won){ S.rec.w++; S.coins += 120; S.packs += 1; }
-  else { S.rec.l++; S.coins += 40; S.dust += 25; }
+  /* THE ECONOMY CHANGED HERE: the duel no longer mints coins (coins
+     come out of loot boxes only — js/progress.js §7b). The CHIPS for
+     this duel were already paid by the award that fired on the 'over'
+     event, exactly like every other game in the box; what stays local
+     is the pack a solo win has always paid, and the record. */
+  if (won){ S.rec.w++; S.packs += 1; }
+  else { S.rec.l++; }
   save();
-  /* THE PAYOUT. duel.win / duel.lose has already gone off on the `over` event;
-     this is the coins landing after it, which is a separate pleasure and the
-     reason anybody plays another one. Sequenced behind the result modal so the
-     two do not stack. A loss still pays 40 and still counts them — quieter,
-     and with no chime on the end. */
+  /* the receipt: what that award actually paid, if it landed (it fires
+     700ms before this card goes up; 10s is generous) */
+  const pay = (lastAward && Date.now() - lastAward.at < 10000 &&
+               String(lastAward.game || '').indexOf('cards') === 0) ? lastAward : null;
+  const payChips = pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0;
+  /* THE PAYOUT SOUND. duel.win / duel.lose has already gone off on the
+     `over` event; this is the chips landing after it, which is a separate
+     pleasure and the reason anybody plays another one. Sequenced behind
+     the result modal so the two do not stack. A loss still pays a little
+     and still counts them — quieter, and with no chime on the end. */
   if (window.KARTI_SFX){
     const S2 = window.KARTI_SFX;
     setTimeout(() => {
@@ -5594,9 +6124,9 @@ function showResult(winner, why){
                    'Blame the traffic. Everyone else does.',
                    'Shuffle better. Or blame the cards.'])) + '</p>' +
       '<div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">' +
-        '<span class="pill">' + ico('coin', 'Coins') + '+' + (won ? 120 : 40) + '</span>' +
-        (won ? '<span class="pill">' + ico('pack', 'Packs') + '+1 pack</span>'
-             : '<span class="pill">' + ico('dust', 'Dust') + '+25 dust</span>') +
+        (payChips ? '<span class="pill">' + chipIco('Chips') + '+' + payChips + '</span>' : '') +
+        (pay && pay.xp ? '<span class="pill">' + ico('star', 'XP') + '+' + pay.xp + ' XP</span>' : '') +
+        (won ? '<span class="pill">' + ico('pack', 'Packs') + '+1 pack</span>' : '') +
         '<span class="pill">' + ico('trophy', 'Record') + S.rec.w + '–' + S.rec.l + '</span>' +
       '</div>' +
       '<div style="display:grid;gap:9px;width:100%;margin-top:4px">' +
@@ -5785,6 +6315,8 @@ window.KARTI = {
     spinState, spinRoll, doSpin, spinDayKey, spinNextAt,
     storeBuyables, buyCosmetic, cosmPrice, cosmOwned, grantCosmetic,
     renderSpinTab, renderCosmTab, updateSpinBadge, spinResult,
+    /* the chips economy's screens — for the headless harness */
+    renderChipsTab, buyBoxTap, boxPop, spinGrant, grantChips,
     get tab(){ return storeTab; }, set tab(v){ storeTab = v; }
   }
 };
