@@ -1226,7 +1226,8 @@ var SLOT_WORD = {
   drum:'The caller\'s ball', sea:'The sea', fleet:'The fleet',
   ring:'The aim ring', burst:'The shell burst', sky:'The night sky',
   curtain:'The curtain', card:'The card', backdrop:'The backdrop',
-  pattern:'The pattern'
+  pattern:'The pattern', theme:'The colours', scene:'The home scene',
+  tabstyle:'The tab bar'
 };
 function slotWord(s){ return SLOT_WORD[s] || (s.charAt(0).toUpperCase() + s.slice(1)); }
 
@@ -1362,6 +1363,276 @@ function applyBackdrop(){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   THE COLOURS, THE HOME SCENE AND THE TAB BAR — THREE MORE APP-WIDE
+   SLOTS, ALL THROUGH THE SAME register()
+
+   Phase 1 made the entry gate, Home and the tab bar paint entirely off
+   the --kx-* theme tokens, and left ONE documented door for cosmetics:
+   window.KARTI_THEME.apply(). These three ladders walk through it.
+
+     theme    — the ACCENT identity: gold+crimson by default, or rose
+                gold, festa violet, deep sea… Rewrites the accent pair,
+                the hot-action pair, the active tab, the glow and the
+                ember. It deliberately does NOT touch --kx-bg/surface/
+                ink — the floor is the 'backdrop' ladder's job above,
+                so the two slots compose instead of fighting.
+     scene    — the picture behind the home screen (--kx-home-bg). The
+                art entries reuse files the app ALREADY ships and
+                precaches (the splash painting, the victory church, the
+                IL-KIRI skyline) — zero new bytes — and the rest are
+                authored CSS gradients, which weigh nothing at all.
+     tabstyle — the tab bar's fill (--kx-tab-bg): glass, solid, veil.
+
+   The three compose in ONE applyKx() call: each contributes its own
+   keys and explicitly nulls the keys it owns when unequipped, so
+   KARTI_THEME.apply() removes the override and the stylesheet default
+   (the stock KARTI identity, exactly as phase 1 left it) takes over.
+   A player with nothing equipped therefore sees a byte-identical app.
+
+   Every palette keeps the phase-1 contrast discipline: accent ≥ 3:1
+   on the plum-black floor, accentInk ≥ 4.5:1 ON the accent, and white
+   on accent2 ≥ 3:1 at the big display weight the hot buttons use
+   (the stock crimson's own ratio band). Pink arrives at LEVEL 1 —
+   the low end of every ladder here is deliberately not all "neutral".
+   ═══════════════════════════════════════════════════════════════════ */
+var THEMES = [
+  { id:'karti',      name:'KARTI Klassika', lvl:0,
+    blurb:'Deheb u kulur il-festa. The colours the game was born in.',
+    sw:['#FFC542','#E63950','#FFDE9B'] },
+  { id:'rozadeheb',  name:'Deheb Roża', lvl:1,
+    blurb:'Rose gold. Asked for by name, and it did not have to be earned.',
+    sw:['#FFB3C7','#ED4F82','#FFD3E0'],
+    kx:{ accent:'#FFB3C7', accentInk:'#33101C',
+         accent2:'#ED4F82', accent2Deep:'#B92D5E',
+         bg2:'#3A1B33', tabOn:'#FFB3C7',
+         glow:'rgba(255,140,180,.20)', ember:'#FFD3E0' } },
+  { id:'vjola',      name:'Vjola tal-Festa', lvl:3,
+    blurb:'The banners of the OTHER band club. Violet, and proud of it.',
+    sw:['#C7A6FF','#8A5CFF','#E2D2FF'],
+    kx:{ accent:'#C7A6FF', accentInk:'#1F1233',
+         accent2:'#8A5CFF', accent2Deep:'#6A3FD8',
+         bg2:'#2C1B53', tabOn:'#C7A6FF',
+         glow:'rgba(150,110,255,.20)', ember:'#E2D2FF' } },
+  { id:'bahar',      name:'Baħar Fond', lvl:7,
+    blurb:'Past the reef, where the blue stops telling you the depth.',
+    sw:['#59D2FF','#1E8FDB','#BFEAFF'],
+    kx:{ accent:'#59D2FF', accentInk:'#04222E',
+         accent2:'#1E8FDB', accent2Deep:'#0F5FA8',
+         bg2:'#0F2A47', tabOn:'#59D2FF',
+         glow:'rgba(70,180,255,.18)', ember:'#BFEAFF' } },
+  { id:'gebla',      name:'Ġebla u Żebbuġ', lvl:12,
+    blurb:'Limestone and olive leaves. Malta in daylight, worn at night.',
+    sw:['#E8CE96','#6B833F','#F2E3BC'],
+    kx:{ accent:'#E8CE96', accentInk:'#241C06',
+         accent2:'#6B833F', accent2Deep:'#4C6128',
+         bg2:'#33301C', tabOn:'#E8CE96',
+         glow:'rgba(214,197,134,.16)', ember:'#F2E3BC' } },
+  { id:'nofsillejl', name:'Aħdar ta’ Nofsillejl', lvl:18,
+    blurb:'Midnight green. The harbour lights, seen from the water.',
+    sw:['#4FE3C1','#0C8A67','#C8F5E6'],
+    kx:{ accent:'#4FE3C1', accentInk:'#032921',
+         accent2:'#0C8A67', accent2Deep:'#075C45',
+         bg2:'#0E2E28', tabOn:'#4FE3C1',
+         glow:'rgba(60,220,180,.16)', ember:'#C8F5E6' } },
+  { id:'iswed',      name:'Fidda u Faħam', lvl:26,
+    blurb:'Silver on charcoal. No colour at all, which is a colour.',
+    sw:['#E8E8EC','#6E6E78','#FFFFFF'],
+    kx:{ accent:'#E8E8EC', accentInk:'#17171A',
+         accent2:'#6E6E78', accent2Deep:'#4A4A52',
+         bg2:'#232328', tabOn:'#E8E8EC',
+         glow:'rgba(220,220,235,.13)', ember:'#FFFFFF' } },
+  { id:'nar',        name:'In-Nar tal-Murtali', earn:1,
+    blurb:'Ground-fireworks orange, for the one still standing.',
+    sw:['#FFB13D','#E24A16','#FFE2A8'],
+    kx:{ accent:'#FFB13D', accentInk:'#2A1600',
+         accent2:'#E24A16', accent2Deep:'#A83208',
+         bg2:'#451708', tabOn:'#FFB13D',
+         glow:'rgba(255,120,40,.26)', ember:'#FFE2A8' } }
+];
+
+/* the earned one repeats the border ladder's ten-in-a-row test — read
+   live off the record book here because progress.js's helper is not on
+   the facade, and this is three lines, not a system */
+function kxStreakTen(){
+  var best = 0;
+  try {
+    var all = window.KARTI_STATS && KARTI_STATS.all ? KARTI_STATS.all() : {};
+    for (var k in all) if (all[k] && all[k].bestStreak > best) best = all[k].bestStreak;
+  } catch (e){}
+  return best >= 10;
+}
+
+var SCENES = [
+  { id:'none',       name:'It-Triq', lvl:0,
+    blurb:'The street the app opens on. The stock scene.' },
+  { id:'festa',      name:'Taħt il-Murtali', lvl:1,
+    blurb:'The loading screen’s festa night, kept on after it loads.',
+    bg:'art/ui/loading-bg.png' },
+  { id:'roza',       name:'Sema Roża', lvl:2,
+    blurb:'The ten minutes after sunset when the whole sky goes pink.',
+    bg:'radial-gradient(90% 46% at 50% 82%,rgba(255,196,150,.55),transparent 62%),' +
+       'linear-gradient(180deg,#2B1030 0%,#5A1E4E 34%,#B4487E 62%,#E77A8C 84%,#F4A97F 100%)' },
+  { id:'mediterran', name:'Mediterran', lvl:6,
+    blurb:'Open water, no land in the frame. Just the blues.',
+    bg:'radial-gradient(120% 60% at 50% -10%,#1B4965 0%,rgba(27,73,101,0) 60%),' +
+       'linear-gradient(180deg,#0A1B2E 0%,#123A5C 46%,#0E5E7E 78%,#083348 100%)' },
+  { id:'knisja',     name:'Quddiem il-Knisja', lvl:10,
+    blurb:'The parish church with the sky on fire behind it.',
+    bg:'art/ui/victory.jpg' },
+  { id:'pixli',      name:'Malta bil-Pixli', lvl:15,
+    blurb:'The whole island, eight bits at a time.',
+    bg:'art/ui/kiri-hero.jpg' },
+  { id:'kwiekeb',    name:'Sema bil-Kwiekeb', lvl:22,
+    blurb:'Dwejra after midnight, when the buses have given up.',
+    bg:'radial-gradient(1.6px 1.6px at 11% 16%,#FFF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.2px 1.2px at 27% 34%,#DDE7FF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(2px 2px at 41% 9%,#FFF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.2px 1.2px at 55% 27%,#FFE9C9 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.6px 1.6px at 68% 13%,#FFF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.2px 1.2px at 82% 31%,#DDE7FF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(2px 2px at 91% 8%,#FFF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.2px 1.2px at 18% 47%,#FFF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.6px 1.6px at 74% 44%,#FFE9C9 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(1.2px 1.2px at 47% 52%,#DDE7FF 99%,rgba(255,255,255,0) 100%),' +
+       'radial-gradient(140% 70% at 50% 118%,#1A1030 0%,rgba(26,16,48,0) 55%),' +
+       'linear-gradient(180deg,#070B1E 0%,#101A3C 58%,#0B0E24 100%)' },
+  { id:'faham',      name:'Faħam', lvl:30,
+    blurb:'Lights out. The art steps back and the cards do the talking.',
+    bg:'radial-gradient(120% 80% at 50% 0%,#26262E 0%,rgba(38,38,46,0) 55%),' +
+       'linear-gradient(180deg,#111116 0%,#050507 70%)' }
+];
+
+var TABSTYLES = [
+  { id:'hgiega',  name:'Ħġieġa', lvl:0,
+    blurb:'Frosted glass over the festa. The stock bar.', a:.88 },
+  { id:'solidu',  name:'Solidu', lvl:4,
+    blurb:'A proper opaque bar. Nothing shines through it.',
+    bg:'rgb(15,10,17)', a:1 },
+  { id:'velu',    name:'Velu', lvl:9,
+    blurb:'Barely there — the art runs under your thumb.',
+    bg:'rgba(14,9,16,.42)', a:.42 }
+];
+
+var THEME_BY = {}, SCENE_BY = {}, TAB_BY = {};
+(function(){
+  var i;
+  for (i = 0; i < THEMES.length; i++)    THEME_BY['theme.' + THEMES[i].id] = THEMES[i];
+  for (i = 0; i < SCENES.length; i++)    SCENE_BY['scene.' + SCENES[i].id] = SCENES[i];
+  for (i = 0; i < TABSTYLES.length; i++) TAB_BY['tabstyle.' + TABSTYLES[i].id] = TABSTYLES[i];
+})();
+
+function kartiSlotDefs(slot){
+  return XP.defsFor('karti').filter(function(d){ return d.slot === slot; });
+}
+
+/* ── the previews — each one is the thing doing its actual job ─────
+   A theme is a swatch MEDALLION: the accent and the hot colour split
+   like the wordmark, an ember point, on the theme's own dark breath —
+   the real colours, never a name to imagine. A scene is the actual
+   background painted small under the home scrim. A tab style is a
+   miniature tab bar sitting over festa-coloured light. */
+function themePreviewHTML(t, size){
+  var s = size || 58;
+  return '<span style="display:block;position:relative;width:' + s + 'px;height:' + s + 'px;' +
+    'border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.16);' +
+    'background:linear-gradient(180deg,' + ((t.kx && t.kx.bg2) || '#2A1B47') + ',#120D0B 78%)">' +
+    '<i style="position:absolute;left:18%;top:16%;width:64%;height:64%;border-radius:50%;' +
+      'background:linear-gradient(118deg,' + t.sw[0] + ' 0 49%,' + t.sw[1] + ' 51% 100%);' +
+      'box-shadow:0 0 12px ' + t.sw[1] + '66,inset 0 1px 0 rgba(255,255,255,.35)"></i>' +
+    '<i style="position:absolute;right:14%;bottom:12%;width:6px;height:6px;border-radius:50%;' +
+      'background:' + t.sw[2] + ';box-shadow:0 0 6px ' + t.sw[2] + '"></i>' +
+    '</span>';
+}
+function scenePreviewHTML(sc, size){
+  var s = size || 58;
+  var bg = sc.bg
+    ? (sc.bg.indexOf('gradient') >= 0 ? sc.bg : 'url("' + sc.bg + '") center top/cover no-repeat')
+    : 'url("art/ui/home-bg.jpg") center top/cover no-repeat';
+  return '<span style="display:block;position:relative;overflow:hidden;' +
+    'width:' + s + 'px;height:' + s + 'px;border-radius:12px;' +
+    'border:1px solid rgba(255,255,255,.16);background:' + bg.replace(/"/g, '&quot;') + ';' +
+    'background-size:cover">' +
+    '<i style="position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,5,16,.16),rgba(8,5,16,.42))"></i>' +
+    '<i style="position:absolute;left:14%;right:14%;bottom:12%;height:5px;border-radius:3px;' +
+      'background:rgba(16,10,20,.85);border-top:1px solid var(--kx-accent,#FFC542)"></i>' +
+    '</span>';
+}
+function tabstylePreviewHTML(tb, size){
+  var s = size || 58;
+  return '<span style="display:block;position:relative;overflow:hidden;' +
+    'width:' + s + 'px;height:' + s + 'px;border-radius:12px;' +
+    'border:1px solid rgba(255,255,255,.16);' +
+    'background:radial-gradient(90% 70% at 50% 20%,var(--kx-glow,rgba(255,170,60,.35)),transparent 70%),' +
+      'linear-gradient(180deg,#2A1B47,#120D0B)">' +
+    '<i style="position:absolute;left:8%;right:8%;bottom:12%;height:34%;border-radius:6px;' +
+      'background:' + (tb.bg || 'rgba(16,10,20,.88)') + ';' +
+      (tb.a < 1 ? 'backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);' : '') +
+      'border-top:1px solid color-mix(in srgb,var(--kx-tab-on,#FFC542) 40%,transparent);' +
+      'display:flex;align-items:center;justify-content:space-evenly">' +
+      '<u style="width:5px;height:5px;border-radius:50%;background:var(--kx-tab-on,#FFC542)"></u>' +
+      '<u style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.4)"></u>' +
+      '<u style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.4)"></u>' +
+    '</i></span>';
+}
+
+function registerKxSlots(){
+  var defs = [];
+  THEMES.forEach(function(t){
+    defs.push({
+      id: 'theme.' + t.id, game: 'karti', slot: 'theme',
+      name: t.name, blurb: t.blurb,
+      level: t.lvl || 0,
+      sort: t.id === 'karti' ? -1 : (t.earn ? 90 : (t.lvl || 0)),
+      earn: t.earn ? { how:'Win ten in a row in any one game', test:kxStreakTen } : null,
+      preview: (function(th){ return function(size){ return themePreviewHTML(th, size); }; })(t)
+    });
+  });
+  SCENES.forEach(function(sc){
+    defs.push({
+      id: 'scene.' + sc.id, game: 'karti', slot: 'scene',
+      name: sc.name, blurb: sc.blurb,
+      level: sc.lvl || 0,
+      sort: sc.id === 'none' ? -1 : (sc.lvl || 0),
+      preview: (function(s){ return function(size){ return scenePreviewHTML(s, size); }; })(sc)
+    });
+  });
+  TABSTYLES.forEach(function(tb){
+    defs.push({
+      id: 'tabstyle.' + tb.id, game: 'karti', slot: 'tabstyle',
+      name: tb.name, blurb: tb.blurb,
+      level: tb.lvl || 0,
+      sort: tb.id === 'hgiega' ? -1 : (tb.lvl || 0),
+      preview: (function(s){ return function(size){ return tabstylePreviewHTML(s, size); }; })(tb)
+    });
+  });
+  return XP.register(defs);
+}
+
+/* ONE composed call through the phase-1 door. Every key one of these
+   slots can own is ALWAYS present — as a value when something is worn,
+   as null when not — so KARTI_THEME.apply() clears the stale override
+   itself and unequip is free. Keys none of them own (gateBg, bg,
+   surface, ink, dim, tabBg's colour cousins) are never sent at all,
+   so nothing here can fight the 'backdrop' ladder or the stylesheet. */
+function applyKx(){
+  var T = window.KARTI_THEME;
+  if (!T || !T.apply) return;
+  var o = { accent:null, accentInk:null, accent2:null, accent2Deep:null,
+            bg2:null, tabOn:null, glow:null, ember:null,
+            homeBg:null, tabBg:null };
+  var t = null, s = null, b = null;
+  try {
+    t = THEME_BY[XP.equipped('theme', 'karti') || ''];
+    s = SCENE_BY[XP.equipped('scene', 'karti') || ''];
+    b = TAB_BY[XP.equipped('tabstyle', 'karti') || ''];
+  } catch (e){}
+  if (t && t.kx) for (var k in t.kx) if (k in o) o[k] = t.kx[k];
+  if (s && s.bg) o.homeBg = s.bg;
+  if (b && b.bg) o.tabBg = b.bg;
+  T.apply(o);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    YOU — A SHELF OF SLOTS, NOT ONE LONG LIST
 
    It used to be a single scroll: the photo tile, then every drawn face,
@@ -1383,8 +1654,14 @@ var SLOTS = [
     hint:'The ring around it. This is the one everyone else sees.' },
   { id:'badge',  name:'Your level box',
     hint:'The number in the bottom of the ring. Yours, not the room\'s.' },
+  { id:'theme',  name:'Your colours',
+    hint:'The app\'s accent — gold, rose, violet, sea. Every button follows.' },
+  { id:'scene',  name:'The home scene',
+    hint:'The picture behind the home screen. The festa night lives here.' },
   { id:'backdrop', name:'The backdrop',
-    hint:'The colour behind everything. Games keep their own tables.' }
+    hint:'The colour behind everything. Games keep their own tables.' },
+  { id:'tabstyle', name:'The tab bar',
+    hint:'Glass over the art, a solid bar, or barely there at all.' }
 ];
 
 /* WHAT IS WORN IN A SLOT, including when nothing has ever been chosen.
@@ -1392,13 +1669,16 @@ var SLOTS = [
    and no tile in either list shows as On — the wardrobe reads as though
    the player is wearing something that is not in it. Every ladder has a
    zero item that IS the default, so an empty slot resolves to that one. */
-var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold', backdrop:'backdrop.none' };
+var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold', backdrop:'backdrop.none',
+                     theme:'theme.karti', scene:'scene.none', tabstyle:'tabstyle.hgiega' };
+/* the three kx ladders read generically — any slot that is not one of
+   the two avatar specials is simply "what is equipped on karti" */
 function wornId(slot){
   var id = '';
   try {
-    id = (slot === 'badge')    ? XP.badgeDef()
-       : (slot === 'backdrop') ? XP.equipped('backdrop', 'karti')
-       :                         XP.borderDef();
+    id = (slot === 'badge')  ? XP.badgeDef()
+       : (slot === 'border') ? XP.borderDef()
+       :                       XP.equipped(slot, 'karti');
   } catch (e){}
   return id || SLOT_DEFAULT[slot] || '';
 }
@@ -1418,7 +1698,8 @@ function slotCount(id){
   }
   list = (id === 'badge') ? XP.badges()
        : (id === 'backdrop') ? backdropDefs()
-       : XP.borders();
+       : (id === 'border') ? XP.borders()
+       : kartiSlotDefs(id);              /* theme / scene / tabstyle */
   for (i = 0; i < list.length; i++) if (XP.owns(list[i].id)) n++;
   return { own:n, all:list.length };
 }
@@ -1438,6 +1719,10 @@ function slotWorn(id){
   if (id === 'backdrop'){
     d = XP.def(wornId('backdrop'));
     return d ? d.name : 'Il-Lejl';
+  }
+  if (id === 'theme' || id === 'scene' || id === 'tabstyle'){
+    d = XP.def(wornId(id));
+    return d ? d.name : { theme:'KARTI Klassika', scene:'It-Triq', tabstyle:'Ħġieġa' }[id];
   }
   d = XP.def(wornId('border'));
   return d ? d.name : 'No border';
@@ -1459,6 +1744,12 @@ function paintYou(host){
                shows the worn palette itself doing its job. */
             (s.id === 'backdrop'
               ? backdropPreviewHTML(BACKDROP_BY[wornId('backdrop')] || BACKDROPS[0], 56)
+              : s.id === 'theme'
+              ? themePreviewHTML(THEME_BY[wornId('theme')] || THEMES[0], 56)
+              : s.id === 'scene'
+              ? scenePreviewHTML(SCENE_BY[wornId('scene')] || SCENES[0], 56)
+              : s.id === 'tabstyle'
+              ? tabstylePreviewHTML(TAB_BY[wornId('tabstyle')] || TABSTYLES[0], 56)
               : avatarHTML(myName(), {
                   size:56,
                   lv: (s.id === 'face') ? 0 : Math.max(1, XP.level()),
@@ -1527,6 +1818,13 @@ function paintYou(host){
       '<p class="kx-slot">The backdrop</p>' +
       backdropDefs().map(function(d){
         return itemHTML(d, wornId('backdrop') === d.id); }).join('');
+    wireItems(host);
+    drawPreviews(host, 'karti');
+  } else if (SC.slot === 'theme' || SC.slot === 'scene' || SC.slot === 'tabstyle'){
+    host.innerHTML = back +
+      '<p class="kx-slot">' + esc(slotWord(SC.slot)) + '</p>' +
+      kartiSlotDefs(SC.slot).map(function(d){
+        return itemHTML(d, wornId(SC.slot) === d.id); }).join('');
     wireItems(host);
     drawPreviews(host, 'karti');
   } else {
@@ -1857,6 +2155,14 @@ if (FACES) FACES.ready();
 registerBackdrops();
 applyBackdrop();
 
+/* The colour themes, home scenes and tab styles go up beside them, and
+   the equipped combination is composed through KARTI_THEME.apply()
+   before any interaction — so a reload comes back wearing the chosen
+   identity, and a player wearing nothing gets one all-null apply(),
+   which removes no defaults and changes not a pixel. */
+registerKxSlots();
+applyKx();
+
 if (document.readyState === 'loading')
   document.addEventListener('DOMContentLoaded', watchAvatars);
 else watchAvatars();
@@ -1870,7 +2176,7 @@ else watchAvatars();
 /* the same event also re-applies the shell palette — cheap enough to
    run on every equip rather than filter for 'karti.backdrop', and it
    makes unequip (fall back to stock) free */
-try { XP.onEquip(function(){ queueRepaint(); applyBackdrop(); }); } catch (e){}
+try { XP.onEquip(function(){ queueRepaint(); applyBackdrop(); applyKx(); }); } catch (e){}
 
 /* Android back: while the level-up card is holding, a back press should
    put it away, not walk out of the screen underneath it. */

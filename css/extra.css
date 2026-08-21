@@ -52,8 +52,12 @@
 /* 0 0 auto — must NOT shrink. As `0 1 auto` flexbox crushed it to 19px when the
    column ran out of room, so its rows spilled out and collided with whatever
    sat below. The column is meant to OVERFLOW and scroll, not compress. */
-.onlinebox{flex:0 0 auto;max-height:38vh;border:1px solid var(--line);border-radius:15px;
-  background:rgba(14,10,26,.82);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+.onlinebox{flex:0 0 auto;max-height:38vh;border-radius:15px;
+  border:1px solid color-mix(in srgb,var(--kx-ink,#F4EFFF) 14%,transparent);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-surface,rgba(34,22,40,.66)) 88%,#fff 3%),
+    color-mix(in srgb,var(--kx-bg,#0E0A1A) 82%,transparent));
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 10px 24px -14px rgba(0,0,0,.7);
   padding:9px 10px 8px;min-height:0;display:flex;flex-direction:column;gap:7px}
 .onlinebox .on-list{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:none}
 .onlinebox .on-list::-webkit-scrollbar{display:none}
@@ -275,10 +279,17 @@
           things that can fail, for a background picture. A plain url() just paints
           when the file loads. The gradients sit underneath as the fallback, so a
           missing file still reads as a designed screen rather than flat black. */
-       --art-home:url("../art/ui/home-bg.jpg"),
-                  radial-gradient(140% 72% at 50% -14%, #372259 0%, rgba(20,14,34,0) 62%),
-                  radial-gradient(120% 58% at 50% 118%, #2A1640 0%, rgba(20,14,34,0) 58%),
-                  linear-gradient(180deg,#171126 0%,#0E0B14 55%,#130D20 100%);
+       /* THE THEME HOOK RIDES ON TOP: --kx-home-bg (see the THEME TOKENS block
+          in index.html) defaults to `none`, an empty background layer — the
+          stock photo underneath paints exactly as before. When a cosmetic
+          theme sets it to a url(...), that image covers the stock art while
+          the #scr-home::before scrim stays above BOTH, so text keeps its
+          contrast whatever picture a theme brings. */
+       --art-home:var(--kx-home-bg,none),
+                  url("../art/ui/home-bg.jpg"),
+                  radial-gradient(140% 72% at 50% -14%, color-mix(in srgb,var(--kx-bg-2,#372259) 78%,#4A2E77) 0%, rgba(20,14,34,0) 62%),
+                  radial-gradient(120% 58% at 50% 118%, color-mix(in srgb,var(--kx-bg-2,#2A1640) 72%,#000) 0%, rgba(20,14,34,0) 58%),
+                  linear-gradient(180deg,color-mix(in srgb,var(--kx-bg,#171126) 82%,var(--kx-bg-2,#2A1B47)) 0%,var(--kx-bg,#0E0B14) 55%,color-mix(in srgb,var(--kx-bg,#130D20) 90%,var(--kx-bg-2,#2A1B47)) 100%);
        --art-pile-deck:none; --art-pile-grave:none; --art-pile-banish:none; }
 /* background-origin:border-box — see the note on #scr-home below. Without it
    `cover` is measured against the PADDING box, so the safe-area padding shows up
@@ -322,7 +333,13 @@
    so the scrim can ease off and let the actual artwork show all the way down to
    the bar instead of fading into a dead black band. */
 #scr-home::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
-  background:linear-gradient(180deg,rgba(8,5,16,.70),rgba(8,5,16,.50) 30%,
+  background:
+    /* the splash's warmth, carried in: a hearth glow bleeding up from the tab
+       bar and a faint festa light at the crown — both read --kx-glow so a
+       theme recolours the atmosphere in one variable */
+    radial-gradient(110% 42% at 50% -8%, var(--kx-glow,rgba(255,170,60,.20)), transparent 60%),
+    radial-gradient(96% 36% at 50% 112%, var(--kx-glow,rgba(255,170,60,.20)), transparent 64%),
+    linear-gradient(180deg,rgba(8,5,16,.70),rgba(8,5,16,.50) 30%,
              rgba(8,5,16,.60) 64%,rgba(8,5,16,.74))}
 /* :not(.tabbar) matters. This rule lifts the content above the scrim, but an ID
    selector outranks a class, so it was quietly overriding .tabbar's

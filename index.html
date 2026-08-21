@@ -104,11 +104,62 @@
 <link rel="stylesheet" href="css/cardview.css">
 <style>
 /* ══════════════════ TOKENS ══════════════════ */
+/* ══ KARTI THEME TOKENS — the ONE surface cosmetics repaint ═══════════════
+   Every colour the entry gate, the Home screen and the tab bar paint reads
+   from these custom properties on the ROOT element (documentElement). A
+   cosmetic theme changes the app by rewriting THESE and nothing else —
+   call window.KARTI_THEME.apply({...}) (defined in the shell script at the
+   end of this file) with any subset of:
+
+     accent      → --kx-accent        gold #FFC542. Primary action, active tab,
+                                      highlights, the KAR half of the wordmark.
+     accentInk   → --kx-accent-ink    #241800. Text/icon sitting ON --kx-accent.
+     accent2     → --kx-accent-2      festa crimson #E63950. The hot action
+                                      (PLAY NOW / STORY MODE), the TI half.
+     accent2Deep → --kx-accent-2-deep #C8102E. Dark tail of the crimson
+                                      gradient; pressed/shadow tone.
+     bg          → --kx-bg            plum-black #120D0B. The app floor.
+     bg2         → --kx-bg-2          #2A1B47. The warm upper tint the
+                                      backdrop gradients breathe with.
+     surface     → --kx-surface       glass panel/chip fill (translucent).
+     ink         → --kx-ink           #F4EFFF primary text.
+     dim         → --kx-dim           #A093C4 secondary text.
+     tabBg       → --kx-tab-bg        tab-bar glass fill (translucent dark).
+     tabOn       → --kx-tab-on        active-tab colour (defaults to gold).
+     glow        → --kx-glow          the atmosphere: ember/hearth radial glow
+                                      (translucent warm orange).
+     ember       → --kx-ember         the bright core of a rising ember mote.
+     homeBg      → --kx-home-bg       IMAGE. Home backdrop override. Default
+                                      `none` = the stock street/hero art keeps
+                                      painting; a theme sets url(...) and it
+                                      paints OVER the stock art (the scrim
+                                      stays on top so text keeps contrast).
+     gateBg      → --kx-gate-bg       IMAGE. Entry-gate backdrop. Defaults to
+                                      the splash festa painting.
+
+   Rules for future work: any NEW colour on these three screens must be
+   derived from a --kx-* token (color-mix is fine); never hard-code. Legacy
+   tokens below (--gold/--hot/…) are aliased to the kx set so the rest of
+   the app follows the theme where it already used them.                    */
+:root{
+  --kx-accent:#FFC542; --kx-accent-ink:#241800;
+  --kx-accent-2:#E63950; --kx-accent-2-deep:#C8102E;
+  --kx-bg:#120D0B; --kx-bg-2:#2A1B47;
+  --kx-surface:rgba(34,22,40,.66);
+  --kx-ink:#F4EFFF; --kx-dim:#A093C4;
+  --kx-tab-bg:rgba(16,10,20,.88); --kx-tab-on:#FFC542;
+  --kx-glow:rgba(255,170,60,.20); --kx-ember:#FFDE9B;
+  --kx-home-bg:none;
+  --kx-gate-bg:url("art/ui/loading-bg.png");
+}
 :root{
   --bg:#0E0B14; --panel:#1B1430; --panel2:#241A3E;
   --line:rgba(255,255,255,.10); --line2:rgba(255,255,255,.18);
-  --txt:#F4EFFF; --dim:#A093C4; --dim2:#7F73A0;
-  --gold:#FFC542; --hot:#E8452C; --neon:#8A5CFF; --ok:#3DDC84; --bad:#FF5468;
+  --txt:var(--kx-ink); --dim:var(--kx-dim); --dim2:#7F73A0;
+  /* gold + hot are ALIASES of the theme accents now, so every button, pill and
+     glow that already used them follows an equipped theme for free. */
+  --gold:var(--kx-accent); --hot:var(--kx-accent-2);
+  --neon:#8A5CFF; --ok:#3DDC84; --bad:#FF5468;
   --sat:env(safe-area-inset-top,0px); --sab:env(safe-area-inset-bottom,0px);
   --sal:env(safe-area-inset-left,0px); --sar:env(safe-area-inset-right,0px);
   --disp:'Exo 2','Arial Black',system-ui,sans-serif;
@@ -142,10 +193,10 @@ html{overscroll-behavior:none}
    paints outside the document (rubber-banding, a UI transition) matches the
    chrome instead of flashing a different colour. */
 body{
-  margin:0;background-color:#08050F;
+  margin:0;background-color:var(--kx-bg);
   background-image:
-    radial-gradient(1100px 700px at 50% -12%, #2A1B47 0%, transparent 62%),
-    radial-gradient(700px 500px at 110% 100%, #23123A 0%, transparent 60%);
+    radial-gradient(1100px 700px at 50% -12%, var(--kx-bg-2) 0%, transparent 62%),
+    radial-gradient(700px 500px at 110% 100%, color-mix(in srgb,var(--kx-bg-2) 82%,#000) 0%, transparent 60%);
   color:var(--txt);font-family:var(--body);font-size:16px;line-height:1.45;
   /* overflow:hidden on html AND body, exactly like mia-party. The build-31
      theory that the document must stay scrollable is contradicted by that
@@ -221,10 +272,20 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
   box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 10px 22px rgba(0,0,0,.45);
 }
 .btn:active{transform:translate3d(0,3px,0);box-shadow:0 3px 0 -2px rgba(0,0,0,.5)}
-.btn.primary{background:linear-gradient(180deg,#FFD979,var(--gold));color:#241800;border-color:#FFE9B0;
-  box-shadow:0 6px 0 -2px #8A6200,0 12px 28px rgba(255,197,66,.28)}
-.btn.hot{background:linear-gradient(180deg,#FF7154,var(--hot));color:#2A0700;border-color:#FFA894;
-  box-shadow:0 6px 0 -2px #8C1E0C,0 12px 28px rgba(232,69,44,.3)}
+.btn.primary{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-accent) 72%,#fff),var(--kx-accent));
+  color:var(--kx-accent-ink);border-color:color-mix(in srgb,var(--kx-accent) 52%,#fff);
+  box-shadow:0 6px 0 -2px color-mix(in srgb,var(--kx-accent) 46%,#000),
+    0 12px 28px color-mix(in srgb,var(--kx-accent) 30%,transparent),
+    inset 0 1px 0 rgba(255,255,255,.45)}
+.btn.hot{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-accent-2) 78%,#fff),
+    var(--kx-accent-2) 46%,var(--kx-accent-2-deep));
+  color:#fff;border-color:color-mix(in srgb,var(--kx-accent-2) 55%,#fff);
+  text-shadow:0 1px 2px rgba(0,0,0,.35);
+  box-shadow:0 6px 0 -2px color-mix(in srgb,var(--kx-accent-2-deep) 62%,#000),
+    0 12px 28px color-mix(in srgb,var(--kx-accent-2) 34%,transparent),
+    inset 0 1px 0 rgba(255,255,255,.32)}
 .btn.ghost{background:rgba(255,255,255,.04);box-shadow:none;border-color:var(--line)}
 .btn[disabled]{opacity:.38;pointer-events:none}
 .btn.sm{min-height:44px;font-size:12px;padding:4px 13px;border-radius:11px}
@@ -399,7 +460,23 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .card.xs .dupebadge,.card.sm .dupebadge{display:none}
 @keyframes pop{from{transform:scale(0)}70%{transform:scale(1.25)}to{transform:scale(1)}}
 
-/* ══════════════════ AUTH ══════════════════ */
+/* ══════════════════ AUTH — THE ENTRY GATE ══════════════════
+   The splash's festa scene, carried into the first interactive screen: the
+   same painted backdrop (--kx-gate-bg), a vignette that keeps the centre calm,
+   rising embers, a fanned hand of card-backs behind the wordmark, and the
+   split gold/crimson logo with the splash's light sweep. Every colour reads
+   a --kx-* token (see THEME TOKENS above).                                  */
+#scr-auth{
+  background-image:
+    radial-gradient(120% 86% at 50% 30%,rgba(9,5,12,.06) 0%,rgba(9,5,12,.38) 56%,
+      color-mix(in srgb,var(--kx-bg) 94%,#000) 100%),
+    var(--kx-gate-bg),
+    radial-gradient(120% 85% at 50% 4%,color-mix(in srgb,var(--kx-accent-2) 22%,transparent),transparent 44%),
+    radial-gradient(90% 55% at 50% 104%,color-mix(in srgb,var(--kx-accent) 18%,transparent),transparent 54%),
+    linear-gradient(180deg,color-mix(in srgb,var(--kx-bg-2) 42%,var(--kx-bg)),var(--kx-bg));
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  background-origin:border-box;overflow:hidden}
+#scr-auth>*{position:relative;z-index:2}
 /* .authwrap asks for flex:1 so it can centre itself, but its parent .scroll is a
    plain block, so the flex had no effect and the whole sign-in column sat jammed
    against the top of the phone with two thirds of the screen empty below it.
@@ -408,8 +485,71 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    its box must scroll from the top, not have its head cut off. */
 #scr-auth .scroll{display:flex;flex-direction:column}
 .authwrap{flex:1;display:flex;flex-direction:column;
-  justify-content:center;justify-content:safe center;gap:12px;max-width:420px;
+  justify-content:center;justify-content:safe center;gap:16px;max-width:420px;
   width:100%;margin:0 auto;padding:14px 0 20px}
+/* the actions live on GLASS, not on bare art — one panel, one hierarchy */
+#auth-body{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-surface) 88%,#fff 4%),var(--kx-surface));
+  border:1px solid color-mix(in srgb,var(--kx-ink) 16%,transparent);
+  border-radius:22px;padding:18px 16px;
+  backdrop-filter:blur(10px) saturate(1.15);-webkit-backdrop-filter:blur(10px) saturate(1.15);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 24px 50px -18px rgba(0,0,0,.8)}
+#scr-auth .tagline{color:color-mix(in srgb,var(--kx-accent) 46%,var(--kx-dim));
+  text-shadow:0 1px 6px rgba(0,0,0,.8)}
+/* ── the fanned hand behind the wordmark — the splash's deal, held still ── */
+.kx-fan{position:relative;height:0;pointer-events:none;z-index:-1;opacity:.9}
+.kx-fan b{position:absolute;left:50%;top:-26px;width:58px;height:82px;margin-left:-29px;
+  border-radius:8px;transform-origin:50% 120%;
+  background:linear-gradient(160deg,color-mix(in srgb,var(--kx-accent-2-deep) 62%,#000),
+    color-mix(in srgb,var(--kx-accent-2-deep) 26%,#000) 62%,color-mix(in srgb,var(--kx-accent-2-deep) 16%,#000));
+  border:1px solid color-mix(in srgb,var(--kx-accent) 55%,transparent);
+  box-shadow:0 10px 22px rgba(0,0,0,.6),inset 0 0 14px color-mix(in srgb,var(--kx-accent) 13%,transparent)}
+.kx-fan b::after{content:"";position:absolute;inset:7px;border-radius:5px;
+  border:1px solid color-mix(in srgb,var(--kx-accent) 28%,transparent)}
+.kx-fan .f1{transform:rotate(-24deg) translateY(6px)}
+.kx-fan .f2{transform:rotate(-12deg) translateY(-2px)}
+.kx-fan .f3{transform:rotate(0deg)  translateY(-6px)}
+.kx-fan .f4{transform:rotate(12deg) translateY(-2px)}
+.kx-fan .f5{transform:rotate(24deg) translateY(6px)}
+/* ── EMBERS — the splash's rising motes, shared by gate and Home ── */
+.kx-embers{position:absolute;inset:0;pointer-events:none;z-index:1;contain:strict}
+.kx-embers i{position:absolute;bottom:-4%;width:4px;height:4px;border-radius:50%;
+  background:radial-gradient(circle,var(--kx-ember),transparent 70%);
+  opacity:0;animation:kxRise linear infinite}
+@keyframes kxRise{0%{opacity:0;transform:translate3d(0,0,0) scale(.6)}
+  12%{opacity:.9}70%{opacity:.6}100%{opacity:0;transform:translate3d(14px,-104vh,0) scale(1.25)}}
+.kx-embers i:nth-child(1){left:9%;animation-duration:10s;animation-delay:-2s}
+.kx-embers i:nth-child(2){left:22%;animation-duration:12.5s;animation-delay:-7s;width:3px;height:3px}
+.kx-embers i:nth-child(3){left:36%;animation-duration:9s;animation-delay:-4s}
+.kx-embers i:nth-child(4){left:52%;animation-duration:13s;animation-delay:-9s;width:5px;height:5px}
+.kx-embers i:nth-child(5){left:64%;animation-duration:10.5s;animation-delay:-1s;width:3px;height:3px}
+.kx-embers i:nth-child(6){left:78%;animation-duration:11.5s;animation-delay:-6s}
+.kx-embers i:nth-child(7){left:90%;animation-duration:9.5s;animation-delay:-3s;width:3px;height:3px}
+.kx-embers i:nth-child(8){left:45%;animation-duration:14s;animation-delay:-11s}
+body.reduced .kx-embers,html.reduced .kx-embers{display:none}
+@media (prefers-reduced-motion:reduce){.kx-embers{display:none}}
+/* ── THE WORDMARK, given the splash's treatment: KAR in gold, TI in crimson,
+      a light sweep every few seconds. The base .logo stays as-is for plain
+      uses (IL-QASMA in the gacha); these classes only bite on the split. ── */
+.logo.kx-split{position:relative;display:block;overflow:hidden;
+  background:none;-webkit-background-clip:initial;background-clip:initial;color:transparent;
+  filter:drop-shadow(0 4px 14px rgba(0,0,0,.55))}
+.logo.kx-split .lg1,.logo.kx-split .lg2{
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.logo.kx-split .lg1{
+  background-image:linear-gradient(180deg,color-mix(in srgb,var(--kx-accent) 40%,#fff),
+    var(--kx-accent) 45%,color-mix(in srgb,var(--kx-accent) 62%,#7A4A00));
+  filter:drop-shadow(0 0 16px color-mix(in srgb,var(--kx-accent) 42%,transparent))}
+.logo.kx-split .lg2{
+  background-image:linear-gradient(180deg,color-mix(in srgb,var(--kx-accent-2) 42%,#fff),
+    color-mix(in srgb,var(--kx-accent-2) 88%,#fff) 45%,var(--kx-accent-2-deep));
+  filter:drop-shadow(0 0 16px color-mix(in srgb,var(--kx-accent-2) 48%,transparent))}
+.logo.kx-split .lg-shine{position:absolute;top:0;bottom:0;width:42%;left:-55%;pointer-events:none;
+  background:linear-gradient(100deg,transparent,rgba(255,255,255,.45),transparent);
+  transform:skewX(-18deg);animation:kxSweep 4.2s ease-in-out 1.2s infinite}
+@keyframes kxSweep{0%{left:-55%}55%,100%{left:125%}}
+body.reduced .logo.kx-split .lg-shine{display:none}
+@media (prefers-reduced-motion:reduce){.logo.kx-split .lg-shine{display:none}}
 .userlist{display:grid;gap:8px;margin:6px 0}
 .userrow{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);
   border-radius:13px;padding:9px 12px;min-height:56px;text-align:left}
@@ -466,6 +606,55 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 #scr-home .wallet{margin:0;flex:0 0 auto;justify-content:flex-end;flex-wrap:nowrap;gap:8px}
 #scr-home .menu{margin:0;flex:0 0 auto}
 
+/* ── THE BIG DOORS — horizontal AAA menu rows ──────────────────────────
+   An icon medallion on the left, a left-aligned title over its one-line
+   pitch, a quiet chevron on the right. The colour story is unchanged —
+   Story is the crimson door, Multiplayer the gold one, Party glass — it is
+   the SHAPE that got the production value: a proper grid, a bevel, a glow. */
+#scr-home .btn.pick{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:center;
+  column-gap:12px;text-align:left;min-height:68px;padding:8px 12px 8px 10px;
+  border-radius:17px}
+#scr-home .btn.pick .pk-ic{
+  width:46px;height:46px;border-radius:13px;display:grid;place-items:center;
+  background:linear-gradient(180deg,rgba(255,255,255,.22),rgba(255,255,255,.05) 55%,rgba(0,0,0,.18));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.35),inset 0 -1px 0 rgba(0,0,0,.25),
+    0 3px 8px rgba(0,0,0,.3)}
+#scr-home .btn.pick .pk-ic .ico{font-size:24px}
+#scr-home .btn.pick .pk-tx{display:flex;flex-direction:column;gap:3px;min-width:0}
+#scr-home .btn.pick .pk-t{font-size:16px;letter-spacing:.07em;line-height:1.05;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scr-home .btn.pick .sub{margin:0;font-size:10px;letter-spacing:.05em;opacity:.82;
+  text-transform:none;font-family:var(--body);font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#scr-home .btn.pick .pk-go{width:19px;height:19px;stroke:currentColor;fill:none;
+  stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;opacity:.65;flex:0 0 auto}
+/* the glass door (Party Games + anything a module appends, e.g. How to play) */
+#scr-home .btn.ghost{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-surface) 88%,#fff 5%),var(--kx-surface));
+  border-color:color-mix(in srgb,var(--kx-ink) 17%,transparent);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 10px 24px -12px rgba(0,0,0,.7)}
+#scr-home .btn.ghost .pk-ic{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-accent) 30%,transparent),
+    color-mix(in srgb,var(--kx-accent) 10%,transparent));
+  box-shadow:inset 0 1px 0 color-mix(in srgb,var(--kx-accent) 40%,transparent),
+    inset 0 0 12px color-mix(in srgb,var(--kx-accent) 18%,transparent)}
+#scr-home .btn.ghost .pk-go{color:var(--kx-accent)}
+/* the tutor module appends a compact "How to play" — keep it a slim glass row */
+#scr-home .menu .btn.sm{flex-direction:row;justify-content:center;min-height:44px;
+  border-radius:13px;background:color-mix(in srgb,var(--kx-surface) 72%,transparent);
+  border-color:color-mix(in srgb,var(--kx-ink) 14%,transparent);box-shadow:none}
+
+/* ── the profile chip + tagline pick up the glass + accent story ── */
+#scr-home .pchip{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-surface) 88%,#fff 4%),var(--kx-surface));
+  border-color:color-mix(in srgb,var(--kx-ink) 16%,transparent);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 6px 16px -8px rgba(0,0,0,.65)}
+#scr-home .tagline{color:color-mix(in srgb,var(--kx-accent) 40%,var(--kx-dim));
+  letter-spacing:.3em;margin-top:6px}
+
 /* ── CURRENCY CHIPS — compact, premium, icon + value only ──────────────
    No word labels: a coin icon and a dust icon carry the meaning, the way
    real games do it. A subtle inner sheen and a coloured icon make each chip
@@ -473,12 +662,13 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    jitter the layout as they change. */
 #scr-home .wallet .pill{
   gap:5px;padding:6px 11px 6px 8px;border-radius:99px;
-  background:linear-gradient(180deg,rgba(38,28,60,.92),rgba(22,15,38,.94));
-  border:1px solid rgba(255,255,255,.14);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-surface) 90%,#fff 5%),var(--kx-surface));
+  border:1px solid color-mix(in srgb,var(--kx-ink) 15%,transparent);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 2px 8px rgba(0,0,0,.35);
   font-size:13px;letter-spacing:.01em}
 #scr-home .wallet .pill .ico{font-size:1.32em}
-#scr-home .wallet .pill.coins .ico{color:#FFD24A}
+#scr-home .wallet .pill.coins .ico{color:color-mix(in srgb,var(--kx-accent) 88%,#fff)}
 #scr-home .wallet .pill.dust .ico{color:#8FD3FF}
 #scr-home .wallet .pill small{display:none}   /* icon says it; no word needed */
 
@@ -487,17 +677,18 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
    chevron marks it as a destination; a gold hairline lifts it off the art. */
 .cardschip{flex:0 0 auto;display:inline-flex;align-items:center;gap:8px;
   align-self:center;min-height:40px;padding:7px 12px 7px 13px;border-radius:99px;
-  background:linear-gradient(180deg,rgba(40,29,64,.88),rgba(22,15,38,.92));
-  border:1px solid rgba(255,197,66,.34);
+  background:linear-gradient(180deg,color-mix(in srgb,var(--kx-surface) 90%,#fff 4%),var(--kx-surface));
+  border:1px solid color-mix(in srgb,var(--kx-accent) 34%,transparent);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 4px 14px rgba(0,0,0,.34);
-  color:#F4EFFF;font-family:var(--disp);font-weight:800;font-size:13px;letter-spacing:.02em;
+  color:var(--kx-ink);font-family:var(--disp);font-weight:800;font-size:13px;letter-spacing:.02em;
   transition:transform .12s var(--ease),border-color .16s,box-shadow .16s}
-.cardschip .ico{font-size:18px;color:var(--gold)}
-.cardschip .cc-txt small{font-family:var(--body);font-weight:600;color:var(--dim);
+.cardschip .ico{font-size:18px;color:var(--kx-accent)}
+.cardschip .cc-txt small{font-family:var(--body);font-weight:600;color:var(--kx-dim);
   font-size:10.5px;letter-spacing:.05em;margin-left:2px}
-.cardschip .cc-go{width:16px;height:16px;stroke:var(--gold);fill:none;stroke-width:2.4;
+.cardschip .cc-go{width:16px;height:16px;stroke:var(--kx-accent);fill:none;stroke-width:2.4;
   stroke-linecap:round;stroke-linejoin:round;opacity:.85;margin-left:1px}
-.cardschip:active{transform:scale(.97);border-color:rgba(255,197,66,.6)}
+.cardschip:active{transform:scale(.97);border-color:color-mix(in srgb,var(--kx-accent) 60%,transparent)}
 
 /* ── DAILY SPIN — a COMPACT badge under the avatar ─────────────────────
    Not a bar: a small pill that sits directly beneath the profile chip in the
@@ -510,25 +701,26 @@ h1,h2,h3{font-family:var(--disp);letter-spacing:.04em;margin:0;font-weight:900}
 .spinbadge{display:inline-flex;align-items:center;gap:7px;
   padding:5px 12px 5px 5px;border-radius:99px;
   background:
-    radial-gradient(120% 160% at 16% 50%,rgba(255,197,66,.28),transparent 62%),
-    linear-gradient(180deg,rgba(58,35,92,.94),rgba(30,18,52,.96));
-  border:1px solid rgba(255,197,66,.55);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 4px 14px -6px rgba(255,180,40,.7);
-  color:#FFF3CF;font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.04em;
+    radial-gradient(120% 160% at 16% 50%,color-mix(in srgb,var(--kx-accent) 28%,transparent),transparent 62%),
+    linear-gradient(180deg,color-mix(in srgb,var(--kx-surface) 92%,#fff 4%),var(--kx-surface));
+  border:1px solid color-mix(in srgb,var(--kx-accent) 55%,transparent);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 4px 14px -6px color-mix(in srgb,var(--kx-accent) 70%,transparent);
+  color:color-mix(in srgb,var(--kx-accent) 30%,var(--kx-ink));font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.04em;
   white-space:nowrap;transition:transform .12s var(--ease),box-shadow .2s}
 .spinbadge:active{transform:scale(.96)}
 /* the little wheel medallion — the spin-wheel.png art drops in over the star */
 .spinbadge .ds-art{flex:0 0 auto;width:26px;height:26px;border-radius:50%;position:relative;
   display:grid;place-items:center;overflow:hidden;
-  background:radial-gradient(circle at 50% 38%,#FFE9A8,#FFC542 46%,#B96C00);
-  box-shadow:0 0 0 1.5px rgba(255,233,168,.6),0 3px 8px -3px rgba(255,180,40,.8)}
-.spinbadge .ds-art .ds-star{width:16px;height:16px;color:#5B2E00}
+  background:radial-gradient(circle at 50% 38%,color-mix(in srgb,var(--kx-accent) 40%,#fff),
+    var(--kx-accent) 46%,color-mix(in srgb,var(--kx-accent) 55%,#5B2E00));
+  box-shadow:0 0 0 1.5px color-mix(in srgb,var(--kx-accent) 60%,#fff 20%),0 3px 8px -3px color-mix(in srgb,var(--kx-accent) 80%,transparent)}
+.spinbadge .ds-art .ds-star{width:16px;height:16px;color:var(--kx-accent-ink)}
 .spinbadge .ds-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .spinbadge .ds-label{line-height:1}
 /* READY: a slow breathing glow so the free reward catches the eye */
 .spinbadge{animation:spGlow 2.4s ease-in-out infinite}
-@keyframes spGlow{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 3px 10px -6px rgba(255,180,40,.5)}
-  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 5px 16px -5px rgba(255,180,40,.95)}}
+@keyframes spGlow{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 3px 10px -6px color-mix(in srgb,var(--kx-accent) 50%,transparent)}
+  50%{box-shadow:inset 0 1px 0 rgba(255,255,255,.14),0 5px 16px -5px color-mix(in srgb,var(--kx-accent) 95%,transparent)}}
 body.reduced .spinbadge{animation:none}
 
 /* ── HOME HERO BACKDROP ────────────────────────────────────────────────
@@ -541,11 +733,12 @@ body.reduced .spinbadge{animation:none}
 html.has-hero #scr-home{
   background-image:
     linear-gradient(180deg,rgba(10,7,20,.42) 0%,rgba(10,7,20,.16) 26%,rgba(10,7,20,.30) 60%,rgba(8,5,16,.82) 100%),
+    var(--kx-home-bg,none),   /* the theme hook outranks the hero art too */
     var(--home-hero,none),
     var(--art-home);
-  background-size:cover,cover,cover;
-  background-position:center top,center top,center top;
-  background-repeat:no-repeat,no-repeat,no-repeat}
+  background-size:cover,cover,cover,cover;
+  background-position:center top,center top,center top,center top;
+  background-repeat:no-repeat,no-repeat,no-repeat,no-repeat}
 .fineprint{flex:0 0 auto;text-align:center;margin:clamp(5px,1.2vh,12px) 0 0;
   font-size:10.5px;line-height:1.5;color:var(--dim2)}
 
@@ -575,37 +768,56 @@ html.has-hero #scr-home{
    small flat pad and lets the strip be the clearance. A normally-installed icon,
    where the WebView reaches the bottom, keeps the full inset. */
 html.short-webview .tabbar{ padding-bottom:8px }
+/* THE BAR ITSELF — glass over the festa, not a flat black strip. The fill,
+   the accent hairline and the warm under-glow all read theme tokens
+   (--kx-tab-bg / --kx-tab-on / --kx-glow), so a cosmetic repaints the whole
+   bar by rewriting three variables. */
 .tabbar{
   position:absolute;bottom:0;left:0;right:0;z-index:200;
   display:grid;grid-auto-flow:column;grid-auto-columns:1fr;align-items:stretch;gap:2px;
   transform:translateZ(0);-webkit-transform:translateZ(0);
-  padding:5px calc(var(--sar) + 6px) calc(var(--sab) + 5px) calc(var(--sal) + 6px);
-  background:linear-gradient(180deg,rgba(14,10,26,.90),rgba(8,5,16,.985));
-  border-top:1px solid rgba(255,255,255,.15);
-  box-shadow:0 -1px 0 rgba(255,255,255,.05) inset,0 -12px 30px rgba(0,0,0,.55);
-  backdrop-filter:blur(14px) saturate(1.25);-webkit-backdrop-filter:blur(14px) saturate(1.25);
+  padding:6px calc(var(--sar) + 6px) calc(var(--sab) + 5px) calc(var(--sal) + 6px);
+  background:
+    radial-gradient(70% 130% at 50% 118%,var(--kx-glow),transparent 62%),
+    linear-gradient(180deg,color-mix(in srgb,var(--kx-tab-bg) 82%,transparent),var(--kx-tab-bg) 58%);
+  border-top:1px solid color-mix(in srgb,var(--kx-tab-on) 32%,transparent);
+  box-shadow:0 -1px 0 rgba(255,255,255,.06) inset,
+    0 -18px 40px -20px color-mix(in srgb,var(--kx-tab-on) 45%,transparent),
+    0 -12px 30px rgba(0,0,0,.55);
+  backdrop-filter:blur(16px) saturate(1.3);-webkit-backdrop-filter:blur(16px) saturate(1.3);
 }
 .tab{
   position:relative;min-width:0;   /* min-width:0 or a long label stretches its column */
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
-  min-height:52px;padding:6px 1px 5px;border-radius:13px;
+  min-height:52px;padding:7px 1px 5px;border-radius:14px;
   /* NOT the Orbitron display face here: "COLLECTION" in Orbitron is far too wide
      for a quarter of a 390px screen and got ellipsised. The UI face reads better
      at 9px anyway — this is chrome, not branding. */
   font-family:var(--body);font-weight:700;font-size:9px;letter-spacing:.02em;
   /* brighter than --dim: this is 9px type on a near-black bar and he has
      complained before about not being able to read the menu */
-  text-transform:uppercase;line-height:1;color:#BCAFDD;
+  text-transform:uppercase;line-height:1;color:color-mix(in srgb,var(--kx-dim) 78%,var(--kx-ink));
   transition:color .16s var(--ease),background .16s var(--ease),transform .12s var(--ease);
 }
-.tab .ico{font-size:21px;color:#EFE6FF;transition:color .16s var(--ease)}
+.tab .ico{font-size:21px;color:color-mix(in srgb,var(--kx-ink) 92%,transparent);
+  transition:color .16s var(--ease),filter .16s var(--ease)}
 .tab .tl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tab:active{transform:translate3d(0,1px,0);background:rgba(255,255,255,.08)}
-/* the current destination. Nothing is current while you are on Home itself —
-   that is correct, Home is not one of the five. */
-.tab[aria-current]{color:#241800;background:linear-gradient(180deg,#FFDE8B,var(--gold));
-  box-shadow:0 5px 16px -6px rgba(255,197,66,.85)}
-.tab[aria-current] .ico{color:#241800}
+.tab:active{transform:translate3d(0,1px,0);background:color-mix(in srgb,var(--kx-ink) 9%,transparent)}
+/* the current destination: a lit tab, not a paint bucket — the icon and label
+   take the accent with a soft halo, a glow pools behind the tab, and a small
+   bar over the icon marks the spot. Nothing is current while you are on Home
+   itself — that is correct, Home is not one of the three. */
+.tab[aria-current]{color:var(--kx-tab-on);
+  background:
+    radial-gradient(60% 90% at 50% 0%,color-mix(in srgb,var(--kx-tab-on) 22%,transparent),transparent 72%),
+    color-mix(in srgb,var(--kx-tab-on) 7%,transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--kx-tab-on) 26%,transparent),
+    0 6px 18px -8px color-mix(in srgb,var(--kx-tab-on) 60%,transparent)}
+.tab[aria-current] .ico{color:var(--kx-tab-on);
+  filter:drop-shadow(0 0 7px color-mix(in srgb,var(--kx-tab-on) 65%,transparent))}
+.tab[aria-current]::after{content:'';position:absolute;top:2px;left:50%;
+  transform:translateX(-50%);width:22px;height:3px;border-radius:99px;
+  background:var(--kx-tab-on);box-shadow:0 0 9px var(--kx-tab-on)}
 /* "your deck is not legal" — a badge, because a tab bar must never reflow */
 /* pinned to the icon's top-right, NOT to the tab's, so it stays put whatever
    width the column ends up being */
@@ -642,7 +854,10 @@ html.short-webview .tabbar{ padding-bottom:8px }
    Touch targets stay at 40px; nothing is hidden. */
 @media (max-height:700px){
   .homemid{gap:7px}
-  #scr-home .btn.pick{min-height:60px;font-size:15px}
+  #scr-home .btn.pick{min-height:56px;padding:6px 10px 6px 8px}
+  #scr-home .btn.pick .pk-ic{width:38px;height:38px;border-radius:11px}
+  #scr-home .btn.pick .pk-ic .ico{font-size:20px}
+  #scr-home .btn.pick .pk-t{font-size:14px}
   #scr-home .btn.pick .sub{font-size:9px}
   .fineprint{font-size:9.5px}
   #scr-home .tagline{font-size:9.5px;letter-spacing:.2em}
@@ -1235,20 +1450,20 @@ body.reduced .hint{animation:none!important;opacity:.8}
    is off. position:relative + the ::before sheen ride on top of the
    ghost background; overflow:hidden keeps the sweep inside the pill. */
 #btn-party{position:relative;overflow:hidden;
-  border-color:rgba(255,197,66,.38);
+  border-color:color-mix(in srgb,var(--kx-accent) 38%,transparent);
   animation:partyBreath 3.2s var(--ease,ease-in-out) infinite}
 #btn-party>*{position:relative;z-index:1}
 #btn-party::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;
-  background:linear-gradient(115deg,transparent 30%,rgba(255,222,147,.22) 48%,
-    rgba(255,222,147,.28) 52%,transparent 70%);
+  background:linear-gradient(115deg,transparent 30%,color-mix(in srgb,var(--kx-accent) 26%,transparent) 48%,
+    color-mix(in srgb,var(--kx-accent) 32%,transparent) 52%,transparent 70%);
   transform:translateX(-120%);
   animation:partySheen 3.2s var(--ease,ease-in-out) infinite}
 #btn-party .ico{color:var(--gold)}
 @keyframes partyBreath{
-  0%,100%{box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 0 0 0 rgba(255,197,66,0);
-    border-color:rgba(255,197,66,.34);transform:translateZ(0)}
-  50%{box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 0 26px 3px rgba(255,197,66,.42);
-    border-color:rgba(255,197,66,.72);transform:translate3d(0,-2px,0)}
+  0%,100%{box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 0 0 0 transparent;
+    border-color:color-mix(in srgb,var(--kx-accent) 34%,transparent);transform:translateZ(0)}
+  50%{box-shadow:0 6px 0 -2px rgba(0,0,0,.5),0 0 26px 3px color-mix(in srgb,var(--kx-accent) 42%,transparent);
+    border-color:color-mix(in srgb,var(--kx-accent) 72%,transparent);transform:translate3d(0,-2px,0)}
 }
 @keyframes partySheen{
   0%,62%,100%{transform:translateX(-120%)}
@@ -1682,12 +1897,16 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
 
 <div id="app">
 
-  <!-- ═══ AUTH ═══ -->
+  <!-- ═══ AUTH — the entry gate. Same festa scene as the splash: painted
+       backdrop + vignette on the section, embers rising through it, a fanned
+       hand behind the split gold/crimson wordmark, the actions on glass. -->
   <section class="screen" id="scr-auth">
+    <div class="kx-embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <div class="scroll">
       <div class="authwrap">
         <div>
-          <h1 class="logo">KARTI</h1>
+          <div class="kx-fan" aria-hidden="true"><b class="f1"></b><b class="f2"></b><b class="f3"></b><b class="f4"></b><b class="f5"></b></div>
+          <h1 class="logo kx-split"><span class="lg1">KAR</span><span class="lg2">TI</span><i class="lg-shine" aria-hidden="true"></i></h1>
           <p class="tagline">Malta's rudest card duel</p>
         </div>
         <div id="auth-body"></div>
@@ -1700,6 +1919,9 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
        bands — a thin profile bar, a centred middle that owns all the slack,
        and the secondary nav pinned to the bottom above the home bar. -->
   <section class="screen home" id="scr-home">
+    <!-- the same rising embers as the splash and the gate — the atmosphere layer.
+         Sits FIRST so every real control paints over it; pointer-events:none. -->
+    <div class="kx-embers" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
     <!-- TOP BAR: profile on the LEFT, currency (coins + dust) on the RIGHT — the
          two are balanced against each other so the eye reads "who you are" on one
          side and "what you have" on the other. The cards indicator is NOT here: it
@@ -1721,7 +1943,7 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
 
     <div class="homemid">
       <div class="brand">
-        <h1 class="logo">KARTI</h1>
+        <h1 class="logo kx-split"><span class="lg1">KAR</span><span class="lg2">TI</span><i class="lg-shine" aria-hidden="true"></i></h1>
         <p class="tagline">Malta's rudest card duel</p>
       </div>
       <!-- The cards chip: the "54/200 cards" indicator, now a DOOR to the
@@ -1734,13 +1956,19 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
       </button>
       <!-- Two ways in, and only two. The deck picker used to sit here; it lives on
            the Decks screen now so Home is nothing but Story and Multiplayer. -->
+      <!-- The big doors are horizontal rows now: an icon medallion, a left-
+           aligned title with its sub-line, and a chevron that says "this goes
+           somewhere". Same ids, same classes game.js wires; only the layout
+           inside changed (.pk-ic/.pk-tx/.pk-go, styled under HOME below). -->
       <div class="menu">
-        <button class="btn hot pick" id="btn-story"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-map"></use></svg><span>Story Mode</span></span
-          ><span class="sub">Eight bosses. Beat the village.</span></button>
-        <button class="btn primary pick" id="btn-mp"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Multiplayer</span></span
-          ><span class="sub">Play someone in another house</span></button>
+        <button class="btn hot pick" id="btn-story"><span class="pk-ic" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"
+          focusable="false"><use href="#i-map"></use></svg></span><span class="pk-tx"><span class="pk-t">Story Mode</span
+          ><span class="sub">Eight bosses. Beat the village.</span></span><svg class="pk-go" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"/></svg></button>
+        <button class="btn primary pick" id="btn-mp"><span class="pk-ic" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"
+          focusable="false"><use href="#i-users"></use></svg></span><span class="pk-tx"><span class="pk-t">Multiplayer</span
+          ><span class="sub">Play someone in another house</span></span><svg class="pk-go" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
       <!-- js/mp.js fills this in and empties it again when you leave Home.
            It is the ONLY part of KARTI that needs the internet. -->
@@ -1749,9 +1977,10 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
            meant to scroll a little, both so this is a discovery and so the page
            behaves like a normal document on iOS. -->
       <div class="menu" style="margin-top:2px">
-        <button class="btn ghost pick" id="btn-party"><span class="bl"><svg class="ico" viewBox="0 0 24 24"
-          aria-hidden="true" focusable="false"><use href="#i-users"></use></svg><span>Party Games</span></span
-          ><span class="sub">Nine games — play them online or on this phone</span></button>
+        <button class="btn ghost pick" id="btn-party"><span class="pk-ic" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24"
+          focusable="false"><use href="#i-users"></use></svg></span><span class="pk-tx"><span class="pk-t">Party Games</span
+          ><span class="sub">Nine games — play them online or on this phone</span></span><svg class="pk-go" viewBox="0 0 24 24"
+          aria-hidden="true" focusable="false"><path d="M9 18l6-6-6-6"/></svg></button>
       </div>
       <!-- The daily-spin lives UNDER THE AVATAR now (a compact badge in
            #spin-slot, top-left), rendered only when a spin is available. -->
@@ -1928,6 +2157,56 @@ window.ILB = function(name, html, cls){
   return '<span class="bl">' + window.ICO(name, null, cls) + '<span>' + html + '</span></span>';
 };
 
+/* ── KARTI_THEME — the ONE documented door a cosmetic theme walks through ──
+   The gate, Home and the tab bar are painted entirely off the --kx-* custom
+   properties documented in the THEME TOKENS block at the top of this file.
+   Phase 2 (cosmetic themes) calls:
+
+     KARTI_THEME.apply({ accent:'#59D2FF', bg:'#06121C', homeBg:'art/th/sea.jpg', … })
+       — any subset of the keys below; unknown keys are ignored, image keys
+         (homeBg/gateBg) accept a bare path/URL or a full `url(...)`, and
+         every value lands as an inline --kx-* property on <html>, which
+         outranks the stylesheet defaults.
+     KARTI_THEME.reset()
+       — removes every inline --kx-* override; the stylesheet defaults (the
+         stock crimson/gold KARTI identity) take over again, untouched.
+     KARTI_THEME.vars
+       — the key → custom-property map, so a theme editor can enumerate it.
+
+   Defined here, before the loader, so it exists whenever any module — or the
+   console — wants it. It never persists anything itself: storage and "which
+   theme is equipped" are the caller's business.                              */
+window.KARTI_THEME = (function(){
+  var MAP = {
+    accent:'--kx-accent',       accentInk:'--kx-accent-ink',
+    accent2:'--kx-accent-2',    accent2Deep:'--kx-accent-2-deep',
+    bg:'--kx-bg',               bg2:'--kx-bg-2',
+    surface:'--kx-surface',     ink:'--kx-ink',
+    dim:'--kx-dim',
+    tabBg:'--kx-tab-bg',        tabOn:'--kx-tab-on',
+    glow:'--kx-glow',           ember:'--kx-ember',
+    homeBg:'--kx-home-bg',      gateBg:'--kx-gate-bg'
+  };
+  var IMG = { homeBg:1, gateBg:1 };
+  var root = document.documentElement;
+  function apply(theme){
+    if (!theme) return;
+    for (var k in MAP){
+      if (!Object.prototype.hasOwnProperty.call(theme, k)) continue;
+      var v = theme[k];
+      if (v == null || v === ''){ root.style.removeProperty(MAP[k]); continue; }
+      v = String(v);
+      if (IMG[k] && v !== 'none' && v.indexOf('url(') !== 0 && v.indexOf('gradient') < 0)
+        v = 'url("' + v.replace(/"/g, '%22') + '")';
+      root.style.setProperty(MAP[k], v);
+    }
+  }
+  function reset(){
+    for (var k in MAP) root.style.removeProperty(MAP[k]);
+  }
+  return { apply: apply, reset: reset, vars: MAP };
+})();
+
 /* ── which build is this phone REALLY running ─────────────────────────────
    BUILD is baked into index.html, and the shell CSS is inline in this SAME
    file — so "v22" here is the truth about the layout on screen; it cannot say
@@ -1936,7 +2215,7 @@ window.ILB = function(name, html, cls){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 203;
+var KARTI_BUILD = 205;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
