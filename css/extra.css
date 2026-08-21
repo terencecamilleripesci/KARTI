@@ -353,6 +353,27 @@
    otherwise have no line to read as a bar. */
 #scr-home .tabbar{border-top-color:rgba(255,255,255,.22)}
 #scr-home .logo,#scr-home .tagline{text-shadow:0 2px 10px rgba(0,0,0,.75)}
+
+/* ══════════════════ THE APP-WIDE BACKDROP ══════════════════
+   An equipped scene used to stop at Home: --kx-home-bg is only read by
+   #scr-home, so the Store, the Collection, Friends, Story and the lobbies
+   stayed stock dark and the app changed skin every time a tab was tapped.
+   --kx-app-bg is the same scene FOR EVERYWHERE ELSE: applyKx() (js/
+   progress-ui.js) composes the scene's art with a readability veil — dark
+   veil on the dark shell, pale rose veil under a light theme — into this one
+   image value, and every MENU screen paints it behind its content.
+   Defaults to `none`, so with nothing equipped these screens render exactly
+   as before (transparent over the body gradient).
+   The GAME surfaces are deliberately NOT in this list: #scr-duel keeps its
+   playmat, #scr-party hosts live boards and #scr-kiri is a board itself — a
+   photograph under a hand of cards costs readability mid-game, so games keep
+   the neutral shell and the theme reaches them through the colour tokens
+   only. */
+#scr-pack,#scr-coll,#scr-deck,#scr-story,#scr-pnp,#scr-mp,#scr-gacha,
+#scr-tutor,#scr-friends,#scr-stats,#scr-kx{
+  background-image:var(--kx-app-bg,none);
+  background-size:cover;background-position:center top;
+  background-repeat:no-repeat;background-origin:border-box}
 .card.back .in{background-image:var(--art-cardback);background-size:cover;background-position:center}
 /* only drop the CSS-drawn back once the real card-back art is actually there */
 .art-cardback .card.back .in::before{display:none}
@@ -468,3 +489,59 @@
   .knav-ask .knav-acts .knav-yes{order:2}
   .knav-ask .knav-acts button{min-height:42px;font-size:12.5px}
 }
+
+/* ══════════════════ LIGHT THEME (html.kx-light) — mode surfaces ══════════
+   Counterpart of the html.kx-light block in index.html, for the surfaces this
+   file owns. Only bites while a light theme (Roża Ħelwa) is equipped; stock
+   is untouched. Two kinds of fix:
+   1) HARD WHITES on what used to be a guaranteed-dark field (online names,
+      the info boxes, the taunt, the handover curtain) → dark rose ink.
+   2) DARK ISLANDS that keep their own dark art (boss tiles, deck cards, the
+      gacha faces) now sit on a light page and INHERIT dark body ink → they
+      get their light ink back explicitly. */
+html.kx-light .on-head h2{color:var(--txt)}
+html.kx-light .onrow .onname{color:var(--txt)}
+html.kx-light .on-note b{color:var(--txt)}
+html.kx-light .on-count{color:#C2255C}
+html.kx-light .onrow{background:rgba(122,32,72,.07)}
+html.kx-light .onrow .onmark{background:rgba(122,32,72,.10)}
+html.kx-light .warnbox{color:#6E4E00;border-color:rgba(158,110,0,.45);
+  background:rgba(255,197,66,.16)}
+html.kx-light .warnbox b{color:#5C4100}
+html.kx-light .okbox{color:#14532D}
+html.kx-light .badbox{color:#8E1B2E}
+html.kx-light .storyhdr .prog{color:#C2255C}
+html.kx-light .roomcode{color:#C2255C;text-shadow:0 0 24px rgba(194,37,92,.25)}
+/* the dark islands: tiles that carry their own near-black art */
+html.kx-light .boss{color:#F6EAF0}
+html.kx-light .boss .li{color:#C9AFC0}
+html.kx-light .boss .rank{color:#B08CA0}
+html.kx-light .deckcard,html.kx-light .deckopt,html.kx-light .deckface{color:#F6EAF0}
+html.kx-light .deckface .a,html.kx-light .deckopt .k,
+html.kx-light .deckface .vs{color:#C9AFC0}
+html.kx-light .bossline .said{color:#5C1B3C}
+html.kx-light .bossline .said b{color:#C2255C}
+html.kx-light .taunt{background:linear-gradient(180deg,#FFF6FA,#FFE9F2);
+  color:#5C1B3C;border-color:rgba(122,32,72,.28);border-left-color:var(--hot)}
+html.kx-light .taunt .who{color:#A61E4D}
+html.kx-light .handover{
+  background:radial-gradient(900px 600px at 50% 20%,#FFD9E7 0%,#FBE3ED 70%),var(--bg)}
+html.kx-light .handover .to{
+  background:linear-gradient(180deg,#E0447F,#C2255C 48%,#8E1B44);
+  -webkit-background-clip:text;background-clip:text;
+  filter:drop-shadow(0 2px 0 rgba(255,255,255,.6))}
+/* friends.js injects its own scoped stylesheet with hard #F4EFFF whites and
+   two dark radial cards; under the light theme those become the same class
+   of fix as above — ink follows the shell, the two cards go cream. */
+html.kx-light #scr-friends .fr-elead,html.kx-light #scr-friends .fr-name,
+html.kx-light #scr-friends .fr-notify,html.kx-light #scr-friends .fr-bubble.them,
+html.kx-light #scr-friends .fr-chip,html.kx-light #scr-friends .fr-profname,
+html.kx-light .fr-sheet-h,html.kx-light .fr-gametile{color:var(--txt)}
+html.kx-light #scr-friends .fr-codecard,
+html.kx-light #scr-friends .fr-profcard{
+  background:radial-gradient(120% 130% at 100% 0%,rgba(214,51,108,.12),rgba(255,255,255,.62))}
+html.kx-light #scr-friends .fr-code{color:#C2255C;text-shadow:none}
+/* the tagline mixes the ACCENT into the dim ink — with a light accent that
+   mix LIGHTENS it below AA (measured 3.2:1); under the light theme it takes
+   the dim ink straight (7.5:1). */
+html.kx-light #scr-home .tagline,html.kx-light #scr-auth .tagline{color:var(--kx-dim)}

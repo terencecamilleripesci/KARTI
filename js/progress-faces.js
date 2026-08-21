@@ -471,6 +471,10 @@ function injectCSS(){
        because `background` was being won by the rule underneath. */
     '.kx-av>.kx-lvb.kx-b-ink{background:linear-gradient(180deg,#F6F3FF,#C9C2DE);' +
       'color:#15102A;border-color:#15102A}' +
+    /* baby pink, level 1. Same discipline as the whole ladder: DARK TEXT ON
+       A LIGHT BOX (7.2:1 measured), so it reads over every border. */
+    '.kx-av>.kx-lvb.kx-b-roza{background:linear-gradient(180deg,#FFD6E4,#F48FB1);' +
+      'color:#4A0E28}' +
     '.kx-av>.kx-lvb.kx-b-copper{background:linear-gradient(180deg,#F2C08A,#C2703A);' +
       'color:#33170A}' +
     '.kx-av>.kx-lvb.kx-b-sea{background:linear-gradient(180deg,#CDEEFF,#4FA9E8);' +
@@ -540,6 +544,11 @@ function injectCSS(){
     /* ── the plain ones. Box-shadow, not border, so the ring sits
          inside the frame and never changes the avatar's size ── */
     '.kx-r-hairline{box-shadow:inset 0 0 0 max(1px,calc(var(--kx-size,38px) * .04)) rgba(255,255,255,.78)}' +
+    /* baby pink, level 1 — hue-first like every ring here: a soft pink band
+       with a deep-rose inner lip so it still reads as PINK at 30px, on a
+       dark seat plate and on the light theme alike */
+    '.kx-r-roza{box-shadow:inset 0 0 0 var(--kx-bw) #FFB1CC,' +
+      'inset 0 0 0 calc(var(--kx-bw) * 1.9) #D6336C}' +
     '.kx-r-twine{box-shadow:inset 0 0 0 var(--kx-bw) #C99A5B,' +
       'inset 0 0 0 calc(var(--kx-bw) * 1.9) rgba(90,58,25,.75)}' +
     '.kx-r-brass{box-shadow:inset 0 0 0 var(--kx-bw) #E0A94A,' +
@@ -701,6 +710,7 @@ function injectCSS(){
 var BORDERS = [
   { id:'none',     name:'No Border',        lvl:0,  blurb:'The frame on its own. Nothing to prove.' },
   { id:'hairline', name:'Hairline',         lvl:0,  blurb:'One clean line. Free, and it always looked right.' },
+  { id:'roza',     name:'Roża Ħelwa',       lvl:1,  blurb:'Baby pink with a rose lip. Asked for, and priced at nothing.' },
   { id:'twine',    name:'Twine',            lvl:2,  blurb:'Off the same roll as everything else in the drawer.' },
   { id:'brass',    name:'Brass',            lvl:4,  blurb:'Polished once, in 1974, by somebody who cared.' },
   { id:'stone',    name:'Limestone',        lvl:7,  blurb:'Cut from the same rock as every wall on this island.' },
@@ -755,6 +765,8 @@ var B_PAT = { sea:1, milled:1, festa:1, streak:1, gold:1, tempesta:1, betagold:1
 var BADGES = [
   { id:'gold',     name:'Klassika',      lvl:0,
     blurb:'The one everybody starts with. It was always fine.' },
+  { id:'roza',     name:'Roża',          lvl:1,
+    blurb:'Baby pink, dark rose digits. Yours from the first hand.' },
   { id:'ink',      name:'Linka',         lvl:3,
     blurb:'Black and white. Reads at any size, which is the whole trick.' },
   { id:'copper',   name:'Ram',           lvl:6,

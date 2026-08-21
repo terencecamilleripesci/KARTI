@@ -124,7 +124,19 @@
      surface     → --kx-surface       glass panel/chip fill (translucent).
      ink         → --kx-ink           #F4EFFF primary text.
      dim         → --kx-dim           #A093C4 secondary text.
-     tabBg       → --kx-tab-bg        tab-bar glass fill (translucent dark).
+     tabBg       → --kx-tab-bg        tab-bar fill. NOT set directly any more:
+                                      it is COMPUTED from tabTint + tabAlpha
+                                      below so the bar's COLOUR and its
+                                      MATERIAL are two independent choices.
+                                      (The key still exists for compatibility;
+                                      an inline --kx-tab-bg would win.)
+     tabTint     → --kx-tab-tint      the bar's COLOUR (the tabcolour slot).
+     tabAlpha    → --kx-tab-alpha     the bar's MATERIAL: how opaque the tint
+                                      paints — glass 88%, solid 100%, veil 42%.
+     tabInk      → --kx-tab-ink       inactive tab label/icon colour. No :root
+                                      default on purpose: unset, the two .tab
+                                      rules fall back to their stock mixes, so
+                                      stock renders byte-identical.
      tabOn       → --kx-tab-on        active-tab colour (defaults to gold).
      glow        → --kx-glow          the atmosphere: ember/hearth radial glow
                                       (translucent warm orange).
@@ -136,6 +148,26 @@
                                       stays on top so text keeps contrast).
      gateBg      → --kx-gate-bg       IMAGE. Entry-gate backdrop. Defaults to
                                       the splash festa painting.
+     appBg       → --kx-app-bg        IMAGE. The APP-WIDE backdrop: the menu
+                                      screens (Store, Collection, Inventory,
+                                      Friends, Story, lobbies — see the rule
+                                      in css/extra.css) paint it behind their
+                                      content, so an equipped scene follows
+                                      the player through the whole app instead
+                                      of stopping at Home. Default `none` =
+                                      stock. applyKx() composes the scene's
+                                      art with its own readability veil into
+                                      this one value. GAME surfaces (#scr-duel,
+                                      #scr-party, #scr-kiri) deliberately do
+                                      NOT read it — a board must stay legible
+                                      mid-game whatever picture is equipped.
+
+   LIGHT THEMES: a theme whose field is light (Roża Ħelwa) also puts the class
+   `kx-light` on <html> (applyKx in js/progress-ui.js). The html.kx-light
+   blocks below and in css/extra.css re-aim the few surfaces that hard-code a
+   "dark background" assumption (scrims, the wordmark treatment, the hard
+   whites). With no theme equipped the class is absent and every stock rule
+   applies untouched.
 
    Rules for future work: any NEW colour on these three screens must be
    derived from a --kx-* token (color-mix is fine); never hard-code. Legacy
@@ -147,10 +179,18 @@
   --kx-bg:#120D0B; --kx-bg-2:#2A1B47;
   --kx-surface:rgba(34,22,40,.66);
   --kx-ink:#F4EFFF; --kx-dim:#A093C4;
-  --kx-tab-bg:rgba(16,10,20,.88); --kx-tab-on:#FFC542;
+  /* The tab bar's fill, SPLIT: --kx-tab-tint is the COLOUR (the tabcolour
+     slot), --kx-tab-alpha the MATERIAL (the tabstyle slot: glass 88%, solid
+     100%, veil 42%). --kx-tab-bg is computed from the pair, so the two slots
+     compose without knowing about each other. Stock computes to the exact
+     rgba(16,10,20,.88) it always was. */
+  --kx-tab-tint:#100A14; --kx-tab-alpha:88%;
+  --kx-tab-bg:color-mix(in srgb,var(--kx-tab-tint) var(--kx-tab-alpha),transparent);
+  --kx-tab-on:#FFC542;
   --kx-glow:rgba(255,170,60,.20); --kx-ember:#FFDE9B;
   --kx-home-bg:none;
   --kx-gate-bg:url("art/ui/loading-bg.png");
+  --kx-app-bg:none;
 }
 :root{
   --bg:#0E0B14; --panel:#1B1430; --panel2:#241A3E;
@@ -796,10 +836,13 @@ html.short-webview .tabbar{ padding-bottom:8px }
   font-family:var(--body);font-weight:700;font-size:9px;letter-spacing:.02em;
   /* brighter than --dim: this is 9px type on a near-black bar and he has
      complained before about not being able to read the menu */
-  text-transform:uppercase;line-height:1;color:color-mix(in srgb,var(--kx-dim) 78%,var(--kx-ink));
+  /* --kx-tab-ink is only ever set by a tab COLOUR (a light tint needs dark
+     labels); unset, both rules fall back to their stock mixes untouched. */
+  text-transform:uppercase;line-height:1;
+  color:var(--kx-tab-ink,color-mix(in srgb,var(--kx-dim) 78%,var(--kx-ink)));
   transition:color .16s var(--ease),background .16s var(--ease),transform .12s var(--ease);
 }
-.tab .ico{font-size:21px;color:color-mix(in srgb,var(--kx-ink) 92%,transparent);
+.tab .ico{font-size:21px;color:var(--kx-tab-ink,color-mix(in srgb,var(--kx-ink) 92%,transparent));
   transition:color .16s var(--ease),filter .16s var(--ease)}
 .tab .tl{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tab:active{transform:translate3d(0,1px,0);background:color-mix(in srgb,var(--kx-ink) 9%,transparent)}
@@ -847,6 +890,54 @@ html.short-webview .tabbar{ padding-bottom:8px }
   background:linear-gradient(180deg,#FFDE8B,var(--gold));
   border-top:1px solid #FFE9B0;box-shadow:0 -6px 18px rgba(255,197,66,.35)}
 /* ══ END BUILD TAG ══ */
+
+/* ══════════════════ LIGHT THEME (html.kx-light) ══════════════════
+   Everything below only bites while a LIGHT theme (Roża Ħelwa) is equipped —
+   applyKx() puts .kx-light on <html> for any theme flagged light:1 and takes
+   it off again on unequip, so stock stays byte-identical. These rules re-aim
+   the handful of surfaces that hard-code a dark field: the scrims (a dark
+   veil over a baby-pink scene reads as mud — it becomes a pale rose veil that
+   keeps DARK ink legible instead), the gold-gradient wordmark (baby pink on
+   baby pink is invisible; it deepens to rose, measured 4.66:1 on the field),
+   and the places that use the accent as TEXT on the field, where the light
+   accent that is perfect as a button FILL is too pale as ink. */
+html.kx-light body::before{opacity:.10;
+  background:repeating-linear-gradient(180deg,rgba(70,16,44,.05) 0 1px,transparent 1px 3px)}
+html.kx-light .logo:not(.kx-split){
+  background:linear-gradient(180deg,#E0447F,#C2255C 45%,#8E1B44);
+  -webkit-background-clip:text;background-clip:text;
+  filter:drop-shadow(0 2px 0 rgba(255,255,255,.55)) drop-shadow(0 6px 14px rgba(194,37,92,.28))}
+html.kx-light .logo.kx-split .lg1{
+  background-image:linear-gradient(180deg,#F286B2,#D6336C 45%,#A61E4D);
+  filter:drop-shadow(0 0 14px rgba(214,51,108,.35))}
+html.kx-light .logo.kx-split .lg2{
+  background-image:linear-gradient(180deg,#E0447F,#C2255C 45%,#8E1B44);
+  filter:drop-shadow(0 0 14px rgba(166,30,77,.4))}
+html.kx-light #scr-home::before{background:
+  radial-gradient(110% 42% at 50% -8%,var(--kx-glow),transparent 60%),
+  radial-gradient(96% 36% at 50% 112%,var(--kx-glow),transparent 64%),
+  linear-gradient(180deg,rgba(255,240,246,.62),rgba(255,240,246,.34) 30%,
+    rgba(255,236,244,.44) 64%,rgba(252,228,238,.74))}
+html.kx-light.has-hero #scr-home{background-image:
+  linear-gradient(180deg,rgba(255,240,246,.55),rgba(255,240,246,.28) 26%,
+    rgba(255,240,246,.38) 60%,rgba(252,228,238,.72)),
+  var(--kx-home-bg,none),var(--home-hero,none),var(--art-home)}
+html.kx-light #scr-home .logo,html.kx-light #scr-home .tagline{
+  text-shadow:0 1px 8px rgba(255,255,255,.65)}
+html.kx-light #scr-auth{background-image:
+  radial-gradient(120% 86% at 50% 30%,rgba(255,244,248,.10) 0%,rgba(255,236,244,.46) 56%,
+    var(--kx-bg) 100%),
+  var(--kx-gate-bg),
+  radial-gradient(120% 85% at 50% 4%,color-mix(in srgb,var(--kx-accent-2) 16%,transparent),transparent 44%),
+  radial-gradient(90% 55% at 50% 104%,color-mix(in srgb,var(--kx-accent) 22%,transparent),transparent 54%),
+  linear-gradient(180deg,color-mix(in srgb,var(--kx-bg-2) 42%,var(--kx-bg)),var(--kx-bg))}
+/* accent-as-INK spots: the fill accent is too pale as text on the pink field */
+html.kx-light .cardschip .ico{color:#C2255C}
+html.kx-light .cardschip .cc-go{stroke:#C2255C}
+html.kx-light .cardschip{border-color:rgba(194,37,92,.38)}
+html.kx-light #buildtag{color:rgba(70,16,44,.55);text-shadow:none}
+html.kx-light :focus-visible{outline-color:#C2255C}
+/* ══ END LIGHT THEME ══ */
 /* Short phones (iPhone SE, 360x640 Androids). The two fat rows are the wallet
    and the secondary nav — both wrap to THREE lines at 360px on the normal
    scale. Tightening the type and the padding puts each back to two lines and
@@ -2184,10 +2275,13 @@ window.KARTI_THEME = (function(){
     surface:'--kx-surface',     ink:'--kx-ink',
     dim:'--kx-dim',
     tabBg:'--kx-tab-bg',        tabOn:'--kx-tab-on',
+    tabTint:'--kx-tab-tint',    tabAlpha:'--kx-tab-alpha',
+    tabInk:'--kx-tab-ink',
     glow:'--kx-glow',           ember:'--kx-ember',
-    homeBg:'--kx-home-bg',      gateBg:'--kx-gate-bg'
+    homeBg:'--kx-home-bg',      gateBg:'--kx-gate-bg',
+    appBg:'--kx-app-bg'
   };
-  var IMG = { homeBg:1, gateBg:1 };
+  var IMG = { homeBg:1, gateBg:1, appBg:1 };
   var root = document.documentElement;
   function apply(theme){
     if (!theme) return;
@@ -2215,7 +2309,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 205;
+var KARTI_BUILD = 206;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

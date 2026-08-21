@@ -1227,7 +1227,7 @@ var SLOT_WORD = {
   ring:'The aim ring', burst:'The shell burst', sky:'The night sky',
   curtain:'The curtain', card:'The card', backdrop:'The backdrop',
   pattern:'The pattern', theme:'The colours', scene:'The home scene',
-  tabstyle:'The tab bar'
+  tabstyle:'The tab bar', tabcolour:'The tab bar colour'
 };
 function slotWord(s){ return SLOT_WORD[s] || (s.charAt(0).toUpperCase() + s.slice(1)); }
 
@@ -1373,15 +1373,32 @@ function applyBackdrop(){
      theme    — the ACCENT identity: gold+crimson by default, or rose
                 gold, festa violet, deep sea… Rewrites the accent pair,
                 the hot-action pair, the active tab, the glow and the
-                ember. It deliberately does NOT touch --kx-bg/surface/
-                ink — the floor is the 'backdrop' ladder's job above,
-                so the two slots compose instead of fighting.
-     scene    — the picture behind the home screen (--kx-home-bg). The
-                art entries reuse files the app ALREADY ships and
-                precaches (the splash painting, the victory church, the
-                IL-KIRI skyline) — zero new bytes — and the rest are
-                authored CSS gradients, which weigh nothing at all.
-     tabstyle — the tab bar's fill (--kx-tab-bg): glass, solid, veil.
+                ember. The DARK themes deliberately do NOT touch
+                --kx-bg/surface/ink — the floor is the 'backdrop'
+                ladder's job above, so the two slots compose instead of
+                fighting. The ONE exception is a theme flagged light:1
+                (Roża Ħelwa): "the whole app in baby pink" cannot be an
+                accent job, so it carries the full field — bg, surface,
+                ink, a light tab tint, a `c:{}` shell for the legacy
+                panel vars, and the kx-light class that re-aims the
+                dark-field scrims (see LIGHT THEME in index.html). When
+                an explicit backdrop IS equipped, the backdrop keeps
+                the legacy shell (the player's floor choice wins).
+     scene    — the picture behind the home screen (--kx-home-bg) AND,
+                since the app-wide backdrop, behind every menu screen
+                (--kx-app-bg, composed with a readability veil in
+                applyKx). The art entries reuse files the app ALREADY
+                ships and precaches — zero new bytes — and the rest
+                are authored CSS gradients, which weigh nothing.
+     tabstyle — the tab bar's MATERIAL (--kx-tab-alpha): how opaquely
+                the tint paints — glass, solid, veil.
+     tabcolour— the tab bar's COLOUR (--kx-tab-tint), independent of
+                the material. A light tint brings its own dark ink
+                (--kx-tab-ink) and its own active colour, measured
+                against its own field, and floors the material's alpha
+                (a light tint at veil-42% over dark art blends to grey
+                mush — measured 1.14:1 on the active tab, so light
+                tints never drop below 92%).
 
    The three compose in ONE applyKx() call: each contributes its own
    keys and explicitly nulls the keys it owns when unequipped, so
@@ -1399,13 +1416,31 @@ var THEMES = [
   { id:'karti',      name:'KARTI Klassika', lvl:0,
     blurb:'Deheb u kulur il-festa. The colours the game was born in.',
     sw:['#FFC542','#E63950','#FFDE9B'] },
-  { id:'rozadeheb',  name:'Deheb Roża', lvl:1,
-    blurb:'Rose gold. Asked for by name, and it did not have to be earned.',
-    sw:['#FFB3C7','#ED4F82','#FFD3E0'],
-    kx:{ accent:'#FFB3C7', accentInk:'#33101C',
-         accent2:'#ED4F82', accent2Deep:'#B92D5E',
-         bg2:'#3A1B33', tabOn:'#FFB3C7',
-         glow:'rgba(255,140,180,.20)', ember:'#FFD3E0' } },
+  /* THE BABY-PINK ONE. It used to be "rose gold" — pink accents on the same
+     dark plum, and he could not tell it was on. What was asked for is "KARTI
+     imma baby pink": the SAME design language with the whole field turned
+     soft pink, cream glass where the dark theme uses near-black, dark rose
+     ink where it uses lilac-white. Every pair below is measured, not
+     eyeballed: ink on bg 12.6:1, ink on the cream glass 14.7:1, dim on bg
+     7.5:1, accentInk on the baby-pink accent 7.7:1, white on the hot rose
+     4.6:1, tab ink on the pink bar 11.1:1, active tab 5.0:1. Level 1 on
+     purpose — pink is never gated high. */
+  { id:'rozadeheb',  name:'Roża Ħelwa', lvl:1, light:1,
+    blurb:'Baby pink, wall to wall. KARTI with the lights on and the sugar in.',
+    sw:['#F79EC1','#D6336C','#FFD6E4'],
+    kx:{ accent:'#F79EC1', accentInk:'#4A0E28',
+         accent2:'#D6336C', accent2Deep:'#A61E4D',
+         bg:'#FBE3ED', bg2:'#F2BCD4',
+         surface:'rgba(255,255,255,.78)',
+         ink:'#46102C', dim:'#7A2C52',
+         tabTint:'#FFEDF4', tabInk:'#5C1B3C', tabOn:'#C2255C',
+         glow:'rgba(246,151,190,.32)', ember:'#FF9FC6',
+         homeBg:'radial-gradient(120% 60% at 50% -10%,#FFD1E3 0%,rgba(255,209,227,0) 55%),' +
+                'radial-gradient(100% 44% at 50% 112%,#EE7BA8 0%,rgba(238,123,168,0) 60%),' +
+                'linear-gradient(180deg,#FFE9F1 0%,#FBD5E4 52%,#F6B9D2 100%)',
+         gateBg:'linear-gradient(180deg,#FFE9F1 0%,#F9C8DC 46%,#EE9EC1 100%)' },
+    c:{ bg:'#FBE3ED', panel:'#FFF6FA', panel2:'#FFE9F2',
+        line:'rgba(122,32,72,.16)', line2:'rgba(122,32,72,.28)', dim2:'#8F5473' } },
   { id:'vjola',      name:'Vjola tal-Festa', lvl:3,
     blurb:'The banners of the OTHER band club. Violet, and proud of it.',
     sw:['#C7A6FF','#8A5CFF','#E2D2FF'],
@@ -1468,6 +1503,12 @@ var SCENES = [
   { id:'festa',      name:'Taħt il-Murtali', lvl:1,
     blurb:'The loading screen’s festa night, kept on after it loads.',
     bg:'art/ui/loading-bg.png' },
+  /* the baby-pink scene, level 1 like the theme — never gated high */
+  { id:'rozahelwa',  name:'Sħaba Roża', lvl:1,
+    blurb:'Baby pink from edge to edge. Soft as gelat tal-fraġola.',
+    bg:'radial-gradient(120% 70% at 50% -12%,#FFD1E3 0%,rgba(255,209,227,0) 60%),' +
+       'radial-gradient(90% 40% at 50% 108%,#E8558A 0%,rgba(232,85,138,0) 62%),' +
+       'linear-gradient(180deg,#FFE9F1 0%,#FFC9DD 48%,#F49BC0 78%,#E77FAC 100%)' },
   { id:'roza',       name:'Sema Roża', lvl:2,
     blurb:'The ten minutes after sunset when the whole sky goes pink.',
     bg:'radial-gradient(90% 46% at 50% 82%,rgba(255,196,150,.55),transparent 62%),' +
@@ -1502,23 +1543,54 @@ var SCENES = [
        'linear-gradient(180deg,#111116 0%,#050507 70%)' }
 ];
 
+/* THE MATERIAL ONLY. A tab style used to carry a whole rgba() fill, which
+   welded the bar's colour to its material; now it owns nothing but the
+   ALPHA (--kx-tab-alpha) and the tint comes from the tabcolour ladder
+   below, so any material can be worn in any colour. `a` stays for the
+   previews. Stock (tint #100A14 at 88%) computes to the exact
+   rgba(16,10,20,.88) the bar has always been. */
 var TABSTYLES = [
   { id:'hgiega',  name:'Ħġieġa', lvl:0,
     blurb:'Frosted glass over the festa. The stock bar.', a:.88 },
   { id:'solidu',  name:'Solidu', lvl:4,
     blurb:'A proper opaque bar. Nothing shines through it.',
-    bg:'rgb(15,10,17)', a:1 },
+    al:'100%', a:1 },
   { id:'velu',    name:'Velu', lvl:9,
     blurb:'Barely there — the art runs under your thumb.',
-    bg:'rgba(14,9,16,.42)', a:.42 }
+    al:'42%', a:.42 }
 ];
 
-var THEME_BY = {}, SCENE_BY = {}, TAB_BY = {};
+/* THE COLOUR, separate from the material. A tint that is LIGHT carries its
+   own ink (labels/icons), its own active colour measured against its own
+   field, and an alpha floor — through the veil material a light tint over
+   dark art blends to grey mush (active tab measured 1.14:1), so light tints
+   never paint below 92% (active 4.3:1 even over the darkest scene, inactive
+   9.4:1). Dark tints keep the theme's own active colour. Baby pink at
+   level 1, as always. */
+var TABTINTS = [
+  { id:'lejl',   name:'Lejl', lvl:0,
+    blurb:'The stock near-black. The bar the app was born with.' },
+  { id:'roza',   name:'Roża Ħelwa', lvl:1, light:1,
+    blurb:'Baby pink under your thumb. Goes with everything, especially itself.',
+    tint:'#FFEDF4', ink:'#5C1B3C', on:'#C2255C', floor:92 },
+  { id:'deheb',  name:'Deheb Skur', lvl:3,
+    blurb:'Warm gold worked into the dark, like the bandstand at night.',
+    tint:'#2A1D08' },
+  { id:'bahar',  name:'Baħar', lvl:6,
+    blurb:'Harbour water. The bar goes deep navy.',
+    tint:'#0F2038' },
+  { id:'abjad',  name:'Ġebla Bajda', lvl:12, light:1,
+    blurb:'Limestone in daylight. A pale bar with dark lettering.',
+    tint:'#F7F1E6', ink:'#4A3A1E', on:'#8A6210', floor:92 }
+];
+
+var THEME_BY = {}, SCENE_BY = {}, TAB_BY = {}, TINT_BY = {};
 (function(){
   var i;
   for (i = 0; i < THEMES.length; i++)    THEME_BY['theme.' + THEMES[i].id] = THEMES[i];
   for (i = 0; i < SCENES.length; i++)    SCENE_BY['scene.' + SCENES[i].id] = SCENES[i];
   for (i = 0; i < TABSTYLES.length; i++) TAB_BY['tabstyle.' + TABSTYLES[i].id] = TABSTYLES[i];
+  for (i = 0; i < TABTINTS.length; i++)  TINT_BY['tabcolour.' + TABTINTS[i].id] = TABTINTS[i];
 })();
 
 function kartiSlotDefs(slot){
@@ -1533,9 +1605,12 @@ function kartiSlotDefs(slot){
    miniature tab bar sitting over festa-coloured light. */
 function themePreviewHTML(t, size){
   var s = size || 58;
+  /* the medallion breathes on the theme's OWN floor — the light theme shows
+     its pink field, not a dark tail it will never paint */
   return '<span style="display:block;position:relative;width:' + s + 'px;height:' + s + 'px;' +
     'border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.16);' +
-    'background:linear-gradient(180deg,' + ((t.kx && t.kx.bg2) || '#2A1B47') + ',#120D0B 78%)">' +
+    'background:linear-gradient(180deg,' + ((t.kx && t.kx.bg2) || '#2A1B47') + ',' +
+      ((t.kx && t.kx.bg) || '#120D0B') + ' 78%)">' +
     '<i style="position:absolute;left:18%;top:16%;width:64%;height:64%;border-radius:50%;' +
       'background:linear-gradient(118deg,' + t.sw[0] + ' 0 49%,' + t.sw[1] + ' 51% 100%);' +
       'box-shadow:0 0 12px ' + t.sw[1] + '66,inset 0 1px 0 rgba(255,255,255,.35)"></i>' +
@@ -1557,22 +1632,42 @@ function scenePreviewHTML(sc, size){
       'background:rgba(16,10,20,.85);border-top:1px solid var(--kx-accent,#FFC542)"></i>' +
     '</span>';
 }
-function tabstylePreviewHTML(tb, size){
-  var s = size || 58;
+/* the mini bar the two tab ladders share: a bar over festa-coloured light.
+   The MATERIAL preview paints the worn tint at the material's own alpha; the
+   COLOUR preview paints the candidate tint at the worn material's feel. */
+function miniTabHTML(fill, on, dim){
+  return '<i style="position:absolute;left:8%;right:8%;bottom:12%;height:34%;border-radius:6px;' +
+    'background:' + fill + ';' +
+    'border-top:1px solid color-mix(in srgb,' + on + ' 40%,transparent);' +
+    'display:flex;align-items:center;justify-content:space-evenly">' +
+    '<u style="width:5px;height:5px;border-radius:50%;background:' + on + '"></u>' +
+    '<u style="width:5px;height:5px;border-radius:50%;background:' + dim + '"></u>' +
+    '<u style="width:5px;height:5px;border-radius:50%;background:' + dim + '"></u>' +
+  '</i>';
+}
+function tabPreviewShell(s, inner){
   return '<span style="display:block;position:relative;overflow:hidden;' +
     'width:' + s + 'px;height:' + s + 'px;border-radius:12px;' +
     'border:1px solid rgba(255,255,255,.16);' +
     'background:radial-gradient(90% 70% at 50% 20%,var(--kx-glow,rgba(255,170,60,.35)),transparent 70%),' +
-      'linear-gradient(180deg,#2A1B47,#120D0B)">' +
-    '<i style="position:absolute;left:8%;right:8%;bottom:12%;height:34%;border-radius:6px;' +
-      'background:' + (tb.bg || 'rgba(16,10,20,.88)') + ';' +
-      (tb.a < 1 ? 'backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);' : '') +
-      'border-top:1px solid color-mix(in srgb,var(--kx-tab-on,#FFC542) 40%,transparent);' +
-      'display:flex;align-items:center;justify-content:space-evenly">' +
-      '<u style="width:5px;height:5px;border-radius:50%;background:var(--kx-tab-on,#FFC542)"></u>' +
-      '<u style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.4)"></u>' +
-      '<u style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.4)"></u>' +
-    '</i></span>';
+      'linear-gradient(180deg,#2A1B47,#120D0B)">' + inner + '</span>';
+}
+function tabstylePreviewHTML(tb, size){
+  var s = size || 58;
+  var fill = 'color-mix(in srgb,var(--kx-tab-tint,#100A14) ' +
+    (tb.al || '88%') + ',transparent)';
+  return tabPreviewShell(s,
+    miniTabHTML(fill, 'var(--kx-tab-on,#FFC542)',
+      'var(--kx-tab-ink,rgba(255,255,255,.4))'));
+}
+function tabtintPreviewHTML(c, size){
+  var s = size || 58;
+  var tint = c.tint || '#100A14';
+  var on = c.on || 'var(--kx-tab-on,#FFC542)';
+  var dim = c.ink ? ('color-mix(in srgb,' + c.ink + ' 72%,transparent)')
+                  : 'rgba(255,255,255,.4)';
+  return tabPreviewShell(s,
+    miniTabHTML('color-mix(in srgb,' + tint + ' 92%,transparent)', on, dim));
 }
 
 function registerKxSlots(){
@@ -1605,30 +1700,90 @@ function registerKxSlots(){
       preview: (function(s){ return function(size){ return tabstylePreviewHTML(s, size); }; })(tb)
     });
   });
+  TABTINTS.forEach(function(c){
+    defs.push({
+      id: 'tabcolour.' + c.id, game: 'karti', slot: 'tabcolour',
+      name: c.name, blurb: c.blurb,
+      level: c.lvl || 0,
+      sort: c.id === 'lejl' ? -1 : (c.lvl || 0),
+      preview: (function(s){ return function(size){ return tabtintPreviewHTML(s, size); }; })(c)
+    });
+  });
   return XP.register(defs);
 }
 
 /* ONE composed call through the phase-1 door. Every key one of these
    slots can own is ALWAYS present — as a value when something is worn,
    as null when not — so KARTI_THEME.apply() clears the stale override
-   itself and unequip is free. Keys none of them own (gateBg, bg,
-   surface, ink, dim, tabBg's colour cousins) are never sent at all,
-   so nothing here can fight the 'backdrop' ladder or the stylesheet. */
+   itself and unequip is free. The full-field keys (bg/surface/ink/dim/
+   gateBg) exist for the light theme; the dark themes never carry them,
+   so for those nothing changes. Composition order: theme first, then
+   the scene (image wins over the theme's own homeBg), then the tab
+   material, then the tab colour (its ink/active pair is measured
+   against its own tint, so it outranks the theme's tabOn). */
 function applyKx(){
   var T = window.KARTI_THEME;
   if (!T || !T.apply) return;
   var o = { accent:null, accentInk:null, accent2:null, accent2Deep:null,
-            bg2:null, tabOn:null, glow:null, ember:null,
-            homeBg:null, tabBg:null };
-  var t = null, s = null, b = null;
+            bg:null, bg2:null, surface:null, ink:null, dim:null,
+            tabOn:null, tabTint:null, tabAlpha:null, tabInk:null,
+            glow:null, ember:null,
+            homeBg:null, gateBg:null, appBg:null, tabBg:null };
+  var t = null, s = null, b = null, c = null, bd = '';
   try {
     t = THEME_BY[XP.equipped('theme', 'karti') || ''];
     s = SCENE_BY[XP.equipped('scene', 'karti') || ''];
     b = TAB_BY[XP.equipped('tabstyle', 'karti') || ''];
+    c = TINT_BY[XP.equipped('tabcolour', 'karti') || ''];
+    bd = XP.equipped('backdrop', 'karti') || '';
   } catch (e){}
+  var light = !!(t && t.light);
   if (t && t.kx) for (var k in t.kx) if (k in o) o[k] = t.kx[k];
   if (s && s.bg) o.homeBg = s.bg;
-  if (b && b.bg) o.tabBg = b.bg;
+  /* the scene reaches EVERY menu screen: the same art, behind its own
+     veil so the text on those screens keeps its contrast — a pale rose
+     veil under a light theme (dark ink), a dark one otherwise */
+  if (s && s.bg){
+    var veil = light
+      ? 'linear-gradient(180deg,rgba(255,240,246,.55),rgba(255,240,246,.34) 30%,rgba(255,236,244,.62))'
+      : 'linear-gradient(180deg,rgba(9,6,14,.72),rgba(9,6,14,.5) 30%,rgba(9,6,14,.66))';
+    /* ABSOLUTE url on purpose: the rule that consumes --kx-app-bg lives in
+       css/extra.css, and a relative url() inside a custom property resolves
+       against the SHEET it is substituted in — art/ui/x.jpg quietly became
+       css/art/ui/x.jpg (a 404) until this was made absolute. new URL keeps
+       it right under any base path (github.io/<repo>/ included). */
+    var art = s.bg;
+    if (art.indexOf('gradient') < 0){
+      try { art = 'url("' + new URL(art, location.href).href + '")'; }
+      catch (e){ art = 'url("' + art + '")'; }
+    }
+    o.appBg = veil + ',' + art;
+  }
+  /* material = alpha; colour = tint + its own measured ink/active pair.
+     A LIGHT tint floors the alpha: through the 42% veil over dark art it
+     blends to grey mush (active tab measured 1.14:1). */
+  var matAl = b && b.al ? parseFloat(b.al) : 88;
+  if (b && b.al) o.tabAlpha = b.al;
+  if (c && c.tint){
+    o.tabTint = c.tint;
+    if (c.ink) o.tabInk = c.ink;
+    if (c.on)  o.tabOn  = c.on;
+    if (c.floor && matAl < c.floor) o.tabAlpha = c.floor + '%';
+  }
+  /* the light-theme switch: the scrims and hard-dark assumptions in
+     index.html/extra.css hang off this one class */
+  try { document.documentElement.classList.toggle('kx-light', light); } catch (e){}
+  /* the legacy shell (--panel and friends) for a theme that carries one —
+     but an explicitly equipped backdrop is the player's own floor choice,
+     so it keeps those vars (applyBackdrop already ran and set them). */
+  var SHELL = { bg:'--bg', panel:'--panel', panel2:'--panel2',
+                line:'--line', line2:'--line2', dim2:'--dim2' };
+  var bdOn = !!(bd && bd !== 'backdrop.none');
+  var st = document.documentElement.style;
+  for (var k2 in SHELL){
+    if (!bdOn && t && t.c && t.c[k2]) st.setProperty(SHELL[k2], t.c[k2]);
+    else if (!bdOn) st.removeProperty(SHELL[k2]);
+  }
   T.apply(o);
 }
 
@@ -1661,7 +1816,9 @@ var SLOTS = [
   { id:'backdrop', name:'The backdrop',
     hint:'The colour behind everything. Games keep their own tables.' },
   { id:'tabstyle', name:'The tab bar',
-    hint:'Glass over the art, a solid bar, or barely there at all.' }
+    hint:'The material: glass over the art, solid, or barely there.' },
+  { id:'tabcolour', name:'The tab bar colour',
+    hint:'The colour of the bar itself — pick it apart from the material.' }
 ];
 
 /* WHAT IS WORN IN A SLOT, including when nothing has ever been chosen.
@@ -1670,7 +1827,8 @@ var SLOTS = [
    the player is wearing something that is not in it. Every ladder has a
    zero item that IS the default, so an empty slot resolves to that one. */
 var SLOT_DEFAULT = { border:'border.none', badge:'badge.gold', backdrop:'backdrop.none',
-                     theme:'theme.karti', scene:'scene.none', tabstyle:'tabstyle.hgiega' };
+                     theme:'theme.karti', scene:'scene.none', tabstyle:'tabstyle.hgiega',
+                     tabcolour:'tabcolour.lejl' };
 /* the three kx ladders read generically — any slot that is not one of
    the two avatar specials is simply "what is equipped on karti" */
 function wornId(slot){
@@ -1720,9 +1878,10 @@ function slotWorn(id){
     d = XP.def(wornId('backdrop'));
     return d ? d.name : 'Il-Lejl';
   }
-  if (id === 'theme' || id === 'scene' || id === 'tabstyle'){
+  if (id === 'theme' || id === 'scene' || id === 'tabstyle' || id === 'tabcolour'){
     d = XP.def(wornId(id));
-    return d ? d.name : { theme:'KARTI Klassika', scene:'It-Triq', tabstyle:'Ħġieġa' }[id];
+    return d ? d.name : { theme:'KARTI Klassika', scene:'It-Triq',
+                          tabstyle:'Ħġieġa', tabcolour:'Lejl' }[id];
   }
   d = XP.def(wornId('border'));
   return d ? d.name : 'No border';
@@ -1750,6 +1909,8 @@ function paintYou(host){
               ? scenePreviewHTML(SCENE_BY[wornId('scene')] || SCENES[0], 56)
               : s.id === 'tabstyle'
               ? tabstylePreviewHTML(TAB_BY[wornId('tabstyle')] || TABSTYLES[0], 56)
+              : s.id === 'tabcolour'
+              ? tabtintPreviewHTML(TINT_BY[wornId('tabcolour')] || TABTINTS[0], 56)
               : avatarHTML(myName(), {
                   size:56,
                   lv: (s.id === 'face') ? 0 : Math.max(1, XP.level()),
@@ -1820,7 +1981,8 @@ function paintYou(host){
         return itemHTML(d, wornId('backdrop') === d.id); }).join('');
     wireItems(host);
     drawPreviews(host, 'karti');
-  } else if (SC.slot === 'theme' || SC.slot === 'scene' || SC.slot === 'tabstyle'){
+  } else if (SC.slot === 'theme' || SC.slot === 'scene' ||
+             SC.slot === 'tabstyle' || SC.slot === 'tabcolour'){
     host.innerHTML = back +
       '<p class="kx-slot">' + esc(slotWord(SC.slot)) + '</p>' +
       kartiSlotDefs(SC.slot).map(function(d){
