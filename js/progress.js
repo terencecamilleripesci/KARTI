@@ -1945,19 +1945,63 @@ function isAdmin(){
    account (case/spacing/punctuation-insensitive), never remembered, so it
    follows the account and never sticks to a shared device. */
 var BETA_OWNERS = { shanikwanne:'betagold', rudeness:'betasilver' };
+/* SPELLINGS THAT ARE STILL THE SAME PERSON. betaNorm already strips case,
+   spaces and punctuation, so "Shani Kwanne" and "shanikwanne" were always the
+   same key — what it could not survive was a DIFFERENT WORD: an account
+   registered with a trailing digit, a doubled letter, or the short form
+   somebody actually types when they sign in. A gift that silently fails to
+   appear is worse than one that is slightly generous about who its owner is,
+   so the obvious variants map to the same badge. */
+var BETA_ALIAS = {
+  rudeness:'rudeness', rudness:'rudeness', rudenes:'rudeness',
+  ruddness:'rudeness', rude:'rudeness', rudenessx:'rudeness',
+  shanikwanne:'shanikwanne', shanikwane:'shanikwanne',
+  shanikwanna:'shanikwanne', shani:'shanikwanne', kwanne:'shanikwanne'
+};
+function betaCanon(n){ return BETA_ALIAS[n] || n; }
 function betaNorm(s){ return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
 /* Match on the ACCOUNT KEY *or* the DISPLAY NAME. The two are not always the
    same string (an account registered as one thing can show another), and the
    gift silently never appeared when they differed — so try both. */
 function betaKey(){
   try {
-    var a = betaNorm(accountKey());
+    var a = betaCanon(betaNorm(accountKey()));
     if (a && BETA_OWNERS[a]) return a;
     var d = '';
-    try { if (window.KARTI && KARTI.displayName) d = betaNorm(KARTI.displayName()); } catch (e){}
+    try { if (window.KARTI && KARTI.displayName) d = betaCanon(betaNorm(KARTI.displayName())); } catch (e){}
     if (d && BETA_OWNERS[d]) return d;
+    /* the signed-out residue still carries the account name, and a tester who
+       has been bumped to guest by an expired token is still the same person */
+    try {
+      var r = lsGet('karti_sync_' + activeKey(), null);
+      var u = r && typeof r.u === 'string' ? betaCanon(betaNorm(r.u)) : '';
+      if (u && BETA_OWNERS[u]) return u;
+    } catch (e){}
     return a;
   } catch (e){ return ''; }
+}
+/* WHY IS MY BORDER NOT THERE. Reads out every input the gift check looks at,
+   so the answer takes one line on the tester's own phone instead of a guessing
+   match by someone who cannot see her account. Diagnostic only — it grants
+   nothing and is safe to call from anywhere. */
+function betaWhy(){
+  var out = { accountKey:'', displayName:'', residue:'', normalised:'',
+              signedIn:false, matched:null, owns:null, reason:'' };
+  try { out.accountKey = String(accountKey() || ''); } catch (e){}
+  try { if (window.KARTI && KARTI.displayName) out.displayName = String(KARTI.displayName() || ''); } catch (e){}
+  try { var r = lsGet('karti_sync_' + activeKey(), null);
+        out.residue = (r && r.u) ? String(r.u) : ''; } catch (e){}
+  out.signedIn = !!session();
+  var k = betaKey();
+  out.normalised = k;
+  out.matched = BETA_OWNERS[k] || null;
+  out.owns = out.matched ? betaOwns(out.matched) : false;
+  out.reason = !out.matched
+    ? 'no owner matches "' + k + '" — the account or display name is spelled differently'
+    : (!out.signedIn
+        ? 'the name matches but this phone is signed OUT — the gift follows the account, so sign in'
+        : 'owned, it should be in the border collection');
+  return out;
 }
 function betaOwns(which){
   try {
@@ -3584,6 +3628,7 @@ window.KARTI_XP = {
   exclusiveCoins: exclCoins,            /* exclusiveCoins(game) -> the price     */
   exclusiveBuySet: exclPurchase,        /* buy the whole set: {ok,price,defs}    */
   exclusiveWinsMet: exclWinsMet,        /* has the wins half of the gate landed? */
+  betaWhy: betaWhy,                     /* why a beta gift is / is not showing */
   exclusiveStat: exclStat,              /* exclStat(setKey) -> the real game
                                            whose record book earns it (an
                                            encore set like gharraqroza is a
