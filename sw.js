@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v226';
+const CACHE = 'karti-v227';
 /* ── THE SHELL, NOT THE GAME ─────────────────────────────────────────────────
    This list used to be 205 entries / ~24 MB — every game module and every
    per-game portrait — so a first install (and EVERY version bump) re-fetched
@@ -42,6 +42,7 @@ const SHELL = [
   './js/deck-kit.js',
   './js/blackjack.js',
   './js/rebbieh.js',
+  './js/mail.js',
   './js/ai.js',
   './js/gacha.js',
   './js/story.js',

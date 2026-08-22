@@ -2365,7 +2365,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 226;
+var KARTI_BUILD = 227;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2412,6 +2412,7 @@ window.swVersion = function(){
                   Loaded early so every game — the six new ones now, the rest
                   later — can call KARTI_REBBIEH at match end. Self-contained. */
                'js/rebbieh.js',
+               'js/mail.js',
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
                'js/cardview.js','js/tutor.js','js/sync.js',
                'js/party.js'];
