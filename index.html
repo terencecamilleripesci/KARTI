@@ -1615,6 +1615,25 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
   transform:translateY(140%);opacity:0;
   transition:transform .34s cubic-bezier(.22,.9,.28,1),opacity .34s}
 #kl-inst.on{transform:translateY(0);opacity:1}
+/* A FIXED BAR STEALS THE BOTTOM OF THE PAGE. The strip is position:fixed,
+   so it takes no layout space and simply sits on top of whatever is down
+   there — and on the starter screen what is down there is the shuffle
+   button, the one control a brand-new player has to press. Scroll to it
+   and it arrives underneath the strip. Reserving the strip's own height
+   at the foot of the app means the page can always scroll clear of it. */
+/* Every screen scrolls inside its own .scroll, so the room has to be
+   reserved THERE — padding on #app buys nothing, because #app is not what
+   moves. Verified by walking the button's ancestors: .scroll is the only
+   one with a scrollHeight bigger than its clientHeight. */
+body.kl-inst-on .screen .scroll{padding-bottom:98px}
+/* And belt-and-braces: the strip itself does not take taps. Only its two
+   buttons do. So even on a screen that reserves nothing — a layout added
+   later, a game with its own scroller — a tap aimed at whatever is behind
+   the strip still reaches it, instead of being silently eaten by a
+   decorative bar. A tap is the only way to play this game; it must never
+   land on nothing. */
+#kl-inst{pointer-events:none}
+#kl-inst .kl-i-go,#kl-inst .kl-i-x{pointer-events:auto}
 #kl-inst .kl-i-ic{flex:0 0 auto;width:34px;height:34px;border-radius:9px;
   background:url(icons/icon-192.png) center/cover no-repeat,#1B1430;
   box-shadow:0 2px 8px rgba(0,0,0,.5)}
@@ -2346,7 +2365,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 225;
+var KARTI_BUILD = 226;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2703,6 +2722,7 @@ addEventListener('DOMContentLoaded', function(){
       action +
       '<button class="kl-i-x" type="button" aria-label="Not now">&#xd7;</button>';
     document.body.appendChild(el);
+    document.body.classList.add('kl-inst-on');
     requestAnimationFrame(function(){ el.classList.add('on'); });
 
     var go = el.querySelector('.kl-i-go');
@@ -2715,6 +2735,7 @@ addEventListener('DOMContentLoaded', function(){
     };
     el.querySelector('.kl-i-x').onclick = function(){ hush(); close(); };
     function close(){ el.classList.remove('on');
+      document.body.classList.remove('kl-inst-on');
       setTimeout(function(){ try { el.remove(); } catch (e){} }, 260); }
   }
 
@@ -2727,6 +2748,7 @@ addEventListener('DOMContentLoaded', function(){
   });
   window.addEventListener('appinstalled', function(){
     hush();
+    document.body.classList.remove('kl-inst-on');
     var el = document.getElementById('kl-inst');
     if (el) el.remove();
   });
