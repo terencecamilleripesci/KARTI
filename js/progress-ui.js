@@ -199,8 +199,24 @@ function avatarHTML(name, opts){
        all and therefore costs nothing whatsoever.
 
    There is no code path here that can show a broken image, and none
-   that leaves somebody faceless because the server was off. */
+   that leaves somebody faceless because the server was off.
+
+   AND A REMEMBERED FAILURE IS NOT A PERMANENT ONE. The first cut of
+   this cache kept 'no' forever, which turned one unlucky moment — a
+   relay restart, a dropped Tailscale hop, a deploy — into a photo that
+   never came back for the life of the session. On an installed PWA a
+   session is days. So a failed probe now retries itself on a backoff
+   (2s doubling to a 60s ceiling), a retry that finds nobody asking
+   simply forgets the verdict so the next paint probes fresh, and the
+   app coming back online or back to the foreground drops every
+   remembered failure at once. A success still sweeps the photo into
+   every host that is waiting for it, so the later success always
+   wins. The one-probe-per-URL economy is untouched: there is never
+   more than one in-flight request or one pending timer per URL. */
 var picState = {};                 /* url -> 'probing' | 'ok' | 'no' */
+var picTries = {};                 /* url -> failed probes in a row   */
+var picTimer = {};                 /* url -> the ONE pending retry    */
+var picBegan = {};                 /* url -> when the live probe left */
 
 function mountPic(host, url){
   if (host.querySelector('img.kx-ph')) return;
@@ -223,40 +239,115 @@ function sweepPic(url){
 }
 
 var picFail = '';
+
+/* ONE probe, callable again. wirePics() sends the first one; the retry
+   timer sends every one after it. Nothing else creates an Image for a
+   photograph. */
+function probePic(url){
+  picState[url] = 'probing';
+  picBegan[url] = Date.now();
+  var im = new Image();
+  im.onload = function(){
+    var ok = im.naturalWidth > 0;
+    picState[url] = ok ? 'ok' : 'no';
+    if (ok){
+      delete picTries[url];
+      /* the note below told the owner their own photo would not load;
+         a load that has just succeeded makes it a lie — take it back */
+      if (picFail === url){
+        picFail = '';
+        try {
+          var n0 = document.getElementById('kx-pnote');
+          if (n0) n0.textContent = '';
+        } catch (e){}
+      }
+      sweepPic(url);
+    } else retryPic(url);
+  };
+  im.onerror = function(){
+    picState[url] = 'no';
+    /* A silent fallback to the drawn face is exactly right for SOMEBODY
+       ELSE's photo — most players have none and a board of twenty-five must
+       not fill with broken images. It is exactly wrong for your OWN, because
+       then the app quietly shows you a face you did not choose and gives you
+       nothing to act on. Remember the failure so the customisation screen
+       can say what happened. */
+    picFail = url;
+    try {
+      var n = document.getElementById('kx-pnote');
+      if (n && !n.textContent) n.textContent =
+        'Your photo is on the Pi but this phone could not load it. ' +
+        'If Tailscale is on, turn it off and open KARTI again.';
+    } catch (e){}
+    retryPic(url);
+  };
+  im.src = url;
+}
+
+/* The backoff. 2s, 4s, 8s, 16s, 32s, then every 60s — quick enough that
+   a relay restart is a flicker, slow enough that a photo the Pi truly
+   no longer has costs one tiny request a minute, and only while a face
+   on screen is actually waiting for it. A URL nobody wants any more
+   just has its verdict forgotten, so a LATER paint probes it fresh —
+   either way a remembered failure has an expiry now. */
+function retryPic(url){
+  if (picTimer[url]) return;
+  var n = (picTries[url] | 0) + 1;
+  picTries[url] = n;
+  var wait = Math.min(60000, 2000 * Math.pow(2, Math.min(n - 1, 5)));
+  picTimer[url] = setTimeout(function(){
+    delete picTimer[url];
+    if (picState[url] !== 'no') return;    /* something else settled it */
+    delete picState[url];
+    var wanted = false;
+    $$('[data-kx-pic]').forEach(function(h){
+      if (h.getAttribute('data-kx-pic') === url && !h.querySelector('img.kx-ph'))
+        wanted = true;
+    });
+    if (wanted) probePic(url);
+  }, wait);
+}
+
+/* The two moments a phone tells us the world has probably changed:
+   the network coming back, and the app coming back to the front. Both
+   drop every remembered failure and restart the backoff from its 2s
+   rung, because "he reopened the app after I fixed the relay" is
+   exactly the case that must not wait a minute. */
+function retryFailedPics(){
+  var had = false;
+  Object.keys(picTimer).forEach(function(url){
+    clearTimeout(picTimer[url]);
+    delete picTimer[url];
+  });
+  Object.keys(picState).forEach(function(url){
+    if (picState[url] === 'no'){ delete picState[url]; delete picTries[url]; had = true; }
+  });
+  if (had) wirePics();
+}
+try {
+  window.addEventListener('online', retryFailedPics);
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState === 'visible') retryFailedPics();
+  });
+} catch (e){}
+
 function wirePics(root){
   $$('[data-kx-pic]', root || document).forEach(function(host){
     var url = host.getAttribute('data-kx-pic');
     if (!url || host.querySelector('img.kx-ph')) return;
     var st = picState[url];
-    if (st === 'no' || st === 'probing') return;
     if (st === 'ok'){ mountPic(host, url); return; }
+    /* 'no' is owned by its retry timer; 'probing' by its in-flight
+       Image — unless that Image has answered nothing for 45s, which is
+       a probe the browser lost (a socket cut mid-request can do it),
+       and a lost probe must not hold the photo hostage either. */
+    if (st === 'no') return;
+    if (st === 'probing' && Date.now() - (picBegan[url] || 0) < 45000) return;
     /* a data: URL is my own photo out of local storage — already
        decoded, already here, nothing to probe and nothing that can
        404. It is why my own face is right with no network at all. */
     if (url.slice(0, 5) === 'data:'){ picState[url] = 'ok'; mountPic(host, url); return; }
-    picState[url] = 'probing';
-    var im = new Image();
-    im.onload = function(){
-      picState[url] = im.naturalWidth > 0 ? 'ok' : 'no';
-      if (picState[url] === 'ok') sweepPic(url);
-    };
-    im.onerror = function(){
-      picState[url] = 'no';
-      /* A silent fallback to the drawn face is exactly right for SOMEBODY
-         ELSE's photo — most players have none and a board of twenty-five must
-         not fill with broken images. It is exactly wrong for your OWN, because
-         then the app quietly shows you a face you did not choose and gives you
-         nothing to act on. Remember the failure so the customisation screen
-         can say what happened. */
-      picFail = url;
-      try {
-        var n = document.getElementById('kx-pnote');
-        if (n && !n.textContent) n.textContent =
-          'Your photo is on the Pi but this phone could not load it. ' +
-          'If Tailscale is on, turn it off and open KARTI again.';
-      } catch (e){}
-    };
-    im.src = url;
+    probePic(url);
   });
 }
 

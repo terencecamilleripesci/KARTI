@@ -1861,8 +1861,17 @@ function describe(name, opts){
      the version number is worth carrying. */
   return {
     face: (o.hint && FACE_BY[o.hint]) ? o.hint : defaultFaceFor(name),
-    border: (o.border && FACES_BORDER(o.border)) ? o.border : '',
-    lvb: (o.lvb && FACES_BADGE(o.lvb)) ? o.lvb : '',
+    /* through the SAME converters as my own branch above. The relay's
+       look blob carries what the OTHER phone equipped, and equipped()
+       speaks in registry ids — 'border.gold', 'badge.crown' — while the
+       ring is drawn from the bare word. Validating the raw id here
+       rejected every namespaced one, so a ring the whole table was
+       supposed to see was worn by nobody but its owner: the exact bug
+       the wire format exists to prevent. bareBorder()/bareBadge()
+       accept both spellings, so an old build sending bare words still
+       draws right. */
+    border: bareBorder(o.border),
+    lvb: bareBadge(o.lvb),
     pic: (o.who && o.pv) ? picURL(o.who, o.pv) : '',
     mine: false
   };
