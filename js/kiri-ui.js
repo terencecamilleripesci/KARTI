@@ -1866,7 +1866,15 @@ function boardScreen(){
      save with it: the crash net is for a phone that died mid-game, not
      for a room you deliberately walked out of. */
   el.querySelector('#kr-menu').onclick = () => {
-    if (NET){ leaveRoom(); return; }
+    if (NET){
+      /* a live online table used to walk straight out with no confirm —
+         the shared gate (P.guardLeave → KARTI_MP.askLeave) now asks
+         first, with the honest sentence for this table's size and
+         stake. No gate shipped yet → today's instant door, unchanged. */
+      if (P && P.guardLeave) P.guardLeave(leaveRoom, 'back');
+      else leaveRoom();
+      return;
+    }
     leaveSheet();
   };
   el.querySelectorAll('.kr-tab').forEach(b => b.onclick = () => {

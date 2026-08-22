@@ -750,6 +750,91 @@ function setup(cfg){
   };
 }
 
+/* ── LEAVING A LIVE ONLINE GAME — the one gate every door goes through
+   The report that forced this: "I was in a duel with a friend and when
+   I went back it went out — no confirm the game will end or continue
+   without me." The frame's back arrow used to route straight out of a
+   live online match: the other player was left parked, a staked ante
+   was silently forfeited, and nobody was asked anything.
+
+   guardLeave(go) is the fix, and it is deliberately in the SHARED
+   frame, not in thirty game files: any door that walks out of a live
+   online match calls it instead of `go()` directly.
+
+     · Not online, or the match is already over (the game's own
+       published live() hook is the judge) → go() at once, exactly as
+       today. Offline back arrows stay instant; result screens stay
+       instant.
+     · Live online → hand the decision to KARTI_MP.askLeave(opts, go),
+       js/mp.js's confirm sheet. The OPTS carry honest words that
+       differ by what actually happens: at a TWO-SEAT table leaving
+       hands the other player the win; at a BIGGER table the game
+       carries on without you (the machine takes the chair). A STAKED
+       table adds that walking out forfeits the ante — that is already
+       the behaviour, it was just unsaid.
+     · KARTI_MP.askLeave not shipped yet → go(), i.e. today's
+       behaviour, so this file is safe to ship before or after mp.js
+       grows the sheet. Nothing here ever blocks the way out. */
+function onlineLiveNow(){
+  try {
+    const MPX = window.KARTI_MP;
+    if (!MPX || !MPX.MP || !MPX.MP.live) return false;
+    const P2 = window.KARTI_PARTY;
+    const net = P2 && P2.online && P2.online[MPX.MP.game];
+    /* the game's own hook knows "over" better than the room flag does */
+    if (net && typeof net.live === 'function') return !!net.live();
+    return true;
+  } catch(e){ return false; }
+}
+function leaveAskOpts(why){
+  const TT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+  const MPX = window.KARTI_MP;
+  let seats = [], mySeat = -1, stake = null, game = '';
+  try { seats = (MPX.rosterSeats && MPX.rosterSeats()) || []; } catch(e){}
+  try { mySeat = MPX.MP.mySeat; game = MPX.MP.game || ''; } catch(e){}
+  try { stake = MPX.stakeInfo ? MPX.stakeInfo() : null; } catch(e){}
+  const twoSeat = seats.length === 2;
+  const rival = twoSeat ? seats.find(s => s && s.seat !== mySeat) : null;
+  const rivalHuman = !!(rival && rival.kind === 'human');
+  const staked = !!(stake && stake.staked && stake.live && !stake.settled);
+  const ante = staked ? (stake.ante | 0) : 0;
+  /* the sentence must be the TRUTH for this table, not one vague line */
+  let body;
+  if (twoSeat && rivalHuman)
+    body = TT('If you leave now, ' + rival.name + ' takes the win.',
+              'Jekk titlaq issa, ' + rival.name + ' jieħu r-rebħa.');
+  else if (twoSeat)
+    body = TT('If you leave now, the game ends here.',
+              'Jekk titlaq issa, il-logħba tispiċċa hawn.');
+  else
+    body = TT('The game carries on without you — the machine takes your chair.',
+              'Il-logħba tkompli mingħajrek — il-magna tieħu s-siġġu tiegħek.');
+  if (staked)
+    body += ' ' + TT('Walking out forfeits your ante of ' + ante + ' coins.',
+                     'Jekk toħroġ titlef l-ante tiegħek ta’ ' + ante + ' muniti.');
+  return {
+    kind: why || 'back', game, twoSeat,
+    rival: rival ? rival.name : '', rivalHuman,
+    staked, ante,
+    title: TT('Leave the game?', 'Titlaq mil-logħba?'),
+    body,
+    yes: TT('Leave', 'Itlaq'),
+    no:  TT('Stay', 'Ibqa’')
+  };
+}
+function guardLeave(go, why){
+  const out = () => { try { go(); } catch(e){} };
+  try {
+    if (!onlineLiveNow()){ out(); return; }
+    const MPX = window.KARTI_MP;
+    if (MPX && typeof MPX.askLeave === 'function'){
+      MPX.askLeave(leaveAskOpts(why), out);
+      return;
+    }
+  } catch(e){}
+  out();                     /* no sheet yet → today's behaviour */
+}
+
 /* ── the game frame ────────────────────────────────────────────────
    Title bar, a whose-turn strip, two thin capture rails, the board,
    and a bar of buttons. Everything is flex; the board host takes the
@@ -803,7 +888,11 @@ function frame(o){
     railBot: wrap.querySelector('#pt-rail-bot'),
     bar:   wrap.querySelector('#pt-bar')
   };
-  wrap.querySelector('#pt-back').onclick = o.onBack || hub;
+  /* the back arrow goes BACK — but out of a LIVE ONLINE match it goes
+     through the confirm gate first (see guardLeave above). Offline and
+     post-game it is exactly the old instant door. */
+  { const backGo = o.onBack || hub;
+    wrap.querySelector('#pt-back').onclick = () => guardLeave(backGo, 'back'); }
 
   (o.buttons || []).forEach(b => {
     const el2 = document.createElement('button');
@@ -1445,6 +1534,11 @@ window.KARTI_PARTY = {
   /* the shared takeback machinery — see the block above. Any game seating two
      or more players online should build one of these rather than roll its own. */
   takeback, TAKE_TTL, TAKE_COOL,
+  /* the leave-a-live-online-game confirm gate (see guardLeave above the
+     frame). Games whose leave doors do NOT go through the frame's back
+     arrow (Għarraqhom, L-Ispjun, Il-Kiri, a mid-match "New" button) call
+     this instead of walking out directly. Additive export. */
+  guardLeave,
   /* filled in by js/chess.js and js/dama.js: the online controller for each
      game — {start, remote, note, stop, live}. js/mp.js is the only caller. */
   online: {},

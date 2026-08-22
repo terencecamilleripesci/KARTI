@@ -3284,6 +3284,87 @@ function stakeSettleTeam(tone, winnerSeats, mySeat){
              ante:L.ante, humans:L.humans, team:true };
   } catch (e){ return null; }
 }
+/* ── ARE YOU SURE? ──────────────────────────────────────────────────
+   Walking out of a live game used to be one tap with no warning: the
+   ante was forfeited in silence, the other player was left sitting
+   there, and nobody was asked anything. Reported exactly that way —
+   "no confirm the game will end or continue without me".
+
+   The sheet is deliberately built here rather than reusing the party
+   result card, which is the obvious candidate and a trap:
+   js/progress.js WRAPS that card to pay the economy, so borrowing it as
+   a dialogue would hand the player XP and chips for reading a question.
+
+   The caller supplies the wording, because only the caller knows the
+   table: two seats means the other player takes the win, a bigger table
+   carries on without you, and a staked table is also about to cost you
+   your ante. One vague sentence for all three would be the same as no
+   sentence at all. See leaveAskOpts() in js/party.js.
+
+   Everything is escaped: `rival` is another player's chosen name and
+   goes straight into this markup. */
+function askLeaveCSS(){
+  if (document.getElementById('mp-leave-css')) return;
+  const st = document.createElement('style');
+  st.id = 'mp-leave-css';
+  st.textContent =
+    '#mp-leave{position:fixed;inset:0;z-index:12500;display:flex;align-items:flex-end;' +
+      'justify-content:center;background:rgba(6,4,12,.62);' +
+      '-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);opacity:0;' +
+      'transition:opacity .18s ease}' +
+    '#mp-leave.on{opacity:1}' +
+    '#mp-leave .mpl-card{width:100%;max-width:420px;box-sizing:border-box;' +
+      'margin:0 10px calc(env(safe-area-inset-bottom,0px) + 12px);padding:18px 16px 14px;' +
+      'border-radius:20px;background:linear-gradient(180deg,#241A3E,#160F28);' +
+      'border:1px solid rgba(255,197,66,.30);box-shadow:0 18px 44px rgba(0,0,0,.6);' +
+      'transform:translateY(16px);transition:transform .22s cubic-bezier(.22,.9,.28,1)}' +
+    '#mp-leave.on .mpl-card{transform:none}' +
+    '#mp-leave h4{margin:0 0 6px;font:900 17px/1.15 var(--disp,system-ui,sans-serif);color:#F4EFFF}' +
+    '#mp-leave p{margin:0 0 14px;font:500 13px/1.4 system-ui,sans-serif;color:#C3B8DE}' +
+    '#mp-leave .mpl-acts{display:grid;gap:8px}' +
+    '#mp-leave button{width:100%;padding:12px;border:0;border-radius:12px;cursor:pointer;' +
+      'font:800 14px/1 system-ui,sans-serif}' +
+    '#mp-leave .mpl-stay{color:#2A1B00;background:linear-gradient(180deg,#FFE9B0,#FFC542)}' +
+    '#mp-leave .mpl-go{color:#FFD8DE;background:rgba(255,90,110,.14);' +
+      'border:1px solid rgba(255,90,110,.42)}' +
+    '@media (prefers-reduced-motion:reduce){#mp-leave,#mp-leave .mpl-card{transition:none}}';
+  document.head.appendChild(st);
+}
+function askLeave(opts, onYes){
+  const o = opts || {};
+  const go = () => { try { if (typeof onYes === 'function') onYes(); } catch (e){} };
+  /* No document, or a caller that forgot the wording: do not trap somebody
+     inside a game because a dialogue could not be drawn. */
+  if (!document || !document.body){ go(); return; }
+  askLeaveCSS();
+  const old = document.getElementById('mp-leave');
+  if (old) old.remove();
+  const el = document.createElement('div');
+  el.id = 'mp-leave';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.innerHTML =
+    '<div class="mpl-card">' +
+      '<h4>' + esc(o.title || 'Leave the game?') + '</h4>' +
+      '<p>' + esc(o.body || '') + '</p>' +
+      '<div class="mpl-acts">' +
+        '<button type="button" class="mpl-stay">' + esc(o.no || 'Stay') + '</button>' +
+        '<button type="button" class="mpl-go">' + esc(o.yes || 'Leave') + '</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('on'));
+  const shut = (then) => {
+    el.classList.remove('on');
+    setTimeout(() => { try { el.remove(); } catch (e){} if (then) then(); }, 190);
+  };
+  el.querySelector('.mpl-stay').onclick = () => shut(null);
+  el.querySelector('.mpl-go').onclick   = () => shut(go);
+  /* tapping the dark is "stay" — the safe half of a question about
+     throwing away a game and an ante */
+  el.onclick = (ev) => { if (ev.target === el) shut(null); };
+}
+
 /* THE TABLE DIED BEFORE A RESULT — a bail, a desync, a dead connection.
    Nobody won, so nobody pays: the ante comes home. Idempotent through
    the same id guard, and a no-op for friendly tables and settled pots. */
@@ -6401,6 +6482,7 @@ window.KARTI_MP = {
      verbs for the harness. All wallet bookkeeping; none of it can touch
      a seed, a deal or the wire. */
   stakeInfo, stakeRoom, stakeSettle, stakeSettleTeam, stakeAbort, stakeArm,
+  askLeave,
   /* how far away the server is, measured rather than guessed */
   pingStats, measure, measureHTTP, healthURL,
   /* the three-games era */

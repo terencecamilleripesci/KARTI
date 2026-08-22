@@ -1010,16 +1010,26 @@ function askLeave(){
      to its slot and offered back on the front screen, where the bin is.
      Binning is only ever the explicit thing on that sheet. */
   if (G.mode === 'online'){
+    const walk = () => {
+      try { localApply(G.mySeat, { t:'quit' }); } catch(e){}
+      const n = G.net; leave();
+      if (n && n.onLeave) n.onLeave(); else P.hub();
+    };
+    /* the shared gate (P.guardLeave → KARTI_MP.askLeave) knows the whole
+       truth this sheet never did: a TWO-SEAT battle hands the other
+       captain the win, and a staked table forfeits the ante. Taken only
+       when the mp.js sheet actually exists; otherwise the old sheet
+       below stands, so this ships safely either side of that change. */
+    if (P.guardLeave && window.KARTI_MP && typeof KARTI_MP.askLeave === 'function'){
+      P.guardLeave(walk, 'back');
+      return;
+    }
     U.confirm({ root: G.root }, {
       head:'Leave the battle?',
       why:'The others are told and the table carries on without you. Your boats stay ' +
           'where they sank and you cannot come back to this one.',
       yes:'Yes, leave', no:'No, fight on',
-      go: () => {
-        try { localApply(G.mySeat, { t:'quit' }); } catch(e){}
-        const n = G.net; leave();
-        if (n && n.onLeave) n.onLeave(); else P.hub();
-      }
+      go: walk
     });
     return;
   }

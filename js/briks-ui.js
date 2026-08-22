@@ -85,7 +85,9 @@
    HOUSE RULES OBEYED
      · borrows #scr-party through KARTI_PARTY, injects its own scoped
        CSS once, never touches css/ or the tab bar;
-     · no emoji, no image files — identity is CSS/SVG/canvas;
+     · no emoji, no image files for the game's own identity (CSS/SVG/
+       canvas) — the ONE image door is the earned Arcade Ghost set,
+       art/cosm/briks-exclusive-*.png, drawn in §GHOST below;
      · sounds only through KARTI_SFX ids that already exist;
      · every player-visible string is a T(en, mt) pair at its call site;
      · reduced motion turns off ball interpolation, the pulse and the
@@ -200,6 +202,69 @@ const PU_ART = {
   6: { c:'#FF8A3D', k:'power',  n:() => T('Power ball','Ballun qawwi') },   /* POWER  */
   7: { c:'#C08BFF', k:'shield', n:() => T('Barrier','Ħarsien') }            /* SHIELD */
 };
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE ARCADE GHOST (briks.*.excl) — who glows violet on this court.
+   The earned exclusive set (js/progress.js EXCLUSIVES.briks: paddle /
+   ball / bricks, art/cosm/briks-exclusive-*.png). This is the ONE
+   image door in this file — the house "no image files" rule is about
+   game identity, and these are worn cosmetics, the same door every
+   other arena game opened (bomba, serp, tankijiet).
+
+   WHO OWNS WHAT — the same argument bomba and serp already settled:
+     · the PADDLE is the PLAYER — it is the one thing on the court that
+       IS you, so it TRAVELS: my equipped set goes out as a one-byte
+       {t:'skin', p:1} action near match start (see onlineStart /
+       onlineRemote). It reuses the DECLARED field `p`, so
+       BK_WIRE_FIELDS does not grow, the l/h/g three-byte tick codec is
+       untouched, and an older build's decWireX returns null on the
+       unknown action and drops it whole — nothing ever reaches mp.js
+       carrying a field the published contract has not named.
+     · the BALL is the ROOM's — one shared object rattling between both
+       walls, owned by nobody, so it stays the LOCAL choice: my
+       equipped ball paints every ball on MY phone and nothing travels
+       (serp's pellet, bomba's arena — the same rule).
+     · the BRICKS are the ROOM's — the two walls are the arena
+       furniture, so they too are the local choice and paint locally
+       only. The team-coloured cap stays ON TOP of the texture so whose
+       wall is whose (and each brick's remaining armour) reads exactly
+       as before.
+
+   All of it is DRAW-ONLY: nothing here is read by the engine, nothing
+   rides a tick, and a phone that never loads the art (or never hears
+   the skin byte) simply draws today's stock court.
+   ═══════════════════════════════════════════════════════════════════ */
+const COSM_SRC = {
+  paddle: 'art/cosm/briks-exclusive-paddle.png',
+  ball:   'art/cosm/briks-exclusive-ball.png',
+  bricks: 'art/cosm/briks-exclusive-bricks.png'
+};
+const COSM_IMG = {};
+/* an <img> per piece, started on first ask; null until DECODED, so a
+   frame drawn before the art lands falls back to the stock paint. */
+function cosmImg(slot){
+  let im = COSM_IMG[slot];
+  if (im === undefined){
+    im = null;
+    try { im = new Image(); im.src = COSM_SRC[slot]; } catch(e){ im = null; }
+    COSM_IMG[slot] = im;
+  }
+  return (im && im.complete && im.naturalWidth > 0) ? im : null;
+}
+/* is MY briks.<slot>.excl equipped right now (progress.js is the shelf) */
+function xEq(slot){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped(slot, 'briks') === 'briks.' + slot + '.excl';
+  } catch(e){ return false; }
+}
+/* is the paddle at engine seat `pid` ghosted — mine by my own equip,
+   a remote seat by the byte that arrived on its {t:'skin'} action. */
+function ghostPad(pid){
+  if (!M) return false;
+  if (pid === M.me) return xEq('paddle');
+  return !!(M.skins && M.skins[pid] === 1);
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    THE STYLESHEET — injected once, scoped to #scr-party .bk-*
@@ -480,7 +545,8 @@ function startMatch(opts, seed, net){
     raf: 0, dead: false, finished: false,
     fps: { n:0, at:0, val:0 },
     lead: LEAD_MS, ledSaid: -1,
-    scoreSaid: [-1, -1]
+    scoreSaid: [-1, -1],
+    skins: {}                 /* seat → exclusive-set wire byte (§GHOST)  */
   };
   M.st = E.start({ seed: sd, target: C.TARGET, bestOf: 1,
                    bots: (o.bots || [0, 1]).slice(),
@@ -953,6 +1019,12 @@ function drawCourt(g){
    max: full-hp armour is solid and bright, a cracked brick shows the
    crack and dims. Row 0 is the front on both sides. */
 function drawWalls(g, st){
+  /* THE ARCADE GHOST bricks: the room's walls, the LOCAL choice (§GHOST).
+     Each brick draws its own slice of the 256px texture — the whole wall
+     assembles into one continuous glowing face — and every legibility
+     layer (armour dim, team cap, cracks) still paints ON TOP, so nothing
+     about reading the game changed, only the body of the brick. */
+  const wimg = xEq('bricks') ? cosmImg('bricks') : null;
   for (let sdx = 0; sdx < st.walls.length; sdx++){
     const w = st.walls[sdx];
     const mine = (sdx === M.me);
@@ -968,11 +1040,21 @@ function drawWalls(g, st){
         const pad = C.S * 0.6;
         /* armour (max 3) is the wall colour, front rows lighter */
         const frac = hp / mx;
-        g.fillStyle = mine ? tc.wall : tc.b;
-        g.globalAlpha = 0.45 + 0.55 * frac;
-        rrect(g, x + pad, y + pad, bw - pad * 2, bh - pad * 2, C.S * 1.4);
-        g.fill();
-        g.globalAlpha = 1;
+        if (wimg){
+          /* this brick's slice of the exclusive texture, by grid position */
+          const iw = wimg.naturalWidth, ih = wimg.naturalHeight;
+          g.globalAlpha = 0.45 + 0.55 * frac;
+          g.drawImage(wimg,
+            (c / C.COLS) * iw, (r / C.ROWS) * ih, iw / C.COLS, ih / C.ROWS,
+            x + pad, y + pad, bw - pad * 2, bh - pad * 2);
+          g.globalAlpha = 1;
+        } else {
+          g.fillStyle = mine ? tc.wall : tc.b;
+          g.globalAlpha = 0.45 + 0.55 * frac;
+          rrect(g, x + pad, y + pad, bw - pad * 2, bh - pad * 2, C.S * 1.4);
+          g.fill();
+          g.globalAlpha = 1;
+        }
         /* a bright cap so bricks read as 3D and toughness is legible */
         g.fillStyle = mine ? tc.a : TEAM[1].a;
         g.globalAlpha = 0.10 + 0.22 * frac;
@@ -1103,13 +1185,15 @@ function puGlyph(g, kind, cx, cy, r){
    gated, and reads velocity at a glance. Heavy (power) balls trail hot. */
 function drawTrails(g, st, f, now){
   if (noMotion()) return;
+  /* an Arcade Ghost ball streaks violet, so the trail matches the orb */
+  const ghostBall = xEq('ball');
   for (const b of st.balls){
     if (b.stuck) continue;
     const p = M.prev && M.prev[b.id];
     if (!p) continue;
     const bx = p.x + (b.x - p.x) * f, by = p.y + (b.y - p.y) * f;
     const heavy = b.heavy > 0;
-    const col = heavy ? '#FF8A3D' : '#8FD8FF';
+    const col = heavy ? '#FF8A3D' : (ghostBall ? '#C08BFF' : '#8FD8FF');
     const NS = 5;
     for (let i = 1; i <= NS; i++){
       const t = i / (NS + 1);
@@ -1127,6 +1211,12 @@ function drawTrails(g, st, f, now){
    and shows a 60fps ball on any phone. New balls (no prev) draw at now. */
 function drawBalls(g, st, f, now){
   const reduced = noMotion();
+  /* THE ARCADE GHOST ball: the room's ball, the LOCAL choice (§GHOST).
+     The art is a violet orb glowing on black, so it is composited with
+     'screen' — the black contributes nothing and only the light lands
+     on the court. A HEAVY (power) ball keeps its stock molten identity:
+     that colour is gameplay information and outranks any cosmetic. */
+  const bimg = xEq('ball') ? cosmImg('ball') : null;
   for (const b of st.balls){
     let bx = b.x, by = b.y;
     const p = M.prev && M.prev[b.id];
@@ -1171,7 +1261,8 @@ function drawBalls(g, st, f, now){
       }
     }
 
-    if (!reduced){
+    const ghosted = !!(bimg && !heavy);
+    if (!reduced && !ghosted){
       /* a HEAVY power-ball wears a fat molten halo so it is unmistakable */
       g.globalAlpha = heavy ? (0.34 + 0.12 * (0.5 + 0.5 * Math.sin(now / 90)))
                             : (0.16 + 0.2 * hot);
@@ -1185,12 +1276,26 @@ function drawBalls(g, st, f, now){
     g.save();
     g.translate(bx, by);
     if (!reduced && (sqx !== 1 || sqy !== 1)){ g.rotate(ang); g.scale(sqx, sqy); g.rotate(-ang); }
-    g.fillStyle = heavy ? '#FFE0B0' : '#fff';
-    g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill();
-    /* a warm core when it is really moving or heavy */
-    if (heavy || hot > 0.4){
-      g.fillStyle = heavy ? '#FF6A1F' : '#FFD873';
-      g.beginPath(); g.arc(0, 0, r * 0.5, 0, 6.2832); g.fill();
+    if (ghosted){
+      /* the orb fills ~62% of its frame; size the frame so the ORB is
+         a touch over the ball's true radius and the art's own halo is
+         the glow. Drawn TWICE under 'screen' — the orb's body is dark
+         glass and one pass reads dimmer than the stock white ball; the
+         second pass doubles the light so THE ball is never the hardest
+         thing on the court to find. */
+      const D = r * 3.6;
+      g.globalCompositeOperation = 'screen';
+      g.drawImage(bimg, -D / 2, -D / 2, D, D);
+      g.drawImage(bimg, -D / 2, -D / 2, D, D);
+      g.globalCompositeOperation = 'source-over';
+    } else {
+      g.fillStyle = heavy ? '#FFE0B0' : '#fff';
+      g.beginPath(); g.arc(0, 0, r, 0, 6.2832); g.fill();
+      /* a warm core when it is really moving or heavy */
+      if (heavy || hot > 0.4){
+        g.fillStyle = heavy ? '#FF6A1F' : '#FFD873';
+        g.beginPath(); g.arc(0, 0, r * 0.5, 0, 6.2832); g.fill();
+      }
     }
     /* the bounce FLASH: a bright rim that fades over the squash envelope */
     if (flash > 0){
@@ -1322,15 +1427,33 @@ function drawPaddles(g, st, f, now){
       g.globalAlpha = 1;
     }
 
-    /* the slab */
-    g.fillStyle = tc.a;
-    rrect(g, pb.x0, pb.y0, w, h, C.S * 1.2);
-    g.fill();
-    g.fillStyle = tc.b;
-    g.globalAlpha = 0.5;
-    rrect(g, pb.x0, pb.y0 + h * 0.5, w, h * 0.5, C.S * 1.2);
-    g.fill();
-    g.globalAlpha = 1;
+    /* the slab — or THE ARCADE GHOST paddle (§GHOST): mine when I wear
+       briks.paddle.excl, the opponent's when their skin byte arrived on
+       the wire. The art is a violet neon slab on black, composited with
+       'screen' so only the light lands; the band is drawn a little past
+       the true box so the glow breathes, and the TRUE box (pb) is still
+       what the notch, the lip and the pips are laid out on — hitbox and
+       legibility are exactly the stock ones. */
+    const pimg = ghostPad(p.pid) ? cosmImg('paddle') : null;
+    if (pimg){
+      const iw = pimg.naturalWidth, ih = pimg.naturalHeight;
+      const ex = w * 0.08 + C.S;            /* sideways glow allowance   */
+      const hh = h * 1.5;                   /* the band is 3x the slab   */
+      g.save();
+      g.globalCompositeOperation = 'screen';
+      g.drawImage(pimg, 0, ih * 0.28, iw, ih * 0.44,
+                  pb.x0 - ex, cy - hh, w + ex * 2, hh * 2);
+      g.restore();
+    } else {
+      g.fillStyle = tc.a;
+      rrect(g, pb.x0, pb.y0, w, h, C.S * 1.2);
+      g.fill();
+      g.fillStyle = tc.b;
+      g.globalAlpha = 0.5;
+      rrect(g, pb.x0, pb.y0 + h * 0.5, w, h * 0.5, C.S * 1.2);
+      g.fill();
+      g.globalAlpha = 1;
+    }
 
     /* a sticky "lip" on the front face so catch is obvious */
     if (sticky){
@@ -1836,8 +1959,14 @@ function showResult(st, won, draw, opts, net, me, pay, potRes){
 }
 
 function rematchAsk(){
-  /* online: a rematch is the room's decision. Walk back to the menu. */
-  const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else menu();
+  /* online: a rematch is the room's decision — this button WALKS OUT of
+     a live match, so it goes through the shared confirm gate exactly
+     like the back arrow (P.guardLeave → KARTI_MP.askLeave; no gate
+     shipped yet → today's instant door). */
+  const go = () => {
+    const nx = M && M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else menu();
+  };
+  if (P.guardLeave) P.guardLeave(go, 'new'); else go();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1890,6 +2019,16 @@ function onlineRemote(seat, wire){
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
   if (g === undefined || g === M.me) return null;       /* our own, echoed */
   if (!M.st.pads[g]) return null;
+  /* that seat's exclusive-paddle byte arriving — pure paint, NEVER part
+     of the lockstep (no tick, no input, nothing the sim reads), so it
+     cannot fork the stream. It rides its own {t:'skin'} action on the
+     already-declared field `p` (§GHOST), so BK_WIRE_FIELDS did not grow
+     and the l/h/g tick codec is untouched. Validated against the one
+     byte this build knows; anything else is simply stock. */
+  if (wire && (wire.t === 'skin' || wire.a === 'skin')){
+    if (((wire.p | 0) === 1) && M.skins) M.skins[g] = 1;
+    return null;
+  }
   const mv = decWireX(wire);
   if (!mv) return null;
   if (mv.t === 'tx')  E.commit(M.st, g, mv.forTick, mv.tx);
@@ -1956,8 +2095,30 @@ function onlineStart(cfg){
   P.show();
   openBoard(() => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   startLoop();
-  /* keep D fresh as the radio changes */
-  M.dTimer = setInterval(() => { if (M && M.net && !M.dead) measureD(); else clearInterval(M.dTimer); }, 3000);
+  /* keep D fresh as the radio changes. The timer id lives in a LOCAL —
+     the old `clearInterval(M.dTimer)` read M after leave() had nulled
+     it and threw on every walk-out of an online match. */
+  { const dT = setInterval(() => {
+      if (M && M.net && !M.dead) measureD(); else clearInterval(dT);
+    }, 3000);
+    M.dTimer = dT; }
+
+  /* my exclusive PADDLE goes out as one byte on its own {t:'skin'}
+     action (§GHOST) — it reuses the DECLARED field `p`, so wire.fields
+     does not grow and an older build's decWireX drops it whole. Said
+     three times across the first seconds because a peer still inside
+     its own onlineStart when the first copy lands has no M yet;
+     idempotent on arrival, three messages a match, nothing the
+     lockstep ever reads. (bomba's proven pattern, byte for byte.) */
+  if (xEq('paddle')){
+    const sayskin = () => {
+      if (!M || M.dead || !M.net) return;
+      fire(moveSubs, { seat: M.me, move: { t:'skin', p:1 }, src:'local' });
+    };
+    sayskin();
+    setTimeout(sayskin, 1200);
+    setTimeout(sayskin, 3500);
+  }
   return null;
 }
 
@@ -2334,7 +2495,9 @@ try {
       remote: (seat, wire) => onlineRemote(seat, wire),
       say,
       fps: () => (M ? M.fps.val : 0),
-      store: () => ST
+      store: () => ST,
+      /* the Arcade Ghost, provable from a harness */
+      xEq, skins: () => (M ? M.skins : null), cosmImg
     };
   }
 } catch(e){}

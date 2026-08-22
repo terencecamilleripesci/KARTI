@@ -1093,11 +1093,21 @@ function mountOnline(){
   OL.stage = el.querySelector('#sp-olstage');
   OL.netEl = el.querySelector('#sp-net');
   el.querySelector('#pt-back').onclick = () => {
+    const walk = () => { const n = OL && OL.net; olLeave(); if (n && n.onLeave) n.onLeave(); else P.hub(); };
+    /* the shared gate (P.guardLeave → KARTI_MP.askLeave) says the truth
+       per table: a two-seat game hands the other player the win, a
+       bigger one plays on without you, a staked one forfeits the ante.
+       Taken only when the mp.js sheet exists; otherwise the old sheet
+       below stands, so this ships safely either side of that change. */
+    if (P.guardLeave && window.KARTI_MP && typeof KARTI_MP.askLeave === 'function'){
+      P.guardLeave(walk, 'back');
+      return;
+    }
     U.confirm({ root: el }, {
       head: 'Leave the room?',
       why: 'The table plays on without you.',
       yes: 'Leave', no: 'Stay',
-      go: () => { const n = OL && OL.net; olLeave(); if (n && n.onLeave) n.onLeave(); else P.hub(); }
+      go: walk
     });
   };
 }
