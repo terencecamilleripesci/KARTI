@@ -1707,23 +1707,56 @@ function finish(){
   const won = res.tone === 'win';
   const solo = !M.net;
 
-  /* the record book and the XP, offline only — an online table's result
-     is the room's business (SERP/poker's line) */
-  let xpOut = null;
+  /* the record book and the XP. Offline the old funnel stands: P.record
+     is wrapped by progress.js and pays as a side effect. ONLINE that
+     funnel never fired — the podium never calls P.ui.result either, so
+     an online win paid nothing at all. The online path now pays itself
+     through KARTI_XP.awardPlay, exactly once under the match id, and
+     settles a staked pot through mp.js's own idempotent door (one
+     winner takes it; 'draw' — everybody out — sends every ante home). */
+  let xpOut = null, potRes = null;
+  const outcome = won ? 'w' : (res.tone === 'draw' ? 'd' : 'l');
   if (solo){
-    ST.rec[won ? 'w' : (res.tone === 'draw' ? 'd' : 'l')]++;
+    ST.rec[outcome]++;
     persist();
     try {
-      const outcome = won ? 'w' : (res.tone === 'draw' ? 'd' : 'l');
       if (P.record) P.record('bomba', outcome);
       if (window.KARTI_XP && KARTI_XP.award){
         xpOut = KARTI_XP.award('bomba', outcome, { ms: Math.max(1, st.tick * TICK_MS) });
       }
     } catch(e){}
+  } else {
+    ST.rec[outcome]++;
+    persist();
+    const MPX = window.KARTI_MP;
+    const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+    const mid = 'bomba:' + ((MPX && MPX.MP && MPX.MP.code) || 'room') + ':' + (M.seed >>> 0);
+    try {
+      if (window.KARTI_XP && KARTI_XP.awardPlay){
+        const r = KARTI_XP.awardPlay({
+          game:'bomba', won, draw: res.tone === 'draw',
+          id: mid, ranked: staked, ms: Math.max(1, st.tick * TICK_MS)
+        });
+        if (r && r.counted) xpOut = r;
+      }
+    } catch(e){}
+    /* the party-shelf badge, ticked with NO award attached — P.record is
+       wrapped to pay, and the match is already paid under its id */
+    try { if (P.tally) P.tally('bomba', outcome); } catch(e){}
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record('bomba', {
+          result: won ? 'win' : (res.tone === 'draw' ? 'draw' : 'loss'), id: mid });
+    } catch(e){}
+    if (staked && MPX.stakeSettle){
+      try {
+        potRes = MPX.stakeSettle(won ? 'win' : (res.tone === 'draw' ? 'draw' : 'lose'));
+      } catch(e){}
+    }
   }
 
   cue(won ? 'game.win' : 'game.lose', { gain:0.9 }, true);
-  setTimeout(() => { if (M && !M.dead) showResult(res, xpOut); }, 560);
+  setTimeout(() => { if (M && !M.dead) showResult(res, xpOut, potRes); }, 560);
 }
 
 /* standings for the winner screen: the winner first, then the rest by
@@ -1748,7 +1781,7 @@ function standings(st){
   return rows;
 }
 
-function showResult(res, xpOut){
+function showResult(res, xpOut, potRes){
   if (!M || !M.ctx) return;
   const st = M.st;
   const rows = standings(st);
@@ -1786,6 +1819,15 @@ function showResult(res, xpOut){
         border: BORDER[r.seat % BORDER.length]
       })),
       xp,
+      /* the reward block: this game's own pay and, on a staked table,
+         the pot — all plain positive numbers per rebbieħ's contract */
+      reward: ((xpOut && xpOut.counted) || potRes) ? {
+        xp: xpOut && xpOut.counted ? xpOut.xp : 0,
+        chips: xpOut && xpOut.counted ? (xpOut.chips | 0) + (xpOut.chipsLevel | 0) : 0,
+        wonBonus: xpOut && xpOut.counted ? xpOut.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       sound: id => cue(id, { gain:0.6 }),
       playAgainLabel: M.net ? T('Back to the room', 'Lura għall-kamra') : T('Play again', 'Erġa’ lgħab'),
       onPlayAgain: again,

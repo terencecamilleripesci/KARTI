@@ -1163,6 +1163,13 @@ function iDrive(i){
   if (!G || !G.players[i]) return false;
   if (!NET) return true;
   if (i === NET.mySeat) return true;
+  /* a chair the relay freed FOR GOOD (hooks.seatGone): its own phone is
+     not coming back to play it, so EVERY remaining phone drives it
+     locally — the AI is deterministic (no Math.random in kiri-ai; the
+     dice come off the seeded stream in the state), so all phones compute
+     the identical move, and mp.js drops the send for a seat that is
+     neither ours nor a lobby machine, so nothing doubles on the wire. */
+  if (NET.gone && NET.gone[i]) return true;
   return !!NET.host && G.players[i].kind === 'cpu';
 }
 
@@ -3649,7 +3656,36 @@ function renderOver(){
   if (rooms) rooms.onclick = () => {
     const n = NET; d.remove(); dropRoom(n);
   };
+  /* P.record is wrapped by progress.js and PAYS (XP + chips) as a side
+     effect — that part always worked, online included. What never
+     happened was the POT: this screen is not P.ui.result, so mp.js's
+     stake ceremony never fired and a for-chips game destroyed the pot.
+     Settled here through mp.js's own idempotent door (settled flag +
+     id guard), and said on the card. A game with NO winner refunds
+     every ante instead — nobody may take a pot nobody won. */
   if (P && P.record && w) P.record('kiri', won ? 'w' : 'l');
+  if (NET){
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.MP && MPX.MP.stakeLive){
+      let pot = null;
+      try {
+        if (!w){ if (MPX.stakeAbort) MPX.stakeAbort(); }
+        else if (MPX.stakeSettle) pot = MPX.stakeSettle(won ? 'win' : 'lose');
+      } catch (e){}
+      if (pot){
+        const line = document.createElement('p');
+        line.style.cssText = 'font-weight:800;color:' +
+          (pot.kind === 'win' ? '#FFC542' : pot.kind === 'draw' ? '#9FE8B5' : '#FF9AA6');
+        line.innerHTML = pot.kind === 'win'
+          ? '+' + pot.pot + ' chips — the pot: ' + pot.humans + ' antes of ' + pot.ante
+          : pot.kind === 'draw'
+            ? '+' + pot.ante + ' chips — every ante went back'
+            : '&minus;' + pot.ante + ' chips — your ante went to the winner';
+        const stand = d.querySelector('.kr-standings');
+        if (stand) stand.after(line); else d.appendChild(line);
+      }
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -4182,6 +4218,26 @@ const HOOKS = {
     fn(w, { seat: (room == null ? info.seat : room), src: info.src });
   }),
   apply: (room, w) => onlineRemote(room, w),
+  /* a seat gone FOR GOOD (deliberate leave, or the relay freeing a
+     dropped chair). Before this the game parked on the empty chair
+     forever: presence is per-phone ("THEIR phone notices"), but a
+     phone that LEFT is not there to notice anything. Flip the seat to
+     autopilot with the engine's own 'away' move (presence is local by
+     design — it is not in the checksum) and let iDrive()'s gone rule
+     above have every remaining phone play it out identically. */
+  seatGone: room => {
+    if (!G || !NET || G.over) return;
+    const g = NET.toGame[room];
+    if (g === undefined || !G.players[g] || G.players[g].kind === 'cpu') return;
+    NET.gone = NET.gone || {};
+    if (NET.gone[g]) return;
+    NET.gone[g] = 1;
+    try { K.apply(G, g, { t:'away', why:'signal' }, 'net'); } catch (e){}
+    K.save(G);
+    render();
+    resetClock();
+    if (!G.over) pump();
+  },
 };
 
 if (P){

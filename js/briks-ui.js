@@ -1732,6 +1732,13 @@ function finish(){
   const draw = st.over && st.over.winner < 0;
   const solo = !M.net;
 
+  /* Offline the old funnel stands: P.record is wrapped by progress.js
+     and pays as a side effect. ONLINE that funnel never fired — the
+     podium never calls P.ui.result either, so an online win paid
+     nothing. The online path pays itself through KARTI_XP.awardPlay,
+     exactly once under the match id, and settles a staked pot through
+     mp.js's own idempotent door (win takes it, dead level refunds). */
+  let pay = null, potRes = null;
   if (solo){
     ST.rec[draw ? 'd' : (won ? 'w' : 'l')]++;
     persist();
@@ -1741,16 +1748,41 @@ function finish(){
         KARTI_XP.finish({ game:'briks', result: draw ? 'd' : (won ? 'w' : 'l'),
                           ms: Math.max(1, M.tick * STEP_MS) });
     } catch(e){}
+  } else {
+    ST.rec[draw ? 'd' : (won ? 'w' : 'l')]++;
+    persist();
+    const MPX = window.KARTI_MP;
+    const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+    const mid = 'briks:' + ((MPX && MPX.MP && MPX.MP.code) || 'room') + ':' + (M.seed >>> 0);
+    try {
+      if (window.KARTI_XP && KARTI_XP.awardPlay){
+        const r = KARTI_XP.awardPlay({
+          game:'briks', won, draw, id: mid, ranked: staked,
+          ms: Math.max(1, M.tick * STEP_MS)
+        });
+        if (r && r.counted) pay = r;
+      }
+    } catch(e){}
+    /* shelf badge, NO award attached (P.record is wrapped to pay) */
+    try { if (P.tally) P.tally('briks', draw ? 'd' : (won ? 'w' : 'l')); } catch(e){}
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record('briks', {
+          result: won ? 'win' : (draw ? 'draw' : 'loss'), id: mid });
+    } catch(e){}
+    if (staked && MPX.stakeSettle){
+      try { potRes = MPX.stakeSettle(won ? 'win' : (draw ? 'draw' : 'lose')); } catch(e){}
+    }
   }
 
   cue(won ? 'game.win' : (draw ? 'board.draw' : 'game.lose'), { gain:0.9 }, true);
   const opts = M.opts;
   const net = M.net;
   const me = M.me;                 /* CAPTURE NOW — M may be null by the timeout */
-  setTimeout(() => { showResult(st, won, draw, opts, net, me); }, 560);
+  setTimeout(() => { showResult(st, won, draw, opts, net, me, pay, potRes); }, 560);
 }
 
-function showResult(st, won, draw, opts, net, me){
+function showResult(st, won, draw, opts, net, me, pay, potRes){
   /* the result fires 560ms after the round ends. If the player tapped BACK
      (or started a new game) in that window, M is gone and they have already
      moved on — do NOT dereference a null M.me and do NOT paint a result over
@@ -1776,6 +1808,15 @@ function showResult(st, won, draw, opts, net, me){
             : T('They broke through', 'Qasmu n-naħa l-oħra'),
       subtitle: T('IL-ĦAJT', 'IL-ĦAJT'),
       rows: rows,
+      xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                  before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+      reward: (pay || potRes) ? {
+        xp: pay ? pay.xp : 0,
+        chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+        wonBonus: pay ? pay.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       sound: id => cue(id, { gain:0.6 }),
       playAgainLabel: T('Play again', 'Erġa\' lgħab'),
       onPlayAgain: () => { leave(); if (net) menu(); else newGame(opts); },
@@ -1806,9 +1847,39 @@ function rematchAsk(){
    needs no network at all. Shape matches serp's {seat, move} so mp.js's
    existing relay carries it unchanged.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── THE CODEC, done here and published to the lobby below ──────────
+   The engine's encWire packed forTick into ONE byte ('k'), so the 256th
+   tick — about thirteen seconds in — would not fit and mp.js stopped
+   the table with "a move would not fit on the wire": every online
+   round, always, mid-game. Its 'bot' move also carried an 'on' field
+   the published list never named, so a walk-off replacement could not
+   be said either. Both ends of the wire live in this file (say /
+   onlineRemote), so the fix does too: bomba's proven shape — the tick
+   over three bytes l/h/g (24 bits ≈ days), the paddle target over two
+   (p/q), the bot flag in 'on'. */
+const BK_WIRE_FIELDS = ['l', 'h', 'g', 'p', 'q', 'on'];
+function encWireX(mv){
+  if (!mv) return null;
+  const tk = mv.forTick | 0;
+  if (tk < 0 || tk > 0xFFFFFF) return null;
+  const base = { l: tk & 255, h: (tk >> 8) & 255, g: (tk >> 16) & 255 };
+  if (mv.t === 'bot') return Object.assign({ t:'bot', on: mv.on ? 1 : 0 }, base);
+  if (mv.t === 'tx'){
+    const x = Math.max(0, Math.min(0xFFFF, mv.tx | 0));
+    return Object.assign({ t:'tx', p: (x >> 8) & 255, q: x & 255 }, base);
+  }
+  return null;
+}
+function decWireX(w){
+  if (!w || typeof w.t !== 'string') return null;
+  const tk = (((w.g | 0) & 255) << 16) | (((w.h | 0) & 255) << 8) | ((w.l | 0) & 255);
+  if (w.t === 'bot') return { t:'bot', forTick: tk, on: (w.on | 0) ? 1 : 0 };
+  if (w.t === 'tx')  return { t:'tx',  forTick: tk, tx: (((w.p | 0) & 255) << 8) | ((w.q | 0) & 255) };
+  return null;
+}
 function say(seat, mv){
   if (!M || !M.net) return;
-  const w = E.encWire(mv);
+  const w = encWireX(mv);
   if (!w) return;
   fire(moveSubs, { seat, move: w, src:'local' });
 }
@@ -1819,7 +1890,7 @@ function onlineRemote(seat, wire){
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
   if (g === undefined || g === M.me) return null;       /* our own, echoed */
   if (!M.st.pads[g]) return null;
-  const mv = E.decWire(wire);
+  const mv = decWireX(wire);
   if (!mv) return null;
   if (mv.t === 'tx')  E.commit(M.st, g, mv.forTick, mv.tx);
   else if (mv.t === 'bot') E.setBot(M.st, g, mv.on, mv.forTick);
@@ -2194,7 +2265,7 @@ R.lobby = {
   start: (seatList, o) => newGame({
     lvl: ((seatList || []).map(s => s && s.level).find(v => v)) || pref().lvl || 2
   }),
-  wire: { fields: E.WIRE_FIELDS },
+  wire: { fields: BK_WIRE_FIELDS },
   takeback: false
 };
 

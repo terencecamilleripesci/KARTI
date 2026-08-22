@@ -886,6 +886,14 @@ function onlineStart(cfg){
   /* Honest degrade: no private-deal wire yet, so an online room falls
      back to the offline pass-the-phone game on the host's device rather
      than risk showing a guesser the word. */
+  /* …and if the room was set FOR CHIPS, the ante already left every
+     wallet at 'began' — but this degrade is not a shared match and no
+     result will ever settle that pot, so it would simply be destroyed.
+     Send it home NOW, through mp.js's own idempotent door. */
+  try {
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.MP && MPX.MP.stakeLive && MPX.stakeAbort) MPX.stakeAbort();
+  } catch(e){}
   const names = (cfg && cfg.seats ? cfg.seats.filter(Boolean).map(s => s.name || 'PLAYER') : []);
   leaveGame(); OL = null; G = null;
   startGame({

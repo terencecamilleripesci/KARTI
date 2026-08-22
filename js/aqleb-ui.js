@@ -822,6 +822,35 @@ function afterMove(){
   drawStatic();
   if (E.over(M.st)){ finish(); return; }
   maybeThink();
+  driveGone();
+}
+
+/* ── A CHAIR THE RELAY FREED MID-GAME ────────────────────────────────
+   Without this, the turn parked on the empty chair forever: nobody may
+   move out of turn, the departed phone will never move again, and the
+   table is stuck. The fix is deterministic on every phone with nothing
+   on the wire: the engine's own think() is PURE (state + level; the one
+   Math.random in aqleb.js lives in newSeed, never in play), so every
+   remaining phone computes the SAME move for the empty chair locally.
+   Level 1 — fixed, not the seat's — so no phone can disagree about it.
+   src 'net' keeps the move off the wire (mp.js drops non-roster sends
+   anyway; this never even asks). */
+function driveGone(){
+  if (!M || M.dead || !M.net || !M.gone || M.goneT) return;
+  if (E.over(M.st)) return;                     /* afterMove handles finish */
+  if (M.anim) return;                           /* anim's done() re-enters   */
+  const s = E.turn(M.st);
+  if (!M.gone[s]) return;
+  M.goneT = setTimeout(() => {
+    if (M) M.goneT = 0;
+    if (!M || M.dead || M.anim || E.over(M.st)) return;
+    const s2 = E.turn(M.st);
+    if (!M.gone[s2]) return;
+    const mv = E.think(M.st, s2, 1);
+    if (!mv){ drawStatic(); return; }  /* no legal move: the engine's own
+                                          turn-advance already skipped it */
+    commitPlace(s2, mv.r, mv.c, 'net');
+  }, reduced() ? 80 : 520);
 }
 
 function maybeThink(){
@@ -911,12 +940,61 @@ function finish(){
     });
     return;
   }
+  /* ── THE PAY, exactly once, under the match id ────────────────────
+     The podium path never calls P.ui.result, so the wrap progress.js
+     hangs on it never fires: the podium pays for itself through
+     KARTI_XP.awardPlay — idempotent under the match id, so a re-render
+     or a double-fired finish pays once — and a staked pot settles
+     through mp.js's own idempotent door (settled flag + id guard).
+     A shared top can crown SEVERAL seats, so the pot splits through
+     stakeSettleTeam (game seats and room seats are the same numbers
+     for aqleb). The fallback card path above still pays through the
+     P.ui.result wrap, untouched. */
+  const MPX = window.KARTI_MP;
+  const staked = !!(net && MPX && MPX.MP && MPX.MP.stakeLive);
+  const mid = 'aqleb:' + (net && MPX && MPX.MP && MPX.MP.code ? MPX.MP.code : 'local') +
+              ':' + (M.seed >>> 0);
+  let pay = null;
+  if (me >= 0 && window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const r = KARTI_XP.awardPlay({
+        game:'aqleb', won: iWon && !ov.draw, draw: !!(ov.draw && iWon),
+        id: mid, ranked: staked
+      });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  /* the record book, under the SAME id — progress.js's ladder refuses
+     the second payment ('already') while the profile still counts it */
+  try {
+    if (me >= 0 && window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('aqleb', {
+        result: (ov.draw && iWon) ? 'draw' : iWon ? 'win' : 'loss', id: mid });
+  } catch(e){}
+  let potRes = null;
+  if (staked && me >= 0){
+    try {
+      potRes = (ov.winners.length > 1 && MPX.stakeSettleTeam)
+        ? MPX.stakeSettleTeam('win', ov.winners, me)
+        : (MPX.stakeSettle ? MPX.stakeSettle(iWon ? 'win' : 'lose') : null);
+    } catch(e){}
+  }
+
   show({
     title,
     subtitle: T('Final count', 'L-għadd finali'),
     rows,
     reduced: reduced(),
     lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+    xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
     sound: id => cue(id, {}, true),
     playAgainLabel: net ? T('Back to the rooms', 'Lura fil-kmamar') : T('Play again', 'Erġa\' lgħab'),
     onPlayAgain: () => { leave(); if (net && net.onLeave) net.onLeave(); else setupSheet(); },
@@ -1271,7 +1349,21 @@ const hooks = {
   setOwner(i, own){ if (M && M.meta && M.meta[i]){ M.meta[i].own = own; } },
   setName(i, name){ if (M && M.meta && M.meta[i] && name){ M.meta[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },
-  seatBack(){ if (M){ paintSeats(); drawStatic(); } }
+  seatBack(){ if (M){ paintSeats(); drawStatic(); } },
+  /* a seat gone FOR GOOD (deliberate leave, or the relay freeing a
+     dropped chair): mark it and let driveGone() play it out — the same
+     deterministic local drive on every remaining phone, so the turn can
+     never park on an empty chair. Game seats == room seats for aqleb. */
+  seatGone(seat){
+    if (!M || M.dead || E.over(M.st)) return;
+    seat = seat | 0;
+    if (!M.st || seat < 0 || seat >= seatCount()) return;
+    M.gone = M.gone || {};
+    if (M.gone[seat]) return;
+    M.gone[seat] = 1;
+    if (M.meta && M.meta[seat]) M.meta[seat].own = 'net';  /* stays a person, just absent */
+    driveGone();
+  }
 };
 
 function onlineStart(cfg){

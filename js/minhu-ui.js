@@ -1090,12 +1090,50 @@ function finish(){
     });
     return;
   }
+  /* ── THE PAY, exactly once, under the match id ────────────────────
+     The podium never calls P.ui.result, so the wrap progress.js hangs
+     on it never fires: pay here through KARTI_XP.awardPlay (idempotent
+     under the match id — a re-render or a rematch cannot pay twice) and
+     settle a staked pot through mp.js's own idempotent door. Two seats,
+     one winner, so the plain single-winner settle is the right one. */
+  const MPX = window.KARTI_MP;
+  const staked = !!(net && MPX && MPX.MP && MPX.MP.stakeLive);
+  const mid = 'minhu:' + (net && MPX && MPX.MP && MPX.MP.code ? MPX.MP.code : 'local') +
+              ':' + (M.seed >>> 0);
+  const iWon = !!(v && v.tone === 'win');
+  let pay = null;
+  if (window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const r = KARTI_XP.awardPlay({ game:'minhu', won: iWon, id: mid, ranked: staked });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  /* the record book, under the SAME id — the ladder refuses the second
+     payment while the profile still counts the game */
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('minhu', { result: iWon ? 'win' : 'loss', id: mid });
+  } catch(e){}
+  let potRes = null;
+  if (staked && MPX.stakeSettle){
+    try { potRes = MPX.stakeSettle(iWon ? 'win' : 'lose'); } catch(e){}
+  }
+
   show({
     title: head,
     subtitle: T('The secrets', 'Is-sigrieti'),
     rows,
     reduced: reduced(),
     lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+    xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
     sound: id => cue(id, {}, true),
     playAgainLabel: net ? T('Back to the rooms', 'Lura fil-kmamar') : T('Play again', 'Erġa\' lgħab'),
     onPlayAgain: () => { leave(); if (net && net.onLeave) net.onLeave(); else setupSheet(); },

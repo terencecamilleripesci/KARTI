@@ -981,6 +981,10 @@ function onlineStart(cfg){
     scores: {}, timers: {}
   };
   mountOnline();
+  /* paint the stage NOW, for everybody. Without this the non-hosts
+     stared at a completely blank screen until the host dealt — the
+     "…is picking the themes" line existed but was never painted. */
+  paintOnline();
   if (OL.host) hostCfgSheet();
   return true;
 }
@@ -1110,9 +1114,11 @@ function paintOnline(){
   const st = OL.stage;
 
   if (OL.phase === 'cfg'){
+    const hostGone = !!(OL.gone && OL.gone[OL.hostSeat] && !OL.host);
     st.innerHTML = '<div class="sp-waiting">' +
       '<span class="sp-passico">' + myIco('sp-spy') + '</span>' +
       '<i class="sp-passlbl">' + (OL.host ? 'Set the table above.' :
+        hostGone ? 'The host left before dealing — use Back to return to the rooms.' :
         esc(OL.names[OL.hostSeat] || 'The host') + ' is picking the themes…') + '</i></div>';
     return;
   }
@@ -1240,12 +1246,25 @@ function paintOnline(){
     const iWon = win === meSpy;
     const spyNames = OL.deal.spies.map(i => OL.names[i]).join(', ');
     const word = E.wordOf(OL.deal.wordId, OL.cfg.lang);
+    /* what this round actually paid — the same figures olVerdict paid */
+    let payLine = '';
+    if (OL.payInfo){
+      const pv = OL.payInfo.pay, pr = OL.payInfo.potRes;
+      const bits = [];
+      if (pr && pr.kind === 'win' && pr.pot > 0) bits.push('<b>+' + pr.pot + '</b> chips — the pot');
+      else if (pr && pr.kind === 'lose') bits.push('<b>&minus;' + pr.ante + '</b> chips — your ante went to the winners');
+      if (pv && pv.chips) bits.push('<b>+' + ((pv.chips | 0) + (pv.chipsLevel | 0)) + '</b> chips');
+      if (pv && pv.xp) bits.push('<b>+' + pv.xp + '</b> XP');
+      if (bits.length) payLine = '<p class="sp-vpay">' + bits.join(' · ') + '</p>';
+    }
+    const hostGone = !!(OL.gone && OL.gone[OL.hostSeat] && !OL.host);
     st.innerHTML =
       '<div class="sp-verdict ' + (win ? 'spies' : 'table') + '">' +
         '<span class="sp-vico">' + myIco(win ? 'sp-spy' : 'sp-hand') + '</span>' +
         '<h3>' + (win ? 'THE SPIES WIN' : 'THE TABLE WINS') + '</h3>' +
         '<p>' + (iWon ? 'And you were on the right side of it.' : 'Not your night.') + '</p>' +
         '<p class="sp-vword">The word was <b>' + esc(word) + '</b>. Spies: <b>' + esc(spyNames) + '</b>.</p>' +
+        payLine +
       '</div>' +
       '<div class="sp-scores">' +
         OL.names.map((n, i) => '<div class="sp-scorerow' + (OL.deal.spies.indexOf(i) >= 0 ? ' spy' : '') + '">' +
@@ -1254,7 +1273,9 @@ function paintOnline(){
       '</div>' +
       (OL.host
         ? '<button class="btn primary" id="sp-olnext">' + (window.ILB ? window.ILB('play', 'Next round') : 'Next round') + '</button>'
-        : '<i class="sp-note dim center">Waiting for ' + esc(OL.names[OL.hostSeat] || 'the host') + ' to deal the next one…</i>');
+        : hostGone
+          ? '<i class="sp-note dim center">The host left the table — use Back to return to the rooms.</i>'
+          : '<i class="sp-note dim center">Waiting for ' + esc(OL.names[OL.hostSeat] || 'the host') + ' to deal the next one…</i>');
     const nx = st.querySelector('#sp-olnext');
     if (nx) nx.onclick = () => {
       olSend({ t:'next', n: OL.round + 1 });
@@ -1283,6 +1304,13 @@ function olOpenVote(){
       if (OL && OL.phase === 'vote'){ olSend({ t:'phase', i:2 }); olCloseVote(); }
     }, OL_VOTE_GRACE);
   }
+  /* an empty chair's ballot will never come: every phone casts 'nobody'
+     for it locally, identically, so the count can still complete */
+  if (OL.gone) for (const k in OL.gone){
+    const s = k | 0;
+    if (OL.votes[s] === undefined) olVote(s, -1);
+    if (!OL || OL.phase !== 'vote') break;      /* the last one closed it */
+  }
 }
 function olVote(seat, target){
   if (!OL || OL.phase !== 'vote') return;
@@ -1296,6 +1324,10 @@ function olCloseVote(){
   const accused = E.tally(OL.votes, OL.n);
   if (accused < 0){ olVerdict('escaped'); return; }
   if (OL.deal.spies.indexOf(accused) >= 0){
+    /* a spy the table voted out who has ALREADY WALKED cannot take the
+       last-chance guess — an empty chair holding the round forever.
+       Caught, on every phone alike. */
+    if (OL.gone && OL.gone[accused]){ olVerdict('caught'); return; }
     OL.guessWho = accused;
     OL.phase = 'guess';
     sfx('ui.toast');
@@ -1339,6 +1371,50 @@ function olVerdict(outcome){
     if (pts) OL.scores[i] = (OL.scores[i] || 0) + pts;
   }
   const meSpy = OL.deal.spies.indexOf(OL.me) >= 0;
+
+  /* ── THE PAY, exactly once per round ──────────────────────────────
+     The verdict never goes through P.ui.result, so the wrap progress.js
+     hangs on it never fired and a round of L-ISPJUN paid nothing.
+     Every round is a finished game with a winning SIDE, so it pays
+     through KARTI_XP.awardPlay under a per-round match id (paidRound
+     latches the repaint; progress.js's id guard latches everything
+     else). A staked pot settles through mp.js's own TEAM door —
+     stakeSettleTeam splits it across the winning side's seats, so six
+     phones can never each mint a whole pot — and it settles on the
+     FIRST verdict the room reaches: mp.js holds one pot per sitting,
+     later rounds find it settled and play for points. Room seats and
+     game seats are the same numbers here. */
+  if (OL.paidRound !== OL.round){
+    OL.paidRound = OL.round;
+    const iWon = win === meSpy;
+    const MPX = window.KARTI_MP;
+    const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+    const mid = 'spy:' + ((MPX && MPX.MP && MPX.MP.code) || 'room') + ':' +
+                (OL.seed >>> 0) + ':r' + OL.round;
+    let pay = null, potRes = null;
+    try {
+      if (window.KARTI_XP && KARTI_XP.awardPlay){
+        const r = KARTI_XP.awardPlay({ game:'spy', won: iWon, id: mid, ranked: staked });
+        if (r && r.counted) pay = r;
+      }
+    } catch(e){}
+    /* shelf badge, NO award attached (P.record is wrapped to pay) */
+    try { if (P.tally) P.tally(GID, iWon ? 'w' : 'l'); } catch(e){}
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record('spy', { result: iWon ? 'win' : 'loss', id: mid });
+    } catch(e){}
+    if (staked && MPX.stakeSettleTeam){
+      const winners = [];
+      for (let i = 0; i < OL.n; i++){
+        const isSpy = OL.deal.spies.indexOf(i) >= 0;
+        if (win === isSpy) winners.push(i);
+      }
+      try { potRes = MPX.stakeSettleTeam('win', winners, OL.me); } catch(e){}
+    }
+    OL.payInfo = (pay || potRes) ? { pay, potRes } : null;
+  }
+
   sfx(win === meSpy ? 'game.win' : 'game.lose');
   paintOnline();
 }
@@ -1389,10 +1465,38 @@ function onlineStop(why, tone){
   });
 }
 
+/* ── A CHAIR THE RELAY FREED MID-ROUND ──────────────────────────────
+   Every phone hears the same departure from the relay and applies the
+   same rule, so no wire traffic is needed:
+   · cfg     — nothing to do unless it was the HOST (said on screen);
+   · play    — an empty chair cannot object to a vote, so it counts as
+               calling one (otherwise a majority can become unreachable);
+   · vote    — its ballot is cast as 'nobody' so the count completes;
+   · guess   — a spy who walks out mid-guess is caught;
+   · verdict — if the HOST left, the waiting line says so.               */
+function olSeatGone(seat){
+  if (!OL) return;
+  seat = seat | 0;
+  if (seat < 0 || seat >= OL.n) return;
+  OL.gone = OL.gone || {};
+  if (OL.gone[seat]) return;
+  OL.gone[seat] = 1;
+  if (OL.phase === 'cfg'){ if (seat === OL.hostSeat) paintOnline(); return; }
+  if (OL.phase === 'play'){ olCall(seat); return; }
+  if (OL.phase === 'vote'){ if (OL.votes[seat] === undefined) olVote(seat, -1); return; }
+  if (OL.phase === 'guess' && OL.guessWho === seat){
+    clearTimeout(OL.timers.guess);
+    olVerdict('caught');
+    return;
+  }
+  if (OL.phase === 'verdict' && seat === OL.hostSeat) paintOnline();
+}
+
 P.online = P.online || {};
 P.online[GID] = {
   start: onlineStart, remote: onlineRemote, note: onlineNote, stop: onlineStop,
-  live: () => !!OL
+  live: () => !!OL,
+  hooks: { seatGone: olSeatGone }
 };
 
 /* ── the lobby contract (the same two halves gharraq ships) ──────── */

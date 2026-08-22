@@ -1286,6 +1286,32 @@ function finish(){
   if (won) ST.rec.w++; else if (draw) ST.rec.d++; else ST.rec.l++;
   persist();
 
+  /* ── THE PAY, exactly once, under the match id ────────────────────
+     IL-BALLUN finished on the podium and paid NOTHING — the podium
+     never calls P.ui.result, so the wrap progress.js hangs on it never
+     fired, offline or on. Pay here through KARTI_XP.awardPlay
+     (idempotent under the match id) and, online on a staked table,
+     settle the pot through mp.js's own idempotent door: one winner
+     takes it, a dead-level round sends every ante home. */
+  const MPX = window.KARTI_MP;
+  const staked = !!(M.net && MPX && MPX.MP && MPX.MP.stakeLive);
+  const mid = 'ballun:' + (M.net && MPX && MPX.MP && MPX.MP.code ? MPX.MP.code : 'local') +
+              ':' + (M.seed >>> 0);
+  let pay = null, potRes = null;
+  try {
+    if (window.KARTI_XP && KARTI_XP.awardPlay){
+      const r = KARTI_XP.awardPlay({ game:'ballun', won, draw, id: mid, ranked: staked });
+      if (r && r.counted) pay = r;
+    }
+  } catch(e){}
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('ballun', { result: won ? 'win' : (draw ? 'draw' : 'loss'), id: mid });
+  } catch(e){}
+  if (staked && MPX.stakeSettle){
+    try { potRes = MPX.stakeSettle(won ? 'win' : (draw ? 'draw' : 'lose')); } catch(e){}
+  }
+
   cue(won ? 'game.win' : (draw ? 'board.draw' : 'game.lose'), { gain:.8 }, true);
 
   const RB = window.KARTI_REBBIEH;
@@ -1320,6 +1346,15 @@ function finish(){
       title,
       subtitle: 'IL-BALLUN',
       rows,
+      xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                  before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+      reward: (pay || potRes) ? {
+        xp: pay ? pay.xp : 0,
+        chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+        wonBonus: pay ? pay.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       sound: id => cue(id, { gain:.6 }),
       playAgainLabel: T('Play again','Erġa\' lgħab'),
       onPlayAgain: () => { const o = M.opts, net = M.net; leave(); if (net) menu(); else startAI(o); },
@@ -1362,17 +1397,50 @@ const ONLINE_WHY = T(
   'jonqsu. Sa dakinhar, IL-BALLUN hu int kontra l-magna.');
 
 let moveSubs = [];
+/* ── THE CODEC, done here and published to the lobby below ──────────
+   The engine's encWire packed forTick into ONE byte ('k') and used two
+   field names the shared codec had never been told about — and this
+   lobby never published a `wire:{fields}` at all (bomba, serp and briks
+   all do), so mp.js fell back to TOMBLA's field list, toWire() refused
+   the very first 'tx', and the table was stopped with "a move would not
+   fit on the wire" seconds after the serve — every online round, always.
+   Both ends of the wire live in this file (sendMove / onlineRemote), so
+   the honest fix lives here too: bomba's proven shape — the tick spread
+   over three bytes l/h/g (24 bits ≈ days of play), the paddle position
+   over two (p/q), the bot flag in `on`. */
+const BL_WIRE_FIELDS = ['l', 'h', 'g', 'p', 'q', 'on'];
+function encWireX(mv){
+  if (!mv) return null;
+  const tk = mv.forTick | 0;
+  if (tk < 0 || tk > 0xFFFFFF) return null;
+  const base = { l: tk & 255, h: (tk >> 8) & 255, g: (tk >> 16) & 255 };
+  if (mv.t === 'bot') return Object.assign({ t:'bot', on: mv.on ? 1 : 0 }, base);
+  if (mv.t === 'tx'){
+    const x = Math.max(0, Math.min(0xFFFF, mv.tpos | 0));
+    return Object.assign({ t:'tx', p: (x >> 8) & 255, q: x & 255 }, base);
+  }
+  if (mv.t === 'bx') return Object.assign({ t:'bx' }, base);
+  return null;
+}
+function decWireX(w){
+  if (!w || typeof w.t !== 'string') return null;
+  const tk = (((w.g | 0) & 255) << 16) | (((w.h | 0) & 255) << 8) | ((w.l | 0) & 255);
+  if (w.t === 'bot') return { t:'bot', forTick: tk, on: (w.on | 0) ? 1 : 0 };
+  if (w.t === 'tx')  return { t:'tx',  forTick: tk, tpos: (((w.p | 0) & 255) << 8) | ((w.q | 0) & 255) };
+  if (w.t === 'bx')  return { t:'bx',  forTick: tk };
+  return null;
+}
 function sendMove(seat, mv){
   if (!M || !M.net) return;                    /* offline: nothing on the wire */
   const room = M.net.toRoom ? M.net.toRoom[seat] : seat;
-  const wire = E.encWire(mv);
+  const wire = encWireX(mv);
   if (!wire) return;
   for (const f of moveSubs){ try { f({ seat: room, move: wire, src:'me' }); } catch(e){} }
 }
 function onlineRemote(seat, wire){
   if (!M || M.dead || !M.net) return;
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
-  const mv = E.decWire(wire);
+  const mv = decWireX(wire);
   if (!mv || g === undefined) return;
   if (mv.t === 'bot'){ E.setBot(M.st, g, mv.on, mv.forTick); return; }
   if (mv.t === 'tx'){ E.commit(M.st, g, mv.forTick, mv.tpos); return; }
@@ -1530,6 +1598,10 @@ R.lobby = {
   id:'ballun', name:'Il-Ballun', mt:'Il-Ballun',
   minSeats: 2, maxSeats: 4,
   levels: LEVELS, defaultLevel: 2,
+  /* the published field list mp.js's codec carries — see encWireX above.
+     Without it the shared codec fell back to tombla's fields and refused
+     every ballun move on sight. */
+  wire: { fields: BL_WIRE_FIELDS },
   /* one variant per MODE. The relay only whitelists the word; the engine
      reads its meaning ('lives'|'timed') off the broadcast. Both modes seat
      the full 2..4 range. */

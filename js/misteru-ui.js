@@ -1100,10 +1100,52 @@ function podium(sol, v){
     return;
   }
   cue(v && v.tone === 'win' ? 'game.win' : 'game.lose', { gain:0.9 }, true);
+
+  /* ── THE PAY, exactly once, under the match id ────────────────────
+     The podium never calls P.ui.result, so the wrap progress.js hangs
+     on it never fires: pay here through KARTI_XP.awardPlay (idempotent
+     under the match id) and settle a staked pot through mp.js's own
+     idempotent door. A case with NO winner at all (reason 'nobody' —
+     every detective accused wrong and is out) is a finish with no
+     rebbieħ: nobody may take the pot, so every ante goes home through
+     stakeAbort — refusing to pay is recoverable, overpaying is not. */
+  const MPX = window.KARTI_MP;
+  const staked = !!(M.net && MPX && MPX.MP && MPX.MP.stakeLive);
+  const mid = 'misteru:' + (M.net && MPX && MPX.MP && MPX.MP.code ? MPX.MP.code : 'local') +
+              ':' + (M.seed >>> 0);
+  const iWon = !!(v && v.tone === 'win');
+  let pay = null;
+  if (window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const r = KARTI_XP.awardPlay({ game:'misteru', won: iWon, id: mid, ranked: staked });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('misteru', { result: iWon ? 'win' : 'loss', id: mid });
+  } catch(e){}
+  let potRes = null;
+  if (staked){
+    try {
+      if (winner < 0){ if (MPX.stakeAbort) MPX.stakeAbort(); }
+      else if (MPX.stakeSettle) potRes = MPX.stakeSettle(iWon ? 'win' : 'lose');
+    } catch(e){}
+  }
+
   show({
     title: head,
     subtitle: T('Case #' + st.caseId + ' — ' + TE(E.theCase(st).title), 'Każ #' + st.caseId + ' — ' + TE(E.theCase(st).title)),
     rows,
+    xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
     onPlayAgain: M.net ? null : () => setupSheet(),
     onLeave: back
   });
@@ -1384,7 +1426,25 @@ function hostBroadcast(mv, suggesterRoom){
   if (!w) return;
   if (w.t === 'sug') w.cd = 255;                 /* the shown card never rides the public wire */
   if (suggesterRoom != null) w.sg = suggesterRoom | 0;
-  NET.move('move', w);
+  /* FOLD ONTO THE {a,n,k} CODEC the wire actually speaks. A raw {t,…}
+     object went out here before, and every receiving phone's fromWire()
+     — which reads an action name in `a` and a field bitmask in `n` —
+     returned null and dropped it silently. So no host-refereed
+     suggestion or accusation ever reached the other phones: the host's
+     board moved, everybody else's sat waiting, and a finished case (and
+     its pot) existed on one phone only. Same fold L-ISPJUN's olSend
+     does, over this game's own published field list. */
+  const fields = E.WIRE_FIELDS.concat(['sg']);
+  let mask = 0; const vals = [];
+  fields.forEach((f, at) => {
+    const v = w[f];
+    if (v === undefined || v === null) return;
+    mask |= (1 << at);
+    vals.push(v === true ? 1 : v === false ? 0 : (Number(v) | 0));
+  });
+  const out = { a: w.t, n: mask };
+  if (vals.length) out.k = vals;
+  NET.move('move', out);
 }
 
 /* a move from another chair. ONLINE all shared moves are host-refereed and

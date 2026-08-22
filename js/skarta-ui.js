@@ -1134,6 +1134,47 @@ function tick() {
      if it played on, the engine would shut the window and a player who was
      reaching for the button would silently get away with it */
   if (ai && iDrive()) G.t = setTimeout(aiStep, PACE + windowLeft());
+  /* a chair the relay freed for good: EVERY phone plays it out locally,
+     identically — see goneStep() */
+  else if (!ai && G.net && NET && NET.gone && NET.gone[S.turn])
+    G.t = setTimeout(goneStep, PACE + windowLeft());
+}
+
+/* ── A CHAIR THE RELAY FREED MID-HAND ───────────────────────────────
+   Without this the turn parked on the empty chair forever: only that
+   phone may move for the chair, and it is not coming back. The fix is
+   a policy so simple every phone computes it identically with nothing
+   on the wire: the empty chair TAKES a chain owed to it, KEEPS a card
+   it just drew, and otherwise DRAWS ONE and says nothing. No AI, no
+   clock, no choice — the same three rules in the same order on every
+   phone, applied through the same engine gate as every other move,
+   with src 'net' so nothing is re-broadcast. The seat still gets
+   caught on LAST ONE like anybody else; it just never shouts. */
+function goneStep() {
+  if (!G || G.dead || !NET) return;
+  const S = G.S;
+  if (S.over) return;
+  const g = S.turn;
+  if (!NET.gone || !NET.gone[g] || E.isAI(S.players[g])) return;
+  let done = false;
+  if (S.chain && S.chain.n > 0) done = E.apply(S, g, { t: 'take' }, 'net').ok;
+  else if (S.pending && S.pending.type === 'drawn' && S.pending.pid === g)
+    done = E.apply(S, g, { t: 'pass' }, 'net').ok;
+  else {
+    /* play the FIRST card the engine accepts, in hand order — same hand,
+       same order, same answer on every phone. Choice-bearing cards refuse
+       themselves (a wild needs a suit, a Kaxxa needs a charge) and are
+       simply skipped: the empty chair never makes a choice, but it does
+       keep shedding, so a heads-up hand against it can still end. */
+    const hand = (S.players[g] && S.players[g].hand) || [];
+    for (let i = 0; i < hand.length && !done; i++)
+      done = E.apply(S, g, { t: 'play', uid: hand[i].uid }, 'net').ok;
+    if (!done) done = E.apply(S, g, { t: 'draw' }, 'net').ok;
+  }
+  void done;
+  render();
+  if (S.over) { showResult(); return; }
+  tick();
 }
 
 /* milliseconds still owed to a HUMAN sitting on one card and saying nothing */
@@ -1734,7 +1775,15 @@ function showResult() {
   clearTimeout(G.catchT); G.catchT = null;
   const w = S.over.winner;
   const humanWin = !E.isAI(S.players[w]);
-  const iWon = w === G.view || (G.humans === 1 && humanWin);
+  /* DID *I* WIN? Online it is MY CHAIR and nobody else's. The offline
+     shorthand below ("one human at this table, and a human won — that
+     is you") was also true on EVERY phone of an online room, where
+     humans is 1 by construction — so every phone crowned itself and,
+     on a staked table, every phone paid itself the WHOLE pot. Two
+     wallets up 115 chips from a 50-chip pot, caught by the pre-party
+     verification. Online asks the only honest question instead. */
+  const iWon = G.net ? (w === G.mySeat)
+                     : (w === G.view || (G.humans === 1 && humanWin));
   ST.rec[iWon ? 'w' : 'l']++; persist();
 
   /* ONE decision, up here, because the money follows the screen. On the
@@ -2105,6 +2154,20 @@ const HOOKS = {
     fn(w, { seat: (room == null ? info.seat : room), src: info.src });
   }),
   apply: (seat, wire) => onlineRemote(seat, wire),
+  /* a seat gone FOR GOOD (deliberate leave, or the relay freeing a
+     dropped chair): mark it and let goneStep() play it out — the same
+     deterministic draw-and-say-nothing on every phone, so the turn can
+     never park on an empty chair. */
+  seatGone: room => {
+    if (!G || G.dead || !NET || G.S.over) return;
+    const g = NET.toGame[room];
+    if (g === undefined || !G.S.players[g] || E.isAI(G.S.players[g])) return;
+    NET.gone = NET.gone || {};
+    if (NET.gone[g]) return;
+    NET.gone[g] = 1;
+    clearTimeout(G.t);
+    tick();
+  },
 };
 
 P.online = P.online || {};

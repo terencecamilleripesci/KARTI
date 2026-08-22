@@ -1506,6 +1506,13 @@ function finish(){
   const won = tbl.length && tbl[0].seat === M.me;
   const solo = !M.net;
 
+  /* Offline the old funnel stands: P.record is wrapped by progress.js
+     and pays as a side effect. ONLINE that funnel never fired — the
+     podium never calls P.ui.result either, so an online win paid
+     nothing. The online path pays itself through KARTI_XP.awardPlay,
+     exactly once under the match id, and settles a staked pot through
+     mp.js's own idempotent door (last snake standing takes it all). */
+  let pay = null, potRes = null;
   if (solo){
     const mine = tbl.find(r => r.seat === M.me);
     if (mine && mine.len > ST.best){ ST.best = mine.len; }
@@ -1517,6 +1524,31 @@ function finish(){
         KARTI_XP.finish({ game:'serp', result: won ? 'w' : 'l',
                           ms: Math.max(1, M.tick * st.step) });
     } catch(e){}
+  } else {
+    ST.rec[won ? 'w' : 'l']++;
+    persist();
+    const MPX = window.KARTI_MP;
+    const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+    const mid = 'serp:' + ((MPX && MPX.MP && MPX.MP.code) || 'room') + ':' + (M.seed >>> 0);
+    try {
+      if (window.KARTI_XP && KARTI_XP.awardPlay){
+        const r = KARTI_XP.awardPlay({
+          game:'serp', won, id: mid, ranked: staked,
+          ms: Math.max(1, M.tick * st.step)
+        });
+        if (r && r.counted) pay = r;
+      }
+    } catch(e){}
+    /* shelf badge with NO award attached — P.record is wrapped to pay,
+       and this match is already paid under its id */
+    try { if (P.tally) P.tally('serp', won ? 'w' : 'l'); } catch(e){}
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record('serp', { result: won ? 'win' : 'loss', id: mid });
+    } catch(e){}
+    if (staked && MPX.stakeSettle){
+      try { potRes = MPX.stakeSettle(won ? 'win' : 'lose'); } catch(e){}
+    }
   }
 
   if (tbl.length){
@@ -1525,12 +1557,12 @@ function finish(){
   }
 
   cue(won ? 'game.win' : 'game.lose', { gain:0.9 }, true);
-  setTimeout(() => { if (M && !M.dead) showResult(tbl, won); }, 640);
+  setTimeout(() => { if (M && !M.dead) showResult(tbl, won, pay, potRes); }, 640);
 }
 
 const REB_BORDER = ['jade', 'ruby', 'ice', 'gold', 'neon', 'fire', 'ice', 'silver'];
 
-function showResult(tbl, won){
+function showResult(tbl, won, pay, potRes){
   if (!M || !M.ctx) return;
   const solo = !M.net;
   const again = () => { if (M.net) rematchAsk(); else newGame(M.opts); };
@@ -1557,6 +1589,15 @@ function showResult(tbl, won){
           border: REB_BORDER[r.seat % REB_BORDER.length]
         };
       }),
+      xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                  before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+      reward: (pay || potRes) ? {
+        xp: pay ? pay.xp : 0,
+        chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+        wonBonus: pay ? pay.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       sound: id => cue(id, { gain:0.6 }),
       playAgainLabel: M.net ? T('Back to the room', 'Lura għall-kamra') : T('Play again', 'Erġa’ lgħab'),
       onPlayAgain: again,

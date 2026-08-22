@@ -3322,9 +3322,14 @@ function finish(){
   const draw2 = st.done && st.done.winner < 0;
   const solo = !M.net;
 
-  /* the record + XP, offline only. earnings() REPORTS; here is where
-     the UI decides to hand it to KARTI's economy — never in-match. */
-  let xp = null;
+  /* the record + XP. Offline the old funnel stands: P.record is wrapped
+     by progress.js and pays as a side effect. ONLINE that funnel never
+     fired — the podium never calls P.ui.result either, so an online win
+     paid nothing. The online path pays itself through KARTI_XP.awardPlay,
+     exactly once under the match id, and settles a staked pot through
+     mp.js's own idempotent door. earnings() REPORTS; here is where the
+     UI decides to hand it to KARTI's economy — never in-match. */
+  let xp = null, potRes = null;
   if (solo){
     ST.rec[draw2 ? 'd' : won ? 'w' : 'l']++;
     persist();
@@ -3335,16 +3340,46 @@ function finish(){
         KARTI_XP.finish({ game:'kanun', result: draw2 ? 'd' : won ? 'w' : 'l', ms: 1 });
       xp = { gained: earn.xp };
     } catch(e){}
+  } else {
+    ST.rec[draw2 ? 'd' : won ? 'w' : 'l']++;
+    persist();
+    const MPX = window.KARTI_MP;
+    const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+    const mid = 'kanun:' + ((MPX && MPX.MP && MPX.MP.code) || 'room') + ':' + (M.seed >>> 0);
+    let pay = null;
+    try {
+      if (window.KARTI_XP && KARTI_XP.awardPlay){
+        const r = KARTI_XP.awardPlay({
+          game:'kanun', won, draw: draw2, id: mid, ranked: staked });
+        if (r && r.counted) pay = r;
+      }
+    } catch(e){}
+    /* shelf badge, NO award attached (P.record is wrapped to pay) */
+    try { if (P.tally) P.tally('kanun', draw2 ? 'd' : won ? 'w' : 'l'); } catch(e){}
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record('kanun', {
+          result: won ? 'win' : (draw2 ? 'draw' : 'loss'), id: mid });
+    } catch(e){}
+    if (staked && MPX.stakeSettle){
+      try { potRes = MPX.stakeSettle(won ? 'win' : (draw2 ? 'draw' : 'lose')); } catch(e){}
+    }
+    if (pay){
+      xp = { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+             before: 0, after: pay.levelled ? 1 : 0.7 };
+      xp.pay = pay;                      /* the raw figures, for the reward block */
+    }
   }
   ST.save = null; persistNow();   /* the match is done; drop the autosave */
 
   cue(won ? 'game.win' : draw2 ? 'duel.draw' : 'game.lose', { gain:0.9 }, true);
-  setTimeout(() => { if (M && !M.dead) showResult(won, draw2, xp); }, 560);
+  setTimeout(() => { if (M && !M.dead) showResult(won, draw2, xp, potRes); }, 560);
 }
 
-function showResult(won, draw2, xp){
+function showResult(won, draw2, xp, potRes){
   if (!M) return;
   const st = M.st;
+  const pay = xp && xp.pay;
   /* two rows for the two castles, placed by who won */
   const meName = (M.meta[M.me] && M.meta[M.me].name) || T('You', 'Int');
   const foe = M.me === 0 ? 1 : 0;
@@ -3369,6 +3404,13 @@ function showResult(won, draw2, xp){
       subtitle: TP(st.done && st.done.why),
       rows,
       xp: xp,
+      reward: (pay || potRes) ? {
+        xp: pay ? pay.xp : 0,
+        chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+        wonBonus: pay ? pay.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       sound: id => cue(id, { gain:0.7 }, true),
       playAgainLabel: T('Again', 'Erġa\''),
       onPlayAgain: () => { if (M && M.net) rematchAsk(); else newGame(M.opts); },
