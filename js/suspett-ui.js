@@ -275,6 +275,16 @@ const GT_EXACT = {
   'Mhux ħin il-verdett.': 'It is not verdict time.',
   'L-akkużat ma jivvutax fuqu nnifsu.': 'The accused does not vote on himself.',
   'Mossa mhux magħrufa.': 'Unknown move.',
+  /* blind mode (online private deal) */
+  'Qed jitqassmu r-rwoli bil-moħbi…': 'The roles are being dealt in secret…',
+  'Mhux is-sebħ.': 'It is not dawn.',
+  'Ir-roster diġà tqassam.': 'The roster was already dealt.',
+  'Il-host biss iqassam.': 'Only the host deals.',
+  'Ir-rwol diġà magħruf.': 'That role is already known.',
+  'Mhux il-ħin tal-kxif.': 'It is not reveal time.',
+  'Dak ir-rwol mhux fil-borma.': 'That role is not in the pot.',
+  'Dak ir-rwol m’għadux fil-borma.': 'That role is no longer in the pot.',
+  'Diġà hemm sindku mikxuf.': 'A sindku has already revealed himself.',
   /* validateRoster, the fixed ones */
   'M’hemm ħadd li joqtol — logħba bla lejl mhix logħba.':
     'Nobody in this pot kills — a game with no night is no game.',
@@ -311,7 +321,10 @@ const GT_RX = [
   [/^Ir-roster irid ikun eżatt daqs il-plejers \((\d+)\)\.$/,
     m => 'The roster must be exactly the size of the table (' + m[1] + ').'],
   [/^Rwol mhux magħruf: (.+)$/, m => 'Unknown role: ' + m[1]],
-  [/^Wieħed biss jista’ jkun (.+)\.$/, m => 'Only one can be ' + m[1] + '.']
+  [/^Wieħed biss jista’ jkun (.+)\.$/, m => 'Only one can be ' + m[1] + '.'],
+  /* blind mode's own dawn line: "X kien Y." (lower-case kien — the
+     legacy reveal suffix uses capital Kien after a full stop) */
+  [/^(.+) kien (.+)\.$/, m => m[1] + ' was ' + m[2] + '.']
 ];
 function gameText(txt){
   if (isMT() || txt == null) return txt;
@@ -911,10 +924,19 @@ function screenRoot(){ try { return P.ui.screenEl(); } catch (e){ return null; }
 
 /* the private role card, rendered ONLY inside a secret sheet */
 function roleCardInto(host, G, seat){
-  const v = S.view(G, seat);
+  const blind = !!(U && U.blind);
+  const v = S.view(G, seat, blind ? U.priv : undefined);
   if (!v) return;
   const card = document.createElement('div');
   card.className = 'su-card';
+  if (!v.role){
+    /* blind: the relay's private deal has not landed yet */
+    card.innerHTML = '<h3>' + T('One moment…', 'Mument…') + '</h3><p>' +
+      T('The relay is dealing your role in secret. It arrives in a heartbeat.',
+        'Ir-relay qed iqassamlek ir-rwol bil-moħbi. Jasal f’tebqa t’għajn.') + '</p>';
+    host.appendChild(card);
+    return;
+  }
   const sideWord = v.role.side === 'rahal' ? T('WITH THE VILLAGE', 'MAR-RAĦAL') :
                    v.role.side === 'klikka' ? T('WITH THE KLIKKA', 'MAL-KLIKKA') :
                    T('FOR YOURSELF ALONE', 'GĦALIK WAĦDEK');
@@ -933,6 +955,15 @@ function roleCardInto(host, G, seat){
   if (v.mates.length)
     inner += '<div class="mate">' + T('Your people: ', 'Sħabek: ') +
       v.mates.map(m => esc(m.name) + ' (' + esc(m.role) + ')').join(', ') + '</div>';
+  /* blind: the mates came from the relay's group deal (seats only);
+     their card names arrive over their own whispers as they check in */
+  if (blind && (U.priv.mates || []).length && v.role.side === 'klikka')
+    inner += '<div class="mate">' + T('Your people: ', 'Sħabek: ') +
+      U.priv.mates.map(m => {
+        const r = U.mateRoles[m];
+        return esc(G.P[m] ? G.P[m].name : '?') +
+               (r && S.ROLES[r] ? ' (' + esc(S.ROLES[r].name) + ')' : '');
+      }).join(', ') + '</div>';
   if (v.mira)
     inner += '<div class="news">' + T('Your MIRA: ', 'Il-MIRA tiegħek: ') + esc(v.mira.name) +
       T('. Get them onto the planka.', '. Ġibha fuq il-planka.') + '</div>';
@@ -956,6 +987,10 @@ function roleCardInto(host, G, seat){
       'Is-sarima f’ħalqek: illum tivvota biss — la titkellem u lanqas tikteb fil-pjazza.') + '</div>';
   if (v.news)
     for (const nw of v.news) inner += '<div class="news">' + esc(newsLine(nw)) + '</div>';
+  /* blind: the whispered answers (in-Nanna's checks, il-Kappillan's
+     pairings) live in the private store, never in shared state */
+  if (blind && U.priv.news.length)
+    for (const nw of U.priv.news) inner += '<div class="news">' + esc(newsLine(nw)) + '</div>';
   card.innerHTML = inner;
   host.appendChild(card);
 }
@@ -1357,7 +1392,9 @@ function phaseName(G){
          G.phase === 'shot' ? T('THE SHOTGUN', 'IS-SENTER') :
          G.phase === 'day' ? T('THE PJAZZA — DAY ', 'IL-PJAZZA — JUM ') + G.night :
          G.phase === 'defence' ? T('THE DEFENCE', 'ID-DIFIŻA') :
-         G.phase === 'verdict' ? T('THE VERDICT', 'IL-VERDETT') : T('OVER', 'SPIĊĊAT');
+         G.phase === 'verdict' ? T('THE VERDICT', 'IL-VERDETT') :
+         G.phase === 'deal' ? T('THE DEAL', 'IT-TQASSIM') :
+         G.phase === 'dawn' ? T('DAWN', 'IS-SEBĦ') : T('OVER', 'SPIĊĊAT');
 }
 function render(){
   if (!U || !U.ctx) return;
@@ -1458,7 +1495,12 @@ function townHTML(G, mySeat){
       if (t >= 0) tally[t] = (tally[t] || 0) + (G.mayor === +k ? 2 : 1);
     }
   const anims = deathAnims(G);
-  const medium = G.P.some(p => p.alive && S.ROLES[p.role].seance);   /* public: only that a séance exists */
+  /* public: only that a séance exists. Blind: the roster says whether
+     Tal-Karti is in the pot; a revealed corpse says whether she is gone. */
+  const medium = G.blind
+    ? ((G.roster || []).indexOf('talkarti') >= 0 &&
+       !G.P.some(p => !p.alive && p.role === 'talkarti'))
+    : G.P.some(p => p.alive && S.ROLES[p.role].seance);
   const n = G.P.length;
   /* everything scales with the headcount so a small group is not lost and a big
      group (up to 16) never overlaps: smaller heads + a wider ring as n grows. */
@@ -1541,7 +1583,10 @@ function speakStripHTML(G, mySeat){
   const canTalk = silent ? [] : liv.filter(p => S.view(G, p.seat).speak);
   const gagged = silent ? [] : liv.filter(p => G.muted === p.seat);
   const dead = G.P.filter(p => !p.alive);
-  const medium = liv.find(p => S.ROLES[p.role].seance);
+  const medium = G.blind
+    ? ((G.roster || []).indexOf('talkarti') >= 0 &&
+       !G.P.some(p => !p.alive && p.role === 'talkarti'))
+    : liv.find(p => S.ROLES[p.role].seance);
   const nm = arr => arr.map(p => esc(p.name)).join(', ');
   const chips = [];
   if (silent){
@@ -1715,7 +1760,12 @@ function nightOpts(G, v, seat){
     if (v.role.id === 'tabib') return s !== G.lastProtect;
     if (v.role.id === 'surgent' && s === G.lastJail) return false;
     if (noSelf.indexOf(v.role.id) >= 0 && s === seat) return false;
-    if (v.role.side === 'klikka' && S.ROLES[G.P[s].role].side === 'klikka') return false;
+    if (v.role.side === 'klikka'){
+      /* not your own people — blind mode knows them from the relay's
+         group deal, the seeded deal from the roles themselves */
+      if (U && U.blind){ if ((U.priv.mates || []).indexOf(s) >= 0) return false; }
+      else if (S.ROLES[G.P[s].role].side === 'klikka') return false;
+    }
     return true;
   });
 }
@@ -1935,14 +1985,31 @@ function announce(mv, info){
    engine's real move name on the way in. The engine keeps its
    camelCase names untouched (pass-the-phone still uses them). */
 const NET_ACT_OUT = { nightEnd:'nend', dayEnd:'dend', defEnd:'fend',
-                      verdictEnd:'vend', shotEnd:'sxend' };
+                      verdictEnd:'vend', shotEnd:'sxend', dawnEnd:'wend' };
 const NET_ACT_IN  = { nend:'nightEnd', dend:'dayEnd', fend:'defEnd',
-                      vend:'verdictEnd', sxend:'shotEnd' };
+                      vend:'verdictEnd', sxend:'shotEnd', wend:'dawnEnd' };
 function toNet(mv){
   const w = { t: NET_ACT_OUT[mv.t] || mv.t };
   if (typeof mv.target === 'number' && mv.target >= 0) w.i = mv.target;
   if (typeof mv.target2 === 'number' && mv.target2 >= 0) w.c = mv.target2;
   if (mv.guilty !== undefined) w.v = !!mv.guilty;
+  /* blind mode: an EFFECT (never a role) rides `k` on a night move;
+     the {t:'iam'} reveal and the host's roster broadcast carry role
+     INDICES into the engine's fixed ROLE_IDS order — small ints, the
+     only thing the byte codec knows how to carry */
+  if (typeof mv.fx === 'string'){
+    const ix = S.FX.indexOf(mv.fx);
+    if (ix >= 0) w.k = ix;
+  }
+  if (typeof mv.role === 'string'){
+    const ix = S.ROLE_IDS.indexOf(mv.role);
+    if (ix >= 0) w.k = ix;
+  }
+  if (Array.isArray(mv.roster))
+    mv.roster.forEach((r, i) => {
+      const ix = S.ROLE_IDS.indexOf(r);
+      if (ix >= 0) w['r' + i] = ix;
+    });
   return w;
 }
 function fromNet(seat, d){
@@ -1951,6 +2018,16 @@ function fromNet(seat, d){
   mv.target = (typeof d.i === 'number') ? d.i : -1;
   mv.target2 = (typeof d.c === 'number') ? d.c : -1;
   if (d.v !== undefined) mv.guilty = !!d.v;
+  if (mv.t === 'night' && typeof d.k === 'number') mv.fx = S.FX[d.k];
+  if (mv.t === 'iam' && typeof d.k === 'number') mv.role = S.ROLE_IDS[d.k];
+  if (mv.t === 'rr' || mv.t === 'rs'){
+    const roster = [];
+    for (let i = 0; i < 8; i++){
+      if (typeof d['r' + i] !== 'number') break;
+      roster.push(S.ROLE_IDS[d['r' + i]]);
+    }
+    mv.roster = roster;
+  }
   return mv;
 }
 /* a local player action: apply, then put it on the wire */
@@ -1967,8 +2044,166 @@ function myAlive(){ return U && U.G.P[U.seat] ? U.G.P[U.seat].alive : true; }
 function afterNetApply(wasAlive){
   if (!U) return;
   if (wasAlive && !myAlive()) deathNotice();
+  blindPulse();
   syncPhaseClock();
   render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   BLIND MODE — the client-side half of the private deal.
+   The engine (js/suspett.js, createBlind) holds no living role; this
+   is everything a phone does with the one card it was told:
+
+     PLAN        set by planDeal when the HOST builds the pool for the
+                 relay — the same roster it broadcasts as {t:'rr'}, so
+                 the public multiset and the shuffled deal can never
+                 disagree.
+     onPrivate   the relay's {t:'mine'}: my role, and — through the
+                 item GROUPS — my klikka mates' seat numbers.
+     blindPulse  the automatic protocol: every living seat submits
+                 every night ('none' from sleepers, so the clock can
+                 close on moves); a corpse names itself the moment the
+                 dawn asks; a check target answers the asker over the
+                 relay's addressed whisper.
+     onWhisper   the private words coming back: check answers, a
+                 mate's role, Tal-Karti's séance announcement.
+   ═══════════════════════════════════════════════════════════════════ */
+let PLAN = null;
+function onPrivate(d, mates){
+  if (!U || U.mode !== 'net' || !U.blind) return;
+  const role = Array.isArray(d) ? d[0] : null;
+  if (typeof role !== 'string' || !S.ROLES[role]) return;
+  U.priv.role = role;
+  U.priv.mates = Array.isArray(mates)
+    ? mates.filter(m => typeof m === 'number').sort((a, b) => a - b) : [];
+  blindPulse();
+  render();
+}
+function blindPulse(){
+  if (!U || U.mode !== 'net' || !U.blind || !U.G) return;
+  const G = U.G, me = U.seat, priv = U.priv;
+  /* the host opens the pot: the roster multiset, the same list the
+     relay shuffled. Retried every tick until the engine takes it. */
+  if (G.phase === 'deal' && U.host && Array.isArray(U.plan) && !U.rrSent){
+    /* the codec carries eight roles per move: big tables in two chunks */
+    const ok1 = netAct({ t:'rr', seat: me, roster: U.plan.slice(0, 8) });
+    const ok2 = U.plan.length <= 8 ? true
+              : netAct({ t:'rs', seat: me, roster: U.plan.slice(8) });
+    if (ok1 && ok2) U.rrSent = true;
+  }
+  if (!priv.role) return;                 /* the deal has not reached us yet */
+  const meP = G.P[me];
+  if (!meP) return;
+  const R = S.ROLES[priv.role];
+  /* klikka: tell the mates the relay found for us WHICH card sits on
+     this chair — over the addressed whisper, mates only. That restores
+     the "Sħabek: A (Il-Kap), B…" card exactly as the seeded deal had it. */
+  if (!U.mateTold && R.side === 'klikka' && priv.mates.length && U.net && U.net.whisper){
+    U.mateTold = true;
+    for (const m of priv.mates) U.net.whisper(m, 'r:' + priv.role, 'suk');
+  }
+  /* Tal-Karti opens the séance line: the dead must learn WHICH seat to
+     address (the UI signs her as "Tal-Karti", never by name — the seat
+     number stays inside the wire's envelope) */
+  if (priv.role === 'talkarti' && meP.alive && U.net && U.net.whisper &&
+      (G.phase === 'night' || G.phase === 'shot')){
+    const key = 's' + G.night;
+    if (!U.susSent[key]){
+      U.susSent[key] = 1;
+      for (const p of G.P) if (!p.alive) U.net.whisper(p.seat, 's', 'sus');
+    }
+  }
+  /* every living seat speaks every night: real actors by hand, the
+     thorn by reflex, everyone else 'none' — the night then closes on
+     moves, and the wire learns nothing from a sleeper */
+  if (G.phase === 'night' && meP.alive && G.nacts[me] === undefined){
+    if (priv.role === 'xewka'){
+      netAct({ t:'night', seat: me, fx:'thorn', target: -1, target2: -1 });
+    } else {
+      const v = S.view(G, me, priv);
+      if (v && !v.canAct) netAct({ t:'night', seat: me, fx:'none', target: -1, target2: -1 });
+    }
+  }
+  /* the host closes the night the moment the whole village has spoken */
+  if (G.phase === 'night' && U.host &&
+      !S.alive(G).some(p => G.nacts[p.seat] === undefined)){
+    netAct({ t:'nightEnd', seat: me });
+  }
+  /* the reveal: mine, the moment it is owed — at my own dawn, or at
+     the endgame honours board */
+  if (!U.iamSent){
+    const owe = (G.pendingReveal && G.pendingReveal.indexOf(me) >= 0) ||
+                (G.over && !G.P[me].role);
+    if (owe && netAct({ t:'iam', seat: me, role: priv.role })) U.iamSent = true;
+  }
+  /* the whisper answers: a check landed on ME tonight — only this
+     phone knows how this chair reads, and only the asker may hear it.
+     The painted read comes from the resolved night (G.chk.painted). */
+  const C = G.chk;
+  if (C && C.list && U.net && U.net.whisper){
+    for (const c of C.list){
+      if (c.by === me) continue;
+      if (c.seat !== me && c.seat2 !== me) continue;
+      const key = 'a' + C.night + ':' + c.by;
+      if (U.ansSent[key]) continue;
+      U.ansSent[key] = 1;
+      const suspect = (C.painted === me) ||
+                      (R.side === 'klikka' && priv.role !== 'kap');
+      U.net.whisper(c.by, C.night + ':' + c.kind + ':' + (suspect ? 1 : 0), 'sua');
+    }
+  }
+  /* my own checks this night: remember what I asked, so the answers
+     have something to land on */
+  if (C && C.night !== U.chkSeen){
+    U.chkSeen = C.night;
+    for (const c of C.list)
+      if (c.by === me)
+        U.waitAns[C.night] = { kind: c.kind, seat: c.seat, seat2: c.seat2, bits: {} };
+  }
+}
+function onWhisper(from, x, ch){
+  if (!U || U.mode !== 'net' || !U.blind) return;
+  const G = U.G;
+  x = String(x || '');
+  if (ch === 'sua'){
+    /* a check answer: night:kind:bit — accepted only from the very
+       seat I asked about, for a question I actually asked */
+    const m = /^(\d+):(nanna|kappillan):([01])$/.exec(x);
+    if (!m) return;
+    const night = +m[1], kind = m[2], bit = +m[3];
+    const w = U.waitAns[night];
+    if (!w || w.kind !== kind) return;
+    if (from !== w.seat && from !== w.seat2) return;
+    if (w.bits[from] !== undefined) return;
+    w.bits[from] = bit;
+    if (kind === 'nanna'){
+      U.priv.news.push({ kind:'nanna', night: night,
+        seat: w.seat, name: G.P[w.seat].name, clean: !bit });
+      sfx('ui.note'); render();
+    } else if (w.bits[w.seat] !== undefined && w.bits[w.seat2] !== undefined){
+      U.priv.news.push({ kind:'kappillan', night: night,
+        seat: w.seat, name: G.P[w.seat].name,
+        seat2: w.seat2, name2: G.P[w.seat2].name,
+        same: w.bits[w.seat] === w.bits[w.seat2] });
+      sfx('ui.note'); render();
+    }
+    return;
+  }
+  if (ch === 'suk'){
+    /* a klikka mate names its card — mates the relay itself paired us with */
+    const m = /^r:([a-z]+)$/.exec(x);
+    if (!m || !S.ROLES[m[1]]) return;
+    if ((U.priv.mates || []).indexOf(from) < 0) return;
+    U.mateRoles[from] = m[1];
+    render();
+    return;
+  }
+  if (ch === 'sus'){
+    /* Tal-Karti's séance line, announced to the dead only */
+    if (!G.P[U.seat] || G.P[U.seat].alive) return;
+    if (typeof from === 'number' && G.P[from] && G.P[from].alive) U.priv.seance = from;
+    return;
+  }
 }
 
 function onlineStart(cfg){
@@ -1986,7 +2221,7 @@ function onlineStart(cfg){
   const rawMode = op.mode || '';
   const hushed = /_hushed$/.test(rawMode);                 /* the day is spoken out loud */
   const md = S.MODES.find(m => m.id === rawMode.replace('_hushed', ''));
-  const G = S.create({
+  const gopt = {
     players: names, seed: (cfg.seed >>> 0) || 1, bots: bots,
     pool: md ? md.pool : null,
     revealRoles: op.reveal !== false,
@@ -1994,17 +2229,36 @@ function onlineStart(cfg){
        opts.dayChat wins; otherwise the '_hushed' variant suffix decides. */
     dayChat: (op.dayChat !== undefined) ? (op.dayChat !== false) : !hushed,
     dayTimer: [180, 240, 300, 420].indexOf(op.dayT) >= 0 ? op.dayT : 240
-  });
+  };
+  /* THE BLIND DEAL — a real relay room with no machine chairs runs the
+     private-deal engine: the relay shuffled the roster with ITS OWN
+     entropy at start and told each phone only its own card (planDeal /
+     {t:'mine'} in js/mp.js), so the shared state never holds a living
+     role. The decision is byte-uniform across phones: every phone sees
+     the same cfg.seats and the same cfg.net presence.
+     Machine chairs fall back to the legacy seeded deal on every phone —
+     a blindly-dealt bot could be handed a kill nobody plays. */
+  const blind = !!cfg.net && bots.length === 0;
+  const G = blind ? S.createBlind(gopt) : S.create(gopt);
   U = { mode:'net', G, names, seat: cfg.you | 0, host: (cfg.host | 0) === (cfg.you | 0) || cfg.you === 0,
         net: cfg.net || null, ctx:null,
         chat: { cap: null, active:'pjazza', chans:{}, unread:{} },
-        deadline: 0, clock: 0, wsGuard: 0, unwrap: null, ackDead: false };
+        deadline: 0, clock: 0, wsGuard: 0, unwrap: null, ackDead: false,
+        /* blind runtime: the private store this phone is entitled to */
+        blind: blind,
+        priv: { seat: cfg.you | 0, role: null, mates: [], seance: -1, news: [] },
+        mateRoles: {},          /* mate seat -> role id, whispered by them  */
+        waitAns: {},            /* night -> pending check answers (mine)    */
+        ansSent: {}, susSent: {}, chkSeen: 0, iamSent: false, rrSent: false,
+        plan: PLAN };
+  PLAN = null;                  /* one plan, one game */
   board();
   chatProbe();
   wsWrap();
   U.wsGuard = setInterval(wsWrap, 2500);
   syncPhaseClock(true);
   U.clock = setInterval(tickClock, 1000);
+  blindPulse();
   render();
   sfx('amb.kazin');
   return { ok: true };
@@ -2042,7 +2296,11 @@ function phaseSeconds(G){
          G.phase === 'day' ? G.opt.dayTimer :
          G.phase === 'defence' ? 45 :
          G.phase === 'verdict' ? 40 :
-         G.phase === 'shot' ? 30 : 0;
+         G.phase === 'shot' ? 30 :
+         /* the dawn normally closes itself in well under a second (every
+            corpse's phone answers {t:'iam'} by reflex) — the 25s clock is
+            the escape hatch for a phone that left the room mid-night */
+         G.phase === 'dawn' ? 25 : 0;
 }
 function syncPhaseClock(first){
   if (!U || U.mode !== 'net') return;
@@ -2067,9 +2325,13 @@ function tickClock(){
     const G = U.G;
     const end = G.phase === 'night' ? 'nightEnd' : G.phase === 'day' ? 'dayEnd' :
                 G.phase === 'defence' ? 'defEnd' : G.phase === 'verdict' ? 'verdictEnd' :
-                G.phase === 'shot' ? 'shotEnd' : null;
+                G.phase === 'shot' ? 'shotEnd' :
+                (G.phase === 'dawn' && U.blind) ? 'dawnEnd' : null;
     if (end) netAct({ t: end, seat: U.seat });
   }
+  /* the blind protocol breathes on the same second-hand: auto-'none',
+     the host's early night close, owed reveals, whisper answers */
+  blindPulse();
 }
 function fmtClock(s){ return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
 
@@ -2129,11 +2391,11 @@ function chatSend(text){
   text = String(text || '').trim().slice(0, 240);
   if (!text) return;
   const ch = U.chat.active;
-  if (!S.chanWrite(U.G, U.seat, ch)){
+  if (!S.chanWrite(U.G, U.seat, ch, U.blind ? U.priv : undefined)){
     toast(T('This channel is closed to you right now.', 'Dan il-kanal magħluq għalik bħalissa.')); return; }
   if (U.chat.cap === false){
     toast(T('The relay has no chat yet — see the notice.', 'Ir-relay għad m’għandux chat — ara l-avviż.')); return; }
-  const to = S.chanReaders(U.G, ch).filter(s => s !== U.seat);
+  const to = S.chanReaders(U.G, ch, U.blind ? U.priv : undefined).filter(s => s !== U.seat);
   const MP = window.KARTI_MP && KARTI_MP.MP;
   if (MP && MP.ws && MP.ws.readyState === 1){
     try { MP.ws.send(JSON.stringify({ t:'chat', ch: ch, x: text, to: to })); } catch (e){}
@@ -2148,7 +2410,7 @@ function chatIn(m){
   /* the engine is the authority on whether WE may read this channel;
      a frame that slips through for a channel we cannot read is dropped
      (belt to the server's braces) */
-  if (!S.channels(U.G, U.seat).some(c => c.id === ch && c.read)) return;
+  if (!S.channels(U.G, U.seat, U.blind ? U.priv : undefined).some(c => c.id === ch && c.read)) return;
   chatPush(ch, s, String(m.x || '').slice(0, 240), false);
   if (ch !== U.chat.active) U.chat.unread[ch] = (U.chat.unread[ch] || 0) + 1;
   sfx('ui.note');
@@ -2187,8 +2449,8 @@ function cannedFor(ch, phase){
 function renderNet(){
   const G = U.G;
   const w = U.ctx.wrap;
-  const v = S.view(G, U.seat);
-  const chans = S.channels(G, U.seat);
+  const v = S.view(G, U.seat, U.blind ? U.priv : undefined);
+  const chans = S.channels(G, U.seat, U.blind ? U.priv : undefined);
   if (!chans.some(c => c.id === U.chat.active)) U.chat.active = chans[0].id;
   const active = chans.find(c => c.id === U.chat.active);
   const msgs = U.chat.chans[active.id] || [];
@@ -2206,6 +2468,19 @@ function renderNet(){
       'Dan ir-relay għad ma jafx bil-chat privata — il-kanali ' +
       'mitfija. Il-logħba xorta timxi (l-azzjonijiet jgħaddu), imma aġġornaw is-server biex ' +
       'il-klikka u l-mejtin ikollhom fejn jiktbu.') + '</div>';
+  /* blind mode's two waiting moments, said out loud rather than left
+     as a mystery: the relay dealing the cards, and the dawn waiting
+     for the night's corpses to name themselves */
+  if (U.blind && (G.phase === 'deal' || !U.priv.role) && !G.over)
+    html += '<div class="su-net-banner full">' + T(
+      'The relay is dealing the roles in secret — your card is on its way. ' +
+      'No phone (not even the host) knows anybody else’s.',
+      'Ir-relay qed iqassam ir-rwoli bil-moħbi — il-karta tiegħek ġejja. ' +
+      'L-ebda telefon (lanqas il-host) ma jaf ta’ ħaddieħor.') + '</div>';
+  else if (U.blind && G.phase === 'dawn')
+    html += '<div class="su-net-banner full">' + T(
+      'Dawn — the night’s dead are revealing who they were…',
+      'Is-sebħ — il-mejtin tal-lejl qed jikxfu min kienu…') + '</div>';
   html += townHTML(G, U.seat) + speakStripHTML(G, U.seat) +
     '<div class="su-mid">' + logHTML(G, 4) +
     (active.id === 'mejtin'
@@ -2321,12 +2596,16 @@ function netNightSheet(v){
       if (v.role.two && first < 0){ first = s; btn.classList.add('on'); return; }
       const mv = { t:'night', seat: U.seat, target: v.role.two ? first : s };
       if (v.role.two) mv.target2 = s;
+      /* blind: the wire carries the EFFECT of this card, never the card */
+      if (U.blind) mv.fx = S.ROLE_FX[v.role.id] || 'none';
       hideSecret();
       netAct(mv);
     });
   }, { closeLabel: T('Sleep (nothing tonight)', 'Orqod (xejn illejla)'), onClose: () => {
-    if (U.G.acts[U.seat] === undefined && U.G.phase === 'night')
-      netAct({ t:'night', seat: U.seat, target: -1, target2: -1 });
+    const done = U.blind ? U.G.nacts[U.seat] !== undefined : U.G.acts[U.seat] !== undefined;
+    if (!done && U.G.phase === 'night')
+      netAct(U.blind ? { t:'night', seat: U.seat, fx:'none', target: -1, target2: -1 }
+                     : { t:'night', seat: U.seat, target: -1, target2: -1 });
   } });
 }
 function netVoteSheet(v){
@@ -2358,6 +2637,20 @@ function netVoteSheet(v){
 function showResult(){
   const G = U.G;
   if (U.resultShown) return;
+  /* blind: the honours board waits for the endgame reveals — every
+     phone is publishing its own {t:'iam'} right now (blindPulse). Hold
+     the curtain a few beats so the board opens COMPLETE; open anyway
+     after the grace so a walked-away phone cannot hold the ending. */
+  if (U.blind && G.P.some(p => !p.role && !p.roleLost)){
+    if (!U.resultWaitAt) U.resultWaitAt = Date.now();
+    if (Date.now() - U.resultWaitAt < 6000){
+      if (!U.resultTimer)
+        U.resultTimer = setTimeout(() => {
+          if (U){ U.resultTimer = 0; if (U.G && U.G.over) showResult(); }
+        }, 900);
+      return;
+    }
+  }
   U.resultShown = true;
   clearSlot();
   const winners = (G.winners || []).map(s => G.P[s].name).join(', ');
@@ -2385,7 +2678,8 @@ function showResultRaw(root, tone, head, why, back, G){
   if (G){
     roles = '<div style="max-height:34vh;overflow-y:auto;font-size:12.5px;line-height:1.7">' +
       G.P.map(p => '<div>' + esc(p.name) + ' — <b style="color:var(--gold)">' +
-        esc(S.ROLES[p.role].name) + '</b>' + (p.alive ? '' : T(' (dead)', ' (mejjet)')) + '</div>').join('') + '</div>';
+        esc(p.role && S.ROLES[p.role] ? S.ROLES[p.role].name : '?') + '</b>' +
+        (p.alive ? '' : T(' (dead)', ' (mejjet)')) + '</div>').join('') + '</div>';
   }
   d.innerHTML = '<h2 style="color:' + (tone === 'rahal' ? '#3DDC84' : tone === 'klikka' ? '#FF7A6B' : '#C9B4FF') +
     '">' + esc(head) + '</h2><p>' + esc(why || '') + '</p>' + roles;
@@ -2512,9 +2806,14 @@ const LOBBY = {
     return onlineStart({ seats: seatList, seed: opts && opts.seed, you: 0, host: 0, net: null,
                          opts: opts || {} });
   },
-  /* published for honesty, though mp.js reads its tombla fallback —
-     these are a subset of it, so both agree byte for byte */
-  wire: { fields: ['s', 'v', 'k', 'n', 'c', 'i', 'p', 'to'] },
+  /* the byte codec's field list. The first eight mirror the tombla
+     fallback; r0..r7 carry the blind roster broadcast ({t:'rr'} and
+     its overflow chunk {t:'rs'}) — one role INDEX per slot, each a
+     bounded small int like every other field. Sixteen fields keeps
+     every possible bitmask under the relay's bound; a sixteen-seat
+     roster simply rides as two moves. gameLobby() prefers this list. */
+  wire: { fields: ['s', 'v', 'k', 'n', 'c', 'i', 'p', 'to',
+                   'r0', 'r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'] },
   takeback: false
 };
 
@@ -2525,7 +2824,36 @@ P.online.suspett = {
   note: onlineNote,
   stop: onlineStop,
   live: () => !!(U && U.mode === 'net'),
-  hooks: { onMove: subOnMove }
+  /* THE PRIVATE DEAL (js/mp.js startDeal → the relay's {t:'mine'}).
+     The pool is the ROSTER — one item per seat, the klikka-side items
+     sharing group 'k' so the klikka learn each other's SEATS from the
+     relay and nothing else. The relay shuffles with its own entropy:
+     the host that built this list never learns who was handed what.
+     The same list is broadcast as the public multiset ({t:'rr'}), so
+     the deal and the referee can never disagree.
+     Il-Vendetta is filtered out: his mira needs a picker who knows the
+     sides, and blind mode's whole point is that nobody does. */
+  planDeal(opts){
+    try {
+      const n = (opts && opts.seats) | 0;
+      if (n < 5 || n > 16) return null;
+      const raw = String((opts && opts.variant) || '');
+      const md = S.MODES.find(m => m.id === raw.replace('_hushed', '')) || S.MODES[0];
+      const pool = md.pool.filter(r => r !== 'vendetta');
+      /* host entropy for VARIETY of the multiset only — which roles
+         are in tonight's pot. Who HOLDS them is the relay's shuffle,
+         which this seed never touches. */
+      const seed = (Math.random() * 0xFFFFFFFF) >>> 0;
+      const roster = S.rosterFromPool(n, pool, seed);
+      if (!S.validateRoster(roster, n).ok) return null;
+      PLAN = roster.slice();
+      return {
+        items: roster.map(r => S.ROLES[r].side === 'klikka' ? { v: r, g: 'k' } : r),
+        each: 1
+      };
+    } catch (e){ return null; }
+  },
+  hooks: { onMove: subOnMove, private: onPrivate, whisper: onWhisper }
 };
 
 window.KARTI_SUSPETT = { open: menu, engine: S, lobby: LOBBY, ui: { menu, board } };
@@ -2570,7 +2898,9 @@ try {
       U: () => U, ST: () => ST,
       menu, openPNP, onlineStart, onlineRemote, netAct, render,
       showSecret, hideSecret, secretOpen: () => secretOpen,
-      chatIn, chatSend, deathNotice, curtainless: true
+      chatIn, chatSend, deathNotice, curtainless: true,
+      /* blind-mode probes for the harness */
+      blindPulse, onPrivate, onWhisper, planDeal: () => PLAN
     };
   }
 } catch (e){}

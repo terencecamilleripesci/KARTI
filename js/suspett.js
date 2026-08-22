@@ -506,6 +506,343 @@ const SETUPS = {};
 for (let i = 5; i <= 16; i++) SETUPS[i] = rosterFromPool(i, null);
 
 /* ═══════════════════════════════════════════════════════════════════
+   BLIND MODE — the online game where NO phone knows the whole deal.
+   ───────────────────────────────────────────────────────────────────
+   The seeded shuffle above deals every phone the same hand from the
+   broadcast seed, which means every phone HOLDS every role — secrecy
+   by politeness, and one devtools console away from none at all. The
+   relay already knows how to fix that (js/mp.js planDeal / {t:'mine'}):
+   it shuffles a pool with ITS OWN entropy and tells each seat only its
+   own role. Not even the host learns who got what; the klikka find
+   each other through the relay's item GROUPS (seats holding items of
+   the same group are told each other's SEAT NUMBERS and nothing else).
+
+   But a lockstep engine that no longer knows the roles cannot resolve
+   the night the old way. So in blind mode:
+
+     - the shared state G carries NO living player's role. G.roster is
+       the public MULTISET of roles in the game (what is in the pot,
+       never who holds it), broadcast by the host as the same list it
+       gave the relay to shuffle.
+     - a night action goes on the wire as an EFFECT from the fixed
+       vocabulary below plus a target — never a role id. At nightEnd
+       the engine maps each declared effect onto a temporary pseudo-
+       role, runs the ONE tested resolution core (resolveNightCore),
+       and puts the state back. The night semantics therefore cannot
+       drift from the pass-the-phone game, because they are the same
+       function.
+     - what a role LEARNS about another role's side (in-Nanna's check,
+       il-Kappillan's pairing) cannot be computed by an engine that
+       does not know sides. Those results are answered OFF the shared
+       state, by the TARGET's own client, over the relay's addressed
+       whisper — see G.chk, which publishes only who asked about whom
+       (already public: the actions rode the wire) and never the
+       answer.
+     - a role surfaces exactly where the rules surface it: a corpse's
+       own client publishes {t:'iam'} at dawn (the obituary), and
+       every client publishes it at the endgame reveal. The engine
+       holds the dawn in a 'dawn' phase until the night's corpses have
+       spoken, because the win conditions and the Kaċċatur's last shot
+       genuinely depend on who the dead were.
+     - win conditions are computed from public arithmetic: klikka
+       still alive = klikka seats in the roster minus klikka corpses
+       already revealed. Exact, because every corpse reveals.
+
+   What this buys and what it does not: a passive wire-reader no
+   longer gets the deal (there is nothing to derive it from), but an
+   ACTING role tells the wire its ability the night it acts, and a
+   modified client can LIE — declare an effect it was never dealt, or
+   answer a check falsely. Every lie is bounded by the public roster
+   multiset (an effect whose role is not in the pot, or already on a
+   revealed corpse, is refused by every honest engine), and the
+   endgame reveal makes a stolen role collide with the real one. That
+   is a far smaller attack than "open the console, read the village",
+   and it is the honest limit of a serverless design.
+
+   Il-Vendetta sits blind mode out: his mira is a seeded pick among
+   VILLAGE seats, and in a game where no phone knows the sides there
+   is nobody who can pick it without learning or leaking. The online
+   pool simply excludes him (planDeal filters), exactly like a role
+   the table is too small for.
+   ═══════════════════════════════════════════════════════════════════ */
+const ROLE_IDS = Object.keys(ROLES);   /* fixed wire order — same build everywhere */
+/* the effect vocabulary — what a night action IS, with the role name
+   kept off the wire. For a unique role the mapping is of course
+   reversible by anyone reading the wire; the point is that a role
+   which has not acted (and every passive role, and the whole deal at
+   start) has told the wire nothing. */
+const FX_ROLE = {
+  block:'barman', jail:'surgent', hide:'kuntrabandist', protect:'tabib',
+  guard:'talbieb', frame:'pittur', gag:'sarima', kkill:'klikka',
+  knife:'biccier', shoot:'tarronda', vial:'velenu', check:'nanna',
+  pair:'kappillan', watch:'ghassies', trail:'xummiemu', dig:'haffier',
+  thorn:'xewka'
+};
+const FX = ['none'].concat(Object.keys(FX_ROLE));   /* wire ints, 'none' = 0 */
+/* role -> the effect it declares (il-Kap joins the klikka kill) */
+const ROLE_FX = {};
+for (const f in FX_ROLE) ROLE_FX[FX_ROLE[f]] = f;
+ROLE_FX.kap = 'kkill';
+
+function createBlind(o){
+  const names = o.players || [];
+  const G = {
+    v: 1, blind: true, seed: (o.seed >>> 0) || 1, rndN: 64, bots: [],
+    opt: {
+      revealRoles: o.revealRoles !== false,
+      dayChat: o.dayChat !== false,
+      dayTimer:  clampInt(o.dayTimer, 60, 900, 240),
+      nightTimer: clampInt(o.nightTimer, 30, 300, 90)
+    },
+    /* 'deal' waits for two things that arrive right after the start:
+       the host's roster broadcast ({t:'rr'}/{t:'rs'}) into the shared
+       state, and this seat's own role ({t:'mine'}) into the private store */
+    phase: 'deal', night: 1, roster: null, rosterPart: null,
+    P: names.map((nm, i) => ({
+      seat: i, name: String(nm || ('Plejer ' + (i + 1))).slice(0, 24),
+      role: null, alive: true, diedOn: '', revealed: false, converted: false
+    })),
+    acts: {}, acts2: {},
+    nacts: {},           /* seat -> {f:effect, t, t2} this night          */
+    hideLeft: 2, lastProtect: -1, lastJail: -1,
+    rondaShots: 2, rondaGuilt: false,
+    rondaSeat: -1,       /* public since his first shot rode the wire    */
+    guiltWait: -1,       /* tonight's ronda victim: guilt waits for iam  */
+    poison: null, muted: -1, mayor: -1,
+    mira: -1, miraDone: false,       /* vendetta never dealt blind       */
+    votes: {}, accused: -1, verdict: {},
+    shotQueue: [], shotBack: '',
+    shotPend: [],        /* revealed dead kaċċaturi owed a shot          */
+    pendingReveal: [],   /* corpses the dawn is still waiting to name    */
+    dawnNamed: [],       /* reveals collected this dawn, logged sorted   */
+    revealBack: '',      /* where the dawn resumes: 'day' | 'night'      */
+    chk: null,           /* {night, painted, list:[{by,kind,seat,seat2}]} */
+    news: {}, log: [], winner: null, winners: [], over: false
+  };
+  logAdd(G, 'Qed jitqassmu r-rwoli bil-moħbi' + String.fromCharCode(8230));
+  return G;
+}
+
+/* how many copies of a role are still HIDDEN — the roster multiset
+   minus every seat whose role is already pinned (revealed corpses,
+   a revealed sindku). The referee for every effect and every iam. */
+function rosterLeft(G){
+  const left = {};
+  for (const r of (G.roster || [])) left[r] = (left[r] || 0) + 1;
+  for (const p of G.P) if (p.role) left[p.role] = (left[p.role] || 0) - 1;
+  return left;
+}
+
+/* a blind night action: an EFFECT plus a target, referee'd against
+   public state only. Role-shaped rules the engine cannot see (the
+   klikka not knifing its own) are enforced by the actor's own honest
+   client; a lie here is bounded by the multiset and by the dedupe in
+   resolveNightBlind. */
+function blindNight(G, mv){
+  const no = why => ({ ok:false, why:why });
+  if (G.phase !== 'night') return no('Mhux il-lejl.');
+  const p = G.P[mv.seat];
+  if (!p || !p.alive) return no('Il-mejtin ma jagħmlu xejn.');
+  let fx = String(mv.fx || 'none');
+  if (FX.indexOf(fx) < 0) return no('Mossa mhux magħrufa.');
+  const int = v => (typeof v === 'number' && isFinite(v)) ? Math.floor(v) : -1;
+  let tgt = int(mv.target);
+  let tgt2 = int(mv.target2);
+  /* skipping the night is the same declaration as having nothing to
+     declare — the wire learns nothing from a sleeper */
+  if (fx !== 'none' && fx !== 'thorn' && tgt === -1) fx = 'none';
+  if (fx === 'none' || fx === 'thorn'){
+    G.nacts[p.seat] = { f: fx, t: -1, t2: -1 };
+    return { ok:true };
+  }
+  const role = FX_ROLE[fx];
+  if ((rosterLeft(G)[role] || 0) <= 0 && !(fx === 'kkill' && (rosterLeft(G).kap || 0) > 0))
+    return no('Dak ir-rwol mhux fil-borma.');
+  const q = G.P[tgt];
+  if (!q) return no('Dik il-persuna mhix fil-logħba.');
+  if (fx === 'dig'){
+    if (q.alive) return no('Il-Ħaffier jeżamina l-MEJTIN biss.');
+  } else if (!q.alive) return no('Dik il-persuna mhix fil-logħba.');
+  if (fx === 'protect' && tgt === G.lastProtect) return no('Mhux l-istess persuna żewġt iljieli.');
+  if (fx === 'jail' && tgt === G.lastJail) return no('Mhux l-istess ċella żewġt iljieli.');
+  if (fx === 'hide'){
+    if (tgt !== p.seat) return no('Il-Kuntrabandist jistaħba hu biss.');
+    if (G.hideLeft <= 0) return no('M’għandekx aktar moħbi.');
+  }
+  if (fx === 'shoot'){
+    if (G.rondaGuilt) return no('Il-kuxjenza ma tħallikx toħroġ illejla.');
+    if ((G.rondaShots | 0) <= 0) return no('M’għandekx aktar tiri.');
+  }
+  if (fx === 'vial' && G.poison) return no('Il-velenu l-ieħor għadu jaħdem — stenna.');
+  if (fx !== 'protect' && fx !== 'hide' && fx !== 'dig' && tgt === p.seat)
+    return no('Le, mhux lilek innifsek.');
+  if (fx === 'pair'){
+    if (tgt2 === -1) return no('Il-Kappillan iqabbel TNEJN.');
+    const q2 = G.P[tgt2];
+    if (!q2 || !q2.alive) return no('It-tieni persuna mhix fil-logħba.');
+    if (tgt2 === tgt) return no('Tnejn differenti.');
+    if (tgt === p.seat || tgt2 === p.seat) return no('Int taf min int.');
+  } else {
+    tgt2 = -1;
+  }
+  G.nacts[p.seat] = { f: fx, t: tgt, t2: tgt2 };
+  return { ok:true };
+}
+
+/* nightEnd, blind: map the declared effects onto TEMPORARY pseudo-
+   roles, run the one tested resolution core, and put the state back.
+   Deduping is deterministic (lowest seat wins a unique role's effect;
+   the klikka kill takes at most as many pickers as the roster still
+   hides killers), so every phone that holds the same nacts map — and
+   they all do, it rode the wire — resolves the identical night. */
+function resolveNightBlind(G){
+  const keep = G.P.map(p => p.role);
+  const left = rosterLeft(G);
+  const take = {};
+  const free = r => (left[r] || 0) - (take[r] || 0) > 0;
+  for (const p of G.P) if (!p.role) p.role = 'rahli';
+  G.acts = {}; G.acts2 = {};
+  const seats = Object.keys(G.nacts).map(Number).sort((a, b) => a - b);
+  /* the klikka kill may take one picker per hidden killer seat */
+  let kkLeft = (left.klikka || 0) + (left.kap || 0);
+  for (const s of seats){
+    const e = G.nacts[s];
+    const p = G.P[s];
+    if (!p || !p.alive) continue;
+    if (e.f === 'none'){ G.acts[s] = -1; continue; }
+    const role = FX_ROLE[e.f];
+    if (e.f === 'kkill'){
+      if (kkLeft <= 0){ G.acts[s] = -1; continue; }
+      kkLeft--;
+    } else if (!role || !free(role)){
+      G.acts[s] = -1; continue;
+    } else {
+      take[role] = (take[role] || 0) + 1;
+    }
+    p.role = role;
+    G.acts[s] = e.t;
+    if (role === 'kappillan') G.acts2[s] = e.t2;
+    if (role === 'tarronda') G.rondaSeat = s;
+  }
+  /* the guilt night: Tar-Ronda submits nothing (his gun stays home),
+     but the guilt must still find him — his seat went public the
+     night his shot rode the wire */
+  if (G.rondaGuilt && G.rondaSeat >= 0 && G.P[G.rondaSeat] &&
+      G.P[G.rondaSeat].alive && keep[G.rondaSeat] == null)
+    G.P[G.rondaSeat].role = 'tarronda';
+  const nightNo = G.night;
+  G._pseudo = true;               /* reveal() must not print a pseudo card */
+  resolveNightCore(G);
+  G._pseudo = false;
+  /* put the roles back exactly as they were known before the night */
+  for (let i = 0; i < G.P.length; i++) G.P[i].role = keep[i];
+  /* the checks: the core computed nanna/kappillan results against the
+     PSEUDO roles, which is noise. Strip them from the shared news and
+     publish only WHO asked about WHOM (already public — the actions
+     rode the wire): the target's own client answers over the private
+     whisper, from the one thing only it knows. */
+  const chkList = [];
+  for (const k in G.news){
+    const kept = [];
+    for (const nw of G.news[k]){
+      if (nw.kind === 'nanna'){ chkList.push({ by: +k, kind:'nanna', seat: nw.seat }); continue; }
+      if (nw.kind === 'kappillan'){ chkList.push({ by: +k, kind:'kappillan', seat: nw.seat, seat2: nw.seat2 }); continue; }
+      /* the guilt warning came off a pseudo side — recomputed at the reveal */
+      if (nw.kind === 'ronda') continue;
+      kept.push(nw);
+    }
+    if (kept.length) G.news[k] = kept; else delete G.news[k];
+  }
+  G.chk = { night: nightNo, painted: (G._n ? G._n.painted : -1), list: chkList };
+  /* tonight's ronda victim: whether the guilt takes him is decided by
+     the TRUE side of the body, which only the reveal knows */
+  G.guiltWait = -1;
+  for (const p of G.P) if (p.diedOn === 'ronda ' + nightNo) G.guiltWait = p.seat;
+  G.rondaGuilt = false;
+  G.nacts = {};
+}
+
+/* the dawn has named every corpse: fire what the names loaded, then
+   go where the night (or the lynch) was headed */
+function dawnProceed(G){
+  /* the obituary lines, written HERE (never at iam time) so the log is
+     identical on every phone regardless of reveal arrival order */
+  if (G.dawnNamed.length){
+    const named = G.dawnNamed.slice().sort((a, b) => a - b);
+    G.dawnNamed = [];
+    if (G.opt.revealRoles)
+      for (const s of named)
+        logAdd(G, G.P[s].name + ' kien ' + ROLES[G.P[s].role].name + '.');
+    if (typeof G.mignunWon === 'number' && named.indexOf(G.mignunWon) >= 0)
+      logAdd(G, 'Il-Miġnun DAK LI RIED — dik ir-rebħa tiegħu, u intom ilkoll ' +
+                'għamiltuha bl-idejn. Il-lejla ħadd mhu se joqtol — ir-raħal ' +
+                'baqa’ skantat. Il-logħba tkompli mingħajru.');
+  }
+  if (G.shotPend.length){
+    /* iam moves arrive in per-client order (your own is applied the
+       moment you send it) — the QUEUE order must not depend on that,
+       so it is rebuilt sorted when the dawn closes */
+    G.shotQueue = G.shotPend.slice().sort((a, b) => a - b);
+    G.shotPend = [];
+    G.shotBack = (G.revealBack === 'night') ? 'night' : 'day';
+    G.revealBack = '';
+    G.phase = 'shot';
+    return;
+  }
+  const back = G.revealBack;
+  G.revealBack = '';
+  if (winCheck(G)) return;
+  if (back === 'night') toNight(G); else afterDeaths(G);
+}
+
+/* blind win check — public arithmetic. Every corpse reveals, so
+   "klikka still alive" is EXACTLY the roster's klikka seats minus the
+   klikka corpses; nothing is guessed. A dawn still waiting on a
+   reveal never declares a winner (the corpse may be the last klikkun).
+   A corpse whose phone was lost (dawnEnd timeout, roleLost) counts as
+   village here — the safe direction: the game runs long rather than
+   ending on a guess. */
+function winCheckBlind(G){
+  if (G.over) return true;
+  if (G.pendingReveal.length) return false;
+  const liv = alive(G);
+  const kT = (G.roster || []).filter(r => ROLES[r].side === 'klikka').length;
+  const deadK = G.P.filter(p => !p.alive && p.role && ROLES[p.role].side === 'klikka').length;
+  const kl = Math.max(0, kT - deadK);
+  const bi = (G.roster || []).indexOf('biccier') >= 0 &&
+             !G.P.some(p => !p.alive && p.role === 'biccier');
+  let win = null;
+  if (!liv.length) win = 'draw';
+  else if (!kl && !bi) win = 'rahal';
+  else if (kl && !bi && kl >= liv.length - kl) win = 'klikka';
+  else if (bi && !kl && liv.length <= 2) win = 'biccier';
+  if (!win) return false;
+  G.over = true; G.winner = win;
+  recomputeWinnersBlind(G);
+  logAdd(G,
+    win === 'rahal'   ? 'Ir-raħal meħlus. Il-klikka spiċċat, u l-festa ssir xorta.' :
+    win === 'klikka'  ? 'Il-klikka ħadet ir-raħal f’idejha. Il-każin l-ieħor rebaħ kollox.' :
+    win === 'biccier' ? 'Baqa’ biss il-Biċċier u s-skiet. Rebaħ hu.' :
+                        'Ir-raħal battal. Ħadd ma rebaħ xejn.');
+  return true;
+}
+/* the winners list fills in as the endgame reveals arrive — winner
+   and rules are fixed the moment the game ends; only the NAMES on
+   the honours board wait for each seat's own {t:'iam'} */
+function recomputeWinnersBlind(G){
+  const win = G.winner;
+  if (!win || win === 'draw'){ G.winners = []; return; }
+  G.winners = G.P.filter(p => p.role && (
+    win === 'rahal'  ? ROLES[p.role].side === 'rahal' :
+    win === 'klikka' ? ROLES[p.role].side === 'klikka' :
+    p.role === 'biccier')).map(p => p.seat);
+  const ku = G.P.find(p => p.role === 'kuntrabandist');
+  if (ku && ku.alive && G.winners.indexOf(ku.seat) < 0) G.winners.push(ku.seat);
+  if (typeof G.mignunWon === 'number' && G.winners.indexOf(G.mignunWon) < 0)
+    G.winners.push(G.mignunWon);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    GAME STATE
    ═══════════════════════════════════════════════════════════════════ */
 function create(o){
@@ -655,11 +992,96 @@ function actorsTonight(G){
      {t:'verdictEnd'}             host clock closes the verdict
    ═══════════════════════════════════════════════════════════════════ */
 function act(G, mv){
-  if (!G || G.over) return { ok:false, why:'Il-logħba spiċċat.' };
   const t = mv && mv.t;
+  /* the endgame reveal is the one move a finished game still takes:
+     blind mode cannot know the winners' names until every living seat
+     has said who it was */
+  if (!G || (G.over && !(G.blind && t === 'iam')))
+    return { ok:false, why:'Il-logħba spiċċat.' };
   const p = G.P[mv && mv.seat];
   switch (t){
+    /* ── blind-mode moves (online private deal) ──────────────────── */
+    case 'rr':
+    case 'rs': {
+      /* the host broadcasts the roster MULTISET — the same list it
+         gave the relay to shuffle. What is in the pot is public;
+         who holds what never is. The wire codec carries at most eight
+         small ints per move (the relay bounds the field bitmask), so
+         a big table's roster arrives in two chunks: 'rr' then 'rs'. */
+      if (!G.blind) return no('Mossa mhux magħrufa.');
+      if (G.phase !== 'deal') return no('Ir-roster diġà tqassam.');
+      if (mv.seat !== 0) return no('Il-host biss iqassam.');
+      const chunk = Array.isArray(mv.roster) ? mv.roster.slice() : [];
+      if (t === 'rr') G.rosterPart = chunk;
+      else if (Array.isArray(G.rosterPart)) G.rosterPart = G.rosterPart.concat(chunk);
+      else return no('Ir-roster jibda bl-ewwel nofs.');
+      if (G.rosterPart.length < G.P.length) return { ok:true };  /* the rest follows */
+      const list = G.rosterPart;
+      G.rosterPart = null;
+      const v = validateRoster(list, G.P.length);
+      if (!v.ok) return no(v.why);
+      G.roster = list;
+      G.phase = 'night';
+      logAdd(G, 'Lejl 1. Ir-raħal jorqod' + String.fromCharCode(8230));
+      return { ok:true };
+    }
+    case 'iam': {
+      /* a seat names its own role — at the dawn that mourns it, or at
+         the endgame reveal. The relay stamps the sender, so nobody can
+         reveal a chair that is not theirs; the multiset referee makes a
+         lie collide with the pot. */
+      if (!G.blind) return no('Mossa mhux magħrufa.');
+      if (!p) return no('Dik il-persuna mhix fil-logħba.');
+      if (p.role) return no('Ir-rwol diġà magħruf.');
+      const rid = mv.role;
+      if (!ROLES[rid]) return no('Rwol mhux magħruf: ' + rid);
+      const at = G.pendingReveal.indexOf(mv.seat);
+      if (at < 0 && !G.over && !p.roleLost) return no('Mhux il-ħin tal-kxif.');
+      if ((rosterLeft(G)[rid] || 0) <= 0) return no('Dak ir-rwol m’għadux fil-borma.');
+      p.role = rid;
+      if (G.opt.revealRoles || G.over) p.revealed = true;
+      /* a reveal that lost its dawn (dawnEnd fired first) still names
+         the corpse for the endgame board; the dawn's own effects (a
+         Kaċċatur's shot, the Miġnun's win) went with the missed dawn */
+      if (p.roleLost) p.roleLost = false;
+      if (at >= 0){
+        G.pendingReveal.splice(at, 1);
+        /* NOTHING here may depend on arrival order: your own iam is
+           applied the moment you send it, everyone else's in relay
+           order, so two phones legitimately process the same dawn's
+           reveals in different orders. Every step below is a set
+           operation; the LOG is written once, sorted, at the drain
+           (dawnProceed) — the one point every phone reaches with the
+           identical set in hand. */
+        G.dawnNamed.push(mv.seat);
+        const weapon = String(p.diedOn || '').split(' ')[0];
+        if (rid === 'kaccatur') G.shotPend.push(mv.seat);
+        if (rid === 'mignun' && weapon === 'vote'){
+          p.revealed = true;
+          G.mignunWon = mv.seat;
+          G.stunned = true;
+        }
+        if (G.guiltWait === mv.seat){
+          if (ROLES[rid].side === 'rahal') G.rondaGuilt = true;
+          G.guiltWait = -1;
+        }
+      }
+      if (G.over){ recomputeWinnersBlind(G); return { ok:true }; }
+      if (G.phase === 'dawn' && !G.pendingReveal.length) dawnProceed(G);
+      return { ok:true };
+    }
+    case 'dawnEnd': {
+      /* the host clock will not hold the whole village for a corpse
+         whose phone is gone: its role is marked LOST and the game
+         carries on counting it as village (see winCheckBlind) */
+      if (!G.blind || G.phase !== 'dawn') return no('Mhux is-sebħ.');
+      for (const s of G.pendingReveal) G.P[s].roleLost = true;
+      G.pendingReveal = [];
+      dawnProceed(G);
+      return { ok:true };
+    }
     case 'night': {
+      if (G.blind) return blindNight(G, mv);
       if (G.phase !== 'night') return no('Mhux il-lejl.');
       if (!p || !p.alive) return no('Il-mejtin ma jagħmlu xejn.');
       if (!ROLES[p.role].night) return no('Dan ir-rwol jorqod bil-lejl.');
@@ -739,8 +1161,19 @@ function act(G, mv){
       if (G.phase !== 'day' && G.phase !== 'verdict' && G.phase !== 'defence')
         return no('Is-Sindku jikxef ruħu binhar biss.');
       if (!p || !p.alive) return no('Il-mejtin ma jixxejrux.');
-      if (p.role !== 'sindku') return no('Int m’intix is-Sindku.');
-      if (G.mayor === p.seat) return no('Diġà kxift ruħek.');
+      if (G.blind){
+        /* the engine cannot see the claimant's card. The claim is
+           referee'd by the pot (a sindku must still be hidden in it)
+           and the honest client only offers the button to the real
+           one; a stolen claim collides with the true sindku's endgame
+           reveal in front of the whole pjazza. */
+        if (G.mayor >= 0) return no('Diġà hemm sindku mikxuf.');
+        if ((rosterLeft(G).sindku || 0) <= 0) return no('Int m’intix is-Sindku.');
+        p.role = 'sindku';
+      } else {
+        if (p.role !== 'sindku') return no('Int m’intix is-Sindku.');
+        if (G.mayor === p.seat) return no('Diġà kxift ruħek.');
+      }
       G.mayor = p.seat;
       p.revealed = true;
       logAdd(G, p.name + ' kixef ruħu: HUWA S-SINDKU. Il-vot tiegħu jgħodd doppju minn issa.');
@@ -789,8 +1222,15 @@ function act(G, mv){
 
 /* ═══════════════════════════════════════════════════════════════════
    NIGHT RESOLUTION — implements the header order EXACTLY.
+   resolveNight is the dispatcher; the body lives in resolveNightCore
+   so blind mode can run the SAME core over its pseudo-role mapping
+   (see resolveNightBlind) — one set of night rules, two deals.
    ═══════════════════════════════════════════════════════════════════ */
 function resolveNight(G){
+  if (G.blind) return resolveNightBlind(G);
+  resolveNightCore(G);
+}
+function resolveNightCore(G){
   const A = G.acts;
   const pick = role => {
     const s = seatOf(G, role);
@@ -845,6 +1285,11 @@ function resolveNight(G){
   const smSeat = seatOf(G, 'sarima');
   if (smSeat >= 0 && G.P[smSeat].alive && !blocked(smSeat) &&
       A[smSeat] !== undefined && A[smSeat] >= 0) muteT = A[smSeat];
+
+  /* the night's resolved facts a later step may need (blind mode's
+     whisper answers read `painted` — a check target must answer as
+     the Pittur painted it, and only the resolution knows) */
+  G._n = { painted: painted, drunk: drunk, jailed: jailed };
 
   /* how a seat READS to tonight's checks (6a/6b) */
   const readsKlikka = s => {
@@ -1078,6 +1523,13 @@ function resolveNight(G){
 /* dawn resumes once the shot queue has drained: re-check the win with the
    shot's death final, then go where the night (or the lynch) was headed. */
 function resolveAfterShot(G){
+  /* blind: the shot's own victims still owe the dawn their names
+     before any win can be called or any chain shot fired */
+  if (G.blind && G.pendingReveal.length){
+    G.revealBack = (G.shotBack === 'night') ? 'night' : 'day';
+    G.phase = 'dawn';
+    return;
+  }
   if (winCheck(G)) return;
   if (G.shotBack === 'night') toNight(G);
   else afterDeaths(G);
@@ -1095,14 +1547,29 @@ function grudgeCheck(G, deadSeat, byVote){
   G.mira = -1;
 }
 
-/* dawn housekeeping once every corpse (incl. shots) is settled */
+/* dawn housekeeping once every corpse (incl. shots) is settled.
+   Blind mode holds here until every fresh corpse has named itself —
+   the win conditions and the Kaċċatur's shot depend on who they were. */
 function afterDeaths(G){
+  if (G.blind && G.pendingReveal.length){
+    G.phase = 'dawn'; G.revealBack = 'day';
+    return;
+  }
   G.phase = 'day'; G.votes = {}; G.accused = -1;
   logAdd(G, 'Il-pjazza miftuħa. Min hu s-suspettuż?');
 }
 
 function reveal(G, s){
   const p = G.P[s];
+  if (G.blind){
+    /* the engine does not hold the card — the corpse's own client
+       publishes it as {t:'iam'} and THAT appends the 'kien' line.
+       During the pseudo-role night the roles on the seats are the
+       NIGHT'S MECHANICS, not anybody's card: never print one. */
+    if (G._pseudo || !p.role || !G.opt.revealRoles) return '';
+    p.revealed = true;
+    return ' Kien ' + ROLES[p.role].name + '.';
+  }
   if (!G.opt.revealRoles) return '';
   p.revealed = true;
   return ' Kien ' + ROLES[p.role].name + '.';
@@ -1113,6 +1580,12 @@ function kill(G, s, how){
   if (!p || !p.alive) return;
   p.alive = false;
   p.diedOn = how + ' ' + G.night;
+  /* blind: a corpse whose role the state does not know owes the dawn
+     its name. During the pseudo-role night the TRUE role is unknown
+     even while a pseudo one is pinned, so ask the ORIGINAL knowledge:
+     the seat is listed unless a real reveal already named it. */
+  if (G.blind && !p.revealed && G.pendingReveal.indexOf(s) < 0)
+    G.pendingReveal.push(s);
 }
 
 /* ── the day closes: count weighted accusations ────────────────────
@@ -1165,6 +1638,14 @@ function closeVerdict(G){
     logAdd(G, 'Ħati (' + hati + '-' + le + '). ' + p.name + ' barra mir-raħal.' + reveal(G, s));
     kill(G, s, 'vote');
     grudgeCheck(G, s, true);
+    /* blind: the lynched card is face-down until its own client says
+       {t:'iam'} — hold at the dawn; the reveal itself then plays the
+       Miġnun's win or queues the Kaċċatur's last shot (see 'iam') */
+    if (G.blind && G.pendingReveal.length){
+      G.revealBack = 'night';
+      G.phase = 'dawn';
+      return;
+    }
     /* MIĠNUN — his whole win. It is announced ON THE SPOT and the
        pjazza has to live with what it did, but the game carries on to
        a real ending: an earlier build ended the game here, and the
@@ -1200,8 +1681,11 @@ function toNight(G){
   G.night++; G.phase = 'night'; G.acts = {}; G.acts2 = {}; G.votes = {}; G.verdict = {};
   G.muted = -1;                       /* the gag lasts one day, no more */
   logAdd(G, 'Lejl ' + G.night + '. Ir-raħal jorqod' + String.fromCharCode(8230));
-  /* a night with nobody to act in it resolves itself instantly */
-  if (!actorsTonight(G).length) resolveNight(G);
+  /* a night with nobody to act in it resolves itself instantly.
+     Blind mode never asks: EVERY living seat submits every night
+     (sleepers submit 'none' — cover that also closes the clock), so
+     a blind night always has actors and always closes by moves. */
+  if (!G.blind && !actorsTonight(G).length) resolveNight(G);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1218,6 +1702,7 @@ function addHangersOn(G){
     G.winners.push(G.mignunWon);
 }
 function winCheck(G){
+  if (G.blind) return winCheckBlind(G);
   if (G.over) return true;
   const liv = alive(G);
   const kl = liv.filter(p => ROLES[p.role].side === 'klikka').length;
@@ -1267,46 +1752,72 @@ function winCheck(G){
    dead channel, which is what keeps Tal-Karti's seance honest — the
    dead can only tell her what they actually experienced.
    ═══════════════════════════════════════════════════════════════════ */
-function view(G, seat){
+function view(G, seat, priv){
   const me = G.P[seat];
   if (!me) return null;
-  const R = ROLES[me.role];
-  const mates = (R.side === 'klikka')
+  /* blind: the state holds no card for this seat — the caller's OWN
+     private store (fed by the relay's {t:'mine'}) supplies it for the
+     caller's own chair; any other chair renders role-free, with every
+     PUBLIC fact (speak, muted, accused, poisoned…) still true. */
+  let rid = me.role;
+  if (G.blind && !rid && priv && priv.role && ROLES[priv.role] &&
+      (priv.seat === undefined || priv.seat === seat)) rid = priv.role;
+  const speak = me.alive && !G.over && (
+      (G.phase === 'defence' && seat === G.accused) ||
+      ((G.phase === 'day' || G.phase === 'verdict') && G.muted !== seat));
+  if (!rid){
+    return {
+      seat: seat, name: me.name, alive: me.alive,
+      role: null, converted: false, mates: [], mira: null,
+      phase: G.phase, night: G.night, over: G.over,
+      canAct: false,
+      acted: G.blind ? G.nacts[seat] !== undefined : G.acts[seat] !== undefined,
+      mustShoot: G.phase === 'shot' && G.shotQueue[0] === seat,
+      canReveal: false, accused: G.accused,
+      hideLeft: 0, rondaShots: 0, rondaGuilt: false,
+      poisoned: !!(G.poison && G.poison.seat === seat && me.alive),
+      muted: G.muted === seat,
+      news: (me.alive && G.news[seat] && G.news[seat].length) ? G.news[seat] : null,
+      speak: speak
+    };
+  }
+  const R = ROLES[rid];
+  const mates = (!G.blind && R.side === 'klikka')
     ? G.P.filter(p => ROLES[p.role].side === 'klikka' && p.seat !== seat)
          .map(p => ({ seat: p.seat, name: p.name, role: ROLES[p.role].name }))
-    : [];
+    : [];   /* blind: the mates came from the relay's groups — the UI renders them from priv */
   const o = {
     seat: seat, name: me.name, alive: me.alive,
-    role: { id: me.role, name: R.name, side: R.side, what: R.what,
+    role: { id: rid, name: R.name, side: R.side, what: R.what,
             night: R.night, two: !!R.two },
     converted: !!me.converted,
     mates: mates,
-    mira: (me.role === 'vendetta' && G.mira >= 0)
+    mira: (!G.blind && rid === 'vendetta' && G.mira >= 0)
       ? { seat: G.mira, name: G.P[G.mira].name } : null,
     phase: G.phase, night: G.night, over: G.over,
-    canAct: false, acted: G.acts[seat] !== undefined,
+    canAct: false,
+    acted: G.blind ? G.nacts[seat] !== undefined : G.acts[seat] !== undefined,
     mustShoot: G.phase === 'shot' && G.shotQueue[0] === seat,
-    canReveal: me.role === 'sindku' && me.alive && G.mayor !== seat &&
+    canReveal: rid === 'sindku' && me.alive &&
+               (G.blind ? G.mayor < 0 : G.mayor !== seat) &&
                (G.phase === 'day' || G.phase === 'defence' || G.phase === 'verdict'),
     accused: G.accused,
-    hideLeft: me.role === 'kuntrabandist' ? G.hideLeft : 0,
-    rondaShots: me.role === 'tarronda' ? (G.rondaShots | 0) : 0,
-    rondaGuilt: me.role === 'tarronda' ? !!G.rondaGuilt : false,
+    hideLeft: rid === 'kuntrabandist' ? G.hideLeft : 0,
+    rondaShots: rid === 'tarronda' ? (G.rondaShots | 0) : 0,
+    rondaGuilt: rid === 'tarronda' ? !!G.rondaGuilt : false,
     poisoned: !!(G.poison && G.poison.seat === seat && me.alive),
     muted: G.muted === seat,
     news: (me.alive && G.news[seat] && G.news[seat].length) ? G.news[seat] : null,
     /* the referee: may this human open their mouth in the room?
        The gagged man may not — except on the planka: an accused man
        always defends himself. */
-    speak: me.alive && !G.over && (
-      (G.phase === 'defence' && seat === G.accused) ||
-      ((G.phase === 'day' || G.phase === 'verdict') && G.muted !== seat))
+    speak: speak
   };
   if (me.alive && G.phase === 'night' && R.night &&
-      !(me.role === 'kuntrabandist' && G.hideLeft <= 0) &&
-      !(me.role === 'tarronda' && ((G.rondaShots | 0) <= 0 || G.rondaGuilt)) &&
-      !(me.role === 'haffier' && !G.P.some(q => !q.alive)) &&
-      !(me.role === 'velenu' && G.poison)) o.canAct = true;
+      !(rid === 'kuntrabandist' && G.hideLeft <= 0) &&
+      !(rid === 'tarronda' && ((G.rondaShots | 0) <= 0 || G.rondaGuilt)) &&
+      !(rid === 'haffier' && !G.P.some(q => !q.alive)) &&
+      !(rid === 'velenu' && G.poison)) o.canAct = true;
   return o;
 }
 
@@ -1335,10 +1846,16 @@ function view(G, seat){
               room a dead klikkun sits beside a living one, and a
               name typed to the dead is a name leaked.
    ═══════════════════════════════════════════════════════════════════ */
-function channels(G, seat){
+function channels(G, seat, priv){
   const p = G.P[seat];
   if (!p) return [];
-  const R = ROLES[p.role];
+  /* blind: the caller's card lives in its private store, never in G.
+     A seat whose role has not arrived yet reads as a plain villager —
+     which grants exactly the public channel and nothing else. */
+  let rid = p.role;
+  if (G.blind && !rid && priv && priv.role && ROLES[priv.role] &&
+      (priv.seat === undefined || priv.seat === seat)) rid = priv.role;
+  const R = ROLES[rid || 'rahli'];
   const night = G.phase === 'night' || G.phase === 'shot';
   const out = [];
   const dayChatOn = G.opt ? G.opt.dayChat !== false : true;   /* host rule: day argued in-app vs out loud */
@@ -1377,10 +1894,40 @@ function channels(G, seat){
   return out;
 }
 /* the seats allowed to READ a channel right now — the wire's recipient
-   list is built from this and from nothing else */
-function chanReaders(G, ch){
+   list is built from this and from nothing else.
+   BLIND: no phone can compute another phone's side, so the recipient
+   list comes from what THIS phone was legitimately told: the klikka's
+   mates arrived from the relay's group deal; the séance seat arrives
+   from Tal-Karti's own whispered announcement to the dead. */
+function chanReaders(G, ch, priv){
   const night = G.phase === 'night' || G.phase === 'shot';
   const out = [];
+  if (G.blind){
+    if (ch === 'pjazza'){
+      for (const p of G.P) out.push(p.seat);
+      return out;
+    }
+    if (ch === 'klikka'){
+      if (priv && priv.role && ROLES[priv.role] && ROLES[priv.role].side === 'klikka'){
+        if (typeof priv.seat === 'number') out.push(priv.seat);
+        for (const m of (priv.mates || [])) if (out.indexOf(m) < 0) out.push(m);
+      }
+      return out.sort((a, b) => a - b);
+    }
+    if (ch === 'mejtin'){
+      for (const p of G.P) if (!p.alive) out.push(p.seat);
+      if (night && priv){
+        if (priv.role === 'talkarti' && typeof priv.seat === 'number' &&
+            G.P[priv.seat] && G.P[priv.seat].alive && out.indexOf(priv.seat) < 0)
+          out.push(priv.seat);
+        if (typeof priv.seance === 'number' && priv.seance >= 0 &&
+            G.P[priv.seance] && G.P[priv.seance].alive && out.indexOf(priv.seance) < 0)
+          out.push(priv.seance);
+      }
+      return out.sort((a, b) => a - b);
+    }
+    return out;
+  }
   for (const p of G.P){
     if (ch === 'pjazza'){ out.push(p.seat); continue; }
     if (ch === 'klikka'){
@@ -1395,8 +1942,8 @@ function chanReaders(G, ch){
   return out;
 }
 /* may this seat WRITE to this channel right now? One answer, engine's. */
-function chanWrite(G, seat, ch){
-  return channels(G, seat).some(c => c.id === ch && c.write);
+function chanWrite(G, seat, ch, priv){
+  return channels(G, seat, priv).some(c => c.id === ch && c.write);
 }
 
 /* ── snapshots: a reload must give back the exact game ────────────── */
@@ -1404,7 +1951,8 @@ function snapshot(G){ return JSON.parse(JSON.stringify(G)); }
 function load(snap){
   if (!snap || typeof snap !== 'object' || !Array.isArray(snap.P) || !snap.opt) return null;
   const G = JSON.parse(JSON.stringify(snap));
-  for (const p of G.P) if (!ROLES[p.role]) return null;
+  /* blind snapshots legitimately hold null roles (unrevealed seats) */
+  for (const p of G.P) if (!(G.blind && p.role == null) && !ROLES[p.role]) return null;
   /* saves from before the new blood get the new fields' defaults */
   if (typeof G.lastJail !== 'number') G.lastJail = -1;
   if (typeof G.rondaShots !== 'number') G.rondaShots = 2;
@@ -1422,7 +1970,8 @@ function publicSeat(G, s){
   return {
     seat: s, name: p.name, alive: p.alive,
     mayor: G.mayor === s,
-    role: (p.revealed && (!p.alive || G.mayor === s)) ? ROLES[p.role].name : null
+    /* blind: a corpse the dawn is still waiting on has no card yet */
+    role: (p.revealed && p.role && (!p.alive || G.mayor === s)) ? ROLES[p.role].name : null
   };
 }
 
@@ -1478,6 +2027,8 @@ GLOB.SUSPETT = {
   rosterFromPool, validateRoster, rosterBalance,
   create, act, view, publicSeat,
   channels, chanReaders, chanWrite, snapshot, load,
-  alive, actorsTonight, winCheck, mulberry32
+  alive, actorsTonight, winCheck, mulberry32,
+  /* blind mode (online private deal) */
+  createBlind, ROLE_IDS, FX, FX_ROLE, ROLE_FX
 };
 })();
