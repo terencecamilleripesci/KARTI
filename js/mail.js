@@ -36,6 +36,12 @@
      claim  { tok, id }              -> { ok, id, gift, already }
               IDEMPOTENT: `already:true` means it was opened before and
               must pay NOTHING. The server's word is the authority.
+     players { tok, q }              -> { ok, players:[{u, name}] }
+              admin only, ENFORCED SERVER-SIDE (403 otherwise). Prefix
+              match on the account key, capped at ~12; an empty q returns
+              an empty list ON PURPOSE — a search, not a directory. Feeds
+              the send console's recipient picker; `u` is what `gift`
+              wants as `to`, `name` is what the owner recognises.
 
    THE GIFT PAYLOAD is opaque to the relay and interpreted here on arrival —
    the server never needs to understand the economy to carry a parcel:
@@ -78,6 +84,10 @@
   var MIN_GAP   = 25000;   /* quiet time between ordinary polls           */
   var FORCE_GAP = 2500;    /* even a forced poll will not burst faster    */
   var NET_MS    = 15000;   /* one wire call's patience                    */
+  var FIND_WAIT = 350;     /* the picker waits for the typing to pause    */
+  var FIND_GAP  = 1200;    /* …and never puts two searches on the wire
+                              closer than this, however fast he types —
+                              the same gap-floor idea as the mail poll    */
 
   var ART = {
     sealed: 'art/ui/mail-sealed.png',
@@ -723,6 +733,233 @@
      anybody else no matter what this file draws. */
   var sendEl = null, sendBusy = false, sendMsg = null; /* {cls:'ok'|'err', text} */
 
+  /* ── the recipient picker ─────────────────────────────────────────────
+     The mistake that actually happens is a misspelled name discovered only
+     after pressing send. So the free-text "To" field is now a search: type
+     two letters, the relay's admin-only `players` route answers with real
+     accounts (prefix match, capped), and picking one makes the 404
+     impossible. The typed field is NOT gone — it is the fallback the
+     moment the search route is unreachable, answers 403 (a build where
+     this account is not on the server's admin list), or the owner simply
+     prefers to type. A picker that cannot find anybody must never become
+     a console that cannot send.
+
+     pick = {
+       q        what is in the search box right now
+       sel      {u, name} — the chosen account, or null
+       results  the last answer for doneQ
+       doneQ    the query the last COMPLETED search was for (null = none)
+       err      a transient search complaint (rate limit), '' otherwise
+       timer    the debounce timer
+       lastAt   when a search last went on the wire — the gap floor
+       seq      stamps each wire call; a stale answer is dropped
+       manual   the owner chose (or was forced) to type the name himself
+       broken   the search route is unavailable — stay manual, no toggle
+     } */
+  var pick = null;
+
+  function pickFresh(){
+    return { q: '', sel: null, results: [], doneQ: null, err: '',
+             timer: null, lastAt: 0, seq: 0, manual: false, broken: false };
+  }
+
+  /* debounce + gap floor: fire FIND_WAIT after the last keystroke, but
+     never sooner than FIND_GAP after the previous wire call */
+  function scheduleFind(){
+    if (!pick) return;
+    if (pick.timer) clearTimeout(pick.timer);
+    var wait = FIND_WAIT;
+    var since = Date.now() - pick.lastAt;
+    if (since < FIND_GAP) wait = Math.max(wait, FIND_GAP - since);
+    pick.timer = setTimeout(fireFind, wait);
+  }
+
+  function fireFind(){
+    if (!pick || !sendEl) return;
+    pick.timer = null;
+    var q = pick.q;
+    if (q.length < 2) return;
+    var tok = token();
+    if (!tok){ fallbackToTyped(); return; }
+    pick.lastAt = Date.now();
+    var seq = ++pick.seq;
+    call('players', { tok: tok, q: q }).then(function (r){
+      if (!pick || !sendEl || seq !== pick.seq) return;   /* stale answer */
+      if (r.ok){
+        var list = Array.isArray(r.d.players) ? r.d.players : [];
+        pick.results = [];
+        for (var i = 0; i < list.length && pick.results.length < 12; i++){
+          var p = list[i];
+          if (p && typeof p === 'object' && p.u != null)
+            pick.results.push({ u: String(p.u), name: String(p.name || p.u) });
+        }
+        pick.doneQ = q;
+        pick.err = '';
+        paintFind();
+        return;
+      }
+      if (r.status === 429){
+        /* the relay said "slow down" — transient, not broken */
+        pick.doneQ = q;
+        pick.results = [];
+        pick.err = T('One moment — searching too fast. Type on, it will catch up.',
+                     'Mument — qed infittxu malajr wisq. Kompli ikteb, tlaħħaq.');
+        paintFind();
+        return;
+      }
+      /* unreachable, 403 on a non-admin build, a relay without the route:
+         the search is not going to work — hand back the typed field with
+         whatever he typed already in it, so nothing is lost */
+      fallbackToTyped();
+    });
+  }
+
+  function fallbackToTyped(){
+    if (!pick) return;
+    if (pick.timer){ clearTimeout(pick.timer); pick.timer = null; }
+    pick.seq++;                     /* orphan any answer still in flight  */
+    pick.broken = true;
+    pick.manual = true;
+    pick.sel = null;
+    paintSend();
+  }
+
+  /* repaint ONLY the results area — never the whole console, or the
+     search box would lose focus under his thumb on every answer */
+  function paintFind(){
+    if (!sendEl || !pick) return;
+    var box = sendEl.querySelector('#kx-g-found');
+    if (!box) return;
+    var q = pick.q, h = '';
+    if (q.length < 2){
+      h = '<p class="kx-fhint">' +
+          esc(T('Type at least 2 letters to search.',
+                'Ikteb mill-inqas żewġ ittri biex tfittex.')) + '</p>';
+    } else if (pick.doneQ !== q){
+      h = '<p class="kx-fhint">' + esc(T('Searching…', 'Qed infittxu…')) + '</p>';
+    } else if (pick.err){
+      h = '<p class="kx-fhint kx-fwarn">' + esc(pick.err) + '</p>';
+    } else if (pick.results.length){
+      for (var i = 0; i < pick.results.length; i++){
+        var p = pick.results[i];
+        h += '<button type="button" class="kx-frow" data-i="' + i + '">' +
+          '<span class="kx-fr-tx"><b>' + esc(p.name) + '</b>' +
+          '<small>' + esc(p.u) + '</small></span>' +
+          '<span class="kx-fr-go">' + esc(T('Pick', 'Agħżel')) + '</span>' +
+        '</button>';
+      }
+    } else {
+      h = '<p class="kx-fhint">' +
+          esc(T('No player starts with “' + q + '”.',
+                'Ebda plejer ma jibda b’ “' + q + '”.')) + '</p>';
+    }
+    box.innerHTML = h;
+    var rows = box.querySelectorAll('.kx-frow');
+    for (var j = 0; j < rows.length; j++){
+      rows[j].onclick = function (){
+        var p = pick.results[Number(this.getAttribute('data-i'))];
+        if (!p) return;
+        pick.sel = { u: p.u, name: p.name };
+        pick.results = [];
+        pick.doneQ = null;
+        sendMsg = null;
+        paintSend();
+      };
+    }
+  }
+
+  function bindFind(){
+    if (!sendEl || !pick) return;
+    var inp = sendEl.querySelector('#kx-g-find');
+    if (inp){
+      inp.oninput = function (){
+        pick.q = String(this.value || '').trim();
+        pick.seq++;              /* an in-flight answer is for old text  */
+        pick.err = '';
+        if (pick.timer){ clearTimeout(pick.timer); pick.timer = null; }
+        if (pick.q.length >= 2) scheduleFind();
+        else pick.results = [];
+        paintFind();
+      };
+      inp.onkeydown = function (e){
+        if (e.key === 'Enter' && pick.results.length === 1 &&
+            pick.doneQ === pick.q){
+          e.preventDefault();
+          var p = pick.results[0];
+          pick.sel = { u: p.u, name: p.name };
+          pick.results = []; pick.doneQ = null; sendMsg = null;
+          paintSend();
+        }
+      };
+    }
+    var manual = sendEl.querySelector('[data-a="manual"]');
+    if (manual) manual.onclick = function (){
+      pick.manual = true;
+      if (pick.timer){ clearTimeout(pick.timer); pick.timer = null; }
+      pick.seq++;
+      paintSend();
+    };
+    var research = sendEl.querySelector('[data-a="research"]');
+    if (research) research.onclick = function (){
+      var tn = sendEl.querySelector('#kx-g-to');
+      if (tn) pick.q = String(tn.value || '').trim();
+      pick.manual = false;
+      pick.doneQ = null; pick.results = [];
+      paintSend();
+      if (pick.q.length >= 2) scheduleFind();
+    };
+    var unpick = sendEl.querySelector('[data-a="unpick"]');
+    if (unpick) unpick.onclick = function (){
+      pick.sel = null;
+      pick.doneQ = null; pick.results = [];
+      sendMsg = null;
+      paintSend();
+      var again = sendEl.querySelector('#kx-g-find');
+      if (again){ try { again.focus(); } catch (e){} }
+      if (!pick.manual && pick.q.length >= 2) scheduleFind();
+    };
+  }
+
+  /* the recipient block of the console — one of three shapes:
+     chosen (the chip), searching (box + results), typed (the old field) */
+  function recipientHTML(){
+    if (pick && pick.sel){
+      return '<label class="kx-lab">' + esc(T('To', 'Lil min')) + '</label>' +
+        '<div class="kx-sel">' +
+          '<span class="kx-sel-tx"><b>' + esc(pick.sel.name) + '</b>' +
+          '<small>' + esc(T('account: ', 'kont: ')) + esc(pick.sel.u) + '</small></span>' +
+          '<button type="button" class="kx-sel-x" data-a="unpick">' +
+            esc(T('Change', 'Ibdel')) + '</button>' +
+        '</div>';
+    }
+    if (pick && pick.manual){
+      return '<label class="kx-lab" for="kx-g-to">' +
+        esc(T('To (their account name)', 'Lil min (l-isem tal-kont)')) + '</label>' +
+        '<input class="kx-inp" id="kx-g-to" maxlength="16" autocapitalize="off" ' +
+          'autocorrect="off" spellcheck="false" value="' + esc(pick.q) + '">' +
+        (pick.broken
+          ? '<p class="kx-fhint">' +
+            esc(T('Search is unavailable right now — type the exact account name.',
+                  'Il-fittxija mhix disponibbli bħalissa — ikteb l-isem eżatt tal-kont.')) +
+            '</p>'
+          : '<button type="button" class="kx-flink" data-a="research">' +
+            esc(T('Search for the player instead', 'Fittex il-plejer minflok')) +
+            '</button>');
+    }
+    return '<label class="kx-lab" for="kx-g-find">' +
+      esc(T('To — search for the player', 'Lil min — fittex il-plejer')) + '</label>' +
+      '<input class="kx-inp" id="kx-g-find" maxlength="24" autocapitalize="off" ' +
+        'autocorrect="off" spellcheck="false" autocomplete="off" ' +
+        'aria-label="' + esc(T('Search for the player', 'Fittex il-plejer')) + '" ' +
+        'placeholder="' + esc(T('Type their name…', 'Ikteb isimhom…')) + '" ' +
+        'value="' + esc(pick ? pick.q : '') + '">' +
+      '<div class="kx-frows" id="kx-g-found" role="listbox" aria-label="' +
+        esc(T('Players found', 'Plejers misjuba')) + '"></div>' +
+      '<button type="button" class="kx-flink" data-a="manual">' +
+        esc(T('Or type the exact account name yourself',
+              'Jew ikteb l-isem eżatt tal-kont int')) + '</button>';
+  }
+
   function settingsRowHTML(){
     if (!isAdmin()) return '';
     return '<p class="setgrp">' + esc(T('Mailbox', 'Il-Kaxxa tal-Ittri')) + '</p>' +
@@ -761,6 +998,7 @@
   function openSend(){
     injectCSS();
     sendMsg = null; sendBusy = false;
+    pick = pickFresh();
     if (!sendEl){
       sendEl = document.createElement('div');
       sendEl.className = 'kx-mail-wrap kx-send-wrap';
@@ -778,11 +1016,22 @@
     document.removeEventListener('keydown', onSendKey, true);
     try { sendEl.remove(); } catch (e){}
     sendEl = null;
+    if (pick && pick.timer){ clearTimeout(pick.timer); }
+    pick = null;
   }
   function onSendKey(e){ if (e.key === 'Escape'){ e.stopPropagation(); closeSend(); } }
 
   function paintSend(){
     if (!sendEl) return;
+    /* a repaint (picking a player, an error, a language switch) must not
+       eat a half-written gift — carry the field values across the rebuild */
+    var keepIds = ['kx-g-note', 'kx-g-coins', 'kx-g-chips', 'kx-g-packs',
+                   'kx-g-xp', 'kx-g-excl'];
+    var kept = {}, ki, kn;
+    for (ki = 0; ki < keepIds.length; ki++){
+      kn = sendEl.querySelector('#' + keepIds[ki]);
+      if (kn && kn.value) kept[keepIds[ki]] = kn.value;
+    }
     var opts = exclOptions();
     var h = '<div class="kx-mail-box kx-send-box">' +
       '<div class="kx-mail-head">' +
@@ -795,10 +1044,7 @@
         '<button type="button" class="kx-mail-x" data-a="close" aria-label="' +
           esc(T('Close', 'Agħlaq')) + '">×</button>' +
       '</div>' +
-      '<label class="kx-lab" for="kx-g-to">' +
-        esc(T('To (their account name)', 'Lil min (l-isem tal-kont)')) + '</label>' +
-      '<input class="kx-inp" id="kx-g-to" maxlength="16" autocapitalize="off" ' +
-        'autocorrect="off" spellcheck="false">' +
+      recipientHTML() +
       '<label class="kx-lab" for="kx-g-note">' + esc(T('Note', 'Nota')) + '</label>' +
       '<textarea class="kx-inp kx-ta" id="kx-g-note" maxlength="240" rows="2" ' +
         'placeholder="' + esc(T('Grazzi ħi…', 'Grazzi ħi…')) + '"></textarea>' +
@@ -834,8 +1080,15 @@
       '</p>' +
     '</div>';
     sendEl.innerHTML = h;
+    for (ki = 0; ki < keepIds.length; ki++){
+      if (kept[keepIds[ki]] == null) continue;
+      kn = sendEl.querySelector('#' + keepIds[ki]);
+      if (kn) kn.value = kept[keepIds[ki]];
+    }
     sendEl.querySelector('[data-a="close"]').onclick = closeSend;
     sendEl.querySelector('[data-a="send"]').onclick = doSend;
+    bindFind();
+    paintFind();
   }
 
   function doSend(){
@@ -845,7 +1098,17 @@
       var x = Math.floor(Number(val(id)));
       return (isFinite(x) && x > 0) ? x : 0;
     }
-    var to = String(val('kx-g-to') || '').trim();
+    /* the recipient: the picked account's KEY when one is chosen, else
+       whatever is in the typed fallback field */
+    var to = '', toShow = '';
+    if (pick && pick.sel){
+      to = String(pick.sel.u || '').trim();
+      toShow = String(pick.sel.name || to);
+    } else {
+      to = String(val('kx-g-to') || '').trim();
+      toShow = to;
+      if (pick) pick.q = to;   /* a repaint must not eat what he typed   */
+    }
     var note = String(val('kx-g-note') || '').slice(0, 240);
     var gift = {};
     if (num('kx-g-coins')) gift.coins = num('kx-g-coins');
@@ -856,8 +1119,12 @@
     if (ex) gift.excl = ex;
 
     if (!to){
-      sendMsg = { cls: 'err', text: T('Who is it for? Type their account name.',
-                                      'Għal min hi? Ikteb l-isem tal-kont.') };
+      sendMsg = { cls: 'err',
+        text: (pick && !pick.manual)
+          ? T('Who is it for? Search and pick a player.',
+              'Għal min hi? Fittex u agħżel plejer.')
+          : T('Who is it for? Type their account name.',
+              'Għal min hi? Ikteb l-isem tal-kont.') };
       return paintSend();
     }
     if (!Object.keys(gift).length){
@@ -877,9 +1144,9 @@
       sendBusy = false;
       if (r.ok){
         sendMsg = { cls: 'ok',
-          text: T('Delivered. The letter is waiting in ' + to + '’s mailbox (no. ' +
+          text: T('Delivered. The letter is waiting in ' + toShow + '’s mailbox (no. ' +
                     r.d.id + ').',
-                  'Waslet. L-ittra qed tistenna fil-kaxxa ta’ ' + to + ' (nru. ' +
+                  'Waslet. L-ittra qed tistenna fil-kaxxa ta’ ' + toShow + ' (nru. ' +
                     r.d.id + ').') };
         paintSend();
         /* the form keeps the recipient (he often sends twice); the gift
@@ -901,9 +1168,9 @@
          gets the loudest, plainest sentence of the lot */
       if (r.status === 404)
         sendMsg = { cls: 'err',
-          text: T('NO PLAYER CALLED “' + to + '” ON THE SERVER — nothing was sent. ' +
+          text: T('NO PLAYER CALLED “' + toShow + '” ON THE SERVER — nothing was sent. ' +
                     'Check the spelling of their account name.',
-                  'ĦADD JISMU “' + to + '” FUQ IS-SERVER — ma ntbagħat xejn. ' +
+                  'ĦADD JISMU “' + toShow + '” FUQ IS-SERVER — ma ntbagħat xejn. ' +
                     'Iċċekkja kif miktub l-isem tal-kont.') };
       else if (r.status === 403)
         sendMsg = { cls: 'err',
@@ -1083,6 +1350,40 @@
       'text-align:left}' +
     '.kx-fine{margin:8px 0 0;font-size:11px;color:#7d6fa3;text-align:center}' +
 
+    /* the recipient picker */
+    '.kx-frows{display:flex;flex-direction:column;gap:6px;margin-top:6px}' +
+    '.kx-frows:empty{display:none}' +
+    '.kx-frow{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;' +
+      'text-align:left;padding:8px 10px;border-radius:10px;cursor:pointer;' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02));' +
+      'border:1px solid rgba(255,197,66,.22);color:#F4EFFF;font:inherit}' +
+    '.kx-frow:active{transform:scale(.985)}' +
+    '.kx-fr-tx{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}' +
+    '.kx-fr-tx b{font-size:14px;font-weight:800;overflow:hidden;' +
+      'text-overflow:ellipsis;white-space:nowrap}' +
+    '.kx-fr-tx small{font-size:11px;color:#A093C4;overflow:hidden;' +
+      'text-overflow:ellipsis;white-space:nowrap}' +
+    '.kx-fr-go{flex:0 0 auto;padding:5px 10px;border-radius:8px;font-size:11px;' +
+      'font-weight:800;color:#2A1B00;background:linear-gradient(180deg,#FFE9B0,#FFC542)}' +
+    '.kx-fhint{margin:6px 2px 0;font-size:12px;color:#A093C4;text-align:left}' +
+    '.kx-fwarn{color:#ffc9d3}' +
+    '.kx-flink{display:inline-block;margin:8px 2px 0;padding:0;border:0;' +
+      'background:none;cursor:pointer;color:#A093C4;font-size:11.5px;' +
+      'text-decoration:underline;text-align:left}' +
+    '.kx-sel{display:flex;align-items:center;gap:10px;box-sizing:border-box;' +
+      'padding:9px 11px;border-radius:10px;' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.14),rgba(255,197,66,.05));' +
+      'border:1px solid rgba(255,197,66,.5)}' +
+    '.kx-sel-tx{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px;' +
+      'text-align:left}' +
+    '.kx-sel-tx b{font-size:14.5px;font-weight:800;color:#FFE9B0;overflow:hidden;' +
+      'text-overflow:ellipsis;white-space:nowrap}' +
+    '.kx-sel-tx small{font-size:11px;color:#A093C4;overflow:hidden;' +
+      'text-overflow:ellipsis;white-space:nowrap}' +
+    '.kx-sel-x{flex:0 0 auto;padding:7px 11px;border-radius:9px;cursor:pointer;' +
+      'border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);' +
+      'color:#F4EFFF;font:700 12px system-ui,-apple-system,sans-serif}' +
+
     /* small phones: keep the ceremony inside 360px with room to breathe */
     '@media (max-width:380px){' +
       '.kx-env{width:136px;height:136px}.kx-env-img{width:136px;height:136px}' +
@@ -1145,7 +1446,7 @@
   /* ── export ───────────────────────────────────────────────────────── */
   var api = {
     _impl: 1,
-    _contract: 'gift|mail|claim',
+    _contract: 'gift|mail|claim|players',
 
     /* game.js's two hooks — everything else is this file's own */
     onHome: onHome,                       /* end of renderHome()           */
