@@ -3227,6 +3227,55 @@ function stakeSettle(tone){
     return { kind:'lose', pot:L.pot, ante:L.ante, humans:L.humans };
   } catch (e){ return null; }
 }
+/* A TEAM POT — the same settle, divided.
+
+   stakeSettle() pays the WHOLE pot to the phone that says it won, which is
+   exactly right when there is one winner and catastrophic when there is a
+   side. SUSPETT ends with the raħal or the klikka winning together, often
+   six or more seats at once: every one of those phones calling stakeSettle
+   would call payout(pot) for the full amount, and the room would walk away
+   with six times the chips that were ever anted. Chips minted out of
+   nothing, from a wallet nobody audits.
+
+   So a team game names its winning SEATS and this pays only this phone's
+   share. The split has to be identical on every phone without any of them
+   talking to each other, so it is pure arithmetic on a list they all agree
+   on: floor the even share, and hand the remainder — never more than
+   seats-1 chips — to the LOWEST winning seat, so the shares add up to the
+   pot exactly rather than quietly losing a chip to rounding on every game.
+
+   A seat that is not in the winning list settles as a loss: its ante left
+   at 'began' and stays gone, which is what losing a staked game means. */
+function stakeSettleTeam(tone, winnerSeats, mySeat){
+  const L = MP.stakeLive;
+  if (!L || L.settled) return null;
+  const seats = (Array.isArray(winnerSeats) ? winnerSeats : [])
+    .map(n => n | 0).filter((n, i, a) => n >= 0 && a.indexOf(n) === i)
+    .sort((a, b) => a - b);
+  const me = mySeat == null ? MP.seat : (mySeat | 0);
+  /* No winners named, or a shape we do not understand, is not something to
+     guess at with real chips: fall back to the abort rule, where every ante
+     simply comes home. Refusing to pay is recoverable; overpaying is not. */
+  if (!seats.length){ stakeAbort(); return null; }
+  const iWon = seats.indexOf(me) >= 0;
+  if (tone === 'draw' || !iWon){
+    /* the single-winner settle already says both of these correctly */
+    return stakeSettle(iWon ? 'draw' : 'lose');
+  }
+  L.settled = true;
+  const XP = stakeXP();
+  if (!XP) return null;
+  try {
+    /* the same short-race correction stakeSettle makes: a seat whose ante
+       never actually left this wallet must not be paid its own share of it */
+    const pot = L.paid ? L.pot : Math.max(0, L.pot - L.ante);
+    const base = Math.floor(pot / seats.length);
+    const share = base + (me === seats[0] ? pot - base * seats.length : 0);
+    if (share > 0) XP.payout(share, { id: L.id });
+    return { kind:'win', pot:share, wholePot:pot, winners:seats.length,
+             ante:L.ante, humans:L.humans, team:true };
+  } catch (e){ return null; }
+}
 /* THE TABLE DIED BEFORE A RESULT — a bail, a desync, a dead connection.
    Nobody won, so nobody pays: the ante comes home. Idempotent through
    the same id guard, and a no-op for friendly tables and settled pots. */
@@ -6273,7 +6322,7 @@ window.KARTI_MP = {
   /* THE STAKES — read-only for game UIs (mode/ante/pot), plus the lobby
      verbs for the harness. All wallet bookkeeping; none of it can touch
      a seed, a deal or the wire. */
-  stakeInfo, stakeRoom, stakeSettle, stakeAbort, stakeArm,
+  stakeInfo, stakeRoom, stakeSettle, stakeSettleTeam, stakeAbort, stakeArm,
   /* how far away the server is, measured rather than guessed */
   pingStats, measure, measureHTTP, healthURL,
   /* the three-games era */
