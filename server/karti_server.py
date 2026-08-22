@@ -5032,6 +5032,29 @@ class Accounts:
     MAIL_NOTE_MAX = 240        # a covering note, not an essay
     MAIL_GIFT_MAX = 2048       # the opaque payload
 
+    def find_players(self, prefix, limit=12):
+        """Accounts whose name starts with `prefix` — ADMIN EYES ONLY.
+
+        find() next door is deliberately mute about which accounts exist,
+        because for an INVITE that would let anybody enumerate the userbase.
+        This one answers the same question out loud, so the ONLY thing keeping
+        it honest is the caller: acct_players() refuses anyone who is not on
+        the server's own admin list, before it ever gets here.
+
+        Prefix-only and capped: enough to finish typing a name you already
+        know, not enough to page through everybody."""
+        prefix = "".join(c for c in str(prefix or "").lower()
+                         if c.isalnum() or c in "._-")[:24]
+        if not prefix:
+            return []
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT uname, name FROM accounts WHERE uname LIKE ? ESCAPE '\\'"
+                " ORDER BY uname LIMIT ?",
+                (prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",
+                 max(1, min(int(limit or 12), 25)))).fetchall()
+        return [{"u": r[0], "name": r[1]} for r in rows]
+
     def mail_send(self, to_key, sender_name, note, gift_json, now=None):
         """Leave a letter. Returns its id, or None if the box is full.
 
@@ -5877,7 +5900,7 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.acct_fail(403, "Origin not allowed.")
             return
         if action not in ("register", "login", "logout", "pull", "push",
-                          "gift", "mail", "claim"):
+                          "gift", "mail", "claim", "players"):
             self.acct_fail(404, "No such account route.")
             return
         if ACCOUNTS is None:
@@ -5903,6 +5926,8 @@ class KartiHandler(BaseHTTPRequestHandler):
                 self.acct_mail(addr, body)
             elif action == "claim":
                 self.acct_claim(addr, body)
+            elif action == "players":
+                self.acct_players(addr, body)
             else:
                 self.acct_push(addr, body)
         except KDFBusy:
@@ -6053,6 +6078,22 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.acct_fail(409, "Their mailbox is full.")
             return
         self.reply(200, {"ok": True, "id": mid, "to": to})
+
+    def acct_players(self, addr, body):
+        """Type-ahead for the owner's gift box. Admin only, same gate as gift.
+
+        Without this the send console is a blind text field: a typo is only
+        discovered after pressing send, and the gift goes nowhere. With it the
+        owner picks a real account and the 404 stops being possible."""
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, _name = who
+        if self._acct_norm(key) not in self.ADMIN_KEYS:
+            self.acct_fail(403, "Not allowed.")
+            return
+        self.reply(200, {"ok": True,
+                         "players": ACCOUNTS.find_players(body.get("q"))})
 
     def acct_mail(self, addr, body):
         who = self.authed(addr, body)
