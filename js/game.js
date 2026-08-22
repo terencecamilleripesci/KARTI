@@ -3705,8 +3705,7 @@ function renderCosmTab(){
             '<span class="xh-sub">' + (tease.length
               ? (mtL ? 'Settijiet animati li l-ħanut qatt ma jżomm — bħal ' : 'Animated sets the shop never stocks — like ') +
                 '<b>' + esc(tease[0].meta.name) + '</b>. ' +
-                (tease[0].buy ? (mtL ? 'Faddal għalih.' : 'Save up for it.')
-                              : (mtL ? 'Irbaħhom.' : 'Win it.'))
+                (mtL ? 'Irbaħha u faddal għaliha.' : 'Win it, then pay for it.')
               : (mtL ? 'Ġibthom kollha. Ilbeshom.' : 'You unlocked every set. Wear them.')) + '</span>' +
             '<span class="xh-prog"><span class="xh-bar"><i style="width:' + xPct + '%"></i></span>' +
               '<span class="xh-n">' + xGot + ' / ' + xr.length +
@@ -3872,8 +3871,8 @@ function renderExclTab(){
       '<div class="spinhead"><h3>' + ico('trophy') +
         (mtL ? 'Esklussivi' : 'Exclusives') + '</h3>' +
         '<p class="tiny">' + (mtL
-          ? 'Settijiet animati li ma jidhrux fil-ħanut. Uħud tirbaħhom rebħa wara rebħa, oħrajn tfaddal il-muniti għalihom. '
-          : 'Animated sets the shop never stocks. Some you win, victory by victory; the rest you save up for. ') +
+          ? 'Settijiet animati li ma jidhrux fil-ħanut. Trid tirbaħhom U tfaddal għalihom — it-tnejn. '
+          : 'Animated sets the shop never stocks. You have to win them AND save up for them — both. ') +
         '<b>' + got + ' / ' + rows.length + (mtL ? ' miksuba' : ' unlocked') + '</b></p></div>';
     rows.forEach(r => {
       const pctW = Math.round(r.pg.pct * 100);
@@ -3896,45 +3895,59 @@ function renderExclTab(){
                 (mtL ? ' Is-sett kollu tiegħek' : ' The whole set is yours') + '</span>' +
               '<button class="btn ghost sm xwear" data-xgame="' + esc(r.g) + '">' +
                 (mtL ? 'Ilbes is-sett' : 'Wear the set') + '</button></div>'
-            : r.buy
-            /* A BOUGHT SET. The bar fills with the WALLET, not with wins:
-               saving up is the grind, so the player watches the same bar
-               they would watch for a milestone. The button only goes live
-               once the coins are actually there, and asks once first —
-               2 600 coins is a fortnight and a mis-tap must not spend it. */
-            ? '<div class="xgrind">' +
-                '<div class="xhow">' + coinIco() + '<span>' +
-                  (mtL ? 'Faddal ' : 'Save ') + r.pg.need +
-                  (mtL ? ' muniti' : ' coins') + '</span></div>' +
-                '<div class="xbar"><span class="xfill" style="width:' + pctW + '%"></span></div>' +
+            /* BOTH GATES, DRAWN AS TWO BARS. A set asks for the wins AND
+               the coins, so the card has to say which half is still short
+               — one merged bar would leave a player who has ground forty
+               wins staring at a button that will not press and no reason
+               why. The button only lives when both are met, and asks once
+               first: a mis-tap must not spend a fortnight of saving. */
+            : '<div class="xgrind">' +
+                '<div class="xhow">' + ico('trophy') + '<span>' +
+                  (mtL ? 'Irbaħ ' : 'Win ') + r.pg.need +
+                  (mtL ? ' logħbiet' : ' games') + '</span>' +
+                  (r.pg.winsMet ? '<i class="xok">' + ico('check') + '</i>' : '') + '</div>' +
+                '<div class="xbar' + (r.pg.winsMet ? ' xdoneb' : '') + '">' +
+                  '<span class="xfill" style="width:' + Math.round(r.pg.pct * 100) + '%"></span></div>' +
+                '<div class="xnum tiny">' + Math.min(r.pg.won, r.pg.need) + ' / ' + r.pg.need +
+                  (mtL ? ' rebħiet' : ' wins') + '</div>' +
+
+                '<div class="xhow xhow2">' + coinIco() + '<span>' +
+                  (mtL ? 'Faddal ' : 'Save ') + r.pg.coins +
+                  (mtL ? ' muniti' : ' coins') + '</span>' +
+                  (r.pg.coinsMet ? '<i class="xok">' + ico('check') + '</i>' : '') + '</div>' +
+                '<div class="xbar' + (r.pg.coinsMet ? ' xdoneb' : '') + '">' +
+                  '<span class="xfill" style="width:' + Math.round(r.pg.coinPct * 100) + '%"></span></div>' +
+
                 '<div class="xrow">' +
-                  '<span class="xnum tiny">' + Math.min(r.pg.have, r.pg.need) +
-                    ' / ' + r.pg.need + (mtL ? ' muniti' : ' coins') + '</span>' +
-                  '<button class="btn sm xbuy' + (r.pg.have >= r.pg.need ? ' can' : '') +
-                    '" data-xgame="' + esc(r.g) + '" data-price="' + r.pg.need + '"' +
-                    (r.pg.have >= r.pg.need ? '' : ' disabled') +
-                    ' aria-label="' + esc(r.meta.name) + ', ' + r.pg.need + ' coins' +
-                    (r.pg.have >= r.pg.need ? '' : ', you need ' + (r.pg.need - r.pg.have) + ' more') + '">' +
-                    '<span class="bl">' + coinIco() + '<span>' +
-                      (r.pg.have >= r.pg.need
-                        ? (exclConfirm === r.g ? (mtL ? 'Żgur? ' : 'Sure? ') : '') + r.pg.need
-                        : (r.pg.need - r.pg.have) + (mtL ? ' nieqsa' : ' to go')) +
-                    '</span></span>' +
+                  '<span class="xnum tiny">' + Math.min(r.pg.have, r.pg.coins) +
+                    ' / ' + r.pg.coins + (mtL ? ' muniti' : ' coins') + '</span>' +
+                  '<button class="btn sm xbuy' + (r.pg.canBuy ? ' can' : '') +
+                    '" data-xgame="' + esc(r.g) + '" data-price="' + r.pg.coins + '"' +
+                    (r.pg.canBuy ? '' : ' disabled') +
+                    ' aria-label="' + esc(r.meta.name) + ', ' + r.pg.coins + ' coins' +
+                    (r.pg.winsMet ? '' : ', ' + (r.pg.need - r.pg.won) + ' more wins needed') +
+                    (r.pg.coinsMet ? '' : ', ' + (r.pg.coins - r.pg.have) + ' more coins needed') + '">' +
+                    '<span class="bl">' +
+                      (r.pg.canBuy
+                        ? coinIco() + '<span>' +
+                            (exclConfirm === r.g ? (mtL ? 'Żgur? ' : 'Sure? ') : '') + r.pg.coins +
+                          '</span>'
+                        /* name the gate that is actually blocking, not both */
+                        : !r.pg.winsMet
+                          ? ico('trophy') + '<span>' + (r.pg.need - r.pg.won) +
+                              (mtL ? ' rebħiet nieqsa' : ' wins to go') + '</span>'
+                          : coinIco() + '<span>' + (r.pg.coins - r.pg.have) +
+                              (mtL ? ' nieqsa' : ' to go') + '</span>') +
+                    '</span>' +
                   '</button>' +
                 '</div>' +
-              '</div>'
-            : '<div class="xgrind">' +
-                '<div class="xhow">' + ico('trophy') + esc(r.meta.how) + '</div>' +
-                '<div class="xbar"><span class="xfill" style="width:' + pctW + '%"></span></div>' +
-                '<div class="xnum tiny">' + r.pg.won + ' / ' + r.pg.need +
-                  (mtL ? ' rebħiet' : ' wins') + '</div>' +
               '</div>') +
         '</div>' +
       '</div>';
     });
     html += '<p class="spinnote">' + (mtL
-      ? 'Il-grind hu l-prezz — rebħiet jew muniti. Xejn minn dan ma jidher fil-ħanut.'
-      : 'The grind is the price — wins or coins. None of this ever shows up in the shop.') + '</p></div>';
+      ? 'Ir-rebħiet juru li lgħabt din il-logħba. Il-muniti jiswew. Trid it-tnejn.'
+      : 'The wins prove you played this game. The coins cost you. You need both.') + '</p></div>';
     stage.innerHTML = html;
     /* mount each piece's animated preview, and wire "Wear the set" to
        equip every piece of an earned set — the same wiring the old
@@ -3989,6 +4002,10 @@ function renderExclTab(){
           try { if (window.KARTI_SFX) KARTI_SFX.play('shop.buy'); } catch (e){}
           const nm = (exclMeta(g) || {}).name || 'The set';
           toast('“' + nm + '” is yours — ' + r.price + ' coins.');
+        } else if (r && r.why === 'wins'){
+          /* money is only half of it — say which half is missing, or the
+             refusal reads as the shop being broken */
+          toast('⚠ Win ' + ((r.need | 0) - (r.won | 0)) + ' more first — the coins are ready.');
         } else if (r && r.why === 'coins'){
           toast('⚠ Not enough coins — it costs ' + (r.price || 0) + '.');
         } else if (r && r.why === 'owned'){
@@ -4123,6 +4140,15 @@ function storeCSS(){
     /* the grind bar */
     '.xgrind{display:grid;gap:5px;margin-top:2px}' +
     '.xhow{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;color:var(--gold)}' +
+    /* the second gate sits under the first, so it needs air above it or
+       the two bars read as one control with a stray caption */
+    '.xhow2{margin-top:9px}' +
+    /* a met gate says so with a tick and a filled-through bar — a player
+       with the wins but not the coins must be able to see at a glance
+       which half they already did */
+    '.xok{display:inline-flex;color:#3DDC84;font-style:normal;margin-left:2px}' +
+    '.xbar.xdoneb{box-shadow:inset 0 0 0 1px rgba(61,220,132,.45)}' +
+    '.xbar.xdoneb .xfill{background:linear-gradient(90deg,#8CF5BE,#3DDC84)}' +
     '.xhow .ico{width:13px;height:13px}' +
     '.xbar{position:relative;height:8px;border-radius:999px;overflow:hidden;' +
       'background:rgba(255,255,255,.07);border:1px solid var(--line)}' +

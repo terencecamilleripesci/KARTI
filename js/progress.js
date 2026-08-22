@@ -2541,7 +2541,26 @@ var EXCL_WIN_MIN = 15, EXCL_WIN_MAX = 45;
    sit unearnable forever. */
 function exclStat(game){
   var m = EXCLUSIVES[game];
-  return (m && m.stat) || game;
+  var st = (m && m.stat) || game;
+  /* a set spanning several games names them all; callers that want one
+     name (a label, a weight) take the first */
+  return Array.isArray(st) ? st[0] : st;
+}
+/* THE FULL LIST of record books that pay for a set. Almost always one, but
+   the House Deck is worn by every card game at once, so demanding the wins
+   at any single one of them would be arbitrary — and pointing it at a book
+   nobody writes to would make it literally unearnable, which is exactly
+   what 'deck' did until this existed. */
+function exclStatList(game){
+  var m = EXCLUSIVES[game];
+  var st = (m && m.stat) || game;
+  return Array.isArray(st) ? st.slice() : [st];
+}
+/* wins summed across every book the set draws on */
+function exclWins(game){
+  var list = exclStatList(game), n = 0, i;
+  for (i = 0; i < list.length; i++) n += gameWins(list[i]);
+  return n;
 }
 function exclNeed(game){
   var m = EXCLUSIVES[game];
@@ -2564,22 +2583,41 @@ function gameWins(game){
   } catch (e){}
   return 0;
 }
-/* ── THE COIN SETS ──────────────────────────────────────────────────
-   Not every exclusive is won at a milestone. The sets carrying `coins`
-   are BOUGHT, and saving up the coins IS their grind — a card duel pays
-   a handful, so a 2 600-coin deck is a fortnight of evenings, which is
-   the same shape of commitment as forty wins and reads far better on a
-   set that spans nine games at once.
+/* ── TWO GATES, NOT ONE ─────────────────────────────────────────────
+   Every exclusive set now asks for BOTH: win the games AND save the
+   coins. Not either. Not whichever you reach first.
 
-   They are still exclusives, not shop stock. The mechanism that keeps
-   them out of the ordinary store is their LEVEL: EXCL_BUY_LEVEL sits
-   above the store's ceiling (COSM_LEVEL_MAX), so storeBuyables() never
-   lists them and owns() never gives them away free the way it does a
-   level-0 item. They carry no `earn`, which is the one thing grant()
-   refuses, so the Exclusives tab's own buy button can hand over the
-   whole set in a single purchase. */
+   The half-and-half arrangement this replaces — nine sets won, eight
+   sets bought — quietly said two different things about what an
+   exclusive IS. A player who ground forty wins and a player who saved
+   two thousand coins were holding the same badge for unrelated work,
+   and the bought half read as the shop selling prestige. Asking for
+   both makes one statement: you played this game a lot, and you went
+   without something else to have this.
+
+   It also makes the two currencies mean different things. WINS say you
+   played THIS game — they are per-game and cannot be moved. COINS are
+   fungible and come from everywhere, so they are what you give up. One
+   proves devotion, the other costs you.
+
+   They are still not shop stock. Their LEVEL is what keeps them out:
+   EXCL_BUY_LEVEL sits above the store's ceiling (COSM_LEVEL_MAX), so
+   storeBuyables() never lists them, and owns() never hands them over
+   free the way it does a level-0 item. They carry no `earn` — the one
+   thing grant() refuses — because the wins are checked by exclPurchase
+   at the counter instead, which is the only door.
+
+   ALREADY-EARNED SETS ARE SAFE. A set won under the old rule wrote its
+   ownership flag at the moment the milestone landed, and owns() reads
+   that flag before anything else. Dropping `earn` cannot take it back;
+   those players keep what they won and are never asked for coins. */
 var EXCL_BUY_LEVEL = 40;         /* > COSM_LEVEL_MAX (12), <= MAX_LEVEL */
 function exclBuy(game){ return !!(EXCLUSIVES[game] && EXCLUSIVES[game].coins); }
+/* the WINS half of the gate, asked on its own so the store can draw the
+   two bars separately and say which one is still short */
+function exclWinsMet(game){
+  return exclWins(game) >= exclNeed(game);
+}
 function exclCoins(game){
   var m = EXCLUSIVES[game];
   return (m && m.coins) ? (m.coins | 0) : 0;
@@ -2592,25 +2630,32 @@ function exclOwnedN(game){
   for (i = 0; i < ds.length; i++) if (owns(ds[i].id)) n++;
   return n;
 }
+/* DONE means OWNED, for every set. It deliberately no longer means "the
+   milestone is met": hitting the wins is now half the price, and a set
+   you have qualified for but not paid for is not yours yet. */
 function exclDone(game){
-  if (exclBuy(game)){
-    var ds = exclusiveDefs(game);
-    return ds.length > 0 && exclOwnedN(game) === ds.length;
-  }
-  return gameWins(exclStat(game)) >= exclNeed(game);
+  var ds = exclusiveDefs(game);
+  return ds.length > 0 && exclOwnedN(game) === ds.length;
 }
+/* BOTH bars, always. `won/need/pct` stay the WINS half so every caller
+   written against the old shape keeps drawing the same bar it drew
+   before; the coin half arrives alongside it under its own names. */
 function exclProgress(game){
   game = String(game || '').toLowerCase();
-  if (exclBuy(game)){
-    var have = coinsBal(), want = exclCoins(game);
-    return { game:game, buy:true, coins:want, have:have,
-             won:Math.min(have, want), need:want, done:exclDone(game),
-             pct: want ? Math.max(0, Math.min(1, have / want)) : 1 };
-  }
-  var need = exclNeed(game), won = gameWins(exclStat(game));
-  return { game:game, buy:false, coins:0, have:0,
-           won:won, need:need, done:won >= need,
-           pct: need ? Math.max(0, Math.min(1, won / need)) : 1 };
+  var need = exclNeed(game), won = exclWins(game);
+  var want = exclCoins(game), have = coinsBal();
+  var winsOK = won >= need, coinsOK = have >= want;
+  return {
+    game:game, buy:true, done:exclDone(game),
+    /* the wins gate */
+    won:won, need:need, winsMet:winsOK,
+    pct: need ? Math.max(0, Math.min(1, won / need)) : 1,
+    /* the coin gate */
+    coins:want, have:have, coinsMet:coinsOK,
+    coinPct: want ? Math.max(0, Math.min(1, have / want)) : 1,
+    /* and the only question the buy button actually asks */
+    canBuy: winsOK && coinsOK
+  };
 }
 /* buy a whole coin set in one go — one price, every piece. The order
    is CHECK, then CHARGE, then GRANT, and a grant that somehow fails
@@ -2628,6 +2673,13 @@ function exclPurchase(game){
   for (i = 0; i < ds.length; i++){
     if (!DEFS[ds[i].id] || DEFS[ds[i].id].earn) return { ok:false, why:'not-for-sale' };
   }
+  /* THE WINS GATE, checked at the counter. It lives here rather than in an
+     `earn` test because grant() refuses anything carrying one, and the whole
+     point is that this IS purchasable — once you have played for it. Money
+     alone buys nothing. */
+  if (!exclWinsMet(game))
+    return { ok:false, why:'wins', need:exclNeed(game),
+             won:exclWins(game), price:exclCoins(game) };
   var price = exclCoins(game), bal = coinsBal();
   if (bal < price) return { ok:false, why:'coins', price:price, short:price - bal };
   var paid = spendCoins(price, 'exclusive:' + game);
@@ -2764,16 +2816,16 @@ function exclPreview(game, slot, accent){
    drift. `karti` is excluded on purpose — borders/badges/faces are their
    own prestige track. */
 var EXCLUSIVES = {
-  chess:     { accent:'#8A5CFF', slots:['board','pieces'],
+  chess:     { accent:'#8A5CFF', slots:['board','pieces'], coins:2000,
     name:{en:'The Obsidian Court',mt:'Il-Qorti tal-Ossidjana'},
     blurb:{en:'Living obsidian and molten gold. Every piece breathes.',mt:'Ossidjana ħajja u deheb imdewweb. Kull biċċa tieħu n-nifs.'} },
-  dama:      { accent:'#3DDC84', slots:['board','stones'],
+  dama:      { accent:'#3DDC84', slots:['board','stones'], coins:2000,
     name:{en:'Emerald Reign',mt:'Ir-Renju taż-Żmerald'},
     blurb:{en:'Emerald stones on a board that will not stop glowing.',mt:'Bċejjeċ taż-żmerald fuq bord li ma jiqafx jiddi.'} },
-  serp:      { accent:'#5AF0C8', slots:['skin','pellet','floor'],
+  serp:      { accent:'#5AF0C8', slots:['skin','pellet','floor'], coins:2800,
     name:{en:'The Silver Dream',mt:'Il-Ħolma tal-Fidda'},
     blurb:{en:'A snake of running mercury, feeding on light.',mt:'Serp tal-merkurju miexi, jiekol id-dawl.'} },
-  gharraq:   { accent:'#4FA9E8', slots:['fleet','sea','ring'],
+  gharraq:   { accent:'#4FA9E8', slots:['fleet','sea','ring'], coins:2800,
     name:{en:'The Ghost Armada',mt:'L-Armata tal-Fantażmi'},
     blurb:{en:'A spectral fleet on a sea that remembers every wreck.',mt:'Flotta spettrali fuq baħar li jiftakar kull għarqa.'} },
   /* THE ENCORE SET — a second, longer grind for the same game. Its own
@@ -2782,7 +2834,7 @@ var EXCLUSIVES = {
      Għarraqhom record book, `mult` doubles the wins the first set asked
      for. js/battleship-ui.js reads whichever set is worn and reskins
      the whole board — sea, fleet, reticle and the firing animation. */
-  gharraqroza: { accent:'#FF9EC4', slots:['fleet','sea','ring'], stat:'gharraq', mult:2,
+  gharraqroza: { accent:'#FF9EC4', slots:['fleet','sea','ring'], coins:3600, stat:'gharraq', mult:2,
     name:{en:'The Rose Flotilla',mt:'Il-Flotta tal-Ward'},
     blurb:{en:'Pearl hulls, champagne fire, a sea of rosewater. Sink them beautifully.',mt:'Bwieq tal-perla, nar tax-xampanja, baħar tal-ilma ward. Għarraqhom bi stil.'} },
   kiri:      { accent:'#FFC542', slots:['board','dice','table'], coins:2800,
@@ -2803,6 +2855,11 @@ var EXCLUSIVES = {
      karti.back shelves; the key stays 'deck' so its art
      (art/cosm/deck-exclusive-*.png) and its set id stay its own. */
   deck:      { accent:'#FFC542', slots:['felt','back'], wear:'karti', coins:2600,
+    /* worn by every card game, so EARNED at every card game — a win at any
+       of them counts toward it. Without this the set pointed at a record
+       book called 'deck' that nothing on earth writes to, which made it
+       permanently unbuyable the moment wins became half the price. */
+    stat:['skarta','gin','poker','rummy','bixkla','briscola','sette','cheat','cards2131'],
     name:{en:'The House Deck',mt:'Il-Mazz tal-Kbar'},
     blurb:{en:'Milled gold on wine velvet, a Maltese cross on every back. One deck, worn by every card game in the box.',mt:'Deheb imħabbat fuq bellus tal-inbid, salib ta’ Malta fuq kull dahar. Mazz wieħed, għal kull logħba tal-karti.'} },
   spy:       { accent:'#39FF14', slots:['sky','ring'], coins:2000,
@@ -2817,16 +2874,16 @@ var EXCLUSIVES = {
   erbgha:    { accent:'#FF3EA5', slots:['discs','board'], coins:2000,
     name:{en:'Neon Drop',mt:'Il-Waqgħa Neon'},
     blurb:{en:'Discs that fall like fireworks and land still glowing.',mt:'Diski li jaqgħu bħal murtali u jinżlu għadhom jiddu.'} },
-  tankijiet: { accent:'#FF6A2C', slots:['tank','trail','floor'],
+  tankijiet: { accent:'#FF6A2C', slots:['tank','trail','floor'], coins:2800,
     name:{en:'The Molten Legion',mt:'Il-Leġjun Imdewweb'},
     blurb:{en:'A tank cast in living fire, tracers that hang like embers.',mt:'Tank iffurmat min-nar ħaj, traċċanti li jibqgħu mdendlin bħal ġamar.'} },
-  bomba:     { accent:'#FF9E2C', slots:['char','bomb','arena'],
+  bomba:     { accent:'#FF9E2C', slots:['char','bomb','arena'], coins:2800,
     name:{en:'The Blast King',mt:'Is-Sultan tal-Isplużjoni'},
     blurb:{en:'A golden bomber, a bomb that pulses, an arena on fire.',mt:'Bomber tad-deheb, bomba li tħabbat, arena taqbad.'} },
-  briks:     { accent:'#8A5CFF', slots:['paddle','ball','bricks'],
+  briks:     { accent:'#8A5CFF', slots:['paddle','ball','bricks'], coins:2800,
     name:{en:'The Arcade Ghost',mt:'Il-Fantażma tal-Arcade'},
     blurb:{en:'Violet neon paddle, a ball of light, walls of pure glow.',mt:'Paletta vjola neon, ballun tad-dawl, ħitan ta’ dawl pur.'} },
-  kodici:    { accent:'#00E5FF', slots:['pegs'],
+  kodici:    { accent:'#00E5FF', slots:['pegs'], coins:1200,
     name:{en:'The Cipher Vault',mt:'Il-Kaxxaforti taċ-Ċifra'},
     blurb:{en:'Pegs of pure neon that glow the moment you crack it.',mt:'Pinnijiet ta’ neon pur li jiddu hekk kif tkisser il-kodiċi.'} },
   minhu:     { accent:'#FFC542', slots:['frame'], coins:1200,
@@ -2841,9 +2898,11 @@ var EXCLUSIVES = {
    wins is not taken away by a losing streak. */
 function exclSetId(game){ return 'excl-' + game; }
 function exclEarnHow(game){
-  if (exclBuy(game)) return 'Save ' + exclCoins(game) + ' coins';
-  var need = exclNeed(game), gm = gameMeta(exclStat(game));
-  return 'Win ' + need + ' games of ' + gm.name;
+  var need = exclNeed(game), list = exclStatList(game);
+  var where = list.length > 1
+    ? 'card games'                       /* the House Deck spans all of them */
+    : 'games of ' + gameMeta(list[0]).name;
+  return 'Win ' + need + ' ' + where + ' and save ' + exclCoins(game) + ' coins';
 }
 function registerExclusives(){
   var rows = [], g;
@@ -2868,21 +2927,14 @@ function registerExclusives(){
           set: exclSetId(game),
           preview: exclPreview(game, slot, meta.accent)
         };
-        if (meta.coins){
-          /* a BOUGHT exclusive. No `earn` — that is the one thing
-             grant() refuses — and a level above the store's ceiling so
-             it is neither free (owns() gives away level<=1) nor listed
-             on the ordinary shelf (storeBuyables caps at COSM_LEVEL_MAX).
-             exclPurchase() is the only door. */
-          d.level = EXCL_BUY_LEVEL;
-        } else {
-          d.earn = {
-            how: exclEarnHow(game),
-            /* NOT live — once the milestone is hit it is written down and
-               kept, the way a ten-in-a-row border is kept */
-            test: (function(game){ return function(){ return exclDone(game); }; })(game)
-          };
-        }
+        /* No set carries an `earn` any more. It is not that they stopped
+           being earned — it is that the milestone is only HALF the price
+           now, and an `earn` test would hand the set over the moment the
+           wins landed, for free, before a single coin was paid. The wins
+           are checked by exclPurchase() at the counter instead, and the
+           level above the store's ceiling keeps these off the ordinary
+           shelf and out of reach of owns()' level<=1 giveaway. */
+        d.level = EXCL_BUY_LEVEL;
         return d;
       })(g, slots[si], meta));
     }
@@ -3531,6 +3583,7 @@ window.KARTI_XP = {
   exclusiveBuy: exclBuy,                /* exclusiveBuy(game) -> bought, not won? */
   exclusiveCoins: exclCoins,            /* exclusiveCoins(game) -> the price     */
   exclusiveBuySet: exclPurchase,        /* buy the whole set: {ok,price,defs}    */
+  exclusiveWinsMet: exclWinsMet,        /* has the wins half of the gate landed? */
   exclusiveStat: exclStat,              /* exclStat(setKey) -> the real game
                                            whose record book earns it (an
                                            encore set like gharraqroza is a
