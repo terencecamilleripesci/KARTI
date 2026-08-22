@@ -1601,6 +1601,37 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
   </div>
 </div>
 <style>
+/* the install strip — see the block near the service-worker registration.
+   Sits above everything except the splash, clear of the home indicator, and
+   never taller than one thumb. */
+#kl-inst{position:fixed;left:10px;right:10px;z-index:99000;
+  bottom:calc(env(safe-area-inset-bottom,0px) + 12px);
+  display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border-radius:16px;box-sizing:border-box;
+  background:linear-gradient(180deg,#241A3E,#160F28);
+  border:1px solid rgba(255,197,66,.34);
+  box-shadow:0 14px 34px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06);
+  font-family:system-ui,-apple-system,sans-serif;color:#F4EFFF;
+  transform:translateY(140%);opacity:0;
+  transition:transform .34s cubic-bezier(.22,.9,.28,1),opacity .34s}
+#kl-inst.on{transform:translateY(0);opacity:1}
+#kl-inst .kl-i-ic{flex:0 0 auto;width:34px;height:34px;border-radius:9px;
+  background:url(icons/icon-192.png) center/cover no-repeat,#1B1430;
+  box-shadow:0 2px 8px rgba(0,0,0,.5)}
+#kl-inst .kl-i-tx{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+#kl-inst .kl-i-tx b{font-size:13px;font-weight:800;line-height:1.15}
+#kl-inst .kl-i-tx i{font-style:normal;font-size:11px;line-height:1.25;color:#A093C4}
+#kl-inst .kl-i-tx i b{font-size:11px;color:#F4EFFF}
+#kl-inst .kl-i-sh{display:inline-block;transform:translateY(1px);color:#FFC542;font-weight:900}
+#kl-inst .kl-i-go{flex:0 0 auto;border:0;cursor:pointer;
+  padding:9px 15px;border-radius:11px;font:800 13px/1 system-ui,sans-serif;
+  color:#2A1B00;background:linear-gradient(180deg,#FFE9B0,#FFC542);
+  box-shadow:0 3px 10px rgba(255,197,66,.34)}
+#kl-inst .kl-i-go:active{transform:translateY(1px)}
+#kl-inst .kl-i-x{flex:0 0 auto;width:28px;height:28px;border-radius:8px;cursor:pointer;
+  border:0;background:rgba(255,255,255,.06);color:#A093C4;font-size:17px;line-height:1}
+@media (prefers-reduced-motion:reduce){
+  #kl-inst{transition:none;transform:none;opacity:1}}
 #kl-splash{position:fixed;inset:0;z-index:99998;display:flex;align-items:center;justify-content:center;
   background:#0B0710;overflow:hidden;transition:opacity .6s ease;contain:strict}
 #kl-splash .kl-base{position:absolute;inset:0;background:
@@ -2315,7 +2346,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 223;
+var KARTI_BUILD = 224;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2583,6 +2614,128 @@ addEventListener('DOMContentLoaded', function(){
     if (window.KARTI && KARTI.toast) KARTI.toast('Party games are on the way — chess and dama first.');
   };
 });
+
+/* ═══════════════════════════════════════════════════════════════════
+   INSTALL IT — the strip that turns a browser tab into an app icon
+
+   People who arrive from a link play in a tab, and a tab is the worst way
+   to play this: the browser chrome eats a fifth of the screen, it does not
+   go offline, and next time they have to find the link again. Chrome and
+   Edge on Android will offer an install themselves, but only as a thin
+   bar most people swipe away without reading — and on an iPhone there is
+   no offer AT ALL, only a menu item nobody finds by accident.
+
+   So: one strip, platform-honest.
+
+     ANDROID / desktop Chromium — beforeinstallprompt is captured and the
+     strip's button fires the real install dialog. One tap.
+
+     iOS SAFARI — no API exists. The strip tells them the exact two taps
+     (Share, then Add to Home Screen), because "install the app" with no
+     directions is where people give up.
+
+     iOS in CHROME, FIREFOX, EDGE — Add to Home Screen is a SAFARI-ONLY
+     power on iOS, whatever browser they are in. Apple does not expose it
+     to anyone else. So the strip says to open the page in Safari, which
+     is the only true answer and the one that otherwise costs somebody ten
+     minutes of hunting a menu that cannot contain the item.
+
+   It never shows in an already-installed window (display-mode:standalone
+   or navigator.standalone), and a dismissal is remembered for a fortnight
+   so it nags nobody. */
+(function(){
+  var KEY = 'karti_install_hint';
+  var HUSH_DAYS = 14;
+  var deferred = null;
+
+  function installed(){
+    try {
+      if (window.matchMedia && matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.matchMedia && matchMedia('(display-mode: fullscreen)').matches) return true;
+      if (navigator.standalone) return true;                 /* iOS home-screen app */
+    } catch (e){}
+    return false;
+  }
+  function hushed(){
+    try {
+      var t = parseInt(localStorage.getItem(KEY) || '0', 10);
+      return t && (Date.now() - t) < HUSH_DAYS * 864e5;
+    } catch (e){ return false; }
+  }
+  function hush(){ try { localStorage.setItem(KEY, String(Date.now())); } catch (e){} }
+
+  var ua = navigator.userAgent || '';
+  /* iPadOS 13+ reports itself as a Mac, and the only reliable tell left is a
+     touch-capable "Mac" — without this an iPad is offered a dialog iOS has
+     never implemented and the strip lies to it. */
+  var iOS = /iPad|iPhone|iPod/.test(ua) ||
+            (/Macintosh/.test(ua) && typeof navigator.maxTouchPoints === 'number' &&
+             navigator.maxTouchPoints > 1);
+  /* every iOS browser is Safari underneath, so the ENGINE cannot tell them
+     apart — the brand tokens in the UA string are the only way to know that
+     Add to Home Screen will be missing from this particular menu */
+  var iOSOther = iOS && /CriOS|FxiOS|EdgiOS|OPiOS|Brave/.test(ua);
+
+  function strip(kind){
+    if (document.getElementById('kl-inst')) return;
+    var el = document.createElement('div');
+    el.id = 'kl-inst';
+    el.setAttribute('role', 'region');
+    el.setAttribute('aria-label', 'Install KARTI');
+    var body, action;
+    if (kind === 'prompt'){
+      body = '<b>Put KARTI on your phone</b>' +
+             '<i>Full screen, works offline, one tap to open.</i>';
+      action = '<button class="kl-i-go" type="button">Install</button>';
+    } else if (kind === 'ios'){
+      body = '<b>Add KARTI to your Home Screen</b>' +
+             '<i>Tap <span class="kl-i-sh" aria-hidden="true">&#x2191;</span> Share, ' +
+             'then <b>Add to Home Screen</b>.</i>';
+      action = '';
+    } else {
+      body = '<b>Open this in Safari to install</b>' +
+             '<i>On iPhone only Safari can add it to the Home Screen.</i>';
+      action = '';
+    }
+    el.innerHTML =
+      '<span class="kl-i-ic" aria-hidden="true"></span>' +
+      '<span class="kl-i-tx">' + body + '</span>' +
+      action +
+      '<button class="kl-i-x" type="button" aria-label="Not now">&#xd7;</button>';
+    document.body.appendChild(el);
+    requestAnimationFrame(function(){ el.classList.add('on'); });
+
+    var go = el.querySelector('.kl-i-go');
+    if (go) go.onclick = function(){
+      if (!deferred) return;
+      var d = deferred; deferred = null;
+      try { d.prompt(); } catch (e){}
+      /* whichever way they answer, stop asking on this device */
+      try { d.userChoice.then(function(){ hush(); close(); }); } catch (e){ hush(); close(); }
+    };
+    el.querySelector('.kl-i-x').onclick = function(){ hush(); close(); };
+    function close(){ el.classList.remove('on');
+      setTimeout(function(){ try { el.remove(); } catch (e){} }, 260); }
+  }
+
+  /* Chromium hands us the event instead of prompting; hold it and offer our
+     own button, which is far more visible than the bar it suppresses. */
+  window.addEventListener('beforeinstallprompt', function(e){
+    e.preventDefault();
+    deferred = e;
+    if (!installed() && !hushed()) setTimeout(function(){ strip('prompt'); }, 2500);
+  });
+  window.addEventListener('appinstalled', function(){
+    hush();
+    var el = document.getElementById('kl-inst');
+    if (el) el.remove();
+  });
+
+  /* iOS never fires the event, so its strip is decided here. Delayed so it
+     lands after the splash rather than fighting it. */
+  if (iOS && !installed() && !hushed())
+    setTimeout(function(){ strip(iOSOther ? 'safari' : 'ios'); }, 3000);
+})();
 
 if ('serviceWorker' in navigator){
     var sw = navigator.serviceWorker;
