@@ -5916,6 +5916,14 @@ function startDuel(){
     toast('That deck is not legal — needs exactly ' + DECK_SIZE + ' cards you own.');
     go('deck'); return;
   }
+  /* ARM THE RECEIPT before the duel can possibly pay. wireWallet() is where
+     the KARTI_XP.onAward hook that fills lastAward lives, and normally the
+     home screen has long since called it — but a fresh account's first
+     renderHome() detours into the starter gacha and returns before reaching
+     it, so a duel entered without a full home paint would pay correctly and
+     then show a result screen with no idea what was paid. Idempotent, so
+     this costs nothing on every duel after the first. */
+  wireWallet();
   const keys = Object.keys(STARTER_DECKS).filter(k => k !== S.side);
   const aiKey = pickOne(keys.length ? keys : Object.keys(STARTER_DECKS));
   resetUI();
@@ -5934,6 +5942,7 @@ function startDuel(){
 function startCustomDuel(cfg){
   resetUI();
   UI.busy = false;
+  wireWallet();   /* arm the lastAward receipt — see startDuel for why */
   newDuel(cfg.myList, null, {
     myName: cfg.myName || displayName().toUpperCase(), myKey: cfg.myKey || null,
     foe: cfg.foe, decks: cfg.decks, mode: cfg.mode, diff: cfg.diff, on: onDuelEvent
@@ -6469,8 +6478,11 @@ function showResult(winner, why){
   /* THE PAYOUT SOUND. duel.win / duel.lose has already gone off on the
      `over` event; this is the chips landing after it, which is a separate
      pleasure and the reason anybody plays another one. Sequenced behind
-     the result modal so the two do not stack. A loss still pays a little
-     and still counts them — quieter, and with no chime on the end. */
+     the result screen so the two do not stack. A loss still pays a little
+     and still counts them — quieter, and with no chime on the end. It fires
+     on BOTH result surfaces below: the shared podium's own reward cues
+     ('reward.drop') have no sample in js/sfx.js, so without this the chips
+     would land silently there. */
   if (window.KARTI_SFX){
     const S2 = window.KARTI_SFX;
     setTimeout(() => {
@@ -6480,6 +6492,18 @@ function showResult(winner, why){
       } catch(e){}
     }, 420);
   }
+  /* THE SHARED WINNER SCREEN. Every other game in the box finishes on
+     IR-REBBIEĦ; the solo duel was the last holdout because its win screen
+     carries something the podium's two-button contract has no slot for —
+     the "Open your pack" button, which IS the prize of a solo win. The
+     resolution: the podium's caller-settable primary button becomes the
+     pack button on a win (so the pack ride's the module's PUBLIC contract
+     and cannot be lost to an internal restyle), and "Duel again" is added
+     as a secondary button after the fact — see resultRebbieh for why that
+     is safe. If the module is missing, or anything about it throws, the
+     duel's own classic result card below still works exactly as it always
+     has, so the worst possible failure is the old screen, never no screen. */
+  if (resultRebbieh(won, why, pay, payChips)) return;
   const box = $('#mbox');
   box.innerHTML =
     '<div class="result">' +
@@ -6511,6 +6535,158 @@ function showResult(winner, why){
   if (rp) rp.onclick = () => { closeModal(); D = null; go('pack'); };
   $('#r-again').onclick = () => { closeModal(); startDuel(); };
   $('#r-home').onclick = () => { closeModal(); D = null; go('home'); };
+}
+
+/* ═══ the solo duel on IR-REBBIEĦ — the shared AAA winner screen ═══
+   Returns true when the podium went up, false when the caller should fall
+   back to the classic result card. Never throws past itself: an end-of-duel
+   screen must never be able to take the duel down.
+
+   WHO PAYS, AND HOW OFTEN. Nothing here pays anything. The chips and XP
+   were paid by js/progress.js's duelOver() the instant the 'over' event
+   fired (700ms before this runs), and the pack + record were written by
+   showResult just above. This function only DRAWS the receipt (`pay` is
+   the award that landed, captured through KARTI_XP.onAward), so putting
+   the podium up — or tearing it down, or it failing — can never move money.
+
+   THE PACK BUTTON PROBLEM, and why it is solved this way. The podium's
+   public contract has exactly two actions: a primary (onPlayAgain, with a
+   caller-settable label + caption) and a ghost (onLeave). A solo duel win
+   needs three: Open your pack / Duel again / Back to menu — and rebbieh.js
+   is frozen, so the contract cannot grow a third slot. The split:
+     · the PACK takes the primary. It is the whole point of winning a solo
+       duel, it was the primary on the old screen too, and riding the public
+       contract means no restyle of rebbieh's internals can ever lose it.
+     · DUEL AGAIN is injected as a ghost button just above Leave, copying
+       the podium's own button classes. That is deliberately the one piece
+       that leans on rebbieh's internals, because it is the one piece whose
+       loss is survivable: if the class names or the actions container ever
+       change, the injection quietly does nothing and the screen is still
+       complete — pack, podium, rewards, Leave — rather than broken.
+   On a LOSS there is no pack, the contract fits exactly, and the primary
+   is Duel again like every other game's "Play again". */
+function resultRebbieh(won, why, pay, payChips){
+  const R2 = window.KARTI_REBBIEH;
+  if (!R2 || !R2.show || !D) return false;
+  /* the duel's own words stay English like the rest of this file; the winner
+     screen is the one surface every game shares, so its strings follow the
+     app's bilingual rule through KARTI_LANG — the same split dama.js makes. */
+  const RT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+  try {
+    /* THE ROWS — winner first, which is what the podium sorts by anyway.
+       The score column is the Life Points still standing, clamped at zero
+       (the engine can drive a loser negative), so a wipe-out reads 8000–0
+       and a squeaker reads 900–0. Borders are fixed like dama's sets:
+       you in gold, the opposition in ruby. Avatars stay null on purpose —
+       rebbieh draws its coloured initials tile, the house norm for a
+       solo table (dama, serp, klabb all do the same). */
+    const seats = [
+      { name: D.p[0].name, you: true,
+        score: Math.max(0, D.p[0].lp) + ' LP', border: 'gold' },
+      { name: D.p[1].name, bot: !!D.p[1].isAI,
+        score: Math.max(0, D.p[1].lp) + ' LP', border: 'ruby' }
+    ];
+    const rows = (won ? seats : [seats[1], seats[0]])
+      .map((r, i) => Object.assign(r, { place: i + 1 }));
+
+    /* THE XP BAR, with REAL fractions. Most callers hand rebbieh the house
+       "near-full" guess because level maths is progress.js's business — but
+       progress.js publishes its economy read-only through KARTI_XP.ECON, so
+       the duel can show the bar exactly where it truly is. A level-up starts
+       the bar at zero (honest: this is the new level's bar). If ECON is not
+       there the near-full guess stands in, same as everyone else. */
+    let xp = null;
+    if (pay){
+      let pct = pay.levelled ? 1 : 0.7;
+      let pctBefore = 0;
+      try {
+        const eco = window.KARTI_XP && KARTI_XP.ECON;
+        const needN = eco ? eco.need(pay.level) : 0;
+        if (eco && isFinite(needN) && needN > 0){
+          const into = (pay.total | 0) - eco.cum(pay.level);
+          pct = Math.max(0, Math.min(1, into / needN));
+          pctBefore = pay.levelled ? 0
+            : Math.max(0, Math.min(1, (into - (pay.xp | 0)) / needN));
+        }
+      } catch (e){}
+      xp = { level: pay.level, gained: pay.xp | 0, leveledUp: !!pay.levelled,
+             pct, pctBefore };
+    }
+
+    R2.show({
+      lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
+      reduced: REDUCED,
+      /* the duel's own words for its own verdict — same pair the classic
+         card has always shouted */
+      title: won ? 'REBAĦ!' : 'TELFA',
+      /* the engine's reason plus the lifetime record, which the old card
+         carried as a pill and the podium has no other slot for */
+      subtitle: why + ' · ' + S.rec.w + '–' + S.rec.l,
+      rows,
+      xp,
+      /* the reward block draws ONLY what was genuinely paid — the same
+         receipt the old pills read, chips + level-up chips folded together
+         exactly as before, and the winner's XP slice on its own ribbon.
+         The pack is NOT in here: rebbieh's reward vocabulary is xp/chips/
+         coins/pot, and the pack's home is the primary button below. */
+      reward: pay ? { xp: pay.xp | 0, chips: payChips,
+                      wonBonus: pay.wonBonus | 0 } : null,
+      /* 'game.win' is filtered out: the 'over' event already sounded
+         duel.win/duel.lose through KARTI_SFX.duelEvent, and the podium
+         raising must not gong the same win twice. Everything else (taps,
+         the XP fill, a level-up) passes through. */
+      sound: id => {
+        if (id === 'game.win') return;
+        try { if (window.KARTI_SFX) KARTI_SFX.play(id, { gain: 0.6 }); } catch (e){}
+      },
+      playAgainLabel: won ? RT('Open your pack', 'Iftaħ il-pakkett tiegħek')
+                          : RT('Duel again', 'Erġa\' lgħab'),
+      /* the caption keeps the pack HONEST on the screen itself — the reward
+         cards cannot show it, so the words under the gold button do */
+      playAgainCaption: won
+        ? RT('Your win pays one card pack — it is waiting.',
+             'Ir-rebħa tiegħek tħallas pakkett tal-karti — qed jistenniek.')
+        : pickOne(['Even the Kunjata is disappointed.',
+                   'Blame the traffic. Everyone else does.',
+                   'Shuffle better. Or blame the cards.']),
+      onPlayAgain: won ? () => { D = null; go('pack'); }
+                       : () => { startDuel(); },
+      onLeave: () => { D = null; go('home'); }
+    });
+
+    /* THE THIRD BUTTON — Duel again, on a win. show() builds #kr-root
+       synchronously, so the actions column exists right now. Injected with
+       the podium's own classes so it inherits whatever the podium looks
+       like today; guarded so that if rebbieh's internals ever rename, the
+       whole block is a silent no-op and the screen above stands complete.
+       The button hides the podium through the PUBLIC hide() (which also
+       cancels rebbieh's timers) before dealing the next duel. */
+    if (won){
+      try {
+        const acts = document.querySelector('#kr-root .kr-acts');
+        const leave = acts && acts.querySelector('#kr-leave');
+        if (acts && leave){
+          const b = document.createElement('button');
+          b.id = 'kr-duel-again';
+          b.className = 'kr-btn kr-ghost';
+          b.textContent = RT('Duel again', 'Erġa\' lgħab');
+          let hit = false;      /* a double-tap must not deal two duels */
+          b.onclick = () => {
+            if (hit) return; hit = true;
+            try { R2.hide(); } catch (e){}
+            startDuel();
+          };
+          acts.insertBefore(b, leave);
+        }
+      } catch (e){}
+    }
+    return true;
+  } catch (e){
+    /* half a podium is worse than the old card — take down whatever went
+       up and let the classic result modal handle the whole job */
+    try { R2.hide(); } catch (_){}
+    return false;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
