@@ -1348,6 +1348,32 @@ function step(){
    THE END — which is only ever the table breaking up. A WON HAND is
    not an end: it is the vote, painted by render() on the live felt.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── the shared winner screen (js/rebbieh.js), and its till ──────────
+   This file's own voice is English by design; the shared podium is
+   bilingual everywhere else in the box, so the few strings this section
+   adds carry both tongues through the house helper. */
+const TW = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+/* Settle the pot by name. mp.js's ceremony hangs off KARTI_PARTY.ui.result,
+   which the podium path never calls, so the podium asks for the settle
+   itself. Idempotent twice over — mp.js's settled flag and progress.js's
+   id guard — and a friendly or offline table has no stakeLive record, so
+   this returns null and not a chip moves. */
+function settleStake(tone){
+  try {
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.MP && MPX.MP.stakeLive && MPX.stakeSettle) return MPX.stakeSettle(tone);
+  } catch(e){}
+  return null;
+}
+/* the reward block rebbieh animates: this game's own pay, and the pot */
+function rewardOf(pay, stk){
+  const r = {};
+  if (pay && pay.counted){ r.xp = pay.xp; r.chips = pay.chips; r.wonBonus = pay.wonBonus; }
+  if (stk){ r.staked = stk.ante; if (stk.kind === 'win') r.pot = stk.pot; }
+  return (r.xp || r.chips || r.staked) ? r : null;
+}
+
 function finish(done){
   if (M.finished) return;
   M.finished = true;
@@ -1356,6 +1382,72 @@ function finish(done){
   cueIn(260, () => cue(done.tone === 'win' ? 'game.win'
                      : done.tone === 'lose' ? 'game.lose' : 'ui.toast', { gain: 1 }, true));
   saveSlot(null);
+  /* ONE decision, up here, because the money follows the screen: the wrap
+     progress.js hangs on P.ui.result never fires when P.ui.result is never
+     called, so the podium path pays through KARTI_XP.awardPlay by hand and
+     the card path keeps its old wiring, untouched. */
+  const R2 = window.KARTI_REBBIEH;
+  const useR2 = !!(R2 && R2.show && window.KARTI_XP && KARTI_XP.awardPlay);
+  let pay = null, stk = null;
+  if (useR2){
+    if (M.net){
+      /* an online table pays here, once, id-guarded on the match seed —
+         at the ranked rate when the room is playing for a real pot */
+      try {
+        pay = KARTI_XP.awardPlay({ game:'rummy', won: done.tone === 'win',
+                                   draw: done.tone === 'draw',
+                                   id: 'rm' + M.seed.toString(36),
+                                   ranked: !!(window.KARTI_MP && KARTI_MP.MP && KARTI_MP.MP.stakeLive) });
+      } catch(e){}
+      stk = settleStake(done.tone || 'draw');
+    } else {
+      /* OFFLINE the hands already paid one by one as each RUMMY landed
+         (the 'out' subscriber above), so the table-end must pay exactly
+         what it pays today: an id-LESS award that progress.js's
+         ten-second guard folds into the last hand's payment whenever the
+         two say the same thing. An id here would sidestep that guard and
+         pay the same evening twice. */
+      try {
+        pay = KARTI_XP.awardPlay({ game:'rummy', won: done.tone === 'win',
+                                   draw: done.tone === 'draw' });
+      } catch(e){}
+    }
+  }
+  if (useR2){
+    const me = mySeat();
+    const t = E.tally(M.st);
+    const KR_BORDER = ['gold', 'ruby', 'ice', 'jade', 'neon', 'fire', 'ice', 'silver'];
+    /* the standings the verdict was read from: hands won, most first */
+    const rows = M.st.seats.map((s, i) => ({ s, i }))
+      .sort((a, b) => t[b.i].won - t[a.i].won || a.i - b.i)
+      .map((x, i) => ({
+        name: x.s.name, place: i + 1,
+        you: x.i === me,
+        bot: ownerOf(x.i) === 'ai',
+        score: t[x.i].won + ' ' + TW(t[x.i].won === 1 ? 'hand' : 'hands', 'idejn'),
+        border: KR_BORDER[x.i % KR_BORDER.length]
+      }));
+    const back = () => { const n = M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); };
+    R2.show({
+      lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
+      title: done.head,
+      subtitle: done.why,
+      rows,
+      xp: pay && pay.counted
+        ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+            /* fractions unknown to us; a satisfying near-full bar */
+            before: 0, after: pay.levelled ? 1 : 0.7 }
+        : null,
+      reward: rewardOf(pay, stk),
+      sound: id => cue(id, { gain: 0.6 }),
+      /* the same doors the card below offers, nothing invented */
+      playAgainLabel: M.net ? TW('Back to the rooms', 'Lura lejn il-kmamar')
+                            : TW('New table', 'Mejda ġdida'),
+      onPlayAgain: M.net ? back : () => newGame(M.opts),
+      onLeave: M.net ? back : () => P.hub()
+    });
+    return;
+  }
   P.ui.result(M.ctx, {
     tone: done.tone || 'draw',
     head: done.head, why: done.why, quip: done.quip,

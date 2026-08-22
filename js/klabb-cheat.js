@@ -246,6 +246,26 @@ function over(st){
   };
 }
 
+/* the winner screen's standings (klabb.js hands them to js/rebbieh.js):
+   the one who got out clean first, then everybody else by how much they
+   were left holding — the same order the verdict card always read out.
+   `t` is klabb.js's bilingual helper. */
+function standings(st, t){
+  if (st.winner < 0) return null;
+  const row = x => ({
+    name: x.s.name,
+    you: x.s.own === 'me',
+    bot: x.s.own === 'ai',
+    score: x.i === st.winner
+      ? t('out', 'barra')
+      : x.s.hand.length + ' ' + t(x.s.hand.length === 1 ? 'card' : 'cards', 'karti')
+  });
+  const rest = st.seats.map((s, i) => ({ s, i }))
+    .filter(x => x.i !== st.winner)
+    .sort((a, b) => a.s.hand.length - b.s.hand.length || a.i - b.i);
+  return [row({ s: st.seats[st.winner], i: st.winner })].concat(rest.map(row));
+}
+
 function note(st){
   if (st.phase === 'done') return '';
   return 'Pile ' + st.pile.length;
@@ -533,7 +553,7 @@ KB.define({
     'Put down your last cards and <b>survive the challenge</b> and you are out and you ' +
       'have won. Get caught on the last play and you pick up the lot.'
   ],
-  deal, legal, check, apply, turn, over, note, pace, think, paint, uiTap,
+  deal, legal, check, apply, turn, over, note, pace, think, paint, uiTap, standings,
   _rankName: rankName, _MAX: MAX_PLAY
 });
 

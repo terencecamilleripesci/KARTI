@@ -2224,6 +2224,110 @@ function paintVerdict() {
   };
 }
 
+/* ── the shared winner screen (js/rebbieh.js), and its till ──────────
+   This file's own voice is English by design; the shared podium is
+   bilingual everywhere else in the box, so the few strings this section
+   adds carry both tongues through the house helper. */
+const TW = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+/* Is this table a staked room right now? Read off js/mp.js's own pot
+   record, exactly the way progress.js reads it for the ranked rate. */
+function stakedNow() {
+  try { return !!(window.KARTI_MP && KARTI_MP.MP && KARTI_MP.MP.stakeLive); }
+  catch (e) { return false; }
+}
+/* Settle the pot by name. mp.js's ceremony hangs off KARTI_PARTY.ui.result,
+   which the podium path never calls, so the podium asks for the settle
+   itself. Idempotent twice over — mp.js's settled flag and progress.js's
+   id guard — and a friendly or offline table has no stakeLive record, so
+   this returns null and not a chip moves. */
+function settleStake(tone) {
+  try {
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.MP && MPX.MP.stakeLive && MPX.stakeSettle) return MPX.stakeSettle(tone);
+  } catch (e) {}
+  return null;
+}
+/* the reward block rebbieh animates: this game's own pay, and the pot */
+function rewardOf(pay, stk) {
+  const r = {};
+  if (pay && pay.counted) { r.xp = pay.xp; r.chips = pay.chips; r.wonBonus = pay.wonBonus; }
+  if (stk) { r.staked = stk.ante; if (stk.kind === 'win') r.pot = stk.pot; }
+  return (r.xp || r.chips || r.staked) ? r : null;
+}
+
+/* THE PAY, podium path only. When P.ui.result is never called, the wrap
+   progress.js hangs on it never fires — so the podium pays through the one
+   door built for it, KARTI_XP.awardPlay, with the match seed as the id: a
+   resign and a finish for the same match share the id, so however many of
+   these paths fire, the wallet moves once. The record book (offline only,
+   the same gate P.record had) is told under the SAME id, so its own
+   forward into the ladder is refused as already paid. */
+function payMatch(tone) {
+  const id = 'g' + M.seed.toString(36);
+  let pay = null;
+  try {
+    pay = KARTI_XP.awardPlay({ game: 'gin', won: tone === 'win',
+                               draw: tone === 'draw', id, ranked: stakedNow() });
+  } catch (e) {}
+  if (!M.net) {
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record('gin', { result: tone === 'win' ? 'w' : tone === 'draw' ? 'd' : 'l', id });
+    } catch (e) {}
+  }
+  return pay;
+}
+
+/* ONE predicate for "the podium will take this result", asked by finish()
+   BEFORE it touches the ledger: on the podium path payMatch() is the whole
+   economy, and P.record firing beside it would pay the same match twice
+   with no id to refuse it by. */
+function podiumUp() {
+  const R2 = window.KARTI_REBBIEH;
+  return !!(R2 && R2.show && window.KARTI_XP && KARTI_XP.awardPlay);
+}
+
+/* The podium itself — a heads-up table, so two columns on a stand built
+   for three, winner in the middle. Returns false when rebbieh is not on
+   the page and the caller puts its own card up instead: that fallback is
+   not decoration, it is the screen a stripped build actually shows. */
+function winnerScreen(o) {
+  const R2 = window.KARTI_REBBIEH;
+  if (!podiumUp()) return false;
+  const me = M.mySeat;
+  const pay = payMatch(o.tone);
+  const stk = settleStake(o.tone);
+  const order = o.tone === 'win' ? [me, 1 - me] : [1 - me, me];
+  const rows = order.map((s, i) => ({
+    name: M.st.seats[s].name,
+    place: i + 1,
+    you: s === me,
+    bot: !M.net && s !== me,
+    score: o.pts[s] + ' ' + TW('pts', 'punti'),
+    border: i === 0 ? 'gold' : 'ruby'
+  }));
+  const back = () => { const n = M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); };
+  R2.show({
+    lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
+    title: o.title, subtitle: o.subtitle, rows,
+    xp: pay && pay.counted
+      ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+          /* fractions unknown to us; a satisfying near-full bar */
+          before: 0, after: pay.levelled ? 1 : 0.7 }
+      : null,
+    reward: rewardOf(pay, stk),
+    sound: id => cue(id, { gain: 0.6 }),
+    /* A ROOM IS NOT DEALT AGAIN FROM HERE — same law as the card below:
+       online, the only honest button is the one back to the room list. */
+    playAgainLabel: M.net ? TW('Back to the rooms', 'Lura lejn il-kmamar')
+                          : TW('Deal again', 'Erġa’ qassam'),
+    onPlayAgain: M.net ? back : () => { const op = M.opts; leave(); newGame(op); },
+    onLeave: M.net ? back : () => { leave(); P.hub(); }
+  });
+  return true;
+}
+
 /* ── the end of the match ────────────────────────────────────────── */
 function finish() {
   if (!M || M.finished) return;
@@ -2236,7 +2340,17 @@ function finish() {
   setTimeout(() => cue(won ? 'game.win' : 'game.lose', { gain: 1 }), FAST ? 1 : 300);
   if (!M.net) {
     ST.save = null; persist();
-    try { P.record('gin', won ? 'w' : 'l'); } catch (e) {}
+    /* the party ledger only on the card path: the podium path's whole
+       economy is payMatch() (awardPlay + the record book under one id),
+       and P.record beside it would pay this same match a second time */
+    /* The podium path pays itself (payMatch: awardPlay + the record book under
+       one id), so `record` - which progress.js wraps to pay - must not fire
+       beside it. `tally` is the same shelf ledger with no award attached, so
+       the W-L badge under the Gin tile keeps counting either way. */
+    try {
+      if (podiumUp()) P.tally && P.tally('gin', won ? 'w' : 'l');
+      else P.record('gin', won ? 'w' : 'l');
+    } catch (e) {}
   }
   const why = 'Points ' + fin.raw[me] + ' to ' + fin.raw[1 - me] +
     ' after ' + fin.hands + ' hand' + (fin.hands === 1 ? '' : 's') +
@@ -2249,6 +2363,13 @@ function finish() {
     : (fin.how === 'floor' ? 'Every card you never put down, counted. That was the deal.'
                            : 'They fed the table faster. Painful to watch, honestly.');
   if (M.net && M.net.onEnd) { try { M.net.onEnd(fin); } catch (e) {} }
+  if (winnerScreen({
+    tone: won ? 'win' : 'lose',
+    title: won ? TW('Match yours', 'Il-partita tiegħek')
+               : TW('Match theirs', 'Il-partita tagħhom'),
+    subtitle: why,
+    pts: fin.raw
+  })) return;
   P.ui.result(M.ctx, {
     tone: won ? 'win' : 'lose',
     head: won ? 'MATCH YOURS' : 'MATCH THEIRS',
@@ -2760,6 +2881,14 @@ function theyResigned() {
   stopClocks();
   cue('game.win', { gain: 1 });
   P.ui.setNet(M.ctx, '', '');
+  if (winnerScreen({
+    tone: 'win',
+    title: TW('They resigned', 'Huma ċedew'),
+    subtitle: TW('The match is yours. Score at the walk-out: ',
+                 'Il-partita tiegħek. Il-punti mat-tluq: ') +
+              M.st.match.pts[M.mySeat] + '–' + M.st.match.pts[1 - M.mySeat] + '.',
+    pts: M.st.match.pts
+  })) { if (M.net && M.net.onEnd) { try { M.net.onEnd({ resign: true }); } catch (e) {} } return; }
   P.ui.result(M.ctx, {
     tone: 'win',
     head: 'They resigned',
@@ -2778,6 +2907,13 @@ function resignOnline() {
   M.finished = true;
   stopClocks();
   cue('game.lose', { gain: 0.9 });
+  if (winnerScreen({
+    tone: 'lose',
+    title: TW('You resigned', 'Int ċedejt'),
+    subtitle: TW('The match goes to ', 'Il-partita tmur għand ') +
+              M.st.seats[1 - M.mySeat].name + '.',
+    pts: M.st.match.pts
+  })) { if (M.net && M.net.onEnd) { try { M.net.onEnd({ resign: true }); } catch (e) {} } return; }
   P.ui.result(M.ctx, {
     tone: 'lose',
     head: 'You resigned',

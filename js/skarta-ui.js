@@ -1694,6 +1694,39 @@ const QUIP_LOSE = [
   'Somebody at this table has been counting your suits.',
 ];
 
+/* ── the shared winner screen (js/rebbieh.js), and its till ──────────
+   The felt's own voice in this file is English by design, but the shared
+   podium is bilingual in every other game in the box, so the few strings
+   this section adds carry both tongues through the house helper. */
+const TW = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+const KR_BORDER = ['jade', 'ruby', 'ice', 'gold', 'neon', 'fire', 'ice', 'silver'];
+
+/* Is this table a staked room right now? Read off js/mp.js's own pot
+   record, exactly the way progress.js reads it for the ranked rate. */
+function stakedNow() {
+  try { return !!(window.KARTI_MP && KARTI_MP.MP && KARTI_MP.MP.stakeLive); }
+  catch (e) { return false; }
+}
+/* Settle the pot by name. mp.js's own ceremony hangs off
+   KARTI_PARTY.ui.result, which the podium path never calls, so the podium
+   asks for the settle itself. Idempotent twice over — mp.js's settled flag
+   and progress.js's id guard — and a friendly or offline table has no
+   stakeLive record, so this returns null and not a chip moves. */
+function settleStake(tone) {
+  try {
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.MP && MPX.MP.stakeLive && MPX.stakeSettle) return MPX.stakeSettle(tone);
+  } catch (e) {}
+  return null;
+}
+/* the reward block rebbieh animates: this game's own pay, and the pot */
+function rewardOf(pay, stk) {
+  const r = {};
+  if (pay && pay.counted) { r.xp = pay.xp; r.chips = pay.chips; r.wonBonus = pay.wonBonus; }
+  if (stk) { r.staked = stk.ante; if (stk.kind === 'win') r.pot = stk.pot; }
+  return (r.xp || r.chips || r.staked) ? r : null;
+}
+
 function showResult() {
   if (!G || G.dead) return;
   const S = G.S, ctx = G.ctx;
@@ -1703,6 +1736,26 @@ function showResult() {
   const humanWin = !E.isAI(S.players[w]);
   const iWon = w === G.view || (G.humans === 1 && humanWin);
   ST.rec[iWon ? 'w' : 'l']++; persist();
+
+  /* ONE decision, up here, because the money follows the screen. On the
+     podium path the pay goes through KARTI_XP.awardPlay by hand — the wrap
+     progress.js hangs on P.ui.result never fires when P.ui.result is never
+     called, and a game that forgot that would quietly stop paying. On the
+     card path the old wiring still does the paying, untouched. */
+  const R2 = window.KARTI_REBBIEH;
+  const useR2 = !!(R2 && R2.show && window.KARTI_XP && KARTI_XP.awardPlay);
+
+  /* The pay must speak BEFORE the record book below: both carry this same
+     match id into the ladder and the first one in is the one that pays —
+     awardPlay going first is what lets it hand back the figures the
+     podium animates. */
+  let pay = null;
+  if (useR2) {
+    try {
+      pay = KARTI_XP.awardPlay({ game: 'skarta', won: iWon,
+                                 id: S.gid, ranked: stakedNow() });
+    } catch (e) {}
+  }
   /* SKARTA kept its own tally and reported to nothing else, so it was the
      one game absent from BOTH the party ledger and the record book. Guarded:
      stats.js is optional and a fault there must not take down a finished
@@ -1713,6 +1766,49 @@ function showResult() {
       KARTI_STATS.record('skarta', { result: iWon ? 'win' : 'loss',
                                      id: (G && G.S && G.S.gid) || undefined });
   } catch (e) {}
+
+  if (useR2) {
+    const stk = settleStake(iWon ? 'win' : 'lose');
+    const goBack = () => { const n = NET; teardown();
+                          if (n && n.onLeave) n.onLeave(); else P.hub(); };
+    const rows = S.over.scores.slice()
+      /* the winner first (empty hand), then the rest by how little they
+         were caught holding — same ranking the old card printed */
+      .sort((a, b) => (a.id === w ? -1 : b.id === w ? 1 : a.points - b.points))
+      .map((s2, i) => ({
+        name: s2.name, place: i + 1,
+        you: s2.id === G.view,
+        bot: E.isAI(S.players[s2.id]),
+        score: s2.id === w
+          ? TW('out', 'barra')
+          : s2.cards + ' ' + TW(s2.cards === 1 ? 'card' : 'cards', 'karti') +
+            (s2.points ? ' (' + s2.points + ')' : ''),
+        border: KR_BORDER[s2.id % KR_BORDER.length]
+      }));
+    R2.show({
+      lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
+      title: iWon ? TW('You win', 'Rebaħt')
+                  : S.players[w].name + ' ' + TW('takes it', 'jeħodha'),
+      subtitle: TW('Skarta kollox — first to an empty hand.',
+                   'Skarta kollox — l-ewwel wieħed b’idejh vojta.'),
+      rows,
+      xp: pay && pay.counted
+        ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+            /* fractions unknown to us; a satisfying near-full bar */
+            before: 0, after: pay.levelled ? 1 : 0.7 }
+        : null,
+      reward: rewardOf(pay, stk),
+      sound: id => { const SFX = window.KARTI_SFX;
+                     if (SFX && SFX.play) { try { SFX.play(id, { gain: 0.6 }); } catch (e) {} } },
+      /* A ROOM IS NOT DEALT AGAIN FROM HERE — same law as the card below:
+         online, the only honest button is the one back to the room list. */
+      playAgainLabel: G.net ? TW('Back to the rooms', 'Lura lejn il-kmamar')
+                            : TW('Deal again', 'Erġa’ qassam'),
+      onPlayAgain: G.net ? goBack : () => { const p = ST.pref; teardown(); start(p); },
+      onLeave: G.net ? goBack : () => { teardown(); P.hub(); }
+    });
+    return;
+  }
 
   const table = S.over.scores.slice().sort((a, b) => a.points - b.points)
     .map(s => s.name + ' — ' + s.cards + (s.cards === 1 ? ' card' : ' cards') +

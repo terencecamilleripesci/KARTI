@@ -288,6 +288,29 @@ function over(st){
   };
 }
 
+/* the winner screen's standings (klabb.js hands them to js/rebbieh.js).
+   Two-handed it is the two chairs; four-handed the row is the PARTNERSHIP,
+   because the pair is the thing that won or lost — a podium of four
+   strangers would rank partners against each other, which is not a thing
+   this game has. `t` is klabb.js's bilingual helper, so the one label
+   here speaks both tongues without this file importing the language. */
+function standings(st, t){
+  const rows = [0, 1].map(team => {
+    const chairs = st.seats.map((s, i) => ({ s, i })).filter(x => x.s.team === team);
+    return {
+      name: chairs.map(x => x.s.name).join(' & '),
+      you: chairs.some(x => x.s.own === 'me'),
+      bot: chairs.every(x => x.s.own === 'ai'),
+      score: st.score[team] + ' ' + t(st.score[team] === 1 ? 'hand' : 'hands', 'idejn'),
+      n: st.score[team]
+    };
+  });
+  /* most hands first; a pareggio puts your side on top, which is the
+     kindest honest order a dead level match allows */
+  rows.sort((a, b) => b.n - a.n || (b.you ? 1 : 0) - (a.you ? 1 : 0));
+  return rows;
+}
+
 function note(st){
   if (st.phase === 'done') return '';
   return 'Hand ' + st.hands + ' of ' + st.best;
@@ -568,7 +591,7 @@ function mkGame(id, v, o){
     thinkMs: 600,
     rules: o.rules,
     deal: (opts, seed) => deal(Object.assign({ v }, opts), seed),
-    legal, apply, turn, over, note, pace, think, paint,
+    legal, apply, turn, over, note, pace, think, paint, standings,
     /* handed out for tests and for anything that wants to score a hand
        without running one */
     _v: v, _pts: c => points(v, c), _str: c => strength(v, c),

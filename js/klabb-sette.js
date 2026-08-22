@@ -303,6 +303,20 @@ function over(st){
   };
 }
 
+/* the winner screen's standings (klabb.js hands them to js/rebbieh.js):
+   a banking game ranks by the one thing it was ever about, the counters
+   left in front of each chair. `t` is klabb.js's bilingual helper. */
+function standings(st, t){
+  return st.seats.map((s, i) => ({ s, i }))
+    .sort((a, b) => b.s.chips - a.s.chips || a.i - b.i)
+    .map(x => ({
+      name: x.s.name,
+      you: x.s.own === 'me',
+      bot: x.s.own === 'ai',
+      score: x.s.chips + ' ' + t(x.s.chips === 1 ? 'counter' : 'counters', 'ċipep')
+    }));
+}
+
 function note(st){
   if (st.phase === 'done') return '';
   return 'Hand ' + st.round + '/' + st.rounds + ' · bank: ' + st.seats[st.banker].name;
@@ -508,7 +522,7 @@ KB.define({
       'they take the bank next hand.',
     'Twenty counters each, eight hands, most counters at the end wins.'
   ],
-  deal, legal, apply, turn, over, note, pace, think, paint,
+  deal, legal, apply, turn, over, note, pace, think, paint, standings,
   _score: score, _matta: MATTA
 });
 

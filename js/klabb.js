@@ -1576,6 +1576,33 @@ function paintBar(){
    two things you might want next. The ledger is only touched when a
    game with a machine in it actually finishes.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── the shared winner screen (js/rebbieh.js), and its till ──────────
+   The felt's own voice in this file is English by design; the shared
+   podium is bilingual everywhere else in the box, so the strings this
+   section adds — and the score labels each game's standings() builds —
+   carry both tongues through this helper. */
+const TW = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+/* Settle the pot by name. mp.js's ceremony hangs off KARTI_PARTY.ui.result,
+   which the podium path never calls, so the podium asks for the settle
+   itself. Idempotent twice over — mp.js's settled flag and progress.js's
+   id guard — and a friendly or offline table has no stakeLive record, so
+   this returns null and not a chip moves. */
+function settleStake(tone){
+  try {
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.MP && MPX.MP.stakeLive && MPX.stakeSettle) return MPX.stakeSettle(tone);
+  } catch(e){}
+  return null;
+}
+/* the reward block rebbieh animates: this game's own pay, and the pot */
+function rewardOf(pay, stk){
+  const r = {};
+  if (pay && pay.counted){ r.xp = pay.xp; r.chips = pay.chips; r.wonBonus = pay.wonBonus; }
+  if (stk){ r.staked = stk.ante; if (stk.kind === 'win') r.pot = stk.pot; }
+  return (r.xp || r.chips || r.staked) ? r : null;
+}
+
 function finish(done){
   if (M.finished) return;
   M.finished = true;
@@ -1586,14 +1613,82 @@ function finish(done){
                      : done.tone === 'lose' ? 'game.lose' : 'ui.toast',
                        { gain: 1 }, 2));
   saveSlot(M.gid, null);
+
+  /* ONE decision, up here, because the money follows the screen. The rows
+     come from the game def's own standings() — the runner knows chairs,
+     not what a briscola partnership or a sette bankroll is — and a def
+     without one, or an end without a verdict, keeps the plain card. On
+     the podium path the pay goes through KARTI_XP.awardPlay by hand: the
+     wrap progress.js hangs on P.ui.result never fires when P.ui.result is
+     never called, and a game that forgot that would quietly stop paying. */
+  const R2 = window.KARTI_REBBIEH;
+  const rows = (typeof M.def.standings === 'function') ? M.def.standings(M.st, TW) : null;
+  const useR2 = !!(R2 && R2.show && rows && rows.length && done.tone &&
+                   window.KARTI_XP && KARTI_XP.awardPlay);
+  let pay = null;
   if (!M.net && done.tone){
     const o = done.tone === 'win' ? 'w' : done.tone === 'lose' ? 'l' : 'd';
     record(M.gid, o);
-    /* and into js/party.js's own ledger through its public API, the way
-       chess and dama do, so our tiles carry a W/L/D like theirs. Our
-       copy in karti_klabb_v1 stays the one we read. */
-    if (typeof P.record === 'function'){ try { P.record(M.gid, o); } catch(e){} }
+    if (useR2){
+      /* the pay first (it hands back the figures the podium animates),
+         then the record book under the SAME match id so its own forward
+         into the ladder is refused as already paid. P.record is NOT
+         called on this path — its progress.js wrap would pay a second
+         time with no id to refuse it by. */
+      const id = 'kb' + M.seed.toString(36);
+      try {
+        pay = KARTI_XP.awardPlay({ game: M.gid, won: done.tone === 'win',
+                                   draw: done.tone === 'draw', id });
+      } catch(e){}
+      try {
+        if (window.KARTI_STATS && KARTI_STATS.record)
+          KARTI_STATS.record(M.gid, { result: o, id });
+      } catch(e){}
+    } else {
+      /* and into js/party.js's own ledger through its public API, the way
+         chess and dama do, so our tiles carry a W/L/D like theirs. Our
+         copy in karti_klabb_v1 stays the one we read. */
+      if (typeof P.record === 'function'){ try { P.record(M.gid, o); } catch(e){} }
+    }
+  } else if (M.net && useR2){
+    /* an online table pays here too — this used to ride on the P.ui.result
+       wrap — at the ranked rate when the room is playing for a real pot */
+    try {
+      pay = KARTI_XP.awardPlay({ game: M.gid, won: done.tone === 'win',
+                                 draw: done.tone === 'draw',
+                                 id: 'kb' + M.seed.toString(36),
+                                 ranked: !!(window.KARTI_MP && KARTI_MP.MP && KARTI_MP.MP.stakeLive) });
+    } catch(e){}
   }
+
+  if (useR2){
+    const stk = settleStake(done.tone);
+    const KR_BORDER = ['gold', 'ruby', 'ice', 'jade', 'neon', 'fire', 'ice', 'silver'];
+    rows.forEach((r, i) => { r.place = i + 1; r.border = KR_BORDER[i % KR_BORDER.length]; });
+    const back = () => { const n = M.net; leave();
+                         if (n && n.onLeave) n.onLeave(); else P.hub(); };
+    R2.show({
+      lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
+      title: done.head,
+      subtitle: done.why,
+      rows,
+      xp: pay && pay.counted
+        ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+            /* fractions unknown to us; a satisfying near-full bar */
+            before: 0, after: pay.levelled ? 1 : 0.7 }
+        : null,
+      reward: rewardOf(pay, stk),
+      sound: id => cue(id, { gain: 0.6 }),
+      /* A ROOM IS NOT DEALT AGAIN FROM HERE — same law as the card below:
+         online, the only honest button is the one back to the room list. */
+      playAgainLabel: M.net ? TW('Back to the rooms', 'Lura lejn il-kmamar')
+                            : TW('Deal again', 'Erġa’ qassam'),
+      onPlayAgain: M.net ? back : () => newGame(M.gid, M.opts),
+      onLeave: M.net ? back : () => P.hub()
+    });
+    return;
+  }
+
   P.ui.result(M.ctx, {
     tone: done.tone || 'draw',
     head: done.head,

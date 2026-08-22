@@ -713,6 +713,19 @@ function fresh(game, res, mid){
     if (p.seen.indexOf(tag) >= 0) return false;
     p.seen.push(tag);
     if (p.seen.length > SEEN_MAX) p.seen.splice(0, p.seen.length - SEEN_MAX);
+    /* THE TWO GUARDS HAVE TO TALK TO EACH OTHER. An id is absolute and a
+       signature is a ten-second heuristic, but a single match can arrive
+       down BOTH doors — the record book reports it with its id, then the
+       party result card announces the same match with no id at all — and
+       each guard, consulted alone, honestly believes it is the first. That
+       is a real double payment (skarta has been doing it), and it is only
+       invisible because nobody audits their own chips. Stamping the
+       signature here as well means the id-less follow-up is recognised as
+       the echo it is. Nothing is lost the other way: a genuinely new match
+       carrying its own id is matched on `seen` above and never reaches the
+       signature list. */
+    recent.push({ sig: game + '|' + res, t: now });
+    if (recent.length > 30) recent.splice(0, recent.length - 30);
     return true;
   }
   var sig = game + '|' + res;

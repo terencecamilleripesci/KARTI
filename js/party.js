@@ -71,6 +71,28 @@ function record(id, outcome){          /* outcome: 'w' | 'l' | 'd' */
   } catch (e) {}
   return r;
 }
+/* The shelf tile's little W-L-D badge, ticked WITHOUT paying anyone.
+
+   js/progress.js wraps `record` BY NAME to fire the XP/chips award as a side
+   effect of the call. That is exactly right for a game that ends on the party
+   result card — one call, one screen, one payment. It is exactly wrong for a
+   game that has moved to the podium: those pay themselves explicitly through
+   KARTI_XP.awardPlay under a match id, so calling `record` as well pays the
+   same match twice with no id to refuse the second one by.
+
+   The obvious fix - just don't call record - loses something quiet: this
+   ledger is the ONLY source for the W-L badge under each tile on the party
+   shelf, so the badge silently stops counting for that game. Hence a sibling
+   the wrapper does not know about. It deliberately does NOT forward to
+   KARTI_STATS either: a podium game writes to the record book itself under
+   its match id, and a second write would double the profile and the
+   leaderboard. Local shelf ledger only. */
+function tally(id, outcome){
+  const r = ST.rec[id] || (ST.rec[id] = { w:0, l:0, d:0 });
+  if (outcome === 'w' || outcome === 'l' || outcome === 'd') r[outcome]++;
+  persist();
+  return r;
+}
 function recOf(id){ return ST.rec[id] || { w:0, l:0, d:0 }; }
 function pref(id, patch){
   const p = ST.pref[id] || (ST.pref[id] = {});
@@ -1427,7 +1449,7 @@ window.KARTI_PARTY = {
      game — {start, remote, note, stop, live}. js/mp.js is the only caller. */
   online: {},
   /* the ledger */
-  record, recOf, pref
+  record, tally, recOf, pref
 };
 
 })();
