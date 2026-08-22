@@ -521,6 +521,9 @@ const nowMs = () => (typeof performance !== 'undefined' && performance.now)
 
 /* tick period in ms, from the engine's SIM_HZ */
 const TICK_MS = 1000 / E.SIM_HZ;                 /* 62.5 at 16Hz */
+/* the input byte's drop bit, read off the engine's own encoder so the two
+   can never drift (bomba.js encodeInput: bit 3) */
+const DROP_BIT = E.encodeInput({ dir: -1, drop: true });
 /* the countdown before a round: three beats and a GO */
 const LEAD_MS = 2400;
 
@@ -566,6 +569,24 @@ function startMatch(opts, seed, net){
     buf: {},                      /* tick -> { bytes:[], have:{seat:1}, n }  */
     committed: -1,                /* last tick actually stepped              */
     lastSent: {},                 /* seat -> last byte we shipped (for repeat) */
+    /* ── THE THRIFTY WIRE (tankijiet's fix, ported — see say()/advance()).
+       Shipping one message per tick per phone (16Hz) drained the relay's
+       per-room fan bucket (40 msg/s sustained) the moment a third chair sat
+       down: the relay then DROPS bytes and the lockstep starves forever
+       (measured: every 4-seat room froze at ~tick 50). So a byte ships only
+       on a CHANGE plus a wall-clock keepalive, and silence provably means
+       "unchanged".
+       ship  — outbound: lastByte/lastTick = last byte actually SHIPPED and
+               the tick it took effect; hiTick = highest tick committed for
+               our own seat; lastMs paces the keepalive.
+       known — per REMOTE seat, the highest tick heard from it: a message
+               {tick,byte} means "my byte is `byte` from `tick` onward", so
+               hearing tick T proves every change ≤ T already arrived (the
+               transport is ordered) and silence up to T = unchanged.
+       cur   — per REMOTE seat, its byte as of the last committed tick. */
+    ship: { lastByte: null, lastTick: -1, hiTick: -1, lastMs: 0 },
+    known: {}, cur: {},
+    shipGap: 3, shipHbMs: 250,
     want: { dir: E.NO_DIR, drop: false },   /* the thumb, sampled each tick  */
     heldDir: E.NO_DIR,            /* which pad button is held down           */
     t0: 0,                        /* nowMs() of tick 0                       */
@@ -653,13 +674,26 @@ function stopLoop(){
 function startLoop(){
   if (!M || M.raf) return;
   M.D = measureD();
-  /* PRIME THE PIPELINE, online: ship an explicit stand-still byte for our
+  /* THE WIRE BUDGET scales with the table (tankijiet's fix, ported): the
+     relay's per-room fan bucket is 40 msg/s sustained / 80 burst (server
+     L.FAN_RATE) and one bucket token per relayed message — so per-tick
+     sending at 16Hz × 3+ seats drains it in seconds flat and every phone
+     freezes waiting on a byte the relay dropped. shipGap floors the ticks
+     between APPLIED input changes; shipHbMs paces the keepalive. Worst
+     case ≈ n·16/gap ≤ 26/s, under the bucket with room for the chat. */
+  if (M.net){
+    const n = M.st.players.length;
+    M.shipGap  = n <= 4 ? 3 : n <= 6 ? 4 : 5;
+    M.shipHbMs = n <= 5 ? 250 : 400;
+  }
+  /* PRIME THE PIPELINE, online: commit an explicit stand-still byte for our
      seat for ticks 0..D-1. commitLocal() only ever commits N+D, so these
      first D ticks would otherwise never leave this phone — and a peer that
      (correctly, see advance) WAITS for every live seat's byte would block
-     on tick 0 forever. D differs per phone (it is measured from each
-     phone's own RTT), so a peer cannot infer these ticks; they must ride
-     the wire like every other byte. Idempotent via commitByte's guard. */
+     on tick 0 forever. Only tick 0 actually SHIPS — one message that tells
+     every peer "byte 0 from tick 0"; the rest ride the silence rule (an
+     unchanged byte, watermark advanced by the keepalive). Idempotent via
+     commitByte's guard. */
   if (M.net) for (let pt = 0; pt < M.D; pt++) commitByte(pt, M.me, 0);
   M.t0 = nowMs() + M.lead;
   const step = t => {
@@ -695,6 +729,12 @@ function frame(t){
   }
 
   if (M.finished){ draw(1); meter(now); return; }
+
+  /* the KEEPALIVE runs from the frame, not from advance(): while this phone
+     WAITS on a slow peer, advance() returns false — but the peer may in turn
+     be waiting on OUR watermark, so the pulse must keep flowing on wall time
+     or two stalled phones deadlock each other. */
+  if (M.net) shipPulse();
 
   /* which tick wall-time says we should have reached */
   const want = Math.floor((now - M.t0) / TICK_MS) + 1;
@@ -775,20 +815,22 @@ function advance(){
   }
 
   if (need.length){
-    /* THE LOCKSTEP RULE, corrected: we may only predict a seat whose chair
-       the relay has FREED (seatGone) — its bytes will never arrive, so every
-       phone predicts it identically from the same applied history. A LIVE
-       seat's byte is merely IN FLIGHT (the transport is ordered and
-       reliable): it WILL arrive, and stepping past it on a guess forks this
-       phone from the one that sent the real byte the moment the guess is
-       wrong — the old STALL_CAP did exactly that after ~8 frames (~133ms),
-       which any wifi jitter spike exceeds. So for live seats we WAIT: the
-       room runs at the pace of its slowest link, in step, which is the whole
-       contract of lockstep. (Every phone ships a byte for EVERY tick from 0
-       — see startLoop's priming + commitLocal — so waiting cannot deadlock.) */
+    /* THE LOCKSTEP RULE, corrected and made thrifty (tankijiet's form): a
+       seat whose chair the relay has FREED (seatGone) is PREDICTED
+       identically on every phone. A LIVE seat rides the silence rule: a
+       peer ships a byte only when it CHANGES (plus a keepalive), so a
+       missing byte at tick N with the seat's watermark at or past N
+       provably means "unchanged" — every change ≤ N would already have
+       arrived on the ordered transport — and we repeat its current byte,
+       exactly as the sender committed it. A watermark still SHORT of N is
+       a byte genuinely in flight: we WAIT, the room runs at the pace of
+       its slowest link, in step, which is the whole contract of lockstep.
+       (The keepalive in frame() advances the watermark on wall time, so
+       waiting cannot deadlock.) */
     let waiting = 0;
     for (const i of need){
       if (M.gone[i]) putInput(N, i, E.predictInput(st.players[i]));
+      else if ((M.known[i] !== undefined ? M.known[i] : -1) >= N) putInput(N, i, M.cur[i] | 0);
       else waiting++;
     }
     if (waiting){ M.stall++; return false; }
@@ -798,6 +840,10 @@ function advance(){
   /* 3 — step. The frame is one byte per seat in seat order. */
   const s2 = M.buf[N];
   const bytes = s2.bytes.slice();
+  /* remember every remote seat's byte as-of this tick — the silence rule
+     above repeats it until that seat's next explicit change arrives */
+  for (let i = 0; i < st.players.length; i++)
+    if (M.mine.indexOf(i) < 0) M.cur[i] = bytes[i] | 0;
   const before = { alive: st.players.map(p => p.alive),
                    blocks: countBlocks(st), item: st.item.slice() };
   E.step(st, bytes);
@@ -826,21 +872,58 @@ function commitLocal(tick){
     dir = M.heldDir;                      /* a fresh choice is allowed */
   }
   const drop = M.want.drop;
-  M.want.drop = false;                    /* a drop fires once per press */
-  const byte = E.encodeInput({ dir, drop });
+  let byte = E.encodeInput({ dir, drop });
+  /* ONLINE the applied change rate is FLOORED at shipGap ticks: a sample
+     that differs from the last shipped byte before the gap has passed is
+     HELD (the old byte is committed instead), so every change that DOES
+     apply ships the very tick it applies and the wire never exceeds
+     ~16/gap msg/s per phone — the relay's per-room fan bucket (40/s) is
+     the hard ceiling this respects. Local commit and remote derivation
+     stay bit-identical by construction. (A drop bit repeated by the hold
+     is harmless: the engine's drop is edge-triggered — bomba.js step 1.) */
+  if (M.net){
+    const sh = M.ship;
+    if (sh.lastByte !== null && byte !== sh.lastByte && tick - sh.lastTick < M.shipGap)
+      byte = sh.lastByte;                /* hold the change one more tick */
+  }
+  /* the drop is consumed ONLY when it actually rides a byte that commits:
+     held back by the ship gap (or landing on an already-committed tick — a
+     blocked advance retries this), it stays wanted for the next commit */
+  if (drop && (byte & DROP_BIT) && !slot(tick).have[me]) M.want.drop = false;
   commitByte(tick, me, byte);
 }
 
-/* commit one of our bytes AND ship it, ONCE — the guard matters now that a
-   blocked advance() retries every frame: without it the same (tick, byte)
-   would be re-shipped 60×/s for as long as we wait on a slow peer. */
+/* commit one of our bytes and ship it ONLY IF IT CHANGED — silence means
+   "unchanged", which the keepalive (shipPulse) turns into a provable
+   statement. The have-guard matters now that a blocked advance() retries
+   every frame: without it a byte re-sampled mid-wait could ship a value the
+   local slot never committed, forking the room. */
 function commitByte(tick, seat, byte){
   if (tick <= M.committed) return;
   const s = slot(tick);
-  if (s.have[seat]) return;              /* already committed + shipped */
+  if (s.have[seat]) return;              /* already committed (+shipped)  */
   putInput(tick, seat, byte);
   M.lastSent[seat] = byte;
-  say(seat, tick, byte);
+  if (!M.net || seat !== M.me) return;
+  const sh = M.ship;
+  if (tick > sh.hiTick) sh.hiTick = tick;
+  if (sh.lastByte === null || byte !== sh.lastByte){
+    sh.lastByte = byte; sh.lastTick = tick; sh.lastMs = nowMs();
+    say(seat, tick, byte);
+  }
+}
+
+/* THE KEEPALIVE — from frame(), on wall time. Re-states the unchanged byte
+   at the highest tick we have committed, so every peer's watermark for our
+   seat keeps advancing even while the thumb is still (and even while our
+   own advance() is stalled waiting on somebody else). */
+function shipPulse(){
+  const sh = M.ship;
+  if (sh.lastByte === null) return;      /* nothing primed yet            */
+  if (sh.hiTick <= sh.lastTick) return;  /* nothing new to confirm        */
+  if (nowMs() - sh.lastMs < M.shipHbMs) return;
+  sh.lastTick = sh.hiTick; sh.lastMs = nowMs();
+  say(M.me, sh.hiTick, sh.lastByte);
 }
 
 function countBlocks(st){
@@ -1917,11 +2000,14 @@ function leave(){
    ── WHAT THE RELAY CARRIES ────────────────────────────────────────
    The generic bact codec (see server/karti_server.py, js/mp.js toWire)
    moves a small bounded object per message. One input is {tick, seat,
-   byte} — three small integers — so a full table of eight at 16Hz that
-   only sends on a CHANGE of held direction or a drop is well inside the
-   relay's per-room budget. (A pressed-and-held direction is sent once,
-   not every tick: putInput is idempotent and predictInput repeats it,
-   so silence == "same as last".)
+   byte} — three small integers — and a byte ships ONLY on a CHANGE
+   (rate-floored by shipGap) plus a wall-clock keepalive (shipPulse), so
+   a full table of eight stays well inside the relay's per-room fan
+   bucket. Silence is a provable "same as last": the receiver's
+   watermark (M.known, advanced by every message) says how far it may
+   repeat a seat's current byte — see advance(). Shipping every tick
+   instead (16/s per phone) drained the bucket the moment a third chair
+   sat down, the relay dropped bytes, and every table froze at ~tick 50.
    ═══════════════════════════════════════════════════════════════════ */
 function say(seat, tick, byte){
   if (!M || !M.net) return;
@@ -1948,6 +2034,9 @@ function onlineRemote(seat, wire){
   const mv = E.decWire(wire);
   if (!mv) return null;
   putInput(mv.tick, g, mv.byte);
+  /* advance this seat's WATERMARK: hearing tick T proves every change ≤ T
+     already arrived (ordered transport), so silence below T = unchanged */
+  if (M.known[g] === undefined || mv.tick > M.known[g]) M.known[g] = mv.tick;
   return null;
 }
 

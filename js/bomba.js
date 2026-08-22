@@ -771,8 +771,17 @@ function step(st, frame){
   const ins = [];
   for (let i = 0; i < players.length; i++){
     let byte = (i < frame.length && frame[i] != null) ? (frame[i] | 0) : predictInput(players[i]);
+    /* THE DROP IS EDGE-TRIGGERED: it acts only on the tick the bit goes
+       0 -> 1. A repeated drop byte — predictInput replaying a stalled or
+       freed seat's last input, or the UI's thrifty wire holding a change
+       for a few ticks — must not machine-gun bombs (or, after a REMOTE
+       detonate, quietly place one nobody asked for). The press is the
+       input; the repeat is only the wire's silence rule. Deterministic:
+       lastIn is part of the hashed state, identical on every phone. */
+    const prevDrop = ((players[i].lastIn | 0) & 8) !== 0;
     players[i].lastIn = byte;
     ins[i] = decodeInput(byte);
+    if (ins[i].drop && prevDrop) ins[i].drop = false;
     if (players[i].pcd > 0) players[i].pcd--;
     /* shield-save invulnerability grace counts down here too — same monotone
        integer treatment as pcd, once per player per tick, folded into the hash. */

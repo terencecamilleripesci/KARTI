@@ -426,6 +426,24 @@ function beginMatch(st, seed, opts, net, me, mine){
     lastTapAt: 0, lastTapX: 0, lastTapY: 0,  /* double-tap BASH detection      */
     dead: false, finished: false,
     ledSaid: -1,
+    /* ── THE THRIFTY WIRE (bomba/tankijiet's fix, ported) ──────────────
+       Shipping the paddle target EVERY tick (40Hz) drained the relay's
+       buckets (25 msg/s per connection, 40/s per room) the moment two or
+       three chairs sat down: ~70% of targets were silently DROPPED, the
+       old STALL_CAP then INVENTED targets the sender never made, and the
+       phones forked — measured live: three phones, three different life
+       counts. So a target ships only on a CHANGE (rate-floored by
+       shipGap) plus a wall-clock keepalive, silence provably means
+       "unchanged" (targetAt() already holds the last target), and
+       advance() WAITS on a seat's watermark instead of guessing.
+       ship — outbound: lastTpos/lastTick = last target actually SHIPPED
+              and the tick it applies; hiTick = our highest committed
+              tick; lastMs paces the keepalive.
+       wm   — per REMOTE human seat, the highest forTick heard from it:
+              hearing T proves every change ≤ T already arrived (the
+              transport is ordered), so silence up to T = unchanged. */
+    ship: { lastTpos: null, lastTick: -1, hiTick: -1, lastMs: 0 },
+    wm: {}, stall: 0, shipGap: 4, shipHbMs: 200,
     fx: [], shake: 0, flash: [0,0,0,0],
     goalArrows: [],            /* {edge, dx, dy, life} — outward feedback     */
     cornerFlash: [],           /* {x, y, life} — ev.cornerHit bursts          */
@@ -656,9 +674,42 @@ function stopLoop(){ if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; } 
 function startLoop(){
   if (!M || M.raf) return;
   M.D = measureD();
+  if (M.net){
+    /* THE WIRE BUDGET scales with the table: worst case ≈ humans·40/gap
+       change messages plus 1000/shipHbMs keepalives per phone, kept under
+       the relay's 40 msg/s room bucket with headroom. */
+    let humans = 0;
+    for (const p of M.st.pads) if (!p.bot && E.alive(p)) humans++;
+    M.shipGap  = humans <= 2 ? 3 : humans <= 3 ? 4 : 5;
+    M.shipHbMs = 200;
+    /* prime the outbound ledger from the seeded parked target (seedInputs
+       filled 0..D_MAX+1 with the paddle centre, identically on every
+       phone) and every peer's watermark from that same shared horizon. */
+    const me = M.st.pads[M.me];
+    M.ship.lastTpos = me ? me.pos : 0;
+    M.ship.lastTick = 0;
+    M.ship.hiTick = C.D_MAX + 1;
+    for (const p of M.st.pads){
+      if (p.bot || !E.alive(p) || M.mine.indexOf(p.pid) >= 0) continue;
+      M.wm[p.pid] = C.D_MAX + 1;
+    }
+  }
   M.t0 = nowMs() + M.lead;
   const step = t => { if (!M || M.dead) return; M.raf = requestAnimationFrame(step); frame(t); };
   M.raf = requestAnimationFrame(step);
+}
+
+/* THE KEEPALIVE — from frame(), on wall time. Re-states the unchanged
+   target at the highest tick we have committed, so every peer's watermark
+   for our seat keeps advancing even while the thumb is still (and even
+   while our own advance() is stalled waiting on somebody else). */
+function shipPulse(){
+  const sh = M.ship;
+  if (!M.net || sh.lastTpos === null) return;
+  if (sh.hiTick <= sh.lastTick) return;        /* nothing new to confirm */
+  if (nowMs() - sh.lastMs < M.shipHbMs) return;
+  sh.lastTick = sh.hiTick; sh.lastMs = nowMs();
+  sendMove(M.me, { t:'tx', forTick: sh.hiTick, tpos: sh.lastTpos });
 }
 
 function frame(t){
@@ -675,6 +726,11 @@ function frame(t){
   if (M.ledSaid !== 0){ M.ledSaid = 0; paintCD('', false); cue('game.start',{gain:.85}, true); }
 
   if (M.finished){ draw(1); meter(now); return; }
+
+  /* the keepalive runs from the frame, not from advance(): while this
+     phone WAITS on a slow peer, advance() returns false — but the peer may
+     in turn be waiting on OUR watermark. */
+  if (M.net) shipPulse();
 
   const want = Math.floor((now - M.t0) / TICK_MS) + 1;
   if (want - (M.committed + 1) > MAX_CATCHUP){
@@ -705,25 +761,46 @@ function paintCD(txt, go){
    waited-on then predicted), step the pure engine.  Returns true if it
    stepped, false if blocking on a peer.
    ═══════════════════════════════════════════════════════════════════ */
-const STALL_CAP = 8;
 function advance(){
   const st = M.st, N = M.committed + 1;
 
   /* 1 — commit OUR human seat's target for N+D. Absolute target: holding
-     the thumb still lands the authoritative paddle exactly under it. */
+     the thumb still lands the authoritative paddle exactly under it.
+     ONLINE the applied change rate is FLOORED at shipGap ticks (a change
+     arriving before the gap has passed is HELD — the old target is
+     committed instead), so every change that DOES apply ships the very
+     tick it applies and the wire stays inside the relay's room bucket.
+     Local commit and remote derivation stay bit-identical: silence
+     between ships means "unchanged", which is exactly what was committed.
+     A pending BASH always flushes (it must ride its own tick and is paced
+     by the engine's bash cooldown, so it cannot flood). */
   if (M.mine.indexOf(M.me) >= 0){
     const p = st.pads[M.me];
     if (p && E.alive(p)){
-      const tgt = (M.heldTarget != null) ? M.heldTarget : p.pos;
+      let tgt = (M.heldTarget != null) ? M.heldTarget : p.pos;
       const forTick = N + M.D;
       if (forTick > M.committed){
+        const sh = M.ship;
+        const bash = !!(M.bashPending && p.bashCd === 0);
+        if (M.net && sh.lastTpos !== null && tgt !== sh.lastTpos && !bash &&
+            forTick - sh.lastTick < M.shipGap)
+          tgt = sh.lastTpos;               /* hold the change one more tick */
         E.commit(st, M.me, forTick, tgt);
-        sendMove(M.me, { t:'tx', forTick, tpos: tgt });
+        /* ship what the sim actually TOOK (a commit refused inside the
+           warmup prefill keeps the parked target — briks's lesson) */
+        const eff = st.inp[M.me][forTick];
+        if (eff !== undefined){
+          if (forTick > sh.hiTick) sh.hiTick = forTick;
+          if (M.net && (sh.lastTpos === null || eff !== sh.lastTpos || bash)){
+            sh.lastTpos = eff; sh.lastTick = forTick; sh.lastMs = nowMs();
+            sendMove(M.me, { t:'tx', forTick, tpos: eff });
+          }
+        }
         /* THE BASH rides the SAME committed-input pipeline as the target: a
            queued bash is filed for the SAME future tick N+D and broadcast, so
            every phone applies it at N+D — never locally/immediately. We only
            file it when off cooldown so a spammed tap does not waste itself. */
-        if (M.bashPending && p.bashCd === 0){
+        if (bash){
           E.commitBash(st, M.me, forTick);
           sendMove(M.me, { t:'bx', forTick });
         }
@@ -736,18 +813,26 @@ function advance(){
      the engine computes them locally on every phone identically, so no wire
      is needed for them either (deterministic think()). */
 
-  /* 2 — can we run tick N? ready() gates on live human seats only. */
-  if (!E.ready(st)){
-    M.stall = (M.stall || 0) + 1;
-    if (M.stall < STALL_CAP) return false;
-    /* predict missing peers deterministically: their last committed target
-       is held by targetAt() automatically, so ready() would already be true
-       unless they have NEVER sent one. Force a hold at centre for those. */
+  /* 2 — can we run tick N? Every LIVE remote human seat must have SPOKEN
+     for N or beyond (watermark ≥ N): a message stamped T proves every
+     change ≤ T already arrived on the ordered transport, so the engine's
+     own targetAt() hold IS the sender's committed stream. No byte is ever
+     guessed — the old STALL_CAP force-commit invented a target the sender
+     never made after 8 blocked frames (any wifi jitter spike), and under
+     the relay's flood-drops that meant three phones playing three
+     different games (measured: lives 12/9/9 vs 8/8/9 vs 10/5/10). A freed
+     chair (seatGone → M.gone) is exempt: it parks deterministically. */
+  if (M.net){
     for (const p of st.pads){
-      if (p.bot || !E.alive(p) || p.pid === M.me) continue;
-      E.commit(st, p.pid, st.tick, p.tpos);
+      if (p.bot || !E.alive(p) || M.mine.indexOf(p.pid) >= 0) continue;
+      if (M.gone && M.gone[p.pid]) continue;
+      if ((M.wm[p.pid] !== undefined ? M.wm[p.pid] : -1) < N){
+        M.stall = (M.stall || 0) + 1;
+        return false;
+      }
     }
   }
+  if (!E.ready(st)){ M.stall = (M.stall || 0) + 1; return false; }
   M.stall = 0;
 
   /* 3 — step. */
@@ -1442,6 +1527,10 @@ function onlineRemote(seat, wire){
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
   const mv = decWireX(wire);
   if (!mv || g === undefined) return;
+  /* every message advances this seat's WATERMARK: hearing forTick T proves
+     every change ≤ T already arrived (ordered transport), so silence below
+     T provably means "unchanged" and advance() may run through it. */
+  if (M.wm && (M.wm[g] === undefined || mv.forTick > M.wm[g])) M.wm[g] = mv.forTick;
   if (mv.t === 'bot'){ E.setBot(M.st, g, mv.on, mv.forTick); return; }
   if (mv.t === 'tx'){ E.commit(M.st, g, mv.forTick, mv.tpos); return; }
   if (mv.t === 'bx'){ E.commitBash(M.st, g, mv.forTick); }
