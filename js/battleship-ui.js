@@ -181,6 +181,10 @@ function localApply(seat, mv){
 }
 function netApply(seat, mv){
   if (!G) return { ok:false, why:'no battle on this phone' };
+  /* a remote fleet arriving is also that player's skin arriving: the
+     `e` byte rides the {t:'place'} move (so a rejoin's replay restores
+     it), validated through SKIN_FROM_WIRE — absent or unknown is stock */
+  if (mv && mv.t === 'place') setSeatSkin(seat | 0, SKIN_FROM_WIRE[mv.e | 0] || '');
   const r = E.apply(G.st, seat, mv);
   if (!r.ok) return r;
   if (!r.stale) enqueue(r.ev);
@@ -209,6 +213,7 @@ function pump(){
 function idle(){
   /* queue drained: settle the screen for whoever should act now */
   if (!G || G.dead) return;
+  G.atk = null;                 /* the volley is over; the gun is mine again */
   if (G.st.phase === 'done') return;
   if (G.stage === 'place'){ paintPlace(); return; }
   paintBoard();
@@ -228,6 +233,7 @@ function act(e, done){
       if (G.st.phase === 'play' && myTurnSeat(e.s)) sfx('duel.turn', { gain:0.5 });
       G.target = pickTarget();
       G.aim = null;
+      G.atk = null;             /* new turn: fx and rings are the aimer's again */
       paintBoard();
       return done(220);
     }
@@ -353,6 +359,13 @@ function volley(e, done){
   /* always watch the grid being shot at */
   G.target = e.g;
   G.view = (e.g === G.mySeat) ? 'mine' : 'them';
+  /* WHOSE ORDNANCE THIS IS. The headline of an exclusive set is the
+     firing sequence, and the firing sequence belongs to the SHOOTER:
+     when Roża fires at the Armada, a sparkle-charge and a glinting
+     star land on spectral water — on every phone at the table. The
+     paint below stamps bs-atk-<shooter's skin> on the gwrap; cleared
+     on 'turn' / idle so the aim ring goes back to the local aimer. */
+  G.atk = e.s;
   paintBoard();
   const pat = E.PATTERNS[e.p] || E.PATTERNS[0];
   const heavy = pat.big === 2;
@@ -561,6 +574,58 @@ function refreshShipLayer(){
   old.outerHTML = shipLayer(subject, showMine, gridPx(), null);
 }
 function seatViewable(){ return G.mySeat; }
+
+/* ═══════════════════════════════════════════════════════════════════
+   3b · WHOSE SKIN IS ON WHICH BOARD — the seat ledger.
+   The exclusive skins used to ride as ONE class on <body>, which made
+   the skin a property of the PHONE: every grid this phone drew wore
+   the local player's set, and nobody else's phone ever heard about it.
+   Both owner complaints were that same bug — so the skin is now a
+   property of a BOARD. G.skins maps seat → 'roza'|'armata'|'', filled
+   from MY equipped set at mount and from each remote player's
+   {t:'place'} move (its `e` field — see the lobby wire contract and
+   the kit shelf at the end of this file). paintBoard/paintPlace stamp
+   two classes on the .bs-gwrap of whatever sea is on show:
+
+     bs-skin-<x>  the board OWNER's set — the water, the cells, the
+                  hulls, the permanent scorch and splash marks
+     bs-atk-<x>   the ATTACKER's set — the aim ring, the muzzle flare,
+                  the shell, the burst and the miss plume. The shot is
+                  the GUN's, and the gun belongs to whoever fired it.
+
+   A wire value is never trusted into a selector: it goes through
+   SKIN_FROM_WIRE, and anything unknown or absent is stock — a player
+   on an older build simply looks normal, both ways.
+   ═══════════════════════════════════════════════════════════════════ */
+const SKIN_WIRE = { armata:1, roza:2 };        /* skin → the wire byte  */
+const SKIN_FROM_WIRE = { 1:'armata', 2:'roza' };  /* and the only way back */
+function skinKit(){
+  const GH = window.KARTI_GHARRAQ;
+  return (GH && GH.skinkit) || null;           /* published by the kit shelf */
+}
+function myEquippedSkin(){
+  const k = skinKit();
+  try { return (k && k.mine()) || ''; } catch(e){ return ''; }
+}
+function skinOf(seat){ return (G && G.skins && G.skins[seat]) || ''; }
+function setSeatSkin(seat, name){
+  if (!G) return;
+  if (!G.skins) G.skins = {};
+  G.skins[seat] = SKIN_WIRE[name] ? name : '';
+  /* tell the kit which skins this battle needs CSS for — my own block
+     alone is not enough once an opponent's set has to paint here */
+  const k = skinKit();
+  if (k && k.need){
+    const list = [];
+    for (const s in G.skins)
+      if (G.skins[s] && list.indexOf(G.skins[s]) < 0) list.push(G.skins[s]);
+    try { k.need(list); } catch(e){}
+  }
+}
+function skinCls(seat, prefix){
+  const s = skinOf(seat);
+  return s ? prefix + s : '';
+}
 
 function banner(text, tone){
   const host = G && G.root;
@@ -907,6 +972,11 @@ function mount(){
     stage: el.querySelector('#bs-stage')
   };
   el.querySelector('#pt-back').onclick = askLeave;
+  /* every door into a battle (new, online, resumed) passes through here:
+     seed the skin ledger with MY equipped set, once — frozen for the
+     match so what the table saw me place with is what I keep wearing */
+  if (!G.skins) G.skins = {};
+  if (G.skins[G.mySeat] === undefined) setSeatSkin(G.mySeat, myEquippedSkin());
   G.els.badge.textContent = G.mode === 'online' ? 'Online'
     : (LEVELS.find(l => l.k === (G.st.seats[1] && G.st.seats[1].level)) || LEVELS[1]).name;
   /* the leave contract with js/party.js: whatever screen replaces us
@@ -1136,7 +1206,9 @@ function paintPlace(){
                  note:'' + E.FLEET.length + ' boats' });
   const cells = draftCells();
   const px = gridPx();
-  let g = '<div class="bs-pane"><div class="bs-gwrap place" id="bs-pwrap">' +
+  /* the fleet going in is MY fleet on MY water — my skin, both layers */
+  let g = '<div class="bs-pane"><div class="bs-gwrap place' +
+          skinCls(seat, ' bs-skin-') + '" id="bs-pwrap">' +
           '<div class="bs-grid place" id="bs-pgrid" style="--bq:' + px + 'px">';
   for (let c = 0; c < E.CELLS; c++){
     const sh = cells[c];
@@ -1148,7 +1220,7 @@ function paintPlace(){
          (sh !== undefined ? ' ship' : '') + '">' + coords(c) + '</button>';
   }
   g += '</div>' + shipLayer(null, true, px, G.draft.p) + '</div></div>';
-  const dock = '<div class="bs-dock">' + E.FLEET.map((f, i) =>
+  const dock = '<div class="bs-dock' + skinCls(seat, ' bs-skin-') + '">' + E.FLEET.map((f, i) =>
     '<button type="button" class="bs-boat' + (G.draft.sel === i ? ' on' : '') + '" data-i="' + i + '">' +
       shipChip(i, 11) + '<b>' + esc(f.name) + '</b></button>').join('') + '</div>';
   const bar =
@@ -1423,6 +1495,12 @@ function lockFleet(){
   const seat = G.mySeat;
   const mv = { t:'place' };
   for (let i = 0; i < G.draft.p.length; i++) mv['p' + i] = G.draft.p[i];
+  /* my skin travels WITH my fleet — one byte, on the one move every
+     player sends exactly once, so a rejoin's replay carries it too.
+     Stock sends nothing: absent = stock on every build, old or new.
+     `e` is declared in LOBBY.wire.fields; the engine ignores it. */
+  const sc = SKIN_WIRE[skinOf(seat)];
+  if (sc) mv.e = sc;
   G.draft = null;
   const r = localApply(seat, mv);
   if (!r.ok) return;
@@ -1566,7 +1644,16 @@ function paintBoard(){
   const showMine = G.view === 'mine';
   const subject = showMine ? st.seats[me] : st.seats[G.target];
   const px = gridPx();
-  let grid = '<div class="bs-pane"><div class="bs-gwrap"><div class="bs-grid' +
+  /* THE BOARD WEARS ITS OWNER'S SKIN; THE FX WEAR THE ATTACKER'S.
+     bs-skin-* follows the seat whose sea this is (mine on my sea, the
+     target's on theirs), bs-atk-* the seat whose gun is live — during
+     a volley that is the shooter (G.atk, set by volley()), otherwise
+     me, so my aim ring is always my own. See §3b. */
+  const atkSeat = (G.atk === undefined || G.atk === null) ? me : G.atk;
+  let grid = '<div class="bs-pane"><div class="bs-gwrap' +
+             skinCls(showMine ? me : G.target, ' bs-skin-') +
+             skinCls(atkSeat, ' bs-atk-') +
+             '"><div class="bs-grid' +
              (showMine ? ' minev' : '') + '" id="bs-grid" style="--bq:' + px + 'px">';
   const aimCells = !showMine && mine ? aimSet() : {};
   for (let c = 0; c < E.CELLS; c++){
@@ -1593,7 +1680,8 @@ function paintBoard(){
 
   /* my little sea + fleet health */
   const my = st.seats[me];
-  let mini = '<button type="button" class="bs-mini-wrap" id="bs-swap" aria-label="Swap view">' +
+  let mini = '<button type="button" class="bs-mini-wrap' + skinCls(me, ' bs-skin-') +
+    '" id="bs-swap" aria-label="Swap view">' +
     '<span class="bs-grid mini">';
   for (let c = 0; c < E.CELLS; c++){
     const sh = E.shipAt(my, c);
@@ -2118,9 +2206,15 @@ const LOBBY = {
   },
   /* HOW A GĦARRAQHOM MOVE FOLDS ONTO THE RELAY'S FIVE FIELDS.
      Positional — reordering this list silently swaps fields on the
-     wire between builds. js/battleship.js documents the same order. */
+     wire between builds. js/battleship.js documents the same order.
+     `e` is APPENDED, never inserted: it is the exclusive-skin byte
+     riding the {t:'place'} move (1 armata, 2 roża, absent stock —
+     see §3b). An older build's list is one shorter, so its decoder
+     never reads bit 17 and simply leaves the trailing value unused:
+     the fleet lands, the skin degrades to stock, nothing refuses. */
   wire: { fields: ['g', 'c', 'o', 'w', 'x', 'u', 'z',
-                   'p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9'] },
+                   'p0', 'p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9',
+                   'e'] },
   takeback: false
 };
 window.KARTI_GHARRAQ = { lobby: LOBBY, open: menu, engine: E };
@@ -2610,7 +2704,9 @@ try {
       setDraft: p => { if (G){ ensureDraft(); G.draft.p = p; paintPlace(); } },
       act: e => { if (G) act(e, () => {}); },
       myTurn: () => myTurn(),
-      reduced: () => reducedMo()
+      reduced: () => reducedMo(),
+      skins: () => (G ? G.skins : null),
+      atk: () => (G ? G.atk : null)
     };
   }
 } catch(e){}
@@ -2689,9 +2785,18 @@ var BURSTS = {
    THE HOOK: skinName() reads the equipped slots through KARTI_XP the
    same way the basic kit does. Any worn Roża piece wins, then any worn
    Armada piece; nothing exclusive worn = no class, no CSS — today's
-   look, byte for byte. The class rides on <body> (which exists before
-   #scr-party does and survives every remount) and every rule below is
-   scoped under it, so the whole skin is one classList toggle.
+   look, byte for byte.
+
+   PER BOARD, NOT PER PHONE. The class used to ride on <body>, which
+   made the skin a property of the PAGE: every sea this phone drew wore
+   the local set and no other phone ever saw it. Now the game screen
+   stamps each .bs-gwrap with its owner's skin (bs-skin-*) and the live
+   shooter's ordnance (bs-atk-*) — see §3b in the game half above — and
+   every rule below is scoped under one of those two classes, so two
+   players with different sets see two different boards, each correct
+   from both sides of the table. The game tells this shelf which skins
+   a battle needs CSS for through KARTI_GHARRAQ.skinkit.need(); a skin
+   nobody at the table wears still costs zero bytes.
 
    ALL COSMETIC. The engine, the volley timetable and everything on the
    wire are untouched: these rules restyle the same .bs-* elements the
@@ -2702,6 +2807,8 @@ var BURSTS = {
    blank board. Reduced motion (body.reduced or the media query) stops
    every skin animation and leaves one still, readable mark. */
 var SKIN_CLASSES = ['bs-skin-armata', 'bs-skin-roza'];
+var SKIN_NAMES = ['armata', 'roza'];
+var NEED = [];                 /* skins the current battle asked CSS for */
 function skinName(XP){
   var i, S = ['sea', 'fleet', 'ring'];
   for (i = 0; i < S.length; i++)
@@ -2711,66 +2818,100 @@ function skinName(XP){
   return '';
 }
 
+/* ── the bridge the game half reads (its §3b) ────────────────────────
+   mine() is the skin THIS player has equipped — what lockFleet() puts
+   on the wire. need(list) is the game saying which skins the battle on
+   screen requires CSS for (mine plus every opponent's, learned off
+   their place moves); it is validated against SKIN_NAMES here, so a
+   wire byte can never smuggle a selector in. */
+(function(){
+  var GH = window.KARTI_GHARRAQ;
+  if (!GH || GH.skinkit) return;
+  GH.skinkit = {
+    mine: function(){
+      var XP = window.KARTI_XP;
+      try { return XP ? skinName(XP) : ''; } catch(e){ return ''; }
+    },
+    need: function(list){
+      var out = [], i;
+      list = Array.isArray(list) ? list : [];
+      for (i = 0; i < list.length; i++)
+        if (SKIN_NAMES.indexOf(list[i]) >= 0 && out.indexOf(list[i]) < 0)
+          out.push(list[i]);
+      NEED = out;
+      apply();
+    }
+  };
+})();
+
 function skinCSS(skin){
-  /* body class first, then the SAME two-id spine the basic kit rules
-     use (#app #scr-party .bs-wrap) — the skin block is both later in
-     this sheet and strictly more specific, so it outranks the game's
-     own sheet and any stray basic cosmetic left equipped. */
-  var B = 'body.bs-skin-' + skin + ' #app #scr-party .bs-wrap ';
+  /* the SAME two-id spine the basic kit rules use (#app #scr-party
+     .bs-wrap), then ONE of the two per-board classes §3b stamps on a
+     .bs-gwrap (or on the mini wrap / placement dock) — the skin block
+     is both later in this sheet and strictly more specific, so it
+     outranks the game's own sheet and any stray basic cosmetic left
+     equipped, while never leaking past the board that owns it:
+
+       S — the board SURFACE, the owner's: sea, cells, hulls, the
+           permanent scorch and splash marks, the sinking foam.
+       A — the ORDNANCE, the attacker's: aim ring, muzzle flare,
+           shell, burst, miss plume, the fizz on an old crater. */
+  var S = '#app #scr-party .bs-wrap .bs-skin-' + skin + ' ';
+  var A = '#app #scr-party .bs-wrap .bs-atk-' + skin + ' ';
   var c = '';
   if (skin === 'armata'){
     var SEA = 'url("art/cosm/gharraq-exclusive-sea.png")';
     var RING = 'url("art/cosm/gharraq-exclusive-ring.png")';
     c +=
       /* ── the board: one continuous spectral sea under glass cells ── */
-      B + '.bs-grid{background:' + SEA + ' center/cover no-repeat,' +
+      S + '.bs-grid{background:' + SEA + ' center/cover no-repeat,' +
         'linear-gradient(180deg,#0B2C3E,#061B2A);' +
         'border-color:rgba(90,190,235,.55);' +
         'box-shadow:0 8px 22px rgba(0,0,0,.55),0 0 18px rgba(79,169,232,.28)}' +
-      B + '.bs-c:not(.ship):not(.hit):not(.sunk){background:rgba(4,18,28,.22);' +
+      S + '.bs-c:not(.ship):not(.hit):not(.sunk){background:rgba(4,18,28,.22);' +
         'box-shadow:inset 0 0 0 .5px rgba(140,215,255,.13);color:#8FD4F2}' +
-      B + '.bs-grid.place .bs-c.ship{background:rgba(10,40,58,.55)}' +
-      B + '.bs-c.miss::after{background:#CBEDFF;opacity:.75}' +
+      S + '.bs-grid.place .bs-c.ship{background:rgba(10,40,58,.55)}' +
+      S + '.bs-c.miss::after{background:#CBEDFF;opacity:.75}' +
       /* a hit burns COLD on this sea — spectral scorch, ecto ember */
-      B + '.bs-c.hit{background:linear-gradient(180deg,#123A54,#0A2438)}' +
-      B + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
+      S + '.bs-c.hit{background:linear-gradient(180deg,#123A54,#0A2438)}' +
+      S + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
         '#F2FBFF,#6FC6FF 55%,#1E5E8C);' +
         'box-shadow:0 0 9px rgba(111,198,255,.9),0 0 18px rgba(79,169,232,.5)}' +
-      B + '.bs-c.sunk{background:#0A1B28}' +
+      S + '.bs-c.sunk{background:#0A1B28}' +
       /* ── the fleet: pale ghost hulls with an ecto glow ── */
-      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:#DDF2FF;fill-opacity:.92;' +
+      S + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:#DDF2FF;fill-opacity:.92;' +
         'stroke:#0E2A3C}' +
-      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:#3E7FA6}' +
-      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:#9FD9F2}' +
-      B + '.bs-ship:not(.drag):not(.sunk){filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.55)) ' +
+      S + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:#3E7FA6}' +
+      S + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:#9FD9F2}' +
+      S + '.bs-ship:not(.drag):not(.sunk){filter:drop-shadow(0 1px 1.5px rgba(0,0,0,.55)) ' +
         'drop-shadow(0 0 6px rgba(120,210,255,.5))}' +
-      B + '.bs-chip .bs-hull{fill:#DDF2FF}' +
-      B + '.bs-chip .bs-hull .dt{fill:#3E7FA6}' +
-      B + '.bs-chip .bs-hull .lt{fill:#9FD9F2}' +
+      S + '.bs-chip .bs-hull{fill:#DDF2FF}' +
+      S + '.bs-chip .bs-hull .dt{fill:#3E7FA6}' +
+      S + '.bs-chip .bs-hull .lt{fill:#9FD9F2}' +
       /* ── the reticle: the set's ring art, slowly turning, over a
          box-shadow ring that stands alone if the PNG never lands ── */
-      B + '.bs-c.aim{box-shadow:inset 0 0 0 2px rgba(127,212,255,.85),' +
+      A + '.bs-c.aim{box-shadow:inset 0 0 0 2px rgba(127,212,255,.85),' +
         '0 0 10px rgba(127,212,255,.55)}' +
-      B + '.bs-c.aim2{box-shadow:inset 0 0 0 2px rgba(127,212,255,.35)}' +
-      B + '.bs-c.aim::before,' + B + '.bs-c.aim2::before{content:"";position:absolute;' +
+      A + '.bs-c.aim2{box-shadow:inset 0 0 0 2px rgba(127,212,255,.35)}' +
+      A + '.bs-c.aim::before,' + A + '.bs-c.aim2::before{content:"";position:absolute;' +
         /* the ring art sits on a black plate — screen-blended, the plate
            vanishes and only the glowing ring lands on the water */
         'inset:-14%;background:' + RING + ' center/contain no-repeat;' +
         'pointer-events:none;mix-blend-mode:screen;' +
         'animation:bsxASpin 6s linear infinite}' +
-      B + '.bs-c.aim2::before{opacity:.5}' +
+      A + '.bs-c.aim2::before{opacity:.5}' +
       '@keyframes bsxASpin{to{transform:rotate(360deg)}}' +
       /* ── FIRING, stage 1: the rail flare — taller, with a hot core ── */
-      B + '.bs-muzz{background:linear-gradient(0deg,rgba(127,212,255,.6),' +
+      A + '.bs-muzz{background:linear-gradient(0deg,rgba(127,212,255,.6),' +
         'rgba(127,212,255,0));height:18%}' +
-      B + '.bs-muzz.n{background:linear-gradient(180deg,rgba(127,212,255,.55),' +
+      A + '.bs-muzz.n{background:linear-gradient(180deg,rgba(127,212,255,.55),' +
         'rgba(127,212,255,0))}' +
-      B + '.bs-muzz::after{content:"";position:absolute;left:8%;right:8%;bottom:0;' +
+      A + '.bs-muzz::after{content:"";position:absolute;left:8%;right:8%;bottom:0;' +
         'height:30%;border-radius:50% 50% 0 0/100% 100% 0 0;transform-origin:50% 100%;' +
         'background:radial-gradient(60% 100% at 50% 100%,#F2FBFF,' +
         'rgba(127,212,255,.7) 45%,rgba(127,212,255,0) 75%);' +
         'animation:bsxAMuzz .5s var(--ease) both}' +
-      B + '.bs-muzz.n::after{bottom:auto;top:0;transform-origin:50% 0;' +
+      A + '.bs-muzz.n::after{bottom:auto;top:0;transform-origin:50% 0;' +
         'border-radius:0 0 50% 50%/0 0 100% 100%;' +
         'background:radial-gradient(60% 100% at 50% 0,#F2FBFF,' +
         'rgba(127,212,255,.7) 45%,rgba(127,212,255,0) 75%)}' +
@@ -2778,27 +2919,27 @@ function skinCSS(skin){
         '25%{opacity:1;transform:scaleY(1.15) scaleX(1)}60%{transform:scaleY(.8)}' +
         '100%{transform:scaleY(.3);opacity:0}}' +
       /* stage 2: the shell — cold white tracer with a light trail */
-      B + '.bs-shell i::before{background:radial-gradient(circle at 35% 30%,' +
+      A + '.bs-shell i::before{background:radial-gradient(circle at 35% 30%,' +
         '#FFFFFF,#9FD9F2 50%,#2E7FB4);' +
         'box-shadow:0 0 10px rgba(159,217,242,.95),0 0 24px rgba(79,169,232,.55)}' +
-      B + '.bs-shell i::after{content:"";position:absolute;left:50%;top:50%;' +
+      A + '.bs-shell i::after{content:"";position:absolute;left:50%;top:50%;' +
         'width:12%;height:300%;margin:-150% 0 0 -6%;border-radius:50%;opacity:.8;' +
         'background:linear-gradient(180deg,rgba(159,217,242,0),' +
         'rgba(159,217,242,.55),rgba(159,217,242,0))}' +
-      B + '.bs-shell u{background:rgba(2,10,18,.65)}' +
+      A + '.bs-shell u{background:rgba(2,10,18,.65)}' +
       /* stage 3, a HIT: flash → shockwave → fire tongue → smoke */
-      B + '.bs-boom i{inset:-48%;background:radial-gradient(circle,#FFFFFF 0%,' +
+      A + '.bs-boom i{inset:-48%;background:radial-gradient(circle,#FFFFFF 0%,' +
         '#D6F2FF 22%,#5FB8F0 48%,rgba(46,127,180,0) 70%);' +
         'animation:bsxABoom .5s var(--ease) both}' +
       '@keyframes bsxABoom{0%{transform:scale(.15);opacity:0}' +
         '14%{opacity:1;transform:scale(.9)}55%{opacity:.9;transform:scale(1.1)}' +
         '100%{transform:scale(1.45);opacity:0}}' +
-      B + '.bs-boom u{inset:-8%;border:2.5px solid rgba(190,235,255,.95);' +
+      A + '.bs-boom u{inset:-8%;border:2.5px solid rgba(190,235,255,.95);' +
         'box-shadow:0 0 8px rgba(127,212,255,.7),inset 0 0 6px rgba(127,212,255,.5);' +
         'animation:bsxARing .6s cubic-bezier(.2,.7,.3,1) both}' +
       '@keyframes bsxARing{0%{transform:scale(.25);opacity:1}' +
         '60%{opacity:.75}100%{transform:scale(2.9);opacity:0}}' +
-      B + '.bs-boom::before{content:"";position:absolute;left:30%;right:30%;' +
+      A + '.bs-boom::before{content:"";position:absolute;left:30%;right:30%;' +
         'top:-42%;bottom:40%;border-radius:48% 48% 30% 30%;transform-origin:50% 100%;' +
         'background:linear-gradient(180deg,rgba(240,251,255,.95),' +
         'rgba(127,205,255,.75) 45%,rgba(127,205,255,0));' +
@@ -2807,18 +2948,18 @@ function skinCSS(skin){
         '35%{opacity:1;transform:scaleY(1.1) scaleX(.9)}' +
         '70%{transform:scaleY(.9) scaleX(1.05)}' +
         '100%{transform:scaleY(.15) scaleX(1.2);opacity:0}}' +
-      B + '.bs-boom::after{content:"";position:absolute;inset:-20%;border-radius:50%;' +
+      A + '.bs-boom::after{content:"";position:absolute;inset:-20%;border-radius:50%;' +
         'background:radial-gradient(circle at 50% 60%,rgba(30,60,84,.55),' +
         'rgba(30,60,84,0) 70%);animation:bsxASmoke .75s ease-out .28s both}' +
       '@keyframes bsxASmoke{0%{transform:translateY(8%) scale(.5);opacity:0}' +
         '35%{opacity:.55}100%{transform:translateY(-34%) scale(1.7);opacity:0}}' +
-      B + '.bs-boom.big i{inset:-85%;animation-duration:.6s}' +
-      B + '.bs-boom.big u{animation-duration:.8s;animation-name:bsxARingBig}' +
+      A + '.bs-boom.big i{inset:-85%;animation-duration:.6s}' +
+      A + '.bs-boom.big u{animation-duration:.8s;animation-name:bsxARingBig}' +
       '@keyframes bsxARingBig{0%{transform:scale(.25);opacity:1}' +
         '100%{transform:scale(3.8);opacity:0}}' +
-      B + '.bs-boom.big::before{top:-70%;left:24%;right:24%}' +
+      A + '.bs-boom.big::before{top:-70%;left:24%;right:24%}' +
       /* stage 3, a MISS: the column stands, hangs, falls back */
-      B + '.bs-plume i{left:34%;right:34%;top:-88%;bottom:42%;' +
+      A + '.bs-plume i{left:34%;right:34%;top:-88%;bottom:42%;' +
         'border-radius:44% 44% 26% 26%;transform-origin:50% 100%;' +
         'background:linear-gradient(180deg,rgba(244,252,255,.95),' +
         'rgba(150,214,248,.85) 50%,rgba(150,214,248,0));' +
@@ -2827,80 +2968,80 @@ function skinCSS(skin){
         '30%{opacity:1;transform:scaleY(1.12) scaleX(.85)}' +
         '55%{transform:scaleY(1) scaleX(.95)}' +
         '100%{transform:scaleY(.04) scaleX(1.5);opacity:0}}' +
-      B + '.bs-plume::before{content:"";position:absolute;left:50%;top:4%;' +
+      A + '.bs-plume::before{content:"";position:absolute;left:50%;top:4%;' +
         'width:8%;height:8%;margin-left:-4%;border-radius:50%;background:#E8F7FF;' +
         'box-shadow:-8px -6px 0 rgba(232,247,255,.9),9px -4px 0 rgba(232,247,255,.85),' +
         '-14px 2px 0 rgba(180,228,255,.7),13px 6px 0 rgba(180,228,255,.75),' +
         '0 -12px 0 rgba(232,247,255,.8);animation:bsxADrops .7s ease-in .18s both}' +
       '@keyframes bsxADrops{0%{transform:translateY(0) scale(.4);opacity:0}' +
         '25%{opacity:1}100%{transform:translateY(90%) scale(1.15);opacity:0}}' +
-      B + '.bs-plume u{border-color:rgba(190,235,255,.85);' +
+      A + '.bs-plume u{border-color:rgba(190,235,255,.85);' +
         'animation:bsxARipple .8s cubic-bezier(.2,.7,.3,1) both}' +
-      B + '.bs-plume::after{content:"";position:absolute;inset:6%;border-radius:50%;' +
+      A + '.bs-plume::after{content:"";position:absolute;inset:6%;border-radius:50%;' +
         'border:1.5px solid rgba(150,214,248,.6);' +
         'animation:bsxARipple .7s cubic-bezier(.2,.7,.3,1) .22s both}' +
       '@keyframes bsxARipple{0%{transform:scale(.3);opacity:.9}' +
         '100%{transform:scale(2.1);opacity:0}}' +
-      B + '.bs-fizz u{border-color:rgba(140,190,220,.5)}' +
-      B + '.bs-foam u{border-color:rgba(214,240,255,.85)}';
+      A + '.bs-fizz u{border-color:rgba(140,190,220,.5)}' +
+      S + '.bs-foam u{border-color:rgba(214,240,255,.85)}';
   } else if (skin === 'roza'){
     var SEA2 = 'url("art/cosm/gharraqroza-exclusive-sea.png")';
     var RING2 = 'url("art/cosm/gharraqroza-exclusive-ring.png")';
     c +=
       /* ── the board: rosewater, pearl light, champagne frame ── */
-      B + '.bs-grid{background:' + SEA2 + ' center/cover no-repeat,' +
+      S + '.bs-grid{background:' + SEA2 + ' center/cover no-repeat,' +
         'linear-gradient(180deg,#F3CFDD,#E2A9C2);' +
         'border-color:rgba(233,201,143,.8);' +
         'box-shadow:0 8px 22px rgba(122,33,72,.35),0 0 16px rgba(255,159,190,.35)}' +
-      B + '.bs-c:not(.ship):not(.hit):not(.sunk){background:rgba(255,240,247,.10);' +
+      S + '.bs-c:not(.ship):not(.hit):not(.sunk){background:rgba(255,240,247,.10);' +
         'box-shadow:inset 0 0 0 .5px rgba(122,33,72,.16);color:#8C2F55}' +
-      B + '.bs-grid.place .bs-c.ship{background:rgba(255,214,232,.45)}' +
-      B + '.bs-c.miss::after{background:#FFFFFF;opacity:.95;' +
+      S + '.bs-grid.place .bs-c.ship{background:rgba(255,214,232,.45)}' +
+      S + '.bs-c.miss::after{background:#FFFFFF;opacity:.95;' +
         'box-shadow:0 0 0 1.5px rgba(176,27,94,.5),0 0 6px rgba(255,255,255,.9)}' +
-      B + '.bs-c.hit{background:linear-gradient(180deg,#8C2450,#5C1233)}' +
-      B + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
+      S + '.bs-c.hit{background:linear-gradient(180deg,#8C2450,#5C1233)}' +
+      S + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
         '#FFF6FA,#FF6FA5 55%,#B01B5E);' +
         'box-shadow:0 0 8px rgba(255,111,165,.9),0 0 16px rgba(233,201,143,.5)}' +
-      B + '.bs-c.sunk{background:#3E0C24}' +
+      S + '.bs-c.sunk{background:#3E0C24}' +
       /* ── the fleet: pearl-rose hulls, champagne-lit ── */
-      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:#FBEAF1;stroke:#4A1030}' +
-      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:#C25E8C}' +
-      B + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:#F2C3D8}' +
-      B + '.bs-ship:not(.drag):not(.sunk){filter:drop-shadow(0 1px 1.5px rgba(74,16,48,.5)) ' +
+      S + '.bs-ship:not(.drag):not(.sunk) .bs-hull{fill:#FBEAF1;stroke:#4A1030}' +
+      S + '.bs-ship:not(.drag):not(.sunk) .bs-hull .dt{fill:#C25E8C}' +
+      S + '.bs-ship:not(.drag):not(.sunk) .bs-hull .lt{fill:#F2C3D8}' +
+      S + '.bs-ship:not(.drag):not(.sunk){filter:drop-shadow(0 1px 1.5px rgba(74,16,48,.5)) ' +
         'drop-shadow(0 0 5px rgba(255,175,205,.55))}' +
-      B + '.bs-chip .bs-hull{fill:#FBEAF1}' +
-      B + '.bs-chip .bs-hull .dt{fill:#C25E8C}' +
-      B + '.bs-chip .bs-hull .lt{fill:#F2C3D8}' +
+      S + '.bs-chip .bs-hull{fill:#FBEAF1}' +
+      S + '.bs-chip .bs-hull .dt{fill:#C25E8C}' +
+      S + '.bs-chip .bs-hull .lt{fill:#F2C3D8}' +
       /* ── the reticle: the glam ring art turning over champagne ── */
-      B + '.bs-c.aim{box-shadow:inset 0 0 0 2px rgba(176,27,94,.75),' +
+      A + '.bs-c.aim{box-shadow:inset 0 0 0 2px rgba(176,27,94,.75),' +
         '0 0 10px rgba(233,201,143,.7)}' +
-      B + '.bs-c.aim2{box-shadow:inset 0 0 0 2px rgba(176,27,94,.35)}' +
-      B + '.bs-c.aim::before,' + B + '.bs-c.aim2::before{content:"";position:absolute;' +
+      A + '.bs-c.aim2{box-shadow:inset 0 0 0 2px rgba(176,27,94,.35)}' +
+      A + '.bs-c.aim::before,' + A + '.bs-c.aim2::before{content:"";position:absolute;' +
         'inset:-14%;background:' + RING2 + ' center/contain no-repeat;' +
         'pointer-events:none;filter:drop-shadow(0 0 4px rgba(176,27,94,.6));' +
         'animation:bsxRSpin 5s linear infinite}' +
-      B + '.bs-c.aim2::before{opacity:.5}' +
+      A + '.bs-c.aim2::before{opacity:.5}' +
       '@keyframes bsxRSpin{to{transform:rotate(-360deg)}}' +
       /* ── FIRING, stage 1: the sparkle-charge on the rail ── */
-      B + '.bs-muzz{background:linear-gradient(0deg,rgba(255,159,190,.5),' +
+      A + '.bs-muzz{background:linear-gradient(0deg,rgba(255,159,190,.5),' +
         'rgba(255,159,190,0))}' +
-      B + '.bs-muzz.n{background:linear-gradient(180deg,rgba(255,159,190,.45),' +
+      A + '.bs-muzz.n{background:linear-gradient(180deg,rgba(255,159,190,.45),' +
         'rgba(255,159,190,0))}' +
-      B + '.bs-muzz::after{content:"";position:absolute;left:50%;bottom:14%;' +
+      A + '.bs-muzz::after{content:"";position:absolute;left:50%;bottom:14%;' +
         'width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:#FFF6FA;' +
         'box-shadow:-34px 4px 0 -1px #F3E2C2,28px -2px 0 -1px #FFD9E8,' +
         '-14px -6px 0 0 #FFFFFF,44px 6px 0 -2px #E9C98F,12px 2px 0 -1px #FF9FBE,' +
         '-46px -2px 0 -2px #FFD9E8;animation:bsxRCharge .55s ease-out both}' +
       '@keyframes bsxRCharge{0%{transform:translateY(10px) scale(.4);opacity:0}' +
         '35%{opacity:1}100%{transform:translateY(-14px) scale(1.1);opacity:0}}' +
-      B + '.bs-muzz.n::after{bottom:auto;top:14%;animation-name:bsxRChargeN}' +
+      A + '.bs-muzz.n::after{bottom:auto;top:14%;animation-name:bsxRChargeN}' +
       '@keyframes bsxRChargeN{0%{transform:translateY(-10px) scale(.4);opacity:0}' +
         '35%{opacity:1}100%{transform:translateY(14px) scale(1.1);opacity:0}}' +
       /* stage 2: the shell — a glinting star with a champagne twinkle */
-      B + '.bs-shell i::before{background:radial-gradient(circle at 40% 35%,' +
+      A + '.bs-shell i::before{background:radial-gradient(circle at 40% 35%,' +
         '#FFFFFF,#FFD9E8 45%,#E9A0BE);' +
         'box-shadow:0 0 10px rgba(255,217,232,.95),0 0 22px rgba(233,201,143,.6)}' +
-      B + '.bs-shell i::after{content:"";position:absolute;left:50%;top:50%;' +
+      A + '.bs-shell i::after{content:"";position:absolute;left:50%;top:50%;' +
         'width:120%;height:120%;' +
         'background:linear-gradient(0deg,transparent 46%,rgba(255,255,255,.9) 49%,' +
         'rgba(255,255,255,.9) 51%,transparent 54%),' +
@@ -2909,20 +3050,20 @@ function skinCSS(skin){
         'animation:bsxRTwinkle .4s linear infinite}' +
       '@keyframes bsxRTwinkle{0%,100%{transform:translate(-50%,-50%) rotate(0deg) scale(1)}' +
         '50%{transform:translate(-50%,-50%) rotate(45deg) scale(.7)}}' +
-      B + '.bs-shell u{background:rgba(90,20,50,.4)}' +
+      A + '.bs-shell u{background:rgba(90,20,50,.4)}' +
       /* stage 3, a HIT: pearl burst → gold halo → crossed glints →
          petals and glitter thrown outward */
-      B + '.bs-boom i{inset:-40%;background:radial-gradient(circle,#FFFFFF 0%,' +
+      A + '.bs-boom i{inset:-40%;background:radial-gradient(circle,#FFFFFF 0%,' +
         '#FFE9F2 25%,#FF6FA5 55%,rgba(255,111,165,0) 72%);' +
         'animation:bsxRBurst .45s var(--ease) both}' +
       '@keyframes bsxRBurst{0%{transform:scale(.2);opacity:0}' +
         '18%{opacity:1;transform:scale(1)}100%{transform:scale(1.35);opacity:0}}' +
-      B + '.bs-boom u{inset:-6%;border:2px solid rgba(243,226,194,.95);' +
+      A + '.bs-boom u{inset:-6%;border:2px solid rgba(243,226,194,.95);' +
         'border-radius:38%;box-shadow:0 0 8px rgba(233,201,143,.75);' +
         'animation:bsxRHalo .6s cubic-bezier(.2,.7,.3,1) both}' +
       '@keyframes bsxRHalo{0%{transform:scale(.3) rotate(0deg);opacity:1}' +
         '100%{transform:scale(2.4) rotate(90deg);opacity:0}}' +
-      B + '.bs-boom::before{content:"";position:absolute;inset:-30%;' +
+      A + '.bs-boom::before{content:"";position:absolute;inset:-30%;' +
         'background:linear-gradient(0deg,transparent 47%,rgba(255,255,255,.95) 49.5%,' +
         'rgba(255,255,255,.95) 50.5%,transparent 53%),' +
         'linear-gradient(90deg,transparent 47%,rgba(255,255,255,.95) 49.5%,' +
@@ -2930,7 +3071,7 @@ function skinCSS(skin){
         'animation:bsxRGlint .5s var(--ease) .05s both}' +
       '@keyframes bsxRGlint{0%{transform:scale(.2) rotate(-20deg);opacity:0}' +
         '30%{opacity:1}100%{transform:scale(1.5) rotate(25deg);opacity:0}}' +
-      B + '.bs-boom::after{content:"";position:absolute;left:50%;top:50%;' +
+      A + '.bs-boom::after{content:"";position:absolute;left:50%;top:50%;' +
         'width:9%;height:9%;margin:-4.5% 0 0 -4.5%;' +
         'border-radius:50% 0 50% 50%;background:#FFD9E8;' +
         'box-shadow:-11px -9px 0 0 #F3E2C2,12px -7px 0 -1px #FFFFFF,' +
@@ -2939,13 +3080,13 @@ function skinCSS(skin){
         'animation:bsxRScatter .8s cubic-bezier(.15,.6,.3,1) .12s both}' +
       '@keyframes bsxRScatter{0%{transform:scale(.25) rotate(0deg);opacity:0}' +
         '20%{opacity:1}100%{transform:scale(2.6) rotate(60deg);opacity:0}}' +
-      B + '.bs-boom.big i{inset:-80%;animation-duration:.55s}' +
-      B + '.bs-boom.big u{animation-name:bsxRHaloBig;animation-duration:.8s}' +
+      A + '.bs-boom.big i{inset:-80%;animation-duration:.55s}' +
+      A + '.bs-boom.big u{animation-name:bsxRHaloBig;animation-duration:.8s}' +
       '@keyframes bsxRHaloBig{0%{transform:scale(.3) rotate(0deg);opacity:1}' +
         '100%{transform:scale(3.4) rotate(90deg);opacity:0}}' +
       /* stage 3, a MISS: a soft pearlescent splash, pearls popping.
          ROSE-EDGED on purpose — pure white vanishes on this pale water */
-      B + '.bs-plume i{left:30%;right:30%;top:-46%;bottom:44%;' +
+      A + '.bs-plume i{left:30%;right:30%;top:-46%;bottom:44%;' +
         'border-radius:50% 50% 34% 34%;transform-origin:50% 100%;' +
         'background:linear-gradient(180deg,#FFFFFF,#FFA9C9 55%,rgba(255,133,175,0));' +
         'box-shadow:0 0 10px rgba(233,71,142,.45);' +
@@ -2953,38 +3094,39 @@ function skinCSS(skin){
       '@keyframes bsxRSplash{0%{transform:scaleY(0) scaleX(.6);opacity:0}' +
         '35%{opacity:1;transform:scaleY(1.05) scaleX(.9)}' +
         '70%{opacity:.9}100%{transform:scaleY(.08) scaleX(1.25);opacity:0}}' +
-      B + '.bs-plume u{border-color:rgba(233,71,142,.85);' +
+      A + '.bs-plume u{border-color:rgba(233,71,142,.85);' +
         'box-shadow:0 0 8px rgba(233,71,142,.5);' +
         'animation:bsxRPearl .75s cubic-bezier(.2,.7,.3,1) both}' +
-      B + '.bs-plume::after{content:"";position:absolute;inset:10%;border-radius:50%;' +
+      A + '.bs-plume::after{content:"";position:absolute;inset:10%;border-radius:50%;' +
         'border:1.5px solid rgba(201,152,74,.9);' +
         'animation:bsxRPearl .65s cubic-bezier(.2,.7,.3,1) .18s both}' +
       '@keyframes bsxRPearl{0%{transform:scale(.3);opacity:.95}' +
         '60%{opacity:.7}100%{transform:scale(1.9);opacity:0}}' +
-      B + '.bs-plume::before{content:"";position:absolute;left:50%;top:0;' +
+      A + '.bs-plume::before{content:"";position:absolute;left:50%;top:0;' +
         'width:6%;height:6%;margin-left:-3%;border-radius:50%;background:#FFFFFF;' +
         'box-shadow:0 0 4px rgba(233,71,142,.8),-10px 2px 0 -1px #FF9FBE,' +
         '9px -3px 0 -1px #E9C98F,-4px -8px 0 0 #FFFFFF;' +
         'animation:bsxRPop .6s ease-out .1s both}' +
       '@keyframes bsxRPop{0%{transform:translateY(6px) scale(.3);opacity:0}' +
         '30%{opacity:1}100%{transform:translateY(-10px) scale(1);opacity:0}}' +
-      B + '.bs-fizz u{border-color:rgba(233,201,143,.5)}' +
-      B + '.bs-foam u{border-color:rgba(255,240,247,.9)}';
+      A + '.bs-fizz u{border-color:rgba(233,201,143,.5)}' +
+      S + '.bs-foam u{border-color:rgba(255,240,247,.9)}';
   }
   if (!c) return '';
   /* REDUCED MOTION — both doors the game itself honours. The staged
      extras (pseudos) vanish, the core burst/splash freezes as one
      still, readable mark; the permanent cell paint tells the story. */
   var still =
-    B + '.bs-boom i,' + B + '.bs-plume i{animation:none;opacity:.85;transform:none}' +
-    B + '.bs-boom u,' + B + '.bs-plume u{animation:none;opacity:0}' +
-    B + '.bs-boom::before,' + B + '.bs-boom::after,' +
-    B + '.bs-plume::before,' + B + '.bs-plume::after,' +
-    B + '.bs-shell i::after,' + B + '.bs-muzz::after{animation:none;opacity:0}' +
-    B + '.bs-c.aim::before,' + B + '.bs-c.aim2::before{animation:none}';
+    A + '.bs-boom i,' + A + '.bs-plume i{animation:none;opacity:.85;transform:none}' +
+    A + '.bs-boom u,' + A + '.bs-plume u{animation:none;opacity:0}' +
+    A + '.bs-boom::before,' + A + '.bs-boom::after,' +
+    A + '.bs-plume::before,' + A + '.bs-plume::after,' +
+    A + '.bs-shell i::after,' + A + '.bs-muzz::after{animation:none;opacity:0}' +
+    A + '.bs-c.aim::before,' + A + '.bs-c.aim2::before{animation:none}';
   return c +
     '@media (prefers-reduced-motion:reduce){' + still + '}' +
-    still.split(B).join('body.reduced' + B.slice(4));
+    /* the second door: body.reduced in front of every A-scoped rule */
+    still.split(A).join('body.reduced ' + A);
 }
 
 function sheet(){
@@ -3017,17 +3159,23 @@ function apply(){
       u.bg[0] + ',' + u.bg[1] + ')}' +
     P + '.bs-c.hit::after{background:radial-gradient(circle at 35% 30%,' +
       u.r[0] + ',' + u.r[1] + ' 60%,' + u.r[2] + ');box-shadow:' + u.gl + '}';
-  /* THE EXCLUSIVE SKINS — the class is the hook, the CSS the payload.
-     Nothing exclusive worn: no class, no bytes, stock board untouched. */
-  var skin = skinName(XP);
+  /* THE EXCLUSIVE SKINS — the per-board classes are the hook, this CSS
+     the payload. One block per skin IN PLAY: mine (worn), plus every
+     skin the current battle asked for through skinkit.need() — an
+     opponent's set has to paint here even when I wear nothing. A skin
+     nobody wears: no class on any board, no bytes in the sheet. */
+  var skins = [], skin = skinName(XP), si;
+  if (skin) skins.push(skin);
+  for (si = 0; si < NEED.length; si++)
+    if (skins.indexOf(NEED[si]) < 0) skins.push(NEED[si]);
+  for (si = 0; si < skins.length; si++) css += skinCSS(skins[si]);
+  /* the legacy whole-page class: nothing adds it any more; scrub it so
+     a sheet swap mid-session can never leave a phone-wide skin behind */
   try {
-    var body = document.body, si;
-    if (body){
-      for (si = 0; si < SKIN_CLASSES.length; si++) body.classList.remove(SKIN_CLASSES[si]);
-      if (skin) body.classList.add('bs-skin-' + skin);
-    }
+    var body = document.body;
+    if (body) for (si = 0; si < SKIN_CLASSES.length; si++)
+      body.classList.remove(SKIN_CLASSES[si]);
   } catch (e){}
-  if (skin) css += skinCSS(skin);
   sheet().textContent = css;
 }
 
