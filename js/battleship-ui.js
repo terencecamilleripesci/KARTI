@@ -257,6 +257,9 @@ function act(e, done){
     }
     case 'shot': return volley(e, done);
     case 'out': {
+      /* a walk-out ranks like a sinking: note when the chair emptied so
+         the final standings can place quitters under the survivors */
+      (G.gone || (G.gone = [])).push(e.s);
       banner(nameOf(e.s) + ' left the battle.', '');
       paintBoard();
       return done(700);
@@ -431,6 +434,14 @@ function volley(e, done){
     t += 420 + e.sunk.length * 800;
   }
   if (e.dead !== undefined){
+    /* WHO WENT DOWN, AND IN WHAT ORDER. The engine keeps no elimination
+       clock — a seat is simply `out` — so the order the fleets went under
+       is remembered here, at the only moment it is known, for the final
+       standings: in a free-for-all "outlasted three navies" is the honest
+       rank between the losers. Recorded synchronously (not inside the
+       theatre timeout) so a finish that lands in the same volley still
+       has it. */
+    (G.gone || (G.gone = [])).push(e.dead);
     setTimeout(() => {
       if (!G) return;
       sfx('duel.destroy');
@@ -1768,13 +1779,54 @@ function commitFire(){
    ═══════════════════════════════════════════════════════════════════ */
 function finish(e){
   if (!G) return;
+  if (G.finished) return;   /* one full stop per battle, however the event arrives */
+  G.finished = true;
   clearSave();
   const st = G.st;
   const iWon = e.winner === G.mySeat;
   const tone = iWon ? 'win' : 'lose';
   { const S = SFX(); if (S && S.boardEnd) S.boardEnd({ win: iWon }); }
 
+  /* ── WHICH SCREEN, AND WHO PAYS ────────────────────────────────────
+     A battle somebody actually WON finishes into ir-rebbieħ, the shared
+     winner screen. "Everybody left" (winner -1) keeps the plain card —
+     an abandoned sea has nobody to crown.
+
+     THE MONEY MUST MOVE EXACTLY ONCE. On the CARD path nothing changes:
+     P.record (vs the machine) and the U.result call are both wrapped by
+     js/progress.js, which pays the first and swallows the echo. On the
+     REBBIEĦ path the U.result wrapper never fires, so awardPlay pays
+     here instead — BEFORE P.record and WITHOUT a match id, on purpose:
+     an id-less award is deduped by progress.js on (game|result) inside a
+     ten-second window, so this payment seeds that window and P.record's
+     own wrapped award (kept for the ledger, uneditable from here) lands
+     on 'already' instead of paying twice; an id-carrying award would
+     bypass that shared window and double-pay. The G.finished latch above
+     is what keeps this to one firing per battle. `ranked` is true only
+     when mp.js says a real pot is on this table. */
+  const R2 = window.KARTI_REBBIEH;
+  const useReb = !!(R2 && R2.show) && e.winner >= 0;
+  const MPX = window.KARTI_MP;
+  const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+  let pay = null;
+  if (useReb && window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const r = KARTI_XP.awardPlay({ game: GID, won: iWon, ranked: staked });
+      if (r && r.counted) pay = r;
+    } catch(err){}
+  }
   if (G.mode === 'ai') P.record(GID, iWon ? 'w' : 'l');
+
+  /* ── THE POT, when the room played for chips ───────────────────────
+     Online staked play settles through mp.js's own idempotent door — the
+     same stakeSettle() its wrapped U.result would have reached; calling
+     it directly keeps the wallet arithmetic identical on both screens.
+     It returns what landed ({kind, pot, ante, humans}) or null (friendly
+     table, offline, already settled), and rebbieħ paints it. */
+  let potRes = null;
+  if (useReb && staked && MPX.stakeSettle){
+    try { potRes = MPX.stakeSettle(tone); } catch(err){}
+  }
 
   const winName = e.winner >= 0 ? nameOf(e.winner) : 'Nobody';
   const head = iWon ? 'GĦARRAQTHOM!' : 'GĦARRQUK.';
@@ -1784,6 +1836,8 @@ function finish(e){
     : 'Everybody left. The sea keeps the lot.';
   const quip = iWon ? QUIP_WIN[(st.rng >>> 4) % QUIP_WIN.length]
                     : QUIP_LOSE[(st.rng >>> 4) % QUIP_LOSE.length];
+
+  if (useReb){ showRebbieh(e, pay, potRes); return; }
 
   if (G.mode === 'online'){
     U.result({ root: G.root }, {
@@ -1801,6 +1855,110 @@ function finish(e){
       { label:'Change the table', icon:'users', go: () => { leave(); menu(); } },
       { label:'Back to party games', icon:'back', go: () => { leave(); P.hub(); } }
     ]
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   IR-REBBIEĦ — the shared winner screen, for a battle somebody WON.
+   ───────────────────────────────────────────────────────────────────
+   The board's own voice stays as it is; the winner screen is the one
+   surface every game shares, so its strings follow the app's bilingual
+   rule through KARTI_LANG. Rebbieħ is a fixed full-screen overlay with
+   its own backdrop, so the exclusive board skins (bs-skin-armata /
+   bs-skin-roza, classes on OUR root) cannot reach into it — the skin
+   keeps the sea, the ceremony keeps the ceremony. */
+const RT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+function showRebbieh(e, pay, potRes){
+  if (!G || !G.root) return;
+  const R2 = window.KARTI_REBBIEH;
+  if (!R2 || !R2.show) return;
+  const st = G.st;
+  const iWon = e.winner === G.mySeat;
+
+  /* THE STANDINGS OF A SEA BATTLE. The winner is first; everyone else
+     ranks by how long their navy lasted — G.gone holds the elimination
+     order (see volley()/'out'), so the LAST fleet under ranks highest
+     among the fallen, and a seat that somehow never registered a sinking
+     falls back to un-hit cells left. The score column is the honest one:
+     boats still afloat out of the fleet. Seat colours ride in as border
+     ids; avatars stay null so rebbieħ draws its initials tile. */
+  const BORDER = ['jade', 'ruby', 'ice', 'gold', 'neon', 'fire'];
+  const gone = G.gone || [];
+  const rows = st.seats.map((s, i) => ({
+    seat: i,
+    name: s.name,
+    you: i === G.mySeat,
+    bot: s.kind === 'cpu' || s.own === 'ai',
+    afloat: s.ships ? s.ships.filter(sh => !sh.sunk).length : 0,
+    fleet: s.ships ? s.ships.length : 5,
+    left: s.left | 0,
+    fell: gone.indexOf(i)
+  }));
+  rows.sort((a, b) => {
+    if (a.seat === e.winner) return -1;
+    if (b.seat === e.winner) return 1;
+    if ((a.fell < 0) !== (b.fell < 0)) return a.fell < 0 ? -1 : 1;  /* never-sunk above the sunk */
+    if (a.fell !== b.fell) return b.fell - a.fell;                  /* went under later = higher */
+    return b.left - a.left;                                         /* else: more hull remaining */
+  });
+  rows.forEach((r, i) => { r.place = i + 1; });
+
+  /* the shared screen's XP block from awardPlay's figures; bar fractions
+     are progress.js's private business, so the house near-full trick. */
+  const xp = pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                     before: 0, after: pay.levelled ? 1 : 0.7 } : null;
+
+  /* the pot, said OUT LOUD in the subtitle as well as handed to the
+     reward block — the ceremony must survive an older rebbieħ build that
+     does not draw `reward` yet */
+  let sub = RT('Last fleet floating', 'L-aħħar flotta f’wiċċ il-baħar') +
+            (st.mode === 'karti' ? ' · ' + st.tcount + ' ' + RT('turns', 'dawriet') : '');
+  if (potRes){
+    sub = potRes.kind === 'win'
+      ? RT('The pot is yours: +' + potRes.pot + ' chips', 'Il-pot tiegħek: +' + potRes.pot + ' ċips')
+      : RT('Your ante went to the winner: −' + potRes.ante + ' chips',
+           'L-ante tiegħek mar għand ir-rebbieħ: −' + potRes.ante + ' ċips');
+  }
+
+  const backToRooms = () => { const n = G && G.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); };
+  const online = G.mode === 'online';
+
+  R2.show({
+    lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+    reduced: reducedMo(),
+    title: iWon ? 'GĦARRAQTHOM!' : RT('They sank you', 'GĦARRQUK'),
+    subtitle: sub,
+    rows: rows.map(r => ({
+      name: r.name, place: r.place, you: r.you, bot: r.bot,
+      score: r.afloat + '/' + r.fleet,
+      border: BORDER[r.seat % BORDER.length]
+    })),
+    xp,
+    /* the reward block: all plain POSITIVE numbers per rebbieħ's contract —
+       `staked` is the ante that left this wallet (rebbieħ captions it),
+       `pot` only lands on the winner (a loss is told in the subtitle; the
+       block draws prizes, not punishments) */
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
+    sound: id => sfx(id, { gain:0.6 }),
+    /* ONLINE both doors lead back to the rooms, exactly as the card's one
+       button did. LOCAL keeps the card's semantics: primary is the same-
+       table rematch, Leave is the battle's own door (menu), where "change
+       the table" and the way back to the party shelf both already live. */
+    playAgainLabel: online ? RT('Back to the rooms', 'Lura għall-kmamar')
+                           : RT('Again', 'Erġa’'),
+    playAgainCaption: online ? null
+      : RT('Leave goes to the harbour door — change the table there.',
+           'Oħroġ imur għall-bieb tal-port — ibdel il-mejda hemm.'),
+    onPlayAgain: online ? backToRooms
+      : () => { const pf = P.pref(GID); newLocal({ gmode: st.mode, who: G.mode, level: pf.level || 2, foes: pf.foes || 1 }); },
+    onLeave: online ? backToRooms : () => { leave(); menu(); }
   });
 }
 

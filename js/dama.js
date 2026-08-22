@@ -833,21 +833,49 @@ function finish(s){
 
   /* the ledger counts games against the PHONE and nothing else */
   let quip = pick(QUIP_DRAW);
+  const outcome = s.win ? ((G.mode === 'pnp' || s.win === G.human) ? 'w' : 'l') : 'd';
   if (s.win){
     if (G.mode === 'pnp'){ tone = 'win'; quip = 'Set them up again. Best of three, always.'; }
     else if (s.win === G.human){
       tone = 'win';
       quip = online() ? 'A real opponent, boxed in. That one counts twice.' : pick(QUIP_WIN);
-      if (G.mode === 'ai') P.record('dama', 'w');
     } else {
       tone = 'lose';
       quip = online() ? 'They had the take and they took it. Run it back.' : pick(QUIP_LOSE);
-      if (G.mode === 'ai') P.record('dama', 'l');
     }
-  } else if (G.mode === 'ai') P.record('dama', 'd');
+  }
+
+  /* ── WHICH SCREEN, AND WHO PAYS ────────────────────────────────────
+     A DECISIVE game finishes into ir-rebbieħ, the shared winner screen;
+     a DRAW keeps the explanatory card — dama's two draws ("nothing
+     doing", "three times over") are stories the card's `why` line tells
+     and a podium cannot, and crowning somebody over a draw is a lie.
+
+     THE MONEY MUST MOVE EXACTLY ONCE. On the CARD path nothing changes:
+     P.record and the P.ui.result call are both wrapped by js/progress.js,
+     which pays the first and swallows the echo. On the REBBIEĦ path the
+     P.ui.result wrapper never fires, so awardPlay pays here instead —
+     BEFORE P.record and WITHOUT a match id, on purpose: an id-less award
+     is deduped by progress.js on (game|result) inside a ten-second
+     window, so this payment seeds that window and P.record's own wrapped
+     award (kept for the ledger, uneditable from here) lands on 'already'
+     instead of paying twice. An id-carrying award would bypass that
+     shared window and double-pay. finish() runs once per game — every
+     caller is gated on G.over — so this cannot re-fire on a repaint. */
+  const R2 = window.KARTI_REBBIEH;
+  const useReb = !!(R2 && R2.show) && !!s.win;
+  let pay = null;
+  if (useReb && window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const r = KARTI_XP.awardPlay({ game:'dama', won: outcome === 'w', draw: outcome === 'd' });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  if (G.mode === 'ai') P.record('dama', outcome);
 
   if (online()){
     if (G.net && G.net.onEnd) G.net.onEnd(s);
+    if (useReb){ showRebbieh(s, pay); return; }
     P.ui.result(G.ctx, {
       tone, head, why, quip,
       buttons: [
@@ -858,6 +886,7 @@ function finish(s){
     return;
   }
 
+  if (useReb){ showRebbieh(s, pay); return; }
   P.ui.result(G.ctx, {
     tone, head, why, quip,
     buttons: [
@@ -865,6 +894,86 @@ function finish(s){
       { label:'Change opponent', icon:'users', go: () => menu() },
       { label:'Back to party games', icon:'back', go: () => { leave(); P.hub(); } }
     ]
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   IR-REBBIEĦ — the shared winner screen, for a game somebody WON.
+   ───────────────────────────────────────────────────────────────────
+   The board's own words stay English like the rest of this file; the
+   winner screen is the one surface every game shares, so its strings
+   follow the app's bilingual rule through KARTI_LANG. */
+const RT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+function showRebbieh(s, pay){
+  if (!G || !G.ctx) return;
+  const R2 = window.KARTI_REBBIEH;
+  if (!R2 || !R2.show) return;
+  const them = online() ? G.foe : 'The phone';
+  const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : them);
+  const bname = G.mode === 'pnp' ? 'Black' : (G.human === 'b' ? 'You' : them);
+  const iWon = G.mode !== 'pnp' && s.win === G.human;
+
+  /* the REAL score of a dama board is the wood still standing on it:
+     men + kings per side, counted off the finished position, so a wipe-
+     out reads 8–0 and a squeak reads 3–2. Winner's row first. Border
+     colours are the sets themselves — the pale ġbejniet framed silver,
+     the dark bajtar framed ruby (ids rebbieħ already knows). Avatars
+     stay null so rebbieħ draws its initials tile. */
+  const c = counts(G.st.b);
+  const seats = [
+    { colour:'w', name: wname, left: c.wm + c.wk, border:'silver' },
+    { colour:'b', name: bname, left: c.bm + c.bk, border:'ruby' }
+  ];
+  const rows = seats
+    .sort((a, b) => (a.colour === s.win ? -1 : 1))
+    .map((p, i) => ({
+      name: p.name, place: i + 1,
+      you: G.mode !== 'pnp' && p.name === 'You',
+      bot: G.mode === 'ai' && p.name === 'The phone',
+      score: p.left + ' ' + RT('left', 'baqa’'),
+      border: p.border
+    }));
+
+  /* the shared screen's XP block from awardPlay's figures; bar fractions
+     are progress.js's private business, so the house near-full trick. */
+  const xp = pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                     before: 0, after: pay.levelled ? 1 : 0.7 } : null;
+
+  const endWord =
+    s.end === 'resign'  ? RT('By resignation', 'B’riżenja') :
+    (seats.find(p => p.colour !== s.win) || {}).left === 0
+                        ? RT('Wiped out', 'Meħuda kollha') :
+                          RT('Boxed in', 'Imblukkat');
+  const backToRooms = () => { if (G && G.net) G.net.onLeave(); };
+
+  R2.show({
+    lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+    /* no `reduced` flag on purpose: dama keeps no motion pref of its own,
+       and rebbieħ reads body.reduced and the media query live by itself */
+    title: G.mode === 'pnp'
+      ? (s.win === 'w' ? RT('White wins', 'Rebaħ l-Abjad') : RT('Black wins', 'Rebaħ l-Iswed'))
+      : (iWon ? RT('You win', 'Rebaħt') : RT('You lose', 'Tlift')),
+    subtitle: endWord,
+    rows,
+    xp,
+    /* the reward block: all plain positive numbers per rebbieħ's contract.
+       Dama boards are never staked (the instant-pair rooms carry no pot),
+       so there is no staked/pot figure to hand over. */
+    reward: pay ? { xp: pay.xp, chips: (pay.chips | 0) + (pay.chipsLevel | 0),
+                    wonBonus: pay.wonBonus } : undefined,
+    sound: id => { const S = SFX(); if (S && S.play) try { S.play(id, { gain:0.6 }); } catch(e){} },
+    /* ONLINE both doors go back to the rooms, exactly as the card's one
+       button did. LOCAL keeps the card's semantics: primary is the
+       rematch, Leave is the dama door (menu), where changing opponent
+       and the way back to the party shelf both already live. */
+    playAgainLabel: online() ? RT('Back to the rooms', 'Lura għall-kmamar')
+                             : RT('Play again', 'Erġa’ lgħab'),
+    playAgainCaption: online() ? null
+      : RT('Leave goes to the dama door — change opponent or level there.',
+           'Oħroġ imur għall-bieb tad-dama — ibdel l-avversarju jew il-livell hemm.'),
+    onPlayAgain: online() ? backToRooms : () => start(),
+    onLeave: online() ? backToRooms : () => menu()
   });
 }
 

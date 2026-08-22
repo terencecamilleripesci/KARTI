@@ -1736,17 +1736,47 @@ function finish(s){
      online result is not written into it, because a stranger's board is not
      evidence about the machine. */
   let quip = pick(QUIP_DRAW);
+  const outcome = s.win ? ((G.mode === 'pnp' || s.win === G.human) ? 'w' : 'l') : 'd';
   if (s.win){
     if (G.mode === 'pnp'){ tone = 'win'; quip = 'Shake hands. Then argue about move eleven.'; }
     else if (s.win === G.human){
       tone = 'win'; quip = online() ? 'Beaten a real person, on a real board. Say nothing, just nod.'
                                     : pick(QUIP_WIN);
-      if (G.mode === 'ai') P.record('chess', 'w');
     } else {
       tone = 'lose'; quip = online() ? 'They had it. Ask for another one.' : pick(QUIP_LOSE);
-      if (G.mode === 'ai') P.record('chess', 'l');
     }
-  } else if (G.mode === 'ai'){ P.record('chess', 'd'); }
+  }
+
+  /* ── WHICH SCREEN, AND WHO PAYS ────────────────────────────────────
+     A DECISIVE game finishes into ir-rebbieħ, the shared winner screen,
+     when it is on the page. A DRAW stays on the explanatory card: chess
+     has four different draws and the card's `why` line is the only place
+     their stories fit — a podium that crowns somebody over a stalemate
+     would be lying about the result.
+
+     THE MONEY MUST MOVE EXACTLY ONCE, and it moves differently per path.
+     On the CARD path nothing changes: P.record (vs the phone) and the
+     P.ui.result call are both wrapped by js/progress.js, which pays off
+     whichever fires first and swallows the echo. On the REBBIEĦ path the
+     P.ui.result wrapper never fires, so we pay through awardPlay OURSELVES
+     — and we do it BEFORE P.record, WITHOUT a match id, on purpose:
+     progress.js dedupes an id-less award by (game|result) inside a ten-
+     second window, so our payment seeds that window and P.record's own
+     wrapped award (which we cannot edit and must keep for the ledger)
+     lands on 'already' instead of paying a second time. An id-carrying
+     award would skip that shared window and the wrapper would pay again.
+     finish() runs once per game — every caller is gated on G.over — so
+     this cannot re-fire on a repaint. */
+  const R2 = window.KARTI_REBBIEH;
+  const useReb = !!(R2 && R2.show) && !!s.win;
+  let pay = null;
+  if (useReb && window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const r = KARTI_XP.awardPlay({ game:'chess', won: outcome === 'w', draw: outcome === 'd' });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  if (G.mode === 'ai') P.record('chess', outcome);
 
   const card = online()
     ? { tone, head, why, quip,
@@ -1761,12 +1791,95 @@ function finish(s){
           { label:'Back to party games', icon:'back', go: () => { leave(); P.hub(); } }
         ] };
   if (online() && G.net && G.net.onEnd) G.net.onEnd(s);
-  if (!wait){ P.ui.result(G.ctx, card); return; }
+  /* the same held beat for both screens: the mating piece lands, THEN the
+     ceremony — see the `wait` reasoning above */
+  const put = () => { if (useReb) showRebbieh(s, head, pay); else P.ui.result(G.ctx, card); };
+  if (!wait){ put(); return; }
   G.endTimer = setTimeout(() => {
     if (!same(g) || G.over !== s) return;
     G.endTimer = 0;
-    P.ui.result(G.ctx, card);
+    put();
   }, wait);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   IR-REBBIEĦ — the shared winner screen, for a game somebody WON.
+   ───────────────────────────────────────────────────────────────────
+   Chess is the rest of this file's English; the winner screen is the one
+   surface here the whole app shares, so its strings follow the app's
+   bilingual rule through KARTI_LANG like every other game's rebbieħ does. */
+const RT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+function showRebbieh(s, head, pay){
+  if (!G || !G.ctx) return;
+  const R2 = window.KARTI_REBBIEH;
+  if (!R2 || !R2.show) return;
+  const them = online() ? G.foe : 'The phone';
+  const wname = G.mode === 'pnp' ? 'White' : (G.human === 'w' ? 'You' : them);
+  const bname = G.mode === 'pnp' ? 'Black' : (G.human === 'b' ? 'You' : them);
+  const moves = Math.ceil(G.hist.length / 2);
+  const iWon = G.mode !== 'pnp' && s.win === G.human;
+
+  /* two seats, ranked by the result: the winner's row first with the
+     chess score — 1 for the win, 0 for the loss — as the score column,
+     and each side framed in its set's colour (silver for White, bronze
+     for Black: the border ids rebbieħ already knows). Avatars stay null
+     so rebbieħ draws its initials tile — chess has no per-seat photos. */
+  const seats = [
+    { colour:'w', name: wname, border:'silver' },
+    { colour:'b', name: bname, border:'bronze' }
+  ];
+  const rows = seats
+    .sort((a, b) => (a.colour === s.win ? -1 : 1))
+    .map((p, i) => ({
+      name: p.name, place: i + 1,
+      you: G.mode !== 'pnp' && p.name === 'You',
+      bot: G.mode === 'ai' && p.name === 'The phone',
+      score: i === 0 ? '1' : '0',
+      border: p.border
+    }));
+
+  /* the shared screen's XP block, from awardPlay's own figures. The exact
+     bar fractions are progress.js's private business, so the house trick
+     (js/bomba-ui.js): a satisfying near-full bar, a full one on level-up. */
+  const xp = pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                     before: 0, after: pay.levelled ? 1 : 0.7 } : null;
+
+  const endWord =
+    s.end === 'mate'   ? RT('Checkmate', 'Skakk matt') :
+    s.end === 'resign' ? RT('By resignation', 'B’riżenja') :
+                         RT('Game over', 'Il-logħba spiċċat');
+  const backToRooms = () => { if (G && G.net) G.net.onLeave(); };
+
+  R2.show({
+    lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+    /* no `reduced` flag on purpose: chess keeps no motion pref of its own,
+       and rebbieħ reads body.reduced and the media query live by itself */
+    title: G.mode === 'pnp'
+      ? (s.win === 'w' ? RT('White wins', 'Rebaħ l-Abjad') : RT('Black wins', 'Rebaħ l-Iswed'))
+      : (iWon ? RT('You win', 'Rebaħt') : RT('You lose', 'Tlift')),
+    subtitle: endWord + ' · ' + moves + ' ' + RT('moves', 'mossi'),
+    rows,
+    xp,
+    /* the reward block: all plain positive numbers per rebbieħ's contract.
+       Chess boards are never staked (the instant-pair rooms carry no pot),
+       so there is no staked/pot figure to hand over. */
+    reward: pay ? { xp: pay.xp, chips: (pay.chips | 0) + (pay.chipsLevel | 0),
+                    wonBonus: pay.wonBonus } : undefined,
+    sound: id => { const S = SFX(); if (S && S.play) try { S.play(id, { gain:0.6 }); } catch(e){} },
+    /* ONLINE both doors lead back to the rooms — a finished room is over
+       and the rematch happens from the lobby, exactly as the card's one
+       button behaved. LOCAL keeps the card's semantics: the primary is
+       the same-opponent rematch, Leave is the chess door (menu), where
+       "change opponent" and "back to party games" both already live. */
+    playAgainLabel: online() ? RT('Back to the rooms', 'Lura għall-kmamar')
+                             : RT('Rematch, same opponent', 'Rivinċita, l-istess avversarju'),
+    playAgainCaption: online() ? null
+      : RT('Leave goes to the chess door — change opponent or level there.',
+           'Oħroġ imur għall-bieb taċ-chess — ibdel l-avversarju jew il-livell hemm.'),
+    onPlayAgain: online() ? backToRooms : () => start(),
+    onLeave: online() ? backToRooms : () => menu()
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════════════

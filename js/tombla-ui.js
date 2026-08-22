@@ -2737,6 +2737,7 @@ function tabellone(){
 function finish(){
   if (!U) return;
   closeSheets();
+  if (U.overDone) return;                                /* rebbieħ already up */
   if (U.ctx.root.querySelector('.pt-over')) return;      /* already shown */
   const st = T.state();
   const o = T.over(st);
@@ -2746,6 +2747,43 @@ function finish(){
   const wonTombla = st.prizes.tombla.done && st.prizes.tombla.seat === U.seat;
   const tone = wonTombla ? 'win' : (me.won.length ? 'draw' : 'lose');
   const winner = st.seats[o.seat];
+
+  /* ── WHICH SCREEN, AND WHO PAYS ──────────────────────────────────
+     A night with a REBBIEĦ on it — somebody shouted TOMBLA, or the bag
+     ran flat with real points on the table — finishes into the shared
+     winner screen: sixteen ġogs ranked is exactly the podium's game.
+     A night the HOST CALLED OFF keeps the plain card ("nobody wins" is
+     not a ceremony), and so does a flat bag where nobody took anything.
+
+     THE MONEY MUST MOVE EXACTLY ONCE. Today's funnel is the record book:
+     KARTI_STATS.record below carries the match id into progress.js and
+     pays under it. On the REBBIEĦ path we call awardPlay FIRST, under
+     the SAME match id — so the record book's own payment lands on
+     'already' (progress.js remembers ids across reloads) while the book
+     still counts the game and the streak — and we get the figures back
+     to draw. The P.ui.result wrapper never fires on this path, which
+     also retires its id-less echo. On the CARD path nothing changes.
+     `ranked` is true only when mp.js says a real pot is on the table.
+     U.overDone above is the once-only latch for this whole block. */
+  const R2 = window.KARTI_REBBIEH;
+  const topPts = st.seats.reduce((m, s) => Math.max(m, s.pts | 0), 0);
+  const useReb = !!(R2 && R2.show) &&
+                 (o.end === 'tombla' || (o.end === 'flat' && topPts > 0));
+  const MPX = window.KARTI_MP;
+  const staked = !!(MPX && MPX.MP && MPX.MP.stakeLive);
+  let pay = null;
+  if (useReb){
+    U.overDone = true;
+    if (window.KARTI_XP && KARTI_XP.awardPlay){
+      try {
+        const r = KARTI_XP.awardPlay({
+          game:'tombla', won: tone === 'win', draw: tone === 'draw',
+          id: T.hooks.matchId(), ranked: staked
+        });
+        if (r && r.counted) pay = r;
+      } catch(e){}
+    }
+  }
 
   /* ── THE LEDGER AND THE STREAK ──────────────────────────────────
      A WIN is the tombla and nothing else — which is what makes the
@@ -2773,6 +2811,8 @@ function finish(){
     });
   } catch(e){}
   T.saveSlot(null);
+
+  if (useReb){ showRebbieh(st, o, tone, wonTombla, winner, pay, staked); return; }
 
   let streak = 0, best = 0;
   try {
@@ -2809,6 +2849,122 @@ function finish(){
         go: () => { const o2 = st.opts; leave(); newGame(o2); } },
       { label:'Back', icon:'back', cls:'ghost', go: () => { leave(); menu(); } }
     ]
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   IR-REBBIEĦ — the shared winner screen, the best fit in the box:
+   tombla is the one table that seats sixteen, and sixteen ġogs ranked
+   by points IS a podium. The screen's strings are bilingual through
+   KARTI_LANG (RT, because T is the engine in this file).
+   ═══════════════════════════════════════════════════════════════════ */
+const RT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
+
+function showRebbieh(st, o, tone, wonTombla, winner, pay, staked){
+  const R2 = window.KARTI_REBBIEH;
+  if (!R2 || !R2.show || !U) return;
+  const hall = st.opts.mode === 'hall';
+
+  /* ── THE POT, when the room played for chips ─────────────────────
+     Settled through mp.js's own idempotent door — the same stakeSettle()
+     its wrapped P.ui.result would have reached — with the same tone
+     mapping its ceremony uses, so the wallet arithmetic is identical on
+     both screens: the tombla takes the pot, a lesser prize ('draw')
+     brings the ante home, an empty night pays it to the winner. */
+  let potRes = null;
+  const MPX = window.KARTI_MP;
+  if (staked && MPX && MPX.stakeSettle){
+    try { potRes = MPX.stakeSettle(tone === 'win' ? 'win' : tone === 'draw' ? 'draw' : 'lose'); }
+    catch(e){}
+  }
+
+  /* ── THE STANDINGS: every seat, ranked by points, the kartella's
+     winner pinned first whatever the arithmetic says (ten points for
+     the tombla makes that pin a formality, but a pin is honest and a
+     tie is not). The score column carries WHAT each seat actually took
+     — the prize names — falling back to bare points, so the list reads
+     like the night: TOMBLA at the top, an AMBO here, a ĊINKWINA there.
+     Avatars stay null so rebbieħ draws its initials tile. */
+  const BORDER = ['gold', 'jade', 'ruby', 'ice', 'neon', 'fire', 'silver', 'bronze'];
+  const tomblaSeat = (o.end === 'tombla' && winner) ? o.seat : -1;
+  const rows = st.seats.map((s, i) => ({
+    seat: i,
+    name: s.name,
+    you: i === U.seat,
+    bot: s.own === 'ai',
+    pts: s.pts | 0,
+    prizes: (s.won || []).map(k => T.prizeName(st, k))
+  }));
+  rows.sort((a, b) => {
+    if (a.seat === tomblaSeat) return -1;
+    if (b.seat === tomblaSeat) return 1;
+    if (a.pts !== b.pts) return b.pts - a.pts;
+    return a.seat - b.seat;                     /* stable: ties keep seat order */
+  });
+  rows.forEach((r, i) => { r.place = i + 1; });
+
+  /* the shared screen's XP block from awardPlay's figures; bar fractions
+     are progress.js's private business, so the house near-full trick. */
+  const xp = pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                     before: 0, after: pay.levelled ? 1 : 0.7 } : null;
+
+  /* the title is the SHOUT; the subtitle is what happened, and when the
+     table played for chips the pot's landing is said here OUT LOUD as
+     well as handed to the reward block, so the ceremony survives an
+     older rebbieħ build that does not draw `reward` yet */
+  const title = o.end === 'flat' ? RT('The bag is empty', 'Il-borża vojta')
+              : wonTombla ? (hall ? 'FATTA!' : 'TOMBLA!')
+              : (winner ? winner.name : RT('Somebody else', 'Ħaddieħor'));
+  let sub = o.end === 'flat'
+    ? RT('Ninety numbers and nobody shouted', 'Disgħin numru u ħadd ma għajjat')
+    : (wonTombla ? RT('You filled the kartella on call ', 'Imlejt il-kartella fis-sejħa ') + o.at
+                 : RT('Filled the kartella on call ', 'Imla l-kartella fis-sejħa ') + o.at);
+  if (potRes){
+    sub = potRes.kind === 'win'
+      ? RT('The pot is yours: +' + potRes.pot + ' chips', 'Il-pot tiegħek: +' + potRes.pot + ' ċips')
+      : potRes.kind === 'draw'
+        ? RT('Your ante came home: +' + potRes.ante + ' chips', 'L-ante tiegħek ġie lura: +' + potRes.ante + ' ċips')
+        : RT('Your ante went to the winner: −' + potRes.ante + ' chips',
+             'L-ante tiegħek mar għand ir-rebbieħ: −' + potRes.ante + ' ċips');
+  }
+
+  /* ONLINE both doors go back to the rooms — the same exit the stop card
+     uses — because a finished room rematches from its lobby. LOCAL keeps
+     the card's own pair: Again re-deals the same opts, Leave is the
+     tombla door. */
+  const n = U.net;
+  const backOnline = () => { leave(); if (n && n.onLeave) n.onLeave(); else menu(); };
+  const opts2 = st.opts;
+
+  R2.show({
+    lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
+    /* no `reduced` flag on purpose: rebbieħ reads body.reduced and the
+       media query live by itself, the same two doors this file's own
+       animations honour */
+    title,
+    subtitle: sub,
+    rows: rows.map(r => ({
+      name: r.name, place: r.place, you: r.you, bot: r.bot,
+      score: r.prizes.length ? r.prizes.join(' · ') : String(r.pts),
+      border: BORDER[r.seat % BORDER.length]
+    })),
+    xp,
+    /* the reward block: all plain POSITIVE numbers per rebbieħ's contract —
+       `staked` is the ante that left this wallet (rebbieħ captions it),
+       `pot` only lands on the tombla (an ante refunded or lost is told in
+       the subtitle; the block draws prizes, not punishments) */
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
+    sound: id => sfx(id, { gain:0.6 }),
+    playAgainLabel: n ? RT('Back to the rooms', 'Lura għall-kmamar')
+                      : RT('Again', 'Erġa’'),
+    onPlayAgain: n ? backOnline : () => { leave(); newGame(opts2); },
+    onLeave: n ? backOnline : () => { leave(); menu(); }
   });
 }
 
