@@ -210,8 +210,18 @@ function injectCSS(){
   align-content:center;padding:3px;border-radius:8px;background:rgba(0,0,0,.18)}
 #scr-party .kd-fbp{width:9px;height:9px;border-radius:50%;background:transparent;
   border:1px solid rgba(255,255,255,.16)}
-#scr-party .kd-fbp.exact{background:#0d0d12;border-color:#000;box-shadow:0 0 0 1px rgba(255,255,255,.28),0 1px 2px rgba(0,0,0,.5)}
-#scr-party .kd-fbp.near{background:#f4f1ff;border-color:#cfc7e6;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+/* GREEN for right-place, YELLOW for right-colour-wrong-place.
+   These were the board-game colours, black and white — and black was
+   #0d0d12 against an app background of #0A0712, which is a peg you
+   cannot see. The whole game is reading these four dots, so they have
+   to be the most legible thing on the row, and green-good / yellow-close
+   is a language every player already speaks. */
+#scr-party .kd-fbp.exact{background:radial-gradient(circle at 34% 30%,#8CF5BE,#3DDC84 62%,#1FA968);
+  border-color:#7CEBB4;box-shadow:0 0 0 1px rgba(61,220,132,.35),0 0 6px rgba(61,220,132,.55),0 1px 2px rgba(0,0,0,.5)}
+#scr-party .kd-fbp.near{background:radial-gradient(circle at 34% 30%,#FFE9B0,#FFC542 62%,#C98A00);
+  border-color:#FFD979;box-shadow:0 0 0 1px rgba(255,197,66,.32),0 0 6px rgba(255,197,66,.45),0 1px 2px rgba(0,0,0,.5)}
+/* the empty sockets have to read as empty, not as a third colour */
+#scr-party .kd-fbp{background:rgba(255,255,255,.03)}
 
 /* newest row slides+fades in */
 #scr-party .kd-rowline.reveal{animation:kdReveal .40s var(--ease,cubic-bezier(.22,.9,.28,1)) both}
@@ -412,15 +422,19 @@ function rulesSheetHTML(){
     T('Each player sets a SECRET code — a row of coloured pegs.','Kull plejer jistabbilixxi kodiċi SIGRIET — ringiela pinnijiet ikkuluriti.'),
     T('Take turns guessing the OTHER player\'s code.','Imisskom taqtgħu l-kodiċi ta\' xulxin.'),
     T('After each guess you get feedback pegs:','Wara kull taħbita tirċievi pinnijiet ta\' feedback:'),
-    T('■ black = right colour, RIGHT slot (exact).','■ iswed = kulur tajjeb, spazju TAJJEB (eżatt).'),
-    T('□ white = right colour, WRONG slot (near).','□ abjad = kulur tajjeb, spazju ĦAŻIN (qrib).'),
+    T('● GREEN = right colour, RIGHT slot.','● AĦDAR = kulur tajjeb, spazju TAJJEB.'),
+    T('● YELLOW = right colour, wrong slot.','● ISFAR = kulur tajjeb, spazju ħażin.'),
+    /* the thing every Mastermind player has to be told once, and the
+       thing the owner asked for in as many words: the pegs are a TALLY */
+    T('The pegs do NOT say WHICH one — only how many.',
+      'Il-pinnijiet ma jgħidux LIEMA — biss kemm.'),
     T('Feedback pegs are unordered — they never say which slot.','Il-pinnijiet mhumiex ordnati — qatt ma jgħidu liema spazju.'),
     T('First to crack the opponent\'s code wins.','L-ewwel li jaqta\' l-kodiċi jirbaħ.'),
     T('Colours repeat, so a code can use one colour twice.','Il-kuluri jistgħu jirrepetu.')
   ];
   const legend = '<div class="kd-legend">'+
-    '<span><i class="kd-lg" style="background:#111"></i>'+esc(T('exact','eżatt'))+'</span>'+
-    '<span><i class="kd-lg" style="background:#f4f1ff"></i>'+esc(T('near','qrib'))+'</span>'+
+    '<span><i class="kd-lg" style="background:#3DDC84"></i>'+esc(T('right place','post tajjeb'))+'</span>'+
+    '<span><i class="kd-lg" style="background:#FFC542"></i>'+esc(T('wrong place','post ħażin'))+'</span>'+
     '</div>';
   return '<div class="kd-scrim" id="kd-scrim"></div>'+
     '<div class="kd-sheet" id="kd-sheet" role="dialog" aria-modal="true" aria-hidden="true" style="position:relative">'+
@@ -720,8 +734,8 @@ function historyHTML(viewer){
       `${fb}</div>`;
   }).join('');
 }
-/* feedback pegs. When `pop`, they flip in staggered: black exacts first,
-   then white nears, so the earned feedback reveals in a tasteful sequence.
+/* feedback pegs. When `pop`, they flip in staggered: green exacts first,
+   then yellow nears, so the earned feedback reveals in a tasteful sequence.
    The reveal is a one-shot, so M._reveal is left for the row to consume. */
 function fbGridHTML(fb, slots, pop){
   const dots = [];
@@ -731,7 +745,12 @@ function fbGridHTML(fb, slots, pop){
   /* stagger only the filled pegs, in exact→near order, ~90ms apart, after a
      small lead-in so the row settles before its verdict lands. */
   let step = 0;
-  return '<div class="kd-fbgrid" aria-label="'+fb.exact+' exact, '+fb.near+' near">'+
+  /* The pegs are a TALLY and never a map: they are built by COUNT, in a
+     2x2 block that deliberately does not line up with the guess slots, so
+     nothing here can say which position was right. The engine agrees —
+     scoreGuess returns {exact, near} and no indices at all. */
+  return '<div class="kd-fbgrid" aria-label="'+fb.exact+' in the right place, '+
+    fb.near+' right colour in the wrong place">'+
     dots.map(d=>{
       const on = pop && d;
       const delay = on ? (120 + (step++)*90) : 0;
