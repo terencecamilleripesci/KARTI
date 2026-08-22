@@ -431,6 +431,19 @@ function startMatch(o, seed, net){
                                 (bomba-ui's corrected lockstep rule).          */
     me: 0, mine: [], meta: [],
     net: net || null,
+    /* ── THE THRIFTY WIRE (see say()/advance()) ─────────────────────────
+       ship  — our outbound bookkeeping: lastByte/lastTick = the last byte
+               actually SHIPPED and the tick it took effect; hiTick = the
+               highest tick we have committed for our own seat; lastMs
+               paces the wall-clock keepalive.
+       known — per REMOTE seat, the highest tick heard from it: a message
+               {tick,byte} means "my byte is `byte` from `tick` onward",
+               so hearing tick T proves every change ≤ T already arrived
+               (the transport is ordered) and silence up to T = unchanged.
+       cur   — per REMOTE seat, its byte as of the last committed tick. */
+    ship: { lastByte: null, lastTick: -1, hiTick: -1, lastMs: 0 },
+    known: {}, cur: {},
+    shipGap: 3, shipHbMs: 250,
     drive: { on:false, dx:0, dy:0 },     /* left DRIVE stick vector (screen px)*/
     /* TOUCH-TO-AIM — a touch/drag on the ARENA sets a WORLD target point; the
        turret is turned toward it through the normal input byte (never applied
@@ -520,13 +533,22 @@ function stopLoop(){ if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; } 
 function startLoop(){
   if (!M || M.raf) return;
   M.D = measureD();
-  /* PRIME THE PIPELINE, online: ship an explicit stand-still byte for our
-     seat for ticks 0..D-1. commitLocal() only ever commits N+D, so these
-     first D ticks would otherwise never leave this phone — and a peer that
-     (correctly, see advance) WAITS for every live seat's byte would block
-     on tick 0 forever. D differs per phone (measured from its own RTT), so
-     a peer cannot infer these ticks; they ride the wire like every other
-     byte. Idempotent via putInput's have-guard. (bomba-ui's pattern.)     */
+  /* the wire budget scales with the table: the relay's per-room fan bucket
+     is 40 msg/s sustained (server L.FAN_RATE), and per-tick sending at
+     20Hz × 4+ seats drains it in two seconds flat — the relay then DROPS
+     bytes and the lockstep starves forever (measured: every 4-seat room
+     froze at ~tick 41). shipGap floors the ticks between APPLIED input
+     changes; shipHbMs paces the keepalive. Worst case ≈ n·20/gap ≤ 35/s. */
+  if (M.net){
+    const n = M.st.tanks.length;
+    M.shipGap  = n <= 4 ? 3 : n <= 6 ? 4 : 5;
+    M.shipHbMs = n <= 5 ? 250 : 400;
+  }
+  /* PRIME THE PIPELINE, online: commit stand-still for ticks 0..D-1 (the
+     input lag IS D ticks). Only tick 0 actually ships — one message that
+     tells every peer "byte 0 from tick 0"; the rest ride the silence rule
+     (unchanged byte, watermark advanced by the keepalive). Idempotent via
+     putInput's have-guard. */
   if (M.net) for (let pt = 0; pt < M.D; pt++) commitByte(pt, M.me, 0);
   M.t0 = nowMs() + M.lead;
   const stepFn = t => { if (!M || M.dead) return; M.raf = requestAnimationFrame(stepFn); frame(t); };
@@ -542,6 +564,11 @@ function frame(t){
   }
   if (M.ledSaid !== 0){ M.ledSaid = 0; paintCountdown(0); cue('game.start', { gain:.85 }, true); }
   if (M.finished){ draw(1); meter(now); return; }
+  /* the KEEPALIVE runs from the frame, not from advance(): while this phone
+     WAITS on a slow peer, advance() returns false — but the peer may in turn
+     be waiting on OUR watermark, so the pulse must keep flowing on wall time
+     or two stalled phones deadlock each other. */
+  if (M.net) shipPulse();
 
   const want = Math.floor((now - M.t0) / TICK_MS) + 1;
   if (want - (M.committed + 1) > MAX_CATCHUP){
@@ -576,20 +603,21 @@ function advance(){
     } else need.push(i);
   }
   if (need.length){
-    /* THE LOCKSTEP RULE (bomba-ui's corrected form): we may only PREDICT a
-       seat whose chair the relay has FREED (seatGone) — its bytes will never
-       arrive, so every phone predicts it identically from the same applied
-       history. A LIVE seat's byte is merely IN FLIGHT on an ordered, reliable
-       transport: it WILL arrive, and stepping past it on a guess forks this
-       phone from the one that sent the real byte the moment the guess is
-       wrong — the old STALL_CAP did exactly that after ~8 frames (~130ms),
-       which any wifi jitter spike exceeds. So for live seats we WAIT; the
-       room runs at the pace of its slowest link, in step, which is the whole
-       contract of lockstep. (Every phone ships a byte for EVERY tick from 0
-       — see startLoop's priming + commitLocal — so waiting cannot deadlock.) */
+    /* THE LOCKSTEP RULE (bomba-ui's corrected form, made thrifty): a seat
+       whose chair the relay has FREED (seatGone) is PREDICTED identically on
+       every phone. A LIVE seat rides the silence rule: a peer ships a byte
+       only when it CHANGES (plus a keepalive), so a missing byte at tick N
+       with the seat's watermark at or past N provably means "unchanged" —
+       every change ≤ N would already have arrived on the ordered transport —
+       and we repeat its current byte, exactly as the sender committed it. A
+       watermark still SHORT of N is a byte genuinely in flight: we WAIT, the
+       room runs at the pace of its slowest link, which is the contract of
+       lockstep. (The keepalive in frame() advances the watermark on wall
+       time, so waiting cannot deadlock.) */
     let waiting = 0;
     for (const i of need){
       if (M.gone[i]) putInput(N, i, E.predictInput(st.tanks[i]));
+      else if ((M.known[i] !== undefined ? M.known[i] : -1) >= N) putInput(N, i, M.cur[i] | 0);
       else waiting++;
     }
     if (waiting){ M.stall++; return false; }
@@ -597,6 +625,10 @@ function advance(){
   M.stall = 0;
 
   const bytes = M.buf[N].bytes.slice();
+  /* remember every remote seat's byte as-of this tick — the silence rule
+     above repeats it until that seat's next explicit change arrives */
+  for (let i = 0; i < st.tanks.length; i++)
+    if (M.mine.indexOf(i) < 0) M.cur[i] = bytes[i] | 0;
   const meTk = st.tanks[M.me];
   const before = { alive: st.tanks.map(t => t.alive), cover: st.cover.slice(), fx: st.fx.length,
                    mx: meTk ? meTk.x : null, my: meTk ? meTk.y : null };
@@ -608,7 +640,13 @@ function advance(){
   return true;
 }
 
-/* sample OUR seat and commit its byte for a future tick, then ship it */
+/* sample OUR seat and commit its byte for a future tick, then ship it.
+   ONLINE the applied change rate is FLOORED at shipGap ticks: a sample that
+   differs from the last shipped byte before the gap has passed is HELD (the
+   old byte is committed instead), so every change that DOES apply ships the
+   very tick it applies and the wire never exceeds ~20/gap msg/s per phone —
+   the relay's per-room fan bucket (40/s) is the hard ceiling this respects.
+   Local commit and remote derivation stay bit-identical by construction. */
 function commitLocal(tick){
   if (tick <= M.committed) return;
   const me = M.me;
@@ -619,12 +657,37 @@ function commitLocal(tick){
     const inp = sampleLocal(tk);
     byte = E.encodeInput(inp);
   }
+  if (M.net){
+    const sh = M.ship;
+    if (sh.lastByte !== null && byte !== sh.lastByte && tick - sh.lastTick < M.shipGap)
+      byte = sh.lastByte;                /* hold the change one more tick */
+  }
   commitByte(tick, me, byte);
 }
 function commitByte(tick, seat, byte){
   putInput(tick, seat, byte);
   M.lastSent[seat] = byte;
-  say(seat, tick, byte);
+  if (!M.net || seat !== M.me) return;
+  const sh = M.ship;
+  if (tick > sh.hiTick) sh.hiTick = tick;
+  /* ship ONLY a change (or the very first byte): silence means "unchanged",
+     which the keepalive below turns into a provable statement */
+  if (sh.lastByte === null || byte !== sh.lastByte){
+    sh.lastByte = byte; sh.lastTick = tick; sh.lastMs = nowMs();
+    say(seat, tick, byte);
+  }
+}
+/* THE KEEPALIVE — from frame(), on wall time. Re-states the unchanged byte
+   at the highest tick we have committed, so every peer's watermark for our
+   seat keeps advancing even when we touch nothing (and even while our own
+   advance() is stalled waiting on somebody else). */
+function shipPulse(){
+  const sh = M.ship;
+  if (sh.lastByte === null) return;            /* nothing primed yet */
+  if (sh.hiTick <= sh.lastTick) return;        /* nothing new to confirm */
+  if (nowMs() - sh.lastMs < M.shipHbMs) return;
+  sh.lastTick = sh.hiTick; sh.lastMs = nowMs();
+  say(M.me, sh.hiTick, sh.lastByte);
 }
 
 /* turn the DRIVE thumb, the ARENA touch (aim), the FIRE button (or keys) into
@@ -750,18 +813,45 @@ function afterStep(before){
    THE WIRE — say() ships one byte; onlineRemote drops a peer's byte in.
    The relay carries {t:'in', k:tick, b:byte} — three small ints.
    ═══════════════════════════════════════════════════════════════════ */
+/* THE BYTE-SAFE WIRE SHAPE (bomba's, verbatim). mp.js's generic codec
+   carries ONLY fields named in the lobby's published wire.fields and
+   REFUSES any value over 255 — the old raw {t:'in',k:tick,b:byte} was
+   refused on the VERY FIRST primed byte (`b` was not in the fallback
+   field list), toWire returned null, mp.js tableStop()'d, onlineStop→
+   leave() nulled M mid-prime-loop, and startLoop threw "reading 'D' of
+   null" — the "Start button does nothing" bug. And even with `b`
+   whitelisted, a raw k:tick dies the moment the tick passes 255. So the
+   tick is split into three bytes (24 bits ≈ 291 hours at 16Hz) and the
+   input byte rides as-is:
+     {t:'in', b:input byte, l:tick&255, h:(tick>>8)&255, g:(tick>>16)&255} */
+const TK_WIRE_FIELDS = ['b', 'l', 'h', 'g'];
+function tkEncWire(tick, byte){
+  const tk = tick | 0, by = byte | 0;
+  if (tk < 0 || tk > 0xFFFFFF || by < 0 || by > 255) return null;
+  return { t:'in', b: by, l: tk & 255, h: (tk >> 8) & 255, g: (tk >> 16) & 255 };
+}
+function tkDecWire(w){
+  if (!w || w.t !== 'in') return null;
+  return { tick: (((w.g | 0) & 255) << 16) | (((w.h | 0) & 255) << 8) | ((w.l | 0) & 255),
+           byte: (w.b | 0) & 255 };
+}
 function say(seat, tick, byte){
   if (!M || !M.net) return;
-  fire(moveSubs, { seat, move: { t:'in', k:tick, b:byte | 0 }, src:'local' });
+  const w = tkEncWire(tick, byte);
+  if (!w) return;
+  fire(moveSubs, { seat, move: w, src:'local' });
 }
 function onlineRemote(seat, wire){
   if (!M || M.dead || !M.net) return null;
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
   if (g === undefined || !M.st.tanks[g]) return null;
   if (M.mine.indexOf(g) >= 0) return null;
-  const mv = wire;
-  if (!mv || mv.t !== 'in') return null;
-  putInput(mv.k | 0, g, mv.b | 0);
+  const mv = tkDecWire(wire);
+  if (!mv) return null;
+  putInput(mv.tick, g, mv.byte);
+  /* advance this seat's WATERMARK: hearing tick T proves every change ≤ T
+     already arrived (ordered transport), so silence below T = unchanged */
+  if (M.known[g] === undefined || mv.tick > M.known[g]) M.known[g] = mv.tick;
   return null;
 }
 
@@ -1662,9 +1752,43 @@ function showResult(res){
   const backToLobby = () => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else menu(); };
   const again = () => { if (M.net){ const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else menu(); } else newGame(M.opts); };
   if (R2 && R2.show){
+    /* ── THE PAYMENT (tombla-ui's funnel) — the podium path bypasses the
+       wrapped P.ui.result that progress.js pays through, so pay here:
+       awardPlay exactly once under a stable match id (progress.js dedups
+       the id across re-renders and reloads), and the pot through mp.js's
+       own idempotent stakeSettle door. `ranked` only when a real pot is
+       on the table. The card fallback below still pays through the wrap,
+       so nothing on that path changes and nothing pays twice. */
+    const MPX = window.KARTI_MP;
+    const staked = !!(M.net && MPX && MPX.MP && MPX.MP.stakeLive);
+    const tone = res.tone === 'win' ? 'win' : res.tone === 'draw' ? 'draw' : 'lose';
+    let pay = null, potRes = null;
+    if (window.KARTI_XP && KARTI_XP.awardPlay){
+      try {
+        const mid = (M.net && MPX && MPX.MP && MPX.MP.code != null)
+          ? 'tankijiet:' + MPX.MP.code + ':' + ((MPX.MP.seed || 0) >>> 0)
+          : (M.payId || (M.payId = 'tankijiet:' + Date.now().toString(36) + '-' +
+                                    ((Math.random() * 1e6) | 0).toString(36)));
+        const r = KARTI_XP.awardPlay({ game:'tankijiet', won: tone === 'win',
+                                       draw: tone === 'draw', id: mid, ranked: staked });
+        if (r && r.counted) pay = r;
+      } catch(e){}
+    }
+    if (staked && MPX.stakeSettle){
+      try { potRes = MPX.stakeSettle(tone); } catch(e){}
+    }
     R2.show({
       lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
       reduced: noMotion(),
+      xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                  before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+      reward: (pay || potRes) ? {
+        xp: pay ? pay.xp : 0,
+        chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+        wonBonus: pay ? pay.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       title: res.tone === 'win' ? T('You win','Rebaħt') : (res.tone === 'draw' ? T('Draw','Draw') : T('Out','Barra')),
       subtitle: st.mode === 'last' ? T('Last tank standing','L-aħħar tank wieqaf')
               : st.mode === 'teams' ? T('Team battle','Battalja tat-timijiet')
@@ -1844,6 +1968,9 @@ function mapSpawnCount(id){ try { return E.parseMap(E.MAPS[id]).spawns.length; }
 
 R.lobby = {
   id:'tankijiet', name:'It-Tankijiet', mt:'It-Tankijiet',
+  /* the published move shape — mp.js's generic codec carries exactly these
+     fields (see TK_WIRE_FIELDS above; bomba/serp publish theirs the same way) */
+  wire: { fields: TK_WIRE_FIELDS },
   minSeats: E.MIN_SEATS, maxSeats: E.MAX_SEATS,
   levels: LEVELS, defaultLevel: 2,
   /* GAME_VARIANTS = the MODES. The `net` word is the engine's mode id, so

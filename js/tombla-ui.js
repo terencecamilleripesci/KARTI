@@ -3028,6 +3028,12 @@ function onlineStart(cfg){
      deterministically here instead of waiting on a start move that never lands. */
   st.seats.forEach(s => { if (s) s.ready = true; });
   if (st.phase === 'lobby') st.phase = 'play';
+  /* PUT THE PARTY SCREEN ON — offline reaches board() through menu()/
+     setupAI(), which both call P.show(); online arrives straight from the
+     room's roster screen, so without this the board mounted into a
+     #scr-party that never got `.on` and every phone sat on "You are ready"
+     forever while the game played invisibly underneath. */
+  P.show();
   board();
   U.net = cfg.net || null;
   T.hooks.attachNet(cfg.net || null);

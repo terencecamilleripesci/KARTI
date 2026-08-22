@@ -873,11 +873,45 @@ function finish(){
     });
     return;
   }
+  /* ── THE PAYMENT (tombla-ui's funnel) — the podium path bypasses the
+     wrapped P.ui.result that progress.js pays through, so pay here:
+     awardPlay exactly once under a stable match id (progress.js dedups
+     the id across re-renders and reloads), and the pot through mp.js's
+     own idempotent stakeSettle door. `ranked` only when a real pot is
+     on the table. The card fallback above still pays through the wrap,
+     so nothing on that path changes and nothing pays twice. */
+  const MPX = window.KARTI_MP;
+  const staked = !!(net && MPX && MPX.MP && MPX.MP.stakeLive);
+  const tone = ov.draw ? 'draw' : iWon ? 'win' : 'lose';
+  let pay = null, potRes = null;
+  if (window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const mid = (net && MPX && MPX.MP && MPX.MP.code != null)
+        ? 'erbgha:' + MPX.MP.code + ':' + ((MPX.MP.seed || 0) >>> 0)
+        : (M.payId || (M.payId = 'erbgha:' + Date.now().toString(36) + '-' +
+                                  ((Math.random() * 1e6) | 0).toString(36)));
+      const r = KARTI_XP.awardPlay({ game:'erbgha', won: tone === 'win',
+                                     draw: tone === 'draw', id: mid, ranked: staked });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  if (staked && MPX.stakeSettle){
+    try { potRes = MPX.stakeSettle(tone); } catch(e){}
+  }
   show({
     title,
     subtitle: ov.draw ? T('The board filled up', 'It-tabellun imtela')
                       : T('Four in a row', 'Erbgħa f’ringiela'),
     rows,
+    xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
     reduced: reduced(),
     lang: (window.KARTI_LANG ? KARTI_LANG.lang() : 'en'),
     sound: id => cue(id, {}, true),
@@ -1182,13 +1216,31 @@ function myName(){
    gate, note()/stop() are the two things the transport may say.
    ═══════════════════════════════════════════════════════════════════ */
 const hooks = {
-  onMove(fn){ moveSubs.push(fn); return () => { const i = moveSubs.indexOf(fn); if (i >= 0) moveSubs.splice(i, 1); }; },
+  /* js/mp.js subscribes with (move, { seat, src }) while our own feed fires
+     ONE {seat, move, index, src} event. Adapt here (same fix as aqleb-ui):
+     without it, mp.js received the whole event object as the move, toWire()
+     found no `t` on it, and the table was stopped on the FIRST local move. */
+  onMove(fn){
+    const f = ev => { if (ev) fn(ev.move, { seat: ev.seat, src: ev.src }); };
+    moveSubs.push(f);
+    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
+  },
   phase(){ return M ? 'play' : 'idle'; },
   apply(seat, move){ if (!M) return { ok:false, why:'no erbgha' }; return onlineRemote(seat, move); },
   attachNet(net){ if (M){ M.net = net || null; maybeThink(); } },
   setOwner(i, own){ if (M && M.meta && M.meta[i]){ M.meta[i].own = own; } },
   setName(i, name){ if (M && M.meta && M.meta[i] && name){ M.meta[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },
+  /* A CHAIR THAT IS GONE FOR GOOD. Two hands, no engine walkout: the game
+     cannot be played around an empty chair, so stop the table honestly
+     (kodici's pattern) instead of parking the turn on it forever. The stop
+     card's wrapped P.ui.result settles any stake as a draw — antes home. */
+  seatGone(seat){
+    if (!M || M.dead || !M.net || E.over(M.st)) return;
+    const who = (M.meta && M.meta[seat] && M.meta[seat].name) || T('Somebody', 'Xi ħadd');
+    onlineStop(who + ' ' + T('left the table — two hands cannot play around an empty chair.',
+                             'telaq mill-mejda — tnejn ma jistgħux jilagħbu madwar siġġu vojt.'));
+  },
   seatBack(){ if (M){ paintSeats(); drawStatic(); } }
 };
 

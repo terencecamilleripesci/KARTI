@@ -967,12 +967,46 @@ function finishScreen(){
       : youWon ? T('Code cracked!','Qtajt il-kodiċi!') : T('Out-hunted','Inqbadt'));
 
   if (REB && REB.show){
+    /* ── THE PAYMENT (tombla-ui's funnel) — the podium path bypasses the
+       wrapped P.ui.result that progress.js pays through, so pay here:
+       awardPlay exactly once under a stable match id (progress.js dedups
+       the id across re-renders and reloads), and the pot through mp.js's
+       own idempotent stakeSettle door. `ranked` only when a real pot is
+       on the table. The card fallback below still pays through the wrap,
+       so nothing on that path changes and nothing pays twice. */
+    const MPX = window.KARTI_MP;
+    const staked = !!(M.net && MPX && MPX.MP && MPX.MP.stakeLive);
+    const tone = draw ? 'draw' : youWon ? 'win' : 'lose';
+    let pay = null, potRes = null;
+    if (window.KARTI_XP && KARTI_XP.awardPlay){
+      try {
+        const mid = (M.net && MPX && MPX.MP && MPX.MP.code != null)
+          ? 'kodici:' + MPX.MP.code + ':' + ((MPX.MP.seed || 0) >>> 0)
+          : (M.payId || (M.payId = 'kodici:' + Date.now().toString(36) + '-' +
+                                    ((Math.random() * 1e6) | 0).toString(36)));
+        const r = KARTI_XP.awardPlay({ game:'kodici', won: tone === 'win',
+                                       draw: tone === 'draw', id: mid, ranked: staked });
+        if (r && r.counted) pay = r;
+      } catch(e){}
+    }
+    if (staked && MPX.stakeSettle){
+      try { potRes = MPX.stakeSettle(tone); } catch(e){}
+    }
     REB.show({
       lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
       reduced: noMotion(),
       title,
       subtitle: draw ? T('Both ran out of guesses','It-tnejn spiċċaw') : T('Final standings','Klassifika finali'),
       rows,
+      xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                  before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+      reward: (pay || potRes) ? {
+        xp: pay ? pay.xp : 0,
+        chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+        wonBonus: pay ? pay.wonBonus : 0,
+        staked: potRes ? potRes.ante : 0,
+        pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+      } : undefined,
       sound: id => cue(id,{gain:.8},true),
       playAgainLabel: T('Again',"Erġa'"),
       onPlayAgain: doAgain,
@@ -1095,6 +1129,11 @@ function netEcho(mv){
 /* the relay just seated us and is about to run the match. */
 function onlineStart(cfg){
   injectCSS();
+  /* PUT THE PARTY SCREEN ON — offline reaches openBoard() through menu(),
+     which calls P.show(); online arrives straight from the room's roster
+     screen, so without this the board mounted into a #scr-party that never
+     got `.on` and both phones sat on "You are ready" forever. */
+  P.show();
   cfg = cfg || {};
   const you = (cfg.you != null) ? cfg.you : 0;
   /* THE ONLINE CONFIG MUST BE SHARED — this used to read pref().cfg, this

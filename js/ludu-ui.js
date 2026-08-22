@@ -1733,7 +1733,41 @@ function finish(){
     return;
   }
   const net = M.net;
+  /* ── THE PAYMENT (tombla-ui's funnel) — the podium path bypasses the
+     wrapped P.ui.result that progress.js pays through, so pay here:
+     awardPlay exactly once under a stable match id (progress.js dedups
+     the id across re-renders and reloads), and the pot through mp.js's
+     own idempotent stakeSettle door. `ranked` only when a real pot is
+     on the table. The card fallback above still pays through the wrap,
+     so nothing on that path changes and nothing pays twice. */
+  const MPX = window.KARTI_MP;
+  const staked = !!(net && MPX && MPX.MP && MPX.MP.stakeLive);
+  const tone = localWon ? 'win' : 'lose';
+  let pay = null, potRes = null;
+  if (window.KARTI_XP && KARTI_XP.awardPlay){
+    try {
+      const mid = (net && MPX && MPX.MP && MPX.MP.code != null)
+        ? 'ludu:' + MPX.MP.code + ':' + ((MPX.MP.seed || 0) >>> 0)
+        : (M.payId || (M.payId = 'ludu:' + Date.now().toString(36) + '-' +
+                                  ((Math.random() * 1e6) | 0).toString(36)));
+      const r = KARTI_XP.awardPlay({ game:'ludu', won: tone === 'win',
+                                     draw: false, id: mid, ranked: staked });
+      if (r && r.counted) pay = r;
+    } catch(e){}
+  }
+  if (staked && MPX.stakeSettle){
+    try { potRes = MPX.stakeSettle(tone); } catch(e){}
+  }
   show({
+    xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
+                before: 0, after: pay.levelled ? 1 : 0.7 } : null,
+    reward: (pay || potRes) ? {
+      xp: pay ? pay.xp : 0,
+      chips: pay ? (pay.chips | 0) + (pay.chipsLevel | 0) : 0,
+      wonBonus: pay ? pay.wonBonus : 0,
+      staked: potRes ? potRes.ante : 0,
+      pot: (potRes && potRes.kind === 'win') ? potRes.pot : 0
+    } : undefined,
     title: (ov && ov.tone === 'win')
              ? (st.teams ? T('Your team is home', 'It-tim tiegħek wasal id-dar')
                          : T('You are home', 'Wasalt id-dar'))
@@ -2186,8 +2220,16 @@ const ONLINE_DICE_NOTE = T(
 
 /* THE SEAMS mp.js reads on LB.net.hooks. Built here from the runner. */
 const hooks = {
-  /* every applied move is announced; mp.js forwards the local ones */
-  onMove(fn){ moveSubs.push(fn); return () => { const i = moveSubs.indexOf(fn); if (i >= 0) moveSubs.splice(i, 1); }; },
+  /* every applied move is announced; mp.js forwards the local ones.
+     js/mp.js subscribes with (move, { seat, src }) while our own feed fires
+     ONE {seat, move, index, src} event. Adapt here (same fix as aqleb-ui):
+     without it, mp.js received the whole event object as the move, toWire()
+     found no `t` on it, and the table was stopped on the FIRST local move. */
+  onMove(fn){
+    const f = ev => { if (ev) fn(ev.move, { seat: ev.seat, src: ev.src }); };
+    moveSubs.push(f);
+    return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); };
+  },
   /* Ludo has NO lobby phase inside the engine — the room's lobby already
      seated everyone — so phase() is never 'lobby' and apply() is a no-op.
      Answering honestly is the contract (see mp.js's onBegan). */
@@ -2197,6 +2239,17 @@ const hooks = {
   setOwner(i, own){ if (M && M.st.seats[i]){ M.st.seats[i].own = own; } },
   setName(i, name){ if (M && M.st.seats[i] && name){ M.st.seats[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },
+  /* A CHAIR THAT IS GONE FOR GOOD. The engine HAS a walkout move, so fold
+     the seat out deterministically on EVERY phone (mp.js fires seatGone on
+     each): tokens leave the board, the clock moves on if it was their turn,
+     and the table plays on instead of parking on an empty chair forever.
+     src:'net' so the quit is never echoed back onto the wire. */
+  seatGone(seat){
+    if (!M || M.dead || !M.net) return;
+    if (E.over(M.st) || !M.st.seats[seat] || M.st.seats[seat].gone) return;
+    const res = doMove(seat, { t:'quit' }, 'net');
+    if (res.ok){ render(); if (E.over(M.st)) finish(); }
+  },
   seatBack(seat){ /* a walked-out player came back — nothing special to do,
                      the engine keeps their tokens once quit; re-render */
                   if (M) render(); }
