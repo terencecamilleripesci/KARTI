@@ -1296,6 +1296,14 @@ class Conn:
         # Presence. Both of these are ephemeral: they exist for the lifetime of
         # this socket and are never written anywhere.
         self.pname = ""             # player-chosen display name, already scrubbed
+        # THE LOOK — the face, ring and badge this player CHOSE, so every
+        # other phone can draw them as themselves instead of guessing from
+        # their name. Three short opaque ids; the relay never interprets
+        # them, it only carries and length-caps them, exactly as it does a
+        # name. A photograph still travels separately as av+pv, because
+        # that one lives in the avatar store and is not the client's to
+        # claim. {} until the client says otherwise.
+        self.look = {}
         self.name_sets = 0
         self.pid = secrets.token_urlsafe(8)   # public handle, ONLY ever published
                                               # while this player is waiting
@@ -1597,6 +1605,13 @@ class Room:
                 if pv:
                     seat["pv"] = pv
                     seat["av"] = s.conn.acct
+            # AND THE LOOK THEY PICKED. A photograph needs an account and an
+            # upload; a face, a ring and a badge need neither, so for most
+            # players this is the only thing that makes the chair look like
+            # them. Without it every stranger was drawn from a hash of their
+            # name — a stable default, and not the one they chose.
+            if s.conn is not None and s.conn.look:
+                seat["k"] = s.conn.look
             who.append(seat)
         lo, _, _ = seat_range(self.game, self.variant)
         return {"t": "table", "code": self.code, "game": self.game,
@@ -1921,7 +1936,31 @@ class RoomBook:
                 "rooms": rooms, "open": open_rooms, "roomsMax": L.ROOMS_MAX,
                 "openBy": by_game, "games": list(GAME_IDS)}
 
-    def set_name(self, conn, raw):
+    LOOK_KEYS = ("f", "b", "lb")      # face, border, level badge
+    LOOK_LEN = 32
+
+    @staticmethod
+    def _clean_look(raw):
+        """Three short ids, or nothing.
+
+        Deliberately dumb: the relay has no idea what a face id means and must
+        not acquire one — a new cosmetic must never need a server deploy. It
+        checks only that each value is a short, boring string, because these
+        end up in other people's DOM and a value that can carry punctuation is
+        a value that can carry an attribute break."""
+        if not isinstance(raw, dict):
+            return {}
+        out = {}
+        for k in RoomBook.LOOK_KEYS:
+            v = raw.get(k)
+            if not isinstance(v, str) or not v:
+                continue
+            v = v[:RoomBook.LOOK_LEN]
+            if all(c.isalnum() or c in "._-" for c in v):
+                out[k] = v
+        return out
+
+    def set_name(self, conn, raw, look=None):
         """A display name for the presence list. Scrubbed and capped exactly
         like every other name that crosses this relay."""
         if conn.name_sets >= L.MAX_NAME_SETS:
@@ -1932,6 +1971,8 @@ class RoomBook:
             return [(conn, {"t": "error", "why": E_SHAPE})]
         conn.name_sets += 1
         conn.pname = name
+        if look is not None:
+            conn.look = self._clean_look(look)
         with self._lock:
             self._epoch += 1
         return [(conn, {"t": "named", "n": name})]
@@ -4261,7 +4302,7 @@ def handle_ws_message(conn, raw):
             conn.doom("code guessing")
 
     elif kind == "name":
-        dispatch(ROOMS.set_name(conn, msg.get("n")))
+        dispatch(ROOMS.set_name(conn, msg.get("n"), msg.get("k")))
 
     elif kind == "rejoin":
         dispatch(ROOMS.rejoin(conn, msg.get("code"), msg.get("token"), msg.get("since")))

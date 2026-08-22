@@ -2123,7 +2123,7 @@ function openSocket(intent){
        does not know this message and answers "Bad message."; MP.nameProbe makes
        onServerError swallow exactly that one reply so nothing looks broken. */
     MP.nameProbe = true;
-    send({ t:'name', n: myPresenceName() });
+    send({ t:'name', n: myPresenceName(), k: myLook() });
     /* Prove who we are, if this profile has a cloud account. It is what lets
        us send an invite to a named player and collect the ones left for us.
        An older relay does not know the message and says so; onServerError
@@ -3037,7 +3037,11 @@ function rosterSeats(){
        (0/absent = no photo), av = account key the photo URL is built from.
        This is what lets the lobby draw EVERYONE'S face, not just your own. */
     pv: w.pv || 0,
-    av: w.av || ''
+    av: w.av || '',
+    /* the face/ring/badge THEY chose, straight from the relay. Absent for
+       a phone on an older build, which simply falls back to the
+       name-coloured default it always drew. */
+    look: (w.k && typeof w.k === 'object') ? w.k : null
   }));
 }
 
@@ -4054,6 +4058,14 @@ function seatAvatar(s, me){
          relay, so draw their REAL photograph (avatarHTML builds the URL from
          who+pv), not a name-coloured medallion. My own seat still uses {me}. */
       if (!me && s.av && s.pv){ opts.who = s.av; opts.pv = s.pv; }
+      /* …and the look they picked, which is the ONLY thing most players
+         have: describe() takes `hint` as the face and honours an explicit
+         border and badge, so this is the same door the app already uses. */
+      if (!me && s.look){
+        if (s.look.f)  opts.hint   = s.look.f;
+        if (s.look.b)  opts.border = s.look.b;
+        if (s.look.lb) opts.lvb    = s.look.lb;
+      }
       return XP.avatarHTML(s.name || 'Player', opts);
     }
   } catch (e){}
@@ -5441,6 +5453,32 @@ const PR = {
 };
 const PR_FAIL_TRIP = 2;
 
+/* WHAT I LOOK LIKE, for other people's phones.
+
+   A photograph needs an account and an upload, so for most players it does
+   not exist — and the chair they sat in was drawn from a hash of their NAME,
+   which is stable, pretty, and not what they picked. Customising your face
+   and then being the only person who can see it makes the whole wardrobe
+   pointless.
+
+   Three short ids ride beside the name: the face, the ring, the level badge.
+   The relay carries them without understanding them (so a new cosmetic never
+   needs a server deploy) and every other phone feeds them straight into the
+   same KARTI_XP.describe() the app already draws everyone with. */
+function myLook(){
+  var out = {};
+  try {
+    var XP = window.KARTI_XP;
+    if (!XP) return out;
+    if (XP.avatar) { var f = XP.avatar(); if (f) out.f = String(f); }
+    if (XP.equipped){
+      var b = XP.equipped('border', 'karti'); if (b) out.b = String(b);
+      var lb = XP.equipped('badge', 'karti');  if (lb) out.lb = String(lb);
+    }
+  } catch (e){}
+  return out;
+}
+
 function myPresenceName(){
   let n = '';
   try { n = (K.displayName() || '').toString(); } catch (e){}
@@ -5470,7 +5508,7 @@ function presenceBeaconOpen(){
   try { ws = new WebSocket(url); } catch (e){ return; }
   PR.ws = ws;
   ws.onopen = () => {
-    try { ws.send(JSON.stringify({ t:'name', n: myPresenceName() })); } catch (e){}
+    try { ws.send(JSON.stringify({ t:'name', n: myPresenceName(), k: myLook() })); } catch (e){}
     /* and, if this profile has an account, collect anything left for us while
        we were away — this is the socket that is open while you are sat on the
        home screen doing nothing */
