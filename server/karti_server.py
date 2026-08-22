@@ -4707,6 +4707,34 @@ CREATE TABLE IF NOT EXISTS played (
 );
 CREATE INDEX IF NOT EXISTS played_uname ON played(uname, at DESC);
 
+/* THE MAILBOX — a gift that waits.
+
+   The owner hands a player coins, chips, a pack or an exclusive set. That
+   cannot ride a lobby message and it cannot live in the sender's browser: the
+   recipient is usually not online when it is sent, and when they do come back
+   it may be on a different phone. So it is held HERE, against the account, and
+   handed over the next time that account signs in from anywhere.
+
+   `gift` is an opaque JSON string. The relay is a post office: it must never
+   need to understand the economy to carry a parcel, and a new kind of reward
+   must not require a server deploy.
+
+   `claimed` is a timestamp rather than a flag so a claim is idempotent AND
+   auditable — the second claim of the same letter is a no-op that can still
+   say when the first one happened. Rows are kept after claiming; the whole
+   table is a few hundred bytes per player and being able to answer "did he
+   ever actually get it" is worth more than the space. */
+CREATE TABLE IF NOT EXISTS mail (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    uname   TEXT NOT NULL,
+    sender  TEXT NOT NULL,
+    note    TEXT NOT NULL DEFAULT '',
+    gift    TEXT NOT NULL,
+    at      REAL NOT NULL,
+    claimed REAL
+);
+CREATE INDEX IF NOT EXISTS mail_box ON mail(uname, claimed, id DESC);
+
 /* THE KNOCK — an invitation that survives the app being closed.
    A live invite points at a ROOM and dies with it. This is the note left
    behind, and it carries no room code precisely because by the time it is read
@@ -4952,6 +4980,72 @@ class Accounts:
         return bool(on)
 
     # -- recently played with ----------------------------------------------
+
+    # ── the mailbox ────────────────────────────────────────────────────
+    #
+    # Three verbs and no cleverness: leave a letter, read the unopened ones,
+    # open one. All three take the recipient's account key, which the caller
+    # has already authenticated — nothing here trusts a name off the wire.
+
+    MAIL_MAX_BOX = 60          # unclaimed letters one account may hold
+    MAIL_NOTE_MAX = 240        # a covering note, not an essay
+    MAIL_GIFT_MAX = 2048       # the opaque payload
+
+    def mail_send(self, to_key, sender_name, note, gift_json, now=None):
+        """Leave a letter. Returns its id, or None if the box is full.
+
+        A full box is refused rather than silently trimmed: these are gifts,
+        and quietly dropping one because an inbox was untidy is the kind of
+        bug nobody ever notices and everybody resents."""
+        if not to_key or not gift_json:
+            return None
+        note = (note or "")[:self.MAIL_NOTE_MAX]
+        if len(gift_json) > self.MAIL_GIFT_MAX:
+            return None
+        now = time.time() if now is None else now
+        with self.lock:
+            waiting = self.db.execute(
+                "SELECT COUNT(*) FROM mail WHERE uname=? AND claimed IS NULL",
+                (to_key,)).fetchone()[0]
+            if waiting >= self.MAIL_MAX_BOX:
+                return None
+            cur = self.db.execute(
+                "INSERT INTO mail(uname,sender,note,gift,at) VALUES(?,?,?,?,?)",
+                (to_key, sender_name or "", note, gift_json, now))
+            self.db.commit()
+            return int(cur.lastrowid)
+
+    def mail_box(self, key):
+        """Every letter this account has not opened yet, newest first."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT id,sender,note,gift,at FROM mail"
+                " WHERE uname=? AND claimed IS NULL ORDER BY id DESC LIMIT ?",
+                (key, self.MAIL_MAX_BOX)).fetchall()
+        return [{"id": int(r[0]), "from": r[1], "note": r[2],
+                 "gift": r[3], "at": int(r[4])} for r in rows]
+
+    def mail_claim(self, key, mail_id):
+        """Open one letter. (gift, already) — and NEVER twice.
+
+        The claim is a conditional UPDATE, so two phones racing the same letter
+        cannot both come away holding it: exactly one UPDATE reports a changed
+        row, and the loser is told `already` and paid nothing. Doing this as a
+        read-then-write would hand the prize out twice on a double tap."""
+        now = time.time()
+        with self.lock:
+            row = self.db.execute(
+                "SELECT gift, claimed FROM mail WHERE id=? AND uname=?",
+                (mail_id, key)).fetchone()
+            if row is None:
+                return (None, False)
+            if row[1] is not None:
+                return (row[0], True)
+            cur = self.db.execute(
+                "UPDATE mail SET claimed=? WHERE id=? AND uname=? AND claimed IS NULL",
+                (now, mail_id, key))
+            self.db.commit()
+            return (row[0], cur.rowcount == 0)
 
     def note_played(self, key, other, other_name, now=None):
         """A and B sat at the same table. One row, bumped, never duplicated.
@@ -5741,7 +5835,8 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self.acct_fail(403, "Origin not allowed.")
             return
-        if action not in ("register", "login", "logout", "pull", "push"):
+        if action not in ("register", "login", "logout", "pull", "push",
+                          "gift", "mail", "claim"):
             self.acct_fail(404, "No such account route.")
             return
         if ACCOUNTS is None:
@@ -5761,6 +5856,12 @@ class KartiHandler(BaseHTTPRequestHandler):
                 self.acct_logout(addr, body)
             elif action == "pull":
                 self.acct_pull(addr, body)
+            elif action == "gift":
+                self.acct_gift(addr, body)
+            elif action == "mail":
+                self.acct_mail(addr, body)
+            elif action == "claim":
+                self.acct_claim(addr, body)
             else:
                 self.acct_push(addr, body)
         except KDFBusy:
@@ -5857,6 +5958,96 @@ class KartiHandler(BaseHTTPRequestHandler):
             return
         ACCOUNTS.close_session(self.bearer(body))
         self.reply(200, {"ok": True})
+
+    # ── the mailbox routes ─────────────────────────────────────────────
+
+    # WHO MAY SEND. This list is the permission, and it lives on the server
+    # because that is the only place a permission can live. The client has its
+    # own copy in js/progress.js to decide whether to DRAW the send console,
+    # which is a convenience and not a check: anyone can edit their own
+    # JavaScript, so the browser's opinion about who is an admin is worth
+    # nothing. Compared against the ACCOUNT the request is authenticated as —
+    # never against a name in the body.
+    ADMIN_KEYS = ("terence", "terencecamilleri", "terencecamilleripesci")
+
+    @staticmethod
+    def _acct_norm(v):
+        return "".join(c for c in str(v or "").lower() if c.isalnum())
+
+    def acct_gift(self, addr, body):
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, name = who
+        if self._acct_norm(key) not in self.ADMIN_KEYS:
+            # deliberately the same shape as any other refusal, and it does not
+            # confirm that the route exists for anybody else
+            self.acct_fail(403, "Not allowed.")
+            return
+        to = self._acct_norm(body.get("to"))
+        if not to:
+            self.acct_fail(400, "Who is it for?")
+            return
+        # find()'s own docstring says its answer must never leave the process,
+        # because for an INVITE that would let anyone probe which accounts
+        # exist. That reasoning does not apply here and the difference is the
+        # ADMIN GATE eight lines up: the only caller who can reach this is the
+        # owner, and the owner typing a name into a send box has to be told
+        # when they have misspelled it, or the gift vanishes into a mailbox
+        # nobody will ever open.
+        if ACCOUNTS.find(to) is None:
+            self.acct_fail(404, "No player by that name.")
+            return
+        gift = body.get("gift")
+        if not isinstance(gift, dict) or not gift:
+            self.acct_fail(400, "That gift is empty.")
+            return
+        try:
+            gift_json = json.dumps(gift, separators=(",", ":"))
+        except Exception:
+            self.acct_fail(400, "That gift will not travel.")
+            return
+        mid = ACCOUNTS.mail_send(to, name, body.get("note"), gift_json)
+        if mid is None:
+            self.acct_fail(409, "Their mailbox is full.")
+            return
+        self.reply(200, {"ok": True, "id": mid, "to": to})
+
+    def acct_mail(self, addr, body):
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, _name = who
+        out = []
+        for m in ACCOUNTS.mail_box(key):
+            try:
+                m["gift"] = json.loads(m["gift"])
+            except Exception:
+                continue        # a letter we cannot read is not shown at all
+            out.append(m)
+        self.reply(200, {"ok": True, "mail": out})
+
+    def acct_claim(self, addr, body):
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, _name = who
+        try:
+            mid = int(body.get("id"))
+        except Exception:
+            self.acct_fail(400, "Which letter?")
+            return
+        gift_json, already = ACCOUNTS.mail_claim(key, mid)
+        if gift_json is None:
+            self.acct_fail(404, "No such letter.")
+            return
+        try:
+            gift = json.loads(gift_json)
+        except Exception:
+            self.acct_fail(500, "That letter is damaged.")
+            return
+        self.reply(200, {"ok": True, "id": mid, "gift": gift,
+                         "already": bool(already)})
 
     def acct_pull(self, addr, body):
         who = self.authed(addr, body)
