@@ -677,6 +677,10 @@ function injectCSS(){
     /* the stones are DRAWN (gemRingSVG), so the ring itself carries no band —
        it is just the stage the SVG sits on and the light sweeps over. */
     '.kx-r-betagold,.kx-r-betasilver{background:none;border:0;overflow:visible}' +
+    /* the painted frame covers the whole avatar box and overhangs a little,
+       the way the drawn one does, so the stones break the silhouette */
+    '.kx-ring-art{position:absolute;inset:-9%;width:118%;height:118%;\n'+
+      'object-fit:contain;pointer-events:none;z-index:3}' +
     '.kx-gemsvg{position:absolute;inset:0;width:100%;height:100%;display:block;' +
       'filter:drop-shadow(0 1px 1px rgba(0,0,0,.55))}' +
     /* the light running over the stones, plus the fire pulse. Clipped to the
@@ -856,8 +860,24 @@ function gemRingSVG(id){
 }
 function ringHTML(id){
   if (!id || id === 'none' || !B_RE.test(id) || !B_BY[id]) return '';
-  if (id === 'betagold' || id === 'betasilver')
-    return '<span class="kx-ring kx-r-' + id + '">' + gemRingSVG(id) + '</span>';
+  if (id === 'betagold' || id === 'betasilver'){
+    /* PAINTED DIAMONDS, with the drawn ring underneath as the safety net.
+       The two beta frames are the only cosmetics in the game made for one
+       named person each, and "some faceted shapes in SVG" was never going to
+       read as jewellery at a hundred pixels on a phone — the owner said so,
+       twice. So they are real painted art now: a rounded-square setting
+       encrusted with cut stones, transparent through the middle so the
+       player's own photo shows.
+
+       The <img> sits OVER the SVG rather than replacing it, and removes
+       itself onerror. So a phone that has the art gets the jewellery, a
+       phone that has not fetched it yet still gets a complete frame, and
+       there is never a broken-image glyph around somebody's face. */
+    return '<span class="kx-ring kx-r-' + id + '">' + gemRingSVG(id) +
+      '<img class="kx-ring-art" alt="" aria-hidden="true" ' +
+      'src="art/ui/ring-' + id + '.png" onerror="this.remove()">' +
+      '</span>';
+  }
   var pat = B_PAT[id] ? ' pat' : '';
   return '<span class="kx-ring' + pat + ' kx-r-' + id + '"></span>';
 }
