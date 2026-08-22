@@ -514,19 +514,76 @@
     return 'hsl(' + hue(id) + ' 70% 62%)';
   }
 
+  /* WHERE A FACE COMES FROM.
+
+     The podium was built to be handed everything, so a row without an
+     `avatar` drew initials — and since not one of the twenty-nine games
+     passes one, EVERY winner screen showed coloured letters instead of the
+     photographs people had actually uploaded. The profile picture is the
+     emotional core of this screen; two initials on a podium is a stranger
+     winning your game.
+
+     Rather than edit twenty-nine call sites, the row is resolved here, in
+     the order of who knows best:
+
+       1. an explicit `avatar` — a caller that knows wins, always;
+       2. `you` — your own photo is on this device, no network, no lookup;
+       3. `av` + `pv` — the account key and photo version the relay already
+          publishes beside every name in a roster;
+       4. the LIVE ROSTER, matched by name — because the games pass neither
+          av nor pv today, and this is what actually lights the screen up
+          tonight without touching every game file. Guarded and last: a
+          name that is not at the table simply falls through to initials.
+
+     All of it optional and wrapped: this module still runs with no KARTI_XP
+     and no KARTI_MP on the page, which is the property that lets it be
+     tested standalone. */
+  function rowPhoto(row) {
+    if (row.avatar) return row.avatar;
+    var XP = global.KARTI_XP;
+    try {
+      if (row.you && XP && XP.photo) {
+        var mine = XP.photo();
+        if (mine) return mine;
+      }
+    } catch (e) {}
+    try {
+      if (row.av && row.pv && XP && XP.photoURL) return XP.photoURL(row.av, row.pv);
+    } catch (e) {}
+    try {
+      var MP = global.KARTI_MP;
+      if (!row.bot && MP && MP.rosterSeats && XP && XP.photoURL) {
+        var want = String(row.name || '').trim().toLowerCase();
+        var seats = MP.rosterSeats() || [];
+        for (var i = 0; i < seats.length; i++) {
+          var s = seats[i];
+          if (s && s.pv && s.av && String(s.name || '').trim().toLowerCase() === want)
+            return XP.photoURL(s.av, s.pv);
+        }
+      }
+    } catch (e) {}
+    return '';
+  }
+
   function avatarHTML(row, popClass) {
     var bc = borderColor(row.border);
     var cls = 'kr-av' + (bc ? ' kr-bordered' : '') + (popClass ? ' ' + popClass : '');
     var style = bc ? ' style="--kr-bc:' + esc(bc) + '"' : '';
-    var inner;
-    if (row.avatar) {
-      inner = '<img src="' + esc(row.avatar) + '" alt="" ' +
-        'onerror="this.style.display=\'none\';this.parentNode.classList.add(\'kr-imgfail\')">';
-    } else {
-      inner = '<span class="kr-ini" style="background:linear-gradient(160deg,hsl(' +
-        hue(row.name) + ' 55% 42%),hsl(' + ((hue(row.name) + 40) % 360) +
-        ' 55% 30%));position:absolute;inset:0;display:grid;place-items:center">' +
-        esc(initials(row.name)) + '</span>';
+    /* The initials are ALWAYS drawn, and the photo is laid on top of them.
+       The old code chose one or the other, so a photo that 404'd — a stale
+       version number, a player whose picture the Pi no longer has — hid
+       itself and left an empty coloured box on the podium. Underneath is
+       exactly where a fallback belongs: it costs nothing when the photo
+       arrives, and it is already there when it does not. */
+    var inner = '<span class="kr-ini" style="background:linear-gradient(160deg,hsl(' +
+      hue(row.name) + ' 55% 42%),hsl(' + ((hue(row.name) + 40) % 360) +
+      ' 55% 30%));position:absolute;inset:0;display:grid;place-items:center">' +
+      esc(initials(row.name)) + '</span>';
+    var pic = rowPhoto(row);
+    if (pic) {
+      inner += '<img src="' + esc(pic) + '" alt="" ' +
+        'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover" ' +
+        'onerror="this.remove()">';
     }
     return '<div class="' + cls + '"' + style + '>' + inner + '</div>';
   }
