@@ -5406,8 +5406,21 @@ function mpResult(winner, why){
    ═══════════════════════════════════════════════════════════════════ */
 const PR = {
   mounted:false, fast:false, ws:null, pingTimer:null, timer:null, hideTimer:null,
-  last:0, busy:false, data:null, err:null, tried:false
+  last:0, busy:false, data:null, err:null, tried:false,
+  /* ONE FAILED POLL IS NOT AN OUTAGE. Walking out of a room tears the socket
+     down with a presence poll still in flight, so the abort lands in the
+     catch and the rooms screen greets the player with a red "Cannot reach
+     the server" a beat after they pressed Back — nothing is wrong, and the
+     next poll fills the list in. Telling a room full of people the server is
+     down when it is not is worse than telling them a second later.
+
+     So a blip has to happen TWICE before it is called an outage — but only
+     once we have ever had an answer. A relay that is genuinely down at boot
+     has never answered, and that player should be told immediately rather
+     than watch a hopeful blank screen. */
+  fails:0, everOK:false
 };
+const PR_FAIL_TRIP = 2;
 
 function myPresenceName(){
   let n = '';
@@ -5540,9 +5553,17 @@ function presencePoll(){
     })
     .then(j => {
       if (!j || j.ok !== true || !Array.isArray(j.players)) throw { kind:'notrelay' };
-      PR.data = j; PR.err = null;
+      PR.data = j; PR.err = null; PR.fails = 0; PR.everOK = true;
     })
-    .catch(e => { PR.data = null; PR.err = (e && e.kind) || 'down'; })
+    .catch(e => {
+      PR.fails++;
+      /* hold the last good list while a blip is still only a blip — a screen
+         that keeps showing the rooms it knew about beats one that blanks */
+      if (!PR.everOK || PR.fails >= PR_FAIL_TRIP){
+        PR.data = null;
+        PR.err = (e && e.kind) || 'down';
+      }
+    })
     .then(done, done);
 }
 
@@ -6351,6 +6372,9 @@ window.KARTI_MP = {
   recentStrip, knockCards, roomAroundHTML, paintRoomAround, askPeopleHTML,
   paintAskPeople,
   RELAY_URL, RELAY_HEALTH, RELAY_PRESENCE, CODE_LEN, CODE_ALPHABET,
+  /* the presence poller's own state, exposed so a harness can prove the
+     blip-vs-outage rule without having to take the relay down */
+  _PR: PR, PR_FAIL_TRIP,
   ROOM_ROWS, PRESENCE_LOBBY, PRESENCE_MIN_GAP,
   /* older name kept so nothing that reached for it breaks */
   mpConnect: (action, code) => start(action, code)
