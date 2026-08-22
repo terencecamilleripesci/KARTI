@@ -27,3 +27,13 @@ vapid*.json
 *.vapid.json
 .karti_vapid.json
 push.db
+
+# [signing] The Android keystore and its passwords must NEVER enter the repo —
+# Pages would publish them, and whoever holds that file can ship an update that
+# every installed phone accepts as genuine. The live pair sits outside the tree
+# in ~/.karti_keys/; this is belt-and-braces against a stray copy.
+*.keystore
+*.jks
+twa-manifest.json
+android.keystore
+signing-key-info.txt
