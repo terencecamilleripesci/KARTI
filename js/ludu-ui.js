@@ -198,7 +198,9 @@ function startMatch(opts, seed, log){
     timer: 0, dead: false, finished: false,
     anim: null,                       /* {kind, ...} the last thing to animate */
     recorded: false,
-    net: null, meta: null
+    net: null, meta: null,
+    skins: {},                        /* seat → exclusive-set wire byte    */
+    exclSaid: false                   /* my byte goes out once, first move */
   };
   M.st = buildState(M.opts, M.seed, M.log);
   applyMeta();
@@ -222,6 +224,35 @@ function ownerOf(i){
 }
 const isLocal = i => { const o = ownerOf(i); return o === 'me' || o === 'hot'; };
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE GOLDEN ROUTE (ludu.*.excl) — who is gilded on this table.
+   Tokens are a PLAYER's pieces, so they travel: my equipped set rides
+   my first move as the appended `e` wire byte (see WIRE_FIELDS in
+   js/ludu.js) and lands in M.skins, seat → byte, so every phone gilds
+   that seat's tokens. The DICE and the BOARD are shared table surfaces
+   the local player looks at, so — like every basic cosmetic — they are
+   the local choice and never travel. A gilded token keeps its SEAT
+   COLOUR as the rim: four golden armies you cannot tell apart would
+   break the board, and the rim is how you read whose token that is.
+   ═══════════════════════════════════════════════════════════════════ */
+function xEq(slot){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped(slot, 'ludu') === 'ludu.' + slot + '.excl';
+  } catch(e){ return false; }
+}
+function giltSeat(seat){
+  if (!M || !M.st) return false;
+  const s = M.st.seats[seat];
+  if (s && s.own === 'me') return xEq('tokens');
+  return !!(M.skins && M.skins[seat] === 1);
+}
+/* the golden token gradient, added to the board defs every paint */
+const GTOK =
+  '<radialGradient id="lu-gtok" cx="38%" cy="30%" r="80%">' +
+    '<stop offset="0" stop-color="#FFF6CF"/><stop offset="45%" stop-color="#FFD979"/>' +
+    '<stop offset="100%" stop-color="#C8860D"/></radialGradient>';
+
 /* THE gate. Every move — thumb, machine, wire, replay — is measured by
    the engine here and nowhere else. src distinguishes a local move (which
    the transport forwards) from a wire move (which it must not echo). */
@@ -237,7 +268,15 @@ function doMove(seat, move, src){
   M.log.push(rec);
   E.apply(M.st, rec);
   autosave();
-  fireList(moveSubs,  { seat, move:clone(move), index:idx, src:src || 'local' });
+  const out = clone(move);
+  /* my exclusive-set byte rides my FIRST outgoing move — once, tagged on
+     the fired clone only (never the log, never the engine). AI chairs a
+     host runs are not `me`, so they are never tagged. */
+  if (M.net && (src || 'local') !== 'net' && ownerOf(seat) === 'me' && !M.exclSaid){
+    M.exclSaid = true;
+    if (xEq('tokens')) out.e = 1;
+  }
+  fireList(moveSubs,  { seat, move:out, index:idx, src:src || 'local' });
   fireList(stateSubs, { reason:'move', index:idx });
   return { ok:true, index:idx };
 }
@@ -346,6 +385,20 @@ function injectCSS(){
       'transition:transform .28s var(--ease,cubic-bezier(.22,.9,.28,1))}' +
     '#scr-party .lu-tok .body{stroke:rgba(0,0,0,.55);stroke-width:.5}' +
     '#scr-party .lu-tok .gloss{fill:rgba(255,255,255,.5)}' +
+    /* THE GOLDEN ROUTE — a gilded token keeps its seat colour as the rim
+       (identity first); a movable one still flips to the white pick ring */
+    '#scr-party .lu-tok.gilt .body{stroke:var(--lus,#8A5B12);stroke-width:1.2}' +
+    '#scr-party .lu-tok.gilt.pick .body{stroke:#fff;stroke-width:1.3}' +
+    /* the golden dice (local choice) */
+    '#scr-party .lu-die.lu-die-x{background:linear-gradient(155deg,#FFF3C9,#E9B93B);' +
+      'border-color:#8A5B12;box-shadow:0 4px 0 -1px rgba(0,0,0,.4),' +
+      'inset 0 2px 0 rgba(255,255,255,.8),0 0 14px rgba(255,197,66,.45)}' +
+    '#scr-party .lu-die.lu-die-x i{background:#4A3005}' +
+    /* the board paved in light (local choice) — the travel cells and the
+       yards go warm gold; the coloured cells keep their seats */
+    '#scr-party .lu-xb .lu-cellw{fill:#FFE9AE}' +
+    '#scr-party .lu-xb .lu-yard{fill:#FFF3D4}' +
+    '#scr-party .lu-xb .lu-band{fill:#FFF0C4}' +
     /* the generous invisible hit target — the pointer surface. touch-action
        none so the first touch fires without a scroll/zoom race. */
     '#scr-party .lu-tok .hit{cursor:pointer;pointer-events:auto;' +
@@ -1019,7 +1072,7 @@ function boardBodyGrid(st, lay, g, hs){
     '" rx="10" ry="10" fill="#fbfbf7" stroke="rgba(0,0,0,.28)" stroke-width="1"/>';
 
   /* the white CROSS (track background) — horizontal + vertical 3-wide bands */
-  const band = () => 'fill="#fff" stroke="rgba(0,0,0,.10)" stroke-width="0.4"';
+  const band = () => 'class="lu-band" fill="#fff" stroke="rgba(0,0,0,.10)" stroke-width="0.4"';
   const px = (r, c) => ({ x: 3 + c * gap, y: 3 + r * gap });
   const hBand = px(6, 0), vBand = px(0, 6);
   s += '<rect x="' + hBand.x.toFixed(2) + '" y="' + hBand.y.toFixed(2) + '" width="' +
@@ -1098,7 +1151,7 @@ function boardBodyGrid(st, lay, g, hs){
       s += gridCell(p.x, p.y, hs, cr * 0.14) + ' fill="' + esc(hx) +
         '" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
     } else {
-      s += gridCell(p.x, p.y, hs, cr * 0.14) + ' fill="#fff" ' +
+      s += gridCell(p.x, p.y, hs, cr * 0.14) + ' class="lu-cellw" fill="#fff" ' +
         (rc.safe ? 'stroke="rgba(0,0,0,.28)" stroke-width="0.7"' :
                    'stroke="rgba(0,0,0,.12)" stroke-width="0.4"') + '/>';
     }
@@ -1280,14 +1333,15 @@ function paintBoard(){
   const hs = cr * 0.94;               /* half-size of a ring/home cell   */
 
   /* the board disc */
-  let s = '<svg class="lu-svg" id="lu-svg" viewBox="0 0 ' + VB + ' ' + VB + '" ' +
+  let s = '<svg class="lu-svg' + (xEq('board') ? ' lu-xb' : '') +
+    '" id="lu-svg" viewBox="0 0 ' + VB + ' ' + VB + '" ' +
     'xmlns="http://www.w3.org/2000/svg" aria-label="' +
     esc(T('The Ludo board', 'It-tabellun tal-Ludu')) + '">' +
     '<defs>' +
       '<radialGradient id="lu-discg" cx="50%" cy="38%" r="72%">' +
         '<stop offset="0" stop-color="#2E2153"/><stop offset="60%" stop-color="#241A3E"/>' +
         '<stop offset="100%" stop-color="#150F28"/></radialGradient>' +
-      WSHEEN +
+      WSHEEN + GTOK +
     '</defs>';
   s += g.grid ? boardBodyGrid(st, lay, g, hs) : boardBodyWedge(st, lay, g);
 
@@ -1334,18 +1388,20 @@ function paintBoard(){
     const legal = legalToks[tk.seat + ':' + tk.tok];
     const pick = !!legal;
     const dim = dimRest && !pick ? ' dim' : '';
-    const cls = 'lu-tok' + (pick ? ' pick' : '') + dim;
+    const gilt = giltSeat(tk.seat);
+    const cls = 'lu-tok' + (gilt ? ' gilt' : '') + (pick ? ' pick' : '') + dim;
     s += '<g class="' + cls + '"' +
+      (gilt ? ' style="--lus:' + esc(hx) + '"' : '') +
       (pick ? ' data-tok="' + tk.tok + '" role="button" tabindex="0" aria-label="' +
         esc(T('Move this token', 'Ċaqlaq din il-biċċa')) + '"' : ' aria-hidden="true"') +
       ' data-seat="' + tk.seat + '" data-cx="' + cx.toFixed(1) + '" data-cy="' + cy.toFixed(1) + '">';
     /* a soft glow halo behind a movable piece — reads before you look */
     if (pick){
       s += '<circle class="glow" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
-        '" r="' + (tr * 1.42).toFixed(1) + '" fill="' + esc(hx) + '"/>';
+        '" r="' + (tr * 1.42).toFixed(1) + '" fill="' + esc(gilt ? '#FFD979' : hx) + '"/>';
     }
     s += '<circle class="body" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' +
-        tr.toFixed(1) + '" fill="' + esc(hx) + '"/>' +
+        tr.toFixed(1) + '" fill="' + (gilt ? 'url(#lu-gtok)' : esc(hx)) + '"/>' +
       '<circle class="gloss" cx="' + (cx - tr * 0.28).toFixed(1) + '" cy="' +
         (cy - tr * 0.32).toFixed(1) + '" r="' + (tr * 0.28).toFixed(1) + '" fill-opacity="0.55"/>';
     /* the generous invisible hit target, LAST so it is the topmost thing
@@ -1482,6 +1538,7 @@ function slidePiece(seat, k, from, to, lay){
   const svg = UI && UI.svg;
   if (!svg){ render(); return; }
   const g = geom(lay), tr = g.tok, hx = hexOf(colourFor(st, seat));
+  const gilt = giltSeat(seat);
   /* hide the source token (still drawn at `from` in the pre-move DOM) and
      dull the gold hints so only the flying piece reads during the slide */
   const srcEl = svg.querySelector('.lu-tok[data-tok="' + k + '"][data-seat="' + seat + '"]');
@@ -1493,7 +1550,8 @@ function slidePiece(seat, k, from, to, lay){
   const p0 = cells[0];
   fly.innerHTML =
     '<circle cx="' + p0.x.toFixed(1) + '" cy="' + p0.y.toFixed(1) + '" r="' +
-      (tr * 1.15).toFixed(1) + '" fill="' + esc(hx) + '" stroke="#fff" stroke-width="1.1"/>' +
+      (tr * 1.15).toFixed(1) + '" fill="' + (gilt ? 'url(#lu-gtok)' : esc(hx)) +
+      '" stroke="' + (gilt ? esc(hx) : '#fff') + '" stroke-width="1.1"/>' +
     '<circle cx="' + (p0.x - tr * 0.28).toFixed(1) + '" cy="' + (p0.y - tr * 0.32).toFixed(1) +
       '" r="' + (tr * 0.28).toFixed(1) + '" fill="#fff" fill-opacity="0.55"/>';
   svg.appendChild(fly);
@@ -1528,7 +1586,8 @@ function paintDock(){
   const mine = !E.over(st) && isLocal(turn);
   const dieN = st.die || (st.last && st.last.t === 'roll' ? st.last.d : 0);
   const rolling = !!(M.anim && M.anim.kind === 'roll');
-  let dock = '<div class="lu-die' + (rolling ? ' rolling' : '') + '" id="lu-die" aria-hidden="true">' +
+  let dock = '<div class="lu-die' + (rolling ? ' rolling' : '') +
+    (xEq('dice') ? ' lu-die-x' : '') + '" id="lu-die" aria-hidden="true">' +
     dieFace(dieN || 0) + '</div>';
   if (E.over(st)){
     dock += '<button class="lu-roll ghost" id="lu-roll" disabled>' +
@@ -2295,6 +2354,14 @@ function onlineStart(cfg){
 function onlineRemote(seat, move){
   if (!M) return { ok:false, why:'no ludu on the table' };
   if (E.over(M.st)) return { ok:false, why:'the game is over' };
+  /* that player's exclusive-set byte, riding their move. Validated
+     against the one byte this build knows before it can reach a paint;
+     anything else (a newer build's set) is simply stock. decWire strips
+     it, so the engine below never sees it. */
+  if (move && (move.e | 0) === 1 && M.st.seats[seat]){
+    if (!M.skins) M.skins = {};
+    M.skins[seat] = 1;
+  }
   const dec = E.decWire ? (E.decWire(move) || move) : move;
   const res = doMove(seat, dec, 'net');
   if (!res.ok) return { ok:false, why: res.err || 'that move did not fit the rules' };

@@ -1650,8 +1650,17 @@ function autoplay(opts, seed, cap){
    Every field is 0..255 and a value over it is REFUSED, not truncated.
    A Ludo move is tiny: which token (k) and, under the `given` dice
    source, which number (d).
+
+   `e` is APPENDED, never inserted — positional, like js/battleship.js's
+   skin byte. It is the exclusive-set byte (1 = The Golden Route) that
+   ludu-ui.js hangs on a player's FIRST move so every phone can gild
+   that seat's tokens. decWire deliberately does NOT return it: the
+   engine never sees it — the UI reads it off the raw wire move before
+   decoding. An older build's two-field list never decodes bit 2 and
+   simply leaves the trailing value unused: the move lands, the gilding
+   degrades to stock, nothing refuses.
    ═══════════════════════════════════════════════════════════════════ */
-const WIRE_FIELDS = ['k', 'd'];
+const WIRE_FIELDS = ['k', 'd', 'e'];
 const byteOK = v => v >= 0 && v <= 255;
 
 function encWire(mv){

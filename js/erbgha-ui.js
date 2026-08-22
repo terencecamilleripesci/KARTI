@@ -178,7 +178,9 @@ function startMatch(opts, seed, log){
     anim: null, raf: 0,
     recorded: false,
     net: null, meta: null,
-    hover: -1                 /* the column the ghost disc floats over */
+    hover: -1,                /* the column the ghost disc floats over */
+    skins: {},                /* seat → exclusive-set wire byte          */
+    exclSaid: false           /* my byte goes out once, on my first drop */
   };
   M.st = buildState(M.opts, M.seed, M.log);
   applyMeta();
@@ -200,6 +202,32 @@ function ownerOf(i){
   return M.meta[i].own || 'ai';
 }
 const isLocal = i => { const o = ownerOf(i); return o === 'me' || o === 'hot'; };
+
+/* ═══════════════════════════════════════════════════════════════════
+   NEON DROP (erbgha.*.excl) — who glows on this board.
+   Discs are a PLAYER's pieces, so they travel: my equipped set rides my
+   first drop as the appended `e` wire byte (see WIRE_FIELDS in
+   js/erbgha.js) and lands in M.skins, seat → byte, so both phones light
+   that seat's discs. The BOARD is the shared cabinet both players look
+   at, so it stays the local choice and never travels. A neon disc keeps
+   its SEAT COLOUR — red glows magenta-red, yellow glows electric gold —
+   because red-versus-yellow IS the game.
+   ═══════════════════════════════════════════════════════════════════ */
+function xEq(slot){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped(slot, 'erbgha') === 'erbgha.' + slot + '.excl';
+  } catch(e){ return false; }
+}
+function neonSeat(seat){
+  if (!M) return false;
+  if (ownerOf(seat) === 'me') return xEq('discs');
+  return !!(M.skins && M.skins[seat] === 1);
+}
+const NEON_DISCS = [
+  { hex:'#FF2E6C', hi:'#FF9CBC', lo:'#8E0F3A', glow:'#FF3EA5' },
+  { hex:'#FFD54A', hi:'#FFF3A6', lo:'#B78A00', glow:'#FFE066' }
+];
 function seatLvl(i){ return (M && M.meta && M.meta[i] && M.meta[i].lvl) || 2; }
 function seatName(i){
   if (!M || !M.meta || !M.meta[i]) return discName(i);
@@ -222,7 +250,14 @@ function doMove(seat, move, src){
   M.log.push(rec);
   E.apply(M.st, rec);
   autosave();
-  fireList(moveSubs,  { seat, move:clone(move), index:idx, src:src || 'local', landed:M.st.last });
+  const out = clone(move);
+  /* my exclusive-set byte rides my FIRST outgoing drop — once, tagged on
+     the fired clone only (never the log, never the engine) */
+  if (M.net && (src || 'local') !== 'net' && ownerOf(seat) === 'me' && !M.exclSaid){
+    M.exclSaid = true;
+    if (xEq('discs')) out.e = 1;
+  }
+  fireList(moveSubs,  { seat, move:out, index:idx, src:src || 'local', landed:M.st.last });
   fireList(stateSubs, { reason:'move', index:idx });
   return { ok:true, index:idx };
 }
@@ -604,22 +639,38 @@ function cancelRaf(){ if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
    ═══════════════════════════════════════════════════════════════════ */
 function boardBg(cx, g){
   const grad = cx.createLinearGradient(0, 0, 0, g.h);
+  if (xEq('board')){
+    /* NEON DROP's cabinet (local choice): a deep magenta night */
+    grad.addColorStop(0, '#3A1245');
+    grad.addColorStop(0.55, '#2A0E36');
+    grad.addColorStop(1, '#160722');
+    return grad;
+  }
   grad.addColorStop(0, '#2E2153');
   grad.addColorStop(0.55, '#241A3E');
   grad.addColorStop(1, '#150F28');
   return grad;
 }
 function discFill(cx, x, y, r, seat){
-  const col = discColour(seat);
+  const neon = neonSeat(seat);
+  const col = neon ? (NEON_DISCS[seat] || NEON_DISCS[0]) : discColour(seat);
   const grad = cx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.15, x, y, r);
   grad.addColorStop(0, col.hi);
   grad.addColorStop(0.55, col.hex);
   grad.addColorStop(1, col.lo);
   cx.fillStyle = grad;
+  if (neon){
+    /* the firework glow — lands still glowing */
+    cx.save();
+    cx.shadowColor = col.glow;
+    cx.shadowBlur = r * 0.9;
+    cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
+    cx.restore();
+  }
   cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.fill();
   /* rim */
   cx.lineWidth = Math.max(1, r * 0.06);
-  cx.strokeStyle = 'rgba(0,0,0,.35)';
+  cx.strokeStyle = neon ? 'rgba(255,255,255,.5)' : 'rgba(0,0,0,.35)';
   cx.stroke();
   /* top gloss */
   cx.beginPath();
@@ -1271,6 +1322,13 @@ function onlineStart(cfg){
 function onlineRemote(seat, move){
   if (!M) return { ok:false, why:'no erbgha on the table' };
   if (E.over(M.st)) return { ok:false, why:'the game is over' };
+  /* that player's exclusive-set byte, riding their drop. Validated
+     against the one byte this build knows before it can reach a paint;
+     decWire strips it, so the engine below never sees it. */
+  if (move && (move.e | 0) === 1 && (seat === 0 || seat === 1)){
+    if (!M.skins) M.skins = {};
+    M.skins[seat] = 1;
+  }
   const dec = E.decWire ? (E.decWire(move) || move) : move;
   /* a remote drop animates too, for parity with a local one, then commits */
   if (M.anim){

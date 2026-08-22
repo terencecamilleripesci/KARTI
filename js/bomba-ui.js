@@ -211,6 +211,36 @@ const COLS = [
   { a:'#E8E2D0', b:'#7A7260', n:() => T('Bone',   'Għadma')  }
 ];
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE BLAST KING (bomba.*.excl) — who is golden in this arena.
+   The bomber is the PLAYER and a bomb belongs to whoever dropped it, so
+   both travel: my equipped set goes out as a one-byte {t:'skin', b:1}
+   action near match start (see onlineStart / onlineRemote — a new
+   ACTION on the existing declared fields, so wire.fields does NOT grow
+   and an older build's decWire simply returns null and drops it). It
+   lands in M.skins, seat → byte, so every phone gilds that seat's
+   bomber and its bombs. The ARENA floor is the shared room everybody
+   looks at, so it stays the local choice and never travels. A golden
+   bomber keeps its SEAT COLOUR as the lower body — eight identical
+   kings mid-panic would be unreadable, and the colour is who you are.
+   ═══════════════════════════════════════════════════════════════════ */
+function xEq(slot){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped(slot, 'bomba') === 'bomba.' + slot + '.excl';
+  } catch(e){ return false; }
+}
+function kingSeat(seat){
+  if (!M) return false;
+  if (seat === M.me) return xEq('char');
+  return !!(M.skins && M.skins[seat] === 1);
+}
+function kingBomb(seat){
+  if (!M) return false;
+  if (seat === M.me) return xEq('bomb');
+  return !!(M.skins && M.skins[seat] === 1);
+}
+
 /* the power-ups, by kind, for the HUD and the drawn pickup icon. The
    classic four plus the four scale-up finds. `fill` marks glyphs meant to
    be filled rather than stroked. */
@@ -588,6 +618,7 @@ function startMatch(opts, seed, net){
     known: {}, cur: {},
     shipGap: 3, shipHbMs: 250,
     want: { dir: E.NO_DIR, drop: false },   /* the thumb, sampled each tick  */
+    skins: {},                    /* seat → exclusive-set wire byte (§KING)  */
     heldDir: E.NO_DIR,            /* which pad button is held down           */
     t0: 0,                        /* nowMs() of tick 0                       */
     raf: 0, dead: false, finished: false,
@@ -1014,12 +1045,16 @@ function bg(){
   UI.bgc.height = Math.round(h * dpr);
   const g = UI.bgc.getContext('2d');
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  /* floor */
+  /* floor — THE BLAST KING's arena (local choice, a shared surface) is
+     embers under the stone; stock is the cool blue night */
+  const fireArena = xEq('arena');
   const grd = g.createRadialGradient(w / 2, h * 0.34, 0, w / 2, h * 0.5, Math.max(w, h) * 0.7);
-  grd.addColorStop(0, '#17202E'); grd.addColorStop(1, '#0A0E15');
+  if (fireArena){ grd.addColorStop(0, '#361708'); grd.addColorStop(1, '#120503'); }
+  else { grd.addColorStop(0, '#17202E'); grd.addColorStop(1, '#0A0E15'); }
   g.fillStyle = grd; g.fillRect(0, 0, w, h);
   /* faint grid */
-  g.strokeStyle = 'rgba(255,255,255,.035)'; g.lineWidth = 1;
+  g.strokeStyle = fireArena ? 'rgba(255,160,70,.06)' : 'rgba(255,255,255,.035)';
+  g.lineWidth = 1;
   for (let c = 1; c < mp.cols; c++){ const p = Math.round(c * cell) + 0.5;
     g.beginPath(); g.moveTo(p, 0); g.lineTo(p, h); g.stroke(); }
   for (let r = 1; r < mp.rows; r++){ const p = Math.round(r * cell) + 0.5;
@@ -1276,14 +1311,25 @@ function drawBomb(g, b, cell, now){
   const frac = Math.max(0, Math.min(1, b.fuse / E.BOMB_FUSE));
   const beat = noMotion() ? 1 : (1 + 0.12 * Math.sin(now / (60 + 200 * frac)));
   const rr = cell * 0.34 * beat;
+  /* THE BLAST KING's bomb — gold casing, pulsing; it belongs to whoever
+     dropped it, so it follows the OWNER's set on every phone */
+  const gold = kingBomb(b.seat);
+  if (gold && !noMotion()){
+    g.save();
+    g.shadowColor = '#FFC542';
+    g.shadowBlur = cell * 0.28;
+    g.beginPath(); g.arc(cx, cy, rr, 0, 6.2832);
+    g.fillStyle = '#3A2708'; g.fill();
+    g.restore();
+  }
   g.beginPath(); g.arc(cx, cy, rr, 0, 6.2832);
-  g.fillStyle = '#161018'; g.fill();
+  g.fillStyle = gold ? '#3A2708' : '#161018'; g.fill();
   g.lineWidth = Math.max(1.2, cell * 0.05);
-  g.strokeStyle = frac < 0.28 ? '#FF4A3C' : 'rgba(255,255,255,.25)';
+  g.strokeStyle = frac < 0.28 ? '#FF4A3C' : (gold ? '#FFC542' : 'rgba(255,255,255,.25)');
   g.stroke();
   /* a highlight, and a little fuse spark on top */
   g.beginPath(); g.arc(cx - rr * 0.3, cy - rr * 0.32, rr * 0.24, 0, 6.2832);
-  g.fillStyle = 'rgba(255,255,255,.35)'; g.fill();
+  g.fillStyle = gold ? 'rgba(255,225,150,.6)' : 'rgba(255,255,255,.35)'; g.fill();
   g.beginPath(); g.arc(cx + rr * 0.45, cy - rr * 0.7, Math.max(1, cell * 0.06), 0, 6.2832);
   g.fillStyle = frac < 0.28 ? '#FFD24A' : '#FF9A4D'; g.fill();
 }
@@ -1333,11 +1379,27 @@ function drawPlayer(g, pl, f, cell, now){
   }
 
   const w = cell * 0.72, rr = Math.min(w / 2, cell * 0.26);
-  /* body */
+  /* body — THE BLAST KING wears gold on top but keeps the SEAT COLOUR
+     as the lower body, so who-is-who survives the crown */
+  const king = kingSeat(pl.seat);
+  if (king && pl.alive && !noMotion()){
+    g.save();
+    g.shadowColor = '#FFC542';
+    g.shadowBlur = cell * 0.3;
+    g.fillStyle = col.b;
+    roundRect(g, px - w / 2, py - w / 2 + cell * 0.04, w, w, rr); g.fill();
+    g.restore();
+  }
   g.fillStyle = col.b;
   roundRect(g, px - w / 2, py - w / 2 + cell * 0.04, w, w, rr); g.fill();
-  g.fillStyle = col.a;
+  g.fillStyle = king ? '#FFD24A' : col.a;
   roundRect(g, px - w / 2, py - w / 2, w, w * 0.9, rr); g.fill();
+  if (king){
+    /* a thin molten seam between crown and body */
+    g.fillStyle = 'rgba(255,158,44,.85)';
+    roundRect(g, px - w / 2, py + w * 0.18, w, Math.max(1.5, cell * 0.06), cell * 0.03);
+    g.fill();
+  }
 
   /* eyes, facing the way it walks — the one read that must be instant */
   const d = E.DIRS[pl.dir] || E.DIRS[1];
@@ -2031,6 +2093,14 @@ function onlineRemote(seat, wire){
   if (M.gone && M.gone[g]) return null;              /* a freed chair: every
        phone predicts this seat from its last APPLIED byte — a zombie packet
        reaching only some phones must not fork the stream, so none apply it */
+  /* that seat's exclusive-set byte arriving — pure paint, NEVER part of
+     the lockstep (no tick, no input, nothing the sim reads), so it can
+     not fork the stream. Validated against the one byte this build
+     knows; an unknown value from a newer build is simply stock. */
+  if (wire && (wire.t === 'skin' || wire.a === 'skin')){
+    if (((wire.b | 0) === 1) && M.skins) M.skins[g] = 1;
+    return null;
+  }
   const mv = E.decWire(wire);
   if (!mv) return null;
   putInput(mv.tick, g, mv.byte);
@@ -2106,6 +2176,22 @@ function onlineStart(cfg){
   P.show();
   openBoard(() => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   startLoop();
+
+  /* my exclusive set goes out as one byte on its own {t:'skin'} action —
+     it reuses the DECLARED fields (just `b`), so wire.fields does not
+     grow and an older build's decWire drops it whole. Said three times
+     across the first seconds because a peer still inside its own
+     onlineStart when the first copy lands has no M yet; idempotent on
+     arrival, three messages a match, nothing the lockstep ever reads. */
+  if (xEq('char') || xEq('bomb')){
+    const sayskin = () => {
+      if (!M || M.dead || !M.net) return;
+      fire(moveSubs, { seat: M.me, move: { t:'skin', b:1 }, src:'local' });
+    };
+    sayskin();
+    setTimeout(sayskin, 1200);
+    setTimeout(sayskin, 3500);
+  }
   return null;
 }
 

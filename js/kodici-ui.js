@@ -343,18 +343,36 @@ function shapeSVG(shape){
     default:         return `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8" ${s}/></svg>`;
   }
 }
+/* ── THE CIPHER VAULT (kodici.pegs.excl) — pegs of pure neon.
+   The board only ever shows the VIEWER's own guesses (see paintBoard's
+   header: the opponent never renders my pegs), so this is a wholly
+   local surface — the equipped set paints here and nothing needs to
+   travel. Each peg keeps its colour and shape (the colour-blind aid is
+   the game), and gains a neon halo in its own hue. ─────────────────── */
+function vaultOn(){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped('pegs', 'kodici') === 'kodici.pegs.excl';
+  } catch(e){ return false; }
+}
+function pegGlow(hex){
+  return vaultOn()
+    ? `;box-shadow:0 0 9px ${hex},0 0 2px #fff inset,0 1px 3px rgba(0,0,0,.45);` +
+      `outline:1px solid rgba(255,255,255,.55);outline-offset:-1px`
+    : '';
+}
 /* a peg element html for colour index c (or -1 = empty) */
 function pegHTML(c, cls){
   cls = cls || '';
   if (c == null || c < 0) return `<div class="kd-peg empty ${cls}"></div>`;
   const p = PEGS[c];
-  return `<div class="kd-peg ${cls}" style="background:${p.hex}" role="img" aria-label="${esc(T(p.name,p.mt))}">`
+  return `<div class="kd-peg ${cls}" style="background:${p.hex}${pegGlow(p.hex)}" role="img" aria-label="${esc(T(p.name,p.mt))}">`
     + `<span class="kd-shape">${shapeSVG(p.shape)}</span>`
     + `<span class="kd-lt">${esc(p.glyph)}</span></div>`;
 }
 function swatchHTML(c, cls){
   const p = PEGS[c];
-  return `<button class="kd-swatch ${cls||''}" data-c="${c}" style="background:${p.hex}" aria-label="${esc(T(p.name,p.mt))}">`
+  return `<button class="kd-swatch ${cls||''}" data-c="${c}" style="background:${p.hex}${pegGlow(p.hex)}" aria-label="${esc(T(p.name,p.mt))}">`
     + `<span class="kd-shape">${shapeSVG(p.shape)}</span><span class="kd-lt">${esc(p.glyph)}</span></button>`;
 }
 

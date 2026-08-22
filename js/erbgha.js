@@ -510,8 +510,16 @@ function think(st, seat, lvl){
    truncated. There is no hidden state and no seed to smuggle — the board
    is shared and every phone derives the same result from the column
    alone, which is the whole reason this game is honest online.
-   ═══════════════════════════════════════════════════════════════════ */
-const WIRE_FIELDS = ['c'];
+
+   `e` is APPENDED, never inserted — positional, the js/battleship.js
+   skin-byte pattern. It is the exclusive-set byte (1 = Neon Drop) that
+   erbgha-ui.js hangs on a player's FIRST drop so the other phone can
+   light that seat's discs. decWire deliberately does NOT return it: the
+   engine never sees it — the UI reads it off the raw wire move before
+   decoding. An older build's one-field list never decodes bit 1 and
+   leaves the trailing value unused: the drop lands, the glow degrades
+   to stock, nothing refuses. */
+const WIRE_FIELDS = ['c', 'e'];
 function encWire(mv){
   if (!mv || mv.t !== 'drop') return null;
   const c = mv.c | 0;

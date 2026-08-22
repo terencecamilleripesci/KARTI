@@ -415,6 +415,24 @@ function injectCSS(){
     '#scr-party .mh-tile.down .mh-nm{opacity:0}' +
     /* the "still in the running" ring pulse when it is the one guess target */
     '#scr-party .mh-tile.aim .mh-face{border-color:var(--mh-gold);box-shadow:0 0 0 2px var(--mh-gold)}' +
+    /* ── THE GILT GALLERY — every portrait in a gold frame, and one slow
+       spotlight drifting across the wall. Local choice; the aim ring
+       still outranks the frame (it stacks a 2px gold halo on top). ── */
+    '#scr-party .mh-host.mh-gilt .mh-face{' +
+      'border:2px solid #D9A62E;' +
+      'box-shadow:0 2px 6px rgba(0,0,0,.4),0 0 9px rgba(255,197,66,.28),' +
+      'inset 0 0 0 1px rgba(255,232,170,.5)}' +
+    '#scr-party .mh-host.mh-gilt .mh-back{border-color:rgba(217,166,46,.55)}' +
+    '#scr-party .mh-host.mh-gilt .mh-boardbox{position:relative;overflow:hidden}' +
+    '#scr-party .mh-host.mh-gilt .mh-boardbox::after{content:"";position:absolute;' +
+      'inset:0;pointer-events:none;border-radius:10px;' +
+      'background:radial-gradient(34% 38% at 30% 30%,' +
+      'rgba(255,226,150,.15),rgba(255,226,150,0) 70%);' +
+      'animation:mhSpot 7s ease-in-out infinite alternate}' +
+    '@keyframes mhSpot{from{transform:translateX(-14%)}to{transform:translateX(44%)}}' +
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .mh-host.mh-gilt .mh-boardbox::after{animation:none}}' +
+    'body.reduced #scr-party .mh-host.mh-gilt .mh-boardbox::after{animation:none}' +
     'body.reduced #scr-party .mh-inner{transition:none}' +
     '@media (prefers-reduced-motion:reduce){#scr-party .mh-inner{transition:none}}' +
     '#scr-party.mh-still .mh-inner{transition:none}' +
@@ -569,9 +587,21 @@ function pickLvl(){
   return ai ? ai.lvl : (pref().lvl || 2);
 }
 
+/* ── THE GILT GALLERY (minhu.frame.excl) — gold frames, one moving
+   spotlight. The gallery is the VIEWER's own board (the opponent never
+   sees my tiles — secrecy is the game), so this is a wholly local
+   surface: the equipped set paints here and nothing needs to travel. */
+function giltOn(){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped('frame', 'minhu') === 'minhu.frame.excl';
+  } catch(e){ return false; }
+}
+
 function buildBoard(){
   const ctx = M.ctx;
   ctx.host.classList.add('mh-host');
+  ctx.host.classList.toggle('mh-gilt', giltOn());
   ctx.host.innerHTML =
     '<div class="mh-wrap" id="mh-wrap">' +
       '<div class="mh-top" id="mh-top"></div>' +

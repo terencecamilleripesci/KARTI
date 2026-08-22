@@ -98,6 +98,38 @@ const COLS = [
 ];
 const TEAMCOL = [ COLS[0], COLS[1] ];   /* teams paint by team, not seat */
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE MOLTEN LEGION (tankijiet.*.excl) — who burns in this arena.
+   The tank is the PLAYER and a tracer belongs to whoever fired it, so
+   both travel: my equipped set goes out as a one-byte {t:'skin', b:1}
+   action near match start (a new ACTION on the existing declared
+   TK_WIRE_FIELDS, so the field list does NOT grow and an older build's
+   tkDecWire returns null and drops it — see onlineStart/onlineRemote).
+   It lands in M.skins, seat → byte, so every phone casts that seat's
+   tank in fire and hangs embers off its shells. The FLOOR is the shared
+   arena everybody looks at, so it stays the local choice and never
+   travels. IN TEAMS MODE the molten hull is SUPPRESSED — tanks paint by
+   team there, and an exclusive must never cost the table its sides.
+   Solo keeps identity through the turret cap, which stays seat-colour.
+   ═══════════════════════════════════════════════════════════════════ */
+const MOLTEN = { a:'#FF7A2C', b:'#B33A10', t:'#4A1A06' };
+function xEq(slot){
+  try {
+    const XP = window.KARTI_XP;
+    return !!XP && XP.equipped(slot, 'tankijiet') === 'tankijiet.' + slot + '.excl';
+  } catch(e){ return false; }
+}
+function moltenSeat(seat){
+  if (!M) return false;
+  if (seat === M.me) return xEq('tank');
+  return !!(M.skins && M.skins[seat] === 1);
+}
+function moltenTrail(seat){
+  if (!M) return false;
+  if (seat === M.me) return xEq('trail');
+  return !!(M.skins && M.skins[seat] === 1);
+}
+
 /* power-up glyph colours */
 const PUCOL = { 1:'#FF5A6E', 2:'#FFC542', 3:'#5AA9FF', 4:'#7CE060', 5:'#B98CFF' };
 
@@ -444,6 +476,7 @@ function startMatch(o, seed, net){
     ship: { lastByte: null, lastTick: -1, hiTick: -1, lastMs: 0 },
     known: {}, cur: {},
     shipGap: 3, shipHbMs: 250,
+    skins: {},                           /* seat → exclusive-set wire byte     */
     drive: { on:false, dx:0, dy:0 },     /* left DRIVE stick vector (screen px)*/
     /* TOUCH-TO-AIM — a touch/drag on the ARENA sets a WORLD target point; the
        turret is turned toward it through the normal input byte (never applied
@@ -846,6 +879,14 @@ function onlineRemote(seat, wire){
   const g = M.net.toGame ? M.net.toGame[seat] : seat;
   if (g === undefined || !M.st.tanks[g]) return null;
   if (M.mine.indexOf(g) >= 0) return null;
+  /* that seat's exclusive-set byte — pure paint, never part of the
+     lockstep (no tick, no input), so it cannot fork the stream.
+     Validated against the one byte this build knows; anything else is
+     simply stock. */
+  if (wire && (wire.t === 'skin' || wire.a === 'skin')){
+    if (((wire.b | 0) === 1) && M.skins) M.skins[g] = 1;
+    return null;
+  }
   const mv = tkDecWire(wire);
   if (!mv) return null;
   putInput(mv.tick, g, mv.byte);
@@ -937,11 +978,16 @@ function paintBg(){
   const W = UI.worldW || UI.w, H = UI.worldH || UI.h;
   UI.bg.width = Math.round(W*dpr); UI.bg.height = Math.round(H*dpr);
   const g = UI.bg.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  /* THE MOLTEN LEGION's floor (local choice, shared surface): scorched
+     stone over embers; stock is the cool steel night */
+  const lava = xEq('floor');
   const grd = g.createRadialGradient(W/2, H*0.36, 0, W/2, H/2, W*0.75);
-  grd.addColorStop(0,'#141B27'); grd.addColorStop(1,'#0A0E15');
+  if (lava){ grd.addColorStop(0,'#2E1408'); grd.addColorStop(1,'#100502'); }
+  else { grd.addColorStop(0,'#141B27'); grd.addColorStop(1,'#0A0E15'); }
   g.fillStyle = grd; g.fillRect(0,0,W,H);
   /* subtle floor grid */
-  g.strokeStyle = 'rgba(255,255,255,.03)'; g.lineWidth = 1;
+  g.strokeStyle = lava ? 'rgba(255,140,60,.05)' : 'rgba(255,255,255,.03)';
+  g.lineWidth = 1;
   for (let c=1;c<mp.cols;c++){ g.beginPath(); g.moveTo(c*cell+.5,0); g.lineTo(c*cell+.5,H); g.stroke(); }
   for (let r=1;r<mp.rows;r++){ g.beginPath(); g.moveTo(0,r*cell+.5); g.lineTo(W,r*cell+.5); g.stroke(); }
   /* solid walls: a raised steel block */
@@ -1305,11 +1351,21 @@ function draw(frac){
     const ix = p ? p.x + (s.x - p.x)*frac : s.x;
     const iy = p ? p.y + (s.y - p.y)*frac : s.y;
     const sx = px(ix), sy = px(iy);
-    /* trail */
-    g.strokeStyle = 'rgba(255,197,66,.45)'; g.lineWidth = Math.max(1.5, cell*0.09);
+    /* trail — THE MOLTEN LEGION's tracers hang like embers; the shot is
+       the GUN's, so it follows the shooter's set on every phone */
+    const ember = moltenTrail(s.seat);
+    g.strokeStyle = ember ? 'rgba(255,106,44,.6)' : 'rgba(255,197,66,.45)';
+    g.lineWidth = Math.max(1.5, cell*0.09);
     g.beginPath(); g.moveTo(sx, sy);
     g.lineTo(sx - E.dirX(s.h)*(cell*0.9)/E.DIR_U, sy - E.dirY(s.h)*(cell*0.9)/E.DIR_U); g.stroke();
-    g.fillStyle = '#FFE08A'; g.beginPath(); g.arc(sx, sy, Math.max(2, cell*0.12), 0, 6.2832); g.fill();
+    if (ember){
+      /* a second, longer ember tail under the head */
+      g.strokeStyle = 'rgba(255,60,20,.28)'; g.lineWidth = Math.max(2.5, cell*0.16);
+      g.beginPath(); g.moveTo(sx, sy);
+      g.lineTo(sx - E.dirX(s.h)*(cell*1.5)/E.DIR_U, sy - E.dirY(s.h)*(cell*1.5)/E.DIR_U); g.stroke();
+    }
+    g.fillStyle = ember ? '#FFB37A' : '#FFE08A';
+    g.beginPath(); g.arc(sx, sy, Math.max(2, cell*0.12), 0, 6.2832); g.fill();
   }
 
   /* tanks (interpolated position + heading) */
@@ -1321,8 +1377,12 @@ function draw(frac){
     const iy = p ? p.y + (tk.y - p.y)*frac : tk.y;
     const hdg = p ? lerpAngle(p.hdg, tk.hdg, frac) : tk.hdg;
     const tur = p ? lerpAngle(p.turret, tk.turret, frac) : tk.turret;
+    /* THE MOLTEN LEGION: fire-cast hull in solo, SUPPRESSED in teams
+       (sides must stay readable); the turret cap keeps the seat colour
+       either way, so who-is-who survives */
+    const molten = !teams && moltenSeat(tk.seat);
     drawTank(g, px(ix), px(iy), hdg, tur, teams ? TEAMCOL[tk.team] : COLS[tk.seat % COLS.length], cell,
-             tk.seat === M.me, tk.pu, tk.guard > 0);
+             tk.seat === M.me, tk.pu, tk.guard > 0, molten);
   }
 
   /* explosions / sparks from the fx list */
@@ -1407,24 +1467,33 @@ function lerpAngle(a, b, f){
   let d = ((b - a + 384) & E.HDG_MASK) - 128;   /* shortest signed diff */
   return a + d*f;
 }
-function drawTank(g, x, y, hdg, turret, col, cell, isMe, pu, guarded){
+function drawTank(g, x, y, hdg, turret, col, cell, isMe, pu, guarded, molten){
   const a = (hdg / E.HDG) * Math.PI * 2;
   const ta = (turret / E.HDG) * Math.PI * 2;
   const R = cell * 0.42;
+  const hull = molten ? MOLTEN : col;
   g.save(); g.translate(x, y);
   /* shadow */
   g.fillStyle = 'rgba(0,0,0,.35)'; g.beginPath(); g.ellipse(0, R*0.5, R*1.05, R*0.7, 0, 0, 6.2832); g.fill();
+  /* a molten tank smoulders — a soft fire halo under the hull */
+  if (molten){
+    g.save();
+    g.shadowColor = '#FF6A2C'; g.shadowBlur = R * 0.9;
+    g.fillStyle = 'rgba(255,106,44,.28)';
+    g.beginPath(); g.arc(0, 0, R * 1.02, 0, 6.2832); g.fill();
+    g.restore();
+  }
   /* hull */
   g.save(); g.rotate(a);
-  g.fillStyle = col.t; g.fillRect(-R, -R*1.02, R*2, R*0.34);   /* track */
+  g.fillStyle = hull.t; g.fillRect(-R, -R*1.02, R*2, R*0.34);   /* track */
   g.fillRect(-R, R*0.68, R*2, R*0.34);
-  g.fillStyle = col.b; roundRect(g, -R*0.86, -R*0.8, R*1.72, R*1.6, R*0.28); g.fill();
-  g.fillStyle = col.a; roundRect(g, -R*0.7, -R*0.64, R*1.4, R*1.28, R*0.22); g.fill();
+  g.fillStyle = hull.b; roundRect(g, -R*0.86, -R*0.8, R*1.72, R*1.6, R*0.28); g.fill();
+  g.fillStyle = hull.a; roundRect(g, -R*0.7, -R*0.64, R*1.4, R*1.28, R*0.22); g.fill();
   g.restore();
-  /* turret + barrel */
+  /* turret + barrel — the CAP keeps the seat colour on a molten tank */
   g.save(); g.rotate(ta);
-  g.fillStyle = col.t; g.fillRect(0, -R*0.16, R*1.5, R*0.32);   /* barrel */
-  g.fillStyle = col.b; g.beginPath(); g.arc(0,0,R*0.5,0,6.2832); g.fill();
+  g.fillStyle = hull.t; g.fillRect(0, -R*0.16, R*1.5, R*0.32);   /* barrel */
+  g.fillStyle = hull.b; g.beginPath(); g.arc(0,0,R*0.5,0,6.2832); g.fill();
   g.fillStyle = col.a; g.beginPath(); g.arc(0,0,R*0.36,0,6.2832); g.fill();
   g.restore();
   /* rings: me marker, shield, spawn guard */
@@ -1872,6 +1941,22 @@ function onlineStart(cfg){
   P.show();
   openBoard(() => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   startLoop();
+
+  /* my exclusive set goes out as one byte on its own {t:'skin'} action —
+     reusing the declared fields (just `b`), so TK_WIRE_FIELDS does not
+     grow and an older build's tkDecWire drops it whole. Said three times
+     across the first seconds: a peer still inside its own onlineStart
+     when the first copy lands has no M yet. Idempotent on arrival, three
+     messages a match, nothing the lockstep ever reads. */
+  if (xEq('tank') || xEq('trail')){
+    const sayskin = () => {
+      if (!M || M.dead || !M.net) return;
+      fire(moveSubs, { seat: M.me, move: { t:'skin', b:1 }, src:'local' });
+    };
+    sayskin();
+    setTimeout(sayskin, 1200);
+    setTimeout(sayskin, 3500);
+  }
   return null;
 }
 function onlineStop(){ leave(); }

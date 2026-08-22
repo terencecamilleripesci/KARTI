@@ -476,7 +476,8 @@ function startMatch(opts, seed, net){
     fps: { n:0, at:0, val:0 },
     lead: LEAD_MS,
     ledSaid: -1,
-    cam: { x:0, y:0, set:false }
+    cam: { x:0, y:0, set:false },
+    skins: {}                   /* seat → exclusive-skin wire byte (§KIT) */
   };
   M.st = E.deal(o, M.seed);
   return M;
@@ -891,6 +892,7 @@ function drawPellets(g, f, now){
   const pulse = noMotion() ? 1 : (0.86 + 0.14 * Math.sin(now / 260));
   const list = st.live.concat(st.drops);
   const R2 = UI.ppu * 0.7;
+  const pk = KIT.pellet();
   for (let i = 0; i < list.length; i++){
     const p = E.pellet(st, list[i]);
     const s = toScreen(p.x, p.y);
@@ -899,11 +901,11 @@ function drawPellets(g, f, now){
     const r = R2 * (drop ? 0.62 : 0.5) * pulse;
     if (!noMotion()){
       g.beginPath(); g.arc(s.x, s.y, r * 2.4, 0, 6.2832);
-      g.fillStyle = drop ? 'rgba(120,232,224,.10)' : 'rgba(255,197,66,.12)';
+      g.fillStyle = drop ? pk.glowD : pk.glowF;
       g.fill();
     }
     g.beginPath(); g.arc(s.x, s.y, r, 0, 6.2832);
-    g.fillStyle = drop ? '#7BE8E0' : '#FFC542';
+    g.fillStyle = drop ? pk.drop : pk.field;
     g.fill();
     g.beginPath(); g.arc(s.x - r * 0.3, s.y - r * 0.3, r * 0.4, 0, 6.2832);
     g.fillStyle = 'rgba(255,255,255,.7)';
@@ -1157,6 +1159,19 @@ function fxDraw(g, now){
 /* ═══════════════════════════════════════════════════════════════════
    THE KIT, READ AT PAINT TIME
    ═══════════════════════════════════════════════════════════════════ */
+/* THE SILVER DREAM (serp.*.excl) — "a snake of running mercury, feeding
+   on light". The snake is the PLAYER, so unlike every basic skin below
+   this one travels: my equipped set goes out as a one-byte {t:'skin'}
+   move near match start (see onlineStart / onlineRemote) and lands in
+   M.skins, seat → wire byte, so every phone dresses that seat's snake.
+   A remote snake in the Dream keeps its SEAT COLOUR on the head — eight
+   mercury snakes you cannot tell apart would break the game, and the
+   head is how you read who is who at speed. */
+const EXCL_SKIN  = { a:'#EAF0F8', b:'#77839B', head:'#FFFFFF' };
+const EXCL_TRAIL = 'rgba(215,232,255,.6)';
+const SKIN_WIRE = { 'serp.skin.excl': 1 };     /* equipped id → wire byte */
+const SKIN_FROM_WIRE = { 1: EXCL_SKIN };       /* and the only way back   */
+
 const SKINS = {
   'serp.skin.klassiku': null,
   'serp.skin.bahar':  { a:'#3FB8E8', b:'#1B6E96', head:'#BFF0FF' },
@@ -1164,7 +1179,8 @@ const SKINS = {
   'serp.skin.luzzu':  { a:'#F04B3C', b:'#1B4FA0', head:'#FFE9B0' },
   'serp.skin.franka': { a:'#E4CFA3', b:'#A88C5C', head:'#FFF6E2' },
   'serp.skin.lejl':   { a:'#5C4FA8', b:'#2A2350', head:'#CFC4FF' },
-  'serp.skin.festa':  { a:'#FF6FD8', b:'#8A1F73', head:'#FFE1F6' }
+  'serp.skin.festa':  { a:'#FF6FD8', b:'#8A1F73', head:'#FFE1F6' },
+  'serp.skin.excl':   EXCL_SKIN
 };
 const TRAILS = {
   'serp.trail.ghabra': 'rgba(255,255,255,.55)',
@@ -1174,11 +1190,24 @@ const TRAILS = {
 const FLOORS = {
   'serp.floor.kazin':  { a:'#123527', b:'#060F0C', line:'rgba(255,255,255,.05)' },
   'serp.floor.franka': { a:'#3A3222', b:'#14110B', line:'rgba(255,222,160,.06)' },
-  'serp.floor.qiegh':  { a:'#0E2E44', b:'#04121C', line:'rgba(150,220,255,.06)' }
+  'serp.floor.qiegh':  { a:'#0E2E44', b:'#04121C', line:'rgba(150,220,255,.06)' },
+  /* the Dream's arena — moonlit steel, a faint silver lattice. A floor is
+     a SHARED SURFACE the local player looks at, so like every floor here
+     it is the local choice and never travels. */
+  'serp.floor.excl':   { a:'#212A38', b:'#070B12', line:'rgba(195,215,245,.08)' }
 };
+/* the Dream's pellets — "feeding on light". Same shared-surface rule as
+   the floor: pellets belong to the arena, not to a snake, so the local
+   player's equipped pellet paints them and nothing travels. */
+const PELLETS = {
+  'serp.pellet.excl': { field:'#EAF4FF', drop:'#C7E3FF',
+                        glowF:'rgba(205,228,255,.16)', glowD:'rgba(170,205,255,.13)' }
+};
+const PELLETS_STOCK = { field:'#FFC542', drop:'#7BE8E0',
+                        glowF:'rgba(255,197,66,.12)', glowD:'rgba(120,232,224,.10)' };
 const KIT = {
-  _v: 0, _skin: null, _trail: null, _floor: null,
-  bust(){ this._v++; this._skin = null; this._trail = null; this._floor = null; },
+  _v: 0, _skin: null, _trail: null, _floor: null, _pellet: null,
+  bust(){ this._v++; this._skin = null; this._trail = null; this._floor = null; this._pellet = null; },
   skin(seat){
     if (this._skin === null){
       let s = null, t = null;
@@ -1191,9 +1220,16 @@ const KIT = {
     }
     const c = COLS[seat % COLS.length];
     const mine = M && seat === M.me;
-    const base = (mine && this._skin) ? this._skin : { a:c.a, b:c.b, head:c.a };
+    /* a remote seat wearing an exclusive set arrived through the wire
+       ledger (M.skins) — validated there, so this lookup only ever sees
+       known bytes. Its head keeps the seat colour: identity first. */
+    const remote = (!mine && M && M.skins && SKIN_FROM_WIRE[M.skins[seat]]) || null;
+    const base = (mine && this._skin) ? this._skin
+               : remote ? { a:remote.a, b:remote.b, head:c.a }
+               : { a:c.a, b:c.b, head:c.a };
+    const exclOn = (mine && this._skin === EXCL_SKIN) || !!remote;
     return { a:base.a, b:base.b, head:base.head,
-             trail: (mine && this._trail) ? this._trail : 0 };
+             trail: (mine && this._trail) ? this._trail : (exclOn ? EXCL_TRAIL : 0) };
   },
   floor(){
     if (this._floor === null){
@@ -1205,8 +1241,26 @@ const KIT = {
       this._floor = f || FLOORS['serp.floor.qiegh'];
     }
     return this._floor;
+  },
+  pellet(){
+    if (this._pellet === null){
+      let p = null;
+      try {
+        const XP = window.KARTI_XP;
+        if (XP) p = PELLETS[XP.equipped('pellet', 'serp') || ''] || null;
+      } catch(e){}
+      this._pellet = p || PELLETS_STOCK;
+    }
+    return this._pellet;
   }
 };
+/* my equipped snake skin as the wire byte — 0 when nothing travels */
+function myskinWire(){
+  try {
+    const XP = window.KARTI_XP;
+    return (XP && SKIN_WIRE[XP.equipped('skin', 'serp') || '']) || 0;
+  } catch(e){ return 0; }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    THE SCREEN
@@ -1719,6 +1773,15 @@ function onlineRemote(seat, wire){
 
   if (mv.t === 'again') return null;
 
+  /* that seat's exclusive-skin byte arriving. Validated against the only
+     bytes this build knows (SKIN_FROM_WIRE) before it can ever reach the
+     paint — an unknown value from a newer build is simply stock. No tick
+     on this move, so it must not fall through to noteArrival. */
+  if (mv.t === 'skin'){
+    if (M.skins && SKIN_FROM_WIRE[mv.v | 0]) M.skins[g] = mv.v | 0;
+    return null;
+  }
+
   noteArrival(g, mv.tick);
   const was = headOf(sn);
 
@@ -1837,6 +1900,23 @@ function onlineStart(cfg){
   P.show();
   openBoard(() => { const nx = M.net; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); });
   startLoop();
+
+  /* my snake's exclusive set goes out as one byte. Unlike Għarraqhom
+     there is no once-per-match gameplay move to ride, so it is its own
+     tiny {t:'skin'} action — said three times across the first seconds,
+     because a peer still inside its own onlineStart when the first copy
+     lands has no M yet and drops it. Idempotent on arrival, three
+     messages a match, far inside the relay's budget. Stock says nothing:
+     absent = stock on every build, old or new. */
+  const sc = myskinWire();
+  if (sc){
+    const sayskin = () => {
+      if (M && !M.dead && M.net) say(M.me, { t:'skin', v:sc });
+    };
+    sayskin();
+    setTimeout(sayskin, 1200);
+    setTimeout(sayskin, 3500);
+  }
   return null;
 }
 
@@ -2306,9 +2386,13 @@ try {
 /* ═══════════════════════════════════════════════════════════════════
    SERP — THE KIT SHELF (purely cosmetic, always)
    Snake skins, trails and arena floors through KARTI_XP.register(),
-   additively. THE SKIN DRESSES YOUR SNAKE AND NOBODY ELSE'S — eight
+   additively. A BASIC SKIN DRESSES YOUR SNAKE AND NOBODY ELSE'S — eight
    players in eight bought skins is eight snakes you cannot tell apart,
-   and telling them apart IS the game, so the seat colours stay. Unequipped
+   and telling them apart IS the game, so the seat colours stay. The one
+   exception is THE SILVER DREAM (serp.skin.excl): a snake IS its player,
+   so the exclusive travels as a one-byte {t:'skin'} move and paints on
+   every phone — with the seat colour kept on a remote snake's head so
+   identity survives (see EXCL_SKIN in the arena file). Unequipped
    is stock; the preview draws the real thing with the real tube renderer.
    ═══════════════════════════════════════════════════════════════════ */
 (function(){

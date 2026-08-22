@@ -1014,6 +1014,11 @@ function standings(st){
      eat   {t:'eat',   tick, idx}   -> i,j=tick, n,c=idx (drops need 3 bytes)
      die   {t:'die',   tick, why}   -> i,j=tick, s=cause 0..4
      again {t:'again', on}          -> v
+     skin  {t:'skin',  v}           -> v  (exclusive-set byte, 1 = The
+           Silver Dream; sent once near match start so every phone can
+           dress that seat's snake. Reuses the declared `v` field — the
+           field list does NOT grow — and an older build's decWire
+           returns null on the unknown action and simply ignores it.)
 
    Drop-pellet indices are large (>= 1<<20). They travel as a small OFFSET
    in the same (n,c) pair by sending (idx - DROP_BASE) tagged with s=1;
@@ -1037,6 +1042,7 @@ function encWire(mv){
   }
   if (mv.t === 'die')   return { t:'die',   i:lo(mv.tick), j:hi(mv.tick), s:Math.max(0, Math.min(4, mv.why | 0)) };
   if (mv.t === 'again') return { t:'again', v: mv.on ? 1 : 0 };
+  if (mv.t === 'skin')  return { t:'skin',  v: (mv.v | 0) & 255 };
   return null;
 }
 function decWire(w){
@@ -1050,6 +1056,7 @@ function decWire(w){
   }
   if (t === 'die')   return { t:'die',   tick: un(w.i, w.j), why: (w.s | 0) };
   if (t === 'again') return { t:'again', on: !!w.v };
+  if (t === 'skin')  return { t:'skin',  v: (w.v | 0) & 255 };
   return null;
 }
 
