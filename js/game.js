@@ -2664,11 +2664,20 @@ function cosmPrice(d){ return 120 + 60 * Math.max(1, (d.level | 0) - 1); }
    the per-game backs it replaced were always for sale, so it stays on
    the shelf while borders/badges/faces/themes stay off it */
 const deckSlot = d => d.game === 'karti' && (d.slot === 'back' || d.slot === 'felt');
+/* An exclusive piece is never ordinary shelf stock, whichever way it is
+   obtained. The WON ones already fall out of both lists on `!d.earn`;
+   the BOUGHT ones (build 220 — kiri, ludu, tombla, spy, suspett, erbgha,
+   minhu and the one House Deck) carry no earn test, so without this they
+   would leak into the store — the cheap way as a buyable, or, being
+   pitched above COSM_LEVEL_MAX, as a greyed "coming at level 40" tease
+   that is a flat lie: no amount of levelling ever hands them over. The
+   Exclusives tab is their only door. */
+const exclPiece = d => typeof d.set === 'string' && d.set.indexOf('excl-') === 0;
 function storeBuyables(){
   try {
     if (!window.KARTI_XP || !KARTI_XP.defs) return [];
     return KARTI_XP.defs().filter(d =>
-      (d.game !== 'karti' || deckSlot(d)) && !d.earn &&
+      (d.game !== 'karti' || deckSlot(d)) && !d.earn && !exclPiece(d) &&
       d.level >= 2 && d.level <= COSM_LEVEL_MAX);
   } catch (e){ return []; }
 }
@@ -2684,7 +2693,8 @@ function storeLadder(){
   try {
     if (!window.KARTI_XP || !KARTI_XP.defs) return [];
     return KARTI_XP.defs().filter(d =>
-      (d.game !== 'karti' || deckSlot(d)) && !d.earn && d.level > COSM_LEVEL_MAX);
+      (d.game !== 'karti' || deckSlot(d)) && !d.earn && !exclPiece(d) &&
+      d.level > COSM_LEVEL_MAX);
   } catch (e){ return []; }
 }
 /* the next customisation THIS player will unlock by levelling, per game —
@@ -2733,8 +2743,13 @@ function exclAllRows(){
     if (!meta) return;
     let stat = g;
     try { stat = (KARTI_XP.exclusiveStat && KARTI_XP.exclusiveStat(g)) || g; } catch (e){}
-    rows.push({ g:g, meta:meta, stat:stat, defs:exclDefs(g), got:exclEarned(g),
-                pg:exclProg(g) || { won:0, need:0, pct:0 } });
+    /* `wear` is the game whose table actually shows the set, which is
+       the honest heading for the one card exclusive: it is filed under
+       'deck' and worn by every card game, so `stat` (a record book that
+       does not exist for it) would read as a bare id. */
+    rows.push({ g:g, meta:meta, stat:meta.wear && meta.wear !== g ? meta.wear : stat,
+                defs:exclDefs(g), got:exclEarned(g), buy:!!meta.buy,
+                pg:exclProg(g) || { won:0, need:0, pct:0, buy:false } });
   });
   rows.sort((a, b) =>
     (b.got ? 1 : 0) - (a.got ? 1 : 0) ||
@@ -3678,7 +3693,7 @@ function renderCosmTab(){
     const hero = xr.length
       ? '<button class="xhero" id="xhero" type="button" ' +
           'aria-label="' + (mtL ? 'Iftaħ l-Esklussivi' : 'Open the Exclusives tab') +
-          ' — ' + xGot + ' of ' + xr.length + ' sets earned">' +
+          ' — ' + xGot + ' of ' + xr.length + ' sets unlocked">' +
           '<span class="xh-sheen" aria-hidden="true"></span>' +
           '<span class="xh-prev" aria-hidden="true">' +
             tease.map(r => '<span class="xh-slot" data-xid="' +
@@ -3688,12 +3703,14 @@ function renderCosmTab(){
             '<span class="xh-tag">' + ico('trophy') + (mtL ? 'ESKLUSSIVI' : 'EXCLUSIVES') + '</span>' +
             '<b class="xh-name">' + (mtL ? 'Il-kabinett tat-trofej' : 'The trophy cabinet') + '</b>' +
             '<span class="xh-sub">' + (tease.length
-              ? (mtL ? 'Settijiet animati li ma jinxtrawx — bħal ' : 'Animated sets money can’t buy — like ') +
-                '<b>' + esc(tease[0].meta.name) + '</b>. ' + (mtL ? 'Irbaħhom.' : 'Win them.')
-              : (mtL ? 'Rebbaħthom kollha. Ilbeshom.' : 'You earned every set. Wear them.')) + '</span>' +
+              ? (mtL ? 'Settijiet animati li l-ħanut qatt ma jżomm — bħal ' : 'Animated sets the shop never stocks — like ') +
+                '<b>' + esc(tease[0].meta.name) + '</b>. ' +
+                (tease[0].buy ? (mtL ? 'Faddal għalih.' : 'Save up for it.')
+                              : (mtL ? 'Irbaħhom.' : 'Win it.'))
+              : (mtL ? 'Ġibthom kollha. Ilbeshom.' : 'You unlocked every set. Wear them.')) + '</span>' +
             '<span class="xh-prog"><span class="xh-bar"><i style="width:' + xPct + '%"></i></span>' +
               '<span class="xh-n">' + xGot + ' / ' + xr.length +
-              (mtL ? ' misjuba' : ' earned') + '</span></span>' +
+              (mtL ? ' miksuba' : ' unlocked') + '</span></span>' +
           '</span>' +
           '<span class="xh-go" aria-hidden="true">' + ico('arrow-right') + '</span>' +
         '</button>'
@@ -3822,13 +3839,19 @@ function cosmBuyTap(id){
 }
 
 /* ── EXCLUSIVES, the grind wall ───────────────────────────────────
-   Every earn-only animated set, one gallery card each: the game it
-   belongs to, the set's name and blurb, the animated piece previews,
-   the earn requirement with its LIVE progress bar, and — once earned —
-   "Wear the set". Driven entirely off exclAllRows() (KARTI_XP's own
-   registry), so every registered set appears, including a second set
-   for the same game, and never a purchase path: these are won, full
-   stop. */
+   Every exclusive set, one gallery card each: the game it belongs to,
+   the set's name and blurb, the animated piece previews, what it costs
+   with its LIVE progress bar, and — once it is yours — "Wear the set".
+   Driven entirely off exclAllRows() (KARTI_XP's own registry), so every
+   registered set appears, including a second set for the same game.
+
+   TWO KINDS OF GRIND, one wall. Most sets are WON at a wins milestone
+   and can never be bought. The rest are BOUGHT with coins, and saving
+   the coins is their grind — a real one, at 1 200–2 800 a set against a
+   shop where nothing else costs more than 780. Neither kind is ever
+   stocked in the store; this tab is the only door to both. */
+let exclConfirm = '';            /* two taps to spend a fortnight of coins */
+let exclConfirmT = 0;
 function renderExclTab(){
   const stage = $('#pack-stage');
   const bar = $('#pack-bar');
@@ -3849,9 +3872,9 @@ function renderExclTab(){
       '<div class="spinhead"><h3>' + ico('trophy') +
         (mtL ? 'Esklussivi' : 'Exclusives') + '</h3>' +
         '<p class="tiny">' + (mtL
-          ? 'Settijiet animati li ħadd ma jixtri — tirbaħhom biss, rebħa wara rebħa. '
-          : 'Animated sets nobody can buy — you win them, victory by victory. ') +
-        '<b>' + got + ' / ' + rows.length + (mtL ? ' misjuba' : ' earned') + '</b></p></div>';
+          ? 'Settijiet animati li ma jidhrux fil-ħanut. Uħud tirbaħhom rebħa wara rebħa, oħrajn tfaddal il-muniti għalihom. '
+          : 'Animated sets the shop never stocks. Some you win, victory by victory; the rest you save up for. ') +
+        '<b>' + got + ' / ' + rows.length + (mtL ? ' miksuba' : ' unlocked') + '</b></p></div>';
     rows.forEach(r => {
       const pctW = Math.round(r.pg.pct * 100);
       html += '<div class="xset' + (r.got ? ' xgot' : '') + '" data-xgame="' + esc(r.g) + '" ' +
@@ -3860,8 +3883,10 @@ function renderExclTab(){
           r.defs.map(d => '<span class="xprev" data-xid="' + esc(d.id) + '"></span>').join('') +
         '</div>' +
         '<div class="xbody">' +
-          '<div class="xtop"><span class="xtag">' + ico(r.got ? 'check' : 'trophy') +
-            (r.got ? (mtL ? 'Misjub' : 'Earned') : (mtL ? 'Esklussiv' : 'Exclusive')) + '</span>' +
+          '<div class="xtop"><span class="xtag">' +
+            ico(r.got ? 'check' : (r.buy ? 'coin' : 'trophy')) +
+            (r.got ? (mtL ? 'Miksub' : 'Unlocked')
+                   : (mtL ? 'Esklussiv' : 'Exclusive')) + '</span>' +
             '<span class="xgame">' + esc(gameLabel(r.stat)) + '</span></div>' +
           '<b class="xname">' + esc(r.meta.name) + '</b>' +
           (r.meta.blurb ? '<div class="xblurb">' + esc(r.meta.blurb) + '</div>' : '') +
@@ -3871,6 +3896,33 @@ function renderExclTab(){
                 (mtL ? ' Is-sett kollu tiegħek' : ' The whole set is yours') + '</span>' +
               '<button class="btn ghost sm xwear" data-xgame="' + esc(r.g) + '">' +
                 (mtL ? 'Ilbes is-sett' : 'Wear the set') + '</button></div>'
+            : r.buy
+            /* A BOUGHT SET. The bar fills with the WALLET, not with wins:
+               saving up is the grind, so the player watches the same bar
+               they would watch for a milestone. The button only goes live
+               once the coins are actually there, and asks once first —
+               2 600 coins is a fortnight and a mis-tap must not spend it. */
+            ? '<div class="xgrind">' +
+                '<div class="xhow">' + coinIco() + '<span>' +
+                  (mtL ? 'Faddal ' : 'Save ') + r.pg.need +
+                  (mtL ? ' muniti' : ' coins') + '</span></div>' +
+                '<div class="xbar"><span class="xfill" style="width:' + pctW + '%"></span></div>' +
+                '<div class="xrow">' +
+                  '<span class="xnum tiny">' + Math.min(r.pg.have, r.pg.need) +
+                    ' / ' + r.pg.need + (mtL ? ' muniti' : ' coins') + '</span>' +
+                  '<button class="btn sm xbuy' + (r.pg.have >= r.pg.need ? ' can' : '') +
+                    '" data-xgame="' + esc(r.g) + '" data-price="' + r.pg.need + '"' +
+                    (r.pg.have >= r.pg.need ? '' : ' disabled') +
+                    ' aria-label="' + esc(r.meta.name) + ', ' + r.pg.need + ' coins' +
+                    (r.pg.have >= r.pg.need ? '' : ', you need ' + (r.pg.need - r.pg.have) + ' more') + '">' +
+                    '<span class="bl">' + coinIco() + '<span>' +
+                      (r.pg.have >= r.pg.need
+                        ? (exclConfirm === r.g ? (mtL ? 'Żgur? ' : 'Sure? ') : '') + r.pg.need
+                        : (r.pg.need - r.pg.have) + (mtL ? ' nieqsa' : ' to go')) +
+                    '</span></span>' +
+                  '</button>' +
+                '</div>' +
+              '</div>'
             : '<div class="xgrind">' +
                 '<div class="xhow">' + ico('trophy') + esc(r.meta.how) + '</div>' +
                 '<div class="xbar"><span class="xfill" style="width:' + pctW + '%"></span></div>' +
@@ -3881,8 +3933,8 @@ function renderExclTab(){
       '</div>';
     });
     html += '<p class="spinnote">' + (mtL
-      ? 'Dawn qatt ma jinbiegħu, bl-ebda prezz. Il-grind hu l-prezz.'
-      : 'These are never for sale at any price. The grind is the price.') + '</p></div>';
+      ? 'Il-grind hu l-prezz — rebħiet jew muniti. Xejn minn dan ma jidher fil-ħanut.'
+      : 'The grind is the price — wins or coins. None of this ever shows up in the shop.') + '</p></div>';
     stage.innerHTML = html;
     /* mount each piece's animated preview, and wire "Wear the set" to
        equip every piece of an earned set — the same wiring the old
@@ -3904,6 +3956,48 @@ function renderExclTab(){
           exclDefs(g).forEach(d => { const r = KARTI_XP.equip('', d.id); if (r && r.ok) n++; });
         } catch (e){}
         toast(n ? 'The set is on.' : '⚠ Could not equip the set.');
+      };
+    });
+    /* ── buying a set. Two taps: the first arms it (and disarms any
+       other armed card), the second spends. KARTI_XP.exclusiveBuySet
+       owns the money and the all-or-nothing grant; this only draws. */
+    $$('.xbuy', stage).forEach(b => {
+      b.onclick = () => {
+        const g = b.dataset.xgame;
+        if (exclConfirm !== g){
+          exclConfirm = g;
+          renderExclTab();
+          /* the arm lapses on its own so a card is never left saying
+             "Sure?" from a tap the player has forgotten about */
+          clearTimeout(exclConfirmT);
+          exclConfirmT = setTimeout(() => {
+            if (exclConfirm){ exclConfirm = ''; if ($('.xgal')) renderExclTab(); }
+          }, 4000);
+          return;
+        }
+        exclConfirm = '';
+        clearTimeout(exclConfirmT);
+        let r = null;
+        try {
+          r = (window.KARTI_XP && KARTI_XP.exclusiveBuySet)
+                ? KARTI_XP.exclusiveBuySet(g) : null;
+        } catch (e){ r = null; }
+        if (r && r.ok){
+          /* the coins live in the XP wallet; save() keeps the rest of the
+             profile in the same write and refreshes the header pill */
+          try { save(); } catch (e){}
+          try { if (window.KARTI_SFX) KARTI_SFX.play('shop.buy'); } catch (e){}
+          const nm = (exclMeta(g) || {}).name || 'The set';
+          toast('“' + nm + '” is yours — ' + r.price + ' coins.');
+        } else if (r && r.why === 'coins'){
+          toast('⚠ Not enough coins — it costs ' + (r.price || 0) + '.');
+        } else if (r && r.why === 'owned'){
+          toast('You already own that set.');
+        } else {
+          toast('⚠ Could not buy that set.');
+        }
+        renderExclTab();
+        try { updateCoinsPill(); } catch (e){}
       };
     });
   }
@@ -6589,7 +6683,7 @@ window.KARTI = {
   _store: {
     SPIN_TABLE, SPIN_GAP_MS, COSM_LEVEL_MAX,
     spinState, spinRoll, doSpin, spinDayKey, spinNextAt,
-    storeBuyables, buyCosmetic, cosmPrice, cosmOwned, grantCosmetic,
+    storeBuyables, storeLadder, buyCosmetic, cosmPrice, cosmOwned, grantCosmetic,
     renderSpinTab, renderCosmTab, renderExclTab, exclAllRows, updateSpinBadge, spinResult,
     /* the chips economy's screens — for the headless harness */
     renderChipsTab, buyBoxTap, boxPop, spinGrant, grantChips,

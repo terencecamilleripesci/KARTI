@@ -2551,12 +2551,84 @@ function gameWins(game){
   } catch (e){}
   return 0;
 }
-function exclDone(game){ return gameWins(exclStat(game)) >= exclNeed(game); }
+/* ── THE COIN SETS ──────────────────────────────────────────────────
+   Not every exclusive is won at a milestone. The sets carrying `coins`
+   are BOUGHT, and saving up the coins IS their grind — a card duel pays
+   a handful, so a 2 600-coin deck is a fortnight of evenings, which is
+   the same shape of commitment as forty wins and reads far better on a
+   set that spans nine games at once.
+
+   They are still exclusives, not shop stock. The mechanism that keeps
+   them out of the ordinary store is their LEVEL: EXCL_BUY_LEVEL sits
+   above the store's ceiling (COSM_LEVEL_MAX), so storeBuyables() never
+   lists them and owns() never gives them away free the way it does a
+   level-0 item. They carry no `earn`, which is the one thing grant()
+   refuses, so the Exclusives tab's own buy button can hand over the
+   whole set in a single purchase. */
+var EXCL_BUY_LEVEL = 40;         /* > COSM_LEVEL_MAX (12), <= MAX_LEVEL */
+function exclBuy(game){ return !!(EXCLUSIVES[game] && EXCLUSIVES[game].coins); }
+function exclCoins(game){
+  var m = EXCLUSIVES[game];
+  return (m && m.coins) ? (m.coins | 0) : 0;
+}
+/* how many pieces of a coin set are already paid for. Reads owns() so a
+   half-bought set (grant succeeded on one piece, the phone died on the
+   next) shows honest progress and finishes on the next tap. */
+function exclOwnedN(game){
+  var ds = exclusiveDefs(game), n = 0, i;
+  for (i = 0; i < ds.length; i++) if (owns(ds[i].id)) n++;
+  return n;
+}
+function exclDone(game){
+  if (exclBuy(game)){
+    var ds = exclusiveDefs(game);
+    return ds.length > 0 && exclOwnedN(game) === ds.length;
+  }
+  return gameWins(exclStat(game)) >= exclNeed(game);
+}
 function exclProgress(game){
   game = String(game || '').toLowerCase();
+  if (exclBuy(game)){
+    var have = coinsBal(), want = exclCoins(game);
+    return { game:game, buy:true, coins:want, have:have,
+             won:Math.min(have, want), need:want, done:exclDone(game),
+             pct: want ? Math.max(0, Math.min(1, have / want)) : 1 };
+  }
   var need = exclNeed(game), won = gameWins(exclStat(game));
-  return { game:game, won:won, need:need, done:won >= need,
+  return { game:game, buy:false, coins:0, have:0,
+           won:won, need:need, done:won >= need,
            pct: need ? Math.max(0, Math.min(1, won / need)) : 1 };
+}
+/* buy a whole coin set in one go — one price, every piece. The order
+   is CHECK, then CHARGE, then GRANT, and a grant that somehow fails
+   refunds the whole price: a player who paid 2 600 and got half a set
+   has been robbed by a bug. The pre-check makes that branch unreachable
+   in practice (grant only refuses an unknown id or an `earn` def, and
+   both are decided here at registration time), but the refund is there
+   because "unreachable" is a thing people say before a release. */
+function exclPurchase(game){
+  game = String(game || '').toLowerCase();
+  if (!exclBuy(game)) return { ok:false, why:'not-for-sale' };
+  var ds = exclusiveDefs(game), i;
+  if (!ds.length) return { ok:false, why:'unknown' };
+  if (exclDone(game)) return { ok:false, why:'owned' };
+  for (i = 0; i < ds.length; i++){
+    if (!DEFS[ds[i].id] || DEFS[ds[i].id].earn) return { ok:false, why:'not-for-sale' };
+  }
+  var price = exclCoins(game), bal = coinsBal();
+  if (bal < price) return { ok:false, why:'coins', price:price, short:price - bal };
+  var paid = spendCoins(price, 'exclusive:' + game);
+  if (!paid || !paid.ok) return { ok:false, why:'coins', price:price, short:(paid && paid.short) || 0 };
+  var bad = 0;
+  for (i = 0; i < ds.length; i++){
+    var r = grant(ds[i].id);
+    if (!r || !r.ok) bad++;
+  }
+  if (bad){
+    addCoins(price, 'refund:exclusive:' + game);
+    return { ok:false, why:'grant' };
+  }
+  return { ok:true, price:price, game:game, defs:ds };
 }
 
 /* THE ANIMATION — one injected stylesheet, shared by every exclusive
@@ -2700,46 +2772,36 @@ var EXCLUSIVES = {
   gharraqroza: { accent:'#FF9EC4', slots:['fleet','sea','ring'], stat:'gharraq', mult:2,
     name:{en:'The Rose Flotilla',mt:'Il-Flotta tal-Ward'},
     blurb:{en:'Pearl hulls, champagne fire, a sea of rosewater. Sink them beautifully.',mt:'Bwieq tal-perla, nar tax-xampanja, baħar tal-ilma ward. Għarraqhom bi stil.'} },
-  kiri:      { accent:'#FFC542', slots:['board','dice','table'],
+  kiri:      { accent:'#FFC542', slots:['board','dice','table'], coins:2800,
     name:{en:'The Golden Feast',mt:'Il-Festa tad-Deheb'},
     blurb:{en:'Gold leaf and candlelight. The longest game, the richest table.',mt:'Deheb u dawl tax-xemgħa. L-itwal logħba, l-aktar mejda għanja.'} },
-  tombla:    { accent:'#FF3EA5', slots:['ticket','marker'],
+  tombla:    { accent:'#FF3EA5', slots:['ticket','marker'], coins:2000,
     name:{en:'Festa Grand Prize',mt:'Il-Premju tal-Festa'},
     blurb:{en:'Fireworks on your ticket, gold on every marker.',mt:'Murtali fuq il-biljett tiegħek, deheb fuq kull markatur.'} },
-  skarta:    { accent:'#FF6A2C', slots:['felt','back'],
-    name:{en:'The Burning Hand',mt:'L-Id li Taqbad'},
-    blurb:{en:'A felt of live coals, cards that smoulder as you throw.',mt:'Feltru ta’ ġamar ħaj, karti li jdaħħnu hekk kif tarmi.'} },
-  gin:       { accent:'#E0115F', slots:['felt','back'],
-    name:{en:'The Ruby Parlour',mt:'Is-Salott tar-Rubini'},
-    blurb:{en:'Ruby felt and jewelled backs. Gin has never looked richer.',mt:'Feltru tar-rubini u dahar imżejjen. Il-Gin qatt ma deher isbaħ.'} },
-  poker:     { accent:'#FFD979', slots:['felt','back'],
-    name:{en:'The High Roller',mt:'Il-Logħob il-Kbir'},
-    blurb:{en:'Casino gold, velvet, and a back nobody can read.',mt:'Deheb tal-każinò, bellus, u dahar li ħadd ma jaqra.'} },
-  rummy:     { accent:'#3FB8E8', slots:['felt','back'],
-    name:{en:'The Sapphire Run',mt:'Il-Ġirja taż-Żaffir'},
-    blurb:{en:'Deep sapphire felt, cards that catch the light on the meld.',mt:'Feltru taż-żaffir fond, karti li jaqbdu d-dawl fuq is-sett.'} },
-  spy:       { accent:'#39FF14', slots:['sky','ring'],
+  /* ── THE ONE CARD EXCLUSIVE ──────────────────────────────────────
+     "One shared card exclusive set." Nine card games used to carry
+     nine separate felt+back exclusives. deck-kit.js then moved every
+     card table onto ONE shared deck (game 'karti', slots felt/back),
+     which left all nine sets equipping into slots nobody paints any
+     more — earned cosmetics that did nothing. They collapse into this
+     single premium deck, worn by every card game at once, and
+     migrateCardExcl() hands it to anyone who had earned one of the
+     old nine. `wear` puts the pieces on the shared karti.felt /
+     karti.back shelves; the key stays 'deck' so its art
+     (art/cosm/deck-exclusive-*.png) and its set id stay its own. */
+  deck:      { accent:'#FFC542', slots:['felt','back'], wear:'karti', coins:2600,
+    name:{en:'The House Deck',mt:'Il-Mazz tal-Kbar'},
+    blurb:{en:'Milled gold on wine velvet, a Maltese cross on every back. One deck, worn by every card game in the box.',mt:'Deheb imħabbat fuq bellus tal-inbid, salib ta’ Malta fuq kull dahar. Mazz wieħed, għal kull logħba tal-karti.'} },
+  spy:       { accent:'#39FF14', slots:['sky','ring'], coins:2000,
     name:{en:'Night Vision',mt:'Viżjoni tal-Lejl'},
     blurb:{en:'A phosphor-green sky, a ring that scans and never blinks.',mt:'Sema aħdar fosfru, ċirku li jiskennja u qatt ma jgħammex.'} },
-  suspett:   { accent:'#B026FF', slots:['card','curtain'],
+  suspett:   { accent:'#B026FF', slots:['card','curtain'], coins:2000,
     name:{en:'The Final Reveal',mt:'Il-Kxif tal-Aħħar'},
     blurb:{en:'Velvet purple, a card that turns like a spotlight finding you.',mt:'Vjola tal-bellus, karta li ddur bħal riflettur li jsibek.'} },
-  bixkla:    { accent:'#3DDC84', slots:['felt','back'],
-    name:{en:'The Buskett Crown',mt:'Il-Kuruna tal-Buskett'},
-    blurb:{en:'Forest green and gold thread. The club table, gilded.',mt:'Aħdar tal-foresta u ħajt tad-deheb. Il-mejda tal-każin, indurata.'} },
-  briscola:  { accent:'#123A5A', slots:['felt','back'],
-    name:{en:'The Harbour Lord',mt:'Sid il-Port'},
-    blurb:{en:'Deep-harbour navy and a luzzu prow lit at dusk.',mt:'Navy tal-port fond u pruwa ta’ luzzu mixgħula f’għabex.'} },
-  sette:     { accent:'#B07E12', slots:['felt','back'],
-    name:{en:'Burnished Seven',mt:'Is-Sebgħa Maħruqa'},
-    blurb:{en:'Hammered gold felt. Seven and a half, and all of it shines.',mt:'Feltru tad-deheb imħabbat. Sebgħa u nofs, u kollu jiddi.'} },
-  cheat:     { accent:'#B026FF', slots:['felt','back'],
-    name:{en:'The Perfect Lie',mt:'Il-Gidba Perfetta'},
-    blurb:{en:'A mask of violet silk, a back that never gives you away.',mt:'Maskra ta’ ħarir vjola, dahar li qatt ma jikxfek.'} },
-  ludu:      { accent:'#FFD979', slots:['tokens','dice','board'],
+  ludu:      { accent:'#FFD979', slots:['tokens','dice','board'], coins:2800,
     name:{en:'The Golden Route',mt:'It-Triq tad-Deheb'},
     blurb:{en:'Gilded pawns, gold dice, a board paved in light.',mt:'Bċejjeċ indurati, dadi tad-deheb, bord miksi bid-dawl.'} },
-  erbgha:    { accent:'#FF3EA5', slots:['discs','board'],
+  erbgha:    { accent:'#FF3EA5', slots:['discs','board'], coins:2000,
     name:{en:'Neon Drop',mt:'Il-Waqgħa Neon'},
     blurb:{en:'Discs that fall like fireworks and land still glowing.',mt:'Diski li jaqgħu bħal murtali u jinżlu għadhom jiddu.'} },
   tankijiet: { accent:'#FF6A2C', slots:['tank','trail','floor'],
@@ -2754,12 +2816,9 @@ var EXCLUSIVES = {
   kodici:    { accent:'#00E5FF', slots:['pegs'],
     name:{en:'The Cipher Vault',mt:'Il-Kaxxaforti taċ-Ċifra'},
     blurb:{en:'Pegs of pure neon that glow the moment you crack it.',mt:'Pinnijiet ta’ neon pur li jiddu hekk kif tkisser il-kodiċi.'} },
-  minhu:     { accent:'#FFC542', slots:['frame'],
+  minhu:     { accent:'#FFC542', slots:['frame'], coins:1200,
     name:{en:'The Gilt Gallery',mt:'Il-Gallerija Indurata'},
-    blurb:{en:'A gallery of gold frames under one moving spotlight.',mt:'Gallerija ta’ kwadri tad-deheb taħt riflettur wieħed miexi.'} },
-  cards2131: { accent:'#5A1420', slots:['felt','back'],
-    name:{en:'The Velvet Bust',mt:'Il-Bust tal-Bellus'},
-    blurb:{en:'Old-wine velvet, a back that watches your third card.',mt:'Bellus tal-inbid qadim, dahar li jħares lejn it-tielet karta tiegħek.'} }
+    blurb:{en:'A gallery of gold frames under one moving spotlight.',mt:'Gallerija ta’ kwadri tad-deheb taħt riflettur wieħed miexi.'} }
 };
 
 /* register every set. Each piece is earn-only (grant refuses it), level
@@ -2769,6 +2828,7 @@ var EXCLUSIVES = {
    wins is not taken away by a losing streak. */
 function exclSetId(game){ return 'excl-' + game; }
 function exclEarnHow(game){
+  if (exclBuy(game)) return 'Save ' + exclCoins(game) + ' coins';
   var need = exclNeed(game), gm = gameMeta(exclStat(game));
   return 'Win ' + need + ' games of ' + gm.name;
 }
@@ -2779,9 +2839,13 @@ function registerExclusives(){
     var meta = EXCLUSIVES[g], slots = meta.slots, si;
     for (si = 0; si < slots.length; si++){
       rows.push((function(game, slot, meta){
-        return {
+        var d = {
           id: game + '.' + slot + '.excl',
-          game: game,
+          /* `wear` sends a set's pieces to a DIFFERENT game's slots than
+             the key they are filed under — the one card exclusive is
+             keyed 'deck' (its art, its set id) but worn on the shared
+             karti.felt / karti.back the whole card box reads. */
+          game: meta.wear || game,
           slot: slot,
           name: meta.name,
           blurb: meta.blurb,
@@ -2789,18 +2853,61 @@ function registerExclusives(){
           sort: 900,                /* below every basic, above nothing */
           accent: meta.accent,
           set: exclSetId(game),
-          earn: {
+          preview: exclPreview(game, slot, meta.accent)
+        };
+        if (meta.coins){
+          /* a BOUGHT exclusive. No `earn` — that is the one thing
+             grant() refuses — and a level above the store's ceiling so
+             it is neither free (owns() gives away level<=1) nor listed
+             on the ordinary shelf (storeBuyables caps at COSM_LEVEL_MAX).
+             exclPurchase() is the only door. */
+          d.level = EXCL_BUY_LEVEL;
+        } else {
+          d.earn = {
             how: exclEarnHow(game),
             /* NOT live — once the milestone is hit it is written down and
                kept, the way a ten-in-a-row border is kept */
             test: (function(game){ return function(){ return exclDone(game); }; })(game)
-          },
-          preview: exclPreview(game, slot, meta.accent)
-        };
+          };
+        }
+        return d;
       })(g, slots[si], meta));
     }
   }
   return register(rows);
+}
+
+/* ── THE CARD-EXCLUSIVE MIGRATION, once per player ──────────────────
+   The nine retired card sets are gone from EXCLUSIVES, so their defs no
+   longer exist and owns() cannot see them — the ownership flags are
+   still sitting in the save, though, which is where this reads. Anyone
+   who had EARNED one of the nine is handed the shared House Deck for
+   free (they did the wins; a refactor must not take that back), the
+   dead flags are swept, and `dx` marks the save so it never runs twice.
+   Deliberately NOT charged and NOT refunded — nobody paid coins for the
+   old sets, they were win-only. */
+var DEAD_CARD_EXCL = ['skarta','gin','poker','rummy','bixkla','briscola',
+                      'sette','cheat','cards2131'];
+function migrateCardExcl(){
+  var p = root();
+  if (p.dx) return 0;
+  var hit = 0, i, j, slots = ['felt','back'], id;
+  for (i = 0; i < DEAD_CARD_EXCL.length; i++){
+    for (j = 0; j < slots.length; j++){
+      id = DEAD_CARD_EXCL[i] + '.' + slots[j] + '.excl';
+      if (p.own[id]){ hit++; delete p.own[id]; }
+      /* an equip pointing at a def that no longer exists would leave the
+         wardrobe showing a blank tile forever */
+      if (p.eq[DEAD_CARD_EXCL[i] + '.' + slots[j]] === id)
+        delete p.eq[DEAD_CARD_EXCL[i] + '.' + slots[j]];
+    }
+  }
+  if (hit){
+    for (j = 0; j < slots.length; j++) p.own['deck.' + slots[j] + '.excl'] = 1;
+  }
+  p.dx = 1;
+  commit();
+  return hit;
 }
 
 /* the public reads the store draws its showcase from: the set for a
@@ -2822,7 +2929,12 @@ function exclusiveMeta(game){
   if (!m) return null;
   return { game:game, name:pickLang(m.name), blurb:pickLang(m.blurb),
            accent:m.accent, slots:m.slots.slice(), set:exclSetId(game),
-           how:exclEarnHow(game) };
+           how:exclEarnHow(game),
+           /* bought sets carry a price; won sets carry 0 */
+           buy:!!m.coins, coins:exclCoins(game),
+           /* the game whose table actually wears it (the one card set is
+              filed under 'deck' but worn on the shared karti shelves) */
+           wear:m.wear || game };
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -3118,6 +3230,9 @@ registerRankBorders();
    game, registered here so they exist at boot and are swept the first
    time a milestone is hit. Additive and idempotent by id. */
 registerExclusives();
+/* the nine retired card exclusives fold into the one House Deck — run
+   right after the registry exists so exclusiveDefs('deck') resolves. */
+try { migrateCardExcl(); } catch (e){}
 /* the per-game customisation catalogue. It calls XP.forGame, so it runs
    after window.KARTI_XP is published (see the deferred call at the very
    bottom of the file). A game that registers its own richer kit later
@@ -3400,6 +3515,9 @@ window.KARTI_XP = {
   exclusiveEarned: exclusiveEarned,     /* exclusiveEarned(game) -> bool   */
   exclusiveProgress: exclProgress,      /* {won,need,done,pct} for the bar */
   exclusiveNeed: exclNeed,              /* exclNeed(game) -> wins required */
+  exclusiveBuy: exclBuy,                /* exclusiveBuy(game) -> bought, not won? */
+  exclusiveCoins: exclCoins,            /* exclusiveCoins(game) -> the price     */
+  exclusiveBuySet: exclPurchase,        /* buy the whole set: {ok,price,defs}    */
   exclusiveStat: exclStat,              /* exclStat(setKey) -> the real game
                                            whose record book earns it (an
                                            encore set like gharraqroza is a
@@ -3432,6 +3550,9 @@ window.KARTI_XP = {
   /* test hooks only */
   _ui: function(u){ UI = u; },
   _state: function(){ return root(); },
+  /* the one-shot card-exclusive fold, exposed so the harness can prove
+     it converts an old earned set and then refuses to run again */
+  _migrateCardExcl: migrateCardExcl,
   _wallet: function(){ return wallet(); },
   _rollBox: rollBox,               /* pure roll, no spend — odds proof  */
   _reset: function(){

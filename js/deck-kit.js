@@ -64,8 +64,22 @@ var FELTS = {
   'felt.qahwa':     { a:'#8A6234', b:'#543A1E', c:'#29190C', ring:'#F0D9A0' },
   'felt.lejl':      { a:'#38405C', b:'#1B2130', c:'#0A0D16', ring:'#C9D2E4' },
   'felt.franka':    { a:'#D9C49A', b:'#B39868', c:'#7A5F33', ring:'#FFF3D8' },
-  'felt.bellus':    { a:'#3A1E4E', b:'#22102F', c:'#0D0616', ring:'#E8C7FF', sheen:1 }
+  'felt.bellus':    { a:'#3A1E4E', b:'#22102F', c:'#0D0616', ring:'#E8C7FF', sheen:1 },
+  /* ── THE HOUSE DECK, the one card EXCLUSIVE ──────────────────────
+     Registered in js/progress.js (EXCLUSIVES.deck) but PAINTED here,
+     because this file owns every card table in the box — which is the
+     whole point of collapsing nine per-game card exclusives into one.
+     Unlike every other rung this is real painted art, not three colour
+     stops, so it carries `img`: apply() lays the tile over the gradient
+     and the colours below stay as the fallback the moment the PNG is
+     missing or still downloading. */
+  'felt.excl':      { a:'#6E2338', b:'#3E1220', c:'#1A0710', ring:'#FFC542', sheen:1,
+                      img:'art/cosm/deck-exclusive-felt.png' }
 };
+/* the shared deck's slots are 'felt'/'back' under game 'karti', and the
+   exclusive's registered id is deck.<slot>.excl — alias them onto the
+   two rungs above so apply() finds them by equipped id alone */
+FELTS['deck.felt.excl'] = FELTS['felt.excl'];
 
 /* ── the backs ─────────────────────────────────────────────────────
    pat: the #kdx-pat-<pat> tile (drawn in pats() below). edge: the
@@ -123,13 +137,34 @@ var BACKS = {
          ring:'rgba(255,197,66,.55)', cap:'#FFD979' } },
   'back.deheb':    { pat:'deheb',    edge:'#FFF7E4', cross:'#FFF7E4',
     sk:{ bg:'linear-gradient(150deg,#B8891F,#4E3608)', g2:'#4E3608',
-         ring:'rgba(255,247,228,.75)', cap:'#FFF7E4' } }
+         ring:'rgba(255,247,228,.75)', cap:'#FFF7E4' } },
+  /* THE HOUSE DECK's back — the exclusive's own painted card, dropped
+     into the same #kdx-pats shelf as an <image> tile so it flows through
+     the exact three attribute rules every other back uses. `cross:''`
+     hides the shared Maltese cross: this back already has one printed
+     on it, and two would read as a mistake. */
+  'back.excl':     { pat:'excl',     edge:'#FFC542', cross:'transparent',
+    sk:{ bg:'url(art/cosm/deck-exclusive-back.png) center/cover,' +
+            'linear-gradient(150deg,#6E2338,#1A0710)', g2:'#1A0710',
+         ring:'rgba(255,197,66,.65)', cap:'#FFC542' } }
 };
+BACKS['deck.back.excl'] = BACKS['back.excl'];
 
 /* ── the pattern tiles — the actual "more details" ────────────────
    Each is a small SVG tile; richer than the one stock lattice but
    still a handful of paths, so the payload stays text. */
 var TILES = {
+  /* the exclusive's painted back, as a pattern. objectBoundingBox units
+     make the one tile stretch to whatever rect references it — the tiny
+     preview card and the full-size table back are the same declaration.
+     `slice` crops rather than squashes, so the printed border stays
+     square on a rect with a different aspect ratio. */
+  excl:
+    '<pattern id="kdx-pat-excl" width="1" height="1" ' +
+    'patternContentUnits="objectBoundingBox">' +
+    '<image href="art/cosm/deck-exclusive-back.png" ' +
+    'xlink:href="art/cosm/deck-exclusive-back.png" ' +
+    'width="1" height="1" preserveAspectRatio="xMidYMid slice"/></pattern>',
   /* the stock crimson lattice, restated so the klassiku preview can
      show the real thing (apply() never uses it) */
   klassiku:
@@ -312,7 +347,14 @@ function apply(){
   if (f && f.a){
     var sheen = f.sheen
       ? 'radial-gradient(70% 45% at 50% 14%,rgba(255,255,255,.05),transparent 70%),' : '';
-    var top = sheen + WEAVE;
+    /* a painted felt (the exclusive) sits UNDER the sheen and weave and
+       OVER the gradient, so the cloth reads as cloth and the gradient is
+       still there as the fallback if the PNG never arrives */
+    /* stretched, not cropped: the painted felt carries a gold border and
+       `cover` would slice it off the two long sides of a wide table. The
+       middle is deliberately quiet, so the stretch shows nowhere. */
+    var art = f.img ? 'url(' + f.img + ') 0 0/100% 100% no-repeat,' : '';
+    var top = sheen + WEAVE + art;
     css +=
       '#app #scr-party .pk-table{background:' + top +
         'radial-gradient(120% 85% at 50% 34%,' + f.a + ' 0%,' + f.b + ' 46%,' + f.c + ' 100%)}' +
