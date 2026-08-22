@@ -1058,8 +1058,14 @@ function onlineStop(why, tone){
   if (!G || !online()) return;
   if (!G.over){ G.over = { end:'stopped', win:null }; render(); }
   P.ui.setNet(G.ctx, '', '');
+  /* THIS CARD CARRIES NO TONE, AND THE OMISSION IS LOAD-BEARING — the same
+     fix, for the same reason, as onlineStop in js/chess.js: js/progress.js
+     wraps P.ui.result and reads `tone` as a RESULT to pay for ('draw' paid a
+     draw, anything else a loss), so a dropped line was being paid and counted
+     like a finished game. An abandoned game is not a result: with no tone the
+     wrapper pays nothing and writes nothing, and the card simply falls back
+     to the neutral grey dress the ordinary cut-off wore anyway. */
   P.ui.result(G.ctx, {
-    tone: tone === 'cheat' ? 'lose' : 'draw',
     head: tone === 'cheat' ? 'No deal' : 'Cut off',
     why: why || 'The match stopped.',
     quip: 'Nothing was awarded. Nobody lost anything for a bad line.',
@@ -1068,6 +1074,13 @@ function onlineStop(why, tone){
         go: () => { if (G && G.net) G.net.onLeave(); } }
     ]
   });
+  /* the cheat card keeps its red dress: that colour was information, and the
+     class is all the tone ever bought on screen. Painted by hand AFTER the
+     call, so the paying wrapper never sees a tone to misread as a loss. */
+  if (tone === 'cheat'){
+    const over = G.ctx.root.querySelector('.pt-over');
+    if (over){ over.classList.remove('draw'); over.classList.add('lose'); }
+  }
 }
 
 P.online = P.online || {};

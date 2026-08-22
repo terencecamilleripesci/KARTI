@@ -1586,6 +1586,16 @@ function finish(done){
                  : T('You broke even.', 'Ħriġt patta.'));
   }
   saveSlot(null);
+  /* WHICH DOORS THE FINISHED TABLE OFFERS depends on where the table stood.
+     OFFLINE the two doors are the sim's own: a fresh table, or the shelf.
+     ONLINE neither of those is honest — the room owns any rematch, and
+     walking off through P.hub() would abandon the socket and the seat
+     instead of handing them back — so every door leads back to the room
+     list through the net-leave path, exactly the shape chess, dama and gin
+     already use and the same door this file's own online stop card opens.
+     NET is read at CLICK time from the module var rather than M.net,
+     because leave() nulls M before onLeave gets to run. */
+  const netBack = () => { const nx = NET; leave(); if (nx && nx.onLeave) nx.onLeave(); else P.hub(); };
   if (useR2){
     const stk = settleStake(done.tone || 'draw');
     const me = mySeat();
@@ -1613,22 +1623,27 @@ function finish(done){
         : null,
       reward: rewardOf(pay, stk),
       sound: id => cue(id, { gain: 0.6 }),
-      /* the same two doors the card below offers, nothing invented */
-      playAgainLabel: T('New table', 'Mejda ġdida'),
-      onPlayAgain: () => newGame(M.opts),
-      onLeave: () => P.hub()
+      /* the same doors the card below offers, nothing invented: the sim's
+         own two offline, the one honest door back to the rooms online */
+      playAgainLabel: M.net ? T('Back to the rooms', 'Lura lejn il-kmamar')
+                            : T('New table', 'Mejda ġdida'),
+      onPlayAgain: M.net ? netBack : () => newGame(M.opts),
+      onLeave: M.net ? netBack : () => P.hub()
     });
     return;
   }
   P.ui.result(M.ctx, {
     tone: done.tone || 'draw',
     head: done.head, why: done.why + purse, quip: done.quip,
-    buttons: [
-      { label: T('New table', 'Mejda ġdida'), icon:'refresh', cls:'primary',
-        go: () => newGame(M.opts) },
-      { label: T('Back to the shelf', 'Lura lejn l-ixkaffa'), icon:'back', cls:'ghost',
-        go: () => P.hub() }
-    ]
+    buttons: M.net
+      ? [ { label: T('Back to the rooms', 'Lura lejn il-kmamar'), icon:'back', cls:'primary',
+            go: netBack } ]
+      : [
+          { label: T('New table', 'Mejda ġdida'), icon:'refresh', cls:'primary',
+            go: () => newGame(M.opts) },
+          { label: T('Back to the shelf', 'Lura lejn l-ixkaffa'), icon:'back', cls:'ghost',
+            go: () => P.hub() }
+        ]
   });
 }
 

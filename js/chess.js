@@ -1990,8 +1990,16 @@ function onlineStop(why, tone){
   clearTimeout(G.endTimer); G.endTimer = 0;
   if (!G.over){ G.over = { end:'stopped', win:null }; render(); }
   P.ui.setNet(G.ctx, '', '');
+  /* THIS CARD CARRIES NO TONE, AND THE OMISSION IS LOAD-BEARING. js/progress.js
+     wraps P.ui.result and reads `tone` as a RESULT to pay for — 'draw' paid a
+     draw and anything else paid a loss — so this card, which exists precisely
+     because the match ended WITHOUT a result, was quietly paying XP and chips
+     (and banking a played-game count) for a dropped line. An abandoned game is
+     not a result: no tone means the wrapper pays nothing and writes nothing,
+     and the quip's old promise below finally comes true. The card itself is
+     unharmed — with no tone it falls back to its neutral grey dress, which is
+     exactly what the ordinary cut-off card wore anyway. */
   P.ui.result(G.ctx, {
-    tone: tone === 'cheat' ? 'lose' : 'draw',
     head: tone === 'cheat' ? 'No deal' : 'Cut off',
     why: why || 'The match stopped.',
     quip: 'Nothing was awarded. Nobody lost anything for a bad line.',
@@ -2000,6 +2008,14 @@ function onlineStop(why, tone){
         go: () => { if (G && G.net) G.net.onLeave(); } }
     ]
   });
+  /* the cheat card keeps its red dress: that colour was information (something
+     went WRONG, not merely away), and the class is all the tone ever bought on
+     screen. Painted by hand AFTER the call, so the paying wrapper never sees
+     a tone to misread as a loss. */
+  if (tone === 'cheat'){
+    const over = G.ctx.root.querySelector('.pt-over');
+    if (over){ over.classList.remove('draw'); over.classList.add('lose'); }
+  }
 }
 
 P.online = P.online || {};
