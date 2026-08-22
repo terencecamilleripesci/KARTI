@@ -3252,7 +3252,11 @@ function stakeSettleTeam(tone, winnerSeats, mySeat){
   const seats = (Array.isArray(winnerSeats) ? winnerSeats : [])
     .map(n => n | 0).filter((n, i, a) => n >= 0 && a.indexOf(n) === i)
     .sort((a, b) => a - b);
-  const me = mySeat == null ? MP.seat : (mySeat | 0);
+  /* MP.seat does not exist — the field is mySeat, and reading the wrong one
+     yielded undefined, which is in no winner list, so the winning phone
+     settled itself as a LOSER and the pot stayed unpaid. Caught by the
+     pre-party audit before suspett became its first caller. */
+  const me = mySeat == null ? (MP.mySeat | 0) : (mySeat | 0);
   /* No winners named, or a shape we do not understand, is not something to
      guess at with real chips: fall back to the abort rule, where every ante
      simply comes home. Refusing to pay is recoverable; overpaying is not. */
@@ -3439,7 +3443,22 @@ function tableLobby(){
   if (!MP.roster) MP.roster = ownRoster();
   const seats = rosterSeats();
   const taken = seats.length;
-  const iAmHost = MP.mySeat === 0;
+  /* THE HOST IS THE LOWEST OCCUPIED CHAIR, not literally chair zero.
+
+     Asking "am I seat 0" meant that when the host's phone died in the
+     lobby — a real thing at a party — chair 0 emptied and the Start button
+     went with it. Everybody else could ready up, tableCanStart() would
+     happily say yes, and the room would sit there forever reading
+     "Everybody is ready" with nothing on any screen that could start it.
+     The only escape was abandoning the room and remaking it.
+
+     Promotion needs no relay change and no coordination: every phone
+     already holds the same roster, rosterSeats() hands it back in seat
+     order, so "the first chair still occupied" is a value they all compute
+     identically and agree on without a word between them. The waiting
+     message underneath already names seats[0] as the one who can start, so
+     it now tells the truth instead of naming a chair nobody is sitting in. */
+  const iAmHost = MP.mySeat === (seats.length ? seats[0].seat : 0);
   const verdict = tableCanStart();
   /* the game's mode presets, if it has more than one. The Rules button is
      host-only and only shown when there is a genuine choice to make. */
