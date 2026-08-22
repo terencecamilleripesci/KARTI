@@ -1113,6 +1113,10 @@ function renderHome(){
      renderHome(). If the player is looking at the deck list right now, repaint
      it too, so it can never show a deck that has just been replaced. */
   if (current === 'deck' && deckView === 'list' && $('#inv-root')) renderInventory();
+  /* THE MAILBOX BADGE — js/mail.js owns it entirely; this is the one hook.
+     It renders an IN-FLOW chip inside .headleft (never a fixed bar — see
+     the #kl-inst lesson in index.html) and only when there is mail. */
+  try { window.KARTI_MAIL && KARTI_MAIL.onHome && KARTI_MAIL.onHome(); } catch (e){}
 }
 /* ───────────────────── the profile chip's sheet ─────────────────────
    Three things you can DO — switch player, settings, log out — and one quiet
@@ -1563,6 +1567,11 @@ function settingsSheet(){
           '</div>') +
     '</div>' +
 
+    /* THE OWNER'S SEND CONSOLE — js/mail.js decides whether this row exists
+       at all (drawn for the admin account only; the PERMISSION is the
+       server's own list on the gift route, not this). '' for everyone else. */
+    (window.KARTI_MAIL && KARTI_MAIL.settingsRowHTML ? KARTI_MAIL.settingsRowHTML() : '') +
+
     '<p class="setgrp">This profile</p>' +
     '<div class="opts">' +
       '<button class="btn ghost" id="st-wipe" style="opacity:.75">Wipe ' +
@@ -1599,6 +1608,7 @@ function settingsSheet(){
   { const p = $('#st-push');
     if (p) p.onclick = pushToggleTap; }
   if (window.KARTI_SFX) { try { KARTI_SFX.bindSettings(); } catch (e){} }
+  if (window.KARTI_MAIL) { try { KARTI_MAIL.bindSettings(); } catch (e){} }
   { const c = $('#st-cloud');
     if (c) c.onclick = () => {
       closeSheet();

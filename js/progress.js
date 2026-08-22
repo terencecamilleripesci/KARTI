@@ -3629,6 +3629,12 @@ window.KARTI_XP = {
   exclusiveBuySet: exclPurchase,        /* buy the whole set: {ok,price,defs}    */
   exclusiveWinsMet: exclWinsMet,        /* has the wins half of the gate landed? */
   betaWhy: betaWhy,                     /* why a beta gift is / is not showing */
+  /* Whether to SHOW an owner-only control. Never a permission: anyone can
+     edit their own JavaScript, so the server enforces its own list on the
+     routes that matter. Exported because js/mail.js needed this answer and,
+     finding no door, went through the Tempesta border's live admin earn-test
+     instead — which was correct but is a joke of a way to ask a question. */
+  isAdmin: isAdmin,
   exclusiveStat: exclStat,              /* exclStat(setKey) -> the real game
                                            whose record book earns it (an
                                            encore set like gharraqroza is a
