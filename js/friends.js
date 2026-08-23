@@ -373,7 +373,11 @@
       out += '<div class="fr-sect">REQUESTS <span class="fr-cnt">' + ST.incoming.length + '</span></div>';
       out += ST.incoming.map(function(r){
         return '<div class="fr-row fr-req">' +
-          avatar(r.n) +
+          /* a requester is a real account (r.k came off the wire with the
+             request), so give the ONE renderer everything the row carries.
+             The relay does not yet stamp pv on request rows; the moment it
+             does, the photograph lights up here with no client change. */
+          avatar(r.n, 40, r.pv, r.k, r.av, r.bd) +
           '<div class="fr-who"><span class="fr-name">' + esc(r.n) + '</span>' +
             '<span class="fr-sub">wants to be friends</span></div>' +
           '<div class="fr-reqbtns">' +
@@ -388,7 +392,8 @@
     if (ST.outgoing.length){
       out += '<div class="fr-sect">SENT</div>';
       out += ST.outgoing.map(function(r){
-        return '<div class="fr-row fr-pending">' + avatar(r.n) +
+        return '<div class="fr-row fr-pending">' +
+          avatar(r.n, 40, r.pv, r.k, r.av, r.bd) +
           '<div class="fr-who"><span class="fr-name">' + esc(r.n) + '</span>' +
             '<span class="fr-sub">request pending…</span></div></div>';
       }).join('');
@@ -415,7 +420,14 @@
     if (rec.length){
       out += '<div class="fr-sect">RECENTLY PLAYED</div>';
       out += rec.map(function(p){
-        return '<div class="fr-row">' + avatar(p.n) +
+        /* Recently-played rows carry pv but no account key — the relay
+           deliberately names people by display name only. Its own contract
+           (server v_username) is that the account key IS the name lower-cased,
+           and the "who" answer's comment says the photo URL is built exactly
+           that way — so derive it, and ONLY when pv says a photograph exists,
+           so no URL is ever invented for somebody without one. */
+        return '<div class="fr-row">' +
+          avatar(p.n, 40, p.pv, p.pv ? String(p.n || '').toLowerCase() : '', p.av, p.bd) +
           '<div class="fr-who"><span class="fr-name">' + esc(p.n) + '</span>' +
             '<span class="fr-sub">' + (p.games ? p.games + (p.games === 1 ? ' game' : ' games') + ' together' : 'played online') + '</span></div>' +
           '<button class="fr-add1" data-addname="' + esc(p.n) + '" type="button">' +
@@ -447,7 +459,7 @@
     var un = ST.unread[f.k] | 0;
     return '<div class="fr-row fr-friend s-' + st.cls + '" data-fk="' + esc(f.k) + '" data-fn="' + esc(f.n) + '" ' +
       'role="button" tabindex="0" aria-label="Open ' + esc(f.n) + '’s profile">' +
-      '<div class="fr-avwrap">' + avatar(f.n, 44, f.pv, f.k) + '<i class="fr-dot ' + st.cls + '"></i></div>' +
+      '<div class="fr-avwrap">' + avatar(f.n, 44, f.pv, f.k, f.av, f.bd) + '<i class="fr-dot ' + st.cls + '"></i></div>' +
       '<div class="fr-who"><span class="fr-name">' + esc(f.n) + '</span>' +
         '<span class="fr-sub">' + esc(st.word) + '</span></div>' +
       '<button class="fr-chatbtn" data-chat="' + esc(f.k) + '" type="button" aria-label="Chat with ' + esc(f.n) + '">' +
@@ -489,14 +501,21 @@
      the relay-published photo version) and mounts the actual profile photo the
      moment it decodes — no photo, no request, drawn face as the always-there
      fallback. `pv` is the friend's avatar version the relay sends per row. */
-  function avatar(name, size, pv, who){
+  function avatar(name, size, pv, who, hint, border){
     /* who = the friend's ACCOUNT KEY (f.k). The photo URL is built from the key,
        NOT the display name, so without it a friend's photograph never loads —
-       which is exactly why friends showed no picture. pv is their photo version. */
+       which is exactly why friends showed no picture. pv is their photo version.
+       hint/border = the face and ring THEY chose, whenever the relay publishes
+       them beside the row (the same k-look blob the room roster carries) — so a
+       friend with no photograph still shows the face they picked, not a
+       name-derived default. Absent fields simply write no attribute, exactly
+       like pv, so an older relay changes nothing. */
     var av = '<span class="fr-av" data-kx-av="' + esc(name || '') + '"' +
       ' data-kx-size="' + (size || 40) + '"' +
       (who ? ' data-kx-who="' + esc(who) + '"' : '') +
-      (pv ? ' data-kx-pv="' + (pv | 0) + '"' : '') + '></span>';
+      (pv ? ' data-kx-pv="' + (pv | 0) + '"' : '') +
+      (hint ? ' data-kx-face="' + esc(hint) + '"' : '') +
+      (border ? ' data-kx-border="' + esc(border) + '"' : '') + '></span>';
     return av;
   }
   /* mount the photos after any render that drew avatars */
@@ -550,7 +569,7 @@
       '</div>' +
       '<div class="scroll fr-scroll">' +
         '<div class="fr-profcard s-' + st.cls + '">' +
-          '<div class="fr-profav">' + avatar(f.n, 96, f.pv, f.k) + '<i class="fr-dot big ' + st.cls + '"></i></div>' +
+          '<div class="fr-profav">' + avatar(f.n, 96, f.pv, f.k, f.av, f.bd) + '<i class="fr-dot big ' + st.cls + '"></i></div>' +
           '<h3 class="fr-profname">' + esc(f.n) + '</h3>' +
           '<div class="fr-profstatus"><i class="fr-dot ' + st.cls + '"></i>' + esc(st.word) + '</div>' +
           statCards +

@@ -3934,6 +3934,16 @@ def friend_state(conn, extra=None):
     try:
         body["incoming"] = ACCOUNTS.friend_reqs_in(conn.acct)
         body["outgoing"] = ACCOUNTS.friend_reqs_out(conn.acct)
+        # THE FACE ON A PENDING REQUEST. The friends list next door has
+        # carried `pv` since build 193, so an accepted friend shows their
+        # photograph while the very same person, one row higher and still
+        # pending, showed a drawn default — the same human, two faces, on
+        # one screen. Same annotation, same key field.
+        for _rows in (body["incoming"], body["outgoing"]):
+            for _e in _rows:
+                _pv = karti_avatar.version(_e.get("k") or "")
+                if _pv:
+                    _e["pv"] = _pv
     except Exception:
         body["incoming"] = []
         body["outgoing"] = []

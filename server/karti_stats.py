@@ -280,7 +280,16 @@ class Store:
             CREATE TABLE IF NOT EXISTS players(
                 uname TEXT PRIMARY KEY,
                 name  TEXT NOT NULL,
-                at    REAL NOT NULL
+                at    REAL NOT NULL,
+                -- THE LOOK THEY CHOSE. The client has always pushed these
+                -- beside the name and this table has always thrown them away,
+                -- so a leaderboard drew every player from a hash of their
+                -- name -- a stable default, and not the face they picked. A
+                -- photograph is separate (the avatar store, keyed by uname);
+                -- this is for the many players who have no photograph at all.
+                -- Two short opaque ids. Nothing here interprets them.
+                av    TEXT NOT NULL DEFAULT '',
+                bd    TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS rows(
                 uname TEXT NOT NULL,
@@ -294,6 +303,15 @@ class Store:
             CREATE INDEX IF NOT EXISTS rows_by_game ON rows(game, w DESC, l ASC);
             """
         )
+        # ADD THE COLUMNS TO A DATABASE THAT PREDATES THEM. CREATE TABLE IF
+        # NOT EXISTS does nothing to a table that already exists, so without
+        # this the live board would keep dropping the look for ever.
+        for col in ("av", "bd"):
+            try:
+                self.db.execute(
+                    "ALTER TABLE players ADD COLUMN %s TEXT NOT NULL DEFAULT ''" % col)
+            except sqlite3.OperationalError:
+                pass            # already there
         self.db.commit()
         if path != ":memory:":
             try:
@@ -310,7 +328,18 @@ class Store:
 
     # -- writing --------------------------------------------------------
 
-    def put(self, uname: str, name: str, games: dict[str, tuple[int, ...]]) -> int:
+    @staticmethod
+    def _look(v):
+        """A face or border id, or nothing.
+
+        Same rule the room roster uses: these end up in other people's DOM,
+        so a value that can carry a quote is a value that can break out of an
+        HTML attribute on somebody else's phone."""
+        v = str(v or "")[:32]
+        return v if v and all(c.isalnum() or c in "._-" for c in v) else ""
+
+    def put(self, uname: str, name: str, games: dict[str, tuple[int, ...]],
+            av: str = "", bd: str = "") -> int:
         """Replace one account's table. Returns how many rows it now has.
 
         One transaction: an interrupted push leaves the previous table intact
@@ -330,9 +359,10 @@ class Store:
             self.db.execute("BEGIN")
             try:
                 self.db.execute(
-                    "INSERT INTO players(uname,name,at) VALUES(?,?,?)"
-                    " ON CONFLICT(uname) DO UPDATE SET name=excluded.name, at=excluded.at",
-                    (uname, name, now),
+                    "INSERT INTO players(uname,name,at,av,bd) VALUES(?,?,?,?,?)"
+                    " ON CONFLICT(uname) DO UPDATE SET name=excluded.name,"
+                    "   at=excluded.at, av=excluded.av, bd=excluded.bd",
+                    (uname, name, now, self._look(av), self._look(bd)),
                 )
                 self.db.execute("DELETE FROM rows WHERE uname=?", (uname,))
                 self.db.executemany(
@@ -370,14 +400,16 @@ class Store:
             if game == "all":
                 sql = (
                     "SELECT r.uname, p.name,"
-                    " SUM(r.p), SUM(r.w), SUM(r.l), SUM(r.d), MAX(r.bs)"
+                    " SUM(r.p), SUM(r.w), SUM(r.l), SUM(r.d), MAX(r.bs),"
+                    " p.av, p.bd"
                     " FROM rows r JOIN players p ON p.uname = r.uname"
                     " GROUP BY r.uname"
                 )
                 cur = self.db.execute(sql)
             else:
                 sql = (
-                    "SELECT r.uname, p.name, r.p, r.w, r.l, r.d, r.bs"
+                    "SELECT r.uname, p.name, r.p, r.w, r.l, r.d, r.bs,"
+                    " p.av, p.bd"
                     " FROM rows r JOIN players p ON p.uname = r.uname"
                     " WHERE r.game=?"
                 )
@@ -393,6 +425,12 @@ class Store:
                 "l": int(row[4] or 0),
                 "d": int(row[5] or 0),
                 "bs": int(row[6] or 0),
+                # the face and ring they chose, so the board draws PEOPLE
+                # rather than a hash of their names. Empty for anyone who
+                # has not pushed since this shipped; the client falls back
+                # to what it always drew.
+                "av": str(row[7] or ""),
+                "bd": str(row[8] or ""),
             }
             for row in raw
         ]
@@ -570,7 +608,12 @@ def _push(handler, body: dict) -> None:
         _fail(handler, 400, E_BAD)
         return
     try:
-        n = STORE.put(uname, name, games)
+        # The client has always sent these beside the games and they have
+        # always been dropped on the floor here. They are the face and ring
+        # the player CHOSE — without them a leaderboard draws everybody from
+        # a hash of their name, which is stable, pretty, and not them.
+        n = STORE.put(uname, name, games,
+                      body.get("av"), body.get("bd"))
     except sqlite3.Error:
         _fail(handler, 503, "The board is busy.")
         return
