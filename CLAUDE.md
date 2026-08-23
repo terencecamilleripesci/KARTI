@@ -6,6 +6,14 @@ GitHub Pages; a relay runs on the Pi at **port 8101**.
 Read this before writing code. Everything here was learned by breaking
 something, and it is here so you do not have to break it again.
 
+**Two more files, read on demand — not loaded into your context until you
+open them, so opening them is cheap and searching blind is not:**
+- **`docs/MAP.md`** — where everything lives. Read it BEFORE you go looking
+  for anything. It turns a long hunt into a lookup.
+- **`docs/AGENT-LOG.md`** — mistakes already made here, and what they
+  actually turned out to be. Read it before you start; **append to it when
+  something costs you time.** That is how the next agent avoids your hour.
+
 ## Never
 - **`audio/`** — never touch, for any reason.
 - **`server/karti_server.py`** — the LIVE relay. Never restart, redeploy or
