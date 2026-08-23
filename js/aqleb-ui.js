@@ -877,12 +877,16 @@ function maybeThink(){
    THE END — into the shared AAA winner screen (js/rebbieh.js). One row
    per seat, ranked by disc count; ties share a place.
    ═══════════════════════════════════════════════════════════════════ */
-function finish(){
+/* `forced` is the sole-win path only: a verdict the engine cannot reach
+   ({winners:[me], sole:true, counts:E.counts(st)}) because the other
+   chair of a 1v1 walked out rather than losing on the board. Every
+   ordinary caller passes nothing and reads E.over exactly as before. */
+function finish(forced){
   if (!M || M.finished) return;
   M.finished = true;
   stopThinking();
   const st = M.st;
-  const ov = E.over(st);
+  const ov = forced || E.over(st);
   if (!ov) return;
   cue('game.win', { gain: 0.95 }, true);
 
@@ -920,6 +924,7 @@ function finish(){
   const net = M.net;
   const title = ov.draw
     ? (iWon ? T('Shared top!', 'Quċċata maqsuma!') : T('A shared top', 'Quċċata maqsuma'))
+    : (ov.sole && iWon) ? T('They walked out — you win', 'Telaq — ir-rebħa tiegħek')
     : iWon ? T('You flipped the most!', 'Aqlibt l-aktar!')
     : (me >= 0) ? T('Beaten', 'Mirbuħ')
     : discName(ov.winner) + ' ' + T('wins', 'jirbaħ');
@@ -979,6 +984,9 @@ function finish(){
         : (MPX.stakeSettle ? MPX.stakeSettle(iWon ? 'win' : 'lose') : null);
     } catch(e){}
   }
+  /* a 1v1 walk-out settled the pot in mp.js before this ran (the sole-win
+     hook stashed it); the settle above was a no-op then */
+  if (!potRes && iWon && M.solePot){ potRes = M.solePot; M.solePot = null; }
 
   show({
     title,
@@ -1363,6 +1371,22 @@ const hooks = {
     M.gone[seat] = 1;
     if (M.meta && M.meta[seat]) M.meta[seat].own = 'net';  /* stays a person, just absent */
     driveGone();
+  },
+  /* THE 1v1 WALK-OUT IS A WIN. driveGone()'s ghost-plays-on answer is
+     right for a table of three or four and absurd for two — the leave
+     sheet promised the leaver that the stayer takes it. js/mp.js calls
+     this only when the match BEGAN with exactly two seats and the OTHER
+     one left for good (held drops never come here), with the pot already
+     settled there (idempotent; a friendly table moves nothing) — it is
+     stashed for finish() to paint. finish()'s M.finished latch keeps the
+     single id-guarded award to one firing. */
+  soleWin(seat, pot){
+    if (!M || M.dead || M.finished || !M.net || E.over(M.st)) return;
+    const me = firstLocalSeat();
+    if (me < 0) return;
+    M.solePot = pot || null;
+    finish({ kind:'over', counts: E.counts(M.st), winners:[me],
+             winner: me, draw: false, sole: true });
   }
 };
 

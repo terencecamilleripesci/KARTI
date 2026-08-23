@@ -951,6 +951,17 @@ const MP = {
   lobbyY:0,             /* where the finger left the lobby list — see tableLobby */
   aiSeat:-1,            /* the empty chair the machine picker is aimed at */
   began:null,           /* the relay's {t:'began'} — seed, bots, levels    */
+  matchLive:null,       /* WHO ACTUALLY SAT DOWN, frozen at 'began':
+                           [{seat,kind}] for every chair that was playing.
+                           The roster mutates as chairs empty, so a walk-out
+                           can never be judged from it later — this list is
+                           the truth about how many started and which chair
+                           was whose. Read by soleSurvivor(); reset with the
+                           room. */
+  soleWinPot:null,      /* a pot settled by a 1v1 walk-out (tableSeatGone →
+                           stakeSettle('win')) BEFORE the game drew its win
+                           card. stakeCeremony() reads and clears it so the
+                           card still shows the pot landing, exactly once. */
   stakeLive:null,       /* THE POT THIS MATCH IS PLAYING FOR, on this phone:
                            {ante,humans,pot,id,paid,settled}. Set the moment a
                            STAKED table begins (the ante goes out right there,
@@ -2450,7 +2461,8 @@ function mpLeave(){
   stakeCleanup();
   /* the table, put away with the room it belonged to */
   MP.size = 2; MP.mySeat = 0; MP.roster = null; MP.iAmReady = false;
-  MP.began = null; MP.panel = null; MP.aiSeat = -1; MP.showRules = false;
+  MP.began = null; MP.matchLive = null; MP.panel = null; MP.aiSeat = -1;
+  MP.showRules = false;
   MP.wantSeats = 0; MP.variant = null; MP.rules = null; MP.askBack = null;
   MP.privateHook = null; MP.pendingMine = null; MP.whisperHook = null;
   if (MP.unMove){ try { MP.unMove(); } catch (e){} MP.unMove = null; }
@@ -2651,6 +2663,9 @@ function onServer(m){
         setState('reconnecting', 'Your opponent dropped out — waiting for them to come back…');
       } else {                                   /* left */
         MP.peerHere = false; MP.peerList = null;
+        /* a 1v1 walk-out is a RESULT: the stayer takes the win, if the
+           game knows how to hand it over (opt-in — see boardSoleWin) */
+        if (MP.live && boardSoleWin()) return;
         if (MP.live) endMatch(MP.game === 'cards'
           ? 'Your opponent left the duel.' : 'Your opponent left the game.');
         else if (MP.boardLive) setState('gone', 'They have gone.');
@@ -3395,6 +3410,7 @@ function stakeForfeit(){
    stack away with it (a fresh sitting deals a fresh stack) */
 function stakeCleanup(){
   MP.stakeLive = null;
+  MP.soleWinPot = null;
   try {
     if (window.KARTI_XP && KARTI_XP.tableStack && KARTI_XP.tableStack(MP.game))
       KARTI_XP.closeTableStack(MP.game);
@@ -3426,7 +3442,13 @@ function stakeWireResult(tries){
 }
 function stakeCeremony(ctx, tone){
   if (!MP.stakeLive) return;
-  const res = stakeSettle(tone === 'win' ? 'win' : tone === 'draw' ? 'draw' : 'lose');
+  let res = stakeSettle(tone === 'win' ? 'win' : tone === 'draw' ? 'draw' : 'lose');
+  /* A 1v1 WALK-OUT settled the pot BEFORE this card went up (tableSeatGone
+     paid the sole survivor the moment the leaver was gone for good), so the
+     settle above is a no-op there. The stash carries what landed so the win
+     card still shows the pot; cleared on use, so a second result card —
+     however it fires — paints nothing twice. */
+  if (!res && tone === 'win' && MP.soleWinPot){ res = MP.soleWinPot; MP.soleWinPot = null; }
   if (!res) return;
   const card = ctx && ctx.root && ctx.root.querySelector && ctx.root.querySelector('.pt-card');
   if (!card) return;
@@ -4484,6 +4506,40 @@ function tableChairFreed(seat){
   if (!MP.live && !MP.boardLive) tableLobby();
 }
 
+/* ── THE SOLE SURVIVOR OF A 1v1 ───────────────────────────────────
+   "if 1 player leaves the game, auto-win that player" — the owner's own
+   words, and since build 235 the leave sheet says it out loud to the
+   leaver: "If you leave now, X takes the win" (js/party.js,
+   leaveAskOpts). This is the half that makes that sentence true.
+
+   TRUE only when all three hold, judged against the frozen start list:
+     · the match is still LIVE on this phone,
+     · it BEGAN with exactly two seats — a bigger table walking down to
+       two mid-game is not a duel, and three players do not produce a
+       winner because one of them walked out (a stop is not a result),
+     · the seat that is gone for good is the OTHER one, and was a human
+       who actually sat down (a machine never leaves; a chair that was
+       never in the match forfeits nothing).
+   'dropped' never reaches this question at all — a held chair may come
+   back, and folding somebody over a lift ride is not this file's call. */
+function soleSurvivor(seat){
+  if (!MP.live) return false;
+  const two = MP.matchLive;
+  if (!Array.isArray(two) || two.length !== 2) return false;
+  if (seat === MP.mySeat) return false;            /* the leaver is not me */
+  const gone = two.find(s => s && s.seat === seat);
+  const mine = two.find(s => s && s.seat === MP.mySeat);
+  return !!(gone && mine && gone.kind === 'human');
+}
+/* ...and the game's own word that the match is still on. A result card
+   already up means the walk-out is just somebody going home afterwards,
+   and handing out a second result for it would pay twice. A game that
+   publishes no live() hook is taken at MP.live's word, as guardLeave does. */
+function gameStillOn(net){
+  if (!net || typeof net.live !== 'function') return true;
+  try { return !!net.live(); } catch (e){ return true; }
+}
+
 /* ── somebody left mid-game ─────────────────────────────────────── */
 function tableSeatGone(seat, how){
   const LB = gameLobby(MP.game);
@@ -4496,12 +4552,31 @@ function tableSeatGone(seat, how){
   K.toast(name + (how === 'dropped' ? ' dropped out.' : ' left.'));
   /* A seat that is GONE FOR GOOD ('left' — a deliberate exit, or the relay
      freeing a dropped chair after its grace) is handed to the game, IF the
-     game has said it knows what to do with one. hooks.seatGone is opt-in:
-     a game that publishes it seats the ghost out and plays on (RUMMY does);
-     a game that does not is exactly as it was — this call does not exist
-     for it. 'dropped' is deliberately NOT passed: a held chair may come
-     back, and folding somebody over a lift ride is not this file's call. */
-  if (how !== 'dropped' && net && net.hooks && typeof net.hooks.seatGone === 'function'){
+     game has said it knows what to do with one. Both hooks are opt-in;
+     'dropped' is deliberately NOT passed: a held chair may come back, and
+     folding somebody over a lift ride is not this file's call.
+
+     hooks.soleWin(seat, pot) — the 1v1 walk-out IS a result: the player
+     still sitting here takes the win. The pot settles HERE, not in the
+     game: the leaver's ante was already forfeited into it on their own
+     phone (stakeForfeit), so the stayer is PAID it — once (stakeSettle is
+     idempotent), and never on a friendly table (no stakeLive, nothing
+     moves). What landed is stashed for the win card the game is about to
+     draw (stakeCeremony reads it), and handed to the hook as well. A game
+     that publishes no soleWin behaves exactly as it did yesterday.
+
+     hooks.seatGone(seat) — every other real departure: a game that
+     publishes it seats the ghost out and plays on (RUMMY does); a game
+     that does not is exactly as it was — this call does not exist for it. */
+  if (how === 'dropped') return;
+  if (soleSurvivor(seat) && gameStillOn(net) &&
+      net && net.hooks && typeof net.hooks.soleWin === 'function'){
+    const res = stakeSettle('win');
+    if (res) MP.soleWinPot = res;
+    try { net.hooks.soleWin(seat, res); } catch (e){}
+    return;
+  }
+  if (net && net.hooks && typeof net.hooks.seatGone === 'function'){
     try { net.hooks.seatGone(seat); } catch (e){}
   }
 }
@@ -4557,6 +4632,11 @@ function onBegan(m){
     }
   }
   const live = seats.filter(Boolean);
+
+  /* WHO IS ACTUALLY PLAYING, frozen now. soleSurvivor() judges a walk-out
+     against this list, never against the roster, which will already have
+     forgotten the leaver by the time the question is asked. */
+  MP.matchLive = live.map(s => ({ seat: s.seat, kind: s.kind }));
 
   /* THE MACHINE IS READY BEFORE ANYBODY LOOKS AT IT. autoReady() is the game's
      own, and is called for every seat rather than only the ones we think are
@@ -5089,7 +5169,15 @@ function onPeer(d, from){
     return;
   }
 
-  if (d.k === 'bail'){ endMatch(d.why || 'They stopped the game.'); return; }
+  if (d.k === 'bail'){
+    /* our own boardGone says exactly this when its player walks off the
+       screen mid-game — a deliberate departure, not a connection death,
+       so the stayer takes the win where the game can hand it over. Every
+       other bail (desync, illegal move, a real stop) is CUT OFF as ever. */
+    if (d.why === 'They left the game.' && MP.live && boardSoleWin()) return;
+    endMatch(d.why || 'They stopped the game.');
+    return;
+  }
 }
 
 /* the host deals: one seed, both decks pre-shuffled, sent to the guest so
@@ -5165,6 +5253,36 @@ function beginOnline(p){
 function partyAPI(){
   const P = window.KARTI_PARTY;
   return (P && P.online && P.online[MP.game]) || null;
+}
+
+/* THE DUEL-PATH TWIN of soleSurvivor's rule. Chess and dama never sit at
+   the shared table (usesTableLobby says so), so their walk-out never
+   reaches tableSeatGone: it arrives as a bare {t:'peer',state:'left'} —
+   or as the walker's own bail, 'They left the game.', when their phone
+   tore the board down — and both used to fall straight into endMatch's
+   CUT OFF card. A duel is always exactly two humans, so the player still
+   here is the sole survivor by construction: if the game's online half
+   publishes soleWin, hand them the WIN the leave sheet promised; if it
+   does not, return false and the caller shows CUT OFF exactly as today.
+
+   Boards carry no pot today (stakeArm only runs for table rooms), but the
+   settle is called all the same — idempotent, a no-op with nothing staked
+   — so a staked board tomorrow is already honest. 'dropped' never comes
+   here: it sets 'reconnecting' and the chair is held, as it always was. */
+function boardSoleWin(){
+  if (!MP.boardLive) return false;
+  const api = partyAPI();
+  if (!api || typeof api.soleWin !== 'function') return false;
+  /* the game's own word beats the room flag: a finished board whose
+     opponent then goes home is not a second result */
+  if (typeof api.live === 'function'){
+    try { if (!api.live()) return false; } catch (e){}
+  }
+  const res = stakeSettle('win');
+  if (res) MP.soleWinPot = res;
+  try { api.soleWin(); } catch (e){ return false; }
+  MP.live = false;      /* a real result — the room is done, nobody was cut off */
+  return true;
 }
 
 function hostStartBoard(){

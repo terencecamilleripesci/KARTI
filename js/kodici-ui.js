@@ -1000,6 +1000,7 @@ function finishScreen(){
   const doLeave = () => { finished=false; leave(); menu(); };
 
   const title = draw ? T('Dead heat','Ndaqs')
+    : (M.sole && youWon) ? T('They walked out — you win','Telaq — ir-rebħa tiegħek')
     : (M.mode==='pass' ? (seatName(w)+' '+T('cracks it','jirbaħ'))
       : youWon ? T('Code cracked!','Qtajt il-kodiċi!') : T('Out-hunted','Inqbadt'));
 
@@ -1029,6 +1030,9 @@ function finishScreen(){
     if (staked && MPX.stakeSettle){
       try { potRes = MPX.stakeSettle(tone); } catch(e){}
     }
+    /* a 1v1 walk-out settled the pot in mp.js before this ran (the
+       sole-win hook stashed it); the settle above was a no-op then */
+    if (!potRes && tone === 'win' && M.solePot){ potRes = M.solePot; M.solePot = null; }
     REB.show({
       lang: window.KARTI_LANG ? KARTI_LANG.lang() : 'en',
       reduced: noMotion(),
@@ -1210,7 +1214,14 @@ function onlineStart(cfg){
     pending:false                           /* a guess is out, awaiting the verdict */
   };
   finished = false;
-  openBoard(() => { onlineStop('left'); menu(); });
+  /* THE BACK DOOR LEAVES THE ROOM. This used to paint the local cut-off
+     card and open the menu while the SOCKET STAYED SEATED — the relay
+     never heard a 'leave', so the other phone was never told and the
+     "X takes the win" the confirm sheet had just promised never happened.
+     Route out through net.onLeave (mp.js backToRooms → mpLeave), the same
+     door every other game's online back already uses. */
+  openBoard(() => { const n = M && M.net; leave();
+                    if (n && n.onLeave) n.onLeave(); else menu(); });
   /* online SET: you compose YOUR OWN secret on this device. It is never sent —
      you only announce {t:'set'} when it is locked, and play begins once both
      phones have announced. */
@@ -1352,7 +1363,24 @@ const NET_HOOKS = {
   onMove: fn => { NET_SEND = fn; return () => { if (NET_SEND === fn) NET_SEND = null; }; },
   private: (d /*, mates */) => onlinePrivate(d),
   apply: (seat, wire) => onlineRemote(seat, wire),
-  seatGone: () => { onlineStop('left'); }
+  seatGone: () => { onlineStop('left'); },
+  /* THE 1v1 WALK-OUT IS A WIN — and kodiċi is always 1v1, so this is the
+     door every real departure now comes through (js/mp.js prefers it over
+     seatGone above, which stays for older mp.js builds). The hunt ends
+     with the stayer as winner on the ordinary podium; the pot was already
+     settled in mp.js (idempotent; a friendly table moves nothing) and is
+     stashed for finishScreen() to paint. The `finished` latch keeps the
+     single id-guarded award to one firing. */
+  soleWin: (seat, pot) => {
+    if (!M || M.dead || M.mode !== 'online' || finished) return;
+    if (M.st && M.st.over) return;
+    if (M.st){ M.st.over = true; M.st.winner = M.you; }
+    M.solePot = pot || null;
+    M.sole = true;
+    M.phase = 'over';
+    try { setBadge(); } catch(e){}
+    finishScreen();
+  }
 };
 
 P.online = P.online || {};

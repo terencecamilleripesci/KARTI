@@ -1925,13 +1925,18 @@ function finish(e){
   if (useReb && staked && MPX.stakeSettle){
     try { potRes = MPX.stakeSettle(tone); } catch(err){}
   }
+  /* a 1v1 walk-out settled the pot in mp.js BEFORE this ran (the sole-win
+     hook hands it in on the event); the settle above was a no-op then */
+  if (!potRes && iWon && e.pot) potRes = e.pot;
 
   const winName = e.winner >= 0 ? nameOf(e.winner) : 'Nobody';
   const head = iWon ? 'GĦARRAQTHOM!' : 'GĦARRQUK.';
-  const why = e.winner >= 0
-    ? winName + ' is the last fleet floating' +
-      (st.mode === 'karti' ? ' after ' + st.tcount + ' turns of the cards.' : '.')
-    : 'Everybody left. The sea keeps the lot.';
+  const why = e.sole
+    ? winName + ' takes the win — the other captain abandoned ship.'
+    : e.winner >= 0
+      ? winName + ' is the last fleet floating' +
+        (st.mode === 'karti' ? ' after ' + st.tcount + ' turns of the cards.' : '.')
+      : 'Everybody left. The sea keeps the lot.';
   const quip = iWon ? QUIP_WIN[(st.rng >>> 4) % QUIP_WIN.length]
                     : QUIP_LOSE[(st.rng >>> 4) % QUIP_LOSE.length];
 
@@ -2128,7 +2133,19 @@ const HOOKS = {
   onMove: f => { moveSubs.push(f); return () => { const i = moveSubs.indexOf(f); if (i >= 0) moveSubs.splice(i, 1); }; },
   apply: (seat, mv) => netApply(seat, mv),
   phase: () => (G ? G.st.phase : null),
-  live: () => !!(G && G.mode === 'online' && !G.dead)
+  live: () => !!(G && G.mode === 'online' && !G.dead),
+  /* THE 1v1 WALK-OUT IS A WIN. js/mp.js calls this (never seatGone-style
+     carry-on, never for a held drop) when the battle began with exactly
+     two seats and the OTHER one left for good: the captain still here is
+     the last fleet floating by forfeit. The pot was already settled in
+     mp.js (idempotent, friendly tables move nothing) and rides in as
+     `pot` so finish() can paint it; finish()'s G.finished latch keeps
+     the whole ceremony — award included — to one firing per battle. */
+  soleWin: (seat, pot) => {
+    if (!G || G.mode !== 'online' || G.dead || G.finished) return;
+    if (G.st && G.st.phase !== 'done') G.st.phase = 'done';
+    finish({ winner: G.mySeat, sole: true, pot: pot || null });
+  }
 };
 
 P.online = P.online || {};

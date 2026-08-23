@@ -1029,7 +1029,18 @@ function openTable(S, o) {
      phone is 46px that the cards are not getting. Rules and the sort switch
      moved up into the thin strip above the hand as icons. */
   const ctx = P.ui.frame({
-    title: 'SKARTA', onBack: () => { teardown(); menu(); }, leave: teardown,
+    /* THE ONLINE BACK DOOR LEAVES THE ROOM — teardown()+menu() alone kept
+       the SOCKET SEATED: the relay never heard a 'leave', so the other
+       phones were never told and a 1v1 stayer never got the win the
+       confirm sheet had just promised the leaver. Same net-leave door the
+       result screen's own buttons already use (goBack in showResult). */
+    title: 'SKARTA',
+    onBack: () => {
+      const n = (G && G.net) ? NET : null;
+      teardown();
+      if (n && n.onLeave) n.onLeave(); else menu();
+    },
+    leave: teardown,
     barCls: 'two',
     buttons: [
       { id: 'sk-ahhar', label: 'LAST ONE', icon: 'warn', cls: 'hot' },
@@ -1817,7 +1828,12 @@ function showResult() {
   } catch (e) {}
 
   if (useR2) {
-    const stk = settleStake(iWon ? 'win' : 'lose');
+    /* a 1v1 walk-out settled the pot in mp.js before this ran (the
+       sole-win hook stashed it on G); settleStake is a no-op then and
+       the stashed record is what the podium paints — once */
+    const stk = settleStake(iWon ? 'win' : 'lose') ||
+                (iWon && G.solePot ? G.solePot : null);
+    G.solePot = null;
     const goBack = () => { const n = NET; teardown();
                           if (n && n.onLeave) n.onLeave(); else P.hub(); };
     const rows = S.over.scores.slice()
@@ -2167,6 +2183,36 @@ const HOOKS = {
     NET.gone[g] = 1;
     clearTimeout(G.t);
     tick();
+  },
+  /* THE 1v1 WALK-OUT IS A WIN. goneStep()'s ghost-plays-on answer is right
+     for a big table and absurd for two: the leave sheet promised the
+     leaver that the stayer takes it, not that a ghost keeps discarding at
+     them. js/mp.js calls this only when the match BEGAN with exactly two
+     seats and the OTHER chair left for good (held drops never come here),
+     with the pot already settled there (idempotent; a friendly table moves
+     nothing) — it rides in as `pot` for showResult() to paint. S.over is
+     laid down exactly the way the engine's own finish() builds it, and
+     showResult() then runs the ordinary ceremony: the same podium, one
+     id-guarded award under S.gid. The S.over gate above me makes a second
+     call a no-op. */
+  soleWin: (room, pot) => {
+    if (!G || G.dead || !NET || G.S.over) return;
+    const S = G.S;
+    const g = NET.toGame[room];
+    if (g === undefined || !S.players[g]) return;
+    clearTimeout(G.t); G.t = null;
+    NET.gone = NET.gone || {};
+    NET.gone[g] = 1;
+    S.over = {
+      winner: G.mySeat,
+      scores: S.players.map(p => ({
+        id: p.id, name: p.name, cards: p.hand.length,
+        points: p.hand.reduce((n, c) => n + E.cardPoints(c), 0),
+      })),
+    };
+    G.solePot = pot || null;
+    render();
+    showResult();
   },
 };
 

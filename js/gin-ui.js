@@ -2297,7 +2297,10 @@ function winnerScreen(o) {
   if (!podiumUp()) return false;
   const me = M.mySeat;
   const pay = payMatch(o.tone);
-  const stk = settleStake(o.tone);
+  /* a 1v1 walk-out settled the pot in mp.js BEFORE this ran (the sole-win
+     hook hands it in as o.stk); settleStake is a no-op then and the
+     handed-in record is what the ceremony paints */
+  const stk = settleStake(o.tone) || o.stk || null;
   const order = o.tone === 'win' ? [me, 1 - me] : [1 - me, me];
   const rows = order.map((s, i) => ({
     name: M.st.seats[s].name,
@@ -2901,6 +2904,37 @@ function theyResigned() {
   if (M.net && M.net.onEnd) { try { M.net.onEnd({ resign: true }); } catch (e) {} }
 }
 
+/* THE 1v1 WALK-OUT IS A WIN — the twin of theyResigned(), reached through
+   js/mp.js's opt-in soleWin hook when the opponent LEFT the table for good
+   mid-match (a held drop never comes here). The pot was already settled in
+   mp.js and rides in as `pot` so the podium can paint it; the M.finished
+   latch keeps the ceremony — and payMatch's single award — to one firing. */
+function theyLeft(pot) {
+  if (!M || M.dead || M.finished || !M.net) return;
+  M.finished = true;
+  stopClocks();
+  cue('game.win', { gain: 1 });
+  P.ui.setNet(M.ctx, '', '');
+  const score = M.st.match.pts[M.mySeat] + '–' + M.st.match.pts[1 - M.mySeat];
+  if (winnerScreen({
+    tone: 'win',
+    title: TW('They walked out', 'Telqu mil-logħba'),
+    subtitle: TW('The match is yours. Score at the walk-out: ',
+                 'Il-partita tiegħek. Il-punti mat-tluq: ') + score + '.',
+    pts: M.st.match.pts,
+    stk: pot || null
+  })) { if (M.net && M.net.onEnd) { try { M.net.onEnd({ left: true }); } catch (e) {} } return; }
+  P.ui.result(M.ctx, {
+    tone: 'win',
+    head: 'They walked out',
+    why: 'The match is yours. Score at the walk-out: ' + score + '.',
+    quip: 'A win is a win, even one that leaves by the side door.',
+    buttons: [{ label: 'Back to the rooms', icon: 'back', cls: 'primary',
+      go: () => { const n = M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); } }]
+  });
+  if (M.net && M.net.onEnd) { try { M.net.onEnd({ left: true }); } catch (e) {} }
+}
+
 function resignOnline() {
   if (!M || !M.net || M.finished) return;
   try { M.net.send('resign', null, null); } catch (e) {}
@@ -2958,6 +2992,9 @@ P.online = P.online || {};
 P.online.gin = {
   start: onlineStart, remote: onlineRemote,
   note: onlineNote, stop: onlineStop,
+  /* gin needs no move hooks (it talks through net.send), but the sole-win
+     door is a hook by contract — see tableSeatGone in js/mp.js */
+  hooks: { soleWin: (seat, pot) => theyLeft(pot) },
   live: () => !!(M && M.net && !M.dead)
 };
 

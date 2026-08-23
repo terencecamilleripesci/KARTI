@@ -1727,6 +1727,7 @@ function finish(s){
 
   if (s.end === 'mate'){ head = 'Checkmate'; why = winner + ' won. No move left, no way out, no argument.'; }
   else if (s.end === 'resign'){ head = 'Resigned'; why = winner + ' won it — the other one put their king down.'; }
+  else if (s.end === 'left'){ head = 'They left'; why = winner + ' won it — the other one walked out mid-game.'; }
   else if (s.end === 'stalemate'){ head = 'Stalemate'; why = 'Not in check, and not one legal move on the board. Draw.'; }
   else if (s.end === 'fifty'){ head = 'Fifty moves'; why = 'Fifty moves each with nothing taken and no pawn moved. Draw.'; }
   else if (s.end === 'repeat'){ head = 'Three times over'; why = 'The same position for the third time. Draw, before somebody falls asleep.'; }
@@ -1848,6 +1849,7 @@ function showRebbieh(s, head, pay){
   const endWord =
     s.end === 'mate'   ? RT('Checkmate', 'Skakk matt') :
     s.end === 'resign' ? RT('By resignation', 'B’riżenja') :
+    s.end === 'left'   ? RT('Opponent walked out', 'L-avversarju telaq') :
                          RT('Game over', 'Il-logħba spiċċat');
   const backToRooms = () => { if (G && G.net) G.net.onLeave(); };
 
@@ -2018,10 +2020,23 @@ function onlineStop(why, tone){
   }
 }
 
+/* THE 1v1 WALK-OUT IS A WIN, not a cut-off. Called by js/mp.js
+   (boardSoleWin) when the opponent LEFT the room for good mid-game — a
+   deliberate exit or the relay freeing their chair after its grace, never
+   a held drop. Routes through finish(), the one place a game of chess is
+   resolved, so the podium, the single awardPlay payment and the wording
+   all behave exactly as they do for a resignation. finish() is gated on
+   G.over like every other caller, so this cannot resolve a game twice. */
+function onlineSoleWin(){
+  if (!G || !online() || G.over) return;
+  if (G.tb) G.tb.cancel(true);
+  finish({ end:'left', win: G.human });
+}
+
 P.online = P.online || {};
 P.online.chess = {
   start: onlineStart, remote: onlineRemote, take: onlineTake,
-  note: onlineNote, stop: onlineStop,
+  note: onlineNote, stop: onlineStop, soleWin: onlineSoleWin,
   live: () => !!(G && online() && !G.dead)
 };
 

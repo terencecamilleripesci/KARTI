@@ -1399,7 +1399,10 @@ function finish(done){
                                    id: 'rm' + M.seed.toString(36),
                                    ranked: !!(window.KARTI_MP && KARTI_MP.MP && KARTI_MP.MP.stakeLive) });
       } catch(e){}
-      stk = settleStake(done.tone || 'draw');
+      /* a 1v1 walk-out settled the pot in mp.js BEFORE this ran (the
+         sole-win hook hands it in as done.stk); settleStake is a no-op
+         then and the handed-in record is what the podium paints */
+      stk = settleStake(done.tone || 'draw') || done.stk || null;
     } else {
       /* OFFLINE the hands already paid one by one as each RUMMY landed
          (the 'out' subscriber above), so the table-end must pay exactly
@@ -2083,6 +2086,14 @@ function onlineRemote(seat, wire){
      here first. */
   if (mv.t === 'quit'){
     helloExcuse(seat);
+    /* THE 1v1 WALK-OUT IS A WIN, whichever messenger gets here first.
+       A deliberate leave sends this quit on the wire BEFORE the relay's
+       own 'left', so without this door the table folded itself into
+       over()'s hands-won verdict — a "draw" (or a loss) for the player
+       the leave sheet had just promised the win. Same finish as the
+       soleWin hook below; the pot settles inside finish() here (mp.js
+       has not pre-settled on this path, so settleStake('win') pays). */
+    if (soleRival(g)){ soleWinFinish(g, null); return null; }
     doQuit(g, 'net');
     M.tmp.sel = [];
     render();
@@ -2192,8 +2203,55 @@ const NET_HOOKS = {
     doQuit(g, 'gone');
     M.tmp.sel = [];
     render();
+  },
+  /* THE 1v1 WALK-OUT IS A WIN. A two-seat table folding up is not "the
+     table breaks up" — the leave sheet promised the leaver that the
+     player still sitting takes it, and over()'s hands-won verdict would
+     call it a draw (or worse). js/mp.js calls this only when the match
+     BEGAN with exactly two seats and the OTHER one left for good (held
+     drops never come here), with the pot already settled there
+     (idempotent; a friendly table moves nothing) — it rides in as `pot`
+     so finish() can paint it. The same win also arrives down the WIRE as
+     the leaver's own quit move (see the quit door in onlineRemote), and
+     whichever messenger is first wins: soleWinFinish is latched by
+     M.finished, so the second is a no-op. */
+  soleWin: (seat, pot) => {
+    if (!M || M.dead || M.finished || !NET) return;
+    const g = NET.toGame[seat];
+    if (g === undefined || !soleRival(g)) return;
+    helloExcuse(seat);
+    soleWinFinish(g, pot || null);
   }
 };
+
+/* exactly two chairs at this table, the one going is the OTHER human,
+   and there is no verdict yet — then the stayer takes the win */
+function soleRival(g){
+  if (!M || M.dead || M.finished || !NET) return false;
+  if (!M.st || !Array.isArray(M.st.seats) || M.st.seats.length !== 2) return false;
+  if (E.over(M.st)) return false;
+  return g !== mySeat() && ownerOf(g) !== 'ai';
+}
+/* the one sole-win ceremony, from either messenger (wire quit or relay
+   'left'). Seats the ghost out through the same engine quit as ever, so
+   the log and any replay agree, then reads OUR verdict instead of the
+   hands-won one. finish()'s M.finished latch keeps the single id-guarded
+   award (and the pot) to one firing. */
+function soleWinFinish(g, pot){
+  const name = (M.st.seats[g] && M.st.seats[g].name) || TW('They', 'Huma');
+  if (!E.over(M.st) && M.st.seats[g] && !M.st.seats[g].gone) doQuit(g, 'gone');
+  M.tmp.sel = [];
+  if (M.finished) return;        /* something else already read a verdict */
+  finish({
+    tone: 'win',
+    head: TW('The table was yours', 'Il-mejda kienet tiegħek'),
+    why: name + ' ' + TW('walked out — the win is yours.',
+                         'telaq — ir-rebħa tiegħek.'),
+    quip: TW('They left because of you. Wear it.',
+             'Telqu minħabba fik. Ilbisha.'),
+    stk: pot || null
+  });
+}
 
 P.online = P.online || {};
 P.online.rummy = {

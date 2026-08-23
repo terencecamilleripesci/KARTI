@@ -823,6 +823,8 @@ function finish(s){
         ' on the board and not one legal move between them.';
   } else if (s.end === 'resign'){
     head = 'Resigned'; why = winner + ' won it. The other one had seen enough.';
+  } else if (s.end === 'left'){
+    head = 'They left'; why = winner + ' won it — the other one walked out mid-game.';
   } else if (s.end === 'quiet'){
     head = 'Nothing doing';
     why = 'Forty moves each, nothing taken, no man moved. That is a draw.';
@@ -942,6 +944,7 @@ function showRebbieh(s, pay){
 
   const endWord =
     s.end === 'resign'  ? RT('By resignation', 'B’riżenja') :
+    s.end === 'left'    ? RT('Opponent walked out', 'L-avversarju telaq') :
     (seats.find(p => p.colour !== s.win) || {}).left === 0
                         ? RT('Wiped out', 'Meħuda kollha') :
                           RT('Boxed in', 'Imblukkat');
@@ -1083,10 +1086,23 @@ function onlineStop(why, tone){
   }
 }
 
+/* THE 1v1 WALK-OUT IS A WIN, not a cut-off — the same hook, for the same
+   reason, as onlineSoleWin in js/chess.js. Called by js/mp.js
+   (boardSoleWin) only when the opponent LEFT for good mid-game; a held
+   drop never comes here. Routes through finish(), the one place a game
+   of dama is resolved, so the podium and the single awardPlay payment
+   behave exactly as they do for a resignation. Gated on G.over like
+   every other finish() caller, so a game cannot resolve twice. */
+function onlineSoleWin(){
+  if (!G || !online() || G.over) return;
+  if (G.tb) G.tb.cancel(true);
+  finish({ end:'left', win: G.human });
+}
+
 P.online = P.online || {};
 P.online.dama = {
   start: onlineStart, remote: onlineRemote, take: onlineTake,
-  note: onlineNote, stop: onlineStop,
+  note: onlineNote, stop: onlineStop, soleWin: onlineSoleWin,
   live: () => !!(G && online() && !G.dead)
 };
 

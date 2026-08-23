@@ -793,9 +793,23 @@ function leaveAskOpts(why){
   try { seats = (MPX.rosterSeats && MPX.rosterSeats()) || []; } catch(e){}
   try { mySeat = MPX.MP.mySeat; game = MPX.MP.game || ''; } catch(e){}
   try { stake = MPX.stakeInfo ? MPX.stakeInfo() : null; } catch(e){}
-  const twoSeat = seats.length === 2;
-  const rival = twoSeat ? seats.find(s => s && s.seat !== mySeat) : null;
-  const rivalHuman = !!(rival && rival.kind === 'human');
+  let twoSeat = seats.length === 2;
+  let rival = twoSeat ? seats.find(s => s && s.seat !== mySeat) : null;
+  let rivalHuman = !!(rival && rival.kind === 'human');
+  /* THE DUEL PATH (chess, dama, the card duel) has no roster, so the
+     seats list above is empty and this sheet used to claim "the machine
+     takes your chair" — a lie twice over: nothing takes the chair, and
+     for chess and dama the opponent now takes the WIN (their online
+     halves publish soleWin). Say exactly what will happen: the rival by
+     name for the boards, and the honest "the game ends here" for the
+     card duel, which pays nobody on a walk-out. */
+  if (!seats.length && MPX && MPX.MP && MPX.MP.live){
+    twoSeat = true;
+    if ((game === 'chess' || game === 'dama') && MPX.MP.peerName){
+      rival = { name: MPX.MP.peerName, kind: 'human' };
+      rivalHuman = true;
+    }
+  }
   const staked = !!(stake && stake.staked && stake.live && !stake.settled);
   const ante = staked ? (stake.ante | 0) : 0;
   /* the sentence must be the TRUTH for this table, not one vague line */

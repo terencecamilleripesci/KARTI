@@ -864,12 +864,16 @@ function maybeThink(){
    THE END — into the shared AAA winner screen (js/rebbieh.js). Two rows,
    the winner first; a draw shows both level with the board.
    ═══════════════════════════════════════════════════════════════════ */
-function finish(){
+/* `forced` is the sole-win path only: a verdict the engine cannot reach
+   ({winner, draw:false, sole:true}) because the other chair walked out of
+   a 1v1 rather than losing on the board. Every ordinary caller passes
+   nothing and reads E.over exactly as before. */
+function finish(forced){
   if (!M || M.finished) return;
   M.finished = true;
   stopThinking();
   const st = M.st;
-  const ov = E.over(st);
+  const ov = forced || E.over(st);
   if (!ov) return;
   cue('game.win', { gain: 0.95 }, true);
 
@@ -902,6 +906,7 @@ function finish(){
   const net = M.net;
   const iWon = !ov.draw && me >= 0 && ov.winner === me;
   const title = ov.draw ? T('A draw', 'Ndaqs')
+    : ov.sole ? T('They walked out — you win', 'Telaq — ir-rebħa tiegħek')
     : iWon ? T('Four in a row!', 'Erbgħa f’ringiela!')
     : (isLocal(0) || isLocal(1)) ? T('Beaten', 'Mirbuħ')
     : discName(ov.winner) + ' ' + T('wins', 'jirbaħ');
@@ -949,9 +954,13 @@ function finish(){
   if (staked && MPX.stakeSettle){
     try { potRes = MPX.stakeSettle(tone); } catch(e){}
   }
+  /* a 1v1 walk-out settled the pot in mp.js before this ran (the sole-win
+     hook stashed it); the settle above was a no-op then */
+  if (!potRes && tone === 'win' && M.solePot){ potRes = M.solePot; M.solePot = null; }
   show({
     title,
-    subtitle: ov.draw ? T('The board filled up', 'It-tabellun imtela')
+    subtitle: ov.sole ? T('The other chair emptied mid-game', 'Is-siġġu l-ieħor tbattal waqt il-logħba')
+            : ov.draw ? T('The board filled up', 'It-tabellun imtela')
                       : T('Four in a row', 'Erbgħa f’ringiela'),
     rows,
     xp: pay ? { level: pay.level, gained: pay.xp, leveledUp: !!pay.levelled,
@@ -1291,6 +1300,17 @@ const hooks = {
     const who = (M.meta && M.meta[seat] && M.meta[seat].name) || T('Somebody', 'Xi ħadd');
     onlineStop(who + ' ' + T('left the table — two hands cannot play around an empty chair.',
                              'telaq mill-mejda — tnejn ma jistgħux jilagħbu madwar siġġu vojt.'));
+  },
+  /* THE 1v1 WALK-OUT IS A WIN — and erbgħa is always 1v1, so this is the
+     door every real departure now comes through (js/mp.js prefers it over
+     seatGone above, which stays for older mp.js builds). The pot was
+     already settled in mp.js (idempotent; a friendly table moves nothing)
+     and is stashed for finish() to paint; finish()'s M.finished latch
+     keeps the single id-guarded award to one firing. */
+  soleWin(seat, pot){
+    if (!M || M.dead || M.finished || !M.net || E.over(M.st)) return;
+    M.solePot = pot || null;
+    finish({ winner: firstLocalSeat(), draw: false, sole: true });
   },
   seatBack(){ if (M){ paintSeats(); drawStatic(); } }
 };

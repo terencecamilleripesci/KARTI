@@ -1896,6 +1896,9 @@ function finish(){
     if (staked && MPX.stakeSettle){
       try { potRes = MPX.stakeSettle(won ? 'win' : (draw ? 'draw' : 'lose')); } catch(e){}
     }
+    /* a 1v1 walk-out settled the pot in mp.js before this ran (the
+       sole-win hook stashed it); the settle above was a no-op then */
+    if (!potRes && won && M.solePot){ potRes = M.solePot; M.solePot = null; }
   }
 
   cue(won ? 'game.win' : (draw ? 'board.draw' : 'game.lose'), { gain:0.9 }, true);
@@ -1926,7 +1929,9 @@ function showResult(st, won, draw, opts, net, me, pay, potRes){
     RB.show({
       lang: (window.KARTI_LANG && KARTI_LANG.lang) ? KARTI_LANG.lang() : undefined,
       reduced: noMotion(),
-      title: won ? T('You held the wall', 'Żammejt il-ħajt')
+      title: (won && st.over && st.over.sole)
+              ? T('They walked out — you win', 'Telaq — ir-rebħa tiegħek')
+            : won ? T('You held the wall', 'Żammejt il-ħajt')
             : draw ? T('Dead level', 'Indaqs')
             : T('They broke through', 'Qasmu n-naħa l-oħra'),
       subtitle: T('IL-ĦAJT', 'IL-ĦAJT'),
@@ -2152,6 +2157,20 @@ const NET_HOOKS = {
     if (M.net.host) say(g, { t:'bot', forTick: at, on:1 });
     try { K.toast(T('Opponent left — the machine takes over.',
                     'L-avversarju telaq — il-magna tieħu post.')); } catch(e){}
+  },
+  /* THE 1v1 WALK-OUT IS A WIN — and briks is always 1v1, so this is the
+     door every real departure now comes through (js/mp.js prefers it over
+     seatGone above, which stays for older mp.js builds — handing the wall
+     to a machine is not what the leave sheet promised the stayer). The
+     pot was already settled in mp.js (idempotent; a friendly table moves
+     nothing) and is stashed for finish() to paint; finish()'s M.finished
+     latch keeps the single id-guarded award to one firing. */
+  soleWin: (seat, pot) => {
+    if (!M || M.dead || M.finished || !M.net) return;
+    if (M.st.over) return;
+    M.st.over = { winner: M.me, sole: true };
+    M.solePot = pot || null;
+    finish();
   }
 };
 
