@@ -2365,7 +2365,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 239;
+var KARTI_BUILD = 240;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2492,6 +2492,7 @@ window.swVersion = function(){
                'js/ballun.js','js/ballun-ui.js',                 /* Arena ball 2–4 */
                'js/aqleb.js','js/aqleb-ui.js',                   /* Reversi 2–4 */
                'js/kaxxi.js','js/kaxxi-ui.js',                   /* Dots & Boxes 2–4 */
+               'js/sqaq.js','js/sqaq-ui.js',                     /* Wall-maze race 2–4 */
                'js/konkwista.js','js/konkwista-ui.js',           /* Risk conquest 2–6 */
                'js/misteru.js','js/misteru-ui.js',               /* Clue mystery 2–6 */
                'js/stats.js',
