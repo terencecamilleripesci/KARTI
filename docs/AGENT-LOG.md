@@ -97,3 +97,17 @@ undetectable from the host's phone.
 → **Assert on the NON-HOST, and assert the screen is visible** — not merely
 present in the DOM. A DOM check has already passed while every phone showed
 the wrong screen.
+
+## 2026-08-24 — SQAQ: the wire codec carries NUMBERS ONLY
+Building IS-SQAQ, the first two-client test stopped the table on the very
+first move. Cause: `WIRE_FIELDS` included `t` and a string orientation
+(`o:'h'`). mp.js's toWire() sends `mv.t` as the ACTION on its own, and every
+listed field must be an integer 0..255 — anything else returns null and
+tableStop fires ("this build does not know how to put ... on the wire").
+The fix: field list is payload numbers only (`['r','c','o']`), orientation
+packed 0/1, and doMove fires the ENCODED move at the subscribers so the raw
+string shape never reaches the codec. If your new game's move has any
+non-numeric field, encode it before it leaves the game.
+Also: `KARTI_MP.start('create',...)` joins the room but never SHOWS the mp
+screen — call `KARTI_MP.openFor(game)` first (the real menu path), or the
+player sits on the home screen while the room runs unseen.
