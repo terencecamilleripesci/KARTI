@@ -1131,10 +1131,15 @@ function injectCSS(){
     '#scr-stats .sx-pscore{margin-top:1px;font-family:var(--disp);font-weight:900;font-size:11px;' +
       'color:var(--dim);font-variant-numeric:tabular-nums}' +
     '#scr-stats .sx-pcol.p1 .sx-pscore{color:#FFE39A}' +
-    '#scr-stats .sx-riser{margin-top:7px;width:82%;border-radius:8px 8px 0 0;border:1px solid var(--line);' +
-      'border-bottom:0;background:linear-gradient(180deg,var(--panel2),var(--panel))}' +
-    '#scr-stats .sx-pcol.p1 .sx-riser{height:26px;border-color:rgba(255,197,66,.4);' +
-      'background:linear-gradient(180deg,rgba(255,197,66,.26),rgba(255,197,66,.04))}' +
+    /* A SOLID STEP, NOT AN OUTLINED BOX. A 1px outline around a hollow
+       middle reads as an empty input field on a phone — which is exactly
+       what it looked like. A pedestal is a block: no border, a fill that
+       is opaque at the top where the player stands and fades into the
+       screen at the foot, so three of them read as a podium. */
+    '#scr-stats .sx-riser{margin-top:7px;width:82%;border-radius:8px 8px 0 0;border:0;' +
+      'background:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.02))}' +
+    '#scr-stats .sx-pcol.p1 .sx-riser{height:26px;' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.55),rgba(255,197,66,.06))}' +
     '#scr-stats .sx-pcol.p2 .sx-riser{height:17px}' +
     '#scr-stats .sx-pcol.p3 .sx-riser{height:11px}' +
 
