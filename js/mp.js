@@ -667,7 +667,7 @@ function lobbyReport(){
    in the same inked-cartoon house style as the rest. */
 const LOGO_GAMES = ('chess dama kiri skarta erbgha ludu minhu kodici kanun bomba ' +
                     'briks cards2131 serp tankijiet konkwista ballun ' +
-                    'cards tombla gharraq spy klabb poker aqleb kaxxi misteru').split(' ');
+                    'cards tombla gharraq spy klabb poker aqleb kaxxi misteru sqaq').split(' ');
 function gameIcon(k){
   const g = gameMeta(k);
   const P = window.KARTI_PARTY;
