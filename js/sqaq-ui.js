@@ -93,7 +93,7 @@ function startMatch(opts, log){
   stopThinking();
   M = { opts: clone(opts || {}), log: log ? clone(log) : [],
         st: null, ctx: null, timer: 0, dead: false, finished: false,
-        recorded: false, net: null, meta: null, mode: 'go', solePot: null };
+        recorded: false, net: null, meta: null, mode: 'go', pre: null, solePot: null };
   M.st = buildState(M.opts, M.log);
   return M;
 }
@@ -250,15 +250,47 @@ function boardSVG(){
     }
   }
   if (myTurn && (M.mode === 'h' || M.mode === 'v')){
+    /* PLACEMENT, DONE CALMLY. Sixty-four glowing bars was a wall of noise
+       and one mistap spent a wall for ever. Instead: a small dot on every
+       legal anchor, a FAT invisible tap target over each, and the one you
+       tap becomes a bright full-length preview — tap the preview to build
+       it, tap another dot to move it, step or switch modes to drop it. */
     const slots = E.legalWalls(st, seat, M.mode);
+    const pre = M.pre && M.pre.o === M.mode &&
+      slots.some(w => w.r === M.pre.r && w.c === M.pre.c) ? M.pre : null;
     for (let i = 0; i < slots.length; i++){
       const w = slots[i];
-      if (w.o === 'h')
-        s += '<rect data-wall="' + w.r + ',' + w.c + ',h" x="' + cx(w.c) + '" y="' + (cy(w.r) + CELL - 4) +
-             '" width="' + (CELL * 2 + GAP) + '" height="' + (GAP + 8) + '" rx="4" fill="#FFC542" opacity="0.16"/>';
+      const ax = cx(w.c) + CELL + GAP / 2, ay = cy(w.r) + CELL + GAP / 2;
+      if (!pre || pre.r !== w.r || pre.c !== w.c)
+        s += '<circle cx="' + ax + '" cy="' + ay + '" r="4.5" fill="#FFC542" opacity="0.5"/>';
+      s += '<rect data-wall="' + w.r + ',' + w.c + ',' + M.mode + '" x="' + (ax - 15) +
+           '" y="' + (ay - 15) + '" width="30" height="30" fill="#000" opacity="0"/>';
+    }
+    if (pre){
+      const glow = ' filter="drop-shadow(0 0 6px rgba(255,197,66,.8))"';
+      if (pre.o === 'h')
+        s += '<rect data-place="1" x="' + cx(pre.c) + '" y="' + (cy(pre.r) + CELL) +
+             '" width="' + (CELL * 2 + GAP) + '" height="' + GAP + '" rx="4" fill="#FFE39A"' + glow + '/>';
       else
-        s += '<rect data-wall="' + w.r + ',' + w.c + ',v" x="' + (cx(w.c) + CELL - 4) + '" y="' + cy(w.r) +
-             '" width="' + (GAP + 8) + '" height="' + (CELL * 2 + GAP) + '" rx="4" fill="#FFC542" opacity="0.16"/>';
+        s += '<rect data-place="1" x="' + (cx(pre.c) + CELL) + '" y="' + cy(pre.r) +
+             '" width="' + GAP + '" height="' + (CELL * 2 + GAP) + '" rx="4" fill="#FFE39A"' + glow + '/>';
+    }
+  }
+  /* the previous move, so a player looking up knows what just happened:
+     the freshest wall burns brighter; a step leaves a ring on the square */
+  if (st.last && st.winner < 0){
+    if (st.last.t === 'wall'){
+      const L = st.last;
+      if (L.o === 'h')
+        s += '<rect x="' + cx(L.c) + '" y="' + (cy(L.r) + CELL + 1) + '" width="' + (CELL * 2 + GAP) +
+             '" height="' + (GAP - 2) + '" rx="3" fill="#FFD98A"/>';
+      else
+        s += '<rect x="' + (cx(L.c) + CELL + 1) + '" y="' + cy(L.r) + '" width="' + (GAP - 2) +
+             '" height="' + (CELL * 2 + GAP) + '" rx="3" fill="#FFD98A"/>';
+    } else {
+      s += '<rect x="' + (cx(st.last.c) + 2) + '" y="' + (cy(st.last.r) + 2) + '" width="' + (CELL - 4) +
+           '" height="' + (CELL - 4) + '" rx="6" fill="none" stroke="' +
+           seatColour(st.last.seat).hex + '" stroke-width="2" opacity="0.55"/>';
     }
   }
   /* pawns on top */
@@ -282,17 +314,33 @@ function paint(){
     const t = ev.target;
     const go = t.getAttribute && t.getAttribute('data-go');
     const wl = t.getAttribute && t.getAttribute('data-wall');
+    const pl = t.getAttribute && t.getAttribute('data-place');
     const seat = E.turn(M.st);
     if (seat < 0 || !isLocal(seat)) return;
     if (M.net && seat !== firstLocalSeat()) return;
     if (go){
       const a = go.split(',');
+      M.pre = null;
       doMove(seat, { t:'go', r: a[0] | 0, c: a[1] | 0 }, 'local');
+      M.mode = 'go'; afterMove();
+    } else if (pl && M.pre){
+      /* second tap on the bright preview — build it */
+      const w = M.pre; M.pre = null;
+      doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
       M.mode = 'go'; afterMove();
     } else if (wl){
       const a = wl.split(',');
-      doMove(seat, { t:'wall', r: a[0] | 0, c: a[1] | 0, o: a[2] }, 'local');
-      M.mode = 'go'; afterMove();
+      const r = a[0] | 0, c = a[1] | 0, o = a[2];
+      if (M.pre && M.pre.r === r && M.pre.c === c && M.pre.o === o){
+        /* second tap on the same anchor — build it */
+        M.pre = null;
+        doMove(seat, { t:'wall', r, c, o }, 'local');
+        M.mode = 'go'; afterMove();
+      } else {
+        M.pre = { r, c, o };            /* first tap — show the preview */
+        cue('ui.tap', { gain:.6 });
+        paint();
+      }
     }
   });
   /* seats */
@@ -319,13 +367,15 @@ function paint(){
     '<button class="sq-mode' + (M.mode === 'v' ? ' on' : '') + '" data-m="v"' +
       (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ┃</button>';
   UI.modes.querySelectorAll('.sq-mode').forEach(b => {
-    b.onclick = () => { M.mode = b.getAttribute('data-m'); cue('ui.tap', { gain:.6 }); paint(); };
+    b.onclick = () => { M.mode = b.getAttribute('data-m'); M.pre = null; cue('ui.tap', { gain:.6 }); paint(); };
   });
   UI.hint.textContent = M.st.winner >= 0 ? ''
     : !my ? (seatName(seat) + ' — ' + T('their go', 'imissu'))
     : M.mode === 'go' ? T('Tap a lit square to step.', 'Għafas kaxxa mixgħula biex timxi.')
-    : T('Tap a lit slot to build. A wall can never seal anyone in.',
-        'Għafas fejn jixgħel biex tibni. Ħajt qatt ma jista’ jagħlaq lil xi ħadd għalkollox.');
+    : M.pre ? T('Tap the bright wall again to build it — or another dot to move it.',
+                'Erġa’ għafas il-ħajt jixgħel biex tibnih — jew tikka oħra biex iċċaqilqu.')
+    : T('Tap a dot to see the wall there. Nobody can ever be sealed in.',
+        'Għafas tikka biex tara l-ħajt hemm. Ħadd qatt ma jista’ jinqafel għalkollox.');
 }
 
 /* after every move: repaint, check the end, poke the machine */
