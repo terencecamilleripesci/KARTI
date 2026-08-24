@@ -1780,6 +1780,8 @@ function uploadPhoto(file){
       var p = root();
       p.pv = ver; p.usePic = 1;
       commit();
+      /* a photo just posted by hand needs no self-heal this session */
+      try { healed[accountKey()] = true; } catch (e){}
       lsSet(myPicKey(), { ver:ver, img:r.img });
       fire(equipCbs, { slot:'karti.avatar', game:'karti', id:'photo', photo:true });
       repaintAvatars();
@@ -1794,6 +1796,106 @@ function uploadPhoto(file){
     return { ok:false, why:msg };
   });
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   8b-ii. THE SELF-HEAL — a photo that is only on the phone puts itself back
+
+   WHY THIS EXISTS. A player's own face is drawn from myPic(), a data URL
+   in this phone's localStorage; EVERYBODY ELSE's is drawn from the relay.
+   Those two sources can disagree, and when they do it is invisible to the
+   only person who could report it: your photo still looks perfect to you
+   while every other phone falls back to your drawn face. That is exactly
+   what happened — the relay's avatar store lost its rows and not one
+   player could tell, because each of them could still see themselves.
+
+   So the phone stops trusting its own pv and ASKS. One HEAD per session:
+     200 -> the relay has a photograph for me. Nothing to do.
+     404 -> it genuinely has none, and I am holding the only copy.
+            Put it back, quietly.
+   HEAD is the cheapest question there is — no body either way, and the
+   relay answers it out of its in-memory version map without touching
+   SQLite — and only the STATUS is read, so no response header has to be
+   exposed across origins for this to work.
+
+   IT IS A PHOTO, NOT A HEARTBEAT. Once per account per page load, and the
+   flag is set BEFORE the first thing that can fail, so no error path in
+   here can become a retry loop. Everything is caught and nothing is ever
+   said out loud: this can run while somebody is playing, and a picture
+   repairing itself must never be visible as anything but the picture
+   turning up.
+   ═══════════════════════════════════════════════════════════════════ */
+var healed = {};
+
+/* Has the relay got a photograph for this account? -> {reached, has}. */
+function headPic(who){
+  var ctrl = null, timer = null;
+  var o = { method:'HEAD', credentials:'omit', cache:'no-store', mode:'cors' };
+  try { ctrl = new AbortController(); } catch (e){}
+  if (ctrl){
+    o.signal = ctrl.signal;
+    timer = setTimeout(function(){ try { ctrl.abort(); } catch (e){} }, 8000);
+  }
+  var url = picBase() + '/' + encodeURIComponent(String(who)) + '?heal=' + Date.now();
+  return fetch(url, o).then(function(r){
+    if (timer) clearTimeout(timer);
+    /* 200 = there is one, 404 = there is not. ANYTHING ELSE — 503 avatars
+       off, 429 slow down, a proxy's 502 — is not an invitation to upload. */
+    return { reached: r.status === 200 || r.status === 404, has: r.status === 200 };
+  }, function(){ if (timer) clearTimeout(timer); return { reached:false, has:false }; });
+}
+
+/**
+ * healPhoto() -> Promise<{ok, why, ver}>
+ * Never throws, never speaks, never runs twice for one account in one load.
+ */
+function healPhoto(){
+  var res = function(why){ return Promise.resolve({ ok:false, why:why }); };
+  var s = session();
+  if (!s) return res('no-account');           /* a guest cannot have a photo */
+  var key = accountKey();
+  if (!key) return res('no-account');
+  if (healed[key]) return res('already');
+  healed[key] = true;                  /* ONE attempt. Set first, on purpose. */
+
+  /* The bytes have to be HERE or there is nothing to heal with. Read the
+     record raw rather than through myPic(), which also insists the save's
+     pv matches — and the save's pv is precisely the thing that may be
+     wrong when a photograph has gone missing. */
+  var rec = null;
+  try { rec = lsGet(myPicKey(), null); } catch (e){}
+  var img = (rec && typeof rec.img === 'string') ? rec.img : '';
+  if (!img || img.length > PIC_MAX_CHARS) return res('no-local');
+
+  return headPic(key).then(function(h){
+    if (!h.reached) return { ok:false, why:'offline' };
+    if (h.has) return { ok:false, why:'server-has-one' };
+    return post('', { tok:s.tok, token:s.tok, img:img }).then(function(r){
+      if (!r.ok) return { ok:false, why:'refused' };
+      var ver = (r.d && r.d.ver) | 0;
+      if (!ver) return { ok:false, why:'refused' };
+      var p = root();
+      p.pv = ver;
+      /* WHAT THEY ARE WEARING IS THEIR CHOICE, NOT THIS FUNCTION'S. usePic
+         is left exactly as it was: a player who took their photo off must
+         not find it back on because a server forgot it. */
+      commit();
+      lsSet(myPicKey(), { ver:ver, img:img });
+      repaintAvatars();
+      syncNow();
+      return { ok:true, ver:ver };
+    });
+  })['catch'](function(){ return { ok:false, why:'error' }; });
+}
+
+/* Off the boot path entirely. The relay is asked nothing until the app is
+   up and the player is looking at something; a phone that is offline right
+   then simply heals on the next launch instead. */
+function scheduleHeal(){
+  try {
+    setTimeout(function(){ try { healPhoto(); } catch (e){} }, 12000);
+  } catch (e){}
+}
+try { scheduleHeal(); } catch (e){}
 
 /* Back to a drawn face. The Pi is told, but a delete that cannot reach
    it still takes the photo off THIS phone — refusing to undo a choice
@@ -3595,6 +3697,10 @@ window.KARTI_XP = {
   usePhoto: usePhoto,
   photoVer: function(){ return root().pv | 0; },
   photoURL: picURL,
+  /* the self-heal (§8b-ii). Runs itself 12s after load; exposed so a
+     login hook — or a test — can ask for it by name. Once per account
+     per page load however many times it is called. */
+  healPhoto: healPhoto,
   PIC: { MAX_CHARS: PIC_MAX_CHARS, SIDE: PIC_SIDE, Q: PIC_Q },
 
   /* borders — registered through register() like anything else, so

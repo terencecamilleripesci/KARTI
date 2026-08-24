@@ -7,6 +7,40 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+**A TEST RELAY DELETED EVERY REAL PLAYER'S PHOTOGRAPH.** Four accounts lost
+their faces on 23 Aug and it read exactly like a display bug — three display
+fixes were shipped for it.
+→ A throwaway relay was started with `--accounts <scratch>.db` and **no
+`--avatars`**, so it opened the DEFAULT `/var/lib/karti/avatars.db` — the
+LIVE one — while its orphan sweeper asked a scratch accounts file whether
+the real players existed. Told no, it swept all four. The two stores answer
+for each other and only one of them was moved.
+→ Fixed two ways in `server/`: a non-default `--accounts` now drags the
+avatar store into the same directory, and `Store.prune()` refuses to delete
+when EVERY row looks orphaned (>1 row) — "all of them are gone" is far more
+often the wrong accounts database than a real mass deletion.
+→ **When you point a test process at a scratch database, name EVERY store on
+the command line.** The one you forget is the live one.
+
+**"His photo still works, so photos work" — his own photo never touches the
+relay.** A player's own face is drawn from `myPic()`, a data URL in that
+phone's localStorage; everybody ELSE's comes from the relay. So a server-side
+loss is invisible to every single player: each of them still sees themselves,
+and nobody can report the thing they cannot see.
+→ Never judge the photo feature from one phone, and never take "mine shows
+up" as evidence the store is healthy. Ask the relay:
+`curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8101/karti/avatar/<who>`.
+→ `js/progress.js` §8b-ii now self-heals: one HEAD per account per load, and
+if the relay has no photo while the phone does, it quietly puts it back.
+
+**The main SQLite file was 4 KB and looked empty — the data was all in the
+WAL.** `/var/lib/karti/avatars.db` has never been checkpointed, so even the
+`CREATE TABLE` lives in `avatars.db-wal`. Copying the `.db` on its own gives
+a database with no tables at all, which reads as "this store was never used".
+→ **Copy `-wal` and `-shm` with it, always** — and note that OPENING a copy
+checkpoints and CONSUMES the WAL, so copy again before a second look. Deleted
+rows are recoverable by replaying WAL frames one commit at a time.
+
 **A summary said "nothing left hollow"; a grep said otherwise.**
 Two reports this week claimed work that had not been done — briks was
 reported as painted with zero cosmetic reads in the file, and serp was
