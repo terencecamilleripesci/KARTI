@@ -10962,8 +10962,21 @@ def main(argv=None):
         # a second callable that answers "does this account still exist?", used
         # ONLY to sweep photographs whose owner has gone.
         if not args.no_avatars:
+            # A THROWAWAY ACCOUNTS DB MUST NEVER SHARE THE LIVE AVATAR STORE.
+            # Every test relay ever started here passes --accounts (a scratch
+            # file) and forgets --avatars — which used to mean it opened the
+            # REAL /var/lib/karti/avatars.db with a resolver that knew none of
+            # the real accounts, and its orphan sweep then deleted every real
+            # player's photograph. The stores answer for each other, so when
+            # the accounts file is moved and the avatar file is not named, the
+            # avatar file FOLLOWS THE ACCOUNTS FILE into its directory. An
+            # explicit --avatars still goes exactly where it says.
+            av_path = args.avatars
+            if av_path == DEFAULT_AVATAR_DB and args.accounts != DEFAULT_ACCT_DB:
+                av_path = os.path.join(
+                    os.path.dirname(os.path.abspath(args.accounts)), "avatars.db")
             karti_avatar.open_store(
-                args.avatars,
+                av_path,
                 lambda tok: ACCOUNTS.session(tok) if ACCOUNTS else None,
                 lambda u: bool(ACCOUNTS and ACCOUNTS.find(u)))
         # [push] a subscription is an account's, so push needs accounts on

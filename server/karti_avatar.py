@@ -296,6 +296,18 @@ class Store:
                     gone.append(k)
             except Exception:
                 return 0            # a resolver that is unwell deletes nothing
+        # A RESOLVER THAT DENIES EVERYBODY IS NOT TO BE BELIEVED. This has
+        # happened for real: a test relay was started with a throwaway
+        # --accounts database but the DEFAULT avatar path, so this store held
+        # the real players' photographs while `exists` answered from an
+        # accounts file that had never heard of any of them — and one sweep
+        # deleted every photo on the server. "Every single account is gone"
+        # is indistinguishable from "I am asking the wrong accounts store",
+        # and the safe reading of both is: delete nothing. A lone genuine
+        # orphan (rows == 1) is still swept, because a one-row store whose
+        # one account has gone is the ordinary case, not a mass event.
+        if len(gone) == len(keys) and len(keys) > 1:
+            return 0
         for k in gone:
             self.drop(k)
         return len(gone)
