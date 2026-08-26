@@ -1055,12 +1055,14 @@ function draw(){
 
   if (M.anim){
     const a = M.anim, pt = a.pos;
+    const prof = a.prof || ammoFx(a.key);
     if (a.trail.length){
-      /* a glowing tapered trail */
+      /* a glowing tapered trail, in the ammo's own colour and weight */
       for (let i = 2; i < a.trail.length; i += 2){
         const f = i / a.trail.length;
-        g.strokeStyle = 'rgba(255,214,140,' + (0.08 + f * 0.4).toFixed(2) + ')';
-        g.lineWidth = Math.max(1, cell * 0.3 + f * cell * 0.5);
+        g.strokeStyle = 'rgba(' + prof.trail + ',' +
+          Math.min(1, (0.08 + f * 0.4) * prof.trailA).toFixed(2) + ')';
+        g.lineWidth = Math.max(1, (cell * 0.3 + f * cell * 0.5) * prof.trailW);
         g.lineCap = 'round';
         g.beginPath();
         g.moveTo(sx(a.trail[i - 2]), sy(a.trail[i - 1]));
@@ -1068,16 +1070,7 @@ function draw(){
         g.stroke();
       }
     }
-    if (pt){
-      const R = Math.max(2.5, cell * 1.0);
-      const gl = g.createRadialGradient(sx(pt[0]), sy(pt[1]), 0, sx(pt[0]), sy(pt[1]), R * 3);
-      gl.addColorStop(0, 'rgba(255,220,150,.5)'); gl.addColorStop(1, 'rgba(255,220,150,0)');
-      g.fillStyle = gl; g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), R * 3, 0, 6.2832); g.fill();
-      g.fillStyle = '#FFE08A';
-      g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), R, 0, 6.2832); g.fill();
-      g.fillStyle = '#fff';
-      g.beginPath(); g.arc(sx(pt[0]), sy(pt[1]), R * 0.4, 0, 6.2832); g.fill();
-    }
+    if (pt && !a.hide) drawShell(g, cell, a, prof);
   }
 
   if (M.fx) drawParticles(g, cell);
@@ -1086,6 +1079,189 @@ function draw(){
   if (M.fx && M.fx.flash > 0.001){
     g.fillStyle = 'rgba(255,240,210,' + (M.fx.flash * 0.5).toFixed(3) + ')';
     g.fillRect(0, 0, w, h);
+  }
+}
+
+/* ═══ THE SHELL IN FLIGHT — each ammo is ITS OWN OBJECT in the air:
+   a wobbling balloon, a skipping pastizz, a fuse-lit nougat lump, a
+   tumbling slipper, a spiked prickly pear, a festa rocket, a spinning
+   steel drill, a lumbering barrow-load of cement. Pure draw: reads only
+   the cosmetic anim + profile, never the sim.                        ═══ */
+function drawShell(g, cell, a, prof){
+  const pt = a.pos, X = sx(pt[0]), Y = sy(pt[1]);
+  const R = Math.max(2.5, cell * 1.0);
+  const now = nowMs();
+  /* direction of travel (screen space), for the oriented shells */
+  let ang = 0;
+  const tl = a.trail;
+  if (tl.length >= 4){
+    const dx = sx(pt[0]) - sx(tl[tl.length - 4]), dy = sy(pt[1]) - sy(tl[tl.length - 3]);
+    if (dx || dy) ang = Math.atan2(dy, dx);
+  }
+  /* the halo, dimmed for the shells that shouldn't glow (steel, cement) */
+  if (prof.halo > 0.01){
+    const gl = g.createRadialGradient(X, Y, 0, X, Y, R * 3);
+    gl.addColorStop(0, 'rgba(' + prof.glow + ',' + prof.halo.toFixed(2) + ')');
+    gl.addColorStop(1, 'rgba(' + prof.glow + ',0)');
+    g.fillStyle = gl; g.beginPath(); g.arc(X, Y, R * 3, 0, 6.2832); g.fill();
+  }
+  switch (a.key){
+    case 'BALLUN': {
+      /* a light, wobbly water balloon — it squashes as it flies */
+      const wob = 1 + 0.16 * Math.sin(now / 55);
+      g.save(); g.translate(X, Y);
+      g.fillStyle = prof.core;
+      g.beginPath(); g.ellipse(0, 0, R * 1.05 * wob, R * 1.05 / wob, 0, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.55)';
+      g.beginPath(); g.ellipse(-R * 0.35, -R * 0.35, R * 0.34, R * 0.22, -0.6, 0, 6.2832); g.fill();
+      g.fillStyle = '#5FA8E0';
+      g.beginPath(); g.arc(0, -R * 1.05 / wob, R * 0.18, 0, 6.2832); g.fill();
+      g.restore();
+      break;
+    }
+    case 'PASTIZZ': {
+      /* the greasy pastry, nose into the wind, ridges and all */
+      g.save(); g.translate(X, Y); g.rotate(ang);
+      g.fillStyle = prof.core;
+      g.beginPath();
+      g.moveTo(-R * 1.35, 0); g.quadraticCurveTo(0, -R * 0.85, R * 1.35, 0);
+      g.quadraticCurveTo(0, R * 0.85, -R * 1.35, 0); g.closePath(); g.fill();
+      g.strokeStyle = 'rgba(160,110,40,.7)'; g.lineWidth = Math.max(1, cell * 0.14);
+      for (const t of [-0.55, 0, 0.55]){
+        g.beginPath();
+        g.moveTo(R * t - R * 0.18, -R * 0.5);
+        g.quadraticCurveTo(R * t + R * 0.1, 0, R * t - R * 0.18, R * 0.5);
+        g.stroke();
+      }
+      g.fillStyle = 'rgba(255,240,190,.5)';
+      g.beginPath(); g.ellipse(-R * 0.3, -R * 0.3, R * 0.4, R * 0.16, 0.2, 0, 6.2832); g.fill();
+      g.restore();
+      break;
+    }
+    case 'QUBBAJT': {
+      /* the nougat lump, fuse LIT and sputtering */
+      g.save(); g.translate(X, Y); g.rotate(a.rot || 0);
+      g.fillStyle = prof.core;
+      g.beginPath(); g.arc(0, 0, R, 0, 6.2832); g.fill();
+      g.fillStyle = '#8F6B3F';
+      g.beginPath(); g.arc(-R * 0.35, -R * 0.15, R * 0.16, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(R * 0.25, R * 0.3, R * 0.14, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(R * 0.2, -R * 0.4, R * 0.12, 0, 6.2832); g.fill();
+      /* the fuse, up off the top of the lump */
+      g.strokeStyle = '#6B4F2F'; g.lineWidth = Math.max(1, cell * 0.16);
+      g.beginPath(); g.moveTo(R * 0.3, -R * 0.8); g.quadraticCurveTo(R * 0.7, -R * 1.2, R * 0.95, -R * 1.35);
+      g.stroke();
+      /* the sputtering spark at its tip: a jittering 3-arm star */
+      const fx0 = R * 0.95 + rr(-1.5, 1.5), fy0 = -R * 1.35 + rr(-1.5, 1.5);
+      g.strokeStyle = Math.random() < 0.5 ? '#FFF3C4' : '#FFB35C';
+      g.lineWidth = Math.max(1, cell * 0.12);
+      for (let k = 0; k < 3; k++){
+        const sa = now / 60 + k * 2.09, L = R * rr(0.3, 0.55);
+        g.beginPath(); g.moveTo(fx0 - Math.cos(sa) * L, fy0 - Math.sin(sa) * L);
+        g.lineTo(fx0 + Math.cos(sa) * L, fy0 + Math.sin(sa) * L); g.stroke();
+      }
+      g.restore();
+      break;
+    }
+    case 'PPAPOCC': {
+      /* the slipper, tumbling END OVER END */
+      g.save(); g.translate(X, Y); g.rotate(a.rot || 0);
+      const L = R * 2.3, W2 = R * 1.0;
+      g.fillStyle = prof.core;                       /* rubber sole */
+      if (g.roundRect){
+        g.beginPath(); g.roundRect(-L / 2, -W2 / 2, L, W2, W2 * 0.45); g.fill();
+      } else g.fillRect(-L / 2, -W2 / 2, L, W2);
+      g.fillStyle = '#E8C9A8';                       /* the insole */
+      g.beginPath(); g.ellipse(-L * 0.08, 0, L * 0.36, W2 * 0.32, 0, 0, 6.2832); g.fill();
+      g.fillStyle = '#8E4430';                       /* the strap */
+      g.fillRect(L * 0.14, -W2 / 2, L * 0.2, W2);
+      g.restore();
+      break;
+    }
+    case 'BAJTRA': {
+      /* the prickly pear: a spiked silhouette, ready to split */
+      g.save(); g.translate(X, Y); g.rotate((a.rot || 0) * 0.6);
+      g.strokeStyle = '#E9DAB8'; g.lineWidth = Math.max(1, cell * 0.12);
+      for (let k = 0; k < 8; k++){
+        const sa = k * 0.785 + 0.3;
+        g.beginPath(); g.moveTo(Math.cos(sa) * R * 0.7, Math.sin(sa) * R * 0.7);
+        g.lineTo(Math.cos(sa) * R * 1.45, Math.sin(sa) * R * 1.45); g.stroke();
+      }
+      g.fillStyle = prof.core;
+      g.beginPath(); g.ellipse(0, 0, R * 0.95, R * 1.1, 0, 0, 6.2832); g.fill();
+      g.fillStyle = '#7BA05B';                       /* the green base */
+      g.beginPath(); g.ellipse(0, R * 0.55, R * 0.7, R * 0.45, 0, 0, 3.1416); g.fill();
+      g.fillStyle = 'rgba(255,255,255,.35)';
+      g.beginPath(); g.ellipse(-R * 0.3, -R * 0.4, R * 0.28, R * 0.18, -0.5, 0, 6.2832); g.fill();
+      g.restore();
+      break;
+    }
+    case 'MURTAL': {
+      /* the festa rocket: red body, white band, a roaring exhaust flare */
+      g.save(); g.translate(X, Y); g.rotate(ang);
+      const flare = R * (1.6 + 0.5 * Math.sin(now / 30));
+      g.fillStyle = 'rgba(255,230,140,.85)';
+      g.beginPath(); g.moveTo(-R * 0.9, -R * 0.34); g.lineTo(-R * 0.9 - flare, 0);
+      g.lineTo(-R * 0.9, R * 0.34); g.closePath(); g.fill();
+      g.fillStyle = 'rgba(255,120,50,.7)';
+      g.beginPath(); g.moveTo(-R * 0.9, -R * 0.2); g.lineTo(-R * 0.9 - flare * 0.55, 0);
+      g.lineTo(-R * 0.9, R * 0.2); g.closePath(); g.fill();
+      g.fillStyle = '#C43B3B';                       /* the body */
+      g.fillRect(-R * 0.9, -R * 0.42, R * 1.6, R * 0.84);
+      g.fillStyle = '#F2EFE4';                       /* the band */
+      g.fillRect(-R * 0.25, -R * 0.42, R * 0.4, R * 0.84);
+      g.fillStyle = '#FFE08A';                       /* the nose */
+      g.beginPath(); g.moveTo(R * 0.7, -R * 0.42); g.lineTo(R * 1.35, 0);
+      g.lineTo(R * 0.7, R * 0.42); g.closePath(); g.fill();
+      g.restore();
+      break;
+    }
+    case 'TRIVELLA': {
+      /* the drill: a fast steel dart, flutes streaming down the shank */
+      g.save(); g.translate(X, Y); g.rotate(ang);
+      g.fillStyle = prof.core;
+      g.beginPath(); g.moveTo(R * 1.5, 0); g.lineTo(-R * 1.1, -R * 0.45);
+      g.lineTo(-R * 1.1, R * 0.45); g.closePath(); g.fill();
+      g.fillStyle = '#5F666D';                       /* the hard tip */
+      g.beginPath(); g.moveTo(R * 1.5, 0); g.lineTo(R * 0.75, -R * 0.24);
+      g.lineTo(R * 0.75, R * 0.24); g.closePath(); g.fill();
+      /* the SPIN: bright flute lines racing along the body */
+      g.strokeStyle = 'rgba(230,236,240,.85)'; g.lineWidth = Math.max(1, cell * 0.1);
+      const ph = (now / 40) % (R * 0.9);
+      for (let k = -1; k <= 1; k++){
+        const bx = -R * 0.9 + ph + k * R * 0.9;
+        if (bx < -R * 1.05 || bx > R * 0.6) continue;
+        const hw = R * 0.4 * (1 - Math.max(0, bx) / (R * 1.6));
+        g.beginPath(); g.moveTo(bx - R * 0.18, -hw); g.lineTo(bx + R * 0.18, hw); g.stroke();
+      }
+      g.restore();
+      break;
+    }
+    case 'KARRETTUN': {
+      /* the barrow-load: a slow, lumbering grey mass of wet cement */
+      g.save(); g.translate(X, Y); g.rotate((a.rot || 0) * 0.5);
+      g.fillStyle = prof.core;
+      g.beginPath();
+      g.moveTo(-R * 1.25, R * 0.2); g.quadraticCurveTo(-R * 1.1, -R * 1.0, -R * 0.1, -R * 1.15);
+      g.quadraticCurveTo(R * 1.15, -R * 0.95, R * 1.3, R * 0.1);
+      g.quadraticCurveTo(R * 0.9, R * 1.05, -R * 0.2, R * 1.1);
+      g.quadraticCurveTo(-R * 1.15, R * 0.95, -R * 1.25, R * 0.2);
+      g.closePath(); g.fill();
+      g.fillStyle = '#6E7278';                       /* the dark clods */
+      g.beginPath(); g.arc(-R * 0.4, R * 0.2, R * 0.34, 0, 6.2832); g.fill();
+      g.beginPath(); g.arc(R * 0.45, -R * 0.25, R * 0.28, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(230,232,235,.3)';
+      g.beginPath(); g.ellipse(-R * 0.2, -R * 0.6, R * 0.5, R * 0.22, 0.3, 0, 6.2832); g.fill();
+      g.restore();
+      break;
+    }
+    default: {
+      /* whatever we don't know keeps the classic golden shell */
+      g.fillStyle = prof.core;
+      g.beginPath(); g.arc(X, Y, R, 0, 6.2832); g.fill();
+      g.fillStyle = '#fff';
+      g.beginPath(); g.arc(X, Y, R * 0.4, 0, 6.2832); g.fill();
+    }
   }
 }
 
@@ -1789,6 +1965,65 @@ function initFx(){
 }
 function rr(a, b){ return a + Math.random() * (b - a); }
 
+/* ═══ PER-AMMO FX PROFILES — every shell looks and lands differently.
+   One table, one code path: the flight-draw, trail and impact all read
+   these fields and branch on the weapon KEY (E.WEAPONS[w].key). Fields:
+     glow/core   flight halo rgb + shell base colour
+     halo        halo strength (metal/cement barely glow)
+     trail/trailW/trailA  trail rgb, width and alpha multipliers
+     spin        cosmetic radians per path point (slipper tumbles, drill spins)
+     ring/ring2  impact shockwave ring colours
+     flash/shake impact flash + camera-kick multipliers
+     chunks      debris count multiplier   cols: debris palette override
+     spark       fraction of impact puffs that are hot sparks
+     fire        whether a big blast gets the fireball/ember dressing
+   Draw-only: none of this ever touches the engine.                    ═══ */
+const AMMO_FX = {
+  BALLUN:   { glow:'150,205,255', core:'#8FCBFF', halo:0.45,
+              trail:'160,210,255', trailW:0.6, trailA:0.8, spin:0,
+              ring:'150,205,255', flash:0.3, shake:0.45,
+              chunks:0, spark:0, fire:false },
+  PASTIZZ:  { glow:'255,205,110', core:'#E7B45A', halo:0.5,
+              trail:'255,205,110', trailW:0.85, trailA:1, spin:0,
+              ring:'255,200,90', flash:0.5, shake:0.7,
+              chunks:0.8, spark:0.08, fire:false,
+              cols:['#E7B45A', '#D9A34A', '#C08A38', '#F0D08A'] },
+  QUBBAJT:  { glow:'255,190,120', core:'#C9A16B', halo:0.4,
+              trail:'190,180,165', trailW:0.7, trailA:0.7, spin:0.08,
+              ring:'255,190,120', flash:0.85, shake:1.0,
+              chunks:1.0, spark:0.3, fire:true,
+              cols:['#EFE3C8', '#E2CDA8', '#B98D5E', '#E8C9D6'] },
+  PPAPOCC:  { glow:'255,180,160', core:'#B5563C', halo:0.35,
+              trail:'255,230,220', trailW:0.5, trailA:0.6, spin:0.30,
+              ring:'255,255,255', flash:0.4, shake:0.5,
+              chunks:0.4, spark:0, fire:false,
+              cols:['#B5563C', '#8E4430', '#D8775C'] },
+  BAJTRA:   { glow:'255,120,190', core:'#C2495B', halo:0.45,
+              trail:'255,140,200', trailW:0.7, trailA:0.9, spin:0.10,
+              ring:'255,120,190', flash:0.5, shake:0.7,
+              chunks:1.1, spark:0, fire:false,
+              cols:['#D14E76', '#B03A62', '#E86FA0', '#7BA05B'] },
+  MURTAL:   { glow:'255,240,180', core:'#FFF3C4', halo:0.7,
+              trail:'255,220,120', trailW:1.3, trailA:1.2, spin:0,
+              ring:'255,210,90', ring2:'255,90,90', flash:1.3, shake:1.15,
+              chunks:0.7, spark:0.5, fire:true },
+  TRIVELLA: { glow:'200,210,220', core:'#9FA6AD', halo:0.25,
+              trail:'190,200,210', trailW:0.45, trailA:0.7, spin:0,
+              ring:'255,170,80', flash:0.6, shake:0.9,
+              chunks:0.5, spark:0.85, fire:false },
+  KARRETTUN:{ glow:'170,170,175', core:'#8B8F94', halo:0.2,
+              trail:'140,140,145', trailW:1.15, trailA:0.9, spin:0.05,
+              ring:'205,205,210', flash:0.6, shake:1.5,
+              chunks:1.4, spark:0.05, fire:false,
+              cols:['#9BA0A6', '#7C8187', '#B4B9BE', '#6A6F75'] }
+};
+const AMMO_FX_DEF = { glow:'255,220,150', core:'#FFE08A', halo:0.5,
+                      trail:'255,214,140', trailW:1, trailA:1, spin:0,
+                      ring:'255,170,80', flash:1, shake:1,
+                      chunks:1, spark:0.35, fire:true };
+function ammoFx(k){ return AMMO_FX[k] || AMMO_FX_DEF; }
+function ammoKeyOf(w){ const W_ = E.WEAPONS && E.WEAPONS[w | 0]; return W_ ? W_.key : ''; }
+
 /* spawn the whole impact bundle for one boom. `power` scales everything;
    `matCol` tints the chunks to what actually broke there. */
 function spawnImpact(wx, wy, radius, power, opts){
@@ -1797,25 +2032,29 @@ function spawnImpact(wx, wy, radius, power, opts){
   const fx = M.fx;
   const big = radius >= 7;
   opts = opts || {};
+  /* the ammo's own impact character — colours, mix, weight */
+  const prof = ammoFx(opts.wkey);
   /* the shockwave ring — big blasts get a second, hotter, slower ring
      underneath so the boom reads as a FIREBALL, not just an outline */
   if (fx.rings.length < FX_CAP.rings)
     fx.rings.push({ x:wx, y:wy, r0:radius * 0.35, r1:radius * (1.6 + power * 0.5),
                     born:nowMs(), life:big ? 520 : 340,
-                    col: opts.water ? '180,220,255' : '255,170,80' });
+                    col: opts.water ? '180,220,255' : prof.ring });
   if (big && !opts.water && fx.rings.length < FX_CAP.rings)
     fx.rings.push({ x:wx, y:wy, r0:radius * 0.2, r1:radius * 2.3,
-                    born:nowMs(), life:680, col:'255,120,40' });
+                    born:nowMs(), life:680, col:prof.ring2 || '255,120,40' });
   /* the flash */
-  fx.flash = Math.min(1, fx.flash + (big ? 0.9 : 0.4));
-  /* the camera shake, scaled and clamped — the biggest booms kick harder */
-  const s = Math.min(big ? 5.2 : 4.2, radius * 0.4 + power * 1.4);
+  fx.flash = Math.min(1, fx.flash + (big ? 0.9 : 0.4) * prof.flash);
+  /* the camera shake, scaled and clamped — the biggest booms kick harder,
+     and the ammo's own weight scales it (cement thuds, a balloon taps) */
+  const s = Math.min((big ? 5.2 : 4.2) * Math.max(1, prof.shake),
+                     (radius * 0.4 + power * 1.4) * prof.shake);
   fx.shake = Math.max(fx.shake, s); fx.shakeMax = Math.max(fx.shakeMax, s);
   /* chunks: tumbling squares that arc out and settle. Count scales with
      the blast but is hard-capped. */
   const nChunks = Math.min(FX_CAP.debris - fx.debris.length,
-                           Math.round(radius * (big ? 2.2 : 1.6) + power * 4));
-  const cols = opts.cols && opts.cols.length ? opts.cols : ['#8a6a3a', '#6b5330', '#5a4726'];
+                           Math.round((radius * (big ? 2.2 : 1.6) + power * 4) * prof.chunks));
+  const cols = prof.cols || (opts.cols && opts.cols.length ? opts.cols : ['#8a6a3a', '#6b5330', '#5a4726']);
   for (let i = 0; i < nChunks; i++){
     const ang = rr(-Math.PI, 0) - (Math.random() < 0.5 ? 0 : Math.PI); /* mostly up/out */
     const sp = rr(0.6, 2.4) * (0.8 + power * 0.4);
@@ -1849,7 +2088,7 @@ function spawnImpact(wx, wy, radius, power, opts){
   const nP = Math.min(FX_CAP.particles - fx.particles.length,
                       Math.round(radius * 2.2 + power * 6));
   for (let i = 0; i < nP; i++){
-    const spark = !opts.water && Math.random() < 0.35;
+    const spark = !opts.water && Math.random() < prof.spark;
     const ang = rr(0, 6.283);
     const sp = rr(0.3, spark ? 3.0 : 1.4) * (0.7 + power * 0.3);
     fx.particles.push({
@@ -1862,7 +2101,7 @@ function spawnImpact(wx, wy, radius, power, opts){
   /* the BIG-BLAST dressing: a swelling fireball core, glowing embers
      that arc and gutter out, and a few tall lingering smoke columns.
      Small taps get none of this, so ammo classes read differently. */
-  if (big && !opts.water){
+  if (big && !opts.water && prof.fire){
     let room = FX_CAP.particles - fx.particles.length;
     const nFire = Math.min(room, 6); room -= nFire;
     for (let i = 0; i < nFire; i++){
@@ -1885,7 +2124,146 @@ function spawnImpact(wx, wy, radius, power, opts){
         r:rr(2.4, 4.0), born:nowMs(), life:rr(900, 1500), kind:'smoke' });
     }
   }
+  /* the ammo's signature flourish — the bit that makes each shell ITS OWN */
+  impactFlourish(fx, opts.wkey, wx, wy, radius, power);
   startFx();
+}
+
+/* THE SIGNATURE MOMENT of each ammo's impact — one switch, draw-only,
+   all pushes cap-checked. Water droplets for the balloon, grease for the
+   pastizz, sticky nougat for the qubbajt, a comic POW star for the
+   slipper, pink pulp + spines for the prickly pear, a festa firework for
+   the murtal, grinding sparks for the drill, a rubble cloud for the
+   cement barrow. Unknown keys get nothing extra. */
+function impactFlourish(fx, key, wx, wy, radius, power){
+  if (!key || !AMMO_FX[key]) return;
+  const now = nowMs();
+  let room = FX_CAP.particles - fx.particles.length;
+  const push = p => { if (room > 0){ fx.particles.push(p); room--; } };
+  switch (key){
+    case 'BALLUN': {
+      /* a harmless burst of water: droplets fan out, a soft blue ripple */
+      for (let i = 0; i < 14; i++){
+        const ang = rr(-3.0, -0.15), sp = rr(0.6, 2.0);
+        push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.2, 0.7),
+               r:rr(0.3, 0.9), born:now, life:rr(340, 640), kind:'water' });
+      }
+      for (let i = 0; i < 3; i++)
+        push({ x:wx + rr(-1, 1), y:wy + rr(-0.5, 0.5), vx:rr(-0.1, 0.1), vy:-rr(0.05, 0.2),
+               r:rr(1.0, 1.8), born:now, life:rr(300, 520), kind:'foam' });
+      break;
+    }
+    case 'PASTIZZ': {
+      /* a greasy golden splat: hot-butter droplets raining off the point */
+      for (let i = 0; i < 12; i++){
+        const ang = rr(-2.9, -0.25), sp = rr(0.5, 1.9);
+        push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.1, 0.6),
+               r:rr(0.3, 0.8), born:now, life:rr(320, 620), kind:'water',
+               col:'255,205,110' });
+      }
+      break;
+    }
+    case 'QUBBAJT': {
+      /* sticky nougat shrapnel: cream/pink blobs that STICK where they land */
+      const nB = Math.min(FX_CAP.debris - fx.debris.length, 9);
+      const gooCols = ['#EFE3C8', '#E8D5B0', '#E8C9D6', '#D8BFA0'];
+      for (let i = 0; i < nB; i++){
+        const ang = rr(-2.9, -0.25), sp = rr(0.7, 2.2) * (0.8 + power * 0.3);
+        fx.debris.push({ x:wx, y:wy,
+          vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.3, 1.0),
+          sz:rr(0.7, 1.5), blob:1, stick:1, rot:0, vr:0,
+          col:gooCols[(Math.random() * gooCols.length) | 0],
+          life:1, born:now, settle:0 });
+      }
+      break;
+    }
+    case 'PPAPOCC': {
+      /* the comic THWACK: a fat pop star, a puff of dust, nothing burns */
+      push({ x:wx, y:wy, vx:0, vy:-0.1, r:Math.max(2.4, radius * 0.9), born:now,
+             life:420, kind:'pow' });
+      for (let i = 0; i < 5; i++)
+        push({ x:wx + rr(-1, 1), y:wy + rr(-1, 0), vx:rr(-0.5, 0.5), vy:-rr(0.1, 0.5),
+               r:rr(0.8, 1.6), born:now, life:rr(280, 480), kind:'dust' });
+      break;
+    }
+    case 'BAJTRA': {
+      /* pink pulp bursting + dark seeds + pale spines scattering */
+      for (let i = 0; i < 12; i++){
+        const ang = rr(0, 6.283), sp = rr(0.5, 1.8);
+        push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.2, 0.8),
+               r:rr(0.35, 0.8), born:now, life:rr(300, 620), kind:'fw',
+               col:Math.random() < 0.7 ? '240,90,160' : '190,50,110' });
+      }
+      const nS = Math.min(FX_CAP.debris - fx.debris.length, 7);
+      for (let i = 0; i < nS; i++){
+        const ang = rr(-2.9, -0.25), sp = rr(0.8, 2.4);
+        fx.debris.push({ x:wx, y:wy,
+          vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.3, 1.0),
+          sz:0, shard:1, len:rr(0.5, 1.0), wid:rr(0.12, 0.2),
+          rot:rr(0, 6.28), vr:rr(-0.8, 0.8),
+          col:Math.random() < 0.5 ? '#E9DAB8' : '#3A2A20',
+          life:1, born:now, settle:0 });
+      }
+      break;
+    }
+    case 'MURTAL': {
+      /* THE FESTA: a multicolour starburst — reds, greens, golds — then a
+         delayed wave of white crackle sparks, like a village feast finale */
+      const festa = ['255,80,80', '120,230,120', '255,210,90'];
+      for (let c = 0; c < 3; c++){
+        for (let i = 0; i < 11; i++){
+          const ang = rr(0, 6.283), sp = rr(1.2, 3.4);
+          push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.1, 0.6),
+                 r:rr(0.3, 0.6), born:now, life:rr(520, 980), kind:'fw',
+                 col:festa[c], tw:rr(0, 6.283) });
+        }
+      }
+      for (let i = 0; i < 12; i++){
+        const ang = rr(0, 6.283), sp = rr(0.8, 2.4);
+        push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.2, 0.8),
+               r:rr(0.25, 0.5), born:now + rr(250, 650), life:rr(180, 360),
+               kind:'fw', col:'255,255,240', tw:rr(0, 6.283) });
+      }
+      if (fx.rings.length < FX_CAP.rings)
+        fx.rings.push({ x:wx, y:wy, r0:radius * 0.3, r1:radius * 2.8,
+                        born:now, life:760, col:'120,230,120' });
+      break;
+    }
+    case 'TRIVELLA': {
+      /* the bore: a violent cone of orange grinding sparks + a dust puff */
+      for (let i = 0; i < 24; i++){
+        const ang = rr(-2.3, -0.85), sp = rr(1.8, 4.2);
+        push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
+               r:rr(0.3, 0.65), born:now, life:rr(260, 520), kind:'spark' });
+      }
+      if (fx.rings.length < FX_CAP.rings)
+        fx.rings.push({ x:wx, y:wy, r0:radius * 0.2, r1:radius * 1.3,
+                        born:now, life:300, col:'255,150,60' });
+      for (let i = 0; i < 6; i++)
+        push({ x:wx + rr(-1, 1), y:wy + rr(-1, 0.5), vx:rr(-0.3, 0.3), vy:-rr(0.1, 0.4),
+               r:rr(1.0, 2.2), born:now, life:rr(400, 750), kind:'dust',
+               col:'150,150,155' });
+      break;
+    }
+    case 'KARRETTUN': {
+      /* the heaviest landing in the game: a billowing grey cement cloud
+         and fist-sized rubble. No fire — just weight. */
+      for (let i = 0; i < 9; i++)
+        push({ x:wx + rr(-2, 2), y:wy + rr(-1.5, 0.5), vx:rr(-0.25, 0.25), vy:-rr(0.15, 0.5),
+               r:rr(2.0, 3.8), born:now, life:rr(800, 1400), kind:'smoke',
+               col:'158,158,162' });
+      const nR = Math.min(FX_CAP.debris - fx.debris.length, 8);
+      for (let i = 0; i < nR; i++){
+        const ang = rr(-2.9, -0.25), sp = rr(0.5, 1.8);
+        fx.debris.push({ x:wx, y:wy,
+          vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.4, 1.2),
+          sz:rr(1.3, 2.6), rot:rr(0, 6.28), vr:rr(-0.3, 0.3),
+          col:['#8B8F94', '#6E7278', '#A5AAB0'][(Math.random() * 3) | 0],
+          life:1, born:now, settle:0 });
+      }
+      break;
+    }
+  }
 }
 
 /* THE SPLASH — the money moment: a soldier (or shell) hits the sea. A
@@ -2001,6 +2379,8 @@ function stepFx(dt){
     /* the ground under this column */
     const gy = groundScreenY(d.x);
     if (d.y >= gy){
+      /* sticky blobs (nougat) glue themselves where they first touch */
+      if (d.stick){ d.y = gy; d.vx = 0; d.vy = 0; d.settle = 1; d.settleAt = nowMs(); continue; }
       if (gy >= wy - 0.5){
         /* into the moat — a little plink of spray where it lands */
         if (fx.particles.length < FX_CAP.particles)
@@ -2018,11 +2398,14 @@ function stepFx(dt){
     const p = fx.particles[i];
     const age = nowMs() - p.born;
     if (age > p.life){ fx.particles.splice(i, 1); continue; }
+    if (age < 0) continue;   /* delayed crackle: not born yet, hold still */
     if (p.kind === 'smoke' || p.kind === 'dust'){ p.vy -= 0.006 * f; p.vx *= 0.98; p.r += 0.03 * f; }
     else if (p.kind === 'fire'){ p.r += 0.1 * f; p.vy -= 0.01 * f; p.vx *= 0.96; }
     else if (p.kind === 'foam'){ p.r += 0.045 * f; p.vx *= 0.9; }
     else if (p.kind === 'ember'){ p.vy += G * 0.8 * f; p.vx *= 0.99; }
     else if (p.kind === 'plume'){ p.vy += G * 1.15 * f; p.vx *= 0.985; }
+    else if (p.kind === 'fw'){ p.vy += G * 0.7 * f; p.vx *= 0.985; }
+    else if (p.kind === 'pow'){ p.r += 0.12 * f; /* the star just swells */ }
     else { p.vy += G * f; }
     p.x += p.vx * f; p.y += p.vy * f;
     /* water bits vanish when they fall back under the surface */
@@ -2059,7 +2442,14 @@ function drawDebris(g, cell){
   for (const d of fx.debris){
     const X = sx(d.x), Y = sy(d.y);
     g.save(); g.translate(X, Y); g.rotate(d.rot);
-    if (d.shard){
+    if (d.blob){
+      /* a sticky blob (nougat shrapnel): a soft round splat with a rim */
+      const s = Math.max(1.5, d.sz * cell * 0.6);
+      g.fillStyle = d.col;
+      g.beginPath(); g.ellipse(0, 0, s, s * (d.settle ? 0.55 : 0.9), 0, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(120,90,60,.3)';
+      g.beginPath(); g.ellipse(s * 0.2, s * 0.15, s * 0.45, s * 0.3, 0, 0, 6.2832); g.fill();
+    } else if (d.shard){
       /* a wooden splinter: a long thin plank with a lit top edge */
       const L = Math.max(2, d.len * cell), W = Math.max(1, d.wid * cell);
       g.fillStyle = d.col;
@@ -2104,9 +2494,30 @@ function drawParticles(g, cell){
   const fx = M.fx; if (!fx || !fx.particles.length) return;
   const now = nowMs();
   for (const p of fx.particles){
-    const t = (now - p.born) / p.life; if (t > 1) continue;
+    const t = (now - p.born) / p.life; if (t > 1 || t < 0) continue;
     const X = sx(p.x), Y = sy(p.y), r = Math.max(0.6, p.r * cell);
-    if (p.kind === 'spark'){
+    if (p.kind === 'fw'){
+      /* a festa firework star: its own colour, a twinkling glow */
+      const a = (1 - t) * (0.65 + 0.35 * Math.sin(now / 45 + (p.tw || 0)));
+      g.fillStyle = 'rgba(' + (p.col || '255,210,90') + ',' + (0.3 * a).toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r * 2.4, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(' + (p.col || '255,210,90') + ',' + a.toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+    } else if (p.kind === 'pow'){
+      /* a comic THWACK star: a fat white burst with an orange edge */
+      const a = 1 - t, R = r * (1 + t * 0.8);
+      g.save(); g.translate(X, Y); g.rotate(t * 0.6);
+      g.beginPath();
+      for (let k = 0; k < 10; k++){
+        const rad = (k % 2 === 0) ? R : R * 0.45, an = k * 0.6283;
+        g[k === 0 ? 'moveTo' : 'lineTo'](Math.cos(an) * rad, Math.sin(an) * rad);
+      }
+      g.closePath();
+      g.fillStyle = 'rgba(255,255,255,' + (0.9 * a).toFixed(2) + ')'; g.fill();
+      g.strokeStyle = 'rgba(255,150,70,' + a.toFixed(2) + ')';
+      g.lineWidth = Math.max(1.5, cell * 0.3); g.stroke();
+      g.restore();
+    } else if (p.kind === 'spark'){
       g.fillStyle = 'rgba(255,' + (180 + ((1 - t) * 60) | 0) + ',80,' + (1 - t).toFixed(2) + ')';
       g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
     } else if (p.kind === 'ember'){
@@ -2132,11 +2543,12 @@ function drawParticles(g, cell){
       g.fillStyle = 'rgba(240,250,255,' + (0.6 * (1 - t)).toFixed(2) + ')';
       g.beginPath(); g.ellipse(X, Y, r, r * 0.35, 0, 0, 6.2832); g.fill();
     } else if (p.kind === 'water'){
-      g.fillStyle = 'rgba(190,225,255,' + (0.7 * (1 - t)).toFixed(2) + ')';
+      g.fillStyle = 'rgba(' + (p.col || '190,225,255') + ',' + (0.7 * (1 - t)).toFixed(2) + ')';
       g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
     } else {
       const a = (p.kind === 'smoke' ? 0.4 : 0.5) * (1 - t);
-      g.fillStyle = (p.kind === 'dust') ? 'rgba(150,130,100,' + a.toFixed(2) + ')'
+      g.fillStyle = p.col ? 'rgba(' + p.col + ',' + a.toFixed(2) + ')'
+                  : (p.kind === 'dust') ? 'rgba(150,130,100,' + a.toFixed(2) + ')'
                                         : 'rgba(70,64,58,' + a.toFixed(2) + ')';
       g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
     }
@@ -2949,10 +3361,13 @@ function playFlight(rep, done){
     return;
   }
 
-  /* the boom points (impacts, sticks, splashes) with their radius */
+  /* the boom points (impacts, sticks, splashes) with their radius. Each
+     boom remembers WHICH AMMO made it (fragments carry the parent's w),
+     so the impact FX can wear the right colours. */
   const booms = [];
   for (const e of rep.ev){
-    if (e.t === 'boom') booms.push({ x:e.x, y:e.y, r:(e.r || 4), water:false, fired:false });
+    if (e.t === 'boom') booms.push({ x:e.x, y:e.y, r:(e.r || 4), water:false, fired:false,
+                                     wk:(e.w != null ? ammoKeyOf(e.w) : null) });
     else if (e.t === 'splash' || e.t === 'overboard')
       booms.push({ x:e.x, y:e.y, r:e.t === 'overboard' ? 5 : 3.5, water:true,
                    over:e.t === 'overboard', fired:false });
@@ -2961,16 +3376,55 @@ function playFlight(rep, done){
   /* the thumps (direct hits) → a knock puff at the person */
   const thumps = rep.ev.filter(e => e.t === 'thump' || e.t === 'thud');
 
+  /* the ammo this shot flies as — everything cosmetic branches on it */
+  const thrEv = rep.ev.find(e => e.t === 'throw');
   const a = M.anim = {
     pts, i:0, trail:[], pos:null, start:nowMs(),
-    zoomedIn:false
+    zoomedIn:false,
+    key:ammoKeyOf(thrEv ? thrEv.w : -1), rot:0
   };
+  a.prof = ammoFx(a.key);
   /* zoom the camera in a touch and follow the shell */
   if (M.cam){ M.cam.follow = true; M.cam.hold = 0; }
 
   const SPEED = 3.0;
   let carried = 0;
   let landed = false, landAt = 0;
+
+  /* fire due booms. Runs both in flight AND after landing, because the
+     QUBBAJT arms a fuse: its boom STICKS first, sputters ~half a second,
+     and only then blows — after the walk has already ended. */
+  const fireBooms = now => {
+    for (const b of booms){
+      if (b.fired) continue;
+      if (!(a.i + 2 >= pts.length || near(a.pos, b.x, b.y, 4))) continue;
+      if (a.key === 'QUBBAJT' && !b.water && !b.small){
+        if (!b.at) b.at = now + 520;
+        if (now < b.at){ if (Math.random() < 0.5) spawnFuseSputter(b.x, b.y); continue; }
+      }
+      b.fired = true;
+      const power = Math.min(1.6, b.r / 6);
+      /* FOG: this shot LANDED — punch a persistent reveal for the
+         SHOOTER at the impact, if it's on the side fogged for them
+         (addReveal filters). The owner is passed explicitly because
+         the engine has already handed the turn on by now. */
+      addReveal(rep.seat, b.x, b.water ? E.WATER_Y : b.y, b.r);
+      if (b.water){
+        /* the sea takes it — a soldier overboard gets the full geyser */
+        spawnSplash(b.x, b.r, !!b.over);
+        cue('sea.splash', { gain:b.over ? 0.7 : 0.5 }, true);
+      } else {
+        /* on land: if the blast landed on/near a soldier's crate,
+           dress it with wooden splinters so the box visibly shatters */
+        const spl = boomNearBox(b.x, b.y) ? Math.round(6 + b.r * 1.5) : 0;
+        spawnImpact(b.x, b.y, b.r, power,
+                    { cols:debrisCols(), splinters:spl, wkey:b.wk || a.key });
+        cue(b.r >= 7 ? 'duel.boss' : 'duel.hit', { gain:0.65 }, b.r >= 7);
+      }
+      /* once the terminal boom goes off the shell IS the explosion */
+      if (!b.small && a.i + 2 >= pts.length) a.hide = true;
+    }
+  };
 
   const step = () => {
     if (!M || M.dead){ return; }
@@ -2980,10 +3434,12 @@ function playFlight(rep, done){
       if (!(a.holdUntil && nowMs() < a.holdUntil)) carried += SPEED;
       while (carried >= 1 && a.i + 2 < pts.length){
         a.i += 2; carried -= 1;
+        a.rot += a.prof.spin;          /* cosmetic tumble (slipper & co) */
         a.trail.push(pts[a.i], pts[a.i + 1]);
         if (a.trail.length > 44) a.trail.splice(0, a.trail.length - 44);
       }
       a.pos = [pts[a.i], pts[a.i + 1]];
+      emitFlightFx(a);                 /* the ammo's own wake */
 
       /* CAMERA FOLLOW: aim the camera at the shell, zoomed in so the
          action fills the field. The eased tickCam does the smoothing. */
@@ -2996,36 +3452,27 @@ function playFlight(rep, done){
         if (e._done) continue;
         if (e.t === 'bounce' && near(a.pos, e.x, e.y, 3)){
           e._done = true; cue('piece.slide', { gain:0.3 });
-          spawnSparks(e.x, e.y);
+          /* the slipper bounces RUBBERY — a pop ring, not hot sparks */
+          if (a.key === 'PPAPOCC') spawnRubberPop(e.x, e.y);
+          else spawnSparks(e.x, e.y);
         } else if (e.t === 'skip' && near(a.pos, e.x, e.y, 3)){
           e._done = true; cue('sea.splash', { gain:0.35 });
           spawnSplash(e.x, 2.2, false);
+          /* the pastizz leaves grease on the water it skips off */
+          if (a.key === 'PASTIZZ') spawnGrease(e.x, E.WATER_Y);
+        } else if (e.t === 'split' && near(a.pos, e.x, e.y, 3)){
+          /* the prickly pear POPS into five at the top of the arc */
+          e._done = true; cue('piece.slide', { gain:0.5 });
+          spawnSplitPop(e.x, e.y);
+        } else if (e.t === 'bore' && near(a.pos, e.x, e.y, 3)){
+          /* the drill chewing through a crate: grinding sparks */
+          e._done = true; cue('duel.hit', { gain:0.35 });
+          spawnGrind(e.x, e.y);
         }
       }
       /* fire the impact FX when the shell reaches (or the path ends at)
          a boom point */
-      for (const b of booms){
-        if (!b.fired && (a.i + 2 >= pts.length || near(a.pos, b.x, b.y, 4))){
-          b.fired = true;
-          const power = Math.min(1.6, b.r / 6);
-          /* FOG: this shot LANDED — punch a persistent reveal for the
-             SHOOTER at the impact, if it's on the side fogged for them
-             (addReveal filters). The owner is passed explicitly because
-             the engine has already handed the turn on by now. */
-          addReveal(rep.seat, b.x, b.water ? E.WATER_Y : b.y, b.r);
-          if (b.water){
-            /* the sea takes it — a soldier overboard gets the full geyser */
-            spawnSplash(b.x, b.r, !!b.over);
-            cue('sea.splash', { gain:b.over ? 0.7 : 0.5 }, true);
-          } else {
-            /* on land: if the blast landed on/near a soldier's crate,
-               dress it with wooden splinters so the box visibly shatters */
-            const spl = boomNearBox(b.x, b.y) ? Math.round(6 + b.r * 1.5) : 0;
-            spawnImpact(b.x, b.y, b.r, power, { cols:debrisCols(), splinters:spl });
-            cue(b.r >= 7 ? 'duel.boss' : 'duel.hit', { gain:0.65 }, b.r >= 7);
-          }
-        }
-      }
+      fireBooms(now);
       for (const tp of thumps){
         if (!tp._done && near(a.pos, tp.x, tp.y, 4)){
           tp._done = true;
@@ -3048,6 +3495,8 @@ function playFlight(rep, done){
         recordLastShot(rep, focus);
       }
     } else {
+      /* a fuse may still be burning (QUBBAJT sticks, THEN blows) */
+      fireBooms(nowMs());
       /* impact settling: hold on the blast, then ease back to frame both
          castles so the player reads what changed */
       const held = nowMs() - landAt;
@@ -3087,6 +3536,139 @@ function spawnSparks(x, y){
     const ang = rr(-Math.PI, 0), sp = rr(0.5, 1.8);
     M.fx.particles.push({ x, y, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
       r:rr(0.3, 0.6), born:nowMs(), life:rr(140, 260), kind:'spark' });
+  }
+  startFx();
+}
+
+/* ── the small per-ammo flight-event spawners — all draw-only, capped ── */
+/* the slipper's rubbery bounce: a white pop ring + a puff, no heat */
+function spawnRubberPop(x, y){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  if (fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x, y, r0:0.3, r1:2.0, born:nowMs(), life:240, col:'255,255,255' });
+  const n = Math.min(FX_CAP.particles - fx.particles.length, 4);
+  for (let i = 0; i < n; i++)
+    fx.particles.push({ x, y, vx:rr(-0.6, 0.6), vy:-rr(0.2, 0.8), r:rr(0.6, 1.2),
+      born:nowMs(), life:rr(220, 400), kind:'dust' });
+  startFx();
+}
+/* golden grease flicked off a skipping pastizz */
+function spawnGrease(x, y){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  const n = Math.min(FX_CAP.particles - fx.particles.length, 5);
+  for (let i = 0; i < n; i++){
+    const ang = rr(-2.8, -0.35), sp = rr(0.5, 1.6);
+    fx.particles.push({ x, y, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.1, 0.5),
+      r:rr(0.25, 0.55), born:nowMs(), life:rr(260, 500), kind:'water', col:'255,205,110' });
+  }
+  startFx();
+}
+/* the prickly pear's mid-air split: a pink pop + pulp fanning out */
+function spawnSplitPop(x, y){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  if (fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x, y, r0:0.4, r1:3.0, born:nowMs(), life:320, col:'255,120,190' });
+  const n = Math.min(FX_CAP.particles - fx.particles.length, 10);
+  for (let i = 0; i < n; i++){
+    const ang = rr(0, 6.283), sp = rr(0.6, 1.8);
+    fx.particles.push({ x, y, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.1, 0.5),
+      r:rr(0.3, 0.7), born:nowMs(), life:rr(280, 560), kind:'fw',
+      col:Math.random() < 0.7 ? '240,90,160' : '190,50,110' });
+  }
+  fx.flash = Math.min(1, fx.flash + 0.15);
+  startFx();
+}
+/* the drill boring through a crate: hard orange grinding sparks + dust */
+function spawnGrind(x, y){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  let n = Math.min(FX_CAP.particles - fx.particles.length, 10);
+  for (let i = 0; i < n; i++){
+    const ang = rr(-2.3, -0.85), sp = rr(1.2, 3.0);
+    fx.particles.push({ x, y, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
+      r:rr(0.25, 0.5), born:nowMs(), life:rr(160, 340), kind:'spark' });
+  }
+  n = Math.min(FX_CAP.particles - fx.particles.length, 3);
+  for (let i = 0; i < n; i++)
+    fx.particles.push({ x:x + rr(-0.8, 0.8), y:y + rr(-0.8, 0.4), vx:rr(-0.2, 0.2),
+      vy:-rr(0.1, 0.3), r:rr(0.8, 1.6), born:nowMs(), life:rr(300, 560), kind:'dust',
+      col:'150,150,155' });
+  startFx();
+}
+/* the stuck nougat bomb's fuse, sputtering before the blow */
+function spawnFuseSputter(x, y){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  const n = Math.min(FX_CAP.particles - fx.particles.length, 2);
+  for (let i = 0; i < n; i++)
+    fx.particles.push({ x:x + rr(-0.5, 0.5), y:y - rr(0.6, 1.4), vx:rr(-0.5, 0.5),
+      vy:-rr(0.2, 0.9), r:rr(0.2, 0.45), born:nowMs(), life:rr(140, 300), kind:'spark' });
+  startFx();
+}
+
+/* the ammo's WAKE — per-frame flight emission, throttled per key so the
+   pools never starve. Only the shells whose character NEEDS a wake emit:
+   the rocket roars, the fuse sputters, grease and cement dust shed. */
+function emitFlightFx(a){
+  if (noMotion() || !M || !a.pos) return;
+  const key = a.key; if (!key || !AMMO_FX[key]) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx;
+  if (fx.particles.length > FX_CAP.particles - 4) return;
+  const now = nowMs();
+  const x = a.pos[0], y = a.pos[1];
+  const every = ms => { if (now - (a.emAt || 0) < ms) return false; a.emAt = now; return true; };
+  switch (key){
+    case 'MURTAL':
+      /* the rocket motor: embers + a smoke column streaming behind */
+      fx.particles.push({ x:x + rr(-0.3, 0.3), y:y + rr(-0.3, 0.3),
+        vx:rr(-0.3, 0.3), vy:rr(-0.1, 0.5),
+        r:rr(0.25, 0.5), born:now, life:rr(260, 520), kind:'ember' });
+      if (Math.random() < 0.5)
+        fx.particles.push({ x, y, vx:rr(-0.12, 0.12), vy:rr(0, 0.2),
+          r:rr(0.8, 1.5), born:now, life:rr(400, 750), kind:'smoke' });
+      break;
+    case 'QUBBAJT':
+      /* the lit fuse sputters as it flies */
+      if (!every(50)) return;
+      fx.particles.push({ x:x + rr(-0.4, 0.4), y:y - rr(0.6, 1.2),
+        vx:rr(-0.4, 0.4), vy:-rr(0.1, 0.6),
+        r:rr(0.2, 0.45), born:now, life:rr(140, 300), kind:'spark' });
+      break;
+    case 'PASTIZZ':
+      /* buttery droplets shed off the pastry */
+      if (!every(70)) return;
+      fx.particles.push({ x, y, vx:rr(-0.2, 0.2), vy:rr(0, 0.3),
+        r:rr(0.25, 0.5), born:now, life:rr(280, 520), kind:'water', col:'255,205,110' });
+      break;
+    case 'KARRETTUN':
+      /* dry cement dust trickling off the lump */
+      if (!every(70)) return;
+      fx.particles.push({ x:x + rr(-0.6, 0.6), y:y + rr(-0.4, 0.4),
+        vx:rr(-0.15, 0.15), vy:rr(0, 0.25),
+        r:rr(0.7, 1.4), born:now, life:rr(320, 600), kind:'dust', col:'150,150,155' });
+      break;
+    case 'TRIVELLA':
+      /* a thin stream of hot filings off the spinning bit */
+      if (!every(60)) return;
+      fx.particles.push({ x, y, vx:rr(-0.3, 0.3), vy:rr(-0.2, 0.3),
+        r:rr(0.2, 0.4), born:now, life:rr(120, 240), kind:'spark' });
+      break;
+    case 'BALLUN':
+      /* the odd drip off a wobbling balloon */
+      if (!every(140)) return;
+      fx.particles.push({ x, y, vx:rr(-0.15, 0.15), vy:rr(0, 0.2),
+        r:rr(0.25, 0.5), born:now, life:rr(260, 480), kind:'water' });
+      break;
+    default: return;
   }
   startFx();
 }
