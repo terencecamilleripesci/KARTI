@@ -508,8 +508,9 @@ const NDEF = DEFS.length, NTIER = 4;
    BOX_TOP proud of the waterline, and it FLOATS (the BOX material is
    buoyant). groundUnder() then stands the soldier on the deck for free,
    and ragdoll() drops them in the sea the instant the deck is shot away. */
-const BOX_W   = 4;              /* a crate is four cells wide              */
-const BOX_TOP = WATER_Y - 4;    /* its deck sits four cells above the sea  */
+const BOX_W   = 3;              /* a SMALL crate — just under the soldier,
+                                   odd width so it centres on their feet    */
+const BOX_TOP = WATER_Y - 3;    /* a short deck, three cells above the sea  */
 
 const PLACE = {
   BACK_MIN: 0,        /* boxes hard against your own shelf — the near edge */
