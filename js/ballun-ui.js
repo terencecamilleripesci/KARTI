@@ -676,12 +676,16 @@ function startLoop(){
   M.D = measureD();
   if (M.net){
     /* THE WIRE BUDGET scales with the table: worst case ≈ humans·40/gap
-       change messages plus 1000/shipHbMs keepalives per phone, kept under
-       the relay's 40 msg/s room bucket with headroom. */
+       change messages plus 1000/shipHbMs keepalives per phone. 26 Aug 2026:
+       the relay's room bucket was RAISED 40 -> 160 msg/s — this is the 40Hz
+       game, the heaviest of the lot, and at four humans it wanted ~72/s
+       against the old 40/s ceiling, which is why a full table stuttered and
+       stalled. Under 160 it fits with room to spare, so the gap tightens for
+       feel: worst case 4 humans x (40/4 + 1000/150) ≈ 67/s. */
     let humans = 0;
     for (const p of M.st.pads) if (!p.bot && E.alive(p)) humans++;
-    M.shipGap  = humans <= 2 ? 3 : humans <= 3 ? 4 : 5;
-    M.shipHbMs = 200;
+    M.shipGap  = humans <= 2 ? 2 : humans <= 3 ? 3 : 4;
+    M.shipHbMs = 150;
     /* prime the outbound ledger from the seeded parked target (seedInputs
        filled 0..D_MAX+1 with the paddle centre, identically on every
        phone) and every peer's watermark from that same shared horizon. */

@@ -107,6 +107,15 @@ const E = R.engine;
 const C = E.consts;
 const esc = (K && K.esc) || (s => String(s == null ? '' : s));
 
+/* HOW OFTEN AN ONLINE PHONE FILES + SHIPS ITS PADDLE TARGET, in sim ticks.
+   This mirrors the engine's own BATCH_TICKS (js/briks.js): delayFor() already
+   adds that many ticks to the input delay D "so a batched packet still lands
+   ahead of use", so filing on this period can never outrun the watermark that
+   ready() waits on. At 40Hz, 3 ticks is ~13 messages/second — comfortably
+   under the relay's 25/s per-connection cap, where filing every tick (40/s)
+   was not. Keep this <= the engine's BATCH_TICKS. */
+const NET_BATCH_TICKS = 3;
+
 /* ── the one language switch (js/lang.js) ────────────────────────── */
 const T = (en, mt) => window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en;
 
@@ -539,6 +548,7 @@ function startMatch(opts, seed, net){
     ghostX: null,             /* the predicted local paddle x, for draw   */
     renderX: null,            /* render-eased own paddle x (60fps, smooth)*/
     lastForTick: 0,           /* last tick we filed a target for          */
+    lastFiled: null,          /* sim tick we last FILED on (net batching) */
     prev: null,               /* snapshot of ball positions last tick     */
     prevPad: null,            /* snapshot of paddle x last tick (opponent)*/
     lastFrameMs: 0,           /* wall time of the last draw, for easing   */
@@ -703,21 +713,43 @@ function meter(now){
 function doTick(){
   const st = M.st;
 
-  /* 1 — file our input for a future tick. We file EVERY tick from the
-     last committed target so a held thumb keeps the paddle where it is
-     (absolute targets are forgiving of a dropped batch — engine header).
-     sample() clamps to the lane and returns the tick it filed for. */
+  /* 1 — file our input for a future tick. Absolute targets are forgiving of
+     a dropped batch (engine header) and the engine HOLDS THE LAST one for
+     any tick nothing was filed for, so a target does not need filing every
+     single tick.
+
+     ONLINE WE FILE ONCE EVERY BATCH TICKS, WHICH IS WHAT THE ENGINE ALREADY
+     BUDGETS FOR. js/briks.js defines BATCH_TICKS = 3 ("inputs sent in 3s")
+     and delayFor() ADDS it to D expressly "so a batched packet still lands
+     ahead of use" — but this screen never batched: it filed and shipped on
+     EVERY tick, which at 40Hz is 40 messages/second from one phone against
+     the relay's 25/s PER-CONNECTION cap (server L.MSG_RATE). The relay
+     therefore refused a steady fraction of them, peers waited on an input
+     that never came, and the table hitched. At one send per 3 ticks it is
+     ~13/s — inside the cap with room to spare.
+
+     THE COMMIT AND THE SEND ARE GATED TOGETHER, deliberately: if this phone
+     filed a target every tick but only shipped every third, its own sim
+     would run on a finer input timeline than its peer's copy of the same
+     seat and the two would drift apart. Same schedule = same inputs =
+     same world. Offline there is no wire, so nothing is skipped. */
   const tx = (M.thumbX == null) ? st.pads[M.me].x : M.thumbX;
   const forTick = st.tick + M.D;
-  const committed = E.commit(st, M.me, forTick, tx);
-  M.lastForTick = forTick;
-  if (M.net && committed){
-    /* travel it — but ONLY an input the local sim actually took. A commit
-       the engine refused (a tick already filed, e.g. inside the warmup
-       prefill) must not reach the other phone, or it applies there what
-       was rejected here and the two sims split. mp.js carries the same
-       {seat,move} shape serp uses. */
-    say(M.me, { t:'tx', forTick: forTick, tx: tx });
+  const batch = M.net ? NET_BATCH_TICKS : 1;
+  const due = (M.lastFiled == null) || ((st.tick - M.lastFiled) >= batch);
+  let committed = false;
+  if (due){
+    committed = E.commit(st, M.me, forTick, tx);
+    M.lastFiled = st.tick;
+    M.lastForTick = forTick;
+    if (M.net && committed){
+      /* travel it — but ONLY an input the local sim actually took. A commit
+         the engine refused (a tick already filed, e.g. inside the warmup
+         prefill) must not reach the other phone, or it applies there what
+         was rejected here and the two sims split. mp.js carries the same
+         {seat,move} shape serp uses. */
+      say(M.me, { t:'tx', forTick: forTick, tx: tx });
+    }
   }
 
   /* 2 — is the world resolved for the tick we are about to run? Offline

@@ -566,16 +566,19 @@ function stopLoop(){ if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; } 
 function startLoop(){
   if (!M || M.raf) return;
   M.D = measureD();
-  /* the wire budget scales with the table: the relay's per-room fan bucket
-     is 40 msg/s sustained (server L.FAN_RATE), and per-tick sending at
-     20Hz × 4+ seats drains it in two seconds flat — the relay then DROPS
-     bytes and the lockstep starves forever (measured: every 4-seat room
-     froze at ~tick 41). shipGap floors the ticks between APPLIED input
-     changes; shipHbMs paces the keepalive. Worst case ≈ n·20/gap ≤ 35/s. */
+  /* the wire budget scales with the table. 26 Aug 2026: the relay's per-room
+     fan bucket was RAISED 40 -> 160 msg/s (server L.FAN_RATE) precisely
+     because these real-time games did not fit under 40: at 20Hz this table
+     ran ~64/s at six seats, so the relay DROPPED bytes and the lockstep
+     starved (measured: every 4-seat room froze at ~tick 41). With a 160/s
+     bucket the old squeeze is gone, so the pacing is now tuned for FEEL:
+     a smaller gap lands input changes sooner, and a faster keepalive
+     unblocks a peer that lost a byte in ~150ms instead of 400ms.
+     Worst case, eight seats: 8 x (20/4 + 1000/200) = 80/s, half the bucket. */
   if (M.net){
     const n = M.st.tanks.length;
-    M.shipGap  = n <= 4 ? 3 : n <= 6 ? 4 : 5;
-    M.shipHbMs = n <= 5 ? 250 : 400;
+    M.shipGap  = n <= 4 ? 2 : n <= 6 ? 3 : 4;
+    M.shipHbMs = n <= 5 ? 150 : 200;
   }
   /* PRIME THE PIPELINE, online: commit stand-still for ticks 0..D-1 (the
      input lag IS D ticks). Only tick 0 actually ships — one message that
