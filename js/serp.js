@@ -199,7 +199,12 @@ const HEAD_R      = Math.round(1.35 * ONE);
    again. These are the deterministic SIM baseline (they change the hash on
    purpose vs the old long-start build, but stay self-consistent). */
 const SEG_START   = 5;                 /* body ticks at birth — a SMALL snake */
-const GROW_TICKS  = 4;                 /* body ticks each pellet adds         */
+/* Halved from 4: at 4 a decent run ballooned a snake so fast the body
+   filled the screen in a couple of minutes, and the length race was over
+   before anybody had to fight for it. At 2 the growth curve is a climb,
+   not a rocket — you EARN a long body. (Engine constant: both phones in a
+   room must share it, which the sw cache bump enforces on next open.) */
+const GROW_TICKS  = 2;                 /* body ticks each pellet adds         */
 const MIN_TICKS   = 4;                 /* never shorter than this (< start)   */
 const NECK_GRACE  = 5;                 /* body ticks near the head that
                                           cannot self-kill. One more than the

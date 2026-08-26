@@ -118,6 +118,7 @@ function noMotion(){
    loud one; the reverse is what makes a game tiring.
    ═══════════════════════════════════════════════════════════════════ */
 let cueAt = 0;
+let eatRun = 0;     /* consecutive pellets in the current combo — resets after 1.2s */
 let eatSfxAt = 0;   /* the eat 'coin' blip gets its own longer throttle so a fast
                        stream of pellets is an occasional soft cue, not a machine-
                        gun rattle — players found the constant coin sound annoying. */
@@ -469,6 +470,7 @@ function startMatch(opts, seed, net){
     tick: 0,
     aim: null,                  /* the heading the thumb has asked for   */
     aimSaid: -1,                /* the last aim we broadcast (to dedupe) */
+    aimSentAt: 0,               /* when — the wire gate's clock           */
     boost: 0,                   /* is the local snake sprinting          */
     boostSaid: -1,
     peers: {},
@@ -630,9 +632,25 @@ function doTick(){
        afterwards — the thumb never waits for the network */
     if (seat === M.me){
       if (M.aim != null && M.aim !== M.aimSaid){
-        if (E.plan(st, sn, { t:M.tick, k:'aim', a:M.aim })){
-          say(seat, { t:'aim', tick:M.tick, ang:M.aim });
-          M.aimSaid = M.aim;
+        /* THE RELAY BUDGET (~40 msg/s per room, and a DROPPED event is a
+           permanent desync in an event-sourced game). A dragging thumb
+           changes a 256-step aim nearly every frame, which put an event
+           on the wire per tick — one steering phone was most of the room's
+           budget. Gate it: an aim travels when it has swung far enough to
+           matter (~8°) OR the last send is 140ms old (so a settling thumb's
+           final fine angle still lands). TURN caps the turn per tick, so
+           the snake carves the same smooth arc either way — bounded at
+           ~7 msg/s flat-out instead of ~30, and identical on every phone
+           because only the SENT aim is ever planned. */
+        const _aw = Date.now();
+        let _dd = M.aimSaid < 0 ? 999 : Math.abs(M.aim - M.aimSaid);
+        if (_dd > 128) _dd = 256 - _dd;
+        if (_dd >= 6 || _aw - (M.aimSentAt || 0) >= 140){
+          if (E.plan(st, sn, { t:M.tick, k:'aim', a:M.aim })){
+            say(seat, { t:'aim', tick:M.tick, ang:M.aim });
+            M.aimSaid = M.aim;
+            M.aimSentAt = _aw;
+          }
         }
       }
       if (M.boost !== M.boostSaid){
@@ -684,10 +702,18 @@ function doTick(){
         const kit = KIT.skin(sn.seat);
         fxEat(sn.hx, sn.hy, seat === M.me ? '#FFC542' : kit.a);
         if (seat === M.me){
-          /* throttle the eat blip to ~4/sec and soften it, so grabbing a run of
-             pellets is a gentle cue rather than a rattling stream of coins. */
+          /* THE COMBO CHIME. A coin blip per pellet read as a cash-register
+             rattle. Instead each pellet in a RUN climbs one step of the
+             pentatonic ladder (sfx.note — "no wrong note", the same
+             instrument the nav plays), so hoovering a line of food plays a
+             rising tune; let 1.2s pass and the melody starts over. Capped
+             at the ladder's top so a monster run does not squeal. */
           const _n = Date.now();
-          if (_n - eatSfxAt > 240){ eatSfxAt = _n; cue('ui.coin', { gain:0.26 }); }
+          if (_n - eatSfxAt > 1200) eatRun = 0;
+          eatSfxAt = _n;
+          const S = window.KARTI_SFX;
+          if (S && S.note) S.note(Math.min(14, eatRun++), { gain:0.5 });
+          else cue('ui.coin', { gain:0.26 });
         }
       }
       hud();
@@ -940,13 +966,27 @@ function drawSnake(g, sn, f, now){
   const rFu = E.bodyR(sn.bodyTicks);
   const wpx = Math.max(3, (rFu / E.ONE) * UI.ppu * 2);      /* body diameter */
 
-  /* build the on-screen polyline of body centres, head-first */
+  /* build the on-screen polyline of body centres, head-first — CHAINED,
+     not point-by-point. toScreen() maps a point to whichever wrapped copy
+     of the world is nearest the CAMERA, so on a body longer than half the
+     world two adjacent samples could land on opposite copies and the
+     stroke drew a streak across the whole arena ("grow too much and your
+     body bugs the map"). Project the head once, then walk each further
+     sample by its wrapped DELTA from the previous one: consecutive
+     samples are one head-step apart, a distance that can never wrap, so
+     the polyline is continuous whatever the length. */
   const pts = [];
   const n = Math.min(p.length - 1, Math.max(2, sn.bodyTicks));
-  for (let i = 0; i <= n; i++){
+  const w0 = lerpSample(sn, 0, f);
+  const s0 = toScreen(w0.x, w0.y);
+  pts.push(s0);
+  let px = s0.x, py = s0.y, pwx = w0.x, pwy = w0.y;
+  for (let i = 1; i <= n; i++){
     const w = lerpSample(sn, i, f);
-    const s = toScreen(w.x, w.y);
-    pts.push(s);
+    px += (E.wrapDelta(w.x - pwx) / E.ONE) * UI.ppu;
+    py += (E.wrapDelta(w.y - pwy) / E.ONE) * UI.ppu;
+    pwx = w.x; pwy = w.y;
+    pts.push({ x: px, y: py });
   }
   /* cull if wholly off-screen */
   let vis = false;
