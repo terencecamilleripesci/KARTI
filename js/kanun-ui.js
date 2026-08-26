@@ -678,20 +678,41 @@ const FRAME_BOT_Y    = 82;   /* lowest cell kept in view (just under water) */
 const BASE_HALF_W = 34;      /* cells of room each side of the launch hand */
 /* the zoom is capped so the base reads big; floored so a very tall field
    never leaves dead sky flapping around it. */
-const BASE_ZOOM_MIN = 1.9;
+/* floored low enough that boxes dropped right across the map still all fit
+   on screen; the MINW band above stops a clustered set zooming out this far. */
+const BASE_ZOOM_MIN = 0.8;
 const BASE_ZOOM_MAX = 4.2;
 
 function frameForBase(seat){
   seat = seat | 0;
-  /* centre horizontally on the launch hand so the pull has room both ways.
-     Fall back to the castle centre if there is no live crew to read. */
   const hand = (M && M.st) ? handOf(seat) : null;
   const castleMid = seat === 0 ? (E.L_X0 + E.L_X1) / 2 : (E.R_X0 + E.R_X1) / 2;
-  const hx = hand ? hand.x : castleMid;
-  let bx0 = hx - BASE_HALF_W, bx1 = hx + BASE_HALF_W;
+  /* FRAME ALL OF THIS SIDE, so every one of the three boxes is on screen
+     however far apart they were dropped. During placement that is the whole
+     stretch of water you may drop them in (so you can tap and see the lot);
+     in play it is the span of your LIVING soldiers. A minimum width keeps a
+     single or clustered set from zooming to a speck. */
+  let lo = null, hi = null;
+  if (M && M.st){
+    if (M.phase === 'place'){
+      const back = (M.st.sides[seat] && M.st.sides[seat].back) | 0;
+      const z = E.crewZone(seat, back);
+      lo = z.x0; hi = z.x1;
+    } else if (M.st.sides && M.st.sides[seat]){
+      for (const c of M.st.sides[seat].crew){
+        if (!c || !c.alive) continue;
+        if (lo === null || c.x < lo) lo = c.x;
+        if (hi === null || c.x > hi) hi = c.x;
+      }
+    }
+  }
+  if (lo === null){ lo = hi = (hand ? hand.x : castleMid); }
+  const MARG = 9;                        /* cells of room each side          */
+  const MINW = BASE_HALF_W * 1.3;        /* never narrower than this          */
+  let bx0 = lo - MARG, bx1 = hi + MARG;
+  if (bx1 - bx0 < MINW){ const c = (bx0 + bx1) / 2; bx0 = c - MINW / 2; bx1 = c + MINW / 2; }
   /* keep the band on-world, but preserve its WIDTH when it hits an edge so
-     the zoom (and thus the on-screen pull budget) stays stable near a
-     corner castle. */
+     the zoom stays stable near the world edge. */
   const bandW0 = bx1 - bx0;
   if (bx0 < 0){ bx0 = 0; bx1 = bandW0; }
   if (bx1 > E.W){ bx1 = E.W; bx0 = E.W - bandW0; }
