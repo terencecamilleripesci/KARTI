@@ -1154,7 +1154,7 @@ function directHit(st, p, c, seat, rep){
 function throwIt(st, seat, mv, rep, opts){
   const W_ = WEAPONS[mv.w];
   const s = st.sides[seat];
-  const thrower = firstUp(s);
+  const thrower = throwerOf(s, mv.c);
   if (!thrower) return;
 
   const face = seat === 0 ? 1 : -1;
@@ -1352,6 +1352,13 @@ function throwIt(st, seat, mv, rep, opts){
 function firstUp(s){
   for (const c of s.crew) if (c.alive) return c;
   return null;
+}
+/* the soldier who THROWS: the one the player picked (crew slot `c`), if they
+   are still standing — otherwise the first one up. A move with no pick, and
+   every old replay, resolves to firstUp() exactly as before. */
+function throwerOf(s, c){
+  if (c != null && c >= 0 && c < s.crew.length && s.crew[c] && s.crew[c].alive) return s.crew[c];
+  return firstUp(s);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1732,7 +1739,7 @@ function legal(st, mv){
 
 function blankReport(st, seat, mv){
   return {
-    seat, mv: { w:mv.w | 0, dx:mv.dx | 0, dy:mv.dy | 0 },
+    seat, mv: { w:mv.w | 0, dx:mv.dx | 0, dy:mv.dy | 0, c:(mv.c != null ? mv.c | 0 : null) },
     turnNo: st.turnNo, wind: st.wind,
     ev: [], tracks: [], hurt: [], downed: [],
     broke: 0, direct: 0, dealt: 0, own: 0,
@@ -1769,7 +1776,7 @@ function apply(st, mv){
   /* the cells that could have moved — the window the settle uses */
   const lo0 = Math.min(L_X0, R_X0), hi0 = Math.max(L_X1, R_X1);
 
-  throwIt(st, seat, { w, dx: mv.dx | 0, dy: mv.dy | 0 }, rep, null);
+  throwIt(st, seat, { w, dx: mv.dx | 0, dy: mv.dy | 0, c: (mv.c != null ? mv.c | 0 : null) }, rep, null);
   settle(st, lo0, hi0, rep);
   ragdoll(st, seat, rep);
   /* cover knocked loose by a body landing on it, once more, bounded */
@@ -1859,7 +1866,7 @@ function preview(st, mv){
   if (!mv) return null;
   const rep = blankReport(st, mv.seat != null ? mv.seat : st.turn, mv);
   const seat = mv.seat != null ? mv.seat : st.turn;
-  throwIt(st, seat, { w: mv.w | 0, dx: mv.dx | 0, dy: mv.dy | 0 }, rep, { noDamage:true });
+  throwIt(st, seat, { w: mv.w | 0, dx: mv.dx | 0, dy: mv.dy | 0, c: (mv.c != null ? mv.c | 0 : null) }, rep, { noDamage:true });
   return rep;
 }
 
@@ -2285,7 +2292,7 @@ function aiTurn(st, seat, lvl, strat){
      purchase  { t:'b', i }
      forfeit   { t:'q' }
    ═══════════════════════════════════════════════════════════════════ */
-const WIRE_FIELDS = ['w', 'x', 'y', 'i'];
+const WIRE_FIELDS = ['w', 'x', 'y', 'i', 'c'];   /* 'c' APPENDED — thrower slot */
 const byteOK = v => v >= 0 && v <= 255;
 
 function encWire(mv){
@@ -2297,7 +2304,10 @@ function encWire(mv){
   }
   const w = mv.w | 0, x = (mv.dx | 0) + 128, y = (mv.dy | 0) + 128;
   if (!(w >= 0 && w < NW) || !byteOK(x) || !byteOK(y)) return null;
-  return { t:'f', w, x, y };
+  /* the picked thrower slot, or 255 for "no pick" so it is ALWAYS a byte on
+     the wire (never undefined) and an older decoder just ignores it. */
+  const c = (mv.c != null && mv.c >= 0 && mv.c < CH_PER_SIDE) ? mv.c : 255;
+  return { t:'f', w, x, y, c };
 }
 function decWire(o, seat){
   if (!o || typeof o.t !== 'string') return null;
@@ -2309,7 +2319,8 @@ function decWire(o, seat){
   if (o.t === 'f'){
     const w = o.w | 0, x = o.x | 0, y = o.y | 0;
     if (!(w >= 0 && w < NW) || !byteOK(x) || !byteOK(y)) return null;
-    return { seat, w, dx: x - 128, dy: y - 128 };
+    const c = (o.c != null && (o.c | 0) >= 0 && (o.c | 0) < CH_PER_SIDE) ? (o.c | 0) : null;
+    return { seat, w, dx: x - 128, dy: y - 128, c };
   }
   return null;
 }
@@ -2447,7 +2458,7 @@ root.KARTI_KANUN.engine = {
   /* a match */
   newSeed, newMatch, legal, apply, preview, replay, snapshot, restore,
   turnOf, integrity, aliveCrew, crewHp, ammoOf, coolOf, view, fingerprint,
-  dragOf, firstUp,
+  dragOf, firstUp, throwerOf,
   /* the machine */
   think, shopFor, aiTurn, foeTargetX, openGuess, isqrt,
   /* the wire */

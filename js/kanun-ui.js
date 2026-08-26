@@ -288,7 +288,12 @@ function injectCSS(){
     '#scr-party .kn-curtain .kn-seatdot{width:16px;height:16px;border-radius:5px}' +
 
     /* the weapon strip — the one you throw, tap to change */
+    /* width clamped to the host: without it the framework content-sizes the
+       strip (~558px) and centres it, hanging BOTH ends off a 390px phone —
+       the Water balloon (always first, always yours) sat off-screen left.
+       Clamped, the strip's own overflow-x scrolls from item one. */
     '#scr-party .kn-weps{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;padding:2px 2px 4px;' +
+      'width:100%;max-width:100%;min-width:0;' +
       '-webkit-overflow-scrolling:touch;scrollbar-width:none}' +
     '#scr-party .kn-weps::-webkit-scrollbar{display:none}' +
     '#scr-party .kn-wep{flex:0 0 auto;min-width:64px;-webkit-appearance:none;appearance:none;' +
@@ -298,10 +303,15 @@ function injectCSS(){
     '#scr-party .kn-wep b{font:900 10px/1.15 var(--disp);color:#fff;letter-spacing:.02em}' +
     '#scr-party .kn-wep i{font:900 9px/1 var(--disp);font-style:normal;color:var(--dim)}' +
     '#scr-party .kn-wep .sw{width:22px;height:22px;border-radius:7px;display:flex;' +
-      'align-items:center;justify-content:center}' +
+      'align-items:center;justify-content:center;background:rgba(var(--ac,255,255,255),.12)}' +
     '#scr-party .kn-wep .sw svg{width:18px;height:18px}' +
-    '#scr-party .kn-wep.on{background:rgba(255,197,66,.20);' +
-      'box-shadow:inset 0 0 0 1px rgba(255,197,66,.55)}' +
+    /* the PICKED weapon: a fat ring + tint in the ammo's own colour (--ac,
+       set inline per button from AMMO_FX), so the loaded shot is readable
+       at arm's length, not a thin gold hairline. */
+    '#scr-party .kn-wep.on{background:rgba(var(--ac,255,197,66),.22);' +
+      'box-shadow:inset 0 0 0 2px rgba(var(--ac,255,197,66),.95),' +
+      '0 3px 12px rgba(var(--ac,255,197,66),.28)}' +
+    '#scr-party .kn-wep.on i{color:#fff;opacity:.85}' +
     '#scr-party .kn-wep.out{opacity:.34}' +
     '#scr-party .kn-wep .cd{color:#FF6B4D}' +
 
@@ -326,12 +336,45 @@ function injectCSS(){
       '-webkit-overflow-scrolling:touch}' +
     '#scr-party .kn-grp{margin:8px 0 2px;font:900 10px/1 var(--disp);letter-spacing:.12em;' +
       'text-transform:uppercase;color:var(--dim)}' +
+    '#scr-party .kn-grp.hi{color:var(--gold,#FFC542);margin-bottom:6px}' +
+    /* ── YOUR THROW: a card grid up top, one tap picks it and closes the
+       sheet. The picked card is unmistakable — a fat ring + tint in the
+       ammo's own colour (--ac) and a check badge — and the stat line
+       (hits/blast/knock) keeps its own row so it stays readable. ── */
+    '#scr-party .kn-mine{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));' +
+      'gap:8px;margin:2px 0 10px}' +
+    '#scr-party .kn-throw{position:relative;-webkit-appearance:none;appearance:none;border:0;' +
+      'border-radius:14px;text-align:left;padding:10px 11px 9px;display:flex;' +
+      'flex-direction:column;gap:6px;background:rgba(255,255,255,.05);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);color:#E9E4F5;' +
+      'touch-action:manipulation}' +
+    '#scr-party .kn-throw .hd{display:flex;align-items:center;gap:8px;min-width:0;' +
+      'padding-right:16px}' +
+    '#scr-party .kn-throw .sw{width:32px;height:32px;border-radius:9px;flex:0 0 auto;' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(var(--ac,255,197,66),.16);' +
+      'box-shadow:inset 0 0 0 1px rgba(var(--ac,255,197,66),.35)}' +
+    '#scr-party .kn-throw .sw svg{width:22px;height:22px}' +
+    '#scr-party .kn-throw .hd b{display:block;font:900 12px/1.15 var(--disp);color:#fff;' +
+      'letter-spacing:.02em}' +
+    '#scr-party .kn-throw .ct{display:block;font:900 9.5px/1 var(--disp);color:var(--dim);' +
+      'margin-top:3px}' +
+    '#scr-party .kn-throw .st{font:800 10px/1.3 var(--disp);color:var(--dim)}' +
+    '#scr-party .kn-throw .pk{position:absolute;top:7px;right:7px;width:20px;height:20px;' +
+      'border-radius:50%;display:none;align-items:center;justify-content:center;' +
+      'font:900 12px/1 var(--disp);background:rgb(var(--ac,255,197,66));color:#10131C}' +
+    '#scr-party .kn-throw.on{background:rgba(var(--ac,255,197,66),.17);' +
+      'box-shadow:inset 0 0 0 2px rgba(var(--ac,255,197,66),.95),' +
+      '0 5px 16px rgba(var(--ac,255,197,66),.22)}' +
+    '#scr-party .kn-throw.on .pk{display:flex}' +
+    '#scr-party .kn-throw.on .st{color:#fff;opacity:.8}' +
     '#scr-party .kn-item{width:100%;text-align:left;-webkit-appearance:none;appearance:none;' +
       'border:0;display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:12px;' +
       'background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.07);' +
       'margin-bottom:6px;color:#E9E4F5;touch-action:manipulation}' +
     '#scr-party .kn-item .ic{width:30px;height:30px;border-radius:8px;flex:0 0 auto;' +
-      'display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.06)}' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(var(--ac,255,255,255),.10)}' +
     '#scr-party .kn-item .ic svg{width:22px;height:22px}' +
     '#scr-party .kn-item .tx{flex:1;min-width:0}' +
     '#scr-party .kn-item .tx b{display:block;font:900 12px/1.2 var(--disp);color:#fff}' +
@@ -701,12 +744,20 @@ function frameForBase(seat){
     if (bx1 - bx0 < MINW){ const c = (bx0 + bx1) / 2; bx0 = c - MINW / 2; bx1 = c + MINW / 2; }
     zmin = PLACE_ZOOM_MIN;
   } else {
-    /* PLAY: sit CLOSE on the thrower, so aiming then pulls the camera OUT to
-       follow the arc all the way to where it comes down. Centre on the launch
-       hand with room each side for the pull. */
-    const hx = hand ? hand.x : castleMid;
-    bx0 = hx - BASE_HALF_W; bx1 = hx + BASE_HALF_W;
-    zmin = BASE_ZOOM_MIN;
+    /* PLAY (at rest): frame ALL of this side's living soldiers, so you can see
+       and TAP any of them to pick who throws. Aiming itself uses a separate
+       corridor frame (aimDragFrame set at pointerdown), so a wide rest view
+       here costs the aim nothing. A minimum width stops a lone/clustered set
+       filling the screen. */
+    let lo = null, hi = null;
+    const cr = (M.st && M.st.sides[seat]) ? M.st.sides[seat].crew : [];
+    for (const cc of cr){ if (!cc.alive) continue; if (lo === null || cc.x < lo) lo = cc.x; if (hi === null || cc.x > hi) hi = cc.x; }
+    if (lo === null){ lo = hi = (hand ? hand.x : castleMid); }
+    const MARG = 12;
+    bx0 = lo - MARG; bx1 = hi + MARG;
+    const MINW = BASE_HALF_W * 1.6;
+    if (bx1 - bx0 < MINW){ const c = (bx0 + bx1) / 2; bx0 = c - MINW / 2; bx1 = c + MINW / 2; }
+    zmin = PLACE_ZOOM_MIN;
   }
   /* keep the band on-world, but preserve its WIDTH when it hits an edge so
      the zoom stays stable near the world edge. */
@@ -771,6 +822,44 @@ function frameArc(seat, pts){
   return { x: cx, y: cy, zoom };
 }
 
+/* ── THE STABLE DRAG FRAME — the aim camera, without the jitter ──────
+   Re-fitting frameArc() on EVERY pointermove made the zoom breathe with
+   the pull length and the pan target jump after the finger: the eased
+   camera chased a moving goal and aiming felt floaty. Instead the drag
+   view is framed ONCE at pointerdown — a generous fixed corridor from
+   just behind the launch hand out downrange toward where shots come
+   down — and for the whole pull the ZOOM never changes. moveAim() then
+   only nudges the PAN target, and only when the landing reticle (or the
+   hand) drifts out of an inner window of that frame, so small aim
+   corrections leave the camera perfectly still and a big pull glides it
+   gently downrange. frameArc is kept above (distinct from frameForAim!)
+   for the record of what the corridor must cover. */
+const AIM_DRAG_BACK  = 16;   /* cells framed behind the hand (pull room)   */
+const AIM_DRAG_REACH = 96;   /* cells framed downrange at drag start       */
+const AIM_DRAG_TOP   = 10;   /* high sky kept in frame for the arc apex    */
+const AIM_EDGE_FRAC  = 0.78; /* reticle stays inside this inner window     */
+const AIM_CAM_EASE   = 0.55; /* gentler cam ease while the finger is down  */
+function aimDragFrame(seat){
+  seat |= 0;
+  if (!UI || !UI.cw || !UI.ch || !UI.baseSc) return frameForBase(seat);
+  const hand = (M && M.st) ? handOf(seat) : null;
+  const hx = hand ? hand.x
+           : (seat === 0 ? (E.L_X0 + E.L_X1) / 2 : (E.R_X0 + E.R_X1) / 2);
+  /* the corridor leans DOWNRANGE: seat 0 throws right, seat 1 left */
+  let x0, x1;
+  if (seat === 0){ x0 = hx - AIM_DRAG_BACK; x1 = hx + AIM_DRAG_REACH; }
+  else           { x0 = hx - AIM_DRAG_REACH; x1 = hx + AIM_DRAG_BACK; }
+  /* keep the band on-world, preserving its WIDTH so the zoom is stable */
+  const bandW = x1 - x0;
+  if (x0 < 0){ x0 = 0; x1 = bandW; }
+  if (x1 > E.W){ x1 = E.W; x0 = E.W - bandW; }
+  const y0 = AIM_DRAG_TOP, y1 = FRAME_BOT_Y;
+  const zx = (UI.cw / UI.baseSc) / (x1 - x0);
+  const zy = (UI.ch / UI.baseSc) / (y1 - y0);
+  const zoom = clampN(Math.min(zx, zy), AIM_ZOOM_MIN, BASE_ZOOM_MAX);
+  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, zoom };
+}
+
 /* the seat whose base the aim camera should rest on: the local human's
    own seat (canAct() gates aiming to E.turnOf === M.me), resolved the
    same way localSide() picks the clear half so pass-the-phone / online
@@ -802,7 +891,11 @@ function clampN(v, lo, hi){ return v < lo ? lo : v > hi ? hi : v; }
    whether it is still meaningfully moving. */
 function tickCam(dt){
   const c = M && M.cam; if (!c || !UI) return false;
-  const k = 1 - Math.pow(0.0016, Math.min(0.05, dt) );  /* ~critically damped */
+  let k = 1 - Math.pow(0.0016, Math.min(0.05, dt) );  /* ~critically damped */
+  /* while a finger is actively AIMING the camera glides more gently, so a
+     nudged pan target never lurches the view mid-pull. Flight follow and
+     return-to-base (M.drag is null by then) keep the full rate. */
+  if (M.drag && M.drag.frame) k *= AIM_CAM_EASE;
   const nx = c.x + (c.tx - c.x) * k;
   const ny = c.y + (c.ty - c.y) * k;
   const nz = c.zoom + (c.tzoom - c.zoom) * k;
@@ -946,13 +1039,27 @@ function draw(){
   /* drawBanner(g, 0, cell); drawBanner(g, 1, cell); */
 
   /* ── the crew ── */
+  const mineSeat = mySeat();
+  const myThr = (M && !M.anim && canAct()) ? throwerSlot(mineSeat) : -1;
   for (const sd of v.sides){
     const col = SIDECOL[sd.seat];
-    for (const c of sd.crew){
+    for (let k = 0; k < sd.crew.length; k++){
+      const c = sd.crew[k];
       if (c.wet) continue;
       const cx = sx(c.x), cyFeet = sy(c.y);
       const bw = E.T.CH_W * cell, bh = E.T.CH_H * cell;
       const bx0 = cx - bw / 2, by0 = cyFeet - bh;
+      /* mark YOUR chosen thrower (a gold ring + a chevron) so you always know
+         who is about to shoot, and that tapping another switches to them */
+      if (c.alive && sd.seat === mineSeat && k === myThr){
+        g.strokeStyle = '#FFC542'; g.lineWidth = Math.max(1.5, cell * 0.32);
+        g.beginPath(); g.ellipse(cx, cyFeet, bw * 0.85, bh * 0.17, 0, 0, 6.2832); g.stroke();
+        const ty = by0 - bh * 0.95;
+        g.fillStyle = '#FFC542';
+        g.beginPath();
+        g.moveTo(cx - bw * 0.4, ty); g.lineTo(cx + bw * 0.4, ty); g.lineTo(cx, ty + bh * 0.4);
+        g.closePath(); g.fill();
+      }
       if (!c.alive) g.globalAlpha = 0.4;
       /* a soft ground shadow */
       if (c.alive){
@@ -2024,6 +2131,11 @@ const AMMO_FX_DEF = { glow:'255,220,150', core:'#FFE08A', halo:0.5,
                       chunks:1, spark:0.35, fire:true };
 function ammoFx(k){ return AMMO_FX[k] || AMMO_FX_DEF; }
 function ammoKeyOf(w){ const W_ = E.WEAPONS && E.WEAPONS[w | 0]; return W_ ? W_.key : ''; }
+/* the ammo's signature colour for the CHROME (weapon strip, store cards):
+   the same glow the shell trails in flight, as an 'r,g,b' triple for a
+   CSS --ac custom property. Draw-only, borrowed straight from AMMO_FX so
+   the button you tapped and the shell you threw match. */
+function ammoAccent(k){ return (AMMO_FX[k] || AMMO_FX_DEF).glow; }
 
 /* spawn the whole impact bundle for one boom. `power` scales everything;
    `matCol` tints the chunks to what actually broke there. */
@@ -2567,9 +2679,35 @@ function stopFx(){
    the shell agree.
    ═══════════════════════════════════════════════════════════════════ */
 function handOf(seat){
-  const c = E.firstUp(M.st.sides[seat]);
+  seat = seat | 0;
+  /* the LOCAL actor throws from the soldier they picked (M.thrower); every
+     other seat, and a null pick, falls back to the first one standing. */
+  const pick = (seat === mySeat()) ? M.thrower : null;
+  const c = E.throwerOf(M.st.sides[seat], pick);
   if (!c) return null;
   return { x: c.x, y: c.y - E.T.CH_H };
+}
+/* which slot handOf resolved to, for highlighting the chosen soldier */
+function throwerSlot(seat){
+  seat = seat | 0;
+  const pick = (seat === mySeat()) ? M.thrower : null;
+  const s = M.st.sides[seat];
+  const c = E.throwerOf(s, pick);
+  return c ? s.crew.indexOf(c) : -1;
+}
+/* the living soldier of `seat` nearest a screen point (within grab radius),
+   for tap-to-pick-your-thrower. Returns crew slot or -1. */
+function soldierSlotAt(px, py, seat){
+  const s = M.st.sides[seat | 0]; if (!s) return -1;
+  const cell = cellPx(); const R = Math.max(18, cell * 3.2);
+  let best = -1, bd = R * R;
+  for (let k = 0; k < s.crew.length; k++){
+    const c = s.crew[k]; if (!c.alive) continue;
+    const dx = sx(c.x) - px, dy = sy(c.y - E.T.CH_H / 2) - py;
+    const d = dx * dx + dy * dy;
+    if (d < bd){ bd = d; best = k; }
+  }
+  return best;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -3156,11 +3294,29 @@ function beginAim(px, py){
   const seat = mySeat();
   const hand = handOf(seat);
   if (!hand) return;
+  /* frame the DRAG VIEW once, right here at pointerdown: a fixed generous
+     zoom for the whole pull (see aimDragFrame). Only the pan target may
+     move after this, so the view never re-zooms under the finger. Reduced
+     motion snaps the frame in place before the anchor is measured. */
+  let df = null;
+  if (M.cam && !M.cam.userPan && !M.anim){
+    df = aimDragFrame(seat);
+    if (df && isFinite(df.x) && isFinite(df.y) && isFinite(df.zoom)){
+      M.cam.follow = false;
+      M.cam.tx = df.x; M.cam.ty = df.y; M.cam.tzoom = df.zoom;
+      if (noMotion()) snapCam();
+    } else df = null;
+  }
   /* anchor the pull at the HAND's SCREEN position, so the drag distance
      is read in pixels the thumb actually travels. */
   M.drag = { seat, hx: hand.x, hy: hand.y,
              hsx: sx(hand.x), hsy: sy(hand.y),
-             fx: wx(px), fy: wy(py), sx0:px, sy0:py };
+             fx: wx(px), fy: wy(py), sx0:px, sy0:py, frame: df };
+  /* if the finger came down ON another of your soldiers (not the current
+     thrower), a TAP here PICKS them as the new thrower; a real pull instead
+     aims from the current one (moveAim clears the pending pick). */
+  const pk = soldierSlotAt(px, py, seat);
+  M.drag.pick = (pk >= 0 && pk !== throwerSlot(seat)) ? pk : null;
   moveAim(px, py);
 }
 function moveAim(px, py){
@@ -3173,7 +3329,15 @@ function moveAim(px, py){
   const spdx = px - M.drag.hsx, spdy = py - M.drag.hsy;
   const drag = E.dragOf(-spdx, -spdy, maxPullPx());
   M.drag.dx = drag.dx; M.drag.dy = drag.dy;
-  const mv = { seat, w: M.sel, dx: drag.dx, dy: drag.dy };
+  /* has the FINGER actually moved from where it went down? A shot only fires
+     on a real drag; a tap (no movement) never fires — it picks a soldier or
+     does nothing. This also stops the "pull is measured from the hand" quirk
+     from launching a shot when you merely tap away from the thrower. */
+  {
+    const mdx = px - M.drag.sx0, mdy = py - M.drag.sy0;
+    if (mdx * mdx + mdy * mdy > 144){ M.drag.moved = true; M.drag.pick = null; }
+  }
+  const mv = { seat, w: M.sel, dx: drag.dx, dy: drag.dy, c: (M.thrower != null ? M.thrower : null) };
   M.drag.mv = mv;
   /* power meter + a live power/angle readout so lining up a shot is a
      precise, satisfying thing rather than a guess */
@@ -3194,17 +3358,39 @@ function moveAim(px, py){
   } else {
     M.preview = null;
   }
-  /* ZOOM THE CAMERA OUT TO THE END OF THE AIM ASSIST. Set the eased
-     target only (never snap) so the view glides back as the pull grows,
-     and never fight a player who is hand-scouting with a two-finger pan. */
-  if (M.cam && !M.cam.userPan && !M.anim){
-    const f = (M.preview && M.preview.length >= 4)
-              ? frameArc(seat, M.preview)
-              : frameForBase(seat);
-    if (f && isFinite(f.x) && isFinite(f.y) && isFinite(f.zoom)){
-      M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom;
-      if (!noMotion()) easeCamToTarget(); else { snapCam(); }
+  /* THE DRAG CAMERA — STEADY, NOT CHASING. The zoom was fixed ONCE at
+     pointerdown (M.drag.frame); here we only nudge the PAN target, and
+     only when something worth seeing leaves the inner window: first the
+     hand (so easing off a pull recentres on the base), then the landing
+     reticle — which WINS, because seeing where the shot comes down, even
+     into the fog, is the whole point. Inside the window the target does
+     not move at all, so fine aiming holds the camera perfectly still.
+     The aim line + reticle are drawn direct from the live drag every
+     frame — only the camera is smoothed. Never fights a hand-scout pan. */
+  const dfr = M.drag.frame;
+  if (dfr && M.cam && !M.cam.userPan && !M.anim){
+    const c = M.cam;
+    c.tzoom = dfr.zoom;              /* zoom locked for the whole drag */
+    const s = UI.baseSc * dfr.zoom;
+    const hwin = (UI.cw / 2) / s * AIM_EDGE_FRAC;
+    const vwin = (UI.ch / 2) / s * AIM_EDGE_FRAC;
+    let tx = c.tx, ty = c.ty;
+    /* keep the launch hand in frame when there is room… */
+    if (M.drag.hx < tx - hwin) tx = M.drag.hx + hwin;
+    else if (M.drag.hx > tx + hwin) tx = M.drag.hx - hwin;
+    if (M.drag.hy < ty - vwin) ty = M.drag.hy + vwin;
+    else if (M.drag.hy > ty + vwin) ty = M.drag.hy - vwin;
+    /* …but the landing point wins the pan when they cannot both fit */
+    const pv = M.preview;
+    if (pv && pv.length >= 2){
+      const lx = pv[pv.length - 2], ly = pv[pv.length - 1];
+      if (lx < tx - hwin) tx = lx + hwin;
+      else if (lx > tx + hwin) tx = lx - hwin;
+      if (ly < ty - vwin) ty = ly + vwin;
+      else if (ly > ty + vwin) ty = ly - vwin;
     }
+    if (isFinite(tx) && isFinite(ty)){ c.tx = tx; c.ty = ty; }
+    if (!noMotion()) easeCamToTarget(); else snapCam();
   }
   draw();
 }
@@ -3212,6 +3398,8 @@ function endAim(){
   if (!M.drag){ return; }
   const seat = M.drag.seat;
   const mv = M.drag.mv;
+  const pick = M.drag.pick;
+  const moved = !!M.drag.moved;   /* did the finger actually drag? */
   M.drag = null; M.preview = null;
   if (UI.power){ UI.power.classList.remove('on'); UI.powerFill.style.width = '0%'; }
   if (UI.tip) UI.tip.classList.remove('on');
@@ -3227,7 +3415,20 @@ function endAim(){
       if (!noMotion()) easeCamToTarget(); else { snapCam(); draw(); }
     }
   };
-  if (!mv){ easeBackToBase(); return; }
+  /* a TAP on another of your soldiers PICKS them as the thrower — no shot;
+     the view re-homes onto the new soldier so the next pull comes from them. */
+  if (pick != null){
+    M.thrower = pick;
+    cue('move.select', { gain:0.5 });
+    const nm = (M.st.sides[seat].crew[pick] && M.st.sides[seat].crew[pick].name)
+             ? TP(M.st.sides[seat].crew[pick].name) : '';
+    tip('<b>' + esc(T('Throwing from ', 'Titfa\' minn ') + nm) + '</b>', 1200);
+    easeBackToBase();
+    return;
+  }
+  /* no shot without a real drag — a bare tap (or a tap that missed a soldier)
+     just re-homes the view, it never launches. */
+  if (!moved || !mv){ easeBackToBase(); return; }
   const chk = E.legal(M.st, mv);
   if (!chk.ok){
     tip('<b>' + esc(TP(chk.why)) + '</b>', 1400);
@@ -3842,9 +4043,10 @@ function setTurn(who){
     /* frame BOTH castles so the enemy target is visible before aiming.
        Only snap if the camera is idle (no shell flight easing) so we
        never yank it out from under an in-progress follow. */
+    M.thrower = null;   /* each turn defaults to the first one up; tap another to switch */
     if (M.cam && !M.anim) frameForAim(true);
     P.ui.setTurn(M.ctx, { cls:'good', who:T('Your throw', 'It-tefgħa tiegħek'),
-      note:T('Pull back from your soldier and let go.', 'Iġbed lura mis-suldat tiegħek u itilqu.') });
+      note:T('Tap a soldier to pick, then pull back to throw.', 'Agħfas suldat biex tagħżel, imbagħad iġbed biex titfa\'.') });
     /* EVERY TURN, the store pops up so you choose what to throw: the water
        balloon is free, everything else costs coins (you earn some each turn).
        Tap 'Done — now throw' to close and aim. */
@@ -3869,12 +4071,25 @@ function weps(){
     const ammo = me.ammo[w.id];
     const cool = me.cool[w.id];
     const off = ammo === 0;
-    const cls = 'kn-wep' + (w.id === M.sel ? ' on' : '') + (off ? ' out' : '');
+    const on = (w.id === M.sel);
+    const cls = 'kn-wep' + (on ? ' on' : '') + (off ? ' out' : '');
     const amStr = ammo < 0 ? '∞' : (cool > 0 ? '<span class="cd">' + esc(T('cool', 'sakemm')) + ' ' + cool + '</span>' : String(ammo));
-    return '<button class="' + cls + '" data-w="' + w.id + '"' + (off ? ' disabled' : '') + '>' +
+    /* --ac carries the ammo's AMMO_FX colour into the CSS, so the picked
+       button rings in the same colour the shell will trail. */
+    return '<button class="' + cls + '" data-w="' + w.id + '" style="--ac:' +
+      ammoAccent(w.key) + '" aria-pressed="' + (on ? 'true' : 'false') + '"' +
+      (off ? ' disabled' : '') + '>' +
       '<span class="sw">' + wepGlyph(w.key) + '</span>' +
       '<b>' + esc(TP(w.name)) + '</b><i>' + amStr + '</i></button>';
   }).join('');
+  /* keep the picked tile on-screen in the scrollable strip (no-op when it
+     already is; instant under reduced motion) */
+  const onEl = UI.weps.querySelector('.kn-wep.on');
+  if (onEl && onEl.scrollIntoView){
+    try { onEl.scrollIntoView({ block:'nearest', inline:'nearest',
+                                behavior: noMotion() ? 'auto' : 'smooth' }); }
+    catch(_){ }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -3919,17 +4134,20 @@ function paintShop(){
     const n = sd.ammo[w.id];
     if (w.id === 0 || n > 0) mine.push({ w:w.id, name:w.name, key:w.key, n });
   }
+  /* a CARD per throwable, in the ammo's own colour — the picked one rings
+     fat and wears a check badge, so what you are about to throw is never
+     in doubt. One tap picks it AND closes the sheet (see the click wire). */
   function throwRow(m){
     const on = (M.sel === m.w);
-    const count = m.w === 0 ? T('free · ∞', 'b\'xejn · ∞') : (m.n + '×');
-    const hi = on ? ' style="box-shadow:inset 0 0 0 2px var(--gold,#FFC542)"' : '';
-    return '<button class="kn-item" data-w="' + m.w + '"' + hi + '>' +
-      '<span class="ic"><span class="sw">' + wepGlyph(m.key) + '</span></span>' +
-      '<span class="tx"><b>' + esc(TP(m.name)) + '</b>' +
-        '<i>' + esc(wepStat(m.w)) + '</i>' +
-        '<i>' + (on ? esc(T('Picked — throwing this', 'Magħżul — dan se titfa\'')) :
-                       esc(T('Tap to throw this', 'Agħfas biex titfa\' dan'))) + '</i></span>' +
-      '<span class="pr">' + esc(count) + '</span>' +
+    const count = m.w === 0 ? T('free · ∞', 'b\'xejn · ∞')
+                : (m.n + '× ' + T('left', 'fadal'));
+    return '<button class="kn-throw' + (on ? ' on' : '') + '" data-w="' + m.w +
+      '" style="--ac:' + ammoAccent(m.key) + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+      '<span class="hd"><span class="sw">' + wepGlyph(m.key) + '</span>' +
+        '<span><b>' + esc(TP(m.name)) + '</b>' +
+        '<span class="ct">' + esc(count) + '</span></span></span>' +
+      '<span class="st">' + esc(wepStat(m.w)) + '</span>' +
+      '<span class="pk" aria-hidden="true">✓</span>' +
       '</button>';
   }
 
@@ -3939,9 +4157,12 @@ function paintShop(){
     const cls = 'kn-item' + (owned ? ' owned' : (can ? '' : ' no'));
     const ic = r.kind === 0 ? '<span class="sw">' + wepGlyph(E.WEAPONS[r.w].key) + '</span>'
              : defGlyph(r);
+    /* ammo rows carry the ammo's colour into the icon chip */
+    const acS = (r.kind === 0 && E.WEAPONS[r.w])
+              ? ' style="--ac:' + ammoAccent(E.WEAPONS[r.w].key) + '"' : '';
     const why = (!can && !owned && r.why) ? '<i>' + esc(TP(r.why)) + '</i>' : '';
     const stat = (r.kind === 0) ? '<i>' + esc(wepStat(r.w)) + '</i>' : '';
-    return '<button class="' + cls + '" data-it="' + r.it + '"' + ((can && !owned) ? '' : ' disabled') + '>' +
+    return '<button class="' + cls + '" data-it="' + r.it + '"' + acS + ((can && !owned) ? '' : ' disabled') + '>' +
       '<span class="ic">' + ic + '</span>' +
       '<span class="tx"><b>' + esc(TP(r.name)) + '</b>' + stat +
         '<i>' + esc(shorten(TP(r.blurb))) + '</i>' + why + '</span>' +
@@ -3949,11 +4170,19 @@ function paintShop(){
       '</button>';
   }
   UI.shopBody.innerHTML =
-    (mine.length ? '<div class="kn-grp">' + esc(T('Your throw', 'It-tefgħa tiegħek')) + '</div>' + mine.map(throwRow).join('') : '') +
+    (mine.length ? '<div class="kn-grp hi">' + esc(T('Your throw — tap to pick', 'It-tefgħa tiegħek — agħfas biex tagħżel')) + '</div>' +
+      '<div class="kn-mine">' + mine.map(throwRow).join('') + '</div>' : '') +
     (AMMO.length ? '<div class="kn-grp">' + esc(T('Buy something nastier', 'Ixtri xi ħaġa agħar')) + '</div>' + AMMO.map(row).join('') : '') +
     (UPG.length ? '<div class="kn-grp">' + esc(T('Better cover', 'Kenn aħjar')) + '</div>' + UPG.map(row).join('') : '') +
     (FIX.length ? '<div class="kn-grp">' + esc(T('Patch it up', 'Sewwih')) + '</div>' + FIX.map(row).join('') : '') +
     (ONE.length ? '<div class="kn-grp">' + esc(T('Right now', 'Issa')) + '</div>' + ONE.map(row).join('') : '');
+  /* the DONE button names the loaded throw, so the sheet's last word is
+     always "what happens next" */
+  if (UI.shopDone){
+    const wsel = E.WEAPONS[M.sel];
+    UI.shopDone.innerHTML = esc(T('Done — throw', 'Lest — itfa\'')) +
+      (wsel ? ' <b>' + esc(TP(wsel.name)) + '</b>' : '');
+  }
 }
 function defGlyph(r){
   /* a wall / tower / parapet block, coloured by target tier's material */
@@ -4067,6 +4296,7 @@ function board(){
     shop: ctx.host.querySelector('#kn-shop'),
     shopBody: ctx.host.querySelector('#kn-shop-b'),
     shopCoins: ctx.host.querySelector('#kn-shop-coins'),
+    shopDone: ctx.host.querySelector('#kn-shop-done'),
     sc:1, ox:0, oy:0, dpr:1, cw:1, ch:1, dirty:true
   };
   M.cv = cv; M.g2 = UI.g2;
@@ -4085,11 +4315,27 @@ function board(){
   if (UI.modeBtn) UI.modeBtn.addEventListener('click', () => { toggleMode(); cue('move.select', { gain:0.4 }); });
   renderModeBtn();
   ctx.host.querySelector('#kn-store').onclick = () => openShop();
-  ctx.host.querySelector('#kn-shop-done').onclick = () => closeShop();
+  UI.shopDone.onclick = () => closeShop();
   UI.shopBody.addEventListener('click', e => {
-    /* pick what to throw (data-w) — the free balloon or bought ammo */
+    /* pick what to throw (data-w) — ONE TAP selects AND closes the sheet
+       ready to aim. The repaint flashes the highlighted card first so the
+       choice registers, then the sheet drops (instantly under reduced
+       motion). Buying (data-it) never closes — you shop on. */
     const bw = e.target.closest && e.target.closest('[data-w]');
-    if (bw){ M.sel = +bw.getAttribute('data-w'); paintShop(); weps(); cue('move.select', { gain:0.4 }); return; }
+    if (bw){
+      M.sel = +bw.getAttribute('data-w');
+      paintShop(); weps();
+      cue('move.select', { gain:0.4 });
+      const wsel = E.WEAPONS[M.sel];
+      clearTimeout(M._shopPickT);
+      M._shopPickT = setTimeout(() => {
+        if (!M) return;
+        if (M.shopOpen) closeShop();
+        if (wsel) tip('<b>' + esc(TP(wsel.name)) + '</b> · ' +
+          esc(T('pull back to aim', 'iġbed lura biex timmira')), 2000);
+      }, noMotion() ? 0 : 230);
+      return;
+    }
     /* or buy something (data-it) */
     const b = e.target.closest && e.target.closest('[data-it]');
     if (!b || b.disabled) return;
