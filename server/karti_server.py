@@ -305,7 +305,7 @@ BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
           "ludu", "serp", "erbgha", "minhu", "kodici",
-          "tankijiet", "ballun", "aqleb", "kaxxi", "sqaq",
+          "tankijiet", "ballun", "aqleb", "kaxxi", "sqaq", "ilforka",
           "konkwista", "misteru")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
@@ -396,6 +396,7 @@ GAME_SEATS = {
     "aqleb":     (2, 4, 2),   # Reversi — 2–4, perfect information
     "kaxxi":     (2, 4, 2),   # Dots & Boxes — 2–4, perfect information
     "sqaq":      (2, 4, 2),   # Wall-maze race — 2–4, perfect information
+    "ilforka":   (2, 8, 2),   # Hangman — 2–8; setter's phone referees, no relay secret
     # The two flagship turn-based games, 2–6 seats. Konkwista is perfect-info
     # with seeded dice (online honest now); Il-Misteru is deduction whose online
     # half stays gated in its own lobby until the private solution/hand deal is

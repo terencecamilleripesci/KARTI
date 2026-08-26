@@ -206,6 +206,8 @@ const GAMES = [
     blurb:'Draw lines, close boxes. Two to four players.' },
   { k:'sqaq', name:'Is-Sqaq', short:'SQAQ', icon:'map',
     blurb:'Race to the far side. Wall them off — never seal them in.' },
+  { k:'ilforka', name:'Il-Forka', short:'FORKA', icon:'book',
+    blurb:'Hangman, the Maltese way. Set a word or guess one.' },
   /* the two flagship turn-based games — conquest and deduction, 2–6 seats */
   { k:'konkwista', name:'Konkwista', short:'KONKWISTA', icon:'map',
     blurb:'Claim islands, roll the dice, take the whole sea.' },
@@ -306,7 +308,7 @@ const LOBBY_GLOBAL = {
   erbgha:'KARTI_ERBGHA', minhu:'KARTI_MINHU', kodici:'KARTI_KODICI',
   /* the arena games + Reversi — real-time lockstep / perfect-info, honest online */
   tankijiet:'KARTI_TANKIJIET', ballun:'KARTI_BALLUN', aqleb:'KARTI_AQLEB',
-  kaxxi:'KARTI_KAXXI', sqaq:'KARTI_SQAQ',
+  kaxxi:'KARTI_KAXXI', sqaq:'KARTI_SQAQ', ilforka:'KARTI_ILFORKA',
   /* conquest (perfect info, seeded dice) + deduction (online gated until the
      private per-seat solution/hand deal is wired; offline plays now) */
   konkwista:'KARTI_KONKWISTA', misteru:'KARTI_MISTERU'
@@ -330,7 +332,7 @@ const SEATS_FALLBACK = {
   poker:[2, 8, 4], cards2131:[1, 9, 4],
   /* the arena games + Reversi. tankijiet is a 4–8 brawl; ballun and aqleb seat 2–4. */
   tankijiet:[4, 8, 4], ballun:[2, 4, 4], aqleb:[2, 4, 2], kaxxi:[2, 4, 2],
-  sqaq:[2, 4, 2],
+  sqaq:[2, 4, 2], ilforka:[2, 8, 2],
   konkwista:[2, 6, 3], misteru:[2, 6, 3]
 };
 
@@ -667,7 +669,7 @@ function lobbyReport(){
    in the same inked-cartoon house style as the rest. */
 const LOGO_GAMES = ('chess dama kiri skarta erbgha ludu minhu kodici kanun bomba ' +
                     'briks cards2131 serp tankijiet konkwista ballun ' +
-                    'cards tombla gharraq spy klabb poker aqleb kaxxi misteru sqaq').split(' ');
+                    'cards tombla gharraq spy klabb poker aqleb kaxxi misteru sqaq ilforka').split(' ');
 function gameIcon(k){
   const g = gameMeta(k);
   const P = window.KARTI_PARTY;
