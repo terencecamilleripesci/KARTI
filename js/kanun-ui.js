@@ -678,39 +678,36 @@ const FRAME_BOT_Y    = 82;   /* lowest cell kept in view (just under water) */
 const BASE_HALF_W = 34;      /* cells of room each side of the launch hand */
 /* the zoom is capped so the base reads big; floored so a very tall field
    never leaves dead sky flapping around it. */
-/* floored low enough that boxes dropped right across the map still all fit
-   on screen; the MINW band above stops a clustered set zooming out this far. */
-const BASE_ZOOM_MIN = 0.8;
-const BASE_ZOOM_MAX = 4.2;
+/* PLAY sits CLOSE on the thrower (1.9) so aiming can then pull the camera
+   out to follow the arc to where it lands. PLACEMENT floors much lower
+   (0.8) so all three boxes, dropped right across the map, still fit. */
+const BASE_ZOOM_MIN  = 1.9;
+const PLACE_ZOOM_MIN = 0.8;
+const BASE_ZOOM_MAX  = 4.2;
 
 function frameForBase(seat){
   seat = seat | 0;
   const hand = (M && M.st) ? handOf(seat) : null;
   const castleMid = seat === 0 ? (E.L_X0 + E.L_X1) / 2 : (E.R_X0 + E.R_X1) / 2;
-  /* FRAME ALL OF THIS SIDE, so every one of the three boxes is on screen
-     however far apart they were dropped. During placement that is the whole
-     stretch of water you may drop them in (so you can tap and see the lot);
-     in play it is the span of your LIVING soldiers. A minimum width keeps a
-     single or clustered set from zooming to a speck. */
-  let lo = null, hi = null;
-  if (M && M.st){
-    if (M.phase === 'place'){
-      const back = (M.st.sides[seat] && M.st.sides[seat].back) | 0;
-      const z = E.crewZone(seat, back);
-      lo = z.x0; hi = z.x1;
-    } else if (M.st.sides && M.st.sides[seat]){
-      for (const c of M.st.sides[seat].crew){
-        if (!c || !c.alive) continue;
-        if (lo === null || c.x < lo) lo = c.x;
-        if (hi === null || c.x > hi) hi = c.x;
-      }
-    }
+  let bx0, bx1, zmin;
+  if (M && M.phase === 'place'){
+    /* PLACEMENT: the WHOLE stretch of water you may drop boxes in, so you
+       can see and reach all three however far apart they are. */
+    const back = (M.st && M.st.sides[seat] ? M.st.sides[seat].back : 0) | 0;
+    const z = E.crewZone(seat, back);
+    const MARG = 9;
+    bx0 = z.x0 - MARG; bx1 = z.x1 + MARG;
+    const MINW = BASE_HALF_W * 1.3;
+    if (bx1 - bx0 < MINW){ const c = (bx0 + bx1) / 2; bx0 = c - MINW / 2; bx1 = c + MINW / 2; }
+    zmin = PLACE_ZOOM_MIN;
+  } else {
+    /* PLAY: sit CLOSE on the thrower, so aiming then pulls the camera OUT to
+       follow the arc all the way to where it comes down. Centre on the launch
+       hand with room each side for the pull. */
+    const hx = hand ? hand.x : castleMid;
+    bx0 = hx - BASE_HALF_W; bx1 = hx + BASE_HALF_W;
+    zmin = BASE_ZOOM_MIN;
   }
-  if (lo === null){ lo = hi = (hand ? hand.x : castleMid); }
-  const MARG = 9;                        /* cells of room each side          */
-  const MINW = BASE_HALF_W * 1.3;        /* never narrower than this          */
-  let bx0 = lo - MARG, bx1 = hi + MARG;
-  if (bx1 - bx0 < MINW){ const c = (bx0 + bx1) / 2; bx0 = c - MINW / 2; bx1 = c + MINW / 2; }
   /* keep the band on-world, but preserve its WIDTH when it hits an edge so
      the zoom stays stable near the world edge. */
   const bandW0 = bx1 - bx0;
@@ -720,17 +717,16 @@ function frameForBase(seat){
   const cy = (FRAME_TOP_Y + FRAME_BOT_Y) / 2;
   /* with no field measured yet (pre-mount), fall back to a sane close zoom */
   if (!UI || !UI.cw || !UI.ch || !UI.baseSc){
-    return { x: cx, y: cy, zoom: BASE_ZOOM_MIN };
+    return { x: cx, y: cy, zoom: zmin };
   }
   const bandW = bx1 - bx0;                 /* cells across the band  */
   const bandH = FRAME_BOT_Y - FRAME_TOP_Y; /* cells down the band    */
   /* the zoom (a multiple of baseSc) that just fits the band in each axis;
-     take the SMALLER so the whole base stays framed, then clamp IN so we
-     are always zoomed close on the base rather than showing the field. */
+     take the SMALLER so the whole base stays framed, then clamp. */
   const zx = (UI.cw / UI.baseSc) / bandW;
   const zy = (UI.ch / UI.baseSc) / bandH;
   let zoom = Math.min(zx, zy);
-  zoom = clampN(zoom, BASE_ZOOM_MIN, BASE_ZOOM_MAX);
+  zoom = clampN(zoom, zmin, BASE_ZOOM_MAX);
   return { x: cx, y: cy, zoom };
 }
 /* ── THE AIM CAMERA FOLLOWS THE SHOT TO ITS LANDING ──────────────────
