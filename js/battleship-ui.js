@@ -2330,8 +2330,17 @@ function injectCSS(){
     '#scr-party .bs-c.sunk::after{opacity:.55}' +
     '#scr-party .bs-c.fresh::after{animation:bsPop .32s var(--ease) both}' +
     '@keyframes bsPop{from{transform:scale(2.2);opacity:0}to{transform:scale(1);opacity:1}}' +
-    '#scr-party .bs-c.aim{box-shadow:inset 0 0 0 3px var(--gold)}' +
-    '#scr-party .bs-c.aim2{box-shadow:inset 0 0 0 3px rgba(255,197,66,.45)}' +
+    /* THE RETICLE MUST BE VISIBLE ON ANY SEA. A skin paints the aim ring
+       through box-shadow, so a pink skin put a pink ring on a pink sea and
+       the shot marker vanished (reported). This dark contrast edge rides
+       `outline` — which no skin overrides — so wherever the ring colour
+       lands it always keeps a hard dark border to read against on a light
+       or pink sea, while the colour still shows on the dark ones.
+       Readability is the game rule; the skin colour decorates on top. */
+    '#scr-party .bs-c.aim{box-shadow:inset 0 0 0 3px var(--gold);' +
+      'outline:2px solid rgba(6,12,20,.72);outline-offset:-5px}' +
+    '#scr-party .bs-c.aim2{box-shadow:inset 0 0 0 3px rgba(255,197,66,.45);' +
+      'outline:2px solid rgba(6,12,20,.5);outline-offset:-5px}' +
     '#scr-party .bs-c.sel{box-shadow:inset 0 0 0 3px var(--sel,#3DDC84)}' +
     /* under the artwork the cell is only a berth: a faint darker water so
        the run still reads if the SVG never paints, and no coordinate letter
