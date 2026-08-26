@@ -3340,6 +3340,7 @@ function paintShop(){
     return '<button class="kn-item" data-w="' + m.w + '"' + hi + '>' +
       '<span class="ic"><span class="sw">' + wepGlyph(m.key) + '</span></span>' +
       '<span class="tx"><b>' + esc(TP(m.name)) + '</b>' +
+        '<i>' + esc(wepStat(m.w)) + '</i>' +
         '<i>' + (on ? esc(T('Picked — throwing this', 'Magħżul — dan se titfa\'')) :
                        esc(T('Tap to throw this', 'Agħfas biex titfa\' dan'))) + '</i></span>' +
       '<span class="pr">' + esc(count) + '</span>' +
@@ -3353,9 +3354,10 @@ function paintShop(){
     const ic = r.kind === 0 ? '<span class="sw">' + wepGlyph(E.WEAPONS[r.w].key) + '</span>'
              : defGlyph(r);
     const why = (!can && !owned && r.why) ? '<i>' + esc(TP(r.why)) + '</i>' : '';
+    const stat = (r.kind === 0) ? '<i>' + esc(wepStat(r.w)) + '</i>' : '';
     return '<button class="' + cls + '" data-it="' + r.it + '"' + ((can && !owned) ? '' : ' disabled') + '>' +
       '<span class="ic">' + ic + '</span>' +
-      '<span class="tx"><b>' + esc(TP(r.name)) + '</b>' +
+      '<span class="tx"><b>' + esc(TP(r.name)) + '</b>' + stat +
         '<i>' + esc(shorten(TP(r.blurb))) + '</i>' + why + '</span>' +
       '<span class="pr">' + (owned ? esc(T('Have it', 'Diġà')) : (r.cost + ' <small>' + T('coins', 'muniti') + '</small>')) + '</span>' +
       '</button>';
@@ -3381,6 +3383,16 @@ function defGlyph(r){
   return '<svg viewBox="0 0 24 24" aria-hidden="true">' + shape + '</svg>';
 }
 function shorten(s){ s = String(s || ''); return s.length > 92 ? s.slice(0, 90).replace(/\s+\S*$/, '') + '…' : s; }
+
+/* a compact "what it does" line for a weapon, so you see the damage and the
+   blast BEFORE you spend a coin on it */
+function wepStat(id){
+  const w = E.WEAPONS[id]; if (!w) return '';
+  const punch = w.knock >= 1.2 ? T('big knock', 'daqqa kbira')
+              : w.knock >= 0.85 ? T('good knock', 'daqqa tajba')
+              : T('light knock', 'daqqa ħafifa');
+  return T('Hits ', 'Jolqot ') + w.dmg + ' · ' + T('blast ', 'blast ') + Math.round(w.r) + ' · ' + punch;
+}
 
 function buy(it){
   const seat = mySeat();

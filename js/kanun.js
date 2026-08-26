@@ -260,7 +260,7 @@ const MAT = [
      the collapse system treat it as an anchor, so it does not sink for want
      of ground under it. Smash a soldier's box apart and they lose their
      footing and go in the sea. */
-  { id:BOX,      key:'BOX',      hp:54,    pen:4,   bounce:0.44, grip:0.86,
+  { id:BOX,      key:'BOX',      hp:92,    pen:4,   bounce:0.44, grip:0.86,
     solid:true,  float:true, name:{ id:'m.box', en:'Box', mt:'Kaxxa' } }
 ];
 /* flat lookups — the simulation reads these, never MAT[m].x, so the
@@ -902,7 +902,7 @@ const WEAPONS = [
   { id:5, key:'MURTAL', tier:3, cost:520, ammo:3, cool:2,
     vmul:0.90, wind:0.55, rest:0.20, fric:0.70, bounces:1,
     skips:0, skipK:0, pen:0, fuse:0, split:0, sticky:false,
-    dmg:46, r:9.0, peak:56, knock:1.25, mass:1.60,
+    dmg:46, r:9.0, peak:56, knock:1.05, mass:1.60,
     name:{ id:'w.murtal.n', en:'Festa firework', mt:'Murtal' },
     blurb:{ id:'w.murtal.b',
       en:'Slow, heavy and far too loud. It does not go round cover, it removes it.',
@@ -920,7 +920,7 @@ const WEAPONS = [
   { id:7, key:'KARRETTUN', tier:4, cost:900, ammo:2, cool:3,
     vmul:0.84, wind:0.30, rest:0.06, fric:0.55, bounces:1,
     skips:0, skipK:0, pen:0, fuse:0, split:0, sticky:false,
-    dmg:58, r:7.4, peak:64, knock:2.30, mass:2.40,
+    dmg:58, r:7.4, peak:64, knock:1.65, mass:2.40,
     name:{ id:'w.karrettun.n', en:'Barrow of cement', mt:'Karrettun tas-siment' },
     blurb:{ id:'w.karrettun.b',
       en:'It does not bounce and it does not stop. Whatever it touches goes in the moat.',
