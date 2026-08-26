@@ -3024,7 +3024,7 @@ function setTurn(who){
        never yank it out from under an in-progress follow. */
     if (M.cam && !M.anim) frameForAim(true);
     P.ui.setTurn(M.ctx, { cls:'good', who:T('Your throw', 'It-tefgħa tiegħek'),
-      note:T('Pull back from your castle and let go.', 'Iġbed lura mill-kastell tiegħek u itilqu.') });
+      note:T('Pull back from your soldier and let go.', 'Iġbed lura mis-suldat tiegħek u itilqu.') });
     tip(esc(T('Pull back to aim. Further back is harder.', 'Iġbed lura biex timmira. Aktar lura, aktar b\'saħħtu.')), 2600);
   } else if (who === 'ai'){
     P.ui.setTurn(M.ctx, { cls:'', who:T('The machine is thinking', 'Il-magna qed taħseb'), note:'' });
@@ -3336,7 +3336,7 @@ function rulesFor(){
   return [
     T('Two crews on boxes in the water. You throw, they throw, until one side is all <b>in the sea</b>.',
       'Żewġ ekwipaġġi fuq kaxxi fl-ilma. Titfa\', jitfgħu, sakemm naħa waħda tispiċċa kollha <b>fil-baħar</b>.'),
-    T('<b>Pull back</b> from your castle like a slingshot and let go. Further back is harder; ' +
+    T('<b>Pull back</b> from your soldier like a slingshot and let go. Further back is harder; ' +
       'the dotted line shows where it will land.',
       '<b>Iġbed lura</b> mill-kastell tiegħek bħal żbandola u itilqu. Aktar lura, aktar b\'saħħtu; ' +
       'il-linja bit-tikek turik fejn se jinżel.'),
@@ -3607,7 +3607,7 @@ function openBoard(onBack){
   const nb = M.ctx.btn('kn-new');
   if (nb) nb.onclick = () => { if (M.net) rematchAsk(); else newGame(M.opts); };
   P.ui.setTurn(M.ctx, { cls:'', who:T('Ready', 'Lest'),
-    note:T('Pull back from your castle to aim.', 'Iġbed lura mill-kastell biex timmira.') });
+    note:T('Pull back from your soldier to aim.', 'Iġbed lura mis-suldat biex timmira.') });
 }
 
 function leave(){

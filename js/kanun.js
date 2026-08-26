@@ -716,11 +716,10 @@ function makeWorld(st){
     st.sides[sd].coverHp = 0; st.sides[sd].coverCells = 0;
   }
 
-  /* the two rock shelves the castles are cut into, and the moat
-     between them. Neither shelf can be destroyed — the castle stands
-     on Malta, and Malta stays. */
-  ground(st, L_X0, L_X1);
-  ground(st, R_X0, R_X1);
+  /* NO SHORES ANY MORE — this is open water. The old game cut two castle
+     shelves out of the rock and stood the crew on them; the raft game keeps
+     ONLY the boxes the players drop (laid below), so there is nothing here
+     but the sea, the pillar, and what each side floats on it. */
 
   /* the ruined pillar in the middle of the moat: indestructible, and
      the single most useful thing on the board, because everything
@@ -731,26 +730,9 @@ function makeWorld(st){
     for (let y = rockTop + inset; y <= WATER_Y + 2; y++) put(st, x, y, ROCK);
   }
 
-  for (let sd = 0; sd < 2; sd++)
-    for (let d = 0; d < NDEF; d++) rebuildSlot(st, sd, d, 256);
-
-  /* a handful of loose crates and barrels, from the seed, so no two
-     matches present quite the same problem */
-  for (let sd = 0; sd < 2; sd++){
-    const n = rint(st, 2, 4);
-    for (let i = 0; i < n; i++){
-      const off = rint(st, 2, 20);
-      const m = rint(st, 0, 2) === 0 ? STEEL : WOOD;
-      const hgt = rint(st, 2, 4);
-      const bx = sd === 0 ? (L_X0 + off) : (R_X1 - off);
-      for (let ax = 0; ax < 2; ax++)
-        for (let ay = 0; ay < hgt; ay++){
-          const x = bx + ax;
-          if (ownerOf(x) !== sd) continue;
-          put(st, x, GROUND_Y - ay, m);
-        }
-    }
-  }
+  /* No castle walls and no loose shore crates: both needed a shelf to
+     stand on, and there is no shelf now. The three boxes are the only cover
+     — and the only ground — each side gets. */
 
   /* THE BOXES — each side's three crates, dropped in its half of the moat
      at the columns it chose (rides in opts.place, so both phones raise the
@@ -1918,17 +1900,9 @@ const SHOP = [];
     SHOP.push({ kind:IT_AMMO, w:w.id, n:Math.max(2, w.ammo), cost:w.cost,
                 tier:w.tier, name:w.name, blurb:w.blurb });
   }
-  for (let d = 0; d < NDEF; d++)
-    for (let t = 1; t < NTIER; t++)
-      SHOP.push({ kind:IT_UP, d, to:t, cost:DEFS[d].tiers[t].cost,
-                  tier:t, name:DEFS[d].tiers[t].name, blurb:DEFS[d].tiers[t].note });
-  for (let d = 0; d < NDEF; d++)
-    SHOP.push({ kind:IT_FIX, d, cost:0, tier:0,
-                name:{ id:'s.fix.' + d, en:'Repair the ' + DEFS[d].name.en.toLowerCase(),
-                       mt:'Sewwi l-' + DEFS[d].name.mt.toLowerCase() },
-                blurb:{ id:'s.fix.b',
-                  en:'Rebuild what is left of it. Cheaper than upgrading, and it does not make it any tougher.',
-                  mt:'Erġa’ ibni dak li fadal minnu. Irħas mit-titjib, u ma jagħmlu xejn aktar b’saħħtu.' } });
+  /* NO castle-cover items in the raft game: the walls and their repairs
+     needed a shore to stand on, and there is none. The store is ammunition
+     only — spend what you earn on wilder, nastier things to throw. */
   for (let i = 0; i < ONE_SHOTS.length; i++)
     SHOP.push({ kind:IT_ONE, one:i, cost:ONE_SHOTS[i].cost, tier:1,
                 name:ONE_SHOTS[i].name, blurb:ONE_SHOTS[i].blurb });
