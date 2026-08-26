@@ -316,7 +316,7 @@ const T = {
 
   CH_W:       2,        /* a character's box                            */
   CH_H:       5,
-  CH_HP:      100,
+  CH_HP:      60,
   CH_REST:    0.28,     /* they bounce when you launch them             */
   CH_GRIP:    0.62,
   CH_STEPS:   900,      /* cap on the ragdoll after one shot            */
@@ -326,7 +326,7 @@ const T = {
   CH_SPLASH:  0.78,     /* a person takes less from a splash than a      */
                         /* crate does — they are small and they duck     */
   CH_SPEED:   0.22,     /* what the speed of a direct hit is worth       */
-  CH_AIRDRAG: 0.80,     /* sideways air drag on a launched person, so a  */
+  CH_AIRDRAG: 0.84,     /* sideways air drag on a launched person, so a  */
                         /* knock does not carry them clean off their raft*/
 
   FALL_DMG:   16,       /* per row a piece of cover falls               */
@@ -859,7 +859,7 @@ const WEAPONS = [
   { id:0, key:'BALLUN', tier:0, cost:0, ammo:-1, cool:0,
     vmul:1.00, wind:1.55, rest:0.72, fric:0.90, bounces:2,
     skips:1, skipK:9, pen:0, fuse:0, split:0, sticky:false,
-    dmg:9,  r:4.0, peak:12, knock:1.05, mass:0.55,
+    dmg:13, r:4.2, peak:16, knock:1.05, mass:0.55,
     name:{ id:'w.ballun.n', en:'Water balloon', mt:'Ballun tal-ilma' },
     blurb:{ id:'w.ballun.b',
       en:'Free and endless. Will not hurt anybody much, but it will send them somewhere they did not plan to be.',
@@ -1076,11 +1076,11 @@ function blast(st, cx, cy, r, peak, knock, seat, rep){
          direction of roughly unit length WITHOUT normalising it —
          |offset| <= r by construction, so offset/r is in the unit
          disc. That is the sqrt we do not take. */
-      const imp = knock * f * 0.024;  /* a blast knocks you about, it does not launch you off your raft */
+      const imp = knock * f * 0.030;  /* a blast knocks you about, it does not launch you off your raft */
       /* the SIDEWAYS shove is small (they mostly land back on their box and
          take HP damage, not fall in the sea); the lift is kept for feel. Only
          a very hard, very close hit will push a soldier clean off. */
-      c.vx += (ddx / r) * imp * 7;
+      c.vx += (ddx / r) * imp * 10;
       c.vy += (ddy / r) * imp * 10 - imp * 7;   /* a bang always lifts */
       c.air = true;
     }
