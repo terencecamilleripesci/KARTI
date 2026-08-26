@@ -158,6 +158,25 @@ function reduced(){
     return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   } catch(e){ return false; }
 }
+/* one pentatonic step off sfx.js's instrument — the hop's pop */
+function sfxN(step, gain){
+  const S = window.KARTI_SFX;
+  if (!S || !S.note) return;
+  try { S.note(step, { gain: gain || 0.5 }); } catch(e){}
+}
+/* lighten (f>0) / darken (f<0) a #rrggbb — the cheap bevel's two ends */
+function shade(hex, f){
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const to = f > 0 ? 255 : 0, k = Math.abs(f);
+  r = Math.round(r + (to - r) * k); g = Math.round(g + (to - g) * k); b = Math.round(b + (to - b) * k);
+  return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+}
+/* tokens per player by table size — mirrors the engine's tokensFor (not
+   exported); only the SETUP HERO uses this, a live match reads st.tokens */
+function tokensForUI(n){ return (n <= 4) ? 4 : (n <= 6) ? 3 : 2; }
 
 /* ═══════════════════════════════════════════════════════════════════
    THE RUNNER — (opts, seed, log) and one door for every move. The move
@@ -190,6 +209,7 @@ function buildState(opts, seed, log){
 
 function startMatch(opts, seed, log){
   stopThinking();
+  killTheatre();
   M = {
     opts: clone(opts || {}),
     seed: (seed == null ? newSeed() : (seed >>> 0)),
@@ -300,13 +320,30 @@ moveSubs.push(ev => {
   if (!M || M.dead) return;
   const mv = ev.move, mine = ev.seat >= 0 && isLocal(ev.seat);
   const st = M.st;
-  if (mv.t === 'roll'){ cue('dice.roll', { gain: mine ? 0.85 : 0.6 }, true); return; }
+  if (mv.t === 'roll'){
+    cue('dice.roll', { gain: mine ? 0.85 : 0.6 }, true);
+    /* A SIX IS AN EVENT — a little rising pentatonic flourish lands just
+       as the die settles (the die itself glows, see paintDock) */
+    if (st.last && st.last.t === 'roll' && st.last.d === 6 &&
+        st.why !== 'threesixes' && st.why !== 'threesent'){
+      cueIn(430, () => sfxN(5, 0.5));
+      cueIn(540, () => sfxN(8, 0.5));
+    }
+    /* three sixes: the turn dies — a small mocking un-toggle */
+    if (st.why === 'threesixes' || st.why === 'threesent')
+      cueIn(430, () => cue('ui.untoggle', { gain: 0.6 }));
+    return;
+  }
   if (mv.t === 'pass'){ cue('ui.back',   { gain: 0.45 }); return; }
   if (mv.t === 'quit'){ cue('mp.left',   { gain: 0.7 }); return; }
   if (mv.t === 'move'){
+    /* when the THEATRE is running it voices the move itself, per hop and
+       at the landing, so the sound stays glued to the picture */
+    if (theatreWilling()) return;
     const why = st.why;
-    if (why === 'capture'){ cue('piece.capture', { gain: mine ? 0.9 : 0.72 }, true); return; }
-    if (why === 'home' || why === 'finished'){ cue('ui.reward', { gain: 0.9 }, true); return; }
+    if (why === 'capture' || why === 'captureagain'){ cue('piece.capture', { gain: mine ? 0.9 : 0.72 }, true); return; }
+    if (why === 'home' || why === 'homeagain' || why === 'finished' ||
+        why === 'teamfinished'){ cue('ui.reward', { gain: 0.9 }, true); return; }
     if (why === 'column'){ cue('piece.place', { gain: 0.7 }); cueIn(70, () => cue('ui.note', { gain:0.5 })); return; }
     if (why === 'entered'){ cue('piece.lift', { gain: 0.7 }); cueIn(60, () => cue('piece.place', { gain:0.6, force:true })); return; }
     cue('piece.place', { gain: mine ? 0.75 : 0.55 });
@@ -379,6 +416,13 @@ function injectCSS(){
       'transform-box:fill-box;transform-origin:center}' +
     '#scr-party.lu-anim .lu-hint{animation:lu-pulse 1.1s ease-in-out infinite}' +
     '@keyframes lu-pulse{0%,100%{transform:scale(.86);opacity:.55}50%{transform:scale(1.08);opacity:1}}' +
+    /* a capture destination warns in red */
+    '#scr-party .lu-hint.cap{stroke:#FF6A5A}' +
+    /* the GHOST TOKEN — "where you are going": a translucent copy of the
+       piece already stood on the landing cell, breathing */
+    '#scr-party .lu-ghost{pointer-events:none}' +
+    '#scr-party.lu-anim .lu-ghost{animation:lu-ghk 1.1s ease-in-out infinite}' +
+    '@keyframes lu-ghk{0%,100%{opacity:.38}50%{opacity:.8}}' +
 
     /* ── the tokens ── */
     '#scr-party .lu-tok{transform-box:fill-box;transform-origin:center;' +
@@ -423,13 +467,43 @@ function injectCSS(){
     /* the lifted token in flight — a shadow so it reads as picked up */
     '#scr-party .lu-fly{transform-box:view-box;pointer-events:none;' +
       'filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}' +
+    /* THE HOP — the token bounces cell to cell: the outer .lu-fly slides,
+       this inner group arcs up and squashes on every landing. One CSS
+       animation whose period IS the per-cell step, so they cannot drift. */
+    '#scr-party .lu-hopI{animation:lu-hopk var(--luhms,120ms) linear infinite;' +
+      'transform-box:fill-box;transform-origin:center 70%}' +
+    '@keyframes lu-hopk{0%{transform:translateY(0) scale(1)}' +
+      '42%{transform:translateY(var(--luarc,-6px)) scale(1.05,1.03)}' +
+      '82%{transform:translateY(0) scale(1)}92%{transform:translateY(0) scale(1.14,.85)}' +
+      '100%{transform:translateY(0) scale(1)}}' +
+    /* the final landing: one meaty squash-and-settle */
+    '#scr-party .lu-landI{animation:lu-landk .2s ease-out 1;' +
+      'transform-box:fill-box;transform-origin:center 70%}' +
+    '@keyframes lu-landk{0%{transform:scale(1.3,.62)}55%{transform:scale(.9,1.08)}' +
+      '100%{transform:scale(1)}}' +
+    /* THE TAUNT — the capturer stands on the victim and laughs: three
+       little bounces with a rotation shake */
+    '#scr-party .lu-tauntI{animation:lu-tauntk .74s ease-in-out 1;' +
+      'transform-box:fill-box;transform-origin:center 80%}' +
+    '@keyframes lu-tauntk{0%{transform:translateY(0) rotate(0)}' +
+      '12%{transform:translateY(-5px) rotate(-9deg)}26%{transform:translateY(0) rotate(7deg)}' +
+      '40%{transform:translateY(-4px) rotate(-7deg)}54%{transform:translateY(0) rotate(5deg)}' +
+      '70%{transform:translateY(-2px) rotate(-3deg)}100%{transform:translateY(0) rotate(0)}}' +
+    /* the victim, squashed flat under the capturer */
+    '#scr-party .lu-flatI{transform:scale(1.35,.3);transition:transform .16s ease-in;' +
+      'transform-box:fill-box;transform-origin:center 90%}' +
     '#scr-party.lu-still .lu-tok.pick{animation:none}' +
     '#scr-party.lu-still .lu-tok{transition:none}' +
     'body.reduced #scr-party .lu-tok,body.reduced #scr-party.lu-anim .lu-hint,' +
-      'body.reduced #scr-party .lu-tok.pick,body.reduced #scr-party .lu-tok.pick .glow{' +
+      'body.reduced #scr-party .lu-tok.pick,body.reduced #scr-party .lu-tok.pick .glow,' +
+      'body.reduced #scr-party .lu-hopI,body.reduced #scr-party .lu-landI,' +
+      'body.reduced #scr-party .lu-tauntI,body.reduced #scr-party .lu-ghost,' +
+      'body.reduced #scr-party .lu-flatI,body.reduced #scr-party .lu-fly{' +
       'animation:none!important;transition:none!important}' +
     '@media (prefers-reduced-motion:reduce){#scr-party .lu-tok,#scr-party.lu-anim .lu-hint,' +
-      '#scr-party .lu-tok.pick,#scr-party .lu-tok.pick .glow{animation:none!important;transition:none!important}}' +
+      '#scr-party .lu-tok.pick,#scr-party .lu-tok.pick .glow,#scr-party .lu-hopI,' +
+      '#scr-party .lu-landI,#scr-party .lu-tauntI,#scr-party .lu-ghost,' +
+      '#scr-party .lu-flatI,#scr-party .lu-fly{animation:none!important;transition:none!important}}' +
 
     /* ── the die + the roll button, sat below the board ── */
     '#scr-party .lu-say{flex:0 0 auto;font:700 11.5px/1.4 var(--body);text-align:center;' +
@@ -445,11 +519,22 @@ function injectCSS(){
     '#scr-party .lu-die i{border-radius:50%;background:#2A1E12;align-self:center;justify-self:center;' +
       'width:8px;height:8px;visibility:hidden}' +
     '#scr-party .lu-die i.on{visibility:visible}' +
-    '#scr-party .lu-die.rolling{animation:lu-roll .5s var(--ease,ease)}' +
-    '@keyframes lu-roll{0%{transform:rotate(0) scale(1)}45%{transform:rotate(200deg) scale(1.12)}' +
-      '100%{transform:rotate(360deg) scale(1)}}' +
-    'body.reduced #scr-party .lu-die.rolling,' +
-      '@media (prefers-reduced-motion:reduce){#scr-party .lu-die.rolling{animation:none}}' +
+    /* the die BOUNCES when thrown — up, spin, drop, one little rebound */
+    '#scr-party .lu-die.rolling{animation:lu-roll .55s cubic-bezier(.3,.6,.4,1)}' +
+    '@keyframes lu-roll{0%{transform:translateY(0) rotate(0) scale(1)}' +
+      '28%{transform:translateY(-10px) rotate(150deg) scale(1.12)}' +
+      '52%{transform:translateY(3px) rotate(250deg) scale(.95)}' +
+      '70%{transform:translateY(-5px) rotate(315deg) scale(1.04)}' +
+      '86%{transform:translateY(1px) rotate(348deg)}' +
+      '100%{transform:translateY(0) rotate(360deg) scale(1)}}' +
+    /* A SIX IS AN EVENT — the die glows gold and swells twice */
+    '#scr-party .lu-die.six{border-color:#FFD979;box-shadow:0 4px 0 -1px rgba(0,0,0,.4),' +
+      'inset 0 2px 0 rgba(255,255,255,.7),0 0 16px rgba(255,197,66,.55)}' +
+    '#scr-party.lu-anim .lu-die.six:not(.rolling){animation:lu-sixp .5s ease-out 2}' +
+    '@keyframes lu-sixp{0%{transform:scale(1)}40%{transform:scale(1.12)}100%{transform:scale(1)}}' +
+    'body.reduced #scr-party .lu-die.rolling,body.reduced #scr-party .lu-die.six{animation:none!important}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .lu-die.rolling,' +
+      '#scr-party .lu-die.six{animation:none!important}}' +
     '#scr-party .lu-roll{min-width:118px;min-height:52px;padding:0 18px;border-radius:14px;' +
       'font:900 13px/1 var(--disp);letter-spacing:.06em;text-transform:uppercase;color:#241800;' +
       'background:linear-gradient(180deg,#FFD979,var(--lu-gold));border:1px solid #FFE9B0;' +
@@ -606,11 +691,12 @@ function pxOf(lay, a, r){
    disc so nothing overflows. Both agree with the engine's rules because
    every ring/col cell is placed by the engine's ring index. */
 const GEOM = {};
-function geom(lay){
+function geom(lay, T){
   const P = lay.P;
-  const key = P + '|' + lay.H;
+  const tok = Math.max(1, T | 0 || 4);
+  const key = P + '|' + lay.H + '|' + tok;
   if (GEOM[key]) return GEOM[key];
-  const out = (P === 4) ? geomGrid(lay) : geomWedge(lay);
+  const out = (P === 4) ? geomGrid(lay) : geomStar(lay, tok);
   GEOM[key] = out;
   return out;
 }
@@ -688,162 +774,140 @@ function geomGrid(lay){
            center: { x: C, y: C, half: gap * 1.5 } };
 }
 
-/* ── THE HEXAGON (P=6) / OCTAGON (P=8) — THE REAL COMMERCIAL BOARD ───
-   A shop-bought six- or eight-player Ludo board is NOT four thin arms
-   with more arms bolted on. It is a POLYGON TILED BY WEDGES: a hexagon
-   cut into six equal triangles (an octagon into eight), one per player,
-   each triangle filled in that player's colour, packed edge to edge
-   with no gaps at all. That is what this builds.
+/* ── THE STAR BOARD (every P except the 15×15 cross) ─────────────────
+   A real six- or eight-player Ludo board is the CROSS with more arms:
+   a star of P three-lane corridors radiating from the hub, exactly the
+   anatomy of the classic four-arm board. The engine's longer sectors
+   (railOf now keeps the full 13-square sector at every size — 78 ring
+   cells at six seats, 104 at eight) made the old rim-band wedge board
+   unreadable on a phone: 104 cells around one polygon rim is ~5px a
+   cell. Laid out radially, the same cells get nearly twice the size,
+   and the board finally looks like what it is — Ludo.
 
-   ONE WEDGE, in its own local frame (u = straight out along the wedge's
-   axis, s = sideways along the polygon edge, both in "pitch" units):
+   ONE SECTOR of the engine's ring = ONE ARM, walked clockwise:
 
-              W(k-1) ─────── polygon edge k ─────── W(k)      ← the rim
-                 \   ▫ ▫ ▫ ▫  │  ▫ ▫ ▫ ▫   /                  ← TRACK ROW
-                  \   in-rail  │  out-rail /                     2L cells
-                   \          ███              /                ← HOME COLUMN
-                    \      ▪ ███ ▪           /                    H-1 cells
-                     \   (yard plate,      /                    ← 4 TOKEN
-                      \   4 token dots)  /                         SLOTS
-                       \       ███      /
-                        \      ███     /
-                         \____________/
-                              HUB                               ← the finish
+                    tip (the sector's CORNER cell)
+                     ◇
+                    ▫ ▫        ← up-rail (out, jj outward) │
+                    ▫ ▫          down-rail (in, jj inward) │ L cells
+                    ▫ ▫                                    │ each side
+                    ▫ ▫
+              entry→▫ ▫←──── previous seat's turnoff is the
+                   /   \      down-rail base of the arm BEFORE this one
+              ░░░ /     \ ░░░   ← the VALLEYS between arms hold each
+              ░░ home col ░░      seat's YARD (outer) and its coloured
+                 ▪▪ hub ▪▪        HOME COLUMN (inner, running to the hub)
 
-   · WEDGE k is the triangle (centre, W(k-1), W(k)) where W(j) is the
-     polygon vertex at angle θ_j + π/P. So wedge k is centred on the
-     axis θ_k = k·(2π/P) and its OUTER edge is polygon edge k, whose
-     midpoint sits on that axis. The P wedges tile the polygon exactly:
-     they share edges, they cover it, they overlap nowhere.
-   · THE TRACK is a row of cells along each polygon edge, just inside
-     the rim, 2L of them, laid symmetrically about the edge midpoint,
-     plus ONE turn cell at each polygon vertex. P·(2L+1) = P·A = R, the
-     engine's ring exactly: 54 at P=6, 56 at P=8.
-   · THE ENGINE'S RING INDEX maps in three lines and cannot drift:
-         out cell (sector k, jj)  → edge k, at +(jj+0.5) pitches from
-                                    the midpoint — the OUT-RAIL, the
-                                    half of the row leaving the mouth
-         corner   (sector k)      → the turn cell at polygon vertex W(k)
-         in cell  (sector k, jj)  → edge k+1, at −(L−jj−0.5) pitches —
-                                    the IN-RAIL, the half of the row
-                                    arriving at the next mouth
-     so seat k's ENTRY lands at +0.5 pitch and seat k's TURNOFF at
-     −0.5 pitch on the SAME edge: the two flank the midpoint of wedge
-     k's own outer edge, which is exactly where its HOME COLUMN starts.
-     Out-rail on one side of the mouth, in-rail on the other, precisely
-     as on the real board.
-   · THE HOME COLUMN runs from that mouth straight down the wedge's
-     axis, inward, H−1 coloured cells, and ends at the HUB — the central
-     P-sided finish where all the wedges meet.
-   · THE YARD is a cream plate across the middle of the wedge with four
-     slot wells, two either side of the home column, holding the four
-     parked tokens.
+   · ARM k sits on axis θ_k = k·(2π/P), clockwise from the top. Its two
+     rails are at lateral ±LAT pitches. The engine's ring index maps in
+     three lines and cannot drift:
+         out cell (sector k, jj)  → arm k up-rail,  radius r0 + jj
+         corner   (sector k)      → arm k's TIP,    radius r0 + L
+         in cell  (sector k, jj)  → arm k down-rail, radius r0 + L-1-jj
+     so the walk runs up one side, round the tip, down the other — and
+     sector k's last cell (seat k+1's TURNOFF, down-rail base of arm k)
+     sits across the valley from seat k+1's ENTRY (up-rail base of arm
+     k+1), flanking that valley's home-column mouth. Everything seat k
+     owns — entry, turnoff, column, yard — clusters round ONE valley,
+     exactly as each player's quadrant clusters on the classic cross.
+   · THE HOME COLUMN of seat k runs down the valley axis φ_k = θ_k − π/P
+     from the mouth (radius colMo) to the HUB, H−1 coloured cells.
+   · THE YARD is a coloured plate out in the same valley, past the arm
+     bases where the star opens up, with st.tokens slot wells (the big
+     tables play fewer tokens — the slots follow).
 
-   NOTHING OVERLAPS, and that is arithmetic rather than luck. The whole
-   board is derived from ONE number, `pitch`:
-       half band edge  = (L + 0.65)·pitch     → 1.15 pitch clear between
-                                                 the last rail cell and
-                                                 the turn cell
-       cell half-size  = 0.42·pitch           → 0.84 pitch of square in
-                                                 a 1.00 pitch slot
-       column mouth    = one pitch inside the band, same rotation
-       column spacing  = ≥ 1.0 pitch by construction
-   and `pitch` itself is solved so the polygon's circumradius lands
-   exactly on RMAX, so the board fills the square and never clips.        */
-function geomWedge(lay){
+   NOTHING OVERLAPS, by arithmetic: everything is in units of `pitch`,
+   and pitch is solved so the top arm's tip lands exactly on RMAX.
+   Tightest squeezes, checked at P=8 (the worst case):
+       col cells of adjacent valleys at the hub: chord 2·2.65·sin(π/8)
+         = 2.0 pitch for a 0.84 pitch cell — clear;
+       yard plate half-width capped at the valley's real half-chord
+         minus the arm corridor — clear at every P.                     */
+function geomStar(lay, T){
   const P = lay.P, L = lay.L, H = lay.H, R = lay.R;
-  const half = Math.PI / P;                     /* half a wedge, radians  */
-  const SIN = Math.sin(half), COS = Math.cos(half), TAN = Math.tan(half);
+  const RMAX = 116;                       /* the star's outer radius, px */
+  const nCol = Math.max(1, H - 1);
+  /* the radial ladder, in pitch units, hub outward */
+  const hubU  = 2.0;                      /* hub circumradius            */
+  const colG  = 0.95;                     /* home-column cell spacing    */
+  const colIn = hubU + 0.95;              /* innermost column cell       */
+  const colMo = colIn + colG * (nCol - 1);/* the column MOUTH            */
+  const r0u   = colMo + 0.85;             /* arm base radius             */
+  const rimU  = r0u + L + 1.0;            /* tip + breathing room        */
+  const pitch = RMAX / rimU;
+  const cell  = pitch * 0.42;             /* drawn HALF-size of a cell   */
+  const LAT   = 0.55;                     /* rail lateral offset, units  */
 
-  const RMAX = 114;                             /* the board's outer radius */
-  const PAD  = 1.25;                            /* rim outside the band, pitches */
-  const SPAN = L + 0.65;                        /* half a band edge, pitches */
-  /* Rpoly = pitch·(SPAN/sin + PAD) — solve it for pitch */
-  const pitch = RMAX / (SPAN / SIN + PAD);
-  const rBand = SPAN * pitch / TAN;             /* band INRADIUS (edge mids) */
-  const Rband = rBand / COS;                    /* band circumradius (turns) */
-  const Rpoly = Rband + PAD * pitch;            /* the polygon              */
-  const rPoly = Rpoly * COS;                    /* polygon inradius         */
-  const cell  = pitch * 0.42;                   /* drawn HALF-size of a cell */
-  const hub   = pitch * 2.1;                    /* the central finish        */
-
-  /* per-wedge frame: u = outward along the axis, t = along the edge */
-  const F = [];
+  /* frames: AF[k] the arm axis, VF[k] the valley axis (θ_k − π/P) */
+  const AF = [], VF = [];
   for (let k = 0; k < P; k++){
     const th = (k / P) * 2 * Math.PI;
-    F.push({ theta: th,
-             ux: Math.sin(th), uy: -Math.cos(th),
-             tx: Math.cos(th), ty:  Math.sin(th) });
+    const ph = th - Math.PI / P;
+    AF.push({ theta: th, ux: Math.sin(th), uy: -Math.cos(th),
+              tx: Math.cos(th), ty: Math.sin(th) });
+    VF.push({ theta: ph, ux: Math.sin(ph), uy: -Math.cos(ph),
+              tx: Math.cos(ph), ty: Math.sin(ph) });
   }
-  const pt = (k, r, s) => ({ x: C + F[k].ux * r + F[k].tx * s,
-                             y: C + F[k].uy * r + F[k].ty * s,
-                             th: F[k].theta });
+  const at = (F, r, s, th) => ({
+    x: C + (F.ux * r + F.tx * s) * pitch,
+    y: C + (F.uy * r + F.ty * s) * pitch,
+    th: th === undefined ? F.theta : th
+  });
 
-  /* the polygon vertices. polyV[j] sits between wedge j and wedge j+1,
-     so wedge k is the triangle (centre, polyV[k-1], polyV[k]). */
-  const polyV = [], bandV = [];
-  for (let k = 0; k < P; k++){
-    polyV.push(pt(k, rPoly, rPoly * TAN));
-    bandV.push(pt(k, rBand, rBand * TAN));
-  }
-
-  /* ── THE RING — one row of cells per polygon edge, one turn cell per
-     polygon vertex, straight off the engine's ring index ── */
+  /* ── THE RING — straight off the engine's ring index ── */
   const ring = new Array(R);
   for (let i = 0; i < R; i++){
     const rc = lay.ring[i], k = rc.sector;
-    if (rc.role === 'out'){
-      ring[i] = pt(k, rBand, (rc.jj + 0.5) * pitch);
-    } else if (rc.role === 'corner'){
-      ring[i] = { x: bandV[k].x, y: bandV[k].y, th: F[k].theta + half };
-    } else {
-      const km = (k + 1) % P;
-      ring[i] = pt(km, rBand, -((L - rc.jj - 0.5) * pitch));
-    }
+    if (rc.role === 'out')         ring[i] = at(AF[k], r0u + rc.jj, -LAT);
+    else if (rc.role === 'corner') ring[i] = at(AF[k], r0u + L, 0);
+    else                           ring[i] = at(AF[k], r0u + (L - 1 - rc.jj), LAT);
   }
 
-  /* ── THE HOME COLUMN — down the wedge axis, mouth → hub ── */
-  const rCol0 = rBand - pitch;                  /* the mouth               */
-  const rColN = hub + pitch * 0.85;             /* the last cell           */
-  const nCol  = Math.max(1, H - 1);
-  const cspace = nCol > 1 ? (rCol0 - rColN) / (nCol - 1) : 0;
+  /* ── THE HOME COLUMNS — down the valley axes, mouth → hub ── */
   const col = [], home = [];
   for (let k = 0; k < P; k++){
     const cells = [];
-    for (let c = 0; c < nCol; c++) cells.push(pt(k, rCol0 - cspace * c, 0));
+    for (let c = 0; c < nCol; c++) cells.push(at(VF[k], colMo - colG * c, 0));
     col.push(cells);
-    home.push(pt(k, hub * 0.62, 0));
+    home.push(at(VF[k], hubU * 0.5, 0));
   }
 
-  /* ── THE YARD — a plate across the wedge, four slots either side of
-     the column. Laterals are a fraction of the room the wedge actually
-     has at that radius (r·tan), so the slots sit inside the triangle at
-     every P and never touch the home column. ── */
+  /* ── THE YARDS — coloured plates out in the valleys. The plate's
+     half-width is capped by the valley's REAL half-chord at that radius
+     minus the arm corridor, so it clears the arms at every P. ── */
+  const yardR = r0u + 2.6;
   const yard = [];
-  const yOut = rCol0 - pitch * 0.45, yIn = hub + pitch * 0.55;
-  const yD = yOut - yIn;
-  const r1 = yIn + yD * 0.30, r2 = yIn + yD * 0.72;
+  const avail = yardR * Math.sin(Math.PI / P) - (LAT + 0.62);
+  const pw = Math.max(0.95, Math.min(2.15, avail - 0.15));  /* half-width */
+  const ph2 = Math.min(1.85, pw * 1.15);                    /* half-height */
   for (let k = 0; k < P; k++){
-    const o1 = r1 * TAN * 0.62, o2 = r2 * TAN * 0.62;
-    const w1 = yIn * TAN * 0.80, w2 = yOut * TAN * 0.80;
-    yard.push({
-      cx: pt(k, (yIn + yOut) / 2, 0).x, cy: pt(k, (yIn + yOut) / 2, 0).y,
-      size: yD, theta: F[k].theta,
-      plate: [pt(k, yIn, -w1), pt(k, yOut, -w2), pt(k, yOut, w2), pt(k, yIn, w1)],
-      slots: [pt(k, r2, -o2), pt(k, r2, o2), pt(k, r1, -o1), pt(k, r1, o1)]
-    });
+    const F = VF[k];
+    const cpt = at(F, yardR, 0);
+    const sl = [];
+    const so = Math.min(0.82, pw - 0.55);          /* slot lateral offset */
+    if (T >= 4){
+      sl.push(at(F, yardR + 0.78, -so), at(F, yardR + 0.78, so),
+              at(F, yardR - 0.78, -so), at(F, yardR - 0.78, so));
+      for (let x = 4; x < T; x++) sl.push(at(F, yardR, 0));
+    } else if (T === 3){
+      sl.push(at(F, yardR + 0.75, 0), at(F, yardR - 0.62, -so), at(F, yardR - 0.62, so));
+    } else if (T === 2){
+      sl.push(at(F, yardR, -so), at(F, yardR, so));
+    } else {
+      sl.push(cpt);
+    }
+    yard.push({ cx: cpt.x, cy: cpt.y, size: ph2 * 2 * pitch, theta: F.theta,
+                pw: pw * pitch, ph: ph2 * pitch, slots: sl });
   }
 
-  /* the arrow on an entry cell points the way the lap runs — along the
-     edge (+t); v is the outward normal, for the arrowhead's spread */
-  const arm = F.map(f => ({ ux: f.tx, uy: f.ty, vx: f.ux, vy: f.uy, theta: f.theta }));
+  /* the entry arrow points the way the lap runs — OUT along the arm */
+  const arm = AF.map(f => ({ ux: f.ux, uy: f.uy, vx: f.tx, vy: f.ty, theta: f.theta }));
 
-  return { P, L, H, R, grid: false, wedge: true,
-           gap: pitch, step: 1, pitch, cell, tok: cell * 0.82,
-           ring, col, home, yard, arm, F,
-           polyV, bandV, half, SIN, COS, TAN,
-           Rpoly, rPoly, rBand, Rband, hub, finishR: hub,
-           rCol0, rColN, cspace, yIn, yOut };
+  return { P, L, H, R, T, grid: false, star: true,
+           gap: pitch, step: 1, pitch, cell, tok: cell * 0.92,
+           ring, col, home, yard, arm, AF, VF,
+           hubU, colIn, colMo, colG, r0u, rimU, LAT, yardR,
+           finishR: hubU * pitch };
 }
 
 /* the ring square / token radii — now taken from the authentic geometry */
@@ -975,7 +1039,9 @@ function render(){
     document.getElementById('scr-party').classList.toggle('lu-still', still);
   maybeThink();
   maybeAutoMove();
-  if (E.over(st)) finish();
+  /* the winner screen WAITS for the winning hop and its gold burst —
+     the theatre's settle() re-renders and lands here with both clear */
+  if (E.over(st) && !sliding && !pendTh) finish();
 }
 
 /* ONE-TAP relief — when it is the local seat's move and there is exactly
@@ -996,7 +1062,9 @@ function maybeAutoMove(){
   M._auto = tag;
   M.timer = setTimeout(() => {
     M.timer = 0;
-    if (!M || M.dead || sliding) return;
+    if (!M || M.dead) return;
+    if (sliding){ M._auto = null; return; }   /* theatre running — the
+      settle()'s render re-arms this, else the one-tap move never fires */
     if (E.over(M.st)) return;
     if (E.turn(M.st) !== seat) return;
     const p2 = E.pending(M.st);
@@ -1063,72 +1131,77 @@ function gridCell(cx, cy, hs, r){
     '" height="' + w.toFixed(2) + '" rx="' + rr.toFixed(2) + '" ry="' + rr.toFixed(2) + '"';
 }
 
-/* ── THE CLASSIC 15×15 CROSS BOARD (P=4) ──────────────────────────── */
+/* ── THE CLASSIC 15×15 CROSS BOARD (P=4) — same material family as the
+   star: a dark frame, a cream plate, recessed track bands, bevelled
+   tiles, glowing home lanes, gold safe stars, and a vignette. ── */
 function boardBodyGrid(st, lay, g, hs){
   const cr = g.cell, gap = g.gap;
+  const swc = Math.max(0.35, hs * 0.1);
   let s = '';
-  /* a soft rounded plate behind the whole board */
-  s += '<rect x="1.5" y="1.5" width="' + (VB - 3) + '" height="' + (VB - 3) +
-    '" rx="10" ry="10" fill="#fbfbf7" stroke="rgba(0,0,0,.28)" stroke-width="1"/>';
+  /* the FRAME: a dark bezel with a highlight lip, then the cream plate */
+  s += '<rect x="0.8" y="0.8" width="' + (VB - 1.6) + '" height="' + (VB - 1.6) +
+    '" rx="11" ry="11" fill="#221741" stroke="#0E0A1C" stroke-width="1.2"/>';
+  s += '<rect x="2" y="2" width="' + (VB - 4) + '" height="' + (VB - 4) +
+    '" rx="10" ry="10" fill="none" stroke="rgba(255,255,255,.14)" stroke-width="0.8"/>';
+  s += '<rect x="4.5" y="4.5" width="' + (VB - 9) + '" height="' + (VB - 9) +
+    '" rx="7" ry="7" fill="url(#lu-back)" stroke="rgba(0,0,0,.4)" stroke-width="0.7"/>';
 
-  /* the white CROSS (track background) — horizontal + vertical 3-wide bands */
-  const band = () => 'class="lu-band" fill="#fff" stroke="rgba(0,0,0,.10)" stroke-width="0.4"';
+  /* the CROSS bands, recessed a shade so the white tiles read raised */
+  const band = () => 'class="lu-band" fill="#E4DCC6" stroke="rgba(0,0,0,.14)" stroke-width="0.4"';
   const px = (r, c) => ({ x: 3 + c * gap, y: 3 + r * gap });
   const hBand = px(6, 0), vBand = px(0, 6);
-  s += '<rect x="' + hBand.x.toFixed(2) + '" y="' + hBand.y.toFixed(2) + '" width="' +
-    (gap * 15).toFixed(2) + '" height="' + (gap * 3).toFixed(2) + '" ' + band() + '/>';
-  s += '<rect x="' + vBand.x.toFixed(2) + '" y="' + vBand.y.toFixed(2) + '" width="' +
-    (gap * 3).toFixed(2) + '" height="' + (gap * 15).toFixed(2) + '" ' + band() + '/>';
+  s += '<rect x="' + (hBand.x + 2).toFixed(2) + '" y="' + hBand.y.toFixed(2) + '" width="' +
+    (gap * 15 - 4).toFixed(2) + '" height="' + (gap * 3).toFixed(2) + '" ' + band() + '/>';
+  s += '<rect x="' + vBand.x.toFixed(2) + '" y="' + (vBand.y + 2).toFixed(2) + '" width="' +
+    (gap * 3).toFixed(2) + '" height="' + (gap * 15 - 4).toFixed(2) + '" ' + band() + '/>';
 
-  /* the four 6×6 corner YARDS: a bold colour block with a white inner box */
+  /* the four 6×6 corner YARDS: bevelled colour block, cream inner court,
+     recessed wells ringed in the seat colour */
   g.yard.forEach((y, k) => {
     const hx = hexOf(colourFor(st, k));
     const [r0, c0] = y.block;
     const bx = 3 + c0 * gap, by = 3 + r0 * gap, bw = gap * 6;
     s += '<rect x="' + bx.toFixed(2) + '" y="' + by.toFixed(2) + '" width="' + bw.toFixed(2) +
-      '" height="' + bw.toFixed(2) + '" rx="7" ry="7" fill="' + esc(hx) +
-      '" stroke="rgba(0,0,0,.22)" stroke-width="0.8"/>';
-    /* white inner box holding the 2×2 parked slots */
+      '" height="' + bw.toFixed(2) + '" rx="7" ry="7" fill="url(#lu-sg' + k +
+      ')" stroke="' + esc(shade(hx, -0.42)) + '" stroke-width="0.9"/>';
+    s += '<rect x="' + (bx + 1.4).toFixed(2) + '" y="' + (by + 1.4).toFixed(2) + '" width="' +
+      (bw - 2.8).toFixed(2) + '" height="' + (bw - 2.8).toFixed(2) +
+      '" rx="6" ry="6" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="0.6"/>';
     const ins = gap * 0.9, iw = bw - ins * 2;
     s += '<rect x="' + (bx + ins).toFixed(2) + '" y="' + (by + ins).toFixed(2) + '" width="' +
-      iw.toFixed(2) + '" height="' + iw.toFixed(2) + '" rx="6" ry="6" fill="#fbfbf7" ' +
-      'stroke="rgba(0,0,0,.14)" stroke-width="0.6"/>';
-    /* the four parked-slot wells */
+      iw.toFixed(2) + '" height="' + iw.toFixed(2) + '" rx="6" ry="6" fill="url(#lu-plate)" ' +
+      'stroke="rgba(0,0,0,.2)" stroke-width="0.6"/>';
     y.slots.forEach(sl => {
       s += '<circle cx="' + sl.x.toFixed(2) + '" cy="' + sl.y.toFixed(2) + '" r="' +
-        (gap * 0.42).toFixed(2) + '" fill="none" stroke="' + esc(hx) +
-        '" stroke-opacity="0.55" stroke-width="1.1"/>';
+        (gap * 0.44).toFixed(2) + '" fill="rgba(0,0,0,.08)" stroke="' + esc(hx) +
+        '" stroke-opacity="0.6" stroke-width="1.1"/>';
     });
   });
 
-  /* the coloured HOME COLUMNS (each seat's 5-cell lane to the centre) */
+  /* the coloured HOME COLUMNS — a soft glow under bevelled lane cells */
   g.col.forEach((cells, k) => {
     const hx = hexOf(colourFor(st, k));
+    const a = cells[0], b = cells[cells.length - 1];
+    const line = 'M' + a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' +
+                 b.x.toFixed(2) + ' ' + b.y.toFixed(2);
+    s += '<path d="' + line + '" stroke="' + esc(hx) + '" stroke-opacity="0.22" ' +
+      'stroke-width="' + (gap * 1.45).toFixed(2) + '" stroke-linecap="round" fill="none"/>';
     cells.forEach(cc => {
-      s += gridCell(cc.x, cc.y, hs, cr * 0.14) + ' fill="' + esc(hx) +
-        '" stroke="rgba(0,0,0,.18)" stroke-width="0.4"/>';
+      s += gridCell(cc.x, cc.y, hs, cr * 0.14) + ' fill="url(#lu-sg' + k +
+        ')" stroke="rgba(255,255,255,.65)" stroke-width="0.5"/>';
     });
   });
 
-  /* the centre 3×3 FINISH: four coloured triangles meeting at the middle */
-  const c3 = gap * 1.5;                       /* half the 3×3 block, px */
+  /* the centre 3×3 FINISH: bevelled triangles and the gold medallion */
+  const c3 = gap * 1.5;
   const cx = C, cy = C;
   const corners = [
     { x: cx - c3, y: cy - c3 }, { x: cx + c3, y: cy - c3 },
     { x: cx + c3, y: cy + c3 }, { x: cx - c3, y: cy + c3 }
   ];
-  /* the box behind the triangles */
   s += '<rect x="' + (cx - c3).toFixed(2) + '" y="' + (cy - c3).toFixed(2) + '" width="' +
     (c3 * 2).toFixed(2) + '" height="' + (c3 * 2).toFixed(2) +
-    '" fill="#fff" stroke="rgba(0,0,0,.14)" stroke-width="0.5"/>';
-  /* seat 0 (top-left) → top triangle, 1 → right, 2 → bottom, 3 → left, so
-     each colour's triangle points at that seat's home column mouth */
-  const triFor = [
-    [corners[0], corners[1]],   /* seat 0: top edge  */
-    [corners[1], corners[2]],   /* seat 1: right edge (top-right home) */
-    [corners[2], corners[3]],   /* seat 2: bottom edge */
-    [corners[3], corners[0]]    /* seat 3: left edge */
-  ];
+    '" fill="url(#lu-plate)" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
   /* map triangle edge → the seat whose HOME MOUTH sits on that edge:
      seat0 home lane is row7 cols1-5 → enters centre from the LEFT edge;
      seat1 col7 rows1-5 → from the TOP; seat2 row7 cols9-13 → RIGHT;
@@ -1136,194 +1209,251 @@ function boardBodyGrid(st, lay, g, hs){
   const edgeOfSeat = { 0: [corners[3], corners[0]], 1: [corners[0], corners[1]],
                        2: [corners[1], corners[2]], 3: [corners[2], corners[3]] };
   for (let k = 0; k < 4; k++){
-    const hx = hexOf(colourFor(st, k));
     const [a, b] = edgeOfSeat[k];
     s += '<path d="M' + cx.toFixed(2) + ' ' + cy.toFixed(2) + 'L' + a.x.toFixed(2) + ' ' +
-      a.y.toFixed(2) + 'L' + b.x.toFixed(2) + ' ' + b.y.toFixed(2) + 'Z" fill="' + esc(hx) +
-      '" stroke="rgba(0,0,0,.18)" stroke-width="0.5" stroke-linejoin="round"/>';
+      a.y.toFixed(2) + 'L' + b.x.toFixed(2) + ' ' + b.y.toFixed(2) + 'Z" fill="url(#lu-sg' +
+      k + ')" stroke="rgba(255,255,255,.4)" stroke-width="0.5" stroke-linejoin="round"/>';
   }
+  s += '<circle cx="' + cx + '" cy="' + cy + '" r="' + (gap * 0.62).toFixed(2) +
+    '" fill="url(#lu-med)" stroke="rgba(0,0,0,.3)" stroke-width="0.5"/>' +
+    '<path d="' + starPath(cx, cy, gap * 0.4) + '" fill="rgba(255,255,255,.85)"/>';
 
-  /* the travel RING cells: white squares, coloured starts, star safes */
+  /* the travel RING: bevelled tiles, gold stars, glowing coloured
+     entries with their travel arrow, and chevrons showing the flow */
   lay.ring.forEach((rc, i) => {
     const p = g.ring[i];
-    if (rc.entryOf != null){
-      const hx = hexOf(colourFor(st, rc.entryOf));
-      s += gridCell(p.x, p.y, hs, cr * 0.14) + ' fill="' + esc(hx) +
-        '" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
-    } else {
-      s += gridCell(p.x, p.y, hs, cr * 0.14) + ' class="lu-cellw" fill="#fff" ' +
-        (rc.safe ? 'stroke="rgba(0,0,0,.28)" stroke-width="0.7"' :
-                   'stroke="rgba(0,0,0,.12)" stroke-width="0.4"') + '/>';
-    }
-    if (rc.safe && rc.entryOf == null){
-      s += '<path d="' + starPath(p.x, p.y, cr * 0.6) +
-        '" fill="rgba(80,80,90,.42)" stroke="rgba(0,0,0,.18)" stroke-width="0.3"/>';
-    }
-    if (rc.entryOf != null){
-      /* an outward arrow in the direction of travel */
-      const a = g.arm[rc.entryOf];
-      const tip = { x: p.x + a.ux * cr * 0.55, y: p.y + a.uy * cr * 0.55 };
-      const b1 = { x: p.x - a.ux * cr * 0.2 + a.vx * cr * 0.38,
-                   y: p.y - a.uy * cr * 0.2 + a.vy * cr * 0.38 };
-      const b2 = { x: p.x - a.ux * cr * 0.2 - a.vx * cr * 0.38,
-                   y: p.y - a.uy * cr * 0.2 - a.vy * cr * 0.38 };
-      s += '<path d="M' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + 'L' +
-        b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' +
-        b2.y.toFixed(1) + 'Z" fill="rgba(255,255,255,.9)" stroke="rgba(0,0,0,.25)" stroke-width="0.3"/>';
+    s += ringCellSVG(st, g, rc, p, hs, swc);
+    if (rc.entryOf == null && !rc.safe && i % 3 === 1){
+      s += chevron(p, g.ring[(i + 1) % g.R], hs, swc * 0.8);
     }
   });
+
+  /* the light across the plate — tokens are drawn above this */
+  s += '<rect x="4.5" y="4.5" width="' + (VB - 9) + '" height="' + (VB - 9) +
+    '" rx="7" ry="7" fill="url(#lu-vig)" pointer-events="none"/>';
   return s;
 }
 
-/* ── THE HEXAGON / OCTAGON BODY (P=6 / P=8) ──────────────────────────
-   Painted in the order a real board is printed: the polygon, then the P
-   coloured WEDGES tiling it edge to edge, then the dark corner blocks
-   (the octagon's, as on the shop board), then the cream TRACK BAND
-   round the rim with the cells tiled into it, then each wedge's YARD
-   PLATE and four slot wells, then the coloured HOME COLUMNS running
-   from each edge's midpoint down to the middle, and last the P-sided
-   HUB where every column finishes. */
-/* the sheen laid over every wedge — one gradient, so P flat colours read
-   as a printed board rather than as a pie chart */
-const WSHEEN =
-  '<radialGradient id="lu-wsheen" cx="50%" cy="50%" r="62%">' +
-    '<stop offset="0" stop-color="#000" stop-opacity="0.26"/>' +
-    '<stop offset="55%" stop-color="#000" stop-opacity="0.06"/>' +
-    '<stop offset="100%" stop-color="#fff" stop-opacity="0.14"/></radialGradient>';
-function polyPathAt(g, inr){
-  const P = g.P, out = [];
-  for (let k = 0; k < P; k++){
-    const th = (k / P) * 2 * Math.PI + g.half, r = inr / g.COS;
-    out.push([C + r * Math.sin(th), C - r * Math.cos(th)]);
+/* ═══════════════════════════════════════════════════════════════════
+   SHARED DEFS — one set of gradients does all the bevelling. A cell is
+   a single path with a vertical light-to-dark gradient plus a thin dark
+   stroke: it reads as a raised tile, costs one element, and never asks
+   the compositor for a filter. Per-seat gradients (lu-sg<k>) are built
+   from the live seat colours every paint.
+   ═══════════════════════════════════════════════════════════════════ */
+function defsFor(st){
+  let d =
+    '<radialGradient id="lu-discg" cx="50%" cy="38%" r="72%">' +
+      '<stop offset="0" stop-color="#2E2153"/><stop offset="60%" stop-color="#241A3E"/>' +
+      '<stop offset="100%" stop-color="#150F28"/></radialGradient>' + GTOK +
+    '<linearGradient id="lu-wg" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#E7E1D0"/></linearGradient>' +
+    '<linearGradient id="lu-goldc" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#FBEECB"/><stop offset="1" stop-color="#EAD299"/></linearGradient>' +
+    '<linearGradient id="lu-plate" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#F8F4E9"/><stop offset="1" stop-color="#E5DDC7"/></linearGradient>' +
+    '<linearGradient id="lu-back" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#EFE8D6"/><stop offset="1" stop-color="#D8CEB2"/></linearGradient>' +
+    '<radialGradient id="lu-med" cx="38%" cy="30%" r="80%">' +
+      '<stop offset="0" stop-color="#FFEDB0"/><stop offset="1" stop-color="#D9971C"/></radialGradient>' +
+    '<radialGradient id="lu-vig" cx="50%" cy="46%" r="60%">' +
+      '<stop offset="0" stop-color="#000" stop-opacity="0"/>' +
+      '<stop offset="0.8" stop-color="#000" stop-opacity="0"/>' +
+      '<stop offset="1" stop-color="#000" stop-opacity="0.16"/></radialGradient>';
+  const n = (st && st.n) || 4;
+  for (let k = 0; k < n; k++){
+    const hx = hexOf(colourFor(st, k));
+    d += '<linearGradient id="lu-sg' + k + '" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="' + esc(shade(hx, 0.34)) + '"/>' +
+      '<stop offset="0.52" stop-color="' + esc(hx) + '"/>' +
+      '<stop offset="1" stop-color="' + esc(shade(hx, -0.26)) + '"/></linearGradient>';
   }
-  return 'M' + out.map(p => p[0].toFixed(2) + ' ' + p[1].toFixed(2)).join('L') + 'Z';
+  return '<defs>' + d + '</defs>';
 }
-function ptsPath(list){
-  return 'M' + list.map(p => p.x.toFixed(2) + ' ' + p.y.toFixed(2)).join('L') + 'Z';
+
+/* a faint chevron on a track cell pointing the way the lap runs */
+function chevron(px, nx, hs, swc){
+  const dx = nx.x - px.x, dy = nx.y - px.y, m = Math.hypot(dx, dy) || 1;
+  const ux = dx / m, uy = dy / m, vx = -uy, vy = ux;
+  const a = hs * 0.34;
+  const t  = { x: px.x + ux * a, y: px.y + uy * a };
+  const b1 = { x: px.x - ux * a * 0.5 + vx * a, y: px.y - uy * a * 0.5 + vy * a };
+  const b2 = { x: px.x - ux * a * 0.5 - vx * a, y: px.y - uy * a * 0.5 - vy * a };
+  return '<path d="M' + b1.x.toFixed(1) + ' ' + b1.y.toFixed(1) + 'L' + t.x.toFixed(1) +
+    ' ' + t.y.toFixed(1) + 'L' + b2.x.toFixed(1) + ' ' + b2.y.toFixed(1) +
+    '" fill="none" stroke="#8B8298" stroke-opacity="0.55" stroke-width="' +
+    (swc * 1.5).toFixed(2) + '" stroke-linecap="round" stroke-linejoin="round"/>';
 }
-function boardBodyWedge(st, lay, g){
-  const P = g.P, pitch = g.pitch, hs = g.cell;
-  const V = g.polyV;
+/* the white travel arrow on an entry cell */
+function entryArrow(p, a, hs){
+  const tip = { x: p.x + a.ux * hs * 0.60, y: p.y + a.uy * hs * 0.60 };
+  const b1  = { x: p.x - a.ux * hs * 0.22 + a.vx * hs * 0.42,
+                y: p.y - a.uy * hs * 0.22 + a.vy * hs * 0.42 };
+  const b2  = { x: p.x - a.ux * hs * 0.22 - a.vx * hs * 0.42,
+                y: p.y - a.uy * hs * 0.22 - a.vy * hs * 0.42 };
+  return '<path d="M' + tip.x.toFixed(2) + ' ' + tip.y.toFixed(2) + 'L' +
+    b1.x.toFixed(2) + ' ' + b1.y.toFixed(2) + 'L' + b2.x.toFixed(2) + ' ' +
+    b2.y.toFixed(2) + 'Z" fill="rgba(255,255,255,.92)" stroke="rgba(0,0,0,.25)" ' +
+    'stroke-width="0.3"/>';
+}
+/* one ring cell, bevelled; entry cells coloured + glowing, safes starred */
+function ringCellSVG(st, g, rc, p, hs, swc){
+  let s = '';
+  if (rc.entryOf != null){
+    const hx = hexOf(colourFor(st, rc.entryOf));
+    s += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' +
+      (hs * 1.55).toFixed(1) + '" fill="' + esc(hx) + '" fill-opacity="0.32"/>';
+    s += '<path class="lu-cellc" d="' + sqCell(p.x, p.y, hs, p.th) +
+      '" fill="url(#lu-sg' + rc.entryOf + ')" stroke="' + esc(shade(hx, -0.45)) +
+      '" stroke-width="' + swc.toFixed(2) + '"/>';
+    s += entryArrow(p, g.arm[rc.entryOf], hs);
+  } else if (rc.safe){
+    s += '<path class="lu-cellw safe" d="' + sqCell(p.x, p.y, hs, p.th) +
+      '" fill="url(#lu-goldc)" stroke="rgba(122,92,28,.55)" stroke-width="' +
+      (swc * 1.3).toFixed(2) + '"/>';
+    s += '<path d="' + starPath(p.x, p.y, hs * 0.62) +
+      '" fill="#E7B94C" stroke="rgba(96,66,10,.55)" stroke-width="' +
+      (swc * 0.7).toFixed(2) + '"/>';
+  } else {
+    s += '<path class="lu-cellw" d="' + sqCell(p.x, p.y, hs, p.th) +
+      '" fill="url(#lu-wg)" stroke="rgba(0,0,0,.16)" stroke-width="' +
+      (swc * 0.9).toFixed(2) + '"/>';
+  }
+  return s;
+}
+
+/* ── THE STAR BODY (every P except 4) — painted like a real board:
+   a dark drop shadow, the star plate, the raised arm corridors, the
+   valley guides, the glowing home lanes, the coloured yards with their
+   recessed wells, the hub with its gold medallion, then the cells. ── */
+function boardBodyStar(st, lay, g){
+  const P = g.P, p = g.pitch, hs = g.cell * 0.94, L = g.L;
+  const swc = Math.max(0.3, hs * 0.14);
+  const deg = r => (r * 180 / Math.PI).toFixed(2);
   let s = '';
 
-  /* the board plate — the polygon itself, on a soft dark disc */
   s += '<circle class="lu-disc" cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '"/>';
-  s += '<path d="' + ptsPath(V) + '" fill="#1b1330" stroke="rgba(0,0,0,.55)" ' +
-       'stroke-width="1.6" stroke-linejoin="round"/>';
 
-  /* ── THE WEDGES. Wedge k = (centre, V[k-1], V[k]) in seat k's colour.
-     They share edges and cover the polygon: no gaps, no overlaps. ── */
+  /* ── THE ROUND PLATE — a framed wooden table board: drop shadow, a
+     dark bezel, a gold pinstripe, then the cream face ── */
+  const rPlate = (g.rimU - 0.1) * p;
+  s += '<circle cx="' + C + '" cy="' + (C + 2) + '" r="' + rPlate.toFixed(2) +
+    '" fill="rgba(0,0,0,.5)"/>';
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + rPlate.toFixed(2) +
+    '" fill="#221741" stroke="#0E0A1C" stroke-width="1.2"/>';
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (rPlate - 1.1).toFixed(2) +
+    '" fill="none" stroke="rgba(255,255,255,.16)" stroke-width="0.7"/>';
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (rPlate - 2.6).toFixed(2) +
+    '" fill="url(#lu-back)" stroke="var(--lu-gold,#FFC542)" stroke-opacity="0.55" ' +
+    'stroke-width="0.8"/>';
+
+  /* ── THE ARM CORRIDORS — raised cream plates with a bevel stroke ── */
+  const armW = (g.LAT + 0.62) * p;
+  const armY0 = C - (g.r0u + L + 0.75) * p, armH = (L + 1.5) * p;
   for (let k = 0; k < P; k++){
-    const hx = hexOf(colourFor(st, k));
-    const a = V[(k - 1 + P) % P], b = V[k];
-    s += '<path class="lu-wedge" data-wedge="' + k + '" d="M' + C + ' ' + C + 'L' +
-      a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' + b.x.toFixed(2) + ' ' + b.y.toFixed(2) +
-      'Z" fill="' + esc(hx) + '" stroke="rgba(0,0,0,.30)" stroke-width="0.7" ' +
-      'stroke-linejoin="round"/>';
-    /* a soft sheen down the outer half so eight flat colours do not read
-       like a pie chart */
-    s += '<path d="M' + C + ' ' + C + 'L' + a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' +
-      b.x.toFixed(2) + ' ' + b.y.toFixed(2) + 'Z" fill="url(#lu-wsheen)" ' +
-      'pointer-events="none"/>';
+    s += '<g transform="rotate(' + deg(g.AF[k].theta) + ' ' + C + ' ' + C + ')">' +
+      '<rect x="' + (C - armW).toFixed(2) + '" y="' + armY0.toFixed(2) +
+        '" width="' + (armW * 2).toFixed(2) + '" height="' + armH.toFixed(2) +
+        '" rx="2.6" fill="url(#lu-plate)" stroke="rgba(0,0,0,.35)" stroke-width="0.8"/>' +
+      '<rect x="' + (C - armW + 1).toFixed(2) + '" y="' + (armY0 + 1).toFixed(2) +
+        '" width="' + ((armW - 1) * 2).toFixed(2) + '" height="' + (armH - 2).toFixed(2) +
+        '" rx="2" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="0.5"/>' +
+      '</g>';
   }
 
-  /* ── THE CORNER BLOCKS — the dark blocks the eight-player board wears
-     at the octagon's corners. Drawn at every vertex; on the hexagon they
-     read as the printed corner joints of the rim. ── */
-  const cq = pitch * (P >= 8 ? 2.05 : 1.55);
-  for (let j = 0; j < P; j++){
-    const w = V[j];
-    const midA = { x: C + g.F[j].ux * g.rPoly, y: C + g.F[j].uy * g.rPoly };
-    const nx = (j + 1) % P;
-    const midB = { x: C + g.F[nx].ux * g.rPoly, y: C + g.F[nx].uy * g.rPoly };
-    const along = (from, to, d) => {
-      const dx = to.x - from.x, dy = to.y - from.y, m = Math.hypot(dx, dy) || 1;
-      return { x: from.x + dx / m * d, y: from.y + dy / m * d };
-    };
-    s += '<path d="' + ptsPath([w, along(w, midA, cq), along(w, midB, cq)]) +
-      '" fill="#171126" fill-opacity="' + (P >= 8 ? '0.92' : '0.55') +
-      '" stroke="rgba(0,0,0,.4)" stroke-width="0.5" stroke-linejoin="round"/>';
+  /* ── THE VALLEY GUIDES — a dotted curve from each seat's turnoff,
+     round its column mouth, to its entry: the lap made legible ── */
+  for (let k = 0; k < P; k++){
+    const en = g.ring[k * lay.A];
+    const tf = g.ring[(k * lay.A - 1 + g.R) % g.R];
+    const mid = { x: C + g.VF[k].ux * (g.colMo + 1.05) * p,
+                  y: C + g.VF[k].uy * (g.colMo + 1.05) * p };
+    s += '<path d="M' + tf.x.toFixed(1) + ' ' + tf.y.toFixed(1) + 'Q' +
+      mid.x.toFixed(1) + ' ' + mid.y.toFixed(1) + ' ' + en.x.toFixed(1) + ' ' +
+      en.y.toFixed(1) + '" fill="none" stroke="rgba(0,0,0,.28)" stroke-width="' +
+      swc.toFixed(2) + '" stroke-dasharray="0.2 ' + (p * 0.45).toFixed(1) +
+      '" stroke-linecap="round"/>';
   }
 
-  /* ── THE TRACK BAND — a cream ring just inside the rim, the row of
-     cells tiled into it. Even-odd of two concentric polygons. ── */
-  const bh = pitch * 1.05;
-  s += '<path d="' + polyPathAt(g, g.rBand + bh) + polyPathAt(g, g.rBand - bh) +
-    '" fill-rule="evenodd" fill="#f7f5ef" stroke="rgba(0,0,0,.20)" stroke-width="0.6"/>';
-
-  /* ── THE YARD PLATES + the four parked slots ── */
-  g.yard.forEach((y, k) => {
-    const hx = hexOf(colourFor(st, k));
-    s += '<path class="lu-yard" d="' + ptsPath(y.plate) + '" fill="#f7f5ef" ' +
-      'stroke="' + esc(hx) + '" stroke-opacity="0.8" stroke-width="1.4" ' +
-      'stroke-linejoin="round"/>';
-    y.slots.forEach(sl => {
-      s += '<circle class="lu-well" cx="' + sl.x.toFixed(2) + '" cy="' + sl.y.toFixed(2) +
-        '" r="' + (g.tok * 1.28).toFixed(2) + '" fill="' + esc(hx) + '" fill-opacity="0.20" ' +
-        'stroke="' + esc(hx) + '" stroke-opacity="0.75" stroke-width="1.1"/>';
-    });
-  });
-
-  /* ── THE HOME COLUMNS — mouth (at the edge midpoint) down to the hub ── */
+  /* ── THE HOME COLUMNS — a solid tinted LANE from mouth to hub (so the
+     five cells read as one road), a soft glow, then bevelled cells ── */
   g.col.forEach((cells, k) => {
     const hx = hexOf(colourFor(st, k));
-    /* a thin coloured spine so the five cells read as ONE lane */
     const a = cells[0], b = cells[cells.length - 1];
-    s += '<path d="M' + a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' + b.x.toFixed(2) +
-      ' ' + b.y.toFixed(2) + '" stroke="' + esc(hx) + '" stroke-opacity="0.55" ' +
-      'stroke-width="' + (hs * 2.1).toFixed(2) + '" stroke-linecap="round" fill="none"/>';
+    const line = 'M' + a.x.toFixed(2) + ' ' + a.y.toFixed(2) + 'L' +
+                 b.x.toFixed(2) + ' ' + b.y.toFixed(2);
+    s += '<path d="' + line + '" stroke="' + esc(hx) + '" stroke-opacity="0.15" ' +
+      'stroke-width="' + (hs * 4.1).toFixed(2) + '" stroke-linecap="round" fill="none"/>';
+    s += '<path d="' + line + '" stroke="url(#lu-plate)" ' +
+      'stroke-width="' + (hs * 2.9).toFixed(2) + '" stroke-linecap="round" fill="none"/>';
+    s += '<path d="' + line + '" stroke="' + esc(hx) + '" stroke-opacity="0.4" ' +
+      'stroke-width="' + (hs * 2.9).toFixed(2) + '" stroke-linecap="round" fill="none"/>';
     cells.forEach(cc => {
-      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, hs, cc.th) + '" fill="' +
-        esc(hx) + '" stroke="rgba(255,255,255,.75)" stroke-width="0.6"/>';
+      s += '<path class="lu-home" d="' + sqCell(cc.x, cc.y, hs, cc.th) +
+        '" fill="url(#lu-sg' + k + ')" stroke="rgba(255,255,255,.7)" stroke-width="' +
+        (swc * 1.1).toFixed(2) + '"/>';
     });
   });
 
-  /* ── THE HUB — the P-sided finish every column runs into ── */
-  s += '<path d="' + polyPathAt(g, g.hub * g.COS) + '" fill="#f7f5ef" ' +
-    'stroke="rgba(0,0,0,.25)" stroke-width="0.8" stroke-linejoin="round"/>';
-  for (let k = 0; k < P; k++){
+  /* ── THE YARDS — a coloured plate in the valley, wells recessed ── */
+  g.yard.forEach((y, k) => {
     const hx = hexOf(colourFor(st, k));
-    const th = (k / P) * 2 * Math.PI, r = g.hub;
-    const p0 = { x: C + r * Math.sin(th - g.half), y: C - r * Math.cos(th - g.half) };
-    const p1 = { x: C + r * Math.sin(th + g.half), y: C - r * Math.cos(th + g.half) };
-    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + p0.x.toFixed(2) + ' ' +
-      p0.y.toFixed(2) + 'L' + p1.x.toFixed(2) + ' ' + p1.y.toFixed(2) + 'Z" fill="' +
-      esc(hx) + '" fill-opacity="0.92"/>';
-  }
-  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (g.hub * 0.20).toFixed(2) +
-    '" fill="#f7f5ef" stroke="rgba(0,0,0,.2)" stroke-width="0.5"/>';
+    s += '<g transform="rotate(' + deg(y.theta) + ' ' + C + ' ' + C + ')">' +
+      '<rect x="' + (C - y.pw).toFixed(2) + '" y="' + (C - g.yardR * p - y.ph).toFixed(2) +
+        '" width="' + (y.pw * 2).toFixed(2) + '" height="' + (y.ph * 2).toFixed(2) +
+        '" rx="3" fill="url(#lu-sg' + k + ')" stroke="' + esc(shade(hx, -0.42)) +
+        '" stroke-width="0.9"/>' +
+      '<rect x="' + (C - y.pw + 1).toFixed(2) + '" y="' + (C - g.yardR * p - y.ph + 1).toFixed(2) +
+        '" width="' + ((y.pw - 1) * 2).toFixed(2) + '" height="' + ((y.ph - 1) * 2).toFixed(2) +
+        '" rx="2.4" fill="none" stroke="rgba(255,255,255,.35)" stroke-width="0.5"/>' +
+      '</g>';
+    y.slots.forEach(sl => {
+      s += '<circle class="lu-well" cx="' + sl.x.toFixed(2) + '" cy="' + sl.y.toFixed(2) +
+        '" r="' + (g.tok * 1.22).toFixed(2) + '" fill="rgba(0,0,0,.25)" ' +
+        'stroke="rgba(255,255,255,.4)" stroke-width="0.6"/>';
+    });
+  });
 
-  /* ── THE RING CELLS — white squares in the band, the entries in the
-     owner's colour with an arrow the way the lap runs, stars on safes ── */
+  /* ── THE HUB — the P-sided finish with a gold medallion ── */
+  const hubP = g.hubU * p;
+  s += '<circle cx="' + C + '" cy="' + (C + 1.4) + '" r="' + (hubP * 1.12).toFixed(2) +
+    '" fill="rgba(0,0,0,.35)"/>';
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (hubP * 1.12).toFixed(2) +
+    '" fill="url(#lu-plate)" stroke="rgba(0,0,0,.35)" stroke-width="0.8"/>';
+  const hv = g.AF.map(a => ({ x: C + a.ux * hubP, y: C + a.uy * hubP }));
+  for (let k = 0; k < P; k++){
+    const a = hv[(k - 1 + P) % P], b = hv[k];
+    s += '<path class="lu-goal" d="M' + C + ' ' + C + 'L' + a.x.toFixed(2) + ' ' +
+      a.y.toFixed(2) + 'L' + b.x.toFixed(2) + ' ' + b.y.toFixed(2) +
+      'Z" fill="url(#lu-sg' + k + ')" stroke="rgba(255,255,255,.5)" stroke-width="0.4"/>';
+  }
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (hubP * 0.36).toFixed(2) +
+    '" fill="url(#lu-med)" stroke="rgba(0,0,0,.3)" stroke-width="0.5"/>' +
+    '<path d="' + starPath(C, C, hubP * 0.22) + '" fill="rgba(255,255,255,.85)"/>';
+
+  /* ── THE RING CELLS — bevelled tiles, arrows, stars, chevrons; the
+     arm TIP wears its seat's colour as a ring (the halfway tower) ── */
   lay.ring.forEach((rc, i) => {
-    const p = g.ring[i];
-    if (rc.entryOf != null){
-      const hx = hexOf(colourFor(st, rc.entryOf));
-      s += '<path class="lu-cellc" d="' + sqCell(p.x, p.y, hs, p.th) + '" fill="' + esc(hx) +
-        '" stroke="rgba(0,0,0,.28)" stroke-width="0.5"/>';
-      const a = g.arm[rc.entryOf];
-      const tip = { x: p.x + a.ux * hs * 0.60, y: p.y + a.uy * hs * 0.60 };
-      const b1  = { x: p.x - a.ux * hs * 0.22 + a.vx * hs * 0.42,
-                    y: p.y - a.uy * hs * 0.22 + a.vy * hs * 0.42 };
-      const b2  = { x: p.x - a.ux * hs * 0.22 - a.vx * hs * 0.42,
-                    y: p.y - a.uy * hs * 0.22 - a.vy * hs * 0.42 };
-      s += '<path d="M' + tip.x.toFixed(2) + ' ' + tip.y.toFixed(2) + 'L' +
-        b1.x.toFixed(2) + ' ' + b1.y.toFixed(2) + 'L' + b2.x.toFixed(2) + ' ' +
-        b2.y.toFixed(2) + 'Z" fill="rgba(255,255,255,.92)"/>';
-    } else {
-      s += '<path class="lu-cellw" d="' + sqCell(p.x, p.y, hs, p.th) + '" fill="#fff" ' +
-        (rc.safe ? 'stroke="rgba(0,0,0,.32)" stroke-width="0.8"'
-                 : 'stroke="rgba(0,0,0,.14)" stroke-width="0.45"') + '/>';
-      if (rc.safe)
-        s += '<path d="' + starPath(p.x, p.y, hs * 0.66) +
-          '" fill="rgba(70,70,84,.5)" stroke="rgba(0,0,0,.18)" stroke-width="0.3"/>';
+    const px = g.ring[i];
+    s += ringCellSVG(st, g, rc, px, hs, swc);
+    if (rc.role === 'corner'){
+      s += '<circle cx="' + px.x.toFixed(1) + '" cy="' + px.y.toFixed(1) + '" r="' +
+        (hs * 0.48).toFixed(2) + '" fill="none" stroke="' +
+        esc(hexOf(colourFor(st, rc.sector))) + '" stroke-opacity="0.8" stroke-width="' +
+        (swc * 1.7).toFixed(2) + '"/>';
+    } else if (rc.entryOf == null && !rc.safe && i % 3 === 1){
+      s += chevron(px, g.ring[(i + 1) % g.R], hs, swc);
     }
   });
+
+  /* the vignette lays the light across the whole board, tokens above */
+  s += '<circle cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) +
+    '" fill="url(#lu-vig)" pointer-events="none"/>';
   return s;
 }
 
 function paintBoard(){
-  const st = M.st, lay = layoutFor(st), g = geom(lay);
+  const st = M.st, lay = layoutFor(st), g = geom(lay, st.tokens);
   const cr = g.cell, tr = g.tok;
   const pend = E.pending(st);
   const myTurn = !E.over(st) && isLocal(E.turn(st));
@@ -1332,18 +1462,21 @@ function paintBoard(){
   if (canMove) pend.moves.forEach(m => { legalToks[E.turn(st) + ':' + m.k] = m; });
   const hs = cr * 0.94;               /* half-size of a ring/home cell   */
 
+  /* tokens the THEATRE is about to animate paint hidden, so the state is
+     truth on screen and the flight is pure decoration over it */
+  const hide = {};
+  if (pendTh){
+    hide[pendTh.seat + ':' + pendTh.k] = 1;
+    (pendTh.caps || []).forEach(c => { hide[c.seat + ':' + c.tok] = 1; });
+  }
+
   /* the board disc */
   let s = '<svg class="lu-svg' + (xEq('board') ? ' lu-xb' : '') +
     '" id="lu-svg" viewBox="0 0 ' + VB + ' ' + VB + '" ' +
     'xmlns="http://www.w3.org/2000/svg" aria-label="' +
     esc(T('The Ludo board', 'It-tabellun tal-Ludu')) + '">' +
-    '<defs>' +
-      '<radialGradient id="lu-discg" cx="50%" cy="38%" r="72%">' +
-        '<stop offset="0" stop-color="#2E2153"/><stop offset="60%" stop-color="#241A3E"/>' +
-        '<stop offset="100%" stop-color="#150F28"/></radialGradient>' +
-      WSHEEN + GTOK +
-    '</defs>';
-  s += g.grid ? boardBodyGrid(st, lay, g, hs) : boardBodyWedge(st, lay, g);
+    defsFor(st);
+  s += g.grid ? boardBodyGrid(st, lay, g, hs) : boardBodyStar(st, lay, g);
 
   /* the tokens, grouped by square so stacks fan out a touch */
   const toks = E.tokens(st);
@@ -1368,7 +1501,7 @@ function paintBoard(){
      board cell so on the 15×15 grid it is ~cell-wide and on the rosette
      it is a generous square around the piece. Reported below as HIT_U in
      viewBox units; at a 360px board that is HIT_U × 1.5 CSS px. */
-  const HIT_U = (g.grid ? g.gap * 1.15 : g.gap * g.step * 1.55);
+  const HIT_U = (g.grid ? g.gap * 1.15 : g.gap * 1.9);
   UI._hitU = HIT_U; if (M) M._hitU = HIT_U;
   /* when it is my turn to move, DIM everything so the movable pieces are
      the only bright things on the board — "what can I move" at a glance */
@@ -1389,18 +1522,25 @@ function paintBoard(){
     const pick = !!legal;
     const dim = dimRest && !pick ? ' dim' : '';
     const gilt = giltSeat(tk.seat);
+    const hid = hide[tk.seat + ':' + tk.tok];
     const cls = 'lu-tok' + (gilt ? ' gilt' : '') + (pick ? ' pick' : '') + dim;
+    const sty = (gilt ? '--lus:' + esc(hx) + ';' : '') + (hid ? 'visibility:hidden' : '');
     s += '<g class="' + cls + '"' +
-      (gilt ? ' style="--lus:' + esc(hx) + '"' : '') +
+      (sty ? ' style="' + sty + '"' : '') +
       (pick ? ' data-tok="' + tk.tok + '" role="button" tabindex="0" aria-label="' +
         esc(T('Move this token', 'Ċaqlaq din il-biċċa')) + '"' : ' aria-hidden="true"') +
-      ' data-seat="' + tk.seat + '" data-cx="' + cx.toFixed(1) + '" data-cy="' + cy.toFixed(1) + '">';
+      ' data-seat="' + tk.seat + '" data-k="' + tk.tok +
+      '" data-cx="' + cx.toFixed(1) + '" data-cy="' + cy.toFixed(1) + '">';
     /* a soft glow halo behind a movable piece — reads before you look */
     if (pick){
       s += '<circle class="glow" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) +
         '" r="' + (tr * 1.42).toFixed(1) + '" fill="' + esc(gilt ? '#FFD979' : hx) + '"/>';
     }
-    s += '<circle class="body" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' +
+    /* a grounding shadow, then the piece */
+    s += '<ellipse cx="' + cx.toFixed(1) + '" cy="' + (cy + tr * 0.55).toFixed(1) +
+        '" rx="' + (tr * 0.9).toFixed(1) + '" ry="' + (tr * 0.38).toFixed(1) +
+        '" fill="rgba(0,0,0,.3)"/>' +
+      '<circle class="body" cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="' +
         tr.toFixed(1) + '" fill="' + (gilt ? 'url(#lu-gtok)' : esc(hx)) + '"/>' +
       '<circle class="gloss" cx="' + (cx - tr * 0.28).toFixed(1) + '" cy="' +
         (cy - tr * 0.32).toFixed(1) + '" r="' + (tr * 0.28).toFixed(1) + '" fill-opacity="0.55"/>';
@@ -1412,11 +1552,20 @@ function paintBoard(){
         HIT_U.toFixed(1) + '" rx="3" ry="3" fill="transparent"/>';
     }
     s += '</g>';
-    /* a legal move gets a gold destination ring drawn at the target cell */
+    /* a legal move previews its landing: a ghost of this token stood on
+       the destination cell plus a pulsing ring — red when it captures */
     if (legal){
       const dest = destPx(st, lay, tk.seat, legal);
-      if (dest) hints += '<circle class="lu-hint" cx="' + dest.x.toFixed(1) + '" cy="' +
-        dest.y.toFixed(1) + '" r="' + (cr + 1.5).toFixed(1) + '"/>';
+      if (dest){
+        const cap = legal.caps && legal.caps.length;
+        hints += '<g class="lu-ghost" aria-hidden="true">' +
+          '<circle cx="' + dest.x.toFixed(1) + '" cy="' + dest.y.toFixed(1) + '" r="' +
+            (tr * 0.92).toFixed(1) + '" fill="' + esc(hx) + '" fill-opacity="0.35" ' +
+            'stroke="#fff" stroke-opacity="0.6" stroke-width="0.5" ' +
+            'stroke-dasharray="1.6 1.2"/></g>' +
+          '<circle class="lu-hint' + (cap ? ' cap' : '') + '" cx="' + dest.x.toFixed(1) +
+            '" cy="' + dest.y.toFixed(1) + '" r="' + (cr + 1.5).toFixed(1) + '"/>';
+      }
     }
   });
   s += hints;
@@ -1493,90 +1642,266 @@ function onBoardTap(e){
 }
 
 /* the shared move gate for a thumb: verify it is the local seat's move,
-   grab the flight path BEFORE the engine advances, apply, then slide the
-   piece to where the engine put it. */
-let sliding = false;
+   apply through the ONE gate, then paint. The theatre subscriber (below)
+   sees the applied move and animates it — same path as a wire move. */
+let sliding = false;                    /* a theatre flight is in the air */
 function tapMove(seat, k, gEl){
   if (sliding) return;                          /* one move at a time */
   if (!isLocal(seat)) return;
-  const st = M.st, lay = layoutFor(st);
-  const pend = E.pending(st);
-  const legal = (pend.moves || []).find(m => m.k === k);
-  const from = st.seats[seat] ? st.seats[seat].toks[k] : undefined;
   const res = doMove(seat, { t:'move', k }, 'local');
   if (!res.ok){ if (gEl) gEl.classList.remove('press'); cue('ui.error', { gain:0.5 }); return; }
-  /* the engine has advanced; animate the piece we just moved along its
-     own path from `from` to `legal.to`, then paint the true board */
-  if (legal && from != null && !reduced() && !stillMode()){
-    slidePiece(seat, k, from, legal.to, lay);
-  } else {
-    render();
-  }
+  render();
 }
 function stillMode(){
   const scr = document.getElementById('scr-party');
   return !!(scr && scr.classList.contains('lu-still'));
 }
 
-/* slide a lifted clone of the moved piece cell-by-cell to its landing,
-   compositor-only (transform), then hand back to a clean render(). This
-   is render-only: the engine state is already final. */
-function slidePiece(seat, k, from, to, lay){
-  const st = M.st;
-  /* the cells the piece visits, in its own path order (skip the yard-exit
-     jump: a token entering from the yard just lands, no ring crawl) */
-  const cells = [];
-  if (from < 0){
-    cells.push(pathPx(st, lay, seat, to));
-  } else {
-    for (let p = from; p <= to; p++) cells.push(pathPx(st, lay, seat, p));
-  }
-  if (cells.length < 2){ render(); return; }
+/* ═══════════════════════════════════════════════════════════════════
+   THE THEATRE — every applied 'move' (thumb, machine, wire: one
+   subscriber, so another phone's turn gets the same show) becomes a
+   cell-by-cell HOP with a pop per landing; a capture is a full scene —
+   the capturer lands ON the victim, taunts with a bounce-and-shake
+   while the victim squashes flat, then the victim is flung home along
+   an arc with a trail; a token reaching HOME bursts gold.
 
-  /* build a lifted token that flies over the static board; the real
-     moved token is hidden underneath until we land */
-  const svg = UI && UI.svg;
-  if (!svg){ render(); return; }
-  const g = geom(lay), tr = g.tok, hx = hexOf(colourFor(st, seat));
-  const gilt = giltSeat(seat);
-  /* hide the source token (still drawn at `from` in the pre-move DOM) and
-     dull the gold hints so only the flying piece reads during the slide */
-  const srcEl = svg.querySelector('.lu-tok[data-tok="' + k + '"][data-seat="' + seat + '"]');
-  if (srcEl) srcEl.style.visibility = 'hidden';
-  svg.querySelectorAll('.lu-hint').forEach(h => { h.style.opacity = '0.18'; });
+   Render-only by construction: the engine has ALREADY advanced when the
+   subscriber fires. The caller's render() paints the true board with
+   the travelling tokens hidden (see paintBoard/pendTh), and the theatre
+   flies clones above it. Any interruption — a fast online move, a
+   re-render, leaving — simply removes the clones and re-renders:
+   snap-forward, never desync. All motion is transform/opacity only.
+   ═══════════════════════════════════════════════════════════════════ */
+let pendTh = null;                      /* set on apply, eaten by runTheatre */
+let TH = null, thSeq = 0;               /* the one live theatre             */
+function theatreWilling(){
+  return !!(UI && UI.svg) && !reduced() && !stillMode();
+}
+function killTheatre(){ if (TH){ try { TH.cancel(); } catch(e){} } pendTh = null; }
+
+moveSubs.push(ev => {
+  if (!M || M.dead || !ev || !ev.move) return;
+  const st = M.st;
+  /* a wire roll still bounces the die on this phone */
+  if (ev.move.t === 'roll' && ev.src === 'net' && !reduced()){
+    M.anim = { kind:'roll' };
+    const m = M;
+    setTimeout(() => { if (M === m && M){ M.anim = null; if (UI) paintDock(); } }, 560);
+    return;
+  }
+  if (ev.move.t !== 'move') return;
+  const last = st.last;
+  if (!last || last.t !== 'move') return;
+  if (!theatreWilling()) return;
+  pendTh = { seat: last.seat, k: last.k, from: last.from, to: last.to, d: last.d,
+             caps: (last.caps || []).map(c => ({ seat: c.seat, tok: c.tok })),
+             why: st.why, idx: ev.index };
+  const m = M;
+  /* one tick later — AFTER the caller's synchronous render() painted the
+     final board (with the travellers hidden). setTimeout, not rAF: a
+     hidden tab must still settle. */
+  setTimeout(() => {
+    if (M !== m || !M || M.dead){ pendTh = null; return; }
+    if (pendTh && pendTh.idx === ev.index) runTheatre();
+  }, 17);
+});
+
+/* the two circles every flying piece is made of */
+function tokenBits(r, hx, gilt){
+  return '<circle cx="0" cy="0" r="' + r.toFixed(1) + '" fill="' +
+      (gilt ? 'url(#lu-gtok)' : esc(hx)) + '" stroke="' +
+      (gilt ? esc(hx) : 'rgba(0,0,0,.55)') + '" stroke-width="0.6"/>' +
+    '<circle cx="' + (-r * 0.28).toFixed(1) + '" cy="' + (-r * 0.32).toFixed(1) +
+      '" r="' + (r * 0.28).toFixed(1) + '" fill="#fff" fill-opacity="0.55"/>';
+}
+
+function runTheatre(){
+  const t = pendTh; pendTh = null;
+  if (!t || !M || M.dead || !UI || !UI.svg || !UI.svg.isConnected){
+    if (M && !M.dead && UI) render();          /* unhide whatever was hidden */
+    return;
+  }
+  if (TH) TH.cancel();
+  const st = M.st, lay = layoutFor(st), g = geom(lay, st.tokens);
+  const svg = UI.svg;
+  const id = ++thSeq;
+  const nodes = [], timers = [];
+  const live = () => TH && TH.id === id && M && !M.dead;
+  const cancel = () => {
+    timers.forEach(clearTimeout);
+    nodes.forEach(n => { try { n.remove(); } catch(e){} });
+    if (TH && TH.id === id) TH = null;
+    sliding = false;
+  };
+  TH = { id, cancel };
+  sliding = true;
+  const later = (ms, fn) => timers.push(setTimeout(fn, ms));
+  const settle = () => { cancel(); if (M && !M.dead && UI) render(); };
+
+  const seat = t.seat, k = t.k;
+  const tr = g.tok, hx = hexOf(colourFor(st, seat)), gilt = giltSeat(seat);
   const NS = 'http://www.w3.org/2000/svg';
+  const mine = isLocal(seat);
+
+  /* the cells this token hops: yard exit is ONE big leap; a ring/column
+     move visits every cell of its own path, exactly as drawn */
+  const cells = [];
+  if (t.from < 0){
+    const y = g.yard[seat];
+    const sl = y.slots[k % y.slots.length];
+    cells.push({ x: sl.x, y: sl.y }, pathPx(st, lay, seat, t.to));
+  } else {
+    for (let p = t.from; p <= t.to; p++) cells.push(pathPx(st, lay, seat, p));
+  }
+  if (cells.length < 2){ settle(); return; }
+  const dest = cells[cells.length - 1];
+
+  /* victims keep standing on the capture square until they are flung */
+  const vics = t.caps.map((c, i) => {
+    const outer = document.createElementNS(NS, 'g');
+    outer.setAttribute('class', 'lu-fly');
+    const inner = document.createElementNS(NS, 'g');
+    inner.innerHTML = tokenBits(tr, hexOf(colourFor(st, c.seat)), giltSeat(c.seat));
+    outer.appendChild(inner);
+    const lx = dest.x + (i ? (i % 2 ? 1 : -1) * tr * 0.5 : 0);
+    const ly = dest.y + (i > 1 ? tr * 0.5 : 0);
+    outer.style.transform = 'translate(' + lx.toFixed(1) + 'px,' + ly.toFixed(1) + 'px)';
+    svg.appendChild(outer); nodes.push(outer);
+    return { el: outer, inner, seat: c.seat, tok: c.tok, x: lx, y: ly };
+  });
+
+  /* the traveller: outer group slides, inner group hops and squashes */
   const fly = document.createElementNS(NS, 'g');
   fly.setAttribute('class', 'lu-fly');
+  const hop = document.createElementNS(NS, 'g');
+  hop.setAttribute('class', 'lu-hopI');
+  hop.innerHTML = tokenBits(tr * 1.06, hx, gilt);
+  fly.appendChild(hop);
   const p0 = cells[0];
-  fly.innerHTML =
-    '<circle cx="' + p0.x.toFixed(1) + '" cy="' + p0.y.toFixed(1) + '" r="' +
-      (tr * 1.15).toFixed(1) + '" fill="' + (gilt ? 'url(#lu-gtok)' : esc(hx)) +
-      '" stroke="' + (gilt ? esc(hx) : '#fff') + '" stroke-width="1.1"/>' +
-    '<circle cx="' + (p0.x - tr * 0.28).toFixed(1) + '" cy="' + (p0.y - tr * 0.32).toFixed(1) +
-      '" r="' + (tr * 0.28).toFixed(1) + '" fill="#fff" fill-opacity="0.55"/>';
-  svg.appendChild(fly);
+  fly.style.transform = 'translate(' + p0.x.toFixed(1) + 'px,' + p0.y.toFixed(1) + 'px)';
+  svg.appendChild(fly); nodes.push(fly);
 
-  sliding = true;
+  const per = Math.max(95, Math.min(170, 760 / (cells.length - 1)));
+  hop.style.setProperty('--luhms', per + 'ms');
+  hop.style.setProperty('--luarc', (-Math.max(4, g.gap * 0.55)).toFixed(1) + 'px');
+  if (t.from < 0) cue('piece.lift', { gain: 0.6 }, true);
+
   let i = 1;
-  const per = Math.max(70, Math.min(150, 620 / (cells.length - 1)));  /* ms per step */
   const step = () => {
-    if (!M || M.dead || !fly.isConnected){ sliding = false; return; }
-    const c = cells[i], b = cells[i - 1];
-    fly.style.transition = 'transform ' + per + 'ms cubic-bezier(.34,.9,.4,1)';
-    fly.style.transform = 'translate(' + (c.x - p0.x).toFixed(1) + 'px,' + (c.y - p0.y).toFixed(1) + 'px)';
-    if (i < cells.length - 1) cue('piece.slide', { gain: 0.35 });
-    i++;
-    if (i < cells.length){ setTimeout(step, per); }
-    else {
-      setTimeout(() => {
-        sliding = false;
-        try { fly.remove(); } catch(e){}
-        if (M && !M.dead) render();
-      }, per + 40);
+    if (!live()) return;
+    /* a re-render wiped the clone (someone acted mid-flight): settle NOW
+       — cancel alone would leave maybeAutoMove un-armed and stall a
+       one-move turn (seen in the AI smoke test, log frozen at 'move'/1) */
+    if (!fly.isConnected){ settle(); return; }
+    const c = cells[i];
+    fly.style.transition = 'transform ' + per + 'ms linear';
+    fly.style.transform = 'translate(' + c.x.toFixed(1) + 'px,' + c.y.toFixed(1) + 'px)';
+    if (i < cells.length - 1){
+      sfxN(1 + Math.min(i, 7), mine ? 0.42 : 0.3);   /* the pop, walking up */
+      i++;
+      later(per, step);
+    } else {
+      later(per + 20, land);
     }
   };
-  /* kick after a frame so the initial transform paints before the first move */
-  requestAnimationFrame(() => requestAnimationFrame(step));
+
+  const land = () => {
+    if (!live()) return;
+    if (!fly.isConnected){ settle(); return; }
+    hop.setAttribute('class', 'lu-landI');
+    if (vics.length){ drama(); return; }
+    if (t.why === 'home' || t.why === 'homeagain' ||
+        t.why === 'finished' || t.why === 'teamfinished'){
+      cue('ui.reward', { gain: 0.9 }, true);
+      burst(svg, dest.x, dest.y, (t.why === 'finished' || t.why === 'teamfinished') ? 14 : 9,
+            g, nodes);
+      later(460, settle);
+      return;
+    }
+    cue('piece.place', { gain: mine ? 0.75 : 0.6 }, true);
+    if (t.why === 'column') cueIn(70, () => cue('ui.note', { gain: 0.5 }));
+    later(210, settle);
+  };
+
+  /* CAPTURE — land on the victim, laugh, squash, fling them home */
+  const drama = () => {
+    cue('piece.capture', { gain: mine ? 0.95 : 0.8 }, true);
+    cueIn(140, () => cue('duel.hit', { gain: 0.8 }));
+    hop.setAttribute('class', 'lu-tauntI');
+    vics.forEach(v => v.inner.setAttribute('class', 'lu-flatI'));
+    cueIn(450, () => cue('ui.untoggle', { gain: 0.6 }));
+    later(760, () => {
+      if (!live()) return;
+      cue('card.throw', { gain: 0.7 }, true);
+      let maxMs = 0;
+      vics.forEach((v, vi) => {
+        const y2 = g.yard[v.seat];
+        const sl = y2.slots[v.tok % y2.slots.length];
+        v.inner.removeAttribute('class');        /* un-squash in the air */
+        maxMs = Math.max(maxMs, flingArc(svg, v.el, v.x, v.y, sl.x, sl.y, g, vi, nodes,
+                                         hexOf(colourFor(st, v.seat))));
+      });
+      cueIn(Math.min(900, maxMs), () => cue('piece.place', { gain: 0.45 }));
+      later(maxMs + 80, settle);
+    });
+  };
+
+  /* let the initial transform commit, then fly */
+  later(30, step);
+}
+
+/* the victim's arc home: a WAAPI keyframe flight with spin and a short
+   fading trail. Falls back to a straight transition without WAAPI. */
+function flingArc(svg, el, x0, y0, x1, y1, g, vi, nodes, hx){
+  const dur = 540 + vi * 70, delay = vi * 60;
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2 - Math.max(8, g.gap * 1.8);
+  const kf = [
+    { transform: 'translate(' + x0.toFixed(1) + 'px,' + y0.toFixed(1) + 'px) rotate(0deg)' },
+    { transform: 'translate(' + mx.toFixed(1) + 'px,' + my.toFixed(1) + 'px) rotate(200deg)' },
+    { transform: 'translate(' + x1.toFixed(1) + 'px,' + y1.toFixed(1) + 'px) rotate(360deg)' }
+  ];
+  if (el.animate){
+    el.animate(kf, { duration: dur, delay, easing: 'cubic-bezier(.35,.5,.45,1)', fill: 'forwards' });
+    /* the trail: two fading ghosts chasing the same arc */
+    const NS = 'http://www.w3.org/2000/svg';
+    for (let tI = 1; tI <= 2; tI++){
+      const gh = document.createElementNS(NS, 'circle');
+      gh.setAttribute('r', (g.tok * (1 - tI * 0.22)).toFixed(1));
+      gh.setAttribute('fill', hx);
+      gh.setAttribute('opacity', String(0.3 - tI * 0.1));
+      gh.setAttribute('class', 'lu-fly');
+      gh.style.transform = 'translate(' + x0.toFixed(1) + 'px,' + y0.toFixed(1) + 'px)';
+      svg.appendChild(gh); nodes.push(gh);
+      gh.animate(kf, { duration: dur, delay: delay + tI * 55,
+                       easing: 'cubic-bezier(.35,.5,.45,1)', fill: 'forwards' });
+    }
+  } else {
+    el.style.transition = 'transform ' + dur + 'ms cubic-bezier(.35,.5,.45,1) ' + delay + 'ms';
+    el.style.transform = 'translate(' + x1.toFixed(1) + 'px,' + y1.toFixed(1) + 'px)';
+  }
+  return dur + delay;
+}
+
+/* the HOME burst: gold sparks thrown outward, gone in half a second */
+function burst(svg, x, y, n, g, nodes){
+  if (!document.body || !Element.prototype.animate) return;
+  const NS = 'http://www.w3.org/2000/svg';
+  for (let i = 0; i < n; i++){
+    const c = document.createElementNS(NS, 'circle');
+    const r = Math.max(0.9, g.cell * 0.3);
+    c.setAttribute('r', (r * (0.7 + (i % 3) * 0.25)).toFixed(1));
+    c.setAttribute('fill', i % 3 === 2 ? '#FFFFFF' : '#FFD979');
+    c.setAttribute('class', 'lu-fly');
+    c.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+    svg.appendChild(c); nodes.push(c);
+    const a = (i / n) * 2 * Math.PI + (i % 2) * 0.35;
+    const d = g.gap * (1.5 + (i % 4) * 0.35);
+    c.animate([
+      { transform: 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px) scale(1)', opacity: 1 },
+      { transform: 'translate(' + (x + Math.cos(a) * d).toFixed(1) + 'px,' +
+                   (y + Math.sin(a) * d).toFixed(1) + 'px) scale(.4)', opacity: 0 }
+    ], { duration: 480 + (i % 3) * 60, easing: 'cubic-bezier(.2,.6,.4,1)', fill: 'forwards' });
+  }
 }
 
 function paintDock(){
@@ -1586,7 +1911,9 @@ function paintDock(){
   const mine = !E.over(st) && isLocal(turn);
   const dieN = st.die || (st.last && st.last.t === 'roll' ? st.last.d : 0);
   const rolling = !!(M.anim && M.anim.kind === 'roll');
-  let dock = '<div class="lu-die' + (rolling ? ' rolling' : '') +
+  /* a live six glows gold and swells — the roll everyone waits for */
+  const six = dieN === 6 && !E.over(st);
+  let dock = '<div class="lu-die' + (rolling ? ' rolling' : '') + (six ? ' six' : '') +
     (xEq('dice') ? ' lu-die-x' : '') + '" id="lu-die" aria-hidden="true">' +
     dieFace(dieN || 0) + '</div>';
   if (E.over(st)){
@@ -1681,6 +2008,11 @@ function maybeThink(){
      nobody else. mp.js relays what the host applies. */
   if (ownerOf(seat) !== 'ai') return;
   if (M.net && M.net.seat !== M.net.host) return;   /* only the host thinks for bots */
+  /* let a running theatre finish its scene before the machine moves on */
+  if (sliding || pendTh){
+    M.timer = setTimeout(() => { M.timer = 0; maybeThink(); }, 280);
+    return;
+  }
   const delay = reduced() ? 60 : 460;
   M.timer = setTimeout(() => {
     M.timer = 0;
@@ -1845,6 +2177,7 @@ function finish(){
 
 function leave(){
   stopThinking();
+  killTheatre();
   if (UI && UI._ro){ try { UI._ro.disconnect(); } catch(e){} }
   if (UI && UI._onResize){ try { window.removeEventListener('resize', UI._onResize); } catch(e){} }
   if (M){
@@ -1861,10 +2194,15 @@ function leave(){
    they get their own lines.
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
+  /* the big tables play fewer tokens (the engine decides) — the rules
+     card must say the number the board actually has */
+  const tk = (M && M.st && M.st.tokens) || 4;
+  const EN = { 2:'two', 3:'three', 4:'four' }[tk] || String(tk);
+  const MT = { 2:'żewġ', 3:'tliet', 4:'erba’' }[tk] || String(tk);
   return [
-    T('Every player has four tokens parked in a yard. A token only leaves the yard on a ' +
+    T('Every player has ' + EN + ' tokens parked in a yard. A token only leaves the yard on a ' +
       '<b>six</b>.',
-      'Kull plejer għandu erba’ biċċiet fil-bitħa. Biċċa toħroġ biss b’<b>sitta</b>.'),
+      'Kull plejer għandu ' + MT + ' biċċiet fil-bitħa. Biċċa toħroġ biss b’<b>sitta</b>.'),
     T('Once out, a token runs the whole ring, turns into its own home column, and must roll ' +
       'the <b>exact</b> number to step home — an overshoot does not move.',
       'Ladarba barra, il-biċċa ddur mad-dawra kollha, tidħol fil-kolonna tad-dar tagħha, u ' +
@@ -1882,8 +2220,8 @@ function rulesFor(){
       'jew jaqbeż.'),
     T('A <b>six rolls again</b>. Three sixes in one turn and the turn is <b>lost</b>.',
       '<b>Sitta terġa’ titfa’</b>. Tliet sittiet f’dawra waħda u <b>titlef</b> id-dawra.'),
-    T('First player to get <b>all four tokens home</b> wins.',
-      'L-ewwel plejer li jġib <b>l-erba’ biċċiet kollha d-dar</b> jirbaħ.')
+    T('First player to get <b>all their tokens home</b> wins.',
+      'L-ewwel plejer li jġib <b>il-biċċiet kollha tiegħu d-dar</b> jirbaħ.')
   ];
 }
 function paintRules(){
@@ -1910,52 +2248,24 @@ function setRules(open){
    ═══════════════════════════════════════════════════════════════════ */
 const SIZES = (E.SIZES && E.SIZES.length) ? E.SIZES : [4, 6, 8];
 
-/* the board badge for the setup sheet — the AUTHENTIC layout in
-   miniature (a cross at 4, a hexagon at 6, an octagon at 8), so the
-   preview is the real board the player is about to get. Colours use
+/* the board badge for the setup sheet — the REAL board in miniature,
+   drawn by the very same body functions the game uses, so the preview
+   can never lie about the board the player is about to get. Colours use
    the default seat order (no live state on the setup sheet). */
 function heroSVG(n){
   const lay = E.layout(n, E.HOME_LEN, 'stars');
-  const g = geom(lay);
-  const cr = g.cell, hs = cr * 0.94;
-  const hx = k => hexOf((COLOURS[k % COLOURS.length] || {}).id);
-  let s = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" xmlns="http://www.w3.org/2000/svg" ' +
-    'aria-hidden="true">' +
-    '<defs><radialGradient id="lu-herog" cx="50%" cy="35%" r="72%">' +
-    '<stop offset="0" stop-color="#3A2A66"/><stop offset="100%" stop-color="#171029"/>' +
-    '</radialGradient></defs>' +
-    '<circle cx="' + C + '" cy="' + C + '" r="' + (RAD + 6) + '" fill="url(#lu-herog)" ' +
-    'stroke="rgba(0,0,0,.5)" stroke-width="0.6"/>';
-  /* yards */
-  g.yard.forEach((y, k) => {
-    s += '<path d="' + sqCell(y.cx, y.cy, y.size / 2, y.theta) + '" fill="' + esc(hx(k)) +
-      '" fill-opacity="0.55" stroke="' + esc(hx(k)) + '" stroke-width="1.1"/>';
-  });
-  /* home columns */
-  g.col.forEach((cells, k) => cells.forEach(cc => {
-    s += '<path d="' + sqCell(cc.x, cc.y, hs, g.arm[k].theta) + '" fill="' + esc(hx(k)) +
-      '" fill-opacity="0.5"/>';
-  }));
-  /* centre finish */
-  const fr = g.finishR * 1.9;
-  for (let k = 0; k < g.P; k++){
-    const a0 = g.arm[k].theta - Math.PI / 2 - Math.PI / g.P;
-    const a1 = g.arm[k].theta - Math.PI / 2 + Math.PI / g.P;
-    s += '<path d="M' + C + ' ' + C + 'L' + (C + fr * Math.cos(a0)).toFixed(1) + ' ' +
-      (C + fr * Math.sin(a0)).toFixed(1) + 'L' + (C + fr * Math.cos(a1)).toFixed(1) + ' ' +
-      (C + fr * Math.sin(a1)).toFixed(1) + 'Z" fill="' + esc(hx(k)) + '" fill-opacity="0.8"/>';
-  }
-  /* ring */
-  lay.ring.forEach((rc, i) => {
-    const p = g.ring[i];
-    const th = g.arm[(rc.role === 'in' ? (rc.sector + 1) % g.P : rc.sector)].theta;
-    const fill = rc.entryOf != null ? esc(hx(rc.entryOf)) : 'rgba(255,255,255,.16)';
-    const op = rc.entryOf != null ? '0.75' : (rc.safe ? '0.5' : '0.32');
-    s += '<path d="' + sqCell(p.x, p.y, hs, th) + '" fill="' + fill + '" fill-opacity="' + op + '"/>';
-    if (rc.safe && rc.entryOf == null)
-      s += '<path d="' + starPath(p.x, p.y, cr * 0.55) + '" fill="rgba(255,255,255,.6)"/>';
-  });
-  return s + '</svg>';
+  const T = tokensForUI(n);
+  const g = geom(lay, T);
+  const fake = {
+    n, tokens: T,
+    seats: Array.from({ length: n }, (_, k) => ({
+      colour: (COLOURS[k % COLOURS.length] || {}).id
+    }))
+  };
+  return '<svg viewBox="0 0 ' + VB + ' ' + VB + '" xmlns="http://www.w3.org/2000/svg" ' +
+    'aria-hidden="true">' + defsFor(fake) +
+    (g.grid ? boardBodyGrid(fake, lay, g, g.cell * 0.94) : boardBodyStar(fake, lay, g)) +
+    '</svg>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2423,10 +2733,12 @@ const LOBBY = {
     return { ok:true, why:'' };
   },
   rulesHTML: () =>
-    '<p>' + T('Four tokens each, one lap of the board, and captures that send a token all the ' +
-      'way home. Only a six gets you out; you need the exact number to finish.',
-      'Erba’ biċċiet kull wieħed, dawra waħda tat-tabellun, u qabdiet li jibagħtu biċċa lura ' +
-      'kollox. Sitta biss toħroġ; trid in-numru eżatt biex tispiċċa.') + '</p>' +
+    '<p>' + T('A pocketful of tokens each (fewer at the biggest tables), one lap of the ' +
+      'board, and captures that send a token all the way home. Only a six gets you out; you ' +
+      'need the exact number to finish.',
+      'Ftit biċċiet kull wieħed (inqas fuq l-ikbar imwejjed), dawra waħda tat-tabellun, u ' +
+      'qabdiet li jibagħtu biċċa lura kollox. Sitta biss toħroġ; trid in-numru eżatt biex ' +
+      'tispiċċa.') + '</p>' +
     '<p>' + T('Four, six or eight round one board — the arms multiply but the lap stays short.',
       'Erbgħa, sitta jew tmienja madwar tabellun wieħed — id-dirgħajn jiżdiedu imma d-dawra ' +
       'tibqa’ qasira.') + '</p>' +

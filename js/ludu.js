@@ -223,10 +223,37 @@ const SIZES = [4, 6, 8];              /* the sizes the UI offers       */
 const HOME_LEN = 6;                   /* steps from last ring square into HOME */
 const TOKENS = 4;
 
-/* rail length. floor(26/P) reproduces the classic 52-square ring at
-   P=4 and keeps the lap near 52 as arms are added. Floored at 2 so a
-   two-player board still has a rail. */
-const railOf  = P => Math.max(2, Math.floor(26 / P));
+/* TOKENS PER PLAYER, BY TABLE SIZE — the lever this file has recommended
+   in writing since it was written ("the lever for a shorter, livelier
+   8-player table is FEWER TOKENS ... the UI should offer that"), now the
+   default rather than a note nobody read.
+   It exists because the two knobs pull against each other. A crowded
+   board wants the FULL 13-square sector (a nine-square one made a lap
+   come round far too fast — see railOf), and that longer ring plus four
+   tokens each is more than maxTurns can finish: MEASURED over seven
+   seeds at level 2, six seats with four tokens hit the 4000-turn ceiling
+   7/7 and would have been decided on points instead of won. Trimming the
+   yard fixes it outright — six seats with three tokens finishes in ~2122
+   turns and never caps; eight seats with two in ~1472, also never.
+   Two to four are untouched at the classic four.
+   An explicit opts.tokens still wins, so a table that WANTS the marathon
+   can still ask for it. Pure function of the seat count, so every phone
+   in a room deals the identical yard with nothing on the wire. */
+const tokensFor = n => (n <= 4) ? 4 : (n <= 6) ? 3 : 2;
+
+/* RAIL LENGTH — how long each player's stretch of the ring is.
+   floor(26/P) reproduces the classic 52-square ring at P=4, but on its
+   own it holds the WHOLE ring near 52 by shrinking every sector as arms
+   are added: six seats got a 9-square sector and eight got 7, against
+   the classic 13. That is what "you cut some blocks" means — a lap came
+   round far too fast and entries sat almost on top of each other.
+   A real six- or eight-handed board does the opposite: it keeps the
+   13-square sector and GROWS the ring. So: never shorter than the
+   classic rail of 6.
+       P=2 → 13 (ring 54)   P=3 → 8 (51)   P=4 → 6 (52, the classic)
+       P=5 → 6  (65)        P=6 → 6 (78)   P=8 → 6 (104)
+   Two, three and four are untouched — only the crowded boards grow. */
+const railOf  = P => Math.max(6, Math.floor(26 / P));
 const armOf   = P => 2 * railOf(P) + 1;
 const ringOfP = P => P * armOf(P);
 
@@ -670,7 +697,7 @@ const t = id => TEXT[id] || null;
 function deal(opts, seed){
   opts = opts || {};
   const n = Math.max(MIN_SEATS, Math.min(MAX_SEATS, opts.seats | 0 || 4));
-  const tokens = Math.max(1, Math.min(8, opts.tokens | 0 || TOKENS));
+  const tokens = Math.max(1, Math.min(8, opts.tokens | 0 || tokensFor(n)));
   const homeLen = Math.max(2, Math.min(12, opts.homeLen | 0 || HOME_LEN));
   const rules = rulesOf(opts.rules);
   const dice = (opts.dice === 'given' || opts.dice === 'fair') ? 'given' : 'seed';

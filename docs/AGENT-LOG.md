@@ -7,6 +7,27 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-08-26 — LUDU: a long animation gate starved the one-tap mover
+Giving every seat's move a hop animation (ludu-ui theatre) made the
+`sliding` flag long-lived, and the AI game froze at a HUMAN turn with one
+legal move — intermittently, at a different move each run, no errors.
+Two pre-existing assumptions broke, found only by dumping state at the
+stall (turn/phase/timer/auto), not by reading code:
+→ (1) `maybeAutoMove`'s delayed tap bailed when `sliding` was true but
+left its `M._auto` stamp, so the same state never re-armed. Clear the
+stamp when you swallow the shot.
+→ (2) any render mid-flight (a player rolling during another's
+animation) rebuilds the SVG and disconnects the flying clone; the
+theatre then cancelled WITHOUT rendering — and since nothing re-ran
+render, nothing ever re-armed the auto-mover. An orphaned animation must
+SETTLE (cancel + render), never just cancel.
+→ Rule of thumb: if an animation flag gates any deferred scheduler, the
+animation's every exit path must end in the render that re-arms it.
+Also found while here: the capture sound almost never fired — after a
+capture that grants another roll the engine's `st.why` is
+'captureagain', not 'capture', and the sound subscriber matched only the
+latter. Match both (same for 'home' vs 'homeagain').
+
 **A TEST RELAY DELETED EVERY REAL PLAYER'S PHOTOGRAPH.** Four accounts lost
 their faces on 23 Aug and it read exactly like a display bug — three display
 fixes were shipped for it.
