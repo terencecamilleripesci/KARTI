@@ -838,10 +838,9 @@ function draw(){
     g.fillStyle = gl; g.fillRect(0, 0, w, h);
   }
 
-  /* ── the far skyline: a parallax silhouette that reads as a place,
-        drawn behind the castles at a fraction of the pan. Pure canvas,
-        no image. ── */
-  drawSkyline(g, th, v);
+  /* NO far skyline any more — the raft game is open water and nothing else,
+     so the old parallax hills + landmark building are gone. Just sky + sea. */
+  /* drawSkyline(g, th, v); */
 
   /* ── the moat: a lit surface line and a darkening depth ── */
   const wyTop = sy(v.waterY);
@@ -921,10 +920,9 @@ function draw(){
     }
   }
 
-  /* ── a little pennant on each castle tower top, so the two sides
-        read instantly and it feels like a keep, not a bar chart ── */
-  drawBanner(g, 0, cell);
-  drawBanner(g, 1, cell);
+  /* NO tower pennants — there are no towers now. The seat colours read off
+     the soldiers themselves. */
+  /* drawBanner(g, 0, cell); drawBanner(g, 1, cell); */
 
   /* ── the crew ── */
   for (const sd of v.sides){
