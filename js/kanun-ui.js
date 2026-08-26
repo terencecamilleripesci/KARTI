@@ -2153,7 +2153,11 @@ function placeNext(needCurtain){
 
 function placeSeat(seat){
   const P0 = M.place;
-  P0.seat = seat; P0.step = 0; P0.back = 0; P0.crew = []; P0.drag = null;
+  /* the three boxes are ON THE WATER from the start, spread across your
+     half — you drag each one to where you want it. No 'how far back' step
+     any more: dragging gives you the whole map directly. */
+  P0.seat = seat; P0.step = 1; P0.back = 0;
+  P0.crew = E.defaultCrewX(seat, 0); P0.drag = null;
   /* the screen becomes THIS player's: the fog turns around with it, so
      what the other one just laid out is behind the murk. */
   M.viewSeat = seat;
@@ -2205,9 +2209,9 @@ function placeAdvance(){
 
 function placeUndo(){
   const P0 = M.place;
-  if (P0.step === 1 && P0.crew.length){ P0.crew.pop(); placeRebuild(); renderSetup(); draw(); return; }
-  if (P0.step === 1){ P0.step = 0; placeRebuild(); renderSetup(); draw(); return; }
-  P0.back = 0; placeRebuild(); renderSetup(); draw();
+  /* 'Reset' — spread the three back out to their default spots */
+  P0.crew = E.defaultCrewX(P0.seat, 0);
+  placeRebuild(); renderSetup(); draw();
 }
 
 /* ── the finger ────────────────────────────────────────────────────── */
@@ -2217,33 +2221,46 @@ function placeDown(px, py){
     P0.drag = { back0:P0.back, wx0:wx(px) };
     return;
   }
-  const col = Math.floor(wx(px));
-  const chk = placeCheckCrew(P0.seat, col);
-  if (!chk.ok){
-    tip('<b>' + esc(TP(chk.why)) + '</b>', 1500);
-    cue('move.illegal', { gain:0.5 });
-    return;
+  /* pick up the box nearest the finger and drag it one by one */
+  const fx = wx(px);
+  let idx = 0, bd = Infinity;
+  for (let k = 0; k < P0.crew.length; k++){
+    const d = Math.abs(P0.crew[k] - fx);
+    if (d < bd){ bd = d; idx = k; }
   }
-  if (P0.crew.length >= E.CH_PER_SIDE){
-    tip('<b>' + esc(T('All three are down. Undo to move one.', 'It-tlieta mniżżla. Erġa’ lura biex tmexxi wieħed.')) + '</b>', 1500);
-    cue('move.illegal', { gain:0.5 });
-    return;
-  }
-  P0.crew.push(col);
-  placeRebuild();
-  cue('move.select', { gain:0.5 });
-  renderSetup(); draw();
+  P0.drag = { idx };
+  cue('move.select', { gain:0.4 });
 }
 function placeMove(px){
   const P0 = M.place;
-  if (P0.step !== 0 || !P0.drag) return;
-  /* the keep slides AWAY from the moat: for seat 0 the moat is to the
-     right, so dragging left pushes it back; seat 1 mirrors. */
-  const dir = P0.seat === 0 ? -1 : 1;
-  const moved = (wx(px) - P0.drag.wx0) * dir;
-  const back = clampN(Math.round(P0.drag.back0 + moved), E.PLACE.BACK_MIN, E.PLACE.BACK_MAX);
-  if (back === P0.back) return;
-  P0.back = back;
+  if (!P0.drag) return;
+  if (P0.step === 0){
+    /* (legacy back-slider, not reached in the drag model) */
+    const dir = P0.seat === 0 ? -1 : 1;
+    const moved = (wx(px) - P0.drag.wx0) * dir;
+    const back = clampN(Math.round(P0.drag.back0 + moved), E.PLACE.BACK_MIN, E.PLACE.BACK_MAX);
+    if (back === P0.back) return;
+    P0.back = back; placeRebuild(); cue('piece.slide', { gain:0.25 }); renderSetup(); draw();
+    return;
+  }
+  /* slide THE PICKED box to the finger, kept in the water and a clear GAP
+     from the other two so they never merge. */
+  const idx = P0.drag.idx;
+  if (idx == null || idx < 0 || idx >= P0.crew.length) return;
+  const z = E.crewZone(P0.seat, P0.back);
+  const GAP = E.PLACE.GAP;
+  let col = clampN(Math.round(wx(px)), z.x0, z.x1);
+  for (let k = 0; k < P0.crew.length; k++){
+    if (k === idx) continue;
+    const o = P0.crew[k];
+    if (Math.abs(col - o) < GAP) col = (col >= o) ? (o + GAP) : (o - GAP);
+  }
+  col = clampN(col, z.x0, z.x1);
+  let clear = true;
+  for (let k = 0; k < P0.crew.length; k++)
+    if (k !== idx && Math.abs(col - P0.crew[k]) < GAP) clear = false;
+  if (!clear || col === P0.crew[idx]) return;
+  P0.crew[idx] = col;
   placeRebuild();
   cue('piece.slide', { gain:0.25 });
   renderSetup(); draw();
@@ -2264,16 +2281,16 @@ function renderSetup(){
            '<em>' + T('Out ', 'Barra ') + P0.back + '/' + E.PLACE.BACK_MAX + '</em>';
     go = T('Now the boxes', 'Issa l-kaxxi'); canGo = true;
   } else {
-    title = who + T('Drop your three boxes', 'Itfa’ t-tliet kaxxi tiegħek');
-    hint = T('Tap the water in your half for each box — a soldier rides each one. ',
-             'Agħfas fuq il-baħar fin-naħa tiegħek għal kull kaxxa — suldat fuq kull waħda. ') +
-           '<em>' + P0.crew.length + '/' + E.CH_PER_SIDE + '</em>';
+    title = who + T('Drag your boxes into place', 'Iġbed il-kaxxi f’posthom');
+    hint = T('Drag each box along the water, one by one — a soldier rides each one. ',
+             'Iġbed kull kaxxa tul l-ilma, waħda waħda — suldat fuq kull waħda. ') +
+           '<em>' + T('all set', 'lesti') + '</em>';
     go = T('Ready — begin', 'Lest — ibda'); canGo = P0.crew.length >= E.CH_PER_SIDE;
   }
   UI.setup.innerHTML =
     '<div class="kn-setup-t"><b>' + esc(title) + '</b><i>' + hint + '</i></div>' +
     '<div class="kn-setup-a">' +
-      '<button class="btn ghost sm" id="kn-setup-undo">' + esc(T('Undo', 'Lura')) + '</button>' +
+      '<button class="btn ghost sm" id="kn-setup-undo">' + esc(T('Reset', 'Irrisettja')) + '</button>' +
       '<button class="btn primary sm" id="kn-setup-go"' + (canGo ? '' : ' disabled') + '>' +
         esc(go) + '</button>' +
     '</div>';
