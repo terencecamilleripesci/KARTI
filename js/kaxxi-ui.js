@@ -416,8 +416,15 @@ function buildBoard(){
   }, true);
 
   UI.canv.addEventListener('pointermove', onPointerMove);
-  UI.canv.addEventListener('pointerleave', () => { if (M){ M.hover = null; drawStatic(); } });
+  UI.canv.addEventListener('pointerleave', () => {
+    /* a drag that wanders off the board is simply abandoned */
+    if (M){ M.hover = null; M.dotHover = null; M.link = null; drawStatic(); }
+  });
   UI.canv.addEventListener('pointerdown', onPointerDown);
+  UI.canv.addEventListener('pointerup', onPointerUp);
+  UI.canv.addEventListener('pointercancel', () => {
+    if (M){ M.link = null; M.hover = null; M.dotHover = null; drawStatic(); }
+  });
   UI.canv.addEventListener('keydown', onKeyDown);
   UI.canv.tabIndex = 0;
 
@@ -498,17 +505,102 @@ function edgeAt(clientX, clientY){
 }
 function sameEdge(a, b){ return a && b && a.dir === b.dir && a.r === b.r && a.c === b.c; }
 
+/* ── DOT TO DOT ───────────────────────────────────────────────────────
+   You draw a line the way you would on paper: press ON A DOT, drag to the
+   NEXT DOT, let go — not a tap somewhere near an edge. Two helpers are all
+   that takes: find the dot under the finger, and turn a pair of neighbouring
+   dots into the edge between them.
+
+   Dot (dr,dc) spans dr in 0..boxRows, dc in 0..boxCols. An edge is
+     dir 0 (horizontal) = dot(r,c) — dot(r,c+1)
+     dir 1 (vertical)   = dot(r,c) — dot(r+1,c)
+   so two dots are neighbours exactly when they differ by one step on one
+   axis and by nothing on the other. */
+function dotAt(clientX, clientY){
+  if (!UI || !UI.geom || !M) return null;
+  const rect = UI.canv.getBoundingClientRect();
+  const g = UI.geom, st = M.st;
+  const x = clientX - rect.left, y = clientY - rect.top;
+  /* a generous grab radius — a finger is fat and a dot is small */
+  const R = Math.max(20, g.cell * 0.55);
+  let best = null, bestD = R * R;
+  for (let dr = 0; dr <= st.boxRows; dr++){
+    for (let dc = 0; dc <= st.boxCols; dc++){
+      const p = dotXY(g, dr, dc);
+      const dx = x - p.x, dy = y - p.y, d = dx * dx + dy * dy;
+      if (d < bestD){ bestD = d; best = { r:dr, c:dc }; }
+    }
+  }
+  return best;
+}
+/* the edge joining two dots, or null if they are not neighbours */
+function edgeBetween(a, b){
+  if (!a || !b) return null;
+  const dr = b.r - a.r, dc = b.c - a.c;
+  if (dr === 0 && Math.abs(dc) === 1) return { dir:0, r:a.r, c:Math.min(a.c, b.c) };
+  if (dc === 0 && Math.abs(dr) === 1) return { dir:1, r:Math.min(a.r, b.r), c:a.c };
+  return null;
+}
+/* client point -> canvas point, for the rubber band while dragging */
+function canvasXY(clientX, clientY){
+  const rect = UI.canv.getBoundingClientRect();
+  return { x: clientX - rect.left, y: clientY - rect.top };
+}
+
 function onPointerMove(e){
   if (!M || M.dead || E.over(M.st) || M.anim) return;
   const seat = E.turn(M.st);
   if (!isLocal(seat)) return;
-  const ed = edgeAt(e.clientX, e.clientY);
-  if (!sameEdge(ed, M.hover)){ M.hover = ed; drawStatic(); }
+  if (M.link){
+    /* DRAGGING from a dot: the line follows the finger, and the edge is
+       previewed only once the finger is over a NEIGHBOURING dot. */
+    M.link.at = canvasXY(e.clientX, e.clientY);
+    const to = dotAt(e.clientX, e.clientY);
+    const ed = (to && !(to.r === M.link.from.r && to.c === M.link.from.c))
+             ? edgeBetween(M.link.from, to) : null;
+    const ok = ed && E.edgeValid(M.st, ed.dir, ed.r, ed.c);
+    M.link.to = ok ? to : null;
+    const nh = ok ? ed : null;
+    if (!sameEdge(nh, M.hover)) M.hover = nh;
+    drawStatic();
+    return;
+  }
+  /* not dragging: light up the dot the finger/mouse is over, so it is
+     obvious that a DOT is the thing you grab */
+  const d = dotAt(e.clientX, e.clientY);
+  const same = (d && M.dotHover && d.r === M.dotHover.r && d.c === M.dotHover.c) || (!d && !M.dotHover);
+  if (!same){ M.dotHover = d; M.hover = null; drawStatic(); }
 }
 function onPointerDown(e){
+  if (!M || M.dead || E.over(M.st) || M.anim) return;
+  const seat = E.turn(M.st);
+  if (!isLocal(seat)) return;
+  /* a line STARTS ON A DOT. Pressing anywhere else does nothing — this is
+     dot-to-dot, not tap-an-edge. */
+  const from = dotAt(e.clientX, e.clientY);
+  if (!from) return;
+  M.link = { from, to:null, at: canvasXY(e.clientX, e.clientY) };
+  M.hover = null; M.dotHover = from;
+  try { UI.canv.setPointerCapture(e.pointerId); } catch(_){}
+  cue('move.select', { gain:0.35 });
+  drawStatic();
+}
+function onPointerUp(e){
   if (!M || M.dead) return;
-  const ed = edgeAt(e.clientX, e.clientY);
-  if (!ed) return;
+  const link = M.link;
+  M.link = null;
+  if (!link){ return; }
+  const to = dotAt(e.clientX, e.clientY);
+  const ed = (to && !(to.r === link.from.r && to.c === link.from.c))
+           ? edgeBetween(link.from, to) : null;
+  M.hover = null; M.dotHover = null;
+  if (!ed){
+    /* let go on nothing, on the same dot, or on a dot that is not a
+       neighbour — no line, no penalty, just put the rubber band away. */
+    drawStatic();
+    return;
+  }
+  drawStatic();
   tryDraw(ed);
 }
 function onKeyDown(e){
@@ -540,7 +632,7 @@ function tryDraw(ed){
 function commitEdge(seat, ed, src){
   const st = M.st;
   if (!E.edgeValid(st, ed.dir, ed.r, ed.c)) return;
-  M.hover = null; M.press = null;
+  M.hover = null; M.press = null; M.link = null; M.dotHover = null;
 
   /* peek at what this edge will capture, for the animation, WITHOUT
      mutating engine state (we recompute after the real apply too) */
@@ -738,6 +830,35 @@ function drawStatic(){
     cx.restore();
   }
 
+  /* THE RUBBER BAND: while a finger is dragging from a dot, draw the line it
+     is pulling. It snaps to the target dot once the finger is over a legal
+     neighbour (so the move reads as committed before you let go) and stays a
+     loose dashed tether otherwise. Draw-only. */
+  if (myTurn && M.link){
+    const a = dotXY(g, M.link.from.r, M.link.from.c);
+    const snapped = !!M.link.to;
+    const b = snapped ? dotXY(g, M.link.to.r, M.link.to.c)
+                      : (M.link.at || { x:a.x, y:a.y });
+    cx.save();
+    cx.lineCap = 'round';
+    cx.strokeStyle = seatColour(E.turn(st)).hex;
+    if (snapped){
+      cx.lineWidth = Math.max(3, g.cell * 0.13);
+      cx.globalAlpha = 0.95;
+    } else {
+      cx.lineWidth = Math.max(2, g.cell * 0.08);
+      cx.globalAlpha = 0.5;
+      if (!reduced()) cx.setLineDash([Math.max(3, g.cell * 0.12), Math.max(4, g.cell * 0.16)]);
+    }
+    cx.beginPath(); cx.moveTo(a.x, a.y); cx.lineTo(b.x, b.y); cx.stroke();
+    cx.setLineDash([]);
+    /* the dot you started from, ringed so the origin is never in doubt */
+    cx.globalAlpha = 1;
+    cx.lineWidth = Math.max(2, g.cell * 0.07);
+    cx.beginPath(); cx.arc(a.x, a.y, g.dot * 2.1, 0, 6.2832); cx.stroke();
+    cx.restore();
+  }
+
   /* drawn edges */
   cx.lineCap = 'round';
   cx.lineWidth = Math.max(2.5, g.cell * 0.10);
@@ -747,12 +868,25 @@ function drawStatic(){
   for (let r = 0; r < st.boxRows; r++) for (let c = 0; c <= st.boxCols; c++)
     if (st.V[E.vIdx(st, r, c)] === 1) drawEdge(cx, g, 1, r, c, last);
 
-  /* the dot lattice, on top */
+  /* the dot lattice, on top. The dot under the finger swells a little, and
+     the two ends of a live drag swell more — the grab points have to read as
+     grabbable, because they are what you actually aim at now. */
+  const lit = M.link ? M.link.from : M.dotHover;
+  const litTo = M.link ? M.link.to : null;
   for (let dr = 0; dr <= st.boxRows; dr++){
     for (let dc = 0; dc <= st.boxCols; dc++){
       const d = dotXY(g, dr, dc);
+      const isFrom = lit && lit.r === dr && lit.c === dc;
+      const isTo = litTo && litTo.r === dr && litTo.c === dc;
+      const grow = (isFrom || isTo) ? (M.link ? 1.75 : 1.4) : 1;
+      if (myTurn && (isFrom || isTo)){
+        cx.fillStyle = seatColour(E.turn(st)).hex;
+        cx.globalAlpha = 0.28;
+        cx.beginPath(); cx.arc(d.x, d.y, g.dot * 3.1, 0, Math.PI * 2); cx.fill();
+        cx.globalAlpha = 1;
+      }
       cx.fillStyle = 'rgba(255,255,255,.85)';
-      cx.beginPath(); cx.arc(d.x, d.y, g.dot, 0, Math.PI * 2); cx.fill();
+      cx.beginPath(); cx.arc(d.x, d.y, g.dot * grow, 0, Math.PI * 2); cx.fill();
       cx.fillStyle = 'rgba(0,0,0,.25)';
       cx.beginPath(); cx.arc(d.x, d.y + g.dot * 0.35, g.dot * 0.5, 0, Math.PI * 2); cx.fill();
     }
@@ -1044,8 +1178,10 @@ function leave(){
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
   return [
-    T('On your turn, draw <b>one line</b> between two neighbouring dots — up-and-down or side-to-side.',
-      'Meta jmiss lilek, iġbed <b>linja waħda</b> bejn żewġ puntini ġirien — ’il fuq u ’l isfel jew mal-ġenb.'),
+    T('On your turn, draw <b>one line</b> between two neighbouring dots — up-and-down or side-to-side. ' +
+      '<b>Press a dot and drag to the next dot</b>, then let go, exactly as you would on paper.',
+      'Meta jmiss lilek, iġbed <b>linja waħda</b> bejn żewġ puntini ġirien — ’il fuq u ’l isfel jew mal-ġenb. ' +
+      '<b>Agħfas fuq puntin u iġbed sal-puntin li jmiss</b>, imbagħad itilqu, bħal fuq il-karta.'),
     T('Close the <b>fourth side of a box</b> and you <b>win that box</b> — and you <b>go again</b>. ' +
       'One line can close two boxes at once.',
       'Agħlaq ir-<b>raba’ ġenb ta’ kaxxa</b> u <b>tirbaħ dik il-kaxxa</b> — u <b>terġa’ tilgħab</b>. ' +
