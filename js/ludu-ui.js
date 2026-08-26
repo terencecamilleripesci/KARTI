@@ -158,7 +158,18 @@ function reduced(){
     return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   } catch(e){ return false; }
 }
-/* one pentatonic step off sfx.js's instrument — the hop's pop */
+/* THE HOP SOUND. Each cell a token clears makes an actual little HOP —
+   dama.jump is the checkers "spring" sound, the closest thing in the kit
+   to a bounce. A tiny rate lift as the run goes on keeps a long march
+   from sounding robotic without turning it into a musical scale (the old
+   pentatonic note read as a xylophone, not hopping). */
+function sfxHop(i, gain){
+  const S = window.KARTI_SFX;
+  if (!S || !S.play) return;
+  try { S.play('dama.jump', { force: true, gain: gain || 0.4,
+                              rate: 0.94 + Math.min(i, 8) * 0.02 }); } catch(e){}
+}
+/* one pentatonic step off sfx.js's instrument — kept for the die flourish */
 function sfxN(step, gain){
   const S = window.KARTI_SFX;
   if (!S || !S.note) return;
@@ -1797,7 +1808,7 @@ function runTheatre(){
     fly.style.transition = 'transform ' + per + 'ms linear';
     fly.style.transform = 'translate(' + c.x.toFixed(1) + 'px,' + c.y.toFixed(1) + 'px)';
     if (i < cells.length - 1){
-      sfxN(1 + Math.min(i, 7), mine ? 0.42 : 0.3);   /* the pop, walking up */
+      sfxHop(i, mine ? 0.44 : 0.3);                  /* an actual hop per cell */
       i++;
       later(per, step);
     } else {

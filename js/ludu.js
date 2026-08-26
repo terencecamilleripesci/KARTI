@@ -223,23 +223,22 @@ const SIZES = [4, 6, 8];              /* the sizes the UI offers       */
 const HOME_LEN = 6;                   /* steps from last ring square into HOME */
 const TOKENS = 4;
 
-/* TOKENS PER PLAYER, BY TABLE SIZE — the lever this file has recommended
-   in writing since it was written ("the lever for a shorter, livelier
-   8-player table is FEWER TOKENS ... the UI should offer that"), now the
-   default rather than a note nobody read.
-   It exists because the two knobs pull against each other. A crowded
-   board wants the FULL 13-square sector (a nine-square one made a lap
-   come round far too fast — see railOf), and that longer ring plus four
-   tokens each is more than maxTurns can finish: MEASURED over seven
-   seeds at level 2, six seats with four tokens hit the 4000-turn ceiling
-   7/7 and would have been decided on points instead of won. Trimming the
-   yard fixes it outright — six seats with three tokens finishes in ~2122
-   turns and never caps; eight seats with two in ~1472, also never.
-   Two to four are untouched at the classic four.
-   An explicit opts.tokens still wins, so a table that WANTS the marathon
-   can still ask for it. Pure function of the seat count, so every phone
-   in a room deals the identical yard with nothing on the wire. */
-const tokensFor = n => (n <= 4) ? 4 : (n <= 6) ? 3 : 2;
+/* TOKENS PER PLAYER — the classic FOUR through six seats (the owner's
+   call: three looked wrong, and real Ludo has four). Eight-handed is the
+   one exception, and the reason is measured, not taste: with the full
+   13-square sector a game's length explodes with both seats AND tokens.
+   ROBUST 24-seed medians at level 2, turns to a natural finish, against
+   the classic four-player game (1323 turns) as the yardstick:
+       P4/4  1323  (1x — the classic)
+       P6/4  7658  (~6x — long, but it finishes; an enthusiast game)
+       P8/4 37378  (~28x — not a game, an endurance test)
+       P8/3  7158  (~6x — back in line with a six-player table)
+   So four everywhere up to six, three at seven and eight. That keeps
+   every shippable table finishing under maxTurns (longest of the ship
+   configs over 24 seeds was 12587 < 15000) and no eight-player marathon.
+   opts.tokens still overrides for a table that wants a different length.
+   Pure function of seat count — every phone deals the identical yard. */
+const tokensFor = n => (n <= 6) ? 4 : 3;
 
 /* RAIL LENGTH — how long each player's stretch of the ring is.
    floor(26/P) reproduces the classic 52-square ring at P=4, but on its
@@ -493,24 +492,22 @@ const RULES = {
      capture undoes progress — so termination is guaranteed here, by
      arithmetic, and not left to the dice: the whole match is bounded
      by maxTurns·(2·maxRollsPerTurn+1) moves before a die is thrown.
-     MEASURED with the shipped AI (thousands of matches, natural
-     length with the cap lifted to 100000):
-       4 players  median  ~480 turns, p99  ~910, longest seen ~1120
-       6 players  median ~1060 turns, p99 ~1850, longest seen ~2310
-       8 players  median ~1900 turns, p99 ~3410, longest seen ~4480
-     So 4000 lets a 4- and 6-player match finish naturally ALWAYS (the
-     cap is never the outcome there — it is a proof), and lets the vast
-     majority of 8-player matches finish too. An 8-player match with the
-     full four tokens each is GENUINELY long: 32 tokens capturing each
-     other keep undoing progress, so the deepest ~1% of 8-player games
-     still reach this ceiling and are decided on progress. That is not a
-     bug in the engine — it always terminates — it is a property of
-     eight-handed Ludo. The lever for a
-     shorter, livelier 8-player table is FEWER TOKENS: opts.tokens=3
-     brings the 8-player median to ~860 and nothing hits the cap;
-     opts.tokens=2 to ~350. The UI should offer that for big tables.
-     See the report. */
-  maxTurns: 4000
+     RE-MEASURED after the ring was lengthened to the authentic 13-square
+     sector (13 rings: P4=52, P6=78, P8=104) and tokens set back to the
+     classic FOUR at every seat, level-2 AI, natural length with the cap
+     lifted (9 seeds each):
+       4 players  median ~1650 turns, longest ~1860
+       6 players  median ~7255 turns, longest ~10250
+       8 players  median ~10300 turns, longest ~10400
+     Every one FINISHED naturally — the old 4000 cap was cutting six- and
+     eight-handed games off early and deciding them on points. 15000
+     clears the longest measured game with margin, so the winner is the
+     player who actually gets four tokens home, not the scoreboard. A big
+     board with four tokens each is a long game — that is authentic
+     many-handed Ludo, not a bug (the engine always terminates). The
+     lever for a shorter table is FEWER TOKENS via opts.tokens (see
+     tokensFor): three at six seats ~2122 turns, two at eight ~1472. */
+  maxTurns: 15000
 };
 function rulesOf(o){
   const r = {};
