@@ -742,7 +742,11 @@ function frameForBase(seat){
    stays competitive. */
 const AIM_MARGIN   = 7;     /* cells of breathing room around the arc      */
 const AIM_ZOOM_MIN = 1.05;  /* never pull so far the base becomes a speck  */
-function frameForAim(seat, pts){
+/* NOTE: named frameArc, NOT frameForAim — there is a separate, older
+   frameForAim(snap) further down that homes the view at the start of a turn;
+   two functions of the same name would collide (the later one wins) and this
+   arc-follow would silently never run. */
+function frameArc(seat, pts){
   seat = seat | 0;
   /* pts is the engine's FLAT track: [x0,y0,x1,y1,...], two numbers a point */
   if (!pts || pts.length < 4 || !UI || !UI.cw || !UI.ch || !UI.baseSc)
@@ -2782,7 +2786,7 @@ function moveAim(px, py){
      and never fight a player who is hand-scouting with a two-finger pan. */
   if (M.cam && !M.cam.userPan && !M.anim){
     const f = (M.preview && M.preview.length >= 4)
-              ? frameForAim(seat, M.preview)
+              ? frameArc(seat, M.preview)
               : frameForBase(seat);
     if (f && isFinite(f.x) && isFinite(f.y) && isFinite(f.zoom)){
       M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom;
@@ -3255,7 +3259,11 @@ function setTurn(who){
     if (M.cam && !M.anim) frameForAim(true);
     P.ui.setTurn(M.ctx, { cls:'good', who:T('Your throw', 'It-tefgħa tiegħek'),
       note:T('Pull back from your soldier and let go.', 'Iġbed lura mis-suldat tiegħek u itilqu.') });
-    tip(esc(T('Pull back to aim. Further back is harder.', 'Iġbed lura biex timmira. Aktar lura, aktar b\'saħħtu.')), 2600);
+    /* EVERY TURN, the store pops up so you choose what to throw: the water
+       balloon is free, everything else costs coins (you earn some each turn).
+       Tap 'Done — now throw' to close and aim. */
+    if (!M.shopOpen && canAct()) openShop();
+    tip(esc(T('Pick your throw, then pull back to aim.', 'Agħżel xi tixħet, imbagħad iġbed lura biex timmira.')), 2600);
   } else if (who === 'ai'){
     P.ui.setTurn(M.ctx, { cls:'', who:T('The machine is thinking', 'Il-magna qed taħseb'), note:'' });
   } else {
@@ -3316,6 +3324,28 @@ function paintShop(){
   });
   const sd = E.view(M.st).sides[seat];
 
+  /* YOUR THROW — what you can throw RIGHT NOW, tap to pick. The water balloon
+     (weapon 0) is always here, free and unlimited; bought ammo shows its count.
+     The full-screen store hides the weapon strip, so this is how you choose the
+     free balloon vs something you bought. */
+  const mine = [];
+  for (const w of E.WEAPONS){
+    const n = sd.ammo[w.id];
+    if (w.id === 0 || n > 0) mine.push({ w:w.id, name:w.name, key:w.key, n });
+  }
+  function throwRow(m){
+    const on = (M.sel === m.w);
+    const count = m.w === 0 ? T('free · ∞', 'b\'xejn · ∞') : (m.n + '×');
+    const hi = on ? ' style="box-shadow:inset 0 0 0 2px var(--gold,#FFC542)"' : '';
+    return '<button class="kn-item" data-w="' + m.w + '"' + hi + '>' +
+      '<span class="ic"><span class="sw">' + wepGlyph(m.key) + '</span></span>' +
+      '<span class="tx"><b>' + esc(TP(m.name)) + '</b>' +
+        '<i>' + (on ? esc(T('Picked — throwing this', 'Magħżul — dan se titfa\'')) :
+                       esc(T('Tap to throw this', 'Agħfas biex titfa\' dan'))) + '</i></span>' +
+      '<span class="pr">' + esc(count) + '</span>' +
+      '</button>';
+  }
+
   function row(r){
     const can = r.can;
     const owned = (r.kind === 1 && sd.tier[r.d] >= (r.to));   /* already at/above this tier */
@@ -3331,7 +3361,8 @@ function paintShop(){
       '</button>';
   }
   UI.shopBody.innerHTML =
-    (AMMO.length ? '<div class="kn-grp">' + esc(T('Something to throw', 'X\'titfa\'')) + '</div>' + AMMO.map(row).join('') : '') +
+    (mine.length ? '<div class="kn-grp">' + esc(T('Your throw', 'It-tefgħa tiegħek')) + '</div>' + mine.map(throwRow).join('') : '') +
+    (AMMO.length ? '<div class="kn-grp">' + esc(T('Buy something nastier', 'Ixtri xi ħaġa agħar')) + '</div>' + AMMO.map(row).join('') : '') +
     (UPG.length ? '<div class="kn-grp">' + esc(T('Better cover', 'Kenn aħjar')) + '</div>' + UPG.map(row).join('') : '') +
     (FIX.length ? '<div class="kn-grp">' + esc(T('Patch it up', 'Sewwih')) + '</div>' + FIX.map(row).join('') : '') +
     (ONE.length ? '<div class="kn-grp">' + esc(T('Right now', 'Issa')) + '</div>' + ONE.map(row).join('') : '');
@@ -3458,6 +3489,10 @@ function board(){
   ctx.host.querySelector('#kn-store').onclick = () => openShop();
   ctx.host.querySelector('#kn-shop-done').onclick = () => closeShop();
   UI.shopBody.addEventListener('click', e => {
+    /* pick what to throw (data-w) — the free balloon or bought ammo */
+    const bw = e.target.closest && e.target.closest('[data-w]');
+    if (bw){ M.sel = +bw.getAttribute('data-w'); paintShop(); weps(); cue('move.select', { gain:0.4 }); return; }
+    /* or buy something (data-it) */
     const b = e.target.closest && e.target.closest('[data-it]');
     if (!b || b.disabled) return;
     buy(+b.getAttribute('data-it'));
