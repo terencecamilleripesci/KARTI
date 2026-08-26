@@ -60,22 +60,24 @@ function foldChar(ch){
   return i;                              /* -1 for anything not a letter */
 }
 
-/* ── the bundled word bank — common, recognisable, bilingual. A word is
-   {w, mt} where mt:1 marks it Maltese (for the "kelma Maltija" hint). The
-   picker in the UI reads BANK; the engine only ever needs a spelt word. */
-const BANK = [
-  // English — everyday nouns, nothing obscure
+/* ── the bundled word banks — common, recognisable words the machine sets
+   when you play it. Split by language so the player can pick English,
+   Maltese, or both at the start; pickWord() reads the chosen one. */
+const BANK_EN = [
   'ISLAND','HARBOUR','SUMMER','FIESTA','BALCONY','LANTERN','ORANGE','GALLERY',
   'THUNDER','MARKET','CAPTAIN','DIAMOND','JOURNEY','KITCHEN','LIBRARY','MACHINE',
   'NETWORK','OCTOPUS','PUZZLE','QUARTER','RAINBOW','SANDALS','TREASURE','VILLAGE',
   'WHISPER','FACTORY','GARDEN','HAMMER','JACKET','KETTLE','LADDER','MIRROR',
-  'PARROT','ROCKET','SADDLE','TUNNEL','WALNUT','ANCHOR','BRIDGE','CANDLE',
-  // Maltese — common words with the real letters
+  'PARROT','ROCKET','SADDLE','TUNNEL','WALNUT','ANCHOR','BRIDGE','CANDLE'
+];
+const BANK_MT = [
   'GĦASEL','ĦOBŻ','QAMAR','XEMX','BAĦAR','TIĠIEĠA','KELB','QATTUS','FJURA',
   'TIFEL','TIFLA','MARA','RAĠEL','DAR','TRIQ','KNISJA','FESTA','LOGĦBA',
   'KARTI','ĦANUT','MEJDA','SIĠĠU','FTIRA','ĠELAT','PASTIZZ','QARNITA','ĊAVETTA',
   'ĠARDIN','ŻARBUN','ĦAJT','XITWA','SAJF','GĦAJN','ĦUTA','ĠOBON','ĦALIB'
 ];
+const BANK = BANK_EN.concat(BANK_MT);
+function bankFor(lang){ return lang === 'en' ? BANK_EN : lang === 'mt' ? BANK_MT : BANK; }
 
 /* codes for a spelt word: LETTERS index per position, -1 for a space. */
 function spell(word){
@@ -231,11 +233,12 @@ function botLetter(st){
   for (let c = 0; c < NLET; c++) if (!st.guessed[c]) return c;
   return 0;
 }
-/* deterministic word pick: index into BANK from a seed + round number. */
-function pickWord(seed, round){
-  const n = BANK.length;
-  const i = (((seed >>> 0) + (round | 0) * 2654435761) >>> 0) % n;
-  return BANK[i];
+/* deterministic word pick: index into the chosen language bank from a
+   seed + round number. lang: 'en' | 'mt' | anything else = both. */
+function pickWord(seed, round, lang){
+  const bank = bankFor(lang);
+  const i = (((seed >>> 0) + (round | 0) * 2654435761) >>> 0) % bank.length;
+  return bank[i];
 }
 
 const encWire = mv => {
@@ -256,7 +259,7 @@ const decWire = mv => {
 window.KARTI_ILFORKA = window.KARTI_ILFORKA || {};
 window.KARTI_ILFORKA.engine = {
   MIN_SEATS, MAX_SEATS, MAX_WRONG, MAX_LEN, WIRE_FIELDS,
-  LETTERS, NLET, codeOf, letOf, foldChar, spell, checkWord, BANK,
+  LETTERS, NLET, codeOf, letOf, foldChar, spell, checkWord, BANK, BANK_EN, BANK_MT, bankFor,
   newRound, referee, applyRuling, applyReveal, positionsOf, canGuess,
   nextGuesser, firstGuesser, solved, gallows, fillAnswer,
   botLetter, pickWord, encWire, decWire,

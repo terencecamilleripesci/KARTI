@@ -43,7 +43,7 @@ const SEATS = [
 const seatColour = i => SEATS[i % SEATS.length];
 
 const STORE = 'karti_ilforka_v1';
-let ST = { pref:{ rounds:3, lvl:2 }, rec:{ w:0, l:0 } };
+let ST = { pref:{ rounds:3, lvl:2, lang:'both' }, rec:{ w:0, l:0 } };
 try { const s = JSON.parse(localStorage.getItem(STORE) || '0'); if (s && s.pref) ST = s; } catch(e){}
 let pT = 0;
 function persist(){ clearTimeout(pT); pT = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){} }, 300); }
@@ -130,7 +130,7 @@ function beginRound(){
        setter offline so the human always guesses. */
     M.setter = 1;                       /* seat 1 = the machine setter    */
     M.role = 'guesser';
-    const word = E.pickWord((hashName() ^ (M.round * 2654435761)) >>> 0, M.round);
+    const word = E.pickWord((hashName() ^ (M.round * 2654435761)) >>> 0, M.round, pref().lang);
     M.setter = 1;
     startRoundWord(word, 1);
     paint();
@@ -722,6 +722,10 @@ function setupSheet(){
       '<div class="fk-gallows" aria-hidden="true" style="margin:8px 0">' + heroSVG() + '</div>' +
       '<p class="blurb">' + T('Set a word, or race to guess one. A point a letter — spell it before the man hangs.',
         'Qiegħed kelma, jew iġri biex taqtgħha. Punt kull ittra — spjegaha qabel jiddendel.') + '</p>' +
+      '<p class="pt-ledger" style="margin:0 0 6px">' + esc(T('The machine sets words in:','Il-magna tqiegħed kliem bi:')) + '</p>' +
+      '<div style="display:flex;gap:6px;margin:0 0 14px">' +
+        ['both','en','mt'].map(l => '<button class="btn' + (pref().lang === l ? ' primary' : ' ghost') + '" data-lang="' + l + '" style="flex:1;min-height:38px">' + esc(langLabel(l)) + '</button>').join('') +
+      '</div>' +
       '<div style="display:grid;gap:9px;margin-top:4px">' +
         (online ? '<button class="btn primary" id="fk-online">' + ico('users') + ' ' + esc(T('Play online','Ilgħab onlajn')) + '</button>' : '') +
         '<button class="btn' + (online ? ' ghost' : ' primary') + '" id="fk-ai">' + ico('coach') + ' ' + esc(T('Play with the machine','Ilgħab mal-magna')) + '</button>' +
@@ -735,10 +739,12 @@ function setupSheet(){
   el.querySelector('#fk-back').onclick = () => { cue('ui.back'); P.hub(); };
   const on = el.querySelector('#fk-online');
   if (on) on.onclick = () => { if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('ilforka'); };
+  el.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { pref({ lang: b.getAttribute('data-lang') }); cue('ui.tap', { gain:0.5 }); setupSheet(); });
   el.querySelector('#fk-ai').onclick = () => offlineSetup('ai');
   el.querySelector('#fk-pnp').onclick = () => offlineSetup('pnp');
   el.querySelector('#fk-rulesbtn').onclick = () => openRules();
 }
+function langLabel(l){ return l === 'en' ? 'English' : l === 'mt' ? 'Malti' : T('Both','It-tnejn'); }
 function offlineSetup(mode){
   if (mode === 'ai'){
     startMatch({ seats:2, rounds: pref().rounds || 3, mode:'ai', lvl: pref().lvl || 2 });

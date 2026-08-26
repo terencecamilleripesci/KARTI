@@ -34,7 +34,7 @@ const SEATS = [
 const seatColour = i => SEATS[i % SEATS.length];
 
 const STORE = 'karti_kelma_v1';
-let ST = { pref:{ lvl:2 }, rec:{ w:0, l:0 } };
+let ST = { pref:{ lvl:2, lang:'both' }, rec:{ w:0, l:0 } };
 try { const s = JSON.parse(localStorage.getItem(STORE) || '0'); if (s && s.pref) ST = s; } catch(e){}
 let pT = 0;
 function persist(){ clearTimeout(pT); pT = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){} }, 300); }
@@ -48,23 +48,31 @@ function reduced(){ try { return matchMedia('(prefers-reduced-motion: reduce)').
 function myName(){ try { if (window.KARTI && KARTI.displayName) return KARTI.displayName() || T('You','Int'); } catch(e){} return T('You','Int'); }
 function toast(msg, bad){ try { if (K && K.toast) return K.toast(msg); } catch(e){} }
 
-/* ═════════════ THE DICTIONARY — loaded once, cached ═════════════ */
-let DICT = null, dictState = 'idle';    /* idle | loading | ready | error */
+/* ═════════════ THE DICTIONARY — two sets, so a word can be checked
+   against English, Maltese, or both, per the language chosen at start. */
+let DICT_EN = null, DICT_MT = null, dictState = 'idle';   /* idle|loading|ready|error */
 const dictWaiters = [];
-function base(){ try { return (document.querySelector('base') || {}).href || location.href.replace(/[^/]*$/, ''); } catch(e){ return ''; } }
 function loadDict(){
   if (dictState === 'ready' || dictState === 'loading') return;
   dictState = 'loading';
-  const set = new Set();
-  const grab = f => fetch('data/kelma/' + f).then(r => r.ok ? r.text() : '').then(txt => {
+  const en = new Set(), mt = new Set();
+  const grab = (f, set) => fetch('data/kelma/' + f).then(r => r.ok ? r.text() : '').then(txt => {
     for (const w of txt.split('\n')){ const s = w.trim(); if (s) set.add(s); }
   }).catch(() => {});
-  Promise.all([ grab('words-en.txt'), grab('words-mt.txt') ]).then(() => {
-    DICT = set; dictState = set.size > 100 ? 'ready' : 'error';
+  Promise.all([ grab('words-en.txt', en), grab('words-mt.txt', mt) ]).then(() => {
+    DICT_EN = en; DICT_MT = mt; dictState = (en.size + mt.size > 100) ? 'ready' : 'error';
     while (dictWaiters.length){ try { dictWaiters.pop()(); } catch(e){} }
   });
 }
-function isWord(s){ return !!(DICT && DICT.has(String(s || '').toLowerCase())); }
+function langNow(){ return (M && M.lang) || pref().lang || 'both'; }
+function langLabel(l){ return l === 'en' ? 'English' : l === 'mt' ? 'Malti' : T('Both','It-tnejn'); }
+function isWord(s){
+  s = String(s || '').toLowerCase();
+  const l = langNow();
+  if (l === 'en') return !!(DICT_EN && DICT_EN.has(s));
+  if (l === 'mt') return !!(DICT_MT && DICT_MT.has(s));
+  return !!((DICT_EN && DICT_EN.has(s)) || (DICT_MT && DICT_MT.has(s)));
+}
 function onDict(fn){ if (dictState === 'ready') fn(); else { dictWaiters.push(fn); loadDict(); } }
 
 /* ═════════════ the runner ═════════════ */
@@ -83,6 +91,7 @@ function startMatch(opts, seed){
     st: E.newGame({ seats: Math.max(2, Math.min(4, (opts && opts.seats) || 2)) }, (seed == null ? newSeed() : seed) >>> 0),
     ctx: null, net: null, meta: null, mode: (opts && opts.mode) || 'pnp',
     lvl: (opts && opts.lvl) || pref().lvl || 2,
+    lang: (opts && opts.lang) || pref().lang || 'both',   /* which words count */
     sel: -1,                            /* selected rack index            */
     pending: [],                        /* [{r,c,ch,blank,rackIdx}] this turn */
     dead: false, finished: false, botT: 0
@@ -621,6 +630,10 @@ function setupSheet(){
     '<div class="scroll">' +
       '<p class="blurb">' + T('Build words from your tiles for points — Maltese or English. Land the coloured squares, use all seven for a bonus.',
         'Ibni kliem mill-biċċiet tiegħek għall-punti — bil-Malti jew bl-Ingliż. Aħbat il-kaxxi kkuluriti, uża s-seba’ għal bonus.') + '</p>' +
+      '<p class="pt-ledger" style="margin:0 0 6px">' + esc(T('Words that count:','Kliem li jgħoddu:')) + '</p>' +
+      '<div style="display:flex;gap:6px;margin:0 0 14px">' +
+        ['both','en','mt'].map(l => '<button class="btn' + (pref().lang === l ? ' primary' : ' ghost') + '" data-lang="' + l + '" style="flex:1;min-height:38px">' + esc(langLabel(l)) + '</button>').join('') +
+      '</div>' +
       '<div style="display:grid;gap:9px;margin-top:4px">' +
         (online ? '<button class="btn primary" id="km-online">' + ico('users') + ' ' + esc(T('Play online','Ilgħab onlajn')) + '</button>' : '') +
         '<button class="btn' + (online ? ' ghost' : ' primary') + '" id="km-ai">' + ico('coach') + ' ' + esc(T('Play with the machine','Ilgħab mal-magna')) + '</button>' +
@@ -631,6 +644,7 @@ function setupSheet(){
         T('So far: <b>'+ST.rec.w+'</b> won, <b>'+ST.rec.l+'</b> lost.','S’issa: <b>'+ST.rec.w+'</b> rebħin, <b>'+ST.rec.l+'</b> mitlufin.') + '</p>' : '') +
     '</div></div>';
   el.querySelector('#km-back').onclick = () => { cue('ui.back'); P.hub(); };
+  el.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { pref({ lang: b.getAttribute('data-lang') }); cue('ui.tap', { gain:0.5 }); setupSheet(); });
   const on = el.querySelector('#km-online'); if (on) on.onclick = () => { if (window.KARTI_MP && KARTI_MP.openFor) KARTI_MP.openFor('kelma'); };
   el.querySelector('#km-ai').onclick = () => startOffline('ai', 2);
   el.querySelector('#km-pnp').onclick = () => seatPick();
