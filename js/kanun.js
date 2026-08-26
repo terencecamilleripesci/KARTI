@@ -511,6 +511,10 @@ const NDEF = DEFS.length, NTIER = 4;
 const BOX_W   = 3;              /* a SMALL crate — just under the soldier,
                                    odd width so it centres on their feet    */
 const BOX_TOP = WATER_Y - 3;    /* a short deck, three cells above the sea  */
+const LAUNCH_CLEAR = 14;        /* clear water kept between a box and the
+                                   outer world edge, so a box is never jammed
+                                   against the wall with no room to pull the
+                                   sling back and shoot                      */
 
 const PLACE = {
   BACK_MIN: 0,        /* boxes hard against your own shelf — the near edge */
@@ -541,13 +545,18 @@ function slotSpanIn(st, seat, d){ return slotSpan(seat, d, backOf(st, seat)); }
 function crewZone(seat, back){
   back = back | 0;
   const half = BOX_W >> 1;
+  /* now that the shores are gone this is nearly the WHOLE half of the sea:
+     from a clear launch margin off the outer world edge, in to just short
+     of the centre pillar — so the three boxes can spread right across the
+     map, but none can be dropped hard against the edge where it could not
+     shoot. `back` nudges the near (launch) edge inward. */
   if (seat === 0){
-    const lo = L_X1 + 1 + half + PLACE.EDGE + back;
-    const hi = ROCK_X0 - 1 - half - PLACE.EDGE;
+    const lo = LAUNCH_CLEAR + half + back;
+    const hi = ROCK_X0 - 2 - half;
     return { x0: lo, x1: Math.max(lo, hi) };
   }
-  const lo = ROCK_X1 + 1 + half + PLACE.EDGE;
-  const hi = R_X0 - 1 - half - PLACE.EDGE - back;
+  const lo = ROCK_X1 + 2 + half;
+  const hi = (W - 1 - LAUNCH_CLEAR) - half - back;
   return { x0: Math.min(lo, hi), x1: hi };
 }
 
@@ -597,8 +606,8 @@ const NOPLACE = {
            mt:'Il-mastru ma joqgħodx hemm.' },
   count: { id:'pl.count', en:'Three of them. No more, no fewer.',
            mt:'Tlieta minnhom. La aktar u lanqas inqas.' },
-  zone:  { id:'pl.zone',  en:'Drop your boxes in your own half of the water.',
-           mt:'Itfa’ l-kaxxi fin-naħa tiegħek tal-baħar.' },
+  zone:  { id:'pl.zone',  en:'Drop your boxes in your own half — not against the edge.',
+           mt:'Itfa’ l-kaxxi fin-naħa tiegħek — mhux mal-tarf.' },
   gap:   { id:'pl.gap',   en:'Too close to the box beside it.',
            mt:'Wisq viċin tal-kaxxa ta’ ħdejha.' },
   order: { id:'pl.order', en:'Lay your boxes out from your shore toward the pillar.',
