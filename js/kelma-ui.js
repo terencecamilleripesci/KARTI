@@ -107,6 +107,10 @@ function stopBot(){ if (M && M.botT){ clearTimeout(M.botT); M.botT = 0; } }
    phone), online it is ALWAYS your own seat — never an opponent's. */
 function activeSeat(){ return M && M.net ? mySeat() : M.st.turn; }
 function rackView(){
+  /* pass-the-phone, during the play-theatre hold: the turn has already
+     advanced, so the NEXT player's tiles must NOT show before the handover
+     sheet does — the tray sits empty until the hold expires. */
+  if (!M.net && M.mode === 'pnp' && held()) return [];
   const rack = (M.st.racks[activeSeat()] || []).slice();
   /* remove the tiles currently placed as pending, by char */
   for (const p of M.pending){ const want = p.blank ? '_' : p.ch; const i = rack.indexOf(want); if (i >= 0) rack.splice(i, 1); }
@@ -125,25 +129,59 @@ function injectCSS(){
     'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);font-size:12px;color:#cfc8e6}' +
   '#scr-party .km-seat.on{border-color:var(--kc);box-shadow:0 0 0 1px var(--kc),0 0 12px -4px var(--kc);color:#fff}' +
   '#scr-party .km-seat b{font-weight:700}#scr-party .km-seat .km-sc{font-weight:800;color:#FFE39A}' +
-  '#scr-party .km-board{--sq:min(6.1vw,25px);display:grid;grid-template-columns:repeat(15,var(--sq));' +
+  /* the screen has 12px side padding and the board 22px of chrome — size the
+     square off the space that actually exists, so 15 columns NEVER overflow */
+  '#scr-party .km-board{--sq:min(calc((100vw - 46px)/15),25px);display:grid;grid-template-columns:repeat(15,var(--sq));' +
     'grid-template-rows:repeat(15,var(--sq));gap:1px;justify-content:center;margin:2px auto;' +
-    'background:#0e0a18;padding:4px;border-radius:8px}' +
+    'background:#0e0a18;padding:4px;border-radius:8px;' +
+    'box-shadow:0 12px 26px -16px rgba(0,0,0,.85),inset 0 0 0 1px rgba(255,255,255,.045)}' +
   '#scr-party .km-c{width:var(--sq);height:var(--sq);border-radius:2px;background:#231b3a;position:relative;' +
     'display:grid;place-items:center;font-family:var(--disp);font-weight:800;font-size:calc(var(--sq)*.5);color:#fff}' +
   '#scr-party .km-c.d{background:#274a6e}#scr-party .km-c.t{background:#1f6b52}' +
   '#scr-party .km-c.D{background:#7a3a66}#scr-party .km-c.T{background:#8a2f3a}' +
   '#scr-party .km-c.star{background:#7a3a66}' +
-  '#scr-party .km-c .km-pl{font-size:calc(var(--sq)*.06);position:absolute;opacity:.75;top:1px;left:2px;font-weight:700}' +
-  '#scr-party .km-c.tile{background:linear-gradient(180deg,#F6E7C6,#E7C98C);color:#3a2a10;box-shadow:inset 0 -2px 0 rgba(0,0,0,.15)}' +
+  /* a soft top-light sheen so the premium squares read as glass, not flat paint */
+  '#scr-party .km-c.d,#scr-party .km-c.t,#scr-party .km-c.D,#scr-party .km-c.T,#scr-party .km-c.star{' +
+    'background-image:linear-gradient(135deg,rgba(255,255,255,.17),rgba(255,255,255,0) 55%)}' +
+  '#scr-party .km-c.star{box-shadow:inset 0 0 0 1px rgba(255,197,66,.4),inset 0 0 9px rgba(255,197,66,.4)}' +
+  '#scr-party .km-c .km-pl{position:static;font-size:calc(var(--sq)*.3);opacity:.7;font-weight:800;letter-spacing:.4px}' +
+  '#scr-party .km-c.star .km-pl{font-size:calc(var(--sq)*.52);opacity:.95;color:#FFC542}' +
+  '#scr-party .km-c.tile{background:linear-gradient(180deg,#F6E7C6,#E7C98C);color:#3a2a10;' +
+    'box-shadow:inset 0 1px 0 rgba(255,255,255,.5),inset 0 -2px 0 rgba(0,0,0,.18),0 1px 2px rgba(0,0,0,.35)}' +
   '#scr-party .km-c.tile .km-v{position:absolute;right:1px;bottom:0;font-size:calc(var(--sq)*.28);opacity:.8}' +
-  '#scr-party .km-c.new{background:linear-gradient(180deg,#FFE9A8,#FFC94F);animation:kmDrop .25s ease both}' +
-  '#scr-party .km-c.aim{outline:2px solid rgba(255,197,66,.8);outline-offset:-2px}' +
-  '@keyframes kmDrop{from{transform:translateY(-40%) scale(1.3);opacity:0}to{transform:none;opacity:1}}' +
-  '#scr-party .km-rack{display:flex;gap:5px;justify-content:center;margin:6px 6px 2px;min-height:46px}' +
-  '#scr-party .km-tile{width:38px;height:44px;border-radius:7px;background:linear-gradient(180deg,#F6E7C6,#E7C98C);' +
+  '#scr-party .km-c.new{background:linear-gradient(180deg,#FFE9A8,#FFC94F)}' +
+  '#scr-party .km-c.aim{outline:1px solid rgba(255,197,66,.3);outline-offset:-1px}' +
+  '@keyframes kmDrop{0%{transform:translateY(-52%) scale(1.32);opacity:0}' +
+    '55%{transform:translateY(5%) scale(.95);opacity:1}78%{transform:translateY(-2%) scale(1.04)}100%{transform:none;opacity:1}}' +
+  '@keyframes kmSettle{0%{transform:translateY(-16%) scale(1.14)}55%{transform:translateY(4%) scale(.96)}100%{transform:none}}' +
+  '@keyframes kmFlash{0%{opacity:0}22%{opacity:.9}100%{opacity:0}}' +
+  '@keyframes kmPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}' +
+  '#scr-party .km-flash{position:absolute;inset:0;border-radius:2px;pointer-events:none;opacity:0;' +
+    'animation:kmFlash .8s ease-out both}' +
+  '#scr-party .km-flash.km-f-d{background:#69bfff}#scr-party .km-flash.km-f-t{background:#3ddc84}' +
+  '#scr-party .km-flash.km-f-D{background:#ff7ad1}#scr-party .km-flash.km-f-T{background:#ff5468}' +
+  '#scr-party .km-flash.km-f-s{background:#FFC542}' +
+  '.km-fly{position:fixed;z-index:45;transform:translate(-50%,-50%);font-family:var(--disp),sans-serif;' +
+    'font-weight:900;font-size:24px;color:#FFE39A;pointer-events:none;will-change:transform,opacity;' +
+    'text-shadow:0 0 14px rgba(255,197,66,.6),0 2px 6px rgba(0,0,0,.75)}' +
+  '.km-fly.big{font-size:31px;color:#FFF4CE}' +
+  '#scr-party .km-rack{display:flex;gap:6px;justify-content:center;margin:6px auto 2px;min-height:46px;' +
+    'padding:6px 10px;width:max-content;min-width:150px;max-width:calc(100% - 12px);border-radius:12px;' +
+    'background:linear-gradient(180deg,#4a3524,#2c1f12);' +
+    'box-shadow:inset 0 2px 6px rgba(0,0,0,.55),inset 0 -1px 0 rgba(255,255,255,.07),0 2px 6px -3px rgba(0,0,0,.6)}' +
+  '#scr-party .km-tile{width:38px;height:44px;border-radius:7px;' +
+    'background:linear-gradient(178deg,#FAEDD0 0%,#F0DCAE 55%,#E2C388 100%);' +
     'color:#3a2a10;font-family:var(--disp);font-weight:800;font-size:22px;display:grid;place-items:center;position:relative;' +
-    'box-shadow:0 2px 0 rgba(0,0,0,.25);cursor:pointer}' +
-  '#scr-party .km-tile.sel{outline:3px solid #FFC542;transform:translateY(-4px)}' +
+    'box-shadow:0 2px 0 rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.55),inset 0 -2px 3px rgba(0,0,0,.12);cursor:pointer}' +
+  '#scr-party .km-tile.sel{outline:3px solid #FFC542;transform:translateY(-6px) scale(1.06);' +
+    'box-shadow:0 8px 12px -4px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.55)}' +
+  /* every animated thing lives behind the motion preference — reduced gets the plain state */
+  '@media (prefers-reduced-motion:no-preference){' +
+    '#scr-party .km-c.new{animation:kmDrop .3s cubic-bezier(.25,.9,.3,1) both}' +
+    '#scr-party .km-tile{transition:transform .16s cubic-bezier(.34,1.56,.64,1),box-shadow .16s ease}' +
+    '#scr-party .km-tile:active{transform:translateY(1px) scale(.96)}' +
+    '#scr-party .km-seat.on{animation:kmPulse 1.8s ease-in-out infinite}' +
+  '}' +
   '#scr-party .km-tile .km-v{position:absolute;right:3px;bottom:1px;font-size:10px;opacity:.75}' +
   '#scr-party .km-tile.blank{color:#8a7a55}' +
   '#scr-party .km-acts{display:flex;gap:6px;justify-content:center;margin:4px 6px 8px;flex-wrap:wrap}' +
@@ -217,6 +255,7 @@ function paint(){
 }
 function hintText(){
   const st = M.st;
+  if (held()) return '';                  /* the theatre is speaking */
   if (st.done) return seatName(st.done.winner) + ' ' + T('wins!','jirbaħ!');
   if (!isLocal(st.turn)) return seatName(st.turn) + ' — ' + T('thinking…','qed jaħseb…');
   if (M.pending.length){ const prov = provisional(); return T('Score: ','Punti: ') + (prov == null ? '—' : prov); }
@@ -236,13 +275,20 @@ function chipFace(i){
 }
 
 /* ═════════════ interaction ═════════════ */
+/* a short input hold while the play-theatre lands (time-based, never a flag:
+   if a timer dies the hold simply expires and input resumes on its own). */
+function held(){ return !!(M && M.holdUntil && Date.now() < M.holdUntil); }
+/* the wooden click, with a little pitch variance so ten drops don't sound
+   like one sample on a loop. Clock-derived, no Math.random needed. */
+function clickRate(){ return 0.96 + ((Date.now() % 5) * 0.025); }
 function tapRack(i){
-  if (!isLocal(M.st.turn) || M.st.done) return;
-  M.sel = (M.sel === i) ? -1 : i;
-  cue('ui.tap', { gain:0.4 }); paint();
+  if (held() || !isLocal(M.st.turn) || M.st.done) return;
+  const was = M.sel === i;
+  M.sel = was ? -1 : i;
+  cue(was ? 'ui.tap' : 'move.select', { gain:0.45 }); paint();
 }
 function tapCell(r, c){
-  if (!isLocal(M.st.turn) || M.st.done) return;
+  if (held() || !isLocal(M.st.turn) || M.st.done) return;
   const pend = M.pending.find(p => p.r === r && p.c === c);
   if (pend){ /* recall this pending tile */
     M.pending = M.pending.filter(p => p !== pend); M.sel = -1; cue('ui.back', { gain:0.4 }); paint(); return;
@@ -253,7 +299,7 @@ function tapCell(r, c){
   if (ch == null) { M.sel = -1; return; }
   if (ch === '_'){ pickBlank(r, c); return; }
   M.pending.push({ r, c, ch, blank:false });
-  M.sel = -1; note(6, 0.4); cue('piece.place', { gain:0.4 }); paint();
+  M.sel = -1; note(6, 0.35); cue('piece.place', { gain:0.5, rate:clickRate() }); paint();
 }
 function pickBlank(r, c){
   /* a small letter picker for the blank */
@@ -273,48 +319,136 @@ function pickBlank(r, c){
   sheet.querySelectorAll('[data-l]').forEach(b => b.onclick = () => {
     const ch = E.letOf(b.getAttribute('data-l') | 0);
     M.pending.push({ r, c, ch, blank:true }); M.sel = -1;
-    sheet.remove(); note(6, 0.4); cue('piece.place', { gain:0.4 }); paint();
+    sheet.remove(); note(6, 0.35); cue('piece.place', { gain:0.5, rate:clickRate() }); paint();
   });
   (host || document.body).appendChild(sheet);
 }
-function recallAll(){ M.pending = []; M.sel = -1; cue('ui.back', { gain:0.4 }); paint(); }
+function recallAll(){ if (held()) return; M.pending = []; M.sel = -1; cue('ui.back', { gain:0.4 }); paint(); }
 function shuffleRack(){ /* cosmetic: reorder the underlying rack */
+  if (held()) return;
   const rack = M.st.racks[M.st.turn];
   E.shuffle(rack, (Date.now() & 0xffff) | 1); M.sel = -1; cue('card.shuffle', { gain:0.5 }); paint();
 }
 function passTurn(){
-  if (!isLocal(M.st.turn) || M.st.done) return;
+  if (held() || !isLocal(M.st.turn) || M.st.done) return;
   if (M.net) return passOnline();
   M.pending = []; M.sel = -1;
   E.passOrSwap(M.st, M.st.turn, null);
-  cue('ui.back', { gain:0.5 }); afterTurn();
+  cue('ui.back', { gain:0.5 }); afterTurn(null);
 }
 function playMove(){
+  if (held()) return;
   if (!M.pending.length || M.st.done) return;
   if (M.net) return playOnline();
+  const seat = M.st.turn;
   const placed = M.pending.map(p => ({ r:p.r, c:p.c, ch:p.ch, blank:p.blank }));
-  const res = E.apply(M.st, M.st.turn, placed, isWord);
-  if (!res.ok){
-    if (res.why === 'badword') toast('“' + (res.word || '').toUpperCase() + '” — ' + T('not a word','mhux kelma'));
-    else if (res.why === 'centre') toast(T('First word crosses the centre.','L-ewwel kelma taqsam iċ-ċentru.'));
-    else if (res.why === 'disconnected') toast(T('Must touch a tile already down.','Trid tmiss biċċa diġà mqiegħda.'));
-    else if (res.why === 'gap') toast(T('No gaps in the word.','Ebda vojt fil-kelma.'));
-    else if (res.why === 'notaline') toast(T('All in one line.','Kollha f’linja waħda.'));
-    else toast(T('That move is not allowed.','Din il-mossa mhix permessa.'));
-    cue('ui.error', { gain:0.5 }); return;
-  }
+  const res = E.apply(M.st, seat, placed, isWord);
+  if (!res.ok){ badMoveToast(res); cue('ui.error', { gain:0.5 }); return; }
   M.pending = []; M.sel = -1;
-  const gained = res.score;
-  note(Math.min(12, 5 + Math.floor(gained / 6)), 0.6);
-  cue(placed.length === E.RACK ? 'game.win' : 'deck.save', { gain:0.6 }, true);
-  if (gained >= 30) cue('ui.reward', { gain:0.6 }, true);
-  afterTurn();
+  cue('piece.place', { gain:0.6, rate:clickRate() }, true);     /* the word locks with a thunk */
+  afterTurn({ placed, score:res.score, seat });
 }
-function afterTurn(){
+/* fx = {placed, score, seat} for a committed play, null otherwise. Render
+   FIRST (state is truth), then decorate; the follow-on (handover / finish /
+   the bot) waits just long enough for the theatre to land. */
+function afterTurn(fx){
+  const wait = (fx && fx.score > 0 && !reduced()) ? 1150 : 0;
+  const toHandover = !M.st.done && M.mode === 'pnp' && isLocal(M.st.turn);
+  /* the hold is set BEFORE the paint so rackView hides the next player's
+     tiles from the very first frame of the theatre */
+  if (wait && (toHandover || M.st.done)) M.holdUntil = Date.now() + wait;
   paint();
-  if (M.st.done){ finish(); return; }
-  if (M.mode === 'pnp' && isLocal(M.st.turn)){ handover(); return; }
+  if (fx) theatre(fx.placed, fx.score, fx.seat);
+  if (M.st.done){
+    if (wait) setTimeout(() => { if (M && !M.dead) finish(); }, wait + 150);
+    else finish();
+    return;
+  }
+  if (toHandover){
+    if (wait) setTimeout(() => { if (M && !M.dead && !M.st.done && UI) handover(); }, wait);
+    else handover();
+    return;
+  }
   maybeBot();
+}
+
+/* ═════════════ the theatre — how a committed play LANDS ═════════════
+   Called AFTER paint(): the board already shows the final state, so any
+   interrupt (another paint) simply snaps forward — nothing here gates
+   state. Decorates ONLY the changed cells (≤7), one flying score clone
+   and one seat chip — never the 225. Under reduced motion: no clones,
+   no animation, sound feedback only. Plays identically for YOUR move,
+   the BOT's move, and a REMOTE player's move. */
+let flies = 0;
+function theatre(placed, score, seat){
+  if (!M || !UI || !placed || !placed.length) return;
+  const bingo = placed.length === E.RACK;
+  if (reduced()){
+    note(Math.min(12, 5 + Math.floor((score | 0) / 6)), 0.55);
+    if (bingo) cue('game.win', { gain:0.7 }, true);
+    else if (score >= 30) cue('ui.reward', { gain:0.55 }, true);
+    return;
+  }
+  const cells = [];
+  for (const p of placed){
+    const el = UI.board.querySelector('.km-c[data-r="' + p.r + '"][data-c="' + p.c + '"]');
+    if (el) cells.push({ el, p });
+  }
+  if (!cells.length) return;
+  cells.sort((a, b) => (a.p.r - b.p.r) || (a.p.c - b.p.c));
+  cells.forEach((x, k) => {
+    x.el.style.animation = 'kmSettle .32s cubic-bezier(.34,1.56,.64,1) ' + (k * 60) + 'ms both';
+    const prem = E.premAt(x.p.r, x.p.c);
+    if (prem && prem !== '.'){            /* flash the premium colour it covers */
+      const f = document.createElement('span');
+      f.className = 'km-flash km-f-' + (prem === '*' ? 's' : prem);
+      f.style.animationDelay = (k * 60 + 110) + 'ms';
+      x.el.appendChild(f);
+      setTimeout(() => { try { f.remove(); } catch(e){} }, k * 60 + 1000);
+    }
+    setTimeout(() => { if (M && !M.dead) note(4 + k, 0.5); }, k * 60);   /* a climbing note per tile */
+  });
+  if (bingo){
+    cue('game.win', { gain:0.7 }, true);
+    try { UI.board.animate([{ transform:'scale(1)' }, { transform:'scale(1.015)' }, { transform:'scale(1)' }],
+      { duration:420, easing:'ease-out' }); } catch(e){}
+  }
+  else if (score >= 30) setTimeout(() => { if (M && !M.dead) cue('ui.reward', { gain:0.55 }, true); }, 260);
+  flyScore(cells, score | 0, seat, bingo);
+}
+function flyScore(cells, score, seat, big){
+  if (!(score > 0) || flies > 2) return;
+  let x = 0, y = 0;
+  for (const c of cells){ const r = c.el.getBoundingClientRect(); x += r.left + r.width / 2; y += r.top + r.height / 2; }
+  x /= cells.length; y /= cells.length;
+  const chipEl = () => { try { const chip = UI && UI.top.children[seat]; return chip ? (chip.querySelector('.km-sc') || chip) : null; } catch(e){ return null; } };
+  const t0 = chipEl(); if (!t0) return;
+  const tr = t0.getBoundingClientRect();
+  const dx = (tr.left + tr.width / 2) - x, dy = (tr.top + tr.height / 2) - y;
+  const fly = document.createElement('div');
+  fly.className = 'km-fly' + (big || score >= 30 ? ' big' : '');
+  fly.textContent = '+' + score;
+  fly.style.left = x + 'px'; fly.style.top = y + 'px';
+  document.body.appendChild(fly); flies++;
+  const done = () => {
+    if (!fly.parentNode) return;
+    flies--; try { fly.remove(); } catch(e){}
+    const c2 = chipEl();                  /* re-query: paints may have rebuilt the chips */
+    if (c2){ try { c2.animate([{ transform:'scale(1)' }, { transform:'scale(1.5)' }, { transform:'scale(1)' }],
+      { duration:300, easing:'cubic-bezier(.34,1.56,.64,1)' }); } catch(e){} }
+    cue('ui.coin', { gain:0.45 });
+  };
+  try {
+    const an = fly.animate([
+      { transform:'translate(-50%,-50%) translate(0,6px) scale(.5)', opacity:0 },
+      { transform:'translate(-50%,-50%) translate(0,-16px) scale(1.18)', opacity:1, offset:0.28 },
+      { transform:'translate(-50%,-50%) translate(0,-22px) scale(1)', opacity:1, offset:0.5 },
+      { transform:'translate(-50%,-50%) translate(' + dx + 'px,' + dy + 'px) scale(.35)', opacity:0.9, offset:0.96 },
+      { transform:'translate(-50%,-50%) translate(' + dx + 'px,' + dy + 'px) scale(.3)', opacity:0 }
+    ], { duration:950, easing:'cubic-bezier(.45,0,.25,1)' });
+    an.onfinish = done;
+  } catch(e){}
+  setTimeout(done, 1300);                 /* belt and braces — never leak a clone */
 }
 
 /* pass-the-phone handover screen so the next player doesn't see the last rack */
@@ -338,10 +472,15 @@ function maybeBot(){
   M.botT = setTimeout(() => {
     if (!M || M.dead || M.st.done || M.st.turn !== seat) return;
     const play = findBotPlay(seat);
-    if (play){ E.apply(M.st, seat, play, isWord); note(6, 0.5); cue('deck.save', { gain:0.5 }); }
-    else { E.passOrSwap(M.st, seat, null); }
-    afterTurn();
-  }, reduced() ? 250 : 800);
+    let fx = null;
+    if (play){
+      const res = E.apply(M.st, seat, play, isWord);
+      if (res && res.ok){ cue('piece.place', { gain:0.5, rate:clickRate() }); fx = { placed:play, score:res.score, seat }; }
+      else E.passOrSwap(M.st, seat, null);   /* should not happen — never leave the turn stuck */
+    }
+    else E.passOrSwap(M.st, seat, null);
+    afterTurn(fx);
+  }, reduced() ? 250 : 1100);
 }
 /* bounded search: try every rack permutation up to length 5 laid across an
    anchor in both directions; keep the highest-scoring legal play. Capped so
@@ -581,18 +720,20 @@ function onlineRemote(d){
   if (!M || !M.st || M.st.done) return { ok:true };
   const m = (d && d.m) || d || {};
   const seat = M.st.turn;
-  if (m.a === 'pass'){ E.passRemote(M.st, seat); M.remain[seat] = (m.n | 0); afterRemote(seat, 0); return { ok:true }; }
+  if (m.a === 'pass'){ E.passRemote(M.st, seat); M.remain[seat] = (m.n | 0); afterRemote(seat, 0, null); return { ok:true }; }
   const tiles = unflatTiles(Array.isArray(m.k) ? m.k : []);
-  if (!tiles.length){ E.passRemote(M.st, seat); afterRemote(seat, 0); return { ok:true }; }
+  if (!tiles.length){ E.passRemote(M.st, seat); afterRemote(seat, 0, null); return { ok:true }; }
   const res = E.placeRemote(M.st, seat, tiles);
   if (!res.ok) return { ok:false, why:'A word did not fit here.' };
   M.remain[seat] = (m.n | 0);
-  afterRemote(seat, res.score);
+  afterRemote(seat, res.score, tiles);
   return { ok:true };
 }
-function afterRemote(seat, score){
-  if (score){ note(Math.min(12, 5 + Math.floor(score / 6)), 0.5); cue('deck.save', { gain:0.5 }); }
+/* an OPPONENT's move gets the same theatre as ours — settle, flash, fly. */
+function afterRemote(seat, score, tiles){
+  if (tiles && tiles.length) cue('piece.place', { gain:0.5, rate:clickRate() });
   paint();
+  if (tiles && tiles.length) theatre(tiles, score | 0, seat);
   onlineEndCheck();
 }
 /* the local player's play, online: validate, lay, refill from OUR pile,
@@ -611,10 +752,10 @@ function playOnline(){
   M.st.turn = E.nextLive(M.st, me);
   M.remain[me] = M.st.racks[me].length + M.pile.length;
   M.pending = []; M.sel = -1;
-  note(Math.min(12, 5 + Math.floor(res.score / 6)), 0.6);
-  cue(placed.length === E.RACK ? 'game.win' : 'deck.save', { gain:0.6 }, true);
+  cue('piece.place', { gain:0.6, rate:clickRate() }, true);
   if (M.net) M.net.move('move', { a:'play', k: flatTiles(placed), n: M.remain[me] });
   paint();
+  theatre(placed, res.score, me);
   onlineEndCheck();
 }
 function passOnline(){
@@ -699,7 +840,7 @@ try { P.register(TILE); } catch(e){}
 if (/[?&]kelmatest\b/.test(location.search || '')){
   window.__KELMA_TEST = {
     setupSheet, startOffline, startMatch, openBoard, paint, tapRack, tapCell, playMove,
-    loadDict, get dictState(){ return dictState; }, isWord,
+    loadDict, get dictState(){ return dictState; }, isWord, theatre, reduced,
     get M(){ return M; }, get UI(){ return UI; }, engine:E, leave
   };
 }

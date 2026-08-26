@@ -7,6 +7,20 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-08-26 — KELMA: delaying the hotseat handover leaked the next rack
+Adding a ~1.1s play-theatre before the pass-the-phone handover sheet meant
+the turn had ALREADY advanced when the post-play paint ran — so the NEXT
+player's private rack was on screen for a full second before the sheet
+covered it. Every DOM assertion passed; only READING the screenshot caught
+tiles that belonged to the other player.
+→ In any hotseat game, anything that defers the handover must also hide the
+rack for that window (kelma: rackView returns [] while the time-based hold
+is live). Time-based hold, not a flag — if the timer dies the hold expires
+and input/rack come back by themselves (see the LUDU entry below).
+Also: kelma's PREMIUM map uses '.' for a plain square — `if (premAt(r,c))`
+is TRUE on every cell. Compare against '.' explicitly, or the "premium"
+effect fires 225 times.
+
 ## 2026-08-26 — LUDU: a long animation gate starved the one-tap mover
 Giving every seat's move a hop animation (ludu-ui theatre) made the
 `sliding` flag long-lived, and the AI game froze at a HUMAN turn with one
