@@ -1025,15 +1025,24 @@ function draw(){
     if (pts.length >= 2){
       const ex = pts[pts.length - 2], ey = pts[pts.length - 1];
       const mr = Math.max(4, cell * 1.4);
-      /* a target reticle at the predicted landing */
-      g.strokeStyle = 'rgba(255,107,77,.95)'; g.lineWidth = Math.max(1.4, cell * 0.28);
-      g.beginPath(); g.arc(sx(ex), sy(ey), mr, 0, 6.2832); g.stroke();
+      /* a BIG target reticle at the predicted landing — this is the whole
+         point of aiming into the fog, so make it UNMISTAKABLE: a dark halo
+         for contrast on the murk, a bright ring, long gapped crosshair arms
+         so the exact impact cell stays clear, and a hot centre dot. */
+      const rr = mr * 1.5, sxe = sx(ex), sye = sy(ey);
+      g.lineCap = 'round';
+      g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = Math.max(3, cell * 0.5);
+      g.beginPath(); g.arc(sxe, sye, rr, 0, 6.2832); g.stroke();
+      g.strokeStyle = 'rgba(255,120,90,.98)'; g.lineWidth = Math.max(2, cell * 0.34);
+      g.beginPath(); g.arc(sxe, sye, rr, 0, 6.2832); g.stroke();
       g.beginPath();
-      g.moveTo(sx(ex) - mr * 1.5, sy(ey)); g.lineTo(sx(ex) + mr * 1.5, sy(ey));
-      g.moveTo(sx(ex), sy(ey) - mr * 1.5); g.lineTo(sx(ex), sy(ey) + mr * 1.5);
+      g.moveTo(sxe - rr * 1.7, sye); g.lineTo(sxe - rr * 0.55, sye);
+      g.moveTo(sxe + rr * 0.55, sye); g.lineTo(sxe + rr * 1.7, sye);
+      g.moveTo(sxe, sye - rr * 1.7); g.lineTo(sxe, sye - rr * 0.55);
+      g.moveTo(sxe, sye + rr * 0.55); g.lineTo(sxe, sye + rr * 1.7);
       g.stroke();
-      g.fillStyle = 'rgba(255,107,77,.9)';
-      g.beginPath(); g.arc(sx(ex), sy(ey), Math.max(1.5, cell * 0.4), 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(255,235,140,.98)';
+      g.beginPath(); g.arc(sxe, sye, Math.max(2, cell * 0.5), 0, 6.2832); g.fill();
     }
   }
 
@@ -1767,7 +1776,9 @@ const VARIANT_LIST = ['malta', 'dusk', 'quarry', 'night'];
    updates instantly — the game is fully playable without a single
    particle). Math.random here is fine: it never feeds the engine.
    ═══════════════════════════════════════════════════════════════════ */
-const FX_CAP = { debris:90, particles:150, rings:8 };
+const FX_CAP = { debris:110, particles:200, rings:10 };
+/* the crate the soldiers float on — splinter tints for a box shatter */
+const SPLINTER_COLS = ['#C79A5B', '#a87f47', '#7E5626', '#8d6a3c', '#d8b077'];
 function initFx(){
   return { debris:[], particles:[], rings:[], shake:0, shakeMax:0, flash:0,
            raf:0, last:0, running:false };
@@ -1782,20 +1793,24 @@ function spawnImpact(wx, wy, radius, power, opts){
   const fx = M.fx;
   const big = radius >= 7;
   opts = opts || {};
-  /* the shockwave ring */
+  /* the shockwave ring — big blasts get a second, hotter, slower ring
+     underneath so the boom reads as a FIREBALL, not just an outline */
   if (fx.rings.length < FX_CAP.rings)
     fx.rings.push({ x:wx, y:wy, r0:radius * 0.35, r1:radius * (1.6 + power * 0.5),
-                    born:nowMs(), life:big ? 460 : 340,
+                    born:nowMs(), life:big ? 520 : 340,
                     col: opts.water ? '180,220,255' : '255,170,80' });
+  if (big && !opts.water && fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x:wx, y:wy, r0:radius * 0.2, r1:radius * 2.3,
+                    born:nowMs(), life:680, col:'255,120,40' });
   /* the flash */
-  fx.flash = Math.min(1, fx.flash + (big ? 0.75 : 0.4));
-  /* the camera shake, scaled and clamped */
-  const s = Math.min(4.2, radius * 0.35 + power * 1.2);
+  fx.flash = Math.min(1, fx.flash + (big ? 0.9 : 0.4));
+  /* the camera shake, scaled and clamped — the biggest booms kick harder */
+  const s = Math.min(big ? 5.2 : 4.2, radius * 0.4 + power * 1.4);
   fx.shake = Math.max(fx.shake, s); fx.shakeMax = Math.max(fx.shakeMax, s);
   /* chunks: tumbling squares that arc out and settle. Count scales with
      the blast but is hard-capped. */
   const nChunks = Math.min(FX_CAP.debris - fx.debris.length,
-                           Math.round(radius * 1.6 + power * 4));
+                           Math.round(radius * (big ? 2.2 : 1.6) + power * 4));
   const cols = opts.cols && opts.cols.length ? opts.cols : ['#8a6a3a', '#6b5330', '#5a4726'];
   for (let i = 0; i < nChunks; i++){
     const ang = rr(-Math.PI, 0) - (Math.random() < 0.5 ? 0 : Math.PI); /* mostly up/out */
@@ -1806,6 +1821,24 @@ function spawnImpact(wx, wy, radius, power, opts){
       vy:-Math.abs(Math.sin(ang)) * sp * rr(1.0, 1.8) - rr(0.4, 1.2),
       sz:rr(0.7, 2.1), rot:rr(0, 6.28), vr:rr(-0.4, 0.4),
       col:cols[(Math.random() * cols.length) | 0], life:1, born:nowMs(), settle:0
+    });
+  }
+  /* BOX SHATTER: long wooden SPLINTERS torn off the crate — elongated
+     shards that spin fast and fly hard, so a hit box reads as blown to
+     bits, not merely removed. opts.splinters is set by playFlight when
+     the boom landed on/near a soldier's crate. */
+  const nSpl = Math.min(FX_CAP.debris - fx.debris.length, opts.splinters | 0);
+  for (let i = 0; i < nSpl; i++){
+    const ang = rr(-2.9, -0.25);            /* fan upward and outward */
+    const sp = rr(1.2, 3.2) * (0.9 + power * 0.4);
+    fx.debris.push({
+      x:wx, y:wy,
+      vx:Math.cos(ang) * sp,
+      vy:Math.sin(ang) * sp - rr(0.5, 1.6),
+      sz:0, shard:1, len:rr(1.1, 2.6), wid:rr(0.22, 0.5),
+      rot:rr(0, 6.28), vr:rr(-0.9, 0.9),
+      col:SPLINTER_COLS[(Math.random() * SPLINTER_COLS.length) | 0],
+      life:1, born:nowMs(), settle:0
     });
   }
   /* dirt/smoke puffs + sparks */
@@ -1822,6 +1855,79 @@ function spawnImpact(wx, wy, radius, power, opts){
       kind: opts.water ? 'water' : spark ? 'spark' : 'smoke'
     });
   }
+  /* the BIG-BLAST dressing: a swelling fireball core, glowing embers
+     that arc and gutter out, and a few tall lingering smoke columns.
+     Small taps get none of this, so ammo classes read differently. */
+  if (big && !opts.water){
+    let room = FX_CAP.particles - fx.particles.length;
+    const nFire = Math.min(room, 6); room -= nFire;
+    for (let i = 0; i < nFire; i++){
+      const ang = rr(0, 6.283), sp = rr(0.1, 0.6);
+      fx.particles.push({ x:wx + rr(-1, 1), y:wy + rr(-1, 1),
+        vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - rr(0.1, 0.4),
+        r:rr(1.4, 2.6), born:nowMs(), life:rr(260, 440), kind:'fire' });
+    }
+    const nEm = Math.min(room, Math.round(radius * 1.6)); room -= nEm;
+    for (let i = 0; i < nEm; i++){
+      const ang = rr(-3.0, -0.15), sp = rr(1.2, 3.4);
+      fx.particles.push({ x:wx, y:wy, vx:Math.cos(ang) * sp,
+        vy:Math.sin(ang) * sp - rr(0.3, 1.0),
+        r:rr(0.25, 0.55), born:nowMs(), life:rr(480, 950), kind:'ember' });
+    }
+    const nSm = Math.min(room, 4);
+    for (let i = 0; i < nSm; i++){
+      fx.particles.push({ x:wx + rr(-2, 2), y:wy + rr(-1.5, 0.5),
+        vx:rr(-0.15, 0.15), vy:-rr(0.2, 0.55),
+        r:rr(2.4, 4.0), born:nowMs(), life:rr(900, 1500), kind:'smoke' });
+    }
+  }
+  startFx();
+}
+
+/* THE SPLASH — the money moment: a soldier (or shell) hits the sea. A
+   tall white water column erupts, droplets fan out and rain back in,
+   foam blooms at the base and flat ripple rings run out across the
+   surface at E.WATER_Y. `big` marks a soldier going OVERBOARD, which
+   gets the full geyser. Draw-only, capped, skipped under reduced motion. */
+function spawnSplash(wx, scale, big){
+  if (noMotion() || !M) return;
+  if (!M.fx) M.fx = initFx();
+  const fx = M.fx, wy = E.WATER_Y;
+  /* flat ripple rings racing out on the surface */
+  if (fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x:wx, y:wy, r0:scale * 0.4, r1:scale * (big ? 3.2 : 2.2),
+                    born:nowMs(), life:big ? 700 : 480, col:'190,230,255', flat:true });
+  if (big && fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x:wx, y:wy, r0:scale * 0.2, r1:scale * 1.8,
+                    born:nowMs(), life:520, col:'235,250,255', flat:true });
+  let room = FX_CAP.particles - fx.particles.length;
+  /* the white column: near-vertical jets that climb tall then rain back */
+  const nCol = Math.min(room, big ? 20 : 12); room -= nCol;
+  for (let i = 0; i < nCol; i++){
+    fx.particles.push({
+      x:wx + rr(-0.6, 0.6) * scale * 0.3, y:wy,
+      vx:rr(-0.4, 0.4), vy:-rr(1.9, 4.0) * (big ? 1.35 : 0.95),
+      r:rr(0.9, 2.2), born:nowMs(), life:rr(560, 1050), kind:'plume'
+    });
+  }
+  /* scattered droplets fanning wider */
+  const nDrop = Math.min(room, big ? 14 : 8); room -= nDrop;
+  for (let i = 0; i < nDrop; i++){
+    const ang = rr(-2.8, -0.35), sp = rr(0.8, 2.6);
+    fx.particles.push({ x:wx, y:wy, vx:Math.cos(ang) * sp,
+      vy:Math.sin(ang) * sp - rr(0.2, 0.8),
+      r:rr(0.3, 0.8), born:nowMs(), life:rr(380, 720), kind:'water' });
+  }
+  /* foam blooming at the base */
+  const nFoam = Math.min(room, big ? 5 : 3);
+  for (let i = 0; i < nFoam; i++){
+    fx.particles.push({ x:wx + rr(-1, 1) * scale * 0.3, y:wy,
+      vx:rr(-0.1, 0.1), vy:0,
+      r:rr(0.9, 1.8), born:nowMs(), life:rr(420, 680), kind:'foam' });
+  }
+  fx.shake = Math.max(fx.shake, big ? 2.6 : 1.1);
+  fx.shakeMax = Math.max(fx.shakeMax, fx.shake);
+  if (big) fx.flash = Math.min(1, fx.flash + 0.25);
   startFx();
 }
 
@@ -1838,6 +1944,21 @@ function spawnKnock(wx, wy, col){
     fx.particles.push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
       r:rr(0.8, 1.8), born:nowMs(), life:rr(300, 560), kind:'dust' });
   }
+  /* DIRECT HIT punch: a hard white pop ring, a violent star of sparks,
+     a flash spike and a sharp short shake, so a body-shot lands with
+     real weight */
+  if (fx.rings.length < FX_CAP.rings)
+    fx.rings.push({ x:wx, y:wy, r0:0.4, r1:3.4, born:nowMs(), life:260,
+                    col:'255,255,255' });
+  const nSp = Math.min(FX_CAP.particles - fx.particles.length, 8);
+  for (let i = 0; i < nSp; i++){
+    const ang = rr(0, 6.283), sp = rr(1.4, 3.2);
+    fx.particles.push({ x:wx, y:wy, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp,
+      r:rr(0.3, 0.6), born:nowMs(), life:rr(160, 320), kind:'spark' });
+  }
+  fx.flash = Math.min(1, fx.flash + 0.3);
+  fx.shake = Math.max(fx.shake, 2.4);
+  fx.shakeMax = Math.max(fx.shakeMax, fx.shake);
   startFx();
 }
 
@@ -1876,7 +1997,13 @@ function stepFx(dt){
     /* the ground under this column */
     const gy = groundScreenY(d.x);
     if (d.y >= gy){
-      if (gy >= wy - 0.5){ fx.debris.splice(i, 1); continue; } /* into the moat */
+      if (gy >= wy - 0.5){
+        /* into the moat — a little plink of spray where it lands */
+        if (fx.particles.length < FX_CAP.particles)
+          fx.particles.push({ x:d.x, y:wy, vx:rr(-0.3, 0.3), vy:-rr(0.4, 1.1),
+            r:rr(0.3, 0.7), born:nowMs(), life:rr(220, 420), kind:'water' });
+        fx.debris.splice(i, 1); continue;
+      }
       d.y = gy; d.vy *= -0.34; d.vx *= 0.55; d.vr *= 0.5;
       if (Math.abs(d.vy) < 0.25){ d.settle = 1; d.settleAt = nowMs(); }
     }
@@ -1888,8 +2015,15 @@ function stepFx(dt){
     const age = nowMs() - p.born;
     if (age > p.life){ fx.particles.splice(i, 1); continue; }
     if (p.kind === 'smoke' || p.kind === 'dust'){ p.vy -= 0.006 * f; p.vx *= 0.98; p.r += 0.03 * f; }
+    else if (p.kind === 'fire'){ p.r += 0.1 * f; p.vy -= 0.01 * f; p.vx *= 0.96; }
+    else if (p.kind === 'foam'){ p.r += 0.045 * f; p.vx *= 0.9; }
+    else if (p.kind === 'ember'){ p.vy += G * 0.8 * f; p.vx *= 0.99; }
+    else if (p.kind === 'plume'){ p.vy += G * 1.15 * f; p.vx *= 0.985; }
     else { p.vy += G * f; }
     p.x += p.vx * f; p.y += p.vy * f;
+    /* water bits vanish when they fall back under the surface */
+    if ((p.kind === 'plume' || p.kind === 'water') && p.vy > 0 && p.y > wy + 0.5)
+      fx.particles.splice(i, 1);
   }
   /* rings just age out (drawn by drawRings) */
   const now = nowMs();
@@ -1898,7 +2032,9 @@ function stepFx(dt){
   }
   /* shake + flash decay */
   fx.shake *= Math.pow(0.001, dt); if (fx.shake < 0.02) fx.shake = 0;
-  fx.flash *= Math.pow(0.02, dt); if (fx.flash < 0.001) fx.flash = 0;
+  /* the flash is a POP, not a veil: die fast so the destruction underneath
+     stays readable the very next beat */
+  fx.flash *= Math.pow(0.002, dt); if (fx.flash < 0.001) fx.flash = 0;
   return fx.debris.length + fx.particles.length + fx.rings.length > 0 || fx.shake > 0 || fx.flash > 0;
 }
 
@@ -1917,12 +2053,22 @@ function groundScreenY(wxCell){
 function drawDebris(g, cell){
   const fx = M.fx; if (!fx || !fx.debris.length) return;
   for (const d of fx.debris){
-    const X = sx(d.x), Y = sy(d.y), s = Math.max(1, d.sz * cell);
+    const X = sx(d.x), Y = sy(d.y);
     g.save(); g.translate(X, Y); g.rotate(d.rot);
-    g.fillStyle = d.col;
-    g.fillRect(-s / 2, -s / 2, s, s);
-    g.fillStyle = 'rgba(0,0,0,.25)';
-    g.fillRect(0, -s / 2, s / 2, s);
+    if (d.shard){
+      /* a wooden splinter: a long thin plank with a lit top edge */
+      const L = Math.max(2, d.len * cell), W = Math.max(1, d.wid * cell);
+      g.fillStyle = d.col;
+      g.fillRect(-L / 2, -W / 2, L, W);
+      g.fillStyle = 'rgba(255,244,214,.28)';
+      g.fillRect(-L / 2, -W / 2, L, W / 2);
+    } else {
+      const s = Math.max(1, d.sz * cell);
+      g.fillStyle = d.col;
+      g.fillRect(-s / 2, -s / 2, s, s);
+      g.fillStyle = 'rgba(0,0,0,.25)';
+      g.fillRect(0, -s / 2, s / 2, s);
+    }
     g.restore();
   }
 }
@@ -1930,10 +2076,15 @@ function drawRings(g, cell){
   const fx = M.fx; if (!fx || !fx.rings.length) return;
   const now = nowMs();
   for (const rg of fx.rings){
-    const t = (now - rg.born) / rg.life; if (t > 1) continue;
+    const t = (now - rg.born) / rg.life; if (t > 1 || t < 0) continue;
     const r = (rg.r0 + (rg.r1 - rg.r0) * t) * cell;
     g.strokeStyle = 'rgba(' + rg.col + ',' + (0.7 * (1 - t)).toFixed(2) + ')';
     g.lineWidth = Math.max(1.5, cell * (1 - t) * 1.2);
+    if (rg.flat){
+      /* a surface ripple: a flattened ellipse hugging the water line */
+      g.beginPath(); g.ellipse(sx(rg.x), sy(rg.y), r, r * 0.26, 0, 0, 6.2832); g.stroke();
+      continue;
+    }
     g.beginPath(); g.arc(sx(rg.x), sy(rg.y), r, 0, 6.2832); g.stroke();
     /* a hot inner flash early in the life */
     if (t < 0.4){
@@ -1954,6 +2105,28 @@ function drawParticles(g, cell){
     if (p.kind === 'spark'){
       g.fillStyle = 'rgba(255,' + (180 + ((1 - t) * 60) | 0) + ',80,' + (1 - t).toFixed(2) + ')';
       g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+    } else if (p.kind === 'ember'){
+      /* a glowing ember: hot core cooling from near-white to deep red */
+      const a = 1 - t;
+      g.fillStyle = 'rgba(255,' + ((90 + a * 140) | 0) + ',40,' + (0.35 * a).toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r * 2.2, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(255,' + ((150 + a * 90) | 0) + ',' + ((60 + a * 120) | 0) + ',' + a.toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+    } else if (p.kind === 'fire'){
+      /* the fireball core of a big blast: orange shell, yellow heart */
+      const a = 1 - t;
+      g.fillStyle = 'rgba(255,120,40,' + (0.5 * a).toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
+      g.fillStyle = 'rgba(255,224,130,' + (0.7 * a).toFixed(2) + ')';
+      g.beginPath(); g.arc(X, Y, r * 0.55, 0, 6.2832); g.fill();
+    } else if (p.kind === 'plume'){
+      /* the splash column: a tall white streak of thrown water */
+      g.fillStyle = 'rgba(228,244,255,' + (0.85 * (1 - t)).toFixed(2) + ')';
+      g.beginPath(); g.ellipse(X, Y, r * 0.55, r * 1.6, 0, 0, 6.2832); g.fill();
+    } else if (p.kind === 'foam'){
+      /* foam blooming flat on the surface */
+      g.fillStyle = 'rgba(240,250,255,' + (0.6 * (1 - t)).toFixed(2) + ')';
+      g.beginPath(); g.ellipse(X, Y, r, r * 0.35, 0, 0, 6.2832); g.fill();
     } else if (p.kind === 'water'){
       g.fillStyle = 'rgba(190,225,255,' + (0.7 * (1 - t)).toFixed(2) + ')';
       g.beginPath(); g.arc(X, Y, r, 0, 6.2832); g.fill();
@@ -2733,6 +2906,20 @@ function debrisCols(){
   return ['#9a7648', '#7a5c34', th.hill2 || '#5a4726', '#8a6a3a'];
 }
 
+/* did this boom land on (or blow away) a soldier's floating crate? Reads
+   the engine's post-apply grid, never writes it. If surviving BOX cells
+   sit near the blast, it hit a crate; if the blast is low over open sea
+   with nothing solid beneath, the crate it hit is GONE — splinters both
+   ways. */
+function boomNearBox(wx, wy){
+  const st = M && M.st; if (!st) return false;
+  const x0 = Math.floor(wx), y0 = Math.floor(wy);
+  for (let dx = -3; dx <= 3; dx++)
+    for (let dy = -3; dy <= 3; dy++)
+      if (E.matAt(st, x0 + dx, y0 + dy) === E.BOX) return true;
+  return wy >= E.WATER_Y - 6 && groundScreenY(wx) >= E.WATER_Y - 0.5;
+}
+
 /* ── THE FLIGHT: walk the shell along the engine's own path, FOLLOW IT
    with the camera, fire the sounds and — the point of all this — SPAWN
    THE DESTRUCTION at each impact the report describes. Reduced motion
@@ -2762,7 +2949,9 @@ function playFlight(rep, done){
   const booms = [];
   for (const e of rep.ev){
     if (e.t === 'boom') booms.push({ x:e.x, y:e.y, r:(e.r || 4), water:false, fired:false });
-    else if (e.t === 'splash' || e.t === 'overboard') booms.push({ x:e.x, y:e.y, r:3.5, water:true, fired:false });
+    else if (e.t === 'splash' || e.t === 'overboard')
+      booms.push({ x:e.x, y:e.y, r:e.t === 'overboard' ? 5 : 3.5, water:true,
+                   over:e.t === 'overboard', fired:false });
     else if (e.t === 'stick') booms.push({ x:e.x, y:e.y, r:2.5, water:false, fired:false, small:true });
   }
   /* the thumps (direct hits) → a knock puff at the person */
@@ -2783,7 +2972,8 @@ function playFlight(rep, done){
     if (!M || M.dead){ return; }
     a.raf = M.raf = requestAnimationFrame(step);
     if (!landed){
-      carried += SPEED;
+      /* hit-stop: a thump freezes the cosmetic flight for a beat */
+      if (!(a.holdUntil && nowMs() < a.holdUntil)) carried += SPEED;
       while (carried >= 1 && a.i + 2 < pts.length){
         a.i += 2; carried -= 1;
         a.trail.push(pts[a.i], pts[a.i + 1]);
@@ -2805,7 +2995,7 @@ function playFlight(rep, done){
           spawnSparks(e.x, e.y);
         } else if (e.t === 'skip' && near(a.pos, e.x, e.y, 3)){
           e._done = true; cue('sea.splash', { gain:0.35 });
-          spawnImpact(e.x, E.WATER_Y, 3, 0.4, { water:true });
+          spawnSplash(e.x, 2.2, false);
         }
       }
       /* fire the impact FX when the shell reaches (or the path ends at)
@@ -2820,10 +3010,14 @@ function playFlight(rep, done){
              the engine has already handed the turn on by now. */
           addReveal(rep.seat, b.x, b.water ? E.WATER_Y : b.y, b.r);
           if (b.water){
-            spawnImpact(b.x, E.WATER_Y, b.r, 0.5, { water:true });
-            cue('sea.splash', { gain:0.5 }, true);
+            /* the sea takes it — a soldier overboard gets the full geyser */
+            spawnSplash(b.x, b.r, !!b.over);
+            cue('sea.splash', { gain:b.over ? 0.7 : 0.5 }, true);
           } else {
-            spawnImpact(b.x, b.y, b.r, power, { cols:debrisCols() });
+            /* on land: if the blast landed on/near a soldier's crate,
+               dress it with wooden splinters so the box visibly shatters */
+            const spl = boomNearBox(b.x, b.y) ? Math.round(6 + b.r * 1.5) : 0;
+            spawnImpact(b.x, b.y, b.r, power, { cols:debrisCols(), splinters:spl });
             cue(b.r >= 7 ? 'duel.boss' : 'duel.hit', { gain:0.65 }, b.r >= 7);
           }
         }
@@ -2832,6 +3026,10 @@ function playFlight(rep, done){
         if (!tp._done && near(a.pos, tp.x, tp.y, 4)){
           tp._done = true;
           spawnKnock(tp.x, tp.y);
+          /* a hit-stop beat: freeze the (purely cosmetic) flight walk for
+             a breath so the direct hit lands with weight. Draw-only — the
+             engine already resolved everything at apply(). */
+          a.holdUntil = now + 90;
           cue('duel.hit', { gain:0.55 });
         }
       }
@@ -4294,6 +4492,7 @@ try {
       fire: (mv, src) => fireShot(Object.assign({ seat:M.me }, mv), src || 'me'),
       /* spawn destruction directly, for a synchronous FX assertion */
       spawnImpact: (x, y, r, p, o) => spawnImpact(x, y, r, p, o),
+      spawnSplash: (x, s, big) => spawnSplash(x, s, big),
       /* advance the FX physics n steps of dt, headless (no rAF) */
       tickFx: (n, dt) => { for (let i = 0; i < (n||1); i++) stepFx(dt||0.016); },
       /* advance the camera one eased step toward its target */
