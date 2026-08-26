@@ -528,8 +528,19 @@ class L:
     # whole ROOM may be, so a single fast client cannot amplify itself across
     # seven sockets. It is per room, not per player, on purpose: it is the
     # amplification that costs the Pi, not the typing.
-    FAN_RATE = 40.0             # relayed messages/second per room, sustained
-    FAN_BURST = 80.0
+    # 26 Aug 2026 — RAISED for the REAL-TIME games. 40/s was sized when every
+    # table was a turn-based card game. BOMBA is a 16Hz lockstep: each phone
+    # ships an input byte on change plus a keepalive, so a 4-seat room sits at
+    # ~37/s and a 6-seat one at ~39/s — flush against the old ceiling with NO
+    # headroom. Every message the bucket refused cost that room a 250-400ms
+    # freeze (a peer waits on the missing byte; the sender's next keepalive is
+    # what heals it), which is exactly the "lags / freezes at 3+ players" the
+    # players reported. One token is taken per RELAYED MESSAGE (not per
+    # recipient), so the cost is linear in table size, and a few hundred
+    # ~50-byte sends a second is nothing to a Pi 5. Still a real cap on
+    # amplification.
+    FAN_RATE = 160.0            # relayed messages/second per room, sustained
+    FAN_BURST = 320.0
 
     MAX_MSG = 16 * 1024         # bytes, one WebSocket message (largest real
                                 # message, the deal, is ~2 KB)
@@ -8584,7 +8595,9 @@ def selftest():
             for c in [f_host] + fpeers:
                 bye(c)
         except Exception as e:
-            L.FAN_RATE, L.FAN_BURST = 40.0, 80.0
+            # restore whatever the module actually defines, never a hardcoded
+            # pair — the constants moved once and this line silently undid it
+            L.FAN_RATE, L.FAN_BURST = keep_r, keep_b
             check("fan-out is capped per room", False, repr(e))
 
         try:

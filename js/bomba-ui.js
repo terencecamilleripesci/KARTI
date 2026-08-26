@@ -713,9 +713,19 @@ function startLoop(){
      between APPLIED input changes; shipHbMs paces the keepalive. Worst
      case ≈ n·16/gap ≤ 26/s, under the bucket with room for the chat. */
   if (M.net){
+    /* 26 Aug 2026 — the relay's per-room bucket was RAISED (FAN_RATE 40 -> 160)
+       because the old ceiling sat right on top of these numbers: a 4-seat room
+       ran at ~37/s against 40/s, so bytes got refused, and every refusal cost
+       the room a whole keepalive of freeze. The note above under-counted: it
+       omitted the keepalive, which is most of the traffic when thumbs are
+       still. With real headroom we can be both SNAPPIER (a smaller gap lands
+       input changes sooner) and QUICKER TO HEAL (a faster keepalive unblocks a
+       peer in ~150ms instead of 250-400ms). Worst case now, 6 seats:
+       6 x (16/3 + 1000/200) ≈ 62/s — comfortably inside 160, with room for
+       chat and a rejoin storm. */
     const n = M.st.players.length;
-    M.shipGap  = n <= 4 ? 3 : n <= 6 ? 4 : 5;
-    M.shipHbMs = n <= 5 ? 250 : 400;
+    M.shipGap  = n <= 4 ? 2 : n <= 6 ? 3 : 4;
+    M.shipHbMs = n <= 5 ? 150 : 200;
   }
   /* PRIME THE PIPELINE, online: commit an explicit stand-still byte for our
      seat for ticks 0..D-1. commitLocal() only ever commits N+D, so these
