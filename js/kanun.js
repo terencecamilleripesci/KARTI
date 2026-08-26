@@ -323,9 +323,11 @@ const T = {
   CH_DEAD_V2: 0.0016,
   FALL_V:     0.95,     /* landing faster than this hurts               */
   FALL_K:     70,
-  CH_SPLASH:  0.55,     /* a person takes less from a splash than a      */
+  CH_SPLASH:  0.78,     /* a person takes less from a splash than a      */
                         /* crate does — they are small and they duck     */
   CH_SPEED:   0.22,     /* what the speed of a direct hit is worth       */
+  CH_AIRDRAG: 0.80,     /* sideways air drag on a launched person, so a  */
+                        /* knock does not carry them clean off their raft*/
 
   FALL_DMG:   16,       /* per row a piece of cover falls               */
   CRUSH:      5,        /* onto whatever it lands on                    */
@@ -1074,9 +1076,12 @@ function blast(st, cx, cy, r, peak, knock, seat, rep){
          direction of roughly unit length WITHOUT normalising it —
          |offset| <= r by construction, so offset/r is in the unit
          disc. That is the sqrt we do not take. */
-      const imp = knock * f * 0.055;
-      c.vx += (ddx / r) * imp * 22;
-      c.vy += (ddy / r) * imp * 22 - imp * 8;   /* a bang always lifts */
+      const imp = knock * f * 0.024;  /* a blast knocks you about, it does not launch you off your raft */
+      /* the SIDEWAYS shove is small (they mostly land back on their box and
+         take HP damage, not fall in the sea); the lift is kept for feel. Only
+         a very hard, very close hit will push a soldier clean off. */
+      c.vx += (ddx / r) * imp * 7;
+      c.vy += (ddy / r) * imp * 10 - imp * 7;   /* a bang always lifts */
       c.air = true;
     }
   }
@@ -1137,7 +1142,7 @@ function directHit(st, p, c, seat, rep){
   rep.ev.push({ t:'thump', id:p.id, ch:c.id, x:p.x, y:p.y });
   /* knockback is the projectile's own velocity times its mass. No
      direction to normalise — the velocity IS the direction. */
-  const k = W_.knock * W_.mass * 0.62;
+  const k = W_.knock * W_.mass * 0.22;  /* less launch, more of a shove */
   c.vx += p.vx * k;
   c.vy += p.vy * k - 0.18 * W_.knock;
   c.air = true;
@@ -1478,6 +1483,7 @@ function ragdoll(st, seat, rep){
         any = true;
         c.vy += T.G;
         c.vx += st.wind * T.WIND_A * 0.35;
+        c.vx *= T.CH_AIRDRAG;   /* bleed sideways speed so they settle on their raft */
 
         let rem = 1;
         for (let sub = 0; sub < T.SUBHIT && rem > 0; sub++){

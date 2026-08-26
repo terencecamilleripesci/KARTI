@@ -1384,6 +1384,7 @@ function revealFromReport(rep){
     if (e.t === 'boom') addReveal(owner, e.x, e.y, e.r || 4);
     else if (e.t === 'splash' || e.t === 'overboard') addReveal(owner, e.x, E.WATER_Y, 3.5);
     else if (e.t === 'stick') addReveal(owner, e.x, e.y, 2.5);
+    else if (e.t === 'bounce') addReveal(owner, e.x, e.y, 2.6);   /* a ricochet lifts the fog where it clipped */
   }
 }
 
@@ -3452,6 +3453,9 @@ function playFlight(rep, done){
         if (e._done) continue;
         if (e.t === 'bounce' && near(a.pos, e.x, e.y, 3)){
           e._done = true; cue('piece.slide', { gain:0.3 });
+          /* a ricochet lifts the fog where it clipped, so banking a shot off
+             the pillar into the murk actually SHOWS you what it hit */
+          addReveal(rep.seat, e.x, e.y, 2.6);
           /* the slipper bounces RUBBERY — a pop ring, not hot sparks */
           if (a.key === 'PPAPOCC') spawnRubberPop(e.x, e.y);
           else spawnSparks(e.x, e.y);
