@@ -180,14 +180,122 @@ function tryGuess(code){
     if (ruling) { afterRuling(me, ruling); }
   }
 }
-/* fold a ruling in locally + sound/animation, then react (bot, end) */
+/* fold a ruling in locally + sound/animation, then react (bot, end).
+   This fires for YOUR guesses and for everyone else's (the online reveal
+   path lands here too), so the theatre below plays on every phone. */
 function afterRuling(seat, ruling){
-  if (ruling.wrong){ cue('duel.hit', { gain:0.6 }, true); }
-  else { note(Math.min(12, 3 + ruling.count), 0.6); cue('piece.place', { gain:0.5 }); }
   M.pending = false;
-  paint();
+  paint();                        /* truth on screen FIRST — everything    */
+                                  /* after this line is decoration, so an  */
+                                  /* interrupt (next paint) snaps forward  */
   if (M.st.done){ endRound(); return; }
+  if (ruling.wrong) missTheatre(); else hitTheatre(seat);
   maybeBot();
+}
+
+/* ═════════════ the theatre ═════════════
+   Render-first: paint() has already put the correct state on screen; these
+   only add classes/clones on top of it, so the next paint() (a fast online
+   turn) simply rebuilds the truth and the animation vanishes mid-flight
+   without desyncing anything. Every VISUAL is gated on reduced(); the
+   sounds stay. No game logic may ever wait on any of this. */
+function slotEls(){ return UI ? UI.word.querySelectorAll('.fk-slot') : []; }
+function chipEls(){ return UI ? UI.top.querySelectorAll('.fk-seat') : []; }
+
+/* a HIT: the new letters flip in on a stagger, each with a climbing
+   pentatonic note — a little fanfare; the scorer's chip pops. */
+function hitTheatre(seat){
+  const st = M.st, last = st && st.last;
+  cue('piece.place', { gain:0.5 }, true);
+  if (!st || !last) return;
+  if (reduced()){ note(6, 0.6); return; }
+  const chips = chipEls();
+  if (chips[seat]) chips[seat].classList.add('fk-pop');
+  const cells = slotEls();
+  let k = 0;
+  for (let i = 0; i < st.len; i++){
+    if (st.slots[i] !== last.l) continue;
+    const el = cells[i], step = Math.min(12, 4 + k * 2), d = k * 95;
+    if (el){ el.style.animationDelay = d + 'ms'; el.classList.add('fresh'); }
+    setTimeout(() => { if (M && !M.dead && el && el.isConnected) note(step, 0.6); }, d);
+    k++;
+  }
+  if ((last.gained | 0) >= 3)
+    setTimeout(() => { if (M && !M.dead) cue('card.sweep', { gain:0.5 }, true); }, k * 95 + 60);
+}
+
+/* a MISS: the gallows takes the blow — the frame shakes, the new piece
+   drops/grows/swings in, and a wooden knock lands just after the impact,
+   pitched lower as the gallows grows. */
+function missTheatre(){
+  const st = M.st, n = st ? st.wrong : 0;
+  cue('duel.hit', { gain:0.6 }, true);
+  setTimeout(() => { if (M && !M.dead && M.st === st) cue('dama.place', { rate: Math.max(0.6, 1.06 - n * 0.08), gain:0.65 }, true); }, 110);
+  if (n >= 4)                      /* the wood starts creaking near the end */
+    setTimeout(() => { if (M && !M.dead && M.st === st) cue('ui.untoggle', { rate:0.7, gain:0.5 }, true); }, 300);
+  if (reduced() || !UI) return;
+  const svg = UI.gallows.querySelector('svg');
+  if (svg) svg.classList.add('fk-shake');
+  const ps = UI.gallows.querySelectorAll('.fk-p');
+  const piece = ps[ps.length - 1];
+  if (piece) piece.classList.add('fk-new');
+}
+
+/* the SOLVE: the word turns gold in a wave, confetti bursts over it, and
+   a pentatonic flourish climbs under the win sting. */
+function solveTheatre(){
+  const st = M.st;
+  [5, 7, 9, 12].forEach((s, i) => setTimeout(() => { if (M && !M.dead) note(s, 0.65); }, 80 + i * 95));
+  if (reduced() || !UI || !st) return;
+  const cells = slotEls();
+  for (let i = 0; i < st.len; i++){
+    const el = cells[i];
+    if (!el || st.slots[i] < 0) continue;
+    el.style.animationDelay = (i * 40) + 'ms';
+    el.classList.add('fk-gold');
+  }
+  const w = st.done ? st.done.winner : -1;
+  const chips = chipEls();
+  if (w >= 0 && chips[w]) chips[w].classList.add('fk-pop');
+  confetti();
+}
+
+/* the HANG: the man drops on the rope and swings out, rope-creak + a low
+   thud as he settles; the answer's remaining letters turn over dimmed. */
+function hangTheatre(hidden){
+  cue('ui.untoggle', { rate:0.55, gain:0.85 }, true);        /* the rope takes */
+  setTimeout(() => { if (M && !M.dead) cue('dama.place', { rate:0.58, gain:0.8 }, true); }, 420);
+  if (reduced() || !UI) return;
+  const svg = UI.gallows.querySelector('svg');
+  if (svg) svg.classList.add('fk-shake');
+  const man = UI.gallows.querySelector('.fk-man');
+  if (man){ man.classList.remove('fk-sway'); man.classList.add('fk-hang'); }
+  const st = M.st, cells = slotEls();
+  (hidden || []).forEach((i, k) => {
+    const el = cells[i];
+    if (!el || !st || st.slots[i] < 0) return;              /* not revealed here */
+    el.style.animationDelay = (350 + k * 70) + 'ms';
+    el.classList.add('fk-late');
+  });
+}
+
+/* a small confetti burst centred over the word — clones only, removed on a
+   timer, wiped harmlessly by any repaint. */
+function confetti(){
+  if (reduced() || !UI || !UI.word.isConnected) return;
+  const lay = document.createElement('div'); lay.className = 'fk-burst';
+  const cols = ['#FFC542','#4FB6FF','#3DDC84','#FF5468','#B98BFF','#FF9F45'];
+  let h = '';
+  for (let i = 0; i < 16; i++){
+    const a = (i / 16) * 6.28318 + Math.random() * 0.5;      /* cosmetic only —  */
+    const d = 46 + Math.random() * 70;                       /* never in play    */
+    h += '<i style="--dx:' + (Math.cos(a) * d).toFixed(0) + 'px;--dy:' + (Math.sin(a) * d - 24).toFixed(0) + 'px;' +
+      '--rt:' + ((Math.random() * 520 - 260) | 0) + 'deg;background:' + cols[i % cols.length] +
+      ';animation-delay:' + ((Math.random() * 90) | 0) + 'ms"></i>';
+  }
+  lay.innerHTML = h;
+  UI.word.appendChild(lay);
+  setTimeout(() => { try { lay.remove(); } catch(e){} }, 1200);
 }
 
 /* ═════════════ the machine plays (offline vs computer: machine is setter,
@@ -209,14 +317,25 @@ function maybeBot(){
 /* ═════════════ round / match end ═════════════ */
 function endRound(){
   if (!M || !M.st) return;
-  cue(M.st.done && M.st.done.reason === 'solved' ? 'game.win' : 'duel.destroy', { gain:0.7 }, true);
+  const st = M.st;
+  const solvedR = !!(st.done && st.done.reason === 'solved');
+  const hangedR = !!(st.done && st.done.reason === 'hanged');
+  cue(solvedR ? 'game.win' : 'duel.destroy', { gain:0.7 }, true);
+  /* remember which squares are still hidden so the answer's late reveal
+     can be staged after the paint below */
+  const hidden = [];
+  for (let i = 0; i < st.len; i++) if (st.slots[i] === -1) hidden.push(i);
   /* the setter reveals the answer to everyone (a burst of reveals) */
   if (!M.net || M.role === 'setter'){
     revealAnswer();
   }
   paint();
+  if (solvedR) solveTheatre(); else if (hangedR) hangTheatre(hidden);
   const over = M.round >= M.rounds;
-  setTimeout(() => { if (!M || M.dead) return; over ? finish() : nextRoundPrompt(); }, over ? 900 : 1500);
+  /* pacing: let the beat land — shorter when motion is reduced */
+  const wait = reduced() ? (over ? 800 : 1100)
+    : solvedR ? (over ? 1600 : 1900) : (over ? 1900 : 2100);
+  setTimeout(() => { if (!M || M.dead) return; over ? finish() : nextRoundPrompt(); }, wait);
 }
 function revealAnswer(){
   if (!M.st) return;
@@ -325,15 +444,19 @@ function injectCSS(){
   '#scr-party .fk-seat.on{border-color:var(--fc);box-shadow:0 0 0 1px var(--fc),0 0 12px -4px var(--fc);color:#fff}' +
   '#scr-party .fk-seat.set{opacity:.7}' +
   '#scr-party .fk-seat .fk-f{width:24px;height:24px;border-radius:50%;overflow:hidden;flex:0 0 auto}' +
-  '#scr-party .fk-seat b{font-weight:700}#scr-party .fk-seat .fk-sc{font-weight:800;color:#FFE39A}' +
+  '#scr-party .fk-seat b{font-weight:700}#scr-party .fk-seat .fk-sc{font-weight:800;color:#FFE39A;display:inline-block}' +
   '#scr-party .fk-gallows{flex:0 1 auto;display:grid;place-items:center;margin:2px 0}' +
   '#scr-party .fk-gallows svg{width:min(46vw,150px);height:auto}' +
-  '#scr-party .fk-word{display:flex;flex-wrap:wrap;gap:5px 7px;justify-content:center;margin:6px 8px}' +
+  '#scr-party .fk-p,#scr-party .fk-man{transform-box:fill-box}' +
+  '#scr-party .fk-man{transform-origin:50% 0}' +
+  '#scr-party .fk-word{position:relative;display:flex;flex-wrap:wrap;gap:5px 7px;justify-content:center;margin:6px 8px}' +
   '#scr-party .fk-slot{width:26px;height:34px;border-bottom:3px solid rgba(255,255,255,.35);' +
     'display:grid;place-items:center;font-family:var(--disp);font-weight:800;font-size:22px;color:#fff}' +
   '#scr-party .fk-slot.gap{border-bottom:0;width:12px}' +
-  '#scr-party .fk-slot.fresh{animation:fkPop .3s ease both}' +
-  '@keyframes fkPop{from{transform:scale(1.8) rotateX(80deg);opacity:0}to{transform:none;opacity:1}}' +
+  '#scr-party .fk-slot.fk-gold{color:#FFD76A;border-bottom-color:#FFD76A;text-shadow:0 0 14px rgba(255,199,66,.55)}' +
+  '#scr-party .fk-slot.fk-late{color:#9a90b8}' +
+  '#scr-party .fk-burst{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;z-index:5}' +
+  '#scr-party .fk-burst i{position:absolute;left:-3px;top:-6px;width:7px;height:11px;border-radius:2px;opacity:0}' +
   '#scr-party .fk-hint{text-align:center;font-size:12.5px;color:#9a90b8;min-height:16px;margin:0 10px}' +
   '#scr-party .fk-keys{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin:4px 6px 8px}' +
   '#scr-party .fk-key{min-height:38px;border-radius:9px;border:1px solid rgba(255,255,255,.12);' +
@@ -345,7 +468,50 @@ function injectCSS(){
   '#scr-party .fk-setword input{width:100%;max-width:320px;text-align:center;font-family:var(--disp);' +
     'font-weight:800;font-size:22px;letter-spacing:3px;text-transform:uppercase;padding:12px;border-radius:12px;' +
     'background:#0f0b1e;border:1px solid rgba(255,255,255,.15);color:#fff}' +
-  '#scr-party .fk-menu .blurb{color:#b9b0d4;font-size:14px;line-height:1.5;margin:10px 0 16px}';
+  '#scr-party .fk-setword input:focus{border-color:#B98BFF;box-shadow:0 0 0 3px rgba(185,139,255,.22);outline:none}' +
+  '#scr-party .fk-menu .blurb{color:#b9b0d4;font-size:14px;line-height:1.5;margin:10px 0 16px}' +
+  /* short phones (360×640): shrink the gallows + keys so the whole board,
+     keyboard included, fits above the fold (it overflowed by 28px) */
+  '@media (max-height:700px){' +
+    '#scr-party .fk-gallows svg{width:min(40vw,122px)}' +
+    '#scr-party .fk-key{min-height:34px;font-size:15px}' +
+    '#scr-party .fk-slot{height:30px;font-size:20px}' +
+  '}' +
+  /* ── the theatre. ALL motion lives inside this media block, so a
+     reduced-motion phone gets the plain, correct state and nothing else.
+     Compositor-cheap: transform/opacity only, no filters. ── */
+  '@media (prefers-reduced-motion:no-preference){' +
+    '#scr-party .fk-key{transition:transform .08s ease}' +
+    '#scr-party .fk-key:not(:disabled):active{transform:translateY(2px) scale(.94)}' +
+    '#scr-party .fk-seat.on{animation:fkTurn 1.9s ease-in-out infinite}' +
+    '#scr-party .fk-seat.fk-pop .fk-sc{animation:fkScPop .55s cubic-bezier(.3,1.6,.5,1) both}' +
+    '#scr-party .fk-slot.fresh{animation:fkFlip .45s cubic-bezier(.3,1.4,.5,1) both}' +
+    '#scr-party .fk-slot.fk-late{animation:fkFlip .4s ease both}' +
+    '#scr-party .fk-slot.fk-gold{animation:fkGold .6s cubic-bezier(.3,1.5,.5,1) both}' +
+    '#scr-party .fk-burst i{animation:fkCf .95s cubic-bezier(.2,.7,.3,1) both}' +
+    '#scr-party .fk-gallows svg.fk-shake{animation:fkShake .42s ease}' +
+    '#scr-party .fk-p0.fk-new{animation:fkHead .55s cubic-bezier(.3,1.5,.5,1) both}' +
+    '#scr-party .fk-p1.fk-new{transform-origin:50% 0;animation:fkGrow .4s cubic-bezier(.3,1.3,.5,1) both}' +
+    '#scr-party .fk-p2.fk-new,#scr-party .fk-p4.fk-new{transform-origin:100% 0;animation:fkSwingL .65s cubic-bezier(.3,1.7,.4,1) both}' +
+    '#scr-party .fk-p3.fk-new,#scr-party .fk-p5.fk-new{transform-origin:0 0;animation:fkSwingR .65s cubic-bezier(.3,1.7,.4,1) both}' +
+    '#scr-party .fk-man.fk-sway,#scr-party .fk-menu .fk-man{animation:fkSway 3.4s ease-in-out infinite}' +
+    '#scr-party .fk-menu .fk-man{transform-box:fill-box;transform-origin:50% 0}' +
+    '#scr-party .fk-man.fk-hang{animation:fkHang 1.3s cubic-bezier(.34,1.3,.45,1) both}' +
+    '#scr-party .fk-setword{animation:fkRise .4s ease both}' +
+    '@keyframes fkTurn{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}' +
+    '@keyframes fkScPop{0%{transform:scale(1)}40%{transform:scale(1.55)}100%{transform:scale(1)}}' +
+    '@keyframes fkFlip{0%{transform:perspective(260px) rotateX(88deg) scale(1.2);opacity:0}55%{opacity:1}100%{transform:none;opacity:1}}' +
+    '@keyframes fkGold{0%{transform:none}35%{transform:translateY(-9px) scale(1.14)}100%{transform:none}}' +
+    '@keyframes fkCf{0%{transform:translate(0,0) rotate(0deg);opacity:1}70%{opacity:1}100%{transform:translate(var(--dx),var(--dy)) rotate(var(--rt));opacity:0}}' +
+    '@keyframes fkShake{0%,100%{transform:translateX(0)}20%{transform:translateX(-3px)}45%{transform:translateX(3px)}70%{transform:translateX(-2px)}}' +
+    '@keyframes fkHead{0%{transform:translateY(-26px);opacity:0}60%{opacity:1}100%{transform:none;opacity:1}}' +
+    '@keyframes fkGrow{0%{transform:scaleY(0)}100%{transform:none}}' +
+    '@keyframes fkSwingL{0%{transform:rotate(-75deg);opacity:0}30%{opacity:1}100%{transform:none;opacity:1}}' +
+    '@keyframes fkSwingR{0%{transform:rotate(75deg);opacity:0}30%{opacity:1}100%{transform:none;opacity:1}}' +
+    '@keyframes fkSway{0%,100%{transform:rotate(-1.4deg)}50%{transform:rotate(1.4deg)}}' +
+    '@keyframes fkHang{0%{transform:translateY(-12px) rotate(0deg)}16%{transform:translateY(3px) rotate(7deg)}38%{transform:translateY(0) rotate(-5deg)}60%{transform:rotate(3deg)}80%{transform:rotate(-1.5deg)}100%{transform:rotate(0deg)}}' +
+    '@keyframes fkRise{0%{transform:translateY(14px);opacity:0}100%{transform:none;opacity:1}}' +
+  '}';
   document.head.appendChild(s);
 }
 
@@ -357,16 +523,20 @@ function gallowsSVG(n){
   s += '<path ' + P0 + ' d="M15 140 H80"/>';                 /* base   */
   s += '<path ' + P0 + ' d="M30 140 V15 H82"/>';             /* post+beam */
   s += '<path ' + P0 + ' d="M82 15 V30"/>';                  /* rope   */
+  /* the man is a <g> so the hang/sway theatre can swing him as one from
+     the rope point; each piece carries fk-p<i> so a new one can be
+     dropped/grown/swung in on its own. */
   const parts = [
-    '<circle ' + B + ' cx="82" cy="42" r="12"/>',            /* head   */
-    '<path ' + B + ' d="M82 54 V88"/>',                      /* torso  */
-    '<path ' + B + ' d="M82 62 L66 78"/>',                   /* L arm  */
-    '<path ' + B + ' d="M82 62 L98 78"/>',                   /* R arm  */
-    '<path ' + B + ' d="M82 88 L68 112"/>',                  /* L leg  */
-    '<path ' + B + ' d="M82 88 L96 112"/>'                   /* R leg  */
+    '<circle class="fk-p fk-p0" ' + B + ' cx="82" cy="42" r="12"/>',  /* head   */
+    '<path class="fk-p fk-p1" ' + B + ' d="M82 54 V88"/>',            /* torso  */
+    '<path class="fk-p fk-p2" ' + B + ' d="M82 62 L66 78"/>',         /* L arm  */
+    '<path class="fk-p fk-p3" ' + B + ' d="M82 62 L98 78"/>',         /* R arm  */
+    '<path class="fk-p fk-p4" ' + B + ' d="M82 88 L68 112"/>',        /* L leg  */
+    '<path class="fk-p fk-p5" ' + B + ' d="M82 88 L96 112"/>'         /* R leg  */
   ];
-  for (let i = 0; i < Math.min(6, n); i++) s += parts[i];
-  return s + '</svg>';
+  let man = '';
+  for (let i = 0; i < Math.min(6, n); i++) man += parts[i];
+  return s + '<g class="fk-man">' + man + '</g></svg>';
 }
 
 /* ═════════════ paint ═════════════ */
@@ -388,13 +558,19 @@ function paint(){
   UI.top.innerHTML = chips;
   /* gallows */
   UI.gallows.innerHTML = gallowsSVG(st ? E.gallows(st) : 0);
+  /* the man sways gently on the rope while the round is live (idle life;
+     CSS also kills this under prefers-reduced-motion) */
+  if (st && !st.done && !reduced()){
+    const man = UI.gallows.querySelector('.fk-man');
+    if (man && E.gallows(st) > 0) man.classList.add('fk-sway');
+  }
   /* word slots */
   if (st){
     let w = '';
     for (let i = 0; i < st.len; i++){
       const v = st.slots[i];
       if (v === -2) w += '<span class="fk-slot gap"></span>';
-      else w += '<span class="fk-slot' + (v >= 0 ? '' : '') + '">' + (v >= 0 ? esc(E.letOf(v)) : '') + '</span>';
+      else w += '<span class="fk-slot">' + (v >= 0 ? esc(E.letOf(v)) : '') + '</span>';
     }
     UI.word.innerHTML = w;
   } else { UI.word.innerHTML = ''; }
@@ -414,7 +590,12 @@ function paint(){
       ((done || !myTurn) ? ' disabled' : '') + '>' + esc(E.letOf(c)) + '</button>';
   }
   UI.keys.innerHTML = keys;
-  UI.keys.querySelectorAll('.fk-key').forEach(b => b.onclick = () => tryGuess(b.getAttribute('data-c') | 0));
+  UI.keys.querySelectorAll('.fk-key').forEach(b => {
+    b.onclick = () => tryGuess(b.getAttribute('data-c') | 0);
+    /* tactile: a soft click the instant the finger lands (the ruling's own
+       sound follows as `big`, so the 40ms throttle never eats it) */
+    b.onpointerdown = () => { if (!b.disabled) cue('ui.tap', { gain:0.33 }); };
+  });
   /* hint */
   UI.hint.textContent = hintText();
 }
@@ -665,11 +846,22 @@ function onlineRemote(seat, wire){
     return { ok:true };
   }
   if (mv.t === 'reveal'){
-    /* everyone (including the setter, idempotently) folds the reveal in */
     if (M.st && !M.st.done){
+      /* a live ruling — everyone folds it in and plays the theatre */
       const guesser = M.st.turn;
       const applied = E.applyReveal(M.st, mv, guesser);
       if (applied){ afterRuling(guesser, { wrong: mv.w, count: 0 }); }
+    } else if (M.st && M.st.done){
+      /* the ANSWER FILL after the round ended: the setter reveals the
+         squares that were never guessed so the losers see the word. The
+         engine refuses a ruling once done, so fill the slots directly —
+         no scoring, no turn — and repaint. (This is the gap the polish
+         pass caught: without it, a hung guesser never saw the answer.) */
+      const code = mv.l | 0;
+      const mask = (mv.m0 | 0) | ((mv.m1 | 0) << 8) | ((mv.m2 | 0) << 16);
+      let filled = false;
+      for (let i = 0; i < M.st.len; i++) if ((mask & (1 << i)) && M.st.slots[i] === -1){ M.st.slots[i] = code; filled = true; }
+      if (filled) paint();
     }
     return { ok:true };
   }
