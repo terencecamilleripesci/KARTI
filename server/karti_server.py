@@ -305,7 +305,7 @@ BOARD_GAMES = ("chess", "dama")             # duels with a move-shaped payload
 TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
           "ludu", "serp", "erbgha", "minhu", "kodici",
-          "tankijiet", "ballun", "aqleb", "kaxxi", "sqaq", "ilforka",
+          "tankijiet", "ballun", "aqleb", "kaxxi", "sqaq", "ilforka", "kelma",
           "konkwista", "misteru")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
@@ -397,6 +397,7 @@ GAME_SEATS = {
     "kaxxi":     (2, 4, 2),   # Dots & Boxes — 2–4, perfect information
     "sqaq":      (2, 4, 2),   # Wall-maze race — 2–4, perfect information
     "ilforka":   (2, 8, 2),   # Hangman — 2–8; setter's phone referees, no relay secret
+    "kelma":     (2, 4, 2),   # Word tiles — 2–4; private racks over the relay deal
     # The two flagship turn-based games, 2–6 seats. Konkwista is perfect-info
     # with seeded dice (online honest now); Il-Misteru is deduction whose online
     # half stays gated in its own lobby until the private solution/hand deal is
@@ -540,8 +541,10 @@ class L:
     # A PRIVATE DEAL. Big enough for a 52-card deck plus a marker or two,
     # and for a role pool at the widest table; small enough that a room
     # cannot be used to fan a large payload out to sixteen sockets.
-    MAX_DEAL_ITEMS = 64         # size of the pool the relay will hand out
-    MAX_DEAL_EACH = 8           # items any one seat may be dealt
+    MAX_DEAL_ITEMS = 128        # size of the pool the relay will hand out
+                                # (raised from 64 for KELMA's ~100-tile word bag)
+    MAX_DEAL_EACH = 60          # items any one seat may be dealt (raised from 8
+                                # so a word game can deal a private tile pile)
     # AN AUTHORITATIVE, SEAT-ADDRESSED DEAL. Some games (Il-Misteru) do not
     # want the relay to shuffle a pool: the deal is already fixed by the host's
     # planDeal and each seat gets a DIFFERENT opaque object — and one seat (the

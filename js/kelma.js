@@ -299,6 +299,40 @@ function endCheck(st, lastSeat){
 function turn(st){ return st.done ? -1 : st.turn; }
 function over(st){ return st.done ? { winner: st.done.winner, winners:[st.done.winner], draw:false } : null; }
 
+/* ── ONLINE apply ────────────────────────────────────────────────────
+   Another seat's move arrives as bare positions+letters (its rack is
+   private and unknown here). The board is lockstep, so we RE-SCORE from
+   our own identical board — no rack, no dictionary (the mover validated
+   it on their phone). Lays the tiles, scores, advances the turn. The
+   caller tracks tile counts for the end (opponents' racks are hidden). */
+function placeRemote(st, seat, placed){
+  if (st.done) return { ok:false, why:'over' };
+  for (const p of placed){ if (!inB(p.r, p.c) || cellAt(st, p.r, p.c)) return { ok:false, why:'occupied' }; }
+  const rows = new Set(placed.map(p => p.r)), cols = new Set(placed.map(p => p.c));
+  const line = rows.size === 1 ? 'row' : cols.size === 1 ? 'col' : (placed.length === 1 ? 'row' : null);
+  if (!line && placed.length > 1) return { ok:false, why:'notaline' };
+  const words = wordsFormed(st, placed, line || 'row');
+  let score = 0; for (const w of words) score += scoreWord(w);
+  if (placed.length === RACK) score += BINGO;
+  for (const p of placed) st.board[p.r * N + p.c] = { ch: p.ch, blank: !!p.blank };
+  st.scores[seat] += score;
+  st.passes = 0; st.moves++;
+  st.last = { seat, cells: placed.map(p => ({ r:p.r, c:p.c })), words: words.map(w => w.str), score };
+  st.turn = nextLive(st, seat);
+  return { ok:true, score, words: words.map(w => w.str) };
+}
+/* a remote pass (the mover placed nothing this turn) */
+function passRemote(st, seat){
+  if (st.done) return;
+  st.passes++; st.moves++;
+  st.turn = nextLive(st, seat);
+}
+function nextLive(st, from){
+  const gone = st._gone || {};
+  for (let h = 1; h <= st.seats; h++){ const s = (from + h) % st.seats; if (!gone[s]) return s; }
+  return from;
+}
+
 /* seat that left for good: freeze it (its tiles stay), skip its turns. */
 function dropSeat(st, seat){
   if (!st || seat < 0 || seat >= st.seats) return;
@@ -322,6 +356,7 @@ window.KARTI_KELMA.engine = {
   LETTERS, NLET, codeOf, letOf, valueOf, COUNT, VALUE,
   buildBag, shuffle, newGame, cellAt, inB, empty,
   checkPlacement, wordsFormed, scoreWord, tryMove, apply, passOrSwap,
+  placeRemote, passRemote, nextLive,
   turn, over, dropSeat, useFromRack, encWire, decWire
 };
 

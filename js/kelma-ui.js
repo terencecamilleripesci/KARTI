@@ -96,13 +96,18 @@ const isLocal = i => { const o = ownerOf(i); return o === 'me' || o === 'hot'; }
 function seatName(i){ const m = M && M.meta && M.meta[i]; if (!m) return seatTitle(i);
   if (m.own === 'me') return m.name || T('You','Int'); if (m.own === 'ai') return levelName(M.lvl); return m.name || seatTitle(i); }
 function seatTitle(i){ return T('Player','Plejer') + ' ' + (i + 1); }
+/* your own seat: online it is the chair the relay gave you; offline it is
+   the first local seat. Used everywhere the phone shows YOUR rack. */
+const mySeat = () => (M && M.net) ? (M.net.you != null ? M.net.you : firstLocalSeat()) : firstLocalSeat();
 function stopBot(){ if (M && M.botT){ clearTimeout(M.botT); M.botT = 0; } }
 
 /* the rack the local hotseat player is holding right now (pass-the-phone:
    the current turn's seat). Pending tiles are hidden from the rack view. */
-function activeSeat(){ return M.st.turn; }
+/* whose rack the phone is holding: offline it's the seat to move (pass the
+   phone), online it is ALWAYS your own seat — never an opponent's. */
+function activeSeat(){ return M && M.net ? mySeat() : M.st.turn; }
 function rackView(){
-  const rack = M.st.racks[activeSeat()].slice();
+  const rack = (M.st.racks[activeSeat()] || []).slice();
   /* remove the tiles currently placed as pending, by char */
   for (const p of M.pending){ const want = p.blank ? '_' : p.ch; const i = rack.indexOf(want); if (i >= 0) rack.splice(i, 1); }
   return rack;
@@ -279,12 +284,14 @@ function shuffleRack(){ /* cosmetic: reorder the underlying rack */
 }
 function passTurn(){
   if (!isLocal(M.st.turn) || M.st.done) return;
+  if (M.net) return passOnline();
   M.pending = []; M.sel = -1;
   E.passOrSwap(M.st, M.st.turn, null);
   cue('ui.back', { gain:0.5 }); afterTurn();
 }
 function playMove(){
   if (!M.pending.length || M.st.done) return;
+  if (M.net) return playOnline();
   const placed = M.pending.map(p => ({ r:p.r, c:p.c, ch:p.ch, blank:p.blank }));
   const res = E.apply(M.st, M.st.turn, placed, isWord);
   if (!res.ok){
@@ -462,9 +469,7 @@ function rulesFor(){
 }
 
 /* ═════════════ menus ═════════════ */
-/* online is wired in the next pass (private racks over the relay deal);
-   until then the button stays hidden so nobody hits a dead room. */
-function canGoOnline(){ return false; }
+function canGoOnline(){ try { return !!(window.KARTI_MP && KARTI_MP.openFor && P.online && P.online.kelma && P.online.kelma.start); } catch(e){ return false; } }
 function setupSheet(){
   injectCSS(); P.show(); stopBot(); M = null; UI = null;
   loadDict();                            /* warm the dictionary early      */
@@ -526,14 +531,137 @@ function showLoading(){
   el.innerHTML = '<div class="pt-wrap"><div class="km-load">' + esc(T('Loading the dictionary…','Qed jinżel id-dizzjunarju…')) + '</div></div>';
 }
 
-/* ═════════════ online controller — STUB (private racks wired next pass) ═
-   Registered so the tile shows and offline works; онлайн start throws a
-   friendly "coming soon" until the private deal is wired. ═════════════ */
+/* ═════════════ ONLINE — private racks over the relay deal ═════════════
+   The bag is dealt PRIVATELY: planDeal hands the relay the whole bag as a
+   pool, the relay shuffles it with its own entropy and slices each seat a
+   private pile nobody else sees (hooks.private). A seat's rack is the top
+   seven of its pile; it draws the rest as it plays. The board and scores
+   are lockstep — a play broadcasts its tiles (a flat int list that fits
+   mp.js's move codec: r,c,l,b per tile, ≤7 tiles = 28 ≤ 32) plus the
+   mover's remaining count, and every phone RE-SCORES from its identical
+   board (placeRemote) — no rack needed, the mover already validated it.
+   Moves arrive in turn order, so the mover is always M.st.turn. ═══════ */
+function flatTiles(placed){ const k = []; for (const p of placed){ k.push(p.r, p.c, E.codeOf(p.ch), p.blank ? 1 : 0); } return k; }
+function unflatTiles(k){ const out = []; for (let i = 0; i + 3 < k.length; i += 4){ const ch = E.letOf(k[i+2] | 0); if (ch && E.inB(k[i]|0, k[i+1]|0)) out.push({ r:k[i]|0, c:k[i+1]|0, ch, blank: !!k[i+3] }); } return out; }
+
+function planDeal(opts){
+  const seats = Math.max(2, Math.min(4, (opts && opts.seats) || 2));
+  const items = E.buildBag().map(ch => E.codeOf(ch));   /* the bag as int codes */
+  return { items, each: Math.floor(items.length / seats) };
+}
+function onlinePrivate(d){
+  if (!M || !M.st) return;
+  const codes = Array.isArray(d) ? d : (d && Array.isArray(d.d) ? d.d : []);
+  const pile = codes.map(c => E.letOf(c | 0)).filter(Boolean);
+  M.pile = pile.slice(E.RACK);
+  M.st.racks[mySeat()] = pile.slice(0, E.RACK);
+  M.remain[mySeat()] = M.st.racks[mySeat()].length + M.pile.length;
+  M.dealt = true;
+  paint();
+}
+function onlineStart(cfg){
+  cfg = cfg || {};
+  injectCSS(); P.show();
+  const list = cfg.seats || [];
+  const n = Math.max(2, Math.min(4, list.length || 2));
+  startMatch({ seats:n, mode:'net' }, 1);
+  M.st.racks = []; for (let i = 0; i < n; i++) M.st.racks.push([]);   /* only ours is filled, by the private deal */
+  M.st.bag = [];
+  M.pile = []; M.remain = new Array(n).fill(E.RACK); M.dealt = false;
+  M.meta = [];
+  for (let i = 0; i < n; i++){ const s = list[i] || {}; M.meta.push({ own: (i === cfg.you) ? 'me' : 'net', name: s.name || seatTitle(i) }); }
+  M.net = cfg.net || null; M.net && (M.net.you = cfg.you);
+  onDict(() => { openBoard(() => { const nn = M && M.net; leave(); if (nn && nn.onLeave) nn.onLeave(); else P.hub(); }); });
+  if (dictState !== 'ready') showLoading();
+  return { v:1, gid:'kelma' };
+}
+/* a move from another chair (one param → raw payload; the mover is the
+   seat whose turn it is, since moves arrive in order). */
+function onlineRemote(d){
+  if (!M || !M.st || M.st.done) return { ok:true };
+  const m = (d && d.m) || d || {};
+  const seat = M.st.turn;
+  if (m.a === 'pass'){ E.passRemote(M.st, seat); M.remain[seat] = (m.n | 0); afterRemote(seat, 0); return { ok:true }; }
+  const tiles = unflatTiles(Array.isArray(m.k) ? m.k : []);
+  if (!tiles.length){ E.passRemote(M.st, seat); afterRemote(seat, 0); return { ok:true }; }
+  const res = E.placeRemote(M.st, seat, tiles);
+  if (!res.ok) return { ok:false, why:'A word did not fit here.' };
+  M.remain[seat] = (m.n | 0);
+  afterRemote(seat, res.score);
+  return { ok:true };
+}
+function afterRemote(seat, score){
+  if (score){ note(Math.min(12, 5 + Math.floor(score / 6)), 0.5); cue('deck.save', { gain:0.5 }); }
+  paint();
+  onlineEndCheck();
+}
+/* the local player's play, online: validate, lay, refill from OUR pile,
+   score, advance, then broadcast the tiles + our remaining count. */
+function playOnline(){
+  const me = mySeat();
+  if (M.st.turn !== me) return;
+  const placed = M.pending.map(p => ({ r:p.r, c:p.c, ch:p.ch, blank:p.blank }));
+  const res = E.tryMove(M.st, me, placed, isWord);
+  if (!res.ok){ badMoveToast(res); cue('ui.error', { gain:0.5 }); return; }
+  for (const p of placed) M.st.board[p.r * N + p.c] = { ch:p.ch, blank:p.blank };
+  M.st.racks[me] = E.useFromRack(M.st.racks[me], placed);
+  while (M.st.racks[me].length < E.RACK && M.pile.length) M.st.racks[me].push(M.pile.shift());
+  M.st.scores[me] += res.score;
+  M.st.passes = 0; M.st.moves++;
+  M.st.turn = E.nextLive(M.st, me);
+  M.remain[me] = M.st.racks[me].length + M.pile.length;
+  M.pending = []; M.sel = -1;
+  note(Math.min(12, 5 + Math.floor(res.score / 6)), 0.6);
+  cue(placed.length === E.RACK ? 'game.win' : 'deck.save', { gain:0.6 }, true);
+  if (M.net) M.net.move('move', { a:'play', k: flatTiles(placed), n: M.remain[me] });
+  paint();
+  onlineEndCheck();
+}
+function passOnline(){
+  const me = mySeat();
+  if (M.st.turn !== me) return;
+  M.pending = []; M.sel = -1;
+  M.st.passes++; M.st.moves++; M.st.turn = E.nextLive(M.st, me);
+  if (M.net) M.net.move('move', { a:'pass', n: M.remain[me] });
+  cue('ui.back', { gain:0.5 }); paint(); onlineEndCheck();
+}
+/* end: a seat empties (remaining 0), or everyone passes twice around */
+function onlineEndCheck(){
+  if (!M || M.st.done) return;
+  const out = M.remain.some((v, i) => v <= 0 && M.st.moves > 0);
+  const stalled = M.st.passes >= M.seats * 2;
+  if (out || stalled){
+    let win = 0; for (let i = 1; i < M.seats; i++) if (M.st.scores[i] > M.st.scores[win]) win = i;
+    M.st.done = { winner: win, reason: out ? 'out' : 'stalled' };
+    paint(); setTimeout(() => { if (M && !M.dead) finish(); }, 700);
+  }
+}
+function badMoveToast(res){
+  if (res.why === 'badword') toast('“' + (res.word || '').toUpperCase() + '” — ' + T('not a word','mhux kelma'));
+  else if (res.why === 'centre') toast(T('First word crosses the centre.','L-ewwel kelma taqsam iċ-ċentru.'));
+  else if (res.why === 'disconnected') toast(T('Must touch a tile already down.','Trid tmiss biċċa diġà mqiegħda.'));
+  else if (res.why === 'gap') toast(T('No gaps in the word.','Ebda vojt fil-kelma.'));
+  else if (res.why === 'notaline') toast(T('All in one line.','Kollha f’linja waħda.'));
+  else toast(T('That move is not allowed.','Din il-mossa mhix permessa.'));
+}
+
+const hooks = {
+  onMove(){ return () => {}; },          /* KELMA sends via net.move directly */
+  phase(){ return M ? 'play' : 'idle'; },
+  private(d){ onlinePrivate(d); },
+  seatBack(){ if (M && UI) paint(); },
+  seatGone(seat){ if (M && M.st){ E.dropSeat(M.st, seat | 0); if (M.remain) M.remain[seat|0] = 0; paint(); onlineEndCheck(); } },
+  soleWin(){ if (M && !M.finished && M.net) finish(true); },
+  live(){ return !!(M && !M.dead && M.st && !M.st.done); }
+};
 P.online = P.online || {};
 P.online.kelma = {
-  start(){ toast(T('Kelma online is coming — play the machine or pass the phone for now.','Kelma onlajn ġejja — għalissa lgħab mal-magna jew għaddi t-telefon.')); P.hub(); },
-  remote(){ return { ok:false }; }, note(){}, stop(){},
-  live(){ return false; }, hooks:{ onMove(){ return () => {}; }, phase(){ return 'idle'; } }
+  start: onlineStart,
+  remote: onlineRemote,                  /* ONE param → raw payload */
+  note(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); },
+  stop(why, tone){ if (M && M.ctx){ P.ui.setNet(M.ctx, '', ''); P.ui.result(M.ctx, { tone:'draw', head:T('Cut off','Inqata’'), why: why || T('The game stopped.','Il-logħba waqfet.'), buttons:[{ label:T('Back to the rooms','Lura fil-kmamar'), icon:'back', cls:'primary', go:()=>{ const n=M&&M.net; leave(); if(n&&n.onLeave)n.onLeave(); else P.hub(); } }] }); } },
+  live: () => !!(M && !M.dead && M.st && !M.st.done),
+  planDeal, hooks
 };
 
 /* ═════════════ lobby + shelf ═════════════ */
@@ -542,7 +670,14 @@ const LOBBY = {
   levels: LEVELS.map(L => ({ level:L.level, name:L.name })), defaultLevel:2,
   isReady: seat => !!(seat && (seat.kind === 'cpu' || seat.ready)),
   autoReady: seat => (seat && seat.kind === 'cpu') ? Object.assign({}, seat, { ready:true }) : seat,
-  canStart(){ return { ok:false, why:T('Kelma online is coming soon.','Kelma onlajn ġejja dalwaqt.') }; },
+  canStart(list){
+    const n = (list || []).length;
+    if (n < E.MIN_SEATS) return { ok:false, why:T('Kelma needs at least two.','Kelma trid tal-anqas tnejn.') };
+    if (n > E.MAX_SEATS) return { ok:false, why:T('Up to four can play.','Sa erbgħa jistgħu jilagħbu.') };
+    const un = (list || []).filter(x => x && x.kind !== 'cpu' && !x.ready).length;
+    if (un) return { ok:false, why: un + (un > 1 ? T(' people are not ready yet.',' persuni għadhom mhux lesti.') : T(' person is not ready yet.',' persuna għadha mhux lesta.')) };
+    return { ok:true, why:'' };
+  },
   rulesHTML: () => '<p>' + rulesFor().join('</p><p>') + '</p>',
   blurb: T('Words for points, Maltese or English.','Kliem għall-punti, bil-Malti jew bl-Ingliż.'),
   start(seats){ const n = Math.max(2, Math.min(4, (seats && seats.length) || 2)); onDict(() => { startMatch({ seats:n, mode:'pnp' }, newSeedNow()); M.meta = []; for (let i = 0; i < n; i++) M.meta.push({ own:'hot', name: seatTitle(i) }); openBoard(() => { leave(); setupSheet(); }); }); return { v:1, gid:'kelma' }; },
