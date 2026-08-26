@@ -1,0 +1,51 @@
+# 1 A Death at the Band Club           | 6/6/6 OK | solvable:yes
+# 2 The Baron's Last Supper            | 6/6/6 OK | solvable:yes
+# 3 Blood on the Yacht                 | 6/6/6 OK | solvable:yes
+# 4 The Poisoned Pastizzi              | 6/6/6 OK | solvable:yes
+# 5 Silence in the Catacombs           | 6/6/6 OK | solvable:yes
+# 6 The Festa Fireworks Murder         | 6/6/6 OK | solvable:yes
+# 7 The Countess and the Candlestick   | 6/6/6 OK | solvable:yes
+# 8 Murder at the Market               | 6/6/6 OK | solvable:yes
+# 9 The Theatre Ghost                  | 6/6/6 OK | solvable:yes
+#10 A Grave in the Garden              | 6/6/6 OK | solvable:yes
+#11 The Priest's Confession            | 6/6/6 OK | solvable:yes
+#12 The Fisherman's Nets               | 6/6/6 OK | solvable:yes
+#13 Death at the Bocci Club            | 6/6/6 OK | solvable:yes
+#14 The Hotel Guest Who Never Left     | 6/6/6 OK | solvable:yes
+#15 The Wine Cellar Secret             | 6/6/6 OK | solvable:yes
+#16 The Doctor's Note                  | 6/6/6 OK | solvable:yes
+#17 The Handyman's Toolbox             | 6/6/6 OK | solvable:yes
+#18 The Secretary's Files              | 6/6/6 OK | solvable:yes
+#19 A Scandal at the Palace            | 6/6/6 OK | solvable:yes
+#20 The Professor's Experiment         | 6/6/6 OK | solvable:yes
+#21 The Dancer's Last Waltz            | 6/6/6 OK | solvable:yes
+#22 The Chef's Special                 | 6/6/6 OK | solvable:yes
+#23 The Captain's Compass              | 6/6/6 OK | solvable:yes
+#24 The Widow's Inheritance            | 6/6/6 OK | solvable:yes
+#25 The Commissioner's Blind Eye       | 6/6/6 OK | solvable:yes
+#26 Murder During the Procession       | 6/6/6 OK | solvable:yes
+#27 The Empty Coffin                   | 6/6/6 OK | solvable:yes
+#28 The Wrench in the Works            | 6/6/6 OK | solvable:yes
+#29 The Lawyer's Loophole              | 6/6/6 OK | solvable:yes
+#30 The Hatpin Murder                  | 6/6/6 OK | solvable:yes
+#31 Trouble at the Regatta             | 6/6/6 OK | solvable:yes
+#32 The Bandmaster's Baton             | 6/6/6 OK | solvable:yes
+#33 The Poisoned Chalice               | 6/6/6 OK | solvable:yes
+#34 The Garden Party Gun               | 6/6/6 OK | solvable:yes
+#35 Cold Case at the Cellar            | 6/6/6 OK | solvable:yes
+#36 The Market Snitch                  | 6/6/6 OK | solvable:yes
+#37 The Nun's Riddle                   | 6/6/6 OK | solvable:yes
+#38 The Yacht Club Blackmail           | 6/6/6 OK | solvable:yes
+#39 A Body at the Bakery               | 6/6/6 OK | solvable:yes
+#40 The Professor's Rival              | 6/6/6 OK | solvable:yes
+#41 The Countess's Emeralds            | 6/6/6 OK | solvable:yes
+#42 The Handyman's Revenge             | 6/6/6 OK | solvable:yes
+#43 The Séance                         | 6/6/6 OK | solvable:yes
+#44 The Stolen Statue                  | 6/6/6 OK | solvable:yes
+#45 The Doctor's Rounds                | 6/6/6 OK | solvable:yes
+#46 The Ferry Vanishing                | 6/6/6 OK | solvable:yes
+#47 The Opera Box Murder               | 6/6/6 OK | solvable:yes
+#48 The Bandmaster's Debt              | 6/6/6 OK | solvable:yes
+#49 The Widow's Third Husband          | 6/6/6 OK | solvable:yes
+#50 The Commissioner's Last Case       | 6/6/6 OK | solvable:yes
+ALL WELL-FORMED: true

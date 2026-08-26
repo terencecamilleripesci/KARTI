@@ -168,6 +168,7 @@ MATCOL[E.CONCRETE] = { a:'#A8A5A0', b:'#6C6A66' };
 MATCOL[E.STEEL]    = { a:'#C7CDD6', b:'#7A828E' };
 MATCOL[E.ROCK]     = { a:'#7C756B', b:'#463F38' };
 MATCOL[E.HULL]     = { a:'#5B534A', b:'#2E2822' };
+MATCOL[E.BOX]      = { a:'#C79A5B', b:'#7E5626' };  /* the crate you float a soldier on */
 
 /* ═══════════════════════════════════════════════════════════════════
    THE STYLESHEET — injected once, scoped to #scr-party .kn-*
@@ -711,6 +712,44 @@ function frameForBase(seat){
   zoom = clampN(zoom, BASE_ZOOM_MIN, BASE_ZOOM_MAX);
   return { x: cx, y: cy, zoom };
 }
+/* ── THE AIM CAMERA FOLLOWS THE SHOT TO ITS LANDING ──────────────────
+   While the finger is down, the camera pulls back to frame from the
+   launch HAND out to the END of the predicted arc — "zoom till the end
+   of the aim assist". A short pull stays tight on the base; a full-power
+   shot eases the camera out so the whole trajectory, right to where it
+   comes down, is on screen. NO bounce prediction is added: the framed
+   line is exactly the arc the game already draws under the finger,
+   nothing more. And because drawFog paints the enemy half in world space
+   (its crew is never painted on the fogged side, camera or no), seeing
+   WHERE a shell will land never reveals WHO is standing there — the duel
+   stays competitive. */
+const AIM_MARGIN   = 7;     /* cells of breathing room around the arc      */
+const AIM_ZOOM_MIN = 1.05;  /* never pull so far the base becomes a speck  */
+function frameForAim(seat, pts){
+  seat = seat | 0;
+  /* pts is the engine's FLAT track: [x0,y0,x1,y1,...], two numbers a point */
+  if (!pts || pts.length < 4 || !UI || !UI.cw || !UI.ch || !UI.baseSc)
+    return frameForBase(seat);
+  const hand = (M && M.st) ? handOf(seat) : null;
+  let x0 = hand ? hand.x : pts[0], x1 = x0;
+  let y0 = hand ? hand.y : pts[1], y1 = y0;
+  for (let i = 0; i < pts.length; i += 2){
+    const px = pts[i], py = pts[i + 1];
+    if (px < x0) x0 = px; else if (px > x1) x1 = px;
+    if (py < y0) y0 = py; else if (py > y1) y1 = py;
+  }
+  /* a little sky above the apex, a little water below the landing */
+  x0 -= AIM_MARGIN; x1 += AIM_MARGIN;
+  y0 -= AIM_MARGIN; y1 += AIM_MARGIN * 0.6;
+  if (y0 < 0) y0 = 0;
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const spanW = Math.max(1, x1 - x0), spanH = Math.max(1, y1 - y0);
+  const zx = (UI.cw / UI.baseSc) / spanW;
+  const zy = (UI.ch / UI.baseSc) / spanH;
+  let zoom = clampN(Math.min(zx, zy), AIM_ZOOM_MIN, BASE_ZOOM_MAX);
+  return { x: cx, y: cy, zoom };
+}
+
 /* the seat whose base the aim camera should rest on: the local human's
    own seat (canAct() gates aiming to E.turnOf === M.me), resolved the
    same way localSide() picks the clear half so pass-the-phone / online
@@ -2054,8 +2093,8 @@ function placeCheckCrew(seat, c){
   const P0 = M.place;
   const z = E.crewZone(seat, P0.back);
   if (!(c >= z.x0 && c <= z.x1)){
-    return { ok:false, why:{ en:'Inside your own courtyard, behind your parapet.',
-                             mt:'Ġewwa l-bitħa tiegħek, wara l-parapett.' } };
+    return { ok:false, why:{ en:'Drop it in the water on your own half.',
+                             mt:'Itfa’ha fil-baħar fin-naħa tiegħek.' } };
   }
   for (const p of P0.crew){
     if (Math.abs(p - c) < E.PLACE.GAP){
@@ -2079,8 +2118,8 @@ function placeStart(queue, foeLayouts){
               done:[null, null], foe: foeLayouts || [null, null],
               queue: queue.slice(), drag:null };
   if (UI && UI.host) UI.host.classList.add('kn-placing');
-  P.ui.setTurn(M.ctx, { cls:'', who:T('Set out your castle', 'Ħejji l-kastell tiegħek'),
-    note:T('Where it stands is up to you.', 'Fejn joqgħod jiddeċiedi int.') });
+  P.ui.setTurn(M.ctx, { cls:'', who:T('Lay out your boxes', 'Qassam il-kaxxi tiegħek'),
+    note:T('Where they float is up to you.', 'Fejn iżommu jiddeċiedi int.') });
   placeNext(false);
 }
 
@@ -2112,11 +2151,11 @@ function placeCurtain(seat, go){
   UI.curtain.innerHTML =
     '<span class="kn-seatdot" style="background:' + col.a + '"></span>' +
     '<h4>' + esc(T('Pass the phone to ', 'Għaddi t-telefon lil ') + nm) + '</h4>' +
-    '<p>' + esc(T('Nobody else may see where you put your castle. Tap when it is only you looking.',
-                  'Ħadd ma jista’ jara fejn tqiegħed il-kastell tiegħek. Agħfas meta tkun waħdek tħares.')) +
+    '<p>' + esc(T('Nobody else may see where you drop your boxes. Tap when it is only you looking.',
+                  'Ħadd ma jista’ jara fejn titfa’ l-kaxxi tiegħek. Agħfas meta tkun waħdek tħares.')) +
     '</p>' +
     '<button class="btn primary" id="kn-curtain-go">' +
-      esc(T('I have it — set out my castle', 'F’idejja — ħa nħejji l-kastell')) + '</button>';
+      esc(T('I have it — lay out my boxes', 'F’idejja — ħa nqassam il-kaxxi')) + '</button>';
   UI.curtain.classList.add('on');
   const b = UI.curtain.querySelector('#kn-curtain-go');
   if (b) b.onclick = () => { UI.curtain.classList.remove('on'); cue('ui.tap', { gain:0.6 }); go(); };
@@ -2200,15 +2239,15 @@ function renderSetup(){
   const who = M.hotseat ? (esc(nm) + ' — ') : '';
   let title, hint, go, canGo;
   if (P0.step === 0){
-    title = who + T('Where does your keep stand?', 'Fejn joqgħod il-mastru tiegħek?');
-    hint = T('Drag your wall, tower and parapet along your own shelf. ',
-             'Iġbed il-ħajt, it-torri u l-parapett tul l-art tiegħek. ') +
-           '<em>' + T('Set back ', 'Lura ') + P0.back + '/' + E.PLACE.BACK_MAX + '</em>';
-    go = T('Now the crew', 'Issa l-ekwipaġġ'); canGo = true;
+    title = who + T('How far out do your boxes float?', 'Kemm ’il barra jżommu l-kaxxi tiegħek?');
+    hint = T('Drag to push your boxes out toward the pillar — closer is braver. ',
+             'Iġbed biex timbotta l-kaxxi lejn il-kolonna — eqreb hu aktar qalbieni. ') +
+           '<em>' + T('Out ', 'Barra ') + P0.back + '/' + E.PLACE.BACK_MAX + '</em>';
+    go = T('Now the boxes', 'Issa l-kaxxi'); canGo = true;
   } else {
-    title = who + T('Where do your three stand?', 'Fejn joqogħdu t-tlieta tiegħek?');
-    hint = T('Tap a spot in your courtyard for each of them. ',
-             'Agħfas post fil-bitħa għal kull wieħed. ') +
+    title = who + T('Drop your three boxes', 'Itfa’ t-tliet kaxxi tiegħek');
+    hint = T('Tap the water in your half for each box — a soldier rides each one. ',
+             'Agħfas fuq il-baħar fin-naħa tiegħek għal kull kaxxa — suldat fuq kull waħda. ') +
            '<em>' + P0.crew.length + '/' + E.CH_PER_SIDE + '</em>';
     go = T('Ready — begin', 'Lest — ibda'); canGo = P0.crew.length >= E.CH_PER_SIDE;
   }
@@ -2533,20 +2572,45 @@ function moveAim(px, py){
   } else {
     M.preview = null;
   }
+  /* ZOOM THE CAMERA OUT TO THE END OF THE AIM ASSIST. Set the eased
+     target only (never snap) so the view glides back as the pull grows,
+     and never fight a player who is hand-scouting with a two-finger pan. */
+  if (M.cam && !M.cam.userPan && !M.anim){
+    const f = (M.preview && M.preview.length >= 4)
+              ? frameForAim(seat, M.preview)
+              : frameForBase(seat);
+    if (f && isFinite(f.x) && isFinite(f.y) && isFinite(f.zoom)){
+      M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom;
+      if (!noMotion()) easeCamToTarget(); else { snapCam(); }
+    }
+  }
   draw();
 }
 function endAim(){
   if (!M.drag){ return; }
+  const seat = M.drag.seat;
   const mv = M.drag.mv;
   M.drag = null; M.preview = null;
   if (UI.power){ UI.power.classList.remove('on'); UI.powerFill.style.width = '0%'; }
   if (UI.tip) UI.tip.classList.remove('on');
   draw();
-  if (!mv){ return; }
+  /* the aim pulled the camera out to the arc's end; if NO shot goes (weak
+     pull, or the move is illegal), ease the view back onto the base so the
+     player is not left staring down-range. A real shot lets fireShot's
+     flight-follow take the camera instead. */
+  const easeBackToBase = () => {
+    if (M.cam && !M.cam.userPan && !M.anim){
+      const f = frameForBase(seat);
+      M.cam.tx = f.x; M.cam.ty = f.y; M.cam.tzoom = f.zoom;
+      if (!noMotion()) easeCamToTarget(); else { snapCam(); draw(); }
+    }
+  };
+  if (!mv){ easeBackToBase(); return; }
   const chk = E.legal(M.st, mv);
   if (!chk.ok){
     tip('<b>' + esc(TP(chk.why)) + '</b>', 1400);
     cue('move.illegal', { gain:0.5 });
+    easeBackToBase();
     return;
   }
   fireShot(mv, 'me');
@@ -3270,8 +3334,8 @@ function wireField(){
    ═══════════════════════════════════════════════════════════════════ */
 function rulesFor(){
   return [
-    T('Two castles across a moat. You throw, they throw, until one courtyard is <b>empty</b>.',
-      'Żewġ kastelli fuq foss. Titfa\', jitfgħu, sakemm bitħa waħda tibqa\' <b>vojta</b>.'),
+    T('Two crews on boxes in the water. You throw, they throw, until one side is all <b>in the sea</b>.',
+      'Żewġ ekwipaġġi fuq kaxxi fl-ilma. Titfa\', jitfgħu, sakemm naħa waħda tispiċċa kollha <b>fil-baħar</b>.'),
     T('<b>Pull back</b> from your castle like a slingshot and let go. Further back is harder; ' +
       'the dotted line shows where it will land.',
       '<b>Iġbed lura</b> mill-kastell tiegħek bħal żbandola u itilqu. Aktar lura, aktar b\'saħħtu; ' +
@@ -3818,10 +3882,10 @@ function menu(){
       '<div class="kn-hero" id="kn-hero" aria-hidden="true">' +
         '<div class="kn-hero-art" id="kn-hero-art"></div>' +
         '<div class="kn-hero-lock">' +
-          '<span class="kn-hero-cap">' + esc(T('CASTLE WARS', 'GWERER TAL-KASTELLI')) + '</span>' +
+          '<span class="kn-hero-cap">' + esc(T('WAR ON THE WATER', 'GWERRA FUQ L-ILMA')) + '</span>' +
           '<h1 class="kn-hero-title">IL-KANUN</h1>' +
-          '<p class="kn-hero-sub">' + esc(T('Two castles, a moat, and a slingshot.',
-            'Żewġ kastelli, foss, u żbandola.')) + '</p>' +
+          '<p class="kn-hero-sub">' + esc(T('Three boxes on the water and a slingshot.',
+            'Tliet kaxxi fuq l-ilma u żbandola.')) + '</p>' +
         '</div>' +
       '</div>' +
 
@@ -3832,7 +3896,7 @@ function menu(){
         '<button class="kn-mode primary" id="kn-m-online">' +
           '<span class="mi">' + ICO_GLOBE + '</span>' +
           '<span class="mt"><b>' + esc(T('Play online', 'Ilgħab onlajn')) + '</b>' +
-            '<i>' + esc(T('Two castles, two phones.', 'Żewġ kastelli, żewġ telefowns.')) + '</i></span>' +
+            '<i>' + esc(T('Two crews on the water, two phones.', 'Żewġ ekwipaġġi fuq l-ilma, żewġ telefowns.')) + '</i></span>' +
           '<span class="chev">' + ICO_CHEV + '</span>' +
         '</button>' +
         '<button class="kn-mode" id="kn-m-ai">' +
@@ -4110,17 +4174,17 @@ R.lobby = {
     return { ok:true, why:'' };
   },
   rulesHTML: () =>
-    '<p>' + T('Two castles across a moat. Take turns throwing comically Maltese ordnance, and ' +
-      'between throws spend what you earn on bigger weapons and better cover.',
-      'Żewġ kastelli fuq foss. Bir-rota titfgħu affarijiet Maltin komiċi, u bejniethom onfqu dak ' +
-      'li taqilgħu fuq armi akbar u kenn aħjar.') + '</p>' +
+    '<p>' + T('Drop three boxes in the water and stand a soldier on each. Take turns throwing ' +
+      'comically Maltese ordnance, and between throws spend what you earn on wilder ammo.',
+      'Itfa\' tliet kaxxi fl-ilma u qiegħed suldat fuq kull waħda. Bir-rota titfgħu affarijiet ' +
+      'Maltin komiċi, u bejniethom onfqu dak li taqilgħu fuq munizzjon aktar selvaġġ.') + '</p>' +
     '<p>' + T('Pull back like a slingshot to aim; the shots bounce off the rock in the middle. ' +
-      'Knock all of them into the moat to win.',
+      'Knock all of them into the sea to win.',
       'Iġbed lura bħal żbandola biex timmira; it-tefgħat jaqbżu mal-blata fin-nofs. Waddab lil ' +
-      'kulħadd fil-foss biex tirbaħ.') + '</p>' +
+      'kulħadd fil-baħar biex tirbaħ.') + '</p>' +
     '<p>' + esc(ONLINE_WHY) + '</p>',
-  blurb: T('Two castles, a moat, and a slingshot. Bounce it off the rock into the other lot.',
-           'Żewġ kastelli, foss, u żbandola. Aqbeż mal-blata għal fuq l-oħrajn.'),
+  blurb: T('Three boxes on the water and a slingshot. Bounce it off the rock into the other lot.',
+           'Tliet kaxxi fuq l-ilma u żbandola. Aqbeż mal-blata għal fuq l-oħrajn.'),
   myName(){
     try {
       const n = K.displayName && K.displayName();
@@ -4146,10 +4210,10 @@ const TILE = {
   id:'kanun', order:28, kind:'board', name:'IL-KANUN', mt:'Il-Kanun',
   sprite:'kn-t-kanun', status:'live',
   get tag(){
-    return T('Two castles across a moat and a slingshot in your hand. Pull back, bank it off ' +
-             'the rock, and put the other lot in the sea. Comically Maltese. Solo vs the machine.',
-             'Żewġ kastelli fuq foss u żbandola f\'idejk. Iġbed lura, aqbeż mal-blata, u itfa\' ' +
-             'lill-oħrajn il-baħar. Malti komiku. Waħdek kontra l-magna.');
+    return T('Three boxes on the water, a soldier on each, and a slingshot in your hand. Pull ' +
+             'back, bank it off the rock, and put the other lot in the sea. Comically Maltese.',
+             'Tliet kaxxi fuq l-ilma, suldat fuq kull waħda, u żbandola f\'idejk. Iġbed lura, ' +
+             'aqbeż mal-blata, u itfa\' lill-oħrajn il-baħar. Malti komiku.');
   },
   open: () => menu(),
   seats: { min:2, max:2 },

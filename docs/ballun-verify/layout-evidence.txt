@@ -1,0 +1,4 @@
+At 390px arena, subunit->px scale = 0.0203
+Pending serve telegraph present: true
+  origin (px): 195 195  arrow dir (unit): -0.96 -0.29  ticksLeft: 20
+BASH button: fixed bottom-right, 66x66px, right:14 bottom:14 (thumb-reachable near drag strip)

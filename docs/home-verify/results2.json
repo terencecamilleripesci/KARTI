@@ -1,0 +1,134 @@
+{
+  "390x844": {
+    "label": "390x844",
+    "W": 390,
+    "H": 844,
+    "onHome": true,
+    "inner": {
+      "iw": 390,
+      "ih": 844
+    },
+    "readyBadge": {
+      "present": true,
+      "w": 115,
+      "h": 38,
+      "underAvatar": true,
+      "leftHalf": true,
+      "isCompact": true,
+      "label": "Free spin!"
+    },
+    "scrollReady": {
+      "docScrollH": 844,
+      "innerH": 844,
+      "homeScrollH": 844,
+      "homeClientH": 844,
+      "midScrollH": 670,
+      "midClientH": 670
+    },
+    "noScrollReady": true,
+    "sides": {
+      "profileLeftHalf": true,
+      "walletRightHalf": true,
+      "noOverlap": true
+    },
+    "oppositeSides": true,
+    "wlGone": true,
+    "walletCount": 2,
+    "tabScrs": [
+      "deck",
+      "pack",
+      "friends"
+    ],
+    "noCollTab": true,
+    "badgeOpensSpin": {
+      "packOn": true,
+      "spinTabOn": true,
+      "hasSpinGo": true
+    },
+    "spun": true,
+    "claimedBadge": {
+      "slotEmpty": true,
+      "badgeInDom": false,
+      "slotHTML": ""
+    },
+    "scrollClaimed": {
+      "docScrollH": 844,
+      "innerH": 844,
+      "homeScrollH": 844,
+      "homeClientH": 844
+    },
+    "noScrollClaimed": true,
+    "cardsChipOpensColl": true,
+    "backFromCollOK": true,
+    "deckTabWorks": true,
+    "deckTabActive": true,
+    "friendsTabWorks": true,
+    "errors": []
+  },
+  "360x640": {
+    "label": "360x640",
+    "W": 360,
+    "H": 640,
+    "onHome": true,
+    "inner": {
+      "iw": 360,
+      "ih": 640
+    },
+    "readyBadge": {
+      "present": true,
+      "w": 103,
+      "h": 33,
+      "underAvatar": true,
+      "leftHalf": true,
+      "isCompact": true,
+      "label": "Free spin!"
+    },
+    "scrollReady": {
+      "docScrollH": 640,
+      "innerH": 640,
+      "homeScrollH": 640,
+      "homeClientH": 640,
+      "midScrollH": 471,
+      "midClientH": 471
+    },
+    "noScrollReady": true,
+    "sides": {
+      "profileLeftHalf": true,
+      "walletRightHalf": true,
+      "noOverlap": true
+    },
+    "oppositeSides": true,
+    "wlGone": true,
+    "walletCount": 2,
+    "tabScrs": [
+      "deck",
+      "pack",
+      "friends"
+    ],
+    "noCollTab": true,
+    "badgeOpensSpin": {
+      "packOn": true,
+      "spinTabOn": true,
+      "hasSpinGo": true
+    },
+    "spun": true,
+    "claimedBadge": {
+      "slotEmpty": true,
+      "badgeInDom": false,
+      "slotHTML": ""
+    },
+    "scrollClaimed": {
+      "docScrollH": 640,
+      "innerH": 640,
+      "homeScrollH": 640,
+      "homeClientH": 640
+    },
+    "noScrollClaimed": true,
+    "cardsChipOpensColl": true,
+    "backFromCollOK": true,
+    "deckTabWorks": true,
+    "deckTabActive": true,
+    "friendsTabWorks": true,
+    "errors": []
+  }
+}

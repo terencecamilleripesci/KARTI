@@ -232,8 +232,8 @@ function cosLerp(f){ return sinLerp(f + 900); }
    die in sand.
    ═══════════════════════════════════════════════════════════════════ */
 const AIR = 0, GLASS = 1, WOOD = 2, SAND = 3, BRICK = 4,
-      CONCRETE = 5, STEEL = 6, ROCK = 7, HULL = 8;
-const NMAT = 9;
+      CONCRETE = 5, STEEL = 6, ROCK = 7, HULL = 8, BOX = 9;
+const NMAT = 10;
 const HARD = 60000;                        /* "you are not breaking this" */
 
 const MAT = [
@@ -254,7 +254,14 @@ const MAT = [
   { id:ROCK,     key:'ROCK',     hp:HARD,  pen:999, bounce:0.62, grip:0.90,
     solid:true,  name:{ id:'m.rock',     en:'Rock',     mt:'Blata' } },
   { id:HULL,     key:'GROUND',   hp:HARD,  pen:999, bounce:0.44, grip:0.82,
-    solid:true,  name:{ id:'m.ground',   en:'Bedrock',  mt:'Blat' } }
+    solid:true,  name:{ id:'m.ground',   en:'Bedrock',  mt:'Blat' } },
+  /* THE BOX — a wooden crate you drop in the water to stand a soldier on.
+     Solid and destructible like ordinary cover, but BUOYANT: `float` makes
+     the collapse system treat it as an anchor, so it does not sink for want
+     of ground under it. Smash a soldier's box apart and they lose their
+     footing and go in the sea. */
+  { id:BOX,      key:'BOX',      hp:54,    pen:4,   bounce:0.44, grip:0.86,
+    solid:true,  float:true, name:{ id:'m.box', en:'Box', mt:'Kaxxa' } }
 ];
 /* flat lookups — the simulation reads these, never MAT[m].x, so the
    hot path is one typed-array index and not a property chase */
@@ -264,11 +271,15 @@ const M_BOUNCE = new Float64Array(NMAT);
 const M_GRIP   = new Float64Array(NMAT);
 const M_SOLID  = new Uint8Array(NMAT);
 const M_TOUGH  = new Uint8Array(NMAT);     /* 1 = damage never removes it */
+const M_FLOAT  = new Uint8Array(NMAT);     /* 1 = buoyant: never sinks for
+                                              want of ground, but CAN be
+                                              destroyed (unlike M_TOUGH) */
 for (const m of MAT){
   M_HP[m.id] = m.hp; M_PEN[m.id] = m.pen;
   M_BOUNCE[m.id] = m.bounce; M_GRIP[m.id] = m.grip;
   M_SOLID[m.id] = m.solid ? 1 : 0;
   M_TOUGH[m.id] = (m.hp >= HARD) ? 1 : 0;
+  M_FLOAT[m.id] = m.float ? 1 : 0;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -491,11 +502,20 @@ const NDEF = DEFS.length, NTIER = 4;
    Everything here is integer arithmetic and table lookups. No floats,
    no Math.random, no trig — the same bar as the rest of the file.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── THE BOXES YOU FLOAT YOUR SOLDIERS ON ─────────────────────────────
+   Each soldier no longer stands in a courtyard — they ride a CRATE you
+   drop in your half of the moat. A crate is BOX_W cells across, its deck
+   BOX_TOP proud of the waterline, and it FLOATS (the BOX material is
+   buoyant). groundUnder() then stands the soldier on the deck for free,
+   and ragdoll() drops them in the sea the instant the deck is shot away. */
+const BOX_W   = 4;              /* a crate is four cells wide              */
+const BOX_TOP = WATER_Y - 4;    /* its deck sits four cells above the sea  */
+
 const PLACE = {
-  BACK_MIN: 0,     /* the keep hard against the moat — the old fixed spot */
-  BACK_MAX: 6,     /* ...or up to six cells further back into the shelf   */
-  GAP:      3,     /* cells that must sit between two of your own crew    */
-  EDGE:     1      /* and keep them off the very lip of the shelf         */
+  BACK_MIN: 0,        /* boxes hard against your own shelf — the near edge */
+  BACK_MAX: 6,        /* ...or nudged up to six cells out toward the pillar */
+  GAP:      BOX_W + 1,/* two of your crates must not touch — a clear cell   */
+  EDGE:     1         /* and keep them off the very edge of the open water  */
 };
 
 /* where slot `d` sits on seat `seat`, in world columns. `back` shifts the
@@ -511,24 +531,35 @@ function slotSpan(seat, d, back){
 function backOf(st, seat){ return st.sides[seat].back | 0; }
 function slotSpanIn(st, seat, d){ return slotSpan(seat, d, backOf(st, seat)); }
 
-/* the rear courtyard a side's crew may stand in: from the back of their
-   own shelf up to the cell before their own parapet. Derived from the
-   slot geometry, never a magic number, so moving the keep moves the room
-   the crew have and the two can never disagree. */
+/* the open water a side may drop its three crates in: its OWN HALF of the
+   moat, from just off its shelf to just short of the centre pillar. These
+   are box-CENTRE columns, kept BOX_W/2 clear of the edges so no crate hangs
+   off the world or into the rock. `back` nudges the near edge out toward the
+   pillar, so two layouts from one seed still differ. Pure integer geometry,
+   identical on every phone. */
 function crewZone(seat, back){
-  const par = slotSpan(seat, 2, back);
-  return seat === 0
-    ? { x0: L_X0 + PLACE.EDGE, x1: par.x0 - 1 }
-    : { x0: par.x1 + 1,        x1: R_X1 - PLACE.EDGE };
+  back = back | 0;
+  const half = BOX_W >> 1;
+  if (seat === 0){
+    const lo = L_X1 + 1 + half + PLACE.EDGE + back;
+    const hi = ROCK_X0 - 1 - half - PLACE.EDGE;
+    return { x0: lo, x1: Math.max(lo, hi) };
+  }
+  const lo = ROCK_X1 + 1 + half + PLACE.EDGE;
+  const hi = R_X0 - 1 - half - PLACE.EDGE - back;
+  return { x0: Math.min(lo, hi), x1: hi };
 }
 
-/* where the three have always stood, for a side that has not chosen.
-   With back = 0 these are EXACTLY the old makeCrew() columns. */
+/* the three even spots a side gets if it drops nothing itself — spread
+   across its water, in its own marching order. */
 function defaultCrewX(seat, back){
+  const z = crewZone(seat, back);
+  const span = Math.max(0, z.x1 - z.x0);
   const out = [];
   for (let k = 0; k < CH_PER_SIDE; k++){
-    const off = 4 + k * 4;
-    out.push(seat === 0 ? (L_X0 + 2 + off) : (R_X1 - 2 - off));
+    const t = CH_PER_SIDE === 1 ? 0 : k / (CH_PER_SIDE - 1);
+    const d = Math.round(t * span);
+    out.push(seat === 0 ? (z.x0 + d) : (z.x1 - d));
   }
   return tidyCrew(seat, back, out);
 }
@@ -565,12 +596,12 @@ const NOPLACE = {
            mt:'Il-mastru ma joqgħodx hemm.' },
   count: { id:'pl.count', en:'Three of them. No more, no fewer.',
            mt:'Tlieta minnhom. La aktar u lanqas inqas.' },
-  zone:  { id:'pl.zone',  en:'They stand in your own courtyard, behind your parapet.',
-           mt:'Joqogħdu fil-bitħa tiegħek, wara l-parapett.' },
-  gap:   { id:'pl.gap',   en:'Too close to the one beside them.',
-           mt:'Wisq viċin ta’ dak ta’ ħdejh.' },
-  order: { id:'pl.order', en:'Line them up from the back of the courtyard forward.',
-           mt:'Irranġahom minn wara l-bitħa ’l quddiem.' }
+  zone:  { id:'pl.zone',  en:'Drop your boxes in your own half of the water.',
+           mt:'Itfa’ l-kaxxi fin-naħa tiegħek tal-baħar.' },
+  gap:   { id:'pl.gap',   en:'Too close to the box beside it.',
+           mt:'Wisq viċin tal-kaxxa ta’ ħdejha.' },
+  order: { id:'pl.order', en:'Lay your boxes out from your shore toward the pillar.',
+           mt:'Qassam il-kaxxi mix-xatt tiegħek lejn il-kolonna.' }
 };
 
 /* STRICT validation, for the screen to refuse a bad tap with a reason.
@@ -717,6 +748,25 @@ function makeWorld(st){
           if (ownerOf(x) !== sd) continue;
           put(st, x, GROUND_Y - ay, m);
         }
+    }
+  }
+
+  /* THE BOXES — each side's three crates, dropped in its half of the moat
+     at the columns it chose (rides in opts.place, so both phones raise the
+     identical sea). Laid BEFORE makeCrew() so groundUnder() stands each
+     soldier on their own deck. BOX is buoyant, so they float here rather
+     than sinking; shoot a deck to bits and ragdoll() puts its soldier in
+     the water. */
+  const half = BOX_W >> 1;
+  for (let sd = 0; sd < 2; sd++){
+    const xs = st.opts.place[sd].crew;
+    for (let k = 0; k < CH_PER_SIDE; k++){
+      const cx = xs[k] | 0;
+      for (let ax = 0; ax < BOX_W; ax++){
+        const x = cx - half + ax;
+        if (x < 0 || x >= W) continue;
+        for (let y = BOX_TOP; y <= WATER_Y; y++) put(st, x, y, BOX);
+      }
     }
   }
   st.rockTop = rockTop;
@@ -1348,12 +1398,15 @@ function settle(st, xlo, xhi, rep){
     for (let y = 0; y < H; y++)
       for (let x = win.lo; x <= win.hi; x++) sup[y * W + x] = 0;
 
-    /* seed: everything that cannot fall */
+    /* seed: everything that cannot fall — the tough bedrock/rock, AND the
+       buoyant boxes, which hold themselves (and their soldier) up on the
+       water rather than sinking. */
     let sp = 0;
     for (let y = 0; y < H; y++)
       for (let x = win.lo; x <= win.hi; x++){
         const i = y * W + x;
-        if (M_SOLID[g.mat[i]] && M_TOUGH[g.mat[i]]){ sup[i] = 1; stk[sp++] = i; }
+        const m = g.mat[i];
+        if (M_SOLID[m] && (M_TOUGH[m] || M_FLOAT[m])){ sup[i] = 1; stk[sp++] = i; }
       }
     /* flood four ways through solid cells */
     while (sp > 0){
@@ -2393,7 +2446,7 @@ root.KARTI_KANUN = root.KARTI_KANUN || {};
 root.KARTI_KANUN.engine = {
   /* the world */
   W, H, WATER_Y, GROUND_Y, L_X0, L_X1, R_X0, R_X1, ROCK_X0, ROCK_X1, T,
-  MAT, AIR, GLASS, WOOD, SAND, BRICK, CONCRETE, STEEL, ROCK, HULL,
+  MAT, AIR, GLASS, WOOD, SAND, BRICK, CONCRETE, STEEL, ROCK, HULL, BOX,
   matAt, hpAt, solidAt, ownerOf, idx, slotSpan, slotSpanIn, DEFS, NDEF, NTIER,
   /* the placement phase: where your keep stands and where your crew do */
   PLACE, CH_PER_SIDE, crewZone, defaultCrewX, tidyCrew, legalPlace, normPlace,
