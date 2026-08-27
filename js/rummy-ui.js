@@ -1416,6 +1416,19 @@ function finish(done){
       } catch(e){}
     }
   }
+  /* ── THE RECORD BOOK (js/stats.js) — the profile row and the
+     leaderboard. Rummy paid, but it reported to nobody, so a table won
+     moved no W/L anywhere. WITHOUT a match id, deliberately: the offline
+     table-end award above is id-less on purpose, and an id here would
+     sidestep the same ten-second (game|result) window it relies on and
+     pay the evening twice. Id-less, record()'s forward into award()
+     falls inside that window — on the podium path AND on the card path
+     below — and lands on 'already'. One table, one row. */
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('rummy', { result: done.tone === 'win' ? 'win'
+                                          : done.tone === 'draw' ? 'draw' : 'loss' });
+  } catch(e){}
   if (useR2){
     const me = mySeat();
     const t = E.tally(M.st);

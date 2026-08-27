@@ -1523,6 +1523,24 @@ function finish(done){
     ST.rec[o] = (ST.rec[o] | 0) + 1; persist();
     if (typeof P.record === 'function'){ try { P.record('cards2131', o); } catch(e){} }
   }
+  /* ── THE RECORD BOOK (js/stats.js) — the profile row and the
+     leaderboard. 21 u 31 reported to nobody, so a table won moved no
+     W/L anywhere; the frame is titled KAŻINÒ, which titleToGame() in
+     progress.js cannot resolve, so the result card's wrapper never paid
+     an ONLINE table either. Both are fixed by this one line, and the
+     M.finished latch above keeps it to one firing per table.
+     WITHOUT a match id, deliberately: the offline P.record above is
+     id-less, so it has stamped progress.js's ten-second (game|result)
+     window and record()'s forward into award() falls inside it and
+     lands on 'already' — offline still pays exactly once, at the same
+     moment and the same amount as it does today. Online, where nothing
+     had ever paid, that forward is the first through the door and pays
+     once, at the rate every other online game pays. */
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('cards2131', { result: done.tone === 'win' ? 'win'
+                                              : done.tone === 'lose' ? 'loss' : 'draw' });
+  } catch(e){}
   /* COINS settles here and nowhere else. Locked behind the flag. */
   if (COINS_MODE_READY && M.mode === '21' && M.st.mode === 'coins' && !M.cashed){
     M.cashed = true;

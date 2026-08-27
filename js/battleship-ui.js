@@ -1915,6 +1915,21 @@ function finish(e){
   }
   if (G.mode === 'ai') P.record(GID, iWon ? 'w' : 'l');
 
+  /* ── THE RECORD BOOK (js/stats.js) — the profile row and the
+     leaderboard. Għarraqhom reported to nobody, so sinking a fleet moved
+     no W/L anywhere. WITHOUT a match id, deliberately, and LAST: every
+     payment above is id-less, so it has already stamped progress.js's
+     ten-second (game|result) window, and record()'s own forward into
+     award() falls inside that window and lands on 'already'. An id here
+     would sidestep the shared window and pay the same battle twice.
+     Only a real winner is booked — an abandoned sea is not a result. */
+  if (e.winner >= 0){
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record)
+        KARTI_STATS.record(GID, { result: iWon ? 'win' : 'loss' });
+    } catch(err){}
+  }
+
   /* ── THE POT, when the room played for chips ───────────────────────
      Online staked play settles through mp.js's own idempotent door — the
      same stakeSettle() its wrapped U.result would have reached; calling

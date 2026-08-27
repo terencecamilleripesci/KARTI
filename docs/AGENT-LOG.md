@@ -146,3 +146,47 @@ non-numeric field, encode it before it leaves the game.
 Also: `KARTI_MP.start('create',...)` joins the room but never SHOWS the mp
 screen — call `KARTI_MP.openFor(game)` first (the real menu path), or the
 player sits on the home screen while the room runs unseen.
+
+## 2026-08-27 — the record book PAYS, so where you put record() is the whole job
+Ten games never called `KARTI_STATS.record(...)`, so playing them moved
+nobody's W/L. The line to add is trivial; the danger is that
+`record()` ends with `KARTI_XP._fromStats(...)` → `award()`. It is a
+PAYMENT DOOR, not just a ledger. Adding it next to a game that already
+pays is a double payment unless it lands inside progress.js's `fresh()`
+guard, and `fresh()` behaves differently depending on whether an id is
+passed:
+- **id present** — absolute, matched on `p.seen['<game>:<id>']`. Safe ONLY
+  if the existing payment used *that same id*. If it did not, the id
+  SIDESTEPS the ten-second signature window and pays a second time.
+- **id absent** — matched on the `game|result` signature inside 10s, the
+  window every id-less payment stamps.
+So the rule that came out of it: **record() goes AFTER the existing
+payment; it carries the match id only when `awardPlay` used the same one,
+and no id at all when the existing payment was id-less.** The six podium
+games (ludu, kaxxi, erbgha, kodici, konkwista, tankijiet) hoist their
+`mid` out of the `try` and share it. gharraq, kiri and rummy get no id —
+their awards are deliberately id-less.
+
+**Do not trust a grep for `KARTI_XP` to tell you a game does not pay.**
+21 u 31 looked unpaid — no `awardPlay` anywhere — but it pays offline
+through `P.record('cards2131', o)`, which progress.js wraps. Online it
+genuinely paid nothing, because its frame is titled `KAŻINÒ` and
+`titleToGame()` cannot resolve that, so the result-card wrapper had
+nothing to award. Both doors matter: `awardPlay`, `P.record`, and the
+`P.ui.result` wrapper.
+
+**The profile named the new games badly and the fix was one word.**
+`shelf()` built rows for unregistered ids with `defOf()`, which can only
+pretty-print the id ("Erbgha", "Cards2131", "Kodici") — while `CATALOG`
+in the same file already held the real names, icons and accents.
+`richDef()` exists for exactly this and now backs `shelf()`. Related:
+`TABLOGO` still pointed gharraq/poker/spy/tombla at the shared party
+emblem long after their own art landed, and had no row at all for kaxxi,
+konkwista, sqaq, kelma, aqleb, ballun, misteru or ilforka — all of which
+have a `logo-*.png` on disk. Check `ls art/ui/logo-*` against that table
+before assuming a chip has no picture.
+
+Proof for any change in this area lives in the session scratchpad
+(`prove.js`): it counts `counted` awards via `KARTI_XP.onAward`, measures
+the wallet, and plays a real erbgha match against the machine so the new
+line is shown to be REACHED and not merely correct on paper.

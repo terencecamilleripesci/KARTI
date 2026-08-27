@@ -2145,18 +2145,30 @@ function finish(){
   const MPX = window.KARTI_MP;
   const staked = !!(net && MPX && MPX.MP && MPX.MP.stakeLive);
   const tone = localWon ? 'win' : 'lose';
+  /* the match id, lifted out of the payment so the RECORD BOOK below can
+     be told under exactly the same id */
+  const mid = (net && MPX && MPX.MP && MPX.MP.code != null)
+    ? 'ludu:' + MPX.MP.code + ':' + ((MPX.MP.seed || 0) >>> 0)
+    : (M.payId || (M.payId = 'ludu:' + Date.now().toString(36) + '-' +
+                              ((Math.random() * 1e6) | 0).toString(36)));
   let pay = null, potRes = null;
   if (window.KARTI_XP && KARTI_XP.awardPlay){
     try {
-      const mid = (net && MPX && MPX.MP && MPX.MP.code != null)
-        ? 'ludu:' + MPX.MP.code + ':' + ((MPX.MP.seed || 0) >>> 0)
-        : (M.payId || (M.payId = 'ludu:' + Date.now().toString(36) + '-' +
-                                  ((Math.random() * 1e6) | 0).toString(36)));
       const r = KARTI_XP.awardPlay({ game:'ludu', won: tone === 'win',
                                      draw: false, id: mid, ranked: staked });
       if (r && r.counted) pay = r;
     } catch(e){}
   }
+  /* ── THE RECORD BOOK (js/stats.js) — the profile row and the
+     leaderboard. Ludu reported to nobody, so a win here moved no W/L
+     anywhere. AFTER awardPlay and under the SAME id on purpose:
+     record() forwards a counted result into progress.js, whose fresh()
+     has already stamped 'ludu:<mid>', so the forward lands on 'already'
+     and the money still moves exactly once. */
+  try {
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record('ludu', { result: tone === 'win' ? 'win' : 'loss', id: mid });
+  } catch(e){}
   if (staked && MPX.stakeSettle){
     try { potRes = MPX.stakeSettle(tone); } catch(e){}
   }

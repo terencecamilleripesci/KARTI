@@ -3672,6 +3672,30 @@ function renderOver(){
      id guard), and said on the card. A game with NO winner refunds
      every ante instead — nobody may take a pot nobody won. */
   if (P && P.record && w) P.record('kiri', won ? 'w' : 'l');
+  /* ── THE RECORD BOOK (js/stats.js) — the profile row and the
+     leaderboard. IL-KIRI paid through the wrapped P.record above but
+     reported to nobody, so owning the island moved no W/L anywhere.
+     WITHOUT a match id, deliberately, and AFTER P.record: that payment
+     is id-less, so it has stamped progress.js's ten-second
+     (game|result) window and record()'s own forward into award() falls
+     inside it and lands on 'already'. An id here would sidestep the
+     shared window and pay the same game twice. Booked only when there
+     IS a winner, exactly as P.record is. `score` is the shelf's 'money'
+     signature ("Richest game EUR …") and is sent ONLY online, where
+     NET.mySeat says which chair is mine; offline the table is a hot
+     seat with no single local player to price. */
+  if (w){
+    try {
+      if (window.KARTI_STATS && KARTI_STATS.record){
+        const o = { result: won ? 'win' : 'loss' };
+        if (NET && NET.mySeat != null){
+          const nw = K.netWorth(G, NET.mySeat);
+          if (typeof nw === 'number' && isFinite(nw) && nw > 0) o.score = Math.floor(nw);
+        }
+        KARTI_STATS.record('kiri', o);
+      }
+    } catch (e){}
+  }
   if (NET){
     const MPX = window.KARTI_MP;
     if (MPX && MPX.MP && MPX.MP.stakeLive){

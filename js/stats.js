@@ -119,6 +119,27 @@ var TABLOGO = {
   'kodici':      'logo-kodici',
   'cards2131':   'logo-cards2131',
   'tankijiet':   'logo-tankijiet',
+  /* THE ART CAUGHT UP. gharraq, poker, spy and tombla were pointed at the
+     shared party emblem because their own files did not exist yet;
+     art/ui/logo-{gharraq,poker,spy,tombla}.png now do, so a chip for one
+     of those shows the GAME instead of a generic deck. The rows under
+     them were never in this table at all, so they drew the CSS emblem
+     while their real picture sat unused on disk — kaxxi and konkwista
+     are two of the ten games this pass put on the board, and the rest
+     came in with it. A stem that 404s is still safe: the <img> is
+     removed on error and the drawn tile beneath is what shows. */
+  'gharraq':     'logo-gharraq',
+  'poker':       'logo-poker',
+  'spy':         'logo-spy',
+  'tombla':      'logo-tombla',
+  'kaxxi':       'logo-kaxxi',
+  'konkwista':   'logo-konkwista',
+  'sqaq':        'logo-sqaq',
+  'kelma':       'logo-kelma',
+  'aqleb':       'logo-aqleb',
+  'ballun':      'logo-ballun',
+  'misteru':     'logo-misteru',
+  'ilforka':     'logo-ilforka',
   /* these have no dedicated file yet — the shared party emblem reads as
      "a card/party game" and is a real picture, not a broken one */
   'bixkla':      'logo-party',
@@ -126,11 +147,7 @@ var TABLOGO = {
   'sette':       'logo-party',
   'cheat':       'logo-party',
   'rummy':       'logo-party',
-  'gin':         'logo-party',
-  'poker':       'logo-party',
-  'tombla':      'logo-party',
-  'gharraq':     'logo-party',
-  'spy':         'logo-party'
+  'gin':         'logo-party'
 };
 /* The stem to show in a filter chip for game `id`: the atlas first, then
    the shelf def's own `logo`, then '' (drawn fallback). '' never 404s
@@ -186,6 +203,9 @@ var CATALOG = [
     { id:'kodici',    nm:'Il-Kodiċi',     mt:'Il-Kodiċi',     icon:'deck',    accent:'#4FA9E8' },
     { id:'konkwista', nm:'Konkwista',     mt:'Konkwista',     icon:'deck',    accent:'#8A5CFF' },
     { id:'erbgha',    nm:'Four in a Row', mt:'Erbgħa f\'Ringiela', icon:'coin', accent:'#FFC542' },
+    /* name, mt and icon lifted from kaxxi-ui.js's own TILE, so the grid
+       card and the game shelf call it the same thing */
+    { id:'kaxxi',     nm:'Dots & Boxes',  mt:'Puntini u Kaxxi', icon:'map',   accent:'#4FA9E8' },
     { id:'ludu',      nm:'Ludu',          mt:'Ludu',          icon:'coin',    accent:'#FF5468' },
     { id:'serp',      nm:'Is-Serp',       mt:'Is-Serp',       icon:'deck',    accent:'#3DDC84' }
   ]},
@@ -242,12 +262,19 @@ function defOf(id){
            accent:'#A093C4', sig:'streak', unknown:true };
 }
 
-/* Everything the profile knows how to show, in the order it shows it. */
+/* Everything the profile knows how to show, in the order it shows it.
+   richDef, NOT defOf, for the games that never joined GAMES: defOf can
+   only pretty-print the id, so the ten games wired to the record book in
+   this pass would have come up on the profile as "Erbgha", "Cards2131"
+   and "Kodici" while the CATALOG two hundred lines up already held their
+   real names, icons and accents. richDef reads the shelf first, then the
+   catalog, then falls back to defOf exactly as before, so an id nobody
+   registered anywhere still gets its row. */
 function shelf(){
   var out = GAMES.slice(), seen = {}, i;
   for (i = 0; i < out.length; i++) seen[out[i].id] = 1;
   var extra = [];
-  for (var k in DATA.g) if (Object.prototype.hasOwnProperty.call(DATA.g, k) && !seen[k]) extra.push(defOf(k));
+  for (var k in DATA.g) if (Object.prototype.hasOwnProperty.call(DATA.g, k) && !seen[k]) extra.push(richDef(k));
   extra.sort(function(a, b){ return a.name < b.name ? -1 : 1; });
   return out.concat(extra);
 }
