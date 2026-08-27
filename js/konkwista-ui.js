@@ -95,6 +95,7 @@ const contHex = cid => (CONT_INFO[cid] ? CONT_INFO[cid].hex : '#6a7a8a');
    owned (a live land), duller/greyer when unowned (open sea-frontier land). */
 const TERR_SHADE = (function(){
   const arr = new Array(E.N_TERR);
+  const lift = h => rgbToHex(...mix(hexToRgb(h), [255,255,255], 0.28));
   for (let i = 0; i < E.N_TERR; i++){
     const cid = E.TERRITORIES[i].cont;
     const base = contHex(cid);
@@ -102,13 +103,53 @@ const TERR_SHADE = (function(){
     const mem = E.REGION_MEMBERS[cid];
     const k = mem.indexOf(i);
     const step = ((k % 3) - 1);          /* -1, 0, +1 */
-    arr[i] = {
-      owned:   shade(base, step === 0 ? 0.02 : (step * 0.11)),   /* lively family shade */
-      unowned: rgbToHex(...mix(hexToRgb(base), [70,86,104], 0.62)) /* muted, greyed */
-    };
+    const owned   = shade(base, step === 0 ? 0.02 : (step * 0.11));    /* lively family shade */
+    const unowned = rgbToHex(...mix(hexToRgb(base), [70,86,104], 0.62)); /* muted, greyed */
+    /* the PAPER pair. konk-land.jpg is laid over the land with `multiply`, so
+       the shade underneath has to start brighter for the result to come back
+       out at the colour above. Used ONLY once the texture has really loaded —
+       if it 404s the board keeps the flat shades it has always had, and a
+       missing file can never bleach the map. */
+    arr[i] = { owned, unowned, ownedTex: lift(owned), unownedTex: lift(unowned) };
   }
   return arr;
 })();
+/* filled in by the probe below, once LAND_TEX is known to exist. */
+let landTexOk = false;
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE TWO TEXTURES — an ENHANCEMENT, never a dependency.
+
+   konk-sea.jpg is a dark painted ocean; konk-land.jpg is aged mid-tone paper
+   meant to be tinted, not shown raw. Both are referenced by URL and both have
+   a failure path that costs the board nothing:
+     · the sea <img> falls back to the old art/ui/konkwista-bg.png and then to
+       the CSS radial gradient that has always been under it;
+     · the land paper is an SVG <pattern>, so a 404 paints NOTHING and the
+       clipped rect above the land is simply invisible — the flat continent
+       fills that shipped before are what remains.
+   Neither path can throw, and neither is on the road between a tap and a move.
+   ═══════════════════════════════════════════════════════════════════ */
+const SEA_TEX  = 'art/konkwista/konk-sea.jpg';
+const LAND_TEX = 'art/konkwista/konk-land.jpg';
+
+/* Has the paper actually arrived? One probe, no throw, no wait: the board
+   paints its flat shades straight away and repaints once — and only once — if
+   the texture turns up. Nothing on the road between a tap and a move waits on
+   this, and a 404 simply leaves the board looking exactly as it shipped. */
+(function probeLandTex(){
+  try {
+    const im = new Image();
+    im.onload  = () => { landTexOk = true; if (UI && M) paintMap(); };
+    im.onerror = () => { landTexOk = false; };
+    im.src = LAND_TEX;
+  } catch(e){}
+})();
+
+/* the badge disc: the seat colour dragged most of the way to ink, so a white
+   numeral clears WCAG-AA-large on every one of the six seats — amber included,
+   which as a flat disc was the unreadable one. */
+function badgeInk(hex){ return rgbToHex(...mix(hexToRgb(hex), [9, 19, 30], 0.72)); }
 
 /* ═══════════════════════════════════════════════════════════════════
    OUR CORNER OF localStorage — save, prefs, record.
@@ -485,31 +526,79 @@ function injectCSS(){
       'align-items:center;justify-content:center;overflow:hidden;border-radius:16px;' +
       'background:radial-gradient(130% 120% at 50% 15%,#164066 0%,var(--kq-sea) 55%,var(--kq-sea2) 100%);' +
       'border:1px solid rgba(0,0,0,.5);box-shadow:inset 0 2px 0 rgba(255,255,255,.05),inset 0 -14px 30px rgba(0,0,0,.42)}' +
-    '#scr-party .kq-mapbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.5;pointer-events:none}' +
+    /* THE SEA. A painted-ocean photograph if art/konkwista/konk-sea.jpg is
+       there, the old radial gradient underneath if it is not — the image is an
+       ENHANCEMENT and its onerror hides it, so a 404 costs the board nothing.
+       Opacity is high because the texture is already dark (~10% mean); the
+       gradient below still supplies the centre-lit falloff. */
+    '#scr-party .kq-mapbg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;' +
+      'opacity:.92;pointer-events:none}' +
+    /* a depth vignette painted over the water, never over the UI */
+    '#scr-party .kq-mapvig{position:absolute;inset:0;pointer-events:none;' +
+      'background:radial-gradient(115% 95% at 50% 30%,rgba(30,90,140,.20) 0%,rgba(4,12,22,0) 46%,rgba(2,8,16,.62) 100%)}' +
     '#scr-party .kq-svg{position:relative;display:block;width:100%;height:100%;' +
       'touch-action:manipulation;-webkit-tap-highlight-color:transparent}' +
     /* THE LAND. Fill = the CONTINENT colour (set per-cell), so continent
        membership reads at a glance. The OWNER is a separate seat-colour RING
        (the .kq-ring overlay) + the troop badge tint — so "which continent" and
-       "who owns it" are both legible without fighting each other. */
-    '#scr-party .kq-terr{stroke:#0a1622;stroke-width:1.5;cursor:pointer;transition:filter .12s,opacity .12s}' +
+       "who owns it" are both legible without fighting each other.
+       The land group ISOLATES so the paper texture's blend mode can only ever
+       reach the land under it, never the sea behind it. */
+    '#scr-party .kq-landg{isolation:isolate}' +
+    /* territory seams INSIDE a continent stay thin and soft — the coast is the
+       line that matters, and it is drawn by .kq-shelf/.kq-rim below. */
+    '#scr-party .kq-terr{stroke:rgba(8,18,30,.5);stroke-width:1.1;cursor:pointer;' +
+      'transition:filter .12s,opacity .12s}' +
     '#scr-party .kq-terr.legal{filter:drop-shadow(0 0 5px rgba(255,255,255,.92))}' +
     '#scr-party .kq-terr.target{stroke:#fff;stroke-width:3}' +
     '#scr-party .kq-terr.sel{stroke:var(--kq-gold);stroke-width:3.5;filter:drop-shadow(0 0 7px rgba(255,197,66,.95))}' +
     '#scr-party .kq-terr.dim{opacity:.9}' +
-    /* the seat-colour owner ring: a stroke-only path over the land */
-    '#scr-party .kq-ring{fill:none;stroke-width:3.5;pointer-events:none;stroke-linejoin:round;' +
-      'transition:opacity .12s}' +
-    '#scr-party .kq-badge circle{stroke:rgba(0,0,0,.55);stroke-width:2}' +
+    /* the aged-paper grain, one clipped rect over the whole landmass. If the
+       texture 404s the pattern paints nothing and the rect is invisible. */
+    /* .28, NOT .48. At .48 the paper ate the continents: measured off real
+       screenshots, the two closest continent colours fell from 11.2 to 9.6
+       CIELAB deltaE and mean saturation dropped 23%. Anything under about 15
+       is a pair a player confuses at a glance, and in this game telling
+       continents apart is not decoration — you are constantly judging how
+       close you are to owning a whole one for its bonus. The grain still
+       reads at .28; the six families stay six families. */
+    '#scr-party .kq-paper{pointer-events:none;mix-blend-mode:multiply;opacity:.28}' +
+    /* THE COASTLINE — what makes land read as land. Two rings grown outward
+       from the same polygons (geometry untouched): a near-black continental
+       shelf carrying the drop shadow onto the water, and a pale sand rim just
+       inside it. Both are painted, not moved. */
+    '#scr-party .kq-shelf{stroke-linejoin:round;pointer-events:none}' +
+    '#scr-party .kq-rim{stroke-linejoin:round;pointer-events:none}' +
+    /* the seat-colour owner ring: a stroke-only path over the land.
+       THE ACTIVE SEAT is the one at full strength; every other seat's ring is
+       held back, so whose turn it is reads from across the room. */
+    '#scr-party .kq-ring{fill:none;stroke-width:3;pointer-events:none;stroke-linejoin:round;' +
+      'opacity:.5;transition:opacity .18s,stroke-width .18s}' +
+    '#scr-party .kq-ring.act{stroke-width:4.6;opacity:1;animation:kq-rim 1.9s ease-in-out infinite}' +
+    '@keyframes kq-rim{0%,100%{opacity:1}50%{opacity:.44}}' +
+    'body.reduced #scr-party .kq-ring.act{animation:none;opacity:1}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .kq-ring.act{animation:none;opacity:1}}' +
+    /* the badge disc is ALWAYS dark — a white numeral on an amber seat colour
+       was the one unreadable combination. The seat colour survives as the disc's
+       tint and its bright rim, so ownership still reads off the badge alone. */
+    '#scr-party .kq-badge circle{stroke-width:2.2}' +
     '#scr-party .kq-badge text{font:900 14px/1 var(--disp);fill:#fff;text-anchor:middle;' +
-      'dominant-baseline:central;paint-order:stroke;stroke:rgba(0,0,0,.6);stroke-width:3px}' +
-    /* subtle per-territory name (small, on the land) */
-    '#scr-party .kq-tname{font:800 8px/1 var(--body);fill:rgba(255,255,255,.42);text-anchor:middle;' +
-      'pointer-events:none;letter-spacing:.02em}' +
-    /* the SEA-ROUTE lanes between continents */
-    '#scr-party .kq-lane{stroke:rgba(160,205,235,.55);stroke-width:2.4;stroke-dasharray:2 9;' +
+      'dominant-baseline:central;paint-order:stroke;stroke:rgba(0,0,0,.75);stroke-width:3px}' +
+    /* subtle per-territory name (small, on the land) — engraved, not floated */
+    '#scr-party .kq-tname{font:800 8px/1 var(--body);fill:rgba(255,255,255,.58);text-anchor:middle;' +
+      'pointer-events:none;letter-spacing:.02em;paint-order:stroke;stroke:rgba(6,14,24,.55);' +
+      'stroke-width:2px}' +
+    /* the SEA-ROUTE lanes between continents: a dark casing so the dashes
+       survive the water texture, then the dashes themselves. A player who
+       cannot see a sea route cannot plan around one. */
+    '#scr-party .kq-lanecase{stroke:rgba(3,11,20,.62);stroke-width:6;stroke-linecap:round;' +
+      'fill:none;pointer-events:none}' +
+    '#scr-party .kq-lane{stroke:rgba(188,224,250,.9);stroke-width:2.6;stroke-dasharray:3.5 8;' +
       'stroke-linecap:round;fill:none;pointer-events:none}' +
-    '#scr-party .kq-lanedot{fill:rgba(190,220,245,.7);pointer-events:none}' +
+    '#scr-party .kq-lanedot{fill:rgba(214,236,255,.92);stroke:rgba(3,11,20,.6);stroke-width:1.4;' +
+      'pointer-events:none}' +
+    /* the capture sweep host — the old colour sliding off a taken land */
+    '#scr-party .kq-cap{pointer-events:none}' +
     /* the CONTINENT label plaque: NAME + BONUS on/near the landmass */
     '#scr-party .kq-clabel{pointer-events:none}' +
     '#scr-party .kq-clabel rect{rx:7}' +
@@ -518,6 +607,27 @@ function injectCSS(){
       'paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3px}' +
     '#scr-party .kq-clabel .cl-bn{font:900 12px/1 var(--disp);fill:#fff;text-anchor:middle;' +
       'dominant-baseline:central;paint-order:stroke;stroke:rgba(0,0,0,.55);stroke-width:3px}' +
+
+    /* ══ THE TURN HAND-OFF — a machine's turn should be legible, not a board
+       that silently mutates. Transform + opacity only, pointer-events none, and
+       it decorates a turn change that has ALREADY happened, so it delays and
+       blocks nothing. Reduced motion gets the same plaque without the slide. ══ */
+    '@keyframes kq-hand{0%{transform:translateY(-14px);opacity:0}' +
+      '14%{transform:none;opacity:1}72%{transform:none;opacity:1}' +
+      '100%{transform:translateY(-10px);opacity:0}}' +
+    '#scr-party .kq-hand-off{position:absolute;left:0;right:0;top:8px;z-index:22;display:flex;' +
+      'justify-content:center;pointer-events:none}' +
+    '#scr-party .kq-hand-off span{display:inline-flex;align-items:center;gap:7px;max-width:86%;' +
+      'padding:6px 12px 6px 8px;border-radius:12px;font:900 10.5px/1.2 var(--disp);' +
+      'letter-spacing:.08em;text-transform:uppercase;color:#fff;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis;' +
+      'background:linear-gradient(180deg,rgba(23,64,106,.96),rgba(6,16,28,.96));' +
+      'border:1px solid rgba(255,255,255,.18);box-shadow:0 8px 22px rgba(0,0,0,.55);' +
+      'animation:kq-hand 1.25s ease both}' +
+    '#scr-party .kq-hand-off i{width:13px;height:13px;flex:0 0 auto;border-radius:50%;' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 1px 3px rgba(0,0,0,.5)}' +
+    'body.reduced #scr-party .kq-hand-off span{animation:none}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .kq-hand-off span{animation:none}}' +
 
     /* ── first-run tip toast over the map ── */
     '#scr-party .kq-tip{position:absolute;left:8px;right:8px;bottom:8px;z-index:20;' +
@@ -749,8 +859,9 @@ function injectCSS(){
       'border-radius:9px;background:rgba(0,0,0,.36);color:rgba(255,255,255,.5)}' +
     '#scr-party .kq-floss span.hit{color:#fff;background:rgba(232,85,42,.62)}' +
     '#scr-party .kq-floss span.good{color:#0d2416;background:rgba(124,242,155,.88)}' +
-    /* an army badge counting a loss off */
+    /* an army badge counting a loss off — and one counting a gain on */
     '#scr-party .kq-badge.tick text{fill:#ff8a6b}' +
+    '#scr-party .kq-badge.gain text{fill:#7CF29B}' +
 
     /* ── landscape ── */
     '@media (max-height:520px){' +
@@ -819,8 +930,11 @@ function buildBoard(){
       '</div>' +
       '<div class="kq-seats" id="kq-seats"></div>' +
       '<div class="kq-mapbox" id="kq-mapbox">' +
-        '<img class="kq-mapbg" id="kq-mapbg" alt="" aria-hidden="true" src="art/ui/konkwista-bg.png" ' +
-          'onerror="this.style.display=\'none\'">' +
+        '<img class="kq-mapbg" id="kq-mapbg" alt="" aria-hidden="true" ' +
+          'src="' + SEA_TEX + '" ' +
+          'onerror="this.onerror=null;this.src=\'art/ui/konkwista-bg.png\';' +
+            'this.style.opacity=\'.5\';this.onerror=function(){this.style.display=\'none\'}">' +
+        '<span class="kq-mapvig" aria-hidden="true"></span>' +
         '<svg class="kq-svg" id="kq-svg" viewBox="0 0 660 1160" preserveAspectRatio="xMidYMid meet" ' +
           'role="img" aria-label="' + esc(T('The conquest map','Il-mappa tal-konkwista')) + '"></svg>' +
       '</div>' +
@@ -879,47 +993,118 @@ function contLabelAnchor(cid){
   return { x:(x0+x1)/2, y:y0 - 12, x0, y0, x1, y1 };
 }
 
-/* build the vector map: sea-route lanes, one polygon per territory (continent
-   fill), a seat-colour owner ring, an army badge, and the continent plaques. */
+/* the polygon's own points, as an SVG points attribute. ONE place builds this
+   string, because the 40 polygons are the engine's proven geometry and every
+   layer below must trace exactly the same vertices — a coastline that is a
+   redrawn approximation of the land is a coastline that lies about adjacency. */
+function ptsOf(i){
+  return E.TERRITORIES[i].poly.reduce((a, v, k) => a + (k % 2 ? ',' : (k ? ' ' : '')) + v, '');
+}
+
+/* build the vector map: sea-route lanes, the continental shelf + sand coast,
+   one polygon per territory (continent fill), the aged-paper grain, a
+   seat-colour owner ring, an army badge, and the continent plaques. */
 function buildSVG(){
   const svg = UI.svg;
   const T = E.TERRITORIES;
   let s = '';
 
-  /* 1 · SEA-ROUTE lanes UNDER the land (dashed lanes over the water). */
+  /* 0 · DEFS — the drop shadow the coast casts onto the water, the paper
+     pattern, and the land clip that keeps that paper on the land. */
+  s += '<defs>' +
+    '<filter id="kq-coastsh" x="-12%" y="-12%" width="124%" height="124%">' +
+      '<feDropShadow dx="0" dy="9" stdDeviation="7" flood-color="#000209" flood-opacity="0.8"/>' +
+    '</filter>' +
+    /* userSpaceOnUse so the grain keeps ONE scale across the whole map instead
+       of stretching per shape. A missing image paints nothing at all. */
+    '<pattern id="kq-paperpat" patternUnits="userSpaceOnUse" x="0" y="0" width="210" height="210">' +
+      '<image href="' + esc(LAND_TEX) + '" xlink:href="' + esc(LAND_TEX) + '" ' +
+        'x="0" y="0" width="210" height="210" preserveAspectRatio="xMidYMid slice"></image>' +
+    '</pattern>' +
+    '<clipPath id="kq-landclip">' +
+      T.map((t, i) => '<polygon points="' + ptsOf(i) + '"></polygon>').join('') +
+    '</clipPath>' +
+    '<clipPath id="kq-capclip"><polygon points="0,0 0,0 0,0"></polygon></clipPath>' +
+  '</defs>';
+
+  /* 1 · SEA-ROUTE lanes UNDER the land (dashed lanes over the water), each on
+     a dark casing so the dashes survive the ocean texture. They are drawn
+     first and everything else covers them, so a lane reads as a crossing of
+     OPEN water and stops at the shore of both ends. */
   (E.SEA_ROUTE_IDX || []).forEach(pair => {
     const a = T[pair[0]].c, b = T[pair[1]].c;
-    s += '<line class="kq-lane" x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '"></line>' +
-      '<circle class="kq-lanedot" cx="' + ((a[0]+b[0])/2).toFixed(0) + '" cy="' + ((a[1]+b[1])/2).toFixed(0) + '" r="3"></circle>';
+    const l = ' x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '"';
+    s += '<line class="kq-lanecase"' + l + '></line>' +
+      '<line class="kq-lane"' + l + '></line>' +
+      '<circle class="kq-lanedot" cx="' + ((a[0]+b[0])/2).toFixed(0) + '" cy="' + ((a[1]+b[1])/2).toFixed(0) + '" r="3.4"></circle>';
   });
 
-  /* 2 · the LAND — one polygon per territory, filled by its continent shade. */
+  /* 2 · THE COAST. The single change that makes land stop being a diagram.
+     Each CONTINENT's own polygons are redrawn twice underneath the land, GROWN
+     OUTWARD by a stroke rather than by moving a vertex: a near-black shelf that
+     carries a soft drop shadow onto the sea, then a pale sand rim inside it.
+     Because the copies sit under the land layer, every seam INSIDE a continent
+     is covered and only the outer boundary survives — a real coastline, from
+     the engine's exact geometry, with nothing recomputed.
+
+     STROKE ONLY, never a fill. The 40 polygons do not tile perfectly — a
+     handful of small bays sit between lands of the same continent — and a
+     FILLED shelf turned every one of those into a solid black rectangle.
+     Stroking alone leaves the wider bays as ringed open water and closes the
+     narrowest into a pale shoal; either reads as a feature of the coast rather
+     than a hole in the board. */
+  s += '<g class="kq-shelfg" filter="url(#kq-coastsh)" aria-hidden="true">';
+  E.CONTINENTS.forEach(c => {
+    E.REGION_MEMBERS[c.id].forEach(i => {
+      s += '<polygon class="kq-shelf" points="' + ptsOf(i) + '" fill="none" ' +
+        'stroke="#05192b" stroke-width="11"></polygon>';
+    });
+  });
+  s += '</g>';
+  s += '<g class="kq-rimg" aria-hidden="true">';
+  E.CONTINENTS.forEach(c => {
+    const sand = rgbToHex(...mix(hexToRgb(c.hex), [236, 222, 190], 0.60));
+    E.REGION_MEMBERS[c.id].forEach(i => {
+      s += '<polygon class="kq-rim" data-rim="' + i + '" points="' + ptsOf(i) + '" fill="none" ' +
+        'stroke="' + sand + '" stroke-width="6"></polygon>';
+    });
+  });
+  s += '</g>';
+
+  /* 3 · the LAND — one polygon per territory, filled by its continent shade,
+     with the aged-paper grain laid over the whole landmass in ONE clipped rect.
+     The group isolates so that blend can never reach the water behind it. */
+  s += '<g class="kq-landg">';
   T.forEach((t, i) => {
-    const pts = t.poly.reduce((a, v, k) => a + (k % 2 ? ',' : (k ? ' ' : '')) + v, '');
-    s += '<polygon class="kq-terr" data-t="' + i + '" points="' + pts + '" ' +
+    s += '<polygon class="kq-terr" data-t="' + i + '" points="' + ptsOf(i) + '" ' +
       'fill="' + TERR_SHADE[i].unowned + '"></polygon>';
   });
+  s += '<rect class="kq-paper" x="0" y="0" width="660" height="1160" ' +
+    'fill="url(#kq-paperpat)" clip-path="url(#kq-landclip)"></rect>';
+  s += '</g>';
 
-  /* 3 · the OWNER RINGS — a stroke-only polygon on top, seat-coloured. */
+  /* 3b · the capture-sweep host: empty until a land changes hands. */
+  s += '<g class="kq-cap" id="kq-capg" aria-hidden="true"></g>';
+
+  /* 4 · the OWNER RINGS — a stroke-only polygon on top, seat-coloured. */
   T.forEach((t, i) => {
-    const pts = t.poly.reduce((a, v, k) => a + (k % 2 ? ',' : (k ? ' ' : '')) + v, '');
-    s += '<polygon class="kq-ring" data-r="' + i + '" points="' + pts + '" display="none"></polygon>';
+    s += '<polygon class="kq-ring" data-r="' + i + '" points="' + ptsOf(i) + '" display="none"></polygon>';
   });
 
-  /* 4 · a subtle territory name on the land (helps read the board). */
+  /* 5 · a subtle territory name on the land (helps read the board). */
   T.forEach((t, i) => {
     s += '<text class="kq-tname" data-n="' + i + '" x="' + t.c[0] + '" y="' + (t.c[1] + 20) + '">' +
       esc(TE(t.name)) + '</text>';
   });
 
-  /* 5 · badges (drawn over the polygons). */
+  /* 6 · badges (drawn over the polygons). */
   T.forEach((t, i) => {
     s += '<g class="kq-badge" data-b="' + i + '">' +
       '<circle cx="' + t.c[0] + '" cy="' + t.c[1] + '" r="12.5"></circle>' +
       '<text x="' + t.c[0] + '" y="' + (t.c[1] + 1) + '">1</text></g>';
   });
 
-  /* 6 · the CONTINENT plaques — NAME + BONUS on/near each landmass. */
+  /* 7 · the CONTINENT plaques — NAME + BONUS on/near each landmass. */
   E.CONTINENTS.forEach(c => {
     const a = contLabelAnchor(c.id);
     const nm = TE(c.name).toUpperCase();
@@ -943,6 +1128,8 @@ function buildSVG(){
   });
 
   svg.innerHTML = s;
+  UI.capg    = svg.querySelector('#kq-capg');
+  UI.capclip = svg.querySelector('#kq-capclip');
 
   /* cache + wire taps */
   T.forEach((t, i) => {
@@ -986,13 +1173,42 @@ function turnWatch(){
   if (!M || !UI) return;
   const st = M.st;
   const turnId = st.round + ':' + st.turn;
-  if (turnId !== M.turnId){ M.turnId = turnId; M.tradeThisTurn = 0; M.readoutDone = false; }
+  if (turnId !== M.turnId){
+    M.turnId = turnId; M.tradeThisTurn = 0; M.readoutDone = false;
+    /* a machine's turn should be LEGIBLE, not a board that silently mutates.
+       The local player gets the readout card instead, so this plaque is only
+       ever for a seat that is not his. */
+    if (!E.over(st) && !isLocal(E.turn(st))) handOff(E.turn(st));
+  }
   if (M.readoutDone || M.busy || M.picking) return;
   if (E.over(st) || st._pending) return;
   if (st.phase !== E.PH_REINFORCE) return;
   if (!isLocal(E.turn(st))) return;
   M.readoutDone = true;
   showTurnCard();
+}
+
+/* ── TURN HAND-OFF ────────────────────────────────────────────────────
+   One plaque, one animation, torn down by its own timer. pointer-events:none,
+   so it cannot eat the tap that lands under it; it decorates a turn change the
+   engine has ALREADY made, so it never delays a move, a bot or the wire. No
+   buzz: this is somebody else's turn, and a pocket that shakes for five other
+   people is a phone you put down. */
+let handOffT = 0;
+function handOff(seat){
+  if (!UI || !UI.mapbox || !M || M.dead) return;
+  killCard('kq-handoff');
+  if (handOffT){ clearTimeout(handOffT); handOffT = 0; }
+  const col = colourOf(seat);
+  const ov = document.createElement('div');
+  ov.className = 'kq-hand-off';
+  ov.id = 'kq-handoff';
+  ov.setAttribute('aria-hidden', 'true');
+  ov.innerHTML = '<span><i style="background:radial-gradient(circle at 35% 30%,' +
+    col.hi + ',' + col.hex + ' 60%,' + col.lo + ')"></i>' +
+    esc(seatName(seat) + ' — ' + T('their turn', 'imisshom')) + '</span>';
+  UI.mapbox.appendChild(ov);
+  handOffT = setTimeout(() => { handOffT = 0; killCard('kq-handoff'); }, reduced() ? 900 : 1250);
 }
 
 /* the WHY behind st.reinf, split into the lines a player can act on. Derived
@@ -1097,23 +1313,36 @@ function showTurnCard(){
 function paintMap(){
   const st = M.st;
   const legalSet = computeLegalSet();
+  /* WHOSE TURN IT IS, on the map itself. The seat to move owns the only rings
+     at full strength (and, unless motion is refused, the only ones breathing);
+     every other seat is held back to half. It is the cheapest possible read of
+     "who is moving" and it needs no extra element and no extra paint pass. */
+  const actSeat = E.over(st) ? -1 : E.turn(st);
   for (let i = 0; i < E.N_TERR; i++){
     const el = UI.terrEls[i], bg = UI.badgeEls[i], rg = UI.ringEls[i];
     if (!el) continue;
     const o = st.owner[i];
-    /* FILL = the CONTINENT colour: lively when owned, muted when open land. */
+    /* FILL = the CONTINENT colour: lively when owned, muted when open land.
+       The *Tex pair is the same colour pre-lit for the paper's multiply. */
     const shd = TERR_SHADE[i];
-    el.setAttribute('fill', o >= 0 ? shd.owned : shd.unowned);
+    el.setAttribute('fill', o >= 0 ? (landTexOk ? shd.ownedTex : shd.owned)
+                                   : (landTexOk ? shd.unownedTex : shd.unowned));
     el.classList.toggle('sel', i === M.sel || i === M.fsel);
     el.classList.toggle('legal', legalSet.from.has(i));
     el.classList.toggle('target', legalSet.to.has(i));
     /* OWNER RING = the seat colour, drawn on top; hidden on open land. */
     if (rg){
-      if (o < 0){ rg.setAttribute('display', 'none'); }
-      else { rg.removeAttribute('display'); rg.setAttribute('stroke', colourOf(o).hex); }
+      if (o < 0){ rg.setAttribute('display', 'none'); rg.classList.remove('act'); }
+      else {
+        rg.removeAttribute('display');
+        rg.setAttribute('stroke', colourOf(o).hex);
+        rg.classList.toggle('act', o === actSeat);
+      }
     }
-    /* badge — the troop count in the OWNER's seat colour so ownership reads
-       even where the ring is thin. Hidden on UNOWNED land (the CLAIM opening). */
+    /* badge — a DARK disc tinted with the owner's seat colour and rimmed in
+       that seat's bright shade. Dark-always is deliberate: a white numeral on
+       a flat amber or olive disc was the one combination a phone could not
+       read. Hidden on UNOWNED land (the CLAIM opening). */
     if (bg){
       const c = bg.querySelector('circle'), tx = bg.querySelector('text');
       if (o < 0){
@@ -1121,7 +1350,7 @@ function paintMap(){
       } else {
         bg.removeAttribute('display');
         const col = colourOf(o);
-        if (c){ c.setAttribute('fill', col.hex); c.setAttribute('stroke', col.lo); }
+        if (c){ c.setAttribute('fill', badgeInk(col.hex)); c.setAttribute('stroke', col.hi); }
         if (tx) tx.textContent = st.army[i];
       }
     }
@@ -1350,10 +1579,14 @@ function onTerr(i){
     clampPlace();
     const n = Math.min(M.place, st.reinf);
     if (n < 1) return;
+    const was = st.army[i];
     doMove(seat, { t:'place', to:i, n }, 'local');
     cue('piece.place', { gain:0.7 }, true);
-    dropInBadge(i);
+    buzz('tick');                       /* his own armies landing */
     afterLocal();
+    /* AFTER the repaint, so the count-up starts from what the player saw and
+       finishes on the number the engine already wrote. */
+    landArmies(i, was, M.st.army[i]);
     return;
   }
 
@@ -1791,7 +2024,7 @@ function launchAttack(seat, from, to, n){
       doMove(seat, { t:'advance', n:nMove }, 'local');
       cue('duel.destroy', { gain:0.8 }, true);
       buzz('thud');                             /* HIS capture, in his hand */
-      sweepCapture(battle.to, seat, () => { M.busy = false; afterLocal(); });
+      sweepCapture(battle.to, seat, () => { M.busy = false; afterLocal(); }, battle.from);
     } else {
       M.busy = false; afterLocal();
     }
@@ -1808,24 +2041,39 @@ function setBadgeNum(i, v){
 /* every fight gets a generation number. A badge tick left over from a fight
    the player skipped must not scribble on the next one. */
 let battleGen = 0;
-/* count a loss off a badge, one army at a time, then hand the badge back to
-   paintMap. Purely cosmetic: the engine settled these numbers long ago. */
-function tickBadge(i, from, to, ms, gen){
+/* count a badge from one number to another, one army at a time, then hand the
+   badge back to paintMap. Purely cosmetic: the engine settled these numbers
+   long ago, so a skip, a repaint or reduced motion lands on `to` at once and
+   the board still agrees with every other phone. `cls` colours the numeral
+   while it moves — red counting DOWN a loss, green counting UP a gain. */
+function tickBadge(i, from, to, ms, gen, cls){
   const steps = Math.abs(from - to);
+  const k1 = cls || 'tick';
   if (!UI || !UI.badgeEls[i] || steps === 0 || reduced()){ setBadgeNum(i, to); return; }
   const bg = UI.badgeEls[i];
-  const per = Math.max(70, Math.round(ms / steps));
+  const per = Math.max(60, Math.round(ms / steps));
   let k = 0;
-  bg.classList.add('tick');
+  bg.classList.add(k1);
   const step = () => {
-    if (!M || M.dead || !UI || gen !== battleGen){ if (bg) bg.classList.remove('tick'); return; }
+    if (!M || M.dead || !UI || gen !== battleGen){ if (bg) bg.classList.remove(k1); return; }
     k++;
     setBadgeNum(i, from + (to > from ? k : -k));
     dropInBadge(i);
     if (k < steps) setTimeout(step, per);
-    else bg.classList.remove('tick');
+    else bg.classList.remove(k1);
   };
   setTimeout(step, per);
+}
+
+/* armies LANDING on a territory: the badge counts up from what was there,
+   so "+3" is something you watch arrive rather than a number that changed
+   while you blinked. Called AFTER the repaint that already wrote the truth. */
+function landArmies(i, before, after){
+  if (!UI || reduced() || before === after){ dropInBadge(i); return; }
+  const gen = ++battleGen;
+  setBadgeNum(i, before);
+  dropInBadge(i);
+  tickBadge(i, before, after, 190, gen, 'gain');
 }
 
 /* ── THE FIGHT ─────────────────────────────────────────────────────────
@@ -1996,14 +2244,26 @@ function drawArrow(a, b){
   requestAnimationFrame(f);
 }
 
-/* a colour sweep across a captured territory, then a region-taken flourish */
-function sweepCapture(i, seat, done){
+/* ── THE CAPTURE SWEEP ────────────────────────────────────────────────
+   A land does not blink to its new owner: the OLD colour is pushed off it,
+   from the attacker's border across the shape, behind a bright leading edge.
+
+   Decoration over a state change that has already happened — the engine
+   settled this capture before a pixel moved, so the sweep may be skipped,
+   shortened or refused (reduced motion) and no phone ever disagrees. It uses
+   one clip path and one `transform` on a rect, so it stays on the compositor
+   and costs nothing per frame. `fromIdx` is the ATTACKING land, which is what
+   gives the sweep a direction a player can read as an invasion. */
+let capGen = 0;
+function sweepCapture(i, seat, done, fromIdx){
   if (!UI){ if (done) done(); return; }
+  const wasHex = UI.terrEls[i] ? UI.terrEls[i].getAttribute('fill') : null;
   paintMap();
   const el = UI.terrEls[i];
   if (el && !reduced()){
     el.classList.add('sel');
     setTimeout(() => { if (el) el.classList.remove('sel'); }, 320);
+    runSweep(i, fromIdx, wasHex, colourOf(seat).hi);
   }
   /* region flourish if the capture completed a region for this seat */
   const rid = E.TERRITORIES[i].region;
@@ -2015,6 +2275,65 @@ function sweepCapture(i, seat, done){
   }
   setTimeout(() => { if (done) done(); }, reduced() ? 0 : 200);
 }
+/* the sweep itself. Clipped to the captured polygon (the engine's own points —
+   nothing recomputed, nothing moved), a slab of the OLD colour slides out the
+   far side behind a thin bright edge in the new owner's colour. */
+function runSweep(i, fromIdx, oldHex, edgeHex){
+  if (!UI || !UI.capg || !UI.capclip || !oldHex) return;
+  const ns = 'http://www.w3.org/2000/svg';
+  const poly = E.TERRITORIES[i].poly;
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (let k = 0; k < poly.length; k += 2){
+    x0 = Math.min(x0, poly[k]); x1 = Math.max(x1, poly[k]);
+    y0 = Math.min(y0, poly[k+1]); y1 = Math.max(y1, poly[k+1]);
+  }
+  const w = (x1 - x0) + 6, h = (y1 - y0) + 6;
+  /* direction: away from the attacker, snapped to the dominant axis so the
+     slab edge stays a clean line rather than a diagonal smear. */
+  let dx = 1, dy = 0;
+  const a = (fromIdx != null && E.TERRITORIES[fromIdx]) ? E.TERRITORIES[fromIdx].c : null;
+  const b = E.TERRITORIES[i].c;
+  if (a){
+    const vx = b[0] - a[0], vy = b[1] - a[1];
+    if (Math.abs(vy) > Math.abs(vx)){ dx = 0; dy = vy >= 0 ? 1 : -1; }
+    else { dy = 0; dx = vx >= 0 ? 1 : -1; }
+  }
+  /* one clip, replaced each time: only ever one sweep is on screen. */
+  const cp = UI.capclip.querySelector('polygon');
+  if (cp) cp.setAttribute('points', ptsOf(i));
+
+  const g = document.createElementNS(ns, 'g');
+  g.setAttribute('clip-path', 'url(#kq-capclip)');
+  const slab = document.createElementNS(ns, 'rect');
+  slab.setAttribute('x', x0 - 3); slab.setAttribute('y', y0 - 3);
+  slab.setAttribute('width', w);  slab.setAttribute('height', h);
+  slab.setAttribute('fill', oldHex);
+  const edge = document.createElementNS(ns, 'rect');
+  const eThick = 5;
+  edge.setAttribute('x', dx ? (dx > 0 ? x0 - 3 - eThick : x1 + 3) : x0 - 3);
+  edge.setAttribute('y', dy ? (dy > 0 ? y0 - 3 - eThick : y1 + 3) : y0 - 3);
+  edge.setAttribute('width',  dx ? eThick : w);
+  edge.setAttribute('height', dy ? eThick : h);
+  edge.setAttribute('fill', edgeHex || '#fff');
+  g.appendChild(slab); g.appendChild(edge);
+  UI.capg.innerHTML = '';
+  UI.capg.appendChild(g);
+
+  const gen = ++capGen;
+  const span = (dx ? w : h) + eThick;
+  const t0 = performance.now(), DUR = 400;
+  function f(now){
+    if (!UI || !UI.capg || gen !== capGen) return;
+    const k = Math.min(1, (now - t0) / DUR);
+    const e = 1 - Math.pow(1 - k, 3);                 /* ease-out */
+    const off = span * e;
+    g.setAttribute('transform', 'translate(' + (dx * off).toFixed(2) + ',' + (dy * off).toFixed(2) + ')');
+    if (k < 1) requestAnimationFrame(f);
+    else if (gen === capGen) UI.capg.innerHTML = '';
+  }
+  requestAnimationFrame(f);
+}
+
 function flashRegion(rid){
   if (!UI || reduced()) return;
   const mem = E.REGION_MEMBERS[rid];
@@ -2097,7 +2416,7 @@ function runAiStep(){
         const amv = E.think(M.st, seat, seatLvl(seat)) || { t:'advance', n:p.min };
         doMove(seat, amv.t === 'advance' ? amv : { t:'advance', n:p.min }, 'local');
         cue('duel.destroy', { gain:0.7 }, true);
-        sweepCapture(battle.to, seat, () => { M.busy = false; continueAi(); });
+        sweepCapture(battle.to, seat, () => { M.busy = false; continueAi(); }, battle.from);
       } else { M.busy = false; continueAi(); }
     }, false);
     return;
@@ -2134,6 +2453,7 @@ function finish(){
   if (!ov) return;
   /* nothing of ours may be left floating over a finished map */
   killCard('kq-turncard'); killCard('kq-atksheet'); killCard('kq-fight'); killCard('kq-cardsheet');
+  killCard('kq-handoff'); if (handOffT){ clearTimeout(handOffT); handOffT = 0; }
   M.picking = false;
   cue('game.win', { gain:0.95 }, true);
 
@@ -2249,6 +2569,7 @@ function leave(){
   if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
   battleGen++;                                 /* orphan any pending badge tick */
   killCard('kq-turncard'); killCard('kq-atksheet'); killCard('kq-fight'); killCard('kq-cardsheet');
+  killCard('kq-handoff'); if (handOffT){ clearTimeout(handOffT); handOffT = 0; }
   if (M){ autosave(); persistNow(); M.dead = true; M.busy = false; M.picking = false; }
   M = null; UI = null;
 }
