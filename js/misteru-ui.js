@@ -118,6 +118,25 @@ function reduced(){
   } catch(e){ return false; }
 }
 
+/* ── HAPTICS — the other half of "something just happened" ─────────────
+   One line, next to the cue() that already marks the same moment, so a
+   buzz and a click can never drift apart. js/sfx.js owns the pattern, the
+   player's switch and every no-op path (no motor, no permission, iOS); it
+   can neither throw nor delay the tap that caused it, so there is nothing
+   to guard here beyond the module being absent entirely.
+
+   DELIBERATELY NOT GATED ON reduced(). That setting is about things moving
+   on screen; a buzz in the hand is not motion and has its own switch. What
+   IS gated on reduced() is every animation below — the walk, the tumble,
+   the press scale — and the haptic still fires when the animation does not,
+   because the MOMENT is what the player is being told about, not the
+   picture of it. Only ever called for something the player caused. */
+function buzz(kind){
+  try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){}
+}
+/* arriving somewhere: a room is a thud, a paving stone is a tick */
+function landKind(p){ return E.posIsRoom(p) ? 'thud' : 'tick'; }
+
 /* ═══════════════════════════════════════════════════════════════════
    THE RUNNER — (opts, seed, log) and one door for every move.
    ═══════════════════════════════════════════════════════════════════ */
@@ -456,6 +475,57 @@ function injectCSS(){
       'outline:2px solid #FFC542;outline-offset:-2px;box-shadow:0 0 12px rgba(255,197,66,.45)}',
     '#scr-party .ms-board:not(.lit) .ms-cellx{pointer-events:none}',
     '#scr-party .ms-board.lit .ms-cellx.rch:active{transform:scale(.97)}',
+
+    /* ═══ PRESS FEEDBACK ═════════════════════════════════════════════
+       Every tappable thing in this game shrinks a little under the thumb.
+       TRANSFORM ONLY — a padding or a border change here would re-flow the
+       grid the board is measured from, and on a 360px phone that is a cell
+       size that jitters on every tap. Scoped to this game's own classes so
+       nothing else on #scr-party inherits a press it did not ask for.
+       :active is the CSS half; the tick buzz is the other half, fired from
+       one delegated pointerdown in pressWire(). */
+    '#scr-party .ms-dock .btn,#scr-party .ms-menu .btn,#scr-party .ms-opt,' +
+      '#scr-party .ms-casetile,#scr-party .ms-count button,#scr-party .ms-pk,' +
+      '#scr-party .ms-nb .ms-cell,#scr-party .ms-menu .iconbtn,#scr-party .ms-sheet-x,' +
+      '#scr-party .ms-intro .btn,#scr-party .ms-revl .btn,#scr-party .ms-hand .btn' +
+      '{transition:transform .15s cubic-bezier(.2,.8,.2,1)}',
+    '#scr-party .ms-dock .btn:active,#scr-party .ms-menu .btn:active,#scr-party .ms-opt:active,' +
+      '#scr-party .ms-casetile:active,#scr-party .ms-count button:active,#scr-party .ms-pk:active,' +
+      '#scr-party .ms-nb .ms-cell:active,#scr-party .ms-menu .iconbtn:active,#scr-party .ms-sheet-x:active,' +
+      '#scr-party .ms-intro .btn:active,#scr-party .ms-revl .btn:active,#scr-party .ms-hand .btn:active' +
+      '{transform:scale(.97)}',
+    '#scr-party .ms-dock .btn[disabled]:active,#scr-party .ms-pk[disabled]:active,' +
+      '#scr-party .ms-nb .ms-cell[disabled]:active{transform:none}',
+    'body.reduced #scr-party .ms-dock .btn,body.reduced #scr-party .ms-menu .btn{transition:none}',
+
+    /* ═══ THE WALKING TOKEN ══════════════════════════════════════════
+       A single absolutely-positioned disc that travels the board while the
+       real token in the destination tray is held invisible. translate()
+       ONLY — animating left/top would lay the board out again on every one
+       of six steps, which is the perf cliff this repo already fell off.
+       It is a picture of a move that has ALREADY been applied to the
+       engine, so losing it costs nothing but the animation. */
+    '#scr-party .ms-walk{position:absolute;left:0;top:0;z-index:4;pointer-events:none;' +
+      'width:20px;height:20px;margin:-10px 0 0 -10px;border-radius:50%;background:var(--sc,#888);' +
+      'color:#120e18;font:900 10px/1 var(--disp,"Exo 2",sans-serif);display:flex;' +
+      'align-items:center;justify-content:center;will-change:transform;' +
+      'box-shadow:0 0 0 2px #FFC542,0 2px 7px rgba(0,0,0,.75);' +
+      'transition:transform .11s cubic-bezier(.35,0,.35,1)}',
+    '#scr-party .ms-walk.snap{transition:none}',
+    /* the squares just left behind, lit for the length of the walk: the trail
+       says WHICH way round the block the detective went, which the destination
+       on its own can never say. An OUTLINE, for the same reason the reachable
+       ring is one — a room tile's floor and plan paint over an inset shadow. */
+    '#scr-party .ms-board .ms-cellx.trail{outline:2px solid rgba(255,197,66,.45);outline-offset:-2px}',
+    /* the die tumbles: a few faces go past and it settles, easing out */
+    '@keyframes ms-tumble{0%{transform:rotate(-160deg) scale(.55)}' +
+      '45%{transform:rotate(120deg) scale(1.2)}72%{transform:rotate(-24deg) scale(1.04)}' +
+      '100%{transform:rotate(0) scale(1)}}',
+    '#scr-party .ms-die.tumble{animation:ms-tumble .6s cubic-bezier(.16,.84,.28,1) 1}',
+    'body.reduced #scr-party .ms-die.tumble,body.reduced #scr-party .ms-walk{animation:none;transition:none}',
+    '@media (prefers-reduced-motion:reduce){#scr-party .ms-die.tumble{animation:none}' +
+      '#scr-party .ms-walk{transition:none}' +
+      '#scr-party .ms-dock .btn,#scr-party .ms-menu .btn{transition:none}}',
     '#scr-party .ms-pip{position:absolute;left:50%;top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;' +
       'border-radius:50%;background:#FFC542;box-shadow:0 0 8px rgba(255,197,66,.95);' +
       'animation:ms-pulse 1.15s ease-in-out infinite}',
@@ -525,6 +595,72 @@ function injectCSS(){
   ].join('');
   const el = document.createElement('style'); el.id = 'ms-css'; el.textContent = css;
   document.head.appendChild(el);
+  pressWire();
+}
+
+/* ── THE TICK UNDER THE THUMB ─────────────────────────────────────────
+   ONE delegated pointerdown, in the capture phase, on #scr-party — the
+   permanent screen node this game borrows. Not per element: the board's
+   cells, the dock and the notebook grid are all rewritten on every paint,
+   so a per-element handler would have to be re-bound on every render and
+   would leak the ones it forgot. Not on document either: this listener has
+   no business firing while another game is on screen, and the selector
+   list is this game's own classes so it stays inert if it ever did.
+   Installed exactly once, on a node that outlives every match, so there is
+   nothing to detach — unlike the motion listener below, which is a battery
+   cost and is torn down the moment its window closes. */
+const PRESS_SEL = '.ms-cellx.rch,.ms-dock .btn,.ms-menu .btn,.ms-opt,.ms-casetile,' +
+                  '.ms-count button,.ms-pk,.ms-nb .ms-cell,.ms-menu .iconbtn,.ms-sheet-x,' +
+                  '.ms-intro .btn,.ms-revl .btn,.ms-hand .btn';
+let pressDone = false;
+function pressWire(){
+  if (pressDone) return;
+  let scr = null;
+  try { scr = document.getElementById('scr-party') ||
+              (P.ui && P.ui.screenEl && P.ui.screenEl().closest ? P.ui.screenEl().closest('.screen') : null); }
+  catch(e){ scr = null; }
+  if (!scr) return;
+  pressDone = true;
+  scr.addEventListener('pointerdown', ev => {
+    try {
+      const t = ev.target && ev.target.closest ? ev.target.closest(PRESS_SEL) : null;
+      if (!t || t.disabled) return;
+      /* SOME BUTTONS SAY SOMETHING BETTER THAN "tapped". js/sfx.js merges two
+         buzzes closer together than 40ms — deliberately, so they do not smear
+         — and pointerdown lands a few milliseconds before the click that runs
+         the handler. So an unconditional press tick here would EAT the roll of
+         the die and the thud of the secret passage, and the two moments the
+         hand should feel most would be the two that felt like nothing. Those
+         buttons carry data-hap="skip" and buzz for themselves.            */
+      if (t.dataset && t.dataset.hap === 'skip') return;
+      buzz('tick');
+    } catch(e){}
+  }, true);
+}
+
+/* ── WARM THE BOARD CATALOGUE OFF THE CRITICAL PATH ───────────────────
+   The FIRST boardFor() call is the one that enumerates every legal packing
+   of six rooms into the 7x8 grid — thousands of them — and on a cheap
+   phone that measured over a second of blocked main thread. Every board
+   after it is a memo lookup plus a small derive. So the cost is not "this
+   case", it is "the first case", and it can be paid while the player is
+   still reading the menu and choosing detectives.
+
+   FIRE AND FORGET. requestIdleCallback so it never competes with the menu
+   painting, setTimeout(…,1) where that API is missing (older WebKit), and
+   the whole thing inside a try: a warm-up that throws must cost the player
+   nothing, because the real boardFor() call is still coming and is still
+   correct. Safe to call any number of times — the flag stops the second
+   schedule and boardFor() is memoised underneath it anyway. */
+let warmKicked = false;
+function warmBoards(caseId){
+  if (warmKicked) return;
+  warmKicked = true;
+  const go = () => { try { E.boardFor(caseId || pref().caseId || 1); } catch(e){} };
+  try {
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(go, { timeout:1500 });
+    else setTimeout(go, 1);
+  } catch(e){ try { setTimeout(go, 1); } catch(e2){} }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -553,6 +689,12 @@ function canGoOnline(){
 function setupSheet(){
   injectCSS(); P.show();
   stopThinking(); M = null; UI = null;
+  motionDetach();          /* no match, no roll window, no motion listener */
+  /* the menu is several seconds of reading and tapping — spend them paying
+     for the board catalogue instead of making the player wait for it after
+     they hit start. Kicked BEFORE the markup so an idle slot exists early;
+     it cannot block the paint, it is a callback. */
+  warmBoards();
   const el = P.ui.screenEl();
   const online = canGoOnline();
   const sil = [];
@@ -632,6 +774,7 @@ function offlineSetup(mode){
   let lvl = p.lvl || 2;
   let caseId = Math.max(1, Math.min(E.CASES.length, p.caseId || 1));
   let pickerOpen = false;
+  warmBoards(caseId);      /* second chance, if the player came in on a deep link */
 
   function paint(){
     const cs = E.caseOf(caseId);
@@ -1041,9 +1184,12 @@ function paintBoard(){
   }
   UI.board.querySelectorAll('.ms-toks').forEach(tray => {
     const list = at[+tray.dataset.toks] || [];
+    /* data-seat so the walk can find and hold THIS seat's disc invisible
+       while its stand-in travels the board — without it the destination
+       token would already be sitting there before the walk had started. */
     tray.innerHTML = list.map(i =>
       '<span class="ms-tok' + (i === view ? ' me' : '') + (st.out[i] ? ' out' : '') +
-        '" style="--sc:' + seatHex(i) + '" title="' + esc(seatName(i)) + '">' +
+        '" data-seat="' + i + '" style="--sc:' + seatHex(i) + '" title="' + esc(seatName(i)) + '">' +
         esc(tokenLabel(i)) + '</span>').join('');
   });
 
@@ -1090,13 +1236,51 @@ const DIE_PIPS = {
   5:[[32,32],[68,32],[50,50],[32,68],[68,68]],
   6:[[32,28],[68,28],[32,50],[68,50],[32,72],[68,72]]
 };
+function diePips(n){
+  return (DIE_PIPS[n | 0] || []).map(p =>
+    '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9" fill="#1a1410"/>').join('');
+}
 function dieSVG(n, anim){
-  const pips = DIE_PIPS[n | 0] || [];
-  return '<svg class="ms-die' + (anim ? ' roll' : '') + '" viewBox="0 0 100 100" ' +
+  return '<svg class="ms-die' + (anim ? ' roll tumble' : '') + '" viewBox="0 0 100 100" ' +
     'role="img" aria-label="' + esc(T('die showing ' + (n | 0), 'daddu juri ' + (n | 0))) + '">' +
     '<rect x="6" y="6" width="88" height="88" rx="18" fill="#f6f1e6" stroke="rgba(0,0,0,.4)" stroke-width="3"/>' +
-    pips.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9" fill="#1a1410"/>').join('') +
+    '<g class="ms-pips">' + diePips(n) + '</g>' +
   '</svg>';
+}
+
+/* ── THE TUMBLE ───────────────────────────────────────────────────────
+   A die that appears already showing its number is a label; a die that
+   goes past a few faces and slows into one is an object that was thrown.
+   The faces are swapped on a DECELERATING timer — the gap grows by a
+   quarter each time — so it reads as something losing momentum rather
+   than a strobe, and it always ends on the number the engine rolled,
+   which is set unconditionally at the end whatever the timers did.
+
+   The intermediate faces are cosmetic and use Math.random deliberately:
+   nothing here touches st.rs, so it cannot fork the machine or disagree
+   between two phones — the RESULT was decided by the engine before this
+   was ever called. Under reduced() it is never called at all.        */
+let dieTimer = 0;
+function stopTumble(){ if (dieTimer){ clearTimeout(dieTimer); dieTimer = 0; } }
+function tumbleDie(svg, finalN){
+  stopTumble();
+  if (!svg) return;
+  const g = svg.querySelector('.ms-pips');
+  if (!g) return;
+  let gap = 62, spent = 0, prev = finalN;
+  const settle = () => { dieTimer = 0; if (g.isConnected) g.innerHTML = diePips(finalN); };
+  const tick = () => {
+    dieTimer = 0;
+    if (!g.isConnected) return;
+    if (spent >= 470){ settle(); return; }
+    let n = 1 + Math.floor(Math.random() * 6);
+    if (n === prev) n = 1 + (n % 6);           /* never two identical faces in a row */
+    prev = n;
+    g.innerHTML = diePips(n);
+    spent += gap; gap = Math.round(gap * 1.26);
+    dieTimer = setTimeout(tick, gap);
+  };
+  dieTimer = setTimeout(tick, gap);
 }
 
 /* ── THE TURN, AND WHO MAY DRIVE IT ───────────────────────────────────
@@ -1112,27 +1296,297 @@ function canAct(){
 /* roll → tap a lit square → suggest. Every one of these goes through
    doMove() so the log, the autosave and the AI drive stay correct. None of
    roll/move/passage advances the turn, so they render and stay put. */
-function doRoll(){
+function doRoll(src){
   const view = viewSeat();
+  /* the roll window is closing whatever happens next — take the listener
+     down FIRST, before any of the work, so an early return can never leave
+     it running. render() below re-syncs it and will find it not wanted. */
+  motionDetach();
   const res = doMove(view, { t:'roll' }, 'local');
-  if (!res.ok){ cue('ui.error'); return; }
+  if (!res.ok){ cue('ui.error'); buzz('no'); return; }
   M.dieAnim = true;
   cue('board.flip', { gain:0.8 }, true);
+  buzz('roll');                 /* the die starts tumbling */
+  void src;
   render();
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   SHAKE TO ROLL — an ACCELERATOR, never the only way in.
+
+   THE ROLL BUTTON NEVER GOES ANYWHERE. Somebody playing one-handed on a
+   bus, somebody with a tremor, somebody whose phone has no accelerometer
+   at all, somebody who said no to the permission — every one of them plays
+   the whole game with the button that has always been there. Shaking is a
+   second door onto the same doRoll(), and that is the only thing it is.
+
+   THE LISTENER LIVES EXACTLY AS LONG AS THE ROLL WINDOW. devicemotion
+   fires 60 times a second and the radio behind it is not free; one left
+   running behind a finished game is a battery leak nobody would ever see
+   in a screenshot. So motionSync() is called at the end of every render()
+   and asks one question — is it MY turn, have I not moved, and is the die
+   still unrolled — and attaches or detaches on the answer. doRoll() takes
+   it down before it does anything else, leave() and setupSheet() take it
+   down on the way out, and the attach is idempotent.
+
+   iOS ASKS ONCE. DeviceMotionEvent.requestPermission() must come from a
+   user gesture, so it hangs off the Roll BUTTON and never off page load.
+   A refusal is remembered in prefs for good: asking a second time is how a
+   permission prompt turns into nagging, and the button still rolls. */
+const SHAKE_DELTA = 16;      /* m/s^2 summed over the three axes            */
+const SHAKE_GAP   = 900;     /* one shake is one roll, not a burst of six   */
+let motionFn = null, motionLast = null, motionAt = 0, askedShake = false;
+
+function shakeAvailable(){
+  try {
+    if (!window.DeviceMotionEvent) return false;
+    if (reduced()) return false;              /* same gate the pack tilt uses */
+    if (pref().shake === 'no') return false;  /* refused once, never again    */
+    return true;
+  } catch(e){ return false; }
+}
+function motionAttach(){
+  if (motionFn || !shakeAvailable()) return;
+  motionFn = ev => {
+    try {
+      const a = ev.accelerationIncludingGravity || ev.acceleration;
+      if (!a) return;
+      const x = +a.x || 0, y = +a.y || 0, z = +a.z || 0;
+      const p = motionLast;
+      motionLast = { x, y, z };
+      if (!p) return;
+      const d = Math.abs(x - p.x) + Math.abs(y - p.y) + Math.abs(z - p.z);
+      if (d < SHAKE_DELTA) return;
+      const now = Date.now();
+      if (now - motionAt < SHAKE_GAP) return;
+      motionAt = now;
+      /* the same three conditions the window was opened on, re-asked at the
+         moment of use: a shake that arrives one tick after the turn ended
+         must do nothing at all. */
+      if (!M || !M.st || !canAct() || M.st.moved || (M.st.roll | 0) !== 0) { motionDetach(); return; }
+      doRoll('shake');
+    } catch(e){}
+  };
+  try { window.addEventListener('devicemotion', motionFn); }
+  catch(e){ motionFn = null; }
+}
+function motionDetach(){
+  if (!motionFn) return;
+  try { window.removeEventListener('devicemotion', motionFn); } catch(e){}
+  motionFn = null; motionLast = null;
+}
+function motionSync(){
+  const want = !!(M && M.st && !M.dead && canAct() && !M.st.moved && (M.st.roll | 0) === 0 && !E.over(M.st));
+  if (want) motionAttach(); else motionDetach();
+}
+/* asked from the Roll button's own tap — a gesture, which is what iOS wants */
+function askShake(){
+  try {
+    const DM = window.DeviceMotionEvent;
+    if (!DM || typeof DM.requestPermission !== 'function') return;
+    if (askedShake || pref().shake === 'ok' || pref().shake === 'no') return;
+    askedShake = true;
+    const r = DM.requestPermission();
+    if (r && r.then) r.then(s => {
+      pref({ shake: s === 'granted' ? 'ok' : 'no' });
+      if (s === 'granted') motionSync();
+    }).catch(() => { pref({ shake:'no' }); });
+  } catch(e){ try { pref({ shake:'no' }); } catch(e2){} }
+}
+/* ── THE PATH, NOT JUST THE DESTINATION ───────────────────────────────
+   reachable() hands back WHERE you may end up; walking needs HOW you get
+   there. So this is the same breadth-first search over the same graph,
+   with the same three rules — a room is a destination and never a junction,
+   another detective's corridor square blocks entry and pass-through, and no
+   square is visited twice — but keeping a parent pointer so the route can
+   be read back off the end.
+
+   IT IS A COPY OF A RULE THAT LIVES IN THE ENGINE, and that is a real cost,
+   so it is fenced: the engine stays the only authority on whether the move
+   is LEGAL (doMove has already said yes before this is drawn), and this is
+   only ever asked for a picture. If the two ever disagree the picture loses
+   — see startWalk, which places the token and gets on with it rather than
+   arguing. blockedCorr is not exported, so it is rebuilt here from st.pos,
+   which is the same public thing the engine reads it from. */
+function movePath(st, seat, to){
+  try {
+    if (!st || !st.pos) return null;
+    const B = E.boardOf(st);
+    const from = st.pos[seat];
+    const budget = st.roll | 0;
+    if (!E.posOK(B, from) || !E.posOK(B, to) || budget <= 0 || from === to) return null;
+    /* every square another seat stands on: no entry and no cutting through.
+       Eliminated seats still hold theirs — they are still in the building. */
+    const blocked = new Array(B.POS_MAX + 1).fill(false);
+    for (let i = 0; i < st.n; i++){
+      if (i === seat) continue;
+      const p = st.pos[i];
+      if (E.posCorr(B, p) >= 0) blocked[p] = true;
+    }
+    const prev = new Array(B.POS_MAX + 1).fill(-2);
+    prev[from] = -1;
+    const queue = [from];
+    const dist = new Array(B.POS_MAX + 1).fill(-1);
+    dist[from] = 0;
+    for (let qi = 0; qi < queue.length; qi++){
+      const p = queue[qi], d = dist[p];
+      if (d >= budget) continue;
+      if (E.posIsRoom(p) && p !== from) continue;      /* arrived in a room → stop */
+      const nbrs = B.NEIGH[p];
+      for (let k = 0; k < nbrs.length; k++){
+        const q = nbrs[k];
+        if (dist[q] >= 0) continue;
+        if (blocked[q]) continue;
+        dist[q] = d + 1; prev[q] = p; queue.push(q);
+      }
+    }
+    if (dist[to] < 0) return null;
+    const out = [];
+    for (let p = to; p !== -1 && p !== -2; p = prev[p]) out.push(p);
+    out.reverse();
+    return (out.length >= 2 && out[0] === from) ? out : null;
+  } catch(e){ return null; }
+}
+
+/* ── THE TOKEN WALKS ──────────────────────────────────────────────────
+   The move is ALREADY applied and rendered when this starts: the engine,
+   the log and the autosave are done with it, and what is on screen is the
+   truth. All this does is hold the arrived token invisible for a moment
+   and send a stand-in disc along the route it took, one square every
+   110ms, transform only.
+
+   NEVER BLOCKS INPUT. A tap anywhere during the walk finishes it on the
+   spot — the disc snaps to the end, the real token comes back and whatever
+   was going to happen next happens immediately. Nothing waits on the
+   animation: it holds no lock, and cancelling it is always safe, because
+   the only state it owns is a hidden style on one span.
+
+   Under reduced() there is no walk at all — the token is simply there —
+   but the arrival still buzzes, because the MOMENT is what the player is
+   being told about, not the picture of it. */
+const WALK_MS = 110;
+const LAND_MS = 90;        /* clear of js/sfx.js's 40ms two-buzz merge guard */
+let W = null;              /* the walk in flight, or null */
+/* the squares the LAST walk actually put the token on, kept for the test
+   hook so "it animated the real path" is an assertion and not a claim */
+let lastTrace = null, lastAnimated = false;
+function walkXY(p){
+  if (!UI || !UI.board || !UI.boardBox) return null;
+  const cell = UI.board.querySelector('.ms-cellx[data-pos="' + p + '"]');
+  if (!cell) return null;
+  const a = cell.getBoundingClientRect(), b = UI.boardBox.getBoundingClientRect();
+  if (!a.width || !a.height) return null;
+  return { x: a.left - b.left + a.width / 2, y: a.top - b.top + a.height / 2, cell };
+}
+/* End the walk NOW, from anywhere, any number of times. `quiet` is for
+   leaving the game: the disc comes off the board but nobody is owed a buzz
+   or a room card for a move they walked out on. */
+function endWalk(quiet){
+  const w = W; if (!w) return;
+  W = null;
+  if (quiet){ w.landed = true; w.done = null; }
+  if (w.timer){ clearTimeout(w.timer); w.timer = 0; }
+  try { if (w.tapOff) w.tapOff(); } catch(e){}
+  try { if (w.ov && w.ov.parentNode) w.ov.remove(); } catch(e){}
+  try { if (w.tok && w.tok.isConnected) w.tok.style.visibility = ''; } catch(e){}
+  try { (w.trail || []).forEach(c => { if (c && c.isConnected) c.classList.remove('trail'); }); } catch(e){}
+  /* the arrival is owed either way: if the walk was cut short it never got
+     to the last square, and a move with no buzz at all reads as a dropped tap. */
+  if (!w.landed){ w.landed = true; buzz(landKind(w.path[w.path.length - 1])); }
+  lastTrace = w.trace.slice();
+  const fn = w.done; w.done = null;
+  if (fn) { try { fn(); } catch(e){} }
+}
+function startWalk(seat, path, done){
+  endWalk();
+  const finish = () => { if (done) { const f = done; done = null; f(); } };
+  const last = path && path.length ? path[path.length - 1] : null;
+  /* no path, no board, or the player asked for no motion → place and buzz */
+  if (!UI || !UI.board || reduced() || !path || path.length < 2){
+    lastTrace = last == null ? [] : [last]; lastAnimated = false;
+    if (last == null){ finish(); return; }
+    /* THE ARRIVAL IS DEFERRED BY ONE BEAT, not skipped and not fired inline.
+       js/sfx.js merges two buzzes closer together than 40ms so they cannot
+       smear, and the tap that caused this landed only a few milliseconds
+       ago. Fired inline, the arrival — the 'thud' of walking into a room,
+       the most meaningful buzz on this board — would be swallowed whole by
+       the press tick, and with the walk animation off there is nothing else
+       left to say you got there. 90ms is still instant to a hand. */
+    W = { path:[last], pts:null, ov:null, tok:null, seat, i:0, landed:false,
+          trail:[], done:finish, tapOff:null, trace:[last], timer:0 };
+    W.timer = setTimeout(() => { if (W) W.timer = 0; endWalk(); }, LAND_MS);
+    return;
+  }
+  const pts = path.map(walkXY);
+  if (pts.some(p => !p)){
+    lastTrace = [last]; lastAnimated = false;
+    W = { path:[last], pts:null, ov:null, tok:null, seat, i:0, landed:false,
+          trail:[], done:finish, tapOff:null, trace:[last], timer:0 };
+    W.timer = setTimeout(() => { if (W) W.timer = 0; endWalk(); }, LAND_MS);
+    return;
+  }
+  lastAnimated = true;
+  const tok = UI.board.querySelector('.ms-toks[data-toks="' + last + '"] .ms-tok[data-seat="' + seat + '"]');
+  const ov = document.createElement('span');
+  ov.className = 'ms-walk snap';
+  ov.style.setProperty('--sc', seatHex(seat));
+  ov.textContent = tokenLabel(seat);
+  ov.style.transform = 'translate(' + pts[0].x + 'px,' + pts[0].y + 'px)';
+  UI.boardBox.appendChild(ov);
+  if (tok) tok.style.visibility = 'hidden';
+  W = { path, pts, ov, tok, seat, i:0, timer:0, landed:false, trail:[], done:finish, tapOff:null,
+        trace:[path[0]] };
+  /* a tap ANYWHERE finishes the walk — capture phase so it lands before the
+     board's own click handler, and one-shot so it can never outlive the walk. */
+  try {
+    const host = M && M.ctx && M.ctx.host;
+    if (host){
+      const h = () => endWalk();
+      host.addEventListener('pointerdown', h, true);
+      W.tapOff = () => { try { host.removeEventListener('pointerdown', h, true); } catch(e){} };
+    }
+  } catch(e){}
+  requestAnimationFrame(() => { if (W && W.ov === ov) ov.classList.remove('snap'); step(); });
+
+  function step(){
+    const w = W; if (!w || w.ov !== ov) return;
+    w.i++;
+    const p = w.path[w.i], pt = w.pts[w.i];
+    ov.style.transform = 'translate(' + pt.x + 'px,' + pt.y + 'px)';
+    /* the square just left glows for a beat, so the route is readable */
+    const prevCell = w.pts[w.i - 1].cell;
+    if (prevCell && !E.posIsRoom(w.path[w.i - 1])){
+      prevCell.classList.add('trail'); w.trail.push(prevCell);
+    }
+    w.timer = setTimeout(() => {
+      const cur = W; if (!cur || cur.ov !== ov) return;
+      cur.timer = 0;
+      cur.trace.push(p);
+      if (cur.i >= cur.path.length - 1){ cur.landed = true; buzz(landKind(p)); endWalk(); return; }
+      buzz('tick');
+      step();
+    }, WALK_MS);
+  }
+}
+
 function boardTap(to){
   const view = viewSeat();
+  /* the route is read BEFORE the move applies — afterwards st.pos and
+     st.roll are the destination and zero, and the path is unrecoverable. */
+  const path = movePath(M.st, view, to);
   const res = doMove(view, { t:'move', to }, 'local');
-  if (!res.ok){ cue('ui.error'); return; }
+  if (!res.ok){ cue('ui.error'); buzz('no'); return; }
   cue('ui.tap');
   render();
-  roomEntryCard(E.posRoom(M.st.pos[view]));
+  startWalk(view, path && path[path.length - 1] === to ? path : [to],
+    () => roomEntryCard(E.posRoom(M.st.pos[view])));
 }
 function doPassage(){
   const view = viewSeat();
   const res = doMove(view, { t:'passage' }, 'local');
-  if (!res.ok){ cue('ui.error'); return; }
+  if (!res.ok){ cue('ui.error'); buzz('no'); return; }
   cue('board.flip', { gain:0.9 }, true);
+  buzz('thud');                 /* you did not walk there — you stepped through a wall */
   render();
   roomEntryCard(E.posRoom(M.st.pos[view]));
 }
@@ -1174,7 +1628,7 @@ function roomEntryCard(slot){
 function doPass(){
   const view = viewSeat();
   const res = doMove(view, { t:'pass' }, 'local');
-  if (!res.ok){ cue('ui.error'); return; }
+  if (!res.ok){ cue('ui.error'); buzz('no'); return; }
   cue('ui.back', { gain:0.7 });
   render(); afterMove();
 }
@@ -1188,14 +1642,20 @@ function turnPlan(lit){
   const room = E.roomOfSeat(st, view);
   const pos = (st.pos || [])[view];
   const passTo = E.passageFrom(st, pos);
-  const B = (id, label, cls, go, w, icon) => ({ id, label, cls, go, w: w || 1, icon });
+  const B = (id, label, cls, go, w, icon, hap) => ({ id, label, cls, go, w: w || 1, icon, hap });
 
   if (!st.moved && st.roll === 0){
-    const btns = [B('ms-roll', T('Roll the die', 'Itfa\' d-daddu'), 'primary', doRoll, 2)];
+    /* the BUTTON is the way to roll and always will be; the shake is an
+       extra door onto the same call. The prompt mentions it only when this
+       phone can actually do it, so nobody is told to shake a laptop. */
+    const btns = [B('ms-roll', T('Roll the die', 'Itfa\' d-daddu'), 'primary',
+                    () => { askShake(); doRoll('btn'); }, 2, null, 'skip')];
     if (passTo >= 0)
-      btns.push(B('ms-secret', T('Secret passage', 'Passaġġ sigriet'), 'ghost', doPassage, 1));
+      btns.push(B('ms-secret', T('Secret passage', 'Passaġġ sigriet'), 'ghost', doPassage, 1, null, 'skip'));
     btns.push(B('ms-accuse', T('Accuse', 'Akkuża'), 'ghost', () => openPicker('accuse'), 1, 'flag'));
-    return { txt: T('Roll the die.', 'Itfa\' d-daddu.'), die:0, btns };
+    return { txt: shakeAvailable()
+      ? T('Roll the die — or shake the phone.', 'Itfa\' d-daddu — jew ħawwad it-telefon.')
+      : T('Roll the die.', 'Itfa\' d-daddu.'), die:0, btns };
   }
   if (!st.moved && st.roll > 0){
     /* boxed in: every square within reach is occupied. legal() always keeps a
@@ -1240,6 +1700,7 @@ function paintDock(lit){
   UI.dock.style.gridTemplateColumns = btns.map(b => (b.w || 1) + 'fr').join(' ');
   UI.dock.innerHTML = btns.map(b =>
     '<button class="btn ' + (b.cls || 'ghost') + '" id="' + b.id + '"' +
+      (b.hap ? ' data-hap="' + b.hap + '"' : '') +
       (b.off ? ' disabled style="opacity:.5"' : '') + '>' +
       (b.icon ? ico(b.icon) + ' ' : '') + esc(b.label) + '</button>').join('');
   btns.forEach(b => {
@@ -1273,15 +1734,25 @@ function paintStrip(lit){
   }
   const anim = !!M.dieAnim && !reduced();
   M.dieAnim = false;
+  if (!anim) stopTumble();
   UI.strip.innerHTML = (die > 0 ? dieSVG(die, anim) : '') +
     '<span class="ms-msg">' + esc(txt) + '</span>';
+  /* reduced motion gets the number and nothing else — no tumble, no spin */
+  if (anim && die > 0) tumbleDie(UI.strip.querySelector('.ms-die'), die);
 }
 
 function render(){
   if (!M || !UI) return;
+  /* a repaint rewrites every token tray, so a walk still in flight is
+     holding a reference to a span that is about to be thrown away. Finish
+     it first — it never owned anything but a hidden style. */
+  endWalk();
   paintSeats();
   const lit = paintBoard() || [];
   paintStrip(lit); paintDock(lit);
+  /* LAST, and on every paint: the roll window may have just opened or just
+     closed, and this is the one place that knows which. */
+  motionSync();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1359,7 +1830,7 @@ function doSuggest(seat, sel){
   cue('card.throw', { gain:0.8 }, true);
   if (M.online){ sendMoveOnline('sug', seat, sel); return; }
   const res = doMove(seat, { t:'suggest', s:sel.s, w:sel.w, l:sel.l }, 'local');
-  if (!res.ok){ cue('ui.error'); return; }
+  if (!res.ok){ cue('ui.error'); buzz('no'); return; }
   const rec = res.rec;
   /* if a card was shown TO ME, flip-reveal it and auto-mark the notebook */
   if (rec.by >= 0 && rec.card && rec.seat === seat){
@@ -1372,7 +1843,11 @@ function doAccuse(seat, sel){
   cue('duel.boss', { gain:0.9 }, true);
   if (M.online){ sendMoveOnline('acc', seat, sel); return; }
   const res = doMove(seat, { t:'accuse', s:sel.s, w:sel.w, l:sel.l }, 'local');
-  if (!res.ok){ cue('ui.error'); return; }
+  if (!res.ok){ cue('ui.error'); buzz('no'); return; }
+  /* WRONG, and you are out. The engine has already stamped it; the buzz is
+     the head-shake. A RIGHT accusation says nothing here — the win buzz is
+     owed once, at the solve, and firing both would be two answers. */
+  if (M.st.out[seat]) buzz('no');
   render();
   if (E.over(M.st)) { finish(); return; }
   afterMove();
@@ -1412,6 +1887,7 @@ function showRevealTo(card, bySeat, done){
   if (reduced()){ ov.querySelector('#ms-revcard').classList.add('in'); }
   else requestAnimationFrame(() => setTimeout(flip, 20));
   cue('board.flip', { gain:0.85 }, true);
+  buzz('double');            /* two beats: a card was shown to YOU, privately */
   ov.querySelector('#ms-revgo').onclick = () => { cue('ui.tap'); M.reveal = null; ov.remove(); done && done(); };
 }
 
@@ -1585,8 +2061,12 @@ function finish(){
   if (!M || M.finished) return;
   M.finished = true;
   stopThinking();
+  motionDetach();            /* the game is over: no turn, no roll, no listener */
   const st = M.st, me = viewSeat();
   const v = E.verdict(st, me);
+  /* exactly once — finish() is fenced by M.finished — and only for a win.
+     A loss already had its own 'no' at the wrong accusation. */
+  if (v && v.tone === 'win') buzz('win');
   if (!M.net && !M.recorded){
     M.recorded = true;
     if (v && v.tone === 'win') ST.rec.w++; else ST.rec.l++;
@@ -1706,6 +2186,11 @@ function podium(sol, v){
 function leave(){
   stopThinking();
   stopWatchBox();          /* a ResizeObserver left on a detached board is a leak */
+  /* and so is a devicemotion listener, only worse: it keeps a sensor awake
+     for as long as the tab lives. Down it comes, first, unconditionally. */
+  motionDetach();
+  endWalk(true);
+  stopTumble();
   if (enterTimer){ clearTimeout(enterTimer); enterTimer = 0; }
   if (M){ M.dead = true; }
   M = null; UI = null;
@@ -2303,6 +2788,13 @@ if (/[?&]misterutest\b/.test(location.search || '')){
     openPicker, doSuggest, doAccuse, openNotebook, setMark, getMark, autoMark,
     caseIntro, showRevealTo, finish, solutionReveal, podium, handover,
     paintBoard, sizeBoard, turnPlan, canAct, dieSVG, boardTap, doRoll, doPassage, doPass,
+    /* feel: the walk, the shake window, the warm-up */
+    movePath, startWalk, endWalk, warmBoards, buzz, reduced,
+    motionSync, motionAttach, motionDetach, shakeAvailable, askShake,
+    get motionOn(){ return !!motionFn; },
+    get walkTrace(){ return W ? W.trace.slice() : (lastTrace || []); },
+    get walkAnimated(){ return lastAnimated; },
+    get walking(){ return !!W; },
     onlineStart, onlinePrivate, onlineRemote, onlineWhisper, buildState,
     hostReferee, sendMoveOnline, encReq, parseReq, hostResolveRefuter, hostBroadcast,
     get M(){ return M; }, get UI(){ return UI; },
