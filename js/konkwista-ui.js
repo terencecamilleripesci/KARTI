@@ -181,6 +181,118 @@ function reduced(){
   } catch(e){ return false; }
 }
 
+/* ── HAPTICS — the other half of "something just happened" ─────────────
+   One line, next to the cue() that already marks the same moment, so a buzz
+   and a click can never drift apart (js/misteru-ui.js's discipline). sfx.js
+   owns the pattern, the player's switch and every no-op path; it can neither
+   throw nor delay the tap that caused it.
+
+   DELIBERATELY NOT GATED ON reduced() — that setting is about things MOVING
+   on screen making people ill; a buzz in the hand is not motion and has its
+   own switch. The MOMENT is what the player is told about, not the picture.
+
+   THE ONE RULE: only ever for something the LOCAL player did. A machine's
+   attack and a remote seat's attack animate exactly the same way on this
+   screen, but the phone must stay still for them — a pocket that buzzes for
+   five other people's turns is a phone you put down. Every combat call site
+   below therefore carries a `mine` flag down from the caller that KNOWS
+   whose thumb (or whose wire packet) started it. */
+function buzz(kind){
+  try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){}
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   HONEST ODDS — ENUMERATED, NEVER REMEMBERED.
+
+   The attack sheet promises the player real numbers, so we derive them from
+   the same rule the engine applies rather than pasting a table off a wiki we
+   cannot check: roll every possible pair of hands, sort both descending,
+   compare the top min(nA,nD) pairs, ties to the defender, and count. The
+   whole space is at most 6^3 x 6^2 = 7776 outcomes — a fraction of a
+   millisecond, and cached per (nA,nD) so a dice-count tap is free.
+   ═══════════════════════════════════════════════════════════════════ */
+const oddsCache = Object.create(null);
+function exchangeOdds(nA, nD){
+  nA = Math.max(0, Math.min(3, nA | 0));
+  nD = Math.max(0, Math.min(2, nD | 0));
+  const key = nA + 'x' + nD;
+  if (oddsCache[key]) return oddsCache[key];
+  const cmp = Math.min(nA, nD);
+  const counts = new Array(cmp + 1).fill(0);     /* counts[d] = defender loses d */
+  const a = new Array(nA), d = new Array(nD);
+  let total = 0;
+  function rollD(j){
+    if (j === nD){
+      const as = a.slice().sort((x, y) => y - x);
+      const ds = d.slice().sort((x, y) => y - x);
+      let defLoss = 0;
+      for (let k = 0; k < cmp; k++) if (as[k] > ds[k]) defLoss++;   /* ties: defender holds */
+      counts[defLoss]++; total++;
+      return;
+    }
+    for (let v = 1; v <= 6; v++){ d[j] = v; rollD(j + 1); }
+  }
+  function rollA(i){
+    if (i === nA){ rollD(0); return; }
+    for (let v = 1; v <= 6; v++){ a[i] = v; rollA(i + 1); }
+  }
+  rollA(0);
+  const out = { cmp, total, counts, p: counts.map(c => (total ? c / total : 0)) };
+  oddsCache[key] = out;
+  return out;
+}
+
+/* the chance of eventually EMPTYING the target if the attacker keeps going
+   with the most dice it can. Exact, by recursion over (attacker armies,
+   defender armies) — each exchange always costs at least one army in total,
+   so the recursion is finite and shallow. Memoised across the whole session. */
+const conqCache = Object.create(null);
+function conquerChance(a, d){
+  if (d <= 0) return 1;
+  if (a <= 1) return 0;
+  const key = a + ',' + d;
+  const hit = conqCache[key];
+  if (hit != null) return hit;
+  const o = exchangeOdds(Math.min(3, a - 1), Math.min(2, d));
+  let p = 0;
+  for (let dl = 0; dl <= o.cmp; dl++){
+    const pr = o.p[dl];
+    if (pr) p += pr * conquerChance(a - (o.cmp - dl), d - dl);
+  }
+  conqCache[key] = p;
+  return p;
+}
+/* the same, but the FIRST exchange uses the dice count the player picked. */
+function conquerChanceWith(a, d, n){
+  if (d <= 0) return 1;
+  if (a <= 1) return 0;
+  const o = exchangeOdds(n, Math.min(2, d));
+  let p = 0;
+  for (let dl = 0; dl <= o.cmp; dl++){
+    const pr = o.p[dl];
+    if (pr) p += pr * conquerChance(a - (o.cmp - dl), d - dl);
+  }
+  return p;
+}
+/* Never let rounding tell a lie. 0.9994 is not certainty and 0.0004 is not
+   impossible, and a player who reads "100%" and then loses stops believing
+   any number on this screen. Only a true 1 or 0 gets to say so. */
+function pct(p){
+  const r = Math.round(p * 100);
+  if (r >= 100 && p < 1) return 99;
+  if (r <= 0 && p > 0) return 1;
+  return r;
+}
+/* how many dice this army may throw — the engine's rule, with a local
+   fallback so the picker still works if it is called before the engine's
+   own pass has landed. */
+function atkDiceMax(army){
+  return E.maxAtkDice ? E.maxAtkDice(army) : Math.max(0, Math.min(3, (army | 0) - 1));
+}
+function defDiceMax(army){
+  return E.maxDefDice ? E.maxDefDice(army) : Math.min(2, army | 0);
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    THE RUNNER — (opts, seed, log) and one door for every move.
    ═══════════════════════════════════════════════════════════════════ */
@@ -218,7 +330,11 @@ function startMatch(opts, seed, log){
     sel: -1,                 /* the selected own territory (attack/fortify src) */
     fsel: -1,                /* fortify: chosen source once a dest is being picked */
     place: 1,                /* reinforcement chunk size the +/- picks           */
-    busy: false              /* a battle animation is playing                    */
+    busy: false,             /* a battle animation is playing                    */
+    picking: false,          /* the attack sheet is open — the map is deaf       */
+    turnId: null,            /* 'round:seat' — changes exactly once per turn     */
+    tradeThisTurn: 0,        /* armies won from card trades in THIS turn         */
+    readoutDone: false       /* the turn readout has been shown for turnKey      */
   };
   M.st = buildState(M.opts, M.seed, M.log);
   applyMeta();
@@ -295,8 +411,13 @@ function injectCSS(){
       'gap:5px;padding:5px 5px 6px;position:relative}' +
 
     /* ── the phase banner: the single most important strip ── */
-    '#scr-party .kq-banner{flex:0 0 auto;display:flex;align-items:center;gap:9px;' +
-      'padding:7px 10px;border-radius:13px;min-height:44px;' +
+    /* THE BANNER WRAPS RATHER THAN TRUNCATES. Six controls fought over 390px
+       and the sentence that says whose turn it is lost, clipped to "YO…".
+       In Reinforce — the only step with a stepper — the controls drop to a
+       second row and the sentence gets the first one whole. Every other phase
+       stays a single strip. */
+    '#scr-party .kq-banner{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;' +
+      'padding:4px 8px;border-radius:13px;min-height:52px;' +
       'background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.28));' +
       'border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}' +
     '#scr-party .kq-banner.turn-you{border-color:rgba(255,197,66,.55);' +
@@ -311,8 +432,11 @@ function injectCSS(){
     '#scr-party .kq-bcount{flex:0 0 auto;font:900 20px/1 var(--disp);color:#fff;' +
       'min-width:30px;text-align:center;padding:2px 6px;border-radius:9px;' +
       'background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14)}' +
+    /* 44px is the smallest thing a thumb hits reliably — the banner's own
+       controls were 29-30px and are the ones a player uses EVERY turn. */
     '#scr-party .kq-act{flex:0 0 auto;border:0;cursor:pointer;font:900 11px/1 var(--disp);' +
       'letter-spacing:.05em;text-transform:uppercase;padding:9px 12px;border-radius:11px;' +
+      'min-height:44px;min-width:44px;' +
       'color:#1a1205;background:linear-gradient(180deg,#FFDD7A,#E9A81F);' +
       'box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);' +
       '-webkit-tap-highlight-color:transparent;white-space:nowrap}' +
@@ -320,11 +444,22 @@ function injectCSS(){
     '#scr-party .kq-act.ghost{color:#fff;background:rgba(255,255,255,.10);' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}' +
     '#scr-party .kq-act[disabled]{opacity:.4;pointer-events:none}' +
+    /* `display:flex` in the rules below outranks the browser's own
+       [hidden]{display:none}, so `el.hidden = true` did NOTHING: the cards
+       button sat in the banner as a dead cream slab from the first frame of
+       every game, and the stepper showed through Attack and Fortify. Say it
+       once, here, for everything in the strip. */
+    '#scr-party .kq-banner [hidden]{display:none}' +
+
+    /* the row break: inert until paintBanner asks for two rows */
+    '#scr-party .kq-brk{display:none;height:0}' +
+    '#scr-party .kq-banner.two .kq-brk{display:block;flex:0 0 100%}' +
+    '#scr-party .kq-banner.two .kq-step{margin-right:auto}' +
 
     /* ── the reinforcement stepper (± chunk) ── */
     '#scr-party .kq-step{flex:0 0 auto;display:flex;align-items:center;gap:4px}' +
-    '#scr-party .kq-step button{width:30px;height:30px;border-radius:8px;border:0;cursor:pointer;' +
-      'font:900 16px/1 var(--disp);color:#fff;background:rgba(255,255,255,.12);' +
+    '#scr-party .kq-step button{width:44px;height:44px;border-radius:11px;border:0;cursor:pointer;' +
+      'font:900 18px/1 var(--disp);color:#fff;background:rgba(255,255,255,.12);' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);-webkit-tap-highlight-color:transparent}' +
     '#scr-party .kq-step button:active{transform:translateY(1px)}' +
     '#scr-party .kq-step .kq-n{min-width:22px;text-align:center;font:900 15px/1 var(--disp);color:#fff}' +
@@ -411,13 +546,7 @@ function injectCSS(){
     '#scr-party .kq-rules-b{min-height:0;overflow-y:auto;padding:2px 14px 12px;-webkit-overflow-scrolling:touch}' +
     '#scr-party .kq-rules-b li{font-size:12px;line-height:1.55;color:var(--dim);margin:0 0 6px 14px}' +
 
-    /* ── the dice overlay (combat) ── */
-    '#scr-party .kq-dice{position:absolute;left:0;right:0;top:0;bottom:0;z-index:24;' +
-      'display:flex;align-items:center;justify-content:center;gap:14px;pointer-events:none}' +
-    '#scr-party .kq-dside{display:flex;flex-direction:column;align-items:center;gap:5px}' +
-    '#scr-party .kq-dlabel{font:900 9px/1 var(--disp);letter-spacing:.1em;text-transform:uppercase;' +
-      'color:rgba(255,255,255,.85);text-shadow:0 1px 3px #000}' +
-    '#scr-party .kq-drow{display:flex;gap:6px}' +
+    /* ── the combat dice themselves (laid out in pairs by .kq-fight below) ── */
     '#scr-party .kq-die{width:34px;height:34px;border-radius:8px;background:linear-gradient(160deg,#fff,#dfe4ea);' +
       'box-shadow:0 3px 8px rgba(0,0,0,.5),inset 0 -3px 5px rgba(0,0,0,.12);' +
       'display:grid;place-items:center;font:900 20px/1 var(--disp);color:#12202e;position:relative}' +
@@ -444,10 +573,14 @@ function injectCSS(){
     /* ── the cards button (in the banner) + card sheet ── */
     '#scr-party .kq-cards{flex:0 0 auto;position:relative;border:0;cursor:pointer;' +
       'font:900 11px/1 var(--disp);letter-spacing:.03em;padding:8px 10px;border-radius:11px;' +
+      'min-height:44px;min-width:44px;justify-content:center;' +
       'color:#1a1205;background:linear-gradient(180deg,#EFE3C4,#CBB884);' +
       'box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);' +
       '-webkit-tap-highlight-color:transparent;display:flex;align-items:center;gap:5px;white-space:nowrap}' +
     '#scr-party .kq-cards:active{transform:translateY(1px)}' +
+    '#scr-party .kq-cards .kq-cico{width:15px;height:15px;flex:0 0 auto;fill:none;' +
+      'stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .kq-cards b{font:900 13px/1 var(--disp)}' +
     '#scr-party .kq-cards.trade{background:linear-gradient(180deg,#FFDD7A,#E9A81F);animation:kq-cardpulse 1.4s ease-in-out infinite}' +
     '#scr-party .kq-cards.must{background:linear-gradient(180deg,#ff9d6b,#e8552a);color:#fff}' +
     '@keyframes kq-cardpulse{0%,100%{box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5)}50%{box-shadow:0 0 0 3px rgba(255,197,66,.5),0 2px 0 rgba(0,0,0,.35)}}' +
@@ -489,10 +622,144 @@ function injectCSS(){
     '#scr-party .kq-cont.mine .cbn{color:#7CF29B}' +
     '#scr-party .kq-cont .ck{flex:0 0 auto;font:700 8px/1 var(--body);color:rgba(255,255,255,.5)}' +
 
+    /* ══ THE TURN READOUT — "tell u how much u got troops" ══
+       The single most important thing this screen says. It lands over the map
+       at the top of the player's own Reinforce, unmissable and one tap away
+       from gone. Every line is one reason he was given armies, and the total
+       is the biggest number on the screen. */
+    '@keyframes kq-pop{from{transform:scale(.9);opacity:0}to{transform:none;opacity:1}}' +
+    '@keyframes kq-rise{from{transform:translateY(20px);opacity:0}to{transform:none;opacity:1}}' +
+    '#scr-party .kq-turn{position:absolute;inset:0;z-index:46;display:flex;align-items:center;' +
+      'justify-content:center;padding:10px;background:rgba(4,12,22,.66)}' +
+    /* Column, not a blob: if the reasons ever outgrow the phone (six
+       continents plus a trade) it is the REASONS that scroll — the total and
+       the button that dismisses it stay pinned and reachable. A dialogue you
+       cannot dismiss without scrolling is a dialogue that traps a turn. */
+    '#scr-party .kq-turn-in{width:100%;max-width:330px;max-height:100%;display:flex;' +
+      'flex-direction:column;padding:14px 14px 12px;border-radius:18px;' +
+      'background:linear-gradient(180deg,#17406a,#0a1c30);border:1px solid rgba(255,197,66,.55);' +
+      'box-shadow:0 18px 44px rgba(0,0,0,.62),inset 0 1px 0 rgba(255,255,255,.12);' +
+      'animation:kq-pop .22s ease both}' +
+    '#scr-party .kq-turn-rows{flex:1 1 auto;min-height:0;overflow-y:auto;' +
+      '-webkit-overflow-scrolling:touch}' +
+    'body.reduced #scr-party .kq-turn-in{animation:none}' +
+    '#scr-party .kq-turn-h{font:900 10px/1 var(--disp);letter-spacing:.14em;text-transform:uppercase;' +
+      'color:rgba(255,255,255,.55);margin-bottom:2px}' +
+    '#scr-party .kq-turn-t{font:900 17px/1.1 var(--disp);color:var(--kq-gold);margin-bottom:9px}' +
+    '#scr-party .kq-trow{display:flex;align-items:center;gap:8px;padding:6px 0;' +
+      'border-bottom:1px solid rgba(255,255,255,.07)}' +
+    '#scr-party .kq-trow .cs{width:11px;height:11px;flex:0 0 auto;border-radius:3px}' +
+    '#scr-party .kq-trow .tl{flex:1;min-width:0;font:700 11.5px/1.35 var(--body);color:rgba(255,255,255,.88)}' +
+    '#scr-party .kq-trow .tl i{display:block;font-style:normal;font-weight:600;font-size:9.5px;' +
+      'color:rgba(255,255,255,.5)}' +
+    '#scr-party .kq-trow .tv{flex:0 0 auto;font:900 16px/1 var(--disp);color:#7CF29B}' +
+    '#scr-party .kq-ttot{display:flex;align-items:center;gap:9px;margin-top:10px;padding-top:9px;' +
+      'border-top:2px solid rgba(255,197,66,.5)}' +
+    '#scr-party .kq-ttot .tl{flex:1;font:900 10.5px/1.2 var(--disp);letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--kq-gold)}' +
+    '#scr-party .kq-ttot .tv{font:900 36px/1 var(--disp);color:#fff}' +
+    '#scr-party .kq-turn-acts{display:grid;gap:8px;margin-top:12px}' +
+    '#scr-party .kq-turn-acts .kq-act{width:100%;min-height:46px;font-size:12px}' +
+
+    /* ══ THE ATTACK SHEET — a tap is never a strike ══ */
+    '#scr-party .kq-atk{position:absolute;inset:0;z-index:44;display:flex;align-items:flex-end;' +
+      'justify-content:center;background:rgba(4,12,22,.58)}' +
+    /* Same shape as the readout, same reason: Attack and Cancel are PINNED.
+       At 360x640 this sheet was taller than the map box and the two buttons
+       that matter sat below the fold. Only the explanation may scroll. */
+    '#scr-party .kq-atk-in{width:100%;max-width:440px;margin:0 6px 8px;max-height:98%;' +
+      'display:flex;flex-direction:column;padding:10px 12px 11px;border-radius:18px;' +
+      'background:linear-gradient(180deg,#17406a,#0a1c30);border:1px solid rgba(255,255,255,.18);' +
+      'box-shadow:0 -10px 34px rgba(0,0,0,.6);animation:kq-rise .2s ease both}' +
+    '#scr-party .kq-atk-body{flex:1 1 auto;min-height:0;overflow-y:auto;' +
+      '-webkit-overflow-scrolling:touch}' +
+    'body.reduced #scr-party .kq-atk-in{animation:none}' +
+    '#scr-party .kq-atk-h{font:900 11px/1 var(--disp);letter-spacing:.12em;text-transform:uppercase;' +
+      'color:var(--kq-gold);margin-bottom:7px}' +
+    '#scr-party .kq-vs{display:flex;align-items:stretch;gap:6px;margin-bottom:8px}' +
+    '#scr-party .kq-vs .sd{flex:1 1 0;min-width:0;padding:6px 8px;border-radius:12px;' +
+      'background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.10)}' +
+    '#scr-party .kq-vs .sd .hd{display:flex;align-items:center;gap:5px}' +
+    '#scr-party .kq-vs .sd .sw{width:12px;height:12px;flex:0 0 auto;border-radius:50%;' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.4)}' +
+    '#scr-party .kq-vs .sd .nm{flex:1;min-width:0;font:900 9.5px/1.2 var(--disp);letter-spacing:.04em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.72);white-space:nowrap;overflow:hidden;' +
+      'text-overflow:ellipsis}' +
+    '#scr-party .kq-vs .sd .ar{display:flex;align-items:baseline;gap:5px;margin-top:2px}' +
+    '#scr-party .kq-vs .sd .ar b{font:900 23px/1 var(--disp);color:#fff}' +
+    '#scr-party .kq-vs .sd .ar i{font:700 8.5px/1.1 var(--body);font-style:normal;' +
+      'letter-spacing:.07em;text-transform:uppercase;color:rgba(255,255,255,.55)}' +
+    '#scr-party .kq-vs .mid{flex:0 0 auto;width:24px;display:grid;place-items:center}' +
+    '#scr-party .kq-vs .mid svg{width:22px;height:22px;fill:none;stroke:var(--kq-gold);' +
+      'stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .kq-lbl{font:900 9.5px/1 var(--disp);letter-spacing:.1em;text-transform:uppercase;' +
+      'color:rgba(255,255,255,.6);margin:0 0 5px}' +
+    '#scr-party .kq-dpick{display:flex;gap:7px;margin-bottom:9px}' +
+    '#scr-party .kq-dpick button{flex:1 1 0;min-height:48px;border:0;border-radius:12px;cursor:pointer;' +
+      'color:#fff;background:rgba(255,255,255,.09);box-shadow:inset 0 0 0 1px rgba(255,255,255,.16);' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;' +
+      '-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .kq-dpick button:active{transform:translateY(1px)}' +
+    '#scr-party .kq-dpick button b{font:900 17px/1 var(--disp)}' +
+    '#scr-party .kq-dpick button i{font:700 8px/1 var(--body);font-style:normal;opacity:.7;' +
+      'letter-spacing:.06em;text-transform:uppercase}' +
+    '#scr-party .kq-dpick button.on{color:#1a1205;background:linear-gradient(180deg,#FFDD7A,#E9A81F);' +
+      'box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5)}' +
+    '#scr-party .kq-dpick button.on i{opacity:.75}' +
+    '#scr-party .kq-obar{display:flex;height:12px;border-radius:6px;overflow:hidden;' +
+      'background:rgba(0,0,0,.4);margin-bottom:5px}' +
+    '#scr-party .kq-obar span{display:block;height:100%}' +
+    '#scr-party .kq-okey{display:flex;flex-wrap:wrap;gap:2px 9px;margin-bottom:7px}' +
+    '#scr-party .kq-okey b{display:flex;align-items:center;gap:4px;font:700 9.5px/1.4 var(--body);' +
+      'color:rgba(255,255,255,.85);white-space:nowrap}' +
+    '#scr-party .kq-okey b em{width:8px;height:8px;flex:0 0 auto;border-radius:2px;font-style:normal}' +
+    '#scr-party .kq-okey b u{text-decoration:none;font-weight:900;color:#fff}' +
+    /* the two numbers a player actually decides on, as pills rather than prose:
+       four lines of paragraph were what pushed the buttons off a 360px phone. */
+    '#scr-party .kq-stats{display:flex;gap:7px;margin-bottom:6px}' +
+    '#scr-party .kq-stats .st{flex:1 1 0;min-width:0;padding:6px 8px;border-radius:11px;' +
+      'background:rgba(60,140,220,.13);border:1px solid rgba(60,140,220,.3)}' +
+    '#scr-party .kq-stats .st b{display:block;font:900 19px/1 var(--disp);color:var(--kq-gold)}' +
+    '#scr-party .kq-stats .st i{display:block;margin-top:2px;font:700 8.5px/1.25 var(--body);' +
+      'font-style:normal;color:#cfe2f0}' +
+    '#scr-party .kq-note{font:700 9px/1.35 var(--body);color:rgba(255,255,255,.6);margin-bottom:2px}' +
+    '#scr-party .kq-atk-acts{flex:0 0 auto;display:grid;grid-template-columns:1fr 1.5fr;gap:9px;margin-top:9px}' +
+    '#scr-party .kq-atk-acts .kq-act{width:100%;min-height:46px;font-size:12px}' +
+
+    /* ══ THE FIGHT — dice paired highest against highest ══ */
+    '#scr-party .kq-fight{position:absolute;inset:0;z-index:34;display:flex;align-items:center;' +
+      'justify-content:center;background:rgba(4,12,22,.44)}' +
+    '#scr-party .kq-fight-in{padding:10px 14px 9px;border-radius:16px;' +
+      'background:linear-gradient(180deg,rgba(23,64,106,.97),rgba(10,28,48,.97));' +
+      'border:1px solid rgba(255,255,255,.18);box-shadow:0 12px 34px rgba(0,0,0,.62)}' +
+    '#scr-party .kq-fhead{display:flex;align-items:center;justify-content:center;gap:7px;margin-bottom:7px}' +
+    '#scr-party .kq-fhead .fn{font:900 9.5px/1.1 var(--disp);letter-spacing:.06em;text-transform:uppercase;' +
+      'max-width:88px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-party .kq-fhead .fv{font:900 8.5px/1 var(--disp);color:rgba(255,255,255,.45);letter-spacing:.1em}' +
+    '#scr-party .kq-pair{display:flex;align-items:center;justify-content:center;gap:8px;margin:5px 0}' +
+    '#scr-party .kq-cmp{width:24px;height:24px;flex:0 0 auto;display:grid;place-items:center}' +
+    '#scr-party .kq-cmp svg{width:19px;height:19px;fill:none;stroke:rgba(255,255,255,.3);' +
+      'stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}' +
+    '#scr-party .kq-cmp.a svg{stroke:#7CF29B}' +
+    '#scr-party .kq-cmp.d svg{stroke:#ff8a6b}' +
+    '#scr-party .kq-hole{width:34px;height:34px;flex:0 0 auto;border-radius:8px;' +
+      'border:2px dashed rgba(255,255,255,.16)}' +
+    '#scr-party .kq-floss{display:flex;gap:8px;justify-content:center;margin-top:8px}' +
+    '#scr-party .kq-floss span{font:900 10.5px/1 var(--disp);letter-spacing:.05em;padding:6px 9px;' +
+      'border-radius:9px;background:rgba(0,0,0,.36);color:rgba(255,255,255,.5)}' +
+    '#scr-party .kq-floss span.hit{color:#fff;background:rgba(232,85,42,.62)}' +
+    '#scr-party .kq-floss span.good{color:#0d2416;background:rgba(124,242,155,.88)}' +
+    /* an army badge counting a loss off */
+    '#scr-party .kq-badge.tick text{fill:#ff8a6b}' +
+
     /* ── landscape ── */
     '@media (max-height:520px){' +
       '#scr-party .kq-wrap{padding:4px}' +
-      '#scr-party .kq-banner{min-height:38px}' +
+      /* landscape steals height from the map, never from the thumb: the
+         banner loses its padding, not its 44px controls. */
+      '#scr-party .kq-banner{min-height:48px;padding:2px 8px}' +
+      '#scr-party .kq-turn-in{max-width:420px;padding:10px 12px}' +
+      '#scr-party .kq-ttot .tv{font-size:28px}' +
     '}';
   document.head.appendChild(st);
 }
@@ -541,6 +808,7 @@ function buildBoard(){
         '<span class="kq-bdot" id="kq-bdot"></span>' +
         '<span class="kq-btxt"><span class="kq-bph" id="kq-bph"></span><span class="kq-bhint" id="kq-bhint"></span></span>' +
         '<span class="kq-bcount" id="kq-bcount" hidden></span>' +
+        '<span class="kq-brk" aria-hidden="true"></span>' +
         '<span class="kq-step" id="kq-step" hidden>' +
           '<button id="kq-minus" aria-label="' + esc(T('Fewer','Inqas')) + '">−</button>' +
           '<span class="kq-n" id="kq-placen">1</span>' +
@@ -698,6 +966,132 @@ function paintAll(){
   paintMap();
   paintSeats();
   paintBanner();
+  turnWatch();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE TURN READOUT — "tell u how much u got troops"
+
+   Every repaint asks one question: is this the first moment of a turn the
+   LOCAL player is about to take? `round:seat` changes exactly once per turn,
+   so it is the cheapest honest trigger there is — no hook into the engine, no
+   second source of truth, and a replay/rollback re-derives it for free.
+
+   It is shown, never hunted for; it is dismissed by tapping anywhere. It
+   blocks nothing: it only ever appears on the local player's own turn, when
+   the wire is waiting on him anyway, and it is torn down the moment the game
+   ends or the board goes away.
+   ═══════════════════════════════════════════════════════════════════ */
+function turnWatch(){
+  if (!M || !UI) return;
+  const st = M.st;
+  const turnId = st.round + ':' + st.turn;
+  if (turnId !== M.turnId){ M.turnId = turnId; M.tradeThisTurn = 0; M.readoutDone = false; }
+  if (M.readoutDone || M.busy || M.picking) return;
+  if (E.over(st) || st._pending) return;
+  if (st.phase !== E.PH_REINFORCE) return;
+  if (!isLocal(E.turn(st))) return;
+  M.readoutDone = true;
+  showTurnCard();
+}
+
+/* the WHY behind st.reinf, split into the lines a player can act on. Derived
+   from the board (holdings cannot change during Reinforce) plus whatever this
+   turn's card trades have already added, so it always sums to the counter in
+   the banner. */
+function reinforceBreakdown(st, seat){
+  const terr = E.countTerr(st, seat);
+  const base = Math.max(3, Math.floor(terr / 3));
+  const conts = [];
+  E.CONTINENTS.forEach(c => {
+    if (E.ownsRegion(st, seat, c.id)) conts.push({ name: TE(c.name), bonus: c.bonus, hex: c.hex });
+  });
+  const contTotal = conts.reduce((a, c) => a + c.bonus, 0);
+  const trade = M ? (M.tradeThisTurn | 0) : 0;
+  return { terr, base, conts, contTotal, trade, total: base + contTotal + trade };
+}
+
+function killCard(id){
+  if (!UI || !UI.root) return;
+  const el = UI.root.querySelector('#' + id);
+  if (el) el.remove();
+}
+
+function showTurnCard(){
+  if (!M || !UI || !UI.mapbox) return;
+  const st = M.st, seat = E.turn(st);
+  if (!isLocal(seat)) return;
+  killCard('kq-turncard');
+  const b = reinforceBreakdown(st, seat);
+  const col = colourOf(seat);
+
+  let rows =
+    '<div class="kq-trow">' +
+      '<span class="cs" style="background:' + col.hex + '"></span>' +
+      '<span class="tl">' + esc(b.terr + ' ' + T('territories held', 'territorji f’idejk')) +
+        '<i>' + esc(T('one army per three lands, three at the very least',
+                      'armata għal kull tliet artijiet, tlieta l-inqas')) + '</i></span>' +
+      '<span class="tv">+' + b.base + '</span></div>';
+  b.conts.forEach(c => {
+    rows += '<div class="kq-trow">' +
+      '<span class="cs" style="background:' + c.hex + '"></span>' +
+      '<span class="tl">' + esc(c.name) +
+        '<i>' + esc(T('whole continent held', 'kontinent sħiħ f’idejk')) + '</i></span>' +
+      '<span class="tv">+' + c.bonus + '</span></div>';
+  });
+  if (!b.conts.length){
+    rows += '<div class="kq-trow">' +
+      '<span class="cs" style="background:rgba(255,255,255,.14)"></span>' +
+      '<span class="tl" style="color:rgba(255,255,255,.55)">' +
+        esc(T('No whole continent yet', 'Ebda kontinent sħiħ għadu')) +
+        '<i>' + esc(T('hold every land of one for a bonus each turn',
+                      'żomm kull art ta’ wieħed għal bonus kull dawra')) + '</i></span>' +
+      '<span class="tv" style="color:rgba(255,255,255,.35)">+0</span></div>';
+  }
+  if (b.trade > 0){
+    rows += '<div class="kq-trow">' +
+      '<span class="cs" style="background:#EFE3C4"></span>' +
+      '<span class="tl">' + esc(T('Cards traded', 'Karti mibdula')) +
+        '<i>' + esc(T('a matched set of three', 'sett ta’ tlieta')) + '</i></span>' +
+      '<span class="tv">+' + b.trade + '</span></div>';
+  }
+
+  const mustTrade = !!st.mustTrade;
+  const canTrade  = E.hasTradeSet(st, seat);
+  const ov = document.createElement('div');
+  ov.className = 'kq-turn';
+  ov.id = 'kq-turncard';
+  ov.innerHTML =
+    '<div class="kq-turn-in">' +
+      '<div class="kq-turn-h">' + esc(T('Round', 'Rawnd') + ' ' + st.round + ' · ' + seatName(seat)) + '</div>' +
+      '<div class="kq-turn-t">' + esc(T('Your new armies', 'L-armati ġodda tiegħek')) + '</div>' +
+      '<div class="kq-turn-rows">' + rows + '</div>' +
+      '<div class="kq-ttot">' +
+        '<span class="tl">' + esc(T('To place this turn', 'X’tqiegħed din id-dawra')) + '</span>' +
+        '<span class="tv">' + b.total + '</span>' +
+      '</div>' +
+      '<div class="kq-turn-acts">' +
+        (mustTrade
+          ? '<button class="kq-act" id="kq-tc-cards">' +
+              esc(T('You hold 5+ cards — trade a set', 'Għandek 5+ karti — ibdel sett')) + '</button>'
+          : '<button class="kq-act" id="kq-tc-go">' +
+              esc(T('Place them', 'Qegħedhom')) + '</button>' +
+            (canTrade
+              ? '<button class="kq-act ghost" id="kq-tc-cards">' +
+                  esc(T('Trade cards for more', 'Ibdel karti għal aktar')) + '</button>'
+              : '')) +
+      '</div>' +
+    '</div>';
+  UI.mapbox.appendChild(ov);
+  cue('mp.turn', { gain:0.7 }, true);
+  buzz('tap');                       /* the player's own turn opening — his moment */
+
+  const close = () => { ov.remove(); };
+  ov.addEventListener('pointerdown', e => { if (e.target === ov) close(); });
+  const go = ov.querySelector('#kq-tc-go');
+  if (go) go.onclick = () => { cue('ui.tap', { gain:0.7 }); close(); };
+  const cards = ov.querySelector('#kq-tc-cards');
+  if (cards) cards.onclick = () => { close(); openCardSheet(); };
 }
 
 function paintMap(){
@@ -849,7 +1243,7 @@ function paintBanner(){
     phaseTxt = T('Attack', 'Attakka');
     if (mine){
       hint = M.sel < 0 ? T('Tap a glowing land, then an enemy', 'Ikklikkja art tleqq, imbagħad għadu')
-                       : T('Tap the enemy to strike', 'Ikklikkja l-għadu biex tolqot');
+                       : T('Tap an enemy — you pick the dice next', 'Ikklikkja għadu — imbagħad tagħżel id-dadi');
       actLabel = T('End attack', 'Temm l-attakk'); actGhost = true;
     } else {
       hint = T('choosing a battle…', 'qed jagħżel battalja…');
@@ -876,6 +1270,7 @@ function paintBanner(){
   }
   UI.step.hidden = !showStep;
   if (showStep){ clampPlace(); UI.placen.textContent = M.place; }
+  UI.banner.classList.toggle('two', showStep);
 
   if (mine && actLabel){
     UI.act.hidden = false;
@@ -901,7 +1296,15 @@ function paintCardsBtn(seat, mine){
   UI.cards.hidden = false;
   UI.cards.classList.toggle('must', !!st.mustTrade);
   UI.cards.classList.toggle('trade', canTrade && !st.mustTrade);
-  UI.cards.textContent = '🃏 ' + hand.length + (canTrade ? ' ⇄' : '');
+  /* SVG, not an emoji: the glyph a phone actually has is not a thing this
+     file may assume, and a blank cream button is worse than no button. */
+  UI.cards.innerHTML =
+    '<svg class="kq-cico" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<rect x="6.5" y="3.5" width="12" height="17" rx="2.5"></rect>' +
+      '<path d="M4.6 6.6L2.9 8a2 2 0 00-.4 2.6l4.2 6.6"></path></svg>' +
+    '<b>' + hand.length + '</b>' +
+    (canTrade ? '<svg class="kq-cico" viewBox="0 0 24 24" aria-hidden="true">' +
+      '<path d="M4 8h13l-3-3M20 16H7l3 3"></path></svg>' : '');
 }
 
 function clampPlace(){
@@ -919,7 +1322,7 @@ function bumpPlace(d){
    INPUT — one entry for a territory tap, one for the primary action.
    ═══════════════════════════════════════════════════════════════════ */
 function onTerr(i){
-  if (!M || M.dead || M.busy) return;
+  if (!M || M.dead || M.busy || M.picking) return;
   if (E.over(M.st)) return;
   const st = M.st, seat = E.turn(st);
   if (!isLocal(seat) || st._pending) return;
@@ -970,7 +1373,9 @@ function onTerr(i){
       return;
     }
     if (E.areAdjacent(M.sel, i)){
-      launchAttack(seat, M.sel, i);
+      /* NOT a strike. A tap opens the sheet; the strike is a second, deliberate
+         press with a dice count behind it. */
+      openAttackSheet(seat, M.sel, i);
     } else cue('move.illegal', { gain:0.6 });
     return;
   }
@@ -995,7 +1400,7 @@ function onTerr(i){
 }
 
 function onAct(){
-  if (!M || M.dead || M.busy) return;
+  if (!M || M.dead || M.busy || M.picking) return;
   const st = M.st, seat = E.turn(st);
   if (!isLocal(seat) || E.over(st) || st._pending) return;
 
@@ -1141,14 +1546,20 @@ function paintCardSheet(ov, viewSeat){
   if (go) go.onclick = () => {
     if (cardSel.length !== 3 || !E.isCardSet(cardSel[0], cardSel[1], cardSel[2])) return;
     const seat = E.turn(st);
+    const before = st.reinf;
     const res = doMove(seat, { t:'trade', x:cardSel[0], y:cardSel[1], z:cardSel[2] }, 'local');
     if (res.ok){
       cue('piece.place', { gain:0.85 }, true);
+      buzz('tap');                              /* his own trade */
+      /* remember what the trade was worth so the turn readout can name it */
+      M.tradeThisTurn = (M.tradeThisTurn | 0) + Math.max(0, M.st.reinf - before);
       cardSel = [];
       paintAll();
-      /* if still must trade (rare), rebuild; else close the sheet */
+      /* if still must trade (rare), rebuild; else close the sheet and show the
+         readout AGAIN — the number he was given has just changed, and being
+         told is the whole point of it. */
       if (M.st.mustTrade){ paintCardSheet(ov, viewSeat); }
-      else { ov.remove(); }
+      else { ov.remove(); showTurnCard(); }
     }
   };
 }
@@ -1223,13 +1634,152 @@ function askFortifyAmount(seat, from, to){
    sides' dice tumbling then settling on the real faces, army ticks, and
    a colour-sweep + region flourish on a capture.
    ═══════════════════════════════════════════════════════════════════ */
-function launchAttack(seat, from, to){
+/* ── THE ATTACK SHEET — attacking is a decision, not a click ───────────
+   Both sides' armies, how many dice you are prepared to throw, and what
+   that actually costs you in probability. The dice count rides the move as
+   `n` (the shared KONK contract); it is clamped by the engine, so a stale
+   client that drops it simply throws the maximum, which is what this game
+   has always done.
+
+   THE DEFENDER DOES NOT CHOOSE. Real Risk lets them pick one die or two, but
+   two is near-always right, and asking would put a second phone in the way of
+   every single attack online. So the defender always throws the most it can
+   and the sheet SAYS SO, out loud, rather than quietly omitting it. */
+function openAttackSheet(seat, from, to){
+  if (!M || M.dead || M.busy || M.picking || !UI || !UI.mapbox) return;
+  const st = M.st;
+  const maxN = atkDiceMax(st.army[from]);
+  if (maxN < 1){ cue('move.illegal', { gain:0.6 }); return; }
+
+  M.picking = true;
+  let n = maxN;                                   /* the maximum, preselected */
+
+  const ov = document.createElement('div');
+  ov.className = 'kq-atk';
+  ov.id = 'kq-atksheet';
+  /* the WHOLE board area, not just the map box. On a 360x640 phone the map box
+     is ~366px tall and this sheet wants more than that in Maltese; anchoring to
+     the wrap buys the banner's height back. Covering the banner while a strike
+     is being chosen is right anyway — it is a modal decision, and M.picking has
+     already made the banner deaf. */
+  UI.root.appendChild(ov);
+  cue('ui.sheet', { gain:0.8 });
+
+  const close = () => { M.picking = false; ov.remove(); };
+
+  function paint(){
+    const aArmy = st.army[from], dArmy = st.army[to];
+    const nDef  = defDiceMax(dArmy);
+    const o     = exchangeOdds(n, nDef);
+    const aCol  = colourOf(seat);
+    const dOwn  = st.owner[to];
+    const dCol  = dOwn >= 0 ? colourOf(dOwn) : { hex:'#3b4a5a' };
+
+    /* one segment per possible outcome of THIS exchange, best for you first */
+    const segs = [];
+    for (let dl = o.cmp; dl >= 0; dl--){
+      const al = o.cmp - dl, p = o.p[dl];
+      const label = (dl > 0 && al === 0) ? (T('They lose', 'Jitilfu') + ' ' + dl)
+                  : (dl === 0 && al > 0) ? (T('You lose', 'Titlef') + ' ' + al)
+                  : T('One each', 'Waħda kull wieħed');
+      const hex = dl > al ? '#7CF29B' : (dl === al ? '#FFC542' : '#ff8a6b');
+      segs.push({ p, label, hex });
+    }
+    /* the headline: you come out of this exchange ahead */
+    let ahead = 0;
+    for (let dl = 0; dl <= o.cmp; dl++) if (dl > o.cmp - dl) ahead += o.p[dl];
+    const take = conquerChanceWith(aArmy, dArmy, n);
+
+    ov.innerHTML =
+      '<div class="kq-atk-in">' +
+        '<div class="kq-atk-h">' + esc(T('Choose your attack', 'Agħżel l-attakk tiegħek')) + '</div>' +
+        '<div class="kq-atk-body">' +
+
+        '<div class="kq-vs">' +
+          '<div class="sd"><div class="hd">' +
+            '<span class="sw" style="background:' + aCol.hex + '"></span>' +
+            '<span class="nm">' + esc(TE(E.TERRITORIES[from].name)) + '</span></div>' +
+            '<div class="ar"><b>' + aArmy + '</b><i>' + esc(T('yours', 'tiegħek')) + '</i></div></div>' +
+          '<div class="mid"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+            '<path d="M4 12h15M13 6l6 6-6 6"/></svg></div>' +
+          '<div class="sd"><div class="hd">' +
+            '<span class="sw" style="background:' + dCol.hex + '"></span>' +
+            '<span class="nm">' + esc(TE(E.TERRITORIES[to].name)) + '</span></div>' +
+            '<div class="ar"><b>' + dArmy + '</b><i>' + esc(T('defending', 'jiddefendu')) + '</i></div></div>' +
+        '</div>' +
+
+        '<div class="kq-lbl">' + esc(T('How many dice do you throw?', 'Kemm-il dadu tarmi?')) + '</div>' +
+        '<div class="kq-dpick" id="kq-dpick">' +
+          (function(){ let h = '';
+            for (let k = 1; k <= maxN; k++)
+              h += '<button data-n="' + k + '" class="' + (k === n ? 'on' : '') + '">' +
+                   '<b>' + k + '</b><i>' + esc(k === 1 ? T('die', 'dadu') : T('dice', 'dadi')) + '</i></button>';
+            return h; })() +
+        '</div>' +
+
+        '<div class="kq-obar">' +
+          segs.map(s => '<span style="width:' + (s.p * 100).toFixed(2) + '%;background:' + s.hex + '"></span>').join('') +
+        '</div>' +
+        '<div class="kq-okey">' +
+          segs.map(s => '<b><em style="background:' + s.hex + '"></em>' + esc(s.label) +
+                        ' <u>' + pct(s.p) + '%</u></b>').join('') +
+        '</div>' +
+
+        '<div class="kq-stats">' +
+          '<div class="st"><b>' + pct(ahead) + '%</b><i>' +
+            esc(T('you come out of this roll ahead', 'toħroġ rebbieħ minn din ir-rimja')) + '</i></div>' +
+          '<div class="st"><b>' + pct(take) + '%</b><i>' +
+            esc(T('you take this land if you keep pressing', 'tieħu din l-art jekk tibqa’ tagħfas')) + '</i></div>' +
+        '</div>' +
+        '<div class="kq-note">' +
+          esc(T('The defender never chooses — it always throws the most it can, here ' + nDef +
+                (nDef === 1 ? ' die.' : ' dice.'),
+                'Id-difensur qatt ma jagħżel — dejjem jarmi kemm jista’, hawn ' + nDef +
+                (nDef === 1 ? ' dadu.' : ' dadi.'))) +
+        '</div>' +
+
+        '</div>' +
+        '<div class="kq-atk-acts">' +
+          '<button class="kq-act ghost" id="kq-atk-no">' + esc(T('Cancel', 'Ikkanċella')) + '</button>' +
+          '<button class="kq-act" id="kq-atk-go">' + esc(T('Attack', 'Attakka')) + ' · ' + n +
+            (n === 1 ? esc(T(' die', ' dadu')) : esc(T(' dice', ' dadi'))) + '</button>' +
+        '</div>' +
+      '</div>';
+
+    ov.querySelectorAll('#kq-dpick button').forEach(btn => {
+      btn.onclick = () => {
+        const v = +btn.dataset.n;
+        if (v === n) return;
+        n = v;
+        cue('ui.tap', { gain:0.6 });
+        buzz('tick');                        /* the player's own choice */
+        paint();
+      };
+    });
+    ov.querySelector('#kq-atk-no').onclick = () => { cue('ui.back', { gain:0.7 }); close(); };
+    ov.querySelector('#kq-atk-go').onclick = () => {
+      const pick = n;
+      close();
+      buzz('tap');                           /* the player's own commitment */
+      launchAttack(seat, from, to, pick);
+    };
+  }
+
+  ov.addEventListener('pointerdown', e => { if (e.target === ov){ cue('ui.back', { gain:0.6 }); close(); } });
+  paint();
+}
+
+function launchAttack(seat, from, to, n){
   if (!M || M.busy) return;
   M.busy = true;
   M.sel = -1;
+  const maxN = atkDiceMax(M.st.army[from]);
+  /* clamp here as well as in the engine: a stale sheet must never send a
+     count the board no longer supports. */
+  n = Math.max(1, Math.min(maxN, n | 0 || maxN));
   cue('duel.attack', { gain:0.7 }, true);
-  const res = doMove(seat, { t:'attack', from, to }, 'local');
-  if (!res.ok){ M.busy = false; paintAll(); return; }
+  const res = doMove(seat, { t:'attack', from, to, n }, 'local');
+  if (!res.ok){ M.busy = false; M.picking = false; paintAll(); return; }
   const battle = M.st.lastBattle;
   playBattle(battle, () => {
     /* the capture-advance (if any) is a distinct move; auto-resolve for the
@@ -1240,72 +1790,186 @@ function launchAttack(seat, from, to){
       const nMove = Math.max(p.min, Math.min(p.max, Math.ceil(p.max * 0.6)));
       doMove(seat, { t:'advance', n:nMove }, 'local');
       cue('duel.destroy', { gain:0.8 }, true);
+      buzz('thud');                             /* HIS capture, in his hand */
       sweepCapture(battle.to, seat, () => { M.busy = false; afterLocal(); });
     } else {
       M.busy = false; afterLocal();
     }
-  });
+  }, true);
 }
 
-/* draw the dice overlay + arrow, tumble, settle, tick armies. */
-function playBattle(battle, done){
-  if (!UI || !battle){ if (done) done(); return; }
-  const st = M.st;
-  const fromT = E.TERRITORIES[battle.from], toT = E.TERRITORIES[battle.to];
+/* set an army badge's number without a full repaint (so the animation can
+   hold the PRE-battle count while the dice are still in the air). */
+function setBadgeNum(i, v){
+  if (!UI || !UI.badgeEls[i]) return;
+  const tx = UI.badgeEls[i].querySelector('text');
+  if (tx) tx.textContent = v;
+}
+/* every fight gets a generation number. A badge tick left over from a fight
+   the player skipped must not scribble on the next one. */
+let battleGen = 0;
+/* count a loss off a badge, one army at a time, then hand the badge back to
+   paintMap. Purely cosmetic: the engine settled these numbers long ago. */
+function tickBadge(i, from, to, ms, gen){
+  const steps = Math.abs(from - to);
+  if (!UI || !UI.badgeEls[i] || steps === 0 || reduced()){ setBadgeNum(i, to); return; }
+  const bg = UI.badgeEls[i];
+  const per = Math.max(70, Math.round(ms / steps));
+  let k = 0;
+  bg.classList.add('tick');
+  const step = () => {
+    if (!M || M.dead || !UI || gen !== battleGen){ if (bg) bg.classList.remove('tick'); return; }
+    k++;
+    setBadgeNum(i, from + (to > from ? k : -k));
+    dropInBadge(i);
+    if (k < steps) setTimeout(step, per);
+    else bg.classList.remove('tick');
+  };
+  setTimeout(step, per);
+}
 
-  /* the attack arrow (an SVG line drawn on the map, fades out) */
+/* ── THE FIGHT ─────────────────────────────────────────────────────────
+   The engine decided this battle BEFORE a single pixel moved — `battle` is
+   already-applied history. Everything below is decoration over a state
+   change that has happened, so it can be skipped, shortened or refused
+   without the board ever disagreeing with another phone.
+
+   What it now shows that it did not before: the PAIRING. Risk is decided
+   highest-against-highest, and a player who cannot see which die beat which
+   cannot tell a fair loss from a cheat. So the dice are laid out in rows,
+   one row per pair, with the winner arrowed; a spare attacker die that had
+   nothing to face sits in an empty slot, doing nothing, visibly.
+
+   `mine` is true only when the LOCAL player pressed Attack. It gates the
+   haptics and nothing else — an AI's and a remote seat's fights animate
+   identically, but the phone stays still for them.                         */
+function playBattle(battle, done, mine){
+  if (!UI || !battle){ if (done) done(); return; }
+  const fromT = E.TERRITORIES[battle.from], toT = E.TERRITORIES[battle.to];
+  /* the PRE-battle counts, recovered from the losses the engine recorded */
+  const preFrom = M.st.army[battle.from] + battle.atkLoss;
+  const preTo   = M.st.army[battle.to]   + battle.defLoss;
+  const postFrom = M.st.army[battle.from];
+  const postTo   = M.st.army[battle.to];
+
   drawArrow(fromT.c, toT.c);
 
   if (reduced()){
-    /* still: paint outcome at once, no tumble */
+    /* no tumble, no wait: the result, at once. The haptics still fire —
+       reduced motion is about the screen, not the hand. */
     cue('dice.roll', { gain:0.6 }, true);
+    if (mine) buzz('roll');
     paintMap();
     if (battle.atkLoss || battle.defLoss) cue('duel.hit', { gain:0.7 });
+    if (mine && battle.atkLoss) buzz('no');
     if (done) done();
     return;
   }
 
+  const a  = battle.atkDice.slice().sort((x, y) => y - x);
+  const dd = battle.defDice.slice().sort((x, y) => y - x);
+  const rows = Math.max(a.length, dd.length);
+  const cmp  = Math.min(a.length, dd.length);
+  const aCol = colourOf(battle.seat);
+  const dCol = battle.defSeat >= 0 ? colourOf(battle.defSeat) : { hex:'#3b4a5a' };
+
+  const gen = ++battleGen;
   const overlay = document.createElement('div');
-  overlay.className = 'kq-dice';
+  overlay.className = 'kq-fight';
+  overlay.id = 'kq-fight';
+  let pairs = '';
+  for (let i = 0; i < rows; i++){
+    pairs += '<div class="kq-pair">' +
+      (i < a.length ? '<div class="kq-die atk roll" data-a="' + i + '">?</div>' : '<div class="kq-hole"></div>') +
+      '<div class="kq-cmp" data-c="' + i + '"><svg viewBox="0 0 24 24" aria-hidden="true">' +
+        '<path d="M6 12h12"/></svg></div>' +
+      (i < dd.length ? '<div class="kq-die def roll" data-d="' + i + '">?</div>' : '<div class="kq-hole"></div>') +
+    '</div>';
+  }
   overlay.innerHTML =
-    '<div class="kq-dside"><span class="kq-dlabel">' + esc(T('Attack','Attakk')) + '</span>' +
-      '<div class="kq-drow" id="kq-atk"></div></div>' +
-    '<div class="kq-dside"><span class="kq-dlabel">' + esc(T('Defend','Difiża')) + '</span>' +
-      '<div class="kq-drow" id="kq-def"></div></div>';
+    '<div class="kq-fight-in">' +
+      '<div class="kq-fhead">' +
+        '<span class="fn" style="color:' + aCol.hex + '">' + esc(TE(fromT.name)) + '</span>' +
+        '<span class="fv">' + esc(T('VS', 'KONTRA')) + '</span>' +
+        '<span class="fn" style="color:' + dCol.hex + '">' + esc(TE(toT.name)) + '</span>' +
+      '</div>' + pairs +
+      '<div class="kq-floss">' +
+        '<span id="kq-la">' + esc(T('You', 'Int')) + ' 0</span>' +
+        '<span id="kq-ld">' + esc(T('Them', 'Huma')) + ' 0</span>' +
+      '</div>' +
+    '</div>';
   UI.mapbox.appendChild(overlay);
-  const atkRow = overlay.querySelector('#kq-atk'), defRow = overlay.querySelector('#kq-def');
-  const mkDie = (cls) => { const d = document.createElement('div'); d.className = 'kq-die ' + cls + ' roll'; d.textContent = '?'; return d; };
-  const atkEls = battle.atkDice.map(() => { const d = mkDie('atk'); atkRow.appendChild(d); return d; });
-  const defEls = battle.defDice.map(() => { const d = mkDie('def'); defRow.appendChild(d); return d; });
+
+  /* hold the pre-battle counts on the map while the dice are in the air */
+  setBadgeNum(battle.from, preFrom);
+  setBadgeNum(battle.to, preTo);
+
+  const atkEls = Array.prototype.slice.call(overlay.querySelectorAll('[data-a]'));
+  const defEls = Array.prototype.slice.call(overlay.querySelectorAll('[data-d]'));
+  const cmpEls = Array.prototype.slice.call(overlay.querySelectorAll('[data-c]'));
+  const lossA = overlay.querySelector('#kq-la'), lossD = overlay.querySelector('#kq-ld');
 
   cue('dice.roll', { gain:0.8 }, true);
-  const start = performance.now();
-  const DUR = 620;
-  function tumble(now){
-    const k = Math.min(1, (now - start) / DUR);
-    if (k < 1){
-      /* show random faces while tumbling */
-      const r = () => 1 + (Math.floor((now * 7) + Math.random() * 6) % 6);
-      atkEls.forEach(d => { if (d.classList.contains('roll')) d.textContent = r(); });
-      defEls.forEach(d => { if (d.classList.contains('roll')) d.textContent = r(); });
-      M.raf = requestAnimationFrame(tumble);
-      return;
+  if (mine) buzz('roll');                     /* his dice, in his hand */
+
+  /* 0 tumbling · 1 settled, counting armies off · 2 finished. Every step is
+     idempotent, so a tap can jump the sequence forward without racing it. */
+  let stage = 0, endT = 0;
+  const CHEV_A = 'M6 5l7 7-7 7';              /* attacker took it: points right */
+  const CHEV_D = 'M18 5l-7 7 7 7';            /* defender held:    points left  */
+
+  function settle(){
+    if (stage >= 1) return;
+    stage = 1;
+    if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
+    atkEls.forEach((el, i) => { el.classList.remove('roll'); el.textContent = a[i]; });
+    defEls.forEach((el, i) => { el.classList.remove('roll'); el.textContent = dd[i]; });
+    for (let i = 0; i < cmp; i++){
+      const attWon = a[i] > dd[i];            /* ties go to the defender */
+      const p = cmpEls[i].querySelector('path');
+      if (p) p.setAttribute('d', attWon ? CHEV_A : CHEV_D);
+      cmpEls[i].classList.add(attWon ? 'a' : 'd');
+      if (attWon){ atkEls[i].classList.add('win'); defEls[i].classList.add('lose'); }
+      else { defEls[i].classList.add('win'); atkEls[i].classList.add('lose'); }
     }
-    /* settle on the real, sorted faces */
-    const a = battle.atkDice.slice().sort((x,y)=>y-x);
-    const dd = battle.defDice.slice().sort((x,y)=>y-x);
-    atkEls.forEach((d, idx) => { d.classList.remove('roll'); d.textContent = a[idx]; });
-    defEls.forEach((d, idx) => { d.classList.remove('roll'); d.textContent = dd[idx]; });
-    /* mark win/lose per compared pair */
-    const cmp = Math.min(a.length, dd.length);
-    for (let idx = 0; idx < cmp; idx++){
-      if (a[idx] > dd[idx]){ atkEls[idx].classList.add('win'); defEls[idx].classList.add('lose'); }
-      else { defEls[idx].classList.add('win'); atkEls[idx].classList.add('lose'); }
-    }
+    if (lossA){ lossA.textContent = T('You', 'Int') + ' −' + battle.atkLoss;
+                lossA.className = battle.atkLoss ? 'hit' : ''; }
+    if (lossD){ lossD.textContent = T('Them', 'Huma') + ' −' + battle.defLoss;
+                lossD.className = battle.defLoss ? 'good' : ''; }
     if (battle.atkLoss || battle.defLoss) cue('duel.hit', { gain:0.75 }, true);
-    /* tick the army badges to the post-battle values (engine already applied) */
-    paintMap();
-    setTimeout(() => { overlay.remove(); if (done) done(); }, battle.captured ? 260 : 640);
+    if (mine && battle.atkLoss) buzz('no');   /* HIS armies just died */
+    /* count the losses off the two badges while the result is on screen */
+    tickBadge(battle.from, preFrom, postFrom, 150, gen);
+    tickBadge(battle.to,   preTo,   postTo,   150, gen);
+    endT = setTimeout(finishNow, battle.captured ? 240 : 320);
+  }
+  function finishNow(){
+    if (stage >= 2) return;
+    stage = 2;
+    battleGen++;                              /* orphan any pending badge tick */
+    if (endT){ clearTimeout(endT); endT = 0; }
+    if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
+    overlay.remove();
+    paintMap();                               /* back to the engine's truth */
+    if (done) done();
+  }
+
+  /* SKIPPABLE. One tap lands the dice (so the result is still readable), a
+     second tap clears the fight away. */
+  overlay.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (stage === 0) settle(); else finishNow();
+  });
+
+  const start = performance.now();
+  const DUR = 430;                            /* ~430 tumble + ~150 tick + hold */
+  function tumble(now){
+    if (stage > 0) return;
+    if (now - start >= DUR){ settle(); return; }
+    const r = () => 1 + (Math.floor((now * 7) + Math.random() * 6) % 6);
+    atkEls.forEach(d => { d.textContent = r(); });
+    defEls.forEach(d => { d.textContent = r(); });
+    M.raf = requestAnimationFrame(tumble);
   }
   M.raf = requestAnimationFrame(tumble);
 }
@@ -1424,7 +2088,9 @@ function runAiStep(){
     const res = doMove(seat, mv, 'local');
     if (!res.ok){ M.busy = false; paintAll(); return; }
     const battle = M.st.lastBattle;
-    /* faint highlight of the AI's chosen source for legibility */
+    /* the machine's fight animates exactly like a human's — but `mine` is
+       FALSE, so not one buzz leaves the motor for a turn the player did not
+       take. A pocket that shakes for five other seats is a phone put down. */
     playBattle(battle, () => {
       if (M.st._pending){
         const p = M.st._pending;
@@ -1433,7 +2099,7 @@ function runAiStep(){
         cue('duel.destroy', { gain:0.7 }, true);
         sweepCapture(battle.to, seat, () => { M.busy = false; continueAi(); });
       } else { M.busy = false; continueAi(); }
-    });
+    }, false);
     return;
   }
   /* non-attack moves apply instantly */
@@ -1466,10 +2132,14 @@ function finish(){
   const st = M.st;
   const ov = E.over(st);
   if (!ov) return;
+  /* nothing of ours may be left floating over a finished map */
+  killCard('kq-turncard'); killCard('kq-atksheet'); killCard('kq-fight'); killCard('kq-cardsheet');
+  M.picking = false;
   cue('game.win', { gain:0.95 }, true);
 
   const me = firstLocalSeat();
   const iWon = me >= 0 && ov.winner === me;
+  if (iWon) buzz('win');                       /* the one long buzz, and only his */
   if (!M.net && !M.recorded){
     M.recorded = true;
     if (me >= 0){ if (iWon) ST.rec.w++; else ST.rec.l++; }
@@ -1577,7 +2247,9 @@ function finish(){
 function leave(){
   stopThinking();
   if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; }
-  if (M){ autosave(); persistNow(); M.dead = true; M.busy = false; }
+  battleGen++;                                 /* orphan any pending badge tick */
+  killCard('kq-turncard'); killCard('kq-atksheet'); killCard('kq-fight'); killCard('kq-cardsheet');
+  if (M){ autosave(); persistNow(); M.dead = true; M.busy = false; M.picking = false; }
   M = null; UI = null;
 }
 
@@ -1616,11 +2288,21 @@ function rulesFor(){
       'pile of armies (4, 6, 8, 10, 12, 15, then +5 each).',
       '<b>1 · Rinforza</b> — armati = waħda għal kull tliet artijiet (mill-inqas tlieta) <b>flimkien mal-bonus ' +
       'ta’ kull kontinent sħiħ</b>. Tista’ wkoll <b>tibdel sett ta’ tliet karti</b> għal armati (4, 6, 8, 10, 12, 15, imbagħad +5).'),
-    T('<b>2 · Attack</b> — tap one of your lands, then a bordering enemy. Both roll dice; the higher wins, ' +
-      'ties go to the defender. Empty a land and it is <b>yours</b>. Capture at least one land in a turn and ' +
-      'you <b>earn a card</b> at its end.',
-      '<b>2 · Attakka</b> — ikklikkja waħda minn artek, imbagħad għadu maġenbek. It-tnejn jarmu dadi; l-ogħla ' +
-      'jirbaħ, l-indaqs għad-difensur. Battal art u ssir <b>tiegħek</b>. Aqbad art f’dawra u <b>taqla’ karta</b>.'),
+    T('<b>2 · Attack</b> — tap one of your lands, then a bordering enemy, and an <b>attack sheet</b> opens: ' +
+      'both sides’ armies, <b>how many dice you throw</b> (one, two or three — never more than one fewer than ' +
+      'the armies standing there) and the honest odds for that choice. Nothing is fired until you press Attack.',
+      '<b>2 · Attakka</b> — ikklikkja waħda minn artek, imbagħad għadu maġenbek, u tinfetaħ <b>karta tal-attakk</b>: ' +
+      'l-armati taż-żewġ naħat, <b>kemm-il dadu tarmi</b> (wieħed, tnejn jew tlieta — qatt aktar minn armata inqas ' +
+      'minn dawk fuq l-art) u ċ-ċansijiet veri. Xejn ma jispara qabel tagħfas Attakka.'),
+    T('The dice are compared <b>highest against highest</b>; the higher wins and <b>ties go to the defender</b>. ' +
+      'Empty a land and it is <b>yours</b>, and you must move in at least as many armies as dice you threw. ' +
+      'Capture at least one land in a turn and you <b>earn a card</b> at its end. ' +
+      '<b>The defender never chooses</b> — it always throws the most dice it can, so a fight is never held up ' +
+      'waiting on somebody else’s phone.',
+      'Id-dadi jitqabblu <b>l-ogħla mal-ogħla</b>; l-ogħla jirbaħ u <b>l-indaqs imur għad-difensur</b>. ' +
+      'Battal art u ssir <b>tiegħek</b>, u trid iddaħħal mill-inqas daqs kemm armejt dadi. Aqbad art f’dawra u ' +
+      '<b>taqla’ karta</b>. <b>Id-difensur qatt ma jagħżel</b> — dejjem jarmi kemm jista’, biex ebda ġlieda ' +
+      'ma tistenna telefon ieħor.'),
     T('<b>3 · Fortify</b> — move armies once between two of your connected lands, then end your turn.',
       '<b>3 · Fortifika</b> — ċaqlaq l-armati darba bejn żewġ artijiet tiegħek konnessi, imbagħad temm id-dawra.'),
     T('Take a rival’s last land and you <b>seize their cards</b>. Hold five or more and you <b>must trade</b>. ' +
@@ -1969,11 +2651,12 @@ function onlineRemote(seat, move){
     const res = doMove(seat, dec, 'net');
     if (!res.ok){ M.busy = false; return { ok:false, why: res.err || 'illegal' }; }
     const battle = M.st.lastBattle;
+    /* a REMOTE seat's fight: animated for parity, silent in the hand. */
     playBattle(battle, () => {
       if (M.st._pending){ /* the advance arrives as its own relayed move */ }
       M.busy = false; paintAll();
       if (E.over(M.st)) finish();
-    });
+    }, false);
     return { ok:true };
   }
   const res = doMove(seat, dec, 'net');
@@ -2088,6 +2771,10 @@ if (/[?&]konkwistatest\b/.test(location.search || '')){
     get M(){ return M; }, get UI(){ return UI; },
     engine: E, LOBBY, hooks, online: P.online.konkwista, leave,
     computeLegalSet, reduced,
+    /* the interactive pass: the picker, the readout and the odds behind them */
+    openAttackSheet, showTurnCard, reinforceBreakdown,
+    exchangeOdds, conquerChance, conquerChanceWith, atkDiceMax, defDiceMax,
+    playBattle,
     /* drive the local seat through the REAL move gate (what a thumb triggers),
        then run the same post-move pipeline the UI runs. */
     doMove: (seat, move) => { const r = doMove(seat, move, 'local'); afterLocal(); return r; },

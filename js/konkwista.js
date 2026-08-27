@@ -42,16 +42,31 @@
         cards for bonus armies on an escalating scale. Place them all
         before you may attack.
      2 ATTACK  repeatedly: pick one of YOUR territories with >1 army that
-        borders an ENEMY territory, and attack. The attacker rolls up to 3
-        dice (needs ≥2 armies; max dice = armies-1, capped at 3); the
-        defender rolls up to 2 (min(2, defenderArmies)). Sort both
-        descending, compare highest-vs-highest and (if both have a second
-        die) second-vs-second. Each comparison the DEFENDER wins or TIES
-        costs the attacker one army; otherwise the defender loses one. If
-        the defender reaches 0 the attacker CAPTURES and MUST move in at
+        borders an ENEMY territory, and attack. The attacker CHOOSES how
+        many dice to roll — `n`, from 1 up to maxAtkDice(army) = min(3,
+        army-1). This is a real decision, not a detail: more dice win the
+        exchange more often, but you can only LOSE as many armies in one
+        exchange as the SMALLER of the two dice counts, and on a capture you
+        are FORCED to move `n` armies into the new land — so three dice can
+        gut the very border you were standing on. The DEFENDER does not
+        choose: they always roll maxDefDice(army) = min(2, army). Rolling
+        two is near-always right for a defender, and asking would put a
+        second phone in the way of every attack online, so it is a stated
+        design choice (and the rules screen says so), not a silent omission.
+        Sort both descending, compare highest-vs-highest and (if both have a
+        second die) second-vs-second. Each comparison the DEFENDER wins or
+        TIES costs the attacker one army; otherwise the defender loses one.
+        If the defender reaches 0 the attacker CAPTURES and MUST move in at
         least (attacker dice rolled) armies, leaving ≥1 behind. If you
         captured AT LEAST ONE territory this turn you EARN one card at the
         end of your turn (max one per turn).
+
+        `n` MISSING, zero, or out of range is CLAMPED to the legal maximum —
+        never refused. That is what makes the dice choice a purely additive
+        change: every OLD saved game and every OLD move log carries no `n`
+        at all, and "no n" means "max", which is exactly what the engine did
+        before the choice existed. Old logs therefore replay byte-identically
+        (proven by a golden replay against a frozen copy of the old engine).
      3 FORTIFY  optionally ONCE: move any number of armies (leaving ≥1
         behind) from one of your territories to ANOTHER of your
         territories CONNECTED to it THROUGH A CHAIN OF YOUR OWN
@@ -670,6 +685,23 @@ function canAttack(st, seat){ return attackSources(st, seat).length > 0; }
 function maxAtkDice(army){ return Math.max(0, Math.min(3, army - 1)); }
 function maxDefDice(army){ return Math.min(2, army); }
 
+/* clampAtkDice — the ONE place the attacker's dice-count rule lives, so the
+   gate, the resolver, the machine and the screen can never disagree about it.
+   Anything that cannot be read as a count in 1..max — undefined, null, 0, -3,
+   9, 'x', NaN — becomes the MAXIMUM. A fraction is TRUNCATED first (2.7 -> 2,
+   1.5 -> 1) and only then range-checked, because `| 0` is exactly what the
+   wire codec does to it and the gate must never disagree with the bytes.
+   That is deliberate and load-bearing: every move
+   log and save file written before the attacker could choose carries no `n`,
+   and they must keep replaying exactly as they always did. So "no n" MUST
+   mean "max", and a bad `n` is corrected rather than refused (a refusal would
+   stop a whole online table dead over a field an older build never sent). */
+function clampAtkDice(army, n){
+  const max = maxAtkDice(army);
+  const v = (typeof n === 'number' && isFinite(n)) ? (n | 0) : 0;
+  return (v >= 1 && v <= max) ? v : max;
+}
+
 function fortifyReachable(st, seat, from, to){
   if (from === to) return false;
   if (st.owner[from] !== seat || st.owner[to] !== seat) return false;
@@ -701,7 +733,11 @@ function canFortify(st, seat){
      { t:'deal' }                       RANDOM setup: deal the whole board
      { t:'trade',   x, y, z }           REINFORCE: trade a card set (card ids)
      { t:'place',   to, n }             REINFORCE: put n armies on `to`
-     { t:'attack',  from, to }          ATTACK: one dice exchange
+     { t:'attack',  from, to, n }       ATTACK: one dice exchange, n = the
+                                        attacker's dice count (1..maxAtkDice).
+                                        Missing / out of range CLAMPS to max,
+                                        which is what every pre-choice log
+                                        carries and how it used to behave.
      { t:'advance', n }                 after a capture: move n armies in
      { t:'fortify', from, to, n }       FORTIFY: move n armies
      { t:'endphase' }                   leave the current phase
@@ -777,6 +813,11 @@ function check(st, mv, seat){
     if (st.owner[to] === seat) return false;
     if (st.army[from] < 2) return false;
     if (!areAdjacent(from, to)) return false;
+    /* `n` — the attacker's dice count — is VALIDATED against maxAtkDice but is
+       never a reason to refuse: clampAtkDice() corrects it. An older client
+       (and every log written before the choice existed) sends no `n` at all,
+       and a refusal here would freeze that table for good. mv.n is left alone;
+       resolveAttack() does the clamping, so check() stays side-effect free. */
     return true;
   }
   if (t === 'fortify'){
@@ -799,6 +840,80 @@ function check(st, mv, seat){
     return true;
   }
   return false;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LEGAL — every move `seat` may make right now, as flat move objects that
+   check() accepts. The attack dice count is a MENU (one, two or three, and
+   the screen draws it as three buttons), so attacks are enumerated ONCE PER
+   LEGAL `n`. The other counts — how many armies to place, advance or
+   fortify — are a SLIDER, not a menu, so they are offered at their useful
+   extremes (1 and the maximum) rather than exhaustively; enumerating every
+   army count would return thousands of moves nobody reads and would tempt a
+   caller into treating the list as a menu it is not.
+   ═══════════════════════════════════════════════════════════════════ */
+function legal(st, seat){
+  const out = [];
+  if (!st || st.done) return out;
+  if (seat == null) seat = st.turn;
+  if (seat !== st.turn) return out;
+
+  /* a capture-advance outranks everything else */
+  if (st._pending){
+    const p = st._pending;
+    for (let n = p.min; n <= p.max; n++) out.push({ t:'advance', n });
+    return out;
+  }
+  if (st.phase === PH_CLAIM){
+    if (st.setupMode === 'random'){
+      if (seat === 0 && neutralCount(st) === N_TERR) out.push({ t:'deal' });
+      return out;
+    }
+    for (let t = 0; t < N_TERR; t++) if (st.owner[t] === UNOWNED) out.push({ t:'claim', to:t });
+    return out;
+  }
+  if (st.phase === PH_DEPLOY){
+    for (let t = 0; t < N_TERR; t++) if (st.owner[t] === seat) out.push({ t:'deploy', to:t });
+    return out;
+  }
+  if (st.phase === PH_REINFORCE){
+    const hand = handOf(st, seat);
+    for (let i = 0; i < hand.length; i++)
+      for (let j = i + 1; j < hand.length; j++)
+        for (let k = j + 1; k < hand.length; k++)
+          if (isCardSet(hand[i], hand[j], hand[k])) out.push({ t:'trade', x:hand[i], y:hand[j], z:hand[k] });
+    if (!st.mustTrade && st.reinf > 0)
+      for (let t = 0; t < N_TERR; t++){
+        if (st.owner[t] !== seat) continue;
+        out.push({ t:'place', to:t, n: st.reinf });
+        if (st.reinf > 1) out.push({ t:'place', to:t, n: 1 });
+      }
+    if (st.reinf === 0 && !st.mustTrade) out.push({ t:'endphase' });
+    return out;
+  }
+  if (st.phase === PH_ATTACK){
+    if (st.reinf === 0)
+      for (const from of attackSources(st, seat)){
+        const max = maxAtkDice(st.army[from]);
+        for (const to of attackTargets(st, from))
+          for (let n = 1; n <= max; n++) out.push({ t:'attack', from, to, n });
+      }
+    out.push({ t:'endphase' });
+    out.push({ t:'endturn' });
+    return out;
+  }
+  /* PH_FORTIFY */
+  if (!st.fortified)
+    for (let from = 0; from < N_TERR; from++){
+      if (st.owner[from] !== seat || st.army[from] < 2) continue;
+      for (const to of reachableOwn(st, seat, from)){
+        if (to === from) continue;
+        out.push({ t:'fortify', from, to, n: st.army[from] - 1 });
+        if (st.army[from] - 1 > 1) out.push({ t:'fortify', from, to, n: 1 });
+      }
+    }
+  out.push({ t:'endturn' });
+  return out;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -844,7 +959,7 @@ function apply(st, mv){
     if (st.reinf === 0) st.phase = PH_ATTACK;
     return;
   }
-  if (t === 'attack'){ resolveAttack(st, mv.from | 0, mv.to | 0); return; }
+  if (t === 'attack'){ resolveAttack(st, mv.from | 0, mv.to | 0, mv.n); return; }
   if (t === 'advance'){
     const p = st._pending; if (!p) return;
     const n = Math.max(p.min, Math.min(p.max, mv.n | 0));
@@ -873,11 +988,20 @@ function apply(st, mv){
   if (t === 'endturn'){ st.last = { t:'endturn', seat }; endTurn(st); return; }
 }
 
-/* ── one dice exchange ── */
-function resolveAttack(st, from, to){
+/* ── one dice exchange ──
+   `n` is the ATTACKER'S CHOICE of dice count, clamped to 1..maxAtkDice; a
+   missing or out-of-range `n` means the maximum, so a pre-choice log rolls
+   exactly the dice it always rolled and consumes exactly the same rollCtr
+   counters. The defender never chooses — always maxDefDice. Everything below
+   the dice count (sort descending, compare pairs, ties to the defender,
+   capture, the advance window) is untouched; but note that _pending.min is
+   min(nAtk, maxMove), i.e. YOU MUST MOVE IN AS MANY ARMIES AS DICE YOU
+   ROLLED — with the choice in place that minimum now genuinely varies, and
+   is the real cost of swinging with three dice. */
+function resolveAttack(st, from, to, n){
   const seat = st.owner[from];
   const defSeat = st.owner[to];
-  const nAtk = maxAtkDice(st.army[from]);
+  const nAtk = clampAtkDice(st.army[from], n);
   const nDef = maxDefDice(st.army[to]);
   const atk = [], def = [];
   for (let i = 0; i < nAtk; i++) atk.push(rollDie(st.seed, st.rollCtr++));
@@ -1178,11 +1302,72 @@ function projectAttackScore(st, seat, c){
   st.army[c.from] = fromA; st.army[c.to] = toA; st.owner[c.to] = toO;
   return s;
 }
+/* THE ODDS BAR — how good an attack has to look before the machine makes it.
+   Pulled out of the filter so that the DICE TRIM below can be held to the very
+   same bar; when these two disagree the machine stops attacking altogether. */
+function attackBar(c, regionHunt){
+  if (c.eliminates) return 0.30;
+  if (c.completesRegion) return 0.42;
+  return regionHunt ? 0.47 : 0.50;
+}
+
+/* HOW MANY DICE THE MACHINE WOULD LIKE TO ROLL.
+   This is a WISH, not the answer — chooseAtkDice() below has the last word.
+
+   The reason to take fewer than the maximum is THE FORCED MOVE-IN: on a
+   capture you must move at least `n` armies into the taken land, so swinging
+   with three from a square that is itself under pressure strips that square of
+   three armies precisely WHEN YOU WIN. The dice count is therefore capped by
+   what the square can spare once it has answered the enemies leaning on it.
+
+   What this deliberately does NOT do is cut to one die against a two-die
+   defender to "bleed slowly". One die against two wins 55/216 ≈ 25%, which is
+   below even the lowest bar above (0.30), so that trim could never survive
+   chooseAtkDice() — writing it here would be a comment that lies about what
+   the code does.
+
+   Pure: state, seat, level. No Math.random, no clock, no rollCtr read (so the
+   choice cannot smuggle the dice stream into the decision). */
+function aiAtkDice(st, seat, from, to, lvl){
+  const max = maxAtkDice(st.army[from]);
+  if (max <= 1) return max;                       /* no choice to make        */
+  if (lvl <= 1) return max;                       /* the militia always swings */
+  const src   = st.army[from];
+  const press = borderPressure(st, seat, from);   /* enemy armies on this square */
+  /* what this square can give up and still answer its own border */
+  const spare = src - 1 - Math.ceil(press / 2);
+  return Math.max(1, Math.min(max, spare < max ? spare : max));
+}
+
+/* CHOOSE THE DICE — and never let caution turn a yes into a no.
+   The attack has ALREADY been judged worth making, on the odds at the FULL
+   dice count, which is the attack's real potential and exactly what the engine
+   judged before the dice became a choice. A trim is only honoured if the
+   TRIMMED odds still clear the same bar that admitted the attack. Otherwise
+   the machine rolls the maximum and makes the attack it decided to make.
+
+   This is the whole regression, written down: judging the candidate on the
+   trimmed odds and then filtering on a fixed bar meant one attacker die vs a
+   two-die defender (~25%) failed every bar, every candidate was filtered out,
+   and lvl 2 and lvl 3 stopped attacking entirely — every game ran to the
+   40-round cap. Caution must never be able to become pacifism. */
+function chooseAtkDice(st, seat, c, lvl, regionHunt){
+  const want = aiAtkDice(st, seat, c.from, c.to, lvl);
+  if (want >= c.nAtk) return c.nAtk;              /* no trim wanted           */
+  if (attackOdds(want, c.nDef).pAtkGood >= attackBar(c, regionHunt)) return want;
+  return c.nAtk;                                  /* the trim would kill it   */
+}
+
 function thinkAttack(st, seat, lvl){
   const srcs = attackSources(st, seat);
   if (!srcs.length) return { t:'endphase' };
   const cands = [];
   for (const from of srcs){
+    /* JUDGE AT FULL DICE. `nAtk` here is the maximum — the attack's real
+       potential — and every odds figure below (the bar, the projection, the
+       sort) is computed from it, exactly as the engine did before the dice
+       were a choice. How many dice actually get rolled is decided AFTER the
+       attack has been chosen, by chooseAtkDice(). */
     const nAtk = maxAtkDice(st.army[from]);
     for (const to of attackTargets(st, from)){
       const nDef = maxDefDice(st.army[to]);
@@ -1202,14 +1387,12 @@ function thinkAttack(st, seat, lvl){
     }
     if (!pick){ for (const c of cands){ if (!pick || c.defArmy < pick.defArmy) pick = c; } }
     if (!pick) return { t:'endphase' };
-    return { t:'attack', from: pick.from, to: pick.to };
+    return { t:'attack', from: pick.from, to: pick.to, n: pick.nAtk };
   }
   const REGION_HUNT = lvl >= 3;
   let pool = cands.filter(c => {
-    if (c.eliminates) return c.odds >= 0.30;
-    if (c.completesRegion) return c.odds >= 0.42;
-    const bar = REGION_HUNT ? 0.47 : 0.50;
-    if (c.odds < bar) return false;
+    if (c.odds < attackBar(c, REGION_HUNT)) return false;
+    if (c.eliminates || c.completesRegion) return true;
     if (borderPressure(st, seat, c.from) > st.army[c.from] + 2 && c.srcArmy <= c.defArmy + 2) return false;
     return true;
   });
@@ -1225,7 +1408,7 @@ function thinkAttack(st, seat, lvl){
       if (s > bestScore){ bestScore = s; best = c; }
     }
     if (best && !best.eliminates && !best.completesRegion && bestScore < now - 2) return { t:'endphase' };
-    return { t:'attack', from: best.from, to: best.to };
+    return { t:'attack', from: best.from, to: best.to, n: chooseAtkDice(st, seat, best, lvl, REGION_HUNT) };
   }
   pool.sort((a,b) => {
     if (a.eliminates !== b.eliminates) return a.eliminates ? -1 : 1;
@@ -1234,7 +1417,7 @@ function thinkAttack(st, seat, lvl){
     return (b.srcArmy - b.defArmy) - (a.srcArmy - a.defArmy);
   });
   const pick = pool[0];
-  return { t:'attack', from: pick.from, to: pick.to };
+  return { t:'attack', from: pick.from, to: pick.to, n: chooseAtkDice(st, seat, pick, lvl, REGION_HUNT) };
 }
 function completesRegionIfTaken(st, seat, to){
   const rid = TERRITORIES[to].cont;
@@ -1280,19 +1463,32 @@ function reachableOwn(st, seat, from){
    `from`, a count `n`, and three card ids `x`/`y`/`z` for a trade. The dice
    AND the card draws are NOT on the wire — they are recomputed from (seed,
    counters) on every client. A 'deal' carries no fields (it is fully seeded).
-     place   { to, n }         attack  { from, to }     advance { n }
+     place   { to, n }         attack  { from, to, n }  advance { n }
      fortify { from, to, n }   claim   { to }           deploy  { to }
      trade   { x, y, z }       deal / endphase / endturn { }
    encWire/decWire below are a self-contained mirror (used by the UI's remote
    fallback and the harness); they keep the same RAW field names so a move that
    round-trips through either codec is identical.
+
+   THE ATTACK DICE COUNT RIDES `n`. WIRE_FIELDS is UNCHANGED: `n` was already
+   declared (place / advance / fortify use it) and `attack` simply did not,
+   so there is NO new field to be undeclared and no build can stop on "this
+   build does not know how to put undefined on the wire" — the repo's
+   documented safest option. Known and accepted: an OLDER client sends an
+   attack with no `n`, which clamps to max, so a mixed table diverges. Every
+   attack consumes rollCtr, so that divergence shows up immediately in army
+   counts instead of festering. This is a forced-update release.
    ═══════════════════════════════════════════════════════════════════ */
 const WIRE_FIELDS = ['to', 'from', 'n', 'x', 'y', 'z'];
 function encWire(mv){
   if (!mv || !mv.t) return null;
   const w = { t: mv.t };
   if (mv.t === 'place'){ w.to = mv.to | 0; w.n = mv.n | 0; }
-  else if (mv.t === 'attack'){ w.from = mv.from | 0; w.to = mv.to | 0; }
+  /* attack carries the dice count on the already-declared `n`. A move built
+     without one (old code, a replayed old log) encodes as n:0 — a NUMBER, so
+     never "undefined on the wire" — and 0 is the sentinel the resolver reads
+     as "roll the maximum", which is what it always did. */
+  else if (mv.t === 'attack'){ w.from = mv.from | 0; w.to = mv.to | 0; w.n = mv.n | 0; }
   else if (mv.t === 'advance'){ w.n = mv.n | 0; }
   else if (mv.t === 'fortify'){ w.from = mv.from | 0; w.to = mv.to | 0; w.n = mv.n | 0; }
   else if (mv.t === 'claim' || mv.t === 'deploy'){ w.to = mv.to | 0; }
@@ -1305,7 +1501,8 @@ function decWire(w){
   if (!w || !w.t) return null;
   const t = w.t;
   if (t === 'place')   return { t, to: w.to | 0, n: w.n | 0 };
-  if (t === 'attack')  return { t, from: w.from | 0, to: w.to | 0 };
+  /* an OLD packet has no `n` at all → 0 → clampAtkDice() rolls the maximum. */
+  if (t === 'attack')  return { t, from: w.from | 0, to: w.to | 0, n: w.n | 0 };
   if (t === 'advance') return { t, n: w.n | 0 };
   if (t === 'fortify') return { t, from: w.from | 0, to: w.to | 0, n: w.n | 0 };
   if (t === 'claim')   return { t, to: w.to | 0 };
@@ -1341,9 +1538,9 @@ root.KARTI_KONKWISTA.engine = {
   inSetup, neutralCount, setupArmiesLeft, startingArmies,
   territoriesOf, countTerr, countArmies, ownsRegion, ownsContinent, regionsOwned, continentsOwned,
   reinforcementsFor, continentBonus, attackSources, attackTargets, canAttack, canFortify,
-  fortifyReachable, maxAtkDice, maxDefDice, isFrontier, borderPressure,
+  fortifyReachable, maxAtkDice, maxDefDice, clampAtkDice, isFrontier, borderPressure,
   /* the gate + mutator */
-  check, apply,
+  check, legal, apply,
   /* the machine */
   think, attackOdds,
   /* the wire */

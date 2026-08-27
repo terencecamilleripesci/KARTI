@@ -316,3 +316,47 @@ Harnesses in the session scratchpad: `walk.js` (solo, `--reduced`, `--small`),
 `walk_online.js` (two real clients on the live relay), `walkshot.js` (films one
 AI walk frame by frame — the disc's label and `--sc` identify the seat, and its
 real token is `visibility:hidden` underneath while it steps).
+
+---
+
+## KONKWISTA — the interactive pass (`js/konkwista-ui.js`)
+
+**`el.hidden = true` did nothing in this file's banner, from day one.** The
+class rules give `.kq-cards` and `.kq-step` `display:flex`, and a class rule
+outranks the browser's own `[hidden]{display:none}`. So the cards button sat
+in the phase banner as a dead cream slab in every game from the first frame,
+and the reinforcement stepper stayed visible through Attack and Fortify. One
+line fixes the lot: `#scr-party .kq-banner [hidden]{display:none}`. Any file
+that sets `display:` on something it also toggles with `hidden` has this bug.
+
+**A bounding box that fits proves nothing about the content inside it.** The
+attack sheet's own rect measured comfortably inside a 360x640 viewport while
+ATTACK and CANCEL were clipped below its internal scroll. Assert on the
+BUTTON: fully on screen AND `document.elementFromPoint(centre)` is the button
+itself. Both sheets are now `flex-direction:column` with a scrolling body and
+pinned actions, and the attack sheet is anchored to `.kq-wrap`, not
+`.kq-mapbox` — the map box is only ~366px tall on a 360x640 phone.
+
+**A retina screenshot stalls the renderer for hundreds of ms.** Photographing
+a fight mid-roll made an honest 850ms animation measure 1583ms. Do the whole
+capture IN THE PAGE: a `MutationObserver` clones the overlay the instant the
+dice settle, plus a 120ms timer clones the tumbling frame, and both clones are
+photographed afterwards. Same DOM, just kept.
+
+**Odds are enumerated, never remembered.** `exchangeOdds(nA,nD)` walks all
+6^nA x 6^nD outcomes (7776 worst case, cached) rather than pasting a table.
+It reproduces the classic values exactly — 3v2 = 37.17 / 33.58 / 29.26 — which
+is how you know the pairing and the tie rule match the engine's. `pct()`
+refuses to round 0.9994 up to "100%": a player who reads 100% and then loses
+stops believing every number on the screen.
+
+**Combat haptics carry a `mine` flag down from the caller.** `playBattle(battle,
+done, mine)` — `launchAttack` passes true, `runAiStep` and `onlineRemote` pass
+false. Measured by patching `KARTI_SFX.haptic` and stubbing
+`navigator.vibrate`: a remote seat's attack driven straight down
+`P.online.konkwista.remote()` animates 4 dice and produces zero haptic calls
+and zero vibrate calls.
+
+Harness in the session scratchpad: `konk-ui.js` (133 assertions — odds, the
+turn readout, the attack sheet, the fight, haptic discipline, reduced motion,
+Maltese at 360x640).
