@@ -1883,21 +1883,36 @@ function note(st){
 
 /* ═══════════════════════════════════════════════════════════════════
    THE MACHINE — three sharpnesses, and NOT ONE Math.random. On its turn
-   the AI reasons with the SAME notebook a fair player keeps (never peeks
-   at the solution or another hand — its state proves it), then:
-     · ACCUSES if it has pinned all three categories (perfect certainty).
-       Weaker levels are slower and, at lvl1, may accuse with a small
-       gamble when only one category is uncertain (a calculated stab), so
-       there is a real skill gradient.
-     · else SUGGESTS to maximise information — probing UNKNOWN cards, and
-       (to mask intent) sometimes seeding a card from its OWN hand.
+   the AI reasons with the notebook a fair player keeps (never peeks at
+   the solution or another hand — its state proves it), then:
+     · ACCUSES if it has pinned all three categories (certainty), or —
+       at the two weaker levels only — takes an occasional STAB when two
+       are pinned and the third is a guess.
+     · else SUGGESTS to gain information — probing cards its view still
+       calls unknown, and (to mask intent) sometimes seeding a card from
+       its OWN hand.
    Where a person would waver the machine hashes the position, so it is
    replayable across phones.
 
-     lvl 1  Kaporal   loose suggestions, deduces slowly, sometimes stabs.
-     lvl 2  Surġent   sharp suggestions, accuses when sure.
-     lvl 3  Spettur   maximal-information probes, accuses the instant it is
-                      mathematically certain.
+   THE DIAL IS DEDUCTION. Read this before you reach for the dice or the
+   footwork again. Two earlier passes tried to make the levels differ by
+   how well they WALK (the DEST_WOBBLE below) and the measurement said
+   they had not: lvl2 and lvl3 finished 23.4 vs 22.6 plies and won 27.8%
+   vs 27.3% of a four-handed table — the same player twice. Movement
+   cannot be the lever, because by construction the wobble can never
+   out-bid the 550-point gap between a wanted room and a ruled-out one,
+   and a detective who walks to the right room and asks the right
+   question still solves the case at the same speed.
+   What actually separates a good Cluedo player from an average one is
+   the INFERENCES they draw from other people's refutations. So that is
+   what the dial takes away — see aiView() below.
+
+     lvl 1  Kaporal   direct facts only, and forgets some of even those;
+                      wanders, re-asks what it has been shown, stabs.
+     lvl 2  Surġent   direct facts only: its own hand and the cards shown
+                      to IT. Cannot read other people's refutations.
+     lvl 3  Spettur   the whole truth, maximal-information probes, accuses
+                      the instant it is mathematically certain.
    ═══════════════════════════════════════════════════════════════════ */
 const LEVELS = [
   { k:1, name:'KAPORAL', icon:'diff-1', note:{ en:'Deduces slowly and takes wild guesses.',
@@ -1927,7 +1942,125 @@ function jitter(st, seat, salt){
              have reached 75 and COLLIDED with 70 — the passage coin and
              the wobble on square 30 would have become the same coin. Moved
              clear of every other salt, with room for the whole byte.
+     300..427 aiView's MISS coin — MISS_SALT + (log2 index % SALT_SPAN),
+             "did this seat register the exchange across the table?"
+     440..567 aiView's FORGET coin — FORGET_SALT + (log2 index % SALT_SPAN),
+             "did it hold on to its OWN question and reveal?"
+             Both are whole BLOCKS, one coin per record, not one salt: a
+             single salt would make a level notice every exchange or none
+             of them on any given turn, which is a flicker, not a
+             handicap. And they are two DIFFERENT blocks because a seat
+             that forgets its own reveal exactly when it also misses
+             somebody else's is one coin pretending to be two.
+     600,601 the lvl2 stab (go? / which card). Deliberately NOT 11/12:
+             lvl1 and lvl2 stab on different evidence and must not flip
+             the same coin, or the two levels waver in lockstep.
    Add a decision, take a number that is not on this list and put it on. */
+
+/* ═══════════════════════════════════════════════════════════════════
+   aiView(st, seat, lvl) — THE MACHINE'S HANDICAPPED READ OF THE TRUTH
+
+   notebookFor() IS THE TRUTH AND MUST STAY THE TRUTH. The human player's
+   notebook screen reads it; a level setting that degraded it would be a
+   bug wearing a difficulty dial's clothes. So the handicap lives here
+   instead, in a notebook-SHAPED object that only think() ever sees.
+
+   AND THERE IS STILL EXACTLY ONE REASONER. The handicap is NOT a second,
+   dumber deduction engine — two engines can drift apart, one of them
+   marks a card 'sol' that the other calls 'has', the AI accuses a card
+   somebody is visibly holding, and it reads as bad luck rather than as a
+   bug. Instead the handicap is applied to the EVIDENCE: aiView drops
+   records out of the public trace and hands the SHORTER trace to the very
+   same notebookFor(). Less input to one reasoner, never a second one.
+
+   WHY THAT IS SAFE, IN ONE PARAGRAPH. Every rule in notebookFor is
+   MONOTONE in the records it is given — a record can only ever add a
+   markNot, a setHeld or a constraint, never retract one — so the fixpoint
+   over a SUBSET of the trace is a SUBSET of the fixpoint over all of it.
+   And every record we keep is a true record, so the conclusions drawn
+   from them are true conclusions. degraded ⊆ truth, always: the weak
+   levels know LESS than the human's notebook, never anything different
+   from it. That is the property that lets the AI accuse on its own view
+   without ever naming a card it has been shown.
+
+   WHAT EACH LEVEL SEES
+     lvl 3  Spettur — literally notebookFor(st, seat). Same object, no
+            copy, no change. If you are reading this to find where lvl3
+            was weakened: nowhere.
+     lvl 2  Surġent — follows its OWN questions completely (it knows what
+            it asked and what it was shown) but does not follow the whole
+            table: it misses a hashed share of the exchanges between other
+            players. Those exchanges are precisely what feed the two hard
+            inferences — "seat k refuted, so k holds one of these three",
+            and "nobody could refute that, so those cards are candidates"
+            — so what Surġent loses is exactly the bookkeeping that
+            separates a good Cluedo player from an average one.
+     lvl 1  Kaporal — misses far more of the table AND loses a share of
+            its own questions and reveals on top, so it re-asks about
+            cards it has already been shown.
+
+   THE COINS WAVER ON PURPOSE. jitter() folds in st.ply, so a level
+   re-flips its attention every turn: it is not permanently blind to
+   record #7, it is a detective whose recall of the evening comes and
+   goes. That is why a weak level's notebook can go backwards, and why it
+   asks the same question twice. It stays perfectly deterministic — same
+   ply, same seat, same table, same coin on every phone.
+
+   WHY THESE NUMBERS AND NOT THE OBVIOUS ONES. The first cut of this
+   function gave lvl2 the DIRECT facts only — own hand plus cards shown to
+   it, and nothing derived from anyone else's refutation at all. Measured,
+   that was not a difficulty setting, it was a lobotomy: Surġent took 59
+   plies to solve a table Spettur solved in 22.6, and won 0.0% of 400
+   four-handed games against three Spetturs. Levels 1 and 2 became
+   indistinguishable at the bottom exactly the way 2 and 3 had been
+   indistinguishable at the top. The gap between "wins a quarter of the
+   table" and "wins a fifth of it" is SMALL, so the dial has to be a
+   share of the evidence, tuned against the numbers — not an all-or-
+   nothing switch on a class of inference.
+   ═══════════════════════════════════════════════════════════════════ */
+const MISS_SALT   = 300;   /* 300..427 — see the salt block above */
+const FORGET_SALT = 440;   /* 440..567 */
+const SALT_SPAN   = 128;
+/* MISS_P   — an exchange between two OTHER seats that never registers.
+   FORGET_P — one of the seat's OWN questions, dropped along with the card
+              it was shown for it. Its own HAND is never forgotten: a
+              detective who cannot read their own cards is not playing
+              badly, they are broken. */
+const MISS_P   = { 1: 0.45, 2: 0.10, 3: 0 };
+const FORGET_P = { 1: 0.30, 2: 0,    3: 0 };
+/* THESE FOUR NUMBERS WERE MEASURED, NOT GUESSED, and they are the whole
+   difficulty dial. Seat 0 at the level under test against three Spetturs,
+   1000+ four-handed games per point, identical seeds across arms; a fair
+   share is 25% and a Spettur in seat 0 takes 29.3% because seat 0 asks
+   first:
+     MISS_P[1]  0.40 → 13.9%   0.45 → 12.3%   0.48 → 11.0%   0.70 → 2.8%
+     MISS_P[2]  0.09 → 24.5%   0.10 → 20.5%   0.16 → 17.5%   0.40 → 10.4%
+   The step between 0.09 and 0.10 is real, not a rounding edge: a table is
+   a chaotic system and one missed refutation re-routes a whole game. It
+   also means a point or two of any of this is sampling noise, so do not
+   re-tune by eye off a 50-game run — re-run the sweep. */
+
+function aiView(st, seat, lvl){
+  lvl = Math.max(1, Math.min(3, lvl | 0 || 3));
+  if (lvl >= 3) return notebookFor(st, seat);         /* Spettur: the truth */
+  const miss = MISS_P[lvl] || 0, forget = FORGET_P[lvl] || 0;
+  const log = st.log2 || [];
+  const kept = [];
+  for (let i = 0; i < log.length; i++){
+    const rec = log[i];
+    /* only 'suggest' records carry deduction; everything else rides along
+       untouched so the trace keeps its shape for any later reader. */
+    if (rec.t !== 'suggest'){ kept.push(rec); continue; }
+    if (rec.seat === seat || rec.by === seat){
+      if (forget && jitter(st, seat, FORGET_SALT + (i % SALT_SPAN)) < forget) continue;
+    } else if (miss && jitter(st, seat, MISS_SALT + (i % SALT_SPAN)) < miss) continue;
+    kept.push(rec);
+  }
+  if (kept.length === log.length) return notebookFor(st, seat);
+  /* the SAME reasoner, given less. A shallow copy so st itself — the state
+     every other phone is replaying — is never touched. */
+  return notebookFor(Object.assign({}, st, { log2: kept }), seat);
+}
 
 /* ── WHAT THE MACHINE WANTS FROM THE BOARD ────────────────────────────
    A suggestion's LOCATION is forced to the room you are standing in, so
@@ -2056,10 +2189,17 @@ function wantsPassage(st, seat, nb, lvl){
 function think(st, seat, lvl){
   if (turn(st) !== seat || st.out[seat]) return null;
   lvl = Math.max(1, Math.min(3, lvl || st.seats[seat].lvl || 2));
-  const nb = notebookFor(st, seat);
+  /* THE ONLY PLACE THE LEVEL TOUCHES THE DEDUCTION. Everything downstream
+     — wantedRooms, chooseDest, pickProbe, candidatesIn, the stab — reads
+     `nb`, so handing them a poorer view is the entire handicap: a weak
+     level walks to rooms it has already been shown, asks about cards it
+     has already been shown, and pins the solution later. notebookFor() is
+     untouched and stays the human notebook's truth. */
+  const nb = aiView(st, seat, lvl);
 
-  /* (1) ACCUSE when certain. lvl3/2 only when all three pinned; lvl1 also
-     when two are pinned and the third has few candidates (a stab).
+  /* (1) ACCUSE when certain — at every level, the instant the view pins
+     all three. That is sound at every level too: aiView never marks a
+     card 'sol' that notebookFor has not already agreed is unheld.
      This runs BEFORE the board machine on purpose: an accusation names a
      place, it does not require STANDING in one, so check() will take it at
      any point in the turn. Making a seat that has already solved the case
@@ -2068,14 +2208,44 @@ function think(st, seat, lvl){
   if (nb.solved){
     return { t:'accuse', s:nb.solution.s, w:nb.solution.w, l:nb.solution.l };
   }
-  if (lvl === 1 && nb.solvedCats === 2){
-    /* the one unsolved category: stab if it is down to 2 candidates and a
-       hashed coin says go (impatient). Build a COMPLETE accusation — the
-       two pinned solution cards plus a chosen candidate for the third. */
+
+  /* (1b) THE STAB — a real gamble, and the character of the weak levels.
+     It used to fire at lvl1 whenever two categories were pinned and the
+     third was down to TWO candidates, on a 50/50 coin: a coin flip on a
+     coin flip, right about half the times it fired. That is not an easy
+     opponent, it is a lottery ticket, and it took 35.0% of a four-handed
+     table against three Spetturs where a fair share is 25%.
+     What is fixed here is the POSITION, not the frequency: it now fires
+     with up to FIVE candidates left in the open category, so the pick is
+     wrong about two times in three, and — because aiView got there first —
+     it only reaches that position much later in the game.
+
+     A NOTE FOR WHOEVER TUNES THIS NEXT, because the obvious move is
+     wrong. The brief said "make it fire LESS often". Measured, that pushes
+     Kaporal the wrong way. Holding the view fixed and sweeping only the
+     coin, over 400 games against three Spetturs:
+        coin 0.00 → 5.8% wins   0.30 → 7.0%   0.50 → 10.3%
+        coin 0.80 → 12.3%       1.00 → 12.8%
+     More stabbing wins MORE. That is not a bug in the stab, it is what a
+     genuinely weak player is: against three perfect reasoners its honest
+     game is worth about 6%, so any one-in-three gamble beats playing it
+     straight. The stab stopped being a lottery win the moment the
+     deduction handicap became real — and turning the coin down from here
+     drops lvl1 out of the bottom of its target band, it does not weaken
+     it. Weaken the VIEW, not the nerve.
+     lvl3 NEVER stabs — Spettur accuses only when it is certain. */
+  if (lvl <= 2 && nb.solvedCats === 2){
     const cat = CATS.find(c => !nb.solution[c]);
-    const cands = candidatesIn(st, seat, nb, cat);
-    if (cands.length >= 1 && cands.length <= 2 && jitter(st, seat, 11) < 0.5){
-      const pick = cands[Math.floor(jitter(st, seat, 12) * cands.length) % cands.length] || cands[0];
+    const cands = cat ? candidatesIn(st, seat, nb, cat) : [];
+    /* jitter() is constant across the roll/move/suggest calls of one
+       seat-turn (same ply, round, seat, hand), so this is ONE decision per
+       turn however many times think() is asked — not three chances. */
+    const go = (lvl === 1)
+      ? (cands.length >= 2 && cands.length <= 5 && jitter(st, seat, 11) < 0.80)
+      : (cands.length === 2 && jitter(st, seat, 600) < 0.08);
+    if (go){
+      const pickSalt = (lvl === 1) ? 12 : 601;
+      const pick = cands[Math.floor(jitter(st, seat, pickSalt) * cands.length) % cands.length] || cands[0];
       /* default each category to the pinned solution card, then override
          the unsolved one with the stab pick — every field is a real card. */
       const acc = {
@@ -2403,8 +2573,9 @@ root.KARTI_MISTERU.engine = {
   sugCards, refuteChoices, refuterOf, validSug, inCase,
   /* deduction + verdict */
   notebookFor, verify, meSeat, verdict, note, candidatesIn,
-  /* the machine */
-  LEVELS, levelOf, think, jitter,
+  /* the machine. aiView is the AI's DEGRADED read of notebookFor and is
+     exported for the harness only — no screen may ever draw from it. */
+  LEVELS, levelOf, think, jitter, aiView,
   /* determinism */
   newSeed,
   /* the wire */

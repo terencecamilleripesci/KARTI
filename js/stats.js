@@ -176,7 +176,12 @@ function logoFor(id){
    (icon on an accent) is the guaranteed base under every card, exactly as
    the chips do, so this grid can never show a broken image. */
 var CAT_ACCENT = {
-  karti:'#8A5CFF', card:'#FFC542', board:'#3DDC84', arena:'#E8452C', party:'#4FA9E8'
+  karti:'#8A5CFF', card:'#FFC542', board:'#3DDC84', arena:'#E8452C', party:'#4FA9E8',
+  /* WORD GAMES got their own shelf because two games asked for one: kelma and
+     il-forka both declare cat:'word' on their own tiles, and filing a letter
+     guessing game under "board & strategy" is the kind of small lie a player
+     notices when they cannot find it. */
+  word:'#D8C79B'
 };
 var CATALOG = [
   { key:'karti', en:'KARTI', mt:'KARTI', icon:'cards', games:[
@@ -207,19 +212,31 @@ var CATALOG = [
        card and the game shelf call it the same thing */
     { id:'kaxxi',     nm:'Dots & Boxes',  mt:'Puntini u Kaxxi', icon:'map',   accent:'#4FA9E8' },
     { id:'ludu',      nm:'Ludu',          mt:'Ludu',          icon:'coin',    accent:'#FF5468' },
-    { id:'serp',      nm:'Is-Serp',       mt:'Is-Serp',       icon:'deck',    accent:'#3DDC84' }
+    { id:'serp',      nm:'Is-Serp',       mt:'Is-Serp',       icon:'deck',    accent:'#3DDC84' },
+    { id:'sqaq',      nm:'Is-Sqaq',       mt:'Is-Sqaq',       icon:'map',     accent:'#FFC542' }
+  ]},
+  { key:'word', en:'Word games', mt:'Logħob tal-kliem', icon:'book', games:[
+    { id:'kelma',     nm:'Kelma',         mt:'Kelma',         icon:'book',    accent:'#D8C79B' },
+    { id:'ilforka',   nm:'Il-Forka',      mt:'Il-Forka',      icon:'book',    accent:'#FFB300' }
   ]},
   { key:'arena', en:'Arena', mt:'Arena', icon:'bomb', games:[
     { id:'bomba',     nm:'Il-Bomba',      mt:'Il-Bomba',      icon:'bomb',    accent:'#E8452C' },
     { id:'tankijiet', nm:'It-Tankijiet',  mt:'It-Tankijiet',  icon:'bomb',    accent:'#4FA9E8' },
-    { id:'gharraq',   nm:'Għarraqhom!',   mt:'Għarraqhom!',   icon:'bomb',    accent:'#4FA9E8' }
+    { id:'gharraq',   nm:'Għarraqhom!',   mt:'Għarraqhom!',   icon:'bomb',    accent:'#4FA9E8' },
+    { id:'ballun',    nm:'Il-Ballun',     mt:'Il-Ballun',     icon:'impact',  accent:'#3DDC84' }
   ]},
   { key:'party', en:'Party', mt:'Party', icon:'users', games:[
     { id:'kiri',      nm:'IL-KIRI',       mt:'IL-KIRI',       icon:'house',   accent:'#FFC542' },
     { id:'tombla',    nm:'Tombla',        mt:'Tombla',        icon:'coin',    accent:'#FFB300' },
     { id:'minhu',     nm:'Min Hu?',       mt:'Min Hu?',       icon:'users',   accent:'#3DDC84' },
     { id:'suspett',   nm:'SUSPETT',       mt:'SUSPETT',       icon:'deck',    accent:'#FF5468' },
-    { id:'spy',       nm:'L-Ispjun',      mt:'L-Ispjun',      icon:'users',   accent:'#8A5CFF' }
+    { id:'spy',       nm:'L-Ispjun',      mt:'L-Ispjun',      icon:'users',   accent:'#8A5CFF' },
+    /* IL-MISTERU was missing from its own grid — the one game in the box with
+       50 hand-authored cases, unfindable here. Filed with the other whodunits
+       (SUSPETT, L-Ispjun) rather than under "board", which is where its shelf
+       tile sits, because a player looking for it is looking for a mystery. */
+    { id:'misteru',   nm:'Il-Misteru',    mt:'Il-Misteru',    icon:'search',  accent:'#8A5CFF' },
+    { id:'aqleb',     nm:'Flip It',       mt:'Aqleb',         icon:'drop',    accent:'#4FA9E8' }
   ]}
 ];
 

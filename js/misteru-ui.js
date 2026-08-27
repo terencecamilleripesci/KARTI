@@ -166,6 +166,7 @@ function startMatch(opts, seed, log){
     st: null, ctx: null,
     timer: 0, dead: false, finished: false, recorded: false,
     net: null, online: null,
+    walkHold: 0,               /* ms the next afterMove() should leave for a walk */
     notes: {},                 /* per-seat hand-marks: notes[card] = '✓'|'✗'|'?' */
     reveal: null               /* a pending "card shown to you" flip */
   };
@@ -1463,13 +1464,34 @@ function movePath(st, seat, to){
 
    Under reduced() there is no walk at all — the token is simply there —
    but the arrival still buzzes, because the MOMENT is what the player is
-   being told about, not the picture of it. */
+   being told about, not the picture of it.
+
+   EVERY SEAT WALKS, NOT JUST YOURS. A machine detective and a detective on
+   another phone take the same route through the same corridors, and at a
+   real table you watch where they went — that is a deduction cue, and a
+   token that teleports throws it away. So aiTurn() and onlineRemote() drive
+   this same walk (never a second animation) with `silent` set, which is the
+   ONE difference that matters: the per-step tick and the arrival thud are
+   the player's own hand being told what the player's own thumb did. Buzzing
+   for somebody else's token is a phone that will not stop shaking. */
 const WALK_MS = 110;
 const LAND_MS = 90;        /* clear of js/sfx.js's 40ms two-buzz merge guard */
 let W = null;              /* the walk in flight, or null */
 /* the squares the LAST walk actually put the token on, kept for the test
    hook so "it animated the real path" is an assertion and not a claim */
 let lastTrace = null, lastAnimated = false;
+/* the last few walks, whoever made them — the test hook reads this to prove
+   an AI's or a remote seat's route was a real path and ended where the
+   engine says that seat stands. Capped: it is a ring, not a log. */
+const walkHist = [];
+/* how long a walk down this path will actually take on screen, 0 when
+   nothing will animate (reduced motion, no board, a path of one square).
+   Read exactly once, by afterMove(), to keep the next bot think from
+   repainting the board out from under a token that is still mid-corridor. */
+function walkMs(path){
+  if (!path || path.length < 2 || reduced() || !UI || !UI.board) return 0;
+  return (path.length - 1) * WALK_MS + LAND_MS;
+}
 function walkXY(p){
   if (!UI || !UI.board || !UI.boardBox) return null;
   const cell = UI.board.querySelector('.ms-cellx[data-pos="' + p + '"]');
@@ -1491,20 +1513,33 @@ function endWalk(quiet){
   try { if (w.tok && w.tok.isConnected) w.tok.style.visibility = ''; } catch(e){}
   try { (w.trail || []).forEach(c => { if (c && c.isConnected) c.classList.remove('trail'); }); } catch(e){}
   /* the arrival is owed either way: if the walk was cut short it never got
-     to the last square, and a move with no buzz at all reads as a dropped tap. */
-  if (!w.landed){ w.landed = true; buzz(landKind(w.path[w.path.length - 1])); }
+     to the last square, and a move with no buzz at all reads as a dropped tap.
+     Owed to the PLAYER, though — a silent walk is somebody else's token and
+     the hand holding this phone is owed nothing for it. */
+  if (!w.landed){ w.landed = true; if (!w.silent) buzz(landKind(w.path[w.path.length - 1])); }
   lastTrace = w.trace.slice();
+  walkHist.push({ seat:w.seat, silent:!!w.silent, animated:!!w.pts, trace:w.trace.slice() });
+  if (walkHist.length > 60) walkHist.shift();
   const fn = w.done; w.done = null;
   if (fn) { try { fn(); } catch(e){} }
 }
-function startWalk(seat, path, done){
+/* `silent` — this token is not the player's own: animate it, buzz for nothing. */
+function startWalk(seat, path, done, silent){
   endWalk();
+  silent = !!silent;
   const finish = () => { if (done) { const f = done; done = null; f(); } };
   const last = path && path.length ? path[path.length - 1] : null;
   /* no path, no board, or the player asked for no motion → place and buzz */
   if (!UI || !UI.board || reduced() || !path || path.length < 2){
     lastTrace = last == null ? [] : [last]; lastAnimated = false;
     if (last == null){ finish(); return; }
+    /* nobody's hand to tell and no picture to draw: the token is already
+       standing where the engine put it, so there is nothing left to do. */
+    if (silent){
+      walkHist.push({ seat, silent:true, animated:false, trace:[last] });
+      if (walkHist.length > 60) walkHist.shift();
+      finish(); return;
+    }
     /* THE ARRIVAL IS DEFERRED BY ONE BEAT, not skipped and not fired inline.
        js/sfx.js merges two buzzes closer together than 40ms so they cannot
        smear, and the tap that caused this landed only a few milliseconds
@@ -1512,15 +1547,23 @@ function startWalk(seat, path, done){
        the most meaningful buzz on this board — would be swallowed whole by
        the press tick, and with the walk animation off there is nothing else
        left to say you got there. 90ms is still instant to a hand. */
-    W = { path:[last], pts:null, ov:null, tok:null, seat, i:0, landed:false,
+    W = { path:[last], pts:null, ov:null, tok:null, seat, i:0, landed:false, silent,
           trail:[], done:finish, tapOff:null, trace:[last], timer:0 };
     W.timer = setTimeout(() => { if (W) W.timer = 0; endWalk(); }, LAND_MS);
     return;
   }
+  /* A SQUARE THAT COULD NOT BE MEASURED IS NOT A REASON TO LOSE A TOKEN.
+     The route was only ever a picture; render() has already stood the token
+     on the engine's square. Drop the picture, keep the position. */
   const pts = path.map(walkXY);
   if (pts.some(p => !p)){
     lastTrace = [last]; lastAnimated = false;
-    W = { path:[last], pts:null, ov:null, tok:null, seat, i:0, landed:false,
+    if (silent){
+      walkHist.push({ seat, silent:true, animated:false, trace:[last] });
+      if (walkHist.length > 60) walkHist.shift();
+      finish(); return;
+    }
+    W = { path:[last], pts:null, ov:null, tok:null, seat, i:0, landed:false, silent,
           trail:[], done:finish, tapOff:null, trace:[last], timer:0 };
     W.timer = setTimeout(() => { if (W) W.timer = 0; endWalk(); }, LAND_MS);
     return;
@@ -1534,7 +1577,7 @@ function startWalk(seat, path, done){
   ov.style.transform = 'translate(' + pts[0].x + 'px,' + pts[0].y + 'px)';
   UI.boardBox.appendChild(ov);
   if (tok) tok.style.visibility = 'hidden';
-  W = { path, pts, ov, tok, seat, i:0, timer:0, landed:false, trail:[], done:finish, tapOff:null,
+  W = { path, pts, ov, tok, seat, i:0, timer:0, landed:false, silent, trail:[], done:finish, tapOff:null,
         trace:[path[0]] };
   /* a tap ANYWHERE finishes the walk — capture phase so it lands before the
      board's own click handler, and one-shot so it can never outlive the walk. */
@@ -1562,8 +1605,8 @@ function startWalk(seat, path, done){
       const cur = W; if (!cur || cur.ov !== ov) return;
       cur.timer = 0;
       cur.trace.push(p);
-      if (cur.i >= cur.path.length - 1){ cur.landed = true; buzz(landKind(p)); endWalk(); return; }
-      buzz('tick');
+      if (cur.i >= cur.path.length - 1){ cur.landed = true; if (!cur.silent) buzz(landKind(p)); endWalk(); return; }
+      if (!cur.silent) buzz('tick');
       step();
     }, WALK_MS);
   }
@@ -1999,6 +2042,15 @@ function openRules(){
    ═══════════════════════════════════════════════════════════════════ */
 function afterMove(){
   if (!M || M.dead) return;
+  /* A WALK THIS PHONE IS ABOUT TO DRAW, IN MILLISECONDS — set by whoever is
+     about to call startWalk() for a seat that is not the local player, and
+     consumed HERE, exactly once, so it can never leak into a later and
+     unrelated afterMove(). It only ever pushes out THIS phone's own bot
+     think-timer, so a token is not repainted out from under itself
+     mid-corridor; nothing waits on it, no other phone is delayed by it, and
+     it is capped so a long route cannot stall the table. */
+  const hold = Math.max(0, Math.min(M.walkHold | 0, 900));
+  M.walkHold = 0;
   if (E.over(M.st)){ finish(); return; }
   if (M.reveal) return;                       /* wait for the reveal overlay */
   const t = E.turn(M.st);
@@ -2007,7 +2059,7 @@ function afterMove(){
   if (o === 'ai'){
     if (M.online && M.net && M.net.host === false) return;    /* only host drives bots online */
     stopThinking();
-    M.timer = setTimeout(() => { M.timer = 0; aiTurn(t); }, reduced() ? 120 : 620);
+    M.timer = setTimeout(() => { M.timer = 0; aiTurn(t); }, reduced() ? 120 : Math.max(620, hold + 120));
     render();
     return;
   }
@@ -2045,13 +2097,25 @@ function aiTurn(seat){
     hostReferee(seat, { kind: mv.t === 'suggest' ? 'sug' : 'acc', s:mv.s, w:mv.w, l:mv.l });
     return;
   }
+  /* THE ROUTE IS READ BEFORE THE MOVE APPLIES — exactly as boardTap does it,
+     and for the same reason: afterwards st.pos is the destination and st.roll
+     is zero, so the path is unrecoverable. Reconstructing it later is not an
+     option, so it is captured here or not at all. */
+  const path = (mv.t === 'move' && mv.to != null) ? movePath(M.st, seat, mv.to) : null;
   const res = doMove(seat, mv, 'auto');
   if (!res.ok){ doMove(seat, { t:'pass' }, 'auto'); }
   if (mv.t === 'suggest') cue('card.throw', { gain:0.6 });
   else if (mv.t === 'accuse') cue('duel.boss', { gain:0.8 }, true);
   render();
   if (E.over(M.st)){ finish(); return; }
+  /* the machine's token walks the corridor it actually took, and buzzes for
+     nothing: it is not this player's move. Started AFTER afterMove(), because
+     afterMove() repaints and a repaint ends any walk in flight — the hold
+     above is what stops its next think-timer landing mid-walk. */
+  const walk = (res.ok && path && path[path.length - 1] === mv.to) ? path : null;
+  M.walkHold = walkMs(walk);
   afterMove();
+  if (walk) startWalk(seat, walk, null, true);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2542,11 +2606,23 @@ function onlineRemote(seat, wire){
      applies exactly what arrived. cd was hidden on the public wire, so mv.card
      is absent here — the shown card reaches the suggester only via 'ms-show'. */
   mv.seat = g;
+  /* the route BEFORE apply, for the same reason boardTap reads it before its
+     own move: st.pos and st.roll are rewritten by it and the path is gone. */
+  const path = (mv.t === 'move' && mv.to != null) ? movePath(M.st, g, mv.to) : null;
   const r = doMove(g, mv, 'net');
   if (!r.ok) return { ok:false, why:String(r.err || 'refused') };
   render();
   if (E.over(M.st)){ finish(); return null; }
+  /* THE OTHER PHONE'S TOKEN WALKS ON THIS ONE TOO. Purely decoration over a
+     state change that has already landed: the wire is never waited on, the
+     next message repaints and collapses this walk to the newer one, and the
+     buzz stays off because this hand did not make the move. `mine` is belt
+     and braces — an echo of my own move would be refused by doMove above. */
+  const mine = (g === viewSeat());
+  const walk = (!mine && path && path[path.length - 1] === mv.to) ? path : null;
+  M.walkHold = walkMs(walk);
   afterMove();
+  if (walk) startWalk(g, walk, null, true);
   return null;
 }
 
@@ -2795,6 +2871,10 @@ if (/[?&]misterutest\b/.test(location.search || '')){
     get walkTrace(){ return W ? W.trace.slice() : (lastTrace || []); },
     get walkAnimated(){ return lastAnimated; },
     get walking(){ return !!W; },
+    /* every walk, whoever made it: {seat, silent, animated, trace} */
+    get walkLog(){ return walkHist.map(w => ({ seat:w.seat, silent:w.silent, animated:w.animated, trace:w.trace.slice() })); },
+    clearWalkLog: () => { walkHist.length = 0; },
+    walkMs,
     onlineStart, onlinePrivate, onlineRemote, onlineWhisper, buildState,
     hostReferee, sendMoveOnline, encReq, parseReq, hostResolveRefuter, hostBroadcast,
     get M(){ return M; }, get UI(){ return UI; },

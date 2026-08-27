@@ -282,3 +282,37 @@ board asserted VISIBLE by rect + hit-test + screenshot, and a mixed-build
 run that shows exactly what a stale phone does with an action it has never
 heard of (refuses it, bails, both tables stop clean with "nobody lost
 anything" — no drift, no fake result).
+
+## IL-MISTERU — making OTHER seats' tokens walk (AI + remote)
+
+The local walk shipped first; AI and remote seats still teleported. Two
+things bite when you extend it.
+
+**`render()` ends any walk in flight** ("a repaint rewrites every token tray").
+`aiTurn()` and `onlineRemote()` both do `render(); afterMove();` — and
+`afterMove()` renders AGAIN. So a walk started before `afterMove()` is killed
+on the same tick and the token teleports anyway. Start it AFTER `afterMove()`.
+→ but then `afterMove()` has already scheduled the next bot think (620ms) and
+that think's own `render()` lands mid-walk. Hence `M.walkHold`: the caller
+writes the walk's duration, `afterMove()` reads and clears it exactly once and
+uses `Math.max(620, hold + 120)`. Capped at 900ms — it only ever delays THIS
+phone's bot timer, never the table.
+
+**The path must be captured BEFORE `doMove`.** `movePath()` reads `st.pos[seat]`
+as the origin and `st.roll` as the budget; `apply()` sets pos to the destination
+and roll to 0, so after the move the route is unrecoverable. There is nothing to
+reconstruct — capture it or lose it. (`passage` is deliberately NOT walked: it
+is a wall you step through, and the engine gives it no route.)
+
+**Haptics are for the player only.** `startWalk(seat, path, done, silent)` — the
+per-step `tick` and the arrival `thud` are gated on `!silent`, and so is the
+cut-short arrival buzz in `endWalk()`. Measured, not asserted: patch
+`KARTI_SFX.haptic` in the page and count by kind. A clean run reads
+`tick + thud === the local seat's own walk steps`, exactly, with AI/remote steps
+adding zero. Two clients: ALFA 35 tick/thud for 35 own steps while drawing 27
+remote steps; BRAVO 27 for 27 while drawing 35.
+
+Harnesses in the session scratchpad: `walk.js` (solo, `--reduced`, `--small`),
+`walk_online.js` (two real clients on the live relay), `walkshot.js` (films one
+AI walk frame by frame — the disc's label and `--sc` identify the seat, and its
+real token is `visibility:hidden` underneath while it steps).
