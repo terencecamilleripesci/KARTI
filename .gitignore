@@ -9,6 +9,15 @@ __pycache__/
 
 # temporary headless UI test pages (see webclients/CLAUDE.md)
 _*.html
+
+# timestamped copies a script or an editor left behind. Three of these
+# (index.html + two of minhu.js) were committed by accident and shipped
+# ~289 KB of dead weight to every phone before anyone noticed. They do not
+# end in .js, so the loader never ran them and nothing ever referenced
+# them — they were pure download. git history is the backup; the working
+# tree is not.
+*.bak_*
+*.bak
 art/*.png
 art/raw/
 art/prompts.jsonl
