@@ -7,6 +7,57 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-08-27 — MISTERU: a 7x8 grid has far less room for six rooms than it looks
+Giving every case its own map. Three things cost real time:
+
+**Rejection-sampling six non-touching rooms into 7x8 fails ~99% of the time.**
+Two independent greedy packers (place a room, retry on clash) produced ZERO
+valid boards in thousands of attempts, and a backtracking one took 0.7s per
+case to produce nothing. The grid is much tighter than it reads: six rooms of
+at least 2x2, none sharing a wall, is only 8119 packings in total, and only
+about 29% of those survive validation.
+→ **Enumerate the space before tuning a sampler against it.** A depth-first
+walk of every packing, with each rectangle carrying two bitmasks (its cells,
+and its cells plus their orthogonal ring — one AND catches overlap AND
+touching), costs ~80ms once. `boardFor(caseId)` now hashes into that
+catalogue. Deterministic, always valid, no search that can fail.
+
+**Forbidding CORNER contact as well as wall contact collapses the grid to one
+layout.** Inflate each room by one on two sides and the packing bound becomes
+floor(9/3)*floor(8/3) = 6 — exactly six — which forces three tiers of 2-row
+rooms at rows 0-1 / 3-4 / 6-7 and nothing else. Diagonal contact has to be
+ALLOWED (you still cannot walk between them) or there is no variety to have.
+
+**"Longest room-to-room walk <= 2.5x the shortest" is not achievable by any
+layout on this grid, including the one already shipping.** Exhaustively, the
+best ratio over all 4075 structurally valid packings is 3.50 — and the fixed
+board this game has always used scores exactly 3.50 (2..7). The shortest walk
+is 2 on essentially every board (out of a door, straight into the room
+opposite), so the rule as written rejects everything.
+→ Measured what the rule was actually protecting against instead: the MEAN
+distance from each room to the other five, worst room vs best room. The fixed
+board scores 1.57 there; the generator caps it at 2.0 and keeps the raw
+ratio under 4.0 on top. **When a stated threshold rejects the thing you
+already ship, measure the whole space and say so — do not quietly widen it.**
+
+**A per-destination AI salt of `40 + position` was one board size away from
+colliding.** POS_MAX was 25 so the range was 40..65 and salt 70 (the lvl1
+"misses the secret passage" coin) was clear. Per-case boards take POS_MAX to
+35, i.e. 40..75, and square 30 would have become the same coin as the passage
+decision. Moved to `DEST_SALT + position` at 200. **Any salt derived from a
+board coordinate has to be re-checked when the board stops being fixed.**
+
+And the one the wire pass warned about, now closed: `posOK`/`POS_MAX` were a
+load-time const and a no-arg function. They are per board now —
+`posOK(board, p)`, and `encWire`/`decWire` resolve the board from the
+`caseId` they already receive. 49 of the 50 cases have a POS_MAX above the
+old 25, so a load-time bound would have silently refused legal destinations
+on almost every case online. Proof in the session scratchpad
+(`maps_prove.js`, `ms_online_maps.js`, `ms_bot_online.js`): a -2..258 sweep
+through `decWire` per case in node AND in both live browsers, and a real
+two-client match plus a machine chair on boards the old bound would have
+frozen.
+
 ## 2026-08-26 — KELMA: delaying the hotseat handover leaked the next rack
 Adding a ~1.1s play-theatre before the pass-the-phone handover sheet meant
 the turn had ALREADY advanced when the post-play paint ran — so the NEXT
@@ -190,3 +241,44 @@ Proof for any change in this area lives in the session scratchpad
 (`prove.js`): it counts `counted` awards via `KARTI_XP.onAward`, measures
 the wallet, and plays a real erbgha match against the machine so the new
 line is shown to be REACHED and not merely correct on paper.
+
+## 2026-08-27 — MISTERU: "append to WIRE_FIELDS" is not enough if the UI concats after it
+Putting the board on the wire meant adding `to` to the engine's
+`WIRE_FIELDS`. Appended at the end, exactly as the rule says. It still
+broke every older phone, and not on the new action — on the OLD ones.
+Because the list mp.js actually walks is the LOBBY's:
+`wire:{fields: E.WIRE_FIELDS.concat(['sg'])}`. Appending inside
+`E.WIRE_FIELDS` shoves `sg` from index 6 to 7, and index IS bit, so an
+older build reading our mask decoded `sug`/`acc`/`pass` with the wrong seat
+or none — i.e. it broke the four moves that already worked. Proved it by
+loading `git show HEAD:js/misteru.js` next to the new one and running both
+through copies of mp.js's toWire/fromWire.
+→ **The wire order is the LOBBY's list, not the engine's.** Misteru now
+declares one `WIRE_ORDER = ['s','w','l','by','cd','r','sg','to']` in
+misteru-ui.js and both `hostBroadcast` and `lobby.wire.fields` read it, so
+`to` really is last. If your game concatenates anything onto the engine's
+field list, append there or you are inserting.
+Also: do NOT write the board's top position (25) into the codec. Validate
+with the engine's own `posOK`/`POS_MAX` — the map is about to become
+per-case and a literal bound would start refusing legal squares silently.
+
+**The relay echoes a whisper back to its sender** (`karti_server.chat()`:
+`seats.add(conn.slot)`, "the sender's own receipt"). So when the host
+whispered a refuted card privately to a remote suggester on `ms-show`, that
+card came straight back to the HOST, which flip-revealed it to itself,
+ticked its own notebook with a card it was never shown, and — `canAct()` is
+false while a reveal is pending — sat behind a "Got it" it had to tap
+before it could move again. The existing `if (M.reveal) return` guard never
+fired, because on the host there is no reveal open. Data-dependent (it needs
+the host to have a refuted suggestion of its own in the log), which is how it
+survived. Fixed by refusing `ms-show` on the host and from anyone but the
+referee — which also closes a forged reveal, since that channel is open to
+every seat at the table.
+→ **Any private channel needs a sender check.** The echo will find you.
+
+Two-client proof in the session scratchpad (`ms_online.js`, `ms_three.js`,
+`ms_mixed.js`, `ms_small.js`): real rooms on the live relay, the NON-HOST's
+board asserted VISIBLE by rect + hit-test + screenshot, and a mixed-build
+run that shows exactly what a stale phone does with an action it has never
+heard of (refuses it, bails, both tables stop clean with "nobody lost
+anything" — no drift, no fake result).

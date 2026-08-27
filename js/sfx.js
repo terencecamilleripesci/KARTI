@@ -1558,6 +1558,75 @@
     };
   }
 
+  /* ═══════════════════════════════════════════════════════════════════════
+     HAPTICS — the other half of "something just happened"
+     ───────────────────────────────────────────────────────────────────────
+     WHY THIS LIVES IN THE SOUND FILE. A buzz and a click are the same thing
+     wearing different clothes: feedback fired at a moment, wanted by the same
+     player, refused by the same player, and obliged to fail in exactly the
+     same silent way. Giving haptics their own module would mean a second
+     prefs read, a second settings row, a second loader entry and a second
+     precache line — four places to forget. So this file's ownership widens
+     from "./audio/ and nothing else" to "./audio/ and the vibration motor".
+
+     EVERY PATH IS A NO-OP ON FAILURE, exactly like play(). A desktop with no
+     motor, a browser that refuses without a gesture, an iPhone (which has
+     never shipped navigator.vibrate) — all of them take the same road: do
+     nothing, once, quietly. Nothing in here can throw, and nothing in here
+     can delay the tap that caused it.
+
+     WHY NOT GATE ON prefers-reduced-motion. That setting is about things
+     MOVING on screen making people ill. A buzz in the hand is not motion and
+     silently killing haptics for someone who dislikes animation would be a
+     guess about them. Haptics get their own switch instead, defaulting on,
+     and the player who wants quiet hands turns it off.
+
+     PATTERNS, not durations, at the call site. A game asks for the MEANING
+     ('thud' because a token landed) and this file decides what that feels
+     like, so the whole app feels like one object and a retune is one edit.  */
+  var VIB = {
+    tick:   10,                    /* smallest confirmable nudge: a tap landed */
+    tap:    18,                    /* a deliberate choice was taken            */
+    thud:   32,                    /* something arrived somewhere: a token     */
+    roll:   [14, 40, 22],          /* dice tumbling and settling               */
+    double: [12, 55, 12],          /* two beats: a card was shown to you       */
+    no:     [40, 45, 40],          /* refused — reads as a head-shake          */
+    win:    [26, 70, 26, 70, 70]   /* the only long one, and it ends a game    */
+  };
+  var HAP_GAP = 40;    /* two buzzes closer than this merge into a smear, so
+                          the second is dropped rather than queued            */
+  var lastHap = 0;
+  var hapticsOverride = null;
+
+  function canHaptic(){
+    try { return !!(global.navigator && typeof global.navigator.vibrate === 'function'); }
+    catch (e) { return false; }
+  }
+  /* karti_prefs.haptics, same shape and same default-true as .sound */
+  function hapticsOn(){
+    if (hapticsOverride !== null) return hapticsOverride;
+    var p = prefs();
+    return typeof p.haptics === 'boolean' ? p.haptics : true;
+  }
+  function setHaptics(on){ hapticsOverride = !!on; prefsCache = null; }
+
+  /**
+   * haptic(kind) — buzz for a MOMENT, by name. Unknown kinds are ignored
+   * rather than guessed at, so a typo is silent instead of surprising.
+   * Returns true only if a pattern was actually handed to the motor.
+   */
+  function haptic(kind){
+    try {
+      if (!canHaptic() || !hapticsOn()) return false;
+      var pat = VIB[kind];
+      if (pat == null) return false;
+      var now = Date.now();
+      if (now - lastHap < HAP_GAP) return false;
+      lastHap = now;
+      return global.navigator.vibrate(pat) !== false;
+    } catch (e) { return false; }
+  }
+
   global.KARTI_SFX = {
     play: play, rarity: rarity, twice: twice, run: run, duelEvent: duelEvent,
     loop: loop, stopLoop: stopLoop, stopAll: stopAll,
@@ -1575,6 +1644,10 @@
     boardEnd: boardEnd, boardIllegal: boardIllegal, takeback: takeback,
     /* ── second pass: SKARTA, one dispatcher for both seats ── */
     skarta: skarta,
+    /* ── third pass: the phone in the hand ── */
+    haptic: haptic, canHaptic: canHaptic,
+    setHaptics: setHaptics, hapticsOn: hapticsOn,
+    hapticPatterns: function(){ return JSON.parse(JSON.stringify(VIB)); },
     ids: function(){ return Object.keys(REG); },
     aliases: function(){ return JSON.parse(JSON.stringify(ALIAS)); },
     files: function(){ var o = {}; for (var k in REG) o[k] = BASE + REG[k].f; return o; },

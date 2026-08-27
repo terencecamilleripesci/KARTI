@@ -13,17 +13,21 @@
    bakery. 16 suspects, ~12 weapons, ~12 locations, and 50 hand-authored
    CASES, each a 6/6/6 scenario with its own title, victim and story.
 
-   THE GAME (streamlined, boardless, phone-first)
+   THE GAME (a board you walk, phone-first)
      · The SOLUTION is 1 SUSPECT + 1 WEAPON + 1 LOCATION, chosen secretly
        at the deal from the current case's sets and set ASIDE (nobody's
        hand). The other 15 cards (5 suspects + 5 weapons + 5 locations)
        are shuffled and dealt round-robin to the 2..6 players.
-     · A TURN: the active player makes a SUGGESTION — a (suspect, weapon,
-       location) triple from the case sets. Going CLOCKWISE from the
-       suggester, the FIRST player who holds ANY one of the three cards
-       must privately REVEAL ONE of them to the suggester. Only the
-       suggester learns WHICH card; everyone sees THAT a card was shown and
-       BY WHOM. This is the whole information engine — no board movement.
+     · A TURN: ROLL the die, MOVE up to that many squares, then SUGGEST or
+       PASS. A SUGGESTION is a (suspect, weapon, location) triple from the
+       case sets and its LOCATION must be the room the suggester is
+       STANDING IN — that one rule is what makes the board matter at all:
+       to ask a question about a room you have to walk to it, and everyone
+       watching learns something from where you chose to walk. Going
+       CLOCKWISE from the suggester, the FIRST player who holds ANY one of
+       the three cards must privately REVEAL ONE of them to the suggester.
+       Only the suggester learns WHICH card; everyone sees THAT a card was
+       shown and BY WHOM. That is the whole information engine.
      · Optionally on your turn you make ONE ACCUSATION (suspect+weapon+
        location). Checked vs the hidden solution: RIGHT → you WIN and the
        solution is revealed; WRONG → you are OUT (you keep refuting others'
@@ -31,6 +35,36 @@
      · The game ENDS when someone accuses correctly, or all-but-one players
        are OUT (the last one standing wins), or a safety TURN-CAP is hit
        (then players rank by notebook progress / cards deduced).
+
+   ── EVERY CASE HAS ITS OWN BOARD ─────────────────────────────────────
+     7 columns x 8 rows, six rooms and one connected street, and that is
+     ALL that is fixed. The six rectangles, the corridor, the doors and the
+     two secret passages are drawn per case by boardFor(caseId) — a pure,
+     memoised function of the case id and nothing else (no Math.random, no
+     clock, not st.rs), because two phones on the same case must build the
+     byte-identical map or every seat is standing somewhere else. Room SLOT
+     k still holds theCase(st).l[k]; what changed is where slot k IS.
+
+     A position is ONE SMALL INTEGER per seat, 0..board.POS_MAX, which fits
+     a byte on purpose so it can ride the wire without inventing a field
+     type: 0..5 is "inside room slot k", 6..5+C is CORR[p-6], that board's
+     frozen row-major list of corridor cells. C is 14..30, so POS_MAX never
+     passes 35. THE BOUND IS PER BOARD — posOK takes it — and the wire
+     codec resolves the board from the caseId it is already given. A
+     load-time bound would silently refuse legal squares on the roomier
+     cases. Rooms hold any number of detectives; a corridor square holds
+     exactly one, and an occupied corridor square can be neither entered
+     nor walked THROUGH — the only way players obstruct one another, and
+     why reachable() has to be a search and not arithmetic.
+
+     Doors are DERIVED, never hand-listed: a room's doors are the corridor
+     cells orthogonally touching its rectangle. A hand-written door list is
+     how you end up with a "door" that is not a corridor square at all
+     after somebody nudges the geometry by one row. The two secret passages
+     link the two FURTHEST-APART disjoint pairs of rooms on that board,
+     which is what makes one worth walking; the remaining two rooms get
+     none, because a board where every room is one hop from every other is
+     a board where the dice stop mattering.
 
    ── THE SOLUTION + THE HANDS ARE HIDDEN. READ THIS BEFORE CHANGING IT. ─
      Same problem poker/minhu have: a shared seed both phones derive from
@@ -88,17 +122,36 @@
        of cowards who never accuse cannot play forever; the winner is then
        whoever has deduced the most (fewest unknown solution-cards on their
        notebook, tie broken by fewest cards unseen, then by seat order).
-     TERMINATION: every turn either advances the turn pointer (a suggestion/
-     pass) or reduces the count of live players (a wrong accusation) or ends
-     the game (a right accusation). The round counter increases every full
-     lap and MAX_ROUNDS caps it. So the number of turns is bounded by
-     MAX_ROUNDS * SEATS + (wrong accusations ≤ SEATS). QED.
+     TERMINATION: movement broke the old one-line proof and this is the
+     repaired one. `roll`, `move` and `passage` do NOT advance the turn, so
+     "every move advances the turn pointer" is simply false now. What holds
+     it up instead is two latches, and they are the reason those two fields
+     exist at all:
+       · `st.roll` is non-zero only between a roll and the move it pays
+         for, and `roll` is legal only while `st.roll === 0 && !st.moved`
+         → at most ONE roll per seat-turn.
+       · `st.moved` latches true on the first `move`/`passage` and is
+         cleared ONLY by advance() → at most ONE of those per seat-turn.
+     So a seat-turn is at most two non-advancing moves plus the one that
+     ends it. The turn still advances only on a suggestion, a pass, or a
+     wrong accusation; a wrong accusation also reduces the live count and a
+     right one ends the game outright. And legal() ALWAYS offers `pass` on
+     your turn — in particular once `st.moved` is true — so a seat that has
+     rolled, moved, and finds itself standing in a corridor with nothing to
+     suggest can never sit there and stall the table. The round counter
+     increases every full lap and MAX_ROUNDS caps it. So the total number
+     of moves is bounded by 3 * MAX_ROUNDS * SEATS + (wrong accusations ≤
+     SEATS). QED, and the harness re-proves it over 200 seeded games.
 
    DETERMINISM
-     st.rs is the entire RNG. The AI is a pure function of the state (its
-     "randomness" is a hash of the position, never a clock, never
-     Math.random), so every phone replays every move to the identical
-     table. The one Math.random is newSeed() for a brand-new local match.
+     st.rs is the entire RNG. The DIE is rnd(st) like everything else and
+     it is thrown inside apply(), never inside legal() or the UI — a die
+     rolled anywhere else would give each phone a different number for the
+     same log entry and the table would fork on move one. The AI is a pure
+     function of the state (its "randomness" is a hash of the position,
+     never a clock, never Math.random), so every phone replays every move
+     to the identical table. The one Math.random is newSeed() for a
+     brand-new local match.
    ═══════════════════════════════════════════════════════════════════ */
 'use strict';
 
@@ -724,11 +777,514 @@ const dealSourceOf = st => DEAL[st.deal] || DEAL.seed;
 const MIN_SEATS = 2, MAX_SEATS = 6;
 const MAX_ROUNDS = 40;      /* safety turn-cap: full laps before a forced end */
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE BOARD — 7 x 8, six rooms, AND A DIFFERENT LAYOUT FOR EVERY CASE.
+
+   It used to be one fixed map with fifty sets of labels. It is now
+   boardFor(caseId): a PURE function of the case id — no Math.random, no
+   clock, no st.rs — memoised, so a board is built once and reused. Two
+   phones on the same case must build the byte-identical map or every seat
+   on the table is standing somewhere else; that is the whole reason this
+   is a function of the case id and of nothing else.
+
+   HOW IT DRAWS ONE. Not by hand and not by rejection-sampling blind:
+
+     1. PLACES — every axis-aligned rectangle of an allowed room shape at
+        every position on the grid, each carrying two bitmasks: the cells
+        it occupies, and those cells PLUS their orthogonal ring ("claim").
+        Two rooms are legal together exactly when neither one's cells meet
+        the other's claim — one test that catches overlap AND touching.
+     2. CATALOGUE — every set of six mutually-legal rectangles whose total
+        area leaves CORR_MIN..CORR_MAX corridor squares. There are 8119 of
+        them; the search is a depth-first walk in canonical order and it
+        costs about a tenth of a second, once, the first time a board is
+        asked for. Built lazily for that reason.
+     3. THE DRAW — the catalogue is bucketed by (row signature, corridor
+        count), and boardFor picks a bucket by a hashed weighted draw and
+        then a member of it. Without that stratification 73% of the fifty
+        cases come out on the SAME tidy three-tier arrangement, because
+        that is what most of the catalogue looks like; with it, about a
+        quarter do. Strata are weighted by size^0.6 — enough to favour the
+        roomy buckets so two cases rarely collide, not so much that the
+        rare shapes never appear.
+     4. VALIDATE, then redraw. A drawn layout is only kept if its corridor
+        is one connected component, every room has a door, every room can
+        be walked to from every other, no room is a single door at the end
+        of a dead end, and no room is a trek (see FAIR_ROOM below). Roughly
+        29% of the catalogue survives, so the draw is repeated — always
+        deterministically, always off the same case id — until one does.
+     5. If a case id somehow cannot produce a valid board inside the bound,
+        it falls back to LEGACY_ROOMS, the fixed map this game shipped
+        with, and sets board.fallback so a test can catch it.
+
+   FAIRNESS, AND A NUMBER THAT COULD NOT BE MET. The brief asked that the
+   longest room-to-room walk be no more than ~2.5x the shortest. On a 7x8
+   grid that is not achievable by ANY layout: exhaustively, the best ratio
+   among all 4075 structurally valid six-room packings is 3.50 — which is
+   exactly what the fixed board this game has always used scores (2..7).
+   The shortest room-to-room walk is 2 on essentially every board (out of
+   a door and straight into the room opposite), so the rule as written
+   would have rejected the board we already ship. What it was actually
+   protecting against — "one room being a trek" — is measured here as the
+   MEAN distance from each room to the other five: FAIR_ROOM caps the
+   worst room's mean at 2.0x the best room's (the fixed board scores 1.57),
+   and FAIR_PAIR keeps the raw longest/shortest at 4.0x on top of it.
+   ═══════════════════════════════════════════════════════════════════ */
+const BOARD_W = 7, BOARD_H = 8;
+const STEPS = Object.freeze([[-1, 0], [1, 0], [0, -1], [0, 1]]);
+
+/* corridor squares: at least this many for a d6 to make sense, at most
+   this many so 5 + C stays inside a byte for the wire. */
+const CORR_MIN = 14, CORR_MAX = 30;
+const AREA_MIN = BOARD_W * BOARD_H - CORR_MAX;   /* 26 */
+const AREA_MAX = BOARD_W * BOARD_H - CORR_MIN;   /* 42 */
+/* the room shapes worth drawing. Every one is at least 2x2 as the brief
+   asks; the taller/wider ones exist so some cases get a hall and not six
+   identical boxes. Anything bigger than 3x3 practically never survives
+   validation on a grid this size, so it is not offered. */
+const ROOM_SHAPES = Object.freeze([[2, 2], [2, 3], [3, 2], [2, 4], [4, 2], [3, 3]]);
+/* fairness ceilings — see the note above for why these two and not 2.5 */
+const FAIR_ROOM = 2.0, FAIR_PAIR = 4.0;
+/* how hard the draw leans toward the crowded strata (see step 3) */
+const STRATUM_BIAS = 0.6;
+const BUCKET_TRIES = 16, MAX_BUCKETS = 24, GLOBAL_TRIES = 400;
+
+/* the fixed map IL-MISTERU shipped with — now only the fallback, and the
+   thing the fairness numbers above are calibrated against. */
+const LEGACY_ROOMS = Object.freeze([
+  Object.freeze({ r0:0, r1:1, c0:0, c1:2 }), Object.freeze({ r0:0, r1:1, c0:4, c1:6 }),
+  Object.freeze({ r0:3, r1:4, c0:0, c1:2 }), Object.freeze({ r0:3, r1:4, c0:4, c1:6 }),
+  Object.freeze({ r0:6, r1:7, c0:0, c1:2 }), Object.freeze({ r0:6, r1:7, c0:4, c1:6 })
+]);
+
+/* ── PLACES — every candidate rectangle, with its two bitmasks ────────
+   56 cells needs two 32-bit halves; `lo/hi` are the cells the room fills,
+   `clo/chi` those cells plus every orthogonally adjacent cell. Rooms a
+   and b may coexist iff (a.lo & b.clo) | (a.hi & b.chi) is zero — one
+   test for "does not overlap AND does not share a wall". Corner-to-corner
+   contact is deliberately allowed: you still cannot walk between them,
+   and forbidding it collapses the grid to a single possible layout. */
+const PLACES = Object.freeze((() => {
+  const out = [];
+  ROOM_SHAPES.forEach(sh => {
+    const h = sh[0], w = sh[1];
+    for (let r = 0; r + h <= BOARD_H; r++)
+      for (let c = 0; c + w <= BOARD_W; c++){
+        let lo = 0, hi = 0, clo = 0, chi = 0;
+        const mark = (rr, cc, own) => {
+          const i = rr * BOARD_W + cc;
+          if (i < 32){ if (own) lo |= (1 << i); clo |= (1 << i); }
+          else { if (own) hi |= (1 << (i - 32)); chi |= (1 << (i - 32)); }
+        };
+        for (let rr = r; rr < r + h; rr++)
+          for (let cc = c; cc < c + w; cc++){
+            mark(rr, cc, true);
+            for (let s = 0; s < STEPS.length; s++){
+              const a = rr + STEPS[s][0], b = cc + STEPS[s][1];
+              if (a >= 0 && b >= 0 && a < BOARD_H && b < BOARD_W) mark(a, b, false);
+            }
+          }
+        out.push(Object.freeze({ r0:r, r1:r + h - 1, c0:c, c1:c + w - 1, area:h * w, lo, hi, clo, chi }));
+      }
+  });
+  /* canonical order (top-left, then size) so the catalogue below is built
+     in the same order on every device and every build. */
+  out.sort((a, b) => (a.r0 * BOARD_W + a.c0) - (b.r0 * BOARD_W + b.c0) || (a.r1 - b.r1) || (a.c1 - b.c1));
+  return out;
+})());
+
+/* ── THE CATALOGUE — built once, lazily, on the first board asked for ─ */
+let CAT = null, CAT_KEYS = null, CAT_BUCKET = null, CAT_WEIGHT = null;
+function catalogue(){
+  if (CAT) return CAT;
+  const cat = [], bucket = {}, keys = [];
+  const cur = [];
+  (function walk(start, area, blo, bhi){
+    if (cur.length === 6){
+      if (area < AREA_MIN || area > AREA_MAX) return;
+      const at = cat.length;
+      cat.push(cur.slice());
+      /* the stratum: which rows the six rooms occupy, and how much street
+         is left. Those two are what a player actually SEES differ. */
+      const rows = cur.map(i => PLACES[i].r0 + '-' + PLACES[i].r1).sort().join('|');
+      const key = rows + '@' + (BOARD_W * BOARD_H - area);
+      if (!bucket[key]){ bucket[key] = []; keys.push(key); }
+      bucket[key].push(at);
+      return;
+    }
+    const need = 6 - cur.length;
+    if (area + need * 4 > AREA_MAX) return;
+    const cap = AREA_MAX - (need - 1) * 4 - area;
+    for (let i = start; i < PLACES.length; i++){
+      const m = PLACES[i];
+      if (m.area > cap) continue;
+      if ((m.lo & blo) || (m.hi & bhi)) continue;
+      cur.push(i);
+      walk(i + 1, area + m.area, blo | m.clo, bhi | m.chi);
+      cur.pop();
+    }
+  })(0, 0, 0, 0);
+  CAT = cat; CAT_BUCKET = bucket; CAT_KEYS = keys;
+  CAT_WEIGHT = keys.map(k => Math.pow(bucket[k].length, STRATUM_BIAS));
+  return CAT;
+}
+
+/* ── DERIVING A BOARD FROM SIX RECTANGLES ─────────────────────────────
+   Everything below this line — the corridor list, the doors, the movement
+   graph, the position encoding, the passages — is DERIVED from the six
+   rectangles, exactly as it always was. The only thing that changed is
+   that the six rectangles are now per case instead of typed out once. */
+function makeBoard(caseId, rooms, fallback){
+  const ROOMS = Object.freeze(rooms.map((m, k) =>
+    Object.freeze({ slot:k, r0:m.r0, r1:m.r1, c0:m.c0, c1:m.c1 })));
+  const roomAtRC = (r, c) => {
+    for (let k = 0; k < ROOMS.length; k++){
+      const m = ROOMS[k];
+      if (r >= m.r0 && r <= m.r1 && c >= m.c0 && c <= m.c1) return k;
+    }
+    return -1;
+  };
+  /* CORR — every cell that is not inside a room, in ROW-MAJOR order. The
+     order is part of the wire contract: a corridor square travels as its
+     INDEX here, so re-ordering this list silently teleports every seat on
+     every other client. */
+  const CORR = Object.freeze((() => {
+    const out = [];
+    for (let r = 0; r < BOARD_H; r++)
+      for (let c = 0; c < BOARD_W; c++)
+        if (roomAtRC(r, c) < 0) out.push(Object.freeze({ r, c }));
+    return out;
+  })());
+  const CORR_AT = Object.freeze((() => {
+    const t = new Array(BOARD_W * BOARD_H).fill(-1);
+    CORR.forEach((cell, i) => { t[cell.r * BOARD_W + cell.c] = i; });
+    return t;
+  })());
+  const at = (r, c) => (r < 0 || c < 0 || r >= BOARD_H || c >= BOARD_W) ? -1 : CORR_AT[r * BOARD_W + c];
+  const POS_MAX = POS_ROOM_MAX + CORR.length;
+  const cPos = i => (i >= 0 && i < CORR.length) ? (i + POS_CORR_0) : -1;
+
+  /* DOORS — derived, never typed out: a room's doors are the corridor
+     cells orthogonally touching its rectangle, deduplicated and sorted so
+     two builds of the same geometry produce byte-identical lists. */
+  const DOORS = Object.freeze(ROOMS.map(m => {
+    const out = [];
+    for (let r = m.r0; r <= m.r1; r++)
+      for (let c = m.c0; c <= m.c1; c++)
+        for (let s = 0; s < STEPS.length; s++){
+          const i = at(r + STEPS[s][0], c + STEPS[s][1]);
+          if (i >= 0 && out.indexOf(i) < 0) out.push(i);
+        }
+    out.sort((a, b) => a - b);
+    return Object.freeze(out);
+  }));
+  const ROOM_OF_DOOR = Object.freeze((() => {
+    const t = CORR.map(() => []);
+    DOORS.forEach((list, slot) => { list.forEach(i => { t[i].push(slot); }); });
+    return t.map(a => Object.freeze(a));
+  })());
+
+  /* THE MOVEMENT GRAPH. NEIGH[p] = the positions one step from p, indexed
+     by the SAME integer the seats are stored as. From a room: its door
+     squares and nothing else. From a corridor: the adjacent corridor
+     squares plus any room this square is a door of. Room -> room is
+     deliberately absent; a secret passage is a MOVE, not an edge. */
+  const NEIGH = Object.freeze((() => {
+    const list = [];
+    for (let k = 0; k <= POS_ROOM_MAX; k++) list.push(Object.freeze(DOORS[k].map(cPos)));
+    CORR.forEach((cell, i) => {
+      const n = [];
+      for (let s = 0; s < STEPS.length; s++){
+        const j = at(cell.r + STEPS[s][0], cell.c + STEPS[s][1]);
+        if (j >= 0) n.push(cPos(j));
+      }
+      ROOM_OF_DOOR[i].forEach(slot => n.push(slot));
+      list.push(Object.freeze(n));
+    });
+    return list;
+  })());
+
+  /* ROOM_DIST[k][p] = the fewest steps from position p into room slot k,
+     or -1. One BFS out of each room over the SAME graph the movement rule
+     uses, with the SAME "a room is a destination, not a junction" stop
+     reachable() applies. A HEURISTIC for the AI and nothing else; built
+     once WITH the board and frozen with it, because two phones must rank
+     the same square identically or the machine forks. */
+  const ROOM_DIST = Object.freeze(ROOMS.map((m, k) => {
+    const d = new Array(POS_MAX + 1).fill(-1);
+    d[k] = 0;
+    const queue = [k];
+    for (let qi = 0; qi < queue.length; qi++){
+      const p = queue[qi];
+      if (posIsRoom(p) && p !== k) continue;
+      const nbrs = NEIGH[p];
+      for (let i = 0; i < nbrs.length; i++){
+        const q = nbrs[i];
+        if (d[q] >= 0) continue;
+        d[q] = d[p] + 1;
+        queue.push(q);
+      }
+    }
+    return Object.freeze(d);
+  }));
+
+  /* SECRET PASSAGES — the two FURTHEST-APART disjoint pairs of rooms on
+     THIS board, which is what makes one worth taking (and what Cluedo's
+     corner passages are for). Greedy over the pair distances, ties broken
+     on the slot numbers so the choice is reproducible; symmetric by
+     construction, because a one-way secret passage is the kind of bug you
+     only find when a player walks into a room they cannot walk out of. */
+  const PASSAGE = Object.freeze((() => {
+    const t = [-1, -1, -1, -1, -1, -1];
+    const pairs = [];
+    for (let a = 0; a <= POS_ROOM_MAX; a++)
+      for (let b = a + 1; b <= POS_ROOM_MAX; b++) pairs.push([a, b, ROOM_DIST[a][b]]);
+    pairs.sort((x, y) => (y[2] - x[2]) || (x[0] - y[0]) || (x[1] - y[1]));
+    let made = 0;
+    for (let i = 0; i < pairs.length && made < 2; i++){
+      const p = pairs[i];
+      if (t[p[0]] >= 0 || t[p[1]] >= 0) continue;
+      t[p[0]] = p[1]; t[p[1]] = p[0]; made++;
+    }
+    return t;
+  })());
+
+  return Object.freeze({
+    caseId: caseId | 0,
+    W: BOARD_W, H: BOARD_H,
+    ROOMS, CORR, CORR_AT, DOORS, ROOM_OF_DOOR, NEIGH, ROOM_DIST, PASSAGE,
+    CORR_N: CORR.length,
+    POS_MAX,
+    fallback: !!fallback
+  });
+}
+
+/* ── POSITIONS — one small integer per seat ────────────────────────────
+   0..5   standing IN room slot k
+   6..5+C standing on CORR[p - 6] of THAT BOARD
+   C is per case now, so POS_MAX is a property of the board and NOT a
+   module constant, and posOK takes the board. That is not tidiness: the
+   wire pass validates an incoming `to` with posOK, and a load-time bound
+   would silently refuse legal destinations on every case whose board has
+   more corridor squares than the old fixed twenty — a seat that cannot
+   move, online, with nothing on screen to say why. CORR_MAX keeps
+   5 + C <= 35, comfortably inside the byte mp.js requires. */
+const POS_ROOM_MAX = 5;
+const POS_CORR_0 = POS_ROOM_MAX + 1;
+function posIsRoom(p){ return Number.isInteger(p) && p >= 0 && p <= POS_ROOM_MAX; }
+function posRoom(p){ return posIsRoom(p) ? p : -1; }
+/* every one of these takes the BOARD first. `b` may also be a STATE — one
+   shape, resolved in one place — but never a bare number: a caller that
+   forgot to pass the board must fail loudly, not be read as a case id. */
+function asBoard(b){
+  if (!b || typeof b !== 'object') throw new TypeError('misteru: board expected, got ' + typeof b);
+  return b.CORR ? b : boardFor(b.caseId);
+}
+function posCorr(b, p){
+  const B = asBoard(b);
+  return (Number.isInteger(p) && p >= POS_CORR_0 && p <= B.POS_MAX) ? (p - POS_CORR_0) : -1;
+}
+function corrPos(b, i){ const B = asBoard(b); return (i >= 0 && i < B.CORR.length) ? (i + POS_CORR_0) : -1; }
+function posOK(b, p){ const B = asBoard(b); return Number.isInteger(p) && p >= 0 && p <= B.POS_MAX; }
+function posCell(b, p){ const B = asBoard(b); const i = posCorr(B, p); return i < 0 ? null : B.CORR[i]; }
+function corrIndexAt(b, r, c){
+  const B = asBoard(b);
+  if (r < 0 || c < 0 || r >= BOARD_H || c >= BOARD_W) return -1;
+  return B.CORR_AT[r * BOARD_W + c];
+}
+function roomAt(b, r, c){
+  const B = asBoard(b);
+  for (let k = 0; k < B.ROOMS.length; k++){
+    const m = B.ROOMS[k];
+    if (r >= m.r0 && r <= m.r1 && c >= m.c0 && c <= m.c1) return k;
+  }
+  return -1;
+}
+function passageFrom(b, p){
+  const B = asBoard(b);
+  const k = posRoom(p);
+  return k < 0 ? -1 : B.PASSAGE[k];
+}
+/* where seat i starts: spread evenly around that board's corridor ring,
+   computed from MAX_SEATS (not from st.n) so seat 3 stands on the same
+   square at a 2-player and a 6-player table. Deterministic, no RNG. */
+function startPos(b, i){
+  const B = asBoard(b);
+  return corrPos(B, Math.floor((i * B.CORR.length) / MAX_SEATS) % B.CORR.length);
+}
+
+/* ── VALIDATION — reject and redraw, never hope ───────────────────────
+   Returns null when the layout is fit to play on, or a short reason. */
+function boardFault(B){
+  const C = B.CORR.length;
+  if (C < CORR_MIN || C > CORR_MAX) return 'corr:' + C;
+  /* the corridor must be ONE 4-connected component — an isolated pocket is
+     a square nobody can ever stand on and a room nobody can ever reach. */
+  const seen = new Array(C).fill(false);
+  const queue = [0];
+  if (!C) return 'corr:0';
+  seen[0] = true;
+  let n = 0;
+  for (let qi = 0; qi < queue.length; qi++){
+    const cell = B.CORR[queue[qi]];
+    n++;
+    for (let s = 0; s < STEPS.length; s++){
+      const j = corrIndexAt(B, cell.r + STEPS[s][0], cell.c + STEPS[s][1]);
+      if (j >= 0 && !seen[j]){ seen[j] = true; queue.push(j); }
+    }
+  }
+  if (n !== C) return 'split';
+  for (let k = 0; k <= POS_ROOM_MAX; k++) if (!B.DOORS[k].length) return 'nodoor:' + k;
+  /* one door AND that door is itself the end of a dead-end corridor: a room
+     you can be shut into by one other detective standing outside it. */
+  for (let k = 0; k <= POS_ROOM_MAX; k++){
+    if (B.DOORS[k].length !== 1) continue;
+    const cell = B.CORR[B.DOORS[k][0]];
+    let deg = 0;
+    for (let s = 0; s < STEPS.length; s++)
+      if (corrIndexAt(B, cell.r + STEPS[s][0], cell.c + STEPS[s][1]) >= 0) deg++;
+    if (deg <= 1) return 'deadend:' + k;
+  }
+  let mn = Infinity, mx = 0;
+  const mean = [];
+  for (let a = 0; a <= POS_ROOM_MAX; a++){
+    let sum = 0;
+    for (let b = 0; b <= POS_ROOM_MAX; b++){
+      if (a === b) continue;
+      const v = B.ROOM_DIST[a][b];
+      if (v < 0) return 'unreachable:' + a + '-' + b;
+      sum += v;
+      if (a < b){ if (v < mn) mn = v; if (v > mx) mx = v; }
+    }
+    mean.push(sum / POS_ROOM_MAX);
+  }
+  const lo = Math.min.apply(null, mean), hi = Math.max.apply(null, mean);
+  if (hi > FAIR_ROOM * lo) return 'trek';
+  if (mx > FAIR_PAIR * mn) return 'unfair';
+  return null;
+}
+
+/* ── boardFor(caseId) — the whole point. Pure, memoised, frozen ───────── */
+const BOARD_MEMO = {};
+function boardFor(caseId){
+  const id = Math.max(1, Math.min(CASES.length, caseId | 0 || 1));
+  const hit = BOARD_MEMO[id];
+  if (hit) return hit;
+  const cat = catalogue();
+  const seed = hash32([0x4D53, id, 0x424F]);
+  let board = null;
+  const used = {};
+  for (let b = 0; b < MAX_BUCKETS && !board; b++){
+    /* pick a stratum by a hashed weighted draw, without replacement */
+    let tot = 0;
+    for (let i = 0; i < CAT_KEYS.length; i++) if (!used[i]) tot += CAT_WEIGHT[i];
+    if (tot <= 0) break;
+    let r = (hash32([seed, b, 0x57]) / 4294967296) * tot, pick = -1;
+    for (let i = 0; i < CAT_KEYS.length; i++){
+      if (used[i]) continue;
+      r -= CAT_WEIGHT[i];
+      if (r <= 0){ pick = i; break; }
+    }
+    if (pick < 0) for (let i = CAT_KEYS.length - 1; i >= 0; i--) if (!used[i]){ pick = i; break; }
+    if (pick < 0) break;
+    used[pick] = 1;
+    const list = CAT_BUCKET[CAT_KEYS[pick]];
+    for (let s = 0; s < BUCKET_TRIES; s++){
+      const cand = makeBoard(id, cat[list[hash32([seed, b, s, 0x50]) % list.length]].map(i => PLACES[i]), false);
+      if (!boardFault(cand)){ board = cand; break; }
+    }
+  }
+  for (let s = 0; s < GLOBAL_TRIES && !board; s++){
+    const cand = makeBoard(id, cat[hash32([seed, s, 0x67]) % cat.length].map(i => PLACES[i]), false);
+    if (!boardFault(cand)) board = cand;
+  }
+  /* a case id that cannot draw a valid board inside the bound plays on the
+     map this game shipped with rather than on a broken one — and says so,
+     out loud, in board.fallback, so a test can catch it. */
+  if (!board) board = makeBoard(id, LEGACY_ROOMS, true);
+  BOARD_MEMO[id] = board;
+  return board;
+}
+/* the one call every rule in this file makes: the board this table is on */
+function boardOf(st){ return boardFor(st && st.caseId); }
+
+/* ── THE DIE ──────────────────────────────────────────────────────────
+   1..6 off st.rs, the file's ONE generator. It ADVANCES st.rs, which is
+   what makes two rolls in a row differ, and it is called from apply() so
+   the log replays the same faces on every phone. The `% DIE_FACES` is the
+   same belt-and-braces the shuffle uses in case rnd() ever returns 1. */
+const DIE_FACES = 6;
+function rollFor(st){
+  return 1 + (Math.floor(rnd(st) * DIE_FACES) % DIE_FACES);
+}
+
+/* the corridor squares BLOCKED for `seat`: every square another seat is
+   standing on. Eliminated seats still hold their square — they are still
+   in the building, refuting with their cards, and vanishing them would
+   change the map the moment somebody accused wrongly. Rooms are never
+   blocked; any number of detectives fit in a room. */
+function blockedCorr(st, seat){
+  const B = boardOf(st);
+  const t = new Array(B.POS_MAX + 1).fill(false);
+  const pos = st.pos || [];
+  for (let i = 0; i < st.n; i++){
+    if (i === seat) continue;
+    const p = pos[i];
+    if (posCorr(B, p) >= 0) t[p] = true;
+  }
+  return t;
+}
+
+/* ── reachable(st, seat) — the whole movement rule, one pure function ──
+   Breadth-first from pos[seat] with a budget of st.roll steps. Every edge
+   costs 1 and BFS visits each square once at its shortest distance, which
+   is exactly the "no revisiting a square within one move" rule: a square
+   reachable at all is reachable by a simple path of that length.
+
+   The one thing that is NOT plain BFS: a ROOM is a destination, not a
+   junction. We expand out of the square we started on even when that is a
+   room, but a room we ARRIVE at is a dead end — you stop when you go in.
+   Without that you could cut across the board through a doorway and the
+   two middle rooms would become the fastest corridors on the map.
+
+   Never returns the square you started on: in this genre you must move if
+   you can. So an empty result genuinely means "boxed in", and legal()'s
+   unconditional `pass` is what stops that from hanging the table. */
+function reachable(st, seat){
+  const out = [];
+  if (!st || !st.pos) return out;
+  const B = boardOf(st);
+  const from = st.pos[seat];
+  const budget = st.roll | 0;
+  if (!posOK(B, from) || budget <= 0) return out;
+  const blocked = blockedCorr(st, seat);
+  const dist = new Array(B.POS_MAX + 1).fill(-1);
+  dist[from] = 0;
+  const queue = [from];
+  for (let qi = 0; qi < queue.length; qi++){
+    const p = queue[qi], d = dist[p];
+    if (d >= budget) continue;
+    if (posIsRoom(p) && p !== from) continue;     /* arrived in a room → stop */
+    const nbrs = B.NEIGH[p];
+    for (let k = 0; k < nbrs.length; k++){
+      const q = nbrs[k];
+      if (dist[q] >= 0) continue;                 /* already reached, no revisits */
+      if (blocked[q]) continue;                   /* occupied corridor: no entry, no pass-through */
+      dist[q] = d + 1;
+      queue.push(q);
+    }
+  }
+  for (let p = 0; p <= B.POS_MAX; p++) if (p !== from && dist[p] > 0) out.push(p);
+  return out;
+}
+
 function deal(opts, seed){
   opts = opts || {};
   const n = Math.max(MIN_SEATS, Math.min(MAX_SEATS, opts.players | 0 || 4));
   const humans = Math.max(0, Math.min(n, opts.humans == null ? 1 : (opts.humans | 0)));
   const caseId = Math.max(1, Math.min(CASES.length, opts.caseId | 0 || 1));
+  /* the map this case plays on — built once and memoised (see boardFor) */
+  const board = boardFor(caseId);
   const st = {
     v:1, n,
     caseId,
@@ -742,6 +1298,21 @@ function deal(opts, seed){
     hands: [],               /* hands[i] = [cards] or null (unknown to us) */
     solution: null,          /* {s,w,l} or null (unknown to us) */
     out: [],                 /* out[i] = true → eliminated (wrong accusation) */
+    /* THE BOARD, per seat. pos is the byte-sized position (see the board
+       section); roll/moved are the two latches the termination proof in
+       the header leans on — roll is the die showing for the seat to move
+       (0 = has not rolled), moved is "this seat has already spent its
+       one move this turn". advance() clears both, and ONLY advance(). */
+    pos: [],                 /* pos[i] = position int 0..board.POS_MAX */
+    roll: 0,
+    moved: false,
+    /* pulled[i] — set when seat i was put in a room by something other
+       than its own move, so it may ask about that room without having
+       walked there. Nothing sets it yet: the suggestion that drags a
+       named suspect's seat into the room is a later pass. It is
+       initialised and CLEARED here (on your own move) so that pass can
+       land without touching replayed state shape. */
+    pulled: [],
     /* the running public trace of suggestions & who showed a card */
     log2: [],
     shown: [],               /* every refutation, for verify(): {sug, by, card?} */
@@ -758,6 +1329,8 @@ function deal(opts, seed){
       lvl: Math.max(1, Math.min(3, opts.lvl | 0 || 2))
     });
     st.out.push(false);
+    st.pos.push(startPos(board, i));
+    st.pulled.push(false);
   }
   const d = dealSourceOf(st).make(st);
   st.solution = d.solution;
@@ -817,17 +1390,31 @@ function refuterOf(st, by, sug){
 
 /* ═══════════════════════════════════════════════════════════════════
    MOVES
-     { t:'suggest', s, w, l }        the active player's suggestion. On
-                                     apply, the refuter and shown card are
-                                     resolved (offline) or read from the
-                                     move's stamped fields (online).
-     { t:'accuse',  s, w, l }        the active player's accusation. Judged
-                                     vs the solution (offline) or by the
-                                     stamped `right` bit (online judge).
-     { t:'pass' }                    end the turn without suggesting (rare;
-                                     lets a stuck seat move the game on).
+     { t:'roll' }                    throw the die. Legal once per turn,
+                                     before you have moved.
+     { t:'move', to }                walk to `to`, which must be one of
+                                     reachable(st, seat). Spends the roll.
+     { t:'passage' }                 take the corner room's secret passage.
+                                     No die needed, spends your move.
+     { t:'suggest', s, w, l }        the active player's suggestion. `l`
+                                     MUST be the card of the room the seat
+                                     is standing in. On apply, the refuter
+                                     and shown card are resolved (offline)
+                                     or read from the move's stamped fields
+                                     (online).
+     { t:'accuse',  s, w, l }        the active player's accusation. Legal
+                                     at ANY point in your own turn — before
+                                     rolling, after moving, either way.
+                                     Judged vs the solution (offline) or by
+                                     the stamped `right` bit (online judge).
+     { t:'pass' }                    end the turn without suggesting. Always
+                                     available on your turn; that is what
+                                     keeps a boxed-in seat from stalling.
      { t:'quit' }                    walk out (forfeit; counts as OUT).
-   Only the active, non-out seat may suggest/accuse/pass; anyone may quit.
+   Only the active, non-out seat may roll/move/suggest/accuse/pass; anyone
+   may quit. The turn advances on suggest/pass/wrong-accuse ONLY — roll,
+   move and passage all leave the turn where it is, which is the whole
+   reason st.roll and st.moved exist (see the header's termination proof).
    ═══════════════════════════════════════════════════════════════════ */
 function inCase(st, card){
   const cs = theCase(st);
@@ -838,16 +1425,48 @@ function validSug(st, sug){
   return sug && catOf(sug.s) === 's' && catOf(sug.w) === 'w' && catOf(sug.l) === 'l' &&
          inCase(st, sug.s) && inCase(st, sug.w) && inCase(st, sug.l);
 }
+/* the LOCATION card that room slot k stands for in this case. The board is
+   case-agnostic and the case is board-agnostic; this one function is the
+   only join between them, and it is what the suggestion rule is checked
+   against. */
+function roomCard(st, slot){
+  const cs = theCase(st);
+  const id = (cs.l || [])[slot];
+  return id ? cardOf('l', id) : null;
+}
+/* the room a seat is standing in, or -1 for "out in the corridor". Reads
+   st.pos defensively: a state replayed from a log written before the board
+   existed has no pos array, and every caller here must degrade to "not in
+   a room" rather than throw mid-replay. */
+function roomOfSeat(st, seat){
+  const pos = st.pos || [];
+  return posRoom(pos[seat]);
+}
 
 function legal(st, seat){
   if (st.done) return seat >= 0 && seat < st.n ? [{ t:'quit' }] : [];
   const out = [];
   if (seat === st.turn && !st.out[seat]){
     const cs = theCase(st);
-    /* one representative legal suggestion & accusation are enough for the
-       harness; the UI builds the full picker itself. We expose a couple. */
-    out.push({ t:'suggest', s:cardOf('s', cs.s[0]), w:cardOf('w', cs.w[0]), l:cardOf('l', cs.l[0]) });
+    /* the board moves are enumerated in FULL — reachable() is the list the
+       UI lights up and the AI searches, so handing back a "representative"
+       destination would give both of them a worse board than the rules
+       allow. The card moves stay representative: one legal suggestion and
+       one accusation, because the picker is 6x6x6 and the UI builds it. */
+    if (!st.moved && st.roll === 0) out.push({ t:'roll' });
+    if (!st.moved && st.roll > 0)
+      reachable(st, seat).forEach(to => { out.push({ t:'move', to }); });
+    if (!st.moved && passageFrom(st, (st.pos || [])[seat]) >= 0) out.push({ t:'passage' });
+    /* a suggestion is only a move at all when you are standing in a room,
+       and then its LOCATION is forced to that room's card. */
+    const room = roomOfSeat(st, seat);
+    if (room >= 0)
+      out.push({ t:'suggest', s:cardOf('s', cs.s[0]), w:cardOf('w', cs.w[0]), l:roomCard(st, room) });
     out.push({ t:'accuse',  s:cardOf('s', cs.s[0]), w:cardOf('w', cs.w[0]), l:cardOf('l', cs.l[0]) });
+    /* pass, ALWAYS — in particular once st.moved is true. A seat that has
+       rolled, moved and landed in a corridor has no suggestion available,
+       and without this the turn could never end. The termination proof in
+       the header depends on this line. */
     out.push({ t:'pass' });
   }
   out.push({ t:'quit' });
@@ -861,7 +1480,26 @@ function check(st, mv, seat){
   if (seat !== st.turn) return false;
   if (st.out[seat]) return false;
   if (mv.t === 'pass') return true;
-  if (mv.t === 'suggest' || mv.t === 'accuse') return validSug(st, mv);
+  /* EVERY board rule is enforced here, not only in legal(). Moves arrive
+     off a replayed log and (later) off the wire, where nobody has called
+     legal() at all — check() is the only gate they all pass through. */
+  if (mv.t === 'roll') return st.roll === 0 && !st.moved;
+  if (mv.t === 'move'){
+    if (st.moved || st.roll <= 0) return false;
+    if (!posOK(st, mv.to)) return false;      /* strict: a string "7" is not a position */
+    return reachable(st, seat).indexOf(mv.to) >= 0;
+  }
+  if (mv.t === 'passage') return !st.moved && passageFrom(st, (st.pos || [])[seat]) >= 0;
+  if (mv.t === 'suggest'){
+    if (!validSug(st, mv)) return false;
+    /* the room rule: you may only ask about the room you are standing in.
+       A suggestion from the corridor, or one naming a room across the
+       board, is refused — that is the rule the whole board exists to
+       serve, so it lives in the gate and not in the UI. */
+    const room = roomOfSeat(st, seat);
+    return room >= 0 && mv.l === roomCard(st, room);
+  }
+  if (mv.t === 'accuse') return validSug(st, mv);
   return false;
 }
 
@@ -876,6 +1514,11 @@ function advance(st){
   st.ply++;
   if (nxt <= st.turn) st.round++;
   st.turn = nxt;
+  /* the ONLY place the two turn latches are cleared. Clearing them
+     anywhere else (say, at the top of apply) would let one seat roll
+     twice and the termination bound would go with it. */
+  st.roll = 0;
+  st.moved = false;
   if (st.round >= MAX_ROUNDS && !st.done) endByCap(st);
 }
 
@@ -895,6 +1538,42 @@ function apply(st, mv){
     return;
   }
   if (st.done) return;
+
+  /* ── the three board moves. None of them advances the turn, and each
+     re-checks its own latch: apply() is reached on replay without check()
+     in front of it (js/misteru-ui.js's buildState skips a failing move but
+     the wire will not be so polite), and a second roll slipping through
+     here would both fork the RNG and break the termination bound.
+     Deliberately NOT written into st.log2: that array is the deduction
+     trace notebookFor() replays, and salting it with footsteps would make
+     every reasoner walk over records it has to skip. The move log itself
+     is the movement history. */
+  if (mv.t === 'roll'){
+    if (st.moved || st.roll !== 0) return;
+    st.roll = rollFor(st);
+    return;
+  }
+  if (mv.t === 'move'){
+    if (st.moved || st.roll <= 0) return;
+    if (!posOK(st, mv.to) || reachable(st, seat).indexOf(mv.to) < 0) return;
+    st.pos[seat] = mv.to;
+    st.moved = true;
+    st.roll = 0;                 /* the die is spent, not kept for later */
+    st.pulled[seat] = false;     /* you walked here yourself */
+    return;
+  }
+  if (mv.t === 'passage'){
+    const to = passageFrom(st, (st.pos || [])[seat]);
+    if (st.moved || to < 0) return;
+    st.pos[seat] = to;
+    st.moved = true;
+    /* the passage costs no dice, but it DOES cost the roll if one was
+       already showing — otherwise a seat could roll, slip through the
+       passage for free and still have a walk in hand. */
+    st.roll = 0;
+    st.pulled[seat] = false;
+    return;
+  }
 
   if (mv.t === 'pass'){
     st.log2.push({ seat, t:'pass' });
@@ -1233,16 +1912,159 @@ function levelOf(k){ return LEVELS.find(L => L.k === (k | 0)) || LEVELS[1]; }
 function jitter(st, seat, salt){
   return (hash32([st.ply, st.round, seat, salt | 0, (handOf(st, seat) || []).length]) % 1000) / 1000;
 }
+/* SALTS ALREADY SPOKEN FOR in the machine — a salt reused for two
+   different decisions makes those decisions the SAME coin, and the AI
+   starts doing two things in lockstep for no reason a reader can see:
+     11,12   the lvl1 accusation stab (go? / which card)
+     21,22   the lvl2/3 suggestion mask (mask? / which owned card)
+     31,32,33 the lvl1 loose probe
+     70      the lvl1 "misses the secret passage" coin
+     108/115/119  'l'/'s'/'w' charCodeAt, the lvl2/3 probe pick
+     200..255 the per-destination wobble — DEST_SALT + the destination
+             integer. It used to be 40 + the destination, which was fine
+             while the board was fixed and POS_MAX was 25 (40..65). Boards
+             are per case now and POS_MAX runs to 35, so that range would
+             have reached 75 and COLLIDED with 70 — the passage coin and
+             the wobble on square 30 would have become the same coin. Moved
+             clear of every other salt, with room for the whole byte.
+   Add a decision, take a number that is not on this list and put it on. */
 
-/* the AI's move for its turn. Pure function of the state. */
+/* ── WHAT THE MACHINE WANTS FROM THE BOARD ────────────────────────────
+   A suggestion's LOCATION is forced to the room you are standing in, so
+   the only way the machine can ever learn a location card is to WALK to
+   that room and ask there. That single fact is the whole movement brain:
+   the rooms worth walking to are the ones whose card the notebook has not
+   ruled out yet, because those are the rooms that might still be the
+   answer. A room already proven to be in somebody's hand can never be the
+   location, so standing in it teaches nothing about WHERE.
+
+   Candidacy is read through candidatesIn(), the same call the accusation
+   stab uses. There is exactly one deduction system in this file and this
+   is not allowed to become the second one. */
+function wantedRooms(st, seat, nb){
+  const cands = candidatesIn(st, seat, nb, 'l');
+  const out = [];
+  for (let k = 0; k <= POS_ROOM_MAX; k++){
+    const card = roomCard(st, k);
+    if (card && cands.indexOf(card) >= 0) out.push(k);
+  }
+  return out;
+}
+
+/* Destination scores. Absolute numbers, not an ordering, because the
+   level wobble below is added ON TOP and the GAPS are what decide how
+   loose a level really plays.
+     WANTED room  1000  the whole point of moving
+     SEEN   room   450  you may still probe a suspect and a weapon in
+                        there, so it is not worthless — but it can never
+                        move the location column, which is what "poor
+                        (no information)" means here. Priced at the same
+                        value as a corridor square about four steps from
+                        a room we do want.
+     corridor    500 - 12*steps-to-the-nearest-wanted-room, so a doorstep
+                        (488) beats a ruled-out room and a square right
+                        across the board (~310) does not.
+     LOST corridor 300  no wanted room is walkable from there at all
+                        (every location card ruled out, or the map cut) —
+                        neutral, never preferred, never crashes. */
+const DEST_ROOM_WANTED = 1000;
+const DEST_ROOM_SEEN   = 450;
+const DEST_CORR_BASE   = 500;
+const DEST_CORR_STEP   = 12;
+const DEST_CORR_LOST   = 300;
+/* How much hashed noise each level adds to a score. lvl3 takes the best,
+   full stop. lvl2's 60 can only ever reshuffle near-equals — it can never
+   out-bid the 550-point gap between a wanted room and a ruled-out one, so
+   Surġent looks human without playing badly. lvl1's 700 CAN clear that
+   gap, which is the point: Kaporal genuinely wanders off to a room it has
+   already crossed out, and that is why it deduces slower. */
+const DEST_WOBBLE = { 1:700, 2:60, 3:0 };
+/* the base of the per-destination wobble salt; see the salt list above */
+const DEST_SALT = 200;
+
+function destScore(st, want, p){
+  const B = boardOf(st);
+  const room = posRoom(p);
+  if (room >= 0) return want.indexOf(room) >= 0 ? DEST_ROOM_WANTED : DEST_ROOM_SEEN;
+  let near = -1;
+  for (let i = 0; i < want.length; i++){
+    const d = B.ROOM_DIST[want[i]][p];
+    if (d < 0) continue;
+    if (near < 0 || d < near) near = d;
+  }
+  if (near < 0) return DEST_CORR_LOST;
+  return DEST_CORR_BASE - near * DEST_CORR_STEP;
+}
+/* pick one of reachable()'s destinations. `dests` comes straight from
+   reachable(), so every value returned here is legal by construction —
+   this function must never invent a square of its own.
+
+   TIES BREAK ON THE LOWEST DESTINATION INTEGER, spelled out rather than
+   leaned on: reachable() happens to build its list in ascending order
+   today, but "the AI agrees with itself on two phones" must not rest on
+   an implementation detail of a different function. Scores are multiples
+   of 1/1000, so exact ties are common and the rule is load-bearing. */
+function chooseDest(st, seat, nb, lvl, dests){
+  const want = wantedRooms(st, seat, nb);
+  const wobble = DEST_WOBBLE[lvl] || 0;
+  let best = -1, bestScore = 0;
+  for (let i = 0; i < dests.length; i++){
+    const p = dests[i];
+    if (!posOK(st, p)) continue;
+    let sc = destScore(st, want, p);
+    if (wobble) sc += jitter(st, seat, DEST_SALT + p) * wobble;
+    if (best < 0 || sc > bestScore || (sc === bestScore && p < best)){ best = p; bestScore = sc; }
+  }
+  return best;
+}
+
+/* THE SECRET PASSAGE — free, no die, and it crosses the whole board, so
+   the machine takes it only when it actually buys something: the room at
+   the far end must still be a candidate, and we must not already be
+   standing in one. Walking a passage OUT of a room we still want to ask
+   about would throw away the very question we came here for.
+   Kaporal misses it a fair bit of the time; that is a level difference
+   you can watch happen, not a hidden number. */
+function wantsPassage(st, seat, nb, lvl){
+  const pos = (st.pos || [])[seat];
+  const to = passageFrom(st, pos);
+  if (to < 0) return false;                                    /* not in a corner room */
+  const want = wantedRooms(st, seat, nb);
+  if (want.indexOf(to) < 0) return false;                      /* far room proven, no information */
+  const here = posRoom(pos);
+  if (here >= 0 && want.indexOf(here) >= 0) return false;      /* already somewhere we want to be */
+  if (lvl === 1 && jitter(st, seat, 70) < 0.4) return false;   /* Kaporal walks past the bookcase */
+  return true;
+}
+
+/* ── think(st, seat, lvl) — ONE move, not a turn ───────────────────────
+   A turn is now a SEQUENCE — roll -> move (or passage) -> suggest/pass —
+   so think() is called several times for the same seat and has to answer
+   "what next?" each time. It reads that position out of the two turn
+   latches, st.roll and st.moved, and nothing else; there is no scratch
+   state hidden between calls, which is what keeps it a pure function of
+   the table and therefore replayable on every phone.
+
+   EVERYTHING RETURNED HERE MUST SATISFY check(). That is the property the
+   whole function is built around: js/misteru-ui.js falls back to
+   {t:'pass'} on a refusal, so an illegal answer does not crash — it
+   silently turns the seat into a statue and the table grinds to the
+   turn-cap with nobody having asked a single question. That was the state
+   of this file before this pass, and it looked like "the AI is timid",
+   not like a bug. And for the same reason it must NEVER return null for a
+   live seat whose turn it is; the worst answer available is {t:'pass'}. */
 function think(st, seat, lvl){
   if (turn(st) !== seat || st.out[seat]) return null;
   lvl = Math.max(1, Math.min(3, lvl || st.seats[seat].lvl || 2));
-  const cs = theCase(st);
   const nb = notebookFor(st, seat);
 
-  /* ACCUSE when certain. lvl3/2 only when all three pinned; lvl1 also
-     when two are pinned and the third has few candidates (a stab). */
+  /* (1) ACCUSE when certain. lvl3/2 only when all three pinned; lvl1 also
+     when two are pinned and the third has few candidates (a stab).
+     This runs BEFORE the board machine on purpose: an accusation names a
+     place, it does not require STANDING in one, so check() will take it at
+     any point in the turn. Making a seat that has already solved the case
+     roll, walk and only then be allowed to say so would cost it a whole
+     lap — and it would hand the win to whoever solved it second. */
   if (nb.solved){
     return { t:'accuse', s:nb.solution.s, w:nb.solution.w, l:nb.solution.l };
   }
@@ -1265,7 +2087,42 @@ function think(st, seat, lvl){
     }
   }
 
-  /* otherwise SUGGEST to gain information. For each category pick a card:
+  /* (2) NOT MOVED, NO DIE SHOWING → the top of the turn. Take the secret
+     passage if it is worth taking, otherwise throw. check() takes `roll`
+     only while st.roll === 0 && !st.moved, which is exactly this branch,
+     and it is the latch the header's termination proof rests on: one roll
+     per seat-turn, no more. */
+  if (!st.moved && st.roll === 0){
+    if (wantsPassage(st, seat, nb, lvl)) return { t:'passage' };
+    return { t:'roll' };
+  }
+
+  /* (3) A DIE IS SHOWING AND WE HAVE NOT MOVED → walk. reachable() is the
+     legal set and the ONLY legal set; chooseDest merely ranks it. An
+     EMPTY set is not an error — it means every door and every corridor
+     square within the roll is occupied, i.e. genuinely boxed in by other
+     detectives — and the answer to that is `pass`, which legal() always
+     offers. Returning nothing here, or a square we liked the look of, is
+     how a table stalls. */
+  if (!st.moved && st.roll > 0){
+    const dests = reachable(st, seat);
+    if (!dests.length) return { t:'pass' };
+    const to = chooseDest(st, seat, nb, lvl, dests);
+    if (!posOK(st, to)) return { t:'pass' };
+    return { t:'move', to };
+  }
+
+  /* (4) WE HAVE MOVED → ask, if there is anywhere to ask from. A
+     suggestion's LOCATION is not ours to choose: check() demands it be
+     the card of the room this seat is standing in, so we force it below
+     and let the probe logic pick only the suspect and the weapon. Landed
+     in a corridor instead? Then there is no question to ask and the turn
+     ends — that is what the unconditional `pass` in legal() is for. */
+  const room = roomOfSeat(st, seat);
+  const lCard = room >= 0 ? roomCard(st, room) : null;
+  if (!lCard) return { t:'pass' };
+
+  /* SUGGEST to gain information. For each category pick a card:
        lvl3/2: an UNKNOWN candidate (status '?') to probe — best info.
        lvl1:   sometimes a known/own card (loose), so it learns slower.
      A suggestion can only use cards in the case; if a category is already
@@ -1285,6 +2142,14 @@ function think(st, seat, lvl){
       sug[catOf(c)] = c;
     }
   }
+  /* FORCE the location LAST, after the mask — the mask picks a card out of
+     our own hand and hands it to whichever category it belongs to, so a
+     location card in hand would otherwise overwrite the one square the
+     rule does not let us choose, and check() would refuse the whole
+     suggestion. Ordering, not a condition: it costs nothing and it cannot
+     be got wrong later. */
+  sug.l = lCard;
+  if (!sug.s || !sug.w) return { t:'pass' };   /* never hand back a half-built move */
   return { t:'suggest', s:sug.s, w:sug.w, l:sug.l };
 }
 /* the candidate cards in a category a seat still considers possible for
@@ -1318,6 +2183,9 @@ function pickProbe(st, seat, nb, cat, lvl){
    THE WIRE — a move as flat byte fields, for js/mp.js's generic codec.
    Cards travel as (cat, index-within-case) pairs so every field is < 256.
    A game seat + a case are shared, so both ends resolve the same card.
+     roll    → { t:'rol' }                     (NO payload — see below)
+     move    → { t:'mov', to:a POSITION }        (see posOK / board.POS_MAX)
+     passage → { t:'psg' }
      suggest → { t:'sug', s,w,l:byte indices, by:seat|255, cd:byte|255 }
        (by/cd stamped by the REFEREE-side that resolves the refutation; the
         shown card `cd` is meaningful only to the suggester — mp.js should
@@ -1326,6 +2194,37 @@ function pickProbe(st, seat, nb, cat, lvl){
      accuse  → { t:'acc', s,w,l, r:0|1|255 }  (r stamped by the JUDGE seat)
      pass    → { t:'pass' }
      quit    → { t:'quit' }
+
+   THE DIE DOES NOT TRAVEL. rollFor(st) derives it from st.rs and advances
+   the stream; every client replays apply() in the same order, so every
+   client derives the SAME number for the same log entry. Putting the die
+   on the wire would be a second source of truth that can disagree with the
+   first — and the one that disagrees is the one that forks the table. So
+   `rol` carries no payload at all.
+
+   EVERY FIELD IN WIRE_FIELDS IS AN INTEGER 0..255. mp.js's toWire() sends
+   the action name on its own (as `a`) and REFUSES any move object carrying
+   a key the list does not name, or a value that is not a small number —
+   it returns null, which fires tableStop ("this build does not know how to
+   put … on the wire"). That is the exact bug that stopped IS-SQAQ; see
+   docs/AGENT-LOG.md, 2026-08-24.
+
+   'to' IS APPENDED AT THE END AND NOTHING IS EVER INSERTED. The field
+   order IS the wire: fromWire walks the list against a bitmask, so moving
+   or inserting a name silently re-reads every other field on an older
+   build. Appending is safe — an older build's shorter list simply never
+   sets that bit, decodes the fields it knows and ignores the rest.
+
+   AND `to` IS BOUNDED BY posOK(), NEVER BY A NUMBER TYPED HERE — and, now
+   that the map is per case, posOK NEEDS THE BOARD. Both codecs already
+   receive `caseId`, which is the very thing that names a board, so both
+   resolve it with boardFor(caseId) and validate against THAT board's
+   POS_MAX. Get this wrong and nothing shouts: decWire simply returns null
+   for every destination past the old fixed board's 25, i.e. a seat that
+   cannot walk on any of the roomier cases, online, with nothing on screen
+   to say why. So the two range checks below are `byteOK` (the WIRE's
+   0..255, which every field owes mp.js) and `posOK(board, …)` (the
+   ENGINE's own position gate, pointed at the right board).
    ═══════════════════════════════════════════════════════════════════ */
 function catIndexInCase(caseId, card){
   const cs = caseOf(caseId);
@@ -1338,14 +2237,28 @@ function cardFromCase(caseId, cat, i){
   const id = (cs[cat] || [])[i | 0];
   return id ? cardOf(cat, id) : null;
 }
-const byteOK = v => v >= 0 && v <= 255;
-const WIRE_FIELDS = ['s', 'w', 'l', 'by', 'cd', 'r'];
+const byteOK = v => Number.isInteger(v) && v >= 0 && v <= 255;
+/* APPEND ONLY. See the note above: the order is the wire. */
+const WIRE_FIELDS = ['s', 'w', 'l', 'by', 'cd', 'r', 'to'];
 
 function encWire(mv, caseId){
   if (!mv) return null;
   caseId = caseId | 0 || 1;
   if (mv.t === 'quit') return { t:'quit' };
   if (mv.t === 'pass') return { t:'pass' };
+  /* ── the three board moves ─────────────────────────────────────────
+     No hidden information in any of them, so none needs a referee: they
+     are broadcast like any other move and every client replays them. */
+  if (mv.t === 'roll') return { t:'rol' };
+  if (mv.t === 'passage') return { t:'psg' };
+  if (mv.t === 'move'){
+    /* `to` arrives from the local engine here, but the SAME shape comes
+       back off the wire on the other side; refuse anything that is not a
+       real position ON THIS CASE'S BOARD rather than let a string, or a
+       square from a different map, reach a frozen array. */
+    if (!posOK(boardFor(caseId), mv.to) || !byteOK(mv.to)) return null;
+    return { t:'mov', to: mv.to };
+  }
   if (mv.t === 'suggest' || mv.t === 'accuse'){
     const si = catIndexInCase(caseId, mv.s), wi = catIndexInCase(caseId, mv.w), li = catIndexInCase(caseId, mv.l);
     if (si < 0 || wi < 0 || li < 0) return null;
@@ -1370,6 +2283,18 @@ function decWire(w, caseId){
   caseId = caseId | 0 || 1;
   if (w.t === 'quit') return { t:'quit' };
   if (w.t === 'pass') return { t:'pass' };
+  if (w.t === 'rol') return { t:'roll' };
+  if (w.t === 'psg') return { t:'passage' };
+  if (w.t === 'mov'){
+    /* it came from ANOTHER CLIENT. A `to` that is not a real position is
+       refused HERE — returning null is a move this table does not know,
+       which is loud; producing {t:'move',to:'7'} would be a move check()
+       silently refuses and a table that quietly stops moving. The bound is
+       posOK's, never a literal: see the note above. */
+    const to = w.to;
+    if (!posOK(boardFor(caseId), to) || !byteOK(to)) return null;
+    return { t:'move', to };
+  }
   if (w.t === 'sug'){
     const s = cardFromCase(caseId, 's', w.s | 0), wc = cardFromCase(caseId, 'w', w.w | 0), l = cardFromCase(caseId, 'l', w.l | 0);
     if (!s || !wc || !l) return null;
@@ -1462,6 +2387,18 @@ root.KARTI_MISTERU.engine = {
   /* the table */
   MIN_SEATS, MAX_SEATS, MAX_ROUNDS, deal, legal, check, apply, turn, over,
   theCase, handOf, holds, liveSeats, nextLive,
+  /* the board — ONE PER CASE. boardFor(caseId) / boardOf(st) hand back the
+     frozen board; ROOMS, CORR, DOORS, NEIGH, PASSAGE, ROOM_DIST and
+     POS_MAX all live ON it, and every function below takes that board (or
+     the state it belongs to) as its FIRST argument. The old module-level
+     ROOMS/CORR/POS_MAX are deliberately gone rather than left pointing at
+     one case's map: a caller that has not been updated should break where
+     you can see it, not quietly play on the wrong board. */
+  boardFor, boardOf, LEGACY_ROOMS, boardFault,
+  BOARD_W, BOARD_H, CORR_MIN, CORR_MAX,
+  POS_ROOM_MAX, posIsRoom, posRoom, posCorr, corrPos, posOK,
+  posCell, corrIndexAt, roomAt, roomCard, roomOfSeat, passageFrom,
+  startPos, rollFor, reachable,
   /* refutation + judging */
   sugCards, refuteChoices, refuterOf, validSug, inCase,
   /* deduction + verdict */

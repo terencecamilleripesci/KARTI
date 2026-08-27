@@ -242,11 +242,20 @@ function drawnSuspect(id){
     '<linearGradient id="ms-vg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0.05"/><stop offset="1" stop-color="#000" stop-opacity="0.30"/></linearGradient>' +
     '</defs></svg>';
 }
-function suspectHTML(id){
-  return '<span class="ms-fart">' + drawnSuspect(id) +
+/* THE ONE WAY A CARD GETS ITS PICTURE. A drawn thing is rendered first and
+   never removed; the painting is a second layer that starts invisible and is
+   revealed only by a real load event. An image that 404s simply never appears
+   — no broken-image glyph, no flash of alt text, no layout change, because
+   the drawn floor underneath was already the right size. Every id in the
+   three pools is unique (16 suspects + 12 weapons + 12 locations = 40 ids,
+   all distinct), which is why all three can share one flat art/misteru/<id>.png
+   convention and one function. */
+function artLayer(id, drawn){
+  return '<span class="ms-fart">' + drawn +
     '<img class="ms-fimg" alt="" loading="lazy" src="' + esc(ART + id + '.png') +
       '" onload="this.classList.add(\'ok\')" onerror="this.remove()"></span>';
 }
+function suspectHTML(id){ return artLayer(id, drawnSuspect(id)); }
 /* a themed drawn icon for a weapon or location (no art needed) */
 const WPATH = {
   ponta:'M50 20 L58 70 L50 92 L42 70 Z', kandelabru:'M46 24 h8 v40 h14 v8 h-36 v-8 h14 z',
@@ -256,7 +265,7 @@ const WPATH = {
   labra:'M50 22 a6 6 0 1 1 -0.1 0 M50 34 v56', martell:'M30 28 h40 v14 h-14 v52 h-12 v-52 h-14 z',
   girlanda:'M28 34 q44 -8 44 24 q0 32 -44 24', petard:'M42 26 h16 v50 h-16 z M50 20 v-8'
 };
-function weaponIcon(id){
+function drawnWeapon(id){
   const p = WPATH[id] || 'M40 40 h20 v20 h-20 z';
   const hue = (E.WEAPONS.findIndex(w => w.id === id) * 33 + 20) % 360;
   return '<svg class="ms-obj" viewBox="0 0 100 100" aria-hidden="true">' +
@@ -264,7 +273,7 @@ function weaponIcon(id){
     '<path d="' + p + '" fill="none" stroke="hsl(' + hue + ' 55% 66%)" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>' +
     '</svg>';
 }
-function locationIcon(id){
+function drawnLocation(id){
   const hue = (E.LOCATIONS.findIndex(l => l.id === id) * 37 + 140) % 360;
   return '<svg class="ms-obj" viewBox="0 0 100 100" aria-hidden="true">' +
     '<rect x="0" y="0" width="100" height="100" rx="14" fill="hsl(' + hue + ' 22% 20%)"/>' +
@@ -272,6 +281,12 @@ function locationIcon(id){
     '<rect x="42" y="62" width="16" height="22" fill="hsl(' + hue + ' 55% 66%)"/>' +
     '</svg>';
 }
+/* Weapons and locations were drawn-only until the paintings existed. They go
+   through the same photo probe the suspects always did, so the twelve weapon
+   and twelve location canvases light up with no other change — and a phone
+   that never downloads them still sees the drawn icon it saw before. */
+function weaponIcon(id){ return artLayer(id, drawnWeapon(id)); }
+function locationIcon(id){ return artLayer(id, drawnLocation(id)); }
 function cardArt(card){
   const cat = E.catOf(card), b = E.baseOf(card);
   if (cat === 's') return suspectHTML(b);
@@ -328,18 +343,131 @@ function injectCSS(){
     '#scr-party .ms-hand b{font-family:var(--disp,"Exo 2",sans-serif);font-size:22px;font-weight:900}',
     '#scr-party .ms-hand p{color:#c9bfae;font-size:13.5px;line-height:1.55;max-width:320px}',
     /* the board */
-    '#scr-party .ms-host{height:100%}',
-    '#scr-party .ms-wrap{display:flex;flex-direction:column;height:100%;color:#f3ede0}',
-    '#scr-party .ms-top{flex:0 0 auto;padding:8px 12px 4px}',
-    '#scr-party .ms-seats{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}',
-    '#scr-party .ms-seat{flex:0 0 auto;display:flex;align-items:center;gap:6px;border-radius:20px;padding:5px 11px 5px 6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);font-size:12px}',
+    '#scr-party .pt-host.ms-host{height:100%;align-items:stretch;justify-content:stretch;overflow:hidden;padding:0}',
+    /* width:100% is load-bearing. .pt-host is a flex row, so without it the
+       wrap takes its MAX-CONTENT width — the seat rail's — and the board,
+       measured from that box, was built 489px wide inside a 390px phone and
+       ran off the right-hand edge. */
+    '#scr-party .ms-wrap{display:flex;flex-direction:column;height:100%;min-height:0;' +
+      'width:100%;max-width:100%;color:#f3ede0}',
+    '#scr-party .ms-top{flex:0 0 auto;padding:6px 10px 2px;min-width:0}',
+    '#scr-party .ms-seats{display:flex;gap:6px;overflow-x:auto;padding-bottom:3px;min-width:0}',
+    '#scr-party .ms-seat{flex:0 0 auto;display:flex;align-items:center;gap:6px;border-radius:14px;padding:4px 10px 4px 6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);font-size:12px;line-height:1.15;text-align:left}',
     '#scr-party .ms-seat.turn{border-color:var(--sc,#e0b84e);box-shadow:0 0 0 2px var(--sc,#e0b84e) inset}',
     '#scr-party .ms-seat.out{opacity:.42}',
-    '#scr-party .ms-seat .dot{width:12px;height:12px;border-radius:50%;background:var(--sc,#888);flex:0 0 auto}',
-    '#scr-party .ms-scroll{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:2px 12px 12px}',
-    '#scr-party .ms-strip{font-size:12.5px;color:#c9bfae;min-height:20px;padding:6px 12px;line-height:1.4}',
-    '#scr-party .ms-dock{flex:0 0 auto;display:grid;gap:8px;padding:8px 12px 12px;grid-template-columns:1fr 1fr 1fr}',
-    '#scr-party .ms-dock .btn{padding:12px 8px;font-size:13px}',
+    '#scr-party .ms-seat .dot{width:11px;height:11px;border-radius:50%;background:var(--sc,#888);flex:0 0 auto}',
+    /* the seat rail says WHERE each detective is — the board is only half the
+       information; "who is in the Bakery with me" is the other half, and it
+       must be readable without hunting for six coloured discs. */
+    '#scr-party .ms-seat b{display:block;font-weight:800;font-size:11.5px;white-space:nowrap}',
+    '#scr-party .ms-seat i{display:block;font-style:normal;font-size:9.5px;color:#a89f8e;white-space:nowrap;max-width:96px;overflow:hidden;text-overflow:ellipsis}',
+    '#scr-party .ms-strip{font-size:12.5px;color:#c9bfae;min-height:20px;padding:5px 12px;line-height:1.3;display:flex;align-items:center;gap:8px}',
+    '#scr-party .ms-strip .ms-msg{flex:1;min-width:0}',
+    '#scr-party .ms-dock{flex:0 0 auto;display:grid;gap:8px;padding:6px 12px 10px;grid-template-columns:1fr 1fr 1fr}',
+    /* an EXPLICIT height, not min-height. Left to min-height these buttons
+       measured 65px — 19px per row of dock stolen straight off the board on a
+       640px phone, which is the difference between a 41px cell and a 44px one.
+       48px still clears the 44px touch minimum, and two lines of a long
+       Maltese label ("Passaġġ sigriet") fit inside it. */
+    '#scr-party .ms-dock .btn{box-sizing:border-box;height:48px;min-height:0;padding:4px 6px;' +
+      'font-size:12.5px;line-height:1.2;text-align:center;overflow:hidden}',
+
+    /* ═══ THE BOARD ITSELF ═══════════════════════════════════════════
+       The 7x8 map. The box flexes into whatever vertical slack the seat
+       rail, the strip and the dock leave over, and sizeBoard() writes the
+       ONE number the whole grid is built from — `--c`, the cell edge in px,
+       measured from that box. Nothing here is a hard-coded cell size: a
+       fixed px board is exactly what falls off the bottom of a 360x640
+       phone. The declarations below (aspect-ratio + 1fr tracks) are the
+       fallback shape if the measure has not run yet, so the first paint is
+       never a pile of squares in the corner. */
+    /* the negative margin buys back most of .screen's 12px gutter: at 360px
+       every pixel of that gutter comes straight off the cell size, and a cell
+       under the 44px touch minimum is a worse trade than a narrow margin. */
+    '#scr-party .ms-boardbox{flex:1 1 auto;min-height:0;min-width:0;width:auto;display:flex;' +
+      'align-items:center;justify-content:center;margin:0 -8px;padding:2px;position:relative}',
+    '#scr-party .ms-board{--c:44px;--g:2px;box-sizing:border-box;display:grid;' +
+      'grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(8,1fr);gap:var(--g);' +
+      'aspect-ratio:7/8;max-width:100%;max-height:100%;' +
+      'width:calc(var(--c)*7 + var(--g)*6 + 8px);height:calc(var(--c)*8 + var(--g)*7 + 8px);' +
+      'padding:4px;border-radius:12px;background:#151019 url("art/misteru/board-felt.jpg") center/cover;' +
+      'box-shadow:0 10px 26px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.07) inset}',
+    '#scr-party .ms-cellx{position:relative;overflow:hidden;border:0;margin:0;padding:0;font:inherit;' +
+      'color:#f3ede0;background:transparent;border-radius:4px;-webkit-appearance:none;appearance:none;' +
+      'touch-action:manipulation;transition:transform .15s ease,opacity .15s ease}',
+    /* the paving is ONE photograph shared by the whole board, each square
+       showing its own slice — twenty copies of the same tile centred twenty
+       times reads as wallpaper, not as a street. */
+    '#scr-party .ms-corr{background-image:url("art/misteru/board-street.jpg");' +
+      'background-size:calc(var(--c)*7) calc(var(--c)*8);' +
+      'background-position:calc(var(--cc) * var(--c) * -1) calc(var(--rr) * var(--c) * -1);' +
+      'box-shadow:0 0 0 1px rgba(255,255,255,.05) inset,0 0 0 2px rgba(0,0,0,.35) inset}',
+    /* A ROOM IS A FLOOR PLAN, NOT A PICTURE. The board is seen from directly
+       overhead; the paintings are perspective interiors, and at 156x104 with
+       enough darkening for tokens to read they were a brown smudge. So the
+       tile is a drawn plan — tinted limestone floor, walls with a real gap at
+       every doorway, one furniture glyph from above — and the painting is
+       promoted to the moment you walk in (see roomEntryCard). */
+    '#scr-party .ms-room{border-radius:6px}',
+    '#scr-party .ms-floor{position:absolute;inset:0;border-radius:6px;' +
+      'background-image:linear-gradient(var(--t1),var(--t2)),url("art/misteru/board-street.jpg");' +
+      'background-size:cover,cover;background-position:center,center}',
+    '#scr-party .ms-plan{position:absolute;inset:0;width:100%;height:100%;display:block}',
+    '#scr-party .ms-room .ms-scrim{position:absolute;inset:0;border-radius:6px;' +
+      'background:linear-gradient(180deg,rgba(9,7,13,0),rgba(9,7,13,.12) 46%,rgba(9,7,13,.80))}',
+    /* the painting, promoted: shown big for a moment when you walk in */
+    '#scr-party .ms-enter{position:absolute;left:10px;right:10px;top:8px;z-index:5;pointer-events:none;' +
+      'display:flex;align-items:center;gap:11px;padding:9px 12px 9px 9px;border-radius:14px;' +
+      'background:linear-gradient(180deg,rgba(32,26,43,.97),rgba(20,16,28,.97));' +
+      'border:1px solid rgba(255,197,66,.55);box-shadow:0 14px 34px rgba(0,0,0,.6);' +
+      'opacity:0;transform:translateY(-10px);transition:opacity .22s ease,transform .22s cubic-bezier(.2,.8,.2,1)}',
+    '#scr-party .ms-enter.in{opacity:1;transform:translateY(0)}',
+    '#scr-party .ms-enter .ms-fart,#scr-party .ms-enter .ms-obj{width:92px;height:92px;flex:0 0 auto;' +
+      'border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,197,66,.35)}',
+    '#scr-party .ms-enter b{display:block;font-family:var(--disp,"Exo 2",sans-serif);font-size:15px;color:#FFC542}',
+    '#scr-party .ms-enter i{display:block;font-style:normal;font-size:11.5px;color:#c9bfae;margin-top:2px}',
+    'body.reduced #scr-party .ms-enter{transition:none}',
+    '@media (prefers-reduced-motion:reduce){#scr-party .ms-enter{transition:none}}',
+    /* long Maltese room names ("Il-Każin tal-Banda") get two lines and then
+       an ellipsis — never an overflow that pushes the tokens off the tile. */
+    '#scr-party .ms-rname{position:absolute;left:3px;right:3px;bottom:2px;text-align:center;' +
+      'font-family:var(--disp,"Exo 2",sans-serif);font-weight:800;font-size:clamp(9px,2.9vw,12px);' +
+      'line-height:1.14;letter-spacing:.01em;color:#FFC542;' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.98),0 0 4px rgba(0,0,0,.9),0 0 8px rgba(0,0,0,.7);' +
+      'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}',
+    /* tokens: a small wrapping row, so six detectives in one room stay six
+       legible discs instead of one pile. */
+    '#scr-party .ms-toks{position:absolute;left:1px;right:1px;top:1px;display:flex;flex-wrap:wrap;' +
+      'gap:1px;justify-content:center;align-content:flex-start;pointer-events:none}',
+    '#scr-party .ms-tok{width:min(46%,20px);aspect-ratio:1;border-radius:50%;background:var(--sc,#888);' +
+      'color:#120e18;font:900 10px/1 var(--disp,"Exo 2",sans-serif);display:flex;align-items:center;' +
+      'justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.45)}',
+    '#scr-party .ms-room .ms-tok{width:min(26%,22px)}',
+    '#scr-party .ms-tok.me{box-shadow:0 0 0 2px #FFC542,0 1px 3px rgba(0,0,0,.65)}',
+    '#scr-party .ms-tok.out{opacity:.42;filter:grayscale(.55)}',
+    /* REACHABLE IS NEVER COLOUR ALONE: full brightness + a gold inset outline
+       + a pulsing dot, against a dimmed, untappable rest of the board. */
+    '#scr-party .ms-board.lit .ms-cellx{opacity:.45;pointer-events:none}',
+    /* OUTLINE, not an inset box-shadow. A room tile's floor and floor-plan are
+       absolutely-positioned children, and they paint OVER the button's own
+       inset shadow — the gold ring was invisible on exactly the cells a player
+       most wants to walk into. Outlines paint last, over the children. */
+    '#scr-party .ms-board.lit .ms-cellx.rch{opacity:1;pointer-events:auto;cursor:pointer;' +
+      'outline:2px solid #FFC542;outline-offset:-2px;box-shadow:0 0 12px rgba(255,197,66,.45)}',
+    '#scr-party .ms-board:not(.lit) .ms-cellx{pointer-events:none}',
+    '#scr-party .ms-board.lit .ms-cellx.rch:active{transform:scale(.97)}',
+    '#scr-party .ms-pip{position:absolute;left:50%;top:50%;width:9px;height:9px;margin:-4.5px 0 0 -4.5px;' +
+      'border-radius:50%;background:#FFC542;box-shadow:0 0 8px rgba(255,197,66,.95);' +
+      'animation:ms-pulse 1.15s ease-in-out infinite}',
+    '#scr-party .ms-pip[hidden]{display:none}',
+    '@keyframes ms-pulse{0%,100%{transform:scale(.68);opacity:.55}50%{transform:scale(1.18);opacity:1}}',
+    /* the die is a drawn face, never a numeral and never an emoji */
+    '#scr-party .ms-die{width:26px;height:26px;flex:0 0 auto}',
+    '@keyframes ms-roll{0%{transform:rotate(-30deg) scale(.66)}55%{transform:rotate(14deg) scale(1.16)}100%{transform:rotate(0) scale(1)}}',
+    '#scr-party .ms-die.roll{animation:ms-roll .5s cubic-bezier(.2,.8,.2,1) 1}',
+    'body.reduced #scr-party .ms-pip,body.reduced #scr-party .ms-die.roll{animation:none}',
+    '@media (prefers-reduced-motion:reduce){#scr-party .ms-pip,#scr-party .ms-die.roll{animation:none}' +
+      '#scr-party .ms-cellx{transition:none}}',
     /* my hand */
     '#scr-party .ms-myhand{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px}',
     '#scr-party .ms-chip{display:flex;align-items:center;gap:6px;border-radius:9px;padding:5px 9px 5px 5px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);font-size:12px}',
@@ -652,6 +780,11 @@ function openBoard(onBack){
     ]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
+  /* the frame's turn strip stays empty in this game — .ms-strip below the
+     board is the turn prompt — and an empty one still eats ~34px of the
+     height the board needs on a 360x640 phone. Hide THIS frame's, never the
+     rule for every game. */
+  if (M.ctx.turn) M.ctx.turn.style.display = 'none';
   M.ctx.badge.textContent = M.net ? T('Online', 'Onlajn') : ('#' + M.st.caseId);
   buildBoard();
   M.ctx.btn('ms-nb').onclick = () => openNotebook();
@@ -660,12 +793,15 @@ function openBoard(onBack){
 
 function buildBoard(){
   const ctx = M.ctx;
+  stopWatchBox();
   ctx.host.classList.add('ms-host');
+  /* seat rail → board → turn prompt → dock. Nothing here scrolls; the board
+     box is the only elastic row and it takes whatever is left. */
   ctx.host.innerHTML =
     '<div class="ms-wrap">' +
       '<div class="ms-top"><div class="ms-seats" id="ms-seats"></div></div>' +
+      '<div class="ms-boardbox" id="ms-boardbox"><div class="ms-board" id="ms-board"></div></div>' +
       '<div class="ms-strip" id="ms-strip"></div>' +
-      '<div class="ms-scroll" id="ms-scroll"></div>' +
       '<div class="ms-dock" id="ms-dock"></div>' +
       '<div class="ms-sheet" id="ms-sheet" aria-hidden="true">' +
         '<div class="ms-sheet-h"><h4 id="ms-sheet-t"></h4>' +
@@ -675,80 +811,455 @@ function buildBoard(){
     '</div>';
   UI = {
     ctx,
-    seats:  ctx.host.querySelector('#ms-seats'),
-    strip:  ctx.host.querySelector('#ms-strip'),
-    scroll: ctx.host.querySelector('#ms-scroll'),
-    dock:   ctx.host.querySelector('#ms-dock'),
-    sheet:  ctx.host.querySelector('#ms-sheet'),
-    sheetT: ctx.host.querySelector('#ms-sheet-t'),
-    sheetB: ctx.host.querySelector('#ms-sheet-b')
+    seats:    ctx.host.querySelector('#ms-seats'),
+    boardBox: ctx.host.querySelector('#ms-boardbox'),
+    board:    ctx.host.querySelector('#ms-board'),
+    strip:    ctx.host.querySelector('#ms-strip'),
+    dock:     ctx.host.querySelector('#ms-dock'),
+    sheet:    ctx.host.querySelector('#ms-sheet'),
+    sheetT:   ctx.host.querySelector('#ms-sheet-t'),
+    sheetB:   ctx.host.querySelector('#ms-sheet-b')
   };
   ctx.host.querySelector('#ms-sheet-x').onclick = () => closeSheet();
+  /* ONE delegated listener on the container: the cells are rewritten whenever
+     the case or the language changes, and a per-cell handler would have to be
+     re-bound every time (and would leak the ones it forgot). */
+  UI.board.onclick = ev => {
+    const cell = ev.target && ev.target.closest ? ev.target.closest('.ms-cellx') : null;
+    if (!cell || !cell.classList.contains('rch')) return;
+    boardTap(+cell.dataset.pos);
+  };
+  watchBox();
   render();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE BOARD — 7 x 8 off the engine's geometry. Six room tiles (each ONE
+   grid item spanning its rectangle) and twenty corridor squares. Built
+   once per case/language and then only repainted: rebuilding the markup
+   every turn would re-request the six room paintings and flash the drawn
+   fallback back in on every AI move.
+   ═══════════════════════════════════════════════════════════════════ */
+/* ── THE FLOOR PLAN ───────────────────────────────────────────────────
+   One furniture glyph per location, drawn FROM ABOVE, in a 30 x 20 unit
+   space (three cells wide, two tall — the room rectangle's own shape). A
+   handful of primitives each: it has to read at about 156 x 104 CSS px, so
+   simple beats accurate. Keyed by the engine's location id, so slot k draws
+   whatever card the case put there and nothing is hand-placed per case. */
+const PLAN_GLYPH = {
+  /* band club — bass drum and two music stands */
+  kazinbanda:'<circle cx="15" cy="8" r="4.4"/><circle cx="15" cy="8" r="1.5"/>' +
+             '<rect x="5.5" y="6" width="3.2" height="4.6" rx="1"/><rect x="21.3" y="6" width="3.2" height="4.6" rx="1"/>',
+  /* church — altar block and rows of pews */
+  knisja:'<rect x="12" y="2.4" width="6" height="2.6" rx="0.6"/>' +
+         '<path d="M8 7.4h14M8 9.6h14M8 11.8h14"/>',
+  /* bakery — the oven mouth, an arch, and the hearth line */
+  forn:'<path d="M9 12.6V9a6 6 0 0 1 12 0v3.6"/><path d="M6.5 12.6h17"/><path d="M13 12.6V9.6h4v3"/>',
+  /* cellar — barrel ends in a rack */
+  kantina:'<circle cx="9" cy="7.6" r="2.7"/><circle cx="15" cy="7.6" r="2.7"/><circle cx="21" cy="7.6" r="2.7"/>' +
+          '<path d="M6 11.6h18"/>',
+  /* catacombs — niches cut into two walls */
+  katakombi:'<rect x="6" y="4" width="4" height="2.4"/><rect x="6" y="8" width="4" height="2.4"/>' +
+            '<rect x="20" y="4" width="4" height="2.4"/><rect x="20" y="8.6" width="4" height="2.4"/>' +
+            '<path d="M12 3.5v9"/><path d="M18 3.5v9"/>',
+  /* theatre — the stage bar and an arc of seats */
+  teatru:'<rect x="7" y="3" width="16" height="2.2" rx="0.6"/>' +
+         '<path d="M6.5 8.6a9 9 0 0 0 17 0"/><path d="M8 11.8a7.4 7.4 0 0 0 14 0"/>',
+  /* garden — a fountain, and four beds around it */
+  gnien:'<circle cx="15" cy="8" r="4.6"/><circle cx="15" cy="8" r="1.7"/>' +
+        '<rect x="5" y="4" width="3" height="3"/><rect x="22" y="4" width="3" height="3"/>' +
+        '<rect x="5" y="9.4" width="3" height="3"/><rect x="22" y="9.4" width="3" height="3"/>',
+  /* market — a grid of stalls */
+  suq:'<rect x="6" y="4" width="4.6" height="3.4"/><rect x="12.7" y="4" width="4.6" height="3.4"/>' +
+      '<rect x="19.4" y="4" width="4.6" height="3.4"/><rect x="6" y="9" width="4.6" height="3.4"/>' +
+      '<rect x="12.7" y="9" width="4.6" height="3.4"/><rect x="19.4" y="9" width="4.6" height="3.4"/>',
+  /* yacht — a pointed hull, from above */
+  jott:'<path d="M15 2.6c4.6 3.4 5.6 7.6 4.6 10.4h-9.2C9.4 10.2 10.4 6 15 2.6z"/><path d="M15 4.4v8.6"/>',
+  /* palace — the long table and its chairs */
+  palazz:'<rect x="7" y="6" width="16" height="4" rx="1"/>' +
+         '<circle cx="10" cy="4.2" r="1.1"/><circle cx="15" cy="4.2" r="1.1"/><circle cx="20" cy="4.2" r="1.1"/>' +
+         '<circle cx="10" cy="11.8" r="1.1"/><circle cx="15" cy="11.8" r="1.1"/><circle cx="20" cy="11.8" r="1.1"/>',
+  /* hotel — the reception desk and the pigeonholes behind it */
+  lukanda:'<rect x="5.5" y="8.4" width="10.5" height="3.6" rx="1"/>' +
+          '<rect x="18" y="3.4" width="6.5" height="6.6"/><path d="M18 5.6h6.5M18 7.8h6.5M21.25 3.4v6.6"/>',
+  /* bocci club — the lane and two bowls */
+  kazinbocci:'<rect x="4.5" y="5.6" width="21" height="5" rx="1.4"/>' +
+             '<circle cx="9.5" cy="8.1" r="1.5"/><circle cx="20.5" cy="8.1" r="1.5"/><circle cx="15" cy="8.1" r="0.8"/>'
+};
+/* every slot gets its own hue, off the SLOT and not the case, so the six
+   rooms stay six distinguishable colours whichever of the fifty cases is on
+   the table (and so nothing shifts when the case changes). */
+function roomHue(k){ return (k * 57 + 24) % 360; }
+function roomTint(k){
+  const h = roomHue(k);
+  return '--t1:hsla(' + h + ',34%,34%,.80);--t2:hsla(' + h + ',36%,19%,.90)';
+}
+/* THE WALLS ARE DERIVED, NOT DRAWN BY HAND. Every corridor square touching
+   the room rectangle IS a door (that is exactly what the engine's DOORS list
+   is), so each side cell is either solid wall or a wall with a real opening
+   in the middle of it. The plan therefore tells the truth about where you can
+   walk in and out — which is worth more on a Cluedo board than any texture. */
+function roomPlanSVG(k){
+  /* the geometry is per case now — read the board off the state, never a
+     module constant, or every case draws case 1's walls. */
+  const brd = E.boardOf(M.st);
+  const m = brd.ROOMS[k];
+  const cols = m.c1 - m.c0 + 1, rows = m.r1 - m.r0 + 1;
+  const W = cols * 10, H = rows * 10;
+  const GAP = 4.4;                       /* the doorway, in the same units */
+  const wall = [], sill = [];
+  /* seg(): one cell-length of a side. `open` = a corridor is on the far side,
+     so leave a centred gap and lay a gold threshold across it. */
+  const seg = (open, x1, y1, x2, y2) => {
+    if (!open){ wall.push('M' + x1 + ' ' + y1 + 'L' + x2 + ' ' + y2); return; }
+    const dx = x2 - x1, dy = y2 - y1, len = Math.abs(dx) + Math.abs(dy);
+    const f = (len - GAP) / 2 / len;
+    const ax = x1 + dx * f, ay = y1 + dy * f;
+    const bx = x2 - dx * f, by = y2 - dy * f;
+    wall.push('M' + x1 + ' ' + y1 + 'L' + ax.toFixed(2) + ' ' + ay.toFixed(2));
+    wall.push('M' + bx.toFixed(2) + ' ' + by.toFixed(2) + 'L' + x2 + ' ' + y2);
+    sill.push('M' + ax.toFixed(2) + ' ' + ay.toFixed(2) + 'L' + bx.toFixed(2) + ' ' + by.toFixed(2));
+  };
+  for (let c = m.c0; c <= m.c1; c++){
+    const x = (c - m.c0) * 10;
+    seg(E.corrIndexAt(brd, m.r0 - 1, c) >= 0, x, 0, x + 10, 0);       /* top */
+    seg(E.corrIndexAt(brd, m.r1 + 1, c) >= 0, x, H, x + 10, H);       /* bottom */
+  }
+  for (let r = m.r0; r <= m.r1; r++){
+    const y = (r - m.r0) * 10;
+    seg(E.corrIndexAt(brd, r, m.c0 - 1) >= 0, 0, y, 0, y + 10);       /* left */
+    seg(E.corrIndexAt(brd, r, m.c1 + 1) >= 0, W, y, W, y + 10);       /* right */
+  }
+  const card = E.roomCard(M.st, k);
+  const id = card ? E.baseOf(card) : '';
+  const glyph = PLAN_GLYPH[id] || '<rect x="9" y="5" width="12" height="6" rx="1"/><circle cx="15" cy="8" r="1.4"/>';
+  const acc = 'hsl(' + roomHue(k) + ' 62% 74%)';
+  /* preserveAspectRatio=none: the glyph space IS the room rectangle, so it
+     stretches with the tile instead of leaving letterboxes at 360px. */
+  return '<svg class="ms-plan" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">' +
+    '<g transform="translate(' + ((W - 30) / 2) + ' ' + ((H - 20) / 2) + ')" fill="none" stroke="' + acc + '" ' +
+      'stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round" opacity="0.34">' + glyph + '</g>' +
+    '<path d="' + wall.join('') + '" fill="none" stroke="rgba(12,9,16,.85)" stroke-width="2.4" stroke-linecap="square"/>' +
+    '<path d="' + wall.join('') + '" fill="none" stroke="' + acc + '" stroke-width="1.1" stroke-linecap="square" opacity="0.72"/>' +
+    '<path d="' + sill.join('') + '" fill="none" stroke="#FFC542" stroke-width="0.7" opacity="0.55"/>' +
+  '</svg>';
+}
+
+function boardHTML(){
+  const st = M.st, brd = E.boardOf(st), out = [];
+  for (let k = 0; k < brd.ROOMS.length; k++){
+    const m = brd.ROOMS[k];
+    const card = E.roomCard(st, k);
+    const nm = card ? cardName(card) : '';
+    out.push('<button type="button" class="ms-cellx ms-room" data-pos="' + k + '"' +
+      ' style="grid-area:' + (m.r0 + 1) + '/' + (m.c0 + 1) + '/' + (m.r1 + 2) + '/' + (m.c1 + 2) + ';' +
+        roomTint(k) + '"' +
+      ' aria-label="' + esc(nm) + '">' +
+      '<span class="ms-floor"></span>' +
+      roomPlanSVG(k) +
+      '<span class="ms-scrim"></span>' +
+      '<span class="ms-rname">' + esc(nm) + '</span>' +
+      '<span class="ms-toks" data-toks="' + k + '"></span>' +
+      '<span class="ms-pip" hidden></span>' +
+    '</button>');
+  }
+  brd.CORR.forEach((cell, i) => {
+    const p = E.corrPos(brd, i);
+    out.push('<button type="button" class="ms-cellx ms-corr" data-pos="' + p + '"' +
+      ' style="grid-area:' + (cell.r + 1) + '/' + (cell.c + 1) + ';--rr:' + cell.r + ';--cc:' + cell.c + '"' +
+      ' aria-label="' + esc(T('street', 'triq')) + '">' +
+      '<span class="ms-toks" data-toks="' + p + '"></span>' +
+      '<span class="ms-pip" hidden></span>' +
+    '</button>');
+  });
+  return out.join('');
+}
+
+/* the disc a seat is drawn as. The initial is the label the spec asks for,
+   but four machine detectives all begin with D — so a seat whose initial is
+   shared falls back to its number rather than shipping four identical discs
+   and leaving the colour to carry it alone. */
+function tokenLabel(i){
+  const ini = s => (String(s || '').trim().charAt(0) || '?').toUpperCase();
+  const mine = ini(seatName(i));
+  for (let j = 0; j < M.st.n; j++) if (j !== i && ini(seatName(j)) === mine) return String(i + 1);
+  return mine;
+}
+/* where a seat is standing, in words, for the rail and the prompt */
+function whereName(i){
+  const room = E.roomOfSeat(M.st, i);
+  return room >= 0 ? cardName(E.roomCard(M.st, room)) : T('in the street', 'fit-triq');
+}
+
+/* THE ONE NUMBER THE BOARD IS BUILT FROM. Measured from the box the board
+   was given, never assumed: 390x844 and 360x640 leave very different slack
+   and a constant here is what breaks the smaller one. */
+function sizeBoard(){
+  if (!UI || !UI.board || !UI.boardBox) return 0;
+  /* the CONTENT box, not clientWidth — clientWidth still carries the box's own
+     padding, and sizing the board from it made a board wider than the space it
+     had, which max-width then squeezed into non-square cells. */
+  const cs = getComputedStyle(UI.boardBox);
+  const w = UI.boardBox.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+  const h = UI.boardBox.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+  if (w <= 0 || h <= 0) return 0;
+  const G = 2, PAD = 8;                       /* gap, and the felt's own padding */
+  const cw = (w - PAD - G * (E.BOARD_W - 1)) / E.BOARD_W;
+  const ch = (h - PAD - G * (E.BOARD_H - 1)) / E.BOARD_H;
+  const c = Math.max(20, Math.floor(Math.min(cw, ch)));
+  UI.board.style.setProperty('--c', c + 'px');
+  return c;
+}
+let boxRO = null;
+function watchBox(){
+  stopWatchBox();
+  if (!UI || !UI.boardBox) return;
+  if (typeof ResizeObserver !== 'function'){ window.addEventListener('resize', sizeBoard); boxRO = 'win'; return; }
+  boxRO = new ResizeObserver(() => sizeBoard());
+  boxRO.observe(UI.boardBox);
+}
+function stopWatchBox(){
+  if (!boxRO) return;
+  if (boxRO === 'win') window.removeEventListener('resize', sizeBoard);
+  else { try { boxRO.disconnect(); } catch(e){} }
+  boxRO = null;
+}
+
+function paintBoard(){
+  if (!UI || !UI.board) return;
+  const st = M.st, view = viewSeat(), t = E.turn(st);
+  /* the structure is rebuilt only when the CASE or the LANGUAGE changed —
+     the first room's translated name is the cheapest witness of both. */
+  const key = st.caseId + '|' + cardName(E.roomCard(st, 0));
+  if (UI.board.dataset.k !== key){ UI.board.innerHTML = boardHTML(); UI.board.dataset.k = key; }
+
+  const at = {};
+  for (let i = 0; i < st.n; i++){
+    const p = (st.pos || [])[i];
+    if (!E.posOK(st, p)) continue;
+    (at[p] = at[p] || []).push(i);
+  }
+  UI.board.querySelectorAll('.ms-toks').forEach(tray => {
+    const list = at[+tray.dataset.toks] || [];
+    tray.innerHTML = list.map(i =>
+      '<span class="ms-tok' + (i === view ? ' me' : '') + (st.out[i] ? ' out' : '') +
+        '" style="--sc:' + seatHex(i) + '" title="' + esc(seatName(i)) + '">' +
+        esc(tokenLabel(i)) + '</span>').join('');
+  });
+
+  /* ONE call to reachable() per paint — it is the same list the dock and the
+     prompt reason about, so asking twice could only ever disagree. */
+  const myTurn = canAct();
+  const lit = (myTurn && !st.moved && st.roll > 0) ? E.reachable(st, view) : [];
+  const on = {}; lit.forEach(p => { on[p] = 1; });
+  UI.board.classList.toggle('lit', lit.length > 0);
+  UI.board.querySelectorAll('.ms-cellx').forEach(cell => {
+    const hot = !!on[+cell.dataset.pos];
+    cell.classList.toggle('rch', hot);
+    const pip = cell.querySelector('.ms-pip');
+    if (pip) pip.hidden = !hot;
+  });
+  void t;
+  sizeBoard();
+  return lit;
 }
 
 function closeSheet(){ if (UI){ UI.sheet.classList.remove('open'); UI.sheet.setAttribute('aria-hidden', 'true'); cue('ui.back', { gain:0.7 }); } }
 function openSheet(title){ if (!UI) return; UI.sheetT.textContent = title; UI.sheet.classList.add('open'); UI.sheet.setAttribute('aria-hidden', 'false'); cue('ui.sheet', { gain:0.8 }); }
 
-/* the seat rail + turn indicator */
+/* the seat rail + turn indicator, and WHERE each detective is standing */
 function paintSeats(){
   if (!UI) return;
   const st = M.st, t = E.turn(st);
   UI.seats.innerHTML = st.seats.map((s, i) =>
     '<div class="ms-seat' + (i === t ? ' turn' : '') + (st.out[i] ? ' out' : '') + '" style="--sc:' + seatHex(i) + '">' +
-      '<span class="dot"></span>' + esc(seatName(i)) + (st.out[i] ? ' ' + esc(T('(out)', '(barra)')) : '') +
+      '<span class="dot"></span>' +
+      '<span><b>' + esc(seatName(i)) + (st.out[i] ? ' ' + esc(T('(out)', '(barra)')) : '') + '</b>' +
+        '<i>' + esc(whereName(i)) + '</i></span>' +
     '</div>').join('');
 }
 
-/* the main scroll body: your hand + a hint of the notebook */
-function paintBody(){
-  if (!UI) return;
-  const st = M.st, view = viewSeat();
-  const myHand = E.handOf(st, view) || [];
-  const nb = E.notebookFor(st, view);
-  const sol = nb.solution || {};
-  UI.scroll.innerHTML =
-    '<div class="ms-lbl">' + esc(T('Your hand', 'L-id tiegħek')) + '</div>' +
-    '<div class="ms-myhand">' +
-      (myHand.length ? myHand.map(c => '<span class="ms-chip">' + cardArt(c) + esc(cardName(c)) + '</span>').join('')
-                     : '<span class="pt-ledger">' + esc(T('(hidden — tap "I\'m ready" on your turn)', '(moħbija — agħfas "Lest" fuq id-dawra tiegħek)')) + '</span>') +
-    '</div>' +
-    '<div class="ms-lbl">' + esc(T('What you have deduced', 'X\'iddeduċejt')) + '</div>' +
-    '<div class="ms-myhand">' +
-      E.CATS.map(cat => {
-        const label = cat === 's' ? T('Suspect', 'Suspettat') : cat === 'w' ? T('Weapon', 'Arma') : T('Place', 'Post');
-        const card = sol[cat];
-        return '<span class="ms-chip" style="border-color:' + (card ? '#e0b84e' : 'rgba(255,255,255,.1)') + '">' +
-          (card ? cardArt(card) + esc(cardName(card)) : '<b style="color:#a89f8e">' + esc(label) + ': ?</b>') + '</span>';
-      }).join('') +
-    '</div>' +
-    '<p class="pt-ledger" style="margin-top:10px">' +
-      esc(T('Open the Notebook to mark cards and work it out.', 'Iftaħ il-Ktejjeb biex timmarka l-karti u ssolviha.')) + '</p>';
+/* ── THE DIE ──────────────────────────────────────────────────────────
+   A real pipped face, drawn. Not a numeral (a "4" is a label, a die face is
+   the object the player just threw) and never an emoji — house rule. */
+const DIE_PIPS = {
+  1:[[50,50]],
+  2:[[32,32],[68,68]],
+  3:[[32,32],[50,50],[68,68]],
+  4:[[32,32],[68,32],[32,68],[68,68]],
+  5:[[32,32],[68,32],[50,50],[32,68],[68,68]],
+  6:[[32,28],[68,28],[32,50],[68,50],[32,72],[68,72]]
+};
+function dieSVG(n, anim){
+  const pips = DIE_PIPS[n | 0] || [];
+  return '<svg class="ms-die' + (anim ? ' roll' : '') + '" viewBox="0 0 100 100" ' +
+    'role="img" aria-label="' + esc(T('die showing ' + (n | 0), 'daddu juri ' + (n | 0))) + '">' +
+    '<rect x="6" y="6" width="88" height="88" rx="18" fill="#f6f1e6" stroke="rgba(0,0,0,.4)" stroke-width="3"/>' +
+    pips.map(p => '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="9" fill="#1a1410"/>').join('') +
+  '</svg>';
 }
 
-/* the dock: Suggest / Accuse / Notebook — enabled only on your live turn */
-function paintDock(){
-  if (!UI) return;
+/* ── THE TURN, AND WHO MAY DRIVE IT ───────────────────────────────────
+   canAct() is the one answer to "may this thumb move the game right now";
+   the board's lit squares, the prompt and the dock all read it, so they can
+   never disagree about whose turn it is. */
+function canAct(){
+  if (!M || !M.st) return false;
   const st = M.st, view = viewSeat(), t = E.turn(st);
-  const myTurn = (t === view) && !st.out[view] && !E.over(st) && isLocal(t) && !M.reveal;
-  UI.dock.innerHTML =
-    '<button class="btn ' + (myTurn ? 'primary' : 'ghost') + '" id="ms-suggest"' + (myTurn ? '' : ' disabled style="opacity:.5"') + '>' +
-      ico('search') + ' ' + esc(T('Suggest', 'Issuġġerixxi')) + '</button>' +
-    '<button class="btn ghost" id="ms-accuse"' + (myTurn ? '' : ' disabled style="opacity:.5"') + '>' +
-      ico('flag') + ' ' + esc(T('Accuse', 'Akkuża')) + '</button>' +
-    '<button class="btn ghost" id="ms-nbk">' + ico('book') + ' ' + esc(T('Notebook', 'Ktejjeb')) + '</button>';
-  const sg = UI.dock.querySelector('#ms-suggest'), ac = UI.dock.querySelector('#ms-accuse'), nk = UI.dock.querySelector('#ms-nbk');
-  if (sg && myTurn) sg.onclick = () => openPicker('suggest');
-  if (ac && myTurn) ac.onclick = () => openPicker('accuse');
-  if (nk) nk.onclick = () => openNotebook();
+  return (t === view) && !st.out[view] && !E.over(st) && isLocal(t) && !M.reveal;
 }
 
-function paintStrip(){
+/* roll → tap a lit square → suggest. Every one of these goes through
+   doMove() so the log, the autosave and the AI drive stay correct. None of
+   roll/move/passage advances the turn, so they render and stay put. */
+function doRoll(){
+  const view = viewSeat();
+  const res = doMove(view, { t:'roll' }, 'local');
+  if (!res.ok){ cue('ui.error'); return; }
+  M.dieAnim = true;
+  cue('board.flip', { gain:0.8 }, true);
+  render();
+}
+function boardTap(to){
+  const view = viewSeat();
+  const res = doMove(view, { t:'move', to }, 'local');
+  if (!res.ok){ cue('ui.error'); return; }
+  cue('ui.tap');
+  render();
+  roomEntryCard(E.posRoom(M.st.pos[view]));
+}
+function doPassage(){
+  const view = viewSeat();
+  const res = doMove(view, { t:'passage' }, 'local');
+  if (!res.ok){ cue('ui.error'); return; }
+  cue('board.flip', { gain:0.9 }, true);
+  render();
+  roomEntryCard(E.posRoom(M.st.pos[view]));
+}
+
+/* ── THE PAINTING, PROMOTED ───────────────────────────────────────────
+   art/misteru/<location>.png is a perspective interior. On a 156x104
+   overhead floor tile it was a smudge; here — the moment YOU walk in — it
+   is big enough to actually look at, which is the only place it earns its
+   keep on this screen. Only the local seat's own arrivals: three machine
+   detectives popping a card each every lap would be noise, not atmosphere.
+   Pointer-events stay off so it can never swallow the next tap, and it
+   clears itself; reduced motion just shows it and takes it away again. */
+let enterTimer = 0;
+function roomEntryCard(slot){
+  if (!M || !M.ctx || !(slot >= 0)) return;
+  const box = M.ctx.host.querySelector('#ms-boardbox');
+  if (!box) return;
+  const old = box.querySelector('.ms-enter'); if (old) old.remove();
+  if (enterTimer){ clearTimeout(enterTimer); enterTimer = 0; }
+  const card = E.roomCard(M.st, slot); if (!card) return;
+  const id = E.baseOf(card);
+  const ov = document.createElement('div');
+  ov.className = 'ms-enter';
+  ov.innerHTML = artLayer(id, drawnLocation(id)) +
+    '<span><b>' + esc(cardName(card)) + '</b>' +
+      '<i>' + esc(T('You step inside.', 'Tidħol ġewwa.')) + '</i></span>';
+  box.appendChild(ov);
+  const soft = reduced();
+  if (soft) ov.classList.add('in');
+  else requestAnimationFrame(() => { if (ov.isConnected) ov.classList.add('in'); });
+  enterTimer = setTimeout(() => {
+    enterTimer = 0;
+    if (!ov.isConnected) return;
+    if (soft){ ov.remove(); return; }
+    ov.classList.remove('in');
+    setTimeout(() => { if (ov.isConnected) ov.remove(); }, 260);
+  }, soft ? 1200 : 1900);
+}
+function doPass(){
+  const view = viewSeat();
+  const res = doMove(view, { t:'pass' }, 'local');
+  if (!res.ok){ cue('ui.error'); return; }
+  cue('ui.back', { gain:0.7 });
+  render(); afterMove();
+}
+
+/* the prompt + the dock are ONE decision — read off st.roll / st.moved and
+   the room the seat is standing in — so the sentence and the buttons under
+   it can never describe two different turns. `lit` is the reachable list the
+   board just drew, passed in rather than recomputed. */
+function turnPlan(lit){
+  const st = M.st, view = viewSeat();
+  const room = E.roomOfSeat(st, view);
+  const pos = (st.pos || [])[view];
+  const passTo = E.passageFrom(st, pos);
+  const B = (id, label, cls, go, w, icon) => ({ id, label, cls, go, w: w || 1, icon });
+
+  if (!st.moved && st.roll === 0){
+    const btns = [B('ms-roll', T('Roll the die', 'Itfa\' d-daddu'), 'primary', doRoll, 2)];
+    if (passTo >= 0)
+      btns.push(B('ms-secret', T('Secret passage', 'Passaġġ sigriet'), 'ghost', doPassage, 1));
+    btns.push(B('ms-accuse', T('Accuse', 'Akkuża'), 'ghost', () => openPicker('accuse'), 1, 'flag'));
+    return { txt: T('Roll the die.', 'Itfa\' d-daddu.'), die:0, btns };
+  }
+  if (!st.moved && st.roll > 0){
+    /* boxed in: every square within reach is occupied. legal() always keeps a
+       pass, and without offering it here the turn could never end. */
+    if (!lit.length){
+      return { txt: T('You rolled ' + st.roll + ' — nowhere to go.', 'Tfajt ' + st.roll + ' — imkien fejn tmur.'),
+        die: st.roll,
+        btns: [B('ms-pass', T('Pass', 'Aqbeż'), 'primary', doPass, 2),
+               B('ms-accuse', T('Accuse', 'Akkuża'), 'ghost', () => openPicker('accuse'), 1, 'flag')] };
+    }
+    return { txt: T('You rolled ' + st.roll + ' — tap a lit square.', 'Tfajt ' + st.roll + ' — agħfas kwadru mixgħul.'),
+      die: st.roll,
+      btns: [B('ms-accuse', T('Accuse', 'Akkuża'), 'ghost', () => openPicker('accuse'), 1, 'flag')] };
+  }
+  if (room >= 0){
+    const nm = cardName(E.roomCard(st, room));
+    return { txt: T('You are in ' + nm + '.', 'Int f\'' + nm + '.'), die:0,
+      btns: [B('ms-suggest', T('Suggest here', 'Issuġġerixxi hawn'), 'primary', () => openPicker('suggest'), 2, 'search'),
+             B('ms-accuse', T('Accuse', 'Akkuża'), 'ghost', () => openPicker('accuse'), 1, 'flag'),
+             B('ms-pass', T('Pass', 'Aqbeż'), 'ghost', doPass, 1)] };
+  }
+  return { txt: T('Nothing to search out here.', 'M\'hemm xejn x\'tfittex hawn barra.'), die:0,
+    btns: [B('ms-pass', T('Pass', 'Aqbeż'), 'primary', doPass, 2),
+           B('ms-accuse', T('Accuse', 'Akkuża'), 'ghost', () => openPicker('accuse'), 1, 'flag')] };
+}
+
+/* the dock: contextual, and the SAME three-state read the prompt uses */
+function paintDock(lit){
+  if (!UI) return;
+  const st = M.st, t = E.turn(st);
+  let btns;
+  if (!canAct()){
+    /* off-turn the dock is not a row of dead buttons: the notebook is the one
+       thing you genuinely can do while a detective thinks. */
+    btns = [{ id:'ms-nbk', label:T('Notebook', 'Ktejjeb'), cls:'ghost', icon:'book', w:1, go:() => openNotebook() },
+            { id:'ms-wait', w:1, cls:'ghost', off:true,
+              label: E.over(st) ? T('Case closed', 'Il-każ magħluq')
+                                : T(seatName(t) + '…', seatName(t) + '…') }];
+  } else {
+    btns = turnPlan(lit).btns;
+  }
+  UI.dock.style.gridTemplateColumns = btns.map(b => (b.w || 1) + 'fr').join(' ');
+  UI.dock.innerHTML = btns.map(b =>
+    '<button class="btn ' + (b.cls || 'ghost') + '" id="' + b.id + '"' +
+      (b.off ? ' disabled style="opacity:.5"' : '') + '>' +
+      (b.icon ? ico(b.icon) + ' ' : '') + esc(b.label) + '</button>').join('');
+  btns.forEach(b => {
+    if (b.off || !b.go) return;
+    const el = UI.dock.querySelector('#' + b.id);
+    if (el) el.onclick = b.go;
+  });
+}
+
+function paintStrip(lit){
   if (!UI) return;
   const st = M.st;
-  let txt;
+  let txt, die = 0;
   if (E.over(st)){ txt = TE(E.note(st)); }
-  else {
+  else if (canAct()){
+    /* MY turn: the prompt beats the news. What to do next is the one thing a
+       player cannot work out for themselves. */
+    const plan = turnPlan(lit);
+    txt = plan.txt; die = plan.die;
+  } else {
     const t = E.turn(st);
     const sug = st.lastSug;
     if (sug){
@@ -757,15 +1268,20 @@ function paintStrip(){
               seatName(sug.seat) + ' issuġġerixxa ' + cardName(sug.s) + ', ' + cardName(sug.w) + ', ' + cardName(sug.l) + '. ') +
         (sug.by >= 0 ? T(shower + ' showed a card.', shower + ' wera karta.') : T('No one could show a card!', 'Ħadd ma seta\' juri karta!'));
     } else {
-      txt = (t === viewSeat()) ? TE(E.note(st)) : T(seatName(t) + ' is thinking…', seatName(t) + ' qed jaħseb…');
+      txt = T(seatName(t) + ' is thinking…', seatName(t) + ' qed jaħseb…');
     }
   }
-  UI.strip.innerHTML = esc(txt);
+  const anim = !!M.dieAnim && !reduced();
+  M.dieAnim = false;
+  UI.strip.innerHTML = (die > 0 ? dieSVG(die, anim) : '') +
+    '<span class="ms-msg">' + esc(txt) + '</span>';
 }
 
 function render(){
   if (!M || !UI) return;
-  paintSeats(); paintStrip(); paintBody(); paintDock();
+  paintSeats();
+  const lit = paintBoard() || [];
+  paintStrip(lit); paintDock(lit);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -775,14 +1291,29 @@ let pickerSel = { s:null, w:null, l:null };
 function openPicker(kind){
   const st = M.st, cs = E.theCase(st);
   pickerSel = { s:null, w:null, l:null };
+  /* THE PLACE IS NOT A CHOICE IN A SUGGESTION. The engine's check() refuses
+     any suggestion naming a room other than the one you are standing in — so
+     the row shows that room, already chosen and not selectable, with one line
+     saying why. Letting the player pick freely and then swallowing the refusal
+     is how a rule turns into a bug report. */
+  const lockRoom = (kind === 'suggest') ? E.roomOfSeat(st, viewSeat()) : -1;
+  const lockCard = lockRoom >= 0 ? E.roomCard(st, lockRoom) : null;
+  if (lockCard) pickerSel.l = lockCard;
   const rowFor = (cat, title) => {
-    const ids = cs[cat];
+    const ids = (cat === 'l' && lockCard) ? [E.baseOf(lockCard)] : cs[cat];
     return '<div class="ms-pickrow"><div class="ms-lbl">' + esc(title) + '</div>' +
       '<div class="ms-pickgrid" data-cat="' + cat + '">' +
         ids.map(id => { const card = E.cardOf(cat, id);
-          return '<button class="ms-pk" data-card="' + esc(card) + '">' + cardArt(card) +
+          const locked = (cat === 'l' && lockCard);
+          return '<button class="ms-pk' + (locked ? ' on' : '') + '"' + (locked ? ' disabled' : '') +
+            ' data-card="' + esc(card) + '">' + cardArt(card) +
             '<span>' + esc(TE(E.nameOfCard(card))) + '</span></button>'; }).join('') +
-      '</div></div>';
+      '</div>' +
+      ((cat === 'l' && lockCard)
+        ? '<p class="pt-ledger" style="margin:6px 0 0">' +
+          esc(T('You may only ask about the room you are standing in.',
+                'Tista\' tistaqsi biss dwar il-kamra fejn qiegħed int.')) + '</p>' : '') +
+      '</div>';
   };
   UI.sheetB.innerHTML =
     rowFor('s', T('Suspect', 'Suspettat')) +
@@ -938,7 +1469,25 @@ function openNotebook(){
     return html;
   };
 
+  /* YOUR HAND LIVES HERE NOW. The board took the middle of the screen, so the
+     cards you hold moved into the notebook — the one place you are already
+     looking when you reason about who holds what. */
+  const nbSol = nb.solution || {};
   UI.sheetB.innerHTML =
+    '<div class="ms-lbl" style="margin-top:2px">' + esc(T('Your hand', 'L-id tiegħek')) + '</div>' +
+    '<div class="ms-myhand">' +
+      (myHand.length ? myHand.map(c => '<span class="ms-chip">' + cardArt(c) + esc(cardName(c)) + '</span>').join('')
+                     : '<span class="pt-ledger">' + esc(T('(hidden — tap "I\'m ready" on your turn)', '(moħbija — agħfas "Lest" fuq id-dawra tiegħek)')) + '</span>') +
+    '</div>' +
+    '<div class="ms-lbl">' + esc(T('What you have deduced', 'X\'iddeduċejt')) + '</div>' +
+    '<div class="ms-myhand">' +
+      E.CATS.map(cat => {
+        const label = cat === 's' ? T('Suspect', 'Suspettat') : cat === 'w' ? T('Weapon', 'Arma') : T('Place', 'Post');
+        const card = nbSol[cat];
+        return '<span class="ms-chip" style="border-color:' + (card ? '#e0b84e' : 'rgba(255,255,255,.1)') + '">' +
+          (card ? cardArt(card) + esc(cardName(card)) : '<b style="color:#a89f8e">' + esc(label) + ': ?</b>') + '</span>';
+      }).join('') +
+    '</div>' +
     '<p class="pt-ledger" style="margin:0 0 8px">' + esc(T('Tap a cell to cycle blank → ✓ → ✗ → ?. Your hand and cards shown to you fill in automatically.',
       'Agħfas ċella biex iddur vojt → ✓ → ✗ → ?. L-id tiegħek u l-karti murija lilek jimtlew waħedhom.')) + '</p>' +
     '<div style="overflow-x:auto"><table class="ms-nb"><thead><tr><th></th>' +
@@ -1156,6 +1705,8 @@ function podium(sol, v){
    ═══════════════════════════════════════════════════════════════════ */
 function leave(){
   stopThinking();
+  stopWatchBox();          /* a ResizeObserver left on a detached board is a leak */
+  if (enterTimer){ clearTimeout(enterTimer); enterTimer = 0; }
   if (M){ M.dead = true; }
   M = null; UI = null;
 }
@@ -1165,6 +1716,23 @@ function leave(){
    privately per seat. See the PRIVATE-DEAL note below for what js/mp.js /
    the server must supply.
    ═══════════════════════════════════════════════════════════════════ */
+/* ── THE BOARD CROSSES THE WIRE — and who broadcasts what ─────────────
+   The engine publishes `rol` / `mov` / `psg` alongside `sug`, `acc`,
+   `pass` and `quit` (js/misteru.js, THE WIRE). Two different routes, and
+   the split is about HIDDEN INFORMATION, not about rank:
+
+     · roll / move / passage / pass — NO hidden information. Anybody may
+       resolve them: check() is the same on every phone, the die comes out
+       of st.rs which every phone replays identically, and the position is
+       one small integer. So the SEAT THAT MADE THE MOVE broadcasts it and
+       every client replays it. They do NOT go through hostReferee — a
+       referee here would only add a round trip and a second source of
+       truth for a number both ends already agree on.
+     · suggest / accuse — hidden information (who holds what, and the
+       solution). Only the host knows, so a non-host whispers a request
+       and applies nothing until the host's stamped echo comes back.
+
+   The onMove hook below is where those two rules are actually written. */
 let NET = null;
 function relayIfOnline(rec){ /* the onMove hook forwards; nothing to do inline */ void rec; }
 
@@ -1317,6 +1885,31 @@ function onlinePrivate(d){
 const WHISPER_REQ = 'ms-req';     /* non-host → host: a suggestion/accusation request */
 const WHISPER_SHOW = 'ms-show';   /* host → suggester: the card shown, privately */
 
+/* ── THE WIRE ORDER — this exact array IS the wire ────────────────────
+   mp.js's toWire/fromWire walk a FIELD ORDER against a bitmask: field n
+   is bit n. So the order is a published contract and this list is
+   APPEND-ONLY, for the same reason the engine's own WIRE_FIELDS is.
+
+   Note the one thing that is NOT `E.WIRE_FIELDS.concat(['sg'])` any more,
+   and why. `sg` — the true suggester's room seat — has sat at INDEX 6
+   since this game shipped, and it is the field that tells every phone WHO
+   a host-refereed move belongs to. The engine appended its new `to` at
+   its own index 6; concatenating `sg` after it would have shoved `sg` to
+   7, which is an INSERT as far as the wire is concerned. A phone on an
+   older cached build walks its own six-field list plus `sg` at 6 against
+   OUR mask, so every `sug`, `acc` and `pass` it received would have come
+   out naming the wrong seat (or no seat), been refused by check(), and
+   stopped its table — for the four moves that work online today.
+   So `to` goes at the END of THIS list, after `sg`. Same set of names as
+   the engine's contract, one order, appended to — and the guard below
+   says so out loud if the engine ever grows a field this list forgot. */
+const WIRE_ORDER = ['s', 'w', 'l', 'by', 'cd', 'r', 'sg', 'to'];
+E.WIRE_FIELDS.forEach(f => {
+  if (WIRE_ORDER.indexOf(f) < 0)
+    console.error('IL-MISTERU wire: the engine declares "' + f + '" and the wire order does not carry it. ' +
+                  'APPEND it to WIRE_ORDER (never insert) or the field will not travel.');
+});
+
 function amHost(){ return !!(NET && NET.host); }
 function hostRoomSeat(){ return (M && M.online) ? (M.online.toRoom[M.online.judge]) : 0; }
 
@@ -1434,9 +2027,8 @@ function hostBroadcast(mv, suggesterRoom){
      board moved, everybody else's sat waiting, and a finished case (and
      its pot) existed on one phone only. Same fold L-ISPJUN's olSend
      does, over this game's own published field list. */
-  const fields = E.WIRE_FIELDS.concat(['sg']);
   let mask = 0; const vals = [];
-  fields.forEach((f, at) => {
+  WIRE_ORDER.forEach((f, at) => {
     const v = w[f];
     if (v === undefined || v === null) return;
     mask |= (1 << at);
@@ -1490,6 +2082,25 @@ function onlineWhisper(fromRoomSeat, x, ch){
     return;
   }
   if (ch === WHISPER_SHOW){
+    /* THE RELAY ECHOES EVERY WHISPER BACK TO ITS SENDER as a delivery receipt
+       (karti_server's chat(): `seats.add(conn.slot)`). So the moment the host
+       whispers a shown card to a remote suggester, that same card comes
+       straight back to the HOST — and the "ignore my own echo" line below only
+       catches it while a reveal is still open, which on the host it never is.
+       What actually happened, caught by a two-client run: the host flip-
+       revealed to ITSELF a card that had been shown privately to somebody
+       else, ticked its own notebook with it, and — because canAct() is false
+       while a reveal is pending — sat behind a "Got it" it had to tap before
+       it could move again. Data-dependent, too: it only fires once the host
+       has a suggestion of its own that was refuted, which is why it survived.
+       The host never needs this message at all: when the host is the
+       suggester, hostReferee reveals locally and deliberately does not
+       self-whisper. So: not for the host, and only from the REFEREE.
+       The second half is not just tidiness — this channel is open to every
+       seat at the table, so a `ms-show` from anyone but the host is another
+       player forging a reveal and writing a lie into your notebook. */
+    if (amHost()) return;
+    if (fromRoomSeat !== hostRoomSeat()) return;
     /* the card shown to me. Ignore my own echo of a card I already revealed. */
     if (M.reveal) return;
     const card = String(x || '');
@@ -1538,15 +2149,24 @@ const NET_HOOKS = {
          hostBroadcast (with sg + cd hidden). Do NOT let the generic auto-send
          re-broadcast them — that would double-send and leak the shown card. */
       if (info.src === 'referee') return;
-      /* Online, the host is the sole broadcaster. A non-host never puts a move
-         on the shared channel: its suggestions/accusations go to the host as a
-         private 'ms-req' request, and it applies only the host's echo. */
-      if (!amHost()) return;
       const rec = info.rec || info.move;
-      /* the host still auto-sends pass/quit (no refutation to referee). Stamp
-         sg so every client recovers the true actor (the relay stamps the
-         broadcast as coming from the host's seat, not the actor's). */
-      if (rec && rec.t !== 'pass' && rec.t !== 'quit') return;
+      const t = rec && rec.t;
+      /* THE OPEN MOVES — roll, move, passage, pass. No hidden information in
+         any of them, so the seat that made one sends it itself and every
+         other client replays it. This is the whole board fix: without it a
+         non-host rolled and walked on its OWN phone only, the host went on
+         believing that seat was still on its starting corridor square, and
+         the first suggestion it whispered was refused by the host's check()
+         (you may only suggest from the room you stand in) and dropped in
+         silence — a table that looks alive and can never move again. */
+      const OPEN = (t === 'roll' || t === 'move' || t === 'passage' || t === 'pass');
+      /* suggest/accuse are broadcast by hostBroadcast, fully stamped and with
+         the shown card stripped. Never here — that would double-send them and
+         put the refuted card on the public wire. */
+      if (!OPEN && t !== 'quit') return;
+      /* quit stays host-only: online it is synthesised from the relay's
+         seatGone on every phone at once, so a broadcast would be an echo. */
+      if (t === 'quit' && !amHost()) return;
       const w = E.encWire(rec, M.st.caseId);
       if (!w) return;
       const room = NET.toRoom[info.seat];
@@ -1637,14 +2257,17 @@ const LOBBY = {
       'Fuq id-dawra tiegħek, issuġġerixxi suspettat + arma + post; id-detective li jmiss li għandu waħda jrid jurihielek privatament. Immarka l-ktejjeb, imbagħad akkuża meta tkun ċert.') + '</p>',
   blurb: T('Suggest, deduce, accuse. Be first to name the killer.', 'Issuġġerixxi, iddeduċi, akkuża. Kun l-ewwel li ssemmi l-qattiel.'),
   myName,
-  /* THE WIRE — the engine's fields PLUS `sg`, the true suggester's ROOM seat.
-     The host is the sole referee: a player's suggestion/accusation is resolved
-     by the host and BROADCAST on the move channel, but the relay stamps that
-     broadcast as coming from the HOST's seat — so the resolved move must carry
-     `sg` to name the seat it was actually made for. mp.js's toWire REFUSES any
-     field not in this list, so `sg` MUST be declared here (a room seat 0..5,
-     fits a byte). See onMove/onlineRemote below. */
-  wire: { fields: E.WIRE_FIELDS.concat(['sg']) },
+  /* THE WIRE — the engine's fields PLUS `sg`, the true suggester's ROOM seat,
+     in the ONE append-only order WIRE_ORDER declares (read the note there
+     before touching it: the order is the contract, and `sg` may not move).
+     The host is the sole referee for a suggestion/accusation: it resolves one
+     and BROADCASTS it, but the relay stamps that broadcast as coming from the
+     HOST's seat — so the resolved move must carry `sg` to name the seat it was
+     actually made for. mp.js's toWire REFUSES any field not in this list, so
+     `sg` MUST be declared here (a room seat, fits a byte), and so must the
+     engine's `to` (a position — bounded by the engine's own posOK, not by a
+     number written down here). See onMove/onlineRemote below. */
+  wire: { fields: WIRE_ORDER },
   takeback: false
 };
 R.lobby = LOBBY;
@@ -1679,6 +2302,7 @@ if (/[?&]misterutest\b/.test(location.search || '')){
     setupSheet, offlineSetup, offlineStartFlow, startMatch, doMove, render,
     openPicker, doSuggest, doAccuse, openNotebook, setMark, getMark, autoMark,
     caseIntro, showRevealTo, finish, solutionReveal, podium, handover,
+    paintBoard, sizeBoard, turnPlan, canAct, dieSVG, boardTap, doRoll, doPassage, doPass,
     onlineStart, onlinePrivate, onlineRemote, onlineWhisper, buildState,
     hostReferee, sendMoveOnline, encReq, parseReq, hostResolveRefuter, hostBroadcast,
     get M(){ return M; }, get UI(){ return UI; },
