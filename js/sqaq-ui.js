@@ -81,6 +81,10 @@ let M = null, UI = null;
 const moveSubs = [];
 function fireList(list, a){ for (const f of list.slice()){ try { f(a); } catch(e){} } }
 
+/* WALL MODE. 'w' is the one wall button; 'h'/'v' are still understood so an
+   autosave written by an older build resumes without a fuss. */
+function isWallMode(){ return M && (M.mode === 'w' || M.mode === 'h' || M.mode === 'v'); }
+
 function buildState(opts, log){
   const st = E.newGame(opts);
   for (let i = 0; i < log.length; i++){
@@ -249,31 +253,61 @@ function boardSVG(){
            '" opacity="0.22" stroke="' + seatColour(seat).hex + '" stroke-opacity="0.7" stroke-width="2"/>';
     }
   }
-  if (myTurn && (M.mode === 'h' || M.mode === 'v')){
-    /* PLACEMENT, DONE CALMLY. Sixty-four glowing bars was a wall of noise
-       and one mistap spent a wall for ever. Instead: a small dot on every
-       legal anchor, a FAT invisible tap target over each, and the one you
-       tap becomes a bright full-length preview — tap the preview to build
-       it, tap another dot to move it, step or switch modes to drop it. */
-    const slots = E.legalWalls(st, seat, M.mode);
-    const pre = M.pre && M.pre.o === M.mode &&
-      slots.some(w => w.r === M.pre.r && w.c === M.pre.c) ? M.pre : null;
-    for (let i = 0; i < slots.length; i++){
-      const w = slots[i];
-      const ax = cx(w.c) + CELL + GAP / 2, ay = cy(w.r) + CELL + GAP / 2;
-      if (!pre || pre.r !== w.r || pre.c !== w.c)
+  if (myTurn && isWallMode()){
+    /* PLACEMENT, DONE CALMLY — and now WITHOUT picking the direction first.
+       A dot sits on every junction where a wall may go. DRAG off a dot and
+       the way you pull chooses the direction (sideways = ━, up/down = ┃) —
+       the same "draw it on the dots" gesture kaxxi uses. Or tap a dot and the
+       preview appears with a ROTATE handle beside it. Tap the bright preview
+       to build it. Nothing is ever spent on one stray tap. */
+    const slotsH = E.legalWalls(st, seat, 'h');
+    const slotsV = E.legalWalls(st, seat, 'v');
+    const anch = new Map();
+    const add = (list, o) => { for (const w of list){
+      const k = w.r + ',' + w.c;
+      const e = anch.get(k) || { r:w.r, c:w.c, h:false, v:false };
+      e[o] = true; anch.set(k, e);
+    } };
+    add(slotsH, 'h'); add(slotsV, 'v');
+    const okAt = (r, c, o) => { const e = anch.get(r + ',' + c); return !!(e && e[o]); };
+    const pre = (M.pre && okAt(M.pre.r, M.pre.c, M.pre.o)) ? M.pre : null;
+    anch.forEach(e => {
+      const ax = cx(e.c) + CELL + GAP / 2, ay = cy(e.r) + CELL + GAP / 2;
+      const isPre = pre && pre.r === e.r && pre.c === e.c;
+      if (!isPre)
         s += '<circle cx="' + ax + '" cy="' + ay + '" r="4.5" fill="#FFC542" opacity="0.5"/>';
-      s += '<rect data-wall="' + w.r + ',' + w.c + ',' + M.mode + '" x="' + (ax - 15) +
-           '" y="' + (ay - 15) + '" width="30" height="30" fill="#000" opacity="0"/>';
-    }
+      /* a fat, invisible grab target — what a thumb actually hits */
+      s += '<rect data-anchor="' + e.r + ',' + e.c + '" x="' + (ax - 16) +
+           '" y="' + (ay - 16) + '" width="32" height="32" fill="#000" opacity="0"/>';
+    });
     if (pre){
       const glow = ' filter="drop-shadow(0 0 6px rgba(255,197,66,.8))"';
+      const ax = cx(pre.c) + CELL + GAP / 2, ay = cy(pre.r) + CELL + GAP / 2;
       if (pre.o === 'h')
         s += '<rect data-place="1" x="' + cx(pre.c) + '" y="' + (cy(pre.r) + CELL) +
              '" width="' + (CELL * 2 + GAP) + '" height="' + GAP + '" rx="4" fill="#FFE39A"' + glow + '/>';
       else
         s += '<rect data-place="1" x="' + (cx(pre.c) + CELL) + '" y="' + cy(pre.r) +
              '" width="' + GAP + '" height="' + (CELL * 2 + GAP) + '" rx="4" fill="#FFE39A"' + glow + '/>';
+      /* THE ROTATE HANDLE — shown only when the other way round is legal
+         here, so it never offers a turn that cannot be taken. A real button
+         on the board is how you know a wall CAN be turned. */
+      const other = pre.o === 'h' ? 'v' : 'h';
+      if (okAt(pre.r, pre.c, other)){
+        const hx = ax + CELL * 0.60, hy = ay - CELL * 0.60;
+        s += '<g data-rot="1">' +
+               '<circle data-rot="1" cx="' + hx + '" cy="' + hy + '" r="15" fill="#1B1230" ' +
+                 'stroke="#FFC542" stroke-width="2"/>' +
+               '<path data-rot="1" d="M ' + (hx - 6) + ' ' + (hy + 5) +
+                 ' A 8 8 0 1 0 ' + (hx - 7) + ' ' + (hy - 3) + '" fill="none" ' +
+                 'stroke="#FFC542" stroke-width="2.2" stroke-linecap="round"/>' +
+               '<path data-rot="1" d="M ' + (hx - 10) + ' ' + (hy - 7) + ' l 3 4 l 4 -3" ' +
+                 'fill="none" stroke="#FFC542" stroke-width="2.2" stroke-linecap="round" ' +
+                 'stroke-linejoin="round"/>' +
+               '<rect data-rot="1" x="' + (hx - 17) + '" y="' + (hy - 17) +
+                 '" width="34" height="34" fill="#000" opacity="0"/>' +
+             '</g>';
+      }
     }
   }
   /* the previous move, so a player looking up knows what just happened:
@@ -310,11 +344,62 @@ function paint(){
   if (!M || !UI || !UI.board) return;
   UI.board.innerHTML = boardSVG();
   const svg = UI.board.firstChild;
+  /* ── DRAG A WALL OFF A DOT ─────────────────────────────────────────
+     pointerdown on a junction dot starts it; the direction you pull picks
+     the wall's direction; letting go on a real pull BUILDS it. A tap (no
+     pull) just previews, so a mis-touch never spends a wall. */
+  const wallLegal = (r, c, o) => {
+    const seat = E.turn(M.st);
+    return E.legalWalls(M.st, seat, o).some(w => w.r === r && w.c === c);
+  };
+  svg.addEventListener('pointerdown', ev => {
+    const t = ev.target;
+    const an = t.getAttribute && t.getAttribute('data-anchor');
+    if (!an) return;
+    const seat = E.turn(M.st);
+    if (seat < 0 || !isLocal(seat)) return;
+    if (M.net && seat !== firstLocalSeat()) return;
+    if (!isWallMode()) return;
+    const a = an.split(',');
+    M.drag = { r: a[0] | 0, c: a[1] | 0, x: ev.clientX, y: ev.clientY, pulled: false };
+    try { svg.setPointerCapture(ev.pointerId); } catch(_){}
+  });
+  svg.addEventListener('pointermove', ev => {
+    const d = M && M.drag; if (!d) return;
+    const dx = ev.clientX - d.x, dy = ev.clientY - d.y;
+    if (dx * dx + dy * dy < 100) return;           /* not a pull yet */
+    const o = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+    d.pulled = true;
+    if (!wallLegal(d.r, d.c, o)) return;           /* that way is not allowed here */
+    if (!M.pre || M.pre.r !== d.r || M.pre.c !== d.c || M.pre.o !== o){
+      M.pre = { r: d.r, c: d.c, o };
+      cue('ui.tap', { gain:.35 });
+      paint();
+    }
+  });
+  const endDrag = ev => {
+    const d = M && M.drag; if (!d) return;
+    M.drag = null;
+    const seat = E.turn(M.st);
+    if (seat < 0 || !isLocal(seat)) return;
+    if (!d.pulled) return;                          /* a tap: the click below previews */
+    if (M.pre && M.pre.r === d.r && M.pre.c === d.c){
+      const w = M.pre; M.pre = null; M.lastO = w.o;
+      M.noClick = true;                             /* the click that follows is ours */
+      doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
+      M.mode = 'go'; afterMove();
+    }
+  };
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', () => { if (M) M.drag = null; });
+
   svg.addEventListener('click', ev => {
+    if (M && M.noClick){ M.noClick = false; return; }   /* the drag already built it */
     const t = ev.target;
     const go = t.getAttribute && t.getAttribute('data-go');
-    const wl = t.getAttribute && t.getAttribute('data-wall');
+    const an = t.getAttribute && t.getAttribute('data-anchor');
     const pl = t.getAttribute && t.getAttribute('data-place');
+    const rot = t.getAttribute && t.getAttribute('data-rot');
     const seat = E.turn(M.st);
     if (seat < 0 || !isLocal(seat)) return;
     if (M.net && seat !== firstLocalSeat()) return;
@@ -323,21 +408,35 @@ function paint(){
       M.pre = null;
       doMove(seat, { t:'go', r: a[0] | 0, c: a[1] | 0 }, 'local');
       M.mode = 'go'; afterMove();
+    } else if (rot && M.pre){
+      /* TURN IT — flip the preview between ━ and ┃ */
+      const other = M.pre.o === 'h' ? 'v' : 'h';
+      if (wallLegal(M.pre.r, M.pre.c, other)){
+        M.pre = { r: M.pre.r, c: M.pre.c, o: other };
+        cue('ui.tap', { gain:.6 });
+        paint();
+      }
     } else if (pl && M.pre){
-      /* second tap on the bright preview — build it */
-      const w = M.pre; M.pre = null;
+      /* tap the bright preview — build it */
+      const w = M.pre; M.pre = null; M.lastO = w.o;
       doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
       M.mode = 'go'; afterMove();
-    } else if (wl){
-      const a = wl.split(',');
-      const r = a[0] | 0, c = a[1] | 0, o = a[2];
-      if (M.pre && M.pre.r === r && M.pre.c === c && M.pre.o === o){
-        /* second tap on the same anchor — build it */
-        M.pre = null;
-        doMove(seat, { t:'wall', r, c, o }, 'local');
+    } else if (an){
+      const a = an.split(',');
+      const r = a[0] | 0, c = a[1] | 0;
+      if (M.pre && M.pre.r === r && M.pre.c === c){
+        /* tapped the same dot again — build what is previewed there */
+        const w = M.pre; M.pre = null; M.lastO = w.o;
+        doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
         M.mode = 'go'; afterMove();
       } else {
-        M.pre = { r, c, o };            /* first tap — show the preview */
+        /* first tap on a dot: preview it, preferring the direction you used
+           last so repeat placements feel predictable */
+        const want = (M.lastO === 'v' && wallLegal(r, c, 'v')) ? 'v'
+                   : wallLegal(r, c, 'h') ? 'h'
+                   : wallLegal(r, c, 'v') ? 'v' : null;
+        if (!want) return;
+        M.pre = { r, c, o: want };
         cue('ui.tap', { gain:.6 });
         paint();
       }
@@ -362,20 +461,21 @@ function paint(){
   UI.modes.innerHTML =
     '<button class="sq-mode' + (M.mode === 'go' ? ' on' : '') + '" data-m="go">' +
       esc(T('Step', 'Pass')) + '</button>' +
-    '<button class="sq-mode' + (M.mode === 'h' ? ' on' : '') + '" data-m="h"' +
-      (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ━</button>' +
-    '<button class="sq-mode' + (M.mode === 'v' ? ' on' : '') + '" data-m="v"' +
-      (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ┃</button>';
+    /* ONE wall button now: the direction is chosen on the board (drag, or the
+       rotate handle), not up here — picking ━ or ┃ before you had even chosen
+       a spot is what made walls go down the wrong way. */
+    '<button class="sq-mode' + (isWallMode() ? ' on' : '') + '" data-m="w"' +
+      (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ━┃</button>';
   UI.modes.querySelectorAll('.sq-mode').forEach(b => {
     b.onclick = () => { M.mode = b.getAttribute('data-m'); M.pre = null; cue('ui.tap', { gain:.6 }); paint(); };
   });
   UI.hint.textContent = M.st.winner >= 0 ? ''
     : !my ? (seatName(seat) + ' — ' + T('their go', 'imissu'))
     : M.mode === 'go' ? T('Tap a lit square to step.', 'Għafas kaxxa mixgħula biex timxi.')
-    : M.pre ? T('Tap the bright wall again to build it — or another dot to move it.',
-                'Erġa’ għafas il-ħajt jixgħel biex tibnih — jew tikka oħra biex iċċaqilqu.')
-    : T('Tap a dot to see the wall there. Nobody can ever be sealed in.',
-        'Għafas tikka biex tara l-ħajt hemm. Ħadd qatt ma jista’ jinqafel għalkollox.');
+    : M.pre ? T('Tap the bright wall to build it — or ↻ to turn it.',
+                'Għafas il-ħajt jixgħel biex tibnih — jew ↻ biex iddawru.')
+    : T('Drag off a dot to draw the wall — sideways or up-and-down.',
+        'Iġbed minn tikka biex tpinġi l-ħajt — mal-ġenb jew ’il fuq u ’l isfel.');
 }
 
 /* after every move: repaint, check the end, poke the machine */
