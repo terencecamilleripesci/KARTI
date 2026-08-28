@@ -3113,6 +3113,86 @@ function spinOddsHTML(){
     '<p class="oddsfoot">Every spin wins something. These numbers are the ones the ' +
     'spin actually rolls — nothing hidden.</p></div>';
 }
+/* ── THE WHEEL ─────────────────────────────────────────────────────
+   Built from SPIN_TABLE, so it can never show a prize the roll cannot
+   pay. SEVEN EQUAL WEDGES, not wedges sized by their odds: a 1% wedge
+   drawn honestly is 3.6° wide — invisible, unlandable, and unreadable.
+   The honesty is kept where it can actually be read instead: EVERY
+   WEDGE PRINTS ITS OWN PERCENTAGE, and the full table sits underneath.
+   So the wheel is the ceremony and nothing about it oversells.
+
+   NOT art/ui/spin-wheel.png. That file is a 4-segment illustration with
+   a pointer baked into it — lovely as a badge, wrong as a wheel (seven
+   prizes, and its pointer would rotate with the disc). It earns its keep
+   here as the HUB CAP, centre-cropped onto the knob. */
+const SPIN_SEG = 360 / SPIN_TABLE.length;
+/* Neighbouring wedges must differ, and the three rare lines carry the
+   art's own teal / magenta / gold so scarcity reads before the text
+   does. Keyed by id with a fallback, so a new SPIN_TABLE line gets a
+   colour rather than a hole. */
+const SPIN_WEDGE = {
+  ch60:'#1C2743', ch90:'#26355C', xp18:'#14413C', ch150:'#26355C',
+  ch250:'#3B2A63', cosm:'#5A1440', pack:'#6B4A0C'
+};
+/* The wheel says what it pays in two or three words. The full line —
+   and the odds — live in the table under it. */
+const SPIN_SHORT = {
+  ch60:'60', ch90:'90', xp18:'+18 XP', ch150:'150',
+  ch250:'250', cosm:'Shop item', pack:'Card pack'
+};
+/* Where the disc is resting, in absolute degrees. Module-level ON
+   PURPOSE: a second spin carries on from where the first one stopped
+   instead of snapping back to twelve o'clock, and re-rendering the tab
+   redraws the wheel exactly where the player left it. */
+let spinAngle = 0;
+
+function spinWheelHTML(){
+  const stops = [];
+  let labs = '';
+  SPIN_TABLE.forEach((p, i) => {
+    const c = SPIN_WEDGE[p.id] || (i % 2 ? '#26355C' : '#1C2743');
+    stops.push(c + ' ' + (i * SPIN_SEG).toFixed(3) + 'deg ' +
+                         ((i + 1) * SPIN_SEG).toFixed(3) + 'deg');
+    labs += '<div class="swseg" style="transform:rotate(' +
+        (i * SPIN_SEG + SPIN_SEG / 2).toFixed(3) + 'deg)">' +
+      '<div class="swlab" data-i="' + i + '">' +
+        '<span class="swi">' + icoPrize(p.ic) + '</span>' +
+        '<span class="swn">' + esc(SPIN_SHORT[p.id] || p.label) + '</span>' +
+        '<span class="swp mono">' + p.pct + '%</span>' +
+      '</div></div>';
+  });
+  return '<div class="swwrap" id="swwrap">' +
+      '<div class="swrim">' +
+        '<div class="swdisc" id="swdisc" style="background:conic-gradient(from 0deg,' +
+            stops.join(',') + ');transform:rotate(' + spinAngle.toFixed(3) + 'deg)">' +
+          '<div class="swspokes" aria-hidden="true"></div>' + labs +
+        '</div>' +
+        '<div class="swglow" aria-hidden="true"></div>' +
+        '<div class="swhub" id="swhub" aria-hidden="true"></div>' +
+        '<div class="swptr" id="swptr" aria-hidden="true"></div>' +
+      '</div>' +
+    '</div>';
+}
+/* The hub cap, mounted only if the art actually decoded.
+
+   MEASURED OFF THE FILE, not guessed — two earlier guesses (641%, 760%)
+   both left a ring of the illustration's magenta and teal around the
+   knob. In art/ui/spin-wheel.png the gold knob is 62px across a 512px
+   image and its centre sits at (256, 261), five pixels BELOW the image
+   centre. 512/62 = 826%, and 51.1% vertical is the background-position
+   that brings y=261 to the middle of the hub. Percentages, not pixels,
+   so the crop survives the 52px hub on short screens.
+   The corners of that square crop still catch a little teal and
+   magenta; border-radius:50% cuts them off. */
+function spinMountHub(){
+  const hub = $('#swhub');
+  if (!hub || !ART.spinWheel) return;
+  hub.style.backgroundImage = 'url("' + ART.spinWheel + '")';
+  hub.style.backgroundSize = '826%';
+  hub.style.backgroundPosition = '50% 51.1%';
+  hub.classList.add('art');
+}
+
 function renderSpinTab(){
   clearTimeout(spinTickT);
   spinBusy = false;
@@ -3121,18 +3201,28 @@ function renderSpinTab(){
   if (!stage || !bar) return;
   const st = spinState();
   const sp = S.spin || {};
+  /* THE FIRST SPIN IS PURE CEREMONY. The odds table appears from the
+     SECOND spin on and then never leaves — a first-timer meets a wheel,
+     not a legal notice, and everyone after that has the numbers under
+     it for good. */
+  const seen = ((sp.n | 0) > 0);
   stage.innerHTML =
-    '<div class="spinwrap">' +
+    '<div class="spinwrap swz">' +
       '<div class="spinhead">' +
         '<h3>' + ico('star') + ' One free spin a day</h3>' +
         '<p class="tiny">Free means free — it never costs a coin and there is no second spin.</p>' +
       '</div>' +
-      spinOddsHTML() +
+      spinWheelHTML() +
+      (seen ? spinOddsHTML()
+            : '<p class="spinlast">Every spin wins something — the odds are printed on the wheel.</p>') +
       (!st.ok && sp.last
         ? '<p class="spinlast">Today you won: <b>' + esc(sp.last) + '</b></p>' : '') +
       '<p class="spinnote">Your spin lives in your save — with an account it follows you ' +
         'to any phone; as a guest it stays on this device.</p>' +
     '</div>';
+  spinMountHub();
+  const wrap = $('#swwrap');
+  if (wrap && st.ok) wrap.classList.add('ready');
   if (st.ok){
     bar.innerHTML =
       '<button class="btn primary" id="spin-go">' + ilb('star', 'Spin — free today') + '</button>' +
@@ -3155,11 +3245,65 @@ function renderSpinTab(){
 }
 
 /* ── the ceremony ──────────────────────────────────────────────────
-   A short reel, honestly stocked (the filler tiles are drawn from the
-   same odds, so the strip does not oversell packs), landing on the
-   prize that is ALREADY yours and saved — then the prize popup:
-   rays, the medallion, and a Collect button. Tap the reel to cut it
-   short. Reduced motion goes straight to the popup, still. */
+   The wheel turns IN PLACE — the same disc the player was just looking
+   at, never a swapped-in screen — so the thing that pays is visibly the
+   thing that was sitting there. Wind-up, flight, a long crawling tail,
+   then the prize popup: rays, the medallion, and a Collect button.
+
+   NOTHING HERE DECIDES ANYTHING. doSpin() has already rolled, granted
+   and SAVED before a degree of this moves; the wheel is told where to
+   stop. Tap to skip. Reduced motion sets the disc to the answer and
+   goes straight to the popup. */
+const SPIN_EASE = [0.16, 0.62, 0.28, 1];   /* flick, then a long friction tail */
+const SPIN_MS   = 2800;
+const SPIN_TURNS = 4;
+
+/* y at x on a cubic-bezier(x1,y1,x2,y2), Newton on x. The wheel's angle
+   has to be known at any instant so the ticks can fire when a wedge
+   boundary ACTUALLY passes the pointer rather than on a guessed
+   schedule — that sync is the whole sound of a wheel. */
+function spinEaseY(x, c){
+  let t = x;
+  for (let i = 0; i < 8; i++){
+    const mt = 1 - t, mt2 = mt * mt, t2 = t * t;
+    const bx = 3 * mt2 * t * c[0] + 3 * mt * t2 * c[2] + t2 * t;
+    const d  = 3 * mt2 * c[0] + 6 * mt * t * (c[2] - c[0]) + 3 * t2 * (1 - c[2]);
+    if (Math.abs(d) < 1e-6) break;
+    let nt = t - (bx - x) / d;
+    t = nt < 0 ? 0 : nt > 1 ? 1 : nt;
+  }
+  const mt = 1 - t, mt2 = mt * mt, t2 = t * t;
+  return 3 * mt2 * t * c[1] + 3 * mt * t2 * c[3] + t2 * t;
+}
+
+/* Where the disc must come to rest for wedge `idx` to be under the
+   pointer. The pointer sits at twelve o'clock and the conic gradient
+   starts there too, so a wedge at own-frame angle `a` shows at a+angle:
+   we need a ≡ -angle.
+
+   THE NEAR MISS. The disc turns clockwise, so wedges arrive at the
+   pointer in DESCENDING own-frame angle — wedge idx+1 passes just
+   before idx does. Resting near the target's HIGH edge therefore reads
+   as "it only just got out of the last one"; near its LOW edge reads as
+   "one more click and it was gone". Both are true landings, neither is
+   a cheat — the wedge that wins is the wedge that was already rolled.
+   A third of the time it just stops in the middle, because a wheel that
+   near-misses every single day stops being a near miss. Never closer
+   than 14% of a wedge to a boundary, so which one won is never in
+   doubt. */
+function spinRestAngle(idx, from){
+  const edge = SPIN_SEG * 0.36;
+  const r = spinRand();
+  const off = r < 0.42 ?  edge          /* only just made it in        */
+            : r < 0.68 ? -edge          /* nearly went one further     */
+            : (spinRand() - 0.5) * SPIN_SEG * 0.44;
+  const want = -(idx * SPIN_SEG + SPIN_SEG / 2 + off);
+  /* the smallest angle ≥ from + a full SPIN_TURNS that is congruent to
+     `want` — always forward, never a backwards jump */
+  const min = from + SPIN_TURNS * 360;
+  return min + ((want - min) % 360 + 360) % 360;
+}
+
 function runSpin(){
   if (spinBusy) return;
   const st = spinState();
@@ -3168,55 +3312,120 @@ function runSpin(){
   const res = doSpin();
   if (!res){ spinBusy = false; renderSpinTab(); return; }
   updateCoinsPill();
-  if (REDUCED){ spinPop(res); return; }
+  const idx = Math.max(0, SPIN_TABLE.indexOf(res.prize));
   const stage = $('#pack-stage');
   const bar = $('#pack-bar');
-  if (!stage){ spinPop(res); return; }
-  if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.swipe'); } catch (e){} }
-  const LAND = 17, TILES = 22, TW = 88;
-  let tiles = '';
-  for (let i = 0; i < TILES; i++){
-    const p = i === LAND ? res.prize : spinRoll();   /* visual only */
-    const label = i === LAND ? res.label : p.label;
-    tiles += '<div class="stile' + (i === LAND ? ' win' : '') + '">' +
-      icoPrize(p.ic) + '<span>' + esc(p.kind === 'cosmetic' && i !== LAND ? 'Item' : label) + '</span></div>';
+  const disc = $('#swdisc'), wrap = $('#swwrap'), ptr = $('#swptr');
+  /* Reduced motion still gets the ANSWER on the wheel — the disc is set
+     to the winning wedge with no travel, so the popup is explained. */
+  if (REDUCED || !disc || !stage){
+    spinAngle = -(idx * SPIN_SEG + SPIN_SEG / 2);
+    if (disc) disc.style.transform = 'rotate(' + spinAngle.toFixed(3) + 'deg)';
+    spinPop(res);
+    return;
   }
-  stage.innerHTML =
-    '<div class="spinwrap">' +
-      '<div class="swheel" id="swheel"><div class="smark"></div>' +
-        '<div class="strack" id="strack">' + tiles + '</div></div>' +
-      '<p class="tiny" style="text-align:center">Tap to skip</p>' +
-    '</div>';
-  if (bar) bar.innerHTML = '';
-  const wheel = $('#swheel'), track = $('#strack');
-  const ww = wheel ? wheel.getBoundingClientRect().width : 320;
-  const jitter = Math.round((spinRand() - 0.5) * 36);
-  const dist = LAND * TW + TW / 2 - ww / 2 + jitter;
-  let done = false;
-  const finish = () => {
+  const sfx = window.KARTI_SFX;
+  const beep = (id, o) => { if (sfx) try { sfx.play(id, o); } catch (e){} };
+  const buzz = k => { if (sfx && sfx.haptic) try { sfx.haptic(k); } catch (e){} };
+
+  const from = spinAngle;
+  const to = spinRestAngle(idx, from);
+  const wind = from - 9;               /* the pull-back before the flick */
+  if (wrap){ wrap.classList.remove('ready'); wrap.classList.add('spinning'); }
+  if (bar) bar.innerHTML = '<p class="hint" id="spin-skip">Tap the wheel to skip</p>';
+  beep('ui.swipe');
+  buzz('tap');
+
+  let done = false, ticks = 0, lastTick = 0, mainAnim = null, raf = 0;
+  const total = to - wind;
+  /* how many boundaries the whole flight crosses — used only to know
+     which ticks are the LAST few, the ones that get the falling notes */
+  const crossTotal = Math.floor(total / SPIN_SEG);
+
+  const land = () => {
     if (done) return;
     done = true;
-    spinPop(res);
+    cancelAnimationFrame(raf);
+    spinAngle = ((to % 360) + 360) % 360;
+    disc.style.transform = 'rotate(' + spinAngle.toFixed(3) + 'deg)';
+    if (wrap) wrap.classList.remove('spinning');
+    /* the peg lets go: a hair of recoil, the way a real wheel settles */
+    try {
+      disc.animate([{ transform:'rotate(' + spinAngle + 'deg)' },
+                    { transform:'rotate(' + (spinAngle - 1.4) + 'deg)' },
+                    { transform:'rotate(' + spinAngle + 'deg)' }],
+                   { duration:300, easing:'ease-out' });
+    } catch (e){}
+    const won = $('.swlab[data-i="' + idx + '"]');
+    if (won) won.classList.add('won');
+    beep('piece.place');
+    buzz('thud');
+    setTimeout(() => { if (stage) stage.onclick = null; spinPop(res); }, 360);
   };
-  /* Trimmed from 2.4s: the reel is now the drum-roll, not the show —
-     the popup that follows is the show, and this is seen every day. */
-  const anim = track.animate(
-    [{ transform:'translate3d(0,0,0)' }, { transform:'translate3d(' + (-dist) + 'px,0,0)' }],
-    { duration:1750, easing:'cubic-bezier(.16,.85,.25,1)', fill:'forwards' });
-  anim.onfinish = () => setTimeout(finish, 240);
-  /* belt and braces: the prize is already saved, so if the animation is ever
-     throttled into never finishing (background tab, odd engine), the result
-     still lands on real time */
-  setTimeout(finish, 2600);
-  /* the ratchet: ticks bunching up then dying away with the easing */
-  if (window.KARTI_SFX){
-    let t = 0;
-    for (let i = 1; i <= 10; i++){
-      t += 30 + i * 20;
-      setTimeout(() => { if (!done){ try { KARTI_SFX.play('rail.tick'); } catch (e){} } }, t);
+
+  /* THE TICKER. Driven off the animation's own clock, not a timetable:
+     each frame we work out where the disc is, and every wedge boundary
+     it has passed since the last frame fires a click and flicks the
+     pointer. So the ticks bunch up and thin out because the WHEEL is
+     slowing, not because a loop said so.
+     One tick per frame at most, and never inside 45 ms — a wheel doing
+     30 crossings a second is a machine-gun, not a wheel, and the voice
+     cap would eat it anyway. That floor only bites while it is fast; by
+     the time it matters every boundary gets its own click. */
+  const t0 = performance.now();
+  let crossed = Math.floor(0);
+  const frame = () => {
+    if (done) return;
+    const el = performance.now() - t0;
+    const u = Math.min(1, el / SPIN_MS);
+    const passed = Math.floor(total * spinEaseY(u, SPIN_EASE) / SPIN_SEG);
+    if (passed > crossed){
+      crossed = passed;
+      const now = performance.now();
+      if (now - lastTick >= 45){
+        lastTick = now;
+        ticks++;
+        beep('rail.tick', { force:true });
+        buzz('tick');
+        /* The last four boundaries get a RISING pentatonic under the
+           click — the wheel is running out of road and the figure climbs
+           into the payoff rather than sighing out of it. It says the
+           wheel is stopping; it says nothing about WHERE, so the near
+           miss still lands. */
+        const left = crossTotal - crossed;
+        if (left >= 0 && left < 4 && sfx && sfx.note)
+          try { sfx.note(3 - left, { gain:0.5 }); } catch (e){}
+        if (ptr) try {
+          ptr.animate([{ transform:'rotate(0deg)' }, { transform:'rotate(15deg)' },
+                       { transform:'rotate(0deg)' }],
+                      { duration:140, easing:'ease-out' });
+        } catch (e){}
+      }
     }
-  }
-  stage.onclick = () => { try { anim.finish(); } catch (e){} finish(); };
+    if (u < 1) raf = requestAnimationFrame(frame);
+  };
+
+  disc.style.transform = 'rotate(' + wind + 'deg)';
+  const windAnim = disc.animate(
+    [{ transform:'rotate(' + from + 'deg)' }, { transform:'rotate(' + wind + 'deg)' }],
+    { duration:190, easing:'cubic-bezier(.4,0,1,1)', fill:'forwards' });
+  windAnim.onfinish = () => {
+    if (done) return;
+    mainAnim = disc.animate(
+      [{ transform:'rotate(' + wind + 'deg)' }, { transform:'rotate(' + to + 'deg)' }],
+      { duration:SPIN_MS, easing:'cubic-bezier(' + SPIN_EASE.join(',') + ')', fill:'forwards' });
+    mainAnim.onfinish = land;
+    raf = requestAnimationFrame(frame);
+  };
+  /* belt and braces: the prize is already saved, so if the animation is
+     ever throttled into never finishing (background tab, odd engine),
+     the result still lands on real time */
+  setTimeout(land, 190 + SPIN_MS + 700);
+  stage.onclick = () => {
+    try { windAnim.finish(); } catch (e){}
+    try { if (mainAnim) mainAnim.finish(); } catch (e){}
+    land();
+  };
 }
 
 /* ── THE PRIZE POPUP ───────────────────────────────────────────────
@@ -4196,17 +4405,88 @@ function storeCSS(){
     '.spinnote{margin:0;font-size:11px;color:var(--dim2);text-align:center}' +
     '.spinlast{margin:0;text-align:center;font-size:13px;color:var(--dim)}' +
     '.spinlast b{color:var(--gold)}' +
-    '.swheel{position:relative;overflow:hidden;border:1px solid var(--line2);border-radius:14px;' +
-      'background:var(--panel2);height:96px;margin-top:14vh}' +
-    '.smark{position:absolute;left:50%;top:0;bottom:0;width:2px;margin-left:-1px;' +
-      'background:var(--gold);z-index:2;box-shadow:0 0 8px var(--gold)}' +
-    '.smark:before{content:"";position:absolute;top:-1px;left:50%;transform:translateX(-50%);' +
-      'border:7px solid transparent;border-top-color:var(--gold)}' +
-    '.strack{display:flex;height:100%;will-change:transform}' +
-    '.stile{flex:0 0 88px;display:grid;place-items:center;align-content:center;gap:5px;' +
-      'border-right:1px solid var(--line);color:var(--txt);font-size:11px;font-weight:700;text-align:center;padding:0 4px}' +
-    '.stile .ico{width:22px;height:22px;color:var(--gold)}' +
-    '.stile.win{background:rgba(255,197,66,.12)}' +
+    /* ── THE WHEEL ───────────────────────────────────────────────────
+       The stage does not scroll (#scr-pack is overflow:hidden), so the
+       spin tab carries its own scroller: a 300px wheel plus a seven-row
+       odds table does not fit a 640px-tall phone and must never be
+       silently clipped. */
+    '.spinwrap.swz{align-self:stretch;max-height:100%;overflow:auto;' +
+      'overscroll-behavior:contain;align-content:start;padding:2px 0 6px}' +
+    '.swwrap{position:relative;width:min(300px,78vw);aspect-ratio:1;margin:2px auto 4px;' +
+      'flex:0 0 auto}' +
+    '.swrim{position:absolute;inset:0;border-radius:50%;' +
+      'background:conic-gradient(from 210deg,#8A6508,#F5D06A 14%,#FFF0BE 22%,#B8860B 40%,' +
+        '#7A5606 55%,#F5D06A 74%,#FFE9A8 82%,#9A7208)' +
+      ';box-shadow:0 12px 34px rgba(0,0,0,.6),inset 0 0 0 1px rgba(255,255,255,.28)}' +
+    '.swdisc{position:absolute;inset:10px;border-radius:50%;will-change:transform;' +
+      'box-shadow:inset 0 0 34px rgba(0,0,0,.6);overflow:hidden}' +
+    /* the hairlines between wedges ride INSIDE the disc so they turn with it */
+    '.swspokes{position:absolute;inset:0;border-radius:50%;pointer-events:none;' +
+      'background:repeating-conic-gradient(from 0deg,rgba(255,255,255,.26) 0 .55deg,' +
+        'transparent .55deg ' + SPIN_SEG.toFixed(4) + 'deg)}' +
+    /* a wedge label is a FULL-SIZE box rotated about the disc centre, with
+       its text parked near the outer edge — so the winner, which always
+       ends under the pointer, always ends upright and readable */
+    '.swseg{position:absolute;inset:0;pointer-events:none}' +
+    /* 32%, not more: at the radius the text sits on, a seventh of the disc
+       is only about 32% of its width across. A wider box overflows into the
+       neighbouring wedge — at 360px "Shop item" was landing on top of
+       "Card pack". Two words wrap to two lines rather than collide. */
+    '.swlab{position:absolute;left:50%;top:8%;width:32%;transform:translateX(-50%);' +
+      'text-align:center;display:grid;gap:1px;justify-items:center;line-height:1.15;' +
+      'overflow-wrap:break-word;hyphens:none}' +
+    '.swlab .swi{display:block;height:18px}' +
+    '.swlab .swi .ico{width:18px;height:18px;color:#FFE9A8;' +
+      'filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))}' +
+    '.swlab .swn{font-size:11.5px;font-weight:800;color:#fff;letter-spacing:.01em;' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.75)}' +
+    '.swlab .swp{font-size:9px;font-weight:700;color:rgba(255,255,255,.66);' +
+      'text-shadow:0 1px 2px rgba(0,0,0,.7)}' +
+    /* the winning wedge lights up the instant the wheel stops, before the
+       popup covers it — so the answer is on the WHEEL first */
+    '.swlab.won{animation:swWon .5s ease-out}' +
+    '.swlab.won .swn,.swlab.won .swp{color:#FFF3CF}' +
+    '@keyframes swWon{0%{transform:translateX(-50%) scale(1);filter:none}' +
+      '45%{transform:translateX(-50%) scale(1.22);filter:drop-shadow(0 0 12px var(--gold))}' +
+      '100%{transform:translateX(-50%) scale(1.08);filter:drop-shadow(0 0 7px var(--gold))}}' +
+    '.swhub{position:absolute;left:50%;top:50%;width:64px;height:64px;margin:-32px 0 0 -32px;' +
+      'border-radius:50%;z-index:3;background-repeat:no-repeat;' +
+      'background-image:radial-gradient(circle at 38% 32%,#FFE9A8,#C9960C 58%,#7A5A06);' +
+      'box-shadow:0 0 0 3px rgba(0,0,0,.42),0 5px 14px rgba(0,0,0,.55),' +
+        'inset 0 0 0 1px rgba(255,255,255,.3)}' +
+    '.swhub.art{background-color:#1a1206}' +
+    /* The pointer is OUTSIDE the disc and never turns with it; it pivots at
+       its own tip so each tick reads as a flapper being knocked aside.
+       TWO triangles: a near-black backing and a gold face inset 3px on top.
+       A plain gold triangle vanished against the gold rim — the dark collar
+       is what makes it a pointer instead of a notch. */
+    '.swptr{position:absolute;top:-10px;left:50%;width:32px;height:46px;margin-left:-16px;z-index:6;' +
+      'transform-origin:50% 6px;background:#120C02;' +
+      'clip-path:polygon(50% 100%,0 0,100% 0);' +
+      'filter:drop-shadow(0 4px 7px rgba(0,0,0,.75))}' +
+    '.swptr:before{content:"";position:absolute;left:3px;right:3px;top:3px;bottom:5px;' +
+      'background:linear-gradient(180deg,#FFF7DF,#FFD24A 46%,#C98A00);' +
+      'clip-path:polygon(50% 100%,0 0,100% 0)}' +
+    '.swglow{position:absolute;inset:-10px;border-radius:50%;pointer-events:none;z-index:0;' +
+      'box-shadow:0 0 0 0 rgba(255,197,66,0);transition:box-shadow .35s ease}' +
+    '.swwrap.spinning .swglow{box-shadow:0 0 40px 8px rgba(255,197,66,.34)}' +
+    /* at rest with a spin waiting, the rim breathes — the one thing on the
+       screen that says "this is for you, today" */
+    '.swwrap.ready .swglow{animation:swReady 2.6s ease-in-out infinite}' +
+    '@keyframes swReady{0%,100%{box-shadow:0 0 16px 2px rgba(255,197,66,.16)}' +
+      '50%{box-shadow:0 0 30px 6px rgba(255,197,66,.34)}}' +
+    'body.reduced .swwrap.ready .swglow{animation:none;' +
+      'box-shadow:0 0 20px 3px rgba(255,197,66,.22)}' +
+    'body.reduced .swlab.won{animation:none}' +
+    /* small phones: 360x640 has no room for a 300px wheel above a table */
+    '@media (max-height:700px){.swwrap{width:min(232px,62vw)}' +
+      '.swhub{width:52px;height:52px;margin:-26px 0 0 -26px}' +
+      /* 24% is narrow enough to FORCE the two-word prizes onto two lines.
+         On a 232px wheel a wedge is only ~54px across where the text sits,
+         and "Card pack" on one line is wider than that — it was printing
+         over "Shop item" next door. Wrapped, both sit ~30px wide. */
+      '.swlab{width:24%}' +
+      '.swlab .swn{font-size:10.5px}.swlab .swi,.swlab .swi .ico{height:16px;width:16px}}' +
     '.sres{padding-top:8vh}' +
     '.spinres{position:relative;border:1px solid var(--gold);border-radius:16px;background:var(--panel);' +
       'padding:22px 16px;display:grid;gap:8px;justify-items:center;text-align:center;' +
@@ -7044,8 +7324,8 @@ window.KARTI = {
   toast, flash, openSheet, closeSheet, openModal, closeModal, esc, wait, $, $$, shuffle, pickOne,
   /* the Store — exported for the headless verification harness */
   _store: {
-    SPIN_TABLE, SPIN_GAP_MS, COSM_LEVEL_MAX,
-    spinState, spinRoll, doSpin, spinDayKey, spinNextAt,
+    SPIN_TABLE, SPIN_GAP_MS, COSM_LEVEL_MAX, SPIN_SEG,
+    spinState, spinRoll, doSpin, spinDayKey, spinNextAt, spinRestAngle,
     storeBuyables, storeLadder, buyCosmetic, cosmPrice, cosmOwned, grantCosmetic,
     renderSpinTab, renderCosmTab, renderExclTab, exclAllRows, updateSpinBadge, spinResult,
     /* the chips economy's screens — for the headless harness */
