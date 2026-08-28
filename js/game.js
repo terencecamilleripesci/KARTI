@@ -3840,7 +3840,12 @@ function boxPop(res){
         /* the shaft of light out of the open crate — the box's own tell, so
            its payoff cannot be mistaken for the daily spin's */
         '<div class="bx-beam"></div>' +
-        (tier === 3 ? '<div class="spop-flash"></div>' : '') +
+        /* the impact frame: a ring thrown off the lid, and a flash on every
+           tier rather than only the jackpot — the moment the crate gives is
+           the moment that has to land, whatever is inside it */
+        '<div class="bx-shock"></div>' +
+        '<div class="bx-shock s2"></div>' +
+        '<div class="spop-flash bx-flash"></div>' +
       '</div>' +
       '<div class="bx-hero" id="bx-hero">' +
         /* pass the id or the hero falls back to the drawn crate while the
@@ -3878,6 +3883,14 @@ function boxPop(res){
     opened = true;
     el.classList.remove('chg', 'sh1', 'sh2', 'sh3', 'hold');
     el.classList.add('in', 'open');
+    /* the kick. A lid coming off should move the whole stage for a few
+       frames — it is the difference between a thing appearing and a thing
+       ARRIVING. Removed as soon as it has played so it cannot fight the
+       card's own rise. */
+    if (!REDUCED){
+      el.classList.add('kick');
+      setTimeout(() => { if (boxPopEl === el) el.classList.remove('kick'); }, 420);
+    }
     if (window.KARTI_SFX){
       try {
         KARTI_SFX.play('ui.reward');
@@ -4093,6 +4106,52 @@ function chipsCSS(){
        treasure. Same card, completely different event. */
     /* the crate is gone from the flow, so the card can centre and the rays
        can find it */
+    /* ── THE IMPACT FRAME ──────────────────────────────────────────────
+       A ring thrown off the lid, a flash, and a kick to the whole stage.
+       Without these the crate simply stopped existing and a card faded up;
+       with them something BREAKS OPEN. Tier scales the violence: the
+       jackpot's ring is wider and its flash brighter. */
+    '.bpop .bx-shock{position:absolute;left:50%;top:0;width:26px;height:26px;margin:-13px 0 0 -13px;' +
+      'border-radius:50%;opacity:0;border:3px solid var(--fxc,#FFC542);pointer-events:none}' +
+    '.bpop.open .bx-shock{animation:bxShock .62s cubic-bezier(.15,.75,.3,1) both}' +
+    '.bpop.open .bx-shock.s2{animation-delay:.11s;border-width:2px;opacity:0}' +
+    '@keyframes bxShock{0%{opacity:.95;transform:scale(.4)}' +
+      '70%{opacity:.35}100%{opacity:0;transform:scale(var(--shk,14))}}' +
+    '.bpop.t2 .bx-shock{--shk:17}.bpop.t3 .bx-shock{--shk:21;border-width:4px}' +
+    '.bpop .bx-flash{opacity:0}' +
+    '.bpop.open .bx-flash{animation:bxFlash .4s ease-out both}' +
+    '@keyframes bxFlash{0%{opacity:0}9%{opacity:.55}100%{opacity:0}}' +
+    '.bpop.t2.open .bx-flash{animation-name:bxFlash2}' +
+    '@keyframes bxFlash2{0%{opacity:0}8%{opacity:.75}100%{opacity:0}}' +
+    '.bpop.t3.open .bx-flash{animation-name:bxFlash3}' +
+    '@keyframes bxFlash3{0%{opacity:0}6%{opacity:.95}55%{opacity:.25}100%{opacity:0}}' +
+    /* the kick */
+    '.bpop.kick .spop-core{animation:bxKick .4s cubic-bezier(.36,.07,.19,.97) both}' +
+    '@keyframes bxKick{0%{transform:translate3d(0,0,0)}' +
+      '12%{transform:translate3d(-7px,4px,0)}26%{transform:translate3d(6px,-5px,0)}' +
+      '42%{transform:translate3d(-5px,3px,0)}60%{transform:translate3d(3px,-2px,0)}' +
+      '80%{transform:translate3d(-2px,1px,0)}100%{transform:translate3d(0,0,0)}}' +
+    /* the card stops being a grey box: lit rim in the crate's own colour,
+       an inner glow, and a sheen that crosses it once as it lands */
+    '.bpop .spop-med{overflow:hidden;border-width:1.5px;' +
+      'background:radial-gradient(120% 90% at 50% 0%,' +
+        'color-mix(in srgb,var(--fxc) 20%,rgba(14,9,26,.96)),rgba(11,7,20,.97) 68%);' +
+      'box-shadow:0 0 34px color-mix(in srgb,var(--fxc) 32%,transparent),' +
+        '0 18px 44px rgba(0,0,0,.65),inset 0 1px 0 rgba(255,255,255,.08)}' +
+    '.bpop .spop-med:after{content:"";position:absolute;inset:0;pointer-events:none;' +
+      'background:linear-gradient(105deg,transparent 34%,rgba(255,255,255,.16) 48%,transparent 62%);' +
+      'transform:translateX(-120%)}' +
+    '.bpop.open .spop-med:after{animation:bxSheen .85s ease-out .34s both}' +
+    '@keyframes bxSheen{to{transform:translateX(120%)}}' +
+    '.bpop .srlead{letter-spacing:.16em;font-size:10px;color:color-mix(in srgb,var(--fxc) 70%,#fff)}' +
+    /* the jackpot says so properly */
+    '.bpop.t3 .srlvl{display:inline-flex;align-items:center;gap:6px;padding:4px 14px;border-radius:99px;' +
+      'background:linear-gradient(180deg,#FFE9A8,#E0A800);color:#2A1B00;font-weight:900;' +
+      'letter-spacing:.14em;font-size:11px;box-shadow:0 4px 16px rgba(232,168,28,.5)}' +
+    '.bpop.t3 .srlvl .ico{width:14px;height:14px;color:#2A1B00}' +
+    'body.reduced .bpop .bx-shock,body.reduced .bpop .bx-flash{display:none}' +
+    'body.reduced .bpop.kick .spop-core{animation:none}' +
+    'body.reduced .bpop .spop-med:after{display:none}' +
     '.bpop.blown .bx-hero{display:none}' +
     '.bpop .spop-med,.bpop .spop-take{position:relative;z-index:2}' +
     '.bpop .spop-fx{transition:top .18s ease-out}' +
