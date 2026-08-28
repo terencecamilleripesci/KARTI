@@ -2323,6 +2323,51 @@ function titleToGame(title){
   return '';
 }
 
+/* ── A CUT-OFF GAME IS NOT A RESULT ────────────────────────────────
+   Every online game raises a "Cut off" card when the connection dies, and
+   it raises it through P.ui.result — which the wrapper below PAYS FOR. So
+   a dropped match was being banked as a draw: SKARTA minted 9 XP and 16
+   chips, TOMBLA 8 XP and 14 chips, measured. The card's own quip reads
+   "Nobody lost anything", which was the one true thing on the screen.
+   Twenty-five other games escaped only because titleToGame() failed to
+   match their frame title — luck, not design, and it would have started
+   paying the moment somebody tidied a title.
+
+   Fixing it in twenty-seven game files would mean twenty-seven chances to
+   forget, and the twenty-eighth game would forget. So it is fixed HERE, at
+   the one place that pays, and the signal is structural rather than a
+   string match: every one of those cards is raised from inside that game's
+   own online controller `stop()`. Wrap stop(), count the depth, and the
+   result wrapper simply declines to pay while we are inside one. The card
+   still shows, exactly as before — it just stops minting.
+
+   Synchronous by construction (stop() calls ui.result directly), so the
+   counter is exact; the timestamp is belt and braces for any game that
+   ever defers its card by a tick. */
+var cutDepth = 0, cutAt = 0;
+function cuttingOff(){ return cutDepth > 0 || (Date.now() - cutAt) < 1200; }
+function wrapStops(){
+  var P = window.KARTI_PARTY;
+  if (!P || !P.online) return 0;
+  var n = 0, ids = [];
+  try { ids = Object.keys(P.online); } catch (e){ return 0; }
+  for (var i = 0; i < ids.length; i++){
+    var c = P.online[ids[i]];
+    if (!c || typeof c.stop !== 'function' || c.stop.__kx) continue;
+    c.stop = (function (orig){
+      var w = function(){
+        cutDepth++; cutAt = Date.now();
+        try { return orig.apply(this, arguments); }
+        finally { cutDepth--; cutAt = Date.now(); }
+      };
+      w.__kx = 1;
+      return w;
+    })(c.stop);
+    n++;
+  }
+  return n;
+}
+
 function wrapPartyUI(){
   var P = window.KARTI_PARTY;
   if (!P || !P.ui) return false;
@@ -2338,11 +2383,13 @@ function wrapPartyUI(){
   if (typeof P.ui.result === 'function' && !P.ui.result.__kx){
     var or = P.ui.result;
     var wr = function(ctx, o){
+      var cut = cuttingOff();          /* read BEFORE the card runs */
       var r = or.apply(this, arguments);
       try {
         var g = titleToGame(lastFrame.title);
         var tone = o && o.tone;
-        if (g && tone) award(g, tone === 'win' ? 'w' : tone === 'draw' ? 'd' : 'l',
+        /* a connection that died is not a match that was played */
+        if (g && tone && !cut) award(g, tone === 'win' ? 'w' : tone === 'draw' ? 'd' : 'l',
                              { via:'party-ui', ranked: stakedNow() });
       } catch (e){}
       return r;
@@ -3488,6 +3535,7 @@ function wireAll(){
   ok += wrapRecorder(window.KARTI_PARTY, 'record', 'party') ? 1 : 0;
   ok += wrapRecorder(window.KARTI_KLABB, 'record', 'klabb') ? 1 : 0;
   ok += wrapPartyUI() ? 1 : 0;
+  wrapStops();
   return ok;
 }
 function allWired(){
@@ -3529,6 +3577,18 @@ var tries = 0;
 var wireT = setInterval(function(){
   wireAll();
   if (allWired() || ++tries > 60) clearInterval(wireT);
+}, 1000);
+
+/* wrapStops() needs its OWN loop and cannot ride wireAll's. Each game file
+   hangs its controller on KARTI_PARTY.online as it loads, so the set is
+   still filling long after the three wrappers above are on — and allWired()
+   stops that interval the moment they are. A controller that registered
+   late and never got wrapped would be a game that still pays for being cut
+   off, which is the whole bug. Idempotent by __kx, so re-scanning is free. */
+var stopTries = 0;
+var stopT = setInterval(function(){
+  wrapStops();
+  if (++stopTries > 60) clearInterval(stopT);
 }, 1000);
 
 /* A profile switch has to move the ladder with it. Nothing is cached,
