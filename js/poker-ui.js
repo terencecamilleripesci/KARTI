@@ -292,6 +292,265 @@ function slot(w){
   return '<span class="pk-slot" style="width:' + w + 'px;height:' +
          Math.round(w * 1.4) + 'px" aria-hidden="true"></span>';
 }
+/* THE DECK — three sheets, the origin every dealt card comes out of */
+function deckHTML(w){
+  return '<span class="pk-deck" aria-hidden="true">' +
+         cardBtn(-1, { face:false, w }) + '</span>';
+}
+/* the cards a screen reader must be told about. cardBtn() paints
+   aria-hidden spans — correct, they are pictures — so the row that
+   holds them carries the words. Without this a blind player has never
+   been able to read their own hole cards. */
+function cardsLabel(cards, faceDown){
+  if (!cards || !cards.length) return '';
+  if (faceDown) return cards.length + ' ' + T('face-down cards', 'karti bil-wiċċ għal isfel');
+  return cards.map(c => DECK.nameOf(c)).join(', ');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOTION — the deal, the fan, the refusal.
+
+   Three rules this whole section obeys, and they are not negotiable:
+
+   1. TRANSFORM AND OPACITY ONLY. Never margin, width, top or left.
+   2. DECORATION, NEVER TRAFFIC. Every animation here runs AFTER the
+      DOM already says the truth. The felt is innerHTML-replaced on
+      every state change, so this is FLIP with only the Invert-and-Play
+      half: the cards are already in their final places, we put them
+      back at the deck for a moment and let them fly home. If a move
+      lands mid-flight — and online the relay can outrun any
+      choreography — finishAll() ends the old one instantly. Nothing is
+      ever queued behind an animation, no turn is ever delayed, and no
+      outcome depends on one.
+   3. DETERMINISTIC. Not one Math.random() in here. Two phones at the
+      same online table compute the same tilt from the card's index, so
+      no tilt ever has to go on the wire.
+   ═══════════════════════════════════════════════════════════════════ */
+const MO_FLIGHT = 260;              /* one card's flight, ms           */
+const MO_MAX_AIR = 12;              /* concurrent flying cards, capped:
+                                       each promoted layer is a GPU
+                                       texture, and a phone's budget is
+                                       small. The stagger is stretched
+                                       to honour this, never the count. */
+function moStagger(n){
+  if (n <= 1) return 0;
+  const budget = Math.min(60, Math.round(MO_FLIGHT / (n - 1)));
+  const cap = Math.ceil(MO_FLIGHT / (MO_MAX_AIR - 1));
+  return Math.max(cap, budget);
+}
+/* --ease from index.html as a literal: a WAAPI easing is not a CSS
+   property and cannot resolve var(). */
+const MO_EASE = 'cubic-bezier(.22,.9,.28,1)';
+
+/* the OS setting and the app's own toggle both mean it */
+function noMotion(){
+  try {
+    return document.body.classList.contains('reduced') ||
+           (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch(e){ return false; }
+}
+
+let moAnims = [], moPend = [];
+function moFinishAll(){
+  const p = moPend; moPend = [];
+  for (let i = 0; i < p.length; i++){ try { p[i](); } catch(e){} }
+  const a = moAnims; moAnims = [];
+  for (let i = 0; i < a.length; i++){ try { a[i].finish(); } catch(e){} }
+}
+function moTrack(a, el){
+  moAnims.push(a);
+  const off = () => {
+    if (el) el.style.willChange = '';
+    const i = moAnims.indexOf(a);
+    if (i >= 0) moAnims.splice(i, 1);
+  };
+  a.addEventListener('finish', off);
+  a.addEventListener('cancel', off);
+}
+function moSkipOnTap(root){
+  root.addEventListener('pointerdown', () => { if (moAnims.length) moFinishAll(); }, true);
+}
+
+/* ── THE FAN ───────────────────────────────────────────────────────
+   Static geometry, written once per render. 3deg a card capped at a
+   26deg total spread, and the outer cards dropping 10px on a quadratic
+   — the way a real held hand curves. Two knobs, not a moved origin, so
+   rotation and drop can be tuned separately against a viewport that
+   must never scroll. */
+function fanCards(els, n){
+  if (n < 2){ els.forEach(e => { e.style.removeProperty('--fr');
+                                 e.style.removeProperty('--fy'); e._moRest = ''; }); return; }
+  const SPREAD = Math.min(4.5, 26 / (n - 1));
+  const half = (n - 1) / 2;
+  /* the outer cards drop, quadratically — but only once there are
+     enough of them for a curve to mean anything. On two held cards a
+     uniform drop is not a curve, it is just 10px of wasted headroom. */
+  const LIFT = (n >= 5 && half > 0) ? 10 / (half * half) : 0;
+  els.forEach((el, i) => {
+    const d = i - half;
+    const fr = +(d * SPREAD).toFixed(2);
+    const fy = Math.round(LIFT * d * d);
+    el.style.setProperty('--fr', fr + 'deg');
+    el.style.setProperty('--fy', fy + 'px');
+    /* the resting transform, kept so a flight ends exactly on it
+       instead of snapping off a transform:none keyframe */
+    el._moRest = 'translateY(' + fy + 'px) rotate(' + fr + 'deg)';
+  });
+}
+
+/* ── THE DEAL ──────────────────────────────────────────────────────
+   Invert-and-Play. Every getBoundingClientRect() is read BEFORE any
+   style is written; interleaving reads and writes is the layout-thrash
+   failure mode. */
+function dealIn(els, from, opt){
+  opt = opt || {};
+  if (!els.length || !from || !from.width) return;
+  if (noMotion()){
+    /* reduced motion: no flight, no stagger, no arc — a 120ms fade,
+       and the cards are already exactly where they belong. */
+    els.forEach(el => {
+      try { moTrack(el.animate([{ opacity:0 }, { opacity:1 }],
+        { duration:120, easing:'linear', fill:'backwards' }), el); } catch(e){}
+    });
+    return;
+  }
+  const step = moStagger(els.length);
+  const rects = els.map(el => el.getBoundingClientRect());   /* READ … */
+  els.forEach((el, i) => {                                   /* … WRITE */
+    const r = rects[i];
+    if (!r.width) return;
+    const dx = Math.round(from.left + from.width / 2 - (r.left + r.width / 2));
+    const dy = Math.round(from.top + from.height / 2 - (r.top + r.height / 2));
+    const tilt = -8 + (i % 3) * 6;             /* -8 / -2 / +4, by index */
+    const rest = el._moRest || '';
+    const delay = i * step;
+    /* face-down out of the deck, turning over as it lands: scaleX
+       through zero at 82%, face swapped in at the crossing. One
+       animation, one timer, no second SVG in the DOM. */
+    let reveal = null;
+    if (opt.flip && el.firstChild){
+      const faceHTML = el.innerHTML;
+      let did = false;
+      reveal = () => {
+        if (did) return; did = true;
+        if (el.isConnected){ el.innerHTML = faceHTML; el.classList.remove('down'); }
+      };
+      el.innerHTML = DECK.cardBack();
+      el.classList.add('down');
+      moPend.push(reveal);
+      setTimeout(reveal, delay + Math.round(MO_FLIGHT * 0.82));
+    }
+    el.style.willChange = 'transform,opacity';
+    let a;
+    try {
+      a = el.animate([
+        { offset:0,   opacity:.85,
+          transform:'translate3d(' + dx + 'px,' + dy + 'px,0) rotate(' + tilt + 'deg) scale(.92) ' + rest },
+        { offset:.55, opacity:1,
+          transform:'translate3d(' + Math.round(dx * .42) + 'px,' + Math.round(dy * .42 - 14) + 'px,0) ' +
+                    'rotate(' + (tilt * .4).toFixed(1) + 'deg) scale(1.02) ' + rest },
+        { offset:.82, opacity:1,
+          transform:'scale3d(' + (opt.flip ? '.06' : '1') + ',1,1) ' + rest },
+        { offset:1,   opacity:1, transform: rest || 'none' }
+      ], { duration: MO_FLIGHT, delay, easing: MO_EASE, fill:'backwards' });
+    } catch(e){ el.style.willChange = ''; if (reveal) reveal(); return; }
+    moTrack(a, el);
+  });
+}
+
+/* ── SEQUENTIAL REVEAL ─────────────────────────────────────────────
+   A showdown that lands in one lump is a showdown nobody reads. One
+   row at a time, 110ms apart, opacity and a small rise — and the whole
+   thing is skipped outright under reduced motion, where the rows are
+   simply there and the ticker carries the result. */
+function revealRows(els){
+  if (noMotion()) return;
+  els.forEach((el, i) => {
+    try {
+      moTrack(el.animate([
+        { opacity:0, transform:'translateY(6px)' },
+        { opacity:1, transform:'none' }
+      ], { duration:180, delay: i * 110, easing: MO_EASE, fill:'backwards' }), el);
+    } catch(e){}
+  });
+}
+
+/* ── REFUSAL ───────────────────────────────────────────────────────
+   Silence on tap is the classic mobile failure. A refused control
+   shakes (transform only), rings red, buzzes, and SAYS the rule —
+   which is the whole reason these controls carry aria-disabled and not
+   disabled: a disabled button is out of the tab order and can never
+   explain itself. */
+function refuse(el, why){
+  cue('ui.error', { gain: 0.9 }, true);
+  try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic('no'); } catch(e){}
+  if (el){
+    el.classList.add('pk-bad');
+    setTimeout(() => { try { el.classList.remove('pk-bad'); } catch(e){} }, 900);
+    if (!noMotion()){
+      try {
+        moTrack(el.animate([
+          { transform:'translateX(0px)' },
+          { transform:'translateX(-5px)', offset:.25 },
+          { transform:'translateX(5px)',  offset:.55 },
+          { transform:'translateX(-3px)', offset:.8 },
+          { transform:'translateX(0px)' }
+        ], { duration:220, easing:'linear' }), el);
+      } catch(e){}
+    }
+  }
+  if (why) say(why);
+}
+
+/* ── THE TICKER ────────────────────────────────────────────────────
+   The hint line doubles as the event ticker: role="status" and
+   aria-live="polite" are set on it in table(), so everything the
+   motion says is also spoken. Replaced, never appended; clears back to
+   the hint after 2200ms. */
+let sayUntil = 0, sayTimer = 0;
+function say(html){
+  if (!UI || !UI.say) return;
+  UI.say.innerHTML = html;
+  sayUntil = Date.now() + 2200;
+  clearTimeout(sayTimer);
+  const m = M;
+  sayTimer = setTimeout(() => {
+    sayUntil = 0;
+    if (M === m && M && !M.dead && UI) render();
+  }, 2200);
+}
+
+/* ── FOCUS, ACROSS AN innerHTML REPLACEMENT ────────────────────────
+   Nothing used to restore it, which made this table unusable with a
+   keyboard or a switch: every render dropped focus to <body> — and a
+   poker table re-renders on every chip anybody moves. preventScroll is
+   mandatory: the shell is 100dvh with overflow hidden and a
+   focus-scroll would shift the felt. */
+function focusKey(){
+  const a = document.activeElement;
+  if (!a || !UI || !UI.root || !UI.root.contains(a) || a === UI.root) return null;
+  if (a.hasAttribute('data-act')) return 'a|' + a.getAttribute('data-act');
+  if (a.id) return 'i|' + a.id;
+  return null;
+}
+function refocus(key){
+  if (!key || !UI || !UI.root) return;
+  const kind = key.charAt(0), v = key.slice(2);
+  const q = '"' + String(v).replace(/["\\]/g, '\\$&') + '"';
+  let el = null;
+  try {
+    /* PICK THE FOCUSABLE ONE: the same data-act can sit on a decorated
+       wrapper and on the real button, and focusing the wrapper silently
+       drops focus to <body>. */
+    const all = kind === 'a' ? UI.root.querySelectorAll('[data-act=' + q + ']')
+                             : UI.root.querySelectorAll('#' + CSS.escape(v));
+    for (let i = 0; i < all.length && !el; i++)
+      if (all[i].tabIndex >= 0 && all[i].offsetParent !== null) el = all[i];
+  } catch(e){ return; }
+  if (el && el.focus){
+    try { el.focus({ preventScroll:true }); } catch(e){ try { el.focus(); } catch(e2){} }
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    SOUND — existing ids only, through one gate so a FAST test run does
@@ -494,10 +753,12 @@ function injectCSS(){
       '--pk-ink:var(--kx-ink,#F4EFFF);--pk-hot:var(--kx-accent-2,#E63950)}' +
 
     /* ── the card faces (klabb's rules, restated — see header) ── */
+    /* TRANSFORM, NEVER MARGIN. margin-top is a layout property; a lift
+       riding on it re-lays the whole row every frame. */
     '#scr-party .kb-card{position:relative;flex:0 0 auto;padding:0;border:0;background:none;' +
       'border-radius:7px;line-height:0;display:block;' +
       'box-shadow:0 2px 4px rgba(0,0,0,.5),0 6px 14px rgba(0,0,0,.35);' +
-      'transition:margin-top .13s var(--ease),box-shadow .13s var(--ease)}' +
+      'transition:transform .16s var(--ease),box-shadow .13s var(--ease)}' +
     '#scr-party .kb-svg{width:100%;height:100%;display:block;border-radius:7px;' +
       'overflow:hidden;font-family:var(--body),-apple-system,"Segoe UI",Roboto,Arial,sans-serif}' +
     '#scr-party .kb-stock{fill:#FCF7EA;stroke:rgba(0,0,0,.34);stroke-width:1.1}' +
@@ -511,11 +772,52 @@ function injectCSS(){
     '#scr-party .kb-hair{stroke:currentColor;stroke-width:1.1;opacity:.55;fill:none}' +
 
     /* ── ours ── */
+    /* THE FAN, as static geometry. --fr / --fy are written once per
+       render by fanCards(); nothing animates them, which is exactly why
+       reduced motion keeps the fan and only kills the transition. Two
+       hole cards get a small held-pair spread; the board never fans. */
+    '#scr-party .pk-c{transform-origin:50% 50%;' +
+      'transform:translateY(var(--fy,0px)) rotate(var(--fr,0deg))}' +
     '#scr-party .pk-c.pk-lit{box-shadow:0 0 0 2.5px var(--pk-gold),0 6px 14px rgba(0,0,0,.5)}' +
     '#scr-party .pk-c.pk-dim{opacity:.42}' +
     '#scr-party .pk-c.pk-dim .kb-svg{filter:grayscale(.85)}' +
     '#scr-party .pk-slot{display:block;flex:0 0 auto;border-radius:7px;' +
       'border:1.5px dashed rgba(255,255,255,.17);background:rgba(0,0,0,.14)}' +
+    /* THE DECK — motion needs an origin. Without a deck on the felt the
+       cards fly in from an invisible point and the eye reads it as
+       noise rather than as dealing. Three sheets, drawn with offset
+       shadows so it costs one node. */
+    '#scr-party .pk-deck{position:absolute;left:11px;top:11px;z-index:1;line-height:0;' +
+      'pointer-events:none}' +
+    '#scr-party .pk-deck .kb-card{box-shadow:0 4px 10px rgba(0,0,0,.5),' +
+      '2px -2px 0 -1px #0A2A1C,2px -2px 0 0 rgba(255,255,255,.12),' +
+      '4px -4px 0 -1px #0A2A1C,4px -4px 0 0 rgba(255,255,255,.08)}' +
+    /* the refusal ring — pre-painted, opacity only, no blur */
+    '#scr-party .pk-bad{position:relative}' +
+    '#scr-party .pk-bad::after{content:"";position:absolute;inset:-3px;border-radius:11px;' +
+      'border:1.5px solid #FF6B7A;pointer-events:none;opacity:1}' +
+    /* ILLEGAL IS NOT DISABLED. A disabled button leaves the tab order
+       and can never say why it refused; aria-disabled keeps the control
+       reachable and hangs the actual rule off data-why. */
+    '#scr-party [aria-disabled="true"]{cursor:default}' +
+    '#scr-party .pk-act[aria-disabled="true"]{opacity:.34}' +
+    /* NOT YOUR GO: your own cards go quiet. Both compositor-tier. */
+    '#scr-party .pk-me.pk-off .h{opacity:.55;filter:saturate(.5)}' +
+    /* the legal action breathes — a pre-painted ring faded with
+       opacity, never an animated box-shadow */
+    '#scr-party .pk-act.pk-go{position:relative}' +
+    '#scr-party .pk-act.pk-go::after{content:"";position:absolute;inset:-3px;border-radius:13px;' +
+      'border:2px solid var(--pk-gold);pointer-events:none;opacity:.3;' +
+      'animation:pkBreath 2.4s var(--ease) infinite}' +
+    '@keyframes pkBreath{0%,100%{opacity:.2}50%{opacity:.66}}' +
+    /* ── reduced motion: kill the transitions and the keyframes, KEEP
+       the fan. The fan is geometry, not motion — nothing about it
+       moves — and the game stays fully playable without it. ── */
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .kb-card{transition:none}' +
+      '#scr-party .pk-act.pk-go::after{animation:none;opacity:.5}}' +
+    'body.reduced #scr-party .kb-card{transition:none}' +
+    'body.reduced #scr-party .pk-act.pk-go::after{animation:none;opacity:.5}' +
 
     /* ── one chip ── */
     '#scr-party .pk-chip{position:relative;display:inline-grid;place-items:center;' +
@@ -641,7 +943,8 @@ function injectCSS(){
     '#scr-party .pk-act.hot{color:#FFF;background:linear-gradient(180deg,#E8556A,#B4212F);' +
       'border-color:#F0899A}' +
     '#scr-party .pk-act[disabled]{opacity:.34}' +
-    '#scr-party .pk-act:not([disabled]):active{transform:translateY(2px);box-shadow:none}' +
+    '#scr-party .pk-act:not([disabled]):not([aria-disabled="true"]):active' +
+      '{transform:translateY(2px);box-shadow:none}' +
 
     /* ── THE RAISE CONTROL. A thumb, not a mouse: a full-width range
        with a 30px thumb, four preset chips above it that are real 44px
@@ -970,7 +1273,9 @@ function table(){
     '<div class="pk-table" id="pk-table">' +
       '<div class="pk-opps" id="pk-opps"></div>' +
       '<div class="pk-mid" id="pk-mid"></div>' +
-      '<div class="pk-say" id="pk-say"></div>' +
+      /* the hint line is also the event ticker: everything the motion
+         says, it says out loud too */
+      '<div class="pk-say" id="pk-say" role="status" aria-live="polite"></div>' +
       '<div class="pk-me" id="pk-me"></div>' +
       '<div class="pk-acts" id="pk-acts"></div>' +
       /* the raise control lives OVER the buttons, never reflowing the
@@ -1007,12 +1312,21 @@ function table(){
     const rb = ctx.btn && ctx.btn('pk-rules');
     if (!UI.rules.contains(e.target) && !(rb && rb.contains(e.target))) setRules(false);
   }, true);
+  /* any tap skips a deal still in the air — you will see it hundreds of
+     times and it must never be something you have to sit through */
+  moSkipOnTap(root);
   /* one delegated listener for the whole felt */
   root.addEventListener('click', e => {
     if (!M || M.dead) return;
     const t = e.target && e.target.closest && e.target.closest('[data-act]');
     if (!t || t.disabled) return;
     e.preventDefault();
+    /* aria-disabled, not disabled: the control is still here, still
+       focusable, and it answers with the rule rather than nothing */
+    if (t.getAttribute('aria-disabled') === 'true'){
+      refuse(t, t.getAttribute('data-why') || '');
+      return;
+    }
     onTap(t);
   });
   /* the slider is an input, not a button — its own listener */
@@ -1189,6 +1503,11 @@ function boardW(short){ return short ? 26 : 34; }
 
 function render(){
   if (!M || M.dead || !M.ctx || !UI) return;
+  /* the DOM is about to be rebuilt: end whatever is still in the air
+     rather than queueing behind it. A move that has arrived is already
+     committed — the animation was only ever decoration over it. */
+  moFinishAll();
+  const fkey = focusKey();
   const st = M.st;
   const t = E.turn(st);
   const done = E.over(st);
@@ -1257,9 +1576,12 @@ function render(){
     UI.mid.className = 'pk-mid';
     const up = st.board.length;
     UI.mid.innerHTML =
+      deckHTML(bw) +
       '<div class="pk-pot">' + chip('') + '<i>' + esc(T('Pot', 'Il-pott')) + '</i><b>' +
         pot + '</b></div>' +
-      '<div class="pk-board">' +
+      '<div class="pk-board" role="img" aria-label="' +
+        esc(T('The board', 'Il-mejda') + ': ' +
+             (up ? cardsLabel(st.board) : T('nothing yet', 'xejn s\'issa'))) + '">' +
         st.board.map(c => cardBtn(c, { w: bw })).join('') +
         Array.from({ length: Math.max(0, 5 - up) }, () => slot(bw)).join('') +
       '</div>' +
@@ -1271,15 +1593,22 @@ function render(){
         esc(st.mode === 'coins' ? T('COINS', 'MUNITI') : T('FREE', 'ĦIELES')) + '</span>';
   }
 
-  /* — the hint line — */
-  UI.say.innerHTML = done ? '' : sayLine(st, me, t, mine);
+  /* — the hint line, which is also the ticker. A refusal that is still
+       being read holds the line; the hint comes back on its own. — */
+  if (sayUntil <= Date.now()) UI.say.innerHTML = done ? '' : sayLine(st, me, t, mine);
 
   /* — your own seat: two cards, your stack, what you have in front of
        you, and — the moment there is a board — what you actually have — */
   const myHand = (meS.hole.length === 2 && st.board.length >= 3 && !meS.folded)
     ? E.best5(meS.hole.concat(st.board)) : null;
   UI.me.innerHTML =
-    '<span class="h">' +
+    /* the cards themselves are aria-hidden pictures, so the row that
+       holds them carries the words — without this a blind player has
+       never been able to read their own hole cards */
+    '<span class="h" role="img" aria-label="' +
+      esc(T('Your cards', 'Il-karti tiegħek') + ': ' +
+           (meS.hole.length === 2 ? cardsLabel(meS.hole)
+                                  : T('not dealt yet', 'għadhom ma tqassmux'))) + '">' +
       (meS.hole.length === 2
         ? meS.hole.map(c => cardBtn(c, {
             w: short ? 40 : 56,
@@ -1299,6 +1628,42 @@ function render(){
         ? '<span class="hn">' + esc(handName(myHand.v)) + '</span>' : '') +
     '</span>';
 
+  /* — NOT YOUR GO: your own cards go quiet. Turn-based with no
+       interrupts is the simplification this table has never cashed in:
+       if you cannot act, it should be unmistakable without reading. — */
+  UI.me.classList.toggle('pk-off', !(mine && !done && !showing));
+
+  /* ── THE MOTION, always AFTER the markup. The felt already says the
+       truth; this only decorates it. ── */
+  const deckEl = UI.mid.querySelector('.pk-deck');
+  const deckRect = deckEl ? deckEl.getBoundingClientRect() : null;
+
+  /* your two cards: fanned as a held pair, and flown in face-down out
+     of the deck the first time they appear */
+  const holeEls = [].slice.call(UI.me.querySelectorAll('.pk-c'));
+  fanCards(holeEls, holeEls.length);
+  const holeKey = meS.hole.join(',');
+  if (M.tmp.seenHole !== holeKey){
+    M.tmp.seenHole = holeKey;
+    if (holeEls.length && deckRect) dealIn(holeEls, deckRect, { flip:true });
+  }
+
+  /* the community cards: each street's new cards travel out of the
+     deck. The board never fans — five cards laid on a table are laid
+     flat, and rotating them would read as a hand, not a board. */
+  const boardEls = [].slice.call(UI.mid.querySelectorAll('.pk-board .pk-c'));
+  const seenBoard = M.tmp.seenBoard | 0;
+  if (boardEls.length > seenBoard && deckRect && !showing)
+    dealIn(boardEls.slice(seenBoard), deckRect, { flip:true });
+  M.tmp.seenBoard = boardEls.length;
+
+  /* the showdown, one row at a time — a result that lands in one lump
+     is a result nobody reads */
+  const showKey = showing ? 'h' + st.handNo : '';
+  if (showKey && M.tmp.seenShow !== showKey && UI.mid.classList.contains('pk-show'))
+    revealRows([].slice.call(UI.mid.querySelectorAll('.pk-sr')));
+  M.tmp.seenShow = showKey;
+
   /* — the three buttons a turn is made of — */
   paintActs(st, me, t, mine, done, showing);
 
@@ -1316,6 +1681,8 @@ function render(){
   if (rulesOpen) paintRules();
   paintTurn(t, done, showing);
   paintBar();
+  /* focus last, after every innerHTML in this render has landed */
+  refocus(fkey);
   if (done){ finish(done); return; }
   step();
 }
@@ -1384,6 +1751,14 @@ function sayLine(st, me, t, mine){
     esc(T('The pot is ', 'Il-pott hu ') + E.potOf(st) + '.');
 }
 
+/* whose go it is, in words a player can act on — the text a refused
+   control speaks when it is tapped */
+function notYourGo(st, t){
+  return (t >= 0 && st.seats[t])
+    ? st.seats[t].name + ' ' + T('has the go.', 'għandu l-mossa.')
+    : T('Not your go yet.', 'Għadu mhux imissek.');
+}
+
 function paintActs(st, me, t, mine, done, showing){
   if (done || showing || st.phase === 'handover' || st.phase === 'show'){
     UI.acts.innerHTML = ''; setBet(false); return;
@@ -1395,17 +1770,32 @@ function paintActs(st, me, t, mine, done, showing){
   /* CALL says what it costs and RAISE says what it would take — a
      poker button with no number on it makes you do arithmetic with
      your thumb hovering, which is how people misclick a stack away. */
+  /* NOT disabled — aria-disabled, with the rule attached. A greyed-out
+     poker button that cannot be reached with a keyboard and cannot say
+     why it refused is two bugs, not a style. */
+  const whyAct = !mine ? notYourGo(st, t)
+    : s.folded ? T('You folded this hand.', 'Warrabt din l-id.')
+    : s.allin  ? T('You are already all in — nothing left to decide.',
+                   'Diġà kollox — m\'hemm xejn x\'tiddeċiedi.')
+    : T('Not your go yet.', 'Għadu mhux imissek.');
+  const whyBet = !can ? whyAct
+    : T('You cannot raise here — calling all in is the only move left.',
+        'Ma tistax tgħolli hawn — issejjaħ kollox hu l-uniku mod.');
+  const dis = (okNow, why) => okNow ? '' : ' aria-disabled="true" data-why="' + esc(why) + '"';
+  /* the move that is actually available breathes, so what you can
+     legally do right now is never something you have to work out */
+  const go = can ? ' pk-go' : '';
   UI.acts.innerHTML =
-    '<button class="pk-act ghost" type="button" data-act="fold"' + (can ? '' : ' disabled') + '>' +
+    '<button class="pk-act ghost" type="button" data-act="fold"' + dis(can, whyAct) + '>' +
       esc(T('Fold', 'Warrab')) + '</button>' +
     (toCall === 0
-      ? '<button class="pk-act" type="button" data-act="check"' + (can ? '' : ' disabled') + '>' +
+      ? '<button class="pk-act' + go + '" type="button" data-act="check"' + dis(can, whyAct) + '>' +
         esc(T('Check', 'Għaddi')) + '</button>'
-      : '<button class="pk-act" type="button" data-act="call"' + (can ? '' : ' disabled') + '>' +
+      : '<button class="pk-act' + go + '" type="button" data-act="call"' + dis(can, whyAct) + '>' +
         esc(toCall >= s.stack ? T('Call all in', 'Sejjaħ kollox') : T('Call', 'Sejjaħ')) +
         '<small>' + Math.min(toCall, s.stack) + '</small></button>') +
     '<button class="pk-act hot" type="button" data-act="betopen"' +
-      (can && r.can ? '' : ' disabled') + '>' +
+      dis(can && r.can, whyBet) + '>' +
       esc(st.betToMatch > 0 ? T('Raise', 'Għolli') : T('Bet', 'Imħatra')) +
       (r.can ? '<small>' + (r.min >= r.max ? T('all in', 'kollox') : T('from', 'minn') + ' ' + r.min) +
                '</small>' : '') +

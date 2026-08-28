@@ -443,11 +443,31 @@ function cardBack(){
   return backCache;
 }
 
+/* ── WHY A CARD YOU MAY NOT PLAY IS NOT `disabled` ─────────────────
+   It used to be. A `disabled` button is removed from the tab order
+   altogether, so a keyboard or a switch device could not even REACH
+   the card — and a disabled control has no way of saying why it is
+   refused, because nothing can focus it to be told. Both halves of
+   that are the same bug: the card goes quiet and stays quiet.
+
+   So an unplayable card is `aria-disabled="true"` on a still-focusable
+   button, dimmed rather than deleted, carrying its reason in
+   `data-why`. The felt's one delegated listener turns a tap on one
+   into a shake, a haptic and a line in the live region that says the
+   rule out loud. Reachable, announced, and it explains itself. */
+const WHY_IDLE = () => TW('Not a card you can play just now.',
+                          'Mhux karta li tista’ titfa’ bħalissa.');
+const WHY_NO   = () => TW('The rules will not have that card.',
+                          'Ir-regoli ma jaċċettawx dik il-karta.');
+
 /* the public drawing call. face:false gives the back. */
 function cardEl(c, o){
   o = o || {};
   const face = o.face !== false;
-  const tag = o.tap ? 'button' : 'span';
+  /* dimmed-but-reachable, so it is a button too — see the note above */
+  const dis = !!o.dis;
+  const btn = !!o.tap || dis;
+  const tag = btn ? 'button' : 'span';
   const w = o.w || 62;
   /* `tapme` carries no style at all — see the note on .kb-table in
      table(). It is the marker js/sfx.js's auto-wire layer skips, and it
@@ -458,15 +478,26 @@ function cardEl(c, o){
      thing itself survives that. */
   let cls = 'kb-card tapme' + (o.cls ? ' ' + o.cls : '');
   if (!face) cls += ' down';
+  if (dis) cls += ' off';
+  /* the fan angles are CUSTOM PROPERTIES, not a transform written out
+     here: the stylesheet composes them with the lift and the press into
+     one transform, so a selected card can straighten without this
+     function knowing anything about selection. Set once per render —
+     never animated per frame, which is the expensive way to use one. */
+  let style = 'width:' + w + 'px;height:' + Math.round(w * 1.4) + 'px';
+  if (o.left != null) style += ';margin-left:' + o.left + 'px';
+  if (o.fr) style += ';--fr:' + o.fr + 'deg';
+  if (o.fy) style += ';--fy:' + o.fy + 'px';
+  const why = dis ? (o.why || WHY_NO()) : '';
+  const label = face ? (nameOf(c) + (o.note ? '. ' + o.note : '') + (why ? '. ' + why : ''))
+                     : TW('Face-down card', 'Karta bil-wiċċ ’l isfel');
   return '<' + tag + ' class="' + cls + '"' +
-    (o.tap ? ' type="button"' : '') +
-    (o.dis ? ' disabled aria-disabled="true"' : '') +
+    (btn ? ' type="button"' : '') +
+    (dis ? ' aria-disabled="true" data-why="' + esc(why) + '"' : '') +
     ' data-c="' + (face ? c : -1) + '"' +
     (o.k != null ? ' data-k="' + o.k + '"' : '') +
-    ' style="width:' + w + 'px;height:' + Math.round(w * 1.4) + 'px' +
-      (o.left != null ? ';margin-left:' + o.left + 'px' : '') + '"' +
-    (o.tap ? ' aria-label="' + esc(face ? nameOf(c) + (o.note ? '. ' + o.note : '') : 'Face-down card') + '"'
-           : ' aria-hidden="true"') +
+    ' style="' + style + '"' +
+    (btn ? ' aria-label="' + esc(label) + '"' : ' aria-hidden="true"') +
     '>' + (face ? cardFace(c) : cardBack()) + '</' + tag + '>';
 }
 
@@ -483,9 +514,25 @@ function cardEl(c, o){
    hand turns into a red-and-black smear.
    ═══════════════════════════════════════════════════════════════════ */
 const MIN_W = 46, MAX_W = 92;
+/* MIN_STEP is the second number that matters, and it had no name.
+   Siblings in a row paint in document order, so card i is covered by
+   card i+1 and the only part of it you can actually hit is `step` px
+   wide. The old floor was 14px — indefensible at any spec level, and
+   below every published minimum. 30px clears WCAG 2.2 SC 2.5.8's
+   24×24 comfortably; Apple's 44pt is arithmetically out of reach
+   (13 cards × 44 = 572px on a 312px row) without scrolling, and the
+   shell must never scroll, so the gap is closed by the two-stage
+   commit and the lift-and-straighten instead of by size.
+
+   And it is a WRAP TRIGGER, not just a clamp. A clamp alone would push
+   the row wider than the felt and clip a card off the edge; treating a
+   too-thin strip the same way a too-narrow card is treated — take
+   another row — buys the pitch back honestly. */
+const MIN_STEP = 30;
 function fanPlan(n, wide, tall){
   if (n <= 0) return { rows:[], w:MIN_W, step:MIN_W };
   let rows = 1;
+  const pitch = (w, per) => (per > 1 ? Math.min(w + 4, (wide - 6 - w) / (per - 1)) : w);
   for (;;){
     const per = Math.ceil(n / rows);
     /* the widest card that lets `per` of them sit in `wide` with at
@@ -493,30 +540,66 @@ function fanPlan(n, wide, tall){
     let w = Math.min(MAX_W, Math.floor((wide - 6) / (1 + (per - 1) * 0.58)));
     /* …and that still leaves room for `rows` rows of it */
     if (tall) w = Math.min(w, Math.floor((tall - (rows - 1) * 8) / (rows * 1.4)));
-    if (w >= MIN_W || rows >= 3){
+    if ((w >= MIN_W && pitch(w, per) >= MIN_STEP) || rows >= 3){
       w = Math.max(MIN_W, w);
-      const step = per > 1 ? Math.min(w + 4, (wide - 6 - w) / (per - 1)) : w;
       const out = [];
       for (let i = 0; i < n; i += per) out.push([i, Math.min(n, i + per)]);
-      return { rows:out, w, step:Math.max(14, step) };
+      return { rows:out, w, step:Math.max(MIN_STEP, pitch(w, per)) };
     }
     rows++;
   }
 }
+
+/* ── THE FAN, AS GEOMETRY ─────────────────────────────────────────
+   A held hand is not a row of stamps. Every card gets a small rotation
+   and the outer ones sit a little lower, which is the shape a real
+   hand makes and it is what tells you at a glance that these cards are
+   YOURS and the ones on the felt are not.
+
+   Two things about how it is done:
+
+   · It is COMPUTED FROM THE INDEX and nothing else. No Math.random
+     anywhere near it. Four phones in one online room render the same
+     hand at the same angles without a byte crossing the wire to say
+     so, and a rebuild after an undo lands on the identical picture.
+   · It is LAYOUT, not motion. Nothing animates it; it is two custom
+     properties written once per render. So it survives
+     prefers-reduced-motion untouched — a fan is a shape, and taking a
+     shape away from somebody who asked for less movement helps nobody.
+
+   Only ever on a single row. Rotating a wrapped two-row hand puts the
+   end of one row through the start of the next and reads as broken. */
+const FAN_DEG  = 3;    /* degrees per card */
+const FAN_MAX  = 26;   /* …but the whole spread never exceeds this */
+const FAN_DROP = 10;   /* how far the outermost card sits below the middle */
 function fanHTML(cards, plan, o){
   o = o || {};
+  const face = o.face !== false;
+  const n = cards.length;
+  const fan = face && n >= 3 && plan.rows.length === 1;
+  const spread = fan ? Math.min(FAN_DEG, FAN_MAX / (n - 1)) : 0;
+  const half = (n - 1) / 2;
+  const dropK = (fan && half > 0) ? FAN_DROP / (half * half) : 0;
   let h = '';
   plan.rows.forEach(seg => {
     h += '<div class="kb-fan-row">';
     for (let i = seg[0]; i < seg[1]; i++){
       const first = i === seg[0];
+      const d = i - half;
+      /* a face-up hand you cannot play from is still YOUR HAND and has
+         to be readable — by a screen reader as much as by an eye. It
+         stays a focusable button, dimmed, saying why. */
+      const off = o.dis ? !!o.dis(cards[i], i) : false;
       h += cardEl(cards[i], {
         w: plan.w,
         left: first ? 0 : Math.round(plan.step - plan.w),
-        face: o.face !== false,
+        face,
         tap: !!o.tap,
         k: i,
-        dis: o.dis ? o.dis(cards[i], i) : false,
+        fr: fan ? +(d * spread).toFixed(2) : 0,
+        fy: fan ? Math.round(dropK * d * d) : 0,
+        dis: face && (off || !o.tap),
+        why: off ? (o.why ? o.why(cards[i], i) : WHY_NO()) : WHY_IDLE(),
         note: o.note ? o.note(cards[i], i) : '',
         cls: (o.cls ? o.cls(cards[i], i) : '')
       });
@@ -537,7 +620,7 @@ function plural(n, one, many){ return n + ' ' + (n === 1 ? one : (many || one + 
 
 /* exported so the engines and the tests share one vocabulary */
 const DECK = {
-  SUITS, RANK_SHORT, RANK_LONG, RANK_MT,
+  SUITS, RANK_SHORT, RANK_LONG, RANK_MT, MIN_W, MAX_W, MIN_STEP,
   suitOf, rankOf, mk, isRed, shortOf, nameOf,
   deck52, deck40, shuffle, rnd, rint, clone,
   cardEl, cardFace, cardBack, fanPlan, fanHTML,
@@ -567,10 +650,15 @@ function injectCSS(){
       '--kb-red:#C7192B;--kb-blk:#17131B;--kb-edge:rgba(0,0,0,.4)}' +
 
     /* ── the card itself ── */
+    /* NO TRANSITION ON THE BASE RULE. It used to say
+       `transition:margin-top .13s` — margin-top is a LAYOUT property,
+       so every frame of a card lifting re-laid out the whole row and
+       repainted it. The lift is a transform now, and it is declared in
+       the .kb-table scope below where it cannot reach another game's
+       felt that happens to share this class name. */
     '#scr-party .kb-card{position:relative;flex:0 0 auto;padding:0;border:0;background:none;' +
       'border-radius:7px;line-height:0;display:block;' +
-      'box-shadow:0 2px 4px rgba(0,0,0,.5),0 6px 14px rgba(0,0,0,.35);' +
-      'transition:margin-top .13s var(--ease),box-shadow .13s var(--ease)}' +
+      'box-shadow:0 2px 4px rgba(0,0,0,.5),0 6px 14px rgba(0,0,0,.35)}' +
     '#scr-party button.kb-card{cursor:pointer;-webkit-tap-highlight-color:transparent}' +
     /* THE FAN. Without this the cards are block elements and a hand of
        three lays itself out down the screen like a shopping list. */
@@ -588,14 +676,104 @@ function injectCSS(){
     '#scr-party .kb-ink{fill:currentColor;stroke:none}' +
     '#scr-party .kb-face{fill:var(--kb-ivory);stroke:currentColor;stroke-width:1.5}' +
     '#scr-party .kb-hair{stroke:currentColor;stroke-width:1.1;opacity:.55;fill:none}' +
-    /* legal / illegal / chosen */
-    '#scr-party .kb-card.pick{margin-top:-14px;' +
-      'box-shadow:0 0 0 3px var(--gold),0 8px 18px rgba(0,0,0,.5)}' +
-    '#scr-party .kb-card.ok{box-shadow:0 0 0 2.5px rgba(61,220,132,.9),0 6px 14px rgba(0,0,0,.4)}' +
     '#scr-party .kb-card.no{filter:none;opacity:.42}' +
     '#scr-party .kb-card.no .kb-svg{filter:grayscale(1)}' +
-    '#scr-party button.kb-card:not([disabled]):active{margin-top:-8px}' +
     '#scr-party .kb-card.tiny{box-shadow:0 1px 3px rgba(0,0,0,.45)}' +
+
+    /* ══ THE CARD ON THE FELT ═════════════════════════════════════════
+       Scoped to .kb-table on purpose. Three other card games inject
+       their own `#scr-party .kb-card` block into the same document, and
+       whichever went in last used to win; one more class on the front
+       puts these rules above all of them without touching a line of
+       anybody else's file.
+
+       ONE TRANSFORM, FOUR KNOBS, and every one of them a custom
+       property so a rule can change ONE of them without knowing what
+       the others are doing:
+         --fr  the fan angle       (written once per render)
+         --fy  the fan's drop      (written once per render)
+         --lift  selection / press (a class)
+         --rot / --sc  straighten and swell when selected
+       That is what lets a selected card STRAIGHTEN — de-fan itself so
+       you can read it before you commit — while a press on top of that
+       only changes the lift and leaves the straightening alone.
+       transform and opacity only: both compositor-tier, so this stays
+       smooth on a cheap phone even with the main thread busy. */
+    /* 2D on purpose: a translate3d in a STATIC rule is the old
+       null-transform layer hack and would hand every card on the felt —
+       the hand, the trick, every mini back on every seat plate — its own
+       GPU texture for ever. Promotion belongs to the flight and nowhere
+       else, so it is asked for there, per card, and given back. */
+    '#scr-party .kb-table .kb-card{transform-origin:50% 50%;' +
+      'transform:translateY(calc(var(--fy,0px) + var(--lift,0px))) ' +
+        'rotate(var(--rot,var(--fr,0deg))) scale(var(--sc,1));' +
+      'transition:transform .16s var(--ease),opacity .16s var(--ease)}' +
+    /* THE RING IS PRE-PAINTED AND ONLY ITS OPACITY MOVES. An animated
+       box-shadow is paint-tier and the cost climbs with the blur; this
+       one is a zero-blur ring on a pseudo-element that already exists,
+       so the only thing that ever changes is a compositor property. */
+    '#scr-party .kb-table .kb-card::after{content:"";position:absolute;inset:-3px;' +
+      'border-radius:10px;pointer-events:none;opacity:0;' +
+      'box-shadow:0 0 0 3px var(--kb-ring,transparent);' +
+      'transition:opacity .16s var(--ease)}' +
+    '#scr-party .kb-table .kb-card.ok{--kb-ring:rgba(61,220,132,.9)}' +
+    '#scr-party .kb-table .kb-card.ok::after{opacity:1}' +
+    /* CHOSEN: lifted, straightened, a touch bigger, and above its
+       right-hand neighbour so nothing clips the card you are reading. */
+    '#scr-party .kb-table .kb-card.pick{--kb-ring:var(--gold);--lift:-18px;--rot:0deg;' +
+      '--sc:1.04;z-index:5}' +
+    '#scr-party .kb-table .kb-card.pick::after{opacity:1}' +
+    /* REFUSED: a red ring for the 600 ms the shake lasts */
+    '#scr-party .kb-table .kb-card.bad{--kb-ring:#FF6B7A;z-index:6}' +
+    '#scr-party .kb-table .kb-card.bad::after{opacity:1}' +
+    /* dimmed, NOT deleted — see the note on cardEl() */
+    '#scr-party .kb-table .kb-card.off{opacity:.55}' +
+    '#scr-party .kb-table .kb-card.off .kb-svg{filter:saturate(.45)}' +
+    '#scr-party .kb-table button.kb-card:not([aria-disabled="true"]):active{--lift:-8px}' +
+    /* the keyboard has to be able to see where it is */
+    '#scr-party .kb-table .kb-card:focus-visible{outline:2px solid var(--gold);' +
+      'outline-offset:3px;z-index:7}' +
+
+    /* ── the pack, made visible ──────────────────────────────────────
+       Motion needs an origin. Cards arriving from a point nobody can
+       see read as noise rather than as a deal, so here is the pack:
+       three backs, offset, at the left edge of the middle of the felt,
+       and the stock count on it for the games that have one. It is
+       decoration and never a target — pointer-events:none — so it
+       cannot steal a tap from the felt underneath it. */
+    /* TOP-left of the middle band, not the centre of it. The engines
+       centre their own furniture — the turn-up, the trick, the line of
+       prose — in that band, so the top of it is the one strip that is
+       reliably empty in all four games, and a pack that sits behind the
+       trick is a pack nobody can see. */
+    '#scr-party .kb-deck{position:absolute;left:0;top:0;z-index:1;width:30px;' +
+      'display:flex;flex-direction:column;align-items:center;' +
+      'gap:4px;pointer-events:none;opacity:0;transition:opacity .2s var(--ease)}' +
+    '#scr-party .kb-deck.on{opacity:1}' +
+    '#scr-party .kb-deck .kb-pack{position:relative;line-height:0}' +
+    '#scr-party .kb-deck .kb-pack .kb-card{position:absolute;left:0;top:0;' +
+      'box-shadow:0 1px 3px rgba(0,0,0,.5)}' +
+    '#scr-party .kb-deck .kb-pack .kb-card.d0{transform:translate(3px,-3px)}' +
+    '#scr-party .kb-deck .kb-pack .kb-card.d1{transform:translate(1.5px,-1.5px)}' +
+    '#scr-party .kb-deck .kb-pack .kb-card.d2{position:relative}' +
+    '#scr-party .kb-deck .kb-n{font:900 8.5px/1 var(--disp);letter-spacing:.08em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.66);padding:3px 6px;border-radius:999px;' +
+      'background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);white-space:nowrap}' +
+    '#scr-party .kb-deck .kb-n b{color:var(--gold)}' +
+    /* the pack owns the left 34px of the band, so the prose the engines
+       centre in there is kept out of it rather than running underneath */
+    '#scr-party .kb-table .kb-mid > .kb-say{padding-left:34px;padding-right:34px}' +
+
+    /* ── the line that says what just happened ──────────────────────
+       role=status + aria-live, so the shake and the red ring are never
+       the only way the refusal is delivered. Absolutely placed: it can
+       never move the hand a thumb is already reaching for. */
+    '#scr-party .kb-tick{flex:0 0 auto;height:15px;overflow:hidden;padding:0 6px;' +
+      'text-align:center;font:700 10.5px/15px var(--body);color:var(--gold);' +
+      'text-shadow:0 1px 3px rgba(0,0,0,.8);pointer-events:none;opacity:0;' +
+      'white-space:nowrap;text-overflow:ellipsis;' +
+      'transition:opacity .18s var(--ease)}' +
+    '#scr-party .kb-tick.on{opacity:1}' +
 
     /* ── the table ── */
     '#scr-party .pt-host.kb-host{align-items:stretch;justify-content:stretch;overflow:visible}' +
@@ -813,6 +991,22 @@ function injectCSS(){
       '#scr-party .kbm-chev{transition:none}}' +
     'body.reduced #scr-party .kbm-rules.kbm-anim.open .kbm-rbody{animation:none}' +
     'body.reduced #scr-party .kbm-chev{transition:none}' +
+
+    /* ══ LESS MOVEMENT, NOT LESS GAME ═════════════════════════════════
+       Kill the TRANSITIONS. Keep the TRANSFORMS. The fan, the lift and
+       the straightening are what the state IS — where a card sits tells
+       you it is selected — so they all still happen, instantly. What
+       goes is the travelling: the deal flight is skipped in JS (see
+       dealIn), and nothing here eases from one place to another.
+       Haptics and the spoken line are untouched on purpose; somebody
+       who dislikes motion did not ask for less feedback. */
+    '@media (prefers-reduced-motion:reduce){' +
+      '#scr-party .kb-table .kb-card,#scr-party .kb-table .kb-card::after,' +
+      '#scr-party .kb-deck,#scr-party .kb-tick{transition:none}}' +
+    'body.reduced #scr-party .kb-table .kb-card,' +
+    'body.reduced #scr-party .kb-table .kb-card::after,' +
+    'body.reduced #scr-party .kb-deck,' +
+    'body.reduced #scr-party .kb-tick{transition:none}' +
 
     /* ── very short phones ── */
     '@media (max-height:700px){' +
@@ -1315,6 +1509,285 @@ function resume(snap){
    ═══════════════════════════════════════════════════════════════════ */
 let UI = null;
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE MOTION, AND THE THINGS MOTION CANNOT SAY
+
+   Four rules hold everything below together.
+
+   1. TRANSFORM AND OPACITY, NOTHING ELSE. Both are compositor-only:
+      they never repaint the element's texture, so they stay smooth on
+      a cheap phone even while the main thread is busy dealing. Nothing
+      here touches width, height, top, left or margin while animating —
+      that is what the old margin-top lift did, and it re-laid out the
+      whole hand on every frame of it.
+
+   2. THE ANIMATION IS DECORATION APPLIED AFTER THE TRUTH. The hand is
+      rebuilt by innerHTML on every state change, so nothing survives a
+      render. Rather than fight that: render the final hand exactly as
+      before, then put each new card BACK at the pack with a transform
+      and let it fly to where it already is. Interrupt it at any point
+      and what is on screen is already correct. (This is FLIP with the
+      First read for free — the pack's own box.)
+
+   3. NOTHING QUEUES. A tap, or a move off the wire, finishes every
+      live animation instantly. The relay can outrun any choreography
+      and the state is already committed; a queue would show a table
+      that no longer exists.
+
+   4. DETERMINISTIC. Every angle here is a function of the card's index
+      in the hand. Not one Math.random, because in an online room four
+      phones have to draw the same picture without a byte crossing the
+      wire to agree on it.
+   ═══════════════════════════════════════════════════════════════════ */
+const EASE_OUT   = 'cubic-bezier(.22,.9,.28,1)';  /* the literal of --ease:
+     WAAPI takes a real easing function, not a var() reference */
+const FLIGHT     = 260;   /* one card's journey, inside the Doherty threshold */
+const CONCURRENT = 12;    /* most cards allowed in the air at once */
+const TICK_MS    = 2200;  /* how long a line stays up */
+
+let anims = [];
+let deckEl = null;
+let tickTimer = 0;
+
+/* ── every live handle, and the one way to stop them ─────────────── */
+function keepAnim(el, a){
+  anims.push(a);
+  const done = () => {
+    el.style.willChange = '';
+    const i = anims.indexOf(a);
+    if (i >= 0) anims.splice(i, 1);
+  };
+  a.addEventListener('finish', done);
+  a.addEventListener('cancel', done);
+  return a;
+}
+function finishAll(){
+  const live = anims.slice();
+  anims.length = 0;
+  for (const a of live){ try { a.finish(); } catch(e){ try { a.cancel(); } catch(e2){} } }
+}
+
+/* the transform a card RESTS at: its fan angle and its fan drop, which
+   the stylesheet composes from two custom properties. Read from the
+   inline style rather than getComputedStyle — we wrote them, we know
+   them, and one fewer forced style resolution per card matters when
+   eighteen of them are about to move. */
+function restOf(el){
+  const fy = parseFloat(el.style.getPropertyValue('--fy')) || 0;
+  const fr = el.style.getPropertyValue('--fr') || '0deg';
+  return { fy, fr, css: 'translate3d(0,' + fy + 'px,0) rotate(' + fr + ')' };
+}
+
+/* ── the line above the hand ──────────────────────────────────────
+   role=status + aria-live=polite, and it is a RESERVED strip in the
+   flow: it is the same height empty as full, so a message can never
+   nudge the hand a thumb is already travelling towards. */
+function say(msg){
+  if (!UI || !UI.tick) return;
+  UI.tick.textContent = msg || '';
+  UI.tick.classList.toggle('on', !!msg);
+  if (tickTimer){ clearTimeout(tickTimer); tickTimer = 0; }
+  if (!msg) return;
+  const m = M;
+  tickTimer = setTimeout(() => {
+    tickTimer = 0;
+    if (M !== m || !UI || !UI.tick) return;
+    UI.tick.classList.remove('on');
+    UI.tick.textContent = '';
+  }, TICK_MS);
+}
+
+/* ── the pack ─────────────────────────────────────────────────────
+   ONE node, made once and MOVED into the middle of the felt after
+   every paint rather than rebuilt — a node that is recreated cannot
+   fade, because its first computed opacity is also its last.
+   aria-hidden: the two games that have a stock already print the count
+   as a chip of their own, and the same number said twice is noise. */
+function paintDeck(st, force){
+  if (!UI) return;
+  if (!deckEl){
+    deckEl = document.createElement('div');
+    deckEl.className = 'kb-deck';
+    deckEl.id = 'kb-deck';
+    deckEl.setAttribute('aria-hidden', 'true');
+  }
+  const stock = (st && Array.isArray(st.stock)) ? st.stock.length : -1;
+  const w = 30;
+  const html =
+    '<span class="kb-pack">' +
+      cardEl(-1, { face:false, w, cls:'d0' }) +
+      cardEl(-1, { face:false, w, cls:'d1' }) +
+      cardEl(-1, { face:false, w, cls:'d2' }) +
+    '</span>' +
+    /* THE COUNT IS A BARE NUMBER ON PURPOSE. It sits on a drawn pack of
+       cards, which is the only thing it could be counting, and the word
+       for it in either language made the pack wide enough to reach the
+       trick in the middle of a 360px felt. The two games that have a
+       stock also print "STOCK n" as a chip of their own, in words. */
+    (stock >= 0 ? '<span class="kb-n"><b>' + stock + '</b></span>' : '');
+  if (deckEl.__h !== html){ deckEl.innerHTML = html; deckEl.__h = html; }
+  UI.mid.appendChild(deckEl);                 /* the engine just wiped mid */
+  /* it is on when there is a pack to draw from, and while cards are in
+     the air off it — a deal out of nowhere is not a deal */
+  deckEl.classList.toggle('on', stock > 0 || !!force);
+  return deckEl;
+}
+
+/* ── THE DEAL ─────────────────────────────────────────────────────
+   The cards that are in your hand now and were not a moment ago, flown
+   in from the pack, one after another.
+
+   Arc, not a straight line: a straight line reads as a panel sliding,
+   an arc reads as something thrown. The 55% waypoint lifts 14px and
+   swells to 1.02 — a scale overshoot rather than a position overshoot,
+   because a card that overshoots its POSITION visibly misses the slot
+   it is supposed to land in.
+
+   The stagger is budgeted, not fixed: it shrinks as the hand grows so
+   the whole cascade stays short, but never below FLIGHT/CONCURRENT,
+   which is what keeps the number of promoted layers in the air under
+   control on a phone that cannot afford them. */
+function dealIn(fresh){
+  if (!UI || !fresh || !fresh.length) return 0;
+  /* reduced motion: the cards are already in the right place. Nothing
+     travels, nothing fades, and the hand is complete and playable the
+     instant it is painted. */
+  if (noMotion()) return 0;
+  const want = fresh.slice();
+  const els = [];
+  UI.bot.querySelectorAll('.kb-card[data-c]').forEach(el => {
+    const at = want.indexOf(+el.getAttribute('data-c'));
+    if (at >= 0){ want.splice(at, 1); els.push(el); }
+  });
+  if (!els.length) return 0;
+
+  /* ── ALL THE READS, THEN ALL THE WRITES ──
+     Interleaving a getBoundingClientRect() with a style write is layout
+     thrashing and it is the one mistake that turns a smooth deal into a
+     stuttering one. Every box is measured here, before anything moves. */
+  const src = (deckEl && deckEl.classList.contains('on') && deckEl.querySelector('.kb-pack'))
+              || UI.mid;
+  const d = src.getBoundingClientRect();
+  const dcx = d.left + d.width / 2, dcy = d.top + d.height / 2;
+  const boxes = els.map(el => el.getBoundingClientRect());
+
+  const n = els.length;
+  const stagger = Math.max(Math.round(FLIGHT / CONCURRENT),
+                           n <= 1 ? 0 : Math.min(60, Math.round(FLIGHT / (n - 1))));
+  els.forEach((el, i) => {
+    const b = boxes[i], rest = restOf(el);
+    /* centres, not corners: the resting transform rotates about the
+       centre, so the centre is the one point whose displacement is
+       exactly the fan drop and nothing else */
+    const cx = b.left + b.width / 2;
+    const cy = b.top + b.height / 2 - rest.fy;
+    const dx = dcx - cx, dy = dcy - cy;
+    const tilt = -8 + (i % 3) * 6;            /* -8 / -2 / +4, from the index */
+    el.style.willChange = 'transform';        /* for the flight ONLY */
+    /* TRANSFORM ONLY, and deliberately not opacity as well: a WAAPI
+       keyframe wins over the cascade for as long as it runs, so an
+       opacity in here would light a dimmed unplayable card back up for
+       the length of its flight and then drop it again. */
+    keepAnim(el, el.animate([
+      { transform: 'translate3d(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px,0) rotate(' +
+                   tilt + 'deg) scale(.92)', offset: 0 },
+      { transform: 'translate3d(' + (dx * .42).toFixed(1) + 'px,' + (dy * .42 - 14).toFixed(1) +
+                   'px,0) rotate(' + (tilt * .4).toFixed(1) + 'deg) scale(1.02)', offset: .55 },
+      { transform: rest.css, offset: 1 }
+    ], { duration: FLIGHT, delay: i * stagger, easing: EASE_OUT, fill: 'backwards' }));
+  });
+  return els.length;
+}
+
+/* which cards are new since the last time this seat's hand was drawn */
+function freshCards(st){
+  const s = st.seats[M.view];
+  const hand = (s && Array.isArray(s.hand)) ? s.hand : [];
+  const prev = (M.seenView === M.view && Array.isArray(M.seenHand)) ? M.seenHand : null;
+  M.seenView = M.view;
+  M.seenHand = hand.slice();
+  if (!prev) return hand.slice();            /* first sight of this hand */
+  return hand.filter(c => prev.indexOf(c) < 0);
+}
+
+/* ── NO, AND WHY ──────────────────────────────────────────────────
+   The classic mobile-game failure is the tap that does nothing at all.
+   A refused card gets four answers at once, and only one of them is
+   visual: a shake, a red ring, a buzz, and a line of text in the live
+   region that names the actual rule. Under reduced motion the shake
+   goes and the other three stay — somebody who dislikes movement did
+   not ask to be told less. */
+function refuse(el, msg){
+  say(msg || WHY_NO());
+  try { if (window.KARTI_SFX && KARTI_SFX.haptic) KARTI_SFX.haptic('no'); } catch(e){}
+  /* the same id and the same level the toast watcher would fire, so the
+     two land inside js/sfx.js's 40 ms dedupe window and you hear ONE no */
+  cue('ui.error', { gain: 0.9 }, 2);
+  if (!el) return;
+  el.classList.add('bad');
+  const m = M;
+  setTimeout(() => { if (M === m && el) el.classList.remove('bad'); }, 600);
+  if (noMotion()) return;
+  const r = restOf(el);
+  const at = x => 'translate3d(' + x + 'px,' + r.fy + 'px,0) rotate(' + r.fr + ')';
+  keepAnim(el, el.animate([
+    { transform: at(0),  offset: 0 },
+    { transform: at(-5), offset: .2 },
+    { transform: at(5),  offset: .45 },
+    { transform: at(-3), offset: .7 },
+    { transform: at(0),  offset: 1 }
+  ], { duration: 220, easing: 'ease-out' }));
+}
+
+/* ── FOCUS SURVIVES THE REBUILD ───────────────────────────────────
+   The hand is replaced wholesale on every state change, which destroys
+   document.activeElement, and nothing put it back — so these games
+   were unplayable with a keyboard or a switch: one move and the focus
+   was on <body>, at the top of the document, with no way back into the
+   hand except tabbing through the whole screen again.
+
+   The key is deliberately layered. data-k is the card's place in the
+   hand and is the same card before and after most renders; data-tap
+   and data-id name a button; and if all three are gone — the hand
+   shrank, the button was replaced by another — the position among the
+   focusable things in the same section is used, so focus lands
+   somewhere sensible instead of nowhere. preventScroll is not
+   optional: the shell is 100dvh with overflow hidden and a scroll into
+   view would shove the whole layout sideways. */
+const SAFE_ID = /^[\w.:-]+$/;
+function focusKey(){
+  const a = document.activeElement;
+  if (!a || !UI || !UI.root || a === UI.root || !UI.root.contains(a)) return null;
+  const sec = a.closest('#kb-top,#kb-mid,#kb-bot');
+  const scope = sec || UI.root;
+  const key = { sec: sec ? sec.id : null };
+  const k = a.getAttribute('data-k');
+  if (k != null && /^\d+$/.test(k)) key.k = k;
+  const tap = a.getAttribute('data-tap');
+  if (tap && SAFE_ID.test(tap)) key.tap = tap;
+  const id = a.getAttribute('data-id');
+  if (id && SAFE_ID.test(id)) key.id = id;
+  key.idx = Array.prototype.indexOf.call(scope.querySelectorAll('button,[tabindex]'), a);
+  return key;
+}
+function restoreFocus(key){
+  if (!key || !UI || !UI.root) return false;
+  const a = document.activeElement;
+  if (a && a !== document.body && UI.root.contains(a)) return true;   /* it survived */
+  const scope = (key.sec && UI.root.querySelector('#' + key.sec)) || UI.root;
+  let el = null;
+  if (key.k != null) el = scope.querySelector('.kb-card[data-k="' + key.k + '"]');
+  if (!el && key.tap) el = scope.querySelector('[data-tap="' + key.tap + '"]');
+  if (!el && key.id)  el = scope.querySelector('[data-id="' + key.id + '"]');
+  if (!el && key.idx >= 0){
+    const list = scope.querySelectorAll('button,[tabindex]');
+    if (list.length) el = list[Math.min(key.idx, list.length - 1)];
+  }
+  if (!el) return false;
+  try { el.focus({ preventScroll: true }); } catch(e){ try { el.focus(); } catch(e2){} }
+  return document.activeElement === el;
+}
+
 function table(){
   const ctx = M.ctx;
   ctx.host.classList.add('kb-host');
@@ -1332,15 +1805,25 @@ function table(){
     '<div class="kb-table tapme" id="kb-table">' +
       '<div class="kb-top" id="kb-top"></div>' +
       '<div class="kb-mid" id="kb-mid"></div>' +
+      /* THE ONE-LINE TICKER, in the flow and always the same height, so
+         a message costs no layout. It is a live region and it is the
+         only node between mid and bot that the engines never rewrite —
+         which is exactly why it can be one: an aria-live element that
+         is destroyed and rebuilt announces nothing reliably. */
+      '<div class="kb-tick" id="kb-tick" role="status" aria-live="polite"></div>' +
       '<div class="kb-bot" id="kb-bot"></div>' +
     '</div>';
   const root = ctx.host.querySelector('#kb-table');
+  deckEl = null;                    /* a new felt gets a new pack */
+  anims.length = 0;
   root.classList.add('kb-g-' + M.gid); /* per-game cosmetic scope for the kit shelf — the table is rebuilt per match so the class always matches the game being played */
   UI = {
     ctx, root,
     top: root.querySelector('#kb-top'),
     mid: root.querySelector('#kb-mid'),
     bot: root.querySelector('#kb-bot'),
+    tick: root.querySelector('#kb-tick'),
+    say, refuse,
     D: DECK, esc, ico,
     /* how wide the hand row may be — measured, because a phone in a
        case and a phone in a browser are not the same width */
@@ -1392,11 +1875,25 @@ function table(){
     card: cardEl, fan: fanHTML, plan: fanPlan,
     say(html){ return '<div class="kb-say">' + html + '</div>'; }
   };
+  /* THE DEAL IS SKIPPABLE. You will watch it several hundred times in
+     an evening; the first touch anywhere on the felt ends it and puts
+     every card exactly where it already was. */
+  root.addEventListener('pointerdown', finishAll, { passive: true });
   /* ONE delegated listener for the whole felt: every tappable thing an
      engine paints carries its move as JSON, so no engine ever wires a
      handler and no handler ever survives its element. */
   root.addEventListener('click', e => {
     if (!M || M.dead || M.veil) return;
+    finishAll();
+    /* A CARD THAT SAYS NO. It is aria-disabled rather than disabled, so
+       it is reachable, it is here, and it can answer. */
+    const off = e.target && e.target.closest &&
+                e.target.closest('.kb-card[aria-disabled="true"]');
+    if (off){
+      e.preventDefault();
+      refuse(off, off.getAttribute('data-why') || WHY_NO());
+      return;
+    }
     const t = e.target && e.target.closest && e.target.closest('[data-mv],[data-tap]');
     if (!t || t.disabled) return;
     e.preventDefault();
@@ -1425,9 +1922,12 @@ function table(){
          to the toast: nag() is prefixed with the app's own ⚠, which is
          what js/sfx.js's toast watcher reads to pick ui.error over the
          friendly ui.toast — so its call lands on the SAME id inside the
-         40 ms dedupe window and is dropped. One refusal, one noise. */
-      cue('ui.error', { gain: 0.9 }, 2);
-      if (K.toast) K.toast(nag(mv));
+         40 ms dedupe window and is dropped. One refusal, one noise.
+         refuse() adds the three answers a toast cannot give: the card
+         itself shakes, it rings red, and the reason is announced. */
+      const why = nag(mv);
+      refuse(t.classList.contains('kb-card') ? t : null, why.replace(/^\s*⚠\s*/, ''));
+      if (K.toast) K.toast(why);
       return;
     }
     if (M.net && M.net.onMove) { try { M.net.onMove(clone(mv), r.index); } catch(err){} }
@@ -1480,7 +1980,21 @@ function render(){
                    M.shown != null && M.shown !== t && !M.veil;
   if (needVeil){ M.veil = t; }
 
+  /* NOTHING QUEUES BEHIND CHOREOGRAPHY. A move has landed; whatever was
+     still flying is put where it belongs before the board is redrawn. */
+  finishAll();
+  /* the keyboard's place on the felt, taken before the paint destroys
+     the element it is standing on */
+  const fkey = focusKey();
+
   M.def.paint(UI, st, { turn:t, view:M.view, done, tmp:M.tmp });
+
+  /* the cards that arrived since the last paint, worked out BEFORE the
+     pack is drawn, because the pack has to be on screen and measured
+     for them to have anywhere to fly from */
+  const fresh = freshCards(st);
+  paintDeck(st, fresh.length > 0);
+  restoreFocus(fkey);
   paintTurn(t, done);
   paintBar();
 
@@ -1494,9 +2008,23 @@ function render(){
        changing, and it sounds like one. */
     if (b) b.onclick = () => { cue('duel.turn', { gain: 0.85 }, 2);
                                M.shown = M.veil; M.veil = 0; render(); };
+    /* the veil is opaque and covers the felt, so a deal underneath it
+       would be a deal nobody sees. freshCards() has already banked the
+       hand, so lifting the veil does not replay it either. */
     return;                      /* nothing else moves while the veil is up */
   }
   if (t >= 0 && isLocal(t)) M.shown = t;
+
+  /* LAST, after the DOM is already correct in every respect. If this
+     never ran, or is cut short by the next tap, the felt still reads
+     true — the flight is decoration over a board that is already
+     finished, which is the only way to animate a renderer that
+     destroys and rebuilds its own nodes. */
+  if (fresh.length) dealIn(fresh);
+  /* a pack with nothing left in it goes away once the last card off it
+     has landed, rather than sitting there pretending to be a stock */
+  if (fresh.length && !(Array.isArray(st.stock) && st.stock.length))
+    cueIn(noMotion() ? 0 : 900, () => { if (deckEl) deckEl.classList.remove('on'); });
 
   if (done){ finish(done); return; }
   step();
@@ -1777,6 +2305,9 @@ function newGame(gid, opts, snap){
 
 function leave(){
   stopThinking();
+  finishAll();
+  if (tickTimer){ clearTimeout(tickTimer); tickTimer = 0; }
+  deckEl = null;
   if (M){
     autosave();
     const net = M.net;
