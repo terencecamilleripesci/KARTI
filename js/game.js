@@ -870,7 +870,21 @@ function authAction(act){
     });
     return;
   }
-  if (!local.noProfile){ authErr(local.err); return; }
+  /* A LOCAL PROFILE THAT DISAGREES IS NOT AUTHORITY, IT IS A CACHE.
+     The local salted hash exists so this phone can log in with no server. It
+     was never meant to be the last word — but it was: a wrong local hash
+     returned "Wrong password" and the cloud was never asked. That is what
+     stranded the owner after a password reset (build 283). The server had the
+     new password, this phone had the old one, and the phone won.
+     So when the local check fails and we CAN reach the Pi, ask it. If the
+     server says yes, signInFromCloud re-keys this profile on the way in and
+     the divergence heals itself. If the Pi is off, the local answer stands —
+     offline play is exactly why the local hash is there. */
+  if (!local.noProfile){
+    if (cloudReady()){ signInFromCloud(name, pw); return; }
+    authErr(local.err);
+    return;
+  }
   signInFromCloud(name, pw);
 }
 
@@ -905,13 +919,21 @@ function signInFromCloud(name, pw){
     }
     /* The server accepted the password, so this name and password are theirs:
        give them the local profile to match, using the SAME salted-hash scheme
-       as any other profile on this device. */
+       as any other profile on this device.
+
+       RE-KEY EVEN WHEN A PROFILE ALREADY EXISTS. This used to be guarded by
+       `if (!users[key])`, which quietly made a stale local password permanent:
+       the server accepts the new one, the player gets in, and the OLD hash
+       stays on the phone — so the next offline login fails again and the fix
+       never sticks. The server has just proved this password is correct for
+       this account, so it is the truth and the local copy should match it.
+       `created` is preserved so the profile keeps its age. */
     const users = getUsers();
-    if (!users[key]){
-      const salt = randSalt();
-      users[key] = { name: name.trim(), salt, hash: hashPw(salt, pw), created: Date.now() };
-      setUsers(users);
-    }
+    const had = users[key];
+    const salt = randSalt();
+    users[key] = { name: (had && had.name) || name.trim(), salt, hash: hashPw(salt, pw),
+                   created: (had && had.created) || Date.now() };
+    setUsers(users);
     switchTo(key); authMode = 'menu';
     toast('Welcome back, ' + displayName() + '.');
     afterLogin();
@@ -6890,12 +6912,31 @@ function boot(){
   wireStatic();
   detectArt();
   /* sync.js owns the reset panel and knows nothing about local profiles; this
-     is the one line that joins the two. See relocalPassword(). */
-  try {
-    if (window.KARTI_SYNC)
-      KARTI_SYNC.onReset = r => { try { relocalPassword(r && r.u, r && r.name, r && r.pass); }
-                                  catch(e){} };
-  } catch(e){}
+     is the one line that joins the two. See relocalPassword().
+
+     WHY THIS RETRIES INSTEAD OF ASKING ONCE. index.html's loader appends
+     js/game.js at position 8 and js/sync.js at position 17, so at boot()
+     window.KARTI_SYNC DOES NOT EXIST YET. The original `if (window.KARTI_SYNC)`
+     therefore silently attached nothing, and the symptom was ugly and remote
+     from the cause: a player reset their password, the SERVER took it — new
+     hash, fresh salt, sessions cleared — and then their own phone still said
+     "wrong password", because loginAccount() checks the LOCAL profile first
+     and it had never been re-keyed. It worked from any other device, which is
+     exactly the sort of clue that sends you hunting in the wrong place.
+     Caught for real on the owner's own account, build 283. */
+  (function wireReset(tries){
+    try {
+      if (window.KARTI_SYNC){
+        KARTI_SYNC.onReset = r => { try { relocalPassword(r && r.u, r && r.name, r && r.pass); }
+                                    catch(e){} };
+        return;
+      }
+    } catch(e){}
+    /* sync.js is later in the loader; give it a moment rather than giving up.
+       ~5s of tries, then stop — a build without sync.js is a valid build and
+       must not spin for ever. */
+    if (tries > 0) setTimeout(() => wireReset(tries - 1), 100);
+  })(50);
   const act = lsGet(ACTIVE_KEY, null);
   const users = getUsers();
   if (act && (act === GUEST || users[act])){ ACTIVE = act; load(); go('home'); }
