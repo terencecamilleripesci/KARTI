@@ -7297,7 +7297,13 @@ window.KARTI = {
   get UI(){ return UI; },
   CARDS, STARTER_DECKS, ATTR, RARITY, COUNTERS, COUNTER_BONUS, LP_START, DECK_SIZE, MAX_COPIES,
   ZONES, HAND_LIMIT, NET, setRNG, ART, artImg, artURL, uiArt, detectArt,
-  ico, ilb, ATTR_ICON, CAT_ICON, RARITY_ICON, markIcon, markLabel,
+  /* coinIco/chipIco are the painted-currency helpers from build 216. That
+     sweep added `K.coinIco(...)` call sites to story.js but never put the
+     helper on this object, so IR-RAKKONT threw on its first boss row and the
+     Story screen has not opened since — one of the two big doors on Home,
+     dead, silently. Exported now; chipIco rides along so the pair cannot
+     drift apart the same way twice. */
+  ico, ilb, coinIco, chipIco, ATTR_ICON, CAT_ICON, RARITY_ICON, markIcon, markLabel,
   cardById, tributesFor, openPack, deckToCards, effText, FX_TEXT,
   newDuel, aiStep, doAttack, summon, summonInfo, setST, activateSpell, endTurn, toBattle,
   beginTurn, drawCard, damage, healLP, destroyMonster, effAtk, effDef, legalAttackTargets,

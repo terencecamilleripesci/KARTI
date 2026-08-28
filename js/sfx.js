@@ -1231,6 +1231,25 @@
   var CHROME = 'button,.btn,.tab,.setrow,[role="switch"]';
   /* rows of choices that should sound like a scale rather than one click */
   var PICKS = '.chip,.setchip,.deckcard,[data-pane]';
+  /* THE BIG DOORS on Home — Story, Multiplayer, Party. They were the three
+     largest buttons in the app and they played the same flat ui.tap as a
+     dialogue's OK. They are not clicks, they are DESTINATIONS, so they now
+     play the note their destination already owns: the same one the bottom-nav
+     tab for that screen plays. A place sounds like itself however you arrive,
+     which is the whole reason NAV_STEP is a fixed table and not a hash. */
+  var DOORS = '.btn.pick';
+  /* button id -> the screen it opens. The id-prefix fallback means a fourth
+     door added later is wired by being called btn-<screen>, and even an
+     unknown key still gets a STABLE note out of hashStep rather than silence. */
+  var DOOR_SCR = { 'btn-story':'story', 'btn-mp':'mp', 'btn-party':'party' };
+  function doorKey(el){
+    try {
+      if (el.dataset && el.dataset.scr) return el.dataset.scr;
+      if (DOOR_SCR[el.id]) return DOOR_SCR[el.id];
+      if (el.id && el.id.indexOf('btn-') === 0) return el.id.slice(4);
+    } catch (e) {}
+    return '';
+  }
   /* ids and labels that mean "this closes something" */
   var BACKISH = /(^|[-_])(close|back|cancel|no|x)([-_]|$)/i;
 
@@ -1299,6 +1318,37 @@
     return (disPre && disPre.el === el) ? disPre.dis : !!el.disabled;
   }
 
+  /* ── THE BUZZ ─────────────────────────────────────────────────────────────
+     The app made a NOISE on every tap and never once answered the hand. This
+     is the other half of a tap.
+
+     It lands on POINTERDOWN, not on click: a phone that answers the finger
+     going down feels instant, and one that waits for it to come up feels
+     like it is thinking about it. That is ~40-80ms and it is the entire
+     difference between "responsive" and "laggy".
+
+     Weight follows consequence — a door you are about to walk through gets
+     'tap', a chip or a tab gets 'tick', the smallest confirmable nudge.
+     Nothing new is needed to make this safe: haptic() already refuses when
+     the player has haptics off, when the device cannot vibrate at all (every
+     iPhone — this is an Android-only pleasure), and when the last buzz was
+     inside HAP_GAP, which is what stops a drum-roll of taps smearing into
+     one long blur. */
+  var pressAt = 0;
+  function pressWeight(el){ return matches(el, DOORS) ? 'tap' : 'tick'; }
+  function onPress(e){
+    try {
+      if (!AUTO.taps) return;
+      var t = e && e.target;
+      if (!t || !t.closest) return;
+      if (t.closest(SKIP)) return;          /* a game surface — not ours */
+      var el = t.closest(CHROME);
+      if (!el || el.disabled) return;
+      pressAt = Date.now();
+      haptic(pressWeight(el));
+    } catch (err) {}
+  }
+
   /* A row of choices plays a scale: position in the row picks the note, so a
      filter row always sounds the same way round and the fourth chip is always
      the fourth note. */
@@ -1341,6 +1391,11 @@
       var el = t.closest(CHROME);
       if (!el || wasDisabled(el)) return;
 
+      /* A keyboard or assistive activation never sent a pointerdown, so the
+         buzz has not happened yet. Those users are not left with the one path
+         that is silent to the hand. */
+      if (Date.now() - pressAt > 700) haptic(pressWeight(el));
+
       /* the bottom nav is an instrument: one fixed note per destination */
       if (AUTO.nav && t.closest('#home-nav .tab')){
         navNote((t.closest('#home-nav .tab').dataset || {}).scr);
@@ -1353,6 +1408,14 @@
         return;
       }
       if (AUTO.nav && matches(el, PICKS)){ pickNote(el); claimNav(); return; }
+      /* a door sounds like the room behind it. ONE note, not a note laid over
+         a click — the owner heard that mistake immediately the last time it
+         was made, and it is still one tap, one sound. navNote claims the
+         navigation itself, so the screen observer stands down. */
+      if (AUTO.nav && matches(el, DOORS)){
+        var dk = doorKey(el);
+        if (dk){ navNote(dk); return; }
+      }
       play(looksBack(el) ? 'ui.back' : 'ui.tap');
       /* whatever this tap turns out to have done, it has been acknowledged —
          so if a screen changes because of it, that is not a second event. */
@@ -1456,6 +1519,10 @@
     /* capture, so it runs before the switch flips itself — see preClick */
     try { d.addEventListener('click', preClick, { passive: true, capture: true }); }
     catch (e) { d.addEventListener('click', preClick, true); }
+    /* the buzz, on the way DOWN — see onPress. Passive and capture: it must
+       never delay or interfere with the tap it is acknowledging. */
+    try { d.addEventListener('pointerdown', onPress, { passive: true, capture: true }); }
+    catch (e) { try { d.addEventListener('pointerdown', onPress, true); } catch (_) {} }
     /* capture, because scroll does not bubble */
     try { d.addEventListener('scroll', onScroll, { passive: true, capture: true }); }
     catch (e) { try { d.addEventListener('scroll', onScroll, true); } catch (_) {} }
