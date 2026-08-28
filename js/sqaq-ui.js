@@ -178,6 +178,23 @@ function injectCSS(){
     'display:flex;align-items:center;gap:7px}' +
   '#scr-party .sq-mode.on{background:rgba(255,197,66,.14);border-color:rgba(255,197,66,.55);color:#FFE39A}' +
   '#scr-party .sq-mode:disabled{opacity:.4}' +
+  /* the commit bar that replaces Step/Wall while a wall is aimed. Build is
+     the only thing on this screen that spends anything, so it is the only
+     thing wearing the gold. Every target clears 44px. */
+  '#scr-party .sq-act{min-height:46px;border-radius:12px;font-family:inherit;font-weight:800;' +
+    'font-size:13.5px;display:inline-flex;align-items:center;justify-content:center;gap:7px;' +
+    'border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#cfc8e6;' +
+    'transition:transform .14s ease}' +
+  '#scr-party .sq-act:active{transform:scale(.95)}' +
+  '#scr-party .sq-act svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2.4;' +
+    'stroke-linecap:round;stroke-linejoin:round}' +
+  '#scr-party .sq-act .sq-gl{font-size:16px;line-height:1}' +
+  '#scr-party .sq-drop{width:46px;flex:0 0 auto;padding:0;color:#9a90b8}' +
+  '#scr-party .sq-turn{flex:1 1 auto;max-width:150px}' +
+  '#scr-party .sq-turn:disabled{opacity:.35}' +
+  '#scr-party .sq-build{flex:1 1 auto;max-width:180px;background:linear-gradient(180deg,#FFD873,#E8A81C);' +
+    'border-color:rgba(255,224,150,.75);color:#2A1B00;' +
+    'box-shadow:0 4px 14px rgba(232,168,28,.32)}' +
   '#scr-party .sq-hint{text-align:center;font-size:12.5px;color:#9a90b8;margin:2px 10px 10px;min-height:17px}' +
   '#scr-party .sq-menu .blurb{color:#b9b0d4;font-size:14px;line-height:1.5;margin:10px 0 16px}' +
   '#scr-party .sq-hero{display:grid;place-items:center;margin:6px 0 2px}' +
@@ -390,18 +407,43 @@ function paint(){
       paint();
     }
   });
+  /* ── ONE WAY TO SPEND A WALL ───────────────────────────────────────
+     There used to be three: letting go of a drag, tapping the same dot
+     twice, and tapping the bright preview. Three commit paths on a board
+     where the pieces are permanent, and the "double tap" one fired on a
+     gesture people make by accident. Now NOTHING on the board builds
+     anything — every board touch only MOVES or TURNS the preview, and the
+     only thing that spends a wall is the Build button on the bottom rail,
+     where a thumb already is. */
+  const turnPre = () => {
+    if (!M.pre) return false;
+    const other = M.pre.o === 'h' ? 'v' : 'h';
+    if (!wallLegal(M.pre.r, M.pre.c, other)) return false;
+    M.pre = { r: M.pre.r, c: M.pre.c, o: other };
+    cue('ui.tap', { gain:.6 });
+    buzz('tick');
+    paint();
+    return true;
+  };
+  const buildPre = () => {
+    const seat = E.turn(M.st);
+    if (!M.pre || seat < 0 || !isLocal(seat)) return;
+    if (M.net && seat !== firstLocalSeat()) return;
+    const w = M.pre; M.pre = null; M.lastO = w.o;
+    doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
+    M.mode = 'go'; afterMove();
+  };
+
   const endDrag = ev => {
     const d = M && M.drag; if (!d) return;
     M.drag = null;
     const seat = E.turn(M.st);
     if (seat < 0 || !isLocal(seat)) return;
     if (!d.pulled) return;                          /* a tap: the click below previews */
-    if (M.pre && M.pre.r === d.r && M.pre.c === d.c){
-      const w = M.pre; M.pre = null; M.lastO = w.o;
-      M.noClick = true;                             /* the click that follows is ours */
-      doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
-      M.mode = 'go'; afterMove();
-    }
+    /* the pull already aimed the wall in pointermove — it does NOT build it.
+       Swallow the click that follows so the drag does not also turn it. */
+    M.noClick = true;
+    paint();
   };
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', () => { if (M) M.drag = null; });
@@ -422,26 +464,18 @@ function paint(){
       doMove(seat, { t:'go', r: a[0] | 0, c: a[1] | 0 }, 'local');
       M.mode = 'go'; afterMove();
     } else if (rot && M.pre){
-      /* TURN IT — flip the preview between ━ and ┃ */
-      const other = M.pre.o === 'h' ? 'v' : 'h';
-      if (wallLegal(M.pre.r, M.pre.c, other)){
-        M.pre = { r: M.pre.r, c: M.pre.c, o: other };
-        cue('ui.tap', { gain:.6 });
-        paint();
-      }
+      turnPre();                                    /* the handle on the board */
     } else if (pl && M.pre){
-      /* tap the bright preview — build it */
-      const w = M.pre; M.pre = null; M.lastO = w.o;
-      doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
-      M.mode = 'go'; afterMove();
+      /* tapping the bright wall TURNS it. It used to build it, which meant
+         the preview was both "look at this" and "commit this". */
+      turnPre();
     } else if (an){
       const a = an.split(',');
       const r = a[0] | 0, c = a[1] | 0;
       if (M.pre && M.pre.r === r && M.pre.c === c){
-        /* tapped the same dot again — build what is previewed there */
-        const w = M.pre; M.pre = null; M.lastO = w.o;
-        doMove(seat, { t:'wall', r: w.r, c: w.c, o: w.o }, 'local');
-        M.mode = 'go'; afterMove();
+        /* the same dot again: turn it. This is the tap that used to spend
+           a wall — the whole reason a mis-touch was expensive. */
+        turnPre();
       } else {
         /* first tap on a dot: preview it, preferring the direction you used
            last so repeat placements feel predictable */
@@ -471,22 +505,49 @@ function paint(){
   const seat = E.turn(M.st);
   const my = seat >= 0 && isLocal(seat) && (!M.net || seat === firstLocalSeat());
   const wallsLeft = seat >= 0 ? M.st.left[seat] : 0;
-  UI.modes.innerHTML =
-    '<button class="sq-mode' + (M.mode === 'go' ? ' on' : '') + '" data-m="go">' +
-      esc(T('Step', 'Pass')) + '</button>' +
-    /* ONE wall button now: the direction is chosen on the board (drag, or the
-       rotate handle), not up here — picking ━ or ┃ before you had even chosen
-       a spot is what made walls go down the wrong way. */
-    '<button class="sq-mode' + (isWallMode() ? ' on' : '') + '" data-m="w"' +
-      (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ━┃</button>';
-  UI.modes.querySelectorAll('.sq-mode').forEach(b => {
-    b.onclick = () => { M.mode = b.getAttribute('data-m'); M.pre = null; cue('ui.tap', { gain:.6 }); paint(); };
-  });
+  /* THE BOTTOM RAIL DOES TWO JOBS. With a wall aimed it becomes the commit
+     bar — turn it, build it, or drop it — because that is where the thumb
+     already is and because a permanent piece deserves a deliberate button
+     rather than a second tap on a small dot. With nothing aimed it is the
+     ordinary Step / Wall chooser it always was. */
+  const canTurn = !!(M.pre && wallLegal(M.pre.r, M.pre.c, M.pre.o === 'h' ? 'v' : 'h'));
+  if (M.pre && my){
+    UI.modes.innerHTML =
+      '<button class="sq-act sq-drop" data-a="drop" aria-label="' +
+        esc(T('Cancel this wall', 'Ħassar dan il-ħajt')) + '">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+      '<button class="sq-act sq-turn" data-a="turn"' + (canTurn ? '' : ' disabled') + '>' +
+        '<span class="sq-gl" aria-hidden="true">↻</span>' + esc(T('Turn', 'Dawwar')) + '</button>' +
+      '<button class="sq-act sq-build" data-a="build">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>' +
+        esc(T('Build', 'Ibni')) + '</button>';
+    UI.modes.querySelectorAll('.sq-act').forEach(b => {
+      b.onclick = () => {
+        const a = b.getAttribute('data-a');
+        if (a === 'turn'){ turnPre(); return; }
+        if (a === 'drop'){ M.pre = null; cue('ui.back', { gain:.6 }); buzz('tick'); paint(); return; }
+        buzz('thud');
+        buildPre();
+      };
+    });
+  } else {
+    UI.modes.innerHTML =
+      '<button class="sq-mode' + (M.mode === 'go' ? ' on' : '') + '" data-m="go">' +
+        esc(T('Step', 'Pass')) + '</button>' +
+      /* ONE wall button now: the direction is chosen on the board (drag, or the
+         rotate handle), not up here — picking ━ or ┃ before you had even chosen
+         a spot is what made walls go down the wrong way. */
+      '<button class="sq-mode' + (isWallMode() ? ' on' : '') + '" data-m="w"' +
+        (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ━┃</button>';
+    UI.modes.querySelectorAll('.sq-mode').forEach(b => {
+      b.onclick = () => { M.mode = b.getAttribute('data-m'); M.pre = null; cue('ui.tap', { gain:.6 }); paint(); };
+    });
+  }
   UI.hint.textContent = M.st.winner >= 0 ? ''
     : !my ? (seatName(seat) + ' — ' + T('their go', 'imissu'))
     : M.mode === 'go' ? T('Tap a lit square to step.', 'Għafas kaxxa mixgħula biex timxi.')
-    : M.pre ? T('Tap the bright wall to build it — or ↻ to turn it.',
-                'Għafas il-ħajt jixgħel biex tibnih — jew ↻ biex iddawru.')
+    : M.pre ? T('Move it, Turn it — then Build. Nothing is spent until you do.',
+                'Ċaqlaqhu, Dawwru — imbagħad Ibni. Xejn ma jintefaq qabel.')
     : T('Drag off a dot to draw the wall — sideways or up-and-down.',
         'Iġbed minn tikka biex tpinġi l-ħajt — mal-ġenb jew ’il fuq u ’l isfel.');
 }
