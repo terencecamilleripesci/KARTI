@@ -3786,6 +3786,30 @@ function buyBoxTap(id){
 }
 
 /* ── the reveal ──────────────────────────────────────────────────── */
+/* the crate emptying itself: coins (or chips) tumbling down past the prize.
+   Deliberately NOT particles() — that is a radial burst and belongs to the
+   spin. Falling, tumbling and landing behind the card is what makes a box
+   feel like a box. */
+function boxSpill(host, n, col, kind){
+  if (REDUCED || !host) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'bx-spill';
+  wrap.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < n; i++){
+    const c = document.createElement('i');
+    c.className = 'bxc' + (kind === 'chips' ? ' chip' : '');
+    c.style.setProperty('--x', (Math.random() * 100).toFixed(1) + '%');
+    c.style.setProperty('--sz', (11 + Math.random() * 13).toFixed(0) + 'px');
+    c.style.setProperty('--dur', (0.85 + Math.random() * 0.75).toFixed(2) + 's');
+    c.style.setProperty('--spin', (Math.random() * 720 - 360).toFixed(0) + 'deg');
+    c.style.setProperty('--pc', col);
+    c.style.animationDelay = (Math.random() * 0.42).toFixed(2) + 's';
+    wrap.appendChild(c);
+  }
+  host.appendChild(wrap);
+  setTimeout(() => { try { wrap.remove(); } catch (e){} }, 2600);
+}
+
 function boxPopKill(){
   if (boxPopEl){
     try { boxPopEl.remove(); } catch (e){}
@@ -3813,6 +3837,9 @@ function boxPop(res){
         '<div class="spop-halo"></div>' +
         '<div class="spop-rays r1"></div>' +
         '<div class="spop-rays r2"></div>' +
+        /* the shaft of light out of the open crate — the box's own tell, so
+           its payoff cannot be mistaken for the daily spin's */
+        '<div class="bx-beam"></div>' +
         (tier === 3 ? '<div class="spop-flash"></div>' : '') +
       '</div>' +
       '<div class="bx-hero" id="bx-hero">' +
@@ -3865,6 +3892,27 @@ function boxPop(res){
       const c = $('#bx-count', el);
       if (c) setTimeout(() => animateCount(c, big), 180);
     }
+    /* THE RAYS BELONG BEHIND THE PRIZE. .spop-fx is pinned at a fixed
+       top:100px, which is right for the spin — there the medallion is the
+       top thing on the screen. In a box the CRATE is above the card, so the
+       rays stayed up where the crate had been and fired into empty space
+       above the prize. Once the lid has gone, drop the hero out of the
+       layout and measure where the card actually landed. */
+    setTimeout(() => {
+      if (boxPopEl !== el) return;
+      el.classList.add('blown');
+      const core = $('.spop-core', el), m = $('#bx-med', el), fx = $('.spop-fx', el);
+      if (core && m && fx){
+        const cb = core.getBoundingClientRect(), mb = m.getBoundingClientRect();
+        fx.style.top = Math.round(mb.top - cb.top + mb.height / 2) + 'px';
+      }
+    }, 340);
+
+    /* WHAT CAME OUT OF THE BOX. particles() throws a radial burst, which is
+       the spin's language; a crate should empty itself, so this rains its
+       contents down the screen instead — more of it the better the prize. */
+    const core = $('.spop-core', el);
+    if (core) boxSpill(core, [12, 18, 26, 40][tier], col, res.prize.kind);
     const med = $('#bx-med', el);
     if (med) setTimeout(() => {
       if (boxPopEl === el) particles(med, [10, 14, 20, 30][tier], col, tier >= 2 ? 215 : 150);
@@ -4038,6 +4086,39 @@ function chipsCSS(){
       '-webkit-backdrop-filter:blur(7px)}' +
     '.bpop .bx-hero{position:relative;z-index:2}' +
     '.bpop .bxart.big{width:min(240px,62vw);height:auto;aspect-ratio:1}' +
+    /* ── THE BOX'S OWN PAYOFF ──────────────────────────────────────────
+       The shared prize card pops in place, which is the daily spin's move.
+       A box should hand you what was inside it, so here the card RISES out
+       of where the crate stood, up a shaft of light, through its own falling
+       treasure. Same card, completely different event. */
+    /* the crate is gone from the flow, so the card can centre and the rays
+       can find it */
+    '.bpop.blown .bx-hero{display:none}' +
+    '.bpop .spop-med,.bpop .spop-take{position:relative;z-index:2}' +
+    '.bpop .spop-fx{transition:top .18s ease-out}' +
+    /* the shaft hangs ABOVE the prize and lands on it — bottom:0 pins it to
+       the fx point, which is now the middle of the card */
+    '.bpop .bx-beam{position:absolute;left:50%;bottom:0;width:min(210px,55vw);height:56vh;' +
+      'margin-left:min(-105px,-27.5vw);transform-origin:50% 100%;opacity:0;' +
+      'background:linear-gradient(180deg,color-mix(in srgb,var(--fxc) 55%,transparent),transparent 72%);' +
+      'filter:blur(9px);clip-path:polygon(38% 0,62% 0,100% 100%,0 100%)}' +
+    '.bpop.open .bx-beam{animation:bxBeam 1.1s cubic-bezier(.2,.9,.3,1) both}' +
+    '@keyframes bxBeam{0%{opacity:0;transform:scaleY(.15)}' +
+      '35%{opacity:.8}100%{opacity:.4;transform:scaleY(1)}}' +
+    /* the card comes UP, not out of nowhere */
+    '.bpop.open .spop-med{animation:bxRise .52s cubic-bezier(.18,1.3,.32,1) .1s both}' +
+    '@keyframes bxRise{0%{opacity:0;transform:translateY(46px) scale(.82)}' +
+      '55%{opacity:1}100%{opacity:1;transform:translateY(0) scale(1)}}' +
+    /* what fell out */
+    '.bx-spill{position:absolute;inset:-10% 0 0;pointer-events:none;overflow:hidden;z-index:1}' +
+    '.bx-spill .bxc{position:absolute;top:-8%;left:var(--x);width:var(--sz);height:var(--sz);' +
+      'border-radius:50%;background:radial-gradient(circle at 34% 30%,#FFF3CF,#E8A81C 58%,#9A6B00);' +
+      'box-shadow:0 0 9px color-mix(in srgb,var(--pc) 60%,transparent);' +
+      'animation:bxFall var(--dur) cubic-bezier(.35,.05,.6,1) forwards}' +
+    '.bx-spill .bxc.chip{background:radial-gradient(circle at 34% 30%,#FFD9E3,#E8446B 58%,#8A1030)}' +
+    '@keyframes bxFall{0%{opacity:0;transform:translateY(0) rotate(0deg)}' +
+      '12%{opacity:1}100%{opacity:0;transform:translateY(86vh) rotate(var(--spin))}}' +
+    'body.reduced .bx-spill,body.reduced .bpop .bx-beam{display:none}' +
     '.bpop .bxart{will-change:transform}' +
     '.bpop.sh1 .bxart{animation:bxSh 250ms linear infinite}' +
     '.bpop.sh2 .bxart{animation:bxSh 140ms linear infinite}' +
