@@ -171,7 +171,15 @@ function injectCSS(){
   '#scr-party .sq-seat.on{border-color:var(--sq-c);box-shadow:0 0 0 1px var(--sq-c),0 0 14px -4px var(--sq-c);color:#fff}' +
   '#scr-party .sq-seat .sq-f{width:26px;height:26px;border-radius:50%;overflow:hidden;flex:0 0 auto}' +
   '#scr-party .sq-seat b{font-weight:700}' +
-  '#scr-party .sq-seat .sq-w{opacity:.75;font-size:11px}' +
+  '#scr-party .sq-seat .sq-w{opacity:.75;font-size:11px;display:inline-flex;align-items:center;gap:5px}' +
+  /* walls left, as a glance rather than a number to read: one pip per wall
+     in the allocation, lit for held and dim for spent. Own seat only. */
+  '#scr-party .sq-pips{display:inline-flex;gap:2px;align-items:center}' +
+  '#scr-party .sq-pips i{width:3px;height:11px;border-radius:1px;background:currentColor;display:block}' +
+  '#scr-party .sq-pips i.sp{opacity:.2}' +
+  '#scr-party .sq-seat .sq-w .sq-n{font-weight:800;font-variant-numeric:tabular-nums}' +
+  '#scr-party .sq-seat .sq-w.low{opacity:1;color:#FFC542}' +
+  '#scr-party .sq-seat .sq-w.out{opacity:1;color:#FF6B7A}' +
   '#scr-party .sq-modes{display:flex;gap:8px;justify-content:center;margin:4px auto;width:100%}' +
   '#scr-party .sq-mode{min-height:44px;padding:0 14px;border-radius:12px;border:1px solid rgba(255,255,255,.12);' +
     'background:rgba(255,255,255,.05);color:#cfc8e6;font-family:inherit;font-weight:700;font-size:13px;' +
@@ -490,15 +498,37 @@ function paint(){
     }
   });
   /* seats */
+  /* ── HOW MANY WALLS ARE LEFT ───────────────────────────────────────
+     This used to be a bare "10 ▮" with a title attribute, which on a phone
+     is a tooltip nobody can open. The number matters: walls are the whole
+     game and you cannot get one back.
+
+     YOUR OWN seat gets a pip for every wall in the allocation, lit for the
+     ones you still hold and dim for the ones you have spent — so "how many
+     have I got" is a glance, not a count. The row stays the same width at
+     any table size, because the allocation shrinks as seats grow
+     (js/sqaq.js WALLS_FOR: 10 at two players, 7 at three, 5 at four).
+     Everyone else keeps the number, which is all you need about them.
+     Amber at two left, red at none. */
+  const alloc = (E.WALLS_FOR && E.WALLS_FOR[seatCount()]) || 10;
   let chips = '';
   for (let i = 0; i < seatCount(); i++){
     const col = seatColour(i);
+    const left = M.st.left[i] | 0;
+    const wcls = left === 0 ? ' out' : left <= 2 ? ' low' : '';
+    let pips = '';
+    if (isLocal(i) && (!M.net || i === firstLocalSeat())){
+      for (let k = 0; k < alloc; k++) pips += '<i' + (k < left ? '' : ' class="sp"') + '></i>';
+      pips = '<span class="sq-pips" aria-hidden="true">' + pips + '</span>';
+    }
     chips += '<span class="sq-seat' + (E.turn(M.st) === i ? ' on' : '') +
       '" style="--sq-c:' + col.hex + '">' +
       '<span class="sq-f">' + chipFace(i, 26) + '</span>' +
       '<b>' + esc(seatName(i)) + '</b>' +
-      '<span class="sq-w" title="' + esc(T('walls left', 'ħitan fadal')) + '">' +
-        M.st.left[i] + ' ▮</span></span>';
+      '<span class="sq-w' + wcls + '" aria-label="' +
+        esc(left + ' ' + T('walls left', 'ħitan fadal')) + '">' +
+        pips + '<span class="sq-n">' + left + '</span>' +
+        (pips ? '' : ' ▮') + '</span></span>';
   }
   UI.seats.innerHTML = chips;
   /* modes */
@@ -537,17 +567,31 @@ function paint(){
       /* ONE wall button now: the direction is chosen on the board (drag, or the
          rotate handle), not up here — picking ━ or ┃ before you had even chosen
          a spot is what made walls go down the wrong way. */
+      /* wallsLeft belongs to the seat whose GO it is, so on the machine's turn
+         this button was greying out over the MACHINE's supply — it read as
+         "you are out of walls" while you still held some. Not your go is
+         reason enough to disable it, and then the count is always your own. */
       '<button class="sq-mode' + (isWallMode() ? ' on' : '') + '" data-m="w"' +
-        (wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ━┃</button>';
+        (my && wallsLeft ? '' : ' disabled') + '>' + esc(T('Wall', 'Ħajt')) + ' ━┃</button>';
     UI.modes.querySelectorAll('.sq-mode').forEach(b => {
       b.onclick = () => { M.mode = b.getAttribute('data-m'); M.pre = null; cue('ui.tap', { gain:.6 }); paint(); };
     });
   }
+  /* Ordered by what the player is DOING, most specific first. M.pre used to
+     sit below the mode test, which meant the aiming hint could never win —
+     a wall is only ever aimed in wall mode. */
   UI.hint.textContent = M.st.winner >= 0 ? ''
     : !my ? (seatName(seat) + ' — ' + T('their go', 'imissu'))
-    : M.mode === 'go' ? T('Tap a lit square to step.', 'Għafas kaxxa mixgħula biex timxi.')
     : M.pre ? T('Move it, Turn it — then Build. Nothing is spent until you do.',
                 'Ċaqlaqhu, Dawwru — imbagħad Ibni. Xejn ma jintefaq qabel.')
+    /* The Wall button greys out at zero and used to say nothing about why.
+       A disabled control with no reason reads as a broken one. */
+    : !wallsLeft ? T('No walls left — you can only step now.',
+                     'M’għandekx ħitan — tista’ timxi biss.')
+    : wallsLeft <= 2
+      ? T(wallsLeft + (wallsLeft === 1 ? ' wall left' : ' walls left') + ' — spend them well.',
+          wallsLeft + ' ħitan biss fadal — onfoqhom tajjeb.')
+    : M.mode === 'go' ? T('Tap a lit square to step.', 'Għafas kaxxa mixgħula biex timxi.')
     : T('Drag off a dot to draw the wall — sideways or up-and-down.',
         'Iġbed minn tikka biex tpinġi l-ħajt — mal-ġenb jew ’il fuq u ’l isfel.');
 }
@@ -563,7 +607,10 @@ function maybeThink(){
   if (!M || M.dead || E.over(M.st)) return;
   const seat = E.turn(M.st);
   if (seat < 0 || ownerOf(seat) !== 'ai') return;
-  if (M.net) return;                       /* online tables drive no machines */
+  /* Online, only the HOST drives the machines (M.isHost) — it used to be
+     "online drives no machines at all", which is right for a table of people
+     and wrong the moment somebody seats a bot: nobody moved it. */
+  if (M.net && !M.isHost) return;
   stopThinking();
   M.timer = setTimeout(() => {
     if (!M || M.dead || E.over(M.st) || E.turn(M.st) !== seat) return;
@@ -582,9 +629,16 @@ function openBoard(onBack){
     buttons: [ { id:'sq-rules', label:T('Rules', 'Regoli'), icon:'book', cls:'ghost' } ]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = M.net ? T('Online', 'Onlajn')
-    : (M.meta || []).some(m => m && m.own === 'ai') ? levelName(seatLvl(1))
-    : T('Pass & play', 'Għaddi u lgħab');
+  /* Who you are actually playing beats how the bytes arrive. A machine at the
+     table is named by its difficulty even when a wire is involved — that is
+     what a Story level is, and it used to read "Online" there, which was true
+     of the plumbing and meaningless to the player. */
+  {
+    const ai = (M.meta || []).findIndex(m => m && m.own === 'ai');
+    M.ctx.badge.textContent = ai >= 0 ? levelName(seatLvl(ai))
+      : M.net ? T('Online', 'Onlajn')
+      : T('Pass & play', 'Għaddi u lgħab');
+  }
   /* the frame's pt-board is an 8x8 chess grid with overflow:hidden —
      neutralise it for one free-flowing SVG, and use the rails the frame
      provides for exactly this: chips above the board, modes below. */
@@ -916,13 +970,27 @@ function onlineStart(cfg){
   const list = cfg.seats || [];
   const n = Math.max(2, Math.min(4, list.length || (cfg.opts && cfg.opts.seats) || 2));
   startMatch({ seats: n });
+  /* A SEAT SAYS WHAT IT IS — read it. This used to be
+       const own = (i === cfg.you) ? 'me' : 'net';
+     which marks a MACHINE chair as a person on the far end of a wire. Nothing
+     then ever drove it: maybeThink() only moves a seat it believes is 'ai',
+     so the machine sat there for ever and the table hung on its go. It also
+     pinned every opponent to lvl 2, so the difficulty the lobby picked was
+     thrown away. Both are read off the seat now, the same fields js/mp.js
+     and the Story runner both fill in. */
   M.meta = [];
   for (let i = 0; i < n; i++){
     const s = list[i] || {};
-    const own = (i === cfg.you) ? 'me' : 'net';
-    M.meta.push({ own, name: s.name || seatTitle(i), lvl: 2 });
+    const own = (i === cfg.you) ? 'me'
+              : (s.kind === 'cpu' || s.own === 'ai') ? 'ai'
+              : 'net';
+    M.meta.push({ own, name: s.name || seatTitle(i), lvl: Number(s.level) || 2 });
   }
   M.net = cfg.net || null;
+  /* Only ONE phone may drive the machine chairs, or an online table would run
+     them once per client and every move would arrive n times. The host does
+     it — the same rule the other games on the shelf follow. */
+  M.isHost = (cfg.you | 0) === (cfg.host | 0);
   M.finished = false;
   openBoard(() => { const nn = M && M.net; leave(); if (nn && nn.onLeave) nn.onLeave(); else P.hub(); });
   hooks.attachNet(cfg.net || null);
