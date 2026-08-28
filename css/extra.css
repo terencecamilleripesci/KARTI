@@ -138,6 +138,72 @@
 .tag.won{color:var(--ok);border-color:rgba(61,220,132,.5)}
 .boss .lockicon{position:absolute;right:12px;top:12px;font-size:15px;opacity:.8}
 
+/* ── THE ROAD ──────────────────────────────────────────────────────────
+   Story Mode is a map you walk, not a list you scroll. The road and the
+   stops are placed from ONE source of truth in js/story.js (nodePos), so
+   the SVG and the portraits cannot drift apart. Everything here is
+   absolutely positioned against .smap, whose height js/story.js sets. */
+.smap{position:relative;width:100%;margin:0 auto 20px;max-width:460px}
+.sroad{position:absolute;inset:0;width:100%;pointer-events:none;z-index:0;overflow:visible}
+.sroad .rd-base{fill:none;stroke:rgba(0,0,0,.55);stroke-width:22;stroke-linecap:round;stroke-linejoin:round}
+.sroad .rd-dash{fill:none;stroke:rgba(255,197,66,.52);stroke-width:3.4;stroke-linecap:round;
+  stroke-linejoin:round;stroke-dasharray:2 13}
+/* a stop on the road: portrait in a ring, number on the shoulder */
+.snode{position:absolute;transform:translate(-50%,-50%);z-index:2;
+  width:74px;height:74px;padding:0;border:0;background:none;cursor:pointer;
+  display:grid;place-items:center;transition:transform .16s var(--ease)}
+.snode:active{transform:translate(-50%,-50%) scale(.93)}
+.snode .sn-ring{position:absolute;inset:0;border-radius:50%;
+  background:linear-gradient(160deg,#F5D06A,#8A6508 62%,#E7C26A);
+  box-shadow:0 6px 18px rgba(0,0,0,.6)}
+.snode .sn-face{position:absolute;inset:4px;border-radius:50%;overflow:hidden;
+  display:grid;place-items:center;font-size:27px;background:#120C1E;
+  border:1px solid rgba(0,0,0,.5)}
+.snode .sn-face img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:50% 18%}
+.snode .sn-face img+.em{display:none}
+.snode .sn-no{position:absolute;left:-4px;bottom:-2px;z-index:3;min-width:21px;height:21px;
+  border-radius:99px;display:grid;place-items:center;font-size:11px;font-weight:900;
+  background:#120C1E;color:var(--gold);border:1.5px solid var(--gold);padding:0 4px}
+.snode .sn-tick,.snode .sn-lock{position:absolute;right:-3px;top:-3px;z-index:3;
+  width:23px;height:23px;border-radius:50%;display:grid;place-items:center;
+  background:#120C1E;border:1.5px solid var(--line2)}
+.snode .sn-tick{border-color:var(--ok)}
+.snode .sn-tick .ico{width:13px;height:13px;color:var(--ok)}
+.snode .sn-lock .ico{width:12px;height:12px;color:var(--dim2)}
+/* beaten reads calm, locked reads shut, and the one you are standing on
+   is the only thing on the screen that moves */
+.snode.done .sn-ring{background:linear-gradient(160deg,#7BE8A8,#1E7A46 62%,#9CF0C0)}
+.snode.lock{cursor:default}
+.snode.lock .sn-face{filter:grayscale(.9) brightness(.45)}
+.snode.lock .sn-ring{background:linear-gradient(160deg,#4A4459,#241F31 62%,#4A4459)}
+.snode.lock .sn-no{color:var(--dim2);border-color:var(--line2)}
+.snode.here{z-index:4}
+.snode.here .sn-ring{animation:snHere 2.2s ease-in-out infinite}
+@keyframes snHere{
+  0%,100%{box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 0 0 rgba(255,197,66,.5)}
+  50%{box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 0 11px rgba(255,197,66,0)}
+}
+body.reduced .snode.here .sn-ring{animation:none;
+  box-shadow:0 6px 18px rgba(0,0,0,.6),0 0 0 4px rgba(255,197,66,.45)}
+/* you, on the road */
+.swalker{position:absolute;z-index:5;transform:translate(-50%,-50%);pointer-events:none;
+  width:20px;height:20px;display:grid;place-items:center}
+.swalker .sw-dot{width:13px;height:13px;border-radius:50%;
+  background:radial-gradient(circle at 36% 30%,#FFF3CF,#E0A800 62%,#A87400);
+  box-shadow:0 0 0 3px rgba(18,12,30,.9),0 0 14px 3px rgba(255,197,66,.55)}
+/* the two games a level is played over */
+.gvs{display:grid;gap:6px}
+.gvs-row{display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:12px;
+  background:rgba(0,0,0,.34);border:1px solid var(--line);font-size:13.5px}
+.gvs-row b{flex:0 0 20px;text-align:center;color:var(--gold);font-size:12px}
+.gvs-row small{color:var(--dim2)}
+.gvs-row.dec{border-style:dashed;opacity:.72}
+@media (max-height:700px){
+  .snode{width:64px;height:64px}
+  .snode .sn-face{font-size:23px}
+}
+
 /* boss intro / taunt card */
 .bossline{display:flex;gap:11px;align-items:flex-start;text-align:left;margin:2px 0 4px}
 .bossline .face{width:52px;height:52px;flex:0 0 auto;border-radius:15px;display:grid;place-items:center;
