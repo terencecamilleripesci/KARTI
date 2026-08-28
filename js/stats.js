@@ -2541,13 +2541,19 @@ function paintBoard(){
       /* WEEKLY is the board the Sunday champion awards are cut from, so
          when it is on it says whose week it is and that its top three are
          the ones who take the tiered borders. All-time is just the ranking. */
+      /* IT NO LONGER PROMISES THE CHAMPION BORDERS. It used to say the top
+         three "take this week's champion borders", and nothing has ever
+         handed one out: KARTI_XP.grantRank() is written and exported, and
+         called by no file and no route — there is no Sunday job. Until one
+         exists the line said something untrue on the one screen a player
+         goes to to be told the truth about their record. What it says now is
+         what the board actually does, which is enough of a thing to say. */
       var cap = '';
       if (BOARD.period === 'week'){
-        var gname = FILTER === 'all' ? T('every game', 'kull logħba')
-                                     : (defOf(FILTER).name);
         cap = '<p class="sx-week"><span class="sx-dot"></span><span>' +
-              T('This week · resets Sunday. The top three of ', 'Din il-ġimgħa · tibda mill-ġdid il-Ħadd. L-ewwel tlieta ta\' ') +
-              esc(gname) + T(' take this week\'s champion borders.', ' jieħdu l-bordi taċ-champion ta\' din il-ġimgħa.') +
+              T('This week · resets Sunday. Only games played since Sunday count here.',
+                'Din il-ġimgħa · tibda mill-ġdid il-Ħadd. Hawn jgħoddu biss il-logħbiet ' +
+                'mill-Ħadd \'l hawn.') +
               '</span></p>';
       }
       var ladLbl = '<div class="sx-lbl">' +

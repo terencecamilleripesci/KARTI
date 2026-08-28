@@ -22,14 +22,21 @@ ROUTES  (POST, JSON in and JSON out, mounted under /karti/stats)
         TOKEN belongs to; there is no field in the request that names a
         user, so a player physically cannot file a result against somebody
         else. That is the entire authorisation model and it is enough.
+        It also feeds THIS WEEK: the difference between this push and the
+        one before it is added to the current week's bucket. See
+        Store._week_credit().
 
-    POST /karti/stats/board  {game?:"all"|<id>, tok?}
+    POST /karti/stats/board  {game?:"all"|<id>, tok?, period?:"all"|"week"}
         -> 200 {ok:true, game, rows:[{u,name,p,w,l,d,bs}], you?, at, total}
         The top TOP_N by wins, then by fewest losses. `tok` is optional and
         only used to tell the caller where THEY are — it is never needed to
         read the board.
+        period="week" ranks only play since the local Sunday, and answers
+        additionally with {period, week, weekly:{rows,you}}. `since` may be
+        sent alongside and is ignored on purpose — the server's clock owns
+        the week boundary, because a client's does not (week_start()).
 
-    GET  /karti/stats/board?game=chess
+    GET  /karti/stats/board?game=chess&period=week
         The same answer for a browser that would rather not POST.
 
     GET  /karti/stats/health
@@ -103,6 +110,7 @@ TESTS
 
 from __future__ import annotations
 
+import datetime
 import http.server
 import json
 import os
@@ -124,6 +132,9 @@ MAX_SCORE = 100_000_000  # ceiling on sc (money in IL-KIRI gets large)
 MAX_TIME_MS = 86_400_000  # a day. bt above this is a lie or a bug.
 TOP_N = 25  # rows a board answer carries
 MAX_NAME = 24  # display names are already capped at 16 upstream
+WEEKS_KEPT = 8  # weekly buckets older than this are pruned on write
+
+PERIODS = ("all", "week")
 
 PUSH_RATE = 1.0 / 20.0  # one push per twenty seconds, sustained
 PUSH_BURST = 4.0
@@ -157,6 +168,32 @@ E_FULL = "The board is full."
 class Reject(Exception):
     """A submission that will not be stored. Never carries a reason a caller
     could use to probe the server; the route turns it into one flat 400."""
+
+
+# ── the week ─────────────────────────────────────────────────────────────────
+
+
+def week_start(now: float | None = None) -> int:
+    """Epoch seconds of the Sunday 00:00 that opened the week `now` is in.
+
+    THE SERVER'S CLOCK DECIDES, NEVER THE CLIENT'S. js/stats.js sends a
+    `since` alongside `period:'week'` and this module deliberately ignores it:
+    it is forgeable, and one phone with a wrong clock would otherwise write
+    into a bucket everybody else reads. The client's own weekStart() is
+    `setHours(0,0,0,0)` then back to `getDay() === 0`, i.e. LOCAL Sunday
+    midnight -- so this is local too, and the Pi and the phones are on the
+    same island. The two agree; only this one is authoritative.
+
+    weekday() is Mon=0..Sun=6, so (weekday() + 1) % 7 is "days since Sunday".
+    Going through datetime rather than arithmetic on the epoch is what keeps
+    this right across a DST change: subtracting 7*86400 from a Sunday
+    midnight lands an hour out twice a year, and a week boundary an hour out
+    is a week that resets at the wrong moment."""
+    ts = time.time() if now is None else float(now)
+    d = datetime.datetime.fromtimestamp(ts)
+    d = d.replace(hour=0, minute=0, second=0, microsecond=0)
+    d -= datetime.timedelta(days=(d.weekday() + 1) % 7)
+    return int(d.timestamp())
 
 
 # ── rate limiting ────────────────────────────────────────────────────────────
@@ -301,6 +338,29 @@ class Store:
                 PRIMARY KEY(uname, game)
             );
             CREATE INDEX IF NOT EXISTS rows_by_game ON rows(game, w DESC, l ASC);
+            -- THE WEEKLY BUCKET.
+            -- `rows` above is CUMULATIVE: one row per account per game, holding
+            -- the totals of all time. That is what the client pushes -- totals,
+            -- not match events -- so there is nothing in it to slice by date,
+            -- and for a long time the THIS WEEK tab simply re-showed the
+            -- all-time board. This table is the missing half: put() diffs each
+            -- push against the totals already stored and adds only the
+            -- DIFFERENCE here, under the week it arrived in. No timestamps per
+            -- match are needed, and no client is trusted to date its own play.
+            -- bm/bt/sc are deliberately absent: a "best time" or a bankroll is
+            -- not a thing you can difference. bs (best streak) is absent for
+            -- the same reason -- a streak inside one week cannot be derived
+            -- from two cumulative snapshots, and a weekly row that quietly
+            -- showed the ALL-TIME streak would be a lie on a weekly board.
+            CREATE TABLE IF NOT EXISTS wrows(
+                uname TEXT NOT NULL,
+                game  TEXT NOT NULL,
+                wk    INTEGER NOT NULL,   -- week_start(), local Sunday 00:00
+                p INTEGER NOT NULL, w INTEGER NOT NULL,
+                l INTEGER NOT NULL, d INTEGER NOT NULL,
+                PRIMARY KEY(uname, game, wk)
+            );
+            CREATE INDEX IF NOT EXISTS wrows_by_week ON wrows(wk, game, w DESC);
             """
         )
         # ADD THE COLUMNS TO A DATABASE THAT PREDATES THEM. CREATE TABLE IF
@@ -339,14 +399,22 @@ class Store:
         return v if v and all(c.isalnum() or c in "._-" for c in v) else ""
 
     def put(self, uname: str, name: str, games: dict[str, tuple[int, ...]],
-            av: str = "", bd: str = "") -> int:
+            av: str = "", bd: str = "", now: float | None = None) -> int:
         """Replace one account's table. Returns how many rows it now has.
 
         One transaction: an interrupted push leaves the previous table intact
         rather than half of a new one. The display name is whatever the caller
         was told by the accounts database — it is not, and cannot be, a value
-        from the request body."""
-        now = time.time()
+        from the request body.
+
+        THE WEEKLY BUCKET IS WRITTEN HERE, and it is written from the
+        DIFFERENCE between this push and the one before it. See _week_credit()
+        for the three cases that difference can be.
+
+        `now` exists so the self-test can push a week apart without sleeping
+        for a week. Nothing in the request can reach it — the route never
+        passes it — so it is a test seam, not an input."""
+        now = time.time() if now is None else float(now)
         name = str(name or uname)[:MAX_NAME]
         with self.lock:
             known = self.db.execute(
@@ -356,6 +424,15 @@ class Store:
                 n = self.db.execute("SELECT COUNT(*) FROM players").fetchone()[0]
                 if n >= MAX_ACCOUNTS:
                     return -1
+            # The totals as they stand BEFORE this push overwrites them. Read
+            # inside the lock and before the DELETE below, because it is the
+            # only thing that says what is new about what just arrived.
+            before = {
+                r[0]: (int(r[1]), int(r[2]), int(r[3]), int(r[4]))
+                for r in self.db.execute(
+                    "SELECT game,p,w,l,d FROM rows WHERE uname=?", (uname,)
+                )
+            }
             self.db.execute("BEGIN")
             try:
                 self.db.execute(
@@ -370,17 +447,82 @@ class Store:
                     " VALUES(?,?,?,?,?,?,?,?,?,?)",
                     [(uname, gid) + vals for gid, vals in games.items()],
                 )
+                self._week_credit(uname, games, before, now)
+                self._prune_weeks(now)
                 self.db.execute("COMMIT")
             except sqlite3.Error:
                 self.db.execute("ROLLBACK")
                 raise
         return len(games)
 
+    # -- the weekly half ------------------------------------------------
+
+    def _week_credit(self, uname: str, games: dict[str, tuple[int, ...]],
+                     before: dict[str, tuple[int, int, int, int]],
+                     now: float) -> None:
+        """Add this push's NEW play to the current week's bucket.
+
+        Called inside put()'s transaction and inside its lock. Three cases,
+        and the two that credit nothing are the ones that matter:
+
+        1. WE HAVE NEVER SEEN THIS GAME FROM THIS ACCOUNT. Credit nothing;
+           this push is the baseline. Without it, the first push after this
+           shipped would dump a player's whole lifetime record into "this
+           week" — every established player would appear to have played
+           four hundred games since Sunday. The cost is that the very first
+           result in a game, once ever, is not on the weekly board. That is
+           the right trade: one missing game beats a corrupted board.
+
+        2. A COUNTER WENT BACKWARDS. Somebody reset their stats, or signed in
+           on a phone holding an older save, so the totals shrank. That is not
+           a week's play and its difference is meaningless, so credit nothing
+           and let this push re-baseline. Checked on EVERY counter, not just
+           `p`: a save can restore a lower `w` under an equal `p`.
+
+        3. IT WENT UP. Credit exactly the difference. p is recomputed as
+           w+l+d rather than differenced on its own, so the weekly row obeys
+           the same p == w+l+d invariant clean_games() enforces on the way in
+           even if a client ever pushed a p that disagreed with its parts."""
+        wk = week_start(now)
+        add = []
+        for gid, vals in games.items():
+            old = before.get(gid)
+            if old is None:
+                continue                              # case 1: baseline
+            p, w, l, d = vals[0], vals[1], vals[2], vals[3]
+            dw, dl, dd = w - old[1], l - old[2], d - old[3]
+            if dw < 0 or dl < 0 or dd < 0 or (p - old[0]) < 0:
+                continue                              # case 2: went backwards
+            if not (dw or dl or dd):
+                continue                              # nothing new
+            add.append((uname, gid, wk, dw + dl + dd, dw, dl, dd))
+        if not add:
+            return
+        self.db.executemany(
+            "INSERT INTO wrows(uname,game,wk,p,w,l,d) VALUES(?,?,?,?,?,?,?)"
+            " ON CONFLICT(uname,game,wk) DO UPDATE SET"
+            "   p = p + excluded.p, w = w + excluded.w,"
+            "   l = l + excluded.l, d = d + excluded.d",
+            add,
+        )
+
+    def _prune_weeks(self, now: float) -> None:
+        """Drop buckets older than WEEKS_KEPT. Bounded storage is the whole
+        point: without this, wrows grows for ever at one row per account per
+        game per week. Runs on write, so it needs no scheduler — the one thing
+        this module cannot have, being a request handler and nothing else."""
+        cutoff = week_start(now) - (WEEKS_KEPT * 7 * 86400)
+        self.db.execute("DELETE FROM wrows WHERE wk < ?", (cutoff,))
+
     def forget(self, uname: str) -> None:
         with self.lock:
             self.db.execute("BEGIN")
             try:
                 self.db.execute("DELETE FROM rows WHERE uname=?", (uname,))
+                # the weekly bucket goes too — forgetting an account that left
+                # a week's play behind would put a nameless row on the board,
+                # because board() joins wrows to players to get the name.
+                self.db.execute("DELETE FROM wrows WHERE uname=?", (uname,))
                 self.db.execute("DELETE FROM players WHERE uname=?", (uname,))
                 self.db.execute("COMMIT")
             except sqlite3.Error:
@@ -389,15 +531,44 @@ class Store:
 
     # -- reading --------------------------------------------------------
 
-    def board(self, game: str, me: str | None = None) -> dict:
+    def board(self, game: str, me: str | None = None,
+              period: str = "all", now: float | None = None) -> dict:
         """Top TOP_N for one game, or summed across every game for 'all'.
 
         Ranked by wins, then by FEWEST losses, then by most played, then by
         name so the order is stable between two identical records. The whole
         ladder is ranked before it is cut, so `you` is a real position and not
-        a position within the page."""
+        a position within the page.
+
+        period='week' ranks THIS WEEK's play only, out of the wrows bucket
+        put() fills. It is the same query against a different table with one
+        extra WHERE, and the same sort — so a weekly board cannot rank by
+        different rules than the all-time one. `bs` comes back 0 on a weekly
+        row because a within-the-week streak is not derivable from cumulative
+        snapshots; js/stats.js only prints "best run" when bs > 1, so the row
+        reads as plain "N% won" rather than claiming a streak it does not
+        know."""
+        weekly = (period == "week")
+        wk = week_start(now) if weekly else 0
         with self.lock:
-            if game == "all":
+            if weekly and game == "all":
+                sql = (
+                    "SELECT r.uname, p.name,"
+                    " SUM(r.p), SUM(r.w), SUM(r.l), SUM(r.d), 0,"
+                    " p.av, p.bd"
+                    " FROM wrows r JOIN players p ON p.uname = r.uname"
+                    " WHERE r.wk=? GROUP BY r.uname"
+                )
+                cur = self.db.execute(sql, (wk,))
+            elif weekly:
+                sql = (
+                    "SELECT r.uname, p.name, r.p, r.w, r.l, r.d, 0,"
+                    " p.av, p.bd"
+                    " FROM wrows r JOIN players p ON p.uname = r.uname"
+                    " WHERE r.wk=? AND r.game=?"
+                )
+                cur = self.db.execute(sql, (wk, game))
+            elif game == "all":
                 sql = (
                     "SELECT r.uname, p.name,"
                     " SUM(r.p), SUM(r.w), SUM(r.l), SUM(r.d), MAX(r.bs),"
@@ -444,7 +615,7 @@ class Store:
                     you["rank"] = i + 1
                     break
 
-        return {
+        out = {
             "ok": True,
             "game": game,
             "total": len(table),
@@ -452,6 +623,18 @@ class Store:
             "you": you,
             "at": int(time.time()),
         }
+        if weekly:
+            # TWO PLACES, ON PURPOSE, and it is the wire contract that says so.
+            # js/stats.js sliceFor() looks for `weekly` FIRST and falls back to
+            # `rows`; every build in the field already does both. Answering in
+            # both means a phone that has never been updated gets a real weekly
+            # board out of `rows`, and a phone that knows about `weekly` reads
+            # the declared field. Appending a field, never moving one -- the
+            # rule that keeps an older build from choking on a newer relay.
+            out["period"] = "week"
+            out["week"] = wk
+            out["weekly"] = {"rows": out["rows"], "you": you}
+        return out
 
     def counts(self) -> tuple[int, int]:
         with self.lock:
@@ -537,6 +720,20 @@ def _game_arg(value) -> str:
     return v
 
 
+def _period_arg(value) -> str:
+    """'all' or 'week', and anything else is 'all'.
+
+    Deliberately FORGIVING where _game_arg is strict. A game id reaches SQL
+    and a made-up one should be refused loudly; a period only chooses which
+    of two hard-coded queries runs, so an unknown one is best answered with
+    the board that always existed rather than with a 400. That also means a
+    future 'month' can ship on the client first and simply read as all-time
+    until this side learns the word — the same way `week` itself did."""
+    if isinstance(value, str) and value.strip().lower() in PERIODS:
+        return value.strip().lower()
+    return "all"
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 
@@ -587,6 +784,8 @@ def handle_get(handler, action: str, full_path: str = "") -> None:
         body["game"] = q["game"][0]
     if q.get("tok"):
         body["tok"] = q["tok"][0]
+    if q.get("period"):
+        body["period"] = q["period"][0]
     _board(handler, body)
 
 
@@ -640,8 +839,11 @@ def _board(handler, body: dict) -> None:
         # token only decides whether we can point out which row is yours.
         if got:
             me = got[0]
+    # `since` also arrives from js/stats.js and is deliberately NOT read: see
+    # week_start(). The client may label the week however it likes; only this
+    # server decides which bucket is being asked for.
     try:
-        handler.reply(200, STORE.board(game, me))
+        handler.reply(200, STORE.board(game, me, _period_arg(body.get("period"))))
     except sqlite3.Error:
         _fail(handler, 503, "The board is busy.")
 
@@ -756,6 +958,147 @@ def _selftest() -> int:
     check("forget removes the player", all(r["u"] != "dd" for r in st.board("chess")["rows"]))
     st.close()
 
+    print("-- the week --")
+
+    # THE BOUNDARY. It has to be a local Sunday midnight, it has to be the
+    # same answer all week, and it has to move exactly once a week -- checked
+    # across a whole year so a DST change cannot slip past on one Sunday.
+    now = time.time()
+    ws = week_start(now)
+    lt = datetime.datetime.fromtimestamp(ws)
+    check("week starts on a Sunday", lt.weekday() == 6, lt.isoformat())
+    check("week starts at midnight",
+          (lt.hour, lt.minute, lt.second) == (0, 0, 0), lt.isoformat())
+    check("week start is in the past and within 7 days",
+          0 <= now - ws < 7 * 86400 + 3600, now - ws)
+    check("same answer later the same day", week_start(ws + 3600) == ws)
+    check("same answer six days in", week_start(ws + 6 * 86400) == ws)
+    check("next week is a different bucket", week_start(ws + 7 * 86400) != ws)
+    year = {week_start(now - i * 86400) for i in range(365)}
+    check("a year holds 53 or 54 week buckets", 52 <= len(year) <= 54, len(year))
+    check("every bucket in the year is a Sunday midnight",
+          all(datetime.datetime.fromtimestamp(t).weekday() == 6
+              and datetime.datetime.fromtimestamp(t).hour == 0 for t in year))
+
+    wk = Store(":memory:")
+    T1 = ws + 3600                      # somewhere inside this week
+    T2 = ws + 7 * 86400 + 3600          # the same hour, next week
+
+    # 1. THE FIRST PUSH IS A BASELINE AND CREDITS NOTHING. This is the whole
+    #    reason the weekly board can be switched on for accounts that already
+    #    have years of play: without it every one of them would appear to have
+    #    played their entire history since Sunday.
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 400, "w": 300, "l": 100, "d": 0}}), now=T1)
+    b = wk.board("chess", period="week", now=T1)
+    check("first push credits nothing to the week", b["rows"] == [], b["rows"])
+    check("first push still lands on all-time",
+          wk.board("chess")["rows"][0]["p"] == 400, wk.board("chess")["rows"])
+
+    # 2. THE SECOND PUSH CREDITS THE DIFFERENCE, AND ONLY THE DIFFERENCE.
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 403, "w": 302, "l": 101, "d": 0}}), now=T1)
+    r = wk.board("chess", period="week", now=T1)["rows"]
+    check("second push credits only the delta",
+          len(r) == 1 and (r[0]["p"], r[0]["w"], r[0]["l"], r[0]["d"]) == (3, 2, 1, 0), r)
+    check("all-time still holds the totals",
+          wk.board("chess")["rows"][0]["p"] == 403)
+
+    # 3. DELTAS ACCUMULATE WITHIN THE WEEK.
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 404, "w": 303, "l": 101, "d": 0}}), now=T1)
+    r = wk.board("chess", period="week", now=T1)["rows"]
+    check("a third push adds to the same bucket",
+          (r[0]["p"], r[0]["w"]) == (4, 3), r)
+
+    # 4. THE WEEK ROLLS OVER. The same account, more play, a week later: the
+    #    new week starts from nothing and the old bucket is untouched.
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 409, "w": 308, "l": 101, "d": 0}}), now=T2)
+    r2 = wk.board("chess", period="week", now=T2)["rows"]
+    check("a new week starts from zero", (r2[0]["p"], r2[0]["w"]) == (5, 5), r2)
+    r1 = wk.board("chess", period="week", now=T1)["rows"]
+    check("last week's bucket is untouched", (r1[0]["p"], r1[0]["w"]) == (4, 3), r1)
+
+    # 5. A COUNTER GOING BACKWARDS RE-BASELINES; it never writes a negative.
+    wk.put("bb", "Guzi", clean_games({"chess": {"p": 50, "w": 25, "l": 25, "d": 0}}), now=T2)
+    wk.put("bb", "Guzi", clean_games({"chess": {"p": 10, "w": 5, "l": 5, "d": 0}}), now=T2)
+    mine = [x for x in wk.board("chess", period="week", now=T2)["rows"] if x["u"] == "bb"]
+    check("a shrinking total credits nothing", mine == [], mine)
+    wk.put("bb", "Guzi", clean_games({"chess": {"p": 12, "w": 7, "l": 5, "d": 0}}), now=T2)
+    mine = [x for x in wk.board("chess", period="week", now=T2)["rows"] if x["u"] == "bb"]
+    check("it re-baselines and counts again from there",
+          len(mine) == 1 and (mine[0]["p"], mine[0]["w"]) == (2, 2), mine)
+    neg = wk.db.execute("SELECT COUNT(*) FROM wrows WHERE p<0 OR w<0 OR l<0 OR d<0").fetchone()[0]
+    check("no negative weekly row can exist", neg == 0, neg)
+
+    # 6. A GAME NEW TO AN ACCOUNT BASELINES ON ITS OWN, not on the account.
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 409, "w": 308, "l": 101, "d": 0},
+                                      "dama": {"p": 30, "w": 20, "l": 10, "d": 0}}), now=T2)
+    d = wk.board("dama", period="week", now=T2)["rows"]
+    check("a game's first sight baselines too", d == [], d)
+
+    # 7. THE WEEKLY BOARD RANKS ONLY THE WEEK, and by the same rules.
+    wk.put("cc", "Nanna", clean_games({"chess": {"p": 1, "w": 1, "l": 0, "d": 0}}), now=T2)
+    wk.put("cc", "Nanna", clean_games({"chess": {"p": 100, "w": 99, "l": 1, "d": 0}}), now=T2)
+    r = wk.board("chess", period="week", now=T2)["rows"]
+    check("weekly ranks by this week's wins",
+          [x["name"] for x in r] == ["Nanna", "Toni", "Guzi"], [x["name"] for x in r])
+    # ...and the all-time board still ranks by ALL-TIME wins, which is a
+    # different order from the weekly one above: Toni has 308 lifetime wins
+    # and five this week. The two boards disagreeing is the entire point.
+    a = [x["name"] for x in wk.board("chess")["rows"]]
+    check("all-time ranks by lifetime wins, not the week's",
+          a == ["Toni", "Nanna", "Guzi"], a)
+
+    # 8. THE SHAPE js/stats.js READS. sliceFor() prefers `weekly`, older
+    #    builds read `rows`; both must be the same answer.
+    b = wk.board("chess", "aa", period="week", now=T2)
+    check("weekly answer declares its period", b.get("period") == "week", b.get("period"))
+    check("weekly answer carries its week", b.get("week") == week_start(T2), b.get("week"))
+    check("weekly mirror matches rows", b["weekly"]["rows"] == b["rows"])
+    check("weekly you matches", b["weekly"]["you"] == b["you"])
+    check("weekly you has a real rank", b["you"] and b["you"]["rank"] == 2, b["you"])
+    check("an all-time answer carries no weekly key", "weekly" not in wk.board("chess"))
+    check("weekly rows claim no streak",
+          all(x["bs"] == 0 for x in b["rows"]), [x["bs"] for x in b["rows"]])
+
+    # 9. WEEKLY 'all' SUMS ACROSS GAMES, the same way all-time does.
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 411, "w": 310, "l": 101, "d": 0},
+                                      "dama": {"p": 33, "w": 22, "l": 11, "d": 0}}), now=T2)
+    # chess this week: 5 (the roll-over push) + 2 (this one) = 7 wins.
+    # dama this week: 2 wins and 1 loss, on top of a baseline that credited 0.
+    r = [x for x in wk.board("all", period="week", now=T2)["rows"] if x["u"] == "aa"][0]
+    check("weekly overall sums across games",
+          (r["p"], r["w"], r["l"]) == (7 + 3, 7 + 2, 0 + 1), r)
+
+    # 10. PRUNING. Old buckets go; the current one never does.
+    old = ws - (WEEKS_KEPT + 2) * 7 * 86400
+    wk.db.execute("INSERT INTO wrows(uname,game,wk,p,w,l,d) VALUES('aa','chess',?,9,9,0,0)", (old,))
+    wk.db.commit()
+    check("an ancient bucket is there to begin with",
+          wk.db.execute("SELECT COUNT(*) FROM wrows WHERE wk=?", (old,)).fetchone()[0] == 1)
+    wk.put("aa", "Toni", clean_games({"chess": {"p": 412, "w": 311, "l": 101, "d": 0},
+                                      "dama": {"p": 33, "w": 22, "l": 11, "d": 0}}), now=T2)
+    check("a push prunes buckets past WEEKS_KEPT",
+          wk.db.execute("SELECT COUNT(*) FROM wrows WHERE wk=?", (old,)).fetchone()[0] == 0)
+    check("the current bucket survives pruning",
+          wk.db.execute("SELECT COUNT(*) FROM wrows WHERE wk=?",
+                        (week_start(T2),)).fetchone()[0] > 0)
+
+    # 11. forget() takes the weekly rows with it, or the board joins a name
+    #     that is no longer there.
+    wk.forget("aa")
+    check("forget clears the weekly bucket too",
+          wk.db.execute("SELECT COUNT(*) FROM wrows WHERE uname='aa'").fetchone()[0] == 0)
+    check("forgotten player is off the weekly board",
+          all(x["u"] != "aa" for x in wk.board("chess", period="week", now=T2)["rows"]))
+
+    # 12. THE PERIOD ARGUMENT IS FORGIVING, unlike the game argument.
+    check("period 'week' is honoured", _period_arg("week") == "week")
+    check("period 'all' is honoured", _period_arg("all") == "all")
+    check("period is case-insensitive", _period_arg(" WEEK ") == "week")
+    check("an unknown period reads as all-time", _period_arg("month") == "all")
+    check("a missing period reads as all-time", _period_arg(None) == "all")
+    check("a non-string period reads as all-time", _period_arg({"a": 1}) == "all")
+    wk.close()
+
     print("-- routes over a real socket --")
 
     # A minimal handler carrying only the four helpers this module borrows.
@@ -860,8 +1203,13 @@ def _selftest() -> int:
     evil = [r for r in d["rows"] if r["u"] == "ee"][0]
     check("hostile name is returned as plain data",
           evil["name"] == "<img src=x onerror=alert(1)>"[:MAX_NAME], evil)
+    # av/bd joined this set when the board started carrying the face and ring
+    # a player CHOSE (see Store.board); this assertion was left behind and had
+    # been failing on its own since. The point of it is that a row carries
+    # exactly the declared fields and nothing a client pushed, which still
+    # holds -- it just holds over nine keys now, not seven.
     check("board rows carry no extra keys",
-          set(evil) == {"u", "name", "p", "w", "l", "d", "bs"}, sorted(evil))
+          set(evil) == {"u", "name", "p", "w", "l", "d", "bs", "av", "bd"}, sorted(evil))
 
     buckets_reset()
     s, d = call("POST", P + "push", {"tok": "tok-toni-aaaaaaaaaaaaaaaa",
