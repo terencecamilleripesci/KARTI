@@ -485,7 +485,10 @@ function handover(){
 
 /* ═════════════ a simple bot: find the best short play it can ═════════════ */
 function maybeBot(){
-  if (!M || M.dead || M.st.done || M.net) return;
+  /* was `|| M.net`, i.e. an online table drove no machines at all — right for
+     a table of people, wrong the moment somebody seats a bot: nobody moved
+     it. The HOST drives them, exactly once. */
+  if (!M || M.dead || M.st.done || (M.net && !M.isHost)) return;
   const seat = M.st.turn;
   if (ownerOf(seat) !== 'ai') return;
   stopBot();
@@ -605,7 +608,13 @@ function openBoard(onBack){
   M.ctx = P.ui.frame({ title:T('Kelma','Kelma'), onBack, leave:()=>leave(),
     buttons:[ { id:'km-rules', label:T('Rules','Regoli'), icon:'book', cls:'ghost' } ] });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = M.net ? T('Online','Onlajn') : M.mode === 'pnp' ? T('Pass & play','Għaddi u lgħab') : levelName(M.lvl);
+  /* who you are playing beats how the bytes arrive: a machine at the table is
+     named by its difficulty even when a wire is involved, which is what a
+     Story level is. It used to read "Online" there — true of the plumbing,
+     meaningless to the player. */
+  M.ctx.badge.textContent = (M.meta || []).some(m => m && m.own === 'ai') ? levelName(M.lvl)
+    : M.net ? T('Online','Onlajn')
+    : M.mode === 'pnp' ? T('Pass & play','Għaddi u lgħab') : levelName(M.lvl);
   const b = M.ctx.board;
   b.style.cssText = 'display:block;grid-template-columns:none;grid-template-rows:none;width:100%;max-width:560px;border:0;box-shadow:none;overflow:visible;background:transparent';
   b.innerHTML = '<div class="km-wrap"><div class="km-top"></div><div class="km-board"></div>' +
@@ -734,8 +743,22 @@ function onlineStart(cfg){
   M.st.bag = [];
   M.pile = []; M.remain = new Array(n).fill(E.RACK); M.dealt = false;
   M.meta = [];
-  for (let i = 0; i < n; i++){ const s = list[i] || {}; M.meta.push({ own: (i === cfg.you) ? 'me' : 'net', name: s.name || seatTitle(i) }); }
+  /* A MACHINE CHAIR IS NOT A PERSON ON A WIRE. This read
+       own: (i === cfg.you) ? 'me' : 'net'
+     which meant a bot was filed as 'net' and nothing ever moved it —
+     think() only drives a seat it believes is 'ai'. The same one-line
+     mistake was in sqaq and il-forka. */
+  for (let i = 0; i < n; i++){
+    const s = list[i] || {};
+    const own = (i === cfg.you) ? 'me'
+              : (s.kind === 'cpu' || s.own === 'ai') ? 'ai'
+              : 'net';
+    M.meta.push({ own, name: s.name || seatTitle(i) });
+    if (own === 'ai' && Number(s.level) > 0) M.lvl = Number(s.level);
+  }
   M.net = cfg.net || null; M.net && (M.net.you = cfg.you);
+  /* only the host runs the machines, or every client would run them */
+  M.isHost = (cfg.you | 0) === (cfg.host | 0);
   onDict(() => { openBoard(() => { const nn = M && M.net; leave(); if (nn && nn.onLeave) nn.onLeave(); else P.hub(); }); });
   if (dictState !== 'ready') showLoading();
   return { v:1, gid:'kelma' };

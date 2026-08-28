@@ -312,7 +312,9 @@ function confetti(){
    so it never guesses; but a pass-phone or future AI-guesser could). Here
    the machine only referees implicitly (offline referee is local). ═════ */
 function maybeBot(){
-  if (!M || M.dead || !M.st || M.st.done || M.net) return;
+  /* was `|| M.net` — an online table drove no machines at all, so a seated
+     bot never moved. The HOST drives them, exactly once. */
+  if (!M || M.dead || !M.st || M.st.done || (M.net && !M.isHost)) return;
   const seat = M.st.turn;
   if (ownerOf(seat) !== 'ai' || seat === M.st.setter) return;
   stopBot();
@@ -649,7 +651,13 @@ function openBoard(onBack){
     buttons: [ { id:'fk-rules', label:T('Rules','Regoli'), icon:'book', cls:'ghost' } ]
   });
   if (M.ctx.stopFit) M.ctx.stopFit();
-  M.ctx.badge.textContent = M.net ? T('Online','Onlajn') : M.mode === 'pnp' ? T('Pass & play','Għaddi u lgħab') : levelName(M.lvl);
+  /* who you are playing beats how the bytes arrive: a machine at the table is
+     named by its difficulty even when a wire is involved, which is what a
+     Story level is. It used to read "Online" there — true of the plumbing,
+     meaningless to the player. */
+  M.ctx.badge.textContent = (M.meta || []).some(m => m && m.own === 'ai') ? levelName(M.lvl)
+    : M.net ? T('Online','Onlajn')
+    : M.mode === 'pnp' ? T('Pass & play','Għaddi u lgħab') : levelName(M.lvl);
   const b = M.ctx.board;
   b.style.cssText = 'display:block;grid-template-columns:none;grid-template-rows:none;width:100%;max-width:520px;border:0;box-shadow:none;overflow:visible;background:transparent';
   b.innerHTML =
@@ -838,9 +846,23 @@ function onlineStart(cfg){
   const n = Math.max(2, Math.min(8, list.length || 2));
   startMatch({ seats:n, rounds: pref().rounds || 3, mode:'net' });
   M.meta = [];
-  for (let i = 0; i < n; i++){ const s = list[i] || {}; M.meta.push({ own: (i === cfg.you) ? 'me' : 'net', name: s.name || seatTitle(i) }); }
+  /* A MACHINE CHAIR IS NOT A PERSON ON A WIRE. This read
+       own: (i === cfg.you) ? 'me' : 'net'
+     so a bot was filed as 'net' and nothing ever moved it — think() only
+     drives a seat it believes is 'ai'. Same one-line mistake as sqaq and
+     kelma. */
+  for (let i = 0; i < n; i++){
+    const s = list[i] || {};
+    const own = (i === cfg.you) ? 'me'
+              : (s.kind === 'cpu' || s.own === 'ai') ? 'ai'
+              : 'net';
+    M.meta.push({ own, name: s.name || seatTitle(i) });
+    if (own === 'ai' && Number(s.level) > 0) M.lvl = Number(s.level);
+  }
   M.net = cfg.net || null;
   M.net && (M.net.you = cfg.you);
+  /* only the host runs the machines, or every client would run them */
+  M.isHost = (cfg.you | 0) === (cfg.host | 0);
   M.finished = false;
   hooks.attachNet(cfg.net || null);
   /* seat 0 opens the board frame immediately; the first setter is seat 0,
