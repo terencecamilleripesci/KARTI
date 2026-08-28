@@ -206,12 +206,14 @@ register({
 });
 
 /* ── the emblem on a tile ──────────────────────────────────────────
-   art/ui/logo-<id>.png when it exists. It does not exist yet — the
-   prompts are written and the art is coming — so the tile is built
-   to look FINISHED without it: the piece sprite or the icon sits in
-   the same frame, and the <img> is only swapped in once the browser
-   has actually decoded one. A broken-image glyph never appears,
-   because the <img> is never in the document until it has loaded.
+   art/ui/logo-<id>.png. THE ART HAS LANDED — 29 emblems are on disk as of
+   build 302, so this note no longer says "coming"; it said so for long
+   enough that it was read as fact and repeated. The tile is still built to
+   look FINISHED without one, because not every game has an emblem (karti and
+   suspett among them): the piece sprite or the icon sits in the same frame,
+   and the <img> is only swapped in once the browser has actually decoded it.
+   A broken-image glyph never appears, because the <img> is never in the
+   document until it has loaded.
    Names are always CSS text beside the emblem, never inside it. */
 const LOGO_DIR = 'art/ui/';
 /* ONE sentinel decides for the whole shelf, exactly the way detectArt() in
@@ -233,8 +235,9 @@ function logoProbe(){
        means the party section is open — a game is open inside it too, and
        hub() calls currentGame.leave(), so a slow image landing mid-game
        would not just paint over the board, it would QUIT the game. Harmless
-       today because logo-chess.png 404s; it becomes a live bug the hour the
-       art run finishes, which is a bad hour to discover it. */
+       because of the `!currentGame` guard on the next line, and that guard is
+       now load-bearing rather than theoretical: logo-chess.png EXISTS, so
+       this onload fires on every hub open. Do not drop it. */
     if (live && !currentGame) hub();
   };
   img.onerror = () => { logoPack = false; logoProbing = false; };
