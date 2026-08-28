@@ -2042,10 +2042,27 @@ function storyDone(){
 var ADMIN_NAMES = { terence:1, terencecamilleri:1, terencecamilleripesci:1 };
 function isAdmin(){
   try {
-    var k = String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    var s = session();
     /* an unsigned-in device falls back to a local key, which must never
        match — so a guest on his own phone does not inherit it */
-    if (!k || !session()) return false;
+    if (!s) return false;
+    /* THE SERVER'S ANSWER FIRST. The relay used to decide who was the owner by
+       normalising the account NAME against this very list, and that was
+       forgeable: `Ter.ence` is a different, registrable username that
+       normalised onto `terence`. The permission now lives in a column the
+       relay hands back as `admin`, and js/sync.js keeps it on the session.
+       Reading it here is what stops a granted owner whose username is not on
+       the list below from being allowed by the relay and still never shown
+       the button. */
+    if (s.admin) return true;
+    var k = String(accountKey() || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!k) return false;
+    /* The old list, kept ONLY as a draw-time fallback for a phone that has not
+       synced since the upgrade, and for the Tempesta border below — dropping
+       it outright would take a cosmetic off an account that already had it.
+       It grants nothing: every route it could reach is enforced server-side
+       against the column, so the worst it can do now is draw a console whose
+       every button answers 403. */
     return !!ADMIN_NAMES[k];
   } catch (e){ return false; }
 }

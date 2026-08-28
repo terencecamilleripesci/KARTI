@@ -44,6 +44,13 @@ let cueAt = 0;
 function cue(id, opts, big){ const S = window.KARTI_SFX; if (!S) return; const now = Date.now();
   if (!big && now - cueAt < 40) return; cueAt = Math.max(cueAt, now); try { S.play(id, opts); } catch(e){} }
 function note(step, gain){ const S = window.KARTI_SFX; if (S && S.note){ try { S.note(step, { gain: gain || 0.5 }); } catch(e){} } }
+/* HAPTICS — a buzz sits beside the cue() that already marks the same moment.
+   js/sfx.js owns the pattern, the player's switch and every no-op path, so
+   there is nothing to guard here beyond the module being absent. Called ONLY
+   for something the local player did: never for the bot's play, never for a
+   move arriving over the wire (afterRemote and theatre() stay silent), and
+   never from paint(). */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
 function reduced(){ try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){ return false; } }
 function myName(){ try { if (window.KARTI && KARTI.displayName) return KARTI.displayName() || T('You','Int'); } catch(e){} return T('You','Int'); }
 function toast(msg, bad){ try { if (K && K.toast) return K.toast(msg); } catch(e){} }
@@ -294,7 +301,7 @@ function tapRack(i){
   if (held() || !isLocal(M.st.turn) || M.st.done) return;
   const was = M.sel === i;
   M.sel = was ? -1 : i;
-  cue(was ? 'ui.tap' : 'move.select', { gain:0.45 }); paint();
+  cue(was ? 'ui.tap' : 'move.select', { gain:0.45 }); buzz('tick'); paint();
 }
 function tapCell(r, c){
   if (held() || !isLocal(M.st.turn) || M.st.done) return;
@@ -308,7 +315,7 @@ function tapCell(r, c){
   if (ch == null) { M.sel = -1; return; }
   if (ch === '_'){ pickBlank(r, c); return; }
   M.pending.push({ r, c, ch, blank:false });
-  M.sel = -1; note(6, 0.35); cue('piece.place', { gain:0.5, rate:clickRate() }); paint();
+  M.sel = -1; note(6, 0.35); cue('piece.place', { gain:0.5, rate:clickRate() }); buzz('tick'); paint();
 }
 function pickBlank(r, c){
   /* a small letter picker for the blank */
@@ -328,7 +335,7 @@ function pickBlank(r, c){
   sheet.querySelectorAll('[data-l]').forEach(b => b.onclick = () => {
     const ch = E.letOf(b.getAttribute('data-l') | 0);
     M.pending.push({ r, c, ch, blank:true }); M.sel = -1;
-    sheet.remove(); note(6, 0.35); cue('piece.place', { gain:0.5, rate:clickRate() }); paint();
+    sheet.remove(); note(6, 0.35); cue('piece.place', { gain:0.5, rate:clickRate() }); buzz('tick'); paint();
   });
   (host || document.body).appendChild(sheet);
 }
@@ -352,9 +359,13 @@ function playMove(){
   const seat = M.st.turn;
   const placed = M.pending.map(p => ({ r:p.r, c:p.c, ch:p.ch, blank:p.blank }));
   const res = E.apply(M.st, seat, placed, isWord);
-  if (!res.ok){ badMoveToast(res); cue('ui.error', { gain:0.5 }); return; }
+  if (!res.ok){ badMoveToast(res); cue('ui.error', { gain:0.5 }); buzz('no'); return; }
   M.pending = []; M.sel = -1;
   cue('piece.place', { gain:0.6, rate:clickRate() }, true);     /* the word locks with a thunk */
+  /* HIS word, committed — but not when it also ends the match: `win` lands
+     inside the same frame and sfx.js merges two buzzes under 40 ms apart,
+     so the long one would be the one dropped. */
+  if (!M.st.done) buzz('tap');
   afterTurn({ placed, score:res.score, seat });
 }
 /* fx = {placed, score, seat} for a committed play, null otherwise. Render
@@ -555,6 +566,7 @@ function finish(forced){
   const scores = M.st.scores;
   let top = 0; for (let i = 1; i < M.seats; i++) if (scores[i] > scores[top]) top = i;
   const iWon = me >= 0 && scores[me] === scores[top];
+  if (iWon) buzz('win');            /* the one long buzz, once, and only his */
   if (!M.net && !M.recorded){ M.recorded = true; if (iWon) ST.rec.w++; else if (me >= 0) ST.rec.l++; persist(); }
   const order = []; for (let i = 0; i < M.seats; i++) order.push(i);
   order.sort((a, b) => scores[b] - scores[a]);
@@ -757,7 +769,7 @@ function playOnline(){
   if (M.st.turn !== me) return;
   const placed = M.pending.map(p => ({ r:p.r, c:p.c, ch:p.ch, blank:p.blank }));
   const res = E.tryMove(M.st, me, placed, isWord);
-  if (!res.ok){ badMoveToast(res); cue('ui.error', { gain:0.5 }); return; }
+  if (!res.ok){ badMoveToast(res); cue('ui.error', { gain:0.5 }); buzz('no'); return; }
   for (const p of placed) M.st.board[p.r * N + p.c] = { ch:p.ch, blank:p.blank };
   M.st.racks[me] = E.useFromRack(M.st.racks[me], placed);
   while (M.st.racks[me].length < E.RACK && M.pile.length) M.st.racks[me].push(M.pile.shift());
@@ -767,6 +779,9 @@ function playOnline(){
   M.remain[me] = M.st.racks[me].length + M.pile.length;
   M.pending = []; M.sel = -1;
   cue('piece.place', { gain:0.6, rate:clickRate() }, true);
+  buzz('tap');       /* HIS word, committed. Online the end is checked a
+                        beat later (onlineEndCheck → 700 ms), so there is
+                        no chance of this smearing over the `win`. */
   if (M.net) M.net.move('move', { a:'play', k: flatTiles(placed), n: M.remain[me] });
   paint();
   theatre(placed, res.score, me);

@@ -156,6 +156,23 @@ function hushQueue(){
 /* is this seat a person sitting here, rather than the phone? */
 const human = i => !!G && i >= 0 && i < G.players.length && !K.machineSeat(G, i);
 
+/* ── HAPTICS ───────────────────────────────────────────────────────
+   js/sfx.js owns the pattern, the player's switch and every no-op path
+   (no motor, iOS, refused without a gesture), so there is nothing to
+   guard here beyond the module being absent. Two rules only:
+
+   NOT QUEUED. cue() above spaces SOUNDS apart because two files on one
+   frame is a crash; a buzz has no such problem and, unlike a sound,
+   a LATE buzz is a lie about when something happened. So haptics fire
+   at the moment, and sfx.js's own 40 ms merge is the only spacing.
+
+   AND ONLY FOR THIS PHONE'S OWN SEAT. `human()` is not enough — online,
+   every other player is a human too. mine() is human AND, when there is
+   a NET, this device's chair; the machine's dice and a remote player's
+   houses make exactly the same noise and leave the hand still.       */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
+const mine = i => human(i) && (!NET || i === NET.mySeat);
+
 /* ── one game moment → one sound ───────────────────────────────────
    THE NUMBER IN `gain` IS A MULTIPLIER, NOT A LEVEL. sfx.js's fire()
    does `REG[id].g * opts.gain`, so 1 means "the level the registry
@@ -174,12 +191,14 @@ function onFx(e){
   switch (e.k){
     /* ── heard constantly: under the registry level ── */
     case 'roll':
+      if (mine(e.p)) buzz('roll');           /* HIS dice, tumbling in his hand */
       cue('dice.roll', { gain: 0.86 }, 3);
       /* a double is a free go, and it must be audibly not a plain roll:
          the dice, then the instrument up the pentatonic. */
       if (e.dbl) cue(null, { gain: 1.10 }, 4, 7);
       break;
-    case 'move':   cue('piece.place', { gain: 0.78 }, 4); break;
+    case 'move':   if (mine(e.p)) buzz('thud');   /* his token, arriving */
+                   cue('piece.place', { gain: 0.78 }, 4); break;
     case 'turn':   if (human(e.p)) cue('duel.turn', { gain: 1.00 }, 4); break;
 
     /* ── money. The centre of the game, and the reason it hurts. ──
@@ -197,6 +216,7 @@ function onFx(e){
 
     /* ── deeds ── */
     case 'buy':
+      if (mine(e.p)) buzz('tap');            /* he bought it */
       cue('money.pay', { gain: human(e.p) ? 1.00 : 0.70 }, 1);
       cue('ui.reward', { gain: human(e.p) ? 0.65 : 0.45 }, 2);
       break;
@@ -215,6 +235,7 @@ function onFx(e){
 
     /* ── concrete ── */
     case 'build':
+      if (mine(e.p)) buzz('thud');           /* the concrete goes down */
       cue('duel.summon', { gain: e.pent ? 1.05 : 0.90 }, 2);
       if (e.pent) cue('ui.reward', { gain: 0.85 }, 3);
       break;
@@ -233,9 +254,14 @@ function onFx(e){
     case 'trade':  cue('ui.reward', { gain: 0.85 }, 2); break;
 
     /* ── heard once, and remembered: at or above the registry level ── */
-    case 'short':    cue('ui.error', { gain: 1.05 }, 1); break;
-    case 'refused':  cue('ui.error', { gain: 0.90 }, 2); break;
-    case 'nope':     cue('ui.error', { gain: 0.80 }, 3); break;
+    /* a refusal is the one thing worth buzzing even when it is quiet —
+       it is the only feedback that the tap did NOT take */
+    case 'short':    if (mine(e.who)) buzz('no');
+                     cue('ui.error', { gain: 1.05 }, 1); break;
+    case 'refused':  if (mine(e.from)) buzz('no');
+                     cue('ui.error', { gain: 0.90 }, 2); break;
+    case 'nope':     if (mine(e.p)) buzz('no');
+                     cue('ui.error', { gain: 0.80 }, 3); break;
     case 'bankrupt':
       cue(human(e.p) ? 'game.lose' : 'duel.destroy', { gain: 1.05 }, 0);
       break;
@@ -3655,6 +3681,7 @@ function renderOver(){
   /* DID *YOU* WIN? Offline that is "a person, not on autopilot"; online
      it is your chair and nobody else's, however many people were human. */
   const won = NET ? (G.over.winner === NET.mySeat) : !!(w && w.kind === 'human' && !w.auto);
+  if (won) buzz('win');             /* the one long buzz, once, and only his */
   cue(won ? 'game.win' : 'game.lose', { gain: 1.00 }, 0);
   const again = d.querySelector('#kr-oagain');
   if (again) again.onclick = () => { d.remove(); setup(); };

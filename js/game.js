@@ -281,6 +281,29 @@ function createAccount(name, pw){
   lsSet(saveKeyFor(key), DEFAULT_STATE());
   return { ok:true, key };
 }
+/* A CLOUD RESET HAS TO REACH THE PROFILE ON THIS PHONE TOO.
+   loginAccount() below checks a LOCAL salted hash first and only asks the
+   server when there is no profile here at all. So after a reset, the one
+   device the player is actually holding would still answer "wrong password"
+   with the new password and never get as far as the cloud — the reset would
+   look like it had not worked. This re-keys the local profile to match.
+
+   It is only ever called from the KARTI_SYNC.onReset hook, which fires after
+   the SERVER accepted a code that only Terence could have sent them, so the
+   proof of ownership has already happened somewhere that cannot be faked by
+   editing this file. Missing profile: nothing to do — signInFromCloud() makes
+   one on the way in. */
+function relocalPassword(key, name, pw){
+  if (!key || !pw) return false;
+  const users = getUsers();
+  const u = users[key];
+  if (!u) return false;
+  const salt = randSalt();
+  users[key] = { name: u.name || name || key, salt, hash: hashPw(salt, pw),
+                 created: u.created || Date.now() };
+  return !!setUsers(users);
+}
+
 /* The one error the caller must be able to recognise WITHOUT string-sniffing:
    "not on this phone" is the signal to go and ask the cloud. */
 const NO_LOCAL_PROFILE = 'No profile with that name on this device.';
@@ -709,6 +732,9 @@ function go(name){
 }
 
 /* ───────────────────────── AUTH screen ───────────────────────── */
+/* The app's bilingual helper, resolved at PAINT time so a language switch
+   repaints correctly. Same shape the game UIs use (js/lang.js). */
+const AT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
 let authMode = 'menu';   // menu | signup | login
 function renderAuth(){
   const users = getUsers();
@@ -766,6 +792,13 @@ function renderAuth(){
       '<div style="display:grid;gap:9px;margin-top:6px">' +
         '<button class="btn primary" id="au-go" data-act="' + (isNew ? 'do-signup' : 'do-login') + '">' +
           (isNew ? 'Create & play' : 'Log in') + '</button>' +
+        /* Only on the LOG IN page, and only when there is a server to reset
+           against: a password lives in the cloud account, so with no cloud
+           configured there is nothing here that could be reset. */
+        ((!isNew && cloudReady())
+          ? '<button class="btn ghost" data-act="forgot">' +
+              esc(AT('Forgotten your password?', 'Insejt il-password?')) + '</button>'
+          : '') +
         '<button class="btn ghost" data-act="back">Back</button>' +
       '</div>';
     const submit = () => b.querySelector('[data-act^="do-"]').click();
@@ -790,6 +823,15 @@ function authAction(act){
   if (act === 'login'){ authMode = 'login'; renderAuth(); return; }
   if (act === 'back'){ authMode = 'menu'; renderAuth(); return; }
   if (act === 'guest'){ switchTo(GUEST); authMode = 'menu'; afterLogin(); return; }
+  /* The reset flow lives WHOLE in sync.js — one panel, one copy of the code
+     handling, one place that knows the credential shape. Carry whatever name
+     they already typed so nobody types it twice. */
+  if (act === 'forgot'){
+    if (!cloudReady()){ authErr(NO_LOCAL_PROFILE); return; }
+    const typed = ($('#au-name') || {}).value || '';
+    KARTI_SYNC.openPanel('forgot', { user: typed.trim() });
+    return;
+  }
   const name = $('#au-name').value, pw = $('#au-pw').value;
 
   if (act === 'do-signup'){
@@ -6847,6 +6889,13 @@ function uiArt(name, file){
 function boot(){
   wireStatic();
   detectArt();
+  /* sync.js owns the reset panel and knows nothing about local profiles; this
+     is the one line that joins the two. See relocalPassword(). */
+  try {
+    if (window.KARTI_SYNC)
+      KARTI_SYNC.onReset = r => { try { relocalPassword(r && r.u, r && r.name, r && r.pass); }
+                                  catch(e){} };
+  } catch(e){}
   const act = lsGet(ACTIVE_KEY, null);
   const users = getUsers();
   if (act && (act === GUEST || users[act])){ ACTIVE = act; load(); go('home'); }

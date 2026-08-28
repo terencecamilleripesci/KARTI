@@ -41,6 +41,15 @@ const esc = K.esc || (s => String(s == null ? '' : s));
 const ico = (n, l) => (window.ICO ? window.ICO(n, l) : '');
 const ilb = (n, s) => (window.ILB ? window.ILB(n, s) : s);
 const sfx = (id, o) => { try { if (window.KARTI_SFX) window.KARTI_SFX.play(id, o); } catch(e){} };
+/* HAPTICS — one line beside the sfx() that already marks the same moment.
+   js/sfx.js owns the pattern, the player's switch and every no-op path, so
+   nothing here needs a guard beyond the module being absent.
+
+   ONLY THIS PHONE'S OWN TAPS. Sixteen ġogs can be on a table and every
+   number, mark and shout is repainted on all of them; the buzz belongs to
+   the thumb that did it. The bag pulling a number is NOT buzzed at all —
+   nobody caused it, and buzzing ninety times a night is a rattle. */
+const buzz = k => { try { if (window.KARTI_SFX && KARTI_SFX.haptic) KARTI_SFX.haptic(k); } catch(e){} };
 
 /* ═══════════════════════════════════════════════════════════════════
    WHEN THE SOUNDS LAND
@@ -2365,7 +2374,8 @@ function onCell(ci, i, el){
   const seat = tapSeat();
   const on = !!st.seats[seat].marks[ci][i];
   const r = T.doMove(seat, { t: on ? 'unmark' : 'mark', c:ci, i }, 'tap');
-  if (!r.ok){ sfx('ui.error'); return; }
+  if (!r.ok){ sfx('ui.error'); buzz('no'); return; }
+  buzz('tick');                     /* his own square, marked or cleared */
   /* the quietest sound in the registry, and NOT forced — a mark now
      happens ninety times a game instead of fifteen, and the dedupe
      window is exactly what stops a fast hand turning it into a rattle */
@@ -2551,11 +2561,13 @@ function onClaim(){
        never cost a real player the lockout — that rule is there for a
        modified client hammering the wire, not for a mis-tap. */
     sfx('ui.error');
+    buzz('no');
     toast('Mhux għadu. Not yet.', true);
     return;
   }
   const r = T.doMove(seat, { t:'claim', c:cs.card, p:cs.key }, 'tap');
-  if (!r.ok){ sfx('ui.error'); toast(r.why || 'Refused.', true); }
+  if (!r.ok){ sfx('ui.error'); buzz('no'); toast(r.why || 'Refused.', true); return; }
+  buzz('tap');                      /* HIS shout, out of his mouth */
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2746,6 +2758,7 @@ function finish(){
   const me = st.seats[U.seat];
   const wonTombla = st.prizes.tombla.done && st.prizes.tombla.seat === U.seat;
   const tone = wonTombla ? 'win' : (me.won.length ? 'draw' : 'lose');
+  if (wonTombla) buzz('win');       /* the one long buzz, once, and only his */
   const winner = st.seats[o.seat];
 
   /* ── WHICH SCREEN, AND WHO PAYS ──────────────────────────────────

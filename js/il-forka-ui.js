@@ -57,6 +57,11 @@ function cue(id, opts, big){
   cueAt = Math.max(cueAt, now);
   try { S.play(id, opts); } catch(e){}
 }
+/* HAPTICS — one line beside the cue() that already marks the same moment.
+   js/sfx.js owns the pattern, the switch and every no-op path. Fired ONLY
+   for a seat this device is playing: a ruling on somebody else's guess still
+   animates and still sounds, but the hand stays still. */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
 function note(step, gain){ const S = window.KARTI_SFX; if (S && S.note){ try { S.note(step, { gain: gain || 0.5 }); } catch(e){} } }
 function reduced(){ try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){ return false; } }
 function myName(){ try { if (window.KARTI && KARTI.displayName) return KARTI.displayName() || T('You','Int'); } catch(e){} return T('You','Int'); }
@@ -173,6 +178,7 @@ function tryGuess(code){
     M.pending = true;                   /* wait for the reveal            */
     say(me, { t:'guess', l: code });
     cue('ui.tap', { gain:0.5 });
+    buzz('tap');            /* HIS letter, sent — the ruling buzzes later */
     paint();
   } else {
     /* offline: this device is the referee */
@@ -185,10 +191,14 @@ function tryGuess(code){
    path lands here too), so the theatre below plays on every phone. */
 function afterRuling(seat, ruling){
   M.pending = false;
+  /* the ruling on HIS OWN guess, and no one else's: a refusal or letters
+     arriving. Whoever guessed, the theatre below still plays for everyone. */
+  const mine = isLocal(seat);
   paint();                        /* truth on screen FIRST — everything    */
                                   /* after this line is decoration, so an  */
                                   /* interrupt (next paint) snaps forward  */
-  if (M.st.done){ endRound(); return; }
+  if (M.st.done){ endRound(mine && !!ruling.wrong); return; }
+  if (mine) buzz(ruling.wrong ? 'no' : 'thud');
   if (ruling.wrong) missTheatre(); else hitTheatre(seat);
   maybeBot();
 }
@@ -315,11 +325,17 @@ function maybeBot(){
 }
 
 /* ═════════════ round / match end ═════════════ */
-function endRound(){
+/* `myMiss` — the guess that ended the round was the local player's own and
+   it was wrong. Rounds are not the match: the one long `win` belongs to
+   finish() alone, so a round only ever gets a thud or a head-shake. */
+function endRound(myMiss){
   if (!M || !M.st) return;
   const st = M.st;
   const solvedR = !!(st.done && st.done.reason === 'solved');
   const hangedR = !!(st.done && st.done.reason === 'hanged');
+  const winner = (st.done && st.done.winner != null) ? st.done.winner : -1;
+  if (solvedR && winner >= 0 && isLocal(winner)) buzz('thud');  /* HE spelt it */
+  else if (myMiss) buzz('no');                     /* HIS guess hung the man */
   cue(solvedR ? 'game.win' : 'duel.destroy', { gain:0.7 }, true);
   /* remember which squares are still hidden so the answer's late reveal
      can be staged after the paint below */
@@ -371,6 +387,7 @@ function finish(forced){
   const scores = M.scores || (M.st ? M.st.scores : new Array(M.seats).fill(0));
   let top = 0; for (let i = 1; i < M.seats; i++) if (scores[i] > scores[top]) top = i;
   const iWon = me >= 0 && scores[me] === scores[top];
+  if (iWon) buzz('win');            /* the one long buzz, once, and only his */
   if (!M.net && !M.recorded){ M.recorded = true; if (iWon) ST.rec.w++; else if (me >= 0) ST.rec.l++; persist(); }
 
   const order = [];
@@ -694,7 +711,8 @@ function showSetWord(){
   const submit = () => {
     const word = (inp.value || '').trim();
     const why = E.checkWord(word);
-    if (why){ err.textContent = why === 'short' ? T('At least 3 letters.','Tal-anqas 3 ittri.') : T('Too long.','Twila wisq.'); cue('ui.error',{gain:0.5}); return; }
+    if (why){ err.textContent = why === 'short' ? T('At least 3 letters.','Tal-anqas 3 ittri.') : T('Too long.','Twila wisq.'); cue('ui.error',{gain:0.5}); buzz('no'); return; }
+    buzz('tap');                    /* his word, set */
     startRoundWord(word.toUpperCase(), M.setter);
     if (M.net) say(M.setter, { t:'setword', l: M.st.len });
     openBoard(() => { const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else setupSheet(); });

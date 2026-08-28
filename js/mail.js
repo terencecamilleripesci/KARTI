@@ -920,6 +920,92 @@
     };
   }
 
+  /* ── WHO IS WAITING FOR A RESET CODE ────────────────────────────────
+     KARTI has no email, so a locked-out player taps "forgotten password" and
+     the relay writes a note. This is where the owner reads those notes: the
+     console he already opens, rather than a second surface nobody remembers
+     to look at.
+
+     IT LISTS AND IT DOES NOTHING ELSE. There is no button here that mints a
+     code, because there is no ROUTE that mints a code: only
+     `--issue-reset` on the Pi can, and its one credential is a shell on the
+     machine. A console button would have to be backed by a route, and that
+     route would be reachable by whoever could reach this one. So the block
+     shows the names and the exact command, and the owner runs it himself.
+
+     The `resets` route is admin-gated server-side against the ACCOUNT the
+     request is authenticated as. Anything other than a clean answer — 403 on
+     a non-admin account, an older relay with no such route, no signal — leaves
+     the block simply absent, exactly like the player search does. */
+  var waiting = null;          /* null = never asked · [] = asked, nobody */
+
+  function loadResets(){
+    var tok = token();
+    if (!tok) return;
+    call('resets', { tok: tok }).then(function (r){
+      if (!sendEl) return;
+      if (!r.ok || !Array.isArray(r.d && r.d.asks)) return;   /* stay absent */
+      var list = [], i, a;
+      for (i = 0; i < r.d.asks.length && list.length < 20; i++){
+        a = r.d.asks[i];
+        if (a && typeof a === 'object' && a.u != null)
+          list.push({ u: String(a.u), name: String(a.name || a.u),
+                      at: Number(a.at) || 0, n: Math.max(1, Number(a.n) || 1) });
+      }
+      waiting = list;
+      paintSend();
+    });
+  }
+
+  function resetsHTML(){
+    if (!waiting || !waiting.length) return '';
+    var h = '<div class="kx-wait">' +
+      '<label class="kx-lab">' +
+        esc(T('Waiting for a reset code', 'Qed jistennew kodiċi tal-password')) +
+      '</label>';
+    for (var i = 0; i < waiting.length; i++){
+      var w = waiting[i];
+      h += '<button type="button" class="kx-frow" data-w="' + i + '">' +
+        '<span class="kx-fr-tx"><b>' + esc(w.name) + '</b>' +
+        '<small>' + esc(w.u) + ' · ' + esc(whenAgo(w.at)) +
+        (w.n > 1 ? ' · ' + esc(T('asked ', 'talab ')) + w.n + '×' : '') +
+        '</small></span>' +
+        '<span class="kx-fr-go">' + esc(T('Copy', 'Ikkopja')) + '</span>' +
+      '</button>';
+    }
+    h += '<p class="kx-fine">' +
+      esc(T('Codes are made on the Pi, never here: run the command and message ' +
+            'them the code yourself. Issuing one takes them off this list.',
+            'Il-kodiċi jsiru fuq il-Pi, qatt hawn: mexxi l-kmand u ibgħatilhom ' +
+            'il-kodiċi int. Meta toħroġ wieħed jitneħħew minn din il-lista.')) +
+      '</p></div>';
+    return h;
+  }
+
+  function bindResets(){
+    if (!sendEl || !waiting) return;
+    var rows = sendEl.querySelectorAll('.kx-wait .kx-frow');
+    for (var j = 0; j < rows.length; j++){
+      rows[j].onclick = function (){
+        var w = waiting[Number(this.getAttribute('data-w'))];
+        if (!w) return;
+        var cmd = 'python3 server/karti_server.py --issue-reset ' + w.u;
+        var done = function (ok){
+          sendMsg = { cls: ok ? 'ok' : 'err', text: ok
+            ? T('Command copied: ', 'Il-kmand ikkupjat: ') + cmd
+            : cmd };
+          paintSend();
+        };
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText)
+            navigator.clipboard.writeText(cmd).then(function (){ done(true); },
+                                                    function (){ done(false); });
+          else done(false);          /* no clipboard: show it to be read off */
+        } catch (e){ done(false); }
+      };
+    }
+  }
+
   /* the recipient block of the console — one of three shapes:
      chosen (the chip), searching (box + results), typed (the old field) */
   function recipientHTML(){
@@ -1009,7 +1095,9 @@
       document.addEventListener('keydown', onSendKey, true);
       document.body.appendChild(sendEl);
     }
+    waiting = null;                 /* re-read every time it is opened */
     paintSend();
+    loadResets();
   }
   function closeSend(){
     if (!sendEl) return;
@@ -1044,6 +1132,7 @@
         '<button type="button" class="kx-mail-x" data-a="close" aria-label="' +
           esc(T('Close', 'Agħlaq')) + '">×</button>' +
       '</div>' +
+      resetsHTML() +
       recipientHTML() +
       '<label class="kx-lab" for="kx-g-note">' + esc(T('Note', 'Nota')) + '</label>' +
       '<textarea class="kx-inp kx-ta" id="kx-g-note" maxlength="240" rows="2" ' +
@@ -1088,6 +1177,7 @@
     sendEl.querySelector('[data-a="close"]').onclick = closeSend;
     sendEl.querySelector('[data-a="send"]').onclick = doSend;
     bindFind();
+    bindResets();
     paintFind();
   }
 
@@ -1349,6 +1439,11 @@
       'border:1px solid #7a2438;color:#ffc9d3;font-size:13px;font-weight:700;' +
       'text-align:left}' +
     '.kx-fine{margin:8px 0 0;font-size:11px;color:#7d6fa3;text-align:center}' +
+
+    /* who is waiting for a reset code — reuses the picker's row */
+    '.kx-wait{display:flex;flex-direction:column;gap:6px;margin-top:10px;' +
+      'padding:10px;border-radius:12px;border:1px solid rgba(255,197,66,.22);' +
+      'background:rgba(255,197,66,.06)}' +
 
     /* the recipient picker */
     '.kx-frows{display:flex;flex-direction:column;gap:6px;margin-top:6px}' +

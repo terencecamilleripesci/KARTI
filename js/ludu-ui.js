@@ -152,6 +152,13 @@ function cueIn(ms, fn){
   const m = M;
   setTimeout(() => { if (M === m && M && !M.dead){ try { fn(); } catch(e){} } }, ms);
 }
+/* HAPTICS — beside the cue() that already marks the same moment. js/sfx.js
+   owns the pattern, the player's switch and every no-op path, so nothing
+   here needs a guard beyond the module being absent. NOT gated on reduced()
+   — a buzz in the hand is not motion and has its own switch — but always
+   gated on `mine`: the machine's dice and another phone's capture play the
+   whole theatre and leave the hand perfectly still. */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
 function reduced(){
   try {
     if (document.body && document.body.classList.contains('reduced')) return true;
@@ -332,6 +339,7 @@ moveSubs.push(ev => {
   const mv = ev.move, mine = ev.seat >= 0 && isLocal(ev.seat);
   const st = M.st;
   if (mv.t === 'roll'){
+    if (mine) buzz('roll');            /* HIS die, tumbling in his hand */
     cue('dice.roll', { gain: mine ? 0.85 : 0.6 }, true);
     /* A SIX IS AN EVENT — a little rising pentatonic flourish lands just
        as the die settles (the die itself glows, see paintDock) */
@@ -350,8 +358,10 @@ moveSubs.push(ev => {
   if (mv.t === 'move'){
     /* when the THEATRE is running it voices the move itself, per hop and
        at the landing, so the sound stays glued to the picture */
-    if (theatreWilling()) return;
+    if (theatreWilling()) return;      /* the theatre voices AND buzzes it */
     const why = st.why;
+    /* no theatre: the token still ARRIVED, so the moment still gets a thud */
+    if (mine) buzz('thud');
     if (why === 'capture' || why === 'captureagain'){ cue('piece.capture', { gain: mine ? 0.9 : 0.72 }, true); return; }
     if (why === 'home' || why === 'homeagain' || why === 'finished' ||
         why === 'teamfinished'){ cue('ui.reward', { gain: 0.9 }, true); return; }
@@ -1660,7 +1670,7 @@ function tapMove(seat, k, gEl){
   if (sliding) return;                          /* one move at a time */
   if (!isLocal(seat)) return;
   const res = doMove(seat, { t:'move', k }, 'local');
-  if (!res.ok){ if (gEl) gEl.classList.remove('press'); cue('ui.error', { gain:0.5 }); return; }
+  if (!res.ok){ if (gEl) gEl.classList.remove('press'); cue('ui.error', { gain:0.5 }); buzz('no'); return; }
   render();
 }
 function stillMode(){
@@ -1823,12 +1833,14 @@ function runTheatre(){
     if (vics.length){ drama(); return; }
     if (t.why === 'home' || t.why === 'homeagain' ||
         t.why === 'finished' || t.why === 'teamfinished'){
+      if (mine) buzz('thud');          /* HIS token, home */
       cue('ui.reward', { gain: 0.9 }, true);
       burst(svg, dest.x, dest.y, (t.why === 'finished' || t.why === 'teamfinished') ? 14 : 9,
             g, nodes);
       later(460, settle);
       return;
     }
+    if (mine) buzz('thud');            /* HIS token, landing */
     cue('piece.place', { gain: mine ? 0.75 : 0.6 }, true);
     if (t.why === 'column') cueIn(70, () => cue('ui.note', { gain: 0.5 }));
     later(210, settle);
@@ -1836,6 +1848,7 @@ function runTheatre(){
 
   /* CAPTURE — land on the victim, laugh, squash, fling them home */
   const drama = () => {
+    if (mine) buzz('thud');            /* HIS capture, in his hand */
     cue('piece.capture', { gain: mine ? 0.95 : 0.8 }, true);
     cueIn(140, () => cue('duel.hit', { gain: 0.8 }));
     hop.setAttribute('class', 'lu-tauntI');
@@ -2068,6 +2081,7 @@ function finish(){
      winning, which over().tone already resolves relative to the local
      seat; otherwise it is the local seat coming first. */
   const localWon = ov && (st.teams ? ov.tone === 'win' : ov.winner === me);
+  if (localWon) buzz('win');        /* the one long buzz, once, and only his */
   if (!M.net && !M.recorded){
     M.recorded = true;
     if (localWon) ST.rec.w++; else ST.rec.l++;

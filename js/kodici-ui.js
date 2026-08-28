@@ -75,6 +75,13 @@ function cue(id, opts, big){
   cueAt = Math.max(cueAt, now);
   try { S.play(id, opts); } catch(e){}
 }
+/* ── HAPTICS — one line beside the cue() that already marks the moment.
+   js/sfx.js owns the pattern, the player's switch and every no-op path, so
+   nothing here needs a guard beyond the module being absent. Fired only for
+   something this device did: the MACHINE's guess (maybeAI) and the
+   OPPONENT's guess arriving over the wire both stay silent, and no buzz is
+   ever issued from render(). */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
 function noMotion(){
   try {
     if (window.KARTI && KARTI.REDUCED) return true;
@@ -597,7 +604,9 @@ function render(){
   if (M.mode === 'pass' && M.veil){
     host.insertAdjacentHTML('beforeend', veilHTML(M.veil));
     const b = host.querySelector('#kd-veil-go');
-    if (b) b.onclick = () => { cue('duel.turn',{gain:.85},true); M.shown = M.veil; M.veil = 0; render(); };
+    /* the veil lifting is a PRIVATE reveal — two beats, for the one holding
+       the phone, and only because he pressed it himself */
+    if (b) b.onclick = () => { cue('duel.turn',{gain:.85},true); buzz('double'); M.shown = M.veil; M.veil = 0; render(); };
     return;
   }
 
@@ -810,6 +819,7 @@ function wireCompose(host, isSecret, ready){
       M._dropSlot = at;                             /* pop this peg in */
       M._tapC = c;                                  /* press-feedback this swatch */
       cue('piece.place',{gain:.5});
+      buzz('tick');                        /* a peg picked up */
       render();
     };
   });
@@ -820,7 +830,7 @@ function wireCompose(host, isSecret, ready){
   if (clr) clr.onclick = () => { M.draft = new Array(M.opts.slots).fill(-1); cue('ui.back',{gain:.35}); render(); };
   const sub = host.querySelector('#kd-submit');
   if (sub) sub.onclick = () => {
-    if (M.draft.some(x=>x<0)){ cue('move.illegal',{gain:.6}); shakeCompose(host); return; }
+    if (M.draft.some(x=>x<0)){ cue('move.illegal',{gain:.6}); buzz('no'); shakeCompose(host); return; }
     if (isSecret) submitSecret(M.draft.slice());
     else submitGuess(M.draft.slice());
   };
@@ -842,6 +852,7 @@ function shakeCompose(host){
 function submitSecret(code){
   const seat = settingSeat();
   cue('ui.reward',{gain:.6},true);
+  buzz('tap');                       /* HIS code, locked in */
   E.setSecret(M.st, seat, code);
   M.secrets[seat] = code.slice();
   M.draft = [];
@@ -892,7 +903,7 @@ function maybeStartOnline(){
 /* ── PLAY: submit a guess ── */
 function submitGuess(g){
   const seat = E.turn(M.st);
-  if (!E.legalGuess(M.st, seat, g)){ cue('move.illegal',{gain:.6}); return; }
+  if (!E.legalGuess(M.st, seat, g)){ cue('move.illegal',{gain:.6}); buzz('no'); return; }
 
   if (M.mode === 'online'){
     /* online: send to relay; the OWNER computes feedback and echoes it
@@ -901,6 +912,7 @@ function submitGuess(g){
        A pending guard stops a second guess before the verdict lands. */
     if (M.pending) return;
     M.pending = true;
+    buzz('tap');                     /* HIS guess, sent — the verdict buzzes later */
     sendOnlineGuess(seat, g);
     M.draft = [];
     render();
@@ -914,6 +926,10 @@ function submitGuess(g){
   M.draft = [];
   M._reveal = M.st.guesses[tgt].length - 1;  /* animate the newest row */
   cue(rec.fb.exact===M.opts.slots ? 'ui.reward' : 'ui.note', {gain:.7}, true);
+  /* HIS guess, taken and scored at once — but silent when the guess CRACKS
+     the code: finishScreen()'s `win` lands in the same frame, and sfx.js
+     merges two buzzes under 40 ms apart, so the long one would be lost. */
+  if (!M.st.over) buzz('tap');
   saveGame();
 
   if (M.st.over){ render(); return; }
@@ -996,6 +1012,7 @@ function finishScreen(){
   const REB = window.KARTI_REBBIEH;
   const draw = (w === 'draw');
   const youWon = (w === you);
+  if (youWon) buzz('win');          /* the one long buzz, once, and only his */
   const doAgain = () => { finished=false; if (M && M.net) { leave(); menu(); } else { const m=M.mode, cfg=pref().cfg||{}; leave(); m==='ai'?setupStep('ai'):(m==='pass'?setupStep('pass'):menu()); } };
   const doLeave = () => { finished=false; leave(); menu(); };
 
@@ -1282,6 +1299,7 @@ function onlineRemote(seat, wire){
       M.log.push({ seat:me, g:mv.g.slice(), fb:rec.fb });
       M._reveal = M.st.guesses[tgt].length-1;
       cue(rec.fb.exact===M.opts.slots ? 'ui.reward' : 'ui.note', {gain:.7}, true);
+      if (!M.st.over) buzz('thud');        /* the verdict on HIS OWN guess, home */
     }
     M.pending = false;                     /* the verdict is in; free to guess again */
   } else {

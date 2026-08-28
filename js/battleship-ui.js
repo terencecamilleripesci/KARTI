@@ -35,6 +35,17 @@ const U = P.ui, esc = U.esc, ico = U.ico;
 const SFX = () => window.KARTI_SFX || null;
 const sfx = (id, o) => { const S = SFX(); if (S && S.play) try { S.play(id, o); } catch(e){} };
 const note = (n, o) => { const S = SFX(); if (S && S.note) try { S.note(n, o); } catch(e){} };
+/* HAPTICS — the buzz sits beside the sfx() that already marks the same
+   moment. js/sfx.js owns the pattern, the player's switch and every no-op
+   path (no motor, iOS, refused without a gesture), so nothing here needs a
+   guard beyond the module being absent.
+
+   ONE RULE, AND IT IS THE WHOLE RULE: this phone's own seat only. Every
+   event in act() carries `e.s`, the seat that DID it, and the theatre plays
+   identically for all of them — a shell from another chair lands with the
+   same shake, the same splash and a perfectly still hand. Being SHOT AT is
+   not buzzed either: the player did not cause it. */
+const buzz = k => { const S = SFX(); if (S && S.haptic) try { S.haptic(k); } catch(e){} };
 
 const GID = 'gharraq';
 const TITLE = 'GĦARRAQHOM!';
@@ -239,6 +250,8 @@ function act(e, done){
     }
     case 'peek': {
       paintBoard();
+      /* the sniper's look under the water: shown to the ONE who took it */
+      if (e.s === seatMe()) buzz('double');
       sfx('ui.toggle');
       banner((e.s === seatMe() ? 'You peeked' : nameOf(e.s) + ' peeked') + ' at ' +
              E.cellName(e.c) + ' — ' + (e.hit ? 'SOMETHING IS THERE.' : 'splash.'),
@@ -397,6 +410,10 @@ function volley(e, done){
       if (!G) return;
       markCell(e.g, c);
       if (c.r === 'hit'){
+        /* HIS shell finding a hull. Only the shooter's: being hit is not
+           something the player did, and the enemy's salvo already shakes
+           the screen loudly enough. */
+        if (e.s === G.mySeat) buzz('thud');
         sfx('duel.hit');
         fxHit(e.g, c.c, px, heavy && last);
         if (heavy && last) quake(true);
@@ -1817,7 +1834,7 @@ function aimHintText(){
   return null;
 }
 function tapAim(c){
-  if (!myTurn()){ sfx('ui.error', { gain:0.3 }); return; }
+  if (!myTurn()){ sfx('ui.error', { gain:0.3 }); buzz('no'); return; }
   const p = G.st.drawn;
   const target = G.st.seats[G.target];
   if (!G.aim) G.aim = { o: 0 };
@@ -1828,7 +1845,7 @@ function tapAim(c){
     else if (G.aim.x === c){ delete G.aim.x; }
     else if (G.aim.x === undefined && c !== G.aim.c) G.aim.x = c;
     else { G.aim.c = c; delete G.aim.x; }
-    sfx('piece.lift', { gain:0.4 });
+    sfx('piece.lift', { gain:0.4 }); buzz('tick');   /* an aim, taken */
     paintBoard(); return;
   }
   if (p === E.P.SNAJPER){
@@ -1840,11 +1857,11 @@ function tapAim(c){
       paintBoard(); return;
     }
     G.aim.c = c;
-    sfx('piece.lift', { gain:0.4 });
+    sfx('piece.lift', { gain:0.4 }); buzz('tick');   /* an aim, taken */
     paintBoard(); return;
   }
   G.aim.c = c;
-  sfx('piece.lift', { gain:0.4 });
+  sfx('piece.lift', { gain:0.4 }); buzz('tick');     /* an aim, taken */
   paintBoard();
 }
 function canFire(){
@@ -1869,6 +1886,7 @@ function commitFire(){
     if (p === E.P.PAR || p === E.P.SNAJPER) mv.x = G.aim.x | 0;
   }
   G.aim = null;
+  buzz('tap');                    /* the trigger — HIS shot, committed */
   localApply(seat, mv);
 }
 
@@ -1882,6 +1900,7 @@ function finish(e){
   clearSave();
   const st = G.st;
   const iWon = e.winner === G.mySeat;
+  if (iWon) buzz('win');            /* the one long buzz, once, and only his */
   const tone = iWon ? 'win' : 'lose';
   { const S = SFX(); if (S && S.boardEnd) S.boardEnd({ win: iWon }); }
 

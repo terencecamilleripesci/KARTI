@@ -44,6 +44,15 @@
      reachable()           Promise<bool> — is the Pi answering right now
      register(user, pass)  Promise<{ok}|{err}>
      login(user, pass)     Promise<{ok}|{err}>
+     requestReset(user)    Promise — "tell Terence I am locked out". Carries no
+                           secret either way and answers the same for a real
+                           account and an invented one, on purpose.
+     resetPassword(user, code, pass)
+                           Promise<{ok}|{err}> — spend a code Terence sent by
+                           hand. NO ROUTE ON THE SERVER CAN ISSUE ONE; a code
+                           is minted by a command on the Pi and delivered out
+                           of band, which is the whole reason this is safe on
+                           a public address. One message for every refusal.
      signOut()            Promise — ends the session, touches no local save
      syncNow(opts)         Promise — pull, compare, push or ask
      push(opts) / pull(opts)
@@ -136,6 +145,16 @@ function credential(userKey, password) {
   return SHA256('karti-acct-v1|' + userKey + '|' + password);
 }
 
+/* The bilingual helper the rest of the app uses (js/lang.js). Resolved at
+   DISPLAY time, never at load time, so switching language repaints correctly.
+   Falls back to English if lang.js has not loaded — this file depends on
+   nothing. */
+function T(en, mt) {
+  try { if (window.KARTI_LANG && KARTI_LANG.t) return KARTI_LANG.t(en, mt); }
+  catch (e) {}
+  return en;
+}
+
 /* ─────────────────────────── user-facing copy ───────────────────────────
    All of it here, in one place, and all of it honest. */
 var TEXT = {
@@ -181,6 +200,59 @@ var TEXT = {
   guest:     'You are playing as a guest. Signing in will put THIS guest game in ' +
              'the cloud under your new name.'
 };
+
+/* ───────────────── forgotten password, in plain words ─────────────────
+   THERE IS NO EMAIL, AND THE COPY MUST NOT PRETEND THERE IS. A player asks,
+   Terence is told, and he messages them a code the way he already talks to
+   them. Saying "check your inbox" would leave somebody staring at an inbox
+   for ever. Bilingual through T() at display time; nothing here is resolved
+   at load, so a language switch repaints correctly.
+
+   FAILURE IS ONE SENTENCE. The server refuses a wrong code, an expired code,
+   a spent code and a name that has no account with the identical answer on
+   purpose, and this file must not invent a difference the server refused to
+   make — "no such account" here would hand back exactly the thing the server
+   is being careful not to say. */
+function resetText() {
+  return {
+    forgotLink:  T('Forgotten your password?', 'Insejt il-password?'),
+
+    askTitle:    T('Forgotten your password?', 'Insejt il-password?'),
+    askWhat:     T('There is no email on KARTI, so this is done by hand. Type your ' +
+                   'username and Terence is told you are locked out. He sends you a ' +
+                   'reset code the way he normally messages you — then come back here ' +
+                   'and use it.',
+                   'KARTI m’għandux email, mela dan isir bl-idejn. Ikteb l-isem tiegħek ' +
+                   'u Terence jiġi mgħarraf li ma tistax tidħol. Jibgħatlek kodiċi ' +
+                   'permezz tal-mod li normalment jibgħatlek messaġġi — imbagħad erġa’ ' +
+                   'ejja hawn u użah.'),
+    askGo:       T('Tell Terence I am locked out', 'Għid lil Terence li ma nistax nidħol'),
+    askDone:     T('If that account exists, Terence has been told. He will send you a ' +
+                   'code. It is good for 24 hours and works once.',
+                   'Jekk dak il-kont jeżisti, Terence ġie mgħarraf. Hu jibgħatlek ' +
+                   'kodiċi. Jgħodd għal 24 siegħa u jaħdem darba biss.'),
+    askHaveCode: T('I already have a code', 'Diġà għandi kodiċi'),
+
+    useTitle:    T('Use a reset code', 'Uża kodiċi tal-password'),
+    useWhat:     T('Type the code Terence sent you and pick a new password. The code ' +
+                   'works once. Every device that is signed in to this account is ' +
+                   'signed out, including whoever locked you out.',
+                   'Ikteb il-kodiċi li bagħatlek Terence u agħżel password ġdida. ' +
+                   'Il-kodiċi jaħdem darba biss. Kull apparat li huwa mdaħħal f’dan ' +
+                   'il-kont jinħareġ ’il barra, inkluż min qafflek barra.'),
+    codeLabel:   T('Reset code', 'Kodiċi'),
+    newPass:     T('New password', 'Password ġdida'),
+    newPass2:    T('New password again', 'Erġa’ ikteb il-password'),
+    useGo:       T('Set my new password', 'Issettja l-password ġdida'),
+    badCode:     T('That code is not right, or it has expired. Ask Terence for a new one.',
+                   'Dak il-kodiċi mhux tajjeb, jew skada. Itlob lil Terence ieħor.'),
+    done:        T('Password changed. Log in with your new password.',
+                   'Il-password inbidlet. Idħol bil-password il-ġdida.'),
+    needCode:    T('Type the code Terence sent you.',
+                   'Ikteb il-kodiċi li bagħatlek Terence.'),
+    back:        T('Back', 'Lura')
+  };
+}
 
 /* ─────────────────────────── storage adapter ───────────────────────────
    The only place this file knows anything about js/game.js. */
@@ -517,11 +589,72 @@ function login(user, pass, opts) {
         seen = mark(localRaw());
       }
       ST.sess = { u: r.d.u, name: r.d.name, tok: r.d.tok, exp: r.d.exp,
-                  ver: ver, at: at, mark: seen };
+                  ver: ver, at: at, mark: seen,
+                  /* THE SERVER'S ANSWER to "may this account use the gift
+                     console". js/progress.js used to work it out from the
+                     username, which is the same forgeable guess the relay just
+                     stopped making. Absent means no. */
+                  admin: !!r.d.admin };
       saveSess();
       return syncNow({ fromLogin: true }).then(function () {
         return { ok: true, name: r.d.name };
       });
+    });
+}
+
+/* ─────────────────────── forgotten password ───────────────────────
+   Two calls, and NEITHER of them ever receives a secret. requestReset() leaves
+   a note for Terence and is answered the same way whatever name it is given;
+   resetPassword() spends a code the player already has in their hand, because
+   Terence sent it to them himself. Nothing on this wire can hand a code out —
+   only a command run on the Pi mints one — and that is the reason any of this
+   is safe to have on a public address. */
+
+/* Step one. ALWAYS resolves ok: the server deliberately answers the same 200
+   for a real account and an invented one, and this must not undo that by
+   deciding for itself which names are real. */
+function requestReset(user) {
+  var name = String(user == null ? '' : user).trim();
+  if (!NAME_RE.test(name)) return Promise.resolve({ err: TEXT.badName });
+  return call('reset-ask', { u: name }).then(function (r) {
+    if (!r.ok && r.offline) return { err: TEXT.unreachable, offline: true };
+    if (!r.ok && r.status === 429)
+      return { err: (r.d && r.d.why) || TEXT.slow, status: 429 };
+    /* Anything else, including a server that answered oddly, is reported as
+       done. There is nothing useful to tell them and nothing to retry. */
+    return { ok: true };
+  });
+}
+
+/* Step two. THE CREDENTIAL MUST BE THE SAME SHAPE LOGIN SENDS — credential()
+   above, byte for byte. Send anything else and the server stores a hash that
+   looks perfectly valid and can never match a login, silently, with no error
+   anywhere. That is the single most dangerous line in this file. */
+function resetPassword(user, code, pass) {
+  var v = validate(user, pass);
+  if (v.err) return Promise.resolve(v);
+  var tidy = String(code == null ? '' : code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!tidy) return Promise.resolve({ err: resetText().needCode });
+  return call('reset', { u: v.name, code: tidy, pw: credential(v.key, String(pass)) })
+    .then(function (r) {
+      if (r.ok) {
+        /* A hook, not a call into game.js: this file knows nothing about local
+           profiles. game.js sets it so the profile ON THIS PHONE gets the new
+           password too — without that, the one device the player is actually
+           holding still refuses them, because its own local check never heard
+           about the reset. */
+        try {
+          if (typeof KARTI_SYNC.onReset === 'function')
+            KARTI_SYNC.onReset({ u: v.key, name: v.name, pass: String(pass) });
+        } catch (e) {}
+        return { ok: true, u: v.key, name: v.name };
+      }
+      if (r.offline) return { err: TEXT.unreachable, offline: true };
+      if (r.status === 429) return { err: (r.d && r.d.why) || TEXT.slow, status: 429 };
+      if (r.status === 503) return { err: TEXT.serverOff, status: 503 };
+      /* One message for every way a code can be refused. Never "no such
+         account" — the server took care not to say it and neither do we. */
+      return { err: resetText().badCode, status: r.status };
     });
 }
 
@@ -564,6 +697,12 @@ function pull(opts) {
       if (r.status === 401) expired();
       else if (!opts.silent) setPhase('error', wireError(r));
       return { err: wireError(r), status: r.status };
+    }
+    /* A grant made while this phone was signed in lands on the next sync,
+       rather than needing a sign out and back in. */
+    if (ST.sess && !!ST.sess.admin !== !!r.d.admin) {
+      ST.sess.admin = !!r.d.admin;
+      saveSess();
     }
     return { ok: true, ver: r.d.ver || 0, at: r.d.at || 0,
              save: (typeof r.d.save === 'string' ? r.d.save : null),
@@ -1065,6 +1204,7 @@ function flush() {
    be broken by a restyle, and it works even if it is the only thing that
    loaded. game.js needs one button that calls KARTI_SYNC.openPanel(). */
 var panel = null, panelMode = 'menu', panelErr = '', lastFocus = null, panelPrefill = '';
+var panelNote = '';             /* a quiet confirmation, not an error */
 
 function el(tag, css, html) {
   var n = document.createElement(tag);
@@ -1153,6 +1293,7 @@ function onPanelKey(e) { if (e.key === 'Escape') { e.stopPropagation(); closePan
 function repaintPanel() {
   if (!panel) return;
   var s = status();
+  var RT = resetText();          /* resolved fresh, so a language switch lands */
   var box = el('div', CSS.box);
   var body = '';
 
@@ -1205,8 +1346,48 @@ function repaintPanel() {
     body += '<button data-a="' + (isNew ? 'do-signup' : 'do-login') + '" style="' + CSS.hot +
             '"' + (s.busy ? ' disabled' : '') + '>' +
             (s.busy ? 'Working…' : (isNew ? 'Create account' : 'Log in')) + '</button>';
+    /* Only on the LOG IN page. Somebody creating an account has no password to
+       have forgotten, and the offer would only be confusing there. */
+    if (!isNew)
+      body += '<button data-a="go-forgot" style="' + CSS.ghost + '">' +
+              esc(RT.forgotLink) + '</button>';
     body += '<button data-a="back" style="' + CSS.ghost + '">Back</button>';
     body += '<p style="' + CSS.note + '">' + esc(TEXT.whereFrom) + '</p>';
+  } else if (panelMode === 'forgot' || panelMode === 'usecode') {
+    var asking = panelMode === 'forgot';
+    body += '<h2 style="' + CSS.h + '">' + esc(asking ? RT.askTitle : RT.useTitle) + '</h2>';
+    body += '<p style="' + CSS.p + '">' + esc(asking ? RT.askWhat : RT.useWhat) + '</p>';
+    body += '<label style="' + CSS.lab + '" for="ks-ru">Username</label>' +
+            '<input id="ks-ru" style="' + CSS.inp + '" autocomplete="username" ' +
+            'autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="16"' +
+            (panelPrefill ? ' value="' + esc(panelPrefill) + '"' : '') + '>';
+    if (asking) {
+      body += '<button data-a="do-ask" style="' + CSS.hot + '"' +
+              (s.busy ? ' disabled' : '') + '>' +
+              esc(s.busy ? 'Working…' : RT.askGo) + '</button>';
+      body += '<button data-a="go-usecode" style="' + CSS.btn + '">' +
+              esc(RT.askHaveCode) + '</button>';
+    } else {
+      /* Upper case and generously spaced: this is copied off a message and
+         typed with a thumb, and the alphabet it comes from has no O, no I,
+         no 0 and no 1 for the same reason. */
+      body += '<label style="' + CSS.lab + '" for="ks-rc">' + esc(RT.codeLabel) + '</label>' +
+              '<input id="ks-rc" style="' + CSS.inp + 'text-transform:uppercase;' +
+              'letter-spacing:2px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace" ' +
+              'autocomplete="one-time-code" autocapitalize="characters" autocorrect="off" ' +
+              'spellcheck="false" inputmode="text" maxlength="24">';
+      body += '<label style="' + CSS.lab + '" for="ks-rp">' + esc(RT.newPass) + '</label>' +
+              '<input id="ks-rp" type="password" style="' + CSS.inp +
+              '" autocomplete="new-password">';
+      body += '<label style="' + CSS.lab + '" for="ks-rp2">' + esc(RT.newPass2) + '</label>' +
+              '<input id="ks-rp2" type="password" style="' + CSS.inp +
+              '" autocomplete="new-password">';
+      body += '<button data-a="do-reset" style="' + CSS.hot + '"' +
+              (s.busy ? ' disabled' : '') + '>' +
+              esc(s.busy ? 'Working…' : RT.useGo) + '</button>';
+    }
+    body += '<button data-a="go-login" style="' + CSS.ghost + '">' + esc(RT.back) + '</button>';
+    if (panelNote) body += '<p style="' + CSS.ok + '">' + esc(panelNote) + '</p>';
   } else if (panelMode === 'conflict' && ST.conflict) {
     var a = summarise(ST.conflict.local || '{}');
     var b = summarise(ST.conflict.save || '{}');
@@ -1239,7 +1420,8 @@ function repaintPanel() {
   box.addEventListener('click', onPanelClick);
   box.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
-      var go = box.querySelector('[data-a="do-signup"],[data-a="do-login"]');
+      var go = box.querySelector('[data-a="do-signup"],[data-a="do-login"],' +
+                                 '[data-a="do-ask"],[data-a="do-reset"]');
       if (go) go.click();
     }
   });
@@ -1257,8 +1439,45 @@ function onPanelClick(e) {
 
   if (a === 'close') return closePanel();
   if (a === 'back') { panelMode = 'menu'; return repaintPanel(); }
-  if (a === 'go-signup') { panelMode = 'signup'; ST.msg = ''; return repaintPanel(); }
-  if (a === 'go-login') { panelMode = 'signin'; ST.msg = ''; return repaintPanel(); }
+  if (a === 'go-signup') { panelMode = 'signup'; ST.msg = ''; panelNote = ''; return repaintPanel(); }
+  if (a === 'go-login') { panelMode = 'signin'; ST.msg = ''; panelNote = ''; return repaintPanel(); }
+  if (a === 'go-forgot' || a === 'go-usecode') {
+    /* carry whatever they had already typed, so nobody types a name twice */
+    var typed = val('ks-u') || val('ks-ru');
+    if (typed) panelPrefill = typed;
+    panelMode = a === 'go-forgot' ? 'forgot' : 'usecode';
+    ST.msg = ''; panelNote = '';
+    return repaintPanel();
+  }
+  if (a === 'do-ask') {
+    panelPrefill = val('ks-ru');
+    ST.busy = true; repaintPanel();
+    return requestReset(panelPrefill).then(function (res) {
+      ST.busy = false;
+      /* The confirmation is the SAME whether or not that account exists —
+         the server was careful not to say, and neither is this. */
+      if (res && res.err) panelErr = res.err;
+      else { panelNote = resetText().askDone; panelMode = 'usecode'; }
+      repaintPanel();
+    });
+  }
+  if (a === 'do-reset') {
+    var ru = val('ks-ru'), rc = val('ks-rc'), rp = val('ks-rp');
+    if (rp !== val('ks-rp2')) { panelErr = TEXT.mismatch; return repaintPanel(); }
+    panelPrefill = ru;
+    ST.busy = true; repaintPanel();
+    return resetPassword(ru, rc, rp).then(function (res) {
+      ST.busy = false;
+      if (res && res.err) { panelErr = res.err; panelMode = 'usecode'; }
+      else {
+        /* Straight to the log-in page with the name filled in. The reset does
+           NOT sign them in: a session is only ever born at /login, and making
+           them use the new password once is how they find out it took. */
+        panelNote = ''; ST.msg = resetText().done; panelMode = 'signin';
+      }
+      repaintPanel();
+    });
+  }
   if (a === 'sync') { return syncNow({}); }
   if (a === 'signout') { return signOut().then(function () { panelMode = 'menu'; repaintPanel(); }); }
   if (a === 'restore') {
@@ -1330,6 +1549,10 @@ var KARTI_SYNC = {
   TEXT: TEXT,
   adapter: adapter,
   onConflict: null,
+  /* Set by js/game.js. Called ONLY after the server has accepted a reset code,
+     with { u, name, pass }, so the local profile on this phone can be given
+     the new password too. This file never touches a local profile itself. */
+  onReset: null,
 
   attach: attach,
   detach: detach,
@@ -1343,6 +1566,8 @@ var KARTI_SYNC = {
   register: register,
   login: login,
   signOut: signOut,
+  requestReset: requestReset,
+  resetPassword: resetPassword,
 
   pull: pull,
   push: push,

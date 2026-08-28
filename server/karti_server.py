@@ -84,8 +84,29 @@ ACCOUNT ROUTES  (POST, JSON in and JSON out, also served at /acct/<x>)
     POST /karti/acct/pull      {tok[,prev]}              -> 200 {ver,at,save,hasPrev}
     POST /karti/acct/push      {tok,base,save[,force]}   -> 200 {ver,at}
                                                             409 {code:"stale",ver,at,save}
-    register and login are the ONLY unauthenticated routes; both are token
-    bucketed per caller and capped globally. `pw` is an opaque secret string —
+    POST /karti/acct/reset-ask {u}                       -> 200 {ok,why} ALWAYS
+    POST /karti/acct/reset     {u,code,pw}               -> 200 {ok,u}
+    POST /karti/acct/resets    {tok}                     -> 200 {asks:[...]} admin
+
+    FORGOTTEN PASSWORDS, AND THE ONE PROPERTY THAT MAKES THEM SAFE HERE.
+    There is no email yet, so the chain is: the player taps "forgot password"
+    (reset-ask, which leaves a note and returns nothing), the owner is told,
+    the owner runs `--issue-reset <account>` ON THE PI and messages the code
+    over, and the player spends it (reset). NO HTTP ROUTE CAN ISSUE A CODE.
+    That is the whole safety argument for exposing any of this through the
+    funnel: the relay never SENDS a secret to an unauthenticated stranger, it
+    only ACCEPTS one the caller already holds. reset-ask answers the same 200
+    with the same sentence for a real account and a made-up one, and answers it
+    before it has looked anything up; reset answers the same 400 with the same
+    sentence for a wrong, expired, spent or non-existent code. Codes go to disk
+    through the same salted KDF as passwords, are compared with
+    hmac.compare_digest, work once, and take every live session for the account
+    down with them. When email arrives it becomes a way to DELIVER the code the
+    command already mints — no part of the verification path changes.
+
+    register, login, reset-ask and reset are the ONLY unauthenticated routes;
+    all four are token bucketed per caller, reset-ask is bucketed per requested
+    NAME as well, and registration is capped globally. `pw` is an opaque string —
     the official client sends a SHA-256 of the real password so the Pi never
     sees it, and the server hashes WHATEVER ARRIVES again with a slow salted
     KDF (scrypt, pbkdf2-sha256 if OpenSSL has no scrypt). No route ever echoes
@@ -4549,6 +4570,32 @@ class A:
     SESSION_IDLE = 14 * 86400.0 # ...or this long after it was last used
     MAX_SESSIONS = 8            # live sessions per account (oldest is dropped)
 
+    # FORGOTTEN PASSWORD. A reset code is minted by a LOCAL command and handed
+    # over out of band (Terence messages it to the player). Nothing on the wire
+    # ever hands a code out, so these numbers only ever govern REDEEMING one.
+    RESET_CODE_LEN = 10         # from CODE_ALPHABET, which is 32 characters:
+                                #   exactly 5 bits each, so 10 of them is 50
+                                #   bits. At the redeem rate below, guessing one
+                                #   would take longer than the universe has run.
+    RESET_TTL = 24 * 3600.0     # it travels by hand, not by machine
+    RESET_KEEP = 30 * 86400.0   # spent/stale rows swept after this, for audit
+    RESET_ASK_TTL = 48 * 3600.0 # a "I am locked out" note gives up after this
+    RESET_ASK_MAX = 200         # pending notes in total, so the queue is bounded
+    # Asking is limited on BOTH axes. Per caller, because a stranger must not be
+    # able to bury the owner in a thousand notes; per NAME, because a stranger
+    # must not be able to pester one player's row over and over either. The
+    # name bucket is spent on the name that was ASKED FOR, whether or not any
+    # such account exists, so it can never be used to tell.
+    ASK_RATE = 1.0 / 300.0      # per caller: one every five minutes, sustained
+    ASK_BURST = 3.0
+    ASK_NAME_RATE = 1.0 / 3600.0    # per name: one an hour, sustained
+    ASK_NAME_BURST = 2.0
+    # Tighter than login on purpose: a login is something a player does many
+    # times a day, a reset is once in a lifetime, and this is the route a
+    # stranger would sit and grind at.
+    RESET_RATE = 1.0 / 60.0     # one attempt a minute, sustained
+    RESET_BURST = 4.0           # ...after four in a row
+
     # per-caller token buckets (caller = a truncated hash of the peer address)
     REG_RATE = 1.0 / 300.0      # one registration per five minutes, sustained
     REG_BURST = 3.0
@@ -4595,6 +4642,16 @@ E_ACCT_SLOW = "Slow down."
 E_ACCT_BUSY = "The server is busy. Try again in a moment."
 E_ACCT_SAVE = "That save file is not something KARTI could have written."
 E_ACCT_STALE = "Your other device has saved since this one last synced."
+# ONE sentence for every way a reset can fail: wrong code, expired code, code
+# already spent, no such account. A caller must not be able to tell those apart,
+# because the difference between them is exactly the information that would turn
+# this route into a way of finding out who has an account here.
+E_ACCT_RESET = "That reset code is not right, or it has expired. Ask Terence for a new one."
+# The SAME sentence for a real account and for a made-up one. It is written to
+# be true either way: it promises that a message was sent if there was anybody
+# to send it about, and it promises nothing else.
+E_ACCT_ASKED = ("If that account exists, Terence has been told. He will send you "
+                "a reset code the way he normally messages you.")
 
 # Deliberately NARROWER than the local-profile rule in js/game.js: no quote, no
 # backslash, no angle bracket, nothing that has to be escaped anywhere it is
@@ -4714,6 +4771,28 @@ def v_credential(v):
     return v.encode("utf-8", "surrogatepass")
 
 
+def v_reset_code(v):
+    """Whatever the player typed -> the canonical code bytes, or Reject.
+
+    Codes get read off a phone screen and typed back in with a thumb, so the
+    spaces and dashes people add to break them up are stripped, and case is
+    folded up: the alphabet is upper case only, so a lower-case letter is a
+    typing convenience and not a different code. Everything else is refused
+    before a KDF is ever started — a stranger who cannot even form a code must
+    not be able to make the Pi do 50 ms of scrypt for the privilege."""
+    if not isinstance(v, str):
+        raise Reject("code")
+    if len(v) > 64:                     # bounded before any per-character work
+        raise Reject("code")
+    tidy = "".join(ch for ch in v.upper() if ch.isalnum())
+    if len(tidy) != A.RESET_CODE_LEN:
+        raise Reject("code")
+    for ch in tidy:
+        if ch not in CODE_ALPHABET:
+            raise Reject("code")
+    return tidy.encode("ascii")
+
+
 def v_device(v):
     if v is None:
         return ""
@@ -4723,6 +4802,14 @@ def v_device(v):
 
 
 SCHEMA = """
+/* `admin` IS THE PERMISSION, AND IT IS A FACT ABOUT THE ROW.
+   It replaces a list of admin NAMES that used to be matched by stripping the
+   punctuation out of the account key. That was forgeable: `Ter.ence` is a
+   different, freely registrable username that normalised onto `terence`, so
+   any stranger could register one and walk into the gift console. A name is
+   claimable; a column is not. DEFAULT 0 means an existing database migrates
+   with NOBODY admin until somebody is granted it by hand, which is the only
+   safe direction for that migration to fail in. */
 CREATE TABLE IF NOT EXISTS accounts (
     uname   TEXT PRIMARY KEY,
     name    TEXT NOT NULL,
@@ -4733,7 +4820,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     salt    BLOB NOT NULL,
     pwhash  BLOB NOT NULL,
     created REAL NOT NULL,
-    seen    REAL NOT NULL
+    seen    REAL NOT NULL,
+    admin   INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS saves (
     uname     TEXT PRIMARY KEY,
@@ -4753,6 +4841,62 @@ CREATE TABLE IF NOT EXISTS sessions (
     seen   REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS sessions_uname ON sessions(uname);
+
+/* FORGOTTEN PASSWORD — a code that unlocks exactly one account, once.
+
+   There is no email in KARTI, so a code is minted by a LOCAL command
+   (--issue-reset) and given to the player the way Terence already talks to
+   them. That ordering is the safety property of the whole feature: the server
+   never SENDS a secret to an unauthenticated stranger, it only ever ACCEPTS
+   one the caller already holds. When email arrives it becomes another way to
+   deliver the same code, and nothing below has to change.
+
+   `codehash` is the code put through the SAME slow salted KDF as a password,
+   with its own fresh salt and its own KDF columns, because a reset code IS a
+   credential: storing it in the clear would make a copy of this file a skeleton
+   key to every account in it. Nothing anywhere ever writes the code itself.
+
+   `used` is a timestamp rather than a flag, exactly like mail.claimed, so a
+   spent code can still answer WHEN it was spent. Rows are kept after use and
+   swept by prune() much later; the audit is worth the few hundred bytes. */
+CREATE TABLE IF NOT EXISTS reset_codes (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    uname    TEXT NOT NULL,
+    algo     TEXT NOT NULL,
+    kn       INTEGER NOT NULL,
+    kr       INTEGER NOT NULL,
+    kp       INTEGER NOT NULL,
+    salt     BLOB NOT NULL,
+    codehash BLOB NOT NULL,
+    created  REAL NOT NULL,
+    expires  REAL NOT NULL,
+    used     REAL
+);
+CREATE INDEX IF NOT EXISTS reset_codes_uname ON reset_codes(uname, id DESC);
+
+/* "I AM LOCKED OUT" — the step before a code exists.
+
+   A player taps Forgot password in the app and a row lands here. That is ALL
+   this table is: a note that somebody is waiting. It holds no secret, it hands
+   nothing back, and having a row here does not unlock anything — only the local
+   --issue-reset command can mint a code, and the owner is the only one who can
+   run it. When email arrives, the arrival of a row here is what will trigger
+   the send, and nothing else in the chain changes.
+
+   uname is the PRIMARY KEY, so a player tapping five times refreshes one row
+   rather than filling the owner's console with five. `n` counts the taps, which
+   is worth seeing: five in a minute is somebody in a hurry, five over two days
+   is somebody who never got their code. Rows are only ever written for accounts
+   that EXIST — a request for a made-up name is dropped, silently and after the
+   answer has already gone out, because the difference between those two cases
+   is precisely what this feature must never disclose. */
+CREATE TABLE IF NOT EXISTS reset_asks (
+    uname  TEXT PRIMARY KEY,
+    first  REAL NOT NULL,
+    at     REAL NOT NULL,
+    n      INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS reset_asks_at ON reset_asks(at DESC);
 
 /* RECENTLY PLAYED WITH.
    Two accounts that actually sat at the same table. It is here, in the
@@ -4885,6 +5029,17 @@ class Accounts:
             self.db.execute("ALTER TABLE accounts ADD COLUMN vis INTEGER NOT NULL DEFAULT 1")
         except sqlite3.OperationalError:
             pass                        # already there
+        # The same one-restart migration for `admin`, and note the DEFAULT: 0,
+        # not 1, and NOT "1 where the name looks like the owner's". Auto-
+        # granting by name would be the exact bug this column exists to kill,
+        # wearing a different hat. After this runs, nobody is admin until
+        # --grant-admin says so, and the gift console simply answers 403 until
+        # then. Locked-out-of-the-console is a recoverable state; anyone-can-be-
+        # the-owner is not.
+        try:
+            self.db.execute("ALTER TABLE accounts ADD COLUMN admin INTEGER NOT NULL DEFAULT 0")
+        except sqlite3.OperationalError:
+            pass                        # already there
         self.db.commit()
         try:
             os.chmod(path, 0o600)       # password hashes are nobody else's business
@@ -4909,6 +5064,15 @@ class Accounts:
         with self.lock:
             self.db.execute("DELETE FROM sessions WHERE made < ? OR seen < ?",
                             (now - A.SESSION_TTL, now - A.SESSION_IDLE))
+            # Reset codes are kept long after they stop working, so "was this
+            # account ever reset, and when" is still answerable. Only the very
+            # old ones go, and an expired code has been dead for a day by then.
+            self.db.execute("DELETE FROM reset_codes WHERE created < ?",
+                            (now - A.RESET_KEEP,))
+            # A request nobody acted on gives up by itself, so the queue can
+            # never grow without bound even if the owner never looks at it.
+            self.db.execute("DELETE FROM reset_asks WHERE at < ?",
+                            (now - A.RESET_ASK_TTL,))
             self.db.commit()
 
     def stats(self):
@@ -4975,6 +5139,220 @@ class Accounts:
             self.db.execute("UPDATE accounts SET seen=? WHERE uname=?", (time.time(), key))
             self.db.commit()
         return name
+
+    # -- who is the owner --------------------------------------------------
+    #
+    # THE PERMISSION IS A COLUMN, NOT A NAME. Everything that used to compare a
+    # normalised account key against a list of admin names goes through here
+    # instead. The difference that matters: a username can be REGISTERED by a
+    # stranger, and `Ter.ence` normalised onto `terence`; a column can only be
+    # set by somebody who already has the database file in their hands.
+
+    def is_admin(self, key):
+        """True only for an account explicitly granted it. An unknown account,
+        an unmigrated row, a NULL — all false. Fails closed, always."""
+        if not key:
+            return False
+        with self.lock:
+            row = self.db.execute("SELECT admin FROM accounts WHERE uname=?",
+                                  (key,)).fetchone()
+        return bool(row and row[0])
+
+    def set_admin(self, key, on):
+        """True/False on success, or None when there is no such account — the
+        caller is a command line run by the owner, so it may be told plainly."""
+        with self.lock:
+            if not self.db.execute("SELECT 1 FROM accounts WHERE uname=?",
+                                   (key,)).fetchone():
+                return None
+            self.db.execute("UPDATE accounts SET admin=? WHERE uname=?",
+                            (1 if on else 0, key))
+            self.db.commit()
+        return bool(on)
+
+    def admins(self):
+        """Every account holding the permission. Short by construction."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT uname, name FROM accounts WHERE admin=1"
+                " ORDER BY uname").fetchall()
+        return [{"u": r[0], "name": r[1]} for r in rows]
+
+    def all_accounts(self, limit=500):
+        """Every account, for the owner's command line ONLY. No HTTP route
+        calls this: find_players() next door is the bounded, prefix-only one
+        that a request can reach. This exists so the owner can SEE the real
+        uname before granting anything to it — guessing at a username is how
+        the wrong account gets the keys."""
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT uname, name, admin, created, seen FROM accounts"
+                " ORDER BY seen DESC LIMIT ?",
+                (max(1, min(int(limit or 500), 5000)),)).fetchall()
+        return [{"u": r[0], "name": r[1], "admin": bool(r[2]),
+                 "created": float(r[3]), "seen": float(r[4])} for r in rows]
+
+    # -- forgotten password ------------------------------------------------
+    #
+    # TWO HALVES THAT NEVER MEET ON THE WIRE. issue_reset() is reachable only
+    # from the --issue-reset command line, run by hand on the Pi; redeem_reset()
+    # is what POST /acct/reset calls. There is deliberately no HTTP route, and
+    # no method here, that hands a code TO a caller — the relay is published
+    # through Tailscale Funnel, and a route that posted a secret to whoever
+    # asked would be the one part of this that a stranger could actually use.
+
+    def issue_reset(self, key, ttl=None, now=None):
+        """Mint one code for an existing account and return it, or None.
+
+        The returned string is the ONLY time the code exists in this process.
+        What goes on disk is a salted hash of it, and nothing ever reads it
+        back. Any earlier UNUSED code for the account is deleted first, so
+        there is exactly one live code at a time and a code sitting in an old
+        chat thread cannot be dug up months later."""
+        now = time.time() if now is None else now
+        ttl = A.RESET_TTL if ttl is None else float(ttl)
+        with self.lock:
+            if not self.db.execute("SELECT 1 FROM accounts WHERE uname=?",
+                                   (key,)).fetchone():
+                return None
+        # CODE_ALPHABET is the room-code alphabet: 32 characters with no O, no
+        # I, no 0 and no 1, because these are read aloud and typed on phones.
+        # Thirty-two is exactly five bits, so RESET_CODE_LEN characters give
+        # 5 x RESET_CODE_LEN bits with no modulo bias to reason about.
+        code = "".join(secrets.choice(CODE_ALPHABET)
+                       for _ in range(A.RESET_CODE_LEN))
+        algo, n, r, p = kdf_params()
+        salt = secrets.token_bytes(16)
+        digest = kdf_guarded(code.encode("ascii"), salt, algo, n, r, p)
+        with self.lock:
+            self.db.execute(
+                "DELETE FROM reset_codes WHERE uname=? AND used IS NULL", (key,))
+            self.db.execute(
+                "INSERT INTO reset_codes(uname,algo,kn,kr,kp,salt,codehash,"
+                "created,expires) VALUES(?,?,?,?,?,?,?,?,?)",
+                (key, algo, n, r, p, salt, digest, now, now + ttl))
+            # They asked, they have been answered: take them off the waiting
+            # list in the same breath, so the owner's console shows only people
+            # who are still waiting on him.
+            self.db.execute("DELETE FROM reset_asks WHERE uname=?", (key,))
+            self.db.commit()
+        return code
+
+    # -- "I am locked out" — the note that comes BEFORE a code exists -------
+
+    def reset_request(self, key, now=None):
+        """Queue a player's request for a reset. True when a row was written.
+
+        THE CALLER MUST NOT LET THAT ANSWER REACH THE WIRE. A request for an
+        account that does not exist is dropped right here, and the difference
+        between dropped and queued is exactly the fact this feature exists to
+        keep quiet. It is also why nothing in this method is a secret: the row
+        holds a name and two timestamps, and having one unlocks nothing."""
+        now = time.time() if now is None else now
+        with self.lock:
+            self.db.execute("DELETE FROM reset_asks WHERE at < ?",
+                            (now - A.RESET_ASK_TTL,))
+            if not self.db.execute("SELECT 1 FROM accounts WHERE uname=?",
+                                   (key,)).fetchone():
+                self.db.commit()
+                return False
+            row = self.db.execute("SELECT n FROM reset_asks WHERE uname=?",
+                                  (key,)).fetchone()
+            if row is None:
+                waiting = self.db.execute(
+                    "SELECT COUNT(*) FROM reset_asks").fetchone()[0]
+                if waiting >= A.RESET_ASK_MAX:
+                    self.db.commit()
+                    return False        # bounded queue; the owner is not a bin
+                self.db.execute(
+                    "INSERT INTO reset_asks(uname,first,at,n) VALUES(?,?,?,1)",
+                    (key, now, now))
+            else:
+                # A REPEAT REFRESHES, IT DOES NOT PILE UP. One row per account,
+                # by primary key, so tapping the button five times is one line
+                # in the console with a count beside it.
+                self.db.execute("UPDATE reset_asks SET at=?,n=? WHERE uname=?",
+                                (now, min(int(row[0]) + 1, 999), key))
+            self.db.commit()
+        return True
+
+    def reset_asks(self, limit=60, now=None):
+        """Who is waiting for a code, newest first. Owner's eyes only — the
+        console route and the command line are both gated before they get
+        here, exactly as find_players() is."""
+        now = time.time() if now is None else now
+        with self.lock:
+            rows = self.db.execute(
+                "SELECT k.uname, a.name, k.first, k.at, k.n FROM reset_asks k"
+                " LEFT JOIN accounts a ON a.uname = k.uname"
+                " WHERE k.at >= ? ORDER BY k.at DESC LIMIT ?",
+                (now - A.RESET_ASK_TTL, max(1, min(int(limit or 60), 200)))).fetchall()
+        return [{"u": r[0], "name": r[1] or r[0], "first": float(r[2]),
+                 "at": float(r[3]), "n": int(r[4])} for r in rows]
+
+    def redeem_reset(self, key, code, cred, now=None):
+        """Spend a code and set a new password. True, or False.
+
+        FALSE IS ONE ANSWER, NOT FOUR. Unknown account, wrong code, expired
+        code and already-spent code all end here the same way and, as far as
+        this can control it, after the same work: exactly one KDF on the way
+        out, against a throwaway salt when there is nothing real to compare
+        against. The success path costs a second KDF for the new password,
+        which only tells something to a caller who already had a valid code.
+
+        `cred` is the same opaque pre-hashed credential /acct/login takes, and
+        it is stored the same way create() stores one — fresh salt, current KDF
+        parameters. Storing it any other way would write a row that looks
+        perfectly valid and can never match a login, silently."""
+        now = time.time() if now is None else now
+        with self.lock:
+            row = self.db.execute(
+                "SELECT id,algo,kn,kr,kp,salt,codehash,expires FROM reset_codes"
+                " WHERE uname=? AND used IS NULL ORDER BY id DESC LIMIT 1",
+                (key,)).fetchone()
+        if row is None:
+            # No such account, or no live code for it. Burn a KDF anyway, the
+            # same way verify() does, so the two cost the same wall clock as a
+            # real but wrong guess.
+            try:
+                algo, n, r, p = kdf_params()
+                kdf_guarded(code, b"\x00" * 16, algo, n, r, p)
+            except KDFBusy:
+                pass
+            return False
+        cid, algo, n, r, p, salt, stored, expires = row
+        digest = kdf_guarded(code, bytes(salt), algo, int(n), int(r), int(p))
+        if not hmac.compare_digest(digest, bytes(stored)):
+            return False            # never ==, this is a secret comparison
+        if now >= float(expires):
+            return False            # theirs, but stale. Same answer as any other.
+
+        algo2, n2, r2, p2 = kdf_params()
+        newsalt = secrets.token_bytes(16)
+        pwhash = kdf_guarded(cred, newsalt, algo2, n2, r2, p2)
+        with self.lock:
+            # Marked spent FIRST, and only if it was still unspent: that single
+            # UPDATE is what makes a code good exactly once even if two requests
+            # arrive together.
+            spent = self.db.execute(
+                "UPDATE reset_codes SET used=? WHERE id=? AND used IS NULL",
+                (now, cid))
+            if spent.rowcount != 1:
+                self.db.commit()
+                return False
+            done = self.db.execute(
+                "UPDATE accounts SET algo=?,kn=?,kr=?,kp=?,salt=?,pwhash=?"
+                " WHERE uname=?",
+                (algo2, n2, r2, p2, newsalt, pwhash, key))
+            if done.rowcount != 1:
+                self.db.rollback()
+                return False
+            # EVERY EXISTING SESSION DIES WITH THE OLD PASSWORD. Leaving them
+            # is how a reset achieves nothing at all: whoever locked the player
+            # out would still be holding a live token for the account.
+            self.db.execute("DELETE FROM sessions WHERE uname=?", (key,))
+            self.db.commit()
+        return True
 
     # -- sessions ----------------------------------------------------------
 
@@ -5508,7 +5886,8 @@ def accounts_open(path):
 # ── account rate limiting ────────────────────────────────────────────────────
 
 _ACCT_LOCK = threading.Lock()
-_ACCT_BUCKETS = {"reg": {}, "login": {}, "api": {}}
+_ACCT_BUCKETS = {"reg": {}, "login": {}, "api": {}, "reset": {},
+                 "ask": {}, "askname": {}}
 _ACCT_GLOBAL_REG = Bucket(A.REG_GLOBAL_RATE, A.REG_GLOBAL_BURST)
 _ACCT_FAILS = {}
 
@@ -5519,11 +5898,18 @@ def caller_key(addr):
     return hashlib.sha256(str(addr or "?").encode("utf-8", "replace")).hexdigest()[:16]
 
 
-def acct_allowed(kind, addr):
+def acct_allowed(kind, addr, key=None):
+    """A token bucket per caller. `key` overrides the caller: the "askname"
+    bucket is spent on the NAME somebody asked about rather than on where they
+    asked from, because a flood aimed at one player and a flood aimed at the
+    owner are two different attacks and both have to be refused."""
     rate, burst = {"reg": (A.REG_RATE, A.REG_BURST),
                    "login": (A.LOGIN_RATE, A.LOGIN_BURST),
-                   "api": (A.API_RATE, A.API_BURST)}[kind]
-    key = caller_key(addr)
+                   "api": (A.API_RATE, A.API_BURST),
+                   "reset": (A.RESET_RATE, A.RESET_BURST),
+                   "ask": (A.ASK_RATE, A.ASK_BURST),
+                   "askname": (A.ASK_NAME_RATE, A.ASK_NAME_BURST)}[kind]
+    key = caller_key(addr) if key is None else key
     with _ACCT_LOCK:
         table = _ACCT_BUCKETS[kind]
         if len(table) > A.CALLERS:
@@ -5926,7 +6312,8 @@ class KartiHandler(BaseHTTPRequestHandler):
             self.acct_fail(403, "Origin not allowed.")
             return
         if action not in ("register", "login", "logout", "pull", "push",
-                          "gift", "mail", "claim", "players"):
+                          "gift", "mail", "claim", "players",
+                          "reset", "reset-ask", "resets"):
             self.acct_fail(404, "No such account route.")
             return
         if ACCOUNTS is None:
@@ -5942,6 +6329,12 @@ class KartiHandler(BaseHTTPRequestHandler):
                 self.acct_register(addr, body)
             elif action == "login":
                 self.acct_login(addr, body)
+            elif action == "reset":
+                self.acct_reset(addr, body)
+            elif action == "reset-ask":
+                self.acct_reset_ask(addr, body)
+            elif action == "resets":
+                self.acct_resets(addr, body)
             elif action == "logout":
                 self.acct_logout(addr, body)
             elif action == "pull":
@@ -6028,7 +6421,153 @@ class KartiHandler(BaseHTTPRequestHandler):
         pv = karti_avatar.version(key)
         if pv:
             out["pv"] = pv
+        # WHETHER TO DRAW THE GIFT CONSOLE, answered by the only thing that
+        # knows. js/progress.js used to work this out from the account NAME,
+        # which is the same forgeable guess the server just stopped making —
+        # and worse, after this change a granted owner whose username is not on
+        # that old client list would be allowed by the relay and still never
+        # shown the button. Absent means no, exactly like `pv` above, so an
+        # older client that has never heard of this field is unaffected.
+        if ACCOUNTS.is_admin(key):
+            out["admin"] = True
         self.reply(200, out)
+
+    def acct_reset_ask(self, addr, body):
+        """POST /acct/reset-ask {u} — "I am locked out". Always 200, always the
+        same 200.
+
+        THIS ROUTE CARRIES NO SECRET IN EITHER DIRECTION. It does not take one
+        and it does not hand one back; all it does is leave a note for the owner,
+        who mints the code himself with --issue-reset and sends it the way he
+        already talks to that player. If this ever grows into "and here is your
+        code", the whole reason it is safe on a public funnel has gone.
+
+        THE ANSWER IS SENT BEFORE ANYTHING LOOKS AT AN ACCOUNT. That is not
+        tidiness, it is the constant-time guarantee: a caller measuring the wall
+        clock is measuring a fixed reply, because the account lookup, the queue
+        write and the nudge to the owner all happen after the bytes have gone."""
+        if not acct_allowed("ask", addr):
+            self.acct_fail(429, E_ACCT_SLOW, {"retryAfter": 300})
+            return
+        try:
+            _name, key = v_username(body.get("u"))
+        except Reject:
+            key = None              # not even a legal name — same answer anyway
+        self.reply(200, {"ok": True, "why": E_ACCT_ASKED})
+        if key is None or ACCOUNTS is None:
+            return
+        try:
+            # Spent on the NAME, and spent whether or not that name exists, so
+            # the bucket itself can never be probed to find out. A refusal here
+            # is silent: the caller has already been told the only thing this
+            # route ever says.
+            if not acct_allowed("askname", addr, key="u:" + key):
+                return
+            if ACCOUNTS.reset_request(key):
+                # No username in the public-surface log line. The owner's
+                # console is where the name belongs; the log only needs to be
+                # countable.
+                LOG("acct-reset-ask")
+                self.notify_owner_reset(key)
+        except sqlite3.Error:
+            LOG("acct-db-error")
+
+    def notify_owner_reset(self, key):
+        """Nudge the owner on the channel that already exists.
+
+        Web push is already wired to accounts (VAPID keys, push.db, and
+        push_to_account below spends one per-account bucket per send), so this
+        invents nothing: it rings every account holding the admin column. Best
+        effort by definition — if push is off, if nobody has been granted admin
+        yet, or if the owner never subscribed a phone, the request is still
+        sitting in reset_asks for --list-resets and for the send console. The
+        note names the player because it lands on the OWNER's own phone and
+        that is the whole point of it; the name has been through NAME_RE."""
+        if ACCOUNTS is None:
+            return
+        for row in ACCOUNTS.admins():
+            try:
+                admin = row["u"]
+                push_to_account(admin,
+                                {"t": "reset", "title": "KARTI",
+                                 "body": "%s says they are locked out and wants "
+                                         "a reset code." % key,
+                                 "tag": "karti-reset", "url": "./"},
+                                P.TTL_INVITE)
+            except Exception:
+                pass                # a nudge must never fail a request
+
+    def acct_resets(self, addr, body):
+        """POST /acct/resets {tok} — who is waiting. ADMIN ONLY, and it LISTS
+        ONLY.
+
+        Deliberately not a way to issue anything. Seeing that somebody is
+        waiting is worth nothing on its own; minting the code stays behind
+        --issue-reset on the Pi, where the only credential is a shell on the
+        machine. The gate here is the same one /acct/gift and /acct/players
+        use: a real session token, which means a password through scrypt, for
+        an account carrying the `admin` column — checked against the account
+        the request AUTHENTICATED AS, never a name in the body, and never a
+        name at all."""
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, _name = who
+        if not self._is_owner(key):
+            self.acct_fail(403, "Not allowed.")
+            return
+        self.reply(200, {"ok": True, "asks": ACCOUNTS.reset_asks()})
+
+    def acct_reset(self, addr, body):
+        """POST /acct/reset {u, code, pw} — spend a code, set a new password.
+
+        THIS ROUTE ONLY EVER ACCEPTS A SECRET. It cannot issue one: codes come
+        from --issue-reset, run by hand on the Pi, and reach the player out of
+        band. That is what makes it safe to have this route on a funnel at all.
+
+        Every refusal is the same 400 with the same sentence, so a stranger
+        learns nothing about which accounts exist, which codes exist, or which
+        of those two they got wrong."""
+        if not acct_allowed("reset", addr):
+            self.acct_fail(429, E_ACCT_SLOW, {"retryAfter": 60})
+            return
+        # The caller's own input is checked first and answered plainly. Doing it
+        # here, BEFORE anything looks at an account, is what keeps "your password
+        # is too short" from ever being usable as an oracle about somebody else.
+        try:
+            name_in, key = v_username(body.get("u"))
+        except Reject:
+            self.acct_fail(400, E_ACCT_RESET)
+            return
+        try:
+            code = v_reset_code(body.get("code"))
+        except Reject:
+            self.acct_fail(400, E_ACCT_RESET)
+            return
+        try:
+            cred = v_credential(body.get("pw"))
+        except Reject:
+            self.acct_fail(400, E_ACCT_PW)
+            return
+        ok = ACCOUNTS.redeem_reset(key, code, cred)
+        del cred, code
+        if not ok:
+            # No username in the log line: a stranger must not be able to write
+            # chosen text into it, and the account is not the interesting fact
+            # about a failed guess. The count of these lines is.
+            LOG("acct-reset-refused")
+            self.acct_fail(400, E_ACCT_RESET)
+            return
+        # A player who forgot their password has usually just guessed at it ten
+        # times and locked the account out. The reset is proof of ownership, so
+        # it clears that lockout too — otherwise the new password would be
+        # refused for the next fifteen minutes for no reason they could see.
+        acct_note_ok(key)
+        LOG("acct-reset", u=key)
+        # No token, no save, nothing echoed: the answer says only that it
+        # worked. They log in next, which is the same path as any other login
+        # and the only place a session is ever born.
+        self.reply(200, {"ok": True, "u": key})
 
     def authed(self, addr, body):
         """(uname, name) or None having already answered."""
@@ -6053,17 +6592,33 @@ class KartiHandler(BaseHTTPRequestHandler):
 
     # ── the mailbox routes ─────────────────────────────────────────────
 
-    # WHO MAY SEND. This list is the permission, and it lives on the server
-    # because that is the only place a permission can live. The client has its
-    # own copy in js/progress.js to decide whether to DRAW the send console,
-    # which is a convenience and not a check: anyone can edit their own
-    # JavaScript, so the browser's opinion about who is an admin is worth
-    # nothing. Compared against the ACCOUNT the request is authenticated as —
-    # never against a name in the body.
-    ADMIN_KEYS = ("terence", "terencecamilleri", "terencecamilleripesci")
+    # WHO MAY SEND. The permission lives on the server, because that is the
+    # only place a permission can live. The client has its own copy in
+    # js/progress.js to decide whether to DRAW the send console, which is a
+    # convenience and not a check: anyone can edit their own JavaScript, so the
+    # browser's opinion about who is an admin is worth nothing. Checked against
+    # the ACCOUNT the request is AUTHENTICATED AS — never a name in the body.
+    #
+    # THIS USED TO BE A LIST OF NAMES AND THAT WAS A HOLE. The old test was
+    # `"".join(c for c in key.lower() if c.isalnum()) in ADMIN_KEYS`, so the
+    # punctuation came out before the comparison — and `Ter.ence`, `Ter-ence`,
+    # `Ter_ence`, `T e r e n c e` and `Terence.Camilleri` are all DIFFERENT,
+    # freely registrable usernames that landed on an admin entry. Anyone could
+    # register one and mint themselves unlimited currency through /acct/gift.
+    # There is deliberately NO name-matching fallback left below: a fallback
+    # would BE the vulnerability, since the whole exploit was reaching the
+    # permission through a name. The permission is now ACCOUNTS.is_admin(),
+    # which reads a column that only --grant-admin can set.
+    def _is_owner(self, key):
+        return ACCOUNTS is not None and ACCOUNTS.is_admin(key)
 
     @staticmethod
     def _acct_norm(v):
+        """Squash a name to letters and digits. Used ONLY to address a gift
+        RECIPIENT now — never to decide a permission. (It is lossy: an account
+        whose key holds a dot, dash or space cannot currently be addressed
+        through it. Pre-existing, unrelated to the permission, and left alone
+        here on purpose.)"""
         return "".join(c for c in str(v or "").lower() if c.isalnum())
 
     def acct_gift(self, addr, body):
@@ -6071,7 +6626,7 @@ class KartiHandler(BaseHTTPRequestHandler):
         if who is None:
             return
         key, name = who
-        if self._acct_norm(key) not in self.ADMIN_KEYS:
+        if not self._is_owner(key):
             # deliberately the same shape as any other refusal, and it does not
             # confirm that the route exists for anybody else
             self.acct_fail(403, "Not allowed.")
@@ -6115,7 +6670,7 @@ class KartiHandler(BaseHTTPRequestHandler):
         if who is None:
             return
         key, _name = who
-        if self._acct_norm(key) not in self.ADMIN_KEYS:
+        if not self._is_owner(key):
             self.acct_fail(403, "Not allowed.")
             return
         self.reply(200, {"ok": True,
@@ -6175,6 +6730,10 @@ class KartiHandler(BaseHTTPRequestHandler):
         pv = karti_avatar.version(key)          # your own face, on every pull
         if pv:
             out["pv"] = pv
+        # ...and again here, so a grant made while the phone was signed in
+        # arrives on the next sync instead of needing a log out and back in.
+        if ACCOUNTS.is_admin(key):
+            out["admin"] = True
         self.reply(200, out)
 
     def acct_push(self, addr, body):
@@ -8327,6 +8886,505 @@ def selftest():
             bye(x)
         except Exception as e:
             check("relay unaffected by accounts", False, repr(e))
+
+        # ═══════════ who is the owner ═══════════
+        print("")
+        print(" ACCOUNTS — WHO IS THE OWNER  (a column, not a name)")
+
+        A.MAX_ACCOUNTS = 64         # the cap test above filled the table
+
+        # The gate used to be: strip the punctuation out of the account key and
+        # look it up in a list of admin names. Every name below is a DIFFERENT,
+        # freely registrable username that landed on an entry in that list, so
+        # anybody could register one and mint themselves unlimited currency.
+        SPOOFS = ("Ter.ence", "Ter-ence", "Ter_ence", "T e r e n c e",
+                  "t.e.r.e.n.c.e", "T-e-r-e-n-c-e", "TerenceCamilleri")
+        adm_tok = {}
+        try:
+            accounts_reset()
+            POST("/register", {"u": "Owner", "pw": PW_A})
+            accounts_reset()
+            own_tok = (POST("/login", {"u": "Owner", "pw": PW_A})[1] or {}).get("tok")
+            for nm in SPOOFS:
+                accounts_reset()
+                POST("/register", {"u": nm, "pw": PW_A})
+                accounts_reset()
+                adm_tok[nm] = (POST("/login", {"u": nm, "pw": PW_A})[1] or {}).get("tok")
+            check("an owner account and %d look-alike accounts exist" % len(SPOOFS),
+                  bool(own_tok) and all(adm_tok.values()),
+                  [k for k, v in adm_tok.items() if not v])
+        except Exception as e:
+            check("look-alike accounts registered", False, repr(e))
+
+        def gated(tok):
+            """The three admin-only routes -> (gift, players, resets)."""
+            accounts_reset()
+            g = POST("/gift", {"tok": tok, "to": "bob", "gift": {"coins": 9}})[0]
+            accounts_reset()
+            p = POST("/players", {"tok": tok, "q": "bo"})[0]
+            accounts_reset()
+            r = POST("/resets", {"tok": tok})[0]
+            return g, p, r
+
+        try:
+            check("a database nobody has been granted on has NO admins at all — "
+                  "the migration auto-grants nobody, by name or otherwise",
+                  ACCOUNTS.admins() == [], ACCOUNTS.admins())
+        except Exception as e:
+            check("migration grants nobody", False, repr(e))
+
+        try:
+            check("gift, players and resets ALL refuse the owner's own account "
+                  "until it is granted", gated(own_tok) == (403, 403, 403),
+                  gated(own_tok))
+        except Exception as e:
+            check("ungranted owner refused", False, repr(e))
+
+        try:
+            bad = []
+            for nm in SPOOFS:
+                got = gated(adm_tok[nm])
+                if got != (403, 403, 403):
+                    bad.append((nm, got))
+            check("...and every look-alike name is refused on all three "
+                  "(the registrable-username bypass is closed)", not bad, bad)
+        except Exception as e:
+            check("look-alike names refused", False, repr(e))
+
+        try:
+            ACCOUNTS.set_admin("owner", True)
+            check("once granted, the owner is allowed on all three",
+                  gated(own_tok) == (200, 200, 200), gated(own_tok))
+        except Exception as e:
+            check("granted owner allowed", False, repr(e))
+
+        try:
+            bad = []
+            for nm in SPOOFS:
+                got = gated(adm_tok[nm])
+                if got != (403, 403, 403):
+                    bad.append((nm, got))
+            check("granting ONE account grants only that account — every "
+                  "look-alike is still refused", not bad, bad)
+        except Exception as e:
+            check("grant does not leak to look-alikes", False, repr(e))
+
+        try:
+            accounts_reset()
+            js_o = POST("/login", {"u": "Owner", "pw": PW_A})[1] or {}
+            accounts_reset()
+            js_s = POST("/login", {"u": "Ter.ence", "pw": PW_A})[1] or {}
+            check("the login reply tells the client the TRUTH about admin, so a "
+                  "granted owner is actually shown his console",
+                  js_o.get("admin") is True and js_s.get("admin") is None,
+                  "owner=%r spoof=%r" % (js_o.get("admin"), js_s.get("admin")))
+        except Exception as e:
+            check("login reply carries admin", False, repr(e))
+
+        try:
+            ACCOUNTS.set_admin("owner", False)
+            check("revoking takes it away again", gated(own_tok) == (403, 403, 403),
+                  gated(own_tok))
+            check("set_admin on an account that does not exist returns None and "
+                  "creates nothing",
+                  ACCOUNTS.set_admin("nobodyhere", True) is None
+                  and ACCOUNTS.find("nobodyhere") is None)
+            ACCOUNTS.set_admin("owner", True)     # the mailbox checks below want one
+        except Exception as e:
+            check("revoke works", False, repr(e))
+
+        try:
+            # Structural: no live line may reach the permission through a name.
+            with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            # Built at runtime so THIS check's own source lines cannot match it.
+            needle = "ADMIN" + "_KEYS"
+            live = [ln.strip() for ln in lines
+                    if needle in ln and not ln.strip().startswith("#")]
+            check("the old admin NAME list is gone from live code — no fallback, "
+                  "because a fallback would be the vulnerability",
+                  not live and not hasattr(KartiHandler, needle), live)
+        except Exception as e:
+            check("the old admin name list is removed", False, repr(e))
+
+        # ═══════════ accounts: forgotten password ═══════════
+        print("")
+        print(" ACCOUNTS — FORGOTTEN PASSWORD  (issued LOCALLY, never by a route)")
+
+        # The cap test above deliberately filled the accounts table. The avatar
+        # section raises this same limit later for exactly the same reason.
+        A.MAX_ACCOUNTS = 64
+
+        PW_R1 = "r" * 40            # Wenzu's password before the reset
+        PW_R2 = "s" * 40            # ...and the one he sets with the code
+        PW_R3 = "t" * 40            # ...and one he must never manage to set
+        RCODE = None
+        tok_r1 = tok_r2 = None
+
+        try:
+            accounts_reset()
+            st, _, _ = POST("/register", {"u": "Wenzu", "pw": PW_R1})
+            accounts_reset()
+            tok_r1 = (POST("/login", {"u": "Wenzu", "pw": PW_R1})[1] or {}).get("tok")
+            accounts_reset()
+            tok_r2 = (POST("/login", {"u": "Wenzu", "pw": PW_R1})[1] or {}).get("tok")
+            check("a player to lock out, signed in on two devices",
+                  st == 201 and bool(tok_r1) and bool(tok_r2) and tok_r1 != tok_r2,
+                  "%s %r %r" % (st, tok_r1, tok_r2))
+        except Exception as e:
+            check("a player to lock out", False, repr(e))
+
+        # ── step one: he asks. The answer must say nothing. ──
+        try:
+            accounts_reset()
+            st1, js1, _ = POST("/reset-ask", {"u": "Wenzu"})
+            accounts_reset()
+            st2, js2, _ = POST("/reset-ask", {"u": "NoSuchWenzu"})
+            check("asking for a reset answers the SAME 200 for a real account and "
+                  "an invented one (no account oracle)",
+                  st1 == 200 and st2 == 200 and js1 == js2,
+                  "%s %s / %s %s" % (st1, js1, st2, js2))
+        except Exception as e:
+            check("reset-ask gives no account oracle", False, repr(e))
+
+        try:
+            check("the reset-ask answer carries no secret of any kind",
+                  set((js1 or {}).keys()) <= {"ok", "why"}, js1)
+        except Exception as e:
+            check("reset-ask carries no secret", False, repr(e))
+
+        try:
+            waiting = {a["u"] for a in ACCOUNTS.reset_asks()}
+            check("only the REAL account joins the owner's waiting list",
+                  "wenzu" in waiting and "nosuchwenzu" not in waiting, sorted(waiting))
+        except Exception as e:
+            check("only real accounts are queued", False, repr(e))
+
+        try:
+            before = [a for a in ACCOUNTS.reset_asks() if a["u"] == "wenzu"][0]
+            for _ in range(3):
+                accounts_reset()
+                POST("/reset-ask", {"u": "Wenzu"})
+            rows = [a for a in ACCOUNTS.reset_asks() if a["u"] == "wenzu"]
+            check("asking again REFRESHES the one note instead of piling up rows",
+                  len(rows) == 1 and rows[0]["n"] > before["n"], rows)
+        except Exception as e:
+            check("repeat asks are de-duplicated", False, repr(e))
+
+        # ── step two: the owner issues. This is a FUNCTION, not a route. ──
+        try:
+            RCODE = ACCOUNTS.issue_reset("wenzu")
+            ok = isinstance(RCODE, str) and len(RCODE) == A.RESET_CODE_LEN
+            ok = ok and all(ch in CODE_ALPHABET for ch in RCODE or "")
+            check("issuing gives a %d-character code" % A.RESET_CODE_LEN, ok, RCODE)
+        except Exception as e:
+            check("issuing gives a code", False, repr(e))
+
+        try:
+            check("the reset code alphabet contains no O/0/I/1 (it is read aloud "
+                  "and typed with a thumb)",
+                  bool(RCODE) and not any(ch in RCODE for ch in "O0I1"), RCODE)
+        except Exception as e:
+            check("reset code alphabet is unambiguous", False, repr(e))
+
+        try:
+            check("issuing a code answers the request and clears the waiting list",
+                  "wenzu" not in {a["u"] for a in ACCOUNTS.reset_asks()},
+                  ACCOUNTS.reset_asks())
+        except Exception as e:
+            check("issuing clears the waiting list", False, repr(e))
+
+        try:
+            check("no code is ever issued for an account that does not exist",
+                  ACCOUNTS.issue_reset("nosuchwenzu") is None)
+        except Exception as e:
+            check("no code for a missing account", False, repr(e))
+
+        # ── the code on disk is not the code ──
+        try:
+            with ACCOUNTS.lock:
+                row = ACCOUNTS.db.execute(
+                    "SELECT algo,kn,salt,codehash,used FROM reset_codes"
+                    " WHERE uname='wenzu' AND used IS NULL").fetchone()
+            stored = bytes(row[3])
+            ok = row[0] in ("scrypt", "pbkdf2_sha256") and int(row[1]) >= 1024
+            ok = ok and len(bytes(row[2])) == 16 and len(stored) == 32
+            ok = ok and RCODE.encode() not in stored
+            ok = ok and hashlib.sha256(RCODE.encode()).digest() != stored
+            check("the stored codehash is a slow SALTED KDF digest and is NOT the "
+                  "code (a copy of the database is not a skeleton key)", ok,
+                  "%s %s" % (row[0], stored[:8]))
+        except Exception as e:
+            check("codehash is not the code", False, repr(e))
+
+        try:
+            with open(ACCOUNTS.path, "rb") as fh:
+                disk = fh.read()
+            for extra in ("-wal", "-shm"):
+                try:
+                    with open(ACCOUNTS.path + extra, "rb") as fh:
+                        disk += fh.read()
+                except OSError:
+                    pass
+            check("the code itself appears nowhere in the database files",
+                  RCODE.encode() not in disk)
+        except Exception as e:
+            check("code not on disk", False, repr(e))
+
+        # ── every refusal is the same refusal ──
+        try:
+            wrong = "".join("B" if ch != "B" else "C" for ch in RCODE)
+            accounts_reset()
+            r_wrong = POST("/reset", {"u": "Wenzu", "code": wrong, "pw": PW_R2})[0:2]
+            accounts_reset()
+            r_ghost = POST("/reset", {"u": "NoSuchWenzu", "code": RCODE, "pw": PW_R2})[0:2]
+            check("a WRONG code is refused, and an unknown ACCOUNT is refused with "
+                  "the identical reply",
+                  r_wrong[0] == 400 and r_wrong == r_ghost, "%s / %s" % (r_wrong, r_ghost))
+        except Exception as e:
+            check("wrong code and unknown account look the same", False, repr(e))
+
+        try:
+            stale = ACCOUNTS.issue_reset("wenzu", ttl=-1.0)     # dead on arrival
+            accounts_reset()
+            r_stale = POST("/reset", {"u": "Wenzu", "code": stale, "pw": PW_R2})[0:2]
+            check("an EXPIRED code is refused, with that same identical reply",
+                  r_stale == r_wrong, "%s / %s" % (r_stale, r_wrong))
+        except Exception as e:
+            check("expired code refused identically", False, repr(e))
+
+        try:
+            # Issuing that stale one killed RCODE: exactly one code is live at a
+            # time, so a code left in an old chat thread cannot be dug up later.
+            accounts_reset()
+            r_old = POST("/reset", {"u": "Wenzu", "code": RCODE, "pw": PW_R2})[0:2]
+            check("issuing a new code KILLS the previous unused one", r_old == r_wrong,
+                  "%s / %s" % (r_old, r_wrong))
+        except Exception as e:
+            check("a new code kills the old one", False, repr(e))
+
+        try:
+            accounts_reset()
+            st, js, _ = POST("/reset", {"u": "Wenzu", "code": RCODE, "pw": "short"})
+            check("a new password that is too short is refused before any account "
+                  "is looked at", st == 400 and (js or {}).get("why") == E_ACCT_PW,
+                  "%s %s" % (st, js))
+        except Exception as e:
+            check("short new password refused", False, repr(e))
+
+        # ── and now the real thing ──
+        try:
+            RCODE = ACCOUNTS.issue_reset("wenzu")
+            accounts_reset()
+            st, js, _ = POST("/reset", {"u": "Wenzu", "code": RCODE, "pw": PW_R2})
+            blob = json.dumps(js or {})
+            ok = st == 200 and (js or {}).get("ok") is True
+            ok = ok and RCODE not in blob and PW_R2 not in blob and "tok" not in (js or {})
+            check("the right code is accepted, and the answer echoes no code, no "
+                  "password and no session token", ok, "%s %s" % (st, blob[:160]))
+        except Exception as e:
+            check("a good code works", False, repr(e))
+
+        try:
+            accounts_reset()
+            st_new, js_new, _ = POST("/login", {"u": "Wenzu", "pw": PW_R2})
+            check("the NEW password logs in — the reset stored the credential the "
+                  "same way login reads it back",
+                  st_new == 200 and bool((js_new or {}).get("tok")),
+                  "%s %s" % (st_new, str(js_new)[:120]))
+            tok_r3 = (js_new or {}).get("tok")
+        except Exception as e:
+            tok_r3 = None
+            check("the new password logs in", False, repr(e))
+
+        try:
+            accounts_reset()
+            st_old, _, _ = POST("/login", {"u": "Wenzu", "pw": PW_R1})
+            check("the OLD password no longer works", st_old == 401, st_old)
+        except Exception as e:
+            check("the old password is dead", False, repr(e))
+
+        try:
+            accounts_reset()
+            s1, _, _ = POST("/pull", {"tok": tok_r1})
+            accounts_reset()
+            s2, _, _ = POST("/pull", {"tok": tok_r2})
+            accounts_reset()
+            s3, _, _ = POST("/pull", {"tok": tok_r3})
+            check("EVERY session that existed before the reset is dead, and the one "
+                  "made after it is not — otherwise the reset achieves nothing",
+                  s1 == 401 and s2 == 401 and s3 == 200, "%s %s %s" % (s1, s2, s3))
+        except Exception as e:
+            check("the reset killed the old sessions", False, repr(e))
+
+        try:
+            accounts_reset()
+            r_again = POST("/reset", {"u": "Wenzu", "code": RCODE, "pw": PW_R3})[0:2]
+            accounts_reset()
+            st_third, _, _ = POST("/login", {"u": "Wenzu", "pw": PW_R3})
+            check("a SPENT code cannot be used again, with the same identical reply, "
+                  "and the second attempt changes nothing",
+                  r_again == r_wrong and st_third == 401,
+                  "%s / %s / login=%s" % (r_again, r_wrong, st_third))
+        except Exception as e:
+            check("a code works exactly once", False, repr(e))
+
+        try:
+            accounts_reset()
+            st_still, _, _ = POST("/login", {"u": "Wenzu", "pw": PW_R2})
+            check("...and the password the code DID set is still the live one",
+                  st_still == 200, st_still)
+        except Exception as e:
+            check("the reset password survived", False, repr(e))
+
+        # ── THE PROPERTY THE WHOLE DESIGN RESTS ON ──
+        try:
+            # Every action this server will accept, probed, and none of them
+            # hands back anything code-shaped. The list is read from the route
+            # gate itself rather than typed out here, so a route added later is
+            # covered by this check on the day it is added.
+            with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
+                src = fh.read()
+            gate = src.split("if action not in (", 1)[1].split("):", 1)[0]
+            actions = re.findall(r'"([a-z-]+)"', gate)
+            shaped = re.compile("[%s]{%d}" % (CODE_ALPHABET, A.RESET_CODE_LEN))
+            leaks = []
+            for act in actions:
+                accounts_reset()
+                _st, _js, _ = POST("/" + act,
+                                   {"u": "Wenzu", "tok": tok_r3, "q": "w", "id": 1})
+                if shaped.search(json.dumps(_js or {})):
+                    leaks.append(act)
+            check("NO HTTP ROUTE ISSUES A CODE — all %d account actions probed, none "
+                  "hands back anything code-shaped" % len(actions),
+                  len(actions) >= 10 and not leaks, leaks)
+            # That loop POSTED to /logout with this token, on purpose: probing
+            # EVERY route means probing that one too. Sign back in.
+            accounts_reset()
+            tok_r3 = (POST("/login", {"u": "Wenzu", "pw": PW_R2})[1] or {}).get("tok")
+        except Exception as e:
+            check("no route issues a code", False, repr(e))
+
+        try:
+            # The same property again, structurally. Walk the file, find every
+            # line that CALLS issue_reset, and work out which function it sits
+            # in: it may sit in the command line and in this test, and nowhere
+            # else. A request handler that ever learned to mint a code would
+            # show up here on the day it was written.
+            with open(os.path.abspath(__file__), "r", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            stack, stray = [], []       # (indent, name), outermost first
+            for ln in lines:
+                d = re.match(r"( *)(?:def|class)\s+([A-Za-z_][A-Za-z_0-9]*)", ln)
+                if d:
+                    ind = len(d.group(1))
+                    while stack and stack[-1][0] >= ind:
+                        stack.pop()
+                    stack.append((ind, d.group(2)))
+                if ".issue_reset(" in ln and not ln.strip().startswith("#"):
+                    # The OUTERMOST enclosing name is what matters: a call from
+                    # inside any class — KartiHandler included — reports that
+                    # class and is a failure.
+                    outer = stack[0][1] if stack else "<module>"
+                    if outer not in ("owner_cli", "selftest"):
+                        stray.append("%s: %s" % (outer, ln.strip()[:80]))
+            check("issue_reset() is called only from the command line and from this "
+                  "test — never from a request handler", not stray, stray)
+        except Exception as e:
+            check("issue_reset has no route caller", False, repr(e))
+
+        # ── the owner's waiting list is the owner's ──
+        try:
+            accounts_reset()
+            POST("/reset-ask", {"u": "Wenzu"})
+            accounts_reset()
+            st_403, _, _ = POST("/resets", {"tok": tok_r3})
+            accounts_reset()
+            st_401, _, _ = POST("/resets", {"tok": "x" * 43})
+            check("the waiting list refuses an ordinary player (403) and a made-up "
+                  "token (401)", st_403 == 403 and st_401 == 401,
+                  "%s %s" % (st_403, st_401))
+        except Exception as e:
+            check("the waiting list is admin only", False, repr(e))
+
+        try:
+            # "Owner" was GRANTED the admin column further up. It is granted,
+            # not named: registering an account called Terence would get a 403
+            # here now, which is the whole point of the section above.
+            accounts_reset()
+            tok_own = (POST("/login", {"u": "Owner", "pw": PW_A})[1] or {}).get("tok")
+            accounts_reset()
+            st_own, js_own, _ = POST("/resets", {"tok": tok_own})
+            asks = (js_own or {}).get("asks") or []
+            ok = st_own == 200 and any(a.get("u") == "wenzu" for a in asks)
+            ok = ok and not re.search("[%s]{%d}" % (CODE_ALPHABET, A.RESET_CODE_LEN),
+                                      json.dumps(asks))
+            check("the GRANTED owner's session sees who is waiting, and the list "
+                  "holds no code and no hash", ok, "%s %s" % (st_own, str(asks)[:160]))
+        except Exception as e:
+            check("the owner sees the waiting list", False, repr(e))
+
+        try:
+            accounts_reset()
+            POST("/register", {"u": "Terence", "pw": PW_R1})
+            accounts_reset()
+            tok_named = (POST("/login", {"u": "Terence", "pw": PW_R1})[1] or {}).get("tok")
+            accounts_reset()
+            st_named, _, _ = POST("/resets", {"tok": tok_named})
+            check("an account literally CALLED Terence gets no privilege from its "
+                  "name — the permission is granted, never guessed",
+                  st_named == 403, st_named)
+        except Exception as e:
+            check("a name grants nothing", False, repr(e))
+
+        # ── a guessing target, limited hard ──
+        try:
+            accounts_reset()
+            codes = []
+            for _ in range(int(A.RESET_BURST) + 4):
+                codes.append(POST("/reset", {"u": "Wenzu", "code": "BBBBBBBBBB",
+                                             "pw": PW_R2})[0])
+            check("guessing at reset codes is rate limited harder than login "
+                  "(429 after %g in a row)" % A.RESET_BURST, 429 in codes, codes)
+        except Exception as e:
+            check("reset guessing limited", False, repr(e))
+
+        try:
+            accounts_reset()
+            codes = [POST("/reset-ask", {"u": "Somebody"})[0]
+                     for _ in range(int(A.ASK_BURST) + 4)]
+            check("a flood of reset requests is refused per caller (429 after %g)"
+                  % A.ASK_BURST, 429 in codes, codes)
+        except Exception as e:
+            check("reset-ask flood limited", False, repr(e))
+
+        try:
+            accounts_reset()
+            before = [a for a in ACCOUNTS.reset_asks() if a["u"] == "wenzu"]
+            n0 = before[0]["n"] if before else 0
+            for _ in range(int(A.ASK_NAME_BURST) + 6):
+                POST("/reset-ask", {"u": "Wenzu"})
+                time.sleep(0.02)
+            rows = [a for a in ACCOUNTS.reset_asks() if a["u"] == "wenzu"]
+            check("...and pestering ONE player's name stops counting once its own "
+                  "bucket is empty",
+                  len(rows) == 1 and rows[0]["n"] <= n0 + int(A.ASK_NAME_BURST) + 1,
+                  "%s from %s" % (rows, n0))
+        except Exception as e:
+            check("per-name ask limit", False, repr(e))
+
+        try:
+            accounts_reset()
+            bad = []
+            for route in ("reset", "reset-ask", "resets"):
+                st_o, _, hd_o = _http_post(host, port, AP + "/" + route,
+                                           {"u": "Wenzu"}, origin="https://evil.example")
+                if st_o != 403 or "access-control-allow-origin" in hd_o.lower():
+                    bad.append((route, st_o))
+            check("the reset routes refuse a foreign origin like every other account "
+                  "route", not bad, bad)
+        except Exception as e:
+            check("reset routes refuse a foreign origin", False, repr(e))
 
         # ═══════════ tables ═══════════
         print("")
@@ -10920,6 +11978,136 @@ def selftest():
 
 # ── entry point ──────────────────────────────────────────────────────────────
 
+def owner_cli(args):
+    """Everything the owner does with a shell instead of a browser.
+
+    --list-accounts / --list-admins / --grant-admin / --revoke-admin
+    --list-resets  / --issue-reset
+
+    ONE CREDENTIAL FOR ALL OF THEM: the accounts file itself. Not a session,
+    not a password, not a username that happens to look like the owner's. That
+    is the entire point of moving admin out of a name list — a name can be
+    registered by a stranger, a file on the Pi cannot be.
+
+    THIS IS ALSO THE ONLY PLACE A RESET CODE IS EVER CREATED. The relay is
+    published through Tailscale Funnel, and a public route that MINTED a secret
+    would be the one part of this a stranger could actually use. A public route
+    may accept a code the caller already holds; it may never hand one out.
+
+    Every one of these runs against the same accounts file the live relay has
+    open, and WAL makes that safe — so granting admin and issuing a code need
+    no restart and no quiet moment. They work just as well with the relay
+    stopped, which is what makes an owner locked out of his own account able to
+    dig himself back in."""
+    if accounts_open(args.accounts) is None:
+        print("could not open %s" % args.accounts, file=sys.stderr)
+        return 2
+    try:
+        if args.list_accounts:
+            rows = ACCOUNTS.all_accounts()
+            if not rows:
+                print("There are no accounts on this server.")
+                return 0
+            # The owner has to be able to SEE the real uname before granting
+            # anything to it. Guessing at a username is how the wrong account
+            # gets the keys — and `uname` is what every other command wants.
+            print("%-24s %-18s %-6s %s" % ("ACCOUNT (use this)", "NAME", "ADMIN",
+                                           "LAST SEEN"))
+            for r in rows:
+                print("%-24s %-18s %-6s %s"
+                      % (r["u"][:24], str(r["name"])[:18],
+                         "yes" if r["admin"] else "-",
+                         time.strftime("%Y-%m-%d %H:%M", time.localtime(r["seen"]))))
+            print("")
+            print("%d account%s." % (len(rows), "" if len(rows) == 1 else "s"))
+            return 0
+
+        if args.list_admins:
+            rows = ACCOUNTS.admins()
+            if not rows:
+                # Say it plainly. After the migration this is the EXPECTED
+                # state, and somebody staring at an empty list needs to know
+                # that is correct rather than broken.
+                print("Nobody is an admin on this server.")
+                print("That is the safe default after upgrading: the old check "
+                      "matched account NAMES and was forgeable.")
+                print("Grant it deliberately:  python3 %s --grant-admin <account>"
+                      % os.path.basename(__file__))
+                print("Find the exact account:  python3 %s --list-accounts"
+                      % os.path.basename(__file__))
+                return 0
+            print("%-24s %s" % ("ACCOUNT", "NAME"))
+            for r in rows:
+                print("%-24s %s" % (r["u"][:24], r["name"]))
+            return 0
+
+        if args.grant_admin is not None or args.revoke_admin is not None:
+            on = args.grant_admin is not None
+            raw = args.grant_admin if on else args.revoke_admin
+            try:
+                _name, key = v_username(raw)
+            except Reject:
+                print("That is not a username this server could hold. Nothing "
+                      "was changed.", file=sys.stderr)
+                return 2
+            got = ACCOUNTS.set_admin(key, on)
+            if got is None:
+                # NO CREATING AN ACCOUNT FROM HERE, and no fuzzy matching. If
+                # the name is not exactly right the answer is no, because a
+                # near-miss that silently granted the wrong row is the whole
+                # class of bug this command exists to end.
+                print("There is no account called %r. Nothing was changed.\n"
+                      "Run --list-accounts and copy the ACCOUNT column exactly."
+                      % key, file=sys.stderr)
+                return 2
+            LOG("acct-admin", u=key, on=int(on))
+            print("%s is %s an admin." % (key, "now" if on else "no longer"))
+            if on:
+                print("They can now use the gift console and see who is waiting "
+                      "for a reset code.")
+            return 0
+
+        if args.list_resets:
+            rows = ACCOUNTS.reset_asks()
+            if not rows:
+                print("Nobody is waiting for a reset code.")
+                return 0
+            print("%-18s %-18s %5s  %s" % ("ACCOUNT", "NAME", "ASKED", "LAST ASKED"))
+            for r in rows:
+                print("%-18s %-18s %5d  %s"
+                      % (r["u"][:18], str(r["name"])[:18], r["n"],
+                         time.strftime("%Y-%m-%d %H:%M", time.localtime(r["at"]))))
+            print("")
+            print("Issue one with:  python3 %s --issue-reset <account>"
+                  % os.path.basename(__file__))
+            return 0
+
+        try:
+            _name, key = v_username(args.issue_reset)
+        except Reject:
+            # Nothing on stdout: stdout is what gets copied into a message, and
+            # only a real code is ever allowed to appear there.
+            print("That is not a username this server could hold. No code was "
+                  "issued.", file=sys.stderr)
+            return 2
+        code = ACCOUNTS.issue_reset(key, ttl=max(0.0, float(args.reset_hours)) * 3600.0)
+        if code is None:
+            print("No code was issued.", file=sys.stderr)
+            return 2
+        LOG("acct-reset-issued", u=key)
+        hours = max(0.0, float(args.reset_hours))
+        # Printed ONCE. Only a salted hash of it went to disk, so there is no
+        # second chance to read it back — losing it means issuing another,
+        # which silently kills this one.
+        print("Reset code for %s:  %s" % (key, code))
+        print("Good for %g hour%s, and once only. It replaces any earlier code."
+              % (hours, "" if hours == 1 else "s"))
+        print("Send it to them yourself. Never paste it into anything public.")
+        return 0
+    finally:
+        ACCOUNTS.close()
+
+
 def main(argv=None):
     global ALLOW_ANY_ORIGIN
 
@@ -10957,6 +12145,35 @@ def main(argv=None):
     p.add_argument("--no-accounts", action="store_true",
                    help="run as a pure relay: no accounts, no saved games, no disk")
     p.add_argument("--selftest", action="store_true", help="run the built-in tests and exit")
+    # FORGOTTEN PASSWORD, THE OWNER'S HALF. Both of these open the accounts
+    # file, do one thing and exit. Neither starts a relay, and neither needs the
+    # running one stopped: SQLite is in WAL mode, so this is a second process
+    # reading and writing the same file while live players stay connected.
+    p.add_argument("--issue-reset", metavar="USERNAME", default=None,
+                   help="mint ONE password-reset code for an account, print it "
+                        "once and exit. The only way a code is ever created — "
+                        "no HTTP route can do this. Send it to the player the "
+                        "way you normally message them.")
+    p.add_argument("--reset-hours", type=float, default=A.RESET_TTL / 3600.0,
+                   help="how long an issued code stays good (default %g)"
+                        % (A.RESET_TTL / 3600.0))
+    p.add_argument("--list-resets", action="store_true",
+                   help="print the players waiting for a reset code, and exit")
+    # WHO IS THE OWNER. The permission is a column on the account, set only
+    # from here. It replaced a list of admin NAMES that a stranger could
+    # register onto (`Ter.ence` normalised to `terence`). Like --issue-reset,
+    # these need nothing but the accounts file: no relay, no session, no login.
+    p.add_argument("--list-accounts", action="store_true",
+                   help="print every account and whether it is an admin, and "
+                        "exit. Run this FIRST — the ACCOUNT column is the exact "
+                        "name --grant-admin wants.")
+    p.add_argument("--list-admins", action="store_true",
+                   help="print the accounts that may use the gift console")
+    p.add_argument("--grant-admin", metavar="USERNAME", default=None,
+                   help="let this account use the gift console and see who is "
+                        "waiting for a reset code")
+    p.add_argument("--revoke-admin", metavar="USERNAME", default=None,
+                   help="take that permission away again")
     args = p.parse_args(argv)
 
     for o in args.origin:
@@ -10967,6 +12184,11 @@ def main(argv=None):
 
     if args.selftest:
         return selftest()
+
+    if (args.issue_reset is not None or args.list_resets or args.list_accounts
+            or args.list_admins or args.grant_admin is not None
+            or args.revoke_admin is not None):
+        return owner_cli(args)
 
     if not args.no_accounts:
         accounts_open(args.accounts)

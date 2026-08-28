@@ -62,6 +62,11 @@ function cue(id, opts, big){
   cueAt = Math.max(cueAt, now);
   try { S.play(id, opts); } catch(e){}
 }
+/* HAPTICS — beside the cue() that already marks the same moment. js/sfx.js
+   owns the pattern, the switch and every no-op path, so nothing here needs
+   a guard beyond the module being absent. Fired only for a move this thumb
+   made: doMove() carries a src, and 'ai' and 'net' moves stay silent. */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
 function reduced(){
   try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch(e){ return false; }
 }
@@ -130,6 +135,13 @@ function doMove(seat, move, src){
   E.apply(M.st, rec);
   autosave();
   cue(move.t === 'wall' ? 'board.flip' : 'dama.place', { gain:0.8 }, true);
+  /* HIS move only: a wall slots home (thud), a step is a committed choice
+     (tap). The machine's move and a wire move take the same road silently.
+     Nothing here when the move ENDS the match: `win` follows within the
+     same frame and sfx.js merges two buzzes 40 ms apart, so the long one
+     would be the one dropped. The winning step says `win` and only `win`. */
+  if ((src || 'local') === 'local' && isLocal(seat) && !E.over(M.st))
+    buzz(move.t === 'wall' ? 'thud' : 'tap');
   /* the wire hears the ENCODED move (numeric orientation) — a raw 'h'/'v'
      string would be refused by the codec and stop the whole table */
   fireList(moveSubs, { seat, move: E.encWire(move), index: idx, src: src || 'local' });
@@ -374,6 +386,7 @@ function paint(){
     if (!M.pre || M.pre.r !== d.r || M.pre.c !== d.c || M.pre.o !== o){
       M.pre = { r: d.r, c: d.c, o };
       cue('ui.tap', { gain:.35 });
+      buzz('tick');
       paint();
     }
   });
@@ -566,6 +579,7 @@ function finish(forced){
   cue('game.win', { gain:.95 }, true);
   const me = firstLocalSeat();
   const iWon = me >= 0 && ov.winners.indexOf(me) >= 0;
+  if (iWon) buzz('win');            /* the one long buzz, once, and only his */
   if (!M.net && !M.recorded){
     M.recorded = true;
     if (iWon) ST.rec.w++; else if (me >= 0) ST.rec.l++;

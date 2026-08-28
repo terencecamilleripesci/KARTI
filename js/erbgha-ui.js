@@ -137,6 +137,14 @@ function cue(id, opts, big){
   cueAt = Math.max(cueAt, now);
   try { S.play(id, opts); } catch(e){}
 }
+/* HAPTICS — the buzz sits beside the cue() that already marks the moment.
+   js/sfx.js owns the pattern, the player's switch and every no-op path.
+   Deliberately NOT gated on reduced(): a buzz in the hand is not motion and
+   has its own switch — so when the fall animation is skipped the thud still
+   fires, because the MOMENT is the thing being told, not the picture of it.
+   Only ever for a disc the local thumb dropped: the AI's fall and a wire
+   drop animate and sound exactly the same, and the hand stays still. */
+function buzz(kind){ try { const S = window.KARTI_SFX; if (S && S.haptic) S.haptic(kind); } catch(e){} }
 function reduced(){
   try {
     if (document.body && document.body.classList.contains('reduced')) return true;
@@ -545,7 +553,7 @@ function tryDrop(c){
   if (!M || M.dead || E.over(M.st) || M.anim) return;
   const seat = E.turn(M.st);
   if (!isLocal(seat)) return;
-  if (!E.colOpen(M.st, c)){ cue('move.illegal', { gain:0.7 }); return; }
+  if (!E.colOpen(M.st, c)){ cue('move.illegal', { gain:0.7 }); buzz('no'); return; }
   commitDrop(seat, c, 'local');
 }
 
@@ -559,10 +567,20 @@ function commitDrop(seat, c, src){
   if (!E.colOpen(st, c)) return;
   const landRow = st.height[c];              /* where it will settle       */
   M.hover = -1;
+  /* whose disc this is. The AI chair is driven through this same door with
+     src 'local', so ownership — not the source tag — is what decides. */
+  const mine = isLocal(seat) && src !== 'net';
+
+  /* the disc ARRIVING, in his hand — but not when the same disc ends the
+     game: `win` and `thud` inside one frame would merge into a smear and
+     sfx.js would drop the second, so the winning drop says `win` only. */
+  const land = () => { if (mine && !E.over(M.st)) buzz('thud'); };
 
   if (reduced() || !UI || !UI.geom){
-    /* no fall: commit and paint settled */
+    /* no fall: commit and paint settled. The buzz still fires — motion is
+       what reduced() turns off, and a buzz in the hand is not motion. */
     doMove(seat, { t:'drop', c }, src);
+    land();
     drawStatic();
     afterMove();
     return;
@@ -570,6 +588,7 @@ function commitDrop(seat, c, src){
   /* animate the fall, then commit */
   animateDrop(seat, c, landRow, () => {
     doMove(seat, { t:'drop', c }, src);
+    land();
     drawStatic();
     afterMove();
   });
@@ -905,6 +924,7 @@ function finish(forced){
 
   const net = M.net;
   const iWon = !ov.draw && me >= 0 && ov.winner === me;
+  if (iWon) buzz('win');            /* the one long buzz, once, and only his */
   const title = ov.draw ? T('A draw', 'Ndaqs')
     : ov.sole ? T('They walked out — you win', 'Telaq — ir-rebħa tiegħek')
     : iWon ? T('Four in a row!', 'Erbgħa f’ringiela!')

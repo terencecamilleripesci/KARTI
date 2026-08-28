@@ -48,6 +48,17 @@ const esc = s => String(s == null ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 function sfx(id){ try { if (window.KARTI_SFX && KARTI_SFX.play) KARTI_SFX.play(id); } catch (e){} }
+/* HAPTICS — beside the sfx() that already marks the same moment. js/sfx.js
+   owns the pattern, the player's switch and every no-op path, so nothing
+   here needs a guard beyond the module being absent.
+
+   SUSPETT is the game where this matters most and is easiest to get wrong:
+   sixteen phones watch the same night resolve, and a role card is the one
+   thing on the table that belongs to exactly one person. So `double` fires
+   only where a SECRET is uncovered on THIS phone, `tap` only where THIS
+   phone commits an act, and nothing at all fires for a night arriving over
+   the wire, for another seat's vote, or from render(). */
+function buzz(k){ try { if (window.KARTI_SFX && KARTI_SFX.haptic) KARTI_SFX.haptic(k); } catch (e){} }
 function toast(m){ try { if (K.toast) K.toast(m); } catch (e){} }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -1722,6 +1733,7 @@ function pnpDeal(i){
   const p = G.P[i];
   curtain(p.name, T('You are about to see your role. Make sure nobody peeks.',
                     'Ħa tara r-rwol tiegħek. Ara li ħadd ma jittawwal.'), () => {
+    buzz('double');            /* two beats: a card shown to YOU and nobody else */
     showSecret(host => {
       roleCardInto(host, G, i);
     }, { closeLabel: T('Seen it — hide it', 'Rajtu — aħbih'), onClose: () => pnpDeal(i + 1) });
@@ -1802,8 +1814,9 @@ function pnpNight(seat){
       const mv = { t:'night', seat: seat, target: v.role.two ? first : s };
       if (v.role.two) mv.target2 = s;
       const r = S.act(G, mv);
-      if (!r.ok){ toast(gameText(r.why)); return; }
-      sfx('ui.tap'); hideSecret(); pnpFlow();
+      if (!r.ok){ toast(gameText(r.why)); buzz('no'); return; }
+      sfx('ui.tap'); buzz('tap');    /* HIS night act, committed */
+      hideSecret(); pnpFlow();
     });
   }, { closeLabel: T('Sleep (do nothing)', 'Orqod (tagħmel xejn)'), onClose: () => {
     if (G.acts[seat] === undefined && G.phase === 'night') S.act(G, { t:'night', seat: seat, target: -1, target2: -1 });
@@ -1821,6 +1834,7 @@ function pnpShot(seat){
     host.appendChild(d);
     targetGridInto(host, G, S.alive(G).map(p => p.seat), s => {
       S.act(G, { t:'shot', seat: seat, target: s });
+      buzz('tap');                  /* HIS barrel, emptied */
       hideSecret(); pnpFlow();
     });
   }, { closeLabel: T('Fire into the air', 'Spara fl-ajru'), onClose: () => {
@@ -1890,7 +1904,8 @@ function pnpVote(){
         const sindku = G.P[voter].role === 'sindku' && G.mayor !== voter;
         targetGridInto(h2, G, S.alive(G).map(p => p.seat).filter(s => s !== voter), t => {
           const r = S.act(G, { t:'vote', seat: voter, target: t });
-          if (!r.ok){ toast(gameText(r.why)); return; }
+          if (!r.ok){ toast(gameText(r.why)); buzz('no'); return; }
+          buzz('tap');                /* the finger, pointed */
           hideSecret(); afterMove();
         });
         if (sindku){
@@ -2655,6 +2670,9 @@ function showResult(){
   clearSlot();
   const winners = (G.winners || []).map(s => G.P[s].name).join(', ');
   const iWon = U.mode === 'net' && (G.winners || []).indexOf(U.seat) >= 0;
+  /* only online is there a "you" to win: on a passed phone the winners are
+     a side, not the person holding it, so nothing is claimed for anybody */
+  if (iWon) buzz('win');            /* the one long buzz, once, and only his */
   if (U.mode === 'net'){
     ST.rec[iWon ? 'w' : 'l'] = (ST.rec[iWon ? 'w' : 'l'] || 0) + 1;
     persist();
