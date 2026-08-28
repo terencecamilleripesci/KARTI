@@ -294,6 +294,14 @@ function injectCSS() {
       'letter-spacing:.12em;color:var(--dim2)}' +
     '#scr-party .sk-deck{position:relative;border:0;background:none;padding:0;cursor:pointer}' +
     '#scr-party .sk-deck:disabled{opacity:.5;cursor:default}' +
+    /* "you have nothing to play — take one." The pulse is on the deck itself
+       rather than a line of text, because the deck is the thing you have to
+       tap and a glowing object is read before a sentence is. */
+    '#scr-party .sk-deck.sk-must{border-radius:12px;animation:skMust 1.5s ease-in-out infinite}' +
+    '@keyframes skMust{0%,100%{filter:drop-shadow(0 0 0 rgba(255,197,66,0))}' +
+      '50%{filter:drop-shadow(0 0 13px rgba(255,197,66,.95))}}' +
+    'body.reduced #scr-party .sk-deck.sk-must{animation:none;' +
+      'filter:drop-shadow(0 0 9px rgba(255,197,66,.9))}' +
     '#scr-party .sk-deck .sk-card{box-shadow:0 4px 14px rgba(0,0,0,.5),' +
       '4px -4px 0 -1px #241A3E,4px -4px 0 0 rgba(255,255,255,.14),' +
       '8px -8px 0 -1px #241A3E,8px -8px 0 0 rgba(255,255,255,.10)}' +
@@ -1307,6 +1315,14 @@ function render() {
   /* the deck is how you eat a chain, so it must NOT be disabled while one is
      live — the hint under the hand tells you to tap it */
   dbtn.disabled = !mine || !!v.pending;
+  /* THE DECK GLOWS WHEN IT IS YOUR ONLY MOVE. There are two ways to end up
+     holding nothing you can put down: no card matches the top, or a chain is
+     live and you have nothing to stack on it. Both mean "tap the deck", and
+     both used to look exactly like a turn where you were spoilt for choice —
+     so people sat there hunting for a card they did not have. legalMoves()
+     already accounts for the chain, so the one test covers both cases. */
+  dbtn.classList.toggle('sk-must',
+    !!(mine && !v.pending && E.legalMoves(S, seat).length === 0));
   const ch = ctx.root.querySelector('#sk-chain');
   ch.hidden = !v.chain.n;
   ch.className = 'sk-chain' + (v.chain.closed ? ' shut' : '');

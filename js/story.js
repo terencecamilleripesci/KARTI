@@ -531,6 +531,7 @@ function nextGame(){
   const gameId = b.games[RUN.step];
   const nSeats = (b.seats && b.seats[gameId]) || 2;
   const lvl = levelFor(gameId, b.band);
+  clearGameScreens();          /* never build a game on top of a live one */
   arm(gameId);
   if (!launch(gameId, nSeats, lvl, b.n)){
     /* a game that will not start must not eat the level silently */
@@ -583,6 +584,22 @@ function disarm(){
   if (RUN) RUN.armed = false;
 }
 
+/* ── GETTING THE GAME'S OWN ENDING OFF THE SCREEN ──────────────────
+   Nearly every game on the shelf finishes into IR-REBBIEĦ, and #kr-root is
+   z-index 12000 while an ordinary modal is 300. So the story's "that is one,
+   here comes the next" card was opening ELEVEN THOUSAND SEVEN HUNDRED layers
+   underneath the winner screen: the player never saw it, saw "Play again /
+   Leave" instead, and whichever they pressed walked them out of the level.
+   That is the whole of "you beat them and it does not go to the next game".
+
+   So the celebration gets its beat, and then we take the screen back.
+   standDown() also runs the finished game's own leave() teardown, so the next
+   game is not built on top of a board that is still alive. */
+function clearGameScreens(){
+  try { if (window.KARTI_REBBIEH && KARTI_REBBIEH.hide) KARTI_REBBIEH.hide(); } catch (e){}
+  try { if (window.KARTI_PARTY && KARTI_PARTY.standDown) KARTI_PARTY.standDown(); } catch (e){}
+}
+
 /* one game decided. A draw counts for the house — it terminates, and a level
    that could be drawn forever is not a level. */
 function settle(result){
@@ -594,8 +611,13 @@ function settle(result){
   if (won) RUN.wins++; else RUN.losses++;
   RUN.log.push({ game:gameId, result: won ? 'w' : 'l' });
   RUN.step++;
-  /* let the game finish its own celebration before we talk over it */
-  setTimeout(() => { RUN && (RUN.settling = false); interlude(won); }, 1500);
+  /* let the game finish its own celebration, THEN take the screen back */
+  setTimeout(() => {
+    if (!RUN) return;
+    RUN.settling = false;
+    clearGameScreens();
+    interlude(won);
+  }, 2200);
 }
 
 /* the beat between games: where you stand, what they said, and one button */
@@ -644,7 +666,7 @@ function finishLevel(){
   const allDone = clearedCount() === LEVELS.length;
   const tally = RUN.wins + ' – ' + RUN.losses;
   RUN = null;
-  try { window.KARTI_PARTY.standDown && window.KARTI_PARTY.standDown(); } catch (e){}
+  clearGameScreens();
 
   { const S = SFX();
     if (S && won) setTimeout(() => {
@@ -689,7 +711,7 @@ function finishLevel(){
 
   const backToMap = walk => {
     K.closeModal();
-    try { window.KARTI_PARTY.standDown && window.KARTI_PARTY.standDown(); } catch (e){}
+    clearGameScreens();
     render(walk ? unlockedUpTo() : null);
     K.go('story');
   };
@@ -708,7 +730,7 @@ function quitLevel(){
   disarm();
   RUN = null;
   try { window.KARTI_PARTY.hub && window.KARTI_PARTY.hub(); } catch (e){}
-  try { window.KARTI_PARTY.standDown && window.KARTI_PARTY.standDown(); } catch (e){}
+  clearGameScreens();
   render();
   K.go('story');
 }
