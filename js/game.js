@@ -3651,9 +3651,16 @@ function econBoxes(){
 /* the drawn crate — pure CSS layers tinted by the tier accent, so the
    shelf works with no art on disk. Lid, body, hasp, and a glow seam
    that the charge phase breathes through. */
-function boxArtHTML(accent, big){
-  return '<span class="bxart' + (big ? ' big' : '') + '" style="--bxa:' + esc(accent) + '" aria-hidden="true">' +
+function boxArtHTML(accent, big, id){
+  /* PAINTED CRATE FIRST, drawn crate second. art/ui/box-<id>.png is a real
+     illustration (woven qoffa, banded senduq, the Knights' gilded tezor); the
+     CSS lid/body/hasp stays underneath as the fallback so a deploy without the
+     art pack still shows a box rather than a hole. */
+  const src = id && uiArt ? uiArt('box', 'box-' + id + '.png') : '';
+  return '<span class="bxart' + (big ? ' big' : '') + (src ? ' painted' : '') +
+      '" style="--bxa:' + esc(accent) + '" aria-hidden="true">' +
     '<b class="bx-glow"></b><b class="bx-body"></b><b class="bx-lid"></b><b class="bx-hasp"></b>' +
+    (src ? '<img class="bx-img" src="' + src + '" alt="" onerror="this.remove()">' : '') +
   '</span>';
 }
 function boxTierColor(tier){
@@ -3671,6 +3678,26 @@ function boxOddsHTML(b){
       '<p class="oddsfoot">Every box pays something. These are the numbers the roll actually uses.</p>' +
     '</div></details>';
 }
+/* The odds, moved off the shelf and behind one tap. Every box, every line,
+   the same numbers the roll actually walks — the honesty is unchanged, it just
+   no longer costs three screens of scrolling to see the third crate. */
+function boxOddsSheet(boxes){
+  openSheet('<h3>' + ico('info') + ' What each box pays</h3>' +
+    boxes.map(b =>
+      '<div class="bxo-grp" style="--bxa:' + esc(b.accent) + '">' +
+        '<b class="bxo-h">' + esc(b.name) + ' <span class="mono">' + b.price + '</span>' + chipIco() + '</b>' +
+        '<p class="tiny">' + esc(b.blurb) + '</p>' +
+        '<div class="oddsbox">' +
+          b.odds.map(o =>
+            '<div class="oddsrow"><b class="mono">' + o.pct + '%</b>' +
+            '<span class="oi">' + (o.kind === 'chips' ? chipIco() : ico(o.kind === 'pack' ? 'pack' : 'coin')) +
+            '</span><span>' + esc(o.label) + '</span></div>').join('') +
+        '</div>' +
+      '</div>').join('') +
+    '<p class="oddsfoot">Every box pays something. These are the numbers the roll uses — ' +
+      'nothing hidden. Chips come from playing, never from a card.</p>');
+}
+
 function renderChipsTab(){
   chipsCSS();
   boxBusy = false;
@@ -3688,43 +3715,46 @@ function renderChipsTab(){
     return;
   }
   const bal = S.chips | 0;
+  /* ── ONE SCREEN, NO SCROLL ──────────────────────────────────────────
+     This shelf used to be a column: a balance card, a paragraph, then three
+     tall rows each carrying a blurb and an odds dropdown, then a closing
+     note. Three boxes and you could not see three boxes — you scrolled past
+     the first to reach the last, which is the one thing a shop must never
+     make you do. Now: one balance strip, three crates side by side, and the
+     odds behind a tap. Nothing about the maths is hidden, it is just not
+     shouted over the goods. */
   stage.innerHTML =
-    '<div class="spinwrap bxwrap">' +
-      '<div class="bxbal" aria-label="Your chips: ' + bal + '">' +
+    '<div class="bxwrap2">' +
+      '<div class="bxbal2" aria-label="Your chips: ' + bal + '">' +
         '<span class="bxbal-ic">' + chipIco() + '</span>' +
-        '<span class="bxbal-n"><b class="mono" id="bx-bal">' + bal + '</b><i>CHIPS</i></span>' +
-        '<span class="bxbal-how tiny">Earned by playing — any game, every day.<br>' +
-          'The daily spin tops you up free.</span>' +
+        '<b class="mono" id="bx-bal">' + bal + '</b><i>CHIPS</i>' +
+        '<span class="bxbal-sub tiny">Chips come from playing. The daily spin tops you up free.</span>' +
       '</div>' +
-      '<p class="bxintro tiny">Boxes turn <b>chips</b> into <b>coins</b> — the currency the ' +
-        'Customise shelf spends. Bigger boxes pay better per chip: saving up is rewarded.</p>' +
-      boxes.map(b => {
-        const can = bal >= b.price;
-        return '<div class="bxcard' + (can ? '' : ' poor') + '" style="--bxa:' + esc(b.accent) + '">' +
-          boxArtHTML(b.accent) +
-          '<div class="bxinfo">' +
+      '<div class="bxrow">' +
+        boxes.map(b => {
+          const can = bal >= b.price;
+          const arm = boxConfirm === b.id;
+          return '<button class="bxtile' + (can ? '' : ' poor') + (arm ? ' arm' : '') +
+              '" style="--bxa:' + esc(b.accent) + '" data-box="' + esc(b.id) + '"' +
+              (can ? '' : ' disabled') +
+              ' aria-label="' + esc(b.name) + ', ' + b.price + ' chips' +
+              (can ? '' : ', you need ' + (b.price - bal) + ' more') + '">' +
+            boxArtHTML(b.accent, false, b.id) +
             '<b class="bxname">' + esc(b.name) + '</b>' +
-            '<span class="bxblurb tiny">' + esc(b.blurb) + '</span>' +
-            boxOddsHTML(b) +
-          '</div>' +
-          '<button class="btn sm bxbuy' + (can ? ' can' : '') + '" data-box="' + esc(b.id) +
-            '" data-price="' + b.price + '"' + (can ? '' : ' disabled') +
-            ' aria-label="' + esc(b.name) + ', ' + b.price + ' chips' + (can ? '' : ', you need ' + (b.price - bal) + ' more') + '">' +
-            (can
-              ? '<span class="bl">' + chipIco() + '<span>' +
-                  (boxConfirm === b.id ? 'Sure? ' : '') + b.price + '</span></span>'
-              : '<span class="bl">' + chipIco() + '<span>' + b.price + '</span></span>' +
-                '<small>need ' + (b.price - bal) + ' more</small>') +
-          '</button>' +
-        '</div>';
-      }).join('') +
-      '<p class="spinnote">The odds are printed under every box — the numbers the roll actually ' +
-        'walks, nothing hidden. Chips come from playing, never from a card. Broke? Friendly games ' +
-        'are always free, and tomorrow’s spin refills you.</p>' +
+            '<span class="bxprice' + (can ? '' : ' no') + '">' + chipIco() +
+              '<span>' + (arm ? 'SURE?' : b.price) + '</span></span>' +
+            (can ? '' : '<small class="bxneed">' + (b.price - bal) + ' more</small>') +
+          '</button>';
+        }).join('') +
+      '</div>' +
+      '<button class="bxoddsbtn" id="bx-odds">' + ico('info') +
+        ' What each box pays — the exact odds</button>' +
     '</div>';
   bar.innerHTML = '<button class="btn ghost sm" id="bx-home">Back to menu</button>';
   const bh = $('#bx-home'); if (bh) bh.onclick = () => go('home');
-  $$('.bxbuy', stage).forEach(btn => {
+  const ob = $('#bx-odds');
+  if (ob) ob.onclick = () => boxOddsSheet(boxes);
+  $$('.bxtile', stage).forEach(btn => {
     btn.onclick = () => buyBoxTap(btn.dataset.box);
   });
 }
@@ -3786,7 +3816,9 @@ function boxPop(res){
         (tier === 3 ? '<div class="spop-flash"></div>' : '') +
       '</div>' +
       '<div class="bx-hero" id="bx-hero">' +
-        boxArtHTML(res.box.accent, true) +
+        /* pass the id or the hero falls back to the drawn crate while the
+           shelf right behind it shows the painted one */
+        boxArtHTML(res.box.accent, true, res.box.id) +
         '<b class="bx-heroname">' + esc(res.box.name) + '</b>' +
         '<p class="tiny">Tap to open</p>' +
       '</div>' +
@@ -3817,11 +3849,14 @@ function boxPop(res){
   const open = () => {
     if (opened || boxPopEl !== el) return;
     opened = true;
-    el.classList.remove('chg');
+    el.classList.remove('chg', 'sh1', 'sh2', 'sh3', 'hold');
     el.classList.add('in', 'open');
     if (window.KARTI_SFX){
       try {
         KARTI_SFX.play('ui.reward');
+        /* the lid going is a THUD in the hand, and a jackpot is the one long
+           buzz the app keeps for the end of a game */
+        KARTI_SFX.haptic(tier >= 3 ? 'win' : tier >= 2 ? 'double' : 'thud');
         if (tier >= 2) setTimeout(() => { try { KARTI_SFX.play('xp.unlock'); } catch (e){} }, 200);
       } catch (e){}
     }
@@ -3837,18 +3872,47 @@ function boxPop(res){
   };
 
   if (!REDUCED){
-    /* CHARGE: the crate trembles, ticks rise, then it blows. Tap cuts
-       straight to the prize — an animation is never allowed to hold
-       the player's chips hostage. */
+    /* ── THE SUSPENSE ──────────────────────────────────────────────────
+       Three rising stages of tremble, then a HELD BEAT of dead stillness,
+       then it blows. The stillness is the whole trick: a crate that rattles
+       harder and harder and then stops for a fifth of a second reads as
+       something about to happen, and the burst lands into a silence instead
+       of on top of a rattle. It used to be a flat 1150ms of the same shake
+       for every box.
+
+       Bigger crates hold you longer, so It-Teżor already feels heavier than
+       Il-Qoffa BEFORE you know what is in either — anticipation you can feel
+       without being told. Tap still cuts straight through: an animation is
+       never allowed to hold the player's chips hostage. */
     el.classList.add('in');           /* scrim + hero up */
-    if (window.KARTI_SFX){
-      let t = 0;
-      for (let i = 1; i <= 5; i++){
-        t += 90 + i * 55;
-        setTimeout(() => { if (!opened){ try { KARTI_SFX.play('rail.tick'); } catch (e){} } }, t);
+    const HOLD = [820, 1000, 1250, 1600][tier] || 1000;
+    [0, 0.34, 0.62].forEach((f, i) => setTimeout(() => {
+      if (opened || boxPopEl !== el) return;
+      el.classList.remove('sh1', 'sh2', 'sh3');
+      el.classList.add('sh' + (i + 1));
+    }, HOLD * f));
+    /* the thumps bunch up as it fights the lid — same trick as the wheel's
+       ratchet, run the other way round */
+    const SX = window.KARTI_SFX;
+    if (SX){
+      let t = 0, gap = 200;
+      for (let i = 0; i < 10 && t < HOLD - 110; i++){
+        const at = t;
+        setTimeout(() => {
+          if (opened || boxPopEl !== el) return;
+          try { SX.play('rail.tick', { force:true }); SX.haptic('tick'); } catch (e){}
+        }, at);
+        gap = Math.max(50, gap * 0.74);
+        t += gap;
       }
     }
-    setTimeout(open, 1150);
+    /* everything stops */
+    setTimeout(() => {
+      if (opened || boxPopEl !== el) return;
+      el.classList.remove('sh1', 'sh2', 'sh3');
+      el.classList.add('hold');
+    }, HOLD);
+    setTimeout(open, HOLD + 220);
   }
 
   let taken = false;
@@ -3922,6 +3986,80 @@ function chipsCSS(){
     '.bxodds .oddsbox{margin-top:6px}' +
     /* the drawn crate */
     '.bxart{position:relative;display:inline-block;width:72px;height:72px}' +
+    /* ── the painted crate, and the ONE-SCREEN shelf ──────────────────── */
+    '.bxart.painted .bx-body,.bxart.painted .bx-lid,.bxart.painted .bx-hasp{opacity:0}' +
+    /* The crate art shipped on a PURE BLACK field, which showed as a visible
+       square anywhere the surface behind it was not exactly that black — a
+       lighter panel around the chest on the opening scrim. mix-blend-mode:
+       screen fixed the black and replaced it with a PURPLE square, because it
+       screened the art's own rim glow too. So the background was flood-filled
+       to real transparency in the PNGs instead (from the edges inward, which
+       leaves the dark detail inside the chest alone) and the CSS can just
+       draw it. */
+    '.bxart .bx-img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;' +
+      'filter:drop-shadow(0 6px 14px rgba(0,0,0,.6))}' +
+    '.bxwrap2{width:100%;max-width:460px;margin:0 auto;display:grid;gap:12px;align-content:start}' +
+    '.bxbal2{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 12px;' +
+      'border:1px solid var(--line);border-radius:14px;background:var(--panel)}' +
+    '.bxbal2 .bxbal-ic{display:inline-flex;width:20px}' +
+    '.bxbal2 b{font-size:21px;color:var(--gold);font-weight:900}' +
+    '.bxbal2 i{font-style:normal;font-size:9.5px;letter-spacing:.14em;color:var(--dim2);font-weight:800}' +
+    '.bxbal2 .bxbal-sub{flex:1 0 100%;margin:0;color:var(--dim2);font-size:10.5px}' +
+    /* three crates ACROSS, so all three are on the screen at once */
+    '.bxrow{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}' +
+    '.bxtile{position:relative;display:grid;justify-items:center;gap:5px;padding:11px 5px 9px;' +
+      'border-radius:16px;border:1.5px solid color-mix(in srgb,var(--bxa) 45%,transparent);' +
+      'background:linear-gradient(180deg,color-mix(in srgb,var(--bxa) 13%,#150F26),#120C1E 78%);' +
+      'cursor:pointer;transition:transform .15s var(--ease),border-color .15s}' +
+    '.bxtile:active{transform:scale(.96)}' +
+    '.bxtile .bxart{width:100%;height:auto;aspect-ratio:1}' +
+    '.bxtile .bxname{font-family:var(--disp);font-weight:900;font-size:11px;letter-spacing:.03em;' +
+      'text-align:center;line-height:1.15;color:#F2ECFF}' +
+    '.bxtile .bxprice{display:inline-flex;align-items:center;gap:4px;font-weight:900;font-size:12.5px;' +
+      'color:var(--gold)}' +
+    '.bxtile .bxprice .ico,.bxtile .bxprice svg{width:13px;height:13px}' +
+    '.bxtile.arm{border-color:var(--gold);box-shadow:0 0 0 2px rgba(255,197,66,.35)}' +
+    '.bxtile.arm .bxprice{color:#fff}' +
+    '.bxtile.poor{opacity:.55}' +
+    '.bxtile .bxneed{font-size:9px;color:var(--dim2)}' +
+    '.bxoddsbtn{width:100%;min-height:44px;border-radius:13px;border:1px solid var(--line);' +
+      'background:rgba(255,255,255,.04);color:var(--dim);font-size:12px;font-weight:700;' +
+      'display:inline-flex;align-items:center;justify-content:center;gap:7px}' +
+    '.bxoddsbtn .ico{width:15px;height:15px}' +
+    '.bxo-grp{margin:0 0 14px;padding-left:10px;border-left:3px solid var(--bxa)}' +
+    '.bxo-h{display:flex;align-items:center;gap:6px;font-family:var(--disp);font-size:13px;color:#F2ECFF}' +
+    '.bxo-h .mono{color:var(--gold)}' +
+    '.bxo-h svg,.bxo-h .ico{width:14px;height:14px}' +
+    /* ── THE SUSPENSE: rattle, hold, burst ────────────────────────────── */
+    /* The crate is the only thing that should exist while it is opening. The
+       shared scrim is tuned for a small prize card; behind a full ceremony it
+       left the whole shop legible and competing behind the box. */
+    '.bpop .spop-scrim{background:rgba(3,1,8,.93);backdrop-filter:blur(7px);' +
+      '-webkit-backdrop-filter:blur(7px)}' +
+    '.bpop .bx-hero{position:relative;z-index:2}' +
+    '.bpop .bxart.big{width:min(240px,62vw);height:auto;aspect-ratio:1}' +
+    '.bpop .bxart{will-change:transform}' +
+    '.bpop.sh1 .bxart{animation:bxSh 250ms linear infinite}' +
+    '.bpop.sh2 .bxart{animation:bxSh 140ms linear infinite}' +
+    '.bpop.sh3 .bxart{animation:bxSh 74ms linear infinite}' +
+    '@keyframes bxSh{0%,100%{transform:translate(0,0) rotate(0deg)}' +
+      '25%{transform:translate(-2.5px,1px) rotate(-1.8deg)}' +
+      '50%{transform:translate(2.5px,-1.5px) rotate(1.8deg)}' +
+      '75%{transform:translate(-1.5px,-2px) rotate(-1.1deg)}}' +
+    /* the seam light grows as it fights the lid */
+    '.bpop.sh2 .bx-glow{opacity:.85}' +
+    '.bpop.sh3 .bx-glow{opacity:1;filter:brightness(2)}' +
+    '.bpop.sh3 .bx-img{filter:drop-shadow(0 0 16px var(--bxa)) drop-shadow(0 6px 14px rgba(0,0,0,.6))}' +
+    /* THE HELD BEAT — everything stops and swells a hair. This is the moment */
+    '.bpop.hold .bxart{animation:none;transform:scale(1.07);' +
+      'transition:transform .19s cubic-bezier(.34,1.56,.64,1)}' +
+    '.bpop.hold .bx-img{filter:drop-shadow(0 0 26px var(--bxa)) brightness(1.25)}' +
+    /* and it goes */
+    '.bpop.open .bxart{animation:bxBurst .44s cubic-bezier(.2,.9,.3,1) forwards}' +
+    '@keyframes bxBurst{0%{transform:scale(1.07);opacity:1}' +
+      '45%{transform:scale(1.34);opacity:.85}' +
+      '100%{transform:scale(2.05);opacity:0}}' +
+    'body.reduced .bpop .bxart{animation:none!important;transform:none!important}' +
     '.bxart.big{width:150px;height:150px}' +
     '.bxart b{position:absolute;display:block;border-radius:9px}' +
     '.bx-glow{left:8%;top:8%;width:84%;height:84%;border-radius:50%!important;' +
