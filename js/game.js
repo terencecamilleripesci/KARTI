@@ -356,10 +356,17 @@ function switchTo(key){
   load();
   if (window.KARTI_SYNC) KARTI_SYNC.attach(key);
 }
-/* Two doors out of a profile, and the difference is the cloud session:
-     'switch' — step off this profile, keep the phone signed in to the cloud
-                account, so stepping back on is instant and silent;
+/* The one door out of a profile, and the mode is the cloud session:
      'out'    — sign this phone out of the cloud too (best-effort upload first).
+                THE ONLY MODE ANY CALLER USES — the profile sheet's Log out.
+     'switch' — (or any other value) step off this profile but keep the phone
+                signed in to the cloud account, so stepping back on is instant
+                and silent. Nothing calls this any more: the profile sheet used
+                to carry a "Switch player" button beside Log out, and the two
+                were one thing wearing two names — both land you on the auth
+                screen, which is where you pick a player. The mode is kept
+                because it is three lines and it is the seam to reopen if a
+                "hand the phone over without signing out" case ever comes back.
    NEITHER touches a single byte of any save. Both land on the same screen. */
 function logout(mode){
   if (window.KARTI_SYNC){
@@ -1183,8 +1190,8 @@ function renderHome(){
   try { window.KARTI_MAIL && KARTI_MAIL.onHome && KARTI_MAIL.onHome(); } catch (e){}
 }
 /* ───────────────────── the profile chip's sheet ─────────────────────
-   Your face, and the things you can DO — open the record book, switch player,
-   settings, log out, close. Nothing else. The one extra button is the way to
+   Your face, and the things you can DO — open the record book, settings,
+   log out, close. Nothing else. The one extra button is the way to
    make an account, and it is shown only when there is not one yet: offering
    "play on another phone" to somebody who is already signed in on this phone
    is an instruction with nothing behind it.
@@ -1215,9 +1222,10 @@ function cloudLine(){
        "saved 3 h ago" reads to a player like a warning that it did NOT save.
        It is flagged `routine` rather than deleted: SETTINGS is where you go to
        look at the account, so the line still belongs there, while the profile
-       sheet (which you open to change your face or switch player) leaves it
-       out. Every OTHER branch of this function is telling the player something
-       they may have to act on — guest, conflict, server down, not backed up —
+       sheet (which you open to change your face, or to get off this profile)
+       leaves it out. Every OTHER branch of this function is telling the player
+       something they may have to act on — guest, conflict, server down, not
+       backed up —
        and none of them carry the flag, so none of them can be dropped by the
        same test. */
     return { cls:'on', routine:true, text:s.user + ' · ' +
@@ -1292,9 +1300,15 @@ function profileSheet(){
                                   'ir-rekord tiegħek · logħbiet reċenti · il-klassifika') +
         '</span></button>' +
     '</div>' +
+    /* NO "SWITCH PLAYER" ROW. It and Log out were two buttons for one thing:
+       both land on the auth screen, which is where you pick a player, so
+       "log out" already IS "switch player". Log out is the name a player
+       looks for when they want off this profile, so that is the one that
+       stayed — and it takes the fuller road (logout('out'): flush, sign out,
+       drop the push subscription), which is what handing the phone over
+       actually needs. The 'switch' mode is still in logout() if a reason to
+       step off without signing out of the cloud ever comes back. */
     '<div class="opts">' +
-      '<button class="btn ghost" id="pf-switch">' +
-        ilb('users', AT('Switch player', 'Ibdel il-plejer')) + '</button>' +
       '<button class="btn ghost" id="pf-set">' +
         ilb('gear', AT('Settings', 'Settings')) + '</button>' +
       '<button class="btn ghost" id="pf-out">' +
@@ -1318,7 +1332,6 @@ function profileSheet(){
       closeSheet();
       KARTI_SYNC.openPanel('signup', { user: displayName() });
     }; }
-  $('#pf-switch').onclick = () => { closeSheet(); logout('switch'); };
   $('#pf-set').onclick = settingsSheet;
   $('#pf-out').onclick = () => { closeSheet(); logout('out'); };
 }

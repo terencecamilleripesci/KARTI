@@ -992,8 +992,20 @@ function injectCSS(){
     '#scr-stats .sx-coinface.ok~.sx-coinrim{display:none}' +
     '#scr-stats .sx-coin .sx-coinch{z-index:2}' +
     '#scr-stats .sx-coinav{background:none}' +
+    /* THE `img:not(.kx-ring-art)` IS LOAD-BEARING, HERE AND IN THE THREE
+       OTHER AVATAR HOSTS ON THIS SCREEN (.sx-lav, .sx-pav, .sx-pcav).
+       "Every img in this box fills it and takes its corner" is right for a
+       photograph, and wrong for a FRAME: the beta gem rings
+       (js/progress-faces.js, .kx-ring-art) are painted art the frame CSS
+       deliberately hangs outside the face at 118% / inset -9%, so the stones
+       break the silhouette. Caught by the blanket rule they came out 100%
+       wide with a -9% left/top still applied — two pixels too small and two
+       pixels up-and-left, so the jewellery sat crooked ON the face instead
+       of around it, with its corners rounded off. Excluding it is better
+       than out-shouting it: these rules are !important, so a correction
+       would have had to win a specificity fight it does not need to have. */
     '#scr-stats .sx-coinav .kx-av,#scr-stats .sx-coinav .sx-face-real>*,' +
-      '#scr-stats .sx-coinav img,#scr-stats .sx-coinav>span{' +
+      '#scr-stats .sx-coinav img:not(.kx-ring-art),#scr-stats .sx-coinav>span{' +
       'width:100%!important;height:100%!important;border-radius:50%!important}' +
     '#scr-stats .sx-coinav .sx-fallback{border-radius:50%!important}' +
 
@@ -1158,7 +1170,9 @@ function injectCSS(){
        inner layer (photo, drawn face, fallback) by border-radius instead. */
     '#scr-stats .sx-pav>.sx-face{position:absolute;inset:0;width:100%;height:100%;' +
       'border-radius:50%}' +
-    '#scr-stats .sx-pav .sx-face .kx-av,#scr-stats .sx-pav .sx-face img,' +
+    /* .kx-ring-art excluded — see the .sx-coinav block for why. */
+    '#scr-stats .sx-pav .sx-face .kx-av,' +
+      '#scr-stats .sx-pav .sx-face img:not(.kx-ring-art),' +
       '#scr-stats .sx-pav .sx-face .sx-face-real,#scr-stats .sx-pav .sx-face .sx-face-real>*{' +
       'width:100%!important;height:100%!important;border-radius:50%!important}' +
     '#scr-stats .sx-pav .sx-fallback{border-radius:50%!important}' +
@@ -1246,8 +1260,9 @@ function injectCSS(){
     /* the framed avatar in a ranked row */
     '#scr-stats .sx-lav{position:relative;width:38px;height:38px;border-radius:11px;flex:0 0 auto;' +
       'overflow:hidden;background:var(--panel2);box-shadow:inset 0 0 0 1px var(--line)}' +
-    '#scr-stats .sx-lav .kx-av,#scr-stats .sx-lav img,#scr-stats .sx-lav>span,' +
-      '#scr-stats .sx-lav .sx-face-real>*{' +
+    /* .kx-ring-art excluded — see the .sx-coinav block for why. */
+    '#scr-stats .sx-lav .kx-av,#scr-stats .sx-lav img:not(.kx-ring-art),' +
+      '#scr-stats .sx-lav>span,#scr-stats .sx-lav .sx-face-real>*{' +
       'width:100%!important;height:100%!important;border-radius:11px!important}' +
     '#scr-stats .sx-lav .sx-fallback{border-radius:11px!important}' +
     '#scr-stats .sx-lrow.p1 .sx-lav{box-shadow:0 0 0 2px #FFD979}' +
@@ -1381,7 +1396,9 @@ function injectCSS(){
     '#scr-stats .sx-pcav.p1{box-shadow:0 0 0 3px #FFD979,0 4px 16px rgba(0,0,0,.45)}' +
     '#scr-stats .sx-pcav.p2{box-shadow:0 0 0 3px #D8DDE8,0 4px 16px rgba(0,0,0,.45)}' +
     '#scr-stats .sx-pcav.p3{box-shadow:0 0 0 3px #E0955A,0 4px 16px rgba(0,0,0,.45)}' +
-    '#scr-stats .sx-pcav .kx-av,#scr-stats .sx-pcav img,#scr-stats .sx-pcav>span,' +
+    /* .kx-ring-art excluded — see the .sx-coinav block for why. */
+    '#scr-stats .sx-pcav .kx-av,#scr-stats .sx-pcav img:not(.kx-ring-art),' +
+      '#scr-stats .sx-pcav>span,' +
       '#scr-stats .sx-pcav .sx-face-real>*{width:100%!important;height:100%!important;' +
       'border-radius:50%!important}' +
     '#scr-stats .sx-pcav .sx-fallback{border-radius:50%!important}' +

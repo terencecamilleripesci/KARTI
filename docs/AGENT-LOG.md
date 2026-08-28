@@ -360,3 +360,33 @@ and zero vibrate calls.
 Harness in the session scratchpad: `konk-ui.js` (133 assertions — odds, the
 turn readout, the attack sheet, the fight, haptic discipline, reduced motion,
 Maltese at 360x640).
+
+## The record book's blanket avatar rules ate the beta gem frames
+
+**`img{width:100%;height:100%;border-radius:…}` inside an avatar host is a
+statement about PHOTOGRAPHS, and it caught a FRAME.** All four avatar hosts on
+`#scr-stats` (`.sx-coinav`, `.sx-lav`, `.sx-pav`, `.sx-pcav`) carried that
+rule so a fetched face fills its tile. But `.kx-ring-art` — the painted beta
+gem ring in `js/progress-faces.js` — is deliberately `inset:-9%; width:118%`
+so the stones overhang and break the silhouette. Overridden to 100% with the
+`-9%` left/top still in force, it landed **2px too small and 2px up-and-left**:
+the jewellery sat crooked ON the face instead of around it, corners rounded
+off. In a 38px ranked row that is the whole cosmetic, wrong. Fix is
+`img:not(.kx-ring-art)` in all four, **not** a corrective rule — those rules
+are `!important` and `#scr-stats .sx-pav .sx-face img` is (1 id, 3 classes,
+1 type), so anything trying to out-shout it has to win a specificity fight it
+does not need to have. Any new avatar host on this screen must carry the
+`:not()` too.
+
+**Stubbing the leaderboard: patch `fetch` in the page, not the wire.** The
+board is a cross-origin POST with `Content-Type: application/json`, so it
+preflights, and puppeteer request interception does not surface the OPTIONS —
+`r.respond()` on the POST alone still fails the fetch and the screen says
+"Cannot reach the board from here." `page.evaluateOnNewDocument` replacing
+`window.fetch` for `/stats/board$` costs three lines and has no CORS at all.
+
+**`.kx-av` is `overflow:hidden`, so a host's `overflow` is not what clips a
+ring.** Worth knowing before you go removing `overflow:hidden` from
+`.sx-lav`/`.sx-pcav` hunting a clipped frame — the medallion clips first, and
+that is the same everywhere in the app including the profile, so it is the
+intended look. The bug was geometry, not clipping.
