@@ -2614,6 +2614,45 @@ function showSummary(results){
        and face, and everything EARNED stays exactly as it was.
    ═══════════════════════════════════════════════════════════════════ */
 let storeTab = 'cards';          /* sticky for the session, not saved  */
+let cosmGame = '';               /* which game's shelf is open         */
+let exclGame = '';               /* same, on the Exclusives tab        */
+/* a game's real name for a shelf heading — the record book first, the party
+   shelf second, the bare id as the last resort so a game registered by a
+   file we have never heard of still gets a readable tab. */
+/* A GAME'S OWN COLOUR AND MARK, for the picker tiles.
+   Icons were the obvious answer and they do not work: most games publish
+   none at all, and the ones that do share them — five games are 'cards',
+   three are 'map'. A row of those would be HARDER to tell apart than words.
+   So each game gets a two-letter monogram on its own colour instead: the
+   exclusive set's accent when the game has one (so the tile matches the
+   trophy it leads to), otherwise a hue hashed off the id, which is stable
+   forever and unique enough across sixteen shelves. */
+function cosmGameAccent(id){
+  try {
+    const m = exclMeta(id);
+    if (m && m.accent) return m.accent;
+  } catch (e){}
+  let h = 0;
+  const t = String(id || '');
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
+  return 'hsl(' + (Math.abs(h) % 360) + ' 72% 62%)';
+}
+function cosmMonogram(id){
+  const n = cosmGameName(id).replace(/^(IL|IS|IT|L)-/i, '').replace(/[^A-Za-zĠĦŻĊġħżċ]/g, '');
+  return (n.slice(0, 2) || String(id).slice(0, 2)).toUpperCase();
+}
+function cosmGameName(id){
+  if (id === 'karti') return 'KARTI';
+  try {
+    const g = ((window.KARTI_STATS && KARTI_STATS.GAMES) || []).find(x => x.id === id);
+    if (g && g.name) return g.name;
+  } catch (e){}
+  try {
+    const t = (window.KARTI_PARTY && KARTI_PARTY.games) ? KARTI_PARTY.games().find(x => x.id === id) : null;
+    if (t && t.name) return t.name;
+  } catch (e){}
+  return String(id).toUpperCase();
+}
 let spinBusy = false;
 let boxBusy = false;             /* a loot box mid-reveal              */
 let spinTickT = 0;               /* the countdown repaint timer        */
@@ -4336,11 +4375,30 @@ function renderCosmTab(){
           '<span class="xh-go" aria-hidden="true">' + ico('arrow-right') + '</span>' +
         '</button>'
       : '';
-    let html = '<div class="spinwrap cosmwrap">' + hero +
-      '<p class="cosmintro tiny">Every game has its own look — ship colours, snake skins, ' +
-      'tank camo, boards, card backs and more to buy with coins. The <b>exclusive animated ' +
-      'sets</b> nobody can buy live behind the door above, win by win.</p>';
-    games.forEach(g => {
+    /* ── ONE GAME AT A TIME ────────────────────────────────────────────
+       This shelf used to print all sixteen games' worth of cosmetics end to
+       end: 22,562px of content in a 576px stage — a THIRTY-NINE screen
+       scroll to reach the last game. The sections were labelled, which is
+       not the same as being findable. Now the games are a row of tabs and
+       you read one shelf, with your own owned/total on every tab so you can
+       see where you have spent without opening anything. */
+    if (games.indexOf(cosmGame) < 0) cosmGame = games[0] || '';
+    const pick = '<div class="cosmpick" role="tablist" aria-label="Choose a game">' +
+      games.map(g => {
+        const grp = byGame[g];
+        const tot = grp.buy.length + grp.lock.length;
+        const own = grp.buy.filter(d => cosmOwned(d.id)).length;
+        return '<button class="cpk' + (g === cosmGame ? ' on' : '') + '" role="tab"' +
+          ' aria-selected="' + (g === cosmGame ? 'true' : 'false') + '"' +
+          ' style="--cga:' + esc(cosmGameAccent(g)) + '"' +
+          ' aria-label="' + esc(cosmGameName(g)) + ', ' + own + ' of ' + tot + ' owned"' +
+          ' data-cg="' + esc(g) + '">' +
+          '<span class="cpk-ic" aria-hidden="true">' + esc(cosmMonogram(g)) + '</span>' +
+          '<b>' + esc(cosmGameName(g)) + '</b>' +
+          '<i>' + own + '/' + tot + '</i></button>';
+      }).join('') + '</div>';
+    let html = '<div class="spinwrap cosmwrap">' + hero + pick;
+    [cosmGame].filter(Boolean).forEach(g => {
       const grp = byGame[g];
       const nx = cosmNext(g);
       html += '<p class="cosmgame">' + esc(gameLabel(g)) +
@@ -4390,6 +4448,17 @@ function renderCosmTab(){
       'exclusive sets live on their own tab and are never for sale. Every border, ' +
       'badge and weekly-champion ring lives in the wardrobe, never the till.</p></div>';
     stage.innerHTML = html;
+    /* the game tabs. Switching keeps you on the shelf and scrolls the strip
+       so the one you picked is in view — nothing else on the screen moves. */
+    $$('.cpk', stage).forEach(btn => {
+      btn.onclick = () => {
+        cosmGame = btn.dataset.cg;
+        try { if (window.KARTI_SFX) KARTI_SFX.play('ui.tap'); } catch (e){}
+        renderCosmTab();
+        const on = $('.cpk.on', $('#pack-stage'));
+        if (on && on.scrollIntoView) try { on.scrollIntoView({ inline:'center', block:'nearest' }); } catch (e){}
+      };
+    });
     /* previews after the HTML lands — def.preview returns an element */
     $$('.citem', stage).forEach(el => {
       const d = allPrev.find(x => x.id === el.dataset.cid);
@@ -4496,7 +4565,29 @@ function renderExclTab(){
           ? 'Settijiet animati li ma jidhrux fil-ħanut. Trid tirbaħhom U tfaddal għalihom — it-tnejn. '
           : 'Animated sets the shop never stocks. You have to win them AND save up for them — both. ') +
         '<b>' + got + ' / ' + rows.length + (mtL ? ' miksuba' : ' unlocked') + '</b></p></div>';
-    rows.forEach(r => {
+    /* SAME TREATMENT AS CUSTOMISE. Every set stacked was 5,549px in a 576px
+       stage — ten screens of scrolling past other games' trophies to find
+       your own. Grouped by the game that actually PAYS for the set (r.stat,
+       not r.g, so an encore set keyed by its own id still files under its
+       game), with a tab per game and a tick on the ones you have finished. */
+    const xg = [];
+    rows.forEach(r => { if (xg.indexOf(r.stat) < 0) xg.push(r.stat); });
+    if (xg.indexOf(exclGame) < 0) exclGame = xg[0] || '';
+    if (xg.length > 1)
+      html += '<div class="cosmpick" role="tablist" aria-label="Choose a game">' +
+        xg.map(g => {
+          const mine = rows.filter(r => r.stat === g);
+          const done = mine.filter(r => r.got).length;
+          return '<button class="cpk' + (g === exclGame ? ' on' : '') + '" role="tab"' +
+            ' aria-selected="' + (g === exclGame ? 'true' : 'false') + '"' +
+            ' style="--cga:' + esc(cosmGameAccent(g)) + '"' +
+            ' aria-label="' + esc(gameLabel(g)) + ', ' + done + ' of ' + mine.length + ' unlocked"' +
+            ' data-xg="' + esc(g) + '">' +
+            '<span class="cpk-ic" aria-hidden="true">' + esc(cosmMonogram(g)) + '</span>' +
+            '<b>' + esc(gameLabel(g)) + '</b>' +
+            '<i>' + done + '/' + mine.length + '</i></button>';
+        }).join('') + '</div>';
+    rows.filter(r => !exclGame || r.stat === exclGame).forEach(r => {
       const pctW = Math.round(r.pg.pct * 100);
       html += '<div class="xset' + (r.got ? ' xgot' : '') + '" data-xgame="' + esc(r.g) + '" ' +
           'style="--xa:' + esc(r.meta.accent) + '">' +
@@ -4571,6 +4662,15 @@ function renderExclTab(){
       ? 'Ir-rebħiet juru li lgħabt din il-logħba. Il-muniti jiswew. Trid it-tnejn.'
       : 'The wins prove you played this game. The coins cost you. You need both.') + '</p></div>';
     stage.innerHTML = html;
+    $$('.cpk', stage).forEach(btn => {
+      btn.onclick = () => {
+        exclGame = btn.dataset.xg;
+        try { if (window.KARTI_SFX) KARTI_SFX.play('ui.tap'); } catch (e){}
+        renderExclTab();
+        const on = $('.cpk.on', $('#pack-stage'));
+        if (on && on.scrollIntoView) try { on.scrollIntoView({ inline:'center', block:'nearest' }); } catch (e){}
+      };
+    });
     /* mount each piece's animated preview, and wire "Wear the set" to
        equip every piece of an earned set — the same wiring the old
        cosmetics showcase carried */
@@ -4673,6 +4773,33 @@ function storeCSS(){
     '.spinhead h3{margin:0;display:flex;align-items:center;gap:7px;font-family:var(--disp);font-size:17px}' +
     '.spinhead .ico{width:18px;height:18px;color:var(--gold)}' +
     '.spinhead .tiny{margin:3px 0 0}' +
+    /* the game tabs on Customise / Exclusives: a scrolling strip, current
+       one lit, each carrying how many of that game's looks you already own */
+    '.cosmpick{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px 0 6px;' +
+      'scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}' +
+    '.cosmpick::-webkit-scrollbar{display:none}' +
+    /* A BOX PER GAME, not a word. 78x72 is a comfortable thumb target — the
+       text chips this replaced were 38px tall, which is under the 44px
+       minimum and asked you to hit a word. */
+    '.cpk{flex:0 0 auto;scroll-snap-align:center;width:78px;min-height:72px;padding:8px 5px 6px;' +
+      'border-radius:14px;border:1.5px solid var(--line);background:rgba(255,255,255,.04);' +
+      'display:grid;justify-items:center;align-content:center;gap:4px;cursor:pointer;' +
+      'transition:background .15s,border-color .15s,transform .13s var(--ease)}' +
+    '.cpk .cpk-ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;' +
+      'font-family:var(--disp);font-weight:900;font-size:12.5px;letter-spacing:.02em;' +
+      'color:#150F26;background:linear-gradient(180deg,var(--cga),' +
+        'color-mix(in srgb,var(--cga) 62%,#000));' +
+      'box-shadow:0 2px 8px color-mix(in srgb,var(--cga) 40%,transparent)}' +
+    '.cpk b{font-family:var(--disp);font-weight:800;font-size:9px;letter-spacing:.04em;' +
+      'color:var(--dim);max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+      'text-align:center}' +
+    '.cpk i{font-style:normal;font-size:9px;font-weight:700;color:var(--dim2);' +
+      'font-variant-numeric:tabular-nums}' +
+    '.cpk.on{background:color-mix(in srgb,var(--cga) 16%,transparent);' +
+      'border-color:color-mix(in srgb,var(--cga) 75%,transparent)}' +
+    '.cpk.on b{color:#F2ECFF}' +
+    '.cpk.on i{color:var(--cga)}' +
+    '.cpk:active{transform:scale(.94)}' +
     '.oddsbox{border:1px solid var(--line);border-radius:14px;background:var(--panel);padding:11px 13px;display:grid;gap:6px}' +
     '.oddshead{margin:0;font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.1em;font-weight:800}' +
     '.oddsrow{display:flex;align-items:center;gap:9px;font-size:13.5px;min-height:22px}' +
