@@ -2762,6 +2762,32 @@ try {
   }
 } catch(e){}
 
+/* ── test hooks — inert unless the page is opened with ?gharraqtest ───
+   The house shape (see js/erbgha-ui.js), and this game's OWN flag: the
+   older __BS_UI above rides the shared ?pttest and stays exactly as it
+   is, because harnesses already ask for it by name. This one is the
+   whole door — the way in, the way a shell is aimed and fired, the
+   repaint, the live match, the engine and the way out — so a harness
+   can drive a battle from the shelf to the last hull without reaching
+   for anything private. Nothing here runs, or is even built, in normal
+   play. Every screen goes through screenRoot(), which injects the
+   stylesheet, so newLocal() alone is already a dressed board. ──────── */
+if (/[?&]gharraqtest\b/.test(location.search || '')){
+  window.__GHARRAQ_TEST = {
+    menu, setupAI, newLocal, restoreSaved, mount,
+    tapAim, canFire, commitFire, lockFleet, tryMove, rotate,
+    ensureDraft, draftCells, localApply, act, finish,
+    paintBoard, paintPlace, paintPlaceWait, paintModePick, setTurnStrip,
+    get G(){ return G; },
+    get st(){ return G ? G.st : null; },
+    engine: E, LOBBY, hooks: HOOKS, online: P.online[GID], leave, injectCSS,
+    myTurn, seatMe, pickTarget, aimSet, boatsLeft, reducedMo,
+    /* the theatre queue is what a headless run trips over: drain it and
+       the state is the state, with nothing still in flight */
+    drain: () => { if (G){ G.q = []; G.busy = false; } }
+  };
+}
+
 })();
 
 /* ═══════════════════════════════════════════════════════════════════

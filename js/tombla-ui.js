@@ -3282,6 +3282,34 @@ try {
   }
 } catch(e){}
 
+/* ── test hooks — inert unless the page is opened with ?tomblatest ───
+   The house shape (see js/erbgha-ui.js), on TOMBLA's OWN flag. The
+   older __TB_UI above rides the shared ?pttest and stays exactly as it
+   is; harnesses already ask for it by name. This one is the whole
+   door: the way in (menu → setupAI → newGame), every action a finger
+   can take at this table (mark a square, pull a number out of the bag,
+   halt it, shout), the repaint, the live table, the engine and the way
+   out. THE STATE IS THE ENGINE'S, not this file's — U is only what the
+   screen is holding, so read T.state() for the match. board() injects
+   the stylesheet and the symbol sheet before it draws, so newGame()
+   alone is already dressed. ────────────────────────────────────────*/
+if (/[?&]tomblatest\b/.test(location.search || '')){
+  window.__TOMBLA_TEST = {
+    menu, setupAI, newGame, board, onlineStart,
+    onCell, onDraw, onPause, onClaim, onShout, touchCell, peekAt,
+    render, paintLobby, paintTable, paintCards, paintChrome, paintClaim,
+    paintControls, paintHold, finish, tabellone, fitCards,
+    get U(){ return U; },
+    get st(){ return T.state(); },
+    engine: T, LOBBY, hooks: T.hooks, online: P.online.tombla,
+    leave, injectCSS, injectSprite,
+    localSeat, isLocalSeat, tapSeat, claimState,
+    /* tap a real square by its two ids, the way onCell wants it */
+    cell: (ci, i) => { if (!U) return;
+      onCell(ci, i, U.root.querySelector('.tb-c[data-c="' + ci + '"][data-i="' + i + '"]')); }
+  };
+}
+
 })();
 
 /* ═══════════════════════════════════════════════════════════════════

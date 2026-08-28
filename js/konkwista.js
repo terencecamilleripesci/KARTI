@@ -25,8 +25,16 @@
      RISK-style board: the six continents are SEPARATE LANDMASSES laid out
      across a 660×1160 portrait viewBox with SEA between them — Aurora NW,
      Solmar NE, Vantia W-mid, Norlund E-mid, Kessia SW, Meridia S/SE — each
-     a distinct organic silhouette (its bounding box does not overlap any
-     other continent's). Every territory is an SVG polygon with a centroid
+     a separate block whose bounding box does not overlap any other
+     continent's. Be accurate about what these shapes are: the territories
+     are BLOCKY, close to rectangles, not the organic coastlines this comment
+     used to claim. That is a cosmetic debt, not a rules problem, and it is
+     written down here rather than dressed up. Anyone tempted to redraw them
+     should know the adjacency graph below is proven and ONLINE PLAY DEPENDS
+     ON EVERY EDGE — the shore and shadow js/konkwista-ui.js paints are
+     strokes on these same polygons, which is how the board was made to read
+     as land without moving a single vertex.
+     Every territory is an SVG polygon with a centroid
      for its army badge. WITHIN a continent, territories share land borders;
      the continents are joined by a handful of SEA ROUTES (SEA_ROUTES, drawn
      as dashed sea lanes over the water) — each sea route IS a real

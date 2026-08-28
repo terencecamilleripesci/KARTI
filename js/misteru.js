@@ -1908,7 +1908,9 @@ function note(st){
    what the dial takes away — see aiView() below.
 
      lvl 1  Kaporal   direct facts only, and forgets some of even those;
-                      wanders, re-asks what it has been shown, stabs.
+                      wanders, stabs, and wastes most of its questions
+                      naming cards out of its own hand (PROBE_OWN_P), so
+                      a table of Kaporals starves itself of evidence.
      lvl 2  Surġent   direct facts only: its own hand and the cards shown
                       to IT. Cannot read other people's refutations.
      lvl 3  Spettur   the whole truth, maximal-information probes, accuses
@@ -2028,8 +2030,13 @@ const SALT_SPAN   = 128;
               badly, they are broken. */
 const MISS_P   = { 1: 0.45, 2: 0.10, 3: 0 };
 const FORGET_P = { 1: 0.30, 2: 0,    3: 0 };
-/* THESE FOUR NUMBERS WERE MEASURED, NOT GUESSED, and they are the whole
-   difficulty dial. Seat 0 at the level under test against three Spetturs,
+/* THESE FOUR NUMBERS WERE MEASURED, NOT GUESSED. They are HALF the
+   difficulty dial — what a level is allowed to KNOW. The other half is
+   PROBE_OWN_P, down by pickProbe: what lvl1 does with what it knows. Both
+   halves are needed and they are not interchangeable, because these four
+   move the solo solve rate and the head-to-head win rate TOGETHER and the
+   dial has to move them apart; the numbers are written out there.
+   Seat 0 at the level under test against three Spetturs,
    1000+ four-handed games per point, identical seeds across arms; a fair
    share is 25% and a Spettur in seat 0 takes 29.3% because seat 0 asks
    first:
@@ -2294,7 +2301,8 @@ function think(st, seat, lvl){
 
   /* SUGGEST to gain information. For each category pick a card:
        lvl3/2: an UNKNOWN candidate (status '?') to probe — best info.
-       lvl1:   sometimes a known/own card (loose), so it learns slower.
+       lvl1:   usually a card out of its OWN hand, so the question buys
+               it — and the table watching — nothing.
      A suggestion can only use cards in the case; if a category is already
      pinned we may still name the solution card (harmless, and it masks
      which category we still need). To mask intent, occasionally seed one
@@ -2329,6 +2337,66 @@ function candidatesIn(st, seat, nb, cat){
   const cards = (cs[cat] || []).map(id => cardOf(cat, id));
   return cards.filter(c => nb.status[c] !== 'has');
 }
+/* ── PROBE_OWN_P — THE SECOND HALF OF THE lvl-1 HANDICAP ──────────────
+   aiView takes away what Kaporal can PROVE. This takes away what it does
+   with what it has: how often it wastes its one question of the turn by
+   naming a card out of its OWN hand — a card it already knows the answer
+   to, so the refutation it buys teaches it, and the table, nothing.
+
+   WHY THIS KNOB AND NOT MORE aiView. The two numbers the dial has to hit
+   pull against each other and aiView moves them TOGETHER. Blinding lvl1
+   harder (MISS_P[1], measured over 400 solo / 1000 head-to-head games,
+   three independent seed families) barely dents the solo solve rate and
+   guts the head-to-head:
+       MISS_P[1]   0.35 → solo 86.5%, h2h 17.3%
+                   0.45 → solo 82.3%, h2h 12.3%   (where the dial sits)
+                   0.55 → solo 86.0%, h2h  9.5%
+                   0.65 → solo 82.5%, h2h  3.2%
+   Forgetting its OWN exchanges harder is worse still — it pushes the solo
+   rate the WRONG WAY while it kills the head-to-head:
+       FORGET_P[1] 0.30 → solo 82.3%, h2h 12.3%
+                   0.45 → solo 85.3%, h2h 10.3%
+                   0.60 → solo 86.5%, h2h  9.0%
+                   0.75 → solo 81.3%, h2h  7.2%
+   That is the trap the previous pass hit: a handicap harsh enough to drag
+   the solo table down took the head-to-head to zero with it.
+
+   THE SOLO NUMBER IS NOT A DEDUCTION NUMBER. Four Kaporals at one table
+   end 82% of games 'solved' — but almost all of that is THE STAB landing,
+   not anybody proving anything: four seats each take one ~1-in-3 gamble,
+   and 1 - (2/3)^4 is about 80%. So the way to make the easy table fail to
+   crack the case is to make its seats reach the stab position LATER and
+   with more candidates still open, which is a question of how well they
+   SPEND their turns, not of how much they are allowed to know.
+
+   AND IT IS ASYMMETRIC, which is the whole point. A wasted question also
+   starves everyone ELSE at the table of the refutation they would have
+   watched. At a four-Kaporal table that is four seats starving each other
+   and the case never closes. Against three Spetturs it starves the
+   Spetturs too, which buys the one weak seat more turns to gamble in — so
+   the head-to-head rate does not fall. Measured over three independent
+   seed families, 600 solo + 1500 head-to-head games each:
+       PROBE_OWN_P   solo solve            h2h win
+         0.40      83.5 / 84.2 / 85.3    12.7 / 11.3 / 13.1
+         0.75      75.0 / 75.7 / 75.7    12.9 / 12.3 / 13.6
+         0.80      71.0 / 75.2 / 74.3    12.9 / 12.3 / 13.6
+         0.85      70.3 / 71.3 / 69.7    13.0 / 13.4 / 12.8   ← here
+   Targets were solo 55-75% and h2h 10-16%; 0.85 sits in the middle of
+   both on every seed family, and the head-to-head is a shade HIGHER than
+   it was, not lower.
+   THE PRICE, SO IT IS NOT A SURPRISE LATER: an all-Kaporal table now runs
+   ~65 plies instead of ~38, and 6.7% of those tables run out the
+   MAX_ROUNDS cap instead of ending on an accusation. That is what "nobody
+   here is good enough to close it" looks like, and it is the intended
+   reading — but it is why this knob should not be pushed past 0.85. At
+   1.00 the solo rate falls to 47% and a third of tables die on the cap.
+   A NEARBY IDEA THAT DOES NOT WORK, so you do not spend the afternoon:
+   drawing the wasted probe from every card the view has proven 'has'
+   (own hand OR seen) instead of just the hand reads better but measures
+   worse — at 0.80 it gives solo 79.0% for a LONGER 73.5-ply game, because
+   early on there is nothing proven yet and the seat still probes well
+   through the part of the game that decides it. */
+const PROBE_OWN_P = 0.85;
 /* pick a card to name in a suggestion for category `cat`. */
 function pickProbe(st, seat, nb, cat, lvl){
   const cs = theCase(st);
@@ -2340,10 +2408,12 @@ function pickProbe(st, seat, nb, cat, lvl){
     /* deterministic best probe: the unknown card seen least (probe new info) */
     return pool[Math.floor(jitter(st, seat, cat.charCodeAt(0)) * pool.length) % pool.length];
   }
-  /* lvl1: loose — sometimes an own/known card, learns slower */
+  /* lvl1: loose — usually a card out of its own hand, so the question
+     buys nothing. See PROBE_OWN_P above for why this number is the one
+     that separates an easy table from a competent one. */
   const myHand = handOf(st, seat) || [];
   const mine = myHand.filter(c => catOf(c) === cat);
-  if (mine.length && jitter(st, seat, 31) < 0.4){
+  if (mine.length && jitter(st, seat, 31) < PROBE_OWN_P){
     return mine[Math.floor(jitter(st, seat, 32) * mine.length) % mine.length];
   }
   return pool[Math.floor(jitter(st, seat, 33) * pool.length) % pool.length];

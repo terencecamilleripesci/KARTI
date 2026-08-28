@@ -2904,6 +2904,35 @@ try {
     };
   }
 } catch (e){}
+
+/* ── test hooks — inert unless the page is opened with ?suspetttest
+   (or the older ?sutest, kept because harnesses already ask for __SU
+   by that flag) ─────────────────────────────────────────────────────
+   The house shape, see js/erbgha-ui.js. __SU above is left exactly as
+   it is; this is the wider door — the way in, the whole pass-the-phone
+   flow, the one move door (S.act through netAct, or the engine
+   directly then afterMove()), the repaint, the live village, the
+   engine and the way out.
+   MIND THE SPRITE: openPNP() injects the stylesheet but NOT the symbol
+   sheet — only menu() and setupPNP() do both — so a harness that jumps
+   straight to openPNP() gets a styled board with hollow icons. Come in
+   through menu(), or call injectSprite() yourself. ─────────────────*/
+if (/[?&](suspetttest|sutest)\b/.test(location.search || '')){
+  window.__SUSPETT_TEST = {
+    menu, setupPNP, openPNP, resumeSaved, board,
+    pnpDeal, pnpFlow, pnpNight, pnpShot, pnpVote, pnpVerdict,
+    netAct, afterMove, announce, subOnMove, toNet, fromNet,
+    render, renderPNPShared, renderNet, showResult,
+    showSecret, hideSecret, curtain,
+    get U(){ return U; },
+    get G(){ return U ? U.G : null; },
+    get secretOpen(){ return secretOpen; },
+    engine: S, LOBBY, hooks: P.online.suspett.hooks, online: P.online.suspett,
+    onlineStart, onlineRemote, blindPulse, onPrivate, onWhisper,
+    leave: leaveGame, closeGame, injectCSS, injectSprite,
+    nightOpts, phaseName, stash, reducedMo
+  };
+}
 })();
 
 /* ═══════════════════════════════════════════════════════════════════

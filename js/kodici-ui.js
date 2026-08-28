@@ -1425,4 +1425,26 @@ R.ui = { open: menu, leave, injectCSS,
   _debug: () => M };
 try { P.register(TILE); } catch(e){}
 
+/* ── test hooks — inert unless the page is opened with ?kodicitest ───
+   R.ui._debug above is a read-only peek at the runner and stays that
+   way. This is the driving door: the way in (menu → setupStep →
+   startLocal), the two moves this game actually has (lock a secret,
+   throw a guess), the repaint, the live runner, the engine and the way
+   out. Both KODIĊI screens call injectCSS() before they draw, so
+   startLocal() alone is already dressed. Nothing here is built in
+   normal play. ─────────────────────────────────────────────────────*/
+if (/[?&]kodicitest\b/.test(location.search || '')){
+  window.__KODICI_TEST = {
+    menu, setupStep, startLocal, resumeGame, goOnline, openBoard,
+    submitSecret, submitGuess, maybeAI, netEcho,
+    render, renderSet, renderPlay, finishScreen, setBadge,
+    get M(){ return M; },
+    get st(){ return M ? M.st : null; },
+    engine: E, LOBBY: R.lobby, hooks: NET_HOOKS, online: P.online.kodici,
+    leave, injectCSS,
+    onlineStart, onlineRemote,
+    activeSeat, viewerSeat, settingSeat, isHotHuman, boardOpts, noMotion
+  };
+}
+
 })();

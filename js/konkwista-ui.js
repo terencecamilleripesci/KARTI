@@ -83,11 +83,70 @@ function hexToRgb(h){ h = h.replace('#',''); if (h.length===3) h = h.split('').m
 function rgbToHex(r,g,b){ const f=v=>('0'+Math.max(0,Math.min(255,Math.round(v))).toString(16)).slice(-2); return '#'+f(r)+f(g)+f(b); }
 function mix(a,b,t){ return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
 function shade(hex, amt){ const c = hexToRgb(hex); const tgt = amt<0 ? [12,20,32] : [255,255,255]; return rgbToHex(...mix(c, tgt, Math.abs(amt))); }
+/* ── CONT_HEX — the SCREEN's continent palette ─────────────────────────
+   The engine ships a hex per continent, but a colour is a rendering
+   decision, not a rule: nothing in js/konkwista.js reads it and no byte of
+   it ever goes on the wire. So the palette is overridden HERE, and the
+   engine's list stays the fallback for any continent this table forgets.
+
+   WHY IT NEEDED OVERRIDING. Six continents means fifteen pairs, and in this
+   game telling them apart is a MECHANIC: every turn you are judging how
+   close you are to owning a whole one for its bonus. Under about deltaE 15
+   (CIELAB) is a pair a player confuses at a glance. Measured from the
+   source values through the real render chain — base hex -> the per-
+   territory ripple shade -> the +0.28 paper lift -> konk-land.jpg
+   multiplied at .28 — the shipped palette had one pair under the bar and
+   it was under it badly:
+
+     min deltaE over the 3x3 ripple shades of each pair, UNOWNED land with
+     the paper (the CLAIM phase — every land is unowned and continent
+     identity is the only thing you are choosing on):
+                aurora  solmar  vantia  kessia norlund meridia
+       aurora        -    41.3    32.7    19.7    36.9    16.0
+       solmar     41.3       -  ->11.7<-  30.7    18.3    29.0
+       vantia     32.7  ->11.7<-      -   27.3    22.6    18.5
+       kessia     19.7    30.7    27.3       -    19.6    22.3
+       norlund    36.9    18.3    22.6    19.6       -    31.3
+       meridia    16.0    29.0    18.5    22.3    31.3       -
+
+   SOLMAR/VANTIA at 11.7 — amber #e6b422 against orange #e8752a, two warm
+   mid-tones 29 degrees apart in hue and 14 apart in L*. Muted for the claim
+   phase they become khaki and tan and they are, plainly, the same colour.
+   (11.7 is also where the ~11.2 in the .kq-paper note below came from: that
+   figure was sampled off a screenshot of unclaimed land.)
+
+   THE FIX IS ONE CONTINENT. Vantia drops from #e8752a to a burnt-oxide
+   #bf5219 — same orange family, same story, but L* 61.7 -> 48.5 and hue
+   56 -> 51, so it separates from Solmar's gold by LIGHTNESS as well as by
+   hue and stops competing with the gold accent (--kq-gold #FFC542) for the
+   eye. Deeper and dirtier is also the more noir of the two.
+   Nothing else moves: every other pair already cleared the bar, and a
+   palette rewritten wholesale is a different map.
+
+   IT DOES NOT CLEAR 15 ON ITS OWN, and that is the second change below —
+   see the unowned mute in TERR_SHADE. A search over the whole six-colour
+   palette (L* 44..68, C* 38..72, hue within +-35 of home, so it stays a
+   noir palette and Solmar stays gold) could not get the worst pair past
+   16.0 while the mute stayed at 0.62 — and it only reached 16.0 by turning
+   Solmar olive, which costs the continent its name. The mute was the
+   binding constraint, not the palette.
+   Re-measure with scratchpad/kq-lab.js, which computes from these values
+   rather than sampling pixels: territories inside one continent carry
+   different ripple shades, so a six-pixel screenshot sample is noisy and
+   the min-pair figure it reports moves around. */
+const CONT_HEX = {
+  aurora:  '#7c5cff',      /* violet     — unchanged */
+  solmar:  '#e6b422',      /* gold       — unchanged */
+  vantia:  '#bf5219',      /* burnt oxide, was #e8752a */
+  kessia:  '#2b9dd9',      /* cyan       — unchanged */
+  norlund: '#2fa34d',      /* green      — unchanged */
+  meridia: '#e05a9c'       /* rose       — unchanged */
+};
 /* the CONTINENT descriptor for a territory index: base colour + a per-terr
    land shade + an unowned (dim) shade, all cached. */
 const CONT_INFO = (function(){
   const info = {};       /* contId -> { hex, land:[perTerr shade], dim } */
-  E.CONTINENTS.forEach(c => { info[c.id] = { hex:c.hex, name:c.name, bonus:c.bonus }; });
+  E.CONTINENTS.forEach(c => { info[c.id] = { hex:CONT_HEX[c.id] || c.hex, name:c.name, bonus:c.bonus }; });
   return info;
 })();
 const contHex = cid => (CONT_INFO[cid] ? CONT_INFO[cid].hex : '#6a7a8a');
@@ -104,7 +163,26 @@ const TERR_SHADE = (function(){
     const k = mem.indexOf(i);
     const step = ((k % 3) - 1);          /* -1, 0, +1 */
     const owned   = shade(base, step === 0 ? 0.02 : (step * 0.11));    /* lively family shade */
-    const unowned = rgbToHex(...mix(hexToRgb(base), [70,86,104], 0.62)); /* muted, greyed */
+    /* THE UNOWNED MUTE — .50, NOT .62. This is a distance dial, not just a
+       mood one: dragging every continent 62% of the way to one slate drags
+       them 62% of the way to EACH OTHER, and the claim phase — the one
+       phase where all forty lands are unowned and picking a continent is
+       the only decision on the table — was where the six families came
+       closest to collapsing. Measured through the same render chain, worst
+       pair over all fifteen pairs and all three ripple shades:
+         mute   shipped palette   with Vantia = #bf5219
+         0.62        11.7                14.7      both under the 15 bar
+         0.55        13.7                17.2
+         0.50        15.1              ->18.9<-    where it sits now
+         0.45        16.4                20.6
+       Either change alone leaves a pair a player confuses; together the
+       tightest pair on the whole board clears 15 with room to spare in
+       every state — owned flat 40.0, owned + paper 28.1, unowned flat 30.0,
+       unowned + paper 18.9. .50 is still visibly muted against a live land
+       (that contrast is what says "nobody has claimed this"), and ownership
+       was never carried by the fill anyway — it is the seat-colour ring and
+       the troop badge. */
+    const unowned = rgbToHex(...mix(hexToRgb(base), [70,86,104], 0.50)); /* muted, greyed */
     /* the PAPER pair. konk-land.jpg is laid over the land with `multiply`, so
        the shade underneath has to start brighter for the result to come back
        out at the colour above. Used ONLY once the texture has really loaded —
@@ -561,7 +639,15 @@ function injectCSS(){
        is a pair a player confuses at a glance, and in this game telling
        continents apart is not decoration — you are constantly judging how
        close you are to owning a whole one for its bonus. The grain still
-       reads at .28; the six families stay six families. */
+       reads at .28; the six families stay six families.
+       That 11.2 was the PALETTE's problem showing through the paper, not the
+       paper's — Solmar and Vantia really were the same colour once muted.
+       Both are fixed above (CONT_HEX, and the unowned mute in TERR_SHADE)
+       and the tightest of the fifteen pairs now measures 18.9 through this
+       multiply in the worst state and 28.1 on live land. If you raise this
+       opacity again, re-run scratchpad/kq-lab.js — it computes the whole
+       matrix from the source values instead of sampling pixels, and every
+       pair has to stay over 15. */
     '#scr-party .kq-paper{pointer-events:none;mix-blend-mode:multiply;opacity:.28}' +
     /* THE COASTLINE — what makes land read as land. Two rings grown outward
        from the same polygons (geometry untouched): a near-black continental
@@ -1063,7 +1149,7 @@ function buildSVG(){
   s += '</g>';
   s += '<g class="kq-rimg" aria-hidden="true">';
   E.CONTINENTS.forEach(c => {
-    const sand = rgbToHex(...mix(hexToRgb(c.hex), [236, 222, 190], 0.60));
+    const sand = rgbToHex(...mix(hexToRgb(contHex(c.id)), [236, 222, 190], 0.60));
     E.REGION_MEMBERS[c.id].forEach(i => {
       s += '<polygon class="kq-rim" data-rim="' + i + '" points="' + ptsOf(i) + '" fill="none" ' +
         'stroke="' + sand + '" stroke-width="6"></polygon>';
@@ -1119,10 +1205,10 @@ function buildSVG(){
     const bnX = lx + (w/2) - bnW/2 - 2;
     s += '<g class="kq-clabel" data-cl="' + c.id + '">' +
       '<rect x="' + (lx - w/2).toFixed(1) + '" y="' + (ly - h/2).toFixed(1) + '" width="' + w.toFixed(1) + '" height="' + h + '" ' +
-        'rx="7" fill="rgba(8,18,30,.72)" stroke="' + c.hex + '" stroke-width="1.5"></rect>' +
-      '<text class="cl-nm" x="' + nmX.toFixed(1) + '" y="' + (ly).toFixed(1) + '" fill="' + shade(c.hex, 0.42) + '">' + esc(nm) + '</text>' +
+        'rx="7" fill="rgba(8,18,30,.72)" stroke="' + contHex(c.id) + '" stroke-width="1.5"></rect>' +
+      '<text class="cl-nm" x="' + nmX.toFixed(1) + '" y="' + (ly).toFixed(1) + '" fill="' + shade(contHex(c.id), 0.42) + '">' + esc(nm) + '</text>' +
       '<rect x="' + (bnX - bnW/2 + 3).toFixed(1) + '" y="' + (ly - 9).toFixed(1) + '" width="' + (bnW-6) + '" height="18" rx="5" ' +
-        'fill="' + c.hex + '"></rect>' +
+        'fill="' + contHex(c.id) + '"></rect>' +
       '<text class="cl-bn" x="' + bnX.toFixed(1) + '" y="' + (ly).toFixed(1) + '">+' + c.bonus + '</text>' +
     '</g>';
   });
@@ -1220,7 +1306,7 @@ function reinforceBreakdown(st, seat){
   const base = Math.max(3, Math.floor(terr / 3));
   const conts = [];
   E.CONTINENTS.forEach(c => {
-    if (E.ownsRegion(st, seat, c.id)) conts.push({ name: TE(c.name), bonus: c.bonus, hex: c.hex });
+    if (E.ownsRegion(st, seat, c.id)) conts.push({ name: TE(c.name), bonus: c.bonus, hex: contHex(c.id) });
   });
   const contTotal = conts.reduce((a, c) => a + c.bonus, 0);
   const trade = M ? (M.tradeThisTurn | 0) : 0;
@@ -1747,7 +1833,7 @@ function paintCardSheet(ov, viewSeat){
     const mem = E.REGION_MEMBERS[c.id];
     let held = 0; mem.forEach(t => { if (st.owner[t] === viewSeat) held++; });
     contHtml += '<div class="kq-cont' + (mineWhole ? ' mine' : '') + '">' +
-      '<span class="cs" style="background:' + c.hex + '"></span>' +
+      '<span class="cs" style="background:' + contHex(c.id) + '"></span>' +
       '<span class="cnm">' + esc(TE(c.name)) + '</span>' +
       '<span class="ck">' + held + '/' + mem.length + '</span>' +
       '<span class="cbn">+' + c.bonus + (mineWhole ? ' ✓' : '') + '</span></div>';

@@ -41,10 +41,18 @@ open them, so opening them is cheap and searching blind is not:**
    invisibly. **Asymmetric — invisible to any host-only or single-client
    test.** Always assert on the NON-HOST, and assert it is *visible*, not
    merely in the DOM.
-4. **Relay message budget.** The per-room bucket is ~40/s sustained. One
-   message per tick per phone is fine at 2 seats and drains the bucket at 3+;
-   dropped bytes starve a lockstep for ever. Ship on CHANGE with a keepalive
-   and a per-seat watermark (`js/tankijiet-ui.js`, `js/bomba-ui.js`).
+4. **Relay message budget.** Three buckets, and it is the FIRST one that
+   usually bites: **25 msg/s per CONNECTION** (`MSG_RATE`), 96 KB/s per
+   connection, and **160 relayed msg/s per ROOM** (`FAN_RATE`, raised from 40
+   on 26 Aug 2026 for the real-time games). One token per relayed message, not
+   per recipient, so a room's cost is LINEAR in table size, not quadratic.
+   The practical ceiling: `seats × send-rate ≤ 160`, and no phone may exceed
+   25/s. A 32 ms tick is 31.25/s and so is refused at the CONNECTION bucket
+   before the room bucket is even consulted. That is why every real-time game
+   here ships on CHANGE with a keepalive and a per-seat watermark
+   (`js/tankijiet-ui.js`, `js/bomba-ui.js`) — BOMBA is nominally 16 Hz but a
+   6-seat room measures ~39/s, not 96/s. Dropped bytes starve a lockstep for
+   ever.
 
 ## Money — the traps that pay twice, or not at all
 - **`js/progress.js` pays as a SIDE EFFECT of the `KARTI_PARTY.ui.result`

@@ -4435,6 +4435,32 @@ try {
   }
 } catch(e){}
 
+/* ── test hooks — inert unless the page is opened with ?kiritest ─────
+   The house shape (see js/erbgha-ui.js), on IL-KIRI's OWN flag — the
+   same one __KIRI_T above already answers to, because a game gets one
+   flag, not two. __KIRI_T stays exactly as it is; harnesses ask for it
+   by name. This one is the whole door: the way in (open/menu/setup),
+   the way a turn is actually taken (act, then after() to let the
+   machine seats run), the repaint, the live game, the engine and the
+   way out. show() injects the stylesheet, so startGame() alone already
+   gives a dressed board — call injectCSS() first only if you mean to
+   measure something before a screen exists. ─────────────────────────*/
+if (/[?&]kiritest\b/.test(location.search || '')){
+  window.__KIRI_TEST = {
+    open, menu, setup, startAI, goOnline, startGame, boardScreen,
+    act, after, pump, render, renderAct, renderCells, renderPane,
+    claimSeat, releaseSeat, openSheet, closeSheet,
+    get G(){ return G; },
+    get NET(){ return NET; },
+    get sheet(){ return sheet ? sheet.kind : null; },
+    get tab(){ return tab; },
+    engine: K, ai: AI, hooks: HOOKS,
+    online: (P && P.online) ? P.online.kiri : null,
+    onlineStart, leave: close, standDown, leaveRoom, stash,
+    injectCSS, show, screenEl, noMotion
+  };
+}
+
 })();
 
 /* ═══════════════════════════════════════════════════════════════════
