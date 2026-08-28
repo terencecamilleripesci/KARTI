@@ -1183,15 +1183,19 @@ function renderHome(){
   try { window.KARTI_MAIL && KARTI_MAIL.onHome && KARTI_MAIL.onHome(); } catch (e){}
 }
 /* ───────────────────── the profile chip's sheet ─────────────────────
-   Three things you can DO — switch player, settings, log out — and one quiet
-   line telling you where your game lives. Nothing else. The one extra button
-   is the way to make an account, and it is shown only when there is not one
-   yet: offering "play on another phone" to somebody who is already signed in
-   on this phone is an instruction with nothing behind it. */
+   Your face, and the things you can DO — open the record book, switch player,
+   settings, log out, close. Nothing else. The one extra button is the way to
+   make an account, and it is shown only when there is not one yet: offering
+   "play on another phone" to somebody who is already signed in on this phone
+   is an instruction with nothing behind it.
+   The status line under the face is now shown ONLY when it has something to
+   say (see cloudLine): the routine "signed in, saved N ago" was developer
+   noise on a menu you open to change your face. */
 function cloudLine(){
   const s = cloudStatus();
   if (ACTIVE === GUEST && !s.linked)
-    return { cls:'off', text:'Playing as a guest — this game is on this phone only.' };
+    return { cls:'off', text:AT('Playing as a guest — this game is on this phone only.',
+                                'Qed tilgħab bħala mistieden — din il-logħba qiegħda fuq dan it-telefon biss.') };
   /* THERE IS NO SUCH THING AS A "CLOUD ACCOUNT" HERE. An account IS kept for
      you and IS saved — that is what making one means, and the owner has said
      so twice. Naming the cloud separately invented a second idea a player then
@@ -1200,17 +1204,32 @@ function cloudLine(){
   if (s.linked){
     const when = (KARTI_SYNC.whenText ? KARTI_SYNC.whenText(s.lastAt) : '');
     if (s.phase === 'conflict')
-      return { cls:'warn', text:s.user + ' — waiting for you to choose which game to keep.' };
+      return { cls:'warn', text:s.user + AT(' — waiting for you to choose which game to keep.',
+                                            ' — qed jistenna li tagħżel liema logħba żżomm.') };
     if (s.online === false)
-      return { cls:'warn', text:s.user + ' — the server is not answering. Your game is ' +
-                                'safe on this phone and will save when it does.' };
-    return { cls:'on', text:s.user + ' · ' +
-             (s.lastAt ? 'saved ' + when : 'saving…') };
+      return { cls:'warn', text:s.user + AT(' — the server is not answering. Your game is ' +
+                                            'safe on this phone and will save when it does.',
+                                            ' — is-server mhux iwieġeb. Il-logħba tiegħek hija ' +
+                                            'żgura fuq dan it-telefon u tissejvja meta jwieġeb.') };
+    /* THE ONE ROUTINE CASE — nothing is wrong, nothing needs doing, and
+       "saved 3 h ago" reads to a player like a warning that it did NOT save.
+       It is flagged `routine` rather than deleted: SETTINGS is where you go to
+       look at the account, so the line still belongs there, while the profile
+       sheet (which you open to change your face or switch player) leaves it
+       out. Every OTHER branch of this function is telling the player something
+       they may have to act on — guest, conflict, server down, not backed up —
+       and none of them carry the flag, so none of them can be dropped by the
+       same test. */
+    return { cls:'on', routine:true, text:s.user + ' · ' +
+             (s.lastAt ? AT('saved ', 'issejvja ') + when : AT('saving…', 'qed jissejvja…')) };
   }
   if (cloudPending)
-    return { cls:'warn', text:'Made on this phone. It goes to the cloud as soon as the ' +
-                              'server answers.' };
-  return { cls:'off', text:'On this phone only — not backed up.' };
+    return { cls:'warn', text:AT('Made on this phone. It goes to the cloud as soon as the ' +
+                                 'server answers.',
+                                 'Magħmul fuq dan it-telefon. Jitla\' fis-sħaba hekk kif ' +
+                                 'is-server iwieġeb.') };
+  return { cls:'off', text:AT('On this phone only — not backed up.',
+                              'Fuq dan it-telefon biss — mhux ibbekkjat.') };
 }
 function profileSheet(){
   injectAccountCSS();
@@ -1230,32 +1249,61 @@ function profileSheet(){
        data-kx-av span and styles .kx-pfav; the caption under it is
        there so this can never be a hidden hotspot. */
     (window.KARTI_XP
-      ? '<button class="kx-pfav" id="pf-av" aria-label="Change how you look">' +
+      ? '<button class="kx-pfav" id="pf-av" aria-label="' +
+          esc(AT('Change how you look', 'Ibdel kif tidher')) + '">' +
           '<span data-kx-av="' + esc(displayName()) + '" data-kx-size="76"></span>' +
           '<span class="kx-pfpen" aria-hidden="true">' + ico('star') + '</span>' +
         '</button>' +
-        '<p class="kx-pfcap">Tap your face to change it</p>'
+        '<p class="kx-pfcap">' + AT('Tap your face to change it',
+                                    'Agħfas wiċċek biex tibdlu') + '</p>'
       : '') +
-    '<p class="cloudline ' + line.cls + '"><i></i><span>' + esc(line.text) + '</span></p>' +
+    /* Only when the line has something to SAY. cloudLine() flags its one
+       routine state (signed in, saved, nothing to do) as `routine`; that one
+       is left out here. A guest with no account, a sync conflict, a server
+       that is not answering and "on this phone only, not backed up" all still
+       show — they are the cases a player has to know about. */
+    (line.routine ? ''
+      : '<p class="cloudline ' + line.cls + '"><i></i><span>' + esc(line.text) + '</span></p>') +
     (needsAccount
       ? '<div class="opts" style="margin-top:10px">' +
           '<button class="btn primary" id="pf-make">' +
-            ilb('save', 'Create an account') +
-            '<span class="sub">saves by itself · play on any phone</span></button>' +
+            ilb('save', AT('Create an account', 'Agħmel kont')) +
+            '<span class="sub">' + AT('saves by itself · play on any phone',
+                                      'jissejvja waħdu · ilgħab fuq kwalunkwe telefon') +
+            '</span></button>' +
         '</div>'
       : '') +
-    /* The record book and the board are their own module (js/stats.js); it
-       binds these by data attribute, so this stays markup only. */
+    /* ONE DOOR TO THE RECORD BOOK. There used to be two — "Record book" and
+       "Leaderboard" — and the second one asked for icon `crown`, which exists
+       in no sprite and is injected by no file, so it drew a blank gap where
+       every other button had a mark. The leaderboard is now the BOARD tab
+       inside the record book (js/stats.js), so this is a single button and the
+       sub-label says the board is still in there.
+       EVERY BUTTON BELOW CARRIES AN ICON, Close included, and every icon named
+       here is one that actually exists: cards/users/back/close ship in the
+       sprite in index.html, gear is appended by injectAccountIcons() above —
+       which injectAccountCSS() on the first line of this function guarantees
+       has run. js/stats.js binds the data attribute itself, so this stays
+       markup only. */
     '<div class="opts">' +
-      '<button class="btn ghost" data-karti-stats>' + ilb('cards', 'Record book') + '</button>' +
-      '<button class="btn ghost" data-karti-stats="board">' + ilb('crown', 'Leaderboard') + '</button>' +
+      '<button class="btn ghost" data-karti-stats>' +
+        ilb('cards', AT('Record book', 'Ktieb tar-rekords')) +
+        '<span class="sub">' + AT('your record · recent games · the board',
+                                  'ir-rekord tiegħek · logħbiet reċenti · il-klassifika') +
+        '</span></button>' +
     '</div>' +
     '<div class="opts">' +
-      '<button class="btn ghost" id="pf-switch">' + ilb('users', 'Switch player') + '</button>' +
-      '<button class="btn ghost" id="pf-set">' + ilb('gear', 'Settings') + '</button>' +
-      '<button class="btn ghost" id="pf-out">' + ilb('back', 'Log out') + '</button>' +
+      '<button class="btn ghost" id="pf-switch">' +
+        ilb('users', AT('Switch player', 'Ibdel il-plejer')) + '</button>' +
+      '<button class="btn ghost" id="pf-set">' +
+        ilb('gear', AT('Settings', 'Settings')) + '</button>' +
+      '<button class="btn ghost" id="pf-out">' +
+        ilb('back', AT('Log out', 'Oħroġ')) + '</button>' +
     '</div>' +
-    '<button class="btn ghost" id="pf-close" style="margin-top:8px;width:100%">Close</button>');
+    '<div class="opts">' +
+      '<button class="btn ghost" id="pf-close">' +
+        ilb('close', AT('Close', 'Agħlaq')) + '</button>' +
+    '</div>');
   $('#pf-close').onclick = closeSheet;
   { const av = $('#pf-av');
     if (av) av.onclick = () => {

@@ -10,6 +10,11 @@
      · KARTI_STATS.openProfile()      — your record, every game, with
        that game's emblem beside it.
      · KARTI_STATS.openLeaderboard()  — everyone, ranked, from the Pi.
+     Those are ONE screen now, not two destinations: a three-tab control
+     across the top — MY RECORD / RECENT / BOARD — and the two calls above
+     simply open it on the tab they name. Same for the markup hooks:
+     `data-karti-stats` lands on MY RECORD, `data-karti-stats="board"` on
+     BOARD.
 
    HOUSE RULES THIS FILE OBEYS
      · index.html, css/ and every other game file belong to somebody
@@ -876,10 +881,12 @@ function injectCSS(){
   st.textContent =
     '#scr-stats{--ax:#FFC542}' +
 
-    /* ── the two-tab switch: profile or the whole island ── */
+    /* ── the segmented switch. ONE control, used at two levels: the outer
+       my record / recent / board, and the board's own overall / all games.
+       44px is the touch floor, so that is the button height. ── */
     '#scr-stats .sx-seg{display:flex;background:var(--panel);border:1px solid var(--line);' +
       'border-radius:13px;padding:4px;gap:4px;margin:0 0 10px;flex:0 0 auto}' +
-    '#scr-stats .sx-seg button{flex:1;min-height:42px;border-radius:10px;font-family:var(--disp);' +
+    '#scr-stats .sx-seg button{flex:1;min-height:44px;border-radius:10px;font-family:var(--disp);' +
       'font-weight:900;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);' +
       'display:flex;align-items:center;justify-content:center;gap:7px;transition:.15s var(--ease)}' +
     '#scr-stats .sx-seg button .ico{font-size:1.25em}' +
@@ -889,14 +896,34 @@ function injectCSS(){
     '#scr-stats .sx-seg3 button{min-width:0;font-size:10.5px;letter-spacing:.05em;gap:5px;padding:0 4px}' +
     '#scr-stats .sx-seg3 button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}' +
     '#scr-stats .sx-seg3 button .ico{flex:0 0 auto}' +
+    /* the SUB control, one level in (the board\'s overall / all games). Reads
+       as subordinate to the tab strip above it without shrinking the target:
+       no fill of its own, a lighter pressed state, a tighter gap under it. */
+    '#scr-stats .sx-segsub{background:transparent;border-color:transparent;padding:0;gap:6px;' +
+      'margin:0 0 8px}' +
+    '#scr-stats .sx-segsub button{background:var(--panel);border:1px solid var(--line);' +
+      'font-size:10.5px;letter-spacing:.06em}' +
+    '#scr-stats .sx-segsub button[aria-pressed="true"]{background:rgba(255,197,66,.16);' +
+      'border-color:var(--gold);color:var(--gold)}' +
 
-    /* ── the three leaderboard panels — one shows, the others are hidden.
-       Each panel is a full flex column (only its inner list scrolls), so a
-       tab switch is a display flip with no re-render and no scroll jump. ── */
+    /* ── the panels — one shows, the others are hidden. Each panel is a full
+       flex column (only its inner list scrolls), so a tab switch is a display
+       flip with no re-render and no scroll jump. The same rules serve both
+       levels; the outer panes key off data-vpanel and the board\'s off
+       data-panel, so a nested pair cannot hide each other.
+       The cross-fade is OPACITY ONLY — a transform here would make the panel a
+       containing block for any position:fixed descendant, which is the bug
+       that once caught the tab bar (see index.html\'s scrIn note) — and it is
+       switched off entirely under prefers-reduced-motion. ── */
     '#scr-stats .sx-panes{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}' +
     '#scr-stats .sx-panel{flex:1 1 auto;min-height:0;display:none;flex-direction:column}' +
-    '#scr-stats .sx-panel.on{display:flex}' +
+    '#scr-stats .sx-panel.on{display:flex;animation:sxPane .18s var(--ease) both}' +
     '#scr-stats .sx-panel[hidden]{display:none}' +
+    '@keyframes sxPane{from{opacity:0}to{opacity:1}}' +
+    '@media (prefers-reduced-motion:reduce){#scr-stats .sx-panel.on{animation:none}}' +
+    /* the app\'s OWN reduced-motion switch (PREFS in js/game.js puts .reduced
+       on <body>), honoured the same way as the OS one */
+    'body.reduced #scr-stats .sx-panel.on{animation:none}' +
 
     /* ── the ALL GAMES tab: grid <-> one game\'s board, both in one scroller ── */
     '#scr-stats .sx-gwrap{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}' +
@@ -1430,15 +1457,38 @@ function injectCSS(){
    a screen on we step aside instead of floating over the top of it.
    ═══════════════════════════════════════════════════════════════════ */
 var scr = null, live = false, watching = false;
-var VIEW = 'profile';      /* profile (the record book) | board (the leaderboard) */
-/* THE THREE LEADERBOARD TABS. The board screen is one of three panels now:
+
+/* ── ONE SCREEN, THREE TABS ──────────────────────────────────────────
+   The record book and the leaderboard used to be two destinations with two
+   buttons in the profile sheet, and the second of those buttons asked for an
+   icon that does not exist. They are now ONE screen — "Record Book" — with a
+   three-tab segmented control across the top:
+
+       [ MY RECORD ]   [ RECENT ]   [ BOARD ]
+
+     me      — the trophy cabinet: totals, the win-rate ring, every game
+               with its emblem and its W/L/D.
+     recent  — the last matches from DATA.h, newest first.
+     board   — the leaderboard, which keeps its own sub-tabs (Overall / All
+               games) below this one.
+
+   PANE is the outer tab, TAB the board's inner one. They use the SAME CSS
+   machinery (.sx-seg / .sx-seg3 / .sx-panes / .sx-panel) and differ only in
+   the data attribute they key off — `data-vpanel` / `.sx-vtab` outside,
+   `data-panel` / `.sx-tab` inside — so nesting one inside the other cannot
+   make either one hide the other's panels. Switching either level is a class
+   flip on panels already in the DOM: no re-render, no scroll jump, every
+   avatar and logo stays mounted. */
+var PANE = 'me';           /* me | recent | board */
+/* THE BOARD'S OWN SUB-TABS.
      overall  — the combined ranking across everything (podium + numbered
                 ladder + the all-time/weekly toggle). The default.
      games    — the per-game browse: the grid of every game, tap one to see
                 that game's board.
-     recent   — a feed of the most recent match results.
-   Switching is a class flip on already-rendered panels (no re-render, no
-   scroll jump), so it is instant and keeps every avatar/logo already mounted. */
+   There used to be a third, `recent`, showing exactly the feed the outer
+   RECENT tab now shows. Two routes to one list is the untidiness this pass
+   was asked to fix, and both panels wanted the same #sx-recent element, so the
+   feed was promoted OUT of the board rather than duplicated inside it. */
 var TAB = 'overall';
 
 function screenEl(){
@@ -1495,26 +1545,36 @@ function close(){
 
 var cameFrom = 'home';
 
+/* THE TWO ENTRY POINTS, KEPT. Other code calls both by name and the profile
+   sheet still opens them by data attribute; they are now the same screen on a
+   different tab, which is the whole point of the merge. */
 function openProfile(from){
   cameFrom = from || cameFrom;
-  VIEW = 'profile';
+  PANE = 'me';
   bind(activeKey());
   show(); render();
 }
 function openLeaderboard(from){
   cameFrom = from || cameFrom;
-  VIEW = 'board';
+  PANE = 'board';
   bind(activeKey());
   show(); render();
   loadBoard();
 }
 
-/* THE THREE TABS, declared once so the segmented control and the switch
-   logic agree. Each is a title + an icon from the set. */
+/* THE OUTER TABS, declared once so the segmented control and the switch logic
+   agree. Each is a title + an icon that exists: `person` and `podium` are
+   appended to the sprite by injectIcons() above, `bolt` ships in index.html. */
+var PANES = [
+  { id:'me',     en:'My record', mt:'Ir-rekord', icon:'person' },
+  { id:'recent', en:'Recent',    mt:'Reċenti',   icon:'bolt'   },
+  { id:'board',  en:'Board',     mt:'Klassifika',icon:'podium' }
+];
+
+/* THE BOARD'S SUB-TABS, same shape. `grid` is injected by injectIcons(). */
 var TABS = [
   { id:'overall', en:'Overall',  mt:'Total',   icon:'podium' },
-  { id:'games',   en:'All games',mt:'Logħob',  icon:'grid'   },
-  { id:'recent',  en:'Recent',   mt:'Reċenti', icon:'bolt'   }
+  { id:'games',   en:'All games',mt:'Logħob',  icon:'grid'   }
 ];
 
 /* Switch board tab WITHOUT a re-render — a class flip on panels that are
@@ -1522,6 +1582,26 @@ var TABS = [
    jump. The overall tab is the only one that talks to the Pi, so its board
    is (re)loaded lazily the first time it is shown and whenever a filter or
    period changes; the other two are static local content. */
+/* Switch the OUTER tab. Same class flip, keyed on data-vpanel so it can never
+   touch the board's own panels (data-panel) nested inside it. */
+function setPane(id, el){
+  if (!PANES.some(function(p){ return p.id === id; })) return;
+  PANE = id;
+  el = el || scr;
+  if (!el) return;
+  $$('.sx-vtab', el).forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.getAttribute('data-v') === PANE));
+  });
+  $$('.sx-panel[data-vpanel]', el).forEach(function(p){
+    var on = p.getAttribute('data-vpanel') === PANE;
+    p.classList.toggle('on', on);
+    p.hidden = !on;
+  });
+  /* the two panes that have work to do when they come up */
+  if (PANE === 'recent') paintRecent(el);
+  else if (PANE === 'board') setTab(TAB, el);
+}
+
 function setTab(id, el){
   if (!TABS.some(function(t){ return t.id === id; })) return;
   TAB = id;
@@ -1530,7 +1610,9 @@ function setTab(id, el){
   $$('.sx-tab', el).forEach(function(b){
     b.setAttribute('aria-pressed', String(b.getAttribute('data-t') === TAB));
   });
-  $$('.sx-panel', el).forEach(function(p){
+  /* [data-panel] only — the outer panes are .sx-panel too, and without the
+     attribute filter this loop would hide the very pane it is running inside */
+  $$('.sx-panel[data-panel]', el).forEach(function(p){
     var on = p.getAttribute('data-panel') === TAB;
     p.classList.toggle('on', on);
     p.hidden = !on;
@@ -1551,13 +1633,11 @@ function setTab(id, el){
     } else {
       boardHost = null;
     }
-  } else if (TAB === 'recent'){
-    paintRecent(el);
   }
 }
 var boardNeedsLoad = true;
 
-/* ── the frame both views live in ── */
+/* ── the one frame all three tabs live in ── */
 function render(){
   if (!live || !scr) return;
   /* a full re-render replaces the screen's innerHTML, which would orphan an
@@ -1567,67 +1647,61 @@ function render(){
   bind(activeKey());
   var el = screenEl();
 
-  if (VIEW === 'board'){
-    /* the three-tab leaderboard */
-    var seg = '<div class="sx-seg sx-seg3" role="tablist" aria-label="' +
-      esc(T('Leaderboard sections', 'Sezzjonijiet tal-klassifika')) + '">' +
-      TABS.map(function(t){
-        return '<button type="button" class="sx-tab" data-t="' + t.id + '" ' +
-          'aria-pressed="' + (TAB === t.id) + '">' +
-          ico(t.icon) + '<span>' + esc(T(t.en, t.mt)) + '</span></button>';
-      }).join('') + '</div>';
+  /* the OUTER control: my record / recent / board */
+  var vseg = '<div class="sx-seg sx-seg3" role="tablist" aria-label="' +
+    esc(T('Record book sections', 'Sezzjonijiet tal-ktieb tar-rekords')) + '">' +
+    PANES.map(function(p){
+      return '<button type="button" class="sx-vtab" data-v="' + p.id + '" ' +
+        'aria-pressed="' + (PANE === p.id) + '">' +
+        ico(p.icon) + '<span>' + esc(T(p.en, p.mt)) + '</span></button>';
+    }).join('') + '</div>';
 
-    el.innerHTML =
-      '<div class="tbar">' +
-        '<button class="iconbtn" id="sx-back" aria-label="Back">' +
-          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
-        '<h2>' + T('Leaderboard', 'Klassifika') + '</h2>' +
-      '</div>' +
-      seg +
-      '<div class="sx-panes">' +
-        '<div class="sx-panel' + (TAB === 'overall' ? ' on' : '') + '" data-panel="overall"' +
-          (TAB === 'overall' ? '' : ' hidden') + '>' + overallHTML() + '</div>' +
-        '<div class="sx-panel' + (TAB === 'games' ? ' on' : '') + '" data-panel="games"' +
-          (TAB === 'games' ? '' : ' hidden') + '>' + gamesHTML() + '</div>' +
-        '<div class="sx-panel' + (TAB === 'recent' ? ' on' : '') + '" data-panel="recent"' +
-          (TAB === 'recent' ? '' : ' hidden') + '>' + recentHTML() + '</div>' +
-      '</div>';
+  /* the BOARD's own control, one level in: overall / all games */
+  var seg = '<div class="sx-seg sx-segsub" role="tablist" aria-label="' +
+    esc(T('Leaderboard sections', 'Sezzjonijiet tal-klassifika')) + '">' +
+    TABS.map(function(t){
+      return '<button type="button" class="sx-tab" data-t="' + t.id + '" ' +
+        'aria-pressed="' + (TAB === t.id) + '">' +
+        ico(t.icon) + '<span>' + esc(T(t.en, t.mt)) + '</span></button>';
+    }).join('') + '</div>';
 
-    wireArt(el);
-    try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(el); } catch (e){}
-    $('#sx-back', el).onclick = close;
-    $$('.sx-tab', el).forEach(function(b){
-      b.onclick = function(){ var id = b.getAttribute('data-t'); if (id !== TAB) setTab(id, el); };
-    });
-    wireBoard(el);      /* overall's period/filter/allgames handlers */
-    wireGames(el);      /* the grid + per-game board sub-view */
-    if (TAB === 'recent') paintRecent(el);
-    return;
+  function pane(id, inner){
+    return '<div class="sx-panel' + (PANE === id ? ' on' : '') + '" data-vpanel="' + id + '"' +
+      (PANE === id ? '' : ' hidden') + '>' + inner + '</div>';
   }
 
-  /* VIEW === 'profile' — the personal record book, reachable via
-     openProfile()/data-karti-stats and the "record book" affordances.
-     Its own toggle jumps to the leaderboard, which is where the three tabs
-     live. */
   el.innerHTML =
     '<div class="tbar">' +
-      '<button class="iconbtn" id="sx-back" aria-label="Back">' +
+      '<button class="iconbtn" id="sx-back" aria-label="' + esc(T('Back', 'Lura')) + '">' +
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button>' +
       '<h2>' + T('Record Book', 'Ktieb tar-Rekords') + '</h2>' +
     '</div>' +
-    '<div class="sx-seg">' +
-      '<button type="button" id="sx-tab-p" aria-pressed="true">' +
-        ico('person') + T('My record', 'Ir-rekord tiegħi') + '</button>' +
-      '<button type="button" id="sx-tab-b" aria-pressed="false">' +
-        ico('podium') + T('Leaderboard', 'Klassifika') + '</button>' +
-    '</div>' +
-    profileHTML();
+    vseg +
+    '<div class="sx-panes">' +
+      pane('me', profileHTML()) +
+      pane('recent', recentHTML()) +
+      pane('board',
+        seg +
+        '<div class="sx-panes">' +
+          '<div class="sx-panel' + (TAB === 'overall' ? ' on' : '') + '" data-panel="overall"' +
+            (TAB === 'overall' ? '' : ' hidden') + '>' + overallHTML() + '</div>' +
+          '<div class="sx-panel' + (TAB === 'games' ? ' on' : '') + '" data-panel="games"' +
+            (TAB === 'games' ? '' : ' hidden') + '>' + gamesHTML() + '</div>' +
+        '</div>') +
+    '</div>';
 
   wireArt(el);
   try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(el); } catch (e){}
   $('#sx-back', el).onclick = close;
-  $('#sx-tab-p', el).onclick = function(){ /* already here */ };
-  $('#sx-tab-b', el).onclick = function(){ VIEW = 'board'; boardNeedsLoad = true; render(); };
+  $$('.sx-vtab', el).forEach(function(b){
+    b.onclick = function(){ var id = b.getAttribute('data-v'); if (id !== PANE) setPane(id, el); };
+  });
+  $$('.sx-tab', el).forEach(function(b){
+    b.onclick = function(){ var id = b.getAttribute('data-t'); if (id !== TAB) setTab(id, el); };
+  });
+  wireBoard(el);      /* the period toggles + the first paint of #sx-board */
+  wireGames(el);      /* the grid + per-game board sub-view */
+  if (PANE === 'recent') paintRecent(el);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2025,10 +2099,15 @@ function wireGames(el){
   if (gb) gb.onclick = function(){ backToGrid(el); };
 }
 
-/* ── TAB 3: RECENT GAMES — a feed of the player's own recent results ──
-   Built from DATA.h[], the per-match log record() keeps (see the report for
-   the fields a richer, opponent-aware feed would want). Newest first: each
-   row is the game (logo + name), the result (win/loss/draw), and when. */
+/* ── THE RECENT TAB — a feed of the player's own recent results ──
+   The middle tab of the outer three. Built from DATA.h[], the per-match log
+   record() keeps. Newest first: each row is the game (logo + name), the
+   result (win/loss/draw), and when.
+   THERE IS NO OPPONENT COLUMN AND THERE MUST NOT BE ONE. record()'s payload
+   carries {result, id, moves, score, ms} and nothing else — no seat list, no
+   names — so who you played is not a fact this file has. An empty column
+   would promise it is coming; inventing one would be a lie. The foot line
+   under the list says so plainly instead. */
 function recentHTML(){
   return '<div id="sx-recent" class="sx-list"></div>';
 }
@@ -2541,7 +2620,11 @@ document.addEventListener('visibilitychange', function(){
    insert on their side is pure markup and no JavaScript at all:
 
      <button class="btn ghost" data-karti-stats>Record book</button>
-     <button class="btn ghost" data-karti-stats="board">Leaderboard</button>
+
+   The profile sheet in js/game.js carries exactly ONE of these now — the
+   record book — because the leaderboard is a tab inside it. The ="board"
+   form still works and still lands on that tab, so anything else that used
+   it keeps working.
 
    Delegated on the document so it also works for a button that is painted
    long after this file ran, which is every screen in this game. */
