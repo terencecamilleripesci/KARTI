@@ -2637,6 +2637,55 @@ function cosmGameAccent(id){
   for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0;
   return 'hsl(' + (Math.abs(h) % 360) + ' 72% 62%)';
 }
+/* THE GAME'S OWN EMBLEM, the same one the party shelf uses.
+   js/party.js already owns the convention — art/ui/logo-<id>.png, decided for
+   the whole shelf by ONE sentinel probe rather than one 404 per tile — but
+   its verdict is private to that file, so this mirrors it. The monogram stays
+   underneath as the fallback and is what shows today, because the logo art has
+   not been drawn yet (party.js: "It does not exist yet"). The hour those files
+   land, both the hub and this picker pick them up with no further edit. */
+let storeLogoPack = null, storeLogoProbing = false;
+function storeLogoProbe(after){
+  if (storeLogoPack !== null || storeLogoProbing) return;
+  if (!(ART && ART.base)){ storeLogoPack = false; return; }
+  storeLogoProbing = true;
+  const img = new Image();
+  img.onload  = () => { storeLogoPack = true;  storeLogoProbing = false; if (after) after(); };
+  img.onerror = () => { storeLogoPack = false; storeLogoProbing = false; };
+  img.src = 'art/ui/logo-chess.png';
+}
+/* swap the monogram for the emblem only once it has actually decoded, so a
+   broken-image glyph can never appear in a tile */
+function storeLogoInto(host, id){
+  if (!host || storeLogoPack !== true) return;
+  const img = new Image();
+  img.onload = () => {
+    if (!host.isConnected) return;
+    host.textContent = '';
+    img.className = 'cpk-logo';
+    img.alt = '';
+    img.setAttribute('aria-hidden', 'true');
+    host.appendChild(img);
+    host.classList.add('haslogo');
+  };
+  img.onerror = () => {};            /* that game simply has no emblem yet */
+  img.src = 'art/ui/logo-' + id + '.png';
+}
+function storeLogosInto(stage){
+  /* the probe is async: if the emblems turn out to exist, repaint the shelf
+     that is on screen so they appear without a tab switch */
+  storeLogoProbe(() => {
+    if (current !== 'pack') return;
+    if (storeTab === 'cosm') renderCosmTab();
+    else if (storeTab === 'excl') renderExclTab();
+  });
+  if (storeLogoPack !== true) return;
+  $$('.cpk-ic', stage).forEach(h => {
+    const btn = h.closest('.cpk');
+    const id = btn && (btn.dataset.cg || btn.dataset.xg);
+    if (id) storeLogoInto(h, id);
+  });
+}
 function cosmMonogram(id){
   const n = cosmGameName(id).replace(/^(IL|IS|IT|L)-/i, '').replace(/[^A-Za-zĠĦŻĊġħżċ]/g, '');
   return (n.slice(0, 2) || String(id).slice(0, 2)).toUpperCase();
@@ -4450,6 +4499,7 @@ function renderCosmTab(){
     stage.innerHTML = html;
     /* the game tabs. Switching keeps you on the shelf and scrolls the strip
        so the one you picked is in view — nothing else on the screen moves. */
+    storeLogosInto(stage);
     $$('.cpk', stage).forEach(btn => {
       btn.onclick = () => {
         cosmGame = btn.dataset.cg;
@@ -4662,6 +4712,7 @@ function renderExclTab(){
       ? 'Ir-rebħiet juru li lgħabt din il-logħba. Il-muniti jiswew. Trid it-tnejn.'
       : 'The wins prove you played this game. The coins cost you. You need both.') + '</p></div>';
     stage.innerHTML = html;
+    storeLogosInto(stage);
     $$('.cpk', stage).forEach(btn => {
       btn.onclick = () => {
         exclGame = btn.dataset.xg;
@@ -4785,6 +4836,8 @@ function storeCSS(){
       'border-radius:14px;border:1.5px solid var(--line);background:rgba(255,255,255,.04);' +
       'display:grid;justify-items:center;align-content:center;gap:4px;cursor:pointer;' +
       'transition:background .15s,border-color .15s,transform .13s var(--ease)}' +
+    '.cpk .cpk-ic.haslogo{background:none;box-shadow:none}' +
+    '.cpk .cpk-logo{width:100%;height:100%;object-fit:contain}' +
     '.cpk .cpk-ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;' +
       'font-family:var(--disp);font-weight:900;font-size:12.5px;letter-spacing:.02em;' +
       'color:#150F26;background:linear-gradient(180deg,var(--cga),' +
