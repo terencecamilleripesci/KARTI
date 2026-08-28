@@ -4431,23 +4431,36 @@ function renderCosmTab(){
        not the same as being findable. Now the games are a row of tabs and
        you read one shelf, with your own owned/total on every tab so you can
        see where you have spent without opening anything. */
-    if (games.indexOf(cosmGame) < 0) cosmGame = games[0] || '';
-    const pick = '<div class="cosmpick" role="tablist" aria-label="Choose a game">' +
-      games.map(g => {
-        const grp = byGame[g];
-        const tot = grp.buy.length + grp.lock.length;
-        const own = grp.buy.filter(d => cosmOwned(d.id)).length;
-        return '<button class="cpk' + (g === cosmGame ? ' on' : '') + '" role="tab"' +
-          ' aria-selected="' + (g === cosmGame ? 'true' : 'false') + '"' +
-          ' style="--cga:' + esc(cosmGameAccent(g)) + '"' +
-          ' aria-label="' + esc(cosmGameName(g)) + ', ' + own + ' of ' + tot + ' owned"' +
-          ' data-cg="' + esc(g) + '">' +
-          '<span class="cpk-ic" aria-hidden="true">' + esc(cosmMonogram(g)) + '</span>' +
-          '<b>' + esc(cosmGameName(g)) + '</b>' +
-          '<i>' + own + '/' + tot + '</i></button>';
-      }).join('') + '</div>';
-    let html = '<div class="spinwrap cosmwrap">' + hero + pick;
-    [cosmGame].filter(Boolean).forEach(g => {
+    /* ── ALL THE GAMES, THEN ONE OF THEM ──────────────────────────────
+       Two screens, not one long one. The tab opens on a GRID of every
+       game's emblem — you see the whole shop at a glance and pick the game
+       you came for — and that takes you into just that shelf, with a way
+       back. The strip this replaced showed four games at a time and asked
+       you to scroll sideways to discover the rest, which is the same
+       hide-the-goods problem the 39-screen column had, only narrower. */
+    if (cosmGame && games.indexOf(cosmGame) < 0) cosmGame = '';
+    const tile = g => {
+      const grp = byGame[g];
+      const tot = grp.buy.length + grp.lock.length;
+      const own = grp.buy.filter(d => cosmOwned(d.id)).length;
+      return '<button class="cpk' + (own && own >= tot ? ' full' : '') + '"' +
+        ' style="--cga:' + esc(cosmGameAccent(g)) + '"' +
+        ' aria-label="' + esc(cosmGameName(g)) + ', ' + own + ' of ' + tot + ' owned"' +
+        ' data-cg="' + esc(g) + '">' +
+        '<span class="cpk-ic" aria-hidden="true">' + esc(cosmMonogram(g)) + '</span>' +
+        '<b>' + esc(cosmGameName(g)) + '</b>' +
+        '<i>' + own + '/' + tot + '</i></button>';
+    };
+    let html = '<div class="spinwrap cosmwrap">';
+    if (!cosmGame){
+      html += hero +
+        '<p class="cosmintro tiny">Every game has its own look. Pick one.</p>' +
+        '<div class="gamegrid">' + games.map(tile).join('') + '</div>';
+    } else {
+      html += '<button class="cosmback" id="cosm-back">' + ico('arrow-left') +
+        ' All games</button>';
+    }
+    (cosmGame ? [cosmGame] : []).forEach(g => {
       const grp = byGame[g];
       const nx = cosmNext(g);
       html += '<p class="cosmgame">' + esc(gameLabel(g)) +
@@ -4500,13 +4513,17 @@ function renderCosmTab(){
     /* the game tabs. Switching keeps you on the shelf and scrolls the strip
        so the one you picked is in view — nothing else on the screen moves. */
     storeLogosInto(stage);
+    const cb = $('#cosm-back', stage);
+    if (cb) cb.onclick = () => {
+      cosmGame = '';
+      try { if (window.KARTI_SFX) KARTI_SFX.play('ui.back'); } catch (e){}
+      renderCosmTab();
+    };
     $$('.cpk', stage).forEach(btn => {
       btn.onclick = () => {
         cosmGame = btn.dataset.cg;
         try { if (window.KARTI_SFX) KARTI_SFX.play('ui.tap'); } catch (e){}
         renderCosmTab();
-        const on = $('.cpk.on', $('#pack-stage'));
-        if (on && on.scrollIntoView) try { on.scrollIntoView({ inline:'center', block:'nearest' }); } catch (e){}
       };
     });
     /* previews after the HTML lands — def.preview returns an element */
@@ -4622,14 +4639,13 @@ function renderExclTab(){
        game), with a tab per game and a tick on the ones you have finished. */
     const xg = [];
     rows.forEach(r => { if (xg.indexOf(r.stat) < 0) xg.push(r.stat); });
-    if (xg.indexOf(exclGame) < 0) exclGame = xg[0] || '';
-    if (xg.length > 1)
-      html += '<div class="cosmpick" role="tablist" aria-label="Choose a game">' +
+    if (exclGame && xg.indexOf(exclGame) < 0) exclGame = '';
+    if (!exclGame && xg.length > 1){
+      html += '<div class="gamegrid">' +
         xg.map(g => {
           const mine = rows.filter(r => r.stat === g);
           const done = mine.filter(r => r.got).length;
-          return '<button class="cpk' + (g === exclGame ? ' on' : '') + '" role="tab"' +
-            ' aria-selected="' + (g === exclGame ? 'true' : 'false') + '"' +
+          return '<button class="cpk' + (done && done >= mine.length ? ' full' : '') + '"' +
             ' style="--cga:' + esc(cosmGameAccent(g)) + '"' +
             ' aria-label="' + esc(gameLabel(g)) + ', ' + done + ' of ' + mine.length + ' unlocked"' +
             ' data-xg="' + esc(g) + '">' +
@@ -4637,7 +4653,11 @@ function renderExclTab(){
             '<b>' + esc(gameLabel(g)) + '</b>' +
             '<i>' + done + '/' + mine.length + '</i></button>';
         }).join('') + '</div>';
-    rows.filter(r => !exclGame || r.stat === exclGame).forEach(r => {
+    } else if (exclGame){
+      html += '<button class="cosmback" id="excl-back">' + ico('arrow-left') +
+        ' All games</button>';
+    }
+    rows.filter(r => exclGame ? r.stat === exclGame : xg.length <= 1).forEach(r => {
       const pctW = Math.round(r.pg.pct * 100);
       html += '<div class="xset' + (r.got ? ' xgot' : '') + '" data-xgame="' + esc(r.g) + '" ' +
           'style="--xa:' + esc(r.meta.accent) + '">' +
@@ -4713,13 +4733,17 @@ function renderExclTab(){
       : 'The wins prove you played this game. The coins cost you. You need both.') + '</p></div>';
     stage.innerHTML = html;
     storeLogosInto(stage);
+    const xb = $('#excl-back', stage);
+    if (xb) xb.onclick = () => {
+      exclGame = '';
+      try { if (window.KARTI_SFX) KARTI_SFX.play('ui.back'); } catch (e){}
+      renderExclTab();
+    };
     $$('.cpk', stage).forEach(btn => {
       btn.onclick = () => {
         exclGame = btn.dataset.xg;
         try { if (window.KARTI_SFX) KARTI_SFX.play('ui.tap'); } catch (e){}
         renderExclTab();
-        const on = $('.cpk.on', $('#pack-stage'));
-        if (on && on.scrollIntoView) try { on.scrollIntoView({ inline:'center', block:'nearest' }); } catch (e){}
       };
     });
     /* mount each piece's animated preview, and wire "Wear the set" to
@@ -4826,13 +4850,26 @@ function storeCSS(){
     '.spinhead .tiny{margin:3px 0 0}' +
     /* the game tabs on Customise / Exclusives: a scrolling strip, current
        one lit, each carrying how many of that game's looks you already own */
-    '.cosmpick{display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;padding:2px 0 6px;' +
-      'scrollbar-width:none;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}' +
-    '.cosmpick::-webkit-scrollbar{display:none}' +
+    /* Every game at once — four across on a phone, so the whole shop is one
+       glance instead of a sideways hunt.
+       NOT .cosmgrid: that name was already taken by the ITEM cards at
+       minmax(150px,1fr), declared later in the same sheet, so it won and the
+       emblems came out two-across at 177px each. */
+    '.gamegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px;' +
+      'padding:2px 0 6px}' +
+    '.cosmback{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 14px;' +
+      'align-self:start;border-radius:12px;border:1px solid var(--line);' +
+      'background:rgba(255,255,255,.04);color:var(--dim);font-family:var(--disp);' +
+      'font-weight:800;font-size:11.5px;letter-spacing:.06em;cursor:pointer}' +
+    '.cosmback .ico{width:15px;height:15px}' +
+    '.cosmback:active{transform:scale(.97)}' +
+    /* a game you have finished gets a tick rather than a count */
+    '.cpk.full{border-color:rgba(61,220,132,.55)}' +
+    '.cpk.full i{color:var(--ok)}' +
     /* A BOX PER GAME, not a word. 78x72 is a comfortable thumb target — the
        text chips this replaced were 38px tall, which is under the 44px
        minimum and asked you to hit a word. */
-    '.cpk{flex:0 0 auto;scroll-snap-align:center;width:78px;min-height:72px;padding:8px 5px 6px;' +
+    '.cpk{width:100%;min-height:78px;padding:9px 5px 7px;' +
       'border-radius:14px;border:1.5px solid var(--line);background:rgba(255,255,255,.04);' +
       'display:grid;justify-items:center;align-content:center;gap:4px;cursor:pointer;' +
       'transition:background .15s,border-color .15s,transform .13s var(--ease)}' +
