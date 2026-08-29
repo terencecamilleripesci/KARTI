@@ -321,7 +321,10 @@ function pats(){
   svg.setAttribute('focusable', 'false');
   svg.setAttribute('style',
     'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none');
-  var s = '', k;
+  var s = '<radialGradient id="kdx-vig" cx="50%" cy="42%" r="72%">' +
+            '<stop offset="55%" stop-color="#000" stop-opacity="0"/>' +
+            '<stop offset="100%" stop-color="#000" stop-opacity=".34"/>' +
+          '</radialGradient>', k;
   for (k in TILES) if (Object.prototype.hasOwnProperty.call(TILES, k)) s += TILES[k];
   svg.innerHTML = s;
   document.body.appendChild(svg);
@@ -415,12 +418,51 @@ function backPv(id){
       '<rect x="1.25" y="1.25" width="97.5" height="137.5" rx="8.5" ' +
         'fill="#F2ECDA" stroke="rgba(0,0,0,.34)" stroke-width="1.1"/>' +
       '<rect x="5.5" y="5.5" width="89" height="129" rx="5.5" fill="url(#kdx-pat-' + b.pat + ')"/>' +
+      /* ── STRUCTURE, not just a tint ──────────────────────────────────
+         Sixteen of these backs were a colour, a 10px texture and a small
+         cross, which at card size is a swatch: line them up on the shelf
+         and only the hue changes. The one that looked like a card was the
+         painted House Deck, and what it has that the others did not is
+         ARCHITECTURE — a double rule, worked corners and a medallion
+         holding the device. All of that is drawn here, so every back gets
+         it at once and none of it costs a download. */
+      /* the field darkens at the edges so the card has depth */
+      '<rect x="5.5" y="5.5" width="89" height="129" rx="5.5" fill="url(#kdx-vig)"/>' +
+      /* double rule: a heavy outer and a fine inner, the way a printed
+         back is actually plated */
       '<rect x="5.5" y="5.5" width="89" height="129" rx="5.5" fill="none" ' +
-        'stroke="' + b.edge + '" stroke-width="1.6" opacity=".75"/>' +
-      '<rect x="10.5" y="10.5" width="79" height="119" rx="3.5" fill="none" ' +
-        'stroke="' + b.edge + '" stroke-width=".7" opacity=".4" stroke-dasharray="2.2 1.8"/>' +
-      '<g transform="translate(28,48) scale(.44)"><path d="' + CROSS_D + '" ' +
-        'fill="' + b.cross + '" opacity=".92"/></g>' +
+        'stroke="' + b.edge + '" stroke-width="2.1" opacity=".85"/>' +
+      '<rect x="9" y="9" width="82" height="122" rx="4" fill="none" ' +
+        'stroke="' + b.edge + '" stroke-width=".6" opacity=".55"/>' +
+      '<rect x="12.5" y="12.5" width="75" height="115" rx="2.5" fill="none" ' +
+        'stroke="' + b.edge + '" stroke-width=".45" opacity=".3"/>' +
+      /* a fleuron in each corner, one path mirrored four ways */
+      '<g fill="' + b.edge + '" opacity=".62">' +
+        '<path d="M12.5 20V15a2.5 2.5 0 0 1 2.5-2.5h5" fill="none" stroke="' + b.edge +
+          '" stroke-width="1.1"/>' +
+        '<path d="M87.5 20V15a2.5 2.5 0 0 0-2.5-2.5h-5" fill="none" stroke="' + b.edge +
+          '" stroke-width="1.1"/>' +
+        '<path d="M12.5 120v5a2.5 2.5 0 0 0 2.5 2.5h5" fill="none" stroke="' + b.edge +
+          '" stroke-width="1.1"/>' +
+        '<path d="M87.5 120v5a2.5 2.5 0 0 1-2.5 2.5h-5" fill="none" stroke="' + b.edge +
+          '" stroke-width="1.1"/>' +
+        '<circle cx="15.5" cy="15.5" r="1.05"/><circle cx="84.5" cy="15.5" r="1.05"/>' +
+        '<circle cx="15.5" cy="124.5" r="1.05"/><circle cx="84.5" cy="124.5" r="1.05"/>' +
+      '</g>' +
+      /* THE MEDALLION. The cross used to float on the pattern at 44% and
+         read as a sticker; in a roundel with its own rules it reads as the
+         card's device. */
+      '<g opacity=".97">' +
+        '<circle cx="50" cy="70" r="25" fill="rgba(0,0,0,.28)"/>' +
+        '<circle cx="50" cy="70" r="25" fill="none" stroke="' + b.edge +
+          '" stroke-width="1.5" opacity=".9"/>' +
+        '<circle cx="50" cy="70" r="21.5" fill="none" stroke="' + b.edge +
+          '" stroke-width=".5" opacity=".55"/>' +
+        '<circle cx="50" cy="70" r="27.5" fill="none" stroke="' + b.edge +
+          '" stroke-width=".45" opacity=".35" stroke-dasharray="1.6 2.4"/>' +
+      '</g>' +
+      '<g transform="translate(30.5,50.5) scale(.5)"><path d="' + CROSS_D + '" ' +
+        'fill="' + b.cross + '" opacity=".95"/></g>' +
       '<path d="M5.5 34C34 26 66 26 94.5 16V11a5.5 5.5 0 0 0-5.5-5.5H11A5.5 5.5 0 0 0 5.5 11Z" ' +
         'fill="rgba(255,255,255,.09)"/>' +
       '</svg>';
