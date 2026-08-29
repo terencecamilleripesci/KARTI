@@ -1390,8 +1390,17 @@
      shut is the app moving, not the player leaving, and it should not sound
      like the same act. */
   function backCue(){
-    play('ui.back');
-    ladder(3, 2, -1, 62, { gain: 0.5 });
+    /* ONE sound, pitched DOWN. The first attempt at this was the ui.back
+       transient plus a falling pair of notes, and it was too much: three
+       events and about 400ms for the smallest, most repeated action in the
+       app. You press Back constantly, so it has to be the quietest thing
+       here, not a little tune.
+
+       Dropping the rate carries the same meaning with none of the length —
+       a darker version of the sound is heard as DOWN, and the fall happens
+       inside one sample instead of across three. Short, smooth, and still
+       unmistakably not a tap. */
+    play('ui.back', { rate: 0.84, gain: 0.85 });
   }
 
   /* A row of choices plays a scale: position in the row picks the note, so a
