@@ -79,7 +79,7 @@ const LEVELS = [
   {
     id:'pastizzi', n:'TAL-PASTIZZI', e:'🥟', attr:'razzett', band:0,
     rank:'Round 2 · The Pastizzerija',
-    games:['kaxxi', 'minhu', 'erbgha'],
+    games:['kaxxi', 'skarta', 'erbgha'],
     intro:'Ċena? Dis is not ċena, dis is breakfast. And you are having four, because two is ' +
           'an insult to my mother.',
     taunts:['Ħa nagħtik waħda oħra.',
@@ -92,7 +92,7 @@ const LEVELS = [
   {
     id:'doris', n:'DORIS TAL-KUNSILL', e:'📋', attr:'belt', band:0,
     rank:'Round 3 · The Local Council',
-    games:['kelma', 'kodici', 'minhu'],
+    games:['misteru', 'kaxxi', 'sqaq'],
     intro:'You need a permit to play here. You do not have one. Fill in this form, come back ' +
           'Thursday, and I will tell you the form has changed.',
     taunts:['That is not the right form.',
@@ -105,7 +105,7 @@ const LEVELS = [
   {
     id:'dunorg', n:'DUN ĠORĠ', e:'⛪', attr:'festa', band:0,
     rank:'Round 4 · The Parish Hall',
-    games:['tombla', 'kelma', 'kodici'],
+    games:['sqaq', 'misteru', 'kaxxi'],
     intro:'We will play, and we will play fairly, because He is watching. And because I am also ' +
           'watching, and I am closer.',
     taunts:['I have heard worse in confession. Not much worse.',
@@ -118,7 +118,7 @@ const LEVELS = [
   {
     id:'guzi', n:'ĠUŻI L-BIDWI', e:'🚜', attr:'razzett', band:1,
     rank:'Round 5 · Burmarrad',
-    games:['serp', 'ludu', 'aqleb'],
+    games:['serp', 'aqleb', 'ballun'],
     intro:'You parked in my field. I have the tractor, I have the dogs, and I have absolutely ' +
           'nothing else on today.',
     taunts:['In my day we played this with real consequences.',
@@ -131,7 +131,7 @@ const LEVELS = [
   {
     id:'taxi', n:'IS-SEWWIEQ TAT-TAXI', e:'🚕', attr:'belt', band:1,
     rank:'Round 6 · The Airport Rank',
-    games:['sqaq', 'ludu', 'erbgha'],
+    games:['sqaq', 'serp', 'erbgha'],
     intro:'Twenty-five euro. Fixed price, meter is broken, the road is closed, and I know a ' +
           'shortcut that adds forty minutes.',
     taunts:['Traffic. Terrible traffic. We have not moved because I have not started.',
@@ -144,7 +144,7 @@ const LEVELS = [
   {
     id:'salvu', n:'IL-KAPTAN SALVU', e:'⛵', attr:'bahar', band:1,
     rank:'Round 7 · The Slipway',
-    games:['gharraq', 'ballun', 'briks'],
+    games:['ballun', 'bomba', 'serp'],
     intro:'Fifty years on that boat. I have seen storms the records say never happened. I also ' +
           'saw you park on the slipway, and we will be discussing that afterwards.',
     taunts:['It was THIS big. The fish. Not your chances.',
@@ -157,7 +157,7 @@ const LEVELS = [
   {
     id:'hanut', n:'IS-SINJURA TAL-ĦANUT', e:'🏪', attr:'hazen', band:1,
     rank:'Round 8 · The Corner Shop',
-    games:['misteru', 'kodici', 'minhu'],
+    games:['misteru', 'sqaq', 'kaxxi'],
     intro:'I know what you buy. I know what time you buy it. And I know exactly who you were ' +
           'with on Tuesday.',
     taunts:['I am not one to talk. But.',
@@ -170,7 +170,7 @@ const LEVELS = [
   {
     id:'kunjata', n:'IL-KUNJATA', e:'👵', attr:'hazen', band:1,
     rank:'Round 9 · Sunday Lunch',
-    games:['minhu', 'rummy', 'skarta'],
+    games:['skarta', 'misteru', 'aqleb'],
     intro:'So. You are the one. I have heard absolutely everything about you, and not one word ' +
           'of it from you.',
     taunts:['My daughter could have married a notary.',
@@ -183,7 +183,7 @@ const LEVELS = [
   {
     id:'ghannej', n:'L-GĦANNEJ', e:'🎸', attr:'festa', band:2,
     rank:'Round 10 · Under the Tree',
-    games:['kelma', 'skarta', 'kaxxi'],
+    games:['skarta', 'kaxxi', 'erbgha'],
     intro:'I have been answering men in verse since before you were born, and not one of them ' +
           'got the last word.',
     taunts:['That does not even rhyme.',
@@ -196,7 +196,7 @@ const LEVELS = [
   {
     id:'kuntrattur', n:'IS-SUR KUNTRATTUR', e:'👷', attr:'belt', band:2,
     rank:'Round 11 · Site Meeting',
-    games:['briks', 'konkwista', 'kaxxi'],
+    games:['kaxxi', 'sqaq', 'bomba'],
     intro:'The job starts Monday. It started three Mondays ago, but this Monday is the real one. ' +
           'Deposit first, sur.',
     taunts:['Next week, sur.',
@@ -209,7 +209,7 @@ const LEVELS = [
   {
     id:'vat', n:'L-ISPETTUR TAL-VAT', e:'🧾', attr:'hazen', band:2,
     rank:'Round 12 · The Back Office',
-    games:['kiri', 'poker', 'cards2131'],
+    games:['skarta', 'aqleb', 'misteru'],
     intro:'Six years of receipts. Every single one. I have the whole afternoon, and I brought ' +
           'a sandwich.',
     taunts:['And this one — in cash, was it?',
@@ -222,8 +222,7 @@ const LEVELS = [
   {
     id:'tifel', n:'IT-TIFEL TAL-MOBILE', e:'📱', attr:'belt', band:2,
     rank:'Round 13 · The Back Room',
-    games:['bomba', 'tankijiet', 'briks'],
-    seats:{ tankijiet:4 },
+    games:['bomba', 'ballun', 'serp'],
     intro:'My mum said I have to let you win. I told her I would think about it.',
     taunts:['You are so slow.',
             'I already did this twice while you were thinking.',
@@ -235,7 +234,7 @@ const LEVELS = [
   {
     id:'nanna', n:'NANNA', e:'🍝', attr:'razzett', band:2, final:true,
     rank:'Final · Her Kitchen',
-    games:['skarta', 'konkwista', 'kiri'],
+    games:['skarta', 'serp', 'bomba'],
     intro:'Sit. Eat, you are too thin. Then I am going to take everything you own, and you are ' +
           'going to thank me for it.',
     taunts:['Eat.',

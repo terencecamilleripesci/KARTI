@@ -218,6 +218,17 @@ function newMatch(opts){
     s.shot = zeroGrid();
     if (s.kind === 'cpu'){ setShips(s, placeRandom(st)); }
   }
+  /* A TABLE OF ONLY MACHINES IS ALREADY PLACED. The loop above sets every
+     cpu seat's fleet and marks it placed, but maybeBegin() only ever runs
+     off an INCOMING place/auto move — so with nobody left to send one, an
+     all-machine table sat in phase 'place' for ever and never fired a shot.
+     Harmless in a real room, where a person places and starts the chain,
+     and fatal to anything hands-off: a Story rung seating two bots, or a
+     harness trying to measure how long a match takes.
+     A table with a person in it still has an unplaced seat, so this returns
+     immediately and the human path is untouched. The event array is thrown
+     away because nothing is listening at construction time. */
+  maybeBegin(st, []);
   return st;
 }
 function zeroGrid(){
