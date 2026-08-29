@@ -453,3 +453,37 @@ The scene is one string built once, `pointer-events:none`, drawn under
 `.hj-roads`. **If those pointer-events ever come back, every square on the
 board silently stops working** — the harness asserts `elementFromPoint` over
 12 squares hits `.hj-sq` and never `.hj-scene`.
+
+## IL-ĦAJJA's board, take two: a real board is a RIBBON, not a grid (build 320)
+
+Build 319 opened up the serpentine and painted scenery into the seams. It was
+still wrong, and the reference photo showed why in one look: **a Game of Life
+board is a narrow winding ribbon of small tiles through a landscape that owns
+most of the board.** A 6-column grid of big buttons cannot get there by having
+scenery added to it — the grid IS the problem.
+
+So the route is three **splines** now (study loop west, work road down the
+middle, the long meander they feed). Tiles are placed at even ARC LENGTH and
+rotated to the tangent, which is what makes it read as a road you drive.
+`along()` folds any heading past ±90° back, or every tile on a westbound leg
+prints its word upside down.
+
+Things worth knowing next time:
+
+- **The curve exists for the POCKETS it leaves.** The landmarks are placed in
+  them by hand. Move a waypoint and something in `sceneSVG()` ends up under a
+  tile.
+- **An ellipse cannot contain a route that fills a rectangle.** The far corner
+  of the meander is at 83% of the half-width *and* 96% of the half-height at
+  once — outside any ellipse, which is why two hand-drawn coastlines let the
+  road run into the sea. The island is a generated **superellipse** (exponent
+  0.2, i.e. a rounded rectangle) with a small wobble, so enclosure is a
+  property of the shape rather than something to eyeball.
+- **Daylight, not dusk.** 319 was painted dark to match the app chrome and
+  therefore read as more app chrome. A printed board in a dark frame reads as
+  a board on a table, which is the thing we actually want.
+- **The white "here" outline stopped being a ring** the moment every tile got
+  a white keyline. It is gold now.
+- Lifting the current tile with `z-index` to clear its overlapping neighbours
+  **hid the car standing on it** — the one car the player is looking for.
+  `.hj-cars` has to sit above the ring.

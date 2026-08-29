@@ -296,52 +296,104 @@ function autosave(){
    down the right, and the two of them merging into the shared road,
    which serpentines to RETIRE at the bottom.
    ═══════════════════════════════════════════════════════════════════ */
-/* The board is deliberately BIGGER than the squares need. A real board
-   game is mostly board: the route is a narrow ribbon and the land is what
-   you look at. At 128x92 on a 1480 board the serpentine touched on every
-   side and read as a spreadsheet, so the squares came down and the board
-   went up until roughly half of it is landscape again. FIT is an overview
-   -- the pan/zoom kit is how you actually read a square. */
-const BW = 960, BH = 1680;
-const CW = 112, CH = 78;                 /* an ordinary square           */
+/* ═══════════════════════════════════════════════════════════════════
+   THE ROUTE
+
+   A real Game of Life board is not a grid. It is a NARROW WINDING RIBBON
+   of small tiles through a landscape that takes up most of the board, and
+   the tiles lean with the road. The serpentine this file shipped with was
+   a spreadsheet by comparison, and no amount of scenery fixed it, because
+   a 6-column grid of 128px buttons leaves no room for a landscape to be.
+
+   So the route is a SPLINE now. Three of them: the study loop swinging
+   out west, the work road running straight down the middle, and the long
+   meander they both feed. Tiles are placed at even ARC LENGTH along each
+   one and rotated to its tangent, which is what makes the board read as a
+   road you drive rather than a table you scan.
+
+   The whole point of a curve is the POCKETS it leaves. Those are named in
+   sceneSVG() and they are where the island lives; if you move a waypoint,
+   you move a pocket, and something in the scenery will end up under a
+   tile.
+   ═══════════════════════════════════════════════════════════════════ */
+/* The board is bigger than the route needs on purpose: the route's own
+   bounding box is x 92..1130 / y 140..1975, and an island has to have a
+   COAST outside its roads. OFF pushes the whole route inboard so there is
+   sea on every side of it. */
+const BW = 1340, BH = 2140;
+const OFF = [50, 62];
+const TW = 70, TH = 54;                  /* an ordinary tile             */
+
+/* Catmull-Rom through the waypoints, sampled densely, plus the running
+   arc length -- even SPACING is what stops tiles bunching on the bends. */
+function spline(P0){
+  const P = P0.map(q => [q[0] + OFF[0], q[1] + OFF[1]]);
+  const at = i => P[Math.max(0, Math.min(P.length - 1, i))];
+  const S = [];
+  for (let i = 0; i < P.length - 1; i++){
+    const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2), N = 26;
+    for (let k = (i ? 1 : 0); k <= N; k++){
+      const t = k / N, t2 = t * t, t3 = t2 * t;
+      S.push([
+        0.5 * (2 * p1[0] + (-p0[0] + p2[0]) * t +
+              (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+              (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3),
+        0.5 * (2 * p1[1] + (-p0[1] + p2[1]) * t +
+              (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+              (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+      ]);
+    }
+  }
+  const L = [0];
+  for (let i = 1; i < S.length; i++)
+    L.push(L[i - 1] + Math.hypot(S[i][0] - S[i - 1][0], S[i][1] - S[i - 1][1]));
+  return { S, L, total: L[L.length - 1] };
+}
+/* a point and a HEADING at fraction u of the way along, by arc length */
+function along(sp, u){
+  const d = Math.max(0, Math.min(1, u)) * sp.total;
+  let i = 1;
+  while (i < sp.L.length - 1 && sp.L[i] < d) i++;
+  const seg = Math.max(1e-6, sp.L[i] - sp.L[i - 1]);
+  const f = (d - sp.L[i - 1]) / seg, A = sp.S[i - 1], B = sp.S[i];
+  let ang = Math.atan2(B[1] - A[1], B[0] - A[0]) * 180 / Math.PI;
+  /* a tile on a leg heading west would print its word upside down */
+  if (ang > 90) ang -= 180; else if (ang < -90) ang += 180;
+  return { x: A[0] + (B[0] - A[0]) * f, y: A[1] + (B[1] - A[1]) * f, a: ang };
+}
+
 const LAY = (function (){
   const B = E.BOARD, n = B.sq.length, pos = new Array(n);
-  const uniCol  = [96, 248, 400];
-  const roadCol = [96, 248, 400, 552, 704, 856];
-  const workX   = 856;
-  const topRow  = [208, 320, 432, 544];
-  const roadY0  = 730, roadDY = 134, MERGE = 648;
 
-  pos[0] = { x:476, y:84, w:330, h:98, big:1 };
+  const START = [320, 140];
+  const JOIN  = [460, 830];
+  /* the study road: the long way round, west, with the most stops on it */
+  const UNI  = spline([START, [160, 215], [92, 392], [100, 575], [180, 715],
+                       [320, 790], JOIN]);
+  /* the work road: short, straight, and only four stops -- which IS the
+     difference between the two lives, drawn rather than written */
+  const WORK = spline([START, [470, 262], [546, 432], [546, 610], [480, 746], JOIN]);
+  /* and the meander both of them feed, out to the far corner */
+  const ROAD = spline([JOIN, [665, 862], [860, 840], [1030, 895], [1130, 1035],
+                       [1085, 1175], [925, 1240], [712, 1240], [508, 1218],
+                       [305, 1250], [165, 1370], [165, 1530], [305, 1638],
+                       [508, 1682], [712, 1682], [900, 1714], [1050, 1810],
+                       [1075, 1938], [940, 1975]]);
 
-  const uniN = B.uniEnd - B.uniAt;
-  for (let i = 0; i < uniN; i++){
-    const r = Math.floor(i / 3), c0 = i % 3;
-    const c = (r % 2) ? 2 - c0 : c0;
-    pos[B.uniAt + i] = { x: uniCol[c], y: topRow[r] || (topRow[3] + 112), w:CW, h:CH };
-  }
-  const workN = B.workEnd - B.workAt;
-  for (let i = 0; i < workN; i++)
-    pos[B.workAt + i] = { x: workX, y: topRow[i] || (topRow[3] + 112 * (i - 3)), w:CW, h:CH };
+  pos[0] = { x:START[0] + OFF[0], y:START[1] + OFF[1], w:250, h:86, a:0, big:1 };
 
-  const roadN = n - B.joinAt;
-  for (let i = 0; i < roadN; i++){
-    const r = Math.floor(i / 6), c0 = i % 6;
-    const c = (r % 2) ? 5 - c0 : c0;
-    pos[B.joinAt + i] = { x: roadCol[c], y: roadY0 + r * roadDY, w:CW, h:CH };
-  }
+  const lay = (sp, from, to, u0, u1) => {
+    const c = to - from;
+    for (let i = 0; i < c; i++){
+      const q = along(sp, c === 1 ? (u0 + u1) / 2 : u0 + (u1 - u0) * i / (c - 1));
+      pos[from + i] = { x:q.x, y:q.y, w:TW, h:TH, a:q.a };
+    }
+  };
+  lay(UNI,  B.uniAt,  B.uniEnd,  0.07, 0.95);
+  lay(WORK, B.workAt, B.workEnd, 0.12, 0.84);
+  lay(ROAD, B.joinAt, n,         0.02, 0.995);
 
-  const pt = i => [pos[i].x, pos[i].y];
-  const road = [];
-  for (let i = B.joinAt; i < n; i++) road.push(pt(i));
-  const uni = [pt(0)];
-  for (let i = B.uniAt; i < B.uniEnd; i++) uni.push(pt(i));
-  uni.push([uniCol[0], MERGE], pt(B.joinAt));
-  const work = [pt(0)];
-  for (let i = B.workAt; i < B.workEnd; i++) work.push(pt(i));
-  work.push([workX, MERGE], [uniCol[0], MERGE], pt(B.joinAt));
-
-  return { pos, road, uni, work };
+  return { pos, uni:UNI.S, work:WORK.S, road:ROAD.S };
 })();
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -520,30 +572,32 @@ function injectCSS(){
     '#scr-party .hj-stage{flex:1 1 auto;min-height:120px;min-width:0;position:relative;' +
       'overflow:hidden;border-radius:14px;touch-action:none;' +
       '-webkit-user-select:none;user-select:none;' +
-      'background:radial-gradient(120% 100% at 50% 0%,#1A1233 0%,#120C24 55%,#0A0716 100%);' +
+      'background:#2E86B8;' +
       'border:1px solid rgba(255,197,66,.16);' +
-      'box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -18px 30px rgba(0,0,0,.5)}' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.07),inset 0 -18px 30px rgba(0,0,0,.35)}' +
     '#scr-party .hj-board{position:absolute;left:0;top:0;transform-origin:0 0;' +
       'width:' + BW + 'px;height:' + BH + 'px;will-change:transform}' +
     '#scr-party .hj-scene{position:absolute;inset:0;width:100%;height:100%;display:block;'+'pointer-events:none}' +
     '#scr-party .hj-roads{position:absolute;inset:0;width:100%;height:100%;display:block;'+'pointer-events:none}' +
 
     /* ── a square ── */
-    '#scr-party .hj-sq{position:absolute;border:0;padding:0;border-radius:14px;' +
-      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;' +
+    '#scr-party .hj-sq{position:absolute;padding:0;border-radius:9px;' +
+      'border:2px solid rgba(255,255,255,.92);transform-origin:50% 50%;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;' +
       'color:#fff;font-family:var(--disp);overflow:hidden;cursor:pointer;' +
       '-webkit-tap-highlight-color:transparent;' +
-      'box-shadow:inset 0 2px 0 rgba(255,255,255,.20),inset 0 -8px 14px rgba(0,0,0,.35),' +
-      '0 4px 10px rgba(0,0,0,.45)}' +
-    '#scr-party .hj-sq svg{width:34px;height:34px;flex:0 0 auto;fill:none;stroke:currentColor;' +
-      'stroke-width:2.1;stroke-linecap:round;stroke-linejoin:round;opacity:.95}' +
-    '#scr-party .hj-sq b{font:900 15px/1.05 var(--disp);letter-spacing:.04em;text-align:center;' +
-      'padding:0 4px;text-shadow:0 1px 2px rgba(0,0,0,.5)}' +
-    '#scr-party .hj-sq.big svg{width:44px;height:44px}' +
-    '#scr-party .hj-sq.big b{font-size:22px;letter-spacing:.1em}' +
-    '#scr-party .hj-sq.k-road{background:linear-gradient(180deg,#2A2148,#191130);' +
-      'color:rgba(255,255,255,.34)}' +
-    '#scr-party .hj-sq.k-road svg{width:22px;height:22px}' +
+      'box-shadow:inset 0 2px 0 rgba(255,255,255,.28),inset 0 -6px 10px rgba(0,0,0,.28),' +
+      '0 3px 7px rgba(40,26,10,.42)}' +
+    '#scr-party .hj-sq svg{width:21px;height:21px;flex:0 0 auto;fill:none;stroke:currentColor;' +
+      'stroke-width:2.3;stroke-linecap:round;stroke-linejoin:round;opacity:.95}' +
+    '#scr-party .hj-sq b{font:900 9px/1.02 var(--disp);letter-spacing:.02em;text-align:center;' +
+      'padding:0 2px;text-shadow:0 1px 1px rgba(0,0,0,.35)}' +
+    '#scr-party .hj-sq.big{border-radius:16px;border-width:3px}' +
+    '#scr-party .hj-sq.big svg{width:40px;height:40px}' +
+    '#scr-party .hj-sq.big b{font-size:21px;letter-spacing:.1em}' +
+    '#scr-party .hj-sq.k-road{background:linear-gradient(180deg,#FFFDF6,#E7DCC2);' +
+      'color:#8A7448}' +
+    '#scr-party .hj-sq.k-road svg{width:16px;height:16px}' +
     '#scr-party .hj-sq.k-fork{background:linear-gradient(180deg,#FFD36B,#E09A15);color:#3A2600}' +
     '#scr-party .hj-sq.k-pay{background:linear-gradient(180deg,#5BE79B,#1FA65E);color:#04301B}' +
     '#scr-party .hj-sq.k-tile{background:linear-gradient(180deg,#CBA6FF,#8A5CFF);color:#22083F}' +
@@ -561,11 +615,15 @@ function injectCSS(){
     '#scr-party .hj-sq.k-end{background:linear-gradient(180deg,#FFE8A6,#D8A317);color:#3A2600;' +
       'box-shadow:inset 0 2px 0 rgba(255,255,255,.4),0 0 0 4px rgba(255,197,66,.3),' +
       '0 6px 16px rgba(0,0,0,.5)}' +
-    '#scr-party .hj-sq.here{outline:4px solid #fff;outline-offset:2px}' +
+    '#scr-party .hj-sq.here{outline:5px solid #FF9A1F;outline-offset:3px;z-index:3}' +
     '#scr-party .hj-sq:active{filter:brightness(1.2)}' +
 
     /* ── the cars ride above the squares ── */
-    '#scr-party .hj-cars{position:absolute;inset:0;pointer-events:none}' +
+    '#scr-party .hj-cars{position:absolute;inset:0;pointer-events:none;z-index:5}' +
+    /* the ring lifts its tile over its NEIGHBOURS (they overlap on a bend),
+       so the cars have to be lifted over the ring or the car you are
+       actually looking for vanishes under the square it is standing on */
+
     '#scr-party .hj-car{position:absolute;transform-origin:50% 50%;' +
       'transition:left .12s linear,top .12s linear;' +
       'filter:drop-shadow(0 5px 7px rgba(0,0,0,.6))}' +
@@ -841,250 +899,205 @@ function buildBoard(){
    repainted, so it costs one string at build and nothing per move.
    ═══════════════════════════════════════════════════════════════════ */
 function sceneSVG(){
-  /* ── the paints ── */
+  /* THE ISLAND. Daylight, because that is what a printed board is: the
+     dusk version read as app chrome, not as a board sitting on a table.
+     Everything is placed in the POCKETS the meander leaves -- move a
+     waypoint in LAY and something here ends up under a tile.
+
+       A  x 640..1210 / y 120..800    the mountain, the walled city, town
+       B  x 520..1090 / y 900..1210   the bay, inside the first big bend
+       C  x 200..470  / y 1300..1620  fields, inside the western loop
+       D  x 560..1080 / y 1300..1650  the village and its church
+       E  the coast, all the way round
+  */
+  const D = '#2A1E10';                         /* the printed outline      */
   let s = '<defs>' +
-    '<linearGradient id="hjSky" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="#1A1030"/><stop offset="1" stop-color="#241844"/></linearGradient>' +
     '<linearGradient id="hjSea" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="#132244"/><stop offset="1" stop-color="#1D3866"/></linearGradient>' +
+      '<stop offset="0" stop-color="#4FB0DE"/><stop offset="1" stop-color="#2A79B4"/></linearGradient>' +
     '<linearGradient id="hjLand" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="#33244F"/><stop offset=".55" stop-color="#241A40"/>' +
-      '<stop offset="1" stop-color="#1A1330"/></linearGradient>' +
-    '<linearGradient id="hjHill" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="#3A2C58"/><stop offset="1" stop-color="#241A40"/></linearGradient>' +
-    '<linearGradient id="hjStone" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="#E0BC80"/><stop offset="1" stop-color="#8E6E42"/></linearGradient>' +
-    '<radialGradient id="hjGlow" cx=".5" cy=".5" r=".5">' +
-      '<stop offset="0" stop-color="#FFC542" stop-opacity=".32"/>' +
-      '<stop offset="1" stop-color="#FFC542" stop-opacity="0"/></radialGradient>' +
+      '<stop offset="0" stop-color="#A8CE72"/><stop offset=".5" stop-color="#8FBE5E"/>' +
+      '<stop offset="1" stop-color="#7DAE52"/></linearGradient>' +
+    '<linearGradient id="hjRock" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#F2E1BA"/><stop offset="1" stop-color="#B9975E"/></linearGradient>' +
+    '<linearGradient id="hjWall" x1="0" y1="0" x2="0" y2="1">' +
+      '<stop offset="0" stop-color="#FBEFD2"/><stop offset="1" stop-color="#D9BE86"/></linearGradient>' +
     '</defs>';
 
-  /* ── the little vocabulary the whole island is drawn from ── */
-  const STONE = 'url(#hjStone)', DARK = '#0B0716';
-  const wall = (x, y, w) =>                       /* a dry-stone wall     */
-    '<path d="M' + x + ' ' + y + 'h' + w + '" stroke="rgba(255,197,66,.20)" stroke-width="8" ' +
-      'stroke-linecap="round" stroke-dasharray="22 11"/>' +
-    '<path d="M' + x + ' ' + (y + 6) + 'h' + w + '" stroke="rgba(0,0,0,.40)" stroke-width="4" ' +
-      'stroke-linecap="round" stroke-dasharray="22 11"/>';
-  const field = (x, y, w, h) =>                   /* a hatched crop patch */
-    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx="6" ' +
-      'fill="#22301F" opacity=".55"/>' +
-    Array.from({ length: Math.floor(w / 13) }, (_, i) =>
-      '<path d="M' + (x + 7 + i * 13) + ' ' + (y + h - 4) + 'v-' + (h - 8) + '" ' +
-        'stroke="#35604A" stroke-width="3" stroke-linecap="round" opacity=".75"/>').join('');
-  const house = (x, y, w, h, lit) =>              /* a flat-roofed house  */
-    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="' + STONE + '"/>' +
-    '<rect x="' + (x - 3) + '" y="' + (y - 5) + '" width="' + (w + 6) + '" height="6" fill="#E0BC80"/>' +
-    '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="none" ' +
-      'stroke="' + DARK + '" stroke-width="3"/>' +
-    (lit ? '<rect x="' + (x + w / 2 - 5) + '" y="' + (y + h * .3) + '" width="10" height="11" ' +
-           'fill="#FFC542" opacity=".9"/>' : '');
-  const shade = (x, y, rx) =>                      /* what puts a thing ON the land */
-    '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + (rx * .18) +
-      '" fill="#0B0716" opacity=".45"/>';
-  const olive = (x, y, k) =>
+  /* ── the little vocabulary the island is drawn from ── */
+  const tree = (x, y, k) =>
     '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')">' +
-      '<path d="M0 0v-20" stroke="#4A3520" stroke-width="6" stroke-linecap="round"/>' +
-      '<ellipse cx="0" cy="-30" rx="20" ry="15" fill="#31654C" stroke="' + DARK + '" stroke-width="3"/>' +
+      '<path d="M0 0v-15" stroke="#6B4A28" stroke-width="7" stroke-linecap="round"/>' +
+      '<circle cx="0" cy="-30" r="19" fill="#4E9A55" stroke="' + D + '" stroke-width="3"/>' +
+      '<circle cx="-13" cy="-20" r="13" fill="#57A85E" stroke="' + D + '" stroke-width="3"/>' +
+      '<circle cx="13" cy="-21" r="12" fill="#57A85E" stroke="' + D + '" stroke-width="3"/>' +
+    '</g>';
+  const palm = (x, y, k) =>
+    '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')">' +
+      '<path d="M0 0q-4-24 2-42" stroke="#7A5730" stroke-width="7" fill="none" ' +
+        'stroke-linecap="round"/>' +
+      '<path d="M2 -42q-26-6-34 8M2 -42q26-8 34 6M2 -42q-12-20-30-20M2 -42q14-20 32-16" ' +
+        'fill="none" stroke="#3F8C4A" stroke-width="8" stroke-linecap="round"/>' +
     '</g>';
   const pear = (x, y, k) =>
-    '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')" fill="#2A5A43" ' +
-      'stroke="' + DARK + '" stroke-width="3">' +
-      '<ellipse cx="0" cy="0" rx="11" ry="15"/><ellipse cx="-12" cy="-14" rx="9" ry="12"/>' +
-      '<ellipse cx="11" cy="-16" rx="8" ry="11"/></g>';
-  const luzzu = (x, y, k, c) =>                   /* the eye on the bow   */
+    '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')" fill="#5AA35E" ' +
+      'stroke="' + D + '" stroke-width="3">' +
+      '<ellipse cx="0" cy="-8" rx="11" ry="15"/><ellipse cx="-13" cy="-24" rx="9" ry="12"/>' +
+      '<ellipse cx="12" cy="-26" rx="8" ry="11"/></g>';
+  const shade = (x, y, rx) =>
+    '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + (rx * .2) +
+      '" fill="#5E8F3E" opacity=".45"/>';
+  /* a flat-roofed limestone house, which is the whole of Maltese building */
+  const house = (x, y, w, h, roof) =>
+    '<g><rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" ' +
+      'fill="url(#hjWall)" stroke="' + D + '" stroke-width="3"/>' +
+    '<rect x="' + (x - 4) + '" y="' + (y - 7) + '" width="' + (w + 8) + '" height="8" rx="2" ' +
+      'fill="' + (roof || '#E6C98E') + '" stroke="' + D + '" stroke-width="3"/>' +
+    '<rect x="' + (x + w / 2 - 6) + '" y="' + (y + h - 17) + '" width="12" height="17" ' +
+      'fill="#8A5A2E"/>' +
+    '<rect x="' + (x + 6) + '" y="' + (y + 7) + '" width="9" height="9" fill="#7EC8E8" ' +
+      'stroke="' + D + '" stroke-width="2"/>' +
+    '<rect x="' + (x + w - 15) + '" y="' + (y + 7) + '" width="9" height="9" fill="#7EC8E8" ' +
+      'stroke="' + D + '" stroke-width="2"/></g>';
+  const luzzu = (x, y, k, c) =>
     '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')">' +
-      '<path d="M-34 0q34 20 68 0l-8 12h-52z" fill="' + c + '"/>' +
-      '<path d="M-34 0q34 20 68 0" fill="none" stroke="' + DARK + '" stroke-width="3"/>' +
-      '<rect x="-2" y="-24" width="4" height="24" fill="' + DARK + '"/>' +
-      '<circle cx="-22" cy="3" r="4" fill="#F4F1E6"/><circle cx="-22" cy="3" r="2" fill="' + DARK + '"/>' +
+      '<path d="M-34 0q34 20 68 0l-9 13h-50z" fill="' + c + '" stroke="' + D + '" stroke-width="3"/>' +
+      '<rect x="-2" y="-26" width="4" height="26" fill="' + D + '"/>' +
+      '<circle cx="-21" cy="3" r="4.5" fill="#FFF"/><circle cx="-21" cy="3" r="2" fill="' + D + '"/>' +
     '</g>';
-  const swellIn = (x, y, w) =>
-    '<path d="M' + x + ' ' + y + 'q' + (w / 4) + ' -7 ' + (w / 2) + ' 0t' + (w / 2) + ' 0" ' +
-      'fill="none" stroke="rgba(200,226,255,.28)" stroke-width="3" stroke-linecap="round"/>';
 
-  /* ── ground: sea at the top, island below, sea again at the far end ── */
-  s += '<rect x="0" y="0" width="960" height="1680" fill="url(#hjSky)"/>' +
-       '<rect x="0" y="0" width="960" height="176" fill="url(#hjSea)"/>' +
-       '<rect x="0" y="1586" width="960" height="94" fill="url(#hjSea)"/>' +
-       '<path d="M0 176V1600c96-20 158-3 256-14 90-10 132 3 224 12 98 10 152-15 248 4 82 16 162 8 232 26V176' +
-         'c-70 18-150 10-232 26-96 19-150-6-248 4-92 9-134 22-224 12-98-11-160 6-256-14z" fill="url(#hjLand)"/>' +
-       '<path d="M0 162c96 20 158 3 256 14 90 10 132-3 224-12 98-10 152 15 248-4 82-16 162-8 232-26" ' +
-         'fill="none" stroke="rgba(255,197,66,.22)" stroke-width="3"/>' +
-       '<path d="M0 1600c96-20 158-3 256-14 90-10 132 3 224 12 98 10 152-15 248 4 82 16 162 8 232 26" ' +
-         'fill="none" stroke="rgba(255,197,66,.22)" stroke-width="3"/>';
+  /* ═══ E — the sea, and the island cut out of it ═══ */
+  s += '<rect x="0" y="0" width="1240" height="2000" fill="url(#hjSea)"/>';
+  for (const [x, y, w] of [[70,90,150],[420,60,130],[900,120,160],[1130,300,90],
+                           [40,900,110],[1160,760,90],[60,1720,130],[900,1930,150],
+                           [300,1955,120],[1150,1500,90]])
+    s += '<path d="M' + x + ' ' + y + 'q' + (w / 4) + ' -8 ' + (w / 2) + ' 0t' + (w / 2) +
+         ' 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="4" stroke-linecap="round"/>';
+  /* THE COASTLINE IS GENERATED, not drawn by hand, because a hand-drawn
+     blob kept letting the road run out into the sea -- and an ellipse
+     never can contain a route that fills a rectangle: the far corner of
+     the meander sits at 83% of the half-width AND 96% of the half-height
+     at once, which is outside any ellipse. So the island is a SUPERELLIPSE
+     with a high exponent (a rounded rectangle), wobbled a little so it
+     still reads as a coast rather than a card. Widen the route and this
+     follows it; there is nothing to keep in sync by hand. */
+  const coast = grow => {
+    const cx = BW / 2, cy = BH / 2, a = (BW / 2 - 40) * grow, b = (BH / 2 - 40) * grow;
+    const P = [];
+    for (let i = 0; i < 132; i++){
+      const t = i / 132 * Math.PI * 2, ct = Math.cos(t), st = Math.sin(t);
+      const w = 1 + 0.025 * Math.sin(3 * t + 0.7) + 0.016 * Math.sin(5 * t + 2.1);
+      P.push([
+        (cx + Math.sign(ct) * Math.pow(Math.abs(ct), 0.2) * a * w).toFixed(1),
+        (cy + Math.sign(st) * Math.pow(Math.abs(st), 0.2) * b * w).toFixed(1)
+      ]);
+    }
+    return 'M' + P.map(q => q[0] + ' ' + q[1]).join('L') + 'Z';
+  };
+  const SAND = coast(1.035), COAST = coast(1);
+  s += '<path d="' + SAND + '" fill="#EFE0B6"/>' +            /* the beach ring */
+       '<path d="' + COAST + '" fill="url(#hjLand)"/>' +
+       '<path d="' + COAST + '" fill="none" stroke="#7A9A4E" stroke-width="4" opacity=".6"/>';
+  s += luzzu(150, 1790, 1, '#E2513F') + luzzu(1020, 180, .8, '#F2B33C') +
+       luzzu(80, 640, .7, '#3E9AD8');
 
-  /* the moon low over the water, and its track */
-  s += '<circle cx="820" cy="58" r="26" fill="#FFE9B0" opacity=".85"/>' +
-       '<circle cx="810" cy="52" r="26" fill="#16264C" opacity=".8"/>' +
-       '<ellipse cx="820" cy="60" rx="72" ry="72" fill="url(#hjGlow)"/>';
-  for (const [x, y, w] of [[30,60,120],[210,44,90],[430,74,140],[610,54,96],[120,116,150],
-                           [420,124,110],[760,132,120],[60,1630,140],[300,1650,120],[640,1626,150]])
-    s += swellIn(x, y, w);
-  s += luzzu(120, 128, 1, '#E05A4A') + luzzu(268, 96, .72, '#3E9AD8') + luzzu(700, 140, .86, '#F2B33C');
-
-  /* ═══ THE BIG GAP between the two branches: a hill with Mdina on the
-     crown, the university on the flank nearest the study road and the
-     office block on the flank nearest the work road ═══ */
-  /* THE HILL. Two things were wrong with the first pass and both are worth
-     remembering. (1) The crown sat at y~425 while the city's base sits at
-     398, so the city floated ABOVE its own hill. (2) The terraces were five
-     nested arcs widening downward, which stops reading as a hillside and
-     starts reading as a searchlight beam -- the single most obvious defect
-     on the board. Terraces now hug the flanks only. */
-  const HILL = 'M424 658C458 512 500 400 528 392L738 392C768 402 794 520 812 658Z';
-  s += '<path d="' + HILL + '" fill="url(#hjHill)" stroke="#0B0716" stroke-width="4"/>' +
-       /* rim light on the flank facing the moon, not through the middle */
-       '<path d="M738 392C768 402 794 520 812 658" fill="none" ' +
-         'stroke="rgba(255,213,150,.26)" stroke-width="6" stroke-linecap="round"/>' +
-       '<path d="M528 392C500 400 458 512 424 658" fill="none" ' +
-         'stroke="rgba(255,213,150,.10)" stroke-width="5" stroke-linecap="round"/>';
-  /* The silhouette came out steep-sided, and the honest answer was to lean
-     into it rather than flatten it: Mdina really does sit on a near-vertical
-     bastion cliff. So the flanks get limestone STRATA, not hillside terraces
-     -- clipped to the rock so no line escapes into the sky. */
-  s += '<clipPath id="hjRock"><path d="' + HILL + '"/></clipPath>' +
-       '<g clip-path="url(#hjRock)">' +
-         '<rect x="400" y="392" width="440" height="26" fill="#C9A46A" opacity=".30"/>';
-  for (let i = 0; i < 7; i++)
-    s += '<path d="M400 ' + (426 + i * 34) + 'q110-11 220 0t220 0" fill="none" ' +
-         'stroke="rgba(255,213,150,.13)" stroke-width="4"/>';
-  s += '<path d="M556 392v266M690 392v266" stroke="rgba(0,0,0,.28)" stroke-width="5"/>' +
-       '</g>';
-  s += shade(632, 400, 118) + '<g>' +
-    '<path d="M538 398v-46h190v46z" fill="' + STONE + '"/>' +
-    '<path d="M538 352h190" fill="none" stroke="#6B5230" stroke-width="3"/>' +
-    '<path d="M538 352v-14h16v14M570 352v-14h16v14M602 352v-14h16v14M634 352v-14h16v14' +
-      'M666 352v-14h16v14M698 352v-14h16v14" fill="' + STONE + '"/>' +
-    '<path d="M598 338a34 34 0 0166 0z" fill="#E3C489"/>' +
-    '<path d="M598 338a34 34 0 0166 0" fill="none" stroke="#6B5230" stroke-width="3"/>' +
-    '<rect x="627" y="288" width="7" height="16" fill="#6B5230"/>' +
-    '<path d="M623 294h15M630 288v16" stroke="#FFC542" stroke-width="3"/>' +
-    '<path d="M558 338v-52h26v52zM680 338v-52h26v52z" fill="#E3C489"/>' +
-    '<path d="M558 286h26M680 286h26" fill="none" stroke="#6B5230" stroke-width="3"/>' +
-    '<g fill="#FFC542" opacity=".9">' +
-      '<rect x="554" y="370" width="7" height="10"/><rect x="586" y="370" width="7" height="10"/>' +
-      '<rect x="650" y="370" width="7" height="10"/><rect x="696" y="370" width="7" height="10"/>' +
-      '<rect x="567" y="304" width="6" height="9"/><rect x="689" y="304" width="6" height="9"/>' +
+  /* ═══ A — the mountain, the walled city on it, and the town below ═══ */
+  s += shade(930, 690, 250) +
+    '<path d="M690 700q60-150 132-230 74-84 150 0 76 84 148 230z" fill="url(#hjRock)" ' +
+      'stroke="' + D + '" stroke-width="4"/>' +
+    '<path d="M822 470q64-72 132-6" fill="none" stroke="#B9975E" stroke-width="5" opacity=".7"/>' +
+    '<path d="M760 570q160-40 300 0" fill="none" stroke="#B9975E" stroke-width="5" opacity=".7"/>';
+  /* the walled city on the crown -- bastion, dome, two campanili */
+  s += '<g>' +
+    '<path d="M786 470v-52h300v52z" fill="url(#hjWall)" stroke="' + D + '" stroke-width="4"/>' +
+    '<path d="M786 418v-16h22v16M834 418v-16h22v16M882 418v-16h22v16M930 418v-16h22v16' +
+      'M978 418v-16h22v16M1026 418v-16h22v16M1064 418v-16h22v16" fill="url(#hjWall)" ' +
+      'stroke="' + D + '" stroke-width="3"/>' +
+    '<path d="M888 402a48 48 0 0196 0z" fill="#DCC48C" stroke="' + D + '" stroke-width="4"/>' +
+    '<rect x="931" y="330" width="10" height="22" fill="#8A6A34"/>' +
+    '<path d="M925 338h22M936 328v24" stroke="#8A6A34" stroke-width="4"/>' +
+    '<path d="M820 402v-72h34v72zM1018 402v-72h34v72z" fill="url(#hjWall)" stroke="' + D +
+      '" stroke-width="4"/>' +
+    '<g fill="#7EC8E8" stroke="' + D + '" stroke-width="2">' +
+      '<rect x="808" y="436" width="12" height="14"/><rect x="864" y="436" width="12" height="14"/>' +
+      '<rect x="996" y="436" width="12" height="14"/><rect x="1052" y="436" width="12" height="14"/>' +
+      '<rect x="830" y="352" width="12" height="14"/><rect x="1028" y="352" width="12" height="14"/>' +
     '</g></g>';
+  /* the town at the foot of it */
+  s += house(700, 640, 74, 54) + house(788, 654, 62, 44) + house(1046, 636, 78, 58) +
+       tree(668, 706, 1) + tree(880, 712, .82) + tree(1146, 700, .9) + pear(1150, 560, .9);
 
-  /* the university — a pediment and columns, because that is the shape a
-     five-year-old draws when you say "university" */
-  s += shade(534, 614, 66) + '<g>' +
-    '<path d="M486 612v-70h96v70z" fill="' + STONE + '"/>' +
-    '<path d="M478 542l56-34 56 34z" fill="#E3C489"/>' +
-    '<path d="M478 542l56-34 56 34" fill="none" stroke="#6B5230" stroke-width="3"/>' +
-    '<path d="M498 612v-46M518 612v-46M550 612v-46M570 612v-46" stroke="#6B5230" stroke-width="6"/>' +
-    '<rect x="531" y="490" width="6" height="18" fill="#6B5230"/>' +
-    '<path d="M534 490l22 8-22 8z" fill="#FFC542"/></g>';
+  /* ═══ B — the bay inside the first big bend ═══ */
+  s += '<path d="M560 1180q40-150 220-160 190-10 250 84 44 82-40 132-120 70-260 44' +
+       '-140-26-170-100z" fill="url(#hjSea)" stroke="' + D + '" stroke-width="4" opacity=".95"/>' +
+       '<path d="M560 1180q40-150 220-160 190-10 250 84 44 82-40 132-120 70-260 44' +
+         '-140-26-170-100z" fill="none" stroke="rgba(255,255,255,.45)" stroke-width="9" ' +
+         'transform="translate(795 1155) scale(.88) translate(-795 -1155)"/>' +
+       '<path d="M640 1080q60-26 120 0M800 1050q70-20 130 8" fill="none" ' +
+         'stroke="rgba(255,255,255,.6)" stroke-width="4" stroke-linecap="round"/>' +
+       luzzu(760, 1120, .72, '#4FBF8A') + palm(560, 1000, 1) + palm(1010, 1160, .9) +
+       tree(620, 950, .8);
 
-  /* the office block */
-  s += shade(738, 614, 62) + '<g><path d="M692 612v-136h80v136z" fill="#2E2450"/>' +
-    '<path d="M692 476h80v136h-80z" fill="none" stroke="' + DARK + '" stroke-width="4"/>' +
-    '<path d="M772 612V498l22 16v98z" fill="#241C42"/>';
-  for (let r = 0; r < 6; r++) for (let c = 0; c < 4; c++)
-    s += '<rect x="' + (701 + c * 18) + '" y="' + (488 + r * 20) + '" width="11" height="12" ' +
-         'fill="#FFC542" opacity="' + (((r * 4 + c) % 3) ? '.75' : '.20') + '"/>';
-  s += '</g>';
+  /* ═══ C — the fields inside the western loop ═══ */
+  for (let i = 0; i < 4; i++)
+    s += '<rect x="' + (218 + (i % 2) * 130) + '" y="' + (1330 + Math.floor(i / 2) * 130) +
+         '" width="118" height="112" rx="8" fill="' + (i % 2 ? '#C9C069' : '#9FBF5C') +
+         '" stroke="' + D + '" stroke-width="3" opacity=".95"/>';
+  for (let i = 0; i < 8; i++)
+    s += '<path d="M' + (232 + (i % 4) * 14 + (i > 3 ? 130 : 0)) + ' ' +
+         (1428 + (i > 3 ? 130 : 0)) + 'v-84" stroke="#7FA347" stroke-width="5" ' +
+         'stroke-linecap="round" opacity=".8"/>';
+  s += shade(392, 1596, 62) + house(346, 1536, 92, 60, '#D8A25E') + tree(258, 1600, .95) +
+       pear(462, 1580, .85);
 
-  /* ═══ THE SIX BANDS between the serpentine rows. Each is 56px tall and
-     924 wide, and each is a different piece of the island, so driving the
-     board is actually going somewhere. ═══ */
-  const bandY = r => 769 + r * 134;              /* top of band r, 0..5   */
+  /* ═══ D — the village and its church ═══ */
+  s += shade(820, 1512, 130);
+  s += '<g><path d="M756 1500v-96h128v96z" fill="url(#hjWall)" stroke="' + D + '" stroke-width="4"/>' +
+    '<path d="M770 1404a50 50 0 01100 0z" fill="#DCC48C" stroke="' + D + '" stroke-width="4"/>' +
+    '<rect x="815" y="1330" width="10" height="20" fill="#8A6A34"/>' +
+    '<path d="M809 1338h22M820 1328v22" stroke="#8A6A34" stroke-width="4"/>' +
+    '<rect x="806" y="1452" width="28" height="48" fill="#8A5A2E" stroke="' + D + '" stroke-width="3"/>' +
+    '</g>';
+  s += house(614, 1452, 76, 52) + house(910, 1444, 84, 58, '#CE8F63') +
+       house(1010, 1476, 62, 44) + tree(578, 1516, .9) + tree(700, 1530, .8) +
+       tree(1090, 1520, .95) + pear(880, 1560, .8);
 
-  /* 0 — terraced fields */
-  let y = bandY(0);
-  s += wall(20, y + 8, 920) + field(60, y + 18, 150, 32) + field(300, y + 18, 190, 32) +
-       field(600, y + 18, 160, 32) + pear(250, y + 46, .7) + pear(540, y + 48, .6) +
-       olive(830, y + 52, .7);
+  /* windmill on the high ground between C and D */
+  s += '<g transform="translate(548 1352)">' +
+    '<path d="M-26 60V0h52v60z" fill="url(#hjWall)" stroke="' + D + '" stroke-width="4"/>' +
+    '<circle cx="0" cy="0" r="8" fill="#8A6A34" stroke="' + D + '" stroke-width="3"/>' +
+    '<path d="M0 0l-46-20M0 0l46 20M0 0l-20 46M0 0l20-46" stroke="#8A6A34" stroke-width="7" ' +
+      'stroke-linecap="round"/></g>';
 
-  /* 1 — a village: houses shoulder to shoulder, one with a dome */
-  y = bandY(1);
-  s += '<rect x="20" y="' + (y + 40) + '" width="920" height="14" fill="#241A3C" opacity=".8"/>';
-  for (let i = 0; i < 9; i++)
-    s += house(70 + i * 92, y + 16 + (i % 3) * 5, 62, 38 - (i % 3) * 5, i % 2 === 0);
-  s += '<path d="M520 ' + (y + 16) + 'a26 26 0 0152 0z" fill="#E3C489" stroke="' + DARK +
-       '" stroke-width="3"/><rect x="543" y="' + (y - 6) + '" width="6" height="12" fill="#6B5230"/>';
-
-  /* 2 — an olive grove and the roadside chapel */
-  y = bandY(2);
-  s += wall(20, y + 46, 920);
-  for (let i = 0; i < 11; i++) s += olive(56 + i * 84, y + 52, .62 + (i % 3) * .07);
-  s += '<g><path d="M760 ' + (y + 50) + 'v-32h56v32z" fill="' + STONE + '"/>' +
-    '<path d="M754 ' + (y + 18) + 'l34-20 34 20z" fill="#E3C489" stroke="' + DARK + '" stroke-width="3"/>' +
-    '<path d="M788 ' + (y - 4) + 'v-12M782 ' + (y - 10) + 'h12" stroke="#FFC542" stroke-width="4"/>' +
-    '<rect x="781" y="' + (y + 30) + '" width="14" height="20" fill="#6B5230"/></g>';
-
-  /* 3 — the quarry, stepped out of the limestone */
-  y = bandY(3);
-  s += '<path d="M120 ' + (y + 54) + 'v-14h60v-12h60v-12h70v-12h150v12h80v12h70v12h60v14z" ' +
-       'fill="' + STONE + '" opacity=".85"/>' +
-       '<path d="M120 ' + (y + 40) + 'h60m0-12h60m0-12h70m0-12h150m0 12h80m0 12h70m0 12h60" ' +
-       'fill="none" stroke="#6B5230" stroke-width="3"/>' +
-       '<rect x="800" y="' + (y + 30) + '" width="46" height="24" rx="4" fill="#E05A4A" ' +
-       'stroke="' + DARK + '" stroke-width="3"/>' +
-       '<circle cx="812" cy="' + (y + 56) + '" r="7" fill="#15101F"/>' +
-       '<circle cx="838" cy="' + (y + 56) + '" r="7" fill="#15101F"/>';
-
-  /* 4 — an inlet: the sea reaches in and the road bridges it */
-  y = bandY(4);
-  s += '<path d="M150 ' + (y + 56) + 'q70-52 180-52t180 52z" fill="url(#hjSea)"/>' +
-       '<path d="M150 ' + (y + 56) + 'q70-52 180-52t180 52" fill="none" ' +
-         'stroke="rgba(255,197,66,.20)" stroke-width="3"/>' +
-       swellIn(230, y + 34, 90) + swellIn(360, y + 26, 80) +
-       luzzu(320, y + 30, .58, '#3E9AD8') +
-       '<path d="M600 ' + (y + 52) + 'q40-30 90-30t90 30" fill="none" stroke="' + STONE +
-       '" stroke-width="7" opacity=".7"/>' + pear(80, y + 50, .65) + olive(880, y + 54, .7);
-
-  /* 5 — fields again, and the farmhouse with its well */
-  y = bandY(5);
-  s += wall(20, y + 10, 920) + field(70, y + 20, 180, 30) + field(360, y + 20, 200, 30) +
-       shade(732, y + 53, 58) +
-       '<g><path d="M690 ' + (y + 52) + 'v-34h84v34z" fill="' + STONE + '"/>' +
-       '<rect x="686" y="' + (y + 12) + '" width="92" height="8" fill="#E0BC80"/>' +
-       '<rect x="722" y="' + (y + 32) + '" width="18" height="20" fill="#6B5230"/>' +
-       '<rect x="700" y="' + (y + 26) + '" width="12" height="10" fill="#FFC542" opacity=".9"/></g>' +
-       '<circle cx="824" cy="' + (y + 44) + '" r="12" fill="none" stroke="' + STONE +
-       '" stroke-width="6"/>' + pear(300, y + 50, .6);
-
-  /* ── the outer margins: a wall down each edge, and what grows on it ── */
-  for (let r = 0; r < 7; r++){
-    const yy = 700 + r * 134;
-    s += pear(15, yy, .78) + pear(945, yy + 60, .78);
-  }
-  s += olive(16, 676, .85) + olive(944, 1420, .85);
-
-  /* ── the far end: a headland, and the house the road is driving to ── */
-  s += shade(860, 1582, 96) + '<g>' +
-    '<path d="M792 1580v-92h136v92z" fill="' + STONE + '"/>' +
-    '<path d="M778 1488l82-48 82 48z" fill="#E3C489"/>' +
-    '<path d="M778 1488l82-48 82 48" fill="none" stroke="#6B5230" stroke-width="3"/>' +
-    '<rect x="844" y="1534" width="32" height="46" fill="#5A421F"/>' +
-    '<g fill="#FFC542" opacity=".9"><rect x="806" y="1510" width="17" height="15"/>' +
-      '<rect x="890" y="1510" width="17" height="15"/></g>' +
-    '<ellipse cx="860" cy="1588" rx="130" ry="30" fill="url(#hjGlow)"/>' +
-    olive(756, 1574, 1.05) + pear(946, 1560, .9) + '</g>';
+  /* scatter, to break the empty green */
+  for (const [x, y, k] of [[430,300,.8],[236,940,.85],[420,1120,.75],[1130,1300,.85],
+                           [1160,1700,.9],[196,1200,.8],[660,320,.7],[380,700,.75]])
+    s += tree(x, y, k);
+  for (const [x, y, k] of [[300,1080,.8],[1180,1050,.8],[120,1620,.85],[980,1900,.8]])
+    s += pear(x, y, k);
 
   return s;
 }
+
 
 /* the roads themselves — two thick strokes with a dashed centre line,
    drawn UNDER the squares so the board reads as one continuous route */
 function paintRoads(){
   const d = pts => 'M' + pts.map(p => p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join('L');
+  /* a printed board road: a dark verge, a cream carriageway and a dashed
+     white centre line. Round caps and joins, because the path is a dense
+     polyline off the spline and any mitre would spike on a tight bend. */
   const lane = (pts, w) =>
-    '<path d="' + d(pts) + '" fill="none" stroke="rgba(0,0,0,.45)" stroke-width="' + (w + 20) +
-      '" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="' + d(pts) + '" fill="none" stroke="#C9A46A" stroke-width="' + (w + 11) +
+    '<path d="' + d(pts) + '" fill="none" stroke="#6E5A38" stroke-width="' + (w + 14) +
       '" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>' +
-    '<path d="' + d(pts) + '" fill="none" stroke="#0B0716" stroke-width="' + (w + 4) +
+    '<path d="' + d(pts) + '" fill="none" stroke="#F0E2BE" stroke-width="' + (w + 6) +
       '" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="' + d(pts) + '" fill="none" stroke="#2A2148" stroke-width="' + w +
+    '<path d="' + d(pts) + '" fill="none" stroke="#D8C79B" stroke-width="' + w +
       '" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="' + d(pts) + '" fill="none" stroke="rgba(255,197,66,.30)" stroke-width="3" ' +
-      'stroke-dasharray="20 26" stroke-linecap="round"/>';
-  UI.roads.innerHTML = lane(LAY.uni, 44) + lane(LAY.work, 44) + lane(LAY.road, 60);
+    '<path d="' + d(pts) + '" fill="none" stroke="#FFFFFF" stroke-width="3" ' +
+      'stroke-dasharray="16 20" stroke-linecap="round" opacity=".75"/>';
+  UI.roads.innerHTML = lane(LAY.uni, 40) + lane(LAY.work, 40) + lane(LAY.road, 46);
 }
+
 
 /* every square, once. Only the "who is standing here" ring is ever
    repainted after this. */
@@ -1095,8 +1108,9 @@ function paintSquares(){
     if (!p) continue;
     const f = face(i);
     h += '<button class="hj-sq k-' + f.c + (p.big ? ' big' : '') + '" id="hj-s' + i + '" ' +
-      'data-sq="' + i + '" style="left:' + (p.x - p.w / 2) + 'px;top:' + (p.y - p.h / 2) +
-      'px;width:' + p.w + 'px;height:' + p.h + 'px">' +
+      'data-sq="' + i + '" style="left:' + (p.x - p.w / 2).toFixed(1) + 'px;top:' +
+      (p.y - p.h / 2).toFixed(1) + 'px;width:' + p.w + 'px;height:' + p.h + 'px' +
+      (p.a ? ';transform:rotate(' + p.a.toFixed(1) + 'deg)' : '') + '">' +
       svgIcon(f.ic) + (f.t ? '<b>' + esc(f.t) + '</b>' : '') + '</button>';
   }
   UI.sqs.innerHTML = h;
@@ -1388,7 +1402,7 @@ function renderCars(){
     const a = at[i], group = by[a], n = group.length, k = group.indexOf(i);
     const off = (SPREAD[n] || SPREAD[6])[k] || [0, 0];
     const sc = n <= 1 ? 1 : n <= 2 ? 0.82 : n <= 4 ? 0.68 : 0.58;
-    const w = 76 * sc, hh = 48 * sc;
+    const w = 62 * sc, hh = 40 * sc;
     const p = LAY.pos[a] || LAY.pos[0];
     const moving = !!(M.anim && M.anim.seat === i);
     h += '<div class="hj-car' + (moving ? ' go' : '') + '" id="hj-car' + i + '" ' +
