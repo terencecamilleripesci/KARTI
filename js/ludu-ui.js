@@ -390,7 +390,7 @@ function injectCSS(){
     /* ── the host takes the slack; the board is a centred square ── */
     '#scr-party .pt-host.lu-host{align-items:stretch;justify-content:stretch;overflow:visible}' +
     '#scr-party .lu-wrap{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;' +
-      'gap:5px;padding:6px 6px 7px;position:relative}' +
+      'gap:5px;padding:6px 0 7px;position:relative}' +
 
     /* ── the rail of seats across the top. width:100%+min-width:0 pins it
        to the board width so 6/8 chips scroll INSIDE the strip and never

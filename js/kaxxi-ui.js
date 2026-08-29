@@ -249,7 +249,7 @@ function injectCSS(){
 
     '#scr-party .pt-host.kx-host{align-items:stretch;justify-content:stretch;overflow:visible}' +
     '#scr-party .kx-wrap{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;' +
-      'gap:6px;padding:6px 6px 7px;position:relative}' +
+      'gap:6px;padding:6px 0 7px;position:relative}' +
 
     /* ── the seat chips across the top ── */
     '#scr-party .kx-seats{flex:0 0 auto;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;' +

@@ -311,7 +311,7 @@ function injectCSS(){
 
     '#scr-party .pt-host.e4-host{align-items:stretch;justify-content:stretch;overflow:visible}' +
     '#scr-party .e4-wrap{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;' +
-      'gap:6px;padding:6px 6px 7px;position:relative}' +
+      'gap:6px;padding:6px 0 7px;position:relative}' +
 
     /* ── the two seat chips across the top ── */
     '#scr-party .e4-seats{flex:0 0 auto;display:flex;gap:8px;justify-content:center;' +

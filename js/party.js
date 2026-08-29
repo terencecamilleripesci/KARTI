@@ -929,8 +929,18 @@ function frame(o){
    fits the slack. Rounded down to a multiple of 8 so squares are all
    the same width and no hairline seams appear between them. */
 function fit(ctx){
+  /* stopFit() has to stop it DEAD. Every game that sizes its own board calls
+     stopFit() the line after frame() returns — synchronously, which is BEFORE
+     the requestAnimationFrame below has fired. Disconnecting the observer on
+     its own left that one queued frame alive, and it then stamped a square
+     width AND height back onto #pt-board a tick later, silently overriding
+     whatever the game had just asked for. Measured: is-sqaq's own
+     `width:min(94vw,50vh,520px)` never applied once, and KELMA's column
+     (board + rack + buttons) was squashed into a 360px square and had its
+     action row clipped off the bottom by .pt-host's overflow:hidden. */
+  let dead = false;
   const doIt = () => {
-    if (!ctx.host.isConnected) return;
+    if (dead || !ctx.host.isConnected) return;
     const w = ctx.host.clientWidth, h = ctx.host.clientHeight;
     if (!w || !h) return;
     /* the two rails share the host with the board, so take them off the
@@ -947,10 +957,10 @@ function fit(ctx){
   if (typeof ResizeObserver === 'function'){
     const ro = new ResizeObserver(doIt);
     ro.observe(ctx.host);
-    ctx.stopFit = () => ro.disconnect();
+    ctx.stopFit = () => { dead = true; ro.disconnect(); };
   } else {
     window.addEventListener('resize', doIt);
-    ctx.stopFit = () => window.removeEventListener('resize', doIt);
+    ctx.stopFit = () => { dead = true; window.removeEventListener('resize', doIt); };
   }
 }
 
@@ -1346,6 +1356,12 @@ function injectCSS(){
     '#scr-party .pt-turn{flex:0 0 auto;display:flex;align-items:center;gap:9px;min-height:42px;' +
       'padding:7px 12px;border-radius:13px;margin-bottom:7px;' +
       'background:rgba(255,255,255,.05);border:1px solid var(--line)}' +
+    /* Several games say whose turn it is in their own strip under the board and
+       never write here — and an empty 49px slab under the title bar is 49px of
+       board thrown away on every one of them (kaxxi, aqleb, erbgha, ballun).
+       Collapsed, not display:none, so the instant a game DOES write into it the
+       strip comes straight back with no re-layout of the board. */
+    '#scr-party .pt-turn:empty{min-height:0;padding:0;margin:0;border:0;background:none}' +
     '#scr-party .pt-turn.alert{background:rgba(255,84,104,.14);border-color:rgba(255,84,104,.45)}' +
     '#scr-party .pt-dot{flex:0 0 auto;width:16px;height:16px;border-radius:50%;' +
       'border:2px solid rgba(0,0,0,.45);background:#888}' +
@@ -1363,10 +1379,23 @@ function injectCSS(){
     '#scr-party .pt-rail .pt-mini{width:17px;height:17px;flex:0 0 auto;opacity:.9}' +
     '#scr-party .pt-rail .pt-edge{margin-left:6px;font:700 10px/1 ui-monospace,SFMono-Regular,' +
       'Menlo,monospace;color:var(--gold)}' +
+    /* The board slot bleeds 6px OUT of the screen's 12px side padding, leaving a
+       6px gutter to the glass instead of 12. That padding is right for reading
+       text and wrong for a board: it is the widest thing on the phone and every
+       one of these boards is width-bound, so those 12px were coming straight off
+       the square. 366 -> 378 is +7% on the side and +14% on the area of every
+       board game. The title bar, the turn strip and the button bar keep the
+       full 12px — only the board reaches further out. */
     '#scr-party .pt-host{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;' +
-      'overflow:hidden}' +
+      'overflow:hidden;margin-left:-6px;margin-right:-6px}' +
+    /* width:100% is load-bearing. The stack is a flex item of .pt-host, so
+       without it it shrink-wraps its widest child — and a game whose board is
+       `width:100%` (il-forka, kelma) then resolved that 100% against a box that
+       was only as wide as its own content. Measured: IL-FORKA's keyboard came
+       out 288px wide on a 390px phone. The board inside is still centred, so
+       nothing that sizes itself in px (chess, dama, is-sqaq) moves. */
     '#scr-party .pt-stack{display:flex;flex-direction:column;align-items:center;' +
-      'justify-content:center}' +
+      'justify-content:center;width:100%}' +
     '#scr-party .pt-bar{flex:0 0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));' +
       'gap:8px;margin-top:7px}' +
     /* online has no Undo (see js/mp.js), so its bar is two across, not three */

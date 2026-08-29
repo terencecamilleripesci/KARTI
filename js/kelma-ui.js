@@ -139,7 +139,10 @@ function injectCSS(){
   if (cssDone) return; cssDone = true;
   const s = document.createElement('style');
   s.textContent =
-  '#scr-party .km-wrap{display:flex;flex-direction:column;height:100%;min-height:0;gap:6px}' +
+  /* gap:4 not 6 — four gaps at 6px is 24px, and on a 360x640 phone the column
+     (chips + 15x15 board + hint + rack + buttons) was 4px longer than .pt-host
+     and lost the top of the seat chips to its overflow:hidden. */
+  '#scr-party .km-wrap{display:flex;flex-direction:column;height:100%;min-height:0;gap:4px}' +
   '#scr-party .km-top{display:flex;gap:5px;justify-content:center;flex-wrap:wrap;margin:2px 4px}' +
   '#scr-party .km-seat{display:flex;align-items:center;gap:6px;padding:3px 9px 3px 4px;border-radius:999px;' +
     'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);font-size:12px;color:#cfc8e6}' +
@@ -616,6 +619,12 @@ function openBoard(onBack){
     : M.net ? T('Online','Onlajn')
     : M.mode === 'pnp' ? T('Pass & play','Għaddi u lgħab') : levelName(M.lvl);
   const b = M.ctx.board;
+  /* Kelma never puts anything in the frame's two capture rails, and 36px of
+     empty rail is 36px the board + rack + buttons do not get. Measured at
+     360x640: without this the column ran 22px past .pt-host, whose
+     overflow:hidden then ate the bottom of the action row. */
+  if (M.ctx.railTop) M.ctx.railTop.style.display = 'none';
+  if (M.ctx.railBot) M.ctx.railBot.style.display = 'none';
   b.style.cssText = 'display:block;grid-template-columns:none;grid-template-rows:none;width:100%;max-width:560px;border:0;box-shadow:none;overflow:visible;background:transparent';
   b.innerHTML = '<div class="km-wrap"><div class="km-top"></div><div class="km-board"></div>' +
     '<div class="km-hint"></div><div class="km-rack"></div><div class="km-acts"></div></div>';

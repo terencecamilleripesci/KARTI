@@ -628,7 +628,12 @@ function openBoard(onBack){
     leave: () => leave(),
     buttons: [ { id:'sq-rules', label:T('Rules', 'Regoli'), icon:'book', cls:'ghost' } ]
   });
-  if (M.ctx.stopFit) M.ctx.stopFit();
+  /* NOTE: the frame's own square sizer is deliberately LEFT RUNNING. Is-Sqaq's
+     board is a 9x9 square in the frame's own rails — which is exactly what
+     fit() sizes: the biggest square that fits the host once the two rails are
+     off the height. The old `width:min(94vw,50vh,520px)` below never applied
+     (fit()'s queued frame overwrote it a tick later), and the 50vh in it would
+     have thrown away 16px of board on a 640-tall phone the day it did. */
   /* Who you are actually playing beats how the bytes arrive. A machine at the
      table is named by its difficulty even when a wire is involved — that is
      what a Story level is, and it used to read "Online" there, which was true
@@ -644,7 +649,7 @@ function openBoard(onBack){
      provides for exactly this: chips above the board, modes below. */
   M.ctx.board.style.cssText =
     'display:block;grid-template-columns:none;grid-template-rows:none;' +
-    'width:min(94vw,50vh,520px);border:0;box-shadow:none;overflow:visible;background:transparent';
+    'max-width:520px;border:0;box-shadow:none;overflow:visible;background:transparent';
   M.ctx.railTop.innerHTML = '<div class="sq-seats"></div>';
   M.ctx.railBot.innerHTML = '<div class="sq-modes"></div>';
   M.ctx.root.insertAdjacentHTML('beforeend',

@@ -211,9 +211,16 @@ function injectCSS(){
   st.textContent =
     /* the host fills its parent and NEVER overflows it: width:100% +
        box-sizing keep the arena (and the minimap pinned to its corner)
-       inside the viewport at every phone size and orientation */
+       inside the viewport at every phone size and orientation.
+       margin:0 undoes the 6px board-bleed .pt-host now carries (js/party.js):
+       this width:100% is measured against .pt-wrap, NOT against the bled box,
+       so with the bleed left in the arena kept its old 366px width and simply
+       sat 6px to the LEFT of centre. Serp is height-bound anyway — it had
+       nothing to win from the extra 12px and everything to lose from being
+       off-centre. */
     '#scr-party .sp-host{display:flex;flex-direction:column;align-items:stretch;' +
       'justify-content:flex-start;gap:6px;min-height:0;height:100%;width:100%;' +
+      'margin-left:0;margin-right:0;' +
       'max-width:100%;box-sizing:border-box;overflow:hidden;' +
       /* a heart glyph as an SVG mask, so a life pip is one tiny element */
       "--sp-heart:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' " +

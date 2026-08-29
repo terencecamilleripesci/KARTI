@@ -527,7 +527,7 @@ function injectCSS(){
 
     '#scr-party .pt-host.kq-host{align-items:stretch;justify-content:stretch;overflow:visible}' +
     '#scr-party .kq-wrap{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;' +
-      'gap:5px;padding:5px 5px 6px;position:relative}' +
+      'gap:5px;padding:5px 0 6px;position:relative}' +
 
     /* ── the phase banner: the single most important strip ── */
     /* THE BANNER WRAPS RATHER THAN TRUNCATES. Six controls fought over 390px
