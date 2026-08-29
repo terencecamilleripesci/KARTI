@@ -330,7 +330,7 @@ function injectCSS(){
       'border-radius:9px;background:linear-gradient(180deg,#FFD873,#C88A18);' +
       'box-shadow:0 2px 8px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.5);' +
       'transform:translateX(-50%);left:50%;will-change:left;' +
-      'transition:box-shadow .12s ease,filter .12s ease}' +
+      'transition:box-shadow .12s var(--ease,ease),filter .12s var(--ease,ease)}' +
     '#scr-party .bk-strip.pressed .bk-knob{filter:brightness(1.12);' +
       'box-shadow:0 0 0 2px rgba(255,233,176,.55),0 3px 14px rgba(255,197,66,.5),' +
       'inset 0 1px 0 rgba(255,255,255,.6)}' +

@@ -1170,7 +1170,7 @@ function injectCSS(){
     '#scr-party .mk-foldtg{display:flex;align-items:center;gap:8px;width:100%;padding:8px 4px;',
     '  font-family:var(--disp,"Exo 2",sans-serif);font-weight:800;font-size:13px;color:var(--dim,#A093C4)}',
     '#scr-party .mk-foldtg .ico{width:18px;height:18px}',
-    '#scr-party .mk-foldcv{width:18px;height:18px;margin-left:auto;transition:transform .2s ease;fill:none;stroke:currentColor;stroke-width:2}',
+    '#scr-party .mk-foldcv{width:18px;height:18px;margin-left:auto;transition:transform .2s var(--ease,ease);fill:none;stroke:currentColor;stroke-width:2}',
     '#scr-party .mk-foldtg.open .mk-foldcv{transform:rotate(180deg)}',
     '#scr-party .mk-foldbody{overflow:hidden}',
     '#scr-party .mk-foldbody.anim{animation:mk-slide .28s var(--ease,cubic-bezier(.22,.9,.28,1))}',
@@ -1206,7 +1206,7 @@ function injectCSS(){
     '#scr-party .mk-clock{font-family:var(--disp,"Exo 2",sans-serif);font-weight:900;font-size:34px;',
     '  color:var(--txt,#F4EFFF);font-variant-numeric:tabular-nums;line-height:1;',
     '  padding:2px 12px;border-radius:12px;background:var(--panel,#1B1430);border:1px solid var(--line,rgba(255,255,255,.1))}',
-    '#scr-party .mk-clock.low{color:var(--hot,#E8452C);border-color:rgba(232,69,44,.5);animation:mk-pulse 1s ease infinite}',
+    '#scr-party .mk-clock.low{color:var(--hot,#E8452C);border-color:rgba(232,69,44,.5);animation:mk-pulse 1s var(--ease,ease) infinite}',
     '@keyframes mk-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}',
     'body.reduced #scr-party .mk-clock.low,@media (prefers-reduced-motion:reduce){#scr-party .mk-clock.low{animation:none}}',
 
@@ -1238,7 +1238,7 @@ function injectCSS(){
     '#scr-party .mk-typed summary::-webkit-details-marker{display:none}',
     '#scr-party .mk-typedrow{display:flex;gap:8px;padding-bottom:8px}',
     '#scr-party .mk-typedrow .field{flex:1 1 auto}',
-    '#scr-party .mk-typed .field.miss{border-color:var(--hot,#E8452C);animation:mk-shake .4s ease}',
+    '#scr-party .mk-typed .field.miss{border-color:var(--hot,#E8452C);animation:mk-shake .4s var(--ease,ease)}',
     '@keyframes mk-shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-4px)}75%{transform:translateX(4px)}}',
     '#scr-party .mk-typed .mk-note{padding-bottom:8px;margin:0}',
 

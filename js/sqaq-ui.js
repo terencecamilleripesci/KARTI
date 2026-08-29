@@ -192,7 +192,7 @@ function injectCSS(){
   '#scr-party .sq-act{min-height:46px;border-radius:12px;font-family:inherit;font-weight:800;' +
     'font-size:13.5px;display:inline-flex;align-items:center;justify-content:center;gap:7px;' +
     'border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:#cfc8e6;' +
-    'transition:transform .14s ease}' +
+    'transition:transform .14s var(--ease,ease)}' +
   '#scr-party .sq-act:active{transform:scale(.95)}' +
   '#scr-party .sq-act svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2.4;' +
     'stroke-linecap:round;stroke-linejoin:round}' +

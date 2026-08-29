@@ -1303,7 +1303,7 @@
       'box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 4px 14px -6px rgba(255,197,66,.7);' +
       'color:#FFE9B0;font-family:system-ui,-apple-system,sans-serif;' +
       'font-weight:900;font-size:12px;letter-spacing:.04em;white-space:nowrap;' +
-      'transition:transform .12s ease}' +
+      'transition:transform .12s var(--ease,ease)}' +
     '.kx-mailbadge:active{transform:scale(.96)}' +
     '.kx-mailbadge{animation:kxMailGlow 2.4s ease-in-out infinite}' +
     '@keyframes kxMailGlow{0%,100%{box-shadow:inset 0 1px 0 rgba(255,255,255,.12),' +

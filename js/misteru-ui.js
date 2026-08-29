@@ -414,7 +414,7 @@ function injectCSS(){
       'box-shadow:0 10px 26px rgba(0,0,0,.55),0 0 0 1px rgba(255,255,255,.07) inset}',
     '#scr-party .ms-cellx{position:relative;overflow:hidden;border:0;margin:0;padding:0;font:inherit;' +
       'color:#f3ede0;background:transparent;border-radius:4px;-webkit-appearance:none;appearance:none;' +
-      'touch-action:manipulation;transition:transform .15s ease,opacity .15s ease}',
+      'touch-action:manipulation;transition:transform .15s var(--ease,ease),opacity .15s var(--ease,ease)}',
     /* the paving is ONE photograph shared by the whole board, each square
        showing its own slice — twenty copies of the same tile centred twenty
        times reads as wallpaper, not as a street. */
@@ -440,7 +440,7 @@ function injectCSS(){
       'display:flex;align-items:center;gap:11px;padding:9px 12px 9px 9px;border-radius:14px;' +
       'background:linear-gradient(180deg,rgba(32,26,43,.97),rgba(20,16,28,.97));' +
       'border:1px solid rgba(255,197,66,.55);box-shadow:0 14px 34px rgba(0,0,0,.6);' +
-      'opacity:0;transform:translateY(-10px);transition:opacity .22s ease,transform .22s cubic-bezier(.2,.8,.2,1)}',
+      'opacity:0;transform:translateY(-10px);transition:opacity .22s var(--ease,ease),transform .22s cubic-bezier(.2,.8,.2,1)}',
     '#scr-party .ms-enter.in{opacity:1;transform:translateY(0)}',
     '#scr-party .ms-enter .ms-fart,#scr-party .ms-enter .ms-obj{width:92px;height:92px;flex:0 0 auto;' +
       'border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px rgba(255,197,66,.35)}',

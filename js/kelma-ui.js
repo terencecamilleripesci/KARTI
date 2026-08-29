@@ -194,7 +194,7 @@ function injectCSS(){
   /* every animated thing lives behind the motion preference — reduced gets the plain state */
   '@media (prefers-reduced-motion:no-preference){' +
     '#scr-party .km-c.new{animation:kmDrop .3s cubic-bezier(.25,.9,.3,1) both}' +
-    '#scr-party .km-tile{transition:transform .16s cubic-bezier(.34,1.56,.64,1),box-shadow .16s ease}' +
+    '#scr-party .km-tile{transition:transform .16s cubic-bezier(.34,1.56,.64,1),box-shadow .16s var(--ease,ease)}' +
     '#scr-party .km-tile:active{transform:translateY(1px) scale(.96)}' +
     '#scr-party .km-seat.on{animation:kmPulse 1.8s ease-in-out infinite}' +
   '}' +

@@ -1373,7 +1373,7 @@ function injectCSS(){
       'min-height:64px;padding:10px 12px;border-radius:15px;color:#F4EFFF;cursor:pointer;' +
       'border:1px solid rgba(255,197,66,.45);' +
       'background:linear-gradient(180deg,rgba(255,197,66,.14),rgba(255,197,66,.05));' +
-      'transition:transform .13s ease,background .13s}' +
+      'transition:transform .13s var(--ease,ease),background .13s}' +
     '#scr-mp .mp-room:active{transform:scale(.985);background:rgba(255,197,66,.20)}' +
     '#scr-mp .mp-rav{flex:0 0 auto;width:40px;height:40px;border-radius:13px;display:grid;' +
       'place-items:center;font:900 14px/1 var(--disp);' +
@@ -1545,7 +1545,7 @@ function injectCSS(){
     /* the two drawers — they open IN PLACE, never on their own screen */
     '#scr-mp .mp-drawer{margin:9px 0 4px;padding:12px;border-radius:16px;' +
       'background:rgba(10,6,20,.55);border:1px solid rgba(255,255,255,.14);' +
-      'animation:mpDrop .16s ease both}' +
+      'animation:mpDrop .16s var(--ease,ease) both}' +
     '@keyframes mpDrop{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:none}}' +
     '#scr-mp .mp-dhd{display:flex;align-items:center;gap:8px;margin-bottom:7px}' +
     '#scr-mp .mp-dhd b{flex:1;font:900 12.5px/1.2 var(--disp);letter-spacing:.05em}' +
@@ -3333,13 +3333,13 @@ function askLeaveCSS(){
     '#mp-leave{position:fixed;inset:0;z-index:12500;display:flex;align-items:flex-end;' +
       'justify-content:center;background:rgba(6,4,12,.62);' +
       '-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px);opacity:0;' +
-      'transition:opacity .18s ease}' +
+      'transition:opacity .18s var(--ease,ease)}' +
     '#mp-leave.on{opacity:1}' +
     '#mp-leave .mpl-card{width:100%;max-width:420px;box-sizing:border-box;' +
       'margin:0 10px calc(env(safe-area-inset-bottom,0px) + 12px);padding:18px 16px 14px;' +
       'border-radius:20px;background:linear-gradient(180deg,#241A3E,#160F28);' +
       'border:1px solid rgba(255,197,66,.30);box-shadow:0 18px 44px rgba(0,0,0,.6);' +
-      'transform:translateY(16px);transition:transform .22s cubic-bezier(.22,.9,.28,1)}' +
+      'transform:translateY(16px);transition:transform .22s var(--ease,cubic-bezier(.22,.9,.28,1))}' +
     '#mp-leave.on .mpl-card{transform:none}' +
     '#mp-leave h4{margin:0 0 6px;font:900 17px/1.15 var(--disp,system-ui,sans-serif);color:#F4EFFF}' +
     '#mp-leave p{margin:0 0 14px;font:500 13px/1.4 system-ui,sans-serif;color:#C3B8DE}' +

@@ -484,7 +484,7 @@ function injectCSS(){
     /* instant press feedback on the FIRST touch — no wait for the move */
     '#scr-party .lu-tok.press{animation:none!important}' +
     '#scr-party .lu-tok.press .body{transform:scale(.86);transform-box:fill-box;' +
-      'transform-origin:center;transition:transform .08s ease}' +
+      'transform-origin:center;transition:transform .08s var(--ease,ease)}' +
     /* the lifted token in flight — a shadow so it reads as picked up */
     '#scr-party .lu-fly{transform-box:view-box;pointer-events:none;' +
       'filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}' +

@@ -171,7 +171,7 @@ function injectCSS(){
     '#scr-party .bl-mt i{display:block;font-style:normal;color:var(--dim,#A093C4);font-size:12px;margin-top:3px}',
     '#scr-party .bl-mchev svg{width:20px;height:20px;stroke:var(--dim,#A093C4);fill:none;stroke-width:2}',
     /* the sliding rules / online sheet */
-    '#scr-party .bl-sheet{overflow:hidden;max-height:0;transition:max-height .3s cubic-bezier(.22,.9,.28,1);',
+    '#scr-party .bl-sheet{overflow:hidden;max-height:0;transition:max-height .3s var(--ease,cubic-bezier(.22,.9,.28,1));',
     '  border-radius:16px;background:var(--panel,#1B1430);border:1px solid var(--line,rgba(255,255,255,.10));',
     '  margin-top:10px}',
     '#scr-party .bl-sheet.open{max-height:60vh;overflow-y:auto}',

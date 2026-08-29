@@ -500,15 +500,15 @@ function injectCSS(){
      reduced-motion phone gets the plain, correct state and nothing else.
      Compositor-cheap: transform/opacity only, no filters. ── */
   '@media (prefers-reduced-motion:no-preference){' +
-    '#scr-party .fk-key{transition:transform .08s ease}' +
+    '#scr-party .fk-key{transition:transform .08s var(--ease,ease)}' +
     '#scr-party .fk-key:not(:disabled):active{transform:translateY(2px) scale(.94)}' +
     '#scr-party .fk-seat.on{animation:fkTurn 1.9s ease-in-out infinite}' +
     '#scr-party .fk-seat.fk-pop .fk-sc{animation:fkScPop .55s cubic-bezier(.3,1.6,.5,1) both}' +
     '#scr-party .fk-slot.fresh{animation:fkFlip .45s cubic-bezier(.3,1.4,.5,1) both}' +
-    '#scr-party .fk-slot.fk-late{animation:fkFlip .4s ease both}' +
+    '#scr-party .fk-slot.fk-late{animation:fkFlip .4s var(--ease,ease) both}' +
     '#scr-party .fk-slot.fk-gold{animation:fkGold .6s cubic-bezier(.3,1.5,.5,1) both}' +
     '#scr-party .fk-burst i{animation:fkCf .95s cubic-bezier(.2,.7,.3,1) both}' +
-    '#scr-party .fk-gallows svg.fk-shake{animation:fkShake .42s ease}' +
+    '#scr-party .fk-gallows svg.fk-shake{animation:fkShake .42s var(--ease,ease)}' +
     '#scr-party .fk-p0.fk-new{animation:fkHead .55s cubic-bezier(.3,1.5,.5,1) both}' +
     '#scr-party .fk-p1.fk-new{transform-origin:50% 0;animation:fkGrow .4s cubic-bezier(.3,1.3,.5,1) both}' +
     '#scr-party .fk-p2.fk-new,#scr-party .fk-p4.fk-new{transform-origin:100% 0;animation:fkSwingL .65s cubic-bezier(.3,1.7,.4,1) both}' +
@@ -516,7 +516,7 @@ function injectCSS(){
     '#scr-party .fk-man.fk-sway,#scr-party .fk-menu .fk-man{animation:fkSway 3.4s ease-in-out infinite}' +
     '#scr-party .fk-menu .fk-man{transform-box:fill-box;transform-origin:50% 0}' +
     '#scr-party .fk-man.fk-hang{animation:fkHang 1.3s cubic-bezier(.34,1.3,.45,1) both}' +
-    '#scr-party .fk-setword{animation:fkRise .4s ease both}' +
+    '#scr-party .fk-setword{animation:fkRise .4s var(--ease,ease) both}' +
     '@keyframes fkTurn{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}' +
     '@keyframes fkScPop{0%{transform:scale(1)}40%{transform:scale(1.55)}100%{transform:scale(1)}}' +
     '@keyframes fkFlip{0%{transform:perspective(260px) rotateX(88deg) scale(1.2);opacity:0}55%{opacity:1}100%{transform:none;opacity:1}}' +

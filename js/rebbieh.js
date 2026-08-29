@@ -336,13 +336,13 @@
 
       /* avatars pop with a slight overshoot after the column has risen */
       '#kr-root.kr-anim.kr-go .kr-av-pop{opacity:1;transform:none;',
-      '  transition:opacity .26s ease,transform .4s var(--kr-overshoot,cubic-bezier(.34,1.56,.64,1))}',
+      '  transition:opacity .26s var(--ease,ease),transform .4s var(--kr-overshoot,cubic-bezier(.34,1.56,.64,1))}',
       '#kr-root.kr-anim.kr-go .kr-col.p1 .kr-av-pop{transition-delay:.30s}',
       '#kr-root.kr-anim.kr-go .kr-col.p2 .kr-av-pop{transition-delay:.24s}',
       '#kr-root.kr-anim.kr-go .kr-col.p3 .kr-av-pop{transition-delay:.36s}',
 
       '#kr-root.kr-anim.kr-go .kr-list,#kr-root.kr-anim.kr-go .kr-xp,',
-      '#kr-root.kr-anim.kr-go .kr-rw,#kr-root.kr-anim.kr-go .kr-acts{opacity:1;transition:opacity .3s ease}',
+      '#kr-root.kr-anim.kr-go .kr-rw,#kr-root.kr-anim.kr-go .kr-acts{opacity:1;transition:opacity .3s var(--ease,ease)}',
       '#kr-root.kr-anim.kr-go .kr-list{transition-delay:.42s}',
       '#kr-root.kr-anim.kr-go .kr-rw{transition-delay:.5s}',
       '#kr-root.kr-anim.kr-go .kr-xp{transition-delay:.56s}',
@@ -357,19 +357,19 @@
          the sequence is one timeline, not scattered timers. */
       '#kr-root.kr-anim .kr-rc-art{opacity:0;transform:scale(.25) translateY(-14px)}',
       '#kr-root.kr-anim.kr-go .kr-rc-art{opacity:1;transform:none;',
-      '  transition:opacity .22s ease,transform .5s var(--kr-overshoot,cubic-bezier(.34,1.56,.64,1))}',
+      '  transition:opacity .22s var(--ease,ease),transform .5s var(--kr-overshoot,cubic-bezier(.34,1.56,.64,1))}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(1) .kr-rc-art{transition-delay:.62s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(2) .kr-rc-art{transition-delay:.78s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(3) .kr-rc-art{transition-delay:.94s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(4) .kr-rc-art{transition-delay:1.08s}',
-      '#kr-root.kr-anim.kr-go .kr-rc-flash{animation:kr-flash .55s ease forwards}',
+      '#kr-root.kr-anim.kr-go .kr-rc-flash{animation:kr-flash .55s var(--ease,ease) forwards}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(1) .kr-rc-flash{animation-delay:.74s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(2) .kr-rc-flash{animation-delay:.90s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(3) .kr-rc-flash{animation-delay:1.06s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(4) .kr-rc-flash{animation-delay:1.20s}',
       '@keyframes kr-flash{0%{opacity:0;transform:scale(.4)}35%{opacity:1;transform:scale(1.1)}',
       '  100%{opacity:0;transform:scale(1.35)}}',
-      '#kr-root.kr-anim.kr-go .kr-rc-shine i{animation:kr-glint .7s ease forwards}',
+      '#kr-root.kr-anim.kr-go .kr-rc-shine i{animation:kr-glint .7s var(--ease,ease) forwards}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(1) .kr-rc-shine i{animation-delay:1.05s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(2) .kr-rc-shine i{animation-delay:1.21s}',
       '#kr-root.kr-anim.kr-go .kr-rc:nth-child(3) .kr-rc-shine i{animation-delay:1.37s}',
@@ -378,9 +378,9 @@
       '  30%{opacity:1}100%{opacity:0;transform:translateX(420%) rotate(16deg)}}',
 
       '#kr-root.kr-anim .kr-rw-bonus{opacity:0;transform:translateY(10px) scale(.9)}',
-      '#kr-root.kr-anim.kr-go .kr-rw-bonus{opacity:1;transform:none;transition:opacity .28s ease 1.25s,',
+      '#kr-root.kr-anim.kr-go .kr-rw-bonus{opacity:1;transform:none;transition:opacity .28s var(--ease,ease) 1.25s,',
       '  transform .45s var(--kr-overshoot,cubic-bezier(.34,1.56,.64,1)) 1.25s}',
-      '#kr-root.kr-anim.kr-go .kr-rw-bonus i{animation:kr-bshine 1.4s ease 1.6s 2}',
+      '#kr-root.kr-anim.kr-go .kr-rw-bonus i{animation:kr-bshine 1.4s var(--ease,ease) 1.6s 2}',
       '@keyframes kr-bshine{0%{opacity:0;transform:translateX(-220%) rotate(16deg)}',
       '  25%{opacity:1}55%,100%{opacity:0;transform:translateX(560%) rotate(16deg)}}',
 
@@ -412,7 +412,7 @@
          inline when it runs; keyframe here is only the level-up flourish */
       '#kr-root.kr-anim .kr-lvbadge.kr-pulse{animation:kr-pulse .6s var(--ease,ease) 1}',
       '@keyframes kr-pulse{0%{transform:scale(1)}40%{transform:scale(1.35)}to{transform:scale(1)}}',
-      '#kr-root.kr-anim .kr-lvup.kr-show{animation:kr-lvup .5s ease forwards}',
+      '#kr-root.kr-anim .kr-lvup.kr-show{animation:kr-lvup .5s var(--ease,ease) forwards}',
       '@keyframes kr-lvup{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}',
 
       /* honour the app-wide reduced class AND the media query as a hard stop */

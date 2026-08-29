@@ -1652,13 +1652,13 @@ body.kl-inst-on .screen .scroll{padding-bottom:98px}
 @media (prefers-reduced-motion:reduce){
   #kl-inst{transition:none;transform:none;opacity:1}}
 #kl-splash{position:fixed;inset:0;z-index:99998;display:flex;align-items:center;justify-content:center;
-  background:#0B0710;overflow:hidden;transition:opacity .6s ease;contain:strict}
+  background:#0B0710;overflow:hidden;transition:opacity .6s var(--ease,ease);contain:strict}
 #kl-splash .kl-base{position:absolute;inset:0;background:
   radial-gradient(120% 85% at 50% 4%,rgba(230,57,80,.22),transparent 44%),
   radial-gradient(90% 55% at 50% 104%,rgba(255,197,66,.18),transparent 54%),#0B0710}
 /* the painted festa backdrop, slowly breathing in (parallax push-in) */
 #kl-splash .kl-art{position:absolute;inset:-3%;background:center/cover no-repeat;opacity:0;
-  transition:opacity 1.1s ease;animation:klDrift 22s ease-in-out infinite alternate}
+  transition:opacity 1.1s var(--ease,ease);animation:klDrift 22s ease-in-out infinite alternate}
 @keyframes klDrift{from{transform:scale(1.04) translate3d(0,0,0)}to{transform:scale(1.11) translate3d(0,-1.6%,0)}}
 /* a warm hearth pulse behind the logo */
 #kl-splash .kl-glow{position:absolute;left:50%;top:44%;width:112vw;height:112vw;transform:translate(-50%,-50%);
@@ -1711,11 +1711,11 @@ body.kl-inst-on .screen .scroll{padding-bottom:98px}
   transform:skewX(-18deg);animation:klSweep 3.4s ease-in-out 1.1s infinite}
 @keyframes klSweep{0%{left:-55%}55%,100%{left:125%}}
 #kl-splash .kl-sub{margin-top:10px;font:700 11px/1 system-ui,sans-serif;letter-spacing:4px;
-  text-transform:uppercase;color:#C0B2A2;opacity:0;animation:klFade .8s ease .55s forwards}
+  text-transform:uppercase;color:#C0B2A2;opacity:0;animation:klFade .8s var(--ease,ease) .55s forwards}
 @keyframes klFade{to{opacity:1}}
 #kl-splash .kl-track{position:relative;margin:30px auto 0;width:216px;height:6px;border-radius:99px;
   background:rgba(255,255,255,.10);overflow:hidden;box-shadow:inset 0 1px 3px rgba(0,0,0,.6);
-  opacity:0;animation:klFade .8s ease .75s forwards}
+  opacity:0;animation:klFade .8s var(--ease,ease) .75s forwards}
 #kl-splash .kl-bar{position:relative;display:block;height:100%;width:6%;border-radius:99px;
   background:linear-gradient(90deg,#C8102E,#FF6B3D 55%,#FFC542);
   box-shadow:0 0 14px rgba(255,197,66,.7);transition:width .45s cubic-bezier(.3,.8,.3,1)}
@@ -1724,7 +1724,7 @@ body.kl-inst-on .screen .scroll{padding-bottom:98px}
   animation:klGloss 1.5s linear infinite}
 @keyframes klGloss{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 #kl-splash .kl-tip{margin-top:14px;font:600 10.5px system-ui;letter-spacing:2px;color:#9A8C7C;
-  opacity:0;animation:klFade .8s ease .95s forwards;transition:opacity .25s}
+  opacity:0;animation:klFade .8s var(--ease,ease) .95s forwards;transition:opacity .25s}
 @media (prefers-reduced-motion:reduce){
   #kl-splash .kl-art,#kl-splash .kl-glow,#kl-splash .kl-embers i,#kl-splash .kl-shine,
   #kl-splash .kl-logo,#kl-splash .kl-bar::after{animation:none!important}
@@ -2365,7 +2365,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 307;
+var KARTI_BUILD = 308;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

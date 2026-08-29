@@ -4999,7 +4999,7 @@ function storeCSS(){
       'background:linear-gradient(180deg,#FFF7DF,#FFD24A 46%,#C98A00);' +
       'clip-path:polygon(50% 100%,0 0,100% 0)}' +
     '.swglow{position:absolute;inset:-10px;border-radius:50%;pointer-events:none;z-index:0;' +
-      'box-shadow:0 0 0 0 rgba(255,197,66,0);transition:box-shadow .35s ease}' +
+      'box-shadow:0 0 0 0 rgba(255,197,66,0);transition:box-shadow .35s var(--ease,ease)}' +
     '.swwrap.spinning .swglow{box-shadow:0 0 40px 8px rgba(255,197,66,.34)}' +
     /* at rest with a spin waiting, the rim breathes — the one thing on the
        screen that says "this is for you, today" */

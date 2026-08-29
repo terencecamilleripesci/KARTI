@@ -223,7 +223,7 @@ function injectCSS(){
     border:1px solid rgba(255,255,255,.14);color:#fff;cursor:pointer;touch-action:none;
     box-shadow:0 4px 14px rgba(224,49,70,.4),inset 0 2px 6px rgba(255,255,255,.25);
     display:flex;align-items:center;justify-content:center;font:800 13px/1 system-ui,sans-serif;
-    letter-spacing:.06em;transition:transform .06s ease,box-shadow .06s ease;-webkit-user-select:none;user-select:none}
+    letter-spacing:.06em;transition:transform .06s var(--ease,ease),box-shadow .06s var(--ease,ease);-webkit-user-select:none;user-select:none}
   .tk-fire:active,.tk-fire.on{transform:scale(.92);box-shadow:0 2px 8px rgba(224,49,70,.5),inset 0 2px 10px rgba(0,0,0,.3)}
   .tk-fire.cool{opacity:.55}
   .tk-fire svg{width:26px;height:26px;fill:#fff;pointer-events:none}

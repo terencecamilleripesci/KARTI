@@ -378,7 +378,7 @@ function injectCSS(){
     'border:1px solid rgba(255,255,255,.06);' +
     'box-shadow:inset 0 1px 0 rgba(255,255,255,.09),0 1px 2px rgba(0,0,0,.45);' +
     'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;' +
-    'padding:2px;overflow:hidden;min-width:0;min-height:0;transition:filter .12s ease}' +
+    'padding:2px;overflow:hidden;min-width:0;min-height:0;transition:filter .12s var(--ease,ease)}' +
   /* the group tint, under everything, so a colour group reads even
      where the strip itself is behind a token */
   '#scr-kiri .kr-cell::after{content:"";position:absolute;inset:0;pointer-events:none;' +
@@ -615,7 +615,7 @@ function injectCSS(){
   '#scr-kiri .kr-die i.on{background:radial-gradient(circle at 34% 30%,#4A3B2A,#160E06 70%);' +
     'box-shadow:inset 0 -.5px .5px rgba(255,255,255,.35)}' +
   '#scr-kiri .kr-die.idle i.on{opacity:.16}' +
-  '#scr-kiri .kr-die.roll{animation:krshake .34s ease}' +
+  '#scr-kiri .kr-die.roll{animation:krshake .34s var(--ease,ease)}' +
   '@keyframes krshake{0%{transform:translateY(0) rotate(0)}30%{transform:translateY(-7px) rotate(-11deg)}' +
     '60%{transform:translateY(3px) rotate(9deg)}100%{transform:none}}' +
   '#scr-kiri .kr-midn{font-family:var(--disp);font-weight:900;font-size:14px;line-height:1.15;' +
@@ -699,7 +699,7 @@ function injectCSS(){
   '#scr-kiri .kr-grip i{width:34px;height:4px;border-radius:2px;background:rgba(255,255,255,.30);' +
     'flex:0 0 auto}' +
   '#scr-kiri .kr-grip svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2.4;' +
-    'stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;transition:transform .16s ease}' +
+    'stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto;transition:transform .16s var(--ease,ease)}' +
   /* DOWN, the handle is the only way back, so it grows to a full
      44-point target and says which tab it will open */
   '#scr-kiri .kr-dock.down .kr-grip{min-height:44px;background:rgba(138,92,255,.16);' +
@@ -725,7 +725,7 @@ function injectCSS(){
      second tap. It goes solid — the state has to be unmistakable, because
      the next tap is the one that cannot be taken back. */
   '#scr-kiri .kr-btn.bad.armed{background:#FF5468;border-color:#FF8A98;color:#2A0409;' +
-    'box-shadow:0 0 0 3px rgba(255,84,104,.28);animation:krarm .18s ease}' +
+    'box-shadow:0 0 0 3px rgba(255,84,104,.28);animation:krarm .18s var(--ease,ease)}' +
   '@keyframes krarm{from{transform:scale(.97)}to{transform:none}}' +
   '#scr-kiri .kr-saved{border-radius:14px;padding:9px;margin-bottom:10px;' +
     'background:rgba(255,197,66,.07);border:1px solid rgba(255,197,66,.26)}' +
@@ -765,7 +765,7 @@ function injectCSS(){
     'flex-direction:column;border-radius:18px 18px 0 0;background:#1B1430;border:1px solid rgba(255,255,255,.14);' +
     'border-bottom:0;padding:10px 12px calc(env(safe-area-inset-bottom,0px) + 12px);' +
     'box-shadow:0 -14px 40px rgba(0,0,0,.6)}' +
-  '#scr-kiri .kr-sheet.on{display:flex;animation:krup .22s cubic-bezier(.22,.9,.28,1)}' +
+  '#scr-kiri .kr-sheet.on{display:flex;animation:krup .22s var(--ease,cubic-bezier(.22,.9,.28,1))}' +
   '@keyframes krup{from{transform:translateY(26px);opacity:.4}to{transform:none;opacity:1}}' +
   '#scr-kiri .kr-sh-h{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex:0 0 auto}' +
   '#scr-kiri .kr-sh-h h3{margin:0;font-size:15px;font-weight:900;flex:1;line-height:1.2}' +
@@ -774,7 +774,7 @@ function injectCSS(){
   '#scr-kiri .kr-grab{width:38px;height:4px;border-radius:2px;background:rgba(255,255,255,.22);margin:0 auto 8px}' +
 
   /* ── the art slot: absent until a real load event says otherwise ── */
-  '#scr-kiri .kr-art{position:absolute;inset:0;opacity:0;transition:opacity .35s ease;' +
+  '#scr-kiri .kr-art{position:absolute;inset:0;opacity:0;transition:opacity .35s var(--ease,ease);' +
     'pointer-events:none;border-radius:inherit;z-index:0}' +
   '#scr-kiri .kr-sh-b{position:relative}' +
   '#scr-kiri .kr-sh-b > *{position:relative;z-index:1}' +
@@ -925,7 +925,7 @@ function injectCSS(){
   '#scr-kiri .kr-mode{display:flex;align-items:center;gap:11px;text-align:left;width:100%;' +
     'min-height:62px;padding:10px 12px;border-radius:14px;border:1px solid rgba(255,255,255,.14);' +
     'background:rgba(255,255,255,.05);color:var(--txt,#F4EFFF);cursor:pointer;' +
-    'transition:transform .08s ease,background .15s ease,border-color .15s ease}' +
+    'transition:transform .08s var(--ease,ease),background .15s var(--ease,ease),border-color .15s var(--ease,ease)}' +
   '#scr-kiri .kr-mode:active{transform:translateY(1px)}' +
   '#scr-kiri .kr-mode.primary{background:linear-gradient(180deg,#8A5CFF,#6a3fd8);border-color:#A98BFF;color:#fff}' +
   '#scr-kiri .kr-mode .mi{flex:0 0 auto;width:38px;height:38px;border-radius:11px;display:grid;' +
@@ -947,7 +947,7 @@ function injectCSS(){
     'background:rgba(255,255,255,.04);overflow:hidden;margin-bottom:6px}' +
   '#scr-kiri .kr-ruleslide .kr-row{margin-bottom:0;border:0;background:none;min-height:52px}' +
   '#scr-kiri .kr-rbody{padding:2px 12px 10px}' +
-  '#scr-kiri .kr-ruleslide.anim.open .kr-rbody{animation:krslide .22s ease}' +
+  '#scr-kiri .kr-ruleslide.anim.open .kr-rbody{animation:krslide .22s var(--ease,ease)}' +
   '@keyframes krslide{from{transform:translateY(-8px);opacity:0}to{transform:none;opacity:1}}' +
 
   /* ── short phones ── */

@@ -406,7 +406,7 @@ function injectCSS(){
     '#scr-party .mh-fart{position:absolute;inset:0;display:block}' +
     '#scr-party .mh-fart .mh-fsvg{position:absolute;inset:0;width:100%;height:100%}' +
     '#scr-party .mh-fimg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;' +
-      'opacity:0;transition:opacity .2s ease}' +
+      'opacity:0;transition:opacity .2s var(--ease,ease)}' +
     '#scr-party .mh-fimg.ok{opacity:1}' +
     '#scr-party .mh-nm{position:absolute;left:0;right:0;bottom:0;padding:2px 2px 2.5px;' +
       'font:900 8px/1.1 var(--disp);letter-spacing:.02em;text-align:center;color:#fff;' +
