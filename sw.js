@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v314';
+const CACHE = 'karti-v315';
 /* ── THE SHELL, NOT THE GAME ─────────────────────────────────────────────────
    This list used to be 205 entries / ~24 MB — every game module and every
    per-game portrait — so a first install (and EVERY version bump) re-fetched
@@ -51,6 +51,13 @@ const SHELL = [
   './js/tutor.js',
   './js/sync.js',
   './js/party.js',
+  /* NO GAME MODULES BELOW THIS LINE, deliberately. This SHELL is the BOOT
+     set — what a phone needs to start and show a menu. All forty-odd game
+     files, IT-TAPP included, are runtime-cached by the fetch handler the
+     first time their tile is opened, which is why none of them appear
+     here. IT-TAPP was briefly added and taken back out: one game in the
+     boot set and forty outside it is not a rule, it is an inconsistency,
+     and it makes every install pay for a game most players never open. */
   /* The 38 mp3s under ./audio/ are deliberately NOT precached. They are 416 KB,
      the game is designed to be perfect without a single one of them, and a
      precache list that 404s fails the whole install — which is how a cache bump
