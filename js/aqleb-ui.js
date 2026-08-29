@@ -356,8 +356,12 @@ function openBoard(onBack){
   if (M.ctx.stopFit) M.ctx.stopFit();
   const anyAI = () => { for (let i=0;i<seatCount();i++) if (ownerOf(i)==='ai') return i; return -1; };
   const ai = anyAI();
-  M.ctx.badge.textContent = M.net ? T('Online', 'Onlajn')
-    : ai >= 0 ? levelName(seatLvl(ai))
+  /* who you are playing beats how the bytes arrive — the fifth game to
+     need this. Asking M.net first makes every table with a machine at it
+     read "Online", which is true of the plumbing and meaningless to the
+     player, and plainly wrong on a Story level. */
+  M.ctx.badge.textContent = ai >= 0 ? levelName(seatLvl(ai))
+    : M.net ? T('Online', 'Onlajn')
     : T('Pass & play', 'Għaddi u lgħab');
   buildBoard();
   M.ctx.btn('aq-rules').onclick = () => setRules(!rulesOpen);
@@ -1353,7 +1357,14 @@ const hooks = {
   },
   phase(){ return M ? 'play' : 'idle'; },
   apply(seat, move){ if (!M) return { ok:false, why:'no aqleb' }; return onlineRemote(seat, move); },
-  attachNet(net){ if (M){ M.net = net || null; maybeThink(); } },
+  attachNet(net){
+    if (!M) return;
+    /* keep the iAmHost stamp: a bare net handed in later would drop it and
+       the bots would stop again */
+    const was = M.net && M.net.iAmHost;
+    M.net = net ? Object.assign({}, net, { iAmHost: !!(net.iAmHost || was) }) : null;
+    maybeThink();
+  },
   setOwner(i, own){ if (M && M.meta && M.meta[i]){ M.meta[i].own = own; } },
   setName(i, name){ if (M && M.meta && M.meta[i] && name){ M.meta[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },
@@ -1407,7 +1418,16 @@ function onlineStart(cfg){
     M.meta.push({ own, name: s.name || discName(i), lvl: s.level || 2 });
   }
   applyMeta();
-  M.net = cfg.net || null;
+  /* STAMP iAmHost ONTO THE NET HANDLE. maybeThink() below refuses to drive a
+     machine chair unless `M.net.iAmHost` is true — but js/mp.js never puts
+     that field on the net object; it only has one as a local of its own. So
+     the test read `!undefined`, which is true, and EVERY phone returned:
+     no Flip It bot has ever moved on an online table, and a bot's turn hung
+     for ever. js/kaxxi-ui.js hit this exact trap and documents it; erbgha
+     stamps it too. This is the third game to need the same line. */
+  M.net = cfg.net ? Object.assign({}, cfg.net, {
+    iAmHost: (cfg.you | 0) === (cfg.host | 0)
+  }) : null;
   M.finished = false;
   openBoard(() => { const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); });
   hooks.attachNet(cfg.net || null);
