@@ -304,10 +304,16 @@ const STEP = 118;        /* px between stops              */
 const TOP  = 74;         /* px above the first stop       */
 const SWING = 26;        /* how far the road wanders, %   */
 function nodePos(i){
-  /* 1.4 rad per stop is deliberate: at 0.9 the first four stops all sat
-     right of centre and the top of the road looked lopsided. This period
-     does not repeat itself over fourteen stops. */
-  return { x: 50 + Math.sin(i * 1.4) * SWING, y: TOP + i * STEP };
+  /* YOU CLIMB. Stop one is at the BOTTOM of the map and the last is at the
+     top, so the road goes up the way a ladder does and the screen opens on
+     where you actually are. It ran downward before, which reads as falling
+     down a list rather than getting somewhere.
+
+     1.4 rad per stop is deliberate: at 0.9 the first four stops all sat
+     right of centre and the road looked lopsided. This period does not
+     repeat itself over the length of the map. */
+  var last = LEVELS.length - 1;
+  return { x: 50 + Math.sin(i * 1.4) * SWING, y: TOP + (last - i) * STEP };
 }
 const mapHeight = () => TOP + (LEVELS.length - 1) * STEP + 64;
 
