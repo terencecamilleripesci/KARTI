@@ -1374,6 +1374,26 @@
     } catch (err) {}
   }
 
+  /* ── GOING BACK SHOULD FALL ────────────────────────────────────────────
+     ui.back was a flat click — the same shape as ui.tap, just a different
+     file. Every other movement in the app now has a direction in it: a tab
+     climbs its strip, a door plays the note of the room it opens. Leaving had
+     none, so it read as "another button" rather than as an exit.
+
+     Two notes, down, fast. A fall is what a person hears as going back, and
+     three would be a flourish where this wants to be decisive. The ui.back
+     sample still plays underneath the pair — it is the transient that gives
+     the gesture an edge, and ladder() is one musical figure rather than two
+     competing sounds, which is the rule that matters here.
+
+     The SHEET close keeps plain ui.back through watchClass(): a sheet sliding
+     shut is the app moving, not the player leaving, and it should not sound
+     like the same act. */
+  function backCue(){
+    play('ui.back');
+    ladder(3, 2, -1, 62, { gain: 0.5 });
+  }
+
   /* A row of choices plays a scale: position in the row picks the note, so a
      filter row always sounds the same way round and the fourth chip is always
      the fourth note. */
@@ -1450,7 +1470,7 @@
         var dk = doorKey(el);
         if (dk){ navNote(dk); return; }
       }
-      play(looksBack(el) ? 'ui.back' : 'ui.tap');
+      if (looksBack(el)) backCue(); else play('ui.tap');
       /* whatever this tap turns out to have done, it has been acknowledged —
          so if a screen changes because of it, that is not a second event. */
       claimNav();
