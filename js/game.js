@@ -2654,6 +2654,17 @@ function storeLogoProbe(after){
   img.onerror = () => { storeLogoPack = false; storeLogoProbing = false; };
   img.src = 'art/ui/logo-chess.png';
 }
+/* Two tiles do not want a logo-<id>.png and never will:
+     karti        — the card duel is the app itself, and it already has its
+                    emblem; there is no "logo-karti.png" to draw.
+     gharraqroza  — an ENCORE exclusive set keyed by its own id rather than a
+                    game id, so it asks for an emblem that cannot exist. It
+                    belongs to GHARRAQ and should wear its face.
+   Anything not listed here just looks for its own file. */
+const LOGO_SRC = {
+  karti: 'art/ui/emblem.png',
+  gharraqroza: 'art/ui/logo-gharraq.png'
+};
 /* swap the monogram for the emblem only once it has actually decoded, so a
    broken-image glyph can never appear in a tile */
 function storeLogoInto(host, id){
@@ -2669,7 +2680,7 @@ function storeLogoInto(host, id){
     host.classList.add('haslogo');
   };
   img.onerror = () => {};            /* that game simply has no emblem yet */
-  img.src = 'art/ui/logo-' + id + '.png';
+  img.src = LOGO_SRC[id] || ('art/ui/logo-' + id + '.png');
 }
 function storeLogosInto(stage){
   /* the probe is async: if the emblems turn out to exist, repaint the shelf
