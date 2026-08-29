@@ -3964,6 +3964,12 @@ function boxPop(res){
     '</div>';
   document.body.appendChild(el);
   boxPopEl = el;
+  /* THE LID HAS TO BE READY BEFORE IT IS NEEDED. The open crate is a second
+     painting, and swapping to a file the browser has not fetched yet would
+     show a hole for a frame at the exact moment everything is looking at it.
+     Fetched now, while the box is still trembling. */
+  const openSrc = (ART.base ? uiArt('box', 'box-' + res.box.id + '-open.png') : '') || '';
+  if (openSrc && !REDUCED){ const pre = new Image(); pre.src = openSrc; }
 
   let opened = REDUCED;
   const open = () => {
@@ -3978,6 +3984,12 @@ function boxPop(res){
     if (!REDUCED){
       el.classList.add('kick');
       setTimeout(() => { if (boxPopEl === el) el.classList.remove('kick'); }, 420);
+      /* IT OPENS. The crate does not vanish and get replaced by a card any
+         more — the lid goes back, the light comes out, and you SEE the thing
+         you paid for standing open for a beat before the prize rises out of
+         it. Two paintings of the same box, swapped on the burst frame. */
+      const img = $('.bx-hero .bx-img', el);
+      if (img && openSrc){ img.src = openSrc; el.classList.add('lid'); }
     }
     if (window.KARTI_SFX){
       try {
@@ -4007,7 +4019,7 @@ function boxPop(res){
         const cb = core.getBoundingClientRect(), mb = m.getBoundingClientRect();
         fx.style.top = Math.round(mb.top - cb.top + mb.height / 2) + 'px';
       }
-    }, 340);
+    }, 1250);
 
     /* WHAT CAME OUT OF THE BOX. particles() throws a radial burst, which is
        the spin's language; a crate should empty itself, so this rains its
@@ -4249,11 +4261,11 @@ function chipsCSS(){
       'margin-left:min(-105px,-27.5vw);transform-origin:50% 100%;opacity:0;' +
       'background:linear-gradient(180deg,color-mix(in srgb,var(--fxc) 55%,transparent),transparent 72%);' +
       'filter:blur(9px);clip-path:polygon(38% 0,62% 0,100% 100%,0 100%)}' +
-    '.bpop.open .bx-beam{animation:bxBeam 1.1s cubic-bezier(.2,.9,.3,1) both}' +
+    '.bpop.open .bx-beam{animation:bxBeam 1.1s cubic-bezier(.2,.9,.3,1) .18s both}' +
     '@keyframes bxBeam{0%{opacity:0;transform:scaleY(.15)}' +
       '35%{opacity:.8}100%{opacity:.4;transform:scaleY(1)}}' +
     /* the card comes UP, not out of nowhere */
-    '.bpop.open .spop-med{animation:bxRise .52s cubic-bezier(.18,1.3,.32,1) .1s both}' +
+    '.bpop.open .spop-med{animation:bxRise .52s cubic-bezier(.18,1.3,.32,1) .6s both}' +
     '@keyframes bxRise{0%{opacity:0;transform:translateY(46px) scale(.82)}' +
       '55%{opacity:1}100%{opacity:1;transform:translateY(0) scale(1)}}' +
     /* what fell out */
@@ -4283,10 +4295,23 @@ function chipsCSS(){
       'transition:transform .19s cubic-bezier(.34,1.56,.64,1)}' +
     '.bpop.hold .bx-img{filter:drop-shadow(0 0 26px var(--bxa)) brightness(1.25)}' +
     /* and it goes */
-    '.bpop.open .bxart{animation:bxBurst .44s cubic-bezier(.2,.9,.3,1) forwards}' +
+    /* THE OPENING, not a disappearance. The crate used to scale up and fade
+       in 0.44s — by the time your eye got there it was already gone and a
+       card was in its place. Now the lid image swaps in on the burst frame
+       and the OPEN box holds for most of a second, lit, before it drifts up
+       and clears the stage for the prize. You get to see what you bought. */
+    '.bpop.open .bxart{animation:bxBurst 1.25s cubic-bezier(.2,.85,.3,1) forwards}' +
     '@keyframes bxBurst{0%{transform:scale(1.07);opacity:1}' +
-      '45%{transform:scale(1.34);opacity:.85}' +
-      '100%{transform:scale(2.05);opacity:0}}' +
+      '10%{transform:scale(1.22);opacity:1}' +
+      '24%{transform:scale(1.14);opacity:1}' +
+      '46%{transform:scale(1.14) translateY(-8px);opacity:1}' +
+      /* it LIFTS OUT OF THE WAY rather than fading where it stands, so the
+         card can rise into the space it vacates instead of over the top of
+         it — they were both centred, and the card simply covered the box */
+      '78%{transform:scale(1.02) translateY(-124px);opacity:.85}' +
+      '100%{transform:scale(.92) translateY(-168px);opacity:0}}' +
+    /* the moment the lid image lands, the glow behind it flares */
+    '.bpop.lid .bx-img{filter:drop-shadow(0 0 34px var(--bxa)) brightness(1.16)}' +
     'body.reduced .bpop .bxart{animation:none!important;transform:none!important}' +
     '.bxart.big{width:150px;height:150px}' +
     '.bxart b{position:absolute;display:block;border-radius:9px}' +
