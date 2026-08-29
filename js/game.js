@@ -3073,7 +3073,10 @@ function setStoreTab(t){
   if (spinBusy || packBusy || boxBusy) return;
   if (storeTab === t){ renderPackScreen(); return; }
   storeTab = t;
-  if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.tap'); } catch (e){} }
+  /* NO play() here. .stab is a <button>, so js/sfx.js's global click wiring
+     already sounds it; this line was the second sound. It only sometimes
+     doubled because sfx's dedupe window swallowed the twin when the two
+     landed close enough together, which is why it felt intermittent. */
   renderPackScreen();
 }
 function renderStoreTabs(){
@@ -3865,7 +3868,7 @@ function buyBoxTap(id){
     boxConfirm = id;
     clearTimeout(boxConfirmT);
     boxConfirmT = setTimeout(() => { boxConfirm = ''; if (current === 'pack' && storeTab === 'chips') renderChipsTab(); }, 2600);
-    if (window.KARTI_SFX){ try { KARTI_SFX.play('ui.tap'); } catch (e){} }
+    /* the tile is a <button>; the global wiring sounds it */
     renderChipsTab();
     return;
   }
@@ -4558,7 +4561,6 @@ function renderCosmTab(){
     $$('.cpk', stage).forEach(btn => {
       btn.onclick = () => {
         cosmGame = btn.dataset.cg;
-        try { if (window.KARTI_SFX) KARTI_SFX.play('ui.tap'); } catch (e){}
         renderCosmTab();
       };
     });
@@ -4778,7 +4780,6 @@ function renderExclTab(){
     $$('.cpk', stage).forEach(btn => {
       btn.onclick = () => {
         exclGame = btn.dataset.xg;
-        try { if (window.KARTI_SFX) KARTI_SFX.play('ui.tap'); } catch (e){}
         renderExclTab();
       };
     });

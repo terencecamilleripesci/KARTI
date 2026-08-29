@@ -1229,8 +1229,18 @@
              '.deckface,.flipper,#ticker';
   /* the app's actual chrome vocabulary, read off index.html and game.js */
   var CHROME = 'button,.btn,.tab,.setrow,[role="switch"]';
-  /* rows of choices that should sound like a scale rather than one click */
-  var PICKS = '.chip,.setchip,.deckcard,[data-pane]';
+  /* Rows of choices that should sound like a SCALE rather than one click —
+     position in the row picks the note, so the fourth thing is always the
+     fourth note and a strip becomes an instrument.
+
+     .stab and .cpk joined this list because the store tabs and the game
+     tiles were playing ui.tap: the identical flat click as every ordinary
+     button in the app. Moving between shelves is not the same act as
+     pressing OK, and it should not sound like it. Now a button clicks, a
+     tab or a game tile plays its note, a Back sounds like going back, and a
+     door or a nav tab plays the note its DESTINATION owns — four voices for
+     four different things, out of sounds that already exist. */
+  var PICKS = '.chip,.setchip,.deckcard,[data-pane],.stab,.cpk';
   /* THE BIG DOORS on Home — Story, Multiplayer, Party. They were the three
      largest buttons in the app and they played the same flat ui.tap as a
      dialogue's OK. They are not clicks, they are DESTINATIONS, so they now
@@ -1300,15 +1310,30 @@
      dead tap; it was the most consequential tap on the screen. So the capture
      listener records `disabled` at the moment of the press too, and the bubble
      handler trusts that rather than the DOM it is now looking at.           */
-  var swPre = null, disPre = null;
+  var swPre = null, disPre = null, pickPre = null;
   function preClick(e){
     try {
-      swPre = null; disPre = null;
+      swPre = null; disPre = null; pickPre = null;
       var t = e && e.target;
       if (!t || !t.closest) return;
       var el = t.closest(CHROME);
       if (!el) return;
       disPre = { el: el, dis: !!el.disabled };
+      /* CLAIM THE NAVIGATION HERE, IN THE CAPTURE PHASE.
+         A nav tab or a Home door navigates from its OWN click handler, which
+         runs on the bubble — before ours. By the time onClick() below calls
+         claimNav(), the screen has already changed and the screen observer
+         has already sounded its transition. That is the second sound on every
+         tab: ui.swipe from the observer, then the destination note from us.
+         Capture runs before anybody's handler, so claiming here means the
+         observer stands down and the note is the only thing you hear. */
+      if (!el.disabled && (t.closest('#home-nav .tab') || matches(el, DOORS))) claimNav();
+      /* the index, while the element is still attached */
+      if (!el.disabled && matches(el, PICKS)){
+        var pp = el.parentNode, pi = 0;
+        try { if (pp && pp.children) pi = Array.prototype.indexOf.call(pp.children, el); } catch (err2) {}
+        pickPre = { el: el, i: Math.max(0, pi) };
+      }
       if (el.disabled || !looksSwitch(el)) return;
       swPre = { el: el, on: switchOn(el) };
     } catch (err) {}
@@ -1352,12 +1377,21 @@
   /* A row of choices plays a scale: position in the row picks the note, so a
      filter row always sounds the same way round and the fourth chip is always
      the fourth note. */
+  /* WHERE IN THE ROW IT WAS — read in the CAPTURE phase, not here.
+     A tab's own handler usually REBUILDS the strip it lives in, and this
+     runs on document, last of all. By then the element the player touched
+     has been thrown away: parentNode is null, indexOf never runs, and every
+     tab in the app plays note 0. Which is precisely how five tabs came to
+     sound identical. preClick() sees the element while it is still in the
+     document, so the index is taken there and remembered. */
   function pickNote(el){
     var i = 0;
-    try {
+    if (pickPre && pickPre.el === el) i = pickPre.i;
+    else try {
       var p = el.parentNode;
       if (p && p.children) i = Array.prototype.indexOf.call(p.children, el);
     } catch (e) {}
+    pickPre = null;
     note(Math.max(0, i), { gain: 0.55 });
   }
 
