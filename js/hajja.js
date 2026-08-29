@@ -71,15 +71,48 @@ var START_CASH = 10;
    payday pays. `tax` is what you hand over on a TAXXA square — the
    better paid you are, the more the VAT man enjoys your company. */
 var CAREERS = [
-  { id:'tabib',    n:'Tabib',            mt:'Tabib',            deg:1, pay:22, tax:9 },
-  { id:'avukat',   n:'Avukat',           mt:'Avukat',           deg:1, pay:20, tax:8 },
-  { id:'perit',    n:'Perit',            mt:'Perit',            deg:1, pay:18, tax:7 },
-  { id:'ghalliem', n:'Għalliem',         mt:'Għalliem',         deg:1, pay:14, tax:4 },
-  { id:'kuntrat',  n:'Kuntrattur',       mt:'Kuntrattur',       deg:0, pay:16, tax:7 },
-  { id:'sewwieq',  n:'Sewwieq tat-taxi', mt:'Sewwieq tat-taxi', deg:0, pay:11, tax:3 },
-  { id:'bidwi',    n:'Bidwi',            mt:'Bidwi',            deg:0, pay:10, tax:2 },
-  { id:'bar',      n:'Tal-bar',          mt:'Tal-bar',          deg:0, pay:9,  tax:2 }
+  { id:'tabib',    n:'Tabib',            mt:'Tabib',            deg:1, tax:9 },
+  { id:'avukat',   n:'Avukat',           mt:'Avukat',           deg:1, tax:8 },
+  { id:'perit',    n:'Perit',            mt:'Perit',            deg:1, tax:7 },
+  { id:'ghalliem', n:'Għalliem',         mt:'Għalliem',         deg:1, tax:4 },
+  { id:'kuntrat',  n:'Kuntrattur',       mt:'Kuntrattur',       deg:0, tax:7 },
+  { id:'sewwieq',  n:'Sewwieq tat-taxi', mt:'Sewwieq tat-taxi', deg:0, tax:3 },
+  { id:'bidwi',    n:'Bidwi',            mt:'Bidwi',            deg:0, tax:2 },
+  { id:'bar',      n:'Tal-bar',          mt:'Tal-bar',          deg:0, tax:2 }
 ];
+/* SALARY IS ITS OWN DECK, as it is in the original: you draw the JOB and
+   you draw what it happens to pay, and the two are not the same card. A
+   Tabib on a bad salary draw genuinely earns less than a lucky Kuntrattur,
+   which is the variance that made me flatten it in the first place — and
+   flattening it is exactly what made the career choice a lookup table
+   instead of a gamble. Degrees draw from the top of the deck, everyone
+   else from the bottom; the ranges OVERLAP on purpose. */
+var SALARIES = [10, 12, 14, 16, 18, 20, 22, 24, 26, 30];
+var SAL_DEG = 4;        /* a degree draws from index 4 up (18+)          */
+var SAL_CAP = 6;        /* without one you draw index 0..6 (10..22)      */
+
+/* ĦAJJA TILES — a real deck with real values, face down until the end.
+   They were a flat 10 each, which made them a counter rather than a
+   deck: nobody cares about a tile whose worth they already know. */
+var TILE_DECK = [5,5,5,10,10,10,10,15,15,15,20,20,25,25,30,40];
+
+/* STOCK — one number, 1..10. Whenever ANY player spins it, you collect.
+   Costs 10. The one card in the game that pays you on somebody else's
+   turn, which is what makes the table watch each other's spins. */
+var STOCK_COST = 10, STOCK_PAY = 10;
+
+/* INSURANCE — the original's motor and home policies. Each cancels the
+   squares it covers for the rest of the game. Priced so it only pays for
+   itself if you buy it EARLY, which is the whole decision. */
+var INS = { car: { cost:12, n:'Motor insurance' }, home: { cost:16, n:'Home insurance' } };
+
+/* ── OUR OWN, which the original has no equivalent of ───────────────
+   IL-WASLA — "the connection". Everybody on this island knows somebody.
+   Hold one and the next bill that lands on you is quietly made to go
+   away, once. It is the most Maltese mechanic we could give the board
+   and it is ours, not theirs. */
+var WASLA_MAX = 3;
+
 var careerById = function (id){
   for (var i = 0; i < CAREERS.length; i++) if (CAREERS[i].id === id) return CAREERS[i];
   return null;
@@ -115,7 +148,8 @@ var ROAD = [
   /* — the shared road, from the join onward — */
   { k:'P', t:'PAYDAY' },
   { k:'.', t:'You start work. Everyone tells you it goes quickly.' },
-  { k:'E', v:-3,  t:'Car breaks down on the Coast Road.' },
+  { k:'I', t:'The insurance man calls.' },
+  { k:'E', v:-3,  ins:'car',  t:'Car breaks down on the Coast Road.' },
   { k:'L', t:'You learn to make a decent ftira.' },
   { k:'E', v:4,   t:'Nanna slips you something at Sunday lunch.' },
   { k:'X', stop:'marry', t:'GET MARRIED' },
@@ -125,6 +159,8 @@ var ROAD = [
   { k:'L', t:'You find a parking space in Valletta.' },
   { k:'C', t:'Career change — the office was not it.' },
   { k:'E', v:5,   t:'You sell the old Punto for more than it is worth.' },
+  { k:'K', t:'A cousin has a tip on the market.' },
+  { k:'W', t:'IL-WASLA — you did somebody a favour once.' },
   { k:'X', stop:'house', t:'BUY A HOUSE' },
   { k:'P', t:'PAYDAY' },
   { k:'B', t:'A baby. Congratulations, you are tired now.' },
@@ -133,16 +169,18 @@ var ROAD = [
   { k:'E', v:-7,  t:'The VAT inspector has a few questions.', tax:1 },
   { k:'P', t:'PAYDAY' },
   { k:'E', v:6,   t:'A cousin pays back a loan from 2009.' },
+  { k:'W', t:'IL-WASLA — your uncle knows the man at the counter.' },
   { k:'B', t:'Another baby. The car is now full.' },
-  { k:'E', v:-4,  t:'The block is doing the roof. Your share.' },
+  { k:'E', v:-4,  ins:'home', t:'The block is doing the roof. Your share.' },
   { k:'L', t:'You finally learn to swim properly.' },
   { k:'P', t:'PAYDAY' },
-  { k:'E', v:-8,  t:'Development next door. Windows shut all summer.' },
+  { k:'E', v:-8,  ins:'home', t:'Development next door. Windows shut all summer.' },
   { k:'C', t:'Career change — a friend needs a partner.' },
   { k:'E', v:7,   t:'You win something small at the każin tombla.' },
+  { k:'K', t:'The bank is pushing a savings plan.' },
   { k:'L', t:'The mother-in-law says something kind.' },
   { k:'P', t:'PAYDAY' },
-  { k:'E', v:-6,  t:'Both cars need a service in the same week.' },
+  { k:'E', v:-6,  ins:'car',  t:'Both cars need a service in the same week.' },
   { k:'E', v:9,   t:'A field you forgot about gets rezoned.' },
   { k:'L', t:'Grandchildren. All of them at once, every Sunday.' },
   { k:'P', t:'PAYDAY' },
@@ -220,7 +258,11 @@ function newPlayer(i){
     pegs: 1,               /* you, then spouse, then children            */
     married: false,
     kids: 0,
-    tiles: 0,              /* ĦAJJA tiles collected                      */
+    tiles: [],             /* ĦAJJA tiles — VALUES, face down till the end */
+    salary: 0,             /* what your job actually pays, its own card   */
+    stock: 0,              /* the number you hold, 1..10, 0 for none      */
+    ins: { car:false, home:false },
+    wasla: 0,              /* favours in hand — see WASLA_MAX             */
     uni: false,            /* took the university road                   */
     sold: 0                /* what the house fetched at the end          */
   };
@@ -240,10 +282,18 @@ function newGame(opts, seed){
     phase: 'fork',        /* 'fork' | 'spin' | 'choose' | 'over'         */
     spin: 0,              /* the last number spun                        */
     pending: null,        /* a decision the current player owes us       */
+    tileBag: [],          /* the shuffled ĦAJJA deck, drawn face down    */
     log: [],              /* [{seat,t,v}] — the UI's ticker              */
     done: null            /* { counts:[], winners:[] } once it is over   */
   };
   for (var i = 0; i < seats; i++) st.players.push(newPlayer(i));
+  /* shuffle the ĦAJJA deck ONCE, off the seeded stream, so every phone at
+     the table draws the same tiles in the same order */
+  st.tileBag = TILE_DECK.slice();
+  for (var j = st.tileBag.length - 1; j > 0; j--){
+    var k = pick(st, j + 1), t = st.tileBag[j];
+    st.tileBag[j] = st.tileBag[k]; st.tileBag[k] = t;
+  }
   return st;
 }
 
@@ -276,7 +326,13 @@ function spinWheel(st){ return 1 + pick(st, 10); }
 /* ═══════════════════════ RESOLVING A SQUARE ═══════════════════════ */
 function payday(st, p){
   var c = careerById(p.career);
-  if (c) give(st, p, c.pay, 'PAYDAY — ' + c.n);
+  if (c && p.salary) give(st, p, p.salary, 'PAYDAY — ' + c.n);
+}
+/* a tile off the top of the deck; the bag refills so a long six-hander
+   never runs dry mid-game */
+function drawTile(st, p){
+  if (!st.tileBag.length) st.tileBag = TILE_DECK.slice();
+  p.tiles.push(st.tileBag.pop());
 }
 
 /* what a square does when you FINISH on it. Returns a pending decision,
@@ -289,9 +345,18 @@ function land(st, p){
       payday(st, p);
       return null;
     case 'L':
-      p.tiles++;
+      drawTile(st, p);
       st.log.push({ seat: p.seat, t: sq.t, v: 0 });
       return null;
+    case 'W':
+      /* IL-WASLA. You know somebody. */
+      if (p.wasla < WASLA_MAX) p.wasla++;
+      st.log.push({ seat: p.seat, t: sq.t, v: 0 });
+      return null;
+    case 'K':
+      return { kind:'stock', seat:p.seat, cost: STOCK_COST, can: p.cash >= STOCK_COST && !p.stock };
+    case 'I':
+      return { kind:'ins', seat:p.seat, options: insOptions(st, p) };
     case 'B':
       p.kids++; p.pegs++;
       st.log.push({ seat: p.seat, t: sq.t, v: 0 });
@@ -311,6 +376,17 @@ function land(st, p){
       if (sq.tax){
         var c = careerById(p.career);
         v = -(c ? c.tax : 3);
+      }
+      /* the policy you bought forty spaces ago finally does something */
+      if (v < 0 && sq.ins && p.ins[sq.ins]){
+        st.log.push({ seat: p.seat, t: INS[sq.ins].n + ' covers it — ' + sq.t, v: 0 });
+        return null;
+      }
+      /* and if not, somebody you know might */
+      if (v < 0 && p.wasla > 0){
+        p.wasla--;
+        st.log.push({ seat: p.seat, t: 'IL-WASLA — a word with somebody. ' + sq.t, v: 0 });
+        return null;
       }
       give(st, p, v, sq.t);
       return null;
@@ -342,6 +418,14 @@ function careerOptions(st, p){
   }
   return out;
 }
+/* the policies you do not already hold and can pay for */
+function insOptions(st, p){
+  var out = [], k;
+  for (k in INS) if (Object.prototype.hasOwnProperty.call(INS, k))
+    if (!p.ins[k] && p.cash >= INS[k].cost) out.push(k);
+  return out;
+}
+
 /* every house you could actually pay for, cheapest first, plus 'skip' */
 function houseOptions(st, p){
   var out = [], i;
@@ -367,8 +451,16 @@ function retire(st, p){
    minus what the bank is owed. Tiles are worth a flat 10 each: they are
    the "you had a life" counterweight to pure salary, and a flat value
    keeps the end readable instead of a second scoring minigame. */
-var TILE_VALUE = 10;
-function scoreOf(p){ return p.cash + p.tiles * TILE_VALUE - p.loans * LOAN_BACK; }
+function tileTotal(p){
+  var t = 0, i;
+  for (i = 0; i < p.tiles.length; i++) t += p.tiles[i];
+  return t;
+}
+/* cash, the tiles turned face up at last, the stock sold back at what you
+   paid, minus what the bank is owed */
+function scoreOf(p){
+  return p.cash + tileTotal(p) + (p.stock ? STOCK_COST : 0) - p.loans * LOAN_BACK;
+}
 
 function endGame(st){
   var counts = [], i, best = -Infinity;
@@ -456,7 +548,16 @@ function apply(st, seat, mv){
     if (pd.kind === 'career'){
       if (mv.t !== 'career') return { ok:false, err:'pick a job' };
       if (mv.v && pd.options.indexOf(mv.v) < 0) return { ok:false, err:'not on offer' };
-      if (mv.v){ p.career = mv.v; st.log.push({ seat:p.seat, t:'Now a ' + careerById(mv.v).n, v:0 }); }
+      if (mv.v){
+        p.career = mv.v;
+        /* the salary is its own draw — a degree deals from the top of the
+           deck, everyone else from the bottom, and the ranges overlap */
+        var deg = careerById(mv.v).deg;
+        p.salary = deg
+          ? SALARIES[SAL_DEG + pick(st, SALARIES.length - SAL_DEG)]
+          : SALARIES[pick(st, SAL_CAP + 1)];
+        st.log.push({ seat:p.seat, t:'Now a ' + careerById(mv.v).n + ' on ' + p.salary + 'k', v:0 });
+      }
       st.pending = null; st.phase = 'spin'; nextTurn(st);
       return { ok:true };
     }
@@ -471,12 +572,38 @@ function apply(st, seat, mv){
       st.pending = null; st.phase = 'spin'; nextTurn(st);
       return { ok:true };
     }
+    if (pd.kind === 'stock'){
+      if (mv.t !== 'stock') return { ok:false, err:'buy or pass' };
+      if (mv.v){
+        if (!pd.can) return { ok:false, err:'you cannot buy that' };
+        var num = Math.max(1, Math.min(10, mv.v | 0));
+        p.stock = num;
+        give(st, p, -STOCK_COST, 'Bought stock number ' + num);
+      }
+      st.pending = null; st.phase = 'spin'; nextTurn(st);
+      return { ok:true };
+    }
+    if (pd.kind === 'ins'){
+      if (mv.t !== 'ins') return { ok:false, err:'buy or pass' };
+      if (mv.v){
+        if (pd.options.indexOf(mv.v) < 0) return { ok:false, err:'not on offer' };
+        p.ins[mv.v] = true;
+        give(st, p, -INS[mv.v].cost, 'Bought ' + INS[mv.v].n);
+      }
+      st.pending = null; st.phase = 'spin'; nextTurn(st);
+      return { ok:true };
+    }
     return { ok:false, err:'unknown decision' };
   }
 
   if (st.phase === 'spin'){
     if (mv.t !== 'spin') return { ok:false, err:'spin first' };
     st.spin = spinWheel(st);
+    /* anybody holding this number collects, whoever spun it */
+    for (var q = 0; q < st.seats; q++){
+      var op = st.players[q];
+      if (!op.done && op.stock === st.spin) give(st, op, STOCK_PAY, 'Stock ' + st.spin + ' pays');
+    }
     walk(st, p, st.spin);
     if (p.at >= END){ retire(st, p); st.pending = null; nextTurn(st); return { ok:true }; }
     var pend2 = land(st, p);
@@ -514,11 +641,23 @@ function aiMove(st, seat, lvl){
     var pd = st.pending;
     if (!pd) return { t:'spin' };
     if (pd.kind === 'career'){
-      var best = '', bestPay = -1, i;
+      /* Rank by what a career IS now, not by a pay field it no longer
+         carries. Salary became its own deck, so a job is worth having for
+         two reasons: a degree deals from the top of that deck, and a lower
+         tax band keeps more of it. Ranking on the old c.pay silently
+         returned undefined here, `undefined > -1` is false, and levels 2
+         and 3 therefore answered "no job at all" on every single career
+         square — which is why the clever machine finished every game on no
+         salary and lost 200 to nil. */
+      var best = '', bestV = -Infinity, i;
       for (i = 0; i < pd.options.length; i++){
         var c = careerById(pd.options[i]);
-        if (c && c.pay > bestPay){ bestPay = c.pay; best = c.id; }
+        if (!c) continue;
+        var v = (c.deg ? 100 : 0) - c.tax;
+        if (v > bestV){ bestV = v; best = c.id; }
       }
+      /* never answer empty: a job you did not pick is still better than none */
+      if (!best) best = pd.options[0] || '';
       /* the beginner takes whichever was offered first */
       return { t:'career', v: lvl === 1 ? (pd.options[0] || '') : best };
     }
@@ -534,6 +673,21 @@ function aiMove(st, seat, lvl){
         if (v > bestV){ bestV = v; pickId = h.id; }
       }
       return { t:'house', v: pickId };
+    }
+    if (pd.kind === 'stock'){
+      /* the beginner never buys paper it does not understand; the other two
+         do, because a card that pays on everybody's spin is simply good */
+      if (lvl === 1 || !pd.can) return { t:'stock', v:0 };
+      return { t:'stock', v: 1 + (p.seat % 10) };
+    }
+    if (pd.kind === 'ins'){
+      if (!pd.options.length) return { t:'ins', v:'' };
+      /* lvl 1 never insures anything and pays for it later. lvl 2 takes the
+         motor policy. lvl 3 buys whatever it can, early, which is the only
+         time insurance is worth owning. */
+      if (lvl === 1) return { t:'ins', v:'' };
+      if (lvl === 2) return { t:'ins', v: pd.options.indexOf('car') >= 0 ? 'car' : '' };
+      return { t:'ins', v: pd.options[0] };
     }
   }
   return { t:'spin' };
@@ -562,7 +716,9 @@ root.KARTI_HAJJA = root.KARTI_HAJJA || {};
 root.KARTI_HAJJA.engine = {
   MIN_SEATS: MIN_SEATS, MAX_SEATS: MAX_SEATS, LEVELS: LEVELS,
   CAREERS: CAREERS, HOUSES: HOUSES, BOARD: BOARD, END: END,
-  LOAN: LOAN, LOAN_BACK: LOAN_BACK, TILE_VALUE: TILE_VALUE,
+  LOAN: LOAN, LOAN_BACK: LOAN_BACK, SALARIES: SALARIES, TILE_DECK: TILE_DECK,
+  STOCK_COST: STOCK_COST, STOCK_PAY: STOCK_PAY, INS: INS, WASLA_MAX: WASLA_MAX,
+  tileTotal: tileTotal, insOptions: insOptions, drawTile: drawTile,
   newSeed: newSeed, newGame: newGame,
   player: player, cur: cur, turn: turn, over: over,
   apply: apply, aiMove: aiMove, scoreOf: scoreOf,
