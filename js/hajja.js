@@ -743,7 +743,17 @@ function aiMove(st, seat, lvl){
    APPEND ONLY. js/mp.js decodes against this published list, and a field
    inserted rather than appended is how a table stops dead on a build
    that has not been updated. */
-var WIRE_FIELDS = ['t', 'v'];
+/* NOT ['t','v'], which is what this said first and which cannot go on the
+   relay at all. js/mp.js's toWire() runs Math.floor(Number(x)) over EVERY
+   declared field: `t` holds the action word, Number('fork') is NaN, and the
+   whole move is refused. The action is already carried separately in `a`
+   (WIRE_SKIP covers t), so listing it here refuses every move in the game.
+   And fromWire() ends `mv.v = !!mv.v`, so a career id, a house id or a
+   stock number would all arrive as `true` — which is why the payload rides
+   one integer `c` that js/hajja-ui.js encodes and decodes. `v` stays
+   declared but is never sent, so an older decoder still lines up.
+   APPEND ONLY: never insert into this list. */
+var WIRE_FIELDS = ['v', 'c'];
 function encWire(mv){
   if (!mv || !mv.t) return null;
   var o = { t: mv.t };

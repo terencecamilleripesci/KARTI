@@ -206,6 +206,8 @@ const GAMES = [
     blurb:'Draw lines, close boxes. Two to four players.' },
   { k:'sqaq', name:'Is-Sqaq', short:'SQAQ', icon:'map',
     blurb:'Race to the far side. Wall them off — never seal them in.' },
+  { k:'hajja', name:'Il-Ħajja', short:'ĦAJJA', icon:'users',
+    blurb:'Spin, drive, work, marry, retire. Most money wins.' },
   { k:'ilforka', name:'Il-Forka', short:'FORKA', icon:'book',
     blurb:'Hangman, the Maltese way. Set a word or guess one.' },
   { k:'kelma', name:'Kelma', short:'KELMA', icon:'book',
@@ -296,6 +298,10 @@ const LOBBY_GLOBAL = {
      honest for these (nothing to read out of the deal). The hidden-hand card
      games are deliberately absent until the private per-seat deal is wired. */
   kanun:'KARTI_KANUN', bomba:'KARTI_BOMBA', briks:'KARTI_BRIKS',
+  /* IL-ĦAJJA — the life board. Nothing is hidden: every phone replays the
+     same spins and card draws off the shared seed, so an online table is
+     honest without a private per-seat deal. */
+  hajja:'KARTI_HAJJA',
   /* the hidden-hand card games. Their contracts are published on
      KARTI_POKER.lobby and KARTI_BLACKJACK.lobby (the 21/31 tile), and the
      private per-seat deal keeps every hole card off the shared wire. */
@@ -334,6 +340,8 @@ const SEATS_FALLBACK = {
   poker:[2, 8, 4], cards2131:[1, 9, 4],
   /* the arena games + Reversi. tankijiet is a 4–8 brawl; ballun and aqleb seat 2–4. */
   tankijiet:[4, 8, 4], ballun:[2, 4, 4], aqleb:[2, 4, 2], kaxxi:[2, 4, 2],
+  /* the life board: two to six, four a comfortable table */
+  hajja:[2, 6, 4],
   sqaq:[2, 4, 2], ilforka:[2, 8, 2], kelma:[2, 4, 2],
   konkwista:[2, 6, 3], misteru:[2, 6, 3]
 };

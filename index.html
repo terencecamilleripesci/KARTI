@@ -2365,7 +2365,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 317;
+var KARTI_BUILD = 318;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2498,6 +2498,12 @@ window.swVersion = function(){
                'js/kelma.js','js/kelma-ui.js',                   /* Word tiles 2–4 (offline) */
                'js/konkwista.js','js/konkwista-ui.js',           /* Risk conquest 2–6 */
                'js/misteru.js','js/misteru-ui.js',               /* Clue mystery 2–6 */
+               /* IL-ĦAJJA — the spin-and-move life board, 2–6. hajja.js is the
+                  pure engine, hajja-ui.js the board, the cars and the spinner.
+                  Deliberately NOT in sw.js's SHELL: that list is boot-only and
+                  no game module belongs in it — this one is runtime-cached the
+                  first time somebody opens the tile. */
+               'js/hajja.js','js/hajja-ui.js',                   /* The Life 2–6 */
                'js/stats.js',
                /* FRIENDS — the social tab (#scr-friends). After mp.js (it
                   rides KARTI_MP's relay socket + room-invite machinery) and

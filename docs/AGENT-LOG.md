@@ -390,3 +390,41 @@ ring.** Worth knowing before you go removing `overflow:hidden` from
 `.sx-lav`/`.sx-pcav` hunting a clipped frame — the medallion clips first, and
 that is the same everywhere in the app including the profile, so it is the
 intended look. The bug was geometry, not clipping.
+
+## IL-ĦAJJA (js/hajja-ui.js) — three things that cost an hour
+
+**A published `WIRE_FIELDS` can be a list that CANNOT GO ON THE WIRE, and
+nothing says so until the table stops.** `js/hajja.js` publishes
+`WIRE_FIELDS = ['t','v']`. Both names are wrong for `js/mp.js`'s codec:
+`toWire()` runs `Math.floor(Number(x))` over **every** name in the list, and
+`t` always holds the action word (`'spin'`) → `NaN` → the whole move is
+refused, every time. The action is already carried separately in `a`
+(`WIRE_SKIP`), which is why no other engine here lists `t` — check
+`js/aqleb.js` (`['r','c']`), `js/kanun.js`, `js/bomba.js`. And `fromWire()`
+ends with `if (mv.v !== undefined) mv.v = !!mv.v`, so `v` is a BOOLEAN on
+arrival: a career id, a house id and a stock number 1..10 all become `true`.
+Fix without touching the engine: the lobby publishes the corrected list
+(`gameLobby()` prefers a published `wire` over mp.js's internal mirror) —
+`['v','c']`, the un-sendable name dropped, `v` left declared so an older
+decoder still lines up, and the payload riding one APPENDED integer field.
+`encMove`/`decMove` in `js/hajja-ui.js` are the only two places that know the
+codes. **Before you trust any engine's field list, run one of each of its
+moves through toWire/fromWire.**
+
+**`nextSpace()` only knows the ROAD, so it cannot animate a JUMP.** IL-ĦAJJA's
+square 0 is a fork that teleports you to the head of one of two spurs.
+Stepping from 0 with `nextSpace()` always walks the UNIVERSITY spur, so a car
+that chose WORK was animated 46 spaces down the wrong road and past half the
+board to arrive one square away — and with four machine seats doing it the
+first turn took longer than the test would wait. Any board with a branch needs
+its walk to check that the road actually LED there, and hop rather than lie
+when it did not.
+
+**puppeteer's `page.click()` hangs for the full protocolTimeout in a
+BACKGROUND tab.** `ElementHandle.click()` waits on an IntersectionObserver
+before it will click, and IntersectionObserver callbacks do not fire in a
+backgrounded tab — so in any two-client test the FIRST page (backgrounded the
+instant the second is created) stops dead in `Runtime.callFunctionOn`, and it
+looks exactly like the game having frozen. Cost 2×180s before it was
+recognised. Use `page.evaluate(s => document.querySelector(s).click(), sel)`
+for every tap in a two-client harness, or `bringToFront()` first.
