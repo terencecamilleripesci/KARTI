@@ -428,3 +428,28 @@ instant the second is created) stops dead in `Runtime.callFunctionOn`, and it
 looks exactly like the game having frozen. Cost 2×180s before it was
 recognised. Use `page.evaluate(s => document.querySelector(s).click(), sel)`
 for every tap in a two-client harness, or `bringToFront()` first.
+
+## IL-ĦAJJA's board: three things that made scenery look wrong (build 319)
+
+**The squares were too big for the board, and that is why it looked like a
+spreadsheet.** At 128x92 on a 960x1480 board the serpentine touched on every
+side — 20px seams, 24px between columns — so there was physically nowhere for
+land to be. No amount of art fixes that. The squares came down to 112x78 and
+the board went up to 1680 with a 134 row pitch, which buys six 56px bands
+across the full width, and only then was there a map to draw. **If scenery
+looks cramped, measure the gaps before drawing anything.**
+
+**A peaked shape filled with a light-to-dark vertical gradient reads as a
+searchlight, not a hill.** Same for nested arcs that widen downward — five of
+them under the city made an unmistakable beam. Real relief is a DARK mass with
+the light on the RIDGE, on the edge facing whatever the light source is.
+
+**Mdina floated because its base (y 398) sat above its own hill's crown
+(y ~425).** Nothing in the code can catch that; it took cropping the render to
+the hill and looking at it. Two earlier passes "looked fine" in the full-board
+screenshot, where the whole hill is 40px tall.
+
+The scene is one string built once, `pointer-events:none`, drawn under
+`.hj-roads`. **If those pointer-events ever come back, every square on the
+board silently stops working** — the harness asserts `elementFromPoint` over
+12 squares hits `.hj-sq` and never `.hj-scene`.
