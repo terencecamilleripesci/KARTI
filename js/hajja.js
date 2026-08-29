@@ -170,8 +170,9 @@ var ROAD = [
   { k:'P', t:'PAYDAY' },
   { k:'E', v:6,   t:'A cousin pays back a loan from 2009.' },
   { k:'W', t:'IL-WASLA — your uncle knows the man at the counter.' },
-  { k:'B', t:'Another baby. The car is now full.' },
+  { k:'B', n:2, t:'TWINS. Nobody in the family is surprised except you.' },
   { k:'E', v:-4,  ins:'home', t:'The block is doing the roof. Your share.' },
+  { k:'B', t:'One more. You said you were finished.' },
   { k:'L', t:'You finally learn to swim properly.' },
   { k:'P', t:'PAYDAY' },
   { k:'E', v:-8,  ins:'home', t:'Development next door. Windows shut all summer.' },
@@ -245,7 +246,37 @@ var LEVELS = [
                                       mt:'Tmur l-università u tgħodd kollox.' } }
 ];
 
+/* ── THE CAR, AND THE PEGS IN IT ───────────────────────────────────
+   The toy at the centre of the original: a little car that you fill with
+   people as your life goes on. It was a peg COUNT here, which is enough
+   for scoring and nothing at all for the screen — you cannot draw a car
+   from an integer, and "the car is now full" was already written on one
+   of my own squares with nothing behind it.
+
+   Six seats, as the real car has: you, whoever you marry, and up to four
+   children. A baby that arrives with no seat left does not vanish from
+   the story — the square still happens, it just cannot be carried, which
+   is a better joke than silently bumping the counter.
+
+   The pegs are NOT colour-coded by sex the way the 1960s original does
+   it. They take the car's own colour and the engine records WHO each one
+   is, which draws exactly as well and dates a great deal better.
+
+   Colours are the same six the rest of the box uses for seats, so a
+   player is the same colour here as they are everywhere else. */
+var CAR_SEATS = 6;
+var CARS = [
+  { id:'gold', hex:'#FFC542', n:'Gold',  mt:'Deheb'  },
+  { id:'ice',  hex:'#4FB6FF', n:'Ice',   mt:'Silġ'   },
+  { id:'jade', hex:'#3DDC84', n:'Jade',  mt:'Ġada'   },
+  { id:'ruby', hex:'#FF5468', n:'Ruby',  mt:'Rubin'  },
+  { id:'plum', hex:'#B98BFF', n:'Plum',  mt:'Għanbaqar' },
+  { id:'tang', hex:'#FF9F45', n:'Tang',  mt:'Larinġ' }
+];
+var carOf = function (i){ return CARS[i % CARS.length]; };
+
 /* ── a player ──────────────────────────────────────────────────────── */
+function seatsLeft(p){ return CAR_SEATS - p.pegs.length; }
 function newPlayer(i){
   return {
     seat: i,
@@ -255,7 +286,8 @@ function newPlayer(i){
     loans: 0,              /* how many times you went to the bank        */
     career: null,          /* career id                                  */
     house: null,           /* house id                                   */
-    pegs: 1,               /* you, then spouse, then children            */
+    car: carOf(i).id,      /* the token on the board                      */
+    pegs: [{ k:'me' }],    /* who is actually IN the car                  */
     married: false,
     kids: 0,
     tiles: [],             /* ĦAJJA tiles — VALUES, face down till the end */
@@ -357,10 +389,20 @@ function land(st, p){
       return { kind:'stock', seat:p.seat, cost: STOCK_COST, can: p.cash >= STOCK_COST && !p.stock };
     case 'I':
       return { kind:'ins', seat:p.seat, options: insOptions(st, p) };
-    case 'B':
-      p.kids++; p.pegs++;
-      st.log.push({ seat: p.seat, t: sq.t, v: 0 });
+    case 'B': {
+      var born = sq.n || 1, seated = 0, bi;
+      for (bi = 0; bi < born; bi++){
+        p.kids++;
+        if (seatsLeft(p) > 0){ p.pegs.push({ k:'kid' }); seated++; }
+      }
+      /* The square always happens; the CAR is what runs out. With twins on
+         the board six seats can genuinely fill, which is the only reason
+         the cap is worth having — before this the most any car ever held
+         was four and "the car is full" was a line with nothing behind it. */
+      st.log.push({ seat: p.seat,
+        t: seated < born ? sq.t + ' The car is full — they go with nanna.' : sq.t, v: 0 });
       return null;
+    }
     case 'T':
       /* Tuition is BORROWED, the way it is in life. Paying it in cash left
          the student broke at the house stop while the school-leaver bought
@@ -393,7 +435,11 @@ function land(st, p){
     }
     case 'X':
       if (sq.stop === 'marry'){
-        if (!p.married){ p.married = true; p.pegs++; st.log.push({ seat:p.seat, t:'You get married.', v:0 }); }
+        if (!p.married){
+          p.married = true;
+          if (seatsLeft(p) > 0) p.pegs.push({ k:'spouse' });
+          st.log.push({ seat:p.seat, t:'You get married.', v:0 });
+        }
         return null;
       }
       if (sq.stop === 'house') return { kind:'house', seat:p.seat, options: houseOptions(st, p) };
@@ -723,6 +769,7 @@ root.KARTI_HAJJA.engine = {
   player: player, cur: cur, turn: turn, over: over,
   apply: apply, aiMove: aiMove, scoreOf: scoreOf,
   careerById: careerById, houseById: houseById,
+  CARS: CARS, CAR_SEATS: CAR_SEATS, carOf: carOf, seatsLeft: seatsLeft,
   careerOptions: careerOptions, houseOptions: houseOptions,
   nextSpace: nextSpace,
   WIRE_FIELDS: WIRE_FIELDS, encWire: encWire, decWire: decWire
