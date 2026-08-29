@@ -4496,8 +4496,8 @@ function renderCosmTab(){
         '<p class="cosmintro tiny">Every game has its own look. Pick one.</p>' +
         '<div class="gamegrid">' + games.map(tile).join('') + '</div>';
     } else {
-      html += '<button class="cosmback" id="cosm-back">' + ico('arrow-left') +
-        ' All games</button>';
+      html += '<button class="cosmback" id="cosm-back" aria-label="Back to all games">' +
+        ico('arrow-left') + ' All games</button>';
     }
     (cosmGame ? [cosmGame] : []).forEach(g => {
       const grp = byGame[g];
@@ -4692,8 +4692,8 @@ function renderExclTab(){
             '<i>' + done + '/' + mine.length + '</i></button>';
         }).join('') + '</div>';
     } else if (exclGame){
-      html += '<button class="cosmback" id="excl-back">' + ico('arrow-left') +
-        ' All games</button>';
+      html += '<button class="cosmback" id="excl-back" aria-label="Back to all games">' +
+        ico('arrow-left') + ' All games</button>';
     }
     rows.filter(r => exclGame ? r.stat === exclGame : xg.length <= 1).forEach(r => {
       const pctW = Math.round(r.pg.pct * 100);
@@ -4894,12 +4894,22 @@ function storeCSS(){
        emblems came out two-across at 177px each. */
     '.gamegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:8px;' +
       'padding:2px 0 6px}' +
-    '.cosmback{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 14px;' +
-      'align-self:start;border-radius:12px;border:1px solid var(--line);' +
-      'background:rgba(255,255,255,.04);color:var(--dim);font-family:var(--disp);' +
-      'font-weight:800;font-size:11.5px;letter-spacing:.06em;cursor:pointer}' +
-    '.cosmback .ico{width:15px;height:15px}' +
-    '.cosmback:active{transform:scale(.97)}' +
+    /* THE WAY OUT HAS TO LOOK LIKE THE WAY OUT.
+       This was a dim ghost chip sitting left-aligned above the shelf — the
+       same grey as every disabled thing in the app — and players were getting
+       stuck inside a game's shelf because the only exit read as decoration.
+       Now it is full width, gold, and the first thing on the screen: you
+       cannot enter a shelf without the door being the widest object above it. */
+    '.cosmback{display:flex;align-items:center;justify-content:center;gap:8px;' +
+      'width:100%;min-height:48px;padding:0 16px;border-radius:13px;' +
+      'border:1.5px solid rgba(255,197,66,.6);' +
+      'background:linear-gradient(180deg,rgba(255,197,66,.18),rgba(255,197,66,.07));' +
+      'color:#FFE39A;font-family:var(--disp);font-weight:900;font-size:12.5px;' +
+      'letter-spacing:.1em;cursor:pointer;' +
+      'box-shadow:0 2px 12px rgba(255,197,66,.14);' +
+      'transition:transform .14s var(--ease),background .14s}' +
+    '.cosmback .ico{width:17px;height:17px}' +
+    '.cosmback:active{transform:scale(.98);background:rgba(255,197,66,.26)}' +
     /* a game you have finished gets a tick rather than a count */
     '.cpk.full{border-color:rgba(61,220,132,.55)}' +
     '.cpk.full i{color:var(--ok)}' +
