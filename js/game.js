@@ -743,19 +743,35 @@ function go(name){
    repaints correctly. Same shape the game UIs use (js/lang.js). */
 const AT = (en, mt) => (window.KARTI_LANG ? KARTI_LANG.t(en, mt) : en);
 let authMode = 'menu';   // menu | signup | login
+/* The primary button's words live in ONE place because TWO paint it: this
+   render, and authBusy() putting them back when a slow cloud login finishes.
+   They are allowed to drift apart exactly never. */
+const authGoLabel = () => authMode === 'signup'
+  ? AT('Create & play', 'Agħmel kont u lgħab')
+  : AT('Log in', 'Idħol');
 function renderAuth(){
   const users = getUsers();
   const names = Object.keys(users);
   const b = $('#auth-body');
+  /* the wordmark is the screen's title on the menu and a mark once a form is
+     open — see #scr-auth.kx-form. Set here so the two never disagree. */
+  const scr = $('#scr-auth');
+  if (scr) scr.classList.toggle('kx-form', authMode !== 'menu');
   if (authMode === 'menu'){
     b.innerHTML =
       /* No login wall: the first and biggest button plays the game. An account
-         is optional and can be made later without losing anything. */
+         is optional and can be made later without losing anything. The sub-line
+         says so, so nobody reads the two ghost buttons under it as a gate. */
       '<div style="display:grid;gap:9px">' +
-        '<button class="btn hot" data-act="guest">▶ Play now</button>' +
+        '<button class="btn hot" data-act="guest">' + esc(AT('▶ Play now', '▶ Ilgħab issa')) +
+          '<span class="sub">' + esc(AT('no account needed', 'm’hemmx bżonn ta’ kont')) +
+          '</span></button>' +
       '</div>' +
       (names.length
-        ? '<p class="tiny" style="text-align:center;margin:14px 0 8px">or pick up where you left off</p>' +
+        /* a labelled rule, not another line of text: the profiles below it are
+           a second TIER of the menu, not a third paragraph in one flat stack */
+        ? '<div class="authdiv"><span>' +
+            esc(AT('pick up where you left off', 'kompli minn fejn ħallejt')) + '</span></div>' +
           '<div class="userlist">' + names.map(k =>
             '<button class="userrow" data-u="' + esc(k) + '">' +
               /* the same declarative avatar span as everywhere else; the
@@ -763,54 +779,128 @@ function renderAuth(){
               '<span class="avatar" data-kx-av="' + esc(users[k].name) + '" data-kx-size="38">' +
                 esc(users[k].name.charAt(0).toUpperCase()) + '</span>' +
               '<span class="n">' + esc(users[k].name) + '</span>' +
-              '<span class="tiny">Log in ›</span></button>').join('') + '</div>'
+              '<span class="tiny">' + esc(AT('Log in ›', 'Idħol ›')) + '</span></button>').join('') +
+          '</div>'
         : '') +
       /* Log in is NOT conditional any more. It used to appear only once a profile
          existed on the device, so on a fresh phone the screen offered no way to
          log in at all and looked like the feature was missing. It is always here;
          with no profiles saved it now still WORKS — an account made on another
          phone is fetched from the cloud. */
-      '<div style="display:grid;gap:9px;margin-top:10px">' +
-        '<button class="btn ghost" data-act="login">' + ilb('lock', 'Log in') + '</button>' +
-        '<button class="btn ghost" data-act="signup">' + ilb('save', 'Create an account') + '</button>' +
+      '<div class="authsep"></div>' +
+      '<div style="display:grid;gap:9px">' +
+        '<button class="btn ghost sm" data-act="login">' +
+          ilb('lock', esc(AT('Log in', 'Idħol'))) + '</button>' +
+        '<button class="btn ghost sm" data-act="signup">' +
+          ilb('save', esc(AT('Create an account', 'Agħmel kont'))) + '</button>' +
       '</div>';
     $$('.userrow', b).forEach(el => el.onclick = () => { authMode = 'login'; renderAuth();
       const f = $('#au-name'); if (f){ f.value = users[el.dataset.u].name; $('#au-pw').focus(); } });
   } else {
     const isNew = authMode === 'signup';
     b.innerHTML =
-      '<h3 style="text-align:center;font-size:15px;margin-bottom:10px">' +
-        (isNew ? 'Create an account' : 'Log in') + '</h3>' +
-      '<p class="muted">' + (isNew
-        ? 'One account, and it follows you: your cards, decks, coins and story go to ' +
-          'Terence’s server so you can log in on another phone and carry on. It is made ' +
-          'on this phone first — if the server is off you still play, and it goes up later.'
+      /* A HEAD, not a centred line of the same weight as everything under it:
+         a gold disc, the title, and one line saying what this form is for. It
+         is the panel's focal point and it names which of the two forms you are
+         looking at without reading down to the button. */
+      '<div class="authhead">' +
+        '<span class="disc">' + ico(isNew ? 'save' : 'lock') + '</span>' +
+        '<div class="ht">' +
+          '<h3>' + esc(isNew ? AT('Create an account', 'Agħmel kont') : AT('Log in', 'Idħol')) + '</h3>' +
+          '<span class="hs">' + esc(isNew
+            ? AT('Free, and it takes seconds.', 'B’xejn, u jieħu ftit sekondi.')
+            : AT('One account, any phone.', 'Kont wieħed, kull telefon.')) + '</span>' +
+        '</div>' +
+      '</div>' +
+      /* THE COPY MUST NOT POINT AT SOMETHING THAT IS NOT THERE.
+         This line used to say "Your profiles on this phone are below" on the
+         LOG IN page — and they were not below, they were back on the menu. So
+         either the words go or the profiles come; the profiles come, as the
+         quick-fill chips underneath, and now the sentence is true. */
+      '<p class="authnote">' + esc(isNew
+        ? AT('One account, and it follows you: your cards, decks, coins and story go to ' +
+             'Terence’s server so you can log in on another phone and carry on. It is made ' +
+             'on this phone first — if the server is off you still play, and it goes up later.',
+             'Kont wieħed, u jimxi miegħek: il-karti, il-mazzi, il-muniti u l-istorja tiegħek ' +
+             'imorru fuq is-server ta’ Terence, biex tista’ tidħol minn telefon ieħor u tkompli. ' +
+             'L-ewwel isir fuq dan it-telefon — jekk is-server ikun mitfi xorta tilgħab, u jitla’ wara.')
         : (names.length
-            ? 'Your profiles on this phone are below. Made your account on another phone? ' +
-              'Type it here and your game is fetched from the cloud.'
-            : 'Made your account on another phone? Type it here and your game is fetched ' +
-              'from the cloud.')) + '</p>' +
-      '<label class="tiny" for="au-name" style="display:block;margin-top:8px">Username</label>' +
-      '<input class="field" id="au-name" autocomplete="username" maxlength="16" placeholder="e.g. Terence">' +
-      '<label class="tiny" for="au-pw" style="margin-top:8px;display:block">Password</label>' +
-      '<input class="field" id="au-pw" type="password" autocomplete="' +
-        (isNew ? 'new-password' : 'current-password') + '" placeholder="6+ characters">' +
-      '<p class="err" id="au-err"></p>' +
+            ? AT('Tap a name saved on this phone, or type an account you made on another ' +
+                 'phone — your game is fetched from the cloud.',
+                 'Agħfas isem li hu salvat fuq dan it-telefon, jew ikteb kont li għamilt fuq ' +
+                 'telefon ieħor — il-logħba tiegħek tinġieb mill-cloud.')
+            : AT('Made your account on another phone? Type it here and your game is fetched ' +
+                 'from the cloud.',
+                 'Għamilt il-kont fuq telefon ieħor? Iktbu hawn u l-logħba tiegħek tinġieb ' +
+                 'mill-cloud.'))) + '</p>' +
+      /* the chips the line above promises. Log in only — on the signup page a
+         saved name is the one thing you must NOT reuse. */
+      ((!isNew && names.length)
+        ? '<div class="authchips">' + names.map(k =>
+            '<button type="button" class="authchip" data-u="' + esc(k) + '">' +
+              '<span class="avatar" data-kx-av="' + esc(users[k].name) + '" data-kx-size="30">' +
+                esc(users[k].name.charAt(0).toUpperCase()) + '</span>' +
+              '<span class="n">' + esc(users[k].name) + '</span></button>').join('') + '</div>'
+        : '') +
+      '<label class="tiny" for="au-name" style="display:block">' +
+        esc(AT('Username', 'Isem')) + '</label>' +
+      '<input class="field" id="au-name" autocomplete="username" maxlength="16" ' +
+        'autocapitalize="none" spellcheck="false" placeholder="' +
+        esc(AT('e.g. Terence', 'eż. Terence')) + '">' +
+      '<label class="tiny" for="au-pw" style="margin-top:10px;display:block">' +
+        esc(AT('Password', 'Password')) + '</label>' +
+      /* the field and its show/hide are ONE unit — the toggle sits inside the
+         box so it can never read as a form action. type="button" so it can
+         never submit; the input's autocomplete is untouched by it. */
+      '<div class="pwwrap">' +
+        '<input class="field" id="au-pw" type="password" autocomplete="' +
+          (isNew ? 'new-password' : 'current-password') + '" placeholder="' +
+          esc(AT('6+ characters', '6+ karattri')) + '">' +
+        '<button type="button" class="pweye" id="au-eye" aria-pressed="false" aria-controls="au-pw" ' +
+          'aria-label="' + esc(AT('Show password', 'Uri l-password')) + '">' + ico('eye') + '</button>' +
+      '</div>' +
+      /* Only on the LOG IN page, and only when there is a server to reset
+         against: a password lives in the cloud account, so with no cloud
+         configured there is nothing here that could be reset. It is a LINK
+         under the box it is about, not a third slab in a stack of buttons. */
+      ((!isNew && cloudReady())
+        ? '<div class="authaside"><button type="button" class="linkbtn" data-act="forgot">' +
+            esc(AT('Forgotten your password?', 'Insejt il-password?')) + '</button></div>'
+        : '') +
+      '<p class="err" id="au-err" role="alert"></p>' +
       '<div style="display:grid;gap:9px;margin-top:6px">' +
         '<button class="btn primary" id="au-go" data-act="' + (isNew ? 'do-signup' : 'do-login') + '">' +
-          (isNew ? 'Create & play' : 'Log in') + '</button>' +
-        /* Only on the LOG IN page, and only when there is a server to reset
-           against: a password lives in the cloud account, so with no cloud
-           configured there is nothing here that could be reset. */
-        ((!isNew && cloudReady())
-          ? '<button class="btn ghost" data-act="forgot">' +
-              esc(AT('Forgotten your password?', 'Insejt il-password?')) + '</button>'
-          : '') +
-        '<button class="btn ghost" data-act="back">Back</button>' +
+          esc(authGoLabel()) + '</button>' +
+        '<button class="btn ghost sm" data-act="back">' + esc(AT('Back', 'Lura')) + '</button>' +
       '</div>';
     const submit = () => b.querySelector('[data-act^="do-"]').click();
     $('#au-pw').addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
     $('#au-name').addEventListener('keydown', e => { if (e.key === 'Enter') $('#au-pw').focus(); });
+    /* SHOW / HIDE. A real <button type="button"> with aria-pressed AND a label
+       that changes with the state, because "Show password" announced while the
+       password is already showing is worse than no label at all. It flips only
+       the input's `type` — never its autocomplete — so password managers and
+       the keychain carry on exactly as before. */
+    const eye = $('#au-eye');
+    if (eye) eye.onclick = () => {
+      const pw = $('#au-pw'); if (!pw) return;
+      const show = pw.type === 'password';
+      pw.type = show ? 'text' : 'password';
+      eye.setAttribute('aria-pressed', show ? 'true' : 'false');
+      eye.setAttribute('aria-label', show ? AT('Hide password', 'Aħbi l-password')
+                                          : AT('Show password', 'Uri l-password'));
+      eye.innerHTML = ico(show ? 'eye-off' : 'eye');
+      /* back to where they were typing, caret at the end — switching the type
+         otherwise dumps focus and the caret jumps to the front */
+      try { pw.focus(); const n = pw.value.length; pw.setSelectionRange(n, n); } catch (e){}
+    };
+    /* the quick-fill chips: put the name in the field, go straight to the
+       password. Same shape as the .userrow handler on the menu. */
+    $$('.authchip', b).forEach(el => el.onclick = () => {
+      const f = $('#au-name'); if (!f) return;
+      f.value = users[el.dataset.u].name;
+      const pw = $('#au-pw'); if (pw) pw.focus();
+    });
   }
   $$('[data-act]', b).forEach(el => el.onclick = () => authAction(el.dataset.act));
 }
@@ -818,8 +908,7 @@ function authBusy(on, label){
   const go = $('#au-go');
   if (!go) return;
   go.disabled = !!on;
-  go.textContent = on ? (label || 'Working…')
-    : (authMode === 'signup' ? 'Create & play' : 'Log in');
+  go.textContent = on ? (label || AT('Working…', 'Qed naħdem…')) : authGoLabel();
 }
 function authErr(msg){
   const e = $('#au-err');
@@ -901,7 +990,7 @@ function authAction(act){
 function signInFromCloud(name, pw){
   const key = (name || '').trim().toLowerCase();
   if (!cloudReady()){ authErr(NO_LOCAL_PROFILE); return; }
-  authErr(''); authBusy(true, 'Checking…');
+  authErr(''); authBusy(true, AT('Checking…', 'Qed niċċekkja…'));
   /* Bind sync to the slot this account WOULD occupy. attach() only reads; it
      writes nothing, so a failed login leaves no trace. karti_active is pointed
      at it too, because sync.js follows that key and would otherwise unbind us
