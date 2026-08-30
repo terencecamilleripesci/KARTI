@@ -505,7 +505,7 @@ function sizeBoard(){
    ═══════════════════════════════════════════════════════════════════ */
 const PULL_MAX = 2600;             /* pitch subunits of pull = full power */
 const PULL_MIN = 260;              /* below this, no shot                 */
-const GRAB_R   = 1.9;              /* how forgiving picking a cap up is   */
+const GRAB_R   = 2.0;              /* 1.9 gave a 43px target at 4 seats   */
 
 function canAct(){
   return !!(M && !M.dead && !E.over(M.st) && !M.anim && isLocal(E.turn(M.st)));
@@ -585,27 +585,66 @@ function commitFlick(seat, mv, src){
    can change the outcome, which is exactly the point: a wire move that
    lands mid-film is applied instantly and simply starts a new film.
    ═══════════════════════════════════════════════════════════════════ */
-const TICK_MS = 16;
+/* PLAYBACK IS PRESENTATION, NOT PHYSICS. Everything below changes how the
+   film LOOKS and nothing about what happened -- the engine already decided
+   the whole rally before a single pixel moved, so slowing it down, smoothing
+   it and hitting it harder cannot alter an outcome or desync an online table.
+
+   16ms was one engine tick per screen frame, snapped to whole ticks: fast,
+   and stepped, because a cap crossing 900 subunits in a tick teleports. 23ms
+   plus interpolation is the same rally at two thirds the speed with sub-pixel
+   motion between ticks. */
+const TICK_MS = 23;
+const HIT_HOLD = 42;        /* hit-stop, ms -- the pause that sells a whack  */
+const HIT_MIN  = 90;        /* impulse below this is a graze, not an impact  */
 function cancelRaf(){ if (M && M.raf){ cancelAnimationFrame(M.raf); M.raf = 0; } }
 
 function playFilm(frames, goal, done){
   cancelRaf();
-  M.anim = { frames, i:0, goal, done, t0: performance.now(), lastDx:0, lastDy:0 };
+  M.anim = { frames, i:0, f:0, goal, done, t0: performance.now(),
+             lastDx:0, lastDy:0, hold:0, rings:[], shake:0, shakeT:0 };
   const last = frames.length - 1;
   function step(now){
     if (!M || M.dead){ return; }
     const a = M.anim;
     if (!a){ return; }
-    let i = Math.floor((now - a.t0) / TICK_MS);
+    /* `hold` is the hit-stop debt: every impact pushes the film back in time
+       so the picture freezes on the contact for a frame or two */
+    const raw = (now - a.t0 - a.hold) / TICK_MS;
+    let i = Math.floor(raw);
     if (i < 0) i = 0;
     if (i > last) i = last;
-    /* a click when the ball turns sharply — a wall or a cap */
+    /* THE FILM MUST NEVER RUN BACKWARDS.
+       `hold` is subtracted from `now`, so an impact does not pause the film --
+       it REWINDS it. A frame at 60Hz advances 16.7ms while a strong impact
+       adds up to 42ms of debt, so `i` goes DOWN. The impact test below is
+       `i !== a.i`, not "a tick I have not visited", so climbing back up the
+       same tick pair is judged again, produces the same |dv|, adds more hold,
+       and the film locks into a limit cycle that never reaches the last
+       frame. While a film runs canAct() is false and maybeThink() refuses to
+       move, so the turn never passes and the MATCH IS DEAD.
+
+       Measured before this line: 67% of rallies never finished at 60fps and
+       89% at 120fps. It only ever completed here because headless chromium on
+       this Pi tops out near 31-39fps, which is the one safe regime.
+       With it: 0 stuck at every rate from 24 to 120fps, 1.14x ideal, flat. */
+    if (i < a.i) i = a.i;
+    a.f = i >= last ? 0 : Math.max(0, Math.min(1, raw - i));
     if (i > 0 && i !== a.i){
       const f = frames[i], p = frames[i - 1];
       const dx = f[0] - p[0], dy = f[1] - p[1];
       if ((dx || dy) && (a.lastDx || a.lastDy)){
-        const dot = dx * a.lastDx + dy * a.lastDy;
-        if (dot < 0) cue('dama.place', { gain:0.45 });
+        /* THE IMPULSE, not the direction. |dv| is how hard the ball was hit,
+           so a wall clip and a full-power strike no longer sound identical. */
+        const dv = Math.hypot(dx - a.lastDx, dy - a.lastDy);
+        if (dv > HIT_MIN){
+          const g = Math.min(1, dv / 900);
+          cue('dama.place', { gain: 0.35 + g * 0.6, rate: 1.16 - g * 0.3, force: true });
+          a.hold += HIT_HOLD * (0.45 + g * 0.55);
+          a.rings.push({ x:f[0], y:f[1], t:now, g:g });
+          if (a.rings.length > 5) a.rings.shift();
+          a.shake = 5 + g * 13; a.shakeT = now;
+        }
       }
       a.lastDx = dx; a.lastDy = dy;
     }
@@ -642,8 +681,13 @@ function flashGoal(done){
    otherwise the settled state itself */
 function bodies(){
   if (M.anim && M.anim.frames && M.anim.frames[M.anim.i]){
-    const f = M.anim.frames[M.anim.i];
-    return { bx:f[0], by:f[1], cap:i => [f[2 + i*2], f[3 + i*2]] };
+    const a = M.anim, f = a.frames[a.i], n = a.frames[a.i + 1] || f, t = a.f || 0;
+    /* sub-tick interpolation. A cap can cross 900 subunits in one tick, so
+       drawing only whole ticks makes it teleport; this is the difference
+       between "stepped" and "smooth" and it costs one lerp per body. */
+    const L = (p, q) => p + (q - p) * t;
+    return { bx:L(f[0], n[0]), by:L(f[1], n[1]),
+             cap:i => [L(f[2 + i*2], n[2 + i*2]), L(f[3 + i*2], n[3 + i*2])] };
   }
   return { bx:M.st.ball.x, by:M.st.ball.y, cap:i => [M.st.caps[i].x, M.st.caps[i].y] };
 }
@@ -668,6 +712,16 @@ function draw(){
   const cx = UI.cx, g = UI.geom, st = M.st, dpr = UI.dpr;
   cx.save();
   cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  /* IMPACT SHAKE. A decaying sine, not a random jitter: random reads as noise,
+     a ringing decay reads as a hit. Inside the existing save/restore, and
+     suppressed entirely under reduced motion. */
+  if (M.anim && M.anim.shake && !reduced()){
+    const age = performance.now() - M.anim.shakeT, k = Math.max(0, 1 - age / 220);
+    if (k > 0){
+      const q = M.anim.shake * k * k;
+      cx.translate(q * Math.sin(age * 0.06), q * Math.sin(age * 0.083));
+    } else M.anim.shake = 0;
+  } else if (M.anim && M.anim.shake) M.anim.shake = 0;
   cx.clearRect(0, 0, g.w, g.h);
 
   /* the grass */
@@ -705,6 +759,27 @@ function draw(){
 
   /* the slingshot */
   if (M.drag) drawSling(cx);
+
+  /* SHOCKWAVE. One expanding ring per impact, sized by the impulse that made
+     it, so a wall graze ripples and a full-power strike cracks. Drawn over
+     the bodies because a shockwave you cannot see behind a cap is no use. */
+  if (M.anim && M.anim.rings && M.anim.rings.length){
+    const now = performance.now();
+    /* the canvas IS the pitch, so an unclipped ring gets cut by a straight
+       edge and drawn over the coloured goal mouth */
+    cx.save(); roundRect(cx, 0, 0, g.w, g.h, 12); cx.clip();
+    for (let r = 0; r < M.anim.rings.length; r++){
+      const h = M.anim.rings[r], age = now - h.t, life = 300 + h.g * 200;
+      if (age > life) continue;
+      const u = age / life, c = px(h.x, h.y);
+      cx.beginPath();
+      cx.arc(c[0], c[1], S(170 + u * (600 + h.g * 900)), 0, Math.PI * 2);
+      cx.strokeStyle = 'rgba(255,255,255,' + ((1 - u) * (0.30 + h.g * 0.42)).toFixed(3) + ')';
+      cx.lineWidth = Math.max(1, (1 - u) * (2 + h.g * 4));
+      cx.stroke();
+    }
+    cx.restore();
+  }
 
   /* the GOAL card */
   if (M.goalFlash) drawGoalCard(cx, g);
@@ -1015,12 +1090,15 @@ function leave(){
    ═══════════════════════════════════════════════════════════════════ */
 function finish(forced){
   if (!M || M.finished) return;
-  M.finished = true;
   stopThinking();
   cancelRaf();
   const st = M.st;
   const ov = forced || E.over(st);
+  /* LATCH ONLY ONCE THERE IS A VERDICT. Setting M.finished above this test
+     meant a call with no verdict would latch and permanently block the real
+     finish from ever paying. */
   if (!ov) return;
+  M.finished = true;
   cue('game.win', { gain: 0.95 }, true);
 
   const me = firstLocalSeat();
@@ -1456,7 +1534,13 @@ const hooks = {
   },
   phase(){ return M ? 'play' : 'idle'; },
   apply(seat, move){ if (!M) return { ok:false, why:'no tapp' }; return onlineRemote(seat, move); },
-  attachNet(net){ if (M){ M.net = net || null; maybeThink(); } },
+  attachNet(net){
+    if (!M) return;
+    /* a bare net arriving later must not wipe the stamp set in onlineStart */
+    const was = M.net && M.net.iAmHost;
+    M.net = net ? Object.assign({}, net, { iAmHost: !!(net.iAmHost || was) }) : null;
+    maybeThink();
+  },
   setOwner(i, own){ if (M && M.meta && M.meta[i]){ M.meta[i].own = own; } },
   setName(i, name){ if (M && M.meta && M.meta[i] && name){ M.meta[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },
@@ -1511,10 +1595,17 @@ function onlineStart(cfg){
     M.meta.push({ own, name: s.name || capName(i), lvl: s.level || s.lvl || 2 });
   }
   applyMeta();
-  M.net = cfg.net || null;
+  /* mp.js NEVER stamps iAmHost -- it only has one as a local variable of its
+     own -- so `!M.net.iAmHost` in maybeThink() reads `!undefined`, which is
+     true, and EVERY phone returns without driving the bots. The machine chair
+     then never moves and the table hangs for ever. Stamp it from the two
+     numbers mp.js definitely does pass. (js/aqleb-ui.js carries the same scar.) */
+  M.net = cfg.net ? Object.assign({}, cfg.net, {
+    iAmHost: (cfg.you | 0) === (cfg.host | 0)
+  }) : null;
   M.finished = false;
   openBoard(() => { const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); });
-  hooks.attachNet(cfg.net || null);
+  hooks.attachNet(M.net);
   afterMove();      /* only the HOST will actually drive an 'ai' seat */
   return snapshot();
 }

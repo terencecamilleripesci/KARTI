@@ -74,6 +74,14 @@ var GAMES = [
   { id:'dama',        name:'Dama',          sub:'party games',       logo:'logo-dama',  icon:'draught', mono:'DA', accent:'#3DDC84', sig:'moves'  },
   { id:'skarta',      name:'SKARTA',        sub:'party games',       logo:'logo-skarta',icon:'discard', mono:'SK', accent:'#FF5468', sig:'score'  },
   { id:'kiri',        name:'IL-KIRI',       sub:'party games',       logo:'logo-kiri',  icon:'house',   mono:'KI', accent:'#FFC542', sig:'money'  },
+  /* tapp and hajja were missing from this list entirely. Beyond the record
+     book showing an unknown-id fallback, it is a LATENT NO-PAY BUG: if
+     js/rebbieh.js ever fails to load, tapp's finish() returns after
+     P.ui.result() without reaching awardPlay -- and progress.js's result
+     wrapper cannot cover it either, because titleToGame() looks the title up
+     in THIS list and returns '' for a game that is not in it. */
+  { id:'tapp',        name:'IT-TAPP',       sub:'party games',       logo:'logo-tapp',  icon:'ball',    mono:'TP', accent:'#3DDC84', sig:'score'  },
+  { id:'hajja',       name:'IL-ĦAJJA',      sub:'party games',       logo:'logo-hajja', icon:'users',   mono:'ĦA', accent:'#F2A93B', sig:'money'  },
   /* the ids here are klabb.js's own — its ledger calls record(M.gid, …) with
      exactly these four, so the one line it needs stays one line */
   { id:'bixkla',      name:'Bixkla',        sub:'playing cards',     logo:'logo-party', icon:'cards',   mono:'BX', accent:'#8A5CFF', sig:'score'  },
