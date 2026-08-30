@@ -197,8 +197,11 @@ function onFx(e){
          the dice, then the instrument up the pentatonic. */
       if (e.dbl) cue(null, { gain: 1.10 }, 4, 7);
       break;
-    case 'move':   if (mine(e.p)) buzz('thud');   /* his token, arriving */
-                   cue('piece.place', { gain: 0.78 }, 4); break;
+    case 'move':
+      /* walk it. The arrival thud stays -- it is the landing, not the trip. */
+      if (mine(e.p)) buzz('thud');
+      if (!walkToken(e.p, e.from, e.to, e.n)) cue('piece.place', { gain: 0.78 }, 4);
+      break;
     case 'turn':   if (human(e.p)) cue('duel.turn', { gain: 1.00 }, 4); break;
 
     /* ── money. The centre of the game, and the reason it hurts. ──
@@ -561,6 +564,15 @@ function injectCSS(){
      a token dropped in the middle of one covers both. Which edge is
      "inner" is the side the square is on, and the same class the
      colour strip uses says so. */
+  /* the walking token: over the board, under nothing that matters */
+  '#scr-kiri .kr-fly{position:absolute;z-index:9;pointer-events:none;'+
+    'transform:translate(-50%,-50%);transition:left .046s linear,top .046s linear;'+
+    'filter:drop-shadow(0 3px 4px rgba(0,0,0,.5))}' +
+  '#scr-kiri .kr-fly.hop{animation:krHop .046s ease-out}' +
+  '@keyframes krHop{0%{transform:translate(-50%,-50%)}'+
+    '50%{transform:translate(-50%,calc(-50% - 7px)) scale(1.10)}'+
+    '100%{transform:translate(-50%,-50%)}}' +
+  '@media (prefers-reduced-motion:reduce){#scr-kiri .kr-fly.hop{animation:none}}' +
   '#scr-kiri .kr-toks{position:relative;z-index:6;pointer-events:none;min-width:0;min-height:0;' +
     'display:flex;flex-wrap:wrap;align-content:center;justify-content:center;' +
     'align-items:center;gap:1.5px;padding:0}' +
@@ -1135,6 +1147,7 @@ function stash(){ if (G && !G.over) K.save(G); return !!(G && !G.over); }
 function standDown(){
   live = false;
   stopLoop();
+  stopWalk();           /* a token mid-walk must not outlive the screen */
   hushQueue();          /* nothing queued may follow us onto another screen */
   stash();
   if (scr) scr.classList.remove('on');
@@ -3881,6 +3894,72 @@ function renderOver(){
    it takes one action, we draw, and we come round again. If it is a
    person, we stop and wait — with the turn clock running.
    ═══════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════
+   THE TOKEN WALKS.
+
+   renderCells() rewrites each cell's token layer, so a piece leaving square 4
+   for square 11 simply VANISHED and reappeared. On a board game that is the
+   single loudest "this is a web page, not a game" tell there is -- everything
+   else can be right and it will still feel cheap.
+
+   So a flying token is laid over the board and walked square by square, with
+   a hop and a step note that climbs as it goes, and the real tokens are
+   repainted only once it lands. Nothing here can change an outcome: the
+   engine settled the whole move before fx('move') ever fired, and this reads
+   `from`, `to` and `n` off that event.
+
+   STEP is chosen against PACE.roll (620ms) so a big roll still lands inside
+   the beat the rest of the game is keeping. Twelve squares x 46ms = 552ms. */
+const STEP_MS = 46;
+let walkRaf = 0, walkFly = null;
+
+function stopWalk(){
+  if (walkRaf){ clearTimeout(walkRaf); walkRaf = 0; }
+  if (walkFly && walkFly.parentNode) walkFly.parentNode.removeChild(walkFly);
+  walkFly = null;
+}
+
+function walkToken(p, from, to, n){
+  stopWalk();
+  /* goTo() -- Go To Jail, "advance to", the card jumps -- fires `move` with
+     NO n, because it is a teleport by rule and not a walk. `undefined <= 0`
+     is false, so testing it that way would start a walk whose `k >= n` is
+     never true: an infinite chain of setTimeouts. Test for a real number. */
+  if (!els.board || !G || !(n > 0) || noMotion()) return false;
+  const P = G.players[p];
+  if (!P) return false;
+  const cellAt = i => els.board.querySelector('#kr-c' + i);
+  if (!cellAt(from) || !cellAt(to)) return false;
+
+  const fly = document.createElement('div');
+  fly.className = 'kr-fly';
+  fly.innerHTML = tok(P.i, P.colour, P.name, 30);
+  els.board.appendChild(fly);
+  walkFly = fly;
+
+  const place = i => {
+    const c = cellAt(i);
+    if (!c) return;
+    fly.style.left = (c.offsetLeft + c.offsetWidth / 2) + 'px';
+    fly.style.top  = (c.offsetTop + c.offsetHeight / 2) + 'px';
+  };
+  place(from);
+
+  let k = 0;
+  const hop = () => {
+    k++;
+    const at = (from + k) % K.BOARD.length;
+    place(at);
+    fly.classList.remove('hop'); void fly.offsetWidth; fly.classList.add('hop');
+    /* the step note climbs, so a long roll sounds like a long roll */
+    cue('piece.place', { gain: 0.30, rate: 0.94 + Math.min(k, 12) * 0.035 }, 5);
+    if (k >= n){ walkRaf = setTimeout(() => { stopWalk(); renderCells(); }, STEP_MS + 40); return; }
+    walkRaf = setTimeout(hop, STEP_MS);
+  };
+  walkRaf = setTimeout(hop, 40);
+  return true;
+}
+
 const PACE = { roll: 620, buy: 520, pass: 520, bid: 520, auctionPass: 420, build: 380,
                offer: 700, acceptTrade: 700, declineTrade: 700, card: 900, end: 420 };
 
