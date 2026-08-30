@@ -212,10 +212,15 @@ function onFx(e){
       cue('money.pay', { gain: mine ? (e.to >= 0 ? 1.12 : 1.00) : 0.70 }, e.to >= 0 ? 1 : 2);
       if (e.to >= 0 && human(e.to)) cue('ui.coin', { gain: 0.90 }, 1);
       else if (e.split && e.split.some(x => human(x.p))) cue('ui.coin', { gain: 0.75 }, 2);
+      bumpCash(e.from, -e.amt);
+      if (e.to >= 0) bumpCash(e.to, e.amt);
+      else if (e.split) e.split.forEach(x => bumpCash(x.p, x.amt));
       break;
     }
-    case 'salary': cue('ui.coin', { gain: human(e.p) ? 0.92 : 0.50 }, 2); break;
-    case 'get':    cue('ui.coin', { gain: human(e.p) ? 0.88 : 0.50 }, 2); break;
+    case 'salary': cue('ui.coin', { gain: human(e.p) ? 0.92 : 0.50 }, 2);
+                   bumpCash(e.p, e.amt); break;
+    case 'get':    cue('ui.coin', { gain: human(e.p) ? 0.88 : 0.50 }, 2);
+                   bumpCash(e.p, e.amt); break;
 
     /* ── deeds ── */
     case 'buy':
@@ -338,7 +343,20 @@ function injectCSS(){
     'border-radius:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.10);' +
     'margin:4px 0;flex:0 0 auto}' +
   '#scr-kiri .kr-who{font-weight:800;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
-  '#scr-kiri .kr-cash{margin-left:auto;font-weight:900;font-size:15px;color:#FFC542;white-space:nowrap}' +
+  '#scr-kiri .kr-cash{margin-left:auto;font-weight:900;font-size:15px;color:#FFC542;'+
+    'white-space:nowrap;position:relative;font-variant-numeric:tabular-nums}' +
+  '#scr-kiri .kr-cash.up{color:#6BF0A6}' +
+  '#scr-kiri .kr-cash.dn{color:#FF8E9C}' +
+  /* the chip that floats out of the number, so money is something you SEE
+     leave a hand and not just a value that was different last time */
+  '#scr-kiri .kr-chip{position:absolute;right:0;top:0;font-size:13px;font-weight:900;'+
+    'white-space:nowrap;pointer-events:none;animation:krChip 1.05s cubic-bezier(.2,.7,.3,1) forwards}' +
+  '#scr-kiri .kr-chip.up{color:#6BF0A6}' +
+  '#scr-kiri .kr-chip.dn{color:#FF8E9C}' +
+  '@keyframes krChip{0%{opacity:0;transform:translateY(0) scale(.85)}'+
+    '18%{opacity:1;transform:translateY(-7px) scale(1.06)}'+
+    '100%{opacity:0;transform:translateY(-26px) scale(1)}}' +
+  '@media (prefers-reduced-motion:reduce){#scr-kiri .kr-chip{animation:none;opacity:0}}' +
   '#scr-kiri .kr-auto{font-size:10px;font-weight:800;letter-spacing:.04em;padding:4px 7px;border-radius:7px;' +
     'background:rgba(138,92,255,.22);color:#C4AEFF;border:1px solid rgba(138,92,255,.45);white-space:nowrap}' +
   '#scr-kiri .kr-back{min-height:34px;padding:0 10px;border-radius:9px;border:1px solid #3DDC84;' +
@@ -1199,6 +1217,7 @@ function standDown(){
   live = false;
   stopLoop();
   stopWalk();           /* a token mid-walk must not outlive the screen */
+  stopCashTweens();
   hushQueue();          /* nothing queued may follow us onto another screen */
   stash();
   if (scr) scr.classList.remove('on');
@@ -2472,7 +2491,7 @@ function renderStrip(){
       : p.auto ? '<span class="kr-auto">ON AUTOPILOT</span>' : '') +
     (p.jail > 0 ? '<span class="kr-auto" style="background:rgba(255,84,104,.2);color:#FF9AA6;border-color:rgba(255,84,104,.45)">IN THE QUEUE</span>' : '') +
     (p.skips > 0 ? '<span class="kr-auto" style="background:rgba(61,220,132,.18);color:#3DDC84;border-color:rgba(61,220,132,.45)">SKIP ×' + p.skips + '</span>' : '') +
-    '<span class="kr-cash">' + money(p.cash) + '</span>' +
+    '<span class="kr-cash" data-cash="' + p.cash + '" data-seat="' + p.i + '">' + money(p.cash) + '</span>' +
     /* ONLINE THE STRIP IS SOMEBODY ELSE HALF THE TIME, so your own
        money goes on it too — otherwise the only place you can see what
        you are worth is a tab you have to switch to. */
@@ -3980,6 +3999,64 @@ function renderOver(){
    STEP is chosen against PACE.roll (620ms) so a big roll still lands inside
    the beat the rest of the game is keeping. Twelve squares x 46ms = 552ms. */
 const STEP_MS = 46;
+
+/* ── MONEY YOU CAN SEE MOVE ─────────────────────────────────────────
+   renderStrip() wrote money(p.cash) flat, so a rent payment was a number
+   that happened to be different than it was a moment ago. Every fx that
+   moves money already carries the amount, so: float a chip out of the
+   figure and count the figure itself across to its new value.
+
+   Purely a display of what already happened -- the engine settled the
+   payment before the event fired. */
+const cashTweens = {};
+function bumpCash(seat, delta){
+  if (!els.strip || !delta || !G || !G.players[seat]) return;
+  const el = els.strip.querySelector('.kr-cash[data-seat="' + seat + '"]');
+  if (!el) return;
+  const up = delta > 0;
+
+  /* THE CHIP GOES ON THE SCREEN, NOT IN THE ROW. renderStrip() rewrites the
+     whole strip's innerHTML on every render, so a chip parented to the row it
+     came from is destroyed the moment anything else happens. */
+  if (!noMotion()){
+    const scr = screenEl(), r = el.getBoundingClientRect(), sr = scr.getBoundingClientRect();
+    const chip = document.createElement('span');
+    chip.className = 'kr-chip ' + (up ? 'up' : 'dn');
+    chip.style.position = 'absolute';
+    chip.style.right = (sr.right - r.right) + 'px';
+    chip.style.top = (r.top - sr.top) + 'px';
+    chip.style.zIndex = '20';
+    chip.textContent = (up ? '+' : '−') + money(Math.abs(delta)).replace('−', '');
+    scr.appendChild(chip);
+    setTimeout(() => { if (chip.parentNode) chip.parentNode.removeChild(chip); }, 1100);
+  }
+  el.classList.add(up ? 'up' : 'dn');
+  setTimeout(() => {
+    const e2 = els.strip && els.strip.querySelector('.kr-cash[data-seat="' + seat + '"]');
+    if (e2) e2.classList.remove('up', 'dn');
+  }, 620);
+
+  if (noMotion()) return;
+  /* THE TARGET IS THE ENGINE, NOT THE MARKUP. fx fires before the strip is
+     repainted, so data-cash is still the OLD figure at this moment -- deriving
+     `to` from it would count the wrong way. G is settled and authoritative. */
+  const to = G.players[seat].cash;
+  const from = to - delta;
+  if (cashTweens[seat]) clearInterval(cashTweens[seat]);
+  const t0 = Date.now(), DUR = 420;
+  cashTweens[seat] = setInterval(() => {
+    const e2 = els.strip && els.strip.querySelector('.kr-cash[data-seat="' + seat + '"]');
+    if (!e2){ clearInterval(cashTweens[seat]); delete cashTweens[seat]; return; }
+    const u = Math.min(1, (Date.now() - t0) / DUR);
+    const e = 1 - Math.pow(1 - u, 3);
+    e2.textContent = money(Math.round(from + (to - from) * e));
+    if (u >= 1){ clearInterval(cashTweens[seat]); delete cashTweens[seat]; e2.textContent = money(to); }
+  }, 40);
+}
+function stopCashTweens(){
+  for (const k in cashTweens) if (cashTweens[k]) clearInterval(cashTweens[k]);
+  for (const k in cashTweens) delete cashTweens[k];
+}
 let walkRaf = 0, walkFly = null;
 
 function stopWalk(){
