@@ -487,3 +487,44 @@ Things worth knowing next time:
 - Lifting the current tile with `z-index` to clear its overlapping neighbours
   **hid the car standing on it** — the one car the player is looking for.
   `.hj-cars` has to sit above the ring.
+
+## IL-ĦAJJA map: what an agent audit caught that eyeballing never would (324)
+
+An audit agent rendered the board, cropped it and MEASURED it. Two of its P1s
+were things I had looked straight at in a full-board screenshot and not seen,
+because at fit-zoom the whole defect is a few pixels:
+
+- **The road ran clean through the lake** — seven tiles floating on open
+  water, the lake's own outline vanishing under the carriageway and
+  reappearing on the far side.
+- **The road ran clean through a mountain**, with a tile planted on the slope
+  and the hill's silhouette continuing on both sides of it.
+
+Same root cause: large scenery positioned BY EYE against a spline that is not
+visible in the source. The fix is not "move it" — it is `routeRoom()`, which
+returns the largest scale at which a shape keeps every sample of every road at
+arm's length. The lake and the bay are now GROWN from their centres until the
+route stops them. Placement can still look wrong; it can no longer BE wrong.
+
+Also caught, and all real:
+- **A tile that could not be tapped.** The START plate was 250×86 and the two
+  spurs began at u=0.07, so tile 1 was underneath it — and `.hj-sq.here` has
+  `z-index:3`, so on the opening turn of every game the plate won the hit
+  test. `elementFromPoint` over all 58 tiles is now part of the harness.
+- **Six "grass tone" ellipses painted over the whole scene** — they were
+  emitted after the props, so they washed green over a mountain face, the
+  bridge deck and both lakes. Ground tone belongs with the ground.
+- **Three of five boats beached in fields**, one with a tree growing through
+  its hull.
+- **RETIRE dissolving into the road** — the carriageway went canonical gold
+  and three tiles are gold; measured contrast 1.22. The square the whole board
+  drives towards.
+- **The weakest text on the board was on MARRY and BUY A HOUSE** (2.47:1), the
+  two most consequential squares in the game.
+- **Zoom could not reach legibility.** `ZMAX` was a constant, but `vw.k` is
+  measured in whole-boards, so 4.5× means something different on a 360 phone
+  than a 390 one — max zoom gave 6.7px of label. `zMax()` now returns whatever
+  multiple puts a tile at ~86 CSS px.
+
+**Lesson: for a screen whose whole job is visual, an agent that measures beats
+an agent that looks — including when the one looking is me.**

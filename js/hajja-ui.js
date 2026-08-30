@@ -362,6 +362,29 @@ function along(sp, u){
   return { x: A[0] + (B[0] - A[0]) * f, y: A[1] + (B[1] - A[1]) * f, a: ang };
 }
 
+/* HOW FAR A SHAPE CAN GROW BEFORE IT TOUCHES THE ROAD.
+
+   Two separate bugs shipped because big scenery was positioned by eye
+   against a spline that is not visible in the source: the road ran clean
+   through the lake, and clean through a mountain. Eyeballing cannot catch
+   that -- at full-board zoom the offending overlap is a few pixels.
+
+   So anything large asks the route how much room it actually has. Returns
+   the largest scale <= 1 at which an ellipse keeps every sample of every
+   road at least `margin` away. Placement can now be wrong-looking, but it
+   can no longer be wrong. */
+function routeRoom(cx, cy, rx, ry, margin){
+  let s = 1;
+  const avg = Math.max(1, (rx + ry) / 2);
+  for (const arr of [LAY.uni, LAY.work, LAY.road])
+    for (let i = 0; i < arr.length; i++){
+      const dx = arr[i][0] - cx, dy = arr[i][1] - cy;
+      const t = Math.hypot(dx / rx, dy / ry) - margin / avg;
+      if (t < s) s = t;
+    }
+  return Math.max(0, s);
+}
+
 const LAY = (function (){
   const B = E.BOARD, n = B.sq.length, pos = new Array(n);
 
@@ -377,10 +400,10 @@ const LAY = (function (){
   const ROAD = spline([JOIN, [665, 862], [860, 840], [1030, 895], [1130, 1035],
                        [1085, 1175], [925, 1240], [712, 1240], [508, 1218],
                        [305, 1250], [165, 1370], [165, 1530], [305, 1638],
-                       [508, 1682], [712, 1682], [900, 1714], [1050, 1810],
-                       [1075, 1938], [940, 1975]]);
+                       [508, 1682], [712, 1682], [900, 1714], [1030, 1770],
+                       [1040, 1880], [920, 1910]]);
 
-  pos[0] = { x:START[0] + OFF[0], y:START[1] + OFF[1], w:250, h:86, a:0, big:1 };
+  pos[0] = { x:START[0] + OFF[0], y:START[1] + OFF[1], w:190, h:70, a:0, big:1 };
 
   /* ON THE REAL BOARD THE ROAD *IS* THE SPACES. They are full-width
      transverse slices butted together with a thin cream divider between --
@@ -402,8 +425,11 @@ const LAY = (function (){
       pos[from + i] = { x:q.x, y:q.y, w:w, h:TH, a:q.a };
     }
   };
-  lay(UNI,  B.uniAt,  B.uniEnd,  0.07, 0.95);
-  lay(WORK, B.workAt, B.workEnd, 0.12, 0.84);
+  /* both spurs start clear of the START plate. At 0.07/0.12 the first tile
+     of each was UNDER it, and .hj-sq.here has z-index:3, so on the opening
+     turn the plate won every hit test and square 1 could not be tapped. */
+  lay(UNI,  B.uniAt,  B.uniEnd,  0.13, 0.95);
+  lay(WORK, B.workAt, B.workEnd, 0.18, 0.84);
   lay(ROAD, B.joinAt, n,         0.02, 0.995);
 
   return { pos, uni:UNI.S, work:WORK.S, road:ROAD.S };
@@ -597,7 +623,7 @@ function injectCSS(){
 
     /* ── a square ── */
     '#scr-party .hj-sq{position:absolute;padding:0;border-radius:5px;' +
-      'border:2px solid #FBEBC6;transform-origin:50% 50%;' +
+      'border:2px solid #FFF7E2;transform-origin:50% 50%;' +
       'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;' +
       'color:#fff;font-family:var(--disp);overflow:hidden;cursor:pointer;' +
       '-webkit-tap-highlight-color:transparent;' +
@@ -610,7 +636,7 @@ function injectCSS(){
     '#scr-party .hj-sq.big{border-radius:16px;border-width:3px}' +
     '#scr-party .hj-sq.big svg{width:40px;height:40px}' +
     '#scr-party .hj-sq.big b{font-size:21px;letter-spacing:.1em}' +
-    '#scr-party .hj-sq.k-road{background:linear-gradient(180deg,#FFFDF6,#E7DCC2);' +
+    '#scr-party .hj-sq.k-road{background:linear-gradient(180deg,#FFFFFF,#D9CDB2);' +
       'color:#8A7448}' +
     '#scr-party .hj-sq.k-road svg{width:16px;height:16px}' +
     '#scr-party .hj-sq.k-fork{background:linear-gradient(180deg,#FFD36B,#E09A15);color:#3A2600}' +
@@ -618,16 +644,16 @@ function injectCSS(){
     '#scr-party .hj-sq.k-tile{background:linear-gradient(180deg,#CBA6FF,#8A5CFF);color:#22083F}' +
     '#scr-party .hj-sq.k-job{background:linear-gradient(180deg,#7FCEFF,#2E8FD8);color:#05263D}' +
     '#scr-party .hj-sq.k-baby{background:linear-gradient(180deg,#FFB4D2,#E571A5);color:#3E0A22}' +
-    '#scr-party .hj-sq.k-uni{background:linear-gradient(180deg,#FFC08A,#DE7A2A);color:#3B1C00}' +
+    '#scr-party .hj-sq.k-uni{background:linear-gradient(180deg,#C9A6F0,#6E3FB0);color:#F6EEFF}' +
     '#scr-party .hj-sq.k-wasla{background:linear-gradient(180deg,#8FF0E4,#26B6A4);color:#02332D}' +
     '#scr-party .hj-sq.k-stock{background:linear-gradient(180deg,#C8F58C,#79BF33);color:#1B3000}' +
     '#scr-party .hj-sq.k-ins{background:linear-gradient(180deg,#A9BEE6,#5C77B5);color:#0A1730}' +
     '#scr-party .hj-sq.k-good{background:linear-gradient(180deg,#3E7B5C,#255440);color:#D8FFEB}' +
     '#scr-party .hj-sq.k-bad{background:linear-gradient(180deg,#7E3A46,#54222C);color:#FFDCE1}' +
-    '#scr-party .hj-sq.k-stop{background:linear-gradient(180deg,#FF7C8C,#C82236);color:#fff;' +
+    '#scr-party .hj-sq.k-stop{background:linear-gradient(180deg,#F0566A,#A8121F);color:#fff;' +
       'box-shadow:inset 0 2px 0 rgba(255,255,255,.28),0 0 0 3px rgba(255,84,104,.28),' +
       '0 6px 14px rgba(0,0,0,.5)}' +
-    '#scr-party .hj-sq.k-end{background:linear-gradient(180deg,#FFE8A6,#D8A317);color:#3A2600;' +
+    '#scr-party .hj-sq.k-end{background:linear-gradient(180deg,#7FE3C4,#12866B);color:#00281D;' +
       'box-shadow:inset 0 2px 0 rgba(255,255,255,.4),0 0 0 4px rgba(255,197,66,.3),' +
       '0 6px 16px rgba(0,0,0,.5)}' +
     '#scr-party .hj-sq.here{outline:5px solid #FF9A1F;outline-offset:3px;z-index:3}' +
@@ -953,13 +979,14 @@ function sceneSVG(){
   /* AN EXTRUDED BLOCK. (x,y) is the middle of its FRONT-BOTTOM edge, which
      is the point that actually sits on the ground -- anchoring by the top
      left corner is how buildings end up floating. */
-  const block = (x, y, w, h, base, dep) => {
+  const block = (x, y, w, h, base, dep, shade) => {
     const d = dep == null ? w * SUN.dep : dep, r = d * 0.86, u = d * 0.62;
     const L = x - w / 2, R = x + w / 2, T = y - h;
     return '<g>' +
       /* cast shadow, down and right, longer for taller things */
       '<polygon points="' + pts([[L, y], [R, y], [R + h * SUN.cast, y + h * SUN.cast * .5],
-        [L + h * SUN.cast, y + h * SUN.cast * .5]]) + '" fill="#3F6A22" opacity=".26"/>' +
+        [L + h * SUN.cast, y + h * SUN.cast * .5]]) + '" fill="' + (shade || '#3F6A22') +
+        '" opacity=".26"/>' +
       /* right face -- the dark one */
       '<polygon points="' + pts([[R, y], [R, T], [R + r, T - u], [R + r, y - u]]) +
         '" fill="' + tone(base, -0.26) + '" stroke="' + D + '" stroke-width="3" ' +
@@ -1003,11 +1030,12 @@ function sceneSVG(){
         'stroke-linecap="round"/>' +
       '<path d="M3 -52q-32-8-42 10M3 -52q32-10 42 8M3 -52q-15-25-37-25M3 -52q17-25 39-20" ' +
         'fill="none" stroke="#3F8C4A" stroke-width="10" stroke-linecap="round"/>' +
-      '<path d="M3 -52q32-10 42 8" fill="none" stroke="#59A85E" stroke-width="5" ' +
+      '<path d="M3 -52q-32-8-42 10" fill="none" stroke="#6FBF6C" stroke-width="5" ' +
         'stroke-linecap="round"/>' +
     '</g>';
   const luzzu = (x, y, k, c) =>
     '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')">' +
+      '<ellipse cx="6" cy="16" rx="40" ry="8" fill="#1C5A82" opacity=".3"/>' +
       '<path d="M-36 0q36 22 72 0l-10 14h-53z" fill="' + c + '" stroke="' + D + '" stroke-width="3"/>' +
       '<path d="M-36 0q36 22 72 0z" fill="' + tone(c, 0.28) + '"/>' +
       '<rect x="-2" y="-28" width="5" height="28" fill="' + D + '"/>' +
@@ -1052,8 +1080,15 @@ function sceneSVG(){
        '<path d="' + SAND + '" fill="#F1E3B8"/>' +
        '<path d="' + COAST + '" fill="url(#hjLand)"/>' +
        '<path d="' + COAST + '" fill="none" stroke="#7C9E52" stroke-width="4" opacity=".65"/>';
-  s += luzzu(160, 1880, 1, '#E2513F') + luzzu(1090, 210, .8, '#F2B33C') +
-       luzzu(95, 690, .7, '#3E9AD8');
+  /* tonal variation in the grass. THIS MUST STAY HERE, with the ground --
+     emitted after the props it washes green over stone, water and roofs. */
+  for (const [x, y, rx, ry] of [[300, 980, 150, 74], [820, 700, 170, 80],
+                                [430, 1900, 130, 58], [1180, 1180, 90, 120],
+                                [190, 1140, 90, 110], [700, 480, 130, 70]])
+    s += '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + ry +
+         '" fill="#8CB763" opacity=".5"/>';
+  s += luzzu(1316, 356, .8, '#F2B33C') + luzzu(36, 1236, .7, '#3E9AD8') +
+       luzzu(120, 560, .74, '#E2513F');
 
   return s + sceneProps(D, pts, block, house, tree, palm, luzzu, win, door);
 }
@@ -1076,7 +1111,7 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
   let s = '';
   const lawn = (x, y, rx, ry, c) =>
     '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + ry + '" fill="' + c +
-      '" stroke="#7C9E52" stroke-width="3" opacity=".9"/>';
+      '" opacity=".95"/>';
   /* a hill: a lit west face, a dark east face, one cast shadow */
   const mount = (x, y, w, h, base) =>
     '<g><polygon points="' + pts([[x - w / 2, y], [x + w / 2, y],
@@ -1108,15 +1143,15 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
       '<polygon points="' + pts(dir > 0
         ? [[x + 60, y - 92], [x + 60, y - 74], [x + 74, y - 83]]
         : [[x - 60, y - 92], [x - 60, y - 74], [x - 74, y - 83]]) + '" fill="#FFF"/>' +
-      '<text x="' + (x - (dir > 0 ? 8 : -8)) + '" y="' + (y - 74) +
-        '" font-size="24" fill="#FFF">' + esc(label) + '</text>' +
+      '<text x="' + (x - dir * 9) + '" y="' + (y - 74) + '" font-size="20" ' +
+        'text-anchor="middle" fill="#FFF">' + esc(label) + '</text>' +
     '</g>';
-  s += signpost(258, 214, T('COLLEGE', 'UNIVERSITÀ'), -1) +
+  s += signpost(196, 316, T('COLLEGE', 'UNIVERSITÀ'), -1) +
        signpost(606, 318, T('CAREER', 'XOGĦOL'), 1);
 
   /* ═══ U — THE COLLEGE. The study road loops right around it, which is
      the whole point: the long way round is long because of this. ═══ */
-  s += lawn(348, 566, 132, 96, '#A8D07C');
+  s += lawn(348, 566, 132, 96, '#B9E08A');
   s += block(348, 596, 168, 74, '#F5E6C4') +
        block(348, 522, 52, 96, '#EDD9AF') +            /* the clock tower  */
        '<circle cx="348" cy="470" r="17" fill="#FFF" stroke="' + D + '" stroke-width="3"/>' +
@@ -1131,34 +1166,56 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
   /* ═══ A — the office the WORK road runs past, then the mountain ═══ */
   s += block(706, 452, 104, 176, '#C8CDDA');
   for (let r = 0; r < 5; r++) for (let c = 0; c < 3; c++)
-    s += win(668 + c * 30, 302 + r * 30, 19, 19);
+    if (!(r === 4 && c === 1)) s += win(668 + c * 30, 302 + r * 30, 19, 19);
   s += door(706, 452, 26, 34);
-  s += mount(992, 846, 566, 348, '#E4CE9C');
+  s += mount(1136, 560, 372, 236, '#D8C08A') +
+       mount(966, 846, 656, 348, '#E4CE9C');
   /* the walled city on the crown */
-  s += block(992, 648, 176, 46, '#F7EACA');
+  s += block(975, 660, 140, 46, '#F7EACA', null, '#9C8557');
   for (let i = 0; i < 6; i++)
-    s += '<rect x="' + (912 + i * 28) + '" y="590" width="16" height="17" ' +
+    s += '<rect x="' + (912 + i * 22) + '" y="604" width="14" height="15" ' +
          'fill="#FBF2DA" stroke="' + D + '" stroke-width="3"/>';
-  s += '<path d="M952 604a40 40 0 0180 0z" fill="#EBD7A4" stroke="' + D +
+  s += '<path d="M941 618a34 34 0 0168 0z" fill="#EBD7A4" stroke="' + D +
          '" stroke-width="4"/>' +
-       '<path d="M992 564a40 40 0 0140 40h-40z" fill="rgba(0,0,0,.14)"/>' +
-       '<rect x="987" y="538" width="10" height="22" fill="#8A6A34"/>' +
-       '<path d="M982 546h20M992 536v24" stroke="#8A6A34" stroke-width="4"/>' +
-       block(930, 604, 32, 62, '#F3E5C0') + block(1054, 604, 32, 62, '#F3E5C0');
-  for (let i = 0; i < 4; i++) s += win(938 + i * 32, 620, 13, 15);
+       '<path d="M975 584a34 34 0 0134 34h-34z" fill="rgba(0,0,0,.14)"/>' +
+       /* the cross OVERLAPS the dome -- at h=22 from y 538 it floated clear */
+       '<rect x="970" y="562" width="9" height="24" fill="#8A6A34"/>' +
+       '<path d="M966 570h18M974 560v26" stroke="#8A6A34" stroke-width="4"/>' +
+       block(921, 618, 26, 54, '#F3E5C0', null, '#9C8557') +
+       block(1029, 618, 26, 54, '#F3E5C0', null, '#9C8557');
+  for (let i = 0; i < 4; i++) s += win(932 + i * 26, 630, 12, 14);
   /* the town at the mountain's foot */
   s += house(742, 872, 78, 54) + house(1250, 866, 74, 50) +
        tree(690, 906, .95) + tree(1292, 900, .82);
 
-  /* ═══ B — the lake ═══ */
-  s += '<path d="M600 1236q46-166 250-176 210-12 282 92 50 92-44 148-134 78-292 50' +
-       '-158-30-196-114z" fill="#7FA9C4" opacity=".5" transform="translate(8 14)"/>' +
-       '<path d="M600 1236q46-166 250-176 210-12 282 92 50 92-44 148-134 78-292 50' +
-       '-158-30-196-114z" fill="url(#hjSea)" stroke="' + D + '" stroke-width="4"/>' +
-       '<path d="M660 1130q66-30 132 0M840 1096q78-22 144 10" fill="none" ' +
-         'stroke="rgba(255,255,255,.65)" stroke-width="5" stroke-linecap="round"/>' +
-       luzzu(830, 1170, .74, '#4FBF8A') + palm(600, 1046, 1.05) + palm(1104, 1214, .92) +
-       tree(672, 990, .8);
+  /* ═══ B — the lake. It used to be a hand-drawn blob and the road ran
+     clean through it, seven tiles floating on open water with the lake's
+     own outline vanishing underneath. It is now grown from its centre
+     until the route stops it, so it cannot be crossed again. ═══ */
+  const pond = (cx, cy, rx, ry, phase) => {
+    /* 0.93 absorbs the wobble below, which pushes past the plain ellipse */
+    const k = routeRoom(cx, cy, rx, ry, 44) * 0.93;
+    if (k <= 0.05) return '';
+    const P = [];
+    for (let i = 0; i < 44; i++){
+      const t = i / 44 * Math.PI * 2;
+      const w = 1 + 0.07 * Math.sin(3 * t + phase) + 0.045 * Math.sin(5 * t + phase * 2);
+      P.push([(cx + Math.cos(t) * rx * k * w).toFixed(1),
+              (cy + Math.sin(t) * ry * k * w).toFixed(1)]);
+    }
+    return 'M' + P.map(q => q[0] + ' ' + q[1]).join('L') + 'Z';
+  };
+  const water = (dpath, boat) =>
+    dpath ? ('<path d="' + dpath + '" fill="#7FA9C4" opacity=".5" ' +
+               'transform="translate(8 14)"/>' +
+             '<path d="' + dpath + '" fill="url(#hjSea)" stroke="' + D + '" stroke-width="4"/>' +
+             (boat || '')) : '';
+  const LAKE = pond(858, 1132, 300, 158, 0.7);
+  s += water(LAKE,
+        '<path d="M712 1092q66-28 132 0M900 1064q78-20 144 8" fill="none" ' +
+          'stroke="rgba(255,255,255,.6)" stroke-width="5" stroke-linecap="round"/>' +
+        luzzu(858, 1128, .72, '#4FBF8A')) +
+       palm(596, 1042, 1.05) + palm(1128, 1210, .92) + tree(676, 986, .8);
 
   /* ═══ THE BRIDGE — right edge, mid-height, the one place the road goes
      OVER something, exactly where the board's own assembly diagram puts
@@ -1190,9 +1247,9 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
            'stroke-linecap="round" opacity=".5"/>';
     s += '<g transform="translate(' + P[0].toFixed(1) + ' ' + P[1].toFixed(1) +
            ') rotate(' + (ang * 180 / Math.PI).toFixed(1) + ')">' +
-      '<path d="M-84 54q84-34 168 0v-108q-84-34-168 0z" fill="#3F6A22" opacity=".24" ' +
+      '<path d="M-84 54q84-34 168 0v-108q-84 34-168 0z" fill="#3F6A22" opacity=".24" ' +
         'transform="translate(9 13)"/>' +
-      '<path d="M-84 54q84-34 168 0v-108q-84-34-168 0z" fill="#F7F1E2" stroke="' + D +
+      '<path d="M-84 54q84-34 168 0v-108q-84 34-168 0z" fill="#F7F1E2" stroke="' + D +
         '" stroke-width="4" stroke-linejoin="round"/>' +
       /* the two parapets -- the only part of the deck the road does not cover */
       '<path d="M-84 54q84-34 168 0" fill="none" stroke="#E7DAB8" stroke-width="16" ' +
@@ -1227,8 +1284,8 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
   s += block(864, 1594, 148, 108, '#F7EACA') +
        '<path d="M796 1486a68 68 0 01136 0z" fill="#EBD7A4" stroke="' + D + '" stroke-width="4"/>' +
        '<path d="M864 1418a68 68 0 0168 68h-68z" fill="rgba(0,0,0,.14)"/>' +
-       '<rect x="858" y="1386" width="12" height="26" fill="#8A6A34"/>' +
-       '<path d="M852 1396h24M864 1384v28" stroke="#8A6A34" stroke-width="4"/>' +
+       '<rect x="858" y="1396" width="12" height="26" fill="#8A6A34"/>' +
+       '<path d="M852 1406h24M864 1394v28" stroke="#8A6A34" stroke-width="4"/>' +
        door(864, 1594, 34, 52) + win(812, 1520, 20, 26) + win(896, 1520, 20, 26);
   s += house(676, 1560, 80, 54) + house(1006, 1552, 88, 60, '#EFD3A6') +
        house(1108, 1584, 66, 44) + tree(628, 1618, .92) + tree(760, 1630, .8) +
@@ -1243,20 +1300,13 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
        door(1168, 1892, 26, 36) +
        '<ellipse cx="1252" cy="1936" rx="46" ry="22" fill="#5CBBE6" stroke="' + D +
          '" stroke-width="3"/>' +                       /* the pool          */
-       tree(1076, 1946, .85) + palm(1266, 1858, .9);
+       tree(1046, 1972, .82) + palm(1266, 1972, .88);
 
-  /* a bay cut into the south coast, so the last stretch is not all green */
-  s += '<path d="M392 2060q28-142 210-150 196-8 244 96 34 74-48 120z" fill="#7FA9C4" ' +
-         'opacity=".5" transform="translate(8 12)"/>' +
-       '<path d="M392 2060q28-142 210-150 196-8 244 96 34 74-48 120z" fill="url(#hjSea)" ' +
-         'stroke="' + D + '" stroke-width="4"/>' +
-       '<path d="M470 1988q58-24 116 0" fill="none" stroke="rgba(255,255,255,.6)" ' +
-         'stroke-width="5" stroke-linecap="round"/>' +
-       luzzu(690, 1966, .68, '#E2513F') + palm(380, 1926, 1.05) + palm(880, 1948, .92);
-
-  /* the second mountain, bottom-left corner -- the real board puts its
-     three at the corners and lets the road pass around them */
-  s += mount(196, 1760, 300, 190, '#DFC894') + tree(300, 1786, .8);
+  /* the bay, grown from the route like the lake */
+  s += water(pond(628, 1990, 250, 104, 2.1),
+        '<path d="M520 1946q60-22 118 0" fill="none" stroke="rgba(255,255,255,.6)" ' +
+          'stroke-width="5" stroke-linecap="round"/>' +
+        luzzu(660, 1986, .66, '#E2513F'));
 
   /* the beach at the west end */
   s += palm(176, 1918, 1.05) + tree(146, 1804, .8);
@@ -1269,26 +1319,23 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
     let g = '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')">' +
       '<ellipse cx="16" cy="6" rx="76" ry="20" fill="#3F6A22" opacity=".22"/>';
     /* back row dark, front row light -- the clump gets its own depth */
-    for (const [cx, cy, r, c] of [[-46, -34, 27, '#3B7A42'], [46, -36, 26, '#3B7A42'],
-                                  [0, -46, 31, '#44884A'], [-24, -20, 25, '#4E9A55'],
-                                  [26, -18, 24, '#4E9A55'], [0, -12, 22, '#59A85E']])
+    /* NOT symmetric -- the sun is top-left, so the left lobes are the lit
+       ones. A mirror-image clump reads as a flat blob. */
+    for (const [cx, cy, r, c] of [[-46, -34, 27, '#41854A'], [46, -36, 26, '#33703A'],
+                                  [0, -46, 31, '#44884A'], [-24, -20, 25, '#5CA862'],
+                                  [26, -18, 24, '#45903F'], [0, -12, 22, '#59A85E']])
       g += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + c +
            '" stroke="' + D + '" stroke-width="3"/>';
     return g + '</g>';
   };
-  /* tonal variation in the grass, so it is never one flat green */
-  for (const [x, y, rx, ry] of [[300, 980, 150, 74], [820, 760, 170, 80],
-                                [560, 1900, 140, 60], [1230, 1180, 96, 130],
-                                [190, 1140, 90, 110], [1000, 1980, 120, 58]])
-    s += '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + ry +
-         '" fill="#8CB763" opacity=".55"/>';
   for (const [x, y, k] of [[286, 1052, .92], [470, 1180, .74], [1246, 1424, .86],
-                           [1252, 1806, .82], [236, 1296, .78], [618, 372, .72],
+                           [1288, 1706, .8], [236, 1296, .78], [618, 372, .72],
                            [1108, 1948, .78], [842, 754, .96], [640, 946, .8],
                            [1244, 640, .82], [176, 1520, .7], [470, 1852, .84],
-                           [1010, 1996, .72], [96, 890, .66]])
+                           [1010, 1996, .72], [96, 890, .66], [206, 972, .9], [372, 1080, .82],
+                           [150, 1188, .74], [318, 916, .7]])
     s += wood(x, y, k);
-  for (const [x, y, k] of [[492, 300, .78], [1290, 980, .7], [700, 1980, .74]])
+  for (const [x, y, k] of [[492, 300, .78], [1290, 980, .7]])
     s += tree(x, y, k);
   return s;
 }
@@ -1348,7 +1395,12 @@ function paintSquares(){
    `fitK` is the scale at which the whole board fits the stage, so
    vw.k === 1 always means "the whole board" whatever the phone is.
    ═══════════════════════════════════════════════════════════════════ */
-const ZMAX = 4.5, ZTAP = 2.2, DRAG_SLOP = 9;
+/* ZMAX is a FLOOR on legibility, not a constant: vw.k is measured in
+   whole-boards, so a fixed 4.5x means something different on a 360 phone
+   than on a 390 one. zMax() returns whatever multiple is needed to put a
+   tile at ~86 CSS px, which is where the 9px label becomes readable. */
+const ZTAP = 4, DRAG_SLOP = 9;
+function zMax(){ return Math.max(4.5, Math.min(9, 86 / Math.max(1, TW * fitK))); }
 let fitK = 0.3;
 let vw = { k:1, x:0, y:0 };
 let panning = false;
@@ -1365,7 +1417,7 @@ function applyView(){
   if (UI.zoom){
     UI.zoom.classList.toggle('fitted', vw.k <= 1.001);
     const zi = UI.zoom.querySelector('#hj-zin'), zo = UI.zoom.querySelector('#hj-zout');
-    if (zi) zi.disabled = vw.k >= ZMAX - 0.001;
+    if (zi) zi.disabled = vw.k >= zMax() - 0.001;
     if (zo) zo.disabled = vw.k <= 1.001;
   }
 }
@@ -1386,7 +1438,7 @@ function sizeStage(){
   clampView();
 }
 function zoomTo(k, px, py){
-  k = Math.max(1, Math.min(ZMAX, k));
+  k = Math.max(1, Math.min(zMax(), k));
   if (Math.abs(k - vw.k) < 0.0005) return;
   const r = k / vw.k;
   vw.x = px - (px - vw.x) * r;
@@ -1459,7 +1511,7 @@ function wireZoom(el){
     if (gest.mode === 'pinch' && pts.size >= 2){
       const d = dist();
       if (!gest.d0) return;
-      const k = Math.max(1, Math.min(ZMAX, gest.k0 * (d / gest.d0)));
+      const k = Math.max(1, Math.min(zMax(), gest.k0 * (d / gest.d0)));
       const m = mid(), r = k / gest.k0;
       vw.k = k;
       /* the pinch's own midpoint may have travelled too — that is the
