@@ -47,6 +47,42 @@ if (!K) return;
 const B = K.BOARD, G_ROUPS = K.GROUPS;
 
 /* ═══════════════════════════════════════════════════════════════════
+   0. THE BOARD'S OWN SCALE — WHY THERE ARE NO BARE NUMBERS BELOW
+   This file used to be full of them: a 60 in the buy rule, a 250 in
+   the build rule, a 120 in the trade rule, a cash ladder that ran
+   60/140/240/360/500. Every one of those was a judgement about a board
+   with 32 squares, 16 properties and six colours. That board is gone —
+   it is the canonical 40 / 22 / 8 now, with Monopoly's own price and
+   rent ladders — and on the new one there are 28 lots to buy instead
+   of 22, 29% more capital to find, and a lap is 40 squares long
+   instead of 32, so the same wage buys 20% less per roll. The numbers
+   did not follow. Measured over 400 games: auctions that closed with a
+   bidder still in the room who wanted the lot went from 3 to 22, and
+   the whole difficulty ladder had turned upside down — see §2.
+
+   So nothing below is typed as a quantity of money. Everything is a
+   multiple of something the board itself states, and the next time
+   somebody moves a square this file moves with it.
+   ═══════════════════════════════════════════════════════════════════ */
+const DEEDS = B.filter(s => s.price > 0);            /* every lot with a price: 28 */
+const PROPS = B.filter(s => s.t === 'prop');         /* the buildable ones: 22 */
+const NSQ   = B.length;                              /* 40 */
+/* the middling lot. The unit for anything that is "about the price of
+   a property" — trade change, the smallest interesting margin. */
+const AVG   = Math.round(DEEDS.reduce((n, s) => n + s.price, 0) / DEEDS.length);
+const CHEAP = DEEDS.reduce((m, s) => Math.min(m, s.price), Infinity);
+/* one lap of wages. The unit for anything that is a CUSHION, because a
+   cushion is measured in how long it takes to earn it back. */
+const SAL   = K.SALARY || 200;
+/* rolls to get round once — 7 is the mean of two dice. Every "for the
+   first N rounds" rule is really "for the first so-many laps", and a
+   lap got 25% longer. */
+const LAP   = NSQ / 7;
+/* the smallest bid worth the breath, in the same coin as the cheapest
+   lot on the board */
+const TICK  = Math.max(5, Math.round(CHEAP * 0.15 / 5) * 5);
+
+/* ═══════════════════════════════════════════════════════════════════
    1. HOW MUCH IS A DEED WORTH TO ME
    Not its price. Its price is what the bank charges; its VALUE is
    what it does to the sets I am trying to finish and the sets I am
@@ -139,26 +175,108 @@ function danger(G, p){
 /* THE THREE LEVELS
      1  Iż-Żijuwa  — your aunt. Sits on her money, waits for the right
                      one to come up, and it never does. She hoards, she
-                     under-builds and she says yes to almost any trade.
+                     under-builds, she lets an auction go to somebody
+                     else for a tenner, and she says yes to almost any
+                     trade.
      2  Il-Ħabib   — plays properly, no flair.
      3  L-Iżviluppatur — buys early, buys everything, builds to three
                      floors on every set it finishes, and comes and
                      asks you for the square it needs.
-   Cash reserve is the main dial: too big and you never own anything,
-   which is exactly how a cautious player loses this game. */
+
+   One table, so the ladder can be read as a ladder instead of being
+   hunted for down six functions. Everything here is a MULTIPLIER; the
+   quantity it multiplies comes from §0.
+
+     res    reserve floor, in laps of wages
+     dgr    and how much of the biggest rent standing on the board it
+            adds to that
+     cap    the most it will ever sit on, in laps of wages
+     grab   the opening land-grab, in laps
+     thin   how far under the reserve it will go for a deed that
+            finishes or blocks a set (0 = never)
+     bid    what fraction of its own valuation it will actually bid
+     bank   extra cushion it wants before it lays a floor, in laps —
+            NEGATIVE means it will dip into the reserve to build, which
+            is what "L-Iżviluppatur" is for. It costs it about three
+            points of win rate and it doubles the houses on the board,
+            and a machine that never lays a floor is not worth playing.
+     snipe  the share of the asking price below which it would rather
+            let the lot go under the hammer and win it there (0 = off)
+     tier   how many whole tiers of a set it wants to be able to pay
+            for before it lays the first floor of one (0 = no discipline)
+     clock  how much tighter that cushion gets as the buzzer nears
+     three  how hard it pushes every set to three floors first
+     marg   the margin it wants on a trade
+     gift   the share of YOUR gain it charges for finishing YOUR set  */
+const DIAL = {
+  1: { res:1.60, dgr:1.20, cap:6.0, grab:0,    thin:0,    bid:0.40, bank: 1.25, tier:0, snipe:0,    clock:0,   three:1.35, marg:-0.05, gift:0.45 },
+  2: { res:0.60, dgr:0.70, cap:4.5, grab:0.70, thin:0.35, bid:1.00, bank:-0.40, tier:1, snipe:0,    clock:0.5, three:1.60, marg: 0.05, gift:0.65 },
+  3: { res:0.75, dgr:0.70, cap:4.5, grab:1.10, thin:0.25, bid:1.00, bank:-0.80, tier:1, snipe:1.00, clock:3.0, three:1.85, marg: 0.12, gift:0.85 },
+};
+const levelOf = P => (P.level == null ? 2 : (P.level < 1 ? 1 : P.level > 3 ? 3 : P.level));
+const dialOf  = P => DIAL[levelOf(P)];
+
+/* how far through a TIMED game we are, 0 at the first roll and 1 at the
+   buzzer — and flat 0 for ever when there is no buzzer at all, because
+   in a to-the-end game net worth is not the prize and a mortgage you
+   can redeem in twenty rounds' time is not a permanent hole. */
+function runOut(G){
+  const end = G.roundLimit > 0 ? G.roundLimit : 0;
+  if (!end) return 0;
+  return Math.min(1, Math.max(0, G.round / end));
+}
+
 function reserve(G, p){
   const P = G.players[p];
-  const lvl = P.level == null ? 2 : P.level;
+  const D = dialOf(P);
   const d = danger(G, p);
-  let r;
-  if (lvl <= 1) r = 320 + Math.round(d * 1.2);      /* hoards, buys late, loses */
-  else if (lvl === 2) r = 110 + Math.round(d * 0.7);
-  else r = 70 + Math.round(d * 0.55);
-  if (P.auto) r = Math.max(r, 250) + 150;    /* autopilot sits on its hands */
-  return Math.min(r, lvl <= 1 ? 1200 : 900);
+  /* AND IT READS THE CLOCK. On a round limit the winner is whoever is
+     worth the most at the buzzer, and a floor sold back to the bank at
+     half price is a permanent hole in that number — early there are
+     laps enough to earn it back and near the buzzer there are not. So
+     the cushion tightens as a timed game runs down, and does nothing at
+     all in a to-the-end one, where the way to win is still to build
+     until somebody cannot pay. The round counter is on screen from the
+     first turn; this is the clock everybody at the table is reading. */
+  let r = Math.round(SAL * D.res * (1 + D.clock * runOut(G)) + d * D.dgr);
+  if (P.auto) r = Math.max(r, Math.round(SAL * 1.25)) + Math.round(SAL * 0.75);
+  return Math.min(r, Math.round(SAL * D.cap));
 }
 
 const conservative = P => !!P.auto;
+
+/* ── THE FLOOR IT WILL ACTUALLY KEEP ──────────────────────────────
+   TWO BUGS LIVED HERE, and both of them were about this number being
+   used inconsistently.
+
+   FIRST: a reserve bigger than the money in your hand is not caution,
+   it is paralysis. It stopped the machine buying the lot AND stopped
+   it bidding ten euro for the same lot at the auction that followed,
+   so the lot ended up belonging to nobody. Every single one of the 63
+   auctions that closed unsold in a 400-game sweep was cash-bound, not
+   value-bound. So the floor can never be more than a share of the cash
+   that is actually there.
+
+   SECOND, and much worse: buying used the WHOLE reserve and bidding
+   used HALF of it. That made declining to buy strictly better than
+   buying — decline, let it go under the hammer, then win it back for a
+   tenner because everybody else is broke too. It was worth 911 a game
+   in free equity, it was the biggest single term in the score, and it
+   was the hoarder who collected it: level 1 beat level 3 sixty-two
+   times in a hundred with the ladder pointing the wrong way. One floor
+   now, for both decisions, so a seat that would not pay the price
+   cannot bid the price either.                                       */
+const FLOOR_SHARE = 0.75;
+
+function cashFloor(G, p, i){
+  const P = G.players[p];
+  let r = reserve(G, p);
+  /* a deed that finishes or blocks a set is worth going a bit thin for */
+  const D = dialOf(P), sq = (i == null ? null : B[i]);
+  if (!conservative(P) && D.thin > 0 && sq && sq.price &&
+      gainOf(G, p, i) > sq.price * 1.6) r = Math.round(r * D.thin);
+  return Math.min(r, Math.round(P.cash * FLOOR_SHARE));
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    3. THE DECISIONS
@@ -170,19 +288,47 @@ function wantsBuy(G, p){
   const i = P.pos, sq = B[i];
   if (!sq.price || G.own[i] >= 0 || P.cash < sq.price) return false;
   const after = P.cash - sq.price;
-  const res = reserve(G, p);
-  const gain = gainOf(G, p, i);
-  const lvl = P.level == null ? 2 : P.level;
+  const D = dialOf(P);
 
   /* the opening: land grab. Everything worth having is unowned and the
-     rents are pennies, so the only mistake is being slow. Your aunt
-     does not believe in this and it is why she never wins. */
-  if (!conservative(P) && lvl >= 2 && G.round <= (lvl >= 3 ? 5 : 3) && after >= 60) return true;
+     rents are pennies, so the only mistake is being slow. Measured in
+     LAPS, not rounds — the board got eight squares longer and a rule
+     written as "the first three rounds" quietly became two thirds of
+     the opening it was meant to be. Your aunt does not believe in any
+     of this and it is why she never wins. */
+  if (!conservative(P) && D.grab > 0 && G.round <= Math.round(LAP * D.grab) &&
+      after >= Math.max(CHEAP, Math.round(danger(G, p) * 0.35))) return true;
 
-  if (after >= res) return true;
-  /* a deed that finishes or blocks a set is worth going a bit thin for */
-  if (lvl >= 2 && gain > sq.price * 1.6 && after >= Math.round(res * 0.35)) return true;
-  return false;
+  if (after < cashFloor(G, p, i)) return false;
+
+  /* THE LOT YOU CAN HAVE FOR LESS BY NOT BUYING IT.
+     Declining sends it under the hammer, and a hammer only ever asks
+     for one step more than the best of the other wallets in the room.
+     Those wallets are face up on the table — this is the same
+     arithmetic anybody sitting there could do, and it reads no card
+     order. If nobody else can get anywhere near the asking price, then
+     paying the asking price is paying the bank a premium for being in
+     a hurry, and the difference is pure equity: the round limit values
+     a deed at its face whatever you paid for it.
+     Level 3 only. It is the sharpest thing on the table and it is what
+     "L-Iżviluppatur" is supposed to feel like from the other side. */
+  if (D.snipe > 0 && !conservative(P)){
+    const cheaper = Math.round(sq.price * D.snipe);
+    if (topRival(G, p, i) + TICK <= cheaper && bidTo(G, p, i) > cheaper) return false;
+  }
+  return true;
+}
+
+/* the deepest pocket at this table other than mine, for this one lot.
+   Cash is public; so is every deed and every floor on it. */
+function topRival(G, p, i){
+  let best = 0;
+  for (const q of G.players){
+    if (q.out || q.i === p) continue;
+    const c = Math.min(q.cash, Math.round(gainOf(G, q.i, i) * 0.85));
+    if (c > best) best = c;
+  }
+  return best;
 }
 
 /* ── the auction ─────────────────────────────────────────────────── */
@@ -190,20 +336,25 @@ function bidTo(G, p, i){
   const P = G.players[p];
   const sq = B[i];
   const gain = gainOf(G, p, i);
-  const res = reserve(G, p);
-  let cap = Math.min(P.cash - Math.round(res * 0.5), Math.round(gain * 0.85));
+  /* the SAME floor the buy decision uses, so declining is not a way of
+     getting the lot cheaper off itself */
+  let cap = Math.min(P.cash - cashFloor(G, p, i), Math.round(gain * 0.85));
   if (conservative(P)) cap = Math.min(cap, sq.price);            /* never over the odds */
-  const lvl = P.level == null ? 2 : P.level;
-  if (lvl <= 1) cap = Math.round(cap * 0.8);
+  cap = Math.round(cap * dialOf(P).bid);
   return Math.max(0, Math.min(cap, P.cash));
 }
 
 function bid(G, p, i, current){
   const cap = bidTo(G, p, i);
-  const step = Math.max(10, Math.round((B[i].price || 100) * 0.08 / 10) * 10);
-  const next = (current || 0) + step;
-  if (next > cap) return 0;
-  return next;
+  const at = current || 0;
+  if (cap <= at) return 0;
+  /* THE STEP MUST NEVER BE THE REASON NOBODY BIDS. It used to add a
+     fixed increment and pass if that overshot the cap, so a seat whose
+     cap was 15 on a lot whose step was 20 said nothing at all and the
+     lot went unsold — 19 of the 63 unsold auctions in the sweep. Walk
+     up in steps, but if the next step is over the top, bid the top. */
+  const step = Math.max(TICK, Math.round((B[i].price || AVG) * 0.08 / TICK) * TICK);
+  return Math.min(cap, at + step);
 }
 
 /* ── the queue ───────────────────────────────────────────────────── */
@@ -213,9 +364,10 @@ function jailPlan(G, p){
      the country: you cannot land on anybody's penthouse while you are
      in it. Early on, get out and buy things. */
   const built = G.own.reduce((n, o, i) => n + ((o >= 0 && o !== p && G.lvl[i] > 0) ? 1 : 0), 0);
-  const hide = built >= 3 && P.jail < 3;
-  const lvl = P.level == null ? 2 : P.level;
-  if (hide && lvl >= 2) return 'roll';
+  /* "three built squares" was a fifth of the old board's sixteen
+     properties. It is a fifth of twenty-two that matters now. */
+  const hide = built >= Math.max(2, Math.round(PROPS.length * 0.19)) && P.jail < 3;
+  if (hide && levelOf(P) >= 2) return 'roll';
   if (P.skips > 0) return 'skip';
   if (P.cash >= K.BAIL + reserve(G, p)) return 'bail';
   return 'roll';
@@ -224,16 +376,41 @@ function jailPlan(G, p){
 /* ── building ────────────────────────────────────────────────────── */
 /* the classic shape of a good build: get every set you own to three
    floors before you take any of them to four, because three floors is
-   where the rent curve stops being polite. */
+   where the rent curve stops being polite.
+
+   AND DO NOT START WHAT YOU CANNOT FINISH. This is the change that
+   turned the ladder back the right way up. The engine makes you build
+   EVENLY, so one floor on one square of a three-square set is one
+   third of a tier and one third of a tier buys almost nothing: on the
+   new board Il-Mosta goes 18 → 90 for the first floor and 90 → 700
+   for the third. A machine that laid single floors whenever it had
+   the change for one spent its whole game in the flat part of the
+   rent curve, and then had to sell those floors back to the bank at
+   half price the first time somebody's Sliema flat came up. Measured
+   over 300 games: it sold 2.2 floors a game and lost more in the
+   selling than the floors had ever earned.
+
+   So `tier` is how many complete tiers of a set it wants to be able to
+   pay for before it lays the first floor of one. The developer commits
+   or it waits; your aunt still buys one brick at a time. */
 function nextBuild(G, p){
   const P = G.players[p];
-  const lvl = P.level == null ? 2 : P.level;
-  const spare = P.cash - reserve(G, p) - (conservative(P) ? 200 : 0) - (lvl <= 1 ? 250 : 0);
+  const D = dialOf(P);
+  /* an empty seat never digs into its own reserve to put a floor up:
+     it builds, but only out of money the person would not miss */
+  const bank = conservative(P) ? 1.0 : D.bank;
+  const spare = P.cash - reserve(G, p) - Math.round(SAL * bank);
   if (spare <= 0) return -1;
   let best = -1, bestScore = -1;
   for (const key of Object.keys(G_ROUPS)){
     const set = G_ROUPS[key].props;
     if (!set.every(x => G.own[x] === p)) continue;
+    /* what it would take to raise this whole set by D.tier tiers */
+    if (D.tier > 0){
+      const low = set.reduce((m, x) => Math.min(m, G.lvl[x]), 5);
+      const want = set.reduce((n, x) => n + Math.max(0, low + D.tier - G.lvl[x]), 0);
+      if (want * G_ROUPS[key].build > spare) continue;
+    }
     for (const i of set){
       if (!K.canBuild(G, p, i)) continue;
       const cost = K.buildCost(i);
@@ -241,7 +418,7 @@ function nextBuild(G, p){
       const now = K.rentOf(G, i, 7);
       const then = B[i].rent[G.lvl[i] + 1];
       let sc = (then - now) / cost;                 /* extra rent per euro spent */
-      if (G.lvl[i] < 3) sc *= 1.6;                  /* the three-floor rule */
+      if (G.lvl[i] < 3) sc *= D.three;              /* the three-floor rule */
       if (G.lvl[i] === 4) sc *= 0.75;               /* penthouses are a luxury */
       if (sc > bestScore){ bestScore = sc; best = i; }
     }
@@ -252,7 +429,7 @@ function nextBuild(G, p){
 /* ── clearing mortgages when flush ───────────────────────────────── */
 function nextUnmortgage(G, p){
   const P = G.players[p];
-  const spare = P.cash - reserve(G, p) - 250;
+  const spare = P.cash - reserve(G, p) - Math.round(SAL * 1.25);
   if (spare <= 0) return -1;
   let best = -1, bestV = 0;
   for (let i = 0; i < B.length; i++){
@@ -320,11 +497,11 @@ function judge(G, p, o){
   const me = delta(G, p, o);
   const them = delta(G, p === o.from ? o.to : o.from, o);
   const other = (p === o.from ? o.to : o.from);
-  const lvl = P.level == null ? 2 : P.level;
+  const D = dialOf(P);
 
   /* cash sanity — never trade down to nothing */
   const outgoing = (p === o.from ? (o.cashFrom || 0) : (o.cashTo || 0));
-  if (outgoing > P.cash - Math.round(reserve(G, p) * 0.5))
+  if (outgoing > P.cash - Math.round(cashFloor(G, p, null) * 0.5))
     return { ok:false, code:2, why:'Not with that much cash out of the door.' };
 
   if (me <= 0) return { ok:false, code:3, why:'That is worse for me than doing nothing.' };
@@ -333,14 +510,14 @@ function judge(G, p, o){
   if (gift){
     /* handing over the last square of somebody's set: they must be
        paying most of what it is worth to them */
-    const need = them * (lvl >= 3 ? 0.85 : lvl === 2 ? 0.65 : 0.45);
-    if (me < need) return { ok:false, code:4, gi:G_ROUPS[gift].props[0],
+    if (me < them * D.gift) return { ok:false, code:4, gi:G_ROUPS[gift].props[0],
                             why:'You want ' + G_ROUPS[gift].n + ' finished. That costs more.' };
   }
 
-  const margin = lvl >= 3 ? 0.12 : lvl === 2 ? 0.05 : -0.05;
-  const basis = Math.max(120, Math.abs(them));
-  if (me < basis * margin) return { ok:false, code:5, why:'Close. Not close enough.' };
+  /* the smallest margin worth signing for is a fraction of a lot, not a
+     fraction of a number somebody typed in 2026 */
+  const basis = Math.max(Math.round(AVG * 0.6), Math.abs(them));
+  if (me < basis * D.marg) return { ok:false, code:5, why:'Close. Not close enough.' };
   return { ok:true, code:0, why:'Done.' };
 }
 
@@ -351,7 +528,9 @@ function judge(G, p, o){
 function proposeTrade(G, p){
   const P = G.players[p];
   if (conservative(P)) return null;               /* autopilot proposes nothing */
-  if (G.stat.trades > 40) return null;
+  /* a table where every lot has changed hands one and a half times has
+     had enough dealing for one evening */
+  if (G.stat.trades > Math.round(DEEDS.length * 1.5)) return null;
 
   let best = null, bestGain = 0;
   for (const key of Object.keys(G_ROUPS)){
@@ -371,10 +550,17 @@ function proposeTrade(G, p){
       .filter(i => set.indexOf(i) < 0 && !(B[i].t === 'prop' && G_ROUPS[B[i].g].props.some(x => G.lvl[x] > 0)))
       .sort((a, b) => gainOf(G, other, b) - gainOf(G, other, a));
 
+    /* the change it is prepared to put on top, as a share of what it is
+       asking for. A fixed 60/140/240/360/500 ladder was change for a
+       middling lot on the old board and an insult for the Mdina house
+       on this one. */
+    const ladder = [0, 0.3, 0.7, 1.2, 1.8, 2.5]
+      .map(f => Math.round((B[want].price || AVG) * f / TICK) * TICK);
+
     for (let n = 0; n <= Math.min(2, givables.length); n++){
       const give = givables.slice(0, n);
       /* cash to make up the difference, from THEIR point of view */
-      for (const extra of [0, 60, 140, 240, 360, 500]){
+      for (const extra of ladder){
         if (extra > P.cash - reserve(G, p)) break;
         const o = { from:p, to:other, propsFrom:give, propsTo:[want], cashFrom:extra, cashTo:0 };
         if (K.tradeLegal(G, o)) continue;         /* illegal → skip (returns a reason string) */
@@ -547,6 +733,7 @@ function perform(G, a, src){
 }
 
 window.KIRI_AI = {
+  DIAL, levelOf, cashFloor,
   score, gainOf, danger, reserve,
   wantsBuy, bidTo, bid, jailPlan, nextBuild, nextUnmortgage,
   judge, proposeTrade, delta, completesFor,

@@ -72,7 +72,7 @@ function shuffle(G, arr){
 
 /* ═══════════════════════════════════════════════════════════════════
    2. THE COLOUR GROUPS
-   Six of them, cheapest to worst-value-for-money, which in Malta is
+   Eight of them, cheapest to worst-value-for-money, which in Malta is
    not the same axis. `build` is what one floor costs on any property
    in the group.
    ═══════════════════════════════════════════════════════════════════ */
@@ -113,7 +113,7 @@ const NSQ = 40;
      8  corner  IL-KJU         the queue (and just-passing-through)
      16 corner  IL-PJAZZA      sit down, nothing happens
      24 corner  MARSA JUNCTION straight to the queue
-   Between them: 16 properties in 6 groups, 4 transport, 2 services,
+   Between them: 22 properties in 8 groups, 4 transport, 2 services,
    4 card squares, 2 taxes.
 
    rent[] is [base, 1 floor, 2, 3, 4, penthouse]. Landing on an
