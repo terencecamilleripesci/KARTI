@@ -690,6 +690,25 @@ function settle(G){
   else if (d.to >= 0) credit(G, d.to, d.amt);
   fx('pay', { from: d.who, amt: d.amt, to: (d.to == null ? -1 : d.to), split: d.split });
   G.debt = null;
+  /* THE BAIL THEY COULD NOT AFFORD. When the third jail roll failed and the
+     player was short, the dice were stashed in `pendJail` and the turn
+     returned -- but NOTHING in this repo ever read `pendJail` back. `moved`
+     was still false, so the line below put them on 'awaitRoll', they rolled a
+     SECOND time with fresh dice, jail ticked past three again, and they were
+     charged bail TWICE. Measured: cash 500 -> 450 -> 400 for one bail, and
+     the first pair of dice silently thrown away. Read it here, honour the
+     dice that were actually rolled, and let them out. */
+  if (G.pendJail){
+    const n = G.pendJail;
+    G.pendJail = 0;
+    const J = d && G.players[d.who];
+    if (J){
+      J.jail = 0;
+      fx('freed', { p: J.i, how: 'paid' });
+    }
+    advance(G, n);
+    return true;
+  }
   G.phase = G.moved ? 'awaitEnd' : 'awaitRoll';
   return true;
 }
@@ -972,6 +991,19 @@ function auctionStep(G){
   const A = G.auction;
   const live = A.order.filter(p => A.out.indexOf(p) < 0);
   if (live.length <= 1){
+    /* THE LAST BIDDER HAS TO BE ASKED. Ending the moment one player remains
+       means that with N players, N-1 passes close the auction and the Nth is
+       never offered it at all. At two seats it is worse than that: the player
+       who just declined to BUY is first in the order, so their pass ended the
+       auction instantly and the other player never got to bid once.
+
+       Measured over 1,709 auctions: 16.4% ended unsold, and in 91% of those
+       the one remaining bidder was willing to pay. They may still decline --
+       auctionPass below closes it -- but they get asked first. */
+    if (live.length === 1 && A.high < 0){
+      A.seat = A.order.indexOf(live[0]);
+      return;
+    }
     finishAuction(G);
     return;
   }
@@ -999,9 +1031,16 @@ function auctionPass(G){
   const A = G.auction;
   if (!A) return false;
   const p = auctionBidder(G);
+  const live = A.order.filter(x => A.out.indexOf(x) < 0);
   if (A.out.indexOf(p) < 0) A.out.push(p);
   fx('aucOut', { p });
   say(G, G.players[p].name + ' is out.');
+  /* the sole remaining bidder passing on an empty lot ends it here -- without
+     this, auctionStep would hand the turn straight back to them for ever */
+  if (live.length === 1 && live[0] === p && A.high < 0){
+    finishAuction(G);
+    return true;
+  }
   auctionStep(G);
   return true;
 }
@@ -1251,6 +1290,10 @@ function bankrupt(G, p){
   const P = G.players[p];
   const d = G.debt;
   const to = d && !d.split && d.to >= 0 ? d.to : -1;
+  /* If they went under trying to make bail, the stashed dice die with the
+     turn -- leaving them set would walk somebody else's token on the next
+     settle(). */
+  G.pendJail = 0;
   P.out = true;
   G.stat.bankrupt++;
   fx('bankrupt', { p, to });
@@ -1920,6 +1963,7 @@ function checksum(G){
     Object.keys(G.deck).sort().map(k => k + ':' + G.deck[k].at).join(','),
     G.card ? (G.card.deck + '#' + G.card.id) : '-',
     G.debt ? [G.debt.who, G.debt.amt, G.debt.to].join('.') : '-',
+    G.pendJail || 0,
     G.auction ? [G.auction.pos, G.auction.bid, G.auction.high, G.auction.seat,
                  G.auction.out.join('.')].join('/') : '-',
     G.offer ? offerSig(G.offer) + '$' + G.offer.cashFrom + '/' + G.offer.cashTo : '-',

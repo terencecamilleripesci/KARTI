@@ -54,7 +54,7 @@ try {
 } catch(e){}
 function persist(){ try { localStorage.setItem(STORE, JSON.stringify(ST)); } catch(e){} }
 
-function record(id, outcome){          /* outcome: 'w' | 'l' | 'd' */
+function record(id, outcome, extra){    /* outcome: 'w' | 'l' | 'd' */
   const r = ST.rec[id] || (ST.rec[id] = { w:0, l:0, d:0 });
   if (outcome === 'w' || outcome === 'l' || outcome === 'd') r[outcome]++;
   persist();
@@ -67,7 +67,16 @@ function record(id, outcome){          /* outcome: 'w' | 'l' | 'd' */
      Guarded and wrapped: stats.js is optional, and a fault in the record book
      must never take down a game that has just finished. */
   try {
-    if (window.KARTI_STATS && KARTI_STATS.record) KARTI_STATS.record(id, { result: outcome });
+    /* `extra` rides through the SAME door rather than tempting a game into a
+       second KARTI_STATS.record() of its own. IL-KIRI had exactly that, to
+       attach a leaderboard score, and it double-counted online: stats.js
+       dedupes on `id|result|moves|score`, so the extra score CHANGED the
+       signature and the second call was counted as a separate match --
+       two plays, two wins and a streak of 2 for one game. Offline, with no
+       score, the signature matched and it was absorbed, which is why it was
+       invisible for so long. */
+    if (window.KARTI_STATS && KARTI_STATS.record)
+      KARTI_STATS.record(id, Object.assign({ result: outcome }, extra || {}));
   } catch (e) {}
   return r;
 }
