@@ -547,11 +547,14 @@ function rentOf(G, i, diceTotal){
   if (s.t === 'prop'){
     const lvl = G.lvl[i];
     if (lvl > 0) return s.rent[lvl];
-    /* the full-set double. A deed you have mortgaged is not a deed you
-       are holding, so one mortgage anywhere in the group and the double
-       is gone — same test as the licence to build, which keeps the two
-       rules explainable as one sentence at the table. */
-    return canDevelop(G, o, i) ? s.rent[0] * 2 : s.rent[0];
+    /* THE FULL-SET DOUBLE. This used to borrow canDevelop(), which refuses
+       while ANY deed in the group is mortgaged -- tidy, and wrong. The
+       official rule doubles the rent on unimproved lots of a complete
+       colour group, and mortgaging one lot does not un-own it. Measured
+       before this change: Marsa both owned -> rent 4; mortgage one -> rent
+       2, when it should stay 4. The lot being CHARGED is already required
+       to be unmortgaged by the guard at the top of this function. */
+    return ownsSet(G, o, i) ? s.rent[0] * 2 : s.rent[0];
   }
   if (s.t === 'rail'){
     const held = RAILS.filter(x => G.own[x] === o && !G.mort[x]).length;
@@ -919,9 +922,22 @@ function applyCard(G){
       goTo(G, P.i, to, true);
       const o = G.own[to];
       if (o >= 0 && o !== P.i && !G.mort[to]){
-        const base = rentOf(G, to, (G.dice ? G.dice[0] + G.dice[1] : 7));
-        const r = base * 2;
-        say(G, 'Arriving on somebody else\'s ' + BOARD[to].n + ' this way costs double: ' + money(r) + '.', 'bad');
+        let r, line;
+        if (a.what === 'util'){
+          /* A UTILITY REACHED THIS WAY IS A FRESH THROW, PAID AT TEN TIMES --
+             not double the ordinary rent on the dice that brought you here.
+             That is the official rule and it is also the more dramatic one,
+             which is the whole point of the card. It ignores how many
+             utilities the owner holds. */
+          const d1 = die(G), d2 = die(G);
+          G.dice = [d1, d2];
+          r = (d1 + d2) * 10;
+          line = 'Throwing again for the meter: ' + (d1 + d2) + ', so ten times that — ' + money(r) + '.';
+        } else {
+          r = rentOf(G, to, (G.dice ? G.dice[0] + G.dice[1] : 7)) * 2;
+          line = 'Arriving on somebody else\'s ' + BOARD[to].n + ' this way costs double: ' + money(r) + '.';
+        }
+        say(G, line, 'bad');
         if (pay(G, P.i, r, o)) done();
       } else land(G);
       break;
@@ -1219,6 +1235,18 @@ function tradeLegal(G, o){
   }
   const skA = Math.max(0, o.skipsFrom || 0), skB = Math.max(0, o.skipsTo || 0);
   if (skA > a.skips || skB > b.skips) return 'no such card to give';
+  /* AND THE BANK'S TEN PER CENT HAS TO BE AFFORDABLE TOO. doTrade charges it
+     on every mortgaged deed received, and that fee is charged AFTER the cash
+     has already moved -- so a deal that looks payable can still leave a
+     player below zero, outside the debt machinery where nothing would ever
+     collect it. Check the whole bill here, where a deal can still be refused. */
+  let feeA = 0, feeB = 0;
+  for (const i of pa) if (G.mort[i]) feeB += Math.round(mortgageValue(i) * 0.1);
+  for (const i of pb) if (G.mort[i]) feeA += Math.round(mortgageValue(i) * 0.1);
+  if (a.cash - ca + cb - feeA < 0)
+    return a.name + ' cannot cover the bank\'s ten per cent';
+  if (b.cash - cb + ca - feeB < 0)
+    return b.name + ' cannot cover the bank\'s ten per cent';
   return null;
 }
 
@@ -1234,8 +1262,16 @@ function doTrade(G, o){
   b.cash += ca - cb;
   a.skips += skB - skA;
   b.skips += skA - skB;
-  (o.propsFrom || []).forEach(i => { G.own[i] = b.i; });
-  (o.propsTo   || []).forEach(i => { G.own[i] = a.i; });
+  /* THE SAME 10% THE BANK TAKES ON A MORTGAGED DEED CHANGING HANDS. Official
+     rule, and it is what stops a mortgaged deed being a free gift: whoever
+     receives one pays the bank ten per cent of its mortgage value now, and
+     may lift the mortgage later at the usual cost. */
+  let feeA = 0, feeB = 0;
+  (o.propsFrom || []).forEach(i => { G.own[i] = b.i; if (G.mort[i]) feeB += Math.round(mortgageValue(i) * 0.1); });
+  (o.propsTo   || []).forEach(i => { G.own[i] = a.i; if (G.mort[i]) feeA += Math.round(mortgageValue(i) * 0.1); });
+  a.cash -= feeA; b.cash -= feeB;
+  if (feeA || feeB)
+    say(G, 'The bank takes its ten per cent on the mortgaged deeds.', '');
   G.stat.trades++;
   const bits = [];
   if ((o.propsFrom || []).length) bits.push(a.name + ' gives ' + o.propsFrom.map(i => BOARD[i].n).join(', '));
@@ -1303,7 +1339,7 @@ function bankrupt(G, p){
     const C = G.players[to];
     C.cash += P.cash;
     C.skips += P.skips;
-    let n = 0;
+    let n = 0, feeTotal = 0;
     for (let i = 0; i < 32; i++){
       if (G.own[i] !== p) continue;
       /* the buildings come down — a bankrupt's floors are sold to the
@@ -1314,7 +1350,18 @@ function bankrupt(G, p){
         else { G.lvl[i]--; G.supply.floors++; }
       }
       G.own[i] = to; n++;
+      /* A MORTGAGED DEED COSTS 10% TO INHERIT. Official: the creditor pays the
+         bank ten per cent of the mortgage value at once on every mortgaged
+         deed taken over. Without it, being handed a pile of mortgaged
+         property was pure profit, which is the opposite of what the rule is
+         for. They may still lift the mortgage later at the usual cost. */
+      if (G.mort[i]){
+        const fee = Math.round(mortgageValue(i) * 0.1);
+        C.cash -= fee; feeTotal += fee;
+      }
     }
+    if (feeTotal > 0)
+      say(G, C.name + ' pays the bank ' + money(feeTotal) + ' in interest on the mortgaged deeds.', 'bad');
     say(G, P.name + ' is finished. ' + C.name + ' takes ' + money(P.cash) + ' and ' + n + ' deed(s).', 'bad');
   } else {
     /* owed to the bank, or to several people at once: the cash is split
@@ -1623,7 +1670,12 @@ const PHASES_OF = {
   sell:       ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
   mortgage:   ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
   unmortgage: ['awaitRoll', 'awaitBuy', 'awaitEnd'],
-  offer:      ['awaitEnd'],
+  /* TRADING WHILE IN DEBT is official Monopoly's commonest escape from
+     bankruptcy, and refusing it here meant a player facing a bill they could
+     not pay had no way to sell a deed to another player and survive. `accept`
+     and `refuse` already allowed 'debt'; only the OFFER was locked out. Also
+     opened before the roll, since the official rule is "at any time". */
+  offer:      ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
   accept:     ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
   refuse:     ['awaitRoll', 'awaitBuy', 'awaitEnd', 'debt'],
   settle:     ['debt'],
@@ -1651,6 +1703,10 @@ function actorOf(G, t){
       return G.offer ? G.offer.to : -1;
     case 'settle': case 'bankrupt':
       return (G.phase === 'debt' && G.debt) ? G.debt.who : -1;
+    case 'offer':
+      /* in debt it is the DEBTOR who needs to be selling, and they are not
+         always the seat whose turn it is */
+      return (G.phase === 'debt' && G.debt) ? G.debt.who : G.turn;
     case 'sell': case 'mortgage':
       /* raising money is done by whoever owes it, which is the seat
          whose turn it is in every path the engine can reach — but say
