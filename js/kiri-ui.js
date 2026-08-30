@@ -705,7 +705,14 @@ function injectCSS(){
   '#scr-kiri .kr-dock.down .kr-grip{min-height:44px;background:rgba(138,92,255,.16);' +
     'border-color:rgba(138,92,255,.4);color:#C4AEFF}' +
   '#scr-kiri .kr-dock.down .kr-grip svg{transform:rotate(180deg)}' +
-  '#scr-kiri .kr-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;flex:0 0 auto}' +
+  '#scr-kiri .kr-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;flex:0 0 auto}' +
+  /* the pane slides a little when you swipe it, so the change reads as
+     motion rather than a flicker. The tab strip is untouched -- it is an
+     indicator you can also tap, which is the whole design. */
+  '#scr-kiri .kr-pane{overscroll-behavior-x:contain}' +
+  '#scr-kiri .kr-pane.slid{animation:krSlide .14s ease-out}' +
+  '@keyframes krSlide{from{opacity:.55;transform:translateX(var(--kd,10px))}to{opacity:1;transform:none}}' +
+  '@media (prefers-reduced-motion:reduce){#scr-kiri .kr-pane.slid{animation:none}}' +
   '#scr-kiri .kr-tab{min-height:44px;border-radius:10px;border:1px solid rgba(255,255,255,.10);' +
     'background:rgba(255,255,255,.04);font-size:11px;font-weight:800;letter-spacing:.04em;color:#A093C4}' +
   '#scr-kiri .kr-tab[aria-selected="true"]{background:rgba(138,92,255,.22);border-color:rgba(138,92,255,.55);color:#F4EFFF}' +
@@ -1861,7 +1868,6 @@ function boardScreen(){
         '<button class="kr-tab" role="tab" data-tab="square">SQUARE</button>' +
         '<button class="kr-tab" role="tab" data-tab="deeds">DEEDS</button>' +
         '<button class="kr-tab" role="tab" data-tab="table">TABLE</button>' +
-        '<button class="kr-tab" role="tab" data-tab="log">LOG</button>' +
       '</div>' +
       '<div class="kr-pane" id="kr-pane"></div>' +
       '<div class="kr-act" id="kr-act"></div>' +
@@ -1906,6 +1912,7 @@ function boardScreen(){
   el.querySelectorAll('.kr-tab').forEach(b => b.onclick = () => {
     tab = b.getAttribute('data-tab'); render();
   });
+  wireSwipe(els.pane);
   els.scrim.onclick = () => { if (!sheet || sheet.dismissable !== false) closeSheet(); };
 
   els.grip.onclick = () => setDock(!dockDown);
@@ -1987,7 +1994,12 @@ function noMotion(){
   } catch(e){ return false; }
 }
 
-const TABNAME = { square:'SQUARE', deeds:'DEEDS', table:'TABLE', log:'LOG' };
+const TABNAME = { square:'SQUARE', deeds:'DEEDS', table:'TABLE' };
+/* the swipe order, which is also the tab order on screen */
+const TABS = ['square', 'deeds', 'table'];
+/* an install that remembered tab:'log' from an older build would otherwise
+   open on a pane nothing renders */
+function safeTab(t){ return TABS.indexOf(t) >= 0 ? t : 'square'; }
 function paintDock(){
   if (!els.dock) return;
   els.dock.classList.toggle('down', dockDown);
@@ -2925,12 +2937,43 @@ function renderMid(){
 
 /* ── the dock panes ───────────────────────────────────────────────── */
 function renderPane(){
+  tab = safeTab(tab);
   screenEl().querySelectorAll('.kr-tab').forEach(b =>
     b.setAttribute('aria-selected', String(b.getAttribute('data-tab') === tab)));
   if (tab === 'square') paneSquare();
   else if (tab === 'deeds') paneDeeds();
-  else if (tab === 'table') paneTable();
-  else paneLog();
+  else paneTable();
+}
+
+/* ── SWIPING BETWEEN THE PANES ──────────────────────────────────────
+   Deliberately NOT a scroll-snap carousel. render() runs on every move,
+   and a carousel would force all three panes to build every time; it
+   would also fight the pane's own vertical overflow. This is a pointer
+   test on the pane the game already owns: the tab strip does not change
+   at all, it just becomes an indicator you can also tap.
+
+   The 56px threshold and the 2:1 bias are what stop a diagonal flick
+   during a vertical scroll from changing tab under your thumb. */
+function wireSwipe(el){
+  if (!el) return;
+  let sx = 0, sy = 0, live = false;
+  el.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; live = true; },
+    { passive: true });
+  el.addEventListener('pointercancel', () => { live = false; }, { passive: true });
+  el.addEventListener('pointerup', e => {
+    if (!live) return;
+    live = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 2) return;   /* a scroll */
+    const n = TABS.indexOf(tab) + (dx < 0 ? 1 : -1);
+    if (n < 0 || n >= TABS.length) return;
+    tab = TABS[n];
+    render();
+    el.style.setProperty('--kd', (dx < 0 ? 14 : -14) + 'px');
+    el.classList.remove('slid');
+    void el.offsetWidth;                       /* restart the animation */
+    el.classList.add('slid');
+  }, { passive: true });
 }
 
 function paneSquare(){
@@ -3154,16 +3197,31 @@ function paneTable(){
   h += '<div class="kr-hd">THE BANK</div><div class="kr-row"><span class="kr-sw"></span>' +
     '<span class="kr-rn">Concrete left<span class="kr-rs">when it runs out, nobody builds</span></span>' +
     '<span class="kr-rv">' + G.supply.floors + ' floors · ' + G.supply.penthouses + ' pent</span></div>';
+  h += '<div class="kr-hd">WHAT HAS HAPPENED</div>' + logTailHTML(6);
   els.pane.innerHTML = h;
   els.pane.querySelectorAll('[data-trade]').forEach(b =>
     b.onclick = () => tradeSheet(Number(b.getAttribute('data-trade'))));
+  const fl = els.pane.querySelector('#kr-fulllog');
+  if (fl) fl.onclick = openLogSheet;
 }
 
-function paneLog(){
-  const l = G.log.slice(-60).reverse();
-  els.pane.innerHTML = l.map(x =>
-    '<div class="kr-logl ' + esc(x.k) + '">' + esc(x.t) + '</div>').join('') ||
-    '<div class="kr-empty">Nothing has happened yet.</div>';
+/* the last few lines, for the foot of TABLE. LOG stopped being a tab of its
+   own: four tabs on a 360 phone is 83pt each, and the log is something you
+   glance at, not somewhere you live. The whole thing is one tap away. */
+function logTailHTML(n){
+  const l = G.log.slice(-(n || 6)).reverse();
+  if (!l.length) return '';
+  return '<div class="kr-logtail">' +
+    l.map(x => '<div class="kr-logl ' + esc(x.k) + '">' + esc(x.t) + '</div>').join('') +
+    '<button class="kr-btn ghost" id="kr-fulllog">The whole story</button></div>';
+}
+function openLogSheet(){
+  const l = G.log.slice(-120).reverse();
+  openSheet({
+    title: 'What has happened',
+    body: l.map(x => '<div class="kr-logl ' + esc(x.k) + '">' + esc(x.t) + '</div>').join('') ||
+          '<div class="kr-empty">Nothing has happened yet.</div>'
+  });
 }
 
 /* ── the action bar ───────────────────────────────────────────────── */
