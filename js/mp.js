@@ -2360,13 +2360,56 @@ function send(o){
 }
 /* Pluggable transport. Normally the room server socket; the harness swaps in a
    direct loopback so the lockstep mirroring can be tested without a server. */
-function relay(d){ if (MP.transport) MP.transport(d); else send({ t:'relay', d }); }
+/* [push] WHOSE CHAIR IS NEXT — the ONE thing the relay cannot work out for a
+   table. It infers the next chair for the two-seat board games (they alternate)
+   and for the duel's explicit end-of-turn, but a six-handed table could be
+   going anywhere, so the mover's client says so and the relay nudges that
+   player's phone if their app is shut. See the WEB PUSH block in
+   server/karti_server.py.
+
+   THREE THINGS MAKE THIS SAFE, and they are the whole reason it is written
+   this way:
+   1. `nt` rides the OUTER {t:'relay'} ENVELOPE, never the payload `d`. The
+      relay fans out only `d`, so no `nt` ever reaches another client and no
+      game's published field list has to grow by one — the failure that killed
+      ballun and tankijiet cannot happen here.
+   2. It is OPT-IN and ABSENT by default. Only a game that publishes a `turn`
+      hook, while its table is live, can produce one; every other game — and
+      every real-time game, which returns -1 for "nobody is on turn" — sends
+      exactly the bytes it sent before, so the per-connection byte budget is
+      untouched.
+   3. It is a PLAIN NON-NEGATIVE INTEGER or it is not sent at all. A hook that
+      throws, is missing, or hands back anything that is not a finite number in
+      range is treated as "no idea", which is what the relay does with a bad
+      value anyway. A notification is never worth a broken table. */
+function nextTurn(){
+  const fn = MP.turnHook;
+  if (!fn || !MP.live) return -1;
+  let n;
+  try { n = fn(); } catch (e){ return -1; }
+  if (typeof n !== 'number' || !isFinite(n)) return -1;
+  n = n | 0;
+  /* bounded to this room, and never our own chair: the relay refuses both, and
+     a nudge to the player who just moved would be nonsense anyway. */
+  if (n < 0 || n >= (MP.size | 0) || n === (MP.mySeat | 0)) return -1;
+  return n;
+}
+function relay(d){
+  if (MP.transport){ MP.transport(d); return; }
+  const o = { t:'relay', d };
+  const n = nextTurn();
+  if (n >= 0) o.nt = n;
+  send(o);
+}
 /* the same, ON BEHALF OF a chair the relay gave us at start. The stamp is the
    relay's to apply; all we do is ask, and it refuses for any chair that is not
    one of ours. */
 function sendFor(seat, d){
   if (MP.transport) return MP.transport(d);
-  send({ t:'relay', d, for: seat });
+  const o = { t:'relay', d, for: seat };
+  const n = nextTurn();
+  if (n >= 0) o.nt = n;
+  send(o);
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -2480,6 +2523,7 @@ function mpLeave(){
   MP.showRules = false;
   MP.wantSeats = 0; MP.variant = null; MP.rules = null; MP.askBack = null;
   MP.privateHook = null; MP.pendingMine = null; MP.whisperHook = null;
+  MP.turnHook = null;
   if (MP.unMove){ try { MP.unMove(); } catch (e){} MP.unMove = null; }
   if (MP.state !== 'unreachable') setState('idle');
 }
@@ -4727,6 +4771,14 @@ function onBegan(m){
   MP.whisperHook = (hooks && typeof hooks.whisper === 'function')
     ? (from, x, ch) => { try { hooks.whisper(from, x, ch); } catch (e){} }
     : null;
+  /* [push] whose chair is next, for THIS running game — read at send time, so
+     it is the state AFTER the move was applied (hooks.onMove fires after
+     apply). Games that publish no `turn` hook leave it null and nothing about
+     their wire changes; see nextTurn(). Assigned unconditionally so a previous
+     table's hook can never outlive its game. */
+  MP.turnHook = (hooks && typeof hooks.turn === 'function')
+    ? () => hooks.turn()
+    : null;
   if (hooks && typeof hooks.onMove === 'function'){
     if (MP.unMove){ try { MP.unMove(); } catch (e){} }
     MP.unMove = hooks.onMove((mv, info) => {
@@ -4804,6 +4856,7 @@ function onBegan(m){
   } catch (e){
     MP.live = false; MP.boardLive = false;
     MP.privateHook = null; MP.pendingMine = null; MP.whisperHook = null;
+    MP.turnHook = null;
     /* the table never actually stood — the ante it just took comes back */
     stakeAbort(); stakeCleanup();
     setState('unreachable', 'That game would not start from the lobby. Nothing was lost.');
@@ -5217,6 +5270,7 @@ function hostStart(){
 function beginOnline(p){
   const iAmHost = MP.host;
   MP.live = true; MP.seed = p.seed;
+  MP.turnHook = null;           /* [push] the duel: the relay infers its own */
   K.setRNG(mulberry32(p.seed));
   window.KHOOK = { afterEndTurn: () => true, result: mpResult };
   K.NET.send = (kind, a) => {
@@ -5324,6 +5378,7 @@ function beginBoard(p){
     return;
   }
   MP.live = true; MP.boardLive = true; MP.seed = p.seed >>> 0;
+  MP.turnHook = null;           /* [push] chess/dama alternate: the relay knows */
   window.KHOOK = null;
   K.NET.send = null;
   presenceUnmount();            /* nothing polls while a board is up */
