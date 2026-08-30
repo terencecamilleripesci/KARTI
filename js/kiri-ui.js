@@ -63,6 +63,98 @@ const money = K.money;
 const artkit = () => window.KARTI_ART || null;
 
 /* ═══════════════════════════════════════════════════════════════════
+   THE THEME, AS THE SCREEN READS IT
+   ───────────────────────────────────────────────────────────────────
+   THE LINE: js/kiri.js owns every NUMBER — index, type, group
+   membership, price, rent ladder, build cost — and js/kiri-theme.js
+   owns every WORD, COLOUR and GLYPH. Nothing below ever reads a price
+   or a rent out of a theme; sq()/grp()/dck() return display fields
+   only, and everything numeric still comes off K.BOARD / K.GROUPS.
+   That is what makes a new theme incapable of rebalancing the game.
+
+   The three readers each take the ENGINE's object as the fallback, so
+   js/kiri-theme.js being absent, partial, or a theme that only renamed
+   half a board are all legal and none of them can throw. A theme that
+   supplies nothing renders exactly the board that shipped.
+
+   sq(i) is what most of this file wants: `const s = K.BOARD[i]` for
+   the rules, `const t = sq(i)` for the words. They are two different
+   objects on purpose — mixing them is how a theme would end up owning
+   a number. ────────────────────────────────────────────────────────*/
+const TH = () => window.KIRI_THEMES || null;
+/* ONE CONSTANT GATES THE ONLINE PICKER. See the `variants` note on the
+   lobby contract in §14: the relay's GAME_VARIANTS has no 'kiri' entry
+   yet, and an unknown variant word comes back as an error js/mp.js turns
+   into an "unreachable" screen. Reading a theme off the room already
+   works; OFFERING one has to wait for that one relay line. */
+const THEME_ONLINE = false;
+/* the display face of one square: name, subtitle, code, emoji, joke, glyph */
+function sq(i){
+  const b = K.BOARD[i] || {};
+  const T = TH();
+  const t = (T && T.sq) ? T.sq(i) : null;
+  if (!t) return b;
+  return {
+    n:    t.n    || b.n    || '',
+    mt:   t.mt   || b.mt   || '',
+    code: t.code || b.code || '',
+    e:    t.e    || b.e    || '',
+    joke: t.joke || b.joke || '',
+    /* a sprite id, checked by the theme layer before it can reach a
+       <use href> — it arrives from a theme that may have come off the wire */
+    draw: (T && T.mark) ? T.mark(t.draw) : '',
+  };
+}
+/* the display face of one colour group: its name and its band colour.
+   NEVER `build` or `props` — those are the engine's and stay there. */
+function grp(key){
+  const b = K.GROUPS[key] || {};
+  const T = TH();
+  const t = (T && T.group) ? T.group(key) : null;
+  const c = (t && T.colour) ? T.colour(t.c) : '';
+  return { n: (t && t.n) || b.n || '', c: c || b.c || '' };
+}
+/* the display face of one deck: the name on the card, the colour it is
+   drawn in, and the single character the board prints on its square */
+function dck(key){
+  const b = K.DECKS[key] || {};
+  const T = TH();
+  const t = (T && T.deck) ? T.deck(key) : null;
+  const c = (t && T.colour) ? T.colour(t.c) : '';
+  return { n: (t && t.n) || b.n || '', mt: (t && t.mt) || b.mt || '',
+           c: c || b.c || '#FFC542',
+           mark: (t && t.mark) || (key === 'ghajdut' ? '?' : '!') };
+}
+/* the band on a square that belongs to no colour group. The four transports
+   and the two services are a TYPE, decided in js/kiri.js and unmovable; only
+   the colour they are painted is the theme's. */
+function typeC(key, dflt){
+  const T = TH();
+  const c = (T && T.typeColour) ? T.typeColour(key) : '';
+  return c || dflt;
+}
+/* a heading the theme renamed — 'rail', 'util', 'both', 'board'. Already
+   HTML (TRANSPORT &amp; SERVICES), so it is the one string here not passed
+   through esc(); the theme layer is the only writer and every value in it
+   is a literal in js/kiri-theme.js. */
+function thLabel(key, dflt){
+  const T = TH();
+  const v = (T && T.label) ? T.label(key) : '';
+  return v || dflt;
+}
+/* whatever the current theme calls itself, for the menu */
+function thCur(){
+  const T = TH();
+  try { return (T && T.current) ? T.current() : {}; } catch(e){ return {}; }
+}
+/* may the current theme ask for art/ui/kiri-*? Only the one that owns it —
+   a photograph of Sliema behind a dragon is worse than no picture at all. */
+function thArt(){
+  const T = TH();
+  try { return !T || !T.art ? true : !!T.art(); } catch(e){ return true; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    SOUND
    js/sfx.js owns ./audio/ and every path in it is a no-op on a missing
    file, so these are plain calls with no guard beyond "does the layer
@@ -1434,7 +1526,7 @@ function open(){
    there. It hangs off the bottom-left of the panel so it reads as a
    corner of something bigger — which is exactly what it is. */
 function heroHTML(){
-  const g = id => (K.GROUPS[id] ? K.GROUPS[id].c : '#5a4b86');
+  const g = id => grp(id).c || '#5a4b86';
   const die = pips => '<span class="kr-hdie" style="' + pips[0] + '" aria-hidden="true">' +
     '<svg viewBox="0 0 24 24">' + pips[1] + '</svg></span>';
   const dot = (x, y) => '<circle cx="' + x + '" cy="' + y + '" r="2.6"/>';
@@ -1461,7 +1553,7 @@ function heroHTML(){
          dot(7, 7) + dot(17, 7) + dot(7, 17) + dot(17, 17) + dot(12, 12)]) +
     die(['position:absolute;right:70px;top:54px;z-index:2;transform:rotate(9deg)',
          dot(7, 7) + dot(17, 17) + dot(12, 12)]) +
-    '<span class="kr-hchip">MALTA &middot; 32 SQUARES</span>' +
+    '<span class="kr-hchip">' + esc(thCur().chip || 'MALTA · 40 SQUARES') + '</span>' +
     '<span class="kr-hchip2">RENT IS DUE</span>' +
   '</div>';
 }
@@ -1477,6 +1569,11 @@ const KR_ICO_CHEV = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6
 
 function menu(){
   stopLoop();
+  /* BACK TO YOUR OWN BOARD. An online room dresses this phone in the HOST's
+     theme for as long as that room lasts; the menu is the way out of one, so
+     it is where the borrowed coat comes off. Without this, one online game
+     would silently redecorate the phone for every game after it. */
+  applyThemePref();
   G = null;
   NET = null;
   netMsg = { t:'', k:'' };
@@ -1497,9 +1594,10 @@ function menu(){
     '</div>' +
     '<div class="kr-scroll kr-menuscroll">' +
       heroHTML() +
-      '<p class="kr-blurb">Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
-      'friendship end over a garage in Marsa. Thirty-two squares, six colour groups, floors instead of ' +
-      'houses, and a queue at counter four instead of a prison cell.</p>' +
+      '<p class="kr-blurb">' + esc(thCur().intro ||
+        'Buy half of Malta, charge your friends rent for landing on it, and watch a ' +
+        'friendship end over a garage in Marsa. Forty squares, eight colour groups, floors ' +
+        'instead of houses, and a queue at counter four instead of a prison cell.') + '</p>' +
       /* ── THE ONE UNFINISHED GAME, AND THE WAY OUT OF IT ────────────
          There is exactly one save slot (js/kiri.js's SAVE_KEY), so this
          is never a list — it is one game, and it gets a bin of its own
@@ -1685,7 +1783,9 @@ function rulesLong(){
     sect('Floors and the penthouse', 'With a full group and nothing in it mortgaged you can build: four floors, ' +
       'then a penthouse. You must build evenly — no square may get more than one floor ahead of its neighbours. ' +
       'The bank only has ' + K.SUPPLY.floors + ' floors and ' + K.SUPPLY.penthouses + ' penthouses, and when they are gone they are gone.') +
-    sect('Il-Kju — the queue', 'Land on Marsa Junction, draw the wrong card, or roll three doubles in a row and you ' +
+    /* the two squares the rules NAME, named by whichever board is on:
+       10 is the one you are sent to and 30 is the one that sends you */
+    sect(sq(10).n + ' — the queue', 'Land on ' + sq(30).n + ', draw the wrong card, or roll three doubles in a row and you ' +
       'are at counter four. Roll a double to get out, pay ' + money(K.BAIL) + ', or use a Skip The Queue. ' +
       'Three failed attempts and you pay anyway.') +
     sect('Mortgages', 'Half the price now, and ten percent on top to get it back. Nothing can be mortgaged with a ' +
@@ -1882,6 +1982,23 @@ function paintSetup(){
         esc(o[1]) + (o[2] ? '<small>' + esc(o[2]) + '</small>' : '') + '</button>').join('') + '</div>' +
     '<p class="kr-blurb">A seat that does not move within the clock is taken over by the phone so the table keeps ' +
     'going. It is obvious on screen when that happens, and one tap takes the seat back.</p>';
+
+  /* ── WHICH BOARD ─────────────────────────────────────────────────
+     The same segmented control as the two above it, because it is the
+     same kind of choice — and it is only shown when there is genuinely
+     a choice to make. It changes NOTHING about the game: same prices,
+     same rents, same forty squares in the same order. Only the words,
+     the colours and the pictures on them. */
+  const TL = themeList();
+  if (TL.length > 1){
+    const now = (TH() && TH().currentId) ? TH().currentId() : 'malta';
+    h += '<div class="kr-hd">WHICH BOARD</div><div class="kr-seg">' +
+      TL.map(t => '<button data-th="' + esc(t.id) + '" aria-pressed="' + (t.id === now) + '">' +
+        esc(t.name) + '</button>').join('') + '</div>' +
+      '<p class="kr-blurb">' + esc(thCur().blurb || '') + ' Every price, every rent and every ' +
+      'square is identical whichever you pick — a board is a coat of paint, not a rule. It is ' +
+      'remembered on this phone; online, everybody plays the board the host is on.</p>';
+  }
   w.innerHTML = h;
 
   /* the start bar says WHY it is unavailable rather than just sitting there dead */
@@ -1919,6 +2036,10 @@ function paintSetup(){
   });
   w.querySelectorAll('[data-ck]').forEach(b => b.onclick = () => {
     cfg.clock = Number(b.getAttribute('data-ck')); paintSetup();
+  });
+  w.querySelectorAll('[data-th]').forEach(b => b.onclick = () => {
+    useTheme(b.getAttribute('data-th'), true);
+    paintSetup();
   });
   el.querySelector('#kr-bk').onclick = menu;
   const go = el.querySelector('#kr-start');
@@ -2120,7 +2241,7 @@ function boardScreen(){
     c.id = 'kr-c' + i;
     const [r, col] = cellPos(i);
     c.style.gridRow = r; c.style.gridColumn = col;
-    c.setAttribute('aria-label', s.n);
+    c.setAttribute('aria-label', sq(i).n);
     /* A DRAG IS NOT A TAP. The stage under this button pans the board,
        and a pan that started on a square used to open that square when
        your thumb came up. `panning` is set the moment the gesture
@@ -2186,6 +2307,41 @@ try {
    a screen preference in its own key, never written into a save */
 let rulesDown = false;
 try { rulesDown = localStorage.getItem(UI_KEY + '.rules') === '1'; } catch(e){}
+
+/* ── WHICH BOARD THIS PHONE IS DRESSED IN ──────────────────────────
+   Same idiom as .dock and .rules above: a SCREEN preference in its own
+   key, never written into a save. That matters more here than it looks.
+   js/kiri.js's save file holds INDICES — square 39, group 'belt' — and
+   not one word of a theme, so a game saved under Malta and carried on
+   under the fantasy board is the same legal game with different words
+   on it. Putting the theme in the save would have made every old save
+   a version problem for nothing.
+
+   The id is validated by KIRI_THEMES.use() before it can reach a
+   registry lookup, and an id this build does not have falls back to
+   malta — which is exactly what a phone that joins a room themed by a
+   newer build must do. */
+function themePref(){
+  try { return localStorage.getItem(UI_KEY + '.theme') || 'malta'; }
+  catch(e){ return 'malta'; }
+}
+/* the phone's own pick, applied and remembered */
+function useTheme(id, remember){
+  const T = TH();
+  const now = (T && T.use) ? T.use(id) : 'malta';
+  if (remember){ try { localStorage.setItem(UI_KEY + '.theme', now); } catch(e){} }
+  return now;
+}
+/* back to what THIS phone chose — called on the way into the menu, so a
+   board borrowed from an online host never outlives that room */
+function applyThemePref(){ return useTheme(themePref(), false); }
+/* every theme on this build, [{id,name,blurb}], newest-safe: a build with
+   js/kiri-theme.js missing offers nothing and renders the shipped board */
+function themeList(){
+  const T = TH();
+  try { return (T && T.list) ? T.list() : []; } catch(e){ return []; }
+}
+applyThemePref();
 /* the OS setting and the app's own toggle both mean it */
 function noMotion(){
   try {
@@ -2941,7 +3097,19 @@ const DRAW = {
 };
 const DECK_DRAW = { ghajdut:'ghajdut', gvern:'gvern' };
 
+/* WHICH GLYPH FILLS A TILE. The theme gets first refusal, but only from
+   the set drawn above: markSVG() puts the name straight into a <use href>,
+   so an id is either one of these or nothing at all. A theme that names a
+   glyph that does not exist gets the board's own, not a hole. */
+const DRAW_OK = (function (){
+  const m = {};
+  for (const k of Object.keys(DRAW)) m[DRAW[k]] = 1;
+  for (const k of Object.keys(DECK_DRAW)) m[DECK_DRAW[k]] = 1;
+  return m;
+})();
 function drawOf(s){
+  const want = (s && s.i != null) ? sq(s.i).draw : '';
+  if (want && DRAW_OK[want]) return want;
   return s.t === 'card' ? (DECK_DRAW[s.deck] || '') : (DRAW[s.id] || '');
 }
 function markSVG(n){
@@ -3036,18 +3204,20 @@ function renderCells(){
   const unit = cellUnit();
   lastCap = tokCap();
   for (let i = 0; i < K.BOARD.length; i++){
-    const s = K.BOARD[i], c = document.getElementById('kr-c' + i);
+    const s = K.BOARD[i], t = sq(i), c = document.getElementById('kr-c' + i);
     if (!c) continue;
     /* every square has a colour; only the ones that can be BOUGHT get
        the strip. The two decks are told apart by theirs — gossip is the
        house purple, the government is the house gold — which is how you
-       learn which card is coming before you land on it. */
-    const g = s.g ? K.GROUPS[s.g].c
-            : s.t === 'rail' ? '#B79E70'
-            : s.t === 'util' ? '#4FC3F7'
+       learn which card is coming before you land on it.
+       THE COLOUR IS THE THEME'S; the three-way choice of WHICH colour is
+       the engine's, because it is made on s.t, which no theme can touch. */
+    const g = s.g ? grp(s.g).c
+            : s.t === 'rail' ? typeC('rail', '#B79E70')
+            : s.t === 'util' ? typeC('util', '#4FC3F7')
             /* the deck's OWN colour, the one the card itself is drawn
                in, so you can see which one is coming before you land */
-            : s.t === 'card' ? ((K.DECKS[s.deck] || {}).c || '#FFC542') : '';
+            : s.t === 'card' ? dck(s.deck).c : '';
     const banded = s.t === 'prop' || s.t === 'rail' || s.t === 'util';
     const o = G.own[i];
     const own = o >= 0 ? G.players[o] : null;
@@ -3067,7 +3237,7 @@ function renderCells(){
     let h = pictureFor(s, g) +
             (banded && g ? '<span class="kr-band" style="--g:' + g + '">' + floors + '</span>' : '') +
             (own ? '<span class="kr-own"></span>' : '') +
-            '<span class="kr-e">' + esc(s.code) + '</span>' +
+            '<span class="kr-e">' + esc(t.code) + '</span>' +
             /* SECOND LINE: what it costs, or who has it. A board with
                prices on it is a board you can plan a turn from without
                opening anything; once it is sold the price is history
@@ -3091,7 +3261,7 @@ function renderCells(){
       (me().pos === i ? ' here' : '');
     c.style.setProperty('--o', own ? own.colour : 'transparent');
     c.style.setProperty('--g', g || 'transparent');
-    c.setAttribute('aria-label', s.n + (on.length
+    c.setAttribute('aria-label', t.n + (on.length
       ? ' — ' + on.map(p => p.name).join(', ') + ' ' + (on.length > 1 ? 'are' : 'is') + ' here' : ''));
 
     /* ── the crowd, in its own layer over the tile ──────────────
@@ -3165,14 +3335,16 @@ function renderMid(){
      the one part of the board that looked like a web page. */
   els.mid.innerHTML =
     '<div class="kr-band" aria-hidden="true"><b>IL-KIRI</b></div>' +
-    '<div class="kr-deck q" aria-hidden="true">?</div>' +
-    '<div class="kr-deck g" aria-hidden="true">!</div>' +
+    /* the two decks stacked in the middle, each wearing its own theme's
+       mark — the same character the board prints on that deck's squares */
+    '<div class="kr-deck q" aria-hidden="true">' + esc(dck('ghajdut').mark) + '</div>' +
+    '<div class="kr-deck g" aria-hidden="true">' + esc(dck('gvern').mark) + '</div>' +
     '<div class="kr-dice" role="img" aria-label="' +
       (d ? 'Dice ' + d[0] + ' and ' + d[1] : 'The dice are not rolled') + '">' +
       die(d ? d[0] : 0) + die(d ? d[1] : 0) +
     '</div>' +
     '<div class="kr-midfoot">' +
-      '<div class="kr-midn">' + esc(s.n) + '</div>' +
+      '<div class="kr-midn">' + esc(sq(p.pos).n) + '</div>' +
       '<div class="kr-midask' + (warn ? ' warn' : '') + '">' + esc(ask) + '</div>' +
       '<div class="kr-supply" aria-label="Left in the bank: ' + (K.SUPPLY.floors - fl) +
         ' floors, ' + (K.SUPPLY.penthouses - pn) + ' penthouses">' +
@@ -3225,9 +3397,9 @@ function wireSwipe(el){
 }
 
 function paneSquare(){
-  const p = me(), i = p.pos, s = K.BOARD[i];
+  const p = me(), i = p.pos;
   els.pane.innerHTML = squareBody(i) +
-    '<p class="kr-joke" style="margin-top:8px">' + esc(s.joke) + '</p>';
+    '<p class="kr-joke" style="margin-top:8px">' + esc(sq(i).joke) + '</p>';
   wireSquareButtons(els.pane, i);
 }
 
@@ -3239,28 +3411,33 @@ function paneSquare(){
    drawn the same way. You are looking at the thing you tapped. */
 function plate(i){
   const s = K.BOARD[i];
-  const g = s.g ? K.GROUPS[s.g].c
-          : s.t === 'rail' ? '#B79E70'
-          : s.t === 'util' ? '#4FC3F7'
-          : s.t === 'card' ? ((K.DECKS[s.deck] || {}).c || '#FFC542') : '#FFC542';
+  const g = s.g ? grp(s.g).c
+          : s.t === 'rail' ? typeC('rail', '#B79E70')
+          : s.t === 'util' ? typeC('util', '#4FC3F7')
+          : s.t === 'card' ? dck(s.deck).c : '#FFC542';
   return '<span class="kr-plate' + (s.t === 'card' ? ' chance' : '') +
          (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? ' corner' : '') +
          '" style="--g:' + g + '" aria-hidden="true">' +
          pictureFor(s, g) +
-         '<span class="kr-e">' + esc(s.code) + '</span></span>';
+         '<span class="kr-e">' + esc(sq(i).code) + '</span></span>';
 }
 
 /* the full picture of one square — reused by the tab and by the sheet */
 function squareBody(i){
-  const s = K.BOARD[i];
+  const s = K.BOARD[i], t = sq(i);
   const o = G.own[i];
-  const g = s.g ? K.GROUPS[s.g] : null;
-  let h = '<div class="kr-hd">' + esc(g ? g.n.toUpperCase() : s.t === 'rail' ? 'TRANSPORT' :
-          s.t === 'util' ? 'SERVICES' : s.t === 'card' ? esc(s.n).toUpperCase() : 'THE BOARD') + '</div>' +
+  const g = s.g ? grp(s.g) : null;
+  /* the heading is the GROUP's name, or what this theme calls the four
+     transports / the two services — the types are still the engine's */
+  let h = '<div class="kr-hd">' + (g ? esc(g.n.toUpperCase())
+          : s.t === 'rail' ? thLabel('rail', 'TRANSPORT')
+          : s.t === 'util' ? thLabel('util', 'SERVICES')
+          : s.t === 'card' ? esc(t.n.toUpperCase())
+          : thLabel('board', 'THE BOARD')) + '</div>' +
     '<div style="display:flex;align-items:center;gap:9px">' +
       plate(i) +
-      '<span style="flex:1;min-width:0"><b style="font-size:14.5px;line-height:1.2;display:block">' + esc(s.n) + '</b>' +
-      '<span style="font-size:11px;color:#A093C4;font-style:italic">' + esc(s.mt) + '</span></span>' +
+      '<span style="flex:1;min-width:0"><b style="font-size:14.5px;line-height:1.2;display:block">' + esc(t.n) + '</b>' +
+      '<span style="font-size:11px;color:#A093C4;font-style:italic">' + esc(t.mt) + '</span></span>' +
     '</div>';
 
   /* ── WHO IS ACTUALLY STANDING ON IT ──────────────────────────────
@@ -3307,7 +3484,10 @@ function squareBody(i){
     ];
     h += '<table class="kr-tbl">' + rows.map(r =>
       '<tr class="' + (r[2] ? 'now' : '') + '"><td>' + esc(r[0]) + '</td><td>' + money(r[1]) + '</td></tr>').join('') +
-      '<tr><td style="color:#A093C4">A floor costs</td><td style="color:#A093C4">' + money(g.build) + '</td></tr>' +
+      /* THE NUMBER COMES OFF THE ENGINE, never off `g` — `g` is the theme's
+         face of this group and has no build cost in it, which is the point */
+      '<tr><td style="color:#A093C4">A floor costs</td><td style="color:#A093C4">' +
+        money(K.GROUPS[s.g].build) + '</td></tr>' +
       '<tr><td style="color:#A093C4">Mortgage / redeem</td><td style="color:#A093C4">' +
         money(K.mortgageValue(i)) + ' / ' + money(K.unmortgageCost(i)) + '</td></tr>' +
       '</table>';
@@ -3384,13 +3564,14 @@ function paneDeeds(){
     const set = K.GROUPS[key].props.filter(i => G.own[i] === p);
     if (!set.length) continue;
     const full = K.GROUPS[key].props.every(i => G.own[i] === p);
-    h += '<div class="kr-hd">' + esc(K.GROUPS[key].n.toUpperCase()) + ' · ' + set.length + '/' +
+    /* the NAME is the theme's; how many are in the group is the engine's */
+    h += '<div class="kr-hd">' + esc(grp(key).n.toUpperCase()) + ' · ' + set.length + '/' +
          K.GROUPS[key].props.length + (full ? ' — YOURS' : '') + '</div>';
     set.forEach(i => { done[i] = 1; h += deedRow(i); });
   }
   const rest = mine.filter(i => !done[i]);
   if (rest.length){
-    h += '<div class="kr-hd">TRANSPORT &amp; SERVICES</div>';
+    h += '<div class="kr-hd">' + thLabel('both', 'TRANSPORT &amp; SERVICES') + '</div>';
     rest.forEach(i => { h += deedRow(i); });
   }
   const b = K.buildingsOf(G, p);
@@ -3405,14 +3586,14 @@ function paneDeeds(){
 
 function deedRow(i){
   const s = K.BOARD[i];
-  const g = s.g ? K.GROUPS[s.g].c : (s.t === 'rail' ? '#7F73A0' : '#4FC3F7');
+  const g = s.g ? grp(s.g).c : (s.t === 'rail' ? '#7F73A0' : '#4FC3F7');
   const lvl = G.lvl[i];
   const note = G.mort[i] ? 'mortgaged' :
     lvl === 5 ? 'penthouse' : lvl > 0 ? lvl + ' floor' + (lvl > 1 ? 's' : '') :
     K.canDevelop(G, G.own[i], i) ? 'full group — double rent' : 'rent ' + money(K.rentOf(G, i, 7));
   return '<button class="kr-row" data-open="' + i + '" style="--g:' + g + '">' +
     '<span class="kr-sw"></span>' +
-    '<span class="kr-rn">' + esc(s.n) + '<span class="kr-rs">' + esc(note) + '</span></span>' +
+    '<span class="kr-rn">' + esc(sq(i).n) + '<span class="kr-rs">' + esc(note) + '</span></span>' +
     '<span class="kr-rv">' + money(K.rentOf(G, i, 7)) + '</span></button>';
 }
 
@@ -3595,6 +3776,10 @@ function probeArt(){
 
 function artWash(host, id, opacity){
   if (!host || !id || artOn === false || ART[id] === false) return;
+  /* art/ui/kiri-* is PHOTOGRAPHS OF MALTA. A theme that does not own that
+     art gets the CSS it was always going to get rather than a picture of
+     Sliema behind a dragon — see the `art` flag in js/kiri-theme.js. */
+  if (!thArt()) return;
   /* js/artkit.js landed alongside this build with a shared slot
      registry. If it is present and already knows this id, its path
      wins, so there is one place that decides where a picture lives.
@@ -3695,12 +3880,12 @@ function closeSheet(){
 /* ── one square, in full ──────────────────────────────────────────── */
 function squareSheet(i){
   if (!G || !els.sheet) return;
-  const s = K.BOARD[i];
+  const t = sq(i);
   openSheet({
     kind:'square', i,
-    title: esc(s.n),
+    title: esc(t.n),
     body: '<div class="kr-art" id="kr-art"></div>' + squareBody(i) +
-          '<p class="kr-joke" style="margin:10px 2px 2px">' + esc(s.joke) + '</p>',
+          '<p class="kr-joke" style="margin:10px 2px 2px">' + esc(t.joke) + '</p>',
     wire: root => {
       wireSquareButtons(root, i);
       artWash(root.querySelector('#kr-art'), artForSquare(i), 0.34);
@@ -3712,13 +3897,15 @@ function squareSheet(i){
 function cardSheet(){
   if (!G || !G.card) return;
   if (!isMine(G.turn)) return;        /* somebody else's card to turn over */
-  const D = K.DECKS[G.card.deck];
+  /* the deck's NAME, COLOUR and MARK are the theme's; what the card SAYS
+     and what it DOES are the engine's and come off G.card untouched */
+  const D = dck(G.card.deck);
   openSheet({
     kind:'card', dismissable:false,
     title: esc(D.n),
     body: '<div class="kr-card" style="--c:' + D.c + '" id="kr-cardbox">' +
       '<div class="kr-art" id="kr-art"></div>' +
-      '<div class="kr-ce">' + (G.card.deck === 'ghajdut' ? '?' : '!') + '</div>' +
+      '<div class="kr-ce">' + esc(D.mark) + '</div>' +
       '<div class="kr-cd">' + esc(D.n.toUpperCase()) + '</div>' +
       '<div class="kr-ct">' + esc(G.card.n) + '</div>' +
       '<div class="kr-cx">' + esc(G.card.txt) + '</div></div>',
@@ -3755,10 +3942,10 @@ function raiseSheet(){
   if (!list.length) body += '<div class="kr-empty">Nothing left to sell and nothing left to mortgage.</div>';
   list.forEach((x, n) => {
     const s = K.BOARD[x.i];
-    const g = s.g ? K.GROUPS[s.g].c : '#7F73A0';
+    const g = s.g ? grp(s.g).c : '#7F73A0';
     body += '<button class="kr-row" data-liq="' + n + '" style="--g:' + g + '">' +
       '<span class="kr-sw"></span><span class="kr-rn">' +
-      (x.kind === 'sell' ? 'Sell a floor off ' : 'Mortgage ') + esc(s.n) +
+      (x.kind === 'sell' ? 'Sell a floor off ' : 'Mortgage ') + esc(sq(x.i).n) +
       '<span class="kr-rs">' + (x.kind === 'sell' ? 'half what it cost to build' :
         (K.ownsSet(G, p, x.i) ? 'breaks up a group you own' : 'not part of anything')) + '</span></span>' +
       '<span class="kr-rv">+' + money(x.gain) + '</span></button>';
@@ -3818,7 +4005,7 @@ function auctionSheet(){
     title:'Going once…',
     body:'<div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">' +
       plate(A.pos) +
-      '<span style="flex:1"><b style="display:block;font-size:14.5px">' + esc(s.n) + '</b>' +
+      '<span style="flex:1"><b style="display:block;font-size:14.5px">' + esc(sq(A.pos).n) + '</b>' +
       '<span style="font-size:11px;color:#A093C4">bank price ' + money(s.price) + '</span></span></div>' +
       '<div class="kr-row"><span class="kr-sw"></span><span class="kr-rn">' +
       (A.high >= 0 ? esc(G.players[A.high].name) + ' leads' : 'No bids yet') +
@@ -3856,10 +4043,10 @@ function paintTrade(){
   const A = G.players[trade.from], Bp = G.players[trade.to];
   const chip = (i, side) => {
     const s = K.BOARD[i];
-    const g = s.g ? K.GROUPS[s.g].c : (s.t === 'rail' ? '#7F73A0' : '#4FC3F7');
+    const g = s.g ? grp(s.g).c : (s.t === 'rail' ? '#7F73A0' : '#4FC3F7');
     const on = trade[side].indexOf(i) >= 0;
     return '<button class="kr-chip" style="--g:' + g + '" aria-pressed="' + on + '" data-tp="' + side + ':' + i + '">' +
-      esc(s.n) + '<small>' + money(s.price) + (G.mort[i] ? ' · mortgaged' : '') + '</small></button>';
+      esc(sq(i).n) + '<small>' + money(s.price) + (G.mort[i] ? ' · mortgaged' : '') + '</small></button>';
   };
   const stepper = (side, cash) =>
     '<div class="kr-step">' +
@@ -3935,7 +4122,7 @@ function offerSheet(){
   if (!isMine(o.to)) return;         /* somebody else's call to make */
   const A = G.players[o.from], Bp = G.players[o.to];
   const line = (list, cash, skips, who) => {
-    const bits = (list || []).map(i => K.BOARD[i].n);
+    const bits = (list || []).map(i => sq(i).n);
     if (cash) bits.push(money(cash));
     if (skips) bits.push('a Skip The Queue');
     return '<div class="kr-row"><span class="kr-sw" style="background:' + who.colour + '"></span>' +
@@ -4271,9 +4458,9 @@ function overCell(i, cls, ms, delay){
 function sqColour(i){
   const s = K.BOARD[i];
   if (!s) return '';
-  if (s.g) return (K.GROUPS[s.g] || {}).c || '';
-  if (s.t === 'rail') return '#B79E70';
-  if (s.t === 'util') return '#4FC3F7';
+  if (s.g) return grp(s.g).c;
+  if (s.t === 'rail') return typeC('rail', '#B79E70');
+  if (s.t === 'util') return typeC('util', '#4FC3F7');
   return '';
 }
 
@@ -4792,6 +4979,23 @@ function decMove(w){
    and never guessed at afterwards. */
 function onlineStart(cfg){
   cfg = cfg || {};
+  /* ── THE ROOM'S BOARD IS THE HOST'S BOARD ────────────────────────
+     Two phones describing different squares to each other is not a
+     cosmetic difference, it is two different games being talked about
+     over one table — so the theme is NOT this phone's preference here.
+     It rides js/mp.js's existing `variant` channel: the host's word is
+     re-broadcast on the roster and arrives as cfg.opts.mode, so there
+     is no new wire field and none of the four ways an online game dies
+     applies. With no word at all every phone renders malta, which is
+     the one answer they are all guaranteed to reach identically.
+
+     The id comes from ANOTHER CLIENT: KIRI_THEMES.use() validates it
+     against /^[a-z0-9-]{1,16}$/ and its own registry before it reaches
+     a lookup, and a theme this build has never heard of falls back to
+     malta. A phone with an older build renders Malta and PLAYS — the
+     board it draws has no bearing on a move, a price or the checksum,
+     so it is a table with two coats of paint on it, never a refusal. */
+  useTheme((cfg.opts && cfg.opts.mode) || 'malta', false);
   const chairs = (cfg.seats || []).filter(Boolean);
   if (chairs.length < K.MIN_SEATS) throw new Error('IL-KIRI: it takes two to charge anybody rent');
   if (chairs.length > K.MAX_SEATS) throw new Error('IL-KIRI: eight is as many as this board seats');
@@ -5038,6 +5242,32 @@ window.KARTI_KIRI = {
     rulesHTML: rulesPanel,
     blurb:'Buy half of Malta, charge your friends rent for landing on it, and watch a friendship ' +
           'end over a garage in Marsa.',
+
+    /* ── THE BOARD THE ROOM IS DRESSED IN ──────────────────────────
+       js/mp.js's host-only Rules button, riding the room's existing
+       `variant` word: pick a theme, the relay re-labels the room, the
+       roster comes back carrying it and every phone gets it as
+       cfg.opts.mode in onlineStart(). No new wire field, nothing added
+       to a move, and the checksum never sees it — a theme is paint.
+
+       NOT PUBLISHED YET, AND THIS IS WHY. The relay whitelists variant
+       words per game (server/karti_server.py, GAME_VARIANTS) and has no
+       entry for 'kiri'. A setvariant it does not recognise comes back
+       E_VARIANT, and js/mp.js's onServerError() turns an unrecognised
+       "why" into setState('unreachable') — so publishing this today
+       would throw the host out of their own lobby on the first tap.
+       The READING side above is live and correct; when the relay learns
+         "kiri": ("malta", "fantasy"),
+       flip this one constant and the picker appears. Until then every
+       online room is Malta on every phone, which is agreed rather than
+       merely likely. */
+    variants: () => (THEME_ONLINE
+      ? themeList().map(t => ({ net: t.id, label: { en: t.name, mt: t.mt || t.name } }))
+      : []),
+    currentVariant: () => ((TH() && TH().currentId) ? TH().currentId() : 'malta'),
+    /* the relay's word back, validated against THIS build's registry — a
+       theme id is never taken on trust just because a lobby offered it */
+    applyVariant: net => ({ variant: (TH() && TH().get && TH().get(net).id) || 'malta' }),
 
     /* THE WAY IN. seats: [{name, kind:'human'|'cpu', level, link}]
        opts:  {roundLimit, clock, seed, auction}

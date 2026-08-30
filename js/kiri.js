@@ -882,7 +882,7 @@ function land(G){
 
   if (s.t === 'go' || s.t === 'rest' || s.t === 'jail'){
     if (s.t === 'jail') say(G, P.name + ' is at the queue, but only to ask a question. Free to leave.');
-    else say(G, P.name + ' landed on ' + s.n + '. ' + (s.t === 'rest' ? 'Nothing to pay, nothing to do.' : ''));
+    else say(G, P.name + ' landed on ' + nameOf(s.i) + '. ' + (s.t === 'rest' ? 'Nothing to pay, nothing to do.' : ''));
     G.phase = 'awaitEnd';
     return;
   }
@@ -892,7 +892,7 @@ function land(G){
     const b = buildingsOf(G, P.i);
     const extra = s.perBuilding ? (b.floors + b.pent * 5) * s.perBuilding : 0;
     const amt = s.amount + extra;
-    say(G, P.name + ' owes ' + money(amt) + ' — ' + s.n + '.' + (extra ? ' The floors are not free.' : ''), 'bad');
+    say(G, P.name + ' owes ' + money(amt) + ' — ' + nameOf(s.i) + '.' + (extra ? ' The floors are not free.' : ''), 'bad');
     if (pay(G, P.i, amt, -1)) G.phase = 'awaitEnd';
     return;
   }
@@ -911,13 +911,13 @@ function land(G){
     return;
   }
   if (G.mort[P.pos]){
-    say(G, s.n + ' is mortgaged. ' + G.players[o].name + ' cannot charge a cent on it.', 'good');
+    say(G, nameOf(s.i) + ' is mortgaged. ' + G.players[o].name + ' cannot charge a cent on it.', 'good');
     G.phase = 'awaitEnd';
     return;
   }
   const r = rentOf(G, P.pos, total);
   G.stat.rents += r;
-  say(G, P.name + ' pays ' + G.players[o].name + ' ' + money(r) + ' for ' + s.n + '.', 'bad');
+  say(G, P.name + ' pays ' + G.players[o].name + ' ' + money(r) + ' for ' + nameOf(s.i) + '.', 'bad');
   if (pay(G, P.i, r, o)) G.phase = 'awaitEnd';
 }
 
@@ -1022,7 +1022,7 @@ function buy(G){
   P.cash -= s.price;
   G.own[i] = P.i;
   fx('buy', { p: P.i, i, amt: s.price });
-  say(G, P.name + ' bought ' + s.n + ' for ' + money(s.price) + '.', 'good');
+  say(G, P.name + ' bought ' + nameOf(s.i) + ' for ' + money(s.price) + '.', 'good');
   G.phase = 'awaitEnd';
   return true;
 }
@@ -2185,6 +2185,7 @@ window.KIRI = {
   pay, payMany, credit, settle, liquidationList, raisable, canSurvive, bankrupt,
   endTurn, payBail, useSkip, checkOver, finishOnTime,
   rentOf, netWorth, holdings, ownsSet, canDevelop, setOf, groupOf, buildingsOf, countIn,
+  nameOf, groupNameOf,
   sq, cur, alive, isProp, say, money, rnd, die, shuffle,
   setPresent, setAuto, machineSeat, tableEmpty,
   save, load, clearSave, hasSave,

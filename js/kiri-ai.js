@@ -45,6 +45,10 @@ const K = window.KIRI;
 if (!K) return;
 
 const B = K.BOARD, G_ROUPS = K.GROUPS;
+/* G_ROUPS is for NUMBERS -- build costs, membership. Anything a PLAYER reads
+   has to come from the active theme, or a fantasy board explains itself in
+   Maltese. */
+const gname = k => (K.groupNameOf ? K.groupNameOf(k) : (G_ROUPS[k] || {}).n) || '';
 
 /* ═══════════════════════════════════════════════════════════════════
    0. THE BOARD'S OWN SCALE — WHY THERE ARE NO BARE NUMBERS BELOW
@@ -511,7 +515,7 @@ function judge(G, p, o){
     /* handing over the last square of somebody's set: they must be
        paying most of what it is worth to them */
     if (me < them * D.gift) return { ok:false, code:4, gi:G_ROUPS[gift].props[0],
-                            why:'You want ' + G_ROUPS[gift].n + ' finished. That costs more.' };
+                            why:'You want ' + gname(gift) + ' finished. That costs more.' };
   }
 
   /* the smallest margin worth signing for is a fraction of a lot, not a
