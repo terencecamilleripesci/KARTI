@@ -1121,6 +1121,54 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
        luzzu(830, 1170, .74, '#4FBF8A') + palm(600, 1046, 1.05) + palm(1104, 1214, .92) +
        tree(672, 990, .8);
 
+  /* ═══ THE BRIDGE — right edge, mid-height, the one place the road goes
+     OVER something, exactly where the board's own assembly diagram puts
+     it. The first attempt aimed the deck at a coordinate I typed in and
+     the creek crossed the road forty pixels away from it, so BOTH are
+     derived from the same road sample now: find P on the road, take its
+     heading, and run the creek through P on the PERPENDICULAR. They
+     cannot drift apart. ═══ */
+  {
+    let bi = 0, bd = 1e9;
+    for (let i = 0; i < LAY.road.length; i++){
+      const q = LAY.road[i];
+      const dd = (q[0] - 1215) * (q[0] - 1215) + (q[1] - 1210) * (q[1] - 1210);
+      if (dd < bd){ bd = dd; bi = i; }
+    }
+    const P = LAY.road[bi];
+    const A = LAY.road[Math.max(0, bi - 4)];
+    const B = LAY.road[Math.min(LAY.road.length - 1, bi + 4)];
+    const ang = Math.atan2(B[1] - A[1], B[0] - A[0]);
+    const px = -Math.sin(ang), py = Math.cos(ang);          /* the perpendicular */
+    const at = t => [(P[0] + px * t).toFixed(1), (P[1] + py * t).toFixed(1)];
+    const creek = 'M' + at(-230).join(' ') + 'Q' + at(-110).join(' ') + ' ' +
+      at(-20).join(' ') + 'T' + at(200).join(' ');
+    s += '<path d="' + creek + '" fill="none" stroke="#7FA9C4" stroke-width="46" ' +
+           'stroke-linecap="round" opacity=".45" transform="translate(7 11)"/>' +
+         '<path d="' + creek + '" fill="none" stroke="url(#hjSea)" stroke-width="40" ' +
+           'stroke-linecap="round"/>' +
+         '<path d="' + creek + '" fill="none" stroke="#BFE4F5" stroke-width="9" ' +
+           'stroke-linecap="round" opacity=".5"/>';
+    s += '<g transform="translate(' + P[0].toFixed(1) + ' ' + P[1].toFixed(1) +
+           ') rotate(' + (ang * 180 / Math.PI).toFixed(1) + ')">' +
+      '<path d="M-84 54q84-34 168 0v-108q-84-34-168 0z" fill="#3F6A22" opacity=".24" ' +
+        'transform="translate(9 13)"/>' +
+      '<path d="M-84 54q84-34 168 0v-108q-84-34-168 0z" fill="#F7F1E2" stroke="' + D +
+        '" stroke-width="4" stroke-linejoin="round"/>' +
+      /* the two parapets -- the only part of the deck the road does not cover */
+      '<path d="M-84 54q84-34 168 0" fill="none" stroke="#E7DAB8" stroke-width="16" ' +
+        'stroke-linecap="round"/>' +
+      '<path d="M-84 54q84-34 168 0" fill="none" stroke="' + D + '" stroke-width="3" ' +
+        'fill="none" opacity=".7"/>' +
+      '<path d="M-84 -54q84-34 168 0" fill="none" stroke="#FFFFFF" stroke-width="16" ' +
+        'stroke-linecap="round"/>' +
+      '<path d="M-84 -54q84-34 168 0" fill="none" stroke="' + D + '" stroke-width="3" ' +
+        'opacity=".7"/>' +
+      '<path d="M-56 48v-96M-19 40v-88M19 40v-88M56 48v-96" stroke="#D9CBAE" ' +
+        'stroke-width="4" opacity=".6"/>' +
+      '</g>';
+  }
+
   /* ═══ C — the fields, the farmhouse and the windmill ═══ */
   for (let i = 0; i < 4; i++)
     s += '<rect x="' + (262 + (i % 2) * 128) + '" y="' + (1392 + Math.floor(i / 2) * 126) +
@@ -1167,6 +1215,10 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
          'stroke-width="5" stroke-linecap="round"/>' +
        luzzu(690, 1966, .68, '#E2513F') + palm(380, 1926, 1.05) + palm(880, 1948, .92);
 
+  /* the second mountain, bottom-left corner -- the real board puts its
+     three at the corners and lets the road pass around them */
+  s += mount(196, 1760, 300, 190, '#DFC894') + tree(300, 1786, .8);
+
   /* the beach at the west end */
   s += palm(176, 1918, 1.05) + tree(146, 1804, .8);
 
@@ -1192,13 +1244,13 @@ function paintRoads(){
       'opacity=".26"/>' +
     '<path d="' + d(pts) + '" fill="none" stroke="#6E5A38" stroke-width="' + (w + 14) +
       '" stroke-linecap="round" stroke-linejoin="round" opacity=".55"/>' +
-    '<path d="' + d(pts) + '" fill="none" stroke="#F0E2BE" stroke-width="' + (w + 6) +
+    '<path d="' + d(pts) + '" fill="none" stroke="#FBEBC6" stroke-width="' + (w + 8) +
       '" stroke-linecap="round" stroke-linejoin="round"/>' +
-    '<path d="' + d(pts) + '" fill="none" stroke="#D8C79B" stroke-width="' + w +
+    '<path d="' + d(pts) + '" fill="none" stroke="#F2A93B" stroke-width="' + w +
       '" stroke-linecap="round" stroke-linejoin="round"/>' +
     '<path d="' + d(pts) + '" fill="none" stroke="#FFFFFF" stroke-width="3" ' +
-      'stroke-dasharray="16 20" stroke-linecap="round" opacity=".75"/>';
-  UI.roads.innerHTML = lane(LAY.uni, 40) + lane(LAY.work, 40) + lane(LAY.road, 46);
+      'stroke-dasharray="16 20" stroke-linecap="round" opacity=".8"/>';
+  UI.roads.innerHTML = lane(LAY.uni, 48) + lane(LAY.work, 48) + lane(LAY.road, 54);
 }
 
 
