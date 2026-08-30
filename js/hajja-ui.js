@@ -419,9 +419,19 @@ const LAY = (function (){
   const lay = (sp, from, to, u0, u1) => {
     const c = to - from;
     const gap = c > 1 ? (u1 - u0) / (c - 1) * sp.total : 0;
-    const w = Math.max(56, Math.min(104, gap ? gap - 3 : TW));
+    const base = Math.max(56, Math.min(104, gap ? gap - 3 : TW));
+    const uAt = i => c === 1 ? (u0 + u1) / 2 : u0 + (u1 - u0) * i / (c - 1);
     for (let i = 0; i < c; i++){
-      const q = along(sp, c === 1 ? (u0 + u1) / 2 : u0 + (u1 - u0) * i / (c - 1));
+      const q = along(sp, uAt(i));
+      /* A tile is a RECTANGLE but its spacing is measured along a CURVE, so
+         on a tight bend the outer corners reach past the gap and neighbours
+         overlap. Give back whatever the turn costs. */
+      let turn = 0;
+      if (c > 1){
+        const nb = along(sp, uAt(i < c - 1 ? i + 1 : i - 1));
+        turn = Math.abs(((nb.a - q.a + 540) % 360) - 180) * Math.PI / 180;
+      }
+      const w = Math.max(46, base - Math.min(base * 0.34, TH * Math.tan(Math.min(turn, 1.2)) * 0.5));
       pos[from + i] = { x:q.x, y:q.y, w:w, h:TH, a:q.a };
     }
   };
@@ -1260,8 +1270,8 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
         'stroke-linecap="round"/>' +
       '<path d="M-84 -54q84-34 168 0" fill="none" stroke="' + D + '" stroke-width="3" ' +
         'opacity=".7"/>' +
-      '<path d="M-56 48v-96M-19 40v-88M19 40v-88M56 48v-96" stroke="#D9CBAE" ' +
-        'stroke-width="4" opacity=".6"/>' +
+      '<path d="M-56 48v-96M-19 40v-88M19 40v-88M56 48v-96" fill="none" ' +
+        'stroke="#D9CBAE" stroke-width="4" opacity=".6"/>' +
       '</g>';
   }
 
@@ -1276,9 +1286,22 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
          'stroke-linecap="round" opacity=".85"/>';
   s += house(408, 1662, 96, 62, '#F0DDB2') + tree(288, 1678, 1) +
        block(536, 1454, 56, 78, '#F3E5C0') +
-       '<circle cx="536" cy="1376" r="10" fill="#8A6A34" stroke="' + D + '" stroke-width="3"/>' +
-       '<path d="M536 1376l-52-24M536 1376l52 24M536 1376l-24 52M536 1376l24-52" ' +
-         'stroke="#8A6A34" stroke-width="8" stroke-linecap="round"/>';
+       block(536, 1372, 34, 20, '#C8A76A');                    /* the cap */
+  {
+    /* tapered blades with their own outline, so they read as standing IN
+       FRONT of the tower rather than painted on it */
+    const hx = 536, hy = 1348;
+    for (let i = 0; i < 4; i++){
+      const a = i * Math.PI / 2 + 0.45, c = Math.cos(a), n2 = Math.sin(a);
+      const tx = hx + c * 62, ty = hy + n2 * 62;
+      s += '<polygon points="' + [[hx - n2 * 7, hy + c * 7], [tx - n2 * 3, ty + c * 3],
+            [tx + n2 * 3, ty - c * 3], [hx + n2 * 7, hy - c * 7]]
+            .map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' ') +
+           '" fill="#E8D8B0" stroke="' + D + '" stroke-width="3" stroke-linejoin="round"/>';
+    }
+    s += '<circle cx="' + hx + '" cy="' + hy + '" r="9" fill="#8A6A34" stroke="' + D +
+         '" stroke-width="3"/>';
+  }
 
   /* ═══ D — the village and its church ═══ */
   s += block(864, 1594, 148, 108, '#F7EACA') +

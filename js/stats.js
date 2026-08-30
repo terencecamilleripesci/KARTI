@@ -145,6 +145,11 @@ var TABLOGO = {
   'ballun':      'logo-ballun',
   'misteru':     'logo-misteru',
   'ilforka':     'logo-ilforka',
+  /* tapp shipped with art/ui/logo-tapp.png already on disk and NOT in this
+     table, so it drew the CSS fallback while its real picture sat unused --
+     the exact trap the note above describes. hajja is the newest game. */
+  'tapp':        'logo-tapp',
+  'hajja':       'logo-hajja',
   /* these have no dedicated file yet — the shared party emblem reads as
      "a card/party game" and is a real picture, not a broken one */
   'bixkla':      'logo-party',
