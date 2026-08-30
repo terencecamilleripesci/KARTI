@@ -2158,6 +2158,103 @@ function loadBoard(){
   });
 }
 
+/* ── the weekly champion borders ─────────────────────────────────────
+   js/progress.js registers three earn-only borders for every game and
+   hands out exactly one call to award them, KARTI_XP.grantRank(). Until
+   this, nothing anywhere called it, so no player could ever hold one.
+
+   SERVER DECIDES, CLIENT RECONCILES. There cannot literally be a Sunday
+   job that awards them: grantRank writes a LOCAL ledger inside a save
+   this server never sees, so the only honest architecture is for the Pi
+   to answer "where did you finish last week" and for the phone to make
+   its own ledger say that. It runs on boot and on login, not on a timer,
+   because the answer only changes once a week.
+
+   THE FOUR RULES THIS HAS TO KEEP, all of them learned before it shipped:
+
+   1. IDEMPOTENT, or the celebration replays for ever. grantRank fires
+      unlockCbs — the "you won a border!" announcement. Reconciling every
+      boot would re-announce the same crown every single time the app
+      opened. So the ledger is COMPARED first and only a genuine change
+      is written; a week where nothing moved makes no calls at all.
+   2. A FAILED FETCH CHANGES NOTHING. Offline is not "you lost". Any
+      answer that is not a real 200 leaves the ledger exactly as it was.
+   3. IT IS A WEEKLY HOLD, NOT A TROPHY. A crown you no longer hold has
+      to go — that is what clearRank is for — or every player accretes
+      every border they ever won and the ring stops meaning "this week".
+   4. THE ANSWER IS UNTRUSTED INPUT. It arrives over the wire, and it is
+      about to be written into the save and turned into an element id, so
+      every game id is checked against the registry and every place
+      against 1..3 before it reaches the ledger. */
+var CROWN_MAX = 60;        /* ledger keys one answer may write, ever */
+var crownRun = false;
+
+function crownsReconcile(){
+  var s = session(), XP = window.KARTI_XP;
+  if (!s || !XP || typeof XP.grantRank !== 'function')
+    return Promise.resolve({ ok:false, why:'not-linked' });
+  if (crownRun) return Promise.resolve({ ok:false, why:'busy' });
+  crownRun = true;
+  return post('crowns', { tok:s.tok }, NET_MS).then(function(r){
+    crownRun = false;
+    /* rule 2 — a board we could not read is not a week we lost */
+    if (!r.ok || !r.d || !r.d.ok || !r.d.places || typeof r.d.places !== 'object')
+      return { ok:false, offline:!!r.offline, why:r.why || 'no-answer' };
+
+    /* rule 4 — only ids the app has actually registered a border for */
+    var known = {}, list = [], i;
+    try { list = XP.rankGames ? XP.rankGames() : []; } catch (e){}
+    for (i = 0; i < list.length; i++) known[list[i]] = 1;
+
+    var want = {}, n = 0, g, pl;
+    for (g in r.d.places) if (Object.prototype.hasOwnProperty.call(r.d.places, g)){
+      if (n >= CROWN_MAX) break;
+      pl = r.d.places[g] | 0;
+      if (typeof g !== 'string' || !known[g]) continue;
+      if (pl < 1 || pl > 3) continue;
+      want[g] = pl; n++;
+    }
+
+    /* rule 1 + 3 — drop what is no longer held, write only what moved */
+    var held = [], gained = [], lost = [];
+    try { held = XP.champions() || []; } catch (e){}
+    for (i = 0; i < held.length; i++){
+      var c = held[i];
+      if ((want[c.game] | 0) !== c.place){ XP.clearRank(c.game); lost.push(c.game); }
+    }
+    for (g in want) if (Object.prototype.hasOwnProperty.call(want, g)){
+      var was = 0;
+      try { was = XP.isChampion(g); } catch (e){}
+      if (was !== want[g]){ XP.grantRank(g, want[g]); gained.push(g + ':' + want[g]); }
+    }
+    return { ok:true, week:r.d.week | 0, places:want,
+             gained:gained, lost:lost, changed: !!(gained.length || lost.length) };
+  }).catch(function(){
+    crownRun = false;
+    return { ok:false, offline:true, why:'threw' };
+  });
+}
+
+/* Boot: once, late. The borders are last week's news — nothing about them
+   is urgent enough to compete with the first paint or with the sync that
+   has to pull the save this ledger lives in. */
+setTimeout(function(){ try { crownsReconcile(); } catch (e){} }, 12000);
+
+/* Login: the ledger belongs to the account, so a fresh sign-in on a new
+   phone has to be told what that account won. Fires only on the edge into
+   a linked state, so the ordinary status churn of a sync does not re-ask. */
+(function(){
+  var wasLinked = null;
+  try {
+    if (window.KARTI_SYNC && KARTI_SYNC.onChange) KARTI_SYNC.onChange(function(st){
+      var now = !!(st && st.linked);
+      if (now && wasLinked === false)
+        setTimeout(function(){ try { crownsReconcile(); } catch (e){} }, 2500);
+      wasLinked = now;
+    });
+  } catch (e){}
+})();
+
 /* The ALL-TIME | WEEKLY period toggle, used by both the OVERALL tab and the
    per-game board in the ALL GAMES tab. */
 function periodHTML(){
@@ -2947,6 +3044,13 @@ window.KARTI_STATS = {
   push: function(){ return pushNow(true); },
   board: function(){ return BOARD; },
   refresh: loadBoard,
+
+  /* ── LAST WEEK'S CHAMPION BORDERS ──
+     Ask the Pi where this account finished last week and make the local
+     ledger say so — the one thing that ever calls KARTI_XP.grantRank().
+     Safe to call at any time: it is idempotent, and a board it cannot
+     reach takes nothing away. Runs itself on boot and on login. */
+  crowns: crownsReconcile,
 
   /* ── WHO YOU PLAYED ──
      _tableBegan is called by js/mp.js at 'began' and by nothing else: it

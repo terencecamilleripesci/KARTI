@@ -568,3 +568,35 @@ Harness notes, all of which cost a run each:
   files, plus puppeteer request interception rewriting `:8101` -> that port,
   so `sync.js`'s hard-coded dev port and `stats.js`'s leaderboard push can
   never reach the live relay.
+
+## The weekly champion borders (build 344)
+
+`KARTI_XP.grantRank()` existed, was exported, and was called by NOTHING — so
+no player could ever hold one of the three borders registered for every game.
+Fixed with a `crowns` route on the stats server plus a reconcile in
+`js/stats.js`. Four things cost time or nearly shipped a bug:
+
+- **`week_start(now) - 7*86400` is the wrong way to get last week.** It is
+  exactly the DST bug `week_start()`'s own docstring warns about. It matters
+  more here than anywhere else because the value is matched for EQUALITY
+  against a stored `wk`: an hour off does not crown the wrong player, it
+  matches zero rows and crowns NOBODY, silently, on the two weeks a year that
+  follow a clock change. Use `prev_week_start()` — step back half a day from
+  this week's opening and re-run `week_start()`.
+- **Award the LAST COMPLETED week, never the running one**, or the border
+  moves between players all week and means nothing.
+- **`grantRank` fires `unlockCbs`** — the "you won a border!" announcement. A
+  reconcile that ran every boot would replay the celebration for ever, so the
+  ledger is COMPARED first and an unchanged week makes no calls at all. This
+  is the single most important property; it is asserted by counting unlock
+  events across two identical runs.
+- **`clean_games()` DROPS a row with `p == 0`.** A self-test that baselines an
+  account with all-zero counters therefore pushes an EMPTY table, and `put()`
+  responds by deleting that account's rows instead of baselining them. Baseline
+  with 1-1, and put every game an account plays in ONE call — `put()` replaces
+  the whole table, so a second call naming only a new game drops the first.
+
+Harness note: `post()` in `stats.js` looks `fetch` up globally at call time, so
+stubbing `window.fetch` in the page is enough to stand in for the Pi and drive
+the reconcile through every branch — including the offline one, which must take
+no border away.

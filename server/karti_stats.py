@@ -196,6 +196,19 @@ def week_start(now: float | None = None) -> int:
     return int(d.timestamp())
 
 
+def prev_week_start(now: float | None = None) -> int:
+    """The bucket key of the LAST COMPLETED week -- what crowns() awards from.
+
+    NOT `week_start(now) - 7*86400`. That is exactly the DST bug week_start()'s
+    own docstring warns about: twice a year it lands an hour off a real Sunday
+    midnight, and because the value is compared for EQUALITY against a stored
+    `wk`, an hour off does not mean a slightly wrong week -- it means the query
+    matches no rows at all and nobody is crowned that week. Stepping back half
+    a day from this week's opening lands inside last Saturday whatever the
+    clocks did, and re-running week_start() snaps that to the real boundary."""
+    return week_start(week_start(now) - 43200)
+
+
 # ── rate limiting ────────────────────────────────────────────────────────────
 
 
@@ -636,6 +649,55 @@ class Store:
             out["weekly"] = {"rows": out["rows"], "you": you}
         return out
 
+    def crowns(self, me: str, now: float | None = None) -> dict:
+        """Where `me` finished on every board of the LAST COMPLETED week.
+
+        Answers {"week": <bucket>, "places": {game: 1|2|3}} -- the whole input
+        to the client's border reconcile, and nothing else. Deliberately not
+        derived from board(): board() cuts to TOP_N and answers whole rows for
+        everyone, and shipping 25 strangers' names down a wire to decide one
+        player's ring would be a second, wider thing to keep honest.
+
+        THE LAST COMPLETED WEEK, never the running one. Awarding out of the
+        live bucket would hand the border to whoever is ahead on Tuesday and
+        take it back on Wednesday; the ring would flicker between players all
+        week and mean nothing. It becomes true once, when the week closes.
+
+        Same sort as board(), on purpose: -wins, then fewest losses, then most
+        played, then name. A weekly board that ranked by different rules than
+        the crown it hands out would be a board that lies about who won.
+
+        A PLACE NEEDS A WIN. Ranking by wins puts a player who lost their only
+        game top of a board nobody else entered, and 'Champion' on a week you
+        won nothing is the kind of prize that devalues every real one."""
+        wk = prev_week_start(now)
+        with self.lock:
+            cur = self.db.execute(
+                "SELECT r.game, r.uname, p.name, r.w, r.l, r.p"
+                " FROM wrows r JOIN players p ON p.uname = r.uname"
+                " WHERE r.wk=?",
+                (wk,),
+            )
+            raw = cur.fetchall()
+
+        by_game: dict[str, list] = {}
+        for game, uname, name, w, l, p in raw:
+            by_game.setdefault(str(game), []).append(
+                (str(uname), str(name or uname)[:MAX_NAME],
+                 int(w or 0), int(l or 0), int(p or 0))
+            )
+
+        places: dict[str, int] = {}
+        for game, table in by_game.items():
+            table.sort(key=lambda r: (-r[2], r[3], -r[4], r[1].lower()))
+            for i, row in enumerate(table[:3]):
+                if row[0] == me:
+                    if row[2] > 0:      # no win, no crown
+                        places[game] = i + 1
+                    break
+        return {"ok": True, "week": wk, "places": places,
+                "at": int(time.time())}
+
     def counts(self) -> tuple[int, int]:
         with self.lock:
             a = self.db.execute("SELECT COUNT(*) FROM players").fetchone()[0]
@@ -747,7 +809,7 @@ def handle_post(handler, action: str) -> None:
     if STORE is None:
         _fail(handler, 503, E_OFF)
         return
-    if action not in ("push", "board"):
+    if action not in ("push", "board", "crowns"):
         _fail(handler, 404, "No such board route.")
         return
 
@@ -760,6 +822,8 @@ def handle_post(handler, action: str) -> None:
 
     if action == "push":
         _push(handler, body)
+    elif action == "crowns":
+        _crowns(handler, body)
     else:
         _board(handler, body)
 
@@ -844,6 +908,27 @@ def _board(handler, body: dict) -> None:
     # server decides which bucket is being asked for.
     try:
         handler.reply(200, STORE.board(game, me, _period_arg(body.get("period"))))
+    except sqlite3.Error:
+        _fail(handler, 503, "The board is busy.")
+
+
+def _crowns(handler, body: dict) -> None:
+    """Last week's placements, for the asker and nobody else.
+
+    A TOKEN IS REQUIRED HERE, where _board() treats a bad one as merely 'we
+    cannot point out your row'. The difference is what the answer is FOR: this
+    one is the sole input to a client that will then write borders into its
+    save, so answering an unauthenticated caller would mean answering the
+    question 'what did that player win' about somebody else."""
+    if not _allowed("board", _addr(handler), BOARD_RATE, BOARD_BURST):
+        _fail(handler, 429, E_SLOW, {"retryAfter": 5})
+        return
+    who = _who(body.get("tok"))
+    if who is None:
+        _fail(handler, 401, E_TOK, {"relogin": True})
+        return
+    try:
+        handler.reply(200, STORE.crowns(who[0]))
     except sqlite3.Error:
         _fail(handler, 503, "The board is busy.")
 
@@ -1099,6 +1184,78 @@ def _selftest() -> int:
     check("a non-string period reads as all-time", _period_arg({"a": 1}) == "all")
     wk.close()
 
+    print("-- last week's crowns --")
+
+    # THE BOUNDARY, FROM THE OTHER SIDE. prev_week_start() has to be a real
+    # Sunday midnight exactly one week back EVERY week of the year. The obvious
+    # `week_start(now) - 7*86400` passes fifty weeks and then, on the two that
+    # follow a clock change, returns a value one hour off a stored bucket -- and
+    # because the bucket is matched by EQUALITY that does not crown the wrong
+    # player, it crowns nobody at all, silently, twice a year.
+    bad = None
+    for i in range(365):
+        t = now - i * 86400
+        p = prev_week_start(t)
+        pd = datetime.datetime.fromtimestamp(p)
+        if not (pd.weekday() == 6 and (pd.hour, pd.minute, pd.second) == (0, 0, 0)
+                and week_start(p + 7 * 86400 + 3600) == week_start(t)):
+            bad = pd.isoformat()
+            break
+    check("prev_week_start is a Sunday midnight one week back, all year",
+          bad is None, bad)
+    check("prev_week_start is never this week", prev_week_start(now) != week_start(now))
+
+    cr = Store(":memory:")
+
+    def week_play(u, name, rows, when):
+        """Put `rows` = {game: (wins, losses)} into `when`'s weekly bucket.
+
+        TWO pushes, because the first sight of a counter is a baseline that
+        credits nothing (section 1 above) -- one push would leave the bucket
+        empty and every crown check below would pass for the wrong reason. The
+        baseline is 1-1 rather than 0-0 because clean_games() DROPS a row with
+        p == 0, and a push whose table came back empty deletes the account's
+        rows instead of baselining them. Every game an account plays goes in
+        one call for the same reason: put() replaces the whole table."""
+        cr.put(u, name, clean_games(
+            {g: {"p": 2, "w": 1, "l": 1, "d": 0} for g in rows}), now=when)
+        cr.put(u, name, clean_games(
+            {g: {"p": 2 + w + l, "w": 1 + w, "l": 1 + l, "d": 0}
+             for g, (w, l) in rows.items()}), now=when)
+
+    week_play("aa", "Toni", {"chess": (9, 0), "dama": (7, 0)}, T1)
+    week_play("bb", "Guzi", {"chess": (5, 1)}, T1)
+    week_play("cc", "Nanna", {"chess": (3, 0)}, T1)
+    week_play("dd", "Pawlu", {"chess": (1, 9)}, T1)
+    # Rita lost every game of serp, and nobody else played it at all.
+    week_play("ee", "Rita", {"serp": (0, 4)}, T1)
+
+    check("last week's winner is 1st", cr.crowns("aa", now=T2)["places"].get("chess") == 1)
+    check("last week's runner-up is 2nd", cr.crowns("bb", now=T2)["places"].get("chess") == 2)
+    check("last week's third is 3rd", cr.crowns("cc", now=T2)["places"].get("chess") == 3)
+    check("fourth place is crowned with nothing",
+          cr.crowns("dd", now=T2)["places"] == {}, cr.crowns("dd", now=T2))
+    # TOP OF THE BOARD IS NOT THE SAME AS HAVING WON SOMETHING. Rita is first
+    # on serp by default, having lost every game she played.
+    check("topping a board with no wins earns no crown",
+          cr.crowns("ee", now=T2)["places"] == {}, cr.crowns("ee", now=T2))
+
+    # THE RUNNING WEEK IS NEVER AWARDED. Asked from inside the week the play
+    # happened in, last-completed is the week before it, which is empty.
+    check("the week still being played is not crowned",
+          cr.crowns("aa", now=T1)["places"] == {}, cr.crowns("aa", now=T1))
+
+    # It crowns per GAME, never overall: 'all' is a view of the board, not a
+    # thing you can be champion of, and a border exists for real games only.
+    pl = cr.crowns("aa", now=T2)["places"]
+    check("a player can hold a crown in each game", pl == {"chess": 1, "dama": 1}, pl)
+    check("there is no crown for 'all'", "all" not in pl, pl)
+    check("the answer names the week it awarded",
+          cr.crowns("aa", now=T2)["week"] == week_start(T1), cr.crowns("aa", now=T2))
+    check("a stranger to the board is crowned with nothing",
+          cr.crowns("zz", now=T2)["places"] == {})
+    cr.close()
+
     print("-- routes over a real socket --")
 
     # A minimal handler carrying only the four helpers this module borrows.
@@ -1229,6 +1386,30 @@ def _selftest() -> int:
     check("a nasty game filter is 400", s == 400, (s, d))
     s, d = call("POST", P + "board", {"game": 12})
     check("a non-string game filter is 400", s == 400, (s, d))
+
+    # CROWNS OVER THE WIRE. The ranking itself is proved above against the
+    # store; what the route has to get right is WHO it will answer, because
+    # this answer is the only thing a client consults before writing borders
+    # into a save.
+    buckets_reset()
+    s, d = call("POST", P + "crowns", {"tok": "tok-toni-aaaaaaaaaaaaaaaa"})
+    check("crowns answers a real token", s == 200 and d.get("ok"), (s, d))
+    check("crowns answers places and a week",
+          isinstance(d.get("places"), dict) and isinstance(d.get("week"), int), d)
+    check("crowns says nothing about anybody else",
+          set(d) == {"ok", "week", "places", "at"}, sorted(d))
+    s, d = call("POST", P + "crowns", {})
+    check("crowns with no token is 401", s == 401, (s, d))
+    s, d = call("POST", P + "crowns", {"tok": "not-a-real-token-at-all"})
+    check("crowns with a bad token is 401, not a public answer", s == 401, (s, d))
+    # A token names its own account and there is no other way to name one:
+    # nothing in the body can ask about a different player.
+    buckets_reset()
+    s, d = call("POST", P + "crowns", {"tok": "tok-guzi-aaaaaaaaaaaaaaaa",
+                                       "u": "aa", "uname": "aa", "user": "aa"})
+    check("crowns cannot be asked about somebody else", s == 200 and d.get("ok"), (s, d))
+    s, d = call("GET", P + "crowns")
+    check("crowns is not reachable by GET", s == 404, (s, d))
 
     s, d = call("GET", P + "health")
     check("health answers", s == 200 and d.get("ok"), (s, d))
