@@ -288,6 +288,36 @@ function injectCSS(){
     'padding:calc(env(safe-area-inset-top,0px) + 4px) 8px calc(env(safe-area-inset-bottom,0px) + 6px);' +
     'overflow:hidden;z-index:5}' +
   '#scr-kiri.on{display:flex}' +
+
+  /* ══ FULL-BOARD: the board IS the screen, everything else floats on it ══
+     The board used to be one row of a flex column, so the title bar, the
+     money strip and the dock each took a slice of the height and the board
+     got the remainder. That is a phone app with a board in it. A real
+     Monopoly board is the whole table and the bits of paper sit ON it, so:
+     the stage is pinned to all four edges and every panel becomes an overlay
+     above it with its own scrim, and the board is free to use the entire
+     screen. Declared after the base rules so it wins without touching them. */
+  '#scr-kiri.kr-full .kr-wrap{position:absolute;inset:0;margin:0;border-radius:0;z-index:0}' +
+  '#scr-kiri.kr-full .kr-tbar{position:absolute;left:0;right:0;z-index:8;'+
+    'top:env(safe-area-inset-top,0px);padding:2px 8px 10px;min-height:42px;'+
+    'background:linear-gradient(180deg,rgba(11,7,22,.90) 42%,rgba(11,7,22,0));'+
+    'pointer-events:none}' +
+  '#scr-kiri.kr-full .kr-tbar>*{pointer-events:auto}' +
+  '#scr-kiri.kr-full .kr-strip{position:absolute;z-index:8;left:8px;right:8px;'+
+    'top:calc(env(safe-area-inset-top,0px) + 46px);border-radius:13px;min-height:40px;'+
+    'background:rgba(20,14,41,.82);backdrop-filter:blur(9px);'+
+    '-webkit-backdrop-filter:blur(9px);border:1px solid rgba(255,255,255,.09);'+
+    'box-shadow:0 6px 18px rgba(0,0,0,.45)}' +
+  '#scr-kiri.kr-full #kr-awayhost{position:absolute;z-index:8;left:8px;right:8px;'+
+    'top:calc(env(safe-area-inset-top,0px) + 92px)}' +
+  '#scr-kiri.kr-full .kr-dock{position:absolute;z-index:9;left:0;right:0;bottom:0;'+
+    'flex:0 0 auto;max-height:64%;margin:0;padding:0 8px calc(env(safe-area-inset-bottom,0px) + 6px);'+
+    'background:linear-gradient(180deg,rgba(11,7,22,0),rgba(11,7,22,.93) 26%);'+
+    'transition:transform .18s ease-out}' +
+  '#scr-kiri.kr-full .kr-dock .kr-pane{max-height:38vh}' +
+  /* the zoom buttons must clear the floating dock */
+  '#scr-kiri.kr-full .kr-zoom{bottom:auto;top:calc(env(safe-area-inset-top,0px) + 96px)}' +
+  '@media (prefers-reduced-motion:reduce){#scr-kiri.kr-full .kr-dock{transition:none}}' +
   '#scr-kiri *{box-sizing:border-box}' +
   '#scr-kiri button{font:inherit;color:inherit;-webkit-tap-highlight-color:transparent;touch-action:manipulation}' +
 
@@ -595,7 +625,7 @@ function injectCSS(){
      across it, and the dice on top. The wordmark is drawn at 4% so it
      is furniture, not a label competing with the square you are
      standing on. */
-  '#scr-kiri .kr-mid{grid-column:2/9;grid-row:2/9;border-radius:9px;position:relative;overflow:hidden;' +
+  '#scr-kiri .kr-mid{grid-column:2/11;grid-row:2/11;border-radius:9px;position:relative;overflow:hidden;' +
     'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;' +
     'padding:8px;text-align:center;min-width:0;' +
     'box-shadow:inset 0 0 0 1px rgba(255,197,66,.20),inset 0 2px 10px rgba(0,0,0,.55),' +
@@ -607,6 +637,25 @@ function injectCSS(){
   '#scr-kiri .kr-mid::before{content:"";position:absolute;inset:0;z-index:0;pointer-events:none;' +
     'background:radial-gradient(120% 90% at 50% 0%,rgba(4,12,8,.30),rgba(3,9,6,.72) 80%)}' +
   '#scr-kiri .kr-mid > *{position:relative;z-index:1}' +
+  /* THE DIAGONAL BAND. The real board's middle is its logo laid across the
+     corner-to-corner diagonal with the two card decks either side of it --
+     not a status list. This is that, with the live readout demoted to a
+     strip along the bottom where it does not fight the board. */
+  '#scr-kiri .kr-band{position:absolute;z-index:0;left:-14%;right:-14%;top:50%;'+
+    'transform:translateY(-50%) rotate(-45deg);padding:calc(var(--bs,340px)*.016) 0;'+
+    'background:linear-gradient(90deg,rgba(255,197,66,0),rgba(255,197,66,.16) 18%,'+
+    'rgba(255,197,66,.16) 82%,rgba(255,197,66,0));text-align:center;pointer-events:none}' +
+  '#scr-kiri .kr-band b{font-family:var(--disp);font-weight:900;letter-spacing:.16em;'+
+    'font-size:calc(var(--bs,340px) * .062);color:rgba(255,214,120,.90);'+
+    'text-shadow:0 2px 0 rgba(0,0,0,.45)}' +
+  /* the two decks, sat on the other diagonal like the printed board */
+  '#scr-kiri .kr-deck{position:absolute;z-index:1;width:26%;aspect-ratio:.72;'+
+    'border-radius:calc(var(--bs,340px)*.012);border:1.5px solid rgba(255,255,255,.30);'+
+    'display:grid;place-items:center;font-family:var(--disp);font-weight:900;'+
+    'font-size:calc(var(--bs,340px)*.052);color:#fff;pointer-events:none;'+
+    'box-shadow:0 3px 8px rgba(0,0,0,.5),inset 0 0 0 3px rgba(255,255,255,.10)}' +
+  '#scr-kiri .kr-deck.q{left:9%;top:11%;transform:rotate(-32deg);background:linear-gradient(150deg,#E8452C,#8E1F13)}' +
+  '#scr-kiri .kr-deck.g{right:9%;bottom:11%;transform:rotate(-32deg);background:linear-gradient(150deg,#3DDC84,#137a44)}' +
   '#scr-kiri .kr-midmark{position:absolute;z-index:0;inset:0;display:grid;place-items:center;' +
     'pointer-events:none;overflow:hidden}' +
   '#scr-kiri .kr-midmark b{font-family:var(--disp);font-size:calc(var(--bs,340px) * .095);font-weight:900;' +
@@ -630,6 +679,8 @@ function injectCSS(){
   '#scr-kiri .kr-die.roll{animation:krshake .34s var(--ease,ease)}' +
   '@keyframes krshake{0%{transform:translateY(0) rotate(0)}30%{transform:translateY(-7px) rotate(-11deg)}' +
     '60%{transform:translateY(3px) rotate(9deg)}100%{transform:none}}' +
+  '#scr-kiri .kr-midfoot{position:absolute;z-index:2;left:6%;right:6%;bottom:5%;'+
+    'display:flex;flex-direction:column;align-items:center;gap:3px}' +
   '#scr-kiri .kr-midn{font-family:var(--disp);font-weight:900;font-size:14px;line-height:1.15;' +
     'letter-spacing:.03em;max-width:100%;text-shadow:0 1px 3px rgba(0,0,0,.7)}' +
   '#scr-kiri .kr-midmt{font-size:11px;color:#CFE6D8;font-style:italic;opacity:.85}' +
@@ -1336,7 +1387,7 @@ function menu(){
   if (saved && saved.players.some(p => p.link === 'net')){ K.clearSave(); saved = null; }
   const rec = (P && P.recOf) ? P.recOf('kiri') : { w:0, l:0, d:0 };
   const el = screenEl();
-  el.classList.remove('kr-landgrid');
+  el.classList.remove('kr-landgrid'); el.classList.remove('kr-full');
   el.innerHTML =
     '<div class="kr-tbar">' +
       '<button class="kr-ib" id="kr-home" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
@@ -1665,7 +1716,7 @@ const seatsIn = () => cfg.seats.filter(s => s.kind !== 'off');
 
 function paintSetup(){
   const el = screenEl();
-  el.classList.remove('kr-landgrid');
+  el.classList.remove('kr-landgrid'); el.classList.remove('kr-full');
   const live = seatsIn();
   const enough = live.length >= K.MIN_SEATS;
   el.innerHTML =
@@ -1881,6 +1932,8 @@ function boardScreen(){
   /* the landscape side-by-side grid belongs to the BOARD — the menu
      and the setup are ordinary columns whichever way the phone faces */
   el.classList.add('kr-landgrid');
+  /* the board owns the screen; the panels float on it */
+  el.classList.add('kr-full');
   el.innerHTML =
     '<div class="kr-tbar">' +
       '<button class="kr-ib" id="kr-menu" aria-label="Leave the game"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>' +
@@ -2017,8 +2070,16 @@ function boardScreen(){
    inside it); only the four tabs and the pane they scroll fold away.
    ═══════════════════════════════════════════════════════════════════ */
 const UI_KEY = 'karti_kiri_ui_v1';
-let dockDown = false;
-try { dockDown = localStorage.getItem(UI_KEY + '.dock') === '1'; } catch(e){}
+/* THE DOCK STARTS DOWN. Now that it OVERLAYS the board rather than sitting
+   under it, an open dock hides the bottom row of squares -- which is the row
+   with GO on it. A real board is the whole board, and the panels come over it
+   when you ask for them; so the default is the board, and the grip is one tap
+   away. A player who prefers it open still gets what they last chose. */
+let dockDown = true;
+try {
+  const v = localStorage.getItem(UI_KEY + '.dock');
+  if (v === '0') dockDown = false;
+} catch(e){}
 /* whether the menu's rules panel is slid open — same idiom as .dock:
    a screen preference in its own key, never written into a save */
 let rulesDown = false;
@@ -2995,19 +3056,27 @@ function renderMid(){
     else fl += G.lvl[i] || 0;
   }
 
+  /* THE MIDDLE IS THE BOARD'S MIDDLE, not a status panel: the name across
+     the diagonal, the two card decks on the other one, the dice in the
+     centre, and everything the game needs to TELL you demoted to a single
+     strip along the bottom. It used to be a six-row vertical list, which is
+     the one part of the board that looked like a web page. */
   els.mid.innerHTML =
-    '<div class="kr-midmark" aria-hidden="true"><b>IL-KIRI</b></div>' +
+    '<div class="kr-band" aria-hidden="true"><b>IL-KIRI</b></div>' +
+    '<div class="kr-deck q" aria-hidden="true">?</div>' +
+    '<div class="kr-deck g" aria-hidden="true">!</div>' +
     '<div class="kr-dice" role="img" aria-label="' +
       (d ? 'Dice ' + d[0] + ' and ' + d[1] : 'The dice are not rolled') + '">' +
       die(d ? d[0] : 0) + die(d ? d[1] : 0) +
     '</div>' +
-    '<div class="kr-midn">' + esc(s.n) + '</div>' +
-    '<div class="kr-midmt">' + esc(s.mt) + '</div>' +
-    '<div class="kr-midask' + (warn ? ' warn' : '') + '">' + esc(ask) + '</div>' +
-    '<div class="kr-supply" aria-label="Left in the bank: ' + (K.SUPPLY.floors - fl) +
-      ' floors, ' + (K.SUPPLY.penthouses - pn) + ' penthouses">' +
-      '<span><i></i>' + (K.SUPPLY.floors - fl) + ' LEFT</span>' +
-      '<span><i class="p"></i>' + (K.SUPPLY.penthouses - pn) + ' LEFT</span>' +
+    '<div class="kr-midfoot">' +
+      '<div class="kr-midn">' + esc(s.n) + '</div>' +
+      '<div class="kr-midask' + (warn ? ' warn' : '') + '">' + esc(ask) + '</div>' +
+      '<div class="kr-supply" aria-label="Left in the bank: ' + (K.SUPPLY.floors - fl) +
+        ' floors, ' + (K.SUPPLY.penthouses - pn) + ' penthouses">' +
+        '<span><i></i>' + (K.SUPPLY.floors - fl) + '</span>' +
+        '<span><i class="p"></i>' + (K.SUPPLY.penthouses - pn) + '</span>' +
+      '</div>' +
     '</div>';
   rolled = false;
 }
