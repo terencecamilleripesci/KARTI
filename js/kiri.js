@@ -344,6 +344,12 @@ const DECKS = {
       { id:'gh16', n:'The Boat Party Nobody Invited You To',
         txt:'It is on everybody\'s story. It is anchored where you can see it. Go and have a look, for your own good.',
         a:{ k:'nearest', what:'rail' } },
+      /* ADVANCE TO THE NEAREST UTILITY -- official Chance has one and this
+         deck did not, which quietly made the ten-times-a-fresh-throw rule
+         unreachable: the code existed, no card could ever trigger it. */
+      { id:'gh21', n:'The Meter Is Going Round Too Fast',
+        txt:'Somebody says you should go and look at it yourself. So off you go, to whichever one is nearer.',
+        a:{ k:'nearest', what:'util' } },
       { id:'gh17', n:'They Are Talking About Your Windows',
         txt:'Aluminium. In an area of urban conservation. There is a photograph, and there is a WhatsApp group.',
         a:{ k:'pay', n:90 } },
