@@ -382,11 +382,24 @@ const LAY = (function (){
 
   pos[0] = { x:START[0] + OFF[0], y:START[1] + OFF[1], w:250, h:86, a:0, big:1 };
 
+  /* ON THE REAL BOARD THE ROAD *IS* THE SPACES. They are full-width
+     transverse slices butted together with a thin cream divider between --
+     not chips floating on a ribbon. So a tile's length is its own ARC
+     SPACING, not a constant: lay them down touching and the route becomes
+     one continuous road made of spaces.
+
+     It stays adaptive rather than fixed because the three roads have very
+     different densities, and that difference is the story: the study loop
+     has twelve stops packed nose to tail, the work road has four spread
+     down a long straight. Capping at 104 is what keeps the work road
+     reading as a road with few stops instead of four enormous slabs. */
   const lay = (sp, from, to, u0, u1) => {
     const c = to - from;
+    const gap = c > 1 ? (u1 - u0) / (c - 1) * sp.total : 0;
+    const w = Math.max(56, Math.min(104, gap ? gap - 3 : TW));
     for (let i = 0; i < c; i++){
       const q = along(sp, c === 1 ? (u0 + u1) / 2 : u0 + (u1 - u0) * i / (c - 1));
-      pos[from + i] = { x:q.x, y:q.y, w:TW, h:TH, a:q.a };
+      pos[from + i] = { x:q.x, y:q.y, w:w, h:TH, a:q.a };
     }
   };
   lay(UNI,  B.uniAt,  B.uniEnd,  0.07, 0.95);
@@ -583,8 +596,8 @@ function injectCSS(){
     '#scr-party .hj-roads{position:absolute;inset:0;width:100%;height:100%;display:block;'+'pointer-events:none}' +
 
     /* ── a square ── */
-    '#scr-party .hj-sq{position:absolute;padding:0;border-radius:9px;' +
-      'border:2px solid rgba(255,255,255,.92);transform-origin:50% 50%;' +
+    '#scr-party .hj-sq{position:absolute;padding:0;border-radius:5px;' +
+      'border:2px solid #FBEBC6;transform-origin:50% 50%;' +
       'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;' +
       'color:#fff;font-family:var(--disp);overflow:hidden;cursor:pointer;' +
       '-webkit-tap-highlight-color:transparent;' +
@@ -1248,10 +1261,34 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
   /* the beach at the west end */
   s += palm(176, 1918, 1.05) + tree(146, 1804, .8);
 
-  /* scatter, so the green is never just green */
-  for (const [x, y, k] of [[490, 300, .78], [286, 1046, .84], [472, 1204, .74],
-                           [1252, 1420, .84], [1266, 1810, .9], [232, 1300, .8],
-                           [612, 380, .7], [1120, 1930, .8]])
+  /* ═══ DENSITY. The real board has almost no bare green on it -- every
+     gap between two runs of road carries woodland, a hedge or a pond, and
+     that is most of why it reads as a place rather than a diagram. Mine
+     had open fields, so: clumps, not single trees. ═══ */
+  const wood = (x, y, k) => {
+    let g = '<g transform="translate(' + x + ' ' + y + ') scale(' + k + ')">' +
+      '<ellipse cx="16" cy="6" rx="76" ry="20" fill="#3F6A22" opacity=".22"/>';
+    /* back row dark, front row light -- the clump gets its own depth */
+    for (const [cx, cy, r, c] of [[-46, -34, 27, '#3B7A42'], [46, -36, 26, '#3B7A42'],
+                                  [0, -46, 31, '#44884A'], [-24, -20, 25, '#4E9A55'],
+                                  [26, -18, 24, '#4E9A55'], [0, -12, 22, '#59A85E']])
+      g += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="' + c +
+           '" stroke="' + D + '" stroke-width="3"/>';
+    return g + '</g>';
+  };
+  /* tonal variation in the grass, so it is never one flat green */
+  for (const [x, y, rx, ry] of [[300, 980, 150, 74], [820, 760, 170, 80],
+                                [560, 1900, 140, 60], [1230, 1180, 96, 130],
+                                [190, 1140, 90, 110], [1000, 1980, 120, 58]])
+    s += '<ellipse cx="' + x + '" cy="' + y + '" rx="' + rx + '" ry="' + ry +
+         '" fill="#8CB763" opacity=".55"/>';
+  for (const [x, y, k] of [[286, 1052, .92], [470, 1180, .74], [1246, 1424, .86],
+                           [1252, 1806, .82], [236, 1296, .78], [618, 372, .72],
+                           [1108, 1948, .78], [842, 754, .96], [640, 946, .8],
+                           [1244, 640, .82], [176, 1520, .7], [470, 1852, .84],
+                           [1010, 1996, .72], [96, 890, .66]])
+    s += wood(x, y, k);
+  for (const [x, y, k] of [[492, 300, .78], [1290, 980, .7], [700, 1980, .74]])
     s += tree(x, y, k);
   return s;
 }
