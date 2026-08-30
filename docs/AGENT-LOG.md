@@ -600,3 +600,27 @@ Harness note: `post()` in `stats.js` looks `fetch` up globally at call time, so
 stubbing `window.fetch` in the page is enough to stand in for the Pi and drive
 the reconcile through every branch — including the offline one, which must take
 no border away.
+
+## Deleting an account (`--delete-account`)
+
+The owner CLI had list/grant/revoke/reset but no way to remove an account, so
+five junk test accounts sat on a 12-account server. Two things to know:
+
+- **An account lives in FOUR databases**, not one: `accounts.db`, `avatars.db`,
+  `stats.db` (players + rows + `wrows`) and `push.db`. Each sibling store
+  already had a `forget`/`drop` hook waiting — `karti_avatar.forget()` even
+  documents itself as "the hook for when something does [delete an account]".
+  Use them rather than writing new SQL.
+- **Six tables in `accounts.db` are ordered PAIRS and need BOTH columns swept.**
+  `played`/`friends`/`friend_msgs` carry `(uname, other)`, `mail` carries
+  `(uname, sender)`, `knocks` and `friend_reqs` carry `(uname, fromk)`.
+  Deleting only `uname = key` erases the account's own side and leaves it
+  standing in every OTHER player's friends list, mail and scrollback — a
+  deleted player visible on real screens that can never be removed, because
+  the account that owned the row is gone. The selftest fills every one of
+  those tables from the FAR side for exactly this reason.
+
+Irreversible, so it needs `--yes`; a flag rather than a prompt so it still
+works over a pipe. Verified end-to-end against a COPY of the live databases in
+the scratchpad (never the live files): both refusal paths, then a real delete
+with a residue sweep over all four files across every table above.

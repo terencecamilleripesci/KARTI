@@ -5210,6 +5210,56 @@ class Accounts:
         return [{"u": r[0], "name": r[1], "admin": bool(r[2]),
                  "created": float(r[3]), "seen": float(r[4])} for r in rows]
 
+    def delete_account(self, key):
+        """Erase one account from THIS file. -> {table: rows} or None if there
+        is no such account. Reachable only from the owner's command line.
+
+        NO HTTP ROUTE MAY EVER CALL THIS, and it takes an exact key: there is
+        no fuzzy match, because a near-miss that deleted the wrong row is not
+        something an apology fixes.
+
+        THE HALF THAT IS EASY TO MISS is the SECOND column. Six of these tables
+        are ordered PAIRS -- played/friends/friend_msgs carry (uname, other),
+        mail carries (uname, sender), knocks and friend_reqs carry
+        (uname, fromk). Deleting only `uname = key` erases the account's own
+        side and leaves it standing in everybody ELSE's friends list, mail and
+        scrollback: a deleted player who still appears on real players' screens
+        and can never be removed, because the account that owned the row is
+        gone. Both columns, every time.
+
+        One transaction. A half-deleted account is worse than either outcome:
+        it can no longer log in and its rows are still being drawn."""
+        with self.lock:
+            if self.db.execute("SELECT 1 FROM accounts WHERE uname=?",
+                               (key,)).fetchone() is None:
+                return None
+            # (table, columns that can hold a username)
+            plan = (("sessions", ("uname",)), ("saves", ("uname",)),
+                    ("reset_codes", ("uname",)), ("reset_asks", ("uname",)),
+                    ("played", ("uname", "other")),
+                    ("mail", ("uname", "sender")),
+                    ("knocks", ("uname", "fromk")),
+                    ("friends", ("uname", "other")),
+                    ("friend_reqs", ("uname", "fromk")),
+                    ("friend_msgs", ("uname", "other")),
+                    ("accounts", ("uname",)))
+            got = {}
+            self.db.execute("BEGIN")
+            try:
+                for table, cols in plan:
+                    where = " OR ".join("%s=?" % c for c in cols)
+                    cur = self.db.execute(
+                        "DELETE FROM %s WHERE %s" % (table, where),
+                        tuple(key for _ in cols))
+                    n = cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                    if n:
+                        got[table] = n
+                self.db.execute("COMMIT")
+            except sqlite3.Error:
+                self.db.execute("ROLLBACK")
+                raise
+        return got
+
     # -- forgotten password ------------------------------------------------
     #
     # TWO HALVES THAT NEVER MEET ON THE WIRE. issue_reset() is reachable only
@@ -9404,6 +9454,85 @@ def selftest():
         except Exception as e:
             check("reset routes refuse a foreign origin", False, repr(e))
 
+        # ═══════════ deleting an account ═══════════
+        print("")
+        print(" ACCOUNTS — DELETING ONE  (the owner's command, and the rows it"
+              " must not leave behind)")
+
+        try:
+            for u in ("Skrapp", "Habib"):
+                accounts_reset()
+                POST("/register", {"u": u, "pw": "d" * 40})
+            k_del, k_keep = "skrapp", "habib"
+            check("two accounts to work with",
+                  ACCOUNTS.find(k_del) is not None and ACCOUNTS.find(k_keep) is not None)
+
+            # Every paired table, filled from the FAR side: the friend owns
+            # these rows and the account about to be deleted merely appears in
+            # them. Deleting on `uname` alone leaves every one of them.
+            with ACCOUNTS.lock:
+                x = ACCOUNTS.db.execute
+                x("INSERT OR REPLACE INTO friends(uname,other,name,since)"
+                  " VALUES(?,?,?,?)", (k_del, k_keep, "Habib", 1.0))
+                x("INSERT OR REPLACE INTO friends(uname,other,name,since)"
+                  " VALUES(?,?,?,?)", (k_keep, k_del, "Skrapp", 1.0))
+                x("INSERT OR REPLACE INTO played(uname,other,name,games,at)"
+                  " VALUES(?,?,?,?,?)", (k_keep, k_del, "Skrapp", 3, 1.0))
+                x("INSERT INTO friend_msgs(uname,other,mine,x,at)"
+                  " VALUES(?,?,?,?,?)", (k_keep, k_del, 0, "hello", 1.0))
+                x("INSERT INTO mail(uname,sender,note,gift,at)"
+                  " VALUES(?,?,?,?,?)", (k_keep, k_del, "", "{}", 1.0))
+                x("INSERT INTO knocks(id,uname,fromk,name,game,at)"
+                  " VALUES(?,?,?,?,?,?)", ("kk1", k_keep, k_del, "Skrapp", "cards", 1.0))
+                x("INSERT INTO friend_reqs(id,uname,fromk,name,at)"
+                  " VALUES(?,?,?,?,?)", ("fr1", k_keep, k_del, "Skrapp", 1.0))
+                ACCOUNTS.db.commit()
+
+            check("deleting a name that does not exist is refused",
+                  ACCOUNTS.delete_account("nobody-here-at-all") is None)
+
+            got = ACCOUNTS.delete_account(k_del)
+            check("the account is gone", ACCOUNTS.find(k_del) is None, got)
+            check("...and the other account is untouched",
+                  ACCOUNTS.find(k_keep) is not None)
+
+            # THE HALF THAT IS EASY TO MISS. A deleted player still standing in
+            # a real player's friends list, mail or scrollback is undeletable —
+            # the account that owned the row is gone.
+            left = {}
+            with ACCOUNTS.lock:
+                for table, col in (("friends", "other"), ("played", "other"),
+                                   ("friend_msgs", "other"), ("mail", "sender"),
+                                   ("knocks", "fromk"), ("friend_reqs", "fromk")):
+                    n = ACCOUNTS.db.execute(
+                        "SELECT COUNT(*) FROM %s WHERE %s=?" % (table, col),
+                        (k_del,)).fetchone()[0]
+                    if n:
+                        left[table] = n
+            check("a deleted player is left in nobody else's lists", not left, left)
+
+            own = {}
+            with ACCOUNTS.lock:
+                for table in ("accounts", "saves", "sessions", "friends",
+                              "played", "friend_msgs", "reset_asks"):
+                    n = ACCOUNTS.db.execute(
+                        "SELECT COUNT(*) FROM %s WHERE uname=?" % table,
+                        (k_del,)).fetchone()[0]
+                    if n:
+                        own[table] = n
+            check("and holds nothing of its own", not own, own)
+
+            # The friend's OWN unrelated rows must survive — a delete that
+            # cleaned out the far side by table rather than by key would pass
+            # every check above and quietly empty a real player's account.
+            with ACCOUNTS.lock:
+                still = ACCOUNTS.db.execute(
+                    "SELECT COUNT(*) FROM accounts WHERE uname=?",
+                    (k_keep,)).fetchone()[0]
+            check("the surviving account still has its own row", still == 1, still)
+        except Exception as e:
+            check("deleting an account", False, repr(e))
+
         # ═══════════ tables ═══════════
         print("")
         print(" TABLES  (a party, not a duel: 2 to %d chairs)" % L.MAX_SEATS)
@@ -12001,6 +12130,7 @@ def owner_cli(args):
 
     --list-accounts / --list-admins / --grant-admin / --revoke-admin
     --list-resets  / --issue-reset
+    --delete-account (with --yes)
 
     ONE CREDENTIAL FOR ALL OF THEM: the accounts file itself. Not a session,
     not a password, not a username that happens to look like the owner's. That
@@ -12083,6 +12213,79 @@ def owner_cli(args):
             if on:
                 print("They can now use the gift console and see who is waiting "
                       "for a reset code.")
+            return 0
+
+        if args.delete_account is not None:
+            try:
+                _name, key = v_username(args.delete_account)
+            except Reject:
+                print("That is not a username this server could hold. Nothing "
+                      "was deleted.", file=sys.stderr)
+                return 2
+            if ACCOUNTS.find(key) is None:
+                print("There is no account called %r. Nothing was deleted.\n"
+                      "Run --list-accounts and copy the ACCOUNT column exactly."
+                      % key, file=sys.stderr)
+                return 2
+            # IRREVERSIBLE, SO IT ASKS. There is no undo and no bin: the save,
+            # the record book and the photograph all go. A flag rather than a
+            # prompt so it still works over a pipe, and it names the account
+            # back so a typo in a script cannot delete somebody quietly.
+            if not args.yes:
+                print("This ERASES %r everywhere: save, leaderboard rows, "
+                      "weekly buckets, photograph, push subscriptions, "
+                      "friends, mail and scrollback." % key)
+                print("It cannot be undone. Back up /var/lib/karti first.")
+                print("")
+                print("Do it with:  python3 %s --delete-account %s --yes"
+                      % (os.path.basename(__file__), key))
+                return 1
+            got = ACCOUNTS.delete_account(key)
+            if got is None:
+                print("There is no account called %r. Nothing was deleted."
+                      % key, file=sys.stderr)
+                return 2
+            # THE OTHER THREE FILES. An account is not only in accounts.db, and
+            # a delete that forgets them leaves a leaderboard row nobody can
+            # explain and a photograph for an account that no longer exists.
+            # Each is best-effort and reported: a missing avatars.db must not
+            # abort a delete that has already committed next door.
+            try:
+                st = karti_stats.open_store(args.stats)
+                st.forget(key)
+                karti_stats.close_store()
+                got["stats.db"] = 1
+            except Exception as e:                              # noqa: BLE001
+                print("warning: leaderboard rows not removed — %s" % e,
+                      file=sys.stderr)
+            if not args.no_avatars:
+                try:
+                    karti_avatar.open_store(args.avatars)
+                    if karti_avatar.forget(key):
+                        got["avatars.db"] = 1
+                    karti_avatar.close_store()
+                except Exception as e:                          # noqa: BLE001
+                    print("warning: photograph not removed — %s" % e,
+                          file=sys.stderr)
+            if not args.no_push:
+                try:
+                    if not PUSH.open(args.push_db, args.vapid):
+                        n = PUSH.drop(key)
+                        if n:
+                            got["push.db"] = n
+                        PUSH.close()
+                except Exception as e:                          # noqa: BLE001
+                    print("warning: push subscriptions not removed — %s" % e,
+                          file=sys.stderr)
+            LOG("acct-deleted", u=key)
+            print("Deleted %s." % key)
+            for table in sorted(got):
+                print("   %-14s %d row%s" % (table, got[table],
+                                             "" if got[table] == 1 else "s"))
+            if not got:
+                print("   (the account row only — it had nothing else)")
+            print("")
+            print("They can register the same name again from scratch.")
             return 0
 
         if args.list_resets:
@@ -12190,6 +12393,11 @@ def main(argv=None):
     p.add_argument("--grant-admin", metavar="USERNAME", default=None,
                    help="let this account use the gift console and see who is "
                         "waiting for a reset code")
+    p.add_argument("--delete-account", metavar="USERNAME", default=None,
+                   help="erase an account and everything it owns, across all "
+                        "four databases. Irreversible; needs --yes")
+    p.add_argument("--yes", action="store_true",
+                   help="confirm --delete-account (there is no undo)")
     p.add_argument("--revoke-admin", metavar="USERNAME", default=None,
                    help="take that permission away again")
     args = p.parse_args(argv)
@@ -12205,7 +12413,8 @@ def main(argv=None):
 
     if (args.issue_reset is not None or args.list_resets or args.list_accounts
             or args.list_admins or args.grant_admin is not None
-            or args.revoke_admin is not None):
+            or args.revoke_admin is not None
+            or args.delete_account is not None):
         return owner_cli(args)
 
     if not args.no_accounts:
