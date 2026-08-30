@@ -206,6 +206,16 @@ const GAMES = [
     blurb:'Draw lines, close boxes. Two to four players.' },
   { k:'sqaq', name:'Is-Sqaq', short:'SQAQ', icon:'map',
     blurb:'Race to the far side. Wall them off — never seal them in.' },
+  /* IT-TAPP was missing from ALL THREE registries below, and the failure was
+     silent and absurd: cleanGame('tapp') fell through to 'cards', so tapping
+     "Play online" on the football game opened a CARD DUEL room. Worse, with no
+     LOBBY_GLOBAL entry mp.js never read KARTI_TAPP.lobby, so its published
+     wire fields ['k','a','p'] were never seen and wireFields() fell through to
+     tombla's -- which has no 'a'. The flick ANGLE was dropped from every move,
+     so the two phones simulated different rallies: both players thought they
+     had won and the table deadlocked. */
+  { k:'tapp', name:'It-Tapp', short:'TAPP', icon:'ball',
+    blurb:'Flick the caps. Put the ball in their goal.' },
   { k:'hajja', name:'Il-Ħajja', short:'ĦAJJA', icon:'users',
     blurb:'Spin, drive, work, marry, retire. Most money wins.' },
   { k:'ilforka', name:'Il-Forka', short:'FORKA', icon:'book',
@@ -301,6 +311,7 @@ const LOBBY_GLOBAL = {
   /* IL-ĦAJJA — the life board. Nothing is hidden: every phone replays the
      same spins and card draws off the shared seed, so an online table is
      honest without a private per-seat deal. */
+  tapp:'KARTI_TAPP',
   hajja:'KARTI_HAJJA',
   /* the hidden-hand card games. Their contracts are published on
      KARTI_POKER.lobby and KARTI_BLACKJACK.lobby (the 21/31 tile), and the
@@ -341,6 +352,7 @@ const SEATS_FALLBACK = {
   /* the arena games + Reversi. tankijiet is a 4–8 brawl; ballun and aqleb seat 2–4. */
   tankijiet:[4, 8, 4], ballun:[2, 4, 4], aqleb:[2, 4, 2], kaxxi:[2, 4, 2],
   /* the life board: two to six, four a comfortable table */
+  tapp:[2, 4, 2],
   hajja:[2, 6, 4],
   sqaq:[2, 4, 2], ilforka:[2, 8, 2], kelma:[2, 4, 2],
   konkwista:[2, 6, 3], misteru:[2, 6, 3]
