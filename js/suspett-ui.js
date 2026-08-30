@@ -500,8 +500,14 @@ function injectCSS(){
   const st = document.createElement('style');
   st.id = 'su-css';
   st.textContent =
+  /* THE COLUMN. Everything the table needs is stacked here, inside the
+     shared .screen frame — which is what pays env(safe-area-inset-bottom),
+     so nothing in here may be fixed/absolute-to-the-viewport or it would
+     step over the home indicator. `overflow:hidden` is the backstop: an
+     item that refuses to shrink gets clipped by its own column instead of
+     being painted over the row below it. */
   '#scr-party .su-wrap{display:flex;flex-direction:column;height:100%;min-height:0;gap:8px;' +
-    'font-family:var(--disp,system-ui);}' +
+    'overflow:hidden;font-family:var(--disp,system-ui);}' +
   /* ── the referee: SPEAK / SILENT. Colour AND shape AND words. ── */
   '#scr-party .su-ref{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:9px 13px;' +
     'font-weight:900;font-size:14px;letter-spacing:.4px;user-select:none}' +
@@ -531,15 +537,26 @@ function injectCSS(){
   '#scr-party .su-seat .vt{background:rgba(255,197,66,.25);border-radius:8px;padding:0 5px;' +
     'font-size:10px;font-weight:900;flex:0 0 auto}' +
   /* log + chat column */
-  '#scr-party .su-mid{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;gap:6px}' +
-  '#scr-party .su-log{flex:0 0 auto;max-height:22%;overflow-y:auto;padding:7px 10px;' +
+  /* the reading column (log + tabs + chat). It is the one that gives, so it
+     must also CONTAIN what it holds: overflow:hidden, and every child inside
+     it able to shrink to nothing. Without that its children spilled out of
+     the bottom of its box and the action bar was painted over them. */
+  /* flex-basis 220, NOT a min-height of 220. The reading column and the map
+     then negotiate on a stated ratio (220 : 394) whenever the screen is
+     short — a hard floor here instead pushed the action bar clean off the
+     bottom of a 360x640 that was also showing the relay notice. 50px is the
+     real floor: the tab row, and nothing less. */
+  '#scr-party .su-mid{flex:1 1 220px;min-height:50px;display:flex;flex-direction:column;gap:6px;overflow:hidden}' +
+  '#scr-party .su-log{flex:0 1 auto;min-height:0;max-height:22%;overflow-y:auto;padding:7px 10px;' +
     'background:rgba(0,0,0,.25);border-radius:10px;font-size:12px;line-height:1.45}' +
   '#scr-party .su-log p{margin:2px 0;color:var(--dim,#A093C4)}' +
   '#scr-party .su-log p.hot{color:#FF9C90;font-weight:700}' +
   '#scr-party .su-log p:last-child{color:var(--txt,#F4EFFF)}' +
   /* chat */
   '#scr-party .su-tabs{flex:0 0 auto;display:flex;gap:6px}' +
-  '#scr-party .su-tab{flex:1;padding:7px 4px;border-radius:10px 10px 0 0;border:1px solid rgba(255,255,255,.14);' +
+  '#scr-party .su-tab{flex:1;min-width:0;min-height:44px;padding:7px 4px;display:flex;' +
+    'align-items:center;justify-content:center;gap:4px;' +
+    'border-radius:10px 10px 0 0;border:1px solid rgba(255,255,255,.14);' +
     'border-bottom:none;background:rgba(255,255,255,.04);color:var(--dim,#A093C4);font-weight:800;' +
     'font-size:12px;text-align:center}' +
   '#scr-party .su-tab.on.day{background:rgba(255,197,66,.2);color:var(--gold,#FFC542);border-color:var(--gold,#FFC542)}' +
@@ -547,7 +564,11 @@ function injectCSS(){
   '#scr-party .su-tab.on.dead{background:rgba(138,92,255,.22);color:#C9B4FF;border-color:#8A5CFF}' +
   '#scr-party .su-tab .n{display:inline-block;min-width:15px;background:#FF5468;color:#fff;' +
     'border-radius:8px;font-size:9px;padding:0 3px;margin-left:4px}' +
-  '#scr-party .su-chat{flex:1 1 auto;min-height:60px;overflow-y:auto;padding:8px 10px;border-radius:0 0 10px 10px;' +
+  /* min-height:0, NOT 60px. A hard floor here is what stopped .su-mid
+     shrinking, and an item that cannot shrink does not disappear — it
+     overflows. The chat gets every pixel that is going (flex:1) and gives
+     them up when there are none. */
+  '#scr-party .su-chat{flex:1 1 auto;min-height:0;overflow-y:auto;padding:8px 10px;border-radius:0 0 10px 10px;' +
     'border:1px solid rgba(255,255,255,.14);border-top:none;background:rgba(0,0,0,.3);' +
     'font-size:13px;line-height:1.4;overflow-wrap:anywhere;word-break:break-word}' +
   '#scr-party .su-chat.day{border-color:var(--gold,#FFC542)}' +
@@ -560,20 +581,22 @@ function injectCSS(){
   '#scr-party .su-msg.sys{color:var(--dim,#A093C4);font-style:italic;font-size:11.5px}' +
   /* the input row says WHERE the words go */
   '#scr-party .su-inrow{flex:0 0 auto;display:flex;gap:6px;align-items:stretch}' +
-  '#scr-party .su-in{flex:1;min-width:0;padding:10px 12px;border-radius:12px;font-size:16px;' +
+  '#scr-party .su-in{flex:1;min-width:0;min-height:44px;padding:10px 12px;border-radius:12px;font-size:16px;' +
     'border:2px solid rgba(255,255,255,.2);background:rgba(0,0,0,.35);color:var(--txt,#F4EFFF)}' +
   '#scr-party .su-in.day{border-color:var(--gold,#FFC542)}' +
   '#scr-party .su-in.kill{border-color:#FF7A6B}' +
   '#scr-party .su-in.dead{border-color:#8A5CFF}' +
-  '#scr-party .su-send{flex:0 0 auto;padding:0 16px;border-radius:12px;border:none;font-weight:900;' +
-    'background:var(--gold,#FFC542);color:#221;font-size:13px}' +
+  '#scr-party .su-send{flex:0 0 auto;min-width:64px;min-height:44px;padding:0 16px;border-radius:12px;' +
+    'border:none;font-weight:900;background:var(--gold,#FFC542);color:#221;font-size:13px}' +
   '#scr-party .su-send:disabled{opacity:.35}' +
   '#scr-party .su-canned{flex:0 0 auto;display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}' +
-  '#scr-party .su-can{flex:0 0 auto;padding:6px 10px;border-radius:999px;font-size:11.5px;font-weight:700;' +
+  '#scr-party .su-can{flex:0 0 auto;min-height:44px;display:inline-flex;align-items:center;' +
+    'padding:6px 12px;border-radius:999px;font-size:11.5px;font-weight:700;' +
     'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);color:var(--txt,#F4EFFF)}' +
   /* action bar */
   '#scr-party .su-bar{flex:0 0 auto;display:flex;gap:8px}' +
-  '#scr-party .su-btn{flex:1;padding:12px 8px;border-radius:12px;border:none;font-weight:900;font-size:13.5px;' +
+  '#scr-party .su-btn{flex:1;min-height:44px;padding:12px 8px;border-radius:12px;border:none;' +
+    'font-weight:900;font-size:13.5px;' +
     'background:rgba(255,255,255,.1);color:var(--txt,#F4EFFF)}' +
   '#scr-party .su-btn.gold{background:var(--gold,#FFC542);color:#221}' +
   '#scr-party .su-btn.red{background:#B3362B;color:#fff}' +
@@ -581,7 +604,10 @@ function injectCSS(){
   /* ── concealment: the secret sheet ── */
   '#scr-party .su-veil{position:absolute;inset:0;z-index:60;background:rgba(10,7,18,.97);display:flex;' +
     'flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:22px;text-align:center}' +
-  '#scr-party .su-card{width:min(330px,88%);border-radius:16px;padding:18px 16px;' +
+  /* the same rule as the table column: inside a centred column-flex, an item
+     that cannot shrink does not shrink — it overflows, and the button below
+     it gets drawn on top. The card and the target grid both scroll instead. */
+  '#scr-party .su-card{width:min(330px,88%);min-height:0;overflow-y:auto;border-radius:16px;padding:18px 16px;' +
     'background:linear-gradient(160deg,#241A3E,#141020);border:2px solid var(--gold,#FFC542)}' +
   '#scr-party .su-card h3{margin:0 0 4px;font-size:22px;color:var(--gold,#FFC542)}' +
   '#scr-party .su-card .side{font-size:11px;font-weight:900;letter-spacing:1px;margin-bottom:8px}' +
@@ -592,8 +618,8 @@ function injectCSS(){
   '#scr-party .su-card .mate{margin-top:8px;font-size:12px;color:#FF9C90;text-align:left}' +
   '#scr-party .su-card .news{margin-top:8px;font-size:12.5px;color:var(--gold,#FFC542);text-align:left;font-weight:700}' +
   '#scr-party .su-tgts{width:min(360px,94%);display:grid;grid-template-columns:repeat(2,1fr);gap:7px;' +
-    'max-height:44vh;overflow-y:auto}' +
-  '#scr-party .su-tgt{padding:11px 8px;border-radius:11px;border:1px solid rgba(255,255,255,.2);' +
+    'min-height:0;max-height:44vh;overflow-y:auto}' +
+  '#scr-party .su-tgt{min-height:44px;padding:11px 8px;border-radius:11px;border:1px solid rgba(255,255,255,.2);' +
     'background:rgba(255,255,255,.07);color:var(--txt,#F4EFFF);font-weight:800;font-size:13px}' +
   '#scr-party .su-tgt.on{background:rgba(255,197,66,.25);border-color:var(--gold,#FFC542)}' +
   '#scr-party .su-veil .hint{font-size:11px;color:var(--dim,#A093C4);max-width:300px}' +
@@ -642,8 +668,12 @@ function injectCSS(){
   '#scr-party .su-bal{padding:9px 12px;border-radius:10px;background:rgba(0,0,0,.3);font-size:12.5px;' +
     'font-weight:700;line-height:1.5}' +
   '#scr-party .su-bal .k{color:#FF9C90}#scr-party .su-bal .v{color:#3DDC84}#scr-party .su-bal .n{color:#C9B4FF}' +
-  '#scr-party .su-net-banner{flex:0 0 auto;padding:7px 11px;border-radius:10px;background:rgba(232,69,44,.15);' +
-    'border:1px solid #B3362B;font-size:11.5px;line-height:1.4}' +
+  /* the advisory banner shrinks LAST: a shrink factor of .02 against the
+     map's 1 means the map is emptied long before the banner loses a word,
+     but on a keyboard-height screen it will still give up its second line
+     rather than push the SEND button off the bottom. */
+  '#scr-party .su-net-banner{flex:0 .02 auto;min-height:22px;padding:7px 11px;border-radius:10px;' +
+    'background:rgba(232,69,44,.15);border:1px solid #B3362B;font-size:11.5px;line-height:1.4}' +
   '#scr-party .su-net-banner{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;' +
     'overflow:hidden}' +
   '#scr-party .su-net-banner.full{display:block;-webkit-line-clamp:unset}' +
@@ -709,7 +739,11 @@ function injectCSS(){
   /* THE PJAZZA — the village square is a real painted backdrop; the players
      stand in the open lower half. Day/night swap the same-vantage art so it
      cross-fades. A bottom gradient keeps names/heads legible over the stone. */
-  '#scr-party .su-town{flex:0 0 auto;position:relative;width:100%;height:min(98vw,394px);' +
+  /* the map is DECORATION and the chat is the game, so the map is the thing
+     that gives its pixels up first: flex:0 1 auto (shrinkable), with a floor
+     so it never becomes a smear. Villagers are placed in per-cent, so a
+     shorter square just draws a shorter square. */
+  '#scr-party .su-town{flex:0 1 auto;min-height:118px;position:relative;width:100%;height:min(98vw,394px);' +
     'border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);' +
     'background-image:radial-gradient(120% 120% at 50% 46%,rgba(10,7,16,0) 46%,rgba(10,7,16,.5) 100%),url("./art/suspett/map-day.png");' +
     'background-size:cover,cover;background-position:center,center;' +
@@ -864,7 +898,8 @@ function injectCSS(){
     'border-style:dashed}' +
   '#scr-party .su-speak b.gh{color:#C9B4FF;border-color:#8A5CFF;background:rgba(138,92,255,.14)}' +
   /* the dead-chat banner over the input */
-  '#scr-party .su-deadnote{flex:0 0 auto;padding:6px 10px;border-radius:10px;font-size:11px;' +
+  '#scr-party .su-deadnote{flex:0 1 auto;min-height:0;overflow:hidden;' +
+    'padding:6px 10px;border-radius:10px;font-size:11px;' +
     'font-weight:800;line-height:1.4;background:rgba(138,92,255,.16);border:1px dashed #8A5CFF;color:#C9B4FF}' +
   '#scr-party .su-msg.mine b{color:#3DDC84}' +
   /* the vote tally strip */
@@ -889,6 +924,20 @@ function injectCSS(){
     '#scr-party .su-canned{display:none}}' +
   '@media (max-height:640px){' +
     '#scr-party .su-town{height:min(74vw,270px)}}' +
+  /* VERY short: an on-screen keyboard, or a phone on its side. There is no
+     honest way to keep a 300px painted square AND a usable chat in 400px, so
+     the decoration goes and the words stay. The input row and the action bar
+     are never among the things that give. */
+  '@media (max-height:560px){' +
+    '#scr-party .su-wrap{gap:6px}' +
+    '#scr-party .su-town,#scr-party .su-speak,#scr-party .su-log,' +
+    '#scr-party .su-canned{display:none}' +
+    '#scr-party .su-ref{padding:6px 11px;font-size:13px}' +
+    '#scr-party .su-clockbar{padding:5px 11px}' +
+    '#scr-party .su-clockbar .big{font-size:18px}' +
+    /* one line of advisory, tappable to open — never two, or the action
+       bar goes over the bottom edge on a 360-tall landscape phone */
+    '#scr-party .su-net-banner{-webkit-line-clamp:1;padding:5px 10px}}' +
   /* landscape: shrink the map so chat sits beside it */
   '@media (orientation:landscape) and (max-height:520px){' +
     '#scr-party .su-seats{max-height:70px;overflow-y:auto}' +
@@ -2515,7 +2564,10 @@ function renderNet(){
       esc(chatLabel(active.id, m2.s)) + ':</b> ' + esc(m2.x) + '</div>').join('')
       : '<div class="su-msg sys">' + esc(gameText(active.note) ||
           T('Nothing has been said here yet.', 'Xejn għadu ma ntqal hawn.')) + '</div>') +
-    '</div>' +
+    '</div></div>' +
+    /* the canned chips and the input row leave .su-mid HERE. They are not
+       reading, they are typing: they belong to the fixed bottom of the
+       column beside the action bar, never inside the part that shrinks. */
     '<div class="su-canned">' + cannedFor(active.id, v.phase).map((c, i) =>
       '<button class="su-can" data-c="' + i + '">' + esc(c) + '</button>').join('') + '</div>' +
     '<div class="su-inrow">' +
@@ -2526,7 +2578,7 @@ function renderNet(){
       (active.write && U.chat.cap !== false ? '' : ' disabled') + '>' +
     '<button class="su-send" id="su-send"' + (active.write && U.chat.cap !== false ? '' : ' disabled') + '>' +
     T('SEND', 'IBGĦAT') + '</button>' +
-    '</div></div>';
+    '</div>';
 
   /* action bar per phase — the night action opens a CONCEALED sheet */
   if (!G.over){
