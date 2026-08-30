@@ -578,6 +578,8 @@ function injectCSS(){
     '#scr-party .hj-board{position:absolute;left:0;top:0;transform-origin:0 0;' +
       'width:' + BW + 'px;height:' + BH + 'px;will-change:transform}' +
     '#scr-party .hj-scene{position:absolute;inset:0;width:100%;height:100%;display:block;'+'pointer-events:none}' +
+    '#scr-party .hj-scene text{font-family:var(--disp);font-weight:900;'+
+      'letter-spacing:.06em;text-anchor:middle}' +
     '#scr-party .hj-roads{position:absolute;inset:0;width:100%;height:100%;display:block;'+'pointer-events:none}' +
 
     /* ── a square ── */
@@ -1074,6 +1076,30 @@ function sceneProps(D, pts, block, house, tree, palm, luzzu, win, door){
       ' ' + h + 'h-' + (w / 2) + 'z" fill="rgba(0,0,0,.16)"/>' +
     '<path d="M' + (x - w * 0.30) + ' ' + (y - h * 0.34) + 'q' + (w * 0.30) + ' -' + (h * 0.14) +
       ' ' + (w * 0.60) + ' 0" fill="none" stroke="rgba(255,255,255,.30)" stroke-width="6"/></g>';
+
+  /* ═══ THE TWO WAYS IN. On the real board the roads are not colour-coded
+     and there is no arch -- what tells you it is a choice is a pair of blue
+     signposts on posts, one per road. Without them the board has two roads
+     leaving START and no reason given, which is the single thing a new
+     player has to understand before their first spin. ═══ */
+  const signpost = (x, y, label, dir) =>
+    '<g>' +
+      '<ellipse cx="' + (x + 12) + '" cy="' + (y + 4) + '" rx="26" ry="9" ' +
+        'fill="#3F6A22" opacity=".26"/>' +
+      '<rect x="' + (x - 5) + '" y="' + (y - 62) + '" width="10" height="62" ' +
+        'fill="#8A6234" stroke="' + D + '" stroke-width="3"/>' +
+      '<rect x="' + (x - 78) + '" y="' + (y - 108) + '" width="156" height="50" rx="8" ' +
+        'fill="#1E88D8" stroke="' + D + '" stroke-width="4"/>' +
+      '<rect x="' + (x - 78) + '" y="' + (y - 108) + '" width="156" height="13" rx="6" ' +
+        'fill="#5CB4EE"/>' +
+      '<polygon points="' + pts(dir > 0
+        ? [[x + 60, y - 92], [x + 60, y - 74], [x + 74, y - 83]]
+        : [[x - 60, y - 92], [x - 60, y - 74], [x - 74, y - 83]]) + '" fill="#FFF"/>' +
+      '<text x="' + (x - (dir > 0 ? 8 : -8)) + '" y="' + (y - 74) +
+        '" font-size="24" fill="#FFF">' + esc(label) + '</text>' +
+    '</g>';
+  s += signpost(258, 214, T('COLLEGE', 'UNIVERSITÀ'), -1) +
+       signpost(606, 318, T('CAREER', 'XOGĦOL'), 1);
 
   /* ═══ U — THE COLLEGE. The study road loops right around it, which is
      the whole point: the long way round is long because of this. ═══ */
