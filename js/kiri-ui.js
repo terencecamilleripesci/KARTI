@@ -215,6 +215,10 @@ function onFx(e){
       bumpCash(e.from, -e.amt);
       if (e.to >= 0) bumpCash(e.to, e.amt);
       else if (e.split) e.split.forEach(x => bumpCash(x.p, x.amt));
+      /* and the ROW, not just the number: red out, green in */
+      pulseRow(e.from, false);
+      if (e.to >= 0) pulseRow(e.to, true);
+      else if (e.split) e.split.forEach(x => pulseRow(x.p, true));
       break;
     }
     case 'salary': cue('ui.coin', { gain: human(e.p) ? 0.92 : 0.50 }, 2);
@@ -227,6 +231,7 @@ function onFx(e){
       if (mine(e.p)) buzz('tap');            /* he bought it */
       cue('money.pay', { gain: human(e.p) ? 1.00 : 0.70 }, 1);
       cue('ui.reward', { gain: human(e.p) ? 0.65 : 0.45 }, 2);
+      stampSold(e.i);                        /* and the square says so */
       break;
     case 'decline': cue('ui.back', { gain: 1.00 }, 3); break;
 
@@ -238,7 +243,8 @@ function onFx(e){
     case 'aucOut':  cue('ui.back', { gain: 0.80 }, 4); break;
     case 'hammer':
       cue('call.bell', { gain: 1.00 }, 1);
-      if (e.p >= 0) cue('money.pay', { gain: human(e.p) ? 1.00 : 0.70 }, 2);
+      /* a lot that went to NOBODY is not sold, and must not say it is */
+      if (e.p >= 0){ cue('money.pay', { gain: human(e.p) ? 1.00 : 0.70 }, 2); stampSold(e.i); }
       break;
 
     /* ── concrete ── */
@@ -253,9 +259,13 @@ function onFx(e){
     case 'redeem':   cue('money.pay', { gain: 0.95 }, 2); cue('piece.place', { gain: 0.95 }, 3); break;
 
     /* ── the queue at counter four ── */
-    case 'jail':   cue('duel.trap', { gain: 0.95 }, 1); break;
+    case 'jail':   cue('duel.trap', { gain: 0.95 }, 1); dropToJail(e.p); break;
     case 'freed':  cue('ui.reward', { gain: 0.85 }, 2); break;
-    case 'stuck':  cue('ui.error', { gain: 0.75 }, 3); break;
+    /* still in it: the square he is stuck on takes another knock.
+       His own position, not K.JAIL -- see dropToJail(). */
+    case 'stuck':  cue('ui.error', { gain: 0.75 }, 3);
+                   if (G.players[e.p]) overCell(G.players[e.p].pos, 'kr-thud', 440);
+                   break;
 
     /* ── paper ── */
     case 'card':   cue('card.throw', { gain: 1.00 }, 2); break;
@@ -272,6 +282,7 @@ function onFx(e){
                      cue('ui.error', { gain: 0.80 }, 3); break;
     case 'bankrupt':
       cue(human(e.p) ? 'game.lose' : 'duel.destroy', { gain: 1.05 }, 0);
+      seizeDeeds(e.p, e.to);                 /* the deeds change hands */
       break;
   }
 }
@@ -621,6 +632,77 @@ function injectCSS(){
     '50%{transform:translate(-50%,calc(-50% - 7px)) scale(1.10)}'+
     '100%{transform:translate(-50%,-50%)}}' +
   '@media (prefers-reduced-motion:reduce){#scr-kiri .kr-fly.hop{animation:none}}' +
+
+  /* ══ THE BOARD SAYS IT TOO ═══════════════════════════════════════
+     Every one of these is a plate laid OVER a square and parented to
+     the board, never into the cell: renderCells() rewrites a cell's
+     innerHTML and its className on every render, so anything put
+     inside one is gone the instant the next thing happens. The board
+     element itself is built once and never rewritten -- which is the
+     same reason .kr-fly above lives there. Absolute, so a grid that
+     is exactly 11x11 stays exactly 11x11.
+     Every one is also SHORT: PACE.roll is 620ms and none of these may
+     outlast the beat the rest of the game keeps. */
+  '#scr-kiri .kr-mark{position:absolute;z-index:10;pointer-events:none;' +
+    'display:flex;align-items:center;justify-content:center;box-sizing:border-box}' +
+  /* SOLD. The square's own colour, so the stamp names the group as
+     well as the fact -- rail brown, service blue, group tint. */
+  /* A SQUARE IS THIRTY POINTS ACROSS. The stamp is sized off the cell
+     it is standing on, and the tile under it is a drawing with a token
+     on top of it -- so the plate is nearly opaque and the word is set
+     in the square's colour ON that, rather than over the picture. */
+  '#scr-kiri .kr-sold{border-radius:7px;border:2px solid var(--c,#FFC542);' +
+    'background:rgba(7,4,14,.86);color:var(--c,#FFC542);font-weight:900;' +
+    'font-size:calc(var(--w,44px) * .30);line-height:1;letter-spacing:.02em;' +
+    'text-shadow:0 1px 2px rgba(0,0,0,.9);box-shadow:0 3px 10px rgba(0,0,0,.6);' +
+    'animation:krSold .56s cubic-bezier(.18,.85,.3,1) forwards}' +
+  '@keyframes krSold{0%{opacity:0;transform:scale(2) rotate(-16deg)}' +
+    '24%{opacity:1;transform:scale(1) rotate(-9deg)}' +
+    '66%{opacity:1;transform:scale(1) rotate(-9deg)}' +
+    '100%{opacity:0;transform:scale(1.12) rotate(-9deg)}}' +
+  /* the deeds changing hands: the loser's squares take the creditor's
+     colour for a moment, one after another, and then the repaint has
+     already made it true */
+  '#scr-kiri .kr-seize{border-radius:7px;background:var(--c,#A093C4);' +
+    'box-shadow:0 0 0 2px var(--c,#A093C4);animation:krSeize .38s ease-out forwards}' +
+  '@keyframes krSeize{0%{opacity:0}34%{opacity:.78}100%{opacity:0}}' +
+  /* counter four: the corner flashes as the piece lands on it */
+  '#scr-kiri .kr-jail{border-radius:7px;background:#FF5468;' +
+    'animation:krJail .52s ease-out forwards}' +
+  '@keyframes krJail{0%{opacity:0}30%{opacity:0}44%{opacity:.55}100%{opacity:0}}' +
+  /* and the same corner, hit now, for a roll that did not get him out */
+  '#scr-kiri .kr-thud{border-radius:7px;background:#FF5468;' +
+    'animation:krThud .40s ease-out forwards}' +
+  '@keyframes krThud{0%{opacity:.52}22%{opacity:.10}44%{opacity:.44}100%{opacity:0}}' +
+  /* the piece DROPPED into the queue -- fall, squash, then the shake
+     of somebody who does not want to be there */
+  '#scr-kiri .kr-drop{position:absolute;z-index:12;pointer-events:none;' +
+    'transform:translate(-50%,-50%);filter:drop-shadow(0 4px 6px rgba(0,0,0,.6));' +
+    'animation:krDrop .52s cubic-bezier(.4,0,.6,1) forwards}' +
+  '@keyframes krDrop{0%{opacity:0;transform:translate(-50%,-50%) translateY(-52px) scale(1.3)}' +
+    '20%{opacity:1}' +
+    '42%{transform:translate(-50%,-50%) translateY(0) scale(1)}' +
+    '52%{transform:translate(-50%,-50%) scale(1.16,.82)}' +
+    '64%{transform:translate(-50%,-50%) rotate(-12deg)}' +
+    '76%{transform:translate(-50%,-50%) rotate(10deg)}' +
+    '88%{transform:translate(-50%,-50%) rotate(-5deg)}' +
+    '100%{opacity:1;transform:translate(-50%,-50%) rotate(0)}}' +
+  /* THE ROW, NOT THE NUMBER. bumpCash() already tints the figure and
+     floats a chip off it; this is the strip (and the TABLE row for the
+     same seat) going red as it pays and green as it is paid. Laid over
+     the row on the screen, because renderStrip() and paneTable() both
+     rewrite their innerHTML wholesale. */
+  '#scr-kiri .kr-pulse{position:absolute;z-index:19;pointer-events:none;border-radius:12px;' +
+    'background:var(--c,#FF5468);box-shadow:0 0 0 2px var(--c,#FF5468) inset;opacity:0;' +
+    'animation:krPulse .52s cubic-bezier(.2,.8,.3,1) forwards}' +
+  '#scr-kiri .kr-pulse.up{--c:#3DDC84}' +
+  '#scr-kiri .kr-pulse.dn{--c:#FF5468}' +
+  '@keyframes krPulse{0%{opacity:0}20%{opacity:.30}100%{opacity:0}}' +
+  '@media (prefers-reduced-motion:reduce){' +
+    '#scr-kiri .kr-sold,#scr-kiri .kr-seize,#scr-kiri .kr-jail,' +
+    '#scr-kiri .kr-thud,#scr-kiri .kr-drop,#scr-kiri .kr-pulse{' +
+      'animation:none;opacity:0;display:none}}' +
+
   '#scr-kiri .kr-toks{position:relative;z-index:6;pointer-events:none;min-width:0;min-height:0;' +
     'display:flex;flex-wrap:wrap;align-content:center;justify-content:center;' +
     'align-items:center;gap:1.5px;padding:0}' +
@@ -1218,6 +1300,7 @@ function standDown(){
   stopLoop();
   stopWalk();           /* a token mid-walk must not outlive the screen */
   stopCashTweens();
+  stopFxMarks();        /* nor a SOLD stamp, a row pulse or a jail drop */
   hushQueue();          /* nothing queued may follow us onto another screen */
   stash();
   if (scr) scr.classList.remove('on');
@@ -3337,7 +3420,10 @@ function paneTable(){
   let h = '';
   G.players.forEach(p => {
     const badge = p.out ? 'OUT' : p.kind === 'cpu' ? 'PHONE' : p.auto ? 'AUTOPILOT' : '';
-    h += '<div class="kr-row" style="--g:' + p.colour + (p.out ? ';opacity:.45' : '') + '">' +
+    /* data-seat so a payment can pulse THIS row -- see pulseRow(). The
+       strip only ever carries one seat; this pane carries them all. */
+    h += '<div class="kr-row" data-seat="' + p.i + '"' +
+      ' style="--g:' + p.colour + (p.out ? ';opacity:.45' : '') + '">' +
       '<span class="kr-sw"></span>' +
       tok(p.i, p.colour, p.name, 30) +
       '<span class="kr-rn">' + esc(p.name) + (badge ? ' <span class="kr-auto">' + badge + '</span>' : '') +
@@ -4058,11 +4144,18 @@ function stopCashTweens(){
   for (const k in cashTweens) delete cashTweens[k];
 }
 let walkRaf = 0, walkFly = null;
+/* WHEN THE WALK IS OVER, to the millisecond. A trip that ENDS in the queue
+   fires `move` and then `jail` in the same engine call, so a jail drop
+   started at the moment of the event would fall onto the corner while the
+   piece was still four squares away from it. Everything that has to happen
+   AFTER a walk waits on this. */
+let walkUntil = 0;
 
 function stopWalk(){
   if (walkRaf){ clearTimeout(walkRaf); walkRaf = 0; }
   if (walkFly && walkFly.parentNode) walkFly.parentNode.removeChild(walkFly);
   walkFly = null;
+  walkUntil = 0;
 }
 
 function walkToken(p, from, to, n){
@@ -4103,10 +4196,195 @@ function walkToken(p, from, to, n){
     walkRaf = setTimeout(hop, STEP_MS);
   };
   walkRaf = setTimeout(hop, 40);
+  walkUntil = Date.now() + 40 + (n + 1) * STEP_MS + 40;
   return true;
 }
 
-const PACE = { roll: 620, buy: 520, pass: 520, bid: 520, auctionPass: 420, build: 380,
+/* ═══════════════════════════════════════════════════════════════════
+   THE BOARD SAYS IT TOO.
+
+   fx('buy'), fx('hammer'), fx('jail'), fx('bankrupt'), fx('pay') and
+   fx('stuck') all used to make a SOUND and nothing else: the biggest
+   moments in the game were a noise and a number that happened to be
+   different afterwards. These are the pictures.
+
+   Three rules, all of them learned in this file:
+
+   1. DISPLAY ONLY. The engine settled every one of these before the
+      event fired -- the deed is already bought, the money already
+      moved, the piece already in the queue. Nothing below reads a
+      decision or writes one; it reads what already happened off `G`
+      and off the event, and draws it.
+   2. NOTHING GOES INSIDE A CELL OR A ROW. renderCells() rewrites each
+      cell's innerHTML AND its className, and renderStrip()/paneTable()
+      rewrite theirs wholesale, so anything parented into one is
+      destroyed by the very next repaint -- which, on a board that
+      repaints after every action, is immediately. Board plates are
+      parented to els.board (built once, never rewritten, and it pans
+      and zooms with the ring); row plates are parented to screenEl()
+      and positioned over the row, exactly as bumpCash()'s chip is.
+   3. EVERY TIMER IS CANCELLABLE. A stray setTimeout that fires after
+      the screen has stood down is a crash, so every one of them goes
+      through fxLater() and standDown() empties the lot.
+   ═══════════════════════════════════════════════════════════════════ */
+const fxNodes = [], fxTimers = [];
+function fxLater(fn, ms){
+  const t = setTimeout(() => {
+    const k = fxTimers.indexOf(t); if (k >= 0) fxTimers.splice(k, 1);
+    try { fn(); } catch(e){}
+  }, ms);
+  fxTimers.push(t);
+  return t;
+}
+function fxDrop(n){
+  const k = fxNodes.indexOf(n); if (k >= 0) fxNodes.splice(k, 1);
+  if (n && n.parentNode) n.parentNode.removeChild(n);
+}
+/* the one place any of this is undone. Called from standDown(), next to
+   stopWalk() and stopCashTweens(), for the same reason they are. */
+function stopFxMarks(){
+  while (fxTimers.length) clearTimeout(fxTimers.pop());
+  while (fxNodes.length) fxDrop(fxNodes[fxNodes.length - 1]);
+}
+/* a plate the exact size of a square, over the square, on the board */
+function overCell(i, cls, ms, delay){
+  if (!live || !G || !els.board || noMotion()) return null;
+  const c = els.board.querySelector('#kr-c' + i);
+  if (!c || !c.offsetWidth) return null;
+  const d = document.createElement('div');
+  d.className = 'kr-mark ' + cls;
+  d.style.left   = c.offsetLeft + 'px';
+  d.style.top    = c.offsetTop + 'px';
+  d.style.width  = c.offsetWidth + 'px';
+  d.style.height = c.offsetHeight + 'px';
+  d.style.setProperty('--w', c.offsetWidth + 'px');
+  if (delay) d.style.animationDelay = delay + 'ms';
+  els.board.appendChild(d);
+  fxNodes.push(d);
+  fxLater(() => fxDrop(d), ms);
+  return d;
+}
+
+/* THE SQUARE'S OWN COLOUR -- the same three-way choice renderCells()
+   makes for the band, so the stamp says which group it was as well as
+   that it went. A corner or a deck has none; those are never bought. */
+function sqColour(i){
+  const s = K.BOARD[i];
+  if (!s) return '';
+  if (s.g) return (K.GROUPS[s.g] || {}).c || '';
+  if (s.t === 'rail') return '#B79E70';
+  if (s.t === 'util') return '#4FC3F7';
+  return '';
+}
+
+/* 1. SOLD. Off the top of the screen onto the tile, held, gone. */
+function stampSold(i){
+  const d = overCell(i, 'kr-sold', 620);
+  if (!d) return 0;
+  const c = sqColour(i);
+  if (c) d.style.setProperty('--c', c);
+  d.textContent = 'SOLD';
+  return 1;
+}
+
+/* 2. THE ROW THAT PAID, AND THE ROW THAT WAS PAID.
+   The strip only ever carries ONE seat, so the same seat's row in the
+   TABLE pane is pulsed as well -- otherwise a payment between two other
+   people is invisible on a phone that is not either of them. Clipped to
+   the pane, because the pane scrolls and a plate drawn from a row that
+   has scrolled out of it would float over the board. */
+function pulseRow(seat, up){
+  if (!live || !G || noMotion() || !(seat >= 0)) return 0;
+  const scr = screenEl(), sr = scr.getBoundingClientRect();
+  const rows = [];
+  if (els.strip && els.strip.querySelector('.kr-cash[data-seat="' + seat + '"]'))
+    rows.push([els.strip, null]);
+  if (els.pane) els.pane.querySelectorAll('.kr-row[data-seat="' + seat + '"]')
+    .forEach(r => rows.push([r, els.pane]));
+  let n = 0;
+  for (const [row, clipTo] of rows){
+    const r = row.getBoundingClientRect();
+    let top = r.top, bot = r.bottom;
+    if (clipTo){
+      const cr = clipTo.getBoundingClientRect();
+      top = Math.max(top, cr.top); bot = Math.min(bot, cr.bottom);
+    }
+    if (!r.width || bot - top < 8) continue;
+    const d = document.createElement('div');
+    d.className = 'kr-pulse ' + (up ? 'up' : 'dn');
+    d.style.position = 'absolute';
+    d.style.left   = (r.left - sr.left) + 'px';
+    d.style.top    = (top - sr.top) + 'px';
+    d.style.width  = r.width + 'px';
+    d.style.height = (bot - top) + 'px';
+    scr.appendChild(d);
+    fxNodes.push(d);
+    fxLater(() => fxDrop(d), 580);
+    n++;
+  }
+  return n;
+}
+
+/* 3. THE PIECE GOES IN THE QUEUE. It falls in from above the corner,
+   squashes, and shakes; the corner takes the hit under it. Waits out
+   any walk still in the air -- see walkUntil.
+
+   THE SQUARE IS THE ONE THE PIECE IS ACTUALLY ON, read off the settled
+   state -- not K.JAIL. A display that trusted the constant instead of
+   the piece would drop the token onto an empty square the moment the
+   engine and the constant ever disagreed, and it is not this file's
+   job to be right about where the queue is. */
+function dropToJail(p){
+  if (!live || !G || !els.board || noMotion()) return 0;
+  const P = G.players[p];
+  if (!P) return 0;
+  const at = P.pos;
+  /* walkUntil is when the walk SHOULD end; a chain of seven setTimeouts
+     drifts and a single one does not, so the fly can still be in the air
+     at that moment. Look, and give it a few more beats if it is -- but a
+     bounded few, because an unbounded wait is a timer that never ends. */
+  const drop = tries => {
+    if (!live || !G || !els.board) return;
+    if (walkFly && tries > 0){ fxLater(() => drop(tries - 1), 60); return; }
+    const c = els.board.querySelector('#kr-c' + at);
+    if (!c || !c.offsetWidth) return;
+    const d = document.createElement('div');
+    d.className = 'kr-drop';
+    d.style.left = (c.offsetLeft + c.offsetWidth / 2) + 'px';
+    d.style.top  = (c.offsetTop + c.offsetHeight / 2) + 'px';
+    d.innerHTML = tok(P.i, P.colour, P.name, Math.max(18, Math.round(c.offsetWidth * 0.46)));
+    els.board.appendChild(d);
+    fxNodes.push(d);
+    /* the real token is already drawn on the corner underneath, so the
+       plate simply goes when the fall is over -- nothing to repaint */
+    fxLater(() => fxDrop(d), 560);
+    overCell(at, 'kr-jail', 560);
+  };
+  fxLater(() => drop(8), Math.max(0, Math.min(900, walkUntil - Date.now())));
+  return 1;
+}
+
+/* 4. THE DEEDS HAND OVER. fx('bankrupt') fires BEFORE the transfer loop
+   runs, so G.own still says the loser owns them -- which is exactly what
+   makes this possible: read them now, flash them the creditor's colour
+   one after the other, and by the time the plates go the repaint has
+   made it true. To the bank (`to` < 0) they go the neutral grey. */
+function seizeDeeds(p, to){
+  if (!live || !G || !els.board || noMotion()) return 0;
+  const c = (to >= 0 && G.players[to]) ? G.players[to].colour : '#A093C4';
+  let n = 0;
+  for (let i = 0; i < K.BOARD.length; i++){
+    if (G.own[i] !== p) continue;
+    const wait = n * 14;
+    const d = overCell(i, 'kr-seize', wait + 420, wait);
+    if (!d) continue;
+    d.style.setProperty('--c', c);
+    n++;
+  }
+  return n;
+}
+
+const PACE ={ roll: 620, buy: 520, pass: 520, bid: 520, auctionPass: 420, build: 380,
                offer: 700, acceptTrade: 700, declineTrade: 700, card: 900, end: 420 };
 
 /* THE WATCHDOG.

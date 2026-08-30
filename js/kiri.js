@@ -269,7 +269,13 @@ const RAILS = BOARD.filter(s => s.t === 'rail').map(s => s.i);
 const UTILS = BOARD.filter(s => s.t === 'util').map(s => s.i);
 const SALARY = 200;
 const START_CASH = 1500;
-const JAIL = 8;
+/* DERIVED, like RAILS and UTILS above it -- and for exactly the reason those
+   two survived the move to 40 squares while this did not. It was typed as 8,
+   the jail's index on the old 32-square board; on the canonical board Il-Kju
+   is 10, so toJail() was parking the player on square 8 -- The Flat Above The
+   Bakery, a buyable Hamrun property. Going to jail put you on somebody's
+   house. Never write a board index by hand. */
+const JAIL = (BOARD.find(s => s.t === 'jail') || { i: 10 }).i;
 const BAIL = 50;
 const RAIL_RENT = [0, 25, 50, 100, 200];   /* by how many of the four you hold */
 
