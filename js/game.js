@@ -3270,13 +3270,14 @@ function renderLoginBadge(slot){
   slot.insertAdjacentHTML('beforeend',
     '<button class="spinbadge" id="btn-login7" type="button" ' +
       'aria-label="Day ' + st.day + ' of your welcome week is ready to collect">' +
-      '<span class="ds-art" aria-hidden="true">' +
+      '<span class="ds-art"' + (chest ? ' data-chest="closed"' : '') + ' aria-hidden="true">' +
         (chest ? LG_CHEST_SVG
                : '<svg class="ds-star" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
                  '<use href="#i-star"></use></svg>') +
       '</span>' +
       '<span class="ds-label">' + (chest ? 'Day 7!' : 'Day ' + st.day) + '</span>' +
     '</button>');
+  try { applyChestArt(); } catch (e){}
   const b = $('#btn-login7', slot);
   if (b) b.onclick = openLoginSheet;
 }
@@ -3457,6 +3458,16 @@ function injectLoginCSS(){
     '@keyframes lgHalo{0%{transform:scale(.75);opacity:.85}70%{transform:scale(1.5);opacity:0}100%{opacity:0}}' +
     '.lg-burst .lg-chest{width:64px;height:64px;color:var(--gold);position:relative;z-index:1;' +
       'animation:lgPop .5s cubic-bezier(.2,1.5,.4,1) both}' +
+    /* the PAINTED chest, when art/ui/chest-*.png has decoded. The drawn SVG
+       underneath is hidden by applyChestArt rather than removed, so a build
+       without the art keeps working exactly as before. */
+    '.lg-big{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;' +
+      'animation:lgPop .5s cubic-bezier(.2,1.5,.4,1) both}' +
+    '.lg-big img{width:96px;height:96px;display:block;object-fit:contain;' +
+      'filter:drop-shadow(0 6px 18px rgba(255,197,66,.45))}' +
+    '.lg-cw{display:flex;align-items:center;justify-content:center}' +
+    '.lg-cw img{width:28px;height:28px;display:block;object-fit:contain}' +
+    '@media(prefers-reduced-motion:reduce){.lg-big{animation:none}}' +
     '@keyframes lgPop{from{transform:scale(.3) rotate(-12deg);opacity:0}to{transform:none;opacity:1}}' +
     /* REDUCED MOTION — the information survives, the movement does not.
        Every reveal still reaches its end state, just without travelling. */
@@ -3502,7 +3513,9 @@ function openLoginSheet(){
     const chest = d === LOGIN_LAST;
     const cls = 'lg-t' + (chest ? ' is-chest' : '') +
       (got ? ' is-got' : now ? ' is-now' : ' is-lock');
-    const val = chest ? LG_CHEST_SVG : LOGIN_CHIPS[d];
+    const val = chest
+      ? '<span class="lg-cw" data-chest="closed">' + LG_CHEST_SVG + '</span>'
+      : LOGIN_CHIPS[d];
     tiles +=
       '<div class="' + cls + '" role="listitem" aria-label="Day ' + d + ': ' +
         (chest ? 'the chest' : LOGIN_CHIPS[d] + ' chips') + '. ' +
@@ -3527,6 +3540,7 @@ function openLoginSheet(){
       '<p class="lg-note">Miss a day and your streak survives. Miss two and it ' +
         'starts again. This happens once.</p>' +
     '</div>');
+  try { applyChestArt(); } catch (e){}
   const go = $('#lg-go');
   if (go && canClaim) go.onclick = () => (st.isChest ? openLoginChest() : doLoginClaim());
 }
@@ -3590,17 +3604,19 @@ function openLoginChest(){
   openSheet(
     '<div class="lg-wrap">' +
       '<div class="lg-burst"><span class="lg-halo"></span>' +
+        '<span class="lg-big" data-chest="closed">' +
         '<svg class="lg-chest" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
         'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
         '<path d="M3 10.5V19a1 1 0 001 1h16a1 1 0 001-1v-8.5"/>' +
         '<path d="M2.5 7.2A2 2 0 014.4 5.5h15.2a2 2 0 011.9 1.7l.5 3.3H2z"/>' +
-        '<path d="M10 10.5h4v3h-4z"/></svg></div>' +
+        '<path d="M10 10.5h4v3h-4z"/></svg></span></div>' +
       '<h2 class="lg-h">Day seven. Pick your set.</h2>' +
       '<p class="lg-sub">Choose the game you love most. Its full premium set is ' +
         'yours — no wins, no coins, and only this once.</p>' +
       '<div class="lg-pick" role="radiogroup" aria-label="Choose a game">' + cards + '</div>' +
       '<button class="lg-cta is-chest" id="lg-take" type="button" disabled>Choose a game</button>' +
     '</div>');
+  try { applyChestArt(); } catch (e){}
   const take = $('#lg-take');
   const btns = Array.prototype.slice.call(document.querySelectorAll('#sheet .lg-g'));
   btns.forEach(b => {
@@ -3642,11 +3658,12 @@ function loginChestTake(game){
   openSheet(
     '<div class="lg-wrap lg-rev">' +
       '<div class="lg-burst"><span class="lg-halo"></span>' +
+        '<span class="lg-big" data-chest="open">' +
         '<svg class="lg-chest" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
         'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
         '<path d="M3 10.5V19a1 1 0 001 1h16a1 1 0 001-1v-8.5"/>' +
         '<path d="M2.5 7.2A2 2 0 014.4 5.5h15.2a2 2 0 011.9 1.7l.5 3.3H2z"/>' +
-        '<path d="M10 10.5h4v3h-4z"/></svg></div>' +
+        '<path d="M10 10.5h4v3h-4z"/></svg></span></div>' +
       '<div class="lg-set" style="color:' + esc(meta.accent || '#FFC542') + '">' +
         esc(String(nm)) + '</div>' +
       (blurb ? '<p class="lg-blurb">' + esc(String(blurb)) + '</p>' : '') +
@@ -3654,6 +3671,7 @@ function loginChestTake(game){
       '<button class="lg-cta" id="lg-done" type="button">It’s yours</button>' +
       '<p class="lg-note">Find it in your wardrobe, under that game.</p>' +
     '</div>');
+  try { applyChestArt(); } catch (e){}
   const d = $('#lg-done');
   if (d) d.onclick = () => { closeSheet(); try { renderHome(); } catch (e){} };
 }
@@ -8260,6 +8278,36 @@ function detectArt(){
     ART.spinWheel = new URL('art/ui/spin-wheel.png', location.href).href;
     applySpinWheelArt();
   });
+  /* THE DAY-7 CHEST, closed and open. Same treatment as the wheel: the
+     drawn SVG chest is what ships in the markup and stays if these never
+     decode, so the reward still works on a build with no art at all.
+     Remembered on ART so every re-render can re-attach without waiting
+     for the one-shot probe to fire again. */
+  probe('chest-closed', 'art/ui/chest-closed.png', () => {
+    ART.chestClosed = new URL('art/ui/chest-closed.png', location.href).href;
+    applyChestArt();
+  });
+  probe('chest-open', 'art/ui/chest-open.png', () => {
+    ART.chestOpen = new URL('art/ui/chest-open.png', location.href).href;
+    applyChestArt();
+  });
+}
+
+/* Swap the drawn chest for the painted one wherever a chest is on screen.
+   Every holder says which state it wants via data-chest="closed|open", so
+   the same function serves the day-7 tile, the picker and the reveal. */
+function applyChestArt(){
+  const holders = document.querySelectorAll('[data-chest]');
+  for (let i = 0; i < holders.length; i++){
+    const h = holders[i];
+    const want = h.getAttribute('data-chest') === 'open' ? ART.chestOpen : ART.chestClosed;
+    if (!want || h.querySelector('img')) continue;
+    const im = new Image();
+    im.src = want; im.alt = '';
+    h.appendChild(im);
+    const svg = h.querySelector('svg');
+    if (svg) svg.style.display = 'none';   /* the fallback steps aside */
+  }
 }
 /* Put the wheel art onto the badge's medallion if it has loaded and the badge
    is on screen and does not already have it. Called by the probe on first load
