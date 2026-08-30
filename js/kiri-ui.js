@@ -787,6 +787,18 @@ function injectCSS(){
   '#scr-kiri .kr-sh-b > *{position:relative;z-index:1}' +
   '#scr-kiri .kr-sh-b > .kr-art{position:absolute;z-index:0;border-radius:12px}' +
   '#scr-kiri .kr-card{position:relative;overflow:hidden}' +
+  '#scr-kiri .kr-card.flip{animation:krFlip .34s cubic-bezier(.2,.7,.3,1) both;'+
+    'transform-origin:50% 50%;backface-visibility:hidden}' +
+  '@keyframes krFlip{'+
+    'from{transform:perspective(700px) rotateY(-92deg) scale(.94);opacity:.25}'+
+    '62%{transform:perspective(700px) rotateY(8deg) scale(1.02);opacity:1}'+
+    'to{transform:none;opacity:1}}' +
+  '@media (prefers-reduced-motion:reduce){#scr-kiri .kr-card.flip{animation:none}}' +
+  /* the diamond the real board prints a ? and a chest inside */
+  '#scr-kiri .kr-cell.chance::before{content:"";position:absolute;left:50%;top:44%;'+
+    'width:56%;aspect-ratio:1;transform:translate(-50%,-50%) rotate(45deg);'+
+    'border-radius:2px;border:2px solid currentColor;opacity:.30;pointer-events:none;'+
+    'z-index:0}' +
   '#scr-kiri .kr-card > *:not(.kr-art){position:relative;z-index:1}' +
 
   /* ── the card ── */
@@ -2632,6 +2644,43 @@ const KR_MARKS = {
         '<path fill-rule="evenodd" d="' + rct(4.6, 6.2, 11.6, 15.8) +
         panes(6.4, 8.2, 3, 2.6, 1.8, 2.2, 2, 3) + '"/>' +
         '<path fill-opacity=".45" d="' + rct(18.2, 6.4, 1.6, 15.6) + rct(16.4, 21.2, 5.6, 1.4) + '"/>',
+  /* ── IL-GŻIRA: the orange set, and the two new groups the 40-space board
+     needed. Without these six the new squares drew nothing at all. ── */
+  /* IL-FLAT FAĊĊATA TAL-VAPUR: sea views, if a ferry terminal counts */
+  faccata: '<path fill-rule="evenodd" d="' + rct(1.6, 4.2, 11.4, 17.6) +
+        panes(3.4, 6.4, 3, 2.6, 1.6, 2.2, 2, 4) + '"/>' +
+        '<path d="M14.6 15.6h8.2l-1.4 4.2h-6.8Z"/>' +
+        '<path fill-opacity=".5" d="' + rct(18.2, 9.4, 1.2, 6.2) + '"/>' +
+        '<path fill-opacity=".35" d="M13.8 21.6h9.4v1.2h-9.4Z"/>',
+  /* IL-GALLARIJA FUQ IT-TRAFFIKU: the enclosed balcony, and the queue */
+  gallarija: '<path fill-rule="evenodd" d="' + rct(2.2, 1.6, 19.6, 11.2) +
+        rct(4.6, 3.8, 5.6, 6.8) + rct(13.6, 3.8, 5.6, 6.8) + '"/>' +
+        '<path fill-opacity=".8" d="' + rct(1.2, 12.8, 21.6, 1.6) + '"/>' +
+        '<path fill-opacity=".45" d="' + rct(3.4, 16.4, 6.4, 3.4) +
+        rct(13.2, 16.4, 6.4, 3.4) + '"/>',
+  /* DIK BIL-PARKEĠĠ: nobody remembers the flat, everybody remembers this */
+  parkegg: '<path fill-rule="evenodd" d="' + rct(2.4, 2.2, 19.2, 19.6) +
+        'M8.4 6.4h4.8a3.6 3.6 0 0 1 0 7.2H10.8v4H8.4Zm2.4 2.3v2.6h2.2a1.3 1.3 0 0 0 0-2.6Z"/>',
+  /* ── IL-MOSTA: the red set ── */
+  /* ID-DAR WARA L-KOPPLA: bells at six, bells at noon */
+  koppla: '<path d="M12 2.4a7.6 7.6 0 0 1 7.6 7.6H4.4A7.6 7.6 0 0 1 12 2.4Z"/>' +
+        '<path fill-opacity=".55" d="' + rct(11.2, 0.4, 1.6, 2.2) + '"/>' +
+        '<path fill-rule="evenodd" d="' + rct(3.4, 10.4, 17.2, 11.4) +
+        rct(6.2, 13.2, 3.4, 3.2) + rct(14.4, 13.2, 3.4, 3.2) +
+        'M10.4 21.8v-4.6a1.6 1.6 0 0 1 3.2 0v4.6Z"/>',
+  /* L-GĦALQA LI JSEJĦULHA ĠNIEN: half a tumolo of rubble and two carobs */
+  ghalqa: '<path fill-opacity=".8" d="' + rct(1.4, 15.6, 21.2, 1.4) + '"/>' +
+        '<path d="M6.4 15.6c0-3.4 1.4-5.6 3.4-5.6s3.4 2.2 3.4 5.6Z"/>' +
+        '<path fill-opacity=".7" d="M9.2 15.6V9.4h1.2v6.2Z"/>' +
+        '<path d="M15.4 15.6c0-2.4 1-4 2.4-4s2.4 1.6 2.4 4Z"/>' +
+        '<path fill-opacity=".45" d="' + rct(2.2, 18.4, 4.2, 1.2) +
+        rct(8.4, 18.4, 6.4, 1.2) + rct(16.6, 18.4, 4.2, 1.2) + '"/>',
+  /* IL-ĦANUT TAL-KANTUNIERA: the two flats above hear all of it */
+  kantuniera: '<path fill-rule="evenodd" d="' + rct(2.6, 1.8, 18.8, 12.4) +
+        rct(5.2, 4.2, 4.6, 3.4) + rct(14.2, 4.2, 4.6, 3.4) + '"/>' +
+        '<path fill-opacity=".85" d="M1.2 14.2h21.6l-1.8 3.4H3Z"/>' +
+        '<path fill-rule="evenodd" d="' + rct(4.2, 17.6, 15.6, 4.6) +
+        rct(6.4, 19, 4.2, 3.2) + '"/>',
   /* IL-MAISONETTE TAL-ĦABIB: he will do you a price, and be thanked for it */
   maisonette: '<path d="M0.8 7 9.4 1.6 18 7Z"/>' +
         '<path fill-rule="evenodd" d="' + rct(2.4, 7, 14, 14.8) +
@@ -2709,6 +2758,8 @@ const DRAW = {
   hanut:'hanut', furnar:'furnar', umdita:'umdita',
   bir:'bir', karattru:'karattru', stalla:'stalla',
   blokk:'blokk', maisonette:'maisonette', penthouse:'penthouse',
+  faccata:'faccata', gallarija:'gallarija', parkegg:'parkegg',
+  koppla:'koppla', ghalqa:'ghalqa', kantuniera:'kantuniera',
   front:'front', torri:'torri', vista:'vista',
   palazz:'palazz', imdina:'imdina',
 };
@@ -3490,6 +3541,12 @@ function cardSheet(){
          DOES makes the next one, whatever that turns out to be */
       root.querySelector('#kr-ck').onclick = () => { act({ t:'card' }); closeSheet(); after(); };
       artWash(root.querySelector('#kr-art'), artForCard(G.card.deck, G.card.id), 0.30);
+      /* TURN IT OVER. The sheet used to slide up with the card already face
+         up, which reads as a notification rather than as a card. The flip is
+         on the card alone, not the sheet, so the sheet still arrives the way
+         every other sheet in the game does. */
+      const box = root.querySelector('#kr-cardbox');
+      if (box){ box.classList.remove('flip'); void box.offsetWidth; box.classList.add('flip'); }
     },
   });
 }
