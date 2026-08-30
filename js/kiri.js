@@ -77,12 +77,14 @@ function shuffle(G, arr){
    in the group.
    ═══════════════════════════════════════════════════════════════════ */
 const GROUPS = {
-  marsa:  { n:'Marsa',          c:'#9a6b3e', build:50,  props:[1,3] },
-  hamrun: { n:'Il-Ħamrun',      c:'#7d9c3a', build:50,  props:[6,7,9] },
-  birgu:  { n:'Il-Birgu',       c:'#c8452f', build:100, props:[11,12,14] },
-  swieqi: { n:'Is-Swieqi',      c:'#e8952f', build:100, props:[17,19,20] },
-  sliema: { n:'Tas-Sliema',     c:'#2fa8c8', build:150, props:[22,25,26] },
-  belt:   { n:'Il-Belt',        c:'#8A5CFF', build:200, props:[28,31] },
+  marsa:   { n:"Marsa", c:"#9a6b3e", build:50, props:[1,3] },
+  hamrun:  { n:"Il-Ħamrun", c:"#a9d9ef", build:50, props:[6,8,9] },
+  birgu:   { n:"Il-Birgu", c:"#d33d8a", build:100, props:[11,13,14] },
+  gzira:   { n:"Il-Gżira", c:"#e8912a", build:100, props:[16,18,19] },
+  mosta:   { n:"Il-Mosta", c:"#d02f2f", build:150, props:[21,23,24] },
+  swieqi:  { n:"Is-Swieqi", c:"#f2d43c", build:150, props:[26,27,29] },
+  sliema:  { n:"Tas-Sliema", c:"#2f9e4f", build:200, props:[31,32,34] },
+  belt:    { n:"Il-Belt", c:"#2a5fd0", build:200, props:[37,39] },
 };
 
 /* the build ladder — nobody here has ever heard of a "hotel" */
@@ -100,10 +102,13 @@ const LADDER = [
    game by accident. What it does run out of is CONCRETE, which is
    both the real constraint on the island and the one that makes
    buying up every floor early an actual strategy. */
-const SUPPLY = { floors: 24, penthouses: 8 };
+const SUPPLY = { floors: 32, penthouses: 12 };
+/* The board length was written as a bare 32 in nine places. It is 40 now, and
+   naming it is the only way a future change cannot miss one of them. */
+const NSQ = 40;
 
 /* ═══════════════════════════════════════════════════════════════════
-   3. THE BOARD — 32 squares
+   3. THE BOARD — 40 squares, the canonical Monopoly layout
      0  corner  IL-BIDU        pass and collect
      8  corner  IL-KJU         the queue (and just-passing-through)
      16 corner  IL-PJAZZA      sit down, nothing happens
@@ -117,117 +122,147 @@ const SUPPLY = { floors: 24, penthouses: 8 };
    anybody ever trades.
    ═══════════════════════════════════════════════════════════════════ */
 const BOARD = [
-  { i:0, t:'go', code:'BID', id:'bidu', e:'🏁', n:'Il-Bidu', mt:'The Start',
-    joke:'Everybody starts here with fifteen hundred euro and the firm belief that this time they will not overspend in the first ten minutes.' },
+  { i:0, t:"go", code:"BID", id:"bidu", e:"🏁", n:"Il-Bidu", mt:"The Start",
+    joke:"Everybody starts here with fifteen hundred euro and the firm belief that this time they will not overspend in the first ten minutes." },
 
-  { i:1, t:'prop', code:'GRX', id:'garaxx', e:'🔧', g:'marsa', n:'The Marsa Garage', mt:'Il-Garaxx ta\' Marsa',
-    price:60, rent:[2,12,36,110,180,260],
-    joke:'Advertised as a workshop. Contains a fridge, a sofa, a drum kit and eleven years of somebody\'s marriage.' },
+  { i:1, t:'prop', code:"GRX", id:"garaxx", e:"🔧", g:"marsa", n:"The Marsa Garage", mt:"Il-Garaxx ta' Marsa",
+    price:60, rent:[2,10,30,90,160,250],
+    joke:"Advertised as a workshop. Contains a fridge, a sofa, a drum kit and eleven years of somebody's marriage." },
 
-  { i:2, t:'card', code:'?', deck:'ghajdut', e:'👀', n:'Għajdut', mt:'Gossip',
-    joke:'Somebody has heard something about you and they are telling it to somebody else right now.' },
+  { i:2, t:'card', code:"!", deck:"gvern", e:"🏛️", n:"Tal-Gvern", mt:"The Government",
+    joke:"A brown envelope with a window in it, and whatever is inside is now your problem." },
 
-  { i:3, t:'prop', code:'MŻN', id:'mahzen', e:'🛞', g:'marsa', n:'The Scrap Yard Shed', mt:'Il-Maħżen tal-Ħadid',
-    price:70, rent:[4,20,60,180,260,340],
-    joke:'Six tonnes of metal, one dog with opinions, and a man who can tell you the price of copper to the cent.' },
+  { i:3, t:'prop', code:"MŻN", id:"mahzen", e:"🛞", g:"marsa", n:"The Scrap Yard Shed", mt:"Il-Maħżen tal-Ħadid",
+    price:60, rent:[4,20,60,180,320,450],
+    joke:"Six tonnes of metal, one dog with opinions, and a man who can tell you the price of copper to the cent." },
 
-  { i:4, t:'tax', code:'€', id:'taxxa', e:'🧾', n:'The Tax', mt:'It-Taxxa', amount:200,
-    joke:'Your accountant says it is complicated. It is not complicated. It is two hundred euro.' },
+  { i:4, t:'tax', code:"€", id:"taxxa", e:"🧾", n:"The Tax", mt:"It-Taxxa", amount:200,
+    joke:"Your accountant says it is complicated. It is not complicated. It is two hundred euro." },
 
-  { i:5, t:'rail', code:'VAP', id:'vapur', e:'⛴️', n:'The Gozo Ferry', mt:'Il-Vapur ta\' Għawdex', price:200,
-    joke:'Forty-five minutes each way and a queue at Ċirkewwa that has its own weather system.' },
+  { i:5, t:'rail', code:"VAP", id:"vapur", e:"⛴️", n:"The Gozo Ferry", mt:"Il-Vapur ta' Għawdex", price:200,
+    joke:"Forty-five minutes each way and a queue at Ċirkewwa that has its own weather system." },
 
-  { i:6, t:'prop', code:'ĦNT', id:'hanut', e:'🏪', g:'hamrun', n:'The Shop That Is Always Closing Down', mt:'Il-Ħanut Li Ilu Jagħlaq',
-    price:110, rent:[7,35,100,300,420,560],
-    joke:'CLOSING DOWN SALE since 2016. Still has stock. Still closing. The owner has aged; the sign has not.' },
+  { i:6, t:'prop', code:"ĦNT", id:"hanut", e:"🏪", g:"hamrun", n:"The Shop That Is Always Closing Down", mt:"Il-Ħanut Li Ilu Jagħlaq",
+    price:100, rent:[6,30,90,270,400,550],
+    joke:"CLOSING DOWN SALE since 2016. Still has stock. Still closing. The owner has aged; the sign has not." },
 
-  { i:7, t:'prop', code:'FRN', id:'furnar', e:'🥖', g:'hamrun', n:'The Flat Above The Bakery', mt:'Il-Flat Fuq Il-Furnar',
-    price:120, rent:[8,40,110,330,450,600],
-    joke:'Warm all year round and smells incredible until four in the morning, at which point it smells incredible and you are awake.' },
+  { i:7, t:'card', code:"?", deck:"ghajdut", e:"👀", n:"Għajdut", mt:"Gossip",
+    joke:"Somebody has heard something about you and they are telling it to somebody else right now." },
 
-  { i:8, t:'jail', code:'KJU', id:'kju', e:'🎫', n:'Il-Kju', mt:'The Queue',
-    joke:'Counter four. Ticket B-207. They are currently serving B-181. You have been here since a previous version of yourself.' },
+  { i:8, t:'prop', code:"FRN", id:"furnar", e:"🥖", g:"hamrun", n:"The Flat Above The Bakery", mt:"Il-Flat Fuq Il-Furnar",
+    price:100, rent:[6,30,90,270,400,550],
+    joke:"Warm all year round and smells incredible until four in the morning, at which point it smells incredible and you are awake." },
 
-  { i:9, t:'prop', code:'UMD', id:'umdita', e:'💦', g:'hamrun', n:'The House With The Damp', mt:'Id-Dar Bl-Umdità',
-    price:130, rent:[9,45,120,360,490,640],
-    joke:'The surveyor called it "rising". The owner calls it "character". The wardrobe calls it home.' },
+  { i:9, t:'prop', code:"UMD", id:"umdita", e:"💦", g:"hamrun", n:"The House With The Damp", mt:"Id-Dar Bl-Umdità",
+    price:120, rent:[8,40,100,300,450,600],
+    joke:"The surveyor called it \"rising\". The owner calls it \"character\". The wardrobe calls it home." },
 
-  { i:10, t:'util', code:'BWS', id:'bowser', e:'🚚', n:'The Water Bowser', mt:'Il-Bowser tal-Ilma', price:150,
-    joke:'He comes when he comes. He does not do appointments, and he certainly does not do Tuesdays.' },
+  { i:10, t:"jail", code:"KJU", id:"kju", e:"🎫", n:"Il-Kju", mt:"The Queue",
+    joke:"Counter four. Ticket B-207. They are currently serving B-181. You have been here since a previous version of yourself." },
 
-  { i:11, t:'prop', code:'BIR', id:'bir', e:'🪣', g:'birgu', n:'The Well In The Kitchen', mt:'Il-Bir Fil-Kċina',
-    price:150, rent:[11,55,160,450,625,780],
-    joke:'Four hundred years old, twelve metres deep, and directly under where you would quite like the dishwasher.' },
+  { i:11, t:'prop', code:"BIR", id:"bir", e:"🪣", g:"birgu", n:"The Well In The Kitchen", mt:"Il-Bir Fil-Kċina",
+    price:140, rent:[10,50,150,450,625,750],
+    joke:"Four hundred years old, twelve metres deep, and directly under where you would quite like the dishwasher." },
 
-  { i:12, t:'prop', code:'KRT', id:'karattru', e:'🚪', g:'birgu', n:'The House Of Character', mt:'Id-Dar Tal-Karattru',
-    price:160, rent:[12,60,180,500,700,850],
-    joke:'Every beam original, every door crooked, every ceiling exactly four centimetres lower than your head.' },
+  { i:12, t:'util', code:"BWS", id:"bowser", e:"🚚", n:"The Water Bowser", mt:"Il-Bowser tal-Ilma", price:150,
+    joke:"He comes when he comes. He does not do appointments, and he certainly does not do Tuesdays." },
 
-  { i:13, t:'rail', code:'TRM', id:'terminus', e:'🚌', n:'The Valletta Terminus', mt:'It-Terminus tal-Belt', price:200,
-    joke:'Every bus on the island leaves from here, and the one you need left ninety seconds before you arrived.' },
+  { i:13, t:'prop', code:"KRT", id:"karattru", e:"🚪", g:"birgu", n:"The House Of Character", mt:"Id-Dar Tal-Karattru",
+    price:140, rent:[10,50,150,450,625,750],
+    joke:"Every beam original, every door crooked, every ceiling exactly four centimetres lower than your head." },
 
-  { i:14, t:'prop', code:'STL', id:'stalla', e:'🐎', g:'birgu', n:'The Converted Stable', mt:'L-Istalla Kkonvertita',
-    price:170, rent:[13,65,190,530,730,900],
-    joke:'A beautiful conversion. The horse would still find it about right, and so will your guests.' },
+  { i:14, t:'prop', code:"STL", id:"stalla", e:"🐎", g:"birgu", n:"The Converted Stable", mt:"L-Istalla Kkonvertita",
+    price:160, rent:[12,60,180,500,700,900],
+    joke:"A beautiful conversion. The horse would still find it about right, and so will your guests." },
 
-  { i:15, t:'card', code:'!', deck:'gvern', e:'🏛️', n:'Tal-Gvern', mt:'The Government',
-    joke:'A brown envelope with a window in it, and whatever is inside is now your problem.' },
+  { i:15, t:'rail', code:"TRM", id:"terminus", e:"🚌", n:"The Valletta Terminus", mt:"It-Terminus tal-Belt", price:200,
+    joke:"Every bus on the island leaves from here, and the one you need left ninety seconds before you arrived." },
 
-  { i:16, t:'rest', code:'PJZ', id:'pjazza', e:'☕', n:'Il-Pjazza', mt:'The Square',
-    joke:'Nothing happens here and nothing is charged. Sit down, have a coffee, and listen to four men solve the country.' },
+  { i:16, t:'prop', code:"FĊT", id:"faccata", e:"🚢", g:"gzira", n:"The Flat Facing The Ferry", mt:"Il-Flat Faċċata tal-Vapur",
+    price:180, rent:[14,70,200,550,750,950],
+    joke:"Sea views, they said. It is a ferry terminal, and it starts at four in the morning." },
 
-  { i:17, t:'prop', code:'BLK', id:'blokk', e:'🏗️', g:'swieqi', n:'The Block With No Permit', mt:'Il-Blokk Bla Permess',
+  { i:17, t:'card', code:"!", deck:"gvern", e:"🏛️", n:"Tal-Gvern", mt:"The Government",
+    joke:"A brown envelope with a window in it, and whatever is inside is now your problem." },
+
+  { i:18, t:'prop', code:"GLR", id:"gallarija", e:"🚗", g:"gzira", n:"The Balcony Over The Traffic", mt:"Il-Gallarija Fuq it-Traffiku",
+    price:180, rent:[14,70,200,550,750,950],
+    joke:"A beautiful enclosed balcony from which to watch the same queue every single evening." },
+
+  { i:19, t:'prop', code:"PRK", id:"parkegg", e:"🅿️", g:"gzira", n:"The One With The Parking Space", mt:"Dik Bil-Parkeġġ",
     price:200, rent:[16,80,220,600,800,1000],
-    joke:'Six floors up and the paperwork says "boundary wall". Everyone has noticed. Nobody has written it down.' },
+    joke:"Nobody remembers the flat. Everybody remembers that it came with a parking space." },
 
-  { i:18, t:'card', code:'?', deck:'ghajdut', e:'👀', n:'Għajdut', mt:'Gossip',
-    joke:'She did not say it to be nasty. She said it because it was TRUE, and because you were not there.' },
+  { i:20, t:"rest", code:"PJZ", id:"pjazza", e:"☕", n:"Il-Pjazza", mt:"The Square",
+    joke:"Nothing happens here and nothing is charged. Sit down, have a coffee, and listen to four men solve the country." },
 
-  { i:19, t:'prop', code:'MSN', id:'maisonette', e:'🏠', g:'swieqi', n:'Your Mate\'s Maisonette', mt:'Il-Maisonette Tal-Ħabib',
-    price:210, rent:[17,85,240,640,850,1050],
-    joke:'He will do you a price. The price is the market price. He will still want to be thanked for it.' },
+  { i:21, t:'prop', code:"KPL", id:"koppla", e:"⛪", g:"mosta", n:"The House Behind The Dome", mt:"Id-Dar Wara l-Koppla",
+    price:220, rent:[18,90,250,700,875,1050],
+    joke:"Bells at six, bells at noon, bells whenever anybody important dies. You stop hearing them by year two." },
 
-  { i:20, t:'prop', code:'PNT', id:'penthouse', e:'🌅', g:'swieqi', n:'Penthouse, Sea Views', mt:'Penthouse Bit-Tikka Baħar',
-    price:230, rent:[19,95,260,700,900,1100],
-    joke:'The sea view is real. It is nine centimetres wide, it is between two other blocks, and it is going in April.' },
+  { i:22, t:'card', code:"?", deck:"ghajdut", e:"👀", n:"Għajdut", mt:"Gossip",
+    joke:"Somebody has heard something about you and they are telling it to somebody else right now." },
 
-  { i:21, t:'rail', code:'KRZ', id:'karozzin', e:'🐴', n:'The Karozzin', mt:'Il-Karozzin', price:200,
-    joke:'Forty euro to be pulled slowly past things you could have walked to, by a man who has done this since before you were born.' },
+  { i:23, t:'prop', code:"GĦL", id:"ghalqa", e:"🌾", g:"mosta", n:"The Field They Call A Garden", mt:"L-Għalqa Li Jsejħulha Ġnien",
+    price:220, rent:[18,90,250,700,875,1050],
+    joke:"Half a tumolo of rubble, two carob trees and a permit application that has been pending since 2009." },
 
-  { i:22, t:'prop', code:'FRT', id:'front', e:'🌊', g:'sliema', n:'The Seafront Flat', mt:'Il-Flat Tal-Front',
-    price:280, rent:[24,120,350,850,1050,1250],
-    joke:'Nobody who lives on this island can afford it, and every single one of them can tell you exactly what it went for.' },
+  { i:24, t:'prop', code:"KNT", id:"kantuniera", e:"🏪", g:"mosta", n:"The Corner Shop With Flats Above", mt:"Il-Ħanut tal-Kantuniera",
+    price:240, rent:[20,100,300,750,925,1100],
+    joke:"Ground floor sells everything. The two flats above hear absolutely all of it." },
 
-  { i:23, t:'util', code:'ĠEN', id:'generatur', e:'🔌', n:'The Generator', mt:'Il-Ġeneratur', price:150,
-    joke:'Comes on eleven seconds after the power cuts, which is exactly ten seconds after everyone has started shouting.' },
+  { i:25, t:'rail', code:"KRZ", id:"karozzin", e:"🐴", n:"The Karozzin", mt:"Il-Karozzin", price:200,
+    joke:"Forty euro to be pulled slowly past things you could have walked to, by a man who has done this since before you were born." },
 
-  { i:24, t:'togo', code:'MRS', id:'junction', e:'🚦', n:'Marsa Junction', mt:'Il-Marsa', to:8,
-    joke:'You have been in this lane for twenty minutes. It is the wrong lane. It has always been the wrong lane.' },
+  { i:26, t:'prop', code:"BLK", id:"blokk", e:"🏗️", g:"swieqi", n:"The Block With No Permit", mt:"Il-Blokk Bla Permess",
+    price:260, rent:[22,110,330,800,975,1150],
+    joke:"Six floors up and the paperwork says \"boundary wall\". Everyone has noticed. Nobody has written it down." },
 
-  { i:25, t:'prop', code:'TOR', id:'torri', e:'🏢', g:'sliema', n:'The Tower By The Water', mt:'It-Torri Ħdejn Il-Baħar',
-    price:300, rent:[26,130,390,900,1100,1300],
-    joke:'Twenty-two floors of glass where a cinema used to be. Eleven people live in it. Four of them exist.' },
+  { i:27, t:'prop', code:"MSN", id:"maisonette", e:"🏠", g:"swieqi", n:"Your Mate's Maisonette", mt:"Il-Maisonette Tal-Ħabib",
+    price:260, rent:[22,110,330,800,975,1150],
+    joke:"He will do you a price. The price is the market price. He will still want to be thanked for it." },
 
-  { i:26, t:'prop', code:'VST', id:'vista', e:'🪟', g:'sliema', n:'Two Rooms With A View', mt:'Żewġ Kmamar Bil-Vista',
-    price:320, rent:[28,140,420,950,1150,1400],
-    joke:'The view is magnificent and the rooms are two. You will be showing people the view for the rest of your life.' },
+  { i:28, t:'util', code:"ĠEN", id:"generatur", e:"🔌", n:"The Generator", mt:"Il-Ġeneratur", price:150,
+    joke:"Comes on eleven seconds after the power cuts, which is exactly ten seconds after everyone has started shouting." },
 
-  { i:27, t:'card', code:'!', deck:'gvern', e:'🏛️', n:'Tal-Gvern', mt:'The Government',
-    joke:'Reference number, department, sub-department, and a form that exists only on the third floor.' },
+  { i:29, t:'prop', code:"PNT", id:"penthouse", e:"🌅", g:"swieqi", n:"Penthouse, Sea Views", mt:"Penthouse Bit-Tikka Baħar",
+    price:280, rent:[24,120,360,850,1025,1200],
+    joke:"The sea view is real. It is nine centimetres wide, it is between two other blocks, and it is going in April." },
 
-  { i:28, t:'prop', code:'PLZ', id:'palazz', e:'🏛️', g:'belt', n:'The Valletta Palazzo', mt:'Il-Palazz Tal-Belt',
-    price:380, rent:[40,190,550,1200,1450,1700],
-    joke:'Grade one scheduled, which means you may look at it, love it, pay for it, and change absolutely nothing about it.' },
+  { i:30, t:"togo", code:"MRS", id:"junction", e:"🚦", n:"Marsa Junction", mt:"Il-Marsa",
+    joke:"You have been in this lane for twenty minutes. It is the wrong lane. It has always been the wrong lane." },
 
-  { i:29, t:'rail', code:'TXI', id:'taxi', e:'🚕', n:'The Airport Taxi', mt:'It-Taxi Tal-Ajruport', price:200,
-    joke:'The fare is fixed. It has been fixed at a different number every single time you have used it.' },
+  { i:31, t:'prop', code:"FRT", id:"front", e:"🌊", g:"sliema", n:"The Seafront Flat", mt:"Il-Flat Tal-Front",
+    price:300, rent:[26,130,390,900,1100,1275],
+    joke:"Nobody who lives on this island can afford it, and every single one of them can tell you exactly what it went for." },
 
-  { i:30, t:'tax', code:'ĊNS', id:'cens', e:'📜', n:'Iċ-Ċens', mt:'The Ground Rent', amount:75, perBuilding:25,
-    joke:'Set in 1912 by a man who is extremely dead, and it will outlive you, your children, and the building itself.' },
+  { i:32, t:'prop', code:"TOR", id:"torri", e:"🏢", g:"sliema", n:"The Tower By The Water", mt:"It-Torri Ħdejn Il-Baħar",
+    price:300, rent:[26,130,390,900,1100,1275],
+    joke:"Twenty-two floors of glass where a cinema used to be. Eleven people live in it. Four of them exist." },
 
-  { i:31, t:'prop', code:'MDN', id:'imdina', e:'🕯️', g:'belt', n:'The Mdina House', mt:'Id-Dar Tal-Imdina',
-    price:420, rent:[55,220,620,1400,1700,2100],
-    joke:'Nine bedrooms behind the silent city walls, and nobody has slept in it since 1987. It is being kept. For what, nobody says.' },
+  { i:33, t:'card', code:"!", deck:"gvern", e:"🏛️", n:"Tal-Gvern", mt:"The Government",
+    joke:"A brown envelope with a window in it, and whatever is inside is now your problem." },
+
+  { i:34, t:'prop', code:"VST", id:"vista", e:"🪟", g:"sliema", n:"Two Rooms With A View", mt:"Żewġ Kmamar Bil-Vista",
+    price:320, rent:[28,150,450,1000,1200,1400],
+    joke:"The view is magnificent and the rooms are two. You will be showing people the view for the rest of your life." },
+
+  { i:35, t:'rail', code:"TXI", id:"taxi", e:"🚕", n:"The Airport Taxi", mt:"It-Taxi Tal-Ajruport", price:200,
+    joke:"The fare is fixed. It has been fixed at a different number every single time you have used it." },
+
+  { i:36, t:'card', code:"?", deck:"ghajdut", e:"👀", n:"Għajdut", mt:"Gossip",
+    joke:"Somebody has heard something about you and they are telling it to somebody else right now." },
+
+  { i:37, t:'prop', code:"PLZ", id:"palazz", e:"🏛️", g:"belt", n:"The Valletta Palazzo", mt:"Il-Palazz Tal-Belt",
+    price:350, rent:[35,175,500,1100,1300,1500],
+    joke:"Grade one scheduled, which means you may look at it, love it, pay for it, and change absolutely nothing about it." },
+
+  { i:38, t:'tax', code:"ĊNS", id:"cens", e:"📜", n:"Iċ-Ċens", mt:"The Ground Rent", amount:75, perBuilding:25,
+    joke:"Set in 1912 by a man who is extremely dead, and it will outlive you, your children, and the building itself." },
+
+  { i:39, t:'prop', code:"MDN", id:"imdina", e:"🕯️", g:"belt", n:"The Mdina House", mt:"Id-Dar Tal-Imdina",
+    price:400, rent:[50,200,600,1400,1700,2000],
+    joke:"Nine bedrooms behind the silent city walls, and nobody has slept in it since 1987. It is being kept. For what, nobody says." },
 ];
 
 const RAILS = BOARD.filter(s => s.t === 'rail').map(s => s.i);
@@ -501,12 +536,28 @@ function newGame(opts){
 /* ═══════════════════════════════════════════════════════════════════
    7. LOOKUPS
    ═══════════════════════════════════════════════════════════════════ */
-const sq   = i => BOARD[((i % 32) + 32) % 32];
+const sq   = i => BOARD[((i % NSQ) + NSQ) % NSQ];
 const cur  = G => G.players[G.turn];
 const alive = G => G.players.filter(p => !p.out);
 const isProp = i => BOARD[i] && (BOARD[i].t === 'prop' || BOARD[i].t === 'rail' || BOARD[i].t === 'util');
 
 function groupOf(i){ const s = BOARD[i]; return s && s.g ? GROUPS[s.g] : null; }
+
+/* ── WHAT A SQUARE IS CALLED, ACCORDING TO THE ACTIVE THEME ──────────
+   The engine owns every NUMBER and the theme owns every NAME, so the log
+   -- which is a shared narrative people read aloud to each other -- has to
+   ask the theme rather than the board. Falls back to the board's own name,
+   so kiri.js still runs perfectly well with js/kiri-theme.js absent. */
+function nameOf(i){
+  const T = window.KIRI_THEMES;
+  const t = T && T.sq ? T.sq(i) : null;
+  return (t && t.n) || (BOARD[i] && BOARD[i].n) || '';
+}
+function groupNameOf(key){
+  const T = window.KIRI_THEMES;
+  const t = T && T.group ? T.group(key) : null;
+  return (t && t.n) || (GROUPS[key] && GROUPS[key].n) || '';
+}
 
 /* every square in the same "set" — colour group, all four transports,
    or both services */
@@ -574,7 +625,7 @@ const unmortgageCost = i => Math.ceil(mortgageValue(i) * 1.1);
 
 function buildingsOf(G, p){
   let floors = 0, pent = 0;
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < NSQ; i++){
     if (G.own[i] !== p) continue;
     if (G.lvl[i] === 5) pent++;
     else floors += G.lvl[i];
@@ -584,7 +635,7 @@ function buildingsOf(G, p){
 
 function netWorth(G, p){
   let n = G.players[p].cash;
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < NSQ; i++){
     if (G.own[i] !== p) continue;
     n += G.mort[i] ? mortgageValue(i) : BOARD[i].price;
     if (BOARD[i].t === 'prop' && G.lvl[i] > 0){
@@ -597,7 +648,7 @@ function netWorth(G, p){
 
 function holdings(G, p){
   const out = [];
-  for (let i = 0; i < 32; i++) if (G.own[i] === p) out.push(i);
+  for (let i = 0; i < NSQ; i++) if (G.own[i] === p) out.push(i);
   return out;
 }
 
@@ -776,9 +827,9 @@ function roll(G, forced){
 function advance(G, n){
   const P = cur(G);
   const from = P.pos;
-  P.pos = (from + n) % 32;
+  P.pos = (from + n) % NSQ;
   fx('move', { p: P.i, from, to: P.pos, n });
-  if (P.pos < from || n >= 32){
+  if (P.pos < from || n >= NSQ){
     credit(G, P.i, SALARY);
     fx('salary', { p: P.i, amt: SALARY });
     say(G, P.name + ' passed Il-Bidu. Two hundred, and not a word about where it comes from.', 'good');
@@ -935,7 +986,7 @@ function applyCard(G){
           line = 'Throwing again for the meter: ' + (d1 + d2) + ', so ten times that — ' + money(r) + '.';
         } else {
           r = rentOf(G, to, (G.dice ? G.dice[0] + G.dice[1] : 7)) * 2;
-          line = 'Arriving on somebody else\'s ' + BOARD[to].n + ' this way costs double: ' + money(r) + '.';
+          line = 'Arriving on somebody else\'s ' + nameOf(to) + ' this way costs double: ' + money(r) + '.';
         }
         say(G, line, 'bad');
         if (pay(G, P.i, r, o)) done();
@@ -976,7 +1027,7 @@ function declineBuy(G, auctionOn){
   const i = cur(G).pos;
   fx('decline', { p: G.turn, i });
   if (auctionOn === false){
-    say(G, 'Nobody wanted ' + BOARD[i].n + '. It stays empty.');
+    say(G, 'Nobody wanted ' + nameOf(i) + '. It stays empty.');
     G.phase = 'awaitEnd';
     return true;
   }
@@ -986,14 +1037,14 @@ function declineBuy(G, auctionOn){
 function startAuction(G, i){
   const inIt = alive(G).map(p => p.i);
   if (inIt.length < 2){
-    say(G, 'Nobody left to bid against. ' + BOARD[i].n + ' stays empty.');
+    say(G, 'Nobody left to bid against. ' + nameOf(i) + ' stays empty.');
     G.phase = 'awaitEnd';
     return true;
   }
   G.auction = { pos:i, bid:0, high:-1, seat:0, order: inIt, out: [] };
   G.phase = 'auction';
   fx('auction', { i });
-  say(G, BOARD[i].n + ' goes under the hammer.', 'card');
+  say(G, nameOf(i) + ' goes under the hammer.', 'card');
   return true;
 }
 
@@ -1069,10 +1120,10 @@ function finishAuction(G){
     G.players[A.high].cash -= A.bid;
     G.own[i] = A.high;
     fx('hammer', { p: A.high, i, amt: A.bid });
-    say(G, G.players[A.high].name + ' takes ' + BOARD[i].n + ' for ' + money(A.bid) + '.', 'good');
+    say(G, G.players[A.high].name + ' takes ' + nameOf(i) + ' for ' + money(A.bid) + '.', 'good');
   } else {
     fx('hammer', { p: -1, i, amt: 0 });
-    say(G, 'Not one bid. ' + BOARD[i].n + ' stays on the market.');
+    say(G, 'Not one bid. ' + nameOf(i) + ' stays on the market.');
   }
   G.auction = null;
   G.phase = G.debt ? 'debt' : 'awaitEnd';
@@ -1114,7 +1165,7 @@ function build(G, i){
   else { G.supply.floors--; G.lvl[i]++; }
   G.stat.builds++;
   fx('build', { p, i, amt: cost, pent: G.lvl[i] === 5 });
-  say(G, G.players[p].name + ' put up ' + LADDER[G.lvl[i]].mt.toLowerCase() + ' on ' + BOARD[i].n + '. ' + money(cost) + '.', 'good');
+  say(G, G.players[p].name + ' put up ' + LADDER[G.lvl[i]].mt.toLowerCase() + ' on ' + nameOf(i) + '. ' + money(cost) + '.', 'good');
   return true;
 }
 
@@ -1139,7 +1190,7 @@ function sellBuilding(G, i, p){
   else { G.lvl[i]--; G.supply.floors++; }
   G.players[p].cash += back;
   fx('sell', { p, i, amt: back });
-  say(G, G.players[p].name + ' sold a floor off ' + BOARD[i].n + ' for ' + money(back) + '.', 'bad');
+  say(G, G.players[p].name + ' sold a floor off ' + nameOf(i) + ' for ' + money(back) + '.', 'bad');
   if (G.debt && G.debt.who === p) settle(G);
   return true;
 }
@@ -1165,7 +1216,7 @@ function mortgage(G, i, p){
   G.mort[i] = true;
   G.players[p].cash += mortgageValue(i);
   fx('mortgage', { p, i, amt: mortgageValue(i) });
-  say(G, G.players[p].name + ' mortgaged ' + BOARD[i].n + ' for ' + money(mortgageValue(i)) + '.', 'bad');
+  say(G, G.players[p].name + ' mortgaged ' + nameOf(i) + ' for ' + money(mortgageValue(i)) + '.', 'bad');
   if (G.debt && G.debt.who === p) settle(G);
   return true;
 }
@@ -1181,7 +1232,7 @@ function unmortgage(G, i, p){
   G.players[p].cash -= unmortgageCost(i);
   G.mort[i] = false;
   fx('redeem', { p, i, amt: unmortgageCost(i) });
-  say(G, G.players[p].name + ' cleared the mortgage on ' + BOARD[i].n + ' — ' + money(unmortgageCost(i)) + ' with the interest.', 'good');
+  say(G, G.players[p].name + ' cleared the mortgage on ' + nameOf(i) + ' — ' + money(unmortgageCost(i)) + ' with the interest.', 'good');
   return true;
 }
 
@@ -1226,12 +1277,12 @@ function tradeLegal(G, o){
   for (const i of pa){
     if (G.own[i] !== a.i) return 'not ' + a.name + '\'s to give';
     if (BOARD[i].t === 'prop' && GROUPS[BOARD[i].g].props.some(x => G.lvl[x] > 0))
-      return 'sell the floors on ' + GROUPS[BOARD[i].g].n + ' first';
+      return 'sell the floors on ' + groupNameOf(BOARD[i].g) + ' first';
   }
   for (const i of pb){
     if (G.own[i] !== b.i) return 'not ' + b.name + '\'s to give';
     if (BOARD[i].t === 'prop' && GROUPS[BOARD[i].g].props.some(x => G.lvl[x] > 0))
-      return 'sell the floors on ' + GROUPS[BOARD[i].g].n + ' first';
+      return 'sell the floors on ' + groupNameOf(BOARD[i].g) + ' first';
   }
   const skA = Math.max(0, o.skipsFrom || 0), skB = Math.max(0, o.skipsTo || 0);
   if (skA > a.skips || skB > b.skips) return 'no such card to give';
@@ -1274,9 +1325,9 @@ function doTrade(G, o){
     say(G, 'The bank takes its ten per cent on the mortgaged deeds.', '');
   G.stat.trades++;
   const bits = [];
-  if ((o.propsFrom || []).length) bits.push(a.name + ' gives ' + o.propsFrom.map(i => BOARD[i].n).join(', '));
+  if ((o.propsFrom || []).length) bits.push(a.name + ' gives ' + o.propsFrom.map(i => nameOf(i)).join(', '));
   if (ca) bits.push(a.name + ' gives ' + money(ca));
-  if ((o.propsTo || []).length) bits.push(b.name + ' gives ' + o.propsTo.map(i => BOARD[i].n).join(', '));
+  if ((o.propsTo || []).length) bits.push(b.name + ' gives ' + o.propsTo.map(i => nameOf(i)).join(', '));
   if (cb) bits.push(b.name + ' gives ' + money(cb));
   say(G, 'Deal done — ' + bits.join('; ') + '.', 'card');
   fx('trade', { from: o.from, to: o.to });
@@ -1295,7 +1346,7 @@ function doTrade(G, o){
    being offered the same advice the machine takes. */
 function liquidationList(G, p){
   const out = [];
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < NSQ; i++){
     if (G.own[i] !== p) continue;
     if (canSell(G, p, i)){
       const s = BOARD[i];
@@ -1303,7 +1354,7 @@ function liquidationList(G, p){
                  rank: 0, tie: GROUPS[s.g].build * 10 + G.lvl[i] });
     }
   }
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < NSQ; i++){
     if (G.own[i] !== p || !canMortgage(G, p, i)) continue;
     const partOfSet = ownsSet(G, p, i);
     out.push({ kind:'mortgage', i, gain: mortgageValue(i),
@@ -1340,7 +1391,7 @@ function bankrupt(G, p){
     C.cash += P.cash;
     C.skips += P.skips;
     let n = 0, feeTotal = 0;
-    for (let i = 0; i < 32; i++){
+    for (let i = 0; i < NSQ; i++){
       if (G.own[i] !== p) continue;
       /* the buildings come down — a bankrupt's floors are sold to the
          bank at half, and the money goes to the creditor with the rest */
@@ -1370,7 +1421,7 @@ function bankrupt(G, p){
       const total = d.split.reduce((n, x) => n + x.amt, 0) || 1;
       d.split.forEach(x => credit(G, x.p, Math.floor(P.cash * x.amt / total)));
     }
-    for (let i = 0; i < 32; i++){
+    for (let i = 0; i < NSQ; i++){
       if (G.own[i] !== p) continue;
       while (G.lvl[i] > 0){
         if (G.lvl[i] === 5){ G.lvl[i] = 4; G.supply.penthouses++; G.supply.floors -= 4; }
@@ -1735,7 +1786,7 @@ const REFUSAL_LINES = [
 /* a canonical copy of an offer — the shape that goes in the log and on
    the wire, with nothing of the caller's own object left in it */
 function cleanOffer(G, from, o){
-  const cap = 32;
+  const cap = NSQ;
   const list = a => (Array.isArray(a) ? a : [])
     .map(x => x | 0).filter(x => x >= 0 && x < cap)
     .filter((x, n, all) => all.indexOf(x) === n)
@@ -1893,7 +1944,7 @@ function apply(G, seat, move, src){
     case 'refuse': {
       if (!G.offer) return no('no-offer', 'turning down a deal nobody offered');
       const n = Math.max(0, Math.min(REFUSAL_LINES.length - 1, move.n | 0));
-      const g = (move.i != null && BOARD[i] && BOARD[i].g) ? GROUPS[BOARD[i].g].n : '';
+      const g = (move.i != null && BOARD[i] && BOARD[i].g) ? groupNameOf(BOARD[i].g) : '';
       say(G, G.players[G.offer.to].name + ' ' +
              (n === 4 && g ? 'says finishing ' + g + ' costs more than that.' : REFUSAL_LINES[n]));
       refuse(G, G.offer);

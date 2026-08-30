@@ -1826,15 +1826,27 @@ function startGame(seatList, opts){
    start, and it runs clockwise: up the left, across the top, down the
    right, back along the bottom.
    ═══════════════════════════════════════════════════════════════════ */
+/* WHERE A SQUARE SITS ON AN 11x11 RING.
+
+   Monopoly's ring is ten spaces per side plus four corners: GO at the
+   bottom-right, then the bottom row runs RIGHT TO LEFT to Jail, up the left
+   side to Free Parking, left to right along the top to Go To Jail, and back
+   down the right side to GO. Column 1 is the left edge, row 1 the top, so the
+   arithmetic below is that walk written out. */
+const RING = 11;                       /* 9 side squares + 2 corners        */
+/* RETURNS [ROW, COLUMN] -- the caller destructures `const [r, col]`, and
+   getting that pair the wrong way round silently mirrors the whole board
+   about its diagonal: Jail comes out top-right instead of bottom-left and
+   play runs backwards round the ring. */
 function cellPos(i){
-  if (i === 0)  return [9, 1];
-  if (i < 8)    return [9 - i, 1];
-  if (i === 8)  return [1, 1];
-  if (i < 16)   return [1, i - 7];
-  if (i === 16) return [1, 9];
-  if (i < 24)   return [i - 15, 9];
-  if (i === 24) return [9, 9];
-  return [9, 9 - (i - 24)];
+  if (i === 0)  return [RING, RING];              /* GO, bottom-right       */
+  if (i < 10)   return [RING, RING - i];          /* bottom row, right→left */
+  if (i === 10) return [RING, 1];                 /* JAIL, bottom-left      */
+  if (i < 20)   return [RING - (i - 10), 1];      /* left side, bottom→top  */
+  if (i === 20) return [1, 1];                    /* FREE PARKING, top-left */
+  if (i < 30)   return [1, 1 + (i - 20)];         /* top row, left→right    */
+  if (i === 30) return [1, RING];                 /* GO TO JAIL, top-right  */
+  return [1 + (i - 30), RING];                    /* right side, top→bottom */
 }
 
 let els = {};
@@ -1920,7 +1932,7 @@ function boardScreen(){
 
   /* the ring, built once */
   injectSprite();
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < K.BOARD.length; i++){
     const s = K.BOARD[i];
     const c = document.createElement('button');
     c.className = 'kr-cell' + (['go','jail','rest','togo'].indexOf(s.t) >= 0 ? ' corner' : '');
@@ -1951,7 +1963,7 @@ function boardScreen(){
      .kr-toks. A tile has to clip (its picture fills it); a crowd of
      eight faces must not. */
   els.toks = [];
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < K.BOARD.length; i++){
     const t = document.createElement('div');
     t.className = 'kr-toks ' + (sideOf(i) || 'corner');
     t.id = 'kr-t' + i;
@@ -2778,7 +2790,8 @@ function seatTok(p, sz, cls){
    is a fraction of THAT, not of a constant, so it is right at 240
    points and right at 900. */
 function cellUnit(){
-  return Math.max(14, (base - 14 - 16) / 9.36);
+  /* 9 ordinary cells plus two corners drawn at 1.18x = 11.36 units across */
+  return Math.max(14, (base - 14 - 16) / 11.36);
 }
 /* how many faces are worth drawing on one square, given how big that
    square is ON THE GLASS right now — which is why pinching in shows
@@ -2795,7 +2808,7 @@ function tokCap(){ return capFor(cellUnit()) * 10 + capFor(cellUnit() * 1.18); }
 function renderCells(){
   const unit = cellUnit();
   lastCap = tokCap();
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < K.BOARD.length; i++){
     const s = K.BOARD[i], c = document.getElementById('kr-c' + i);
     if (!c) continue;
     /* every square has a colour; only the ones that can be BOUGHT get
@@ -2913,7 +2926,7 @@ function renderMid(){
      concrete it can, and that is the one number that belongs in the
      middle of the table rather than on anybody's own sheet. */
   let fl = 0, pn = 0;
-  for (let i = 0; i < 32; i++){
+  for (let i = 0; i < K.BOARD.length; i++){
     if (G.lvl[i] === 5) pn++;
     else fl += G.lvl[i] || 0;
   }
@@ -4110,9 +4123,26 @@ function put3(w, k, v){
 }
 const get3 = (w, k) => ((w[k[0]] | 0) << 16) + ((w[k[1]] | 0) << 8) + (w[k[2]] | 0);
 
+/* A TRADE'S DEEDS TRAVEL AS A BIT PER OWNABLE SQUARE — NOT PER SQUARE.
+   These masks are 32 bits wide and used to index the board directly, which
+   was fine on a 32-space board and is a silent data-loss bug on a 40-space
+   one: `1 << i` wraps past 31, so a Sliema or Belt deed (31..39) would simply
+   vanish from an offer on its way to the other phone, with no error anywhere.
+
+   Widening the field is not available -- 18 of a hard 19 wire fields are
+   already used. But only 28 squares can ever BE traded (22 properties, 4
+   transports, 2 utilities), so indexing the DEEDS list instead fits inside
+   the same four bytes with room to spare. */
+const DEEDS = K.BOARD.filter(s => s.t === 'prop' || s.t === 'rail' || s.t === 'util')
+                     .map(s => s.i);
+const DEED_BIT = (function (){ const m = {}; DEEDS.forEach((i, b) => { m[i] = b; }); return m; })();
+
 function putMask(w, k, list){
   let m = 0;
-  (list || []).forEach(i => { i = i | 0; if (i >= 0 && i < 32) m |= (1 << i); });
+  (list || []).forEach(i => {
+    const b = DEED_BIT[i | 0];
+    if (b != null && b < 32) m |= (1 << b);
+  });
   m = m >>> 0;
   w[k[0]] = (m >>> 24) & 255; w[k[1]] = (m >>> 16) & 255;
   w[k[2]] = (m >>> 8) & 255;  w[k[3]] = m & 255;
@@ -4121,7 +4151,7 @@ function getMask(w, k){
   const m = ((((w[k[0]] | 0) << 24) >>> 0) + ((w[k[1]] | 0) << 16) +
              ((w[k[2]] | 0) << 8) + (w[k[3]] | 0)) >>> 0;
   const out = [];
-  for (let i = 0; i < 32; i++) if (m & (1 << i)) out.push(i);
+  for (let b = 0; b < DEEDS.length && b < 32; b++) if (m & (1 << b)) out.push(DEEDS[b]);
   return out;
 }
 
@@ -4159,7 +4189,10 @@ function encMove(m){
 function decMove(w){
   if (!w || typeof w.t !== 'string') return null;
   if (K.MOVES.indexOf(w.t) < 0) return null;
-  const sq = n => (n >= 0 && n < 32) ? n : -1;
+  /* validates a square index off the WIRE, so it must follow the board's real
+     length -- at 32 it silently refused every move touching squares 32..39,
+     which is the whole of Sliema and Il-Belt */
+  const sq = n => (n >= 0 && n < K.BOARD.length) ? n : -1;
   switch (w.t){
     case 'build': case 'sell': case 'mortgage': case 'unmortgage': {
       const i = sq(w.i | 0);
