@@ -12252,9 +12252,20 @@ def owner_cli(args):
             # abort a delete that has already committed next door.
             try:
                 st = karti_stats.open_store(args.stats)
+                # COUNT FIRST, because forget() returns nothing. Reporting a
+                # flat "1 row" here would claim work that may not have
+                # happened -- most of these accounts never played a game and
+                # have no leaderboard rows at all.
+                n = 0
+                with st.lock:
+                    for t in ("players", "rows", "wrows"):
+                        n += st.db.execute(
+                            "SELECT COUNT(*) FROM %s WHERE uname=?" % t,
+                            (key,)).fetchone()[0]
                 st.forget(key)
                 karti_stats.close_store()
-                got["stats.db"] = 1
+                if n:
+                    got["stats.db"] = n
             except Exception as e:                              # noqa: BLE001
                 print("warning: leaderboard rows not removed — %s" % e,
                       file=sys.stderr)
