@@ -427,6 +427,115 @@ function entry(id){
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   1b. WHO YOU PLAYED — the online table, frozen at 'began'
+   ───────────────────────────────────────────────────────────────────
+   WHY IT LIVES HERE AND NOT IN THE GAMES
+     js/party.js forwards every party game's result to record() FIRST, so a
+     richer second call from the game itself arrives after and is dropped as
+     a repeat. Wiring the games one by one would therefore do NOTHING for
+     most of them. There is exactly one place that sees every online result:
+     this file. So the table is captured here.
+
+   WHY AT 'began' AND NOT AT record()
+     MP.roster mutates as chairs empty. Read it when the match ends and the
+     person who walked out — the one you most want to add — is already gone
+     from it. js/mp.js calls _tableBegan() once, at 'began', and this holds
+     the answer for the life of that match.
+
+   HOW THE KEY IS KEPT HONEST
+     · The roster is read WHOLESALE: every seat except MP.mySeat. The name
+       and the account key come off the SAME seat entry, so there is no
+       index arithmetic anywhere and no way to pair one player's name with
+       another player's key.
+     · MP.roster.who[MP.mySeat] must be ME — checked against the signed-in
+       account key before anything is kept. If that does not hold, the seat
+       indexing is not what we think it is and the capture is thrown away
+       rather than offering a stranger as a friend.
+     · Every key is validated against the relay's own account-name rule
+       before it is stored, shown, or handed to the friends module.
+     · The capture is only ever attached to a result while MP.began is
+       STILL the same object it was frozen from. Leave the room and the
+       next game recorded gets no opponents — an opponent list bolted onto
+       the wrong match is a lie.
+
+   WHAT HAS NO TABLE
+     'cards', 'chess' and 'dama' are the relay's INSTANT_DUEL_GAMES: it
+     never sends them a {t:'table'}, so there is no roster and there are no
+     opponents to show. Those rows show none, and claim nothing.
+   ═══════════════════════════════════════════════════════════════════ */
+/* the relay's own account-name rule (server v_username / NAME_RE), lower
+   cased: 1..16 of letters, digits, underscore, space, dot, hyphen. Anything
+   else came off another client's socket and is not a key we will act on. */
+var ACCT_RE = /^[a-z0-9_ .\-]{1,16}$/;
+var OPP_MAX = 7;           /* opponents kept per match entry */
+
+var TABLE = null;          /* {src, at, seats:[{k,n,pv}]} frozen at 'began' */
+
+function mpState(){
+  try { return (window.KARTI_MP && KARTI_MP.MP) ? KARTI_MP.MP : null; }
+  catch (e){ return null; }
+}
+function cleanAcct(v){
+  var k = String(v == null ? '' : v).toLowerCase();
+  return ACCT_RE.test(k) ? k : '';
+}
+/* my own account key, or '' when this phone is playing as a guest */
+function myAcct(){
+  var s = session();
+  return cleanAcct(s && s.u);
+}
+
+/* Called by js/mp.js at 'began', and by nobody else. Never throws. */
+function tableBegan(){
+  TABLE = null;
+  try {
+    var MP = mpState();
+    if (!MP || !MP.began) return;
+    var who = MP.roster && MP.roster.who;
+    if (!who || !who.length) return;           /* instant duel: no table at all */
+    var me = MP.mySeat | 0;
+
+    /* — the seat-alignment proof — */
+    var mine = who[me], my = myAcct();
+    if (my){
+      /* signed in: the chair the relay says is mine must carry MY key. If it
+         does not, mySeat does not index this list and every other seat we
+         read would be a guess. Take nothing. */
+      if (!mine || cleanAcct(mine.acct) !== my) return;
+    } else if (!mine){
+      /* a guest cannot be checked against a key, but the chair must at least
+         exist, or mySeat is out of range for this roster */
+      return;
+    }
+
+    var out = [], i;
+    for (i = 0; i < who.length; i++){
+      if (i === me) continue;                  /* everyone EXCEPT me */
+      var w = who[i];
+      if (!w || w.bot) continue;               /* an empty chair, or a machine */
+      var n = String(w.n == null ? '' : w.n).trim().slice(0, 24);
+      var k = cleanAcct(w.acct);
+      if (!n && !k) continue;
+      out.push({ k:k, n:n || k, pv:(typeof w.pv === 'number' && w.pv > 0) ? (w.pv | 0) : 0 });
+      if (out.length >= OPP_MAX) break;
+    }
+    if (!out.length) return;
+    TABLE = { src: MP.began, at: Date.now(), seats: out };
+  } catch (e){ TABLE = null; }
+}
+
+/* The opponents for the result being recorded RIGHT NOW, or [] when this
+   result does not belong to the captured match. */
+function tableNow(){
+  try {
+    if (!TABLE) return [];
+    var MP = mpState();
+    if (!MP || !MP.began || MP.began !== TABLE.src) return [];
+    return TABLE.seats.slice();
+  } catch (e){ return []; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    2. record() — THE WHOLE API EVERY OTHER GAME NEEDS
    ═══════════════════════════════════════════════════════════════════ */
 var recent = [];           /* {sig, t} for the no-id repeat guard */
@@ -514,11 +623,18 @@ function record(game, opts){
 
     /* THE RECENT FEED. One entry per counted match, newest last, capped at
        HIST_MAX. Only fields this file actually has: the game id, the result,
-       the moves/score/ms the caller passed (0 when it did not), and when.
-       Opponent names are NOT in record()'s payload, so they cannot be stored
-       here honestly — see the report. */
+       the moves/score/ms the caller passed (0 when it did not), and when —
+       plus `o`, WHO WAS AT THE TABLE, when this result belongs to the online
+       match frozen at 'began' (see §1b). record()'s own payload still carries
+       no names: the opponents come from the roster, not from the caller, so
+       every game in the box gets them without changing its one line. An
+       offline game, or an instant duel the relay sends no table for, simply
+       has no `o` and the row shows no opponents. */
     if (!Array.isArray(DATA.h)) DATA.h = [];
-    DATA.h.push({ g:id, r:res, m:moves, sc:score, ms:ms, t:now });
+    var row = { g:id, r:res, m:moves, sc:score, ms:ms, t:now };
+    var opp = tableNow();
+    if (opp.length) row.o = opp;
+    DATA.h.push(row);
     if (DATA.h.length > HIST_MAX) DATA.h.splice(0, DATA.h.length - HIST_MAX);
 
     var stored = persist();
@@ -975,6 +1091,33 @@ function injectCSS(){
     '#scr-stats .sx-rres.w{color:var(--ok);background:rgba(61,220,132,.14)}' +
     '#scr-stats .sx-rres.l{color:var(--bad);background:rgba(255,84,104,.14)}' +
     '#scr-stats .sx-rres.d{color:var(--dim);background:rgba(255,255,255,.06)}' +
+
+    /* WHO YOU PLAYED — a second line inside the same card, spanning all
+       three columns of the row grid so it sits under the game rather than
+       squeezing it. Wraps, because a six-seat table is six chips. */
+    '#scr-stats .sx-ropp{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;gap:6px;' +
+      'margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}' +
+    '#scr-stats .sx-opplbl{font-family:var(--disp);font-weight:900;font-size:9.5px;letter-spacing:.1em;' +
+      'text-transform:uppercase;color:var(--dim2);margin-right:2px}' +
+    '#scr-stats .sx-oppchip{display:inline-flex;align-items:center;gap:6px;max-width:100%;' +
+      'padding:3px 4px 3px 3px;border-radius:999px;background:rgba(255,255,255,.05);' +
+      'border:1px solid var(--line)}' +
+    '#scr-stats .sx-oppav{position:relative;flex:0 0 auto;width:26px;height:26px;border-radius:50%;' +
+      'overflow:hidden;background:rgba(255,255,255,.06)}' +
+    '#scr-stats .sx-oppnm{min-width:0;max-width:13ch;display:flex;flex-direction:column;' +
+      'line-height:1.15}' +
+    '#scr-stats .sx-oppnm b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+      'font-size:11.5px;font-weight:800;color:var(--ink,#fff)}' +
+    '#scr-stats .sx-oppnm em{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;' +
+      'font-style:normal;font-size:9.5px;color:var(--dim2)}' +
+    '#scr-stats .sx-oppadd{flex:0 0 auto;display:inline-flex;align-items:center;gap:3px;' +
+      'padding:4px 9px;border:0;border-radius:999px;cursor:pointer;' +
+      'font-family:var(--disp);font-weight:900;font-size:9.5px;letter-spacing:.08em;' +
+      'text-transform:uppercase;color:#1a1206;background:var(--gold,#FFC542)}' +
+    '#scr-stats .sx-oppadd .ico{width:12px;height:12px}' +
+    '#scr-stats .sx-oppadd[disabled]{opacity:.5}' +
+    '#scr-stats .sx-oppno{flex:0 0 auto;padding:4px 8px;font-family:var(--disp);font-weight:900;' +
+      'font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim2)}' +
 
     /* ── the head: coin, name, and the three numbers ── */
     '#scr-stats .sx-head{display:flex;align-items:center;gap:13px;padding:13px;border-radius:16px;' +
@@ -2132,12 +2275,14 @@ function wireGames(el){
 /* ── THE RECENT TAB — a feed of the player's own recent results ──
    The middle tab of the outer three. Built from DATA.h[], the per-match log
    record() keeps. Newest first: each row is the game (logo + name), the
-   result (win/loss/draw), and when.
-   THERE IS NO OPPONENT COLUMN AND THERE MUST NOT BE ONE. record()'s payload
-   carries {result, id, moves, score, ms} and nothing else — no seat list, no
-   names — so who you played is not a fact this file has. An empty column
-   would promise it is coming; inventing one would be a lie. The foot line
-   under the list says so plainly instead. */
+   result (win/loss/draw), when — and, for an online table, WHO YOU PLAYED,
+   with a one-tap Add beside each of them.
+   The opponents are NOT in record()'s payload and never were: they come from
+   the roster frozen at 'began' (§1b), which is why every game in the box got
+   them without changing its reporting line. A row that has none shows none —
+   an offline game has no table, and the relay's instant duels ('cards',
+   'chess', 'dama') are never sent one, so there is nothing to show and
+   nothing is invented. */
 function recentHTML(){
   return '<div id="sx-recent" class="sx-list"></div>';
 }
@@ -2147,6 +2292,68 @@ var RES_TXT = {
   l: { en:'Loss', mt:'Telfa', cls:'l' },
   d: { en:'Draw', mt:'Draw',  cls:'d' }
 };
+
+/* Already a friend, or already asked? Then the Add offer would be a no-op and
+   is not made. The friends module owns the answer; if it is not loaded we
+   simply do not know, and offering is the harmless side of that. */
+function alreadyFriend(key){
+  try {
+    if (window.KARTI_FRIENDS && KARTI_FRIENDS.isFriend) return !!KARTI_FRIENDS.isFriend(key);
+  } catch (e){}
+  return false;
+}
+
+/* One opponent: their face, their display name, and the Add button — which
+   carries the ACCOUNT KEY, not the name on show. The two are different
+   things (the relay lets a player choose any display name) and the key is
+   the only one the friends system can act on. */
+function oppChip(o){
+  var k = cleanAcct(o && o.k);
+  var n = String((o && o.n) || k || '?').slice(0, 24);
+  var face = '';
+  try {
+    if (window.KARTI_XP && KARTI_XP.avatarHTML)
+      face = KARTI_XP.avatarHTML(n, { size:26, who:k || undefined,
+                                      pv:(o && o.pv) || undefined }) || '';
+  } catch (e){ face = ''; }
+  var add = '';
+  if (!k){
+    /* played as a guest, or an older relay that never sent a key. Say so
+       rather than offering an Add that cannot possibly land. */
+    add = '<span class="sx-oppno">' + T('guest', 'mistieden') + '</span>';
+  } else if (alreadyFriend(k)){
+    add = '<span class="sx-oppno">' + T('friend', 'ħabib') + '</span>';
+  } else {
+    add = '<button type="button" class="sx-oppadd" data-addk="' + esc(k) + '" ' +
+          'data-addn="' + esc(n) + '" aria-label="' +
+          esc(T('Add ' + n + ' as a friend', 'Żid lil ' + n + ' bħala ħabib')) + '">' +
+          ico('plus') + T('Add', 'Żid') + '</button>';
+  }
+  /* THE NAME ON THE CHAIR, AND WHO IT WAS. A display name is chosen and is
+     not unique — two strangers at one table can both be showing "GUEST" —
+     so the account underneath is named too whenever it is not simply the
+     same word. Without it the row cannot actually answer "who was that". */
+  var sub = (k && k !== n.toLowerCase())
+    ? '<em>' + esc(k) + '</em>' : '';
+  return '<span class="sx-oppchip">' +
+           '<span class="sx-oppav">' + initialsTile(n, 26) +
+             (face ? '<span class="sx-face-real" style="position:absolute;inset:0">' +
+                     face + '</span>' : '') + '</span>' +
+           '<span class="sx-oppnm"><b>' + esc(n) + '</b>' + sub + '</span>' + add +
+         '</span>';
+}
+
+function oppStrip(h){
+  var o = Array.isArray(h && h.o) ? h.o : [];
+  if (!o.length) return '';
+  var chips = [], i;
+  for (i = 0; i < o.length && i < OPP_MAX; i++) chips.push(oppChip(o[i]));
+  if (!chips.length) return '';
+  return '<div class="sx-ropp">' +
+           '<span class="sx-opplbl">' + T('Played against', 'Kontra') + '</span>' +
+           chips.join('') +
+         '</div>';
+}
 
 function recentRow(h){
   var def = richDef(h.g);
@@ -2162,7 +2369,35 @@ function recentRow(h){
            '<span class="sx-rnm"><b>' + esc(def.name) + '</b>' +
              '<i>' + esc(meta) + '</i></span>' +
            '<span class="sx-rres ' + r.cls + '">' + T(r.en, r.mt) + '</span>' +
+           oppStrip(h) +
          '</div>';
+}
+
+/* The Add buttons. One delegated handler on the list, so a repaint cannot
+   leave a dead listener behind. The key is re-validated here — it has been
+   through localStorage and a DOM attribute since it came off the wire — and
+   the friends module's own add call is what does the work. There is no
+   second friends system here. */
+function wireOpponents(host){
+  if (!host) return;
+  host.addEventListener('click', function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest('.sx-oppadd') : null;
+    if (!b || !host.contains(b)) return;
+    ev.preventDefault();
+    var k = cleanAcct(b.getAttribute('data-addk'));
+    if (!k) return;
+    var F = null;
+    try { F = window.KARTI_FRIENDS; } catch (e){}
+    if (!F || !F.add){
+      try { if (window.KARTI && KARTI.toast) KARTI.toast('Friends are not ready yet.'); } catch (e){}
+      return;
+    }
+    try { F.add(k); } catch (e){ return; }
+    /* friends.js toasts the confirmation itself when the relay answers, so
+       this only marks the button spent — two toasts for one tap is noise. */
+    b.disabled = true;
+    b.outerHTML = '<span class="sx-oppno">' + T('asked', 'mitlub') + '</span>';
+  });
 }
 
 function paintRecent(el){
@@ -2188,10 +2423,13 @@ function paintRecent(el){
       '<span class="sx-cnt">' + h.length + '</span></div>' +
     out.join('') +
     '<p class="sx-foot">' +
-      T('Your own matches, kept on this phone. Opponents and scores from other players are not stored here.',
-        'Il-logħbiet tiegħek, miżmuma fuq dan it-telefon. L-avversarji u l-punteġġi ta\' plejers oħra mhumiex maħżuna hawn.') +
+      T('Your own matches, kept on this phone. An online table also lists who was at it, so you can add ' +
+        'one of them as a friend from here. Other players’ scores are not stored.',
+        'Il-logħbiet tiegħek, miżmuma fuq dan it-telefon. Mejda onlajn iġġib ukoll min kien fuqha, biex ' +
+        'tista’ żżid lil xi ħadd bħala ħabib minn hawn. Il-punteġġi ta’ plejers oħra mhumiex maħżuna.') +
     '</p>';
   wireArt(host);
+  if (!host._sxOppWired){ host._sxOppWired = true; wireOpponents(host); }
   try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(host); } catch (e){}
 }
 
@@ -2709,6 +2947,14 @@ window.KARTI_STATS = {
   push: function(){ return pushNow(true); },
   board: function(){ return BOARD; },
   refresh: loadBoard,
+
+  /* ── WHO YOU PLAYED ──
+     _tableBegan is called by js/mp.js at 'began' and by nothing else: it
+     freezes the online roster so a result recorded later can name the people
+     at the table even if they have since walked out. _table is read-only,
+     for the harness and for anything that wants the current capture. */
+  _tableBegan: tableBegan,
+  _table: function(){ return tableNow(); },
 
   /* used by the headless verification harness */
   _key: KEY,

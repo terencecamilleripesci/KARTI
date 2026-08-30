@@ -1107,6 +1107,20 @@
   window.KARTI_FRIENDS = {
     open: open,
     onFriend: onFriend,          // surfaced for the headless verification harness
+    /* THE ONE add-a-friend call, surfaced so other screens can offer it
+       without building a second friends system. `addByName` is what the
+       "recently played" rows already use; the relay lower-cases whatever
+       arrives (v_username) and looks it up as an account key, so an account
+       key IS a valid argument and is the exact thing the record book has.
+       `isFriend` lets a caller hide an offer that would be a no-op. */
+    add: addByName,
+    addByCode: addByCode,
+    isFriend: function(key){
+      key = String(key || '').toLowerCase();
+      if (!key) return false;
+      return ST.friends.some(function(f){ return String(f.k || '').toLowerCase() === key; }) ||
+             ST.outgoing.some(function(r){ return String(r.n || '').toLowerCase() === key; });
+    },
     _state: ST,
     refresh: function(){ list(true); },
     /* test hooks */

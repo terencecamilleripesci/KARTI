@@ -1649,6 +1649,17 @@ class Room:
                 if pv:
                     seat["pv"] = pv
                     seat["av"] = s.conn.acct
+                # WHO IS ACTUALLY SITTING HERE. `av` above is only set when the
+                # account has uploaded a photograph, so it can never answer
+                # "who did I just play?"; and `n` is a CHOSEN display name that
+                # does not lower-case into an account key. `acct` is on EVERY
+                # seat that has an account, so the client can name the people at
+                # the table afterwards and offer to add one as a friend. It is
+                # the same identifier the leaderboard already publishes beside a
+                # name, so it is no new kind of exposure. APPENDED to the seat,
+                # never inserted, so an older build decodes the roster unchanged
+                # and simply ignores it.
+                seat["acct"] = s.conn.acct
             # AND THE LOOK THEY PICKED. A photograph needs an account and an
             # upload; a face, a ring and a badge need neither, so for most
             # players this is the only thing that makes the chair look like

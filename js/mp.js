@@ -4709,6 +4709,14 @@ function onBegan(m){
      forgotten the leaver by the time the question is asked. */
   MP.matchLive = live.map(s => ({ seat: s.seat, kind: s.kind }));
 
+  /* WHO YOU PLAYED, for the record book. The ROSTER is the only place the
+     account keys live and it mutates the moment somebody walks out, so the
+     record book is told to freeze it HERE, once, at 'began'. It reads
+     MP.roster itself (wholesale — key and name off the same seat entry), so
+     nothing about seat order is passed across and no game has to learn a new
+     call. Never allowed to take the table down with it. */
+  try { if (window.KARTI_STATS && KARTI_STATS._tableBegan) KARTI_STATS._tableBegan(); } catch (e){}
+
   /* THE MACHINE IS READY BEFORE ANYBODY LOOKS AT IT. autoReady() is the game's
      own, and is called for every seat rather than only the ones we think are
      machines — that is what the contract is for. */

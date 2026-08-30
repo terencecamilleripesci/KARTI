@@ -528,3 +528,43 @@ Also caught, and all real:
 
 **Lesson: for a screen whose whole job is visual, an agent that measures beats
 an agent that looks — including when the one looking is me.**
+
+---
+
+## "Who did I play?" — where the account key was, and four traps around it (325)
+
+Wiring match history to name your online opponents. Four things cost real time
+and are worth an hour to the next agent.
+
+- **`Room.roster()` only ever sent the account key as `av`, and only for
+  accounts that had uploaded a PHOTO.** The seat's `n` is `s.conn.pname` — a
+  CHOSEN display name — so it does not lower-case into an account key. Two
+  strangers at one table can both be showing "GUEST". The roster seat now
+  carries `acct` on every seat that has an account (appended, so an older
+  client decodes it unchanged). Do NOT go looking at the `acct` near
+  `push_view()` — that is web-push only and never reaches a phone.
+- **Capture the roster at `began`, not at `record()`.** The roster mutates as
+  chairs empty, so reading it at the end loses exactly the person you most
+  want to add. `MP.began` survives `tableStop`/`endMatch` and is only cleared
+  by `mpLeave`, which makes object identity (`MP.began === capture.src`) a
+  clean "does this result belong to that match" test.
+- **Do it in `js/stats.js`, never in the games.** `js/party.js` forwards to
+  `record()` FIRST, so a game's own richer second call is dropped as a repeat.
+  One hook in `mp.js`'s `onBegan` covers every game in the box.
+- **`stats.js` caches the whole store in memory on first read.** Injecting a
+  `karti_stats_v1` blob into localStorage and then calling `openProfile()`
+  shows nothing. Reload the page after writing it.
+
+Harness notes, all of which cost a run each:
+- **IR-REBBIEĦ (`#kr-root`) is a fixed z-index 12000 overlay.** A screenshot of
+  the record book taken straight after a match is a picture of the winner
+  screen, and `elementFromPoint` correctly reports every row as invisible.
+  Dismiss it via a button INSIDE `#kr-root` — a global text search for
+  "leave" finds the lobby's button first.
+- **Registration is rate-limited per caller IP: `REG_BURST` 3, then one every
+  five minutes.** Three runs and every later sign-in is a 429. The buckets are
+  in memory, so restarting your OWN test relay resets them.
+- Test relay: a SECOND `karti_server.py` on another port with its own DB
+  files, plus puppeteer request interception rewriting `:8101` -> that port,
+  so `sync.js`'s hard-coded dev port and `stats.js`'s leaderboard push can
+  never reach the live relay.
