@@ -327,7 +327,12 @@ TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "spy", "suspett", "kanun", "bomba", "briks", "poker", "cards2131",
           "ludu", "serp", "erbgha", "minhu", "kodici",
           "tankijiet", "ballun", "aqleb", "kaxxi", "sqaq", "ilforka", "kelma",
-          "konkwista", "misteru")
+          "konkwista", "misteru",
+          # 20260830: both shipped in the client and were refused here. hajja's
+          # create was answered "Bad message." so a room could never be opened,
+          # and tapp fell through to 'cards' and put the player in a card duel.
+          # Found by a two-client test on a private copy of this relay.
+          "hajja", "tapp")
 GAME_IDS = DUELS + TABLES
 # Everything that plays over bhello/bstart/bact/btake — i.e. everything except
 # the card duel, which has had its own four payloads since before any of this.
@@ -373,6 +378,8 @@ GAME_SEATS = {
     "cards":  (2, 2, 2),
     "chess":  (2, 2, 2),
     "dama":   (2, 2, 2),
+    "hajja":  (2, 6, 4),
+    "tapp":   (2, 4, 2),
     "skarta": (2, 10, 6),
     "klabb":  (2, 8, 4),
     "kiri":   (2, 8, 4),
