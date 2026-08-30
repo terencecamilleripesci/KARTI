@@ -654,3 +654,25 @@ Harness note: `elementFromPoint` at a button's own centre is the definitive
 occlusion test. A screenshot made the reveal's CTA look buried under the PWA
 install banner; the hit test proved the button was topmost and the banner sat
 below it.
+
+## Chips that fly to the wallet (build 347)
+
+The day 1-6 claim now arcs painted chips from the button to the `#w-chips`
+pill on Home, which counts up and pops on arrival. Three things to keep:
+
+- **The payment happens when the FIRST CHIP LANDS, not on the press.** That
+  ordering is the safe one: if the app is closed or the screen changes
+  mid-flight, nothing has been written, so the day is still pending and still
+  claimable. Paying first and animating after risks taking the claim and
+  losing the chips. There is also a 1400ms belt-and-braces timer, because a
+  backgrounded tab never fires `onfinish`.
+- **A fresh save has NO WALLET TO FLY TO.** `renderHome()` routes a player
+  with no starters into IL-QASMA and returns *before* painting `#wallet`, so
+  `#w-chips` does not exist and `getBoundingClientRect()` is 0x0. The flight
+  degrades to paying at once, and `loginBoot()` now refuses to auto-open the
+  sheet over the deck pick at all.
+- Any harness for this must SEED a save (`karti_active` +
+  `karti_save___guest__` with `starters`) before load. Screens are
+  `#scr-home.on` where the base class is **`screen`**, not `scr` — a
+  `.scr.on` selector silently matches nothing and every rect reads 0x0,
+  which looks exactly like a broken animation.

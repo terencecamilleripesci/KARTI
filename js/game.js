@@ -3388,6 +3388,36 @@ function injectLoginCSS(){
     '.lg-wrap{padding:4px 2px 8px}' +
     '.lg-h{font-weight:800;font-size:19px;letter-spacing:.2px;margin:0 0 2px}' +
     '.lg-sub{font-size:13px;opacity:.72;margin:0 0 14px;line-height:1.45}' +
+    /* ── THE HERO HEADER ──
+       A framed panel rather than a bare heading: the chest sits inside a
+       soft violet-to-gold wash with the day count reading as the largest
+       thing on the sheet, so the eye lands on progress first. */
+    '.lg-hero{position:relative;overflow:hidden;border-radius:16px;padding:14px 14px 13px;' +
+      'margin:0 0 14px;text-align:center;' +
+      'background:radial-gradient(120% 130% at 50% -10%,rgba(138,92,255,.34),transparent 62%),' +
+      'linear-gradient(180deg,rgba(255,197,66,.13),rgba(255,255,255,.03));' +
+      'border:1px solid rgba(255,197,66,.30)}' +
+    '.lg-hero .lg-day{font-weight:900;font-size:27px;line-height:1;letter-spacing:.3px;' +
+      'color:var(--gold);text-shadow:0 2px 14px rgba(255,197,66,.45)}' +
+    '.lg-hero .lg-of{font-size:12px;font-weight:700;opacity:.62;margin-top:4px;' +
+      'letter-spacing:1.1px;text-transform:uppercase}' +
+    /* the hero's chest is the biggest thing in the panel; the same holder
+       class on the day-7 TILE stays small, so it is sized here not there */
+    '.lg-hero .lg-cw{margin:0 auto 6px}' +
+    '.lg-hero .lg-cw img{width:52px;height:52px}' +
+    '.lg-hero .lg-cw svg{width:34px;height:34px}' +
+    /* the slim progress rail under the count */
+    '.lg-rail{margin:11px auto 0;height:5px;border-radius:99px;background:rgba(255,255,255,.12);' +
+      'overflow:hidden;max-width:220px}' +
+    '.lg-rail i{display:block;height:100%;border-radius:99px;' +
+      'background:linear-gradient(90deg,#FFD979,var(--gold));' +
+      'transition:width .5s cubic-bezier(.3,1,.4,1)}' +
+    '@media(prefers-reduced-motion:reduce){.lg-rail i{transition:none}}' +
+    /* ── the chips in flight ── */
+    '.lg-fly{position:fixed;inset:0;z-index:12000;pointer-events:none;overflow:hidden}' +
+    '.lg-chip{position:fixed;width:30px;height:30px;will-change:transform,opacity}' +
+    '.lg-chip .lg-chipimg,.lg-chip img{width:30px;height:30px;display:block;' +
+      'filter:drop-shadow(0 3px 8px rgba(255,197,66,.6))}' +
     /* 7 tiles: 4 per row at 360, 7 across from 390 up. A fixed 7-column
        grid would make each tile 44px wide at 360 and clip the labels. */
     '.lg-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}' +
@@ -3498,6 +3528,9 @@ function lgSound(kind){
     if (kind === 'claim'){ X.note(4, { gain:.5 }); X.haptic('thud'); }
     else if (kind === 'chest'){ X.play('ui.reward'); X.haptic('win'); }
     else if (kind === 'step'){ X.note(2, { gain:.35 }); }
+    /* the chips touching down — a rising pair, so the arrival reads as
+       higher than the press that launched them */
+    else if (kind === 'land'){ X.note(7, { gain:.42 }); X.haptic('double'); }
   } catch (e){}
 }
 
@@ -3529,8 +3562,17 @@ function openLoginSheet(){
   const canClaim = st.pending;
   const label = !canClaim ? 'Come back tomorrow'
     : st.isChest ? 'Open the chest' : 'Collect ' + st.chips + ' chips';
+  const pct = Math.round((st.day / LOGIN_LAST) * 100);
   openSheet(
     '<div class="lg-wrap">' +
+      '<div class="lg-hero">' +
+        '<span class="lg-cw" data-chest="closed">' + LG_CHEST_SVG + '</span>' +
+        '<div class="lg-day">Day ' + st.day + '</div>' +
+        '<div class="lg-of">of seven</div>' +
+        '<div class="lg-rail" role="progressbar" aria-valuemin="1" aria-valuemax="7" ' +
+          'aria-valuenow="' + st.day + '" aria-label="Day ' + st.day + ' of seven">' +
+          '<i style="width:' + pct + '%"></i></div>' +
+      '</div>' +
       '<h2 class="lg-h">Your first seven days</h2>' +
       '<p class="lg-sub">Come back each day. On day seven you pick a game and ' +
         'keep its whole premium set — the one you normally have to grind for.</p>' +
@@ -3545,13 +3587,93 @@ function openLoginSheet(){
   if (go && canClaim) go.onclick = () => (st.isChest ? openLoginChest() : doLoginClaim());
 }
 
+/* ── THE CHIPS FLY TO THE WALLET ────────────────────────────────────
+   Chips arc out of the button you just pressed and land on the chip
+   pill at the top of Home, which then counts up and pops. The point is
+   that the money visibly GOES somewhere — a toast saying "+260" makes
+   you read a number, this makes you watch it arrive.
+
+   THE PAYMENT HAPPENS WHEN THE FIRST CHIP LANDS, not when the button is
+   pressed. That ordering is deliberate and it is the safe one: if the
+   app is closed or the screen changes mid-flight, nothing has been
+   written, so the day is still pending and still claimable. Paying
+   first and animating after would risk taking the claim and losing the
+   chips — money must never be able to go missing between two frames.
+
+   It flies over a CLOSED sheet, because the sheet is what covers the
+   wallet it is flying to. */
+function flyChips(from, amount, done){
+  let fired = false;
+  const fire = () => { if (!fired){ fired = true; try { done(); } catch (e){} } };
+  const target = $('#w-chips');
+  /* no target, or the player asked for less motion: pay at once and say
+     so plainly. The reward must never depend on the animation running. */
+  if (!from || !target || REDUCED || !document.body){ fire(); return; }
+  let a, b;
+  try { a = from.getBoundingClientRect(); b = target.getBoundingClientRect(); }
+  catch (e){ fire(); return; }
+  if (!a.width || !b.width){ fire(); return; }
+
+  const layer = document.createElement('div');
+  layer.className = 'lg-fly';
+  document.body.appendChild(layer);
+  const sx = a.left + a.width / 2, sy = a.top + a.height / 2;
+  const tx = b.left + b.width / 2, ty = b.top + b.height / 2;
+  /* more chips for a bigger prize, but a bounded handful — twenty coins
+     is confetti, not a payment */
+  const n = Math.max(6, Math.min(12, Math.round(amount / 45)));
+  let landed = 0;
+  for (let i = 0; i < n; i++){
+    const c = document.createElement('span');
+    c.className = 'lg-chip';
+    c.innerHTML = chipIco('', 'lg-chipimg');
+    c.style.left = sx + 'px';
+    c.style.top = sy + 'px';
+    layer.appendChild(c);
+    const spread = (i - (n - 1) / 2) * 16;
+    const lift = 54 + (i % 3) * 22;
+    const delay = i * 42, dur = 560 + (i % 4) * 70;
+    let an;
+    try {
+      an = c.animate([
+        { transform:'translate(-50%,-50%) scale(.5)', opacity:0 },
+        { transform:'translate(calc(-50% + ' + spread + 'px),calc(-50% - ' + lift + 'px)) scale(1.1)',
+          opacity:1, offset:.3 },
+        { transform:'translate(calc(-50% + ' + (tx - sx) + 'px),calc(-50% + ' + (ty - sy) + 'px)) scale(.42)',
+          opacity:.95 }
+      ], { duration:dur, delay:delay, easing:'cubic-bezier(.38,.02,.24,1)', fill:'forwards' });
+    } catch (e){ fire(); try { layer.remove(); } catch (e2){} return; }
+    an.onfinish = () => {
+      landed++;
+      /* the FIRST arrival is what pays — the rest are the flourish */
+      if (landed === 1){ fire(); try { lgSound('land'); } catch (e){} }
+      try { c.remove(); } catch (e){}
+      if (landed >= n) { try { layer.remove(); } catch (e){} }
+    };
+  }
+  /* a belt-and-braces timer: if an animation never reports finishing
+     (a backgrounded tab does exactly this), the player is still paid. */
+  setTimeout(fire, 1400);
+  setTimeout(() => { try { layer.remove(); } catch (e){} }, 2600);
+}
+
 function doLoginClaim(){
-  const r = loginClaim();
-  if (!r.ok) return;
+  const st = loginState();
+  if (!st.pending || st.isChest) return;
+  const btn = $('#lg-go');
+  if (btn) btn.disabled = true;
+  /* freeze the button's position BEFORE the sheet closes and takes it
+     off screen — the chips have to start from where the finger was */
+  let rect = null;
+  try { rect = btn ? btn.getBoundingClientRect() : null; } catch (e){}
   lgSound('claim');
   closeSheet();
-  toast('+' + r.chips + ' chips — day ' + r.day + ' of 7.');
-  try { renderHome(); } catch (e){}
+  const anchor = rect ? { getBoundingClientRect: () => rect } : null;
+  flyChips(anchor, st.chips, () => {
+    const r = loginClaim();
+    if (!r.ok) return;
+    try { renderHome(); } catch (e){}
+  });
 }
 
 /* ── DAY 7: the chest ───────────────────────────────────────────────
@@ -8387,6 +8509,13 @@ function loginBoot(){
   try { st = loginTouch(); } catch (e){ return; }
   try { if (current === 'home') renderHome(); } catch (e){}
   if (!st || !st.pending) return;
+  /* NOT OVER THE DECK PICK. renderHome() routes a player with no starters
+     straight into IL-QASMA (js/gacha.js) and returns before it has even
+     painted the wallet — so on a brand-new save this sheet would land on
+     top of the one choice the player must make first, and its chips would
+     fly to a wallet that does not exist yet. They see it tomorrow, or the
+     moment they open it from the Home badge. */
+  if (!S.starters.length) return;
   let shown = 0;
   try { shown = parseInt(lsGet(LOGIN_SHOWN_KEY, 0), 10) || 0; } catch (e){}
   const today = loginDay();
