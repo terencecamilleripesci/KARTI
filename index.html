@@ -873,12 +873,14 @@ html.short-webview .tabbar{ padding-bottom:8px }
 .tdot{position:absolute;top:4px;left:calc(50% + 7px);width:9px;height:9px;border-radius:50%;
   background:var(--hot);border:1.5px solid #0B0716;box-shadow:0 0 8px rgba(232,69,44,.9)}
 .tdot[hidden]{display:none}
-/* ══ BUILD TAG — DIAGNOSTIC, DELETE WHEN SETTLED ══════════════════════════════
-   Three things to delete together: this CSS block, the <p id="buildtag"> inside
-   the tab bar, and the buildTag() IIFE in the shell script at the end of file.
+/* ══ UPDATE STRIP (+ opt-in diagnostic) ══════════════════════════════════════
    Sits in the strip directly ABOVE the bar (bottom:100% of the fixed .tabbar),
-   so it costs zero layout space, never touches the home indicator, and appears
-   in every screenshot of the home screen. */
+   so it costs zero layout space and never touches the home indicator.
+
+   Normally EMPTY and invisible. It has exactly one job for a player: when a
+   newer build is deployed it becomes the gold tap-to-update strip below.
+   The version + geometry readout it used to print on every phone is now
+   opt-in only (?diag=1 — see buildTag() at the end of this file). */
 #buildtag{position:absolute;bottom:100%;left:0;right:0;margin:0;
   padding:3px 10px;text-align:center;pointer-events:none;
   font:600 9px/1.3 var(--body);letter-spacing:.07em;text-transform:uppercase;
@@ -2169,9 +2171,10 @@ body.kl-inst-on .screen .scroll{padding-bottom:98px}
         <span class="tl">Friends</span>
         <i class="tdot" id="fr-badge" role="img" aria-label="you have friend requests" hidden></i>
       </button>
-      <!-- BUILD TAG — diagnostic, delete with its CSS + script blocks.
-           Filled by buildTag() in the shell script; absolutely positioned, so
-           it does not become a fifth grid column. -->
+      <!-- UPDATE STRIP. Empty until a newer build is deployed, then becomes the
+           gold tap-to-update bar. Filled by buildTag() in the shell script;
+           absolutely positioned, so it does not become a fifth grid column.
+           Also carries the ?diag=1 readout, which no ordinary player sees. -->
       <p id="buildtag" aria-live="polite"></p>
     </nav>
   </section>
@@ -2815,20 +2818,41 @@ if ('serviceWorker' in navigator){
   }
 })();
 
-/* ══ BUILD TAG — DIAGNOSTIC, DELETE WHEN SETTLED ══════════════════════════════
-   Delete together with its CSS block ("BUILD TAG" in the <style> above) and the
-   <p id="buildtag"> inside the tab bar. Renders e.g. "v22 · sw 22 · art ok" in
-   the strip above the bar: the page build from this very file, the worker
-   version from the worker actually in control, and a live probe of the home
-   artwork. Every home-screen screenshot now answers "which build is this phone
-   running" by itself. It also asks the server (sw.js with cache:no-store, which
-   can never be answered by a cache) whether a newer build is deployed than
-   whatever is running — and if so becomes a tap-to-update strip that refreshes
-   the worker, refetches the shell past every cache, and reloads. */
+/* ══ UPDATE STRIP (+ opt-in diagnostic) ══════════════════════════════════════
+   TWO jobs lived in this block, and only one of them was ever for players.
+
+   FOR PLAYERS, always on: ask the server (sw.js with cache:no-store, which can
+   never be answered by a cache) whether a newer build is deployed than the one
+   running. If so, become a tap-to-update strip that refreshes the worker,
+   refetches the shell past every cache, and reloads. On a Pages-hosted PWA
+   that is the only way a phone holding a stale worker is ever told. Keep it.
+
+   THE DIAGNOSTIC — "v22 · sw 22 · art ok" plus a live geometry line — was a
+   real instrument while chasing an iOS layout bug, and it shipped to every
+   player for far too long. It is now OPT-IN and nothing but the update check
+   runs without it:
+       ?diag=1   turn on (remembered, so it survives the reload)
+       ?diag=0   turn off
+   Off is not merely "render nothing": the geometry probe, its listeners on
+   resize / pointerup / visualViewport, the artwork probe and the worker-version
+   query are all skipped outright, so an ordinary phone does no work for a
+   readout nobody is looking at. */
 (function buildTag(){
   var el = document.getElementById('buildtag');
   if (!el) return;
   var state = { swN: 0, sw: 'sw …', art: 'art …', avail: 0, geo: '' };
+
+  /* Remembered, because the honest way to read the geometry is to turn it on
+     and then reproduce the bug — which usually means a reload or an install,
+     and a query string does not survive either. Wrapped: a phone with storage
+     denied (iOS private mode) must still get the update strip. */
+  var DIAG = false;
+  try {
+    var q = String(location.search || '');
+    if (/[?&]diag=1/.test(q))      { DIAG = true;  localStorage.setItem('karti_diag', '1'); }
+    else if (/[?&]diag=0/.test(q)) { DIAG = false; localStorage.removeItem('karti_diag'); }
+    else DIAG = localStorage.getItem('karti_diag') === '1';
+  } catch (e) { DIAG = /[?&]diag=1/.test(String(location.search || '')); }
 
   /* ── live geometry ────────────────────────────────────────────────────────
      An installed iOS app was showing a band of dead space BELOW the fixed tab
@@ -2906,6 +2930,9 @@ if ('serviceWorker' in navigator){
     }
     el.className = '';
     el.textContent = '';
+    /* Nothing is waiting and nobody asked for numbers: show the player an empty
+       strip. This is the ordinary case on every phone. */
+    if (!DIAG) return;
     el.appendChild(document.createTextNode(
       'v' + KARTI_BUILD + ' · ' + state.sw + ' · ' + state.art));
     /* aria-hidden: this line changes on every toolbar nudge and every rotate,
@@ -2917,7 +2944,7 @@ if ('serviceWorker' in navigator){
     g.textContent = state.geo || 'measuring…';
     el.appendChild(g);
   }
-  (function artProbe(){
+  if (DIAG) (function artProbe(){
     var im = new Image();
     im.onload = function(){ state.art = 'art ok'; paint(); };
     im.onerror = function(){ state.art = 'no art'; paint(); };
@@ -2960,7 +2987,15 @@ if ('serviceWorker' in navigator){
       ]);
     }).then(reload, reload);
   });
-  paint(); measure(); askSW(); askServer();
+  /* The update check is the part every phone runs. */
+  paint(); askServer();
+  document.addEventListener('visibilitychange', function(){
+    if (!document.hidden){ askServer(); if (DIAG){ queueGeo(); askSW(); } }
+  });
+
+  /* ── everything below here is the opt-in instrument ────────────────────── */
+  if (!DIAG) return;
+  measure(); askSW();
   /* never show a stale reading: re-measure on everything that can move the
      bottom edge — a rotate, a keyboard, and (iOS) a toolbar sliding away
      mid-scroll, which changes the visible height without firing resize. */
@@ -2984,9 +3019,6 @@ if ('serviceWorker' in navigator){
     visualViewport.addEventListener('resize', queueGeo);
     visualViewport.addEventListener('scroll', queueGeo);
   }
-  document.addEventListener('visibilitychange', function(){
-    if (!document.hidden){ queueGeo(); askSW(); askServer(); }
-  });
   if ('serviceWorker' in navigator)
     navigator.serviceWorker.addEventListener('controllerchange',
       function(){ setTimeout(askSW, 400); });
