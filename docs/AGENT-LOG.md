@@ -624,3 +624,33 @@ Irreversible, so it needs `--yes`; a flag rather than a prompt so it still
 works over a pipe. Verified end-to-end against a COPY of the live databases in
 the scratchpad (never the live files): both refusal paths, then a real delete
 with a residue sweep over all four files across every table above.
+
+## The seven-day welcome streak (build 345)
+
+A ONE-TIME onboarding streak (owner's call: "one time only... later we add
+more"), separate from the daily spin — two keys in the save, two day counters,
+neither knows about the other. Days 1-6 pay escalating chips (1500 total); day
+7 opens a chest where the player PICKS a game and is given that game's whole
+exclusive set.
+
+- **Exclusives are NOT earn-only any more, whatever §9b's prose says.**
+  `registerExclusives()` states it plainly: "No set carries an `earn` any
+  more... the wins are checked by `exclPurchase()` at the counter instead."
+  They are a wins milestone PLUS a coin price. So the gift
+  (`KARTI_XP.exclusiveGift`) reuses `grant()` — the same call exclPurchase
+  makes after taking the coins — and skips only the wins gate and the price.
+  A gifted set is byte-for-byte a bought one; nothing downstream can tell.
+- **`done` is written AFTER the grant, never before.** If the gift fails the
+  chest stays openable instead of silently consuming the one prize.
+- **The day number is an INTEGER, not a date string.** The grace rule is
+  arithmetic and you cannot subtract '2026-8-30' from '2026-9-1'.
+  `loginDay()` maps a LOCAL calendar date through `Date.UTC`, which cannot
+  drift an hour on the two DST Sundays the way dividing ms would.
+- **A decorative glow with `inset:-2px` counts toward scrollWidth** and reads
+  as a clipped label to any overflow check. Bleed with box-shadow spread
+  instead — shadows do not affect layout.
+
+Harness note: `elementFromPoint` at a button's own centre is the definitive
+occlusion test. A screenshot made the reveal's CTA look buried under the PWA
+install banner; the hit test proved the button was topmost and the banner sat
+below it.

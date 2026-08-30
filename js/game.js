@@ -491,7 +491,13 @@ const DEFAULT_STATE = () => ({
   /* the daily free spin: the local date it was last taken, the epoch ms it was
      taken at (the clock-tamper guard), how many ever taken, and what the last
      one paid (shown on the come-back-tomorrow screen). */
-  spin:{ day:'', t:0, n:0, last:'' }
+  spin:{ day:'', t:0, n:0, last:'' },
+  /* THE SEVEN DAYS — the one-time welcome streak (§ THE SEVEN DAYS below).
+     `day` is how far they have reached (1..7), `claimed` the highest day
+     actually collected, `last` the local calendar day number of the last
+     visit (an integer, never a string — the grace rule is arithmetic), and
+     `done` latches for ever the moment the day-7 chest is opened. */
+  login:{ day:0, last:0, claimed:0, done:0, pick:'' }
 });
 let S = DEFAULT_STATE();
 
@@ -501,6 +507,7 @@ function load(){
   S.rec = Object.assign({ w:0, l:0 }, S.rec || {});
   S.owned = S.owned || {}; S.decks = S.decks || []; S.starters = S.starters || [];
   S.spin = Object.assign({ day:'', t:0, n:0, last:'' }, S.spin || {});
+  S.login = Object.assign({ day:0, last:0, claimed:0, done:0, pick:'' }, S.login || {});
   /* An old save (or a half-finished sync) can carry an activeDeck id whose deck
      is gone. Repair it on the way in, not on the way to a duel. */
   fixDeckState();
@@ -3230,7 +3237,11 @@ function renderDailySpinBtn(){
   const slot = $('#spin-slot');
   if (!slot) return;
   const st = spinState();
-  if (!st.ok){ slot.innerHTML = ''; return; }   /* claimed / not ready → hidden */
+  /* The slot now carries TWO badges — the spin and the welcome streak —
+     so it is cleared once here and each badge appends itself. Either can
+     be absent; `.spin-slot:empty` still collapses when both are. */
+  slot.innerHTML = '';
+  if (!st.ok){ renderLoginBadge(slot); return; }  /* claimed / not ready → hidden */
   slot.innerHTML =
     '<button class="spinbadge" id="btn-dailyspin" type="button" ' +
       'aria-label="Daily reward is ready — spin the wheel">' +
@@ -3243,6 +3254,31 @@ function renderDailySpinBtn(){
   if (btn) btn.onclick = openDailySpin;
   /* if the wheel art already loaded this session, put it on straight away */
   try { applySpinWheelArt(); } catch (e){}
+  renderLoginBadge(slot);
+}
+
+/* The welcome-streak badge, beside the spin one. Only while a day is
+   actually waiting to be collected — once the week is done it never
+   appears again, so the home corner does not keep a dead entry. */
+function renderLoginBadge(slot){
+  if (!slot) return;
+  let st;
+  try { st = loginState(); } catch (e){ return; }
+  if (!st.pending) return;
+  injectLoginCSS();
+  const chest = st.isChest;
+  slot.insertAdjacentHTML('beforeend',
+    '<button class="spinbadge" id="btn-login7" type="button" ' +
+      'aria-label="Day ' + st.day + ' of your welcome week is ready to collect">' +
+      '<span class="ds-art" aria-hidden="true">' +
+        (chest ? LG_CHEST_SVG
+               : '<svg class="ds-star" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+                 '<use href="#i-star"></use></svg>') +
+      '</span>' +
+      '<span class="ds-label">' + (chest ? 'Day 7!' : 'Day ' + st.day) + '</span>' +
+    '</button>');
+  const b = $('#btn-login7', slot);
+  if (b) b.onclick = openLoginSheet;
 }
 /* Open the app's existing Daily Spin. It lives as a tab on the Store screen,
    so select that tab first, then route — ready OR claimed, the same door
@@ -3250,6 +3286,376 @@ function renderDailySpinBtn(){
 function openDailySpin(){
   storeTab = 'spin';
   go('pack');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE SEVEN DAYS — the one-time welcome streak
+   ───────────────────────────────────────────────────────────────────
+   Come back seven days and the seventh opens a CHEST: the player picks
+   the game they like and is given that game's whole premium exclusive
+   set. ONE TIME EVER per save — `done` latches and is never cleared, so
+   this is an onboarding hook, not a faucet. (Owner's call, 30 Aug: "one
+   time only... later we add more".)
+
+   WHY IT IS NOT THE DAILY SPIN. The spin (above) is the repeating daily
+   top-up and pays chips every day for ever. This runs once, alongside
+   it, and neither knows about the other — two separate keys in the save,
+   two separate day counters. A player on day 3 of this still gets their
+   spin.
+
+   THE DAY NUMBER IS AN INTEGER, NOT A DATE STRING. The grace rule is
+   arithmetic ("did you miss more than one day?"), and you cannot
+   subtract two '2026-8-30' strings. loginDay() maps a LOCAL calendar
+   date onto an integer through Date.UTC, which is exact and cannot drift
+   an hour on the two DST Sundays the way a millisecond division would.
+
+   THE GRACE RULE (owner's choice): a gap of 1 is consecutive, a gap of 2
+   means exactly one day missed and the streak SURVIVES, a gap of 3 or
+   more resets to day 1. Forgiving one bad day is the difference between
+   a streak people keep and a streak people abandon the first time life
+   gets in the way.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* days 1-6 pay chips; day 7 is the chest and pays no chips at all — the
+   set IS the prize, and a chip line under it would read as a consolation. */
+const LOGIN_CHIPS = [0, 80, 120, 180, 260, 360, 500];
+const LOGIN_LAST = 7;
+
+/* A local calendar date as an integer. Date.UTC of the LOCAL y/m/d, so
+   two dates a day apart are always exactly 1 apart whatever the clocks
+   did overnight. */
+function loginDay(now){
+  const d = new Date(now == null ? Date.now() : now);
+  return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+}
+
+/* Advance the streak for today's visit. Called once on boot. Returns the
+   state so the caller can decide whether to make a fuss. */
+function loginTouch(now){
+  const L = S.login;
+  if (L.done) return loginState();
+  const today = loginDay(now);
+  if (!L.last){                       /* first time ever */
+    L.day = 1; L.last = today; L.claimed = 0; save();
+    return loginState();
+  }
+  const gap = today - L.last;
+  if (gap <= 0) return loginState();  /* same day, or a clock moved backwards */
+  if (gap <= 2){                      /* consecutive, or the one day of grace */
+    if (L.day < LOGIN_LAST) L.day += 1;
+  } else {                            /* two or more missed: start again */
+    L.day = 1; L.claimed = 0;
+  }
+  L.last = today;
+  save();
+  return loginState();
+}
+
+function loginState(){
+  const L = S.login;
+  return { day:L.day | 0, claimed:L.claimed | 0, done:!!L.done,
+           pending: !L.done && (L.day | 0) > (L.claimed | 0),
+           chips: LOGIN_CHIPS[L.day | 0] || 0,
+           isChest: (L.day | 0) >= LOGIN_LAST };
+}
+
+/* Collect days 1-6. Day 7 does NOT come through here — it goes through
+   the chest, which only marks the streak done once a set is actually
+   handed over (see loginChestTake). */
+function loginClaim(){
+  const st = loginState();
+  if (!st.pending || st.isChest) return { ok:false };
+  S.login.claimed = st.day;
+  save();
+  const n = LOGIN_CHIPS[st.day] || 0;
+  try { if (window.KARTI_XP) KARTI_XP.addChips(n, 'login-streak:' + st.day); } catch (e){}
+  return { ok:true, day:st.day, chips:n };
+}
+
+/* ── the look ──────────────────────────────────────────────────────
+   One injected stylesheet, transform/opacity only, and every motion
+   inside a prefers-reduced-motion guard. The palette is KARTI's own
+   (--gold / #8A5CFF / #FF3EA5), NOT a new one: a reward screen that
+   introduced its own colours would read as a different app. */
+let LOGIN_CSS_DONE = false;
+function injectLoginCSS(){
+  if (LOGIN_CSS_DONE) return;
+  LOGIN_CSS_DONE = true;
+  const st = document.createElement('style');
+  st.id = 'k-login-css';
+  st.textContent =
+    '.lg-wrap{padding:4px 2px 8px}' +
+    '.lg-h{font-weight:800;font-size:19px;letter-spacing:.2px;margin:0 0 2px}' +
+    '.lg-sub{font-size:13px;opacity:.72;margin:0 0 14px;line-height:1.45}' +
+    /* 7 tiles: 4 per row at 360, 7 across from 390 up. A fixed 7-column
+       grid would make each tile 44px wide at 360 and clip the labels. */
+    '.lg-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}' +
+    '@media(min-width:380px){.lg-grid{grid-template-columns:repeat(7,1fr);gap:6px}}' +
+    '.lg-t{position:relative;border-radius:12px;padding:8px 2px 7px;text-align:center;' +
+      'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);' +
+      'min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}' +
+    '.lg-t .lg-d{font-size:10px;font-weight:700;opacity:.62;letter-spacing:.4px;text-transform:uppercase}' +
+    '.lg-t .lg-v{font-size:13px;font-weight:800;line-height:1}' +
+    '.lg-t .lg-c{font-size:9px;opacity:.55;margin-top:1px}' +
+    /* CLAIMED — dimmed, with a tick. Never colour alone: the tick is the
+       non-colour signal, which is also what a colour-blind player reads. */
+    '.lg-t.is-got{background:rgba(61,220,132,.10);border-color:rgba(61,220,132,.34);opacity:.75}' +
+    '.lg-t.is-got .lg-v{color:#3DDC84}' +
+    '.lg-tick{position:absolute;top:4px;right:5px;width:13px;height:13px;color:#3DDC84}' +
+    /* TODAY — the one live tile. A single breathing glow, because the
+       guidance is 1-2 animated elements per view, not seven. */
+    '.lg-t.is-now{background:linear-gradient(180deg,rgba(255,197,66,.20),rgba(255,197,66,.07));' +
+      'border-color:var(--gold);box-shadow:0 0 0 1px rgba(255,197,66,.35),0 6px 20px -6px rgba(255,197,66,.55)}' +
+    '.lg-t.is-now .lg-v{color:var(--gold)}' +
+    /* inset:0, NOT -2px. A negative inset makes the glow 2px wider than its
+       own tile, which counts toward the tile's scrollWidth and reads as a
+       clipped label to anything measuring overflow. The bleed comes from the
+       box-shadow spread instead — shadows do not affect layout at all. */
+    '.lg-t.is-now::after{content:"";position:absolute;inset:0;border-radius:12px;pointer-events:none;' +
+      'box-shadow:0 0 16px 3px rgba(255,197,66,.45);animation:lgPulse 1.9s ease-in-out infinite}' +
+    '@keyframes lgPulse{0%,100%{opacity:.35}50%{opacity:.9}}' +
+    /* LOCKED */
+    '.lg-t.is-lock{opacity:.42}' +
+    /* the day-7 tile always reads as the prize, locked or not */
+    '.lg-t.is-chest{background:linear-gradient(180deg,rgba(138,92,255,.24),rgba(255,62,165,.12));' +
+      'border-color:rgba(138,92,255,.6)}' +
+    '.lg-t.is-chest .lg-v{color:#C9B4FF}' +
+    '.lg-chesticon{width:22px;height:22px;color:#C9B4FF}' +
+    '.lg-cta{margin-top:14px;width:100%;min-height:48px;border-radius:13px;border:0;cursor:pointer;' +
+      'font-weight:800;font-size:15px;color:#1A1206;background:linear-gradient(180deg,#FFD979,#FFC542);' +
+      'box-shadow:0 8px 22px -8px rgba(255,197,66,.8);transition:transform .16s ease-out,filter .16s ease-out}' +
+    '.lg-cta:active{transform:scale(.97);filter:brightness(1.06)}' +
+    '.lg-cta[disabled]{background:rgba(255,255,255,.10);color:rgba(255,255,255,.5);' +
+      'box-shadow:none;cursor:default;opacity:.6}' +
+    '.lg-cta.is-chest{background:linear-gradient(180deg,#B79BFF,#8A5CFF);color:#fff;' +
+      'box-shadow:0 8px 22px -8px rgba(138,92,255,.9)}' +
+    '.lg-note{margin-top:9px;font-size:11.5px;opacity:.6;text-align:center;line-height:1.45}' +
+    /* the game picker inside the chest */
+    '.lg-pick{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px;' +
+      'max-height:46vh;overflow:auto;-webkit-overflow-scrolling:touch;padding:2px}' +
+    '.lg-g{min-height:58px;border-radius:12px;padding:9px 10px;text-align:left;cursor:pointer;' +
+      'background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:inherit;' +
+      'display:flex;flex-direction:column;justify-content:center;gap:2px;' +
+      'transition:transform .16s ease-out,border-color .16s ease-out}' +
+    '.lg-g:active{transform:scale(.97)}' +
+    '.lg-g .lg-gn{font-weight:800;font-size:13px;line-height:1.15}' +
+    '.lg-g .lg-gs{font-size:10.5px;opacity:.62;line-height:1.25}' +
+    '.lg-g[aria-pressed="true"]{border-color:var(--gold);background:rgba(255,197,66,.14)}' +
+    /* the reveal */
+    '.lg-rev{text-align:center;padding:6px 2px 2px}' +
+    '.lg-rev .lg-set{font-size:21px;font-weight:900;line-height:1.15;margin:10px 0 4px}' +
+    '.lg-rev .lg-blurb{font-size:13px;opacity:.75;line-height:1.5;margin:0 0 4px}' +
+    '.lg-pieces{display:flex;gap:7px;justify-content:center;flex-wrap:wrap;margin:12px 0 2px}' +
+    '.lg-piece{font-size:11px;font-weight:700;padding:5px 10px;border-radius:999px;' +
+      'background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.16);' +
+      'opacity:0;transform:translateY(6px);animation:lgIn .34s ease-out forwards}' +
+    '@keyframes lgIn{to{opacity:1;transform:none}}' +
+    '.lg-burst{position:relative;height:96px;display:flex;align-items:center;justify-content:center}' +
+    '.lg-burst .lg-halo{position:absolute;width:96px;height:96px;border-radius:50%;' +
+      'background:radial-gradient(circle,rgba(255,197,66,.55),transparent 68%);' +
+      'animation:lgHalo 1.5s ease-out infinite}' +
+    '@keyframes lgHalo{0%{transform:scale(.75);opacity:.85}70%{transform:scale(1.5);opacity:0}100%{opacity:0}}' +
+    '.lg-burst .lg-chest{width:64px;height:64px;color:var(--gold);position:relative;z-index:1;' +
+      'animation:lgPop .5s cubic-bezier(.2,1.5,.4,1) both}' +
+    '@keyframes lgPop{from{transform:scale(.3) rotate(-12deg);opacity:0}to{transform:none;opacity:1}}' +
+    /* REDUCED MOTION — the information survives, the movement does not.
+       Every reveal still reaches its end state, just without travelling. */
+    '@media(prefers-reduced-motion:reduce){' +
+      '.lg-t.is-now::after,.lg-burst .lg-halo{animation:none}' +
+      '.lg-burst .lg-chest{animation:none}' +
+      '.lg-piece{animation:none;opacity:1;transform:none}' +
+      '.lg-cta,.lg-g{transition:none}}';
+  document.head.appendChild(st);
+}
+
+const LG_TICK = '<svg class="lg-tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M20 6L9 17l-5-5"/></svg>';
+const LG_CHEST_SVG = '<svg class="lg-chesticon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M3 10.5V19a1 1 0 001 1h16a1 1 0 001-1v-8.5"/>' +
+  '<path d="M2.5 7.2A2 2 0 014.4 5.5h15.2a2 2 0 011.9 1.7l.5 3.3H2z"/>' +
+  '<path d="M10 10.5h4v3h-4z"/></svg>';
+
+/* a small sound, only where something actually happened. sfx.js is a
+   synth that no-ops when it cannot play, so none of this is guarded
+   beyond the one try. */
+function lgSound(kind){
+  try {
+    const X = window.KARTI_SFX;
+    if (!X) return;
+    if (kind === 'claim'){ X.note(4, { gain:.5 }); X.haptic('thud'); }
+    else if (kind === 'chest'){ X.play('ui.reward'); X.haptic('win'); }
+    else if (kind === 'step'){ X.note(2, { gain:.35 }); }
+  } catch (e){}
+}
+
+/* ── the sheet ── */
+function openLoginSheet(){
+  injectLoginCSS();
+  const st = loginState();
+  if (st.done){ toast('Your welcome week is finished.'); return; }
+  let tiles = '';
+  for (let d = 1; d <= LOGIN_LAST; d++){
+    const got = d <= st.claimed;
+    const now = !got && d === st.day;
+    const chest = d === LOGIN_LAST;
+    const cls = 'lg-t' + (chest ? ' is-chest' : '') +
+      (got ? ' is-got' : now ? ' is-now' : ' is-lock');
+    const val = chest ? LG_CHEST_SVG : LOGIN_CHIPS[d];
+    tiles +=
+      '<div class="' + cls + '" role="listitem" aria-label="Day ' + d + ': ' +
+        (chest ? 'the chest' : LOGIN_CHIPS[d] + ' chips') + '. ' +
+        (got ? 'Collected.' : now ? 'Ready to collect.' : 'Locked.') + '">' +
+        (got ? LG_TICK : '') +
+        '<span class="lg-d">Day ' + d + '</span>' +
+        '<span class="lg-v">' + val + '</span>' +
+        (chest ? '' : '<span class="lg-c">chips</span>') +
+      '</div>';
+  }
+  const canClaim = st.pending;
+  const label = !canClaim ? 'Come back tomorrow'
+    : st.isChest ? 'Open the chest' : 'Collect ' + st.chips + ' chips';
+  openSheet(
+    '<div class="lg-wrap">' +
+      '<h2 class="lg-h">Your first seven days</h2>' +
+      '<p class="lg-sub">Come back each day. On day seven you pick a game and ' +
+        'keep its whole premium set — the one you normally have to grind for.</p>' +
+      '<div class="lg-grid" role="list" aria-label="Seven day reward streak">' + tiles + '</div>' +
+      '<button class="lg-cta' + (st.isChest ? ' is-chest' : '') + '" id="lg-go" type="button"' +
+        (canClaim ? '' : ' disabled') + '>' + label + '</button>' +
+      '<p class="lg-note">Miss a day and your streak survives. Miss two and it ' +
+        'starts again. This happens once.</p>' +
+    '</div>');
+  const go = $('#lg-go');
+  if (go && canClaim) go.onclick = () => (st.isChest ? openLoginChest() : doLoginClaim());
+}
+
+function doLoginClaim(){
+  const r = loginClaim();
+  if (!r.ok) return;
+  lgSound('claim');
+  closeSheet();
+  toast('+' + r.chips + ' chips — day ' + r.day + ' of 7.');
+  try { renderHome(); } catch (e){}
+}
+
+/* ── DAY 7: the chest ───────────────────────────────────────────────
+   The player picks the game. "Which game they like" is a CHOICE, not a
+   roll: a random set for a game they never play is a prize that changes
+   nothing, and the whole purpose of this is to give them a reason to
+   open one particular game tomorrow.
+
+   Sets they ALREADY own are filtered out — a chest that can hand back
+   something you have is a chest that can be wasted. */
+function loginChestGames(){
+  const out = [];
+  try {
+    const XP = window.KARTI_XP;
+    if (!XP || !XP.exclusiveGames) return out;
+    const gs = XP.exclusiveGames() || [];
+    for (let i = 0; i < gs.length; i++){
+      const g = gs[i];
+      let owned = false;
+      try { owned = !!(XP.exclusiveEarned && XP.exclusiveEarned(g)); } catch (e){}
+      if (owned) continue;
+      let meta = null;
+      try { meta = XP.exclusive ? XP.exclusive(g) : null; } catch (e){}
+      if (!meta) continue;
+      out.push({ id:g, meta:meta });
+    }
+  } catch (e){}
+  return out;
+}
+
+function openLoginChest(){
+  injectLoginCSS();
+  const games = loginChestGames();
+  if (!games.length){
+    /* They already own every set. Nothing to give, so do not burn the
+       chest — say so and leave the streak standing. */
+    toast('You already own every set!');
+    return;
+  }
+  let picked = '';
+  const cards = games.map(g => {
+    const nm = (g.meta.name && (g.meta.name.en || g.meta.name)) || g.id;
+    const slots = (g.meta.slots || []).join(' · ');
+    return '<button class="lg-g" type="button" role="radio" aria-checked="false" ' +
+        'data-g="' + esc(g.id) + '">' +
+        '<span class="lg-gn">' + esc(String(nm)) + '</span>' +
+        '<span class="lg-gs">' + esc(slots) + '</span>' +
+      '</button>';
+  }).join('');
+  openSheet(
+    '<div class="lg-wrap">' +
+      '<div class="lg-burst"><span class="lg-halo"></span>' +
+        '<svg class="lg-chest" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M3 10.5V19a1 1 0 001 1h16a1 1 0 001-1v-8.5"/>' +
+        '<path d="M2.5 7.2A2 2 0 014.4 5.5h15.2a2 2 0 011.9 1.7l.5 3.3H2z"/>' +
+        '<path d="M10 10.5h4v3h-4z"/></svg></div>' +
+      '<h2 class="lg-h">Day seven. Pick your set.</h2>' +
+      '<p class="lg-sub">Choose the game you love most. Its full premium set is ' +
+        'yours — no wins, no coins, and only this once.</p>' +
+      '<div class="lg-pick" role="radiogroup" aria-label="Choose a game">' + cards + '</div>' +
+      '<button class="lg-cta is-chest" id="lg-take" type="button" disabled>Choose a game</button>' +
+    '</div>');
+  const take = $('#lg-take');
+  const btns = Array.prototype.slice.call(document.querySelectorAll('#sheet .lg-g'));
+  btns.forEach(b => {
+    b.onclick = () => {
+      picked = b.getAttribute('data-g') || '';
+      btns.forEach(o => {
+        const on = o === b;
+        o.setAttribute('aria-pressed', on ? 'true' : 'false');
+        o.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
+      lgSound('step');
+      if (take){ take.disabled = false; take.textContent = 'Open the chest'; }
+    };
+  });
+  if (take) take.onclick = () => { if (picked) loginChestTake(picked); };
+}
+
+/* Hand the set over, then latch the streak. ORDER MATTERS: `done` is only
+   written once a set has actually been granted, so a failure here leaves
+   the chest openable instead of quietly consuming the one prize. */
+function loginChestTake(game){
+  let r = null;
+  try { r = window.KARTI_XP && KARTI_XP.exclusiveGift(game, 'login-day7'); } catch (e){}
+  if (!r || !r.ok){
+    toast('That set could not be opened. Try another.');
+    return;
+  }
+  S.login.claimed = LOGIN_LAST;
+  S.login.done = 1;
+  S.login.pick = game;
+  save();
+  lgSound('chest');
+  const meta = r.meta || {};
+  const nm = (meta.name && (meta.name.en || meta.name)) || game;
+  const blurb = (meta.blurb && (meta.blurb.en || meta.blurb)) || '';
+  const pieces = (r.defs || []).map((d, i) =>
+    '<span class="lg-piece" style="animation-delay:' + (i * 90) + 'ms">' +
+      esc(String(d.slot || '')) + '</span>').join('');
+  openSheet(
+    '<div class="lg-wrap lg-rev">' +
+      '<div class="lg-burst"><span class="lg-halo"></span>' +
+        '<svg class="lg-chest" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+        'stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M3 10.5V19a1 1 0 001 1h16a1 1 0 001-1v-8.5"/>' +
+        '<path d="M2.5 7.2A2 2 0 014.4 5.5h15.2a2 2 0 011.9 1.7l.5 3.3H2z"/>' +
+        '<path d="M10 10.5h4v3h-4z"/></svg></div>' +
+      '<div class="lg-set" style="color:' + esc(meta.accent || '#FFC542') + '">' +
+        esc(String(nm)) + '</div>' +
+      (blurb ? '<p class="lg-blurb">' + esc(String(blurb)) + '</p>' : '') +
+      '<div class="lg-pieces" aria-label="Pieces unlocked">' + pieces + '</div>' +
+      '<button class="lg-cta" id="lg-done" type="button">It’s yours</button>' +
+      '<p class="lg-note">Find it in your wardrobe, under that game.</p>' +
+    '</div>');
+  const d = $('#lg-done');
+  if (d) d.onclick = () => { closeSheet(); try { renderHome(); } catch (e){} };
 }
 
 /* The gold dot on Home's Store tab (and the tab strip) while the free
@@ -7911,8 +8317,39 @@ function boot(){
   })(50);
   const act = lsGet(ACTIVE_KEY, null);
   const users = getUsers();
-  if (act && (act === GUEST || users[act])){ ACTIVE = act; load(); go('home'); }
+  if (act && (act === GUEST || users[act])){ ACTIVE = act; load(); go('home'); loginBoot(); }
   else { ACTIVE = null; authMode = 'menu'; go('auth'); }
+}
+
+/* THE SEVEN DAYS, on boot. Advance the streak for today's visit, then —
+   if something is actually waiting — put it in front of them ONCE.
+
+   It opens itself rather than waiting to be found, because the whole
+   feature only works if they see it on the day it ticks. It is bounded
+   hard so it can never become a nuisance: once per calendar day (`shown`
+   is the same integer day number the streak runs on), never when the
+   week is done, and never before Home has had a moment to paint. If they
+   dismiss it, the Home badge is still there.
+
+   The delay is not cosmetic: progress.js and the save are still settling
+   at boot, and a sheet thrown over an unpainted Home reads as a crash. */
+const LOGIN_SHOWN_KEY = 'karti_login7_shown';
+function loginBoot(){
+  let st;
+  try { st = loginTouch(); } catch (e){ return; }
+  try { if (current === 'home') renderHome(); } catch (e){}
+  if (!st || !st.pending) return;
+  let shown = 0;
+  try { shown = parseInt(lsGet(LOGIN_SHOWN_KEY, 0), 10) || 0; } catch (e){}
+  const today = loginDay();
+  if (shown === today) return;                 /* already shown today */
+  try { lsSet(LOGIN_SHOWN_KEY, today); } catch (e){}
+  setTimeout(() => {
+    /* re-check: a sync pull, or a claim from the badge, may have landed
+       in the meantime and there is nothing worse than a reward sheet for
+       a reward you already took. */
+    try { if (loginState().pending && current === 'home') openLoginSheet(); } catch (e){}
+  }, 1400);
 }
 /* test / debug surface — used by the headless verification harness.
    cards.js declares its data with `const`, which is NOT a window property,
@@ -7968,6 +8405,15 @@ window.KARTI = {
     /* the chips economy's screens — for the headless harness */
     renderChipsTab, buyBoxTap, boxPop, spinGrant, grantChips,
     get tab(){ return storeTab; }, set tab(v){ storeTab = v; }
+  },
+  /* THE SEVEN DAYS — for the headless harness. `loginTouch` takes a `now`
+     so a whole week (and a missed day, and a broken streak) can be walked
+     in one run without waiting a week for it. */
+  _login: {
+    LOGIN_CHIPS, LOGIN_LAST,
+    loginDay, loginTouch, loginState, loginClaim,
+    openLoginSheet, openLoginChest, loginChestTake, loginChestGames,
+    renderLoginBadge
   }
 };
 

@@ -2915,6 +2915,46 @@ function exclPurchase(game){
   return { ok:true, price:price, game:game, defs:ds };
 }
 
+/* ── THE GIFT — a set handed over, not bought and not ground for ─────
+   The day-7 login chest (js/game.js) is the ONLY caller, and it is a
+   ONE-TIME onboarding present: a new player picks the game they like and
+   is given that set outright.
+
+   It deliberately reuses grant(), the same call exclPurchase() makes
+   AFTER it has taken the coins — so a gifted set is byte-for-byte the
+   same ownership a bought one produces, and nothing downstream (the
+   wardrobe, the store's "owned" state, the sync) can tell them apart or
+   needs to learn how.
+
+   WHAT IT SKIPS, said out loud, because skipping them is the whole
+   point and also the whole risk: the WINS gate (exclWinsMet) and the
+   COIN price (spendCoins). Everything else — the def lookup, the
+   already-owned refusal, the per-piece grant — is the purchase path.
+
+   It refuses a set the player already owns rather than silently
+   re-granting, so the chest cannot be spent on nothing. */
+function exclGift(game, why){
+  game = String(game || '').toLowerCase();
+  if (!EXCLUSIVES[game]) return { ok:false, why:'unknown' };
+  var ds = exclusiveDefs(game), i;
+  if (!ds.length) return { ok:false, why:'unknown' };
+  if (exclDone(game)) return { ok:false, why:'owned' };
+  var got = [], bad = 0, r;
+  for (i = 0; i < ds.length; i++){
+    r = grant(ds[i].id);
+    if (r && r.ok) got.push(ds[i]); else bad++;
+  }
+  /* A set that granted NOTHING is a failure worth reporting; a set that
+     granted most of its pieces is still a real prize and must not be
+     rolled back — the player would lose the pieces that did land. */
+  if (!got.length) return { ok:false, why:'grant' };
+  commit();
+  syncNow();
+  repaintAvatars();
+  return { ok:true, game:game, defs:got, partial:!!bad,
+           meta: exclusiveMeta(game), reason: why || 'gift' };
+}
+
 /* THE ANIMATION — one injected stylesheet, shared by every exclusive
    preview. A holo SHEEN sweeps diagonally across the art; a soft glow
    breathes behind it. Both are pure transform/opacity, rasterised once
@@ -3819,6 +3859,7 @@ window.KARTI_XP = {
   exclusiveBuy: exclBuy,                /* exclusiveBuy(game) -> bought, not won? */
   exclusiveCoins: exclCoins,            /* exclusiveCoins(game) -> the price     */
   exclusiveBuySet: exclPurchase,        /* buy the whole set: {ok,price,defs}    */
+  exclusiveGift: exclGift,              /* the day-7 chest: no wins, no coins    */
   exclusiveWinsMet: exclWinsMet,        /* has the wins half of the gate landed? */
   betaWhy: betaWhy,                     /* why a beta gift is / is not showing */
   /* Whether to SHOW an owner-only control. Never a permission: anyone can
