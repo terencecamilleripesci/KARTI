@@ -1542,11 +1542,32 @@ function hasSave(){ return !!load(); }
 /* ═══════════════════════════════════════════════════════════════════
    18. FORMATTING — one place, so €1,250 looks the same everywhere
    ═══════════════════════════════════════════════════════════════════ */
+/* ONE ENGINE UNIT IS ONE THOUSAND EURO.
+
+   The owner wanted the money in millions -- big numbers are eye candy -- and
+   also wanted players to start on about half a million. Those two cannot both
+   be had: start cash is a RATIO, not a number (25x the cheapest deed, 3.6x the
+   dearest, 7.5x the salary), and the only change that preserves every ratio is
+   a uniform scale. A scale that puts the start at 500,000 puts the whole board
+   in the tens of thousands -- which is the "thousands" we were trying to leave.
+   So: x1000, and the start reads €1.5M.
+
+   THE SCALING HAPPENS HERE AND NOWHERE ELSE. Multiplying the engine's integers
+   by 1000 instead would have been a silent desync: put3() in js/kiri-ui.js caps
+   a wire number at B3 = 16,777,215 with a plain Math.min and no error, so a bid
+   or a trade above €16.7M would arrive on the other phone AS A DIFFERENT NUMBER.
+   The field cannot be widened either -- 18 of a hard 19 wire fields are already
+   in use. Every integer, every save and every byte on the wire is therefore
+   untouched; only this function knows about the unit, and the balance is
+   mathematically identical because nothing moved. */
 function money(n){
-  n = Math.round(n || 0);
-  const neg = n < 0;
-  const s = String(Math.abs(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return (neg ? '−€' : '€') + s;
+  const v = Math.round(n || 0), a = Math.abs(v), s = v < 0 ? '−€' : '€';
+  if (!a) return '€0';
+  if (a < 1000) return s + a + 'K';
+  const m = a / 1000;
+  return s + (a % 1000 === 0 ? String(m)
+            : a % 100 === 0 ? m.toFixed(1)
+            : m.toFixed(2)) + 'M';
 }
 
 /* ═══════════════════════════════════════════════════════════════════
