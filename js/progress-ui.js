@@ -1624,7 +1624,7 @@ var SCENES = [
     blurb:'The street the app opens on. The stock scene.' },
   { id:'festa',      name:'Taħt il-Murtali', lvl:1,
     blurb:'The loading screen’s festa night, kept on after it loads.',
-    bg:'art/ui/loading-bg.png' },
+    bg:'art/ui/loading-bg.webp' },
   /* the baby-pink scene, level 1 like the theme — never gated high */
   { id:'rozahelwa',  name:'Sħaba Roża', lvl:1,
     blurb:'Baby pink from edge to edge. Soft as gelat tal-fraġola.',

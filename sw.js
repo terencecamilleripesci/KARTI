@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v353';
+const CACHE = 'karti-v354';
 /* ── THE SHELL, NOT THE GAME ─────────────────────────────────────────────────
    This list used to be 205 entries / ~24 MB — every game module and every
    per-game portrait — so a first install (and EVERY version bump) re-fetched
@@ -12,9 +12,10 @@ const CACHE = 'karti-v353';
      · the document, manifest, css, fonts, PWA icons
      · the loader's FIRST WAVE of js (index.html loads these before Home
        paints: lang → sets → progress → game.js → the hub modules)
-     · the UI dressing detectArt() probes at boot (petard.jpg is the sentinel
-       that decides whether the art pack exists AT ALL — it must answer
-       offline) plus the home backdrop/hero/spin-wheel.
+     · the art the boot screens themselves wear (petard.jpg is the sentinel
+       detectArt() probes to decide whether the art pack exists AT ALL — it
+       must answer offline) plus the splash/gate backdrop and the home
+       backdrop/hero/spin-wheel.
 
    Everything else — the per-game engines/UIs of games not yet opened, the
    MINHU/SUSPETT/MISTERU portraits, tile logos, big backdrops — is cached ON
@@ -39,8 +40,10 @@ const SHELL = [
   './js/progress.js',
   './js/progress-ui.js',
   './js/game.js',
-  './js/deck-kit.js',
-  './js/blackjack.js',
+  /* deck-kit.js and blackjack.js used to sit here, but index.html loads BOTH
+     in wave 2 (deck-kit after the card tables, blackjack with 21&31) — they
+     were the two lists drifting out of step, exactly what the comment above
+     warns about. Runtime-cached on first use like every other game module. */
   './js/rebbieh.js',
   './js/mail.js',
   './js/ai.js',
@@ -65,24 +68,21 @@ const SHELL = [
      kept by the runtime cache from then on. */
   './icons/icon-192.png',
   './icons/icon-512.png',
-  /* The UI art the shell actually wears — home background, playmat, card back,
-     zones, piles — plus art/petard.jpg, the sentinel detectArt() probes to
-     decide whether the art pack exists at all. None of these were cached, and
-     every cache bump wiped the runtime copies, so an installed app launched on
-     a flaky connection came up with NO artwork: shell from the precache, art
-     probes dead. ~2 MB total, precached once, and the install below carries
-     the previous version's copies forward if the network drops mid-install. */
+  /* The UI art the BOOT SCREENS actually wear — the splash/gate backdrop, the
+     home background + hero + spin-wheel medallion — plus art/petard.jpg, the
+     sentinel detectArt() probes to decide whether the art pack exists at all
+     (it must answer offline). The card-TABLE dressing (board.jpg, cardback.jpg,
+     the zones and piles, ~785 KB) is deliberately NOT here any more: Home never
+     draws it, detectArt() probes it on every online boot so the runtime cache
+     picks it up on day one, and the migration step in `activate` carries those
+     copies across every version bump — so the only device that can miss it is
+     one that has NEVER booted online, which cannot reach the app at all. Keeping
+     it out means every install and every cache bump moves ~2 MB less. */
   './art/petard.jpg',
+  './art/ui/loading-bg.webp',
   './art/ui/home-bg.jpg',
-  './art/ui/home-hero.png',
-  './art/ui/spin-wheel.png',
-  './art/ui/board.jpg',
-  './art/ui/cardback.jpg',
-  './art/ui/zone-monster.png',
-  './art/ui/zone-spell.png',
-  './art/ui/pile-deck.png',
-  './art/ui/pile-grave.png',
-  './art/ui/pile-banish.png'
+  './art/ui/home-hero.webp',
+  './art/ui/spin-wheel.png'
 ];
 
 /* fetch that bypasses HTTP-cache freshness (revalidates with the server) and

@@ -745,11 +745,11 @@ function injectCSS(){
      shorter square just draws a shorter square. */
   '#scr-party .su-town{flex:0 1 auto;min-height:118px;position:relative;width:100%;height:min(98vw,394px);' +
     'border-radius:14px;overflow:hidden;border:1px solid rgba(255,255,255,.14);' +
-    'background-image:radial-gradient(120% 120% at 50% 46%,rgba(10,7,16,0) 46%,rgba(10,7,16,.5) 100%),url("./art/suspett/map-day.png");' +
+    'background-image:radial-gradient(120% 120% at 50% 46%,rgba(10,7,16,0) 46%,rgba(10,7,16,.5) 100%),url("./art/suspett/map-day.webp");' +
     'background-size:cover,cover;background-position:center,center;' +
     'box-shadow:inset 0 0 60px rgba(0,0,0,.55);transition:background-image .6s var(--ease,ease)}' +
   '#scr-party .su-town.night{' +
-    'background-image:radial-gradient(120% 120% at 50% 46%,rgba(6,4,16,.12) 44%,rgba(6,4,16,.66) 100%),url("./art/suspett/map-night.png")}' +
+    'background-image:radial-gradient(120% 120% at 50% 46%,rgba(6,4,16,.12) 44%,rgba(6,4,16,.66) 100%),url("./art/suspett/map-night.webp")}' +
   /* gentle idle life — the living villagers sway; staggered so they are not in lockstep */
   '@keyframes suIdle{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-2.5px) rotate(.7deg)}}' +
   '#scr-party .su-vil:not(.dead):not(.hanging):not(.slain) .fig{animation:suIdle 3.4s ease-in-out infinite}' +

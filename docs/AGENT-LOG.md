@@ -676,3 +676,37 @@ pill on Home, which counts up and pops on arrival. Three things to keep:
   `#scr-home.on` where the base class is **`screen`**, not `scr` — a
   `.scr.on` selector silently matches nothing and every rect reads 0x0,
   which looks exactly like a broken animation.
+
+## The splash gates on WAVE 2 — so "defer wave 2 harder" makes boot SLOWER, not faster
+
+While cutting cold-load weight (build 353 → the big-image diet), a measured
+audit recommended pushing the wave-2 game-module downloads further back so
+they stop competing with Home's first paint. Before doing it, read
+index.html around `MIN_MS`: **the loading splash holds until `karti:loaded`**
+— the event that fires only when BOTH waves have landed (20s safety cap
+aside) — because party.js must never let a tile open before its module
+exists. So the player cannot SEE Home until wave 2 is done no matter how
+early Home painted underneath, and Pages is HTTP/2, so serialising the waves
+adds idle gaps without shrinking total bytes. Deferring wave 2 delays the
+exact event that drops the curtain. The lever that actually works is bytes:
+loading-bg/home-hero went WebP (1.9 MB → 365 KB, visually identical, probes
+fall back to the designed gradients on a non-WebP browser).
+
+Measured cold-load accounting for that diet (verified byte-exact against
+HEAD 834ae52, and the trap it teaches): 12,453,302 B → **10,796,178 B, net
+−1,657,124 B**. The four asset swaps alone are −1,657,664 B (loading-bg
+1,188,482→195,154; home-hero 708,333→169,396; spin-wheel 140,364→77,412;
+favicon 65,944→3,497) but the five EDITED files grew 540 B doing it
+(index.html +141, sw.js +394, game.js +2, suspett-ui.js +2,
+progress-ui.js +1). An earlier report quoted the asset-only figure as the
+net saving. Rule: when you claim a cold-load delta, sum EVERY changed file
+— the edits that carry a diet have weight too.
+
+Convention set at the same time: the replaced originals
+(art/ui/loading-bg.png, art/ui/home-hero.png, art/suspett/map-day.png,
+art/suspett/map-night.png) are DELIBERATELY still on disk — clients holding
+the previous index.html/game.js/suspett-ui.js (HTTP cache ≤10 min, offline
+phones on carried-forward caches) still request the old names, and Pages
+serving both makes the transition riskless. A later build can delete them
+once v354+ is everywhere. Do not "clean them up" in the same build that
+changes the references.

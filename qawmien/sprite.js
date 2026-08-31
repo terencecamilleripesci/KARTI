@@ -139,29 +139,59 @@ function standingFrames(im, cols, rows, cw, ch){
   return out;
 }
 
+/* every sheet ever made, so a failed load can be re-attempted after a
+   network drop (retryFailed below — the loading screen's Retry button) */
+const MADE = [];
+
 function make(src, opts){
   opts = opts || {};
   const s = {
-    img: null, ready: false,
+    img: null, ready: false, failed: false, src,
     cols: opts.cols || 6, rows: opts.rows || 4,
     cw: 0, ch: 0,
     clips: opts.clips || CLIPS,
     clip: 'idle', t: 0, frame: 0, done: false
   };
-  const im = new Image();
-  im.onload = () => {
-    s.img = im;
-    /* the cell size is DERIVED, never hard-coded — swap in a bigger sheet
-       and nothing else has to change */
-    s.cw = Math.floor(im.width / s.cols);
-    s.ch = Math.floor(im.height / s.rows);
-    s.stand = standingFrames(im, s.cols, s.rows, s.cw, s.ch);
-    s.ready = true;
-    if (opts.onready) opts.onready(s);
+  /* window.LOADER (loader.js, world.html only) turns these loads into
+     honest loading-screen progress; anywhere it is absent — the combat
+     iframe, select.html, node — the hooks cost nothing */
+  const L = (typeof window !== 'undefined' && window.LOADER) || null;
+  s._load = function (){
+    s.failed = false;
+    if (L){ try { L.want(src); } catch (e) {} }
+    const im = new Image();
+    /* neighbour-map prefetches must never compete with what the player
+       is looking at; ignored where fetchPriority is unsupported */
+    if (opts.lowPriority){ try { im.fetchPriority = 'low'; } catch (e) {} }
+    im.onload = () => {
+      s.img = im;
+      /* the cell size is DERIVED, never hard-coded — swap in a bigger sheet
+         and nothing else has to change */
+      s.cw = Math.floor(im.width / s.cols);
+      s.ch = Math.floor(im.height / s.rows);
+      s.stand = standingFrames(im, s.cols, s.rows, s.cw, s.ch);
+      s.ready = true;
+      if (L){ try { L.done(src); } catch (e) {} }
+      if (opts.onready) opts.onready(s);
+    };
+    im.onerror = () => {
+      s.failed = true;
+      if (L){ try { L.fail(src); } catch (e) {} }
+      if (opts.onerror) opts.onerror();
+    };
+    im.src = src;
   };
-  im.onerror = () => { if (opts.onerror) opts.onerror(); };
-  im.src = src;
+  MADE.push(s);
+  s._load();
   return s;
+}
+
+/* re-attempt every sheet whose load failed; returns how many retried */
+function retryFailed(){
+  let n = 0;
+  for (const s of MADE)
+    if (s.failed && !s.ready){ n++; s._load(); }
+  return n;
 }
 
 /* A second actor on the SAME sheet. The image is loaded once and shared;
@@ -222,7 +252,8 @@ function draw(g, s, x, y, scale, flip){
   return true;
 }
 
-return { CLIPS, CLIPS_DIR, CLIPS_IDLE, DIR, BACKS, dirOf, make, spawn, play, step, draw };
+return { CLIPS, CLIPS_DIR, CLIPS_IDLE, DIR, BACKS, dirOf, make, spawn, play, step, draw,
+         retryFailed };
 })();
 
 if (typeof window !== 'undefined') window.SPRITE = SPRITE;

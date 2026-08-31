@@ -76,7 +76,7 @@
      swaps it in the moment it decodes) — start it alongside the scripts rather
      than when that script runs. Default (low) image priority on purpose: it
      must not outrank the boot js. -->
-<link rel="preload" as="image" href="art/ui/loading-bg.png">
+<link rel="preload" as="image" href="art/ui/loading-bg.webp">
 <!-- The display face is SELF-HOSTED, and it is Exo 2 rather than Orbitron, for
      two reasons that are really one.
      1. A Google Fonts stylesheet is a third-party request, so an offline PWA
@@ -189,7 +189,7 @@
   --kx-tab-on:#FFC542;
   --kx-glow:rgba(255,170,60,.20); --kx-ember:#FFDE9B;
   --kx-home-bg:none;
-  --kx-gate-bg:url("art/ui/loading-bg.png");
+  --kx-gate-bg:url("art/ui/loading-bg.webp");
   --kx-app-bg:none;
 }
 :root{
@@ -836,7 +836,7 @@ body.reduced .logo.kx-split .lg-shine{display:none}
 body.reduced .spinbadge{animation:none}
 
 /* ── HOME HERO BACKDROP ────────────────────────────────────────────────
-   When art/ui/home-hero.png is present, detectArt() in js/game.js proves it
+   When art/ui/home-hero.webp is present, detectArt() in js/game.js proves it
    loaded and adds html.has-hero. That swaps the home backdrop to the hero art
    with a scrim on top so the centre stays calm and the buttons read. If the
    file is absent the class is never added and #scr-home keeps its existing
@@ -1651,7 +1651,9 @@ body.reduced #btn-party{border-color:rgba(255,197,66,.5);
 <body>
 
 <!-- ═══ LOADING SPLASH ═══ Shown instantly (inline, no CSS/JS wait). A KARTI-red/gold
-     festa backdrop (art/ui/loading-bg.png with a gradient fallback so it looks right even
+     festa backdrop (art/ui/loading-bg.webp — WebP q90, 195 KB vs the 1.16 MB png it
+     replaced, visually identical; a browser that cannot decode WebP just keeps the
+     gradient fallback below — so it looks right even
      before the art lands), the logo, a creeping progress bar, and a warm glow. It fades out
      the moment Home is ready (window.KARTI) or everything has loaded (karti:loaded). -->
 <div id="kl-splash" aria-hidden="true">
@@ -1802,7 +1804,7 @@ body.kl-inst-on .screen .scroll{padding-bottom:98px}
 (function(){
   var sp=document.getElementById('kl-splash'), bar=document.getElementById('kl-bar'), art=document.getElementById('kl-art'), tip=document.getElementById('kl-tip');
   if(!sp) return;
-  try{ var im=new Image(); im.onload=function(){ if(art){ art.style.backgroundImage="url('art/ui/loading-bg.png')"; art.style.opacity=".92"; } }; im.src="art/ui/loading-bg.png"; }catch(e){}
+  try{ var im=new Image(); im.onload=function(){ if(art){ art.style.backgroundImage="url('art/ui/loading-bg.webp')"; art.style.opacity=".92"; } }; im.src="art/ui/loading-bg.webp"; }catch(e){}
   var tips=['SHUFFLING THE DECK…','DEALING A ROUGH HAND…','LIGHTING THE FESTA…','WARMING UP THE VILLAGE…'], ti=0;
   var pct=6, t=setInterval(function(){ pct+=Math.max(1,(90-pct)*0.09); if(pct>92)pct=92; if(bar)bar.style.width=pct.toFixed(0)+'%'; if(tip&&Math.random()<0.18){ ti=(ti+1)%tips.length; tip.textContent=tips[ti]; } },170);
   var gone=false, t0=Date.now();
@@ -2447,7 +2449,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 353;
+var KARTI_BUILD = 354;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){

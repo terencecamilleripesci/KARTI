@@ -41,26 +41,51 @@ const WORLD = (() => {
     matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ── images ─────────────────────────────────────────────────────── */
-  const ATLASES = {};                   /* src → {img, ready}            */
-  function atlasFor(src){
-    if (!ATLASES[src]){
-      const a = { img: null, ready: false };
-      const im = new Image();
-      im.onload = () => { a.img = im; a.ready = true; };
-      im.onerror = () => { a.ready = false; };
-      im.src = src;
-      ATLASES[src] = a;
+  /* window.LOADER (world.html's summoning-circle loading screen) hears
+     about every load so the ring can be honest; absent, no-ops */
+  function ld(kind, src){
+    const L = (typeof window !== 'undefined' && window.LOADER) || null;
+    if (L){ try { L[kind](src); } catch (e) {} }
+  }
+
+  const ATLASES = {};                   /* src → {img, ready, failed, src, load} */
+  function atlasFor(src, low){
+    let a = ATLASES[src];
+    if (!a){
+      a = ATLASES[src] = { img: null, ready: false, failed: false, src };
+      a.load = function (){
+        a.failed = false;
+        ld('want', src);
+        const im = new Image();
+        if (low){ try { im.fetchPriority = 'low'; } catch (e) {} }
+        im.onload = () => { a.img = im; a.ready = true; ld('done', src); };
+        im.onerror = () => { a.failed = true; ld('fail', src); };
+        im.src = src;
+      };
+      a.load();
     }
-    return ATLASES[src];
+    return a;
   }
 
   /* one shared sheet per creature; each marker gets its own playhead */
   const SHEETS = {};
-  function sheetFor(name){
+  function sheetFor(name, low){
     const src = 'art/' + name + '-dir8.png';
     if (!SHEETS[src])
-      SHEETS[src] = SPRITE.make(src, { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR });
+      SHEETS[src] = SPRITE.make(src, { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR,
+                                       lowPriority: !!low });
     return SHEETS[src];
+  }
+
+  /* everything map m draws: its atlas + one walk sheet per creature
+     standing on it. Requesting is idempotent — the caches above make
+     "load" and "already have" the same call, so nothing ever re-fetches. */
+  function mapAssets(m, low){
+    const out = [ atlasFor(m.atlas || WT.ATLAS_SRC, low) ];
+    for (const mk of m.markers || [])
+      if ((mk.type === 'npc' || mk.type === 'fight') && mk.sprite)
+        out.push(sheetFor(mk.sprite, low));
+    return out;
   }
 
   /* ── the player actor ───────────────────────────────────────────── */
@@ -262,7 +287,102 @@ const WORLD = (() => {
     hero.step = null; hero.path = []; hero.pending = null; hero.goal = null;
     camSnap = true;                     /* no lerp across maps (§5)      */
     bind();
+    maybeGate();
+    /* Warm every way OUT of the map just arrived on. Deferred a beat so
+       the first frame of the new screen paints first; when a gate IS up
+       the ring's finish callback does it instead (below), so the player
+       is always in control before a single prefetch byte is asked for. */
+    if (!gateActive()) schedulePrefetch();
     return true;
+  }
+
+  /* ── the per-map loading gate ─────────────────────────────────────
+     Everything the CURRENT screen needs but does not yet have. The boot
+     cycle (world.html owns it) collects these through the load hooks;
+     a border crossed before its prefetch finished gets a short
+     transition cycle of its own — the same ring, briefly, instead of a
+     half-drawn map. A warm border needs nothing and shows nothing, and
+     since every way out warms in the background, warm is the norm: this
+     gate is the safety net, not the usual path. */
+  function pendingAssets(){
+    if (!map) return [];
+    const list = mapAssets(map);
+    if (hero.dspr) list.push(hero.dspr);
+    if (hero.ispr) list.push(hero.ispr);
+    return list.filter(a => !a.ready);
+  }
+  function gateActive(){
+    return !!(typeof window !== 'undefined' && window.LOADER &&
+              window.LOADER.active());
+  }
+  function maybeGate(){
+    const L = (typeof window !== 'undefined' && window.LOADER) || null;
+    if (!L) return;                     /* no loader: old pop-in fallback */
+    const pend = pendingAssets();
+    if (!pend.length) return;
+    if (L.active()) return;             /* boot cycle is already counting */
+    if (!L.open(() => schedulePrefetch())) return;
+    for (const a of pend) L.want(a.src);
+    L.seal();
+  }
+
+  /* ── WARM EVERY WAY OUT (the owner's rule, and it is the right one) ─
+     "If you can see how Dofus works, you can move up, right, down or
+     left if it's available. If it's available, ALL directions must be
+     loaded."
+
+     An earlier version guessed from proximity and heading — warm only
+     the edge you are near or walking at. That optimises BYTES at the
+     cost of the thing that actually matters: the player can turn and
+     leave by any open side at any moment, so a guess is wrong the
+     instant they double back or cut a corner, and being wrong means
+     arriving on a cold, half-drawn screen. That is the exact "rubbish"
+     this whole change exists to kill.
+
+     So: the moment the current map is playable, EVERY declared
+     neighbour (up to four) plus every exit marker's target starts
+     warming at low fetch priority. It runs after the player has
+     control and never blocks becoming playable, so boot does not get
+     slower. On arrival it repeats for the new map's neighbours.
+
+     It costs far less than "four times a map" sounds: neighbours share
+     the same atlas (one file for the whole field grid) and often the
+     same creature sheets, and the caches above mean an asset already
+     held is not requested again — walking the whole grid pays for each
+     file exactly once. */
+  /* Always DEFERRED, never fired in the same tick as the reveal: the
+     frame that hands the player control should be spent drawing their
+     map, not opening four more connections. It also keeps the promise
+     that prefetching cannot delay becoming playable — measurably so,
+     since bytes-to-playable is then finished before warming starts. */
+  let prefT = 0;
+  function schedulePrefetch(ms){
+    if (typeof setTimeout !== 'function') return;
+    clearTimeout(prefT);
+    prefT = setTimeout(prefetchNeighbours, ms == null ? 250 : ms);
+  }
+
+  function prefetchNeighbours(){
+    if (!map || gateActive()) return;
+    if (typeof window === 'undefined' || !window.MAPS) return;
+    const nb = map.neighbours || {};
+    const seen = {};
+    const warm = id => {
+      if (!id || seen[id] || !window.MAPS[id]) return;
+      seen[id] = true;
+      mapAssets(window.MAPS[id], true);   /* idempotent; low priority */
+    };
+    for (const k of ['n', 'e', 's', 'w']) warm(nb[k]);
+    for (const mk of live) if (mk.type === 'exit') warm(mk.to);
+  }
+
+  /* re-attempt every failed image — the loading screen's Retry button */
+  function retryAssets(){
+    for (const k in ATLASES){
+      const a = ATLASES[k];
+      if (a.failed && !a.ready) a.load();
+    }
+    if (SPRITE.retryFailed) SPRITE.retryFailed();
   }
 
   /* every RUIN_ARCH in decor is a doorway: remember which walkable tile
@@ -323,6 +443,10 @@ const WORLD = (() => {
       if (Math.max(Math.abs(g.c - c), Math.abs(g.r - r)) <= 1) fireNpc(g);
       else hero.goal = null;
     }
+    /* no per-tile prefetch any more: warming is per-MAP and every way
+       out is already warming from the moment this screen became
+       playable (see prefetchNeighbours), so where the hero stands
+       inside the map no longer decides anything */
     return false;
   }
 
@@ -685,10 +809,16 @@ const WORLD = (() => {
     get mode(){ return mode; },
     camera,
     removeMarker,                       /* extension: glue drops a beaten fight */
-    refreshHeroSprites(){ heroSprites(); },  /* HERO changed identity — reload
-                                                the walk/idle sheets NOW */
+    refreshHeroSprites(){ heroSprites(); maybeGate(); },
+                                        /* HERO changed identity — load the
+                                           new walk sheets NOW, behind a
+                                           brief circle rather than a blob */
+    retryAssets,                        /* loading screen's Retry button */
+    schedulePrefetch,                   /* loader finish → warm every way out */
+    prefetchNeighbours,                 /* the same, immediately (tests)      */
     get _map(){ return map; },          /* test hooks */
-    _hero: hero
+    _hero: hero,
+    _assets(){ return { atlases: ATLASES, sheets: SHEETS }; }
   };
 })();
 

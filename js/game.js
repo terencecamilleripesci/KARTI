@@ -1794,6 +1794,8 @@ function settingsSheet(){
        at all (drawn for the admin account only; the PERMISSION is the
        server's own list on the gift route, not this). '' for everyone else. */
     (window.KARTI_MAIL && KARTI_MAIL.settingsRowHTML ? KARTI_MAIL.settingsRowHTML() : '') +
+    /* How to play moved off Home so its menu fits a phone; it lives here now. */
+    (window.KARTI_TUTOR && KARTI_TUTOR.settingsRowHTML ? KARTI_TUTOR.settingsRowHTML() : '') +
 
     '<p class="setgrp">This profile</p>' +
     '<div class="opts">' +
@@ -1807,6 +1809,7 @@ function settingsSheet(){
       '<button class="btn ghost" id="st-back">Back</button>' +
     '</div>');
 
+  try { window.KARTI_TUTOR && KARTI_TUTOR.bindSettings && KARTI_TUTOR.bindSettings(); } catch(e){}
   $('#st-back').onclick = profileSheet;
   { const n = $('#st-notify');
     if (n) n.onclick = () => {
@@ -8400,8 +8403,8 @@ function detectArt(){
   /* HOME HERO — the front-door backdrop. Optional art dropped by the
      coordinator; if it never loads, html.has-hero is never added and the home
      keeps its existing --art-home (home-bg.jpg → designed gradient). */
-  probe('home-hero', 'art/ui/home-hero.png', () => {
-    const abs = new URL('art/ui/home-hero.png', location.href).href;
+  probe('home-hero', 'art/ui/home-hero.webp', () => {
+    const abs = new URL('art/ui/home-hero.webp', location.href).href;
     document.documentElement.style.setProperty('--home-hero', 'url("' + abs + '")');
     document.documentElement.classList.add('has-hero');
   });

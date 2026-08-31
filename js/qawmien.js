@@ -88,8 +88,16 @@
       b.id = 'btn-qawmien';
       b.type = 'button';
       b.innerHTML =
-        '<span class="pk-ic" aria-hidden="true"><svg class="ico" viewBox="0 0 24 24" ' +
-          'focusable="false"><use href="#i-bolt"></use></svg></span>' +
+        /* The game's own painted logo, not a borrowed line icon. It is the
+           only row on Home with real art, which is right: this is the RPG,
+           not another card table. onerror falls back to the bolt so a
+           missing file costs a picture, never the row. */
+        '<span class="pk-ic" aria-hidden="true">' +
+          '<img src="art/ui/logo-qawmien.png" alt="" width="40" height="40" ' +
+            'style="width:40px;height:40px;object-fit:contain;display:block" ' +
+            'onerror="this.outerHTML=\'<svg class=&quot;ico&quot; viewBox=&quot;0 0 24 24&quot;>' +
+              '<use href=&quot;#i-bolt&quot;></use></svg>\'">' +
+        '</span>' +
         '<span class="pk-tx"><span class="pk-t">' + esc(T('Il-Qawmien', 'Il-Qawmien')) +
           ' <small style="opacity:.7;font-weight:700">BETA</small></span>' +
         '<span class="sub">' +

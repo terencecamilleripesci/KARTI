@@ -197,37 +197,29 @@ function fit(){
    amount of recolouring changes a silhouette.
    Every entry is OPTIONAL: a kind whose sheet is missing falls back to
    the hero sheet, and if that is missing too, to the drawn shapes. */
+/* WHICH CREATURE A RULES-KIND WEARS.
+   The rules know 'grunt' and 'archer'; the art knows skeletons and sheep.
+   Keeping the two apart means a monster can be re-skinned — or a whole
+   new one added — without touching a line of combat logic. */
+const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage',
+                sheep:'sheep', dummy:'dummy', ram:'sheep' };
+
 const SHEETS = {}, DIRS = {}, IDLES = {};
 let SHEET = null, DIRSHEET = null;
 try {
-  SHEET = SPRITE.make('art/hero-sheet.png', { cols:6, rows:4 });
-  /* the two-angle walk/idle sheet. Optional: if it never arrives every
-     unit simply keeps using the front-facing sheet, mirrored. */
-  /* THE 5-ANGLE WALK SHEETS -> 8 FACINGS, ONE PER CREATURE.
-     The rule is that anything that moves turns to face where it is going,
-     so every creature needs its own five angles — a skeleton cannot
-     borrow the hero's back. Each is optional and independent: a creature
-     without one still mirrors left/right off its single-angle sheet, so
-     the rule holds visually as far as its art allows, and improves the
-     moment the file appears. */
-  DIRSHEET = SPRITE.make('art/hero-dir8.png',
-    { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
-  DIRS.you        = DIRSHEET;
-  /* the DRAWN idle sheets. Optional per creature: without one a unit
-     simply holds its measured both-feet-down walk frame, which is what
-     everything did before these existed. */
-  IDLES.you = SPRITE.make('art/hero-idle.png', { cols:6, rows:4, clips: SPRITE.CLIPS_IDLE });
-  DIRS.skeleton   = SPRITE.make('art/skeleton-dir8.png',   { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
-  DIRS.skelarcher = SPRITE.make('art/skelarcher-dir8.png', { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
-  DIRS.skelmage   = SPRITE.make('art/skelmage-dir8.png',   { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
-  DIRS.sheep      = SPRITE.make('art/sheep-dir8.png',      { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
-  DIRS.dummy      = SPRITE.make('art/dummy-dir8.png',      { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
-  SHEETS.you = SHEET;
-  SHEETS.sheep      = SPRITE.make('art/sheep-sheet.png',      { cols:6, rows:4 });
-  SHEETS.skeleton   = SPRITE.make('art/skeleton-sheet.png',   { cols:6, rows:4 });
-  SHEETS.skelarcher = SPRITE.make('art/skelarcher-sheet.png', { cols:6, rows:4 });
-  SHEETS.skelmage   = SPRITE.make('art/skelmage-sheet.png',   { cols:6, rows:4 });
-  SHEETS.dummy      = SPRITE.make('art/dummy-sheet.png',      { cols:6, rows:4 });
+  /* LOAD ONLY THIS FIGHT'S CREATURES. The roster is known before a
+     single byte of art is requested — fightRoster() reads the tapped
+     marker's foes — so a tutorial scrap against a straw dummy no longer
+     downloads every monster in the game (~7 MB of sheets for a fight
+     whose own art is 26 KB). The hero's possible summons count as
+     present. Sheets stay OPTIONAL: a kind whose sheet is missing falls
+     back to the hero sheet, and if that is missing too, to the drawn
+     shapes. */
+  const CREATURE_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1 };
+  const need = new Set();
+  for (const k of fightRoster()) need.add(WEARS[k] || k);
+  for (const sp of HERO_SPELLS) if (sp && sp.summon) need.add(WEARS[sp.summon] || sp.summon);
+
   /* a CHOSEN hero wears the class's own sheets — this is the first time
      the player sees their class actually fight, so it must be THEIR
      character on the board, not the stock hero. Classes have no drawn
@@ -239,14 +231,28 @@ try {
     IDLES.you  = HCFG.sheets.idle
       ? SPRITE.make(HCFG.sheets.idle, { cols:6, rows:4, clips: SPRITE.CLIPS_IDLE })
       : null;
+  } else {
+    SHEETS.you = SPRITE.make('art/hero-sheet.png', { cols:6, rows:4 });
+    /* THE 5-ANGLE WALK SHEETS -> 8 FACINGS, ONE PER CREATURE.
+       The rule is that anything that moves turns to face where it is
+       going. Each sheet is optional and independent: a creature without
+       one still mirrors left/right off its single-angle sheet. */
+    DIRS.you  = SPRITE.make('art/hero-dir8.png',
+      { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
+    /* the DRAWN idle sheet. Optional: without one a unit simply holds
+       its measured both-feet-down walk frame. */
+    IDLES.you = SPRITE.make('art/hero-idle.png',
+      { cols:6, rows:4, clips: SPRITE.CLIPS_IDLE });
+  }
+  SHEET = SHEETS.you;                  /* the universal fallback base    */
+  DIRSHEET = DIRS.you;
+  for (const c of need){
+    if (!CREATURE_ART[c] || DIRS[c]) continue;
+    DIRS[c]   = SPRITE.make('art/' + c + '-dir8.png',
+      { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
+    SHEETS[c] = SPRITE.make('art/' + c + '-sheet.png', { cols:6, rows:4 });
   }
 } catch (e){ SHEET = null; }
-/* WHICH CREATURE A RULES-KIND WEARS.
-   The rules know 'grunt' and 'archer'; the art knows skeletons and sheep.
-   Keeping the two apart means a monster can be re-skinned — or a whole
-   new one added — without touching a line of combat logic. */
-const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage',
-                sheep:'sheep', dummy:'dummy', ram:'sheep' };
 
 function mk(kind, side, c, r){
   const b = RULES[kind];

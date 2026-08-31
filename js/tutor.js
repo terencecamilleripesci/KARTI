@@ -1290,7 +1290,12 @@ function wire(){
   injectCSS();
   const have = $('#btn-tutor');
   if (have){ if (!have.onclick) have.onclick = open; return; }
-  const host = document.querySelector('#scr-home .navrow') || document.querySelector('#scr-home .menu');
+  /* NOT .menu any more. Home's menu is the short list of doors into the game
+     — Story Mode, Multiplayer, Il-Qawmien — and the owner wants them all to
+     fit on a phone without scrolling. A rules button is not a door; it lives
+     in Settings now (see settingsRowHTML below, drawn by game.js).
+     .navrow is still honoured if a layout ever provides one. */
+  const host = document.querySelector('#scr-home .navrow');
   if (!host) return;
   const b = document.createElement('button');
   b.className = 'btn ghost sm';
@@ -1306,7 +1311,25 @@ else wire();
 /* last line of defence: if the tab goes away mid-lesson, give the RNG back */
 window.addEventListener('pagehide', rngRestore);
 
+/* The Settings entry, mirroring how js/mail.js contributes its own row.
+   Home loses the button; the lesson stays one tap away and is never
+   orphaned — a tutorial nobody can re-open is a feature quietly deleted. */
+function settingsRowHTML(){
+  return '<p class="setgrp">Learning</p>' +
+    '<div class="setlist">' +
+      '<button class="setrow" id="st-tutor" type="button">' +
+        '<span class="sl"><b>How to play</b>' +
+        '<small>The card game, taught hand by hand.</small></span>' +
+      '</button>' +
+    '</div>';
+}
+function bindSettings(){
+  const b = document.getElementById('st-tutor');
+  if (b) b.onclick = function(){ open(); };
+}
+
 window.KARTI_TUTOR = {
+  settingsRowHTML, bindSettings,
   start, open, isDone, reset,
   steps: STEPS.length,
   /* surface for the headless verification harness */
