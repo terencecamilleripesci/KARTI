@@ -167,13 +167,23 @@
       var x = document.createElement('button');
       x.type = 'button';
       x.setAttribute('aria-label', T('Leave Il-Qawmien', 'Oħroġ minn Il-Qawmien'));
-      x.textContent = '✕';
+      x.textContent = '✕  KARTI';
+      /* TOP CENTRE, NOT TOP LEFT. The first version sat at 8,8 - directly on
+         top of the RPG's own quest banner, which runs from x10 to x212 at
+         that height. The way out was hidden underneath the game's UI, so
+         opening this door looked like KARTI had vanished and there was no
+         obvious way back. The game keeps its quest pill left and its Bag /
+         Hero buttons right; the centre of that strip is the one part of the
+         RPG's HUD that is always free. It also says KARTI rather than just
+         an X, because "where did my game go" is the actual question. */
       x.style.cssText =
         'position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);' +
-        'left:calc(env(safe-area-inset-left,0px) + 8px);z-index:2;' +
-        'min-width:44px;min-height:44px;border-radius:12px;cursor:pointer;' +
-        'border:1px solid rgba(255,255,255,.18);background:rgba(10,8,20,.78);' +
-        'color:#EDEAF6;font-size:18px;font-weight:800;line-height:1';
+        'left:50%;transform:translateX(-50%);z-index:5;' +
+        'min-width:44px;min-height:44px;padding:0 14px;border-radius:12px;' +
+        'cursor:pointer;display:flex;align-items:center;gap:6px;' +
+        'border:1px solid rgba(255,255,255,.22);background:rgba(10,8,20,.92);' +
+        'color:#EDEAF6;font-size:13px;font-weight:800;line-height:1;' +
+        'box-shadow:0 4px 14px rgba(0,0,0,.5)';
       x.addEventListener('click', close);
 
       wrap.appendChild(frame);
