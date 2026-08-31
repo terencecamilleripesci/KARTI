@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E0B1A">
+<title>Tactics testbed — world</title>
+<!--
+  THE EXPLORE LAYER. index.html stays the combat testbed; this page is the
+  Incarnam-style beginner zone wrapped around it: free-walk exploration,
+  the tutorial ruin, and a hidden iframe that drops into the real AP/MP
+  combat when a fight marker is tapped, then comes back.
+
+  Boot glue only — every real behaviour lives in its module:
+    WORLD (world.js)  map render / A* free-walk / camera / seams
+    QUEST (quest.js)  tutorial steps, dialogue, coach toasts, #qhud
+    PANELS(panels.js) inventory + character sheet
+-->
+<link rel="stylesheet" href="panels.css">
+<link rel="stylesheet" href="select.css"><!-- the reincarnation picker reuses
+  select.html's UI (SELECTUI overlay); loaded up front so the moment never
+  paints unstyled --><style>
+  :root{
+    --bg:#0E0B1A; --panel:#171331; --line:rgba(255,255,255,.10);
+    --ink:#EDEAF6; --dim:#9C97B8;
+    --you:#4FA9E8; --foe:#E8455F; --gold:#FFC542; --mp:#3DDC84;
+    --ap:#8A5CFF;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+    font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    overscroll-behavior:none;touch-action:manipulation}
+  #wcv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+
+  /* HUD buttons — top-right, clear of #qhud (top-left, quest.js owns it) */
+  #hud{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));
+    right:calc(8px + env(safe-area-inset-right,0px));z-index:30;display:flex;gap:6px}
+  #hud .btn{min-height:44px;min-width:64px;padding:0 14px;border-radius:12px;
+    border:1px solid var(--line);background:rgba(23,19,49,.88);color:var(--ink);
+    font-weight:800;font-size:14px;cursor:pointer;transition:transform .12s ease-out}
+  #hud .btn:active{transform:scale(.96)}
+
+  /* combat iframe — full screen, above panels(40), below #dlg(50) and the
+     quest coach toast(9999) so coaching overlays the fight */
+  #cbf{position:fixed;inset:0;width:100%;height:100%;border:0;z-index:45;
+    display:none;background:var(--bg)}
+  #cbf.on{display:block}
+
+  @media (prefers-reduced-motion:reduce){ #hud .btn{transition:none} }
+</style>
+</head>
+<body>
+<canvas id="wcv"></canvas>
+
+<div id="hud">
+  <button class="btn" id="bag"  type="button" aria-label="Open inventory">Bag</button>
+  <button class="btn" id="sta"  type="button" aria-label="Open character sheet">Hero</button>
+</div>
+
+<iframe id="cbf" src="" title="Combat"></iframe>
+
+<script src="sprite.js"></script>
+<script src="world-types.js"></script>
+<script src="classes.js"></script>
+<script src="player.js"></script><!-- window.HERO + window.PLAYER (the view) -->
+<script src="maps/ruin-01.js"></script>
+<script src="maps/ruin-02.js"></script>
+<script src="maps/field-0-0.js"></script>
+<script src="maps/field-1-0.js"></script>
+<script src="maps/field-2-0.js"></script>
+<script src="maps/field-0-1.js"></script>
+<script src="maps/field-1-1.js"></script>
+<script src="maps/field-2-1.js"></script>
+<script src="maps/index.js"></script>
+<script src="quest.js"></script>
+<script src="panels.js"></script>
+<script src="select.js"></script><!-- SELECTUI: shared class-picker renderer -->
+<script src="world.js"></script>
+<script>
+'use strict';
+/* ── boot (WORLD_SPEC §8, amended) ────────────────────────────────────
+   window.PLAYER is no longer built here: player.js (window.HERO) creates
+   it, restores the saved identity + progress from localStorage
+   ('tactics.hero.v1') and keeps class-derived stats correct. */
+QUEST.start();
+/* Resume where the hero last stood — player.js persists {map,c,r} inside
+   'tactics.hero.v1' and serves it back through HERO.where(). Fall back to
+   the start map for a fresh hero, an unknown map id, a tile that is no
+   longer statically walkable, or one a map edit put an npc/fight on. */
+(function boot(){
+  const at = (window.HERO && HERO.where) ? HERO.where() : null;
+  if (at && window.MAPS && MAPS[at.map] &&
+      WT.isWalkable(MAPS[at.map], at.c, at.r)){
+    const mk = WT.markerAt(MAPS[at.map], at.c, at.r);
+    if (!(mk && (mk.type === 'npc' || mk.type === 'fight')) &&
+        WORLD.load(at.map, { c: at.c, r: at.r })) return;
+  }
+  WORLD.load(window.MAP_INDEX ? MAP_INDEX.start : 'ruin-01');
+})();
+
+/* HUD buttons */
+document.getElementById('bag').addEventListener('click', () => PANELS.toggle('inventory'));
+document.getElementById('sta').addEventListener('click', () => PANELS.toggle('stats'));
+
+/* ── combat handoff: hidden iframe over the world ─────────────────── */
+const cbf = document.getElementById('cbf');
+let fightMk = null, pollT = 0;
+
+function startFight(mk){
+  if (fightMk) return;                 /* one fight at a time */
+  fightMk = mk;
+  WORLD.setMode('combat');
+  cbf.onload = () => {                 /* iframe scripts have run → T exists */
+    try { QUEST.attachCombat(cbf.contentWindow); } catch (e) {}
+  };
+  cbf.src = 'index.html';
+  cbf.classList.add('on');
+  pollT = setInterval(() => {
+    let over = 0;
+    try {
+      const w = cbf.contentWindow;
+      if (w && w.T && w.T.G) over = w.T.G.over;
+    } catch (e) {}
+    if (over !== 0) endFight(over);
+  }, 500);
+}
+
+function endFight(over){
+  clearInterval(pollT); pollT = 0;
+  QUEST.detachCombat();                /* idempotent — QUEST also self-detaches */
+  cbf.classList.remove('on');
+  cbf.onload = null;
+  cbf.src = '';
+  WORLD.setMode('explore');
+  const mk = fightMk; fightMk = null;
+  if (over === 1 && mk){
+    WORLD.removeMarker(mk.id);         /* a beaten fight stays down this session */
+    if (mk.id === 'bones' && QUEST.state().step === 1) QUEST.advance(2);
+  }
+}
+
+/* ── quest wiring — QUEST owns all elder dialogue and step logic ──── */
+WORLD.onNpc(m => {
+  if (QUEST.npc(m)) return;            /* handled (dialogue shown / fight blocked) */
+  if (m.type === 'fight'){ startFight(m); return; }
+  if (m.id === 'shep')                 /* flavour NPC out in the fields */
+    QUEST.say(m.name, [
+      'Baa— ah, no, that was me. The woollies scattered when the bones started walking.',
+      'If you find any out here… try not to fight the friendly ones.'
+    ]);
+});
+
+WORLD.onExit((from, to) => {
+  if (from === 'ruin-02' && to === 'field-0-0' && QUEST.state().step === 2)
+    QUEST.advance(3);
+});
+
+/* ── RAF loop — the page owns it, WORLD does the rest ─────────────── */
+const g = document.getElementById('wcv').getContext('2d');
+let last = 0;
+function loop(now){
+  const dt = last ? now - last : 16;
+  last = now;
+  WORLD.update(dt);                    /* internally clamped to 50 ms */
+  WORLD.draw(g);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0E0B1A">
+<title>Choose your champion — Tactics</title>
+<!--
+  CLASS SELECTION — the first screen a new player ever sees.
+
+  It sells the game by SHOWING it: every class is its live animated sprite
+  (idle loop, attack on tap), drawn by the same SPRITE engine the combat
+  board uses, from the same sheets. Nothing here is a mock-up.
+
+  Owns:      select.html / select.js / select.css   (this workflow)
+  Reads:     sprite.js, classes.js, art/<id>-<m|f>-sheet.png
+  Writes:    localStorage 'tactics.hero.v1' — the ONLY integration surface.
+             See the contract comment at the top of select.js.
+  Never touches: world.js / quest.js / panels.js / tactics.js / index.html.
+-->
+<link rel="stylesheet" href="select.css">
+</head>
+<body>
+<main id="app">
+
+  <header id="hd">
+    <h1>Choose your champion</h1>
+    <p>Five ways to fight. Tap one below — watch it move.</p>
+  </header>
+
+  <!-- the stage: a live sprite, not a portrait -->
+  <section id="stageWrap">
+    <div id="glow" aria-hidden="true"></div>
+    <button id="stage" type="button" aria-label="Play this champion's attack animation">
+      <canvas id="cv" aria-hidden="true"></canvas>
+    </button>
+    <p id="stageNote" hidden></p>
+
+    <div id="genderRow" role="group" aria-label="Choose your champion's gender">
+      <button class="gbtn" type="button" data-g="m" aria-pressed="true">Male</button>
+      <button class="gbtn" type="button" data-g="f" aria-pressed="false">Female</button>
+    </div>
+  </section>
+
+  <!-- who they are -->
+  <section id="meta">
+    <div id="nameRow">
+      <h2 id="clsName"></h2>
+      <span id="elemBadge"></span>
+      <span id="roleBadge"></span>
+    </div>
+    <p id="tagline"></p>
+  </section>
+
+  <!-- what they feel like, then the numbers, then the spells -->
+  <section id="info">
+    <p id="feel"></p>
+    <div id="pools" aria-label="Starting resources"></div>
+    <div id="bars" aria-label="Stat spread"></div>
+    <h3 class="secHd">Spells</h3>
+    <ul id="spells"></ul>
+    <div id="infoFade" aria-hidden="true"></div>
+  </section>
+
+  <!-- thumb zone: switch class, confirm -->
+  <nav id="dock">
+    <div id="rail" role="group" aria-label="Choose a class"></div>
+    <button id="confirm" type="button">Begin</button>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+</main>
+
+<script src="sprite.js"></script>
+<script src="classes.js"></script>
+<script src="select.js"></script>
+</body>
+</html>

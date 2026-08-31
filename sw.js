@@ -2,7 +2,7 @@
    Deliberately narrow: it never touches cross-origin requests and never
    touches range requests, because a greedy SW broke a previous project.
    Bump CACHE on every deploy. */
-const CACHE = 'karti-v350';
+const CACHE = 'karti-v351';
 /* ── THE SHELL, NOT THE GAME ─────────────────────────────────────────────────
    This list used to be 205 entries / ~24 MB — every game module and every
    per-game portrait — so a first install (and EVERY version bump) re-fetched
@@ -43,6 +43,11 @@ const SHELL = [
   './js/blackjack.js',
   './js/rebbieh.js',
   './js/mail.js',
+  /* The RPG's DOOR, not the RPG. qawmien.js is 6 KB and Home needs it to draw
+     the owner's row; the game itself is ~6 MB under qawmien/ and is
+     deliberately NOT precached — nobody should pay for a beta they may never
+     open. It caches itself as it is played, through the normal fetch path. */
+  './js/qawmien.js',
   './js/ai.js',
   './js/gacha.js',
   './js/story.js',

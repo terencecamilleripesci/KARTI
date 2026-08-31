@@ -1,0 +1,178 @@
+/* ═══════════════════════════════════════════════════════════════════
+   SELECT — class selection screen. Phone-first, one-handed.
+
+   Same design tokens as index.html so the hand-off into combat feels
+   like one product, not two. Layout: fixed column — header, live
+   sprite stage, identity, a scrollable info well, and a bottom dock
+   (class rail + confirm) parked in the thumb zone above the safe area.
+   ═══════════════════════════════════════════════════════════════════ */
+
+:root{
+  --bg:#0E0B1A; --panel:#171331; --line:rgba(255,255,255,.10);
+  --ink:#EDEAF6; --dim:#9C97B8;
+  --you:#4FA9E8; --foe:#F2637A; /* was #E8455F: 4.22:1 on chip bg, fails WCAG 4.5:1 for 18px/900 text */ --gold:#FFC542; --mp:#3DDC84; --ap:#8A5CFF;
+  /* element identities (used for glow, badges, key-stat bar) */
+  --el-earth:#C9995C; --el-fire:#FF7A45; --el-water:#4FA9E8; --el-air:#57D9A3;
+  --elc:var(--el-earth);            /* current element, set from JS */
+  --elc-soft:rgba(201,153,92,.26);  /* …and its translucent variants */
+  --elc-line:rgba(201,153,92,.55);
+  --radius:14px;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
+  font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  overscroll-behavior:none;touch-action:manipulation}
+
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:10px}
+
+#app{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto;
+  padding:0 14px calc(10px + env(safe-area-inset-bottom));position:relative}
+
+/* ── header ─────────────────────────────────────────────────────── */
+#hd{flex:0 0 auto;padding:calc(10px + env(safe-area-inset-top)) 2px 2px;text-align:center}
+#hd h1{margin:0;font-size:21px;font-weight:900;letter-spacing:.3px}
+#hd p{margin:2px 0 0;font-size:13px;color:var(--dim);font-weight:600}
+
+/* ── the stage: live sprite ─────────────────────────────────────── */
+#stageWrap{flex:0 0 auto;position:relative;margin-top:4px}
+#glow{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);
+  width:min(72vw,300px);height:min(72vw,300px);pointer-events:none;
+  background:radial-gradient(closest-side,var(--elc-soft),transparent 70%);
+  transition:background .35s var(--ease)}
+#stage{display:block;position:relative;width:100%;
+  height:clamp(190px,30dvh,290px);border-radius:var(--radius)}
+#stage:active{transform:scale(.985)}
+#cv{display:block;width:100%;height:100%}
+#stageNote{margin:2px 0 0;text-align:center;font-size:12px;font-weight:600;
+  color:var(--dim)}
+
+/* gender: a segmented pair, choice visible instantly on the sprite */
+#genderRow{display:flex;gap:8px;justify-content:center;margin-top:8px}
+.gbtn{min-width:104px;min-height:44px;padding:0 18px;border-radius:12px;
+  border:1px solid var(--line);background:rgba(255,255,255,.05);
+  font-weight:800;font-size:14px;color:var(--dim);
+  transition:color .18s,border-color .18s,background .18s,transform .12s}
+.gbtn:active{transform:scale(.96)}
+.gbtn[aria-pressed="true"]{color:var(--ink);border-color:var(--gold);
+  background:rgba(255,197,66,.14);
+  box-shadow:0 0 0 1px var(--gold),0 6px 16px -10px rgba(255,197,66,.8)}
+
+/* ── identity ───────────────────────────────────────────────────── */
+#meta{flex:0 0 auto;padding:10px 2px 0;text-align:center}
+#nameRow{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}
+#clsName{margin:0;font-size:24px;font-weight:900;letter-spacing:.3px}
+.badge{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;
+  border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.3px;
+  border:1px solid var(--line);background:rgba(255,255,255,.05);color:var(--dim)}
+#elemBadge{border-color:var(--elc-line);color:var(--elc)}
+#elemBadge svg{width:14px;height:14px}
+#tagline{margin:5px 0 0;color:var(--gold);font-weight:700;font-style:italic;
+  font-size:15px}
+
+/* ── the info well (scrolls; everything else is fixed) ──────────── */
+#info{flex:1 1 auto;min-height:0;overflow-y:auto;position:relative;
+  margin-top:8px;padding:12px 12px 26px;border-radius:var(--radius);
+  background:var(--panel);border:1px solid var(--line);
+  scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent}
+#feel{margin:0;font-size:14.5px;line-height:1.55;color:var(--ink)}
+
+#pools{display:flex;gap:8px;margin-top:12px}
+.pool{flex:1;display:flex;flex-direction:column;align-items:center;gap:1px;
+  padding:8px 4px;border-radius:12px;border:1px solid var(--line);
+  background:rgba(255,255,255,.04);font-weight:800}
+.pool b{font-size:18px;font-variant-numeric:tabular-nums}
+.pool i{font-style:normal;font-size:10px;letter-spacing:.6px;color:var(--dim)}
+.pool.hp b{color:var(--foe)} .pool.ap b{color:#C9B4FF} .pool.mp b{color:#8CF0BC}
+
+#bars{margin-top:12px;display:grid;grid-template-columns:repeat(2,1fr);
+  gap:7px 14px}
+.stat{display:grid;grid-template-columns:58px 1fr;align-items:center;gap:8px}
+.stat i{font-style:normal;font-size:11px;font-weight:700;color:var(--dim);
+  letter-spacing:.2px}
+.stat.key i{color:var(--elc)}
+.track{height:7px;border-radius:99px;background:rgba(255,255,255,.08);
+  overflow:hidden}
+.fill{height:100%;border-radius:99px;background:var(--dim);width:0;
+  transition:width .45s var(--ease)}
+.stat.key .fill{background:var(--elc)}
+
+.secHd{margin:16px 0 8px;font-size:12px;font-weight:900;letter-spacing:1.2px;
+  text-transform:uppercase;color:var(--dim)}
+
+#spells{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.spell{padding:9px 11px;border-radius:12px;border:1px solid var(--line);
+  background:rgba(255,255,255,.04);
+  animation:in .3s var(--ease) both}
+.spell:nth-child(2){animation-delay:.04s}.spell:nth-child(3){animation-delay:.08s}
+.spell:nth-child(4){animation-delay:.12s}.spell:nth-child(5){animation-delay:.16s}
+@keyframes in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.sphead{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sphead b{font-size:14.5px}
+.tags{display:inline-flex;gap:5px;flex-wrap:wrap;margin-left:auto}
+.tag{font-size:10.5px;font-weight:800;letter-spacing:.3px;padding:2px 7px;
+  border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+.tag.ap{color:#C9B4FF;border-color:rgba(138,92,255,.5)}
+.tag.fx{color:var(--gold);border-color:rgba(255,197,66,.45)}
+.spell p{margin:3px 0 0;font-size:12.5px;line-height:1.45;color:var(--dim)}
+
+/* a soft hint that the well scrolls */
+#infoFade{position:sticky;bottom:-26px;height:26px;margin:0 -12px;
+  background:linear-gradient(transparent,var(--panel));pointer-events:none}
+
+/* ── the dock: class rail + confirm, in the thumb zone ──────────── */
+#dock{flex:0 0 auto;padding-top:10px}
+#rail{display:flex;gap:7px}
+/* flex items default to min-width:auto, which pins each tile at the width of
+   its label — five labels overflow a 360px phone with no scroll. min-width:0
+   lets tiles shrink; flex-basis:auto keeps that shrink proportional to label
+   length, and the <i> ellipsis rule below is the last-resort guard. */
+.cbtn{flex:1 1 auto;min-width:0;min-height:58px;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:3px;border-radius:12px;
+  border:1px solid var(--line);background:rgba(255,255,255,.05);
+  color:var(--dim);transition:color .18s,border-color .18s,background .18s,transform .12s}
+.cbtn:active{transform:scale(.95)}
+.cbtn svg{width:20px;height:20px}
+.cbtn i{font-style:normal;font-size:10px;font-weight:800;letter-spacing:.2px;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbtn[aria-pressed="true"]{color:var(--ink);border-color:var(--gold);
+  background:rgba(255,197,66,.14);
+  box-shadow:0 0 0 1px var(--gold),0 6px 16px -10px rgba(255,197,66,.8)}
+.cbtn[aria-pressed="true"] svg{color:var(--elc)}
+
+#confirm{width:100%;min-height:52px;margin-top:9px;border-radius:var(--radius);
+  background:linear-gradient(180deg,#FFD36B,var(--gold));color:#241a04;
+  font-size:16px;font-weight:900;letter-spacing:.3px;
+  box-shadow:0 8px 22px -10px rgba(255,197,66,.65);
+  transition:transform .12s,box-shadow .18s}
+#confirm:active{transform:scale(.97)}
+#confirm:focus-visible{outline-offset:3px}
+
+/* ── toast ──────────────────────────────────────────────────────── */
+#toast{position:absolute;left:50%;top:calc(8px + env(safe-area-inset-top));
+  transform:translateX(-50%);max-width:88%;text-align:center;
+  background:rgba(10,8,20,.94);border:1px solid var(--line);border-radius:10px;
+  padding:8px 14px;font-size:13px;font-weight:700;opacity:0;
+  transition:opacity .2s;pointer-events:none;z-index:10}
+#toast.on{opacity:1}
+
+/* ── narrow phones (≤399px): five class labels must fit untruncated.
+     Base metrics need ~351px of rail; a 360px phone offers 332. Tighter
+     gap + 9.5px labels + no tracking bring the rail to ~317px. ──────── */
+@media (max-width:399px){
+  #rail{gap:5px}
+  .cbtn i{font-size:9.5px;letter-spacing:0}
+}
+
+/* ── taller phones / small desktops get a little more air ───────── */
+@media (min-height:760px){
+  #hd h1{font-size:23px}
+  #stage{height:clamp(220px,32dvh,320px)}
+}
+
+/* ── reduced motion: no loops, no entrance animation ────────────── */
+@media (prefers-reduced-motion:reduce){
+  *{transition:none !important;animation:none !important}
+}
