@@ -95,6 +95,14 @@
     'ui.error':    { f: 'ui-error.mp3',    g: 0.52 },
     'ui.reward':   { f: 'ui-reward.mp3',   g: 0.70 },
     'ui.coin':     { f: 'ui-coin.mp3',     g: 0.68 },
+    /* THE SEVEN-DAY CLAIM — chips leaving the button, and chips landing on
+       the wallet pill (js/game.js flyChips). Two sounds rather than one
+       because they are two moments about half a second apart; a single
+       sting fired at the press would be over before the chips arrive.
+       `land` is the louder of the pair on purpose: the arrival is the
+       payoff, and a launch that out-shouts its own landing reads backwards. */
+    'ui.chipclaim':{ f: 'chip-claim.mp3', g: 0.58 },
+    'ui.chipland': { f: 'chip-land.mp3',  g: 0.68 },
 
     /* THE XP LADDER — same measured compensation as the rarity stings, and for
        the same reason: an evenly rising set of gains produced a ladder where the

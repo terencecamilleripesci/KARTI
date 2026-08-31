@@ -3530,12 +3530,15 @@ function lgSound(kind){
   try {
     const X = window.KARTI_SFX;
     if (!X) return;
-    if (kind === 'claim'){ X.note(4, { gain:.5 }); X.haptic('thud'); }
+    /* claim/land now have real samples (audio/chip-*.mp3, registered in
+       js/sfx.js). play() is silent when a file is missing, exactly like
+       every other UI sound in the app, and the haptic fires either way —
+       so a build without the audio pack still CONFIRMS the tap, it just
+       does it in your hand instead of your ear. */
+    if (kind === 'claim'){ X.play('ui.chipclaim'); X.haptic('thud'); }
     else if (kind === 'chest'){ X.play('ui.reward'); X.haptic('win'); }
     else if (kind === 'step'){ X.note(2, { gain:.35 }); }
-    /* the chips touching down — a rising pair, so the arrival reads as
-       higher than the press that launched them */
-    else if (kind === 'land'){ X.note(7, { gain:.42 }); X.haptic('double'); }
+    else if (kind === 'land'){ X.play('ui.chipland'); X.haptic('double'); }
   } catch (e){}
 }
 
