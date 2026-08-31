@@ -273,6 +273,50 @@ function levelName(k){ const L = levels().find(x => x.level === k); return (L &&
 function levelNote(k){ const L = levels().find(x => x.level === k); return L ? TE(L.note) : ''; }
 
 /* ═══════════════════════════════════════════════════════════════════
+   THE THREE STEPS — ONE VOCABULARY, MAPPED OFF THE ENGINE'S OWN ARRAY.
+
+   `E.PHASES` is ['reinforce','attack','fortify'] and its INDEX *is* `st.phase`
+   (js/konkwista.js: PH_REINFORCE 0, PH_ATTACK 1, PH_FORTIFY 2). So this table
+   is BUILT BY MAPPING OVER IT rather than hand-ordered: if the engine ever
+   renames or reorders a step, the bar follows it instead of quietly labelling
+   the wrong cell. The two OPENING phases (PH_CLAIM 3, PH_DEPLOY 4) are
+   deliberately ABSENT — setup is not one of the three steps and the bar must
+   never pretend it is; it renders all three locked and says so in words.
+
+   ENGLISH SAYS "DRAFT", MALTESE KEEPS "RINFORZA" — the owner's call, and it
+   is said HERE and in no other line of this file. Grep for 'Draft' and you
+   should find exactly one hit.
+   ═══════════════════════════════════════════════════════════════════ */
+const PHASE_VOCAB = {
+  reinforce: {
+    icon:  'plus',
+    label:  () => T('Draft', 'Rinforza'),
+    mine:   () => T('Tap your land to place armies', 'Ikklikkja artek biex tqiegħed armati'),
+    theirs: () => T('placing armies…', 'qed iqiegħed armati…')
+  },
+  attack: {
+    icon:  'impact',
+    label:  () => T('Attack', 'Attakka'),
+    mine:   () => T('Tap a glowing land, then an enemy', 'Ikklikkja art tleqq, imbagħad għadu'),
+    theirs: () => T('choosing a battle…', 'qed jagħżel battalja…')
+  },
+  fortify: {
+    icon:  'shield',
+    label:  () => T('Fortify', 'Fortifika'),
+    mine:   () => T('Move armies once, or end your turn', 'Ċaqlaq l-armati darba, jew temm'),
+    theirs: () => T('regrouping…', 'qed jerġa\' jiġġema\'…')
+  }
+};
+const PHASE_STEPS = (E.PHASES || ['reinforce', 'attack', 'fortify']).map((key, index) => ({
+  key, index, v: PHASE_VOCAB[key] || { icon:'flag', label:()=>key, mine:()=>'', theirs:()=>'' }
+}));
+
+/* A SCREEN-READER-ONLY WORD. The seat chips carry three icons; a picture of a
+   flag is not the word "territories", so every count gets its word next to it,
+   invisible on screen and read out loud. */
+function sr(txt){ return '<span class="kq-sr">' + esc(txt) + '</span>'; }
+
+/* ═══════════════════════════════════════════════════════════════════
    SOUND — existing ids only (js/sfx.js), through one gate so a fast run
    does not machine-gun the mixer.
      dice.roll      combat dice
@@ -446,6 +490,12 @@ function startMatch(opts, seed, log){
     raf: 0, anim: null,
     recorded: false,
     net: null, meta: null,
+    /* ONLINE, KNOWN BEFORE THE BOARD IS BUILT. `M.net` is only set moments
+       before openBoard(), and openBoard has to decide whether the NEW button
+       is even allowed to exist in the DOM — so onlineStart() raises this flag
+       first and isOnlineMatch() reads either. Not serialised: snapshot() only
+       carries opts/seed/log/meta, so the save format is untouched. */
+    online: false,
     sel: -1,                 /* the selected own territory (attack/fortify src) */
     fsel: -1,                /* fortify: chosen source once a dest is being picked */
     place: 1,                /* reinforcement chunk size the +/- picks           */
@@ -464,6 +514,13 @@ function applyMeta(){
   M.meta.forEach((m, i) => { if (m) M.st['seat' + i] = m; });
 }
 function stopThinking(){ if (M && M.timer){ clearTimeout(M.timer); M.timer = 0; } }
+
+/* IS THIS A LIVE ONLINE MATCH? Two sources on purpose: `M.online` is raised by
+   onlineStart() BEFORE the board is built (openBoard needs the answer to decide
+   whether the NEW button is written at all), and `M.net` is the transport that
+   arrives at almost the same moment. Either one is enough; neither alone is
+   early enough everywhere. */
+function isOnlineMatch(){ return !!(M && (M.online || M.net)); }
 
 /* ownership lives in the UI. meta[i] = { own:'me'|'hot'|'ai'|'net', name, lvl } */
 function ownerOf(i){
@@ -529,75 +586,210 @@ function injectCSS(){
     '#scr-party .kq-wrap{flex:1;min-height:0;width:100%;display:flex;flex-direction:column;' +
       'gap:5px;padding:5px 0 6px;position:relative}' +
 
-    /* ── the phase banner: the single most important strip ── */
-    /* THE BANNER WRAPS RATHER THAN TRUNCATES. Six controls fought over 390px
-       and the sentence that says whose turn it is lost, clipped to "YO…".
-       In Reinforce — the only step with a stepper — the controls drop to a
-       second row and the sentence gets the first one whole. Every other phase
-       stays a single strip. */
-    '#scr-party .kq-banner{flex:0 0 auto;display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;' +
-      'padding:4px 8px;border-radius:13px;min-height:52px;' +
-      'background:linear-gradient(180deg,rgba(255,255,255,.06),rgba(0,0,0,.28));' +
-      'border:1px solid rgba(255,255,255,.12);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}' +
-    '#scr-party .kq-banner.turn-you{border-color:rgba(255,197,66,.55);' +
-      'background:linear-gradient(180deg,rgba(255,197,66,.14),rgba(0,0,0,.28))}' +
-    '#scr-party .kq-bdot{width:16px;height:16px;flex:0 0 auto;border-radius:50%;' +
-      'box-shadow:inset 0 2px 0 rgba(255,255,255,.45),0 1px 3px rgba(0,0,0,.5)}' +
-    '#scr-party .kq-btxt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}' +
-    '#scr-party .kq-bph{font:900 12px/1.05 var(--disp);letter-spacing:.08em;text-transform:uppercase;' +
-      'color:var(--kq-gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
-    '#scr-party .kq-bhint{font:600 11px/1.2 var(--body);color:rgba(255,255,255,.78);' +
+    /* A WORD FOR A SCREEN READER AND NOTHING FOR THE EYE. The seat chips read
+       "12 flag 34 users" to a screen reader without these. */
+    '#scr-party .kq-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;' +
+      'overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}' +
+
+    /* ══════════════════════════════════════════════════════════════════
+       THE PHASE BAR — the strip that replaced the gold banner.
+
+       WHY THE BANNER WENT. It was ~52px of chrome (plus a gap) whose entire
+       job was a sentence, and this map is HEIGHT-BOUND: viewBox 660x1160 with
+       preserveAspectRatio meet, so every pixel of chrome costs about 0.57px of
+       map WIDTH. At 360x640 the map was drawing 215px wide. The bar below says
+       everything the banner said and does it in the frame's OWN bottom bar,
+       where the thumb already is, so the strip at the top of the board is gone
+       and the map has it.
+
+       IT HOLDS NO STATE. Every paint derives from E.turn / E.over / E.inSetup /
+       st.phase, so a rollback, a replay or a wire packet cannot leave it saying
+       something the engine does not agree with.
+       ══════════════════════════════════════════════════════════════════ */
+    /* ONE CONTROL ROW, ONE LINE OF WORDS — and that shape is a height budget,
+       not a taste. The old chrome was a 52-93px banner INSIDE the board column
+       plus a 46px button bar under it. Two full-height rows here would have
+       spent the banner's savings and more, so the three steps and the primary
+       action share a single 44px row and the sentence underneath is one line. */
+    '#scr-party .pt-bar.kq-phasebar{display:block;grid-template-columns:none;margin-top:6px}' +
+    '#scr-party .kq-prow{display:flex;align-items:stretch;gap:5px}' +
+    /* `flex:1 1 auto`, NOT `1 1 0`. Equal thirds clipped the Maltese: "Rinforza"
+       plus the armies count wants 46px in a 42px cell while FORTIFIKA's
+       neighbour sits half empty. Basis-auto lets each cell start at its own
+       words and share only the SLACK, so the longest label gets the room it
+       needs and nothing is ellipsised into a syllable. */
+    '#scr-party .kq-pstep{flex:1 1 auto;min-width:0;position:relative;display:flex;' +
+      'align-items:center;justify-content:center;' +
+      'gap:5px;min-height:44px;padding:4px;border:1px solid rgba(255,255,255,.12);border-radius:12px;' +
+      'background:rgba(0,0,0,.30);color:rgba(255,255,255,.68);cursor:default;' +
+      'font:900 10.5px/1.05 var(--disp);letter-spacing:.04em;text-transform:uppercase;' +
+      'overflow:hidden;-webkit-tap-highlight-color:transparent;' +
+      'transition:background .16s,border-color .16s,color .16s,opacity .16s}' +
+    '#scr-party .kq-pstep .ico{font-size:14px;opacity:.92}' +
+    '#scr-party .kq-pstep b{min-width:0;font-weight:900;white-space:nowrap;overflow:hidden;' +
+      'text-overflow:ellipsis}' +
+    /* the armies-to-place count, rehomed out of the banner and into the step it
+       belongs to — a number nobody has to hunt for. */
+    '#scr-party .kq-pstep .kq-pn{flex:0 0 auto;min-width:19px;text-align:center;padding:1px 4px;' +
+      'border-radius:7px;font:900 12px/1.35 var(--disp);color:#fff;background:rgba(0,0,0,.42);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}' +
+    /* BEHIND YOU — a tick, and out of the way. */
+    '#scr-party .kq-pstep.done{color:rgba(255,255,255,.5);background:rgba(255,255,255,.05)}' +
+    '#scr-party .kq-pstep.done .ico{color:#7CF29B;opacity:1}' +
+    /* WHERE YOU ARE — the only gold thing on the bar. */
+    '#scr-party .kq-pstep.now{color:#1a1205;border-color:transparent;' +
+      'background:linear-gradient(180deg,#FFDD7A,#E9A81F);' +
+      'box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5)}' +
+    '#scr-party .kq-pstep.now .kq-pn{background:rgba(0,0,0,.30)}' +
+    /* NEXT — the one step a tap may move you to, and the ONLY tappable cell.
+       Forward one, never backwards, never skipping; and the engine refuses it
+       anyway, so this is an affordance, not a gate. */
+    '#scr-party .kq-pstep.next{cursor:pointer;color:#fff;border-color:rgba(255,197,66,.5);' +
+      'background:rgba(255,197,66,.10)}' +
+    '#scr-party .kq-pstep.next:active{transform:translateY(1px)}' +
+    /* NOT YET — a padlock at 45%. */
+    '#scr-party .kq-pstep.lock{opacity:.45}' +
+    /* MUST TRADE FIRST — the one alert state the Draft step can be in. */
+    '#scr-party .kq-pstep.alert{color:#fff;border-color:rgba(255,138,107,.8);' +
+      'background:linear-gradient(180deg,#ff9d6b,#e8552a);box-shadow:0 2px 0 rgba(0,0,0,.35)}' +
+    '#scr-party .kq-pstep.alert .kq-pn{background:rgba(0,0,0,.3)}' +
+    /* NOT YOUR TURN — nothing may look tappable when it is not. Desaturated,
+       no gold, no lift, and the action is a plain pill that is not a button. */
+    /* the DESATURATION lands on the STEPS, not on the whole bar: the waiting
+       pill carries the seat's colour dot, and a seat colour is a game rule
+       here — greying it out to make a point about whose turn it is would take
+       away the one thing that says WHOSE. */
+    '#scr-party .kq-pb.inert{opacity:.76}' +
+    '#scr-party .kq-pb.inert .kq-pstep{filter:saturate(.22);cursor:default}' +
+    '#scr-party .kq-pb.inert .kq-pstep.now{color:#e6ebf1;border-color:rgba(255,255,255,.18);' +
+      'background:rgba(255,255,255,.09);box-shadow:none}' +
+    '#scr-party .kq-pb.over{filter:saturate(.15);opacity:.5}' +
+    'body.reduced #scr-party .kq-pstep{transition:none}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .kq-pstep{transition:none}}' +
+
+    /* the sentence: ONE line, and the ONLY live region on this bar. Do not add
+       a second one anywhere — two polite regions on one strip read over each
+       other and the player hears neither. */
+    '#scr-party .kq-pline{display:block;margin-top:4px;min-height:14px;' +
+      'font:600 10.5px/1.35 var(--body);color:rgba(255,255,255,.78);' +
       'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
-    '#scr-party .kq-bcount{flex:0 0 auto;font:900 20px/1 var(--disp);color:#fff;' +
-      'min-width:30px;text-align:center;padding:2px 6px;border-radius:9px;' +
-      'background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.14)}' +
-    /* 44px is the smallest thing a thumb hits reliably — the banner's own
-       controls were 29-30px and are the ones a player uses EVERY turn. */
+    '#scr-party .kq-pline b{font:900 9.5px/1.35 var(--disp);letter-spacing:.07em;' +
+      'text-transform:uppercase;color:var(--kq-gold)}' +
+    '#scr-party .kq-pb.inert .kq-pline b{color:rgba(255,255,255,.62)}' +
+    '#scr-party .kq-pline i{font-style:normal}' +
+    /* NOT A BUTTON. A <span>, so nothing about it invites a thumb, and it sits
+       exactly where the action button would be so the eye learns one place. */
+    /* THE PILL AND THE LABELS CANNOT BOTH HAVE THE ROW. Uncapped, "WAITING FOR
+       <NAME>" took half the strip and clipped the steps to "ATTA…" and "FORT…"
+       — the three words the bar exists to say, ruined. So while the bar is
+       inert the step LABELS go and their icons grow: at that moment the player
+       is a spectator, the gold cell still shows where the turn is, and the line
+       underneath names the phase in full ("IL-KAPTAN · choosing a battle…").
+       This is the "icon-only when the row is tight" rule, keyed on the thing
+       that actually makes it tight rather than on a guessed screen width. */
+    '#scr-party .kq-pb.inert .kq-pstep b{display:none}' +
+    '#scr-party .kq-pb.inert .kq-pstep .ico{font-size:16px}' +
+    '#scr-party .kq-wait{flex:0 1 auto;min-width:0;max-width:56%;display:flex;align-items:center;gap:6px;' +
+      'padding:9px 10px;border-radius:11px;font:900 9.5px/1.15 var(--disp);letter-spacing:.04em;' +
+      'text-transform:uppercase;color:rgba(255,255,255,.66);background:rgba(255,255,255,.06);' +
+      'box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);cursor:default;' +
+      'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '#scr-party .kq-wait i{width:11px;height:11px;flex:0 0 auto;border-radius:50%;' +
+      'box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.5)}' +
+    '#scr-party .kq-prow [hidden]{display:none}' +
+
+    /* 44px is the smallest thing a thumb hits reliably — these are the controls
+       a player uses EVERY turn. */
     '#scr-party .kq-act{flex:0 0 auto;border:0;cursor:pointer;font:900 11px/1 var(--disp);' +
       'letter-spacing:.05em;text-transform:uppercase;padding:9px 12px;border-radius:11px;' +
       'min-height:44px;min-width:44px;' +
       'color:#1a1205;background:linear-gradient(180deg,#FFDD7A,#E9A81F);' +
       'box-shadow:0 2px 0 rgba(0,0,0,.35),inset 0 1px 0 rgba(255,255,255,.5);' +
-      '-webkit-tap-highlight-color:transparent;white-space:nowrap}' +
+      '-webkit-tap-highlight-color:transparent;white-space:nowrap;' +
+      'overflow:hidden;text-overflow:ellipsis}' +
+    /* in the phase row it shares the width with three steps, so it may shrink —
+       but never below a thumb, and never past its own words. */
+    '#scr-party .kq-prow .kq-act{flex:0 1 auto;min-width:0;max-width:46%}' +
     '#scr-party .kq-act:active{transform:translateY(1px)}' +
     '#scr-party .kq-act.ghost{color:#fff;background:rgba(255,255,255,.10);' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.2)}' +
     '#scr-party .kq-act[disabled]{opacity:.4;pointer-events:none}' +
-    /* `display:flex` in the rules below outranks the browser's own
-       [hidden]{display:none}, so `el.hidden = true` did NOTHING: the cards
-       button sat in the banner as a dead cream slab from the first frame of
-       every game, and the stepper showed through Attack and Fortify. Say it
-       once, here, for everything in the strip. */
-    '#scr-party .kq-banner [hidden]{display:none}' +
 
-    /* the row break: inert until paintBanner asks for two rows */
-    '#scr-party .kq-brk{display:none;height:0}' +
-    '#scr-party .kq-banner.two .kq-brk{display:block;flex:0 0 100%}' +
-    '#scr-party .kq-banner.two .kq-step{margin-right:auto}' +
+    /* ══ THE CONTEXTUAL ROW — the two live controls the banner used to host ══
+       The reinforcement stepper and the cards button are not decoration; they
+       are how a player places armies in chunks and trades a set. They are IN
+       THE LAYOUT ONLY while the engine says one of them is needed, so they cost
+       the map nothing for most of a turn.
+
+       IT CARRIES ITS OWN [hidden] RULE, and it must. The class rules below set
+       `display:flex`, and a class rule outranks the browser's own
+       `[hidden]{display:none}` — which is exactly why `el.hidden = true` did
+       nothing inside the old banner and the cards button sat there as a dead
+       cream slab from the first frame of every game. Move a control that is
+       toggled with `hidden` and you must move this line with it. */
+    '#scr-party .kq-ctx{flex:0 0 auto;display:flex;align-items:center;gap:8px;min-height:44px}' +
+    '#scr-party .kq-ctx[hidden]{display:none}' +
+    '#scr-party .kq-ctx [hidden]{display:none}' +
 
     /* ── the reinforcement stepper (± chunk) ── */
     '#scr-party .kq-step{flex:0 0 auto;display:flex;align-items:center;gap:4px}' +
+    '#scr-party .kq-step .kq-slbl{flex:0 0 auto;margin-right:2px;font:900 9px/1.2 var(--disp);' +
+      'letter-spacing:.07em;text-transform:uppercase;color:rgba(255,255,255,.55)}' +
     '#scr-party .kq-step button{width:44px;height:44px;border-radius:11px;border:0;cursor:pointer;' +
       'font:900 18px/1 var(--disp);color:#fff;background:rgba(255,255,255,.12);' +
       'box-shadow:inset 0 0 0 1px rgba(255,255,255,.18);-webkit-tap-highlight-color:transparent}' +
     '#scr-party .kq-step button:active{transform:translateY(1px)}' +
     '#scr-party .kq-step .kq-n{min-width:22px;text-align:center;font:900 15px/1 var(--disp);color:#fff}' +
 
-    /* ── the seat strip ── */
-    '#scr-party .kq-seats{flex:0 0 auto;display:flex;gap:5px;overflow-x:auto;padding:1px;' +
-      '-webkit-overflow-scrolling:touch;scrollbar-width:none}' +
+    /* ══ THE SEAT ROW, and the two tools to the right of it ══
+       RULES and NEW used to be a whole bar of their own at the bottom of the
+       screen. The map cannot afford a row it does not need, and neither of them
+       is pressed once a minute — so they are 44px icon buttons riding beside
+       the seat strip, and the bar underneath belongs entirely to the turn. */
+    '#scr-party .kq-top{flex:0 0 auto;display:flex;align-items:center;gap:6px;min-width:0}' +
+    '#scr-party .kq-seats{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:5px;' +
+      'overflow-x:auto;padding:1px;-webkit-overflow-scrolling:touch;scrollbar-width:none}' +
     '#scr-party .kq-seats::-webkit-scrollbar{display:none}' +
-    '#scr-party .kq-chip{flex:0 0 auto;display:flex;align-items:center;gap:5px;padding:3px 8px 3px 5px;' +
-      'border-radius:10px;background:rgba(0,0,0,.30);border:1px solid rgba(255,255,255,.09)}' +
+    '#scr-party .kq-tools{flex:0 0 auto;display:flex;align-items:center;gap:4px}' +
+    '#scr-party .kq-tool{width:44px;height:44px;flex:0 0 auto;padding:0;display:grid;place-items:center;' +
+      'border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(255,255,255,.06);' +
+      'color:#fff;cursor:pointer;-webkit-tap-highlight-color:transparent}' +
+    '#scr-party .kq-tool .ico{font-size:18px}' +
+    '#scr-party .kq-tool:active{transform:translateY(1px)}' +
+
+    '#scr-party .kq-chip{flex:0 0 auto;display:flex;align-items:center;gap:6px;padding:3px 8px 3px 4px;' +
+      'border-radius:11px;background:rgba(0,0,0,.30);border:1px solid rgba(255,255,255,.09)}' +
     '#scr-party .kq-chip.on{background:rgba(255,197,66,.16);border-color:rgba(255,197,66,.6)}' +
     '#scr-party .kq-chip.dead{opacity:.34;filter:grayscale(.7)}' +
-    '#scr-party .kq-chip .sw{width:15px;height:15px;flex:0 0 auto;border-radius:50%;' +
-      'box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.5)}' +
-    '#scr-party .kq-chip .cn{display:flex;flex-direction:column;line-height:1.05}' +
-    '#scr-party .kq-chip .cn b{font:900 9px/1.1 var(--disp);letter-spacing:.03em;text-transform:uppercase;' +
-      'color:rgba(255,255,255,.8);max-width:74px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    /* THE FACE AND THE SEAT COLOUR, TOGETHER, NEVER INSTEAD OF EACH OTHER.
+       The seat colour is a GAME RULE here — it is how ownership is drawn on the
+       map — so a cosmetic may not overpaint it. The medallion sits inside a 2px
+       inset ring in the seat colour and carries a corner pip of the same, which
+       survives a photograph, a painted border and the greyscale of a dead seat.
+       Name and face carry identity; the ring and pip carry the rule. */
+    '#scr-party .kq-chip .kq-face{position:relative;flex:0 0 auto;width:28px;height:28px;' +
+      'border-radius:50%;display:grid;place-items:center}' +
+    '#scr-party .kq-chip .kq-face>[data-kx-av]{display:block}' +
+    '#scr-party .kq-chip .kq-fring{position:absolute;inset:0;border-radius:50%;pointer-events:none;' +
+      'box-shadow:inset 0 0 0 2px var(--sc,#fff),0 1px 3px rgba(0,0,0,.55)}' +
+    '#scr-party .kq-chip .kq-pip{position:absolute;right:-1px;bottom:-1px;width:9px;height:9px;' +
+      'border-radius:50%;pointer-events:none;background:var(--sc,#fff);' +
+      'box-shadow:0 0 0 1.5px rgba(6,14,24,.92)}' +
+    /* A MACHINE GETS NO HUMAN FACE. js/mp.js draws a plain medallion with the
+       difficulty mark for a cpu chair; drawing a hashed stranger's portrait for
+       something that is not a person is a small lie this screen will not tell. */
+    '#scr-party .kq-chip .kq-bot{position:relative;flex:0 0 auto;width:28px;height:28px;' +
+      'border-radius:50%;display:grid;place-items:center;color:#cfe2f0;' +
+      'background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.16),rgba(255,255,255,.05))}' +
+    '#scr-party .kq-chip .kq-bot .ico{font-size:15px}' +
+    '#scr-party .kq-chip .cn{display:flex;flex-direction:column;line-height:1.05;min-width:0}' +
+    '#scr-party .kq-chip .cn b{font:900 9px/1.15 var(--disp);letter-spacing:.03em;text-transform:uppercase;' +
+      'color:rgba(255,255,255,.82);max-width:74px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '#scr-party .kq-chip.on .cn b{color:var(--kq-gold)}' +
-    '#scr-party .kq-chip .cn i{font:700 8px/1.1 var(--body);color:rgba(255,255,255,.55);font-style:normal}' +
+    '#scr-party .kq-chip .cn i{display:flex;align-items:center;gap:5px;font:700 8.5px/1.2 var(--body);' +
+      'color:rgba(255,255,255,.6);font-style:normal}' +
+    '#scr-party .kq-chip .cn i em{display:inline-flex;align-items:center;gap:2px;font-style:normal}' +
+    '#scr-party .kq-chip .cn i .ico{font-size:9.5px;opacity:.85}' +
 
     /* ── the map box holds the SVG, sized to fit ── */
     '#scr-party .kq-mapbox{flex:1 1 auto;min-height:0;position:relative;display:flex;' +
@@ -627,10 +819,81 @@ function injectCSS(){
        line that matters, and it is drawn by .kq-shelf/.kq-rim below. */
     '#scr-party .kq-terr{stroke:rgba(8,18,30,.5);stroke-width:1.1;cursor:pointer;' +
       'transition:filter .12s,opacity .12s}' +
-    '#scr-party .kq-terr.legal{filter:drop-shadow(0 0 5px rgba(255,255,255,.92))}' +
-    '#scr-party .kq-terr.target{stroke:#fff;stroke-width:3}' +
-    '#scr-party .kq-terr.sel{stroke:var(--kq-gold);stroke-width:3.5;filter:drop-shadow(0 0 7px rgba(255,197,66,.95))}' +
-    '#scr-party .kq-terr.dim{opacity:.9}' +
+    'body.reduced #scr-party .kq-terr{transition:none}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .kq-terr{transition:none}}' +
+    /* ══════════════════════════════════════════════════════════════════
+       THE SELECTION — the three states that must never be confused: the land
+       you have PICKED, the lands you may reach FROM it, and everything else.
+
+       TWO THINGS WERE STOPPING THAT FROM READING, and neither was the choice of
+       colour:
+
+       1 · AN SVG STROKE IS IN USER UNITS. This map is viewBox 660x1160 drawn
+           about 215 CSS px wide on a 360px phone — a scale of 0.33. So the old
+           `.kq-terr.target{stroke-width:3}` was rendering at ONE PHYSICAL PIXEL,
+           on a coastline that is already ringed in pale sand. It was not a weak
+           signal; it was a sub-pixel one, and it got weaker the smaller the
+           phone. Every rule below therefore carries `vector-effect:non-scaling-
+           stroke`, so the number IS screen pixels on every phone at every size.
+
+       2 · THE OWNER RING TRACES THE SAME POLYGON AND IS PAINTED AFTER THE LAND.
+           A 4.6-unit seat ring sat directly on top of the 3.5-unit gold
+           selection stroke and hid it — measured, at both sizes: with a source
+           selected, neither the picked land nor its targets could be found by
+           eye. The highlight is its OWN layer now (.kq-hig, emitted after the
+           rings), so nothing overpaints it.
+
+       COLOUR IS NEVER THE ONLY SIGNAL. Picked = one heavy SOLID gold outline;
+       a target = a MARCHING DASHED outline with a reticle stamped over it;
+       everything else = dimmed AND desaturated. Solid vs dashed vs faded, plus
+       a mark that is a shape, is legible with no colour vision at all.
+       ══════════════════════════════════════════════════════════════════ */
+    '#scr-party .kq-hi{fill:none;display:none;pointer-events:none;stroke-linejoin:round;' +
+      'vector-effect:non-scaling-stroke}' +
+    /* a land you MAY pick, before you have picked one */
+    '#scr-party .kq-hi.pick{display:block;stroke:rgba(255,255,255,.94);stroke-width:2.2;' +
+      'filter:drop-shadow(0 0 2px rgba(0,0,0,.95)) drop-shadow(0 0 5px rgba(255,255,255,.75))}' +
+    /* the land you HAVE picked — gold, because gold means "you" everywhere here */
+    '#scr-party .kq-hi.sel{display:block;stroke:var(--kq-gold);stroke-width:4;' +
+      'filter:drop-shadow(0 0 3px rgba(0,0,0,.95)) drop-shadow(0 0 8px rgba(255,197,66,.95))}' +
+    /* where that land can reach */
+    '#scr-party .kq-hi.tgt{display:block;stroke:#fff;stroke-width:3.4;stroke-dasharray:7 5;' +
+      'filter:drop-shadow(0 0 2.5px rgba(0,0,0,1)) drop-shadow(0 0 6px rgba(255,255,255,.9));' +
+      'animation:kq-march 900ms linear infinite}' +
+    '@keyframes kq-march{to{stroke-dashoffset:-24}}' +
+    'body.reduced #scr-party .kq-hi.tgt{animation:none}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .kq-hi.tgt{animation:none}}' +
+    /* the MARK over a target: a reticle when you are attacking, an arrow when
+       you are moving armies. A shape, so the answer survives with no colour
+       vision and even if the outline itself is lost against pale land. */
+    '#scr-party .kq-mark{display:none;pointer-events:none}' +
+    '#scr-party .kq-mark.on{display:block}' +
+    '#scr-party .kq-mark circle{fill:rgba(6,14,24,.86);stroke:#fff;stroke-width:1.5;' +
+      'vector-effect:non-scaling-stroke}' +
+    '#scr-party .kq-mark path{fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;' +
+      'stroke-linejoin:round;vector-effect:non-scaling-stroke}' +
+    '#scr-party .kq-mark .mk-atk,#scr-party .kq-mark .mk-for{display:none}' +
+    '#scr-party .kq-mark.atk .mk-atk{display:block}' +
+    '#scr-party .kq-mark.for .mk-for{display:block}' +
+    /* EVERYTHING ELSE RECEDES. Opacity alone was never going to do it: forty
+       lands in six saturated colour families still shout at 90%, which is what
+       `.dim{opacity:.9}` used to ask for — and paintMap never even applied it,
+       so nothing on this map has ever stepped back for a selection. It steps
+       back now, and it desaturates as well as dims so the six families stop
+       competing with the three shapes that matter. */
+    '#scr-party .kq-terr.dim{opacity:.30;filter:saturate(.18)}' +
+    '#scr-party .kq-badge.dim{opacity:.24}' +
+    '#scr-party .kq-tname.dim{opacity:.14}' +
+    /* the softer version, for "you have not picked yet": the lands you COULD
+       pick stay lit and the rest step back without vanishing. */
+    '#scr-party .kq-terr.dim2{opacity:.60;filter:saturate(.45)}' +
+    '#scr-party .kq-badge.dim2{opacity:.6}' +
+    '#scr-party .kq-tname.dim2{opacity:.4}' +
+    /* the old glows stay as a soft halo under the new outlines; the sub-pixel
+       strokes that used to carry the job are gone. */
+    '#scr-party .kq-terr.legal{filter:drop-shadow(0 0 5px rgba(255,255,255,.9))}' +
+    '#scr-party .kq-terr.target{filter:drop-shadow(0 0 6px rgba(255,255,255,.9))}' +
+    '#scr-party .kq-terr.sel{filter:drop-shadow(0 0 7px rgba(255,197,66,.95))}' +
     /* the aged-paper grain, one clipped rect over the whole landmass. If the
        texture 404s the pattern paints nothing and the rect is invisible. */
     /* .28, NOT .48. At .48 the paper ate the continents: measured off real
@@ -658,12 +921,27 @@ function injectCSS(){
     /* the seat-colour owner ring: a stroke-only path over the land.
        THE ACTIVE SEAT is the one at full strength; every other seat's ring is
        held back, so whose turn it is reads from across the room. */
-    '#scr-party .kq-ring{fill:none;stroke-width:3;pointer-events:none;stroke-linejoin:round;' +
-      'opacity:.5;transition:opacity .18s,stroke-width .18s}' +
-    '#scr-party .kq-ring.act{stroke-width:4.6;opacity:1;animation:kq-rim 1.9s ease-in-out infinite}' +
+    /* NON-SCALING, for the same reason as the highlight layer above: at 360x640
+       the map draws about a third of its user units, so a 3-unit ring was
+       rendering at ONE pixel and ownership — the game's most important read —
+       was thinner than a hairline. In screen pixels it is the same weight on
+       every phone. */
+    '#scr-party .kq-ring{fill:none;stroke-width:2;pointer-events:none;stroke-linejoin:round;' +
+      'vector-effect:non-scaling-stroke;opacity:.5;transition:opacity .18s,stroke-width .18s}' +
+    'body.reduced #scr-party .kq-ring{transition:none}' +
+    '@media (prefers-reduced-motion:reduce){#scr-party .kq-ring{transition:none}}' +
+    '#scr-party .kq-ring.act{stroke-width:3.2;opacity:1;animation:kq-rim 1.9s ease-in-out infinite}' +
     '@keyframes kq-rim{0%,100%{opacity:1}50%{opacity:.44}}' +
     'body.reduced #scr-party .kq-ring.act{animation:none;opacity:1}' +
     '@media (prefers-reduced-motion:reduce){#scr-party .kq-ring.act{animation:none;opacity:1}}' +
+    /* THE DIMMED RING LIVES HERE, NOT UP WITH THE REST OF THE SELECTION CSS,
+       and the reason is the cascade: `.kq-ring.act` and `.kq-ring.dim` have
+       identical specificity, so whichever is written LAST wins. Written with
+       its siblings it lost — and since the active seat during your own turn is
+       YOU, every land you were not choosing between kept a full-strength
+       pulsing ring and the recede did half its job. */
+    '#scr-party .kq-ring.dim,#scr-party .kq-ring.act.dim{opacity:.13;stroke-width:1.6;animation:none}' +
+    '#scr-party .kq-ring.dim2,#scr-party .kq-ring.act.dim2{opacity:.3;stroke-width:2;animation:none}' +
     /* the badge disc is ALWAYS dark — a white numeral on an amber seat colour
        was the one unreadable combination. The seat colour survives as the disc's
        tint and its bright rim, so ownership still reads off the badge alone. */
@@ -949,12 +1227,51 @@ function injectCSS(){
     '#scr-party .kq-badge.tick text{fill:#ff8a6b}' +
     '#scr-party .kq-badge.gain text{fill:#7CF29B}' +
 
+    /* ══ SHORT PHONES ══
+       The map is HEIGHT-BOUND (viewBox 660x1160, preserveAspectRatio meet), so
+       on a 360x640 phone every pixel of chrome costs about 0.57px of map WIDTH
+       — and 360x640 is the size where the board was drawing barely 215px wide.
+       So this block gives the map back everything that is not a thumb: padding,
+       gaps, type size and the seat chips' bulk. NOT ONE CONTROL DROPS BELOW
+       44px; the padding around them goes instead, which is the only honest way
+       to spend height. */
+    '@media (max-height:700px){' +
+      '#scr-party .kq-wrap{gap:3px;padding:2px 0 3px}' +
+      '#scr-party .pt-bar.kq-phasebar{margin-top:4px}' +
+      '#scr-party .kq-prow{gap:4px}' +
+      '#scr-party .kq-pstep{padding:2px;gap:3px;font-size:9px;letter-spacing:.01em}' +
+      '#scr-party .kq-pstep .ico{font-size:12px}' +
+      '#scr-party .kq-pstep .kq-pn{font-size:10.5px;min-width:16px;padding:0 3px}' +
+      '#scr-party .kq-pline{margin-top:3px;font-size:9.5px;line-height:1.3}' +
+      '#scr-party .kq-pline b{font-size:9px}' +
+      '#scr-party .kq-act{padding:8px 9px;font-size:10px}' +
+      '#scr-party .kq-wait{padding:8px 9px;font-size:9px}' +
+      '#scr-party .kq-chip{padding:2px 6px 2px 3px;gap:5px}' +
+      '#scr-party .kq-chip .kq-face,#scr-party .kq-chip .kq-bot{width:26px;height:26px}' +
+      '#scr-party .kq-chip .cn b{font-size:8.5px;max-width:62px}' +
+      '#scr-party .kq-chip .cn i{font-size:8px;gap:4px}' +
+      '#scr-party .kq-tool{border-radius:11px}' +
+      '#scr-party .kq-tool .ico{font-size:17px}' +
+      '#scr-party .kq-ctx{min-height:44px;gap:6px}' +
+    '}' +
+
+    /* VERY NARROW PHONES — the labels go and the icons stay. Three words and a
+       button do not fit across 320px at a size anybody can read, and a clipped
+       word ("ATTA…") is worse than no word: the icon plus the gold "you are
+       here" treatment still says which step you are on, and the line under the
+       bar names it in full. */
+    '@media (max-width:340px){' +
+      '#scr-party .kq-pstep b{display:none}' +
+      '#scr-party .kq-pstep .ico{font-size:16px}' +
+      '#scr-party .kq-wait{max-width:46%}' +
+    '}' +
+
     /* ── landscape ── */
     '@media (max-height:520px){' +
       '#scr-party .kq-wrap{padding:4px}' +
-      /* landscape steals height from the map, never from the thumb: the
-         banner loses its padding, not its 44px controls. */
-      '#scr-party .kq-banner{min-height:48px;padding:2px 8px}' +
+      /* landscape steals height from the map, never from the thumb: the phase
+         bar loses its padding and its second row's slack, not its 44px cells. */
+      '#scr-party .kq-pfoot{margin-top:3px}' +
       '#scr-party .kq-turn-in{max-width:420px;padding:10px 12px}' +
       '#scr-party .kq-ttot .tv{font-size:28px}' +
     '}';
@@ -965,24 +1282,34 @@ function injectCSS(){
    THE FRAME + THE BOARD DOM
    ═══════════════════════════════════════════════════════════════════ */
 function openBoard(onBack){
+  /* NO BUTTONS IN THE FRAME'S BAR. `.pt-bar` is the strip under the board, and
+     it used to hold RULES and NEW — a whole row for two things nobody presses
+     once a minute, on a screen whose map is starved of height. The bar belongs
+     to the TURN now (buildPhaseBar fills M.ctx.bar below), and the two tools
+     ride beside the seat row as 44px icon buttons.
+     ctx.btn(id) searches the whole .pt-wrap, so kq-rules / kq-new keep working
+     exactly as before wherever they end up living. */
   M.ctx = P.ui.frame({
     title: T('Konkwista', 'Konkwista'),
     onBack,
     leave: () => leave(),
-    buttons: [
-      { id:'kq-rules', label:T('Rules', 'Regoli'), icon:'book',    cls:'ghost' },
-      { id:'kq-new',   label:T('New', 'Ġdida'),    icon:'refresh', cls:'ghost' }
-    ]
+    barCls: 'kq-phasebar',
+    buttons: []
   });
   if (M.ctx.stopFit) M.ctx.stopFit();     /* we size our own map */
-  M.ctx.badge.textContent = M.net ? T('Online', 'Onlajn')
+  M.ctx.badge.textContent = isOnlineMatch() ? T('Online', 'Onlajn')
     : anyAI() ? T('vs Machine', 'kontra l-Magna')
     : T('Pass & play', 'Għaddi u lgħab');
-  buildBoard();
+  buildBoard();                            /* which also builds the phase bar */
   M.ctx.btn('kq-rules').onclick = () => setRules(!rulesOpen);
+  /* ONLINE HAS NO "NEW". It is not disabled and it is not hidden — it is not
+     in the DOM at all (buildBoard omits it), because a button that folds the
+     map away has no meaning at a table of other people. The null guard below
+     is what makes omitting it safe, and `if (M.net) return` stays inside the
+     handler as belt-and-braces for any path that resurrects it. */
   const nb = M.ctx.btn('kq-new');
   if (nb) nb.onclick = () => {
-    if (M.net) return;
+    if (isOnlineMatch()) return;
     P.ui.confirm(M.ctx, {
       head: T('Start a fresh campaign?', 'Tibda kampanja ġdida?'),
       why:  T('This map is folded away and a new one is dealt.',
@@ -1001,20 +1328,31 @@ function buildBoard(){
   ctx.host.classList.add('kq-host');
   ctx.host.innerHTML =
     '<div class="kq-wrap" id="kq-wrap">' +
-      '<div class="kq-banner" id="kq-banner">' +
-        '<span class="kq-bdot" id="kq-bdot"></span>' +
-        '<span class="kq-btxt"><span class="kq-bph" id="kq-bph"></span><span class="kq-bhint" id="kq-bhint"></span></span>' +
-        '<span class="kq-bcount" id="kq-bcount" hidden></span>' +
-        '<span class="kq-brk" aria-hidden="true"></span>' +
+      /* the seat row, and the two tools that used to own a whole bar */
+      '<div class="kq-top" id="kq-top">' +
+        '<div class="kq-seats" id="kq-seats"></div>' +
+        '<div class="kq-tools" id="kq-tools">' +
+          '<button class="kq-tool" id="kq-rules" aria-label="' + esc(T('Rules', 'Regoli')) + '">' +
+            ico('book') + '</button>' +
+          /* NEW is ABSENT online — not disabled, not hidden. */
+          (isOnlineMatch() ? '' :
+            '<button class="kq-tool" id="kq-new" aria-label="' + esc(T('New campaign', 'Kampanja ġdida')) + '">' +
+              ico('refresh') + '</button>') +
+        '</div>' +
+      '</div>' +
+      /* the contextual row: in the layout ONLY while the engine wants one of
+         these two. Its [hidden] rules are in the stylesheet above — without
+         them `el.hidden = true` is a no-op, which is the bug the old banner
+         shipped with. */
+      '<div class="kq-ctx" id="kq-ctx" hidden>' +
         '<span class="kq-step" id="kq-step" hidden>' +
+          '<span class="kq-slbl">' + esc(T('Place', 'Qiegħed')) + '</span>' +
           '<button id="kq-minus" aria-label="' + esc(T('Fewer','Inqas')) + '">−</button>' +
           '<span class="kq-n" id="kq-placen">1</span>' +
           '<button id="kq-plus" aria-label="' + esc(T('More','Aktar')) + '">+</button>' +
         '</span>' +
         '<button class="kq-cards" id="kq-cards" hidden aria-label="' + esc(T('Your cards','Il-karti tiegħek')) + '"></button>' +
-        '<button class="kq-act" id="kq-act"></button>' +
       '</div>' +
-      '<div class="kq-seats" id="kq-seats"></div>' +
       '<div class="kq-mapbox" id="kq-mapbox">' +
         '<img class="kq-mapbg" id="kq-mapbg" alt="" aria-hidden="true" ' +
           'src="' + SEA_TEX + '" ' +
@@ -1034,20 +1372,18 @@ function buildBoard(){
   const root = ctx.host.querySelector('#kq-wrap');
   UI = {
     ctx, root,
-    banner: root.querySelector('#kq-banner'),
-    bdot:   root.querySelector('#kq-bdot'),
-    bph:    root.querySelector('#kq-bph'),
-    bhint:  root.querySelector('#kq-bhint'),
-    bcount: root.querySelector('#kq-bcount'),
+    ctxrow: root.querySelector('#kq-ctx'),
     step:   root.querySelector('#kq-step'),
     placen: root.querySelector('#kq-placen'),
     cards:  root.querySelector('#kq-cards'),
-    act:    root.querySelector('#kq-act'),
+    act:    null,                      /* built by buildPhaseBar into ctx.bar */
     seats:  root.querySelector('#kq-seats'),
     mapbox: root.querySelector('#kq-mapbox'),
     svg:    root.querySelector('#kq-svg'),
     rules:  root.querySelector('#kq-rulespanel'),
-    terrEls: {}, badgeEls: {}, ringEls: {}, labelEls: {}
+    seatSig: '',                       /* the structural signature of the chips */
+    seatEls: [],
+    terrEls: {}, badgeEls: {}, ringEls: {}, labelEls: {}, hiEls: {}, markEls: {}
   };
   buildSVG();
 
@@ -1058,14 +1394,78 @@ function buildBoard(){
     if (!UI.rules.contains(e.target) && !(rb && rb.contains(e.target))) setRules(false);
   }, true);
 
-  UI.act.onclick = onAct;
   UI.cards.onclick = () => openCardSheet();
   root.querySelector('#kq-minus').onclick = () => bumpPlace(-1);
   root.querySelector('#kq-plus').onclick  = () => bumpPlace(1);
 
-  paintSeats();
+  /* BEFORE the first paintAll, not after: paintPhaseBar() no-ops until the bar
+     exists, so building it later leaves one frame of empty strip under the
+     board. */
+  buildPhaseBar();
+  buildSeats();
   paintAll();
   maybeTip();
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE PHASE BAR — built once into the frame's own bottom bar, painted
+   from the engine on every pass. It HOLDS NO STATE of its own.
+   ═══════════════════════════════════════════════════════════════════ */
+function buildPhaseBar(){
+  const bar = M && M.ctx && M.ctx.bar;
+  if (!bar) return;
+  bar.innerHTML =
+    '<div class="kq-pb" id="kq-pb">' +
+      '<div class="kq-prow">' +
+        PHASE_STEPS.map(s =>
+          '<button type="button" class="kq-pstep" id="kq-ps' + s.index + '" data-ph="' + s.index + '">' +
+            '<span class="kq-pico" id="kq-psi' + s.index + '"></span>' +
+            '<b id="kq-psb' + s.index + '"></b>' +
+            '<span class="kq-pn" id="kq-psn' + s.index + '" hidden></span>' +
+          '</button>').join('') +
+        '<span class="kq-wait" id="kq-pwait" hidden></span>' +
+        '<button type="button" class="kq-act" id="kq-act" hidden></button>' +
+      '</div>' +
+      /* EXACTLY ONE live region on this bar. Do not add a second one anywhere:
+         two polite regions on one strip read over each other and the player
+         hears neither. */
+      '<span class="kq-pline" id="kq-pline" role="status" aria-live="polite"></span>' +
+    '</div>';
+  UI.pb    = bar.querySelector('#kq-pb');
+  UI.pline = bar.querySelector('#kq-pline');
+  UI.pwait = bar.querySelector('#kq-pwait');
+  UI.act   = bar.querySelector('#kq-act');
+  UI.pstep = PHASE_STEPS.map(s => ({
+    el:   bar.querySelector('#kq-ps'  + s.index),
+    ico:  bar.querySelector('#kq-psi' + s.index),
+    b:    bar.querySelector('#kq-psb' + s.index),
+    n:    bar.querySelector('#kq-psn' + s.index),
+    index: s.index
+  }));
+  UI.act.onclick = onAct;
+  UI.pstep.forEach(s => { s.el.onclick = () => onPhaseStep(s.index); });
+}
+
+/* TAPPING A STEP GOES DOWN THE SAME ROAD THE BUTTON DOES.
+   E.check first, then doMove() + afterLocal() — so the move is recorded in the
+   log, relayed by the online controller identically to a button press, and an
+   out-of-turn or out-of-order tap is refused BY THE ENGINE rather than by a CSS
+   class somebody could forget to apply. Forward exactly one step: `want` must
+   be st.phase + 1, and 'endphase' is the only move it ever makes. */
+function onPhaseStep(want){
+  if (!M || M.dead || M.busy || M.picking) return;
+  const st = M.st;
+  if (E.over(st) || st._pending || E.inSetup(st)) return;
+  const seat = E.turn(st);
+  if (seat < 0 || !isLocal(seat)) return;
+  if (want !== st.phase + 1) return;                    /* never back, never skip */
+  const mv = { t:'endphase' };
+  if (!E.check(st, mv, seat)){ cue('move.illegal', { gain:0.6 }); return; }
+  if (st.phase === E.PH_ATTACK) M.sel = -1;
+  cue('ui.tap', { gain:0.7 });
+  buzz('tick');
+  doMove(seat, mv, 'local');
+  afterLocal();
 }
 
 /* where a continent's NAME+BONUS plaque sits: the widest gap near the top of
@@ -1177,6 +1577,34 @@ function buildSVG(){
     s += '<polygon class="kq-ring" data-r="' + i + '" points="' + ptsOf(i) + '" display="none"></polygon>';
   });
 
+  /* 4b · THE HIGHLIGHT LAYER — ABOVE the owner rings, and that placement is the
+     whole point of it. The rings trace the SAME polygons and used to be painted
+     last, so the gold "you picked this" stroke and the white "you can hit this"
+     stroke were drawn UNDERNEATH a seat ring of similar weight and simply did
+     not exist on screen. Nothing here fills, nothing here takes a pointer, and
+     every stroke is non-scaling so it is the same weight on a 360px phone as on
+     a 430px one. */
+  s += '<g class="kq-hig" aria-hidden="true">';
+  T.forEach((t, i) => {
+    s += '<polygon class="kq-hi" data-h="' + i + '" points="' + ptsOf(i) + '"></polygon>';
+  });
+  /* the MARK — a reticle for "you may attack here", an arrow for "you may move
+     armies here". Sits just above the army badge so it never covers the number
+     a player is deciding on. A SHAPE, not a colour, so the answer survives a
+     colour-blind reading of the board. */
+  T.forEach((t, i) => {
+    s += '<g class="kq-mark" data-m="' + i + '" transform="translate(' + t.c[0] + ',' + (t.c[1] - 21) + ')">' +
+      '<circle r="9"></circle>' +
+      /* ATTACK — a gunsight: an inner ring with four ticks breaking the rim.
+         Nothing else anywhere on this map is a circle inside a circle. */
+      '<path class="mk-atk" d="M-3.8 0a3.8 3.8 0 1 0 7.6 0a3.8 3.8 0 1 0-7.6 0' +
+        'M0 -7.4v2.4M0 7.4v-2.4M-7.4 0h2.4M7.4 0h-2.4"></path>' +
+      /* FORTIFY — armies going INTO this land: an arrow pointing down at it. */
+      '<path class="mk-for" d="M0 -5.2v8.2M-3.5 -0.3L0 3.2 3.5 -0.3"></path>' +
+    '</g>';
+  });
+  s += '</g>';
+
   /* 5 · a subtle territory name on the land (helps read the board). */
   T.forEach((t, i) => {
     s += '<text class="kq-tname" data-n="' + i + '" x="' + t.c[0] + '" y="' + (t.c[1] + 20) + '">' +
@@ -1227,18 +1655,23 @@ function buildSVG(){
     UI.ringEls[i] = rg;
     UI.badgeEls[i] = bg;
     UI.labelEls[i] = nm;
+    UI.hiEls[i]   = svg.querySelector('.kq-hi[data-h="' + i + '"]');
+    UI.markEls[i] = svg.querySelector('.kq-mark[data-m="' + i + '"]');
     if (el) el.addEventListener('pointerdown', ev => { ev.preventDefault(); onTerr(i); });
   });
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   PAINTING — colours, badges, highlights, banner.
+   PAINTING — colours, badges, highlights, the phase bar.
    ═══════════════════════════════════════════════════════════════════ */
 function paintAll(){
   if (!UI || !M) return;
   paintMap();
   paintSeats();
-  paintBanner();
+  /* a SIBLING of the two above on purpose. The bar has to keep telling the
+     truth after E.over(st) — quiet and inert under the result overlay — so it
+     must not hang off anything that early-returns on a finished game. */
+  paintPhaseBar();
   turnWatch();
 }
 
@@ -1399,6 +1832,24 @@ function showTurnCard(){
 function paintMap(){
   const st = M.st;
   const legalSet = computeLegalSet();
+  /* ── WHAT THE PLAYER IS BEING ASKED ──────────────────────────────────
+     "Tap one of yours, then see where you can go" is a two-beat question, and
+     the map has to answer whichever beat it is on. `picked` is the land already
+     chosen (attack source or fortify source); `pickable` is the set you may
+     choose from before that. Both come straight out of computeLegalSet(), which
+     is the only thing on this screen allowed to decide what is legal — nothing
+     below changes that answer, it only makes it visible.
+
+     The hard recede is reserved for the SELECTION phases. In Claim / Deploy /
+     Reinforce every land you own is a legal target, so dimming the rest would
+     grey out most of the board for no decision. */
+  const selPhase = (st.phase === E.PH_ATTACK || st.phase === E.PH_FORTIFY);
+  const picked   = st.phase === E.PH_ATTACK ? M.sel
+                 : st.phase === E.PH_FORTIFY ? M.fsel : -1;
+  const marking  = st.phase === E.PH_ATTACK ? 'atk' : 'for';
+  const live     = !E.over(st) && isLocal(E.turn(st)) && !M.busy && !st._pending;
+  const hasPick  = selPhase && live && picked >= 0;
+  const hasOffer = selPhase && live && !hasPick && legalSet.from.size > 0;
   /* WHOSE TURN IT IS, on the map itself. The seat to move owns the only rings
      at full strength (and, unless motion is refused, the only ones breathing);
      every other seat is held back to half. It is the cheapest possible read of
@@ -1440,6 +1891,34 @@ function paintMap(){
         if (tx) tx.textContent = st.army[i];
       }
     }
+
+    /* ── THE THREE STATES, MADE UNMISTAKABLE ──────────────────────────
+       Nothing here decides legality — `legalSet` already did. This only says
+       it loudly enough to be read on a 360px phone. */
+    const isSel = (i === picked && (hasPick || hasOffer));
+    const isTgt = hasPick && legalSet.to.has(i);
+    const isPick = hasOffer && legalSet.from.has(i);
+    const hi = UI.hiEls[i], mk = UI.markEls[i];
+    if (hi){
+      hi.classList.toggle('sel', isSel);
+      hi.classList.toggle('tgt', isTgt);
+      hi.classList.toggle('pick', isPick);
+    }
+    if (mk){
+      mk.classList.toggle('on',  isTgt);
+      mk.classList.toggle('atk', marking === 'atk');
+      mk.classList.toggle('for', marking === 'for');
+    }
+    /* everything that is not part of the decision steps back — hard once a
+       land is picked, gently while you are still choosing one. */
+    const inPlay = isSel || isTgt || isPick;
+    const dim  = hasPick  && !inPlay;
+    const dim2 = hasOffer && !inPlay;
+    [el, bg, rg, UI.labelEls[i]].forEach(n => {
+      if (!n) return;
+      n.classList.toggle('dim',  dim);
+      n.classList.toggle('dim2', dim2);
+    });
   }
 }
 
@@ -1481,129 +1960,286 @@ function computeLegalSet(){
   return { from, to };
 }
 
-function paintSeats(){
-  if (!UI || !UI.seats || !M) return;
-  const st = M.st, turn = E.turn(st), over = E.over(st);
-  let html = '';
+/* ═══════════════════════════════════════════════════════════════════
+   THE SEAT ROW — BUILT RARELY, PAINTED OFTEN.
+
+   It used to rewrite `UI.seats.innerHTML` on every paintAll(), which is every
+   AI step — one every 140-200ms. With a face in each chip that is a flicker on
+   every machine move AND it throws away progress-ui's `data-kx-done` stamp each
+   time, so paintOne() would redraw forty medallions a second for nothing.
+
+   So the markup is rebuilt only when its STRUCTURE changes, and the signature
+   below is what decides that. It has to include the names and the owners, not
+   just the seat count: hooks.setName() and hooks.setOwner() mutate both of
+   those mid-match online (a chair changing hands, a player's name arriving
+   after the roster), and a chip that never notices is a chip showing the wrong
+   person for the rest of the game.
+   ═══════════════════════════════════════════════════════════════════ */
+function seatSig(){
+  const st = M.st;
+  let s = st.seats + '|';
   for (let i = 0; i < st.seats; i++){
-    const on = (i === turn && !over) ? ' on' : '';
-    const dead = !st.alive[i] ? ' dead' : '';
-    const col = colourOf(i);
-    html += '<div class="kq-chip' + on + dead + '">' +
-      '<span class="sw" style="background:radial-gradient(circle at 35% 30%,' + col.hi + ',' + col.hex + ' 60%,' + col.lo + ')"></span>' +
-      '<span class="cn"><b>' + esc(seatName(i)) + '</b>' +
-        '<i>' + E.countTerr(st, i) + '⬢ · ' + E.countArmies(st, i) + '⚔' +
-          (E.handOf(st, i).length ? ' · ' + E.handOf(st, i).length + '🃏' : '') + '</i></span>' +
-    '</div>';
+    const m = (M.meta && M.meta[i]) || {};
+    s += (m.own || 'ai') + '' + (m.name || '') + '' + (m.lvl || 0) + '' +
+         (m.av || '') + '' + (m.pv || 0) + '' +
+         (m.look ? [m.look.f, m.look.b, m.look.lb].join(',') : '') + '|';
   }
-  UI.seats.innerHTML = html;
+  return s;
 }
 
-function paintBanner(){
-  if (!UI || !M) return;
-  const st = M.st, over = E.over(st);
-  if (over){ UI.banner.classList.remove('turn-you'); return; }
-  const seat = E.turn(st);
-  const mine = isLocal(seat);
-  const col = colourOf(seat);
-  UI.bdot.style.background = 'radial-gradient(circle at 35% 30%,' + col.hi + ',' + col.hex + ' 60%,' + col.lo + ')';
-  UI.banner.classList.toggle('turn-you', mine);
+/* THE FACE IN A CHIP. Declarative — the app's own `data-kx-av` span, exactly as
+   js/game.js's renderHome() writes it — so this file owns no rendering logic of
+   its own and cannot disagree with the rest of the app about what a player
+   looks like.
 
-  /* who + phase */
-  const whoName = mine ? T('Your turn', 'Imissek') : esc(seatName(seat)) + ' ' + T('is moving', 'qed jilgħab');
-  let phaseTxt, hint, showCount = false, showStep = false, actLabel = '', actGhost = false, actDisabled = false;
+   THREE RULES THAT ARE EASY TO GET WRONG:
+     · a LOCAL seat is drawn from K.displayName(), NOT seatName(i). seatName
+       returns the literal word 'You' / 'Int' for the player's own chair, and
+       describe() would hash THAT into a stranger's face — the player would see
+       somebody else in their own seat.
+     · a MACHINE gets no human face at all. js/mp.js's seatAvatar() draws a cpu
+       chair as a quiet medallion with the difficulty mark, and so do we.
+     · the SEAT COLOUR SURVIVES either way. It is a game rule — it is how the
+       map says who owns what — so it is an inset ring plus a corner pip around
+       whatever face or medallion is inside, and a cosmetic can never take it.
+*/
+function seatFaceHTML(i, col){
+  const m = (M.meta && M.meta[i]) || {};
+  const rim = '<span class="kq-fring"></span><span class="kq-pip"></span>';
+  const sty = ' style="--sc:' + esc(col.hex) + '"';
+  if ((m.own || 'ai') === 'ai'){
+    return '<span class="kq-bot"' + sty + ' aria-hidden="true">' +
+      ico('diff-' + Math.max(1, Math.min(3, m.lvl || 2))) + rim + '</span>';
+  }
+  let nm = m.name || seatColName(i);
+  if (m.own === 'me'){
+    try {
+      const d = K.displayName && K.displayName();
+      if (d && String(d).trim()) nm = String(d).trim();
+    } catch(e){}
+  }
+  let at = ' data-kx-av="' + esc(nm) + '" data-kx-size="24"';
+  /* a remote seat's published look, snapshotted at the start of the match */
+  if (m.own === 'net'){
+    if (m.av) at += ' data-kx-who="' + esc(m.av) + '"';
+    if (m.pv) at += ' data-kx-pv="' + (m.pv | 0) + '"';
+    if (m.look){
+      if (m.look.f)  at += ' data-kx-face="'   + esc(m.look.f)  + '"';
+      if (m.look.b)  at += ' data-kx-border="' + esc(m.look.b)  + '"';
+      if (m.look.lb) at += ' data-kx-lvb="'    + esc(m.look.lb) + '"';
+    }
+  }
+  return '<span class="kq-face"' + sty + '><span class="avatar"' + at + '></span>' + rim + '</span>';
+}
 
-  if (st.phase === E.PH_CLAIM && st.setupMode === 'random'){
-    phaseTxt = T('Random deal', 'Tqassim aleatorju');
-    if (mine){
-      hint = T('Deal the whole world at once', 'Aqsam id-dinja kollha f’daqqa');
-      actLabel = T('Deal', 'Qassam'); actGhost = false;
+function buildSeats(){
+  if (!UI || !UI.seats || !M) return;
+  const sig = seatSig();
+  if (sig === UI.seatSig) return;
+  UI.seatSig = sig;
+  const st = M.st;
+  let html = '';
+  for (let i = 0; i < st.seats; i++){
+    html += '<div class="kq-chip" data-s="' + i + '">' + seatFaceHTML(i, colourOf(i)) +
+      '<span class="cn"><b>' + esc(seatName(i)) + '</b><i data-cnt="' + i + '"></i></span></div>';
+  }
+  UI.seats.innerHTML = html;
+  UI.seatEls = [];
+  for (let i = 0; i < st.seats; i++){
+    UI.seatEls[i] = {
+      chip: UI.seats.querySelector('.kq-chip[data-s="' + i + '"]'),
+      cnt:  UI.seats.querySelector('[data-cnt="' + i + '"]'),
+      sig:  ''
+    };
+  }
+  try { if (window.KARTI_XP && KARTI_XP.repaintAvatars) KARTI_XP.repaintAvatars(UI.seats); } catch(e){}
+}
+
+/* THE CHEAP PASS — classes and three numbers, nothing else. */
+function paintSeats(){
+  if (!UI || !UI.seats || !M) return;
+  buildSeats();
+  const st = M.st, turn = E.turn(st), over = E.over(st);
+  for (let i = 0; i < st.seats; i++){
+    const h = UI.seatEls[i];
+    if (!h || !h.chip) continue;
+    h.chip.classList.toggle('on', i === turn && !over);
+    h.chip.classList.toggle('dead', !st.alive[i]);
+    const terr = E.countTerr(st, i), army = E.countArmies(st, i), cards = E.handOf(st, i).length;
+    const sig = terr + '/' + army + '/' + cards;
+    if (h.sig === sig) continue;
+    h.sig = sig;
+    /* ICONS, NOT EMOJI, and a WORD for anything that cannot see them. A phone
+       is not obliged to own a glyph, and a screen reader saying "12 black
+       hexagon" is not a sentence. This reads "12 territories, 34 armies,
+       3 cards". */
+    h.cnt.innerHTML =
+      '<em>' + ico('flag')  + terr + sr(' ' + T('territories', 'territorji')) + '</em>' +
+      '<em>' + ico('users') + army + sr(' ' + T('armies', 'armati')) + '</em>' +
+      (cards ? '<em>' + ico('cards') + cards + sr(' ' + T('cards', 'karti')) + '</em>' : '');
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   THE PHASE BAR, PAINTED.
+
+   Called from paintAll() as a SIBLING of paintMap/paintSeats, never from
+   inside anything that early-returns when the game is over — the old banner
+   painter bailed on `over` and a bar wired that way would freeze mid-sentence
+   under the result overlay instead of going quiet.
+
+   IT DERIVES EVERYTHING. E.turn / E.over / E.inSetup / st.phase / st.reinf /
+   st.mustTrade, every pass. There is no cached "which step are we on".
+   ═══════════════════════════════════════════════════════════════════ */
+function paintPhaseBar(){
+  if (!UI || !UI.pb || !M) return;
+  const st = M.st, over = !!E.over(st);
+  const seat = over ? -1 : E.turn(st);
+  const mine = seat >= 0 && isLocal(seat);
+  const setup = !over && E.inSetup(st);
+  /* SETUP IS NOT ONE OF THE THREE STEPS. cur stays -1 through Claim and Deploy
+     so all three render locked and the line says what is really happening. */
+  const cur = (over || setup) ? -1 : st.phase;
+  const busy = M.busy || M.picking || !!st._pending;
+
+  UI.pb.classList.toggle('over', over);
+  UI.pb.classList.toggle('inert', !over && !mine);
+  UI.pb.setAttribute('aria-disabled', (over || !mine) ? 'true' : 'false');
+
+  /* THE ONE STEP A TAP MAY MOVE YOU TO — asked of the engine, never assumed.
+     endphase is illegal out of Fortify, and illegal in Draft while armies are
+     unplaced or a set must be traded; a cell that offers what the gate would
+     refuse is a cell that lies. */
+  const nextOK = (!over && !setup && mine && !busy && seat >= 0 &&
+                  E.check(st, { t:'endphase' }, seat)) ? cur + 1 : -1;
+
+  UI.pstep.forEach(s => {
+    const el = s.el;
+    const done = cur >= 0 && s.index < cur;
+    const now  = cur >= 0 && s.index === cur;
+    const next = s.index === nextOK;
+    el.classList.toggle('done', done);
+    el.classList.toggle('now',  now);
+    el.classList.toggle('next', next);
+    el.classList.toggle('lock', !done && !now && !next);
+    el.classList.toggle('alert', now && mine && s.index === E.PH_REINFORCE && !!st.mustTrade);
+    if (now) el.setAttribute('aria-current', 'step'); else el.removeAttribute('aria-current');
+    /* THE LABEL IS PAINTED, NOT BAKED. js/lang.js can flip the whole app to
+       Maltese in the middle of a match (setupSheet's onChange calls paintAll),
+       and a label written once at build time would sit there in the wrong
+       language for the rest of the game. Guarded, so it is a string compare
+       and not a DOM write on every AI step. */
+    const lbl = PHASE_STEPS[s.index].v.label();
+    if (s.b && s.b.textContent !== lbl) s.b.textContent = lbl;
+    el.disabled = !next;
+    /* the mark, written only when it CHANGES. paintAll runs every AI step
+       (140-200ms) and three innerHTML writes a pass, forever, is a repaint
+       nobody asked for. */
+    const mk = done ? 'check' : next ? 'arrow-right' : now ? PHASE_STEPS[s.index].v.icon : 'lock';
+    if (s.mk !== mk){ s.mk = mk; s.ico.innerHTML = ico(mk); }
+    /* the armies-to-place count, rehomed from the gold banner into the step it
+       is actually about. */
+    const showN = now && mine && s.index === E.PH_REINFORCE;
+    s.n.hidden = !showN;
+    if (showN) s.n.textContent = st.reinf;
+  });
+
+  /* ── the foot: one sentence, and one control ── */
+  let head = '', line = '', actLabel = '', actGhost = false, waitTxt = '';
+
+  if (over){
+    head = T('The map is settled', 'Il-mappa waslet fit-tmiem');
+  } else if (setup){
+    const left = (st.setupLeft && seat >= 0) ? st.setupLeft[seat] : 0;
+    if (st.phase === E.PH_CLAIM && st.setupMode === 'random'){
+      head = T('Random deal', 'Tqassim aleatorju');
+      line = mine ? T('Deal the whole world at once', 'Aqsam id-dinja kollha f’daqqa')
+                  : T('dealing the world…', 'qed jaqsam id-dinja…');
+      if (mine) actLabel = T('Deal', 'Qassam');
+    } else if (st.phase === E.PH_CLAIM){
+      head = T('Claim', 'Ħu') + ' · ' + left + ' ' + T('left', 'baqa’');
+      line = mine ? T('Tap an empty land to claim it', 'Ikklikkja art vojta biex teħodha')
+                  : T('claiming land…', 'qed jieħu l-art…');
     } else {
-      hint = T('dealing the world…', 'qed jaqsam id-dinja…');
-      actLabel = '';
+      head = T('Deploy', 'Poġġi') + ' · ' + left + ' ' + T('left', 'baqa’');
+      line = mine ? T('Tap your land to place an army', 'Ikklikkja artek biex tpoġġi armata')
+                  : T('placing armies…', 'qed iqiegħed armati…');
     }
-  } else if (st.phase === E.PH_CLAIM){
-    phaseTxt = T('Claim a territory', 'Ħu territorju');
-    showCount = true;                                 /* armies left to place */
-    if (mine){
-      hint = T('Tap an empty land to claim it', 'Ikklikkja art vojta biex teħodha');
-    } else {
-      hint = T('claiming land…', 'qed jieħu l-art…');
-    }
-    actLabel = '';
-  } else if (st.phase === E.PH_DEPLOY){
-    phaseTxt = T('Place your armies', 'Poġġi l-armati');
-    showCount = true;
-    if (mine){
-      hint = T('Tap your land to place an army', 'Ikklikkja artek biex tpoġġi armata');
-    } else {
-      hint = T('placing armies…', 'qed iqiegħed armati…');
-    }
-    actLabel = '';
-  } else if (st.phase === E.PH_REINFORCE){
-    phaseTxt = T('Reinforce', 'Rinforza');
-    if (mine){
+  } else {
+    const step = PHASE_STEPS[cur] || PHASE_STEPS[0];
+    head = mine ? T('Your turn', 'Imissek') : seatName(seat);
+    if (!mine){
+      line = step.v.theirs();
+    } else if (cur === E.PH_REINFORCE){
       if (st.mustTrade){
-        hint = T('You hold too many cards — trade a set first', 'Għandek wisq karti — biddel sett l-ewwel');
+        line = T('You hold five or more cards', 'Għandek ħames karti jew aktar');
+        actLabel = T('Trade first', 'Ibdel sett');
       } else {
-        hint = T('Tap your land to place armies', 'Ikklikkja artek biex tqiegħed armati');
+        line = step.v.mine();
+        if (st.reinf === 0) actLabel = T('Done', 'Lest');
       }
-      showCount = true; showStep = !st.mustTrade;
-      actLabel = T('Done', 'Lest'); actGhost = false; actDisabled = st.reinf > 0 || st.mustTrade;
-    } else {
-      hint = T('placing armies…', 'qed iqiegħed armati…');
-      actLabel = '';
-    }
-  } else if (st.phase === E.PH_ATTACK){
-    phaseTxt = T('Attack', 'Attakka');
-    if (mine){
-      hint = M.sel < 0 ? T('Tap a glowing land, then an enemy', 'Ikklikkja art tleqq, imbagħad għadu')
+    } else if (cur === E.PH_ATTACK){
+      line = M.sel < 0 ? step.v.mine()
                        : T('Tap an enemy — you pick the dice next', 'Ikklikkja għadu — imbagħad tagħżel id-dadi');
       actLabel = T('End attack', 'Temm l-attakk'); actGhost = true;
     } else {
-      hint = T('choosing a battle…', 'qed jagħżel battalja…');
-    }
-  } else { /* fortify */
-    phaseTxt = T('Fortify', 'Fortifika');
-    if (mine){
-      hint = M.fsel < 0 ? T('Move armies once, or end your turn', 'Ċaqlaq l-armati darba, jew temm')
+      line = M.fsel < 0 ? step.v.mine()
                         : T('Tap where to send them', 'Ikklikkja fejn tibgħathom');
-      actLabel = T('End turn', 'Temm id-dawra'); actGhost = true;
-    } else {
-      hint = T('regrouping…', 'qed jerġa\' jiġġema\'…');
+      actLabel = T('End turn', 'Temm id-dawra');
     }
   }
 
-  UI.bph.textContent = whoName + ' — ' + phaseTxt;
-  UI.bhint.textContent = hint;
-
-  UI.bcount.hidden = !showCount;
-  if (showCount){
-    UI.bcount.textContent = (st.phase === E.PH_CLAIM || st.phase === E.PH_DEPLOY)
-      ? (st.setupLeft ? st.setupLeft[seat] : 0)
-      : st.reinf;
+  /* NOT YOUR TURN — a pill, not a button, so nothing invites a thumb. A remote
+     human is WAITED FOR; a machine is THINKING. They are different sentences
+     because they are different situations: one of them can be hurried along by
+     asking, and the other cannot. */
+  if (!over && !mine && seat >= 0){
+    waitTxt = ownerOf(seat) === 'net'
+      ? T('Waiting for', 'Qed nistennew') + ' ' + seatName(seat)
+      : T('Machine thinking', 'Il-magna taħseb');
   }
-  UI.step.hidden = !showStep;
-  if (showStep){ clampPlace(); UI.placen.textContent = M.place; }
-  UI.banner.classList.toggle('two', showStep);
 
-  if (mine && actLabel){
+  /* WRITTEN ONLY WHEN IT CHANGES, and this one is not an optimisation.
+     #kq-pline is a `role="status" aria-live="polite"` region and paintAll runs
+     on every AI step — 140-200ms apart. Rewriting it with the SAME sentence
+     seven times a second re-announces it to a screen reader seven times a
+     second, which is unusable. The guard is the whole reason it is bearable. */
+  const lineHTML = '<b>' + esc(head) + '</b>' + (line ? '<i> · ' + esc(line) + '</i>' : '');
+  if (UI.pline._h !== lineHTML){ UI.pline._h = lineHTML; UI.pline.innerHTML = lineHTML; }
+
+  UI.pwait.hidden = !waitTxt;
+  if (waitTxt){
+    const col = colourOf(seat);
+    const wHTML = '<i style="background:radial-gradient(circle at 35% 30%,' +
+      esc(col.hi) + ',' + esc(col.hex) + ' 60%,' + esc(col.lo) + ')"></i>' + esc(waitTxt);
+    if (UI.pwait._h !== wHTML){ UI.pwait._h = wHTML; UI.pwait.innerHTML = wHTML; }
+  }
+
+  if (actLabel && mine && !over){
     UI.act.hidden = false;
-    UI.act.textContent = actLabel;
+    if (UI.act.textContent !== actLabel) UI.act.textContent = actLabel;
     UI.act.classList.toggle('ghost', actGhost);
-    UI.act.disabled = actDisabled;
+    UI.act.disabled = busy;
   } else {
     UI.act.hidden = true;
   }
 
-  paintCardsBtn(seat, mine);
+  /* ── the contextual row, and the two controls that live in it ── */
+  const showStep = mine && !over && !setup && cur === E.PH_REINFORCE && !st.mustTrade && st.reinf > 0;
+  UI.step.hidden = !showStep;
+  if (showStep){ clampPlace(); UI.placen.textContent = M.place; }
+  paintCardsBtn(seat, mine && !over);
+  /* the row is in the layout ONLY while one of them is wanted — a slim strip of
+     nothing is still ~50px of map. */
+  UI.ctxrow.hidden = UI.step.hidden && UI.cards.hidden;
 }
 
-/* the little cards button in the banner: shows the local seat's hand size,
-   glows gold when a set can be traded in reinforce, and turns red when the
+/* the cards button in the contextual row: shows the local seat's hand size,
+   glows gold when a set can be traded in the Draft step, and turns red when the
    player MUST trade (5+ cards). */
 function paintCardsBtn(seat, mine){
   if (!UI || !UI.cards) return;
+  if (seat < 0 || !mine){ UI.cards.hidden = true; return; }
   const st = M.st;
   const hand = E.handOf(st, seat);
   const canTrade = mine && st.phase === E.PH_REINFORCE && E.hasTradeSet(st, seat);
@@ -1729,7 +2365,11 @@ function onAct(){
     afterLocal(); return;
   }
   if (st.phase === E.PH_REINFORCE){
-    if (st.reinf > 0 || st.mustTrade) return;  /* button is disabled anyway */
+    /* the one case where the primary action is not a move: five or more cards
+       in hand and the engine will refuse everything until a set is traded. The
+       button says so; pressing it opens the hand rather than doing nothing. */
+    if (st.mustTrade){ openCardSheet(); return; }
+    if (st.reinf > 0) return;                  /* the button is not offered */
     doMove(seat, { t:'endphase' }, 'local'); afterLocal(); return;
   }
   if (st.phase === E.PH_ATTACK){
@@ -1821,8 +2461,8 @@ function paintCardSheet(ov, viewSeat){
           esc(T('Trade for', 'Ibdel għal')) + ' +' + nextVal + '</button>' +
       '</div>';
   } else if (hand.length >= 3){
-    tradeHtml = '<div class="kq-hint2">' + esc(T('Trade a set of three during your Reinforce step.',
-      'Ibdel sett ta’ tlieta waqt ir-Rinforz tiegħek.')) + '</div>';
+    tradeHtml = '<div class="kq-hint2">' + esc(T('Trade a set of three during your ' + PHASE_VOCAB.reinforce.label() + ' step.',
+      'Ibdel sett ta’ tlieta waqt ir-' + PHASE_VOCAB.reinforce.label() + ' tiegħek.')) + '</div>';
   }
 
   /* continent-bonus legend */
@@ -1971,6 +2611,12 @@ function openAttackSheet(seat, from, to){
   if (maxN < 1){ cue('move.illegal', { gain:0.6 }); return; }
 
   M.picking = true;
+  /* the phase bar lives in the frame's own bar, OUTSIDE .kq-wrap, so this sheet
+     does not cover it. onPhaseStep and onAct both refuse while M.picking, but a
+     control that still LOOKS live under a modal is a control somebody will
+     press — so repaint the bar into its busy state as the sheet opens, and back
+     when it closes. */
+  paintPhaseBar();
   let n = maxN;                                   /* the maximum, preselected */
 
   const ov = document.createElement('div');
@@ -1984,7 +2630,7 @@ function openAttackSheet(seat, from, to){
   UI.root.appendChild(ov);
   cue('ui.sheet', { gain:0.8 });
 
-  const close = () => { M.picking = false; ov.remove(); };
+  const close = () => { M.picking = false; ov.remove(); paintPhaseBar(); };
 
   function paint(){
     const aArmy = st.army[from], dArmy = st.army[to];
@@ -2564,7 +3210,11 @@ function finish(){
       place: i + 1,
       you: isMe,
       bot: ownerOf(seat) === 'ai',
-      score: E.countTerr(st, seat) + '⬢ · ' + E.countArmies(st, seat) + '⚔',
+      /* WORDS, NOT GLYPHS. rebbieh takes a plain STRING here, not markup, so
+         there is no icon to put in it — and a phone that does not own ⬢ or ⚔
+         prints two empty boxes on the winner screen. */
+      score: E.countTerr(st, seat) + ' ' + T('lands', 'artijiet') + ' · ' +
+             E.countArmies(st, seat) + ' ' + T('armies', 'armati'),
       border: col.id
     };
   });
@@ -2667,8 +3317,12 @@ function maybeTip(){
   if (seenTip || !UI || !UI.mapbox) return;
   const t = document.createElement('div');
   t.className = 'kq-tip';
-  t.innerHTML = '<span>' + T('Share out the world, then reinforce, <b>attack</b>, fortify. Take a whole <b>continent</b> for a bonus, and <b>trade cards</b> for armies — tap 🃏 to see your hand!',
-    'Qassam id-dinja, imbagħad rinforza, <b>attakka</b>, fortifika. Ħu <b>kontinent</b> sħiħ għal bonus, u <b>ibdel il-karti</b> għal armati — ikklikkja 🃏 biex tara l-karti!') +
+  /* the cards icon INLINE, drawn from the sprite rather than typed as an emoji
+     — the glyph a phone actually owns is not a thing this file may assume, and
+     a tofu box in the one sentence that teaches the game is worse than nothing */
+  const cardMark = ico('cards') + '';
+  t.innerHTML = '<span>' + T('Share out the world, then ' + PHASE_VOCAB.reinforce.label().toLowerCase() + ', <b>attack</b>, fortify. Take a whole <b>continent</b> for a bonus, and <b>trade cards</b> for armies — tap ' + cardMark + ' to see your hand!',
+    'Qassam id-dinja, imbagħad ' + PHASE_VOCAB.reinforce.label().toLowerCase() + ', <b>attakka</b>, fortifika. Ħu <b>kontinent</b> sħiħ għal bonus, u <b>ibdel il-karti</b> għal armati — ikklikkja ' + cardMark + ' biex tara l-karti!') +
     '</span><button id="kq-tipx">' + esc(T('Got it','Fhimt')) + '</button>';
   UI.mapbox.appendChild(t);
   t.querySelector('#kq-tipx').onclick = () => {
@@ -2690,10 +3344,10 @@ function rulesFor(){
       'Imbagħad ixxerred il-bqija tal-armati fuq artek.'),
     T('Then play begins. On your turn you take <b>three steps</b>.',
       'Imbagħad tibda l-logħba. F’dawra tiegħek tagħmel <b>tliet passi</b>.'),
-    T('<b>1 · Reinforce</b> — armies = one per three lands (at least three) <b>plus every whole continent’s ' +
+    T('<b>1 · ' + PHASE_VOCAB.reinforce.label() + '</b> — armies = one per three lands (at least three) <b>plus every whole continent’s ' +
       'bonus</b> (Aurora 5, Meridia 5, others 2–3). You may also <b>trade a set of three cards</b> for a growing ' +
       'pile of armies (4, 6, 8, 10, 12, 15, then +5 each).',
-      '<b>1 · Rinforza</b> — armati = waħda għal kull tliet artijiet (mill-inqas tlieta) <b>flimkien mal-bonus ' +
+      '<b>1 · ' + PHASE_VOCAB.reinforce.label() + '</b> — armati = waħda għal kull tliet artijiet (mill-inqas tlieta) <b>flimkien mal-bonus ' +
       'ta’ kull kontinent sħiħ</b>. Tista’ wkoll <b>tibdel sett ta’ tliet karti</b> għal armati (4, 6, 8, 10, 12, 15, imbagħad +5).'),
     T('<b>2 · Attack</b> — tap one of your lands, then a bordering enemy, and an <b>attack sheet</b> opens: ' +
       'both sides’ armies, <b>how many dice you throw</b> (one, two or three — never more than one fewer than ' +
@@ -2777,9 +3431,9 @@ function setupSheet(){
       '<div class="kq-hero" aria-hidden="true">' + heroSVG() +
         '<span class="kq-hero-cap">' + E.N_TERR + ' &middot; ' + E.REGIONS.length + '</span></div>' +
       '<p class="blurb">' +
-        T('Share out the world, roll the dice, conquer every land. Reinforce, attack, fortify — hold a ' +
+        T('Share out the world, roll the dice, conquer every land. ' + PHASE_VOCAB.reinforce.label() + ', attack, fortify — hold a ' +
           'whole continent for a bonus, trade cards for armies, and be the last banner standing.',
-          'Qassam id-dinja, armi d-dadi, aħkem kull art. Rinforza, attakka, fortifika — żomm kontinent ' +
+          'Qassam id-dinja, armi d-dadi, aħkem kull art. ' + PHASE_VOCAB.reinforce.label() + ', attakka, fortifika — żomm kontinent ' +
           'sħiħ għal bonus, ibdel il-karti għal armati, u kun l-aħħar bandiera weqfa.') +
       '</p>' +
 
@@ -3038,7 +3692,40 @@ function onlineStart(cfg){
     const own = (i === cfg.you) ? 'me' : (s.own === 'ai' || s.kind === 'cpu') ? 'ai' : 'net';
     M.meta.push({ own, name: s.name || seatColName(i), lvl: s.level || 2 });
   }
+  /* ── WHAT THE OTHER PEOPLE LOOK LIKE ──────────────────────────────────
+     A READ of what the relay already publishes — no new wire field, nothing
+     added to the contract, nothing sent. KARTI_MP.rosterSeats() carries each
+     chair's account key (`av`), photo version (`pv`) and the face/border/badge
+     the player equipped (`look`), and the seat chips draw them through the
+     app's own declarative avatar span.
+
+     MATCHED BY .seat, NEVER BY ARRAY INDEX. rosterSeats() filter(Boolean)s its
+     source, so a table with a gap in it hands back a SHORTER list and every
+     position after the gap is somebody else — which would put one player's
+     photograph on another player's chair, at a table where the seat is the
+     game rule.
+
+     SNAPSHOTTED ONCE, HERE. A face that changes mid-match is a face nobody can
+     trust; the seat signature that decides when the chips are rebuilt reads
+     these values, so freezing them also keeps the row still. */
+  try {
+    const MPX = window.KARTI_MP;
+    if (MPX && MPX.rosterSeats){
+      const rs = MPX.rosterSeats() || [];
+      rs.forEach(r => {
+        if (!r || r.seat == null) return;
+        const m = M.meta[r.seat | 0];
+        if (!m || m.own !== 'net') return;
+        if (r.av) m.av = r.av;
+        if (r.pv) m.pv = r.pv | 0;
+        if (r.look) m.look = r.look;
+      });
+    }
+  } catch(e){}
   applyMeta();
+  /* raised BEFORE openBoard: buildBoard has to know whether the NEW button is
+     written into the DOM at all, and M.net alone arrives on the next line. */
+  M.online = true;
   M.net = cfg.net || null;
   M.finished = false;
   openBoard(() => { const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); });
@@ -3126,9 +3813,9 @@ const LOBBY = {
     return { ok:true, why:'' };
   },
   rulesHTML: () =>
-    '<p>' + T('Two to six players carve up a world of forty lands in six continents. Each turn: reinforce, ' +
+    '<p>' + T('Two to six players carve up a world of forty lands in six continents. Each turn: ' + PHASE_VOCAB.reinforce.label().toLowerCase() + ', ' +
       'attack a neighbour with the dice, then fortify. Hold a whole continent for a bonus, and trade sets of cards for armies.',
-      'Minn tnejn sa sitta jaqsmu dinja ta’ erbgħin art f’sitt kontinenti. Kull dawra: rinforza, attakka ġar bid-dadi, imbagħad fortifika. ' +
+      'Minn tnejn sa sitta jaqsmu dinja ta’ erbgħin art f’sitt kontinenti. Kull dawra: ' + PHASE_VOCAB.reinforce.label().toLowerCase() + ', attakka ġar bid-dadi, imbagħad fortifika. ' +
       'Żomm kontinent sħiħ għal bonus, u ibdel settijiet ta’ karti għal armati.') + '</p>' +
     '<p>' + T('Lose all your land and you are out; the last banner standing wins. Perfect information and ' +
       'shared dice make online as honest as across a table.',
@@ -3154,9 +3841,9 @@ const TILE = {
   name:'Konkwista', mt:'Konkwista', icon:'map', status:'live',
   get tag(){
     return T('Share out the world, roll the dice, conquer every land. A world conquest for ' +
-             'two to six — reinforce, attack, fortify, trade cards, and hold a continent for a bonus.',
+             'two to six — ' + PHASE_VOCAB.reinforce.label().toLowerCase() + ', attack, fortify, trade cards, and hold a continent for a bonus.',
              'Qassam id-dinja, armi d-dadi, aħkem kull art. Konkwista tad-dinja għal tnejn sa sitta — ' +
-             'rinforza, attakka, fortifika, ibdel karti, u żomm kontinent għal bonus.') +
+             PHASE_VOCAB.reinforce.label().toLowerCase() + ', attakka, fortifika, ibdel karti, u żomm kontinent għal bonus.') +
            (ST.save ? ' ' + T('There is a campaign half-played.', 'Hemm kampanja nofsha milgħuba.') : '');
   },
   open: () => setupSheet(),
@@ -3178,6 +3865,9 @@ if (/[?&]konkwistatest\b/.test(location.search || '')){
     get M(){ return M; }, get UI(){ return UI; },
     engine: E, LOBBY, hooks, online: P.online.konkwista, leave,
     computeLegalSet, reduced,
+    /* the revamp: the phase bar, the seat row and the online gate */
+    onPhaseStep, paintPhaseBar, paintSeats, buildSeats, seatSig,
+    PHASE_STEPS, PHASE_VOCAB, isOnlineMatch,
     /* the interactive pass: the picker, the readout and the odds behind them */
     openAttackSheet, showTurnCard, reinforceBreakdown,
     exchangeOdds, conquerChance, conquerChanceWith, atkDiceMax, defDiceMax,
