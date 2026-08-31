@@ -3426,7 +3426,12 @@ function injectLoginCSS(){
       'background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.10);' +
       'min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}' +
     '.lg-t .lg-d{font-size:10px;font-weight:700;opacity:.62;letter-spacing:.4px;text-transform:uppercase}' +
-    '.lg-t .lg-v{font-size:13px;font-weight:800;line-height:1}' +
+    '.lg-t .lg-v{font-size:13px;font-weight:800;line-height:1;' +
+      'display:flex;align-items:center;justify-content:center;gap:4px}' +
+    /* the painted chip beside the amount. 15px is the largest that leaves
+       room for a three-digit prize inside a 74px tile at 360. */
+    '.lg-ci{width:15px;height:15px;display:block;flex:0 0 auto}' +
+    '.lg-n{font-weight:800;font-size:13px;line-height:1}' +
     '.lg-t .lg-c{font-size:9px;opacity:.55;margin-top:1px}' +
     /* CLAIMED — dimmed, with a tick. Never colour alone: the tick is the
        non-colour signal, which is also what a colour-blind player reads. */
@@ -3546,9 +3551,14 @@ function openLoginSheet(){
     const chest = d === LOGIN_LAST;
     const cls = 'lg-t' + (chest ? ' is-chest' : '') +
       (got ? ' is-got' : now ? ' is-now' : ' is-lock');
+    /* THE PAINTED CHIP, not the word "chips". The wallet pills upstairs
+       already work this way — "the icons carry it" — so a player reads the
+       same object in both places and learns what it is once. The word is
+       kept in the tile's aria-label, because an icon carries nothing at all
+       to a screen reader. */
     const val = chest
       ? '<span class="lg-cw" data-chest="closed">' + LG_CHEST_SVG + '</span>'
-      : LOGIN_CHIPS[d];
+      : chipIco('', 'lg-ci') + '<b class="lg-n">' + LOGIN_CHIPS[d] + '</b>';
     tiles +=
       '<div class="' + cls + '" role="listitem" aria-label="Day ' + d + ': ' +
         (chest ? 'the chest' : LOGIN_CHIPS[d] + ' chips') + '. ' +
@@ -3556,7 +3566,6 @@ function openLoginSheet(){
         (got ? LG_TICK : '') +
         '<span class="lg-d">Day ' + d + '</span>' +
         '<span class="lg-v">' + val + '</span>' +
-        (chest ? '' : '<span class="lg-c">chips</span>') +
       '</div>';
   }
   const canClaim = st.pending;
