@@ -43,11 +43,6 @@ const SHELL = [
   './js/blackjack.js',
   './js/rebbieh.js',
   './js/mail.js',
-  /* The RPG's DOOR, not the RPG. qawmien.js is 6 KB and Home needs it to draw
-     the owner's row; the game itself is ~6 MB under qawmien/ and is
-     deliberately NOT precached — nobody should pay for a beta they may never
-     open. It caches itself as it is played, through the normal fetch path. */
-  './js/qawmien.js',
   './js/ai.js',
   './js/gacha.js',
   './js/story.js',

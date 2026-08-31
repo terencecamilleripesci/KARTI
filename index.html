@@ -2494,7 +2494,7 @@ window.swVersion = function(){
                   Loaded early so every game — the six new ones now, the rest
                   later — can call KARTI_REBBIEH at match end. Self-contained. */
                'js/rebbieh.js',
-               'js/mail.js','js/qawmien.js',
+               'js/mail.js',
                'js/ai.js','js/gacha.js','js/story.js','js/mp.js',
                'js/cardview.js','js/tutor.js','js/sync.js',
                'js/party.js'];
@@ -2507,7 +2507,12 @@ window.swVersion = function(){
      KARTI_LOADED / karti:loaded still fires only when THIS list has also
      landed — party.js gates game entry on it, so no game is openable before
      its module is in. Keep `files` in step with the SHELL list in sw.js. */
-  var defer = ['js/chess.js','js/dama.js',
+  /* The RPG's door is DEFERRED, not part of the boot. It draws one
+     owner-only row on Home and the game itself only loads when the row is
+     tapped, so nothing about it belongs in the path that has to run before
+     Home can paint. It re-runs its own onHome() when it lands, so arriving
+     late costs nothing. */
+  var defer = ['js/qawmien.js','js/chess.js','js/dama.js',
                'js/battleship.js','js/battleship-ui.js',
                'js/skarta.js','js/skarta-ui.js',
                'js/klabb.js','js/klabb-briscola.js','js/klabb-sette.js','js/klabb-cheat.js',

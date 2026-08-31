@@ -218,4 +218,10 @@
     close: close,
     isAdmin: isAdmin
   };
+
+  /* THIS FILE IS DEFERRED, so Home has usually already painted by the time it
+     lands and renderHome()'s hook has already run without us. Drawing the row
+     once on arrival is what makes deferring free: the owner sees it either
+     way, and KARTI's boot never waits for the RPG. */
+  try { onHome(); } catch (e) {}
 })(window);
