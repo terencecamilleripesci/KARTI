@@ -62,20 +62,49 @@
 <script src="sprite.js"></script>
 <script src="world-types.js"></script>
 <script src="classes.js"></script>
+<script>
+/* Apply a cloud character adopted by net.js on the PREVIOUS page life.
+   It rides sessionStorage because writing localStorage before reloading
+   loses a race: player.js autosaves the OLD hero on pagehide, which
+   fires after adopt(). Running here — before player.js reads
+   localStorage — nothing can clobber the adopted save. */
+(function () { try {
+  var a = sessionStorage.getItem('tactics.sync.adopt');
+  if (!a) return;
+  sessionStorage.removeItem('tactics.sync.adopt');
+  a = JSON.parse(a);
+  if (!a || typeof a !== 'object' || !a.hero) return;
+  localStorage.setItem('tactics.hero.v1', JSON.stringify(a.hero));
+  if (a.quest) localStorage.setItem('tactics.quest.tutorial.v1', JSON.stringify(a.quest));
+  else localStorage.removeItem('tactics.quest.tutorial.v1');
+} catch (e) {} })();
+</script>
 <script src="player.js"></script><!-- window.HERO + window.PLAYER (the view) -->
 <script src="maps/ruin-01.js"></script>
 <script src="maps/ruin-02.js"></script>
 <script src="maps/field-0-0.js"></script>
 <script src="maps/field-1-0.js"></script>
 <script src="maps/field-2-0.js"></script>
+<script src="maps/field-3-0.js"></script>
+<script src="maps/field-4-0.js"></script>
 <script src="maps/field-0-1.js"></script>
 <script src="maps/field-1-1.js"></script>
 <script src="maps/field-2-1.js"></script>
+<script src="maps/field-3-1.js"></script>
+<script src="maps/field-4-1.js"></script>
+<script src="maps/field-0-2.js"></script>
+<script src="maps/field-1-2.js"></script>
+<script src="maps/field-2-2.js"></script>
+<script src="maps/field-3-2.js"></script>
+<script src="maps/field-4-2.js"></script>
 <script src="maps/index.js"></script>
 <script src="quest.js"></script>
 <script src="panels.js"></script>
 <script src="select.js"></script><!-- SELECTUI: shared class-picker renderer -->
 <script src="world.js"></script>
+<script src="net.js"></script><!-- window.NET: cloud sync via the QAWMIEN relay.
+  Loads LAST so HERO/QUEST exist; offline it is inert and the game is untouched -->
+
 <script>
 'use strict';
 /* ── boot (WORLD_SPEC §8, amended) ────────────────────────────────────
@@ -153,6 +182,9 @@ WORLD.onNpc(m => {
 WORLD.onExit((from, to) => {
   if (from === 'ruin-02' && to === 'field-0-0' && QUEST.state().step === 2)
     QUEST.advance(3);
+  /* leaving a map is a sync checkpoint (net.js can't take this slot —
+     WORLD.onExit is single-callback and this page owns it) */
+  if (window.NET) NET.checkpoint('map');
 });
 
 /* ── RAF loop — the page owns it, WORLD does the rest ─────────────── */

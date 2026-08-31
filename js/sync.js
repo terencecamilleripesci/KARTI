@@ -1563,6 +1563,13 @@ var KARTI_SYNC = {
   reachable: reachable,
   baseURL: baseURL,
 
+  /* The live session token, for SAME-ORIGIN frames KARTI itself opens.
+     js/qawmien.js hands it to the RPG iframe over postMessage so the RPG
+     can talk to its own relay (server/qawmien_relay.py) with the ONE
+     KARTI login — no second account, and the frame never has to know how
+     this file stores its session. Empty string when signed out. */
+  sessionToken: function () { return (ST.sess && ST.sess.tok) || ''; },
+
   register: register,
   login: login,
   signOut: signOut,

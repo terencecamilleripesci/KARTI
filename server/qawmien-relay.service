@@ -1,0 +1,51 @@
+[Unit]
+Description=QAWMIEN relay (the RPG's own relay — separate from the party games on 8101)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=foxhound
+Group=foxhound
+WorkingDirectory=/home/foxhound/webclients/karti-malta
+ExecStart=/usr/bin/python3 /home/foxhound/webclients/karti-malta/server/qawmien_relay.py --host 127.0.0.1 --port 8102
+Restart=on-failure
+RestartSec=3
+
+# Hardening: mirrors karti-relay.service, but TIGHTER on the network — this
+# relay sends no web push, so it needs loopback and nothing else at all.
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+IPAddressDeny=any
+IPAddressAllow=localhost
+MemoryMax=256M
+TasksMax=256
+
+# Its OWN state dir — the only place it may write. StateDirectory= creates
+# /var/lib/qawmien owned by the service user despite ProtectSystem=strict.
+StateDirectory=qawmien
+StateDirectoryMode=0700
+ReadWritePaths=/var/lib/qawmien
+
+# KARTI's dir is deliberately NOT in ReadWritePaths: under ProtectSystem=strict
+# it is mounted read-only, so even a bug in this process cannot write the party
+# games' databases. The application layer opens it mode=ro + query_only=ON too.
+# NEVER add ReadWritePaths=/var/lib/karti here — that is the whole point.
+
+[Install]
+WantedBy=multi-user.target

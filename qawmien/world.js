@@ -3,8 +3,9 @@
 
    Renders the current map (ground / decor / markers / player) with the
    combat testbed's isometric projection, free-walks the player with A*,
-   follows with a clamped camera, and transfers across map seams and
-   exit markers. Combat itself lives in index.html/tactics.js — WORLD
+   frames every map WHOLE with a static centred camera (Dofus screen
+   model — scrolling only as a cannot-fit fallback), and transfers
+   across map seams and exit markers. Combat itself lives in index.html/tactics.js — WORLD
    only steps aside via setMode('combat') and comes back.
 
    Geometry, walkability, seams and the atlas draw rule all come from
@@ -223,16 +224,36 @@ const WORLD = (() => {
       s.clip = 'walk.' + D.row; s.frame = 0;   /* frozen; stand frame set on ready */
       actors.push({ mk, s });
     }
-    let p = at && WT.inMap(m, at.c, at.r) ? { c: at.c, r: at.r } : null;
+    /* `at` must be walkable, not merely in-bounds — an exit marker with a
+       blocked target would otherwise embed the hero in a wall silently.
+       A rejected `at` falls through to the normal spawn fallbacks below. */
+    let p = at && WT.isWalkable(m, at.c, at.r) ? { c: at.c, r: at.r } : null;
+    if (at && !p && WT.inMap(m, at.c, at.r))
+      console.warn('WORLD.load: at (' + at.c + ',' + at.r + ') on ' + mapId +
+                   ' is blocked; using fallback spawn');
     if (!p){
       const pm = live.find(mk => mk.type === 'player');
       if (pm) p = { c: pm.c, r: pm.r };
     }
     if (!p){
+      /* fallback spawn: first OPEN tile that does NOT transfer on
+         arrival. Edge-strip/exit tiles are sealed off from the map
+         interior — A* never routes THROUGH a transfer tile (see the
+         astar loop) — so spawning on one strands the hero on the seam
+         (bare load('field-…') on maps without a player marker did
+         exactly that). `map`, `live` and `actors` are already set
+         above, so open()/transfersOnArrival() see the new map. */
       outer:
       for (let r = 0; r < m.h; r++)
         for (let c = 0; c < m.w; c++)
-          if (m.block[r][c] === 0){ p = { c, r }; break outer; }
+          if (open(c, r) && !transfersOnArrival(c, r)){ p = { c, r }; break outer; }
+    }
+    if (!p){
+      /* degenerate map (interior fully blocked): any walkable tile */
+      outer2:
+      for (let r = 0; r < m.h; r++)
+        for (let c = 0; c < m.w; c++)
+          if (m.block[r][c] === 0){ p = { c, r }; break outer2; }
     }
     if (!p) p = { c: 0, r: 0 };
     doors = findDoors(m);
@@ -359,9 +380,11 @@ const WORLD = (() => {
       SPRITE.step(hero.ispr, dt);                  /* it breathes */
     }
 
-    /* camera: lerp to the player, clamped to the map bounds */
+    /* camera: normally STATIC — the whole map is framed and centred, and
+       walking never moves the view. Only the cannot-fit fallback follows
+       the player (lerped, clamped to the map bounds). */
     const t = camTarget();
-    if (camSnap){ camera.x = t.x; camera.y = t.y; camSnap = false; }
+    if (camSnap || fitted){ camera.x = t.x; camera.y = t.y; camSnap = false; }
     else {
       const k = Math.min(1, dt / 300);
       camera.x += (t.x - camera.x) * k;
@@ -370,12 +393,14 @@ const WORLD = (() => {
   }
 
   function camTarget(){
-    const hw = cssW / (2 * camera.scale), hh = cssH / (2 * camera.scale);
     const headroom = WT.TILE_PX * WT.SCALE;        /* room for tall decor */
     const minX = WT.isoX(0, map.h - 1) - TW / 2;
     const maxX = WT.isoX(map.w - 1, 0) + TW / 2;
     const minY = WT.isoY(0, 0) - TH / 2 - headroom;
     const maxY = WT.isoY(map.w - 1, map.h - 1) + TH / 2;
+    if (fitted)                                    /* static, centred, whole */
+      return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+    const hw = cssW / (2 * camera.scale), hh = cssH / (2 * camera.scale);
     return { x: clampAxis(hero.bx, minX, maxX, hw),
              y: clampAxis(hero.by, minY, maxY, hh) };
   }
@@ -398,31 +423,33 @@ const WORLD = (() => {
     }
   }
 
-  /* HOW FAR TO ZOOM OUT — the rule the owner picked after testing on a phone.
-     The old rule clamped to a MINIMUM of 1x, so on a 430px screen the 12x12
-     ruin (about 744px across, isometrically) never fit and the exit arch was
-     permanently off-camera. You were told to head east and could not see a
-     door: exactly the complaint.
+  /* THE DOFUS SCREEN MODEL — the rule the owner picked after testing on a
+     phone: "the map always same size like dofus". Every map is the same
+     size (10x10), every map is framed WHOLE and centred, and the camera
+     never scrolls — walking off an edge swaps to the neighbour screen,
+     which is then framed whole in turn.
 
-     So: fit the WHOLE map when it is small enough to fit, which is what makes
-     an enclosed room read as a room. Big outdoor maps cannot fit and should
-     not try — zooming out far enough for a 16x16 field would leave characters
-     unreadable — so they stop at MIN and the camera scrolls instead, which is
-     the right behaviour for open ground anyway. */
+     fitScale therefore always returns the scale that fits the entire map
+     (capped at MAX so a desktop window doesn't blow tiles up absurdly).
+     `fitted` records whether that fit stayed above the readability floor;
+     when it did (the normal case — 10x10 fits every phone), camTarget is
+     the static map centre. Only if a map somehow cannot fit at a readable
+     scale does the old follow-and-clamp scroll come back as a fallback. */
   const MIN_SCALE = 0.55;   /* below this a character stops being readable */
   const MAX_SCALE = 2;
+  let fitted = true;        /* current map fits whole at camera.scale      */
 
+  function footprint(m){    /* isometric extent of the map, board pixels  */
+    return { mw: (m.w + m.h) * (WT.TW / 2),
+             mh: (m.w + m.h) * (WT.TH / 2) + WT.TILE_PX * WT.SCALE };
+  }
   function fitScale(){
     const m = map;
-    let s = Math.min(MAX_SCALE, Math.max(1, cssW / 620));   /* the old rule */
-    if (m && m.w && m.h){
-      /* isometric footprint of the whole map, in board pixels */
-      const mw = (m.w + m.h) * (WT.TW / 2);
-      const mh = (m.w + m.h) * (WT.TH / 2) + WT.TILE_PX * WT.SCALE;
-      const fit = Math.min(cssW / mw, cssH / mh);
-      if (fit < s) s = Math.max(MIN_SCALE, fit);
-    }
-    return s;
+    if (!m || !m.w || !m.h){ fitted = true; return Math.min(MAX_SCALE, Math.max(1, cssW / 620)); }
+    const f = footprint(m);
+    const fit = Math.min(cssW / f.mw, cssH / f.mh);
+    fitted = fit >= MIN_SCALE;
+    return fitted ? Math.min(MAX_SCALE, fit) : MIN_SCALE;
   }
 
   function draw(g){

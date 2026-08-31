@@ -24,13 +24,20 @@
    silhouette pixels changed. It runs in an iframe so its canvas, its
    input handling and its rAF loop cannot fight KARTI's.
 
-   WHAT IS NOT DONE YET, said plainly so nobody assumes otherwise: the
-   RPG still saves to ITS OWN localStorage, not into KARTI's account
-   blob. So progress does not yet follow you to another phone. The plan
-   is in tactics-testbed/KARTI_BUNDLE.md — KARTI's existing versioned
-   save in js/sync.js already does the hard part, and the RPG state
-   becomes a field inside it. Until that lands, this is a single-device
-   beta and should not be opened up.
+   CLOUD SAVES GO THROUGH THE RPG'S OWN RELAY, NOT KARTI'S. The owner's
+   instruction was "different relay so it don't disturb the party
+   games": server/qawmien_relay.py (port 8102, own db) holds RPG
+   characters, and the frame's net.js talks to it directly. What this
+   file contributes is the HANDSHAKE: the frame posts
+   {type:'qawmien:hello'} and we answer {type:'qawmien:auth', tok, name,
+   url} — the live KARTI session token (KARTI_SYNC.sessionToken()) and
+   the relay base URL. postMessage rather than letting the frame read
+   KARTI's localStorage, because sync.js's session keys are private
+   layout, because the parent should decide in ONE place what a frame is
+   given, and because the token then never rests in the frame at all.
+   Same-origin checked on both sides; never posted to '*'. The RPG's
+   localStorage remains the local truth — a dead relay costs nothing but
+   "sync pending".
    ═══════════════════════════════════════════════════════════════════ */
 (function (global) {
   'use strict';
@@ -95,6 +102,46 @@
     } catch (e) {}
   }
 
+  /* ── the RPG relay's base URL ──────────────────────────────────────
+     Mirrors sync.js baseURL(): follow whatever relay js/mp.js is pointed
+     at so ?relay=… moves everything together, else the same Pi the
+     production funnel serves — but the /qawmien mount (port 8102), never
+     KARTI's own /karti mount (8101). Plain-http dev pages hit 8102 on
+     the same machine directly. */
+  function relayURL() {
+    var u = '';
+    try {
+      if (global.KARTI_MP && typeof KARTI_MP.defaultURL === 'function')
+        u = (KARTI_MP.defaultURL() || '').trim();
+    } catch (e) {}
+    if (/^wss?:\/\//i.test(u))
+      return u.replace(/^ws/i, 'http')
+              .replace(/\/karti\/ws\/?$/i, '')
+              .replace(/\/ws\/?$/i, '') + '/qawmien';
+    if (location.protocol === 'http:' && location.hostname)
+      return 'http://' + location.hostname + ':8102';
+    return 'https://raspberrypi.silverside-tench.ts.net:8443/qawmien';
+  }
+
+  /* the frame asks, we answer — and only OUR frame, on OUR origin */
+  function onMsg(ev) {
+    try {
+      if (!frame || ev.source !== frame.contentWindow) return;
+      if (ev.origin !== location.origin) return;
+      var d = ev.data;
+      if (!d || d.type !== 'qawmien:hello') return;
+      var tok = '', name = '';
+      try {
+        var SY = global.KARTI_SYNC;
+        if (SY && typeof SY.sessionToken === 'function') tok = SY.sessionToken() || '';
+        if (SY && typeof SY.status === 'function') name = (SY.status().user) || '';
+      } catch (e) {}
+      ev.source.postMessage(
+        { type: 'qawmien:auth', v: 1, tok: tok, name: name, url: relayURL() },
+        location.origin);
+    } catch (e) {}
+  }
+
   /* ── the world, full screen ───────────────────────────────────────── */
   function open() {
     if (wrap) return;
@@ -133,6 +180,8 @@
       wrap.appendChild(x);
       document.body.appendChild(wrap);
       document.documentElement.style.overflow = 'hidden';
+      /* listen for the frame's hello BEFORE it can possibly boot */
+      global.addEventListener('message', onMsg);
 
       /* Android back / browser back should leave the game, not leave KARTI */
       wasHash = location.hash;
@@ -145,6 +194,7 @@
 
   function close(fromPop) {
     try { global.removeEventListener('popstate', onPop); } catch (e) {}
+    try { global.removeEventListener('message', onMsg); } catch (e) {}
     if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
     wrap = null; frame = null;
     try { document.documentElement.style.overflow = ''; } catch (e) {}
