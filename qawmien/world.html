@@ -17,6 +17,10 @@
     PANELS(panels.js) inventory + character sheet
 -->
 <link rel="stylesheet" href="panels.css">
+<link rel="stylesheet" href="hud.css"><!-- hud.js chrome: bottom bar (Bag /
+  AP·HP·MP orbs / Hero) + settings gear/menu. The SAME file the combat
+  document loads, so the two bars are pixel-identical where they overlap
+  (HUD_SPEC §0 — that shared geometry IS the mode continuity) -->
 <link rel="stylesheet" href="select.css"><!-- the reincarnation picker reuses
   select.html's UI (SELECTUI overlay); loaded up front so the moment never
   paints unstyled --><style>
@@ -30,23 +34,18 @@
   html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
     font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     overscroll-behavior:none;touch-action:manipulation}
-  #wcv{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
-
-  /* HUD buttons — top-right, clear of #qhud (top-left, quest.js owns it) */
-  #hud{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));
-    right:calc(8px + env(safe-area-inset-right,0px));z-index:30;display:flex;gap:6px}
-  #hud .btn{min-height:44px;min-width:64px;padding:0 14px;border-radius:12px;
-    border:1px solid var(--line);background:rgba(23,19,49,.88);color:var(--ink);
-    font-weight:800;font-size:14px;cursor:pointer;transition:transform .12s ease-out}
-  #hud .btn:active{transform:scale(.96)}
+  /* the world canvas stops at the HUD bar (hud.js maintains --hud-bar-h);
+     WORLD.draw() refits the whole-map camera from the canvas box every
+     frame, so the framed 10×10 map re-centres itself — HUD_SPEC §2.5 */
+  #wcv{position:fixed;top:0;left:0;width:100%;
+    height:calc(100% - var(--hud-bar-h,64px));
+    display:block;touch-action:none}
 
   /* combat iframe — full screen, above panels(40), below #dlg(50) and the
      quest coach toast(9999) so coaching overlays the fight */
   #cbf{position:fixed;inset:0;width:100%;height:100%;border:0;z-index:45;
     display:none;background:var(--bg)}
   #cbf.on{display:block}
-
-  @media (prefers-reduced-motion:reduce){ #hud .btn{transition:none} }
 
   /* ── the summoning-circle loading screen (loader.js drives it) ──────
      Markup + styles ship inline so the dark screen, logo and wordmark
@@ -117,10 +116,8 @@
 
 <canvas id="wcv"></canvas>
 
-<div id="hud">
-  <button class="btn" id="bag"  type="button" aria-label="Open inventory">Bag</button>
-  <button class="btn" id="sta"  type="button" aria-label="Open character sheet">Hero</button>
-</div>
+<!-- Bag/Hero moved INTO the HUD bottom bar (hud.js builds all HUD DOM;
+     no markup here — HUD_SPEC §1). The old top-right #hud div is gone. -->
 
 <iframe id="cbf" src="" title="Combat"></iframe>
 
@@ -131,6 +128,9 @@
    world.js) joins this cycle; the boot glue at the bottom seals it. */
 LOADER.open();
 </script>
+<script src="hud-types.js"></script><!-- window.HUDT — the HUD contract:
+  geometry, palette, z-scale, storage keys, spell glyphs. Before every
+  module that reads it (minimap.js, hud.js, panels.js) — HUD_SPEC §0 -->
 <script src="sprite.js"></script>
 <script src="world-types.js"></script>
 <script src="classes.js"></script>
@@ -174,6 +174,11 @@ LOADER.open();
 <script src="panels.js"></script>
 <script src="select.js"></script><!-- SELECTUI: shared class-picker renderer -->
 <script src="world.js"></script>
+<script src="minimap.js"></script><!-- window.MINIMAP: which box you are on.
+  Display-only, top-left; polls WORLD._map (the one WORLD.onExit slot is
+  this page's, below) — HUD_SPEC §5 -->
+<script src="hud.js"></script><!-- window.HUD: bottom bar + settings. Booted
+  in explore mode by the glue below; reads window.PLAYER on a 300ms poll -->
 <script src="net.js"></script><!-- window.NET: cloud sync via the QAWMIEN relay.
   Loads LAST so HERO/QUEST exist; offline it is inert and the game is untouched -->
 
@@ -207,9 +212,13 @@ QUEST.start();
 LOADER.onRetry(() => WORLD.retryAssets());
 LOADER.seal(() => WORLD.schedulePrefetch());
 
-/* HUD buttons */
-document.getElementById('bag').addEventListener('click', () => PANELS.toggle('inventory'));
-document.getElementById('sta').addEventListener('click', () => PANELS.toggle('stats'));
+/* HUD — hud.js owns the whole bottom bar + settings (HUD_SPEC §1/§2).
+   Bag and Hero live at the bar's edges now; the orbs between them are
+   display-only. Settings actions never reach here (hud.js handles them). */
+HUD.init({ mode: 'explore', onAction: (action) => {
+  if (action === 'bag')       PANELS.toggle('inventory');
+  else if (action === 'hero') PANELS.toggle('stats');
+}});
 
 /* ── combat handoff: hidden iframe over the world ─────────────────── */
 const cbf = document.getElementById('cbf');

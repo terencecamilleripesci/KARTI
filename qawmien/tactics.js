@@ -536,7 +536,8 @@ function hurt(t, n, why, delay){
   const land = () => {
     t.flash = 1;
     floatText(t, '-' + n, why === 'wall' ? '#FFC542' : '#FF6B84');
-    if (t.hp <= 0){ floatText(t, 'down', '#9C97B8'); clip(t, 'die'); }
+    if (t.hp <= 0){ floatText(t, 'down', '#9C97B8'); clip(t, 'die');
+                    if (window.HUD) HUD.sfx('die'); }
     else clip(t, 'hit');
   };
   /* the hp is already gone; only the SHOWING of it waits */
@@ -609,6 +610,7 @@ function checkTrap(t){
   const tr = trapAt(t.c, t.r);
   if (!tr || t.hp <= 0) return;
   G.traps.splice(G.traps.indexOf(tr), 1);
+  if (window.HUD) HUD.sfx('trap');
   const sp = tr.sp;
   const hits = [{ c: tr.c, r: tr.r }];
   if (sp.trap.aoe) for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]])
@@ -641,6 +643,9 @@ function cast(u, sp, c, r){
   if (sp.cd) u.cd[sp.id] = sp.cd + 1;   /* +1: ticked down at turn start */
   faceToward(u, { c, r });
   clip(u, 'attack');
+  /* every cast speaks — hud.js owns the per-spell voice (element family
+     + role variation), and the same line covers enemy casts for free */
+  if (window.HUD) HUD.sfx('cast:' + sp.id);
 
   /* ── the extension mechanics (CLASSES_SPEC §4) ─────────────────── */
   if (sp.tp){                           /* Wind Step: blink to an empty tile */
@@ -717,6 +722,8 @@ function startTurn(){
   u.ap = u.apMax; u.mp = u.mpMax;
   u.shieldHp = 0;                /* Bulwark lasts until the caster's next
                                     turn STARTS — which is now */
+  /* a quiet two-note nudge when the turn comes back to YOU */
+  if (u.side === 0 && !u.auto && window.HUD) HUD.sfx('turn');
   for (const k in u.cd) if (u.cd[k] > 0) u.cd[k]--;
   sel = null;
   paint();
@@ -1422,48 +1429,62 @@ function onHover(ev){
 /* ── painting the UI ───────────────────────────────────────────── */
 const NAMES = { grunt:'Grunt', archer:'Archer', mage:'Mage', sheep:'Sheep',
                 dummy:'The dummy', ram:'Your ram' };
+
+/* the HERO unit, dead or alive. The orbs ALWAYS read your vitals, never
+   the acting unit's (HUD_SPEC §8): on an enemy's turn the crystal ball
+   still shows YOUR hp — and visibly reacts when their hit lands — and a
+   summoned ram's turn does not hijack your pools. you() filters hp > 0,
+   which is right everywhere else and wrong here: a dead hero must read
+   as an empty ball, not a missing one. */
+function heroUnit(){ return G.units.find(v => v.side === 0 && !v.auto); }
+
+/* ONE snapshot is the whole combat UI (HUD_SPEC §7.4). tactics owns the
+   rules and says what it knows; hud.js owns every pixel of the chrome —
+   the grown skill bar, the icon buttons with their AP badges, the
+   long-press tooltips, the orbs, Map and End turn. Guarded: lab pages
+   load tactics.js without hud.js and must keep working. */
 function paint(){
   const u = me();
   if (!u) return;
   const mine = u.side === 0 && !u.auto && !G.over;
 
-  document.getElementById('apv').textContent = mine ? u.ap : '—';
-  document.getElementById('mpv').textContent = mine ? u.mp : '—';
-  const who = document.getElementById('who');
-  who.innerHTML = (G.over ? (G.over > 0 ? 'You won' : 'You lost')
-                 : mine ? 'Your turn' : (NAMES[u.kind] || 'Grunt') + ' is moving')
-    + '<small>' + (G.over ? 'Tap Again'
-        : mine ? (sel ? spellOf(sel).hint : 'Tap the floor to move · pick a spell to attack')
-        : 'Round ' + G.round) + '</small>';
-
   moveSet = (mine && !sel && u.mp > 0) ? reach(u) : null;
   castSet = (mine && sel) ? castTiles(u, spellOf(sel)) : null;
   hoverTile = null;
 
-  /* spells — the chosen class's kit (HERO_SPELLS). Call Ram greys out
-     while its ram is alive: one summon per caster, spec rule. */
-  const host = document.getElementById('spells');
-  host.innerHTML = HERO_SPELLS.map(s => {
-    const cd = u.cd[s.id] || 0;
-    const off = !mine || u.ap < s.ap || cd > 0 ||
-                (s.summon && !!liveSummonOf(u));
-    return '<button class="sp' + (sel === s.id ? ' on' : '') + (cd > 0 ? ' cool' : '') + '"' +
-      (off ? ' disabled' : '') + ' data-sp="' + s.id + '" type="button">' +
-      (cd > 0 ? '<span class="cd">' + cd + '</span>' : '') +
-      '<span class="nm">' + s.name + '</span>' +
-      '<span class="co">' + s.ap + ' AP</span>' +
-      '<span class="rg">' + (s.min === s.max ? s.min : s.min + '-' + s.max) +
-        (s.los ? ' · line' : '') + '</span>' +
-    '</button>';
-  }).join('');
-  Array.prototype.forEach.call(host.querySelectorAll('.sp'), b => {
-    b.onclick = () => {
-      const id = b.getAttribute('data-sp');
-      sel = (sel === id) ? null : id;
-      paint();
-    };
-  });
-  document.getElementById('undo').textContent = sel ? 'Cancel' : 'Skip';
+  if (window.HUD){
+    const h = heroUnit();
+    HUD.combatPaint({
+      over: G.over,
+      round: G.round,
+      mine,
+      hero: h ? { hp: h.hp, hpMax: h.hpMax, ap: h.ap, apMax: h.apMax,
+                  mp: h.mp, mpMax: h.mpMax }
+              : { hp: 0, hpMax: 1, ap: 0, apMax: 6, mp: 0, mpMax: 3 },
+      /* exactly the strings the old #who line showed */
+      turn: {
+        name: G.over ? (G.over > 0 ? 'You won' : 'You lost')
+            : mine ? 'Your turn' : (NAMES[u.kind] || 'Grunt') + ' is moving',
+        hint: G.over ? 'Tap Again'
+            : mine ? (sel ? spellOf(sel).hint
+                          : 'Tap the floor to move · pick a spell to attack')
+            : 'Round ' + G.round
+      },
+      sel,
+      mapMode,
+      /* the chosen class's kit (HERO_SPELLS). `off` is the OLD disable
+         rule verbatim — Call Ram greys out while its ram is alive: one
+         summon per caster, spec rule. The rules did not move. */
+      spells: HERO_SPELLS.map(s => {
+        const cd = u.cd[s.id] || 0;
+        return { id: s.id, name: s.name, ap: s.ap, min: s.min, max: s.max,
+                 los: s.los, cd,
+                 off: !!(!mine || u.ap < s.ap || cd > 0 ||
+                         (s.summon && liveSummonOf(u))),
+                 hint: s.hint };
+      })
+    });
+  }
   draw();
 }
 
@@ -1483,34 +1504,42 @@ function showOver(){
 cv.addEventListener('click', onTap);
 cv.addEventListener('mousemove', onHover);
 cv.addEventListener('touchstart', e => { onHover(e); }, { passive:true });
-document.getElementById('end').onclick = () => {
-  if (busy || anim || G.over) return;
-  if (me().side !== 0 || me().auto) return;
-  sel = null; nextTurn();
-};
-document.getElementById('undo').onclick = () => {
-  if (busy || anim || G.over) return;
-  if (sel){ sel = null; paint(); return; }
-  /* "Skip" with no spell up = end the turn, same as the big button */
-  if (me().side === 0 && !me().auto) nextTurn();
-};
 document.getElementById('again').onclick = newMatch;
-/* the tactical toggle. Dofus keeps this on the main bar rather than buried
-   in settings, because you flip it mid-turn when a range suddenly matters. */
-const mapBtn = document.getElementById('map');
-if (mapBtn) mapBtn.onclick = () => {
-  mapMode = !mapMode;
-  mapBtn.textContent = mapMode ? 'Map' : 'Grid';
-  mapBtn.classList.toggle('go', !mapMode);
-  draw();
-};
 window.addEventListener('resize', fit);
 
-newMatch();
-fit();
-loop();
+/* THE HUD IS THE COMBAT CHROME (HUD_SPEC §7). Booted before newMatch so
+   the very first paint() lands on a live bar and plays the grow. The
+   actions carry the exact guards the deleted #end/#undo/#map handlers
+   had — Cancel and Skip are gone on purpose: re-tapping the selected
+   icon deselects (the sel toggle below), and "skip" IS End turn. hud.js
+   itself refuses taps on `off` icons (toast + error sfx), so 'spell'
+   only ever arrives for a castable one; the side re-check is against a
+   stale snapshot, not a second rule. */
+if (window.HUD) HUD.init({ mode: 'combat', onAction: (action, arg) => {
+  if (action === 'spell'){
+    const u = me();
+    if (G.over || busy || !u || u.side !== 0 || u.auto) return;
+    sel = (sel === arg) ? null : arg;
+    paint();
+  } else if (action === 'end'){
+    if (busy || anim || G.over) return;
+    if (me().side !== 0 || me().auto) return;
+    sel = null; nextTurn();
+  } else if (action === 'map'){
+    /* the tactical toggle. Dofus keeps this on the main bar rather than
+       buried in settings, because you flip it mid-turn when a range
+       suddenly matters. paint() carries the new state back to the HUD
+       (aria-pressed on the Map button rides the snapshot). */
+    mapMode = !mapMode;
+    paint();
+  }
+}});
 
-/* the headless harness drives these */
+/* the headless harness drives these — and hud.js reads spellOf() to
+   recover a spell's ELEMENT for the icon tint (the snapshot omits elem
+   by contract, §7.4). Exported BEFORE newMatch(): the first paint()
+   builds the skill icons exactly once, so window.T must already exist
+   or every classed spell would render in the fallback gold for good. */
 window.T = { _draw: draw, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
              get HCFG(){ return HCFG; }, reach, pathTo, los, canCast,
              castTiles, dist, newMatch, nextTurn, cast, spellOf, me, you, iso, unIso,
@@ -1520,3 +1549,7 @@ window.T = { _draw: draw, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILE
                 broken one, and a test harness cannot wait for the moment the
                 board is actually interactive. */
              get busy(){ return busy; }, get anim(){ return anim; } };
+
+newMatch();
+fit();
+loop();

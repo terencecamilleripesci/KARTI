@@ -26,21 +26,12 @@
   html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
     font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
     overscroll-behavior:none;touch-action:manipulation}
-  #wrap{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto}
-
-  /* ── top: whose turn, and the two pools that ARE the game ── */
-  #top{flex:0 0 auto;padding:8px 10px 6px;display:flex;align-items:center;gap:8px}
-  #who{font-weight:800;font-size:15px;flex:1 1 auto;min-width:0}
-  /* the hint is the line that teaches the game, so it WRAPS rather than
-     truncating — "…pick a spell to at" taught nobody anything */
-  #who small{display:block;font-weight:600;font-size:11px;color:var(--dim);
-    line-height:1.3;white-space:normal}
-  .pool{display:flex;align-items:center;gap:5px;padding:5px 9px;border-radius:10px;
-    background:rgba(255,255,255,.05);border:1px solid var(--line);font-weight:800;font-size:14px}
-  .pool b{font-size:16px;font-variant-numeric:tabular-nums}
-  .pool.ap{color:#C9B4FF;border-color:rgba(138,92,255,.45)}
-  .pool.mp{color:#8CF0BC;border-color:rgba(61,220,132,.45)}
-  .pool i{font-style:normal;font-size:10px;opacity:.75;letter-spacing:.5px}
+  /* the HUD (hud.js) owns the whole combat chrome — the grown two-row bar
+     with the skill icons, the orbs, Map and End turn, plus the turn strip
+     top-left. --hud-bar-h is maintained by hud.js, so the board is sized
+     clear of the bar before the grow animation even starts (§7.1). */
+  #wrap{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto;
+    padding-bottom:var(--hud-bar-h,134px)}
 
   /* ── the board ── */
   #boardwrap{flex:1 1 auto;position:relative;min-height:0}
@@ -57,31 +48,14 @@
     pointer-events:none;max-width:88%;text-align:center}
   #toast.on{opacity:1}
 
-  /* ── spells ── */
-  #spells{flex:0 0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:6px 8px 0}
-  .sp{position:relative;min-height:60px;border-radius:12px;border:1px solid var(--line);
-    background:rgba(255,255,255,.045);color:var(--ink);cursor:pointer;padding:6px 4px 5px;
-    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
-    transition:transform .12s ease-out,border-color .12s,background .12s}
-  .sp:active{transform:scale(.96)}
-  .sp .nm{font-weight:800;font-size:12px;line-height:1.1;text-align:center}
-  .sp .co{font-size:10px;color:#C9B4FF;font-weight:700}
-  .sp .rg{font-size:9.5px;color:var(--dim)}
-  .sp.on{border-color:var(--gold);background:rgba(255,197,66,.16);
-    box-shadow:0 0 0 1px var(--gold),0 6px 16px -8px rgba(255,197,66,.8)}
-  .sp[disabled]{opacity:.34;cursor:default}
-  .sp.cool{opacity:.45}
-  .sp .cd{position:absolute;top:3px;right:5px;font-size:10px;font-weight:800;color:var(--gold)}
-
-  /* ── bottom bar ── */
-  #bar{flex:0 0 auto;display:flex;gap:6px;padding:8px}
+  /* .btn / .btn.go survive for the one game-owned button left: Again,
+     inside #over. The spell grid and the old #bar live in hud.js now. */
   .btn{flex:1 1 auto;min-height:46px;border-radius:12px;border:1px solid var(--line);
     background:rgba(255,255,255,.05);color:var(--ink);font-weight:800;font-size:14px;
     cursor:pointer;transition:transform .12s ease-out}
   .btn:active{transform:scale(.97)}
   .btn.go{background:linear-gradient(180deg,#FFD979,#FFC542);color:#1A1206;border:0;
     box-shadow:0 6px 18px -8px rgba(255,197,66,.85)}
-  .btn.ghost{flex:0 0 auto;padding:0 14px}
 
   #over{position:absolute;inset:0;display:none;place-items:center;background:rgba(8,6,16,.82);
     backdrop-filter:blur(3px);z-index:5}
@@ -93,18 +67,13 @@
 
   @media (prefers-reduced-motion:reduce){
     .dmg{animation-duration:.01ms}
-    .sp,.btn{transition:none}
+    .btn{transition:none}
   }
 </style>
+<link rel="stylesheet" href="hud.css">
 </head>
 <body>
 <div id="wrap">
-  <div id="top">
-    <div id="who">Your turn<small>Move, then strike</small></div>
-    <div class="pool ap"><i>AP</i><b id="apv">6</b></div>
-    <div class="pool mp"><i>MP</i><b id="mpv">3</b></div>
-  </div>
-
   <div id="boardwrap">
     <canvas id="cv"></canvas>
     <div id="float"></div>
@@ -114,14 +83,9 @@
       <button class="btn go" id="again" type="button">Again</button>
     </div></div>
   </div>
-
-  <div id="spells"></div>
-  <div id="bar">
-    <button class="btn ghost" id="map" type="button" title="Painted map / tactical grid">Map</button>
-    <button class="btn ghost" id="undo" type="button">Cancel</button>
-    <button class="btn go" id="end" type="button">End turn</button>
-  </div>
 </div>
+<script src="hud-types.js"></script>
+<script src="hud.js"></script>
 <script src="sprite.js"></script>
 <script src="tactics.js"></script>
 </body>

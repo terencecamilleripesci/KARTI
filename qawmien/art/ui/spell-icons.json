@@ -1,0 +1,40 @@
+{
+  "image": "spell-icons.png",
+  "sheetW": 512,
+  "sheetH": 256,
+  "cell": 64,
+  "cols": 8,
+  "rows": 4,
+  "count": 22,
+  "pad": 6,
+  "order": [
+    "maul", "rootgrasp", "quake", "crush", "bulwark",
+    "dart", "pierce", "gust",
+    "windstep", "cinder", "pyre", "snare", "flashburn", "lash", "mend", "wavebreak",
+    "blessing", "crook", "callram", "whistle", "flockmate", "ramhorn"
+  ],
+  "index": {
+    "maul": 0,
+    "rootgrasp": 1,
+    "quake": 2,
+    "crush": 3,
+    "bulwark": 4,
+    "dart": 5,
+    "pierce": 6,
+    "gust": 7,
+    "windstep": 8,
+    "cinder": 9,
+    "pyre": 10,
+    "snare": 11,
+    "flashburn": 12,
+    "lash": 13,
+    "mend": 14,
+    "wavebreak": 15,
+    "blessing": 16,
+    "crook": 17,
+    "callram": 18,
+    "whistle": 19,
+    "flockmate": 20,
+    "ramhorn": 21
+  }
+}

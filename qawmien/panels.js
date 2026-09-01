@@ -1,8 +1,11 @@
 'use strict';
-/* panels.js — window.PANELS: inventory + character sheet overlays (WORLD_SPEC §7).
-   Contract: openInventory / openStats / close / toggle(which) / give(item).
+/* panels.js — window.PANELS: inventory + character sheet overlays (WORLD_SPEC §7,
+   HUD_SPEC §6). Contract: openInventory / openStats / openSpells / close /
+   toggle(which) / give(item).
    DOM: appends <div id="panels"> (z-index 40) containing
    <section class="panel" id="panel-inventory"> and <section class="panel" id="panel-stats">;
+   the hero panel carries a Character | Spells sub-tab strip (HUD_SPEC §6) whose
+   spell glyphs come from HUDT.SPELL_GLYPHS — the same icons the combat bar shows.
    close buttons carry class .panel-x. Re-reads window.PLAYER on every open/give.
    Item shape is the spec's: { id, name, qty, note? } — merged by id, qty adds.
    Rarity / icon / equip-slot come from an internal catalog keyed by item id
@@ -80,7 +83,7 @@ window.PANELS = (function () {
   /* ------------------------------------------------------------------ state */
   var built = false, root = null, openPanel = null, sheetId = null,
       dropArmed = false, toastT = 0, lastFocus = null, closeT = 0,
-      inerted = [];
+      inerted = [], heroTab = 'character';   /* 'character' | 'spells' */
 
   /* Modal containment (aria-modal contract): while a panel is open the rest of
      the document must be out of the focus + accessibility order. `inert` on
@@ -120,10 +123,11 @@ window.PANELS = (function () {
     /* ARIA tabs keyboard pattern (the role=tablist/role=tab markup promises it):
        Left/Right move + select the adjacent tab (wrapping), Home/End jump to the
        first/last tab. Activation follows focus (automatic activation) via the
-       same show() path the click handler uses. */
-    var tab = e.target && e.target.closest ? e.target.closest('.pn-tabs [role="tab"]') : null;
+       same show()/setHeroTab() paths the click handler uses. Works for BOTH
+       tablists: the bottom panel tabs and the hero Character|Spells sub-tabs. */
+    var tab = e.target && e.target.closest ? e.target.closest('[role="tablist"] [role="tab"]') : null;
     if (!tab || !root.contains(tab)) return;
-    var tabs = q('.pn-tabs').querySelectorAll('[role="tab"]');
+    var tabs = tab.closest('[role="tablist"]').querySelectorAll('[role="tab"]');
     var i = Array.prototype.indexOf.call(tabs, tab), n = tabs.length;
     if (i < 0 || !n) return;
     var j = e.key === 'Home' ? 0 :
@@ -131,7 +135,8 @@ window.PANELS = (function () {
             e.key === 'ArrowRight' ? (i + 1) % n : (i - 1 + n) % n;
     e.preventDefault();
     var next = tabs[j];
-    show(next.getAttribute('data-t'));
+    if (next.getAttribute('data-act') === 'subtab') setHeroTab(next.getAttribute('data-t'));
+    else show(next.getAttribute('data-t'));
     next.focus({ preventScroll: true });
   }
   function trapTab(e) {
@@ -256,8 +261,8 @@ window.PANELS = (function () {
     return h + '</div>';
   }
 
-  function renderStats() {
-    var P = player();
+  /* ---- hero panel: Character | Spells sub-tabs (HUD_SPEC §6) ---- */
+  function characterHtml(P) {
     var xpNext = P.level * 100;
     var st = P.stats || {};
     var els = [
@@ -266,7 +271,7 @@ window.PANELS = (function () {
       ['water', 'Chance',       'Water', st.water],
       ['air',   'Agility',      'Air',   st.air]
     ];
-    var h = headHtml('Character', P.level) + '<div class="pn-scroll">' +
+    var h =
       '<div class="ch-id"><div class="ch-lvl"><b>' + P.level + '</b><small>LVL</small></div>' +
       '<div class="ch-name"><b>' + esc(P.name) + '</b><span>Adventurer of the Ruin</span></div></div>' +
       '<div class="xp-row"><div class="xp-lbls"><span>Experience</span><span>' +
@@ -285,8 +290,110 @@ window.PANELS = (function () {
         '<div class="en"><b>' + els[i][1] + '</b><small>' + els[i][2] + '</small></div>' +
         '<span class="ev">' + (els[i][3] || 0) + '</span></div>';
     }
-    h += '</div></div>';
-    q('#panel-stats').innerHTML = h;
+    h += '</div>';
+    return h;
+  }
+
+  var ELEM_NAME = { earth: 'Earth', fire: 'Fire', water: 'Water', air: 'Air' };
+
+  function elemKeyOf(sp) {
+    if (window.HUDT && window.HUDT.elemOf) return window.HUDT.elemOf(sp);
+    return (sp && sp.elem && ELEM_NAME[sp.elem]) ? sp.elem : 'none';
+  }
+  /* The SAME glyph the combat skill bar shows — HUDT.SPELL_GLYPHS is the one
+     source for every spell icon (HUD_SPEC §9), so this tab is where players
+     learn them. If hud-types.js is not loaded (lab pages), fall back to the
+     readable spark glyph — never a broken image. */
+  function spellIconHtml(sp) {
+    if (window.HUDT && window.HUDT.spellIcon) {
+      return window.HUDT.spellIcon(sp.id, 28, window.HUDT.ELEM[window.HUDT.elemOf(sp)]);
+    }
+    return svg(IC.spark, 28);
+  }
+  function rangeText(sp) {
+    if (!sp.max) return 'Self';                      /* min 0, max 0 */
+    if (!sp.min) return 'Self–' + sp.max;            /* castable on yourself */
+    return 'Range ' + (sp.min === sp.max ? sp.min : sp.min + '–' + sp.max);
+  }
+  /* fact row per HUD_SPEC §6: cost · range · sight · cooldown · one word
+     per extension effect. Tabular, 12px, --dim. */
+  function factsText(sp) {
+    var f = [sp.ap + ' AP', rangeText(sp), sp.los ? 'needs sight' : 'ignores walls'];
+    if (sp.cd) f.push('Cooldown ' + sp.cd);
+    if (sp.aoe) f.push('area');
+    if (sp.push) f.push('pushes ' + sp.push);
+    if (sp.pull) f.push('pulls ' + sp.pull);
+    if (sp.heal) f.push('heals');
+    if (sp.tp) f.push('teleport');
+    if (sp.trap) f.push('trap');
+    if (sp.summon) f.push('summons');
+    if (sp.swap) f.push('swaps');
+    if (sp.shield) f.push('shields');
+    return f.join(' · ');
+  }
+  function spellsHtml(P) {
+    var chosen = !!(window.HERO && window.HERO.chosen && window.HERO.chosen());
+    var spells = chosen && window.HERO.spells ? window.HERO.spells() : [];
+    if (!chosen || !spells.length) {
+      /* pre-choice: the real in-fiction state, not a stub (HUD_SPEC §6) */
+      return '<div class="inv-empty sp-awaken"><span class="sp-seal" aria-hidden="true"></span>' +
+        '<b>Not yet awakened</b><span>Reach the Elder in the ruin —<br>' +
+        'your class chooses your spells.</span></div>';
+    }
+    var h = '<div class="pn-sub">Spellbook</div><div class="sp-list" role="list">';
+    for (var i = 0; i < spells.length; i++) {
+      var sp = spells[i], ek = elemKeyOf(sp);
+      /* usable right now vs not: out of combat the only honest lock is the AP
+         pool (cooldowns exist only inside a fight; the combat tooltip owns
+         "Ready in N"). Full-bright card = castable on your turn. */
+      var off = sp.ap > (P.ap | 0);
+      h += '<article class="sp-card' + (off ? ' off' : '') + '" role="listitem">' +
+        '<div class="sp-ic" data-elem="' + ek + '" aria-hidden="true">' + spellIconHtml(sp) + '</div>' +
+        '<div class="sp-head"><b class="sp-name">' + esc(sp.name) + '</b>' +
+        (ELEM_NAME[sp.elem] ? '<span class="sp-elem" data-elem="' + ek + '">' +
+          ELEM_NAME[sp.elem] + '</span>' : '') + '</div>' +
+        '<p class="sp-hint">' + esc(sp.hint || '') + '</p>' +
+        '<div class="sp-facts">' + esc(factsText(sp)) + '</div>' +
+        (off ? '<div class="sp-lock">Not enough AP — costs ' + sp.ap +
+          ', you have ' + (P.ap | 0) + '</div>' : '') +
+        '</article>';
+    }
+    h += '</div><p class="sp-note">In battle: tap a spell’s icon to ready it, hold it to read it.</p>';
+    return h;
+  }
+  function subTabsHtml() {
+    var s = heroTab === 'spells';
+    return '<div class="sp-tabs" role="tablist" aria-label="Hero sheet sections">' +
+      '<button class="sp-tab" id="pn-st-cha" role="tab" aria-selected="' + !s +
+      '" aria-controls="pn-hero-pane" data-act="subtab" data-t="character">Character</button>' +
+      '<button class="sp-tab" id="pn-st-spl" role="tab" aria-selected="' + s +
+      '" aria-controls="pn-hero-pane" data-act="subtab" data-t="spells">Spells</button></div>';
+  }
+  function renderStats() {
+    var P = player();
+    var s = heroTab === 'spells';
+    q('#panel-stats').innerHTML =
+      headHtml(s ? 'Spells' : 'Character', P.level) +
+      subTabsHtml() +
+      '<div class="pn-scroll" id="pn-hero-pane" role="tabpanel" tabindex="-1" ' +
+      'aria-labelledby="' + (s ? 'pn-st-spl' : 'pn-st-cha') + '">' +
+      (s ? spellsHtml(P) : characterHtml(P)) + '</div>';
+  }
+  /* switch sub-tab in place: the strip's nodes survive (focus + the underline
+     transition stay intact); only the pane content re-renders */
+  function setHeroTab(t) {
+    t = t === 'spells' ? 'spells' : 'character';
+    if (heroTab === t) return;
+    heroTab = t;
+    if (!built || openPanel !== 'stats') return;
+    var P = player(), s = t === 'spells';
+    q('#panel-stats .pn-head h2').textContent = s ? 'Spells' : 'Character';
+    q('#pn-st-cha').setAttribute('aria-selected', String(!s));
+    q('#pn-st-spl').setAttribute('aria-selected', String(s));
+    var pane = q('#pn-hero-pane');
+    pane.setAttribute('aria-labelledby', s ? 'pn-st-spl' : 'pn-st-cha');
+    pane.innerHTML = s ? spellsHtml(P) : characterHtml(P);
+    pane.scrollTop = 0;
   }
 
   function renderSheet() {
@@ -409,6 +516,7 @@ window.PANELS = (function () {
     var act = b.getAttribute('data-act');
     if (act === 'close') api.close();
     else if (act === 'tab') show(b.getAttribute('data-t'));
+    else if (act === 'subtab') setHeroTab(b.getAttribute('data-t'));
     else if (act === 'item') { sheetId = b.getAttribute('data-id'); dropArmed = false; renderSheet(); }
     else if (act === 'sheet-close') closeSheet();
     else if (act === 'use') useItem();
@@ -442,7 +550,9 @@ window.PANELS = (function () {
 
   var api = {
     openInventory: function () { show('inventory'); },
-    openStats: function () { show('stats'); },
+    /* always the Character tab, never last-used (HUD_SPEC §6) */
+    openStats: function () { heroTab = 'character'; show('stats'); },
+    openSpells: function () { heroTab = 'spells'; show('stats'); },
     close: function () {
       if (!built || !openPanel) return;
       openPanel = null;
@@ -457,6 +567,11 @@ window.PANELS = (function () {
       lastFocus = null;
     },
     toggle: function (which) {
+      if (which === 'spells') {           /* same semantics as the others */
+        if (openPanel === 'stats' && heroTab === 'spells') api.close();
+        else api.openSpells();
+        return;
+      }
       if (which !== 'inventory' && which !== 'stats') return;
       if (openPanel === which) api.close(); else show(which);
     },

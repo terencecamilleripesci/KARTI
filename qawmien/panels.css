@@ -272,6 +272,69 @@
 .el-earth{ color:#C98A4B; } .el-air{ color:#3DDC84; }
 .el .en b, .el .ev{ color:var(--ink); }
 
+/* ---------- hero sub-tabs (Character | Spells) ---------- */
+.sp-tabs{
+  flex:none; display:flex; gap:2px; margin:0 16px;
+  border-bottom:1px solid var(--line);
+}
+.sp-tab{
+  flex:1 1 0; min-height:48px; padding:0 8px;
+  display:flex; align-items:center; justify-content:center;
+  border:none; background:none;
+  border-bottom:2px solid transparent; margin-bottom:-1px;
+  font-weight:800; font-size:13.5px; letter-spacing:.4px; color:var(--dim);
+  transition:color .18s, border-color .18s;
+}
+.sp-tab[aria-selected="true"]{ color:var(--ink); border-bottom-color:var(--gold); }
+
+/* ---------- spellbook ---------- */
+.sp-list{ display:grid; gap:8px; }
+.sp-card{
+  display:grid; grid-template-columns:40px 1fr; column-gap:12px;
+  align-items:center; padding:12px; border-radius:14px;
+  border:1px solid var(--line); background:rgba(255,255,255,.04);
+  animation:slot-in .26s var(--ease-out) backwards;
+}
+.sp-card:nth-child(2){animation-delay:.04s}
+.sp-card:nth-child(3){animation-delay:.08s}
+.sp-card:nth-child(4){animation-delay:.12s}
+.sp-card:nth-child(n+5){animation-delay:.16s}
+.sp-ic{
+  width:40px; height:40px; align-self:start;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:11px; border:1px solid var(--line-2);
+  background:rgba(14,11,26,.72); color:var(--gold); /* colour = fallback glyph tint */
+}
+.sp-ic[data-elem=earth]{ border-color:rgba(208,137,79,.45); color:#D0894F; }
+.sp-ic[data-elem=fire]{ border-color:rgba(255,107,74,.45); color:#FF6B4A; }
+.sp-ic[data-elem=water]{ border-color:rgba(79,169,232,.45); color:#4FA9E8; }
+.sp-ic[data-elem=air]{ border-color:rgba(143,227,192,.45); color:#8FE3C0; }
+.sp-ic[data-elem=none]{ border-color:rgba(255,197,66,.4); }
+.sp-head{
+  display:flex; align-items:center; flex-wrap:wrap; gap:2px 8px;
+  min-width:0; min-height:40px;
+}
+.sp-name{ font-size:14.5px; color:var(--ink); }
+.sp-elem{ font-size:11px; font-weight:800; letter-spacing:.8px; text-transform:uppercase; }
+.sp-elem[data-elem=earth]{ color:#D0894F; } .sp-elem[data-elem=fire]{ color:#FF6B4A; }
+.sp-elem[data-elem=water]{ color:#4FA9E8; } .sp-elem[data-elem=air]{ color:#8FE3C0; }
+.sp-elem[data-elem=none]{ color:var(--gold); }
+.sp-hint{ grid-column:1 / -1; margin:8px 0 0; font-size:13px; line-height:1.5; color:var(--dim); }
+.sp-facts{
+  grid-column:1 / -1; margin:6px 0 0;
+  font-size:12px; font-weight:700; letter-spacing:.2px;
+  color:var(--dim); font-variant-numeric:tabular-nums;
+}
+.sp-card.off .sp-ic{ opacity:.45; }
+.sp-lock{ grid-column:1 / -1; margin:6px 0 0; font-size:12px; font-weight:800; color:var(--foe-txt); }
+.sp-note{ margin:12px 2px 4px; font-size:12px; line-height:1.5; color:var(--dim); text-align:center; }
+.sp-awaken{ padding:34px 16px; }
+.sp-seal{
+  display:block; width:64px; height:64px; margin:0 auto 12px;
+  border:1.5px dashed var(--line-2); border-radius:50%;
+  background:radial-gradient(circle at 50% 40%, rgba(138,92,255,.16), transparent 72%);
+}
+
 /* ---------- bottom tab bar ---------- */
 .pn-tabs{
   position:relative; flex:none; display:flex;

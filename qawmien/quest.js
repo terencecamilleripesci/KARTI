@@ -126,7 +126,10 @@ window.QUEST = (function () {
     if (rw.items) for (const it of rw.items) {
       giveItem(it); got.push(it.qty > 1 ? it.qty + 'x ' + it.name : it.name);
     }
-    if (got.length) toast('Received: ' + got.join(', '), 3500);
+    if (got.length) {
+      toast('Received: ' + got.join(', '), 3500);
+      if (window.HUD) window.HUD.sfx('reward');   /* soft chime, once */
+    }
     save();
   }
   function reward() { grant(S.step - 1); }   /* spec: just-completed step */
@@ -339,11 +342,11 @@ window.QUEST = (function () {
     '@keyframes dlgbob{50%{transform:translateY(3px)}}',
     '#dlg .dlg-x{position:absolute;top:0;right:0;width:44px;height:44px;border:0;',
     ' background:none;color:#a08cc8;font-size:18px;line-height:44px;cursor:pointer}',
-    '#qhud{position:fixed;top:8px;left:8px;z-index:30;pointer-events:none;display:none;',
+    '#qhud{position:fixed;top:calc(env(safe-area-inset-top,0px) + 80px);left:8px;z-index:30;pointer-events:none;display:none;',
     ' font-family:system-ui,sans-serif;font-size:13px;color:#efe9dc;',
     ' background:rgba(20,16,28,.85);border:1px solid #6b5a8c;border-radius:10px;',
-    /* never reach under the Bag/Hero buttons (#hud is 134px + 8px inset
-       at top-right, world.html) — binds before 70vw only on narrow phones */
+    /* sits 8px under the minimap (top 8 + 64 panel + 8 gap = 80). The
+       width cap keeps it clear of anything on the right on narrow phones */
     ' padding:7px 12px;max-width:min(70vw,calc(100vw - 166px))}',
     '#qhud.on{display:block}',
     '#qhud .q-dot{color:#e8c66a;margin-right:6px}',
@@ -467,13 +470,13 @@ window.QUEST = (function () {
      whatever occupies it — a centered toast in the row itself collides
      on narrow phones (at 360px the 166px "Received: 3x Potion" toast
      buried world.html's Bag button and the quest pill).
-     - Combat attached: below the fight's turn banner + AP/MP pools and
-       its transient hint toast (#cbf is fixed inset:0, so iframe coords
-       ARE page coords) — the lessons are ABOUT those pools, they must
-       stay readable. Measured live (pollCombat re-calls this) so it
-       tracks resize.
-     - World view: below the host's #hud buttons (top-right) and the
-       #qhud quest pill (top-left).
+     - Combat attached: below the fight's HUD turn strip (#hud-turn,
+       top-left) and its transient hint toast (#cbf is fixed inset:0, so
+       iframe coords ARE page coords) — the lessons are ABOUT the fight,
+       they must stay readable. Measured live (pollCombat re-calls this)
+       so it tracks resize.
+     - World view: below the minimap (#mmap, top-left), the settings
+       gear (#hud-gear, top-right) and the #qhud quest pill.
      CSS top:8px remains only as the nothing-to-dodge fallback. */
   function placeToast() {
     if (!toastEl) return;
@@ -481,14 +484,16 @@ window.QUEST = (function () {
     if (CW) {
       try {
         const d = CW.document,
-              bar = d.getElementById('top'),      /* turn + AP/MP pools */
+              bar = d.getElementById('hud-turn'), /* HUD turn strip     */
               hint = d.getElementById('toast');   /* fight's own hints  */
         if (bar)  y = bar.getBoundingClientRect().bottom;
         if (hint) y = Math.max(y, hint.getBoundingClientRect().bottom);
       } catch (e) {}
     } else {
-      const hud = document.getElementById('hud'); /* host page buttons */
-      if (hud) y = hud.getBoundingClientRect().bottom;
+      const mm = document.getElementById('mmap'),     /* minimap        */
+            gear = document.getElementById('hud-gear');/* settings      */
+      if (mm)   y = mm.getBoundingClientRect().bottom;
+      if (gear) y = Math.max(y, gear.getBoundingClientRect().bottom);
       if (hudEl && hudEl.classList.contains('on'))
         y = Math.max(y, hudEl.getBoundingClientRect().bottom);
     }

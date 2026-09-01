@@ -137,7 +137,9 @@
       if (!frame || ev.source !== frame.contentWindow) return;
       if (ev.origin !== location.origin) return;
       var d = ev.data;
-      if (!d || d.type !== 'qawmien:hello') return;
+      if (!d) return;
+      if (d.type === 'qawmien:close') { close(); return; }
+      if (d.type !== 'qawmien:hello') return;
       var tok = '', name = '';
       try {
         var SY = global.KARTI_SYNC;
