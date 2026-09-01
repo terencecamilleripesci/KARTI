@@ -770,6 +770,13 @@ window.HUD = (function () {
          'tactics.sync.backup.v1', T.KEYS.VISITED]
           .forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
       } catch (e) {}
+      /* tell the sync layer this was a deletion, not a fresh device. Without
+         it the next boot PULLS the character back off the relay and the wipe
+         appears to have done nothing at all. */
+      try { if (window.NET && NET.markWiped) NET.markWiped(); } catch (e) {}
+      /* and stop anything writing the character back in the moment between
+         clearing storage and the page actually going away */
+      try { if (window.HERO && HERO.seal) HERO.seal(); } catch (e) {}
       location.reload();
     });
     setTimeout(() => { try { inp.focus(); } catch (e) {} }, 30);

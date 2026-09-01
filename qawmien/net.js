@@ -269,8 +269,32 @@ window.NET = (function () {
   }
 
   /* ── entry pull: adopt / push / ask ─────────────────────────────── */
+  const WIPEK = 'tactics.wiped';     /* sessionStorage flag set by the wipe */
+
   function entrySync() {
     if (!A.tok || !A.url || A.dead || busy) return Promise.resolve({ err: 'off' });
+
+    /* JUST WIPED? Then do NOT pull. The wipe cleared this device, but the
+       character is still on the relay, so the very next entry pull adopted
+       it straight back and the player watched their save reappear — the
+       wipe looked like it had done nothing.
+       Instead: force-push the fresh character over the server's copy, so
+       the deletion is what propagates. The flag lives in sessionStorage
+       because it must survive exactly one reload and no more. */
+    let wiped = false;
+    try { wiped = sessionStorage.getItem(WIPEK) === '1'; } catch (e) {}
+    if (wiped) {
+      try { sessionStorage.removeItem(WIPEK); } catch (e) {}
+      busy = true;
+      return call('push', { tok: A.tok, base: 0, force: true,
+                            save: currentBlob(), device: deviceLabel ? deviceLabel() : '' })
+        .then(function (r) {
+          busy = false;
+          if (r && r.ok) { SY.ver = r.d && r.d.ver || 0; SY.blob = currentBlob(); phase = 'ok'; }
+          return { wiped: true };
+        }, function () { busy = false; return { wiped: true, err: 'offline' }; });
+    }
+
     busy = true;
     return call('pull', { tok: A.tok }).then(function (r) {
       busy = false;
@@ -496,6 +520,10 @@ window.NET = (function () {
     /* the KARTI account name, for anything that must name the player back to
        them — the wipe confirmation types this exactly */
     accountName() { return A.name || ''; },
+
+    /* called by the wipe, just before it reloads: the next boot must push the
+       empty character UP rather than pull the old one down */
+    markWiped() { try { sessionStorage.setItem(WIPEK, '1'); } catch (e) {} },
 
     /* ── SPARRING ────────────────────────────────────────────────────
        Thin wrappers over the relay's five room routes. They carry the

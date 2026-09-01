@@ -70,7 +70,8 @@ window.HERO = (function () {
               classId: null, gender: 'm' };
 
   let changeCb = null;
-  let lastRegen = 0;            /* wall-clock anchor for regen() */                      /* single callback, last wins */
+  let lastRegen = 0;            /* wall-clock anchor for regen() */
+  let sealed = false;           /* set by the wipe: refuse all further saves */                      /* single callback, last wins */
 
   function cls() {
     return (S.classId && window.CLASSES) ? window.CLASSES.byId(S.classId) : null;
@@ -175,6 +176,11 @@ window.HERO = (function () {
   }
 
   function save() {
+    /* SEALED. The wipe clears storage and then reloads, and anything that
+       saves in between — an autosave timer, a change callback — writes the
+       character straight back and the wipe appears to have done nothing.
+       Once sealed, nothing more is written on this page. */
+    if (sealed) return;
     if (!S.classId) return false;         /* absent key = no choice yet */
     try {
       localStorage.setItem(KEY, JSON.stringify(payload()));
@@ -277,6 +283,9 @@ window.HERO = (function () {
   /* ── the public api ───────────────────────────────────────────── */
   const api = {
     gainXp, xpBar,
+
+    /* called by the wipe just before it reloads */
+    seal() { sealed = true; },
 
     /* HP OUT OF COMBAT. Set by tactics.js when a fight ends, and ticked up
        slowly by regen() while the player walks around. Never above hpMax,
