@@ -74,6 +74,8 @@
   #over .res-r span:first-child{color:var(--dim)}
   #over .res-r span:last-child{font-weight:800;font-variant-numeric:tabular-nums}
   #over .res-r b{color:var(--ink)}
+  #ovbtns{display:flex;gap:8px;margin-top:14px}
+  #ovbtns .btn{flex:1 1 auto}
 
   @media (prefers-reduced-motion:reduce){
     .dmg{animation-duration:.01ms}
@@ -90,7 +92,7 @@
     <div id="toast"></div>
     <div id="over"><div class="card">
       <h2 id="ovt">—</h2><p id="ovp">—</p>
-      <button class="btn go" id="again" type="button">Again</button>
+      <div id="ovbtns"><button class="btn go" id="done" type="button">OK</button><button class="btn ghost" id="again" type="button">Again</button></div>
     </div></div>
   </div>
 </div>

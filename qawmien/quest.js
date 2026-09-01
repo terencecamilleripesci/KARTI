@@ -258,7 +258,7 @@ window.QUEST = (function () {
       onConfirm: p => {
         /* HERO owns the identity; choosing swaps the walking sprite
            immediately (WORLD.refreshHeroSprites inside choose) */
-        if (window.HERO) window.HERO.choose(p.classId, p.gender);
+        if (window.HERO) window.HERO.choose(p.classId, p.gender, p.look);
         say(m.name, LINES.elder0b, () => advance(1));
       },
       onCancel: () => say(m.name, LINES.circleWaits)

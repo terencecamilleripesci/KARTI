@@ -219,7 +219,7 @@ function create(next){
       title: 'The circle asks',
       subtitle: 'What did you come back as? Tap a shape — watch it move.',
       verb: 'Awaken as',
-      onConfirm: p => { HERO.choose(p.classId, p.gender); next(); },
+      onConfirm: p => { HERO.choose(p.classId, p.gender, p.look); next(); },
       /* THE CIRCLE CANNOT BE DECLINED on a fresh hero. There is no world
          behind this yet — dismissing it with the ✕ or Esc would leave the
          player looking at nothing, with no body and nowhere to be. So a
@@ -270,12 +270,16 @@ function startFight(mk){
   cbf.src = 'index.html';
   cbf.classList.add('on');
   pollT = setInterval(() => {
-    let over = 0;
+    /* WAIT FOR THE PLAYER, not for the outcome. Polling G.over tore the
+       fight down within half a second of the last blow, taking the results
+       screen — xp, drops, level-up — with it before anyone could read it.
+       tactics.js sets G.closed when OK is pressed; that is the signal. */
+    let over = 0, closed = false;
     try {
       const w = cbf.contentWindow;
-      if (w && w.T && w.T.G) over = w.T.G.over;
+      if (w && w.T && w.T.G) { over = w.T.G.over; closed = !!w.T.G.closed; }
     } catch (e) {}
-    if (over !== 0) endFight(over);
+    if (over !== 0 && closed) endFight(over);
   }, 500);
 }
 

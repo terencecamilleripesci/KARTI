@@ -1645,6 +1645,15 @@ function showOver(){
   paint();
 }
 
+/* THE HOST WAITS FOR THIS, not for G.over. world.html used to poll G.over and
+   tear the fight down the moment it flipped — inside half a second — so the
+   results screen was destroyed before anyone could read what they had won.
+   Now the fight stays up until the player presses OK. */
+function closeResults(){
+  G.closed = true;
+  document.getElementById('over').classList.remove('on');
+}
+
 function esc(v){
   return String(v == null ? '' : v).replace(/[&<>"']/g, c =>
     ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
@@ -1655,6 +1664,15 @@ cv.addEventListener('click', onTap);
 cv.addEventListener('mousemove', onHover);
 cv.addEventListener('touchstart', e => { onHover(e); }, { passive:true });
 document.getElementById('again').onclick = newMatch;
+{ const d = document.getElementById('done');
+  if (d) d.onclick = closeResults;
+  /* 'AGAIN' IS A TESTBED CONTROL, NOT A GAME ONE. In the real game you do not
+     replay a fight you just won — you take your xp and walk away — so it is
+     hidden whenever combat is running inside the world. It stays for
+     index.html on its own, where restarting is the only way to try something
+     twice. */
+  const a = document.getElementById('again');
+  if (a && window.parent !== window) a.style.display = 'none'; }
 window.addEventListener('resize', fit);
 
 /* THE HUD IS THE COMBAT CHROME (HUD_SPEC §7). Booted before newMatch so
@@ -1690,7 +1708,7 @@ if (window.HUD) HUD.init({ mode: 'combat', onAction: (action, arg) => {
    by contract, §7.4). Exported BEFORE newMatch(): the first paint()
    builds the skill icons exactly once, so window.T must already exist
    or every classed spell would render in the fallback gold for good. */
-window.T = { _draw: draw, checkOver, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
+window.T = { _draw: draw, checkOver, closeResults, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
              get HCFG(){ return HCFG; }, reach, pathTo, los, canCast,
              castTiles, dist, newMatch, nextTurn, cast, spellOf, me, you, iso, unIso,
              get sel(){ return sel; }, set sel(v){ sel = v; }, paint,

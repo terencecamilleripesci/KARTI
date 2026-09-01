@@ -176,3 +176,18 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-rad
 @media (prefers-reduced-motion:reduce){
   *{transition:none !important;animation:none !important}
 }
+
+/* APPEARANCE SWATCHES — three tight rows under the gender toggle. Small
+   circles, but the tap target is padded out to 44px so a thumb can hit one. */
+#lookRows{display:flex;flex-direction:column;gap:6px;margin:10px 0 2px;width:100%}
+.lookRow{display:flex;align-items:center;gap:10px}
+.lookLbl{flex:0 0 38px;font-size:11px;font-weight:800;letter-spacing:.04em;
+  text-transform:uppercase;color:#9C97B8}
+.lookSw{display:flex;gap:6px;flex:1 1 auto}
+.lookSw .sw{width:26px;height:26px;padding:9px;box-sizing:content-box;
+  margin:-9px;border-radius:50%;cursor:pointer;
+  border:2px solid rgba(255,255,255,.22);background-clip:content-box}
+.lookSw .sw[aria-checked="true"]{border-color:#FFC542;
+  box-shadow:0 0 0 2px rgba(255,197,66,.35)}
+.lookSw .sw:focus-visible{outline:2px solid #FFC542;outline-offset:3px}
+@media (max-width:360px){ .lookSw .sw{width:22px;height:22px} }

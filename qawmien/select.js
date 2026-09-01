@@ -104,7 +104,12 @@ window.SELECTUI = (function () {
         '<div id="genderRow" role="group" aria-label="Choose your champion’s gender">' +
           '<button class="gbtn" type="button" data-g="m" aria-pressed="true">Male</button>' +
           '<button class="gbtn" type="button" data-g="f" aria-pressed="false">Female</button>' +
-        '</div></section>' +
+        '</div>' +
+        /* APPEARANCE. Three short rows, not a colour wheel: eight good
+           choices beat infinite mediocre ones, and every extra control is
+           one more thing between the player and the game starting. */
+        '<div id="lookRows"></div>' +
+        '</section>' +
       '<section id="meta"><div id="nameRow"><h2 id="clsName"></h2>' +
         '<span id="elemBadge"></span><span id="roleBadge"></span></div>' +
         '<p id="tagline"></p></section>' +
@@ -147,6 +152,43 @@ window.SELECTUI = (function () {
       } catch (e) { /* no saved choice — defaults stand */ }
     }
 
+    /* ── appearance: hair, skin, eyes ────────────────────────────
+       The swap itself belongs to tint.js — the sheets are drawn in
+       impossible colours so the regions can be found exactly. Here we only
+       choose, and re-tint the preview so the player sees themselves rather
+       than a promise. */
+    const LOOK = Object.assign({}, (window.TINT && TINT.DEFAULTS) || {});
+    function lookRows() {
+      const host = $('lookRows');
+      if (!host || !window.TINT) return;
+      const bands = [['hair', 'Hair', TINT.HAIR],
+                     ['skin', 'Skin', TINT.SKIN],
+                     ['eyes', 'Eyes', TINT.EYES]];
+      host.innerHTML = bands.map(function (b) {
+        const k = b[0], label = b[1], list = b[2];
+        return '<div class="lookRow"><span class="lookLbl">' + label + '</span>' +
+          '<div class="lookSw" role="radiogroup" aria-label="' + label + ' colour">' +
+          list.map(function (c) {
+            return '<button type="button" class="sw" data-k="' + k + '" data-c="' + c + '"' +
+              ' role="radio" aria-checked="' + (LOOK[k] === c) + '"' +
+              ' aria-label="' + label + ' ' + c + '"' +
+              ' style="background:' + c + '"></button>';
+          }).join('') + '</div></div>';
+      }).join('');
+      host.onclick = function (e) {
+        const b = e.target.closest('.sw');
+        if (!b) return;
+        LOOK[b.dataset.k] = b.dataset.c;
+        Array.prototype.forEach.call(
+          host.querySelectorAll('.sw[data-k="' + b.dataset.k + '"]'),
+          function (x) { x.setAttribute('aria-checked', String(x === b)); });
+        /* the cached sheets were tinted with the OLD colours, so drop them —
+           otherwise the swatch looks dead because nothing repaints */
+        for (const k in SHEETS) delete SHEETS[k];
+        renderClass();
+      };
+    }
+
     /* ── sheet cache: one SPRITE.make per file, spawn per use ───── */
     const SHEETS = {};                        /* key → {status, base} */
     function loadSheet(key, cb) {
@@ -159,7 +201,7 @@ window.SELECTUI = (function () {
       const done = st => { rec.status = st;
         rec.waiters.splice(0).forEach(f => f(rec)); };
       rec.base = SP.make('art/' + key + '-sheet.png', {
-        cols: 6, rows: 4,
+        cols: 6, rows: 4, tint: LOOK,
         onready: () => done('ok'),
         onerror: () => done('missing')
       });
@@ -378,6 +420,10 @@ window.SELECTUI = (function () {
       const payload = {
         v: 1, classId: cls.id, gender: sel.gender,
         sheet: cls.look[sel.gender].sheet, name: cls.name,
+        /* appearance travels WITH the choice: it is one decision made on one
+           screen, and HERO.choose() applies it before the sprite is first
+           drawn so nothing flickers from a default */
+        look: { hair: LOOK.hair, skin: LOOK.skin, eyes: LOOK.eyes },
         savedAt: new Date().toISOString()
       };
       if (opts.onConfirm) opts.onConfirm(payload);
@@ -386,6 +432,7 @@ window.SELECTUI = (function () {
 
     /* ── boot ───────────────────────────────────────────────────── */
     fit();
+    lookRows();
     renderClass();
     setActor(C.byId(sel.classId), sel.gender, false);
     requestAnimationFrame(t => { last = t; requestAnimationFrame(tick); });
