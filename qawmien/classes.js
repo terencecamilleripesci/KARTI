@@ -16,6 +16,33 @@ window.CLASSES = (function () {
   const STAT_OF_ELEM = { earth: 'str', fire: 'int', water: 'cha', air: 'agi' };
 
   /* ── formulas (spec §2) ──────────────────────────────────────── */
+  /* ── THE XP CURVE, levels 1 to 30 ────────────────────────────────
+     There was no curve at all: panels.js carried a hardcoded `level * 100`
+     placeholder and nothing ever levelled anyone up, so XP accumulated
+     forever and the number on the character sheet meant nothing.
+
+     Shape: xpFor(L) = round(60 * L^1.45). Gentle at the start so the first
+     few levels arrive quickly while the player is still learning which end
+     of the spell bar to hold, then steepening so 30 is an achievement
+     rather than an afternoon. The cap is 200, so the beginner island (1-30)
+     is the first stretch of a much longer game, not the whole of it.
+
+     TUNING NOTE for whoever builds the encounters: the curve is the fixed
+     thing and MOB XP is the dial. Set each zone's XP so a player following
+     the intended route arrives at each zone at roughly the right level —
+     then check it by adding up a real route, not by feel. */
+  const XP_BASE = 60, XP_POW = 1.45, MAX_LEVEL = 200;
+
+  function xpFor(level) {                    /* to go from `level` to +1  */
+    const L = Math.max(1, level | 0);
+    return L >= MAX_LEVEL ? Infinity : Math.round(XP_BASE * Math.pow(L, XP_POW));
+  }
+  function xpTotal(level) {                  /* cumulative, 1 -> `level` */
+    let t = 0;
+    for (let L = 1; L < Math.max(1, level | 0); L++) t += xpFor(L);
+    return t;
+  }
+
   function maxHp(cls, stats, level) {
     return cls.base.hp + (stats.vit | 0) + cls.growth.hp * (Math.max(1, level | 0) - 1);
   }
@@ -56,7 +83,7 @@ window.CLASSES = (function () {
       tagline: 'The wall that walks.',
       desc: 'Slowest to act, hardest to kill. Drags enemies into reach and breaks them there.',
       base: { hp: 95, ap: 6, mp: 3 },
-      growth: { hp: 6, statPoints: 5, suggest: ['str', 'vit'], apAt: 10, mpAt: 20 },
+      growth: { hp: 6, statPoints: 5, suggest: ['str', 'vit'], apAt: [10, 100], mpAt: [20, 200] },
       stats: { vit: 20, wis: 2, str: 14, int: 0, cha: 0, agi: 4 },
       spells: [
         { id: 'maul', name: 'Stonemaul', ap: 3, min: 1, max: 1, los: false,
@@ -89,7 +116,7 @@ window.CLASSES = (function () {
       tagline: 'Never where the arrow came from.',
       desc: 'Longest reach in the game and fragile up close. Keeping space is the whole class.',
       base: { hp: 82, ap: 6, mp: 3 },
-      growth: { hp: 4, statPoints: 5, suggest: ['agi', 'vit'], apAt: 10, mpAt: 20 },
+      growth: { hp: 4, statPoints: 5, suggest: ['agi', 'vit'], apAt: [10, 100], mpAt: [20, 200] },
       stats: { vit: 8, wis: 4, str: 4, int: 0, cha: 0, agi: 24 },
       spells: [
         { id: 'dart', name: 'Gale Dart', ap: 3, min: 2, max: 6, los: true,
@@ -119,7 +146,7 @@ window.CLASSES = (function () {
       tagline: 'The ground itself is a weapon.',
       desc: 'Weakest HP in the game and worth it: hits groups, and owns tiles before anyone stands on them.',
       base: { hp: 78, ap: 6, mp: 3 },
-      growth: { hp: 4, statPoints: 5, suggest: ['int', 'wis'], apAt: 10, mpAt: 20 },
+      growth: { hp: 4, statPoints: 5, suggest: ['int', 'wis'], apAt: [10, 100], mpAt: [20, 200] },
       stats: { vit: 7, wis: 6, str: 0, int: 24, cha: 0, agi: 3 },
       spells: [
         { id: 'cinder', name: 'Cinder Bolt', ap: 3, min: 2, max: 5, los: true,
@@ -149,7 +176,7 @@ window.CLASSES = (function () {
       tagline: 'The tide takes, the tide gives back.',
       desc: 'Middling damage, the only healing in the game, and a wave to keep bruisers off your back.',
       base: { hp: 85, ap: 6, mp: 3 },
-      growth: { hp: 5, statPoints: 5, suggest: ['cha', 'vit'], apAt: 10, mpAt: 20 },
+      growth: { hp: 5, statPoints: 5, suggest: ['cha', 'vit'], apAt: [10, 100], mpAt: [20, 200] },
       stats: { vit: 12, wis: 6, str: 0, int: 0, cha: 22, agi: 0 },
       spells: [
         { id: 'lash', name: 'Tide Lash', ap: 3, min: 1, max: 4, los: true,
@@ -179,7 +206,7 @@ window.CLASSES = (function () {
       tagline: 'You are never fighting one of them.',
       desc: 'Fights through the flock: a summoned ram that flanks, blocks and eats hits. An elder of this class summoned YOU into the world.',
       base: { hp: 80, ap: 6, mp: 3 },
-      growth: { hp: 5, statPoints: 5, suggest: ['str', 'vit'], apAt: 10, mpAt: 20 },
+      growth: { hp: 5, statPoints: 5, suggest: ['str', 'vit'], apAt: [10, 100], mpAt: [20, 200] },
       stats: { vit: 10, wis: 6, str: 16, int: 0, cha: 0, agi: 8 },
       spells: [
         { id: 'crook', name: 'Crook Strike', ap: 3, min: 1, max: 2, los: true,
@@ -211,6 +238,7 @@ window.CLASSES = (function () {
   return {
     LIST, SUMMONS, STAT_OF_ELEM,
     byId: id => BY_ID[id] || null,
-    maxHp, initiative, dodgeChance, scaleDamage, scaleHeal
+    maxHp, initiative, dodgeChance, scaleDamage, scaleHeal,
+    xpFor, xpTotal, MAX_LEVEL
   };
 })();

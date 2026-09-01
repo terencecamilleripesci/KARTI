@@ -65,6 +65,16 @@
   #over h2{margin:0 0 6px;font-size:24px}
   #over p{margin:0 0 16px;color:var(--dim);font-size:13.5px;line-height:1.5}
 
+  /* the end-of-battle sheet: a two-column ledger, so the eye runs down the
+     values rather than hunting them inside sentences */
+  #over .res{display:flex;flex-direction:column;gap:6px;margin-top:4px;text-align:left}
+  #over .res-r{display:flex;justify-content:space-between;gap:14px;font-size:13px;
+    padding:5px 9px;border-radius:8px;background:rgba(255,255,255,.05);
+    border:1px solid var(--line)}
+  #over .res-r span:first-child{color:var(--dim)}
+  #over .res-r span:last-child{font-weight:800;font-variant-numeric:tabular-nums}
+  #over .res-r b{color:var(--ink)}
+
   @media (prefers-reduced-motion:reduce){
     .dmg{animation-duration:.01ms}
     .btn{transition:none}

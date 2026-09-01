@@ -172,6 +172,8 @@ LOADER.open();
 <script src="maps/index.js"></script>
 <script src="quest.js"></script>
 <script src="panels.js"></script>
+<script src="social.js"></script><!-- window.SOCIAL: tap-a-player sheet -->
+<script src="tint.js"></script><!-- window.TINT: key-colour hair/skin/eye swap -->
 <script src="select.js"></script><!-- SELECTUI: shared class-picker renderer -->
 <script src="world.js"></script>
 <script src="minimap.js"></script><!-- window.MINIMAP: which box you are on.
@@ -193,7 +195,41 @@ QUEST.start();
    'tactics.hero.v1' and serves it back through HERO.where(). Fall back to
    the start map for a fresh hero, an unknown map id, a tile that is no
    longer statically walkable, or one a map edit put an npc/fight on. */
-(function boot(){
+/* ── CREATION COMES FIRST ─────────────────────────────────────────────
+   The player is being SUMMONED. What they come back as should be settled
+   before they have a body — so on a fresh hero the circle opens BEFORE the
+   world is loaded, and they step onto the engraving already themselves.
+
+   Previously they spawned as the default hero, walked to the Caretaker, and
+   only then chose; the game showed a stranger's body and swapped it, which
+   undercut the one moment the whole opening is built around.
+
+   FIRST ENTRY ONLY. HERO.chosen() is false exactly once in a character's
+   life, so every later entry falls straight through to boot() and resumes
+   where they stood. quest.js already carries the greeting for an
+   already-made character (LINES.elder0, "the circle still burns — and it
+   remembers you"), so the Caretaker now welcomes what they are instead of
+   asking what to be. */
+function create(next){
+  const fresh = window.HERO && window.SELECTUI && !HERO.chosen();
+  if (!fresh) return next();
+  try {
+    window.SELECTUI.openOverlay({
+      label: 'The summoning circle — choose what you came back as',
+      title: 'The circle asks',
+      subtitle: 'What did you come back as? Tap a shape — watch it move.',
+      verb: 'Awaken as',
+      onConfirm: p => { HERO.choose(p.classId, p.gender); next(); },
+      /* THE CIRCLE CANNOT BE DECLINED on a fresh hero. There is no world
+         behind this yet — dismissing it with the ✕ or Esc would leave the
+         player looking at nothing, with no body and nowhere to be. So a
+         cancel simply reopens it. It is not a trap: there is exactly one
+         way forward and it is the thing they came here to do. */
+      onCancel: () => setTimeout(() => create(next), 0)
+    });
+  } catch (e) { next(); }        /* never let the picker strand the boot */
+}
+create(function boot(){
   const at = (window.HERO && HERO.where) ? HERO.where() : null;
   if (at && window.MAPS && MAPS[at.map] &&
       WT.isWalkable(MAPS[at.map], at.c, at.r)){
@@ -202,7 +238,7 @@ QUEST.start();
         WORLD.load(at.map, { c: at.c, r: at.r })) return;
   }
   WORLD.load(window.MAP_INDEX ? MAP_INDEX.start : 'ruin-01');
-})();
+});
 
 /* Seal the boot cycle: everything the FIRST screen needs is now known
    (registered by WORLD.load above), so the circle completes when the

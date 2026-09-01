@@ -708,6 +708,73 @@ window.HUD = (function () {
       '<path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></svg>'
   };
 
+  /* ── WIPE: TYPE YOUR NAME ─────────────────────────────────────────
+     A confirm() box is dismissed by muscle memory. Deleting a character is
+     irreversible, so this asks the player to TYPE THEIR ACCOUNT NAME — the
+     same pattern GitHub uses before it destroys a repository. The point is
+     not security; it is making the hand stop. Someone who types their own
+     name has understood what they are about to lose.
+
+     The button stays disabled until the name matches exactly (trimmed,
+     case-insensitive — this is a speed bump, not a password prompt). */
+  function accountName(){
+    try { if (window.NET && NET.accountName && NET.accountName()) return NET.accountName(); } catch (e) {}
+    try { if (window.PLAYER && PLAYER.name) return PLAYER.name; } catch (e) {}
+    return '';
+  }
+
+  function askWipe(){
+    const who = accountName();
+    const back = document.createElement('div');
+    back.className = 'hud-wipeback';
+    const box = document.createElement('div');
+    box.className = 'hud-wipe';
+    box.setAttribute('role', 'dialog');
+    box.setAttribute('aria-modal', 'true');
+    box.setAttribute('aria-label', 'Wipe save');
+    box.innerHTML =
+      '<h3>Wipe save</h3>' +
+      '<p>This deletes your character — level, gear, quest progress and the ' +
+      'map you have explored. <b>It cannot be undone.</b></p>' +
+      (who ? '<p class="hud-wipe-ask">Type <b>' + esc(who) + '</b> to confirm.</p>'
+           : '<p class="hud-wipe-ask">Type <b>WIPE</b> to confirm.</p>') +
+      '<input class="hud-wipe-in" type="text" autocomplete="off" ' +
+        'autocapitalize="none" autocorrect="off" spellcheck="false" ' +
+        'aria-label="Type your name to confirm">' +
+      '<div class="hud-wipe-row">' +
+        '<button type="button" class="hud-wipe-no">Keep my character</button>' +
+        '<button type="button" class="hud-wipe-yes" disabled>Wipe</button>' +
+      '</div>';
+    back.appendChild(box);
+    document.body.appendChild(back);
+
+    const inp = box.querySelector('.hud-wipe-in');
+    const yes = box.querySelector('.hud-wipe-yes');
+    const want = (who || 'WIPE').trim().toLowerCase();
+    const shut = () => { try { back.remove(); } catch (e) {} };
+
+    inp.addEventListener('input', () => {
+      yes.disabled = inp.value.trim().toLowerCase() !== want;
+    });
+    box.querySelector('.hud-wipe-no').addEventListener('click', () => { sfx('tap'); shut(); });
+    back.addEventListener('click', e => { if (e.target === back) shut(); });
+    document.addEventListener('keydown', function esc2(e){
+      if (e.key === 'Escape'){ document.removeEventListener('keydown', esc2); shut(); }
+    });
+    yes.addEventListener('click', () => {
+      if (yes.disabled) return;
+      try {
+        /* every key the game writes EXCEPT the sound preference — wiping a
+           preference is not part of deleting a character */
+        ['tactics.hero.v1', 'tactics.quest.tutorial.v1', 'tactics.sync.v1',
+         'tactics.sync.backup.v1', T.KEYS.VISITED]
+          .forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+      } catch (e) {}
+      location.reload();
+    });
+    setTimeout(() => { try { inp.focus(); } catch (e) {} }, 30);
+  }
+
   function fire(action, arg) { if (onAction) onAction(action, arg); }
 
   /* ═══════════════════ combat skill row ══════════════════════════ */
@@ -1001,6 +1068,29 @@ window.HUD = (function () {
       });
       menuEl.appendChild(back);
     }
+    /* ── START OVER ──────────────────────────────────────────────
+       KARTI_BUNDLE.md specified this and nothing built it, so the only
+       way to choose a different class was to clear the site's storage —
+       which would take KARTI's own save down with it. It is deliberately
+       LAST in the menu, separated, danger-coloured, and it asks twice,
+       because it destroys a character and that cannot be undone.
+
+       It keeps the SOUND setting: wiping a preference is not part of
+       starting a new character, and having the music come back on
+       unbidden would just read as a bug. */
+    {
+      const div2 = document.createElement('div');
+      div2.className = 'hud-div';
+      menuEl.appendChild(div2);
+      const wipe = document.createElement('button');
+      wipe.type = 'button';
+      wipe.className = 'hud-mi hud-mi-danger';
+      wipe.setAttribute('role', 'menuitem');
+      wipe.innerHTML = '<span>Wipe save</span>';
+      wipe.addEventListener('click', () => { sfx('tap'); askWipe(); });
+      menuEl.appendChild(wipe);
+    }
+
     document.body.appendChild(menuEl);
 
     gearEl.addEventListener('click', () => {

@@ -319,3 +319,66 @@ body:has(#dlg.on) #hud-bar{transform:translateY(calc(100% + 40px))}
   #hud-tip{transition:none}
   #hud-orbs .hud-orb,#hud-orbs .hud-ball{transition:none}
 }
+
+/* Start over is destructive, so it must not look like Sound. Red text, not a
+   red button: a big red block invites the tap we are trying to make people
+   think about. */
+.hud-mi-danger{color:#FF7A88}
+.hud-mi-danger:hover,.hud-mi-danger:focus-visible{background:rgba(255,90,110,.14)}
+
+/* WIPE SAVE — a deliberate speed bump. Not styled like a normal dialog:
+   it is the only place in the game that destroys something. */
+.hud-wipeback{position:fixed;inset:0;z-index:9500;display:grid;place-items:center;
+  background:rgba(6,4,12,.78);padding:calc(env(safe-area-inset-top,0px) + 16px) 16px
+  calc(env(safe-area-inset-bottom,0px) + 16px)}
+.hud-wipe{width:100%;max-width:330px;background:#171331;color:#EDEAF6;
+  border:1px solid rgba(255,90,110,.34);border-radius:16px;padding:18px 16px 16px;
+  box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.hud-wipe h3{margin:0 0 8px;font-size:17px;color:#FF7A88}
+.hud-wipe p{margin:0 0 10px;font-size:13px;line-height:1.5;color:#9C97B8}
+.hud-wipe p b{color:#EDEAF6}
+.hud-wipe-ask b{font-variant-numeric:tabular-nums}
+.hud-wipe-in{width:100%;min-height:44px;box-sizing:border-box;margin:2px 0 12px;
+  padding:0 12px;border-radius:10px;border:1px solid rgba(255,255,255,.18);
+  background:rgba(0,0,0,.3);color:#EDEAF6;font-size:16px}
+.hud-wipe-in:focus{outline:2px solid #FFC542;outline-offset:2px}
+.hud-wipe-row{display:flex;gap:8px}
+.hud-wipe-row button{flex:1 1 auto;min-height:44px;border-radius:12px;cursor:pointer;
+  font-weight:800;font-size:14px;border:1px solid rgba(255,255,255,.16)}
+.hud-wipe-no{background:rgba(255,255,255,.06);color:#EDEAF6}
+.hud-wipe-yes{background:#B4293A;color:#fff;border-color:#D8465A}
+.hud-wipe-yes[disabled]{opacity:.4;cursor:not-allowed}
+.hud-wipe-yes:focus-visible,.hud-wipe-no:focus-visible{outline:2px solid #FFC542;outline-offset:2px}
+
+/* PLAYER SHEET — slides up from the thumb, not a dialog dropped in the middle */
+.soc-back{position:fixed;inset:0;z-index:9400;background:rgba(6,4,12,0);
+  display:flex;align-items:flex-end;transition:background .22s ease}
+.soc-back.soc-on{background:rgba(6,4,12,.6)}
+.soc-sheet{width:100%;max-width:520px;margin:0 auto;background:#171331;color:#EDEAF6;
+  border:1px solid rgba(255,255,255,.12);border-bottom:0;
+  border-radius:18px 18px 0 0;padding:8px 14px calc(env(safe-area-inset-bottom,0px) + 14px);
+  transform:translateY(100%);transition:transform .22s cubic-bezier(.2,.8,.3,1);
+  box-shadow:0 -14px 40px rgba(0,0,0,.5)}
+.soc-back.soc-on .soc-sheet{transform:translateY(0)}
+.soc-grab{width:36px;height:4px;border-radius:2px;background:rgba(255,255,255,.22);
+  margin:2px auto 10px}
+.soc-who{display:flex;flex-direction:column;gap:2px;margin:0 2px 12px}
+.soc-who b{font-size:17px}
+.soc-who span{font-size:12px;color:#9C97B8}
+.soc-acts{display:flex;flex-direction:column;gap:8px}
+.soc-b{display:flex;flex-direction:column;align-items:flex-start;gap:2px;
+  min-height:56px;padding:9px 13px;border-radius:12px;cursor:pointer;text-align:left;
+  border:1px solid rgba(255,255,255,.14);
+  background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03));
+  color:#EDEAF6}
+.soc-b[disabled]{opacity:.45;cursor:default}
+.soc-b:focus-visible,.soc-x:focus-visible{outline:2px solid #FFC542;outline-offset:2px}
+.soc-t{font-weight:800;font-size:14px}
+.soc-s{font-size:11.5px;color:#9C97B8;font-weight:600}
+.soc-x{width:100%;min-height:44px;margin-top:12px;border-radius:12px;cursor:pointer;
+  border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.05);
+  color:#EDEAF6;font-weight:800;font-size:14px}
+@media (prefers-reduced-motion:reduce){
+  .soc-back,.soc-sheet{transition:none}
+  .soc-sheet{transform:none}
+}

@@ -44,6 +44,15 @@ const RULES = {
   archer:{ hp: 44,  ap: 4, mp: 2 },   /* skeleton archer  — holds its range */
   mage:  { hp: 40,  ap: 5, mp: 2 },   /* skeleton mage    — fewer hp, more AP */
   sheep: { hp: 52,  ap: 4, mp: 4 },   /* charges: fast, melee only */
+  /* THE FIRST TWO OF THE BESTIARY. Each gets a job, not just a stat line —
+     a roster where everything walks up and hits you is one monster wearing
+     different hats, and that is exactly what the island has today.
+       goat  — a wall. Slow (mp 2) and tough (hp 74), so it soaks a turn and
+               teaches you to step around something rather than through it.
+       gecko — a skirmisher. Fast (mp 5), fragile (hp 30), hits from 2 tiles,
+               so it punishes standing in the open and dies if you catch it. */
+  goat:  { hp: 74,  ap: 4, mp: 2, level: 3 },
+  gecko: { hp: 30,  ap: 4, mp: 5, level: 2 },
   /* THE TRAINING DUMMY — the first fight, per the owner's design: it hits
      back for exactly 1 so the game can teach mechanics without any real
      threat. 90 hp = ~3 player turns for a bruiser, ~4 for the healer —
@@ -88,7 +97,11 @@ const HCFG = (function(){
       const c = p.HERO.cls();
       return { cls:c, level:p.HERO.level, stats:c.stats, spells:c.spells,
                name:c.name, sheets:p.HERO.sheets(),
-               hpMax:p.CLASSES.maxHp(c, c.stats, p.HERO.level) };
+               hpMax:p.CLASSES.maxHp(c, c.stats, p.HERO.level),
+               /* the wounds you walked in with. A fight that always starts
+                  full makes damage meaningless between fights — you would
+                  never need a potion and never need to retreat. */
+               hp:(p.PLAYER && typeof p.PLAYER.hp === 'number') ? p.PLAYER.hp : null };
     }
   } catch (e){}
   return null;
@@ -106,9 +119,16 @@ const AI_SPELLS = {
              hint:'A padded arm. Exactly 1 damage, every time.' } ],
   ram:   [ { id:'ramhorn', name:'Ram', ap:3, min:1, max:1, los:false,
              dmg:[8,12], cd:0, elem:'earth', scalesOffOwner:true,
-             hint:'The flock defends its own.' } ]
+             hint:'The flock defends its own.' } ],
+  goat:  [ { id:'butt', name:'Head Butt', ap:4, min:1, max:1, los:false,
+             dmg:[10,15], cd:0, elem:'earth',
+             hint:'Slow, heavy, and it does not move out of your way.' } ],
+  gecko: [ { id:'lash', name:'Tail Lash', ap:3, min:1, max:2, los:true,
+             dmg:[6,10], cd:0, elem:'air',
+             hint:'Strikes from two tiles and is gone before you turn.' } ]
 };
-const ALL_SPELLS = HERO_SPELLS.concat(SPELLS, AI_SPELLS.dummy, AI_SPELLS.ram);
+const ALL_SPELLS = HERO_SPELLS.concat(SPELLS, AI_SPELLS.dummy, AI_SPELLS.ram,
+                                     AI_SPELLS.goat, AI_SPELLS.gecko);
 function aiSpellsOf(u){ return AI_SPELLS[u.kind] || SPELLS; }
 
 function fightRoster(){
@@ -202,7 +222,8 @@ function fit(){
    Keeping the two apart means a monster can be re-skinned — or a whole
    new one added — without touching a line of combat logic. */
 const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage',
-                sheep:'sheep', dummy:'dummy', ram:'sheep' };
+                sheep:'sheep', dummy:'dummy', ram:'sheep',
+                goat:'goat', gecko:'gecko' };
 
 const SHEETS = {}, DIRS = {}, IDLES = {};
 let SHEET = null, DIRSHEET = null;
@@ -215,7 +236,8 @@ try {
      present. Sheets stay OPTIONAL: a kind whose sheet is missing falls
      back to the hero sheet, and if that is missing too, to the drawn
      shapes. */
-  const CREATURE_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1 };
+  const CREATURE_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
+                         goat:1, gecko:1 };
   const need = new Set();
   for (const k of fightRoster()) need.add(WEARS[k] || k);
   for (const sp of HERO_SPELLS) if (sp && sp.summon) need.add(WEARS[sp.summon] || sp.summon);
@@ -262,6 +284,10 @@ function mk(kind, side, c, r){
   /* the chosen class overrides the stock hero's numbers */
   if (kind === 'you' && HCFG){
     u.hp = u.hpMax = HCFG.hpMax;
+    /* start on the hp you actually have, clamped and never at zero — you
+       cannot walk into a fight already dead */
+    if (typeof HCFG.hp === 'number' && HCFG.hp > 0)
+      u.hp = Math.max(1, Math.min(u.hpMax, HCFG.hp | 0));
     u.ap = u.apMax = HCFG.cls.base.ap;
     u.mp = u.mpMax = HCFG.cls.base.mp;
     u.stats = HCFG.stats;
@@ -291,6 +317,7 @@ function mk(kind, side, c, r){
 }
 
 function newMatch(){
+  fightReset();
   const blocked = new Set();
   /* A HAND-PLACED map, not a random one. Cover only teaches you
      anything if it is somewhere deliberate: two pillars in the middle
@@ -520,6 +547,17 @@ function drawShots(){
   }
 }
 
+/* ── THE FIGHT TALLY ─────────────────────────────────────────────
+   What the end-of-battle screen reports. Kept as raw counts recorded
+   where the events actually happen, so the screen never has to guess or
+   reconstruct anything after the fact — a results screen that infers what
+   happened will eventually infer wrong. */
+const FIGHT = { dealt: 0, taken: 0, casts: 0, kills: 0, killer: null, xp: 0 };
+function fightReset(){
+  FIGHT.dealt = 0; FIGHT.taken = 0; FIGHT.casts = 0;
+  FIGHT.kills = 0; FIGHT.killer = null; FIGHT.xp = 0;
+}
+
 function hurt(t, n, why, delay){
   /* Bulwark: the shield eats damage first, until the caster's next turn.
      State resolves NOW (never waits on an animation); only showing waits. */
@@ -532,7 +570,15 @@ function hurt(t, n, why, delay){
       return;
     }
   }
+  const before = t.hp;
   t.hp = Math.max(0, t.hp - n);
+  {
+    const real = before - t.hp;              /* after shields, not the roll */
+    if (t.side === 1) FIGHT.dealt += real; else FIGHT.taken += real;
+    if (t.hp <= 0 && before > 0 && t.side === 1){
+      FIGHT.kills += 1; FIGHT.killer = why || 'a blow';
+    }
+  }
   const land = () => {
     t.flash = 1;
     floatText(t, '-' + n, why === 'wall' ? '#FFC542' : '#FF6B84');
@@ -640,6 +686,7 @@ function spawnSummon(u, what, c, r){
 
 function cast(u, sp, c, r){
   u.ap -= sp.ap;
+  if (u.side === 0) FIGHT.casts += 1;
   if (sp.cd) u.cd[sp.id] = sp.cd + 1;   /* +1: ticked down at turn start */
   faceToward(u, { c, r });
   clip(u, 'attack');
@@ -1126,7 +1173,17 @@ function draw(){
     const [c, r] = k.split(',').map(Number);
     things.push({ c, r, wall:true });
   }
-  for (const u of G.units) if (u.hp > 0){
+  /* THE DEAD ARE STILL DRAWN. This said `if (u.hp > 0)`, so the instant a
+     unit's hp hit zero it stopped being rendered — hurt() set the 'die'
+     clip and nothing ever showed it. Characters simply vanished mid-blow,
+     which is why the death animation existed and was never seen.
+
+     They are drawn but not otherwise present: unitAt(), alive() and the
+     targeting all still filter on hp > 0, so a body blocks nothing, can be
+     walked over, and cannot be hit again. The 'die' clip holds on its last
+     frame (sprite.js CLIPS.die.hold), so the fallen stay fallen on the
+     board for the rest of the fight instead of blinking out. */
+  for (const u of G.units){
     let c = u.c, r = u.r;
     if (anim && anim.u === u){
       c = anim.from.c + (anim.to.c - anim.from.c) * anim.t;
@@ -1488,16 +1545,109 @@ function paint(){
   draw();
 }
 
+/* ── XP AND DROPS ────────────────────────────────────────────────
+   What a fight pays. XP is per FALLEN ENEMY and scales with its level, so
+   a harder group is worth more without anyone maintaining a second table.
+
+   The client computing this is a KNOWN, TEMPORARY hole: once the relay is
+   authoritative it hands down the reward and this becomes display only
+   (see TODO.md section 4). It is written as one function so there is
+   exactly one place to cut over. */
+function fightSpoils(){
+  const foes = G.units.filter(u => u.side === 1);
+  let xp = 0;
+  const drops = [];
+  for (const f of foes){
+    if (f.hp > 0) continue;                       /* only the fallen pay */
+    if (f.kind === 'dummy') continue;             /* the drill pays nothing */
+    const lvl = Math.max(1, f.level | 0 || 1);
+    xp += 12 + lvl * 8;
+    if (f.drop) drops.push(f.drop);
+  }
+  return { xp, drops };
+}
+
 function showOver(){
   const won = G.over > 0;
   const drill = G.units.some(u => u.kind === 'dummy');   /* the practice bout */
-  document.getElementById('ovt').textContent = won ? 'You won' : 'You lost';
-  document.getElementById('ovp').textContent = won
-    ? (drill ? 'The stuffing is everywhere. You know the moves now.'
-             : 'Three down. Was the last turn a real decision, or obvious?')
-    : 'They closed the distance. Did you have a way out you did not see?';
+  const spoils = won ? fightSpoils() : { xp: 0, drops: [] };
+
+  /* WHERE THE CHARACTER ACTUALLY LIVES. Combat runs as an index.html iframe
+     inside world.html, and index.html does not load player.js — so HERO and
+     PANELS are on the PARENT. Granting against window alone worked in the
+     standalone testbed and would have silently paid nothing in the real
+     game, which is the kind of bug that only surfaces when someone asks
+     why they never level up. Same-origin, so reaching up is safe; guarded
+     because standalone has no parent to reach. */
+  function host(name){
+    try { if (window[name]) return window[name]; } catch (e) {}
+    try { if (window.parent && window.parent !== window && window.parent[name])
+            return window.parent[name]; } catch (e) {}
+    return null;
+  }
+
+  /* GRANT FIRST, DISPLAY SECOND. If the screen is dismissed early, or the
+     tab dies mid-animation, the player still keeps what they earned — the
+     same ordering rule KARTI's chip payouts use. */
+  let lv = null;
+  const HEROx = host('HERO'), PANELSx = host('PANELS');
+  if (won && spoils.xp && HEROx && HEROx.gainXp) lv = HEROx.gainXp(spoils.xp);
+  if (won && spoils.drops.length && PANELSx && PANELSx.give)
+    spoils.drops.forEach(d => { try { PANELSx.give(d); } catch (e) {} });
+  FIGHT.xp = spoils.xp;
+
+  /* HP PERSISTS OUT OF THE FIGHT. The owner's rule: you leave a fight on
+     whatever hp you finished with and regenerate slowly in the world, unless
+     you drink something. Healing to full on victory would make every fight
+     free and every potion pointless.
+     A LOSS leaves you on 1, not 0 — dying to a wandering group should cost
+     you time and a potion, not your character. */
+  try {
+    const meU = you() || G.units.find(u => u.side === 0);
+    const H = host('HERO');
+    if (H && H.setHp && meU)
+      H.setHp(won ? Math.max(1, meU.hp | 0) : 1);
+  } catch (e) {}
+
+  const t = document.getElementById('ovt');
+  const p = document.getElementById('ovp');
+  t.textContent = won ? (lv && lv.levels ? 'Level ' + lv.to + '!' : 'You won')
+                      : 'You lost';
+
+  if (!won){
+    p.textContent = 'They closed the distance. Did you have a way out you did not see?';
+  } else {
+    /* Per-FIGHTER xp, not one lump. There is one fighter today; writing it
+       as a list now is what makes a party read correctly later instead of
+       needing the screen rebuilt. */
+    const rows = [];
+    const me = you() || G.units[0];
+    rows.push(['<b>' + esc(me && me.name ? me.name : 'You') + '</b>',
+               '+' + spoils.xp + ' XP']);
+    if (lv && lv.levels)
+      rows.push(['Level ' + lv.from + ' &rarr; ' + lv.to,
+                 '+' + (lv.points || 0) + ' points']);
+    if (spoils.drops.length)
+      rows.push(['Found', spoils.drops.map(d => esc(d.name || d.id)).join(', ')]);
+    rows.push(['Damage dealt', String(FIGHT.dealt)]);
+    rows.push(['Damage taken', String(FIGHT.taken)]);
+    rows.push(['Spells cast', String(FIGHT.casts)]);
+    rows.push(['Rounds', String(G.round)]);
+
+    p.innerHTML =
+      (drill ? '<div style="margin-bottom:8px">The stuffing is everywhere. ' +
+               'You know the moves now.</div>' : '') +
+      '<div class="res">' + rows.map(r =>
+        '<div class="res-r"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>'
+      ).join('') + '</div>';
+  }
   document.getElementById('over').classList.add('on');
   paint();
+}
+
+function esc(v){
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
 /* ── wiring ────────────────────────────────────────────────────── */
@@ -1540,7 +1690,7 @@ if (window.HUD) HUD.init({ mode: 'combat', onAction: (action, arg) => {
    by contract, §7.4). Exported BEFORE newMatch(): the first paint()
    builds the skill icons exactly once, so window.T must already exist
    or every classed spell would render in the fallback gold for good. */
-window.T = { _draw: draw, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
+window.T = { _draw: draw, checkOver, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
              get HCFG(){ return HCFG; }, reach, pathTo, los, canCast,
              castTiles, dist, newMatch, nextTurn, cast, spellOf, me, you, iso, unIso,
              get sel(){ return sel; }, set sel(v){ sel = v; }, paint,

@@ -263,7 +263,13 @@ window.PANELS = (function () {
 
   /* ---- hero panel: Character | Spells sub-tabs (HUD_SPEC §6) ---- */
   function characterHtml(P) {
-    var xpNext = P.level * 100;
+    /* the REAL curve, not the level*100 placeholder that sat here while
+       nothing levelled anyone up. HERO.xpBar() reports progress within the
+       current level, which is what a bar should show — total lifetime XP
+       against a total is meaningless once the curve steepens. */
+    var bar0 = (window.HERO && HERO.xpBar) ? HERO.xpBar() : null;
+    var xpInto = bar0 ? bar0.into : P.xp;
+    var xpNext = bar0 ? (bar0.max ? xpInto : bar0.need) : P.level * 100;
     var st = P.stats || {};
     var els = [
       ['earth', 'Strength',     'Earth', st.earth],
@@ -275,7 +281,7 @@ window.PANELS = (function () {
       '<div class="ch-id"><div class="ch-lvl"><b>' + P.level + '</b><small>LVL</small></div>' +
       '<div class="ch-name"><b>' + esc(P.name) + '</b><span>Adventurer of the Ruin</span></div></div>' +
       '<div class="xp-row"><div class="xp-lbls"><span>Experience</span><span>' +
-      P.xp + ' / ' + xpNext + '</span></div>' + bar('xp', P.xp, xpNext) + '</div>' +
+      (bar0 && bar0.max ? 'MAX' : xpInto + ' / ' + xpNext) + '</span></div>' + bar('xp', xpInto, xpNext) + '</div>' +
       '<div class="pn-sub">Vitals</div><div class="vit">' +
       '<div class="vcard vhp"><div class="vt">' + svg(IC.heart, 15) + 'HEALTH</div>' +
       '<div class="vn">' + P.hp + ' <small>/ ' + P.hpMax + '</small></div>' +

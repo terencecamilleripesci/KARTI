@@ -52,20 +52,25 @@ window.HERO = (function () {
                 action: 'art/hero-sheet.png' };
 
   /* the choice — null classId means "not reincarnated yet" */
-  const S = { classId: null, gender: 'm' };
+  /* IDENTITY — what the player chose. Appearance sits here rather than on
+     P because it is a choice, not a derived stat: it survives levelling,
+     never changes on its own, and is part of who this character IS. */
+  const S = { classId: null, gender: 'm',
+              look: { hair: null, skin: null, eyes: null } };
 
   /* the hero's last known location {map,c,r} — restored from the save,
      refreshed from the live WORLD every time we look at it */
   let AT = null;
 
   /* the view — created ONCE; every module shares this reference */
-  const P = { name: 'Hero', level: 1, xp: 0,
+  const P = { name: 'Hero', level: 1, xp: 0, points: 0,
               hp: 100, hpMax: 100, ap: 6, mp: 3,
               items: [], equip: {},
               stats: { earth: 0, fire: 0, water: 0, air: 0 },
               classId: null, gender: 'm' };
 
-  let changeCb = null;                      /* single callback, last wins */
+  let changeCb = null;
+  let lastRegen = 0;            /* wall-clock anchor for regen() */                      /* single callback, last wins */
 
   function cls() {
     return (S.classId && window.CLASSES) ? window.CLASSES.byId(S.classId) : null;
@@ -78,8 +83,19 @@ window.HERO = (function () {
       const st = c.stats;
       P.name = c.name;
       P.hpMax = window.CLASSES.maxHp(c, st, P.level);
-      P.ap = c.base.ap;
-      P.mp = c.base.mp;
+      /* growth.apAt / growth.mpAt were declared in classes.js and never
+         read: every class sat on its level-1 AP and MP forever. A class
+         that never gains AP is a class that plays identically at 30 and
+         at 1, which is most of what levelling is FOR. */
+      const g = c.growth || {};
+      /* apAt/mpAt are LISTS of the levels where a point is gained, so
+         adding another threshold later is data rather than logic. A number
+         is still accepted, because a scalar is the obvious thing to write
+         and silently ignoring it would be a trap. */
+      const at = v => (v == null ? [] : (Array.isArray(v) ? v : [v]));
+      const past = v => at(v).filter(L => P.level >= L).length;
+      P.ap = c.base.ap + past(g.apAt);
+      P.mp = c.base.mp + past(g.mpAt);
       /* panels.js reads elemental stats; the mapping is CLASSES.STAT_OF_ELEM */
       P.stats.earth = st.str | 0;
       P.stats.fire  = st.int | 0;
@@ -147,10 +163,11 @@ window.HERO = (function () {
       v: 1,
       classId: S.classId,
       gender: S.gender,
+      look: { hair: S.look.hair, skin: S.look.skin, eyes: S.look.eyes },
       sheet: c ? c.look[S.gender].sheet : null,
       name: c ? c.name : null,
       savedAt: new Date().toISOString(),
-      level: P.level, xp: P.xp, hp: P.hp,
+      level: P.level, xp: P.xp, points: P.points | 0, hp: P.hp,
       items: cleanItems(P.items),
       equip: cleanEquip(P.equip),
       at: AT
@@ -176,6 +193,12 @@ window.HERO = (function () {
     }
     if (typeof d.level === 'number') P.level = Math.max(1, d.level | 0);
     if (typeof d.xp === 'number')    P.xp = Math.max(0, d.xp | 0);
+    if (typeof d.points === 'number') P.points = Math.max(0, d.points | 0);
+    if (d.look && typeof d.look === 'object'){
+      for (const k of ['hair', 'skin', 'eyes'])
+        if (typeof d.look[k] === 'string' && /^#[0-9a-f]{6}$/i.test(d.look[k]))
+          S.look[k] = d.look[k];
+    }
     P.items = cleanItems(d.items);
     P.equip = cleanEquip(d.equip);
     AT = cleanAt(d.at);
@@ -192,7 +215,7 @@ window.HERO = (function () {
     /* whereNow() is in the snapshot so WALKING marks the save dirty —
        otherwise a mid-tutorial reload forgets the map/tile (the ruin-01
        respawn bug) whenever nothing else changed since the last save */
-    return JSON.stringify([P.level, P.xp, P.hp, P.items, P.equip, whereNow()]);
+    return JSON.stringify([P.level, P.xp, P.points, P.hp, P.items, P.equip, whereNow()]);
   }
   let snap = '';
   function maybeSave() {
@@ -207,8 +230,108 @@ window.HERO = (function () {
     });
   }
 
+  /* ── LEVELLING ───────────────────────────────────────────────────
+     Nothing levelled anyone up before this: XP accumulated and the number
+     on the character sheet meant nothing. gainXp is the ONLY way level
+     changes, so there is one place where growth is applied and one place
+     to audit when the server becomes authoritative.
+
+     It returns what happened rather than announcing it, so the caller
+     decides how to celebrate — the end-of-battle screen wants a bar and a
+     flourish, a quest reward wants a quiet toast. */
+  function gainXp(n) {
+    n = Math.max(0, n | 0);
+    const before = P.level, C = window.CLASSES;
+    if (!n || !C) return { xp: 0, from: before, to: before, levels: 0 };
+    /* progression lives on P — S holds identity only, and serialise()
+       reads P. Writing it to S would work all session and vanish on
+       reload, which is the worst shape a save bug can take. */
+    P.xp = (P.xp | 0) + n;
+    let gained = 0;
+    /* a big reward can cross more than one level at once */
+    while (P.level < C.MAX_LEVEL && P.xp >= C.xpTotal(P.level + 1)) {
+      P.level += 1; gained += 1;
+    }
+    if (gained) {
+      const c = cls();
+      refresh();                     /* hpMax, AP and MP follow the level */
+      /* unspent stat points accrue; spending them is a later feature, but
+         they must accumulate NOW or the record is wrong when it ships */
+      if (c && c.growth) P.points = (P.points | 0) + c.growth.statPoints * gained;
+      P.hp = P.hpMax;                /* levelling heals — the classic, and
+                                        it makes the moment feel like one */
+    }
+    save();
+    return { xp: n, from: before, to: P.level, levels: gained,
+             points: P.points | 0 };
+  }
+
+  /* progress within the CURRENT level, for the bar on the character sheet */
+  function xpBar() {
+    const C = window.CLASSES;
+    if (!C || P.level >= C.MAX_LEVEL) return { into: 0, need: 0, max: true };
+    const base = C.xpTotal(P.level), next = C.xpTotal(P.level + 1);
+    return { into: Math.max(0, (P.xp | 0) - base), need: next - base, max: false };
+  }
+
   /* ── the public api ───────────────────────────────────────────── */
   const api = {
+    gainXp, xpBar,
+
+    /* HP OUT OF COMBAT. Set by tactics.js when a fight ends, and ticked up
+       slowly by regen() while the player walks around. Never above hpMax,
+       never below 1 — a character does not die on the world map. */
+    setHp(v) {
+      P.hp = Math.max(1, Math.min(P.hpMax | 0 || 1, v | 0));
+      save(); if (changeCb) changeCb(P);
+      return P.hp;
+    },
+
+    /* SLOW REGENERATION. The owner's rule: you keep the wounds you finished
+       the fight with and mend gradually, unless you drink something. Called
+       on a timer by the world; it works out how long has passed rather than
+       counting ticks, so it is correct after a reload, a backgrounded tab or
+       a phone that slept — none of which fire timers.
+
+       RATE is deliberately slow: about 1% of max hp every 6 seconds, so a
+       character on half health takes roughly five minutes to be whole. Long
+       enough that a potion is worth carrying, short enough that nobody sits
+       and waits. */
+    regen(now) {
+      const t = now || Date.now();
+      if (!P.hpMax) return P.hp;
+      if (!lastRegen) { lastRegen = t; return P.hp; }
+      if (P.hp >= P.hpMax) { lastRegen = t; return P.hp; }
+      const per = 6000;                       /* ms per point-tick */
+      const steps = Math.floor((t - lastRegen) / per);
+      if (steps <= 0) return P.hp;
+      lastRegen += steps * per;
+      const gain = Math.max(1, Math.round(P.hpMax * 0.01)) * steps;
+      const was = P.hp;
+      P.hp = Math.min(P.hpMax, P.hp + gain);
+      if (P.hp !== was) { save(); if (changeCb) changeCb(P); }
+      return P.hp;
+    },
+
+    /* APPEARANCE. Falls back to TINT's defaults rather than null, so every
+       caller can just use the value without checking whether the player has
+       been through the picker yet. */
+    appearance() {
+      const d = (window.TINT && TINT.DEFAULTS) || {};
+      return { hair: S.look.hair || d.hair, skin: S.look.skin || d.skin,
+               eyes: S.look.eyes || d.eyes };
+    },
+    setAppearance(look) {
+      if (!look) return;
+      let hit = false;
+      for (const k of ['hair', 'skin', 'eyes'])
+        if (typeof look[k] === 'string' && /^#[0-9a-f]{6}$/i.test(look[k])){
+          S.look[k] = look[k]; hit = true;
+        }
+      if (hit){ save(); if (changeCb) changeCb(P); }
+      return hit;
+    },
+    get points() { return P.points | 0; },
 
     /* has the player been reincarnated (chosen a class)? */
     chosen() { return !!S.classId; },
@@ -240,10 +363,17 @@ window.HERO = (function () {
     /* THE reincarnation: sets the identity, derives stats, heals to the
        new full (a fresh body), persists, and swaps the world sprite
        immediately so the player SEES the change. */
-    choose(classId, gender) {
+    choose(classId, gender, look) {
       if (!window.CLASSES || !window.CLASSES.byId(classId)) return false;
       S.classId = classId;
       S.gender = gender === 'f' ? 'f' : 'm';
+      /* appearance arrives WITH the choice — it is one decision made on one
+         screen, and applying it before refreshHeroSprites() means the sprite
+         is tinted the first time it is drawn rather than flickering from the
+         default */
+      if (look) for (const k of ['hair', 'skin', 'eyes'])
+        if (typeof look[k] === 'string' && /^#[0-9a-f]{6}$/i.test(look[k]))
+          S.look[k] = look[k];
       refresh();
       P.hp = P.hpMax;                     /* new body, full of life */
       save();
@@ -266,7 +396,7 @@ window.HERO = (function () {
     reset() {
       try { localStorage.removeItem(KEY); } catch (e) {}
       S.classId = null; S.gender = 'm'; AT = null;
-      P.level = 1; P.xp = 0; P.items = []; P.equip = {}; P.hp = Infinity;
+      P.level = 1; P.xp = 0; P.points = 0; P.items = []; P.equip = {}; P.hp = Infinity;
       refresh();
       if (window.WORLD && window.WORLD.refreshHeroSprites)
         window.WORLD.refreshHeroSprites();

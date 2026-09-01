@@ -165,6 +165,16 @@ function make(src, opts){
     if (opts.lowPriority){ try { im.fetchPriority = 'low'; } catch (e) {} }
     im.onload = () => {
       s.img = im;
+      /* KEY-COLOURED SHEETS ARE RECOLOURED HERE, once, at load. Doing it
+         in make() rather than per frame means the swap costs one pass over
+         the image instead of one per draw, and every caller gets it without
+         knowing the scheme exists.
+         isKeyed() guards it so the older natural-coloured sheets still work
+         untouched: the ten are being redrawn and both kinds must coexist in
+         the meantime rather than needing a flag day. */
+      if (opts.tint && window.TINT && TINT.isKeyed(im)){
+        try { s.img = TINT.recolour(im, opts.tint); } catch (e) {}
+      }
       /* the cell size is DERIVED, never hard-coded — swap in a bigger sheet
          and nothing else has to change */
       s.cw = Math.floor(im.width / s.cols);

@@ -45,7 +45,7 @@ window.MAPS['field-2-1'] = {
     [0,0,0,0,0,0,0,0,0,0]
   ],
   markers: [
-    { type:"fight", id:"woolly-2", name:"Wild Woolly", c:7, r:2, sprite:"sheep", dir:"SW", foes:["grunt"] }
+    { type:"fight", id:"woolly-2", name:"Wild Woolly", c:7, r:2, sprite:"sheep", dir:"SW", foes:["goat", "gecko", "gecko"] }
   ],
   neighbours: { n:"field-2-0", e:"field-3-1", s:"field-2-2", w:"field-1-1" }
 };

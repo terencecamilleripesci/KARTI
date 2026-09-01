@@ -479,9 +479,36 @@ window.NET = (function () {
   })();
 
   /* ── api ────────────────────────────────────────────────────────── */
+  /* one call shape for all five spar verbs */
+  function spar(verb, body){
+    if (!A.tok || !A.url) return Promise.reject(new Error('not linked'));
+    return fetch(A.url + '/rpg/spar/' + verb, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(Object.assign({ tok: A.tok }, body || {}))
+    }).then(r => r.json().catch(() => ({ ok: false })));
+  }
+
+
   return {
     checkpoint: checkpoint,             /* world.html calls this on map exit */
     syncNow: entrySync,
+    /* the KARTI account name, for anything that must name the player back to
+       them — the wipe confirmation types this exactly */
+    accountName() { return A.name || ''; },
+
+    /* ── SPARRING ────────────────────────────────────────────────────
+       Thin wrappers over the relay's five room routes. They carry the
+       same session token as the save routes, because a spar route must be
+       exactly as hard to reach as a save route or it becomes the soft way
+       in. The ACTION BLOB is opaque to the relay: it stores bytes and
+       hands them to the other seat in order, which is what lets combat
+       change without the server changing. */
+    sparOpen()            { return spar('open'); },
+    sparJoin(code)        { return spar('join',  { code }); },
+    sparAct(code, act)    { return spar('act',   { code, act }); },
+    sparPoll(code, after) { return spar('poll',  { code, after: after | 0 }); },
+    sparLeave(code)       { return spar('leave', { code }); },
     status() {
       return { linked: !!A.tok, url: A.url, phase: phase, online: online,
                ver: SY.ver, paused: paused, relogin: A.dead, conflict: !!CF };

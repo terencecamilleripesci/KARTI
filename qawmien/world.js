@@ -107,16 +107,26 @@ const WORLD = (() => {
      drawHero already holds the measured stand frame of the walk sheet
      for that case, same as NPCs. */
   let heroSheetKey = null;
+  /* tick regeneration while the world is up. It reads the clock rather than
+     counting frames, so a backgrounded tab or a sleeping phone still mends
+     the right amount when you come back. */
+  setInterval(() => { try { window.HERO && HERO.regen && HERO.regen(); } catch (e) {} }, 3000);
+
   function heroSprites(){
     const hs = (window.HERO && window.HERO.sheets) ? window.HERO.sheets()
       : { dir8: 'art/hero-dir8.png', idle: 'art/hero-idle.png' };
-    const key = hs.dir8 + '|' + (hs.idle || '');
+    /* the APPEARANCE is part of the cache key: change hair colour and the
+       sheets must be rebuilt, or the player picks a colour and nothing
+       happens, which reads as a broken picker rather than a cache */
+    const tint = (window.HERO && HERO.appearance) ? HERO.appearance() : null;
+    const key = hs.dir8 + '|' + (hs.idle || '') + '|' +
+                (tint ? tint.hair + tint.skin + tint.eyes : '');
     if (hero.dspr && key === heroSheetKey) return;
     heroSheetKey = key;
     hero.dspr = SPRITE.make(hs.dir8,
-      { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR });
+      { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR, tint });
     hero.ispr = hs.idle ? SPRITE.make(hs.idle,
-      { cols: 6, rows: 4, clips: SPRITE.CLIPS_IDLE }) : null;
+      { cols: 6, rows: 4, clips: SPRITE.CLIPS_IDLE, tint }) : null;
     hero.dspr.clip = 'walk.0';
     if (hero.ispr) hero.ispr.clip = 'idle.0';
   }
