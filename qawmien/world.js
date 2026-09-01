@@ -580,6 +580,62 @@ const WORLD = (() => {
     return fitted ? Math.min(MAX_SCALE, fit) : MIN_SCALE;
   }
 
+  /* ── ground variants — "texture the map like dofus" ────────────────
+     The ground layer keeps its authored meaning; DRAWING picks among
+     same-material atlas cells (and mirrored draws) per tile, so the
+     floor reads as continuous ground instead of a countable grid of
+     identical diamonds.  The pick is a pure hash of WORLD coordinates —
+     outdoor screens hash their global 46x28 grid position (stride 9:
+     one-tile overlap, so the shared seam strip renders identically on
+     both screens), indoor maps fold the map id in.  Never Math.random:
+     the ground must not shimmer across reloads.
+       Ruin floors 1/2/6 share one crazy-paving layout (mkatlas) and are
+     never mirrored (the paving is not symmetric); grass/dirt rims are
+     x-symmetric by construction there, so their mirrored draws join as
+     seamlessly as the originals. */
+  const VPOOL = {
+    1:  [[1, 0], [2, 0], [6, 0]],             /* ruin floor weatherings  */
+    2:  [[2, 0], [6, 0], [1, 0]],
+    16: [[16, 0], [16, 1], [17, 0], [17, 1]], /* grass: 2 cells x mirror */
+    17: [[17, 0], [17, 1], [16, 0], [16, 1]],
+    18: [[18, 0], [18, 1]],
+    19: [[19, 0], [19, 1]]
+  };
+  function vhash(seed, x, y){
+    let h = (Math.imul(x + 37, 0x9E3779B1) ^
+             Math.imul(y + 91, 0x85EBCA6B) ^ seed) | 0;
+    h ^= h >>> 15; h = Math.imul(h, 0x2C1B3C6D); h ^= h >>> 12;
+    return h >>> 0;
+  }
+  const VBASIS = {};                    /* map id → hash basis, computed once */
+  function vbasis(m){
+    let b = VBASIS[m.id];
+    if (b) return b;
+    const f = WT.parseFieldId(m.id);
+    let s = 0x5EED;
+    if (!f)
+      for (let i = 0; i < m.id.length; i++)
+        s = (Math.imul(s, 31) + m.id.charCodeAt(i)) | 0;
+    b = { s, ox: f ? f.gx * 9 : 0, oy: f ? f.gy * 9 : 0 };
+    VBASIS[m.id] = b;
+    return b;
+  }
+  function variantOf(m, c, r, base){
+    const pool = VPOOL[base];
+    if (!pool) return null;
+    const b = vbasis(m);
+    let k = vhash(b.s, b.ox + c, b.oy + r) % pool.length;
+    /* nudge exact repeats apart: identical variants side by side are the
+       strongest "it's a grid" cue left once the rims are unified */
+    if (c > 0 && m.ground[r][c - 1] === base &&
+        vhash(b.s, b.ox + c - 1, b.oy + r) % pool.length === k)
+      k = (k + 1) % pool.length;
+    else if (r > 0 && m.ground[r - 1][c] === base &&
+        vhash(b.s, b.ox + c, b.oy + r - 1) % pool.length === k)
+      k = (k + 1) % pool.length;
+    return pool[k];
+  }
+
   function draw(g){
     fit(g.canvas);
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -592,14 +648,22 @@ const WORLD = (() => {
       g.canvas.height / 2 - camera.y * dpr * s);
     const atlas = ATLASES[map.atlas || WT.ATLAS_SRC];
 
-    /* (a) ground, row-major */
+    /* (a) ground, row-major, through the variant pools */
     for (let r = 0; r < map.h; r++)
       for (let c = 0; c < map.w; c++){
         const i = map.ground[r][c];
         if (!i) continue;
         const x = WT.isoX(c, r), y = WT.isoY(c, r);
-        if (atlas && atlas.ready) WT.drawTile(g, atlas.img, i, x, y);
-        else fbGround(g, i, x, y);
+        if (!(atlas && atlas.ready)){ fbGround(g, i, x, y); continue; }
+        const v = variantOf(map, c, r, i);
+        if (!v) WT.drawTile(g, atlas.img, i, x, y);
+        else if (!v[1]) WT.drawTile(g, atlas.img, v[0], x, y);
+        else {                          /* mirrored about the tile centre */
+          g.save();
+          g.translate(2 * x, 0); g.scale(-1, 1);
+          WT.drawTile(g, atlas.img, v[0], x, y);
+          g.restore();
+        }
       }
 
     /* (a2) doorway light, over the floor but under decor and actors:
@@ -664,17 +728,22 @@ const WORLD = (() => {
     g.restore();
   }
 
-  /* Light IN the opening — the wayfinding the owner approved ("back turned,
-     walking toward the light"), so it has to be present and strong.
+  /* Light THROUGH the opening — the owner's "2 side hole".
 
-     The opening is cut into the wall's sloped face (tools/mkatlas.py
-     img_arch), gate height 30 over a wall of 16.  In board px from the tile
-     centre: base(u) = (sgn*30u, 23-23u), u in [0.20,0.80], arched head
-     AH(u) = 22 - 7*t², t = (u-0.5)/0.30.  This path is inset just inside
-     the painted jambs and voussoirs. */
-  function archPath(g, x, y, sgn){
-    const s = sgn || 1, u0 = 0.225, u1 = 0.775;
-    const bx = u => x + s * 30 * u, by = u => y + 23 - 23 * u;
+     The gate prism is pierced clean through (tools/mkatlas.py img_arch):
+     the near opening sits in the visible sloped face, the SAME opening
+     exists on the far face one wall-depth into the scene at offset
+     (RECX·sgn, RECY) — keep these equal to mkatlas's RDX,RDY — and the
+     see-through gap is where the two overlap.  In board px from the tile
+     centre: base(u) = (sgn·30u, 23-23u), u in [0.20,0.80], arched head
+     AH(u) = 22 - 7t², t = (u-0.5)/0.30.  archPath is inset just inside
+     the painted jambs and voussoirs; offset (ox,oy) moves it to the far
+     face. */
+  const RECX = -6, RECY = -4.5;         /* one wall-depth, board px        */
+  function archPath(g, x, y, sgn, ox, oy){
+    const s = sgn || 1, u0 = 0.195, u1 = 0.805;
+    const dx = ox || 0, dy = oy || 0;
+    const bx = u => x + dx + s * 30 * u, by = u => y + dy + 23 - 23 * u;
     g.beginPath();
     g.moveTo(bx(u0), by(u0));
     for (let k = 0; k <= 16; k++){
@@ -685,35 +754,54 @@ const WORLD = (() => {
     g.closePath();
   }
 
-  /* daylight for an arch that leads outdoors, torchlight from the room
-     beyond for one that does not — plus a bloom around the opening so the
-     way out is findable at phone size without hunting for it */
+  /* What fills the gap is DISTANCE, not a lamp: daylight with a horizon
+     where the arch leads outdoors, the far room's low firelight where it
+     does not.  Everything stays clipped inside the near opening, so the
+     painted soffit and jambs keep framing the hole — filling the whole
+     arch (the old way) is exactly what made it read as a glowing niche. */
   function drawDoorLight(g, x, y, sgn, out, breathe){
+    const s = sgn || 1;
     g.save();
-    /* (1) bloom: a soft halo spilling out of the opening onto the stone */
-    const bl = (out ? 0.30 : 0.20) + 0.07 * breathe;
-    const R = TW * 0.78;
-    const gb = g.createRadialGradient(x, y - 4, 1, x, y - 4, R);
+    /* (1) bloom: a halo spilling out of the gap onto the stone, centred
+       on the THROUGH-hole so the glow reads as coming from beyond */
+    const bl = (out ? 0.26 : 0.18) + 0.06 * breathe;
+    const hx = x + RECX * 0.55 * s, hy = y + RECY - 2;
+    const R = TW * 0.72;
+    const gb = g.createRadialGradient(hx, hy, 1, hx, hy, R);
     gb.addColorStop(0, out ? 'rgba(226,240,255,' + bl + ')'
                            : 'rgba(255,182,96,' + bl + ')');
     gb.addColorStop(1, 'rgba(0,0,0,0)');
     g.globalCompositeOperation = 'lighter';
     g.fillStyle = gb;
-    g.beginPath(); g.arc(x, y - 4, R, 0, Math.PI * 2); g.fill();
-    /* (2) the opening itself, filled */
+    g.beginPath(); g.arc(hx, hy, R, 0, Math.PI * 2); g.fill();
+    /* (2) clip to the near opening: nothing below may touch the stone */
     g.globalCompositeOperation = 'source-over';
-    archPath(g, x, y, sgn);
-    const gr = g.createLinearGradient(0, y - 22, 0, y + 20);
-    if (out){
-      gr.addColorStop(0, 'rgba(201,226,255,0.96)');
-      gr.addColorStop(0.60, 'rgba(232,238,232,0.94)');
-      gr.addColorStop(1, 'rgba(250,238,196,0.96)');
-    } else {
-      /* torchlight from the next room: dark at the head, hot at the floor,
-         so it still reads as a hole and not a lamp stuck on the wall */
-      gr.addColorStop(0, 'rgba(40,24,16,0.92)');
-      gr.addColorStop(0.52, 'rgba(150,73,26,0.90)');
-      gr.addColorStop(1, 'rgba(255,190,104,0.94)');
+    archPath(g, x, y, s);
+    g.clip();
+    /* (3) light from beyond lying on the passage floor */
+    const fx = u => x + s * 30 * u, fy = u => y + 23 - 23 * u;
+    g.globalCompositeOperation = 'lighter';
+    g.beginPath();
+    g.moveTo(fx(0.2), fy(0.2)); g.lineTo(fx(0.8), fy(0.8));
+    g.lineTo(fx(0.8) + RECX * s, fy(0.8) + RECY);
+    g.lineTo(fx(0.2) + RECX * s, fy(0.2) + RECY);
+    g.closePath();
+    g.fillStyle = (out ? 'rgba(200,224,255,' : 'rgba(255,176,90,') +
+                  (0.10 + 0.08 * breathe) + ')';
+    g.fill();
+    /* (4) the far opening — the see-through gap itself */
+    g.globalCompositeOperation = 'source-over';
+    archPath(g, x, y, s, RECX * s, RECY);
+    const gr = g.createLinearGradient(0, y + RECY - 21, 0, y + RECY + 18);
+    if (out){                           /* sky, haze, horizon, lit ground */
+      gr.addColorStop(0, 'rgba(178,216,255,0.97)');
+      gr.addColorStop(0.50, 'rgba(236,244,250,0.96)');
+      gr.addColorStop(0.58, 'rgba(228,232,196,0.96)');
+      gr.addColorStop(1, 'rgba(158,172,126,0.95)');
+    } else {                            /* the next room, firelit from low */
+      gr.addColorStop(0, 'rgba(26,16,12,0.94)');
+      gr.addColorStop(0.55, 'rgba(126,60,24,0.92)');
+      gr.addColorStop(1, 'rgba(255,190,108,0.95)');
     }
     g.fillStyle = gr;
     g.fill();
