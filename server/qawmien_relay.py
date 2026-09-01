@@ -55,6 +55,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import sqlite3
 import sys
 import threading
@@ -86,6 +87,17 @@ class Q:
                                 # at 2 KB is half a megabyte; this is 16x that
                                 # with room for growth, and it bounds the disk.
     MAX_BODY = MAX_SAVE + 16 * 1024   # bytes of one HTTP request body
+
+    # -- SPAR ROOMS ---------------------------------------------------
+    # Two players, turn-based, one action at a time. These live entirely in
+    # memory: a spar that does not survive a relay restart is a spar both
+    # players will simply start again, and persisting them would mean
+    # reconciling rooms nobody is sitting in.
+    MAX_ROOMS = 60              # live rooms at once, across everyone
+    MAX_ACTS = 200              # queued actions per room before it is junk
+    MAX_ACT = 4 * 1024          # bytes of ONE action blob, opaque
+    ROOM_TTL = 20 * 60.0        # a room with no traffic is swept after this
+    ROOM_CODE_LEN = 5
     MAX_DEPTH = 32              # JSON nesting allowed anywhere
     MAX_DEVICE = 24             # characters of the optional device label
 
@@ -111,6 +123,9 @@ class Q:
 
 # Fixed strings, exactly as KARTI does it: nothing a caller sends is ever
 # reflected back, and refusals are deliberately uninformative.
+E_ROOM = "That spar is not there any more."
+E_FULL = "That spar already has two fighters."
+E_ROOMS = "Too many spars are open right now."
 E_BAD_JSON = "Bad request."
 E_BIG = "That is too big."
 E_TOKEN = "Please log in again."
@@ -447,6 +462,137 @@ def origin_ok(origin):
     return bool(LOOPBACK_ORIGIN_RE.match(origin))
 
 
+# ══════════════════════ SPAR ROOMS ══════════════════════════════════════
+#
+# Two players fight through the relay. Kept SEPARATE from KARTI's own room
+# server on purpose: the owner's call, and the right one — the RPG's traffic
+# must never compete with the card games for the same process.
+#
+# IN MEMORY, NOT SQLITE. A spar is a conversation, not a record. If the relay
+# restarts, both players simply start again — whereas persisted rooms would
+# mean reconciling ones nobody is sitting in, for no benefit anybody can see.
+#
+# THE ACTION BLOB IS OPAQUE. This never reads a move. It stores bytes, caps
+# them, and hands them to the other seat in order — exactly how KARTI carries
+# its rules and deal payloads. It is what lets combat change without the
+# server changing.
+class Rooms:
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.rooms = {}          # code -> room dict
+
+    @staticmethod
+    def _code():
+        # No vowels: a five-character code that cannot accidentally spell
+        # something, and no 0/O or 1/I to misread over a phone.
+        alpha = "BCDFGHJKLMNPQRSTVWXYZ23456789"
+        return "".join(secrets.choice(alpha) for _ in range(Q.ROOM_CODE_LEN))
+
+    def _sweep(self, now):
+        dead = [c for c, r in self.rooms.items() if now - r["seen"] > Q.ROOM_TTL]
+        for c in dead:
+            self.rooms.pop(c, None)
+
+    def open(self, key, name):
+        now = time.time()
+        with self.lock:
+            self._sweep(now)
+            if len(self.rooms) >= Q.MAX_ROOMS:
+                return None, E_ROOMS
+            for _ in range(40):
+                code = self._code()
+                if code not in self.rooms:
+                    break
+            else:
+                return None, E_ROOMS
+            self.rooms[code] = {
+                "code": code, "made": now, "seen": now,
+                "seats": [{"key": key, "name": name}, None],
+                "acts": [],                      # [{seat, n, blob}]
+                "n": 0,
+            }
+            return code, None
+
+    def join(self, code, key, name):
+        with self.lock:
+            r = self.rooms.get(code)
+            if not r:
+                return None, E_ROOM
+            r["seen"] = time.time()
+            for i, s in enumerate(r["seats"]):
+                if s and s["key"] == key:
+                    return {"seat": i, "room": self._view(r)}, None
+            if r["seats"][1] is not None:
+                return None, E_FULL
+            r["seats"][1] = {"key": key, "name": name}
+            return {"seat": 1, "room": self._view(r)}, None
+
+    def act(self, code, key, blob):
+        with self.lock:
+            r = self.rooms.get(code)
+            if not r:
+                return None, E_ROOM
+            seat = self._seat_of(r, key)
+            if seat is None:
+                return None, E_ROOM
+            if len(r["acts"]) >= Q.MAX_ACTS:
+                # A room this noisy is a bug or an attack; drop it rather
+                # than let one spar eat the process's memory.
+                self.rooms.pop(code, None)
+                return None, E_ROOM
+            r["n"] += 1
+            r["acts"].append({"seat": seat, "n": r["n"], "blob": blob})
+            r["seen"] = time.time()
+            return {"n": r["n"]}, None
+
+    def since(self, code, key, after):
+        """Everything the OTHER seat has said since `after`. A player is never
+           handed back their own actions: they already applied them, and
+           replaying them is how a desync starts."""
+        with self.lock:
+            r = self.rooms.get(code)
+            if not r:
+                return None, E_ROOM
+            seat = self._seat_of(r, key)
+            if seat is None:
+                return None, E_ROOM
+            r["seen"] = time.time()
+            out = [a for a in r["acts"] if a["n"] > after and a["seat"] != seat]
+            return {"acts": out, "n": r["n"], "room": self._view(r)}, None
+
+    def leave(self, code, key):
+        with self.lock:
+            r = self.rooms.get(code)
+            if not r:
+                return
+            seat = self._seat_of(r, key)
+            if seat is not None:
+                r["seats"][seat] = None
+            if not any(r["seats"]):
+                self.rooms.pop(code, None)
+
+    @staticmethod
+    def _seat_of(r, key):
+        for i, s in enumerate(r["seats"]):
+            if s and s["key"] == key:
+                return i
+        return None
+
+    @staticmethod
+    def _view(r):
+        # Names only. A seat's account key is never echoed to the other
+        # player — the same rule the save routes follow.
+        return {"code": r["code"],
+                "seats": [(s["name"] if s else None) for s in r["seats"]]}
+
+    def stats(self):
+        with self.lock:
+            return {"rooms": len(self.rooms)}
+
+
+ROOMS = Rooms()
+
+
 class QawmienHandler(BaseHTTPRequestHandler):
     """Three routes and a 404. No filesystem code, no directory to escape."""
 
@@ -606,7 +752,9 @@ class QawmienHandler(BaseHTTPRequestHandler):
             self.close_connection = True
             self.fail(403, "Origin not allowed.")
             return
-        if path not in ("/rpg/pull", "/rpg/push"):
+        if path not in ("/rpg/pull", "/rpg/push",
+                        "/rpg/spar/open", "/rpg/spar/join",
+                        "/rpg/spar/act", "/rpg/spar/poll", "/rpg/spar/leave"):
             self.fail(404, "No such route.")
             return
         if STORE is None or AUTH is None:
@@ -618,8 +766,10 @@ class QawmienHandler(BaseHTTPRequestHandler):
         try:
             if path == "/rpg/pull":
                 self.rpg_pull(addr, body)
-            else:
+            elif path == "/rpg/push":
                 self.rpg_push(addr, body)
+            else:
+                self.spar(addr, body, path.rsplit("/", 1)[-1])
         except AuthDown:
             self.fail(503, E_BUSY, {"retry": True})
         except Reject:
@@ -647,6 +797,64 @@ class QawmienHandler(BaseHTTPRequestHandler):
             self.fail(401, E_TOKEN, {"relogin": True})
             return None
         return who
+
+    # -- sparring ---------------------------------------------------------
+
+    def spar(self, addr, body, verb):
+        """One handler for all five spar verbs. Auth first, ALWAYS — a spar
+           route must be exactly as hard to reach as a save route, or it
+           becomes the soft way in."""
+        who = self.authed(addr, body)
+        if who is None:
+            return
+        key, name = who
+
+        if verb == "open":
+            code, err = ROOMS.open(key, name)
+            if err:
+                return self.fail(429 if err is E_ROOMS else 400, err)
+            return self.reply(200, {"ok": True, "code": code, "seat": 0})
+
+        code = body.get("code")
+        if not isinstance(code, str) or not (1 <= len(code) <= 12):
+            return self.fail(400, E_BAD_JSON)
+        code = code.upper()
+
+        if verb == "join":
+            got, err = ROOMS.join(code, key, name)
+            if err:
+                return self.fail(404 if err is E_ROOM else 409, err)
+            return self.reply(200, {"ok": True, "seat": got["seat"], "room": got["room"]})
+
+        if verb == "leave":
+            ROOMS.leave(code, key)
+            return self.reply(200, {"ok": True})
+
+        if verb == "act":
+            blob = body.get("act")
+            # Opaque, but SIZE-CAPPED and shape-checked. The relay never reads
+            # a move; it only refuses to carry something absurd.
+            try:
+                raw = json.dumps(blob, separators=(",", ":"))
+            except (TypeError, ValueError):
+                return self.fail(400, E_BAD_JSON)
+            if len(raw.encode("utf-8")) > Q.MAX_ACT:
+                return self.fail(413, E_BIG)
+            got, err = ROOMS.act(code, key, blob)
+            if err:
+                return self.fail(404, err)
+            return self.reply(200, {"ok": True, "n": got["n"]})
+
+        if verb == "poll":
+            after = body.get("after")
+            after = after if isinstance(after, int) and after >= 0 else 0
+            got, err = ROOMS.since(code, key, after)
+            if err:
+                return self.fail(404, err)
+            return self.reply(200, {"ok": True, "acts": got["acts"], "n": got["n"],
+                            "room": got["room"]})
+
+        return self.fail(404, "No such route.")
 
     def rpg_pull(self, addr, body):
         who = self.authed(addr, body)
