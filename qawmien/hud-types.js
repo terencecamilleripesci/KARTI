@@ -61,12 +61,18 @@ const HUDT = (() => {
     DMG_FLASH_MS: 120,           /* white flash on damage               */
     DMG_SHAKE_MS: 250,           /* ±3px shake on damage (motion-gated) */
     CRIT_PULSE_MS: 1200,         /* low-hp pulse loop (motion-gated)    */
-    /* fluid colour by hp fraction — colour + fill LEVEL together, so
-       meaning never rides on colour alone */
+    /* HP IS RED. It read as blue at full health, which every other game
+       has trained players to read as mana — the one thing this orb is not.
+       So the fluid is blood-red throughout and DARKENS as it drains: bright
+       and alive when full, deep and dull when nearly gone.
+
+       The fill LEVEL still carries the information on its own, so nothing
+       here depends on telling two reds apart — the darkening is mood, not
+       meaning, which keeps it readable for colour-blind players. */
     hpColor(frac) {
-      if (frac > 0.6) return C.you;      /* healthy — the player's blue */
-      if (frac > 0.3) return C.gold;     /* wounded                     */
-      return C.foe;                      /* critical                    */
+      if (frac > 0.6) return '#F0434F';  /* full — bright arterial red  */
+      if (frac > 0.3) return '#C22A3C';  /* wounded — deeper, dulling   */
+      return '#8E1B2A';                  /* critical — dark, almost out */
     }
   };
 

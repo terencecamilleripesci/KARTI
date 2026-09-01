@@ -20,7 +20,8 @@
    Settings actions are handled internally.
 
    The crystal ball is a canvas: fluid level = hp/hpMax, colour from
-   HUDT.ORB.hpColor (blue → gold → red, colour + level always together),
+   HUDT.ORB.hpColor (red throughout, darkening as it drains; the fill
+   LEVEL carries the meaning so nothing rides on colour alone),
    sine-wave surface, specular glass, the number outlined in bg so it
    stays ≥4.5:1 on any fluid. Its rAF pauses on document.hidden and is
    never attached to the page's game loop. Under reduced motion the
@@ -673,7 +674,12 @@ window.HUD = (function () {
       leftBtn.type = 'button';
       leftBtn.id = 'hud-bag';
       leftBtn.className = 'hud-btn';
-      leftBtn.textContent = 'Bag';
+      /* ICONS, NOT WORDS. The bar is five things wide on a 350px phone; two
+         text labels ate the room the orbs needed and read as buttons in a
+         form rather than a game HUD. The aria-label carries the meaning for
+         anyone who cannot see the glyph, so nothing is lost by dropping it
+         from the face. */
+      leftBtn.innerHTML = ICON.bag;
       leftBtn.setAttribute('aria-label', 'Open inventory');
       leftBtn.addEventListener('click', () => { sfx('tap'); fire('bag'); });
 
@@ -681,11 +687,26 @@ window.HUD = (function () {
       rightBtn.type = 'button';
       rightBtn.id = 'hud-hero';
       rightBtn.className = 'hud-btn';
-      rightBtn.textContent = 'Hero';
+      rightBtn.innerHTML = ICON.hero;
       rightBtn.setAttribute('aria-label', 'Open character sheet');
       rightBtn.addEventListener('click', () => { sfx('tap'); fire('hero'); });
     }
   }
+
+  /* The two explore-bar glyphs. Stroke icons at the same weight as the
+     settings gear, so the three chrome buttons read as one family. */
+  const ICON = {
+    bag: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.9" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M5 8h14l-1.2 11.2a2 2 0 0 1-2 1.8H8.2a2 2 0 0 1-2-1.8Z"/>' +
+      '<path d="M9 8V6.2A3 3 0 0 1 12 3a3 3 0 0 1 3 3.2V8"/></svg>',
+    hero: '<svg viewBox="0 0 24 24" width="26" height="26" fill="none" ' +
+      'stroke="currentColor" stroke-width="1.9" stroke-linecap="round" ' +
+      'stroke-linejoin="round" aria-hidden="true">' +
+      '<circle cx="12" cy="7.6" r="3.6"/>' +
+      '<path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></svg>'
+  };
 
   function fire(action, arg) { if (onAction) onAction(action, arg); }
 

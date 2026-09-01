@@ -385,16 +385,19 @@ const WORLD = (() => {
     if (SPRITE.retryFailed) SPRITE.retryFailed();
   }
 
-  /* every RUIN_ARCH in decor is a doorway: remember which walkable tile
+  /* every arch in decor (RUIN_ARCH 11, or its +c-wall mirror 7) is a
+     doorway: remember which walkable tile
      it opens onto (the floor its light spills across) and whether it
      leads OUTDOORS — via its own exit marker or its wall's edge seam —
      so the opening can read as daylight instead of torchlight */
   function findDoors(m){
     const found = [];
-    const ARCH = (WT.TILES && WT.TILES.RUIN_ARCH) || 11;
+    const ARCH_R = (WT.TILES && WT.TILES.RUIN_ARCH) || 11; /* wall along +r */
+    const ARCH_C = 7;                    /* mirror variant, wall along +c   */
     for (let r = 0; r < m.h; r++)
       for (let c = 0; c < m.w; c++){
-        if (m.decor[r][c] !== ARCH) continue;
+        const t = m.decor[r][c];
+        if (t !== ARCH_R && t !== ARCH_C) continue;
         let dc = 0, dr = 0;
         if (WT.isWalkable(m, c - 1, r)) dc = -1;
         else if (WT.isWalkable(m, c + 1, r)) dc = 1;
@@ -404,7 +407,8 @@ const WORLD = (() => {
           k.type === 'exit' && k.c === c && k.r === r);
         const ed = WT.edgeDir(m, c, r);
         const to = (mk && mk.to) || (ed && m.neighbours[ed]) || '';
-        found.push({ c, r, dc, dr, out: /^field/.test(to) });
+        found.push({ c, r, dc, dr, sgn: t === ARCH_C ? -1 : 1,
+                     out: /^field/.test(to) });
       }
     return found;
   }
@@ -632,7 +636,7 @@ const WORLD = (() => {
        right on top of its tile so the exit reads as a way OUT. Later
        queue entries never overlap the opening (it faces the viewer). */
     for (const d of doors)
-      if (d.out) drawDaylight(g, WT.isoX(d.c, d.r), WT.isoY(d.c, d.r));
+      drawDoorLight(g, WT.isoX(d.c, d.r), WT.isoY(d.c, d.r), d.sgn, d.out, breathe);
   }
 
   /* the pool of light a doorway throws on the floor in front of it */
@@ -640,7 +644,7 @@ const WORLD = (() => {
     const cx = WT.isoX(d.c + d.dc * 0.65, d.r + d.dr * 0.65);
     const cy = WT.isoY(d.c + d.dc * 0.65, d.r + d.dr * 0.65);
     const warm = !d.out;
-    const a = (warm ? 0.24 : 0.15) + 0.09 * breathe;
+    const a = (warm ? 0.34 : 0.26) + 0.11 * breathe;
     g.save();
     g.globalCompositeOperation = 'lighter';
     g.translate(cx, cy);
@@ -648,7 +652,7 @@ const WORLD = (() => {
     /* warm pools throw a little further: the ruin-01 arch sits one tile
        past the right edge of a 430px view at spawn, and this glow bleeding
        in from off-screen is what tells the player the way on is east */
-    const R = TW * (warm ? 1.55 : 1.15);
+    const R = TW * (warm ? 1.75 : 1.45);
     const gr = g.createRadialGradient(0, 0, 2, 0, 0, R);
     gr.addColorStop(0, warm ? 'rgba(255,176,84,' + a + ')'
                             : 'rgba(186,216,255,' + a + ')');
@@ -660,22 +664,57 @@ const WORLD = (() => {
     g.restore();
   }
 
-  /* pale sky filling an outdoor arch opening (atlas cell x 42..88,
-     y 26..118 → board offsets at SCALE 0.5 around the tile centre) */
-  function drawDaylight(g, x, y){
-    const l = x - 10.5, rgt = x + 11.5, top = y - 27, bot = y + 17.5;
-    g.save();
+  /* Light IN the opening — the wayfinding the owner approved ("back turned,
+     walking toward the light"), so it has to be present and strong.
+
+     The opening is cut into the wall's sloped face (tools/mkatlas.py
+     img_arch), gate height 30 over a wall of 16.  In board px from the tile
+     centre: base(u) = (sgn*30u, 23-23u), u in [0.20,0.80], arched head
+     AH(u) = 22 - 7*t², t = (u-0.5)/0.30.  This path is inset just inside
+     the painted jambs and voussoirs. */
+  function archPath(g, x, y, sgn){
+    const s = sgn || 1, u0 = 0.225, u1 = 0.775;
+    const bx = u => x + s * 30 * u, by = u => y + 23 - 23 * u;
     g.beginPath();
-    g.moveTo(l, bot);
-    g.lineTo(l, top + 9);
-    g.quadraticCurveTo(l, top, x + 0.5, top);
-    g.quadraticCurveTo(rgt, top, rgt, top + 9);
-    g.lineTo(rgt, bot);
+    g.moveTo(bx(u0), by(u0));
+    for (let k = 0; k <= 16; k++){
+      const u = u0 + (u1 - u0) * k / 16, t = (u - 0.5) / 0.30;
+      g.lineTo(bx(u), by(u) - (20.5 - 7 * t * t));
+    }
+    g.lineTo(bx(u1), by(u1));
     g.closePath();
-    const gr = g.createLinearGradient(0, top, 0, bot);
-    gr.addColorStop(0, 'rgba(201,226,255,0.95)');
-    gr.addColorStop(0.62, 'rgba(232,238,232,0.92)');
-    gr.addColorStop(1, 'rgba(250,238,196,0.95)');
+  }
+
+  /* daylight for an arch that leads outdoors, torchlight from the room
+     beyond for one that does not — plus a bloom around the opening so the
+     way out is findable at phone size without hunting for it */
+  function drawDoorLight(g, x, y, sgn, out, breathe){
+    g.save();
+    /* (1) bloom: a soft halo spilling out of the opening onto the stone */
+    const bl = (out ? 0.30 : 0.20) + 0.07 * breathe;
+    const R = TW * 0.78;
+    const gb = g.createRadialGradient(x, y - 4, 1, x, y - 4, R);
+    gb.addColorStop(0, out ? 'rgba(226,240,255,' + bl + ')'
+                           : 'rgba(255,182,96,' + bl + ')');
+    gb.addColorStop(1, 'rgba(0,0,0,0)');
+    g.globalCompositeOperation = 'lighter';
+    g.fillStyle = gb;
+    g.beginPath(); g.arc(x, y - 4, R, 0, Math.PI * 2); g.fill();
+    /* (2) the opening itself, filled */
+    g.globalCompositeOperation = 'source-over';
+    archPath(g, x, y, sgn);
+    const gr = g.createLinearGradient(0, y - 22, 0, y + 20);
+    if (out){
+      gr.addColorStop(0, 'rgba(201,226,255,0.96)');
+      gr.addColorStop(0.60, 'rgba(232,238,232,0.94)');
+      gr.addColorStop(1, 'rgba(250,238,196,0.96)');
+    } else {
+      /* torchlight from the next room: dark at the head, hot at the floor,
+         so it still reads as a hole and not a lamp stuck on the wall */
+      gr.addColorStop(0, 'rgba(40,24,16,0.92)');
+      gr.addColorStop(0.52, 'rgba(150,73,26,0.90)');
+      gr.addColorStop(1, 'rgba(255,190,104,0.94)');
+    }
     g.fillStyle = gr;
     g.fill();
     g.restore();
@@ -721,7 +760,7 @@ const WORLD = (() => {
     16:'#4c7a3f',17:'#487239',18:'#548243',19:'#7a5a3a',20:'#8a8578',
     21:'#2f5d8a',22:'#6e6a63',23:'#8a6a45'
   };
-  const FB_TALL = { 8:1,9:1,10:1,11:1,24:1,25:1,26:1,27:1,28:1,29:1,31:1 };
+  const FB_TALL = { 7:1,8:1,9:1,10:1,11:1,24:1,25:1,26:1,27:1,28:1,29:1,31:1 };
   function diamond(g, x, y){
     g.beginPath();
     g.moveTo(x, y - TH / 2); g.lineTo(x + TW / 2, y);
