@@ -171,33 +171,17 @@
          what keeps those from fighting KARTI's */
       frame.style.cssText = 'flex:1 1 auto;width:100%;border:0;display:block';
 
-      /* A WAY OUT THAT IS ALWAYS THERE. The RPG is full-screen and has no
-         idea KARTI exists, so if this button is ever covered the player is
-         trapped in it. It sits above the frame, inside the safe area. */
-      var x = document.createElement('button');
-      x.type = 'button';
-      x.setAttribute('aria-label', T('Leave Il-Qawmien', 'Oħroġ minn Il-Qawmien'));
-      x.textContent = '✕  KARTI';
-      /* TOP CENTRE, NOT TOP LEFT. The first version sat at 8,8 - directly on
-         top of the RPG's own quest banner, which runs from x10 to x212 at
-         that height. The way out was hidden underneath the game's UI, so
-         opening this door looked like KARTI had vanished and there was no
-         obvious way back. The game keeps its quest pill left and its Bag /
-         Hero buttons right; the centre of that strip is the one part of the
-         RPG's HUD that is always free. It also says KARTI rather than just
-         an X, because "where did my game go" is the actual question. */
-      x.style.cssText =
-        'position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);' +
-        'left:50%;transform:translateX(-50%);z-index:5;' +
-        'min-width:44px;min-height:44px;padding:0 14px;border-radius:12px;' +
-        'cursor:pointer;display:flex;align-items:center;gap:6px;' +
-        'border:1px solid rgba(255,255,255,.22);background:rgba(10,8,20,.92);' +
-        'color:#EDEAF6;font-size:13px;font-weight:800;line-height:1;' +
-        'box-shadow:0 4px 14px rgba(0,0,0,.5)';
-      x.addEventListener('click', close);
+      /* NO EXIT BUTTON OVER THE GAME. There was a "✕ KARTI" pill at the top
+         centre; the owner asked for it gone, and he is right — the RPG's own
+         settings menu carries "Back to KARTI", so a second control floating
+         over the game was a duplicate sitting on top of somebody's artwork.
+
+         TWO WAYS OUT REMAIN, and neither is decorative:
+           · the gear menu inside the game, which posts qawmien:close to us
+           · Android back / browser back, wired below via popstate
+         So the player is never trapped even though nothing is drawn here. */
 
       wrap.appendChild(frame);
-      wrap.appendChild(x);
       document.body.appendChild(wrap);
       document.documentElement.style.overflow = 'hidden';
       /* listen for the frame's hello BEFORE it can possibly boot */
