@@ -272,11 +272,32 @@ window.SELECTUI = (function () {
         }
       });
     }
+    /* the still standing pose, measured rather than guessed */
+    function hold() {
+      if (!actor) return;
+      SP.play(actor, 'idle', true);
+      actor.frame = (actor.stand && actor.stand[0] != null) ? actor.stand[0] : 0;
+      actor.clip = 'idle';
+      actor.t = 0;
+      actor.done = false;
+      actor.paused = true;      /* honoured by tick() below, not by sprite.js */
+    }
+
     function mount(base, sil, playIntro) {
       actor = SP.spawn(base);
       silhouette = sil;
-      SP.play(actor, 'idle', true);
-      if (REDUCED) { actor.frame = (actor.stand && actor.stand[0]) || 0; return; }
+      /* STANDING IS A POSE, NOT A LOOP — the owner's rule: a character stands
+         still and it is WALKING that animates. This looped the idle row
+         forever, so the creator's resting state was a character permanently
+         fidgeting while you tried to judge it.
+         The frame held is the MEASURED standing frame (sprite.js stand[]),
+         not frame 0: in a walk cycle frame 0 is a contact pose with a foot in
+         the air, and holding it is what made everything look like it was
+         hovering. The world already does exactly this when the player stops
+         moving; the creator now agrees with it, so the character you pick is
+         the character you see. */
+      hold();
+      if (REDUCED) return;
       /* ONE SWING, THEN STAND. The owner's note is that Dofus keeps this
          simple: a character shows you what it is once and then settles. The
          intro used to fire on every class tap AND every gender tap, so
@@ -286,9 +307,10 @@ window.SELECTUI = (function () {
          character genuinely changes, and idle is the resting state. */
       if (playIntro) {
         SP.play(actor, 'attack', true);
+        actor.paused = false;
         const mine = actor;
         setTimeout(function () {
-          if (actor === mine && actor.clip === 'attack') SP.play(actor, 'idle', true);
+          if (actor === mine && actor.clip === 'attack') hold();
         }, 900);
       }
     }
@@ -336,9 +358,14 @@ window.SELECTUI = (function () {
       const dt = Math.min(100, t - last); last = t;
       if (actor) {
         const idling = actor.clip === 'idle';
-        if (!(REDUCED && idling)) SP.step(actor, dt);
+        /* STANDING DOES NOT TICK. `paused` is this screen's own flag — sprite.js
+           has no such thing, so setting it without honouring it here left the
+           character fidgeting exactly as before. Freezing the step is what
+           actually holds the pose; the walk and the one intro swing still
+           animate, which is the whole distinction the owner drew. */
+        if (!(REDUCED && idling) && !actor.paused) SP.step(actor, dt);
         if (actor.done && !idling) {
-          SP.play(actor, 'idle', true);
+          hold();
           if (REDUCED) actor.frame = (actor.stand && actor.stand[0]) || 0;
         }
       }
