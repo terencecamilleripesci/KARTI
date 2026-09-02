@@ -82,6 +82,7 @@ const WORLD = (() => {
      "load" and "already have" the same call, so nothing ever re-fetches. */
   function mapAssets(m, low){
     const out = [ atlasFor(m.atlas || WT.ATLAS_SRC, low) ];
+    if (m.bg) out.push(atlasFor(m.bg, low));   /* painted background, if any */
     for (const mk of m.markers || [])
       if ((mk.type === 'npc' || mk.type === 'fight') && mk.sprite)
         out.push(sheetFor(mk.sprite, low));
@@ -291,6 +292,11 @@ const WORLD = (() => {
     actors = [];
     for (const mk of live){
       if (mk.type !== 'npc' && mk.type !== 'fight') continue;
+      /* a marker with NO sprite (Vell, Sula) must not ask for
+         art/undefined-dir8.png — that 404 counted as a wanted file and
+         wedged the loading gate on "one file failed". No sheet: the
+         actor still stands (and blocks) as the fallback blob. */
+      if (!mk.sprite){ actors.push({ mk, s: null }); continue; }
       const s = SPRITE.spawn(sheetFor(mk.sprite));
       const D = SPRITE.DIR[mk.dir] || SPRITE.DIR.S;
       s.clip = 'walk.' + D.row; s.frame = 0;   /* frozen; stand frame set on ready */
@@ -712,6 +718,25 @@ const WORLD = (() => {
     return pool[k];
   }
 
+  /* WHAT THE SURROUND IS MADE OF: this map's own commonest grounds, so the
+     edge of the world looks like the world. Cached per map — counting tiles
+     every frame for sixty frames a second would be absurd. */
+  const SURROUND = {};
+  function surroundTiles(m){
+    if (SURROUND[m.id]) return SURROUND[m.id];
+    const n = {};
+    for (let r = 0; r < m.h; r++)
+      for (let c = 0; c < m.w; c++){
+        const i = m.ground[r][c];
+        /* water and the cliff rim are the island's EDGE — repeating them
+           outward would draw a sea of cliffs rather than more country */
+        if (!i || i === WT.TILES.WATER || i === WT.TILES.CLIFF) continue;
+        n[i] = (n[i] || 0) + 1;
+      }
+    const best = Object.keys(n).map(Number).sort((a, b) => n[b] - n[a]).slice(0, 3);
+    return (SURROUND[m.id] = best.length ? best : [WT.TILES.GRASS]);
+  }
+
   function draw(g){
     fit(g.canvas);
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -753,7 +778,70 @@ const WORLD = (() => {
       g.canvas.height / 2 - camera.y * dpr * s);
     const atlas = ATLASES[map.atlas || WT.ATLAS_SRC];
 
-    /* (a) ground, row-major, through the variant pools */
+    /* (a-1) THE PAINTED MAP (ISLAND_DESIGN.md: Dofus maps are PAINTINGS).
+       A map that declares `bg` is drawn as ONE illustration — generated
+       from its own blockout template (tools/blockout.py --map <id>), so
+       the picture and block[][] agree by construction. It replaces the
+       surround, the ground loop and the decor layer entirely; markers,
+       actors and the hero still draw on top, and walkability never looks
+       at the picture. The rect is shared arithmetic with the template
+       generator: board x spans twice the diamond's width, the image
+       keeps its 1536:1024 aspect, and the diamond sits centred
+       vertically. While the picture is still loading (or failed), the
+       tile renderer below carries on as before — pop-in, not a void. */
+    let bgUp = false;
+    if (map.bg){
+      const b = ATLASES[map.bg] || atlasFor(map.bg);
+      if (b.ready){
+        let R = map._bgRect;
+        if (!R){
+          const span = (map.w + map.h) * (TW / 2);
+          const w = 2 * span, h = w * b.img.height / b.img.width;
+          const cy = (map.w + map.h - 2) * (TH / 2) / 2;
+          R = map._bgRect = { x: -span, y: cy - h / 2, w, h };
+        }
+        g.imageSmoothingEnabled = true;
+        g.drawImage(b.img, R.x, R.y, R.w, R.h);
+        bgUp = true;
+      }
+    }
+
+    /* (a0) THE SURROUND — art out to the screen edge, not a void.
+       A map is a diamond and the projection fixes its bounding box at 62:46,
+       so it can never reach the corners of a wide screen. The mistake was
+       treating that leftover as background and painting it: Dofus does not
+       leave a void there, it CARRIES THE SCENERY OUT TO THE EDGE and the
+       diamond is merely where you may walk.
+
+       So the same iso lattice is continued past the map on every side, filled
+       with the map's own ground, until the screen is covered. Nothing here is
+       walkable and nothing is stored — it is drawn from the map's existing
+       tiles, so every screen gets a surround that matches it without a single
+       byte of new data. Drawn FIRST, so the real map and everything standing
+       on it paints over the top.
+
+       The band is derived from the canvas rather than fixed, so a wider phone
+       gets more of it instead of running out. */
+    if (!bgUp && atlas && atlas.ready) {
+      const halfW = (g.canvas.width  / (dpr * s)) / 2;
+      const halfH = (g.canvas.height / (dpr * s)) / 2;
+      /* how far out, in tiles, the corners of the viewport reach */
+      const pad = Math.ceil((halfW / (TW / 2) + halfH / (TH / 2)) / 2) + 2;
+      const fill = surroundTiles(map);
+      for (let r = -pad; r < map.h + pad; r++)
+        for (let c = -pad; c < map.w + pad; c++){
+          if (r >= 0 && r < map.h && c >= 0 && c < map.w) continue;  /* the map */
+          const x = WT.isoX(c, r), y = WT.isoY(c, r);
+          if (Math.abs(x - camera.x) > halfW + TW ||
+              Math.abs(y - camera.y) > halfH + TH) continue;         /* off screen */
+          const i = fill[(((c * 7 + r * 13) % fill.length) + fill.length) % fill.length];
+          WT.drawTile(g, atlas.img, i, x, y);
+        }
+    }
+
+    /* (a) ground, row-major, through the variant pools — baked into the
+       picture when a painted background is up */
+    if (!bgUp)
     for (let r = 0; r < map.h; r++)
       for (let c = 0; c < map.w; c++){
         const i = map.ground[r][c];
@@ -782,6 +870,7 @@ const WORLD = (() => {
     /* (b) decor + actors, one list sorted by depth (c+r); the player
        uses its interpolated depth; ties draw decor first */
     const q = [];
+    if (!bgUp)                          /* decor is baked into the painting */
     for (let r = 0; r < map.h; r++)
       for (let c = 0; c < map.w; c++){
         const i = map.decor[r][c];
@@ -916,6 +1005,11 @@ const WORLD = (() => {
   function drawActor(g, a){
     const D = SPRITE.DIR[a.mk.dir] || SPRITE.DIR.S;
     const s = a.s;
+    if (!s){                            /* sprite-less marker: the blob */
+      fbBlob(g, WT.isoX(a.mk.c, a.mk.r), WT.isoY(a.mk.c, a.mk.r),
+             a.mk.type === 'fight' ? '#c25b5b' : '#c2a85b');
+      return;
+    }
     if (s.ready && !s._stood){          /* measured both-feet-down frame */
       s.clip = 'walk.' + D.row;
       s.frame = (s.stand && s.stand[D.row] != null) ? s.stand[D.row] : 0;

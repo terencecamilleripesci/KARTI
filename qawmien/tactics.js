@@ -1520,6 +1520,14 @@ function drawUnit(u, c, r){
 /* keep the bob, the flash, the sprite playheads and the shots alive */
 let lastT = performance.now();
 let paused = false;
+/* hold a sprite on its standing frame — the pose a character keeps whenever
+   nothing is happening to it. */
+function holdStill(s){
+  if (!s) return;
+  s.frame = (s.stand && s.stand[0] != null) ? s.stand[0] : 0;
+  s.t = 0;
+}
+
 function loop(now){
   now = now || performance.now();
   /* PAUSED MEANS PAUSED, not hidden. The rotate gate covers the fight with a
@@ -1531,13 +1539,21 @@ function loop(now){
   const dt = Math.min(64, now - lastT); lastT = now;
   if (G && G.units) for (const u of G.units){
     if (!u.spr) continue;
-    /* ONLY THE UNIT WHOSE TURN IT IS BREATHES.
-       Four idles cycling at once is restless — the eye cannot tell who is
-       acting, which is the one thing a turn-based board must make obvious.
-       Everyone else holds a still frame, so the moving figure IS the
-       turn indicator. A unit mid-action (walking, swinging, being hit,
-       dying) keeps animating whoever's turn it is, because that is a
-       consequence playing out and must never be frozen. */
+    /* NOBODY BREATHES. STANDING IS A POSE.
+       The owner's rule, and it is Dofus's: a character animates when it MOVES
+       or ATTACKS, and otherwise holds a position. Not in the overworld, not in
+       combat, not while it is someone's turn.
+
+       This used to breathe the active unit as a turn indicator. That is a
+       real problem solved the wrong way — the turn is already shown by the
+       turn strip, the highlighted tiles and the spell bar, and an idling
+       sprite is a fourth signal nobody asked for. Costing frames of art and
+       CPU for it is exactly the complexity the owner is cutting: the more
+       elaborate the RPG, the less of it is worth the time.
+
+       A unit MID-ACTION still animates — walking, swinging, being hit, dying
+       are consequences playing out and must never freeze. That is the whole
+       distinction: motion is for things that are happening. */
     /* standing still? then turn and look at your enemy. A unit that is
        mid-walk or mid-swing keeps the facing its action gave it. */
     const busyNow = (anim && anim.u === u) || (u.spr.clip !== 'idle' && !u.spr.done);
@@ -1550,8 +1566,16 @@ function loop(now){
        that behind your back. The AI has no orders to remember, so it
        tracks its target instead. */
     if (!busyNow && u.hp > 0 && (u.side !== 0 || u.auto)) watchFoe(u);
-    const acting = (G.units[G.turn] === u) || busyNow;
-    if (!acting){ u.spr.frame = 0; if (u.dspr) u.dspr.frame = 0; continue; }
+    /* mid-action only. Whose turn it is no longer makes a sprite move. */
+    if (!busyNow){
+      /* the MEASURED standing frame, not frame 0: in a walk cycle frame 0 is
+         a contact pose with a foot in the air, and holding it is what made
+         everything look like it was hovering (see sprite.js standingFrames). */
+      holdStill(u.spr);
+      if (u.dspr) holdStill(u.dspr);
+      if (u.ispr) holdStill(u.ispr);
+      continue;
+    }
     /* WHILE WALKING, THE LEGS ARE DRIVEN BY THE MOVEMENT, NOT BY A CLOCK.
        A tile takes 210ms and a six-frame cycle on a timer takes 750ms, so a
        single-tile move used to start the walk, get 1.7 frames in, and snap

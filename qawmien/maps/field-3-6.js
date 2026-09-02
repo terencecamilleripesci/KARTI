@@ -6,6 +6,14 @@
 window.MAPS = window.MAPS || {};
 window.MAPS['field-3-6'] = {
   id: 'field-3-6', w: 10, h: 10, atlas: 'art/world.png',
+  /* THE PAINTED-MAP PILOT (ISLAND_DESIGN.md "maps are PAINTINGS").
+     One illustration replaces the drawn ground+decor; it was generated
+     from this map's own blockout template (tools/blockout.py --map
+     field-3-6), so the art agrees with block[][] by construction.
+     block/markers/neighbours below still rule walkability, untouched.
+     NOTE for regeneration: mkworld.py does not know this key yet — if
+     the world is regenerated, re-add `bg` here. */
+  bg: 'art/bg/field-3-6.jpg',
   ground: [
     [20,20,20,20,20,20,20,16,20,16],
     [20,20,20,20,20,20,20,20,20,20],
