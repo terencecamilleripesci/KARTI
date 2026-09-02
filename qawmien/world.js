@@ -112,6 +112,33 @@ const WORLD = (() => {
      the right amount when you come back. */
   setInterval(() => { try { window.HERO && HERO.regen && HERO.regen(); } catch (e) {} }, 3000);
 
+  /* ── worn overlay images ──────────────────────────────────────────
+     SPRITE.make wants layers that are ALREADY loaded, on purpose: a sheet
+     that waits on an image is a character who does not appear. So gear art
+     is cached here, and only the layers that have actually arrived are
+     handed over. When a late one finishes it clears the cache key, and the
+     next frame rebuilds the sprite with it — the cap simply pops on a beat
+     later instead of holding the whole character hostage.
+
+     A piece whose art is missing loads nothing and is skipped forever,
+     which is the right failure: gear that has not been drawn yet should
+     look like gear that has not been drawn yet, not like a broken hero. */
+  const wearCache = Object.create(null);
+  function wearLayers(urls){
+    const out = [];
+    for (const u of urls){
+      let e = wearCache[u];
+      if (!e){
+        e = wearCache[u] = { img: new Image(), ok: false, bad: false };
+        e.img.onload  = () => { e.ok = true; heroSheetKey = ''; };
+        e.img.onerror = () => { e.bad = true; };
+        e.img.src = u;
+      }
+      if (e.ok) out.push(e.img);
+    }
+    return out;
+  }
+
   function heroSprites(){
     const hs = (window.HERO && window.HERO.sheets) ? window.HERO.sheets()
       : { dir8: 'art/hero-dir8.png', idle: 'art/hero-idle.png' };
@@ -119,14 +146,24 @@ const WORLD = (() => {
        sheets must be rebuilt, or the player picks a colour and nothing
        happens, which reads as a broken picker rather than a cache */
     const tint = (window.HERO && HERO.appearance) ? HERO.appearance() : null;
+    /* WHAT IS WORN IS PART OF THE KEY TOO, for exactly the reason the tint
+       is: equip a cap, and if the cache does not notice, nothing happens on
+       screen and the inventory reads as broken. The gear list is asked for
+       per sheet kind because the walk sheet and the action sheet have
+       separate overlays. */
+    const P = window.PLAYER;
+    const gender = (window.HERO && HERO.gender) || 'm';
+    const wearD = (window.GEAR && P) ? GEAR.sheets(P.equip, gender, 'dir8') : [];
+    const wearI = (window.GEAR && P) ? GEAR.sheets(P.equip, gender) : [];
     const key = hs.dir8 + '|' + (hs.idle || '') + '|' +
-                (tint ? tint.hair + tint.skin + tint.eyes : '');
+                (tint ? tint.hair + tint.skin + tint.eyes + tint.cloth : '') +
+                '|' + wearD.join(',') + '|' + wearI.join(',');
     if (hero.dspr && key === heroSheetKey) return;
     heroSheetKey = key;
     hero.dspr = SPRITE.make(hs.dir8,
-      { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR, tint });
+      { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR, tint, wear: wearLayers(wearD) });
     hero.ispr = hs.idle ? SPRITE.make(hs.idle,
-      { cols: 6, rows: 4, clips: SPRITE.CLIPS_IDLE, tint }) : null;
+      { cols: 6, rows: 4, clips: SPRITE.CLIPS_IDLE, tint, wear: wearLayers(wearI) }) : null;
     hero.dspr.clip = 'walk.0';
     if (hero.ispr) hero.ispr.clip = 'idle.0';
   }
@@ -449,8 +486,37 @@ const WORLD = (() => {
       if (nmap) return transfer(toId, WT.edgeTarget(ed, c, r, nmap));
     }
     const mk = markerAtLive(c, r);
-    if (mk && mk.type === 'exit' && window.MAPS && window.MAPS[mk.to])
+    if (mk && mk.type === 'exit' && window.MAPS && window.MAPS[mk.to]) {
+      /* THE LEVEL GATE on a dungeon mouth. The crypt is built for 10 and the
+         necropolis for 25; walking into either at level 3 is not a challenge,
+         it is a loading screen followed by a defeat. Turned away AT the door
+         with the number said out loud, so it reads as "not yet" rather than
+         as a broken exit — the player is standing on a glowing portal and
+         something has to explain why nothing happened. */
+      const need = mk.need | 0;
+      if (need && window.HERO && (HERO.level | 0) < need) {
+        if (window.PANELS && PANELS.toast)
+          PANELS.toast((mk.name || 'This way') + ' is sealed until level ' +
+                       need + '. You are ' + (HERO.level | 0) + '.');
+        return;
+      }
+      /* THE KEY IS THE DOOR; THE LEVEL IS ONLY A FLOOR. A bare level gate
+         made the whole island skippable — nothing between the ruin and the
+         crypt had to be touched. The key is bought from the tavern with coins
+         the monsters paid for, so the open world is the way in. It is
+         CONSUMED here, which is what makes a run a decision rather than a
+         habit and stops one purchase opening the crypt forever. */
+      if (mk.dungeon && window.SHOP) {
+        const k = SHOP.useKey(mk.dungeon);
+        if (!k.ok) {
+          if (window.PANELS && PANELS.toast)
+            PANELS.toast('The way is locked. ' + (k.key ? k.key.name : 'A key') +
+                         ' is sold at the tavern in Wayrest.');
+          return;
+        }
+      }
       return transfer(mk.to, mk.at);
+    }
 
     if (!hero.path.length && hero.goal){
       const g = hero.goal;
@@ -649,8 +715,37 @@ const WORLD = (() => {
   function draw(g){
     fit(g.canvas);
     g.setTransform(1, 0, 0, 1, 0, 0);
-    g.fillStyle = '#0d0f14';
-    g.fillRect(0, 0, g.canvas.width, g.canvas.height);
+    /* THE VOID THE ISLAND FLOATS IN, not an empty frame.
+       A map is a diamond and the projection fixes its bounding box at 62:46,
+       so on a landscape phone it can never reach the left and right edges —
+       there will ALWAYS be a wedge of surround, and Dofus fills that with
+       sky rather than leaving it black. Flat #0d0f14 read as "the map failed
+       to fill the screen"; a sky reads as height, which is what a floating
+       island is supposed to have.
+       Painted straight to the canvas in device pixels, before the camera
+       transform, so it costs one gradient regardless of zoom. */
+    const H = g.canvas.height, Wd = g.canvas.width;
+    let sky = g._sky;
+    if (!sky || g._skyH !== H) {
+      sky = g.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0.00, '#171a2e');       /* upper air, cold          */
+      sky.addColorStop(0.55, '#101324');
+      sky.addColorStop(1.00, '#080a14');       /* the drop below the island */
+      g._sky = sky; g._skyH = H;
+    }
+    g.fillStyle = sky;
+    g.fillRect(0, 0, Wd, H);
+    /* a soft light behind the island so it sits IN the sky rather than on it */
+    let glow = g._glow;
+    if (!glow || g._glowH !== H) {
+      glow = g.createRadialGradient(Wd / 2, H * 0.52, 0,
+                                    Wd / 2, H * 0.52, Math.max(Wd, H) * 0.62);
+      glow.addColorStop(0, 'rgba(120,140,210,0.16)');
+      glow.addColorStop(1, 'rgba(120,140,210,0)');
+      g._glow = glow; g._glowH = H;
+    }
+    g.fillStyle = glow;
+    g.fillRect(0, 0, Wd, H);
     if (!map) return;
     const s = camera.scale;
     g.setTransform(dpr * s, 0, 0, dpr * s,

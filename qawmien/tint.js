@@ -35,7 +35,8 @@ const TINT = (() => {
 
 /* Defaults, used before the player has chosen and by anything that draws a
    generic character (the Caretaker's summoning circle preview, say). */
-const DEFAULTS = { hair: '#6B4022', skin: '#E0B088', eyes: '#3A6EA8' };
+const DEFAULTS = { hair: '#6B4022', skin: '#E0B088', eyes: '#3A6EA8',
+                   cloth: '#C8C4BA' };   /* undyed, until a class says otherwise */
 
 /* PRESETS the picker offers. Deliberately a short list: a colour wheel is a
    worse experience than eight good choices, and every extra option is one
@@ -69,6 +70,24 @@ function isCyan(r, g, b)    { return r < 100 && g > 150 && b > 150 && r < g * 0.
 function isMagenta(r, g, b) { return r > 110 && b > 110 && g < Math.max(60, r * 0.55); }
 function isGreen(r, g, b)   { return g > 100 && r < g * 0.72 && b < g * 0.72; }
 
+/* CLOTH is what is left over. The base sheets wear a plain off-white
+   undergarment and nothing else, so every pixel that is not hair, skin or
+   eyes is either that garment or the black ink outline — and the two are
+   far apart in brightness (measured: outline under 70 luminance, garment
+   over 160). So cloth is 'not a key colour, and light enough to be fabric'.
+
+   THIS IS WHAT MAKES ONE POSE SERVE TEN CLASSES. Rather than drawing ten
+   characters and hoping their poses match — which failed: five of ten
+   drifted, and shifting them mechanically helped some and harmed others —
+   the game ships TWO base sheets and paints the class onto them. The poses
+   are then identical by construction rather than by inspection, which is
+   the only version of this that gear can be built on. */
+function lum(r, g, b) { return (r * 299 + g * 587 + b * 114) / 1000; }
+function isCloth(r, g, b) {
+  return lum(r, g, b) > 90 && !isCyan(r, g, b) &&
+         !isMagenta(r, g, b) && !isGreen(r, g, b);
+}
+
 /* how dark this pixel was drawn, 0.35..1, from the key's own brightness */
 function litness(r, g, b) {
   const m = Math.max(r, g, b) || 255;
@@ -92,6 +111,7 @@ function recolour(img, choice) {
 
   const px = d.data;
   const hairC = hex(c.hair), skinC = hex(c.skin), eyesC = hex(c.eyes);
+  const clothC = c.cloth ? hex(c.cloth) : null;
   for (let i = 0; i < px.length; i += 4) {
     if (px[i + 3] < 40) continue;
     const r = px[i], gg = px[i + 1], b = px[i + 2];
@@ -99,6 +119,7 @@ function recolour(img, choice) {
     if (isCyan(r, gg, b)) t = eyesC;
     else if (isMagenta(r, gg, b)) t = hairC;
     else if (isGreen(r, gg, b)) t = skinC;
+    else if (clothC && isCloth(r, gg, b)) t = clothC;
     if (!t) continue;
     const f = litness(r, gg, b);
     px[i]     = Math.min(255, t[0] * f) | 0;
@@ -131,7 +152,40 @@ function isKeyed(img) {
   } catch (e) { return false; }
 }
 
-return { DEFAULTS, HAIR, SKIN, EYES, recolour, isKeyed };
+/* ── GEAR: LAYERS ON THE SAME GRID ─────────────────────────────────
+   A piece of gear is a sheet with the SAME 6x4 grid as the body, drawn on
+   the same pose, transparent everywhere it does not cover. Wearing it is
+   then just drawing it over the body, cell for cell — no offsets, no
+   per-frame maths, nothing to get wrong.
+
+   That is the whole reason the ten separately-drawn class sheets were
+   abandoned for two shared bases: gear can only be this simple when every
+   character stands in the same place. One drawing per item per gender,
+   fitting every class and every race that shares the frame.
+
+   Gear is tinted too, so a bronze helm and an iron one are one drawing and
+   two colours. */
+function dress(baseCanvas, layers) {
+  if (!layers || !layers.length) return baseCanvas;
+  const cv = document.createElement('canvas');
+  cv.width = baseCanvas.width; cv.height = baseCanvas.height;
+  const g = cv.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.drawImage(baseCanvas, 0, 0);
+  for (const L of layers) {
+    if (!L || !L.img) continue;
+    /* a layer that is not the same size is a layer drawn for a different
+       body — refuse it rather than stretch it into place, because a
+       stretched helmet looks like a bug and a missing one looks like art
+       that has not arrived yet */
+    if (L.img.width !== cv.width || L.img.height !== cv.height) continue;
+    const src = L.tint ? recolour(L.img, L.tint) : L.img;
+    g.drawImage(src, 0, 0);
+  }
+  return cv;
+}
+
+return { DEFAULTS, HAIR, SKIN, EYES, recolour, isKeyed, dress };
 })();
 
 if (typeof window !== 'undefined') window.TINT = TINT;

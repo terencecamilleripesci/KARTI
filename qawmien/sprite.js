@@ -175,6 +175,19 @@ function make(src, opts){
       if (opts.tint && window.TINT && TINT.isKeyed(im)){
         try { s.img = TINT.recolour(im, opts.tint); } catch (e) {}
       }
+      /* GEAR goes on after the tint, so the body is the player's colours and
+         the gear carries its own. Layers arrive already loaded — a sheet must
+         never wait on an image that may never come. */
+      if (opts.wear && opts.wear.length && window.TINT && TINT.dress){
+        try {
+          const canv = (s.img instanceof Image)
+            ? (() => { const c = document.createElement('canvas');
+                       c.width = s.img.width; c.height = s.img.height;
+                       c.getContext('2d').drawImage(s.img, 0, 0); return c; })()
+            : s.img;
+          s.img = TINT.dress(canv, opts.wear);
+        } catch (e) {}
+      }
       /* the cell size is DERIVED, never hard-coded — swap in a bigger sheet
          and nothing else has to change */
       s.cw = Math.floor(im.width / s.cols);

@@ -1,0 +1,39 @@
+<!doctype html><meta charset=utf-8><title>RUN</title>
+<!-- THE TAVERN CHAIN: earn coins, buy a key, spend it at the door.
+     chromium --headless --no-sandbox --disable-gpu --virtual-time-budget=5000
+              --dump-dom .../tests/shop.html   (clears localStorage) -->
+<script src="../purse.js"></script><script src="../shop.js"></script>
+<script>
+const out=[]; let bad=0;
+function ok(c,m){ if(!c){out.push('FAIL '+m);bad++;} }
+try{localStorage.clear()}catch(e){}
+window.PLAYER={level:12,items:[]};
+/* broke: every price refuses, and says what it costs */
+let v=SHOP.canBuy('crypt-key',12,0);
+ok(!v.ok,'bought a key with no coins');
+ok(/costs 120/.test(v.why),'refusal does not say the price: '+v.why);
+/* level is still a floor — coins cannot buy your way past it */
+ok(!SHOP.canBuy('necro-key',12,9999).ok,'level 12 bought the necropolis key');
+ok(/level 25/.test(SHOP.canBuy('necro-key',12,9999).why),'no level in the reason');
+/* earn, then buy */
+let got=0; for(let i=0;i<40;i++) got+=PURSE.earn(PURSE.forKill(10),'t');
+ok(got>=120,'could not earn a key in 40 kills (got '+got+')');
+const before=PURSE.balance();
+const r=SHOP.buy('crypt-key',12);
+ok(r.ok,'buy failed: '+r.why);
+ok(PURSE.balance()===before-120,'price not deducted');
+ok(PLAYER.items.some(i=>i.id==='crypt-key'),'key not in the bag');
+/* the door consumes it */
+ok(SHOP.hasKey('sunken-crypt'),'hasKey says no');
+ok(SHOP.useKey('sunken-crypt').ok,'door refused a held key');
+ok(!SHOP.hasKey('sunken-crypt'),'key survived the door — one buy opens it forever');
+ok(SHOP.useKey('sunken-crypt').ok===false,'door opened without a key');
+/* a dungeon with no key defined is not gated by accident */
+ok(SHOP.useKey('nowhere').ok,'an ungated dungeon was gated');
+/* a refused buy must not take coins */
+const b2=PURSE.balance();
+SHOP.buy('necro-key',12);
+ok(PURSE.balance()===b2,'a refused purchase still charged');
+out.push('earned '+got+', key bought and consumed');
+document.title=(bad?'HASFAIL ':'ALLPASS ')+out.join(' | ');
+</script>

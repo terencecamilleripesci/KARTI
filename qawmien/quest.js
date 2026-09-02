@@ -11,10 +11,17 @@
 
    Steps (id / goal / completed by / reward):
      0 wake   Speak with the Caretaker   glue: onNpc elder  -> advance(1)  3x Potion
-     1 bones  Beat the training dummy    glue: combat won   -> advance(2)  25 XP + beginner gear
+     1 bones  Beat the training dummy    glue: combat won   -> advance(2)  25 XP
               (id stays 'bones' — world.html's win glue keys off it)
-     2 leave  Leave the ruin (east)      glue: onExit ruin  -> advance(3)  50 xp
-   done at step 3.
+     2 leave  Leave the ruin (east)      glue: onExit ruin  -> advance(3)  50 XP
+     3 outfit Speak with Vell on the road onNpc outfitter   -> advance(4)  25 XP
+              + the whole NOVICE SET (cap, cloak, belt, boots)
+   done at step 4.
+
+   The gear used to be step 1's reward and was two items that wore into no
+   slot and drew on no sprite. It now comes from an old man standing two
+   tiles from where the ruin spits you out, so the first thing the open world
+   does is visibly dress the character.
 
    Persistence: quest progress (step, intro-seen, granted rewards, combat
    lessons) survives reload via localStorage. QUEST.reset() wipes it for tests.
@@ -35,14 +42,19 @@ window.QUEST = (function () {
     { id: 'wake',  goal: 'Speak with the Caretaker',
       reward: { items: [ { id: 'potion', name: 'Potion', qty: 3,
                            note: 'Restores 30 HP.' } ] } },
+    /* THE GEAR MOVED OUT OF THE RUIN. This step used to hand over a Worn
+       Blade and a Padded Tunic — two items that existed nowhere else, wore
+       into no slot and drew on no sprite. The owner's design puts the real
+       reward outside instead: an old man on the road gives the whole novice
+       set at once, so the first thing that happens in the open world is the
+       character visibly changing. The dummy now pays only XP, which is what
+       a training dummy should pay. */
     { id: 'bones', goal: 'Knock the stuffing out of the training dummy',
-      reward: { xp: 25, items: [
-        { id: 'worn-blade',   name: 'Worn Blade',   qty: 1,
-          note: 'Beginner gear. It has seen better centuries.' },
-        { id: 'padded-tunic', name: 'Padded Tunic', qty: 1,
-          note: 'Beginner gear. Still leaking practice straw.' } ] } },
+      reward: { xp: 25 } },
     { id: 'leave', goal: 'Leave the ruin — head east',
-      reward: { xp: 50 } }
+      reward: { xp: 50 } },
+    { id: 'outfit', goal: 'Speak with Vell on the road',
+      reward: { xp: 25, set: 'novice' } }
   ];
 
   /* ── the training dummy dresses the map's practice fight ─────────
@@ -72,8 +84,8 @@ window.QUEST = (function () {
   /* ── state (persisted) ────────────────────────────────────────── */
   let S = fresh();
   function fresh() {
-    return { step: 0, intro: false,
-             granted: [false, false, false],
+    return { step: 0, intro: false, metKeeper: false,
+             granted: [false, false, false, false],
              lessons: { move: false, cast: false, turn: false } };
   }
   function save() {
@@ -87,6 +99,8 @@ window.QUEST = (function () {
       S = {
         step: Math.max(0, Math.min(STEPS.length, d.step | 0)),
         intro: !!d.intro,
+        /* without this the keeper re-introduces herself on every reload */
+        metKeeper: !!d.metKeeper,
         granted: f.granted.map((_, i) => !!(d.granted && d.granted[i])),
         lessons: { move: !!(d.lessons && d.lessons.move),
                    cast: !!(d.lessons && d.lessons.cast),
@@ -119,12 +133,33 @@ window.QUEST = (function () {
     if (i < 0 || i >= STEPS.length || S.granted[i]) return;
     S.granted[i] = true;
     const rw = STEPS[i].reward, P = window.PLAYER, got = [];
-    /* rewards are XP and ITEMS only — never currency. See world-types.js:
-       the wallet belongs to KARTI, and a reward that mints a second one
-       would have to be unpicked when this ships. */
-    if (rw.xp && P)   { P.xp += rw.xp;     got.push(rw.xp + ' XP'); }
+    /* QUEST rewards are XP and ITEMS. Coins exist in the game now — monsters
+       drop them and the tavern takes them — but they are paid by purse.js at
+       the end of a FIGHT, through KARTI's own wallet verbs and under a daily
+       ceiling. A quest that also minted coins would be a second faucet with
+       no ceiling on it, so the split is deliberate: fights pay coins, quests
+       pay XP and goods.
+       (This comment used to say "never currency". That was true while the RPG
+       was standalone and could not reach a real wallet; the owner has since
+       decided coins are used throughout. See TAVERN.md.) */
+    /* XP GOES THROUGH HERO.gainXp, NOT `P.xp +=`. Written the direct way it
+       looked fine and was quietly broken: gainXp is the only thing that
+       checks the curve, so tutorial XP accumulated without ever levelling
+       anyone up. A player could finish the whole tutorial and still be
+       level 1 with 100 XP sitting in a number nobody reads. */
+    if (rw.xp) {
+      if (window.HERO && HERO.gainXp) HERO.gainXp(rw.xp);
+      else if (P) P.xp += rw.xp;
+      got.push(rw.xp + ' XP');
+    }
     if (rw.items) for (const it of rw.items) {
       giveItem(it); got.push(it.qty > 1 ? it.qty + 'x ' + it.name : it.name);
+    }
+    /* A WHOLE SET, handed over at once. The catalogue is the single source
+       of what a set contains, so adding a fifth piece later is a data edit
+       in gear.js and this keeps working. */
+    if (rw.set && window.GEAR) for (const g of GEAR.set(rw.set)) {
+      giveItem(GEAR.record(g)); got.push(g.name);
     }
     if (got.length) {
       toast('Received: ' + got.join(', '), 3500);
@@ -208,6 +243,32 @@ window.QUEST = (function () {
     holdFight: [
       'Hold, summonling! Speak with me before you square up to anything — even the straw.'
     ],
+    /* Vell, on the road. He gives the whole novice set in one breath — the
+       first thing the open world does is dress the character, so the player
+       SEES their choice pay off before anything tries to kill them. */
+    outfit0: [
+      'Another one out of the old ruin. That makes four this season.',
+      'You will not last the afternoon dressed like that. Here — cap, cloak, belt, boots. They were a set once and they still nearly are.',
+      'No, I do not want anything for them. Wear them, and mind the goats on the terraces. They are worse than they look.'
+    ],
+    outfit1: [
+      'Suits you well enough. Head east when you are ready — and open your bag, the gear does nothing sitting in it.'
+    ],
+    /* Sula, behind the bar in Wayrest. She is the reason the village exists:
+       the crypt key comes from her, so the island has to be walked before the
+       dungeon can be entered. */
+    keeper0: [
+      'You are the one the Caretaker sent. Sit, then — no, do not, you are dripping.',
+      'There is a crypt under the eastern shore, and something in it that used to be a gaoler. It drowned. It did not stop.',
+      'Bring me its head and I will stop hearing it at night. You will want a key: cold iron, and I am the only one on this rock who has any.'
+    ],
+    keeperShop: [
+      'Bread, potions, and keys. Coin first — I have heard every story there is.'
+    ],
+    keeperDone: [
+      'The Warden is quiet. I slept, for the first time in a season.',
+      'The Necropolis is still singing, mind. When you are ready for that, I have a key for it too.'
+    ],
     lost: 'Beaten… catch your breath and try the dummy again.',
     outro: [
       'Sunlight. Wind. An open sky that goes on forever.',
@@ -218,6 +279,12 @@ window.QUEST = (function () {
     'The Caretaker': ['art/skelmage-dir8.png', 6, 4],
     'Training Dummy': ['art/dummy-dir8.png', 6, 4]
   };
+
+  /* the tavern stock, once she has said her piece */
+  function openShop(m){
+    if (window.PANELS && PANELS.openShop) { PANELS.openShop(m.name); return; }
+    if (window.PANELS && PANELS.toast) PANELS.toast('The shop is not open yet.');
+  }
 
   /* onNpc routing. Returns true if QUEST handled the tap (dialogue shown /
      blocked); false means the glue should proceed (start the fight). */
@@ -231,6 +298,28 @@ window.QUEST = (function () {
       else if (S.step === 1) say(m.name, LINES.elder1);
       else if (S.step === 2) say(m.name, LINES.elder2);
       else                   say(m.name, LINES.elder3);
+      return true;
+    }
+    /* Vell, outside the ruin. advance(3) is what grants the set, and it only
+       fires on the step that is actually next — talk to him a second time and
+       advance() refuses, so the set cannot be farmed by re-tapping him. */
+    /* Sula the Keeper: the quest first, then the shop. Tapping her opens the
+       stock rather than repeating herself, because a shopkeeper who makes you
+       sit through a speech every visit is a shopkeeper you stop visiting. */
+    if (m.type === 'npc' && m.id === 'keeper') {
+      const done = window.SHOP && !SHOP.hasKey('sunken-crypt') &&
+                   S.step >= STEPS.length;
+      if (!S.metKeeper) {
+        S.metKeeper = true; save();
+        say(m.name, LINES.keeper0, () => openShop(m));
+      } else {
+        say(m.name, LINES.keeperShop, () => openShop(m));
+      }
+      return true;
+    }
+    if (m.type === 'npc' && m.id === 'outfitter') {
+      if (S.step === 3) say(m.name, LINES.outfit0, () => advance(4));
+      else              say(m.name, LINES.outfit1);
       return true;
     }
     if (m.type === 'fight') {

@@ -32,6 +32,14 @@
      clear of the bar before the grow animation even starts (§7.1). */
   #wrap{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto;
     padding-bottom:var(--hud-bar-h,134px)}
+  /* SIDEWAYS, THE BOARD GETS THE WHOLE SCREEN. The 560px cap is a portrait
+     measure — it keeps a tall phone's board from stretching absurdly wide.
+     Held sideways that same cap would waste a third of an 844px screen and
+     shrink the map for no reason, when width is the dimension we have to
+     spare and height is the one we do not. */
+  @media (orientation:landscape){
+    #wrap{max-width:none}
+  }
 
   /* ── the board ── */
   #boardwrap{flex:1 1 auto;position:relative;min-height:0}
@@ -57,6 +65,14 @@
   .btn.go{background:linear-gradient(180deg,#FFD979,#FFC542);color:#1A1206;border:0;
     box-shadow:0 6px 18px -8px rgba(255,197,66,.85)}
 
+  #ready{position:absolute;inset:0;display:none;place-items:end center;
+    background:linear-gradient(to top,rgba(8,6,16,.9),rgba(8,6,16,0) 46%);
+    z-index:6;padding-bottom:18px}
+  #ready.on{display:grid}
+  #ready .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    padding:16px 18px;text-align:center;max-width:300px}
+  #ready h2{margin:0 0 4px;font-size:20px}
+  #ready p{margin:0 0 12px;color:var(--dim);font-size:13px}
   #over{position:absolute;inset:0;display:none;place-items:center;background:rgba(8,6,16,.82);
     backdrop-filter:blur(3px);z-index:5}
   #over.on{display:grid}
@@ -85,11 +101,26 @@
 <link rel="stylesheet" href="hud.css">
 </head>
 <body>
+<script src="landscape.js"></script>
+<script>
+/* THE GATE, before anything draws. Combat pauses under the card rather than
+   hiding behind it: a fight left running is still stepping timers, and when
+   the phone comes back the camera must re-measure for the new viewport
+   instead of resuming at the old one. */
+LANDSCAPE.start(function (blocked) {
+  try { if (window.TACTICS && TACTICS.setPaused) TACTICS.setPaused(blocked); } catch (e) {}
+  if (!blocked) window.dispatchEvent(new Event('resize'));
+});
+</script>
 <div id="wrap">
   <div id="boardwrap">
     <canvas id="cv"></canvas>
     <div id="float"></div>
     <div id="toast"></div>
+    <div id="ready"><div class="card">
+      <h2>Ready?</h2><p id="readysub">—</p>
+      <button class="btn go" id="readygo" type="button">Ready</button>
+    </div></div>
     <div id="over"><div class="card">
       <h2 id="ovt">—</h2><p id="ovp">—</p>
       <div id="ovbtns"><button class="btn go" id="done" type="button">OK</button><button class="btn ghost" id="again" type="button">Again</button></div>
@@ -99,6 +130,13 @@
 <script src="hud-types.js"></script>
 <script src="hud.js"></script>
 <script src="sprite.js"></script>
+<!-- GEAR is needed HERE, not only in world.html. Combat runs as an iframe and
+     fightSpoils() rolls the drop tables inside it; without this the roll is
+     guarded away and enemies silently never drop anything — the same trap that
+     once had end-of-battle XP granted into the wrong window. It is pure data
+     with no DOM, so loading it twice costs nothing. -->
+<script src="purse.js"></script><!-- the one door to KARTI coins -->
+<script src="gear.js"></script>
 <script src="tactics.js"></script>
 </body>
 </html>

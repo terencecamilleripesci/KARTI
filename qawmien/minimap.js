@@ -113,16 +113,44 @@ window.MINIMAP = (function () {
       }
     /* where does the ruin wing attach? the exit marker that leaves the
        field grid for a non-field map is the causeway (fallback: row 6) */
+    /* THE RUIN WING IS NOT "EVERY MAP THAT IS NOT A FIELD". It was written
+       that way while the ruin was the only thing off the grid; the moment the
+       two dungeons landed, all eight of their rooms joined the ruin wing and
+       the chart tried to draw a two-room wing containing ten rooms.
+       A dungeon is anything reachable through a GATED exit — data, not a name,
+       so a third dungeon classifies itself. Dungeons are deliberately absent
+       from the chart: they are interiors, and the world map draws the world. */
     let anchor = { x: 0, y: 6 }, ruinIds = [];
+    const dungeon = {};
+    (function () {
+      const q = [];
+      for (const id in MS)
+        for (const mk of (MS[id].markers || []))
+          if (mk.type === 'exit' && mk.need && MS[mk.to] && !dungeon[mk.to]) {
+            dungeon[mk.to] = 1; q.push(mk.to);
+          }
+      while (q.length) {                       /* follow the doors inward */
+        const id = q.pop();
+        for (const mk of (MS[id].markers || []))
+          if (mk.type === 'exit' && MS[mk.to] && !dungeon[mk.to] &&
+              !/^field-/.test(mk.to)) { dungeon[mk.to] = 1; q.push(mk.to); }
+      }
+    })();
     for (let i = 0; i < (IX.list || []).length; i++)
-      if (!/^field-/.test(IX.list[i])) ruinIds.push(IX.list[i]);
+      if (!/^field-/.test(IX.list[i]) && !dungeon[IX.list[i]])
+        ruinIds.push(IX.list[i]);
+    /* the CAUSEWAY anchor must be the way to the ruin, not a dungeon mouth.
+       This took the first off-grid exit it found, which after the dungeons
+       landed could be a mouth — and the wing would then be drawn hanging off
+       a crypt door on the wrong side of the island. */
     outer:
     for (let gy = 0; gy < rows; gy++)
       for (let gx = 0; gx < cols; gx++) {
         const m = MS[grid[gy][gx]];
         const mks = (m && m.markers) || [];
         for (let k = 0; k < mks.length; k++)
-          if (mks[k].type === 'exit' && mks[k].to && !/^field-/.test(mks[k].to)) {
+          if (mks[k].type === 'exit' && mks[k].to && !mks[k].need &&
+              !/^field-/.test(mks[k].to)) {
             anchor = { x: gx * sx + mks[k].c, y: gy * sy + mks[k].r };
             break outer;
           }

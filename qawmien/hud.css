@@ -382,3 +382,45 @@ body:has(#dlg.on) #hud-bar{transform:translateY(calc(100% + 40px))}
   .soc-back,.soc-sheet{transition:none}
   .soc-sheet{transform:none}
 }
+
+/* ── LANDSCAPE: the bar floats over the map, it does not push it up ──
+   The game is played sideways, where a phone gives about 390px of height and
+   a 10x10 map needs 414 at scale 1. The bottom bar claims 134 of that through
+   --hud-bar-h, which left the board 256px and forced the map down to 0.62
+   scale — a smaller map than PORTRAIT gave, which defeats the entire reason
+   for turning the phone.
+
+   So sideways the bar stops reserving space and floats over the board
+   instead, the way Dofus lays its UI over the map. The map gets the full
+   height and the bar sits on the empty triangles the projection leaves at
+   the bottom corners — a diamond in a wide frame never fills them anyway.
+
+   Only the RESERVATION changes. The bar keeps its size, its hit targets and
+   its z-index, so nothing about touching it changes. */
+@media (orientation:landscape) and (max-height:520px){
+  #wrap{padding-bottom:0}
+  #hud-bar{
+    background:linear-gradient(180deg,rgba(38,31,72,.72),rgba(23,19,49,.90) 60%);
+    border-top:1px solid rgba(255,255,255,.10);
+  }
+  /* the panels still need to clear it, or a sheet opens underneath the bar */
+  #panels{padding-bottom:var(--hud-bar-h,134px)}
+}
+
+/* ── the tavern shop ── */
+#shop{z-index:44}
+#shop header{display:flex;align-items:center;gap:10px}
+#shop .sh-bal{margin-left:auto;font-weight:800;color:var(--gold, #FFC542);
+  font-variant-numeric:tabular-nums}
+#shop .sh-list{display:flex;flex-direction:column;gap:8px;padding:10px 0}
+#shop .sh-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;
+  text-align:left;padding:10px 12px;border-radius:12px;
+  border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.05);
+  color:inherit;font:inherit;cursor:pointer}
+#shop .sh-row:active{transform:scale(.99)}
+/* A PRICE YOU CANNOT PAY STAYS READABLE. Fading a row to 38% hid the very
+   number the player needs in order to know what to go and earn. */
+#shop .sh-row.off{opacity:.72;cursor:not-allowed}
+#shop .sh-n{font-weight:700}
+#shop .sh-p{font-weight:800;color:var(--gold,#FFC542);font-variant-numeric:tabular-nums}
+#shop .sh-d{grid-column:1/-1;font-size:12.5px;color:var(--dim,#9C97B8)}

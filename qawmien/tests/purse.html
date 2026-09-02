@@ -1,0 +1,34 @@
+<!doctype html><meta charset=utf-8><title>RUN</title>
+<!-- THE PURSE, tested standalone. Serve the game root and open with:
+     chromium --headless --no-sandbox --disable-gpu --virtual-time-budget=5000
+              --dump-dom .../tests/purse.html
+     It clears localStorage, so run it against a scratch profile, not a save
+     you care about. -->
+<script src="../purse.js"></script>
+<script>
+const out=[]; let bad=0;
+function ok(c,m){ if(!c){out.push('FAIL '+m);bad++;} }
+try{localStorage.clear()}catch(e){}
+ok(PURSE.live()===false,'should be standalone here');
+ok(PURSE.balance()===0,'fresh purse not 0');
+/* deeper country pays better, which is what makes moving on worth doing */
+ok(PURSE.forKill(2) < PURSE.forKill(12),'deeper mobs pay no better');
+/* THE DAILY CEILING IS THE POINT. KARTI's own games taper their payouts and
+   are balanced against that taper; a respawning monster that pays every time
+   is a faucet the taper never sees. */
+let paid=0, asked=0;
+for(let i=0;i<400;i++){ const n=PURSE.forKill(10); asked+=n; paid+=PURSE.earn(n,'t'); }
+ok(paid<asked,'ceiling never bit: paid '+paid+' of '+asked);
+ok(PURSE.headroom()===0,'headroom should be spent, got '+PURSE.headroom());
+ok(PURSE.earn(50,'t')===0,'earned past the ceiling');
+ok(PURSE.balance()===paid,'balance '+PURSE.balance()+' != paid '+paid);
+/* spending is all or nothing: a half-paid price with no goods is worse than
+   a refusal, and a refusal must not move the balance */
+const b=PURSE.balance();
+ok(PURSE.spend(b+1,'t').ok===false,'overspent');
+ok(PURSE.balance()===b,'a refused spend changed the balance');
+ok(PURSE.spend(10,'t').ok===true,'could not spend what we have');
+ok(PURSE.balance()===b-10,'spend did not deduct');
+out.push('ceiling held at '+paid+' of '+asked+' rolled');
+document.title=(bad?'HASFAIL ':'ALLPASS ')+out.join(' | ');
+</script>

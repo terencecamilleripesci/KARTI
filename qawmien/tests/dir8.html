@@ -1,0 +1,66 @@
+<!doctype html><meta charset=utf-8><title>RUN</title>
+<!-- ALL EIGHT DIRECTIONS, WITH GEAR ON.
+     The sheet draws four facings and the engine mirrors three of them, so
+     "8-direction" is a claim about DIR + draw(flip) rather than about the art.
+     This checks the claim: every direction draws something substantial, each
+     mirrored pair is the same size and leans the opposite way, and gear
+     travels with the body — it is composited into the sheet before the flip,
+     so a cloak cannot desync from the character wearing it.
+
+     Serve the game root and open with:
+       chromium --headless --no-sandbox --disable-gpu \
+         --virtual-time-budget=15000 --dump-dom .../tests/dir8.html
+     --dump-dom alone snapshots before the images finish loading; virtual time
+     is what lets the async settle. -->
+<canvas id=cv width=200 height=200></canvas>
+<script src="../tint.js"></script><script src="../sprite.js"></script>
+<script src="../classes.js"></script><script src="../gear.js"></script>
+<script>
+const out=[]; let bad=0;
+function ok(c,m){ if(!c){ out.push('FAIL '+m); bad++; } }
+const G=window.GEAR;
+const equip={}; G.set('novice').forEach(i=>equip[i.slot]={id:i.id});
+const urls=G.sheets(equip,'m','dir8').map(u=>'../'+u);
+let left=urls.length; const layers=[];
+urls.forEach(u=>{ const im=new Image();
+  im.onload=()=>{ layers.push(im); if(!--left) go(); };
+  im.onerror=()=>{ out.push('LOADFAIL '+u); bad++; if(!--left) go(); };
+  im.src=u; });
+let SPR=null;
+function go(){
+  ok(layers.length===4,'only '+layers.length+' of 4 gear layers loaded');
+  SPR=SPRITE.make('../art/base-m-dir8.png',{cols:6,rows:4,
+     clips:SPRITE.CLIPS_DIR,
+     tint:{hair:'#6B4022',skin:'#E0B088',eyes:'#3A6EA8',cloth:'#6E7A63'},
+     wear:layers, onready:()=>shoot()});
+}
+function shoot(){
+  const g=document.getElementById('cv').getContext('2d');
+  const dirs=Object.keys(SPRITE.DIR);
+  ok(dirs.length===8,'DIR has '+dirs.length+' entries, expected 8');
+  const sig={};
+  for(const d of dirs){
+    const D=SPRITE.DIR[d];
+    SPR.clip='walk.'+D.row; SPR.frame=0;
+    g.clearRect(0,0,200,200);
+    ok(SPRITE.draw(g,SPR,100,190,0.7,D.flip), d+' did not draw at all');
+    const px=g.getImageData(0,0,200,200).data;
+    let n=0,cx=0;
+    for(let i=0;i<px.length;i+=4) if(px[i+3]>40){ n++; cx+=(i>>2)%200; }
+    ok(n>500,d+' drew almost nothing ('+n+'px)');
+    sig[d]={n:n,cx:n?Math.round(cx/n):0,row:D.row,flip:!!D.flip};
+  }
+  /* a mirrored pair is the same drawing reflected: same pixel count, and its
+     centre of mass the same distance the OTHER side of the axis */
+  for(const [a,b] of [['SE','SW'],['E','W'],['NE','NW']]){
+    ok(Math.abs(sig[a].n-sig[b].n)<=2,a+'/'+b+' differ in size: '+sig[a].n+' vs '+sig[b].n);
+    ok(Math.abs((sig[a].cx-100)+(sig[b].cx-100))<=3,
+       a+'/'+b+' are not mirrored: cx '+sig[a].cx+' vs '+sig[b].cx);
+  }
+  /* N has no drawing of its own — it borrows NE. A known compromise of a
+     four-row sheet, asserted so it stays a decision and not a surprise. */
+  ok(sig.N.row===sig.NE.row && !sig.N.flip,'N should reuse the NE drawing');
+  out.push(dirs.map(d=>d+'=r'+sig[d].row+(sig[d].flip?'M':'')+':'+sig[d].n).join(' '));
+  document.title=(bad?'HASFAIL ':'ALLPASS ')+out.join(' | ');
+}
+</script>

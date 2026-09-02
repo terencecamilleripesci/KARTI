@@ -97,11 +97,24 @@ window.HERO = (function () {
       const past = v => at(v).filter(L => P.level >= L).length;
       P.ap = c.base.ap + past(g.apAt);
       P.mp = c.base.mp + past(g.mpAt);
-      /* panels.js reads elemental stats; the mapping is CLASSES.STAT_OF_ELEM */
-      P.stats.earth = st.str | 0;
-      P.stats.fire  = st.int | 0;
-      P.stats.water = st.cha | 0;
-      P.stats.air   = st.agi | 0;
+      /* GEAR ADDS TO THE CHARACTER, it never replaces them — and it is
+         applied AFTER the class has derived everything from the level, so
+         taking a cloak off leaves exactly the character who put it on. The
+         bonus is never written into P; it is added on top of a fresh
+         derivation every time, which is what keeps refresh() safe to call
+         as often as anything likes.
+
+         vit is hit points one for one (CLASSES.maxHp), so it has to be
+         folded into hpMax HERE. Anywhere later and a player equips a +42
+         vit shroud and watches their health bar not move.
+
+         panels.js reads elemental stats; the mapping is CLASSES.STAT_OF_ELEM */
+      const gb = (window.GEAR && GEAR.bonus) ? GEAR.bonus(P.equip) : null;
+      P.hpMax += gb ? (gb.vit | 0) : 0;
+      P.stats.earth = (st.str | 0) + (gb ? gb.str | 0 : 0);
+      P.stats.fire  = (st.int | 0) + (gb ? gb.int | 0 : 0);
+      P.stats.water = (st.cha | 0) + (gb ? gb.cha | 0 : 0);
+      P.stats.air   = (st.agi | 0) + (gb ? gb.agi | 0 : 0);
     } else {
       P.name = 'Hero';
       P.hpMax = 100; P.ap = 6; P.mp = 3;
@@ -327,8 +340,12 @@ window.HERO = (function () {
        been through the picker yet. */
     appearance() {
       const d = (window.TINT && TINT.DEFAULTS) || {};
+      const c = cls();
       return { hair: S.look.hair || d.hair, skin: S.look.skin || d.skin,
-               eyes: S.look.eyes || d.eyes };
+               eyes: S.look.eyes || d.eyes,
+               /* the CLASS supplies the cloth colour — it is what turns one
+                  base body into a warden or a tidebinder */
+               cloth: (c && c.cloth) || d.cloth };
     },
     setAppearance(look) {
       if (!look) return;
@@ -364,6 +381,17 @@ window.HERO = (function () {
     sheets() {
       const c = cls();
       if (!c) return { dir8: DEF.dir8, idle: DEF.idle, action: DEF.action };
+      /* ONE BODY PER GENDER. Every class is the same two sheets wearing a
+         different colour — see tint.js. Drawing ten characters and hoping
+         their poses matched did not work (five of ten drifted), and gear
+         cannot be shared across poses that disagree. So the class lives in
+         the tint, not in the file name.
+         Falls back to the per-class sheets if the bases are not installed,
+         so this can land before the art does. */
+      const base = 'art/base-' + S.gender;
+      if (window.BASE_SHEETS !== false)
+        return { dir8: base + '-dir8.png', idle: null,
+                 action: base + '-sheet.png' };
       const s = c.look[S.gender].sheet;
       return { dir8: 'art/' + s + '-dir8.png', idle: null,
                action: 'art/' + s + '-sheet.png' };

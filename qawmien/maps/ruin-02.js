@@ -53,7 +53,7 @@ window.MAPS['ruin-02'] = {
   markers: [
     { type:'fight', id:'bones', name:'Restless Bones', c:5, r:4,
       sprite:'skeleton', dir:'SW', foes:['grunt'] },
-    { type:'exit', c:9, r:5, to:'field-0-0', at:{ c:1, r:6 } }
+    { type:'exit', c:9, r:5, to:'field-2-1', at:{ c:2, r:5 } }
   ],
   neighbours: { n:null, e:null, s:null, w:'ruin-01' }
 };

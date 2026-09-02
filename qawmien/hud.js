@@ -215,7 +215,31 @@ window.HUD = (function () {
                        nz(500, 2200, 0.26, 'bandpass', 0.8, 0.5, 0, 0.05); },
     shove:     () => { whoosh(1600, 450, 0.18, 0.55, 0, 0.04); },
     thwack:    () => { nz(600, 250, 0.10, 'lowpass', 0.8, 0.5);  /* padded */
-                       tone(140, 90, 0.10, 'sine', 0, 0.5); }
+                       tone(140, 90, 0.10, 'sine', 0, 0.5); },
+    /* ── the bestiary ──
+       `butt` had no entry and has been silent since the goat was written: an
+       unknown id falls through to the generic soft cast, so a 74hp wall of a
+       creature slamming into you made the noise of a thrown pebble.
+       Horn on bone — a hard woody knock, then the weight behind it. */
+    butt:      () => { thud(150, 0.9, 0.09);
+                       thud(80, 1.2, 0.20, 0.06); },
+    taillash:  () => { whoosh(1500, 500, 0.12, 0.5);             /* dry, quick */
+                       tone(300, 180, 0.10, 'sine', 0.02, 0.35); },
+    /* ── the two dungeon bosses ──
+       Lower and longer than anything on the island. The first time a player
+       meets these, the SOUND is the warning. */
+    undertow:  () => { nz(300, 90, 0.42, 'lowpass', 0.7, 0.6, 0, 0.14);
+                       tone(70, 46, 0.40, 'sine', 0, 0.9);       /* the drag */
+                       tone(105, 69, 0.34, 'sine', 0.06, 0.4); },
+    deadweight:() => { nz(600, 180, 0.14, 'lowpass', 0.7, 0.45);
+                       thud(72, 1.5, 0.30, 0.10); },             /* lift, drop */
+    dirge:     () => { tone(146, 0, 0.50, 'sine', 0, 0.5);       /* held chord */
+                       tone(174, 0, 0.50, 'sine', 0.03, 0.42);
+                       tone(220, 0, 0.46, 'sine', 0.06, 0.34);
+                       nz(400, 180, 0.55, 'lowpass', 0.7, 0.26, 0.10, 0.18); },
+    antiphon:  () => { tone(392, 196, 0.26, 'sawtooth', 0, 0.28); /* sung down */
+                       tone(294, 147, 0.30, 'sawtooth', 0.05, 0.24);
+                       thud(96, 1.1, 0.18, 0.08); }
   };
 
   function sfx(name) {

@@ -78,7 +78,7 @@ window.CLASSES = (function () {
   /* ── the five classes (spec §3, §5, §7) ──────────────────────── */
   const LIST = [
 
-    { id: 'warden', name: 'Warden', element: 'earth', secondary: null,
+    { id: 'warden', cloth: '#6E7A63', name: 'Warden', element: 'earth', secondary: null,
       role: 'melee bruiser',
       tagline: 'The wall that walks.',
       desc: 'Slowest to act, hardest to kill. Drags enemies into reach and breaks them there.',
@@ -111,7 +111,7 @@ window.CLASSES = (function () {
              palette: ['#6b7280', '#5a7d4a', '#3a3f4a', '#f2e6c8'] }
       } },
 
-    { id: 'stormfletch', name: 'Stormfletch', element: 'air', secondary: null,
+    { id: 'stormfletch', cloth: '#C9D2BC', name: 'Stormfletch', element: 'air', secondary: null,
       role: 'ranged attacker',
       tagline: 'Never where the arrow came from.',
       desc: 'Longest reach in the game and fragile up close. Keeping space is the whole class.',
@@ -141,7 +141,7 @@ window.CLASSES = (function () {
              palette: ['#2fa6a0', '#8f9bab', '#f4f7f7', '#e8622d'] }
       } },
 
-    { id: 'cindermancer', name: 'Cindermancer', element: 'fire', secondary: null,
+    { id: 'cindermancer', cloth: '#7A6A62', name: 'Cindermancer', element: 'fire', secondary: null,
       role: 'area caster',
       tagline: 'The ground itself is a weapon.',
       desc: 'Weakest HP in the game and worth it: hits groups, and owns tiles before anyone stands on them.',
@@ -171,7 +171,7 @@ window.CLASSES = (function () {
              palette: ['#e8622d', '#9a938c', '#2e2a28', '#f2c14e'] }
       } },
 
-    { id: 'tidebinder', name: 'Tidebinder', element: 'water', secondary: null,
+    { id: 'tidebinder', cloth: '#8FA9B8', name: 'Tidebinder', element: 'water', secondary: null,
       role: 'support / healer',
       tagline: 'The tide takes, the tide gives back.',
       desc: 'Middling damage, the only healing in the game, and a wave to keep bruisers off your back.',
@@ -201,7 +201,7 @@ window.CLASSES = (function () {
              palette: ['#2b5d8f', '#7fd4c1', '#e8837a', '#f2e6c8'] }
       } },
 
-    { id: 'shepherd', name: 'Shepherd', element: 'earth', secondary: 'air',
+    { id: 'shepherd', cloth: '#CBBE9E', name: 'Shepherd', element: 'earth', secondary: 'air',
       role: 'summoner',
       tagline: 'You are never fighting one of them.',
       desc: 'Fights through the flock: a summoned ram that flanks, blocks and eats hits. An elder of this class summoned YOU into the world.',

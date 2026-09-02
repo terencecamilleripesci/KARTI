@@ -116,6 +116,7 @@ window.SELECTUI = (function () {
       '<section id="info"><p id="feel"></p>' +
         '<div id="pools" aria-label="Starting resources"></div>' +
         '<div id="bars" aria-label="Stat spread"></div>' +
+        '<h3 class="secHd">As you grow</h3><ul id="growth"></ul>' +
         '<h3 class="secHd">Spells</h3><ul id="spells"></ul>' +
         '<div id="infoFade" aria-hidden="true"></div></section>' +
       '<nav id="dock"><div id="rail" role="group" aria-label="Choose a class"></div>' +
@@ -189,9 +190,17 @@ window.SELECTUI = (function () {
       };
     }
 
-    /* ── sheet cache: one SPRITE.make per file, spawn per use ───── */
+    /* ── sheet cache: one SPRITE.make per FILE+TINT, spawn per use ──
+       THE TINT IS PART OF THE KEY. There are only two body files now and the
+       class is a colour applied to them, so caching by file name alone would
+       hand every class whichever tint happened to be built first — pick the
+       warden, then the tidebinder, and see the warden's green again. This is
+       the same cache-key trap world.js hit when gear stopped appearing on
+       equip; the fix is the same and belongs everywhere the body is tinted. */
     const SHEETS = {};                        /* key → {status, base} */
-    function loadSheet(key, cb) {
+    function loadSheet(file, cb) {
+      const t = tintFor();
+      const key = file + '|' + t.hair + t.skin + t.eyes + t.cloth;
       let rec = SHEETS[key];
       if (rec) {
         if (rec.status === 'loading') rec.waiters.push(cb); else cb(rec);
@@ -200,8 +209,17 @@ window.SELECTUI = (function () {
       rec = SHEETS[key] = { status: 'loading', base: null, waiters: [cb] };
       const done = st => { rec.status = st;
         rec.waiters.splice(0).forEach(f => f(rec)); };
-      rec.base = SP.make('art/' + key + '-sheet.png', {
-        cols: 6, rows: 4, tint: LOOK,
+      /* THE PREVIEW MUST BE THE CHARACTER YOU GET. `key` is now
+         base-<gender>, and the CLASS is the cloth colour on top of the
+         shared body — exactly what player.js sheets()/appearance() hand the
+         world. It used to load the per-class sheets (warden-m and friends),
+         which have not been what the game draws since the body/tint split:
+         the creator showed a warden holding an axe and a shield and then
+         spawned you as a plain figure in a green shirt. The owner asked for
+         the creator to show what you will get; this is that, by construction
+         rather than by keeping two lists in step. */
+      rec.base = SP.make('art/' + file + '-sheet.png', {
+        cols: 6, rows: 4, tint: t,
         onready: () => done('ok'),
         onerror: () => done('missing')
       });
@@ -212,8 +230,17 @@ window.SELECTUI = (function () {
     const off = document.createElement('canvas');   /* silhouette pass */
     let actor = null, silhouette = false, seq = 0, booted = false;
 
+    /* the body is shared, so the cache key is the body plus everything that
+       recolours it — change class or hair and this changes with it */
+    let CLOTH = null;
+    function tintFor(){
+      const d = (window.TINT && TINT.DEFAULTS) || {};
+      return Object.assign({}, LOOK, { cloth: CLOTH || d.cloth });
+    }
+
     function setActor(cls, gender, playIntro) {
-      const want = cls.look[gender].sheet;
+      CLOTH = cls.cloth || null;
+      const want = 'base-' + gender;
       const my = ++seq;
       actor = null; silhouette = false;
       $('stageNote').hidden = true;
@@ -223,7 +250,7 @@ window.SELECTUI = (function () {
           mount(rec.base, false, playIntro);
         } else {
           /* honest fallback: the twin's sheet as a silhouette */
-          const alt = cls.look[gender === 'm' ? 'f' : 'm'].sheet;
+          const alt = 'base-' + (gender === 'm' ? 'f' : 'm');
           loadSheet(alt, rec2 => {
             if (my !== seq || !alive) return;
             if (rec2.status === 'ok') {
@@ -312,6 +339,24 @@ window.SELECTUI = (function () {
             b = parseInt(el.color.slice(5, 7), 16);
       root.setProperty('--elc-soft', 'rgba(' + r + ',' + g + ',' + b + ',.26)');
       root.setProperty('--elc-line', 'rgba(' + r + ',' + g + ',' + b + ',.55)');
+
+      /* WHAT YOU ACTUALLY GET. The picker showed where a class starts and
+         nothing about where it goes — so every class read as a stat block
+         rather than a path. These are the real numbers from classes.js and
+         the level curve, not marketing. */
+      {
+        const gr = cls.growth || {}, cap = C.MAX_LEVEL || 200;
+        const list = [];
+        if (gr.hp) list.push(['+' + gr.hp + ' health', 'every level, to ' + cap]);
+        const at = v => (v == null ? [] : (Array.isArray(v) ? v : [v]));
+        at(gr.apAt).forEach(L => list.push(['+1 action point', 'at level ' + L]));
+        at(gr.mpAt).forEach(L => list.push(['+1 movement point', 'at level ' + L]));
+        if (gr.statPoints) list.push(['+' + gr.statPoints + ' stat points', 'every level']);
+        const host = $('growth');
+        if (host) host.innerHTML = list.map(function (x) {
+          return '<li><b>' + x[0] + '</b><span>' + x[1] + '</span></li>';
+        }).join('');
+      }
 
       $('clsName').textContent = cls.name;
       $('elemBadge').className = 'badge';

@@ -191,3 +191,11 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-rad
   box-shadow:0 0 0 2px rgba(255,197,66,.35)}
 .lookSw .sw:focus-visible{outline:2px solid #FFC542;outline-offset:3px}
 @media (max-width:360px){ .lookSw .sw{width:22px;height:22px} }
+
+/* AS YOU GROW — the path, not just the starting line */
+#growth{list-style:none;margin:0 0 4px;padding:0;display:flex;flex-direction:column;gap:4px}
+#growth li{display:flex;justify-content:space-between;gap:12px;font-size:12.5px;
+  padding:5px 9px;border-radius:8px;background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08)}
+#growth li b{font-weight:800;color:var(--ink,#EDEAF6)}
+#growth li span{color:#9C97B8;font-variant-numeric:tabular-nums}

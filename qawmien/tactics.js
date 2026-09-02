@@ -62,7 +62,23 @@ const RULES = {
      the turn before). */
   dummy: { hp: 90,  ap: 4, mp: 1 },
   /* the shepherd's summon (CLASSES.SUMMONS.ram — numbers are the spec's) */
-  ram:   { hp: 40,  ap: 4, mp: 4 }
+  ram:   { hp: 40,  ap: 4, mp: 4 },
+
+  /* ── THE TWO DUNGEON BOSSES ────────────────────────────────────────
+     `big` is a draw multiplier, not a stat: a boss has to READ as a boss
+     from the first frame, before the player has seen a single number.
+
+     The hp figures are set against what a player actually arrives with.
+     At level 10 in the novice set a character has roughly 150-170 hp and
+     lands 25-40 a cast, so 300 is about eight or nine clean turns — long
+     enough to have to think, short enough that losing does not cost an
+     evening. The Choir is set the same way against level 25.
+
+     Both are SLOW on purpose. mp 2 and 3 against a player's 3-5 means the
+     boss cannot simply walk you down, so the fight is a question about
+     position rather than a race of health bars. */
+  warden_boss: { hp: 300, ap: 6, mp: 2, level: 12, big: 1.45 },
+  choir_boss:  { hp: 520, ap: 8, mp: 3, level: 27, big: 1.5 }
 };
 
 /* Spells. `min`/`max` are RANGE in tiles (Chebyshev-free: we use real
@@ -123,12 +139,54 @@ const AI_SPELLS = {
   goat:  [ { id:'butt', name:'Head Butt', ap:4, min:1, max:1, los:false,
              dmg:[10,15], cd:0, elem:'earth',
              hint:'Slow, heavy, and it does not move out of your way.' } ],
-  gecko: [ { id:'lash', name:'Tail Lash', ap:3, min:1, max:2, los:true,
+  /* 'taillash', not 'lash': the tidebinder already owns 'lash', and a shared
+     id makes spellOf() hand this creature her range and her damage. */
+  gecko: [ { id:'taillash', name:'Tail Lash', ap:3, min:1, max:2, los:true,
              dmg:[6,10], cd:0, elem:'air',
-             hint:'Strikes from two tiles and is gone before you turn.' } ]
+             hint:'Strikes from two tiles and is gone before you turn.' } ],
+
+  /* ── THE BOSSES ────────────────────────────────────────────────────
+     A boss is not a monster with a bigger number. Each of these asks one
+     question the island's ordinary fights never ask, and a player who has
+     only ever walked up and swung will lose to it the first time.
+
+     THE DROWNED WARDEN (Sunken Crypt, level 10) asks: can you control
+     where you stand? It is slow (mp 2) and cannot chase, so the whole
+     fight is about distance — and Undertow exists to take that choice
+     away, dragging you back into reach of a melee hit that genuinely
+     hurts. Kiting works, but only if you spend the AP to re-open the gap
+     every single turn. */
+  warden_boss: [
+    { id:'undertow', name:'Undertow', ap:3, min:2, max:5, los:true,
+      dmg:[8,14], cd:2, elem:'water', pull:2,
+      hint:'The water takes hold and drags you two paces closer.' },
+    /* 'deadweight', not 'crush': the warden CLASS already owns 'crush'. */
+    { id:'deadweight', name:'Crushing Weight', ap:4, min:1, max:1, los:false,
+      dmg:[26,38], cd:0, elem:'earth',
+      hint:'What it does to anything within arm’s reach.' }
+  ],
+
+  /* THE UNQUIET CHOIR (Necropolis, level 25) asks the opposite: can you
+     stop bunching up? Dirge is an AoE, so a summoner standing next to
+     their own summon takes it twice. It reaches six tiles and the Choir
+     moves 3, so there is no running out of range — only spreading out.
+     Antiphon is the punish for closing to melee instead. */
+  choir_boss: [
+    { id:'dirge', name:'Dirge', ap:4, min:2, max:6, los:true,
+      dmg:[22,31], cd:1, elem:'air', aoe:1,
+      hint:'A note that lands on everything standing together.' },
+    { id:'antiphon', name:'Antiphon', ap:3, min:1, max:1, los:false,
+      dmg:[30,44], cd:1, elem:'fire', push:2,
+      hint:'Sung into your face, and it shoves you off the note.' }
+  ]
 };
-const ALL_SPELLS = HERO_SPELLS.concat(SPELLS, AI_SPELLS.dummy, AI_SPELLS.ram,
-                                     AI_SPELLS.goat, AI_SPELLS.gecko);
+/* EVERY spell anything can cast, DERIVED. This used to name each creature's
+   list by hand — AI_SPELLS.dummy, .ram, .goat, .gecko — which meant adding a
+   monster required editing a second place with no error if you forgot.
+   spellOf() would simply not find the spell, and a boss would stand there
+   doing nothing with no clue as to why. Deriving it cannot fall behind. */
+const ALL_SPELLS = HERO_SPELLS.concat(SPELLS,
+  ...Object.keys(AI_SPELLS).map(k => AI_SPELLS[k]));
 function aiSpellsOf(u){ return AI_SPELLS[u.kind] || SPELLS; }
 
 function fightRoster(){
@@ -223,7 +281,12 @@ function fit(){
    new one added — without touching a line of combat logic. */
 const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage',
                 sheep:'sheep', dummy:'dummy', ram:'sheep',
-                goat:'goat', gecko:'gecko' };
+                goat:'goat', gecko:'gecko',
+                /* Both bosses have their own sheets now. Promoting them was
+                   one word each here, which is what this indirection is for:
+                   the fights were real and playable for a day before any of
+                   the art existed. */
+                warden_boss:'warden_boss', choir_boss:'choir_boss' };
 
 const SHEETS = {}, DIRS = {}, IDLES = {};
 let SHEET = null, DIRSHEET = null;
@@ -237,7 +300,15 @@ try {
      back to the hero sheet, and if that is missing too, to the drawn
      shapes. */
   const CREATURE_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
-                         goat:1, gecko:1 };
+                         goat:1, gecko:1, warden_boss:1, choir_boss:1 };
+  /* WHICH OF THEM ALSO HAVE A DIRECTIONAL WALK SHEET. Not all do: the goat
+     never had one and the Drowned Warden does not have one yet. The engine
+     copes either way — useDir requires dspr.ready, so a creature without one
+     simply animates from its action sheet — but asking for a file we know is
+     absent means a 404 on every fight containing a goat, and a permanent
+     failure counted against the loading ring. Ask only for what exists. */
+  const DIR8_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
+                     gecko:1 };
   const need = new Set();
   for (const k of fightRoster()) need.add(WEARS[k] || k);
   for (const sp of HERO_SPELLS) if (sp && sp.summon) need.add(WEARS[sp.summon] || sp.summon);
@@ -270,8 +341,9 @@ try {
   DIRSHEET = DIRS.you;
   for (const c of need){
     if (!CREATURE_ART[c] || DIRS[c]) continue;
-    DIRS[c]   = SPRITE.make('art/' + c + '-dir8.png',
-      { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
+    if (DIR8_ART[c])
+      DIRS[c] = SPRITE.make('art/' + c + '-dir8.png',
+        { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
     SHEETS[c] = SPRITE.make('art/' + c + '-sheet.png', { cols:6, rows:4 });
   }
 } catch (e){ SHEET = null; }
@@ -280,7 +352,16 @@ function mk(kind, side, c, r){
   const b = RULES[kind];
   const u = { kind, side, c, r, hp:b.hp, hpMax:b.hp, ap:b.ap, apMax:b.ap,
               mp:b.mp, mpMax:b.mp, cd:{}, bob: Math.random() * 6.28, flash:0,
-              shieldHp:0, face: side === 0 ? 1 : -1 };
+              shieldHp:0, face: side === 0 ? 1 : -1,
+              /* LEVEL AND SIZE CARRY OVER FROM THE RULES. They did not, and
+                 `level` had been declared on the goat and the gecko and never
+                 read by anything: fightSpoils does `f.level | 0 || 1`, so
+                 every kill in the game has been paying level-1 XP — 20 for a
+                 goat that is written as level 3 and should pay 36. Silent,
+                 because the fallback is a plausible number rather than a
+                 crash. A boss would have paid the same 20. */
+              level: b.level | 0 || 1,
+              big: b.big || 1 };
   /* the chosen class overrides the stock hero's numbers */
   if (kind === 'you' && HCFG){
     u.hp = u.hpMax = HCFG.hpMax;
@@ -352,6 +433,40 @@ function newMatch(){
   /* face off from the first frame, rather than from the first move */
   for (const u of G.units) watchFoe(u);
   document.getElementById('over').classList.remove('on');
+
+  /* ── READY BEFORE THE FIRST BLOW ──────────────────────────────────
+     The owner: the player must press Ready to start the fight. Dofus does
+     the same, and the reason is not ceremony — a fight that begins the
+     instant you touch a monster gives you no moment to LOOK at it. Who is
+     here, how many, where they stand, whether this is a fight you want.
+
+     So the board is drawn, the enemies are there and facing you, and
+     nothing moves until the player says go. It also fixes a smaller thing:
+     the first turn used to begin while the map was still fading in. */
+  G.ready = false;
+  showReady();
+}
+
+function showReady(){
+  const el = document.getElementById('ready');
+  if (!el){ G.ready = true; return startTurn(); }   /* no markup: play on */
+  const foes = G.units.filter(u => u.side === 1 && u.hp > 0);
+  const lv = foes.map(u => u.level | 0).filter(Boolean);
+  const line = foes.length === 1 ? 'One enemy'
+             : foes.length + ' enemies';
+  const el2 = document.getElementById('readysub');
+  if (el2) el2.textContent = line +
+    (lv.length ? ' · level ' + Math.min.apply(null, lv) +
+                 (Math.max.apply(null, lv) !== Math.min.apply(null, lv)
+                   ? '-' + Math.max.apply(null, lv) : '') : '');
+  el.classList.add('on');
+  paint();
+}
+
+function beginFight(){
+  const el = document.getElementById('ready');
+  if (el) el.classList.remove('on');
+  G.ready = true;
   startTurn();
 }
 
@@ -870,9 +985,32 @@ function aiTurn(u){
     mage:   ['blast', 'bolt', 'shove', 'strike'],
     grunt:  ['strike', 'blast', 'bolt', 'shove'],
     sheep:  ['strike', 'shove', 'bolt', 'blast'],
-    ram:    ['ramhorn']
+    ram:    ['ramhorn'],
+    /* EVERY CREATURE WITH ITS OWN KIT NEEDS A LINE HERE. Five did not have
+       one — goat, gecko, dummy and both bosses — and fell through to the
+       grunt's list, so they decided where to stand using `strike`: a spell
+       none of them owns. The consequences were not cosmetic.
+
+       The gecko is a range-2 skirmisher whose whole design is punishing you
+       for standing in the open; it was walking into melee like a warrior.
+       The Unquiet Choir is a ranged AoE caster you are meant to be unable to
+       outrun — it was closing to arm's length, which throws away the entire
+       fight. The goat and the Warden were accidentally fine, being melee
+       anyway, which is why this survived: four fifths of it looked correct. */
+    goat:        ['butt'],
+    gecko:       ['taillash'],
+    dummy:       ['thwack'],
+    /* the Warden wants you ADJACENT — Undertow exists to drag you there */
+    warden_boss: ['deadweight', 'undertow'],
+    /* the Choir wants distance; Antiphon is only the punish for closing */
+    choir_boss:  ['dirge', 'antiphon']
   };
-  const order = ORDER[u.kind] || ORDER.grunt;
+  /* and a creature with no line still leads with a spell it OWNS, in the
+     order its kit is written. A missing entry should mean "use the obvious
+     default", never "borrow a warrior's identity". */
+  const order = ORDER[u.kind] ||
+                (AI_SPELLS[u.kind] ? AI_SPELLS[u.kind].map(s => s.id)
+                                   : ORDER.grunt);
   const rank = s => order.indexOf(s.id);
 
   const shot = usable.filter(s => canCast(u, s, target.c, target.r))
@@ -916,7 +1054,15 @@ function aiTurn(u){
      A grunt's identity is Strike (range 1), so it must stand ADJACENT;
      an archer's is Bolt, so it must stand in the 2-5 band. Same code,
      opposite behaviour, which is what makes them feel like two things. */
-  const holds = order.map(id => spellOf(id))
+  /* RESOLVE AGAINST THE UNIT'S OWN KIT FIRST. spellOf() searches every spell
+     in the game and returns the first id match, so a shared id silently hands
+     a creature someone else's numbers — the gecko's Tail Lash resolving to the
+     tidebinder's Lash, with her range and her damage. The ids are unique again
+     (see below), but resolving locally means a future collision cannot reach
+     in here at all, rather than being a naming rule someone has to remember. */
+  const own = AI_SPELLS[u.kind] || null;
+  const find = id => (own && own.find(s => s.id === id)) || spellOf(id);
+  const holds = order.map(find)
                      .filter(s => s && u.apMax >= s.ap && !(u.cd[s.id] > 0))
                      .slice(0, 1);
   const firing = [];
@@ -1278,8 +1424,8 @@ function drawUnit(u, c, r){
       }
     }
     if (useDir && still && u.ispr && u.ispr.ready)
-      SPRITE.draw(ctx, u.ispr, p.x, p.y + 3, 0.30, D.flip);
-    else if (useDir) SPRITE.draw(ctx, u.dspr, p.x, p.y + 3, 0.30, D.flip);
+      SPRITE.draw(ctx, u.ispr, p.x, p.y + 3, 0.30 * (u.big || 1), D.flip);
+    else if (useDir) SPRITE.draw(ctx, u.dspr, p.x, p.y + 3, 0.30 * (u.big || 1), D.flip);
     else {
       /* swap onto the kind's own sheet the moment it finishes loading */
       if (u.own && u.own.ready && u.spr.img !== u.own.img){
@@ -1289,7 +1435,10 @@ function drawUnit(u, c, r){
       /* monsters have no back-view sheet, but they must still TURN: the
          same direction table decides their mirror, so a sheep walking
          west faces west instead of staring at the camera */
-      SPRITE.draw(ctx, u.spr, p.x, p.y + 3, 0.30, D.flip);
+      /* `big` scales a boss up. It is a draw multiplier and touches
+         nothing else — hit boxes, ranges and tiles are all grid maths, so
+         a larger drawing cannot desync from where the unit actually is. */
+      SPRITE.draw(ctx, u.spr, p.x, p.y + 3, 0.30 * (u.big || 1), D.flip);
     }
     ctx.restore();
     if (u.flash > 0) u.flash = Math.max(0, u.flash - 0.06);
@@ -1370,8 +1519,15 @@ function drawUnit(u, c, r){
 
 /* keep the bob, the flash, the sprite playheads and the shots alive */
 let lastT = performance.now();
+let paused = false;
 function loop(now){
   now = now || performance.now();
+  /* PAUSED MEANS PAUSED, not hidden. The rotate gate covers the fight with a
+     card; without this the match underneath keeps stepping sprites and
+     burning battery behind an opaque panel. lastT is reset on the way out so
+     the first frame back does not see a dt of however long the phone was
+     upright and snap every animation forward. */
+  if (paused){ lastT = now; requestAnimationFrame(loop); return; }
   const dt = Math.min(64, now - lastT); lastT = now;
   if (G && G.units) for (const u of G.units){
     if (!u.spr) continue;
@@ -1448,7 +1604,7 @@ function tileFromEvent(ev){
 }
 
 function onTap(ev){
-  if (busy || anim || G.over) return;
+  if (busy || anim || G.over || !G.ready) return;
   const u = me();
   if (!u || u.side !== 0 || u.auto) return;
   const t = tileFromEvent(ev);
@@ -1555,16 +1711,49 @@ function paint(){
    exactly one place to cut over. */
 function fightSpoils(){
   const foes = G.units.filter(u => u.side === 1);
-  let xp = 0;
+  let xp = 0, coins = 0;
   const drops = [];
   for (const f of foes){
     if (f.hp > 0) continue;                       /* only the fallen pay */
     if (f.kind === 'dummy') continue;             /* the drill pays nothing */
     const lvl = Math.max(1, f.level | 0 || 1);
     xp += 12 + lvl * 8;
+    coins += (window.PURSE ? PURSE.forKill(lvl) : 0);
     if (f.drop) drops.push(f.drop);
+
+    /* THE RARE OPEN-WORLD ROLL, once PER FALLEN ENEMY: a four-mob group is
+       four rolls, which is why 5% is not as stingy as it reads. The table
+       lives in gear.js so the game's generosity is one edit rather than a
+       hunt through the mob roster. */
+    if (window.GEAR && !bossId()) {
+      const g = GEAR.mobDrop(lvl);
+      if (g) drops.push(GEAR.record(g));
+    }
   }
-  return { xp, drops };
+
+  /* THE BOSS PAYS ONCE FOR THE FIGHT, not once per corpse.
+     The first version keyed this off a `boss` flag on the fallen UNIT, which
+     nothing ever sets — units are built from a list of kind strings — so it
+     could never have fired at all. Worse, had it fired it would have sat
+     inside the per-enemy loop and paid a piece for every minion in the boss
+     room. The owner's rule is one piece per boss kill: that is what makes a
+     set take several runs to assemble, and it is the whole reason to go back.
+     The encounter marker is the authority, so it is read once, out here. */
+  const boss = bossId();
+  if (boss && window.GEAR && foes.every(f => f.hp <= 0)) {
+    const g = GEAR.bossDrop(boss);
+    if (g) drops.push(GEAR.record(g));
+  }
+  return { xp, coins, drops };
+}
+
+/* which boss fight this is, from the marker the world handed us, or null */
+function bossId(){
+  try {
+    const p = parentWin();
+    const m = p && p.QUEST && p.QUEST.currentFight && p.QUEST.currentFight();
+    return (m && m.boss) || null;
+  } catch (e){ return null; }
 }
 
 function showOver(){
@@ -1594,6 +1783,14 @@ function showOver(){
   if (won && spoils.xp && HEROx && HEROx.gainXp) lv = HEROx.gainXp(spoils.xp);
   if (won && spoils.drops.length && PANELSx && PANELSx.give)
     spoils.drops.forEach(d => { try { PANELSx.give(d); } catch (e) {} });
+  /* COINS: REPORT WHAT WAS PAID, NOT WHAT WAS ROLLED. PURSE.earn returns the
+     amount that actually reached the wallet, which is less than asked once
+     the day's ceiling is hit and nothing at all beyond it. Showing the rolled
+     figure would promise coins the player never received — and they would
+     check, because it is the same wallet the party games fill. */
+  const P$ = host('PURSE') || window.PURSE;
+  FIGHT.coins = (won && spoils.coins && P$)
+    ? P$.earn(spoils.coins, 'qawmien-kill') : 0;
   FIGHT.xp = spoils.xp;
 
   /* HP PERSISTS OUT OF THE FIGHT. The owner's rule: you leave a fight on
@@ -1629,6 +1826,12 @@ function showOver(){
                  '+' + (lv.points || 0) + ' points']);
     if (spoils.drops.length)
       rows.push(['Found', spoils.drops.map(d => esc(d.name || d.id)).join(', ')]);
+    /* Coins, and the truth when the day's ceiling has stopped them. Saying
+       nothing would read as the drop being broken; saying the rolled number
+       would be a lie about the same wallet the party games fill. */
+    if (FIGHT.coins) rows.push(['Coins', '+' + FIGHT.coins]);
+    else if (spoils.coins)
+      rows.push(['Coins', 'none left today']);
     rows.push(['Damage dealt', String(FIGHT.dealt)]);
     rows.push(['Damage taken', String(FIGHT.taken)]);
     rows.push(['Spells cast', String(FIGHT.casts)]);
@@ -1663,6 +1866,8 @@ function esc(v){
 cv.addEventListener('click', onTap);
 cv.addEventListener('mousemove', onHover);
 cv.addEventListener('touchstart', e => { onHover(e); }, { passive:true });
+{ const rb = document.getElementById('readygo');
+  if (rb) rb.onclick = beginFight; }
 document.getElementById('again').onclick = newMatch;
 { const d = document.getElementById('done');
   if (d) d.onclick = closeResults;
@@ -1708,7 +1913,7 @@ if (window.HUD) HUD.init({ mode: 'combat', onAction: (action, arg) => {
    by contract, §7.4). Exported BEFORE newMatch(): the first paint()
    builds the skill icons exactly once, so window.T must already exist
    or every classed spell would render in the fallback gold for good. */
-window.T = { _draw: draw, checkOver, closeResults, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
+window.T = { _draw: draw, checkOver, closeResults, beginFight, _walk: walk, _SC: () => SC, _tiles: () => ({ready:TILESET.ready, cw:TILESET.cw, ch:TILESET.ch}), get G(){ return G; }, RULES, SPELLS, HERO_SPELLS,
              get HCFG(){ return HCFG; }, reach, pathTo, los, canCast,
              castTiles, dist, newMatch, nextTurn, cast, spellOf, me, you, iso, unIso,
              get sel(){ return sel; }, set sel(v){ sel = v; }, paint,
@@ -1716,7 +1921,9 @@ window.T = { _draw: draw, checkOver, closeResults, _walk: walk, _SC: () => SC, _
                 way to see them, a swallowed tap is indistinguishable from a
                 broken one, and a test harness cannot wait for the moment the
                 board is actually interactive. */
-             get busy(){ return busy; }, get anim(){ return anim; } };
+             get busy(){ return busy; }, get anim(){ return anim; },
+             /* the rotate gate drives this — see landscape.js */
+             setPaused(v){ paused = !!v; }, get paused(){ return paused; } };
 
 newMatch();
 fit();

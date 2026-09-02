@@ -471,6 +471,17 @@ window.PANELS = (function () {
     var it = itemOf(sheetId); if (!it) return;
     var m = metaOf(it); if (!m.slot) return;
     var P = player();
+    /* THE LEVEL GATE. GEAR.canEquip is the only authority on this: a second
+       opinion here would be a second place to get it wrong, and they would
+       drift. It returns a REASON rather than a bare refusal, because a button
+       that does nothing and explains nothing is indistinguishable from a bug. */
+    if (window.GEAR && GEAR.canEquip) {
+      var v = GEAR.canEquip(it.id, P.level | 0);
+      if (!v.ok && v.need) {
+        toast(it.name + ' needs level ' + v.need + ' — you are ' + (P.level | 0) + '.');
+        return;
+      }
+    }
     if (!P.equip) P.equip = {};
     var prev = P.equip[m.slot];
     P.equip[m.slot] = { id: it.id, name: it.name, note: it.note };
@@ -591,6 +602,62 @@ window.PANELS = (function () {
       }
       toast('+' + (item.qty || 1) + ' ' + it.name);
       return it;
+    },
+    /* THE TAVERN STOCK. Built from SHOP.list() rather than a second list
+       here, so a price is changed in one place. Refusals show the reason the
+       shop gives — "that costs 120, you have 40" — because a row that just
+       does nothing when tapped is indistinguishable from a broken one. */
+    openShop: function (who) {
+      if (!window.SHOP || !window.PURSE) { toast('The shop is shut.'); return; }
+      ensure();
+      var P = player(), lvl = P.level | 0;
+      var host = document.getElementById('panels');
+      var old = document.getElementById('shop'); if (old) old.remove();
+      var el = document.createElement('div');
+      el.id = 'shop';
+      el.className = 'panel on';
+      el.setAttribute('role', 'dialog');
+      el.setAttribute('aria-label', 'Shop');
+      function paint() {
+        var bal = PURSE.balance();
+        var h = '<header><b>' + esc(who || 'Shop') + '</b>' +
+                '<span class="sh-bal">' + bal + ' coins</span>' +
+                '<button class="panel-x" data-act="shut" aria-label="Close">' +
+                svg(IC.x || '', 18) + '</button></header><div class="sh-list">';
+        SHOP.list().forEach(function (it) {
+          var v = SHOP.canBuy(it.id, lvl, bal);
+          h += '<button class="sh-row' + (v.ok ? '' : ' off') +
+               '" data-buy="' + esc(it.id) + '"' + (v.ok ? '' : ' disabled') + '>' +
+               '<span class="sh-n">' + esc(it.name) + '</span>' +
+               '<span class="sh-p">' + it.price + '</span>' +
+               '<span class="sh-d">' + esc(it.note) + '</span></button>';
+        });
+        el.innerHTML = h + '</div>';
+      }
+      paint();
+      el.addEventListener('click', function (e) {
+        var b = e.target.closest && e.target.closest('[data-buy],[data-act]');
+        if (!b) return;
+        if (b.dataset.act === 'shut') { el.remove(); return; }
+        var r = SHOP.buy(b.dataset.buy, player().level | 0);
+        toast(r.ok ? ('Bought ' + r.item.name + '.') : r.why);
+        paint();
+        if (openPanel === 'inventory') renderInventory();
+      });
+      host.appendChild(el);
+    },
+
+    /* A NOTICE, for anything outside this file that has to tell the player
+       why something did not happen. The world's dungeon gates use it: being
+       turned away from a glowing portal with no message is indistinguishable
+       from a broken exit.
+       ensure() first — toast() is a no-op until the panels exist, so a
+       message sent before the player has ever opened their bag would vanish,
+       which is exactly when a new player most needs telling. */
+    toast: function (msg) {
+      if (!msg) return;
+      ensure();
+      toast(String(msg));
     },
     get open() { return openPanel; }
   };
