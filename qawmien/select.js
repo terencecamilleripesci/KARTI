@@ -183,10 +183,17 @@ window.SELECTUI = (function () {
         Array.prototype.forEach.call(
           host.querySelectorAll('.sw[data-k="' + b.dataset.k + '"]'),
           function (x) { x.setAttribute('aria-checked', String(x === b)); });
-        /* the cached sheets were tinted with the OLD colours, so drop them —
-           otherwise the swatch looks dead because nothing repaints */
+        /* the cached sheets were tinted with the OLD colours, so drop them */
         for (const k in SHEETS) delete SHEETS[k];
         renderClass();
+        /* AND REBUILD THE ACTOR. Dropping the cache is only half of it —
+           renderClass() redraws the panel text and nothing else, so the sprite
+           kept the tint it was built with and every swatch looked dead. The
+           comment here used to claim the cache clear was what made it repaint;
+           it never did. No intro replay: recolouring is not a new character,
+           and re-swinging the sword on every tap makes picking a hair colour
+           feel like a fight. */
+        setActor(C.byId(sel.classId), sel.gender, false);
       };
     }
 
@@ -269,8 +276,21 @@ window.SELECTUI = (function () {
       actor = SP.spawn(base);
       silhouette = sil;
       SP.play(actor, 'idle', true);
-      if (REDUCED) actor.frame = (actor.stand && actor.stand[0]) || 0;
-      else if (playIntro) SP.play(actor, 'attack', true);
+      if (REDUCED) { actor.frame = (actor.stand && actor.stand[0]) || 0; return; }
+      /* ONE SWING, THEN STAND. The owner's note is that Dofus keeps this
+         simple: a character shows you what it is once and then settles. The
+         intro used to fire on every class tap AND every gender tap, so
+         browsing the roster was a stream of restarting attacks and the eye
+         never got a still frame to judge the character by — which is the one
+         thing this screen exists for. Now the swing plays once when the
+         character genuinely changes, and idle is the resting state. */
+      if (playIntro) {
+        SP.play(actor, 'attack', true);
+        const mine = actor;
+        setTimeout(function () {
+          if (actor === mine && actor.clip === 'attack') SP.play(actor, 'idle', true);
+        }, 900);
+      }
     }
 
     /* ── canvas: DPR-aware sizing, feet-on-baseline draw ────────── */
@@ -421,6 +441,20 @@ window.SELECTUI = (function () {
       renderClass();
       setActor(C.byId(sel.classId), sel.gender, true);
     }));
+
+    /* LANDSCAPE NEEDS A RIGHT-HAND COLUMN. The markup is one flat stack, which
+       is right for a phone held upright; sideways the stage has to sit beside
+       the rest rather than above it, and three loose siblings cannot be a
+       column without something to hold them. Wrapping at runtime keeps the
+       portrait markup exactly as it was. */
+    (function wrapRight(){
+      const meta = $('meta'), info = $('info'), dock = $('dock');
+      if (!meta || !info || !dock || $('rightcol')) return;
+      const col = document.createElement('div');
+      col.id = 'rightcol';
+      meta.parentNode.insertBefore(col, meta);
+      col.appendChild(meta); col.appendChild(info); col.appendChild(dock);
+    })();
 
     scope.querySelectorAll('.gbtn').forEach(b => b.addEventListener('click', () => {
       if (sel.gender === b.dataset.g) return;

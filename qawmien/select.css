@@ -199,3 +199,47 @@ button:focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-rad
   border:1px solid rgba(255,255,255,.08)}
 #growth li b{font-weight:800;color:var(--ink,#EDEAF6)}
 #growth li span{color:#9C97B8;font-variant-numeric:tabular-nums}
+
+/* ── LANDSCAPE: two columns, because the column does not fit ──────
+   The game is played sideways, and this screen is a single tall stack:
+   header, sprite stage, gender, colour rows, an info well, then the class
+   rail and Confirm. On a landscape phone that is roughly 390px of height to
+   fit all of it, so the colour swatches and the Confirm button fell off the
+   bottom — you could not finish making a character on the orientation the
+   game requires.
+
+   Sideways there is width to spare and height there is not, so the sprite and
+   its gender/colour controls go on the LEFT at a fixed width, and everything
+   that scrolls — the class info, the rail, Confirm — goes on the RIGHT. The
+   stage keeps a square-ish box so the character is still the biggest thing on
+   the screen, which is the whole point of a character creator.
+
+   Scoped to short viewports so a tablet or desktop keeps the tall layout it
+   was designed for. */
+@media (orientation:landscape) and (max-height:560px){
+  #app{max-width:none;flex-direction:row;gap:14px;padding:8px 12px}
+
+  /* left: who you are making */
+  #stageWrap{flex:0 0 clamp(220px,34vw,320px);display:flex;
+    flex-direction:column;margin-top:0;min-height:0}
+  #stage{height:auto;flex:1 1 auto;min-height:120px}
+  #genderRow,#lookRows{flex:0 0 auto}
+
+  /* right: what it means, and the way out */
+  #meta,#info,#dock{min-width:0}
+  #hd{display:none}                 /* the title costs a row we do not have */
+
+  /* the right-hand column is its own scroller, so the rail and Confirm stay
+     put while the class notes scroll under them */
+  #app > #meta{display:none}
+  #info{flex:1 1 auto;min-height:0;overflow:auto}
+  #dock{flex:0 0 auto}
+}
+/* the right column is built by wrapping meta+info+dock at runtime; without
+   that wrapper the three siblings would each become a flex column of their
+   own and the layout would read as three narrow strips */
+@media (orientation:landscape) and (max-height:560px){
+  #rightcol{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;
+    min-height:0;gap:8px}
+  #rightcol #meta{display:block}
+}
