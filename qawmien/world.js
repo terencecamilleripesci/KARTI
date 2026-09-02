@@ -737,6 +737,138 @@ const WORLD = (() => {
     return (SURROUND[m.id] = best.length ? best : [WT.TILES.GRASS]);
   }
 
+  /* ── OCCLUSION on painted maps ────────────────────────────────────────
+     A painted background is ONE picture, so the hero drawn after it always
+     stood in front of every wall — walking "behind" the tavern drew him on
+     its roof. Dofus composes exactly this split: a background JPEG per map,
+     plus everything a character can pass behind as separate sprites drawn
+     in base-Y order. So the tall things are CUT BACK OUT of the painting:
+     one canvas piece per building (and per tree), clipped to the same prism
+     silhouette the template extruded (tools/blockout.py, BLD_H there — the
+     numbers below are that shared arithmetic), anchored at its base tile
+     and depth-sorted into the same queue as actors and the hero. Hero
+     behind the wall: the piece draws after him and hides him. Hero in
+     front: his depth is greater and he draws over it. The picture never
+     decides walkability; this never looks at block[][] for anything but
+     WHERE the tall things stand. */
+  function buildOcclusion(map, img, R){
+    const D_ROCK = 26, D_TREE = 24, SPAN = 4;
+    const BLD_H = TH * 2.0, LOW_H = TH * 0.8;
+    const wall = (c, r) => c >= 0 && r >= 0 && c < map.w && r < map.h &&
+                           !!map.block[r][c] && map.decor[r][c] === D_ROCK;
+    const pieces = [], seen = {};
+    const comps = [];
+    for (let r = 0; r < map.h; r++)
+      for (let c = 0; c < map.w; c++){
+        if (!wall(c, r) || seen[c + ',' + r]) continue;
+        const comp = [], st = [[c, r]];
+        seen[c + ',' + r] = 1;
+        while (st.length){
+          const [cc, rr] = st.pop();
+          comp.push([cc, rr]);
+          for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+            const nc = cc + dc, nr = rr + dr;
+            if (wall(nc, nr) && !seen[nc + ',' + nr]){
+              seen[nc + ',' + nr] = 1; st.push([nc, nr]);
+            }
+          }
+        }
+        comps.push(comp);
+      }
+    for (const comp of comps){
+      if (comp.length < 3) continue;               /* a boulder, painted flat */
+      /* the footprint is the rectilinear closure — same rule as the
+         template, so the cut-out clips exactly what was extruded */
+      const foot = {};
+      for (const [c, r] of comp) foot[c + ',' + r] = 1;
+      const rows = {}, cols = {};
+      for (const [c, r] of comp){
+        (rows[r] = rows[r] || []).push(c);
+        (cols[c] = cols[c] || []).push(r);
+      }
+      for (const r in rows){
+        const cs = rows[r].sort((a, b) => a - b);
+        for (let i = 1; i < cs.length; i++)
+          if (cs[i] - cs[i-1] > 1 && cs[i] - cs[i-1] <= SPAN + 1)
+            for (let c = cs[i-1] + 1; c < cs[i]; c++) foot[c + ',' + r] = 1;
+      }
+      for (const c in cols){
+        const rs = cols[c].sort((a, b) => a - b);
+        for (let i = 1; i < rs.length; i++)
+          if (rs[i] - rs[i-1] > 1 && rs[i] - rs[i-1] <= SPAN + 1)
+            for (let r = rs[i-1] + 1; r < rs[i]; r++) foot[c + ',' + r] = 1;
+      }
+      /* ONE PIECE PER TILE, not per building. A terrace of party-walled
+         houses spans depths 5..16; cut as one piece at depth 16 it hid a
+         hero standing in FRONT of its shallow west end (seen in the first
+         headless run). Per tile, each column of the volume sorts at its
+         own base depth like any decor tile, the pieces are cut from the
+         same painting so together they re-compose it exactly, and the
+         hero slots between them wherever he truly stands. */
+      const tiles = Object.keys(foot).map(k => k.split(',').map(Number));
+      const H = tiles.length === comp.length ? LOW_H : BLD_H;
+      for (const t of tiles) pieces.push(makePiece([t], H, img, R));
+    }
+    /* trees: a canopy is the other thing a hero walks behind */
+    for (let r = 0; r < map.h; r++)
+      for (let c = 0; c < map.w; c++)
+        if (map.block[r][c] && map.decor[r][c] === D_TREE)
+          pieces.push(makeTreePiece(c, r, img, R));
+    return pieces;
+  }
+
+  function pieceFromClip(tiles, img, R, bounds, clip){
+    const [x0, y0, x1, y1] = bounds;
+    const w = Math.ceil(x1 - x0), h = Math.ceil(y1 - y0);
+    const cv = document.createElement('canvas');
+    /* board units 1:1 — the same resolution the background is drawn at */
+    cv.width = w; cv.height = h;
+    const c2 = cv.getContext('2d');
+    c2.translate(-x0, -y0);
+    clip(c2);
+    c2.clip();
+    c2.imageSmoothingEnabled = true;
+    c2.drawImage(img, R.x, R.y, R.w, R.h);
+    let d = -1e9;
+    for (const [c, r] of tiles) d = Math.max(d, c + r);
+    return { cv, x: x0, y: y0, d };
+  }
+
+  function makePiece(tiles, H, img, R){
+    const HEAD = TH * 0.9;               /* domes and parapets overpaint the box */
+    const T = H + HEAD;                  /* clip the full raised top face */
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    const hexes = [];
+    for (const [c, r] of tiles){
+      const bx = WT.isoX(c, r), by = WT.isoY(c, r);
+      hexes.push([[bx, by - T - TH / 2], [bx + TW / 2, by - T],
+                  [bx + TW / 2, by], [bx, by + TH / 2],
+                  [bx - TW / 2, by], [bx - TW / 2, by - T]]);
+      x0 = Math.min(x0, bx - TW / 2); x1 = Math.max(x1, bx + TW / 2);
+      y0 = Math.min(y0, by - T - TH / 2); y1 = Math.max(y1, by + TH / 2);
+    }
+    return pieceFromClip(tiles, img, R, [x0, y0, x1, y1], (c2) => {
+      c2.beginPath();
+      for (const hx of hexes){
+        c2.moveTo(hx[0][0], hx[0][1]);
+        for (let i = 1; i < hx.length; i++) c2.lineTo(hx[i][0], hx[i][1]);
+        c2.closePath();
+      }
+    });
+  }
+
+  function makeTreePiece(c, r, img, R){
+    const bx = WT.isoX(c, r), by = WT.isoY(c, r);
+    const cx = bx + TW * 0.04, cy = by - TH * 1.25;    /* template's canopy */
+    const rx = TW * 0.60, ry = TH * 0.80;
+    const bounds = [cx - rx, cy - ry, cx + rx, Math.max(cy + ry, by + 2)];
+    return pieceFromClip([[c, r]], img, R, bounds, (c2) => {
+      c2.beginPath();
+      c2.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      c2.rect(bx - 5, by - TH * 1.25, 10, TH * 1.25 + 2);
+    });
+  }
+
   function draw(g){
     fit(g.canvas);
     g.setTransform(1, 0, 0, 1, 0, 0);
@@ -802,6 +934,7 @@ const WORLD = (() => {
         }
         g.imageSmoothingEnabled = true;
         g.drawImage(b.img, R.x, R.y, R.w, R.h);
+        if (!map._occ) map._occ = buildOcclusion(map, b.img, R);
         bgUp = true;
       }
     }
@@ -876,6 +1009,10 @@ const WORLD = (() => {
         const i = map.decor[r][c];
         if (i) q.push({ d: c + r, k: 0, i, x: WT.isoX(c, r), y: WT.isoY(c, r) });
       }
+    /* the tall parts of the painting, cut back out so they can occlude:
+       depth-sorted by their base like any decor (see buildOcclusion) */
+    if (bgUp && map._occ)
+      for (const p of map._occ) q.push({ d: p.d, k: 0, occ: p });
     for (const a of actors)
       q.push({ d: a.mk.c + a.mk.r, k: 1, a,
                x: WT.isoX(a.mk.c, a.mk.r), y: WT.isoY(a.mk.c, a.mk.r) });
@@ -883,7 +1020,8 @@ const WORLD = (() => {
     q.sort((A, B) => (A.d - B.d) || (A.k - B.k));    /* stable for the rest */
     for (const e of q){
       if (e.k === 0){
-        if (atlas && atlas.ready) WT.drawTile(g, atlas.img, e.i, e.x, e.y);
+        if (e.occ) g.drawImage(e.occ.cv, e.occ.x, e.occ.y);
+        else if (atlas && atlas.ready) WT.drawTile(g, atlas.img, e.i, e.x, e.y);
         else fbDecor(g, e.i, e.x, e.y);
       }
       else if (e.hero) drawHero(g);

@@ -6,6 +6,7 @@
 window.MAPS = window.MAPS || {};
 window.MAPS['field-3-1'] = {
   id: 'field-3-1', w: 10, h: 10, atlas: 'art/world.png',
+  bg: 'art/bg/field-3-1.jpg',
   ground: [
     [16,16,16,16,18,17,16,16,16,16],
     [16,16,18,17,16,16,16,22,18,18],

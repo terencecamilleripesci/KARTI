@@ -11,8 +11,8 @@ window.MAPS['field-3-6'] = {
      from this map's own blockout template (tools/blockout.py --map
      field-3-6), so the art agrees with block[][] by construction.
      block/markers/neighbours below still rule walkability, untouched.
-     NOTE for regeneration: mkworld.py does not know this key yet — if
-     the world is regenerated, re-add `bg` here. */
+     mkworld.py re-derives this key from art/bg/<id>.jpg existing, so a
+     regeneration keeps every painting. */
   bg: 'art/bg/field-3-6.jpg',
   ground: [
     [20,20,20,20,20,20,20,16,20,16],
