@@ -400,8 +400,18 @@ body:has(#dlg.on) #hud-bar{transform:translateY(calc(100% + 40px))}
 @media (orientation:landscape) and (max-height:520px){
   #wrap{padding-bottom:0}
   #hud-bar{
-    background:linear-gradient(180deg,rgba(38,31,72,.72),rgba(23,19,49,.90) 60%);
-    border-top:1px solid rgba(255,255,255,.10);
+    /* THE WORLD SHOWS THROUGH. At .72/.90 the bar was still a solid band
+       across the bottom third of a landscape phone — the canvas underneath
+       had been freed but nothing could be seen through it, so the screen
+       still read as "map on top, furniture below" rather than as one view.
+       Faded to a wash that darkens the controls enough to stay legible
+       against bright limestone while leaving the ground visible. The buttons
+       keep their own solid backgrounds, so contrast where it matters is
+       unchanged. */
+    background:linear-gradient(180deg,rgba(20,16,40,0),rgba(20,16,40,.55) 45%,
+                                       rgba(16,13,33,.78));
+    border-top:0;
+    backdrop-filter:blur(2px);
   }
   /* the panels still need to clear it, or a sheet opens underneath the bar */
   #panels{padding-bottom:var(--hud-bar-h,134px)}

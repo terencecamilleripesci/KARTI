@@ -413,10 +413,21 @@ function newMatch(){
      dummy stands mid-board, where every class can reach or sight it);
      standalone keeps the stock trio at the stock spots. */
   const foes = fightRoster();
+  /* CLOSE ENOUGH TO FIGHT ON TURN ONE. The player stood at (1,5) and the
+     enemies at (9,4)/(8,7)/(9,6) — eight tiles apart, and with 3 MP that is
+     three turns of walking before anybody can swing. The owner's note:
+     "the fight, make them easy, box near each other". A tactics fight is
+     about what you do with your action points, not about crossing an empty
+     board first.
+     Four to five tiles now: a bruiser closes and hits in the first turn or
+     two, a caster is already in range, and the gap is still wide enough that
+     WHERE you step matters. The (c - r) rule below still holds — two units
+     with equal (c - r) share an iso column and visually stack, so no two
+     spots here do. */
   const spots = foes.length === 1
-    ? [[7,5]]
-    : [[9,4],[8,7],[9,6],[7,3],[3,9]];
-  const units = [ mk('you', 0, 1, 5) ];
+    ? [[6,5]]
+    : [[6,4],[6,7],[6,6],[7,3],[5,8]];
+  const units = [ mk('you', 0, 3, 5) ];
   foes.forEach((k, i) => {
     const s = spots[i % spots.length];
     units.push(mk(k, 1, s[0], s[1]));

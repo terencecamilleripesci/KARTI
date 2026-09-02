@@ -40,6 +40,20 @@
   #wcv{position:fixed;top:0;left:0;width:100%;
     height:calc(100% - var(--hud-bar-h,64px));
     display:block;touch-action:none}
+  /* SIDEWAYS, THE WORLD GETS THE WHOLE SCREEN and the bar floats over it.
+     Held upright the canvas stopping above the HUD is right — there is
+     height to spare. Held sideways there is not: a 420px-tall phone gave
+     --hud-bar-h 134 of it to the bar, so the painted map was squeezed into
+     the top two thirds with a solid purple band beneath it, which is exactly
+     the "not full screen" the owner reported.
+     The map now runs the full height and the bar sits over the bottom
+     corners, which the projection leaves empty anyway — a diamond in a wide
+     frame never fills them. Only the RESERVATION changes; the bar keeps its
+     size, its hit targets and its z-index. index.html already does this for
+     combat; the world was simply never given the same treatment. */
+  @media (orientation:landscape) and (max-height:520px){
+    #wcv{height:100%}
+  }
 
   /* combat iframe — full screen, above panels(40), below #dlg(50) and the
      quest coach toast(9999) so coaching overlays the fight */
