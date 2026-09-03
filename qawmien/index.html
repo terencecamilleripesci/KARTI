@@ -30,8 +30,15 @@
      with the skill icons, the orbs, Map and End turn, plus the turn strip
      top-left. --hud-bar-h is maintained by hud.js, so the board is sized
      clear of the bar before the grow animation even starts (§7.1). */
-  #wrap{display:flex;flex-direction:column;height:100dvh;max-width:560px;margin:0 auto;
-    padding-bottom:var(--hud-bar-h,134px)}
+  /* HEIGHT, NOT PADDING. Reserving the bar as padding on a 100dvh flex
+     column left #boardwrap measuring the FULL viewport anyway — measured:
+     bar 144, wrap 393, boardwrap 393 — so the board was drawn behind the
+     bar and its bottom third could be seen and not tapped. That was
+     harmless while the board was a diamond with empty bottom corners; the
+     board is a screen RECTANGLE now (grid.js) and every one of those cells
+     is a cell you are meant to be able to reach. */
+  #wrap{display:flex;flex-direction:column;max-width:560px;margin:0 auto;
+    height:calc(100dvh - var(--hud-bar-h,134px))}
   /* SIDEWAYS, THE BOARD GETS THE WHOLE SCREEN. The 560px cap is a portrait
      measure — it keeps a tall phone's board from stretching absurdly wide.
      Held sideways that same cap would waste a third of an 844px screen and
@@ -137,6 +144,8 @@ LANDSCAPE.start(function (blocked) {
      with no DOM, so loading it twice costs nothing. -->
 <script src="purse.js"></script><!-- the one door to KARTI coins -->
 <script src="gear.js"></script>
+<script src="grid.js"></script><!-- window.GRID — the board is the same
+  screen-filling rectangle the world uses; one definition, two layers -->
 <script src="tactics.js"></script>
 </body>
 </html>

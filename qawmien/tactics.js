@@ -23,19 +23,22 @@
 'use strict';
 
 /* ── the board ─────────────────────────────────────────────────── */
-/* 11, NOT 13. The iso diamond is (W+H) half-tiles WIDE however tall the
-   board is, so a 13x13 board on a 390px phone zooms down to a 29px tile —
-   under a finger. 11x11 buys back ~20% per tile and loses nothing
-   tactically at these ranges. */
-const W = 11, H = 11;            /* odd, so there is a true centre     */
-/* MEASURED, not guessed. The zoom is bound by WIDTH on every phone, so
-   tile WIDTH is fixed by the board size alone: 2 * screenWidth / (W+H).
-   Changing TW cannot help — it cancels out. TH is the only free
-   dimension, and raising it spends the screen's unused height on taller
-   tiles: at 390 the board was using 222px of 652. 46 keeps a 1.35:1
-   diamond, which still reads isometric, and buys ~28% more tile height
-   to aim at. */
-const TW = 62, TH = 46;
+/* THE BOARD IS THE SCREEN RECTANGLE — the same shape the world walks on,
+   defined once in grid.js. It used to be an 11x11 grid of tiles, which
+   projects to a DIAMOND: aspect locked at 62:46 by the projection, so a
+   third of a phone held sideways however many tiles were in it. Making it
+   13x13 measured the identical fraction of the screen and only shrank the
+   tiles; that is why the comment here used to argue for fewer.
+   Staggered rows fill the screen instead, so the tile can stay big AND
+   the board can reach the corners.
+
+   NOTHING IN THE RULES CHANGES. Coordinates are still (c,r), range is
+   still Manhattan on (c,r), line of sight still walks the same line. All
+   that changed is which (c,r) are on the board — inBoard() answers that
+   now instead of a pair of bounds. */
+const BOARD = (typeof GRID !== 'undefined') ? GRID : null;
+const W = BOARD.N, H = BOARD.N;  /* the bounding box the board sits in  */
+const TW = BOARD.TW, TH = BOARD.TH;
 
 /* ── RULES (this is the part that ports) ───────────────────────── */
 const RULES = {
@@ -203,6 +206,48 @@ function fightRoster(){
   return ['grunt', 'sheep', 'archer'];   /* the stock testbed match */
 }
 
+/* ── THE ARENA: you fight ON the map you met them on ────────────────
+   The owner: "combat has to play in the same map you spar or engage with
+   mobs — same obstacles, same water, same everything."
+
+   That is how Dofus works and it was not possible before: a fight was a
+   separate 11x11 board with eight hand-placed pillars, because the board
+   and the map were different shapes and there was no honest way to carry
+   one into the other. They are the same shape now (grid.js) — the same
+   188 cells, the same (c,r), the same rectangle — so the fight can simply
+   BE the screen you are standing on.
+
+   Nothing is copied or converted. The combat page is a same-origin iframe
+   of world.html, so it reads the live map object straight out of the
+   parent: the very arrays world.js just drew. A rock is in the same place
+   because it IS the same rock.
+
+   Absent a parent (index.html opened on its own, which is still the
+   combat testbed) this is null and the old hand-placed board is used. */
+const ARENA = (function(){
+  const p = parentWin();
+  try {
+    const W = p && p.WORLD, WT = p && p.WT;
+    const id = W && W._map && W._map.id;
+    const map = id && p.MAPS && p.MAPS[id];
+    if (!map || !WT || !map.block) return null;
+    const mk = (p.QUEST && p.QUEST.currentFight && p.QUEST.currentFight()) || null;
+    const at = (mk && typeof mk.c === 'number') ? { c: mk.c, r: mk.r } : null;
+    const hero = (W.playerAt && W.playerAt()) || null;
+    return { map: map, WT: WT, at: at, hero: hero, id: id };
+  } catch (e){ return null; }
+})();
+
+/* the world's own tile atlas — the same file world.js draws with, so it
+   is already in cache and the two screens cannot drift apart */
+const WORLD_ATLAS = { img: null, ready: false };
+if (ARENA) (function(){
+  const im = new Image();
+  im.onload = () => { WORLD_ATLAS.img = im; WORLD_ATLAS.ready = true; draw(); };
+  im.onerror = () => { WORLD_ATLAS.ready = false; };
+  im.src = (ARENA.map.atlas || ARENA.WT.ATLAS_SRC);
+})();
+
 /* ── stat scaling (CLASSES_SPEC §2) — 1 point = +1% of the roll ──── */
 const STAT_OF_ELEM = { earth:'str', fire:'int', water:'cha', air:'agi' };
 function statsFor(u, sp){
@@ -240,7 +285,10 @@ function unIso(x, y){                   /* screen -> grid               */
   const dx = (x / SC - ORX) / (TW / 2), dy = (y / SC - ORY) / (TH / 2);
   return { c: Math.round((dy + dx) / 2), r: Math.round((dy - dx) / 2) };
 }
-function inBoard(c, r){ return c >= 0 && r >= 0 && c < W && r < H; }
+/* on the board = inside the screen rectangle. The cells of the bounding
+   box that fall outside it are void: nothing stands there, nothing is
+   drawn there, no spell may be aimed there. */
+function inBoard(c, r){ return BOARD.has(c, r); }
 const key = (c, r) => c + ',' + r;
 
 /* REAL grid distance, not diagonal. Dofus is orthogonal — you cannot
@@ -253,15 +301,18 @@ function fit(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   const w = box.clientWidth, h = box.clientHeight;
   cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
-  /* ZOOM TO FIT. The diamond is (W+H) half-tiles wide — 806px at TW 62 —
-     and a phone is 360. Without this the left and right corners fall off
-     the canvas and you get offered green tiles you cannot see or tap. */
-  const bw = (W + H) * (TW / 2), bh = (W + H) * (TH / 2);
-  SC = Math.min(1, (w - 8) / bw, (h - 8) / (bh + TH));
+  /* FRAME THE RECTANGLE, exactly as the world does, and crop NOTHING: a
+     tile you can see and cannot tap is worse than a strip of background,
+     and a tile you cannot see at all is worse still. The old fit zoomed a
+     diamond and capped at 1, which is why a phone held sideways showed a
+     small board in a wide empty frame. */
+  const R = BOARD.RECT;
+  SC = Math.min(w / R.w, h / R.h, 2);
   ctx.setTransform(DPR * SC, 0, 0, DPR * SC, 0, 0);
-  /* centre the diamond: the board spans (W+H) half-tiles each way */
-  ORX = w / SC / 2;
-  ORY = (h / SC - bh) / 2 + TH;
+  /* centre the rectangle: iso() adds these, so they carry the board's own
+     origin (the rectangle is centred on x=0, not on the first tile) */
+  ORX = w / SC / 2 - R.cx;
+  ORY = h / SC / 2 - R.cy;
   draw();
 }
 
@@ -397,14 +448,80 @@ function mk(kind, side, c, r){
   return u;
 }
 
+/* THE LAYOUT WAS AUTHORED ON AN 11x11 GRID and is worth keeping — where
+   the cover stands is a tactical decision, not a coordinate. This carries
+   each position into the screen rectangle proportionally, so a pillar that
+   stood two tiles left of centre still stands two tiles left of centre. */
+function cell11(c10, r10){
+  const V = BOARD.V;
+  let v = Math.max(0, Math.min(V - 1, Math.round(r10 * (V - 1) / 10)));
+  const m = BOARD.span(v);
+  let u = Math.round((c10 - 5) / 5 * m);
+  if ((u - v) % 2) u += (u >= m) ? -1 : 1;       /* snap to the row's parity */
+  u = Math.max(-m, Math.min(m, u));
+  return { c: BOARD.cOf(u, v), r: BOARD.rOf(u, v) };
+}
+
+/* ── standing room on a REAL map ────────────────────────────────────
+   The hand-placed board could promise that its start squares were clear.
+   A field cannot: the mob group you tapped may be standing against a
+   cliff, in a wood, or in a village street. So both sides are placed by
+   looking, not by arithmetic — nearest free cells outward from where the
+   monsters actually are, and a spot for the hero far enough back that his
+   first turn is a decision rather than a swing. */
+function freeSpots(blocked, from, want, minD, maxD, near){
+  const out = [], seen = new Set([key(from.c, from.r)]);
+  const q = [{ c: from.c, r: from.r, d: 0 }];
+  while (q.length && out.length < want * 12){
+    const n = q.shift();
+    if (n.d >= minD && n.d <= maxD && !blocked.has(key(n.c, n.r)))
+      out.push({ c: n.c, r: n.r, d: n.d });
+    if (n.d >= maxD) continue;
+    for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const c = n.c + dc, r = n.r + dr, k = key(c, r);
+      if (!inBoard(c, r) || seen.has(k) || blocked.has(k)) continue;
+      seen.add(k); q.push({ c, r, d: n.d + 1 });
+    }
+  }
+  /* two units with equal (c - r) render on the SAME iso column and stack,
+     so prefer spots that do not share one — the old board's rule, now
+     enforced instead of hand-checked */
+  const used = new Set();
+  const pick = [];
+  const score = (s) => near ? Math.abs(s.c - near.c) + Math.abs(s.r - near.r) : s.d;
+  out.sort((a, b) => score(a) - score(b));
+  for (const s of out){
+    if (pick.length >= want) break;
+    if (used.has(s.c - s.r)) continue;
+    used.add(s.c - s.r); pick.push(s);
+  }
+  for (const s of out){                      /* a stacked spot beats none */
+    if (pick.length >= want) break;
+    if (!pick.some(p => p.c === s.c && p.r === s.r)) pick.push(s);
+  }
+  return pick;
+}
+
 function newMatch(){
   fightReset();
   const blocked = new Set();
-  /* A HAND-PLACED map, not a random one. Cover only teaches you
-     anything if it is somewhere deliberate: two pillars in the middle
-     that both sides can use, and a short wall that punishes charging
-     straight down the lane. */
-  [[5,3],[5,7],[4,5],[6,5],[2,2],[8,8],[2,8],[8,2]].forEach(p => blocked.add(key(p[0], p[1])));
+  if (ARENA){
+    /* THE MAP IS THE BOARD. Every cell the world calls blocked is blocked
+       here — rocks, trees, fences, buildings, cliffs and the lake — so
+       cover in the fight is the cover you could see before it started. */
+    const m = ARENA.map;
+    for (const cell of BOARD.CELLS)
+      if (m.block[cell.r][cell.c]) blocked.add(key(cell.c, cell.r));
+  } else {
+    /* A HAND-PLACED map, not a random one. Cover only teaches you
+       anything if it is somewhere deliberate: two pillars in the middle
+       that both sides can use, and a short wall that punishes charging
+       straight down the lane. Standalone only — index.html on its own is
+       still the combat testbed, and it has no map to borrow. */
+    [[5,3],[5,7],[4,5],[6,5],[2,2],[8,8],[2,8],[8,2]]
+      .map(p => cell11(p[0], p[1]))
+      .forEach(p => blocked.add(key(p.c, p.r)));
+  }
 
   /* START POSITIONS, and one rule that is easy to miss: two units whose
      (c - r) is equal render on the SAME iso column and visually stack.
@@ -424,14 +541,46 @@ function newMatch(){
      WHERE you step matters. The (c - r) rule below still holds — two units
      with equal (c - r) share an iso column and visually stack, so no two
      spots here do. */
-  const spots = foes.length === 1
-    ? [[6,5]]
-    : [[6,4],[6,7],[6,6],[7,3],[5,8]];
-  const units = [ mk('you', 0, 3, 5) ];
+  let spots, home;
+  if (ARENA){
+    /* THE MONSTERS ARE WHERE YOU SAW THEM. The marker's own cell first,
+       then outward from it — so the group stands where it was standing on
+       the map, and the fight opens on the picture you tapped.
+       YOU STEP BACK. Walking up to a marker leaves you ADJACENT to it
+       (world.js routes to a neighbouring tile), and starting a tactics
+       fight already in contact throws the first turn away. So the hero
+       takes the free cell nearest to where he actually stood that is four
+       or more away — his own tile if it already is. */
+    const mid = BOARD.CELLS[Math.floor(BOARD.CELLS.length / 2)];
+    const at = ARENA.at && inBoard(ARENA.at.c, ARENA.at.r)
+      ? ARENA.at : { c: mid.c, r: mid.r };
+    spots = freeSpots(blocked, at, foes.length, 0, 4, null);
+    /* a group backed into a corner needs a wider look, or two of them are
+       given the same cell and one is invisible underneath the other */
+    if (spots.length < foes.length)
+      spots = freeSpots(blocked, at, foes.length, 0, 9, null);
+    const heroAt = ARENA.hero || null;
+    const mine = freeSpots(blocked, at, 1, 4, 7, heroAt);
+    home = (heroAt && inBoard(heroAt.c, heroAt.r) &&
+            !blocked.has(key(heroAt.c, heroAt.r)) &&
+            Math.abs(heroAt.c - at.c) + Math.abs(heroAt.r - at.r) >= 4)
+      ? heroAt : (mine[0] || heroAt || { c: at.c, r: at.r });
+  } else {
+    spots = (foes.length === 1
+      ? [[6,5]]
+      : [[6,4],[6,7],[6,6],[7,3],[5,8]]).map(s => cell11(s[0], s[1]));
+    home = cell11(3, 5);
+  }
+  const units = [ mk('you', 0, home.c, home.r) ];
   foes.forEach((k, i) => {
-    const s = spots[i % spots.length];
-    units.push(mk(k, 1, s[0], s[1]));
+    const s = spots[i % spots.length] || spots[0] || home;
+    units.push(mk(k, 1, s.c, s.r));
   });
+  /* COVER MAY NOT STAND ON A FIGHTER. Both lists are carried over from the
+     old grid independently, so a rounding that puts a pillar on a start
+     tile is possible — and would embed a unit in stone before the first
+     turn. The fighters win; the pillar is simply not placed. */
+  for (const u of units) blocked.delete(key(u.c, u.r));
   G = {
     blocked,
     units,
@@ -1078,6 +1227,7 @@ function aiTurn(u){
                      .slice(0, 1);
   const firing = [];
   for (let c = 0; c < W; c++) for (let r = 0; r < H; r++){
+    if (!inBoard(c, r)) continue;              /* void: not a place to stand */
     if (solid(c, r) && !(c === u.c && r === u.r)) continue;
     const from = { c, r };
     if (holds.some(s => {
@@ -1277,16 +1427,69 @@ function diamond(p){
   ctx.closePath();
 }
 
+/* the three commonest grounds on this map, for the surround. Water and
+   the cliff rim are the island's EDGE — repeating them outward would draw
+   a sea of cliffs rather than more country. Same rule as world.js. */
+let SURROUND_FILL = null;
+function surroundFill(){
+  if (SURROUND_FILL) return SURROUND_FILL;
+  const T = ARENA.WT.TILES, n = {};
+  for (const cell of BOARD.CELLS){
+    const i = ARENA.map.ground[cell.r][cell.c];
+    if (!i || i === T.WATER || i === T.CLIFF) continue;
+    n[i] = (n[i] || 0) + 1;
+  }
+  const best = Object.keys(n).map(Number).sort((a, b) => n[b] - n[a]).slice(0, 3);
+  return (SURROUND_FILL = best.length ? best : [T.GRASS]);
+}
+
 let hoverTile = null, moveSet = null, castSet = null;
 
 function draw(){
   const w = cv.width / DPR, h = cv.height / DPR;
   ctx.clearRect(0, 0, w / SC, h / SC);   /* ctx is scaled by SC */
 
-  /* floor — painted ground, or bare tiles in tactical mode */
+  /* floor — the MAP's own ground when the fight is on a map, the generic
+     painted tiles on the standalone board, or bare diamonds in tactical
+     mode. On a map the blocked cells are drawn too: water and cliff are
+     ground you can see and not walk on, and skipping them left holes in
+     the lake. */
+  const onMap = mapMode && ARENA && WORLD_ATLAS.ready;
   const painted = mapMode && TILESET.ready;
+  /* THE SURROUND, exactly as world.js draws it: the map's own ground
+     continued past the board until the screen is covered. Without it the
+     fight sat in a dark frame while the screen you started it from did
+     not, and the two are supposed to be the same place. Nothing here is
+     walkable — it is drawn first and everything paints over it. */
+  if (onMap){
+    const fill = surroundFill();
+    const halfW = (w / SC) / 2, halfH = (h / SC) / 2;
+    const pad = Math.ceil((halfW / (TW / 2) + halfH / (TH / 2)) / 2) + 2;
+    for (let r = -pad; r < H + pad; r++)
+      for (let c = -pad; c < W + pad; c++){
+        if (inBoard(c, r)) continue;
+        const p = iso(c, r);
+        if (p.x < -TW || p.x > w / SC + TW || p.y < -TH || p.y > h / SC + TH) continue;
+        const i = fill[(((c * 7 + r * 13) % fill.length) + fill.length) % fill.length];
+        ARENA.WT.drawTile(ctx, WORLD_ATLAS.img, i, p.x, p.y);
+      }
+  }
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++){
+    if (!inBoard(c, r)) continue;              /* outside the rectangle */
     const p = iso(c, r), k = key(c, r);
+    if (onMap){
+      const g = ARENA.map.ground[r][c];
+      if (g) ARENA.WT.drawTile(ctx, WORLD_ATLAS.img, g, p.x, p.y);
+      /* the same whisper of a grid the painted board gets: enough to
+         count squares with, faint enough that the ground still reads as
+         ground. A tactics fight is played by counting, and the map does
+         not draw one — this is the one thing the fight adds to it. */
+      if (!G.blocked.has(k)){
+        diamond(p);
+        ctx.strokeStyle = 'rgba(0,0,0,.18)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      continue;
+    }
     if (G.blocked.has(k)) continue;
     if (painted){
       drawGroundTile(c, r);
@@ -1351,6 +1554,19 @@ function draw(){
   things.sort((a, b) => (a.c + a.r) - (b.c + b.r));
   for (const t of things){
     if (!t.wall) { drawUnit(t.u, t.c, t.r); continue; }
+    /* THE MAP'S OWN SCENERY, in painter's order with the fighters, so a
+       tree stands in front of what is behind it and behind what is in
+       front. A blocked cell with no decor is water or cliff — its ground
+       already said so, and stamping a purple block on the lake would be
+       the board disagreeing with the picture underneath it. */
+    if (onMap){
+      const d = ARENA.map.decor[t.r][t.c];
+      if (d){
+        const p = iso(t.c, t.r);
+        ARENA.WT.drawTile(ctx, WORLD_ATLAS.img, d, p.x, p.y);
+      }
+      continue;
+    }
     /* scenery in map mode, the unmistakable block in tactical mode */
     if (!(mapMode && drawProp(t.c, t.r))) drawWall(t.c, t.r);
   }

@@ -42,7 +42,14 @@ const HUDT = (() => {
   /* ── bottom bar geometry (px, CSS space, EXCLUDING safe insets) ─── */
   const BAR = {
     H: 64,                 /* explore bar height                        */
-    COMBAT_H: 134,         /* combat: skills row 64 + 6 gap + 64        */
+    COMBAT_H: 134,         /* combat, upright: skills row 64 + 6 + 64   */
+    /* SIDEWAYS THE BAR IS ONE ROW. 134 of a landscape phone's 390 is a
+       third of the screen given to furniture, and the map is a rectangle
+       now — every pixel the bar takes is ground the player cannot reach.
+       hud.css lays the skills BESIDE the orbs at this height; the two
+       numbers have to agree, so the CSS reads this one through the
+       --hud-bar-h variable rather than repeating it. */
+    COMBAT_H_LANDSCAPE: 66,
     PAD_X: 10,             /* side padding inside the bar               */
     PAD_BOTTOM_MIN: 10,    /* padding-bottom: max(this, safe-inset)     */
     BTN_H: 48,             /* Bag / Hero / Map / End turn height        */

@@ -6,17 +6,16 @@
    is what makes a map readable at a glance and what every seam, camera and
    world-map check in the project is built on.
 
-   The geometry decides it. In this projection a map's bounding box is
+   The geometry decides it, and it decides it harder than it used to. A map
+   is a SCREEN RECTANGLE now (grid.js): 806 x 368 board pixels, which is
+   2.19:1 — a phone held sideways, almost exactly. Held that way the map
+   fills the glass edge to edge at about 1:1. Held upright the same
+   rectangle has to shrink to 0.48 to fit across 390px, and a character on
+   it stops being a character.
 
-       width  = (C + R - 2) * TW/2        TW = 62
-       height = (C + R - 2) * TH/2        TH = 46
-
-   so the ratio is ALWAYS 62:46 — about 1.35:1 — whatever the grid is. A
-   10x10 map is 558x414. On a phone held upright (390x844) the binding
-   dimension is width, and the map has to shrink to 0.70 to fit; held
-   sideways (844x390) it is height, and the map fits at 0.94 — near
-   one-to-one, which is the difference between a legible character and a
-   smudge.
+   (It used to be a diamond whose aspect was pinned at 62:46 by the
+   projection, which fitted a landscape phone at 0.94 and covered a third
+   of it. The rectangle is the fix; landscape is now what it is FOR.)
 
    So portrait does not get a worse version of the game. It gets a card
    asking for the phone to be turned, because the alternative is either a

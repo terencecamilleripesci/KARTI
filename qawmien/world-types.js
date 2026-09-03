@@ -9,8 +9,19 @@
 
 const WT = (() => {
 
-  /* ── geometry: copied from combat, the same diamond ─────────────── */
-  const TW = 62, TH = 46;            /* on-board tile size (tactics.js)  */
+  /* ── geometry: the SCREEN RECTANGLE, defined once in grid.js ──────
+     A map is no longer a w x h rectangle of tiles (which always
+     projects to a diamond covering a third of a phone held sideways).
+     It is a rectangle ON SCREEN made of staggered cells — grid.js
+     explains the whole change. Coordinates are unchanged: still (c,r),
+     still isoX/isoY, still eight step deltas. What changed is which
+     (c,r) exist. The cells of the square bounding box that fall
+     outside the rectangle are VOID: ground 0, block 1, drawn by
+     nobody, walked by nobody. */
+  const G = (typeof GRID !== 'undefined') ? GRID
+          : (typeof require === 'function' ? require('./grid.js') : null);
+
+  const TW = G.TW, TH = G.TH;        /* on-board tile size (tactics.js)  */
 
   /* ── the atlas: art/world.png, 1024x512 ─────────────────────────── */
   const TILE_PX    = 128;            /* square atlas cell                */
@@ -84,8 +95,15 @@ const WT = (() => {
       TILE_PX * k, TILE_PX * k);
   }
 
-  /* ── walkability ────────────────────────────────────────────────── */
-  function inMap(map, c, r){ return c >= 0 && r >= 0 && c < map.w && r < map.h; }
+  /* ── walkability ──────────────────────────────────────────────────
+     inMap is now the REGION test, not the array-bounds test. A cell
+     inside the array but outside the screen rectangle is void: it is
+     not part of the map, so nothing may stand on it, walk through it
+     or be picked on it. Everything downstream (isWalkable, canStep,
+     A*, the flood fills in the checkers) inherits that for free. */
+  function inMap(map, c, r){
+    return c >= 0 && r >= 0 && c < map.w && r < map.h && G.has(c, r);
+  }
   function tileAt(map, layer, c, r){ return inMap(map, c, r) ? map[layer][r][c] : 0; }
   function isWalkable(map, c, r){ return inMap(map, c, r) && map.block[r][c] === 0; }
   /* a diagonal may not cut a corner: both flanking orthogonals must be open */
@@ -96,21 +114,29 @@ const WT = (() => {
     return true;
   }
 
-  /* which declared-neighbour edge is this tile on? order n,e,s,w — fixed */
+  /* WHICH DECLARED-NEIGHBOUR EDGE IS THIS TILE ON? Order n,e,s,w — fixed,
+     because a corner cell sits on two and the caller must get the same
+     answer every time.
+
+     Screens OVERLAP BY ONE LINE, exactly as they always have: the map's
+     east column IS the neighbour's west column, the same strip of world
+     drawn twice. So a tile transfers only if that shared line reaches
+     the neighbour — G.twin says whether it does. On a staggered grid the
+     odd rows are half a tile short of the rectangle's side (the notch
+     Dofus leaves too), so their outermost cells are the map's own and do
+     not transfer; the outermost EVEN column is the seam. The player walks
+     into it without ever knowing which of the two he is on. */
   function edgeDir(map, c, r){
     const nb = map.neighbours || {};
-    if (r === 0 && nb.n) return 'n';
-    if (c === map.w - 1 && nb.e) return 'e';
-    if (r === map.h - 1 && nb.s) return 's';
-    if (c === 0 && nb.w) return 'w';
+    for (const d of ['n', 'e', 's', 'w'])
+      if (nb[d] && G.edgeSide(c, r, d) && G.twin(c, r, d)) return d;
     return null;
   }
-  /* where an edge transfer lands in neighbour map `nmap` */
+  /* where an edge transfer lands in the neighbour: the SAME world cell,
+     seen from the other screen. Every map is the same shape, so nmap is
+     no longer needed — kept in the signature so callers do not change. */
   function edgeTarget(dir, c, r, nmap){
-    if (dir === 'e') return { c: 0, r: r };
-    if (dir === 'w') return { c: nmap.w - 1, r: r };
-    if (dir === 'n') return { c: c, r: nmap.h - 1 };
-    return { c: c, r: 0 };                                        /* 's' */
+    return G.twin(c, r, dir);
   }
 
   function markerAt(map, c, r){
@@ -122,29 +148,33 @@ const WT = (() => {
 
   /* ── the seam invariant, as a runnable check (verifier uses this) ─ */
   function seamErrors(A, B, dir){
-    const errs = [], along = (dir === 'e' || dir === 'w');
+    const errs = [];
     if (!A || !B) return ['missing map object'];
     if ((A.neighbours || {})[dir] !== B.id)
       errs.push(A.id + '.neighbours.' + dir + ' !== ' + B.id);
     if ((B.neighbours || {})[OPP[dir]] !== A.id)
       errs.push(B.id + '.neighbours.' + OPP[dir] + ' !== ' + A.id + ' (not reciprocal)');
-    if (along ? A.h !== B.h : A.w !== B.w)
+    if (A.w !== B.w || A.h !== B.h)
       errs.push(A.id + '/' + B.id + ' size mismatch across ' + dir + ' seam');
     else {
-      const n = along ? A.h : A.w;
-      let open = false;
-      for (let i = 0; i < n; i++){
-        /* the two coordinates that face each other across the seam */
-        const ac = dir === 'e' ? A.w - 1 : dir === 'w' ? 0 : i;
-        const ar = dir === 's' ? A.h - 1 : dir === 'n' ? 0 : i;
-        const bc = dir === 'e' ? 0 : dir === 'w' ? B.w - 1 : i;
-        const br = dir === 's' ? 0 : dir === 'n' ? B.h - 1 : i;
+      /* THE SHARED LINE, cell by cell: every cell of A's `dir` edge that
+         also exists in B is the same cell of the world, so all three
+         layers must agree on it. G.twin is the only thing that knows
+         which those are — on a staggered grid an east seam shares its
+         even rows and notches past the odd ones. */
+      let open = false, shared = 0;
+      for (const cell of G.edgeCells(dir)){
+        const t = G.twin(cell.c, cell.r, dir);
+        if (!t) continue;                      /* the notch: A's own cell */
+        shared++;
         for (const L of LAYERS)
-          if (A[L][ar][ac] !== B[L][br][bc])
-            errs.push(dir + ' seam ' + L + ' mismatch at index ' + i +
-                      ': ' + A.id + '=' + A[L][ar][ac] + ' ' + B.id + '=' + B[L][br][bc]);
-        if (A.block[ar][ac] === 0) open = true;
+          if (A[L][cell.r][cell.c] !== B[L][t.r][t.c])
+            errs.push(dir + ' seam ' + L + ' mismatch at u' + cell.u + ' v' + cell.v +
+                      ': ' + A.id + '=' + A[L][cell.r][cell.c] +
+                      ' ' + B.id + '=' + B[L][t.r][t.c]);
+        if (A.block[cell.r][cell.c] === 0) open = true;
       }
+      if (!shared) errs.push(dir + ' seam ' + A.id + '/' + B.id + ' shares no cell');
       if (!open) errs.push(dir + ' seam ' + A.id + '/' + B.id + ' has no walkable tile');
     }
     return errs;
@@ -162,7 +192,7 @@ const WT = (() => {
              hp: 100, hpMax: 100, ap: 6, mp: 3, items: [] };
   }
 
-  return { TW, TH, TILE_PX, ATLAS_COLS, ATLAS_SRC, FOOT_W, FOOT_H, FOOT_TOP,
+  return { GRID: G, TW, TH, TILE_PX, ATLAS_COLS, ATLAS_SRC, FOOT_W, FOOT_H, FOOT_TOP,
            SCALE, WALK_MS, DIAG_MS, SPR_SCALE, FOOT_Y, LAYERS, TILES, DIRS8, OPP,
            fieldId, parseFieldId, isoX, isoY, boardToTile, atlasRect, drawTile,
            inMap, tileAt, isWalkable, canStep, edgeDir, edgeTarget, markerAt,

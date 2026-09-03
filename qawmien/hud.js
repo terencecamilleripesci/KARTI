@@ -1174,7 +1174,13 @@ window.HUD = (function () {
       const p = parseFloat(getComputedStyle(bar).paddingBottom);
       if (!isNaN(p)) padB = p;
     }
-    const contentH = mode === 'combat' ? T.BAR.COMBAT_H : T.BAR.H;
+    /* one row sideways, two upright — the same test hud.css uses, kept
+       here because the VARIABLE is what every page reserves space with */
+    const wide = window.innerWidth > window.innerHeight &&
+                 window.innerHeight <= 520;
+    const contentH = mode === 'combat'
+      ? (wide ? T.BAR.COMBAT_H_LANDSCAPE : T.BAR.COMBAT_H)
+      : T.BAR.H;
     root.style.setProperty(T.CSSVARS.BAR_H, (contentH + padB) + 'px');
 
     let topH = 0;

@@ -99,17 +99,33 @@ window.MINIMAP = (function () {
     const rows = grid.length, cols = grid[0].length;
     const m0 = MS[grid[0][0]];
     if (!m0 || !m0.ground) return null;
-    const mw = m0.w, mh = m0.h, sx = mw - 1, sy = mh - 1;
-    const W = cols * sx + 1, H = rows * sy + 1;
+    /* THE CHART IS DRAWN IN SCREEN SPACE, not in (c,r).
+       A map's cells no longer tile the plane as a square block — they
+       tile it as a screen RECTANGLE, staggered row by row (grid.js). So
+       the stitch runs in (u,v): u is half a tile across, v is half a
+       tile down, and screens step by GRID.DU / GRID.DV, sharing their
+       edge line exactly as the maps do. One raster cell is 31x23 board
+       px — the same 1.35:1 a whole tile used to be — so the island keeps
+       its proportions and only the resolution doubles.
+       Each cell is written to TWO columns because it spans two half-tile
+       steps; that is what stops the chart reading as a chequerboard of
+       holes on the staggered rows. */
+    const g0 = window.GRID;
+    const sx = g0.DU, sy = g0.DV, mw = 2 * g0.UMAX + 1, mh = g0.V;
+    const W = (cols - 1) * sx + mw + 1, H = (rows - 1) * sy + mh;
     const t = [];
     for (let y = 0; y < H; y++) t.push(new Array(W).fill(0));
     for (let gy = 0; gy < rows; gy++)
       for (let gx = 0; gx < cols; gx++) {
         const m = MS[grid[gy][gx]];
         if (!m || !m.ground) continue;
-        for (let r = 0; r < mh; r++)
-          for (let c = 0; c < mw; c++)
-            t[gy * sy + r][gx * sx + c] = m.ground[r][c];
+        for (const cell of g0.CELLS) {
+          const val = m.ground[cell.r][cell.c];
+          if (!val) continue;
+          const ux = gx * sx + cell.u + g0.UMAX, vy = gy * sy + cell.v;
+          t[vy][ux] = val;
+          if (ux + 1 < W) t[vy][ux + 1] = val;
+        }
       }
     /* where does the ruin wing attach? the exit marker that leaves the
        field grid for a non-field map is the causeway (fallback: row 6) */
@@ -151,7 +167,8 @@ window.MINIMAP = (function () {
         for (let k = 0; k < mks.length; k++)
           if (mks[k].type === 'exit' && mks[k].to && !mks[k].need &&
               !/^field-/.test(mks[k].to)) {
-            anchor = { x: gx * sx + mks[k].c, y: gy * sy + mks[k].r };
+            anchor = { x: gx * sx + g0.u_of(mks[k].c, mks[k].r) + g0.UMAX,
+                       y: gy * sy + g0.v_of(mks[k].c, mks[k].r) };
             break outer;
           }
       }
@@ -720,10 +737,14 @@ window.MINIMAP = (function () {
       for (let gy = 0; gy < wg.rows; gy++)
         for (let gx = 0; gx < wg.cols; gx++)
           if (wg.ids[gy][gx] === cur) {
-            let c = wg.mw / 2, r = wg.mh / 2;
+            let c = wg.mw / 2, r = wg.mh / 2;   /* raster units, not (c,r) */
             try {
               const W = window.WORLD, at = W && W.playerAt && W.playerAt();
-              if (at && W._map && W._map.id === cur) { c = at.c + 0.5; r = at.r + 0.5; }
+              if (at && W._map && W._map.id === cur) {
+                const g0 = window.GRID;
+                c = g0.u_of(at.c, at.r) + g0.UMAX + 0.5;
+                r = g0.v_of(at.c, at.r) + 0.5;
+              }
             } catch (e) {}
             px = X(gx * wg.sx + c); py = Y(gy * wg.sy + r);
           }

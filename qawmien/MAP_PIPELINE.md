@@ -1,5 +1,13 @@
 # The map pipeline — paint one screen, code the rest
 
+> **The geometry under this changed (see `WORLD_SPEC §1a` and `grid.js`).** A
+> screen is a RECTANGLE of staggered cells now, not a diamond, so a template
+> is the whole picture and every pixel of it is floor. The sixteen paintings
+> made against the old diamond are registered to a shape that no longer
+> exists; they are kept in `art/bg-diamond/` and no map points at one. Every
+> screen currently renders from the tile atlas. Repainting is a job of its
+> own: `tools/blockout.py --map <id>` emits the new template.
+
 The owner's process, written down so any map can be reworked on its own without
 disturbing the world around it:
 

@@ -40,20 +40,18 @@
   #wcv{position:fixed;top:0;left:0;width:100%;
     height:calc(100% - var(--hud-bar-h,64px));
     display:block;touch-action:none}
-  /* SIDEWAYS, THE WORLD GETS THE WHOLE SCREEN and the bar floats over it.
-     Held upright the canvas stopping above the HUD is right — there is
-     height to spare. Held sideways there is not: a 420px-tall phone gave
-     --hud-bar-h 134 of it to the bar, so the painted map was squeezed into
-     the top two thirds with a solid purple band beneath it, which is exactly
-     the "not full screen" the owner reported.
-     The map now runs the full height and the bar sits over the bottom
-     corners, which the projection leaves empty anyway — a diamond in a wide
-     frame never fills them. Only the RESERVATION changes; the bar keeps its
-     size, its hit targets and its z-index. index.html already does this for
-     combat; the world was simply never given the same treatment. */
-  @media (orientation:landscape) and (max-height:520px){
-    #wcv{height:100%}
-  }
+  /* THE BAR MAY NOT COVER THE MAP — and this is the second half of the
+     full-screen fix, not a retreat from it.
+     Sideways, the canvas used to be given the WHOLE height and the bar was
+     left to float over the bottom. That was right while a map was a
+     diamond: the projection left the bottom corners empty, so the bar sat
+     on nothing. The map is a RECTANGLE now (grid.js) and it reaches
+     everywhere, so a floating bar sits on real cells — the owner could see
+     them and could not tap them.
+     So the canvas stops above the bar in every orientation. The map is
+     framed into what is left, which is also what zooms it back out; and the
+     SURROUND still paints the map's own ground to the screen edges, so the
+     screen stays full of world even where the walkable part has run out. */
 
   /* combat iframe — full screen, above panels(40), below #dlg(50) and the
      quest coach toast(9999) so coaching overlays the fight */
@@ -154,6 +152,9 @@ LOADER.open();
   geometry, palette, z-scale, storage keys, spell glyphs. Before every
   module that reads it (minimap.js, hud.js, panels.js) — HUD_SPEC §0 -->
 <script src="sprite.js"></script>
+<script src="grid.js"></script><!-- window.GRID — the SHAPE of a screen: the
+  staggered rectangle that fills a phone held sideways. Loads before
+  world-types.js and before any map, because both are defined in terms of it -->
 <script src="world-types.js"></script>
 <script src="classes.js"></script>
 <!-- GEAR must load BEFORE player.js: refresh() folds worn vit into hpMax, and
@@ -234,6 +235,7 @@ LOADER.open();
 <script src="maps/field-4-6.js"></script>
 <script src="maps/field-5-6.js"></script>
 <script src="maps/field-6-6.js"></script>
+<script src="maps/field-0-7.js"></script>
 <script src="maps/field-1-7.js"></script>
 <script src="maps/field-2-7.js"></script>
 <script src="maps/field-3-7.js"></script>

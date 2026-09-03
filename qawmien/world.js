@@ -37,6 +37,7 @@ const WORLD = (() => {
   /* doorways (RUIN_ARCH decor) found on load: each gets a light spill on
      the floor in front of it; arches that lead OUTDOORS read as daylight */
   let doors = [];                       /* { c, r, dc, dr, out }           */
+  let exitHint = null;                  /* the tapped way out: {c,r,dir}   */
   const REDUCED = typeof matchMedia === 'function' &&
     matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -335,6 +336,7 @@ const WORLD = (() => {
     }
     if (!p) p = { c: 0, r: 0 };
     doors = findDoors(m);
+    exitHint = null;                    /* a new screen: nothing aimed at yet */
     hero.c = p.c; hero.r = p.r;
     hero.bx = WT.isoX(p.c, p.r); hero.by = WT.isoY(p.c, p.r);
     hero.step = null; hero.path = []; hero.pending = null; hero.goal = null;
@@ -603,13 +605,11 @@ const WORLD = (() => {
   }
 
   function camTarget(){
-    const headroom = WT.TILE_PX * WT.SCALE;        /* room for tall decor */
-    const minX = WT.isoX(0, map.h - 1) - TW / 2;
-    const maxX = WT.isoX(map.w - 1, 0) + TW / 2;
-    const minY = WT.isoY(0, 0) - TH / 2 - headroom;
-    const maxY = WT.isoY(map.w - 1, map.h - 1) + TH / 2;
+    const R = GRID.RECT;
+    const minX = R.x, maxX = R.x + R.w;
+    const minY = R.y, maxY = R.y + R.h;
     if (fitted)                                    /* static, centred, whole */
-      return { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+      return { x: R.cx, y: R.cy };
     const hw = cssW / (2 * camera.scale), hh = cssH / (2 * camera.scale);
     return { x: clampAxis(hero.bx, minX, maxX, hw),
              y: clampAxis(hero.by, minY, maxY, hh) };
@@ -635,29 +635,32 @@ const WORLD = (() => {
 
   /* THE DOFUS SCREEN MODEL — the rule the owner picked after testing on a
      phone: "the map always same size like dofus". Every map is the same
-     size (10x10), every map is framed WHOLE and centred, and the camera
-     never scrolls — walking off an edge swaps to the neighbour screen,
-     which is then framed whole in turn.
+     screen rectangle, every map is framed WHOLE and centred, and the
+     camera never scrolls — walking off an edge swaps to the neighbour
+     screen, which is then framed whole in turn.
 
-     fitScale therefore always returns the scale that fits the entire map
-     (capped at MAX so a desktop window doesn't blow tiles up absurdly).
-     `fitted` records whether that fit stayed above the readability floor;
-     when it did (the normal case — 10x10 fits every phone), camTarget is
-     the static map centre. Only if a map somehow cannot fit at a readable
-     scale does the old follow-and-clamp scroll come back as a fallback. */
+     WHAT IS FRAMED IS NOW THE RECTANGLE, not a diamond's bounding box.
+     That is the whole of the "it is not full screen" fix at this end: the
+     playfield's aspect used to be locked at 62:46 by the projection, so a
+     phone held sideways could never be filled by it. GRID.RECT is 806x368
+     — 2.19:1 — which IS a phone held sideways, so the same fit now covers
+     the screen instead of leaving two thirds of it as scenery.
+
+     NOTHING IS CROPPED. This briefly took up to 8% of overscan to eat a
+     letterbox, on the argument that the cells it ate were the outermost
+     ones. The owner's answer to that was immediate and correct: a cell
+     you can see and cannot tap is worse than a strip of sky, and a cell
+     you cannot see at all is worse still. So the whole rectangle is
+     always inside the canvas, and the SURROUND fills whatever is left
+     over with the map's own ground — the screen stays full of world, and
+     everything you can walk on is on it. */
   const MIN_SCALE = 0.55;   /* below this a character stops being readable */
   const MAX_SCALE = 2;
   let fitted = true;        /* current map fits whole at camera.scale      */
 
-  function footprint(m){    /* isometric extent of the map, board pixels  */
-    return { mw: (m.w + m.h) * (WT.TW / 2),
-             mh: (m.w + m.h) * (WT.TH / 2) + WT.TILE_PX * WT.SCALE };
-  }
   function fitScale(){
-    const m = map;
-    if (!m || !m.w || !m.h){ fitted = true; return Math.min(MAX_SCALE, Math.max(1, cssW / 620)); }
-    const f = footprint(m);
-    const fit = Math.min(cssW / f.mw, cssH / f.mh);
+    const R = GRID.RECT;
+    const fit = Math.min(cssW / R.w, cssH / R.h);
     fitted = fit >= MIN_SCALE;
     return fitted ? Math.min(MAX_SCALE, fit) : MIN_SCALE;
   }
@@ -873,10 +876,10 @@ const WORLD = (() => {
     fit(g.canvas);
     g.setTransform(1, 0, 0, 1, 0, 0);
     /* THE VOID THE ISLAND FLOATS IN, not an empty frame.
-       A map is a diamond and the projection fixes its bounding box at 62:46,
-       so on a landscape phone it can never reach the left and right edges —
-       there will ALWAYS be a wedge of surround, and Dofus fills that with
-       sky rather than leaving it black. Flat #0d0f14 read as "the map failed
+       The map fills the screen now, so on a phone this is painted and then
+       covered. It still matters on a shape the rectangle cannot fill — a
+       tablet upright, a squat desktop window — where a band is left rather
+       than cropping real ground away. Flat #0d0f14 read as "the map failed
        to fill the screen"; a sky reads as height, which is what a floating
        island is supposed to have.
        Painted straight to the canvas in device pixels, before the camera
@@ -927,10 +930,16 @@ const WORLD = (() => {
       if (b.ready){
         let R = map._bgRect;
         if (!R){
-          const span = (map.w + map.h) * (TW / 2);
-          const w = 2 * span, h = w * b.img.height / b.img.width;
-          const cy = (map.w + map.h - 2) * (TH / 2) / 2;
-          R = map._bgRect = { x: -span, y: cy - h / 2, w, h };
+          /* THE PICTURE IS THE RECTANGLE. This used to be arithmetic that
+             fitted an illustration around a diamond and hoped the ground
+             landed under the walkable cells; now the playfield IS the
+             screen rectangle, so a painting is simply that rectangle and
+             registration is one assignment. Anything the painter draws
+             outside its aspect is centre-cropped, never stretched. */
+          const g0 = GRID.RECT, k = Math.max(g0.w / b.img.width,
+                                             g0.h / b.img.height);
+          const w = b.img.width * k, h = b.img.height * k;
+          R = map._bgRect = { x: g0.cx - w / 2, y: g0.cy - h / 2, w, h };
         }
         g.imageSmoothingEnabled = true;
         g.drawImage(b.img, R.x, R.y, R.w, R.h);
@@ -940,21 +949,22 @@ const WORLD = (() => {
     }
 
     /* (a0) THE SURROUND — art out to the screen edge, not a void.
-       A map is a diamond and the projection fixes its bounding box at 62:46,
-       so it can never reach the corners of a wide screen. The mistake was
-       treating that leftover as background and painting it: Dofus does not
-       leave a void there, it CARRIES THE SCENERY OUT TO THE EDGE and the
-       diamond is merely where you may walk.
+       The map now fills the screen, so this has almost nothing left to do:
+       it only covers the sliver outside the rectangle on a device whose
+       shape is not the rectangle's, and the half-cell notches the
+       staggered rows leave along the left and right sides. Worth keeping
+       precisely because it is what stops those reading as holes.
 
-       So the same iso lattice is continued past the map on every side, filled
-       with the map's own ground, until the screen is covered. Nothing here is
-       walkable and nothing is stored — it is drawn from the map's existing
-       tiles, so every screen gets a surround that matches it without a single
-       byte of new data. Drawn FIRST, so the real map and everything standing
-       on it paints over the top.
+       The same iso lattice is continued past the map on every side, filled
+       with the map's own ground. Nothing here is walkable and nothing is
+       stored — it is drawn from the map's existing tiles, so every screen
+       gets a surround that matches it without a single byte of new data.
+       Drawn FIRST, so the real map and everything standing on it paints
+       over the top.
 
-       The band is derived from the canvas rather than fixed, so a wider phone
-       gets more of it instead of running out. */
+       NOTE the test is GRID.has, not the array bounds: the cells of the
+       bounding box that fall outside the rectangle are void, not map, and
+       they are exactly where the notches are. */
     if (!bgUp && atlas && atlas.ready) {
       const halfW = (g.canvas.width  / (dpr * s)) / 2;
       const halfH = (g.canvas.height / (dpr * s)) / 2;
@@ -963,7 +973,7 @@ const WORLD = (() => {
       const fill = surroundTiles(map);
       for (let r = -pad; r < map.h + pad; r++)
         for (let c = -pad; c < map.w + pad; c++){
-          if (r >= 0 && r < map.h && c >= 0 && c < map.w) continue;  /* the map */
+          if (GRID.has(c, r)) continue;                              /* the map */
           const x = WT.isoX(c, r), y = WT.isoY(c, r);
           if (Math.abs(x - camera.x) > halfW + TW ||
               Math.abs(y - camera.y) > halfH + TH) continue;         /* off screen */
@@ -1000,6 +1010,16 @@ const WORLD = (() => {
         ? performance.now() : Date.now())) / 640);
     for (const d of doors) drawDoorPool(g, d, breathe);
 
+    /* (a3) THE WAY OUT, MARKED — but only the one you asked for. Dofus
+       shows the arrow on the tile under the pointer, not on every tile
+       that leaves the map; drawing all of them (33 on this screen) turned
+       the border into wallpaper and said nothing about where you are
+       going. So it appears on the tile you TAP, and stays there while you
+       walk to it: the answer to "what happens if I go here".
+       Drawn under decor and actors, so a tree or a monster standing on
+       the edge still covers it. */
+    if (exitHint) drawExitArrow(g, exitHint, breathe);
+
     /* (b) decor + actors, one list sorted by depth (c+r); the player
        uses its interpolated depth; ties draw decor first */
     const q = [];
@@ -1033,6 +1053,51 @@ const WORLD = (() => {
        queue entries never overlap the opening (it faces the viewer). */
     for (const d of doors)
       drawDoorLight(g, WT.isoX(d.c, d.r), WT.isoY(d.c, d.r), d.sgn, d.out, breathe);
+  }
+
+  /* ── THE EXIT ARROW ───────────────────────────────────────────────
+     Does this tile hand the player to another screen, and which way?
+     Asked through WT.edgeDir — the same rule that actually fires the
+     transfer — rather than re-derived, because a corner cell sits on two
+     sides and only ever transfers one way, and an arrow that promised the
+     other would be a lie you could walk into. */
+  function exitAt(m, c, r){
+    if (!m || !WT.isWalkable(m, c, r)) return null;
+    const d = WT.edgeDir(m, c, r);
+    if (!d || !(window.MAPS && window.MAPS[(m.neighbours || {})[d]])) return null;
+    return { c: c, r: r, d: d };
+  }
+
+  /* A CHEVRON LYING ON THE TILE, pointing the way out. Screen-space, not
+     tile-space: 'east' means the east SCREEN edge, which is where the
+     player is about to walk, so a flat arrow reads truer here than one
+     drawn along the iso axes. */
+  const ARROW_DIR = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] };
+  function drawExitArrow(g, a, breathe){
+    const dir = ARROW_DIR[a.d];
+    if (!dir) return;
+    const x = WT.isoX(a.c, a.r), y = WT.isoY(a.c, a.r);
+    const len = TH * 0.42, wide = TW * 0.20;
+    /* rides a little way out of the tile, and breathes so it reads as an
+       invitation rather than as a decal on the ground */
+    const push = 3 + 3 * breathe;
+    const cx = x + dir[0] * push, cy = y + dir[1] * push * 0.7;
+    g.save();
+    g.translate(cx, cy);
+    g.scale(1, TH / TW);                 /* lie it down into the iso plane */
+    g.rotate(Math.atan2(dir[1], dir[0]));
+    g.beginPath();                        /* a chevron, not a solid head   */
+    g.moveTo(-len * 0.55, -wide);
+    g.lineTo(len * 0.55, 0);
+    g.lineTo(-len * 0.55, wide);
+    g.lineWidth = 5;
+    g.strokeStyle = 'rgba(0,0,0,.40)';
+    g.lineJoin = 'round'; g.lineCap = 'round';
+    g.stroke();
+    g.lineWidth = 2.6;
+    g.strokeStyle = 'rgba(255,197,66,' + (0.55 + 0.35 * breathe).toFixed(3) + ')';
+    g.stroke();
+    g.restore();
   }
 
   /* the pool of light a doorway throws on the floor in front of it */
@@ -1233,8 +1298,14 @@ const WORLD = (() => {
     const t = WT.boardToTile(bx, by);
     if (!WT.inMap(map, t.c, t.r)) return;
     const mk = markerAtLive(t.c, t.r);
-    if (mk && (mk.type === 'npc' || mk.type === 'fight')){ interact(mk); return; }
-    walkTo(t.c, t.r);
+    if (mk && (mk.type === 'npc' || mk.type === 'fight')){
+      exitHint = null; interact(mk); return;
+    }
+    /* the arrow answers the tap: aim at a tile that leaves the map and it
+       appears there and rides along until you arrive (load() clears it on
+       the new screen). Aim anywhere else and it goes. */
+    const ok = walkTo(t.c, t.r);
+    exitHint = ok ? exitAt(map, t.c, t.r) : exitHint;
   }
 
   /* clicking an npc/fight: path to the nearest adjacent walkable tile

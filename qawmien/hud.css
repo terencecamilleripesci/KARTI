@@ -27,7 +27,11 @@ body:has(#dlg.on) #hud-bar{transform:translateY(calc(100% + 40px))}
 @supports (backdrop-filter: blur(8px)) or (-webkit-backdrop-filter: blur(8px)){
   #hud-bar{backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
 }
-#hud-bar.hud-grown{height:calc(134px + max(10px, env(safe-area-inset-bottom,0px)))}
+/* the grown bar IS the variable: hud.js decides 134 (upright) or 66
+   (sideways, one row) and every page reserves space with the same number */
+#hud-bar.hud-grown{
+  height:var(--hud-bar-h, calc(134px + max(10px, env(safe-area-inset-bottom,0px))));
+}
 
 #hud-wrap{
   max-width:560px;margin:0 auto;height:100%;position:relative;
@@ -383,22 +387,39 @@ body:has(#dlg.on) #hud-bar{transform:translateY(calc(100% + 40px))}
   .soc-sheet{transform:none}
 }
 
-/* ── LANDSCAPE: the bar floats over the map, it does not push it up ──
-   The game is played sideways, where a phone gives about 390px of height and
-   a 10x10 map needs 414 at scale 1. The bottom bar claims 134 of that through
-   --hud-bar-h, which left the board 256px and forced the map down to 0.62
-   scale — a smaller map than PORTRAIT gave, which defeats the entire reason
-   for turning the phone.
+/* ── LANDSCAPE: the bar goes to ONE ROW, and stops covering the map ──
+   Sideways a phone gives about 390px of height and the grown combat bar
+   claims 134 of it — a third of the screen for furniture. The previous
+   answer was to let the bar FLOAT over the board and stop reserving space:
+   fine while a map was a diamond, because the projection left the bottom
+   corners empty and the bar sat on nothing. The map is a screen RECTANGLE
+   now (grid.js) and it reaches everywhere, so a floating bar sits on real
+   cells — the owner: "you can't press in map".
 
-   So sideways the bar stops reserving space and floats over the board
-   instead, the way Dofus lays its UI over the map. The map gets the full
-   height and the bar sits on the empty triangles the projection leaves at
-   the bottom corners — a diamond in a wide frame never fills them anyway.
+   So the bar reserves its space again, and pays for it by going to one row.
+   Sideways there is width to spare and height there is not, so the skills
+   stand BESIDE the orbs instead of above them: 134px becomes about 86, and
+   the board gets the difference. Icons drop to 48px, which is still over
+   the 44px floor for a finger.
 
-   Only the RESERVATION changes. The bar keeps its size, its hit targets and
-   its z-index, so nothing about touching it changes. */
+   Portrait is untouched — it has the height, and two rows read better
+   there. The explore bar has no skills row, so it is one row already and
+   only its wrap direction changes: it looks exactly as it did. */
 @media (orientation:landscape) and (max-height:520px){
-  #wrap{padding-bottom:0}
+  #hud-wrap{
+    flex-direction:row;align-items:center;gap:8px;max-width:none;padding:0 8px;
+  }
+  /* min-width:0 on both, or the row's content sets a min-content floor
+     wider than the bar and End turn walks off the right edge — the
+     skills row is what pushes it, so the skills are the ones that give */
+  #hud-skills{flex:0 1 auto;min-width:0;height:56px;margin-bottom:0;
+    overflow:hidden}
+  #hud-row{flex:1 1 auto;min-width:0;height:56px;flex-basis:auto}
+  /* the orbs stop being absolutely centred on the whole bar: with the
+     skills beside them there is no room for that, and a centre they have
+     to share is a collision waiting for a narrow phone */
+  #hud-orbs{position:static;transform:none;margin:0 auto}
+  .hud-skill{width:48px;height:48px;min-width:48px}
   #hud-bar{
     /* THE WORLD SHOWS THROUGH. At .72/.90 the bar was still a solid band
        across the bottom third of a landscape phone — the canvas underneath
