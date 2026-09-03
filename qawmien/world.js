@@ -337,6 +337,7 @@ const WORLD = (() => {
     if (!p) p = { c: 0, r: 0 };
     doors = findDoors(m);
     exitHint = null;                    /* a new screen: nothing aimed at yet */
+    manual = false;                     /* ...and the camera is the hero's again */
     hero.c = p.c; hero.r = p.r;
     hero.bx = WT.isoX(p.c, p.r); hero.by = WT.isoY(p.c, p.r);
     hero.step = null; hero.path = []; hero.pending = null; hero.goal = null;
@@ -596,7 +597,8 @@ const WORLD = (() => {
        walking never moves the view. Only the cannot-fit fallback follows
        the player (lerped, clamped to the map bounds). */
     const t = camTarget();
-    if (camSnap || fitted){ camera.x = t.x; camera.y = t.y; camSnap = false; }
+    if (manual) { /* the player is looking around: the camera is theirs */ }
+    else if (camSnap || fitted){ camera.x = t.x; camera.y = t.y; camSnap = false; }
     else {
       const k = Math.min(1, dt / 300);
       camera.x += (t.x - camera.x) * k;
@@ -1074,6 +1076,32 @@ const WORLD = (() => {
        queue entries never overlap the opening (it faces the viewer). */
     for (const d of doors)
       drawDoorLight(g, WT.isoX(d.c, d.r), WT.isoY(d.c, d.r), d.sgn, d.out, breathe);
+
+    /* (c) THE MAP-CHANGE ARROWS, in SCREEN space — drawn last and outside
+       the camera transform, because they belong to the glass rather than
+       to the ground. Everything above scrolls; these do not. */
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    for (const b of edgeButtons()) drawEdgeButton(g, b, breathe);
+  }
+
+  function drawEdgeButton(g, b, breathe){
+    const dir = ARROW_DIR[b.d], a = 0.62 + 0.28 * breathe;
+    g.save();
+    g.translate(b.x, b.y);
+    g.beginPath();                      /* a disc to lift it off the map */
+    g.arc(0, 0, 21, 0, Math.PI * 2);
+    g.fillStyle = 'rgba(14,11,26,.42)';
+    g.fill();
+    g.strokeStyle = 'rgba(255,197,66,' + (a * 0.5).toFixed(3) + ')';
+    g.lineWidth = 1.5; g.stroke();
+    g.rotate(Math.atan2(dir[1], dir[0]));
+    g.beginPath();
+    g.moveTo(-6, -9); g.lineTo(7, 0); g.lineTo(-6, 9);
+    g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,.45)';
+    g.lineJoin = 'round'; g.lineCap = 'round'; g.stroke();
+    g.lineWidth = 3; g.strokeStyle = 'rgba(255,197,66,' + a.toFixed(3) + ')';
+    g.stroke();
+    g.restore();
   }
 
   /* ── THE EXIT ARROW ───────────────────────────────────────────────
@@ -1301,19 +1329,117 @@ const WORLD = (() => {
     g.fillRect(x - 7, y - 30, 14, 28);
   }
 
-  /* ── input (§5): WORLD owns pointerdown on #wcv ─────────────────── */
+  /* ── input (§5): WORLD owns the pointer on #wcv ───────────────────
+     A TAP WALKS, A DRAG LOOKS. The map is a Dofus map now — 39 rows
+     against the 25 a phone shows — so the way on is often a tile you
+     cannot see, and you cannot tap what is not on the glass. The owner
+     found it immediately: "trouble moving up".
+
+     So the view can be dragged, which is the other half of what Dofus
+     Touch does on a phone: the map is bigger than the screen, so you push
+     the screen around the map. Anything under DRAG_PX of movement is
+     still a tap and still walks, so nothing about tapping changed. */
+  const DRAG_PX = 9;                 /* under this, it is a tap not a drag */
+  let drag = null;                   /* {x,y,cx,cy,moved} while held       */
+  let manual = false;                /* the player is looking around       */
+
+  /* ── THE WAY OUT IS ALWAYS ONE TAP ────────────────────────────────
+     Dofus Touch's own answer to a map bigger than the screen is two
+     things: you DRAG to move across it, and it shows arrows for the map
+     change. The drag is above; these are the arrows. They sit on the
+     SCREEN rather than on a tile, so the way on is reachable even when
+     the seam itself is fourteen rows off the top of the glass.
+     Tapping one walks to the nearest crossable cell of that side and
+     over. A side with no neighbour has no arrow, so it never offers a
+     way out that is not there. */
+  const EDGE_R = 30;                 /* how near the arrow a tap counts   */
+  function edgeButtons(){
+    if (!map || !cssW) return [];
+    const nb = map.neighbours || {}, out = [];
+    const at = { n: [cssW / 2, EDGE_R + 6], s: [cssW / 2, cssH - EDGE_R - 6],
+                 w: [EDGE_R + 6, cssH / 2], e: [cssW - EDGE_R - 6, cssH / 2] };
+    for (const d of ['n', 'e', 's', 'w']){
+      if (!nb[d] || !(window.MAPS && window.MAPS[nb[d]])) continue;
+      if (!seamCells(d).length) continue;
+      out.push({ d: d, x: at[d][0], y: at[d][1] });
+    }
+    return out;
+  }
+  /* every cell of that side the player could cross on, nearest to the
+     hero first — takeEdge tries them in turn, so a blocked or unreachable
+     one falls through to the next instead of failing the whole gesture */
+  function seamCells(d){
+    const out = [];
+    for (const cell of GRID.edgeCells(d)){
+      if (!GRID.twin(cell.c, cell.r, d)) continue;
+      if (WT.edgeDir(map, cell.c, cell.r) !== d) continue;
+      if (!open(cell.c, cell.r)) continue;
+      out.push(cell);
+    }
+    out.sort((a, b) => (Math.abs(a.c - hero.c) + Math.abs(a.r - hero.r)) -
+                       (Math.abs(b.c - hero.c) + Math.abs(b.r - hero.r)));
+    return out;
+  }
+  function takeEdge(d){
+    for (const cell of seamCells(d))
+      if (walkTo(cell.c, cell.r)){
+        manual = false;
+        exitHint = { c: cell.c, r: cell.r, d: d };
+        return true;
+      }
+    return false;
+  }
+
   function bind(){
     if (bound) return;
     const el = cv || (typeof document !== 'undefined' && document.getElementById('wcv'));
     if (!el) return;
     cv = el;
-    el.addEventListener('pointerdown', pointer);
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
     bound = true;
+  }
+
+  function onDown(ev){
+    if (mode !== 'explore' || !map) return;
+    drag = { x: ev.clientX, y: ev.clientY,
+             cx: camera.x, cy: camera.y, moved: false };
+    if (cv.setPointerCapture) { try { cv.setPointerCapture(ev.pointerId); } catch (e){} }
+  }
+
+  function onMove(ev){
+    if (!drag || fitted) return;     /* nothing to look at if it all fits */
+    const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+    if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_PX) return;
+    drag.moved = true;
+    manual = true;
+    const R = GRID.RECT;
+    const hw = cssW / (2 * camera.scale), hh = cssH / (2 * camera.scale);
+    camera.x = clampAxis(drag.cx - dx / camera.scale, R.x, R.x + R.w, hw);
+    camera.y = clampAxis(drag.cy - dy / camera.scale, R.y, R.y + R.h, hh);
+  }
+
+  function onUp(ev){
+    const d = drag; drag = null;
+    if (!d || d.moved) return;       /* a look, not a tap: nothing to do  */
+    pointer(ev);
   }
 
   function pointer(ev){
     if (mode !== 'explore' || !map) return;
+    manual = false;                  /* the hero moves: the camera is his */
     const rect = cv.getBoundingClientRect();
+    /* AN ARROW WINS THE TAP. It sits on the screen rather than on a tile,
+       which is the whole point of it: the seam you want is usually one of
+       the fourteen rows a phone cannot show, and an arrow you have to
+       scroll to find is no help. */
+    const px0 = ev.clientX - rect.left, py0 = ev.clientY - rect.top;
+    for (const b of edgeButtons())
+      if (Math.abs(px0 - b.x) <= EDGE_R && Math.abs(py0 - b.y) <= EDGE_R){
+        takeEdge(b.d); return;
+      }
     const bx = (ev.clientX - rect.left - cssW / 2) / camera.scale + camera.x;
     const by = (ev.clientY - rect.top - cssH / 2) / camera.scale + camera.y;
     const t = WT.boardToTile(bx, by);
