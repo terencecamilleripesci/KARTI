@@ -476,6 +476,29 @@ const WORLD = (() => {
     return true;
   }
 
+  /* which side of the screen this cell is on that actually leads somewhere */
+  function edgeSideOut(c, r){
+    const nb = (map && map.neighbours) || {};
+    for (const d of ['n', 'e', 's', 'w'])
+      if (nb[d] && window.MAPS && window.MAPS[nb[d]] &&
+          GRID.edgeSide(c, r, d)) return d;
+    return null;
+  }
+
+  /* this cell is on an edge that leads somewhere but cannot itself cross:
+     which neighbouring cell of the same side can? */
+  function crossingBeside(c, r){
+    const side = edgeSideOut(c, r);
+    if (!side || WT.edgeDir(map, c, r)) return null;   /* none, or it crosses */
+    for (const d of WT.DIRS8){
+      if (d.dc && d.dr) continue;                      /* orthogonal steps    */
+      const nc = c + d.dc, nr = r + d.dr;
+      if (!stepOK(c, r, d.dc, d.dr)) continue;
+      if (WT.edgeDir(map, nc, nr) === side) return { c: nc, r: nr };
+    }
+    return null;
+  }
+
   function markerAtLive(c, r){
     for (let i = 0; i < live.length; i++)
       if (live[i].c === c && live[i].r === r) return live[i];
@@ -525,6 +548,32 @@ const WORLD = (() => {
         }
       }
       return transfer(mk.to, mk.at);
+    }
+
+    /* THE HALF-TILE NOTCH — you may leave a map from ANYWHERE along its
+       edge, which is how Dofus behaves and what the owner asked for.
+       Only the SHARED cells actually hand you over, and on an east or
+       west edge that is every other row: the odd rows sit half a tile
+       short of the boundary (19 of 39 on each side). Walking into one of
+       those used to do nothing at all, and nothing about it looked any
+       different from the cell above it.
+       So arriving on an edge cell that cannot cross takes ONE MORE STEP
+       onto the neighbouring cell that can. He walks it — no jump, no
+       teleport, and the step is subject to the same rules as any other,
+       so a blocked one simply leaves him standing there. */
+    if (!hero.path.length){
+      const side = edgeSideOut(c, r);
+      if (side && !WT.edgeDir(map, c, r)){
+        /* one step sideways onto the cell that crosses, if it is open... */
+        const over = crossingBeside(c, r);
+        if (over){ hero.path = [over]; hero.pending = null; return false; }
+        /* ...and if it is not, walk ALONG the edge to the nearest one that
+           is. Someone who has walked into the border wants to leave, and
+           that is what a person would do. It is still walking: the same
+           A*, the same rules, and if nothing on that side is reachable he
+           simply stands there. */
+        if (takeEdge(side)) return false;
+      }
     }
 
     if (!hero.path.length && hero.goal){
