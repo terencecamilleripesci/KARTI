@@ -84,15 +84,34 @@ const WT = (() => {
              sw: TILE_PX, sh: TILE_PX };
   }
   /* (x,y) = tile centre in board space (isoX/isoY). The cell's bottom-
-     centre lands on the diamond's BOTTOM vertex, so the 124x92 footprint
-     maps exactly onto the 62x46 board diamond and tall art rises above. */
-  function drawTile(g, img, i, x, y){
+     centre lands on the diamond's BOTTOM vertex, so the footprint maps
+     onto the board diamond and tall art rises above it.
+
+     THE ART WAS DRAWN FOR A 1.35:1 DIAMOND AND THE GRID IS 2:1 NOW, so
+     the two no longer agree by construction and something has to give
+     until the tiles are redrawn (they are procedural — tools/mkatlas.py —
+     so that is a regeneration, not a repaint, and it is queued behind the
+     visual pass the owner wants anyway).
+
+     Until then the two layers are treated differently, because they fail
+     differently:
+       GROUND is squashed to the exact 2:1 footprint. A floor tile that
+       does not match the cell is a floor with seams and overlaps in it —
+       misalignment is the one thing a floor cannot survive, and a
+       squashed pebble is still a pebble.
+       DECOR keeps its proportions (uniform scale, base on the same
+       bottom vertex). A tree squashed by a third reads as a broken
+       drawing rather than a shorter tree, and props are allowed to
+       overhang their cell — they always did. */
+  function drawTile(g, img, i, x, y, tall){
     if (!i) return;                          /* 0 = empty, draws nothing */
-    const a = atlasRect(i), k = SCALE;
+    const a = atlasRect(i);
+    const kx = TW / FOOT_W;                  /* across: always exact      */
+    const ky = tall ? kx : (TH / FOOT_H);    /* down: exact for the floor */
     g.imageSmoothingEnabled = false;
     g.drawImage(img, a.sx, a.sy, a.sw, a.sh,
-      x - (TILE_PX / 2) * k, y + TH / 2 - TILE_PX * k,
-      TILE_PX * k, TILE_PX * k);
+      x - (TILE_PX / 2) * kx, y + TH / 2 - TILE_PX * ky,
+      TILE_PX * kx, TILE_PX * ky);
   }
 
   /* ── walkability ──────────────────────────────────────────────────

@@ -49,31 +49,35 @@
 
 const GRID = (() => {
 
-  /* ── the one tile, unchanged from combat so every sprite still fits ── */
-  const TW = 62, TH = 46;
+  /* ── the one tile: 2:1, which is Dofus's ──────────────────────────
+     It was 62x46 — 1.35:1 — a steeper isometric than the genre uses, and
+     it is why the ground read as strong diagonals rather than as a floor.
+     Dofus's cell is 53x26.5, exactly 2:1, and that ratio is layout, not
+     art: nothing about copying it takes anything of theirs. Our own
+     drawings go on top.
+
+     64x32 rather than 53x26.5 because the halves must be whole pixels —
+     the atlas's seamless ground is periodic on (x mod TW/2, y mod TH/2),
+     and 26.5 would break every seam in the tileset. */
+  const TW = 64, TH = 32;
 
   /* ── the one screen ─────────────────────────────────────────────── */
-  /* WHY 15 x 13 AND NOT 13 x 15. The first cut was 806x368 — 2.19:1, the
-     shape of a phone held sideways — and it still left a strip of scenery
-     down the left and right that the player could see and not walk on.
-     The reason is the BAR: it takes 74px off the height, so the box the
-     map is framed into is about 2.67:1, not 2.19, and a 2.19 rectangle
-     inside it is bound by height and stops short of the sides.
+  /* FIFTEEN ACROSS, which is Dofus's count, and 21 rows because a phone
+     held sideways is a far wider box than the desktop map Dofus draws
+     into. 960x352 board px — 2.73:1 — wider than any phone, so the map is
+     always bound by WIDTH and always reaches the left and right edges;
+     the slack goes top and bottom where the surround covers it.
 
-     So the rectangle is made WIDER THAN ANY PHONE — 930x322, 2.89:1 —
-     which means it is always bound by width and always reaches the left
-     and right edges. What is left over goes top and bottom, where the
-     surround covers it. Measured across three landscape phones:
+        851x319   fills 100% of the width, 57x28 tile
+        740x286   fills 100% of the width, 49x25 tile
+        667x301   fills 100% of the width, 44x22 tile
 
-        851x319   fills 100% of the width, 57px tile
-        740x286   fills 100% of the width, 49px tile
-        667x301   fills 100% of the width, 44px tile   <- the floor
-
-     44px is a fingertip, so C cannot usefully grow past this: 17x15 gave
-     248 cells but a 39px tile on the smallest phone. 189 cells is also
-     what 13x15 held, so nothing was lost to buy the full width. */
+     305 cells. Dofus's own maps hold more (its box is 1.7:1, so it has
+     room for roughly 33 rows against our 21) — the count is decided by
+     the SCREEN once the tile ratio is fixed, and this is what a phone
+     holds at a tile a thumb can still hit. */
   const C = 15;                 /* cells on an even row (odd rows: C-1)  */
-  const V = 13;                 /* rows of half-tile height; MUST be odd */
+  const V = 21;                 /* rows of half-tile height; MUST be odd */
 
   const UMAX = C - 1;           /* 12 — outermost column, even rows      */
   const OFF  = UMAX / 2;        /* 6  — shift that keeps c,r >= 0        */

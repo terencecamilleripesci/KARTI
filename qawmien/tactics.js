@@ -1563,7 +1563,7 @@ function draw(){
       const d = ARENA.map.decor[t.r][t.c];
       if (d){
         const p = iso(t.c, t.r);
-        ARENA.WT.drawTile(ctx, WORLD_ATLAS.img, d, p.x, p.y);
+        ARENA.WT.drawTile(ctx, WORLD_ATLAS.img, d, p.x, p.y, true);
       }
       continue;
     }

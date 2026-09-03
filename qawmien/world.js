@@ -1041,7 +1041,7 @@ const WORLD = (() => {
     for (const e of q){
       if (e.k === 0){
         if (e.occ) g.drawImage(e.occ.cv, e.occ.x, e.occ.y);
-        else if (atlas && atlas.ready) WT.drawTile(g, atlas.img, e.i, e.x, e.y);
+        else if (atlas && atlas.ready) WT.drawTile(g, atlas.img, e.i, e.x, e.y, true);
         else fbDecor(g, e.i, e.x, e.y);
       }
       else if (e.hero) drawHero(g);
