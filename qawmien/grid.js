@@ -62,22 +62,30 @@ const GRID = (() => {
   const TW = 64, TH = 32;
 
   /* ── the one screen ─────────────────────────────────────────────── */
-  /* FIFTEEN ACROSS, which is Dofus's count, and 21 rows because a phone
-     held sideways is a far wider box than the desktop map Dofus draws
-     into. 960x352 board px — 2.73:1 — wider than any phone, so the map is
-     always bound by WIDTH and always reaches the left and right edges;
-     the slack goes top and bottom where the surround covers it.
+  /* A DOFUS MAP, AT DOFUS'S SIZE. From Ankama's own client constants
+     (AtouinConstants.as): MAP_WIDTH 14, MAP_HEIGHT 20, MAP_CELLS_COUNT
+     560, CELL_WIDTH 86, CELL_HEIGHT 43. Those 560 diamonds tile a
+     1204x860 rectangle EXACTLY — 560 * (86*43/2) = 1,035,440 = 1204*860 —
+     which is the same staggered-rectangle model this file implements, at
+     their numbers.
 
-        851x319   fills 100% of the width, 57x28 tile
-        740x286   fills 100% of the width, 49x25 tile
-        667x301   fills 100% of the width, 44x22 tile
+     15 x 39 gives 566 cells in 960x640 (1.50:1) against their 560 in
+     1.40:1. Exactly 560 is not expressible here: rows alternate C and
+     C-1, so 40 rows of "14" would need C = 14.5. Dofus gets it by giving
+     EVERY row 14 and cutting half-cells off alternating ends, which costs
+     the symmetry that twin()/edgeCells() rely on for seams — six cells,
+     one percent, is not worth that.
 
-     305 cells. Dofus's own maps hold more (its box is 1.7:1, so it has
-     room for roughly 33 rows against our 21) — the count is decided by
-     the SCREEN once the tile ratio is fixed, and this is what a phone
-     holds at a tile a thumb can still hit. */
+     A MAP IS BIGGER THAN A PHONE NOW, AND THAT IS THE POINT. 1.5:1 does
+     not fit a 2.7:1 screen at a tile you can hit: framed whole it is a
+     32x16 cell, half a fingertip. So the view scrolls, which is what
+     Dofus Touch does — it kept Dofus's map and changed the VIEW, rather
+     than reshaping the map to suit the glass. At a 51x26 tile a landscape
+     phone shows the full width and about 62% of the height, so it scrolls
+     up and down as you walk and never sideways. A tablet, which is what
+     Dofus Touch was built for, still frames the whole thing. */
   const C = 15;                 /* cells on an even row (odd rows: C-1)  */
-  const V = 21;                 /* rows of half-tile height; MUST be odd */
+  const V = 39;                 /* rows of half-tile height; MUST be odd */
 
   const UMAX = C - 1;           /* 12 — outermost column, even rows      */
   const OFF  = UMAX / 2;        /* 6  — shift that keeps c,r >= 0        */

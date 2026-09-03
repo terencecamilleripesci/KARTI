@@ -653,8 +653,21 @@ const WORLD = (() => {
      you cannot see at all is worse still. So the whole rectangle is
      always inside the canvas, and the SURROUND fills whatever is left
      over with the map's own ground — the screen stays full of world, and
-     everything you can walk on is on it. */
-  const MIN_SCALE = 0.55;   /* below this a character stops being readable */
+     everything you can walk on is on it.
+
+     AND WHEN IT CANNOT FIT, IT FOLLOWS. A map is a Dofus map now — 1.5:1,
+     560-odd cells, bigger than a phone — so framing it whole would mean a
+     32x16 cell, half a thumb, and every tap a coin toss between two tiles.
+     Below the floor the camera stops fitting and starts following, which
+     is exactly what Dofus Touch does on a phone: it kept Dofus's map and
+     changed the VIEW rather than reshaping the map to suit the glass. */
+  const MIN_SCALE = 0.80;   /* a 51x26 cell — the floor is a FINGERTIP,
+                               not legibility: below this the view scrolls
+                               instead of shrinking. On a landscape phone
+                               that shows the full width and ~62% of the
+                               height, so it scrolls up and down and never
+                               sideways; a tablet clears 1.0 and still
+                               frames the whole map, as Dofus Touch does. */
   const MAX_SCALE = 2;
   let fitted = true;        /* current map fits whole at camera.scale      */
 
@@ -965,9 +978,17 @@ const WORLD = (() => {
        NOTE the test is GRID.has, not the array bounds: the cells of the
        bounding box that fall outside the rectangle are void, not map, and
        they are exactly where the notches are. */
-    if (!bgUp && atlas && atlas.ready) {
-      const halfW = (g.canvas.width  / (dpr * s)) / 2;
-      const halfH = (g.canvas.height / (dpr * s)) / 2;
+    /* ONLY WHEN THERE IS SOMETHING TO SURROUND. A map is bigger than a
+       phone now and the camera follows inside it, so the usual case is
+       that the map covers the screen and every surround tile is
+       off-camera — thousands of drawImage calls a frame for nothing. */
+    const RS = GRID.RECT;
+    const hW0 = (g.canvas.width  / (dpr * s)) / 2;
+    const hH0 = (g.canvas.height / (dpr * s)) / 2;
+    const covered = RS.x <= camera.x - hW0 && RS.x + RS.w >= camera.x + hW0 &&
+                    RS.y <= camera.y - hH0 && RS.y + RS.h >= camera.y + hH0;
+    if (!bgUp && !covered && atlas && atlas.ready) {
+      const halfW = hW0, halfH = hH0;
       /* how far out, in tiles, the corners of the viewport reach */
       const pad = Math.ceil((halfW / (TW / 2) + halfH / (TH / 2)) / 2) + 2;
       const fill = surroundTiles(map);

@@ -301,19 +301,42 @@ function fit(){
   DPR = Math.min(window.devicePixelRatio || 1, 2);
   const w = box.clientWidth, h = box.clientHeight;
   cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR);
-  /* FRAME THE RECTANGLE, exactly as the world does, and crop NOTHING: a
-     tile you can see and cannot tap is worse than a strip of background,
-     and a tile you cannot see at all is worse still. The old fit zoomed a
-     diamond and capped at 1, which is why a phone held sideways showed a
-     small board in a wide empty frame. */
+  /* FRAME THE RECTANGLE when it fits, FOLLOW when it does not — the same
+     rule world.js uses, and for the same reason. A board is a Dofus map
+     now: 1.5:1 and bigger than a phone, so framing it whole would mean a
+     32x16 cell. You cannot play a tactics fight on cells you cannot hit,
+     and half a fingertip is not a cell. Below the floor the zoom stops
+     shrinking and the view starts moving instead. */
   const R = BOARD.RECT;
-  SC = Math.min(w / R.w, h / R.h, 2);
+  const fitS = Math.min(w / R.w, h / R.h);
+  FRAMED = fitS >= MIN_SC;
+  SC = Math.min(2, Math.max(fitS, MIN_SC));
   ctx.setTransform(DPR * SC, 0, 0, DPR * SC, 0, 0);
-  /* centre the rectangle: iso() adds these, so they carry the board's own
-     origin (the rectangle is centred on x=0, not on the first tile) */
-  ORX = w / SC / 2 - R.cx;
-  ORY = h / SC / 2 - R.cy;
+  camera();
   draw();
+}
+
+const MIN_SC = 0.80;          /* a 51x26 cell: the floor is a fingertip */
+let FRAMED = true;            /* does the whole board fit at SC?        */
+
+/* WHERE THE VIEW SITS. Centred on the board when the whole thing fits;
+   otherwise on whoever is acting — yours or theirs, because a fight you
+   cannot see is worse than one you cannot reach — and clamped so the
+   camera never shows past the board's own edges. */
+function camera(){
+  const w = cv.width / DPR, h = cv.height / DPR;
+  const R = BOARD.RECT, vw = w / SC, vh = h / SC;
+  let cx = R.cx, cy = R.cy;
+  if (!FRAMED && G && G.units && G.units.length){
+    const u = G.units[G.turn] || G.units[0];
+    const f = { x: (u.c - u.r) * (TW / 2), y: (u.c + u.r) * (TH / 2) };
+    cx = vw >= R.w ? R.cx
+       : Math.min(R.x + R.w - vw / 2, Math.max(R.x + vw / 2, f.x));
+    cy = vh >= R.h ? R.cy
+       : Math.min(R.y + R.h - vh / 2, Math.max(R.y + vh / 2, f.y));
+  }
+  ORX = vw / 2 - cx;
+  ORY = vh / 2 - cy;
 }
 
 /* ── units ─────────────────────────────────────────────────────── */
@@ -1447,6 +1470,7 @@ let hoverTile = null, moveSet = null, castSet = null;
 
 function draw(){
   const w = cv.width / DPR, h = cv.height / DPR;
+  camera();            /* the turn may have passed to someone else */
   ctx.clearRect(0, 0, w / SC, h / SC);   /* ctx is scaled by SC */
 
   /* floor — the MAP's own ground when the fight is on a map, the generic
@@ -1461,7 +1485,15 @@ function draw(){
      fight sat in a dark frame while the screen you started it from did
      not, and the two are supposed to be the same place. Nothing here is
      walkable — it is drawn first and everything paints over it. */
-  if (onMap){
+  /* ONLY WHEN THERE IS SOMETHING TO SURROUND. The board is bigger than a
+     phone now, so the usual case is that it covers the screen completely
+     and every one of these tiles is off-camera — thousands of drawImage
+     calls a frame for nothing, which on a Pi is the difference between a
+     fight that runs and one that hangs. */
+  const R0 = BOARD.RECT;
+  const covers = (ORX <= -R0.x && ORY <= -R0.y &&
+                  w / SC - ORX <= R0.x + R0.w && h / SC - ORY <= R0.y + R0.h);
+  if (onMap && !covers){
     const fill = surroundFill();
     const halfW = (w / SC) / 2, halfH = (h / SC) / 2;
     const pad = Math.ceil((halfW / (TW / 2) + halfH / (TH / 2)) / 2) + 2;
