@@ -10,6 +10,7 @@ window.MAP_INDEX = {
   files: [
     'maps/ruin-01.js',
     'maps/ruin-02.js',
+    'maps/field-0-0.js',
     'maps/field-1-0.js',
     'maps/field-2-0.js',
     'maps/field-3-0.js',
@@ -88,6 +89,7 @@ window.MAP_INDEX = {
   list: [
     'ruin-01',
     'ruin-02',
+    'field-0-0',
     'field-1-0',
     'field-2-0',
     'field-3-0',
@@ -166,13 +168,14 @@ window.MAP_INDEX = {
   neighbours: {
     'ruin-01': { n:null, e:'ruin-02', s:null, w:null },
     'ruin-02': { n:null, e:null, s:null, w:'ruin-01' },
-    'field-1-0': { n:null, e:'field-2-0', s:'field-1-1', w:null },
+    'field-0-0': { n:null, e:'field-1-0', s:'field-0-1', w:null },
+    'field-1-0': { n:null, e:'field-2-0', s:'field-1-1', w:'field-0-0' },
     'field-2-0': { n:null, e:'field-3-0', s:'field-2-1', w:'field-1-0' },
     'field-3-0': { n:null, e:'field-4-0', s:'field-3-1', w:'field-2-0' },
     'field-4-0': { n:null, e:'field-5-0', s:'field-4-1', w:'field-3-0' },
     'field-5-0': { n:null, e:'field-6-0', s:'field-5-1', w:'field-4-0' },
     'field-6-0': { n:null, e:null, s:'field-6-1', w:'field-5-0' },
-    'field-0-1': { n:null, e:'field-1-1', s:'field-0-2', w:null },
+    'field-0-1': { n:'field-0-0', e:'field-1-1', s:'field-0-2', w:null },
     'field-1-1': { n:'field-1-0', e:'field-2-1', s:'field-1-2', w:'field-0-1' },
     'field-2-1': { n:'field-2-0', e:'field-3-1', s:'field-2-2', w:'field-1-1' },
     'field-3-1': { n:'field-3-0', e:'field-4-1', s:'field-3-2', w:'field-2-1' },
@@ -243,7 +246,7 @@ window.MAP_INDEX = {
   },
   start: 'ruin-01',
   fieldGrid: [
-    [null, 'field-1-0', 'field-2-0', 'field-3-0', 'field-4-0', 'field-5-0', 'field-6-0', null],
+    ['field-0-0', 'field-1-0', 'field-2-0', 'field-3-0', 'field-4-0', 'field-5-0', 'field-6-0', null],
     ['field-0-1', 'field-1-1', 'field-2-1', 'field-3-1', 'field-4-1', 'field-5-1', 'field-6-1', null],
     ['field-0-2', 'field-1-2', 'field-2-2', 'field-3-2', 'field-4-2', 'field-5-2', 'field-6-2', null],
     ['field-0-3', 'field-1-3', 'field-2-3', 'field-3-3', 'field-4-3', 'field-5-3', 'field-6-3', 'field-7-3'],
