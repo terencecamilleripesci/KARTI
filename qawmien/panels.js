@@ -31,6 +31,7 @@ window.PANELS = (function () {
     ring:   '<path d="m12 2 3 3-3 3-3-3z"/><circle cx="12" cy="15" r="6"/>',
     belt:   '<rect x="3" y="10" width="18" height="5" rx="1.5"/><rect x="9" y="8" width="6" height="9" rx="1.5"/>',
     boots:  '<path d="M8 3h5v9l5.5 3.7a2 2 0 0 1-1.1 3.6H8a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M13 12H8"/>',
+    gloves: '<path d="M8 21v-5l-2.2-2.6a1.8 1.8 0 0 1 2.6-2.5L10 12V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M13 11V5.5a1.5 1.5 0 0 1 3 0V12"/><path d="M16 12v-1a1.5 1.5 0 0 1 3 0v5a5 5 0 0 1-1.5 3.6L16.5 21"/>',
     pouch:  '<path d="M9 6V5a3 3 0 0 1 6 0v1"/><path d="M5 6h14l-1.5 13a2 2 0 0 1-2 1.8h-7A2 2 0 0 1 6.5 19z"/>',
     spark:  '<path d="m12 3 2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/>',
     heart:  '<path d="M12 20.5C7.5 16.5 3.5 13.2 3.5 9.1 3.5 6.4 5.5 4.5 8 4.5c1.6 0 3 .8 4 2.2 1-1.4 2.4-2.2 4-2.2 2.5 0 4.5 1.9 4.5 4.6 0 4.1-4 7.4-8.5 11.4z"/>',
@@ -51,11 +52,17 @@ window.PANELS = (function () {
     amulet: { icon: 'amulet', rarity: 'epic',      slot: 'amulet' },
     ring:   { icon: 'ring',   rarity: 'rare',      slot: 'ring' },
     belt:   { icon: 'belt',   rarity: 'common',    slot: 'belt' },
+    gloves: { icon: 'gloves', rarity: 'common',    slot: 'gloves' },
     boots:  { icon: 'boots',  rarity: 'uncommon',  slot: 'boots' }
   };
-  var SLOTS = ['head', 'cape', 'amulet', 'weapon', 'ring', 'belt', 'boots'];
+  /* KEEP THIS IN STEP WITH gear.js's SLOTS. Two lists of the same thing is
+     the fault this file already carries; a slot missing here is an item the
+     player owns, wears in the data, and cannot see on the sheet. */
+  var SLOTS = ['head', 'cape', 'amulet', 'weapon', 'gloves', 'ring',
+               'belt', 'boots'];
   var SLOT_IC = { head: 'head', cape: 'cape', amulet: 'amulet', weapon: 'sword',
-                  ring: 'ring', belt: 'belt', boots: 'boots' };
+                  gloves: 'gloves', ring: 'ring', belt: 'belt',
+                  boots: 'boots' };
   var RAR_NAME = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare',
                    epic: 'Epic', legendary: 'Legendary' };
 

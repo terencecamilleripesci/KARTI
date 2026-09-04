@@ -31,7 +31,14 @@ window.GEAR = (function () {
      in the UI but carry no art yet: the owner's rule is that tools and
      weapons appear on the sprite only once their animations exist, so
      they are catalogued without an `art` field and simply do not draw. */
-  const SLOTS = ['head', 'cape', 'amulet', 'weapon', 'ring', 'belt', 'boots'];
+  /* GLOVES ARE A REAL SLOT. The owner asked for belt AND gloves and the
+     model had only belt, so "gloves" was quietly being served by the belt
+     piece — a fudge that would have been discovered by a player, not by a
+     test. Added properly: it is a slot everywhere a slot is enumerated
+     (here, panels.js's sheet and icon map), and like the weapon it carries
+     no art yet, so it is worn and counted and simply does not draw. */
+  const SLOTS = ['head', 'cape', 'amulet', 'weapon', 'gloves', 'ring',
+                 'belt', 'boots'];
 
   /* the four slots the novice set fills, and the art name for each */
   const ART_SLOT = { head: 'cap', cape: 'cloak', belt: 'belt', boots: 'boots' };
@@ -101,6 +108,17 @@ window.GEAR = (function () {
     { id: 'novice-belt',  name: 'Novice Belt',   slot: 'belt',  tier: 'novice',
       art: 'novice', stats: { vit: 3, wis: 1 },
       note: 'Rope and a brass buckle worn smooth by someone else.' },
+    /* THE FIRST WEAPON. The novice set was four body pieces and nothing to
+       hold; the opening now has the player take a helmet and a blade off a
+       goblin, so the blade has to exist. No `art` field, per the rule that a
+       weapon only appears on the sprite once its animations do — it is worn
+       and counted, and simply does not draw yet. */
+    { id: 'novice-gloves', name: 'Novice Gloves', slot: 'gloves',
+      tier: 'novice', stats: { str: 2, agi: 2 },
+      note: 'Cracked leather, but they fit.' },
+    { id: 'novice-blade', name: 'Chipped Shortsword', slot: 'weapon',
+      tier: 'novice', stats: { str: 4 },
+      note: 'Taken off a goblin. It was not looking after it.' },
     { id: 'novice-boots', name: 'Novice Boots',  slot: 'boots', tier: 'novice',
       art: 'novice', stats: { vit: 3, agi: 1 },
       note: 'Resoled twice. Good for a long walk east.' },
@@ -164,7 +182,7 @@ window.GEAR = (function () {
      A whole set, in slot order, for the one place a set is handed over
      complete: the Caretaker's gift when the tutorial ends. */
   function set(t) {
-    const want = ['head', 'cape', 'belt', 'boots'];
+    const want = ['head', 'cape', 'gloves', 'belt', 'boots'];
     return want.map(s => ofTier(t).find(i => i.slot === s)).filter(Boolean);
   }
 

@@ -39,27 +39,35 @@ window.QUEST = (function () {
      TRAINING DUMMY the Caretaker stands up mid-room — it swings back for
      exactly 1 damage, so the fight can teach move / AP vs MP / cast /
      end-turn with no real chance of dying. Rewards stay XP + items ONLY. */
+  /* THE OPENING, AS THE OWNER RETOLD IT. You are reincarnated; you speak
+     to the skeleton who called you back; you walk forward and beat the
+     dummy, and IT drops the body of your kit — which is also where the game
+     explains how to put gear on. The next room holds a goblin wearing a
+     helmet and carrying a sword, and beating it is how you get them. Then
+     you leave the cave and meet an old explorer who tells you this ruin has
+     been shut for a thousand years, and sends you to the village.
+
+     What changed, and why the old comments here are gone: the gear used to
+     be handed over by a quartermaster standing in ruin-03, and before that
+     by an old man on the road. Neither is true now. Gear is TAKEN, from the
+     two things you fight, so the tutorial teaches looting and equipping with
+     the items the player actually wants rather than as an aside. */
   const STEPS = [
     { id: 'wake',  goal: 'Speak with the Caretaker',
       reward: { items: [ { id: 'potion', name: 'Potion', qty: 3,
                            note: 'Restores 30 HP.' } ] } },
-    /* THE GEAR MOVED OUT OF THE RUIN. This step used to hand over a Worn
-       Blade and a Padded Tunic — two items that existed nowhere else, wore
-       into no slot and drew on no sprite. The owner's design puts the real
-       reward outside instead: an old man on the road gives the whole novice
-       set at once, so the first thing that happens in the open world is the
-       character visibly changing. The dummy now pays only XP, which is what
-       a training dummy should pay. */
+    /* THE DUMMY PAYS THE BODY OF THE SET — chest, legs, feet — because this
+       is the drop that teaches the bag and the equip screen, and three
+       pieces landing at once makes the lesson worth opening. Head and hand
+       are deliberately withheld: they are the goblin's. */
     { id: 'bones', goal: 'Knock the stuffing out of the training dummy',
-      reward: { xp: 25 } },
-    /* KIT BEFORE THE DOOR. The owner's opening: spawn, dummy, then a room
-       with the quartermaster in it, THEN out. Vell used to stand on the
-       road outside, so a player walked into the open world undressed and
-       could meet his first real monster before anyone had given him a cap.
-       He is in ruin-03 now and these two steps swapped to match. */
-    { id: 'outfit', goal: 'Take your kit from Vell',
-      reward: { xp: 25, set: 'novice' } },
-    { id: 'leave', goal: 'Leave the ruin — head east',
+      reward: { xp: 25, gear: ['novice-cloak', 'novice-belt', 'novice-gloves',
+                               'novice-boots'] } },
+    { id: 'goblin', goal: 'Beat the goblin in the next hall',
+      reward: { xp: 40, gear: ['novice-cap', 'novice-blade'] } },
+    { id: 'leave', goal: 'Leave the ruin — head east' ,
+      reward: { xp: 50 } },
+    { id: 'village', goal: 'Find Wayrest, the village inland',
       reward: { xp: 50 } }
   ];
 
@@ -96,8 +104,12 @@ window.QUEST = (function () {
   let S = fresh();
   function fresh() {
     return { step: 0, intro: false, metKeeper: false,
-             granted: [false, false, false, false],
-             lessons: { move: false, cast: false, turn: false } };
+             /* AS LONG AS THERE ARE STEPS. This was four literal falses and
+                the story now has five; a hard-coded length silently stops
+                granting the last reward the moment a step is added. */
+             granted: STEPS.map(function () { return false; }),
+             lessons: { move: false, cast: false, turn: false,
+                        equip: false } };
   }
   function save() {
     try { localStorage.setItem(LSK, JSON.stringify(S)); } catch (e) {}
@@ -113,7 +125,8 @@ window.QUEST = (function () {
         /* without this the keeper re-introduces herself on every reload */
         metKeeper: !!d.metKeeper,
         granted: f.granted.map((_, i) => !!(d.granted && d.granted[i])),
-        lessons: { move: !!(d.lessons && d.lessons.move),
+        lessons: { equip: !!(d.lessons && d.lessons.equip),
+                   move: !!(d.lessons && d.lessons.move),
                    cast: !!(d.lessons && d.lessons.cast),
                    turn: !!(d.lessons && d.lessons.turn) }
       };
@@ -172,9 +185,29 @@ window.QUEST = (function () {
     if (rw.set && window.GEAR) for (const g of GEAR.set(rw.set)) {
       giveItem(GEAR.record(g)); got.push(g.name);
     }
+    /* NAMED PIECES, not a whole tier. The set arrived in one lump when a
+       quartermaster handed it over; it is taken off two different corpses
+       now, so a step has to be able to name exactly which pieces fall. */
+    if (rw.gear && window.GEAR) for (const id of rw.gear) {
+      const rec = GEAR.record(id);
+      if (rec) { giveItem(rec); got.push(rec.name); }
+    }
     if (got.length) {
       toast('Received: ' + got.join(', '), 3500);
       if (window.HUD) window.HUD.sfx('reward');   /* soft chime, once */
+    }
+    /* THE FIRST TIME GEAR FALLS, SAY WHAT TO DO WITH IT. "Received: Novice
+       Cloak" is a notification, not a lesson, and the owner's opening puts
+       the whole point of the dummy fight in this moment: the player has to
+       learn that things in the bag do nothing until they are worn. Once
+       only, and only for gear — a toast that repeats is a toast nobody
+       reads. */
+    if (!S.lessons.equip && (rw.gear || rw.set)) {
+      S.lessons.equip = true;
+      setTimeout(function () {
+        toast('Open your BAG and tap a piece to wear it — gear does nothing '
+              + 'sitting in there.', 6000);
+      }, 3600);
     }
     save();
   }
@@ -239,14 +272,19 @@ window.QUEST = (function () {
     elder0: [
       'So the circle still burns — and it remembers you, summonling. I am the Caretaker; mine was the voice that called you back.',
       'Take these three potions. This ruin is the last quiet corner of a very loud world, and beyond the eastern arch lies all of it.',
-      'In the next room stands my training dummy — straw, sackcloth, and just enough spite to swing back. It cannot truly hurt you. Go knock the stuffing out of it.',
-      'Move, strike, and mind your two pools — I will talk you through it. Then head EAST, out through the arch.'
+      'In the next hall stands my training dummy — straw, sackcloth, and just enough spite to swing back. It cannot truly hurt you. Go knock the stuffing out of it; there is a bundle of cloth strapped to it that will fit you better than nothing does.',
+      'Beyond that hall there is a goblin. That one is not straw. It wears a helm and carries a blade, and if you want either you will have to take them.',
+      'Move, strike, and mind your two pools — I will talk you through it. Then EAST, always east, until you see sky.'
     ],
     elder1: [
       'The dummy is still standing — straw does not fall on its own. Tap it when you are ready; I will coach you as you fight.'
     ],
     elder2: [
-      'Well struck — straw everywhere. There is nothing left for you here: take the eastern arch, and do not look back.'
+      'Well struck — straw everywhere. Open your bag: what fell off it is yours now, and gear does nothing sitting in a bag.',
+      'The goblin is through the eastern passage. Take its helm and its blade, then keep going east.'
+    ],
+    elder3b: [
+      'Armed and covered. Good. East, then — and do not look back.'
     ],
     elder3: [
       'The world lies east of here, summonling. Go and meet it.'
@@ -254,16 +292,19 @@ window.QUEST = (function () {
     holdFight: [
       'Hold, summonling! Speak with me before you square up to anything — even the straw.'
     ],
-    /* Vell, on the road. He gives the whole novice set in one breath — the
-       first thing the open world does is dress the character, so the player
-       SEES their choice pay off before anything tries to kill them. */
-    outfit0: [
-      'Another one out of the old ruin. That makes four this season.',
-      'You will not last the afternoon dressed like that. Here — cap, cloak, belt, boots. They were a set once and they still nearly are.',
-      'No, I do not want anything for them. Wear them, and mind the goats on the terraces. They are worse than they look.'
+    /* THE OLD EXPLORER, on the shore outside the ruin. He used to be Vell
+       the quartermaster and used to hand over the whole novice set; the
+       player takes their gear off the dummy and the goblin now, so his job
+       is the one thing a stranger outside a sealed door is actually good
+       for — telling you what you just walked out of, and where to go next. */
+    explorer0: [
+      'Stars and stone — the door is OPEN. Thirty-one years I have sat on this rock and it has never once been open.',
+      'You do not know what you have done, do you. That ruin was sealed a thousand years ago, with the ones who sealed it still inside. Nobody has walked out of it since. Nobody.',
+      'And here you are. Wearing a helmet you took off a goblin, of all things.',
+      'Go inland, to Wayrest — the village, west of the terraces. Tell them what you told me, and tell them Anselm sent you. They will not believe you either, but they will feed you.'
     ],
-    outfit1: [
-      'Suits you well enough. Head east when you are ready — and open your bag, the gear does nothing sitting in it.'
+    explorer1: [
+      'Wayrest. Inland, past the terraces, follow the road. And when you have a moment — come back and tell me what was down there.'
     ],
     /* Sula, behind the bar in Wayrest. She is the reason the village exists:
        the crypt key comes from her, so the island has to be walked before the
@@ -307,8 +348,8 @@ window.QUEST = (function () {
         else               say(m.name, LINES.elder0, () => advance(1));
       }
       else if (S.step === 1) say(m.name, LINES.elder1);
-      else if (S.step >= 2)  say(m.name, LINES.elder2);
-      else                   say(m.name, LINES.elder3);
+      else if (S.step === 2) say(m.name, LINES.elder2);
+      else                   say(m.name, LINES.elder3b);
       return true;
     }
     /* Vell, outside the ruin. advance(3) is what grants the set, and it only
@@ -328,9 +369,11 @@ window.QUEST = (function () {
       }
       return true;
     }
+    /* Anselm, outside the ruin. advance(5) fires only on the step that is
+       actually next, so re-tapping him cannot farm the reward. */
     if (m.type === 'npc' && m.id === 'outfitter') {
-      if (S.step === 2) say(m.name, LINES.outfit0, () => advance(3));
-      else              say(m.name, LINES.outfit1);
+      if (S.step === 4) say(m.name, LINES.explorer0, () => advance(5));
+      else              say(m.name, LINES.explorer1);
       return true;
     }
     if (m.type === 'fight') {

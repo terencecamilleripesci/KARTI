@@ -334,7 +334,12 @@ function endFight(over){
   const mk = fightMk; fightMk = null;
   if (over === 1 && mk){
     WORLD.removeMarker(mk.id);         /* a beaten fight stays down this session */
-    if (mk.id === 'bones' && QUEST.state().step === 1) QUEST.advance(2);
+    /* EACH TUTORIAL FIGHT ADVANCES ITS OWN STEP. The dummy pays the body of
+       the novice kit, the goblin pays the helm and the blade — advance() is
+       what grants them, and it only fires on the step that is actually next,
+       so a re-fought marker cannot mint a second set. */
+    if (mk.id === 'bones'  && QUEST.state().step === 1) QUEST.advance(2);
+    if (mk.id === 'goblin' && QUEST.state().step === 2) QUEST.advance(3);
   }
 }
 

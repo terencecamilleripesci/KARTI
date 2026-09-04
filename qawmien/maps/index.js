@@ -68,8 +68,8 @@ window.MAP_INDEX = {
     'necro-4'
   ],
   neighbours: {
-    'ruin-01': { n:null, e:'ruin-02', s:null, w:null },
-    'ruin-02': { n:null, e:'ruin-03', s:null, w:'ruin-01' },
+    'ruin-01': { n:null, e:null, s:null, w:null },
+    'ruin-02': { n:null, e:null, s:null, w:null },
     'field-0-0': { n:null, e:'field-1-0', s:'field-0-1', w:null },
     'field-1-0': { n:null, e:null, s:'field-1-1', w:'field-0-0' },
     'field-2-0': { n:null, e:'field-3-0', s:'field-2-1', w:null },
@@ -87,7 +87,7 @@ window.MAP_INDEX = {
     'field-1-3': { n:'field-1-2', e:'field-2-3', s:null, w:'field-0-3' },
     'field-2-3': { n:'field-2-2', e:'field-3-3', s:null, w:'field-1-3' },
     'field-3-3': { n:'field-3-2', e:null, s:null, w:'field-2-3' },
-    'ruin-03': { n:null, e:null, s:null, w:'ruin-02' },
+    'ruin-03': { n:null, e:null, s:null, w:null },
     'crypt-1': { n:null, e:null, s:null, w:null },
     'crypt-2': { n:null, e:null, s:null, w:null },
     'crypt-3': { n:null, e:null, s:null, w:null },

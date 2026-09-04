@@ -56,6 +56,13 @@ const RULES = {
                so it punishes standing in the open and dies if you catch it. */
   goat:  { hp: 74,  ap: 4, mp: 2, level: 3 },
   gecko: { hp: 30,  ap: 4, mp: 5, level: 2 },
+  /* THE GOBLIN — the second lesson, and the first thing that can actually
+     kill you. The dummy taught the buttons; this teaches that they matter.
+     Deliberately между the two: enough hp (46) that one bad turn does not
+     end it, enough damage that standing still is punished, and mp 3 so it
+     closes at the same speed you retreat. It carries the helmet and blade
+     it drops, which is why it is the fight that dresses your head and hand. */
+  goblin:{ hp: 46,  ap: 4, mp: 3, level: 2 },
   /* THE TRAINING DUMMY — the first fight, per the owner's design: it hits
      back for exactly 1 so the game can teach mechanics without any real
      threat. 90 hp = ~3 player turns for a bruiser, ~4 for the healer —
@@ -356,6 +363,12 @@ function camera(){
 const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage',
                 sheep:'sheep', dummy:'dummy', ram:'sheep',
                 goat:'goat', gecko:'gecko',
+                /* NO GOBLIN SHEET YET. It wears the skeleton until one is
+                   drawn — a stand-in that at least has the right silhouette
+                   class (upright, armed) rather than falling through to the
+                   hero sheet, which would put the player's own body in front
+                   of them. Swapping it later is this one word. */
+                goblin:'skeleton',
                 /* Both bosses have their own sheets now. Promoting them was
                    one word each here, which is what this indirection is for:
                    the fights were real and playable for a day before any of
@@ -1168,6 +1181,7 @@ function aiTurn(u){
     mage:   ['blast', 'bolt', 'shove', 'strike'],
     grunt:  ['strike', 'blast', 'bolt', 'shove'],
     sheep:  ['strike', 'shove', 'bolt', 'blast'],
+    goblin: ['strike', 'shove', 'bolt', 'blast'],
     ram:    ['ramhorn'],
     /* EVERY CREATURE WITH ITS OWN KIT NEEDS A LINE HERE. Five did not have
        one — goat, gecko, dummy and both bosses — and fell through to the
