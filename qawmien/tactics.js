@@ -379,12 +379,10 @@ function camera(){
 const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage',
                 sheep:'sheep', dummy:'dummy', ram:'sheep',
                 goat:'goat', gecko:'gecko',
-                /* NO GOBLIN SHEET YET. It wears the skeleton until one is
-                   drawn — a stand-in that at least has the right silhouette
-                   class (upright, armed) rather than falling through to the
-                   hero sheet, which would put the player's own body in front
-                   of them. Swapping it later is this one word. */
-                goblin:'skeleton',
+                /* THE GOBLIN HAS ITS OWN SHEETS NOW. It wore the skeleton as
+                   a stand-in; swapping it was this one word, which is what
+                   the indirection is for. */
+                goblin:'goblin',
                 /* Both bosses have their own sheets now. Promoting them was
                    one word each here, which is what this indirection is for:
                    the fights were real and playable for a day before any of
@@ -403,7 +401,7 @@ try {
      back to the hero sheet, and if that is missing too, to the drawn
      shapes. */
   const CREATURE_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
-                         goat:1, gecko:1, warden_boss:1, choir_boss:1 };
+                         goat:1, gecko:1, goblin:1, warden_boss:1, choir_boss:1 };
   /* WHICH OF THEM ALSO HAVE A DIRECTIONAL WALK SHEET. Not all do: the goat
      never had one and the Drowned Warden does not have one yet. The engine
      copes either way — useDir requires dspr.ready, so a creature without one
@@ -411,7 +409,7 @@ try {
      absent means a 404 on every fight containing a goat, and a permanent
      failure counted against the loading ring. Ask only for what exists. */
   const DIR8_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
-                     gecko:1 };
+                     gecko:1, goblin:1 };
   const need = new Set();
   for (const k of fightRoster()) need.add(WEARS[k] || k);
   for (const sp of HERO_SPELLS) if (sp && sp.summon) need.add(WEARS[sp.summon] || sp.summon);
