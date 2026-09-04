@@ -255,6 +255,7 @@ window.PANELS = (function () {
         '<small>' + (w ? esc(w.name) : sl) + '</small></button>';
     }
     h += '</div>';
+    h += statsHtml(eq);
 
     if (pickSlot) h += pickHtml(pickSlot);
 
@@ -519,6 +520,52 @@ window.PANELS = (function () {
     renderInventory();
   }
   /* what in the bag could go in this slot */
+  /* ── STATS, WHERE YOU ARE MAKING THE DECISION ─────────────────────
+     The character sheet knows your stats and the bag knows your gear, and
+     they were different screens — so choosing between two pieces meant
+     memorising six numbers, switching panels, and coming back. The numbers
+     live beside the slots now, and while a chooser is open every row says
+     what it would DO to them.
+
+     GEAR.bonus is the only thing that adds gear up; a second sum here would
+     be a second place to get it wrong. */
+  var STAT_ORDER = ['vit', 'wis', 'str', 'int', 'cha', 'agi'];
+  var STAT_SHORT = { vit: 'VIT', wis: 'WIS', str: 'STR',
+                     int: 'INT', cha: 'CHA', agi: 'AGI' };
+
+  function gearBonus(eq) {
+    if (window.GEAR && GEAR.bonus) return GEAR.bonus(eq || {});
+    return { str: 0, int: 0, cha: 0, agi: 0, vit: 0, wis: 0 };
+  }
+  /* what the bag would look like with `it` in `sl` — the swap, not the sum */
+  function bonusWith(eq, sl, it) {
+    var next = {}, k;
+    for (k in (eq || {})) if (eq[k]) next[k] = eq[k];
+    if (sl) { if (it) next[sl] = { id: it.id }; else delete next[sl]; }
+    return gearBonus(next);
+  }
+  function statsHtml(eq) {
+    var b = gearBonus(eq), h = '<div class="st-strip">';
+    for (var i = 0; i < STAT_ORDER.length; i++) {
+      var k = STAT_ORDER[i], v = b[k] | 0;
+      h += '<div class="st-c' + (v ? ' on' : '') + '"><span class="st-k">' +
+           STAT_SHORT[k] + '</span><span class="st-v">' +
+           (v > 0 ? '+' + v : v) + '</span></div>';
+    }
+    return h + '</div>';
+  }
+  /* "+4 VIT  -2 STR" for swapping `it` into `sl` */
+  function deltaHtml(eq, sl, it) {
+    var now = gearBonus(eq), next = bonusWith(eq, sl, it), out = [];
+    for (var i = 0; i < STAT_ORDER.length; i++) {
+      var k = STAT_ORDER[i], d = (next[k] | 0) - (now[k] | 0);
+      if (!d) continue;
+      out.push('<em class="' + (d > 0 ? 'up' : 'dn') + '">' +
+               (d > 0 ? '+' + d : d) + ' ' + STAT_SHORT[k] + '</em>');
+    }
+    return out.length ? out.join(' ') : '<em class="nil">no change</em>';
+  }
+
   function fitsSlot(sl) {
     var P = player();
     return (P.items || []).filter(function (it) {
@@ -540,10 +587,12 @@ window.PANELS = (function () {
       h += '<div class="pick-none">Nothing in your bag fits the ' +
            esc(sl) + ' slot yet.</div>';
     } else {
+      var eqNow = player().equip || {};
       for (var i = 0; i < list.length; i++) {
         var it = list[i];
         h += '<button class="pick-row" data-act="pickeq" data-id="' +
              esc(it.id) + '"><span class="pk-n">' + esc(it.name) + '</span>' +
+             '<span class="pk-d">' + deltaHtml(eqNow, sl, it) + '</span>' +
              '<span class="pk-s">' + esc(it.note || '') + '</span></button>';
       }
     }
