@@ -1,4 +1,52 @@
-# Art direction: fantasy Maltese
+# Art direction: high fantasy, with Malta hidden in it
+
+**DECIDED 2026-09-04, and it reverses what this file used to say.** The owner:
+*"fantasy world I want, no Maltese — little easter eggs Maltese."*
+
+So the island is a **fantasy world first**. Lush, storybook, the kind of place
+a beginner island in this genre is: green country, woods, a river, a village
+you want to walk into. It is not Malta made strange, which is what the whole
+of this document used to argue for.
+
+Malta stays as **easter eggs** — deliberate, sparse, and a delight when you
+spot one rather than the identity of the place. A luzzu drawn up on the shore
+with the Eye of Osiris on its prow. One stretch of dry-stone wall where a
+fence would do. A gallarija on the tavern. A name here and there. Somebody
+Maltese should grin twice an hour, not feel they are being sold their own
+island back.
+
+WHY THIS IS WRITTEN DOWN RATHER THAN JUST DONE: every art brief in the repo
+carried the old direction, so a generation asked for today would still have
+come back arid and silver-grey. tools/paintjob.py is updated with it, and so
+is the palette below. The old text is kept underneath, because the reasoning
+in it was sound and the easter eggs are drawn FROM it.
+
+## The palette
+
+| | |
+|---|---|
+| green | **lush** — meadow, moss, deep woodland shade. The opposite of the old note |
+| earth | warm brown loam; red-brown clay on paths and tilled fields |
+| stone | grey granite and cool slate for walls and cliffs; honey limestone kept for the EASTER EGGS |
+| water | clear blue-green, bright and inviting, with sandy shallows |
+| accent | the blue-and-yellow of a luzzu — saved for the one boat, not spread about |
+
+The mistake to avoid now is the opposite of the old one: **do not make it
+arid**. Silver-grey scrub, prickly pear and bare rock everywhere is the look
+this direction replaces.
+
+## Where Malta is still allowed
+
+Keep these, and only these, unless the owner asks for more:
+
+- a **luzzu** on the shore, Eye of Osiris on the prow
+- one run of **dry-stone wall** (*ħitan tas-sejjieħ*) somewhere it reads as old
+- a **gallarija** — a closed painted balcony — on the tavern in Wayrest
+- the odd **name**: Wayrest keeps its tavern, the Carob Wood keeps its carob
+
+---
+
+# The old direction, kept for the reasoning and the easter eggs
 
 The island is **Malta made strange** — not generic fantasy with Maltese names
 stuck on, and emphatically not Amakna. Every zone should be recognisable to

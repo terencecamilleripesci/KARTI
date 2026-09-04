@@ -184,6 +184,7 @@ LOADER.open();
 <script src="player.js"></script><!-- window.HERO + window.PLAYER (the view) -->
 <script src="maps/ruin-01.js"></script>
 <script src="maps/ruin-02.js"></script>
+<script src="maps/ruin-03.js"></script>
 <script src="maps/field-0-0.js"></script>
 <script src="maps/field-1-0.js"></script>
 <script src="maps/field-2-0.js"></script>
@@ -399,8 +400,13 @@ WORLD.onNpc(m => {
 });
 
 WORLD.onExit((from, to) => {
-  if (from === 'ruin-02' && to === 'field-0-0' && QUEST.state().step === 2)
-    QUEST.advance(3);
+  /* THE LAST RUIN ROOM IS THE ONE WITH THE DOOR, and the island screen it
+     opens onto is field-2-1. This said ruin-02 -> field-0-0, which stopped
+     being true when the island was regenerated: the step never advanced and
+     nothing said so. Keyed on leaving the ruin at all now, so a renamed
+     field map cannot silently break the tutorial again. */
+  if (/^ruin-/.test(from) && /^field-/.test(to) && QUEST.state().step === 3)
+    QUEST.advance(4);
   /* leaving a map is a sync checkpoint (net.js can't take this slot —
      WORLD.onExit is single-callback and this page owns it) */
   if (window.NET) NET.checkpoint('map');

@@ -115,7 +115,7 @@ window.MAPS['field-2-1'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'exit', c:13, r:22, to:'ruin-02', at:{ c:23, r:11 } }
+    { type:'exit', c:13, r:22, to:'ruin-03', at:{ c:23, r:11 } }
   ],
   neighbours: { n:'field-2-0', e:'field-3-1', s:'field-2-2', w:'field-1-1' }
 };
