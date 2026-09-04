@@ -2228,6 +2228,24 @@ function showOver(){
      the day's ceiling is hit and nothing at all beyond it. Showing the rolled
      figure would promise coins the player never received — and they would
      check, because it is the same wallet the party games fill. */
+  /* WHAT THE QUEST PAYS FOR THIS FIGHT, taken NOW so it can be shown here.
+     The tutorial's gear is a quest reward and used to be granted only once
+     the combat frame was torn down, so this screen — the one moment the
+     player is looking straight at what they earned — could not name a
+     single piece of it. QUEST.fightWon is idempotent, so world.html
+     advancing again afterwards changes nothing. */
+  let questGot = [], questXp = 0;
+  if (won) {
+    try {
+      const Q = host('QUEST');
+      const fm = Q && Q.currentFight && Q.currentFight();
+      if (Q && Q.fightWon && fm) {
+        const r = Q.fightWon(fm) || {};
+        questGot = r.items || []; questXp = r.xp || 0;
+      }
+    } catch (e) {}
+  }
+
   const P$ = host('PURSE') || window.PURSE;
   FIGHT.coins = (won && spoils.coins && P$)
     ? P$.earn(spoils.coins, 'qawmien-kill') : 0;
@@ -2259,13 +2277,15 @@ function showOver(){
        needing the screen rebuilt. */
     const rows = [];
     const me = you() || G.units[0];
+    /* THE QUEST'S XP COUNTS TOO. The dummy pays nothing — it is a drill —
+       so the sheet read "+0 XP" beside four pieces of gear the quest had
+       just handed over with twenty-five XP attached. */
     rows.push(['<b>' + esc(me && me.name ? me.name : 'You') + '</b>',
-               '+' + spoils.xp + ' XP']);
+               '+' + (spoils.xp + questXp) + ' XP']);
     if (lv && lv.levels)
       rows.push(['Level ' + lv.from + ' &rarr; ' + lv.to,
                  '+' + (lv.points || 0) + ' points']);
-    if (spoils.drops.length)
-      rows.push(['Found', spoils.drops.map(d => esc(d.name || d.id)).join(', ')]);
+
     /* Coins, and the truth when the day's ceiling has stopped them. Saying
        nothing would read as the drop being broken; saying the rolled number
        would be a lie about the same wallet the party games fill. */
@@ -2277,12 +2297,31 @@ function showOver(){
     rows.push(['Spells cast', String(FIGHT.casts)]);
     rows.push(['Rounds', String(G.round)]);
 
+    /* THE HAUL, ITEM BY ITEM, ABOVE THE LEDGER — it is the thing the
+       player came for, and it was a comma-separated tail on a stats row. */
+    const loot = spoils.drops.concat(questGot);
+    const wearable = loot.filter(d => d && d.slot);
+    const lootHtml = loot.length
+      ? '<div class="loot">' + loot.map(d =>
+          '<div class="loot-r"><span class="loot-n">' +
+          esc(d.name || d.id) + ((d.qty > 1) ? ' &times;' + d.qty : '') +
+          '</span><span class="loot-s">' +
+          esc(d.slot ? d.slot : 'item') + '</span></div>').join('') + '</div>'
+      : '';
+
     p.innerHTML =
       (drill ? '<div style="margin-bottom:8px">The stuffing is everywhere. ' +
                'You know the moves now.</div>' : '') +
+      lootHtml +
       '<div class="res">' + rows.map(r =>
         '<div class="res-r"><span>' + r[0] + '</span><span>' + r[1] + '</span></div>'
       ).join('') + '</div>';
+
+    /* EQUIP, RIGHT HERE. Gear that lands in a bag and is never worn is the
+       commonest way a player's first hour goes wrong; the button only shows
+       when something with a slot actually dropped. */
+    const eb = document.getElementById('equipbtn');
+    if (eb) eb.hidden = !wearable.length;
   }
   document.getElementById('over').classList.add('on');
   paint();
@@ -2308,6 +2347,19 @@ cv.addEventListener('mousemove', onHover);
 cv.addEventListener('touchstart', e => { onHover(e); }, { passive:true });
 { const rb = document.getElementById('readygo');
   if (rb) rb.onclick = beginFight; }
+{ /* Equip: close the fight, then open the bag on the parent — PANELS lives
+     up there with the character, not in the combat frame. The delay lets
+     world.html finish tearing the iframe down first. */
+  const eb = document.getElementById('equipbtn');
+  if (eb) eb.onclick = function(){
+    closeResults();
+    try {
+      const P = (window.PANELS) ||
+                (window.parent && window.parent !== window && window.parent.PANELS);
+      if (P && P.open) setTimeout(function(){ P.open('inventory'); }, 320);
+    } catch (e) {}
+  };
+}
 document.getElementById('again').onclick = newMatch;
 { const d = document.getElementById('done');
   if (d) d.onclick = closeResults;

@@ -117,6 +117,10 @@ window.QUEST = (function () {
   let fightMk = null;
   function currentFight() { return fightMk; }
 
+  /* WHAT THE LAST GRANT ACTUALLY HANDED OVER, so the battle's own results
+     screen can show it. Not persisted: it describes one moment. */
+  let lastGot = [], lastXp = 0;
+
   /* ── state (persisted) ────────────────────────────────────────── */
   let S = fresh();
   function fresh() {
@@ -192,22 +196,25 @@ window.QUEST = (function () {
       if (window.HERO && HERO.gainXp) HERO.gainXp(rw.xp);
       else if (P) P.xp += rw.xp;
       got.push(rw.xp + ' XP');
+      lastXp += rw.xp;
     }
     if (rw.items) for (const it of rw.items) {
       giveItem(it); got.push(it.qty > 1 ? it.qty + 'x ' + it.name : it.name);
+      lastGot.push({ id: it.id, name: it.name, qty: it.qty || 1, slot: null });
     }
     /* A WHOLE SET, handed over at once. The catalogue is the single source
        of what a set contains, so adding a fifth piece later is a data edit
        in gear.js and this keeps working. */
     if (rw.set && window.GEAR) for (const g of GEAR.set(rw.set)) {
-      giveItem(GEAR.record(g)); got.push(g.name);
+      const rec = GEAR.record(g);
+      giveItem(rec); got.push(g.name); if (rec) lastGot.push(rec);
     }
     /* NAMED PIECES, not a whole tier. The set arrived in one lump when a
        quartermaster handed it over; it is taken off two different corpses
        now, so a step has to be able to name exactly which pieces fall. */
     if (rw.gear && window.GEAR) for (const id of rw.gear) {
       const rec = GEAR.record(id);
-      if (rec) { giveItem(rec); got.push(rec.name); }
+      if (rec) { giveItem(rec); got.push(rec.name); lastGot.push(rec); }
     }
     if (got.length) {
       toast('Received: ' + got.join(', '), 3500);
@@ -261,6 +268,27 @@ window.QUEST = (function () {
       setTimeout(() => say('', LINES.outro), 300);
     return true;
   }
+  /* ── THE FIGHT PAYS BEFORE THE RESULTS SCREEN, NOT AFTER ──────────
+     The tutorial's gear is a quest reward, and the quest used to advance
+     only once world.html tore the combat frame down — so the battle's own
+     results sheet, the one moment the player is looking straight at what
+     they earned, could not list a single piece of it. The four pieces
+     appeared later as a toast over the map, from nowhere.
+
+     Called by the combat screen the instant a fight is won, with the marker
+     that was fought. Idempotent by construction: advance() refuses any step
+     that is not next, and granted[] gates the reward, so world.html calling
+     advance() again afterwards is a no-op. Returns the item records, for
+     display. */
+  function fightWon(mk) {
+    const id = mk && mk.id;
+    const i = STEPS.findIndex(s => s.id === id);
+    if (i < 0 || S.step !== i) return { items: [], xp: 0 };
+    lastGot = []; lastXp = 0;
+    advance(i + 1);
+    return { items: lastGot.slice(), xp: lastXp };
+  }
+
   function reset() {
     try { localStorage.removeItem(LSK); } catch (e) {}
     detachCombat();
@@ -684,6 +712,6 @@ window.QUEST = (function () {
     if (toastEl) toastEl.classList.remove('on');
   }
 
-  return { LSK, STEPS, start, state, advance, reward, say, onChange,
+  return { LSK, STEPS, start, state, advance, reward, say, onChange, fightWon,
            npc, currentFight, attachCombat, detachCombat, reset };
 })();

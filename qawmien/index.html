@@ -94,9 +94,25 @@
   #over{position:absolute;inset:0;display:none;place-items:center;background:rgba(8,6,16,.82);
     backdrop-filter:blur(3px);z-index:5}
   #over.on{display:grid}
+  /* THE BUTTONS MUST NEVER FALL BELOW THE FOLD. With four pieces of loot
+     listed above the ledger the card grew past a landscape phone and OK and
+     Equip went off the bottom — a results screen you cannot dismiss. The
+     card is a column now: the body scrolls, the buttons stay put. */
   #over .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-    padding:22px 20px;text-align:center;max-width:300px}
+    padding:18px 20px;text-align:center;max-width:320px;
+    max-height:86vh;display:flex;flex-direction:column}
+  #over .card>p{flex:1 1 auto;min-height:0;overflow-y:auto}
+  #over #ovbtns{flex:0 0 auto;padding-top:10px}
   #over h2{margin:0 0 6px;font-size:24px}
+  /* THE LOOT, AS THINGS RATHER THAN A SENTENCE. "Found: Novice Cloak,
+     Novice Belt, Novice Gloves, Novice Boots" is a list the eye slides
+     off; four rows with their slot beside them is a haul. */
+  .loot{margin:10px 0 2px;text-align:left}
+  .loot-r{display:flex;justify-content:space-between;gap:10px;align-items:baseline;
+    padding:5px 8px;border-radius:8px;background:rgba(255,255,255,.045);
+    margin-bottom:4px}
+  .loot-n{font-weight:600;font-size:13px}
+  .loot-s{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
   #over p{margin:0 0 16px;color:var(--dim);font-size:13.5px;line-height:1.5}
 
   /* the end-of-battle sheet: a two-column ledger, so the eye runs down the
@@ -141,7 +157,7 @@ LANDSCAPE.start(function (blocked) {
     </div></div>
     <div id="over"><div class="card">
       <h2 id="ovt">—</h2><p id="ovp">—</p>
-      <div id="ovbtns"><button class="btn go" id="done" type="button">OK</button><button class="btn ghost" id="again" type="button">Again</button></div>
+      <div id="ovbtns"><button class="btn go" id="done" type="button">OK</button><button class="btn ghost" id="equipbtn" type="button" hidden>Equip</button><button class="btn ghost" id="again" type="button">Again</button></div>
     </div></div>
   </div>
 </div>
