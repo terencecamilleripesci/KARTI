@@ -593,7 +593,7 @@ function newMatch(){
      WHERE you step matters. The (c - r) rule below still holds — two units
      with equal (c - r) share an iso column and visually stack, so no two
      spots here do. */
-  let spots, home;
+  let spots, home, at0 = null;   /* at0: what the placement fans out from */
   if (ARENA){
     /* THE MONSTERS ARE WHERE YOU SAW THEM. The marker's own cell first,
        then outward from it — so the group stands where it was standing on
@@ -606,6 +606,7 @@ function newMatch(){
     const mid = BOARD.CELLS[Math.floor(BOARD.CELLS.length / 2)];
     const at = ARENA.at && inBoard(ARENA.at.c, ARENA.at.r)
       ? ARENA.at : { c: mid.c, r: mid.r };
+    at0 = at;
     spots = freeSpots(blocked, at, foes.length, 0, 4, null);
     /* a group backed into a corner needs a wider look, or two of them are
        given the same cell and one is invisible underneath the other */
@@ -622,6 +623,7 @@ function newMatch(){
       ? [[6,5]]
       : [[6,4],[6,7],[6,6],[7,3],[5,8]]).map(s => cell11(s[0], s[1]));
     home = cell11(3, 5);
+    at0 = spots[0];
   }
   const units = [ mk('you', 0, home.c, home.r) ];
   foes.forEach((k, i) => {
@@ -656,7 +658,48 @@ function newMatch(){
      nothing moves until the player says go. It also fixes a smaller thing:
      the first turn used to begin while the map was still fading in. */
   G.ready = false;
+  /* ── WHERE YOU STAND IS THE FIRST DECISION ────────────────────────
+     Dofus opens a fight with a placement phase: your side's cells are
+     lit, you shuffle between them, and nothing moves until you press
+     Ready. It is not ceremony — on this grid the difference between
+     starting two tiles left and two tiles right is whether a ranged
+     class gets a free opening volley or spends its first turn walking,
+     and the owner's note is exactly that: a spot where you get ready
+     and optimise.
+
+     The cells are the ones the hero could legitimately have started on:
+     free, four to seven from the group, and never on top of a fighter.
+     His own is always among them, so pressing Ready without touching
+     anything is a real choice rather than a default nobody made. */
+  G.place = placeCells(blocked, at0, home, units);
   showReady();
+}
+
+function placeCells(blocked, at, home, units){
+  if (!at) return [];
+  const taken = new Set(units.map(u => key(u.c, u.r)));
+  const out = [], seen = new Set([key(at.c, at.r)]);
+  const q = [{ c: at.c, r: at.r, d: 0 }];
+  while (q.length && out.length < 40){
+    const n = q.shift();
+    if (n.d >= 4 && n.d <= 7 && !blocked.has(key(n.c, n.r)) &&
+        !taken.has(key(n.c, n.r)))
+      out.push({ c: n.c, r: n.r });
+    if (n.d >= 7) continue;
+    for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]){
+      const c = n.c + dc, r = n.r + dr, k = key(c, r);
+      if (!inBoard(c, r) || seen.has(k) || blocked.has(k)) continue;
+      seen.add(k); q.push({ c, r, d: n.d + 1 });
+    }
+  }
+  /* HIS OWN CELL IS ALWAYS ONE OF THEM, or Ready would move him. */
+  if (home && !out.some(p => p.c === home.c && p.r === home.r))
+    out.unshift({ c: home.c, r: home.r });
+  /* a fistful, spread out — forty blue tiles is not a decision, it is a
+     wall of blue. Every third, which on this grid is a comfortable stride
+     apart, capped at nine. */
+  const thin = out.filter((_, i) => i === 0 || i % 3 === 0).slice(0, 9);
+  return thin.length ? thin : out.slice(0, 9);
 }
 
 function showReady(){
@@ -670,7 +713,11 @@ function showReady(){
   if (el2) el2.textContent = line +
     (lv.length ? ' · level ' + Math.min.apply(null, lv) +
                  (Math.max.apply(null, lv) !== Math.min.apply(null, lv)
-                   ? '-' + Math.max.apply(null, lv) : '') : '');
+                   ? '-' + Math.max.apply(null, lv) : '') : '') +
+    /* SAY WHAT THE BLUE TILES ARE FOR. A lit cell nobody explains is
+       scenery; this is the one line that turns it into a decision. */
+    ((G.place && G.place.length > 1)
+      ? ' — tap a blue tile to move your start' : '');
   el.classList.add('on');
   paint();
 }
@@ -1590,6 +1637,25 @@ function draw(){
       ctx.strokeStyle = COL.edge; ctx.lineWidth = 1; ctx.stroke();
     }
   }
+  /* PLACEMENT: your ground in blue, theirs in red, while Ready is up.
+     Red is not decoration — knowing where they start is half of choosing
+     where you do. */
+  if (!G.ready && G.place && G.place.length){
+    for (const u of G.units) if (u.side === 1 && u.hp > 0){
+      const p = iso(u.c, u.r);
+      diamond(p); ctx.fillStyle = 'rgba(226,74,74,.30)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,120,120,.85)'; ctx.lineWidth = 1.6; ctx.stroke();
+    }
+    const hero = G.units[0];
+    for (const t of G.place){
+      const p = iso(t.c, t.r), on = hero && hero.c === t.c && hero.r === t.r;
+      diamond(p);
+      ctx.fillStyle = on ? 'rgba(96,170,255,.55)' : 'rgba(72,132,226,.28)';
+      ctx.fill();
+      ctx.strokeStyle = on ? '#BFE0FF' : 'rgba(140,190,255,.85)';
+      ctx.lineWidth = on ? 2.4 : 1.4; ctx.stroke();
+    }
+  }
   /* overlays: movement, then cast range on top */
   if (moveSet) for (const k of moveSet.keys()){
     const [c, r] = k.split(',').map(Number), p = iso(c, r);
@@ -1945,7 +2011,23 @@ function tileFromEvent(ev){
 }
 
 function onTap(ev){
-  if (busy || anim || G.over || !G.ready) return;
+  if (busy || anim || G.over) return;
+  /* PLACEMENT. Before Ready, a tap on one of your lit cells is not a move —
+     it costs no MP, takes no turn, and can be changed as often as you like.
+     Anywhere else during placement does nothing, deliberately: the fight
+     has not started and there is nothing else to do yet. */
+  if (!G.ready){
+    if (!G.place || !G.place.length) return;
+    const t0 = tileFromEvent(ev);
+    if (!G.place.some(p => p.c === t0.c && p.r === t0.r)) return;
+    const hero = G.units[0];
+    if (!hero || hero.side !== 0) return;
+    hero.c = t0.c; hero.r = t0.r;
+    for (const u of G.units) watchFoe(u);   /* face the enemy from the new spot */
+    if (window.HUD && HUD.sfx) HUD.sfx('tick');
+    paint();
+    return;
+  }
   const u = me();
   if (!u || u.side !== 0 || u.auto) return;
   const t = tileFromEvent(ev);

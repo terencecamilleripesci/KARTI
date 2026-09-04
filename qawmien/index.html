@@ -72,12 +72,16 @@
   .btn.go{background:linear-gradient(180deg,#FFD979,#FFC542);color:#1A1206;border:0;
     box-shadow:0 6px 18px -8px rgba(255,197,66,.85)}
 
+  /* THE BOARD STAYS TAPPABLE UNDERNEATH IT. Placement happens while this
+     panel is up — you tap a blue cell to choose where you start — and an
+     overlay stretched across the whole screen ate every one of those taps.
+     Only the card itself takes input. */
   #ready{position:absolute;inset:0;display:none;place-items:end center;
     background:linear-gradient(to top,rgba(8,6,16,.9),rgba(8,6,16,0) 46%);
-    z-index:6;padding-bottom:18px}
+    z-index:6;padding-bottom:18px;pointer-events:none}
   #ready.on{display:grid}
   #ready .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;
-    padding:16px 18px;text-align:center;max-width:300px}
+    padding:16px 18px;text-align:center;max-width:300px;pointer-events:auto}
   #ready h2{margin:0 0 4px;font-size:20px}
   #ready p{margin:0 0 12px;color:var(--dim);font-size:13px}
   #over{position:absolute;inset:0;display:none;place-items:center;background:rgba(8,6,16,.82);
@@ -125,7 +129,7 @@ LANDSCAPE.start(function (blocked) {
     <div id="float"></div>
     <div id="toast"></div>
     <div id="ready"><div class="card">
-      <h2>Ready?</h2><p id="readysub">—</p>
+      <h2>Choose your ground</h2><p id="readysub">—</p>
       <button class="btn go" id="readygo" type="button">Ready</button>
     </div></div>
     <div id="over"><div class="card">
