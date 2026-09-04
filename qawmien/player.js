@@ -135,6 +135,15 @@ window.HERO = (function () {
       const o = { id: it.id, name: String(it.name || it.id),
                   qty: Math.max(1, it.qty | 0) };
       if (it.note) o.note = String(it.note);
+      /* WHAT IT IS, not just what it is called. Dropping the slot here made
+         every piece of gear in a bag unequippable the moment the game was
+         reloaded — panels.js asks metaOf() what slot an item wears, and
+         there was nothing left to answer with. panels.js now falls back to
+         the GEAR catalogue, which repairs saves already written; this keeps
+         the fact in the save for anything the catalogue does not know. */
+      if (it.slot) o.slot = String(it.slot);
+      if (it.rarity) o.rarity = String(it.rarity);
+      if (typeof it.level === 'number') o.level = it.level | 0;
       out.push(o);
     }
     return out;

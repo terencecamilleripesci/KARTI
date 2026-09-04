@@ -96,7 +96,11 @@
 .eq-doll{
   display:grid; gap:8px;
   grid-template-columns:1fr 1.15fr 1fr;
-  grid-template-areas:"head fig cape" "amulet fig ring" "weapon fig belt" ". boots .";
+  /* GLOVES HAS A HOME. The slot was added to the model and to panels.js's
+     SLOTS list but not to this layout, so its button had no grid-area and
+     the browser auto-placed it — a stray control shoved into the doll. */
+  grid-template-areas:"head fig cape" "amulet fig ring" "weapon fig belt"
+                      "gloves fig boots";
 }
 .eq-fig{
   grid-area:fig; align-self:stretch; min-height:150px;
@@ -119,9 +123,33 @@
 .eq-slot.filled{ border-style:solid; color:var(--ink);
   background:rgba(138,92,255,.14); border-color:rgba(138,92,255,.55);
   box-shadow:0 0 12px -4px rgba(138,92,255,.6); }
+/* AN EMPTY SLOT WITH SOMETHING TO PUT IN IT SAYS SO. It used to be
+   `disabled` — literally unclickable — so the obvious move, tapping the
+   helmet slot to see what fits, did nothing at all. */
+.eq-slot.can{ border-color:rgba(255,197,66,.7); color:var(--ink);
+  background:rgba(255,197,66,.10); }
+.eq-slot.can::after{ content:''; position:absolute; }
+.eq-slot{ position:relative; }
+.eq-slot.picking{ border-style:solid; border-color:#FFC542;
+  background:rgba(255,197,66,.20); }
+
+/* ---------- choose-for-slot list ---------- */
+.pick-hd{ display:flex; align-items:baseline; justify-content:space-between;
+  gap:10px; margin:2px 0 6px; }
+.pick-hd b{ font-size:13px; letter-spacing:.02em; }
+.pick-x{ background:none; border:0; color:var(--dim); font-size:12px;
+  padding:2px 6px; }
+.pick-row{ display:grid; grid-template-columns:1fr auto; gap:2px 10px;
+  width:100%; text-align:left; padding:9px 11px; margin-bottom:6px;
+  border-radius:11px; border:1px solid var(--line);
+  background:rgba(255,255,255,.045); color:var(--ink); }
+.pick-row:active{ transform:scale(.99); }
+.pick-row .pk-n{ font-weight:650; font-size:13px; }
+.pick-row .pk-s{ color:var(--dim); font-size:11px; }
+.pick-none{ color:var(--dim); font-size:12.5px; padding:8px 2px 10px; }
 .eq-head{grid-area:head}.eq-cape{grid-area:cape}.eq-amulet{grid-area:amulet}
 .eq-ring{grid-area:ring}.eq-weapon{grid-area:weapon}.eq-belt{grid-area:belt}
-.eq-boots{grid-area:boots}
+.eq-boots{grid-area:boots}.eq-gloves{grid-area:gloves}
 
 /* ---------- inventory grid ---------- */
 .inv-grid{

@@ -66,12 +66,21 @@ window.PANELS = (function () {
   var RAR_NAME = { common: 'Common', uncommon: 'Uncommon', rare: 'Rare',
                    epic: 'Epic', legendary: 'Legendary' };
 
+  /* THE CATALOGUE IS THE AUTHORITY ON WHAT A THING IS. This read only the
+     item in the bag and a small hand-written META table — and a bag item is
+     saved by player.js's cleanItems, which keeps id, name, qty and note and
+     THROWS THE SLOT AWAY. So gear worked until you closed the app and was
+     unequippable forever afterwards: no slot, so nothing would wear it and
+     nothing would offer it. Asking GEAR by id fixes every save already
+     written, which a change to the save format alone would not. */
   function metaOf(item) {
     var m = META[item.id] || {};
+    var g = (window.GEAR && GEAR.byId) ? GEAR.byId(item.id) : null;
+    var slot = item.slot || m.slot || (g ? g.slot : null);
     return {
-      icon:   item.icon   || m.icon || 'pouch',
-      rarity: item.rarity || m.rarity || 'common',
-      slot:   item.slot   || m.slot || null,
+      icon:   item.icon   || m.icon || (slot ? (SLOT_IC[slot] || 'pouch') : 'pouch'),
+      rarity: item.rarity || m.rarity || (g && g.rarity) || 'common',
+      slot:   slot,
       use:    m.use || null
     };
   }
@@ -90,6 +99,7 @@ window.PANELS = (function () {
   /* ------------------------------------------------------------------ state */
   var built = false, root = null, openPanel = null, sheetId = null,
       dropArmed = false, toastT = 0, lastFocus = null, closeT = 0,
+      pickSlot = null,        /* which empty slot is asking "what fits me?" */
       inerted = [], heroTab = 'character';   /* 'character' | 'spells' */
 
   /* Modal containment (aria-modal contract): while a panel is open the rest of
@@ -228,14 +238,25 @@ window.PANELS = (function () {
     h += '<div class="eq-fig" aria-hidden="true">' + svg(IC.user, 64) + '</div>';
     for (var i = 0; i < SLOTS.length; i++) {
       var sl = SLOTS[i], w = eq[sl];
-      h += '<button class="eq-slot eq-' + sl + (w ? ' filled' : '') +
-        '" data-act="uneq" data-slot="' + sl + '" aria-label="' + sl +
-        (w ? ': ' + esc(w.name) + ', tap to unequip' : ' slot, empty') + '"' +
-        (w ? '' : ' disabled') + '>' +
+      /* AN EMPTY SLOT IS A QUESTION, NOT A DEAD END. It used to be rendered
+         `disabled`, so the obvious move — tap the helmet slot to see what
+         fits — did nothing whatsoever, and the only route to wearing
+         anything was via the bag. Tapping an empty slot now asks the bag
+         what fits it. */
+      var fits = w ? 0 : fitCount(sl);
+      var cls = 'eq-slot eq-' + sl + (w ? ' filled' : (fits ? ' can' : '')) +
+                (pickSlot === sl ? ' picking' : '');
+      h += '<button class="' + cls + '" data-act="' + (w ? 'uneq' : 'pick') +
+        '" data-slot="' + sl + '" aria-label="' + sl +
+        (w ? ': ' + esc(w.name) + ', tap to unequip'
+           : (fits ? ' slot, empty, ' + fits + ' in bag fit — tap to choose'
+                   : ' slot, empty, nothing in your bag fits')) + '">' +
         svg(IC[w ? metaOf(w).icon : SLOT_IC[sl]], 20) +
         '<small>' + (w ? esc(w.name) : sl) + '</small></button>';
     }
     h += '</div>';
+
+    if (pickSlot) h += pickHtml(pickSlot);
 
     h += '<div class="pn-sub">Bag</div>';
     if (!P.items.length) {
@@ -474,8 +495,36 @@ window.PANELS = (function () {
     if (!itemOf(sheetId)) closeSheet(); else renderSheet();
     renderInventory();
   }
-  function equipItem() {
-    var it = itemOf(sheetId); if (!it) return;
+  /* what in the bag could go in this slot */
+  function fitsSlot(sl) {
+    var P = player();
+    return (P.items || []).filter(function (it) {
+      var m = metaOf(it);
+      return m.slot === sl;
+    });
+  }
+  function fitCount(sl) { return fitsSlot(sl).length; }
+
+  function pickHtml(sl) {
+    var list = fitsSlot(sl);
+    var h = '<div class="pn-sub">Choose for ' + esc(sl) + '</div>' +
+            '<div class="pick-hd"><b>' + esc(sl) + '</b>' +
+            '<button class="pick-x" data-act="pickx">Cancel</button></div>';
+    if (!list.length) {
+      return h + '<div class="pick-none">Nothing in your bag fits the ' +
+             esc(sl) + ' slot yet.</div>';
+    }
+    for (var i = 0; i < list.length; i++) {
+      var it = list[i];
+      h += '<button class="pick-row" data-act="pickeq" data-id="' +
+           esc(it.id) + '"><span class="pk-n">' + esc(it.name) + '</span>' +
+           '<span class="pk-s">' + esc(it.note || '') + '</span></button>';
+    }
+    return h;
+  }
+
+  function equipItem(id) {
+    var it = itemOf(id || sheetId); if (!it) return;
     var m = metaOf(it); if (!m.slot) return;
     var P = player();
     /* THE LEVEL GATE. GEAR.canEquip is the only authority on this: a second
@@ -496,6 +545,7 @@ window.PANELS = (function () {
     if (prev) mergeItem({ id: prev.id, name: prev.name, qty: 1, note: prev.note });
     toast('Equipped ' + P.equip[m.slot].name + '.');
     dropArmed = false;
+    pickSlot = null;
     closeSheet();
     renderInventory();
   }
@@ -545,6 +595,13 @@ window.PANELS = (function () {
     else if (act === 'sheet-close') closeSheet();
     else if (act === 'use') useItem();
     else if (act === 'equip') equipItem();
+    else if (act === 'pick') {
+      var ps = b.getAttribute('data-slot');
+      pickSlot = (pickSlot === ps) ? null : ps;   /* tap again to close */
+      renderInventory();
+    }
+    else if (act === 'pickx') { pickSlot = null; renderInventory(); }
+    else if (act === 'pickeq') { equipItem(b.getAttribute('data-id')); }
     else if (act === 'drop') dropItem();
     else if (act === 'uneq') unequip(b.getAttribute('data-slot'));
   }

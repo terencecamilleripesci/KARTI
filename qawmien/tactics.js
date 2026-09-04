@@ -2356,7 +2356,13 @@ cv.addEventListener('touchstart', e => { onHover(e); }, { passive:true });
     try {
       const P = (window.PANELS) ||
                 (window.parent && window.parent !== window && window.parent.PANELS);
-      if (P && P.open) setTimeout(function(){ P.open('inventory'); }, 320);
+      /* openInventory, NOT open('inventory'). PANELS has no `open` — the
+         contract is openInventory / openStats / openSpells — so the button
+         shipped doing precisely nothing, which is worse than not shipping
+         it: the player presses it, the fight closes, and they conclude the
+         gear is broken. */
+      if (P && P.openInventory)
+        setTimeout(function(){ P.openInventory(); }, 320);
     } catch (e) {}
   };
 }
