@@ -32,7 +32,19 @@
    gives items through window.PANELS.give when present. */
 window.QUEST = (function () {
 
-  const LSK = 'tactics.quest.tutorial.v1';
+  /* v2 BECAUSE THE STEPS CHANGED MEANING, and an old save cannot be
+     migrated — only discarded. The tutorial was four steps (wake, bones,
+     outfit, leave) and is now five (wake, bones, goblin, leave, village), so
+     a stored step 2 used to mean "go and talk to the quartermaster" and now
+     means "go and beat the goblin", and a stored step 4 used to mean FINISHED.
+     Anyone who had played the old opening came back to the new one already
+     past the end of it: nothing to do, no goblin, no gear, the old story. It
+     looked exactly like a stale cache and was not one.
+
+     Bumping the key throws those saves away, which is right: the three
+     rooms take two minutes and the alternative is a player stuck outside
+     content that exists. */
+  const LSK = 'tactics.quest.tutorial.v2';
 
   /* ── the quest table (exported for the HUD) ───────────────────── */
   /* Step 1 is the owner's design verbatim: the FIRST fight is a straw

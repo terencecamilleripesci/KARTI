@@ -42,7 +42,13 @@
 (function (global) {
   'use strict';
 
-  var ENTRY = 'qawmien/world.html';
+  /* THE BUILD NUMBER RIDES ON THE ENTRY URL. The service worker is
+     network-first, so a new build normally reaches the phone — but the
+     iframe's own document request can still be answered from the browser's
+     HTTP cache, and then the RPG inside KARTI is a version behind the shell
+     around it with nothing to say so. A changing query string makes that
+     impossible. */
+  var ENTRY = 'qawmien/world.html?v=' + (global.KARTI_BUILD || '0');
   var frame = null, wrap = null, wasHash = '';
 
   function T(en, mt) {
