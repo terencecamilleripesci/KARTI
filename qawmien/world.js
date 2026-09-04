@@ -134,11 +134,28 @@ const WORLD = (() => {
       let e = wearCache[u];
       if (!e){
         e = wearCache[u] = { img: new Image(), ok: false, bad: false };
-        e.img.onload  = () => { e.ok = true; heroSheetKey = ''; };
+        /* A LATE LAYER HAS TO REBUILD THE HERO, not merely invalidate him.
+           Clearing the key alone means the next heroSprites() call picks the
+           layer up — and on the first screen of the game there is no next
+           call, so the character stood there undressed until something else
+           happened to rebuild him (a map change, an equip). The overlays are
+           always late on a cold load: the sheet is built in the same tick the
+           images are requested. Deferred a beat so N arriving layers cost one
+           rebuild rather than N. */
+        e.img.onload  = () => {
+          e.ok = true; heroSheetKey = '';
+          if (!e.pending){ e.pending = 1; setTimeout(() => { e.pending = 0; heroSprites(); }, 0); }
+        };
         e.img.onerror = () => { e.bad = true; };
         e.img.src = u;
       }
-      if (e.ok) out.push(e.img);
+      /* {img}, NOT the bare Image. TINT.dress takes layer RECORDS — it reads
+         `L.img` and can carry a per-layer tint — so handing it Images made
+         every layer fail its own `if (!L || !L.img) continue` and silently
+         draw nothing. That is why no worn gear has ever appeared on the
+         overworld hero: not a missing sheet, not the cache, a shape
+         mismatch one property deep that looks like art that never arrived. */
+      if (e.ok) out.push({ img: e.img });
     }
     return out;
   }
@@ -157,8 +174,16 @@ const WORLD = (() => {
        separate overlays. */
     const P = window.PLAYER;
     const gender = (window.HERO && HERO.gender) || 'm';
-    const wearD = (window.GEAR && P) ? GEAR.sheets(P.equip, gender, 'dir8') : [];
-    const wearI = (window.GEAR && P) ? GEAR.sheets(P.equip, gender) : [];
+    /* THE CLASS GOES ON FIRST, UNDER THE GEAR (CLASSES.garb): a warden's
+       pauldrons belong beneath the cloak she buys, not painted over it.
+       It is part of the key for the same reason the tint is — change class
+       and the body has to be rebuilt, or you keep the old one's kit. */
+    const garbD = (window.HERO && CLASSES.garb) ? HERO.garb('dir8') : null;
+    const garbI = (window.HERO && CLASSES.garb) ? HERO.garb() : null;
+    const wearD = (garbD ? [garbD] : [])
+      .concat((window.GEAR && P) ? GEAR.sheets(P.equip, gender, 'dir8') : []);
+    const wearI = (garbI ? [garbI] : [])
+      .concat((window.GEAR && P) ? GEAR.sheets(P.equip, gender) : []);
     const key = hs.dir8 + '|' + (hs.idle || '') + '|' +
                 (tint ? tint.hair + tint.skin + tint.eyes + tint.cloth : '') +
                 '|' + wearD.join(',') + '|' + wearI.join(',');

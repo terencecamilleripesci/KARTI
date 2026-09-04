@@ -116,6 +116,49 @@ function parentWin(){
   catch (e){}
   return null;
 }
+/* WHAT THIS CHARACTER WEARS, as a list of overlay URLs: the class first,
+   then equipped gear over it (CLASSES.garb + GEAR.sheets — the same order
+   and the same sources the world uses, asked of the PARENT window because
+   that is where the player lives). Anything missing simply drops out: a
+   piece of art that has not been drawn yet must look like art that has not
+   been drawn yet, never like a broken character. */
+function layersFor(p, kind){
+  const out = [];
+  try {
+    const g = p.HERO && p.HERO.garb && p.HERO.garb(kind);
+    if (g) out.push(g);
+    if (p.GEAR && p.PLAYER && p.HERO)
+      out.push.apply(out, p.GEAR.sheets(p.PLAYER.equip, p.HERO.gender, kind) || []);
+  } catch (e){}
+  return out;
+}
+
+/* PAINT THE OVERLAYS ONTO A SHEET THAT IS ALREADY LOADED AND TINTED.
+
+   It mutates the sheet's own `img` rather than building a replacement,
+   and that is the whole trick: SPRITE.spawn hands every unit an object
+   whose PROTOTYPE is this sheet, so swapping `img` in place dresses
+   everyone who has already spawned. Rebuilding the sheet would leave
+   them pointing at the old undressed one, which is the kind of bug that
+   only appears for the unit that happened to spawn first. */
+function dressYou(sheet, urls){
+  if (!sheet || !urls || !urls.length || !window.TINT || !TINT.dress) return;
+  const layers = new Array(urls.length);
+  let left = urls.length;
+  const apply = () => {
+    if (--left) return;
+    const got = layers.filter(Boolean);        /* skip whatever 404ed */
+    if (!got.length) return;
+    try { sheet.img = TINT.dress(sheet.img, got); } catch (e) {}
+  };
+  urls.forEach((u, i) => {
+    const im = new Image();
+    im.onload  = () => { layers[i] = { img: im }; apply(); };
+    im.onerror = apply;
+    im.src = u;
+  });
+}
+
 const HCFG = (function(){
   const p = parentWin();
   try {
@@ -123,6 +166,15 @@ const HCFG = (function(){
       const c = p.HERO.cls();
       return { cls:c, level:p.HERO.level, stats:c.stats, spells:c.spells,
                name:c.name, sheets:p.HERO.sheets(),
+               /* WHAT THE PLAYER LOOKS LIKE, carried across with the stats.
+                  The body sheets are KEY-COLOURED — magenta hair, green
+                  skin — and are meant to be swapped at load (tint.js). The
+                  board built them with no tint at all, so the character who
+                  walked into the fight looked nothing like the one who
+                  walked up to it: the world recoloured him and combat drew
+                  the raw placeholder. Same for what he is wearing. */
+               tint:(p.HERO.appearance && p.HERO.appearance()) || null,
+               wear:{ action:layersFor(p), dir8:layersFor(p, 'dir8') },
                hpMax:p.CLASSES.maxHp(c, c.stats, p.HERO.level),
                /* the wounds you walked in with. A fight that always starts
                   full makes damage meaningless between fights — you would
@@ -420,10 +472,17 @@ try {
      directional idle sheet (sheets().idle === null): standing still holds
      the measured stand frame, same as the world does. */
   if (HCFG){
-    SHEETS.you = SPRITE.make(HCFG.sheets.action, { cols:6, rows:4 });
-    DIRS.you   = SPRITE.make(HCFG.sheets.dir8,   { cols:6, rows:4, clips: SPRITE.CLIPS_DIR });
+    /* tint FIRST — these are key-coloured sheets and drawing them raw puts a
+       magenta-haired, green-skinned stranger on the board. The overlays are
+       painted on after, when their images land (dressYou). */
+    const T = HCFG.tint;
+    SHEETS.you = SPRITE.make(HCFG.sheets.action,
+      { cols:6, rows:4, tint:T, onready: s => dressYou(s, HCFG.wear.action) });
+    DIRS.you   = SPRITE.make(HCFG.sheets.dir8,
+      { cols:6, rows:4, clips: SPRITE.CLIPS_DIR, tint:T,
+        onready: s => dressYou(s, HCFG.wear.dir8) });
     IDLES.you  = HCFG.sheets.idle
-      ? SPRITE.make(HCFG.sheets.idle, { cols:6, rows:4, clips: SPRITE.CLIPS_IDLE })
+      ? SPRITE.make(HCFG.sheets.idle, { cols:6, rows:4, clips: SPRITE.CLIPS_IDLE, tint:T })
       : null;
   } else {
     SHEETS.you = SPRITE.make('art/hero-sheet.png', { cols:6, rows:4 });

@@ -73,6 +73,12 @@
 
 <script src="sprite.js"></script>
 <script src="classes.js"></script>
+<script src="tint.js"></script><!-- window.TINT. WITHOUT THIS the picker draws the
+  sheets exactly as they are authored — magenta hair, green skin — because that is
+  what a key-coloured sheet IS until something swaps it. world.html loads TINT, so
+  the in-game creation screen looked right while this standalone page showed a
+  green man and read as broken ART rather than a missing script. tint.js's own
+  rule: the player never sees a magenta-haired warrior. -->
 <script src="select.js"></script>
 </body>
 </html>

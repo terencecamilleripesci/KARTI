@@ -235,9 +235,53 @@ window.CLASSES = (function () {
   const BY_ID = {};
   for (const c of LIST) BY_ID[c.id] = c;
 
+  /* ── THE CLASS YOU CAN SEE ─────────────────────────────────────────
+     Every class shares one body per gender (art/base-<g>-*.png) and used
+     to differ only by the colour of its tunic — so a Warden and a
+     Tidebinder standing together were the same person in two shirts. The
+     class you PICKED has to be the one you can point at.
+
+     Each class owns a small overlay drawn on that shared body and
+     composited over it exactly the way gear is: pauldrons, a quiver
+     strap, a wide hat, a collar, a crook. Deliberately SLIGHT — the
+     starting outfit has to leave room for every piece of armour that goes
+     on top of it, which is the whole reason the base is plain. A class
+     that arrives already fully armoured has nowhere left to show
+     progression.
+
+     Never an inventory item and never removable: it is what the class IS,
+     so it draws UNDER equipped gear rather than competing for a slot. */
+  /* ART THAT IS KNOWN TO BE WRONG, named out loud rather than shipped.
+     `<class>-<gender>-<kind>`; anything listed here draws the plain body.
+
+     cindermancer's WALK sheet is the one that failed outright: its hat
+     covers the face facing south, floats off the top of the cell facing
+     south-east, and the east row came back as a brown ellipse over the
+     whole cell. A class with no hat reads as unfinished; a class wearing a
+     smear reads as broken, and the second is worse. Its action sheet is
+     fine, so the hat is still there in combat and on the creation screen.
+
+     DELETE THE ENTRY, DO NOT WORK AROUND IT: the fix is to regenerate
+     art/gear/cindermancer-m-dir8.png through tools/makegear.sh and let
+     tools/checksheet.py --gear pass it. (The east row was corrupt in three
+     of the five male overlays; warden's and stormfletch's were repairable
+     from their south-east frames, this one was not.) */
+  const GARB_BROKEN = { 'cindermancer-m-dir8': 1, 'cindermancer-f-dir8': 1 };
+
+  function garb(id, gender, kind) {
+    const c = BY_ID[id];
+    if (!c || !c.look) return null;
+    const g = (gender === 'f') ? 'f' : 'm';
+    if (!c.look[g]) return null;
+    const suffix = (kind === 'dir8') ? '-dir8' : '';
+    if (GARB_BROKEN[c.id + '-' + g + suffix]) return null;
+    return 'art/gear/' + c.id + '-' + g + suffix + '.png';
+  }
+
   return {
     LIST, SUMMONS, STAT_OF_ELEM,
     byId: id => BY_ID[id] || null,
+    garb,
     maxHp, initiative, dodgeChance, scaleDamage, scaleHeal,
     xpFor, xpTotal, MAX_LEVEL
   };

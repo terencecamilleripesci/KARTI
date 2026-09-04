@@ -204,10 +204,36 @@ window.SELECTUI = (function () {
        warden, then the tidebinder, and see the warden's green again. This is
        the same cache-key trap world.js hit when gear stopped appearing on
        equip; the fix is the same and belongs everywhere the body is tinted. */
+    /* THE CLASS OVERLAY ON THE PREVIEW. The creator has to show what you
+       will get — that rule already moved this screen off the per-class
+       sheets and onto the shared body — and the body alone is now only
+       half the character: the pauldrons, the hat and the crook are what
+       make one class distinguishable from another. Painted on here the
+       same way the world and the board paint it (CLASSES.garb), so all
+       three dress the character from one source.
+       The sheet is already loaded and tinted when this runs, so the
+       overlay just composites onto its img. */
+    function wearClass(sheet, then) {
+      const url = (window.CLASSES && CLASSES.garb && sel.classId)
+        ? CLASSES.garb(sel.classId, sel.gender) : null;
+      if (!url || !window.TINT || !TINT.dress) return then();
+      const im = new Image();
+      im.onload = () => {
+        try { sheet.img = TINT.dress(sheet.img, [{ img: im }]); } catch (e) {}
+        then();
+      };
+      im.onerror = () => then();        /* not drawn yet: the plain body */
+      im.src = url;
+    }
+
     const SHEETS = {};                        /* key → {status, base} */
     function loadSheet(file, cb) {
       const t = tintFor();
-      const key = file + '|' + t.hair + t.skin + t.eyes + t.cloth;
+      /* the CLASS is part of the key now, not just its cloth colour: two
+         classes could share a tunic tone and would then share a cached
+         body, and the second one to be picked would wear the first one's
+         kit */
+      const key = file + '|' + sel.classId + '|' + t.hair + t.skin + t.eyes + t.cloth;
       let rec = SHEETS[key];
       if (rec) {
         if (rec.status === 'loading') rec.waiters.push(cb); else cb(rec);
@@ -227,7 +253,7 @@ window.SELECTUI = (function () {
          rather than by keeping two lists in step. */
       rec.base = SP.make('art/' + file + '-sheet.png', {
         cols: 6, rows: 4, tint: t,
-        onready: () => done('ok'),
+        onready: s => wearClass(s, () => done('ok')),
         onerror: () => done('missing')
       });
     }

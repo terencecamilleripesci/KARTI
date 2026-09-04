@@ -173,6 +173,15 @@ LANDSCAPE.start(function (blocked) {
 <script src="gear.js"></script>
 <script src="grid.js"></script><!-- window.GRID — the board is the same
   screen-filling rectangle the world uses; one definition, two layers -->
+<!-- TINT is needed HERE for the same reason GEAR is, and its absence was the
+     louder bug: the body sheets are KEY-COLOURED (magenta hair, green skin)
+     and are meant to be swapped at load. SPRITE.make's tint option is guarded
+     on `window.TINT`, so without this line it did nothing at all, silently —
+     the world recoloured the hero and the fight drew the raw placeholder, so
+     the character you walked up to a monster with was not the one who turned
+     up to the fight. Also what lets combat paint the class overlay and worn
+     gear onto the shared body. -->
+<script src="tint.js"></script>
 <script src="tactics.js"></script>
 </body>
 </html>

@@ -406,6 +406,20 @@ window.HERO = (function () {
                action: 'art/' + s + '-sheet.png' };
     },
 
+    /* THE CLASS OVERLAY for this character — the thing that makes a Warden
+       look like a Warden on the shared body (CLASSES.garb). Asked for here
+       rather than built by each caller, because the world, the combat board
+       and the creation screen must all dress the same character; three
+       copies of one path is how they drift apart.
+       `kind` is 'dir8' for the walk sheet, omitted for the action sheet.
+       Null before a class is chosen, and on the per-class fallback sheets,
+       which already have their kit drawn in. */
+    garb(kind) {
+      if (!S.classId || !window.CLASSES || !CLASSES.garb) return null;
+      if (window.BASE_SHEETS === false) return null;
+      return CLASSES.garb(S.classId, S.gender, kind);
+    },
+
     /* THE reincarnation: sets the identity, derives stats, heals to the
        new full (a fresh body), persists, and swaps the world sprite
        immediately so the player SEES the change. */
