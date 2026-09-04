@@ -115,7 +115,7 @@ window.MAPS['field-1-0'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'pasture-1-0', name:'The Terraces', c:14, r:14, sprite:'sheep', dir:'SW', foes:['sheep', 'sheep', 'goat'] }
+    { type:'fight', id:'pasture-1-0', name:'The Terraces', c:14, r:14, sprite:'sheep', dir:'SW', foes:['sheep', 'sheep', 'goat'], roam:3 }
   ],
   neighbours: { n:null, e:null, s:'field-1-1', w:'field-0-0' }
 };

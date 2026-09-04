@@ -115,7 +115,7 @@ window.MAPS['field-4-2'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'lake-4-2', name:'The Still Water', c:17, r:8, sprite:'gecko', dir:'SW', foes:['gecko', 'sheep'] }
+    { type:'fight', id:'lake-4-2', name:'The Still Water', c:17, r:8, sprite:'gecko', dir:'SW', foes:['gecko', 'sheep'], roam:3 }
   ],
   neighbours: { n:null, e:null, s:null, w:'field-3-2' }
 };

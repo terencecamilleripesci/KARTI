@@ -100,7 +100,9 @@ const WORLD = (() => {
     step: null,                         /* {from,to,t,dur,fx,fy,tx,ty}   */
     path: [],                           /* tiles still to walk           */
     pending: null,                      /* path adopted after this step  */
-    goal: null                          /* npc/fight marker to talk to   */
+    goal: null,                         /* npc/fight marker to talk to   */
+    goals: null,                        /* the tiles that route was for  */
+    chase: 0                            /* re-routes at a mob that moved */
   };
   /* Which sheets the player walks in comes from window.HERO (player.js)
      when it exists — the class+gender the player chose at the
@@ -171,9 +173,16 @@ const WORLD = (() => {
   }
 
   /* ── walkability: WT.canStep + dynamic marker blocking ──────────── */
+  /* A WANDERING MOB BLOCKS BOTH ENDS OF ITS STEP while it is mid-stride:
+     its marker still reads as the tile it left, and the tile it is
+     walking onto is just as taken — routing the hero through it would
+     have them cross inside the same tile. */
   function dynBlocked(c, r){
-    for (let i = 0; i < actors.length; i++)
-      if (actors[i].mk.c === c && actors[i].mk.r === r) return true;
+    for (let i = 0; i < actors.length; i++){
+      const a = actors[i];
+      if (a.mk.c === c && a.mk.r === r) return true;
+      if (a.step && a.step.to.c === c && a.step.to.r === r) return true;
+    }
     return false;
   }
   function open(c, r){ return WT.isWalkable(map, c, r) && !dynBlocked(c, r); }
@@ -197,6 +206,173 @@ const WORLD = (() => {
     if (ed && window.MAPS && window.MAPS[map.neighbours[ed]]) return true;
     const mk = markerAtLive(c, r);
     return !!(mk && mk.type === 'exit' && window.MAPS && window.MAPS[mk.to]);
+  }
+
+  /* ── WANDERING MOBS ───────────────────────────────────────────────
+     ROAM (roam.js) owns the schedule — when a creature moves and which
+     way it goes. What lives here is everything that needs the MAP: what
+     a mob is allowed to stand on, and the stepping itself, which is the
+     hero's own movement code with a different actor in it.
+
+     Roam state is keyed by map + marker and kept for the SESSION, so a
+     creature does not snap home the moment you walk to the next screen
+     — see roamCatchUp for what happens to the time you were away. */
+  const roams = {};                     /* '<mapId>:<markerId>' → ROAM state */
+
+  /* WOULD BLOCKING THIS TILE CUT THE MAP IN TWO? A mob is a moving wall,
+     and mkworld.py already refuses to PLACE a fight on a cut vertex
+     (`whole_without`) because four tiles behind it become unreachable.
+     That guarantee is worth nothing if the creature can then walk onto
+     one, so the same flood fill runs here — memoised per map, because
+     the answer depends only on the static block layer.
+
+     FOUR-WAY, exactly like the generator's fill and like checkmaps'
+     reachability, and that is not an oversight: a diagonal step needs
+     both flanking tiles open, so two pockets joined only corner to
+     corner are not joined at all and must not be counted as whole.
+     Under the looser eight-way rule field-2-0 has a tile the goats can
+     stand on that strands the corner behind them — checkroam catches
+     it, which is how the difference was noticed. */
+  const ORTHO = [{ dc: 1, dr: 0 }, { dc: -1, dr: 0 },
+                 { dc: 0, dr: 1 }, { dc: 0, dr: -1 }];
+  let wholeCache = null;
+  function keepsMapWhole(c, r){
+    const k = r * map.w + c;
+    if (wholeCache.has(k)) return wholeCache.get(k);
+    let start = null, n = 0;
+    for (let rr = 0; rr < map.h; rr++)
+      for (let cc = 0; cc < map.w; cc++)
+        if (WT.isWalkable(map, cc, rr) && !(cc === c && rr === r)){
+          n++; if (!start) start = { c: cc, r: rr };
+        }
+    let seen = 0;
+    if (start){
+      const mark = new Uint8Array(map.w * map.h);
+      const st = [start];
+      mark[start.r * map.w + start.c] = 1;
+      while (st.length){
+        const p = st.pop(); seen++;
+        for (const d of ORTHO){
+          const nc = p.c + d.dc, nr = p.r + d.dr, ni = nr * map.w + nc;
+          if (nc === c && nr === r) continue;
+          if (mark[ni] || !WT.isWalkable(map, nc, nr)) continue;
+          mark[ni] = 1; st.push({ c: nc, r: nr });
+        }
+      }
+    }
+    const ok = seen === n;
+    wholeCache.set(k, ok);
+    return ok;
+  }
+
+  /* MAY THIS CREATURE STAND HERE? Everything a wandering monster must
+     never do is one list, and it is short on purpose:
+       · never inside the hero, or on the tile he is walking onto
+       · never on another actor (or where one is heading)
+       · never on a way out, or on another marker's tile — an exit you
+         cannot reach because a goat is asleep on it is a broken map
+       · never on a tile that seals part of the map off */
+  function roamOK(a, c, r){
+    if (!WT.isWalkable(map, c, r)) return false;
+    if (c === hero.c && r === hero.r) return false;
+    if (hero.step && hero.step.to.c === c && hero.step.to.r === r) return false;
+    for (const o of actors){
+      if (o === a) continue;
+      if (o.mk.c === c && o.mk.r === r) return false;
+      if (o.step && o.step.to.c === c && o.step.to.r === r) return false;
+    }
+    const mk = markerAtLive(c, r);
+    if (mk && mk !== a.mk) return false;
+    if (transfersOnArrival(c, r)) return false;
+    return keepsMapWhole(c, r);
+  }
+
+  /* one step of a mob's leg — the hero's startStep, for an actor */
+  function startRoamStep(a, to){
+    const dc = to.c - a.mk.c, dr = to.r - a.mk.r;
+    if (!WT.canStep(map, a.mk.c, a.mk.r, dc, dr) || !roamOK(a, to.c, to.r))
+      return false;                     /* the hero moved into it: stand */
+    const d8 = SPRITE.dirOf(dc, dr);
+    if (d8) a.mk.dir = d8;
+    a.st.dc = dc; a.st.dr = dr;
+    if (a.s) SPRITE.play(a.s, 'walk.' + ((SPRITE.DIR[a.mk.dir] || SPRITE.DIR.S).row), false);
+    a.step = { to, t: 0, dur: (dc && dr) ? WT.DIAG_MS : WT.WALK_MS,
+               fx: a.bx, fy: a.by, tx: WT.isoX(to.c, to.r), ty: WT.isoY(to.c, to.r) };
+    return true;
+  }
+
+  /* ask ROAM for the next walk, and book the following one */
+  function startRoamLeg(a, now){
+    a.st.c = a.mk.c; a.st.r = a.mk.r;
+    const path = ROAM.leg(a.st, (c, r) => roamOK(a, c, r),
+                          (c, r, dc, dr) => WT.canStep(map, c, r, dc, dr));
+    a.path = path;
+    a.st.nextAt = now + ROAM.legMs(path, { c: a.mk.c, r: a.mk.r },
+                                   WT.WALK_MS, WT.DIAG_MS) + ROAM.idleMs(a.st);
+    return path.length;
+  }
+
+  /* THE TIME YOU WERE NOT LOOKING. A mob's schedule runs on the wall
+     clock, so coming back to a screen after a minute must not resume it
+     mid-step as though nothing happened. Every leg it owed is played
+     out instantly — the creature is simply already where its route put
+     it, which is the whole point of a route that depends on time.
+
+     Bounded, and honestly so: after a long absence the arithmetic is
+     not worth doing frame by frame, so it plays a few legs and then
+     starts the cycle fresh. It is inside its leash either way, and
+     nobody can tell the difference from the doorway. */
+  function roamCatchUp(a, now){
+    let guard = 24;
+    while (ROAM.due(a.st, now) && guard-- > 0){
+      const before = a.st.nextAt;
+      if (!startRoamLeg(a, before)) { a.st.nextAt = before + ROAM.idleMs(a.st); continue; }
+      const last = a.path[a.path.length - 1];
+      const prev = a.path.length > 1 ? a.path[a.path.length - 2] : { c: a.mk.c, r: a.mk.r };
+      a.mk.c = last.c; a.mk.r = last.r;
+      /* FACING COMES FROM THE LAST STEP OF THE WALK IT JUST DID, worked
+         out here because nothing stepped: st.dc/dr is written by
+         startRoamStep, so reading it would face the creature the way it
+         was going before you left the screen. It also seeds the next
+         leg's keep-going bias, which is the same pair. */
+      a.st.dc = last.c - prev.c; a.st.dr = last.r - prev.r;
+      const d8 = SPRITE.dirOf(a.st.dc, a.st.dr);
+      if (d8) a.mk.dir = d8;
+      a.path = [];
+      a.bx = WT.isoX(a.mk.c, a.mk.r); a.by = WT.isoY(a.mk.c, a.mk.r);
+    }
+    if (ROAM.due(a.st, now)) a.st.nextAt = now + ROAM.idleMs(a.st);
+  }
+
+  function updateRoam(dt, now){
+    for (const a of actors){
+      if (!a.st) continue;
+      let left = dt, moved = 0;
+      while (left > 0){
+        if (!a.step){
+          const nxt = a.path.shift();
+          if (!nxt) break;
+          if (!startRoamStep(a, nxt)){ a.path.length = 0; break; }
+        }
+        const use = Math.min(left, a.step.dur - a.step.t);
+        a.step.t += use; left -= use; moved += use;
+        const k = a.step.t / a.step.dur;
+        a.bx = a.step.fx + (a.step.tx - a.step.fx) * k;
+        a.by = a.step.fy + (a.step.ty - a.step.fy) * k;
+        if (a.step.t >= a.step.dur - 1e-6){
+          a.mk.c = a.step.to.c; a.mk.r = a.step.to.r;
+          a.bx = WT.isoX(a.mk.c, a.mk.r); a.by = WT.isoY(a.mk.c, a.mk.r);
+          a.step = null;
+        }
+      }
+      if (moved > 0 && a.s) SPRITE.step(a.s, moved);
+      /* IT STOPS WHEN YOU COME FOR IT. The hero is walking over to talk
+         to this one or to fight it; a creature that keeps strolling away
+         turns that into a chase the player never asked for. It finishes
+         the step it is in — no skid — and then waits. */
+      if (hero.goal === a.mk){ a.path.length = 0; continue; }
+      if (!a.step && !a.path.length && ROAM.due(a.st, now)) startRoamLeg(a, now);
+    }
   }
 
   /* ── A*: 8-dir, 10/14, octile heuristic (§6) ────────────────────── */
@@ -262,6 +438,9 @@ const WORLD = (() => {
     const path = astar(from.c, from.r, goals);
     if (path === null) return false;
     hero.goal = mk || null;
+    hero.goals = goals;                 /* WHERE he was going, kept: a mob
+                                           can step into the path now, and
+                                           startStep re-routes to these */
     if (hero.step){ hero.pending = path; }
     else if (path.length){ hero.path = path; hero.pending = null; }
     else {                              /* already standing at the goal  */
@@ -283,6 +462,7 @@ const WORLD = (() => {
     const m = window.MAPS && window.MAPS[mapId];
     if (!m) return false;
     map = m;
+    wholeCache = new Map();             /* per-map: whose tiles are cut vertices */
     /* Rescale for the NEW map. fit() only recomputes when the canvas resizes,
        so without this a small ruin keeps the wide overworld's zoom (and vice
        versa) until the phone is rotated. */
@@ -297,11 +477,18 @@ const WORLD = (() => {
          art/undefined-dir8.png — that 404 counted as a wanted file and
          wedged the loading gate on "one file failed". No sheet: the
          actor still stands (and blocks) as the fallback blob. */
-      if (!mk.sprite){ actors.push({ mk, s: null }); continue; }
-      const s = SPRITE.spawn(sheetFor(mk.sprite));
-      const D = SPRITE.DIR[mk.dir] || SPRITE.DIR.S;
-      s.clip = 'walk.' + D.row; s.frame = 0;   /* frozen; stand frame set on ready */
-      actors.push({ mk, s });
+      /* bx/by are the actor's BOARD position, the same interpolated pair
+         the hero has. A creature that never wanders simply keeps the
+         value its tile gave it, so drawing and depth-sorting have one
+         rule for both kinds. */
+      const a = { mk, s: null, bx: WT.isoX(mk.c, mk.r), by: WT.isoY(mk.c, mk.r),
+                  step: null, path: [], st: null };
+      if (mk.sprite){
+        a.s = SPRITE.spawn(sheetFor(mk.sprite));
+        const D = SPRITE.DIR[mk.dir] || SPRITE.DIR.S;
+        a.s.clip = 'walk.' + D.row; a.s.frame = 0; /* stand frame set on ready */
+      }
+      actors.push(a);
     }
     /* `at` must be walkable, not merely in-bounds — an exit marker with a
        blocked target would otherwise embed the hero in a wall silently.
@@ -341,6 +528,20 @@ const WORLD = (() => {
     hero.c = p.c; hero.r = p.r;
     hero.bx = WT.isoX(p.c, p.r); hero.by = WT.isoY(p.c, p.r);
     hero.step = null; hero.path = []; hero.pending = null; hero.goal = null;
+    hero.goals = null; hero.chase = 0;
+    /* THE WANDERERS, once the hero is standing somewhere — roamOK has to
+       know where he is before it can say what is free. Each creature
+       picks up the schedule its own name gives it and is fast-forwarded
+       to wherever the clock says it should be by now. */
+    const now = Date.now();
+    for (const a of actors){
+      const rad = ROAM.radiusOf(a.mk);
+      if (!rad || !a.mk.id) continue;
+      const key = m.id + ':' + a.mk.id;
+      a.st = roams[key] || (roams[key] =
+        ROAM.state(key, { c: a.mk.c, r: a.mk.r }, rad, now));
+      roamCatchUp(a, now);
+    }
     camSnap = true;                     /* no lerp across maps (§5)      */
     bind();
     maybeGate();
@@ -579,6 +780,14 @@ const WORLD = (() => {
     if (!hero.path.length && hero.goal){
       const g = hero.goal;
       if (Math.max(Math.abs(g.c - c), Math.abs(g.r - r)) <= 1) fireNpc(g);
+      /* IT MOVED WHILE YOU WERE WALKING TO IT. Wandering mobs made this
+         a real case: he arrives at the tile the goblin was standing on
+         two seconds ago and it is now one further along. Walk the rest
+         of the way rather than stopping with no explanation. It has
+         stopped roaming by now (updateRoam freezes whatever the hero is
+         coming for), so the second route is the last one — the chase
+         count is only there so nothing can loop. */
+      else if (hero.chase < 2 && live.indexOf(g) >= 0){ hero.chase++; interact(g); }
       else hero.goal = null;
     }
     /* no per-tile prefetch any more: warming is per-MAP and every way
@@ -591,7 +800,21 @@ const WORLD = (() => {
   function startStep(to){
     const dc = to.c - hero.c, dr = to.r - hero.r;
     if (!stepOK(hero.c, hero.r, dc, dr)){          /* world changed under us */
-      hero.path = []; hero.pending = null; hero.goal = null;
+      hero.path = []; hero.pending = null;
+      /* SOMETHING WALKED INTO HIS PATH — that is now a normal event, not
+         a broken world, because the monsters move. Stopping dead halfway
+         reads as the game ignoring the tap, so he goes round: the same
+         destination, routed again from where he is standing. Only if
+         there is no way there at all does he give up. */
+      const gs = (hero.goals || []).filter(g => open(g.c, g.r));
+      const p = gs.length ? astar(hero.c, hero.r, gs) : null;
+      if (p && p.length){ hero.path = p; return; }
+      const g = hero.goal;
+      hero.goal = null;
+      /* the block put him where he was going anyway (p === []): the mob
+         he was walking to is right there, so talk to it */
+      if (p && g && Math.max(Math.abs(g.c - hero.c), Math.abs(g.r - hero.r)) <= 1)
+        fireNpc(g);
       return;
     }
     const d8 = SPRITE.dirOf(dc, dr);
@@ -641,6 +864,10 @@ const WORLD = (() => {
         SPRITE.play(hero.ispr, 'idle.' + D.row, false);
       SPRITE.step(hero.ispr, dt);                  /* it breathes */
     }
+
+    /* the monsters take their own steps — on the wall clock, so their
+       route is where the time says it is (roam.js) */
+    updateRoam(dt, Date.now());
 
     /* camera: normally STATIC — the whole map is framed and centred, and
        walking never moves the view. Only the cannot-fit fallback follows
@@ -1105,9 +1332,10 @@ const WORLD = (() => {
        depth-sorted by their base like any decor (see buildOcclusion) */
     if (bgUp && map._occ)
       for (const p of map._occ) q.push({ d: p.d, k: 0, occ: p });
+    /* a walking mob sorts by its INTERPOLATED depth, like the hero — on
+       its tile's depth it would pop in front of a wall halfway across */
     for (const a of actors)
-      q.push({ d: a.mk.c + a.mk.r, k: 1, a,
-               x: WT.isoX(a.mk.c, a.mk.r), y: WT.isoY(a.mk.c, a.mk.r) });
+      q.push({ d: a.by / (TH / 2), k: 1, a });
     q.push({ d: hero.by / (TH / 2), k: 1, hero: true });
     q.sort((A, B) => (A.d - B.d) || (A.k - B.k));    /* stable for the rest */
     for (const e of q){
@@ -1305,20 +1533,24 @@ const WORLD = (() => {
 
   function drawActor(g, a){
     const D = SPRITE.DIR[a.mk.dir] || SPRITE.DIR.S;
-    const s = a.s;
-    if (!s){                            /* sprite-less marker: the blob */
-      fbBlob(g, WT.isoX(a.mk.c, a.mk.r), WT.isoY(a.mk.c, a.mk.r),
-             a.mk.type === 'fight' ? '#c25b5b' : '#c2a85b');
-      return;
+    const s = a.s, col = a.mk.type === 'fight' ? '#c25b5b' : '#c2a85b';
+    const x = a.bx, y = a.by;
+    if (!s){ fbBlob(g, x, y, col); return; }   /* sprite-less marker: the blob */
+    if (s.ready){
+      if (a.step)                       /* walking: the cycle for this facing */
+        SPRITE.play(s, 'walk.' + D.row, false);
+      else {
+        /* STANDING. Creatures have no drawn idle sheet — only a walk —
+           so a stopped one holds the MEASURED both-feet-down frame of
+           the way it is facing, which is the same fallback drawHero
+           uses. Re-seated every frame it is still, because it has just
+           come off a walk cycle and frame 0 is a foot in the air. */
+        s.clip = 'walk.' + D.row;
+        s.frame = (s.stand && s.stand[D.row] != null) ? s.stand[D.row] : 0;
+      }
     }
-    if (s.ready && !s._stood){          /* measured both-feet-down frame */
-      s.clip = 'walk.' + D.row;
-      s.frame = (s.stand && s.stand[D.row] != null) ? s.stand[D.row] : 0;
-      s._stood = true;
-    }
-    const x = WT.isoX(a.mk.c, a.mk.r), y = WT.isoY(a.mk.c, a.mk.r);
     if (!SPRITE.draw(g, s, x, y + WT.FOOT_Y, WT.SPR_SCALE, D.flip))
-      fbBlob(g, x, y, a.mk.type === 'fight' ? '#c25b5b' : '#c2a85b');
+      fbBlob(g, x, y, col);
   }
 
   function drawHero(g){
@@ -1495,7 +1727,7 @@ const WORLD = (() => {
     if (!WT.inMap(map, t.c, t.r)) return;
     const mk = markerAtLive(t.c, t.r);
     if (mk && (mk.type === 'npc' || mk.type === 'fight')){
-      exitHint = null; interact(mk); return;
+      exitHint = null; hero.chase = 0; interact(mk); return;
     }
     /* the arrow answers the tap: aim at a tile that leaves the map and it
        appears there and rides along until you arrive (load() clears it on
@@ -1517,7 +1749,7 @@ const WORLD = (() => {
 
   /* ── public API ─────────────────────────────────────────────────── */
   function walkTo(c, r){
-    hero.goal = null;
+    hero.goal = null; hero.chase = 0;
     return routeTo([{ c, r }], null);
   }
 
@@ -1549,6 +1781,11 @@ const WORLD = (() => {
     prefetchNeighbours,                 /* the same, immediately (tests)      */
     get _map(){ return map; },          /* test hooks */
     _hero: hero,
+    _actors(){ return actors; },
+    _roams: roams,
+    _interact: interact,                /* the tap, without a pointer:
+                                           tools/checkroam.js walks the hero
+                                           up to a mob that is moving */
     _assets(){ return { atlases: ATLASES, sheets: SHEETS }; }
   };
 })();

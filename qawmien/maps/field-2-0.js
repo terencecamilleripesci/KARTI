@@ -115,7 +115,7 @@ window.MAPS['field-2-0'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'fields-2-0', name:'The Salt Pans', c:17, r:7, sprite:'goat', dir:'SW', foes:['goat', 'goat', 'gecko'] }
+    { type:'fight', id:'fields-2-0', name:'The Salt Pans', c:17, r:7, sprite:'goat', dir:'SW', foes:['goat', 'goat', 'gecko'], roam:3 }
   ],
   neighbours: { n:null, e:'field-3-0', s:'field-2-1', w:null }
 };

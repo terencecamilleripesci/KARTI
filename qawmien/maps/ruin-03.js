@@ -115,7 +115,7 @@ window.MAPS['ruin-03'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'goblin', name:'Goblin Scavenger', c:16, r:15, sprite:'goblin', dir:'SW', foes:['goblin'] },
+    { type:'fight', id:'goblin', name:'Goblin Scavenger', c:16, r:15, sprite:'goblin', dir:'SW', foes:['goblin'], roam:3 },
     { type:'exit', c:11, r:22, to:'ruin-02', at:{ c:22, r:12 } },
     { type:'exit', c:22, r:11, to:'field-0-1', at:{ c:10, r:19 } }
   ],

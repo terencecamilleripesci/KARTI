@@ -115,7 +115,7 @@ window.MAPS['field-0-2'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'wood-0-2', name:'Carob Wood', c:13, r:3, sprite:'gecko', dir:'SW', foes:['gecko', 'gecko', 'goat'] }
+    { type:'fight', id:'wood-0-2', name:'Carob Wood', c:13, r:3, sprite:'gecko', dir:'SW', foes:['gecko', 'gecko', 'goat'], roam:3 }
   ],
   neighbours: { n:'field-0-1', e:'field-1-2', s:'field-0-3', w:null }
 };

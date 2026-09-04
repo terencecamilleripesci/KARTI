@@ -115,7 +115,7 @@ window.MAPS['field-0-3'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'necro-0-3', name:'The Necropolis', c:13, r:3, sprite:'skeleton', dir:'SW', foes:['grunt', 'archer', 'mage'] },
+    { type:'fight', id:'necro-0-3', name:'The Necropolis', c:13, r:3, sprite:'skeleton', dir:'SW', foes:['grunt', 'archer', 'mage'], roam:3 },
     { type:'exit', c:18, r:17, to:'necro-1', at:{ c:11, r:23 }, need:25, dungeon:'necropolis', name:'The Necropolis' }
   ],
   neighbours: { n:'field-0-2', e:'field-1-3', s:null, w:null }

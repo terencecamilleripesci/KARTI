@@ -220,6 +220,9 @@ LOADER.open();
 <script src="social.js"></script><!-- window.SOCIAL: tap-a-player sheet -->
 <script src="tint.js"></script><!-- window.TINT: key-colour hair/skin/eye swap -->
 <script src="select.js"></script><!-- SELECTUI: shared class-picker renderer -->
+<script src="roam.js"></script><!-- window.ROAM: when a wandering mob moves and
+  which way it goes. Loads BEFORE world.js, which asks it for a route the
+  moment the first map loads. -->
 <script src="world.js"></script>
 <script src="minimap.js"></script><!-- window.MINIMAP: which box you are on.
   Display-only, top-left; polls WORLD._map (the one WORLD.onExit slot is

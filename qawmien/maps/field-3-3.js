@@ -115,7 +115,7 @@ window.MAPS['field-3-3'] = {
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
   ],
   markers: [
-    { type:'fight', id:'crypt-3-3', name:'The Sunken Shore', c:14, r:7, sprite:'skeleton', dir:'SW', foes:['grunt', 'archer', 'goat'] }
+    { type:'fight', id:'crypt-3-3', name:'The Sunken Shore', c:14, r:7, sprite:'skeleton', dir:'SW', foes:['grunt', 'archer', 'goat'], roam:3 }
   ],
   neighbours: { n:'field-3-2', e:null, s:null, w:'field-2-3' }
 };
