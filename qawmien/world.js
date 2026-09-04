@@ -287,6 +287,14 @@ const WORLD = (() => {
     return keepsMapWhole(c, r);
   }
 
+  /* A MOB STROLLS, THE HERO WALKS SOMEWHERE — same movement code, slower
+     clock (ROAM.PACE). Derived in ONE place because the schedule (legMs,
+     and therefore roamCatchUp) has to agree with the stepping to the
+     millisecond: pace the two apart and a caught-up creature lands
+     somewhere the frames would never have carried it. */
+  const MOB_WALK_MS = WT.WALK_MS * ROAM.PACE;
+  const MOB_DIAG_MS = WT.DIAG_MS * ROAM.PACE;
+
   /* one step of a mob's leg — the hero's startStep, for an actor */
   function startRoamStep(a, to){
     const dc = to.c - a.mk.c, dr = to.r - a.mk.r;
@@ -296,7 +304,7 @@ const WORLD = (() => {
     if (d8) a.mk.dir = d8;
     a.st.dc = dc; a.st.dr = dr;
     if (a.s) SPRITE.play(a.s, 'walk.' + ((SPRITE.DIR[a.mk.dir] || SPRITE.DIR.S).row), false);
-    a.step = { to, t: 0, dur: (dc && dr) ? WT.DIAG_MS : WT.WALK_MS,
+    a.step = { to, t: 0, dur: (dc && dr) ? MOB_DIAG_MS : MOB_WALK_MS,
                fx: a.bx, fy: a.by, tx: WT.isoX(to.c, to.r), ty: WT.isoY(to.c, to.r) };
     return true;
   }
@@ -308,7 +316,7 @@ const WORLD = (() => {
                           (c, r, dc, dr) => WT.canStep(map, c, r, dc, dr));
     a.path = path;
     a.st.nextAt = now + ROAM.legMs(path, { c: a.mk.c, r: a.mk.r },
-                                   WT.WALK_MS, WT.DIAG_MS) + ROAM.idleMs(a.st);
+                                   MOB_WALK_MS, MOB_DIAG_MS) + ROAM.idleMs(a.st);
     return path.length;
   }
 
@@ -365,7 +373,9 @@ const WORLD = (() => {
           a.step = null;
         }
       }
-      if (moved > 0 && a.s) SPRITE.step(a.s, moved);
+      /* the LEGS slow down with the pace too, or a strolling creature
+         cycles its walk at hero speed and moonwalks across the tile */
+      if (moved > 0 && a.s) SPRITE.step(a.s, moved / ROAM.PACE);
       /* IT STOPS WHEN YOU COME FOR IT. The hero is walking over to talk
          to this one or to fight it; a creature that keeps strolling away
          turns that into a chase the player never asked for. It finishes

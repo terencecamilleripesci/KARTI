@@ -50,7 +50,23 @@ const ROAM = (() => {
      to move on the same beat stay locked together for the rest of the
      session. A few seconds of slop each cycle keeps them drifting. */
   const IDLE_SLOP = 4000;               /* ± */
-  const LEG_MIN   = 1, LEG_MAX = 3;     /* tiles walked in one go */
+
+  /* ── HOW LONG THE WALK IS, AND HOW FAST ──────────────────────────────
+     The first version walked ONE to THREE tiles at the hero's own pace.
+     Measured, that is 1.8 seconds of movement in seventy — three per
+     cent — and a "walk" of one tile is over in 160ms. The owner's
+     report was simply "goblin not moving", and he was right: a twitch
+     once every fifteen seconds is not a creature walking around, it is
+     a creature teleporting a tile when you happen to blink.
+
+     So a leg is now a WALK — several tiles, at a stroll rather than at
+     the hero's purposeful clip. The hero moves because the player told
+     him to and wants to get there; an animal wandering its patch does
+     not, and the slower pace both looks right and keeps the walk on
+     screen long enough to be seen. The fifteen seconds of standing is
+     untouched: that is what was asked for. */
+  const LEG_MIN   = 3, LEG_MAX = 6;     /* tiles walked in one go */
+  const PACE      = 1.7;                /* × the hero's per-tile time  */
 
   /* the eight step deltas. Duplicated from WT rather than imported so
      this file runs in node with nothing else loaded. */
@@ -158,7 +174,7 @@ const ROAM = (() => {
     return (mk && mk.roam > 0) ? (mk.roam | 0) : 0;
   }
 
-  return { IDLE_MS, IDLE_SLOP, LEG_MIN, LEG_MAX,
+  return { IDLE_MS, IDLE_SLOP, LEG_MIN, LEG_MAX, PACE,
            state, due, idleMs, legMs, leg, radiusOf, hash, rnd };
 })();
 
