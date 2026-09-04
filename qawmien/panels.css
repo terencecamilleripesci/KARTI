@@ -133,7 +133,19 @@
 .eq-slot.picking{ border-style:solid; border-color:#FFC542;
   background:rgba(255,197,66,.20); }
 
-/* ---------- choose-for-slot list ---------- */
+/* ---------- choose-for-slot drawer ---------- */
+/* IT SLIDES. Tapping a slot used to swap the panel's contents in one frame,
+   which on a phone — with the chooser landing below the fold — read as
+   nothing having happened at all. */
+.pick-wrap{ display:grid; grid-template-rows:0fr; opacity:0;
+  transition:grid-template-rows .22s ease, opacity .18s ease;
+  margin-top:6px; }
+.pick-wrap.open{ grid-template-rows:1fr; opacity:1; }
+.pick-in{ overflow:hidden; border-radius:12px;
+  border:1px solid rgba(255,197,66,.35);
+  background:rgba(255,197,66,.06); padding:0 10px; }
+.pick-wrap.open .pick-in{ padding:10px; }
+
 .pick-hd{ display:flex; align-items:baseline; justify-content:space-between;
   gap:10px; margin:2px 0 6px; }
 .pick-hd b{ font-size:13px; letter-spacing:.02em; }

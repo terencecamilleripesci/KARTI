@@ -276,7 +276,30 @@ window.PANELS = (function () {
       h += '</div>';
     }
     h += '</div>';
-    q('#panel-inventory').innerHTML = h;
+    /* KEEP THE PLACE. Equipping rebuilds this panel's whole innerHTML, and
+       a fresh scroll container starts at the top — so putting a helmet on
+       threw the player back to the header and they had to scroll down again
+       to reach the bag. Same fault every time anything re-rendered. */
+    var host = q('#panel-inventory');
+    var old = host.querySelector('.pn-scroll');
+    var keep = old ? old.scrollTop : 0;
+    host.innerHTML = h;
+    var now = host.querySelector('.pn-scroll');
+    if (now && keep) now.scrollTop = keep;
+    /* AND SHOW THE PICKER. Tapping a slot opens a chooser below the doll,
+       which on a phone is off the bottom of the panel — the tap looked like
+       it had done nothing at all. Bring it into view under its own slot. */
+    if (pickSlot && now) {
+      var pk = host.querySelector('.pick-wrap');
+      if (pk) {
+        requestAnimationFrame(function () {
+          pk.classList.add('open');
+          var top = pk.offsetTop - now.offsetTop - 8;
+          if (top > now.scrollTop + now.clientHeight - 60 || top < now.scrollTop)
+            now.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+        });
+      }
+    }
   }
 
   function bar(cls, num, den) {
@@ -507,20 +530,24 @@ window.PANELS = (function () {
 
   function pickHtml(sl) {
     var list = fitsSlot(sl);
-    var h = '<div class="pn-sub">Choose for ' + esc(sl) + '</div>' +
-            '<div class="pick-hd"><b>' + esc(sl) + '</b>' +
+    /* A DRAWER, not a section. It is wrapped so it can slide open under the
+       doll — a chooser that simply appears is indistinguishable from the
+       panel having jumped. */
+    var h = '<div class="pick-wrap"><div class="pick-in">' +
+            '<div class="pick-hd"><b>Choose for ' + esc(sl) + '</b>' +
             '<button class="pick-x" data-act="pickx">Cancel</button></div>';
     if (!list.length) {
-      return h + '<div class="pick-none">Nothing in your bag fits the ' +
-             esc(sl) + ' slot yet.</div>';
+      h += '<div class="pick-none">Nothing in your bag fits the ' +
+           esc(sl) + ' slot yet.</div>';
+    } else {
+      for (var i = 0; i < list.length; i++) {
+        var it = list[i];
+        h += '<button class="pick-row" data-act="pickeq" data-id="' +
+             esc(it.id) + '"><span class="pk-n">' + esc(it.name) + '</span>' +
+             '<span class="pk-s">' + esc(it.note || '') + '</span></button>';
+      }
     }
-    for (var i = 0; i < list.length; i++) {
-      var it = list[i];
-      h += '<button class="pick-row" data-act="pickeq" data-id="' +
-           esc(it.id) + '"><span class="pk-n">' + esc(it.name) + '</span>' +
-           '<span class="pk-s">' + esc(it.note || '') + '</span></button>';
-    }
-    return h;
+    return h + '</div></div>';
   }
 
   function equipItem(id) {
