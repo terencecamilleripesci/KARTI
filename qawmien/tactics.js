@@ -245,6 +245,16 @@ const ARENA = (function(){
   } catch (e){ return null; }
 })();
 
+/* THE MAP'S PAINTING, when it has one. A painted screen is drawn by
+   world.js as a SINGLE illustration; the fight was still rebuilding it out
+   of atlas tiles, which is wrong twice over. Wrong to look at — you tap a
+   painted ruin and the fight opens on a different picture of the same
+   place — and expensive: several thousand drawImage calls every frame,
+   plus the surround lattice around them, where one drawImage would do.
+   That is the shape of the hang this file has already had once. */
+const WORLD_BG = { img: null, ready: false };
+if (typeof parentWin === 'function') { /* set below, once ARENA is known */ }
+
 /* the world's own tile atlas — the same file world.js draws with, so it
    is already in cache and the two screens cannot drift apart */
 const WORLD_ATLAS = { img: null, ready: false };
@@ -253,6 +263,12 @@ if (ARENA) (function(){
   im.onload = () => { WORLD_ATLAS.img = im; WORLD_ATLAS.ready = true; draw(); };
   im.onerror = () => { WORLD_ATLAS.ready = false; };
   im.src = (ARENA.map.atlas || ARENA.WT.ATLAS_SRC);
+  if (ARENA.map.bg){
+    const bg = new Image();
+    bg.onload = () => { WORLD_BG.img = bg; WORLD_BG.ready = true; draw(); };
+    bg.onerror = () => { WORLD_BG.ready = false; };   /* tiles carry on */
+    bg.src = ARENA.map.bg;
+  }
 })();
 
 /* ── stat scaling (CLASSES_SPEC §2) — 1 point = +1% of the roll ──── */
@@ -1493,6 +1509,19 @@ function draw(){
      ground you can see and not walk on, and skipping them left holes in
      the lake. */
   const onMap = mapMode && ARENA && WORLD_ATLAS.ready;
+  /* THE PAINTING FIRST, AND THEN NOTHING ELSE OF THE GROUND. Registration
+     is the same arithmetic world.js uses — GRID.RECT is the picture — so
+     the fight opens on exactly the screen the player tapped, and the whole
+     ground pass and its surround are skipped. */
+  const onPaint = mapMode && ARENA && WORLD_BG.ready;
+  if (onPaint){
+    const R = BOARD.RECT, b = WORLD_BG.img;
+    const kk = Math.max(R.w / b.width, R.h / b.height);
+    const pw = b.width * kk, ph = b.height * kk;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(b, ORX + R.x + R.w / 2 - pw / 2,
+                     ORY + R.y + R.h / 2 - ph / 2, pw, ph);
+  }
   const painted = mapMode && TILESET.ready;
   /* THE SURROUND, exactly as world.js draws it: the map's own ground
      continued past the board until the screen is covered. Without it the
@@ -1507,7 +1536,7 @@ function draw(){
   const R0 = BOARD.RECT;
   const covers = (ORX <= -R0.x && ORY <= -R0.y &&
                   w / SC - ORX <= R0.x + R0.w && h / SC - ORY <= R0.y + R0.h);
-  if (onMap && !covers){
+  if (onMap && !onPaint && !covers){
     const fill = surroundFill();
     const halfW = (w / SC) / 2, halfH = (h / SC) / 2;
     const pad = Math.ceil((halfW / (TW / 2) + halfH / (TH / 2)) / 2) + 2;
@@ -1523,6 +1552,17 @@ function draw(){
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++){
     if (!inBoard(c, r)) continue;              /* outside the rectangle */
     const p = iso(c, r), k = key(c, r);
+    if (onPaint){
+      /* THE PICTURE DREW THE GROUND; THE FIGHT STILL OWES YOU A GRID. A
+         tactics fight is played by counting tiles, and a painting has no
+         tiles in it — this faint lattice on the walkable cells is the one
+         thing combat adds to the screen the player tapped. */
+      if (!G.blocked.has(k)){
+        diamond(p);
+        ctx.strokeStyle = 'rgba(0,0,0,.20)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      continue;
+    }
     if (onMap){
       const g = ARENA.map.ground[r][c];
       if (g) ARENA.WT.drawTile(ctx, WORLD_ATLAS.img, g, p.x, p.y);
@@ -1605,6 +1645,10 @@ function draw(){
        front. A blocked cell with no decor is water or cliff — its ground
        already said so, and stamping a purple block on the lake would be
        the board disagreeing with the picture underneath it. */
+    /* ON A PAINTED MAP THE SCENERY IS ALREADY IN THE PICTURE. Stamping an
+       atlas rock on top of a painted rock draws the same boulder twice, in
+       two different styles, half a tile apart. */
+    if (onPaint){ continue; }
     if (onMap){
       const d = ARENA.map.decor[t.r][t.c];
       if (d){

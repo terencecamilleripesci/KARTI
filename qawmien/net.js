@@ -2,7 +2,7 @@
    NET — window.NET, the character-follows-you layer.
 
    The RPG keeps saving to ITS OWN localStorage exactly as before
-   (player.js 'tactics.hero.v1', quest.js 'tactics.quest.tutorial.v1');
+   (player.js 'tactics.hero.v1', quest.js QUEST.LSK — versioned, ask it);
    that stays the local truth and the game is fully playable with no
    network at all. This file only MIRRORS that truth to the QAWMIEN
    relay (karti-malta/server/qawmien_relay.py, port 8102 — its own
@@ -74,7 +74,11 @@
 window.NET = (function () {
 
   const HKEY = 'tactics.hero.v1';
-  const QKEY = 'tactics.quest.tutorial.v1';
+  /* LAZY, because quest.js may not have loaded when this module body runs,
+     and hard-coding it is exactly how the two drifted apart. The v1 fallback
+     is only for a boot order where QUEST is genuinely absent. */
+  const qkey = () => (window.QUEST && window.QUEST.LSK) ||
+                     'tactics.quest.tutorial.v2';
   const SKEY = 'tactics.sync.v1';        /* {ver, blob, at} last agreement */
   const BKEY = 'tactics.sync.backup.v1'; /* local copy kept before adopt   */
   const ADOPTK = 'tactics.sync.adopt';   /* sessionStorage relay to next boot */
@@ -123,7 +127,7 @@ window.NET = (function () {
     try { h = JSON.parse(localStorage.getItem(HKEY)); } catch (e) {}
     if (!h || typeof h !== 'object' || typeof h.classId !== 'string')
       return null;                      /* no character yet → nothing to sync */
-    try { q = JSON.parse(localStorage.getItem(QKEY)); } catch (e) {}
+    try { q = JSON.parse(localStorage.getItem(qkey())); } catch (e) {}
     const o = { v: 1, hero: h };
     if (q && typeof q === 'object') o.quest = q;
     return JSON.stringify(o);
@@ -210,7 +214,7 @@ window.NET = (function () {
     if (!o || typeof o !== 'object' || !o.hero || typeof o.hero !== 'object')
       return false;                     /* unreadable → leave local alone */
     try {
-      const lh = localStorage.getItem(HKEY), lq = localStorage.getItem(QKEY);
+      const lh = localStorage.getItem(HKEY), lq = localStorage.getItem(qkey());
       if (lh != null)
         localStorage.setItem(BKEY, JSON.stringify(
           { at: Math.floor(Date.now() / 1000), hero: lh, quest: lq }));

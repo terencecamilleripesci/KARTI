@@ -790,7 +790,16 @@ window.HUD = (function () {
       try {
         /* every key the game writes EXCEPT the sound preference — wiping a
            preference is not part of deleting a character */
-        ['tactics.hero.v1', 'tactics.quest.tutorial.v1', 'tactics.sync.v1',
+        /* THE TUTORIAL KEY IS VERSIONED and this list used to name one
+           version by hand, so the moment quest.js bumped it a wipe stopped
+           clearing the tutorial and the player was returned to a fresh
+           character still holding an old, finished quest. Ask QUEST what it
+           uses, and sweep the retired key too — a device that never ran the
+           new build still has it. */
+        ['tactics.hero.v1',
+         (window.QUEST && window.QUEST.LSK) || 'tactics.quest.tutorial.v2',
+         'tactics.quest.tutorial.v1',
+         'tactics.sync.v1',
          'tactics.sync.backup.v1', T.KEYS.VISITED]
           .forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
       } catch (e) {}

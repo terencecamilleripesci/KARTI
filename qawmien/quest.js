@@ -45,6 +45,11 @@ window.QUEST = (function () {
      rooms take two minutes and the alternative is a player stuck outside
      content that exists. */
   const LSK = 'tactics.quest.tutorial.v2';
+  /* AND EVERY OTHER FILE READS IT FROM HERE. This key was written out by
+     hand in five places — quest.js, net.js, hud.js's wipe list and
+     world.html's adopt path — so bumping it here alone left the sync layer
+     syncing a key nobody reads and, worse, left DELETE CHARACTER removing
+     v1 while the tutorial ran on v2: a wipe that visibly did nothing. */
 
   /* ── the quest table (exported for the HUD) ───────────────────── */
   /* Step 1 is the owner's design verbatim: the FIRST fight is a straw
@@ -229,6 +234,16 @@ window.QUEST = (function () {
   function start() {
     dressDummy();                          /* before WORLD.load reads MAPS */
     loadSaved();
+    /* NO CHARACTER MEANS NO PROGRESS, whatever the save says.
+       The two halves of a save live in different keys — the hero in
+       'tactics.hero.v1', the tutorial in LSK — and they can come apart:
+       a wipe clears both, then the sync layer adopts the server's quest
+       blob on the next boot and there is a quest at step 3 with nobody to
+       play it. What the player SEES then is the summoning-circle picker
+       opening on top of a fight that has already started, swallowing every
+       tap: the game is running perfectly and looks completely frozen.
+       So the quest cannot be ahead of the character. */
+    if (needsChoice() && S.step > 0) { S = fresh(); save(); }
     ready(() => {
       hud();
       if (!S.intro && S.step === 0) {
@@ -669,6 +684,6 @@ window.QUEST = (function () {
     if (toastEl) toastEl.classList.remove('on');
   }
 
-  return { STEPS, start, state, advance, reward, say, onChange,
+  return { LSK, STEPS, start, state, advance, reward, say, onChange,
            npc, currentFight, attachCombat, detachCombat, reset };
 })();

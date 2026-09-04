@@ -177,8 +177,12 @@ LOADER.open();
   a = JSON.parse(a);
   if (!a || typeof a !== 'object' || !a.hero) return;
   localStorage.setItem('tactics.hero.v1', JSON.stringify(a.hero));
-  if (a.quest) localStorage.setItem('tactics.quest.tutorial.v1', JSON.stringify(a.quest));
-  else localStorage.removeItem('tactics.quest.tutorial.v1');
+  /* THE KEY QUEST ACTUALLY USES. This ran before quest.js loads, so it
+     cannot ask — but writing a hard-coded version meant an adopted save
+     landed in a key nothing reads. Kept in step with quest.js's LSK. */
+  var QK = 'tactics.quest.tutorial.v2';
+  if (a.quest) localStorage.setItem(QK, JSON.stringify(a.quest));
+  else localStorage.removeItem(QK);
 } catch (e) {} })();
 </script>
 <script src="player.js"></script><!-- window.HERO + window.PLAYER (the view) -->
