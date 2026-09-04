@@ -115,7 +115,7 @@ window.MAPS['crypt-1'] = {
   ],
   markers: [
     { type:'fight', id:'crypt-fight-1', name:'Flooded Steps', c:14, r:13, sprite:'skeleton', dir:'SW', foes:['grunt', 'grunt'] },
-    { type:'exit', c:10, r:23, to:'field-3-1', at:{ c:17, r:18 } },
+    { type:'exit', c:10, r:23, to:'field-2-3', at:{ c:19, r:16 } },
     { type:'exit', c:23, r:10, to:'crypt-2', at:{ c:11, r:23 } }
   ],
   /* joined by DOORS, not by edges — a dungeon has no seam to get wrong */

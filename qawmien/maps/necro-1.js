@@ -115,7 +115,7 @@ window.MAPS['necro-1'] = {
   ],
   markers: [
     { type:'fight', id:'necro-fight-1', name:'The Long Aisle', c:14, r:13, sprite:'skelmage', dir:'SW', foes:['mage', 'archer', 'archer'] },
-    { type:'exit', c:10, r:23, to:'field-4-2', at:{ c:20, r:19 } },
+    { type:'exit', c:10, r:23, to:'field-0-3', at:{ c:19, r:17 } },
     { type:'exit', c:23, r:10, to:'necro-2', at:{ c:11, r:23 } }
   ],
   /* joined by DOORS, not by edges — a dungeon has no seam to get wrong */

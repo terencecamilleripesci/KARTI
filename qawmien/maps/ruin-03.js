@@ -115,7 +115,7 @@ window.MAPS['ruin-03'] = {
   ],
   markers: [
     { type:'npc', id:'outfitter', name:'Vell', c:15, r:16, sprite:'skelmage', dir:'SW' },
-    { type:'exit', c:23, r:10, to:'field-2-1', at:{ c:14, r:21 } }
+    { type:'exit', c:23, r:10, to:'field-0-1', at:{ c:10, r:19 } }
   ],
   neighbours: { n:null, e:null, s:null, w:'ruin-02' }
 };
