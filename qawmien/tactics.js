@@ -614,9 +614,17 @@ function newMatch(){
       spots = freeSpots(blocked, at, foes.length, 0, 9, null);
     const heroAt = ARENA.hero || null;
     const mine = freeSpots(blocked, at, 1, 4, 7, heroAt);
+    /* FOUR TO EIGHT, NOT FOUR AND UPWARDS. The lower bound was there so you
+       do not open a fight already in contact; there was no upper one, so a
+       fight begun from across the room started you across the room — the
+       hero sixteen tiles from a dummy, five turns of walking before anyone
+       could swing, which is the exact fault the spot list below was written
+       to cure. It also made a nonsense of placement: eight lit cells
+       clustered round the enemy and a ninth stranded on the far wall. */
+    const dHero = heroAt ? Math.abs(heroAt.c - at.c) + Math.abs(heroAt.r - at.r) : 0;
     home = (heroAt && inBoard(heroAt.c, heroAt.r) &&
             !blocked.has(key(heroAt.c, heroAt.r)) &&
-            Math.abs(heroAt.c - at.c) + Math.abs(heroAt.r - at.r) >= 4)
+            dHero >= 4 && dHero <= 8)
       ? heroAt : (mine[0] || heroAt || { c: at.c, r: at.r });
   } else {
     spots = (foes.length === 1
@@ -713,11 +721,10 @@ function showReady(){
   if (el2) el2.textContent = line +
     (lv.length ? ' · level ' + Math.min.apply(null, lv) +
                  (Math.max.apply(null, lv) !== Math.min.apply(null, lv)
-                   ? '-' + Math.max.apply(null, lv) : '') : '') +
-    /* SAY WHAT THE BLUE TILES ARE FOR. A lit cell nobody explains is
-       scenery; this is the one line that turns it into a decision. */
-    ((G.place && G.place.length > 1)
-      ? ' — tap a blue tile to move your start' : '');
+                   ? '-' + Math.max.apply(null, lv) : '') : '');
+  /* THE INSTRUCTION LIVES IN THE HUD BAR, not here as well. Both said
+     "tap a blue tile to move your start", a foot apart on a phone screen,
+     and the card is the thing sitting on top of the board. */
   el.classList.add('on');
   paint();
 }
@@ -2082,7 +2089,12 @@ function heroUnit(){ return G.units.find(v => v.side === 0 && !v.auto); }
 function paint(){
   const u = me();
   if (!u) return;
-  const mine = u.side === 0 && !u.auto && !G.over;
+  /* PLACEMENT IS NOT YOUR TURN. The board was showing the hero's movement
+     range — and the HUD saying "Your turn, tap the floor to move" — while
+     the fight had not begun and the only legal tap was choosing a starting
+     cell. Two sets of highlighted tiles at once, one of them a lie about
+     what you could do. Nothing is yours until Ready. */
+  const mine = u.side === 0 && !u.auto && !G.over && G.ready;
 
   moveSet = (mine && !sel && u.mp > 0) ? reach(u) : null;
   castSet = (mine && sel) ? castTiles(u, spellOf(sel)) : null;
@@ -2098,10 +2110,15 @@ function paint(){
                   mp: h.mp, mpMax: h.mpMax }
               : { hp: 0, hpMax: 1, ap: 0, apMax: 6, mp: 0, mpMax: 3 },
       /* exactly the strings the old #who line showed */
+      /* PLACEMENT HAS ITS OWN LABEL. With `mine` false before Ready the bar
+         fell through to the enemy line and announced "Grunt is moving" at a
+         board where nothing was moving and no grunt was present. */
       turn: {
         name: G.over ? (G.over > 0 ? 'You won' : 'You lost')
+            : !G.ready ? 'Choose your ground'
             : mine ? 'Your turn' : (NAMES[u.kind] || 'Grunt') + ' is moving',
         hint: G.over ? 'Tap Again'
+            : !G.ready ? 'Tap a blue tile to move your start, then Ready'
             : mine ? (sel ? spellOf(sel).hint
                           : 'Tap the floor to move · pick a spell to attack')
             : 'Round ' + G.round
