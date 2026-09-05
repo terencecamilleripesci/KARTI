@@ -254,19 +254,25 @@ window.CLASSES = (function () {
   /* ART THAT IS KNOWN TO BE WRONG, named out loud rather than shipped.
      `<class>-<gender>-<kind>`; anything listed here draws the plain body.
 
-     cindermancer's WALK sheet is the one that failed outright: its hat
-     covers the face facing south, floats off the top of the cell facing
-     south-east, and the east row came back as a brown ellipse over the
-     whole cell. A class with no hat reads as unfinished; a class wearing a
-     smear reads as broken, and the second is worse. Its action sheet is
-     fine, so the hat is still there in combat and on the creation screen.
+     ONE sheet is left: the male cindermancer's WALK art. Its hat covers his
+     face facing south, floats off the top of the cell facing south-east,
+     and the east row came back as a brown ellipse across the whole cell.
+     That is a redraw, not a repair. His action sheet is fine, so the hat is
+     still on him in combat and on the creation screen — a class with no hat
+     reads as unfinished, one wearing a smear reads as broken, and the
+     second is worse.
+
+     The FEMALE walk sheet was in this list too, and should not have been: it
+     was added by assuming she had the same fault as him. She does not — her
+     hat sits correctly in all four facings and only broke the border rule,
+     which tools/nudgegear.py fixed. Checked, then delisted. Copying a
+     verdict from one sheet to another is how a working asset gets switched
+     off for a fortnight.
 
      DELETE THE ENTRY, DO NOT WORK AROUND IT: the fix is to regenerate
-     art/gear/cindermancer-m-dir8.png through tools/makegear.sh and let
-     tools/checksheet.py --gear pass it. (The east row was corrupt in three
-     of the five male overlays; warden's and stormfletch's were repairable
-     from their south-east frames, this one was not.) */
-  const GARB_BROKEN = { 'cindermancer-m-dir8': 1, 'cindermancer-f-dir8': 1 };
+     art/gear/cindermancer-m-dir8.png and let tools/checksheet.py --gear
+     pass it. */
+  const GARB_BROKEN = { 'cindermancer-m-dir8': 1 };
 
   function garb(id, gender, kind) {
     const c = BY_ID[id];
