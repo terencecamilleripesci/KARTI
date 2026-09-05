@@ -399,7 +399,14 @@ window.HERO = (function () {
          so this can land before the art does. */
       const base = 'art/base-' + S.gender;
       if (window.BASE_SHEETS !== false)
-        return { dir8: base + '-dir8.png', idle: null,
+        /* THERE IS A DRAWN IDLE NOW, and the game needs it. `idle: null` used
+           to be true and harmless: the hand-drawn walk cycle contained a
+           genuine standing frame, so stopping simply held it. The generated
+           walk has no such frame — all six are mid-stride — so the hero froze
+           mid-step whenever he stopped, which is what "it doesn't go idle"
+           was. base-<g>-idle.png is the standing pose per facing, built from
+           the character's own rotations (tools/idlesheet.py). */
+        return { dir8: base + '-dir8.png', idle: base + '-idle.png',
                  action: base + '-sheet.png' };
       const s = c.look[S.gender].sheet;
       return { dir8: 'art/' + s + '-dir8.png', idle: null,

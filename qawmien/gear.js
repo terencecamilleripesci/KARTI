@@ -284,23 +284,54 @@ window.GEAR = (function () {
      JS engine felt like, which is a rendering bug that only shows up on
      someone else's browser.
 
-     ONLY THE HEAD IS DRAWN, by decision: gear shows as a helmet and nothing
-     else. Everything else is still WORN — its stats, its slot and its place in
-     the bag are unchanged — it simply is not painted onto the character. That
-     also spares four overlays per item that would otherwise have to be redrawn
-     for the new bodies.
+     A HELMET NORMALLY, THE WHOLE SET WHEN YOU HAVE THE WHOLE SET. Wearing odd
+     pieces shows as a helmet and nothing else; complete the set — all four
+     slots, all from the same tier — and the rest appears. It makes finishing a
+     set something you can SEE rather than read in a tooltip, which is the
+     point of a set, and it means only one overlay per tier has to exist before
+     gear reads at all.
 
-     The full order is kept here so switching one back on is one word rather
-     than an archaeology exercise:
-        ['cape', 'boots', 'belt', 'head'] */
-  const DRAW_ORDER = ['head'];
+     Everything is still WORN either way: stats, slots and the bag do not care
+     what is painted. */
+  const DRAW_ORDER_HEAD = ['head'];
+  const DRAW_ORDER_FULL = ['cape', 'boots', 'belt', 'head'];
+
+  /* Is every drawable slot filled from the SAME tier? `art` is the tier's
+     sheet name, so comparing it is what "a matching set" means here. */
+  function fullSet(equip) {
+    if (!equip) return false;
+    let art = null;
+    for (const slot of DRAW_ORDER_FULL) {
+      const w = equip[slot];
+      if (!w) return false;
+      const it = (typeof w === 'string') ? byId(w) : w;
+      const a = it && (it.art || (byId(it.id) || {}).art);
+      if (!a) return false;
+      if (art === null) art = a;
+      else if (a !== art) return false;
+    }
+    return true;
+  }
+  /* WHICH OVERLAYS FIT THE CURRENT BODIES. The characters were redrawn, and
+     an overlay drawn for the old body sits through the shoulders of the new
+     one — so a piece may only be painted once its art has been remade. The
+     head is done for the novice set; the cloak, belt and boots are not.
+
+     This is deliberately a list of what IS ready rather than what is broken:
+     forget to add a piece and it stays invisible, which is the safe failure.
+     The wrong way round would ship the misalignment. */
+  const FITS_NEW_BODY = { 'novice-cap': 1 };
+
   function sheets(equip, gender, kind) {
     const out = [];
     if (!equip) return out;
-    for (const slot of DRAW_ORDER) {
+    /* the whole outfit only when the whole outfit is on; a helmet otherwise */
+    for (const slot of (fullSet(equip) ? DRAW_ORDER_FULL : DRAW_ORDER_HEAD)) {
       const w = equip[slot];
       if (!w) continue;
-      const s = sheet(w.id, gender, kind);
+      const it = (typeof w === 'string') ? byId(w) : w;
+      if (!it || !FITS_NEW_BODY[it.id]) continue;   /* not redrawn yet: not drawn */
+      const s = sheet(it.id, gender, kind);
       if (s) out.push(s);
     }
     return out;
@@ -314,7 +345,8 @@ window.GEAR = (function () {
              slot: it.slot, rarity: it.rarity, level: it.level };
   }
 
-  return { SLOTS, TIERS, ITEMS, BOSSES, MOB_CHANCE, DRAW_ORDER,
+  return { SLOTS, TIERS, ITEMS, BOSSES, MOB_CHANCE,
+           DRAW_ORDER: DRAW_ORDER_FULL, fullSet,
            byId, tier, ofTier, set, levelFor,
            mobDrop, bossDrop, canEquip, bonus, sheet, sheets, record };
 })();
