@@ -282,8 +282,18 @@ window.GEAR = (function () {
      Order matters: the cloak hangs behind the belt, the cap sits over
      everything. Drawing them in slot-object order would be whatever the
      JS engine felt like, which is a rendering bug that only shows up on
-     someone else's browser. */
-  const DRAW_ORDER = ['cape', 'boots', 'belt', 'head'];
+     someone else's browser.
+
+     ONLY THE HEAD IS DRAWN, by decision: gear shows as a helmet and nothing
+     else. Everything else is still WORN — its stats, its slot and its place in
+     the bag are unchanged — it simply is not painted onto the character. That
+     also spares four overlays per item that would otherwise have to be redrawn
+     for the new bodies.
+
+     The full order is kept here so switching one back on is one word rather
+     than an archaeology exercise:
+        ['cape', 'boots', 'belt', 'head'] */
+  const DRAW_ORDER = ['head'];
   function sheets(equip, gender, kind) {
     const out = [];
     if (!equip) return out;

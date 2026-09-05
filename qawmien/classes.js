@@ -254,34 +254,36 @@ window.CLASSES = (function () {
   /* ART THAT IS KNOWN TO BE WRONG, named out loud rather than shipped.
      `<class>-<gender>-<kind>`; anything listed here draws the plain body.
 
-     ONE sheet is left: the male cindermancer's WALK art. Its hat covers his
-     face facing south, floats off the top of the cell facing south-east,
-     and the east row came back as a brown ellipse across the whole cell.
-     That is a redraw, not a repair. His action sheet is fine, so the hat is
-     still on him in combat and on the creation screen — a class with no hat
-     reads as unfinished, one wearing a smear reads as broken, and the
-     second is worse.
+     EMPTY, and that is the point of it. Two sheets sat here:
 
-     The FEMALE walk sheet was in this list too, and should not have been: it
-     was added by assuming she had the same fault as him. She does not — her
-     hat sits correctly in all four facings and only broke the border rule,
-     which tools/nudgegear.py fixed. Checked, then delisted. Copying a
-     verdict from one sheet to another is how a working asset gets switched
-     off for a fortnight.
+     The male cindermancer's WALK art, whose hat covered his face from the
+     front, floated off the cell from the side and smeared across the frame
+     facing east. It was redrawn — not by asking a generator for a character,
+     which is what kept producing bodies that had drifted, but by INPAINTING a
+     hat onto our own frames (tools/pixellab.py) so everything outside the
+     mask is still our art, pixel for pixel, and the hat is whatever changed
+     inside it. tools/hatsheet.py turns those four crops into the 24 cells.
 
-     DELETE THE ENTRY, DO NOT WORK AROUND IT: the fix is to regenerate
-     art/gear/cindermancer-m-dir8.png and let tools/checksheet.py --gear
-     pass it. */
-  const GARB_BROKEN = { 'cindermancer-m-dir8': 1 };
+     The FEMALE walk sheet, which was never broken at all — it was added here
+     by assuming she shared his fault. She did not. Copying a verdict from one
+     sheet to another is how a working asset gets switched off for a fortnight.
 
+     Keep the list, and put a sheet back in it the moment one is wrong: a
+     class with no kit reads as unfinished, a class wearing a smear reads as
+     broken, and the second is worse. */
+  const GARB_BROKEN = {};
+
+  /* TURNED OFF, BY DECISION, NOT BY FAULT. The owner's rule is that there is
+     ONE male and ONE female and every class shares them — so a class is its
+     spells and its stats, not a different silhouette. The per-class kits that
+     used to draw here (pauldrons, a hat, a quiver) were built against the old
+     hand-drawn body and would sit through the shoulders of the new one; more
+     to the point, they are no longer wanted.
+
+     The art is kept in art/gear/ rather than deleted, because it is drawn work
+     and the decision could be revisited. Return a path here and it comes back. */
   function garb(id, gender, kind) {
-    const c = BY_ID[id];
-    if (!c || !c.look) return null;
-    const g = (gender === 'f') ? 'f' : 'm';
-    if (!c.look[g]) return null;
-    const suffix = (kind === 'dir8') ? '-dir8' : '';
-    if (GARB_BROKEN[c.id + '-' + g + suffix]) return null;
-    return 'art/gear/' + c.id + '-' + g + suffix + '.png';
+    return null;
   }
 
   return {
