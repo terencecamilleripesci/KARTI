@@ -261,6 +261,34 @@ try {
    window.PLAYER is no longer built here: player.js (window.HERO) creates
    it, restores the saved identity + progress from localStorage
    ('tactics.hero.v1') and keeps class-derived stats correct. */
+/* ── A WIPE THAT NEEDS NO MENU ───────────────────────────────────────
+   The in-game "Wipe save" lives behind the gear menu, which is behind the
+   HUD, which is behind the game having booted into a state you can act in.
+   That is fine until the thing you need to wipe is what stops you getting
+   there — and then the only remaining escape is clearing the site's
+   storage, which takes KARTI's own account down with the RPG.
+
+   So: ?wipe=1 on the URL. It runs before QUEST.start() and before HERO
+   reads anything, clears exactly the keys the menu item clears (keeping
+   the sound preference, which is not part of deleting a character), and
+   tells the sync layer this was a DELETION — without that last part the
+   next boot pulls the character straight back off the relay and the wipe
+   appears to have done nothing.
+
+   Open the game directly at  .../qawmien/world.html?wipe=1 */
+try {
+  if (/[?&]wipe=1\b/.test(location.search)) {
+    ['tactics.hero.v1',
+     (window.QUEST && window.QUEST.LSK) || 'tactics.quest.tutorial.v2',
+     'tactics.quest.tutorial.v1',
+     'tactics.sync.v1',
+     'tactics.sync.backup.v1',
+     (window.HUDT && HUDT.KEYS && HUDT.KEYS.VISITED) || 'tactics.visited.v1']
+      .forEach(k => { try { localStorage.removeItem(k); } catch (e) {} });
+    try { if (window.NET && NET.markWiped) NET.markWiped(); } catch (e) {}
+    console.info('wiped by ?wipe=1');
+  }
+} catch (e) {}
 /* ── SEAL BEFORE THE QUEST TOUCHES ANYTHING ──────────────────────────
    Sealing is derived from which screens hold markers, and quest.js both
    adds a marker (the training dummy) and drops ones the player has
@@ -334,9 +362,12 @@ create(function boot(){
   }
   if (at && window.MAPS && MAPS[at.map] &&
       WT.isWalkable(MAPS[at.map], at.c, at.r)){
-    const mk = WT.markerAt(MAPS[at.map], at.c, at.r);
+    /* step off any seam BEFORE resuming — a save taken while standing on
+       one boots straight into a two-map bounce that no reload can clear */
+    const safe = WORLD.landing(at.map, { c: at.c, r: at.r });
+    const mk = WT.markerAt(MAPS[at.map], safe.c, safe.r);
     if (!(mk && (mk.type === 'npc' || mk.type === 'fight')) &&
-        WORLD.load(at.map, { c: at.c, r: at.r })) return;
+        WORLD.load(at.map, { c: safe.c, r: safe.r })) return;
   }
   WORLD.load(window.MAP_INDEX ? MAP_INDEX.start : 'ruin-01');
 });

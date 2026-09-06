@@ -1857,6 +1857,30 @@ const WORLD = (() => {
     return true;
   }
 
+  /* ── A SAVED POSITION IS NOT A SAFE POSITION ──────────────────────
+     transfer() steps arrivals inland, but BOOT does not go through
+     transfer(): it calls load(map, {c,r}) with whatever the save holds. So
+     a character saved while standing ON a seam tile is put back on that
+     seam every single time the game opens, crosses immediately, lands on
+     the neighbour's matching seam, and crosses back — a loop that survives
+     reloading, reinstalling, and clearing the cache, because it is being
+     recreated from the save on every boot. That is not a map that is
+     "broken"; it is a save that is un-openable, and no amount of walking
+     gets you out of it.
+
+     This is what the seam test missed. It walked the player across seams,
+     which transfer() already handled, and never once put a save on one.
+
+     Returns a tile inland of any live seam, or the tile unchanged when it
+     is not on one. */
+  function landing(mapId, at){
+    const m = window.MAPS && window.MAPS[mapId];
+    if (!m || !at) return at;
+    const ed = WT.edgeDir(m, at.c, at.r);
+    if (!ed || !(m.neighbours && m.neighbours[ed])) return at;
+    return stepInland(m, at, ed);
+  }
+
   /* ── THE WAY OUT ──────────────────────────────────────────────
      A map can be reached before it is finished, and an unfinished map can
      hand the player straight back to the one they arrived from: a loop
@@ -1872,7 +1896,7 @@ const WORLD = (() => {
   }
 
   return {
-    load, draw, walkTo, update, rescue,
+    load, draw, walkTo, update, rescue, landing,
     playerAt(){ return { c: hero.c, r: hero.r }; },
     onExit(cb){ onExitCb = cb; },
     onNpc(cb){ onNpcCb = cb; },
