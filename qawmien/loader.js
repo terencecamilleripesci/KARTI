@@ -89,21 +89,40 @@ window.LOADER = (function () {
 
   /* ── the registry ───────────────────────────────────────────────── */
   function counts(){
-    let ok = 0, fail = 0, tot = 0;
+    let ok = 0, fail = 0, tot = 0, lost = 0;
     if (cyc) for (const u of cyc.set){
       tot++;
       if (STATUS[u] === 'ok') ok++;
-      else if (STATUS[u] === 'fail') fail++;
+      else if (STATUS[u] === 'fail'){
+        /* an optional casualty counts as SETTLED, not as progress denied:
+           it must not hold the gate and must not raise the error strip */
+        if (OPTIONAL.has(u)){ ok++; lost++; } else fail++;
+      }
     }
-    return { ok, fail, tot };
+    return { ok, fail, tot, lost };
   }
   function progress(){
     const c = counts();
     return c.tot ? c.ok / c.tot : 0;
   }
 
-  function want(url){
+  /* OPTIONAL FILES MUST NOT WEDGE THE GATE. A creature's walk sheet going
+     missing should cost that creature its animation — world.js already
+     draws a marker with no sheet as the fallback blob — and nothing else.
+     Instead one 404 held the whole boot on "One file failed to load" with
+     a Retry that could only fail again, so a single absent PNG made every
+     map holding that creature permanently unopenable. art/goat-dir8.png
+     was never built, and field-3-0 has a goat on it: that map could not be
+     entered at all, and a save standing in it could not be opened, which
+     leaves no way to reach the menu that would have let you wipe it.
+
+     Essentials — the atlas, the hero's own sheets — still block, because a
+     world with no ground and no player is not a degraded game, it is a
+     blank screen. */
+  const OPTIONAL = new Set();
+  function want(url, optional){
     if (!STATUS[url]) STATUS[url] = 'loading';
+    if (optional) OPTIONAL.add(url); else OPTIONAL.delete(url);
     if (cyc && !cyc.sealed && !cyc.finished){ cyc.set.add(url); update(); }
   }
   function done(url){ STATUS[url] = 'ok'; update(); }

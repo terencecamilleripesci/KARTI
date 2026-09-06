@@ -158,7 +158,7 @@ function make(src, opts){
   const L = (typeof window !== 'undefined' && window.LOADER) || null;
   s._load = function (){
     s.failed = false;
-    if (L){ try { L.want(src); } catch (e) {} }
+    if (L){ try { L.want(src, !!opts.optional || !!s.optional); } catch (e) {} }
     const im = new Image();
     /* neighbour-map prefetches must never compete with what the player
        is looking at; ignored where fetchPriority is unsupported */

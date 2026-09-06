@@ -74,7 +74,7 @@ const WORLD = (() => {
     const src = 'art/' + name + '-dir8.png';
     if (!SHEETS[src])
       SHEETS[src] = SPRITE.make(src, { cols: 6, rows: 4, clips: SPRITE.CLIPS_DIR,
-                                       lowPriority: !!low });
+                                       lowPriority: !!low, optional: true });
     return SHEETS[src];
   }
 
@@ -85,8 +85,14 @@ const WORLD = (() => {
     const out = [ atlasFor(m.atlas || WT.ATLAS_SRC, low) ];
     if (m.bg) out.push(atlasFor(m.bg, low));   /* painted background, if any */
     for (const mk of m.markers || [])
-      if ((mk.type === 'npc' || mk.type === 'fight') && mk.sprite)
-        out.push(sheetFor(mk.sprite, low));
+      if ((mk.type === 'npc' || mk.type === 'fight') && mk.sprite){
+        /* OPTIONAL: a creature whose sheet is missing is drawn as the
+           fallback blob, exactly as a marker with no sprite already is.
+           Losing an animation must never cost the map. */
+        const sh = sheetFor(mk.sprite, low);
+        sh.optional = true;
+        out.push(sh);
+      }
     return out;
   }
 
@@ -614,7 +620,7 @@ const WORLD = (() => {
     if (!pend.length) return;
     if (L.active()) return;             /* boot cycle is already counting */
     if (!L.open(() => schedulePrefetch())) return;
-    for (const a of pend) L.want(a.src);
+    for (const a of pend) L.want(a.src, !!a.optional);
     L.seal();
   }
 
