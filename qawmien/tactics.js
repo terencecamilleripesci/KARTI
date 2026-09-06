@@ -73,6 +73,10 @@ const RULES = {
   dummy: { hp: 90,  ap: 4, mp: 1 },
   /* the shepherd's summon (CLASSES.SUMMONS.ram — numbers are the spec's) */
   ram:   { hp: 40,  ap: 4, mp: 4 },
+  /* the Scubi's scublet (CLASSES.SUMMONS.scublet). Missing here meant
+     mk('scublet') read RULES['scublet'].hp off undefined and threw, so
+     Scion spent its AP, took its cooldown, and produced nothing. */
+  scublet:{ hp: 34, ap: 4, mp: 4 },
 
   /* ── THE TWO DUNGEON BOSSES ────────────────────────────────────────
      `big` is a draw multiplier, not a stat: a boss has to READ as a boss
@@ -198,6 +202,9 @@ const AI_SPELLS = {
   ram:   [ { id:'ramhorn', name:'Ram', ap:3, min:1, max:1, los:false,
              dmg:[8,12], cd:0, elem:'earth', scalesOffOwner:true,
              hint:'The flock defends its own.' } ],
+  scublet:[{ id:'nip', name:'Nip', ap:3, min:1, max:1, los:false,
+             dmg:[7,11], cd:0, elem:'water', scalesOffOwner:true, drain:0.5,
+             hint:'It bites, and it keeps half of what it takes.' } ],
   goat:  [ { id:'butt', name:'Head Butt', ap:4, min:1, max:1, los:false,
              dmg:[10,15], cd:0, elem:'earth',
              hint:'Slow, heavy, and it does not move out of your way.' } ],
@@ -1174,7 +1181,11 @@ function spawnSummon(u, what, c, r){
                                            so G.turn === idx stays correct */
   G.units.splice(idx + 1, 0, v);
   watchFoe(v);
-  floatAt(c, r, 'baa!', '#F2E6C8');
+  /* the ram's bleat was hardcoded here, so a scublet — a child made of its
+     mother's blood — arrived on the board saying "baa!" */
+  const CRY = { ram: ['baa!', '#F2E6C8'], scublet: ['mother', '#C8446A'] };
+  const cry = CRY[what] || ['!', '#F2E6C8'];
+  floatAt(c, r, cry[0], cry[1]);
 }
 
 function cast(u, sp, c, r){
@@ -1396,6 +1407,7 @@ function aiTurn(u){
     sheep:  ['strike', 'shove', 'bolt', 'blast'],
     goblin: ['strike', 'shove', 'bolt', 'blast'],
     ram:    ['ramhorn'],
+    scublet:['nip'],
     /* EVERY CREATURE WITH ITS OWN KIT NEEDS A LINE HERE. Five did not have
        one — goat, gecko, dummy and both bosses — and fell through to the
        grunt's list, so they decided where to stand using `strike`: a spell
@@ -2231,7 +2243,8 @@ function onHover(ev){
 
 /* ── painting the UI ───────────────────────────────────────────── */
 const NAMES = { grunt:'Grunt', archer:'Archer', mage:'Mage', sheep:'Sheep',
-                dummy:'The dummy', ram:'Your ram' };
+                dummy:'The dummy', ram:'Your ram',
+                scublet:'Your scublet' };
 
 /* the HERO unit, dead or alive. The orbs ALWAYS read your vitals, never
    the acting unit's (HUD_SPEC §8): on an enemy's turn the crystal ball
