@@ -705,9 +705,59 @@ const WORLD = (() => {
     return found;
   }
 
+  /* THE LOOP THIS PREVENTS. Arriving on a map puts the hero on its edge —
+     that is what a seam is — and the auto-walk below reads any edge arrival
+     as "he walked into the border, he wants to leave". After a TRANSFER that
+     is wrong, and on a map with little open ground it is fatal: he lands on
+     the seam, is walked to the nearest crossing cell, hands himself back, and
+     the map he came from does the same in reverse. Two maps then pass him
+     between them forever and no tap can interrupt it, because he always has a
+     path queued. Reported from play: "I traveled to a map that is not yet
+     finished, I'm on a loop."
+
+     So an arrival caused by a transfer does not auto-seek an exit. The flag
+     clears the moment the player asks to walk anywhere, which is the only
+     honest signal that leaving was THEIR idea. */
+  let arrivedByTransfer = false;
+
+  /* STEP THEM OFF THE SEAM. `edgeTarget` hands back the twin of the cell they
+     left — which is, by definition, a cell that crosses BACK. Landing there
+     leaves the player standing in the doorway, and then almost any step is a
+     step through it: they arrive, nudge once, and are thrown back where they
+     came from, which the other map answers in kind. That is the loop the
+     owner hit on an unfinished map, where there is little open ground to
+     escape into.
+     So the arrival point moves inland until it is a tile that does not
+     transfer. One tile is usually enough; it tries a few, and if the map is
+     so thin that nothing qualifies it leaves the seam cell alone rather than
+     inventing somewhere unreachable to stand. */
+  function stepInland(m, at, fromDir){
+    if (!at || !m) return at;
+    const away = { n: { dc: 0, dr: 1 }, s: { dc: 0, dr: -1 },
+                   e: { dc: -1, dr: 0 }, w: { dc: 1, dr: 0 } }[fromDir];
+    if (!away) return at;
+    let best = at;
+    for (let step = 1; step <= 3; step++){
+      const c = at.c + away.dc * step, r = at.r + away.dr * step;
+      if (!WT.isWalkable(m, c, r)) break;
+      best = { c, r };
+      const ed = WT.edgeDir(m, c, r);
+      const onSeam = ed && m.neighbours && m.neighbours[ed];
+      if (!onSeam) return best;          /* properly inside now */
+    }
+    return best;
+  }
+
   function transfer(toId, at){
     const fromId = map.id;
+    const nmap = window.MAPS && window.MAPS[toId];
+    /* which side of the NEW map we came in on is the opposite of the side we
+       left by — walk away from it */
+    const cameFrom = WT.OPP[Object.keys(map.neighbours || {})
+      .find(k => map.neighbours[k] === toId) || ''] || null;
+    if (nmap && cameFrom) at = stepInland(nmap, at, WT.OPP[cameFrom]);
     load(toId, at);
+    arrivedByTransfer = true;      /* he did not walk here — see the note above */
     if (onExitCb) onExitCb(fromId, toId, { c: hero.c, r: hero.r });
     return true;
   }
@@ -797,7 +847,14 @@ const WORLD = (() => {
        onto the neighbouring cell that can. He walks it — no jump, no
        teleport, and the step is subject to the same rules as any other,
        so a blocked one simply leaves him standing there. */
-    if (!hero.path.length){
+    /* CLEARED BY WALKING INLAND, not by tapping. Clearing on the first tap
+       re-armed the bounce immediately: he arrives on the seam, the player
+       taps to move, and the auto-walk sends him straight back out. He has to
+       actually be somewhere that is not a seam before leaving counts as a
+       decision again. */
+    if (arrivedByTransfer && !edgeSideOut(c, r)) arrivedByTransfer = false;
+
+    if (!hero.path.length && !arrivedByTransfer){
       const side = edgeSideOut(c, r);
       if (side && !WT.edgeDir(map, c, r)){
         /* one step sideways onto the cell that crosses, if it is open... */
@@ -1697,6 +1754,8 @@ const WORLD = (() => {
     return out;
   }
   function takeEdge(d){
+    /* an arrow tap is deliberate, so the auto-walk is welcome again */
+    if (arguments.length && d) arrivedByTransfer = false;
     for (const cell of seamCells(d))
       if (walkTo(cell.c, cell.r)){
         manual = false;
@@ -1798,8 +1857,22 @@ const WORLD = (() => {
     return true;
   }
 
+  /* ── THE WAY OUT ──────────────────────────────────────────────
+     A map can be reached before it is finished, and an unfinished map can
+     hand the player straight back to the one they arrived from: a loop
+     with no exit. It is not a crash, so nothing catches it, and the only
+     escape the menu offered was WIPE SAVE — deleting a character to
+     apologise for the game's own mistake. This puts the hero back on the
+     start map with everything they own, and it cannot itself be trapped:
+     it takes no notice of where they are standing now. */
+  function rescue(){
+    const start = (window.MAP_INDEX && MAP_INDEX.start) || 'ruin-01';
+    arrivedByTransfer = false;
+    return load(start);                 /* load() clears path/goal/chase */
+  }
+
   return {
-    load, draw, walkTo, update,
+    load, draw, walkTo, update, rescue,
     playerAt(){ return { c: hero.c, r: hero.r }; },
     onExit(cb){ onExitCb = cb; },
     onNpc(cb){ onNpcCb = cb; },
@@ -1817,6 +1890,7 @@ const WORLD = (() => {
     get _map(){ return map; },          /* test hooks */
     _hero: hero,
     _actors(){ return actors; },
+    _setArrivedByTransfer(v){ arrivedByTransfer = !!v; },   /* tests only */
     _roams: roams,
     _interact: interact,                /* the tap, without a pointer:
                                            tools/checkroam.js walks the hero

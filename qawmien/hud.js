@@ -1130,6 +1130,30 @@ window.HUD = (function () {
       });
       menuEl.appendChild(back);
     }
+    /* ── THE WAY OUT ─────────────────────────────────────────────
+       Sits ABOVE the wipe and deliberately looks nothing like it, because
+       these two got confused: a player stuck in a corner of the map with
+       no way forward reached for "Wipe save", which is the only other
+       thing in this menu that changes where you are. One of them destroys
+       a character. This one moves them and keeps everything.
+
+       It is offered ALWAYS, not only when the game thinks you are stuck —
+       the game did not notice the loop in the first place, so making the
+       escape conditional on the game noticing would put it behind the
+       same broken judgement. */
+    {
+      const out = document.createElement('button');
+      out.type = 'button';
+      out.className = 'hud-mi';
+      out.setAttribute('role', 'menuitem');
+      out.innerHTML = '<span>I\u2019m stuck \u2014 back to the start</span>';
+      out.addEventListener('click', () => {
+        sfx('tap');
+        closeMenu(false);
+        try { if (window.WORLD && WORLD.rescue) WORLD.rescue(); } catch (e) {}
+      });
+      menuEl.appendChild(out);
+    }
     /* ── START OVER ──────────────────────────────────────────────
        KARTI_BUNDLE.md specified this and nothing built it, so the only
        way to choose a different class was to clear the site's storage —

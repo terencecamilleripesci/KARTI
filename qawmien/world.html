@@ -148,6 +148,29 @@ LANDSCAPE.start(function (blocked) {
    world.js) joins this cycle; the boot glue at the bottom seals it. */
 LOADER.open();
 </script>
+<script>
+/* ── AM I THE OWNER? ─────────────────────────────────────────────────
+   classes.js hides admin-only classes behind window.KARTI_ADMIN, and
+   nothing had ever set it — so the Scubi existed in the code and could
+   not be reached from the game. Set it here, before classes.js runs.
+
+   ASK THE PARENT, DO NOT TAKE A URL FLAG. The RPG runs in a same-origin
+   iframe inside KARTI, so it can run the very same live check the host
+   uses to decide whether to draw the door at all (KARTI_XP.isAdmin(),
+   which is the relay's answer, session and all). A ?admin=1 would be a
+   claim anybody could type into the address bar; this is not.
+
+   Standalone (world.html opened directly, outside KARTI) there is no
+   parent and no relay, so the answer is NO. That is the safe direction:
+   the failure mode is a missing test class, not a leaked one. */
+try {
+  var host = (window.parent && window.parent !== window) ? window.parent : null;
+  var XP = host && host.KARTI_XP;
+  window.KARTI_ADMIN = !!(XP && (typeof XP.isAdmin === 'function'
+    ? XP.isAdmin()
+    : typeof XP.owns === 'function' && XP.owns('border.tempesta')));
+} catch (e) { window.KARTI_ADMIN = false; }   /* cross-origin: not the owner */
+</script>
 <script src="hud-types.js"></script><!-- window.HUDT — the HUD contract:
   geometry, palette, z-scale, storage keys, spell glyphs. Before every
   module that reads it (minimap.js, hud.js, panels.js) — HUD_SPEC §0 -->
