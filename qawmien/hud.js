@@ -1154,6 +1154,37 @@ window.HUD = (function () {
       });
       menuEl.appendChild(out);
     }
+    /* ── TESTING DOORS, OWNER ONLY ───────────────────────────────
+       The two dungeons are a long walk and a key away, which is right for
+       playing and wrong for testing the same boss fight twenty times. So:
+       jump straight to each entrance, on the tile the real door lands you
+       on, so the arrival is the one the game would have produced.
+
+       Behind KARTI_ADMIN — the live relay answer, the same test that
+       decides whether the RPG's door appears on Home at all. A teleport
+       every player could reach is not a debug tool, it is a way to skip
+       the game. */
+    if (window.KARTI_ADMIN) {
+      const div3 = document.createElement('div');
+      div3.className = 'hud-div';
+      menuEl.appendChild(div3);
+      [['Test: the crypt', 'crypt-1'],
+       ['Test: the necropolis', 'necro-1']].forEach(pair => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'hud-mi';
+        b.setAttribute('role', 'menuitem');
+        b.innerHTML = '<span>' + esc(pair[0]) + '</span>';
+        b.addEventListener('click', () => {
+          sfx('tap');
+          closeMenu(false);
+          /* 11,23 is where the overworld door puts you — see the exit
+             markers in field-2-3 and field-0-3 */
+          try { WORLD.load(pair[1], { c: 11, r: 23 }); } catch (e) {}
+        });
+        menuEl.appendChild(b);
+      });
+    }
     /* ── START OVER ──────────────────────────────────────────────
        KARTI_BUNDLE.md specified this and nothing built it, so the only
        way to choose a different class was to clear the site's storage —
