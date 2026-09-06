@@ -211,11 +211,74 @@ const WT = (() => {
              hp: 100, hpMax: 100, ap: 6, mp: 3, items: [] };
   }
 
+  /* ── SEAL THE UNFINISHED LAND ─────────────────────────────────────
+     mkworld.py derives the map GRID from the island silhouette, so a screen
+     exists as soon as there is land under it — whether or not anyone has
+     put anything on it yet. Eight of the seventeen field screens have no
+     markers at all: no fight, no npc, no exit, nothing to find. Walking
+     into one is walking into a field where nothing ever confirms you
+     moved, which is what "I travelled to a map that is not yet finished
+     and I am on a loop" describes.
+
+     THIS DERIVES ITSELF, it is not a hand-written blocklist. A map counts
+     as unfinished when it holds no markers, so the day somebody puts a
+     fight on field-2-2 it opens on its own, and a new blank screen from
+     the next mkworld run is sealed on its own. A list would have to be
+     remembered by whoever does that, and would be wrong the first time it
+     was not.
+
+     IT WILL NOT SEAL A CORRIDOR. Four of the eight empty screens are the
+     only way through to finished land — wall those and the crypts become
+     unreachable, which is a far worse bug than the one being fixed. So a
+     screen is sealed only if every FINISHED map is still reachable from
+     the start without it, tested one at a time against what is already
+     sealed. Empty corridors stay open: you pass through them to somewhere
+     real, which is the opposite of the complaint.
+
+     Sealed maps are marked, not deleted — the files belong to the
+     generator. Callers must also refuse to RESUME a save on a sealed map,
+     or a player already standing in one wakes up walled in. */
+  function sealUnfinished(maps, startId){
+    const ids = Object.keys(maps).sort();
+    const empty = ids.filter(id => !(maps[id].markers || []).length);
+    const finished = ids.filter(id => !empty.includes(id));
+    const walled = new Set();
+    const reaches = () => {
+      const seen = new Set([startId]), q = [startId];
+      while (q.length){
+        const m = maps[q.shift()];
+        if (!m) continue;
+        const outs = Object.keys(m.neighbours || {}).map(d => m.neighbours[d])
+          .concat((m.markers || [])
+            .filter(k => k.type === 'exit').map(k => k.to || k.map));
+        for (const t of outs)
+          if (t && maps[t] && !walled.has(t) && !seen.has(t)){ seen.add(t); q.push(t); }
+      }
+      return seen;
+    };
+    for (const e of empty){
+      walled.add(e);
+      const seen = reaches();
+      if (finished.some(f => !seen.has(f))) walled.delete(e);
+    }
+    for (const id of walled) maps[id].sealed = true;
+    /* cut the links BOTH WAYS: a one-sided cut leaves the sealed map
+       pointing back at a neighbour that no longer points at it, and
+       anything walking the graph from the wrong end still finds it. */
+    for (const id of ids){
+      const nb = maps[id].neighbours;
+      if (!nb) continue;
+      for (const d of Object.keys(nb))
+        if (nb[d] && walled.has(nb[d])) nb[d] = null;
+    }
+    return [...walled];
+  }
+
   return { GRID: G, TW, TH, TILE_PX, ATLAS_COLS, ATLAS_SRC, FOOT_W, FOOT_H, FOOT_TOP,
            SCALE, WALK_MS, DIAG_MS, SPR_SCALE, FOOT_Y, LAYERS, TILES, DIRS8, OPP,
            fieldId, parseFieldId, isoX, isoY, boardToTile, atlasRect, drawTile,
            inMap, tileAt, isWalkable, canStep, edgeDir, edgeTarget, markerAt,
-           seamErrors, makePlayer };
+           seamErrors, makePlayer, sealUnfinished };
 })();
 
 if (typeof window !== 'undefined') window.WT = WT;

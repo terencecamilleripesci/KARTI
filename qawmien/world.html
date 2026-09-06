@@ -261,6 +261,27 @@ try {
    window.PLAYER is no longer built here: player.js (window.HERO) creates
    it, restores the saved identity + progress from localStorage
    ('tactics.hero.v1') and keeps class-derived stats correct. */
+/* ── SEAL BEFORE THE QUEST TOUCHES ANYTHING ──────────────────────────
+   Sealing is derived from which screens hold markers, and quest.js both
+   adds a marker (the training dummy) and drops ones the player has
+   finished with. Sealing after QUEST.start() would therefore make the
+   answer depend on how far through the tutorial this particular save is —
+   the same build could seal a different set of screens for two players,
+   and the checkers, which run on pristine generated data, would only ever
+   have tested one of them. Reading the maps as the generator wrote them
+   keeps one answer for everybody.
+
+   The loading gate also prefetches every way out of the first map, so a
+   sealed neighbour must be cut before that runs.
+
+   (Node and the browser agree on the set: field-0-0, field-1-2, field-1-3,
+   field-2-2. An earlier note here claimed they disagreed — that was a
+   throwaway script of mine iterating unsorted, not the checker.) */
+try {
+  const sealed = WT.sealUnfinished(window.MAPS || {},
+                   (window.MAP_INDEX && MAP_INDEX.start) || 'ruin-01');
+  if (sealed.length) console.info('sealed unfinished: ' + sealed.join(', '));
+} catch (e) {}
 QUEST.start();
 /* Resume where the hero last stood — player.js persists {map,c,r} inside
    'tactics.hero.v1' and serves it back through HERO.where(). Fall back to
@@ -302,6 +323,15 @@ function create(next){
 }
 create(function boot(){
   const at = (window.HERO && HERO.where) ? HERO.where() : null;
+  /* A SAVE INSIDE A SEALED MAP IS A WALLED-IN PLAYER. Sealing cuts the
+     links, so anyone who was already standing in a blank screen when this
+     shipped would wake up somewhere with no way out at all — the same bug,
+     made permanent. Treat it exactly like an unknown map id: start again
+     from the ruin, keeping the character. */
+  if (at && window.MAPS && MAPS[at.map] && MAPS[at.map].sealed) {
+    WORLD.load(window.MAP_INDEX ? MAP_INDEX.start : 'ruin-01');
+    return;
+  }
   if (at && window.MAPS && MAPS[at.map] &&
       WT.isWalkable(MAPS[at.map], at.c, at.r)){
     const mk = WT.markerAt(MAPS[at.map], at.c, at.r);
