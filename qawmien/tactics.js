@@ -855,6 +855,60 @@ function spellOf(id){ return ALL_SPELLS.find(s => s.id === id); }
 function liveSummonOf(u){ return G.units.find(v => v.owner === u && v.hp > 0); }
 function trapAt(c, r){ return (G.traps || []).find(t => t.c === c && t.r === r); }
 
+/* ── BLEEDING GROUND ───────────────────────────────────────────────
+   A FIELD is a trap that does not wait to be stepped on and does not go away
+   when it fires. It covers a cross of tiles, and on each of its caster's turns
+   it bleeds everyone standing in it and gives her the blood.
+
+   Different from a trap on purpose: a trap is a decision the enemy makes
+   (walk there and be punished), a field is a clock (stand there and keep
+   paying). It lasts three of HER turns and expires at the start of the third,
+   so it is a window she plays around rather than a permanent hazard.
+
+   Lives on G.fields; setField replaces any the same caster already had, the
+   way setTrap does, so one is the most that can be out. */
+function fieldsOf(u){ return (G.fields || []).filter(f => f.owner === u); }
+
+function setField(u, sp, c, r){
+  G.fields = (G.fields || []).filter(f => f.owner !== u);
+  G.fields.push({ c, r, owner: u, sp, turns: (sp.field.turns | 0) || 3 });
+  floatAt(c, r, sp.name || 'field', '#FF6B9D');
+  paint();
+}
+
+/* Called when a unit's turn begins: tick every field that unit owns. */
+function tickFields(u){
+  if (!G.fields || !G.fields.length) return;
+  for (const f of G.fields.slice()){
+    if (f.owner !== u) continue;
+    const tiles = [{ c: f.c, r: f.r }];
+    if (f.sp.field.aoe)
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]])
+        tiles.push({ c: f.c + dc, r: f.r + dr });
+    let bled = 0;
+    for (const t of tiles){
+      const v = unitAt(t.c, t.r);
+      /* it bleeds ANYONE standing in it except the caster — her own blood
+         magic does not turn on her, but a summon of hers is not spared, which
+         is a real decision when placing it */
+      if (!v || v === u || v.hp <= 0) continue;
+      const before = v.hp;
+      hurt(v, scaleRoll(u, f.sp, rng(f.sp.field.dmg[0], f.sp.field.dmg[1])));
+      bled += before - v.hp;
+    }
+    if (bled > 0 && u.hp > 0 && f.sp.field.drain){
+      const back = Math.max(1, Math.round(bled * f.sp.field.drain));
+      const got = Math.min(u.hpMax - u.hp, back);
+      if (got > 0){ u.hp += got; floatText(u, '+' + got, '#FF6B9D'); }
+    }
+    if (--f.turns <= 0){
+      G.fields.splice(G.fields.indexOf(f), 1);
+      floatAt(f.c, f.r, 'spent', '#9C97B8');
+    }
+  }
+  checkOver();
+}
+
 /* Can `u` cast `sp` at (c,r)? One function, used by the UI to paint the
    range AND by the AI to choose — so what you are shown and what is
    allowed can never disagree. */
@@ -878,6 +932,7 @@ function canCast(u, sp, c, r){
   if (sp.tp)     return !t;                           /* an EMPTY tile     */
   if (sp.summon) return !t && !liveSummonOf(u);       /* one at a time     */
   if (sp.trap)   return !t && !trapAt(c, r);
+  if (sp.field)  return !t;                           /* an EMPTY tile     */
   if (sp.shield) return c === u.c && r === u.r;       /* self only         */
   return true;
 }
@@ -1151,6 +1206,7 @@ function cast(u, sp, c, r){
   }
   if (sp.summon){ spawnSummon(u, sp.summon, c, r); return; }
   if (sp.trap){ setTrap(u, sp, c, r); return; }
+  if (sp.field){ setField(u, sp, c, r); return; }
   if (sp.shield){                       /* Bulwark: scales off Strength     */
     u.shieldHp = scaleRoll(u, sp, rng(sp.shield[0], sp.shield[1]));
     floatText(u, 'shield ' + u.shieldHp, '#7FD4C1');
@@ -1180,13 +1236,42 @@ function cast(u, sp, c, r){
   const hits = [{ c, r }];
   if (sp.aoe) for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]]) hits.push({ c:c + dc, r:r + dr });
   let any = false;
+  let drained = 0;                      /* damage actually dealt, for `drain` */
   for (const h of hits){
     const t = unitAt(h.c, h.r);
     if (!t) continue;
     any = true;
+    const before = t.hp;
     hurt(t, scaleRoll(u, sp, rng(sp.dmg[0], sp.dmg[1])), null, fly);
+    drained += before - t.hp;           /* what LANDED, not what was rolled:
+                                          a shield that ate the blow feeds
+                                          nobody */
+    /* AP BURN. Taking a point of action is worth more than the damage it
+       comes with — a target on 5 AP that drops to 4 loses a spell, not a
+       fraction of a turn. Applied to the CURRENT pool, so it bites this
+       turn and refills at the start of their next one. */
+    if (sp.apLoss && t.hp > 0){
+      const lost = Math.min(t.ap, sp.apLoss | 0);
+      if (lost > 0){
+        t.ap -= lost;
+        floatText(t, '-' + lost + ' AP', '#7FB2FF');
+      }
+    }
     if (sp.push && t.hp > 0) pushFrom(u, t, sp.push);
     if (sp.pull && t.hp > 0) pullTo(u, t, sp.pull);
+  }
+  /* DRAIN — the whole identity of the Scubi. A share of what was dealt comes
+     back as health, capped at full. It reads the damage that actually landed
+     across every tile the spell touched, so an area drain off three bodies is
+     the moment the class is built around. */
+  if (sp.drain && drained > 0 && u.hp > 0){
+    const back = Math.max(1, Math.round(drained * sp.drain));
+    const got = Math.min(u.hpMax - u.hp, back);
+    if (got > 0){
+      u.hp += got;
+      const show = () => floatText(u, '+' + got, '#FF6B9D');
+      if (fly) setTimeout(show, fly); else show();
+    }
   }
   if (!any) floatAt(c, r, 'miss', '#9C97B8');
   checkOver();
@@ -1210,6 +1295,7 @@ function startTurn(){
   /* a quiet two-note nudge when the turn comes back to YOU */
   if (u.side === 0 && !u.auto && window.HUD) HUD.sfx('turn');
   for (const k in u.cd) if (u.cd[k] > 0) u.cd[k]--;
+  tickFields(u);        /* bleeding ground pays out, then counts down */
   sel = null;
   paint();
   if (u.side === 1 || u.auto){   /* enemies AND auto allies (the ram) */
@@ -1741,6 +1827,23 @@ function draw(){
     const p = iso(t.c, t.r);
     diamond(p); ctx.fillStyle = 'rgba(232,98,45,.30)'; ctx.fill();
     ctx.strokeStyle = '#E8622D'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  /* bleeding ground: every tile it covers, so what it will hit is visible
+     rather than remembered — it fades as its turns run out */
+  if (G.fields) for (const f of G.fields){
+    const tiles = [{ c: f.c, r: f.r }];
+    if (f.sp.field && f.sp.field.aoe)
+      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]])
+        tiles.push({ c: f.c + dc, r: f.r + dr });
+    const life = Math.max(0.25, (f.turns || 1) / 3);
+    for (const t of tiles){
+      const p = iso(t.c, t.r);
+      diamond(p);
+      ctx.fillStyle = 'rgba(255,107,157,' + (0.30 * life).toFixed(2) + ')';
+      ctx.fill();
+      ctx.strokeStyle = '#FF6B9D'; ctx.lineWidth = 2; ctx.stroke();
+    }
   }
 
   /* walls + units, PAINTER'S ORDER (back rows first) or they overlap wrong */

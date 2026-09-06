@@ -206,7 +206,14 @@ const HUDT = (() => {
        showing generic strokes while the real game shows painted icons, they
        borrow the icon that means the same thing: a melee smash, a bolt, an
        area blast, a push. The board reads the same in both places. */
-    strike: 0, bolt: 9, blast: 10, shove: 7, thwack: 0 };
+    strike: 0, bolt: 9, blast: 10, shove: 7, thwack: 0,
+    /* THE SCUBI BORROWS TOO, for now. Her spells have no painted icons yet,
+       and the fallback is a generic stroke — so each one takes the icon of the
+       spell that does the same job, and the bar reads correctly until her own
+       art exists: a drain reads as a bolt, a drag as the other drag, bleeding
+       ground as the other ground effect, a summon as the other summon, a blink
+       as the other blink. Replace these the moment the icons are drawn. */
+    siphon: 9, leash: 1, hemorrhage: 11, scion: 18, bloodstep: 8, nip: 21 };
 
   function spellIcon(id, size, tint) {
     const at = ICON_AT[id];

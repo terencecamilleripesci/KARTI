@@ -57,8 +57,22 @@ window.CLASSES = (function () {
     const st = sp && sp.elem ? STAT_OF_ELEM[sp.elem] : null;
     return st ? Math.round(roll * (1 + (stats[st] | 0) / 100)) : roll;
   }
+  /* HEALS SCALE OFF INTELLIGENCE, the way they do in Dofus. This read `cha`,
+     which conflated two different jobs: Chance is PROSPECTING — how much loot
+     falls out of a thing you killed (see GEAR.prospect) — and Intelligence is
+     what makes a heal land harder. Wearing +chance gear was quietly making a
+     Tidebinder a better healer while doing nothing for her loot. */
   function scaleHeal(roll, stats) {
-    return Math.round(roll * (1 + ((stats.cha | 0)) / 100));
+    return Math.round(roll * (1 + ((stats.int | 0)) / 100));
+  }
+
+  /* PROSPECTING, also from Dofus: Chance is the stat that decides how often
+     something drops. 100 chance doubles the base rate; it is deliberately
+     linear and capped, because a stat that multiplies drops without limit
+     turns every other stat into a mistake. */
+  function prospect(stats) {
+    const cha = Math.max(0, (stats && stats.cha) | 0);
+    return Math.min(3, 1 + cha / 100);
   }
 
   /* ── summons (spec §5.5) — reuses the existing sheep art ─────── */
@@ -71,6 +85,20 @@ window.CLASSES = (function () {
         { id: 'ramhorn', name: 'Ram', ap: 3, min: 1, max: 1, los: false,
           dmg: [8, 12], cd: 0, elem: 'earth', scalesOffOwner: true,
           hint: 'The flock defends its own.' }
+      ]
+    },
+    /* THE BABY SCUBI — small, quick, and it drains like its mother. It is a
+       body between her and the fight as much as a source of damage: she is
+       the frailest thing on the board until she has hit something. */
+    scublet: {
+      id: 'scublet', name: 'Scublet', hp: 34, ap: 4, mp: 4,
+      sheet: 'scublet',                  /* art/scublet-sheet.png + -dir8.png */
+      actsAfterOwner: true, maxAlivePerCaster: 1,
+      spells: [
+        { id: 'nip', name: 'Nip', ap: 3, min: 1, max: 1, los: false,
+          dmg: [7, 11], cd: 0, elem: 'water', scalesOffOwner: true,
+          drain: 0.5,
+          hint: 'It bites, and it keeps half of what it takes.' }
       ]
     }
   };
@@ -229,8 +257,70 @@ window.CLASSES = (function () {
         f: { sheet: 'shepherd-f',
              hook: 'No hat: ram-horn headdress curling at each temple, crook slung across the back, fleece-trim poncho with a diamond hem.',
              palette: ['#f2e6c8', '#7a4a2b', '#5a7d4a', '#e8622d'] }
+      } },
+
+    /* ── SCUBI — admin, and female only ───────────────────────────────
+       Not one of the five. She exists for the owner to test with, is hidden
+       from the picker unless `adminOnly` passes (see visible()), and has no
+       male form — `look` carries only `f`, so anything reading look[gender]
+       must go through this class's own guard rather than assume both exist.
+
+       She is the only class that heals by hurting. Every point she takes off
+       something else comes back to her, which makes her unkillable in a crowd
+       and the frailest thing on the board the moment she misses. The five
+       spells are five different verbs on purpose — drain, drag, bleed,
+       summon, blink — because a kit of five damage spells is one spell with
+       five names. */
+    { id: 'scubi', cloth: '#7A2E3F', name: 'Scubi', element: 'water',
+      secondary: null, adminOnly: true, femaleOnly: true,
+      role: 'drain caster',
+      tagline: 'She leaves lighter than she arrived.',
+      desc: 'Heals by taking. Fragile alone, unkillable in a crowd — every point she deals comes back.',
+      base: { hp: 88, ap: 6, mp: 3 },
+      growth: { hp: 5, statPoints: 5, suggest: ['cha', 'int'], apAt: [10, 100], mpAt: [20, 200] },
+      /* leans cha (her element, and prospecting) and int (heal power) */
+      stats: { vit: 12, wis: 4, str: 0, int: 12, cha: 18, agi: 6 },
+      spells: [
+        { id: 'siphon', name: 'Siphon', ap: 3, min: 1, max: 5, los: true,
+          dmg: [14, 20], cd: 0, elem: 'water', drain: 1,
+          hint: 'Every point you take off them, you keep.' },
+        { id: 'leash', name: 'Leash', ap: 2, min: 3, max: 6, los: true,
+          dmg: [4, 6], cd: 1, elem: 'water', pull: 3, drain: 1, apLoss: 1,
+          hint: 'Drags them three tiles in and takes an action off them.' },
+        { id: 'hemorrhage', name: 'Hemorrhage', ap: 4, min: 1, max: 4, los: true,
+          cd: 3, elem: 'water',
+          field: { dmg: [10, 14], aoe: 1, turns: 3, drain: 1 },
+          hint: 'Bleeding ground, five tiles wide. It pays you on each of your next three turns.' },
+        { id: 'scion', name: 'Scion', ap: 4, min: 1, max: 2, los: false,
+          cd: 4, elem: 'water', summon: 'scublet',
+          hint: 'A scublet of your own blood. It bites, and it drains too.' },
+        { id: 'bloodstep', name: 'Bloodstep', ap: 2, min: 1, max: 6, los: false,
+          cd: 2, elem: 'water', tp: true,
+          hint: 'Blink six tiles. Walls do not matter; that is the escape.' }
+      ],
+      look: {
+        f: { sheet: 'base-f',
+             hook: 'The shared female body for now — her own art comes later.',
+             palette: ['#7A2E3F', '#FF6B9D', '#3a3f4a', '#f2e6c8'] }
       } }
   ];
+
+  /* WHO MAY SEE A CLASS. The picker and anything else listing classes must
+     ask, rather than reading LIST directly, or the admin class shows up for
+     everyone. `admin` is passed in by the caller — the real answer lives on
+     the relay (isAdmin), never in this file, because anything hardcoded here
+     is readable by anyone who opens the bundle. */
+  function visible(admin) {
+    return LIST.filter(c => !c.adminOnly || !!admin);
+  }
+
+  /* Which genders a class can be. Scubi has no male form, and `look[gender]`
+     would throw the moment someone tapped Male. */
+  function genders(cls) {
+    const c = (typeof cls === 'string') ? BY_ID[cls] : cls;
+    if (!c || !c.look) return ['m', 'f'];
+    return ['m', 'f'].filter(g => !!c.look[g]);
+  }
 
   const BY_ID = {};
   for (const c of LIST) BY_ID[c.id] = c;
@@ -287,10 +377,10 @@ window.CLASSES = (function () {
   }
 
   return {
-    LIST, SUMMONS, STAT_OF_ELEM,
+    LIST, SUMMONS, STAT_OF_ELEM, visible, genders,
     byId: id => BY_ID[id] || null,
     garb,
-    maxHp, initiative, dodgeChance, scaleDamage, scaleHeal,
+    maxHp, initiative, dodgeChance, scaleDamage, scaleHeal, prospect,
     xpFor, xpTotal, MAX_LEVEL
   };
 })();

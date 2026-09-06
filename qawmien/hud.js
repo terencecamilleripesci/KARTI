@@ -208,6 +208,28 @@ window.HUD = (function () {
                        tone(494, 0, 0.25, 'sine', 0.12, 0.32);
                        tone(587, 0, 0.30, 'sine', 0.24, 0.3);
                        nz(500, 200, 0.45, 'lowpass', 0.7, 0.3, 0, 0.15); },
+    /* ── the Scubi: water, but wrong. Every one of hers ends by RISING,
+       because every one of hers gives something back to her — the pitch
+       going up as she does is the tell that separates her from a
+       Tidebinder, who sounds like water and nothing else. ── */
+    siphon:    () => { tone(300, 180, 0.16, 'sine', 0, 0.45);     /* pull down */
+                       nz(700, 200, 0.18, 'lowpass', 0.8, 0.4);
+                       tone(330, 520, 0.22, 'sine', 0.10, 0.30); },  /* …and back */
+    leash:     () => { nz(900, 260, 0.14, 'lowpass', 0.8, 0.45);  /* snap */
+                       tone(240, 150, 0.20, 'sine', 0.02, 0.5);   /* drag in */
+                       tone(300, 470, 0.16, 'sine', 0.14, 0.26); },
+    hemorrhage:() => { nz(400, 120, 0.40, 'lowpass', 0.7, 0.45, 0, 0.12); /* spread */
+                       tone(180, 120, 0.36, 'sine', 0, 0.42);
+                       tone(262, 392, 0.20, 'sine', 0.20, 0.24); },
+    scion:     () => { tone(196, 330, 0.26, 'triangle', 0, 0.40);  /* something
+                                                                     arrives */
+                       tone(294, 440, 0.20, 'triangle', 0.10, 0.30);
+                       nz(500, 180, 0.24, 'lowpass', 0.7, 0.3, 0.06); },
+    bloodstep: () => { nz(1200, 300, 0.10, 'lowpass', 0.8, 0.4);   /* out… */
+                       tone(520, 260, 0.12, 'sine', 0, 0.28);
+                       nz(300, 1100, 0.10, 'lowpass', 0.8, 0.35, 0.10); }, /* …in */
+    nip:       () => { nz(1100, 400, 0.08, 'lowpass', 0.8, 0.35);  /* small bite */
+                       tone(420, 600, 0.10, 'sine', 0.04, 0.22); },
     /* ── the stock testbed / enemy kit (tactics.js SPELLS + AI) ── */
     strike:    () => { thud(110, 0.9, 0.14); },
     bolt:      () => { whoosh(800, 2400, 0.14, 0.55); },

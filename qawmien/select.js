@@ -162,6 +162,15 @@ window.SELECTUI = (function () {
     function lookRows() {
       const host = $('lookRows');
       if (!host || !window.TINT) return;
+      /* NO COLOUR PICKERS. The characters are drawn art now, in their own
+         colours, not key-coloured sheets waiting to be recoloured — so these
+         swatches changed nothing at all. A control that does nothing is worse
+         than no control: the player picks black hair, gets brown, and stops
+         trusting the screen. The code stays because re-keying the art would
+         bring it straight back; TINT still supplies the defaults used to draw
+         the preview. */
+      host.hidden = true;
+      return;
       const bands = [['hair', 'Hair', TINT.HAIR],
                      ['skin', 'Skin', TINT.SKIN],
                      ['eyes', 'Eyes', TINT.EYES]];
@@ -472,12 +481,26 @@ window.SELECTUI = (function () {
       /* rail + gender pressed states */
       scope.querySelectorAll('.cbtn').forEach(b =>
         b.setAttribute('aria-pressed', String(b.dataset.id === sel.classId)));
-      scope.querySelectorAll('.gbtn').forEach(b =>
-        b.setAttribute('aria-pressed', String(b.dataset.g === sel.gender)));
+      /* A CLASS MAY NOT HAVE BOTH GENDERS. Scubi is female only, and
+         `look[gender]` throws the moment someone taps Male — so the buttons a
+         class cannot be are hidden rather than left to fail. Hidden, not
+         disabled: a greyed-out Male on a class that will never have one is a
+         promise nobody intends to keep. */
+      const allowed = C.genders ? C.genders(sel.classId) : ['m', 'f'];
+      scope.querySelectorAll('.gbtn').forEach(b => {
+        b.hidden = allowed.indexOf(b.dataset.g) < 0;
+        b.setAttribute('aria-pressed', String(b.dataset.g === sel.gender));
+      });
     }
 
     /* ── build the class rail ───────────────────────────────────── */
-    $('rail').innerHTML = C.LIST.map(cls =>
+    /* ADMIN CLASSES ARE NOT FOR EVERYONE. The rail asks CLASSES.visible()
+       rather than reading LIST, so a class marked adminOnly appears only when
+       the caller says this is the owner. The truth about who that is lives on
+       the relay (isAdmin) — window.KARTI_ADMIN is how the host page passes the
+       answer in, and its absence means "no". */
+    const SHOWN = C.visible ? C.visible(!!window.KARTI_ADMIN) : C.LIST;
+    $('rail').innerHTML = SHOWN.map(cls =>
       '<button class="cbtn" type="button" data-id="' + cls.id +
       '" aria-pressed="false" aria-label="' + esc(cls.name) + ', ' +
       ELEM[cls.element].label + ' ' + esc(cls.role) + '">' +
@@ -491,6 +514,10 @@ window.SELECTUI = (function () {
         return;
       }
       sel.classId = b.dataset.id;
+      /* the new class may not come in the gender currently selected — pick a
+         legal one rather than reading look[gender] and throwing */
+      const allow = C.genders ? C.genders(sel.classId) : ['m', 'f'];
+      if (allow.indexOf(sel.gender) < 0) sel.gender = allow[0] || 'f';
       renderClass();
       setActor(C.byId(sel.classId), sel.gender, true);
     }));

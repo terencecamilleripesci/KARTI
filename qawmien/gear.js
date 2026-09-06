@@ -209,8 +209,14 @@ window.GEAR = (function () {
   function rnd(rng) { return (typeof rng === 'function' ? rng() : Math.random()); }
 
   /* what a single fallen open-world enemy drops: usually nothing */
-  function mobDrop(level, rng) {
-    if (rnd(rng) >= MOB_CHANCE) return null;
+  /* CHANCE IS PROSPECTING (Dofus's rule, and the owner's): the luckier you
+     are, the more often something falls out. `stats` is optional so every
+     existing caller keeps working unchanged — without it the rate is exactly
+     what it always was. */
+  function mobDrop(level, rng, stats) {
+    const rate = MOB_CHANCE * (window.CLASSES && CLASSES.prospect
+                               ? CLASSES.prospect(stats) : 1);
+    if (rnd(rng) >= rate) return null;
     /* only offer gear the player could plausibly be near — a level 3 goat
        handing out level 26 boots would be the whole progression curve
        undone by one lucky roll */
