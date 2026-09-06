@@ -398,9 +398,35 @@ window.PANELS = (function () {
         '<b>Not yet awakened</b><span>Reach the Elder in the ruin —<br>' +
         'your class chooses your spells.</span></div>';
     }
-    var h = '<div class="pn-sub">Spellbook</div><div class="sp-list" role="list">';
-    for (var i = 0; i < spells.length; i++) {
-      var sp = spells[i], ek = elemKeyOf(sp);
+    /* THE WHOLE BOOK, LOCKED SPELLS INCLUDED. Showing only what you have
+       learned makes levelling look like it gives nothing — the point of a
+       book is that you can see what is coming and pick what to save for. */
+    var book = (window.HERO && window.HERO.book) ? window.HERO.book() : null;
+    var left = (window.HERO && window.HERO.spellPointsLeft) ? window.HERO.spellPointsLeft() : 0;
+    var MAXR = (window.CLASSES && CLASSES.SPELL) ? CLASSES.SPELL.MAX_RANK : 6;
+    var h = '<div class="pn-sub">Spellbook' +
+      (book ? '<span class="sp-pts' + (left ? ' has' : '') + '">' + left +
+              ' spell point' + (left === 1 ? '' : 's') + '</span>' : '') +
+      '</div><div class="sp-list" role="list">';
+    var rows = book || spells.map(function (x) { return { sp: x, known: true, rank: 1, at: 1 }; });
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i], sp = row.now || row.sp, ek = elemKeyOf(sp);
+      /* `sp` is the spell AT ITS CURRENT RANK from here on, so the facts
+         line agrees with the pips beside it. */
+      if (!row.known) {
+        /* a locked spell is a PROMISE, so it shows its name and the level it
+           arrives — a row of question marks teaches nothing */
+        h += '<article class="sp-card locked" role="listitem">' +
+          '<div class="sp-ic" data-elem="' + ek + '" aria-hidden="true">' + spellIconHtml(sp) + '</div>' +
+          '<div class="sp-head"><b class="sp-name">' + esc(sp.name) + '</b></div>' +
+          '<p class="sp-hint">' + esc(sp.hint || '') + '</p>' +
+          '<div class="sp-lock">Learned at level ' + row.at + '</div>' +
+          '</article>';
+        continue;
+      }
+      var can = (window.HERO && window.HERO.canRaise) ? window.HERO.canRaise(sp.id) : { ok: false, why: '' };
+      var pips = '';
+      for (var r = 1; r <= MAXR; r++) pips += (r <= row.rank ? '\u25cf' : '\u25cb');
       /* usable right now vs not: out of combat the only honest lock is the AP
          pool (cooldowns exist only inside a fight; the combat tooltip owns
          "Ready in N"). Full-bright card = castable on your turn. */
@@ -414,6 +440,13 @@ window.PANELS = (function () {
         '<div class="sp-facts">' + esc(factsText(sp)) + '</div>' +
         (off ? '<div class="sp-lock">Not enough AP — costs ' + sp.ap +
           ', you have ' + (P.ap | 0) + '</div>' : '') +
+        '<div class="sp-rank"><span class="sp-pips" aria-label="Rank ' + row.rank +
+          ' of ' + MAXR + '">' + pips + '</span>' +
+          (can.ok
+            ? '<button type="button" class="sp-raise" data-act="raise" data-id="' +
+              esc(sp.id) + '">Raise \u2192 ' + can.next + ' (' + can.cost + ')</button>'
+            : '<span class="sp-why">' + esc(can.why || '') + '</span>') +
+        '</div>' +
         '</article>';
     }
     h += '</div><p class="sp-note">In battle: tap a spell’s icon to ready it, hold it to read it.</p>';
@@ -667,6 +700,13 @@ window.PANELS = (function () {
     if (act === 'close') api.close();
     else if (act === 'tab') show(b.getAttribute('data-t'));
     else if (act === 'subtab') setHeroTab(b.getAttribute('data-t'));
+    else if (act === 'raise') {
+      /* HERO decides — it owns the points and the level gate. The panel only
+         asks and repaints; duplicating the rule here is how the button and
+         the save end up disagreeing. */
+      try { window.HERO.raiseSpell(b.getAttribute('data-id')); } catch (e) {}
+      renderStats();
+    }
     else if (act === 'item') { sheetId = b.getAttribute('data-id'); dropArmed = false; renderSheet(); }
     else if (act === 'sheet-close') closeSheet();
     else if (act === 'use') useItem();

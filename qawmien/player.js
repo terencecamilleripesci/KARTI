@@ -67,6 +67,12 @@ window.HERO = (function () {
               hp: 100, hpMax: 100, ap: 6, mp: 3,
               items: [], equip: {},
               stats: { earth: 0, fire: 0, water: 0, air: 0 },
+              /* SPELL RANKS, id -> rank. Absent means rank 1: a spell is
+                 usable the moment it is learned, and a point only ever
+                 makes it better. Storing only what has been RAISED keeps
+                 the save small and means a spell added to a class later
+                 does not need a migration. */
+              spellRanks: {},
               classId: null, gender: 'm' };
 
   let changeCb = null;
@@ -191,6 +197,7 @@ window.HERO = (function () {
       name: c ? c.name : null,
       savedAt: new Date().toISOString(),
       level: P.level, xp: P.xp, points: P.points | 0, hp: P.hp,
+      spellRanks: Object.assign({}, P.spellRanks),
       items: cleanItems(P.items),
       equip: cleanEquip(P.equip),
       at: AT
@@ -222,6 +229,15 @@ window.HERO = (function () {
     if (typeof d.level === 'number') P.level = Math.max(1, d.level | 0);
     if (typeof d.xp === 'number')    P.xp = Math.max(0, d.xp | 0);
     if (typeof d.points === 'number') P.points = Math.max(0, d.points | 0);
+    /* ranks come off the wire, so clamp them: a rank of 900 read straight
+       into atRank() would scale a spell by 100x */
+    P.spellRanks = {};
+    if (d.spellRanks && typeof d.spellRanks === 'object')
+      for (const k of Object.keys(d.spellRanks)){
+        const r = d.spellRanks[k] | 0;
+        if (r > 1) P.spellRanks[k] = Math.min(
+          (window.CLASSES && CLASSES.SPELL.MAX_RANK) || 6, r);
+      }
     if (d.look && typeof d.look === 'object'){
       for (const k of ['hair', 'skin', 'eyes'])
         if (typeof d.look[k] === 'string' && /^#[0-9a-f]{6}$/i.test(d.look[k]))
@@ -243,7 +259,8 @@ window.HERO = (function () {
     /* whereNow() is in the snapshot so WALKING marks the save dirty —
        otherwise a mid-tutorial reload forgets the map/tile (the ruin-01
        respawn bug) whenever nothing else changed since the last save */
-    return JSON.stringify([P.level, P.xp, P.points, P.hp, P.items, P.equip, whereNow()]);
+    return JSON.stringify([P.level, P.xp, P.points, P.hp, P.items, P.equip,
+                           P.spellRanks, whereNow()]);
   }
   let snap = '';
   function maybeSave() {
@@ -368,6 +385,78 @@ window.HERO = (function () {
     },
     get points() { return P.points | 0; },
 
+    /* ── SPELLS: what is known, what a point buys ───────────────────
+       All of it derived from level + the ranks map, never stored as a
+       running total. A "points left" counter that drifts from what was
+       actually spent is unfixable from the outside; a subtraction is not. */
+    spellRank(id) { return Math.max(1, P.spellRanks[id] | 0 || 1); },
+    /* the class kit this character has actually reached, each one already
+       carrying its rank's numbers — callers get a spell they can cast */
+    spells() {
+      const c = cls();
+      if (!c || !window.CLASSES) return [];
+      return CLASSES.learned(c, P.level)
+                    .map(sp => CLASSES.atRank(sp, this.spellRank(sp.id)));
+    },
+    /* everything in the book, LOCKED ONES INCLUDED — the spell book has to
+       show what is coming, or levelling has nothing to look forward to */
+    book() {
+      const c = cls();
+      if (!c || !window.CLASSES) return [];
+      return c.spells.map(sp => {
+        const rank = this.spellRank(sp.id);
+        return {
+          sp,                                   /* the spell as WRITTEN     */
+          /* AND AS IT IS RIGHT NOW. The book showed the raw entry, so a
+             spell raised to rank 3 displayed its rank-1 range and damage
+             underneath three filled pips — the card contradicted itself. */
+          now: CLASSES.atRank(sp, rank),
+          at: sp.at || 1,
+          known: (sp.at || 1) <= P.level,
+          rank: rank
+        };
+      });
+    },
+    spellPointsTotal() {
+      return window.CLASSES ? CLASSES.spellPointsAt(P.level) : 0;
+    },
+    spellPointsSpent() {
+      if (!window.CLASSES) return 0;
+      let n = 0;
+      for (const id of Object.keys(P.spellRanks)) n += CLASSES.rankCost(P.spellRanks[id]);
+      return n;
+    },
+    spellPointsLeft() {
+      return Math.max(0, this.spellPointsTotal() - this.spellPointsSpent());
+    },
+    /* WHY a rank cannot be bought, in words the UI can show. Returning a
+       reason rather than false is the difference between a disabled button
+       that teaches the rule and one that just refuses. */
+    canRaise(id) {
+      const c = cls();
+      if (!c || !window.CLASSES) return { ok: false, why: 'no class' };
+      const sp = c.spells.find(x => x.id === id);
+      if (!sp) return { ok: false, why: 'not your spell' };
+      if ((sp.at || 1) > P.level)
+        return { ok: false, why: 'learned at level ' + (sp.at || 1) };
+      const rank = this.spellRank(id), next = rank + 1;
+      if (rank >= CLASSES.SPELL.MAX_RANK) return { ok: false, why: 'already mastered' };
+      if (next > CLASSES.maxRankAt(P.level))
+        return { ok: false, why: 'rank ' + next + ' needs level ' + CLASSES.SPELL.RANK6_LEVEL };
+      const cost = next - 1;
+      if (cost > this.spellPointsLeft())
+        return { ok: false, why: cost + ' points, you have ' + this.spellPointsLeft() };
+      return { ok: true, cost: cost, next: next };
+    },
+    raiseSpell(id) {
+      const can = this.canRaise(id);
+      if (!can.ok) return can;
+      P.spellRanks[id] = can.next;
+      save();
+      if (changeCb) changeCb(P);
+      return can;
+    },
+
     /* has the player been reincarnated (chosen a class)? */
     chosen() { return !!S.classId; },
 
@@ -378,8 +467,11 @@ window.HERO = (function () {
     /* the full class object from classes.js, or null pre-choice */
     cls,
 
-    /* spells for the chosen class ([] pre-choice) */
-    spells() { const c = cls(); return c ? c.spells : []; },
+    /* spells(): defined ABOVE, with the level filter and the rank applied.
+       This is where it used to live, returning the class's whole raw book.
+       Two keys of the same name in one object literal do not error — the
+       LAST one silently wins — so adding the ranked version above left the
+       board still casting rank-1 numbers with no clue as to why. */
 
     /* sprite sheets for the current identity. Pre-choice: the default
        hero (walk + drawn idle). Post-choice: the class+gender sheets —
@@ -467,6 +559,7 @@ window.HERO = (function () {
       try { localStorage.removeItem(KEY); } catch (e) {}
       S.classId = null; S.gender = 'm'; AT = null;
       P.level = 1; P.xp = 0; P.points = 0; P.items = []; P.equip = {}; P.hp = Infinity;
+      P.spellRanks = {};
       refresh();
       if (window.WORLD && window.WORLD.refreshHeroSprites)
         window.WORLD.refreshHeroSprites();

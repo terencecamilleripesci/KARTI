@@ -33,6 +33,75 @@ window.CLASSES = (function () {
      then check it by adding up a real route, not by feel. */
   const XP_BASE = 60, XP_POW = 1.45, MAX_LEVEL = 200;
 
+  /* ── SPELL RANKS (Dofus's rule, and the owner's) ──────────────────
+     A spell is LEARNED at a level and then RAISED with spell points, one
+     point earned per level. Raising to rank R costs R-1 points, so a spell
+     taken all the way to 6 costs 1+2+3+4+5 = 15 — the whole reason a build
+     is a choice: 199 points over a full career is thirteen maxed spells out
+     of a book of twenty, not all of them.
+
+     THE SIXTH POINT NEEDS LEVEL 100. That is the rule as asked for, and it
+     is worth keeping literal: rank 6 is not "expensive", it is GATED, so no
+     amount of hoarding points buys it early.
+
+     What a rank buys is deliberately plain, because a player has to be able
+     to predict it: +12% on the roll per rank, one more tile of range at 3,
+     and a turn off the cooldown at 5. */
+  const SPELL = {
+    MAX_RANK: 6,
+    RANK6_LEVEL: 100,
+    POINTS_PER_LEVEL: 1,
+    DMG_PER_RANK: 0.12,
+    /* THE BOOK SIZE IS A BALANCE NUMBER, not decoration. A career pays 199
+       points and mastering one spell costs 15, so 13 spells can be maxed.
+       A book of 20 therefore cannot be finished — which is the whole point:
+       what you raise is the build. At 13 or fewer the points stop being a
+       choice and become a formality. */
+    BOOK: 20,
+    RANGE_AT: 3,
+    CD_AT: 5
+  };
+  /* points EARNED by level 1 -> none; every level after pays one */
+  function spellPointsAt(level) {
+    return Math.max(0, (Math.min(MAX_LEVEL, level | 0) - 1) * SPELL.POINTS_PER_LEVEL);
+  }
+  /* what it costs to go from rank-1 to `rank` */
+  function rankCost(rank) {
+    let n = 0;
+    for (let r = 2; r <= rank; r++) n += r - 1;
+    return n;
+  }
+  function maxRankAt(level) {
+    return (level | 0) >= SPELL.RANK6_LEVEL ? SPELL.MAX_RANK : SPELL.MAX_RANK - 1;
+  }
+  /* the spells a character of this level has actually LEARNED. `at` is the
+     level the spell arrives; anything without one has been there from the
+     start, so an existing character never loses a spell to this. */
+  function learned(cls, level) {
+    if (!cls) return [];
+    return cls.spells.filter(s => (s.at || 1) <= (level | 0));
+  }
+  /* a spell AS CAST at a given rank. Returns a copy — the class table is
+     shared by every character on the device and must never be mutated. */
+  function atRank(sp, rank) {
+    rank = Math.max(1, Math.min(SPELL.MAX_RANK, rank | 0 || 1));
+    if (rank === 1) return sp;
+    const k = 1 + SPELL.DMG_PER_RANK * (rank - 1);
+    const out = Object.assign({}, sp, { rank });
+    const scale = a => [Math.round(a[0] * k), Math.round(a[1] * k)];
+    if (Array.isArray(sp.dmg))  out.dmg  = scale(sp.dmg);
+    if (Array.isArray(sp.heal)) out.heal = scale(sp.heal);
+    if (sp.field && Array.isArray(sp.field.dmg))
+      out.field = Object.assign({}, sp.field, { dmg: scale(sp.field.dmg) });
+    /* range only for spells that ALREADY have reach. Handing +1 tile to a
+       melee spell at rank 3 quietly turns the Warden into a ranged class,
+       which is not a buff, it is a different game. */
+    if (rank >= SPELL.RANGE_AT && typeof sp.max === 'number' && sp.max > 1)
+      out.max = sp.max + 1;
+    if (rank >= SPELL.CD_AT && sp.cd) out.cd = Math.max(0, sp.cd - 1);
+    return out;
+  }
+
   function xpFor(level) {                    /* to go from `level` to +1  */
     const L = Math.max(1, level | 0);
     return L >= MAX_LEVEL ? Infinity : Math.round(XP_BASE * Math.pow(L, XP_POW));
@@ -381,6 +450,7 @@ window.CLASSES = (function () {
     byId: id => BY_ID[id] || null,
     garb,
     maxHp, initiative, dodgeChance, scaleDamage, scaleHeal, prospect,
-    xpFor, xpTotal, MAX_LEVEL
+    xpFor, xpTotal, MAX_LEVEL,
+    SPELL, spellPointsAt, rankCost, maxRankAt, learned, atRank
   };
 })();

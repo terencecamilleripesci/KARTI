@@ -168,7 +168,13 @@ const HCFG = (function(){
   try {
     if (p && p.HERO && p.HERO.chosen && p.HERO.chosen() && p.CLASSES){
       const c = p.HERO.cls();
-      return { cls:c, level:p.HERO.level, stats:c.stats, spells:c.spells,
+      /* THE KIT IS WHAT THIS CHARACTER KNOWS, not what the class owns.
+         c.spells is the whole book, including spells learned at level 40;
+         HERO.spells() filters to what has been reached AND applies each
+         one's rank, so the board casts the numbers the player paid for.
+         Falls back to the raw book if an older HERO is on the page. */
+      const kit = (typeof p.HERO.spells === 'function') ? p.HERO.spells() : c.spells;
+      return { cls:c, level:p.HERO.level, stats:c.stats, spells:kit,
                name:c.name, sheets:p.HERO.sheets(),
                /* WHAT THE PLAYER LOOKS LIKE, carried across with the stats.
                   The body sheets are KEY-COLOURED — magenta hair, green

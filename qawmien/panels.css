@@ -450,3 +450,23 @@
     animation-delay:0ms !important;
   }
 }
+
+/* ── spell ranks (Dofus's sixth point at level 100) ────────────────────
+   The pips are the whole state of a spell at a glance: filled is bought,
+   hollow is what a point would buy. The count next to "Spellbook" is the
+   only number that matters when you level, so it brightens when you have
+   something to spend and stays quiet when you do not. */
+.sp-pts{ float:right; font-size:11px; font-weight:800; letter-spacing:.02em;
+         color:var(--ink-dim); }
+.sp-pts.has{ color:var(--gold); }
+.sp-rank{ grid-column:1 / -1; display:flex; align-items:center; gap:8px;
+          margin-top:6px; }
+.sp-pips{ font-size:12px; letter-spacing:2px; color:var(--gold); }
+.sp-why{ font-size:11px; font-weight:700; color:var(--ink-dim); }
+.sp-raise{ margin-left:auto; min-height:32px; padding:4px 10px; border-radius:8px;
+           border:1px solid var(--gold); background:transparent; color:var(--gold);
+           font:inherit; font-size:12px; font-weight:800; cursor:pointer; }
+.sp-raise:active{ background:rgba(255,255,255,.08); }
+/* a locked spell reads as a promise, not as a broken card */
+.sp-card.locked{ opacity:.55; }
+.sp-card.locked .sp-ic{ filter:grayscale(1); }
