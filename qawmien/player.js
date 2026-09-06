@@ -407,7 +407,10 @@ window.HERO = (function () {
            was. base-<g>-idle.png is the standing pose per facing, built from
            the character's own rotations (tools/idlesheet.py). */
         return { dir8: base + '-dir8.png', idle: base + '-idle.png',
-                 action: base + '-sheet.png' };
+                 action: base + '-sheet.png',
+                 /* the summoning stance — shared by every class, because
+                    every class IS one of these two bodies tinted */
+                 summon: base + '-summon.png' };
       const s = c.look[S.gender].sheet;
       return { dir8: 'art/' + s + '-dir8.png', idle: null,
                action: 'art/' + s + '-sheet.png' };

@@ -96,6 +96,19 @@ const CLIPS_IDLE = {
   'idle.3': { row:3, frames:4, fps:4, loop:true }
 };
 
+/* THE SUMMONING STANCE — one row, one facing, five frames, and it HOLDS on
+   the last. The owner asked for the Naruto seal: down into a crouch, both
+   palms flat on the ground. There is deliberately no per-facing version —
+   "same animation, don't make a lot of animations" — so it plays to camera
+   whichever way the caster is turned, which a special cast can carry.
+
+   hold:true matters. Without it the playhead runs off the end and the frame
+   resets to the start, so the character springs back upright the instant the
+   summon appears — exactly the beat where the player is looking at her. */
+const CLIPS_SUMMON = {
+  summon: { row:0, frames:5, fps:10, loop:false, hold:true }
+};
+
 const CLIPS_DIR = {
   /* 8fps, not 10 — matched to the slower 210ms tile so the legs land
      roughly with the steps instead of racing ahead of them */
@@ -275,7 +288,7 @@ function draw(g, s, x, y, scale, flip){
   return true;
 }
 
-return { CLIPS, CLIPS_DIR, CLIPS_IDLE, DIR, BACKS, dirOf, make, spawn, play, step, draw,
+return { CLIPS, CLIPS_DIR, CLIPS_IDLE, CLIPS_SUMMON, DIR, BACKS, dirOf, make, spawn, play, step, draw,
          retryFailed };
 })();
 

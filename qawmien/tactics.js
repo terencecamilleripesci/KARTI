@@ -448,7 +448,7 @@ const WEARS = { you:'you', grunt:'skeleton', archer:'skelarcher', mage:'skelmage
                    the art existed. */
                 warden_boss:'warden_boss', choir_boss:'choir_boss' };
 
-const SHEETS = {}, DIRS = {}, IDLES = {};
+const SHEETS = {}, DIRS = {}, IDLES = {}, SUMMONSPR = {};
 let SHEET = null, DIRSHEET = null;
 try {
   /* LOAD ONLY THIS FIGHT'S CREATURES. The roster is known before a
@@ -466,14 +466,18 @@ try {
                             SHEET — the hero's own sheet. The summon arrived as
                             a second copy of the caster. */
                          scublet:1 };
-  /* WHICH OF THEM ALSO HAVE A DIRECTIONAL WALK SHEET. Not all do: the goat
-     never had one and the Drowned Warden does not have one yet. The engine
-     copes either way — useDir requires dspr.ready, so a creature without one
-     simply animates from its action sheet — but asking for a file we know is
-     absent means a 404 on every fight containing a goat, and a permanent
-     failure counted against the loading ring. Ask only for what exists. */
+  /* WHICH OF THEM ALSO HAVE A DIRECTIONAL WALK SHEET. Not all do — the
+     Drowned Warden still does not. The engine copes either way: useDir
+     requires dspr.ready, so a creature without one simply animates from its
+     action sheet. But asking for a file we KNOW is absent means a 404 and a
+     permanent failure counted against the loading ring, so ask only for what
+     exists.
+
+     The goat has one now (tools/goatwalk.py). It was built from row 1 of its
+     own action sheet, which was already a six-frame walk cycle — the art was
+     never missing, only the file. */
   const DIR8_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
-                     gecko:1, goblin:1, scublet:1 };
+                     gecko:1, goblin:1, scublet:1, goat:1 };
   const need = new Set();
   for (const k of fightRoster()) need.add(WEARS[k] || k);
   for (const sp of HERO_SPELLS) if (sp && sp.summon) need.add(WEARS[sp.summon] || sp.summon);
@@ -495,6 +499,13 @@ try {
         onready: s => dressYou(s, HCFG.wear.dir8) });
     IDLES.you  = HCFG.sheets.idle
       ? SPRITE.make(HCFG.sheets.idle, { cols:6, rows:4, clips: SPRITE.CLIPS_IDLE, tint:T })
+      : null;
+    /* THE SUMMONING STANCE. One row, so rows:1 — and cols stays 6 so the
+       cell width matches the other sheets; a 5-column sheet would give a
+       different cw and put the body on screen at the wrong scale. */
+    SUMMONSPR.you = HCFG.sheets.summon
+      ? SPRITE.make(HCFG.sheets.summon,
+          { cols:6, rows:1, clips: SPRITE.CLIPS_SUMMON, tint:T })
       : null;
   } else {
     SHEETS.you = SPRITE.make('art/hero-sheet.png', { cols:6, rows:4 });
@@ -557,6 +568,8 @@ function mk(kind, side, c, r){
   u.dspr = dirSheet ? SPRITE.spawn(dirSheet) : null;
   const idleSheet = IDLES[WEARS[kind] || kind] || null;
   u.ispr = idleSheet ? SPRITE.spawn(idleSheet) : null;
+  const sumSheet = SUMMONSPR[WEARS[kind] || kind] || null;
+  u.sspr = sumSheet ? SPRITE.spawn(sumSheet) : null;
   /* the directional sheet names its clips idle.f / idle.b, so a playhead
      spawned on the default "idle" points at a clip that does not exist and
      draws NOTHING — the character simply disappears, leaving only its ring
@@ -1198,7 +1211,18 @@ function cast(u, sp, c, r){
   if (u.side === 0) FIGHT.casts += 1;
   if (sp.cd) u.cd[sp.id] = sp.cd + 1;   /* +1: ticked down at turn start */
   faceToward(u, { c, r });
-  clip(u, 'attack');
+  /* A SUMMON IS NOT A SWING. Calling something up should look like calling
+     something up, so a summon plays the stance sheet — down into a crouch,
+     palms on the ground — and only falls back to the attack animation when
+     that art is not loaded (creature casters, or before the file lands). */
+  if (sp.summon && u.sspr && u.sspr.ready){
+    u.casting = 'summon';
+    u.castHold = 0;
+    SPRITE.play(u.sspr, 'summon', true);
+  } else {
+    u.casting = null;
+    clip(u, 'attack');
+  }
   /* every cast speaks — hud.js owns the per-spell voice (element family
      + role variation), and the same line covers enemy casts for free */
   if (window.HUD) HUD.sfx('cast:' + sp.id);
@@ -1969,6 +1993,26 @@ function drawUnit(u, c, r){
        a standing pose that faces the enemy it is watching. The cost is
        that such a unit does not breathe, and that is the right trade —
        facing is information, breathing is only texture. */
+    /* THE STANCE OWNS THE BODY WHILE IT PLAYS — it is a one-shot the player
+       is looking straight at. It is a FLAG, not an early return: everything
+       below this point still has to run, including ctx.restore() and the
+       health bar. Returning here left the canvas filter applied to every
+       unit drawn after it.
+       hold:true parks the playhead on the last frame, so `done` is the only
+       thing that ends it. */
+    /* HOLD THE LAST POSE. step() sets the final frame and `done` in the same
+       call, so dropping the stance on `done` meant frame 4 — palms actually
+       planted on the ground, the whole point of the animation — was never
+       drawn at all: she went from half-crouched straight back to standing.
+       Keep her there for a beat, which is also when the summon appears. */
+    const showStance = !!(u.casting === 'summon' && u.sspr && u.sspr.ready);
+    if (showStance && u.sspr.done){
+      if (!u.castHold) u.castHold = performance.now();
+      else if (performance.now() - u.castHold > 260){
+        u.casting = null; u.castHold = 0;
+      }
+    }
+    const casting = showStance;
     const still = (u.spr.clip === 'idle');
     const useDir = u.dspr && u.dspr.ready && (u.spr.clip === 'walk' || still);
     if (useDir && still){
@@ -1990,7 +2034,9 @@ function drawUnit(u, c, r){
         if (u.ispr.clip !== want) SPRITE.play(u.ispr, want, true);
       }
     }
-    if (useDir && still && u.ispr && u.ispr.ready)
+    if (casting)
+      SPRITE.draw(ctx, u.sspr, p.x, p.y + 3, 0.30 * (u.big || 1), D.flip);
+    else if (useDir && still && u.ispr && u.ispr.ready)
       SPRITE.draw(ctx, u.ispr, p.x, p.y + 3, 0.30 * (u.big || 1), D.flip);
     else if (useDir) SPRITE.draw(ctx, u.dspr, p.x, p.y + 3, 0.30 * (u.big || 1), D.flip);
     else {
@@ -2161,6 +2207,7 @@ function loop(now){
       if (u.dspr) SPRITE.step(u.dspr, dt);
     }
     if (u.ispr) SPRITE.step(u.ispr, dt);
+    if (u.sspr) SPRITE.step(u.sspr, dt);
     /* a one-shot clip falls back to idle, except death, which stays down */
     if (u.spr.done && u.spr.clip !== 'die' && u.hp > 0) clip(u, 'idle');
   }
