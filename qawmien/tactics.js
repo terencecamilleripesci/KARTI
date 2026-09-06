@@ -460,7 +460,12 @@ try {
      back to the hero sheet, and if that is missing too, to the drawn
      shapes. */
   const CREATURE_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
-                         goat:1, gecko:1, goblin:1, warden_boss:1, choir_boss:1 };
+                         goat:1, gecko:1, goblin:1, warden_boss:1, choir_boss:1,
+                         /* THE SCUBLET HAS ITS OWN ART and was not listed, so
+                            its sheet was never built and mk() fell through to
+                            SHEET — the hero's own sheet. The summon arrived as
+                            a second copy of the caster. */
+                         scublet:1 };
   /* WHICH OF THEM ALSO HAVE A DIRECTIONAL WALK SHEET. Not all do: the goat
      never had one and the Drowned Warden does not have one yet. The engine
      copes either way — useDir requires dspr.ready, so a creature without one
@@ -468,7 +473,7 @@ try {
      absent means a 404 on every fight containing a goat, and a permanent
      failure counted against the loading ring. Ask only for what exists. */
   const DIR8_ART = { skeleton:1, skelarcher:1, skelmage:1, sheep:1, dummy:1,
-                     gecko:1, goblin:1 };
+                     gecko:1, goblin:1, scublet:1 };
   const need = new Set();
   for (const k of fightRoster()) need.add(WEARS[k] || k);
   for (const sp of HERO_SPELLS) if (sp && sp.summon) need.add(WEARS[sp.summon] || sp.summon);
