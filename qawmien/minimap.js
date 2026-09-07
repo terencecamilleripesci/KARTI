@@ -587,13 +587,25 @@ window.MINIMAP = (function () {
     const WING = 9, MARG = 2;
     const tw = wg ? wg.w : 46, th = wg ? wg.h : 28;
     const totW = WING + tw + MARG, totH = th + MARG * 2;
-    const s = cssW / totW, cssH = Math.round(totH * s);
+    /* FIT THE HEIGHT TOO. The scale was taken from the WIDTH alone, so on a
+       landscape phone — 390px tall — the chart came out 524px and the bottom
+       of the island was simply cut off by the panel. The map is played
+       sideways; height is the scarce axis, not width. Take whichever fits
+       and centre what is left over, so the whole island is always on screen.
+
+       The 150 is the header, the subtitle and the panel's own padding: what
+       the canvas does NOT get. Measured against the real panel rather than
+       guessed, and floored so a very short window still draws something. */
+    const availH = Math.max(120, (window.innerHeight || 400) - 150);
+    const s = Math.min(cssW / totW, availH / totH);
+    const cssH = Math.round(totH * s);
+    const offX = Math.round((cssW - totW * s) / 2);
     wcv.style.height = cssH + 'px';
     wcv.width = Math.round(cssW * dpr);
     wcv.height = Math.round(cssH * dpr);
     const g = wcv.getContext('2d');
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const X = function (x) { return (WING + x) * s; };
+    const X = function (x) { return offX + (WING + x) * s; };
     const Y = function (y) { return (MARG + y) * s; };
 
     /* deep sea + a faint chart graticule and compass ring */
@@ -725,10 +737,19 @@ window.MINIMAP = (function () {
     if (seen) {
       g.font = 'italic 600 ' + Math.max(10, s * 1.55) + 'px Georgia,serif';
       g.textAlign = 'center'; g.textBaseline = 'top';
+      /* KEEP THE NAME ON THE CANVAS. It is drawn centred under the two ruin
+         rooms, and those sit WEST of the coast — off the grid entirely — so
+         on a narrow chart the centre point is less than half a word from the
+         left edge and "Old Ruin" arrived as "ld Ruin". Clamp to the text's
+         own measured width; nothing else moves. */
+      const nm = regionName(wg.ruins[0]);
+      const half = g.measureText(nm).width / 2 + 2;
+      const tx = Math.max(half, Math.min(wcv.clientWidth - half,
+                                         bx + rw + gap / 2));
       g.fillStyle = 'rgba(0,0,0,.55)';
-      g.fillText(regionName(wg.ruins[0]), bx + rw + gap / 2 + 1, ay + rh / 2 + s * 0.6 + 1);
+      g.fillText(nm, tx + 1, ay + rh / 2 + s * 0.6 + 1);
       g.fillStyle = LABEL_INK;
-      g.fillText(regionName(wg.ruins[0]), bx + rw + gap / 2, ay + rh / 2 + s * 0.6);
+      g.fillText(nm, tx, ay + rh / 2 + s * 0.6);
     }
   }
   function drawPin(g, wg, X, Y, s) {
