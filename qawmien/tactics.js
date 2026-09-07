@@ -908,6 +908,21 @@ function trapAt(c, r){ return (G.traps || []).find(t => t.c === c && t.r === r);
    way setTrap does, so one is the most that can be out. */
 function fieldsOf(u){ return (G.fields || []).filter(f => f.owner === u); }
 
+/* THE TILES A FIELD ACTUALLY COVERS, in one place because two places
+   disagreed. `aoe` was read as a BOOLEAN — any truthy value added exactly the
+   four orthogonal neighbours — so a field written as aoe:2 burned five tiles
+   while its own hint promised thirteen. Ashfall and Bloodmire both said
+   "thirteen tiles" and both were lying. Manhattan radius, so aoe 1 is the
+   same cross it always was and aoe 2 is 13. */
+function fieldTiles(f){
+  const rad = (f.sp.field && f.sp.field.aoe) | 0;
+  const out = [];
+  for (let dc = -rad; dc <= rad; dc++)
+    for (let dr = -rad; dr <= rad; dr++)
+      if (Math.abs(dc) + Math.abs(dr) <= rad) out.push({ c: f.c + dc, r: f.r + dr });
+  return out;
+}
+
 function setField(u, sp, c, r){
   G.fields = (G.fields || []).filter(f => f.owner !== u);
   G.fields.push({ c, r, owner: u, sp, turns: (sp.field.turns | 0) || 3 });
@@ -920,10 +935,7 @@ function tickFields(u){
   if (!G.fields || !G.fields.length) return;
   for (const f of G.fields.slice()){
     if (f.owner !== u) continue;
-    const tiles = [{ c: f.c, r: f.r }];
-    if (f.sp.field.aoe)
-      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]])
-        tiles.push({ c: f.c + dc, r: f.r + dr });
+    const tiles = fieldTiles(f);
     let bled = 0;
     for (const t of tiles){
       const v = unitAt(t.c, t.r);
@@ -1894,10 +1906,9 @@ function draw(){
   /* bleeding ground: every tile it covers, so what it will hit is visible
      rather than remembered — it fades as its turns run out */
   if (G.fields) for (const f of G.fields){
-    const tiles = [{ c: f.c, r: f.r }];
-    if (f.sp.field && f.sp.field.aoe)
-      for (const [dc, dr] of [[1,0],[-1,0],[0,1],[0,-1]])
-        tiles.push({ c: f.c + dc, r: f.r + dr });
+    /* the SAME shape the tick uses. Two copies of this cross is how a field
+       came to burn tiles it had not drawn, or draw tiles it did not burn. */
+    const tiles = fieldTiles(f);
     const life = Math.max(0.25, (f.turns || 1) / 3);
     for (const t of tiles){
       const p = iso(t.c, t.r);

@@ -136,10 +136,10 @@
     .btn{transition:none}
   }
 </style>
-<link rel="stylesheet" href="hud.css?v=83822c3">
+<link rel="stylesheet" href="hud.css?v=d1692c6">
 </head>
 <body>
-<script src="landscape.js?v=83822c3"></script>
+<script src="landscape.js?v=d1692c6"></script>
 <script>
 /* THE GATE, before anything draws. Combat pauses under the card rather than
    hiding behind it: a fight left running is still stepping timers, and when
@@ -165,17 +165,17 @@ LANDSCAPE.start(function (blocked) {
     </div></div>
   </div>
 </div>
-<script src="hud-types.js?v=83822c3"></script>
-<script src="hud.js?v=83822c3"></script>
-<script src="sprite.js?v=83822c3"></script>
+<script src="hud-types.js?v=d1692c6"></script>
+<script src="hud.js?v=d1692c6"></script>
+<script src="sprite.js?v=d1692c6"></script>
 <!-- GEAR is needed HERE, not only in world.html. Combat runs as an iframe and
      fightSpoils() rolls the drop tables inside it; without this the roll is
      guarded away and enemies silently never drop anything — the same trap that
      once had end-of-battle XP granted into the wrong window. It is pure data
      with no DOM, so loading it twice costs nothing. -->
-<script src="purse.js?v=83822c3"></script><!-- the one door to KARTI coins -->
-<script src="gear.js?v=83822c3"></script>
-<script src="grid.js?v=83822c3"></script><!-- window.GRID — the board is the same
+<script src="purse.js?v=d1692c6"></script><!-- the one door to KARTI coins -->
+<script src="gear.js?v=d1692c6"></script>
+<script src="grid.js?v=d1692c6"></script><!-- window.GRID — the board is the same
   screen-filling rectangle the world uses; one definition, two layers -->
 <!-- TINT is needed HERE for the same reason GEAR is, and its absence was the
      louder bug: the body sheets are KEY-COLOURED (magenta hair, green skin)
@@ -185,7 +185,7 @@ LANDSCAPE.start(function (blocked) {
      the character you walked up to a monster with was not the one who turned
      up to the fight. Also what lets combat paint the class overlay and worn
      gear onto the shared body. -->
-<script src="tint.js?v=83822c3"></script>
-<script src="tactics.js?v=83822c3"></script>
+<script src="tint.js?v=d1692c6"></script>
+<script src="tactics.js?v=d1692c6"></script>
 </body>
 </html>

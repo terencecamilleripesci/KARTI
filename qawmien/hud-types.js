@@ -226,7 +226,12 @@ const HUDT = (() => {
        art exists: a drain reads as a bolt, a drag as the other drag, bleeding
        ground as the other ground effect, a summon as the other summon, a blink
        as the other blink. Replace these the moment the icons are drawn. */
-    siphon: 9, leash: 1, hemorrhage: 11, scion: 18, bloodstep: 8, nip: 21,
+    /* SHE HAS HER OWN NOW. These five borrowed other spells' art since the
+       class shipped — a drain drawn as a bolt, a drag as the other drag. The
+       borrow is what made the collision possible: spellicons.py reused the
+       slot it found rather than taking a fresh one, and painted her blood
+       over Cinder Bolt, Rootgrasp, Ember Snare, Call Ram and Wind Step. */
+    siphon: 116, leash: 117, hemorrhage: 118, scion: 119, bloodstep: 120, nip: 21,
     /* ── THE WARDEN'S FIFTEEN, painted ──────────────────────────────
        The sheet grew from 4 rows to 5 to hold them. It grows DOWNWARD and
        never sideways: a cell is (id % ICON_COLS, id / ICON_COLS), so
@@ -234,7 +239,25 @@ const HUDT = (() => {
        repaint the whole bar. Adding rows moves nothing. */
     gravelshot: 22, shoulder: 23, tremor: 24, ironroot: 25, boulder: 26,
     grapnel: 27, fissure: 28, millstone: 29, rockfall: 30, sunder: 31,
-    landslide: 32, earthenstep: 33, cairn: 34, bedrock: 35, tectonic: 36 };
+    landslide: 32, earthenstep: 33, cairn: 34, bedrock: 35, tectonic: 36,
+    /* the Stormfletch's sixteen */
+    splitshot: 37, hook: 38, updraft: 39, keening: 40, volley: 41, tripwire: 42,
+    cyclone: 43, longshot: 44, stormfield: 45, shear: 46, skydance: 47,
+    pinion: 48, galeburst: 49, tailwind: 50, rake: 51, tempest: 52,
+    /* the Scubi's fifteen. These survived a slot collision that lost three
+       other classes' icons — see record() in tools/spellicons.py. */
+    nick: 53, tether: 54, redveil: 55, exsanguine: 56, crimsontide: 57,
+    thrall: 58, bloodmire: 59, vitaesnare: 60, transfuse: 61, gash: 62,
+    hemoveil: 63, crimsonbloom: 64, thirst: 65, heartpull: 66, lastdrop: 67,
+    /* the cindermancer's 16 */
+    spark: 68, scorch: 69, emberveil: 70, cinderfield: 71, blaze: 72, backdraft: 73, firemine: 74, conflagrate: 75, drawflame: 76, immolate: 77, emberstep: 78, pyroclasm: 79, ashfall: 80, forgeheart: 81, wildfire: 82, sunfall: 83,
+    /* the tidebinder's 16 */
+    spray: 84, tidewall: 85, riptide: 86, wellspring: 87, brine: 88, swell: 89, saltmire: 90, deepmend: 91, chill: 92, tidestep: 93, breaker: 94, lifetide: 95, maelstrom: 96, aegis: 97, sanctuary: 98, fullmoon: 99,
+    /* the shepherd's 16 */
+    sling: 100, goad: 101, fleece: 102, hookcrook: 103, stampede: 104, pen: 105, droverstep: 106, cudgel: 107, saltlick: 108, dogwhistle: 109, furrow: 110, herd: 111, yoke: 112, hardhide: 113, trample: 114, thefold: 115,,
+    /* the scubi-first's 5 */
+    siphon: 116, leash: 117, hemorrhage: 118, scion: 119, bloodstep: 120
+ };
 
   function spellIcon(id, size, tint) {
     const at = ICON_AT[id];

@@ -156,6 +156,56 @@ window.HUD = (function () {
      (a pull drags down, a push sweeps away, a heal rises, a trap hisses).
      tools/checkaudio.js proves this table covers every id and carries
      no orphans. */
+  /* ── ONE VOICE BUILT FROM WHAT A SPELL IS ────────────────────────
+     Seventy-nine spells arrived at once, and seventy-nine hand-written
+     synth lines is not a thing anyone maintains — the twenty-second one
+     would already be a copy of the ninth with a number changed. So the
+     signature spells keep their bespoke voices above, and the rest are
+     composed from two facts the spell already carries: its ELEMENT, which
+     decides the material, and its SHAPE, which decides the gesture.
+
+     Element is the timbre: earth is weight, air is moving breath, fire is
+     crackle, water is a swell. Shape is the envelope: a bolt is one hit, a
+     burst is two overlapping, a field arrives slowly and stays, a trap
+     clicks and settles, a shield rises and holds, a heal rises twice, a
+     blink is out-and-in, a drag is a slide into an impact, a sap falls.
+
+     `w` is weight, 0 to 1: the same spell shape at level 3 and level 100
+     should be recognisably the same gesture, one of them heavier. */
+  function voice(elem, shape, w) {
+    w = w || 0;
+    const dur = 0.14 + w * 0.22;          /* heavier spells last longer   */
+    const vol = 0.34 + w * 0.30;
+    const lo  = 150 - w * 70;             /* and sit lower                */
+    /* the material */
+    const body = function (delay) {
+      if (elem === 'earth') thud(lo, 0.8 + w * 0.8, dur, delay);
+      else if (elem === 'air') whoosh(900 + w * 400, 320, dur, vol * 0.8, delay);
+      else if (elem === 'fire') { crackle(2 + Math.round(w * 3), vol * 0.7, delay);
+                                  nz(1600, 500, dur, 'bandpass', 0.9, vol * 0.7, delay); }
+      else { tone(320 - w * 90, 160 - w * 50, dur, 'sine', delay, vol);
+             nz(700, 200, dur, 'lowpass', 0.7, vol * 0.5, delay, 0.03); }
+    };
+    if (shape === 'bolt')        { body(0); }
+    else if (shape === 'burst')  { body(0); body(0.08); nz(500, 140, dur + 0.1,
+                                     'lowpass', 0.6, vol * 0.6, 0.04, 0.05); }
+    else if (shape === 'field')  { nz(400, 90, 0.5 + w * 0.2, 'lowpass', 0.6,
+                                     vol * 0.7, 0, 0.18); body(0.06); }
+    else if (shape === 'trap')   { tone(900, 600, 0.05, 'square', 0, 0.22);
+                                   body(0.10); }
+    else if (shape === 'shield') { tone(120, 190 + w * 60, 0.28 + w * 0.14,
+                                     'sine', 0, vol * 0.8); body(0.08); }
+    else if (shape === 'heal')   { tone(520, 700, 0.14, 'sine', 0, 0.34);
+                                   tone(700, 940, 0.18, 'sine', 0.10, 0.30); }
+    else if (shape === 'blink')  { whoosh(600, 1700, 0.11, 0.34);
+                                   whoosh(1700, 600, 0.11, 0.30, 0.13); }
+    else if (shape === 'drag')   { whoosh(1300, 420, 0.16, vol * 0.7);
+                                   body(0.12); }
+    else if (shape === 'sap')    { tone(420 - w * 90, 150, 0.26 + w * 0.1,
+                                     'sine', 0, vol * 0.7); body(0.05); }
+    else body(0);
+  }
+
   const CAST_SFX = {
     /* ── earth: low, heavy, certain ── */
     maul:      () => { thud(100, 1, 0.16); },
@@ -287,6 +337,92 @@ window.HUD = (function () {
                        thud(52, 1.7, 0.40, 0.06);
                        thud(64, 1.3, 0.34, 0.24);
                        thud(46, 1.5, 0.44, 0.44); },            /* the island */
+    /* ── THE SEVENTY-NINE, composed ────────────────────────────────
+       element decides the material, shape decides the gesture, and the
+       number is the unlock level over 100 — so the same gesture is
+       heavier the later you learn it. Written out one per line rather
+       than generated at runtime: checkaudio reads this table, and a
+       voice that only exists once the game is running is a voice no
+       checker can prove is there. */
+    aegis: () => voice('water', 'shield', 0.8),
+    ashfall: () => voice('fire', 'field', 0.7),
+    backdraft: () => voice('fire', 'drag', 0.22),
+    blaze: () => voice('fire', 'bolt', 0.17),
+    bloodmire: () => voice('water', 'field', 0.27),
+    breaker: () => voice('water', 'burst', 0.52),
+    brine: () => voice('water', 'sap', 0.17),
+    chill: () => voice('water', 'sap', 0.39),
+    cinderfield: () => voice('fire', 'field', 0.13),
+    conflagrate: () => voice('fire', 'burst', 0.33),
+    crimsonbloom: () => voice('water', 'sap', 0.6),
+    crimsontide: () => voice('water', 'sap', 0.17),
+    cudgel: () => voice('earth', 'bolt', 0.33),
+    cyclone: () => voice('air', 'drag', 0.27),
+    deepmend: () => voice('water', 'heal', 0.33),
+    dogwhistle: () => voice('earth', 'sap', 0.45),
+    drawflame: () => voice('fire', 'drag', 0.39),
+    droverstep: () => voice('earth', 'blink', 0.27),
+    emberstep: () => voice('fire', 'blink', 0.52),
+    emberveil: () => voice('fire', 'shield', 0.09),
+    exsanguine: () => voice('water', 'sap', 0.13),
+    firemine: () => voice('fire', 'trap', 0.27),
+    fleece: () => voice('earth', 'shield', 0.09),
+    forgeheart: () => voice('fire', 'shield', 0.8),
+    fullmoon: () => voice('water', 'sap', 1.0),
+    furrow: () => voice('earth', 'field', 0.52),
+    galeburst: () => voice('air', 'burst', 0.7),
+    gash: () => voice('water', 'sap', 0.45),
+    goad: () => voice('earth', 'drag', 0.06),
+    hardhide: () => voice('earth', 'shield', 0.8),
+    heartpull: () => voice('water', 'drag', 0.85),
+    hemoveil: () => voice('water', 'shield', 0.52),
+    herd: () => voice('earth', 'drag', 0.6),
+    hook: () => voice('air', 'drag', 0.06),
+    hookcrook: () => voice('earth', 'sap', 0.13),
+    immolate: () => voice('fire', 'sap', 0.45),
+    keening: () => voice('air', 'sap', 0.13),
+    lastdrop: () => voice('water', 'sap', 1.0),
+    lifetide: () => voice('water', 'heal', 0.6),
+    longshot: () => voice('air', 'bolt', 0.33),
+    maelstrom: () => voice('water', 'drag', 0.7),
+    nick: () => voice('water', 'sap', 0.03),
+    pen: () => voice('earth', 'trap', 0.22),
+    pinion: () => voice('air', 'sap', 0.6),
+    pyroclasm: () => voice('fire', 'burst', 0.6),
+    rake: () => voice('air', 'bolt', 0.9),
+    redveil: () => voice('water', 'shield', 0.09),
+    riptide: () => voice('water', 'drag', 0.09),
+    saltlick: () => voice('earth', 'heal', 0.39),
+    saltmire: () => voice('water', 'field', 0.27),
+    sanctuary: () => voice('water', 'heal', 0.9),
+    scorch: () => voice('fire', 'burst', 0.06),
+    shear: () => voice('air', 'drag', 0.45),
+    skydance: () => voice('air', 'blink', 0.52),
+    sling: () => voice('earth', 'bolt', 0.03),
+    spark: () => voice('fire', 'bolt', 0.03),
+    splitshot: () => voice('air', 'burst', 0.03),
+    spray: () => voice('water', 'bolt', 0.03),
+    stampede: () => voice('earth', 'drag', 0.17),
+    stormfield: () => voice('air', 'field', 0.39),
+    sunfall: () => voice('fire', 'burst', 1.0),
+    swell: () => voice('water', 'drag', 0.22),
+    tailwind: () => voice('air', 'shield', 0.8),
+    tempest: () => voice('air', 'drag', 1.0),
+    tether: () => voice('water', 'drag', 0.06),
+    thefold: () => voice('earth', 'sap', 1.0),
+    thirst: () => voice('water', 'sap', 0.7),
+    thrall: () => voice('water', 'sap', 0.22),
+    tidestep: () => voice('water', 'blink', 0.45),
+    tidewall: () => voice('water', 'shield', 0.06),
+    trample: () => voice('earth', 'burst', 0.9),
+    transfuse: () => voice('water', 'heal', 0.39),
+    tripwire: () => voice('air', 'trap', 0.22),
+    updraft: () => voice('air', 'shield', 0.09),
+    vitaesnare: () => voice('water', 'trap', 0.33),
+    volley: () => voice('air', 'bolt', 0.17),
+    wellspring: () => voice('water', 'heal', 0.13),
+    wildfire: () => voice('fire', 'drag', 0.9),
+    yoke: () => voice('earth', 'drag', 0.7),
     /* ── the bestiary ──
        `butt` had no entry and has been silent since the goat was written: an
        unknown id falls through to the generic soft cast, so a 74hp wall of a
