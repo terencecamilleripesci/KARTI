@@ -197,7 +197,66 @@ window.CLASSES = (function () {
           hint: 'The whole turn in one swing.' },
         { id: 'bulwark', name: 'Bulwark', ap: 2, min: 0, max: 0, los: false,
           cd: 3, elem: 'earth', shield: [10, 14],
-          hint: 'Brace. Absorbs damage until your next turn.' }
+          hint: 'Brace. Absorbs damage until your next turn.' },
+        /* ── learned on the way up ─────────────────────────────────
+           Fifteen more, so the book reaches twenty and the spell points
+           become a build rather than a formality (199 points masters
+           thirteen). Every one uses a verb the engine ALREADY has —
+           push, pull, shield, field, trap, tp, apLoss, aoe — because a
+           spell that needs new combat code is a spell that ships broken,
+           and there are ninety-four of these to write.
+
+           The Warden is the wall that walks: he has no ranged game to
+           speak of and should not grow one. Gravelshot and Boulder are
+           deliberately his only real reach, both weak for their cost —
+           what he gets instead is ways to CLOSE (Grapnel), to stop them
+           leaving (Sunder), and to be immovable when he arrives. */
+        { id: 'gravelshot', name: 'Gravelshot', at: 3, ap: 3, min: 2, max: 4,
+          los: true, dmg: [7, 10], cd: 0, elem: 'earth',
+          hint: 'A fistful of scree. Weak — he is not an archer.' },
+        { id: 'shoulder', name: 'Shoulder', at: 6, ap: 2, min: 1, max: 1,
+          los: false, dmg: [9, 12], cd: 1, elem: 'earth', push: 2,
+          hint: 'Puts his weight through them. They give ground.' },
+        { id: 'tremor', name: 'Tremor', at: 9, ap: 3, min: 1, max: 3,
+          los: true, dmg: [9, 13], cd: 3, elem: 'earth', aoe: 1, apLoss: 1,
+          hint: 'The ground kicks. Hard to keep your feet, harder to act.' },
+        { id: 'ironroot', name: 'Ironroot', at: 13, ap: 3, min: 0, max: 0,
+          los: false, cd: 4, elem: 'earth', shield: [18, 24],
+          hint: 'Brace deeper. Costs a turn you wanted to swing with.' },
+        { id: 'boulder', name: 'Boulder', at: 17, ap: 4, min: 3, max: 6,
+          los: true, dmg: [18, 24], cd: 2, elem: 'earth',
+          hint: 'He picks up something enormous and throws it.' },
+        { id: 'grapnel', name: 'Grapnel', at: 22, ap: 2, min: 3, max: 7,
+          los: true, dmg: [5, 8], cd: 3, elem: 'earth', pull: 4,
+          hint: 'Reaches further than Rootgrasp and drags harder.' },
+        { id: 'fissure', name: 'Fissure', at: 27, ap: 4, min: 1, max: 4,
+          los: true, cd: 4, elem: 'earth',
+          field: { dmg: [9, 13], aoe: 1, turns: 3 },
+          hint: 'Splits the ground. It keeps splitting for three turns.' },
+        { id: 'millstone', name: 'Millstone', at: 33, ap: 5, min: 1, max: 1,
+          los: false, dmg: [30, 38], cd: 3, elem: 'earth',
+          hint: 'Both hands, all his weight, once.' },
+        { id: 'rockfall', name: 'Rockfall', at: 39, ap: 5, min: 2, max: 5,
+          los: true, dmg: [16, 22], cd: 4, elem: 'earth', aoe: 2,
+          hint: 'Brings the cliff down on five tiles at once.' },
+        { id: 'sunder', name: 'Sunder', at: 45, ap: 3, min: 1, max: 1,
+          los: false, dmg: [14, 19], cd: 2, elem: 'earth', apLoss: 1,
+          hint: 'Breaks the guard. What they meant to cast, they do not.' },
+        { id: 'landslide', name: 'Landslide', at: 52, ap: 5, min: 1, max: 4,
+          los: true, dmg: [15, 20], cd: 4, elem: 'earth', aoe: 1, push: 3,
+          hint: 'Sweeps the tile and everything beside it three tiles back.' },
+        { id: 'earthenstep', name: 'Earthen Step', at: 60, ap: 2, min: 1, max: 4,
+          los: false, cd: 3, elem: 'earth', tp: true,
+          hint: 'Steps through the stone instead of round it.' },
+        { id: 'cairn', name: 'Cairn', at: 70, ap: 4, min: 1, max: 3,
+          los: false, cd: 4, elem: 'earth', trap: { dmg: [26, 34], aoe: 1 },
+          hint: 'A stack of stones on an empty tile. It falls on whoever comes.' },
+        { id: 'bedrock', name: 'Bedrock', at: 85, ap: 3, min: 0, max: 0,
+          los: false, cd: 5, elem: 'earth', shield: [34, 44],
+          hint: 'The wall stops walking and simply is a wall.' },
+        { id: 'tectonic', name: 'Tectonic', at: 100, ap: 6, min: 1, max: 5,
+          los: true, dmg: [34, 44], cd: 5, elem: 'earth', aoe: 2,
+          hint: 'The island moves. Everything within two tiles goes down.' }
       ],
       look: {
         m: { sheet: 'warden-m',

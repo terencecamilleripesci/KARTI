@@ -1254,7 +1254,14 @@ function cast(u, sp, c, r){
   if (sp.trap){ setTrap(u, sp, c, r); return; }
   if (sp.field){ setField(u, sp, c, r); return; }
   if (sp.shield){                       /* Bulwark: scales off Strength     */
-    u.shieldHp = scaleRoll(u, sp, rng(sp.shield[0], sp.shield[1]));
+    /* KEEP THE BETTER BRACE. A shield REPLACES rather than stacks, which was
+       harmless while the Warden had exactly one. He has three now — Bulwark,
+       Ironroot, Bedrock — and a plain assignment means casting the cheap one
+       on top of Bedrock silently throws away two thirds of your shield for
+       2 AP. Nobody would do that on purpose, so the game should not let it
+       happen by accident; re-casting still refreshes an equal or better one. */
+    const roll = scaleRoll(u, sp, rng(sp.shield[0], sp.shield[1]));
+    u.shieldHp = Math.max(u.shieldHp | 0, roll);
     floatText(u, 'shield ' + u.shieldHp, '#7FD4C1');
     return;
   }

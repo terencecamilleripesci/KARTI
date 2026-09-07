@@ -213,7 +213,15 @@ const HUDT = (() => {
        art exists: a drain reads as a bolt, a drag as the other drag, bleeding
        ground as the other ground effect, a summon as the other summon, a blink
        as the other blink. Replace these the moment the icons are drawn. */
-    siphon: 9, leash: 1, hemorrhage: 11, scion: 18, bloodstep: 8, nip: 21 };
+    siphon: 9, leash: 1, hemorrhage: 11, scion: 18, bloodstep: 8, nip: 21,
+    /* ── THE WARDEN'S FIFTEEN, painted ──────────────────────────────
+       The sheet grew from 4 rows to 5 to hold them. It grows DOWNWARD and
+       never sideways: a cell is (id % ICON_COLS, id / ICON_COLS), so
+       adding a column would move every icon already placed and silently
+       repaint the whole bar. Adding rows moves nothing. */
+    gravelshot: 22, shoulder: 23, tremor: 24, ironroot: 25, boulder: 26,
+    grapnel: 27, fissure: 28, millstone: 29, rockfall: 30, sunder: 31,
+    landslide: 32, earthenstep: 33, cairn: 34, bedrock: 35, tectonic: 36 };
 
   function spellIcon(id, size, tint) {
     const at = ICON_AT[id];

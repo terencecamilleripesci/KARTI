@@ -238,6 +238,55 @@ window.HUD = (function () {
     shove:     () => { whoosh(1600, 450, 0.18, 0.55, 0, 0.04); },
     thwack:    () => { nz(600, 250, 0.10, 'lowpass', 0.8, 0.5);  /* padded */
                        tone(140, 90, 0.10, 'sine', 0, 0.5); },
+    /* ── THE WARDEN'S FIFTEEN ──────────────────────────────────────
+       All earth, so all built from thud (weight) and low-passed noise
+       (grinding stone). What separates them is WEIGHT and TIME: a
+       thrown handful of scree is one short knock, Tectonic is four
+       overlapping ones with the ground still moving underneath. If two
+       of his spells sound the same the bar stops teaching you anything,
+       so each one differs in how many impacts there are and how far
+       apart they land. */
+    gravelshot:() => { nz(2200, 700, 0.10, 'bandpass', 0.9, 0.30);
+                       thud(190, 0.5, 0.06, 0.02); },        /* scatter, tap */
+    shoulder:  () => { thud(110, 1.1, 0.14);                 /* the weight   */
+                       nz(500, 200, 0.16, 'lowpass', 0.7, 0.30, 0.04); },
+    tremor:    () => { thud(64, 1.2, 0.30);                  /* under you    */
+                       nz(240, 80, 0.34, 'lowpass', 0.6, 0.34, 0.03, 0.12);
+                       thud(96, 0.6, 0.14, 0.16); },
+    ironroot:  () => { tone(120, 180, 0.26, 'sine', 0, 0.42);  /* setting in */
+                       thud(90, 0.7, 0.18, 0.06); },
+    boulder:   () => { whoosh(300, 120, 0.22, 0.4);            /* the throw  */
+                       thud(70, 1.4, 0.26, 0.18); },           /* the arrival*/
+    grapnel:   () => { nz(1400, 500, 0.12, 'bandpass', 0.8, 0.28);
+                       tone(200, 90, 0.22, 'sine', 0.08, 0.40);  /* the drag */
+                       thud(120, 0.6, 0.10, 0.26); },
+    fissure:   () => { nz(300, 60, 0.50, 'lowpass', 0.6, 0.40, 0, 0.16);
+                       tone(90, 55, 0.44, 'sine', 0.05, 0.44);   /* opening  */
+                       crackle(4, 0.22, 0.10); },
+    millstone: () => { whoosh(260, 90, 0.26, 0.34);             /* wind-up   */
+                       thud(58, 1.6, 0.34, 0.22); },            /* one blow  */
+    rockfall:  () => { nz(900, 200, 0.34, 'lowpass', 0.7, 0.44, 0, 0.04);
+                       thud(84, 1.1, 0.20, 0.10);
+                       thud(66, 1.3, 0.26, 0.22); },            /* two falls */
+    sunder:    () => { nz(1800, 400, 0.12, 'bandpass', 1.1, 0.36); /* the crack */
+                       thud(140, 0.9, 0.12, 0.05);
+                       tone(300, 140, 0.14, 'square', 0.08, 0.16); },
+    landslide: () => { nz(600, 120, 0.52, 'lowpass', 0.6, 0.46, 0, 0.14);
+                       thud(74, 1.2, 0.30, 0.14);
+                       thud(60, 0.9, 0.26, 0.30); },            /* it keeps going */
+    earthenstep:()=> { thud(150, 0.8, 0.10);                    /* in        */
+                       nz(700, 1600, 0.14, 'bandpass', 0.8, 0.24, 0.06);
+                       thud(150, 0.8, 0.10, 0.18); },           /* and out   */
+    cairn:     () => { thud(200, 0.5, 0.06);                    /* stone on  */
+                       thud(170, 0.6, 0.06, 0.09);              /* stone on  */
+                       thud(140, 0.7, 0.08, 0.18); },           /* stone     */
+    bedrock:   () => { tone(96, 128, 0.40, 'sine', 0, 0.50);
+                       thud(70, 1.0, 0.30, 0.10);
+                       nz(180, 70, 0.34, 'lowpass', 0.6, 0.24, 0.12); },
+    tectonic:  () => { nz(400, 60, 0.70, 'lowpass', 0.6, 0.52, 0, 0.20);
+                       thud(52, 1.7, 0.40, 0.06);
+                       thud(64, 1.3, 0.34, 0.24);
+                       thud(46, 1.5, 0.44, 0.44); },            /* the island */
     /* ── the bestiary ──
        `butt` had no entry and has been silent since the goat was written: an
        unknown id falls through to the generic soft cast, so a 74hp wall of a
