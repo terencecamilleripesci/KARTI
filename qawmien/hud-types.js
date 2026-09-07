@@ -127,7 +127,20 @@ const HUDT = (() => {
   /* ── CSS custom properties hud.js maintains on :root ────────────── */
   const CSSVARS = {
     BAR_H: '--hud-bar-h',        /* total bar height incl. safe inset   */
-    TOP_H: '--hud-top-h'         /* top strip height incl. safe inset   */
+    TOP_H: '--hud-top-h',        /* top strip height incl. safe inset   */
+    /* THE SIDE RAIL. Played sideways, a bar across the bottom takes a
+       third of a 390px-tall phone and takes it from the SHORT axis — the
+       one the map can least afford. Dofus puts its panels down the right
+       instead, and the owner is right that it plays cleaner: the rail
+       eats width, of which there is 844, and gives the map back its
+       height. Pages reserve space with this the same way they always
+       reserved it with BAR_H. 0 when the rail is not in use. */
+    RAIL_W: '--hud-rail-w'
+  };
+  const RAIL = {
+    W: 132,                      /* rail width, sideways                */
+    W_WIDE: 156,                 /* on a roomier screen                 */
+    MIN_MAP: 420                 /* never squeeze the map below this    */
   };
 
   /* ── element tints for spell icons ──────────────────────────────── */
@@ -263,7 +276,7 @@ const HUDT = (() => {
   }
 
   return { C, Z, BP, MAXW, BAR, ORB, SKILL, MMAP, POLL_MS, KEYS, MSG,
-           CSSVARS, ELEM, elemOf, SPELL_GLYPHS, spellGlyph, spellIcon,
+           CSSVARS, RAIL, ELEM, elemOf, SPELL_GLYPHS, spellGlyph, spellIcon,
            mapLabel, emptySnap };
 })();
 

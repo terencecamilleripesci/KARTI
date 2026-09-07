@@ -8,6 +8,67 @@
    z-order: HUD 30 · TOOLTIP 36 · MENU 44 (backdrop 43).
    ═══════════════════════════════════════════════════════════════════ */
 
+/* ── THE SIDE RAIL (sideways) ────────────────────────────────────
+   The game is played sideways and a bar across the bottom spends the
+   SHORT axis: 134px of a 390px-tall phone is a third of the screen, and
+   the map is what pays. Dofus puts its panels down the right-hand side
+   instead, which spends width — of which there is 844 — and hands the
+   map back its full height.
+
+   The rail is the same #hud-bar element re-laid-out, not a second HUD.
+   One set of buttons, one set of orbs, one skill row: a parallel HUD for
+   landscape is two things to keep in step and they always drift.
+
+   Pages reserve space with --hud-rail-w exactly as they reserved it with
+   --hud-bar-h. Both are always set; whichever is not in use reads 0. */
+body.hud-rail #hud-bar{
+  left:auto; right:0; top:0; bottom:0;
+  width:var(--hud-rail-w, 132px);
+  height:100% !important;
+  padding-bottom:max(6px, env(safe-area-inset-bottom,0px));
+  padding-right:max(0px, env(safe-area-inset-right,0px));
+  border-top:none;
+  border-left:1px solid rgba(255,255,255,.14);
+  box-shadow:-1px 0 0 rgba(0,0,0,.6), -12px 0 28px -8px rgba(0,0,0,.5);
+  background:linear-gradient(90deg, rgba(38,31,72,.94), rgba(23,19,49,.97) 55%);
+}
+/* a dialogue owns the bottom of the screen; the rail is not in its way,
+   so it stays put instead of sliding off the side */
+body.hud-rail:has(#dlg.on) #hud-bar{transform:none}
+
+body.hud-rail #hud-wrap{
+  max-width:none; padding:8px 8px 0;
+  flex-direction:column; justify-content:flex-start; gap:8px;
+}
+/* orbs sit at the TOP of the rail, in a row, where a portrait would be */
+body.hud-rail #hud-row{
+  height:auto; flex:0 0 auto; justify-content:center;
+}
+body.hud-rail #hud-orbs{
+  position:static; transform:none; gap:8px; justify-content:center;
+}
+/* THE SPELL GRID. Down the rail rather than across the bottom, wrapping
+   into rows of two — which is what makes twenty spells possible at all;
+   eight was the ceiling on a 560px bar and the Warden now has twenty. */
+body.hud-rail #hud-skills{
+  flex:1 1 auto; align-content:flex-start; justify-content:center;
+  flex-wrap:wrap; gap:6px; overflow-y:auto; overflow-x:hidden;
+  padding:2px 0 8px; scrollbar-width:none;
+}
+body.hud-rail #hud-skills::-webkit-scrollbar{display:none}
+body.hud-rail .hud-skill{width:52px;height:52px;flex:0 0 auto}
+
+/* THE ORBS HAVE TO FIT THE RAIL. At their bar size the three of them plus
+   the crystal ball are wider than 156px, so the MP orb hung off the edge of
+   the screen — visible, unreadable, and the first thing you look at when you
+   want to know whether you can cast. Smaller, and allowed to wrap. */
+body.hud-rail #hud-orbs{flex-wrap:wrap;gap:6px;max-width:100%}
+body.hud-rail .hud-orb{width:38px;height:38px}
+body.hud-rail .hud-ball{width:54px;height:54px}
+body.hud-rail #hud-row{padding-bottom:6px}
+/* the bag and menu buttons go under the orbs rather than beside them */
+body.hud-rail #hud-map{width:44px;height:44px;min-width:44px}
+
 /* ── the bottom bar ─────────────────────────────────────────────── */
 #hud-bar{
   position:fixed;left:0;right:0;bottom:0;z-index:30;overflow:visible;

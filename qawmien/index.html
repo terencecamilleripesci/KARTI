@@ -38,6 +38,10 @@
      board is a screen RECTANGLE now (grid.js) and every one of those cells
      is a cell you are meant to be able to reach. */
   #wrap{display:flex;flex-direction:column;max-width:560px;margin:0 auto;
+    /* the rail takes width, the bar takes height, and only one of them is
+       ever in use — see hud.css. Both variables are always written, one of
+       them to 0, so the same arithmetic covers both layouts. */
+    width:calc(100% - var(--hud-rail-w,0px));
     height:calc(100dvh - var(--hud-bar-h,134px))}
   /* SIDEWAYS, THE BOARD GETS THE WHOLE SCREEN. The 560px cap is a portrait
      measure — it keeps a tall phone's board from stretching absurdly wide.

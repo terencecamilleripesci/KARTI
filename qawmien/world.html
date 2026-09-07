@@ -37,7 +37,13 @@
   /* the world canvas stops at the HUD bar (hud.js maintains --hud-bar-h);
      WORLD.draw() refits the whole-map camera from the canvas box every
      frame, so the framed 10×10 map re-centres itself — HUD_SPEC §2.5 */
-  #wcv{position:fixed;top:0;left:0;width:100%;
+  #wcv{position:fixed;top:0;left:0;
+    /* THE HUD TAKES ONE AXIS OR THE OTHER, never both. Sideways it is a
+       rail down the right and the map keeps its full height; upright it
+       is a bar along the bottom and the map keeps its full width. Both
+       variables are always set, one of them to 0, so this arithmetic is
+       the same either way. */
+    width:calc(100% - var(--hud-rail-w,0px));
     height:calc(100% - var(--hud-bar-h,64px));
     display:block;touch-action:none}
   /* THE BAR MAY NOT COVER THE MAP — and this is the second half of the

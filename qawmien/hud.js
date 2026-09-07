@@ -1313,10 +1313,29 @@ window.HUD = (function () {
        here because the VARIABLE is what every page reserves space with */
     const wide = window.innerWidth > window.innerHeight &&
                  window.innerHeight <= 520;
+    /* ── RAIL OR BAR ────────────────────────────────────────────────
+       Sideways, the HUD goes down the RIGHT and the map keeps its full
+       height; upright it stays a bottom bar. The map is never squeezed
+       below RAIL.MIN_MAP: on a narrow phone the bar is the better of two
+       bad options, because a rail that leaves 300px of map is worse than
+       a bar that leaves 250px of height.
+
+       BOTH VARIABLES ARE ALWAYS SET, one of them to zero. A page that
+       reserves space with a variable which simply stops being written
+       keeps the last value it saw and reserves space for a HUD that has
+       moved — the map would sit under the rail with a bar-sized hole
+       beneath it. */
+    const railW = window.innerWidth >= T.RAIL.MIN_MAP + T.RAIL.W
+      ? (window.innerWidth >= 900 ? T.RAIL.W_WIDE : T.RAIL.W) : 0;
+    const useRail = wide && railW > 0;
+    document.body.classList.toggle('hud-rail', useRail);
+    root.style.setProperty(T.CSSVARS.RAIL_W, useRail ? railW + 'px' : '0px');
+
     const contentH = mode === 'combat'
       ? (wide ? T.BAR.COMBAT_H_LANDSCAPE : T.BAR.COMBAT_H)
       : T.BAR.H;
-    root.style.setProperty(T.CSSVARS.BAR_H, (contentH + padB) + 'px');
+    root.style.setProperty(T.CSSVARS.BAR_H,
+      useRail ? '0px' : (contentH + padB) + 'px');
 
     let topH = 0;
     if (gearEl) topH = Math.max(topH, gearEl.getBoundingClientRect().bottom + 8);
