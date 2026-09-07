@@ -37,6 +37,14 @@
    that changed is which (c,r) are on the board — inBoard() answers that
    now instead of a pair of bounds. */
 const BOARD = (typeof GRID !== 'undefined') ? GRID : null;
+/* THE GUARD ABOVE DOES NOTHING WITHOUT THIS. It carefully produces null and
+   the very next line dereferences it, so a missing grid.js reported
+   "Cannot read properties of null (reading 'N')" from tactics.js — and
+   since this is module scope, window.T is never created, the combat page
+   has no game in it, and every tap does nothing. That is what a frozen
+   battle looks like from the outside. Name the cause instead. */
+if (!BOARD) throw new Error(
+  'tactics.js needs GRID: load grid.js before it (script order).');
 const W = BOARD.N, H = BOARD.N;  /* the bounding box the board sits in  */
 const TW = BOARD.TW, TH = BOARD.TH;
 

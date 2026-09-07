@@ -1325,11 +1325,20 @@ window.HUD = (function () {
        keeps the last value it saw and reserves space for a HUD that has
        moved — the map would sit under the rail with a bar-sized hole
        beneath it. */
-    const railW = window.innerWidth >= T.RAIL.MIN_MAP + T.RAIL.W
-      ? (window.innerWidth >= 900 ? T.RAIL.W_WIDE : T.RAIL.W) : 0;
+    /* A STALE hud-types.js MUST NOT KILL THE HUD. world.html is cache-busted
+       by build number; the scripts it loads are not, so a phone can pick up a
+       new hud.js beside a hud-types.js it already had. T.RAIL would then be
+       undefined, this line would throw inside setVars(), and the whole HUD
+       would die — no orbs, no spells, no gear — which from the outside is
+       indistinguishable from the game freezing. Fall back to the bar, which
+       is what every older build did anyway. */
+    const R = T.RAIL || null;
+    const railW = R && window.innerWidth >= R.MIN_MAP + R.W
+      ? (window.innerWidth >= 900 ? R.W_WIDE : R.W) : 0;
     const useRail = wide && railW > 0;
+    const RAILVAR = (T.CSSVARS && T.CSSVARS.RAIL_W) || '--hud-rail-w';
     document.body.classList.toggle('hud-rail', useRail);
-    root.style.setProperty(T.CSSVARS.RAIL_W, useRail ? railW + 'px' : '0px');
+    root.style.setProperty(RAILVAR, useRail ? railW + 'px' : '0px');
 
     const contentH = mode === 'combat'
       ? (wide ? T.BAR.COMBAT_H_LANDSCAPE : T.BAR.COMBAT_H)

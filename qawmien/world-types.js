@@ -20,6 +20,16 @@ const WT = (() => {
      nobody, walked by nobody. */
   const G = (typeof GRID !== 'undefined') ? GRID
           : (typeof require === 'function' ? require('./grid.js') : null);
+  /* SAY WHAT IS MISSING. The line below reads G.TW, so a null G threw
+     "Cannot read properties of null (reading 'TW')" from inside a file
+     that has nothing to do with the mistake — and because this runs at
+     module scope, WT is never built, every script after it fails on an
+     undefined WT, and the page is simply dead. A blank screen with a
+     stranger's error in the console is the worst thing to hand somebody.
+     grid.js must be loaded BEFORE world-types.js; if it is not, this says
+     so by name. */
+  if (!G) throw new Error(
+    'world-types.js needs GRID: load grid.js before it (script order).');
 
   const TW = G.TW, TH = G.TH;        /* on-board tile size (tactics.js)  */
 
