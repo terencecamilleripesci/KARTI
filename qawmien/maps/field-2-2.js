@@ -6,6 +6,8 @@
 window.MAPS = window.MAPS || {};
 window.MAPS['field-2-2'] = {
   id: 'field-2-2', w: 34, h: 34, atlas: 'art/world.png',
+  bg: 'art/bg/field-2-2-island-eaa3502d34.webp',
+  sceneryReady: true,
   ground: [
     [0,0,0,0,0,0,0,0,0,0,0,0,0,0,16,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
     [0,0,0,0,0,0,0,0,0,0,0,0,0,21,21,18,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],

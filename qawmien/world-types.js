@@ -250,7 +250,9 @@ const WT = (() => {
      or a player already standing in one wakes up walled in. */
   function sealUnfinished(maps, startId){
     const ids = Object.keys(maps).sort();
-    const empty = ids.filter(id => !(maps[id].markers || []).length);
+    // A completed landscape may be a quiet connecting screen. Release status
+    // comes from the curated art manifest, independently of quest progress.
+    const empty = ids.filter(id => !maps[id].sceneryReady && !(maps[id].markers || []).length);
     const finished = ids.filter(id => !empty.includes(id));
     const walled = new Set();
     const reaches = () => {

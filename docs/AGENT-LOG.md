@@ -710,3 +710,33 @@ phones on carried-forward caches) still request the old names, and Pages
 serving both makes the transition riskless. A later build can delete them
 once v354+ is everywhere. Do not "clean them up" in the same build that
 changes the references.
+
+## 10 September 2026 — Qawmien first-island painting pass (local, unpublished)
+
+Installed 17 content-versioned field backgrounds from tactics-testbed, plus
+per-prop occlusion and an explicit `sceneryReady` flag so finished connecting
+landscapes are not sealed just because they have no quest marker. Gameplay
+arrays and markers are unchanged. Source masters stay in the source repo's
+`art/concept/island-plates`; only the 17 compiled WebPs (10,996,384 bytes total)
+and registry are added here. See source `ISLAND_RELEASE.md` for rebuild steps.
+
+Independent painted edge matching drifted on coasts. The source assembler
+now samples one normalized world-coordinate blend before cutting screens;
+all 24 linked image seams pass the original tolerances. A water-on-walkable
+cell check caught a missing ledge in field-3-1; repaired the painting, not
+the collision data. Seam checks alone do not prove object registration.
+
+Two existing HUD faults surfaced in browser review: `thefold:115,,` broke
+hud-types parsing, and side-rail controls retained a horizontal row layout
+that overflowed the phone. Fixed both; the source icon recorder now avoids
+generating another doubled comma. This is why screenshots must be read.
+
+Map/grid/world-map/roaming/dungeon and strict painted-island gates passed.
+Chromium checks use local pages with external traffic blocked, including
+phone landscape viewports and a real pointer walk; not live multiplayer or
+a physical-device certification. The source and bundle target baselines
+were compared before carrying this scoped patch. Entry-page resource URLs
+are locally stamped `island-eaa3502d34`. No commit/push, KARTI_BUILD/SW bump,
+relay operation, audio edit or deployment was performed. Coordinator must
+commit the source before using bundle.py: it archives HEAD and would discard
+this local update if invoked against the old source commit.

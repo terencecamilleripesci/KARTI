@@ -37,15 +37,23 @@ body.hud-rail #hud-bar{
 body.hud-rail:has(#dlg.on) #hud-bar{transform:none}
 
 body.hud-rail #hud-wrap{
-  max-width:none; padding:8px 8px 0;
+  max-width:none; padding:60px 8px 0;
   flex-direction:column; justify-content:flex-start; gap:8px;
 }
 /* orbs sit at the TOP of the rail, in a row, where a portrait would be */
 body.hud-rail #hud-row{
   height:auto; flex:0 0 auto; justify-content:center;
+  display:grid; grid-template-columns:1fr 1fr; gap:8px;
+  width:100%;
 }
 body.hud-rail #hud-orbs{
   position:static; transform:none; gap:8px; justify-content:center;
+  display:grid; grid-template-columns:1fr 1fr;
+  grid-column:1 / -1; grid-row:1; height:auto; width:100%;
+  justify-items:center; margin:0;
+}
+body.hud-rail #hud-row > button{
+  width:100%; min-width:0; padding:0 3px; height:44px;
 }
 /* THE SPELL GRID. Down the rail rather than across the bottom, wrapping
    into rows of two — which is what makes twenty spells possible at all;
@@ -64,7 +72,9 @@ body.hud-rail .hud-skill{width:52px;height:52px;flex:0 0 auto}
    want to know whether you can cast. Smaller, and allowed to wrap. */
 body.hud-rail #hud-orbs{flex-wrap:wrap;gap:6px;max-width:100%}
 body.hud-rail .hud-orb{width:38px;height:38px}
-body.hud-rail .hud-ball{width:54px;height:54px}
+body.hud-rail .hud-ball{
+  width:54px;height:54px;transform:none;grid-column:1 / -1;grid-row:1;
+}
 body.hud-rail #hud-row{padding-bottom:6px}
 /* the bag and menu buttons go under the orbs rather than beside them */
 body.hud-rail #hud-map{width:44px;height:44px;min-width:44px}

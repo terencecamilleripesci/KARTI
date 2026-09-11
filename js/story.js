@@ -261,12 +261,22 @@ const gameName = id => { const t = tileOf(id); return t ? (t.name || id) : id; }
    only five factions, so the onerror walks down to that and then to the emoji.
    All fourteen have their own face as of build 290. */
 function faceHTML(b, cls){
+  /* THUMBNAILS, NOT THE PAINTINGS. The originals are 620x900 and these are
+     drawn at 74px on the road and 54px on a card — about thirty-five times
+     more pixels than any screen uses. Opening Story Mode on a throttled
+     phone took 1356ms and only 24 of those were building the DOM; the rest
+     was six megabytes of portrait. tools/bossthumbs.py bakes in the same
+     crop the CSS does, so nothing moves.
+
+     The full PNG is kept as the onerror fallback, so a deploy without the
+     thumb folder still shows faces rather than emoji. */
+  const thumb = K.uiArt && K.uiArt('boss', 'thumb/boss-' + b.id + '.webp');
   const own  = K.uiArt && K.uiArt('boss', 'boss-' + b.id + '.png');
   const attr = K.uiArt && K.uiArt('boss', b.final ? 'boss-final.png' : 'boss-' + b.attr + '.png');
-  const src  = own || attr;
-  const alt  = own && attr && own !== attr ? attr : '';
+  const src  = thumb || own || attr;
+  const alt  = [own, attr].filter(u => u && u !== src)[0] || '';
   return '<span class="' + (cls || 'face') + '">' +
-    (src ? '<img src="' + src + '" alt=""' +
+    (src ? '<img src="' + src + '" alt="" loading="lazy" decoding="async"' +
       (alt ? ' data-alt="' + alt + '" onerror="if(this.dataset.alt){this.src=this.dataset.alt;this.removeAttribute(\'data-alt\');}else{this.remove();}"'
            : ' onerror="this.remove()"') + '>' : '') +
     '<span class="em">' + b.e + '</span></span>';

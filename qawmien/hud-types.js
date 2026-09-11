@@ -254,7 +254,7 @@ const HUDT = (() => {
     /* the tidebinder's 16 */
     spray: 84, tidewall: 85, riptide: 86, wellspring: 87, brine: 88, swell: 89, saltmire: 90, deepmend: 91, chill: 92, tidestep: 93, breaker: 94, lifetide: 95, maelstrom: 96, aegis: 97, sanctuary: 98, fullmoon: 99,
     /* the shepherd's 16 */
-    sling: 100, goad: 101, fleece: 102, hookcrook: 103, stampede: 104, pen: 105, droverstep: 106, cudgel: 107, saltlick: 108, dogwhistle: 109, furrow: 110, herd: 111, yoke: 112, hardhide: 113, trample: 114, thefold: 115,,
+    sling: 100, goad: 101, fleece: 102, hookcrook: 103, stampede: 104, pen: 105, droverstep: 106, cudgel: 107, saltlick: 108, dogwhistle: 109, furrow: 110, herd: 111, yoke: 112, hardhide: 113, trample: 114, thefold: 115,
     /* the scubi-first's 5 */
     siphon: 116, leash: 117, hemorrhage: 118, scion: 119, bloodstep: 120
  };

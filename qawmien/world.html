@@ -17,7 +17,7 @@
     PANELS(panels.js) inventory + character sheet
 -->
 <link rel="stylesheet" href="panels.css?v=d1692c6">
-<link rel="stylesheet" href="hud.css?v=d1692c6"><!-- hud.js chrome: bottom bar (Bag /
+<link rel="stylesheet" href="hud.css?v=island-eaa3502d34"><!-- hud.js chrome: bottom bar (Bag /
   AP·HP·MP orbs / Hero) + settings gear/menu. The SAME file the combat
   document loads, so the two bars are pixel-identical where they overlap
   (HUD_SPEC §0 — that shared geometry IS the mode continuity) -->
@@ -177,14 +177,14 @@ try {
     : typeof XP.owns === 'function' && XP.owns('border.tempesta')));
 } catch (e) { window.KARTI_ADMIN = false; }   /* cross-origin: not the owner */
 </script>
-<script src="hud-types.js?v=d1692c6"></script><!-- window.HUDT — the HUD contract:
+<script src="hud-types.js?v=island-eaa3502d34"></script><!-- window.HUDT — the HUD contract:
   geometry, palette, z-scale, storage keys, spell glyphs. Before every
   module that reads it (minimap.js, hud.js, panels.js) — HUD_SPEC §0 -->
 <script src="sprite.js?v=d1692c6"></script>
 <script src="grid.js?v=d1692c6"></script><!-- window.GRID — the SHAPE of a screen: the
   staggered rectangle that fills a phone held sideways. Loads before
   world-types.js and before any map, because both are defined in terms of it -->
-<script src="world-types.js?v=d1692c6"></script>
+<script src="world-types.js?v=island-eaa3502d34"></script>
 <script src="classes.js?v=d1692c6"></script>
 <!-- GEAR must load BEFORE player.js: refresh() folds worn vit into hpMax, and
      if the catalogue is not there for that first derivation the bonus is
@@ -218,23 +218,23 @@ try {
 <script src="maps/ruin-01.js?v=d1692c6"></script>
 <script src="maps/ruin-02.js?v=d1692c6"></script>
 <script src="maps/ruin-03.js?v=d1692c6"></script>
-<script src="maps/field-0-0.js?v=d1692c6"></script>
-<script src="maps/field-1-0.js?v=d1692c6"></script>
-<script src="maps/field-2-0.js?v=d1692c6"></script>
-<script src="maps/field-3-0.js?v=d1692c6"></script>
-<script src="maps/field-0-1.js?v=d1692c6"></script>
-<script src="maps/field-1-1.js?v=d1692c6"></script>
-<script src="maps/field-2-1.js?v=d1692c6"></script>
-<script src="maps/field-3-1.js?v=d1692c6"></script>
-<script src="maps/field-0-2.js?v=d1692c6"></script>
-<script src="maps/field-1-2.js?v=d1692c6"></script>
-<script src="maps/field-2-2.js?v=d1692c6"></script>
-<script src="maps/field-3-2.js?v=d1692c6"></script>
-<script src="maps/field-4-2.js?v=d1692c6"></script>
-<script src="maps/field-0-3.js?v=d1692c6"></script>
-<script src="maps/field-1-3.js?v=d1692c6"></script>
-<script src="maps/field-2-3.js?v=d1692c6"></script>
-<script src="maps/field-3-3.js?v=d1692c6"></script>
+<script src="maps/field-0-0.js?v=island-eaa3502d34"></script>
+<script src="maps/field-1-0.js?v=island-eaa3502d34"></script>
+<script src="maps/field-2-0.js?v=island-eaa3502d34"></script>
+<script src="maps/field-3-0.js?v=island-eaa3502d34"></script>
+<script src="maps/field-0-1.js?v=island-eaa3502d34"></script>
+<script src="maps/field-1-1.js?v=island-eaa3502d34"></script>
+<script src="maps/field-2-1.js?v=island-eaa3502d34"></script>
+<script src="maps/field-3-1.js?v=island-eaa3502d34"></script>
+<script src="maps/field-0-2.js?v=island-eaa3502d34"></script>
+<script src="maps/field-1-2.js?v=island-eaa3502d34"></script>
+<script src="maps/field-2-2.js?v=island-eaa3502d34"></script>
+<script src="maps/field-3-2.js?v=island-eaa3502d34"></script>
+<script src="maps/field-4-2.js?v=island-eaa3502d34"></script>
+<script src="maps/field-0-3.js?v=island-eaa3502d34"></script>
+<script src="maps/field-1-3.js?v=island-eaa3502d34"></script>
+<script src="maps/field-2-3.js?v=island-eaa3502d34"></script>
+<script src="maps/field-3-3.js?v=island-eaa3502d34"></script>
 <script src="maps/crypt-1.js?v=d1692c6"></script>
 <script src="maps/crypt-2.js?v=d1692c6"></script>
 <script src="maps/crypt-3.js?v=d1692c6"></script>
@@ -252,7 +252,7 @@ try {
 <script src="roam.js?v=d1692c6"></script><!-- window.ROAM: when a wandering mob moves and
   which way it goes. Loads BEFORE world.js, which asks it for a route the
   moment the first map loads. -->
-<script src="world.js?v=d1692c6"></script>
+<script src="world.js?v=island-eaa3502d34"></script>
 <script src="minimap.js?v=d1692c6"></script><!-- window.MINIMAP: which box you are on.
   Display-only, top-left; polls WORLD._map (the one WORLD.onExit slot is
   this page's, below) — HUD_SPEC §5 -->

@@ -1143,7 +1143,31 @@ const WORLD = (() => {
      front: his depth is greater and he draws over it. The picture never
      decides walkability; this never looks at block[][] for anything but
      WHERE the tall things stand. */
-  function buildOcclusion(map, img, R){
+  function buildOcclusion(map, img, R, atlasImage){
+    if (map.sceneryReady && atlasImage) {
+      // These plates were painted from the actual board sprites. A group of
+      // boulders is not a building: the old blockout prism would also cover
+      // open grass and hide a hero standing in front of it. Use each authored
+      // prop's silhouette and base depth, including isolated rocks and fences.
+      const pieces = [], size = WT.TILE_PX * TW / WT.FOOT_W;
+      for (const {c, r} of GRID.CELLS) {
+        const tile = map.decor[r][c];
+        if (!tile) continue;
+        const bx = WT.isoX(c,r), by = WT.isoY(c,r);
+        const x = bx-size/2, y = by+TH/2-size;
+        const cv = document.createElement('canvas');
+        cv.width = Math.ceil(size*2); cv.height = Math.ceil(size*2);
+        const mask = cv.getContext('2d');
+        mask.scale(2,2); mask.translate(-x,-y);
+        mask.imageSmoothingEnabled = true;
+        mask.drawImage(img,R.x,R.y,R.w,R.h);
+        mask.globalCompositeOperation = 'destination-in';
+        const a = WT.atlasRect(tile);
+        mask.drawImage(atlasImage,a.sx,a.sy,a.sw,a.sh,x,y,size,size);
+        pieces.push({cv,x,y,w:cv.width/2,h:cv.height/2,d:c+r});
+      }
+      return pieces;
+    }
     const D_ROCK = 26, D_TREE = 24, SPAN = 4;
     const BLD_H = TH * 2.0, LOW_H = TH * 0.8;
     const wall = (c, r) => c >= 0 && r >= 0 && c < map.w && r < map.h &&
@@ -1332,7 +1356,8 @@ const WORLD = (() => {
         }
         g.imageSmoothingEnabled = true;
         g.drawImage(b.img, R.x, R.y, R.w, R.h);
-        if (!map._occ) map._occ = buildOcclusion(map, b.img, R);
+        if (!map._occ && (!map.sceneryReady || (atlas && atlas.ready)))
+          map._occ = buildOcclusion(map, b.img, R, atlas && atlas.img);
         bgUp = true;
       }
     }
@@ -1438,7 +1463,8 @@ const WORLD = (() => {
     q.sort((A, B) => (A.d - B.d) || (A.k - B.k));    /* stable for the rest */
     for (const e of q){
       if (e.k === 0){
-        if (e.occ) g.drawImage(e.occ.cv, e.occ.x, e.occ.y);
+        if (e.occ) g.drawImage(e.occ.cv, e.occ.x, e.occ.y,
+                              e.occ.w || e.occ.cv.width, e.occ.h || e.occ.cv.height);
         else if (atlas && atlas.ready) WT.drawTile(g, atlas.img, e.i, e.x, e.y, true);
         else fbDecor(g, e.i, e.x, e.y);
       }
