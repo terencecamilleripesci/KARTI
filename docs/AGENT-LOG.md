@@ -740,3 +740,27 @@ are locally stamped `island-eaa3502d34`. No commit/push, KARTI_BUILD/SW bump,
 relay operation, audio edit or deployment was performed. Coordinator must
 commit the source before using bundle.py: it archives HEAD and would discard
 this local update if invoked against the old source commit.
+
+## 11 September 2026 — Wayrest village takeover (local, unpublished)
+
+Rebuilt field-0-1 with a tavern, two cottages, well, garden gate, carved ruin
+entrance and five NPCs. Four new villagers have dialogue; Mara opens the
+existing provision shop, Ivo patrols. No economy rules changed. Exterior
+buildings only; the doorway connects to the existing Waking Halls, not a
+new dungeon campaign. Source `WAYREST.md` and `art/concept/wayrest-layout.json`
+own the rebuilding contract; mkworld regeneration now reapplies that authoring
+pass. Shared island seams remain intact through the world-image assembler.
+
+Anselm's old tile became a choke point beside the new arch. Multi-entry
+flood-fill passed while an actual walk from the square failed, because the
+door seeded its own isolated component. Moved him to the square and added
+`tools/checkvillage.js`, which runs actual WORLD routes to every NPC, across
+the gate and through the dungeon roundtrip. A second lesson: slate roof
+pixels over walkable ground behind a house are not water. The color guard
+now excludes only authored building silhouettes, while visible sea remains
+checked. Renderer uses those same silhouettes for depth occlusion.
+
+The local bundle is stamped `wayrest-ba4d2037b3` for affected resources.
+Older assets are retained. No push, KARTI_BUILD/SW bump, live relay action
+or audio edit. Rebundle only after the source has been committed by the
+coordinator; bundle.py still archives HEAD rather than the working tree.

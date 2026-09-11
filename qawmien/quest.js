@@ -397,6 +397,12 @@ window.QUEST = (function () {
      blocked); false means the glue should proceed (start the fight). */
   function npc(m) {
     if (!m) return false;
+    // Authored village dialogue stays on the marker, beside its real door.
+    // Services reuse the established shop rules; no second price or wallet.
+    if (m.type === 'npc' && m.id && m.id.startsWith('village-') && Array.isArray(m.lines)) {
+      say(m.name, m.lines, m.service === 'shop' ? () => openShop(m) : null);
+      return true;
+    }
     if (m.type === 'npc' && m.id === 'elder') {
       if (S.step === 0) {
         if (needsChoice()) say(m.name, LINES.elder0a, () => openCircle(m));

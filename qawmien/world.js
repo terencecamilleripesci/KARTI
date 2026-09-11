@@ -1144,6 +1144,32 @@ const WORLD = (() => {
      decides walkability; this never looks at block[][] for anything but
      WHERE the tall things stand. */
   function buildOcclusion(map, img, R, atlasImage){
+    if (map.village) {
+      // Artist-authored silhouettes, registered to the same plate as physics.
+      // A roof may hide a player behind it; its footprint alone blocks walking.
+      const spec = map.village, pieces = [];
+      const cut = (poly, depthY) => {
+        const pts = poly.map(([x,y])=>[R.x+x/spec.width*R.w,R.y+y/spec.height*R.h]);
+        const x=Math.min(...pts.map(p=>p[0])), y=Math.min(...pts.map(p=>p[1]));
+        const w=Math.max(...pts.map(p=>p[0]))-x, h=Math.max(...pts.map(p=>p[1]))-y;
+        const cv=document.createElement('canvas');cv.width=Math.ceil(w*2);cv.height=Math.ceil(h*2);
+        const ctx=cv.getContext('2d');ctx.scale(2,2);ctx.translate(-x,-y);
+        ctx.beginPath();pts.forEach((p,i)=>i?ctx.lineTo(...p):ctx.moveTo(...p));ctx.closePath();ctx.clip();
+        ctx.drawImage(img,R.x,R.y,R.w,R.h);
+        pieces.push({cv,x,y,w:cv.width/2,h:cv.height/2,d:(R.y+depthY/spec.height*R.h)/(TH/2)});
+      };
+      for(const s of spec.structures) cut(s.mask,s.depthY);
+      // Split rails by depth rather than hiding a whole yard as one wall.
+      for(const f of spec.fences) for(let i=1;i<f.points.length;i++) {
+        const a=f.points[i-1],b=f.points[i],n=Math.ceil(Math.hypot(b[0]-a[0],b[1]-a[1])/30);
+        for(let j=0;j<n;j++) {
+          const p=[a[0]+(b[0]-a[0])*j/n,a[1]+(b[1]-a[1])*j/n];
+          const q=[a[0]+(b[0]-a[0])*(j+1)/n,a[1]+(b[1]-a[1])*(j+1)/n];
+          cut([p,q,[q[0],q[1]-f.height],[p[0],p[1]-f.height]],(p[1]+q[1])/2);
+        }
+      }
+      return pieces;
+    }
     if (map.sceneryReady && atlasImage) {
       // These plates were painted from the actual board sprites. A group of
       // boulders is not a building: the old blockout prism would also cover
@@ -1475,6 +1501,7 @@ const WORLD = (() => {
     /* (b2) daylight in outdoor doorways — painted into the arch opening
        right on top of its tile so the exit reads as a way OUT. Later
        queue entries never overlap the opening (it faces the viewer). */
+    if (bgUp && map.village) drawVillageLife(g, map.village);
     for (const d of doors)
       drawDoorLight(g, WT.isoX(d.c, d.r), WT.isoY(d.c, d.r), d.sgn, d.out, breathe);
 
@@ -1653,6 +1680,39 @@ const WORLD = (() => {
     g.fillStyle = gr;
     g.fill();
     g.restore();
+  }
+
+  function drawVillageLife(g, spec){
+    const R=GRID.RECT, sx=R.w/spec.width, sy=R.h/spec.height;
+    const reduced=window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const t=reduced?0:performance.now()/1000;
+    g.save();g.translate(R.x,R.y);g.scale(sx,sy);
+    // Small local effects only; no map-sized particle canvas or timers.
+    for(const [i,p] of spec.lights.entries()) {
+      const pulse=.85+.15*Math.sin(t*3+i*2), r=22*pulse;
+      const glow=g.createRadialGradient(p[0],p[1],1,p[0],p[1],r);
+      glow.addColorStop(0,'rgba(255,205,100,.28)');glow.addColorStop(1,'rgba(255,160,55,0)');
+      g.fillStyle=glow;g.beginPath();g.arc(p[0],p[1],r,0,Math.PI*2);g.fill();
+    }
+    if(!reduced) for(const [i,p] of spec.smoke.entries()) for(let j=0;j<4;j++) {
+      const f=(t*.12+j/4+i*.17)%1;
+      g.fillStyle='rgba(218,220,212,'+(.10*Math.sin(f*Math.PI))+')';
+      g.beginPath();g.ellipse(p[0]+f*24+Math.sin(t+i)*4,p[1]-f*65,7+f*15,4+f*8,0,0,Math.PI*2);g.fill();
+    }
+    if(!reduced) for(const [i,p] of spec.motes.entries()) {
+      const x=p[0]+Math.sin(t*.5+i)*35,y=p[1]+Math.cos(t*.8+i*2)*18;
+      g.fillStyle='rgba(255,220,145,.65)';g.beginPath();g.ellipse(x,y,3,1.5,Math.sin(t*8),0,Math.PI*2);g.fill();
+    }
+    g.restore();
+    // Nearby names explain who is interactive without carpeting the map.
+    for(const a of actors) {
+      if(a.mk.type!=='npc' || Math.hypot(a.bx-hero.bx,(a.by-hero.by)*2)>210) continue;
+      const name=a.mk.name || '', x=a.bx, y=a.by-74;
+      g.save();g.font='600 11px system-ui';g.textAlign='center';g.textBaseline='middle';
+      const w=g.measureText(name).width+18;
+      g.fillStyle='rgba(23,22,30,.85)';g.beginPath();g.roundRect(x-w/2,y-10,w,21,6);g.fill();
+      g.fillStyle='#ffe7b2';g.fillText(name,x,y+.5);g.restore();
+    }
   }
 
   function drawActor(g, a){

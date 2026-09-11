@@ -278,6 +278,7 @@ const HUDT = (() => {
 
   /* ── minimap display names (aria + any label use) ───────────────── */
   function mapLabel(id) {
+    if (id === 'field-0-1') return 'Wayrest, Lantern Square';
     if (id === 'ruin-01') return 'Old Ruin, inner room';
     if (id === 'ruin-02') return 'Old Ruin, hall';
     const m = /^field-(\d+)-(\d+)$/.exec(id || '');
