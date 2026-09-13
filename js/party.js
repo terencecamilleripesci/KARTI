@@ -247,7 +247,13 @@ function logoProbe(){
        because of the `!currentGame` guard on the next line, and that guard is
        now load-bearing rather than theoretical: logo-chess.png EXISTS, so
        this onload fires on every hub open. Do not drop it. */
-    if (live && !currentGame) hub();
+    /* …and `!currentGame` is NOT enough on its own. A SETUP SHEET has no
+       currentGame — setup() nulls it deliberately — so this repainted the
+       hub straight over a sheet the player was reading and bounced them
+       back to the shelf. Measured: the sheet survived 400ms. Ask what is
+       actually on screen instead of inferring it from the absence of a
+       game. */
+    if (live && !currentGame && onScreen === 'hub') hub();
   };
   img.onerror = () => { logoPack = false; logoProbing = false; };
   img.src = LOGO_DIR + 'logo-chess.png';
@@ -398,6 +404,11 @@ function close(){
    THE HUB
    ═══════════════════════════════════════════════════════════════════ */
 let currentGame = null;      /* {leave()} of whatever is on screen */
+/* WHICH of this file's screens is painted right now: 'hub', 'deck',
+   'setup' or 'game'. Anything that repaints on a late callback (a slow
+   image, a presence poll) must check this rather than guess from
+   currentGame — a setup sheet and the hub both have no game. */
+let onScreen = '';
 
 function open(){
   show();
@@ -407,6 +418,7 @@ function open(){
 function hub(){
   if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
   currentGame = null;
+  onScreen = 'hub';
   const el = screenEl();
   el.innerHTML =
     '<div class="tbar">' +
@@ -595,6 +607,7 @@ function doorInto(grid, deck){
 function deckRoom(){
   if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
   currentGame = null;
+  onScreen = 'deck';
   const el = screenEl();
   el.innerHTML =
     '<div class="tbar">' +
@@ -630,6 +643,7 @@ function setup(cfg){
            blurb, onStart(opts), onBack, onOnline} */
   if (currentGame && currentGame.leave){ try { currentGame.leave(); } catch(e){} }
   currentGame = null;
+  onScreen = 'setup';
   const el = screenEl();
   const p = pref(cfg.id);
 
@@ -886,6 +900,7 @@ function guardLeave(go, why){
 let lastCtx = null;
 function frame(o){
   /* o: {title, onBack, leave, barCls, buttons:[{id,label,icon,cls}]} */
+  onScreen = 'game';
   const el = screenEl();
   /* the frame before this one is about to be thrown away — let go of its
      ResizeObserver rather than leaving it watching a detached node */
