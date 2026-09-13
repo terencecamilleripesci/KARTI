@@ -653,9 +653,21 @@ function setup(cfg){
      compare as strings both ways or nothing ever looks selected, which
      is exactly how the first build shipped a difficulty picker with no
      difficulty picked. */
-  let level = cfg.levels.some(l => String(l.k) === String(p.level))
-                ? String(p.level) : String(cfg.levels[1].k);
-  let side  = cfg.sides.some(s => s.k === p.side) ? p.side : cfg.sides[0].k;
+  /* LEVELS AND SIDES ARE BOTH OPTIONAL, and were not always. This sheet
+     was written for the two-player boards, where every game has three
+     difficulties and two colours; the party games added since do not —
+     a drawing game has no sides at all and a quiz has no side to pick.
+     Reading cfg.sides[0].k off an absent list threw the moment the tile
+     was tapped, which is how seven live games shipped unreachable. Both
+     lists now default to empty and each row is only drawn if it has
+     something to put in it. */
+  const LVLS  = Array.isArray(cfg.levels) ? cfg.levels : [];
+  const SIDES = Array.isArray(cfg.sides)  ? cfg.sides  : [];
+  const lvl0  = LVLS.length ? String((LVLS[1] || LVLS[0]).k) : '';
+  let level = LVLS.some(l => String(l.k) === String(p.level)) ? String(p.level) : lvl0;
+  let side  = SIDES.length
+                ? (SIDES.some(s => s.k === p.side) ? p.side : SIDES[0].k)
+                : null;
   const r = recOf(cfg.id);
 
   el.innerHTML =
@@ -696,17 +708,22 @@ function setup(cfg){
           'at all.</p>'
         : '') +
       '<div id="pt-aibits">' +
-        '<div class="tiny pt-lbl">How hard</div>' +
-        '<div class="pt-opts" id="pt-lvl">' +
-          cfg.levels.map(l => '<button class="pt-opt" data-v="' + esc(l.k) + '">' +
-            ico(l.icon || 'diff-2') + '<b>' + esc(l.name) + '</b><i>' + esc(l.note) + '</i></button>').join('') +
-        '</div>' +
-        '<div class="tiny pt-lbl">You play</div>' +
-        '<div class="pt-opts two" id="pt-side">' +
-          cfg.sides.map(s => '<button class="pt-opt" data-v="' + esc(s.k) + '">' +
-            '<span class="pt-swatch ' + esc(s.cls || '') + '"></span><b>' + esc(s.name) + '</b>' +
-            '<i>' + esc(s.note || '') + '</i></button>').join('') +
-        '</div>' +
+        (LVLS.length
+          ? '<div class="tiny pt-lbl">How hard</div>' +
+            '<div class="pt-opts" id="pt-lvl">' +
+              LVLS.map(l => '<button class="pt-opt" data-v="' + esc(l.k) + '">' +
+                ico(l.icon || 'diff-2') + '<b>' + esc(l.name) + '</b><i>' +
+                esc(l.note || '') + '</i></button>').join('') +
+            '</div>'
+          : '') +
+        (SIDES.length
+          ? '<div class="tiny pt-lbl">You play</div>' +
+            '<div class="pt-opts two" id="pt-side">' +
+              SIDES.map(s => '<button class="pt-opt" data-v="' + esc(s.k) + '">' +
+                '<span class="pt-swatch ' + esc(s.cls || '') + '"></span><b>' + esc(s.name) + '</b>' +
+                '<i>' + esc(s.note || '') + '</i></button>').join('') +
+            '</div>'
+          : '') +
       '</div>' +
       (r.w + r.l + r.d
         ? '<p class="pt-ledger">Against the phone so far: <b>' + r.w + '</b> won, <b>' + r.l +

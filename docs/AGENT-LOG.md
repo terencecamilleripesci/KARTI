@@ -7,6 +7,32 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-09-13 — SEVEN LIVE GAMES SHIPPED UNREACHABLE, and every test I ran said they were fine
+Builds 414–420 added KWIŻŻ, L-EWWEL, OGĦLA, TPINĠIJA, L-ARTIST FALZ, MIN
+L-AKTAR? and KATINA. Every one of them threw `Cannot read properties of
+undefined` the instant its tile was tapped. Seven builds. Nobody could open
+any of them.
+
+**What it actually was:** `P.ui.setup()` in js/party.js was written for the
+two-player boards, where every game has three difficulties and two colours.
+It read `cfg.levels[1].k` and `cfg.sides[0].k` with no guard. A quiz has no
+side to pick and a drawing game has no CPU, so all seven passed `sides:`
+not at all and three passed `levels: []`. Both dereferences threw before a
+single pixel was drawn. Fixed in party.js: both lists default to empty and
+each row is only drawn if it has entries.
+
+**Why seven builds of testing missed it:** every harness I wrote called the
+game's own `start()` directly to get to the board, because that is the part
+I was building. Not one of them went through the door the player uses.
+→ **A game is not tested until a test has tapped its TILE.** The path is
+`KARTI_PARTY.open()` (show + hub) → `games().find(g => g.id === …).open()` →
+click `#pt-start`. `hub()` alone does NOT show the screen — `open()` does —
+so a harness that calls `hub()` measures an invisible screen and every
+rect comes back 0.
+→ And when adding a game to a shared sheet, check what the sheet reads off
+your config. The contract was in the comment above the function the whole
+time: `cfg: {id, title, sub, levels:[…], sides:[…], …}`.
+
 ## 2026-08-27 — MISTERU: a 7x8 grid has far less room for six rooms than it looks
 Giving every case its own map. Three things cost real time:
 
