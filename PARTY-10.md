@@ -1,5 +1,34 @@
 # Ten more party games — the plan
 
+## STATUS: ALL TEN SHIPPED, builds 414–423 (13 Sep 2026)
+
+| build | game | id | seats | notes |
+|---|---|---|---|---|
+| 414 | KWIŻŻ | `kwizz` | 1–6 | 32 bilingual questions, streak multiplier |
+| 415 | L-EWWEL | `lewwel` | 1–6 | reaction; false start = -1 |
+| 416 | OGĦLA JEW INQAS | `oghla` | 1–6 | bank the run or push it |
+| 417 | TPINĠIJA | `tpingija` | 2–6 | shared pen (`pinga.js`), pass-the-phone |
+| 418 | L-ARTIST FALZ | `falz` | 4–8 | one stroke each, one faker |
+| 419 | MIN L-AKTAR? | `minlaktar` | 3–8 | 36 prompts, points for reading the room |
+| 420 | KATINA | `katina` | 1–6 | word chain on the shared 73k dictionary |
+| 421 | PARI | `pari` | 1–4 | memory pairs; the machine forgets oldest-first |
+| 422 | EMOJI | `emoji` | 1–6 | 46 puzzles; fewer clues = more points |
+| 423 | RITMU | `ritmu` | 1–6 | judged on STEADINESS, so phone latency cancels |
+
+**Two shared-code bugs were found by building these, and both were live:**
+- `P.ui.setup()` assumed `cfg.levels[1]` and `cfg.sides[0]` existed, so all
+  seven games shipped in 414–420 threw the moment their tile was tapped.
+  Fixed in 421. See `docs/AGENT-LOG.md`.
+- The logo probe repainted the hub over an open setup sheet (its guard was
+  `!currentGame`, and a sheet has no game). Fixed in 422.
+
+**Still open:** the ten shelf-tile logos (`logo-<id>.png`, 512px painted
+illustrations — a Codex or hand-art job, NOT PixelLab) and whether any of
+these belong on the IR-RAKKONT Story Mode road.
+
+---
+
+
 The shelf has 31. Read the whole catalogue first, because the point is to fill
 gaps rather than add a thirty-second variant of something already there.
 

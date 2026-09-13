@@ -53,20 +53,39 @@ const SFX = () => window.KARTI_SFX;
 
    `games` is [first, second, decider]. The decider is only ever reached at
    1-1. They are hand-picked to fit the character: GĦARRAQHOM! (sink them) for
-   the Captain, IL-ĦAJT and Konkwista for the man building on your land, TOMBLA
+   the Captain, Konkwista and BRIKS for the man building on your land, TOMBLA
    for the priest, IL-KIRI for the taxman, MIN HU? for the mother-in-law
-   deciding who you are, KELMA for the għannej who deals in words.
+   deciding who you are, KELMA and IL-KANUN for the għannej who deals in
+   words, and DAMA and CHESS for Nanna, who has beaten everybody at both.
+
+   THE ROAD MUST NOT COLLAPSE BACK TO A HANDFUL OF GAMES. It had, and this
+   paragraph is here because the words above stayed true while the DATA
+   below quietly stopped matching them: measured on 13 Sep 2026, the
+   fourteen stops drew on NINE distinct games between them — skarta and
+   kaxxi six times each — while 24 other games that Story Mode can launch
+   perfectly well were never once played. The Captain did not have
+   GĦARRAQHOM. The priest did not have TOMBLA. Now the road uses 28
+   distinct games and none more than twice, so a full run is fourteen
+   different evenings rather than Skarta with a new face on it.
+
+   If you edit these lists, keep both rules: **thematic** (the game says
+   something about the character) and **no game more than twice**.
+
+   ONLY GAMES THAT PLAY AT TWO SEATS BELONG HERE, because nSeats defaults to
+   2 and no stop currently overrides it. Measured: mimika (min 3), spy
+   (min 3), tankijiet (min 4) and suspett (min 5) cannot be used without a
+   `seats` override, so they are deliberately absent.
 
    `band` picks the machine's difficulty, 0..2, clamped to whatever that game
    actually publishes. Rounds 1-4 easy, 5-9 middling, 10-14 hard.
 
-   `seats` overrides the table size where a game needs more than two chairs
-   (tankijiet wants four); everything else is a straight one-on-one. */
+   `seats` overrides the table size where a game needs more than two chairs;
+   nothing needs it today, and see the paragraph above before adding one. */
 const LEVELS = [
   {
     id:'cikku', n:'ĊIKKU TAL-KAŻIN', e:'🍻', attr:'festa', band:0,
     rank:'Round 1 · The Band Club',
-    games:['skarta', 'erbgha', 'aqleb'],
+    games:['skarta', 'cards2131', 'tapp'],
     intro:'Eh ħi, sit down, sit down! Four beers in and I have never lost a game in my life. ' +
           'I have never won one either, but that is the barman\'s fault.',
     taunts:['Ara! Did you see that? Neither did I.',
@@ -79,7 +98,7 @@ const LEVELS = [
   {
     id:'pastizzi', n:'TAL-PASTIZZI', e:'🥟', attr:'razzett', band:0,
     rank:'Round 2 · The Pastizzerija',
-    games:['kaxxi', 'skarta', 'erbgha'],
+    games:['erbgha', 'aqleb', 'kaxxi'],
     intro:'Ċena? Dis is not ċena, dis is breakfast. And you are having four, because two is ' +
           'an insult to my mother.',
     taunts:['Ħa nagħtik waħda oħra.',
@@ -92,7 +111,7 @@ const LEVELS = [
   {
     id:'doris', n:'DORIS TAL-KUNSILL', e:'📋', attr:'belt', band:0,
     rank:'Round 3 · The Local Council',
-    games:['misteru', 'kaxxi', 'sqaq'],
+    games:['ilforka', 'kodici', 'kaxxi'],
     intro:'You need a permit to play here. You do not have one. Fill in this form, come back ' +
           'Thursday, and I will tell you the form has changed.',
     taunts:['That is not the right form.',
@@ -105,7 +124,7 @@ const LEVELS = [
   {
     id:'dunorg', n:'DUN ĠORĠ', e:'⛪', attr:'festa', band:0,
     rank:'Round 4 · The Parish Hall',
-    games:['sqaq', 'misteru', 'kaxxi'],
+    games:['tombla', 'kelma', 'sqaq'],
     intro:'We will play, and we will play fairly, because He is watching. And because I am also ' +
           'watching, and I am closer.',
     taunts:['I have heard worse in confession. Not much worse.',
@@ -118,7 +137,7 @@ const LEVELS = [
   {
     id:'guzi', n:'ĠUŻI L-BIDWI', e:'🚜', attr:'razzett', band:1,
     rank:'Round 5 · Burmarrad',
-    games:['serp', 'aqleb', 'ballun'],
+    games:['serp', 'konkwista', 'ludu'],
     intro:'You parked in my field. I have the tractor, I have the dogs, and I have absolutely ' +
           'nothing else on today.',
     taunts:['In my day we played this with real consequences.',
@@ -131,7 +150,7 @@ const LEVELS = [
   {
     id:'taxi', n:'IS-SEWWIEQ TAT-TAXI', e:'🚕', attr:'belt', band:1,
     rank:'Round 6 · The Airport Rank',
-    games:['sqaq', 'serp', 'erbgha'],
+    games:['sqaq', 'briks', 'tapp'],
     intro:'Twenty-five euro. Fixed price, meter is broken, the road is closed, and I know a ' +
           'shortcut that adds forty minutes.',
     taunts:['Traffic. Terrible traffic. We have not moved because I have not started.',
@@ -144,7 +163,7 @@ const LEVELS = [
   {
     id:'salvu', n:'IL-KAPTAN SALVU', e:'⛵', attr:'bahar', band:1,
     rank:'Round 7 · The Slipway',
-    games:['ballun', 'bomba', 'serp'],
+    games:['gharraq', 'ballun', 'bomba'],
     intro:'Fifty years on that boat. I have seen storms the records say never happened. I also ' +
           'saw you park on the slipway, and we will be discussing that afterwards.',
     taunts:['It was THIS big. The fish. Not your chances.',
@@ -157,7 +176,7 @@ const LEVELS = [
   {
     id:'hanut', n:'IS-SINJURA TAL-ĦANUT', e:'🏪', attr:'hazen', band:1,
     rank:'Round 8 · The Corner Shop',
-    games:['misteru', 'sqaq', 'kaxxi'],
+    games:['gin', 'misteru', 'poker'],
     intro:'I know what you buy. I know what time you buy it. And I know exactly who you were ' +
           'with on Tuesday.',
     taunts:['I am not one to talk. But.',
@@ -170,7 +189,7 @@ const LEVELS = [
   {
     id:'kunjata', n:'IL-KUNJATA', e:'👵', attr:'hazen', band:1,
     rank:'Round 9 · Sunday Lunch',
-    games:['skarta', 'misteru', 'aqleb'],
+    games:['minhu', 'rummy', 'skarta'],
     intro:'So. You are the one. I have heard absolutely everything about you, and not one word ' +
           'of it from you.',
     taunts:['My daughter could have married a notary.',
@@ -183,7 +202,7 @@ const LEVELS = [
   {
     id:'ghannej', n:'L-GĦANNEJ', e:'🎸', attr:'festa', band:2,
     rank:'Round 10 · Under the Tree',
-    games:['skarta', 'kaxxi', 'erbgha'],
+    games:['kanun', 'kelma', 'ludu'],
     intro:'I have been answering men in verse since before you were born, and not one of them ' +
           'got the last word.',
     taunts:['That does not even rhyme.',
@@ -196,7 +215,7 @@ const LEVELS = [
   {
     id:'kuntrattur', n:'IS-SUR KUNTRATTUR', e:'👷', attr:'belt', band:2,
     rank:'Round 11 · Site Meeting',
-    games:['kaxxi', 'sqaq', 'bomba'],
+    games:['konkwista', 'briks', 'hajja'],
     intro:'The job starts Monday. It started three Mondays ago, but this Monday is the real one. ' +
           'Deposit first, sur.',
     taunts:['Next week, sur.',
@@ -209,7 +228,7 @@ const LEVELS = [
   {
     id:'vat', n:'L-ISPETTUR TAL-VAT', e:'🧾', attr:'hazen', band:2,
     rank:'Round 12 · The Back Office',
-    games:['skarta', 'aqleb', 'misteru'],
+    games:['kiri', 'poker', 'misteru'],
     intro:'Six years of receipts. Every single one. I have the whole afternoon, and I brought ' +
           'a sandwich.',
     taunts:['And this one — in cash, was it?',
@@ -222,7 +241,7 @@ const LEVELS = [
   {
     id:'tifel', n:'IT-TIFEL TAL-MOBILE', e:'📱', attr:'belt', band:2,
     rank:'Round 13 · The Back Room',
-    games:['bomba', 'ballun', 'serp'],
+    games:['bomba', 'serp', 'ballun'],
     intro:'My mum said I have to let you win. I told her I would think about it.',
     taunts:['You are so slow.',
             'I already did this twice while you were thinking.',
@@ -234,7 +253,7 @@ const LEVELS = [
   {
     id:'nanna', n:'NANNA', e:'🍝', attr:'razzett', band:2, final:true,
     rank:'Final · Her Kitchen',
-    games:['skarta', 'serp', 'bomba'],
+    games:['dama', 'chess', 'tombla'],
     intro:'Sit. Eat, you are too thin. Then I am going to take everything you own, and you are ' +
           'going to thank me for it.',
     taunts:['Eat.',
