@@ -22,9 +22,15 @@
 - The logo probe repainted the hub over an open setup sheet (its guard was
   `!currentGame`, and a sheet has no game). Fixed in 422.
 
+**On the Story Mode road since build 425:** seven of the ten. RITMU opens
+L-GĦANNEJ, KWIŻŻ is the council quiz, KATINA the priest, PARI the
+shopkeeper, EMOJI the phone kid, L-EWWEL Ċikku, OGĦLA the taxi driver.
+`story.js` grew a second launch door (`launchOffline`) because these games
+publish no `online[id]` controller. TPINĠIJA, L-ARTIST FALZ and MIN L-AKTAR?
+have no machine opponent and stay off the road.
+
 **Still open:** the ten shelf-tile logos (`logo-<id>.png`, 512px painted
-illustrations — a Codex or hand-art job, NOT PixelLab) and whether any of
-these belong on the IR-RAKKONT Story Mode road.
+illustrations — a Codex or hand-art job, NOT PixelLab).
 
 ---
 

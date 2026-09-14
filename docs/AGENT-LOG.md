@@ -7,6 +7,39 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-09-14 — "(no test hook)" counted as a PASS, and hid a dead feature
+Wiring the ten offline party games into Story Mode. The boss's difficulty has
+to travel from the road into the game, so I wrote an assertion for it:
+`want=<level> got=<level>`. It printed `ok` seven times out of seven.
+
+**It was proving nothing.** The games only publish `window.__<GAME>_TEST`
+when the page is opened with `?<game>test`, and my harness loaded the plain
+page. The probe found no hook, returned the string `(no test hook)`, and my
+pass condition was `/want=(\w+) got=\1/.test(r) || r.indexOf('no test hook') >= 0`
+— an escape hatch I had written so a missing hook would not fail the run.
+
+With the hooks actually loaded and the hatch deleted, it failed all seven:
+`want=hard got=easy`. The tiles were declared
+`start: (list) => LOBBY.start(list)` and silently dropped the second
+argument, so every Story Mode stop played at whatever difficulty the player
+had last chosen on the shelf.
+→ **A probe that cannot see the thing must FAIL, never pass.** If an
+instrument is missing, that is the finding. Same lesson as the `.ld-err`
+selector that reported "no error" on a visibly broken page.
+→ And when a value has to cross a boundary, assert it on the FAR side. The
+call not throwing tells you nothing about what arrived.
+
+**Two more, found the same way, both invisible without measuring:**
+- `levelFor()` returns a NUMBER (the old games publish numeric levels).
+  `Number('easy')` is NaN, so it fell back to 1/2/3 and the band was lost.
+  The offline door reads `levels[band].k` itself.
+- The game launched INVISIBLY. None of the ten calls `KARTI_PARTY.show()`,
+  and from the shelf none of them needs to — the party screen is already lit
+  because you tapped a tile on it. Story Mode launches from `#scr-story`, so
+  RITMU was live with `scr-story` still the only thing on screen. **Failure
+  mode 3 from CLAUDE.md, reached by a road nobody had walked.** Assert on
+  which screen is VISIBLE, not on whether the game object exists.
+
 ## 2026-09-13 — SEVEN LIVE GAMES SHIPPED UNREACHABLE, and every test I ran said they were fine
 Builds 414–420 added KWIŻŻ, L-EWWEL, OGĦLA, TPINĠIJA, L-ARTIST FALZ, MIN
 L-AKTAR? and KATINA. Every one of them threw `Cannot read properties of
