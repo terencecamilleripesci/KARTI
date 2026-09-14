@@ -294,6 +294,17 @@ function leave(){
   M = null;
 }
 
+/* THE CALLER MAY NAME THE DIFFICULTY, and IR-RAKKONT does: a boss has a
+   band and the level it picks must beat this phone's own preference.
+   Validated against what this game actually publishes, so a caller
+   asking for a level that does not exist gets the player's setting
+   rather than an undefined band. */
+function lvl(o){
+  const want = o && o.level;
+  if (want && E.BANDS && E.BANDS.some(b => b.k === want)) return want;
+  return prefs().level;
+}
+
 const LOBBY = {
   canStart(list){
     const n = (list || []).length;
@@ -311,7 +322,7 @@ const LOBBY = {
     T('Three lives each. Last one standing wins.','Tliet ħajjiet. L-aħħar wieħed wieqaf jirbaħ.')
   ].join('</p><p>') + '</p>',
   blurb: T('Each word starts where the last one ended.','Kull kelma tibda fejn spiċċat l-oħra.'),
-  start(seats){ start(seats, prefs().level); return { v:1, gid:'katina' }; },
+  start(seats, o){ start(seats, lvl(o)); return { v:1, gid:'katina' }; },
   levels: E.BANDS.map(b => ({ k:b.k, name:b.name }))
 };
 
@@ -324,7 +335,8 @@ const TILE = {
   seats: { min:E.MIN_SEATS, max:E.MAX_SEATS },
   levels: LOBBY.levels,
   rulesHTML: () => LOBBY.rulesHTML(),
-  start: (list) => LOBBY.start(list)
+  /* forward the OPTIONS too — IR-RAKKONT names the difficulty here */
+  start: (list, o) => LOBBY.start(list, o)
 };
 
 const R = (window.KARTI_KATINA_UI = {});

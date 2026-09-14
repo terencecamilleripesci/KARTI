@@ -85,7 +85,7 @@ const LEVELS = [
   {
     id:'cikku', n:'ĊIKKU TAL-KAŻIN', e:'🍻', attr:'festa', band:0,
     rank:'Round 1 · The Band Club',
-    games:['skarta', 'cards2131', 'tapp'],
+    games:['skarta', 'cards2131', 'lewwel'],
     intro:'Eh ħi, sit down, sit down! Four beers in and I have never lost a game in my life. ' +
           'I have never won one either, but that is the barman\'s fault.',
     taunts:['Ara! Did you see that? Neither did I.',
@@ -111,7 +111,7 @@ const LEVELS = [
   {
     id:'doris', n:'DORIS TAL-KUNSILL', e:'📋', attr:'belt', band:0,
     rank:'Round 3 · The Local Council',
-    games:['ilforka', 'kodici', 'kaxxi'],
+    games:['ilforka', 'kwizz', 'kaxxi'],
     intro:'You need a permit to play here. You do not have one. Fill in this form, come back ' +
           'Thursday, and I will tell you the form has changed.',
     taunts:['That is not the right form.',
@@ -124,7 +124,7 @@ const LEVELS = [
   {
     id:'dunorg', n:'DUN ĠORĠ', e:'⛪', attr:'festa', band:0,
     rank:'Round 4 · The Parish Hall',
-    games:['tombla', 'kelma', 'sqaq'],
+    games:['tombla', 'katina', 'sqaq'],
     intro:'We will play, and we will play fairly, because He is watching. And because I am also ' +
           'watching, and I am closer.',
     taunts:['I have heard worse in confession. Not much worse.',
@@ -150,7 +150,7 @@ const LEVELS = [
   {
     id:'taxi', n:'IS-SEWWIEQ TAT-TAXI', e:'🚕', attr:'belt', band:1,
     rank:'Round 6 · The Airport Rank',
-    games:['sqaq', 'briks', 'tapp'],
+    games:['sqaq', 'briks', 'oghla'],
     intro:'Twenty-five euro. Fixed price, meter is broken, the road is closed, and I know a ' +
           'shortcut that adds forty minutes.',
     taunts:['Traffic. Terrible traffic. We have not moved because I have not started.',
@@ -176,7 +176,7 @@ const LEVELS = [
   {
     id:'hanut', n:'IS-SINJURA TAL-ĦANUT', e:'🏪', attr:'hazen', band:1,
     rank:'Round 8 · The Corner Shop',
-    games:['gin', 'misteru', 'poker'],
+    games:['gin', 'pari', 'poker'],
     intro:'I know what you buy. I know what time you buy it. And I know exactly who you were ' +
           'with on Tuesday.',
     taunts:['I am not one to talk. But.',
@@ -202,7 +202,7 @@ const LEVELS = [
   {
     id:'ghannej', n:'L-GĦANNEJ', e:'🎸', attr:'festa', band:2,
     rank:'Round 10 · Under the Tree',
-    games:['kanun', 'kelma', 'ludu'],
+    games:['ritmu', 'kanun', 'kelma'],
     intro:'I have been answering men in verse since before you were born, and not one of them ' +
           'got the last word.',
     taunts:['That does not even rhyme.',
@@ -241,7 +241,7 @@ const LEVELS = [
   {
     id:'tifel', n:'IT-TIFEL TAL-MOBILE', e:'📱', attr:'belt', band:2,
     rank:'Round 13 · The Back Room',
-    games:['bomba', 'serp', 'ballun'],
+    games:['bomba', 'emoji', 'serp'],
     intro:'My mum said I have to let you win. I told her I would think about it.',
     taunts:['You are so slow.',
             'I already did this twice while you were thinking.',
@@ -552,6 +552,89 @@ function launch(gameId, nSeats, level, bossName){
   return true;
 }
 
+/* ── THE SECOND DOOR: games that were never online ─────────────────
+   The ten party games added in builds 414-423 are offline-only. They
+   publish no `online[id]` controller at all, so launch() above cannot
+   see them and the whole shelf of new games was shut out of the road.
+
+   They do publish the ordinary tile contract — `tile.start(seats, o)`
+   with a seat list — and, more importantly, they end through
+   `KARTI_XP.awardPlay`, which is the SAME channel arm() already
+   listens on. Contract 2 in the header therefore needs nothing: a
+   PARI loss reaches settle() exactly like a Skarta loss.
+
+   TWO THINGS DIFFER AND BOTH BITE.
+
+   The LEVEL is a string here. levelFor() returns a number, because
+   the old games publish numeric levels; these publish {k:'easy'} and
+   Number('easy') is NaN, so levelFor() quietly falls back to 1/2/3 and
+   the boss's difficulty band would be thrown away — the difficulty
+   index trap, again. So this door reads `levels[band].k` itself and
+   hands over the key the game actually understands.
+
+   The WAY OUT is not net.onLeave, because there is no net. An offline
+   game's back arrow calls KARTI_PARTY.hub() directly, which would walk
+   out of the level leaving RUN armed and a later match settling it. So
+   hub() is wrapped for exactly as long as the game is up, and the
+   wrapper is the same door net.onLeave is: quitLevel(). */
+function launchOffline(gameId, nSeats, band, bossName){
+  const P = window.KARTI_PARTY;
+  const t = tileOf(gameId);
+  if (!t || typeof t.start !== 'function') return false;
+  /* it must be able to seat a machine, or one player sits alone forever */
+  const min = (t.seats && t.seats.min) || 1;
+  const max = (t.seats && t.seats.max) || 2;
+  const n = Math.max(min, Math.min(max, nSeats));
+  if (max < 2) return false;
+
+  const ls = Array.isArray(t.levels) ? t.levels : [];
+  const key = ls.length
+    ? ls[Math.max(0, Math.min(ls.length - 1, band | 0))].k
+    : undefined;
+
+  const seats = [{ seat:0, kind:'human', name:'YOU' }];
+  for (let i = 1; i < n; i++)
+    seats.push({ seat:i, kind:'cpu',
+                 name: i === 1 ? String(bossName || 'MACHINE').slice(0, 14) : 'MACHINE ' + i });
+
+  const unwrap = wrapHubAsQuit();
+  try {
+    t.start(seats, key ? { level:key } : undefined);
+    /* AND SHOW IT. None of the ten offline games calls KARTI_PARTY.show()
+       itself, and from the shelf they never need to — the party screen is
+       already lit, because you got there by tapping a tile on it. Story
+       Mode launches from #scr-story, so without this the game builds its
+       board perfectly and nobody ever sees it: measured, RITMU was live
+       with `scr-story` still the only thing on screen. That is the third
+       of the four ways an online game dies, arriving by a new road. */
+    if (typeof P.show === 'function') P.show();
+  } catch (e){ unwrap(); return false; }
+  OFFLINE_OUT = unwrap;
+  return true;
+}
+
+/* hub() is the offline game's only exit. While a story game is on the
+   screen it must mean "I am giving up this level", not "back to the
+   shelf" — otherwise the run is abandoned still armed. Restored the
+   moment the game is settled or the level ends. */
+let OFFLINE_OUT = null;
+function wrapHubAsQuit(){
+  const P = window.KARTI_PARTY;
+  if (!P || typeof P.hub !== 'function') return () => {};
+  const orig = P.hub;
+  let done = false;
+  const restore = () => { if (done) return; done = true; P.hub = orig; };
+  P.hub = function(){
+    restore();
+    if (RUN) return quitLevel();          /* quitLevel calls hub itself */
+    return orig.apply(this, arguments);
+  };
+  return restore;
+}
+function releaseOffline(){
+  if (OFFLINE_OUT){ try { OFFLINE_OUT(); } catch (e){} OFFLINE_OUT = null; }
+}
+
 function startLevel(b){
   RUN = { boss:b, step:0, wins:0, losses:0, log:[], off:null, armed:false };
   nextGame();
@@ -566,8 +649,11 @@ function nextGame(){
   const nSeats = (b.seats && b.seats[gameId]) || 2;
   const lvl = levelFor(gameId, b.band);
   clearGameScreens();          /* never build a game on top of a live one */
+  releaseOffline();            /* the previous game's hub wrapper, if any */
   arm(gameId);
-  if (!launch(gameId, nSeats, lvl, b.n)){
+  /* the online door first, exactly as before; the offline door only for
+     games that have no online controller at all */
+  if (!launch(gameId, nSeats, lvl, b.n) && !launchOffline(gameId, nSeats, b.band, b.n)){
     /* a game that will not start must not eat the level silently */
     disarm();
     K.toast('⚠ ' + gameName(gameId) + ' would not start — skipping it.');
@@ -639,6 +725,7 @@ function clearGameScreens(){
 function settle(result){
   if (!RUN || RUN.settling) return;
   RUN.settling = true;
+  releaseOffline();            /* the game is over: hub() means hub() again */
   const won = result === 'w';
   const gameId = RUN.armed;
   disarm();
@@ -682,6 +769,7 @@ function interlude(won){
    books and the fun of it, exactly as the old ladder worked. */
 function finishLevel(){
   if (!RUN) return;
+  releaseOffline();
   const b = RUN.boss;
   const won = RUN.wins > RUN.losses;
   const first = won && !isCleared(b.id);
@@ -762,6 +850,7 @@ function finishLevel(){
    progress.js pays for that card — quitting SKARTA that way mints 9 XP. */
 function quitLevel(){
   disarm();
+  releaseOffline();
   RUN = null;
   try { window.KARTI_PARTY.hub && window.KARTI_PARTY.hub(); } catch (e){}
   clearGameScreens();
