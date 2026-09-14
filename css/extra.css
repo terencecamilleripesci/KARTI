@@ -740,10 +740,23 @@ html.kx-light .deckface .a,html.kx-light .deckopt .k,
 html.kx-light .deckface .vs{color:#C9AFC0}
 html.kx-light .bossline .said{color:#5C1B3C}
 html.kx-light .bossline .said b{color:#C2255C}
-/* the boss scoreboard: its field is a dark island inside a cream card, so the
-   field goes cream and every hard white on it goes to rose ink instead */
-html.kx-light .bsb{background:radial-gradient(120% 140% at 50% 0%,rgba(214,51,108,.10),
-  rgba(255,255,255,.58) 70%);border-color:rgba(122,32,72,.24)}
+/* The boss scoreboard on the light theme. The field goes cream and every hard
+   white on it goes to rose ink instead.
+
+   THE FIELD HAS TO BE OPAQUE, and the first version of this was not: it was
+   `rgba(255,255,255,.58)`, and 58% white over what is underneath it never
+   becomes cream. What is underneath is NOT the cream card — measured, the
+   modal is rgba(4,2,10,.7) and the strip paints its own rgba(10,6,20,.94),
+   i.e. both hosts of this board are near-black on BOTH themes. So the wash
+   landed as mid-grey and the rose ink written for cream sat on it at
+   1.24:1 — "Guest" 1.65, the boss name 2.30, VS and FIRST TO 2 3.62.
+   An opaque field is what makes the rest of this block true. */
+html.kx-light .bsb{background:linear-gradient(180deg,#FDF3F8,#F4DEEB);
+  border-color:rgba(122,32,72,.28)}
+html.kx-light #st-bossbar .bsb{background:linear-gradient(180deg,#FDF3F8,#EFD4E4)}
+/* and the two bits that read off global tokens rather than this block */
+html.kx-light .bsb-mid .bsb-vs{color:#7A2048}
+html.kx-light .bsb-mid .bsb-bo{color:#8A4A67}
 html.kx-light .bsb-nm{color:#5C1B3C}
 html.kx-light .bsb-side.them .bsb-nm{color:#8E1B2E}
 html.kx-light .bsb-side.won .bsb-nm{color:#C2255C}
