@@ -1030,7 +1030,14 @@ function clearGameScreens(){
 function settle(result){
   if (!RUN || RUN.settling) return;
   RUN.settling = true;
-  releaseHub();            /* the game is over: hub() means hub() again */
+  /* THE HUB GUARD STAYS UP THROUGH THE CELEBRATION. It used to be released
+     here — 2200ms before the interlude opens — which left the game's own
+     "back to party games" unguarded for the whole window. Measured: tapping
+     it mid-celebration ran the REAL hub(), which paints the shelf but does
+     not show it (open() shows, hub() only paints), and then this timeout
+     fired, stood that shelf down and opened the interlude over a completely
+     blank app — all thirteen screens display:none. Released below instead,
+     once the card is up and its own WALK AWAY is the way out. */
   const won = result === 'w';
   const gameId = RUN.armed;
   disarm();
@@ -1043,6 +1050,7 @@ function settle(result){
     RUN.settling = false;
     bar.down();                /* the strip's job passes to the card's board */
     clearGameScreens();
+    releaseHub();              /* the card is up: hub() means hub() again */
     interlude(won);
   }, 2200);
 }
