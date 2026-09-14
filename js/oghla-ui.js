@@ -317,7 +317,14 @@ const LOBBY = {
 };
 
 const TILE = {
-  id:'oghla', order:16, kind:'board', cat:'cards',
+  /* THE ORDINARY PACK, so it belongs behind the PLAYING CARDS door with
+     Bixkla and Briscola, not out on the board shelf. It deals a real 52 —
+     four suits, thirteen ranks (js/oghla.js) — and the odds it prints are
+     counted off that deck. This said `kind:'board', cat:'cards'` and
+     shelfOf() reads `kind` first, so the cat was never consulted: exactly
+     the "landing on the wrong shelf is our bug, not theirs" case its own
+     comment warns about. */
+  id:'oghla', order:16, kind:'deck', cat:'deck',
   name:'Ogħla jew Inqas', mt:'Ogħla jew Inqas', icon:'cards', status:'live',
   get tag(){ return T('Higher or lower on a turned card. Every right call is worth more than the last, and one wrong call takes the lot — so the real game is knowing when to bank it.',
     'Ogħla jew inqas fuq karta miftuħa. Kull waħda tajba tiswa aktar, u waħda ħażina tieħu kollox — mela l-logħba vera hi li tkun taf meta tieqaf.'); },
