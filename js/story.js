@@ -2,16 +2,29 @@
    IR-RAKKONT — STORY MODE                                   window.KARTI_STORY
    ───────────────────────────────────────────────────────────────────────────
    A ROAD, NOT A LADDER. Fourteen characters strung along a winding path you
-   physically walk up. Tap the one you are standing on, and they challenge you
-   at TWO OF THE PARTY GAMES — best of three, decider only if you split.
+   physically walk up. Tap the one you are standing on and you fight them.
 
-   WHAT CHANGED, AND WHY IT MATTERS
-   This screen used to be eight card duels. The duel is not gone from KARTI —
-   it is the game the app is named after and the whole collection, deck builder
-   and pack economy feed it — it is gone from HERE, because a story mode that
-   is one game repeated eight times is a difficulty slider wearing costumes.
-   Fourteen levels of two different games each is thirty games of variety out
-   of a shelf we already own.
+   CHAPTERS AND BOSSES — the shape of the road, and why it changed
+   It used to be fourteen identical best-of-threes. Fourteen climaxes in a row
+   is no climax at all: the road never moved, and beating NANNA felt exactly
+   like beating the man who sells pastizzi. So it is now three chapters, each
+   one five ordinary stops and then a BOSS:
+
+     Ch.1 IL-RAĦAL  stops 1-5 ordinary → stop 6  BOSS
+     Ch.2 IL-GŻIRA  stops 7-11 ordinary → stop 12 BOSS
+     Ch.3 ID-DAR    stop 13 ordinary   → stop 14 FINAL BOSS (NANNA)
+
+   · ORDINARY STOP = ONE GAME. Win it and the road opens. One game is a
+     ten-minute stop, so five of them is an evening and the road MOVES.
+   · BOSS STOP = BEST OF THREE, first to two. This is the only place the
+     `games:[first, second, decider]` triple is spent, and it is the only
+     place the scoreboard comes up — which is exactly what makes it read as
+     a boss rather than as stop number six.
+
+   THE SCOREBOARD is the owner's own ask: "1 point to u and pount to enmy if
+   he wins etc best of 3". See boardHTML()/strikePip() — both sides' crests
+   with two pips each, on the face-off card, over the live game, and on every
+   card in between, and the pip STRIKES ON when a point lands.
 
    THE THREE CONTRACTS THIS FILE LEANS ON, ALL MEASURED RATHER THAN ASSUMED
    (a headless browser launched all 25 AI-capable games and read the results):
@@ -51,8 +64,16 @@ const SFX = () => window.KARTI_SFX;
    earned. The six new ones are slotted BETWEEN them so the ramp is gradual
    rather than bolted on the end, and NANNA stays where she belongs.
 
-   `games` is [first, second, decider]. The decider is only ever reached at
-   1-1. They are hand-picked to fit the character: GĦARRAQHOM! (sink them) for
+   `games` is a THREE-GAME POOL, and the stop's kind decides how it is spent:
+     · a BOSS stop plays all three — [first, second, decider], and the decider
+       is only ever reached at 1-1;
+     · an ORDINARY stop plays exactly ONE, drawn from the pool when the fight
+       starts. Drawing rather than always taking games[0] is what keeps the
+       property in the next paragraph true: eleven ordinary stops taking only
+       their first entry would have thrown 22 of the road's 33 games away, and
+       it also means a rematch is a different evening.
+
+   They are hand-picked to fit the character: GĦARRAQHOM! (sink them) for
    the Captain, Konkwista and BRIKS for the man building on your land, TOMBLA
    for the priest, IL-KIRI for the taxman, MIN HU? for the mother-in-law
    deciding who you are, KELMA and IL-KANUN for the għannej who deals in
@@ -266,6 +287,33 @@ const LEVELS = [
 ];
 const byId = id => LEVELS.find(b => b.id === id);
 
+/* ═══════════════════════ CHAPTERS ═══════════════════════
+   ONE SOURCE OF TRUTH for the whole rhythm: a chapter is a span of stops and
+   its LAST stop is its boss. Nothing else in this file decides what a boss is
+   — the map, the card, the runner and the scoreboard all ask isBossI().
+
+   WHY THESE THREE STOPS. The rhythm (five ordinary, then a boss) was given,
+   and 5+1, 5+1, 1+1 is the only way it lands on fourteen without renumbering
+   anything — and renumbering is forbidden, because progress is keyed on `id`.
+   The writing then agreed with the arithmetic, which is why the stops are not
+   reordered: stop 6 is the fixed-price taxi at the airport rank, the man who
+   takes you OUT of your village, so he closes the village chapter; stop 12 is
+   the VAT inspector with six years of receipts and a whole afternoon, which is
+   already written as a reckoning; stop 14 is NANNA, who was always the end.
+
+   `from`/`to` are INDEXES into LEVELS, not stop numbers. */
+const CHAPTERS = [
+  { n:'IL-RAĦAL', en:'The Village', from:0,  to:5  },
+  { n:'IL-GŻIRA', en:'The Island',  from:6,  to:11 },
+  { n:'ID-DAR',   en:'Home',        from:12, to:13 }
+];
+const chapterOf  = i => CHAPTERS.find(c => i >= c.from && i <= c.to) || CHAPTERS[0];
+const chapterNo  = i => CHAPTERS.indexOf(chapterOf(i)) + 1;
+const isBossI    = i => CHAPTERS.some(c => c.to === i);
+const indexOfB   = b => LEVELS.indexOf(b);
+const isBoss     = b => isBossI(indexOfB(b));
+const WINS_TO_TAKE = b => (isBoss(b) ? 2 : 1);   /* first to this many */
+
 /* the shelf tile for a game id, so a level can print the game's real name
    rather than its id — and so a level whose game somehow is not on the shelf
    fails loudly here instead of silently launching nothing */
@@ -300,6 +348,153 @@ function faceHTML(b, cls){
            : ' onerror="this.remove()"') + '>' : '') +
     '<span class="em">' + b.e + '</span></span>';
 }
+
+/* ═══════════════════════ THE BOSS SCOREBOARD ═══════════════════════
+   The owner's ask, verbatim: "boss fight uave 1-3 games to win in a row when u
+   win u go next and add grapics like 1 point to u and pount to enmy if he wins
+   etc best of 3". So a boss fight carries a board with BOTH sides on it, and
+   the board MOVES the moment a point lands.
+
+   ONE renderer, two sizes, so the face-off card, the interlude, the result
+   screen and the strip that sits over the live game can never disagree about
+   the score:
+
+     boardHTML(b, w, l, mode)   mode 'big'  — inside a modal
+                                mode 'mini' — the fixed strip, over the game
+     strikePip(root, side)      lights the pip just won: a pip punching on,
+                                the crest shaking, the board flashing
+     bar.up(b) / bar.down()     the strip's whole life
+
+   TWO pips a side, because first to two takes a best of three — the shape of
+   the board states the rule without a word of explanation.
+
+   WHY IT IS CSS/SVG AND NOT PAINTED ART: it is a HUD. It has to be legible at
+   390x844, it has to restyle for the light theme, every state from 0-0 to 2-1
+   has to exist, and it has to animate. That is twelve PNGs that still would
+   not move. The only raster in it is the portrait art the road already has. */
+const CROWN =
+  '<svg class="bsb-crown" viewBox="0 0 26 18" aria-hidden="true" focusable="false">' +
+    '<path d="M2.4 16 L4.6 3.2 L9.4 9 L13 1.6 L16.6 9 L21.4 3.2 L23.6 16 Z"/></svg>';
+
+function myName(){
+  try { return String((K.displayName && K.displayName()) || 'YOU').slice(0, 12); }
+  catch (e){ return 'YOU'; }
+}
+/* the player's own crest. KARTI_XP.avatarHTML is the ONE avatar renderer in
+   the app (see js/progress-ui.js) — using it means the face on the scoreboard
+   is the same face as on the leaderboard, photograph and all. If progress.js
+   is not on this deploy it falls back to an initial, never to nothing. */
+function meCrest(size){
+  try {
+    const XP = window.KARTI_XP;
+    if (XP && typeof XP.avatarHTML === 'function')
+      return XP.avatarHTML(myName(), { size:size, me:true, noBorder:size < 30 });
+  } catch (e){}
+  return '<span class="face"><span class="em">🙂</span></span>';
+}
+function pipsHTML(n){
+  let s = '';
+  for (let i = 0; i < 2; i++) s += '<i' + (i < n ? ' class="on"' : '') + '></i>';
+  return '<span class="bsb-pips">' + s + '</span>';
+}
+function boardHTML(b, w, l, mode){
+  const mini = mode === 'mini';
+  const sz = mini ? 24 : 54;
+  const side = (cls, crest, nm, pips, won) =>
+    '<div class="bsb-side ' + cls + (won ? ' won' : '') + '">' +
+      '<span class="bsb-crest">' + crest + (won ? CROWN : '') + '</span>' +
+      (mini ? '' : '<span class="bsb-nm">' + nm + '</span>') +
+      pips +
+    '</div>';
+  return '<div class="bsb' + (mini ? ' mini' : '') + '" role="img" aria-label="' +
+      esc(myName() + ' ' + w + ', ' + b.n + ' ' + l + ', first to two') + '">' +
+    side('me',   meCrest(sz),            esc(myName()), pipsHTML(w), w >= 2) +
+    '<div class="bsb-mid"><span class="bsb-vs">VS</span>' +
+      (mini ? '' : '<span class="bsb-bo">FIRST TO 2</span>') + '</div>' +
+    side('them', faceHTML(b, 'face'),    esc(b.n),      pipsHTML(l), l >= 2) +
+  '</div>';
+}
+
+/* A POINT LANDS. Called on a board that is still showing the OLD score, so
+   what the player sees is the pip arriving — which is the whole request. */
+function strikePip(root, mine){
+  if (!root) return false;
+  const wrap = root.querySelector('.bsb-side.' + (mine ? 'me' : 'them'));
+  if (!wrap) return false;
+  const pip = wrap.querySelector('.bsb-pips i:not(.on)');
+  if (!pip) return false;
+  pip.classList.add('on', 'hit');
+  wrap.classList.add('scored');
+  /* the point that takes the fight also takes the crown */
+  if (!wrap.querySelector('.bsb-pips i:not(.on)')){
+    wrap.classList.add('won');
+    const crest = wrap.querySelector('.bsb-crest');
+    if (crest && !crest.querySelector('.bsb-crown')) crest.insertAdjacentHTML('beforeend', CROWN);
+  }
+  root.classList.add('bsb-lit', mine ? 'lit-me' : 'lit-them');
+  setTimeout(() => {
+    pip.classList.remove('hit');
+    wrap.classList.remove('scored');
+    root.classList.remove('bsb-lit', 'lit-me', 'lit-them');
+  }, K.REDUCED ? 120 : 900);
+  try {
+    const S = SFX();
+    if (S){ S.play('duel.hit', { force:true, gain: mine ? 0.8 : 0.66 });
+            S.haptic(mine ? 'thud' : 'no'); }
+  } catch (e){}
+  return true;
+}
+
+/* ── THE STRIP THAT STAYS UP ────────────────────────────────────────
+   "both sides' score must be ON SCREEN" — so during a boss fight the mini
+   board is pinned to the top of the window, over whatever the game is
+   painting. Three things make that safe on 33 different boards:
+     · pointer-events:none — it can never eat a tap meant for the game;
+     · z-index 11500, which is UNDER #kr-root (12000), so a game's own
+       winner screen still covers it completely and gets its moment;
+     · it is only ever up during a BOSS stop, and it comes down the instant
+       the level ends, the player walks out, or a modal opens.
+   It lives on <body>, not inside a screen, because every game owns its own
+   screen element and half of them rebuild it (IL-KIRI builds #scr-kiri from
+   scratch) — anything parked inside would be wiped.
+
+   AND IT RETRACTS. Measured on IS-SQAQ: the full strip is 280px wide and it
+   sat straight across that game's own title bar, clipping "IS-SQAQ" to
+   "IS-S". Thirty-three games have thirty-three different top bars and I can
+   only look at a handful, so after five seconds — long enough to read the
+   score on your way into the game — it shrinks to just the four pips, about
+   110px, in the one part of a top bar that is reliably empty. The score
+   never leaves the screen; it stops sitting on anybody's furniture. */
+const bar = {
+  el:null, t:0,
+  up(b, w, l){
+    if (!b) return;
+    let el = document.getElementById('st-bossbar');
+    if (!el){
+      el = document.createElement('div');
+      el.id = 'st-bossbar';
+      el.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(el);
+    }
+    el.innerHTML = boardHTML(b, w, l, 'mini');
+    el.classList.add('on');
+    el.classList.remove('slim');
+    clearTimeout(this.t);
+    this.t = setTimeout(() => { const e = document.getElementById('st-bossbar');
+                                if (e) e.classList.add('slim'); }, 5000);
+    this.el = el;
+    /* the avatar observer in progress-ui.js watches #app, #sheet and #modal.
+       This strip is a child of <body>, so nothing would ever mount the
+       player's photograph on it — ask for it by hand. */
+    try { if (window.KARTI_XP && KARTI_XP.paint) KARTI_XP.paint(el); } catch (e){}
+  },
+  down(){
+    clearTimeout(this.t);
+    const el = document.getElementById('st-bossbar');
+    if (el){ el.classList.remove('on', 'slim'); el.innerHTML = ''; }
+    this.el = null;
+  }
+};
 
 /* ───────────────────────── progress (per user save) ─────────────────────────
    UNCHANGED SHAPE ON PURPOSE. `cleared` is keyed on the character id, and the
@@ -343,7 +538,9 @@ function nodePos(i){
   var last = LEVELS.length - 1;
   return { x: 50 + Math.sin(i * 1.4) * SWING, y: TOP + (last - i) * STEP };
 }
-const mapHeight = () => TOP + (LEVELS.length - 1) * STEP + 64;
+/* the tail has to clear the CHAPTER 1 band, which hangs half a step below
+   stop one — 64px did not, and the banner was clipped by the scroller */
+const mapHeight = () => TOP + (LEVELS.length - 1) * STEP + 104;
 
 function roadPath(w){
   /* the road as one smooth-ish polyline through every stop; w is the map's
@@ -362,21 +559,43 @@ function mapHTML(){
     const done = isCleared(b.id);
     const here = i === at;
     const lock = i > at;
+    const bs = isBossI(i);
     nodes +=
-      '<button class="snode' + (done ? ' done' : '') + (here ? ' here' : '') + (lock ? ' lock' : '') + '"' +
+      '<button class="snode' + (done ? ' done' : '') + (here ? ' here' : '') + (lock ? ' lock' : '') +
+          (bs ? ' sboss' : '') + (b.final ? ' final' : '') + '"' +
         ' data-i="' + i + '"' + (lock ? ' disabled aria-disabled="true"' : '') +
         ' style="left:' + p.x.toFixed(2) + '%;top:' + p.y + 'px"' +
-        ' aria-label="' + esc(b.rank + ' — ' + b.n +
+        ' aria-label="' + esc((bs ? (b.final ? 'Final boss — ' : 'Chapter ' + chapterNo(i) + ' boss — ') : '') +
+            b.rank + ' — ' + b.n +
             (done ? ' (beaten)' : lock ? ' (locked)' : ' (next)')) + '">' +
         '<span class="sn-ring"></span>' +
         faceHTML(b, 'sn-face') +
         '<span class="sn-no mono">' + (i + 1) + '</span>' +
+        (bs ? '<span class="sn-crown">' + CROWN + '</span>' : '') +
         (done ? '<span class="sn-tick">' + K.ico('check') + '</span>' : '') +
         (lock ? '<span class="sn-lock">' + K.ico('lock') + '</span>' : '') +
       '</button>';
   });
+  /* CHAPTER GATES. One band per chapter, drawn across the road just BELOW
+     that chapter's first stop — you climb, so that is its entrance. Since a
+     chapter's last stop is its boss, the band always lands immediately above
+     the previous chapter's boss: beating a boss is visibly walking through a
+     gate, and the road stops reading as one list of fourteen strangers.
+     Placed BEFORE the nodes and at z-index 1, so no portrait is ever
+     covered by one. */
+  let bands = '';
+  CHAPTERS.forEach((c, ci) => {
+    const y = nodePos(c.from).y + STEP * 0.44;    /* the chapter's entrance */
+    const shut = c.from > at;                     /* whole chapter still locked */
+    bands +=
+      '<div class="sband' + (shut ? ' lock' : '') + '" style="top:' + y.toFixed(1) + 'px">' +
+        '<span class="sb-lab"><b>CHAPTER ' + (ci + 1) + '</b>' + esc(c.n) +
+          '<small>' + esc(c.en) + '</small></span>' +
+      '</div>';
+  });
   return '<div class="smap" id="smap" style="height:' + mapHeight() + 'px">' +
       '<svg class="sroad" id="sroad" aria-hidden="true" preserveAspectRatio="none"></svg>' +
+      bands +
       nodes +
       '<div class="swalker" id="swalker" aria-hidden="true"><span class="sw-dot"></span></div>' +
     '</div>';
@@ -434,6 +653,8 @@ function render(walkTo){
   const host = $('#scr-story');
   if (!host) return;
   const done = clearedCount();
+  /* the chapter you are standing in, clamped so a finished road still names one */
+  const atNow = Math.min(unlockedUpTo(), LEVELS.length - 1);
   host.innerHTML =
     '<div class="tbar">' +
       '<button class="iconbtn" id="st-back" aria-label="Back to home">' +
@@ -445,9 +666,10 @@ function render(walkTo){
       '<div class="storyhdr">' +
         '<p class="prog">' + (done === LEVELS.length
           ? K.ico('star') + ' THE WHOLE VILLAGE IS BEATEN ' + K.ico('star')
-          : 'WALK THE ROAD · ' + done + ' DOWN, ' + (LEVELS.length - done) + ' TO GO') + '</p>' +
-        '<p class="blurb" style="margin-top:6px">Every stop is somebody who wants to beat you at ' +
-        '<b>two of the party games</b>. Best of three — win two and the road opens.</p>' +
+          : 'CHAPTER ' + chapterNo(atNow) + ' · ' + esc(chapterOf(atNow).n) +
+            ' <span class="sep">·</span> ' + done + '/' + LEVELS.length) + '</p>' +
+        '<p class="blurb" style="margin-top:6px">Five stops, then a <b>boss</b>. An ordinary stop is ' +
+        '<b>one game</b> — win it and the road opens. A boss is a <b>best of three</b>.</p>' +
       '</div>' +
       mapHTML() +
     '</div>';
@@ -467,29 +689,78 @@ function render(walkTo){
   });
 }
 
-/* ───────────────────────── the level card ───────────────────────── */
+/* ───────────────────────── the level card ─────────────────────────
+   TWO CARDS, because a stop and a boss are not the same event. The ordinary
+   card names the ONE game and gets out of the way. The boss card is a
+   face-off: the chapter kicker, the crown, the scoreboard at 0-0 and all
+   three games laid out, so the shape of the fight is on screen before it
+   starts.
+
+   The ordinary card DRAWS its game here rather than at launch, so the name
+   on the card is the game you actually get — the draw travels into
+   startLevel() as the plan. */
+function bossKicker(b){
+  const i = indexOfB(b);
+  return b.final ? 'FINAL BOSS' : 'CHAPTER ' + chapterNo(i) + ' BOSS';
+}
+function shuf(a){
+  const r = a.slice();
+  for (let i = r.length - 1; i > 0; i--){
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = r[i]; r[i] = r[j]; r[j] = t;
+  }
+  return r;
+}
+/* the games this attempt will actually play, and the ones held in reserve for
+   a game that refuses to start (see nextGame) */
+function planFor(b){
+  if (isBoss(b)) return { plan:b.games.slice(0, 3), spare:[] };
+  const pool = shuf(b.games.slice(0, 3));
+  return { plan:[pool[0]], spare:pool.slice(1) };
+}
+
 function levelCard(b){
   const done = isCleared(b.id);
-  const gs = b.games.slice(0, 2);
-  K.openModal(
-    '<div class="bossline">' + faceHTML(b) +
-      '<span class="said"><b>' + esc(b.n) + '</b>' + esc(b.rank) + '</span>' +
-    '</div>' +
-    '<p class="blurb" style="margin-top:10px">“' + esc(b.intro) + '”</p>' +
-    '<div class="tiny" style="margin:12px 0 5px">BEST OF THREE</div>' +
-    '<div class="gvs">' +
-      gs.map((g, i) => '<div class="gvs-row"><b class="mono">' + (i + 1) + '</b>' +
-        '<span>' + esc(gameName(g)) + '</span></div>').join('') +
-      '<div class="gvs-row dec"><b class="mono">?</b><span>' +
-        esc(gameName(b.games[2])) + ' <small>— only if you split</small></span></div>' +
-    '</div>' +
+  const boss = isBoss(b);
+  const pick = planFor(b);
+  const foot =
     (done ? '<p class="tiny" style="margin-top:10px">Already beaten. A rematch pays nothing, ' +
             'but the games still count for your record.</p>' : '') +
     '<div style="display:grid;gap:9px;margin-top:14px">' +
-      '<button class="btn hot" id="lv-go">' + K.ilb('play', done ? 'Rematch' : 'Take them on') + '</button>' +
+      '<button class="btn hot" id="lv-go">' +
+        K.ilb('play', done ? 'Rematch' : boss ? 'FIGHT' : 'Take them on') + '</button>' +
       '<button class="btn ghost" id="lv-no">Not yet</button>' +
-    '</div>');
-  $('#lv-go').onclick = () => { K.closeModal(); startLevel(b); };
+    '</div>';
+
+  if (boss){
+    K.openModal(
+      '<div class="bosstop' + (b.final ? ' final' : '') + '">' +
+        '<span class="bt-kick">' + CROWN + esc(bossKicker(b)) + '</span>' +
+        '<span class="bt-rank">' + esc(b.rank) + '</span>' +
+      '</div>' +
+      boardHTML(b, 0, 0, 'big') +
+      '<p class="blurb" style="margin-top:12px">“' + esc(b.intro) + '”</p>' +
+      '<div class="tiny" style="margin:12px 0 5px">BEST OF THREE · FIRST TO 2 WINS</div>' +
+      '<div class="gvs">' +
+        b.games.slice(0, 2).map((g, i) => '<div class="gvs-row"><b class="mono">' + (i + 1) + '</b>' +
+          '<span>' + esc(gameName(g)) + '</span></div>').join('') +
+        '<div class="gvs-row dec"><b class="mono">?</b><span>' +
+          esc(gameName(b.games[2])) + ' <small>— only at 1–1</small></span></div>' +
+      '</div>' + foot);
+    try { const S = SFX(); if (S) S.play('duel.boss', { force:true }); } catch (e){}
+  } else {
+    K.openModal(
+      '<div class="bossline">' + faceHTML(b) +
+        '<span class="said"><b>' + esc(b.n) + '</b>' + esc(b.rank) + '</span>' +
+      '</div>' +
+      '<p class="blurb" style="margin-top:10px">“' + esc(b.intro) + '”</p>' +
+      '<div class="tiny" style="margin:12px 0 5px">ONE GAME · WIN IT AND THE ROAD OPENS</div>' +
+      '<div class="gvs">' +
+        '<div class="gvs-row one"><b class="mono">' + K.ico('play') + '</b>' +
+          '<span>' + esc(gameName(pick.plan[0])) + '</span></div>' +
+      '</div>' + foot);
+  }
+  $('#lv-go').onclick = () => { K.closeModal(); startLevel(b, pick); };
   $('#lv-no').onclick = () => K.closeModal();
 }
 
@@ -538,6 +809,15 @@ function launch(gameId, nSeats, level, bossName){
   const net = { send(){}, move(){}, bail(){}, whisper(){}, redeal: () => false,
                 note(){}, onLeave: () => quitLevel(), seat:0, seats:nSeats, host:0 };
   const seed = (Math.random() * 0xffffffff) >>> 0;
+  /* THE OTHER WAY OUT. net.onLeave above is the door a game knows about, but
+     several of them get back to the shelf by calling KARTI_PARTY.hub()
+     themselves, and hub() meant "back to the shelf" here — which walked out
+     of the level with RUN still ARMED, so the next ordinary party game the
+     player finished settled a level nobody was playing. The offline door has
+     always wrapped hub() for exactly this reason (see wrapHubAsQuit); the
+     online door needs the same guard, and nothing else in the file changes
+     because quitLevel() restores the wrapper before it calls hub() itself. */
+  const unwrap = wrapHubAsQuit();
   try {
     on.start({ opts:{ seats:nSeats }, seed:seed, seats:seats,
                you:0, host:0, net:net, roundLimit:30, clock:90 });
@@ -548,7 +828,8 @@ function launch(gameId, nSeats, level, bossName){
       h.apply(0, { t:'start' });
       if (typeof h.attachNet === 'function') h.attachNet(net);
     }
-  } catch (e){ return false; }
+  } catch (e){ unwrap(); return false; }
+  HUB_OUT = unwrap;
   return true;
 }
 
@@ -609,15 +890,16 @@ function launchOffline(gameId, nSeats, band, bossName){
        of the four ways an online game dies, arriving by a new road. */
     if (typeof P.show === 'function') P.show();
   } catch (e){ unwrap(); return false; }
-  OFFLINE_OUT = unwrap;
+  HUB_OUT = unwrap;
   return true;
 }
 
-/* hub() is the offline game's only exit. While a story game is on the
-   screen it must mean "I am giving up this level", not "back to the
-   shelf" — otherwise the run is abandoned still armed. Restored the
-   moment the game is settled or the level ends. */
-let OFFLINE_OUT = null;
+/* hub() IS A WAY OUT OF A STORY GAME, on both doors. While a story game is
+   on the screen it must mean "I am giving up this level", not "back to the
+   shelf" — otherwise the run is abandoned still ARMED and the next ordinary
+   party game the player finishes settles a level nobody is playing.
+   Restored the moment the game is settled or the level ends. */
+let HUB_OUT = null;
 function wrapHubAsQuit(){
   const P = window.KARTI_PARTY;
   if (!P || typeof P.hub !== 'function') return () => {};
@@ -631,36 +913,59 @@ function wrapHubAsQuit(){
   };
   return restore;
 }
-function releaseOffline(){
-  if (OFFLINE_OUT){ try { OFFLINE_OUT(); } catch (e){} OFFLINE_OUT = null; }
+function releaseHub(){
+  if (HUB_OUT){ try { HUB_OUT(); } catch (e){} HUB_OUT = null; }
 }
 
-function startLevel(b){
-  RUN = { boss:b, step:0, wins:0, losses:0, log:[], off:null, armed:false };
+/* `pick` is what the level card drew (see planFor). startLevel is exported and
+   also called by the result card's "Again", so a missing pick draws a fresh
+   one — a rematch of an ordinary stop is then a different game, on purpose. */
+function startLevel(b, pick){
+  const p = pick && pick.plan && pick.plan.length ? pick : planFor(b);
+  RUN = { boss:b, boss_fight:isBoss(b), need:WINS_TO_TAKE(b),
+          plan:p.plan.slice(), spare:(p.spare || []).slice(),
+          step:0, wins:0, losses:0, log:[], off:null, armed:false };
   nextGame();
 }
+/* the level is decided when either side reaches `need`, or the plan runs out.
+   ORDINARY: need 1, plan of 1 — one game and it is over either way.
+   BOSS:     need 2, plan of 3 — the decider is only ever reached at 1-1. */
+function runOver(){
+  return !RUN || RUN.wins >= RUN.need || RUN.losses >= RUN.need || RUN.step >= RUN.plan.length;
+}
 
-/* the three-game sequence: game 0, game 1, and the decider only at 1-1 */
 function nextGame(){
   if (!RUN) return;
   const b = RUN.boss;
-  if (RUN.wins >= 2 || RUN.losses >= 2 || RUN.step >= 3){ finishLevel(); return; }
-  const gameId = b.games[RUN.step];
+  if (runOver()){ finishLevel(); return; }
+  const gameId = RUN.plan[RUN.step];
   const nSeats = (b.seats && b.seats[gameId]) || 2;
   const lvl = levelFor(gameId, b.band);
   clearGameScreens();          /* never build a game on top of a live one */
-  releaseOffline();            /* the previous game's hub wrapper, if any */
+  releaseHub();            /* the previous game's hub wrapper, if any */
   arm(gameId);
   /* the online door first, exactly as before; the offline door only for
      games that have no online controller at all */
-  if (!launch(gameId, nSeats, lvl, b.n) && !launchOffline(gameId, nSeats, b.band, b.n)){
-    /* a game that will not start must not eat the level silently */
-    disarm();
-    K.toast('⚠ ' + gameName(gameId) + ' would not start — skipping it.');
-    RUN.step++;
-    RUN.log.push({ game:gameId, result:'skip' });
-    setTimeout(nextGame, 400);
+  if (launch(gameId, nSeats, lvl, b.n) || launchOffline(gameId, nSeats, b.band, b.n)){
+    /* THE SCORE STAYS ON SCREEN. Only for a boss — a one-game stop has no
+       score to keep. Raised AFTER the game is up, because launchOffline()
+       calls KARTI_PARTY.show() and a screen change must not outrank it. */
+    if (RUN.boss_fight) bar.up(b, RUN.wins, RUN.losses);
+    return;
   }
+  /* a game that will not start must not eat the level silently */
+  disarm();
+  K.toast('⚠ ' + gameName(gameId) + ' would not start — skipping it.');
+  RUN.log.push({ game:gameId, result:'skip' });
+  if (RUN.spare.length){
+    /* AN ORDINARY STOP IS ONE GAME, so a skip there is not a spare round to
+       burn — it would hand the player a loss they never played. Substitute
+       from the pool instead of consuming the step. */
+    RUN.plan[RUN.step] = RUN.spare.shift();
+  } else {
+    RUN.step++;
+  }
+  setTimeout(nextGame, 400);
 }
 
 /* ── listening for the outcome ──────────────────────────────────────
@@ -725,7 +1030,7 @@ function clearGameScreens(){
 function settle(result){
   if (!RUN || RUN.settling) return;
   RUN.settling = true;
-  releaseOffline();            /* the game is over: hub() means hub() again */
+  releaseHub();            /* the game is over: hub() means hub() again */
   const won = result === 'w';
   const gameId = RUN.armed;
   disarm();
@@ -736,30 +1041,54 @@ function settle(result){
   setTimeout(() => {
     if (!RUN) return;
     RUN.settling = false;
+    bar.down();                /* the strip's job passes to the card's board */
     clearGameScreens();
     interlude(won);
   }, 2200);
 }
 
-/* the beat between games: where you stand, what they said, and one button */
+/* ── the pip landing, on whichever card is open ─────────────────────
+   The card is drawn showing the score BEFORE this game, and then the point
+   arrives. That ordering is the entire feature: the player watches the pip
+   strike on rather than reading a number that was already there. */
+function paintStrike(mine){
+  const go = () => strikePip($('#mbox .bsb'), mine);
+  if (K.REDUCED){ go(); return; }
+  setTimeout(go, 430);
+}
+
+/* the beat between games. BOSS FIGHTS ONLY — an ordinary stop is one game, so
+   runOver() is already true by the time settle() gets here and this falls
+   straight through to finishLevel(). */
 function interlude(won){
   if (!RUN) return;
   const b = RUN.boss;
-  const over = RUN.wins >= 2 || RUN.losses >= 2 || RUN.step >= 3;
-  if (over){ finishLevel(); return; }
+  if (runOver()){ finishLevel(); return; }
+  const w = RUN.wins, l = RUN.losses;
+  const decider = (w === 1 && l === 1);
   const taunt = b.taunts[Math.min(b.taunts.length - 1, RUN.step - 1)] || b.taunts[0];
   K.openModal(
-    '<div class="result"><div class="big ' + (won ? 'win' : 'lose') + '">' +
-      (won ? 'THAT IS ONE' : 'THEY TOOK THAT ONE') + '</div>' +
-      '<p class="tiny">' + RUN.wins + ' – ' + RUN.losses + ' against ' + esc(b.n) + '</p></div>' +
-    '<div class="bossline" style="margin-top:12px">' + faceHTML(b) +
+    '<div class="bosstop' + (b.final ? ' final' : '') + (decider ? ' dec' : '') + '">' +
+      '<span class="bt-kick">' + CROWN + esc(bossKicker(b)) + '</span>' +
+      '<span class="bt-rank">' + (decider ? 'THE DECIDER' : 'ROUND ' + (RUN.step + 1) + ' OF 3') + '</span>' +
+    '</div>' +
+    /* the board is drawn at the OLD score; paintStrike() below lands the point */
+    boardHTML(b, w - (won ? 1 : 0), l - (won ? 0 : 1), 'big') +
+    /* NOT .result .big — that is clamp(36px,12vw,56px) and "POINT TO THEM"
+       wraps to three lines of it on a 390px phone, shoving the board and the
+       taunt off the card. The board is the hero here; this is its caption. */
+    '<div class="bsb-call ' + (won ? 'win' : 'lose') + '">' +
+      (won ? 'POINT TO YOU' : 'POINT TO THEM') + '</div>' +
+    '<div class="bossline" style="margin-top:10px">' + faceHTML(b) +
       '<span class="said"><b>' + esc(b.n) + '</b>“' + esc(taunt) + '”</span></div>' +
-    '<p class="tiny" style="text-align:center;margin:12px 0 0">Next: <b>' +
-      esc(gameName(b.games[RUN.step])) + '</b></p>' +
+    '<p class="tiny" style="text-align:center;margin:12px 0 0">' +
+      (decider ? 'Everything on this one: <b>' : 'Next: <b>') +
+      esc(gameName(RUN.plan[RUN.step])) + '</b></p>' +
     '<div style="display:grid;gap:9px;margin-top:12px">' +
-      '<button class="btn hot" id="il-go">' + K.ilb('play', 'Play it') + '</button>' +
+      '<button class="btn hot" id="il-go">' + K.ilb('play', decider ? 'THE DECIDER' : 'Play it') + '</button>' +
       '<button class="btn ghost" id="il-quit">Walk away</button>' +
     '</div>');
+  paintStrike(won);
   $('#il-go').onclick = () => { K.closeModal(); nextGame(); };
   $('#il-quit').onclick = () => { K.closeModal(); quitLevel(); };
 }
@@ -769,8 +1098,16 @@ function interlude(won){
    books and the fun of it, exactly as the old ladder worked. */
 function finishLevel(){
   if (!RUN) return;
-  releaseOffline();
+  releaseHub();
+  bar.down();
   const b = RUN.boss;
+  const bossFight = RUN.boss_fight;
+  const fw = RUN.wins, fl = RUN.losses;
+  /* the point that ENDED it, so the board can land it on screen rather than
+     opening with the final score already lit. Null if the level ended on a
+     game that would not start rather than on a result. */
+  const lastPlayed = RUN.log.filter(e => e.result === 'w' || e.result === 'l').pop();
+  const lastWon = lastPlayed ? lastPlayed.result === 'w' : null;
   const won = RUN.wins > RUN.losses;
   const first = won && !isCleared(b.id);
   const coins = first ? (b.reward.coins | 0) : 0;
@@ -803,9 +1140,17 @@ function finishLevel(){
   }
 
   K.openModal(
-    '<div class="result">' +
+    (bossFight
+      ? '<div class="bosstop' + (b.final ? ' final' : '') + '">' +
+          '<span class="bt-kick">' + CROWN + esc(bossKicker(b)) + '</span>' +
+          '<span class="bt-rank">' + (won ? 'BEATEN' : 'THEY HELD THE ROAD') + '</span>' +
+        '</div>' +
+        /* the final board, opened one point short so the winning pip lands */
+        boardHTML(b, lastWon === true ? fw - 1 : fw, lastWon === false ? fl - 1 : fl, 'big')
+      : '') +
+    '<div class="result"' + (bossFight ? ' style="margin-top:10px"' : '') + '>' +
       '<div class="big ' + (won ? 'win' : 'lose') + '">' + (won ? 'REBAĦ!' : 'TELFA') + '</div>' +
-      '<p class="tiny">' + tally + ' against ' + esc(b.n) + '</p>' +
+      '<p class="tiny">' + (bossFight ? tally + ' against ' : 'against ') + esc(b.n) + '</p>' +
     '</div>' +
     '<div class="bossline" style="margin-top:12px">' + faceHTML(b) +
       '<span class="said"><b>' + esc(b.n) + '</b>“' + esc(won ? b.lose : b.win) + '”</span>' +
@@ -830,6 +1175,7 @@ function finishLevel(){
       '<button class="btn hot" id="sr-again">' + K.ilb('refresh', won ? 'Again' : 'Try again') + '</button>' +
       '<button class="btn ghost" id="sr-map">Back to the road</button>' +
     '</div>');
+  if (bossFight && lastWon !== null) paintStrike(lastWon);
 
   const backToMap = walk => {
     K.closeModal();
@@ -850,7 +1196,8 @@ function finishLevel(){
    progress.js pays for that card — quitting SKARTA that way mints 9 XP. */
 function quitLevel(){
   disarm();
-  releaseOffline();
+  releaseHub();
+  bar.down();
   RUN = null;
   try { window.KARTI_PARTY.hub && window.KARTI_PARTY.hub(); } catch (e){}
   clearGameScreens();
@@ -862,6 +1209,7 @@ function quitLevel(){
 function open(){
   window.KHOOK = null;            /* story no longer drives the card duel */
   RUN = null;
+  bar.down();                     /* nothing is being fought from here */
   render();                       /* go() has no renderer for this screen */
   K.go('story');
 }
@@ -874,12 +1222,20 @@ function wire(){
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wire);
 else wire();
 
-/* BOSSES is exported under its old name because js/progress.js gates an
-   achievement on KARTI_STORY.BOSSES.length — and that gate now means all
-   fourteen, not eight. LEVELS is the name to use from here on. */
-window.KARTI_STORY = { LEVELS, BOSSES: LEVELS, byId, open, render, isCleared, isUnlocked,
+/* BOSSES is STILL EVERY STOP, and that is deliberate.
+   js/progress.js:2027 gates an achievement on
+     `S.clearedCount() >= S.BOSSES.length && S.BOSSES.length > 0`
+   so BOSSES.length is the length of the ROAD to that gate, not a count of
+   boss fights. Rebinding it to the three chapter bosses would have turned
+   "beat all fourteen" into "beat any three", which is the achievement paying
+   out for a fifth of the work. The three chapter bosses are exported
+   separately, under a name nothing else is reading. */
+window.KARTI_STORY = { LEVELS, BOSSES: LEVELS, CHAPTERS,
+                       BOSS_STOPS: LEVELS.filter((b, i) => isBossI(i)),
+                       byId, open, render, isCleared, isUnlocked,
                        clearedCount, unlockedUpTo, story, startLevel, quitLevel,
+                       isBoss, chapterOf, chapterNo,
                        /* for the headless harness */
-                       _run: () => RUN, nodePos, levelFor, launch };
+                       _run: () => RUN, nodePos, levelFor, launch, planFor };
 
 })();

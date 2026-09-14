@@ -7,6 +7,40 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-09-14 — a NEW class called `.flash` inherited the app's global one
+Building the boss scoreboard for IR-RAKKONT. `strikePip()` added three
+classes to the board when a point landed: `flash`, `f-me`, `f-them`. Every
+DOM assertion passed — the pip count went 0 → 1 exactly as designed.
+
+**The board was INVISIBLE for the entire 900ms the point was landing in.**
+index.html:1537 has a global `.flash{position:fixed;…;opacity:0}` — the
+screen-wide shout used by `K.flash()`. My `.bsb.flash` picked it up, so the
+board went `opacity:0` and `position:fixed` at the exact moment it was
+supposed to be the most interesting thing on the card, then came back.
+Measured: `[op=0 disp=flex]`, rect jumping 320x122 → 352x102 → 320x122.
+→ **A DOM assertion cannot see this. The screenshot could, and did** — the
+board was simply missing from the "before" frame while every check said ok.
+→ Before inventing a class name, `grep -rE '(^|[,{} >])\.<name>[ ,{:>]'
+index.html css/` for a BARE rule of that name. Compound selectors like
+`.bsb.flash` do not protect you; a bare `.flash` still matches. Two hits in
+this app: `.flash` (global shout) and `.boss` (the old ladder tile, which
+`.snode.boss` was also picking up — `overflow:hidden` and all). Renamed to
+`.bsb-lit` / `.snode.sboss`.
+→ The instrument that catches the whole class of bug:
+`el.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})` plus a
+rect sanity check, sampled THROUGH the animation, not just at the ends.
+
+Two more, from the same pass:
+- **`.result .big` is `clamp(36px,12vw,56px)`.** "POINT TO THEM" in it wraps
+  to three lines on a 390px phone and shoves everything else off the card.
+  Anything longer than one short word needs its own caption class.
+- **A HUD pinned over a live game lands on the game's own furniture.**
+  Measured on IS-SQAQ: the 280px boss strip sat across that game's title bar
+  and clipped "IS-SQAQ" to "IS-S". Thirty-three games, thirty-three top bars.
+  It now retracts after 5s to a ~110px pip row, which fits the one part of a
+  top bar that is reliably empty. `pointer-events:none` and z-index 11500
+  (UNDER #kr-root's 12000) were right from the start and stayed.
+
 ## 2026-09-14 — "(no test hook)" counted as a PASS, and hid a dead feature
 Wiring the ten offline party games into Story Mode. The boss's difficulty has
 to travel from the road into the game, so I wrote an assertion for it:

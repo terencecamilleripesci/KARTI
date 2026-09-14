@@ -110,6 +110,7 @@
 /* ══════════════════ STORY MODE ══════════════════ */
 .storyhdr{text-align:center;padding:2px 0 10px;flex:0 0 auto}
 .storyhdr .prog{font-family:var(--disp);font-weight:900;font-size:12px;letter-spacing:.12em;color:var(--gold)}
+.storyhdr .prog .sep{color:var(--dim2);margin:0 2px}
 .ladder{display:grid;gap:11px;padding:2px 0 26px}
 .boss{
   position:relative;display:flex;align-items:center;gap:12px;text-align:left;width:100%;
@@ -192,16 +193,168 @@ body.reduced .snode.here .sn-ring{animation:none;
 .swalker .sw-dot{width:13px;height:13px;border-radius:50%;
   background:radial-gradient(circle at 36% 30%,#FFF3CF,#E0A800 62%,#A87400);
   box-shadow:0 0 0 3px rgba(18,12,30,.9),0 0 14px 3px rgba(255,197,66,.55)}
-/* the two games a level is played over */
+/* ── A BOSS STOP, ON THE ROAD ───────────────────────────────────────
+   Five ordinary stops then a boss (js/story.js CHAPTERS), so the boss has to
+   be the thing your eye lands on: bigger, crimson-and-gold instead of gold,
+   and wearing a crown. The final boss burns. */
+.snode.sboss{width:88px;height:88px}
+.snode.sboss .sn-face{font-size:33px;inset:5px}
+.snode.sboss .sn-ring{background:linear-gradient(160deg,#FFDE8A,#B3131F 58%,#FFD064);
+  box-shadow:0 8px 22px rgba(0,0,0,.66),0 0 0 2px rgba(0,0,0,.45)}
+.snode.sboss.done .sn-ring{background:linear-gradient(160deg,#9CF0C0,#146B3A 58%,#7BE8A8)}
+.snode.sboss.lock .sn-ring{background:linear-gradient(160deg,#5A4A55,#2A1F26 62%,#5A4A55)}
+/* the crown SITS ON the medallion rather than floating above it: the gap
+   between two stops is 118px and two node radii already eat 81 of it, so a
+   crown standing clear of the ring lands straight in the chapter band. */
+.snode .sn-crown{position:absolute;left:50%;top:-9px;transform:translateX(-50%);z-index:4;
+  width:30px;height:20px;display:grid;place-items:center;pointer-events:none}
+.snode .sn-crown .bsb-crown{width:28px;height:19px;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.75))}
+.snode.lock .sn-crown{opacity:.4;filter:grayscale(1)}
+.snode.final .sn-ring{animation:snFinal 2.6s ease-in-out infinite}
+@keyframes snFinal{
+  0%,100%{box-shadow:0 8px 22px rgba(0,0,0,.66),0 0 0 0 rgba(255,84,104,.55)}
+  50%{box-shadow:0 8px 22px rgba(0,0,0,.66),0 0 0 13px rgba(255,84,104,0)}
+}
+body.reduced .snode.final .sn-ring{animation:none}
+
+/* ── THE CHAPTER GATE ───────────────────────────────────────────────
+   A band across the road at each chapter's entrance. z-index 1: above the
+   tarmac, below every portrait. */
+.sband{position:absolute;left:0;right:0;z-index:1;transform:translateY(-50%);
+  display:grid;place-items:center;pointer-events:none;
+  border-top:1px dashed rgba(255,197,66,.34);border-bottom:1px dashed rgba(255,197,66,.34);
+  background:linear-gradient(90deg,rgba(255,197,66,0),rgba(255,197,66,.10) 50%,rgba(255,197,66,0));
+  padding:7px 0}
+.sband .sb-lab{display:flex;align-items:baseline;gap:7px;font-family:var(--disp);font-weight:900;
+  font-size:13px;letter-spacing:.12em;color:#FFE6AE;text-shadow:0 2px 0 rgba(0,0,0,.7)}
+.sband .sb-lab b{font-size:9.5px;letter-spacing:.18em;color:var(--gold);opacity:.9}
+.sband .sb-lab small{font-size:9.5px;letter-spacing:.1em;font-weight:800;color:var(--dim2);
+  text-transform:uppercase}
+.sband.lock{border-color:rgba(255,255,255,.12);background:none}
+.sband.lock .sb-lab{color:var(--dim2);text-shadow:none}
+.sband.lock .sb-lab b{color:var(--dim2)}
+
+/* ── THE BOSS HEADER on a card ──────────────────────────────────── */
+.bosstop{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  margin:-4px 0 12px;padding-bottom:9px;border-bottom:1px solid rgba(255,197,66,.22)}
+.bosstop .bt-kick{display:inline-flex;align-items:center;gap:6px;font-family:var(--disp);
+  font-weight:900;font-size:12px;letter-spacing:.14em;color:#FFD98A}
+.bosstop .bt-kick .bsb-crown{width:19px;height:13px;flex:0 0 auto}
+.bosstop .bt-rank{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;
+  font-weight:800;color:var(--dim2);text-align:right}
+.bosstop.final .bt-kick{color:#FFB3BD}
+.bosstop.final{border-bottom-color:rgba(255,84,104,.35)}
+.bosstop.dec .bt-rank{color:var(--hot)}
+
+/* ══════════════════ THE BOSS SCOREBOARD ══════════════════
+   "1 point to u and pount to enmy if he wins etc best of 3" — both sides on
+   screen, two pips each, first to two. ONE component, two sizes: the plain
+   board sits inside a card, `.mini` is the strip pinned over the live game.
+   Drawn here in CSS so every state from 0-0 to 2-1 exists and all of them
+   animate. Built by boardHTML() in js/story.js. */
+.bsb{display:flex;align-items:flex-start;justify-content:center;gap:10px;
+  padding:11px 9px 9px;border-radius:16px;position:relative;overflow:hidden;
+  background:radial-gradient(120% 140% at 50% 0%,rgba(255,197,66,.10),rgba(0,0,0,.42) 70%);
+  border:1px solid var(--line2)}
+.bsb-side{flex:1 1 0;min-width:0;display:grid;justify-items:center;gap:6px}
+.bsb-crest{position:relative;width:58px;height:58px;display:grid;place-items:center}
+.bsb-crest .face{width:100%;height:100%;border-radius:16px;overflow:hidden;position:relative;
+  display:grid;place-items:center;font-size:29px;background:rgba(0,0,0,.45);
+  border:1px solid rgba(255,255,255,.16)}
+.bsb-crest .face img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:50% 16%}
+.bsb-crest .face img+.em{display:none}
+.bsb-crest .bsb-crown{position:absolute;left:50%;top:-13px;transform:translateX(-50%);
+  width:26px;height:18px;filter:drop-shadow(0 2px 3px rgba(0,0,0,.8))}
+.bsb-crown path{fill:var(--gold);stroke:#2A1600;stroke-width:1.6;stroke-linejoin:round}
+.bsb-nm{max-width:100%;font-family:var(--disp);font-weight:900;font-size:10.5px;
+  letter-spacing:.07em;text-align:center;color:#EFE4FF;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bsb-side.them .bsb-nm{color:#FFD3D8}
+.bsb-side.won .bsb-nm{color:var(--gold)}
+/* THE PIPS. Two, because first to two takes a best of three: the board states
+   the rule without a word of it being written down. */
+.bsb-pips{display:flex;gap:7px}
+.bsb-pips i{width:15px;height:15px;border-radius:50%;display:block;
+  background:rgba(0,0,0,.5);border:1.5px solid rgba(255,255,255,.22);
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.6)}
+.bsb-side.me   .bsb-pips i.on{background:radial-gradient(circle at 35% 30%,#FFF3CF,var(--gold) 60%,#B87A00);
+  border-color:#FFE9B0;box-shadow:0 0 11px 1px rgba(255,197,66,.6)}
+.bsb-side.them .bsb-pips i.on{background:radial-gradient(circle at 35% 30%,#FFD6DB,var(--bad) 60%,#8E0A1C);
+  border-color:#FFB9C2;box-shadow:0 0 11px 1px rgba(255,84,104,.55)}
+.bsb-mid{flex:0 0 auto;display:grid;justify-items:center;gap:3px;padding-top:14px}
+.bsb-mid .bsb-vs{font-family:var(--disp);font-weight:900;font-size:15px;letter-spacing:.06em;
+  color:var(--dim2)}
+.bsb-mid .bsb-bo{font-size:8.5px;letter-spacing:.12em;font-weight:800;color:var(--dim2);
+  white-space:nowrap}
+
+/* A POINT LANDS. strikePip() adds .hit to the pip, .scored to the side and
+   .flash to the board — a punch, a shake and a wash of the scorer's colour. */
+@keyframes bsbPip{0%{transform:scale(.2);filter:brightness(2.4)}
+  55%{transform:scale(1.5);filter:brightness(1.7)}100%{transform:scale(1);filter:none}}
+@keyframes bsbShake{0%,100%{transform:translateX(0)}
+  15%{transform:translateX(-5px)}35%{transform:translateX(5px)}
+  55%{transform:translateX(-3px)}78%{transform:translateX(2px)}}
+@keyframes bsbFlash{0%{opacity:0}18%{opacity:1}100%{opacity:0}}
+.bsb-pips i.hit{animation:bsbPip .52s var(--ease) both}
+.bsb-side.scored{animation:bsbShake .46s var(--ease) both}
+.bsb.bsb-lit::after{content:'';position:absolute;inset:0;pointer-events:none;
+  animation:bsbFlash .8s var(--ease) both}
+.bsb.bsb-lit.lit-me::after{background:radial-gradient(circle at 26% 40%,rgba(255,197,66,.55),transparent 62%)}
+.bsb.bsb-lit.lit-them::after{background:radial-gradient(circle at 74% 40%,rgba(255,84,104,.5),transparent 62%)}
+body.reduced .bsb-pips i.hit,body.reduced .bsb-side.scored,body.reduced .bsb.bsb-lit::after{animation:none}
+/* the caption under the board on an interlude card */
+.bsb-call{font-family:var(--disp);font-weight:900;font-size:19px;letter-spacing:.11em;
+  text-align:center;margin:11px 0 0}
+.bsb-call.win{color:var(--gold);text-shadow:0 2px 0 rgba(110,59,0,.9)}
+.bsb-call.lose{color:var(--bad);text-shadow:0 2px 0 rgba(90,8,18,.9)}
+
+/* ── THE STRIP THAT STAYS UP over the live game ──────────────────
+   pointer-events:none so it can never eat a tap; z-index 11500 so it sits
+   over every board but UNDER #kr-root (12000), which means a game's own
+   winner screen still gets the whole screen to itself. */
+#st-bossbar{position:fixed;left:0;right:0;top:0;z-index:11500;display:none;
+  justify-content:center;pointer-events:none;padding:calc(var(--sat) + 3px) 8px 0}
+#st-bossbar.on{display:flex}
+#st-bossbar .bsb{gap:9px;padding:5px 11px;border-radius:0 0 15px 15px;border-top:0;
+  background:linear-gradient(180deg,rgba(10,6,20,.94),rgba(10,6,20,.76));
+  backdrop-filter:blur(5px);box-shadow:0 6px 18px rgba(0,0,0,.55);
+  animation:bsbDrop .34s var(--ease) both;align-items:center;width:auto;max-width:320px}
+@keyframes bsbDrop{from{transform:translateY(-100%)}to{transform:none}}
+body.reduced #st-bossbar .bsb{animation:none}
+#st-bossbar .bsb-side{display:flex;align-items:center;gap:7px;flex:0 0 auto}
+#st-bossbar .bsb-crest{width:26px;height:26px}
+#st-bossbar .bsb-crest .face{border-radius:8px;font-size:15px}
+#st-bossbar .bsb-crest .bsb-crown{width:16px;height:11px;top:-8px}
+#st-bossbar .bsb-pips i{width:11px;height:11px}
+#st-bossbar .bsb-mid{padding-top:0}
+#st-bossbar .bsb-mid .bsb-vs{font-size:11px}
+/* RETRACTED (see bar.up in js/story.js): after five seconds the crests fold
+   away and only the four pips are left, so the strip stops sitting on the
+   game's own title bar. The score itself never leaves the screen. */
+#st-bossbar .bsb{transition:padding .3s var(--ease)}
+#st-bossbar.slim .bsb-crest{display:none}
+#st-bossbar.slim .bsb{padding:4px 10px;gap:8px;border-radius:0 0 11px 11px;
+  background:rgba(10,6,20,.8)}
+#st-bossbar.slim .bsb-mid .bsb-vs{font-size:9.5px;opacity:.7}
+body.reduced #st-bossbar .bsb{transition:none}
+
+/* the games a level is played over */
 .gvs{display:grid;gap:6px}
 .gvs-row{display:flex;align-items:center;gap:10px;padding:8px 11px;border-radius:12px;
   background:rgba(0,0,0,.34);border:1px solid var(--line);font-size:13.5px}
 .gvs-row b{flex:0 0 20px;text-align:center;color:var(--gold);font-size:12px}
+.gvs-row b .ico{width:14px;height:14px;vertical-align:-.18em}
 .gvs-row small{color:var(--dim2)}
 .gvs-row.dec{border-style:dashed;opacity:.72}
+/* an ordinary stop is ONE game, and its row is the whole fight */
+.gvs-row.one{border-color:rgba(255,197,66,.42);background:rgba(255,197,66,.07);font-weight:800}
 @media (max-height:700px){
   .snode{width:64px;height:64px}
   .snode .sn-face{font-size:23px}
+  .snode.sboss{width:78px;height:78px}
+  .snode.sboss .sn-face{font-size:28px}
 }
 
 /* boss intro / taunt card */
@@ -587,6 +740,22 @@ html.kx-light .deckface .a,html.kx-light .deckopt .k,
 html.kx-light .deckface .vs{color:#C9AFC0}
 html.kx-light .bossline .said{color:#5C1B3C}
 html.kx-light .bossline .said b{color:#C2255C}
+/* the boss scoreboard: its field is a dark island inside a cream card, so the
+   field goes cream and every hard white on it goes to rose ink instead */
+html.kx-light .bsb{background:radial-gradient(120% 140% at 50% 0%,rgba(214,51,108,.10),
+  rgba(255,255,255,.58) 70%);border-color:rgba(122,32,72,.24)}
+html.kx-light .bsb-nm{color:#5C1B3C}
+html.kx-light .bsb-side.them .bsb-nm{color:#8E1B2E}
+html.kx-light .bsb-side.won .bsb-nm{color:#C2255C}
+html.kx-light .bsb-pips i{background:rgba(122,32,72,.13);border-color:rgba(122,32,72,.3);
+  box-shadow:none}
+html.kx-light .bsb-call.win{color:#C2255C;text-shadow:none}
+html.kx-light .bsb-call.lose{color:#8E1B2E;text-shadow:none}
+html.kx-light .sband .sb-lab{color:#5C1B3C;text-shadow:none}
+html.kx-light .bosstop .bt-kick{color:#C2255C}
+html.kx-light .bosstop.final .bt-kick{color:#8E1B2E}
+/* the strip stays a dark bar on purpose: it floats over a GAME board, not
+   over the shell, and half the boards are dark whatever the shell is */
 html.kx-light .taunt{background:linear-gradient(180deg,#FFF6FA,#FFE9F2);
   color:#5C1B3C;border-color:rgba(122,32,72,.28);border-left-color:var(--hot)}
 html.kx-light .taunt .who{color:#A61E4D}
