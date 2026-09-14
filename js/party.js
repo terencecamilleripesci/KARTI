@@ -269,6 +269,7 @@ function logoInto(host, g){
     img.alt = '';
     img.setAttribute('aria-hidden', 'true');
     host.appendChild(img);
+    host.classList.remove('noart');    /* real art won: drop the stand-in */
   };
   img.onerror = () => {};              /* that one game has no emblem yet */
   img.src = LOGO_DIR + 'logo-' + g.id + '.png';
@@ -485,7 +486,11 @@ function tileInto(grid, g){
   b.className = 'pt-tile' + (soon ? ' soon' : '');
   if (!soon) b.type = 'button';
   b.innerHTML =
-    '<span class="pt-tio" data-logo="' + esc(g.id) + '">' +
+    /* `noart` is the DEFAULT and logoInto() removes it if a painted emblem
+       actually loads. Written that way round on purpose: it is correct for
+       the game that has no art, for the build with no art pack at all, and
+       for the phone whose download fails — three paths, one rule. */
+    '<span class="pt-tio noart" data-logo="' + esc(g.id) + '">' +
       (g.sprite ? pieceSVG(g.sprite) : ico(g.icon || 'deck')) + '</span>' +
     '<span class="pt-tin">' + esc(g.name) + '</span>' +
     (g.mt ? '<span class="pt-timt">' + esc(g.mt) + '</span>' : '') +
@@ -1328,6 +1333,23 @@ function injectCSS(){
       'background:rgba(255,255,255,.03)}' +
     '#scr-party .pt-tio{font-size:26px;line-height:0;color:var(--gold);display:block;height:34px;' +
       'display:flex;align-items:center}' +
+    /* ── THE STAND-IN EMBLEM ─────────────────────────────────────────
+       Eleven of the thirty-nine games have no painted logo yet, and on a
+       shelf where twenty-seven do, a bare gold outline beside them reads
+       as a picture that failed to load rather than a choice. Same 34px
+       box, so nothing moves: the icon is simply set in a struck medallion
+       — a warm disc with a lip of light on top and a shadow under it, the
+       way the painted emblems are lit. It is not pretending to be the art;
+       it is a coin where the art will go, and it looks finished. */
+    '#scr-party .pt-tio.noart{width:34px;height:34px;justify-content:center;border-radius:50%;' +
+      'background:radial-gradient(circle at 50% 32%,rgba(255,197,66,.30),rgba(255,197,66,.10) 60%,' +
+      'rgba(0,0,0,.30));box-shadow:inset 0 1px 0 rgba(255,255,255,.30),' +
+      'inset 0 -2px 3px rgba(0,0,0,.40),0 2px 4px rgba(0,0,0,.45);' +
+      'border:1px solid rgba(255,197,66,.34)}' +
+    '#scr-party .pt-tio.noart .ico{width:19px;height:19px;' +
+      'filter:drop-shadow(0 1px 0 rgba(0,0,0,.45))}' +
+    '#scr-party .pt-tile.soon .pt-tio.noart{background:radial-gradient(circle at 50% 32%,' +
+      'rgba(255,255,255,.12),rgba(0,0,0,.30));border-color:rgba(255,255,255,.14);box-shadow:none}' +
     '#scr-party .pt-tio .pt-pcs{width:30px;height:30px;fill:var(--gold);stroke:none}' +
     '#scr-party .pt-tile.soon .pt-tio .pt-pcs{fill:var(--dim2)}' +
     '#scr-party .pt-tile.soon .pt-tio{color:var(--dim2)}' +
