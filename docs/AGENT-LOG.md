@@ -7,6 +7,31 @@ Format: **what happened** → what it actually was → what to do instead.
 
 ---
 
+## 2026-09-14 — `offsetParent` cannot see a modal, and the blank-app race
+Chasing the "tap back during the celebration" race in IR-RAKKONT. My probe
+asked `modal.offsetParent !== null` and answered **false** — no card open —
+while the card was plainly on screen in the same dump, its own text sitting
+in the payload I was printing.
+
+**`offsetParent` is ALWAYS null on a `position:fixed` element.** Every modal
+in this app is fixed, so that check can never answer "is this up". It has to
+be `el.checkVisibility({checkOpacity:true, checkVisibilityCSS:true})`, or at
+minimum the computed `display` of the `.modal` wrapper (the `on` class is on
+the wrapper, not `#mbox`).
+
+**What it was hiding was worse than the report.** `settle()` released the hub
+guard at the top, 2200ms before the interlude opens. Tapping a game's own
+"back to party games" in that window ran the real `KARTI_PARTY.hub()` — which
+**paints** the shelf but does not **show** it (`open()` shows, `hub()` only
+paints) — and then the timeout stood that unshown shelf down and opened the
+interlude over nothing. Measured after the tap: all thirteen screens
+`display:none`, a card floating on a blank app. The guard now stays up until
+the card is actually on screen.
+→ Third instrument failure in one session, same shape every time: `.ld-err`
+that did not exist, `#scr-party` for a game that paints elsewhere, and now
+`offsetParent` on a fixed node. **Before trusting a probe, prove the probe
+can see the thing when it IS there.**
+
 ## 2026-09-14 — a NEW class called `.flash` inherited the app's global one
 Building the boss scoreboard for IR-RAKKONT. `strikePip()` added three
 classes to the board when a point landed: `flash`, `f-me`, `f-them`. Every
