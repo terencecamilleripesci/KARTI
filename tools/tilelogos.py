@@ -258,10 +258,32 @@ def mimika():
 '''
     return svg(body, '#E8556B', '#8A162E', '#5A0C1D')
 
+def muzika():
+    """the music round: a record, and the note over it.
+
+       RITMU already owns a drum, so this cannot be percussion. A vinyl
+       reads as MUSIC at any size and the note in front gives it the
+       silhouette — dark disc, gold centre, gold note."""
+    body = f'''
+  <circle cx="232" cy="256" r="146" fill="#231A2E"/>
+  <circle cx="232" cy="256" r="146" fill="none" stroke="#4A3A5E" stroke-width="8"/>
+  <circle cx="232" cy="256" r="112" fill="none" stroke="#4A3A5E" stroke-width="7"/>
+  <circle cx="232" cy="256" r="84" fill="none" stroke="#4A3A5E" stroke-width="6"/>
+  <path d="M 128 176 a 146 146 0 0 1 84 -62 a 132 132 0 0 0 -74 74 Z"
+        fill="#FFFFFF" opacity="0.22" stroke="none"/>
+  <circle cx="232" cy="256" r="46" fill="url(#gold)"/>
+  <circle cx="232" cy="256" r="12" fill="{INK}" stroke="none"/>
+  <path d="M 300 344 v -170 l 118 -30 v 170" fill="none" stroke="{INK}" stroke-width="42"/>
+  <path d="M 300 344 v -170 l 118 -30 v 170" fill="none" stroke="url(#gold)" stroke-width="24"/>
+  <ellipse cx="282" cy="348" rx="40" ry="31" fill="url(#gold)" transform="rotate(-18 282 348)"/>
+  <ellipse cx="400" cy="318" rx="40" ry="31" fill="url(#gold)" transform="rotate(-18 400 318)"/>
+'''
+    return svg(body, '#F05A8C', '#7A1340', '#500A2A')
+
 GAMES = {
     'kwizz': kwizz, 'lewwel': lewwel, 'oghla': oghla, 'tpingija': tpingija,
     'falz': falz, 'minlaktar': minlaktar, 'katina': katina, 'pari': pari,
-    'emoji': emoji, 'ritmu': ritmu, 'mimika': mimika,
+    'emoji': emoji, 'ritmu': ritmu, 'mimika': mimika, 'muzika': muzika,
 }
 
 def render(name):

@@ -2449,7 +2449,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 428;
+var KARTI_BUILD = 429;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2600,6 +2600,7 @@ window.swVersion = function(){
                'js/pari.js','js/pari-ui.js',                     /* Memory pairs 1–4 (offline) */
                'js/emoji.js','js/emoji-ui.js',                   /* Emoji guess 1–6 (offline) */
                'js/ritmu.js','js/ritmu-ui.js',                   /* Keep the beat 1–6 (offline) */
+               'js/muzika.js','js/muzika-ui.js',                 /* Music quiz 1–6, wrong = -1 */
                'js/konkwista.js','js/konkwista-ui.js',           /* Risk conquest 2–6 */
                'js/misteru.js','js/misteru-ui.js',               /* Clue mystery 2–6 */
                /* IL-ĦAJJA — the spin-and-move life board, 2–6. hajja.js is the
