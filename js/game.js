@@ -1284,8 +1284,11 @@ function renderHome(){
      It renders an IN-FLOW chip inside .headleft (never a fixed bar — see
      the #kl-inst lesson in index.html) and only when there is mail. */
   try { window.KARTI_MAIL && KARTI_MAIL.onHome && KARTI_MAIL.onHome(); } catch (e){}
-  /* the RPG door — draws itself for the owner only, like the mail console */
+  /* the RPG door — draws itself for the owner only, like the mail console.
+     PAUSED: qawmien.js loads but its ENABLED flag is false, so it draws
+     nothing. Saltwake is its successor and draws in its place. */
   try { window.KARTI_QAWMIEN && KARTI_QAWMIEN.onHome && KARTI_QAWMIEN.onHome(); } catch (e){}
+  try { window.KARTI_SALTWAKE && KARTI_SALTWAKE.onHome && KARTI_SALTWAKE.onHome(); } catch (e){}
 }
 /* ───────────────────── the profile chip's sheet ─────────────────────
    Your face, and the things you can DO — open the record book, settings,

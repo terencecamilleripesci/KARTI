@@ -2449,7 +2449,7 @@ window.KARTI_THEME = (function(){
    over a MessageChannel, and the answer comes from the script iOS actually
    activated — not from the server, not from a constant. Keep BUILD in step
    with CACHE in sw.js (bump both on every deploy). */
-var KARTI_BUILD = 434;
+var KARTI_BUILD = 435;
 window.KARTI_BUILD = KARTI_BUILD;
 window.swVersion = function(){
   return new Promise(function(resolve){
@@ -2514,7 +2514,7 @@ window.swVersion = function(){
      tapped, so nothing about it belongs in the path that has to run before
      Home can paint. It re-runs its own onHome() when it lands, so arriving
      late costs nothing. */
-  var defer = ['js/qawmien.js','js/chess.js','js/dama.js',
+  var defer = ['js/qawmien.js','js/saltwake.js','js/chess.js','js/dama.js',
                'js/battleship.js','js/battleship-ui.js',
                'js/skarta.js','js/skarta-ui.js',
                'js/klabb.js','js/klabb-briscola.js','js/klabb-sette.js','js/klabb-cheat.js',
