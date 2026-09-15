@@ -672,9 +672,13 @@
       .then(j => { sprites = j || {}; })
       .catch(() => { sprites = {}; });
 
-    sheet = { ready: false, img: new Image() };
+    /* the atlas and ITS LAYOUT — the layout says where the autotile
+       edge banks live, so the renderer reads it instead of guessing */
+    sheet = { ready: false, img: new Image(), layout: null };
+    fetch('art/tiles.json').then(r => r.json())
+      .then(j => { sheet.layout = j; }).catch(() => {});
     sheet.img.onload = () => { sheet.ready = true; };
-    sheet.img.src = 'art/tiles-placeholder.png';
+    sheet.img.src = 'art/tiles.png';
 
     const want = ['a01', 'a02', 'a03'];
     Promise.all(want.map(id =>

@@ -21,11 +21,11 @@
  ],
  "tilesets": [
   {
-   "columns": 8,
+   "columns": 16,
    "firstgid": 1,
-   "image": "../art/tiles-placeholder.png",
-   "imageheight": 32,
-   "imagewidth": 128,
+   "image": "../art/tiles.png",
+   "imageheight": 128,
+   "imagewidth": 256,
    "margin": 0,
    "name": "placeholder",
    "spacing": 0,

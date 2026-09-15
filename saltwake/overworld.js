@@ -234,10 +234,55 @@
     cx = m.w <= viewW ? (m.w - viewW) / 2 : Math.max(0, Math.min(m.w - viewW, cx));
     cy = m.h <= viewH ? (m.h - viewH) / 2 : Math.max(0, Math.min(m.h - viewH, cy));
 
-    const cols = m.tileset ? m.tileset.columns : 8;
+    /* THE ATLAS LAYOUT IS DATA, NOT A CONSTANT. art/tiles.json is
+       written by tools/mktileset.py, so the renderer never hardcodes how
+       many columns the sheet has or where the edge banks start. Change
+       the tileset and nothing here moves. Falls back to the map's own
+       embedded tileset, which is what Tiled writes. */
+    const L = sheet && sheet.layout;
+    const cols = L ? L.cols : (m.tileset ? m.tileset.columns : 8);
     const first = m.tileset ? m.tileset.firstgid : 1;
+    const banks = (L && L.banks) || null;
+    const prio = (L && L.priority) || null;
 
-    const blit = (data) => {
+    /* ── AUTOTILING ───────────────────────────────────────────────────
+       A world made of flat squares looks like a spreadsheet. What makes
+       it read as a place is knowing where each material STOPS — grass
+       ending at a path, sand meeting water.
+
+       Rather than ask the author to draw every transition (48+ tiles,
+       hand-placed, wrong the moment a tile moves), the edge is derived:
+       look at the four orthogonal neighbours, build a 4-bit mask of
+       which ones are a DIFFERENT material, and pick that variant out of
+       the material's 16-tile bank. Maps stay simple logical tiles and
+       stay editable in Tiled; the seams take care of themselves.
+
+       A material with no bank (a tree, a wall) just draws its base. */
+    const variant = (data, x, y, li) => {
+      if (!banks) return li;
+      const bank = banks[String(li)];
+      if (bank === undefined) return li;
+      /* ONE SIDE OF A BOUNDARY DRAWS THE EDGE, not both. An edge goes
+         in only where the neighbour RANKS LOWER, so grass edges down
+         onto path while the path stays clean — otherwise every
+         boundary is a double dark line and every tree sits in a box. */
+      const mine = prio ? (prio[String(li)] | 0) : 0;
+      let mask = 0;
+      const lower = (nx, ny) => {
+        if (nx < 0 || ny < 0 || nx >= m.w || ny >= m.h) return false;
+        const nli = data[ny * m.w + nx] - first;
+        if (nli === li) return false;
+        if (!prio) return true;
+        return (prio[String(nli)] | 0) < mine;
+      };
+      if (lower(x, y - 1)) mask |= 1;
+      if (lower(x + 1, y)) mask |= 2;
+      if (lower(x, y + 1)) mask |= 4;
+      if (lower(x - 1, y)) mask |= 8;
+      return mask === 0 ? li : bank + mask;
+    };
+
+    const blit = (data, auto) => {
       if (!data || !sheet || !sheet.ready) return;
       const x0 = Math.floor(cx), y0 = Math.floor(cy);
       const x1 = Math.min(m.w - 1, Math.ceil(cx + viewW));
@@ -246,7 +291,8 @@
         for (let x = Math.max(0, x0); x <= x1; x++) {
           const gid = data[y * m.w + x];
           if (!gid) continue;
-          const li = gid - first;
+          let li = gid - first;
+          if (auto) li = variant(data, x, y, li);
           g.drawImage(sheet.img, (li % cols) * TS, Math.floor(li / cols) * TS,
                       TS, TS,
                       Math.round((x - cx) * tp), Math.round((y - cy) * tp),
@@ -254,9 +300,9 @@
         }
     };
 
-    blit(m.ground);
+    blit(m.ground, true);
     drawHero(g, p, cx, cy, tp, s);
-    blit(m.over);
+    blit(m.over, false);
   }
 
   /* The hero. A shape until there is a walk sheet — same rule as the
