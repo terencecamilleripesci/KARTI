@@ -1501,7 +1501,17 @@ const hooks = {
   },
   phase(){ return M ? 'play' : 'idle'; },
   apply(seat, move){ if (!M) return { ok:false, why:'no kaxxi' }; return onlineRemote(seat, move); },
-  attachNet(net){ if (M){ M.net = net || null; maybeThink(); } },
+  /* keep the iAmHost stamp set at onlineStart — a bare net handed in
+     later drops it and the host stops driving the machine chairs.
+     Latent today only because mp.js re-attaches solely while phase() is
+     'lobby', which this game never returns; that is a guarantee about
+     mp.js's behaviour, not about this file. */
+  attachNet(net){
+    if (!M) return;
+    const was = M.net && M.net.iAmHost;
+    M.net = net ? Object.assign({}, net, { iAmHost: !!(net.iAmHost || was) }) : null;
+    maybeThink();
+  },
   setOwner(i, own){ if (M && M.meta && M.meta[i]){ M.meta[i].own = own; } },
   setName(i, name){ if (M && M.meta && M.meta[i] && name){ M.meta[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },

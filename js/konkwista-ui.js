@@ -3653,7 +3653,14 @@ const hooks = {
   },
   phase(){ return M ? 'play' : 'idle'; },
   apply(seat, move){ if (!M) return { ok:false, why:'no konkwista' }; return onlineRemote(seat, move); },
-  attachNet(net){ if (M){ M.net = net || null; maybeThink(); } },
+  /* keep the iAmHost stamp: a bare net handed in later would drop it and
+     the host would stop driving the machine chairs mid-table */
+  attachNet(net){
+    if (!M) return;
+    const was = M.net && M.net.iAmHost;
+    M.net = net ? Object.assign({}, net, { iAmHost: !!(net.iAmHost || was) }) : null;
+    maybeThink();
+  },
   setOwner(i, own){ if (M && M.meta && M.meta[i]){ M.meta[i].own = own; if (own === 'ai' && !M.meta[i].lvl) M.meta[i].lvl = 2; maybeThink(); } },
   setName(i, name){ if (M && M.meta && M.meta[i] && name){ M.meta[i].name = name; } },
   live(){ return !!(M && !M.dead && !E.over(M.st)); },
@@ -3726,7 +3733,17 @@ function onlineStart(cfg){
   /* raised BEFORE openBoard: buildBoard has to know whether the NEW button is
      written into the DOM at all, and M.net alone arrives on the next line. */
   M.online = true;
-  M.net = cfg.net || null;
+  /* STAMP iAmHost ONTO THE NET HANDLE. maybeThink() (:3120) refuses to
+     drive a machine chair unless `M.net.iAmHost` is true, but js/mp.js
+     never puts iAmHost on the net object it builds — it only keeps one
+     as a local of its own. Left bare, `!M.net.iAmHost` reads
+     `!undefined` on EVERY phone, so nobody drives the bot and a table
+     with a machine seated stops for ever on its turn. Konkwista
+     publishes real `levels`, so the lobby will seat one.
+     aqleb (:1429), hajja, kaxxi and tapp (:1604) all stamp it. */
+  M.net = cfg.net
+    ? Object.assign({}, cfg.net, { iAmHost: (cfg.you | 0) === (cfg.host | 0) })
+    : null;
   M.finished = false;
   openBoard(() => { const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); });
   hooks.attachNet(cfg.net || null);

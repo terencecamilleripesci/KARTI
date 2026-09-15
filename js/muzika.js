@@ -38,7 +38,11 @@ const CATS = {
   pop:      { en:'On the radio',  mt:'Fuq ir-radju' },
   nisa:     { en:'The women',     mt:'In-nisa' },
   klassiku: { en:'Old classics',  mt:'Klassiċi' },
-  rap:      { en:'Rap',           mt:'Rap' }
+  rap:      { en:'Rap',           mt:'Rap' },
+  /* The home shelf. It only pays off in the clip round — the written
+     bank has no Maltese questions — but in a Maltese party game the
+     local songs are the ones the whole table shouts over. */
+  malta:    { en:'Maltese',       mt:'Maltin' }
 };
 
 /* c = the right answer, w = three wrong ones that must be PLAUSIBLE —
@@ -197,6 +201,11 @@ function draw(cats, used, rnd){
     used.clear();
     pool = BANK.filter(q => want.indexOf(q.k) >= 0);
   }
+  /* A shelf can exist for the CLIPS and have no written questions behind
+     it — 'malta' is exactly that. Asked for a shelf this bank cannot
+     serve, widen rather than hand back undefined: the caller paints
+     whatever comes out of here, so an empty pool is a crash. */
+  if (!pool.length) pool = BANK;
   const q = pool[Math.floor(r() * pool.length)];
   used.add(q.q);
   const opts = shuffle([q.c].concat(q.w), r);
@@ -207,9 +216,106 @@ function scoreFor(kind){
   return kind === 'right' ? RIGHT : kind === 'wrong' ? WRONG : PASS;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   THE CLIP ROUND — play the song, name the song.
+
+   WHY THIS EXISTS NOW. The trivia round above asks who sang it and what
+   year it came out, and in a Maltese bar that turns out to be the wrong
+   question: people KNOW the song the second it starts and still cannot
+   name the album. So the round below plays the record and asks the only
+   question everyone in the room can actually answer.
+
+   WHAT CHANGED ABOUT THE LICENCE. Nothing — we still ship no recordings.
+   `data/muzika-tracks.json` holds metadata only, and the 30 seconds is
+   streamed from the shop's own public preview at play time. Nothing
+   lands in audio/, nothing is cached, and the artwork and a link to the
+   track are shown on the reveal. That is the difference between playing
+   a preview and hosting a record, and it is the whole reason this round
+   can exist at all.
+
+   IT NEEDS THE NETWORK, AND THE TRIVIA IS THE FALLBACK. KARTI installs
+   as an offline app, so a round that streams can simply fail. When the
+   bank will not load, `draw()` above still works and the game degrades
+   to the questions instead of dying — which is why none of the trivia
+   was deleted.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const CLIP_MS   = 20000;   /* longer than a trivia question: the clip has to play */
+const TRACKS_URL = 'data/muzika-tracks.json';
+
+let _tracks = null;        /* null = not tried, [] = tried and failed */
+
+/* Resolves to the track list, or [] if it cannot be had. Never throws:
+   a music round that explodes on a bad connection is worse than one
+   that quietly becomes a quiz. */
+function loadTracks(fetcher){
+  if (_tracks) return Promise.resolve(_tracks);
+  const f = fetcher || (typeof fetch === 'function' ? fetch : null);
+  if (!f) return Promise.resolve(_tracks = []);
+  return f(TRACKS_URL, { cache:'no-store' })
+    .then(r => r.ok ? r.json() : null)
+    .then(j => (_tracks = (j && Array.isArray(j.tracks)) ? j.tracks : []))
+    .catch(() => (_tracks = []));
+}
+
+function haveTracks(){ return !!(_tracks && _tracks.length); }
+
+/* Distractors must come off the SAME shelf and out of roughly the same
+   era. Three wrong titles from the wrong decade are not a question, they
+   are a label — and with a penalty on the board a giveaway is worse than
+   a hard question, because it makes the risk fake. */
+function clipOpts(track, pool, rnd){
+  const r = rnd || Math.random;
+  const same = pool.filter(t =>
+    t.k === track.k && t.id !== track.id && t.title !== track.title);
+  if (same.length < 3) return null;
+
+  const near = same.slice()
+    .sort((a, b) => Math.abs((a.year||0) - (track.year||0))
+                  - Math.abs((b.year||0) - (track.year||0)))
+    .slice(0, Math.max(12, 3));
+
+  const picked = shuffle(near, r).slice(0, 3);
+  const opts   = shuffle([track].concat(picked), r);
+  return { opts, right: opts.findIndex(t => t.id === track.id) };
+}
+
+/* one clip question; returns null when the bank cannot furnish one, and
+   the caller is expected to fall back to draw() */
+function drawClip(cats, used, rnd, pool){
+  const list = pool || _tracks;
+  if (!list || !list.length) return null;
+  const r    = rnd || Math.random;
+  const want = (cats && cats.length) ? cats : Object.keys(CATS);
+
+  let avail = list.filter(t => want.indexOf(t.k) >= 0 && !used.has(t.id));
+  if (!avail.length){
+    used.clear();
+    avail = list.filter(t => want.indexOf(t.k) >= 0);
+  }
+  if (!avail.length) return null;
+
+  const track = avail[Math.floor(r() * avail.length)];
+  const built = clipOpts(track, list, r);
+  if (!built) return null;
+  used.add(track.id);
+
+  return {
+    clip:   true,
+    k:      track.k,
+    track:  track,
+    preview:track.preview,
+    opts:   built.opts.map(t => t.title),
+    tracks: built.opts,
+    right:  built.right,
+    answer: track.title
+  };
+}
+
 window.KARTI_MUZIKA = {
-  MIN_SEATS, MAX_SEATS, ASK_MS, RIGHT, WRONG, PASS, MAX_ROUNDS,
-  CATS, BANK, BANDS, draw, cpuAnswer, thinkMs, shuffle, scoreFor
+  MIN_SEATS, MAX_SEATS, ASK_MS, CLIP_MS, RIGHT, WRONG, PASS, MAX_ROUNDS,
+  CATS, BANK, BANDS, draw, cpuAnswer, thinkMs, shuffle, scoreFor,
+  TRACKS_URL, loadTracks, haveTracks, drawClip, clipOpts
 };
 
 })();
