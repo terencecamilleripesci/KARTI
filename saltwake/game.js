@@ -49,12 +49,55 @@
      second representation to drift. */
   let S = null;
 
+  /* ── WHO YOU ARE, CHOSEN BEFORE ANYTHING ELSE ─────────────────────
+     The owner's instruction: male and female, and first. So this screen
+     runs ahead of the starter choice and ahead of the world — you decide
+     who is walking before you decide what walks with you.
+
+     ONE POSE PER GENDER, not a wardrobe. That is his own rule from the
+     paused project, verbatim in intent: "all characters must have
+     identical pose, just woman and man, easy like that." Two walking
+     sheets cover every player, which is also what keeps the art budget
+     honest — a wardrobe is a sheet per option, per direction, per frame.
+
+     Asked ONCE and then never again. It is stored in the save, so a
+     returning player goes straight back to the world; only a wipe asks
+     again. A game that re-asks who you are on every launch reads as
+     having forgotten you. */
+  const GENDERS = [
+    { id: 'f', name: 'Woman', hue: 330 },
+    { id: 'm', name: 'Man',   hue: 205 }
+  ];
+
+  function whoScreen() {
+    askEl.textContent = 'Who walks the island?';
+    el.innerHTML =
+      '<div class="card"><p class="note" style="margin-top:0">' +
+      'This is only how you look. It changes nothing about the creatures ' +
+      'you can catch or the moves they learn.</p></div>' +
+      GENDERS.map(g =>
+        '<button class="who-one" data-id="' + esc(g.id) + '">' +
+          '<span class="side" style="gap:12px">' +
+            '<span class="mon"><i class="blob block" style="display:block;' +
+              'background:hsl(' + g.hue + ' 46% 56%)"></i></span>' +
+            '<span class="meta"><span class="nm">' + esc(g.name) + '</span>' +
+            '<small style="color:var(--dim)">one pose, chosen once</small>' +
+            '</span></span></button>').join('');
+    bind({ '.who-one': e => {
+      const id = e.currentTarget.dataset.id;
+      S = fresh();
+      S.who = (id === 'f') ? 'f' : 'm';
+      save();
+      pick();
+    } });
+  }
+
   function fresh() {
     /* JOURNEY LEVEL, not per-creature levels. One number for the player;
        every creature they own sits at it (battle.js relevels on gain).
        `reserves` holds catches beyond the party of three. */
-    return { party: [], reserves: [], journey: D.START_LEVEL, xp: 0,
-             active: 0, balls: 8, beatKeeper: false,
+    return { who: 'f', party: [], reserves: [], journey: D.START_LEVEL,
+             xp: 0, active: 0, balls: 8, beatKeeper: false,
              seen: {}, caught: {}, swapsMade: 0, threwAt: 0 };
   }
 
@@ -80,6 +123,7 @@
       /* Re-derive nothing: a stored creature IS the creature. But clamp
          what came off the wire — this is localStorage and the player can
          edit it. */
+      d.who = (d.who === 'm') ? 'm' : 'f';
       d.reserves = Array.isArray(d.reserves) ? d.reserves : [];
       d.journey = Math.max(1, Math.min(D.MAX_LEVEL, d.journey | 0 || D.START_LEVEL));
       d.xp = Math.max(0, d.xp | 0);
@@ -231,8 +275,12 @@
       }).join('');
     bind({ '.pick-one': e => {
       const id = e.currentTarget.dataset.id;
-      S = fresh();
-      S.party.push(B.make(id, 5));
+      /* S already exists — whoScreen() made it. Creating it again here
+         would throw the gender choice away one screen after it was
+         made, which is the kind of bug nobody reports because it looks
+         like the game simply ignored you. */
+      if (!S) { S = fresh(); }
+      S.party.push(B.make(id, D.START_LEVEL));
       S.caught[id] = 1; S.seen[id] = 1;
       save();
       if (OW.state.map) world('You chose ' + D.SPECIES[id].name + '. The steps lead north.');
@@ -258,6 +306,7 @@
 
   function world(msg) {
     stopLoop();
+    if (S && OW.setWho) OW.setWho(S.who);
     askEl.textContent = msg || 'Walk into the tall grass.';
     const m = OW.state.map;
     el.innerHTML =
@@ -611,7 +660,8 @@
   function boot() {
     S = load();
     const start = () => {
-      if (!S || !S.party.length) return pick();
+      if (!S) return whoScreen();          /* who, before anything */
+      if (!S.party.length) return pick();  /* chose who, not yet what */
       if (OW.state.map) return world('Welcome back.');
       hub('Welcome back.');
     };

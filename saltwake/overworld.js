@@ -128,6 +128,7 @@
     map: null, hero: { x: 1, y: 1, dir: 'down', step: null, buffer: null },
     rand: Math.random,
     onEncounter: null, onWarp: null, onHeal: null,
+    who: 'f',
     paused: false
   };
 
@@ -260,7 +261,12 @@
 
   /* The hero. A shape until there is a walk sheet — same rule as the
      creature sprites: art is never on the critical path to judging
-     movement. `dir` is shown by a nose so facing is legible without art. */
+     movement. `dir` is shown by a nose so facing is legible without art.
+
+     THE SHAPE IS TINTED BY THE CHOSEN APPEARANCE, so the male/female
+     decision is visible from the moment it is made rather than only
+     once the walk sheets exist. `setWho` is how the game tells us; the
+     default stands in until it does. */
   function drawHero(g, p, cx, cy, tp, s) {
     const x = Math.round((p.x - cx) * tp), y = Math.round((p.y - cy) * tp);
     const d = DIRS[W.hero.dir] || DIRS.down;
@@ -268,7 +274,7 @@
     g.beginPath();
     g.ellipse(x + tp / 2, y + tp * 0.92, tp * 0.34, tp * 0.14, 0, 0, 6.3);
     g.fill();
-    g.fillStyle = '#e8ecf5';
+    g.fillStyle = W.who === 'm' ? '#7fb2e0' : '#e59ec4';
     g.fillRect(x + tp * 0.22, y + tp * 0.10, tp * 0.56, tp * 0.80);
     g.fillStyle = '#f0803c';
     g.fillRect(x + tp * 0.22 + (tp * 0.56 / 2) + d.dx * tp * 0.26 - tp * 0.08,
@@ -283,6 +289,7 @@
     get maps() { return maps; },
     get state() { return W; },
     setRand(fn) { W.rand = fn || Math.random; },
+    setWho(id) { W.who = (id === 'm') ? 'm' : 'f'; },
     pause(v) { W.paused = !!v; }
   };
 
