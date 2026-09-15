@@ -64,6 +64,32 @@
     });
   }
 
+  /* ══ PAUSED — 15 Sep 2026, owner's instruction ══════════════════════
+     "Pause on qawmien for now, disable it from karti."
+
+     Set ENABLED = true to bring the door back. Nothing else needs
+     changing: the game folder, the relay handshake and the save plumbing
+     are all left exactly as they were, so this is a pause and not a
+     removal.
+
+     ONE FLAG, CHECKED AT BOTH DOORS. onHome() will not draw the row (and
+     removes it if a previous render left one behind), and open() refuses
+     outright — because the row is not the only way in: KARTI_QAWMIEN.open
+     is a public export, and the popstate/hash plumbing means a stale
+     history entry could otherwise re-open the world after a reload.
+     Hiding the button alone would have left all of that live.
+
+     Deliberately NOT done, so re-enabling is one word:
+       · qawmien/ (5.8 MB) still ships in the bundle. It costs download
+         size, not correctness, and deleting it would mean re-running
+         tools/bundle.py in the tactics-testbed repo to get it back.
+       · js/qawmien.js is still in index.html's deferred list. It now
+         defines an inert module, which is cheaper than an onerror path
+         for a script that is supposed to come back.
+     If the pause becomes permanent, drop both — and say so, because that
+     is a real removal and a much bigger diff. */
+  var ENABLED = false;
+
   /* THE SAME TEST js/mail.js USES, on purpose. The relay decides who is an
      admin; asking KARTI_XP runs that live check, session and all. A second,
      subtly different notion of "owner" is how a beta leaks. */
@@ -86,6 +112,10 @@
       var menu = document.querySelector('.menu');
       if (!menu) return;
       var old = document.getElementById('btn-qawmien');
+      /* PAUSED: remove any row a previous render left behind, then stop.
+         Checked before isAdmin() so the owner loses the door too — that is
+         what "disable it from karti" means; it is not a visibility tweak. */
+      if (!ENABLED) { if (old) old.remove(); return; }
       if (!isAdmin()) { if (old) old.remove(); return; }
       if (old) return;
 
@@ -160,6 +190,7 @@
 
   /* ── the world, full screen ───────────────────────────────────────── */
   function open() {
+    if (!ENABLED) return;               /* paused — see ENABLED above */
     if (wrap) return;
     try {
       wrap = document.createElement('div');
