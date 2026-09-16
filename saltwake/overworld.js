@@ -208,21 +208,41 @@
   }
 
   /* ── drawing ──────────────────────────────────────────────────────
-     INTEGER SCALE ONLY. A fractional scale on pixel art gives uneven
-     tile seams — some rows of pixels doubled, some not — and it is the
-     single most common way pixel art is ruined by a renderer. Aim for
-     about 13 tiles across, then round DOWN to a whole number. */
-  function scaleFor(cssW) {
-    return Math.max(2, Math.floor(cssW / (13 * TS)));
-  }
+     TILES ACROSS IS THE CONSTANT, NOT THE SCALE FACTOR.
+
+     This used to force an INTEGER scale, because that is the right rule
+     for low-resolution pixel art: a fractional scale doubles some rows
+     of pixels and not others, and the unevenness is the classic way a
+     renderer ruins 16px art.
+
+     The atlas is no longer low-resolution. Tiles are 64 source pixels
+     and get DOWNSCALED to roughly 30 CSS pixels (~90 device pixels at
+     dpr 3), so there is no upscaling to go uneven — and forcing an
+     integer factor here would instead force the wrong number of tiles
+     on screen. Show a fixed 13 tiles across, whatever fraction that is,
+     and let the browser filter the reduction. */
+  const TILES_ACROSS = 13;
+
+  function tilePx(cssW) { return cssW / TILES_ACROSS; }
+
+  /* kept for callers that still ask; it is now the ratio of screen px
+     to ATLAS px rather than an integer zoom */
+  function scaleFor(cssW) { return tilePx(cssW) / TS; }
 
   function draw(g, cssW, cssH, dpr, sheet) {
     const m = W.map;
     if (!m) return;
-    const s = scaleFor(cssW);
-    const tp = TS * s;                            /* tile px on screen */
+    const tp = tilePx(cssW);                      /* tile px on screen */
+    const atlas = (sheet && sheet.layout && sheet.layout.tile) || TS;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.imageSmoothingEnabled = false;
+    /* SMOOTHING ON, because this is a REDUCTION of detailed art. With
+       nearest-neighbour a 64px tile shrunk to ~30 drops two thirds of
+       its pixels and shimmers as the camera moves; filtered, the detail
+       survives as detail. The old setting was correct when the atlas
+       was 16px and being magnified — it is wrong now. */
+    g.imageSmoothingEnabled = (sheet && sheet.layout &&
+                               sheet.layout.smooth) !== false;
+    if (g.imageSmoothingQuality) g.imageSmoothingQuality = 'high';
     g.fillStyle = '#0d1118';
     g.fillRect(0, 0, cssW, cssH);
 
@@ -293,15 +313,19 @@
           if (!gid) continue;
           let li = gid - first;
           if (auto) li = variant(data, x, y, li);
-          g.drawImage(sheet.img, (li % cols) * TS, Math.floor(li / cols) * TS,
-                      TS, TS,
+          /* source rect is in ATLAS pixels; destination in screen px.
+             Keeping those two separate is what lets the atlas change
+             resolution without touching the board geometry. */
+          g.drawImage(sheet.img,
+                      (li % cols) * atlas, Math.floor(li / cols) * atlas,
+                      atlas, atlas,
                       Math.round((x - cx) * tp), Math.round((y - cy) * tp),
-                      tp, tp);
+                      Math.ceil(tp), Math.ceil(tp));
         }
     };
 
     blit(m.ground, true);
-    drawHero(g, p, cx, cy, tp, s);
+    drawHero(g, p, cx, cy, tp);
     blit(m.over, false);
   }
 
@@ -313,7 +337,7 @@
      decision is visible from the moment it is made rather than only
      once the walk sheets exist. `setWho` is how the game tells us; the
      default stands in until it does. */
-  function drawHero(g, p, cx, cy, tp, s) {
+  function drawHero(g, p, cx, cy, tp) {
     const x = Math.round((p.x - cx) * tp), y = Math.round((p.y - cy) * tp);
     const d = DIRS[W.hero.dir] || DIRS.down;
     g.fillStyle = 'rgba(0,0,0,.28)';

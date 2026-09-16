@@ -1,5 +1,5 @@
 {
- "tile": 16,
+ "tile": 64,
  "cols": 16,
  "rows": 8,
  "count": 128,
@@ -39,5 +39,7 @@
   "4": 80,
   "10": 96,
   "11": 112
- }
+ },
+ "source": "saltwake-modern-terrain.png",
+ "smooth": true
 }
