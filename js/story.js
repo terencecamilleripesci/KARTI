@@ -523,7 +523,13 @@ const clearedCount = () => LEVELS.filter(b => isCleared(b.id)).length;
 
    x winds with a sine so the road bends instead of zig-zagging; y is a fixed
    step, so the whole thing is exactly as tall as it needs to be and scrolls. */
-const STEP = 118;        /* px between stops              */
+/* 100, not 118. A chapter is six stops, and the whole point of the map is to
+   show five ordinary stops climbing to their boss — at 118 that span is 590px
+   and simply does not fit a phone once the header, the chapter strip and the
+   install banner have taken their share, so the boss was always clipped. The
+   medallions are 74px (88 for a boss), so 100 still leaves a clear gap between
+   them and the road reads the same; it just stops overflowing. */
+const STEP = 100;        /* px between stops              */
 const TOP  = 74;         /* px above the first stop       */
 const SWING = 26;        /* how far the road wanders, %   */
 function nodePos(i){
@@ -572,6 +578,12 @@ function mapHTML(){
         faceHTML(b, 'sn-face') +
         '<span class="sn-no mono">' + (i + 1) + '</span>' +
         (bs ? '<span class="sn-crown">' + CROWN + '</span>' : '') +
+        /* NAME the boss stop. The crown alone reads as decoration at thumbnail
+           size — with fourteen portraits on a dark road the eye does not pick
+           it out, which is why the five-then-boss rhythm was invisible. A word
+           cannot be mistaken for ornament. */
+        (bs ? '<span class="sn-bl' + (b.final ? ' fin' : '') + '">' +
+              (b.final ? 'FINAL' : 'BOSS') + '</span>' : '') +
         (done ? '<span class="sn-tick">' + K.ico('check') + '</span>' : '') +
         (lock ? '<span class="sn-lock">' + K.ico('lock') + '</span>' : '') +
       '</button>';
@@ -662,6 +674,24 @@ function render(walkTo){
       '<h2>Story Mode</h2>' +
       '<span class="pill mono">' + done + '/' + LEVELS.length + '</span>' +
     '</div>' +
+    /* WHERE YOU ARE INSIDE THE CHAPTER, stated in words, and deliberately
+       OUTSIDE the scroller so it cannot scroll away. On a short phone a
+       six-stop chapter does not physically fit — the medallions alone are
+       74-88px — so no amount of camera work puts stop one and its boss in one
+       view on a 360x640. A fixed sentence carries the five-then-boss shape at
+       every screen size, including when the boss itself is scrolled off. */
+    (done === LEVELS.length ? '' : (function(){
+      const ch = chapterOf(atNow);
+      const boss = LEVELS[ch.to];
+      const n = ch.to - ch.from;                    /* ordinary stops here */
+      const at = Math.min(atNow - ch.from + 1, n);  /* which one you are on */
+      return '<p class="chapprog">' + (isBossI(atNow)
+        ? '<b class="bossnow">BOSS FIGHT</b> <span class="sep">·</span> ' +
+          esc(boss.n) + ' <span class="sep">·</span> best of three'
+        : 'Stop <b>' + at + '</b> of <b>' + n + '</b>' +
+          ' <span class="sep">→</span> then <b class="bossnow">BOSS</b>: ' +
+          esc(boss.n)) + '</p>';
+    })()) +
     '<div class="scroll" id="st-scroll">' +
       '<div class="storyhdr">' +
         '<p class="prog">' + (done === LEVELS.length
@@ -680,12 +710,40 @@ function render(walkTo){
   paintRoad();
   const at = unlockedUpTo();
   placeWalker(walkTo == null ? at : walkTo, walkTo != null);
-  /* park the view on the stop you are standing at, not the top of the island */
+  /* FRAME THE WHOLE CHAPTER, not just the stop you are standing on.
+     The owner's report was "I don't see the 5 mini games and then boss fight",
+     and he was right: the old camera parked the CURRENT stop at 55% of the
+     viewport, which put that chapter's boss five stops higher — i.e. just off
+     the top edge, or sliced in half by the header. The rhythm this mode is
+     built around was the one thing you could never see.
+     The road climbs, so the chapter's boss has the SMALLEST y. Anchor on the
+     boss with enough headroom to clear its own crown, and the five ordinary
+     stops fall into place underneath it. */
   requestAnimationFrame(() => {
     const sc = $('#st-scroll');
     if (!sc) return;
-    const p = nodePos(Math.min(at, LEVELS.length - 1));
-    sc.scrollTop = Math.max(0, p.y - sc.clientHeight * 0.55);
+    const ch  = chapterOf(at);
+    const map = $('#smap');
+    /* nodePos() is measured inside #smap, but scrollTop is measured on the
+       scroller — and the chapter strip and blurb sit BETWEEN them. Mixing the
+       two coordinate spaces is what put the camera ~100px out, so take the
+       offset from the live geometry rather than assuming they share an origin. */
+    const off = map ? (map.getBoundingClientRect().top -
+                       sc.getBoundingClientRect().top + sc.scrollTop) : 0;
+    const yBoss = off + nodePos(ch.to).y;     /* top of the chapter */
+    const yFrom = off + nodePos(ch.from).y;   /* bottom of the chapter */
+    /* Clearances. The boss medallion is 88px and wears a crown; the bottom
+       stop needs its own radius PLUS the install banner that overlays the foot
+       of the screen — ignoring that banner is what pushed the stop you are
+       standing on out of sight when the boss was finally brought into view. */
+    const TOPI = 44, BOTI = 110;
+    const hi = yBoss - 44 - TOPI;                    /* boss tucked under the header */
+    const lo = yFrom + 37 + BOTI - sc.clientHeight;  /* your stop clear of the banner */
+    /* lo <= hi means both ends fit; sit at the boss end so the whole climb is
+       ahead of you. Otherwise the chapter is marginally taller than the phone
+       once the banner is counted, so split the difference and let both ends sit
+       a little tight rather than dropping either off the screen. */
+    sc.scrollTop = Math.max(0, lo <= hi ? hi : (hi + lo) / 2);
   });
 }
 

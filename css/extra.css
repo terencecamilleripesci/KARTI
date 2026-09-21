@@ -203,6 +203,29 @@ body.reduced .snode.here .sn-ring{animation:none;
   box-shadow:0 8px 22px rgba(0,0,0,.66),0 0 0 2px rgba(0,0,0,.45)}
 .snode.sboss.done .sn-ring{background:linear-gradient(160deg,#9CF0C0,#146B3A 58%,#7BE8A8)}
 .snode.sboss.lock .sn-ring{background:linear-gradient(160deg,#5A4A55,#2A1F26 62%,#5A4A55)}
+/* THE WORD 'BOSS', under the medallion. The crown above was the only marker
+   and it is 20px tall on a dark road of fourteen portraits — the owner could
+   not see which stop was the boss, so the chapter's whole five-then-boss
+   rhythm read as fourteen identical strangers. Text cannot be mistaken for
+   ornament. It sits BELOW the ring because the crown already owns the space
+   above, and the node gap is only 118px. */
+.snode .sn-bl{position:absolute;left:50%;bottom:-13px;transform:translateX(-50%);z-index:4;
+  font:700 9px/1 var(--mono,ui-monospace,monospace);letter-spacing:.11em;
+  padding:3px 6px;border-radius:5px;white-space:nowrap;pointer-events:none;
+  background:linear-gradient(180deg,#FFD064,#B3131F);color:#2A0A0C;
+  box-shadow:0 2px 7px rgba(0,0,0,.6)}
+.snode .sn-bl.fin{background:linear-gradient(180deg,#FFF0B8,#E8452C);color:#2A0A0C}
+.snode.lock .sn-bl{background:linear-gradient(180deg,#6B5A64,#3A2D35);color:#CFC4CB;
+  box-shadow:0 2px 6px rgba(0,0,0,.5)}
+.snode.done .sn-bl{background:linear-gradient(180deg,#9CF0C0,#146B3A);color:#06240F}
+/* the chapter's progress line — how far through the five you are, and who is
+   waiting at the end of them. Lives in the story header, above the road. */
+.chapprog{margin:0;padding:7px 14px 8px;text-align:center;
+  background:linear-gradient(180deg,rgba(24,14,22,.92),rgba(24,14,22,.72));
+  border-bottom:1px solid rgba(255,255,255,.07);font-size:12.5px;letter-spacing:.02em;color:var(--dim,#C8BCC6)}
+.chapprog b{color:#FFE6A8}
+.chapprog b.bossnow{color:#FFD064;letter-spacing:.06em}
+.chapprog .sep{opacity:.45;margin:0 4px}
 /* the crown SITS ON the medallion rather than floating above it: the gap
    between two stops is 118px and two node radii already eat 81 of it, so a
    crown standing clear of the ring lands straight in the chapter band. */
