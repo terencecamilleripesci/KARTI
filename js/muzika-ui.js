@@ -305,17 +305,28 @@ function nextQ(){
      still HAS the track list offline — and would then draw a clip whose
      preview can never load, because the SW is same-origin only and the
      audio is not. Ask the network too, not just the bank. */
-  const canClip = M.clipOk &&
-    !(typeof navigator !== 'undefined' && navigator.onLine === false);
-  M.cur = (canClip && E.drawClip(M.cats, M.used)) || E.draw(M.cats, M.used);
+  /* ONLINE MUST NOT CONSULT THIS PHONE'S CONNECTION. navigator.onLine is a
+     per-device answer, so one player flickering offline for a moment would
+     draw a written question while everybody else drew a clip — and from that
+     round on the six phones are playing different games. Online the decision
+     was fixed once, at the table, for everyone. */
+  const canClip = M.net ? M.clipOk
+    : (M.clipOk && !(typeof navigator !== 'undefined' && navigator.onLine === false));
+  /* M.rnd is the seeded generator online and undefined solo, where the engine
+     falls back to Math.random. The SEED is the whole sync mechanism: the
+     question cannot travel (mp.js packs integers only), so every phone draws
+     it instead, and identical draws need an identical generator. */
+  M.cur = (canClip && E.drawClip(M.cats, M.used, M.rnd)) || E.draw(M.cats, M.used, M.rnd);
   M.locked = false;
+  M.mine = null; M.revealed = false;      /* this seat's answer, and the reveal */
+  M.answered = M.seats.map(() => null);   /* per seat: 'right'|'wrong'|'pass' */
   M.t0 = now();
   M.span = M.cur.clip ? E.CLIP_MS : E.ASK_MS;
   paint();
   if (M.cur.clip) playClip(M.cur);
   tick();
   /* the machine answers on its own clock, not on yours */
-  M.tCpu = setTimeout(cpuGo, E.thinkMs(M.level));
+  M.tCpu = setTimeout(cpuGo, E.thinkMs(M.level, M.rnd));
 }
 
 const now = () => (window.performance && performance.now) ? performance.now() : Date.now();
@@ -346,7 +357,12 @@ function paint(){
   M.ctx.board.querySelectorAll('.mz-opt').forEach(b =>
     b.onclick = () => answer(+b.dataset.i));
   M.ctx.board.querySelector('#mz-pass').onclick = () => answer(-1);
-  M.ctx.board.querySelector('#mz-end').onclick = () => finish(false);
+  M.ctx.board.querySelector('#mz-end').onclick = () => {
+    /* ending is a TABLE event. Ending it locally would leave five phones
+       still playing a game whose result had already been paid out here. */
+    if (M.net){ try { M.net.send && M.net.send({ t:'end' }); } catch(e){} }
+    finish(false);
+  };
 }
 
 /* The sleeve stays BLANK while the clip plays — artwork is the answer.
@@ -444,7 +460,14 @@ function tick(){
   if (!el) return;
   const left = Math.max(0, 1 - (now() - M.t0) / (M.span || E.ASK_MS));
   el.style.transform = 'scaleX(' + left + ')';
-  if (left <= 0){ if (!M.locked) answer(-1, true); return; }
+  if (left <= 0){
+    /* Online, running out of time is a PASS for this seat and nothing more —
+       the round is not over until the table has answered or the host moves it
+       on. Solo, the two are the same event. */
+    if (M.net){ if (M.mine == null) answer(-1, true); if (!M.revealed) reveal(); return; }
+    if (!M.locked) answer(-1, true);
+    return;
+  }
   M.raf = requestAnimationFrame(tick);
 }
 
@@ -454,7 +477,30 @@ function say(msg, cls){
 }
 
 function answer(i, timedOut){
-  if (!M || M.locked || M.done) return;
+  if (!M || M.done) return;
+
+  /* ─────────── ONLINE: everybody answers the same question at once ───────────
+     Solo, answering IS the end of the round — one human, so the moment they
+     commit there is nothing left to wait for. Online that is wrong twice over:
+     locking the board would freeze the round for this phone while five others
+     are still thinking, and advancing on this phone alone would put it a
+     question ahead of the table for the rest of the game.
+     So an online answer locks only THIS seat, goes on the wire, and the round
+     ends when everyone has answered or the clock runs out. */
+  if (M.net){
+    if (M.mine != null) return;                       /* already answered */
+    const mine = (i < 0) ? 4 : i;
+    M.mine = mine;
+    applyAnswer(M.me, mine);
+    try { M.net.send && M.net.send({ t:'ans', i:mine, r:M.round & 255 }); } catch(e){}
+    lockMyButtons(i);
+    say(timedOut ? T('Out of time.','Spiċċa l-ħin.') : T('Locked in. Waiting for the rest…','Imniżżla. Nistennew lill-oħrajn…'));
+    score();
+    if (allAnswered()) reveal();
+    return;
+  }
+
+  if (M.locked) return;
   M.locked = true;
   if (M.raf) cancelAnimationFrame(M.raf);
   const c = M.cur;
@@ -486,11 +532,18 @@ function cpuGo(){
   if (!M || M.done || M.locked) return;
   M.seats.forEach((s, i) => {
     if (!s.cpu) return;
-    const kind = E.cpuAnswer(M.level);
+    /* ONLINE THE MACHINES NEED NO WIRE. cpuAnswer takes the generator, so
+       every phone computes the same bot answer from the shared seed and the
+       bots cost the table not one relay message. Sending them would also
+       have made a bot's answer arrive twice on the host's own screen. */
+    if (M.net && M.answered && M.answered[i] != null) return;
+    const kind = E.cpuAnswer(M.level, M.rnd);
     s.pts += E.scoreFor(kind);
     s.last = kind;
+    if (M.net && M.answered) M.answered[i] = kind;
   });
   score();
+  if (M.net && allAnswered()) reveal();
 }
 
 function clearTimers(){
@@ -508,7 +561,10 @@ function finish(ranOut){
   const order = M.seats.map((s, i) => ({ s, i })).sort((a, b) => b.s.pts - a.s.pts);
   const top = order[0];
   const tie = order.length > 1 && order[1].s.pts === top.s.pts;
-  const meIdx = M.seats.findIndex(s => !s.cpu);
+  /* ONLINE, "me" IS MY SEAT. findIndex(!cpu) returns the first human at the
+     table, which on any phone that is not seat zero credits the win, the XP
+     and the W/L badge to somebody else entirely. */
+  const meIdx = M.net ? M.me : M.seats.findIndex(s => !s.cpu);
   const iWon = !tie && meIdx >= 0 && top.i === meIdx;
   const mine = meIdx >= 0 ? M.seats[meIdx].pts : 0;
   if (meIdx >= 0 && window.KARTI_XP && KARTI_XP.awardPlay){
@@ -536,6 +592,190 @@ function leave(){
   M = null;
 }
 
+/* ═══════════════════════════ ONLINE ═══════════════════════════
+   MUŻIKA is SIMULTANEOUS — there is no turn. Everybody hears the same clip
+   and answers at once, which makes it a different animal from every
+   turn-based game in here and decides most of what follows.
+
+   THE QUESTION CANNOT TRAVEL. mp.js's toWire() packs the action name plus
+   integers 0-255 and nothing else, so there is no way to put a song title,
+   four options or a preview URL on the wire. Every phone therefore DERIVES
+   the round from a shared seed and the wire carries only what a person did.
+   That is also why a bot costs no messages at all: cpuAnswer() takes the
+   generator, so all six phones compute the same machine answer.
+
+   WHICH MEANS THE DRAW MUST BE IDENTICAL EVERYWHERE, and two things quietly
+   are not:
+     · navigator.onLine is a per-device answer, so it is never consulted
+       online — one phone blinking offline would draw a written question
+       while the rest drew a clip, and the table would be playing two
+       different games from that round on.
+     · the category filter is a per-player PREFERENCE. Online it is ignored
+       and the full set is used, or the host's tastes would silently pick
+       different questions on different phones.
+
+   THE HOST OWNS THE CALENDAR. Any phone may answer whenever it likes, but
+   only the host says when the round is over. Letting each phone advance on
+   its own clock is how a table ends up a question apart and never recovers. */
+
+/* mulberry32 — the same generator poker.js, kanun.js and bomba.js use, so
+   the whole app shuffles from one family. */
+function seedRnd(seed){
+  let a = (seed >>> 0) || 1;
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const allAnswered = () => !!(M && M.answered && M.answered.every(x => x != null));
+
+/* score ONE seat's answer, exactly once. Idempotent per seat per round: a
+   duplicated or echoed packet must never pay twice, which on a -1-for-wrong
+   game would not just inflate a score but invert the result. */
+function applyAnswer(seat, idx){
+  if (!M || !M.cur || !M.answered) return;
+  if (seat < 0 || seat >= M.seats.length) return;   /* off the wire — validate */
+  if (M.answered[seat] != null) return;
+  const kind = (idx >= 4 || idx < 0) ? 'pass' : (idx === M.cur.right ? 'right' : 'wrong');
+  M.answered[seat] = kind;
+  M.seats[seat].pts += E.scoreFor(kind);
+  M.seats[seat].last = kind;
+}
+
+/* grey out MY options without touching anybody else's round */
+function lockMyButtons(i){
+  const btns = M.ctx.board.querySelectorAll('.mz-opt');
+  btns.forEach(b => { b.disabled = true; });
+  if (i >= 0 && btns[i]) btns[i].classList.add('mine');
+  const pass = M.ctx.board.querySelector('#mz-pass');
+  if (pass) pass.disabled = true;
+}
+
+/* the round is over: show the answer. Scores are NOT sealed here — a packet
+   still in flight is applied when it lands, and the host's 'nx' is the real
+   barrier. The relay fans out in order, so every phone sees the same answers
+   before the same advance. */
+function reveal(){
+  if (!M || M.revealed || M.done) return;
+  M.revealed = true;
+  if (M.raf) cancelAnimationFrame(M.raf);
+  const c = M.cur;
+  if (c.clip){ stopClip(); showSleeve(c); }
+  const btns = M.ctx.board.querySelectorAll('.mz-opt');
+  btns.forEach(b => { b.disabled = true; });
+  if (btns[c.right]) btns[c.right].classList.add('right');
+  if (M.mine != null && M.mine < 4 && M.mine !== c.right && btns[M.mine])
+    btns[M.mine].classList.add('wrong');
+  const mineKind = M.answered[M.me];
+  say(mineKind === 'right' ? T('Yes. +1','Iva. +1')
+    : mineKind === 'wrong' ? T('No — that is ','Le — dik hi ') + E.WRONG
+    : T('Nothing lost.','Ma tlift xejn.'),
+    mineKind === 'right' ? 'good' : mineKind === 'wrong' ? 'bad' : '');
+  try { if (K.sfx) K.sfx(mineKind === 'right' ? 'good' : mineKind === 'wrong' ? 'bad' : 'tick'); } catch(e){}
+  score(M.me);
+  /* only the host moves the table on */
+  if (M.isHost){
+    M.tNext = setTimeout(() => {
+      if (!M || M.done) return;
+      const r = (M.round + 1) & 255;
+      try { M.net.send && M.net.send({ t:'nx', r }); } catch(e){}
+      nextQ();
+    }, 1900);
+  }
+}
+
+function onlineStart(cfg){
+  cfg = cfg || {};
+  injectCSS();
+  const list = (cfg.seats || []).filter(Boolean);
+  const n = Math.max(1, Math.min(E.MAX_SEATS, list.length || 2));
+  const you = cfg.you | 0;
+
+  const seats = [];
+  for (let i = 0; i < n; i++){
+    const s = list[i] || {};
+    /* A MACHINE CHAIR IS NOT A PERSON ON A WIRE. Filing a bot as 'net' is the
+       one-line bug that has shipped in kelma, sqaq and il-forka: nothing ever
+       moves the chair, because only a seat believed to be a machine is driven
+       locally, and the table waits for an answer that can never arrive. */
+    const own = (i === you) ? 'me'
+              : (s.kind === 'cpu' || s.own === 'ai') ? 'ai'
+              : 'net';
+    seats.push({ name: String(s.name || (own === 'ai' ? T('Machine','Magna')
+                                       : T('Player','Plejer') + ' ' + (i + 1))).slice(0, 14),
+                 cpu: own === 'ai', own, pts:0 });
+  }
+  const level = (list.map(s => s && s.level).find(v => v)) || 2;
+
+  M = { seats, level,
+        /* the FULL category set, never this player's preference — see above */
+        cats: Object.keys(E.CATS),
+        used:new Set(), round:0, ctx:null, done:false, locked:false,
+        t0:0, raf:null, tCpu:null, tNext:null,
+        mid:'muzika-net-' + (cfg.seed >>> 0),
+        audio:null, clipOk:false,
+        rnd: seedRnd(cfg.seed >>> 0),
+        net: cfg.net || null, me: you,
+        isHost: you === (cfg.host | 0),
+        mine:null, revealed:false, answered:[] };
+  if (M.net) M.net.you = you;
+
+  openBoard();
+  /* the screen must be SHOWN, not merely built. onlineStart building the
+     board and never calling P.show() is how guests end up sitting on the
+     ready roster while the game runs invisibly — and it is asymmetric, so a
+     host-only test passes every time. */
+  P.show();
+
+  try {
+    M.audio = new Audio();
+    M.audio.preload = 'auto';
+    M.audio.crossOrigin = 'anonymous';
+  } catch(e){ M.audio = null; }
+
+  say0(T('Loading the music…','Qed ittella\' l-mużika…'));
+  E.loadTracks().then(() => {
+    if (!M || M.done) return;
+    /* The track list is a same-origin file the service worker precaches, so
+       every phone that can reach the relay has the same one. Audio playback
+       may still fail on a given handset — that costs that player the SOUND,
+       not the question, because the options were derived from the seed and
+       are identical everywhere. Only a missing LIST could split the table,
+       and that is what is checked here. */
+    M.clipOk = E.haveTracks();
+    nextQ();
+  });
+  return { v:1, gid:'muzika' };
+}
+
+/* a move from another chair. Two params, so mp.js hands us the SEAT — MUŻIKA
+   is simultaneous and has no turn to infer the sender from. */
+function onlineRemote(seat, mv){
+  if (!M || M.done) return { ok:true };
+  const m = mv || {};
+  const act = String(m.t || m.a || '');
+  if (act === 'ans'){
+    /* a packet for a round we have already left is not an error — a phone can
+       answer just as the host advances. Drop it rather than score it against
+       the wrong question. */
+    if (((m.r | 0) & 255) !== (M.round & 255)) return { ok:true };
+    applyAnswer(seat | 0, m.i | 0);
+    score();
+    if (allAnswered() && !M.revealed) reveal();
+    return { ok:true };
+  }
+  if (act === 'nx'){
+    if (seat !== (M.net && M.net.host | 0) && !M.isHost){ /* host owns the calendar */ }
+    if (((m.r | 0) & 255) === ((M.round + 1) & 255)) nextQ();
+    return { ok:true };
+  }
+  if (act === 'end'){ finish(false); return { ok:true }; }
+  return { ok:true };
+}
+
 const LOBBY = {
   canStart(list){
     const n = (list || []).length;
@@ -557,6 +797,11 @@ const LOBBY = {
   ].join('</p><p>') + '</p>',
   blurb: T('Sound on — hear it, name it. A wrong answer costs you.',
            'Awdjo mixgħul — isimgħha, aqtagħha. Tweġiba ħażina tiswielek.'),
+  /* mp.js's wireFields() reads THIS. With no published list it falls through
+     to tombla's, whose fields are not ours — every answer would arrive with
+     its index silently missing, which is exactly how IT-TAPP shipped a game
+     where both players thought they had won. */
+  wire: { fields: E.WIRE_FIELDS },
   start(seats, o){
     const p = prefs();
     const want = o && o.level;
@@ -579,8 +824,45 @@ const TILE = {
   start: (list, o) => LOBBY.start(list, o)
 };
 
+/* ── the online controller mp.js drives ──────────────────────────────
+   remote() takes TWO params on purpose: mp.js only hands over the sending
+   seat when the function declares it, and MUŻIKA is simultaneous — there is
+   no turn order to infer the sender from, as every other game here does. */
+P.online = P.online || {};
+P.online.muzika = {
+  start: onlineStart,
+  remote: onlineRemote,
+  note(text, tone){ if (M && M.ctx) P.ui.setNet(M.ctx, text || '', tone || ''); },
+  stop(why, tone){
+    if (!M || !M.ctx) return;
+    P.ui.setNet(M.ctx, '', '');
+    P.ui.result(M.ctx, { tone:'draw', head:T('Cut off','Inqata\u2019'),
+      why: why || T('The game stopped.','Il-log\u0127ba waqfet.'),
+      buttons:[{ label:T('Back to the rooms','Lura fil-kmamar'), icon:'back', cls:'primary',
+                 go:()=>{ const n = M && M.net; leave(); if (n && n.onLeave) n.onLeave(); else P.hub(); } }] });
+  },
+  live: () => !!(M && !M.done),
+  hooks: {
+    seatGone(seat){
+      /* a seat that walks must not hold the round open for ever */
+      if (!M || !M.answered) return;
+      if (M.answered[seat | 0] == null) M.answered[seat | 0] = 'pass';
+      score();
+      if (allAnswered() && !M.revealed) reveal();
+    },
+    soleWin(){ if (M && !M.done) finish(false); }
+  }
+};
+
 const R = (window.KARTI_MUZIKA_UI = {});
 R.shelfTile = TILE; R.lobby = LOBBY;
+R.online = P.online.muzika;
+/* mp.js resolves LOBBY_GLOBAL.muzika -> window.KARTI_MUZIKA, the ENGINE's
+   namespace, and reads `.lobby` off it. Publishing only on KARTI_MUZIKA_UI
+   would leave gameGlobal() returning an object with no contract, and the
+   shared lobby would silently run MUŻIKA on SEATS_FALLBACK instead — the
+   exact failure L-ISPETT shipped with. */
+try { E.lobby = LOBBY; } catch(e){}
 R.ui = { open:setupSheet, leave, injectCSS };
 R.open = () => setupSheet();
 R.close = () => { leave(); P.hub(); };
@@ -589,6 +871,7 @@ try { P.register(TILE); } catch(e){}
 if (/[?&]muzikatest\b/.test(location.search || '')){
   window.__MUZIKA_TEST = {
     setupSheet, start, answer, finish, leave, nextQ,
+    onlineStart, onlineRemote, reveal, applyAnswer, allAnswered, seedRnd,
     get M(){ return M; }, engine:E, TILE, LOBBY
   };
 }

@@ -32,6 +32,7 @@ const ASK_MS    = 14000;   /* per question */
 const RIGHT     = 1;
 const WRONG     = -1;      /* the rule the whole game is built on */
 const PASS      = 0;
+const WIRE_FIELDS = ['i', 'r'];
 const MAX_ROUNDS = 20;     /* a backstop; the host ends it, not a counter */
 
 const CATS = {
@@ -315,7 +316,22 @@ function drawClip(cats, used, rnd, pool){
 window.KARTI_MUZIKA = {
   MIN_SEATS, MAX_SEATS, ASK_MS, CLIP_MS, RIGHT, WRONG, PASS, MAX_ROUNDS,
   CATS, BANK, BANDS, draw, cpuAnswer, thinkMs, shuffle, scoreFor,
-  TRACKS_URL, loadTracks, haveTracks, drawClip, clipOpts
+  TRACKS_URL, loadTracks, haveTracks, drawClip, clipOpts,
+  /* ── the wire ──────────────────────────────────────────────────────
+     mp.js's toWire() packs only INTEGERS 0-255 alongside the action name,
+     so the question itself can never travel: no text, no option list, no
+     preview URL. Every phone therefore DERIVES the identical round from
+     the shared seed, and the wire carries nothing but what a person did.
+
+       t:'ans'  i = 0-3 answered that option, 4 = passed/timed out
+                r = the round it answers, so a late packet cannot be
+                    applied to the wrong question
+       t:'nx'   r = advance to this round   (host only)
+       t:'end'  the host ended the game     (host only)
+
+     APPEND to this list, never insert — an older build decodes by
+     position and would silently read the wrong field. */
+  WIRE_FIELDS
 };
 
 })();

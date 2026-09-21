@@ -328,6 +328,11 @@ TABLES = ("skarta", "klabb", "kiri", "tombla", "rummy", "gin", "gharraq",
           "ludu", "serp", "erbgha", "minhu", "kodici",
           "tankijiet", "ballun", "aqleb", "kaxxi", "sqaq", "ilforka", "kelma",
           "konkwista", "misteru",
+          # MUŻIKA — the only SIMULTANEOUS game: no turn, everybody answers the
+          # same clip at once. Nothing is hidden and the question never travels
+          # (every phone derives it from the shared seed), so the relay carries
+          # nothing but an answer index and a round number.
+          "muzika",
           # 20260830: both shipped in the client and were refused here. hajja's
           # create was answered "Bad message." so a room could never be opened,
           # and tapp fell through to 'cards' and put the player in a card duel.
@@ -426,6 +431,9 @@ GAME_SEATS = {
     "sqaq":      (2, 4, 2),   # Wall-maze race — 2–4, perfect information
     "ilforka":   (2, 8, 2),   # Hangman — 2–8; setter's phone referees, no relay secret
     "kelma":     (2, 4, 2),   # Word tiles — 2–4; private racks over the relay deal
+    # MUŻIKA — 2–6, matching the client's MAX_SEATS. Simultaneous, so the room's
+    # message cost is one answer per seat per round: nowhere near FAN_RATE.
+    "muzika":    (2, 6, 4),
     # The two flagship turn-based games, 2–6 seats. Konkwista is perfect-info
     # with seeded dice (online honest now); Il-Misteru is deduction whose online
     # half stays gated in its own lobby until the private solution/hand deal is

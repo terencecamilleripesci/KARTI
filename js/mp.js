@@ -226,7 +226,13 @@ const GAMES = [
   { k:'konkwista', name:'Konkwista', short:'KONKWISTA', icon:'map',
     blurb:'Claim islands, roll the dice, take the whole sea.' },
   { k:'misteru', name:'Il-Misteru', short:'MISTERU', icon:'search',
-    blurb:'Suggest, deduce, name the killer. Fifty cases.' }
+    blurb:'Suggest, deduce, name the killer. Fifty cases.' },
+  /* MUŻIKA — the only SIMULTANEOUS game here: nobody has a turn, everybody
+     answers the same clip at once. Nothing is hidden, so an online table off
+     the shared seed is honest — the question cannot travel anyway (toWire
+     packs integers), so every phone derives it. */
+  { k:'muzika', name:'Mużika', short:'MUŻIKA', icon:'star',
+    blurb:'Name the song. Wrong costs you a point — passing is free.' }
 ];
 const GAME_KEYS = GAMES.map(g => g.k);
 const gameMeta  = k => GAMES.find(g => g.k === k) || GAMES[0];
@@ -330,7 +336,9 @@ const LOBBY_GLOBAL = {
   kaxxi:'KARTI_KAXXI', sqaq:'KARTI_SQAQ', ilforka:'KARTI_ILFORKA', kelma:'KARTI_KELMA',
   /* conquest (perfect info, seeded dice) + deduction (online gated until the
      private per-seat solution/hand deal is wired; offline plays now) */
-  konkwista:'KARTI_KONKWISTA', misteru:'KARTI_MISTERU'
+  konkwista:'KARTI_KONKWISTA', misteru:'KARTI_MISTERU',
+  /* MUŻIKA — perfect information, seeded draw, no hidden hand to deal. */
+  muzika:'KARTI_MUZIKA'
 };
 
 /* LAST-RESORT SEAT RANGES — [min, max, sensible default].
