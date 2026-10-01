@@ -1586,6 +1586,19 @@ document.addEventListener('click', e => {
   open();
 });
 
+/* Keep Home's game count honest. The static "NN games" in index.html went
+   stale twice (26, then 34, while the shelf really held 47) because every
+   new game bumps the shelf but nobody re-counts the prose. The shelf IS the
+   count, so stamp it from here. Only the leading number is replaced — the
+   copy, and whatever language it is in, stays the markup's own. Runs on
+   'load', by which point every game file has registered its tile. */
+function stampHomeCount(){
+  const el = document.querySelector('#btn-party .sub');
+  if (el && GAMES.length) el.textContent = el.textContent.replace(/^\d+/, GAMES.length);
+}
+if (document.readyState === 'complete') stampHomeCount();
+else window.addEventListener('load', stampHomeCount);
+
 /* ── THE DOOR TO THE SHARED ONLINE LOBBY ───────────────────────────
    The lobby is js/mp.js's, and the way in has always been
    KARTI_MP.openFor(game). But a game screen only ever holds

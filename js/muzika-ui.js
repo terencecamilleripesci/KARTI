@@ -98,6 +98,26 @@ function injectCSS(){
 .mz-said{text-align:center;font-size:13px;font-weight:800;min-height:1.4em;color:var(--dim);flex:0 0 auto}
 .mz-said.good{color:#7FE8A8}
 .mz-said.bad{color:#FF8DA0}
+.mz-said.first{color:#FFC542}
+/* ── the payoff: a right answer bursts on the button you hit ─────────
+   Confetti + a rising +1, gold when you were FIRST. Pure decoration,
+   local to this phone: the other players still learn everything at the
+   reveal, exactly as before. Keyframe names are globally unique (mz*)
+   because @keyframes are never scoped by the prefixer below. */
+.mz-burst{position:absolute;left:50%;top:50%;width:0;height:0;pointer-events:none;z-index:6}
+.mz-burst i{position:absolute;width:7px;height:7px;border-radius:2px;opacity:0;
+  animation:mzBoom .9s cubic-bezier(.16,.84,.44,1) forwards}
+@keyframes mzBoom{0%{opacity:1;transform:translate(0,0) scale(1) rotate(0)}
+  100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.4) rotate(var(--rot))}}
+.mz-plus{position:absolute;right:10px;top:-8px;font-family:var(--disp);font-weight:900;
+  font-size:21px;color:#7FE8A8;pointer-events:none;z-index:7;white-space:nowrap;
+  text-shadow:0 2px 10px rgba(0,0,0,.55);animation:mzRise 1.1s ease-out forwards}
+.mz-plus.gold{color:#FFC542;font-size:24px}
+@keyframes mzRise{0%{opacity:0;transform:translateY(8px) scale(.7)}
+  18%{opacity:1;transform:translateY(0) scale(1.12)}
+  100%{opacity:0;transform:translateY(-42px) scale(1)}}
+.mz-opt.hit{border-color:#3DDC84;color:#7FE8A8;
+  box-shadow:0 0 0 2px rgba(61,220,132,.45),0 0 18px rgba(61,220,132,.35)}
 .mz-score{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;flex:0 0 auto}
 .mz-chip{display:flex;align-items:center;gap:6px;padding:4px 9px;border-radius:99px;
   background:rgba(0,0,0,.32);border:1px solid rgba(255,255,255,.10);font-size:12px;font-weight:800}
@@ -135,6 +155,8 @@ function injectCSS(){
   .mz-sleeve #mz-note{animation:none}
   .mz-bars i{animation:none;height:14px}
   .mz-replay.need{animation:none}
+  .mz-burst{display:none}
+  .mz-plus{animation:none;opacity:1}
 }
 /* Short phones (360x640 and friends): the four options and END IT matter
    more than the sleeve, so the decoration is what gives way. */
@@ -490,11 +512,27 @@ function answer(i, timedOut){
   if (M.net){
     if (M.mine != null) return;                       /* already answered */
     const mine = (i < 0) ? 4 : i;
+    const kind = (mine >= 4) ? 'pass' : (mine === M.cur.right ? 'right' : 'wrong');
+    /* FIRST = nobody at this table had the right answer in before this tap.
+       Read M.answered BEFORE applyAnswer writes my own seat into it; bots
+       (cpuGo) and remote answers already in count against you, as they should. */
+    const first = kind === 'right' && !M.answered.some(x => x === 'right');
     M.mine = mine;
     applyAnswer(M.me, mine);
     try { M.net.send && M.net.send({ t:'ans', i:mine, r:M.round & 255 }); } catch(e){}
     lockMyButtons(i);
-    say(timedOut ? T('Out of time.','Spiċċa l-ħin.') : T('Locked in. Waiting for the rest…','Imniżżla. Nistennew lill-oħrajn…'));
+    if (kind === 'right'){
+      celebrate(i, first);
+      try { if (K.sfx) K.sfx('good'); } catch(e){}
+      say(first ? T('First and right! +1 — waiting for the rest…','L-ewwel u tajba! +1 — nistennew lill-oħrajn…')
+                : T('Right! +1 — waiting for the rest…','Tajba! +1 — nistennew lill-oħrajn…'),
+          first ? 'good first' : 'good');
+    } else {
+      /* wrong and pass stay deliberately FLAT until the reveal: a red flash
+         here would tell the whole room the verdict out loud while the others
+         are still choosing — and in a party the room can see your face. */
+      say(timedOut ? T('Out of time.','Spiċċa l-ħin.') : T('Locked in. Waiting for the rest…','Imniżżla. Nistennew lill-oħrajn…'));
+    }
     score();
     if (allAnswered()) reveal();
     return;
@@ -523,6 +561,7 @@ function answer(i, timedOut){
     : timedOut ? T('Out of time. Nothing lost.','Spiċċa l-ħin. Ma tlift xejn.')
                : T('Passed. Nothing lost.','Għaddejt. Ma tlift xejn.'),
     kind === 'right' ? 'good' : kind === 'wrong' ? 'bad' : '');
+  if (kind === 'right') celebrate(i, false);   /* same payoff solo — no FIRST, no table */
   try { if (K.sfx) K.sfx(kind === 'right' ? 'good' : kind === 'wrong' ? 'bad' : 'tick'); } catch(e){}
   score(me);
   M.tNext = setTimeout(nextQ, 1900);
@@ -643,6 +682,41 @@ function applyAnswer(seat, idx){
   M.answered[seat] = kind;
   M.seats[seat].pts += E.scoreFor(kind);
   M.seats[seat].last = kind;
+}
+
+/* THE PAYOFF. A correct answer used to read exactly like a pass — "Locked
+   in. Waiting for the rest…" — so being fast AND right felt like nothing,
+   which is backwards for the one moment the game is about. Confetti off the
+   button you hit, a rising +1, and gold FIRST! when nobody at the table had
+   it before you. Local decoration only: nothing extra goes on the wire and
+   the other phones still learn the scores at the reveal, exactly as before.
+   Math.random here is COSMETIC ONLY — particle spread — and must never touch
+   M.rnd: the seeded generator is the table's sync and one cosmetic draw from
+   it would desync every phone's next question. */
+function celebrate(i, first){
+  const btn = (i >= 0) && M.ctx.board.querySelectorAll('.mz-opt')[i];
+  if (!btn) return;
+  btn.classList.add('hit');
+  const burst = document.createElement('span');
+  burst.className = 'mz-burst';
+  const cols = ['#FFC542', '#3DDC84', '#4FB6FF', '#FF9F45', '#C08BFF'];
+  const n = first ? 22 : 12;
+  for (let p = 0; p < n; p++){
+    const s = document.createElement('i');
+    const a = (p / n) * 2 * Math.PI, d = 34 + 46 * Math.random();
+    s.style.cssText = 'background:' + cols[p % cols.length] +
+      ';--dx:' + Math.round(Math.cos(a) * d) + 'px' +
+      ';--dy:' + Math.round(Math.sin(a) * d - 16) + 'px' +
+      ';--rot:' + Math.round(Math.random() * 300 - 150) + 'deg' +
+      ';animation-delay:' + Math.round(Math.random() * 90) + 'ms';
+    burst.appendChild(s);
+  }
+  btn.appendChild(burst);
+  const plus = document.createElement('span');
+  plus.className = 'mz-plus' + (first ? ' gold' : '');
+  plus.textContent = first ? T('FIRST! +1', 'L-EWWEL! +1') : '+1';
+  btn.appendChild(plus);
+  setTimeout(() => { try { burst.remove(); plus.remove(); } catch(e){} }, 1400);
 }
 
 /* grey out MY options without touching anybody else's round */
